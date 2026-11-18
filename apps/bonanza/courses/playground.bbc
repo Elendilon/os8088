@@ -1,4 +1,4 @@
-# Playground - BONANZA's course 6 (SPEC.md 128.16.8): wave 6's feel on one
+# Playground - BONANZA's course 6 (SPEC.md 130.16.8): wave 6's feel on one
 # course, the owner's freeze course at gate 1 and later exploration's sandbox.
 # Built for the RUBBER ball; every element sits where a ball from the start
 # meets it:
@@ -20,14 +20,14 @@
 #    ICE, normal and SAND, the side lanes ending at rails - then three tiles of
 #    level floor ending at the VOID, not a rail: a pit sunk in a BASIN 12 units
 #    down, so its kill is 15 units under the strip and a ball that overruns
-#    falls deep with the camera's ground line held (SPEC.md 128.16.7's
+#    falls deep with the camera's ground line held (SPEC.md 130.16.7's
 #    fallback case; the depth chosen on the model: GLIDE without the fallback
 #    loses the footprint before the kill, with it keeps it and never reverses);
 #  - the MAT, level, at the apron's left end beside the 1.5-unit ledge, so a
 #    Hop lands on it (no boost on a mat);
 #  - a PAD for each ball on FF beside the goal;
 #  - the GOAL, at the end of a ROLLING route (the apron, FF's right, no Hop);
-#  - the DIAGONAL SECTION (SPEC.md 128.24, wave D5): off the apron's right
+#  - the DIAGONAL SECTION (SPEC.md 130.24, wave D5): off the apron's right
 #    end a LANE straight DOWN the screen, 32 px wide between two straight
 #    diagonal RAILS (16 px, 1.5 units over the lane), stepping down as it
 #    goes - a RAMP (`ramp s`, one unit), then a half-unit diagonal STEP whose
@@ -38,14 +38,14 @@
 #    route: a half unit rolls up and the ramp's unit wants speed, so the way
 #    back is RETURN or the edge.
 # No ramp anywhere, so no up-ramp is within 6 tiles of the rungs or the gaps
-# (SPEC.md 128.16.5.2).  Width 128: the apron and its four rungs need 24
+# (SPEC.md 130.16.5.2).  Width 128: the apron and its four rungs need 24
 # tiles along +wx, which width 64's footprints cannot hold.
 course PLAY "Playground"
 width  128
 ball   rubber
-# the PLAYGROUND shows the CGA's other palette at gate 1 (SPEC.md 128.16.6): 10h
+# the PLAYGROUND shows the CGA's other palette at gate 1 (SPEC.md 130.16.6): 10h
 palette 0
-# its song, named since SPEC.md 128.23 added a seventh (the title screen's): without one, course 6
+# its song, named since SPEC.md 130.23 added a seventh (the title screen's): without one, course 6
 # would wrap onto it (course_song)
 music  fairway
 
@@ -59,12 +59,14 @@ floor rect  31 11 34 14  flat 6
 floor rect   7 15 10 18  flat 4
 surface bounce rect 7 15 10 18
 # FF, the gap ladder's far floor, joined to the apron on its right; the three
-# notches, 1, 2 and 3 tiles; FF's rails and the goal
+# notches, 1, 2 and 3 tiles; FF's rails and the goal.  The front rail has a GAP at wx 17 (2026-11-17): the
+# WIND YARD's gust gate, below
 floor rect  10 20 23 29  flat 4
 hole  rect  10 20 19 21
 hole  rect  13 21 19 22
 hole  rect  16 22 19 23
-wall  rect  10 29 19 30  flat 4.5
+wall  rect  10 29 17 30  flat 4.5
+wall  rect  18 29 19 30  flat 4.5
 wall  rect  23 23 24 29  flat 4.5
 goal  rect  19 29 23 31  flat 4
 # the brake strip's run-up, ice | normal | sand, the side lanes' rails, the
@@ -88,19 +90,19 @@ way 21 16
 way 20 22
 way 20 30
 
-# Par: the AUTHORED demo's time rounded up (SPEC.md 128.16.8, as MOON's and PEAK's).
-# wave 7 (SPEC.md 128.18.3): `par` became `limit`; the PLAYGROUND's is explicit, its
+# Par: the AUTHORED demo's time rounded up (SPEC.md 130.16.8, as MOON's and PEAK's).
+# wave 7 (SPEC.md 130.18.3): `par` became `limit`; the PLAYGROUND's is explicit, its
 # AUTHOR demo tours every rung (27 s), past the tool's 15 s from the autopilot's route
 limit 40
-# The design time (CD3); the course budget reads it (SPEC.md 128.15.8).
+# The design time (CD3); the course budget reads it (SPEC.md 130.15.8).
 target 30
 
-# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# the FINISH clock (wave 8R, SPEC.md 130.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
 clock 18 28
 
-# the DIAGONAL SECTION (SPEC.md 128.24, wave D5): `box a0 a1 s0 s1` is a rectangle ON THE SCREEN
+# the DIAGONAL SECTION (SPEC.md 130.24, wave D5): `box a0 a1 s0 s1` is a rectangle ON THE SCREEN
 # (16 a0 <= gx - gy <= 16 a1, 16 s0 <= gx + gy <= 16 s1); every number odd, so no cell is quartered.
 # The lane, a = 15 .. 17 (32 px), from inside the apron's right end down to the platform: level, a unit's
 # ramp, level, the half-unit step at s 67 (its front face), and the platform's own height
@@ -110,7 +112,7 @@ floor box 15 17 59 67 flat 3
 floor box 15 17 67 69 flat 2.5
 # the platform: 224 x 96 px, its corners cut two cells deep along cell edges
 floor box 9 23 69 81 chamfer 2 flat 2.5
-# ...and it FLOATS (SPEC.md 128.27.2): a dead end out over the void, its straight edges hanging 3 units
+# ...and it FLOATS (SPEC.md 130.27.2): a dead end out over the void, its straight edges hanging 3 units
 # (today's faces) where every other face over the void reaches the course's ground, the basin's floor less
 # 3 units - the tour's one `float` (the pathway floats whole), so the statement is exercised and previewed
 float box 9 23 69 81 chamfer 2
@@ -122,14 +124,14 @@ wall  box 17 19 55 57 flat 5.5
 wall  box 17 19 57 59 ramp s 57 59 5.5 4.5
 wall  box 17 19 59 69 flat 4.5
 
-# wave 9 (SPEC.md 128.25.15): the PROBE family, which proves the family hooks and the per-play state
+# wave 9 (SPEC.md 130.25.15): the PROBE family, which proves the family hooks and the per-play state
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass pickups
+uses probe glass pickups wind water spike magnet archway boost gate
 prop probe 16 16 reset respawn
 
-# wave 9 (SPEC.md 128.25.8, 128.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
+# wave 9 (SPEC.md 130.25.8, 130.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
 # PLATFORM (a steel pad on it) joined to FF by two one-tile paths over the void - the CRACK PATH (four
 # cracked tiles, wy 24), which glass rolls across at leisure and steel and rubber only at speed, and the
 # GLASS PATH (four glass tiles, wy 27), invisible until rolled onto, its first tile's jagged edge at FF
@@ -145,10 +147,10 @@ prop glass 8 27
 prop glass 7 27
 prop glass 6 27
 pad steel 4 25
-# SPEC.md 128.32.8: the GROUP LAB, on the far platform - three `hole wide` cracks edge to edge along its back
+# SPEC.md 130.32.8: the GROUP LAB, on the far platform - three `hole wide` cracks edge to edge along its back
 # row (wy 23: their 4-block lanes share blocks, so their art is GROUP lanes posed by the three together, and
 # each breaks on its own), and a TURN of three glass tiles (4, 27) - (5, 27) - (4, 26), glass look 11 in its
-# 2 x 3 lanes, whose corner pair (4, 26) - (5, 27) shares a block row and so groups (refused before 128.32)
+# 2 x 3 lanes, whose corner pair (4, 26) - (5, 27) shares a block row and so groups (refused before 130.32)
 prop crack 3 23 hole wide
 prop crack 4 23 hole wide
 prop crack 5 23 hole wide
@@ -156,7 +158,7 @@ prop glass 4 27
 prop glass 5 27
 prop glass 4 26
 
-# wave 9 (SPEC.md 128.25.9, 128.25.19, moved here at integration: glass's section holds FF's left edge): the
+# wave 9 (SPEC.md 130.25.9, 130.25.19, moved here at integration: glass's section holds FF's left edge): the
 # PICKUPS YARD, left of the mat at the apron's level - an
 # hourglass, a speed and a jump - joined to the apron's left end by a row above the mat and a row below
 # it (wy 14 and 18; wy 19 - 22 stay void, so the yard is no way round the gap ladder's 1-tile notch and
@@ -175,7 +177,7 @@ prop hourglass 3 18
 prop speed     5 14 for 3
 prop jump      6 17 for 3
 
-# SPEC.md 128.25.18.1 (the owner 2026-11-17: a bigger hole; floating cracks that vanish): the
+# SPEC.md 130.25.18.1 (the owner 2026-11-17: a bigger hole; floating cracks that vanish): the
 # CRACK LAB, off the apron's right edge in the start's rows - roll +x (right and down the screen) from the
 # start.  A rubber pad and a steel pad on the apron by the lab (30, 18), (31, 18), off the run-ups.  Two rows out to an end platform and back:
 #  - wy 19, grounded, a run-up and past the end platform two `band` cracks edge to edge (the 2 x 2 lane's
@@ -191,7 +193,7 @@ prop crack 44 19 hole band
 prop crack 35 16
 prop crack 37 16
 prop crack 39 16
-# rounds 2 - 4 (SPEC.md 128.27.2.1, the owner's; THE recommended cracked tile, 128.25.18.1): a THIN BRIDGE at wy 14, off the apron's back row - `float
+# rounds 2 - 4 (SPEC.md 130.27.2.1, the owner's; THE recommended cracked tile, 130.25.18.1): a THIN BRIDGE at wy 14, off the apron's back row - `float
 # ... thick`: half a unit thick (wx 34 - 37), then one unit (38 - 40), stepping down at (40, 15) onto the
 # 3-unit bridge at wy 16.  Its FIVE cracks 35 - 39, edge to edge, are a narrow walkway drawn in their 2 x 3
 # lanes, each vanishing on its own; it starts and ends on FULL tiles (34, 14) and (40, 14) (plain `thick` cells,
@@ -208,12 +210,114 @@ prop crack 39 14
 pad rubber 30 18
 pad steel  31 18
 
-# SPEC.md 128.30.11: the SHAPED-FLOOR SECTION of wave C4 (ff8eabb29), put back behind the step ladder, and the
-# radius-3 PIT that did not fit beside it (128.28.8), on a plate at the apron's height joined to the walkway's left
-# end.  As one part this course is 65,513 bytes under D and 76,507 under C: it is a TWO-PART course (128.30.4.1)
+# SPEC.md 130.30.11: the SHAPED-FLOOR SECTION of wave C4 (ff8eabb29), put back behind the step ladder, and the
+# radius-3 PIT that did not fit beside it (130.28.8), on a plate at the apron's height joined to the walkway's left
+# end.  As one part this course is 65,513 bytes under D and 76,507 under C: it is a TWO-PART course (130.30.4.1)
 floor rect  16  9 29 10  flat 4
 floor rect  21 10 22 14  flat 4
 chute 2 round depth 10 way 18 9 4 way 18 5 way 24 5 6 way 24 9 4
 chute 1 round depth 5 way 26 8 4 way 26 4 way 28 4 way 28 8
 floor rect   8  3 17 10  flat 4
 pit   12 6 4 radius 3 depth 16
+
+# 2026-11-17, the props round: the WIND YARD (SPEC.md 130.34) and the GUARD RAIL (130.35), in FRONT of FF, its
+# floor at FF's height and FLOATING (faces 3 units deep, not to the basin's ground: the picture's bytes).  Out
+# through the gap in FF's front rail (wx 17), the ball(s) each gate is for taken on FF's pads beside the gap:
+#  - the GUST GATE: the stub out of the gap, one wide, a GUSTING fan in the gap blowing +x off the stub's open
+#    side, 64 steps in every 256 (its WISP over the stub) - every ball crosses between gusts; glass, blown twice
+#    as hard, has the shortest window;
+#  - the HUB (its pads moved to the prop alley's arch, 2026-11-18: FF's steel and glass pads are two cells away);
+#  - the THIN PATH east (wy 36), a STEADY fan blowing +y off its front edge, strength 10 (two static squiggle
+#    clusters): rubber and glass go over whatever they do, steel leans into it and crosses to the END PLATE,
+#    its HOURGLASS steel's prize; a see-through GUARD RAIL on the plate's far and front edges stops a steel
+#    ball that arrives at speed without hiding it (MEASURED on the model: steel across at every speed tried,
+#    rubber and glass over the edge);
+#  - the PIT WIND west: a `lift` updraft over the hub's west column and a one-column pit, flagged (its
+#    streamer), and the LEDGE 2.5 units up beyond it: glass rolled onto it is launched with no Hop, held -x
+#    lands on the ledge by its HOURGLASS (glass's prize, apex 62 - 72 px); rubber and steel are not lifted and
+#    roll into the pit.  A fall off the hub, the thin path or into the pit respawns on the hub; off the stub,
+#    at the start.
+floor rect  17 29 18 33  flat 4
+floor rect  15 33 22 38  flat 4
+floor rect  22 36 26 37  flat 4
+floor rect  26 35 29 38  flat 4
+floor rect  12 34 14 37  flat 6.5
+float rect  17 30 18 33
+float rect  15 33 22 38
+float rect  22 36 26 37
+float rect  26 35 29 38
+float rect  12 34 14 37
+# (the end plate's FRONT guard, `guard rect 26 38 29 39`, is left off: with the clocks occluding
+# (SPEC.md 130.18.5.4) the course reached 257 occluder masks of the 256 a record's mask byte names;
+# the far guard below still stops a fast steel ball)
+guard rect  29 36 30 38
+prop blower 17 29  face +x  region 17 30 17 32  strength 8  gust 64 192
+prop blower 22 36  face +y  region 22 36 25 36  strength 10
+prop blower 15 35  face up  region 14 34 15 36  strength 16  top 5  lift  flag
+prop hourglass 27 36
+prop hourglass 12 35
+
+# PROP ALLEY (2026-11-18, the props round's merged families on the owner's stress test; SPEC.md 130.33 - 130.40):
+# in FRONT of the wind yard's hub, 2 units up, floating.  Down the RAMP off the hub's front (21, 38 - 41, half a
+# unit a tile - every ball climbs back up it, a -y BOOST PAD at its foot pushing a slow steel ball on); the SPINE
+# (18 - 23, 42 - 43) west and east of its foot.  Its pieces, each for the ball(s) named:
+#  - the WATER column in the hub's front row (18, 37): rubber and glass ride over it, steel sinks to the bed and
+#    leaves by the FRONT ARCH onto the SPIKES at its mouth (18, 39 - 40), which steel rides and rubber pops on -
+#    steel's shortcut down, the owner's pairing of the two steel-only mechanisms;
+#  - a POP-UP SPIKE row on the spine's 1-wide neck (22, 42): every ball going east times it;
+#  - the HOVER LANE (wy 42): an ARCHWAY over a STEEL PAD (24, 42) - under its 2-unit arch no ball can Hop or
+#    boost over the pad, so every ball leaves it as steel - then a 2-cell gap under two HANGING MAGNETS on posts
+#    behind it: steel hovers across (MEASURED on the model: rubber, glass and steel all reach the far plate);
+#  - the MEMBRANE LANE (wy 44): the same gap bridged by the crystal MEMBRANE, glass's alone (rubber and steel
+#    fall through);
+#  - the FAR PLATE (28 - 31, 42 - 44), which the basin's exit (below) also reaches.
+floor rect  21 38 22 42  ramp y 38 42 4 2
+floor rect  18 42 24 44  flat 2
+floor rect  18 38 19 42  flat 2
+floor rect  24 42 26 43  flat 2
+floor rect  23 44 28 45  flat 2
+floor rect  26 41 28 42  flat 4
+floor rect  28 42 32 45  flat 2
+float rect  18 42 24 44
+float rect  18 38 19 42
+float rect  24 42 26 43
+float rect  23 44 28 45
+float rect  26 41 28 42
+float rect  28 42 32 45
+water tile  18 37  top 4 bed 2
+arch  18 37 +y
+prop spikes 18 39 19 41
+prop popspikes 22 42 period 128 on 64 seed 5
+hole  tile  22 43
+archway tile 24 42 along x
+pad steel 24 42
+prop magnet 26 41 face down +y
+prop magnet 27 41 face down +y
+prop membrane 26 44 28 45
+prop boost 21 42 face -y strength 40
+
+# THE BASIN'S EXIT (the owner, 2026-11-18: "a lift to that bottom area that you can't get out of"): a ball off
+# the brake strip's side lands in the BASIN 8 units down (rubber bounces, steel is stunned, glass shatters and
+# respawns) and could leave it only by the hole.  The course's LIFT (one a course, SPEC.md 130.12.4.6) stands in
+# its front-right corner (33, 33): its slab docks at the basin's floor and at the HIGH RIM (32, 33), 8 units
+# up; nothing stands in the shaft's screen column in front of it (the slab is drawn behind what does).  From
+# the rim, south: a PLATE (32, 34) that opens the GATE on the 1-wide neck (32, 35) (SPEC.md 130.41), a timed
+# DRAWBRIDGE (31 - 32, 38), half-unit steps up to the far plate.  MEASURED on the model: rubber and steel ride
+# up and walk the whole exit when they board with the slab low; a fall respawns in the basin.  A HUMP (SPEC.md
+# 130.44) stands on the hub, a dome over its middle.
+floor tile  32 33  flat 0
+hole  tile  33 33
+floor rect  31 34 33 41  flat 0
+hole  tile  31 35
+floor tile  32 41  flat 0.5
+floor tile  32 42  flat 1
+floor tile  32 43  flat 1.5
+float tile  32 33
+float rect  31 34 33 41
+float rect  32 41 33 44
+float rect  31 38 33 39  thick 0.5
+prop platform 33 33 8 dwell 21
+prop plate 32 34 channel ring
+prop gate 32 35 channel ring along y
+prop bridge 31 38 33 39 period 256 on 128 seed 17
+hump 17 35 4 height 5

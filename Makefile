@@ -94,7 +94,12 @@ DEBUGSND    := $(BUILD)/debug-sound.img
 DEBUGSND120 := $(BUILD)/debug-sound-120.img
 DEBUGSND720 := $(BUILD)/debug-sound-720.img
 DEBUGSND360 := $(BUILD)/debug-sound-360.img
-DEBUGIMGS := $(DEBUGSND) $(DEBUGSND120) $(DEBUGSND720) $(DEBUGSND360)
+DEBUGINP    := $(BUILD)/debug-input.img
+DEBUGINP120 := $(BUILD)/debug-input-120.img
+DEBUGINP720 := $(BUILD)/debug-input-720.img
+DEBUGINP360 := $(BUILD)/debug-input-360.img
+DEBUGIMGS := $(DEBUGSND) $(DEBUGSND120) $(DEBUGSND720) $(DEBUGSND360) \
+             $(DEBUGINP) $(DEBUGINP120) $(DEBUGINP720) $(DEBUGINP360)
 APPSIMG := $(BUILD)/apps.img
 APPSIMG120 := $(BUILD)/apps120.img
 APPSIMG720 := $(BUILD)/apps720.img
@@ -149,7 +154,7 @@ ARCRELIMG120  := $(BUILD)/arcrel120.img
 ARCRELIMG720  := $(BUILD)/arcrel720.img
 ARCRELIMG360  := $(BUILD)/arcrel360.img
 
-# ...and all twenty-five in one list, because it appeared in FOUR places (`all`
+# ...and every one of them in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
 # time a disk was added. A shipped image that is in `all` and in none of the
 # tiers is one no gate ever reads, which is the failure this prevents rather
@@ -217,6 +222,13 @@ VMMFM := $(CURDIR)/vm/xt-mfm
 VMCGA := $(CURDIR)/vm/xt-cga
 VMHERC := $(CURDIR)/vm/xt-hercules
 VMEGA := $(CURDIR)/vm/xt-ega
+# The VGA XTs (docs/plans/BOUNCE-BONANZA-VGA.md V0): GLaBIOS (the 5150 #2's
+# BIOS) with an OTI-067 at 4.77 MHz, and the same with a V20 at 10 MHz - the
+# cheapest machine BONANZA's VGA arm is meant to hold 70 Hz on. NOT the
+# 5150 #2's PVGA1A: this 86Box's Paradise never pans (vid_paradise.c sets
+# hoverride) and does not wrap at 64KB, where the real chip does both
+VMXTVGA := $(CURDIR)/vm/xt-vga
+VMXTV20VGA := $(CURDIR)/vm/xt-v20-vga
 # The DUAL-DISPLAY machine (SPEC.md 39.12-39.19): the same XT with BOTH mono
 # cards in it, each on its own monitor window.
 VMMULTI := $(CURDIR)/vm/xt-multimon
@@ -2505,7 +2517,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
               drivers/thmpal/thmrows.inc apps/os88la.inc apps/os88ub.inc
 
 .PHONY: stkdiag kbddiag small emu mega kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
-        xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
+        xt-hercules xt-ega xt-vga xt-v20-vga xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
         286-sound 286-video viddemo-vga viddemo-cga viddemo-herc viddemozip 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium pentium-pciether pentium-ess \
@@ -2666,8 +2678,10 @@ STKLST = -l $(@:.bin=.lst) --before "[map all $(@:.bin=.map)]"
 # per make invocation, so making it a prerequisite here and excluding the two
 # rows keeps `make test-fast` complete on its own and runs each once under
 # `make`. `python3 tools/os88test.py fast` direct still runs them as rows.
+# $(BUILD)/livepayload.txt is the `wants=` of three fast rows (retired,
+# livefull, docglyph) - prebuild only CHECKS it inside a make, so it is here.
 #> [Test] test-fast :: host-side regression tier (budget 30s CPU); `all` already runs it
-test-fast: checkdocs $(SHIPIMGS) $(WEAVEWABS)
+test-fast: checkdocs $(SHIPIMGS) $(WEAVEWABS) $(BUILD)/livepayload.txt
 ifeq ($(KNOBS),)
 	@OS88_PKGDEFS="$(PKGSBDEF)" python3 tools/os88test.py fast -x checkdocs -x docindex
 else
@@ -2677,9 +2691,16 @@ endif
 
 # $(BUILD)/small360.img is small128's `wants=`: inside this make the runner only
 # checks a declared artefact exists (os88test.prebuild, MAKELEVEL), so the
-# target that brings it current has to be here.
+# target that brings it current has to be here - and so are kern_emu's and
+# kern_mega's trees, api-abi-all's: `all` builds neither, and without them
+# `make test-full` on a box that had never typed `make emu` SKIPPED the one
+# row that reads every kernel's API table. Their SYSTEM DISKS and not their
+# kernel.bin: that rule (kernsub-force) builds the kernel alone, a tree
+# bootfence then fails for its missing boot sectors and whose map os88sym
+# refuses; the disk brings the whole tree, as `make emu` and `make mega` do.
 #> [Test] test-full :: did you obviously break the OS: boots on three adapters and kern_small (~1-4 min)
-test-full: $(SHIPIMGS) $(WEAVEWABS) $(BUILD)/small360.img
+test-full: $(SHIPIMGS) $(WEAVEWABS) $(BUILD)/small360.img \
+           $(BUILD)/emu.img $(BUILD)/mega.img
 	@python3 tools/os88test.py full
 
 # THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for a
@@ -4344,6 +4365,30 @@ $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
 $(BUILD)/syscheck.o88: $(BUILD)/syscheck.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/syscheck.bin -o $@
 
+# --- INPUT CHECK (SPEC.md 129) -----------------------------------------------
+# The shell and its sections. EVERY file is a dependency: a section is an
+# %include, so a make that listed only inputchk.asm would ship the shell with
+# yesterday's keyboard section.
+INPUTCHK_SRC := apps/inputchk/inputchk.asm apps/inputchk/rows.inc \
+                apps/inputchk/ui.inc apps/inputchk/kread.inc \
+                apps/inputchk/moblk.inc apps/inputchk/summary.inc \
+                apps/inputchk/kbd.inc apps/inputchk/auto.inc \
+                apps/inputchk/serial.inc apps/inputchk/ps2.inc \
+                apps/inputchk/probe.inc apps/inputchk/other.inc \
+                apps/os88api.inc apps/os88ui.inc apps/os88dec.inc
+# THE KERNEL FINGERPRINT (SPEC.md 129.4): the 'ID' block's three words, read
+# from the kernel image this tree just built, so the package decodes the 'MO'
+# block only on the kernel it was made with.
+$(BUILD)/inputchk_kid.inc: $(BUILD)/kernel-full.bin tools/os88mousekid.py | $(BUILD)
+	python3 tools/os88mousekid.py $(BUILD)/kernel.map $(BUILD)/kernel-full.bin -o $@
+
+$(BUILD)/inputchk.bin: $(INPUTCHK_SRC) $(BUILD)/inputchk_kid.inc $(BUILDINC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/inputchk/inputchk.asm
+	@echo "inputchk: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/inputchk.o88: $(BUILD)/inputchk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/inputchk.bin -o $@
+
 $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
                        apps/os88type.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fontview/fontview.asm
@@ -5932,8 +5977,18 @@ SDDRIVERS = $(if $(filter $(BUILD)/sound.drv,$(DRIVERS)),,$(error \
 SDDRIVERS360 = $(filter-out $(BUILD)/sound.drv,$(DRIVERS360)) $(SDDRV)
 SDFILES := $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT \
            $(BUILD)/sdcfg/system.cfg AUTOSTRT:$(BUILD)/sdcfg/SNDDIAG.LNK
-SDAPPS := APPS:$(BUILD)/notepad.o88
+# THE OTHER DIAGNOSTICS RIDE EVERY DEBUG DISK, BY HAND (SPEC.md 127.1 rule 6,
+# the owner's of 2026-11-17): each disk autostarts its own program and carries
+# every other user-facing diagnostic in APPS\ beside Note Pad - the other debug
+# disks' programs and REDLINE (its Inspect page, SPEC.md 103.7) - so whichever
+# disk a user holds runs all of them. No second AUTOSTRT link: two programs
+# opening at once would compete for the keys one of them is counting. Until
+# they stop fitting the 360KB disk, then re-assess.
+DIAGTOOLS := $(BUILD)/redline.o88 $(BUILD)/snddiag.o88 $(BUILD)/inputchk.o88
+SDAPPS := APPS:$(BUILD)/notepad.o88 \
+          $(addprefix APPS:,$(filter-out $(BUILD)/snddiag.o88,$(DIAGTOOLS)))
 SDDEPS := $(KERNFILE) $(DRIVERS) $(SDDRV) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+          $(DIAGTOOLS) \
           $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT $(BUILD)/sdcfg/system.cfg \
           $(BUILD)/sdcfg/SNDDIAG.LNK tools/os88disk.py
 
@@ -5971,11 +6026,57 @@ $(DEBUGSND360): $(BUILD)/boot360.bin $(SDDEPS)
 		$(SDDRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
 		$(SDFILES) $(APPDATAFOLDER)
 
+# THE INPUT DEBUG DISK (SPEC.md 127.5): the SHIPPED kernel and drivers - no
+# driver swap, the keyboard and the mouse are the kernel's own - plus
+# INPUTCHK.O88 at the root and \AUTOSTRT\INPUTCHK.LNK carrying the parameter
+# AUTO (SPEC.md 26.10.7). Started that way, Input Check samples the keyboard
+# for its window, writes a numbered report to the disk it booted from, then
+# probes the controller and writes it again (SPEC.md 129.12). Started any other
+# way it is the interactive program and writes nothing by itself.
+IDFILES := $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
+           AUTOSTRT:$(BUILD)/idcfg/INPUTCHK.LNK
+IDAPPS := APPS:$(BUILD)/notepad.o88 \
+          $(addprefix APPS:,$(filter-out $(BUILD)/inputchk.o88,$(DIAGTOOLS)))
+IDDEPS := $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+          $(DIAGTOOLS) \
+          $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
+          $(BUILD)/idcfg/INPUTCHK.LNK tools/os88disk.py
+
+$(BUILD)/idcfg/INPUTCHK.LNK: tools/os88lnk.py | $(BUILD)
+	@mkdir -p $(BUILD)/idcfg
+	python3 tools/os88lnk.py $@ 'INPUTCHK.O88' --arg AUTO
+
+$(DEBUGINP): $(BUILD)/boot.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
+$(DEBUGINP120): $(BUILD)/boot120.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 1200 \
+		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
+$(DEBUGINP720): $(BUILD)/boot360.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
+$(DEBUGINP360): $(BUILD)/boot360.bin $(IDDEPS)
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDFILES) $(APPDATAFOLDER)
+
 .PHONY: debugdisks
-#> [Test] debugdisks :: the sound debug disk in four geometries: boots into a report on what SOUND.DRV found (SPEC.md 127)
+#> [Test] debugdisks :: the debug disks (sound, input) in four geometries: each boots into a report (SPEC.md 127)
 debugdisks: $(DEBUGIMGS)
 	@echo "debugdisks: build/debug-sound{,-120,-720,-360}.img - boots into"
 	@echo "            SNDDIAG.O88 with the -DSNDDIAG SOUND.DRV (SPEC.md 127)"
+	@echo "            build/debug-input{,-120,-720,-360}.img - boots into"
+	@echo "            INPUTCHK.O88 AUTO: keyboard + mouse report (SPEC.md 127.5)"
 
 # PICOMEMTEST - the PicoMEM field disks (SPEC.md 34.10.1, 72.2, 9.12.7):
 # covoxtest's shape, with 'DW' = bit 0 (SOUND.DRV) | bit 4 (ETHER.DRV) |
@@ -6660,15 +6761,23 @@ $(BUILD)/xmtest.img: $(BUILD)/xmtest.o88 tools/os88disk.py
 # VGAPROBE (tests/vgaprobe/vgaprobe.asm): a FIELD instrument for RealDMG's
 # scrolling research - when a real VGA latches the start address and the pel
 # panning, whether its CRTC wraps at 64KB, and the frame's timing. On demand:
-# `make vgaprobe` gives build/vgaprobe.o88 and a 1.44MB floppy with it.
+# `make vgaprobe` gives build/vgaprobe.o88 and a 1.44MB and a 360KB floppy
+# with it. BONANZA's VGA arm reuses it (docs/plans/BOUNCE-BONANZA-VGA.md V0:
+# the split order, the cost page); tests/vgaprobe.py is its row.
 .PHONY: vgaprobe
-vgaprobe: $(BUILD)/vgaprobe.img
+vgaprobe: $(BUILD)/vgaprobe.img $(BUILD)/vgaprobe360.img
 $(BUILD)/vgaprobe.bin: tests/vgaprobe/vgaprobe.asm apps/os88api.inc apps/os88pit.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/vgaprobe/vgaprobe.asm
 $(BUILD)/vgaprobe.o88: $(BUILD)/vgaprobe.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/vgaprobe.bin -o $@
 $(BUILD)/vgaprobe.img: $(BUILD)/vgaprobe.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/vgaprobe.o88
+# ...and at 360KB, for an XT (vm/xt-vga, MartyPC's os8088_xt_vga, the 5150
+# #2) - BONANZA's VGA arm's V0 drives it there (tests/vgaprobe.py,
+# docs/plans/BOUNCE-BONANZA-VGA.md)
+$(BUILD)/vgaprobe360.img: $(BUILD)/vgaprobe.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/vgaprobe.o88
+	@python3 tools/os88disk.py --verify $@
 
 $(BUILD)/fsxtest.bin: tests/fsxtest/fsxtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fsxtest/fsxtest.asm
@@ -11037,6 +11146,68 @@ $(BUILD)/msegwz360.img: $(BUILD)/msegwzd/MSEG.O88 tools/os88disk.py | $(BUILD)
 .PHONY: msegw
 msegw: $(BUILD)/msegw.img $(BUILD)/msegw360.img $(BUILD)/msegwz.img \
        $(BUILD)/msegwz360.img
+
+# --- MSEGB: ONE PART past 64KB, three times over (SPEC.md 20.12.15) ---------
+# mseg.asm built -DMSEG_BIG puts OP_BIG on parts 1, 2 and 6, and each is
+# padded past 65,024 bytes by tests/multiseg/mkwide.py: part 1 with noise,
+# plain in both builds; part 2 and part 6 (the lazy one) with text, which the
+# `z` build compresses (-DMSEG_COMP -DMSEG_LZC) and packs past 64KB too. So
+# the plain build reads two big rows straight into the carve and moves a big
+# lazy row down onto its claim; the `z` build expands a big row, moves a big
+# PLAIN row down through a compressed carve in pieces, and expands a big lazy
+# row. tests/multiseg.py --big compares every byte of all three. Before
+# 20.12.15 the packer refused each row.
+$(BUILD)/msegb.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc \
+                    apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
+	$(NASM) -f bin -w+error -DMSEG_BIG -I apps/ -I tests/multiseg/ -o $@ $<
+
+$(BUILD)/msegbz.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc \
+                     apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
+	$(NASM) -f bin -w+error -DMSEG_BIG -DMSEG_COMP -DMSEG_LZC -I apps/ \
+		-I tests/multiseg/ -o $@ $<
+
+$(BUILD)/msegbp1.bin: $(BUILD)/msegp1.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py noise 70000 $< $@
+
+$(BUILD)/msegbp2.bin: $(BUILD)/msegp2.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py text 120000 $< $@
+
+$(BUILD)/msegbp4.bin: $(BUILD)/msegp4.bin tests/multiseg/mkwide.py
+	python3 tests/multiseg/mkwide.py text 115000 $< $@
+
+MSEGB_PARTS = $(BUILD)/msegp0.bin $(BUILD)/msegbp1.bin $(BUILD)/msegbp2.bin \
+              $(BUILD)/msegp3.bin $(BUILD)/msegbp4.bin
+
+$(BUILD)/msegbd/MSEG.O88: $(BUILD)/msegb.bin $(MSEGB_PARTS) tools/os88pkg.py
+	@mkdir -p $(BUILD)/msegbd
+	python3 tools/os88pkg.py $(BUILD)/msegb.bin -o $@ \
+		$(foreach p,$(MSEGB_PARTS),--part $(p))
+
+$(BUILD)/msegbzd/MSEG.O88: $(BUILD)/msegbz.bin $(MSEGB_PARTS) tools/os88pkg.py \
+                           tools/os88lz.py
+	@mkdir -p $(BUILD)/msegbzd
+	python3 tools/os88pkg.py $(BUILD)/msegbz.bin -o $@ \
+		--part-compress lz4 $(foreach p,$(MSEGB_PARTS),--part $(p))
+
+$(BUILD)/msegb.img: $(BUILD)/msegbd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegb360.img: $(BUILD)/msegbd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegbz.img: $(BUILD)/msegbzd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 $<
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/msegbz360.img: $(BUILD)/msegbzd/MSEG.O88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 $<
+	@python3 tools/os88disk.py --verify $@
+
+.PHONY: msegb
+msegb: $(BUILD)/msegb.img $(BUILD)/msegb360.img $(BUILD)/msegbz.img \
+       $(BUILD)/msegbz360.img
 
 # --- CWORD and its document floppy (SPEC.md 73.12) ---------------------------
 # The C toolchain's demonstrator: a word processor whose UI, layout, redraw
@@ -17659,7 +17830,7 @@ os88cz: $(BUILD)/os88cz.com
 # before it) and so does more720.img, the 720KB apps disk's other half
 # (126KB free); apps720.img (25KB free) leaves it off. kern_mega's apps disks
 # are the kern_mega session's to decide (MEGAAPPSARGS does not name it).
-WA_SHIP := $(BUILD)/warena.o88
+WA_SHIP := $(BUILD)/wirerena.o88
 APPS := $(APPS_TOOLS) $(APPS_GAMES) $(WA_SHIP) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
         $(APPS_DOSCZ) $(MIDISONGS) $(RDG_SHIP) $(RDG_DEMO)
 # ...and the 360KB disk's list, which is that one less what the media disk
@@ -19527,6 +19698,15 @@ xt-ega: $(IMG360) $(APPSIMG360)
 	@$(UNPROTECT) $(VMEGA)/86box.cfg
 	$(BOX) -P $(VMEGA) -N
 
+# The VGA XTs above, with the VGA scroll probe in B: (make vgaprobe).
+# tests/vgaprobe.py drives either headless (OS88_EMU=86box OS88_86BOX_VM=...)
+xt-vga: $(IMG360) $(BUILD)/vgaprobe360.img
+	@$(UNPROTECT) $(VMXTVGA)/86box.cfg
+	$(BOX) -P $(VMXTVGA) -N
+xt-v20-vga: $(IMG360) $(BUILD)/vgaprobe360.img
+	@$(UNPROTECT) $(VMXTV20VGA)/86box.cfg
+	$(BOX) -P $(VMXTV20VGA) -N
+
 # ...and the same XT with BOTH of them in it: SPEC.md 39.12-39.19's extended
 # desktop on the machine it was written for. A CGA at B8000 and a Hercules at
 # B0000, two CRTCs, two monitors, and 86Box opens a window per card ("86Box
@@ -20328,11 +20508,17 @@ pentium-pciether: $(BUILD)/pciethertest.img $(BUILD)/megaapps.img
 # test ROMs tools/getgbtest.py fetches at pinned SHA-256s and the assembler
 # tools/gbclock.py builds from a pinned clone. Thrown away, the rgbds rows
 # would SKIP and the ROM rows fetch again. `clean-gb` is the escape hatch.
+#
+# ...and build/soak, which is not an artefact at all: a soak's RECORDS
+# (journal, log, the `finished` marker) and the SNAPSHOT it runs inside
+# (docs/plans/SOAK-PARALLEL.md 14.4). A `clean` while one runs would delete
+# the source tree the run executes from. `os88soak.py` prunes old snapshots
+# itself; `rm -rf build/soak` is the escape hatch when none is running.
 #> [Build] clean :: remove build/ (spares build/cc and fetched data)
 clean:
 	find $(BUILD) -mindepth 1 -maxdepth 1 ! -name martypc ! -name cc \
 		! -name apple2-rom ! -name nasm3 ! -name gbtest ! -name rgbds \
-		! -name watcom \
+		! -name watcom ! -name soak \
 		-exec rm -rf {} + 2>/dev/null || true
 	@rm -f $(BUILD)/apple2-rom/APPLE2.ROM
 
@@ -21324,7 +21510,7 @@ $(BUILD)/vbattle360.img: $(BUILD)/vbattle.o88 $(BUILD)/vbshort/BATTLE.VBT tools/
 # (docs/plans/completed/WIREARENA-PARTS-PLAN.md 7): wirearena.bin is the primary - the
 # game - and wrpart.bin the renderer, its part 0 (OP_SEG, OP_COMP|OP_ZFILL),
 # far-called with its own data; each assembles the watab.inc blocks it reads.
-#> [Applications] wirearena :: WARENA.O88, the text-mode arena shooter's renderer prototype (docs/plans/MULTIPLAYER-FPS-PLAN.md)
+#> [Applications] wirearena :: WIRERENA.O88, the text-mode arena shooter's renderer prototype (docs/plans/MULTIPLAYER-FPS-PLAN.md)
 #> [Knobs] WAMETER=1|2 :: WireArena starts with its meter row on - 1 the frame rate, 2 every number (F10 cycles it; off as shipped)
 # WAMETER: a BENCHMARK build's. The meter's row (fps, frame, render and present
 # ms, video writes) is off as shipped - nothing shown, nothing summed, one
@@ -21342,7 +21528,7 @@ $(WASTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.wapkg*
 	@touch $@
 .PHONY: wirearena wirearenadisk
-wirearena: $(BUILD)/warena.o88
+wirearena: $(BUILD)/wirerena.o88
 $(BUILD)/watab.inc: tools/arenagen.py apps/wirearena/waconst.inc | $(BUILD)
 	python3 tools/arenagen.py $@
 $(BUILD)/wirearena.bin: apps/wirearena/wirearena.asm apps/wirearena/waconst.inc apps/wirearena/wasin.inc apps/wirearena/wafb.inc $(BUILD)/watab.inc apps/os88api.inc apps/os88pit.inc apps/os88parts.inc apps/os88partsbody.inc apps/wirearena/walink.inc apps/wirearena/wasetup.inc apps/wirearena/wactf.inc apps/os88cable.inc apps/os88raw.inc apps/os88udp.inc apps/os88ui.inc drivers/net/netpkg.inc $(WASTAMP) | $(BUILD)
@@ -21363,17 +21549,29 @@ $(BUILD)/waa%.bin: $(BUILD)/waa%.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ $<
 $(BUILD)/wapose.bin: apps/wirearena/wapose.asm apps/wirearena/waconst.inc $(BUILD)/watab.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/wirearena/ -I $(BUILD)/ -o $@ $<
-$(BUILD)/warena.o88: $(BUILD)/wirearena.bin $(BUILD)/wrpart.bin $(WAARENAS) $(BUILD)/wapose.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKGB) $< -o $@ --part $(BUILD)/wrpart.bin --part $(BUILD)/wapose.bin $(addprefix --part ,$(WAARENAS)) --part-compress $(PKGZBFMT)
-#> [Applications] wirearenadisk :: its own floppies, warena{,720,120,360}.img
-wirearenadisk: $(BUILD)/warena.img $(BUILD)/warena720.img $(BUILD)/warena120.img $(BUILD)/warena360.img
-$(BUILD)/warena.img: $(BUILD)/warena.o88 tools/os88disk.py
+# The keyframes ride the file CODED (tools/wadelta.py: the mirrored half of
+# the facings as zeros, the rows and keyframes as differences - a quarter of
+# their LZ size), and the primary's sine table as its second difference; the
+# game undoes both at entry (wa_rbind, wa_sinmk): each .bin is the image the
+# game then holds - what the tools that map a build read - and the .dlt only
+# what is packed
+$(BUILD)/wrpart.dlt: $(BUILD)/wrpart.bin tools/wadelta.py $(BUILD)/watab.inc
+	python3 tools/wadelta.py --tab $(BUILD)/watab.inc --part $< $@
+$(BUILD)/wapose.dlt: $(BUILD)/wapose.bin tools/wadelta.py $(BUILD)/watab.inc
+	python3 tools/wadelta.py --tab $(BUILD)/watab.inc --pose $< $@
+$(BUILD)/wirearena.dlt: $(BUILD)/wirearena.bin tools/wadelta.py $(BUILD)/watab.inc
+	python3 tools/wadelta.py --tab $(BUILD)/watab.inc --sin $< $@
+$(BUILD)/wirerena.o88: $(BUILD)/wirearena.dlt $(BUILD)/wrpart.dlt $(WAARENAS) $(BUILD)/wapose.dlt tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $< -o $@ --part $(BUILD)/wrpart.dlt --part $(BUILD)/wapose.dlt $(addprefix --part ,$(WAARENAS)) --part-compress $(PKGZBFMT)
+#> [Applications] wirearenadisk :: its own floppies, wirerena{,720,120,360}.img
+wirearenadisk: $(BUILD)/wirerena.img $(BUILD)/wirerena720.img $(BUILD)/wirerena120.img $(BUILD)/wirerena360.img
+$(BUILD)/wirerena.img: $(BUILD)/wirerena.o88 tools/os88disk.py
 	python3 tools/os88disk.py --size 1440 -o $@ $<
-$(BUILD)/warena720.img: $(BUILD)/warena.o88 tools/os88disk.py
+$(BUILD)/wirerena720.img: $(BUILD)/wirerena.o88 tools/os88disk.py
 	python3 tools/os88disk.py --size 720 -o $@ $<
-$(BUILD)/warena120.img: $(BUILD)/warena.o88 tools/os88disk.py
+$(BUILD)/wirerena120.img: $(BUILD)/wirerena.o88 tools/os88disk.py
 	python3 tools/os88disk.py --size 1200 -o $@ $<
-$(BUILD)/warena360.img: $(BUILD)/warena.o88 tools/os88disk.py
+$(BUILD)/wirerena360.img: $(BUILD)/wirerena.o88 tools/os88disk.py
 	python3 tools/os88disk.py --size 360 -o $@ $<
 
 .PHONY: wireball wireballdisk wireballtest wireball-pair
@@ -21400,22 +21598,22 @@ wireballtest: wireballdisk $(IMG)
 apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront.py
 	python3 tools/wbfront.py
 
-# BONANZA (Bounce Bonanza, SPEC.md 128): an isometric rolling-ball game that
+# BONANZA (Bounce Bonanza, SPEC.md 130): an isometric rolling-ball game that
 # hardware-scrolls in both directions on the CGA and the Hercules.  Its art is
 # GENERATED from code and text alone (no input file, no reference game), so
 # this block needs NASM and Python and nothing else: tools/bonanza_assets.py
 # writes the three balls' parts and bzconst.inc, tools/bbcourse.py compiles the
-# text courses (SPEC.md 128.10.3) into one part each and bzcourse.inc.  Every
+# text courses (SPEC.md 130.10.3) into one part each and bzcourse.inc.  Every
 # part is the CGA's: on the Hercules the guest translates it in place at the
-# fetch (SPEC.md 128.11.3).
+# fetch (SPEC.md 130.11.3).
 # `local` in apps/RETIRED.txt: NOT in `all`, on no standard image, allapps
 # floppy or live media; `bonanzadisk` is its own floppy in all four geometries.
 BZ_ART := $(BUILD)/bonanza-art
-# THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 128.10.3): course K is the K-th
+# THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 130.10.3): course K is the K-th
 # of this list - 0 the benchmark's, 1 the one Enter plays, 2 the rubber ball's
-# trial, 3 the obstacles' (SPEC.md 128.12.9), 4 and 5 wave 4's (MOON, Moonlit
-# Green, and PEAK, Summit Rush, SPEC.md 128.14.6), 6 wave 6's PLAYGROUND (PLAY,
-# SPEC.md 128.16.8); 1 - 6 are the tour - and
+# trial, 3 the obstacles' (SPEC.md 130.12.9), 4 and 5 wave 4's (MOON, Moonlit
+# Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 6 wave 6's PLAYGROUND (PLAY,
+# SPEC.md 130.16.8); 1 - 6 are the tour - and
 # everything under apps/bonanza/courses/ ships.  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
@@ -21423,10 +21621,10 @@ BZ_ART := $(BUILD)/bonanza-art
 BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc
-# wave 8b (SPEC.md 128.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
+# wave 8b (SPEC.md 130.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
-#> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 128.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
+#> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 130.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
 # BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
 # can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
 # ones, so every shipped course keeps its K; not on the TOUR, bbcourse.TOUR) and compiles the pathway
@@ -21451,8 +21649,8 @@ BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshapes-*
 	@touch $@
-#> [Knobs] BZMAGNET=1 :: Bounce Bonanza with its MAGNETS test course, MAGS (SPEC.md 128.33): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/magnet BZMAGNET=1 bonanzadisk)
-# BZMAGNET=1 (SPEC.md 128.33.10) adds apps/bonanza/courses/magnets.bbc to BZ_COURSES (after the shipped ones,
+#> [Knobs] BZMAGNET=1 :: Bounce Bonanza with its MAGNETS test course, MAGS (SPEC.md 130.33): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/magnet BZMAGNET=1 bonanzadisk)
+# BZMAGNET=1 (SPEC.md 130.33.10) adds apps/bonanza/courses/magnets.bbc to BZ_COURSES (after the shipped ones,
 # so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathmagnet.sed applied: pad 0 becomes MAGS, its exit 1 goes to FIRST on a pad of its
 # own.  BZSHAPES's precedent; the two both claim pad 0, so they are refused together.  STAMPED.
@@ -21477,8 +21675,8 @@ BZMAGNETSTAMP := $(BUILD)/.bzmagnet-$(or $(BZMAGNET),0)
 $(BZMAGNETSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzmagnet-*
 	@touch $@
-#> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 128.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
-# BZWIND=1 (SPEC.md 128.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
+#> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 130.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
+# BZWIND=1 (SPEC.md 130.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
 # the shipped ones: every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
 # with apps/bonanza/courses/pathwind.sed applied: pad 0 becomes WIND, FIRST moves to pad 6 (WIND's exit 1).
 # STAMPED; without it the build is byte for byte the knob-less one.  Not with BZSHAPES=1 (both take pad 0).
@@ -21506,7 +21704,7 @@ BZWINDSTAMP := $(BUILD)/.bzwind-$(or $(BZWIND),0)
 $(BZWINDSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwind-*
 	@touch $@
-#> [Knobs] BZRAIL=1 :: Bounce Bonanza with its GUARD RAIL test course, RAIL (SPEC.md 128.35): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/rail BZRAIL=1 bonanzadisk)
+#> [Knobs] BZRAIL=1 :: Bounce Bonanza with its GUARD RAIL test course, RAIL (SPEC.md 130.35): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/rail BZRAIL=1 bonanzadisk)
 # BZRAIL=1 adds apps/bonanza/courses/rails.bbc to BZ_COURSES (after the shipped ones, so every shipped course
 # keeps its K; not on the TOUR) and compiles the pathway through apps/bonanza/courses/pathrail.sed: pad 0
 # becomes RAIL, FIRST gets pad 6 beside it.  Pad 0 is one course, so BZRAIL and BZSHAPES are refused together.
@@ -21535,8 +21733,8 @@ BZRAILSTAMP := $(BUILD)/.bzrail-$(or $(BZRAIL),0)
 $(BZRAILSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzrail-*
 	@touch $@
-#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 128.36): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
-# BZWATER=1 (SPEC.md 128.36, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
+#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 130.36): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
+# BZWATER=1 (SPEC.md 130.36, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from
 # path.bbc with apps/bonanza/courses/pathwater.sed applied: pad 0 becomes WATER (a new game rests on it) and
 # FIRST gets a pad of its own beside it.  BZSHAPES's precedent, and not with it (both rewrite pad 0).
@@ -21565,8 +21763,8 @@ BZWATERSTAMP := $(BUILD)/.bzwater-$(or $(BZWATER),0)
 $(BZWATERSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwater-*
 	@touch $@
-#> [Knobs] BZARCH=1 :: Bounce Bonanza with its ARCHWAY test course, ARCH (SPEC.md 128.39): arches to roll under - one over a steel pad rubber cannot boost past, one to Hop into, a two-wide one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/arch BZARCH=1 bonanzadisk)
-# BZARCH=1 (SPEC.md 128.39.7, BZWATER's precedent) adds apps/bonanza/courses/arches.bbc to BZ_COURSES (after
+#> [Knobs] BZARCH=1 :: Bounce Bonanza with its ARCHWAY test course, ARCH (SPEC.md 130.39): arches to roll under - one over a steel pad rubber cannot boost past, one to Hop into, a two-wide one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/arch BZARCH=1 bonanzadisk)
+# BZARCH=1 (SPEC.md 130.39.7, BZWATER's precedent) adds apps/bonanza/courses/arches.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from
 # path.bbc with apps/bonanza/courses/patharch.sed applied: pad 0 becomes ARCH (a new game rests on it) and
 # FIRST gets a pad of its own beside it.  Not with the other pad-0 knobs.  STAMPED; without it the build's
@@ -21592,8 +21790,8 @@ BZARCHSTAMP := $(BUILD)/.bzarch-$(or $(BZARCH),0)
 $(BZARCHSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzarch-*
 	@touch $@
-#> [Knobs] BZSPIKE=1 :: Bounce Bonanza with its SPIKES test course, SPIKE (SPEC.md 128.38): a spike corridor, pop-up spikes, a glass-only membrane bridge and water over spikes - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/spike BZSPIKE=1 bonanzadisk)
-# BZSPIKE=1 (SPEC.md 128.38, BZWATER's precedent) adds apps/bonanza/courses/spike.bbc to BZ_COURSES (after the
+#> [Knobs] BZSPIKE=1 :: Bounce Bonanza with its SPIKES test course, SPIKE (SPEC.md 130.38): a spike corridor, pop-up spikes, a glass-only membrane bridge and water over spikes - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/spike BZSPIKE=1 bonanzadisk)
+# BZSPIKE=1 (SPEC.md 130.38, BZWATER's precedent) adds apps/bonanza/courses/spike.bbc to BZ_COURSES (after the
 # shipped ones; not on the TOUR) and compiles the pathway from path.bbc with apps/bonanza/courses/pathspike.sed
 # applied: pad 0 becomes SPIKE and FIRST gets a pad of its own beside it.  Not with the other pad-0 knobs.
 # STAMPED; without it the build is byte for byte the knob-less one.
@@ -21618,8 +21816,8 @@ BZSPIKESTAMP := $(BUILD)/.bzspike-$(or $(BZSPIKE),0)
 $(BZSPIKESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzspike-*
 	@touch $@
-#> [Knobs] BZBOOST=1 :: Bounce Bonanza with its BOOST PADS test course, BOOS (SPEC.md 128.40): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/boost BZBOOST=1 bonanzadisk)
-# BZBOOST=1 (SPEC.md 128.40.6) adds apps/bonanza/courses/boost.bbc to BZ_COURSES (after the shipped ones, so
+#> [Knobs] BZBOOST=1 :: Bounce Bonanza with its BOOST PADS test course, BOOS (SPEC.md 130.40): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/boost BZBOOST=1 bonanzadisk)
+# BZBOOST=1 (SPEC.md 130.40.6) adds apps/bonanza/courses/boost.bbc to BZ_COURSES (after the shipped ones, so
 # every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathboost.sed applied: pad 0 becomes BOOS, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -21645,8 +21843,8 @@ BZBOOSTSTAMP := $(BUILD)/.bzboost-$(or $(BZBOOST),0)
 $(BZBOOSTSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzboost-*
 	@touch $@
-#> [Knobs] BZHUMP=1 :: Bounce Bonanza with its HUMPS test course, HUMP (SPEC.md 128.44): low and high domes, a ridge, a speed bump steel needs a run at - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/hump BZHUMP=1 bonanzadisk)
-# BZHUMP=1 (SPEC.md 128.44.6) adds apps/bonanza/courses/humps.bbc to BZ_COURSES (after the shipped ones, so
+#> [Knobs] BZHUMP=1 :: Bounce Bonanza with its HUMPS test course, HUMP (SPEC.md 130.44): low and high domes, a ridge, a speed bump steel needs a run at - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/hump BZHUMP=1 bonanzadisk)
+# BZHUMP=1 (SPEC.md 130.44.6) adds apps/bonanza/courses/humps.bbc to BZ_COURSES (after the shipped ones, so
 # every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathhump.sed applied: pad 0 becomes HUMP, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -21672,8 +21870,8 @@ BZHUMPSTAMP := $(BUILD)/.bzhump-$(or $(BZHUMP),0)
 $(BZHUMPSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzhump-*
 	@touch $@
-#> [Knobs] BZGATE=1 :: Bounce Bonanza with its SWITCHES, KEYS, GATES and DRAWBRIDGE test course, GATE (SPEC.md 128.41): a plate's gate, a key's gate, a timed drawbridge and a switched one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/gate BZGATE=1 bonanzadisk)
-# BZGATE=1 (SPEC.md 128.41.6, BZBOOST's precedent) adds apps/bonanza/courses/gate.bbc to BZ_COURSES (after the
+#> [Knobs] BZGATE=1 :: Bounce Bonanza with its SWITCHES, KEYS, GATES and DRAWBRIDGE test course, GATE (SPEC.md 130.41): a plate's gate, a key's gate, a timed drawbridge and a switched one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/gate BZGATE=1 bonanzadisk)
+# BZGATE=1 (SPEC.md 130.41.6, BZBOOST's precedent) adds apps/bonanza/courses/gate.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathgate.sed applied: pad 0 becomes GATE, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -21699,8 +21897,8 @@ BZGATESTAMP := $(BUILD)/.bzgate-$(or $(BZGATE),0)
 $(BZGATESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzgate-*
 	@touch $@
-#> [Knobs] BZTILT=1 :: Bounce Bonanza with its SEE-SAW test course, TILT (SPEC.md 128.42): a ledge only light glass reaches, a gate the ball's weight lays down, a rocker - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/tilt BZTILT=1 bonanzadisk)
-# BZTILT=1 (SPEC.md 128.42.7, BZBOOST's precedent) adds apps/bonanza/courses/tilt.bbc to BZ_COURSES (after the
+#> [Knobs] BZTILT=1 :: Bounce Bonanza with its SEE-SAW test course, TILT (SPEC.md 130.42): a ledge only light glass reaches, a gate the ball's weight lays down, a rocker - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/tilt BZTILT=1 bonanzadisk)
+# BZTILT=1 (SPEC.md 130.42.7, BZBOOST's precedent) adds apps/bonanza/courses/tilt.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathtilt.sed applied: pad 0 becomes TILT, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build's courses and demos are the
@@ -21726,8 +21924,8 @@ BZTILTSTAMP := $(BUILD)/.bztilt-$(or $(BZTILT),0)
 $(BZTILTSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bztilt-*
 	@touch $@
-#> [Knobs] BZTURN=1 :: Bounce Bonanza with its QUARTER-TURN TURNTABLE test course, TURN (SPEC.md 128.43): half-filled tables turning a quarter turn a second, crossed on the turn - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/turn BZTURN=1 bonanzadisk)
-# BZTURN=1 (SPEC.md 128.43.7, BZBOOST's precedent) adds apps/bonanza/courses/turntable.bbc to BZ_COURSES (after
+#> [Knobs] BZTURN=1 :: Bounce Bonanza with its QUARTER-TURN TURNTABLE test course, TURN (SPEC.md 130.43): half-filled tables turning a quarter turn a second, crossed on the turn - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/turn BZTURN=1 bonanzadisk)
+# BZTURN=1 (SPEC.md 130.43.7, BZBOOST's precedent) adds apps/bonanza/courses/turntable.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
 # with apps/bonanza/courses/pathturn.sed applied: pad 0 becomes TURN, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -21753,9 +21951,38 @@ BZTURNSTAMP := $(BUILD)/.bzturn-$(or $(BZTURN),0)
 $(BZTURNSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzturn-*
 	@touch $@
-#> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 128.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
+#> [Knobs] BZROLL=1 :: Bounce Bonanza with the real courses in the making - FIRST ROLL on pad 0 in FIRST's place (Play Game, Enter plays it) and ISLAND HOP on pad 1 in TRIAL's (docs/plans/bonanza-courses/) - a knob build, into a private tree (make BUILD=build/roll BZROLL=1 bonanzadisk)
+# BZROLL=1 (wave 11, story 11.16; BZTURN's precedent) adds apps/bonanza/courses/roll.bbc to BZ_COURSES (after
+# the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
+# with apps/bonanza/courses/pathroll.sed applied: pad 0 becomes ROLL in FIRST's place (ROLL has one finish, so
+# its exit 0 goes where FIRST's did), and, since course 2 was penned in, ISLAND HOP's hop.bbc too, pad 1 in TRIAL's
+# place.  The playtest build of the pen-in-then-iterate loop (the course guide,
+# section 3): refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
+# knob-less one.  When the course ships it moves into BZ_COURSES and the knob goes.
+BZROLL ?=
+ifeq ($(filter $(BZROLL),1),)
+ifneq ($(BZROLL),)
+$(error BZROLL=$(BZROLL) is 1 or empty)
+endif
+endif
+ifeq ($(BZROLL),1)
+ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZHUMP) $(BZTURN)),)
+$(error BZROLL=1 with another pad-0 test course knob: each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathroll.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathroll.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathroll.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZROLLSTAMP := $(BUILD)/.bzroll-$(or $(BZROLL),0)
+$(BZROLLSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzroll-*
+	@touch $@
+#> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 130.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
-# it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 128.28.6's SHOW rule
+# it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 130.28.6's SHOW rule
 # (a FIELD cell's poses only from BZ_CLIMB up, airborne, a pose's pixels only past FSHOW = 8 lit px, and no
 # OCCG on a FIELD cell) on every course. Off, a FIELD cell's ball is cut at every real pose and its cell
 # carries OCCG. A course without FIELD cells is byte for byte the same either way; a course's own `fshow`
@@ -21770,12 +21997,12 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
-# SPEC.md 128.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
+# SPEC.md 130.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
 BZ_TITLESRC := $(BZ_TITLE) apps/bonanza/courses/title.bba $(wildcard apps/bonanza/demos/*.bzt)
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
-# The SHIPPED DEMOS (SPEC.md 128.14.7.4): one a tour course, BZD<K>.BIN for K
+# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a tour course, BZD<K>.BIN for K
 # 1 - 6, written by the same run - a course's apps/bonanza/demos/<file>.bzd
 # when it has one (text, checked by the model), else the ROUTE DEMO the tool
 # makes from the course's route.  Their part rows follow the songs'
@@ -21789,20 +22016,20 @@ BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
            $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
-# The course part's RAM record is D's, 4 bytes (SPEC.md 128.15.5): wave
+# The course part's RAM record is D's, 4 bytes (SPEC.md 130.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
-# (128.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
+# (130.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
 # and the BZREC knob were deleted, and bbcourse.py's `--rec` with them: records
 # are 4 bytes, and bzcourse.inc's BZ_REC says so. (The identity is still
-# taken over the 8-byte layout of the model, SPEC.md 128.15.7.)
+# taken over the 8-byte layout of the model, SPEC.md 130.15.7.)
 # BZPARTZF is the format of BONANZA.O88's compressed PARTS (os88pkg's
 # --part-compress; the format byte is the parts TABLE's, so the courses, the
 # balls, the sound, the songs and the demos go together): LZB, the owner's
-# decision (2026-11-14, SPEC.md 128.15.9; the LZ4/LZB knob that measured it is
+# decision (2026-11-14, SPEC.md 130.15.9; the LZ4/LZB knob that measured it is
 # removed). A `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only
 # (SPEC.md 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an
 # image. The courses' compile does not read it (the course budget is LZ4's,
-# 128.15.8): a change re-packs BONANZA.O88 and recompiles nothing.
+# 130.15.8): a change re-packs BONANZA.O88 and recompiles nothing.
 BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),lzb)
 BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
 $(BZPARTZSTAMP): | $(BUILD)
@@ -21822,37 +22049,37 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-#> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 128.10.4)
+#> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
 bonanza-art: $(BZ_GEN) $(BZ_CGEN)
 # The host-side gates, by hand; the bonanzaassets and bonanzacourse soak rows
 # run the same commands.
-#> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB2 for three balls, the Hercules table, determinism (SPEC.md 128.11.17.2)
+#> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB2 for three balls, the Hercules table, determinism (SPEC.md 130.11.17.2)
 bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
-#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 128.10.4.6, 128.15.12.3); the title art is tools/bbtitle.py's (128.23.2)
+#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 130.10.4.6, 130.15.12.3); the title art is tools/bbtitle.py's (130.23.2)
 bonanza-course-check:
 	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
 	python3 tools/bbtitle.py --check
-#> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 128.15.12.2); minutes
+#> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 130.15.12.2); minutes
 bonanza-sizes: $(BUILD)/bonanza.o88
 	python3 tools/bbcourse.py --sizes $(BZ_COURSES)
 
-# THE SOUND (SPEC.md 128.20): tools/bbmusic.py packs the bank and the songs
+# THE SOUND (SPEC.md 130.20): tools/bbmusic.py packs the bank and the songs
 # under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
 # and writes bzsnd.inc.  BZ_SONGS is the tool's SONGS manifest, in its order.
-BZ_SONGS := fairway trial windmill moonlit summit victory attract
+BZ_SONGS := fairway trial windmill moonlit summit victory attract firstroll
 BZ_MUSSRC := apps/bonanza/music/bank.bmb $(addprefix apps/bonanza/music/,$(addsuffix .bmu,$(BZ_SONGS)))
-BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6,$(BZ_ART)/BZM$(i).BIN)
+BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7,$(BZ_ART)/BZM$(i).BIN)
 BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
 $(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
 	python3 tools/bbmusic.py -o $(BZ_ART)
 $(BZ_SGEN): $(BZ_ART)/.bz-snd ;
-#> [Applications] bonanza-music-check :: Bounce Bonanza's music packer's selfcheck: every song's notes, instruments and volumes as the guest's sequencer keys them (SPEC.md 128.20.2)
+#> [Applications] bonanza-music-check :: Bounce Bonanza's music packer's selfcheck: every song's notes, instruments and volumes as the guest's sequencer keys them (SPEC.md 130.20.2)
 bonanza-music-check:
 	python3 tools/bbmusic.py --selfcheck
 
@@ -21861,21 +22088,21 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/bonanza/fam/bzthunk.inc apps/bonanza/fam/bzdoor.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
-                      apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
+                      apps/bonanza/bzshell.inc apps/bonanza/bzvga.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
-# THE ART FILES ARE PARTS OF IT (SPEC.md 128.11.3.1, 20.12), and this --part
+# THE ART FILES ARE PARTS OF IT (SPEC.md 130.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
-# since SPEC.md 128.25.5.2), then the sound part and one part a song (SPEC.md 128.20.3), then
-# one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 128.14.7.4, 128.16.2).
-# SPEC.md 128.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
+# since SPEC.md 130.25.5.2), then the sound part and one part a song (SPEC.md 130.20.3), then
+# one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 130.14.7.4, 130.16.2).
+# SPEC.md 130.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
 # apps/bonanza/courses/kit.bzk), the row after the title's demos, before the family rows.
-# The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 128.25.6.9): a home-`fetch`
+# The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 130.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-# SPEC.md 128.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
+# SPEC.md 130.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
 # bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
 # halves, so a build with none packs exactly the arguments it always did.
 BZ_PARTS1 := $(BZ_CRSPARTS)
@@ -21883,7 +22110,7 @@ BZ_PARTS2 := $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPAT
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 
-# THE SHELL PART (SPEC.md 128.19.2, wave 8a): the desktop face, out of the
+# THE SHELL PART (SPEC.md 130.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
 # tools/pxlink.py re-assembles bonanza.asm with a symbol map, refuses unless it
 # is byte-identical to build/bonanza.bin, and writes its bss and constants
@@ -21891,38 +22118,43 @@ BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
 		-I $(BZ_ART)/ --prefix BZL --consts BZ -o $@
-# The window's art (SPEC.md 128.26.2): tools/bzwinart.py draws it from code
+# The window's art (SPEC.md 130.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
 	python3 tools/bzwinart.py -o $(BZ_ART)
+# THE VGA PART (SPEC.md 130.46.6): the VGA's writers and its one-off converter, LINKED as the
+# shell part is; the package's last row, after the families' (BZ_P_VGA)
+$(BUILD)/bzvga.bin: apps/bonanza/bzvga.asm apps/bonanza/bzvga.inc apps/os88api.inc $(BZ_ART)/bzcourse.inc \
+                    $(BZ_ART)/bzlink.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
 $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzwface.inc apps/bonanza/bzshell.inc \
                       apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-# wave 9 (SPEC.md 128.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row (BZ_FAMS: every
+# wave 9 (SPEC.md 130.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row (BZ_FAMS: every
 # family, whatever its home; a family added there and not here leaves `famparts` naming a file nothing
 # builds), each apps/bonanza/fam/<name>.asm
 # LINKED against the package as the shell part is (bzlink.inc: its bss and constants, never a code label)
 $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) apps/os88api.inc $(BZ_ART)/bzcourse.inc \
                     $(BZ_ART)/bzlink.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-# THE RESIDENT BUNDLE (SPEC.md 128.25.6.9, 128.25.5.2): the three balls' stored BZB3 parts first (generated
+# THE RESIDENT BUNDLE (SPEC.md 130.25.6.9, 130.25.5.2): the three balls' stored BZB3 parts first (generated
 # in place once, at the open), then the home-`resident` families' parts back to back, each from a
 # paragraph, its header's +11 its paragraphs - a row in every build
 $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin tools/os88pkg.py \
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
 		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
-		--part-compress $(BZPARTZF)
+		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF)
 
-#> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
+#> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)
 bonanza: $(BUILD)/bonanza.o88
 
 # The disk is the package and its README, LZ-wrapped like every other data
 # file (SPEC.md 20.14); `make PKGZ=` ships it raw - and SYSTEM\APPDATA, built
 # empty (SPEC.md 19.9: os88data.inc creates no folder), where the game keeps
-# BONANZA.DAT, its best times (SPEC.md 128.14.3.3).
+# BONANZA.DAT, its best times (SPEC.md 130.14.3.3).
 BZ_Z := $(ZDATA)/bonanza
 BZ_DATA := apps/bonanza/README.md
 BZ_DISKFILES := $(BUILD)/bonanza.o88 $(if $(PKGZ),$(addprefix $(BZ_Z)/,$(notdir $(BZ_DATA))),$(BZ_DATA))
@@ -21941,7 +22173,7 @@ $(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
 $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
-# SPEC.md 128.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
+# SPEC.md 130.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
 # diagonal lane run on until one part refuses it) as course 7, a package and floppy of their own in a private
 # tree, on no shipped disk and not in the tour.  On demand; nothing in `all` builds it.
 BZ_TWOSEG := $(BUILD)/bztwoseg
@@ -21949,46 +22181,46 @@ $(BZ_TWOSEG)/twoseg.bbc: tools/bbcourse.py apps/bonanza/courses/playground.bbc
 	@mkdir -p $(BZ_TWOSEG)
 	python3 tools/bbcourse.py twoseg -o $@
 .PHONY: bonanzatwoseg
-#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 128.30.7); not shipped
+#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 130.30.7); not shipped
 bonanzatwoseg: $(BZ_TWOSEG)/twoseg.bbc
 	$(MAKE) --no-print-directory BUILD=$(BZ_TWOSEG) BZ_COURSES="$(BZ_COURSES) $(BZ_TWOSEG)/twoseg.bbc" bonanzadisk
-#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 128.1, 128.14.3.3)
+#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 130.1, 130.14.3.3)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
-# SPEC.md 128.11.17.2's and 128.12.13.2's emulator rows, by hand (the soak
+# SPEC.md 130.11.17.2's and 130.12.13.2's emulator rows, by hand (the soak
 # rows of the same names run the same scripts). Every red arm builds a broken
 # copy of the package into a temporary directory, never $(BUILD):
 # `python3 tests/bonanza_<row>.py --red <arm>`, the arms each script's
 # `--help` lists (ring, phys, replay, exit, mega, wheel, perf, game, demo and
 # sound have them; no list is kept here, so none goes stale - wave 5b's
 # are ring nodither|recstep, exit expoff1|rowtab1|cellsafe, mega expcs,
-# SPEC.md 128.15.13).  Each script's `--check`
+# SPEC.md 130.15.13).  Each script's `--check`
 # (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
 # copy assembles, and the scenarios are proved on the model.
 .PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzapath bonanzamega bonanzawheel bonanzasound
-#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 128.11.17.2, 128.12.13.2)
+#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 130.11.17.2, 130.12.13.2)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_ring.py
-#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: BENCH's A/B against wave 2 with the heavy rule off, BENCH and TRIAL with it, MILL's wheel and the lift's ride (SPEC.md 128.11.17.2, 128.12.13.2)
+#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: BENCH's A/B against wave 2 with the heavy rule off, BENCH and TRIAL with it, MILL's wheel and the lift's ride (SPEC.md 130.11.17.2, 130.12.13.2)
 bonanzaperf: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_perf.py --ab
-#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame: the benchmark, wave 1's pokes, wave 2's replayed scenarios, MILL's windmills, tubes, posts and lift (SPEC.md 128.11.17.2, 128.12.13.2)
+#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame: the benchmark, wave 1's pokes, wave 2's replayed scenarios, MILL's windmills, tubes, posts and lift (SPEC.md 130.11.17.2, 130.12.13.2)
 bonanzaphys: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_phys.py
-#> [Applications] bonanzareplay :: Bounce Bonanza's replays on MartyPC: a recorded play, its replay on both cards and injected logs, all equal to the host model; MILL's play and another course's log refused (SPEC.md 128.11.12, 128.12.8)
+#> [Applications] bonanzareplay :: Bounce Bonanza's replays on MartyPC: a recorded play, its replay on both cards and injected logs, all equal to the host model; MILL's play and another course's log refused (SPEC.md 130.11.12, 130.12.8)
 bonanzareplay: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_replay.py
-#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball and on MILL, Esc with the ball hidden in a tube, and a held C, M or N is one press (SPEC.md 128.11.17.2, 128.12.13.2)
+#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball and on MILL, Esc with the ball hidden in a tube, and a held C, M or N is one press (SPEC.md 130.11.17.2, 130.12.13.2)
 bonanzaexit: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_exit.py
-#> [Applications] bonanzapath :: Bounce Bonanza's game loop: the pathway, a node's course, a finish opening the next node, lives and game over, in one bracket (SPEC.md 128.19.5)
+#> [Applications] bonanzapath :: Bounce Bonanza's game loop: the pathway, a node's course, a finish opening the next node, lives and game over, in one bracket (SPEC.md 130.19.5)
 bonanzapath: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_path.py
-#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (MILL's route and ride), the fake shifts; no fault, no leak (SPEC.md 128.11.17.2, 128.12.12)
+#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (MILL's route and ride), the fake shifts; no fault, no leak (SPEC.md 130.11.17.2, 130.12.12)
 bonanzamega: bonanzadisk $(BUILD)/mega.img
 	python3 tests/bonanza_mega.py
-#> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 128.12.13.2)
+#> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 130.12.13.2)
 bonanzawheel: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_wheel.py
-#> [Applications] bonanzasound :: Bounce Bonanza's sound on MartyPC, the speaker and the AdLib: the guest's sequencer held to tools/bbmusic.py's, every ball's impacts, S, the chip's shadows, the cost (SPEC.md 128.20.8)
+#> [Applications] bonanzasound :: Bounce Bonanza's sound on MartyPC, the speaker and the AdLib: the guest's sequencer held to tools/bbmusic.py's, every ball's impacts, S, the chip's shadows, the cost (SPEC.md 130.20.8)
 bonanzasound: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_sound.py

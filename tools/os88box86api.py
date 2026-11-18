@@ -44,7 +44,10 @@ THE MACHINE a row's MartyPC name describes (`machine_config`):
     _NNNk         the XT's RAM (128k, 256k, 512k ...)
   kern_mega - always vm/at286-port, as before.
   `_ems` adds a Lo-tech EMS board (260h, frame E000h, 2 MB) to it.
-  $OS88_86BOX_VM (kern_mega: $OS88_MEGA_VM) names any other vm/ profile.
+  $OS88_86BOX_VM (kern_mega: $OS88_MEGA_VM) names any other vm/ profile;
+  a name asking for a VGA keeps that profile's own (pvga1a, ...), and
+  $OS88_86BOX_CARD (kern_mega: $OS88_MEGA_CARD) names one outright - the
+  mr286 with the 5150 #2's PVGA1A is `VM=at286-port CARD=pvga1a`.
   A name for a machine only 86Box has carries NO `os8088_` prefix - that is
   MartyPC's namespace, which tests/unit/t_machines.py holds to its machine
   list - so a row asking for an AT says `at286_vga`, `at286_vga_hdd` or
@@ -199,10 +202,21 @@ def scancode(name):
 # 86Box's card -> (MartyPC's `type`, the 1bpp kind `vram` takes or None)
 _CARDS = {"cga": ("cga", "cga"), "hercules": ("mda", "herc"), "vga": ("vga", None),
           "mda": ("mda", "herc"), "oti067": ("vga", None),
+          "pvga1a": ("vga", None), "wd90c11": ("vga", None),
+          "et4000ax": ("vga", None), "tvga8900d": ("vga", None),
           "ega": ("ega", None)}
 
-# the CPUs whose machines have no CMOS and an XT's floppy controller
-_XT_CPUS = ("8088", "8086", "v20", "v30", "8088_europc")
+# The VGAs a $OS88_86BOX_VM profile may carry and keep: a name that asks for
+# a VGA gets the PROFILE's own when it has one of these (vm/xt-vga's PVGA1A,
+# the 5150 #2's card), and the OTI-067 otherwise
+_PROFILE_VGAS = ("pvga1a", "wd90c11", "et4000ax", "tvga8900d", "oti067")
+
+# the CPUs whose machines have no CMOS and an XT's floppy controller - by
+# 86Box's cpu_family names, which call the NECs `necv20`/`necv30` (with the
+# bare names a V20 profile was judged an AT: a 1.2MB drive on an XT's
+# controller, and GLaBIOS's "Disk Boot Fail")
+_XT_CPUS = ("8088", "8086", "v20", "v30", "necv20", "necv30", "80c88",
+            "8088_europc")
 
 
 def profile_cfg(profile):
@@ -259,6 +273,13 @@ def machine_config(machine, mega=False, images=()):
         (_env("VM") or pick_profile(machine, images))
     at = is_at(profile)
     cards = _cards_of(n)
+    if cards == ["oti067"]:
+        own = dict(ob.read_cfg(ob.find_cfg(profile))[1].get("Video", [])) \
+            .get("gfxcard") if _env("VM", mega) else None
+        if _env("CARD", mega) in _PROFILE_VGAS:
+            cards = [_env("CARD", mega)]    # $OS88_86BOX_CARD: by name
+        elif own in _PROFILE_VGAS:
+            cards = [own]                   # the profile's own VGA
     sets = [("Video", "gfxcard", cards[0]),
             ("Video", "gfxcard_2", cards[1] if len(cards) > 1 else None)]
     snd = None

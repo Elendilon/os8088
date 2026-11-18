@@ -7,12 +7,12 @@ index deb805b71..41cca3a03 100644
      mov al, [es:BZB_NSHA]       ; stretch (wave 6), one table at the same
      add al, [es:BZB_NSTR]       ; offset: +12 and +14 count them, never both
 -; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS entries, ONE line
--; parity copy each (SPEC.md 128.38.10), every frame half 16 rows from table 0
+-; parity copy each (SPEC.md 130.38.10), every frame half 16 rows from table 0
 +; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS x 2 parity copies,
 +; every copy's frame half 16 rows from table p (copies alternate p = 0, 1)
  bz_hxents:
--    mov ah, BZ_BAL_SHIFTS       ; (one parity copy each, SPEC.md 128.38.10)
-+    mov ah, BZ_BAL_ESH * BZ_BAL_EPAR ; (SPEC.md 128.38.10: A and B store fewer)
+-    mov ah, BZ_BAL_SHIFTS       ; (one parity copy each, SPEC.md 130.38.10)
++    mov ah, BZ_BAL_ESH * BZ_BAL_EPAR ; (SPEC.md 130.38.10: A and B store fewer)
      mul ah
      or ax, ax
      jz .out
@@ -34,7 +34,7 @@ index f71b923f2..acee91a6f 100644
      ret
  
  ; bg_ent - an entry (squash 0 or 1, the stretch): SI = its shape table; ES:DI
--; gets its four shifts, one line-parity copy each (SPEC.md 128.38.10), each
+-; gets its four shifts, one line-parity copy each (SPEC.md 130.38.10), each
 -; (16 mask rows, 16 frame rows), and DI is left past it.  Row y of the shape: I = the interior (all
 +; gets its four shifts of two identical copies, each (16 mask rows, 16 frame
 +; rows), and DI is left past it.  Row y of the shape: I = the interior (all
@@ -45,7 +45,7 @@ index f71b923f2..acee91a6f 100644
      call bg_sp                  ; the mask row: the clear pixels kept
      mov cx, 0C0FFh
      mov di, [BG_EDI]
--    mov bp, BZ_BAL_ENT          ; (one parity copy, SPEC.md 128.38.10)
+-    mov bp, BZ_BAL_ENT          ; (one parity copy, SPEC.md 130.38.10)
 -    call bg_put4
 +    call bg_eput
      pop bp
@@ -65,7 +65,7 @@ index f71b923f2..acee91a6f 100644
      cmp bp, 32
      jb .y
      pop di
--    add di, BZ_BAL_SHIFTS * BZ_BAL_ENT ; (one parity copy, SPEC.md 128.38.10)
+-    add di, BZ_BAL_SHIFTS * BZ_BAL_ENT ; (one parity copy, SPEC.md 130.38.10)
 +%if BZ_BAL_EPAR > 1
 +    push ds                     ; the second copies: each shift's, again
 +    push es
@@ -80,13 +80,13 @@ index f71b923f2..acee91a6f 100644
 +    jnz .c
 +    pop ds
 +%else
-+    add di, BZ_BAL_ESH * BZ_BAL_ENT ; (SPEC.md 128.38.10: B, one parity copy)
++    add di, BZ_BAL_ESH * BZ_BAL_ENT ; (SPEC.md 130.38.10: B, one parity copy)
 +%endif
 +    ret
 +
 +; bg_eput - an entry's row (AX, DX, CL at shift 0; CH the fill's field) to
 +; ES:DI and, the entry's shifts stored (BZ_BAL_ESH 4), its shifts 1..3 one
-+; entry copy apart; A (BZ_BAL_ESH 1, SPEC.md 128.38.10) stores shift 0 alone
++; entry copy apart; A (BZ_BAL_ESH 1, SPEC.md 130.38.10) stores shift 0 alone
 +bg_eput:
 +%if BZ_BAL_ESH > 1
 +    mov bp, BZ_BAL_EPAR * BZ_BAL_ENT
@@ -109,7 +109,7 @@ index aaf067bb1..910058ed1 100644
   %error "bz_sprite's .ent takes the stretch as entry 0 of the table at BZ_BAL_STROFF"
  %endif
 +%if BZ_BAL_ESH == 1
-+; bz_eshift - A (SPEC.md 128.38.10): the entry at AX (shift 0, mask 16 rows
++; bz_eshift - A (SPEC.md 130.38.10): the entry at AX (shift 0, mask 16 rows
 +; then frame 16 rows, in the ball part bz_bsegs[bz_mat]) moved BL = s (1 - 3)
 +; pixels right into the part's scratch, BZ_BAL_SCROFF - the mask filling with
 +; kept pixels, the frame with 0 - so bz_blit, bz_fdis and the boxes read it
@@ -179,10 +179,10 @@ index aaf067bb1..910058ed1 100644
      add al, cl
      mov dx, BZ_BAL_SQOFF
 -.ent:                           ; entry (k 4 + s) of the table at DX (ONE line
--    mov [bz_spr], al            ; parity copy, SPEC.md 128.38.10)
+-    mov [bz_spr], al            ; parity copy, SPEC.md 130.38.10)
 -    and al, 3                   ; k
 +.ent:                           ; entry ((k ESH + s) EPAR + p) of the table at
-+    mov [bz_spr], al            ; DX (SPEC.md 128.38.10: B one parity copy, A
++    mov [bz_spr], al            ; DX (SPEC.md 130.38.10: B one parity copy, A
 +    and al, 3                   ; one shift, k)
 +%if BZ_BAL_ESH > 1
      shl al, 1
@@ -195,7 +195,7 @@ index aaf067bb1..910058ed1 100644
 +    shl al, 1
 +    or al, ah
 +%endif
-     xor ah, ah                  ; x 160 = (i << 5) x 5, by shifts (128.9 item
+     xor ah, ah                  ; x 160 = (i << 5) x 5, by shifts (130.9 item
      mov cl, 5                   ; 1's no-MUL rule; i <= 31)
      shl ax, cl
 @@ -2705,6 +2776,12 @@ bz_sprite:
@@ -217,10 +217,10 @@ index 98da807df..e0086f601 100644
 +++ b/tests/bonanza_phys.py
 @@ -2145,7 +2145,14 @@ def fam_host():
      o2, f2 = wind_host(binp, lst, sym, fam)
-     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
-     so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 128.38)
+     wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 130.36)
+     so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 130.38)
 -    return out + o_ + o2 + wo + so, fails + f_ + f2 + wf + sf
-+    eo, ef = eshift_host(binp, lst, sym)           # A (SPEC.md 128.38.10): the draw's shift; red: the mask's fill
++    eo, ef = eshift_host(binp, lst, sym)           # A (SPEC.md 130.38.10): the draw's shift; red: the mask's fill
 +    if eo:                                          # 0, the kept pixels shifted in as holes
 +        img = open(binp, "rb").read()
 +        at = img.find(b"\xb5\xc0", sym["bz_eshift"])
@@ -230,13 +230,13 @@ index 98da807df..e0086f601 100644
 +    return out + o_ + o2 + wo + so + eo, fails + f_ + f2 + wf + sf + ef
  
  
- # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
+ # ---- MAGNETS (SPEC.md 130.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
 @@ -2579,6 +2586,40 @@ def spike_host(binp, lst, sym):
      return out, fails
  
  
 +def eshift_host(binp, lst, sym, patch=()):
-+    """A (SPEC.md 128.38.10): bz_sprite's bz_eshift under unicorn - every squash, shatter, stretch and pop entry
++    """A (SPEC.md 130.38.10): bz_sprite's bz_eshift under unicorn - every squash, shatter, stretch and pop entry
 +    of every ball (its BZB2, bonanza_assets.build_ball2) at shifts 1 - 3 moved into the part's scratch equal to
 +    bonanza_assets.ent_rows, the entry as the tool's composites and the ring oracle draw it, with BX kept ->
 +    (lines, failures); empty when the build stores its shifts (BZ_BAL_ESH 4, no bz_eshift)"""
@@ -280,12 +280,12 @@ index 84160e949..70e48d978 100644
  NST = 1                       # rubber's STRETCH frames (wave 6, the boost's cue)
  ST_W = 12                     # the stretch: an ellipse 12 wide, 16 tall, centred
  ENT = 2 * D * RB              # a squash or shatter entry: mask 80 + frame 80
--# THE DEATH AND SQUASH FRAMES (SPEC.md 128.11.9.1 as 128.38.10 amends it, the owner's B): a squash, shatter,
+-# THE DEATH AND SQUASH FRAMES (SPEC.md 130.11.9.1 as 130.38.10 amends it, the owner's B): a squash, shatter,
 -# stretch or pop FRAME is its entry at each of the 4 shifts, ONE line-parity copy each (it was two: the same
 -# bytes on the CGA; on the Hercules the one copy's mid colours are a checker phase off on odd lines) - 640
 -# bytes a frame.  A (one shift, shifted at the draw) is parked: docs/plans/bounce-bonanza/patches/
 -ENTS = SHIFTS * ENT           # a frame's bytes
-+# THE DEATH AND SQUASH FRAMES' COPIES (SPEC.md 128.11.9.1 as 128.38.10 amends it, the owner's A and B):
++# THE DEATH AND SQUASH FRAMES' COPIES (SPEC.md 130.11.9.1 as 130.38.10 amends it, the owner's A and B):
 +# a squash, shatter, stretch or pop FRAME is EPAR line-parity copies of ESH shifts of an entry.  EPAR 2, ESH 4
 +# is the layout as it was (1,280 bytes a frame); B, EPAR 1: one parity copy (the Hercules' mid colours a
 +# checker phase off on alternate lines, as drawn), 640; A, ESH 1 as well: the entry at shift 0 alone, shifted
@@ -303,15 +303,15 @@ index 84160e949..70e48d978 100644
 +B2_SCROFF = B2_SHDOFF + 2 * SHIFTS * SHD_ROWS * RB  # (every ball's, at the same offset)
 +B2_SHAOFF = B2_SCROFF + B2_SCRN                    # 8,256 as it was
  B2_STROFF = B2_SHAOFF                              # 8,256: rubber's stretch, where glass's shatter is
- NPOP = 3                      # rubber's POP frames (SPEC.md 128.38): its shatter entries 1 - 3, after its stretch
+ NPOP = 3                      # rubber's POP frames (SPEC.md 130.38): its shatter entries 1 - 3, after its stretch
                                # (entry 0, which a pop shows first: the ball bulging), BZB2 +12
 @@ -306,20 +312,33 @@ assert NST + NPOP == NSH      # (the sprite's SHATTER k reads entry k of the one
  
  def ent_at(base, k, s, p):
      """the STORED entry of frame k of the table at BASE that a sprite drawn at shift s on a line of parity p
--    reads (SPEC.md 128.38.10): its shift s's one copy, whatever the parity"""
+-    reads (SPEC.md 130.38.10): its shift s's one copy, whatever the parity"""
 -    return base + (k * SHIFTS + s) * ENT
-+    reads (SPEC.md 128.38.10): its copy p & (EPAR - 1) of its shift s (A: shift 0, shifted at the draw)"""
++    reads (SPEC.md 130.38.10): its copy p & (EPAR - 1) of its shift s (A: shift 0, shifted at the draw)"""
 +    return base + ((k * ESH + (s if ESH > 1 else 0)) * EPAR + (p if EPAR > 1 else 0)) * ENT
 +
 +
@@ -399,7 +399,7 @@ index 84160e949..70e48d978 100644
          "BZ_BAL_SQOFF    equ %d      ; squash: frame x shift x parity x (mask, frame)" % B2_SQOFF,
          "BZ_BAL_NSQ      equ %d" % NSQ,
          "BZ_BAL_ENT      equ %d       ; a squash or shatter entry: mask 80 + frame 80" % ENT,
-+        "BZ_BAL_EPAR     equ %d         ; its line-parity copies (SPEC.md 128.38.10: B keeps 1)" % EPAR,
++        "BZ_BAL_EPAR     equ %d         ; its line-parity copies (SPEC.md 130.38.10: B keeps 1)" % EPAR,
 +        "BZ_BAL_ESH      equ %d         ; its shifts stored (A: 1, shifted as drawn into the scratch)" % ESH,
 +        "BZ_BAL_SCROFF   equ %d      ; A's scratch: the drawn entry, shifted (B2_SCRN bytes, 0 without A)" % B2_SCROFF,
          "BZ_BAL_SQ0ROWS  equ %d        ; squash 0's height, bottom-anchored" % SQ_ROWS[0],
@@ -428,11 +428,11 @@ index 84160e949..70e48d978 100644
      _check_ball2(MAT_GLASS, bytes(gl), sub, "glass, interior mask SOLID")
      results.append(("negative control: glass's interior mask made solid is caught", not all(g for _, g in sub)))
      sq = bytearray(a_files["BZBALS.BIN"])
--    sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40     # (one copy, SPEC.md 128.38.10: a mask pixel
+-    sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40     # (one copy, SPEC.md 130.38.10: a mask pixel
 -                                                                # made half-kept)
 +    if EPAR > 1:
 +        sq[B2_SQOFF + ENT + D * RB + 40] ^= 0x30
-+    else:                                       # (one copy, SPEC.md 128.38.10: a mask pixel made half-kept)
++    else:                                       # (one copy, SPEC.md 130.38.10: a mask pixel made half-kept)
 +        sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40
      sub = []
      _check_ball2(MAT_STEEL, bytes(sq), sub, "steel, a squash parity copy altered")

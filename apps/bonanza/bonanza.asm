@@ -1,23 +1,23 @@
 ; BONANZA - Bounce Bonanza, an isometric rolling-ball game for os8088.
-; Contract: SPEC.md 128 (the plan: docs/plans/BOUNCE-BONANZA-PLAN.md).
+; Contract: SPEC.md 130 (the plan: docs/plans/BOUNCE-BONANZA-PLAN.md).
 ;
-; WAVE 0 IS THE ENGINE SPIKE (SPEC.md 128): a ball rolled over a generated
+; WAVE 0 IS THE ENGINE SPIKE (SPEC.md 130): a ball rolled over a generated
 ; isometric test course that HARDWARE-SCROLLS IN BOTH DIRECTIONS on the CGA
 ; (FSXM_CGA320) and the Hercules (FSXM_HERC with Excitebike's 200-line
 ; pair-pixel field, SPEC.md 102.7.1), the 64-frame phase-torus ball, and the
 ; instruments that price a frame.  No heightfield physics, obstacles, sound or
 ; game rules yet.
 ;
-; This file is the header, the window and its desktop face (SPEC.md 128.1,
-; 128.6, 128.14.3): the title, the keys, the adapter line, the held log's
+; This file is the header, the window and its desktop face (SPEC.md 130.1,
+; 130.6, 130.14.3): the title, the keys, the adapter line, the held log's
 ; line, the tour's SCORECARD, and after a benchmark the RESULTS page - and the
-; game's books: the tour, the best times and BONANZA.DAT (128.14.21).  bzvideo.inc is the bracket, the mode, the retrace wait, the ring
-; writers and the boxes (128.2, 128.4); bzgame.inc is the frame loop, the
-; simulation, the camera, the autopilot and the instruments (128.4 - 128.6).
+; game's books: the tour, the best times and BONANZA.DAT (130.14.21).  bzvideo.inc is the bracket, the mode, the retrace wait, the ring
+; writers and the boxes (130.2, 130.4); bzgame.inc is the frame loop, the
+; simulation, the camera, the autopilot and the instruments (130.4 - 130.6).
 ; Nothing here is a reference game's: the ball is tools/bonanza_assets.py's
-; (128.3) and the courses are text compiled by tools/bbcourse.py (128.10.4),
+; (130.3) and the courses are text compiled by tools/bbcourse.py (130.10.4),
 ; generated into build/bonanza-art/ and carried as 3 + BZ_NCRS PARTS: three
-; balls and one part a course, every one the CGA's (SPEC.md 128.11.3.1).
+; balls and one part a course, every one the CGA's (SPEC.md 130.11.3.1).
 %include "os88api.inc"
 OS88_HEADER 'BONANZA', bz_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
 OS88_ICON16
@@ -26,7 +26,7 @@ OS88_ICON16
     dw 0x07e0,0x1818,0x2004,0x4002,0x4c02,0x8c01,0x8001,0x8061
     dw 0x8061,0x8001,0x8c03,0x4c06,0x400e,0x203c,0x1ff8,0x07e0
 OS88_ICON16_END
-; a recorded demo, *.BZR, is BONANZA's document (SPEC.md 128.14.7.5, 54.6): a
+; a recorded demo, *.BZR, is BONANZA's document (SPEC.md 130.14.7.5, 54.6): a
 ; double-click launches BONANZA with it, and its page wears a ball and its
 ; bounce (54.3.2)
 OS88_ASSOC16
@@ -43,27 +43,28 @@ OS88_DOCGLYPH8
     db 01010101b
     db 00000000b
 OS88_DOCGLYPH8_END
-; The art files are PARTS of this file (SPEC.md 128.11.3.1, 20.12), every one
+; The art files are PARTS of this file (SPEC.md 130.11.3.1, 20.12), every one
 ; lazy and compressed: only the play's course and ball are ever read, on the
 ; DESKTOP before the bracket (so op_fetch's refusal toast can be drawn), the
 ; course's stored form is expanded in place there (bz_cexp, SPEC.md
-; 128.15.4.5), the Hercules translates both in place after it (bz_hxlat), and
-; both are dropped when the bracket returns (SPEC.md 128.7, 128.11.3).
+; 130.15.4.5), the Hercules translates both in place after it (bz_hxlat), and
+; both are dropped when the bracket returns (SPEC.md 130.7, 130.11.3).
 %define OP_NO_LAZYOK            ; (the fetch itself asks; no pre-check is used)
-%define OP_WANT_CSEG            ; op_cseg: the shell part is FAR-CALLED (SPEC.md 128.19.2)
+%define OP_WANT_CSEG            ; op_cseg: the shell part is FAR-CALLED (SPEC.md 130.19.2)
 %define OP_SAYGATE bz_fs        ; a fetch refused inside the bracket, after its
-                                ; mode set, says nothing (SPEC.md 53.7, 128.19.5)
+                                ; mode set, says nothing (SPEC.md 53.7, 130.19.5)
 %define OP_WANT_ARENA           ; a play's SMALL parts - the balls, the sound part,
-                                ; the songs - share ONE claim (SPEC.md 128.25.4)
+                                ; the songs - share ONE claim (SPEC.md 130.25.4)
 %define OP_ARFORCE bz_arforce   ; HARNESS: the arena claimed at the ceiling and
                                 ; the batch unreserved, so a growth MOVES it
-                                ; (SPEC.md 20.12.15, 128.25.13)
+                                ; (SPEC.md 20.12.16, 130.25.13)
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
 %include "bzsnd.inc"            ; the songs and the events (tools/bbmusic.py)
-%include "bzshell.inc"          ; the shell part's vectors (SPEC.md 128.19.2)
-%include "bzwin.inc"            ; the window's art: its sizes (the part draws it, 128.26.2)
+%include "bzshell.inc"          ; the shell part's vectors (SPEC.md 130.19.2)
+%include "bzvga.inc"            ; the VGA part's vectors (SPEC.md 130.46.6)
+%include "bzwin.inc"            ; the window's art: its sizes (the part draws it, 130.26.2)
 %include "drivers/sound/sndpkg.inc" ; SOUND.DRV's FM door (bzsound.inc), from the root
                                 ; as every bonanza row assembles it
 
@@ -91,22 +92,22 @@ OS88_DOCGLYPH8_END
 BZ_LH       equ 10              ; the face's line pitch: an 8px cell and 2px of air
 BZ_LMAX     equ 88              ; the longest padded line (a 720px Hercules content box)
 
-; --- the part rows: the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1) ---------
+; --- the part rows: the Makefile's BZ_PARTS order (SPEC.md 130.11.3.1) ---------
                                 ; course K: BZ_P_CRS + K, bzcourse.inc's rows -
                                 ; the first: the balls have no row of their own,
-                                ; they ride the RESIDENT BUNDLE (128.25.5.2)
+                                ; they ride the RESIDENT BUNDLE (130.25.5.2)
 BZ_BALPS    equ BZ_BAL_SIZER / 16 ; steel's paragraph in the bundle (rubber's 0)
 BZ_BALPG    equ BZ_BALPS + BZ_BAL_SIZE / 16 ; glass's
 BZ_BALB     equ BZ_BAL_SIZER + BZ_BAL_SIZE + BZ_BAL_SIZEG ; the families' first byte
 %if (BZ_BAL_SIZER | BZ_BAL_SIZE | BZ_BAL_SIZEG) & 15 || BZ_BALB > 65535 - 4096
- %error "the bundle's balls are whole paragraphs, the families after them in one segment (128.25.5.2)"
+ %error "the bundle's balls are whole paragraphs, the families after them in one segment (130.25.5.2)"
 %endif
 
-; --- the course part's header (BZC2: SPEC.md 128.15.4.1, 128.10.5.2) -----------
+; --- the course part's header (BZC2: SPEC.md 130.15.4.1, 130.10.5.2) -----------
 ; Byte offsets from the part's first byte; the grid's from GRIDOFF.  Nothing
 ; here is checked on the guest: tools/bbcourse.py checked every one of them at
-; build time (SPEC.md 128.10.6.2).  BZC1's fields keep their offsets; the map
-; moved from +32 to +48 behind BZC2's own (128.15.4.1).
+; build time (SPEC.md 130.10.6.2).  BZC1's fields keep their offsets; the map
+; moved from +32 to +48 behind BZC2's own (130.15.4.1).
 BZC_COLS    equ 4               ; word columns: 64 or 128
 BZC_BROWS   equ 6               ; block rows
 BZC_NBLK    equ 8               ; N, blocks (bz_hxlat)
@@ -118,15 +119,15 @@ BZC_OCCREC  equ 16              ; the first record (bz_cexp's COUNTS)
 BZC_MASKOFF equ 20              ; mask 0 (bz_cexp's MASKTAB)
 BZC_NMASK   equ 22              ; the masks
 BZC_ROWB    equ 24              ; 2 COLS: the map row's byte stride, READ by the
-                                ; column writer through DS = the part (128.10.6.4)
+                                ; column writer through DS = the part (130.10.6.4)
 BZC_GRID    equ 26              ; GRIDOFF
-BZC_PROPOFF equ 28              ; the prop table (SPEC.md 128.12.3.1): its first
+BZC_PROPOFF equ 28              ; the prop table (SPEC.md 130.12.3.1): its first
 BZC_NPROP   equ 30              ; record, and the records (0: none)
 BZC_RECB    equ 32              ; byte: the record's size in RAM, 4 or 8
 BZC_SB      equ 33              ; signed byte: the s bias (0 when RECB is 8)
 BZC_TB      equ 34              ; the top bias, signed px (0 when RECB is 8)
 BZC_MTAB    equ 36              ; the mask table (0 when RECB is 8)
-BZC_DIROFF  equ 38              ; the section directory (SPEC.md 128.15.4.2):
+BZC_DIROFF  equ 38              ; the section directory (SPEC.md 130.15.4.2):
 BZC_NSEC    equ 40              ; its offset and its 8-byte entries
 BZ_OSROWS   equ 160             ; block rows bz_osum summarises (bz_osmake): PEAK has 135
 BZC_MAP     equ 48              ; the map: COLS x BROWS words, absolute offsets
@@ -135,7 +136,7 @@ BZX_OFF     equ 2               ; its RAM offset
 BZX_LEN     equ 4               ; its RAM length
 BZX_DLEN    equ 6               ; its STORED length, at the end of its slot
 BZX_ENTB    equ 8               ; an entry's size (BZX_: not BONANZA.DAT's BZD_)
-BZK_ENT     equ 6               ; THE KIT's part, BZK1 (SPEC.md 128.37.2): +4 NCLS,
+BZK_ENT     equ 6               ; THE KIT's part, BZK1 (SPEC.md 130.37.2): +4 NCLS,
 BZK_ENTB    equ 8               ; +6 an entry a class: tag, 0, a piece's bytes,
                                 ; the pieces, their offset in the part
 BZG_NROWS   equ 4               ; (at GRIDOFF +) the rows
@@ -145,27 +146,27 @@ BZG_KW      equ 10              ; cells a row
 BZG_ROWTAB  equ 12              ; ROWTAB's offset: a row's first cell
 BZG_X0      equ 14              ; px
 BZG_Y0      equ 16              ; signed px
-BZG_ID      equ 18              ; the course's IDENTITY (SPEC.md 128.12.8)
+BZG_ID      equ 18              ; the course's IDENTITY (SPEC.md 130.12.8)
 BZG_WX      equ 20              ; the start tile
 BZG_WY      equ 22
 BZG_NWAY    equ 24              ; the route: NWAY pairs of words, the ball's
 BZG_ROUTE   equ 26              ; picture top-left (px), at this offset
-; --- the ball part's header (BZB2, SPEC.md 128.11.9.1); its layout is
+; --- the ball part's header (BZB2, SPEC.md 130.11.9.1); its layout is
 ; bzconst.inc's BZ_BAL_* -------------------------------------------------------
 BZB_NSHA    equ 12              ; byte: shatter frames, 4 for glass, else 0
 BZB_NSTR    equ 14              ; byte: stretch frames, 1 for rubber, else 0
 %if BZ_BAL_STROFF != BZ_BAL_SHAOFF
  %error "bz_hxball translates the shatter and stretch entries as one table"
 %endif
-; --- the replay log's header (SPEC.md 128.11.12.1), in [bz_rlog] ---------------
+; --- the replay log's header (SPEC.md 130.11.12.1), in [bz_rlog] ---------------
 BZR_CRS     equ 4               ; byte: the course K
 BZR_MAT     equ 5               ; byte: the material
 BZR_FLAGS   equ 6               ; byte: bit 0 COMPLETE, bit 1 TRUNCATED, bit 2
-                                ; TILT (runs of three bytes, SPEC.md 128.14.8.3)
-BZR_PHYS    equ 7               ; byte: the PHYSICS identity BZ_PHYSV (128.14.7.2)
+                                ; TILT (runs of three bytes, SPEC.md 130.14.8.3)
+BZR_PHYS    equ 7               ; byte: the PHYSICS identity BZ_PHYSV (130.14.7.2)
 BZR_STEPS   equ 8               ; DWORD: the steps recorded
 BZR_NRUN    equ 12              ; word: the runs recorded
-BZR_ID      equ 14              ; word: the course's identity (128.12.8)
+BZR_ID      equ 14              ; word: the course's identity (130.12.8)
 BZR_RUNS    equ 16              ; the runs: (key byte, count 1 - 255) pairs, or
                                 ; with TILT (key byte, tilt byte, count) triples
 BZR_SIZE    equ 4096            ; the log, bz_rlog: at most 2,040 runs (1,360 TILT)
@@ -176,24 +177,25 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
 BZ_P_DEMO   equ BZ_P_SONG + BZS_NSONG ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1
-BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 128.19.2)
-BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (128.19.5)
+BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
+BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
-BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 128.23)
-BZ_P_KIT    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; THE KIT, BZKIT.BIN (SPEC.md 128.37): HELD
-BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 128.25.6.2): the family part
+BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 130.23)
+BZ_P_KIT    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; THE KIT, BZKIT.BIN (SPEC.md 130.37): HELD
+BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 130.25.6.2): the family part
                                 ; rows, after every other row: a `fetch` family's own (ID order),
-BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (128.25.6.9); bz_ftab maps an ID
+BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (130.25.6.9); bz_ftab maps an ID
+BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.46.6): the last row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
-; --- the game (SPEC.md 128.14.3) ------------------------------------------------
+; --- the game (SPEC.md 130.14.3) ------------------------------------------------
 ; the TOUR is bzcourse.inc's BZ_NTOUR courses, BZ_TOUR's K in order: a short NAMED list
-; (tools/bbcourse.py TOUR), a test fixture - not every course (SPEC.md 128.26.8)
+; (tools/bbcourse.py TOUR), a test fixture - not every course (SPEC.md 130.26.8)
 %if BZ_NTOUR < 1 || BZ_NTOUR > BZ_NCRS - 1
  %error "the tour is 1 - BZ_NCRS - 1 courses, never BENCH (bbcourse.py's tour_ks refuses the rest)"
 %endif
 BZ_TOURMAX  equ BZ_NTOUR * 65534 ; a tour's total a file may hold: each under
-                                ; the 65,535-step clamp (128.14.3.3)
-; --- BONANZA.DAT (SPEC.md 128.14.3.3, 128.22.5): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
+                                ; the 65,535-step clamp (130.14.3.3)
+; --- BONANZA.DAT (SPEC.md 130.14.3.3, 130.22.5): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
 ; `BZS4` (wave 8R round 2, item 8R.14): 494 bytes laid out for BZ_CRS_MAX = 23 courses
 BZD_ENT     equ 8               ; 23 entries, K 0 - 22 (BENCH's unused): +0 the
 BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
@@ -215,13 +217,13 @@ BZD_SBEST   equ BZD_SEXIT + 2 * BZ_CRS_MAX
 ; UNDER one sector, never a WHOLE one: od_write takes its in-place arm (one
 ; sector, no FAT, no entry) only for a count that is not a multiple of 512
 ; (os88data.inc), and the slot is written at a course's ENTRY inside the
-; bracket (128.19.6) - at 512 bytes every save would be a full replace
+; bracket (130.19.6) - at 512 bytes every save would be a full replace
 %if BZD_FILE >= 512 || BZD_SBEST + 2 * BZ_CRS_MAX != BZD_SLOTB || BZD_SID - BZD_SOPEN != 16 || BZ_NCRS > BZ_CRS_MAX
- %error "save v4 is under ONE sector, a word a course in both tables (SPEC.md 128.22.5)"
+ %error "save v4 is under ONE sector, a word a course in both tables (SPEC.md 130.22.5)"
 %endif
-BZD_NPAD    equ BZ_PATH_NPAD    ; the pads a slot's +2 may name (128.22.3)
+BZD_NPAD    equ BZ_PATH_NPAD    ; the pads a slot's +2 may name (130.22.3)
 %if BZD_NPAD > 32
- %error "the save keeps a bit a pad in a dword (SPEC.md 128.22.5)"
+ %error "the save keeps a bit a pad in a dword (SPEC.md 130.22.5)"
 %endif
 
 bz_entry:
@@ -229,38 +231,38 @@ bz_entry:
     call op_load                ; SI is still the kernel's name: FIRST. Every
     pop es                      ; row is lazy, so this copies the name and
     jc .out                     ; claims nothing
-    push es                     ; THE KIT (SPEC.md 128.37.5), HELD for the instance:
+    push es                     ; THE KIT (SPEC.md 130.37.5), HELD for the instance:
     call bz_kget0               ; under the bundle, so the arena above it grows in
     pop es                      ; place (quiet: a launch tries again and says why)
-    push es                     ; story 9.8 (SPEC.md 128.25.6.9): the RESIDENT
+    push es                     ; story 9.8 (SPEC.md 130.25.6.9): the RESIDENT
     call bz_bget                ; BUNDLE, one read, the arena's floor before anything
     pop es                      ; else enters it - and THE BALLS in it generated, ONCE
-                                ; (128.25.5.2; refused, op_fetch said why: the first
+                                ; (130.25.5.2; refused, op_fetch said why: the first
                                 ; launch tries again)
     call bz_argget              ; a double-clicked document's name, copied out
-                                ; while ES is still the kernel's (128.14.7.5)
+                                ; while ES is still the kernel's (130.14.7.5)
     mov si, bz_tpl
     call OSAPI_WM_CREATE        ; ...and AL = the class slots this kernel
     jc .out                     ; dispatches (SPEC.md 11.104): no timer slot
     cmp al, WC_ONTIMER + 1      ; is kern_small, the 128KB machine, which
-    sbb al, al                  ; refuses the bracket (SPEC.md 128.1)
+    sbb al, al                  ; refuses the bracket (SPEC.md 130.1)
     neg al
     mov [bz_small], al
-    jz .big                     ; kern_small plays nothing (SPEC.md 128.1): the
+    jz .big                     ; kern_small plays nothing (SPEC.md 130.1): the
     mov al, BZ_P_KIT            ; kit is given back (op_drop preserves every
     call op_drop                ; register; ES is still the kernel's)
 .big:
     mov [bz_win], bx
     call OSAPI_FILE_HERE        ; where BONANZA.O88 was launched from (SPEC.md
-    mov [bz_homedir], dx        ; 128.14.7.6): BONANZA.DAT's volume, whatever
+    mov [bz_homedir], dx        ; 130.14.7.6): BONANZA.DAT's volume, whatever
     mov [bz_homevol], bl        ; a dialog does to the instance later
-    call bz_dload               ; the best times (128.14.3.3); kern_small: none
+    call bz_dload               ; the best times (130.14.3.3); kern_small: none
     mov byte [bz_crsel], BZ_CRS_FIRST ; the course Enter plays, and its ball
     mov al, [bz_cballs + BZ_CRS_FIRST] ; (N and M change them, SPEC.md
-    mov [bz_matsel], al         ; 128.11.5.4)
+    mov [bz_matsel], al         ; 130.11.5.4)
     OS88_REGION_MOVABLE
     OS88_ALTENTER_ARM
-    mov ax, [bz_win]            ; THE WINDOW (SPEC.md 128.26): the Play Game
+    mov ax, [bz_win]            ; THE WINDOW (SPEC.md 130.26): the Play Game
     mov bx, bz_btrec            ; button's gesture (the library takes the press
     mov dx, bz_click            ; first and chains our own click work) ...
     call os88ui_btninit
@@ -326,10 +328,10 @@ bz_onkey:
     jmp .done
 .key:
     mov byte [bz_earm], 0       ; (an armed Erase holds to the next pick or key)
-    cmp byte [bz_dev], 0        ; THE WINDOW'S KEYS (SPEC.md 128.26.1): Enter,
+    cmp byte [bz_dev], 0        ; THE WINDOW'S KEYS (SPEC.md 130.26.1): Enter,
     jne .dev                    ; Alt+Enter and F are Play Game, F5 and F6 the
     cmp ax, KEY_ALTENTER        ; replays; everything else is the harness's
-    je .pg                      ; (bz_dev, 128.26.6)
+    je .pg                      ; (bz_dev, 130.26.6)
     cmp al, 13
     je .pg
     mov bx, bz_rsavedk
@@ -353,10 +355,10 @@ bz_onkey:
     jmp .out
 .dev:
     mov ch, [bz_xarm]           ; (wave 8c: X's first press holds only until
-    mov byte [bz_xarm], 0       ; the next key, 128.19.8.3)
+    mov byte [bz_xarm], 0       ; the next key, 130.19.8.3)
     mov cl, [bz_page]           ; a key on the RESULTS page is acted on as on
     mov byte [bz_page], 0       ; MAIN and returns the face to it (SPEC.md
-    mov [bz_pgo], cl            ; 128.14.3.2): repainted whole at .done
+    mov [bz_pgo], cl            ; 130.14.3.2): repainted whole at .done
 %if BZ_PATH_NPAD
     cmp ax, KEY_ALTENTER
     je .game
@@ -374,9 +376,9 @@ bz_onkey:
     cmp al, 'f'
     je .play
     call bz_intour              ; A TOUR withholds every key that would replace
-    jc .tour                    ; its state or its log (128.14.3.4)
+    jc .tour                    ; its state or its log (130.14.3.4)
 %if BZ_PATH_NPAD
-    cmp al, '1'                 ; wave 8c (128.19.8.3): 1 2 3 the SLOT, E its
+    cmp al, '1'                 ; wave 8c (130.19.8.3): 1 2 3 the SLOT, E its
     jb .ns                      ; MODE, X twice ERASES it
     cmp al, '3'
     ja .ns
@@ -426,31 +428,28 @@ bz_onkey:
     cmp al, 'r'
     je .replay
     mov bx, bz_ballkey          ; C, M, N, G, D, L, V, W, T: one press however
-    cmp al, 'm'                 ; long it is held (SPEC.md 128.11.11.2,
-    je .held                    ; 128.14.3.4)
+    cmp al, 'm'                 ; long it is held (SPEC.md 130.11.11.2,
+    je .held                    ; 130.14.3.4)
     mov bx, bz_crskey
     cmp al, 'n'
     je .held
-    mov bx, bz_dkey_d           ; D: the demo benchmark (128.14.7.3)
+    mov bx, bz_dkey_d           ; D: the demo benchmark (130.14.7.3)
     cmp al, 'd'
     je .held
-    mov bx, bz_lkey             ; L: load a demo (128.14.7.2)
+    mov bx, bz_lkey             ; L: load a demo (130.14.7.2)
     cmp al, 'l'
     je .held
-    mov bx, bz_vkey             ; V: the next shipped demo (128.14.7.4)
+    mov bx, bz_vkey             ; V: the next shipped demo (130.14.7.4)
     cmp al, 'v'
     je .held
 .tour:
-    mov bx, bz_camkey
-    cmp al, 'c'
-    je .held
-    mov bx, bz_wkey             ; W: save the held log (128.14.7.1)
+    mov bx, bz_wkey             ; W: save the held log (130.14.7.1)
     cmp al, 'w'
     je .held
-    mov bx, bz_tkey             ; T: the control, KEYS or MOUSE (128.14.8)
+    mov bx, bz_tkey             ; T: the control, KEYS or MOUSE (130.14.8)
     cmp al, 't'
     je .held
-    mov bx, bz_skey             ; S: the sound (SPEC.md 128.20.4), at home
+    mov bx, bz_skey             ; S: the sound (SPEC.md 130.20.4), at home
     cmp al, 's'
     jne .done
 .held:
@@ -467,13 +466,13 @@ bz_onkey:
     jmp short .done
 .replay:
     call bz_rhave               ; R: offered only when there is a log
-    jne .done                   ; (SPEC.md 128.11.12.2): its course, and
+    jne .done                   ; (SPEC.md 130.11.12.2): its course, and
     mov ah, [bz_rlog + BZR_CRS] ; bz_launch takes its ball
     mov al, 2
     jmp short .go
 .bench:
     mov ax, 1 | (BZ_CRS_BENCH << 8) ; B: the benchmark, on BENCH (SPEC.md
-    jmp short .go               ; 128.10.11.1)
+    jmp short .go               ; 130.10.11.1)
 .play:
     call bz_intour              ; Enter, F, Alt+Enter: in a tour its next
     jnc .free                   ; course
@@ -481,18 +480,18 @@ bz_onkey:
     jmp short .done
 %if BZ_PATH_NPAD
 .game:                          ; Enter, Alt+Enter: THE GAME (wave 8b,
-    call bz_intour              ; 128.19.5) - in a tour, its next course
+    call bz_intour              ; 130.19.5) - in a tour, its next course
     jc .play
 %if BZ_TITLE
-    call bz_playgame            ; (SPEC.md 128.23.4: the TITLE, P its game;
-%else                           ; 128.26.4: or where the window was asked for)
+    call bz_playgame            ; (SPEC.md 130.23.4: the TITLE, P its game;
+%else                           ; 130.26.4: or where the window was asked for)
     call bz_game8
 %endif
     jmp short .done
 %endif
 .free:
     mov al, 0                   ; ...otherwise play the selected course
-    mov ah, [bz_crsel]          ; freely (SPEC.md 128.11.11.3)
+    mov ah, [bz_crsel]          ; freely (SPEC.md 130.11.11.3)
 .go:
     call bz_go
 .done:
@@ -504,9 +503,9 @@ bz_onkey:
     RESTORE
     ret
 
-; G (one press, bz_dkey): a NEW TOUR (SPEC.md 128.14.3.1) - its times cleared
+; G (one press, bz_dkey): a NEW TOUR (SPEC.md 130.14.3.1) - its times cleared
 ; and course 1 launched.  On kern_small nothing changes: bz_launch toasts the
-; refusal (128.1).
+; refusal (130.1).
 bz_game:
     cmp byte [bz_small], 0
     jne bz_tgo
@@ -528,7 +527,7 @@ bz_game:
     ret
 ; the tour's next course, played with its own ball (bz_launch); a refused
 ; launch leaves the tour where it was, so Enter tries it again.  [bz_tour] k is
-; the tour's k-th course, BZ_TOUR's byte k - 1 (SPEC.md 128.26.8)
+; the tour's k-th course, BZ_TOUR's byte k - 1 (SPEC.md 130.26.8)
 bz_tgo:
     mov bl, [bz_tour]
     xor bh, bh
@@ -541,7 +540,7 @@ bz_go:
     call bz_launch
     jmp bz_dsave
 
-; bz_dkey - the held-key guard (SPEC.md 128.11.11.2), AH = a typed key's make
+; bz_dkey - the held-key guard (SPEC.md 130.11.11.2), AH = a typed key's make
 ; code.  The key's typematic repeats arrive as typed keys too, and an interval
 ; test cannot see the typematic DELAY, so the fact asked is whether the key
 ; came UP: while [bz_dkk] is this key's code it has not, and the key is
@@ -585,8 +584,8 @@ bz_ontimer:
     ret
 
 ; ZF = 1 when [bz_rlog] holds a log (the recorder's signature, SPEC.md
-; 128.11.12.1).  The log is the package's own bss, written by the package:
-; trusted, not checked (128.11.12.2).  Preserves all but the flags.
+; 130.11.12.1).  The log is the package's own bss, written by the package:
+; trusted, not checked (130.11.12.2).  Preserves all but the flags.
 bz_rhave:
     cmp word [bz_rlog], 'BZ'
     jne .out
@@ -604,8 +603,9 @@ bz_repaint:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_adapter - what this window's display is: AL = 1 CGA, 2 Hercules, 0 neither
-; (or no FSX mode for it).  Preserves all but AX and the flags.
+; bz_adapter - what this window's display is: AL = 1 CGA, 2 Hercules, 3 VGA
+; (SPEC.md 130.46.2), 0 none of them (or no FSX mode for it).  Preserves all
+; but AX and the flags.
 ; -----------------------------------------------------------------------------
 bz_adapter:
     push bx
@@ -621,10 +621,17 @@ bz_adapter:
     jmp .out
 .herc:
     cmp dl, VID_HERC
-    jne .none
+    jne .vga
     test ax, 1 << FSXM_HERC
     jz .none
     mov al, 2
+    jmp .out
+.vga:
+    cmp dl, VID_VGA
+    jne .none
+    test ax, 1 << FSXM_VGA0D
+    jz .none
+    mov al, 3
     jmp .out
 .none:
     xor al, al
@@ -633,25 +640,38 @@ bz_adapter:
     pop bx
     ret
 
+; bz_setcard - AL = bz_adapter's 1 - 3: [bz_card] it, [bz_herc] 1 on the
+; Hercules alone, [bz_vga] 1 on the VGA alone (SPEC.md 130.46.2: a VGA play
+; asks "Hercules?" and hears the CGA's no).  Clobbers AX.
+bz_setcard:
+    mov [bz_cardk], al
+    dec ax
+    mov ah, al
+    and al, 1
+    mov [bz_herc], al
+    shr ah, 1
+    mov [bz_vga], ah
+    ret
+
 ; -----------------------------------------------------------------------------
 ; bz_launch - the desktop side of a play, a benchmark or a replay: every
-; refusal is here, where a toast can still be drawn (SPEC.md 128.1, 128.7).
+; refusal is here, where a toast can still be drawn (SPEC.md 130.1, 130.7).
 ; In: [bz_mode] (0 play, 1 benchmark, 2 replay, 3 the demo benchmark: a
-; replay, measured, SPEC.md 128.14.7.3) and [bz_crs].  The MATERIAL is
-; chosen here (SPEC.md 128.11.5.4): a play rolls the session's ball
+; replay, measured, SPEC.md 130.14.7.3) and [bz_crs].  The MATERIAL is
+; chosen here (SPEC.md 130.11.5.4): a play rolls the session's ball
 ; ([bz_matsel], M), a benchmark the course's own (BENCH's for B; the course a
 ; harness poked at this entry otherwise), a replay the log's.  Course K's part
 ; (row BZ_P_CRS + K) is fetched - the same row on both cards - and expanded
-; in place at once (bz_cexp, SPEC.md 128.15.4.5); the balls are HELD since the
-; open (bz_bget, 128.25.5.2); on the Hercules the course is translated in
-; place, and the balls once (bz_hgen, bz_hxlat, SPEC.md 128.11.3); the
+; in place at once (bz_cexp, SPEC.md 130.15.4.5); the balls are HELD since the
+; open (bz_bget, 130.25.5.2); on the Hercules the course is translated in
+; place, and the balls once (bz_hgen, bz_hxlat, SPEC.md 130.11.3); the
 ; bracket runs, and the course's parts are dropped on every way out.  Every fetch here - the course's, the balls', the
 ; sound's song and the title's after the bracket - is made at HOME (bz_home,
-; SPEC.md 128.14.7.6), and the instance goes back where the user was after.
+; SPEC.md 130.14.7.6), and the instance goes back where the user was after.
 ; -----------------------------------------------------------------------------
 bz_launch:
     call bz_unsuscrs            ; (a suspended COURSE given up first: this
-                                ; launch's parts take its place, 128.26.3; a
+                                ; launch's parts take its place, 130.26.3; a
                                 ; suspended pathway is only memory, and stays)
     mov byte [bz_towin], 0
     mov byte [bz_newb], 0       ; (only this launch's play may set a best)
@@ -663,17 +683,16 @@ bz_launch:
     call bz_adapter
     or al, al
     jnz .ok
-    mov si, bz_t_adapt          ; VGA, EGA, MDA: CGA OR HERC ONLY
+    mov si, bz_t_adapt          ; EGA, MDA: CGA, HERC OR VGA ONLY
     jmp bz_toast
 .ok:
-    dec al
-    mov [bz_herc], al
+    call bz_setcard
     mov al, [bz_matsel]         ; the material (above)
     mov bl, [bz_mode]
     dec bl
     jns .nplay
     call bz_intour              ; 0: a play, M's - but a TOUR's course rolls
-    jnc .mat                    ; its own (SPEC.md 128.14.3.1)
+    jnc .mat                    ; its own (SPEC.md 130.14.3.1)
     jmp short .own
 .nplay:
     mov al, [bz_rlog + BZR_MAT]
@@ -685,7 +704,7 @@ bz_launch:
 .mat:
     mov [bz_mat], al
     call bz_shdrop              ; the shell part never shares memory with a
-                                ; course (SPEC.md 128.19.2)
+                                ; course (SPEC.md 130.19.2)
     call bz_home                ; every part is read out of BONANZA.O88 at home
     jc .ret                     ; (its refusal toasted: no fetch at all)
     call .home
@@ -698,8 +717,8 @@ bz_launch:
     cmp byte [bz_mode], 2       ; a REPLAY (R or D) of a log made on another
     jb .idok                    ; course (a re-seeded one: its identity
     push es                     ; differs) is refused, and the face says so
-    mov es, [bz_cseg]           ; (SPEC.md 128.12.8) - and one made under
-    mov di, [bz_goff]           ; other PHYSICS (+7, 128.14.7.2)
+    mov es, [bz_cseg]           ; (SPEC.md 130.12.8) - and one made under
+    mov di, [bz_goff]           ; other PHYSICS (+7, 130.14.7.2)
     mov ax, [es:di + BZG_ID]
     pop es
     mov byte [bz_err], 3
@@ -721,13 +740,14 @@ bz_launch:
     mov si, bz_t_nofs
     call bz_toast
 .drop:
+    call bz_vdrop               ; the VGA's part and ball copies (130.46.6)
     call bz_cdrop               ; every part this launch fetched given back
     call bzs_gdrop              ; the song back, and the title (a finish's
-    cmp byte [bz_shpend], 0     ; fanfare first, SPEC.md 128.20.6).  The
+    cmp byte [bz_shpend], 0     ; fanfare first, SPEC.md 130.20.6).  The
     je .nopend                  ; restore's paint was put off while the course
     mov byte [bz_shpend], 0     ; was held (bz_shcall): made now, the course
     mov byte [bz_pgo], 0        ; gone and the shell part fetched again
-    call bz_repaint             ; (SPEC.md 128.19.2)
+    call bz_repaint             ; (SPEC.md 130.19.2)
 .nopend:
     cmp byte [bz_err], 3        ; no bracket
     jb .out                     ; ran: the face repainted with the refusal (3
@@ -737,10 +757,10 @@ bz_launch:
 
 ; -----------------------------------------------------------------------------
 ; bz_cload - course [bz_crs]'s part fetched for the ball [bz_mat] (SPEC.md
-; 128.14.4.4): its row - BZ_P_CRS + K, or BZ_P_PATH for the pathway (wave 8b,
-; 128.19.5) - expanded in place once (bz_cexp, 128.15.4.5), the three balls
-; HELD (bz_bget: nothing to do after the open, 128.25.5.2), its song (bzs_gfetch), its header copied (bz_crshdr) and, on the
-; Hercules, translated (bz_hgen, bz_hxlat, 128.11.3).  CF = 1 a fetch was
+; 130.14.4.4): its row - BZ_P_CRS + K, or BZ_P_PATH for the pathway (wave 8b,
+; 130.19.5) - expanded in place once (bz_cexp, 130.15.4.5), the three balls
+; HELD (bz_bget: nothing to do after the open, 130.25.5.2), its song (bzs_gfetch), its header copied (bz_crshdr) and, on the
+; Hercules, translated (bz_hgen, bz_hxlat, 130.11.3).  CF = 1 a fetch was
 ; refused (op_fetch said why - or, inside the game's bracket, OP_SAYGATE
 ; held it quiet): what was fetched is bz_cdrop's to give back.  At home.
 ; Preserves nothing.
@@ -749,26 +769,26 @@ bz_cload:
     mov al, [bz_crs]            ; course K's row: BZ_P_CRS + K (bzcourse.inc)
     add al, BZ_P_CRS
 %if BZ_PATH_NPAD
-    cmp byte [bz_crs], BZ_CRS_PATH ; ...the pathway's its own (128.19.5)
+    cmp byte [bz_crs], BZ_CRS_PATH ; ...the pathway's its own (130.19.5)
     jne .row
     mov al, BZ_P_PATH
 .row:
 %endif
 %if BZ_TITLE
-    cmp byte [bz_crs], BZ_CRS_TITLE ; ...and the title's (128.23)
+    cmp byte [bz_crs], BZ_CRS_TITLE ; ...and the title's (130.23)
     jne .rowt
     mov al, BZ_P_TITLE
 .rowt:
 %endif
     mov [bz_pc], al
-    cmp byte [bz_crs], BZ_NCRS  ; a PLAY course names the KIT's pieces (128.37.5):
+    cmp byte [bz_crs], BZ_NCRS  ; a PLAY course names the KIT's pieces (130.37.5):
     jae .nokit                  ; the kit first, if the open's fetch was refused
     call bz_kget                ; (op_fetch said why: no course without it)
     jc .out
     mov al, [bz_pc]             ; (bz_kget spends AL)
 .nokit:
 %if BZ_PATH_NPAD
-    mov byte [bz_phre], 0       ; the pathway HELD (128.22.7): its part is here,
+    mov byte [bz_phre], 0       ; the pathway HELD (130.22.7): its part is here,
     cmp al, BZ_P_PATH           ; expanded and translated already - no fetch,
     jne .nh                     ; no expand, no translation of the part
     mov al, [bz_phold]
@@ -782,7 +802,7 @@ bz_cload:
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
 %if BZ_NCRS2
-    mov [bz_mseg], ax           ; (the PICTURE part: SPEC.md 128.30.5)
+    mov [bz_mseg], ax           ; (the PICTURE part: SPEC.md 130.30.5)
 %endif
 %if BZ_PATH_NPAD
     cmp byte [bz_phre], 0
@@ -796,28 +816,28 @@ bz_cload:
 %endif
     call bz_cexp                ; the STORED form expanded in place, ONCE: this
                                 ; fetch decoded, every exit below dropping the
-                                ; part (SPEC.md 128.15.4.5)
+                                ; part (SPEC.md 130.15.4.5)
 %if BZ_PATH_NPAD
 .exd:
 %endif
 %if BZ_NCRS2
-    call bz_cload2              ; a two-part course's WORLD part (128.30.5),
+    call bz_cload2              ; a two-part course's WORLD part (130.30.5),
     jc .drop                    ; before anything reads the world
 %endif
-    call bz_bget                ; THE BALLS (SPEC.md 128.25.5.2): HELD, all three,
+    call bz_bget                ; THE BALLS (SPEC.md 130.25.5.2): HELD, all three,
     jc .drop                    ; since the open - fetched and generated here only
                                 ; if the open's fetch was refused (or a CGA launch
                                 ; found them Hercules-translated)
-    mov bl, [bz_crs]            ; THE ARENA (SPEC.md 128.25.4.2): ONE regrow
+    mov bl, [bz_crs]            ; THE ARENA (SPEC.md 130.25.4.2): ONE regrow
     xor bh, bh                  ; for the whole batch - sound part, song,
     shl bx, 1                   ; fanfare, families - by the course's own figure (the
     mov ax, [bz_carena + bx]    ; tool's BZ_CRS_ARENA: their RAM forms and one
     call op_areserve            ; fetch's room).  Refused, each fetch grows it
     push es                     ; the title off, the course's song fetched
-    call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 128.20.6)
+    call bzs_gfetch             ; (none had: a SILENT play, SPEC.md 130.20.6)
     pop es
     call bz_crshdr              ; the course's header, copied into our data
-    call bz_ffetch              ; wave 9 (SPEC.md 128.25.6.2): its FAMILIES' parts
+    call bz_ffetch              ; wave 9 (SPEC.md 130.25.6.2): its FAMILIES' parts
     jc .drop                    ; (OP_ARENA code rows, the batch's last fetches)
     call bz_arload              ; THE BATCH'S END (every arena fetch above it -
                                 ; the families' too): each word read again
@@ -826,11 +846,18 @@ bz_cload:
                                 ; fetch can have MOVED the arena under an
                                 ; earlier one's (CF: no fetch, so it is 0)
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
-    je .ok                      ; BZ_HTAB, made here (SPEC.md 128.11.3)
+    je .nherc                   ; BZ_HTAB, made here (SPEC.md 130.11.3)
     push es                     ; (ES as the bracket call found it before:
     call bz_hgen                ; bz_hxlat leaves the ball's there)
     call bz_hxlat
     pop es
+.nherc:
+    cmp byte [bz_vga], 0        ; the VGA's: converted ONCE, here, into planar
+    je .ok                      ; pairs (SPEC.md 130.46.5) by BZVGA.BIN
+    push es
+    call bz_vprep
+    pop es
+    jc .drop
 .ok:
     clc
 .out:
@@ -841,10 +868,10 @@ bz_cload:
 
 %if BZ_NCRS2
 ; -----------------------------------------------------------------------------
-; bz_cload2 - a TWO-PART course's WORLD part (SPEC.md 128.30.5): when
+; bz_cload2 - a TWO-PART course's WORLD part (SPEC.md 130.30.5): when
 ; BZ_CRS_WROW names one for course [bz_crs], fetched (the picture part's
 ; segment stays in bz_mseg), its segment stored in bz_cseg and expanded in
-; place ONCE (bz_cexp, 128.15.4.5) - after the picture part's, so bz_dfind's
+; place ONCE (bz_cexp, 130.15.4.5) - after the picture part's, so bz_dfind's
 ; bounds are the world part's.  The pathway and the title are one part.  CF = 1
 ; the fetch was refused (op_fetch said why): bz_cdrop gives back what was
 ; fetched (it drops every world row).  At home.  Preserves nothing.
@@ -870,18 +897,18 @@ bz_cload2:
 %endif
 
 ; -----------------------------------------------------------------------------
-; bz_arload - THE ARENA BATCH'S END (SPEC.md 128.25.4.2, 20.12.15): the arena
+; bz_arload - THE ARENA BATCH'S END (SPEC.md 130.25.4.2, 20.12.16): the arena
 ; fitted to its parts (the last fetch's room given back, op_areserve 0) and
 ; every word BONANZA keeps of an arena part read again from op_seg - a fetch
 ; that grew the arena may have MOVED it, which shifts the standard's words and
 ; not ours.  A part not here answers 0, so each word says so too.  bz_cload's,
-; after its whole batch (the window has no title song since 128.26.5).  A drop never
+; after its whole batch (the window has no title song since 130.26.5).  A drop never
 ; moves the arena, so none follows one.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_arload:
     xor ax, ax
     call op_areserve
-    call bz_bsload              ; the balls (128.25.5.2), and the sprite's
+    call bz_bsload              ; the balls (130.25.5.2), and the sprite's
     mov bl, [bz_mat]
     xor bh, bh
     shl bx, 1
@@ -902,14 +929,14 @@ bz_arload:
     ret
 
 %if BZ_PATH_NPAD
-; the pathway's part, HELD (128.22.7): bz_phrel's test is the heap's largest
+; the pathway's part, HELD (130.22.7): bz_phrel's test is the heap's largest
 ; claim against the largest course's, bzcourse.inc's BZ_CRS_MAXCLAIM (the
-; tool's, 128.22.3): a pad's course's part, balls, song and sound part, each
+; tool's, 130.22.3): a pad's course's part, balls, song and sound part, each
 ; its RAM form plus op_lazyp's cluster slack (a compressed row claims R and
 ; the read of its packed bytes in whole clusters)
 %if BZ_TITLE == 0
 ; -----------------------------------------------------------------------------
-; bz_game8 - THE GAME (wave 8b, SPEC.md 128.19.5): Enter on the face - a build
+; bz_game8 - THE GAME (wave 8b, SPEC.md 130.19.5): Enter on the face - a build
 ; with no TITLE's only (the title's P plays it, bz_tround).  Its refusals are
 ; bz_launch's (kern_small, the adapter); a game with no lives left is a NEW
 ; one (5 lives, pad 0 open, nothing done), else it goes on where it was.  The pathway is fetched here at home, on the desktop, and the bracket
@@ -929,10 +956,9 @@ bz_game8:
     mov si, bz_t_adapt
     jmp bz_toast
 .ok:
-    dec al
-    mov [bz_herc], al
+    call bz_setcard
     call bz_gslot
-    call bz_shdrop              ; (never beside a course, 128.19.2)
+    call bz_shdrop              ; (never beside a course, 130.19.2)
     call bz_home
     jc .ret
     call bz_gpath               ; the pathway's part, its ball and song
@@ -951,7 +977,8 @@ bz_game8:
 .ran:
     mov byte [bz_pgo], 0
 .drop:
-    call bz_phfree              ; (the held pathway goes with the game, 128.22.7)
+    call bz_vdrop               ; (the VGA's part, 130.46.6)
+    call bz_phfree              ; (the held pathway goes with the game, 130.22.7)
     call bz_cdrop
     call bzs_gdrop              ; (the title back)
     call bz_back
@@ -968,11 +995,11 @@ bz_game8:
     ret
 %endif
 
-; bz_gslot - THE SLOT's game (save v3, 128.22.5) into memory: its game when
+; bz_gslot - THE SLOT's game (save v3, 130.22.5) into memory: its game when
 ; it has lives, else a NEW one in it; the pad, the pads open and done, the
 ; routes; its MODE; no event pending (bz_pwev).  Preserves all but AX and SI.
 bz_gslot:
-    call bz_dslot               ; THE SLOT (save v3, 128.22.5): its game when
+    call bz_dslot               ; THE SLOT (save v3, 130.22.5): its game when
     mov al, [si]                ; it has lives ...
     or al, al
     jnz .on
@@ -981,13 +1008,13 @@ bz_gslot:
 .on:
     mov [bz_lives], al
     call bz_gload               ; the pad, the pads open and done, the routes
-    mov al, [si + 1]            ; the MODE (8c, 128.19.8.3): EXPLORE rests
+    mov al, [si + 1]            ; the MODE (8c, 130.19.8.3): EXPLORE rests
     and al, 1                   ; on any pad (bz_proute)
     mov [bz_xmode], al
     mov byte [bz_pwev], 0
     ret
 
-; bz_gstore - the game's state into the slot played (128.22.5): AL lives
+; bz_gstore - the game's state into the slot played (130.22.5): AL lives
 ; (bz_gstorl: AL given), the pad, the open and done pads and the routes
 ; (bz_nopen ... bz_nrtk, 16 bytes, the slot's order), the pathway's identity.
 ; Preserves all but AX and SI.
@@ -1097,8 +1124,8 @@ bz_dwtst:
     ret
 
 ; =============================================================================
-; THE PATHWAY (wave 8R, SPEC.md 128.22.4): its tables (the part's, at BZC2
-; +42, 128.22.3, read through bz_ptho / bz_ptro / bz_ptko), the signs' poses,
+; THE PATHWAY (wave 8R, SPEC.md 130.22.4): its tables (the part's, at BZC2
+; +42, 130.22.3, read through bz_ptho / bz_ptro / bz_ptko), the signs' poses,
 ; the FOLLOWER (bz_mode 4, bz_follow) and the rounds (bz_grounds).
 ; =============================================================================
 BZ_PW_REST  equ 0               ; bz_pwst: RESTING on bz_ppad
@@ -1111,7 +1138,7 @@ BZ_PE_OVER  equ 3               ; ...the last one
 BZ_PW_GSTEP equ 6               ; steps a gate pose: 1 - 5, the roll after 30 (0.55 s)
 BZ_PW_OSTEP equ 96              ; the GAME OVER effect's steps (82 sub-ticks) before its card
 
-; bz_medal - course BL's DONE pose (8c.3, 128.19.8.3; a pad's sign, 128.22.2):
+; bz_medal - course BL's DONE pose (8c.3, 130.19.8.3; a pad's sign, 130.22.2):
 ; DL = 3 GOLD (the slot's best for it at or under G), 2 SILVER (at or under
 ; S), 1 else.  Preserves all but DX.
 bz_medal:
@@ -1138,7 +1165,7 @@ bz_medal:
     pop ax
     ret
 
-; bz_gpath - the PATHWAY entered (128.22.4.4 item 1): fetched unless HELD
+; bz_gpath - the PATHWAY entered (130.22.4.4 item 1): fetched unless HELD
 ; (bz_phfetch), the follower's mode, its tables read and every sign posed
 ; from the slot (bz_ppose).  CF = 1 refused.  Preserves nothing.
 bz_gpath:
@@ -1238,7 +1265,7 @@ bz_ppadr:
 ; 0 (the bare picture) until a secret route at it is TAKEN (bz_psecr), then
 ; 1 + that; the VISIBLE END of a secret route's + 4 once it is taken (the
 ; route drawn in its lane) - and DH its icon's rest pose: 0, or 1 on a hidden
-; pad shown (its icon's poses one more, 128.22.3).  Preserves all else.
+; pad shown (its icon's poses one more, 130.22.3).  Preserves all else.
 bz_ppad1:
     push ax
     push bx
@@ -1399,7 +1426,7 @@ bz_pnset:
 ; -----------------------------------------------------------------------------
 ; bz_pwinit - the PATHWAY's play begins (bz_play, bz_mode 4, after bz_pinit):
 ; the marble on bz_ppad's cell (bz_placeat: its centre on its floor,
-; grounded) and the event the last course left (bz_pwev, 128.22.4.4 item 1):
+; grounded) and the event the last course left (bz_pwev, 130.22.4.4 item 1):
 ; a LIFE lost - its sound; the GAME OVER - its sound, waited for (BZ_PW_OVER),
 ; then the card; a FINISH by exit bz_pwex - route (pad, exit) OPENED if it was
 ; closed (TIMED: EXPLORE unlocks nothing), its gate then playing 1 - 5 with
@@ -1468,7 +1495,7 @@ bz_pwinit:
     jne bz_pwrest
     push si
     mov si, bz_nrop
-    call bz_dwset               ; OPENED (the slot's +12, 128.22.5)
+    call bz_dwset               ; OPENED (the slot's +12, 130.22.5)
     pop si
     mov bl, [es:si + 4]         ; its GATE opens first (a secret route has
     cmp bl, 0ffh                ; none: it rolls at once)
@@ -1493,7 +1520,7 @@ bz_pwinit:
 .life:
     mov al, BZS_EV_LIFE
     call bzs_ev
-; bz_pwrest - RESTING on bz_ppad (128.22.4.4 item 2): its icon's animation's
+; bz_pwrest - RESTING on bz_ppad (130.22.4.4 item 2): its icon's animation's
 ; state - the sign, its rest pose (bz_ppad1's DH), the frame 0, the interval
 ; (PAD +9 steps; FFh in bz_pwis: none, under two frames).  ES = the pathway.
 ; Preserves nothing.
@@ -1521,7 +1548,7 @@ bz_pwrest:
 ; bz_pwdep - the marble DEPARTS on route AL (AH = 1 travelled B to A; ES = the
 ; pathway): the resting pad's icon back to its rest pose, the destination, its
 ; POINTS walked from the end it leaves (bz_pwp, bz_pwpd), the route's length L
-; and the first segment's, s = 0 and v = 0 (128.22.4.2); a SECRET route's
+; and the first segment's, s = 0 and v = 0 (130.22.4.2); a SECRET route's
 ; reveal groups to come (A to B: as s passes each) or all shown at once
 ; (B to A).  ROLLING, and the arrows must go up before the next press.
 ; Preserves nothing.
@@ -1635,7 +1662,7 @@ bz_pwseg:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_follow - a STEP of the pathway's play (wave 8R, SPEC.md 128.22.4.2: the
+; bz_follow - a STEP of the pathway's play (wave 8R, SPEC.md 130.22.4.2: the
 ; frame loop's in bz_step's place in bz_mode 4).  ROLLING, the FOLLOWER
 ; (bz_pwroll); RESTING, the pad's icon to its next frame every interval steps
 ; (frames 1 - K-1 in a loop, bz_nset); a GATE opening, its next pose every
@@ -1798,7 +1825,7 @@ bz_pwroll:
 .pos:
     call bz_pwpos
     mov al, [bz_pwrg]           ; a secret route's next REVEAL group, as s
-    cmp al, [bz_pwng]           ; passes its distance (128.22.2)
+    cmp al, [bz_pwng]           ; passes its distance (130.22.2)
     jae .nrv
     xor ah, ah
     shl ax, 1
@@ -1825,7 +1852,7 @@ bz_pw256:
     xor al, al
     ret
 
-; bz_pwpos - the follower's POSITION at s (128.22.4.2): t = s - 256 D_k on the
+; bz_pwpos - the follower's POSITION at s (130.22.4.2): t = s - 256 D_k on the
 ; segment from point P_k (bz_pwp) to the next walked, (sx, sy) its step's
 ; signs: bz_gx = 256 gx_k + sx t, bz_gy = 256 gy_k + sy t, bz_gz = 256 gz_k +
 ; ((gz_(k+1) - gz_k) t) idiv len_k, truncated toward zero; grounded, the
@@ -1913,7 +1940,7 @@ bz_pwax:
     pop bp
     ret
 
-; bz_pwarr - the marble ARRIVES on bz_pwdst (128.22.4.2): the route TAKEN
+; bz_pwarr - the marble ARRIVES on bz_pwdst (130.22.4.2): the route TAKEN
 ; (where it is opened: an EXPLORE roll on a route never opened takes none),
 ; the pad its rest (bz_ppad: the slot's +2, written when the bracket ends) and,
 ; TIMED, OPEN; a secret route's reveal groups all shown and its two ends
@@ -1986,9 +2013,9 @@ bz_pwheld:
 ; bz_pwkey - a TYPED key on the pathway (bz_exitchk, bz_mode 4; AL its
 ; character, AH its make code): ZF = 1 the pathway's own (taken), CF = 1 the
 ; play ends.  Only RESTING, and none held from before (bz_pwek): an ARROW whose
-; route (the pad's KEYS, 128.22.4.5) is OPEN rolls it (bz_pwdep); Enter plays
+; route (the pad's KEYS, 130.22.4.5) is OPEN rolls it (bz_pwdep); Enter plays
 ; the pad's course (bz_pwck, bz_pwq 13); Space shows its INFO card (bz_kinfow,
-; 128.22.6); Esc leaves (bz_pwq 27: the title).  Clobbers AX, BX, CX, DX, SI,
+; 130.22.6); Esc leaves (bz_pwq 27: the title).  Clobbers AX, BX, CX, DX, SI,
 ; DI.
 bz_pwkey:
     cmp al, 13
@@ -1997,7 +2024,7 @@ bz_pwkey:
     je .k
     cmp al, ' '
     je .k
-    mov bh, 'r'                 ; F5, F6 and V (SPEC.md 128.26.3): the play
+    mov bh, 'r'                 ; F5, F6 and V (SPEC.md 130.26.3): the play
     cmp ax, BZ_KSC_F5 << 8      ; ends with [bz_pwq] BH, the pad's course
     je .kx                      ; in bz_pwck
     mov bh, 'l'
@@ -2106,7 +2133,7 @@ bz_gcrs:
     jmp bz_cload
 
 ; -----------------------------------------------------------------------------
-; bz_grounds - inside the bracket, the mode set: the game's ROUNDS (128.22.4.4).
+; bz_grounds - inside the bracket, the mode set: the game's ROUNDS (130.22.4.4).
 ; The PATHWAY played (bz_mode 4, bz_pwinit / bz_follow / bz_pwkey); Enter at a
 ; pad plays its course - its LIFE taken on the disk first (TIMED), the
 ; pathway's part given back unless it stays HELD (bz_phrel); after it, a
@@ -2124,13 +2151,13 @@ bz_grounds:
     call bz_play
     call bzs_close
     cmp byte [bz_towin], 0      ; F, Alt+Enter: the WINDOW, the game kept
-    jne .twp                    ; (SPEC.md 128.26.4)
+    jne .twp                    ; (SPEC.md 130.26.4)
     mov al, [bz_pwq]
     cmp al, 'o'
     je .over
     cmp al, 13
     je .enter
-    cmp al, 'r'                 ; F5, F6 and V at a pad (128.26.3)
+    cmp al, 'r'                 ; F5, F6 and V at a pad (130.26.3)
     je .fsave
     cmp al, 'l'
     je .fload
@@ -2166,7 +2193,7 @@ bz_grounds:
     jmp .twp
 .enter:
     call .swap                  ; ENTER: the pad's course - its LIFE TAKEN on
-    cmp byte [bz_xmode], 0      ; the disk first (128.19.6: off mid-course
+    cmp byte [bz_xmode], 0      ; the disk first (130.19.6: off mid-course
     jne .nolife                 ; refunds nothing; a finish gives it back at
     mov al, [bz_lives]          ; the bracket's end), quietly - never in
     dec ax                      ; EXPLORE (8c)
@@ -2175,7 +2202,7 @@ bz_grounds:
 .nolife:
     mov al, [bz_pwck]
     mov [bz_crs], al
-    call bz_gcrs                ; (no INTRO card any more, 128.22.6)
+    call bz_gcrs                ; (no INTRO card any more, 130.22.6)
     jc .out
 .crs:
     call bz_vinit
@@ -2191,12 +2218,12 @@ bz_grounds:
     call bzs_close
     cmp byte [bz_towin], 0      ; F, Alt+Enter in a course: the WINDOW, the
     je .ntw                     ; play SUSPENDED whole - its parts, its clock,
-    mov byte [bz_susp], BZ_SU_CRS ; its log (SPEC.md 128.26.4)
+    mov byte [bz_susp], BZ_SU_CRS ; its log (SPEC.md 130.26.4)
     ret
 .ntw:
-    cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 128.22.6)
+    cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 130.22.6)
     je .life
-    call bz_dslot               ; the exit FOUND (128.19.6), a word a course,
+    call bz_dslot               ; the exit FOUND (130.19.6), a word a course,
     mov bl, [bz_crs]            ; in either mode
     xor bh, bh
     shl bx, 1
@@ -2231,7 +2258,7 @@ bz_grounds:
     dec byte [bz_lives]
     jz .back
     mov byte [bz_pwev], BZ_PE_LIFE
-    or al, al                   ; wave 8c (128.19.8): a RETRY from the pause
+    or al, al                   ; wave 8c (130.19.8): a RETRY from the pause
     jz .back                    ; card - the same course again, nothing
     mov bl, [bz_crs]            ; re-fetched, the next life taken on the disk
                                 ; first; its own ball again
@@ -2270,10 +2297,10 @@ bz_phrel:
     je .out
     mov bl, MEMP_AVAIL
     call OSAPI_MEM_P            ; AX = the largest claim there is: it takes the
-    sub ax, BZ_CRS_MAXCLAIM + BZ_CRS_ARMAX ; course's AND the arena's (128.25.4.2)
+    sub ax, BZ_CRS_MAXCLAIM + BZ_CRS_ARMAX ; course's AND the arena's (130.25.4.2)
     jb bz_phfree
     xchg ax, bx                 ; ...and THE KIT's, when it is not here yet
-    mov al, BZ_P_KIT            ; (SPEC.md 128.37.5: the pathway is the part
+    mov al, BZ_P_KIT            ; (SPEC.md 130.37.5: the pathway is the part
     call op_seg                 ; dropped, never the kit or the course)
     or ax, ax
     jnz .out
@@ -2281,7 +2308,7 @@ bz_phrel:
     jb bz_phfree
 .out:
     ret
-; bz_kget - THE KIT (SPEC.md 128.37.5): BZKIT.BIN fetched unless it is here
+; bz_kget - THE KIT (SPEC.md 130.37.5): BZKIT.BIN fetched unless it is here
 ; (op_fetch of a row already fetched does nothing, CF = 0) - and then HELD: no
 ; way out of BONANZA but the close drops it.  CF = 1 refused (op_fetch said
 ; why).  bz_kget0: the same with op_fetch QUIET (OP_SAYGATE), bz_entry's,
@@ -2312,7 +2339,7 @@ bz_phfree:
 
 %if BZ_TITLE
 ; -----------------------------------------------------------------------------
-; bz_title8 - Enter on the face: THE TITLE (SPEC.md 128.23.4).  Its refusals
+; bz_title8 - Enter on the face: THE TITLE (SPEC.md 130.23.4).  Its refusals
 ; are the game's (kern_small, the adapter); the title's rounds play inside ONE
 ; bracket (bz_fullscreen, [bz_ingame] 2: bz_tround), and whatever is held when
 ; it ends is given back; a game played from it is written to its slot.
@@ -2330,15 +2357,14 @@ bz_title8:
     mov si, bz_t_adapt
     jmp bz_toast
 .ok:
-    dec al
-    mov [bz_herc], al
+    call bz_setcard
     call OSAPI_GET_TICKS        ; the title's own LFSR, seeded from the clock
     xor ax, [bz_pitl]           ; (never read by physics: replays stay exact)
     or ax, 1
     mov [bz_tlfsr], ax
     mov byte [bz_tlast], 0ffh
     mov byte [bz_towin], 0
-    call bz_shdrop              ; (never beside a course, 128.19.2)
+    call bz_shdrop              ; (never beside a course, 130.19.2)
     call bz_home
     jc .ret
     mov byte [bz_ingame], 2
@@ -2350,7 +2376,7 @@ bz_title8:
     mov byte [bz_ingame], 0
     mov byte [bz_tmode], 0
     pushf
-    cmp byte [bz_susp], BZ_SU_CRS ; SUSPENDED in a course (128.26.4): its parts,
+    cmp byte [bz_susp], BZ_SU_CRS ; SUSPENDED in a course (130.26.4): its parts,
     je .nx                      ; its song and its mode stay for Play Game
     mov byte [bz_xmode], 0
 .nx:
@@ -2362,8 +2388,9 @@ bz_title8:
     mov byte [bz_pgo], 0
     cmp byte [bz_susp], BZ_SU_CRS
     jne .drop
-    jmp bz_back                 ; (nothing written: the course's life is, 128.19.6)
+    jmp bz_back                 ; (nothing written: the course's life is, 130.19.6)
 .drop:
+    call bz_vdrop               ; (the VGA's part, 130.46.6)
     call bz_cdrop
     call bzs_gdrop              ; (the desktop's title song back)
     call bz_back
@@ -2381,15 +2408,15 @@ bz_title8:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_tround - inside the bracket, the mode set: THE TITLE'S ROUNDS (128.23.4).
+; bz_tround - inside the bracket, the mode set: THE TITLE'S ROUNDS (130.23.4).
 ; A title demo (random, never the last one shown) on the title course, its
-; keys bz_exitchk's title arm's: P plays THE GAME (bz_grounds, its end back
+; keys bz_exitchk's title arm's: P or Enter plays THE GAME (bz_grounds, its end back
 ; here), S / 1 2 3 the slot, Esc leaves the bracket; its end plays a random
 ; COURSE DEMO, which any key ends; then the title again.  Each round's parts
 ; are given back before the next's are fetched.
 ; -----------------------------------------------------------------------------
 bz_tround:
-    mov al, [bz_susp]           ; PLAY GAME after the window (SPEC.md 128.26.4):
+    mov al, [bz_susp]           ; PLAY GAME after the window (SPEC.md 130.26.4):
     or al, al                   ; the pathway, or the course, where it was left
     jz .title
     mov byte [bz_susp], 0
@@ -2413,7 +2440,7 @@ bz_tround:
     mov byte [bz_crs], BZ_CRS_TITLE
     call .demo                  ; the log's ball, a replay, fetched
     jc .out
-    mov al, [bz_slot]           ; the slot's label (128.23.2): pose 1 + slot
+    mov al, [bz_slot]           ; the slot's label (130.23.2): pose 1 + slot
     inc ax
     mov [bz_nst], al
     call .play
@@ -2437,7 +2464,7 @@ bz_tround:
     jc .out
     call .play                  ; (any key, its end or a timeout: the title;
     cmp byte [bz_twhy], 27      ; Esc, F or Alt+Enter leave the bracket as
-    je .out                     ; on the title, SPEC.md 128.23.4.1)
+    je .out                     ; on the title, SPEC.md 130.23.4.1)
     jmp bz_tround
 .game:                          ; P: THE GAME in the slot shown (bz_game8's,
     mov byte [bz_tmode], 0      ; its rounds bz_grounds's, back here at its end)
@@ -2448,8 +2475,8 @@ bz_tround:
     call bz_grounds
 .gout:
     cmp byte [bz_susp], BZ_SU_CRS ; (the window asked for in a course: every
-    je .gsus                    ; part held, nothing stored, 128.26.4)
-    call bz_phfree              ; (the held pathway goes with the game, 128.22.7:
+    je .gsus                    ; part held, nothing stored, 130.26.4)
+    call bz_phfree              ; (the held pathway goes with the game, 130.22.7:
     call .swap                  ; bz_cdrop keeps it)
     call bz_gstore              ; (the slot, in memory: bz_dsave on the desktop)
     cmp byte [bz_susp], 0       ; (...or at the pathway: the game stored, and
@@ -2543,7 +2570,7 @@ bz_trand:
     ret
 
 ; bz_tlabel - the slot changed on the title: its label's pose, sign 0's
-; 1 + slot (a PK_SIGN, 128.23.2; bz_nset marks its lane, 128.22.4.1), so the
+; 1 + slot (a PK_SIGN, 130.23.2; bz_nset marks its lane, 130.22.4.1), so the
 ; one block redraws.  Preserves all but AX and BX.
 bz_tlabel:
     mov al, [bz_slot]
@@ -2560,13 +2587,13 @@ bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 %endif
 bz_cnex:        BZ_CRS_NEXITS
  %if BZ_PATH_NPAD > 32
-  %error "the save keeps a bit a pad in a dword (SPEC.md 128.22.5)"
+  %error "the save keeps a bit a pad in a dword (SPEC.md 130.22.5)"
  %endif
 %endif
 
 ; bz_cdrop - the course's part and its families' given back (op_drop of a part
 ; that is not here is a no-op, so all go whichever failed), their words 0 -
-; NEVER the balls, held in the bundle for the instance (SPEC.md 128.25.5.2).  The
+; NEVER the balls, held in the bundle for the instance (SPEC.md 130.25.5.2).  The
 ; song is bzs_gdrop's.  Preserves nothing.
 bz_cdrop:
     push ds                     ; ES = ours, not whatever the bracket left:
@@ -2575,22 +2602,22 @@ bz_cdrop:
                                 ; there is a #GP once its claim is gone (the
                                 ; final pass of wave 1: bonanzamega's fault at
                                 ; op_drop's POP ES, the ball's selector in ES)
-    call bz_fhz                 ; wave 9 (SPEC.md 128.25.6.2): no hook active
+    call bz_fhz                 ; wave 9 (SPEC.md 130.25.6.2): no hook active
 %if BZ_NFFETCH                  ; (bz_fhk, bz_fnf 0, every list empty), the
                                 ; FETCHED families' parts
     mov ax, BZ_P_FAM + BZ_NFFETCH ; first, the reverse of the fetch's order (a
 .dfam:                          ; row not here is a no-op, so a course with none
     dec ax                      ; drops none; a build with none has no loop) -
     call op_drop                ; never the RESIDENT BUNDLE, the last row (SPEC.md
-    cmp al, BZ_P_FAM            ; 128.25.6.9: the arena's floor). (op_drop
+    cmp al, BZ_P_FAM            ; 130.25.6.9: the arena's floor). (op_drop
     ja .dfam                    ; preserves AX)
 %endif
-                                ; (NO BALL: held for the instance, 128.25.5.2)
+                                ; (NO BALL: held for the instance, 130.25.5.2)
     xor ax, ax                  ; ...and a reservation nothing was fetched
     call op_areserve            ; into given back (a refused first fetch)
     mov al, [bz_pc]
 %if BZ_PATH_NPAD
-    cmp al, BZ_P_PATH           ; the HELD pathway's part stays (128.22.7)
+    cmp al, BZ_P_PATH           ; the HELD pathway's part stays (130.22.7)
     jne .dpc
     cmp byte [bz_phold], 0
     jne .held
@@ -2602,7 +2629,7 @@ bz_cdrop:
 %endif
 %if BZ_NCRS2
     mov al, BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; every two-part course's WORLD part
-.dw:                            ; (SPEC.md 128.30.5): a row not here is a
+.dw:                            ; (SPEC.md 130.30.5): a row not here is a
     dec ax                      ; no-op (op_drop preserves AX)
     call op_drop
     cmp al, BZ_P_CRS + BZ_NCRS
@@ -2617,10 +2644,10 @@ bz_cdrop:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_bget - THE BALLS, HELD (SPEC.md 128.25.5.2): the RESIDENT BUNDLE fetched
+; bz_bget - THE BALLS, HELD (SPEC.md 130.25.5.2): the RESIDENT BUNDLE fetched
 ; if it is not here - the three balls at its head, BZB3, generated in place
 ; at once (bz_ballgen, each AX its segment), bz_bform 0 - and a CGA launch
-; that finds them Hercules-translated (bz_bform 1: no way back, 128.11.3)
+; that finds them Hercules-translated (bz_bform 1: no way back, 130.11.3)
 ; drops the bundle and reads it again.  bz_entry's and bz_cload's: ONCE an
 ; instance on one card.  bz_bsegs is right after it.  CF = 1 refused
 ; (op_fetch said why).  Preserves nothing.
@@ -2647,7 +2674,7 @@ bz_bget:
 .g:
     lodsw
     push si
-    call bz_ballgen             ; BZB3 -> BZB2 in place (128.25.5): AX, ES kept
+    call bz_ballgen             ; BZB3 -> BZB2 in place (130.25.5): AX, ES kept
     pop si
     cmp si, bz_bsegs + 2 * BZ_NMAT
     jb .g
@@ -2691,20 +2718,20 @@ bz_bsload:
 
 ; -----------------------------------------------------------------------------
 ; bz_crshdr - the fetched course part's header, copied into our data (SPEC.md
-; 128.10.6.4, 128.10.8 item 4): the writers' map shift and stride, the camera's
+; 130.10.6.4, 130.10.8 item 4): the writers' map shift and stride, the camera's
 ; limits' inputs, the grid's place, X0 and Y0 (and the projection's
 ; constants physics derives the screen position with), and the route.  The
 ; start is physics's (bzphys.inc bz_pinit).  Nothing is checked: the part was
-; checked when it was built (128.10.6.2).  DS = ours, [bz_cseg] the course.
+; checked when it was built (130.10.6.2).  DS = ours, [bz_cseg] the course.
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_crshdr:
-    mov word [bz_acptr], -1     ; (SPEC.md 128.29: the model's cell, emptied,
+    mov word [bz_acptr], -1     ; (SPEC.md 130.29: the model's cell, emptied,
     mov word [bz_awx], -1       ; its grid cell,
     mov word [bz_omp], bz_omsk  ; and bz_olay's mask in our segment)
     push es
     mov es, [bz_cseg]
-    call bz_fsbset              ; SPEC.md 128.28.7: the FIELD tables' offsets
+    call bz_fsbset              ; SPEC.md 130.28.7: the FIELD tables' offsets
     mov ax, [es:BZC_COLS]
     mov [bz_cols], ax
     mov ax, [es:BZC_BROWS]
@@ -2716,9 +2743,9 @@ bz_crshdr:
     mov di, [es:BZC_GRID]
     mov [bz_goff], di
 %if BZ_TITLE
-    mov byte [bz_fixed], 0      ; SPEC.md 128.23.2: a FIXED window - BZG1 +30
+    mov byte [bz_fixed], 0      ; SPEC.md 130.23.2: a FIXED window - BZG1 +30
  %if BZ_PATH_NPAD
-    mov byte [bz_paged], 0      ; (wave 8R, 128.22.4.3: or PAGED, bit 3, +30
+    mov byte [bz_paged], 0      ; (wave 8R, 130.22.4.3: or PAGED, bit 3, +30
     mov al, [es:di + BZG_FLAGS] ; page 0's, BZC2 +44 the pages; a register's
     test al, BZ_GF_PAGED        ; test: tests/unit/t_bits.py cannot read the
     jz .npg                     ; generated bzcourse.inc's values)
@@ -2739,6 +2766,9 @@ bz_crshdr:
     cmp byte [bz_herc], 0
     jne .vh
     shl ax, 1
+    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: x 4, 130.46.3)
+    je .vs
+    shl ax, 1
     jmp short .vs
 .vh:
     sub bx, BZ_HERC_LEFT
@@ -2756,17 +2786,17 @@ bz_crshdr:
     mov ax, [es:di + BZG_ROUTE]
     mov [bz_wayoff], ax
     mov al, [es:BZC_SB]         ; the occluder pass's biases and mask table
-    cbw                         ; (SPEC.md 128.15.4.1, 128.15.5.2): SB signed
+    cbw                         ; (SPEC.md 130.15.4.1, 130.15.5.2): SB signed
     mov [bz_osbias], ax
     mov ax, [es:BZC_TB]
     mov [bz_otb], ax
     mov ax, [es:BZC_MTAB]
     mov [bz_mtab], ax
 %if BZ_NCRS2
-    mov es, [bz_mseg]           ; (the occluders: the PICTURE part, 128.30.5)
+    mov es, [bz_mseg]           ; (the occluders: the PICTURE part, 130.30.5)
 %endif
     call bz_osmake              ; ...and its rows' summary (bzvideo.inc bz_occ)
-    mov ax, [bz_x0]             ; the projection's constants, 24.8 (128.10.8):
+    mov ax, [bz_x0]             ; the projection's constants, 24.8 (130.10.8):
     sub ax, 8                   ; bz_kx = (X0 - 8) << 8 ...
     call .k
     mov [bz_kx], ax
@@ -2795,7 +2825,7 @@ bz_crshdr:
 ; of block row br's records, a word a row, for the first BZ_OSROWS rows.  An
 ; empty row is 0, 0 (bz_occ leaves it at once); the table's words past BROWS
 ; are FFFFh, which leave no row.  The 4-byte record's s' is its byte +1 and
-; its t' its byte +2 (SPEC.md 128.15.5.1).  DS = ours, ES = the course part
+; its t' its byte +2 (SPEC.md 130.15.5.1).  DS = ours, ES = the course part
 ; (a selector on kern_mega: read through, never computed on).  Preserves all
 ; but AX, BX, CX, DX, SI, DI, BP.
 ; -----------------------------------------------------------------------------
@@ -2844,7 +2874,7 @@ bz_osmake:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_cexp - THE COURSE PART EXPANDED IN PLACE (SPEC.md 128.15.4.4, 128.15.4.5),
+; bz_cexp - THE COURSE PART EXPANDED IN PLACE (SPEC.md 130.15.4.4, 130.15.4.5),
 ; right after the fetch that DECODED it and before anything reads it.  The
 ; part is BZC2's STORED form: each section's slot [off, off + len) holds a
 ; zero hole and then its dlen stored bytes; the directory (the part's last
@@ -2859,7 +2889,7 @@ bz_osmake:
 ; Hercules translates AFTER it (bz_hgen's table lives in bz_boxbuf, which
 ; ROWPLANES and CELLS use as scratch first).  The part is read and written through its
 ; own segment (kern_mega: its LDT selector) in DS or ES, at offsets inside its
-; length; nothing through CS, no segment arithmetic (128.15.11).
+; length; nothing through CS, no segment arithmetic (130.15.11).
 ; DS = ours, [bz_cseg] the part.  Preserves BP, DS, ES.
 ; -----------------------------------------------------------------------------
 bz_cexp:
@@ -2895,7 +2925,7 @@ bz_cexp:
     ret
 
 ; -----------------------------------------------------------------------------
-; D3 (SPEC.md 128.24.5.2): A PART IS HOSTILE, so a split cell's +0 - +1 - an
+; D3 (SPEC.md 130.24.5.2): A PART IS HOSTILE, so a split cell's +0 - +1 - an
 ; offset IN the part, read through - is BOUNDED before anything reads through
 ; it: inside section D, 4-aligned from D's start, its 2 (TB, LR) or 4
 ; (QUARTERED) records within D's length; a kind 7 - 15 is no split this build
@@ -2924,7 +2954,7 @@ bz_dfind:
     mov [bz_dhi], dx
     jmp short .n
 .c:
-    cmp al, 'F'                 ; (SPEC.md 128.28.2: the FIELD tables)
+    cmp al, 'F'                 ; (SPEC.md 130.28.2: the FIELD tables)
     jne .c2
     mov [bz_ffo], dx
     add dx, [es:bx + BZX_LEN]
@@ -2942,7 +2972,7 @@ bz_dfind:
 .r:
     ret
 
-; bz_fsbset - bz_fsb[i] = section F's offset + 289 i (SPEC.md 128.28.7): the
+; bz_fsbset - bz_fsb[i] = section F's offset + 289 i (SPEC.md 130.28.7): the
 ; tables bz_fhp reads, off the directory (no F: offsets from 0, never read -
 ; no cell is a FIELD one).  ES = the part.  Clobbers AX, BX, CX.
 bz_fsbset:
@@ -2969,7 +2999,7 @@ bz_fsbset:
     ret
 
 ; bz_drec - ES:SI a cell of kind AL (4 - 15): CF = 0 and SI its records'
-; offset when they lie in D as 128.24.5.2 says, else CF = 1.  Preserves all
+; offset when they lie in D as 130.24.5.2 says, else CF = 1.  Preserves all
 ; but SI and the flags.
 bz_drec:
     push ax
@@ -3003,8 +3033,8 @@ bz_drec:
 ; above) and whose records bz_drec refuses becomes an OPEN cell (z0 -128,
 ; flat, VOID, no flags), and every record of D a kind 0 - 3 (above: VOID) -
 ; so the step's window (bz_wsplit) and bz_blocks read only D and only a
-; record of 128.24.5.2's kinds.  A part the tool built has neither (its
-; read_part checks them).  SPEC.md 128.28.2: a FIELD cell whose shape (its
+; record of 130.24.5.2's kinds.  A part the tool built has neither (its
+; read_part checks them).  SPEC.md 130.28.2: a FIELD cell whose shape (its
 ; +1's bits 0 - 3, bit 7 the fifth) is not inside F becomes OPEN.  ES = the
 ; part.  Clobbers AX,
 ; BX, CX, DX, SI.
@@ -3070,15 +3100,15 @@ BZ_CXFORMS  equ 1FFh
     dw bz_cxrtb                 ; 5 ROWTAB
     dw bz_cxway                 ; 6 WAYS
     dw bz_cxcel                 ; 7 CELLS
-    dw bz_cxkit                 ; 8 KITREF (SPEC.md 128.37.4)
+    dw bz_cxkit                 ; 8 KITREF (SPEC.md 130.37.4)
 %if BZ_FORMS & ~BZ_CXFORMS
  %error "bz_cexp: a course part uses a stored form its dispatch table does not hold"
 %endif
 %if BZ_REC != 4
- %error "bonanza: the occluder pass reads D's 4-byte records (SPEC.md 128.15.5.4); bzcourse.inc's BZ_REC is not 4"
+ %error "bonanza: the occluder pass reads D's 4-byte records (SPEC.md 130.15.5.4); bzcourse.inc's BZ_REC is not 4"
 %endif
 
-; 8 KITREF (SPEC.md 128.37.4): the section's pieces at the head of its slot
+; 8 KITREF (SPEC.md 130.37.4): the section's pieces at the head of its slot
 ; are THE KIT's, named by a bitmap (bit i of byte i >> 3, low bit first: kit
 ; piece i of the class), stored first and then the course's own pieces, which
 ; are the slot's tail and in place already.  The kit's class is found by the
@@ -3255,11 +3285,13 @@ bz_cxramp:                      ; CX words from AX, DX apart
     ret
 
 ; 6 WAYS: each way's tile (wx, wy), a byte each; written as the ball's picture
-; top-left on the tile's centre (the tool's rule, 128.10.4.5):
+; top-left on the tile's centre (the tool's rule, 130.10.4.5):
 ;   x = 16 a + X0 - 8,  y = 8 s - 2 (2 z0 + sx + sy) + Y0 - 5,
 ; s = wx + wy, a = wx - wy, z0, sx and sy the tile's CELL's, found as
 ; bzphys.inc finds a cell: ROWTAB[s - SMIN] + 4 ((a - AMIN) >> 1).  NWAY
-; counts; way w's words end before way w + 1's stored pair.
+; counts; way w's words end before way w + 1's stored pair.  A way on a FIELD
+; cell (SPEC.md 130.28.10) is at GROUND height, y = 8 s + Y0 - 5 (its +1 is a
+; shape, not slopes), and MARKED: bit 0 of its x flipped (bz_auto's test).
 bz_cxway:
     push es
     pop ds                      ; DS = ES = the part
@@ -3292,7 +3324,11 @@ bz_cxway:
     mov si, [si]                ; ROWTAB[r]
     add si, bp
     lodsw                       ; AL = z0, AH = sy : sx (signed nibbles)
+    mov ch, [si]                ; +2: the kind (low nibble)
     pop si
+    and ch, 15
+    cmp ch, BZ_KFIELD
+    je .fld
     mov ch, ah
     sar ch, cl                  ; CH = sy
     shl ah, cl
@@ -3310,12 +3346,20 @@ bz_cxway:
     sub dx, ax
     add dx, [bx + BZG_Y0]
     sub dx, 5
+.y:
     xchg ax, dx
     stosw                       ; y
     pop cx
     loop .way
     ret
-; 7 CELLS (SPEC.md 128.15.6): each cell as in RAM but two fields, each stored
+.fld:                           ; a FIELD way (130.28.10): x marked, y at the
+    xor word [di - 2], 1        ; ground's height
+    mov cl, 3
+    shl dx, cl
+    add dx, [bx + BZG_Y0]
+    sub dx, 5
+    jmp short .y
+; 7 CELLS (SPEC.md 130.15.6): each cell as in RAM but two fields, each stored
 ; as its difference from the RULE: a VOID cell's z0 as z0 - rule_z0 (8 bits),
 ; and every cell's SAFE bit XOR rule_safe.  The rule, as the tool builds the
 ; grid (bbcourse.cells_rule is this routine's model):
@@ -3344,7 +3388,7 @@ bz_cxway:
 ; the grid writes inside the slot, whatever the bytes.  The tool keeps every
 ; non-VOID cell two tiles inside the grid (read_part), so the edge reads stay
 ; in the grid.  DS = ours (the A rows), ES = the part; the frame is SS:BP.
-; About 0.19 s on PEAK, with bz_cxsafe (priced, 128.15.6).
+; About 0.19 s on PEAK, with bz_cxsafe (priced, 130.15.6).
 BZ_CXRW     equ 36              ; an A row's stride: a pad, KW cells, a pad
 BZ_CXNS     equ 4 * BZ_BOXB / BZ_CXRW   ; the A rows bz_boxbuf holds
 %if BZ_CXRW < BZ_KWMAX + 2 || BZ_CXNS < 10 || BZ_CXRW & 1
@@ -3414,7 +3458,7 @@ bz_cxcel:
     jz .scn                     ; VOID: no corner
     call bz_cxsafe
     test byte [es:si + 2], 0ch  ; D3: a SPLIT cell (kind 4 - 15): its V by its
-    jnz .ssp                    ; records (128.24.5.3); 128.28.2: a FIELD's, its z0's
+    jnz .ssp                    ; records (130.24.5.3); 130.28.2: a FIELD's, its z0's
     mov dx, [es:si]             ; DL = z0, DH = sy : sx
     call .v
 .ly:                            ; AL = V, what this cell lays
@@ -3535,7 +3579,7 @@ bz_cxcel:
 .ssp:                           ; D3: a split cell's V, the least of its
     mov al, [es:si + 2]         ; records' that are not VOID (FFh: none, or
     and al, 15                  ; records bz_drec refuses) - or a FIELD cell's,
-    cmp al, BZ_KFIELD           ; z0 + 79h (SPEC.md 128.28.2: its +1 is not
+    cmp al, BZ_KFIELD           ; z0 + 79h (SPEC.md 130.28.2: its +1 is not
     jne .ssq                    ; slopes)
     mov dl, [es:si]
     xor dh, dh
@@ -3611,11 +3655,11 @@ bz_cxsafe:
     mov ah, [es:si + 2]         ; (bzphys.inc's BZN_*/4) -> ZF = 1 when it is
     and ah, 15                  ; VOID across the shared edge: VOID, or D3, a
     cmp ah, BZ_KTB              ; split one whose record that OWNS the edge is
-    jae .vs                     ; (128.24.5.3; BZ_SPLIT_WIN, the model's OWNER).
+    jae .vs                     ; (130.24.5.3; BZ_SPLIT_WIN, the model's OWNER).
     or ah, ah                   ; Preserves all but AX
     ret
 .vs:
-    cmp ah, BZ_KFIELD           ; SPEC.md 128.28.2: a FIELD neighbour is not VOID
+    cmp ah, BZ_KFIELD           ; SPEC.md 130.28.2: a FIELD neighbour is not VOID
     jne .vs2
     or ah, ah                   ; (ZF clear: AH is 7)
     ret
@@ -3647,7 +3691,7 @@ bz_cxsafe:
     pop bx
     ret
 ; -----------------------------------------------------------------------------
-; THE HERCULES MADE AT THE FETCH (SPEC.md 128.11.3).  A Hercules byte is the
+; THE HERCULES MADE AT THE FETCH (SPEC.md 130.11.3).  A Hercules byte is the
 ; CGA byte with each 2-bit pixel c replaced by herc_pair(c, line, column): 00
 ; for 0, 11 for 3, and for 1 or 2, 10 where line + column is even and 01 where
 ; it is odd.  Every block, ball row and squash or shatter row starts on a
@@ -3660,7 +3704,7 @@ bz_cxsafe:
 ; the byte is b ^ ((b ^ P) & m) with P the parity's mid pattern - 10 01 10 01
 ; (99h) for p = 0, 01 10 01 10 (66h) for p = 1, which is NOT 99h.  The tool's
 ; bbcourse.htab() is the same table; bonanzaring's Hercules oracle checks this
-; one by its picture (SPEC.md 128.11.17.2).  DS = ours.  Preserves nothing.
+; one by its picture (SPEC.md 130.11.17.2).  DS = ours.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_hgen:
     mov di, bz_boxbuf
@@ -3691,7 +3735,7 @@ bz_hgen:
 
 ; -----------------------------------------------------------------------------
 ; bz_hxlat - translate the fetched course and ball parts IN PLACE through
-; BZ_HTAB (SPEC.md 128.11.3), on the Hercules, before the bracket:
+; BZ_HTAB (SPEC.md 130.11.3), on the Hercules, before the bracket:
 ;   the course's blocks, BLKOFF .. BLKOFF + 16 N: a block line is ONE WORD, its
 ;     index in the block the line, so the table changes every two bytes (8
 ;     lines a block, even: one run of 8 N rows of 2 bytes from table 0);
@@ -3699,14 +3743,14 @@ bz_hgen:
 ;     run of 8 frames is 128 rows of 5 bytes from table (f >> 3) & 1;
 ;   the FRAME half of each squash, shatter and stretch entry (frame x shift
 ;     x parity copy p x (mask 80, frame 80)): 16 rows from table p;
-;   a PLATFORM's sprite (wave 3, SPEC.md 128.12.6.4): parity copy p x (mask
+;   a PLATFORM's sprite (wave 3, SPEC.md 130.12.6.4): parity copy p x (mask
 ;     144, frame 144), the frame's row r through table (p + r) AND 1.
 ; Every ball part this launch fetched (bz_bsegs, wave 4), each the same way.
 ; Masks and the shadow are the same bytes on both cards and are not touched.
 ; XLAT reads DS:BX + AL, so DS = OURS (the table, in our bss) and the part is
 ; ES (`es lodsb`, `stosb`, SI = DI): on kern_mega ES is the part's own
 ; selector, written whole at offsets under its length, as op_fetch's expand
-; already writes it; nothing through CS (SPEC.md 128.11.14).  DS = ours.
+; already writes it; nothing through CS (SPEC.md 130.11.14).  DS = ours.
 ; Preserves nothing; ES is left the ball's (bz_launch saves and restores it).
 ; -----------------------------------------------------------------------------
 bz_hxlat:
@@ -3715,7 +3759,7 @@ bz_hxlat:
     xor bp, bx                  ; apart (any alignment)
 %if BZ_PATH_NPAD
     cmp byte [bz_phre], 0       ; a HELD pathway was translated when it was
-    jne .noplat                 ; fetched: the balls alone (128.22.7)
+    jne .noplat                 ; fetched: the balls alone (130.22.7)
 %endif
     mov es, [bz_mseg]           ; the course: 8 N rows of 2 bytes (its PICTURE part)
     mov si, [es:BZC_BLKOFF]
@@ -3726,9 +3770,9 @@ bz_hxlat:
     mov dl, 2
     call bz_hxrows
 %if BZ_NCRS2
-    mov es, [bz_cseg]           ; (the sprites: the WORLD part, 128.30.5)
+    mov es, [bz_cseg]           ; (the sprites: the WORLD part, 130.30.5)
 %endif
-    mov cx, [es:BZC_NPROP]      ; the PLATFORMS' sprites (SPEC.md 128.12.6.4):
+    mov cx, [es:BZC_NPROP]      ; the PLATFORMS' sprites (SPEC.md 130.12.6.4):
     mov di, [es:BZC_PROPOFF]    ; parity copy p's frame half, row r through
     jcxz .noplat                ; table (p + r) AND 1 (BX is table 0 here: the
 .prec:                          ; blocks' run is even)
@@ -3752,7 +3796,7 @@ bz_hxlat:
     add di, BZ_PROPREC
     loop .prec
 .noplat:
-    cmp byte [bz_bform], 0      ; the three HELD balls (128.25.5.2): translated
+    cmp byte [bz_bform], 0      ; the three HELD balls (130.25.5.2): translated
     jne .nbr                    ; ONCE, then marked so (bz_bget)
     inc byte [bz_bform]
     mov di, bz_bsegs
@@ -3786,9 +3830,9 @@ bz_hxball:
     mov al, [es:BZB_NSHA]       ; stretch (wave 6), one table at the same
     add al, [es:BZB_NSTR]       ; offset: +12 and +14 count them, never both
 ; AL = frames of entries at SI: each frame's BZ_BAL_SHIFTS entries, ONE line
-; parity copy each (SPEC.md 128.38.10), every frame half 16 rows from table 0
+; parity copy each (SPEC.md 130.38.10), every frame half 16 rows from table 0
 bz_hxents:
-    mov ah, BZ_BAL_SHIFTS       ; (one parity copy each, SPEC.md 128.38.10)
+    mov ah, BZ_BAL_SHIFTS       ; (one parity copy each, SPEC.md 130.38.10)
     mul ah
     or ax, ax
     jz .out
@@ -3824,7 +3868,7 @@ bz_hxrows:
 ; SI = a TOASTSTR in our segment
 bz_toast:
     cmp byte [bz_fs], 0         ; (inside the bracket the framebuffer is ours:
-    jne .q                      ; a refusal there says nothing, 128.26.3)
+    jne .q                      ; a refusal there says nothing, 130.26.3)
     push es
     push ds
     pop es
@@ -3835,22 +3879,22 @@ bz_toast:
     ret
 
 TOASTSTR bz_t_small, 'Bonanza: too little RAM'
-TOASTSTR bz_t_adapt, 'CGA OR HERC ONLY'
+TOASTSTR bz_t_adapt, 'CGA, HERC OR VGA ONLY'
 TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 
 ; -----------------------------------------------------------------------------
-; THE FACE (SPEC.md 128.14.3.2): two PAGES, [bz_page] 0 MAIN and 1 RESULTS.
+; THE FACE (SPEC.md 130.14.3.2): two PAGES, [bz_page] 0 MAIN and 1 RESULTS.
 ; Every line is ONE opaque OSAPI_FONT_RUN padded with spaces to the content's
 ; width (the padding is the erase, SPEC.md 6.1), and only the 2px gaps between
 ; lines and the strip under the last one are filled: no pixel is written
 ; twice.  The lines are built in bz_lbuf.  MAIN's seven are a builder each
 ; (bz_ftab), so a key redraws exactly the lines it changed (bz_redraw); the
 ; RESULTS page is drawn whole and left by the next key.  EVERY LINE FITS THE
-; CGA's 42 CELLS (128.14.17 item 2): each builder's widest output - its
+; CGA's 42 CELLS (130.14.17 item 2): each builder's widest output - its
 ; strings, which BZS measures, and its fields at their widest - is asserted
 ; under the strings (BZ_FIT), so a longer string fails the build.
 ; -----------------------------------------------------------------------------
-BZ_NLINE    equ 7               ; MAIN's lines: the tour's, then six (SPEC.md 128.26.8:
+BZ_NLINE    equ 7               ; MAIN's lines: the tour's, then six (SPEC.md 130.26.8:
                                 ; the scorecard's line a tour course is gone, so MAIN
                                 ; no longer grows with the courses).  The CGA's content
                                 ; holds 13 lines of 42 cells; RESULTS draws all 13
@@ -3860,7 +3904,7 @@ BZ_TIMEW    equ 6               ; a time: `ss.hh`, `ssss.h` (from 100 s) or `20:
 BZ_FALLMAX  equ 9999            ; falls are shown, and filed, to four digits
 
 ; the face's three entries, each a far call into the SHELL PART (SPEC.md
-; 128.19.2, bzshell.inc): bz_face paints it, bz_redraw redraws the 0FFh-ended
+; 130.19.2, bzshell.inc): bz_face paints it, bz_redraw redraws the 0FFh-ended
 ; line list at SI (in OUR segment), bz_redraw1 the one line AL
 bz_face:
     mov al, BZH_FACE
@@ -3869,13 +3913,10 @@ bz_redraw:
     mov al, BZH_REDRAW
     jmp short bz_shcall
 
-; C, M and N on the desktop (one press each, bz_dkey): the next camera mode,
-; ball or course, and the lines that name them redrawn.  N sets the ball to the
-; new course's own (SPEC.md 128.11.5.4).  Every one is the session's.
-bz_camkey:
-    call bz_cnext
-    jmp short bz_line3
-
+; M and N on the desktop (one press each, bz_dkey): the next ball or course,
+; and the lines that name them redrawn.  N sets the ball to the new course's
+; own (SPEC.md 130.11.5.4).  Every one is the session's.  (C, the camera
+; mode, is gone: LATTICE won, and the VGA has its own, 130.46.12.)
 bz_ballkey:
     inc byte [bz_matsel]
     cmp byte [bz_matsel], BZ_NMAT
@@ -3913,7 +3954,7 @@ bz_stopl:   db 1, 3, 5, BZ_LTOUR, 0ffh ; a tour stopped on the face: the keys, M
                                 ; the demo keys and the tour's line
 
 ; CF = 1 while a tour's course is next or playing ([bz_tour] 1 - BZ_NTOUR, SPEC.md
-; 128.14.3.1).  Preserves all but the flags.
+; 130.14.3.1).  Preserves all but the flags.
 bz_intour:
     push ax
     mov al, [bz_tour]
@@ -3924,7 +3965,7 @@ bz_intour:
 
 
 ; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s BZ_NTOUR; BL = 1
-; when one of them is the 65,535 clamp (such a total is never kept, 128.14.3.1).
+; when one of them is the 65,535 clamp (such a total is never kept, 130.14.3.1).
 ; Preserves all else.  (bz_post's; the face's own copy is in bzface.inc)
 bz_ttotal:
     push cx
@@ -3949,7 +3990,7 @@ bz_ttotal:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_shcall - the SHELL PART's door (SPEC.md 128.19.2): AL = a vector (BZH_*),
+; bz_shcall - the SHELL PART's door (SPEC.md 130.19.2): AL = a vector (BZH_*),
 ; every other register passed to it as it stands.  The part is fetched when it
 ; is not held (at home, as every fetch is) and its head checked once a fetch:
 ; its signature, and the image and bss sizes it was LINKED against, which must
@@ -3966,7 +4007,7 @@ bz_shcall:
     cmp word [bz_cseg], 0
     je .free
     cmp byte [bz_susp], BZ_SU_CRS ; (a SUSPENDED course shares memory with the
-    je .free                    ; face: the brief's, SPEC.md 128.26.4)
+    je .free                    ; face: the brief's, SPEC.md 130.26.4)
     mov byte [bz_shpend], 1     ; a course is held: the paint is bz_launch's
     stc
     ret
@@ -4059,7 +4100,93 @@ bz_shdrop:
 TOASTSTR bz_t_shell, 'Bonanza: bad part'   ; (the shell part's and a family part's, bz_ffetch)
 
 ; -----------------------------------------------------------------------------
-; THE GAME'S BOOKS (SPEC.md 128.14.3.1, 128.14.3.3)
+; bz_vprep - THE VGA's ART (SPEC.md 130.46.5, 130.46.6), at the end of every
+; bz_cload (at home; the bracket's own rounds included): BZVGA.BIN fetched if
+; it is not held (stamped as the shell part is), its code alias taken again -
+; every fetch before this one may have moved it - the balls' copies claimed
+; once (BZV_PSIZE: one claim, held with the part), and the part's CONV run:
+; the course's art in place, the three balls into the claim.  CF = 1 refused
+; (toasted).  Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_vprep:
+    mov al, BZ_P_VGA
+    call op_seg
+    or ax, ax
+    jnz .held
+    mov al, BZ_P_VGA
+    call op_fetch               ; (its refusal toasted)
+    jc .out
+    mov al, BZ_P_VGA
+    call op_seg
+    push es
+    mov es, ax
+    cmp word [es:0], BZV_SIG0
+    jne .bad
+    cmp word [es:2], BZV_SIG1
+    jne .bad
+    mov ax, [8]                 ; our image and bss sizes (OS88_HEADER)
+    cmp ax, [es:BZV_IMAGE]
+    jne .bad
+    mov ax, [10]
+    cmp ax, [es:BZV_BSSW]
+    jne .bad
+    pop es
+.held:
+    mov al, BZ_P_VGA
+    call op_cseg
+    mov [bz_vfp + 2], ax
+    cmp word [bz_vbseg], 0
+    jne .conv
+    mov bl, MEMP_AVAIL          ; ASKED first (os88api.inc, SPEC.md 38.6): a
+    call OSAPI_MEM_P            ; refused claim sheds the disk caches
+    mov si, bz_t_nomem
+    cmp ax, (BZV_PSIZE + 15) / 16
+    jb .toast
+    mov ax, (BZV_PSIZE + 15) / 16
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P            ; DX = the claim (pinned: MC_RLOC 0)
+    jc .toast
+    mov [bz_vbseg], dx
+.conv:
+    mov word [bz_vcpal], bz_cpals ; (two of our image's tables the part reads:
+    mov word [bz_vspr0], bz_spr0  ;  a label crosses the link only through bss)
+    BZ_VCALL BZV_CONV
+    clc
+.out:
+    ret
+.bad:
+    pop es
+    call bz_vdrop
+    mov si, bz_t_shell
+.toast:
+    call bz_toast
+    stc
+    ret
+
+; bz_vdrop - the VGA's part and the balls' copies given back (after a bracket
+; that was not left suspended, and with the suspended course's drop).  Any
+; card, any number of times.  Preserves every register.
+bz_vdrop:
+    push ax
+    push dx
+    push es
+    push ds
+    pop es
+    mov dx, [bz_vbseg]
+    or dx, dx
+    jz .p
+    call OSAPI_MEM_FREE
+    mov word [bz_vbseg], 0
+.p:
+    mov al, BZ_P_VGA
+    call op_drop
+    pop es
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; THE GAME'S BOOKS (SPEC.md 130.14.3.1, 130.14.3.3)
 ; -----------------------------------------------------------------------------
 ; bz_post - after the frame loop, IN the bracket (bzvideo.inc), so the face the
 ; kernel's restore paints is the new one: what the run just did, in memory
@@ -4103,7 +4230,7 @@ bz_post:
     add al, [bz_hid]            ; holed ball has finished): the GOAL STEP, not
     test byte [bz_tout], 1      ; bz_fin - an Esc in the goal's frame is read
     jz .lse                     ; first, and the run still finished; 3 the
-    mov al, 3                   ; TIMEOUT (wave 7, 128.18.4)
+    mov al, 3                   ; TIMEOUT (wave 7, 130.18.4)
 .lse:
     mov [bz_lsend], al
     cmp byte [bz_mode], 0       ; a replay posts nothing
@@ -4169,14 +4296,14 @@ bz_post:
 .out:
     ret
 
-; bz_dload - the entry proc's read of BONANZA.DAT (SPEC.md 128.14.3.3), and
+; bz_dload - the entry proc's read of BONANZA.DAT (SPEC.md 130.14.3.3), and
 ; [bz_dat] made this build's whole image whatever it found.  The file is
 ; HOSTILE (§19): exactly BZD_FILE bytes and `BZS4` (no older layout is read,
-; 128.22.5), then bz_dchk's whole-file checks
-; (128.14.17 item 6) - any failure and it is treated as ABSENT; then
+; 130.22.5), then bz_dchk's whole-file checks
+; (130.14.17 item 6) - any failure and it is treated as ABSENT; then
 ; bz_dnorm keeps an entry only under this build's identity with a best 1 -
 ; 65,534.  A missing file or folder is the first run: silent.  kern_small
-; refuses at the launch keys (128.1), so it reads nothing.  Preserves nothing.
+; refuses at the launch keys (130.1), so it reads nothing.  Preserves nothing.
 bz_dload:
     xor cl, cl
     cmp byte [bz_small], 0
@@ -4194,7 +4321,7 @@ bz_dload:
     jc bz_dnorm
     or dx, dx
     jnz bz_dnorm
-    cmp ax, BZD_FILE            ; save v4 (128.22.5): `BZS4`, exactly one sector; any
+    cmp ax, BZD_FILE            ; save v4 (130.22.5): `BZS4`, exactly one sector; any
     jne bz_dnorm                ; other length (an older layout too) is unrecognised
     cmp word [bz_dat + 2], 'S4'
     jne bz_dnorm
@@ -4202,17 +4329,17 @@ bz_dload:
 ; CL = 1: keep what this build can file; 0: nothing (the first run's image).
 ; A file written under OTHER PHYSICS (+5 not this build's BZ_PHYSV: a 5b
 ; file's 0 among them, which is never BZ_PHYSV) keeps nothing either: its
-; bests were times under other physics (SPEC.md 128.16.9) - the identities
+; bests were times under other physics (SPEC.md 130.16.9) - the identities
 ; filed are this build's whatever it held, so that is the first run's image.
 %if BZ_PHYSV == 0
- %error "BZ_PHYSV 0 is the unset value a 5b BONANZA.DAT holds (SPEC.md 128.16.9)"
+ %error "BZ_PHYSV 0 is the unset value a 5b BONANZA.DAT holds (SPEC.md 130.16.9)"
 %endif
 bz_dnorm:
     or cl, cl                   ; a file refused whole keeps no slot either
     jnz .sl
     call bz_dslz
 .sl:
-    call bz_dslots              ; save v2 (128.19.6): each slot judged alone,
+    call bz_dslots              ; save v2 (130.19.6): each slot judged alone,
     cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)
     je .phys
     xor cl, cl
@@ -4277,9 +4404,9 @@ bz_dnorm:
     ret
 
 ; bz_dchk - BONANZA.DAT's header and entries in [bz_dat], checked IN FULL
-; (SPEC.md 128.14.17 item 6, 128.22.5): `BZ` (+2 `S4`: bz_dload matched it
+; (SPEC.md 130.14.17 item 6, 130.22.5): `BZ` (+2 `S4`: bz_dload matched it
 ; with the length); the count it was written with 1 - BZD_NENT; +6 - +7 zero
-; (+5, the physics, any value: bz_dnorm judges it, 128.16.9); every entry's
+; (+5, the physics, any value: bz_dnorm judges it, 130.16.9); every entry's
 ; falls at most 9,999; every UNUSED entry (BENCH's, and K at or past the
 ; count) all zero.  The tour is bz_dnorm's, the slots bz_dslots'.  -> CL = 1
 ; it passes, 0 it is refused whole.  Clobbers AX, BX, SI.
@@ -4323,14 +4450,14 @@ bz_dchk:
 ; BZD_FILE bytes to SYSTEM\APPDATA\BONANZA.DAT on the package's own volume (os88data.inc:
 ; the session's first save a full write, every later one a sector).  A save
 ; that fails - no folder, write-protected, full - toasts ONCE a session and
-; the bests stay in memory (SPEC.md 128.14.3.3).  The save MERGES: the file is
+; the bests stay in memory (SPEC.md 130.14.3.3).  The save MERGES: the file is
 ; read again first (bz_dload, as hostile as at the entry) and the smaller best
 ; of the two kept per entry and for the tour, so a second instance - a
 ; double-clicked .BZR opens one - never overwrites the first's bests with its
 ; older copy.  Preserves nothing.
 bz_dsave:
     mov al, [bz_newb]           ; a best, or the game's slot (save v2,
-    or al, [bz_gsave]           ; 128.19.6)
+    or al, [bz_gsave]           ; 130.19.6)
     jz .out
     mov byte [bz_gsave], 0
     push es
@@ -4396,8 +4523,8 @@ bz_dsave:
 
 ; bz_dwrite - the image WHOLE to BONANZA.DAT, one od_write, no merge and no
 ; toast (the game's life at a course's entry, inside the bracket: SPEC.md
-; 128.19.6).  CF = 1 refused, and [bz_dwf] = 1 until a write is not (the info
-; card's NOT SAVED, 128.22.6).  Preserves ES.
+; 130.19.6).  CF = 1 refused, and [bz_dwf] = 1 until a write is not (the info
+; card's NOT SAVED, 130.22.6).  Preserves ES.
 bz_dwrite:
     push es
     push ds
@@ -4443,7 +4570,7 @@ bz_dslz:
     pop ax
     ret
 
-; bz_dslots - each SLOT judged alone (save v4, SPEC.md 128.22.5): EMPTIED when
+; bz_dslots - each SLOT judged alone (save v4, SPEC.md 130.22.5): EMPTIED when
 ; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
 ; a route TAKEN is not one OPENED, its exits found or its bests past the
 ; courses (K at or past BZ_NCRS) are not zero, or - it having lives - pad 0
@@ -4495,7 +4622,7 @@ bz_dslots:
     cmp al, BZD_NPAD            ; loop indexes the part's tables by it) ...
     jae .bad
     test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays
-    jnz .n                      ; any pad, 128.19.8: none of them in the set)
+    jnz .n                      ; any pad, 130.19.8: none of them in the set)
     push bx
     call bz_dwbit               ; AL the mask, BX the byte
     test al, [si + bx + BZD_SOPEN]
@@ -4543,14 +4670,14 @@ bz_dzero:
 TOASTSTR bz_t_nosave, 'Best times not saved'
 
 %define OD_TVOL bz_homevol      ; the volume BONANZA.O88 was launched from,
-%include "os88data.inc"         ; banked at the entry (128.14.7.6), not where a
+%include "os88data.inc"         ; banked at the entry (130.14.7.6), not where a
                                 ; dialog has moved the instance since
 
 ; -----------------------------------------------------------------------------
-; RECORDED DEMOS ON THE DISK (SPEC.md 128.14.7): W saves the held log, L loads
+; RECORDED DEMOS ON THE DISK (SPEC.md 130.14.7): W saves the held log, L loads
 ; one through the Open dialog, a double-clicked .BZR opens with BONANZA, V
 ; copies a shipped demo part into the log, D benchmarks it - and HOME, where
-; every part is read from (128.14.7.6).
+; every part is read from (130.14.7.6).
 ; -----------------------------------------------------------------------------
 ; bz_home - stand where BONANZA.O88 was launched from before a part is read out
 ; of it: op_fetch reads the package BY NAME in the instance's folder, which the
@@ -4624,14 +4751,14 @@ bz_back:
     ret
 
 ; S on the desktop: the sound's own key (bzsound.inc bzs_skey), whose title is
-; fetched - so at home, as bz_launch's fetches are (SPEC.md 128.14.10's two
+; fetched - so at home, as bz_launch's fetches are (SPEC.md 130.14.10's two
 ; sound fetches: bzs_gfetch inside bz_launch's home, bzs_dstart here and in
 ; the entry proc, which runs at home)
 bz_skey:
-    call bzs_toggle             ; (on or off since SPEC.md 128.26.5)
+    call bzs_toggle             ; (on or off since SPEC.md 130.26.5)
     jmp bz_line4
 
-; CF = 1 on kern_small, its refusal toasted (SPEC.md 128.1, 128.14.3.4).
+; CF = 1 on kern_small, its refusal toasted (SPEC.md 130.1, 130.14.3.4).
 ; Clobbers what bz_toast does.
 bz_bigok:
     cmp byte [bz_small], 0
@@ -4643,7 +4770,7 @@ bz_bigok:
     ret
 
 ; D (one press): THE DEMO BENCHMARK, bz_mode 3 - the held log replayed and
-; measured (SPEC.md 128.14.7.3)
+; measured (SPEC.md 130.14.7.3)
 bz_dkey_d:
     call bz_bigok
     jc .out
@@ -4656,7 +4783,7 @@ bz_dkey_d:
     ret
 
 ; W (one press): the held log through the SAVE dialog as `<NAME>.BZR` (SPEC.md
-; 128.14.7.1); bz_wdone writes it.  A tour's held log is the course just
+; 130.14.7.1); bz_wdone writes it.  A tour's held log is the course just
 ; played.  A dialog already up refuses, and that dialog is the answer.
 bz_wkey:
     call bz_bigok
@@ -4689,7 +4816,7 @@ bz_wkey:
 .out:
     ret
 
-; L (one press): a log through the OPEN dialog (SPEC.md 128.14.7.2)
+; L (one press): a log through the OPEN dialog (SPEC.md 130.14.7.2)
 bz_lkey:
     call bz_bigok
     jc bz_wkey.out
@@ -4797,14 +4924,14 @@ bz_esz:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_lfile - a demo FILE, which is HOSTILE (SPEC.md 19, 128.14.7.2): [bz_dname]
+; bz_lfile - a demo FILE, which is HOSTILE (SPEC.md 19, 130.14.7.2): [bz_dname]
 ; in the instance's folder, CX its size (L: the dialog's, 16 - 4,096, AL = 0)
-; or the read's capacity (the double-click: 4,096, AL = 1, 128.14.7.5), read
+; or the read's capacity (the double-click: 4,096, AL = 1, 130.14.7.5), read
 ; into a TRANSIENT claim of exactly CX bytes (pinned, held for this call
 ; alone) and CHECKED IN FULL (bz_lchk) before a byte reaches bz_rlog, so a
 ; refused file leaves the session's log as it was and fetches no part.  The
 ; claim is an LDT selector on kern_mega: read into at ES:0, checked through
-; [es:], copied whole - never added to (128.14.13).  CF = 0: the log is the
+; [es:], copied whole - never added to (130.14.13).  CF = 0: the log is the
 ; file's, [bz_lsv] 2 and [bz_lfn] its name; CF = 1: refused and toasted.
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
@@ -4901,7 +5028,7 @@ bz_lfile:
     mov word [bz_lseg], 0
     ret
 
-; bz_lchk - 128.14.7.2's checks 2 - 8 on the log at ES:0, [bz_lfsz] bytes (16 -
+; bz_lchk - 130.14.7.2's checks 2 - 8 on the log at ES:0, [bz_lfsz] bytes (16 -
 ; 4,096: check 1 is the caller's, so the header is inside it).  -> SI = 0 it
 ; passed, else the toast: `Demo from other physics` (5) or `Damaged demo file`.
 ; K indexes BZ_CRS_IDS only once bounded, and no run is read before N is tied
@@ -4988,7 +5115,7 @@ bz_argget:
 .out:
     ret
 
-; a DOUBLE-CLICKED .BZR (SPEC.md 128.14.7.5): no size comes with it, so the
+; a DOUBLE-CLICKED .BZR (SPEC.md 130.14.7.5): no size comes with it, so the
 ; read is bounded by its CAPACITY - 4,096, FERR_BIG decided from the directory
 ; before any data is read - and its bytes are the size.  Not .BZR refused; the
 ; document's folder stood in; bz_lfile's claim, read, checks and copy; home
@@ -5039,8 +5166,8 @@ bz_onwake:
     ret
 
 ; V (one press, not in a tour): the next SHIPPED demo, 1 - 5 in turn, into the
-; held log (SPEC.md 128.14.7.4) - its part fetched at home, copied whole (a
-; PART is trusted: the tool checked it, 128.10.6.2) and dropped.  It replaces
+; held log (SPEC.md 130.14.7.4) - its part fetched at home, copied whole (a
+; PART is trusted: the tool checked it, 130.10.6.2) and dropped.  It replaces
 ; the session's last log, as a new play does.
 bz_vkey:
     call bz_bigok
@@ -5094,7 +5221,7 @@ bz_dheld:
     jmp bz_redraw
 bz_heldl:   db 5, 6, BZ_LTOUR, 0ffh
 
-; T (one press, in a tour too): the control, KEYS or MOUSE (SPEC.md 128.14.8)
+; T (one press, in a tour too): the control, KEYS or MOUSE (SPEC.md 130.14.8)
 bz_tkey:
     xor byte [bz_ctl], 1
     mov si, bz_tlines
@@ -5118,7 +5245,7 @@ bz_title: db 'Bounce Bonanza',0
 bz_credits: dw bz_title, bz_ck1, bz_ck2, bz_ck3, bz_ck4, bz_ck5, bz_ck6, bz_ck7, bz_ck8, bz_credit1, 0
 bz_credit1: db 'Contributed by Elendilon',0
 bz_ck1:     db 'Arrows roll, Space hop',0       ; the player's keys no menu carries
-bz_ck2:     db 'L.Shift grip, P pause',0        ; (SPEC.md 128.26.7)
+bz_ck2:     db 'L.Shift grip, P pause',0        ; (SPEC.md 130.26.7)
 bz_ck3:     db 'Bksp back to the flag',0
 bz_ck4:     db 'Pad: Enter play, Space info',0
 bz_ck5:     db 'Pad: V demo, F6 replay',0
@@ -5129,68 +5256,73 @@ bz_ck8:     db 'Esc: map, or quit',0
 bz_cnames:  BZ_CRS_NAMES        ; ...their NAMEs, BZ_CRS_NAMEB bytes each
 bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
 bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECSTEPS
-                                ; steps, a word each (0 none; wave 7, 128.18.3)
+                                ; steps, a word each (0 none; wave 7, 130.18.3)
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
-bz_csongs:  BZ_CRS_SONGS        ; ...their songs, a byte each (wave 7, 128.18.6)
+bz_csongs:  BZ_CRS_SONGS        ; ...their songs, a byte each (wave 7, 130.18.6)
 bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word each
 %if BZ_NCRS2
-bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 128.30.4.4: each course's WORLD part's row (0: one part)
+bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 130.30.4.4: each course's WORLD part's row (0: one part)
 %endif
-                                ; (the tool's, SPEC.md 128.25.4.2: bz_cload)
+                                ; (the tool's, SPEC.md 130.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
-                                ; wave 6, SPEC.md 128.16.6: bz_vinit)
-bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 128.26.8): byte k its k-th course;
+                                ; wave 6, SPEC.md 130.16.6: bz_vinit)
+bz_clocks:  BZ_CRS_LOCKS        ; ...their horizontal LOCKs, the CGA's c0 then the
+                                ; Hercules', FFh FFh none (SPEC.md 130.45: bz_vinit)
+bz_cbots:   BZ_CRS_BOTS         ; ...their BOTTOM LINEs, a word each, 0 none
+                                ; (SPEC.md 130.45.4: bz_vinit's bottom stop)
+bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 130.26.8): byte k its k-th course;
             BZ_TOUR             ; byte 0 BENCH, which kern_small's refused G names (bz_game)
 bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzvideo.inc"
-%include "bzcard.inc"           ; wave 8c (128.19.8): the cards
+%include "bzcard.inc"           ; wave 8c (130.19.8): the cards
 %include "bzgame.inc"
 %include "bzwheel.inc"
 %include "bzphys.inc"
-%include "bzfam.inc"            ; wave 9 (SPEC.md 128.25.6): the families' dispatch
+%include "bzfam.inc"            ; wave 9 (SPEC.md 130.25.6): the families' dispatch
 %include "bzsound.inc"
-%include "bzmenu.inc"           ; SPEC.md 128.26: the window's button, menus and replays
-%include "bzballgen.inc"        ; the balls generated at fetch (wave 9, 128.25.5)
+%include "bzmenu.inc"           ; SPEC.md 130.26: the window's button, menus and replays
+%include "bzballgen.inc"        ; the balls generated at fetch (wave 9, 130.25.5)
 %if BZ_KIT_BMB > 4 * BZ_BOXB
- %error "bz_cxkit copies a kit class's bitmap to bz_boxbuf (SPEC.md 128.37.4)"
+ %error "bz_cxkit copies a kit class's bitmap to bz_boxbuf (SPEC.md 130.37.4)"
 %endif
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
 %endif
 
-; --- the part table (SPEC.md 128.11.3.1, 20.12) --------------------------------
+; --- the part table (SPEC.md 130.11.3.1, 20.12) --------------------------------
 ; 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO rows, in the Makefile's BZ_PARTS
 ; order, every one OP_LAZY | OP_COMP - and a play's SMALL ones, the balls, the
 ; sound part, the songs (the fanfare is one) and the families' code parts
-; (wave 9, SPEC.md 128.25.6.2), OP_ARENA: ONE claim between
-; them (SPEC.md 128.25.4), so a play holds three claims with the pathway held
+; (wave 9, SPEC.md 130.25.6.2), OP_ARENA: ONE claim between
+; them (SPEC.md 130.25.4), so a play holds three claims with the pathway held
 ; and two without.  The three balls, then each course
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW
-    BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 128.25.5.2), then the WORLD parts
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (128.20.3)
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
+    BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2), then the WORLD parts
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (130.20.3)
  %rep BZS_NSONG
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SONG + S: BZM<S>.BIN
  %endrep
-    BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (128.14.7.4)
-    OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (128.19.2)
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_PATH: BZPATH.BIN, the pathway (128.19.5)
+    BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (130.14.7.4)
+    OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (130.19.2)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_PATH: BZPATH.BIN, the pathway (130.19.5)
 %if BZ_TITLE
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (128.23)
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (128.23.3)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TITLE: BZTITLE.BIN, the title (130.23)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_TDEMO: BZTDEMO.BIN, its demos (130.23.3)
 %endif
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_KIT: BZKIT.BIN, the standard kit, HELD (128.37.5)
-    BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (128.25.6.9)
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_KIT: BZKIT.BIN, the standard kit, HELD (130.37.5)
+    BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
+    OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
 %if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
- %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
+ %error "the demo rows follow the songs', one a tour course (SPEC.md 130.14.7.4)"
 %endif
 
 %define OS88UI_ABOUT
 %define OS88UI_NOGLYPH          ; (the Play Game button alone: no box, no dot)
-%define OS88UI_ABFIT            ; (the keys' card on a CGA content box, SPEC.md 128.26.7)
+%define OS88UI_ABFIT            ; (the keys' card on a CGA content box, SPEC.md 130.26.7)
 %include "os88ui.inc"
 %include "os88alt.inc"
 
@@ -5203,19 +5335,19 @@ OS88_PARTS_END
 VAR bz_win,2
 VAR bz_abon,1
 VAR bz_small,1                  ; 1 = kern_small (no timer slot): refused
-VAR bz_page,1                   ; the face's page: 0 MAIN, 1 RESULTS (128.14.3.2)
+VAR bz_page,1                   ; the face's page: 0 MAIN, 1 RESULTS (130.14.3.2)
 VAR bz_pgo,1                    ; 1: this key left RESULTS (or a refused replay):
                                 ; bz_onkey repaints MAIN whole after it
 VAR bz_pc,1                     ; the course's part row (BZ_P_CRS + K)
 VAR bz_bform,1                  ; the HELD balls' form: 0 the CGA's, 1 Hercules-
-                                ; translated (bz_hxlat, bz_bget; 128.25.5.2)
+                                ; translated (bz_hxlat, bz_bget; 130.25.5.2)
 VAR bz_crsel,1                  ; the course Enter plays (N): FIRST, TRIAL, ...
 VAR bz_matsel,1                 ; the ball a play rolls (M; N sets the course's)
 VAR bz_mat,1                    ; THIS launch's material, 0 rubber, 1 steel,
                                 ; 2 glass (bz_launch; bz_pinit copies its
-                                ; BZ_MATTAB record, SPEC.md 128.11.5.2)
+                                ; BZ_MATTAB record, SPEC.md 130.11.5.2)
 VAR bz_dkk,1                    ; the held-key guard: the make code of the C, M
-                                ; or N not yet seen up, 0 none (128.11.11.2)
+                                ; or N not yet seen up, 0 none (130.11.11.2)
 VAR bz_fw,2                     ; the face: content width, height, origin
 VAR bz_fh,2
 VAR bz_ox,2
@@ -5224,35 +5356,35 @@ VAR bz_fcells,2
 VAR bz_fy,2
 VAR bz_lbuf,BZ_LMAX + 2
 VAR bz_shfp,4                   ; the shell part's far pointer (bz_shcall)
-VAR bz_dlo,2                    ; D3 (SPEC.md 128.24.5.2): the part's section D,
+VAR bz_dlo,2                    ; D3 (SPEC.md 130.24.5.2): the part's section D,
 VAR bz_dhi,2                    ; [bz_dlo, bz_dhi) (0, 0 none), and C, the cells
 VAR bz_clo,2                    ; (bz_cexp's, from the directory: every split
 VAR bz_chi,2                    ; cell's offset is bounded inside D, bz_drec)
-VAR bz_ffo,2                    ; SPEC.md 128.28.2: section F, [bz_ffo, bz_ffe) (0, 0
+VAR bz_ffo,2                    ; SPEC.md 130.28.2: section F, [bz_ffo, bz_ffe) (0, 0
 VAR bz_ffe,2                    ; none: bz_dfind's), and each table's offset in the
 VAR bz_fsb,2 * BZ_FSHAPE_MAX    ; part (bz_dval's; bzphys.inc's bz_fhp reads them)
 VAR bz_shpend,2                 ; byte 1: a paint put off while a course was held (a word: the run stays even)
-; the game (wave 8b, SPEC.md 128.19.5): the pathway's state, held in memory
+; the game (wave 8b, SPEC.md 130.19.5): the pathway's state, held in memory
 VAR bz_nopen,4                  ; a bit a pad: OPEN (pad 0 from a new game's start; a dword)
 VAR bz_ndone,4                  ; ...and DONE (a finish in time)
 VAR bz_nrop,4                   ; ...the routes OPENED (a bit a route)
 VAR bz_nrtk,4                   ; ...and TAKEN (a secret's reveal; a subset)
 VAR bz_ppad,1                   ; the pad the marble rests on (the slot's +2)
 VAR bz_phold,1                  ; 1: the pathway's part is HELD (bz_cload, bz_phrel)
-VAR bz_kseg,2                   ; THE KIT's segment (bz_kget's, op_seg's; bz_cxkit reads it, SPEC.md 128.37.4)
+VAR bz_kseg,2                   ; THE KIT's segment (bz_kget's, op_seg's; bz_cxkit reads it, SPEC.md 130.37.4)
 VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the hold
-VAR bz_phforce,1                ; HARNESS: nonzero never holds it (128.22.7); never set by the package
-VAR bz_arforce,2                ; HARNESS, byte 0: nonzero forces the arena's next growth to MOVE it (OP_ARFORCE, 128.25.13); never set by the package
+VAR bz_phforce,1                ; HARNESS: nonzero never holds it (130.22.7); never set by the package
+VAR bz_arforce,2                ; HARNESS, byte 0: nonzero forces the arena's next growth to MOVE it (OP_ARFORCE, 130.25.13); never set by the package
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
-VAR bz_pwck,1                   ; wave 8R (128.22.4.4): the course Enter at a pad plays
-VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 128.22.4.1), even
+VAR bz_pwck,1                   ; wave 8R (130.22.4.4): the course Enter at a pad plays
+VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 130.22.4.1), even
 VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)
 VAR bz_slot,1                   ; the save's slot played, 0 - 2 (8c chooses; 0 until then)
 VAR bz_gsave,1                  ; 1: the game's slot to be written (bz_dsave)
-VAR bz_retry,1                  ; wave 8c (128.19.8): 1 R on the game's pause card
+VAR bz_retry,1                  ; wave 8c (130.19.8): 1 R on the game's pause card
 VAR bz_xmode,1                  ; ...1 EXPLORE (the slot's mode, while the game plays; 0 else)
 %if BZ_TITLE
-VAR bz_tmode,1                  ; SPEC.md 128.23.4: 1 a TITLE DEMO plays, 2 a course demo of the title's chain
+VAR bz_tmode,1                  ; SPEC.md 130.23.4: 1 a TITLE DEMO plays, 2 a course demo of the title's chain
 VAR bz_twhy,1                   ; ...why its play left: 'p' play, 27 Esc, F or Alt+Enter (leave), 1 another key in a course demo
 VAR bz_tlast,1                  ; ...the title demo last shown (0FFh none)
 VAR bz_tsel,1                   ; ...the one fetched
@@ -5261,9 +5393,9 @@ VAR bz_tlfsr,2                  ; ...the title's LFSR (bz_trand)
 VAR bz_tpad,1                   ; (the VARs stay even)
 %endif
 VAR bz_xarm,1                   ; ...1: X pressed once (the second erases the slot)
-; THE WINDOW (SPEC.md 128.26): the button, the face's layout, the menus, the
+; THE WINDOW (SPEC.md 130.26): the button, the face's layout, the menus, the
 ; replays and the suspended bracket
-VAR bz_dev,1                    ; HARNESS: 1 the instruments' keys and face (128.26.6); never set by the package
+VAR bz_dev,1                    ; HARNESS: 1 the instruments' keys and face (130.26.6); never set by the package
 VAR bz_wtall,1                  ; 1: the TALL aspect (a display 300 lines or more)
 VAR bz_btr,8                    ; the Play Game button: its rect, screen, inclusive
 VAR bz_btfl,2                   ; ...its flags (OS88UI_DIS greyed)
@@ -5285,7 +5417,7 @@ VAR bz_wsc,2
 VAR bz_wsr,2
 VAR bz_wsn,2
 VAR bz_earm,1                   ; the Erase armed, slot 1 - 3 (0 none)
-VAR bz_susp,1                   ; BZ_SU_*: the bracket left for the window from (128.26.4)
+VAR bz_susp,1                   ; BZ_SU_*: the bracket left for the window from (130.26.4)
 VAR bz_towin,1                  ; 1: F or Alt+Enter asked for the window (bz_exitchk)
 VAR bz_rsm,1                    ; 1: the next bz_play RESUMES a course (no bz_pinit, no new log)
 VAR bz_rown,1                   ; 1: the held log is a play the player recorded (Save Replay's)
@@ -5293,7 +5425,7 @@ VAR bz_wpad,1                   ; (the VARs stay even)
 VAR bz_rbest,2                  ; bz_rscan: the greatest number, its file's size,
 VAR bz_rbsz,4                   ; and the course's name's tail, `NAMES.BZR`
 VAR bz_rtail,10
-; the pathway's play (wave 8R, SPEC.md 128.22.4: bonanza.asm's THE PATHWAY)
+; the pathway's play (wave 8R, SPEC.md 130.22.4: bonanza.asm's THE PATHWAY)
 VAR bz_ptho,2                   ; the part's tables (BZC2 +42) ...
 VAR bz_ptro,2                   ; ...their ROUTES ...
 VAR bz_ptko,2                   ; ...and KEYS (bz_ppose's)
@@ -5341,11 +5473,11 @@ VAR bz_crdy0,2
 VAR bz_crdbk,2
 VAR bz_crdbs,2
 VAR bz_crdgr,2
-; the game (SPEC.md 128.14.3): the tour, the held log's line, the bests
+; the game (SPEC.md 130.14.3): the tour, the held log's line, the bests
 VAR bz_ttime,2 * BZ_NTOUR       ; the tour's steps a course, 0 none (bz_game
 VAR bz_tfall,2 * BZ_NTOUR       ; clears both: keep them together) and falls
 VAR bz_homedir,2                ; where BONANZA.O88 was launched from: its
-                                ; folder (128.14.7.6) ...
+                                ; folder (130.14.7.6) ...
 VAR bz_lsn,2                    ; line 6: the last play's or replay's steps
 VAR bz_lsf,2                    ; ...its falls (to 9,999)
 VAR bz_dmine,BZD_FILE           ; bz_dsave's: ours, while the disk's is merged in
@@ -5354,7 +5486,7 @@ VAR bz_dat,BZD_FILE             ; BONANZA.DAT's image, always this build's whole
                                 ; save writes
 VAR bz_homevol,1                ; ...and its volume (os88data.inc's OD_TVOL)
 VAR bz_tour,1                   ; 0 none, k 1 - BZ_NTOUR course k next or playing,
-                                ; BZ_NTOUR + 1 finished, + 2 stopped (128.14.3.1)
+                                ; BZ_NTOUR + 1 finished, + 2 stopped (130.14.3.1)
 VAR bz_lsv,1                    ; line 6: 1 = a play or a replay ran (bz_post)
 VAR bz_lsk,1                    ; ...its course
 VAR bz_lsc,1                    ; ...the flags it reached
@@ -5365,7 +5497,7 @@ VAR bz_datw,1                   ; 1: the failed save was toasted this session
 VAR bz_pkey,1                   ; FFh while P is HELD since its last edge (PAUSE)
 VAR bz_ptyp,1                   ; 1: bz_exitchk took a typed P (bz_kedge)
 VAR bz_btyp,1                   ; ...and a typed Backspace (RETURN)
-; the demos on the disk and the mouse (SPEC.md 128.14.7, 128.14.8)
+; the demos on the disk and the mouse (SPEC.md 130.14.7, 130.14.8)
 VAR bz_awdir,2                  ; bz_home: where the user was, to go back to
 VAR bz_lseg,2                   ; L's and the double-click's staging claim, 0 none
 VAR bz_lfsz,2                    ; ...its size, then the bytes read
@@ -5380,17 +5512,17 @@ VAR bz_argp,1                   ; 1: a document came with the launch
 VAR bz_lcap,1                   ; bz_lfile: 1 the read is bounded by its capacity
 VAR bz_vk,1                     ; V: the next shipped demo, 0 - BZ_NDEMO - 1
 VAR bz_ctl,1                    ; T: the control, 0 KEYS, 1 MOUSE (the session's)
-VAR bz_dtr,1                    ; D stopped measuring at 65,535 frames (128.14.7.3)
+VAR bz_dtr,1                    ; D stopped measuring at 65,535 frames (130.14.7.3)
 VAR bz_rw,1                     ; the held log's run width: 2, or 3 with TILT
 VAR bz_tilt,1                   ; the frame's TILT BYTE, capx << 4 | capy: 88h a
-                                ; keyboard play's (bz_input, SPEC.md 128.14.8.2)
+                                ; keyboard play's (bz_input, SPEC.md 130.14.8.2)
 VAR bz_tby,1                    ; the STEP's tilt byte (bz_step: the play's
                                 ; frame's, the replay's run's, 88h the autopilot's)
 VAR bz_tanc,1                   ; 1: anchor the stick at the next frame
 VAR bz_tarm,1                   ; 1: the stick has been in its dead zone
 VAR bz_apilot,1                 ; a HARNESS byte, never set by the package: a
                                 ; play takes its key bytes from the autopilot
-                                ; (bzphys.inc bz_step; bonanzagame, 128.14.14)
+                                ; (bzphys.inc bz_step; bonanzagame, 130.14.14)
 VAR bz_tax,BZT_SIZE             ; the stick's x axis (bzgame.inc bz_tmouse) ...
 VAR bz_tay,BZT_SIZE             ; ...and its y axis
 %if bz_tfall != bz_ttime + 2 * BZ_NTOUR || (BZ_BSS & 1)
@@ -5403,9 +5535,9 @@ BZ_FAM_VARS
 BZ_SND_VARS
 VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row's greatest s', t'
 %if BZ_TITLE
-VAR bz_tblk,BZ_TSTART           ; SPEC.md 128.23.3: a title demo's START BLOCK (bz_tapply), bz_rlog right
+VAR bz_tblk,BZ_TSTART           ; SPEC.md 130.23.3: a title demo's START BLOCK (bz_tapply), bz_rlog right
 %endif                          ; after it (bz_tdemo copies the two as one)
-VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 128.11.12.1): `BZR1`,
+VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 130.11.12.1): `BZR1`,
                                 ; the course (+4), the material (+5), flags,
                                 ; the steps, the runs.  The recorder writes
                                 ; it; R replays it (bz_rhave)

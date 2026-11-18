@@ -468,7 +468,7 @@ life, and report while it is in flight.
 
 ### BONANZA's host checks: what a change owes, and what each costs
 
-Bounce Bonanza (SPEC.md 128) has five HOST checks beside its soak rows, and
+Bounce Bonanza (SPEC.md 130) has five HOST checks beside its soak rows, and
 for a while every merge and every fix ran all five in a row (the owner,
 2026-11-16: *"when every action invokes another action that takes this long
 it slows everything to a crawl"*). Two things changed, and neither weakened
@@ -533,7 +533,7 @@ reads nothing the change moved can only report yesterday's answer.
 | a COURSE or a demo (`apps/bonanza/courses/`, `demos/`) | the above, and `python3 tools/bbcourse.py --selfcheck` | 5.5 min |
 | `tools/bbcourse.py` | `make bonanza`, then the selfcheck SECTIONS the change reaches - `--selfcheck --only physics,routes` (`--only list` names them: a change to the model reaches `physics`, `play`, `routes`, `camcheck`, `clockrule`; to the compile, `determinism`, `courses`, `grammar`; a new item, its own section) - and `bonanza_phys.py --check` when `Physics` or the part's layout moved, since that is what the guest is held to | the courses' compile plus the sections named |
 | a MERGE of branches each verified as above, with no conflict in code | `make bonanza` and `make bonanza-check`; the rest goes to the phase end | 20 s - 1 min |
-| the END OF A PHASE | the whole chain, once, **in the background** while the next phase goes on (fork rule 9's spirit, applied to host checks) | 5.5 min, and `make`'s |
+| the END OF A PHASE | the whole chain, once, **in the background** while the next phase goes on (fork rule 10's spirit, applied to host checks) | 5.5 min, and `make`'s |
 
 A full `make` (the fast tier) is owed as before (§`fast` above), and
 nothing here changes the soak rows or what a row proves.
@@ -595,6 +595,7 @@ emulator have the hardware": a ✅ means reach for it first.
 | Sound Blaster (DMA streams) | ✅ | ✅ | `make test-snd SB16=1 TESTAPPS=build/sbtest.img`, or `os8088_5150_sb_gla` | 2.00 s at 1000.0 Hz on both. MartyPC's is a DSP **2.01** (`0x48`+`0x1C` auto-init); QEMU's an SB16; `dsp_version` picks |
 | **A PicoMEM**, 1.x and 2.x, as **its own firmware** | ✅ | ❌ | `tools/picomem/build.sh`, then `tests/pmmarty.py` (MartyPC, `os8088_5150_herc_pm1_gla` / `_pm2_gla`) or `tests/pmbox.py [--board 2]` (86Box, `vm/xt-picomem1` / `2`) | see *The PicoMEM* below. Sound, its virtual and real DMA, B: and a boot disk off its microSD, its NE2000, its USB mouse, its EMS and kern_mega's reflections of its IRQs, against the firmware os8088's field cards run |
 | Boot sound probe (SPEC.md §51.3.1) | ✅ | ⚠️ | `os8088_5150_sb_gla` / `_sbonly` / `_cga_gla`, fresh image | MartyPC's OPL2 answers the timer-flag dance; QEMU's `-device sb16` has an OPL *stub* that does not, so an SB16-only box reads as cardless there. `_sb` → row 0 `WANT` 1 and the Sound page on **Sound Blaster**; `_cga` → `WANT` 0; `_sbonly` → 0 by default, 1 under `SNDSNIFF=sb` |
+| **One row, the emulator chosen** | ✅ | ✅ | `OS88_EMU=qemu` (tools/os88qemuapi.py) or `OS88_EMU=86box` (tools/os88box86api.py) in front of an os88ui/os88marty row | the os88marty API answered by a private QEMU: os88ui verbs, os88mouse, `until`/`ui_done`/`key_taken` unchanged, on QEMU's VGA. Not there: breakpoints/steps/snapshots, FDC counters, CGA/EGA/Hercules, a <640KB machine - each a named MartyError (docs/plans/soak-speed-2/qemubox.md) |
 | Scripted mouse / keys | ✅ | ✅ | `tools/os88mouse.py click X Y` (absolute), `tools/os88mouserel.py` (relative), `os88marty.py key`; `tools/mouse.py` on QEMU | MartyPC drives the REAL devices: a Microsoft packet through the UART, a keystroke through int 09h |
 | **Screenshots** | ✅ | ✅ | `os88marty.py shot [--rendered]`, or `tools/shot.py` / `hercshot.py` | `shot` decodes VRAM on the 1bpp cards; `--rendered` asks the card what it rasterised and is automatic on VGA. On a CGA desktop the two routes differ by 0 pixels of 128,000 |
 | Mouse on COM2 (SPEC.md §9.5) | ➖ | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |

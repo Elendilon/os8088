@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA: the guest's physics equals bbcourse.Physics, step for step (SPEC.md 128.10.7, 128.11.8, 128.11.17.2).
+"""BONANZA: the guest's physics equals bbcourse.Physics, step for step (SPEC.md 130.10.7, 130.11.8, 130.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_phys.py [--adapter cga|herc|both] [--leg bench|scen|replay|all]
                                                       [--only NAME ...]
@@ -9,11 +9,11 @@
                                                      SPLIT leg, tests/bonanza_dsplit.py, under unicorn)
 
 THE REFERENCE is tools/bbcourse.py's Physics class - the model SPEC.md
-128.11.8 binds the guest to ("the guest and bbcourse.Physics do exactly
+130.11.8 binds the guest to ("the guest and bbcourse.Physics do exactly
 this") - run on the HOST on the same course part the build compiled.  The
 guest is read at chosen marks through its own bss (bzphys.inc's head lists
-the words): 128.10.11.3's eight values (nstep, gx, gy, gz, gvx, gvy, gvz,
-air) and 128.11.8.1's (the arrows' levels, the Hop's window, the last key
+the words): 130.10.11.3's eight values (nstep, gx, gy, gz, gvx, gvy, gvz,
+air) and 130.11.8.1's (the arrows' levels, the Hop's window, the last key
 byte, the ball's state and its steps, the squash, the last landing's lvz).
 Physics is a function of the step count and the key bytes alone, so the
 model is stepped to the guest's nstep and every value compared EXACTLY - no
@@ -25,7 +25,7 @@ the guest and the model part.
      the model's after that many steps of its own autopilot (step_auto) - so
      the CGA's and the Hercules' trajectories are one, though their frames
      hold different numbers of steps.  A benchmark that falls is a route
-     that is wrong (128.11.17.1 item 8).
+     that is wrong (130.11.17.1 item 8).
   2  WAVE 1'S FOUR on FIRST, POKED in play mode with no key held (the ball's
      position and velocities written at bz_t0 with bz_pokd = 1; the model
      poked the same way at the guest's nstep and its SAFE cell), every
@@ -33,18 +33,18 @@ the guest and the model part.
        pit    from (5, 5) at gvx 364: off B's lip, over C, into the void:
               killed at the model's step and put back on the model's SAFE
               cell (6, 5), with a CUT (the frame's full write) exactly when
-              128.10.8 item 3 says
+              130.10.8 item 3 says
        lip    from (9, 4) at gvx 100: off B's lip with the floor's gvz; on
               C it is a RUBBER BOUNCE now (wave 2), its lfall and lvz the
               model's at the contact
        rail   from (5, 4) at (-150, -250): into the rail at wy = 3, where gvy
-              REBOUNDS now (128.11.8.4) and gvx is kept
+              REBOUNDS now (130.11.8.4) and gvx is kept
        goal   from (12, 6) at gvx 250: the play's comparison ENDS the frame
               after the model's goal step (a finish line, grounded or in the
-              air; the finish sequence, 128.22.6, runs on to the play's end),
+              air; the finish sequence, 130.22.6, runs on to the play's end),
               and the face's held-log line (6) reads `<NAME> <time> s goal`
               for the model's goal step
-  3  REPLAYS (SPEC.md 128.11.17.2): each scenario is a LOG the row builds on
+  3  REPLAYS (SPEC.md 130.11.17.2): each scenario is a LOG the row builds on
      the host (bbcourse.encode_log), writes into bz_rlog and plays with R; at
      the replay's first frame's bz_t0 the ball is poked (or left at the
      course's start), and from there every frame's bz_presented is compared
@@ -53,7 +53,7 @@ the guest and the model part.
        hop       a Hop from the ground (Space's key-down edge)
        hopagain  Space again at the Hop's own landing: a Hop at the contact
        stepup    a Hop up FIRST's B ramp, where the airborne margin decides
-                 (128.11.8.2 step 5: no shipped course has a half-unit step;
+                 (130.11.8.2 step 5: no shipped course has a half-unit step;
                  the scenario is the one the model says the margin changes)
        grip      Grip held from 300: the brake, never past 0
        catch     a rubber ball dropped 6 units with Grip held: caught at the
@@ -66,7 +66,7 @@ the guest and the model part.
        bounce    rubber off H's lip at the cap, over the gap onto G
        stun      steel off H's lip: stunned on F, still for 55 steps
        shatter   glass off H's lip: shattered on F, respawned on H 24 steps
-                 later, with the CUT 128.10.8 item 3 says
+                 later, with the CUT 130.10.8 item 3 says
        ramphop   steel and glass Hop down TRIAL's steep ramp: unhurt
      Each scenario is PROVED on the model before it is run (its events
      there - the hop, the contact, the stun, ...), and each red arm's
@@ -74,7 +74,7 @@ the guest and the model part.
      event the red arm changes), so a green scenario cannot be one that
      does not exercise what it names.
 
-  4  WAVE 3 (SPEC.md 128.12.6, 128.12.13.2): at every frame also 128.12.6.6's
+  4  WAVE 3 (SPEC.md 130.12.6, 130.12.13.2): at every frame also 130.12.6.6's
      state - bz_ps, bz_wol, the tube in transit, its segment and steps, the
      entry speed, bz_onp, every prop's last kick and the kick, knock and
      capture counts (Physics.state3), not the display state - from the first
@@ -115,7 +115,7 @@ and PASSES only if the row FAILS - at its own check:
   exit       a windmill's KEEP exit along its entry (the doorway's direction),
              not its mouth's: keep parts
 
-  5  WAVE 4 (SPEC.md 128.14.4, 128.14.14): every frame also compares 128.14.4.7's
+  5  WAVE 4 (SPEC.md 130.14.4, 130.14.14): every frame also compares 130.14.4.7's
      state - the material, bz_ckpt, bz_ckmat, bz_cksn, bz_inmo, bz_hid and the
      counters bz_nckpt, bz_npad, bz_nlip, bz_nspr, bz_nret (Physics.state4) - and
      on MOON and PEAK (SUMMIT) these replays, FOUND by a search on the model and
@@ -135,7 +135,7 @@ and PASSES only if the row FAILS - at its own check:
        spring-tier    rubber up PEAK's spring 1 onto the upper tier
        spring-max     a rubber bounce on spring 2 (its launch POKED to 360 in
                       the part and the model, where max and sum differ: the
-                      shipped springs are BZ_VZMAX, 128.14.19 item 6) leaves at
+                      shipped springs are BZ_VZMAX, 130.14.19 item 6) leaves at
                       the max, not the sum
        spring-shatter glass shattering on a spring is not launched
        return         RETURN mid-roll from MOON's flag 1: back on it, bz_nret 1
@@ -149,12 +149,12 @@ and PASSES only if the row FAILS - at its own check:
   springsum  the spring ADDS to the rebound: spring-max's apex
   tiltcap    the min before the decay: tilt's 8, 6, 4, 2 become 8, 2
 
-  6  WAVE 6 (SPEC.md 128.16.3.1, 128.16.4, 128.16.14): every frame also compares
-     128.16.4.3's five - bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry
+  6  WAVE 6 (SPEC.md 130.16.3.1, 130.16.4, 130.16.14): every frame also compares
+     130.16.4.3's five - bz_btok, bz_stf, bz_nboost, bz_drx, bz_dry
      (Physics.state6) - and these replays, FOUND and PROVED on the model (the
      take-off steps and the contacts searched, so a re-laid course or a retuned
      constant re-finds them; every expected value the model's or MATERIALS',
-     never a literal, SPEC.md 128.16.11):
+     never a literal, SPEC.md 130.16.11):
        boost         rubber on the PLAYGROUND's apron: a Hop, Space 2 steps before
                      its first contact: nboost 1, gvz = BOOST, stf = BZ_STRS
        boostclimb    onto the 1.5-unit ledge from the apron at the cap, a Hop and
@@ -182,7 +182,7 @@ and PASSES only if the row FAILS - at its own check:
                      second replay of it breaks at bz_gax's entry and at its
                      return (off the stack), every DRAGGED call's span in
                      MartyPC's cycles, the worst at most DRAG_PRICE (the as-built
-                     routine's 428, SPEC.md 128.16.3.1) plus 25%
+                     routine's 428, SPEC.md 130.16.3.1) plus 25%
        drag-cap      one arrow from the cap: |gvx| falls back to the top
        gripglass     glass at the cap, Grip held: stopped in axis_feel's steps
      and their red arms:
@@ -200,7 +200,7 @@ and PASSES only if the row FAILS - at its own check:
   (`hopagain` is glass's since wave 6: rubber's Space at the Hop's own landing
   is the `boost` replay's)
 
-  7  WAVE 6B (SPEC.md 128.17.4, 128.17.10): the boost ARMED by a second Space
+  7  WAVE 6B (SPEC.md 130.17.4, 130.17.10): the boost ARMED by a second Space
      edge anywhere in the Hop's flight (bz_btok 2), and the LATE GRACE: an
      unarmed bouncing first contact that passes rules 3 - 5 opens BGRACE steps
      in which a Space edge converts the rebound into the boost exactly.  Every
@@ -219,7 +219,7 @@ and PASSES only if the row FAILS - at its own check:
                   (armlate4 until round 3's BGRACE 4)
        hoponly    one tap and nothing else: no boost
        armheld    Space held from the Hop through the contact: round 3
-                  (SPEC.md 128.17.16) BOOSTS (round 2: no boost)
+                  (SPEC.md 130.17.16) BOOSTS (round 2: no boost)
        ledgehold  a Hop at the half-unit lip, its first contact on the ledge
                   1 - 4 steps later, Space held through it: no boost there
                   (round 3's take-off gate)
@@ -252,7 +252,7 @@ and PASSES only if the row FAILS - at its own check:
   bz_land's boost block, which 6b rewrote) are re-anchored and re-proved on
   6b's model by --check.
 
-  9  WAVE 9's FAMILIES (SPEC.md 128.25.6, 128.25.7, 128.25.15): at every frame
+  9  WAVE 9's FAMILIES (SPEC.md 130.25.6, 130.25.7, 130.25.15): at every frame
      also bz_fst and every family slot (Physics.statef: the per-play state
      bits and the slots' bytes), on a course that names families; and the
      replay `probe`, PLAYGROUND's demo through its PROBE element (ENTER,
@@ -289,7 +289,7 @@ FIELDS2 = ("lvl", "hopw", "kprev", "mst", "mct", "sqf", "lvz")
 SCEN = {
     # name: (tile, gvx, gvy, frames at most) - poked in play, no key held
     "pit": ((5, 5), 364, 0, 260),
-    "lip": ((9, 6), 100, 0, 120),       # 8R: row 6 - row 4 meets the clock at (11, 4) (SPEC.md 128.22.6)
+    "lip": ((9, 6), 100, 0, 120),       # 8R: row 6 - row 4 meets the clock at (11, 4) (SPEC.md 130.22.6)
     "rail": ((5, 4), -150, -250, 90),
     "goal": ((12, 6), 250, 0, 60),
 }
@@ -305,7 +305,7 @@ def ftime(n):
 
 
 def ftext(n):
-    """the face's time (SPEC.md 128.14.17 item 2, bonanza.asm bz_ltimew):
+    """the face's time (SPEC.md 130.14.17 item 2, bonanza.asm bz_ltimew):
     `s.hh` under 100 s, `s.h` from there, `20:00+` at the 65,535 clamp"""
     if n >= 0xFFFF:
         return "20:00+"
@@ -334,7 +334,7 @@ class Reader:
             "bz_gx", "bz_gy", "bz_gz", "bz_gvx", "bz_gvy", "bz_gvz", "bz_nstep", "bz_air", "bz_lfall", "bz_lvz",
             "bz_nland", "bz_nfall", "bz_resp", "bz_goal", "bz_lvl", "bz_hopw", "bz_kprev", "bz_mst", "bz_mct",
             "bz_sqf", "bz_nbnc", "bz_nstun", "bz_nshat", "bz_nhop")}
-        for n in ("bz_tout", "bz_tsec", "bz_t55", "bz_exit"):  # wave 7 (SPEC.md 128.18.4), 8b (128.19.4)
+        for n in ("bz_tout", "bz_tsec", "bz_t55", "bz_exit"):  # wave 7 (SPEC.md 130.18.4), 8b (130.19.4)
             if n in s:
                 self.off[n] = s[n] - self.lo
 
@@ -354,15 +354,15 @@ class Reader:
         ext["s3"] = self.state3(raw) if "bz_ps" in self.g.sym else None
         ext["s4"] = self.state4(raw) if "bz_ckpt" in self.g.sym else None
         ext["s6"] = self.state6(raw) if "bz_btok" in self.g.sym else None
-        # wave 7 (SPEC.md 128.18.4): the timeout, the seconds left and the steps to the next
+        # wave 7 (SPEC.md 130.18.4): the timeout, the seconds left and the steps to the next
         ext["s7"] = ((raw[o["bz_tout"]], struct.unpack_from("<H", raw, o["bz_tsec"])[0], raw[o["bz_t55"]])
                      if "bz_tout" in o else None)
-        ext["s8"] = raw[o["bz_exit"]] if "bz_exit" in o else None   # wave 8b (128.19.4): the finish's exit
+        ext["s8"] = raw[o["bz_exit"]] if "bz_exit" in o else None   # wave 8b (130.19.4): the finish's exit
         ext["sf"] = self.statef(raw) if "bz_fst" in self.g.sym else None
         return st, s2, ext
 
     def statef(self, raw):
-        """wave 9's state (SPEC.md 128.25.6.6, 128.25.7.2): bz_fst's BZ_FSTB
+        """wave 9's state (SPEC.md 130.25.6.6, 130.25.7.2): bz_fst's BZ_FSTB
         bytes and every slot's bytes (bz_fsl, BZ_FAMMAX of them), as the guest holds them"""
         s, lo = self.g.sym, self.lo
         fst = raw[s["bz_fst"] - lo:s["bz_fsl"] - lo]
@@ -370,20 +370,20 @@ class Reader:
         return (bytes(fst), bytes(fsl))
 
     def state6(self, raw):
-        """wave 6's state (SPEC.md 128.16.4.3) in Physics.state6()'s shape: the
+        """wave 6's state (SPEC.md 130.16.4.3) in Physics.state6()'s shape: the
         boost's token, the stretch's steps, the boosts, the drag's remainders;
-        and wave 6b's (128.17.4.3): the late grace's steps left and its lift"""
+        and wave 6b's (130.17.4.3): the late grace's steps left and its lift"""
         s, lo = self.g.sym, self.lo
         out = (raw[s["bz_btok"] - lo], raw[s["bz_stf"] - lo], struct.unpack_from("<H", raw, s["bz_nboost"] - lo)[0],
                raw[s["bz_drx"] - lo], raw[s["bz_dry"] - lo])
         if "bz_bgr" in s:
             out += (raw[s["bz_bgr"] - lo], struct.unpack_from("<h", raw, s["bz_bgd"] - lo)[0])
-        if "bz_bsp" in s:                       # round 3b (SPEC.md 128.17.17): the boost spent
+        if "bz_bsp" in s:                       # round 3b (SPEC.md 130.17.17): the boost spent
             out += (raw[s["bz_bsp"] - lo],)
         return out
 
     def state4(self, raw):
-        """wave 4's state (SPEC.md 128.14.4.7) in Physics.state4()'s shape: the
+        """wave 4's state (SPEC.md 130.14.4.7) in Physics.state4()'s shape: the
         material, bz_ckpt, bz_ckmat, bz_cksn, bz_inmo, bz_hid and the five new
         counters"""
         s, lo = self.g.sym, self.lo
@@ -399,13 +399,13 @@ class Reader:
     def tables(self):
         """(bz_mrec, bz_fta, bz_ftg, bz_surf): the material's record and the
         arrows' force tables as the guest holds them (a pad's swap rebuilds
-        them, 128.14.4.4)"""
+        them, 130.14.4.4)"""
         g = self.g
         return (bytes(g.m.read(g.a("bz_mrec"), BB.MATREC)), tuple(g.m.read(g.a("bz_fta"), BB.LVL_MAX + 1)),
                 tuple(g.m.read(g.a("bz_ftg"), BB.LVL_MAX + 1)), g.b("bz_surf"))
 
     def state3(self, raw):
-        """wave 3's state (SPEC.md 128.12.6.6) in Physics.state3()'s shape: bz_ps,
+        """wave 3's state (SPEC.md 130.12.6.6) in Physics.state3()'s shape: bz_ps,
         bz_wol's pairs, the tube in transit, its segment and steps left, the entry
         speed, bz_onp, every prop's last kick, the kicks, knock-backs and captures
         - all of it but the display state (bz_ldrw, bz_lage, bz_pline)"""
@@ -419,7 +419,7 @@ class Reader:
         nw = b("bz_wol")
         wol = tuple((b("bz_wol", 1 + 2 * k), b("bz_wol", 2 + 2 * k)) for k in range(min(nw, 9)))
         return (b("bz_ps"), wol, b("bz_tube"), b("bz_tseg"), w("bz_tcnt"), w("bz_tsin"), b("bz_onp"),
-                tuple([w("bz_pkick", k) for k in range(R.guest_propmax())]      # (128.19.10: the guest's
+                tuple([w("bz_pkick", k) for k in range(R.guest_propmax())]      # (130.19.10: the guest's
                       + [0xFFFA] * (BB.PROP_MAX - R.guest_propmax())),         # tables, the model's pad)
                 w("bz_nkick"), w("bz_nknock"), w("bz_ntube"))
 
@@ -431,7 +431,7 @@ def counts(p):
 def advance(p, n, keys=None, tilts=None):
     """the model to step N (Physics.step_auto for the benchmark; KEYS a list of
     key bytes indexed by the step, or one byte for every step; TILTS a tilt
-    byte a step, a TILT log's, 128.14.8.3); -> the events"""
+    byte a step, a TILT log's, 130.14.8.3); -> the events"""
     e0 = len(p.events)
     while p.nstep < n:
         if keys is None:
@@ -448,7 +448,7 @@ def advance(p, n, keys=None, tilts=None):
 
 def compare(name, frames, st, s2, ext, p):
     """-> a failure line, or None: the guest's state against the model's - and
-    wave 3's (128.12.6.6, Physics.state3) once a step has run since a poke (a
+    wave 3's (130.12.6.6, Physics.state3) once a step has run since a poke (a
     poke's window refill is the guest's next step's, the model's at once)"""
     if st != p.state() or s2 != p.state2():
         return ("%s frame %d: the guest differs from the model after %d steps:\n      guest %s\n            %s\n"
@@ -471,7 +471,7 @@ def compare(name, frames, st, s2, ext, p):
                                            zip(("tout", "tsec", "t55"), ext["s7"], p.state7()) if a != b))
     if ext.get("s8") is not None and ext["s8"] != p.exit:
         return "%s frame %d: the finish's EXIT differs from the model's after %d steps: guest %d model %d " \
-            "(SPEC.md 128.19.4)" % (name, frames, st[0], ext["s8"], p.exit)
+            "(SPEC.md 130.19.4)" % (name, frames, st[0], ext["s8"], p.exit)
     if ext.get("s6") is not None and ext["s6"] != p.state6():
         names = ("btok", "stf", "nboost", "drx", "dry", "bgr", "bgd")
         return "%s frame %d: wave 6's state differs from the model's after %d steps: %s" % (
@@ -490,7 +490,7 @@ def compare(name, frames, st, s2, ext, p):
 
 
 def guest_fsl_bytes(art=None):
-    """bz_fsl's bytes as the guest has them: BZ_FAMMAX slots (SPEC.md 128.25.6.5: one for every family of
+    """bz_fsl's bytes as the guest has them: BZ_FAMMAX slots (SPEC.md 130.25.6.5: one for every family of
     the build, bbcourse.fam_slots), not bbcourse.FAM_MAX's three (the FETCHED families' cap)"""
     import re
     t = open(os.path.join(art or R.at("build/bonanza-art"), "bzcourse.inc")).read()
@@ -508,7 +508,7 @@ def statef_diff(gf, p):
 
 
 def compare_tables(name, frames, tb, p):
-    """a pad's swap (128.14.4.4): the guest's record and force tables the
+    """a pad's swap (130.14.4.4): the guest's record and force tables the
     model's material's - BZ_MATTAB's record, fta from its ACC, ftg from its
     surface entry on the surface the guest holds (bz_surf)"""
     mrec, fta, ftg, surf = tb
@@ -565,13 +565,13 @@ def bench(g, crs):
                                    ", ".join("%s %d" % kv for kv in sorted(kinds.items())) or "none"),
           flush=True)
     if not fails and p.nfall:
-        fails.append("the benchmark FELL %d times under the model: its route is wrong (SPEC.md 128.11.17.1 8)"
+        fails.append("the benchmark FELL %d times under the model: its route is wrong (SPEC.md 130.11.17.1 8)"
                      % p.nfall)
     return fails, p.nstep
 
 
 def outwin(px, py, R0, c0, Wc, rl):
-    """bz_outwin: the footprint (128.4's 20 x 16 from px & ~3) not wholly inside the window"""
+    """bz_outwin: the footprint (130.4's 20 x 16 from px & ~3) not wholly inside the window"""
     first = px >> 3
     last = ((px >> 2) + 4) >> 1
     top = R0 * rl
@@ -580,7 +580,7 @@ def outwin(px, py, R0, c0, Wc, rl):
 
 def cut_check(g, name, frames, ev, win, Wc, rl, cuts, fails):
     """a respawn in this frame's steps takes a CUT (the frame's full write) exactly
-    when 128.10.8 item 3 says: the respawned footprint not wholly inside the
+    when 130.10.8 item 3 says: the respawned footprint not wholly inside the
     window the frame began with"""
     resp = [e for e in ev if e[0] == "respawn"]
     if not resp:
@@ -590,7 +590,7 @@ def cut_check(g, name, frames, ev, win, Wc, rl, cuts, fails):
     got = bool(g.b("bz_full"))
     cuts.append((frames, resp[0][1], resp[0][2], want, got))
     if want != got:
-        fails.append("%s frame %d: a respawn on %s %s a CUT ([bz_full] %d), but 128.10.8 item 3 says %s "
+        fails.append("%s frame %d: a respawn on %s %s a CUT ([bz_full] %d), but 130.10.8 item 3 says %s "
                      "(footprint %d,%d against the window R0 %d c0 %d)" % (
                          name, frames, resp[0][2], "took" if got else "took no", got,
                          "cut" if want else "no cut", px, py, win[0], win[1]))
@@ -617,7 +617,7 @@ def scenario(g, crs, name):
     p.nstep, p.safe = st0[0], safe             # the model picks the play up where the guest is
     if ext0.get("s7") is not None:              # (wave 7: its clock too)
         p.tout, p.tsec, p.t55 = ext0["s7"]
-    if ext0.get("s8") is not None:              # (wave 8b: and the exit, 128.19.4)
+    if ext0.get("s8") is not None:              # (wave 8b: and the exit, 130.19.4)
         p.exit = ext0["s8"]
     p._poked_at = st0[0]
     p.lvl, p.hopw, p.kprev = list(s20[0]), s20[1], s20[2]
@@ -644,7 +644,7 @@ def scenario(g, crs, name):
         if name == "goal" and ext["goal"] and last is not None and last[0] < st[0] and \
                 [e for e in p.events if e[0] == "goal"]:
             # (a frame presented on a FINISH-SEQUENCE step, past the goal's: bz_fstep holds the clock
-            # (bz_t55 BZ_SECSTEPS, 128.22.6), which the model does not run - the play has ended as far as
+            # (bz_t55 BZ_SECSTEPS, 130.22.6), which the model does not run - the play has ended as far as
             # this scenario is concerned, as bz_t0 seeing bz_goal says.  A loaded machine can present one
             # such frame before bz_t0 runs; the soak of 2026-11-17 did, at step 62 of a goal at 61)
             ended = True
@@ -680,9 +680,9 @@ def scenario(g, crs, name):
                 fails.append("goal: the play ended after step %s but the model's goal step is %s" % (
                     last[0] if last else None, gs))
             n = gs[0] if gs else 0              # the FINISHING step's time: a play's finish
-            face = goal_face(g, n)              # sequence (128.22.6) runs steps on in that frame
+            face = goal_face(g, n)              # sequence (130.22.6) runs steps on in that frame
                                                 # and bz_fend takes them back off bz_nstep
-            want = " %s s goal " % ftext(n)    # line 6, the held log (SPEC.md 128.14.3.2)
+            want = " %s s goal " % ftext(n)    # line 6, the held log (SPEC.md 130.14.3.2)
             if face is None or want not in face:
                 fails.append("goal: the face reads %r, the model's time is %r" % (face, want))
             if not g.b("bz_fin"):
@@ -724,7 +724,7 @@ def goal_face(g, n):
     """The face's lines as bz_line draws them after the play: -> the held
     log's (line 6: `<NAME> <time> s goal falls <n>`), or None."""
     m = g.m
-    fl = R.FaceLines(g)                         # (bz_line is in the shell part, SPEC.md 128.19.2)
+    fl = R.FaceLines(g)                         # (bz_line is in the shell part, SPEC.md 130.19.2)
     fl.arm()
     found = None
     for _ in range(40):
@@ -779,7 +779,7 @@ class MarkPhysics(BB.Physics):
         return r
 
 
-# ---- the replays (SPEC.md 128.11.17.2) -----------------------------------------
+# ---- the replays (SPEC.md 130.11.17.2) -----------------------------------------
 POKE = ("gx", "gy", "gz", "gvx", "gvy", "gvz", "air", "ztop")
 
 
@@ -795,7 +795,7 @@ def model(crs, mat, poke, src=None, **kw):
     the window refilled round the poked cell (the guest's bz_pokd refill) and,
     on a slab, carried (bz_onp); wave 4: the ball's state (EXTRA: mst, mct) and
     a prop record's field (RECPOKE: (record, field, value) - the spring's
-    launch lowered to where max and sum differ, 128.14.19 item 6) as poked"""
+    launch lowered to where max and sum differ, 130.14.19 item 6) as poked"""
     p = BB.Physics(R.course(crs, src=src), play=True, mat=mat, **kw)
     if poke and poke.get("recpoke"):
         import copy
@@ -892,7 +892,7 @@ def replays():
     p, ev = ev_of("trial", 0, None, keys)
     add("hop", "trial", 0, None, keys, "a Hop from the ground", "hop" in ev)
     base = [0] * 5 + [K.K_HOP] * 2 + [0] * 60       # (glass: rubber's is a BOOST since wave 6, the
-    p, ev = ev_of("trial", BB.MAT_GLASS, None, base)  # `boost` replay's; SPEC.md 128.11.7.2 as amended)
+    p, ev = ev_of("trial", BB.MAT_GLASS, None, base)  # `boost` replay's; SPEC.md 130.11.7.2 as amended)
     c1 = [e[1] for e in p.events if e[0] in ("bounce", "land")]
     t = c1[0] if c1 else 30
     keys = [0] * 5 + [K.K_HOP] * 2 + [0] * (t - 9) + [K.K_HOP] * 2 + [0] * 40
@@ -972,7 +972,7 @@ def replays():
     return S + mill_replays() + w4_replays() + w6_replays() + w9_replays()
 
 
-# ---- wave 9 (SPEC.md 128.25.6, 128.25.7, 128.25.15): the families -----------------
+# ---- wave 9 (SPEC.md 130.25.6, 130.25.7, 130.25.15): the families -----------------
 def play_demo_keys():
     """PLAYGROUND's shipped demo's key bytes (a keyboard log)"""
     d = BB.parse_bzd(open(os.path.join(ROOT, "apps", "bonanza", "demos", "playground.bzd")).read())
@@ -980,7 +980,7 @@ def play_demo_keys():
 
 
 def probe_bit(p):
-    """the PROBE element's TOUCHED bit (its FSB: GLASS's crack bytes are laid first, SPEC.md 128.25.18)"""
+    """the PROBE element's TOUCHED bit (its FSB: GLASS's crack bytes are laid first, SPEC.md 130.25.18)"""
     b = next(pr["fsb"] for pr in p.props if pr["kind"] == BB.FAM_K0)
     return p.fst[b >> 3] >> (b & 7) & 1
 
@@ -1023,7 +1023,7 @@ def probe_keys():
     return mat, out + [0] * 30, i
 
 
-# GLASS (SPEC.md 128.25.8, 128.25.18): a DRIVER that writes a key log by steering the model, so the
+# GLASS (SPEC.md 130.25.8, 130.25.18): a DRIVER that writes a key log by steering the model, so the
 # scenario is the model's own and the guest is held to it.  Cells are PLAYGROUND's glass section's.
 KX = {(1, 0): K.K_R | K.K_D, (0, 1): K.K_L | K.K_D, (1, 1): K.K_D, (-1, -1): K.K_U, (1, -1): K.K_R,
       (-1, 1): K.K_L, (-1, 0): K.K_L | K.K_U, (0, -1): K.K_R | K.K_U, (0, 0): 0}
@@ -1153,7 +1153,7 @@ def glass_keys(leg):
         d.go(22.5, 24.5)
         across(384)
         mark("fast")
-    elif leg == "crack-lab":                    # SPEC.md 128.25.18.1: the CRACK LAB
+    elif leg == "crack-lab":                    # SPEC.md 130.25.18.1: the CRACK LAB
         d.go(31.5, 18.5)                        # (steel from the lab's pad; the floating bridge wy 16, its
         d.k(0, 2)                               # cracks 35, 37, 39 VANISH; the band holes at 43, 44 wy 19)
         d.go(33.5, 18.5)
@@ -1171,7 +1171,7 @@ def glass_keys(leg):
         nf = d.p.nfall                          # (line() aims at x 40, so it would brake for the platform)
         d.go(90, 16.5, 384, until=lambda: d.p.nfall > nf or d.pos()[0] >= 40.8)
         mark("vfast")
-    elif leg == "crack-bridge":                 # EXPLORATORY (SPEC.md 128.27.2.1): the THIN BRIDGE, wy 14,
+    elif leg == "crack-bridge":                 # EXPLORATORY (SPEC.md 130.27.2.1): the THIN BRIDGE, wy 14,
         d.go(33.5, 14.5)                        # its five cracks 35 - 39 edge to edge (rubber): slowly onto
         d.line(1, 70, 99)                       # the first (a fall, restored), then at speed across all five
         mark("bslow")
@@ -1206,7 +1206,7 @@ def glass_keys(leg):
 
 
 def glass_verdict(leg, ms, rev, p):
-    """-> (ok, a line): the leg's milestones as SPEC.md 128.25.8's table says"""
+    """-> (ok, a line): the leg's milestones as SPEC.md 130.25.8's table says"""
     k = sorted(pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 24)
     lab = sorted({pr["fsb"] >> 3 for pr in p.props if pr["kind"] == BB.FK_CRACK and pr["at"][1] == 16})
     lab = lambda w, lab=lab: bytes(ms[w]["fst"][j] for j in lab)
@@ -1261,12 +1261,12 @@ def glass_verdict(leg, ms, rev, p):
     return not bad, ("; ".join(w for w, _ok in checks) if not bad else "NOT: " + "; ".join(bad))
 
 
-GROUP_CRACKS = ((3, 23), (4, 23), (5, 23))      # SPEC.md 128.32.8: PLAYGROUND's GROUP LAB
+GROUP_CRACKS = ((3, 23), (4, 23), (5, 23))      # SPEC.md 130.32.8: PLAYGROUND's GROUP LAB
 GROUP_GLASS = ((4, 27), (5, 27), (4, 26))
 
 
 def group_keys():
-    """the GROUP LAB scenario (SPEC.md 128.32.8, PLAYGROUND's far platform): across the crack path at
+    """the GROUP LAB scenario (SPEC.md 130.32.8, PLAYGROUND's far platform): across the crack path at
     speed, then the glass TURN tile by tile ((4, 27), (5, 27), (4, 26): one more revealed each time,
     the group's lanes through every combination on the way), then slowly onto the lab's last crack and
     along its row at speed (each crack counted and broken on its own, behind the ball), off it before the
@@ -1320,7 +1320,7 @@ def group_seen(p, mat, keys):
 
 def w9_replays():
     S = []
-    for leg in GLASS_LEGS:                      # GLASS (SPEC.md 128.25.8): its section, each rule
+    for leg in GLASS_LEGS:                      # GLASS (SPEC.md 130.25.8): its section, each rule
         mat, keys, ms, rev = glass_keys(leg)
         p = run_keys("play", mat, None, keys)
         ok, what = glass_verdict(leg, ms, rev, p)
@@ -1339,12 +1339,12 @@ def w9_replays():
     keys, marks = pickup_keys()
     p = run_keys("play", BB.MAT_RUBBER, None, keys)
     S.append({"name": "pickups", "crs": "play", "mat": BB.MAT_RUBBER, "poke": None, "keys": keys, "red": None,
-              "what": "PLAYGROUND's PICKUPS (SPEC.md 128.25.19): %s" % ", ".join("%s at %d" % (n, i) for n, i in marks),
+              "what": "PLAYGROUND's PICKUPS (SPEC.md 130.25.19): %s" % ", ".join("%s at %d" % (n, i) for n, i in marks),
               "ok": pickup_ok(p, marks)})
     return S
 
 
-# ---- wave 9: PICKUPS (SPEC.md 128.25.9, 128.25.19) - the scripted scenario ---------------
+# ---- wave 9: PICKUPS (SPEC.md 130.25.9, 130.25.19) - the scripted scenario ---------------
 def _pu_dirs():
     out = []
     for k in (K.K_R, K.K_L, K.K_D, K.K_U, K.K_R | K.K_D, K.K_R | K.K_U, K.K_L | K.K_D, K.K_L | K.K_U):
@@ -1393,7 +1393,7 @@ def _pu_t(p):
 
 
 def pickup_keys():
-    """THE PICKUPS SCENARIO on PLAYGROUND's yard (SPEC.md 128.25.19), steered on the model from the start:
+    """THE PICKUPS SCENARIO on PLAYGROUND's yard (SPEC.md 130.25.19), steered on the model from the start:
     the SPEED taken, a sprint past BZ_VMAXG under it (the raised cap), the JUMP, a Hop with rubber's boost
     STACKED on its contact onto the 2-unit RIDGE, off it and both worn off, the HOURGLASS (+10 s), a RETURN
     (the ATTEMPT hourglass stays taken, the RESPAWN two come back), back into the hourglass's cell (not taken
@@ -1402,7 +1402,7 @@ def pickup_keys():
     c = R.course("play")
     p = BB.Physics(c, play=True, mat=BB.MAT_RUBBER)
     keys, marks = [], []
-    # (the yard left of the mat, SPEC.md 128.25.19: in by the row above the mat, wy 14; the sprint east
+    # (the yard left of the mat, SPEC.md 130.25.19: in by the row above the mat, wy 14; the sprint east
     # along it over the apron; back by the yard's column 6, clear of the mat)
     for wp in ((21, 14), (8, 14)):
         _pu_goto(p, keys, *wp)
@@ -1472,7 +1472,7 @@ RIDGE = (4, 16, 48)                             # PLAYGROUND's yard cell, the RI
 
 
 def ridge_apex(hop=None):
-    """the RIDGE reachable ONLY with the jump (SPEC.md 128.25.19): on the model, every ball held on the yard
+    """the RIDGE reachable ONLY with the jump (SPEC.md 130.25.19): on the model, every ball held on the yard
     pumping Hop and boost (the key held, or tapped every 1 - 9 steps in the air) -> the highest apex in
     px over (material, pattern); HOP: the Hop forced (the jump's PU_JHOP: the control, which must clear it)"""
     c = R.course("play")
@@ -1504,7 +1504,7 @@ def pickup_ok(p, marks):
             and p.nfev == 6 and p.nboost >= 1)
 
 
-# WIND (SPEC.md 128.34): the knob build's test course, compiled here from its source WITHOUT its cracks (the
+# WIND (SPEC.md 130.34): the knob build's test course, compiled here from its source WITHOUT its cracks (the
 # default build ships no course that names the family, so the scenes ride the WIND course under the default
 # build's image and parts, whose bz_fst is the shipped courses' largest: five cracks and four blower bytes
 # would not fit it; the cracks are GLASS's, which its own scenes prove)
@@ -1556,7 +1556,7 @@ def _wd_cross(p, keys, wy, stop, lean=False, n=260):
 
 
 def wind_keys(leg, mat):
-    """THE WIND SCENES (SPEC.md 128.34.8, 128.34.11), steered on the model from WIND's start with ball MAT:
+    """THE WIND SCENES (SPEC.md 130.34.8, 130.34.11), steered on the model from WIND's start with ball MAT:
       path     onto the THIN PATH from (9, 12) and across under its steady +y wind (strength 10), leaning
                into it (R alone, from the wind's first cell): steel crosses, rubber and glass are blown off
                (a fall, the respawn) - rubber's best counter-push on one axis (8) is under its 10; the path's
@@ -1667,7 +1667,7 @@ def wind_ok(leg, mat, marks):
 
 # the unicorn half (--check): bz_step itself, on the host, against the model -------
 UCS, UPS, UFS, USS, USTUB = 0x1000, 0x3000, 0x6000, 0x8000, 0xFFF0
-UMS = 0x9000                    # a TWO-PART course's PICTURE part (SPEC.md 128.30.5: [bz_mseg]; UPS its world part)
+UMS = 0x9000                    # a TWO-PART course's PICTURE part (SPEC.md 130.30.5: [bz_mseg]; UPS its world part)
 
 
 _LST_SYMS = {}
@@ -1707,7 +1707,7 @@ USEGT = 0xFA00                  # (op_seg's table in the image's segment: past t
 def fam_parts(over=None, nocell=()):
     """story 9.8: every family part ROW of the build, {its part row: its bytes}
     (BZ_P_FAM + bbcourse.fam_row: a `fetch` family's own part, and the RESIDENT
-    BUNDLE, SPEC.md 128.25.6.9, made by bbcourse.fam_bundle as the build makes
+    BUNDLE, SPEC.md 130.25.6.9, made by bbcourse.fam_bundle as the build makes
     it), OVER replacing a family's part by name; NOCELL: the families whose
     CELL entry is zeroed (GLASS's and the probe's red arms)"""
     link = open(R.at("build/bonanza-art/bzlink.inc")).read()
@@ -1722,7 +1722,7 @@ def fam_parts(over=None, nocell=()):
         parts[f["name"]] = bytes(b)
     out = dict((pf + BB.fam_row(f), parts[f["name"]]) for f in BB.FAM_FETCH)
     out[pf + len(BB.FAM_FETCH)] = BB.fam_bundle(parts, BB.fam_balls(R.at("build/bonanza-art")))  # (the balls
-    return out                                  # at its head since SPEC.md 128.25.5.2)
+    return out                                  # at its head since SPEC.md 130.25.5.2)
 
 
 class UGuest:
@@ -1747,7 +1747,7 @@ class UGuest:
         segt = bytearray(512)
         at_ = UFS                               # (each part at the next 100h paragraphs or more: the bundle
         for row, b in sorted(fam.items(), key=lambda rb: -1 if rb[0] is None else rb[0]):  # holds the balls,
-            n_ = max(0x100, (len(b) + 15) >> 4)                                          # 128.25.5.2)
+            n_ = max(0x100, (len(b) + 15) >> 4)                                          # 130.25.5.2)
             assert at_ + n_ <= USS
             mu.mem_write(at_ * 16, bytes(b))
             if row is None:
@@ -1763,7 +1763,7 @@ class UGuest:
                              + struct.pack("<H", USEGT) + b"\x5b\xc3")
         if "op_fetch" in op:
             mu.mem_write(UCS * 16 + op["op_fetch"], b"\xf8\xc3")
-        # OSAPI_SEG (bz_fbfind's SEG_SUBC into the RESIDENT BUNDLE, SPEC.md 128.25.6.9): a real-mode
+        # OSAPI_SEG (bz_fbfind's SEG_SUBC into the RESIDENT BUNDLE, SPEC.md 130.25.6.9): a real-mode
         # kernel's answer, DX + AX - add dx, ax; clc; retf - at the slot's own far address
         api = open(os.path.join(ROOT, "apps", "os88api.inc")).read()
         import re
@@ -1810,13 +1810,13 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     every step: the ball (Physics.state), and on a course with families
     bz_fst, the slots, bz_fref, the window bz_nbr against the model's
     snapshot and each element's POSE through bz_ltrue.  SRC: a course file
-    the build does not ship (a knob build's: MAGNETS', SPEC.md 128.33.10;
-    WIND's, 128.34.8), compiled here and played as course K (default
+    the build does not ship (a knob build's: MAGNETS', SPEC.md 130.33.10;
+    WIND's, 130.34.8), compiled here and played as course K (default
     PLAYGROUND's K), its time limit the model's.  -> (model, failures)"""
     c = R.course(crs, src=src)
     g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
     g.w("bz_cseg", UPS, 2)
-    if c.split:                                 # (a TWO-PART course, SPEC.md 128.30.5: the world part in
+    if c.split:                                 # (a TWO-PART course, SPEC.md 130.30.5: the world part in
         g.mu.mem_write(UMS * 16, bytes(c.cga))  # [bz_cseg], the picture part in [bz_mseg]; one part is in
     if "bz_mseg" in sym:                        # both words, as bz_cload leaves them)
         g.w("bz_mseg", UMS if c.split else UPS, 2)
@@ -1854,10 +1854,10 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                                                                      p.fhk, len(p.fam)))
     elem = [pr for pr in p.props if BB.is_fam(pr["kind"])]
     lanes = [pr for pr in elem if pr.get("lane")]
-    lanes += [pr for pr in p.props if pr["kind"] == BB.PK_GROUP]     # SPEC.md 128.32: the GROUP lanes too
+    lanes += [pr for pr in p.props if pr["kind"] == BB.PK_GROUP]     # SPEC.md 130.32: the GROUP lanes too
     if lanes:                                   # (bz_pread's count, which a RESET's marks walk: the lane
         g.w("bz_nlane", sum(1 for pr in p.props if pr.get("lane")), 1)  # records are the first)
-    alll = [pr["i"] for pr in p.props if pr.get("lane")]    # SPEC.md 128.19.10 item 10: EVERY lane's KICK and
+    alll = [pr["i"] for pr in p.props if pr.get("lane")]    # SPEC.md 130.19.10 item 10: EVERY lane's KICK and
     for i, k in enumerate(keys):                            # HOLD too (bz_pkick, bz_lhold: a post's)
         g.w("bz_keys", k, 1)
         g.w("bz_tilt", BB.TILT_KEYS, 1)
@@ -1870,13 +1870,13 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
             kh0 = [(g.r("bz_pkick", 2, False, 2 * j), g.r("bz_lhold", 1, False, j)) for j in alll]
         g.call("bz_step")
         p.step(k)
-        if lanes:                               # SPEC.md 128.25.6.3: a step that moves an element's
+        if lanes:                               # SPEC.md 130.25.6.3: a step that moves an element's
             for pr, q0 in zip(lanes, pose0):    # pose MARKS its lane and makes the next walk (bz_lqt 0,
                 q1 = p.fpose(pr)                # bz_nset's rule: the quiet walk reads no mark)
                 if q1 != q0 and (not g.r("bz_latt", 1, False, pr["i"]) or g.r("bz_lqt", 1, False)):
                     bad.append("step %d: element %d's pose %d -> %d, but bz_latt %d, bz_lqt %d (never drawn)" % (
                         i, pr["i"], q0, q1, g.r("bz_latt", 1, False, pr["i"]), g.r("bz_lqt", 1, False)))
-        if alll:                                # 128.19.10 item 10: the quiet walk compares no lane's
+        if alll:                                # 130.19.10 item 10: the quiet walk compares no lane's
             for j, (kk0, hh0) in zip(alll, kh0):    # state, so a step that writes a lane's KICK or HOLD
                 kk1, hh1 = g.r("bz_pkick", 2, False, 2 * j), g.r("bz_lhold", 1, False, j)   # marks it AND makes
                 if (kk1, hh1) != (kk0, hh0) and (not g.r("bz_latt", 1, False, j) or g.r("bz_lqt", 1, False)):
@@ -1898,12 +1898,12 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                 gw = bytearray(g.rb("bz_nbr", 36))
                 mw = bytearray(b"".join(_cellb(p.cell(nw[0] + dx, nw[1] + dy)) for dy in (-1, 0, 1)
                                         for dx in (-1, 0, 1)))
-                for q in range(9):              # (a SPLIT cell, 128.24: the window holds the grid's
+                for q in range(9):              # (a SPLIT cell, 130.24: the window holds the grid's
                     if mw[4 * q + 2] & 15 >= BB.KIND_TB:    # pair bytes, the model's cell() reads
                         gw[4 * q:4 * q + 2] = mw[4 * q:4 * q + 2]   # (0, 0) - its records are bz_nbh's)
                 if gw != mw:
                     bad.append("step %d: the window %s, the model's %s" % (i, gw.hex(), mw.hex()))
-            if any(fm.row["name"] == "water" for fm, _v in p.fam):       # SPEC.md 128.36: WATER's working values
+            if any(fm.row["name"] == "water" for fm, _v in p.fam):       # SPEC.md 130.36: WATER's working values
                 gv = (g.r("bz_mrec", 2, False, 10), g.r("bz_surf", 1, False),
                       g.r("bz_se", 1, False, 3) if p.surf != 0xFF else None)
                 mv = (p.hthr, p.surf, (p.wef if p.wef is not None else BB.surf_entry(p.mat, p.surf)[3])
@@ -1911,7 +1911,7 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                 if gv != mv:
                     bad.append("step %d: water's working values (HTHR, bz_surf, the floor's e) %s, the model's %s"
                                % (i, gv, mv))
-            if any(fm.row["name"] == "spike" for fm, _v in p.fam):       # SPIKES (SPEC.md 128.38): bz_mrec's
+            if any(fm.row["name"] == "spike" for fm, _v in p.fam):       # SPIKES (SPEC.md 130.38): bz_mrec's
                 gv = (g.r("bz_mrec", 1, False, 8), g.r("bz_mrec", 1, False, 9), g.r("bz_mrec", 2, False, 10),
                       g.r("bz_mst", 1, False), g.r("bz_mct", 1, False))      # HARD, HSTEPS, HTHR; the state
                 mv = (p.hard, p.hsteps, p.hthr, p.mst, p.mct)
@@ -1939,7 +1939,7 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
 
 
 def fam_host():
-    """--check's unicorn half (SPEC.md 128.25.13 bonanzaphys) -> failure lines"""
+    """--check's unicorn half (SPEC.md 130.25.13 bonanzaphys) -> failure lines"""
     sym = R.symbols()
     binp, lst = R.at("build/bonanza.bin"), R.at("build/bonanza.lst")
     fam = fam_parts()
@@ -1965,7 +1965,7 @@ def fam_host():
         out.append("%s's demo, %d steps, families %s (%d tube rides, %d knocks, %d springs): %s" % (
             crs.upper(), len(kk), "+".join(names) or "none", p.ntube, p.nknock, p.nspr, "; ".join(bad) or "equal"))
         fails += bad
-    # GLASS (SPEC.md 128.25.8, 128.25.18): its scenarios, every step
+    # GLASS (SPEC.md 130.25.8, 130.25.18): its scenarios, every step
     gl = {}
     for leg in GLASS_LEGS:
         gm, gk, gms, grev = gl[leg] = glass_keys(leg)
@@ -1975,7 +1975,7 @@ def fam_host():
             leg, len(gk), p.nfall, "; ".join(bad) or "the guest is the model at every step", gwhat))
         fails += bad + ([] if gok else ["the %s scenario: %s" % (leg, gwhat)])
     gm, gk = gl["crack-rubber"][0], gl["crack-rubber"][1]
-    # GROUP LANES (SPEC.md 128.32): the lab's cracks and glass turn, every step, every group lane's pose; and
+    # GROUP LANES (SPEC.md 130.32): the lab's cracks and glass turn, every step, every group lane's pose; and
     # red grpcomb, bz_ltrue's GROUP case summing the classes without their MULT
     grm, grk = group_keys()
     _m, seen = group_seen(None, grm, grk)
@@ -1992,7 +1992,7 @@ def fam_host():
     out.append("red grpcomb: %s" % ("red at %s" % bad[0] if ok else "STAYED GREEN"))
     if not ok:
         fails.append("red grpcomb stayed green on the unicorn: %s" % bad[:1])
-    # story 9.8 (SPEC.md 128.25.20): every MILL, MOON and PEAK scenario of the replays (the windmills'
+    # story 9.8 (SPEC.md 130.25.20): every MILL, MOON and PEAK scenario of the replays (the windmills'
     # knocks and doorways, the tubes' KEEP, DROP and LAUNCH - the cannon - the bumpers, the springs), the
     # guest's bz_step under unicorn with the three families' parts against the model at every step
     nsc, nst = 0, 0
@@ -2006,7 +2006,7 @@ def fam_host():
             out.append("scenario %s (%s): %s" % (s["name"], s["crs"], "; ".join(bad)[:300]))
     out.append("%d MILL / MOON / PEAK scenarios, %d steps, with the ROTOR, SPRING and TUBE parts: %s" % (
         nsc, nst, "equal at every step" if not [f for f in fails if f.startswith("scenario")] else "FAILED"))
-    # red kickquiet (SPEC.md 128.19.10 item 10): the KICK's write of bz_pkick without its bz_lqt clear - the
+    # red kickquiet (SPEC.md 130.19.10 item 10): the KICK's write of bz_pkick without its bz_lqt clear - the
     # post marked but the walk left quiet, so a lit post is never drawn (MILL's `kick` scenario must go red
     # with "never drawn"; the 39 above are its control)
     lq = sym["bz_lqt"]
@@ -2063,7 +2063,7 @@ def fam_host():
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
     # GLASS's DRAW arms (the owner, 2026-11-16: steel fell through a crack and the hole was never drawn -
     # the hooks marked the lane but left a QUIET walk quiet, so with the camera still nothing walked it;
-    # SPEC.md 128.25.6.3: a hook marks through bz_fmark, which wakes the walk too).  crack-steel (the
+    # SPEC.md 130.25.6.3: a hook marks through bz_fmark, which wakes the walk too).  crack-steel (the
     # count's break, a landing's, the respawn) must go red with: glsquiet, the part's marks as they were
     # (bz_latt written, the walk left quiet); glsmark, the count's break leaving its lane unmarked;
     # fmkquiet, the engine's bz_fmark marking without waking the walk
@@ -2092,7 +2092,7 @@ def fam_host():
         out.append("red %s: %s" % (arm, "red at %s" % bad[0] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
-    # EXPLORATORY (SPEC.md 128.25.18.1): red glspart - gl_mark marks the crack's lane and not its
+    # EXPLORATORY (SPEC.md 130.25.18.1): red glspart - gl_mark marks the crack's lane and not its
     # COMPANION's, so a vanishing crack's lower lane is never drawn (crack-lab must go red: "never drawn")
     txt = gsrc.replace("    xor bh, bh\n    call far [bz_fmkp]\n.o:", "    xor bh, bh\n.o:")
     assert txt != gsrc, "red glspart: its patch did not apply"
@@ -2110,20 +2110,20 @@ def fam_host():
     out.append("red glspart: %s" % ("red at %s" % bad[0] if ok else "STAYED GREEN"))
     if not ok:
         fails.append("red glspart stayed green on the unicorn: %s" % bad[:1])
-    # the RESIDENT BUNDLE (SPEC.md 128.25.6.9): the demos above found rotor, spring and tube by walking its
+    # the RESIDENT BUNDLE (SPEC.md 130.25.6.9): the demos above found rotor, spring and tube by walking its
     # headers (bz_fbfind); red `bunwalk` - the first header's +11 one paragraph long - and PEAK, which names
     # all three, is refused by bz_ffetch (the next header is not where the step lands)
     if BB.FAM_RES:
         ff = dict(fam)
         row = max(ff)
         b = bytearray(ff[row])
-        b[sum(BB.BA.B2_SIZE) + BB.FAM_HDR_PARAS] += 1   # (the first FAMILY header: past the balls, 128.25.5.2)
+        b[sum(BB.BA.B2_SIZE) + BB.FAM_HDR_PARAS] += 1   # (the first FAMILY header: past the balls, 130.25.5.2)
         ff[row] = bytes(b)
         cf = []
         for parts in (fam, ff):                 # (the control first: the same leg, the build's bundle)
             g = UGuest(binp, lst, sym, R.course("peak").cga, parts)
             g.w("bz_cseg", UPS, 2)
-            if "bz_mseg" in sym:                # (one part: in both words, SPEC.md 128.30.5)
+            if "bz_mseg" in sym:                # (one part: in both words, SPEC.md 130.30.5)
                 g.w("bz_mseg", UPS, 2)
             g.w("bz_crs", R.CRS_K["peak"], 1)
             g.w("bz_fs", 1, 1)                  # (OP_SAYGATE: the refusal quiet, as inside a bracket)
@@ -2134,7 +2134,7 @@ def fam_host():
                                         else "STAYED GREEN (CF %s)" % cf))
         if not red:
             fails.append("red bunwalk stayed green: a bundle header's step one paragraph off went unnoticed")
-    # SPEC.md 128.25.6.5: NO FAMILY LIMIT - the slots (BZ_FAMMAX) and the hook lists' pool (BZ_FHENT) are the
+    # SPEC.md 130.25.6.5: NO FAMILY LIMIT - the slots (BZ_FAMMAX) and the hook lists' pool (BZ_FHENT) are the
     # whole family table's, so a course naming EVERY family fetches them all and every hook's list holds each
     # one that has the hook, in slot order; red `fam4` (the list build stopped at four slots: the limit the
     # shift made, before) goes red at the fifth
@@ -2149,7 +2149,7 @@ def fam_host():
     out.append("red fam4: %s" % ("red: " + what if not ok_ else "STAYED GREEN"))
     if ok_:
         fails.append("red fam4 stayed green: a list build that stops at four families went unnoticed")
-    # wave 9 (SPEC.md 128.25.19): THE PICKUPS SCENARIO, and its red arms - the STEP entry 0 (no timer
+    # wave 9 (SPEC.md 130.25.19): THE PICKUPS SCENARIO, and its red arms - the STEP entry 0 (no timer
     # runs down: the slot parts at the first step after the speed's take), the RESET entry 0 (the RETURN
     # while the speed runs leaves it running: the slot), and the cap without bz_vup (bz_gax.clamp's
     # `add dx, [bz_vup]` made NOPs: the ball parts in the sprint past BZ_VMAXG)
@@ -2187,20 +2187,20 @@ def fam_host():
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (name, bad[:1]))
-    # MAGNETS (SPEC.md 128.33.10): the test course's scenes and their red arms
+    # MAGNETS (SPEC.md 130.33.10): the test course's scenes and their red arms
     o_, f_ = mg_host(binp, lst, sym)
     o2, f2 = wind_host(binp, lst, sym, fam)
-    wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 128.36)
-    ao, af = arch_host(binp, lst, sym, fam)         # THE ARCHWAY (SPEC.md 128.39)
-    so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 128.38)
-    bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.40)
-    go, gf = gt_host(binp, lst, sym)               # SWITCHES, KEYS, GATES, DRAWBRIDGE (SPEC.md 128.41)
-    to, tf = tilt_host(binp, lst, sym)             # THE SEE-SAW (SPEC.md 128.42)
-    tto, ttf = tt_host(binp, lst, sym)             # THE TURNTABLE (SPEC.md 128.43)
+    wo, wf = water_host(binp, lst, sym, fam)       # WATER (SPEC.md 130.36)
+    ao, af = arch_host(binp, lst, sym, fam)         # THE ARCHWAY (SPEC.md 130.39)
+    so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 130.38)
+    bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 130.40)
+    go, gf = gt_host(binp, lst, sym)               # SWITCHES, KEYS, GATES, DRAWBRIDGE (SPEC.md 130.41)
+    to, tf = tilt_host(binp, lst, sym)             # THE SEE-SAW (SPEC.md 130.42)
+    tto, ttf = tt_host(binp, lst, sym)             # THE TURNTABLE (SPEC.md 130.43)
     return out + o_ + o2 + wo + ao + so + bo + go + to + tto, fails + f_ + f2 + wf + af + sf + bf + gf + tf + ttf
 
 
-# ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
+# ---- MAGNETS (SPEC.md 130.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
 # a RETURN at a step (None none), and what it is for, judged on the model's own trace -----------------------
 MG_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "magnets.bbc")
 MG_SCENES = (
@@ -2219,7 +2219,7 @@ MG_SCENES = (
 
 
 def every_family(binp, lst, sym, fam, patch=()):
-    """SPEC.md 128.25.6.5: PEAK's part with its family list replaced by EVERY family of the build (ID order,
+    """SPEC.md 130.25.6.5: PEAK's part with its family list replaced by EVERY family of the build (ID order,
     each its FAMV), through bz_crshdr and bz_ffetch under unicorn -> (ok, what): bz_fnf and bz_fhk, each
     slot record's ID and FAMV, and each hook's list (bz_fhs, bz_fhl) against what the parts' heads say -
     hook by hook, every slot in order whose mask has it and whose entry is not 0, packed"""
@@ -2325,7 +2325,7 @@ def mg_parts(over=None, src=None):
 
 
 def mg_host(binp, lst, sym):
-    """MAGNETS' unicorn half (SPEC.md 128.33.10): every scene equal at every step, what each is for, and the red
+    """MAGNETS' unicorn half (SPEC.md 130.33.10): every scene equal at every step, what each is for, and the red
     arms -> (lines, failures)"""
     out, fails = [], []
     fam = fam_parts()
@@ -2369,7 +2369,7 @@ def mg_host(binp, lst, sym):
     return out, fails
 
 
-# ---- BOOST PADS (SPEC.md 128.40.8): the BZBOOST=1 knob's test course BOOS, compiled from its source and played on
+# ---- BOOST PADS (SPEC.md 130.40.8): the BZBOOST=1 knob's test course BOOS, compiled from its source and played on
 # the default build's image and parts (the family's part is in every build's resident bundle) -------------------
 BP_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "boost.bbc")
 
@@ -2454,7 +2454,7 @@ def bp_verdict(name, mat):
         else ", met the low plate at step %d" % p1.landed, lit, cell(p0), "" if f0 is None else " (fell at %d)" % f0)
 
 
-# ---- SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41.8): the BZGATE=1 knob's test course GATE, compiled
+# ---- SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 130.41.8): the BZGATE=1 knob's test course GATE, compiled
 # from its source and played on the default build's image and parts (the family's part is in every build's
 # resident bundle); its scenes are bbcourse.GT_SC's, judged on the model by bbcourse.gt_verdict -------------
 GT_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "gate.bbc")
@@ -2476,13 +2476,14 @@ def gt_parts(src):
 
 
 def gt_host(binp, lst, sym, scenes=None):
-    """SWITCHES, KEYS, GATES and the DRAWBRIDGE's unicorn half (SPEC.md 128.41.8): every scene of bbcourse.GT_SC
+    """SWITCHES, KEYS, GATES and the DRAWBRIDGE's unicorn half (SPEC.md 130.41.8): every scene of bbcourse.GT_SC
     for every ball equal at every step (the ball, the slot, the window bz_nbr, every element's POSE and its marks),
     what each is for asserted on the model (gt_verdict); and the red arms, each assembled from a broken copy of
     the part's source and each of which must part from the model: `gtwall` (a shut gate's WALL never written: the
     ball passes it), `gtmark` (an opened channel's marks gone: a gate that opens never drawn), `gtstep` (STEP's
     entry 0: a timed bridge's turn never marked), `gtlift` (the centre's under-the-deck test gone: a bridge coming
-    down over a falling ball lifts it), `gtup` (an UP bridge's kind byte never written: the ball rolls on air)
+    down over a falling ball lifts it), `gtup` (an UP bridge's kind byte never written: the ball rolls on air);
+    SPEC.md 130.41.12: `gtframe` (an art frame never stepped), `gtearly` (an art gate opened at frame 0)
     -> (lines, failures)"""
     out, fails = [], []
     fam = fam_parts()
@@ -2512,7 +2513,11 @@ def gt_host(binp, lst, sym, scenes=None):
             ("gtstep", "    dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell\n",
              "    dw gt_reset, 0, gt_contact, 0, gt_pose, gt_cell\n", None, ("timed", BB.MAT_GLASS)),
             ("gtlift", "    cmp [bz_gz + 1], ax\n    jl .up\n", "", "the ball", ("under", BB.MAT_RUBBER)),
-            ("gtup", "    mov byte [bz_nbr + bx + 2], 0\n", "", None, ("boxup", BB.MAT_GLASS)))
+            ("gtup", "    mov byte [bz_nbr + bx + 2], 0\n", "", None, ("boxup", BB.MAT_GLASS)),
+            # SPEC.md 130.41.12: an art's frame never stepped (its lanes never move, its wall never opens)
+            ("gtframe", "    inc byte [di + 2 + bx]\n", "", None, ("art", BB.MAT_RUBBER)),
+            # ...and an art gate walled by its channel's bit, not its frame (it opens at frame 0)
+            ("gtearly", "    cmp byte [es:si + GT_ART], 0\n    jne .a\n", "", None, ("art", BB.MAT_STEEL)))
     for arm, a_, b_, want, (name, mat) in arms:
         assert gsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]
@@ -2541,7 +2546,7 @@ def bp_parts(src):
 
 
 def bp_host(binp, lst, sym):
-    """BOOST PADS' unicorn half (SPEC.md 128.40.8): every scene for every ball equal at every step (the ball, the
+    """BOOST PADS' unicorn half (SPEC.md 130.40.8): every scene for every ball equal at every step (the ball, the
     slot, every pad's POSE and its marks), what each is for asserted on the model, and the red arms, each
     assembled from a broken copy of the part's source and each of which must part from the model:
     `bpstep` (STEP's entry 0: a flash never goes out), `bpsign` (the minus sign's `neg` gone: a -x pad pushes
@@ -2574,7 +2579,7 @@ def bp_host(binp, lst, sym):
              ("gap", BB.MAT_GLASS)),
             ("bpout", mk, "    pop bx\n", "never drawn", ("chain", BB.MAT_STEEL)),
             ("bpair", "    cmp byte [bz_air], 0\n    jne .out\n", "", "the ball", ("hop", BB.MAT_RUBBER)),
-            # round 2 (SPEC.md 128.40.4): glass's x1.25 gone (glass pushed as rubber); `flat` ignored (the gap's
+            # round 2 (SPEC.md 130.40.4): glass's x1.25 gone (glass pushed as rubber); `flat` ignored (the gap's
             # flat pads weight steel)
             ("bpweight", "    add al, ah\n", "", "the ball", ("ramp", BB.MAT_GLASS)),
             ("bpflat", "    test bl, BZ_BP_FFLAT\n    jnz .w\n", "", "the ball", ("gap", BB.MAT_STEEL)))
@@ -2590,7 +2595,7 @@ def bp_host(binp, lst, sym):
 
 
 def wind_host(binp, lst, sym, fam):
-    """WIND (SPEC.md 128.34.8, 128.34.11): the scenes on the knob build's WIND course (less its cracks),
+    """WIND (SPEC.md 130.34.8, 130.34.11): the scenes on the knob build's WIND course (less its cracks),
     compiled from its source, with the build's image and parts - each ball's push by its weight on the thin
     path and its fan spinning and stopping, the gust on and off on the bridge with its wisp, the hop
     updraft only glass rises on, the PIT WIND's grating launching glass alone - the guest's bz_step equal to
@@ -2650,7 +2655,7 @@ def wind_host(binp, lst, sym, fam):
     return out, fails
 
 
-# WATER (SPEC.md 128.36): its scenarios on the WATER test course (apps/bonanza/courses/water.bbc, the BZWATER=1
+# WATER (SPEC.md 130.36): its scenarios on the WATER test course (apps/bonanza/courses/water.bbc, the BZWATER=1
 # knob's course), compiled here from the tree whatever the build: the family's part is in every build's
 # resident bundle, and the course part is handed to the guest as any course's is (bz_crs borrowed from
 # PLAYGROUND's: bz_crshdr reads the part alone)
@@ -2706,7 +2711,7 @@ def water_verdict(name, p, ctl=None, zt=()):
             "to (%d, %d) z %d" % (t0, land and land[1], land and land[2], p.gx >> 12, p.gy >> 12, p.gz >> 8)
     lands = [e for e in ev if e[0] in ("land", "bounce")]
     loud = [e for e in lands if (e[2][1] if e[0] == "land" else e[2]) >= 48]     # (bzsound's BZS_LMIN)
-    if name == "water-float":                   # SPEC.md 128.36.10: the SURFACE BOB of a ball at rest on the water -
+    if name == "water-float":                   # SPEC.md 130.36.10: the SURFACE BOB of a ball at rest on the water -
         zs = sorted(set(zt))                    # no landing, no takeoff (no sound, no squash), its heights
         ok = not lands and "takeoff" not in kinds and zs == [20, 24]
         return ok, "rubber at rest on the water, %d steps: heights %s px, %d landing(s), %d takeoff(s)" % (
@@ -2801,7 +2806,7 @@ def water_host(binp, lst, sym, fam):
     return out, fails
 
 
-# THE ARCHWAY (SPEC.md 128.39.7): its scenarios on the ARCH test course (apps/bonanza/courses/arches.bbc, the
+# THE ARCHWAY (SPEC.md 130.39.7): its scenarios on the ARCH test course (apps/bonanza/courses/arches.bbc, the
 # BZARCH=1 knob's course), compiled here from the tree whatever the build, as WATER's are: the family's part is
 # in every build's resident bundle
 def _arch_course():
@@ -2904,7 +2909,7 @@ def arch_host(binp, lst, sym, fam):
     return out, fails
 
 
-# ---- SPIKES (SPEC.md 128.38): the BZSPIKE=1 test course's scenes, poked - each a tile, a ground velocity, the
+# ---- SPIKES (SPEC.md 130.38): the BZSPIKE=1 test course's scenes, poked - each a tile, a ground velocity, the
 # keys, and what it is for, judged on the model's own trace; the part assembled from a patched spike.asm for
 # each red arm -----------------------------------------------------------------------------------------------
 SP_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "spike.bbc")
@@ -2935,7 +2940,7 @@ def sp_scenes():
 def sp_verdict(name, p, zs):
     """what a SPIKE scene is for, on the model at its end (ZS: the ball's (cell, z px, air) every step)"""
     kinds = [e[0] for e in p.events]
-    on = [z for c_, z, a in zs if c_ in SP_CELLS and not a]
+    on = [z for c_, z, a, _t in zs if c_ in SP_CELLS and not a]
     if name in ("spike-steel", "pop-steel", "water-spike"):
         tip = [z for z in on]
         ok = "shatter" not in kinds and "stun" not in kinds and p.nfall == 0 and tip and min(tip) == max(tip)
@@ -2953,11 +2958,13 @@ def sp_verdict(name, p, zs):
     if name == "pop-down":
         ok = "shatter" not in kinds and p.nfall == 0 and (p.gy >> 12) >= 18
         return ok, "rubber crossed the far row down, to %s" % ((p.gx >> 12, p.gy >> 12),)
+    torn = [z[3] for z in zs]                   # (130.38.5: the membranes' lanes TORN, every step)
     if name == "mem-glass":
-        ok = p.nfall == 0 and any(c_ in MEM_CELLS for c_, _z, a in zs)
-        return ok, "glass on the membrane, no fall, at %s" % ((p.gx >> 12, p.gy >> 12),)
-    ok = p.nfall >= 1 and "shatter" not in kinds
-    return ok, "rubber fell through the membrane (%d respawn)" % p.nfall
+        ok = p.nfall == 0 and any(z[0] in MEM_CELLS for z in zs) and not any(torn)
+        return ok, "glass on the membrane, no fall, never torn, at %s" % ((p.gx >> 12, p.gy >> 12),)
+    ok = p.nfall >= 1 and "shatter" not in kinds and max(torn) == 1 and torn[-1] == 0
+    return ok, "rubber fell through the membrane (%d respawn); the web TORN for %d steps, one cell at a time, " \
+        "mended after" % (p.nfall, sum(torn))
 
 
 MAT_N = ("rubber", "steel", "glass")
@@ -2973,11 +2980,13 @@ def sp_reds():
              "working values"),
             ("spmark", ("    call far [bz_fmkp]          ; its lane MARKED\n", ""), "pop-rise", "never drawn"),
             ("spfref", ("    ja .nx\n    mov byte [bz_fref], 1\n", "    ja .nx\n"), "pop-rise", None),
-            ("spmem", ("    cmp byte [bz_mat], BZ_MAT_GLASS\n    je .n\n", "    jmp .n\n"), "mem-rubber", "the window"))
+            ("spmem", ("    cmp byte [bz_mat], BZ_MAT_GLASS\n    je .n\n", "    jmp .n\n"), "mem-rubber", "the window"),
+            ("sptear", ("    lea bp, [bx + 1]\n", ""), "mem-rubber", "POSE"),
+            ("sptmark", ("    mov ax, bp\n    call sp_tmark\n", ""), "mem-rubber", "never drawn"))
 
 
 def spike_host(binp, lst, sym):
-    """SPIKES' unicorn half (SPEC.md 128.38): every scene on SPIKE equal at every step, what each is for, and the
+    """SPIKES' unicorn half (SPEC.md 130.38): every scene on SPIKE equal at every step, what each is for, and the
     red arms -> (lines, failures)"""
     import shutil
     import subprocess
@@ -2993,9 +3002,10 @@ def spike_host(binp, lst, sym):
         p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=0)
         q = model("spike", mat, poke, src=SP_SRC)
         zs = []
+        mems = [pr for pr in q.props if pr["kind"] == BB.SP_KM]
         for k_ in keys:
             q.step(k_)
-            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air))
+            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, sum(q.fpose(pr) for pr in mems)))
         ok, saw = sp_verdict(name, q, zs)
         out.append("spike %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
         fails += ["spike %s: %s" % (name, b) for b in bad] + ([] if ok else ["spike %s is not what it is for: %s"
@@ -3021,7 +3031,7 @@ def spike_host(binp, lst, sym):
     return out, fails
 
 
-# ---- THE SEE-SAW (SPEC.md 128.42): the BZTILT=1 test course's scenes, poked - each a tile, a ground velocity, the
+# ---- THE SEE-SAW (SPEC.md 130.42): the BZTILT=1 test course's scenes, poked - each a tile, a ground velocity, the
 # keys, and what it is for, judged on the model's own trace; the part assembled from a patched seesaw.asm for each
 # red arm -------------------------------------------------------------------------------------------------------
 TL_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "tilt.bbc")
@@ -3043,7 +3053,7 @@ def tl_scenes():
              "under the ball each way, and a respawn puts it back at rest"),
             ("rest-respawn", BB.MAT_STEEL, (8, 10, 0, 0), [Y] * 150 + [Y | BB.K_RET] + [0] * 20, "a RETURN while the "
              "gate is tipped: the respawn puts it back at rest (RESET marks its lanes)"),
-            # SPEC.md 128.42.11: the TIMED plates, on their timer whatever the ball weighs
+            # SPEC.md 130.42.11: the TIMED plates, on their timer whatever the ball weighs
             ("lift-steel", BB.MAT_STEEL, (28, 25, 0, 0), [Y] * 340, "steel waits at THE LIFT's low end and is "
              "carried up to the ledge's height, onto the ledge and its goal (exit 0)"),
             ("lift-rubber", BB.MAT_RUBBER, (28, 25, 0, 0), [Y] * 110, "rubber rides the lift up as it swings: the "
@@ -3106,7 +3116,7 @@ def tl_reds():
             ("tlweight", ("    mov cl, BZ_TL_DWG\n", "    mov cl, BZ_TL_DWS\n"), "ledge-glass", None),
             ("tlrst", ("    dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell\n",
                        "    dw 0, 0, 0, tl_step, tl_pose, tl_cell\n"), "rest-respawn", None),
-            # SPEC.md 128.42.11: the TIMED plates' - the timer a step late, no carry, RESET leaving them at rest,
+            # SPEC.md 130.42.11: the TIMED plates' - the timer a step late, no carry, RESET leaving them at rest,
             # no lane marked
             ("tltpose", ("    mov al, [bz_nstep]          ; AL = its pose on n + 1\n    inc ax\n",
                          "    mov al, [bz_nstep]          ; AL = its pose on n + 1\n"), "swing-glass", None),
@@ -3118,7 +3128,7 @@ def tl_reds():
 
 
 def tilt_host(binp, lst, sym):
-    """THE SEE-SAW's unicorn half (SPEC.md 128.42): every scene on TILT equal at every step, what each is for, and
+    """THE SEE-SAW's unicorn half (SPEC.md 130.42): every scene on TILT equal at every step, what each is for, and
     the red arms -> (lines, failures)"""
     import shutil
     import subprocess
@@ -3161,7 +3171,7 @@ def tilt_host(binp, lst, sym):
     return out, fails
 
 
-# ---- THE TURNTABLE (SPEC.md 128.43): the BZTURN=1 test course's scenes - each the ball poked at rest on a cell,
+# ---- THE TURNTABLE (SPEC.md 130.43): the BZTURN=1 test course's scenes - each the ball poked at rest on a cell,
 # WAIT steps still, then rolled - judged on the model's own trace; the part assembled from a patched turntable.asm
 # for each red arm ----------------------------------------------------------------------------------------------
 TT_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "turntable.bbc")
@@ -3217,7 +3227,7 @@ def tt_reds():
 
 
 def tt_host(binp, lst, sym):
-    """THE TURNTABLE's unicorn half (SPEC.md 128.43): every scene on TURN equal at every step, what each is for,
+    """THE TURNTABLE's unicorn half (SPEC.md 130.43): every scene on TURN equal at every step, what each is for,
     and the red arms -> (lines, failures)"""
     import shutil
     import subprocess
@@ -3270,7 +3280,7 @@ def _noentry(part, h):
     return bytes(b)
 
 
-# ---- MILL (SPEC.md 128.12.6, 128.12.13.2): every obstacle, as replays ------------
+# ---- MILL (SPEC.md 130.12.6, 130.12.13.2): every obstacle, as replays ------------
 def mill_rec(kind, at=None):
     return next(r for r in R.course("mill").part["props"] if r["kind"] == kind and (at is None or r["at"] == at))
 
@@ -3307,7 +3317,7 @@ def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0):
 
 
 def mill_replays():
-    """SPEC.md 128.12.13.2's thirteen MILL scenarios (fifteen replays: drop
+    """SPEC.md 130.12.13.2's thirteen MILL scenarios (fifteen replays: drop
     with each ball), each found and PROVED on the model - the idle steps that
     put the windmill's gate where the scenario needs it are SEARCHED, so a
     re-seeded course re-finds them - and each red arm's broken model shown to
@@ -3361,15 +3371,17 @@ def mill_replays():
     add("kick", 0, pk, keys, "diagonally at the cap into the post at %s: kicked (%s)" % (
         B2["at"], [(e[1], e[2], e[4]) for e in evs(p, "kick")]), evs(p, "kick") and not p.nfall,
         red={"_kick_k": True})
-    CK = mill_rec(BB.PK_CLOCK)                  # wave 7 (SPEC.md 128.18.5.3): a clock is a post with no kick
-    pk = mill_poke(CK["at"][0] - 2, CK["at"][1], BB.VMAXG, 0)
+    CK = mill_rec(BB.PK_CLOCK)                  # wave 7 (SPEC.md 130.18.5.3): a clock is a post with no kick
+    # (from the RIGHT, rolling -x: since SPEC.md 130.18.5.4 MILL's clock stands at the floor's front-left corner,
+    # (6, 13), with no floor to its left)
+    pk = mill_poke(CK["at"][0] + 2, CK["at"][1], -BB.VMAXG, 0)
     keys = [0] * 60
     p, _ = ev_of("mill", 0, pk, keys)
     hit = evs(p, "kick")
     add("clock", 0, pk, keys, "rolled at the cap into MILL's clock at %s: stopped by its ball's post, back at "
         "%s of %d (no kick: K 0), never past its centre" % (CK["at"], [e[4] for e in hit[:1]], BB.VMAXG),
-        hit and hit[0][2] == CK["i"] and 0 < hit[0][4] < BB.VMAXG and p.gvx < 0 and not p.nfall
-        and p.gx >> 8 < CK["cx"])
+        hit and hit[0][2] == CK["i"] and 0 < hit[0][4] < BB.VMAXG and p.gvx > 0 and not p.nfall
+        and p.gx >> 8 > CK["cx"])
     pk = mill_poke(16, 19, 0, 64)
     keys = [0] * 60
     p, _ = ev_of("mill", 0, pk, keys)
@@ -3473,7 +3485,7 @@ def mill_replays():
             evs(p, "capture") and evs(p, "exit") and evs(p, out))
     return S
 
-# ---- WAVE 4 (SPEC.md 128.14.4, 128.14.14 bonanzaphys): flags, pads, springs, the cup ----
+# ---- WAVE 4 (SPEC.md 130.14.4, 130.14.14 bonanzaphys): flags, pads, springs, the cup ----
 DIR8 = (K.K_R, K.K_L, K.K_U, K.K_D, K.K_R | K.K_D, K.K_R | K.K_U, K.K_L | K.K_D, K.K_L | K.K_U)
 
 
@@ -3666,11 +3678,11 @@ def w4_replays():
     return S
 
 
-# ---- WAVE 6 (SPEC.md 128.16.4, 128.16.14 bonanzaphys): the boost, its token, the drag ----
+# ---- WAVE 6 (SPEC.md 130.16.4, 130.16.14 bonanzaphys): the boost, its token, the drag ----
 CONTACT = ("land", "bounce", "hopc", "boost", "stun", "shatter")
 DRAG_PRICE = 428            # bz_gax's as-built price at worst, clocks (k 8, d 0, Grip to 0, the clamp's two
-                            # tests; the fetch floor, x 1.05: SPEC.md 128.16.3.1) - a COST, not a retunable
-DRAG_SLACK = 1.25           # ...and the span assertion's 25% (SPEC.md 128.16.14)
+                            # tests; the fetch floor, x 1.05: SPEC.md 130.16.3.1) - a COST, not a retunable
+DRAG_SLACK = 1.25           # ...and the span assertion's 25% (SPEC.md 130.16.14)
 
 
 def pl_poke(crs, at, mat, d=(0, 0), v=None, gv=None):
@@ -3738,11 +3750,11 @@ def hop_off(crs, mat, start, d, want_off, space, n=90):
 
 
 def w6_replays():
-    """wave 6's replays (SPEC.md 128.16.14 bonanzaphys), each FOUND and PROVED on
+    """wave 6's replays (SPEC.md 130.16.14 bonanzaphys), each FOUND and PROVED on
     the model - on the PLAYGROUND (its apron, rungs, mat and sand lane), TRIAL's
     and FIRST's ramps and MILL's lift - with each red arm's broken model shown to
     part.  Every expected value is the model's or MATERIALS': a retune turns
-    nothing red by itself (SPEC.md 128.16.11)"""
+    nothing red by itself (SPEC.md 130.16.11)"""
     S = []
     R_, ST, GL = BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS
     BOOST = BB.MATERIALS[R_]["BOOST"]
@@ -3807,7 +3819,7 @@ def w6_replays():
             hd and hd[2], "boost" if hd and bev else "NO boost", bev[0][2] if hd and bev else None,
             q.sqf if hd else None, q.stf if hd else None),
         hd and bev and bev[0][2] >= BB.SQTHR and q.sqf == 0 and q.stf == BB.BZ_STRS and q.nboost == 1)
-    # boostfall: a Hop off the 2-unit top, Space at its contact: round 3b (SPEC.md 128.17.17) a BOOST at the
+    # boostfall: a Hop off the 2-unit top, Space at its contact: round 3b (SPEC.md 130.17.17) a BOOST at the
     # bounce plus BADD (round 3: a contact Hop, rule 5); `noadd` gives the contact Hop
     t2, r2 = play_rect(2)
     apron2 = {(x, y) for x in range(r2[0] - 2, r2[2] + 2) for y in range(r2[3], BB.PLAY_FRONT + 1)}
@@ -3903,7 +3915,7 @@ def w6_replays():
     add("liftnot", "mill", R_, pk, keys, "a Hop on MILL's lift slab, Space before its contact (step %s) on it: %s, "
         "onp %d" % (c, [k_ for _i, k_ in cs][:1], p.onp), c and [k_ for _i, k_ in cs][:1] == ["hopc"]
         and not p.nboost and p.onp, red={"_slab_boost": True})
-    # springarm (round 3b, SPEC.md 128.17.17; wave 6's springnot): a Hop taken on PEAK's spring rides the
+    # springarm (round 3b, SPEC.md 130.17.17; wave 6's springnot): a Hop taken on PEAK's spring rides the
     # spring's launch, which now TAKES the token, so Space before that flight's first contact boosts there
     # (`springoff`, round 3's spring that spent it: a contact Hop)
     found = None
@@ -3980,7 +3992,7 @@ def w6_replays():
                 cl2 = q.cell(q.gx >> 12, q.gy >> 12)
                 if q.nfall or q.air or q.goal or any(e[0] != "corner" for e in q.events[n0:]) or cl2[1] \
                         or cl2[2] or cl2[5] != BB.SURF_NORMAL or cl2[3] != BB.KIND_FLOOR:   # (a FIELD cell,
-                    break                       # SPEC.md 128.28: its +1 is a shape, not slopes - not level)
+                    break                       # SPEC.md 130.28: its +1 is a shape, not slopes - not level)
                 n = i + 1
             if best is None or n > best[0]:
                 best = (n, (x, y))
@@ -4054,12 +4066,12 @@ def grip_stop(mat, ys=range(8, 40), xs=range(4, 40)):
 
 
 def w6b_replays():
-    """wave 6b's replays (SPEC.md 128.17.4, 128.17.10 bonanzaphys): the boost ARMED
+    """wave 6b's replays (SPEC.md 130.17.4, 130.17.10 bonanzaphys): the boost ARMED
     by a second Space edge anywhere in the Hop's flight, and the LATE GRACE that
     converts an unarmed bouncing first contact; the accidental cases; Grip 6/3/1.
     Each FOUND and PROVED on the model (every contact searched, so a retuned
     constant re-finds it; every expected value the model's, never a literal,
-    SPEC.md 128.16.11), each red arm's broken model shown to part.  Each carries
+    SPEC.md 130.16.11), each red arm's broken model shown to part.  Each carries
     `nboost`, the boosts the guest must end the replay with"""
     S = []
     R_, ST = BB.MAT_RUBBER, BB.MAT_STEEL
@@ -4086,7 +4098,7 @@ def w6b_replays():
         "contact (step %s): %s, nboost %d" % (c, [k_ for _i, k_ in cs2][:1], p.nboost),
         c and c - 14 > HOP + 1 and [k_ for _i, k_ in cs2][:1] == ["boost"] and p.nboost == 1,
         red={"_armwin": True}, nboost=1)
-    # armroll: rubber at the cap with a chord, a Hop, a second press MID-FLIGHT: a boost (128.17.4.1: rolling
+    # armroll: rubber at the cap with a chord, a Hop, a second press MID-FLIGHT: a boost (130.17.4.1: rolling
     # does not change the physics on the apron; the searched take-off's first contact passes rules 3 - 5)
     found = None
     for d in ((1, 0), (-1, 0), (0, -1), (0, 1)):
@@ -4123,7 +4135,7 @@ def w6b_replays():
         "%s" % (c, bg[:1]), c and [k_ for _i, k_ in cs2][:1] == ["bounce"] and len(bg) == 1 and bg[0][2] == 2
         and p.nboost == 1, red=[{"_nograce": True}, {"_graceoff": True}], nboost=1)
     # armlate5: the press BGRACE + 1 steps after it: past the grace, nothing (a grace one longer, `grace5`,
-    # converts).  (armlate4 until round 3's BGRACE 4, SPEC.md 128.17.16)
+    # converts).  (armlate4 until round 3's BGRACE 4, SPEC.md 130.17.16)
     late = BB.BGRACE + 1
     keys = with_space(base, c + late if c else None)[:(c or 0) + 40]
     p, cs2 = run_ix("play", R_, rest, keys)
@@ -4135,7 +4147,7 @@ def w6b_replays():
     add("hoponly", "play", R_, rest, keys, "a single tap, no second press: %s, nboost %d" % (
         [k_ for _i, k_ in cs2][:1], p.nboost), c and p.nboost == 0 and [k_ for _i, k_ in cs2][:1] == ["bounce"],
         red={"_hopedge": True}, nboost=0)
-    # armheld: Space HELD from the Hop through the contact and 3 steps past it: round 3 (SPEC.md 128.17.16)
+    # armheld: Space HELD from the Hop through the contact and 3 steps past it: round 3 (SPEC.md 130.17.16)
     # BOOSTS at the contact, the floor level with the take-off (`noheld`: none).  Round 2's was nboost 0
     keys = [k_ | (K.K_HOP if HOP <= i <= (c or 0) + 3 else 0) for i, k_ in enumerate(base)][:(c or 0) + 40]
     p, cs2 = run_ix("play", R_, rest, keys)
@@ -4143,7 +4155,7 @@ def w6b_replays():
         "steps past: %s, nboost %d" % (HOP, c, [k_ for _i, k_ in cs2][:1], p.nboost),
         c and p.nboost == 1 and [k_ for _i, k_ in cs2][:1] == ["boost"], red={"_noheld": True}, nboost=1)
     # ledgehold: a Hop at the LIP of the PLAYGROUND's half-unit rung at the cap, Space held 4 steps, its first
-    # contact on the ledge 1 - 4 steps later: no boost there (`heldarm` boosts on the ledge, 128.17.4.4)
+    # contact on the ledge 1 - 4 steps later: no boost there (`heldarm` boosts on the ledge, 130.17.4.4)
     top, rr = play_rect(0.5)
     st_ = ((rr[0] + rr[2] - 1) // 2, BB.PLAY_FRONT)
     dk = BB._PLAY_DIRK[(0, -1)]
@@ -4171,7 +4183,7 @@ def w6b_replays():
         "Space held through its first contact on the ledge at %s: no boost (the ledge is above the "
         "take-off, round 3's gate)" % (rr, a, land), found,
         red=[{"_heldarm": True}, {"_nogate": True}], nboost=0)
-    # fallarm / fallnone (round 3, SPEC.md 128.17.16): rubber ROLLED off a rung's top onto the apron, no Hop;
+    # fallarm / fallnone (round 3, SPEC.md 130.17.16): rubber ROLLED off a rung's top onto the apron, no Hop;
     # a tap 2 steps after the take-off arms the FALL's token, and the first contact boosts (`nofall`: none).
     # With no Space the contact opens the grace and nothing else
     found3 = None
@@ -4235,7 +4247,7 @@ def w6b_replays():
     add("mashchain", "play", R_, pk, keys, "rubber at the cap from %s along %s, Space tapped every 2 steps from "
         "the Hop (step %s) through three contacts %s: one boost" % (at, d, a, kinds), found2,
         red={"_pump": True}, nboost=1)
-    # gripchain (re-keyed for 6b, SPEC.md 128.17.4.4): a Hop and a MID-FLIGHT tap - the boost; Grip held through
+    # gripchain (re-keyed for 6b, SPEC.md 130.17.4.4): a Hop and a MID-FLIGHT tap - the boost; Grip held through
     # the boost's landing; a Hop off it and a mid-flight tap - the second boost, about 52 steps on
     base2 = [0] * HOP + [K.K_HOP] + [0] * 220
     keys = with_space(base2, (HOP + c) // 2 if c else None)
@@ -4261,7 +4273,7 @@ def w6b_replays():
     sf = BB.axis_feel(ST)
     add("gripsteel", "play", ST, pk, [K.K_GRIP] * (sf[6] + 20), "steel at the cap at %s, Grip held: stopped in %s "
         "steps (%.1f tiles), the axis model's %d" % (at, n, sf[7], sf[6]), gs)
-    # wave 7 (SPEC.md 128.18.4): TIMEOUT - rubber left at rest on FIRST's start past its limit: the clock counts
+    # wave 7 (SPEC.md 130.18.4): TIMEOUT - rubber left at rest on FIRST's start past its limit: the clock counts
     # down 55 steps a second, and the limit's last step times the replay out (the guest's run ends there;
     # `toutoff` runs on, and its state differs at that frame)
     fc = R.course("first")
@@ -4274,7 +4286,7 @@ def w6b_replays():
     add("timeout", "first", R_, None, keys, "rubber at rest on FIRST, limit %d s (%d steps): the timeout at step %s, "
         "the clock %s then" % (fc.limit, lim, p.nstep if p.tout else None, p.tsec), fc.limit and p.tout
         and p.nstep == lim and p.tsec == 0 and not q.tout and q.tsec == 1, red={"_toutoff": True}, nboost=0)
-    # wave 8b (SPEC.md 128.19.4): SEVERAL FINISHES - TRIAL's goal column split, (8, 17) exit 0 and (8, 18)
+    # wave 8b (SPEC.md 130.19.4): SEVERAL FINISHES - TRIAL's goal column split, (8, 17) exit 0 and (8, 18)
     # exit 1: rolled into each from the sand, the guest's bz_exit the model's every frame and at the end
     for nm, at, want in (("exit1", (9, 18), 1), ("exit0", (9, 17), 0)):
         pk = pl_poke("trial", at, R_, d=(-1, 0), v=BB.VMAXG // 2)
@@ -4287,7 +4299,7 @@ def w6b_replays():
 
 
 def drag_span(g, s):
-    """SPEC.md 128.16.14: bz_gax's every DRAGGED call (CL, the drag shift, not 0)
+    """SPEC.md 130.16.14: bz_gax's every DRAGGED call (CL, the drag shift, not 0)
     on the replay S, entry to return, in MartyPC's cycles: the worst at most
     DRAG_PRICE x DRAG_SLACK.  -> (failures, (calls, worst, mean))"""
     m = g.m
@@ -4349,7 +4361,7 @@ def drag_span(g, s):
                      % (s["name"], ntick))
     elif max(spans) > bound:
         fails.append("%s: the drag's span: the worst dragged bz_gax call took %d cycles, over its price %d + 25%% "
-                     "(%d; SPEC.md 128.16.3.1)" % (s["name"], max(spans), DRAG_PRICE, bound))
+                     "(%d; SPEC.md 130.16.3.1)" % (s["name"], max(spans), DRAG_PRICE, bound))
     out = (len(spans), max(spans) if spans else None, sum(spans) / len(spans) if spans else None)
     print("%s the drag's span on %s: %d clean dragged bz_gax calls (%d more with a tick inside, left out), worst "
           "%s cycles, mean %s (bound %d): %s" % (
@@ -4502,7 +4514,7 @@ def replay(g, s):
         if bad:
             fails.append(bad)
         if s.get("nboost") is not None and ext.get("s6") is not None and ext["s6"][2] != s["nboost"]:
-            fails.append("%s: the replay ended with nboost %d, the scenario's %d (SPEC.md 128.17.4)" % (
+            fails.append("%s: the replay ended with nboost %d, the scenario's %d (SPEC.md 130.17.4)" % (
                 name, ext["s6"][2], s["nboost"]))
         m.run()
     kinds = [e[0] for e in p.events if e[0] != "corner"]
@@ -4566,7 +4578,7 @@ REDS = {
                  "    mov al, [es:di + BZG_WX]\n    mov ah, [es:di + BZG_WY]\n    mov [bz_safe], ax\n"
                  "    pop di\n    call bz_place\n")],
     # (steps 4 - 6 are written once and run by wave 2's path and the prop path
-    # alike, SPEC.md 128.13.8: the patch breaks both)
+    # alike, SPEC.md 130.13.8: the patch breaks both)
     "takeoff": [("bzphys.inc", ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
                  "    call bz_toff                ; (round 3: a FALL's token too, bz_toff's)\n",
                  ".takeoff:                       ; over no floor: no bz_gh (bz_ghv cleared)\n"
@@ -4591,7 +4603,7 @@ REDS = {
     "airwall": [("bzphys.inc", "    add ax, BZ_CLIMB * 4        ; (+ 1,024 / 64)\n",
                  "    cmp byte [bz_air], 0        ; RED airwall: no airborne margin\n    jne .redam\n"
                  "    add ax, BZ_CLIMB * 4\n.redam:\n")],
-    # wave 3 (SPEC.md 128.12.13.2).  The gate judged one step late (n - 1)
+    # wave 3 (SPEC.md 130.12.13.2).  The gate judged one step late (n - 1)
     "gate": [("fam/rotor.asm", "    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n    and al, [es:si + BZP_MASK]\n"
               "    cmp al, [es:si + BZP_TC0]\n",
               "    mov ax, [bz_nstep]\n    dec ax                      ; RED gate: a step late\n"
@@ -4617,7 +4629,7 @@ REDS = {
               "    cmp byte [es:si + BZP_KIND], BZ_PK_WINDMILL ; RED exit: along the entry\n    jne .redx\n"
               "    mov cl, [es:si + BZP_TGVX]  ; (the doorway: 0 -x, 1 -y -> codes 1, 3)\n    shl cl, 1\n"
               "    inc cl\n.redx:\n")],
-    # wave 4 (SPEC.md 128.14.14): the respawn at bz_safe on a CKPT course
+    # wave 4 (SPEC.md 130.14.14): the respawn at bz_safe on a CKPT course
     "ckpt": [("bzphys.inc", "    test byte [bz_gfl], BZ_GF_CKPT\n    jnz .rflag\n",
               "    nop                         ; RED ckpt: bz_safe on every course\n")],
     # the flag's ball taken from the ball that touched it
@@ -4637,7 +4649,7 @@ REDS = {
     "tiltcap": [("bzphys.inc", "    sub al, 2                   ; above the cap: max(c, lvl - 2)\n",
                  "    mov al, ah                  ; RED tiltcap: to the cap at once\n    jmp short .tst\n")],
 }
-# wave 9 (SPEC.md 128.25.7.1): the RESPAWN class ignored - the respawn never calls bz_frst, so a RETURN
+# wave 9 (SPEC.md 130.25.7.1): the RESPAWN class ignored - the respawn never calls bz_frst, so a RETURN
 # leaves the probe's TOUCHED bit set (the `probe` replay's bz_fst parts from the model's)
 REDS["famrsp"] = [("bzphys.inc", "    call bz_frst                ; the place, whose refill runs the CELL hook\n",
                    "    nop                         ; RED famrsp: the RESPAWN class ignored\n    nop\n    nop\n")]
@@ -4655,7 +4667,7 @@ RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", 
             "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame",
             "famrsp": "probe frame"}
 
-# wave 6 (SPEC.md 128.16.14): the token set again by a contact Hop (a boost every other contact)
+# wave 6 (SPEC.md 130.16.14): the token set again by a contact Hop (a boost every other contact)
 REDS["pump"] = [("bzphys.inc", ".hp:\n    mov byte [bz_hopw], 0\n    inc word [bz_nhop]\n    jmp short .leave\n",
                  ".hp:\n    mov byte [bz_hopw], 0\n    inc word [bz_nhop]\n    add ax, di                  ; RED pump: "
                  "the token set again by a contact Hop\n    mov [bz_gvz], ax\n    mov ax, [bz_gz + 1]\n"
@@ -4671,8 +4683,8 @@ REDS["rampboost"] = [("bzphys.inc", "    cmp byte [si + 1], 1        ; CF = 1 wh
 REDS["tokbst"] = [("bzphys.inc", "    mov byte [bz_btok], 0       ; every contact spends the token (a boost's\n",
                    "    nop                         ; RED tokbst: kept past a contact\n")]
 # rule 4 on the cell after the slab's substitution: the slab (level, FLOOR, flags 0) boosts
-REDS["slabcell"] = [("bzphys.inc", "    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)\n",
-                     "    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)\n"
+REDS["slabcell"] = [("bzphys.inc", "    jz .no                      ; rule 3 (round 3b: rule 5 went, 130.17.17)\n",
+                     "    jz .no                      ; rule 3 (round 3b: rule 5 went, 130.17.17)\n"
                      "    cmp byte [bz_fslab], 0      ; RED slabcell: the slab's substituted cell\n"
                      "    je .redslab\n    stc\n    ret\n.redslab:\n")]
 # wave 2's round-up drag kept in the guest (no remainder)
@@ -4696,17 +4708,17 @@ REDS["slowdrag"] = [("bzphys.inc", "    adc bh, 0                   ; BX = t = |
                      "    push dx\n    push cx\n    mov ax, 1\n    shl ax, cl\n    mov cx, ax\n"
                      "    mov ax, bx\n    xor dx, dx\n    div cx\n    mov ax, bx\n    xor dx, dx\n    div cx\n"
                      "    pop cx\n    pop dx\n    pop ax\n")]
-# springoff (round 3b, SPEC.md 128.17.17; wave 6's springtok inverted): round 3's spring, its launch spends
+# springoff (round 3b, SPEC.md 130.17.17; wave 6's springtok inverted): round 3's spring, its launch spends
 # the token - from the ground after bz_toff, and out of the air with no bz_atok
-REDS["springoff"] = [("fam/spring.asm", "    call bz_toff                ; (round 3b, 128.17.17: the launch TAKES the\n",
-                      "    call bz_toff                ; (round 3b, 128.17.17: the launch TAKES the\n"
+REDS["springoff"] = [("fam/spring.asm", "    call bz_toff                ; (round 3b, 130.17.17: the launch TAKES the\n",
+                      "    call bz_toff                ; (round 3b, 130.17.17: the launch TAKES the\n"
                       "    mov byte [bz_btok], 0       ; RED springoff: the spring spends the token\n"),
                      ("fam/spring.asm", "    call bz_atok                ; round 3b: a launch out of the air\n",
                       "                                ; RED springoff: no token out of the air\n")]
 RED_ONLY.update({"springoff": ("springarm",)})
 RED_WANT.update({"springoff": "springarm frame"})
 # noadd (round 3b): round 3's boost - BOOST alone, refused by rule 5 when the rebound reaches it
-REDS["noadd"] = [("bzphys.inc", "    or ax, ax\n    jz .no                      ; rule 3 (round 3b: rule 5 went, 128.17.17)\n",
+REDS["noadd"] = [("bzphys.inc", "    or ax, ax\n    jz .no                      ; rule 3 (round 3b: rule 5 went, 130.17.17)\n",
                   "    cmp bp, ax                  ; RED noadd: round 3's rules 3 and 5\n    jae .no\n"),
                  ("bzphys.inc", "    mov dx, [bz_mrec + BZM_BADD] ; round 3b: AX = min(VZMAX, max(BOOST, rr\n"
                   "    add dx, bp                  ; + BADD)), the boost ADDED to the bounce\n"
@@ -4717,13 +4729,13 @@ REDS["nospent"] = [("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: s
                     "                                ; RED nospent\n    ret\n"),
                    ("bzphys.inc", "    mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded\n    jmp .st\n",
                     "                                ; RED nospent\n    jmp .st\n")]
-# toutoff (wave 7, SPEC.md 128.18.4): the limit's last step never times out
+# toutoff (wave 7, SPEC.md 130.18.4): the limit's last step never times out
 REDS["toutoff"] = [("bzphys.inc", "    mov byte [bz_tout], 1\n    call bz_fstart              ; (the same sequence, the clock at 0)\n.tdone:\n",
                     "                                ; RED toutoff: no timeout\n.tdone:\n")]
-# clkpass (wave 7, SPEC.md 128.18.5.3): a clock's cell is not taken for a post's, so the ball rolls through it
+# clkpass (wave 7, SPEC.md 130.18.5.3): a clock's cell is not taken for a post's, so the ball rolls through it
 REDS["clkpass"] = [("bzphys.inc", "    mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads\n",
                     "                                ; RED clkpass: the clock's kind left as it is\n")]
-# noexit (wave 8b, SPEC.md 128.19.4): the goal's test writes no exit - red at exit1 (bz_exit 0, the model's 1)
+# noexit (wave 8b, SPEC.md 130.19.4): the goal's test writes no exit - red at exit1 (bz_exit 0, the model's 1)
 REDS["noexit"] = [("bzphys.inc", "    mov [bz_exit], al\n    mov byte [bz_goal], 1\n    call bz_fstart              ; (a play's",
                    "                                ; RED noexit\n    mov byte [bz_goal], 1\n    call bz_fstart              ; (a play's")]
 RED_ONLY.update({"noexit": ("exit1",)})
@@ -4731,18 +4743,18 @@ RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff"
                  "clkpass": ("clock",)})
 RED_WANT.update({"toutoff": "timeout frame"})
 RED_WANT.update({"noadd": "boostfall", "nospent": "spentspring"})
-# wave 6b (SPEC.md 128.17.10): the trigger and the late grace broken six ways, each red at its own replay.
+# wave 6b (SPEC.md 130.17.10): the trigger and the late grace broken six ways, each red at its own replay.
 # heldarm: Space HELD arms the token too (the edge path arms as shipped; the no-edge path as well)
 REDS["heldarm"] = [("bzphys.inc", ".hw:\n    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n",
                     ".hw:\n    test bl, BZ_K_HOP           ; RED heldarm: Space HELD arms the token too\n"
                     "    jz .hwr\n    cmp byte [bz_btok], 1\n    jne .hwr\n    inc byte [bz_btok]\n.hwr:\n"
                     "    mov ax, [bz_bgr]            ; no edge: the window and (6b) the grace count\n")]
 # hopedge: the Hop's own edge arms its flight (the ground Hop sets the token to 2)
-REDS["hopedge"] = [("bzphys.inc", "    jmp short .launch           ; (wave 6's TOKEN: bz_toff sets it, 128.16.4.1)\n",
+REDS["hopedge"] = [("bzphys.inc", "    jmp short .launch           ; (wave 6's TOKEN: bz_toff sets it, 130.16.4.1)\n",
                     "    call bz_toff\n    mov byte [bz_btok], 2       ; RED hopedge: the Hop's own edge arms its flight\n"
                     "    jmp .gh\n")]
 # armwin: wave 6's test kept, the token AND the window open at the contact
-REDS["armwin"] = [("bzphys.inc", "    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 128.17.4.2): the\n"
+REDS["armwin"] = [("bzphys.inc", "    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 130.17.4.2): the\n"
                    "    jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =\n",
                    "    cmp byte [bz_btok], 0       ; RED armwin: wave 6's token-and-window test\n"
                    "    je .hopc\n    cmp byte [bz_hopw], 0\n    je .hopc\n")]
@@ -4755,9 +4767,9 @@ REDS["grace5"] = [("bzphys.inc", "    mov byte [bz_bgr], BZ_BGRACE\n",
                    "    mov byte [bz_bgr], BZ_BGRACE + 1 ; RED grace5: a grace one step longer\n"),
                   ("bzphys.inc", "    mov cx, BZ_BGRACE           ; on the k-th step after its contact (AL =\n",
                    "    mov cx, BZ_BGRACE + 1       ; RED grace5: k - 1 = BGRACE + 1 - bz_bgr\n")]
-# round 3 (SPEC.md 128.17.16): the held arming and the fall's token, each broken
+# round 3 (SPEC.md 130.17.16): the held arming and the fall's token, each broken
 # noheld: Space held at the contact arms nothing (round 2's rule)
-REDS["noheld"] = [("bzphys.inc", "    cmp byte [bz_btok], 1       ; round 3 (128.17.16): Space HELD at the\n"
+REDS["noheld"] = [("bzphys.inc", "    cmp byte [bz_btok], 1       ; round 3 (130.17.16): Space HELD at the\n"
                    "    jne .armd                   ; contact ARMS the token 1, onto a floor no\n",
                    "    jmp short .armd             ; RED noheld: no held arming\n")]
 # nogate: held arms without the take-off gate (onto a ledge above the take-off too)
@@ -4842,18 +4854,18 @@ def main():
                 print("FAIL %s" % b)
             for line in R.check_reds(REDS, "bonanza_phys"):
                 print(line)
-            # SPEC.md 128.24 (wave D3): the SPLIT leg's host half - the guest's split cells under unicorn
+            # SPEC.md 130.24 (wave D3): the SPLIT leg's host half - the guest's split cells under unicorn
             # against the model, every step (tests/bonanza_dsplit.py; its red arms by hand, `--reds`), until
             # D5's PLAYGROUND gives this row a split course to replay on the glass
             bad += got(kd)
             for line in R.check_reds(bonanza_dsplit.REDS, "bonanza_dsplit"):
                 print(line)
-            # SPEC.md 128.28 (wave C3): the FIELD leg's host half, the same method (tests/bonanza_dfield.py;
+            # SPEC.md 130.28 (wave C3): the FIELD leg's host half, the same method (tests/bonanza_dfield.py;
             # its red arms by hand, `--reds`)
             bad += got(kf)
             for line in R.check_reds(bonanza_dfield.REDS, "bonanza_dfield"):
                 print(line)
-            # SPEC.md 128.29.7: AV's model in the guest - bz_occ under unicorn against bbcourse's model and the
+            # SPEC.md 130.29.7: AV's model in the guest - bz_occ under unicorn against bbcourse's model and the
             # part's records, every course (tests/bonanza_av.py; its red arms by hand, `--red amodel|acache|aneigh`)
             bad += got(ka)
             for line in R.check_reds(bonanza_av.REDS, "bonanza_av"):

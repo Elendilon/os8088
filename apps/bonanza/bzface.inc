@@ -1,6 +1,6 @@
 ;;; =============================================================================
 ;;; apps/bonanza/bzface.inc - BONANZA's desktop FACE, assembled into the SHELL
-;;; PART (apps/bonanza/bzshell.asm, SPEC.md 128.19.2) - never into the package.
+;;; PART (apps/bonanza/bzshell.asm, SPEC.md 130.19.2) - never into the package.
 ;;; Moved out of bonanza.asm by wave 8a whole; what changed is only where its
 ;;; tables are read: the part's own through CS (`[cs:...]`, bz_lcat), the
 ;;; package's bss through DS, as every vector is entered with DS = the package.
@@ -108,7 +108,7 @@ bz_fline:
     jmp [cs:bz_ftab + bx]
 bz_ftab:    dw bz_ltour, bz_l1, bz_l2, bz_l3, bz_l4, bz_l5, bz_l6
 %if ($ - bz_ftab) / 2 != BZ_NLINE
- %error "MAIN is the tour's line and six more - no scorecard, whatever the tour (SPEC.md 128.26.8)"
+ %error "MAIN is the tour's line and six more - no scorecard, whatever the tour (SPEC.md 130.26.8)"
 %endif
 
 ; MAIN's lines in the 0FFh-ended list at SI, redrawn outside a paint (the clip
@@ -128,7 +128,7 @@ bz_redraw:
     ret
 
 ; ---- MAIN's builders: each draws its line at [bz_fy] and steps it -------------
-; RESULTS's line 0: the title (MAIN's line 0 is the tour's since SPEC.md 128.16.8)
+; RESULTS's line 0: the title (MAIN's line 0 is the tour's since SPEC.md 130.16.8)
 bz_l0:
     mov si, bz_s_title
 ; SI's string as a whole line
@@ -136,14 +136,14 @@ bz_lline:
     call bz_lstr
     jmp bz_line
 
-; line 1: what Enter does.  `ENTER PLAY  F <title>  N NEXT` (wave 8b, 128.19.5:
+; line 1: what Enter does.  `ENTER PLAY  F <title>  N NEXT` (wave 8b, 130.19.5:
 ; Enter the game, F a free play of the selected course); in a tour `ENTER
 ; next  ESC stop tour`
 bz_l1:
     mov si, bz_s_tkeys
     call bz_intour
     jc bz_lline
-    mov si, bz_s_keys           ; wave 8c (128.19.8.3): `ENTER SLOT n  LIVES l
+    mov si, bz_s_keys           ; wave 8c (130.19.8.3): `ENTER SLOT n  LIVES l
     call bz_lstr                ; TIMED|EXPLORE  F <NAME>` - the game's slot,
     mov al, [bz_slot]           ; its lives (`-` none) and mode, then F's free
     add al, '1'                 ; play of the selected course
@@ -205,34 +205,35 @@ bz_adname:
     mov bx, bz_s_hercr
     cmp al, 2
     je .out
+    mov si, bz_s_vga
+    mov bx, bz_s_vgar
+    cmp al, 3
+    je .out
     mov si, bz_s_noad
 .none:
     mov bx, si
 .out:
     ret
 
-; line 3: the settings and their keys, `C <camera>  M <ball>  T <control>`;
-; a tour rolls each course's own ball, so M is not offered in one
+; line 3: the settings and their keys, `M <ball>  T <control>`; a tour
+; rolls each course's own ball, so M is not offered in one
 bz_l3:
-    mov si, bz_s_camk
+    call bz_intour              ; (no C since the camera became LATTICE alone,
+    mov si, bz_s_ctlk + 2       ; and the VGA's own: the line starts at M, or
+    jc .l                       ; in a tour at T)
+    mov si, bz_s_ballk + 2
     call bz_lstr
-    mov bl, [bz_cmode]
-    xor bh, bh
-    shl bx, 1
-    mov si, [cs:bz_s_cmodes + bx]
-    call bz_lcat
-    call bz_intour
-    jc .l
-    mov si, bz_s_ballk
-    call bz_lcat
     mov bl, [bz_matsel]
     xor bh, bh
     shl bx, 1
     mov si, [cs:bz_s_mats + bx]
     call bz_lcat
-.l:
-    mov si, bz_s_ctlk           ; T: KEYS or MOUSE (SPEC.md 128.14.8)
+    mov si, bz_s_ctlk           ; T: KEYS or MOUSE (SPEC.md 130.14.8)
     call bz_lcat
+    jmp short .k
+.l:
+    call bz_lstr
+.k:
     mov si, bz_s_keyb
     cmp byte [bz_ctl], 0
     je .c
@@ -242,7 +243,7 @@ bz_l3:
     jmp bz_line
 
 ; line 4: `S <the sound>` - the player's choice and, under AUTO, the arm it
-; found (SPEC.md 128.20.4).  S redraws it (bzs_skey, bz_line4).
+; found (SPEC.md 130.20.4).  S redraws it (bzs_skey, bz_line4).
 bz_l4:
     mov si, bz_s_sndk
     call bz_lstr
@@ -262,9 +263,9 @@ bz_l4:
 .l:
     jmp bz_line
 
-; line 5: the demo keys (SPEC.md 128.14.3.2): `B BENCH  L LOAD  V DEMO`, and
+; line 5: the demo keys (SPEC.md 130.14.3.2): `B BENCH  L LOAD  V DEMO`, and
 ; with a log held `R PLAY  D TIME  W SAVE  L LOAD  V DEMO` - B, the engine
-; benchmark, is the key dropped for the 42 cells (128.14.17 item 2), and still
+; benchmark, is the key dropped for the 42 cells (130.14.17 item 2), and still
 ; works; a tour offers `W SAVE` alone, with a log held
 bz_l5:
     call bz_lbeg
@@ -292,14 +293,14 @@ bz_l5:
 .l:
     jmp bz_line
 
-; line 6: THE HELD LOG's last run (SPEC.md 128.14.3.2, 128.14.16 item 1): after
+; line 6: THE HELD LOG's last run (SPEC.md 130.14.3.2, 130.14.16 item 1): after
 ; a play or a replay, finished or stopped, `<NAME> <time> s <end> falls <n>`
 ; and on a course with flags `flags <reached>/<all>` - the clock, the falls,
 ; the flags and the hole-out, on the face that costs the frame nothing.  The
-; play's stuns and shatters are the field it drops to fit (128.14.17 item 2).
+; play's stuns and shatters are the field it drops to fit (130.14.17 item 2).
 ; With none, the keys' hint (the mouse's under T MOUSE).  After L, `<NAME>
 ; <time> s  <8.3 name>`, and after V `<NAME> <time> s  demo`: the held log's
-; course and its steps (SPEC.md 128.14.3.2).
+; course and its steps (SPEC.md 130.14.3.2).
 bz_l6:
     mov al, [bz_lsv]
     cmp al, 1
@@ -372,10 +373,10 @@ bz_l6:
     jmp bz_line
 
 ; line 0 (BZ_LTOUR; the title's until the PLAYGROUND made the tour six, SPEC.md
-; 128.16.8 - RESULTS keeps the title there): the tour.  During one `ENTER
-; next: <title>`, the tour's next course (BZ_TOUR, SPEC.md 128.26.8); stopped `Tour
+; 130.16.8 - RESULTS keeps the title there): the tour.  During one `ENTER
+; next: <title>`, the tour's next course (BZ_TOUR, SPEC.md 130.26.8); stopped `Tour
 ; stopped`; else `Tour <total>  best <b>` (`-` for none).  A refused replay's
-; reason takes it (SPEC.md 128.12.8): R is not offered in a tour.
+; reason takes it (SPEC.md 130.12.8): R is not offered in a tour.
 bz_ltour:
     mov si, bz_s_err3
     cmp byte [bz_err], 3
@@ -383,7 +384,7 @@ bz_ltour:
     mov si, bz_s_err4
     cmp byte [bz_err], 4
     je bz_lline
-    cmp byte [bz_tour], 0       ; wave 8c (128.19.8.3): no tour - the SLOT's
+    cmp byte [bz_tour], 0       ; wave 8c (130.19.8.3): no tour - the SLOT's
     jne .tr                     ; keys, or X's second press asked for
     mov si, bz_s_skeys
     cmp byte [bz_xarm], 0
@@ -437,7 +438,7 @@ bz_ltour:
 
 ; RESULTS line 3: what was measured - `BENCH autopilot`, or after D `Demo
 ; <NAME> <time> s` and `TRUNCATED` when it stopped measuring at 65,535 frames
-; (SPEC.md 128.14.3.2, 128.14.7.3).  The held log is D's until the next key
+; (SPEC.md 130.14.3.2, 130.14.7.3).  The held log is D's until the next key
 ; leaves the page.
 bz_lmeas:
     mov si, bz_s_meas
@@ -462,7 +463,7 @@ bz_lmeas:
     jmp bz_line
 
 ; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s BZ_NTOUR; BL = 1
-; when one of them is the 65,535 clamp (such a total is never kept, 128.14.3.1).
+; when one of them is the 65,535 clamp (such a total is never kept, 130.14.3.1).
 ; Preserves all else.
 bz_ttotal:
     push cx
@@ -486,7 +487,7 @@ bz_ttotal:
     pop cx
     ret
 
-; RESULTS line 2's numbers (SPEC.md 128.6), after the adapter's prefix: the
+; RESULTS line 2's numbers (SPEC.md 130.6), after the adapter's prefix: the
 ; frames, the display rate (to 999.9, the field's width) and the refreshes
 ; missed - a mean rate cannot tell 0 misses from a few
 bz_frline:
@@ -560,7 +561,7 @@ bz_facres:
     mov ax, [bz_rnfull]
     call bz_lnumw
     mov si, bz_s_late           ; the row-0 boxes the beam overtook (SPEC.md
-    call bz_lcat                ; 128.9 item 6)
+    call bz_lcat                ; 130.9 item 6)
     mov ax, [bz_rlate]
     call bz_lnumw
     jmp bz_line
@@ -648,7 +649,7 @@ bz_div32:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_t100 - STEPS to HUNDREDTHS of a second (SPEC.md 128.10.6.2, 128.14.3.1):
+; bz_t100 - STEPS to HUNDREDTHS of a second (SPEC.md 130.10.6.2, 130.14.3.1):
 ; floor(n x 21,845 x 100 / 1,193,182), a step being 21,845 PIT counts.  In
 ; DX:AX = n (at most 2^19: a tour's total is under 327,671), out DX:AX.  The
 ; product is a 48-bit Q (its top word under 300), and 1,193,182 = 14,551 x 82,
@@ -707,7 +708,7 @@ bz_t100:
 bz_lstr:
     call bz_lbeg
 ; bz_lcat: append SI's NUL string at DI - the PART's own, read through CS
-; (SPEC.md 128.19.2: the face's strings live in the shell part)
+; (SPEC.md 130.19.2: the face's strings live in the shell part)
 bz_lcat:
     push ax
 .c:
@@ -756,7 +757,7 @@ bz_lname:
     xchg ax, si
     jmp bz_lcat
 
-; AX = a course time in steps: `20:00+` for the clamp (SPEC.md 128.14.3.1),
+; AX = a course time in steps: `20:00+` for the clamp (SPEC.md 130.14.3.1),
 ; else as bz_ltime.  Preserves all.
 bz_ltimew:
     cmp ax, 0ffffh
@@ -774,7 +775,7 @@ bz_ltimew:
     ret
 
 ; DX:AX = steps -> appended as seconds: `s.hh` under 100 s, `s.h` from there
-; (SPEC.md 128.14.17 item 2), at most BZ_TIMEW cells for a tour's total.
+; (SPEC.md 130.14.17 item 2), at most BZ_TIMEW cells for a tour's total.
 ; Preserves all.
 bz_ltime:
     push ax
@@ -957,7 +958,7 @@ bz_fillrect:
 bz_ctitles: BZ_CRS_TITLES
 bz_cnames:  BZ_CRS_NAMES
 bz_cncks:   BZ_CRS_NCKS
-bz_ctour:   BZ_TOUR             ; the tour's courses, a byte each (SPEC.md 128.26.8)
+bz_ctour:   BZ_TOUR             ; the tour's courses, a byte each (SPEC.md 130.26.8)
 
 ; the face's strings: BZS measures each (<label>_n), for BZ_FIT below
 %macro BZS 2
@@ -991,17 +992,14 @@ BZS bz_s_keyb,  'KEYS'
 BZS bz_s_mouse, 'MOUSE'
 BZS bz_s_cga,   'Adapter: CGA, 320x200 four colours'
 BZS bz_s_herc,  'Adapter: Hercules, 360x200 pair pixels'
-BZS bz_s_noad,  'CGA OR HERC ONLY'
+BZS bz_s_vga,   'Adapter: VGA, 320x200, two planes'
+BZS bz_s_noad,  'CGA, HERC OR VGA ONLY'
 BZS bz_s_small, 'NEEDS MORE MEMORY (128KB kernel)'
-BZS bz_s_camk,  'C '
 BZS bz_s_ballk, '  M '
 bz_s_mats:  dw bz_s_rubber, bz_s_steel, bz_s_glass
 BZS bz_s_rubber, 'RUBBER'
 BZS bz_s_steel, 'STEEL'
 BZS bz_s_glass, 'GLASS'
-bz_s_cmodes: dw bz_s_glide, bz_s_trickle   ; bz_cmode's (SPEC.md 128.11.11.1)
-BZS bz_s_glide, 'GLIDE'
-BZS bz_s_trickle, 'TRICKLE'
 BZS bz_s_hint,  'Arrows roll  Space hop  L.Shift grip'
 BZS bz_s_mhint, 'Mouse tilts  left hop  right grip'
 BZS bz_s_demo,  'demo'
@@ -1024,6 +1022,7 @@ BZS bz_s_err3,  "Another course's log"
 BZS bz_s_err4,  "Other physics' log"
 BZS bz_s_cgar,  'CGA frames '
 BZS bz_s_hercr, 'Herc frames '
+BZS bz_s_vgar,  'VGA frames '
 BZS bz_s_disp,  '  '
 BZS bz_s_hz,    ' Hz  misses '
 BZS bz_s_meas,  'BENCH autopilot'
@@ -1045,14 +1044,14 @@ BZS bz_s_p3,    '  retrace (idle) '
 BZS bz_s_p4,    '  flip+columns   '
 BZS bz_s_p5,    '  box write      '
 
-; EVERY FACE LINE FITS THE CGA's 42 CELLS (SPEC.md 128.14.17 item 2): each
+; EVERY FACE LINE FITS THE CGA's 42 CELLS (SPEC.md 130.14.17 item 2): each
 ; builder's widest line - the margin cell, its strings, its fields at their
 ; widest (a word 5 digits, a DWORD 10, a time BZ_TIMEW, the longest title and
 ; NAME and the widest par as bzcourse.inc measures them) - or the build fails.
 %macro BZ_FIT 2
  %assign %%w %2
  %if %%w > BZ_FACEW
-  %error face line %1 is %[%%w] cells and the CGA content holds BZ_FACEW (SPEC.md 128.14.17 item 2)
+  %error face line %1 is %[%%w] cells and the CGA content holds BZ_FACEW (SPEC.md 130.14.17 item 2)
  %endif
 %endmacro
 %assign BZ_SNDW bz_s_sauto_n
@@ -1074,10 +1073,11 @@ BZ_FIT 0x, 1 + bz_s_xarm_n + 1
 BZ_FIT 1t, 1 + bz_s_tkeys_n
 BZ_FIT 2, 1 + bz_s_cga_n
 BZ_FIT 2h, 1 + bz_s_herc_n
+BZ_FIT 2v, 1 + bz_s_vga_n
 BZ_FIT 2s, 1 + bz_s_small_n
 BZ_FIT 2e, 1 + bz_s_err_n
 BZ_FIT 2d, 1 + bz_s_err2_n
-BZ_FIT 3, 1 + bz_s_camk_n + bz_s_trickle_n + bz_s_ballk_n + bz_s_rubber_n + bz_s_ctlk_n + bz_s_mouse_n
+BZ_FIT 3, 1 + bz_s_ballk_n + bz_s_rubber_n + bz_s_ctlk_n + bz_s_mouse_n
 BZ_FIT 4, 1 + bz_s_sndk_n + BZ_SNDW
 BZ_FIT 5, 1 + bz_s_repk_n + bz_s_savk_n + bz_s_ldk_n
 BZ_FIT 5b, 1 + bz_s_benk_n + bz_s_ldk_n
@@ -1098,7 +1098,7 @@ BZ_FIT r4, 1 + bz_s_worst_n + 10 + bz_s_mean_n
 BZ_FIT r5, 1 + bz_s_p0_n + 10 + bz_s_clk_n
 BZ_FIT r11, 1 + bz_s_cols_n + 5 + bz_s_rows_n + 5 + bz_s_full_n + 5 + bz_s_late_n + 5
 BZ_FIT r12, 1 + bz_s_back_n
-%if bz_s_estop_n < bz_s_egoal_n || bz_s_estop_n < bz_s_ecup_n || bz_s_trickle_n < bz_s_glide_n || bz_s_rubber_n < bz_s_steel_n || bz_s_rubber_n < bz_s_glass_n || bz_s_p0_n != bz_s_p5_n || bz_s_hercr_n < bz_s_cgar_n || bz_s_mouse_n < bz_s_keyb_n || bz_s_demo_n > 12
+%if bz_s_estop_n < bz_s_egoal_n || bz_s_estop_n < bz_s_ecup_n || bz_s_rubber_n < bz_s_steel_n || bz_s_rubber_n < bz_s_glass_n || bz_s_p0_n != bz_s_p5_n || bz_s_hercr_n < bz_s_cgar_n || bz_s_mouse_n < bz_s_keyb_n || bz_s_demo_n > 12
  %error "BZ_FIT measures each line by its widest choice: the choices above moved"
 %endif
 

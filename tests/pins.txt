@@ -245,6 +245,9 @@ C apps/recorder/recorder.asm @rc_do_play # the speaker play buffer, held for one
                                          # of the call
 C apps/stiknote/stiknote.asm @sn_flip    # the note read whole for a checkbox flip
                                          # and written back, inside one callback
+C apps/inputchk/inputchk.asm mc_rseg   # Save Report's and Copy's text (SPEC.md
+                                         # 129.3), composed, written or put on
+                                         # the clipboard and freed in one callback
 C apps/syscheck/out.inc sc_rseg          # Save Report's text, composed and written
                                          # inside one command
 C apps/syscheck/out.inc @sc_rmone       # a refused driver read whole for
@@ -311,19 +314,19 @@ C apps/wirefleet/wfsound.inc op:WF_P_SFX # the samples part, fetched and dropped
 C apps/bonanza/bonanza.asm bz_cseg       # the course part (one a course, its grid inside it;
                                          # a TWO-PART course's world part here and its picture
                                          # part in bz_mseg too, both fetched by bz_cload,
-                                         # SPEC.md 128.30.5):
+                                         # SPEC.md 130.30.5):
                                          # fetched on the desktop, held in DS or
                                          # ES by every frame of the fsx bracket
                                          # and dropped as it returns, all inside
-                                         # bz_launch's one call (SPEC.md 128.7,
-                                         # 128.10.6.3)
+                                         # bz_launch's one call (SPEC.md 130.7,
+                                         # 130.10.6.3)
 C apps/bonanza/bonanza.asm bz_lseg       # a demo file's STAGING claim (L's dialog
                                          # or a double-clicked .BZR): claimed at
                                          # exactly the file's size, read into as
                                          # OSAPI_FILE_READ's ES:BX, checked and
                                          # copied into bz_rlog, and freed - all
                                          # inside bz_lfile's one call (SPEC.md
-                                         # 128.14.7.2, 128.14.7.5)
+                                         # 130.14.7.2, 130.14.7.5)
 C apps/bonanza/bzsound.inc bzs_pseg      # the sound part (tables, instruments,
                                          # effects, the event map; 837 bytes):
                                          # read by the sequencer every sub-tick
@@ -331,12 +334,12 @@ C apps/bonanza/bzsound.inc bzs_pseg      # the sound part (tables, instruments,
                                          # desktop (the window's timer) and the
                                          # course's song in the bracket - and
                                          # dropped when the window closes
-                                         # (SPEC.md 128.20.3)
+                                         # (SPEC.md 130.20.3)
 C apps/bonanza/bzsound.inc bzs_mseg      # the song playing (one part a song, at
                                          # most 1,234 bytes): read every sub-tick
                                          # while it plays, swapped at a launch
                                          # (bzs_gfetch / bzs_gdrop) and dropped at
-                                         # the close (SPEC.md 128.20.3)
+                                         # the close (SPEC.md 130.20.3)
 C apps/bonanza/bzsound.inc bzs_vseg      # the VICTORY fanfare (BZM6.BIN, 224
                                          # bytes): fetched beside the course's
                                          # song for a play of a course, held
@@ -344,19 +347,32 @@ C apps/bonanza/bzsound.inc bzs_vseg      # the VICTORY fanfare (BZM6.BIN, 224
                                          # starts it with no disk read, read
                                          # every sub-tick as bzs_mseg once it
                                          # plays, dropped by bzs_gdrop0 on every
-                                         # way the play ends (SPEC.md 128.22.9)
+                                         # way the play ends (SPEC.md 130.22.9)
 C apps/bonanza/bonanza.asm @bz_tlog      # a shipped demo's part (BZD<K>), fetched, its log
                                          # copied whole into bz_rlog and dropped
                                          # inside bz_tlog's one call; ES holds the
-                                         # segment throughout (SPEC.md 128.14.7.4)
+                                         # segment throughout (SPEC.md 130.14.7.4)
 C apps/bonanza/bonanza.asm op:BZ_P_TDEMO # BZTDEMO.BIN, the title's demos: fetched,
                                          # one demo's start block and log copied
                                          # out through ES and dropped inside
-                                         # bz_tdemo's one call (SPEC.md 128.23.3)
+                                         # bz_tdemo's one call (SPEC.md 130.23.3)
+X apps/bonanza/bonanza.asm op:BZ_P_VGA # the VGA part's CODE (SPEC.md 130.46.6), far-called
+                                         # through bz_vfp, fetched on the first course of a
+                                         # VGA launch and held through its bracket, dropped
+                                         # after it (bz_vdrop). As the shell part's: declaring
+                                         # it needs an OP_ONMOVE hook BONANZA does not assemble,
+                                         # and a CS on the stack across a call that can claim
+                                         # is a wrong return; bz_vprep takes its code alias
+                                         # again after every fetch of the bracket's own rounds
+C apps/bonanza/bonanza.asm bz_vbseg     # the three balls' converted copies on the VGA
+                                         # (SPEC.md 130.46.5): claimed by bz_vprep on the
+                                         # desktop before the bracket, read by every frame's
+                                         # blits through DS, and freed by bz_vdrop as the
+                                         # bracket returns - inside the launch's one call
 X apps/bonanza/bonanza.asm op:BZ_P_SHELL # the shell part's CODE, far-called through
                                          # bz_shfp (its op_cseg word cached) and held
                                          # while the face is up, dropped before any
-                                         # course fetch (bz_shdrop, SPEC.md 128.19.2).
+                                         # course fetch (bz_shdrop, SPEC.md 130.19.2).
                                          # Declaring it needs an OP_ONMOVE hook BONANZA
                                          # does not assemble, and a CS on the stack
                                          # across a call that can claim is a wrong
@@ -368,11 +384,11 @@ C apps/bonanza/bzfam.inc @bz_ffetch      # a family part (the resident ones insi
                                          # course's play: BZF_RDSEG/BZF_RCSEG and the
                                          # far pointers bz_ftab/bz_fmkp name its segment
                                          # for the frame loop and the bracket, dropped
-                                         # by bz_cdrop (SPEC.md 128.25.6)
+                                         # by bz_cdrop (SPEC.md 130.25.6)
 N apps/bonanza/bonanza.asm op:BZ_P_FBUN # the RESIDENT BUNDLE (bz_bget: bz_entry's fetch,
                                          # again by a launch if the open's was refused):
                                          # an OP_ARENA row, the arena's floor - and since
-                                         # SPEC.md 128.25.5.2 THE THREE BALLS at its head,
+                                         # SPEC.md 130.25.5.2 THE THREE BALLS at its head,
                                          # 31,168 bytes, generated once and held with the
                                          # families for the instance's life, the window
                                          # included (the owner, 2026-11-17: RAM to be
@@ -384,7 +400,7 @@ N apps/bonanza/bonanza.asm op:BZ_P_FBUN # the RESIDENT BUNDLE (bz_bget: bz_entry
                                          # bz_bsegs, bz_cseg, the songs, the family
                                          # records and far pointers, plus an op_pin round
                                          # the bracket
-N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 128.37.5: bz_kget,
+N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 130.37.5: bz_kget,
                                          # bz_entry's quiet fetch before the bundle, again
                                          # by a play course's load if the open's was
                                          # refused): 14,612 bytes the courses' expansion
@@ -398,7 +414,7 @@ N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 128.37.5: 
 C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
                                          # copied whole into bz_rlog and dropped
                                          # inside V's one key call (SPEC.md
-                                         # 128.14.7.4)
+                                         # 130.14.7.4)
 C apps/wirearena/wirearena.asm @wa_loadarena # an arena part, fetched, read
                                          # into both halves and dropped inside
                                          # wa_loadarena's one call (the Game

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""BONANZA: the two-way ring on MartyPC's CGA and Hercules (SPEC.md 128.2, 128.8, 128.10.11, 128.11.17.2).
+"""BONANZA: the two-way ring on MartyPC's CGA and Hercules (SPEC.md 130.2, 130.8, 130.10.11, 130.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_ring.py [--adapter cga|herc|both] [--part glass|bench|trial|mill|play|probe|w4|ground|camera]
     python3 tests/bonanza_ring.py --red NAME        (a red arm, below)
 
 THE ORACLE is tools/bbcourse.py and tools/bonanza_assets.py (SPEC.md
-128.10.4, 128.11.9, 128.11.10.2): the course's picture as the compiler
+130.10.4, 130.11.9, 130.11.10.2): the course's picture as the compiler
 rendered it, and over it, in the guest's order, the SHADOW (an AND-only mask
-of the ball part, 128.11.9.4) when the frame draws one, the BALL - the
+of the ball part, 130.11.9.4) when the frame draws one, the BALL - the
 MATERIAL's sprite (roll frame f = PHY * 8 + (px & 7) with its vertical phase
-off the GROUND line, a squash, a shatter: bbcourse.sprite, 128.11.9.2) as
+off the GROUND line, a squash, a shatter: bbcourse.sprite, 130.11.9.2) as
 mask AND, frame OR out of the ball part's own bytes - and the occluder
-records laid back by 128.10.4.4's rule at the guest's s_b, z_b and air flag
+records laid back by 130.10.4.4's rule at the guest's s_b, z_b and air flag
 over the footprint's lines and columns (so a record in front of the ball
 hides the shadow under it too).  On the Hercules the course and the ball
-are the CGA bytes THROUGH bbcourse.htab() (the table bz_hgen builds, 128.11.3)
+are the CGA bytes THROUGH bbcourse.htab() (the table bz_hgen builds, 130.11.3)
 and the ball part through bonanza_assets.herc_translate_ball - so the guest's
 BUILT table and its in-place translation are checked by their picture.  The
 guest's card memory is decoded through the ring exactly as the 6845 scans it
@@ -26,7 +26,7 @@ What the oracle takes from the guest is the physics state the frame was drawn
 from (gx, gy, gz, px, py, the material, mst, mct, sqf, the floor under an
 airborne ball) - bonanzaphys holds that state to bbcourse.Physics - and
 whether the frame DREW its shadow ([bz_snv]), which is a choice of the box
-layout (128.11.9.4: under an occluder pass, only inside the ball's box).  That
+layout (130.11.9.4: under an occluder pass, only inside the ball's box).  That
 choice is checked rather than trusted: no shadow where the model has none, a
 shadow wherever the model has one and the pass is off, and its line the
 model's (`spy`).
@@ -46,26 +46,26 @@ model's (`spy`).
      must appear and a checked frame must hide some ball behind a record.
      bz_rlate must be 0 after it.  Negative controls on a diagonal frame: the
      decode at S + 1 and a poked wrong camera must mismatch.
-  3  THE TRIAL LEG (SPEC.md 128.11.17.2): the benchmark on TRIAL ([bz_crs]
+  3  THE TRIAL LEG (SPEC.md 130.11.17.2): the benchmark on TRIAL ([bz_crs]
      poked at bz_launch's entry; the rubber ball off H's lip, over the gap) -
      at every checked frame the card equals the oracle at bz_tf and
      bz_presented, with at least one checked frame whose SHADOW is in a box
      of its own and one with THREE OR MORE boxes; and on EVERY frame, from
      breakpoints on bz_col (BX its first row, CX its rows) and bz_boxw (SI
-     the box), the column's rows and the boxes in RASTER ORDER (128.11.10.3):
+     the box), the column's rows and the boxes in RASTER ORDER (130.11.10.3):
      the boxes by first line, and before box j exactly the column rows that
      end above its first line (the first box at window row 0: down to its
      last line; a box holding a cell of the column, or no box: the whole
      column first); and the occluder pass's walk (bz_occ.gate) entered at
      most once a frame.
-  4  THE ROW-0 PROBE (SPEC.md 128.10.11.2) and its MULTI-BOX case: play mode
+  4  THE ROW-0 PROBE (SPEC.md 130.10.11.2) and its MULTI-BOX case: play mode
      on BENCH at the top clamp in GLIDE (since 8R.13 the probe's own first
      frames pull the window up there from the start's R0 3 / 1, LEAD-IN frames
      that are not judged); at bz_t0 of every probe frame the
      ball is poked airborne at window row 0, at least 16 px over a floor cell
      whose OCC and OCCG flags are clear - so its SHADOW is drawn, in a box of
      its own below the ball's - drifting right so a column enters.  At least
-     five frames take 128.9 item 6's path (row 0, an entering column) and at
+     five frames take 130.9 item 6's path (row 0, an entering column) and at
      least five are multi-box (a shadow box apart from the ball's); the card
      equals the oracle at bz_tf and bz_presented on every probe frame; on the
      multi-box frames interrupts are back ON (a breakpoint after bz_tb's
@@ -76,13 +76,13 @@ model's (`spy`).
      lines, the sync at line 224), against the cycles at which the box write
      started and ended.  Agreement is asserted on the CGA, the card whose
      boxes can be late (the Hercules' 98 lines of sync and blank hold every
-     box ahead of the beam, 128.10.11.2); bz_latechk rounds toward LATE by
+     box ahead of the beam, 130.10.11.2); bz_latechk rounds toward LATE by
      contract, so a guest LATE the cycle model calls on time by less than
      that rounding (BZ_VLAT counts and a line) is reported, not failed.  The
      Hercules' verdicts are reported.  [bz_late] over the probe must be 0 on
      frames that are not multi-box.
 
-  5  WAVE 3 (SPEC.md 128.12.13.2).  The oracle's MAP holds each lane's DRAWN
+  5  WAVE 3 (SPEC.md 130.12.13.2).  The oracle's MAP holds each lane's DRAWN
      pose ([bz_ldrw]; at bz_tf the contact lane is still at [bz_cold] on the
      card) and the platform is on the card at its drawn line ([bz_pline]),
      OVER or under the ball by the oracle's own rule (z_b + m < hP and s_b <=
@@ -105,7 +105,7 @@ model's (`spy`).
      level 1, no column), so its ball sits within the edge clause's 24 px of
      the right edge (PROBE_EDGE), and the frame BEFORE each split frame puts
      it 40 px back.
-  7  WAVE 3B (SPEC.md 128.13.12).  On the MILL leg and the MILL play every
+  7  WAVE 3B (SPEC.md 130.13.12).  On the MILL leg and the MILL play every
      frame's boxes are read at the frame's first bz_boxc (bz_ts + 9, after
      bz_mkboxes, before any compose): each at most BZ_BOXW x BZ_BOXL (4 x
      32), each PLATFORM box at most 30 lines (18 + 2 x 6), and the
@@ -122,7 +122,7 @@ model's (`spy`).
      asserts the one-wait rule itself: no two frames running with bz_pyld.  The MILL
      play adds: THE RIDE BOX (`ridebox`: the platform's box merged into the
      riding ball's group, bz_ctype 2 with no rect of its own) - at least
-     FEAT_EACH checked a card; THE DEFER SCENE (128.13.7 item 1: a post
+     FEAT_EACH checked a card; THE DEFER SCENE (130.13.7 item 1: a post
      kicked so it is really drawn lit, its lit frames poked to 0, the ball
      then two boxes every frame for four frames, one of them meeting the
      post's corner - it WAITS with lit cells outside every box, card =
@@ -134,7 +134,7 @@ model's (`spy`).
      entering row meets the slab's drawn footprint, bz_ctype 3, by the ball
      poked across the band's foot; ended at one point, so the slab's box is
      drawn and sized).
-  8  WAVE 4 (SPEC.md 128.14.14).  The oracle's hidden ball is bz_hidn (in a
+  8  WAVE 4 (SPEC.md 130.14.14).  The oracle's hidden ball is bz_hidn (in a
      tube, or HOLED OUT: its capture frame draws the course where it was).
      THE W4 PART (`w4`): MOON's shipped demo replayed (R) - a
      fall, a RETURN, its three pads, its flags, its cup - then
@@ -143,14 +143,14 @@ model's (`spy`).
      to the oracle at bz_presented on every full write (the first and every
      respawn's cut), the capture frame, every lip-out's frame, every frame
      a FLAG's drawn pose changed (raised, committed or promoted), every pad
-     swap's, and one frame in W4_EVERY; and THE BLANK (128.14.5.6) from an
+     swap's, and one frame in W4_EVERY; and THE BLANK (130.14.5.6) from an
      `io` breakpoint on 3D8h / 3B8h: the video-enable bit CLEAR before
      every full write's first row and at its bz_presented, SET again by the
      next frame's.  (Wave 4's HUD part and its lane scene went in wave 5a
-     with the HUD, which was not built: SPEC.md 128.14.26, 128.15.3.)
-  9  WAVE 5B (SPEC.md 128.15.10.3, 128.15.13).  The parts are BZC2's, held in
-     RAM as the tool's RAM form (D's 4-byte records, SPEC.md 128.15.5; C's
-     8-byte arm was deleted at 128.15.5.4's verdict), and every record mask carries the ghost checker: the oracle (Ref.foot) lays each
+     with the HUD, which was not built: SPEC.md 130.14.26, 130.15.3.)
+  9  WAVE 5B (SPEC.md 130.15.10.3, 130.15.13).  The parts are BZC2's, held in
+     RAM as the tool's RAM form (D's 4-byte records, SPEC.md 130.15.5; C's
+     8-byte arm was deleted at 130.15.5.4's verdict), and every record mask carries the ghost checker: the oracle (Ref.foot) lays each
      record's pixels LESS the checker's (bbcourse.ghost), the card's model.
      MILL's lift frames (the MILL play's `ride` and `pover`: the slab whole,
      under and over the ball) are checked card = oracle on the dithered masks
@@ -160,16 +160,16 @@ model's (`spy`).
      corridor among them) - at least W4_STRETCH such frames and at least one
      on which the oracle draws a GHOST (ball pixels kept through a laid record
      by the checker).  Every private tree packs its parts in the shipped
-     build's format (part_fmt: build/bonanza.o88's table, SPEC.md 128.15.9).
- 10  WAVE 6 (SPEC.md 128.16.14): THE GROUND LEG (`ground`), the ground line
+     build's format (part_fmt: build/bonanza.o88's table, SPEC.md 130.15.9).
+ 10  WAVE 6 (SPEC.md 130.16.14): THE GROUND LEG (`ground`), the ground line
      and its latch, replayed in GLIDE and TRICKLE (ground_check proves each
      scenario and arm on the model; `ringcy` is RETIRED by wave 6b: LATTICE's
      rows never read the ring and the guest deleted its y half; `nolatch`'s
      model signature under LATTICE is the void fall's row pan HALTING, its
      window parting from the shipped camera's on the CGA before the kill).
- 11  WAVE 6B (SPEC.md 128.17.6, 128.17.10).  BENCH's leg pokes [bz_camscr] 1:
+ 11  WAVE 6B (SPEC.md 130.17.6, 130.17.10).  BENCH's leg pokes [bz_camscr] 1:
      its eight directions are the scroll engine's under the SCRIPTED camera
-     (128.17.6.7; LATTICE's own directions on BENCH are bbcourse item 8's to
+     (130.17.6.7; LATTICE's own directions on BENCH are bbcourse item 8's to
      REPORT), and pokes it back to 0 after.  THE CAMERA LEG (`camera`, its
      own part), in GLIDE (LATTICE), both cards, each replay FOUND on the model
      and every check its replay makes proved on the shipped model first
@@ -224,7 +224,7 @@ their own check:
              lane beside the ball is the wheel's, which writes it over the
              ball still on the glass - at bz_tf, by the rule itself (a wheel
              commit meeting the ball's or the shadow's OLD footprint inside
-             the windows, wnear_check) or the card.  OPEN (SPEC.md 128.14.27
+             the windows, wnear_check) or the card.  OPEN (SPEC.md 130.14.27
              item 3): no scene yet gives the broken wheel ROOM to commit such
              a lane - the DEFER scene's post is its candidate but is promoted
              (BZ_WPRF) before it loads - so the arm goes red at the DEFER
@@ -252,11 +252,11 @@ their own check:
              build/bonanza-art whose every BZ<K>.BIN is the tool's
              UNDITHERED compile of the course (_hack no_dither) with the shipped identity word stamped in, so the demos
              still play, packed by build_tree: the shipped build less the
-             dither and nothing else (SPEC.md 128.15.10.6).
+             dither and nothing else (SPEC.md 130.15.10.6).
              The card lays the records' checker pixels the oracle keeps for
              the ghost: card != oracle on the first frame laying a record over
-             a ball pixel where bbcourse.ghost holds (SPEC.md 128.15.13)
-  recstep    (5b, 128.15.5.3) the occluder walk steps 8 over the 4-byte
+             a ball pixel where bbcourse.ghost holds (SPEC.md 130.15.13)
+  recstep    (5b, 130.15.5.3) the occluder walk steps 8 over the 4-byte
              records, so it skips every second record of a block word:
              card != oracle on the first frame whose pass should lay a record
              it skips - on the W4 part (MOON's demo, every frame checked,
@@ -268,13 +268,13 @@ their own check:
              8R.13 on `dither` (DITHER_SCEN: the dither map's branch off
              PLAY's demo at step 14, taps of 60), both cards; the climb tries
              at MILL's ramp bottom stopped reversing with round 3b's reach
-             (SPEC.md 128.17.17.4), so the arm's model was green there
+             (SPEC.md 130.17.17.4), so the arm's model was green there
   camcap     (6b) no cap in bz_lhv: PEAK's CGA demo holds an axis past LAT_H2 (6b's final pass: MILL's does not on the guest's pacing)
              beside the lift - the lift stretch's held check
   campreaim  (6b) no pre-aim (bz_lexit not called): PEAK's cannon run on the
              Hercules leaves more pan for after its exits (41 steps against
              15, the model's) - red at the window's parity with the shipped
-             model (until SPEC.md 128.25.3 it went red at guarantee 5,
+             model (until SPEC.md 130.25.3 it went red at guarantee 5,
              through the heavy rule, which no longer withholds a pre-aimed pan)
   camprex    (9.0) a pre-aimed pan withheld like any other (bz_lhv's BZL_PRE
              test gone): PEAK's cannon run on the CGA withholds the running
@@ -294,9 +294,10 @@ their own check:
 The module is also the LIBRARY the other BONANZA rows share (bonanza_perf,
 bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay, bonanza_wheel):
 `symbols`, `Bz`, `Ref`, `Walker`, `poke_ball`, `make_log` (a log stamped with
-its course's identity, SPEC.md 128.12.8), `build_tree` and the course cache.
+its course's identity, SPEC.md 130.12.8), `build_tree` and the course cache.
 """
 import argparse
+import collections
 import os
 import re
 import shutil
@@ -314,34 +315,34 @@ import os88build               # noqa: E402
 import bonanza_assets as A     # noqa: E402
 import bbcourse as BB          # noqa: E402
 
-MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
-W = {"cga": 320, "herc": 360}       # game pixels across the window
-RL = {"cga": 2, "herc": 4}          # lines a card row
-RB = {"cga": 80, "herc": 90}        # bytes a line
+MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla", "vga": "os8088_xt_vga"}
+W = {"cga": 320, "herc": 360, "vga": 42 * 8}    # game pixels across the window (the VGA's ENGINE window,
+RL = {"cga": 2, "herc": 4, "vga": 1}            # 42 columns: SPEC.md 130.46.10); lines a card row
+RB = {"cga": 80, "herc": 90, "vga": 44}         # bytes a line (the VGA's P)
 FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc", "bzcard.inc",
          "bzmenu.inc", "bzfam.inc")
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
 EXTRA_EQUS = ("op_arena", "op_arsz", "op_artop", "op_arres")   # ...and the ARENA's words (SPEC.md
-                                    # 20.12.15, 128.25.4: bonanza_exit, bonanza_mega), equs of the bss
+                                    # 20.12.16, 130.25.4: bonanza_exit, bonanza_mega), equs of the bss
 # NASM local labels a row breakpoints (proc, local): resolved by the same
 # assembly when the source has them (a red tree, or an older wave, may not)
 LOCAL_SYMS = (("bz_shcall", "fc"), ("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_wbox", "out"), ("bz_vr", "rose"),
               ("bz_vr", "high"), ("bz_occ", "gate"),
-              # wave 3 (SPEC.md 128.12.5.3): where a bz_wcommit RETURNS to says which way
+              # wave 3 (SPEC.md 130.12.5.3): where a bz_wcommit RETURNS to says which way
               # the pose reached the glass - pass 1 (AHEAD) returns before .an, pass 2
               # (BEHIND) between .p2 and .nofit, the LEAD inside bz_lead
               ("bz_wheel", "an"), ("bz_wheel", "p2"), ("bz_wheel", "nofit"), ("bz_wheel", "out"),
               ("bz_lead", "no"), ("bz_props", "choose"), ("bz_props", "mlane"),
               ("bz_exitchk", "leave"),
-              # wave 3b (SPEC.md 128.13.4.3, 128.13.12): the platform's box WAITED and a lane
-              # PROMOTED (bz_props's two entries), and the sound's span a frame (128.20.7)
+              # wave 3b (SPEC.md 130.13.4.3, 130.13.12): the platform's box WAITED and a lane
+              # PROMOTED (bz_props's two entries), and the sound's span a frame (130.20.7)
               ("bz_props", "pwt"), ("bz_props", "promo"), ("bzs_frame", "fend"),
-              # wave 4 (SPEC.md 128.14.14): a demo file's read (bonanzademo: the disk is touched
+              # wave 4 (SPEC.md 130.14.14): a demo file's read (bonanzademo: the disk is touched
               # there, and FERR_BIG lands in .rerr), the tour's post and the respawn's blank
               ("bz_lfile", "read"), ("bz_lfile", "rerr"),
-              # wave 6 (SPEC.md 128.16.14): the camera's GROUND LINE block, bracketed for its span
+              # wave 6 (SPEC.md 130.16.14): the camera's GROUND LINE block, bracketed for its span
               ("bz_camera", "gline"), ("bz_camera", "cyd"),
-              # ...and the CGA's colour select, the one `out` to 3D9h (128.16.6; bonanzaexit)
+              # ...and the CGA's colour select, the one `out` to 3D9h (130.16.6; bonanzaexit)
               ("bz_vinit", "vpal"))
 DIRS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
 FIRST_EACH = 3                      # frames checked per direction, first ones
@@ -349,7 +350,7 @@ LAY_EACH = 6                        # ...and the first frames that laid a record
 SHD_EACH = 4                        # ...and (TRIAL) the first with a shadow box of its own
 B3_EACH = 3                         # ...and the first with three boxes or more
 EVERY = 97                          # ...and then one moving frame in this many
-PROBE_MIN = 5                       # row-0 probe frames a card (SPEC.md 128.10.11.2)
+PROBE_MIN = 5                       # row-0 probe frames a card (SPEC.md 130.10.11.2)
 PROBE_MAX = 30                      # probe frames run at most
 PROBE_LEAD = 6                      # lead-in frames at most (8R.13): the start's window is not at the top
                                     # clamp any more (BENCH's start ball at line 99 centres it at R0 3 on the
@@ -434,13 +435,13 @@ def course_k(k):
 def ball_part(mat, tag, art=None):
     """the material's BZB2 part as the card holds it: the CGA's bytes, or on
     the Hercules those bytes through htab() (bonanza_assets.herc_translate_ball,
-    the translation bz_hxlat makes at the fetch, SPEC.md 128.11.3)"""
+    the translation bz_hxlat makes at the fetch, SPEC.md 130.11.3)"""
     art = art or at("build/bonanza-art")
     key = (mat, tag, art)
     if key not in _BALL:
         with open(os.path.join(ROOT, art, A.BALL_FILES[mat]), "rb") as f:
             part = f.read()
-        # wave 9 (SPEC.md 128.25.5): the file is the STORED form BZB3 - BZB2's header, zeros, a
+        # wave 9 (SPEC.md 130.25.5): the file is the STORED form BZB3 - BZB2's header, zeros, a
         # block - and the card holds what bz_ballgen expands it to at the fetch.  Read raw, the
         # frames are zeros and every resting ball is drawn as a hole.  BZB3 is told by its mask
         # rows (zeros there; BZB2's first mask row is never empty) and expanded through the
@@ -474,7 +475,7 @@ def symbols(src=None, art=None):
         if not os.path.exists(p):
             continue
         t = open(p).read()
-        names += re.findall(r"^VAR (bzs?_\w+),", t, re.M)      # (bzs_: the sound's, 128.20)
+        names += re.findall(r"^VAR (bzs?_\w+),", t, re.M)      # (bzs_: the sound's, 130.20)
         names += re.findall(r"^(bzs?_\w+):", t, re.M)
         names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, t, re.M)]
         names += ["%s.%s" % (pr, lo) for pr, lo in LOCAL_SYMS if _has_local(t, pr, lo)]
@@ -506,7 +507,7 @@ _SHELL = {}
 
 
 def shell_symbols(src=None, art=None):
-    """{label: offset in the SHELL PART} (SPEC.md 128.19.2): every bz_ label
+    """{label: offset in the SHELL PART} (SPEC.md 130.19.2): every bz_ label
     of bzface.inc and bzshell.asm, by assembling the part with a table of `dw
     label` on its end, as symbols() does for the package.  {} for a tree with
     no shell part (an earlier wave's)."""
@@ -536,7 +537,7 @@ def shell_symbols(src=None, art=None):
 
 class FaceLines:
     """The face's lines as bz_line draws them, across the SHELL PART's moves
-    (SPEC.md 128.19.2): bz_line is in the part, which a launch drops and the
+    (SPEC.md 130.19.2): bz_line is in the part, which a launch drops and the
     next paint fetches again, perhaps elsewhere - so the breakpoint is the
     resident door's far call (bz_shcall.fc), where the part is held, and from
     there bz_line's address in it, re-armed at every door.  arm() before the
@@ -575,7 +576,7 @@ class FaceLines:
 
 
 def mark(g, lane):
-    """MARK a lane (SPEC.md 128.19.10, bz_latt): a poke of display or kick
+    """MARK a lane (SPEC.md 130.19.10, bz_latt): a poke of display or kick
     state is an event the walk would otherwise not see - the guest's own
     writers (a kick, a flag touched, a second, a lane entering) mark it -
     and MAKE the next walk (bz_lqt 0, item 10: the quiet walk compares no
@@ -588,20 +589,20 @@ def mark(g, lane):
 
 
 def guest_propmax(art=None):
-    """the guest's per-lane tables' size (SPEC.md 128.19.10): BZ_PROPMAX, the
+    """the guest's per-lane tables' size (SPEC.md 130.19.10): BZ_PROPMAX, the
     build's largest course's lanes - not the tool's ceiling, bbcourse.PROP_MAX"""
     t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
     return int(re.search(r"^BZ_PROPMAX\s+equ\s+(\d+)", t, re.M).group(1))
 
 
 def tour_ks(art=None):
-    """THE TOUR (SPEC.md 128.26.8): its courses' K in order, BZ_TOUR's bytes out of the
+    """THE TOUR (SPEC.md 130.26.8): its courses' K in order, BZ_TOUR's bytes out of the
     GENERATED bzcourse.inc - a short NAMED list (bbcourse.py's TOUR), not every course
     but BENCH, so a row never derives it from BZ_COURSES.  BZ_NTOUR is its length."""
     t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
     m = re.search(r"^%macro BZ_TOUR 0\n\s+db ([^\n]+)", t, re.M)
     if not m:
-        raise SystemExit("bonanza rows: bzcourse.inc has no BZ_TOUR (built before SPEC.md 128.26.8)")
+        raise SystemExit("bonanza rows: bzcourse.inc has no BZ_TOUR (built before SPEC.md 130.26.8)")
     ks = [int(x) for x in m.group(1).split(",")]
     n = int(re.search(r"^BZ_NTOUR\s+equ\s+(\d+)", t, re.M).group(1))
     assert n == len(ks), "bzcourse.inc's BZ_NTOUR %d is not BZ_TOUR's %d bytes" % (n, len(ks))
@@ -609,7 +610,7 @@ def tour_ks(art=None):
 
 
 def medals(crs):
-    """a course's (G, S) in STEPS (wave 8c, SPEC.md 128.19.8.3): BZ_CRS_MEDALS's pair,
+    """a course's (G, S) in STEPS (wave 8c, SPEC.md 130.19.8.3): BZ_CRS_MEDALS's pair,
     out of the generated bzcourse.inc"""
     t = open(os.path.join(at("build/bonanza-art"), "bzcourse.inc")).read()
     m = re.search(r"^%macro BZ_CRS_MEDALS 0\n\s+dw ([^\n]+)", t, re.M)
@@ -619,9 +620,9 @@ def medals(crs):
 
 
 def path_ident():
-    """the PATHWAY's identity (wave 8b, SPEC.md 128.19.5): BZ_CRS_IDS's entry
-    BZ_CRS_PATH (= BZ_NCRS; the title's follows it, SPEC.md 128.23), out of
-    the generated bzcourse.inc - a save slot's +6 (128.19.6)"""
+    """the PATHWAY's identity (wave 8b, SPEC.md 130.19.5): BZ_CRS_IDS's entry
+    BZ_CRS_PATH (= BZ_NCRS; the title's follows it, SPEC.md 130.23), out of
+    the generated bzcourse.inc - a save slot's +6 (130.19.6)"""
     t = open(os.path.join(at("build/bonanza-art"), "bzcourse.inc")).read()
     m = re.search(r"^%macro BZ_CRS_IDS 0\n\s+dw ([^\n]+)", t, re.M)
     k = int(re.search(r"^BZ_CRS_PATH\s+equ\s+(\d+)", t, re.M).group(1))
@@ -630,28 +631,28 @@ def path_ident():
 
 def make_log(keys, k, mat, ident=None):
     """bbcourse.encode_log's bytes for course K, stamped with that course's
-    IDENTITY at +14 (SPEC.md 128.12.8: a replay REFUSES a log whose identity is
+    IDENTITY at +14 (SPEC.md 130.12.8: a replay REFUSES a log whose identity is
     not its course part's), unless IDENT is given (a row's refusal case)"""
     return BB.encode_log(keys, course=k, mat=mat, ident=course_k(k).ident if ident is None else ident)
 
 
 def lane_rects(crs):
     """{record: (first word column, first block row, words, block rows, poses)}
-    of every lane of a compiled course, the prop table's own (SPEC.md 128.12.3.1)"""
+    of every lane of a compiled course, the prop table's own (SPEC.md 130.12.3.1)"""
     return {r["i"]: (r["lane"]["col"], r["lane"]["brow"], r["lane"]["w"], r["lane"]["h"], r["lane"]["poses"])
             for r in crs.part["props"] if r["lane"]}
 
 
 def true_pose(rec, nstep, pkick=None, hold=None, tsec=None):
-    """a lane's TRUE pose after the frame's steps (bz_ltrue, SPEC.md 128.12.3.4,
-    128.12.15 item 1): a rotor's from the LAST step's n (nstep - 1, the low
+    """a lane's TRUE pose after the frame's steps (bz_ltrue, SPEC.md 130.12.3.4,
+    130.12.15 item 1): a rotor's from the LAST step's n (nstep - 1, the low
     word); a post's LIT while it has lit frames left on the glass ([bz_lhold],
-    HOLD - display state, 128.12.6.3 as the owner's preview amended it: a kick
+    HOLD - display state, 130.12.6.3 as the owner's preview amended it: a kick
     gives it its record's lit frames, counted off only on frames it began
     drawn lit)"""
     if rec["kind"] == BB.PK_WINDMILL:
         return (((nstep - 1) + rec["seed"]) & rec["mask"] & 0xFFFF) >> rec["shift"]
-    if rec["kind"] == BB.PK_CLOCK:              # wave 7 (SPEC.md 128.18.5): its digit of the seconds left
+    if rec["kind"] == BB.PK_CLOCK:              # wave 7 (SPEC.md 130.18.5): its digit of the seconds left
         return BB.clock_pose(tsec or 0, rec["place"])
     return 1 if hold is not None and hold[rec["i"]] else 0
 
@@ -698,7 +699,7 @@ class Ref:
             self.rows = [bytes(r) for r in pic]
         else:                       # the CGA's bytes through htab(), the table bz_hgen builds
             self.rows = [self._hrow(r, L) for L, r in enumerate(pic)]
-        # wave 3 (SPEC.md 128.12.4.1): the MAP holds each lane's DRAWN pose, so the
+        # wave 3 (SPEC.md 130.12.4.1): the MAP holds each lane's DRAWN pose, so the
         # course the card shows is the picture with every lane at the pose the
         # guest's bz_ldrw names; and the platform is on the card at its drawn line
         self._lanes = {r["i"]: BB._lane_of(crs, r) for r in crs.part["props"] if r["lane"]} \
@@ -711,7 +712,7 @@ class Ref:
     def rule(self, view, lk):
         """VIEW with the slab's over-or-under decided by the ORACLE, not read off
         the guest's [bz_pov]: OVER the ball when z_b + m < hP and s_b <= sP
-        (SPEC.md 128.12.4.5; m 0 airborne, BZ_CLIMB grounded; sP the cell row of
+        (SPEC.md 130.12.4.5; m 0 airborne, BZ_CLIMB grounded; sP the cell row of
         the square's centre at the drawn line), and never over a hidden ball"""
         if not view or not view[1] or self._plat is None:
             return view
@@ -758,8 +759,8 @@ class Ref:
     def slab_pix(self, x_l, y_t, under):
         """{(x, y): card value} of the platform's sprite at (x_l, y_t) over the
         values UNDER ({(x, y): value}, or a rows list): mask AND, frame OR byte
-        by byte (SPEC.md 128.12.6.4; on the Hercules the frame's row r through
-        htab's table (y_t + r) AND 1, 128.11.3)"""
+        by byte (SPEC.md 130.12.6.4; on the Hercules the frame's row r through
+        htab's table (y_t + r) AND 1, 130.11.3)"""
         out = {}
         slab = self.c.slab
         for r in range(BB.PL_H):
@@ -798,7 +799,7 @@ class Ref:
         """-> ({(x, y): card value} over the shadow's and the ball's footprints,
         ball pixels the records hid).  LK: a Look; VIEW: Bz.view()'s (the
         lanes' drawn poses and the slab), or None for a course without props.
-        A HIDDEN ball (in a tube, SPEC.md 128.12.6.1) draws nothing."""
+        A HIDDEN ball (in a tube, SPEC.md 130.12.6.1) draws nothing."""
         view = view if view is not None else self.view
         if getattr(lk, "tube", 0):
             return {}, 0
@@ -807,7 +808,7 @@ class Ref:
         x4 = lk.px & ~3
         s = lk.px & 3
         out = {}
-        if lk.spy is not None:                   # the shadow: AND only (128.11.9.4)
+        if lk.spy is not None:                   # the shadow: AND only (130.11.9.4)
             mo = A.B2_SHDOFF + ((lk.spy & 1) * A.SHIFTS + s) * A.SHD_ROWS * A.RB
             for r in range(A.SHD_ROWS):
                 y = lk.spy + r
@@ -818,7 +819,7 @@ class Ref:
         kind, k = lk.spr                         # the sprite: mask AND, frame OR
         if kind == "roll":
             mo, fo = A.B2_MASKOFF + s * A.D * A.RB, A.B2_FRMOFF + k * A.D * A.RB
-        else:                                    # (SPEC.md 128.38.10: the entry as DRAWN - B's one copy,
+        else:                                    # (SPEC.md 130.38.10: the entry as DRAWN - B's one copy,
             base = A.B2_SQOFF if kind == "squash" else A.B2_SHAOFF      # A's shift made at the draw)
             em, ef = A.ent_rows(part, base, k, s, lk.py & 1)
             mo = len(part)
@@ -835,12 +836,12 @@ class Ref:
                 if mrow[j] != 3:
                     ball[(x4 + j, y)] = nv
         hidden = ghosted = 0
-        if lk.gate:                              # the records (128.10.4.4's rule) over the
+        if lk.gate:                              # the records (130.10.4.4's rule) over the
             m = 0 if lk.air else BB.CLIMB       # footprint's lines and the ball's columns,
             for br in range(lk.py >> 3, ((lk.py + BB.FOOT_H - 1) >> 3) + 1):    # each laying its pixels
                 for bc in range(x4 >> 3, ((x4 + BB.FOOT_W - 1) >> 3) + 1):     # LESS the checker's: the
                     for rec in self.c.by_block.get((br, bc), ()):              # card's model, the ghost
-                        if lk.sb < rec["s"] and lk.zb + m < rec["top"]:        # dither (SPEC.md 128.15.10.3)
+                        if lk.sb < rec["s"] and lk.zb + m < rec["top"]:        # dither (SPEC.md 130.15.10.3)
                             for (x, y) in rec["pix"]:
                                 if not (lk.py <= y < lk.py + BB.FOOT_H and x4 <= x < x4 + BB.FOOT_W
                                         and (x, y) in out):
@@ -852,7 +853,7 @@ class Ref:
                                 if (x, y) in ball and out[(x, y)] != lay[y][x]:
                                     hidden += 1
                                 out[(x, y)] = lay[y][x]
-            # SPEC.md 128.29: in a VOID cell of a GF_ANA part the guest's model lays too, after the records
+            # SPEC.md 130.29: in a VOID cell of a GF_ANA part the guest's model lays too, after the records
             # (bbcourse.amodel_pix reads the same RAM form), its mask ORed with the checker as a record's is
             for (x, y) in BB.amodel_pix(self.c, (lk.gx >> 12, lk.gy >> 12), lk.zb, lk.air, lk.px, lk.py):
                 if (x, y) not in out:
@@ -864,12 +865,12 @@ class Ref:
                 if (x, y) in ball and out[(x, y)] != lay[y][x]:
                     hidden += 1
                 out[(x, y)] = lay[y][x]
-        if view and view[1] and view[1][2]:     # the slab OVER the ball: last (128.12.4.5)
+        if view and view[1] and view[1][2]:     # the slab OVER the ball: last (130.12.4.5)
             for xy, v in self.slab_pix(view[1][0], view[1][1], None).items():
                 if xy in out:
                     out[xy] = v
         self.ghosted = ghosted                  # (the ball's pixels the dither left showing through a laid
-        return out, hidden                      # record: a ghost DRAWN, SPEC.md 128.15.10.1 - w4_replay's)
+        return out, hidden                      # record: a ghost DRAWN, SPEC.md 130.15.10.1 - w4_replay's)
 
     def picture(self, R0, c0, lk, view=None):
         """200 rows (bytes) of the window whose top card row is R0 and left word
@@ -907,7 +908,7 @@ class Bz:
         self.win = ui.window("Bounce Bonanza")
         self.base = self.wseg() << 4
         assert self.base, "the window has no package segment"
-        if "bz_dev" in sym:                     # SPEC.md 128.26.6: the instruments' keys and face,
+        if "bz_dev" in sym:                     # SPEC.md 130.26.6: the instruments' keys and face,
             self.putb("bz_dev", 1)              # which every row drives (the window's own are a player's)
 
     def wseg(self):
@@ -929,7 +930,7 @@ class Bz:
         return self.base + self.sym[n]
 
     def shell_base(self):
-        """the SHELL PART's linear base (SPEC.md 128.19.2): its row's segment,
+        """the SHELL PART's linear base (SPEC.md 130.19.2): its row's segment,
         the last row of the package's table, which must be FETCHED - a label
         of the face is in the part, never in the package"""
         if self.live:
@@ -990,6 +991,29 @@ class Bz:
             return self.m.read(self.a(n) + k, 1)[0]
         return self.pre[0][self.sym[n] - self.sym["bz_phs"] + k]
 
+    def vroll(self, lk):
+        """The VGA's SHOWN roll frame (SPEC.md 130.46.11): the guest's, which
+        bbcourse.vroll must give from the last frame's shown phases whenever
+        this guest was looked at on the frame before (a skipped frame, or the
+        first, leaves the rule unchecked: the guest's phases are its own)."""
+        fr = self.w("bz_frames")
+        shown = (self.w("bz_vG"), self.b("bz_vpy"), self.b("bz_vpxd"), self.b("bz_vpxp"))
+        last = getattr(self, "_vroll", None)
+        if last and last[0] == fr:
+            return last[2]
+        f = lk.spr[1]
+        if last and last[0] == fr - 1:
+            G = ((lk.gx + lk.gy) >> 9) & 0xFFFF       # (a full write last frame cleared bz_vrv: the true phases)
+            want = BB.vroll(None if last[3] else last[1], f >> 3, f & 7, G, lk.px)
+            assert want == shown[1:3], ("BZV_ROLL showed phases %s, the model %s (frame %d; last %s, true %d %d, "
+                                        "G %d px %d; live px %d frm %d pre %s)"
+                                        % (shown[1:3], want, fr, last[1], f >> 3, f & 7, G, lk.px,
+                                           self.w("bz_px"), self.w("bz_frm"), self.pre is not None))
+        assert shown[2] & 3 == f & 3, ("the shown x phase is not the sprite's shift", shown, f)
+        spr = ("roll", shown[1] * 8 + shown[2])
+        self._vroll = (fr, shown, spr, self.b("bz_full"))
+        return spr
+
     def look(self, crs):
         """The Look the frame the guest holds now was drawn from (at bz_tf or
         bz_presented), CRS the host's course (its cells: the OCC gate and OCCG):
@@ -1001,7 +1025,7 @@ class Bz:
         if grid is None:
             grid = crs._grid = BB.Grid(crs.cga, crs.wcga)
         lo = self.sym["bz_phs"]
-        # THE EARLY STEP (SPEC.md 128.4) runs at bz_tv, AFTER the frame's boxes were composed: the live ball is
+        # THE EARLY STEP (SPEC.md 130.4) runs at bz_tv, AFTER the frame's boxes were composed: the live ball is
         # a step ahead of the picture on such a frame.  A Walker stopped at bz_tv banks the state as drawn.
         raw, px, py, mat, hidn = self.pre or (self.m.read(self.base + lo, self.sym["bz_phe"] - lo),
                                               self.w("bz_px"), self.w("bz_py"), self.b("bz_mat"),
@@ -1013,12 +1037,14 @@ class Bz:
                   mst=f("bz_mst", "B"), mct=f("bz_mct", "B"), sqf=f("bz_sqf", "B"), ghv=f("bz_ghv", "B"),
                   gh=f("bz_gh", "<h"), sb=f("bz_sb", "<H"), pokd=f("bz_pokd", "B"),
                   mat=mat, px=px, py=py, y0=grid.y0,
-                  stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 128.16.4.4)
+                  stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 130.16.4.4)
         lk.zb = lk.gz >> 8
-        # the HIDDEN ball (SPEC.md 128.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
+        # the HIDDEN ball (SPEC.md 130.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
         # restores its footprint; an earlier wave's build has bz_tube alone
         lk.tube = hidn if hidn is not None else f("bz_tube", "B") if "bz_tube" in self.sym else 0
         lk.spr = BB.sprite(lk, self.tag == "herc")
+        if self.tag == "vga" and lk.spr[0] == "roll":
+            lk.spr = self.vroll(lk)
         if lk.tube:                              # hidden in a tube: no sprite, no shadow
             lk.gate, lk.spy = False, None
             return lk, ("the guest drew a shadow ([bz_snv] 1) for a hidden ball (a tube, or holed)"
@@ -1044,13 +1070,13 @@ class Bz:
 
     def fifth(self):
         """a frame with a CONTACT group may leave the shadow's new footprint out
-        (SPEC.md 128.12.4.3: the contact group would be a fifth box) - the one
+        (SPEC.md 130.12.4.3: the contact group would be a fifth box) - the one
         other frame that draws no shadow where the model has one"""
         return "bz_ctype" in self.sym and self.b("bz_ctype") != 0
 
     def lanes(self):
         """{record: DRAWN pose} of the course's lanes ([bz_ldrw], SPEC.md
-        128.12.4.1), or {} for a build or course without them"""
+        130.12.4.1), or {} for a build or course without them"""
         if "bz_ldrw" not in self.sym:
             return {}
         n = self.b("bz_nlane")
@@ -1217,7 +1243,7 @@ def glass(g, ref):
     S, R0, c0, px, py = seen[:5]
     lk, why = g.look(ref.c)
     assert why is None, "play mode's resting frame: %s" % why
-    # (wave 7, SPEC.md 128.18.5: FIRST has clocks - the lanes as the guest DREW them, its digits the seconds left)
+    # (wave 7, SPEC.md 130.18.5: FIRST has clocks - the lanes as the guest DREW them, its digits the seconds left)
     nl = g.b("bz_nlane")
     view = ref.rule((dict(enumerate(g.m.read(g.a("bz_ldrw"), nl))), g.slab()), lk) if nl else None
     exp = ref.picture(R0, c0, lk, view)
@@ -1329,10 +1355,10 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
     at bz_launch's entry), stopped at bz_tf and bz_presented on chosen frames;
     on TRIAL and MILL also at bz_col, bz_boxw and bz_occ.gate on every frame
     (the order), and on MILL at every bz_wcommit (which way each pose reached
-    the glass, SPEC.md 128.12.4.2).  HVOFF: [bz_hvoff] poked at the launch
+    the glass, SPEC.md 130.12.4.2).  HVOFF: [bz_hvoff] poked at the launch
     (BENCH's leg: 1, wave 2's camera, so it steps the eight directions as
-    wave 2's did, SPEC.md 128.12.13.2).  CAMSCR: [bz_camscr] poked at the launch
-    (wave 6b, SPEC.md 128.17.6.7: BENCH's leg 1, the SCRIPTED camera, so the
+    wave 2's did, SPEC.md 130.12.13.2).  CAMSCR: [bz_camscr] poked at the launch
+    (wave 6b, SPEC.md 130.17.6.7: BENCH's leg 1, the SCRIPTED camera, so the
     eight directions are the scroll engine's under a fixed cycle; LATTICE's
     own directions on BENCH are REPORTED by bbcourse's item 8; the other legs
     0)."""
@@ -1444,7 +1470,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
             shd_in = bool(g.b("bz_snv")) and bool(bxs) and not shd_own    # the shadow in the ball's box
             three = len(bxs) >= 3
             fview = None
-            if mill:                            # what this frame shows of the props (128.12.13.2)
+            if mill:                            # what this frame shows of the props (130.12.13.2)
                 fview = mill_feats(g, ref, commits, ndef0, dk, npwt0)
                 ndef0 = g.w("bz_ndef")
                 npwt0 = g.w("bz_npwt") if "bz_npwt" in g.sym else 0
@@ -1474,7 +1500,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
         lk, _ = g.look(ref.c)
         view = ref.rule(g.view(), lk)
         fr = g.w("bz_frames")
-        # THE RING'S END (SPEC.md 128.13.4.4): a 3- or 4-word box whose whole rows cross 2000h - every such
+        # THE RING'S END (SPEC.md 130.13.4.4): a 3- or 4-word box whose whole rows cross 2000h - every such
         # frame checked (the `fastwrap` red writes its crossing row down the unrolled block)
         if not g.b("bz_full") and wrap_boxes(g, st, g.boxes()):
             wraps += 1
@@ -1502,7 +1528,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
                 exits.append((fr, x4, lk.py, inside))
                 if not inside:
                     fails.append("MILL frame %d: the ball came out of tube %d at %d,%d, its footprint not inside "
-                                 "the window (R0 %d c0 %d): GLIDE did not keep the ghost in it (SPEC.md 128.12.6.1)"
+                                 "the window (R0 %d c0 %d): GLIDE did not keep the ghost in it (SPEC.md 130.12.6.1)"
                                  % (fr, tube0, x4, lk.py, st[1], st[2]))
             tube0 = lk.tube
             commits = []
@@ -1511,7 +1537,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
             walk_max = max(walk_max, ngate)
             if ngate > 1:
                 fails.append("%s frame %d: the occluder pass's walk entered %d times (once a frame at most, "
-                             "SPEC.md 128.11.10.2)" % (leg, fr, ngate))
+                             "SPEC.md 130.11.10.2)" % (leg, fr, ngate))
             full, wtop, H, dc, bxs = wk.frame
             if not full:
                 order_frames += 1
@@ -1519,7 +1545,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
                 if why:
                     order_bad += 1
                     if order_bad <= 3:
-                        fails.append("%s frame %d: the column and the boxes not in RASTER ORDER (128.11.10.3): "
+                        fails.append("%s frame %d: the column and the boxes not in RASTER ORDER (130.11.10.3): "
                                      "%s; events %s" % (leg, fr, why, ev))
             ngate = 0
         if want:
@@ -1614,7 +1640,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
 
 
 def order_check(ev, H, rl, wtop, ccol, dc):
-    """SPEC.md 128.11.10.3 on one frame's writes, EV in time order: ('col', AX,
+    """SPEC.md 130.11.10.3 on one frame's writes, EV in time order: ('col', AX,
     first row, rows) and ('box', index, y0, h, x0, w).  -> None, or what is wrong."""
     cols = [e for e in ev if e[0] == "col"]
     bxs = [e for e in ev if e[0] == "box"]
@@ -1678,7 +1704,7 @@ def negative_controls(g, ref, st, lk):
     return ", ".join(out)
 
 
-# ---- MILL (SPEC.md 128.12.13.2): the props on the glass ----------------------
+# ---- MILL (SPEC.md 130.12.13.2): the props on the glass ----------------------
 # the frames the MILL leg must check, at least one of each (FEAT_EACH at most):
 # a wheel commit AHEAD of the beam and one BEHIND it, a LEAD, the contact group
 # a rotor and a post, a deferred contact lane, the platform's box and its
@@ -1692,13 +1718,13 @@ LOW_FEATS = ("ahead", "behind", "lead")     # the play's LOW scenario's: they co
 FEAT_EACH = 3
 # the LEAD on the Hercules: a wheel reckoned from a wait that SAW the rise
 # reaches every window line there, so a lead follows only a wait that found
-# the sync already high (SPEC.md 128.12.5.3) - reported on that card, required
+# the sync already high (SPEC.md 130.12.5.3) - reported on that card, required
 # on the CGA
 # and a lane entering in a COLUMN on the Hercules: its 45-word window holds every MILL lane's columns
 # whatever c0 (cmax 19, the lanes in columns 21 - 35), so no column ever brings one in there (the final
 # pass) - reported on that card
 # and a wheel commit whose columns cross the ring's end (`wrapcommit`, the pass's row-at-a-time path,
-# SPEC.md 128.13.5.1): card offsets are absolute, so it is a property of the lane - MILL's post 4 crosses
+# SPEC.md 130.13.5.1): card offsets are absolute, so it is a property of the lane - MILL's post 4 crosses
 # on the Hercules (card rows 88 - 93 at word 23), no MILL lane on the CGA - required on the Hercules,
 # reported on the CGA
 FEAT_OPTIONAL = {"herc": ("lead", "enter_col"), "cga": ("wrapcommit",)}
@@ -1710,7 +1736,7 @@ FEAT_OPTIONAL = {"herc": ("lead", "enter_col"), "cga": ("wrapcommit",)}
 # frames are poked (bz_lhold 1: display state, physics untouched): it LIGHTS as the frame's must-draw
 # lane, and goes dark the frame after, a WHEEL candidate low in the window.  That frame starts late (the
 # lit box's write): on the CGA the beam keeps the lane from the wait and the wheel marks it for the
-# frame's LEAD; on the Hercules the wait reaches it BEHIND the beam (SPEC.md 128.12.5.3).  Every other
+# frame's LEAD; on the Hercules the wait reaches it BEHIND the beam (SPEC.md 130.12.5.3).  Every other
 # cycle that frame is made late with bz_hold (LOW_HOLD x 256 PIT counts) past the wheel's room: it skips,
 # and the next, LIGHT frame commits the lane AHEAD of the beam (the final pass's traces)
 LOW_F = 160
@@ -1728,7 +1754,7 @@ LOW_HOLD = {"cga": 16, "herc": 24}  # x 256 PIT counts: the held dark frame past
 # The Hercules' dark frames as they were (its LEAD is reported, its BEHIND comes from them)
 LOW_DARK = {"cga": (8, 10, 9, 10, 8, 11), "herc": None}
 # (wave 6's final pass: the held ball RESTS on a level floor, rest_in_window - held 186 px over its floor it
-# put the GROUND line, the camera's since 128.16.7, off the window, GLIDE panned 44 rows and no wheel commit
+# put the GROUND line, the camera's since 130.16.7, off the window, GLIDE panned 44 rows and no wheel commit
 # came; grounded, the camera's line is the ball's own as in wave 2)
 
 
@@ -1736,7 +1762,7 @@ LOW_DARK = {"cga": (8, 10, 9, 10, 8, 11), "herc": None}
 # LOW_F itself: the Hercules' post 4 has no level floor in the rest band (window lines 70 - 112) with the post
 # at line 160 - so since the rest_in_window hold (wave 6's final pass) the LOW scenario had fallen to post 6,
 # which crosses nothing, and the `wrapcommit` the plan below orders first came only from the MILL benchmark's
-# one commit of post 4 a run or none - none since 7a644820e's pacing (SPEC.md 128.13.5.1).  Post 4 rests at
+# one commit of post 4 a run or none - none since 7a644820e's pacing (SPEC.md 130.13.5.1).  Post 4 rests at
 # line 144.  bonanzawheel's LOW leg keeps LOW_F alone (near 0)
 LOW_NEAR = {"cga": 0, "herc": 24}
 
@@ -1781,7 +1807,7 @@ def low_plan(g, crs, near=0):
                     pt = pt or probe_ground(crs, left + 4 * Wc - 8 + dx, top + 92 + dy, grid, 1, clear=16,
                                             flags=BB.FL_OCC | BB.FL_OCCG)
             # ...and from the frame after it, HELD resting in the window's band and dead zone (wave 6's
-            # final pass: an airborne ball's camera line is the GROUND line, SPEC.md 128.16.7, and the old
+            # final pass: an airborne ball's camera line is the GROUND line, SPEC.md 130.16.7, and the old
             # hold 186 px over its floor panned GLIDE 44 rows; grounded, it moves no camera)
             rest = pt and rest_in_window(crs, grid, top, left, Wc, range(70, 112), flags=BB.FL_OCC | BB.FL_OCCG)
             if pt and rest:
@@ -1851,7 +1877,7 @@ def commit_kind(g, r):
 def commit_wraps(g):
     """at bz_wcommit's entry: does a column of the loaded commit's rectangles
     (bz_lra, bz_lrb: card rows r0 r1, words x0 x1) cross the ring's end -
-    bz_wprect's `.slow` path (SPEC.md 128.13.5.1), bbcourse.ring_cross's test"""
+    bz_wprect's `.slow` path (SPEC.md 130.13.5.1), bbcourse.ring_cross's test"""
     herc = g.tag == "herc"
     for name in ("bz_lra", "bz_lrb"):
         r0, r1, x0, x1 = struct.unpack("<4H", g.m.read(g.a(name), 8))
@@ -1883,7 +1909,7 @@ def wnear_lanes(g, crs, commits):
     shadow's OLD footprint where it is in the shown window and the new one -
     the ball still on the glass there until its box restores it.  Never one
     in a right build: such a lane is a contact candidate, and the wheel's box
-    filter drops every lane meeting a box (SPEC.md 128.12.4.2, 128.12.13.2).
+    filter drops every lane meeting a box (SPEC.md 130.12.4.2, 130.12.13.2).
     A full write's frame has no old footprint on the glass to erase."""
     if not commits or not g.b("bz_oldv") or g.b("bz_full"):
         return []
@@ -1914,14 +1940,14 @@ def wnear_lanes(g, crs, commits):
 def wnear_check(g, crs, commits, where):
     """THE RULE ITSELF at bz_tf (wnear_lanes): -> failures"""
     return ["%s at bz_tf: the wheel committed lane %d over the ball's or the shadow's OLD footprint, still on "
-            "the glass (a contact candidate is never the wheel's: SPEC.md 128.12.4.2)" % (where, lane)
+            "the glass (a contact candidate is never the wheel's: SPEC.md 130.12.4.2)" % (where, lane)
             for lane in wnear_lanes(g, crs, commits)]
 
 
 def mill_feats(g, ref, commits, ndef0, dk, npwt0=0):
-    """at bz_tf: the features of SPEC.md 128.12.13.2's MILL leg this frame has
+    """at bz_tf: the features of SPEC.md 130.12.13.2's MILL leg this frame has
     (a DEFERRED contact lane: bz_ndef moved by more than the slab's waits, which
-    it counts too since wave 3b, 128.13.4.3)"""
+    it counts too since wave 3b, 130.13.4.3)"""
     out = set(c[0] for c in commits if c[0] in ("ahead", "behind"))
     ct = g.b("bz_ctype")
     if ct == 1:
@@ -1935,7 +1961,7 @@ def mill_feats(g, ref, commits, ndef0, dk, npwt0=0):
         out.add("defer")
     # a wheel commit meeting the ball's or the shadow's OLD footprint, still on the
     # glass at bz_tf: never one in a right build (such a lane is a contact candidate,
-    # SPEC.md 128.12.4.2), and the frame the `contact` red erases the ball on - so
+    # SPEC.md 130.12.4.2), and the frame the `contact` red erases the ball on - so
     # every such frame is checked, not FEAT_EACH of them (and wnear_check FAILS it)
     if wnear_lanes(g, ref.c, commits):
         out.add("wnear")
@@ -1955,10 +1981,10 @@ def plat_rec(crs):
     return next((r for r in crs.part["props"] if r["kind"] == BB.PK_PLATFORM), None)
 
 
-# ---- wave 3b (SPEC.md 128.13.12): the box sizes, the ring's end, the map's words --------
-BZ_BOXW, BZ_BOXL, PBOX_MAX = 4, 32, 30   # bzvideo.inc; the platform's box: 18 + 2 x 6 lines (128.13.4.3)
+# ---- wave 3b (SPEC.md 130.13.12): the box sizes, the ring's end, the map's words --------
+BZ_BOXW, BZ_BOXL, PBOX_MAX = 4, 32, 30   # bzvideo.inc; the platform's box: 18 + 2 x 6 lines (130.13.4.3)
 # bonanza.asm's BZC_MAP and BZC_ROWB, read out of the source (BZC2 moved the map from +32 to +48, SPEC.md
-# 128.15.4.1: a constant here would have read the header's new fields as map words)
+# 130.15.4.1: a constant here would have read the header's new fields as map words)
 HDR_MAP, HDR_ROWB = (int(re.search(r"^%s\s+equ\s+(\d+)" % n_, open(os.path.join(
     ROOT, "apps", "bonanza", "bonanza.asm")).read(), re.M).group(1)) for n_ in ("BZC_MAP", "BZC_ROWB"))
 
@@ -1978,7 +2004,7 @@ def box_check(g, where):
     """at box_point: every box at most BZ_BOXW words x BZ_BOXL lines, and every
     PLATFORM box (group 2 at the slab's first word, the frame's contact the
     platform's or the lift's rect beside a post) at most PBOX_MAX lines (SPEC.md
-    128.13.12).  A box past BZ_BOXL would overrun its buffer, so a failing frame
+    130.13.12).  A box past BZ_BOXL would overrun its buffer, so a failing frame
     has its boxes TAKEN AWAY ([bz_nbox] 0) before any compose: the harness keeps
     the guest's memory whole so the row can end and report.  -> (failures, the
     tallest box, the tallest platform box)"""
@@ -1994,7 +2020,7 @@ def box_check(g, where):
             ptall = max(ptall, h)
         if w > BZ_BOXW or h > BZ_BOXL or (isp and h > PBOX_MAX):
             bad.append("%s: the box-size check at the frame's first bz_boxc: a %sbox of %d words x %d lines at line "
-                       "%d (at most %d x %d, a platform box %d lines: SPEC.md 128.13.12)" % (
+                       "%d (at most %d x %d, a platform box %d lines: SPEC.md 130.13.12)" % (
                            where, "PLATFORM " if isp else "", w, h, y0, BZ_BOXW, BZ_BOXL, PBOX_MAX))
     # the platform's rect itself, before bz_addbox clips it: bz_crect when the contact group is the slab's
     # box (bz_ctype 2), bz_crect2 when it is the lift's rect beside a lighting post (bz_pflag bit 2) - a
@@ -2007,7 +2033,7 @@ def box_check(g, where):
         ptall = max(ptall, ph)
         if ph > PBOX_MAX:
             bad.append("%s: the box-size check at the frame's first bz_boxc: the PLATFORM's rect %s is %d lines "
-                       "(lines %d - %d), past %d (SPEC.md 128.13.4.3: one wait, never two running)" % (
+                       "(lines %d - %d), past %d (SPEC.md 130.13.4.3: one wait, never two running)" % (
                            where, name, ph, ya, yb, PBOX_MAX))
     if bad:
         g.put("bz_nbox", 0)
@@ -2016,7 +2042,7 @@ def box_check(g, where):
 
 def wrap_boxes(g, st, bxs):
     """the frame's boxes the WHOLE-ROW path writes across the ring's end
-    (SPEC.md 128.13.4.4): no band (bz_boxw's own gate), 3 or 4 words, a whole card row other than the path's
+    (SPEC.md 130.13.4.4): no band (bz_boxw's own gate), 3 or 4 words, a whole card row other than the path's
     first that crosses 2000h (its offset + 2w past it) - the row bz_bwrows's
     tail sends to bz_wseg.  ST: (S, R0, c0, ...) of the window the boxes were
     written to.  -> [(x0, y0, w, h, the crossing row's offset)]"""
@@ -2042,7 +2068,7 @@ def wrap_boxes(g, st, bxs):
 
 
 def map_check(g, crs, lanes):
-    """ORACLE CHECK 5 (SPEC.md 128.13.11): each of LANES' map words in the course
+    """ORACLE CHECK 5 (SPEC.md 130.13.11): each of LANES' map words in the course
     part (bz_cseg, BZC_MAP, a row BZC_ROWB) are its DRAWN pose's ([bz_ldrw]),
     read after its commit - a store that never reached the map (the pass's,
     `mapskip`) is seen here.  -> [what is wrong]"""
@@ -2088,15 +2114,15 @@ def slab_ball(g, P, n, z_off, air, onp):
 RIDE_FRAMES = 150                   # a rise and its dock (P 256: 64 steps moving, 64 docked)
 OVER_FRAMES = 12
 
-# THE DEFER SCENE (SPEC.md 128.13.7 item 1): a post of the cluster made REALLY drawn lit and then due while
+# THE DEFER SCENE (SPEC.md 130.13.7 item 1): a post of the cluster made REALLY drawn lit and then due while
 # the ball's every frame is two boxes - so its contact candidacy waits (bz_ndef) and its cells outside the
 # boxes stay lit on the glass, as its map and bz_ldrw say.  At its K-th bz_t0 (TRICKLE, the window centred
 # on DF_Q1 by a full write): held at Q1 to DF_KICK, the KICK poked there (it lights as the must-draw), then
 # from DF_KICK + 1 its lit frames poked to 0 (DUE) and the ball alternately at Q2, Q1 for DF_ALT frames -
 # under BZ_WPRF (5) - then held at Q1 to DF_END (one box: it goes dark as the contact group)
 DF_KICK, DF_ALT, DF_END = 5, 4, 12
-# THE PWAIT SCENE (SPEC.md 128.13.12): the ball held airborne alternately at two points 48 px apart (every
-# frame's ball group two boxes: a CROWDED frame, 128.13.4.3 (a)) while the lift RISES from its low dock,
+# THE PWAIT SCENE (SPEC.md 130.13.12): the ball held airborne alternately at two points 48 px apart (every
+# frame's ball group two boxes: a CROWDED frame, 130.13.4.3 (a)) while the lift RISES from its low dock,
 # the window's bottom edge through the slab (TRICKLE), for PW_FRAMES frames; on a frame after one that did
 # not wait, the ball poked across the band's FOOT instead (the camera steps down a row, the entering row
 # meeting the slab's drawn footprint on a waited frame: bz_ctype 3), PW_TRIES times at most; then held at one
@@ -2156,7 +2182,7 @@ def defer_poke(g, plan, k):
         g.putb("bz_cmode", 1)                   # TRICKLE: the window holds while the ball moves in the band
         g.putb("bz_first", 1)                   # the next frame: a full write centred on Q1
         return None
-    if k == DF_KICK:                            # the KICK (bz_pkick + 1, 128.13.14 item 10): drawn lit
+    if k == DF_KICK:                            # the KICK (bz_pkick + 1, 130.13.14 item 10): drawn lit
         a = g.a("bz_pkick") + 2 * lane
         g.m.write(a, struct.pack("<H", (struct.unpack("<H", g.m.read(a, 2))[0] + 1) & 0xFFFF))
         mark(g, lane)
@@ -2211,7 +2237,7 @@ def lift_steps(P, n0, n1):
 
 
 def mill_play(g, ref):
-    """the MILL leg's POKED play (SPEC.md 128.12.13.2, 128.13.12): Enter on MILL
+    """the MILL leg's POKED play (SPEC.md 130.12.13.2, 130.13.12): Enter on MILL
     ([bz_crs] poked at bz_launch), the ball poked onto the platform's slab at
     the first bz_t0 (the frame's centred full write puts the window round it)
     and left to RIDE with no key held - every riding frame whose ball box meets
@@ -2344,12 +2370,12 @@ def mill_play(g, ref):
             continue
         if k == "tf":
             sc["tfwait"] = phase == "pwait" and "bz_pyld" in g.sym and bool(g.b("bz_pyld"))
-            # THE RULE ITSELF (SPEC.md 128.13.4.3): the slab's box waits a frame, never two running -
+            # THE RULE ITSELF (SPEC.md 130.13.4.3): the slab's box waits a frame, never two running -
             # bz_pyld (cleared at every bz_props) set on this frame and the last; the box-size check
             # sees the same fault only when the lift rose far enough during the scene (`pwait2`)
             if sc["tfwait"] and sc.get("tfw_prev"):
                 fails.append("MILL play frame %d (pwait) at bz_tf: the slab's box waited two frames running "
-                             "(bz_pyld on this frame and the last; SPEC.md 128.13.4.3)" % (frames + 1))
+                             "(bz_pyld on this frame and the last; SPEC.md 130.13.4.3)" % (frames + 1))
             sc["tfw_prev"] = sc["tfwait"]
             if phase == "entercol" and not g.b("bz_full"):
                 _rows, col, (R0n, _c0n, H_, _Wc) = entering(g)
@@ -2378,7 +2404,7 @@ def mill_play(g, ref):
             fails.append("MILL play frame %d: %s" % (frames, why))
         if view[1] and view[1][2] != (g.b("bz_pov") == 1):
             fails.append("MILL play frame %d (%s): the guest's [bz_pov] %d is not the rule's %s (z_b %d air %d s_b "
-                         "%d, SPEC.md 128.12.4.5)" % (frames, phase, g.b("bz_pov"), "OVER" if view[1][2] else "under",
+                         "%d, SPEC.md 130.12.4.5)" % (frames, phase, g.b("bz_pov"), "OVER" if view[1][2] else "under",
                                                       lk.zb, lk.air, lk.sb))
         slab = view[1]
         x4 = lk.px & ~3
@@ -2387,12 +2413,12 @@ def mill_play(g, ref):
         feats = []
         if phase == "ride" and meets and g.b("bz_onp"):
             feats.append("ride")
-        # THE RIDE BOX (SPEC.md 128.13.4.1): the platform's box merged into the riding ball's group
+        # THE RIDE BOX (SPEC.md 130.13.4.1): the platform's box merged into the riding ball's group
         if phase == "ride" and sc["tfct"] == 2 and sc["tfcgr"] == 0 and g.b("bz_onp") and sc["tfbx"]:
             feats.append("ridebox")
         sc["ridebox_last"] = "ridebox" in feats
         # wave 6b's final pass: THE PLATFORM'S BOX and ITS CLIPPED BOX (MILL_FEATS' pbox and pclip, SPEC.md
-        # 128.12.13.2) counted on the play's checked frames too - the slab's own box as the contact group
+        # 130.12.13.2) counted on the play's checked frames too - the slab's own box as the contact group
         # (bz_ctype 2 with a rect of its own: not the ride box, which merges it into the ball's group) and
         # its box clipped to an entering strip (bz_ctype 3).  Under LATTICE the MILL benchmark's window never
         # holds the moving slab (0 frames with either), so the PWAIT scene's waited frames carry them
@@ -2453,15 +2479,15 @@ def mill_play(g, ref):
     nlift = lift_steps(P, sc["pwn0"], sc["pwn1"]) if sc["pwn0"] is not None and sc["pwn1"] is not None else 0
     if sc["df"] and not fails and sc["dframes"] < 1:
         fails.append("MILL play: the DEFER scene had no frame on which post %d WAITED drawn lit with a cell outside "
-                     "every box (bz_ndef moved): the defer case was never in front of the check (SPEC.md 128.13.7 "
+                     "every box (bz_ndef moved): the defer case was never in front of the check (SPEC.md 130.13.7 "
                      "item 1)" % sc["df"][0])
     if sc["pw"] and not fails:
         if nlift < PW_STEPS:
-            fails.append("MILL play: the PWAIT scene saw %d lift steps, at least %d asserted (SPEC.md 128.13.12)" % (
+            fails.append("MILL play: the PWAIT scene saw %d lift steps, at least %d asserted (SPEC.md 130.13.12)" % (
                 nlift, PW_STEPS))
         if not sc["strip"]:
             fails.append("MILL play: the PWAIT scene had no WAITED frame on which an entering row met the slab's "
-                         "drawn footprint (bz_ctype 3) in %d runs (SPEC.md 128.13.12)" % (sc["pwrun"] + 1))
+                         "drawn footprint (bz_ctype 3) in %d runs (SPEC.md 130.13.12)" % (sc["pwrun"] + 1))
     print("%s MILL play: the ball poked onto the slab and ridden %d frames, then under it %d: frames checked with "
           "the slab's layer in the riding ball's box %d, THE RIDE BOX %d, the slab OVER the ball %d; then THE LOW "
           "SCENARIO (post %s at window line %d, %d frames): checked frames with a wheel commit AHEAD %d, BEHIND %d, "
@@ -2533,15 +2559,15 @@ def pwait_step(g, sc, n, nfr):
     poke_ball(g, p1[0], p1[1], p1[2], 0, 0, 0, air=1, same_cell=sc["pwend"] > 1)
 
 
-# ---- the row-0 probe (SPEC.md 128.10.11.2) ----------------------------------
+# ---- the row-0 probe (SPEC.md 130.10.11.2) ----------------------------------
 def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False, air=None, ztop=None, lvl=None):
-    """The position and the velocities (SPEC.md 128.10.7.1), 24.8 values, and
+    """The position and the velocities (SPEC.md 130.10.7.1), 24.8 values, and
     what a poke owes besides: bz_pokd = 1, so the next step refills the window
     round the ball's cell itself, and the SCREEN state derived from the poked
     position with a zero velocity - bbcourse.Physics.poke's _derive(True) -
     so that a frame which runs no step (about 9% of the CGA's) draws the ball
     where it was poked, not where the last step left it.  AIR, ZTOP (whole
-    px) and LVL (the arrows' four levels, 128.11.7.1) are poked when given.
+    px) and LVL (the arrows' four levels, 130.11.7.1) are poked when given.
 
     SAME_CELL: leave bz_pokd as it is when the poke stays in the cell the
     window is centred on ([bz_wgx], [bz_wgy] are 16 wx, 16 wy) - the window
@@ -2626,7 +2652,7 @@ def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False, xzone
     top on one of the window lines LINES (from TOP, the window's first world
     line) and its centre in GLIDE's and TRICKLE's dead zone ([2W, 6W] px from
     LEFT), nearest the window's centre first.  A ball held there moves no
-    camera: grounded, its line is the camera's (wave 6, SPEC.md 128.16.7),
+    camera: grounded, its line is the camera's (wave 6, SPEC.md 130.16.7),
     where a ball held AIRBORNE puts the camera on the GROUND line under it.
     XZONE (lo, hi): the ball's centre px (world, px + 8) in [lo, hi] instead of
     the dead zone, nearest its middle first (a point the camera MOVES to reach).
@@ -2662,7 +2688,7 @@ def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False, xzone
 
 
 def tpoke(g, crs):
-    """The TRIAL leg's frame of THREE boxes (SPEC.md 128.11.10.1, 128.11.17.2):
+    """The TRIAL leg's frame of THREE boxes (SPEC.md 130.11.10.1, 130.11.17.2):
     at bz_t0 of a frame that runs a step, the ball poked AIRBORNE 40 - 56 px
     across the screen, inside the window with its shadow, over a floor cell
     with OCC and OCCG clear (probe_ground's search) - so the ball's old and new
@@ -2780,7 +2806,7 @@ def ringend_plan(g, crs):
     ylim, xlim = crs.brows * 8 - BB.FOOT_H - 8, crs.cols * 8 - BB.FOOT_W - 8
 
     def crosses(px, y):
-        x4 = px & ~3                            # the footprint's left edge (a byte: 4 px, SPEC.md 128.4)
+        x4 = px & ~3                            # the footprint's left edge (a byte: 4 px, SPEC.md 130.4)
         x0 = x4 >> 3
         w = ((x4 + BB.FOOT_W - 1) >> 3) - x0 + 1
         if w not in (3, 4):
@@ -2812,8 +2838,8 @@ def ringend_plan(g, crs):
 
 
 PROBE_CLEAR = 10    # px over the floor: z - h about 10, so the shadow (spy = py + 10 + (z - h),
-                    # 128.11.9.4) is a box of its own just below the ball's (their union 26 lines,
-                    # over BZ_BOXH's 24) - the CGA's late case of 128.11.10.3
+                    # 130.11.9.4) is a box of its own just below the ball's (their union 26 lines,
+                    # over BZ_BOXH's 24) - the CGA's late case of 130.11.10.3
 
 
 PROBE_SHADOW_H = 8  # lines: the probe's shadow box at most this tall where the window ends (MEASURED)
@@ -2836,7 +2862,7 @@ def win_lines(g):
 
 
 PROBE_EDGE = 40     # px: the probe's ball 40 px left of the window's right edge - its 20 px footprint
-                    # ends 20 px from it, inside the edge clause's 24 (SPEC.md 128.12.7), and its centre
+                    # ends 20 px from it, inside the edge clause's 24 (SPEC.md 130.12.7), and its centre
                     # is right of GLIDE's dead zone (6W: 240 of 320 px, 270 of 360)
 
 
@@ -2859,9 +2885,9 @@ def probe(g, ref):
     g.putb("bz_crs", CRS_K["bench"])            # play mode, on the benchmark's course
     g.putb("bz_cmode", 0)                       # GLIDE (C cycles it; it persists)
     if "bz_hvoff" in g.sym:                     # the shipped camera: a poked frame is HEAVY
-        g.putb("bz_hvoff", 0)                   # (level 1, SPEC.md 128.12.7)
+        g.putb("bz_hvoff", 0)                   # (level 1, SPEC.md 130.12.7)
     g.putb("bz_tpoke", 1)                       # time play's boxes: only a benchmark's are
-                                                # (bz_wbox, SPEC.md 128.11.10.3)
+                                                # (bz_wbox, SPEC.md 130.11.10.3)
     m.bp_exec()
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on BENCH runs", guest=60)
@@ -2870,7 +2896,7 @@ def probe(g, ref):
     # 1. the window at the course's TOP: play starts on BENCH's start plateau
     # and the camera settles; the probe then needs the window clamped at
     # R0 = 0 - the one place play can put a box at window row 0 (a flight's
-    # apex over the top's back edge, 128.10.4.1) - and pans RIGHT from there.
+    # apex over the top's back edge, 130.10.4.1) - and pans RIGHT from there.
     # (8R.13: under LATTICE the start's ball, its top on world line 99,
     # centres the window at R0 3 on the CGA and 1 on the Hercules, below the
     # clamp, and this setup's assertion aborted the row on every card since
@@ -2921,7 +2947,7 @@ def probe(g, ref):
             # the ball's top on the window's first line (world line 0: the window stays clamped) and
             # its centre RIGHT of the dead zone ([2W, 6W] px), so GLIDE steps a column at the right edge
             # each frame, clear of the footprint - and, wave 3, its footprint within the edge clause's
-            # 24 px of the right edge: a poked frame is HEAVY (level 1, SPEC.md 128.12.7), which
+            # 24 px of the right edge: a poked frame is HEAVY (level 1, SPEC.md 130.12.7), which
             # withholds the column unless the ball is that near the edge
             tpx = c0 * 8 + W[tag] - PROBE_EDGE
             f1 = frames + 1 - (nlead - 1)       # the probe's own frame count (its first the last lead-in)
@@ -3008,11 +3034,11 @@ def probe(g, ref):
             tm = fe["box"]
             if tm and tm[0].get("dl"):
                 fails.append("probe frame %d: the FIRST box, at window row 0, is late by bz_latechk (DL %d): "
-                             "128.9 item 6's order did not hold it ahead of the beam" % (frames, tm[0]["dl"]))
+                             "130.9 item 6's order did not hold it ahead of the beam" % (frames, tm[0]["dl"]))
             # (8R.13: a frame of ONE box is never late - item 6's order and bz_vr's next rise hold the
             # row-0 box ahead of the beam.  A frame of two ball boxes and no shadow box - a split frame,
             # or the back frame after one, where the edge's shadow is off the window - counts its later
-            # box late as 128.11.10.3 says it may, and is JUDGED below like a multi-box frame: the
+            # box late as 130.11.10.3 says it may, and is JUDGED below like a multi-box frame: the
             # verdict against the cycle counter, interrupts on before the second box.  Until round 3b
             # moved BENCH's floor down, every two-box frame of the probe had a shadow box too, so the
             # old "one box GROUP" wording never met one.)
@@ -3024,7 +3050,7 @@ def probe(g, ref):
                 ifon, at_box = fe["if"] if fe["if"] else (None, None)
                 if not ifon or at_box != 1:
                     fails.append("probe frame %d: interrupts %s after bz_tb's POPF, with %s boxes started "
-                                 "(on, after the FIRST box and before the second, 128.11.10.3)" % (
+                                 "(on, after the FIRST box and before the second, 130.11.10.3)" % (
                                      frames, "ON" if ifon else "OFF", at_box))
                 for j, b in enumerate(tm):
                     x0, y0, w, h, grp = bxs[b["i"]]
@@ -3066,7 +3092,7 @@ def probe(g, ref):
         fails.append("the probe's lead-in did not bring the window to the top clamp in %d frames (R0 %d)" % (
             PROBE_LEAD, g.w("bz_R0")))
     print("%s probe: %d frames (the first %d a lead-in, the window then at the top clamp), %d with the boxes at window row 0 and an entering column "
-          "(128.9 item 6's path), %d MULTI-BOX (a shadow box below the ball's); card = picture on every one at "
+          "(130.9 item 6's path), %d MULTI-BOX (a shadow box below the ball's); card = picture on every one at "
           "bz_tf and bz_presented: %s" % (tag, frames, nlead, hit, multi, "yes" if not fails else "NO"), flush=True)
     print("%s probe boxes timed: %d, late by bz_latechk %d; against the cycle counter %d agree, %d late within the "
           "documented rounding, %d not judged (%s)" % (
@@ -3092,12 +3118,12 @@ def probe(g, ref):
     return fails
 
 
-# ---- wave 6 (SPEC.md 128.16.7, 128.16.14): THE GROUND LEG ------------------------------
+# ---- wave 6 (SPEC.md 130.16.7, 130.16.14): THE GROUND LEG ------------------------------
 CAM_PRICE = 527             # the ground-line block's as-built price at WORST, clocks: a latched ball released by a
                             # contact while airborne and re-tripped on that frame, Hercules (the fetch floor, x 1.05:
-                            # SPEC.md 128.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
+                            # SPEC.md 130.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
                             # not a retunable
-CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 128.16.14)
+CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 130.16.14)
 MODES = ((0, "GLIDE"), (1, "TRICKLE"))
 
 
@@ -3159,7 +3185,7 @@ def ground_glide(s, herc, kind=None):
 
 
 def ground_check():
-    """the host half of the GROUND leg (SPEC.md 128.16.14, 128.17.10): each
+    """the host half of the GROUND leg (SPEC.md 130.16.14, 130.17.10): each
     scenario proved, and each arm's model PARTING where its check is - `camz`
     on the PLAYGROUND's bounce chain, `nosafe` and `nolatch` on the void fall
     (bbcourse.play_fall; under LATTICE a pan cannot reverse inside the band, so
@@ -3202,11 +3228,11 @@ def ground_check():
 
 
 GROUND_VIS = 15                 # the most a footprint may be outside on a missed retrace: one line short of the
-                                # ball's 16, so some of it is always on the glass (SPEC.md 128.16.8)
+                                # ball's 16, so some of it is always on the glass (SPEC.md 130.16.8)
 
 
 def ground_margin(px, py, R0, c0, Wc, rl):
-    """bz_outwin's test as a MARGIN in pixels: the least distance from the footprint (128.4's 20 x 16 from
+    """bz_outwin's test as a MARGIN in pixels: the least distance from the footprint (130.4's 20 x 16 from
     px & ~3) to a window edge; negative is how far outside it is (a column is 8 px)"""
     first = px >> 3
     last = ((px >> 2) + 4) >> 1
@@ -3231,7 +3257,7 @@ def ground_replay(g, s, mode, art=None):
     start_replay(g, make_log(s["keys"], CRS_K[s["crs"]], s["mat"]), s["poke"])
     p = P.model(s["crs"], s["mat"], s["poke"])
     # (the heavy rule's INPUTS as the guest decided them, as the CAMERA leg's: a level-2 frame can be a wheel
-    # lane promoted by the beam race, bz_wpro, which Heavy does not model - SPEC.md 128.17.10 - and under
+    # lane promoted by the beam race, bz_wpro, which Heavy does not model - SPEC.md 130.17.10 - and under
     # LATTICE level 2 withholds every axis on the CGA, so Heavy's own levels can part the window spuriously)
     gl = BB.Glide(p, tag == "herc", c.brows, c.cols, heavy=GuestHeavy(p, g), **GROUND_ONLY.get("glide", {}))
     Wc, rl = g.w("bz_W"), RL[tag]
@@ -3276,7 +3302,7 @@ def ground_replay(g, s, mode, art=None):
                 break
         px, py = g.dpx()
         # (PACING: the window is Glide's every frame, so a ball outside it is the guest running k > 1 steps for
-        # one pan - a MISSED RETRACE, one frame with the work of two.  SPEC.md 128.17.6.7 guarantee 3 holds per
+        # one pan - a MISSED RETRACE, one frame with the work of two.  SPEC.md 130.17.6.7 guarantee 3 holds per
         # pan at the nominal rate, so such a frame is allowed the ball's travel over its k-1 extra steps, and
         # no more; a frame at the nominal rate, or outside by more, FAILS.  Every missed frame, the worst
         # margin and each frame accepted only for it are REPORTED, so the pacing loss is seen every run.)
@@ -3315,7 +3341,7 @@ def ground_replay(g, s, mode, art=None):
                 if len(dirs) > 1:
                     tal["rev"] = True
                     fails.append("%s frame %d (step %d): the row direction REVERSED while the ball falls into the "
-                                 "void (SPEC.md 128.16.7's latch)" % (label, fr, n))
+                                 "void (SPEC.md 130.16.7's latch)" % (label, fr, n))
                     break
         R0p = R0
         if s["stretch"] and g.drawn("bz_stf"):
@@ -3342,7 +3368,7 @@ def ground_replay(g, s, mode, art=None):
     bound = int(CAM_PRICE * CAM_SLACK)
     if not fails and sp and max(sp) > bound:
         fails.append("%s: the ground-line block's span: the worst %d cycles, over its price %d + 25%% (%d; SPEC.md "
-                     "128.16.7)" % (label, max(sp), CAM_PRICE, bound))
+                     "130.16.7)" % (label, max(sp), CAM_PRICE, bound))
     print("%s: PACING %d frame(s) with 2+ steps (missed retraces), %d accepted only for it, the footprint's worst "
           "margin %s px (negative: outside)" % (label, tal["missed"], tal["warn"], tal["worst"]), flush=True)
     print("%s: %d frames, the window %s, the footprint inside, %d row(s) panned, %d stretch frame(s) card = oracle; "
@@ -3356,7 +3382,7 @@ def ground_replay(g, s, mode, art=None):
 
 
 def ground_part(g, art=None, only=None, modes=(0, 1)):
-    """the GROUND leg (SPEC.md 128.16.14 bonanzaring): every scenario in GLIDE
+    """the GROUND leg (SPEC.md 130.16.14 bonanzaring): every scenario in GLIDE
     and in TRICKLE.  -> (fails, tallies)"""
     fails, out = [], {}
     pre, _say = ground_check()
@@ -3379,18 +3405,18 @@ def ground_verdict(tag, out):
     bad = []
     st = sum(t["stretch"] for (nm, _md), t in out.items() if nm in ("boostclimb", "boostdrop"))
     if out and not st:
-        bad.append("GROUND: no stretch frame checked card = oracle (the boost's cue, SPEC.md 128.16.4.4)")
+        bad.append("GROUND: no stretch frame checked card = oracle (the boost's cue, SPEC.md 130.16.4.4)")
     if out and not any(t["spans"] for t in out.values()):
         bad.append("GROUND: the ground-line block's span was never measured")
     return bad
 
 
-# ---- wave 6b (SPEC.md 128.17.6, 128.17.10): THE CAMERA LEG, LATTICE on the glass ----------------------
+# ---- wave 6b (SPEC.md 130.17.6, 130.17.10): THE CAMERA LEG, LATTICE on the glass ----------------------
 LAT_PRICE = 5760            # bz_camera's as-built price at WORST, clocks: a frame in a tube (the pre-aim's exit
                             # point and the pre-aimed pan), the whole call priced instruction by instruction off
-                            # the executed path over every demo and autopilot (SPEC.md 128.17.11) - a COST, not
+                            # the executed path over every demo and autopilot (SPEC.md 130.17.11) - a COST, not
                             # a retunable
-LAT_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 128.17.10)
+LAT_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 130.17.10)
 CAM_ONLY = {}               # a red arm's run: its scenario and cards alone (set by main)
 
 
@@ -3398,8 +3424,8 @@ class GuestHeavy(BB.Heavy):
     """the heavy rule's INPUTS as the guest's bz_props decided them this frame
     (bz_heavy, bz_hedr, bz_hedc, bz_pflag bits 4 - 7), read at bz_presented:
     a level-2 frame can be a wheel lane PROMOTED by the beam race (bz_wpro),
-    which Heavy does not model (SPEC.md 128.17.10).  In a tube the camera's
-    rule is off (the pre-aimed pan runs at its rate, 128.17.6.2)"""
+    which Heavy does not model (SPEC.md 130.17.10).  In a tube the camera's
+    rule is off (the pre-aimed pan runs at its rate, 130.17.6.2)"""
 
     def __init__(self, p, g):
         BB.Heavy.__init__(self, p)
@@ -3417,7 +3443,7 @@ class GuestHeavy(BB.Heavy):
 
 
 def _ramp_keys(pname):
-    """MILL's ramp bottom (128.17.6.5 item 4): rubber poked at RAMP_POKE, down B's
+    """MILL's ramp bottom (130.17.6.5 item 4): rubber poked at RAMP_POKE, down B's
     ramp to the green, then RAMP_PATTERNS' pattern -> (poke, keys, the pattern's first step)"""
     import bonanza_phys as P
     q = BB.Physics(course("mill"), play=True).poke(*BB.RAMP_POKE)
@@ -3431,8 +3457,8 @@ def _ramp_keys(pname):
     return pk, keys, n0
 
 
-# camhyst's scenario (8R.13, SPEC.md 128.17.10): round 3b's larger reach moved MILL's heavy frames and with Hr 0
-# no RAMP_PATTERNS pattern from the green reverses any more (128.17.17.4: about 50 searched), so the arm's model
+# camhyst's scenario (8R.13, SPEC.md 130.17.10): round 3b's larger reach moved MILL's heavy frames and with Hr 0
+# no RAMP_PATTERNS pattern from the green reverses any more (130.17.17.4: about 50 searched), so the arm's model
 # stayed green at the climb try and --check-reds failed.  bbcourse's own `nohyst` control moved to the DITHER MAP
 # then (cam_dither: a branch off the demo brakes, taps against the ball's travel, along it, against it), and
 # so does this arm: DITHER_SCEN is one of that map's samples, made a log.  Re-anchored (wave 9: the pickups
@@ -3512,7 +3538,7 @@ def _held_max(rows):
 def _peak_cannon():
     """PEAK's autopilot to its cannon's exit and CAM_EXIT frames past it, as a
     log of key bytes (the autopilot's own, recorded): `campreaim`'s scenario on
-    the Hercules (SPEC.md 128.17.10: the exit beside the lift)"""
+    the Hercules (SPEC.md 130.17.10: the exit beside the lift)"""
     c = course("peak")
     p = BB.Physics(c, play=False, mat=c.ball)
     keys, ex = [], None
@@ -3542,7 +3568,7 @@ def camera_scenarios():
 
 
 def _camera_scenarios():
-    """the CAMERA leg's replays (SPEC.md 128.17.10 bonanzaring), each a log on its
+    """the CAMERA leg's replays (SPEC.md 130.17.10 bonanzaring), each a log on its
     course, FOUND on the model: MILL's ramp bottom (brake and ease; the climb
     tries; and the dither map's branch off PLAY's demo, camhyst's), MILL's route demo (its keeps, chute and cannon; the lift stretch,
     CGA frames 580 - 700 on the model), PEAK's demo (the lift stretch, CGA frames
@@ -3579,7 +3605,7 @@ CAM_RED = {"camhyst": {"only": ("dither",)},     # 8R.13: both cards (the climb 
            # stayed green there; PEAK's CGA demo holds at the cap, 3, on the glass, and its model uncapped 12)
            "camcap": {"only": ("peak-demo",), "tags": ("cga",)},
            "campreaim": {"only": ("peak-cannon",), "tags": ("herc",)},
-           # (SPEC.md 128.25.3: the Y0 search put a heavy frame on the cannon run's exit on the CGA, frame 1350)
+           # (SPEC.md 130.25.3: the Y0 search put a heavy frame on the cannon run's exit on the CGA, frame 1350)
            "camprex": {"only": ("peak-cannon",), "tags": ("cga",)},
            "camring": {"only": ("trialdrop",)},
            "camside": {"only": ("side",)},
@@ -3594,7 +3620,7 @@ def camera_check():
 
 
 def _camera_check():
-    """the host half of the CAMERA leg (SPEC.md 128.17.10): every scenario found,
+    """the host half of the CAMERA leg (SPEC.md 130.17.10): every scenario found,
     the SHIPPED model holding each check its replay makes, and each arm's model
     going red AT ITS CHECK on its card: `camhyst` (Hr 0) reverses on the
     dither map's branch (DITHER_SCEN, 8R.13) on both cards, `camcap` (no cap) holds a step past
@@ -3648,7 +3674,7 @@ def _camera_check():
                "the nominal rate, which the guest's pacing does not reach)" % (hm, BB.LAT_H2, hmm))
     if hm <= BB.LAT_H2:
         bad.append("CAMERA: `camcap`'s model never holds an axis past LAT_H2 on PEAK's CGA demo")
-    # campreaim (SPEC.md 128.25.3): since a pre-aimed pan is never withheld, no pre-aim no longer breaks
+    # campreaim (SPEC.md 130.25.3): since a pre-aimed pan is never withheld, no pre-aim no longer breaks
     # guarantee 5; what it breaks is the pre-aim's own work - the pan left for after the exits rises - and the
     # guest's arm goes red at the window's parity with the shipped model
     w0 = BB.cam_exit_work([f for f in cam_model(S["peak-cannon"], 1).rows if f["x"] is not None])
@@ -3657,7 +3683,7 @@ def _camera_check():
                "exits, against the shipped camera's %d" % (w1, w0))
     if w1 <= w0:
         bad.append("CAMERA: `campreaim`'s model leaves no more pan after PEAK's exits on the Hercules")
-    for herc in (0, 1):                         # camprex: the exemption removed (128.25.3)
+    for herc in (0, 1):                         # camprex: the exemption removed (130.25.3)
         rows = [f for f in cam_model(S["peak-cannon"], herc, _noprex=True).rows if f["x"] is not None]
         _n, ge = BB.cam_exits(rows, "peak-cannon %s (noprex)" % cn[herc])
         say.append("CAMERA `camprex` (a pre-aimed pan withheld): %s" % (ge[:1] or "guarantee 5 holds"))
@@ -3783,7 +3809,7 @@ def camera_replay(g, s, art=None):
         px, py = g.dpx()
         if not tube and not g.b("bz_hid") and P.outwin(px, py, R0, c0, Wc, rl):
             fails.append("%s: the ball's footprint (%d, %d) is not inside the window (R0 %d, c0 %d; SPEC.md "
-                         "128.17.6.5 item 3)" % (what, px, py, R0, c0))
+                         "130.17.6.5 item 3)" % (what, px, py, R0, c0))
         if tube_prev and not tube:              # a tube EXIT on this frame: guarantee 5 watches CAM_EXIT
             tal["exits"] += 1                   # frames from it, and the pans running at its last tube frame
             after = BB.CAM_EXIT
@@ -3797,14 +3823,14 @@ def camera_replay(g, s, art=None):
             # 2. no axis's held over its cap (H2; H1 after a level-1 withhold)
             if st["held"] > BB.LAT_H2 or (dw[a] and lvl in lim and st["held"] > lim[lvl]):
                 fails.append("%s: the %s' held is %d after a level-%d frame, over its cap (the lift stretch's held "
-                             "check, SPEC.md 128.17.6.3)" % (what, nm, st["held"], lvl))
+                             "check, SPEC.md 130.17.6.3)" % (what, nm, st["held"], lvl))
             # 3. level 1 withholds only toward the edge its bit names
             if lvl == 1 and dw[a] > 0:
                 tal["side"] += 1
                 bit = (BB.NEAR_L, BB.NEAR_R)[st["s"] > 0] if a == "x" else (BB.NEAR_T, BB.NEAR_B)[st["s"] > 0]
                 if not near & bit:
                     fails.append("%s: level 1 withheld %d %s heading %s with that edge's bit clear (bz_pflag bits "
-                                 "4 - 7 %02Xh; the side check, SPEC.md 128.17.6.3)" % (
+                                 "4 - 7 %02Xh; the side check, SPEC.md 130.17.6.3)" % (
                                      what, dw[a], nm, ("left", "right", "up", "down")[(a == "y") * 2 + (st["s"] > 0)],
                                      near))
             # 4. guarantee 5 after a tube exit: no pan born fast, no rate rising, the pans running at the exit
@@ -3831,7 +3857,7 @@ def camera_replay(g, s, art=None):
         # 5. on the drop, no two-row frame the model does not take
         if s.get("drop") and sync and abs(dr) >= 2 and not full and abs(mdr) < 2:
             fails.append("%s: a two-row frame (%+d) where the model takes %+d (the drop's two-row check, SPEC.md "
-                         "128.17.10)" % (what, dr, mdr))
+                         "130.17.10)" % (what, dr, mdr))
         # 6. then the window, bbcourse.Glide's off the same log
         if sync and (R0, c0) != (gl.R0, gl.c0):
             sync = False
@@ -3847,13 +3873,13 @@ def camera_replay(g, s, art=None):
         tal["revs"] = rv
         if rv:
             fails.append("%s: the reversal check (from frame %s, the ramp's green or the dither's fork): REVERSED "
-                         "%d time(s) (SPEC.md 128.17.6.5 item 4)" % (
+                         "%d time(s) (SPEC.md 130.17.6.5 item 4)" % (
                 label, f0, rv))
     sp = tal["spans"]
     bound = int(LAT_PRICE * LAT_SLACK)
     if sp and max(sp) > bound:
         fails.append("%s: the camera's span: bz_camera's worst clean call %d cycles, over its price %d + 25%% (%d; "
-                     "SPEC.md 128.17.11)" % (label, max(sp), LAT_PRICE, bound))
+                     "SPEC.md 130.17.11)" % (label, max(sp), LAT_PRICE, bound))
     print("%s: %d frames, the window %s, %d row(s) and %d column(s) panned, %d tube exit(s), %d heavy frame(s), %d "
           "step(s) withheld (%d on level 1), held at most %d%s; bz_camera's span worst %s, mean %s cycles over %d "
           "clean frames (%d with a tick inside; bound %d): %s" % (
@@ -3866,7 +3892,7 @@ def camera_replay(g, s, art=None):
 
 
 def camera_part(g, art=None):
-    """the CAMERA leg (SPEC.md 128.17.10 bonanzaring): every scenario in GLIDE.  -> (fails, tallies)"""
+    """the CAMERA leg (SPEC.md 130.17.10 bonanzaring): every scenario in GLIDE.  -> (fails, tallies)"""
     fails, out = [], {}
     pre, _say = camera_check() if not CAM_ONLY else ([], [])
     if pre:
@@ -3894,7 +3920,197 @@ def camera_verdict(tag, out):
     return bad
 
 
-PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "ground", "camera")
+PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "ground", "camera", "vbench", "vcam")
+
+
+# ---- the VGA's card (SPEC.md 130.46; plan V3) ----------------------------------------------------------
+VGA_PARTS = ("vbench", "vcam")
+VGA_BENCH_FRAMES = 400                  # BENCH under the scripted camera: every direction, columns both ways
+VGA_GLASS_EVERY = 20                    # ...the rendered frame compared one present in this many
+VGA_DEMOS = ("trial", "mill")           # the camera's motion over shipped demos (130.46.14)
+VGA_MINMOVE = 5                         # no move of the display shorter than this (the inching, 130.46.14)
+
+
+def vdecode(g, S):
+    """the ENGINE's window in card memory (planes 0 and 1, P = 44, from start S, 64 KB ring): rows of
+    2-bit indices, 42 x 8 px a line"""
+    p0, p1 = g.m.planes(0, 65536, planes=(0, 1))
+    out = []
+    for y in range(200):
+        row = bytearray(W["vga"])
+        for b in range(42):
+            o = (RB["vga"] * y + S + b) & 0xFFFF
+            a0, a1 = p0[o], p1[o]
+            for k in range(8):
+                bit = 7 - k
+                row[8 * b + k] = ((a0 >> bit) & 1) | (((a1 >> bit) & 1) << 1)
+        out.append(bytes(row))
+    return out
+
+
+def vglass(m):
+    """MartyPC's last FINISHED frame (the card's own panning applied), 320 x 200 of its 640 x 400 doubled"""
+    Wd, Hd, d = m.fbuf()
+    return [[bytes(d[((2 * y) * Wd + 2 * x) * 3:((2 * y) * Wd + 2 * x) * 3 + 3]) for x in range(320)]
+            for y in range(200)]
+
+
+def vga_bench(g, ref):
+    """BENCH on the VGA under the scripted camera: every presented frame's engine window in card memory
+    against the host picture (the roll's SHOWN phases checked against bbcourse.vroll by look()); the glass
+    one present in VGA_GLASS_EVERY against the display's 320 px slice at x0 of one of the last three
+    frames' pictures; the display inside the window's slack; a NEGATIVE control (the window decoded one
+    byte off differs) and a POSITIVE one (the panning took values other than 0) -> (fails, tallies)"""
+    m, fails = g.m, []
+    m.bp_exec(g.a("bz_launch"))
+    g.key("KeyB")
+    assert m.wait_stop(60) == "breakpoint", "B did not launch the benchmark"
+    g.putb("bz_hvoff", 1)
+    g.putb("bz_camscr", 1)
+    wk = Walker(g)
+    wk.arm()
+    t = {"frames": 0, "bad": 0, "glass": 0, "glass_ok": 0, "pans": collections.Counter(), "ctl": 0}
+    recent = collections.deque(maxlen=3)
+    pal = {}
+    while t["frames"] < VGA_BENCH_FRAMES:
+        if wk.next() != "pr":
+            continue
+        S, R0, c0 = g.state()[:3]
+        x0, pan = g.w("bz_vx0"), g.b("bz_vpan")
+        if pan != x0 & 7 or not c0 * 8 <= x0 <= c0 * 8 + 16:
+            fails.append("frame %d: the display x0 %d (pan %d) outside the window's slack at c0 %d" % (
+                t["frames"], x0, pan, c0))
+        t["pans"][pan] += 1
+        got = vdecode(g, S)
+        exp = pic_now(g, ref)
+        n, box = diff(got, exp)
+        t["frames"] += 1
+        if n:
+            t["bad"] += 1
+            if t["bad"] <= 3:
+                fails.append("frame %d (S %04X R0 %d c0 %d): %d px of the engine window differ, box %s" % (
+                    t["frames"], S, R0, c0, n, box))
+        elif not t["ctl"] and t["frames"] > 20 and diff(vdecode(g, S + 1), exp)[0]:
+            t["ctl"] = 1                # the negative control: the same window one byte on is NOT the picture
+        off = x0 - c0 * 8
+        recent.append([r[off:off + 320] for r in exp])
+        if t["frames"] % VGA_GLASS_EVERY == 0 and len(recent) == 3:
+            gr = vglass(m)
+            best = None
+            for e in recent:
+                if not pal:             # the colours, by majority against the first slice
+                    votes = collections.defaultdict(collections.Counter)
+                    for y in range(200):
+                        for x in range(320):
+                            votes[gr[y][x]][e[y][x]] += 1
+                    pal.update({c: v.most_common(1)[0][0] for c, v in votes.items()})
+                nd = sum(1 for y in range(200) for x in range(320) if pal.get(gr[y][x], 9) != e[y][x])
+                best = nd if best is None else min(best, nd)
+            t["glass"] += 1
+            t["glass_ok"] += best == 0
+            if best and t["glass"] - t["glass_ok"] <= 3:
+                fails.append("the glass at frame %d: %d px off the nearest of the last three slices (x0 %d)" % (
+                    t["frames"], best, x0))
+    m.bp_exec()
+    g.putb("bz_camscr", 0)              # (stopped at the last present: the poke, then on)
+    m.run()
+    g.key("Escape")                     # (the benchmark's other 800 frames are not this part's: Esc, the
+    vga_home(g, "the benchmark")        # bracket down and its parts dropped)
+    return fails, t
+
+
+def vga_home(g, what):
+    """a launch over: the bracket down, its parts dropped, the held-key guard clear"""
+    m = g.m
+    M.until(m, lambda _: g.b("bz_fs") == 0, "%s: the bracket to end" % what, guest=60)
+    M.until(m, lambda _: g.w("bz_cseg") == 0, "%s: its parts dropped" % what, guest=30)
+    M.until(m, lambda _: g.b("bz_dkk") == 0, "%s: the held-key guard clear" % what, guest=5)
+
+
+def vga_cam(g, art=None):
+    """THE VGA's CAMERA (SPEC.md 130.46.14) over VGA_DEMOS' shipped demos (V, D: the play's camera, not the
+    benchmark's LATTICE): the display's moves - runs of frames it moved - none shorter than VGA_MINMOVE
+    (the inching), its step never changing by more than one between two frames but at a full write, and
+    every demo to its end -> (fails, tallies)"""
+    m, fails, t = g.m, [], {}
+    for crs in VGA_DEMOS:
+        kd = CRS_K[crs]
+        demo = open(os.path.join(art or at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+        m.pause()
+        g.putb("bz_vk", 0)
+        m.run()
+        for _ in range(12):
+            g.key("KeyV")
+            M.until(m, lambda _: g.b("bz_dkk") == 0, "V's key up", guest=5)
+            if bytes(m.read(g.a("bz_rlog"), len(demo))) == demo:
+                break
+        if bytes(m.read(g.a("bz_rlog"), len(demo))) != demo:
+            fails.append("%s: V never loaded BZD%d.BIN" % (crs, kd))
+            continue
+        g.key("KeyD")
+        M.until(m, lambda _: g.b("bz_fs") == 1, "%s's demo runs" % crs, guest=60)
+        m.pause()
+        m.bp_exec(g.a("bz_presented"))
+        rows = []
+        while True:
+            m.run()
+            if m.wait_stop(150) != "breakpoint" or (len(rows) > 5 and g.b("bz_fs") == 0):
+                break
+            rows.append((g.w("bz_vx0"), g.w("bz_R0"), g.b("bz_full"), g.b("bz_vcxm"), g.b("bz_vcym"),
+                         g.w("bz_px"), g.w("bz_py"), g.w("bz_vemax"), g.b("bz_mode")))
+            if len(rows) > 4000:
+                fails.append("%s: the demo did not end in 4,000 frames" % crs)
+                break
+        m.bp_exec()
+        m.run()
+        vga_home(g, "%s's demo" % crs)
+        moves = []
+        for ax, nm in ((0, "across"), (1, "down")):
+            d = [rows[i][ax] - rows[i - 1][ax] for i in range(1, len(rows))]
+            cur, runs = 0, []
+            for i, x in enumerate(d):
+                if x:
+                    cur += 1
+                elif cur:
+                    runs.append(cur)
+                    cur = 0
+            if cur:
+                runs.append(cur)
+            short = [r for r in runs if r < VGA_MINMOVE]
+            jerks = [i for i in range(1, len(d)) if abs(d[i] - d[i - 1]) > 1
+                     and not rows[i + 1][2] and not rows[i][2]]
+            if short:
+                fails.append("%s %s: %d move(s) shorter than %d frames: %s (the camera inched)" % (
+                    crs, nm, len(short), VGA_MINMOVE, short[:8]))
+            if jerks:
+                fails.append("%s %s: the step changed by more than one at %d frame(s), e.g. frame %d (%+d to %+d)"
+                             % (crs, nm, len(jerks), jerks[0], d[jerks[0] - 1], d[jerks[0]]))
+                if os.environ.get("VCAM_DEBUG"):
+                    for j in jerks[:4]:
+                        print("  %s %s jerk at %d: steps %s rows %s" % (crs, nm, j, d[j - 4:j + 3], rows[j - 2:j + 3]))
+            moves.append(runs)
+        t[crs] = {"frames": len(rows), "across": moves[0], "down": moves[1]}
+    return fails, t
+
+
+def vga_verdict(r):
+    bad = list(r["fails"])
+    b = r.get("vbench")
+    if b and not r["fails"]:
+        if b["frames"] < VGA_BENCH_FRAMES:
+            bad.append("vbench: %d frames checked, %d wanted" % (b["frames"], VGA_BENCH_FRAMES))
+        if not b["ctl"]:
+            bad.append("vbench: the negative control never ran (no frame where the window one byte on differed)")
+        if not sum(v for k, v in b["pans"].items() if k):
+            bad.append("vbench: the panning was 0 on every frame (the pel pan never exercised)")
+        if not b["glass"]:
+            bad.append("vbench: the glass was never compared")
+    c = r.get("vcam")
+    if c and not r["fails"]:
+        for crs in VGA_DEMOS:
+            if crs not in c or not (c[crs]["across"] or c[crs]["down"]):
+                bad.append("vcam: %s's demo moved the camera not at all (nothing judged)" % crs)
+    return bad
 
 
 def run(tag, apps=None, src=None, art=None, parts=PARTS):
@@ -3907,10 +4123,20 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
         ui.open("BONANZA.O88")
         g = Bz(ui, tag, sym)
         ui.settle()
+        if tag == "vga":                        # the VGA's card (SPEC.md 130.46): its own parts
+            if "vbench" in parts:
+                ref = Ref("cga", course("bench", art=art), art)
+                ref.tag = "vga"                 # (the CGA's bytes: the VGA's art is their planar form)
+                f, out["vbench"] = vga_bench(g, ref)
+                out["fails"] += f
+            if "vcam" in parts and not out["fails"]:
+                f, out["vcam"] = vga_cam(g, art)
+                out["fails"] += f
+            return out
         if "glass" in parts:
             glass(g, Ref(tag, course("first", art=art), art))
         scr = "bz_camscr" in sym                # wave 6b: BENCH's eight directions under the scripted camera
-        if "bench" in parts:                    # [bz_hvoff] 1 (no heavy rule), [bz_camscr] 1 (SPEC.md 128.17.6.7)
+        if "bench" in parts:                    # [bz_hvoff] 1 (no heavy rule), [bz_camscr] 1 (SPEC.md 130.17.6.7)
             out["bench"] = bench(g, Ref(tag, course("bench", art=art), art), hvoff=1 if "bz_hvoff" in sym else None,
                                  camscr=1 if scr else None)
             out["fails"] += out["bench"]["fails"]
@@ -3931,20 +4157,22 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
             out["fails"] += f
         if "probe" in parts and not out["fails"]:
             out["fails"] += probe(g, Ref(tag, course("bench", art=art), art))
-        if "w4" in parts and not out["fails"]:  # wave 4 (SPEC.md 128.14.14): the props, the blank
+        if "w4" in parts and not out["fails"]:  # wave 4 (SPEC.md 130.14.14): the props, the blank
             f, out["w4"] = w4_part(g, art)
             out["fails"] += f
-        if "ground" in parts and not out["fails"]:    # wave 6 (SPEC.md 128.16.14): the ground line
+        if "ground" in parts and not out["fails"]:    # wave 6 (SPEC.md 130.16.14): the ground line
             f, out["ground"] = ground_part(g, art, only=GROUND_ONLY.get("only"), modes=GROUND_ONLY.get("modes",
                                                                                                     (0, 1)))
             out["fails"] += f
-        if "camera" in parts and not out["fails"]:    # wave 6b (SPEC.md 128.17.10): LATTICE
+        if "camera" in parts and not out["fails"]:    # wave 6b (SPEC.md 130.17.10): LATTICE
             f, out["camera"] = camera_part(g, art)
             out["fails"] += f
     return out
 
 
 def verdict(tag, r):
+    if tag == "vga":
+        return vga_verdict(r)
     bad = list(r["fails"])
     if "bench" in r:
         b = r["bench"]
@@ -3956,15 +4184,15 @@ def verdict(tag, r):
         if not b["controls"] and not b["fails"]:
             bad.append("no diagonal frame for the negative controls")
         if not b["hid"] and not b["fails"]:
-            bad.append("no checked frame hid any of the ball behind an occluder record (SPEC.md 128.10.11.3)")
+            bad.append("no checked frame hid any of the ball behind an occluder record (SPEC.md 130.10.11.3)")
     if "trial" in r and not r["trial"]["fails"]:
         t = r["trial"]
         if not t["shd"]:
-            bad.append("TRIAL: no checked frame had the shadow in a box of its own (SPEC.md 128.11.17.2)")
+            bad.append("TRIAL: no checked frame had the shadow in a box of its own (SPEC.md 130.11.17.2)")
         if not t["b3"]:
-            bad.append("TRIAL: no checked frame had three boxes or more (SPEC.md 128.11.17.2)")
+            bad.append("TRIAL: no checked frame had three boxes or more (SPEC.md 130.11.17.2)")
         if not t["shdin"]:
-            bad.append("TRIAL: no checked frame had the shadow drawn inside the ball's box (SPEC.md 128.11.10.2)")
+            bad.append("TRIAL: no checked frame had the shadow drawn inside the ball's box (SPEC.md 130.11.10.2)")
         if not t["orders"]:
             bad.append("TRIAL: no frame's raster order was checked")
     if "mill" in r and not r["mill"]["fails"]:
@@ -3973,7 +4201,7 @@ def verdict(tag, r):
             if f in LOW_FEATS and f not in ("behind",) and "play" not in r:
                 continue                        # (the LOW scenario's: judged when the play part runs)
             if not mm["feat"][f] and not (r.get("play") or {}).get(f) and f not in FEAT_OPTIONAL[tag]:
-                bad.append("MILL: no checked frame with %s (%d frames had it; SPEC.md 128.12.13.2)" % (
+                bad.append("MILL: no checked frame with %s (%d frames had it; SPEC.md 130.12.13.2)" % (
                     f, mm["seen"][f]))
         if not mm["exits"]:
             bad.append("MILL: no tube exit on the route: the footprint-in-the-window check never ran")
@@ -3983,9 +4211,9 @@ def verdict(tag, r):
         for f in PLAY_FEATS:
             need = FEAT_EACH if f in ("ridebox", "pwait") else 1
             if r["play"].get(f, 0) < need:
-                bad.append("MILL play: %d checked frames with %s, at least %d (SPEC.md 128.12.13.2, 128.13.12)" % (
+                bad.append("MILL play: %d checked frames with %s, at least %d (SPEC.md 130.12.13.2, 130.13.12)" % (
                     r["play"].get(f, 0), f, need))
-    # THE RING'S END (SPEC.md 128.13.12): a 3- or 4-word box whose whole rows cross 2000h, checked at least
+    # THE RING'S END (SPEC.md 130.13.12): a 3- or 4-word box whose whole rows cross 2000h, checked at least
     # once a card - on BENCH, TRIAL or MILL's benchmarks
     # - on BENCH, TRIAL or MILL's benchmarks, or the MILL play's ring's-end scene (whose spot is the
     # world's: no route passes one, the final pass of wave 3b)
@@ -3993,7 +4221,7 @@ def verdict(tag, r):
     if (legs or "play" in r) and not r["fails"] and ("bench" in r or "play" in r) and \
             not sum(x.get("wrapck", 0) for x in legs) + (r.get("play") or {}).get("wrapbox", 0):
         bad.append("the ring's end: no checked frame wrote a 3- or 4-word box's whole rows across it "
-                   "(%d frames had one; SPEC.md 128.13.12)" % sum(x.get("wraps", 0) for x in legs))
+                   "(%d frames had one; SPEC.md 130.13.12)" % sum(x.get("wraps", 0) for x in legs))
     if "w4" in r and not r["fails"]:
         bad += w4_verdict(tag, r["w4"])
     if "ground" in r and not r["fails"]:
@@ -4003,10 +4231,10 @@ def verdict(tag, r):
     return bad
 
 
-# ---- wave 4 (SPEC.md 128.14.14): the props on the glass, and the respawn's blank -------------------
+# ---- wave 4 (SPEC.md 130.14.14): the props on the glass, and the respawn's blank -------------------
 W4_EVERY = 41                       # the W4 replays: one presented frame in this many checked besides the rest
 W4_STRETCH = 20                     # PEAK's demo: frames checked inside its hidden stretches, at least (five
-                                    # stretches over 0.5 s each, 128.15.10.5: far more frames than this)
+                                    # stretches over 0.5 s each, 130.15.10.5: far more frames than this)
 MODE_PORT = {"cga": 0x3D8, "herc": 0x3B8}
 VBASE = {"cga": 0xB8000, "herc": 0xB0000}
 
@@ -4051,7 +4279,7 @@ class Loop:
 
 
 def load_demo(g, kd):
-    """V with [bz_vk] poked to KD - 1: the shipped demo BZD<KD>.BIN in the log (128.14.22 item 7)"""
+    """V with [bz_vk] poked to KD - 1: the shipped demo BZD<KD>.BIN in the log (130.14.22 item 7)"""
     m = g.m
     demo = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
     m.pause()
@@ -4106,11 +4334,11 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
     holed: gone, its footprint restored, bz_hidn), every lip-out's frame
     (bz_nlip moved: the pop), every frame on which a FLAG's drawn pose changed
     (raised, committed or promoted: [bz_ldrw]), every PAD swap's (bz_mat
-    moved) and one frame in W4_EVERY; and THE BLANK (128.14.5.6): the card's
+    moved) and one frame in W4_EVERY; and THE BLANK (130.14.5.6): the card's
     mode port written with its video-enable bit (08h) CLEAR before every full
     write's first row (bz_row after bz_fullw's entry), still clear at its
     bz_presented, and set again by the next frame's bz_presented.  WINDOWS:
-    [(first step, last step)] - wave 5b (SPEC.md 128.15.13): EVERY frame whose
+    [(first step, last step)] - wave 5b (SPEC.md 130.15.13): EVERY frame whose
     step ([bz_nstep]) lies in one is checked (`stretch`), and one where the
     oracle draws a GHOST (ball pixels kept through a laid record by the
     checker, Ref.ghosted) counts as `ghost`.  -> (fails, tallies)"""
@@ -4141,7 +4369,7 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
                 rowseen = True
                 if dark is not True:
                     fails.append("%s frame %d: the full write's first row with the card's video ENABLED (the "
-                                 "blank, SPEC.md 128.14.5.6: %s)" % (label, tal["frames"] + 1,
+                                 "blank, SPEC.md 130.14.5.6: %s)" % (label, tal["frames"] + 1,
                                                                       "never written" if dark is None else "lit"))
             continue
         if k == "bz_tf":
@@ -4154,13 +4382,13 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
             tal["respawn"] += fr > 1
             if dark is not True:
                 fails.append("%s frame %d: the full write's frame presented with the video ENABLED (the blank, "
-                             "SPEC.md 128.14.5.6)" % (label, fr))
+                             "SPEC.md 130.14.5.6)" % (label, fr))
             else:
                 tal["blank"] += 1
             why.append("full")
         elif lastfull and dark:
             fails.append("%s frame %d: the frame after a full write presented still DARK (bz_unblank, SPEC.md "
-                         "128.14.5.6)" % (label, fr))
+                         "130.14.5.6)" % (label, fr))
         lastfull, fullfr, infull = fullfr, False, False
         hid = g.drawn("bz_hid") if "bz_hid" in g.sym else 0
         if hid and not hid0:
@@ -4191,7 +4419,7 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
             fails.append("%s frame %d (%s) at bz_presented: %s" % (label, fr, "+".join(why) or "every", bad))
             break
         if "capture" in why and not lk.tube:
-            fails.append("%s frame %d: the capture frame draws the ball (bz_hidn 0, SPEC.md 128.14.19 item 4)" % (
+            fails.append("%s frame %d: the capture frame draws the ball (bz_hidn 0, SPEC.md 130.14.19 item 4)" % (
                 label, fr))
         ref.ghosted = 0
         n, box = diff(g.decode(S), ref.picture(R0, c0, lk, g.view()))
@@ -4212,7 +4440,7 @@ def w4_part(g, art=None):
     """MOON's shipped demo (a fall into the pit by flag 0, a RETURN, its three
     pads, the flags raised, the cup), then bonanzaphys's model-proved `cup-128`
     and `cup-lip` (PEAK: a capture from a neighbour, a lip-out's pop), each
-    through w4_replay; then wave 5b's (SPEC.md 128.15.13): PEAK's shipped demo
+    through w4_replay; then wave 5b's (SPEC.md 130.15.13): PEAK's shipped demo
     with EVERY frame of its hidden stretches checked (bbcourse's audit of the
     demo, vis_run + vis_stretches: the moat corridor's among them), the ghosts
     drawn there.  -> (fails, tallies by replay)"""
@@ -4240,7 +4468,7 @@ def w4_part(g, art=None):
         windows = [(h["a"], h["b"]) for h in BB.vis_stretches(BB.vis_run(peak, kt, mat))]
         if not windows:
             fails.append("W4 PEAK's demo: the model's audit finds no hidden stretch over 0.5 s in it (SPEC.md "
-                         "128.15.10.5 reads five), so the ghost frames cannot be checked")
+                         "130.15.10.5 reads five), so the ghost frames cannot be checked")
         else:
             print("%s W4 PEAK's demo: %d hidden stretch(es) checked frame by frame: %s" % (
                 g.tag, len(windows), ", ".join("steps %d - %d" % w for w in windows)), flush=True)
@@ -4255,7 +4483,7 @@ def w4_verdict(tag, out):
     t = out.get("moon") or {}
     for k, need in (("capture", 1), ("flag", 1), ("pad", 1), ("full", 1)):
         if t and t.get(k, 0) < need:
-            bad.append("W4 MOON's demo: %d %s frame(s) checked, at least %d (SPEC.md 128.14.14 bonanzaring)" % (
+            bad.append("W4 MOON's demo: %d %s frame(s) checked, at least %d (SPEC.md 130.14.14 bonanzaring)" % (
                 t.get(k, 0), k, need))
     if t and t.get("blank", 0) < t.get("full", 0):
         bad.append("W4 MOON's demo: %d of %d full writes blanked" % (t.get("blank", 0), t.get("full", 0)))
@@ -4267,10 +4495,10 @@ def w4_verdict(tag, out):
     if p is not None:
         if p.get("stretch", 0) < W4_STRETCH:
             bad.append("W4 PEAK's demo: %d frame(s) checked inside its hidden stretches, at least %d (SPEC.md "
-                       "128.15.13 bonanzaring)" % (p.get("stretch", 0), W4_STRETCH))
+                       "130.15.13 bonanzaring)" % (p.get("stretch", 0), W4_STRETCH))
         if not p.get("ghost"):
             bad.append("W4 PEAK's demo: no checked frame in its hidden stretches drew a GHOST (the ball's pixels "
-                       "kept through a laid record by the checker, SPEC.md 128.15.10.1)")
+                       "kept through a laid record by the checker, SPEC.md 130.15.10.1)")
     return bad
 
 
@@ -4279,7 +4507,7 @@ def part_fmt(o88=None):
     """the format the SHIPPED build's parts are packed in, 'lz4' or 'lzb': the
     parts TABLE's format byte (OP_T_FMT, os88pkg's PART_FMT_AT) read out of
     build/bonanza.o88 (O88 another package).  Every private tree a row builds
-    packs its parts in it (SPEC.md 128.15.9), never in os88pkg's default, so a
+    packs its parts in it (SPEC.md 130.15.9), never in os88pkg's default, so a
     red arm runs the decoder the shipped package runs (LZB, or the
     format a single-format COMPRESS= kernel forces)"""
     sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -4297,20 +4525,21 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appda
     (each OLD must occur exactly once - a red arm whose anchor moved says so),
     and the package and a floppy of SIZE KB built there from the current art -
     with SYSTEM\\APPDATA as the Makefile's bonanza*.img recipes build it
-    ($(APPDATAFOLDER), SPEC.md 128.14.3.3) unless APPDATA is False (the
+    ($(APPDATAFOLDER), SPEC.md 130.14.3.3) unless APPDATA is False (the
     `noappdata` red arm's image), and EXTRA more os88disk.py operands
     ('[DIR/..:]PATH').  The parts are packed in FMT, by default the shipped
-    build's (part_fmt, SPEC.md 128.15.9).  -> (source dir, image)."""
+    build's (part_fmt, SPEC.md 130.15.9).  -> (source dir, image)."""
     src = os.path.join(td, name)
     shutil.copytree(src0 or os.path.join(ROOT, "apps", "bonanza"), src)
     patch_tree(src, patches)
     art = art or at("build/bonanza-art")
     binp, o88, img = (os.path.join(td, n) for n in ("bonanza.bin", "BONANZA.O88", "%s%d.img" % (name, size)))
     assemble(src, art, binp)
-    shell = shell_part(td, src, art, binp)      # wave 8a (128.19.2): LINKED against this tree's package
-    fams = fam_parts(td, src, art)              # wave 9 (128.25.6.2): ...and so is every family part
+    shell = shell_part(td, src, art, binp)      # wave 8a (130.19.2): LINKED against this tree's package
+    fams = fam_parts(td, src, art)              # wave 9 (130.25.6.2): ...and so is every family part
+    vga = vga_part(td, src, art)                # SPEC.md 130.46.6: ...and the VGA's part
     subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88]
-                   + part_args(art, src, shell, fams)
+                   + part_args(art, src, shell, fams, vga)
                    + ["--part-compress", fmt or part_fmt()], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["python3", "tools/os88disk.py", "-o", img, "--size", str(size), o88] + list(extra)
                    + (["--folder", "SYSTEM/APPDATA"] if appdata else []), cwd=ROOT, check=True,
@@ -4362,7 +4591,7 @@ def assemble(src, art, binp):
 
 
 def shell_part(td, src, art, binp):
-    """wave 8a (SPEC.md 128.19.2): a tree's SHELL PART, linked against ITS
+    """wave 8a (SPEC.md 130.19.2): a tree's SHELL PART, linked against ITS
     package (tools/pxlink.py against BINP: the part's stamp is that package's
     image and bss, so a red arm that moves a byte gets a part that fits it)
     and assembled from the tree's bzshell.asm.  -> its path, or None for a
@@ -4380,24 +4609,39 @@ def shell_part(td, src, art, binp):
     return out
 
 
+def vga_part(td, src, art):
+    """SPEC.md 130.46.6: a tree's VGA PART, BZVGA.BIN, assembled from the tree's
+    bzvga.asm against the bzlink.inc shell_part wrote for the tree's package.
+    -> its path, or None for a tree with none (an earlier wave's)"""
+    inc = os.path.join(td, "bzlink-inc")
+    if not os.path.exists(os.path.join(src, "bzvga.asm")) or not os.path.exists(os.path.join(inc, "bzlink.inc")):
+        return None
+    out = os.path.join(td, "bzvga.bin")
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                    "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzvga.asm")], cwd=ROOT, check=True)
+    return out
+
+
 def after_shell(src=None):
-    """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
-    8b, 128.19.5), the title's two (SPEC.md 128.23) and (wave 9, 128.25.6.2)
-    one a family, where SRC's package carries them"""
+    """the part rows AFTER the shell's (SPEC.md 130.19.2): the pathway's (wave
+    8b, 130.19.5), the title's two (SPEC.md 130.23), (wave 9, 130.25.6.2)
+    one a family, and (SPEC.md 130.46.6) the VGA part's, the last, where SRC's
+    package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
-    if "BZ_P_FBUN" in asm:                      # 128.25.6.9: a row a FETCH family, and the bundle's
+    if "BZ_P_FBUN" in asm:                      # 130.25.6.9: a row a FETCH family, and the bundle's
         nf = BB.fam_nrows()
     else:
         nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
-    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf   # (128.37: the kit)
+    return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf \
+        + ("BZ_P_VGA" in asm)                   # (130.37: the kit; 130.46.6: the VGA's part)
 
 
 def fam_parts(td, src, art):
-    """wave 9 (SPEC.md 128.25.6.2): a tree's FAMILY PARTS, bbcourse.FAMILIES' order,
+    """wave 9 (SPEC.md 130.25.6.2): a tree's FAMILY PARTS, bbcourse.FAMILIES' order,
     each assembled from the tree's fam/<name>.asm against the bzlink.inc
     shell_part wrote for the tree's package (its stamp that package's).  -> the
     paths, or None for a tree with no family rows (an earlier wave's); a tree
-    with the RESIDENT BUNDLE (SPEC.md 128.25.6.9) gets the ROWS' files instead,
+    with the RESIDENT BUNDLE (SPEC.md 130.25.6.9) gets the ROWS' files instead,
     the fetch families' parts and the bundle (bbcourse.fam_bundle)"""
     inc = os.path.join(td, "bzlink-inc", "bzlink.inc")
     if not os.path.exists(os.path.join(src, "bzfam.inc")) or not os.path.exists(inc):
@@ -4412,24 +4656,24 @@ def fam_parts(td, src, art):
     if "BZ_P_FBUN" in open(os.path.join(src, "bonanza.asm")).read():
         byname = dict((f["name"], open(p, "rb").read()) for f, p in zip(BB.FAMILIES, out))
         bun = os.path.join(td, BB.FBUN_FILE)
-        with open(bun, "wb") as fo:             # (the balls at its head, SPEC.md 128.25.5.2)
+        with open(bun, "wb") as fo:             # (the balls at its head, SPEC.md 130.25.5.2)
             fo.write(BB.fam_bundle(byname, BB.fam_balls(art)) if "BZ_BALB" in open(os.path.join(src, "bonanza.asm")).read()
                      else BB.fam_bundle(byname, None))
         out = [p for f, p in zip(BB.FAMILIES, out) if f in BB.FAM_FETCH] + [bun]
     return out
 
 
-def part_args(art, src=None, shell=None, fams=None):
-    """The --part list in the Makefile's BZ_PARTS order (SPEC.md 128.11.3.1):
-    rows 0 - 2 the rubber, steel and glass balls (before SPEC.md 128.25.5.2:
+def part_args(art, src=None, shell=None, fams=None, vga=None):
+    """The --part list in the Makefile's BZ_PARTS order (SPEC.md 130.11.3.1):
+    rows 0 - 2 the rubber, steel and glass balls (before SPEC.md 130.25.5.2:
     the bundle carries them since), then course K's one part
     (bzcourse.inc's BZ_NCRS of them), then - where SRC's package carries
-    them - the sound part and one part a song (SPEC.md 128.20.3)."""
+    them - the sound part and one part a song (SPEC.md 130.20.3)."""
     n = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", open(os.path.join(art, "bzcourse.inc")).read(), re.M).group(1))
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
-                                                # ride the bundle since SPEC.md 128.25.5.2)
-    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 128.30.4.4: the two-part courses' WORLD parts
+                                                # ride the bundle since SPEC.md 130.25.5.2)
+    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 130.30.4.4: the two-part courses' WORLD parts
     if os.path.exists(lst):
         files += open(lst).read().split()
     if "BZS_NSONG" in asm:
@@ -4437,24 +4681,26 @@ def part_args(art, src=None, shell=None, fams=None):
                            re.M).group(1))
         files += ["BZSND.BIN"] + ["BZM%d.BIN" % i for i in range(ns)]
     if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a tour course, after the
-        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 128.14.7.4, 128.14.22 item 7)
+        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 130.14.7.4, 130.14.22 item 7)
     out = []
     for p in files:
         out += ["--part", os.path.join(art, p)]
-    if "BZ_P_SHELL" in asm:                     # wave 8a (128.19.2): the shell part, the tree's own link
+    if "BZ_P_SHELL" in asm:                     # wave 8a (130.19.2): the shell part, the tree's own link
         out += ["--part", shell or at("build/bzshell.bin")]
-    if "BZ_P_PATH" in asm:                      # wave 8b (128.19.5): the pathway
+    if "BZ_P_PATH" in asm:                      # wave 8b (130.19.5): the pathway
         out += ["--part", os.path.join(art, "BZPATH.BIN")]
-    if "BZ_P_TITLE" in asm:                     # SPEC.md 128.23: the title and its demos, the last rows
+    if "BZ_P_TITLE" in asm:                     # SPEC.md 130.23: the title and its demos, the last rows
         out += ["--part", os.path.join(art, "BZTITLE.BIN"), "--part", os.path.join(art, "BZTDEMO.BIN")]
-    if "BZ_P_KIT" in asm:                       # SPEC.md 128.37: the kit, after the title's rows
+    if "BZ_P_KIT" in asm:                       # SPEC.md 130.37: the kit, after the title's rows
         out += ["--part", os.path.join(art, "BZKIT.BIN")]
-    if "BZ_P_FBUN" in asm:                      # 128.25.6.9: the family ROWS - the fetch families' and
+    if "BZ_P_FBUN" in asm:                      # 130.25.6.9: the family ROWS - the fetch families' and
         for p in fams or BB.fam_partfiles(at("build")):     # the RESIDENT BUNDLE, the last
             out += ["--part", p]
-    elif "BZ_P_FAM" in asm:                     # wave 9 (128.25.6.2): the family parts, the last rows
+    elif "BZ_P_FAM" in asm:                     # wave 9 (130.25.6.2): the family parts, the last rows
         for i, f in enumerate(BB.FAMILIES):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
+    if "BZ_P_VGA" in asm:                       # SPEC.md 130.46.6: the VGA's part, the last row
+        out += ["--part", vga or at("build/bzvga.bin")]
     return out
 
 
@@ -4515,7 +4761,8 @@ MAPSKIP = [
 ]
 COLFIRST_TV = ("    mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2\n"
                "bz_tv:                          ; parts keep their numbers)\n    call bz_mark\n")
-COLFIRST_COL = ".lit:\n    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n"
+COLFIRST_COL = (".lit:\n    cmp byte [bz_vga], 0        ; (the VGA's column went with its rows)\n    jne bz_tb\n"
+                "    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n")
 REDS = {
     # the entering column moving right: the window's column W (not W - 1)
     "colright": [("bzgame.inc", "    add ax, [bz_W]              ; moving right: the right edge's\n    dec ax\n",
@@ -4529,7 +4776,7 @@ REDS = {
     # every frame counted late: the bz_rlate assertion's own red
     "late": [("bzgame.inc", "bz_presented:\n    call bz_mark\n",
               "bz_presented:\n    call bz_mark\n    inc word [bz_late]\n")],
-    # SPEC.md 128.9 item 6's order undone: a box at window row 0 takes the WHOLE column first
+    # SPEC.md 130.9 item 6's order undone: a box at window row 0 takes the WHOLE column first
     # (still flagged a row-0 box, so bz_latechk times it from line 0 and sees the beam overtake it)
     "row0": [("bzgame.inc", "    inc ax\n    mov byte [bz_row0], 1\n.mono:\n",
               "    inc ax\n    mov byte [bz_row0], 1\n    mov ax, [bz_H]              ; RED row0: the whole column first\n"
@@ -4559,12 +4806,12 @@ REDS = {
                "    call bz_boxc                ; the course, the shadow, the sprite\n"
                "    call bz_occ                 ; RED pass2: a walk a box\n"
                "    add si, BZ_BOXD\n    loop .comp\n    nop                         ;")],
-    # wave 3 (SPEC.md 128.12.13.2).  The contact choice and the wheel's box test both taken
+    # wave 3 (SPEC.md 130.12.13.2).  The contact choice and the wheel's box test both taken
     # out: a due lane beside the ball is the wheel's, committed over the ball's box
     "contact": [("bzwheel.inc", "    call bz_lfoot               ; ...a contact candidate ...\n    jnc .wheel\n",
                  "    call bz_lfoot               ; ...a contact candidate ...\n"
                  "    jmp .wheel                  ; RED contact: never a contact, always the wheel's\n"),
-                # ...and the wheel's box filter (SPEC.md 128.12.4.2, the review's W1) gone with it, or
+                # ...and the wheel's box filter (SPEC.md 130.12.4.2, the review's W1) gone with it, or
                 # the wheel would drop every such candidate and the arm stay green
                 ("bzwheel.inc", "    call bz_wboxm               ; meeting a box: never the wheel's\n    jnc .pk\n",
                  "    jmp short .pk               ; RED contact: no box filter\n")],
@@ -4573,7 +4820,7 @@ REDS = {
     "defer": [("bzwheel.inc", "    jnc .wheel\n    inc byte [bz_ccnt]\n",
                "    jnc .wheel\n    push ax                     ; RED defer: every contact candidate synced\n"
                "    mov al, [bz_ltru + bx]\n    call bz_lsync\n    pop ax\n    inc byte [bz_ccnt]\n")],
-    # wave 3b (SPEC.md 128.13.12).  The RIDE BOX composed without the slab's layer under the ball (bz_pblit
+    # wave 3b (SPEC.md 130.13.12).  The RIDE BOX composed without the slab's layer under the ball (bz_pblit
     # skipped when the platform's box merged into the ball's group): the card loses the slab under the ball
     "ridebox": [("bzvideo.inc", "    cmp byte [bz_pov], 0\n    jne .shadow\n    call bz_pblit\n",
                  "    cmp byte [bz_pov], 0\n    jne .shadow\n    cmp byte [bz_ctype], 2       ; RED ridebox: no slab "
@@ -4599,7 +4846,7 @@ REDS = {
     # the blank left out: the mode port written with its enable bit SET at a full write (the W4 replays)
     "noblank": [("bzgame.inc", "    mov al, 22h\n    mov byte [bz_blk], 1\n",
                  "    mov al, 2ah                 ; RED noblank: the video left enabled\n    mov byte [bz_blk], 1\n")],
-    # wave 5b (SPEC.md 128.15.13): the walk steps 8 over the 4-byte records - every second record of
+    # wave 5b (SPEC.md 130.15.13): the walk steps 8 over the 4-byte records - every second record of
     # a block word skipped, so the pass leaves a record the rule lays unlaid
     "recstep": [("bzvideo.inc", ".skip:\n    add si, BZ_REC\n",
                  ".skip:\n    add si, 8                   ; RED recstep: the 8-byte record's stride\n")],
@@ -4610,7 +4857,7 @@ REDS = {
                ("bzvideo.inc", "    cmp byte [bz_hidn], 0       ; hidden: nothing\n    jne .nob\n",
                 "    nop                         ; RED hidden: its sprite composed in a tube\n")],
 }
-# wave 6 (SPEC.md 128.16.14): the camera's ground line broken five ways, and the stretch never drawn
+# wave 6 (SPEC.md 130.16.14): the camera's ground line broken five ways, and the stretch never drawn
 REDS["camz"] = [("bzgame.inc", ".cgl:\n    add bp, ax                  ; BP = cy + 8\n",
                  ".cgl:\n    nop                         ; RED camz: the ball's own line, wave 2's\n")]
 REDS["nosafe"] = [("bzgame.inc", "    jb .cgl                     ; trips too): the ground line\n",
@@ -4619,7 +4866,7 @@ REDS["nolatch"] = [("bzgame.inc", "    mov dh, 1                   ; ball's own 
                     "    mov dh, 0                   ; RED nolatch: the fallback not latched\n")]
 # (`ringcy`, wave 6's TRIAL-drop arm on the ring's y half, is RETIRED by wave 6b: LATTICE's rows never read
 # the ring and the guest deletes its y half, so no code is left for it to break; `camring` replaces it on the
-# CAMERA leg, SPEC.md 128.17.10)
+# CAMERA leg, SPEC.md 130.17.10)
 REDS["nostretch"] = [("bzgame.inc", "    mov al, BZ_SPR_STR\n    mov dx, BZ_BAL_STROFF\n    jmp short .ent\n",
                       "    jmp .roll                   ; RED nostretch: bz_sprite ignores stf\n")]
 REDS["campad"] = [("bzgame.inc", ".gline:\n    mov ax, [bz_gz + 1]         ; AX = z, whole px\n",
@@ -4633,14 +4880,14 @@ GROUND_ONLY = {}                    # a red arm's run: its scenario and mode alo
 # SHIPPED model, where it parts at the trip (CGA frame 223, step 203): on the guest's own frame pacing the
 # unlatched camera reaches the kill before it reverses a row (its model, paced at the card's mean rate,
 # reverses 2 frames before the kill; paced as the guest ran, against `_nolatch`, never), so the row's
-# reversal check cannot be its own (128.16.14 as built)
+# reversal check cannot be its own (130.16.14 as built)
 GROUND_RED = {"camz": {"only": ("boostclimb",), "modes": (0,)},
               "nosafe": {"only": ("voidfall",), "modes": (0,), "glide": {"_nosafe": True}},
               "nolatch": {"only": ("voidfall",), "modes": (0,)},
               "nostretch": {"only": ("boostclimb",), "modes": (0,)},
               "campad": {"only": ("boostclimb",), "modes": (0,)}}
 
-# wave 6b (SPEC.md 128.17.10): LATTICE broken six ways on the CAMERA leg, each red at its own check
+# wave 6b (SPEC.md 130.17.10): LATTICE broken six ways on the CAMERA leg, each red at its own check
 REDS["camhyst"] = [("bzgame.inc", "    sub ax, [di + BZK_HR]\n.lo:\n", "                                ; RED camhyst: Hr 0\n.lo:\n"),
                    ("bzgame.inc", "    add bx, [di + BZK_HR]\n.hi:\n", "                                ; RED camhyst: Hr 0\n.hi:\n")]
 REDS["camcap"] = [("bzgame.inc", "    cmp byte [si + BZL_HELD], BZ_LAH2\n    jae .go", "    nop                         ; RED camcap: no cap\n    nop"),
@@ -4648,7 +4895,7 @@ REDS["camcap"] = [("bzgame.inc", "    cmp byte [si + BZL_HELD], BZ_LAH2\n    jae
 REDS["campreaim"] = [("bzgame.inc", "    call bz_lexit               ; a tube in transit: its exit (BX, BP)\n",
                       "                                ; RED campreaim: the ball's own point in a tube\n")]
 REDS["camprex"] = [("bzgame.inc", "    cmp byte [si + BZL_PRE], 0  ; a PRE-AIMED pan is never withheld (guarantee\n"
-                    "    jne .go                     ; 5 by construction, SPEC.md 128.25.3)\n",
+                    "    jne .go                     ; 5 by construction, SPEC.md 130.25.3)\n",
                     "                                ; RED camprex: a pre-aimed pan withheld like any other\n")]
 # camring: the rows read the travel ring - its y half, which wave 6b deleted, put back in the arm exactly as
 # bbcourse.Glide's `_ringy` keeps it (four words of bz_by's low word, the slot read four frames ago, 2 lines a
@@ -4675,13 +4922,13 @@ RED_CAM_WANT = {"camhyst": "the reversal check", "camcap": "the lift stretch's h
 
 
 def nodither_art(td):
-    """`nodither`'s data (SPEC.md 128.15.13): build/bonanza-art copied into TD
+    """`nodither`'s data (SPEC.md 130.15.13): build/bonanza-art copied into TD
     with every BZ<K>.BIN replaced by the TOOL'S UNDITHERED compile of the same
     course (`_hack no_dither`), its identity word
     stamped with the shipped part's so the demos and BONANZA.DAT still match.
     So the arm differs from the shipped build in exactly the dither: each
     record lays its undithered mask, and the records the dither leaves out of
-    the part (those laying nothing once dithered, 128.15.10.1) are back.  Not
+    the part (those laying nothing once dithered, 130.15.10.1) are back.  Not
     the shipped masks with the checker ANDed out: that also clears lattice
     bits a record's own mask kept, laying geometry BEHIND the ball over it
     (the review's P2), and one dithered mask can stand for several undithered
@@ -4705,7 +4952,7 @@ def nodither_art(td):
         if u.split != c.split:
             raise AssertionError("nodither: %s is %s undithered and %s shipped" % (
                 name, "two parts" if u.split else "one part", "two" if c.split else "one"))
-        # (a TWO-PART course, SPEC.md 128.30: the masks are its picture part's, the identity word its world
+        # (a TWO-PART course, SPEC.md 130.30: the masks are its picture part's, the identity word its world
         # part's, and both parts are written, BZ<K>.BIN and BZ<K>W.BIN)
         ram = bytearray(u.cga)
         wram = bytearray(u.wcga) if u.split else None
@@ -4753,7 +5000,7 @@ RED_PARTS.update({k: ("camera",) for k in CAM_RED})
 # on the CGA alone for the same reason; and the table is the Hercules's
 RED_TAGS = {"row0": ("cga",), "late2": ("cga",), "htab": ("herc",), "wrapmask": ("herc",),
             # wave 6: `nolatch` reverses the rows on the CGA's fall alone (the Hercules' rows are 4 lines and
-            # the ball's own line stays inside the band there, SPEC.md 128.16.8)
+            # the ball's own line stays inside the band there, SPEC.md 130.16.8)
             "nolatch": ("cga",),
             # wave 6's final pass: the Hercules' MILL route under the new drag brings no contact candidate
             # under the wheel on a checked frame, so there `contact` goes red only at the DEFER scene (the
@@ -4773,10 +5020,34 @@ RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_r
             "nostretch": "card != oracle", "campad": "ground-line block's span"}
 RED_WANT.update(RED_CAM_WANT)
 
+# THE VGA's CARD (SPEC.md 130.46, plan V3): its red arms, each on the VGA alone
+REDS.update({
+    # the column's entry table with its first two swapped: a column from a block's line 0 enters at line 1
+    "vcolent": [("bzvga.asm", ".tab:   dw .k0, .k1, .k2, .k3, .k4, .k5, .k6, .k7",
+                 ".tab:   dw .k1, .k0, .k2, .k3, .k4, .k5, .k6, .k7    ; RED vcolent")],
+    # the row's entry table with its first two swapped: a whole row enters at its second cell
+    "vrowent": [("bzvga.asm", "    dw .r0, .r1, .r2", "    dw .r1, .r0, .r2")],
+    # the pel pan never set: the display's x0 kept, the card showing whole columns
+    "vpan": [("bzgame.inc", "    mov al, [bz_vpan]           ; the display's panning (130.46.10)\n",
+              "    xor al, al                  ; RED vpan: the panning always 0\n")],
+    # BZV_ROLL's rule gone: the shown phases the true ones
+    "vroll": [("bzvga.asm", "bzv_roll:\n    cmp byte [bz_vrv], 0\n",
+               "bzv_roll:\n    retf                        ; RED vroll\n    cmp byte [bz_vrv], 0\n")],
+    # TRACK's step two up a frame: the display's step jumps
+    "vjerk": [("bzvga.asm", ".up:\n    mov al, [di + 4]\n    inc ax\n",
+               ".up:\n    mov al, [di + 4]\n    inc ax\n    inc ax                      ; RED vjerk\n")],
+})
+RED_PARTS.update({"vcolent": ("vbench",), "vrowent": ("vbench",), "vpan": ("vbench",), "vroll": ("vbench",),
+                  "vjerk": ("vcam",)})
+RED_TAGS.update({k: ("vga",) for k in ("vcolent", "vrowent", "vpan", "vroll", "vjerk")})
+RED_WANT.update({"vcolent": "of the engine window differ", "vrowent": "of the engine window differ",
+                 "vpan": "the glass at frame", "vroll": "BZV_ROLL showed phases",
+                 "vjerk": "the step changed by more than one"})
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
+    ap.add_argument("--adapter", choices=("cga", "herc", "vga", "both", "all"), default="all")
     ap.add_argument("--part", choices=PARTS, action="append",
                     help="run only these parts (default all)")
     ap.add_argument("--red", choices=sorted(list(REDS) + list(RED_DATA)))
@@ -4808,7 +5079,7 @@ def main():
                       "shipped identity stamped in) and the package assembles over it (%d bytes)" % (
                           name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
         return
-    tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
+    tags = {"both": ("cga", "herc"), "all": ("cga", "herc", "vga")}.get(a.adapter, (a.adapter,))
     if a.red:
         tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
         GROUND_ONLY.update(GROUND_RED.get(a.red, {}))

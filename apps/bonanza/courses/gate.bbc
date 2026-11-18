@@ -1,4 +1,4 @@
-# Gate Test - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE test course (SPEC.md 128.41), built only by the
+# Gate Test - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE test course (SPEC.md 130.41), built only by the
 # BZGATE=1 knob (make BUILD=<tree> BZGATE=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES
 # and makes it the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 # A PLATE (rolled over) or a KEY (touched) opens its CHANNEL for the attempt: every gate of it opens and every
@@ -12,7 +12,7 @@
 #  - south-east, the TIMED DRAWBRIDGE (wy 11 - 12): six cells over the void, down 128 steps in every 256 (2.3 s each way);
 #    caught up, the ball falls; a goal across it;
 #  - west, the BOX DRAWBRIDGE (wy 10 - 11): two cells up until the box plate is rolled over; a goal across it.
-# THE ART's STYLES (SPEC.md 128.41.11), one an element group: the ring gates CRYSTAL, the plus gates PORTCULLIS,
+# THE ART's STYLES (SPEC.md 130.41.11), one an element group: the ring gates CRYSTAL, the plus gates PORTCULLIS,
 # the timed drawbridge's deck PICKET (planks), the box drawbridge the default GRILLE (its plain seam).
 course GATE "Gate Test"
 width  128
@@ -60,3 +60,21 @@ way 10 11
 way 12 11
 way 12 9
 way 21 9
+
+# THE ART GATES (SPEC.md 130.41.12): three short corridors north of the start plate, each shut by a gate of the
+# designer's own ART (apps/bonanza/courses/gates/*.bba, four frames shut to open), into a back hall with a goal.
+# Each opens with a channel the presets use, so the preset scenes play the art's frames as well:
+#  - x 8, the DOOR (box): a door frame and a plank door that swings open away from the viewer;
+#  - x 10, the CRUMBLE (ring): a brick wall between two blocks that cracks, crumbles and falls to rubble;
+#  - x 12 - 13, the PORTCULLIS (plus): a stone arch over two cells, its iron grid rising into it.
+floor rect 8 3 14 6 flat 2     # the back hall (wy 3 - 4) and the gates' row (wy 5)
+floor rect 8 6 9 8 flat 2      # the door's corridor
+floor rect 10 6 11 8 flat 2    # the crumble's
+floor rect 12 6 14 8 flat 2    # the portcullis's, two cells wide
+wall tile 9 5 flat 3           # the crumble's two blocks, a unit proud
+wall tile 11 5 flat 3
+prop gate 8 5 channel box along y art door
+prop gate 10 5 channel ring along y art crumble
+prop plate 10 6 channel ring   # (a second ring plate, right before the wall: the ball waits while it crumbles)
+prop gate 12 5 channel plus along y art portcullis
+goal tile 10 3 flat 2

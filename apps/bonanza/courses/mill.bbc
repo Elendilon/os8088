@@ -1,10 +1,10 @@
-# Windmill Lane - BONANZA's course 3 (SPEC.md 128.12.9): the course wave 3's
+# Windmill Lane - BONANZA's course 3 (SPEC.md 130.12.9): the course wave 3's
 # obstacles are judged on, built for the RUBBER ball.  Everything wave 3 adds
 # is on it:
 #  - two WINDMILLS, each a KEEP tunnel through one house to a tier beside it,
 #    entered along -y through a doorway on the house face with its rotor
 #    standing on it.  The route passes the right one (an explicit seed, 16, so
-#    the autopilot's first approach finds the gate open, SPEC.md 128.12.15
+#    the autopilot's first approach finds the gate open, SPEC.md 130.12.15
 #    item 4); the left one keeps its derived seed (36);
 #  - three BUMPERS, a cluster on a green walled with bumper rails: the route
 #    crosses it and ricochets off two posts;
@@ -14,7 +14,7 @@
 #  - a LAUNCH cannon from F over a gap onto G, the goal ledge.  Its flight runs
 #    along a cell row (constant s) from a lone mouth tile to G's front corner,
 #    with nothing in front of it, so it and the chute's fall cross no OCC cell
-#    (the layout 128.11.13 item 8 asked of TRIAL's flights); a wall at the end
+#    (the layout 130.11.13 item 8 asked of TRIAL's flights); a wall at the end
 #    of the row and a lower terrace in front of G keep a bounce off the corner
 #    on the course;
 #  - a LIFT (L 6, P 256, the default dwell: v 192) in a shaft on F's east
@@ -25,7 +25,7 @@
 course MILL "Windmill Lane"
 width 64
 ball rubber
-# story 9.8 (SPEC.md 128.25.20): today's props' families, home RESIDENT (128.25.6.9)
+# story 9.8 (SPEC.md 130.25.20): today's props' families, home RESIDENT (130.25.6.9)
 uses rotor tube
 
 # A, the start tier, and the windmills' house behind it
@@ -74,7 +74,7 @@ prop platform 26 18 6
 
 start 9 12
 
-# The autopilot's route (the benchmark's MILL leg, SPEC.md 128.12.9): into the
+# The autopilot's route (the benchmark's MILL leg, SPEC.md 130.12.9): into the
 # windmill, over the green, down the chute, through the cannon to the goal - no
 # fall in 1,289 steps (`bbcourse.py --selfcheck` item 8).
 way  9 12
@@ -90,19 +90,25 @@ way 23 22
 way 23 24
 way 19 25
 
-# Wave 4 (SPEC.md 128.14.3.1): par, the autopilot's time on the route (676 steps,
+# Wave 4 (SPEC.md 130.14.3.1): par, the autopilot's time on the route (676 steps,
 # 12.4 s) and a third, PROVISIONAL (O41).  It writes nothing into the part.
-# wave 7 (SPEC.md 128.18.3): `par` is refused; the tool's limit from the route applies
-# Wave 5b (SPEC.md 128.15.8): the design time (CD3), the early class until its retrofit; the
+# wave 7 (SPEC.md 130.18.3): `par` is refused; the tool's limit from the route applies
+# Wave 5b (SPEC.md 130.15.8): the design time (CD3), the early class until its retrofit; the
 # course budget reads it (6275 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 30
 
-# wave 7 (SPEC.md 128.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
-# seconds left of the limit; placed beside the route for the clock's measurement
-clock 8 11
+# wave 7 (SPEC.md 130.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
+# seconds left of the limit; placed beside the route for the clock's measurement.  (2026-11-18, SPEC.md
+# 130.18.5.4: a clock is an OCCLUDER now; at (8, 11) it stood in front of the windmills' doorways and put
+# their IN 3 x 3 in its shade (OCCG, refused: a must-draw rotor's frame runs no occluder pass) - moved to
+# the floor's front-left corner, off the route and out of both doorways' 3 x 3)
+clock 6 13
 
-# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# the FINISH clock (wave 8R, SPEC.md 130.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
-clock 22 22
+# (2026-11-18, SPEC.md 130.18.5.4: a clock is an OCCLUDER now; at (22, 22) it stood in front of the DROP's
+# exit (20, 20) and made the fall cross an OCC cell, which --selfcheck item 8 refuses - moved to the goal
+# floor's front-left corner)
+clock 18 27

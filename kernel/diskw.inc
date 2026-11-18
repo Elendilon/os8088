@@ -358,7 +358,12 @@ dskw_wrp:
     mov [dskw_src], bx          ; loop (which re-loads ES per transfer)
     mov [dskw_len], cx
     mov [dskw_lenhi], dx
-    call ax                     ; out: CF + AX (pops do not touch flags)
+%ifdef KERN_SMALL                ; (kern_small's heap rung is locked:
+    call ax                     ; no media check there, SPEC.md 18.9.1.3)
+%else
+    call dskw_wck               ; the body in AX, behind SPEC.md 18.9.1.3's
+%endif                          ; media check: out CF + AX (pops do not touch
+                                ; flags)
     call ct_fpg_end             ; the ONE place the widget is given back,
                                 ; however many ways the body returned - and it
                                 ; preserves CF and AX too (SPEC.md 12.8)
@@ -474,8 +479,69 @@ dskw_wrap7:
     push di
     push bp
     push es
+%ifdef KERN_SMALL
     call ax
+%else
+    call dskw_wck               ; the body in AX, behind the media check
+%endif
     jmp short dskw_wrp.pop      ; the same seven pops, the same order
+
+%ifndef KERN_SMALL
+; -----------------------------------------------------------------------------
+; dskw_wck - EVERY WRITE BODY'S DOOR: is this still the disk we mounted?
+; (SPEC.md 18.9.1.3) in: AX = the body, everything else the body's; out: the
+; body's CF/AX, or CF=1 AX = FERR_NODISK and nothing written; clobbers what
+; the body clobbers
+;
+; Every create, replace, append, write-at, WRITE_SEQ chunk, delete, rename,
+; mkdir, rmdir and rmtree comes through dskw_wrp or dskw_wrap7, and so through
+; here - the kernel's own writers as well as the cells. A WRITE is asked what
+; a read is not: a read of a swapped floppy returns bunk and refuses, a write
+; of one puts the old disk's FAT and free map on the new disk. So the volume
+; is re-read (a quiet mount: LBA 0, the FAT window kept on a matching
+; signature) when the motor is stopped NOW, or when [dsk_mvok] says a
+; transfer ran with it stopped since the last mount - which is the case the
+; motor test alone misses: an unchecked READ after the swap spins the motor,
+; and then the write is "within two seconds". A different signature REFUSES
+; the write, leaving the new disk mounted for the next operation to resolve
+; against: the name and the folder this one was handed are the old disk's.
+; Fixed, driver and redirected volumes answer the motor test with no I/O and
+; never clear [dsk_mvok].
+; -----------------------------------------------------------------------------
+dskw_wck:
+    cmp byte [dsk_mntok], 1     ; nothing mounted: the body's own gate says so
+    jne .go
+    push dx
+    mov dl, [disk_drive]
+    call dsk_media_ok           ; CF=1: the motor has stopped - check
+    pop dx                      ; (pop keeps CF)
+    jc .chk
+    cmp byte [dsk_mvok], 0      ; ...or a transfer ran with it stopped since
+    jne .go                     ; the last mount: check
+.chk:
+    push ax
+    push dx
+    push word [dsk_sigcur]      ; which disk the caller's view came off
+    mov dl, [disk_drive]
+    mov ax, [dsk_cwd]
+    mov byte [dsk_quiet], 1
+    call dsk_chdir_x            ; a quiet mount where we stand: LBA 0 off the
+    mov byte [dsk_quiet], 0     ; platter, never the cache
+    pop dx
+    jc .no                      ; no disk at all now: refused
+    cmp dx, [dsk_sigcur]
+    jne .no                     ; ANOTHER DISK: refused, nothing written
+    pop dx
+    pop ax
+.go:
+    jmp ax
+.no:
+    pop dx
+    pop ax
+    mov ax, FERR_NODISK
+    stc
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dskw_dfree - free space on the mounted volume (SPEC.md 18.4, a door cell)

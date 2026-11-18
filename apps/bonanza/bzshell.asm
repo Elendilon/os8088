@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/bzshell.asm - BONANZA's SHELL PART (SPEC.md 128.19.2, wave 8a)
+; apps/bonanza/bzshell.asm - BONANZA's SHELL PART (SPEC.md 130.19.2, wave 8a)
 ;
 ; The desktop code a play never needs - today the FACE (bzface.inc) - out of
 ; the resident image and into a lazy, compressed OP_SEG part of BONANZA.O88,
@@ -33,7 +33,7 @@ bzh_v2: jmp near bzh_line       ; BZH_LINE
     times ($ - $$) - BZH_VEC - BZH_VECB * BZH_NVEC db 0
 
 bzh_face:                       ; the PLAYER's face, or with the harness byte
-    cmp byte [bz_dev], 0        ; set the instruments' (SPEC.md 128.26.6)
+    cmp byte [bz_dev], 0        ; set the instruments' (SPEC.md 130.26.6)
     jne .dev
     call bz_wface
     retf
@@ -56,7 +56,7 @@ bzh_line:                       ; AH = the line
 .out:
     retf
 
-; --- the package's helpers the face reads, copied (SPEC.md 128.19.2) ---------
+; --- the package's helpers the face reads, copied (SPEC.md 130.19.2) ---------
 ; CF = 1 while a tour's course is next or playing (bonanza.asm's bz_intour)
 bz_intour:
     push ax
@@ -74,7 +74,7 @@ bz_rhave:
 .out:
     ret
 
-; AL = 1 CGA, 2 Hercules, 0 neither (bonanza.asm's bz_adapter)
+; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 130.46.2)
 bz_adapter:
     push bx
     push dx
@@ -89,10 +89,17 @@ bz_adapter:
     jmp .out
 .herc:
     cmp dl, VID_HERC
-    jne .none
+    jne .vga
     test ax, 1 << FSXM_HERC
     jz .none
     mov al, 2
+    jmp .out
+.vga:
+    cmp dl, VID_VGA
+    jne .none
+    test ax, 1 << FSXM_VGA0D
+    jz .none
+    mov al, 3
     jmp .out
 .none:
     xor al, al
@@ -101,6 +108,6 @@ bz_adapter:
     pop bx
     ret
 
-%include "bzwin.inc"            ; the window's art (tools/bzwinart.py, SPEC.md 128.26.2)
+%include "bzwin.inc"            ; the window's art (tools/bzwinart.py, SPEC.md 130.26.2)
 %include "bzface.inc"
 %include "bzwface.inc"

@@ -1,6 +1,6 @@
-# Proving Ground - BONANZA's course 0, the benchmark's (SPEC.md 128.10.11.1).
+# Proving Ground - BONANZA's course 0, the benchmark's (SPEC.md 130.10.11.1).
 #
-# Wave 0b's generated test course (SPEC.md 128.3) - a start plateau, a long
+# Wave 0b's generated test course (SPEC.md 130.3) - a start plateau, a long
 # descent with a rail, a landing, a traverse left with a block, a climb, a
 # plateau, a sprint down and a finish - in the text format, changed where
 # physics v1 needs it:
@@ -42,7 +42,7 @@ floor rect  28 25 33 31  flat 28.5
 wall  rect  28 24 33 25  flat 30.5
 # G. the sprint down: a screen-vertical band, one half unit a tile of s down
 #    (wave 0b's ran 56 rows of s; this one 28, so the part fits: SPEC.md
-#    128.10.4.2 - the benchmark's 1,200 frames never reach it)
+#    130.10.4.2 - the benchmark's 1,200 frames never reach it)
 floor band  -1 6  64 92  ramp s 64 92 28.5 14.5
 # H. the finish: a wide plateau and a chequered line
 floor band  -7 7  92 112 flat 14.5
@@ -58,19 +58,19 @@ hole  band  0 0 84 85
 
 start 6 14
 
-# The benchmark's route (the autopilot, SPEC.md 128.6): the ball's picture
+# The benchmark's route (the autopilot, SPEC.md 130.6): the ball's picture
 # top-left on each tile's centre, in order, the first the start (bz_play
 # begins at the second).  Chosen with a host model of GLIDE driving
 # bbcourse.Physics: down the descent onto the landing, a loop round it with
 # two reversals, into the traverse behind its block, then on toward the climb.
-# Wave 2 (SPEC.md 128.11.13) re-proved it under the arrows' ramp, the rubber
+# Wave 2 (SPEC.md 130.11.13) re-proved it under the arrows' ramp, the rubber
 # ball and GLIDE's four-frame "fast" test, with the model KEPT this time
 # (bbcourse.Glide): the third way moved from (17, 18) to (17, 15), and every
 # one of the eight scroll directions occurs at least 8 times on both cards
 # at step rates 0.96 - 1.04 of the real one (ten phases each).  The 1,200
 # frames reach the first twelve (the CGA's 1,093 steps) with no fall in the
 # Hercules's 1,289; `bbcourse.py --selfcheck` item 8 holds both.  Wave 6
-# (SPEC.md 128.16.9) re-proved it under the fractional drag, whose faster
+# (SPEC.md 130.16.9) re-proved it under the fractional drag, whose faster
 # rolling left one alignment of the CGA (rate 1.00, phase 0.9) with no
 # up-left or down-left pan: the second way moved from (16, 14) to (16, 15)
 # and the fifth from (20, 16) to (20, 15), found by a host search of one-tile

@@ -1,9 +1,9 @@
 ; =============================================================================
-; apps/bonanza/fam/glass.asm - BONANZA's GLASS FAMILY (SPEC.md 128.25.8,
-; 128.25.18): the CRACKED TILE (`crack`) and the GLASS PATH tile (`glass`),
+; apps/bonanza/fam/glass.asm - BONANZA's GLASS FAMILY (SPEC.md 130.25.8,
+; 130.25.18): the CRACKED TILE (`crack`) and the GLASS PATH tile (`glass`),
 ; held equal to bbcourse.GlassFamily at every step.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ;
@@ -14,7 +14,7 @@
 ; less 3 units.  A glass tile's is a bit, REVEALED.  The slot's +0 counts the
 ; cracks counting, so STEP walks nothing while it is 0 (and +2 - +3 while it
 ; is not, the range of records they lie in); its +1 the cracks
-; BROKEN, so CELL walks nothing while that is 0 (SPEC.md 128.19.10 item 8).  A TOUCH is the
+; BROKEN, so CELL walks nothing while that is 0 (SPEC.md 130.19.10 item 8).  A TOUCH is the
 ; centre in the element's cell having begun step 6 grounded (bz_fair 0) or a
 ; contact this step (bz_nland moved from bz_fnl); the latter is an IMPACT.
 ; =============================================================================
@@ -25,7 +25,7 @@ org 0
 %include "bzlink.inc"
 
 GL_BROKEN   equ 0FFh
-GL_PARTNER  equ 18              ; EXPLORATORY (SPEC.md 128.25.18.1): a vanishing
+GL_PARTNER  equ 18              ; EXPLORATORY (SPEC.md 130.25.18.1): a vanishing
 GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the companion
 
     db 'BF'
@@ -37,7 +37,7 @@ GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the co
     db 0
     dw gl_reset, 0, gl_contact, gl_step, gl_pose, gl_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 %if BZ_FK_GLASS != BZ_FK_CRACK + 1
  %error "the part's run of kinds is crack, glass"
@@ -46,9 +46,9 @@ GL_COMP     equ 19              ; crack's partner's index + 1 (0 none); 1 the co
 ; RESET (either class: every crack is RESPAWN, cleared by the engine): no
 ; crack counting; the cracks BROKEN COUNTED again (+1: 0 when the engine has
 ; cleared them, the right count for a class that would keep one, SPEC.md
-; 128.19.10 item 8); every crack's and glass tile's lane MARKED (its pose may
+; 130.19.10 item 8); every crack's and glass tile's lane MARKED (its pose may
 ; have gone back) - every RECORD's, not every lane's: a GROUP MEMBER has no
-; lane of its own and bz_fmark marks its group's (SPEC.md 128.32.5)
+; lane of its own and bz_fmark marks its group's (SPEC.md 130.32.5)
 gl_reset:
     call gl_slot
     mov word [di], 0            ; (+0 none counting, +1 none broken)
@@ -130,7 +130,7 @@ gl_contact:
 .tr:
     mov [si], al
     cmp byte [di], 0            ; STEP's walk (+2 lo, +3 hi, SPEC.md
-    jne .grow                   ; 128.25.18.2): the first counting crack is
+    jne .grow                   ; 130.25.18.2): the first counting crack is
     mov [di + 2], bl            ; the whole range ...
     mov [di + 3], bl
     jmp short .cnt
@@ -146,7 +146,7 @@ gl_contact:
     inc byte [di]
 .mark:
     call gl_mark                ; its lane MARKED and the next walk made
-.out:                           ; (bz_fmark, 128.25.6.3)
+.out:                           ; (bz_fmark, 130.25.6.3)
     retf
 .glass:
     call gl_bit
@@ -160,7 +160,7 @@ gl_contact:
 ; CONTACT widens the range as one starts), each crack's byte read inline off
 ; its record's FSB, and the walk ends once it has met as many counting cracks
 ; as +0 holds: it was every record and a gl_byte each, ~10,000 clocks a step
-; on PLAYGROUND's 30 (SPEC.md 128.25.18.2)
+; on PLAYGROUND's 30 (SPEC.md 130.25.18.2)
 gl_step:
     call gl_slot
     mov dl, [di]                ; DL: the counting cracks still to meet
@@ -270,7 +270,7 @@ gl_cell:
     sub al, [bz_nwin]           ; window first: a crack out of it costs no
     inc al                      ; gl_byte - every crack of the course is
     cmp al, 2                   ; looked at on every refill, SPEC.md
-    ja .n                       ; 128.25.18)
+    ja .n                       ; 130.25.18)
     mov ah, [es:si + 3]
     sub ah, [bz_nwin + 1]
     inc ah
@@ -384,7 +384,7 @@ gl_bit:
  %error "gl_slot multiplies by BZF_SLOT with shifts"
 %endif
 
-; EVERY family row is OP_COMP (SPEC.md 128.25.6.2): zeros so LZB packs it
+; EVERY family row is OP_COMP (SPEC.md 130.25.6.2): zeros so LZB packs it
     times 48 db 0
 
 %if $ - $$ > BZ_FAMP_GLASS * 16

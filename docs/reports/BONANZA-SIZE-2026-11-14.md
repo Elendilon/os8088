@@ -160,7 +160,7 @@ All 485 image labels are reachable, and no HUD code remains.
 Bytes are deltas against today. A minus sign is a saving. "Per course" is
 listed BENCH / FIRST / TRIAL / MILL / MOON / PEAK.
 
-### 3.1 Occluder records (SPEC.md 128.10.4.4)
+### 3.1 Occluder records (SPEC.md 130.10.4.4)
 
 | idea | what it changes | raw / RAM | packed (per course; total) | speed | risk | verdict |
 |---|---|---|---|---|---|---|
@@ -237,7 +237,7 @@ unless the row says so.
 | demos as one byte a run (`key<<4 | count`) with an escape | 2,062 -> 1,249 | -414 (about -4.4KB at twenty) | about 20 clk a run | very low | only if the Huffman decoder is judged too much code |
 | the demos joined into one part with an index | 8 bytes a row (-152 at twenty) | -141 today | a few KB more decoded at `V` | low; the claim needs a ceiling check | yes, at about 10 demos or more |
 | **LZB for the IMAGE only** (`LZBPKGS`) | 0 | **27,963 -> 24,712 (-3,248, -3 clusters)** | about +0.64 s each time the window opens; 0 at a course launch | low: the existing mechanism, and `t_lzbclust` checks it | **yes, if the owner accepts +0.6 s** |
-| songs without a stored gate (the other session's area, SPEC.md 128.20) | 6,041 -> 5,100 | -270 | +40-60 clk on a sub-tick that keys a note | medium, and it is the other session's code | suggestion, low priority |
+| songs without a stored gate (the other session's area, SPEC.md 130.20) | 6,041 -> 5,100 | -270 | +40-60 clk on a sub-tick that keys a note | medium, and it is the other session's code | suggestion, low priority |
 | the six songs joined into one part | 0 | -150 | all the songs held in memory | low | no |
 | part headers and paragraph padding | about 4-10 bytes a part | padding about 137 over 21 parts | 0 | low | minor: only the demo header trim |
 

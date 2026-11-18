@@ -43,3 +43,6 @@ hdtake secs=10   # entry 1, a 286: HDD.DRV's rung 1 TAKES the drive MR BIOS know
 hdtakeblank secs=10   # ...and a disk with no 55AA at LBA 0 stays the BIOS's row (the leg's own refusal)
 hdtakeboot secs=10   # ...and on the mr286 BOOTED off it (A: empty): C: handed to HDD.DRV, given back on untick, taken again
 ethernet secs=30   # entry 5, the network card: the mr286's NE2000 on 86Box's slirp behind the QMP server - ETHER.DRV attached, DHCP to 10.0.2.15, the browser's GET reaching this host, the rings claimed and FREED on close; red: POKE mmf_osapi_mem_free=f8cb - "a claim still starts at the old pool"
+vgaprobe secs=10 @OS88_86BOX_VM=xt-vga   # BONANZA's VGA arm, V0: the probe on vm/xt-vga (GLaBIOS, 8088 at 4.77 MHz, an OTI-067 - 86Box's PVGA1A neither pans nor wraps, docs/86BOX.md): start at the vsync rise, panning at the frame's top; the split order still across the display; red: +--red +swap (the halves swapped) fails it
+vgaprobe@v20 secs=10 @OS88_86BOX_VM=xt-v20-vga   # ...on vm/xt-v20-vga, the V20 at 10 MHz: the machine the arm is meant to hold 70 Hz on (the owner's D7); red: +--red +swap
+vgaprobe@286 secs=10 @OS88_86BOX_VM=at286-port   # ...on the mr286 (a 286 at 16 MHz, the OTI-067); red: +--red +swap
