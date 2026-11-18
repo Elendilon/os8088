@@ -212,6 +212,16 @@ def run(tag, apps=None, src=None):
             tag, slot + 1, "yes" if ok else "NO"), flush=True)
         if not ok:
             fails.append("6. P's game was slot %d, not the one shown (3)" % (slot + 1))
+        # --- 6b. Enter is P's (the owner, 2026-11-18): the pathway, its Esc the title -----------
+        X.at_t0(g, lambda g_: None)
+        g.key("Enter")
+        M.until(m, lambda _: g.b("bz_crs") == title_k() - 1 and g.w("bz_cseg") != 0 and g.b("bz_tmode") == 0,
+                "the pathway (Enter)", guest=60)
+        X.at_t0(g, lambda g_: None)
+        g.key("Escape")
+        M.until(m, lambda _: on_title(g), "the title again (Enter's pathway's Esc)", guest=60)
+        print("%s 6b. Enter on the title went to the pathway; its Esc was the title again: yes" % tag,
+              flush=True)
         # --- 7. Esc on the title: the desktop, the claims as before -----------------------------
         X.at_t0(g, lambda g_: None)
         g.key("Escape")
