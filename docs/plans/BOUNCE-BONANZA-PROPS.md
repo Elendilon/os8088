@@ -213,7 +213,11 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
   - [x] **P3.9** GROUND FANS spin while the ball is in their wind and 2.9 s
         after (a FAST lane, counted against the window's 6 and its pose
         changes); the pennant only with `flag`.
-- [ ] **P3.10** A shipped course that uses it.
+- [x] **P3.10** A shipped course that uses it: PLAYGROUND's WIND YARD
+      (SPEC.md 128.34.12), with the GUARD RAIL's first shipped use - and the
+      limit it met: `BZ_FAMMAX` is 4 by `bzfam.inc`'s shift, PLAYGROUND's
+      list is full, so no other family of this round fits there without an
+      engine change.
 
 ## P5 SPIKES and P8 the MEMBRANE - as built (branch `bb-spike`, 2026-11-17)
 
