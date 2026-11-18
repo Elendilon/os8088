@@ -738,13 +738,22 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 
 ### V3: the rows, kern_mega and the record (M)
 
-- [ ] `bonanzaring`'s VGA card: the planar decoder, BENCH restated for 2.4,
-      the negative controls and red arms of section 8, each seen red.
-- [ ] `bonanzaperf`, `bonanzareplay` and `bonanzaexit` VGA legs;
-      `bonanzamega` on the Paradise VGA.
-- [ ] SPEC.md 130.1's adapter paragraph and 130.26's greying updated;
-      H5 closed in the plan (D4); README and docs/INDEX.md regenerated.
-- [ ] The scoped soak over the union, in the background (fork rule 9).
+- [x] `bonanzaring`'s VGA card: `vbench` (BENCH under the scripted camera,
+      the planar decoder, the glass, the roll model, a negative and a
+      positive control) and `vcam` (TRIAL's and MILL's demos: no move under
+      5 frames, the step changing by at most one). Red arms vcolent,
+      vrowent, vpan, vroll, vjerk - each seen red. (It found the camera's
+      edge brake out-run by a TRACK: now a cap, SPEC.md 130.46.14.)
+- [x] `bonanzaperf` (35 Hz, misses, PLAYGROUND's game clock; red arm
+      vclock), `bonanzareplay` (the CGA's logs on the VGA) and `bonanzaexit`
+      (every way out's rows and claims; red arm vgakeep) VGA legs - each
+      run green, each red arm seen red.
+- [ ] `bonanzamega` case 0v: the VGA's arm on kern_mega's Paradise.
+- [x] SPEC.md 130.1's adapter paragraph and the face's greying line were
+      V1's; H5 closed in BOUNCE-BONANZA-PLAN.md (D4); `tools/bzprof.py`,
+      the sampling profiler of 130.46.13, kept for the optimisation round.
+- [ ] The scoped soak over the union, in the background (fork rule 10), and
+      the rows' `secs` re-measured from it.
 
 ### V4: the field run (owner's machine)
 
