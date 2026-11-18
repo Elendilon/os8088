@@ -108,4 +108,7 @@ clock 6 13
 # the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
-clock 22 22
+# (2026-11-18, SPEC.md 128.18.5.4: a clock is an OCCLUDER now; at (22, 22) it stood in front of the DROP's
+# exit (20, 20) and made the fall cross an OCC cell, which --selfcheck item 8 refuses - moved to the goal
+# floor's front-left corner)
+clock 18 27

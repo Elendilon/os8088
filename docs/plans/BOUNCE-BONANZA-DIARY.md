@@ -4880,14 +4880,16 @@ over a ball behind.
 - **The fix is the tool's alone.** The face's pixels (all but the shadow,
   which is paint on the tile) are keyed at the clock's cell with the clock's
   crown as their top. 0 resident bytes; the image and bss do not move.
-- **Two clocks had to move.** MILL's at (8, 11) put both windmills' doorways
-  in its shade (a must-draw rotor's frame runs no occluder pass, so that is
-  refused): now (6, 13). TRIAL's at (18, 17) put a fifth record in a block at
-  the bound of 4: now (18, 18). A first try gave the plinth its own (lower)
+- **Three clocks had to move.** MILL's at (8, 11) put both windmills'
+  doorways in its shade (a must-draw rotor's frame runs no occluder pass, so
+  that is refused): now (6, 13). MILL's finish clock at (22, 22) stood in
+  front of the drop's exit, so the fall crossed an OCC cell (item 8): now
+  (18, 27). TRIAL's at (18, 17) put a fifth record in a block at the bound of
+  4: now (18, 18). A first try gave the plinth its own (lower)
   top; that split the clock into two records a block, and is kept off.
 - **What it costs is masks.** A clock's outline is a new mask shape in most
   blocks it covers: FIRST 1,639 -> 1,936 bytes stored, TRIAL 3,404 -> 3,730,
-  MILL 7,577 -> 7,891, MOON +43, PEAK +249, PLAY +172.
+  MILL 7,577 -> 8,055, MOON +43, PEAK +249, PLAY +172.
 - **The visibility rule as a refusal.** `clock_vis` rolls the ball behind
   every clock and refuses one that WHOLLY hides it for more than a ball
   length (16 gu) by itself - the archway's rule. The worst is MOON's finish
