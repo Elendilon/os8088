@@ -2482,7 +2482,8 @@ def gt_host(binp, lst, sym, scenes=None):
     the part's source and each of which must part from the model: `gtwall` (a shut gate's WALL never written: the
     ball passes it), `gtmark` (an opened channel's marks gone: a gate that opens never drawn), `gtstep` (STEP's
     entry 0: a timed bridge's turn never marked), `gtlift` (the centre's under-the-deck test gone: a bridge coming
-    down over a falling ball lifts it), `gtup` (an UP bridge's kind byte never written: the ball rolls on air)
+    down over a falling ball lifts it), `gtup` (an UP bridge's kind byte never written: the ball rolls on air);
+    SPEC.md 130.41.12: `gtframe` (an art frame never stepped), `gtearly` (an art gate opened at frame 0)
     -> (lines, failures)"""
     out, fails = [], []
     fam = fam_parts()
@@ -2512,7 +2513,11 @@ def gt_host(binp, lst, sym, scenes=None):
             ("gtstep", "    dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell\n",
              "    dw gt_reset, 0, gt_contact, 0, gt_pose, gt_cell\n", None, ("timed", BB.MAT_GLASS)),
             ("gtlift", "    cmp [bz_gz + 1], ax\n    jl .up\n", "", "the ball", ("under", BB.MAT_RUBBER)),
-            ("gtup", "    mov byte [bz_nbr + bx + 2], 0\n", "", None, ("boxup", BB.MAT_GLASS)))
+            ("gtup", "    mov byte [bz_nbr + bx + 2], 0\n", "", None, ("boxup", BB.MAT_GLASS)),
+            # SPEC.md 130.41.12: an art's frame never stepped (its lanes never move, its wall never opens)
+            ("gtframe", "    inc byte [di + 2 + bx]\n", "", None, ("art", BB.MAT_RUBBER)),
+            # ...and an art gate walled by its channel's bit, not its frame (it opens at frame 0)
+            ("gtearly", "    cmp byte [es:si + GT_ART], 0\n    jne .a\n", "", None, ("art", BB.MAT_STEEL)))
     for arm, a_, b_, want, (name, mat) in arms:
         assert gsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]

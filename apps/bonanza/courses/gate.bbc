@@ -60,3 +60,21 @@ way 10 11
 way 12 11
 way 12 9
 way 21 9
+
+# THE ART GATES (SPEC.md 130.41.12): three short corridors north of the start plate, each shut by a gate of the
+# designer's own ART (apps/bonanza/courses/gates/*.bba, four frames shut to open), into a back hall with a goal.
+# Each opens with a channel the presets use, so the preset scenes play the art's frames as well:
+#  - x 8, the DOOR (box): a door frame and a plank door that swings open away from the viewer;
+#  - x 10, the CRUMBLE (ring): a brick wall between two blocks that cracks, crumbles and falls to rubble;
+#  - x 12 - 13, the PORTCULLIS (plus): a stone arch over two cells, its iron grid rising into it.
+floor rect 8 3 14 6 flat 2     # the back hall (wy 3 - 4) and the gates' row (wy 5)
+floor rect 8 6 9 8 flat 2      # the door's corridor
+floor rect 10 6 11 8 flat 2    # the crumble's
+floor rect 12 6 14 8 flat 2    # the portcullis's, two cells wide
+wall tile 9 5 flat 3           # the crumble's two blocks, a unit proud
+wall tile 11 5 flat 3
+prop gate 8 5 channel box along y art door
+prop gate 10 5 channel ring along y art crumble
+prop plate 10 6 channel ring   # (a second ring plate, right before the wall: the ball waits while it crumbles)
+prop gate 12 5 channel plus along y art portcullis
+goal tile 10 3 flat 2

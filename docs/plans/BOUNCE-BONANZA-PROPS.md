@@ -604,3 +604,16 @@ MartyPC measurement. Predicted moderate engine work, the shape of the world
 split (130.30). The owner: on disk, 13 - 14 PLAYGROUND-sized courses fit
 without it, so it buys only a mix of longer and shorter courses - not pursued
 for now.
+
+  The four built styles stay as presets.
+  - [x] **BUILT on `bb-gateart` (2026-11-18), SPEC.md 130.41.12**: a gate's
+    art is a `.bba` of 4 frames (shut -> open) under
+    `apps/bonanza/courses/gates/`, its own footprint (`# foot`, `# cells`
+    1 - 3), named per gate (`art <name>`) or per course (`gateart`); the
+    frames are the channel's (one 2-bit frame a channel in the slot, a
+    step every 8), the cell opens at frame 3; the tool cuts the frames'
+    change into lanes. GATE carries three: a crumbling wall between two
+    blocks, a portcullis rising into its arch, a door swinging open.
+    Shipped courses byte for byte; resident 0; the part +115 bytes.
+  - [ ] a drawbridge art on a course (built, unproved), a timed bridge's
+    art, per-pose occluders (SPEC.md 130.41.12.6).
