@@ -284509,12 +284509,16 @@ the x phase, CX = G), which returns the SHOWN ones:
 - **x** (its low 2 bits are the sprite's shift px & 3, so only bit 2 is
   free): of the true phase and the true phase ^ 4, the one whose step from
   the shown one is 0 - 3 when the ball moved right or not at all, and 0 or
-  -1 - -3 when it moved left.
+  -1 - -3 when it moved left; when it moved 4 px or more, 1 - 4 (left -1 -
+  -4). The owner saw why: at full speed (2 px a step, one or two steps to a
+  35 Hz frame) the true steps run 2, 4, 2, 4, and showing each 4 as a 0
+  made the ball stop and slide; shown as 4 it keeps rolling. At 70 Hz a
+  frame holds at most one step and neither case arises.
 
 `[bz_vrv]` 0 (BZV_INIT, and the full write) shows the true phases once.
 Display only: `bz_frm` is the frame drawn, and physics, replays, demos and
 the CGA's and Hercules' pictures are untouched. A ball moving 8 a frame
-shows no x roll at all, the one aliasing bit 2 cannot remove. **Cost**:
+shows a step of 4, the half period, which has no direction of its own. **Cost**:
 24 bytes resident (the call and the reset), 6 of bss, 300 in the part.
 **Checked** (MartyPC, FIRST's free play, the arrows held, 599 presents): 9
 frames whose true x phase stepped against the ball, 0 shown.

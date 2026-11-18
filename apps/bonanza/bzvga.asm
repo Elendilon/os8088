@@ -1194,7 +1194,7 @@ bzv_conv:
 ; frame and never against the ball: y, free, steps toward the true phase by at
 ; most 3 (and to it when that is a forward step of 3 or less); x keeps its low
 ; 2 bits (the sprite's shift) and picks bit 2 so that its step has the ball's
-; sign.  Display only: physics, replays and bz_frm's meaning are untouched.
+; sign - 1 to 4 of it when the ball moved 4 or more, so it never stops.  Display only: physics, replays and bz_frm's meaning are untouched.
 ; AL = the true PHY, AH = the true x phase, CX = G; out AL, AH as shown.
 ; Clobbers BX, DX.
 ; -----------------------------------------------------------------------------
@@ -1202,7 +1202,7 @@ bzv_roll:
     cmp byte [bz_vrv], 0
     jne .y
     mov byte [bz_vrv], 1
-    jmp short .keep             ; the first frame shows the true phases
+    jmp .keep                   ; the first frame shows the true phases
 .y:
     mov dx, cx
     sub dx, [bz_vG]             ; DX = the frame's G step
@@ -1242,16 +1242,31 @@ bzv_roll:
     mov dl, [bz_px]
     sub dl, [bz_vpxp]           ; the ball's x step, signed (a byte: small)
     js .xn
+    cmp dl, 4                   ; fast right (4 or more): d of 1 .. 4, so a
+    jl .xr                      ; 2, 4, 2, 4 frame never shows as 2, 0, 2, 0
+    or bl, bl
+    jz .xf
+    cmp bl, 4
+    jbe .keep
+    jmp short .xf
+.xr:
     cmp bl, 4                   ; still or right: d of 0 .. 3
     jb .keep
+.xf:
     xor ah, 4
     jmp short .keep
 .xn:
+    cmp dl, -4                  ; fast left: d of 4 .. 7
+    jg .xl
+    cmp bl, 4
+    jae .keep
+    jmp short .xf
+.xl:
     or bl, bl                   ; left: d of 0 or 5 .. 7
     jz .keep
     cmp bl, 5
     jae .keep
-    xor ah, 4
+    jmp short .xf
 .keep:
     mov [bz_vpy], al
     mov [bz_vpxd], ah

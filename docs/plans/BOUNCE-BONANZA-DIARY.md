@@ -4654,3 +4654,9 @@ run**: soak rows, kern_mega, the field.
 
 **Tested**: `make bonanzadisk`, the roll check on MartyPC. **Not run**: the
 owner's eye on the fix, soak rows (the V2a soak was running behind it).
+- **Then it stopped and slid** (the owner, at full speed, mostly while the
+  screen panned sideways). Full speed is 2 px a physics step, and a 35 Hz
+  frame holds one or two steps: 2, 4, 2, 4. The first rule showed every 4
+  as 0, so the roll went 2, 0, 2, 0. Now a ball that moved 4 or more shows
+  a step of 1 - 4 its own way, so it never stops; at 70 Hz (a V20) a frame
+  holds at most one step and none of this arises.
