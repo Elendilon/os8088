@@ -1,6 +1,6 @@
 ; =============================================================================
-; apps/bonanza/fam/bztube.inc - THE TUBE's rules (SPEC.md 128.12.6.1, 128.17.17),
-; ONE source (SPEC.md 128.25.20.3): included by the TUBE family's part,
+; apps/bonanza/fam/bztube.inc - THE TUBE's rules (SPEC.md 130.12.6.1, 130.17.17),
+; ONE source (SPEC.md 130.25.20.3): included by the TUBE family's part,
 ; fam/tube.asm, and written so the package could include it as it is to make
 ; the tube resident again (as before story 9.8; no switch for that is built,
 ; the family's home superseded it).  Either way the helpers it calls -
@@ -22,7 +22,7 @@
  %endmacro
 %endif
 
-; bz_capture - prop BL's tube takes the ball (128.12.6.1): the entry speed
+; bz_capture - prop BL's tube takes the ball (130.12.6.1): the entry speed
 ; s_in = max(|gvx|, |gvy|); the centre at segment 0's start - IN's centre, a
 ; windmill's at its DOORWAY (the midpoint of IN's -x or -y edge) - on IN's
 ; floor there (IN is the window's centre); every velocity 0, grounded, no
@@ -80,7 +80,7 @@ bz_capture:
     call bz_setz
     jmp bz_psync
 
-; bz_transit - a step in a tube (128.12.6.1): the ghost along its segment,
+; bz_transit - a step in a tube (130.12.6.1): the ghost along its segment,
 ; the count down; at 0 the segment's END exactly and the next; after the last,
 ; the EXIT - KEEP grounded along the mouth at max(s_in, BZ_TMIN), LAUNCH
 ; airborne at the record's velocity (a take-off), DROP airborne along the
@@ -181,13 +181,13 @@ bz_transit:
     xor ax, ax
     mov [bz_gvz], ax
 .win:
-    cmp byte [bz_air], 0        ; round 3b (128.17.17): a DROP or LAUNCH exit
+    cmp byte [bz_air], 0        ; round 3b (130.17.17): a DROP or LAUNCH exit
     je .w9                      ; takes the token unless a boost is spent
     call bz_atok
 .w9:
     BZT_EXITED                  ; the window round OUT (bz_ps with it)
 
-; bz_atok - round 3b (128.17.17): a launch OUT OF THE AIR (a spring under a
+; bz_atok - round 3b (130.17.17): a launch OUT OF THE AIR (a spring under a
 ; contact, a tube's DROP or LAUNCH exit) takes the boost's token unless a
 ; boost is spent: bz_btok = 1 - bz_bsp, bz_zoff = bz_ztop.  Clobbers AX.
 bz_atok:

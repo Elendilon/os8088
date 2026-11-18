@@ -20,7 +20,8 @@
     us on our side (WIREARENA-MODES-PLAN 5);
   - NO FRIENDLY FIRE: our pistol at our teammate (bot 2) takes nothing off
     it; at the foe (bot 1) it does;
-  - THE BOTS PLAY (wave C2, CTF-PLAN 6): two bots and us idle - bot 2
+  - THE BOTS PLAY (wave C2, CTF-PLAN 6): two bots and us out of it (held
+    dead, so no bot's target) - bot 2
     red's, bot 1 blue's - and within six guest minutes each has carried
     the other's flag, and two captures have been made. (Who captures first
     is the bots' dice: one bot's capture alone is not asked for.)
@@ -52,7 +53,7 @@ PIT_RED = (64, 1024)            # (on the ring, 240 up)
 
 def match(ui, arena, bots):
     sym = amap()
-    w = ui.path("B:/WARENA.O88")
+    w = ui.path("B:/WIRERENA.O88")
     m = ui.m
     os88marty.until(m, lambda _: any(c[0] == MENU and any(
         i[0] == ITEM for i in c[3]) for c in ui.menus()),
@@ -199,7 +200,7 @@ def main():
               "time runs out", g.flag(1, WC_ST))
         g.ticks(100)                            # (alive again)
 
-        def shoot_at(i):                        # NO FRIENDLY FIRE: figure i
+        def shoot_at(i, wpn=0, ticks=6):        # NO FRIENDLY FIRE: figure i
             base = sym["wa_figs"] + i * F_SIZE   # stood 120 ahead of us in
             def stand():                        # the west square, every tick
                 g.p.write(base + F_X, struct.pack('<hh', 420, 800))  # of the
@@ -211,15 +212,15 @@ def main():
                 stand()
                 g.ticks(1)                      # (the last shot's cooldown
             hp0 = g.fig(i, F_HP, 1)             # over; drawn there: the shot
-            mag0 = g.p.byte(sym["wa_mag"])      # traces what was drawn)
+            mag0 = g.p.byte(sym["wa_mag"] + wpn)  # traces what was drawn)
             g.m.key("ControlLeft", up=False)
-            for _ in range(6):
+            for _ in range(ticks):
                 stand()
                 g.ticks(1)
             g.m.key("ControlLeft", down=False)
             g.ticks(2)
             return (hp0, g.fig(i, F_HP, 1), g.fig(i, F_DEAD, 1),
-                    mag0 - g.p.byte(sym["wa_mag"]))
+                    mag0 - g.p.byte(sym["wa_mag"] + wpn))
         g.p.write(sym["wa_pkon"], b"\x00")      # (no pickup in the way)
         mate = shoot_at(1)
         foe = shoot_at(0)
@@ -228,6 +229,23 @@ def main():
               "nothing", mate)
         check(foe[3] == 1 and (foe[1] < foe[0] or foe[2] != 0),
               "...and the same shot at the foe (bot 1) hurts it", foe)
+
+        def launcher():                         # (the rocket launcher, its
+            g.p.write(sym["wa_own"], bytes([1 | 16]))   # magazine full, held,
+            g.p.write(sym["wa_mag"] + 4, bytes([3]))    # nothing in the way)
+            g.p.write(sym["wa_wpn"], bytes([4]))
+            g.p.write(sym["wa_rld"], b"\x00")
+        launcher()
+        mate = shoot_at(1, wpn=4, ticks=24)
+        launcher()
+        foe = shoot_at(0, wpn=4, ticks=24)
+        check(mate[3] == 1 and mate[1] == mate[0] and mate[2] == 0,
+              "NO FRIENDLY FIRE: a ROCKET at our teammate flies on through it "
+              "and its splash spares it - a direct hit once killed any figure "
+              "but its owner (wa_rkhit)", mate)
+        check(foe[3] == 1 and (foe[1] == 0 or foe[2] != 0),
+              "...and the same rocket kills the foe outright (its health 0: "
+              "stand() holds the body up)", foe)
         g.p.write(sym["wa_caps"], bytes([2, 0]))  # THE WIN (Win at 3,
         g.place(BLUE[0], BLUE[1], 0)            # the default)
         g.ticks(4)
@@ -256,8 +274,16 @@ def main():
         g.__class__ = C                         # bot 2 red's, bot 1 blue's:
         sym = g.sym                             # one against one
         took, caps, last, t = [0, 0], 0, g.caps(), 0
+        # US OUT OF IT, held DEAD (wa_pdead, under a second's ticks from
+        # its end): a dead player is no bot's target (wa_btpbl), so "us
+        # idle" means the two bots play each other. This refilled our health
+        # instead, and an enemy that cannot die is one a bot that has seen
+        # it ENGAGES for the whole match: in a soak run, and 1 in 3 alone,
+        # blue's bot sat on us (state ENGAGED, its target 0) for six
+        # minutes while red's took five captures, and the row failed "blue
+        # 0 s"
         while t < 360 and not (all(took) and caps >= 2):
-            g.p.write(sym["wa_hp"], struct.pack('<H', 100))
+            g.p.write(sym["wa_pdead"], bytes([200]))
             g.ticks(30)
             t += 1
             for k in (0, 1):                    # (flag k carried: the other
