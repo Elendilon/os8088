@@ -711,6 +711,21 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   applied) exact on every sampled frame; the 8088's benchmark: 35 Hz held,
   50 misses in 1,200 (V1: 410).
 
+### V2c: the VGA's own camera (SPEC.md 128.45.12) - BUILT
+
+- [x] The owner, after V2b: the camera judders as LATTICE chooses to move.
+      LATTICE won on the CGA and Hercules because they scroll in 8 px and 2
+      lines; the VGA scrolls 1 px, so it gets its own camera, not a mode.
+- [x] A follower with a dead zone (spring 1/32 a px, damping 1/4 a 70 Hz
+      tick), tuned on the host first; hard margins; the window from it, the
+      nearest column; the VGA's four rows a frame.
+- [x] LATTICE kept for the benchmark, the fixed and paged windows, the
+      finish, cuts and the scripted camera.
+- [x] The A/B: `C`'s second mode on the VGA is LATTICE (temporary).
+- [ ] The owner's feel: the zone, the spring, then drop the A/B.
+- *Checked*: MartyPC, BENCH's route on the camera 800 frames (0 px, glass
+  exact, one full write, steps of at most 2 px), FIRST's free play 500.
+
 ### V3: the rows, kern_mega and the record (M)
 
 - [ ] `bonanzaring`'s VGA card: the planar decoder, BENCH restated for 2.4,

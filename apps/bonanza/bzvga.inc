@@ -34,7 +34,19 @@ BZV_WPRECT  equ 8               ; bz_wprect's, its registers; clobbers AX - DI, 
 BZV_CARD    equ 9               ; bzcard.inc's glyph cell (128.45.4); see bz_card's VGA arm
 BZV_ROLL    equ 10              ; the roll's DISPLAYED phases (128.45.11): AL = PHY, AH = the
                                 ; x phase, CX = G in, the shown AL, AH out; clobbers BX, DX
-BZV_NVEC    equ 11
+BZV_CAM     equ 11              ; the VGA's camera (128.45.12): BP = bz_camera's centre
+                                ; line in; bz_R0n, bz_c0n, bz_vcx out; preserves nothing
+BZV_NVEC    equ 12
+; 128.45.12's constants: the dead zone, the most a tick, the hard margins
+BZV_ZXL     equ 128             ; px of the display's 320
+BZV_ZXR     equ 192
+BZV_ZYL     equ 84              ; lines of its 200
+BZV_ZYR     equ 116
+BZV_VXM     equ 1024            ; 1/256 px a tick (4 px)
+BZV_VYM     equ 512             ; (2 lines)
+BZV_MX      equ 48
+BZV_MY      equ 40
+BZV_MAXR    equ 4               ; the VGA's rows a frame before a full write
 ; a ball part's copy: its 16-byte head, then every 5-byte row as 6 (SPEC.md
 ; 128.45.5); copy 0 then copy 1 (four pixels further right), each material's
 ; pair from a paragraph, in bz_bsegs' order (rubber, steel, glass)

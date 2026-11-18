@@ -5158,3 +5158,37 @@ owner's eye on the fix, soak rows (the V2a soak was running behind it).
   as 0, so the roll went 2, 0, 2, 0. Now a ball that moved 4 or more shows
   a step of 1 - 4 its own way, so it never stops; at 70 Hz (a V20) a frame
   holds at most one step and none of this arises.
+
+## 2026-11-18 (VGA, V2c: a camera of its own)
+
+- **The owner**: the ball rolls fine; the camera judders, but as *"how it
+  chooses to move"*. And: *"we used to have 3-4 camera modes; just lattice
+  completely won for CGA/Herc"*. That result is real and the reason is the
+  cards: 8 px and 2 lines to a scroll step, where a camera that eases hops.
+  The VGA's step is one pixel, so the reason does not hold there.
+- **A follower, tuned on the host before a line of assembly**: a spring
+  toward the dead zone's edge and a damper, in 1/256 px at 70 Hz ticks
+  (two a frame at 35 Hz, so the feel does not change with the rate). Nine
+  spring and damper pairs simulated over a run, stop, reverse and a
+  wiggle; all were smooth, and 1/32 with 1/4 kept the ball nearest the
+  middle.
+- **What the engine needed**: almost nothing. The camera already hands the
+  engine a window; a harness's scripted camera had proved every direction.
+  Two things changed: the VGA may step four rows a frame (its rows are
+  lines), and its start address takes a multiply where the CGA's five-entry
+  table would run out.
+- **Two bugs the oracle found at once**: re-centring the window when the
+  camera left its slack moved it two columns going left (a full write);
+  the "round up" then had a stray +1 going right. The nearest column that
+  holds the camera is the rule. BENCH's route: one full write in 800
+  frames, the first, as LATTICE's.
+- **The roll's oracle learnt something too**: a full write shows the true
+  phases next frame (V2b's reset), which the new camera's early full
+  writes exposed.
+- **The A/B**: `C` on the VGA switches to LATTICE, for the owner's
+  comparison; it goes once the feel is settled.
+
+**Tested**: `make bonanzadisk`, MartyPC: BENCH's route on the camera 800
+frames, FIRST's free play 500. **Not run**: the soak rows on this commit
+(the merge's soak is running in a worktree), a V20 at 70 Hz, the owner's
+eye.

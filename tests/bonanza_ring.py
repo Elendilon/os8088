@@ -996,19 +996,21 @@ class Bz:
         this guest was looked at on the frame before (a skipped frame, or the
         first, leaves the rule unchecked: the guest's phases are its own)."""
         fr = self.w("bz_frames")
-        shown = (self.w("bz_vG"), self.b("bz_vpy"), self.b("bz_vpxd"), self.w("bz_px") & 255)
+        shown = (self.w("bz_vG"), self.b("bz_vpy"), self.b("bz_vpxd"), self.b("bz_vpxp"))
         last = getattr(self, "_vroll", None)
         if last and last[0] == fr:
             return last[2]
         f = lk.spr[1]
         if last and last[0] == fr - 1:
-            G = ((lk.gx + lk.gy) >> 9) & 0xFFFF
-            want = BB.vroll(last[1], f >> 3, f & 7, G, lk.px)
-            assert want == shown[1:3], ("BZV_ROLL showed phases %s, the model %s (frame %d)"
-                                        % (shown[1:3], want, fr))
+            G = ((lk.gx + lk.gy) >> 9) & 0xFFFF       # (a full write last frame cleared bz_vrv: the true phases)
+            want = BB.vroll(None if last[3] else last[1], f >> 3, f & 7, G, lk.px)
+            assert want == shown[1:3], ("BZV_ROLL showed phases %s, the model %s (frame %d; last %s, true %d %d, "
+                                        "G %d px %d; live px %d frm %d pre %s)"
+                                        % (shown[1:3], want, fr, last[1], f >> 3, f & 7, G, lk.px,
+                                           self.w("bz_px"), self.w("bz_frm"), self.pre is not None))
         assert shown[2] & 3 == f & 3, ("the shown x phase is not the sprite's shift", shown, f)
         spr = ("roll", shown[1] * 8 + shown[2])
-        self._vroll = (fr, shown, spr)
+        self._vroll = (fr, shown, spr, self.b("bz_full"))
         return spr
 
     def look(self, crs):
