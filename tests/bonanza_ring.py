@@ -297,6 +297,7 @@ bonanza_phys, bonanza_exit, bonanza_mega, bonanza_replay, bonanza_wheel):
 its course's identity, SPEC.md 130.12.8), `build_tree` and the course cache.
 """
 import argparse
+import collections
 import os
 import re
 import shutil
@@ -314,10 +315,10 @@ import os88build               # noqa: E402
 import bonanza_assets as A     # noqa: E402
 import bbcourse as BB          # noqa: E402
 
-MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
-W = {"cga": 320, "herc": 360}       # game pixels across the window
-RL = {"cga": 2, "herc": 4}          # lines a card row
-RB = {"cga": 80, "herc": 90}        # bytes a line
+MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla", "vga": "os8088_xt_vga"}
+W = {"cga": 320, "herc": 360, "vga": 42 * 8}    # game pixels across the window (the VGA's ENGINE window,
+RL = {"cga": 2, "herc": 4, "vga": 1}            # 42 columns: SPEC.md 130.46.10); lines a card row
+RB = {"cga": 80, "herc": 90, "vga": 44}         # bytes a line (the VGA's P)
 FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc", "bzcard.inc",
          "bzmenu.inc", "bzfam.inc")
 EXTRA_SYMS = ("op_table",)          # os88parts.inc's: the part rows (bonanza_exit)
@@ -3919,7 +3920,197 @@ def camera_verdict(tag, out):
     return bad
 
 
-PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "ground", "camera")
+PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "ground", "camera", "vbench", "vcam")
+
+
+# ---- the VGA's card (SPEC.md 130.46; plan V3) ----------------------------------------------------------
+VGA_PARTS = ("vbench", "vcam")
+VGA_BENCH_FRAMES = 400                  # BENCH under the scripted camera: every direction, columns both ways
+VGA_GLASS_EVERY = 20                    # ...the rendered frame compared one present in this many
+VGA_DEMOS = ("trial", "mill")           # the camera's motion over shipped demos (130.46.14)
+VGA_MINMOVE = 5                         # no move of the display shorter than this (the inching, 130.46.14)
+
+
+def vdecode(g, S):
+    """the ENGINE's window in card memory (planes 0 and 1, P = 44, from start S, 64 KB ring): rows of
+    2-bit indices, 42 x 8 px a line"""
+    p0, p1 = g.m.planes(0, 65536, planes=(0, 1))
+    out = []
+    for y in range(200):
+        row = bytearray(W["vga"])
+        for b in range(42):
+            o = (RB["vga"] * y + S + b) & 0xFFFF
+            a0, a1 = p0[o], p1[o]
+            for k in range(8):
+                bit = 7 - k
+                row[8 * b + k] = ((a0 >> bit) & 1) | (((a1 >> bit) & 1) << 1)
+        out.append(bytes(row))
+    return out
+
+
+def vglass(m):
+    """MartyPC's last FINISHED frame (the card's own panning applied), 320 x 200 of its 640 x 400 doubled"""
+    Wd, Hd, d = m.fbuf()
+    return [[bytes(d[((2 * y) * Wd + 2 * x) * 3:((2 * y) * Wd + 2 * x) * 3 + 3]) for x in range(320)]
+            for y in range(200)]
+
+
+def vga_bench(g, ref):
+    """BENCH on the VGA under the scripted camera: every presented frame's engine window in card memory
+    against the host picture (the roll's SHOWN phases checked against bbcourse.vroll by look()); the glass
+    one present in VGA_GLASS_EVERY against the display's 320 px slice at x0 of one of the last three
+    frames' pictures; the display inside the window's slack; a NEGATIVE control (the window decoded one
+    byte off differs) and a POSITIVE one (the panning took values other than 0) -> (fails, tallies)"""
+    m, fails = g.m, []
+    m.bp_exec(g.a("bz_launch"))
+    g.key("KeyB")
+    assert m.wait_stop(60) == "breakpoint", "B did not launch the benchmark"
+    g.putb("bz_hvoff", 1)
+    g.putb("bz_camscr", 1)
+    wk = Walker(g)
+    wk.arm()
+    t = {"frames": 0, "bad": 0, "glass": 0, "glass_ok": 0, "pans": collections.Counter(), "ctl": 0}
+    recent = collections.deque(maxlen=3)
+    pal = {}
+    while t["frames"] < VGA_BENCH_FRAMES:
+        if wk.next() != "pr":
+            continue
+        S, R0, c0 = g.state()[:3]
+        x0, pan = g.w("bz_vx0"), g.b("bz_vpan")
+        if pan != x0 & 7 or not c0 * 8 <= x0 <= c0 * 8 + 16:
+            fails.append("frame %d: the display x0 %d (pan %d) outside the window's slack at c0 %d" % (
+                t["frames"], x0, pan, c0))
+        t["pans"][pan] += 1
+        got = vdecode(g, S)
+        exp = pic_now(g, ref)
+        n, box = diff(got, exp)
+        t["frames"] += 1
+        if n:
+            t["bad"] += 1
+            if t["bad"] <= 3:
+                fails.append("frame %d (S %04X R0 %d c0 %d): %d px of the engine window differ, box %s" % (
+                    t["frames"], S, R0, c0, n, box))
+        elif not t["ctl"] and t["frames"] > 20 and diff(vdecode(g, S + 1), exp)[0]:
+            t["ctl"] = 1                # the negative control: the same window one byte on is NOT the picture
+        off = x0 - c0 * 8
+        recent.append([r[off:off + 320] for r in exp])
+        if t["frames"] % VGA_GLASS_EVERY == 0 and len(recent) == 3:
+            gr = vglass(m)
+            best = None
+            for e in recent:
+                if not pal:             # the colours, by majority against the first slice
+                    votes = collections.defaultdict(collections.Counter)
+                    for y in range(200):
+                        for x in range(320):
+                            votes[gr[y][x]][e[y][x]] += 1
+                    pal.update({c: v.most_common(1)[0][0] for c, v in votes.items()})
+                nd = sum(1 for y in range(200) for x in range(320) if pal.get(gr[y][x], 9) != e[y][x])
+                best = nd if best is None else min(best, nd)
+            t["glass"] += 1
+            t["glass_ok"] += best == 0
+            if best and t["glass"] - t["glass_ok"] <= 3:
+                fails.append("the glass at frame %d: %d px off the nearest of the last three slices (x0 %d)" % (
+                    t["frames"], best, x0))
+    m.bp_exec()
+    g.putb("bz_camscr", 0)              # (stopped at the last present: the poke, then on)
+    m.run()
+    g.key("Escape")                     # (the benchmark's other 800 frames are not this part's: Esc, the
+    vga_home(g, "the benchmark")        # bracket down and its parts dropped)
+    return fails, t
+
+
+def vga_home(g, what):
+    """a launch over: the bracket down, its parts dropped, the held-key guard clear"""
+    m = g.m
+    M.until(m, lambda _: g.b("bz_fs") == 0, "%s: the bracket to end" % what, guest=60)
+    M.until(m, lambda _: g.w("bz_cseg") == 0, "%s: its parts dropped" % what, guest=30)
+    M.until(m, lambda _: g.b("bz_dkk") == 0, "%s: the held-key guard clear" % what, guest=5)
+
+
+def vga_cam(g, art=None):
+    """THE VGA's CAMERA (SPEC.md 130.46.14) over VGA_DEMOS' shipped demos (V, D: the play's camera, not the
+    benchmark's LATTICE): the display's moves - runs of frames it moved - none shorter than VGA_MINMOVE
+    (the inching), its step never changing by more than one between two frames but at a full write, and
+    every demo to its end -> (fails, tallies)"""
+    m, fails, t = g.m, [], {}
+    for crs in VGA_DEMOS:
+        kd = CRS_K[crs]
+        demo = open(os.path.join(art or at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+        m.pause()
+        g.putb("bz_vk", 0)
+        m.run()
+        for _ in range(12):
+            g.key("KeyV")
+            M.until(m, lambda _: g.b("bz_dkk") == 0, "V's key up", guest=5)
+            if bytes(m.read(g.a("bz_rlog"), len(demo))) == demo:
+                break
+        if bytes(m.read(g.a("bz_rlog"), len(demo))) != demo:
+            fails.append("%s: V never loaded BZD%d.BIN" % (crs, kd))
+            continue
+        g.key("KeyD")
+        M.until(m, lambda _: g.b("bz_fs") == 1, "%s's demo runs" % crs, guest=60)
+        m.pause()
+        m.bp_exec(g.a("bz_presented"))
+        rows = []
+        while True:
+            m.run()
+            if m.wait_stop(150) != "breakpoint" or (len(rows) > 5 and g.b("bz_fs") == 0):
+                break
+            rows.append((g.w("bz_vx0"), g.w("bz_R0"), g.b("bz_full"), g.b("bz_vcxm"), g.b("bz_vcym"),
+                         g.w("bz_px"), g.w("bz_py"), g.w("bz_vemax"), g.b("bz_mode")))
+            if len(rows) > 4000:
+                fails.append("%s: the demo did not end in 4,000 frames" % crs)
+                break
+        m.bp_exec()
+        m.run()
+        vga_home(g, "%s's demo" % crs)
+        moves = []
+        for ax, nm in ((0, "across"), (1, "down")):
+            d = [rows[i][ax] - rows[i - 1][ax] for i in range(1, len(rows))]
+            cur, runs = 0, []
+            for i, x in enumerate(d):
+                if x:
+                    cur += 1
+                elif cur:
+                    runs.append(cur)
+                    cur = 0
+            if cur:
+                runs.append(cur)
+            short = [r for r in runs if r < VGA_MINMOVE]
+            jerks = [i for i in range(1, len(d)) if abs(d[i] - d[i - 1]) > 1
+                     and not rows[i + 1][2] and not rows[i][2]]
+            if short:
+                fails.append("%s %s: %d move(s) shorter than %d frames: %s (the camera inched)" % (
+                    crs, nm, len(short), VGA_MINMOVE, short[:8]))
+            if jerks:
+                fails.append("%s %s: the step changed by more than one at %d frame(s), e.g. frame %d (%+d to %+d)"
+                             % (crs, nm, len(jerks), jerks[0], d[jerks[0] - 1], d[jerks[0]]))
+                if os.environ.get("VCAM_DEBUG"):
+                    for j in jerks[:4]:
+                        print("  %s %s jerk at %d: steps %s rows %s" % (crs, nm, j, d[j - 4:j + 3], rows[j - 2:j + 3]))
+            moves.append(runs)
+        t[crs] = {"frames": len(rows), "across": moves[0], "down": moves[1]}
+    return fails, t
+
+
+def vga_verdict(r):
+    bad = list(r["fails"])
+    b = r.get("vbench")
+    if b and not r["fails"]:
+        if b["frames"] < VGA_BENCH_FRAMES:
+            bad.append("vbench: %d frames checked, %d wanted" % (b["frames"], VGA_BENCH_FRAMES))
+        if not b["ctl"]:
+            bad.append("vbench: the negative control never ran (no frame where the window one byte on differed)")
+        if not sum(v for k, v in b["pans"].items() if k):
+            bad.append("vbench: the panning was 0 on every frame (the pel pan never exercised)")
+        if not b["glass"]:
+            bad.append("vbench: the glass was never compared")
+    c = r.get("vcam")
+    if c and not r["fails"]:
+        for crs in VGA_DEMOS:
+            if crs not in c or not (c[crs]["across"] or c[crs]["down"]):
+                bad.append("vcam: %s's demo moved the camera not at all (nothing judged)" % crs)
+    return bad
 
 
 def run(tag, apps=None, src=None, art=None, parts=PARTS):
@@ -3932,6 +4123,16 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
         ui.open("BONANZA.O88")
         g = Bz(ui, tag, sym)
         ui.settle()
+        if tag == "vga":                        # the VGA's card (SPEC.md 130.46): its own parts
+            if "vbench" in parts:
+                ref = Ref("cga", course("bench", art=art), art)
+                ref.tag = "vga"                 # (the CGA's bytes: the VGA's art is their planar form)
+                f, out["vbench"] = vga_bench(g, ref)
+                out["fails"] += f
+            if "vcam" in parts and not out["fails"]:
+                f, out["vcam"] = vga_cam(g, art)
+                out["fails"] += f
+            return out
         if "glass" in parts:
             glass(g, Ref(tag, course("first", art=art), art))
         scr = "bz_camscr" in sym                # wave 6b: BENCH's eight directions under the scripted camera
@@ -3970,6 +4171,8 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
 
 
 def verdict(tag, r):
+    if tag == "vga":
+        return vga_verdict(r)
     bad = list(r["fails"])
     if "bench" in r:
         b = r["bench"]
@@ -4558,7 +4761,8 @@ MAPSKIP = [
 ]
 COLFIRST_TV = ("    mov bx, BZ_PWHEEL * 4       ; (the wheel's part: appended, so the wave-2\n"
                "bz_tv:                          ; parts keep their numbers)\n    call bz_mark\n")
-COLFIRST_COL = ".lit:\n    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n"
+COLFIRST_COL = (".lit:\n    cmp byte [bz_vga], 0        ; (the VGA's column went with its rows)\n    jne bz_tb\n"
+                "    mov ax, [bz_dc]\n    or ax, ax\n    jz bz_tb\n")
 REDS = {
     # the entering column moving right: the window's column W (not W - 1)
     "colright": [("bzgame.inc", "    add ax, [bz_W]              ; moving right: the right edge's\n    dec ax\n",
@@ -4816,10 +5020,34 @@ RED_WANT = {"colright": "at bz_presented", "colfirst": "at bz_tf", "late": "bz_r
             "nostretch": "card != oracle", "campad": "ground-line block's span"}
 RED_WANT.update(RED_CAM_WANT)
 
+# THE VGA's CARD (SPEC.md 130.46, plan V3): its red arms, each on the VGA alone
+REDS.update({
+    # the column's entry table with its first two swapped: a column from a block's line 0 enters at line 1
+    "vcolent": [("bzvga.asm", ".tab:   dw .k0, .k1, .k2, .k3, .k4, .k5, .k6, .k7",
+                 ".tab:   dw .k1, .k0, .k2, .k3, .k4, .k5, .k6, .k7    ; RED vcolent")],
+    # the row's entry table with its first two swapped: a whole row enters at its second cell
+    "vrowent": [("bzvga.asm", "    dw .r0, .r1, .r2", "    dw .r1, .r0, .r2")],
+    # the pel pan never set: the display's x0 kept, the card showing whole columns
+    "vpan": [("bzgame.inc", "    mov al, [bz_vpan]           ; the display's panning (130.46.10)\n",
+              "    xor al, al                  ; RED vpan: the panning always 0\n")],
+    # BZV_ROLL's rule gone: the shown phases the true ones
+    "vroll": [("bzvga.asm", "bzv_roll:\n    cmp byte [bz_vrv], 0\n",
+               "bzv_roll:\n    retf                        ; RED vroll\n    cmp byte [bz_vrv], 0\n")],
+    # TRACK's step two up a frame: the display's step jumps
+    "vjerk": [("bzvga.asm", ".up:\n    mov al, [di + 4]\n    inc ax\n",
+               ".up:\n    mov al, [di + 4]\n    inc ax\n    inc ax                      ; RED vjerk\n")],
+})
+RED_PARTS.update({"vcolent": ("vbench",), "vrowent": ("vbench",), "vpan": ("vbench",), "vroll": ("vbench",),
+                  "vjerk": ("vcam",)})
+RED_TAGS.update({k: ("vga",) for k in ("vcolent", "vrowent", "vpan", "vroll", "vjerk")})
+RED_WANT.update({"vcolent": "of the engine window differ", "vrowent": "of the engine window differ",
+                 "vpan": "the glass at frame", "vroll": "BZV_ROLL showed phases",
+                 "vjerk": "the step changed by more than one"})
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
+    ap.add_argument("--adapter", choices=("cga", "herc", "vga", "both", "all"), default="all")
     ap.add_argument("--part", choices=PARTS, action="append",
                     help="run only these parts (default all)")
     ap.add_argument("--red", choices=sorted(list(REDS) + list(RED_DATA)))
@@ -4851,7 +5079,7 @@ def main():
                       "shipped identity stamped in) and the package assembles over it (%d bytes)" % (
                           name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
         return
-    tags = ("cga", "herc") if a.adapter == "both" else (a.adapter,)
+    tags = {"both": ("cga", "herc"), "all": ("cga", "herc", "vga")}.get(a.adapter, (a.adapter,))
     if a.red:
         tags = tuple(t for t in tags if t in RED_TAGS.get(a.red, tags)) or RED_TAGS.get(a.red, tags)
         GROUND_ONLY.update(GROUND_RED.get(a.red, {}))
