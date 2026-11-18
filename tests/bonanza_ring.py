@@ -990,6 +990,27 @@ class Bz:
             return self.m.read(self.a(n) + k, 1)[0]
         return self.pre[0][self.sym[n] - self.sym["bz_phs"] + k]
 
+    def vroll(self, lk):
+        """The VGA's SHOWN roll frame (SPEC.md 128.45.11): the guest's, which
+        bbcourse.vroll must give from the last frame's shown phases whenever
+        this guest was looked at on the frame before (a skipped frame, or the
+        first, leaves the rule unchecked: the guest's phases are its own)."""
+        fr = self.w("bz_frames")
+        shown = (self.w("bz_vG"), self.b("bz_vpy"), self.b("bz_vpxd"), self.w("bz_px") & 255)
+        last = getattr(self, "_vroll", None)
+        if last and last[0] == fr:
+            return last[2]
+        f = lk.spr[1]
+        if last and last[0] == fr - 1:
+            G = ((lk.gx + lk.gy) >> 9) & 0xFFFF
+            want = BB.vroll(last[1], f >> 3, f & 7, G, lk.px)
+            assert want == shown[1:3], ("BZV_ROLL showed phases %s, the model %s (frame %d)"
+                                        % (shown[1:3], want, fr))
+        assert shown[2] & 3 == f & 3, ("the shown x phase is not the sprite's shift", shown, f)
+        spr = ("roll", shown[1] * 8 + shown[2])
+        self._vroll = (fr, shown, spr)
+        return spr
+
     def look(self, crs):
         """The Look the frame the guest holds now was drawn from (at bz_tf or
         bz_presented), CRS the host's course (its cells: the OCC gate and OCCG):
@@ -1019,6 +1040,8 @@ class Bz:
         # restores its footprint; an earlier wave's build has bz_tube alone
         lk.tube = hidn if hidn is not None else f("bz_tube", "B") if "bz_tube" in self.sym else 0
         lk.spr = BB.sprite(lk, self.tag == "herc")
+        if self.tag == "vga" and lk.spr[0] == "roll":
+            lk.spr = self.vroll(lk)
         if lk.tube:                              # hidden in a tube: no sprite, no shadow
             lk.gate, lk.spy = False, None
             return lk, ("the guest drew a shadow ([bz_snv] 1) for a hidden ball (a tube, or holed)"
@@ -2102,7 +2125,7 @@ DF_KICK, DF_ALT, DF_END = 5, 4, 12
 # meeting the slab's drawn footprint on a waited frame: bz_ctype 3), PW_TRIES times at most; then held at one
 # point PW_END frames (one box: the slab's is drawn - 18 + 2 x 6 lines at most)
 PW_FRAMES = {"cga": 24, "herc": 21}
-PW_END, PW_TRIES, PW_STEPS = 3, 4, 20
+PW_END, PW_TRIES, PW_STEPS, PW_RUNS = 3, 8, 20, 4
 PW_DX = 24                          # px either side of the window's centre
 
 
@@ -2240,12 +2263,12 @@ def mill_play(g, ref):
     for f in LOW_FEATS:
         cnt[f] = 0
     # the scenes' state: the phase's own bz_t0 count, its plans and what each saw
-    sc = {"k": 0, "df": None, "pw": None, "pwj": 0, "pwend": 0, "pwn0": None, "pwn1": None, "tries": 0,
+    sc = {"k": 0, "df": None, "pw": None, "pwj": 0, "pwend": 0, "pwn0": None, "pwn1": None, "tries": 0, "pwrun": 0,
           "strip": 0, "waits": 0, "dframes": 0, "tall": 0, "ptall": 0, "rideb": 0, "tfwait": False,
           "wfr": set()}
     low_end = RIDE_FRAMES + OVER_FRAMES + low_frames(LOW_DARK[tag])
     df_end = low_end + DF_END + 1
-    nmax = df_end + 600                         # (the pwait scene waits for the lift's next rise: at most a
+    nmax = df_end + 600 + 3 * (PW_FRAMES[tag] + PW_END + 40)                        # (the pwait scene waits for the lift's next rise: at most a
     tag_pw = PW_FRAMES[tag]                     # period, 256 steps)
     while frames < nmax and phase != "done":
         k = wk.next()
@@ -2297,6 +2320,18 @@ def mill_play(g, ref):
                         phase = "done"
                         continue
                 pwait_step(g, sc, n, tag_pw)
+                if sc["pwend"] > PW_END and not sc["strip"] and sc["pwrun"] < PW_RUNS - 1:
+                    # no entering row met the slab on a waited frame this run (whether a frame waits is the
+                    # machine's load, and a lighter frame waits less): the scene starts again at the lift's
+                    # NEXT rise, a different start phase, up to PW_RUNS runs - the check is unchanged
+                    sc["pwrun"] += 1
+                    sc.update(k=0, pwj=0, pwend=0, pwn0=None, pwn1=None, tries=0)
+                    sc["pw"] = pwait_plan(g, crs, n & 0xFFFF)
+                    if sc["pw"] is None:
+                        fails.append("MILL play: no window puts the lift's slab across its bottom edge with the "
+                                     "ball held in the band (the PWAIT scene, run %d)" % (sc["pwrun"] + 1))
+                        phase = "done"
+                    continue
                 if sc["pwend"] > PW_END:
                     phase, sc["k"] = "ringend", 0
                     sc["re"] = ringend_plan(g, crs)
@@ -2449,7 +2484,7 @@ def mill_play(g, ref):
                 nlift, PW_STEPS))
         if not sc["strip"]:
             fails.append("MILL play: the PWAIT scene had no WAITED frame on which an entering row met the slab's "
-                         "drawn footprint (bz_ctype 3) in %d tries (SPEC.md 128.13.12)" % sc["tries"])
+                         "drawn footprint (bz_ctype 3) in %d runs (SPEC.md 128.13.12)" % (sc["pwrun"] + 1))
     print("%s MILL play: the ball poked onto the slab and ridden %d frames, then under it %d: frames checked with "
           "the slab's layer in the riding ball's box %d, THE RIDE BOX %d, the slab OVER the ball %d; then THE LOW "
           "SCENARIO (post %s at window line %d, %d frames): checked frames with a wheel commit AHEAD %d, BEHIND %d, "
@@ -2494,9 +2529,18 @@ def pwait_step(g, sc, n, nfr):
             # the centre px first, then outward a px at a time to 16 either side (the band's foot, 2 lines
             # past it, held: only the across moves - TRICKLE's row step is the line's, its column a word's
             # band away): the CGA's centre over the slab's shaft has no floor clear of OCC (the final pass)
-            for dx in [0] + [s_ * d_ for d_ in range(1, 17) for s_ in (-1, 1)]:
-                P = probe_ground(crs, left + 4 * g.w("bz_W") - 8 + dx, top + 2 * 200 // 3 - 8 + 2, crs._grid, 1,
-                                 clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+            # (each try starts its search 5 px further across than the last: a try that met no waited frame at
+            # one offset - the faster the frame, the likelier - is not repeated at the same one)
+            # (and when no floor is clear at 2 lines past the foot at ANY offset - the window has stepped over
+            # the slab's shaft - the row is looked for 4, 8 and 12 lines further down: still across the foot)
+            dxs = [0] + [s_ * d_ for d_ in range(1, 17) for s_ in (-1, 1)]
+            rot = (5 * sc["tries"]) % len(dxs)
+            for dy in (2, 6, 10, 14):
+                for dx in dxs[rot:] + dxs[:rot]:
+                    P = probe_ground(crs, left + 4 * g.w("bz_W") - 8 + dx, top + 2 * 200 // 3 - 8 + dy, crs._grid, 1,
+                                     clear=16, flags=BB.FL_OCC | BB.FL_OCCG)
+                    if P:
+                        break
                 if P:
                     break
         if P:
@@ -4288,7 +4332,7 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appda
     assemble(src, art, binp)
     shell = shell_part(td, src, art, binp)      # wave 8a (128.19.2): LINKED against this tree's package
     fams = fam_parts(td, src, art)              # wave 9 (128.25.6.2): ...and so is every family part
-    vga = vga_part(td, src, art)                # SPEC.md 128.41.6: ...and the VGA's part
+    vga = vga_part(td, src, art)                # SPEC.md 128.45.6: ...and the VGA's part
     subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88]
                    + part_args(art, src, shell, fams, vga)
                    + ["--part-compress", fmt or part_fmt()], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
@@ -4361,7 +4405,7 @@ def shell_part(td, src, art, binp):
 
 
 def vga_part(td, src, art):
-    """SPEC.md 128.41.6: a tree's VGA PART, BZVGA.BIN, assembled from the tree's
+    """SPEC.md 128.45.6: a tree's VGA PART, BZVGA.BIN, assembled from the tree's
     bzvga.asm against the bzlink.inc shell_part wrote for the tree's package.
     -> its path, or None for a tree with none (an earlier wave's)"""
     inc = os.path.join(td, "bzlink-inc")
@@ -4376,7 +4420,7 @@ def vga_part(td, src, art):
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 128.19.2): the pathway's (wave
     8b, 128.19.5), the title's two (SPEC.md 128.23), (wave 9, 128.25.6.2)
-    one a family, and (SPEC.md 128.41.6) the VGA part's, the last, where SRC's
+    one a family, and (SPEC.md 128.45.6) the VGA part's, the last, where SRC's
     package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     if "BZ_P_FBUN" in asm:                      # 128.25.6.9: a row a FETCH family, and the bundle's
@@ -4384,7 +4428,7 @@ def after_shell(src=None):
     else:
         nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
     return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf \
-        + ("BZ_P_VGA" in asm)                   # (128.37: the kit; 128.41.6: the VGA's part)
+        + ("BZ_P_VGA" in asm)                   # (128.37: the kit; 128.45.6: the VGA's part)
 
 
 def fam_parts(td, src, art):
@@ -4450,7 +4494,7 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
     elif "BZ_P_FAM" in asm:                     # wave 9 (128.25.6.2): the family parts, the last rows
         for i, f in enumerate(BB.FAMILIES):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
-    if "BZ_P_VGA" in asm:                       # SPEC.md 128.41.6: the VGA's part, the last row
+    if "BZ_P_VGA" in asm:                       # SPEC.md 128.45.6: the VGA's part, the last row
         out += ["--part", vga or at("build/bzvga.bin")]
     return out
 

@@ -1,0 +1,53 @@
+# Hump Test - BONANZA's HUMP test course (SPEC.md 128.44), built only by the BZHUMP=1 knob (make BUILD=<tree>
+# BZHUMP=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it the pathway's pad 0,
+# so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A hump is FIELD cells that rise ABOVE
+# the plate round them: a raised cosine, 6 px (LOW) or 10 px (HIGH) at its crest, the plate's own height at its
+# edge - a round DOME on the 2 x 2 cells round a cell corner, or a RIDGE along an axis (domed ends, or `open`
+# ends against walls: a speed bump no ball rolls round).
+#
+# A level plate at 2 units.  From the start (the pads for each ball on its left):
+#  - THE LOW HUMPS (the middle): three 6 px domes and a 6 px ridge every ball rolls over from a standstill;
+#  - THE SPEED BUMP (east): a bridge 2 wide, a HIGH open ridge across it.  Glass climbs it
+#    from rest, rubber with a cell of run-up, steel only with a long run (the corridor's 5 cells) - from a
+#    standstill at its foot steel STALLS and rolls back.  Its goal is exit 0;
+#  - THE HIDE (front): a HIGH dome with a glass pad behind it and the exit 1 goal beyond: the dome hides part of
+#    the pad and of a ball rolling behind it, never all of either for more than a ball length (128.44.4).
+course HUMP "Hump Test"
+width 128
+origin 448
+ball rubber
+
+floor rect 4 4 16 20 flat 2
+pad rubber 5 18
+pad steel 6 18
+pad glass 7 18
+start 5 16
+
+# THE LOW HUMPS
+hump 8 8 2
+hump 12 10 2
+hump 8 12 2
+hump 11 14 2 along x 3
+
+# THE SPEED BUMP: the bridge (x 16 - 26, y 6 - 7) over the void, the open ridge across it at x 21 - 22 (its ends
+# over the void, so no ball rolls round it)
+floor rect 16 6 27 8 flat 2
+hump 22 6 2 along y 2 height 10 open
+floor rect 24 4 28 6 flat 2                     # (a landing beside the bridge's end, for its clock)
+goal tile 26 6 flat 2
+clock 26 4
+
+# THE HIDE: a HIGH dome at (13, 18), a glass pad behind it at (11, 16)
+hump 13 18 2 height 10
+pad glass 11 16
+floor rect 16 16 20 20 flat 2
+goal tile 18 17 flat 2 exit 1
+
+clock 14 5
+clock 17 18
+target 60
+limit 99
+way 5 16
+way 10 10
+way 14 7
+way 26 6

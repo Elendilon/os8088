@@ -95,7 +95,7 @@ bz_fullscreen:
     cmp al, [bz_cardk]          ; fetched the parts for
     jne .moved
     mov bx, bz_fsxm - 1
-    xlat                        ; AL = the card's mode (128.41.2)
+    xlat                        ; AL = the card's mode (128.45.2)
 .set:
     push ds
     pop es
@@ -150,7 +150,7 @@ bz_vinit:
     mov [bz_vseg], ax
     mov word [bz_smask], 0fffh  ; (the 6845's ring; the VGA's part sets 0FFFFh)
     cmp byte [bz_vga], 0        ; THE VGA: its half is the part's (SPEC.md
-    je .nvga                    ; 128.41.3), every variable below and its ports
+    je .nvga                    ; 128.45.3), every variable below and its ports
     BZ_VCALL BZV_INIT
     ret
 .nvga:
@@ -421,7 +421,7 @@ bz_rbR:
     inc bx
 %endmacro
 bz_row:
-    cmp byte [bz_vga], 0        ; THE VGA's row is one line (128.41.3), the part's
+    cmp byte [bz_vga], 0        ; THE VGA's row is one line (128.45.3), the part's
     je .c
     inc word [bz_nrow]
     BZ_VCALL BZV_ROW
@@ -1071,7 +1071,7 @@ bz_frun:
 ; DS = ES = ours.  Preserves all but AX, BX, CX, DX, DI, BP.
 bz_blit:
     cmp byte [bz_vga], 0        ; THE VGA: planar pairs at 8-pixel words, from
-    je .c                       ; the converted copies (128.41.5), the part's
+    je .c                       ; the converted copies (128.45.5), the part's
     BZ_VCALL BZV_BLIT
     ret
 .c:
@@ -1449,7 +1449,28 @@ bz_occ:
     jbe .key
 .out0:
     jmp .out
-.key:
+.key:                           ; wave 10's O1: ONE BOX HOLDING THE PASS - the
+    mov byte [bz_o1], 0         ; ball's, nearly always on a gated frame (no
+    cmp word [bz_nbox], 1       ; shadow box, 128.11.10.2) - is laid with no
+    jne .o1                     ; box loop and no clip (bz_olay): its x0 and w
+    mov ax, [bz_boxes + 2]      ; and its buffer less 8 y0, once a pass
+    cmp ax, [bz_olo]
+    jg .o1                      ; y0 > lo
+    mov bx, ax
+    add bx, [bz_boxes + 6]
+    cmp bx, [bz_ohi]
+    jl .o1                      ; y0 + h < hi
+    inc byte [bz_o1]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    neg ax
+    add ax, [bz_boxes + 8]
+    mov [bz_obias], ax          ; buffer - 8 y0
+    mov bx, [bz_boxes]
+    mov bh, [bz_boxes + 4]
+    mov [bz_ox0], bx            ; x0, w (bytes: a column is under 128)
+.o1:
     mov ax, [bz_gz + 1]         ; the key: z_b + m
     cmp byte [bz_air], 0
     jne .air
@@ -1648,6 +1669,12 @@ bz_oprep:
     mov bx, ax
 .f:
     mov [es:bz_of], bx
+    mov di, bx                  ; ONE BOX HOLDING THE PASS (bz_occ's, O1; made
+    shl di, 1                   ; whatever bz_o1 says): the row's word 0 in it,
+    shl di, 1                   ; + 8 f
+    shl di, 1
+    add di, [es:bz_obias]
+    mov [es:bz_orw], di
     mov di, [es:bz_ohi]
     mov cx, ax
     add cx, 8
@@ -1718,23 +1745,44 @@ bz_oand:
 ; bz_olay - lay a group into EVERY box it meets: block word DL of the block row
 ; bz_occ is on, its lines [bz_of, + bz_on) (2 x the first's place in the
 ; block: bz_ofl2), under mask BX (a part offset, or -1 for [bz_omp]: bz_omsk,
-; or the model's checker, bz_amodel), each box
-; taking the lines and the word it holds: buffer = ((buffer XOR block) AND
-; mask) XOR block.  DS = the course part, ES = ours.  Preserves all but AX and
-; BX.
+; or the model's checker, bz_amodel), each box taking the lines and the word
+; it holds: buffer = ((buffer XOR block) AND mask) XOR block.  Wave 10's O1:
+; a pass with ONE box holding every line of the pass (bz_o1, bz_occ's; ~96%
+; of PEAK's lays) lays the word with no box loop and no clip - the column
+; test, the row's word 0 in the box (bz_orw, bz_oprep's) and the lines.  DS =
+; the course part, ES = ours.  Preserves all but AX and BX.
 bz_olay:
     push cx
     push dx
     push si
     push di
+    xor dh, dh                  ; DX = the block word
+    mov si, dx
+    shl si, 1
+    add si, [es:bz_omrow]
+    mov si, [si]                ; SI = the block (an absolute offset)
+    cmp byte [es:bz_o1], 0
+    je .gen
+    mov ax, dx                  ; ONE BOX: 2 (c - x0), the byte compare (c and
+    sub al, [es:bz_ox0]         ; x0 under 128, AH = 0: left of x0 is over
+    cmp al, [es:bz_ow]          ; 128, past any w)
+    jae .x
+    shl ax, 1
+    add ax, [es:bz_orw]
+    mov di, ax                  ; DI = the buffer's word
+    mov cx, [es:bz_on]          ; the row's lines, all the box's
+    mov ax, [es:bz_ofl2]
+    call bz_olines
+.x:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    ret
+.gen:                           ; EVERY BOX, each clipped
     push bp
     mov bp, bx                  ; BP = the mask
-    xor dh, dh                  ; DX = the block word
-    mov bx, dx
-    shl bx, 1
-    add bx, [es:bz_omrow]
-    mov ax, [bx]
-    mov [es:bz_oblk], ax        ; the block (an absolute offset)
+    mov [es:bz_oblk], si
     mov si, bz_boxes
     mov cx, [es:bz_nbox]
 .box:
@@ -1771,11 +1819,24 @@ bz_olay:
     shl ax, 1                   ; 2 x the first line's place in the block
     push si
     push dx
-    push bp
     mov si, [es:bz_oblk]
-    add si, ax                  ; SI = the block's line
     mov bx, bp
-    mov bp, BZ_BOXW * 2 - 2     ; BP = the buffer's step after a line's word
+    call bz_olines
+    pop dx
+    pop si
+.nb:
+    pop cx
+    add si, BZ_BOXD
+    loop .box
+    pop bp
+    jmp short .x
+
+; bz_olines - bz_olay's lines: SI = the block, AX = 2 x the first line's place
+; in the block, BX = the mask (a part offset, or -1 for [bz_omp]), DI = the
+; buffer's word, CX lines (BZ_BOXW words apart).  DS = the course part, ES =
+; ours.  Clobbers AX, BX, CX, DX, SI, DI.
+bz_olines:
+    add si, ax                  ; SI = the block's line
     cmp bx, byte -1
     je .scr
     add bx, ax                  ; BX = the mask's line
@@ -1786,11 +1847,11 @@ bz_olay:
     and ax, [bx]
     xor ax, dx
     stosw
-    add di, bp
+    add di, byte BZ_BOXW * 2 - 2 ; (the buffer's step after a line's word)
     inc bx
     inc bx
     loop .line
-    jmp short .bd
+    ret
 .scr:
     mov bx, [es:bz_omp]         ; (bz_omsk, or the model's checker)
     add bx, ax
@@ -1801,26 +1862,10 @@ bz_olay:
     and ax, [es:bx]
     xor ax, dx
     stosw
-    add di, bp
+    add di, byte BZ_BOXW * 2 - 2
     inc bx
     inc bx
     loop .sline
-.bd:
-    pop bp
-    pop dx
-    pop si
-.nb:
-    pop cx
-    add si, BZ_BOXD
-    dec cx
-    jz .done
-    jmp .box
-.done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
     ret
 
 ; bz_amodel - SPEC.md 128.29: THE MODEL, in a VOID cell of a GF_ANA part, once
@@ -2345,7 +2390,7 @@ bz_amodel:
     cmp [es:bz_awhi + bx], si
     jg .mbuild
     mov word [es:bz_omp], bz_achk ; every edge at or over the first laid
-    cmp byte [es:bz_vga], 0     ; (the VGA's checker, 128.41.5)
+    cmp byte [es:bz_vga], 0     ; (the VGA's checker, 128.45.5)
     je .achk
     mov word [es:bz_omp], bz_achkv
 .achk:
@@ -2392,7 +2437,7 @@ bz_amodel:
     sub di, bp                  ; DI = the lines
     mov dx, 00c0h               ; pixel 0's bit pair; ROR 2 walks 1 .. 7 (the
     cmp byte [bz_vga], 0        ; VGA's planar pair: its two bits, 8080h, ROR 1,
-    je .mc8                     ; SPEC.md 128.41.5)
+    je .mc8                     ; SPEC.md 128.45.5)
     mov dh, 80h
     mov dl, dh
 .mc8:
@@ -2454,7 +2499,7 @@ bz_amodel:
 ; model hides, by the line's place in its block
 bz_achk:
     dw 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch
-bz_achkv:                       ; ...the VGA's, as planar pairs (128.41.5)
+bz_achkv:                       ; ...the VGA's, as planar pairs (128.45.5)
     dw 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah
 
 ; bz_arange - bz_amodel's cache slots AL .. BL (words W0 + AL .. W0 + BL)
@@ -2706,7 +2751,7 @@ bz_ahalf:
 ; box starts or ends inside, and any other width, take the per-line loop.
 bz_boxw:
     cmp byte [bz_vga], 0        ; THE VGA: even bytes to plane 0, odd to plane 1
-    je .c                       ; (128.41.5), the part's
+    je .c                       ; (128.45.5), the part's
     BZ_VCALL BZV_BOXW
     ret
 .c:

@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/bzvga.asm - BONANZA's VGA PART, BZVGA.BIN (SPEC.md 128.41)
+; apps/bonanza/bzvga.asm - BONANZA's VGA PART, BZVGA.BIN (SPEC.md 128.45)
 ;
 ; The VGA's writers and its one-off converter, out of the resident image (which
 ; has no room for them and whose CGA and Hercules plays never need them): a
@@ -13,10 +13,10 @@
 ;      package, and its bss is named by bzlink.inc, which names NO code label.
 ;   3. IT NEVER CLAIMS: the balls' copies are the package's claim ([bz_vbseg]).
 ;
-; THE MODEL (128.41.3): mode 0Dh, two planes, a stride P of 42 bytes a line
+; THE MODEL (128.45.3): mode 0Dh, two planes, a stride P of 42 bytes a line
 ; (CR13 21), the window W = 40 columns of H = 200 one-line rows; the byte of
 ; world line L, column c is (P L + c) mod 64K in each plane, and S = (P R0 +
-; c0) mod 64K. THE ART (128.41.5) is PLANAR PAIRS: eight pixels a word, plane
+; c0) mod 64K. THE ART (128.45.5) is PLANAR PAIRS: eight pixels a word, plane
 ; 0's byte (bit 7 the leftmost) then plane 1's - converted once, here, at the
 ; fetch; compose is bitwise, so it runs unchanged, and every writer below only
 ; splits a word's two bytes into the two planes.
@@ -29,13 +29,13 @@ org 0
 %include "bzvga.inc"
 
 BZV_P       equ 44              ; the stride, bytes a line (CR13 = 22 words)
-BZV_W       equ 42              ; the ENGINE's window, columns (128.41.10): the
+BZV_W       equ 42              ; the ENGINE's window, columns (128.45.10): the
                                 ; display's 320 px and their panning inside it,
                                 ; and a two-column gutter in the stride
 BZV_H       equ 200             ; ...its rows, a line each
-BZV_MLIM    equ 25540           ; 1.5 refreshes, PIT counts (128.41.7)
+BZV_MLIM    equ 25540           ; 1.5 refreshes, PIT counts (128.45.7)
 BZV_LBL     equ 2 * 76          ; bz_latechk's: 18 lines rise to window line 0,
-                                ; less the 16 it adds itself (128.41.7)
+                                ; less the 16 it adds itself (128.45.7)
 
     dw BZV_SIG0, BZV_SIG1
     dw BZL_IMAGE, BZL_BSS
@@ -56,7 +56,7 @@ bzv_v10: jmp near bzv_roll          ; BZV_ROLL
     times ($ - $$) - BZV_VEC - BZV_VECB * BZV_NVEC db 0
 
 ; =============================================================================
-; THE CONVERSION TABLES (128.41.5): a CGA byte holds four pixels `hl` from bit
+; THE CONVERSION TABLES (128.45.5): a CGA byte holds four pixels `hl` from bit
 ; 7 down. bzv_tl[b] = its four pixels' plane-0 bits (the l's) in the high
 ; nibble of the low byte and their plane-1 bits (the h's) in the high nibble of
 ; the high byte - the LEFT four pixels of a planar pair; bzv_tr[b] the same in
@@ -94,7 +94,7 @@ bzv_tr:
 bzv_ega16:  db 00h, 01h, 02h, 03h, 04h, 05h, 14h, 07h
             db 38h, 39h, 3Ah, 3Bh, 3Ch, 3Dh, 3Eh, 3Fh
 ; the wheel's per-card words (bz_wb0 .. bz_warr, SPEC.md 128.12.5.3): the
-; rise to window line 0 18 lines (128.41.7), a line 76 PIT counts as the CGA's,
+; rise to window line 0 18 lines (128.45.7), a line 76 PIT counts as the CGA's,
 ; the refresh 17,025, the word costs the CGA's until bz_wcalib measures them
 bzv_wk:     dw 18, 76, 76, 17025, 285, 1000, 300
 %if ($ - bzv_wk) != 2 * BZ_WKN
@@ -105,7 +105,7 @@ bzv_cbase:  dw 0, BZV_CR, 2 * BZV_CR, 2 * BZV_CR + BZV_CS
             dw 2 * (BZV_CR + BZV_CS), 2 * (BZV_CR + BZV_CS) + BZV_CG
 bzv_bsize:  dw BZ_BAL_SIZER, BZ_BAL_SIZE, BZ_BAL_SIZEG
 %if BZ_BAL_ENT != 160 || BZ_BAL_FRMOFF >= BZ_BAL_SQOFF || BZ_BAL_SQOFF >= BZ_BAL_SHDOFF || BZ_BAL_SHDOFF >= BZ_BAL_SHAOFF || BZ_BAL_STROFF != BZ_BAL_SHAOFF
- %error "the ball part's regions (bzconst.inc) are not the converter's (128.41.5)"
+ %error "the ball part's regions (bzconst.inc) are not the converter's (128.45.5)"
 %endif
 
 ; THE SPARKLES' PLACES (SPEC.md 128.25.19), the VGA's: bzvideo.inc's BZ_SPRS
@@ -158,7 +158,7 @@ bzv_spv:    BZV_SPR 0, 0, 0
 %endif
 
 ; =============================================================================
-; BZV_INIT - bz_vinit's VGA half (SPEC.md 128.41.3), after OSAPI_FSX_MODE set
+; BZV_INIT - bz_vinit's VGA half (SPEC.md 128.45.3), after OSAPI_FSX_MODE set
 ; 0Dh and bz_vinit [bz_vseg]: the geometry, the wheel's words, the camera's
 ; limits, P*dr, and the card - CR13 21 (P 42), AC 12h 03h (planes 0 and 1),
 ; AC 0 - 3 the course's four colours, the panning 0.  Preserves nothing.
@@ -178,10 +178,10 @@ bzv_init:
     mov word [bz_lblank], BZV_LBL
     mov word [bz_smask], 0ffffh
     mov byte [bz_vdiv], 1       ; the held divisor's short test, again a play
-    mov byte [bz_vfrm], 0       ; (128.41.10)
+    mov byte [bz_vfrm], 0       ; (128.45.10)
     mov byte [bz_vlate], 0
     mov byte [bz_vpan], 0
-    mov byte [bz_vrv], 0        ; the roll's phases start from the true ones (128.41.11)
+    mov byte [bz_vrv], 0        ; the roll's phases start from the true ones (128.45.11)
     push ds
     pop es
     mov di, bz_wb0
@@ -281,7 +281,7 @@ bzv_flip:
     retf
 
 ; BZV_PAN - AL = the pel panning (0 - 7) to AC 13h, index 33h (the screen on).
-; All kept.  bz_tv calls it at the rise, under CLI (128.41.4 rule 4)
+; All kept.  bz_tv calls it at the rise, under CLI (128.45.4 rule 4)
 bzv_pan:
     push ax
     push dx
@@ -298,10 +298,10 @@ bzv_pan:
     retf
 
 ; =============================================================================
-; BZV_ROW - bz_row's (SPEC.md 128.41.3): world line AX, world columns BX ..
+; BZV_ROW - bz_row's (SPEC.md 128.45.3): world line AX, world columns BX ..
 ; BX+CX-1 (CX at least 1), each cell's line word from the course - the map
 ; entry (map[L>>3][c]) + 2 (L&7) - plane 0's byte to plane 0, plane 1's to
-; plane 1, at (P L + c) mod 64K.  Whether a row goes into the slack (128.41.4
+; plane 1, at (P L + c) mod 64K.  Whether a row goes into the slack (128.45.4
 ; rule 1) or the full write, its order is free.  All kept.
 ; =============================================================================
 bzv_row:
@@ -373,7 +373,7 @@ bzv_row:
 
 ; =============================================================================
 ; BZV_COL - the entering column [bz_ccol], every line of the NEW window
-; ([bz_R0n] on, BZV_H of them), before the start address (128.41.4 rule 1):
+; ([bz_R0n] on, BZV_H of them), before the start address (128.45.4 rule 1):
 ; the gutter's cells, off the glass.  A plane at a time, a block's lines from
 ; one map entry.  Preserves nothing (DS, ES the package's again).
 ; =============================================================================
@@ -450,8 +450,8 @@ bzv_col:
 ; =============================================================================
 ; BZV_BOXW - box SI (a descriptor: +0 x0 world column, +2 y0 world line, +4 w
 ; words, +6 h lines, +8 the buffer, 8 bytes a line) to the card, a line at a
-; time in raster order (128.41.4 rule 5): each line's even bytes to plane 0,
-; its odd to plane 1 - no conversion (128.41.5).  A later box overlapping an
+; time in raster order (128.45.4 rule 5): each line's even bytes to plane 0,
+; its odd to plane 1 - no conversion (128.45.5).  A later box overlapping an
 ; earlier one writes the same bytes again (the CGA's band skip is a saving,
 ; not a rule).  ONE BODY A WIDTH (1 - 4 words), unrolled: per line the map
 ; mask twice and a `movsb` / `inc si` a byte, the buffer's and the card's
@@ -527,7 +527,7 @@ bzv_boxw:
     retf
 
 ; =============================================================================
-; BZV_BLIT - bz_blit's (SPEC.md 128.41.5): a sprite of the ball part into box
+; BZV_BLIT - bz_blit's (SPEC.md 128.45.5): a sprite of the ball part into box
 ; SI, clipped to it - rows i at world lines AX + i, i < DX; MASK row 0 at DI
 ; and the FRAME BX past it, both offsets into the CGA ball part (bz_sprite's,
 ; bz_boxc's); BX = 0 no frame (the shadow: AND only); BX bit 15 the pickup
@@ -840,7 +840,7 @@ bzv_blit:
 ; [bz_lsrc] (row stride [bz_lsst]; the lane's first block row [bz_lbr], first
 ; word column [bz_lcl]), column by column: each block's pose word into the
 ; map, then that block's lines inside [r0, r1) to the card, a plane at a time.
-; No ring end to cross (128.41.3).  DS = ES = ours on entry and on the way
+; No ring end to cross (128.45.3).  DS = ES = ours on entry and on the way
 ; out; clobbers AX - DI, BP.
 ; =============================================================================
 bzv_wprect:
@@ -958,7 +958,7 @@ bzv_wprect:
     pop cx
     ret
 
-; BZV_CARD - bzcard.inc's cell on the VGA (SPEC.md 128.41.4): AX = the CGA's
+; BZV_CARD - bzcard.inc's cell on the VGA (SPEC.md 128.45.4): AX = the CGA's
 ; word for it (colour 3 on 0: each pixel's pair 11 or 00), DX = the cell, BP =
 ; the card's line - the planar pair to (P (crdy0 + BP) + S + crdc0 + DX) mod
 ; 64K, a byte a plane.  ES = the card.  All kept
@@ -999,7 +999,7 @@ bzv_card:
     retf
 
 ; =============================================================================
-; BZV_CONV - THE ART, CONVERTED ONCE (SPEC.md 128.41.5), at the end of every
+; BZV_CONV - THE ART, CONVERTED ONCE (SPEC.md 128.45.5), at the end of every
 ; bz_cload: the course's blocks and occluder masks (the PICTURE part) and the
 ; platform slabs' sprites (the WORLD part) word for word in place - not a HELD
 ; pathway's, converted when it was fetched ([bz_phre]) - and the three balls,
@@ -1188,7 +1188,7 @@ bzv_conv:
     pop ax
     ret
 ; -----------------------------------------------------------------------------
-; bzv_roll - BZV_ROLL (SPEC.md 128.41.11): the roll's DISPLAYED phases.  The
+; bzv_roll - BZV_ROLL (SPEC.md 128.45.11): the roll's DISPLAYED phases.  The
 ; texture repeats every 8, so at 35 Hz a ball moving 4 or more a frame reads as
 ; turning BACKWARDS (the wagon wheel).  Shown, a phase advances at most 3 a
 ; frame and never against the ball: y, free, steps toward the true phase by at

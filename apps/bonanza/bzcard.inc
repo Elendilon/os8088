@@ -201,7 +201,7 @@ bz_card:
 .rule:
     mov ax, 0ffffh
 .st:
-    cmp byte [bz_vga], 0        ; THE VGA's cell (SPEC.md 128.41.4): the part's
+    cmp byte [bz_vga], 0        ; THE VGA's cell (SPEC.md 128.45.4): the part's
     je .cst                     ; store, a byte a plane at P y + S + c0 + cell
     BZ_VCALL BZV_CARD
     jmp short .nx

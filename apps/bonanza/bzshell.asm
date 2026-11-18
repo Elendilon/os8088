@@ -74,7 +74,7 @@ bz_rhave:
 .out:
     ret
 
-; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 128.41.2)
+; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 128.45.2)
 bz_adapter:
     push bx
     push dx

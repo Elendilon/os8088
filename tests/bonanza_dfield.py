@@ -20,6 +20,11 @@ compared EXACTLY with the model's.
      one at the lip's height), a sloped leg, a chute on a bridge left over its
      lip into the void, and MANY's falling leg over its shape-16 cells.
   4  FUZZ: N runs from random states near field cells, every step.
+  5  HUMPS (SPEC.md 128.44): the BZHUMP=1 test course, HUMP - FIELD cells RAISED over the plate round them, which
+     no chute or pit lays (a dome's middle above every edge) and which the guest runs with no code of their own:
+     a LOW dome rolled over from rest and stalled at by steel, the HIGH open ridge climbed by steel from the
+     bridge's start and crossed at the speed cap, the HIGH dome crossed off its crest line, the LOW ridge's
+     crest, a drop onto the HIGH dome's flank - and the fuzz's share near HUMP's raised cells.
 """
 import argparse
 import os
@@ -44,8 +49,10 @@ CHUTES, PIT, BRIDGE, MANY = BB._FCHUTE, BB._FPIT, BB._FBRIDGE, BB._FMANY
 
 
 def courses():
-    return {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
-            for k, t in (("chute", CHUTES), ("pit", PIT), ("bridge", BRIDGE), ("many", MANY))}
+    cs = {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
+          for k, t in (("chute", CHUTES), ("pit", PIT), ("bridge", BRIDGE), ("many", MANY))}
+    cs["hump"] = BB.compile_course(BB.HM_TEST)      # SPEC.md 128.44: HUMP, the BZHUMP=1 knob's test course
+    return cs
 
 
 def steer(n, before, after, turn_x):
@@ -87,6 +94,22 @@ def scripted():
          DS.hold(Rt | D, 10) + [H] + DS.hold(Rt | D, 60), ("hop",), None),
         ("many: down a falling leg over shape 16 (bit 7)", "many", rub, (25, 6, 15 << 8, 2 << 8, 0, 200),
          DS.hold(D, 60), (), lambda p: p.gy >> 8 >= 8 * 16),
+        # SPEC.md 128.44: HUMP's raised FIELD cells (the LOW dome at (8, 8), the HIGH open ridge on the bridge at
+        # x 21 - 22, the HIGH dome at (13, 18), the LOW ridge along y 14)
+        ("hump low: rubber over a LOW dome from rest", "hump", rub, (7, 8, 0, 0, 0, 0), DS.hold(Rt | D, 200), (),
+         lambda p: p.gx >> 8 > 152),
+        ("hump low: steel stalls at a LOW dome's foot", "hump", stl, (7, 8, 0, 0, 0, 0), DS.hold(Rt | D, 200), (),
+         lambda p: p.gx >> 8 < 152),
+        ("hump high: steel over the bump from the bridge's start", "hump", stl, (16, 7, 8 << 8, 0, 0, 0),
+         DS.hold(Rt | D, 160), (), lambda p: p.gx >> 8 > 376 and p.nfall == 0),
+        ("hump high: steel at the cap over the bump", "hump", stl, (16, 7, 8 << 8, 0, 384, 0), DS.hold(Rt | D, 80),
+         (), lambda p: p.gx >> 8 > 376 and p.nfall == 0),
+        ("hump dome: glass across the HIGH dome off its crest", "hump", gls, (11, 18, 0, 4 << 8, 200, 0),
+         DS.hold(Rt | D, 100), (), None),
+        ("hump ridge: rubber along the LOW ridge's crest", "hump", rub, (10, 14, 0, 0, 200, 0), DS.hold(Rt | D, 80),
+         (), None),
+        ("hump drop: rubber dropped onto the HIGH dome's flank", "hump", rub, (12, 17, 8 << 8, 8 << 8, 0, 0, 1,
+                                                                               40 << 8), DS.hold(0, 120), (), None),
     ]
 
 
