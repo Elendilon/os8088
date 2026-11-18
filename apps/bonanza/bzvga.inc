@@ -1,0 +1,84 @@
+; =============================================================================
+; apps/bonanza/bzvga.inc - the VGA part's ABI (SPEC.md 130.46.6), included by
+; the package (bonanza.asm) and by the part (bzvga.asm), so the two cannot hold
+; different opinions about where a vector is.
+;
+; BZVGA.BIN is a flat binary at org 0, a lazy OP_SEG row of BONANZA.O88 (the
+; last, BZ_P_VGA), LINKED against the package's bss as the shell part is
+; (bzlink.inc). Its head:
+;   +0  dw 'BZ', 'VG'          the signature
+;   +4  dw BZL_IMAGE           the package's image size it was linked against
+;   +6  dw BZL_BSS             ...and its bss: both checked against DS:8, DS:10
+;   +8  the vectors, BZV_VECB bytes each (a `jmp near`), entered by `call far`
+;       with DS = ES = the package, answering by `retf`
+; =============================================================================
+%ifndef BZVGA_INC
+%define BZVGA_INC
+BZV_SIG0    equ 'BZ'
+BZV_SIG1    equ 'VG'
+BZV_IMAGE   equ 4
+BZV_BSSW    equ 6
+BZV_VEC     equ 8               ; vector 0's offset
+BZV_VECB    equ 3               ; a vector's size
+; the vectors.  Each keeps DS, SS and SP and names what else it clobbers
+BZV_CONV    equ 0               ; convert the course's art in place and the three
+                                ; balls into [bz_vbseg] (130.46.5); preserves nothing
+BZV_INIT    equ 1               ; bz_vinit's VGA half (130.46.3); preserves nothing
+BZV_FLIP    equ 2               ; AX = a start address (bytes) to CR0Ch/0Dh; all kept
+BZV_PAN     equ 3               ; AL = the pel panning to AC 13h; all kept
+BZV_ROW     equ 4               ; bz_row's: world line AX, columns BX .. BX+CX-1; all kept
+BZV_COL     equ 5               ; [bz_ccol], every line of the new window; preserves nothing
+BZV_BOXW    equ 6               ; box SI to the card (bz_boxw's); all kept
+BZV_BLIT    equ 7               ; bz_blit's, its registers (130.46.5); keeps SI, DS, ES
+BZV_WPRECT  equ 8               ; bz_wprect's, its registers; clobbers AX - DI, BP
+BZV_CARD    equ 9               ; bzcard.inc's glyph cell (130.46.4); see bz_card's VGA arm
+BZV_ROLL    equ 10              ; the roll's DISPLAYED phases (130.46.11): AL = PHY, AH = the
+                                ; x phase, CX = G in, the shown AL, AH out; clobbers BX, DX
+BZV_CAM     equ 11              ; the VGA's camera (130.46.12): BP = bz_camera's centre
+                                ; line in; bz_R0n, bz_c0n, bz_vcx out; preserves nothing
+BZV_COAST   equ 12              ; the camera through the finish (130.46.12): coasting
+                                ; to rest; sets what BZV_CAM sets
+BZV_PAGE    equ 13              ; the pathway's PAGED camera (130.46.12): AX = the
+                                ; target page's top line; sets what BZV_CAM sets
+BZV_NVEC    equ 14
+; 130.46.12's constants: the dead zone, the most a tick, the hard margins
+BZV_ZXL     equ 80              ; px of the display's 320 (LATTICE's band, 2 W)
+BZV_ZXR     equ 240
+BZV_ZYL     equ 66              ; lines of its 200 (LATTICE's 66)
+BZV_ZYR     equ 134
+BZV_VXM     equ 1024            ; 1/256 px a tick (4 px)
+BZV_VYM     equ 1024            ; (4 lines)
+BZV_MX      equ 48
+BZV_MY      equ 40
+BZV_MAXR    equ 8               ; the VGA's rows a frame before a full write
+BZV_SXM     equ 8               ; the shown step's most a frame: a column across,
+BZV_SYM     equ BZV_MAXR        ; ...the rows' allowance down
+BZV_TXP     equ 120             ; 130.46.12's FRAMING: the ball this far from the
+BZV_TYP     equ 76              ; trailing edge (LATTICE's T, 128.17.6.2's 3 W, 76)
+BZV_PXT     equ 2               ; a PAN's most step a 70 Hz tick (4 a 35 Hz frame)
+BZV_PYT     equ 2
+BZV_XLA     equ 32              ; a PAN's look-ahead: extended while the ball at
+BZV_YLA     equ 24              ; its target is within this of the zone's far edge
+BZV_JUMP    equ 16              ; a ball move past this a frame is a jump, not motion
+BZV_TON     equ 12              ; TRACK at a ball's 12/16 px a tick (~52 px a
+BZV_TOFF    equ 6               ; second) its way; leave it below 6/16
+BZV_HYS     equ 192             ; its hysteresis, 1/256 px: the step moves one
+                                ; when the velocity is 3/4 px past it
+; a ball part's copy: its 16-byte head, then every 5-byte row as 6 (SPEC.md
+; 130.46.5); copy 0 then copy 1 (four pixels further right), each material's
+; pair from a paragraph, in bz_bsegs' order (rubber, steel, glass)
+%define BZV_COPY(n) (((n) - 16) / 5 * 6 + 16)
+BZV_CR      equ BZV_COPY(BZ_BAL_SIZER)
+BZV_CS      equ BZV_COPY(BZ_BAL_SIZE)
+BZV_CG      equ BZV_COPY(BZ_BAL_SIZEG)
+BZV_PSIZE   equ 2 * (BZV_CR + BZV_CS + BZV_CG) ; [bz_vbseg]'s bytes
+%if (BZV_CR | BZV_CS | BZV_CG) & 15 || BZV_PSIZE > 65536 - 16 || (BZ_BAL_SIZER - 16) % 5 || (BZ_BAL_SIZE - 16) % 5 || (BZ_BAL_SIZEG - 16) % 5
+ %error "the balls' copies: whole 5-byte rows, a paragraph each, one segment (130.46.5)"
+%endif
+
+; BZ_VCALL n - vector n of the held part (bz_vprep set its segment)
+%macro BZ_VCALL 1
+    mov word [bz_vfp], BZV_VEC + BZV_VECB * (%1)
+    call far [bz_vfp]
+%endmacro
+%endif

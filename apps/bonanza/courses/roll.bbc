@@ -1,0 +1,209 @@
+# First Roll - the shipped course 1 in the making (docs/plans/bonanza-courses/FIRST-ROLL.md): tutorial 1,
+# rubber, no families.  Roll, brake, ramps and a shaped chute; drops kill you, and you learn the timing.
+# Built only by the BZROLL=1 knob for now (the pathway's pad 0), until it ships.  Written by
+# docs/plans/bonanza-courses/first/sketch.py --bbc from the paper design while the LAYOUT moves (revision 4:
+# the owner's first play); once it settles this file is the source and is edited by hand.
+course ROLL "First Roll"
+guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
+width 64
+uses archway              # the ARCHWAY before the leap (SPEC.md 130.39)
+lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
+stop down                 # SPEC.md 130.45.4: the camera scrolls no further once the finish is in view
+ball rubber
+music firstroll           # its own song (2026-11-18); TRIAL's, the owner's favourite, is kept for course 3
+target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
+# no `limit`: the TOOL's (SPEC.md 130.18.3) from the autopilot's route, which steers the chute since the
+# autopilot learned shapes (31.0 s -> 50 s; the owner, 2026-11-18: "50s is fine")
+
+# rooms (the sketch's sections)
+floor rect   8   8  12  12  flat 26   # A
+floor rect   9  12  11  14  ramp y 12 14 26 24   # A
+floor rect   8  14  12  18  flat 24   # A
+floor rect  12  14  14  18  ramp x 12 14 24 22   # A
+floor rect  14  14  18  18  flat 22   # A
+floor rect  14  18  18  20  ramp y 18 20 22 20   # A
+floor rect  14  20  18  24  flat 20   # A
+floor rect  18  21  24  23  flat 20   # B
+floor rect  24  20  27  24  flat 20   # C
+floor rect  24  24  27  28  ramp y 24 28 20 18   # C
+floor rect  23  28  28  32  flat 16   # T
+floor rect  33  34  35  36  flat 12.5   # D
+floor rect  35  34  38  37  flat 12.5   # D
+floor rect  35  37  38  39  flat 11.5   # E
+floor rect  35  39  38  41  flat 10.5   # E
+floor rect  35  41  38  44  flat 9.5   # E
+floor rect  38  42  42  44  flat 9.5   # W
+floor rect  42  42  44  45  flat 9.5   # W
+floor rect  42  45  44  47  ramp y 45 47 9.5 8.5   # W
+floor rect  42  47  44  49  flat 8.5   # F
+floor rect  44  47  47  49  ramp x 44 47 8.5 7   # F
+floor rect  47  47  49  49  flat 7   # F
+floor rect  50  46  54  51  flat 4.5   # G
+floor rect  50  51  54  53  ramp y 51 53 4.5 3.5   # G
+floor rect  49  53  55  58  flat 3.5   # H
+
+# the chute (SPEC.md 130.28): unfenced, its shape guides
+chute 2 round depth 8 way 26 32 16 way 26 35 15 way 33 35 12.5
+
+# rails: block rails (wall tiles) on the void side of each railed edge
+guard tile  19  20                # see-through
+guard tile  20  20                # see-through
+guard tile  21  20                # see-through
+guard tile  22  20                # see-through
+wall  tile  22  28  flat 18
+wall  tile  22  29  flat 18
+wall  tile  22  31  flat 18
+guard tile  23  20                # see-through
+wall  tile  23  23  flat 22
+wall  tile  23  24  flat 22
+wall  tile  23  25  flat 21.5
+wall  tile  23  26  flat 21
+wall  tile  23  27  flat 20.5
+wall  tile  23  32  flat 18
+wall  tile  24  19  flat 22
+wall  tile  24  32  flat 18
+wall  tile  25  19  flat 22
+wall  tile  26  19  flat 22
+wall  tile  27  20  flat 22
+wall  tile  27  21  flat 22
+wall  tile  27  22  flat 22
+wall  tile  27  23  flat 22
+wall  tile  27  24  flat 22
+wall  tile  27  25  flat 21.5
+wall  tile  27  26  flat 21
+wall  tile  27  27  flat 20.5
+wall  tile  27  32  flat 18
+wall  tile  28  28  flat 18
+wall  tile  28  29  flat 18
+wall  tile  28  30  flat 18
+wall  tile  28  31  flat 18
+wall  tile  33  33  flat 14.5
+wall  tile  34  33  flat 14.5
+wall  tile  34  36  flat 14.5
+wall  tile  34  37  flat 13.5
+wall  tile  34  38  flat 13.5
+wall  tile  34  39  flat 12.5
+wall  tile  34  40  flat 12.5
+wall  tile  34  41  flat 11.5
+wall  tile  34  42  flat 11.5
+wall  tile  34  43  flat 11.5
+wall  tile  35  33  flat 14.5
+wall  tile  35  44  flat 11.5
+wall  tile  36  33  flat 14.5
+wall  tile  36  44  flat 11.5
+wall  tile  37  33  flat 14.5
+wall  tile  37  44  flat 11.5
+wall  tile  38  37  flat 13.5
+wall  tile  38  38  flat 13.5
+wall  tile  38  39  flat 12.5
+wall  tile  38  40  flat 12.5
+wall  tile  41  47  flat 10.5
+wall  tile  41  48  flat 10.5
+wall  tile  42  41  flat 11.5
+wall  tile  42  49  flat 10.5
+wall  tile  43  41  flat 11.5
+wall  tile  43  49  flat 10.5
+wall  tile  44  42  flat 11.5
+wall  tile  44  43  flat 11.5
+wall  tile  44  44  flat 11.5
+wall  tile  44  46  flat 10.5
+wall  tile  44  49  flat 10.5
+wall  tile  45  46  flat 10
+wall  tile  45  49  flat 10
+wall  tile  46  46  flat 9.5
+wall  tile  46  49  flat 9.5
+wall  tile  47  46  flat 9
+wall  tile  47  49  flat 9
+wall  tile  48  46  flat 9
+wall  tile  48  49  flat 9
+wall  tile  48  53  flat 5.5
+wall  tile  48  54  flat 5.5
+wall  tile  48  55  flat 5.5
+wall  tile  48  56  flat 5.5
+wall  tile  48  57  flat 5.5
+wall  tile  49  51  flat 6.5
+wall  tile  49  58  flat 5.5
+wall  tile  50  45  flat 6.5
+wall  tile  50  58  flat 5.5
+wall  tile  51  45  flat 6.5
+wall  tile  51  58  flat 5.5
+wall  tile  52  45  flat 6.5
+wall  tile  52  58  flat 5.5
+wall  tile  53  45  flat 6.5
+wall  tile  53  58  flat 5.5
+wall  tile  54  46  flat 6.5
+wall  tile  54  47  flat 6.5
+wall  tile  54  48  flat 6.5
+wall  tile  54  49  flat 6.5
+wall  tile  54  50  flat 6.5
+wall  tile  54  51  flat 6.5
+wall  tile  54  52  flat 6
+wall  tile  54  58  flat 5.5
+wall  tile  55  53  flat 5.5
+wall  tile  55  54  flat 5.5
+wall  tile  55  55  flat 5.5
+wall  tile  55  56  flat 5.5
+wall  tile  55  57  flat 5.5
+
+hole  tile 25 29
+hole  half up tile 8 8          # a diagonal corner
+hole  half right tile 11 8          # a diagonal corner
+hole  half left tile 8 11          # a diagonal corner
+hole  half down tile 11 11          # a diagonal corner
+hole  half up tile 8 14          # a diagonal corner
+hole  half left tile 8 17          # a diagonal corner
+hole  half right tile 17 14          # a diagonal corner
+hole  half left tile 14 23          # a diagonal corner
+hole  half down tile 17 23          # a diagonal corner
+archway rect 47 47 48 49 along x under 3   # SPEC.md 130.39: a Hop passes under it
+goal  rect 49 56 55 58  flat 3.5
+start 9 9
+checkpoint 24 22 ball rubber   # flag 0
+checkpoint 36 42 ball rubber   # flag 1
+
+# clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
+floor tile 12 9  flat 26   # the start clock's tile (level with the path, one block out)
+clock 12 9 frame pin
+floor tile 22 30  flat 17.5   # the middle clock's tile (on top of the rail block it replaces)
+clock 22 30 frame pin
+floor tile 49 52  flat 5.5   # the finish clock's tile (on top of the rail block it replaces)
+clock 49 52 frame pin
+
+# the autopilot's route
+way 9 9
+way 10 13
+way 10 16
+way 13 16
+way 16 16
+way 16 19
+way 16 22
+way 18 22
+way 24 22
+way 25 22
+way 24 25
+way 24 28
+way 24 30
+way 36 35
+way 36 39
+way 36 42
+way 39 43
+way 42 43
+way 43 44
+way 43 46
+way 43 48
+way 44 48
+way 47 48
+way 52 48
+way 52 51
+way 52 57
+# ---- ART (generated by docs/plans/bonanza-courses/first/decals.py) ----
+# LONE pillars in the void, away from the path, each topped by a pennant
+floor tile 31 39  flat 15
+float tile 31 39
+floor tile 51 43  flat 9
+float tile 51 43
+art roll_tee.bba 242 101
+art roll_chev.bba 230 401
+art roll_pen0.bba 127 590
+art roll_pen1.bba 383 830
+# ---- end ART ----

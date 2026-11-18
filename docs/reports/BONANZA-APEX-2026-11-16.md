@@ -9,7 +9,7 @@ scripts (not kept). Every figure is MEASURED on the host unless marked.*
 ## The answer
 
 **There is no 12 px limit on the ball.** The figure came from SPEC.md
-128.16.3.2: raising every Hop to 366 (an apex of 12 px) made `MOON` refuse
+130.16.3.2: raising every Hop to 366 (an apex of 12 px) made `MOON` refuse
 to compile, with 5 occluder records in one block against the bound of 4.
 That refusal is an **alignment artifact of the tool, not a property of the
 height.** Raising the Hop moved the picture's top margin `Y0` by 3 px, and
@@ -19,7 +19,7 @@ flight added a record.
 
 And yes, falls go higher already. A ball's downward speed is capped at
 `VZMAX` 768 (a fall of about six units). Rubber rebounds from that at
-about 615, an apex of about 31 px, and since round 3b (SPEC.md 128.17.17)
+about 615, an apex of about 31 px, and since round 3b (SPEC.md 130.17.17)
 the boost ADDS to a bounce off a firm level floor, up to `VZMAX` itself: an
 apex of about **47 px**. The reach model already contains those flights,
 and every shipped course compiles with them.
@@ -44,7 +44,7 @@ own choice), records and the most in one block:
 Each column is the same eight figures rotated by how far the Hop moved
 `Y0`. At 12 px, three of the eight alignments compile, and the best of
 them is **2,529 records, 95 fewer than the course ships with today**.
-SPEC.md 128.11.4.4 already noted the records "swing with `Y0`'s alignment
+SPEC.md 130.11.4.4 already noted the records "swing with `Y0`'s alignment
 to the blocks ... by up to 7%" and that "the tool does not search the
 alignment". `MOON` swings by 20% (2,529 to 3,032).
 
@@ -71,13 +71,13 @@ not move `Y0` because it launches from level floors only.
 | limit | what it is | where it bites |
 |---|---|---|
 | `VZMAX` 768 | the physics cap on vertical speed | an apex of about 47 px (about 11 units), already reachable by a fall plus a boost |
-| the occluder bound, 4 records a block | the frame's worst case: a footprint's 3 x 3 blocks test at most 36 records and lay at most 9 (SPEC.md 128.11.4.2) | per BLOCK, per course geometry; with the alignment searched, height is rarely what tips it |
+| the occluder bound, 4 records a block | the frame's worst case: a footprint's 3 x 3 blocks test at most 36 records and lay at most 9 (SPEC.md 130.11.4.2) | per BLOCK, per course geometry; with the alignment searched, height is rarely what tips it |
 | the camera | the CGA window is 200 lines; a ball 47 px up stays inside it | not binding |
-| design | CD5 and CD6's ladders (SPEC.md 128.17.5): which ball crosses which gap | a course decision, priced by the tool |
+| design | CD5 and CD6's ladders (SPEC.md 130.17.5): which ball crosses which gap | a course decision, priced by the tool |
 
 Raising the block bound itself is not needed. If it ever is, a fifth
 record a block costs up to 9 more tests (about 0.5k clk) and at worst 9
-more lays (about 12.6k clk) on the frame that meets them (SPEC.md 128.10's
+more lays (about 12.6k clk) on the frame that meets them (SPEC.md 130.10's
 55 clk a test and 1.4k a lay; PREDICTED).
 
 ## Recommendation
@@ -95,7 +95,7 @@ more lays (about 12.6k clk) on the frame that meets them (SPEC.md 128.10's
    by the tool's ordinary proofs (the reach, the bounds, every finish
    reachable without a pickup). On the shipped courses that is about 47 px.
 3. **Rubber's Hop is free to retune.** Wave 6 chose 252 over Q-61's 256
-   only to dodge this artifact (SPEC.md 128.16.3.2). On today's courses
+   only to dodge this artifact (SPEC.md 130.16.3.2). On today's courses
    the refusals it dodged are already gone: Hop 256 compiles `MOON` (2,624
    records, the shipped alignment unchanged) and `PEAK` (`summit.bbc`,
    3,081), and so does 244, one of the values that refused `PEAK` at wave

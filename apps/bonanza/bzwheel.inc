@@ -1,17 +1,17 @@
-; bzwheel.inc - BONANZA's LANES and its WHEEL (SPEC.md 128.12.4, 128.12.5,
-; 128.12.7's bz_heavy, 128.12.15), wave 3.  The wheel is ADAPTED from TITHE's
+; bzwheel.inc - BONANZA's LANES and its WHEEL (SPEC.md 130.12.4, 130.12.5,
+; 130.12.7's bz_heavy, 130.12.15), wave 3.  The wheel is ADAPTED from TITHE's
 ; pacing wheel (branch tithe-new, its SPEC.md 125.5 and apps/tithe/tithe.asm:
 ; ti_frame, ti_credit, ti_calibrate, ti_overran); nothing of it is %included.
 ;
 ; A LANE is a rectangle of the course's block MAP (at most 4 words x 3 block
 ; rows) whose POSES are sets of map words, in the course part after the grid
-; (the prop table, SPEC.md 128.12.3.1: the records with a lane come first,
+; (the prop table, SPEC.md 130.12.3.1: the records with a lane come first,
 ; sorted by first block row, so lane i is record i).  The MAP HOLDS THE DRAWN
 ; POSE (bz_ldrw): a commit copies a pose's words into the map through the
 ; course part's own segment - its selector on kern_mega, nothing through CS,
 ; no segment arithmetic - and every writer that reads the map (rows, columns,
 ; boxes, the occluder pass's lay) draws that pose with no change of its own.
-; A pose reaches the glass four ways (128.12.4.2): a WHEEL commit in the
+; A pose reaches the glass four ways (130.12.4.2): a WHEEL commit in the
 ; retrace wait's time, the LEAD after the flip, the CONTACT box, and an
 ; ENTERING strip.
 ;
@@ -22,11 +22,11 @@
 ;                      PIT counts before its steps, then clears it (a late
 ;                      frame on demand, bonanzawheel)
 ;   bz_hvoff    byte   a harness's: 1 forces bz_heavy to 0 (wave 2's camera,
-;                      the BENCH A/B, SPEC.md 128.12.9)
+;                      the BENCH A/B, SPEC.md 130.12.9)
 ;   bz_camscr   byte   a harness's: nonzero makes GLIDE a SCRIPT, the eight
-;                      directions in turn (wave 6b, SPEC.md 128.17.6.7; bzgame.inc
+;                      directions in turn (wave 6b, SPEC.md 130.17.6.7; bzgame.inc
 ;                      bz_camera); 0 in play.  Clearing it is a cut
-;   bz_heavy    byte   this frame's level (128.12.7, 128.13.6): 2 a contact
+;   bz_heavy    byte   this frame's level (130.12.7, 130.13.6): 2 a contact
 ;                      group, 1 the slab near an edge, 0
 ;   bz_hedr,bz_hedc byte the edge clause: the ball's new footprint near the top
 ;                      or bottom (releases the rows), the left or right (the
@@ -42,14 +42,14 @@
 ;                      raster order (bit 7 set once committed)
 ;   bz_wld      byte   the lane (+ 1) the last wheel marked for the LEAD
 ;   bz_wcal     byte   1 once this launch's calibration ran
-;   bz_wlw,bz_wcw,bz_warr word the calibration (SPEC.md 128.13.5.2): a word-line
+;   bz_wlw,bz_wcw,bz_warr word the calibration (SPEC.md 130.13.5.2): a word-line
 ;                      and a column in 1/16 PIT counts, the commit's fixed part
 ;                      in counts;  bz_cT 3 words its means T1, T3, T3n;
 ;                      bz_lcf 16 words each lane's WHOLE commit's cost, counts
 ;                      bz_lxw 16 bytes 1: the lane's columns cross the
 ;                      ring's end (bz_wcalib, bz_lwrp)
 ;   bz_lnext    16 words each rotor's next pose change, a bz_nstep value (the
-;                      walk's skip, SPEC.md 128.13.5.3)
+;                      walk's skip, SPEC.md 130.13.5.3)
 ;   bz_trim     word   the trim, 30 - 100 (cost' = cost x 100 / trim)
 ;   bz_pline    word   the platform's DRAWN line (8000h: not on the card),
 ;                      bz_ptru its true one this frame
@@ -58,10 +58,10 @@
 
 BZ_WMARG    equ 1600            ; PIT counts: what runs between a commit's closing
                                 ; latch and bz_vr's first read, at most (SPEC.md
-                                ; 128.12.5.3's table, PROVISIONAL, O26)
+                                ; 130.12.5.3's table, PROVISIONAL, O26)
 BZ_WGRD     equ 2               ; the beam guard, lines
 BZ_WLAG     equ 8               ; frames due and shown before bz_wlate counts it
-BZ_LCM      equ 2               ; wave 7 (SPEC.md 128.18.2): the walk's column band's margin, block columns
+BZ_LCM      equ 2               ; wave 7 (SPEC.md 130.18.2): the walk's column band's margin, block columns
 BZ_WPRO     equ 3               ; frames a WHEEL candidate waits before it takes
                                 ; the contact slot on a frame that allows a
                                 ; contact lane, BZ_WPRF on any frame (the final
@@ -73,7 +73,7 @@ BZ_CALN     equ 8               ; the calibration's samples a size
 BZ_PWHEEL   equ 6               ; the wheel's part (bz_tw .. bz_tv), appended
 BZ_WKN      equ 7               ; bz_vinit's per-card words, bz_wb0 .. bz_warr
 BZ_PLNONE   equ 8000h           ; bz_pline: the slab is not on the card
-BZ_FOOTW    equ BZ_BAL_RB * 4   ; the ball's footprint, px (SPEC.md 128.4)
+BZ_FOOTW    equ BZ_BAL_RB * 4   ; the ball's footprint, px (SPEC.md 130.4)
 BZ_WBLK     equ 19              ; a wheel slot: the lane state bz_lbr .. bz_lq1,
 BZ_WSLOT    equ 2 * BZ_WBLK + 4 ; ...then its AHEAD bound and BEHIND time
 BZ_WCSTO    equ 28              ; a slot's cost' (bz_wcst's place in the block)
@@ -84,10 +84,10 @@ BZ_WRB      equ 345             ; PIT counts: the pass's set-up of a second
                                 ; rectangle's early return the calibration does
                                 ; run - PRICED from the instructions at the
                                 ; fetch floor, 1,300 clk, x 1.05 (SPEC.md
-                                ; 128.13.5.2)
+                                ; 130.13.5.2)
 BZ_WMF      equ 155             ; PIT counts: a commit that is not the WHOLE
 BZ_WMR      equ 15              ; lane copies the pose first (bz_lmap, SPEC.md
-BZ_WMW      equ 13              ; 128.13.5.1): its fixed part, a block row and
+BZ_WMW      equ 13              ; 130.13.5.1): its fixed part, a block row and
                                 ; a word - PRICED, 590 clk fixed and 56 a row,
                                 ; and the word raised to 47 clk so that wave 3's
                                 ; MEASURED rotor (3 x 3, 1,179 clk) is covered,
@@ -103,7 +103,7 @@ BZ_WPATH    equ 50              ; PIT counts: a wheel commit's path from its
                                 ; bz_wtest's arithmetic and return, the pass's
                                 ; bound tests, the slot's lane, bz_wcommit's
                                 ; entry: about 200 clk with the margin, added
-                                ; to bz_warr (SPEC.md 128.13.16: the final
+                                ; to bz_warr (SPEC.md 130.13.16: the final
                                 ; pass measured whole rotors 0.9 - 1.5% over
                                 ; their price, and one overrun a run)
 BZ_WPRP     equ 1360            ; PIT counts: one candidate's preparation
@@ -117,13 +117,13 @@ BZ_WLBUD    equ 3               ; the LEAD's budget: it ends by BZ_WLBUD / 8 of
  %error "bz_lrecsi scales a record's index by 32 = BZ_PROPREC"
 %endif
 %if (BZ_PROPMAX & 1) || BZ_PROPMAX < 2 || BZ_PROPMAX > 254 || BZ_PROPALL > 255
- %error "the per-lane tables are BZ_PROPMAX lanes, even (rep stosw), 2 - 254; the props a byte's (128.19.10)"
+ %error "the per-lane tables are BZ_PROPMAX lanes, even (rep stosw), 2 - 254; the props a byte's (130.19.10)"
 %endif
 
 %macro BZ_WHEEL_VARS 0
 VAR bz_hold,1
 VAR bz_hvoff,1
-VAR bz_camscr,1                 ; a harness's: the SCRIPTED camera (128.17.6.7)
+VAR bz_camscr,1                 ; a harness's: the SCRIPTED camera (130.17.6.7)
 VAR bz_cln,1
 VAR bz_wcal,1
 VAR bz_wvok,1                   ; 1: the last bz_vr saw a rise, no time-out
@@ -141,10 +141,10 @@ VAR bz_pflag,1                  ; bit 0 the slab's box, bit 1 the slab near an e
                                 ; bit 2 the slab's box is bz_crect2 (beside a post),
                                 ; bit 3 its TRUE footprint is out of the shown
                                 ; window and its drawn one in it (leaving: it
-                                ; cannot wait, SPEC.md 128.13.4.3); bits 4 - 7
+                                ; cannot wait, SPEC.md 130.13.4.3); bits 4 - 7
                                 ; the shown slab near the left, right, top,
                                 ; bottom edge, no ball-side gate (wave 6b's
-                                ; heavy rule, 128.17.6.3: BZ_PF_NEAR*)
+                                ; heavy rule, 130.17.6.3: BZ_PF_NEAR*)
 VAR bz_ctype,1
 VAR bz_wcn,1
 VAR bz_heavy,1
@@ -170,7 +170,7 @@ VAR bz_cage,1                   ; ...and its age (bz_csync zeroes it: drawn)
 VAR bz_pany,1                   ; bz_pstrip: a strip met the slab
 VAR bz_wbest,1                  ; bz_props: the wheel candidate due longest
 VAR bz_pylp,1                   ; the slab's box waited LAST frame (bz_pyld's:
-                                ; never two running, SPEC.md 128.13.4.3)
+                                ; never two running, SPEC.md 130.13.4.3)
 VAR bz_wcl,6
 VAR bz_ldrw,BZ_PROPMAX
 VAR bz_lage,BZ_PROPMAX
@@ -203,7 +203,7 @@ VAR bz_psa,2
 VAR bz_prc,8                    ; bz_pstrip: the strips' meets with the slab
 VAR bz_pra,2                    ; the walk's range: block rows [ra, rb)
 VAR bz_prb,2
-VAR bz_ora,2                    ; ...and the LAST one, while the range moved (128.19.10)
+VAR bz_ora,2                    ; ...and the LAST one, while the range moved (130.19.10)
 VAR bz_orb,2
 VAR bz_crect,8
 VAR bz_crect2,8                 ; the lift's box beside a lighting post (bz_pflag bit 2)
@@ -228,7 +228,7 @@ VAR bz_lsz,2
 VAR bz_wct,6 * BZ_WSLOT         ; bz_wheel's candidates, prepared once: each
                                 ; slot BZ_WBLK words of the lane's state from
                                 ; bz_lbr (bz_wsave), its AHEAD bound, its
-                                ; BEHIND time (128.12.5.3)
+                                ; BEHIND time (130.12.5.3)
 VAR bz_wmin,2                   ; ...the cheapest cost' among them
 VAR bz_wnp,1                    ; ...and how many were prepared (the clock's room)
 VAR bz_lrw,2 * BZ_PROPMAX       ; each lane's first block row, its block rows
@@ -236,7 +236,7 @@ VAR bz_lhh,BZ_PROPMAX           ; and its record's kind (bz_pread: the walk
 VAR bz_lknd,BZ_PROPMAX          ; reads no record for its range or a post);
 VAR bz_ltcl,BZ_PROPMAX          ; and its first word column, its words, a
 VAR bz_ltw,BZ_PROPMAX           ; pose's bytes and its pose maps (bz_ldesc
-VAR bz_ltsz,BZ_PROPMAX          ; reads no record either: SPEC.md 128.13.5.2)
+VAR bz_ltsz,BZ_PROPMAX          ; reads no record either: SPEC.md 130.13.5.2)
 VAR bz_ltpm,2 * BZ_PROPMAX
 VAR bz_ltq0,2 * BZ_PROPMAX      ; ...its card rows [q0, q1) (bz_lq's, once a
 VAR bz_ltq1,2 * BZ_PROPMAX      ; play) and its rect, words x lines inclusive
@@ -255,17 +255,17 @@ VAR bz_lcks,1                   ; bz_cksn as the last walk read it (a flag's ski
 VAR bz_lqt,1                    ; 1: the last walk SKIPPED every lane (the quiet
 VAR bz_lwake,2                  ; walk), until step bz_lwake (the rotors' first
                                 ; bz_lnext), a flag, or a writer outside the
-                                ; walk clears it (128.19.10 item 10: a kick,
+                                ; walk clears it (130.19.10 item 10: a kick,
                                 ; bz_fmark, bz_nset, bz_lfull, a harness's mark)
-VAR bz_latt,BZ_PROPMAX          ; 128.19.10: nonzero, the walk VISITS the lane: a rotor
+VAR bz_latt,BZ_PROPMAX          ; 130.19.10: nonzero, the walk VISITS the lane: a rotor
                                 ; always; a SLOW lane when an event marked it (a kick,
                                 ; a first touch, a second, entering the range or the
                                 ; band, a full write) and while it is still pending
-VAR bz_lout,BZ_PROPMAX          ; wave 7 (SPEC.md 128.18.2): 1 while a lane in
+VAR bz_lout,BZ_PROPMAX          ; wave 7 (SPEC.md 130.18.2): 1 while a lane in
                                 ; the row slice lay outside the column band at
                                 ; the last walk (not walked: its re-entry walks)
 VAR bz_pc0,2                    ; bz_c0 as the last walk read it (the quiet walk)
-VAR bz_lcsec,2                  ; wave 7 (128.18.5): bz_tsec as the last walk
+VAR bz_lcsec,2                  ; wave 7 (130.18.5): bz_tsec as the last walk
                                 ; read it (a clock's skip, the quiet walk's)
 VAR bz_pcl,2                    ; ...and that walk's column band [pcl, pch),
 VAR bz_pch,2                    ; c0 - BZ_LCM to c0 + W + BZ_LCM
@@ -295,11 +295,11 @@ VAR bz_cT,6
 %endif
 %endmacro
 
-; bz_vinit's per card: the beam (SPEC.md 128.12.5.3: window line F is reached
+; bz_vinit's per card: the beam (SPEC.md 130.12.5.3: window line F is reached
 ; 38 + F lines after a CGA rise, 98 + F after a Hercules one; a line 76 counts
 ; on the CGA, on the Hercules 63 where shorter is safe and 64 where longer
 ; is), the measured refresh rounded down, and the calibration's PREDICTED
-; values (128.13.5.2: about 71 clk a word-line, 250 a column, 1.2k the fixed
+; values (130.13.5.2: about 71 clk a word-line, 250 a column, 1.2k the fixed
 ; part, on both cards) - the wheel's until the launch's first full write
 ; measures them
 bz_wkc: dw 38, 76, 76, 19880, 285, 1000, 300
@@ -308,9 +308,9 @@ bz_wkh: dw 98, 63, 64, 23420, 280, 1000, 300
 ; -----------------------------------------------------------------------------
 ; bz_pread - a play's start (bz_play, after bz_pinit): the prop table's place,
 ; its lanes (the first records: their rows, columns, sizes and pose maps into
-; the per-lane tables bz_ldesc reads, SPEC.md 128.13.5.2) and its platform,
+; the per-lane tables bz_ldesc reads, SPEC.md 130.13.5.2) and its platform,
 ; the slab's columns and track; every lane brought to its true pose in the
-; map (128.12.4.1), the slice empty, the wheel uncalibrated with the trim at
+; map (130.12.4.1), the slice empty, the wheel uncalibrated with the trim at
 ; 100.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_pread:
@@ -334,7 +334,7 @@ bz_pread:
     mov cx, BZ_PROPMAX / 2
     mov ax, 0ffffh
     rep stosw
-    mov di, bz_latt             ; ...and every lane MARKED (128.19.10)
+    mov di, bz_latt             ; ...and every lane MARKED (130.19.10)
     mov cx, BZ_PROPMAX / 2
     rep stosw
     mov di, bz_lhold            ; no post lit, every kick seen (bz_pinit's)
@@ -360,7 +360,7 @@ bz_pread:
     mov di, bx                  ; them: bz_lknd, bz_lrw, bz_lhh - a lane's
     and di, 0ffh                ; alone, the lanes being the first records and
     test byte [es:si + BZP_FLAGS], BZ_PF_LANE ; at most BZ_PROPMAX of up to
-    jz .nl                      ; BZ_PROPALL, SPEC.md 128.14.4.2)
+    jz .nl                      ; BZ_PROPALL, SPEC.md 130.14.4.2)
     mov [bz_lknd + di], al
     inc bh
     mov al, [es:si + BZP_SEED]
@@ -430,7 +430,7 @@ bz_pread:
 .nl:
     cmp byte [es:si + BZP_KIND], BZ_PK_PLATFORM
     jne .np
-    mov [bz_pidx], bl           ; the LIFT's sprite (SPEC.md 128.12.6.4): its
+    mov [bz_pidx], bl           ; the LIFT's sprite (SPEC.md 130.12.6.4): its
     mov ax, [es:si + BZP_PSPR]  ; columns 16 (Awx - Awy - 1) + X0, its line
     mov [bz_pspr], ax           ; 8 (Awx + Awy) - (hP + I) + Y0, I = 0 .. 8 L
     mov ax, [es:si + BZP_PHP]
@@ -483,14 +483,14 @@ bz_pread:
 
 ; -----------------------------------------------------------------------------
 ; bz_lfull - EVERY lane at its TRUE pose in the map, its age 0: the play's
-; start and a full write (which draws every lane from its synced map, 128.12.4.1,
-; 128.12.5.3), so nothing is due, no wheel runs and no contact box is needed.
+; start and a full write (which draws every lane from its synced map, 130.12.4.1,
+; 130.12.5.3), so nothing is due, no wheel runs and no contact box is needed.
 ; The slab is not in the map: after a full write it is not on the card either
 ; (bz_pline 8000h) until bz_pfull draws its box.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_lfull:
     mov byte [bz_lqt], 0        ; (the next walk looks at every lane)
-    mov al, [bz_cksn]           ; SPEC.md 128.19.10: only the SHOWN window's
+    mov al, [bz_cksn]           ; SPEC.md 130.19.10: only the SHOWN window's
     not al                      ; lanes are synced, so no skip of a flag or a
     mov [bz_lcks], al           ; clock may hold - values none matches, and
     mov ax, [bz_tsec]           ; the next walk reads every flag and clock in
@@ -622,10 +622,10 @@ bz_lrecsi:
 ; -----------------------------------------------------------------------------
 ; bz_ltrue - lane BX's TRUE pose -> AL and [bz_ltru + BX].  A ROTOR (a
 ; windmill's): ((n_last + seed) AND (P - 1)) >> shift, n_last the starting n of
-; the frame's LAST step - the n its gate was judged at (SPEC.md 128.12.15 item
+; the frame's LAST step - the n its gate was judged at (SPEC.md 130.12.15 item
 ; 1: bz_nstep - 1, the low word; 0FFFFh before the first step, as the model's
 ; (nstep - 1) AND 0FFFFh).  A POST (a bumper's): LIT while it has lit frames
-; left on the glass (bz_lhold, SPEC.md 128.12.6.3 as the owner's preview
+; left on the glass (bz_lhold, SPEC.md 130.12.6.3 as the owner's preview
 ; amended it): a kick it has not seen (bz_pkick against bz_lkick) gives it its
 ; record's lit frames, and bz_props counts them off only on frames it was
 ; DRAWN lit.  A rotor's bz_lnext with it (the walk's skip).  Reads physics
@@ -642,7 +642,7 @@ bz_ltrue:
     add al, [bz_ltsd + bx]
     and al, [bz_ltmk + bx]      ; AL = m = (n_last + seed) AND (P - 1)
     mov cl, [bz_ltsh + bx]
-    mov dl, 1                   ; ITS NEXT CHANGE (SPEC.md 128.13.5.3): a pose
+    mov dl, 1                   ; ITS NEXT CHANGE (SPEC.md 130.13.5.3): a pose
     shl dl, cl                  ; holds B = 1 << shift steps, so the step
     dec dl                      ; count n' = n + (B - 1 - (m AND (B - 1))) + 1
     mov ah, al                  ; is the first whose m crosses into the next
@@ -667,8 +667,8 @@ bz_ltrue:
     je .clock
     cmp byte [bz_lknd + bx], BZ_PK_SIGN
     je .sign
-    cmp byte [bz_lknd + bx], BZ_FK0 ; wave 9 (128.25.6.3): a FAMILY kind's POSE
-    jae .fam                    ; (or a GROUP's, 128.32.5: past BZ_FK0)
+    cmp byte [bz_lknd + bx], BZ_FK0 ; wave 9 (130.25.6.3): a FAMILY kind's POSE
+    jae .fam                    ; (or a GROUP's, 130.32.5: past BZ_FK0)
     push bx
     shl bx, 1
     mov ax, [bz_pkick + bx]
@@ -703,7 +703,7 @@ bz_ltrue:
     call bz_fone                ; -> AL the pose
     pop dx
     jmp short .out
-; a FLAG (wave 4, SPEC.md 128.14.4.2): FLYING (1) from the step it is first
+; a FLAG (wave 4, SPEC.md 130.14.4.2): FLYING (1) from the step it is first
 ; touched - its bit of bz_cksn, physics state - and FURLED (0) before
 .flag:
     push cx
@@ -719,9 +719,9 @@ bz_ltrue:
     and al, 1
     pop cx
     jmp short .out
-; a CLOCK's digit (wave 7, SPEC.md 128.18.5): its PLACE's pose of the seconds
+; a CLOCK's digit (wave 7, SPEC.md 130.18.5): its PLACE's pose of the seconds
 ; left, bz_tdig's (written once a second by the step, bz_tdset); a SIGN's
-; (wave 8R, SPEC.md 128.22.4.1): bz_nst's byte for its number (+28) - the pose
+; (wave 8R, SPEC.md 130.22.4.1): bz_nst's byte for its number (+28) - the pose
 ; is the only state a sign has, written by bz_nset
 .clock:
     push bx
@@ -730,7 +730,7 @@ bz_ltrue:
     mov es, [bz_cseg]
     call bz_lrecsi
     mov bl, [es:si + BZP_CPLACE] ; (+26: the digit's place; +16 - +25 are its
-    xor bh, bh                  ; post's fields, 128.18.5.3)
+    xor bh, bh                  ; post's fields, 130.18.5.3)
     jmp short .cdig
 .sign:
     push bx
@@ -747,7 +747,7 @@ bz_ltrue:
     mov al, [bz_tdig + bx]
     pop bx
     jmp short .out
-; a GROUP lane (SPEC.md 128.32.5): the sum over its entries (+16, four bytes
+; a GROUP lane (SPEC.md 130.32.5): the sum over its entries (+16, four bytes
 ; each: the member, its kind - 0 no more -, its CLASS MAP, its MULT) of the
 ; member's POSE's class x MULT
 .grp:
@@ -789,8 +789,8 @@ bz_ltrue:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_nset - SIGN BL's pose AL (wave 8R, SPEC.md 128.22.4.1): bz_nst[BL]
-; written and every lane of that sign MARKED (128.19.10 item 6), so the pose
+; bz_nset - SIGN BL's pose AL (wave 8R, SPEC.md 130.22.4.1): bz_nst[BL]
+; written and every lane of that sign MARKED (130.19.10 item 6), so the pose
 ; change costs that lane's walk and nothing else; the next walk is made (not
 ; quiet).  The lanes' kinds are bz_pread's: a play's (before one, bz_nst is
 ; written directly - bz_pread marks every lane).  Preserves all.
@@ -827,7 +827,7 @@ bz_nset:
 
 ; -----------------------------------------------------------------------------
 ; bz_ldesc - lane BX's descriptor from the per-lane tables bz_pread filled (no
-; record read, no MUL, no shift by CL: SPEC.md 128.13.5.2): bz_lbr, bz_lcl,
+; record read, no MUL, no shift by CL: SPEC.md 130.13.5.2): bz_lbr, bz_lcl,
 ; bz_lw, bz_lh, its pose maps (bz_lpm, bz_lsz bytes a pose, bz_lsst = 2 w
 ; their row stride) and its card rows (bz_lq0, bz_lq1: bz_lq's, from
 ; bz_ltq0 and bz_ltq1).  Preserves all but the flags.
@@ -919,7 +919,7 @@ bz_lsync:
     sub dx, ax                  ; the map's step past a row's words
     xor cx, cx
     mov ah, [bz_lhh + bx]       ; AL = the words, AH = the block rows
-    mov es, [bz_mseg]           ; (the PICTURE part: L and M, 128.30.5)
+    mov es, [bz_mseg]           ; (the PICTURE part: L and M, 130.30.5)
     push es
     pop ds
 .r:
@@ -942,7 +942,7 @@ bz_lsync:
 ; part's bz_lsrc (row stride bz_lsst) into the map's rectangle at (bz_lbr,
 ; bz_lcl), row stride ROWB.  Through DS = ES = the course part's own segment
 ; (its selector on kern_mega, as the fetch and the Hercules translation
-; write it, SPEC.md 128.12.12): offsets under the part's length, nothing
+; write it, SPEC.md 130.12.12): offsets under the part's length, nothing
 ; through CS.  Clobbers AX - DI and BP (bz_wpass's alone: bz_lsync copies
 ; from the per-lane tables).
 ; -----------------------------------------------------------------------------
@@ -965,7 +965,7 @@ bz_lmap:
     sub dx, ax
     sub dx, ax                  ; ...and the map's
     mov bp, [bz_lh]
-    mov es, [bz_mseg]           ; (the PICTURE part: L and M, 128.30.5)
+    mov es, [bz_mseg]           ; (the PICTURE part: L and M, 130.30.5)
     push es
     pop ds
 .r:
@@ -993,14 +993,14 @@ bz_span:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_lclip - WHERE A COMMIT WRITES (SPEC.md 128.12.4.4 rule 1a): the lane's
+; bz_lclip - WHERE A COMMIT WRITES (SPEC.md 130.12.4.4 rule 1a): the lane's
 ; cells inside the SHOWN window (bz_R0, bz_c0: the old start address before the
 ; flip, the new one after it - the LEAD's) -> bz_lra, card rows and words, and
 ; their first and last window lines bz_lF, bz_lL; and with bz_lmode 1 (the
 ; wheel's) the cells rule 1 writes - this frame's entering rows (bz_dr from
 ; the new window's edge) less the entering column (bz_dc's) - in the slack and
 ; not on the glass -> bz_lrb.  No other cell: one in the entering COLUMN
-; aliases a shown cell (128.2 rule 3), and any other outside the window may.
+; aliases a shown cell (130.2 rule 3), and any other outside the window may.
 ; Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_lclip:
@@ -1082,7 +1082,7 @@ bz_lclip:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_wpass - THE COMMIT'S WRITER (SPEC.md 128.13.5.1): bz_lclip's cells - the
+; bz_wpass - THE COMMIT'S WRITER (SPEC.md 130.13.5.1): bz_lclip's cells - the
 ; shown window's (bz_lra), then the entering rows' (bz_lrb) - in ONE
 ; COLUMN-MAJOR pass from the POSE MAP: each block's pose word read once
 ; through DS (the course part: its selector on kern_mega, nothing through
@@ -1092,7 +1092,7 @@ bz_lclip:
 ; the whole pose into the map (bz_lmap), so the map holds the pose when the
 ; span ends, its cells outside the rectangles included, and the pass's own
 ; stores are idempotent there.  The order inside the span is free: the beam
-; bounds the whole span (128.13.5.1).  Interrupts shut by the caller.  DS =
+; bounds the whole span (130.13.5.1).  Interrupts shut by the caller.  DS =
 ; ES = ours.  Preserves all but the flags.
 ; -----------------------------------------------------------------------------
 bz_wpass:
@@ -1154,6 +1154,11 @@ BZ_WPF      equ 20                  ; the frame's bytes
  %error "bz_wprect's ADD SP, 20 is the frame's bytes (tools/stkbalance.py reads the number)"
 %endif
 bz_wprect:
+    cmp byte [bz_vga], 0        ; THE VGA's commit (SPEC.md 130.46.6): no ring
+    je .c                       ; end to cross, the part's
+    BZ_VCALL BZV_WPRECT
+    ret
+.c:
     mov cx, [si + 2]
     sub cx, [si]                ; CX = the rows
     jle .x
@@ -1244,7 +1249,7 @@ bz_wprect:
     push ax                     ; [+2]
     push bp                     ; [+0]
     mov es, [bz_vseg]
-    mov ds, [bz_mseg]           ; (the PICTURE part: L, M and B, 128.30.5)
+    mov ds, [bz_mseg]           ; (the PICTURE part: L, M and B, 130.30.5)
 .col:                           ; A COLUMN: its first block's pose word read
     mov bp, sp                  ; and stored, then the card's writer, told
     mov di, [bp + 6]            ; by CF = 0 that the column's rows cross the
@@ -1404,7 +1409,7 @@ bz_wph1:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_lcost - lane BX's commit's cost' in PIT counts (SPEC.md 128.13.5.2): a
+; bz_lcost - lane BX's commit's cost' in PIT counts (SPEC.md 130.13.5.2): a
 ; WHOLE commit's (bz_lwhole) from bz_lcf, which bz_wcalib filled, else
 ; bz_lcraw's; cost' = cost x 100 / trim only while the trim is under 100.
 ; -> AX (FFFFh when it does not fit a word: never takes the wheel).
@@ -1442,7 +1447,7 @@ bz_lcost:
 .out:
     ret
 
-; bz_lcraw - the commit's cost in PIT counts, the model (SPEC.md 128.13.5.2):
+; bz_lcraw - the commit's cost in PIT counts, the model (SPEC.md 130.13.5.2):
 ;   warr + (sum over bz_lra and bz_lrb of words (wcw + lines wlw)) >> 4
 ;        [+ BZ_WRB: a second rectangle]
 ;        [+ BZ_WMF + (BZ_WMR + BZ_WMW w) h: not the whole lane]
@@ -1529,7 +1534,7 @@ bz_lcraw:
     ret
 
 ; bz_lwrp - rectangle BX's (card rows [r0, r1), words [x0, x1)) price on
-; bz_wprect's ROW-AT-A-TIME path (.slow, SPEC.md 128.13.5.1) when a column of
+; bz_wprect's ROW-AT-A-TIME path (.slow, SPEC.md 130.13.5.1) when a column of
 ; it crosses the ring's end - bz_wprect's own test (a column's last row's
 ; offset at 2000h or past), made for its LAST column - every column charged
 ; (an upper bound) rows x BZ_WXR and the blocks it visits x BZ_WXB, PIT
@@ -1537,6 +1542,8 @@ bz_lcraw:
 ; offsets are absolute, rb R + 2 x mod 8K), so bz_wcalib flags the lanes
 ; (bz_lxw) and bz_lcraw asks only for those.  Preserves all but SI, DI.
 bz_lwrp:
+    cmp byte [bz_vga], 0        ; (the VGA's ring is 64 KB: no column of a lane
+    jne bz_lwrp.r               ; ever crosses it, 130.46.3)
     push ax
     push bx
     push cx
@@ -1594,10 +1601,11 @@ bz_lwrp:
     pop cx
     pop bx
     pop ax
+.r:
     ret
 
 ; -----------------------------------------------------------------------------
-; the clock, the wheel's way (SPEC.md 128.12.5.3).  bz_elap: BX = a sample's
+; the clock, the wheel's way (SPEC.md 130.12.5.3).  bz_elap: BX = a sample's
 ; bz_subs, CX = its count -> DX:AX = the PIT counts from it to the last sample.
 ; Preserves all else.  bz_wnow: AX = the counts from the last wait's sample S
 ; (bz_vsubs, bz_vpit) to the last sample, CF = 1 when that is past a word (no
@@ -1711,7 +1719,7 @@ bz_wprep:
 ; bz_wcommit - THE COMMIT of lane AL, bz_wprep'd: interrupts SHUT for the
 ; pass (the map's words and the card's) and a closing clock sample (TITHE's span: one commit,
 ; no tick ISR - a FASTTICK sub-tick held pending by it is late by about a
-; tenth of a sub-tick and never lost, 128.12.5.3); then bz_ldrw = the true
+; tenth of a sub-tick and never lost, 130.12.5.3); then bz_ldrw = the true
 ; pose (a change, always: the lane was due), its age 0, bz_wcom, and THE TRIM
 ; against the deadline bz_wdl: past it, trim = max(30, trim - 12) and
 ; bz_wover; else trim = min(100, trim + 1).  Preserves all but the flags.
@@ -1754,7 +1762,7 @@ bz_wcommit:
     ret
 
 ; bz_wcore - a commit's timed span: interrupts shut, the pass (the map's words
-; and the card's, SPEC.md 128.13.5.1), the closing clock sample.  Preserves
+; and the card's, SPEC.md 130.13.5.1), the closing clock sample.  Preserves
 ; all but the flags.
 bz_wcore:
     pushf
@@ -1765,7 +1773,7 @@ bz_wcore:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_wheel - THE WHEEL (SPEC.md 128.12.5.3), at bz_tw after the rows: the
+; bz_wheel - THE WHEEL (SPEC.md 130.12.5.3), at bz_tw after the rows: the
 ; candidates bz_props listed (due, shown), in raster order, committed in the
 ; time before the NEXT sync, reckoned from the last wait's sample.  Skipped
 ; (bz_wskip, the candidates staying due: late, never slowed) when the last
@@ -1777,7 +1785,7 @@ bz_wcore:
 ; commit the cheapest prepared one too: its lane state, cost', AHEAD bound and BEHIND time into a slot
 ; (bz_wct), and one whose rect meets one of the frame's boxes is DROPPED -
 ; the box composed its drawn pose from the map before the wheel and is
-; written after the flip, so it stays due (128.12.4.2).  Every test is then a
+; written after the flip, so it stays due (130.12.4.2).  Every test is then a
 ; clock sample and the arithmetic, and it and its commit are ONE critical
 ; section (no tick between the decision and the commit's start); and every
 ; test first STOPS the wheel when not even the cheapest candidate (bz_wmin)
@@ -2039,7 +2047,7 @@ bz_wboxm:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_lead - RULE 5, THE LEAD (SPEC.md 128.12.5.3), after the column and the
+; bz_lead - RULE 5, THE LEAD (SPEC.md 130.12.5.3), after the column and the
 ; boxes: at most one commit - the lane the frame's wheel marked, when the frame
 ; is LIGHT (bz_heavy 0 and no contact group: the capture frame's rotor has
 ; bz_heavy 0) and its wait saw the rise without a time-out, the lane still
@@ -2121,7 +2129,7 @@ bz_lead:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_wcalib - THE CALIBRATION (SPEC.md 128.12.5.4, 128.13.5.2), once a launch,
+; bz_wcalib - THE CALIBRATION (SPEC.md 130.12.5.4, 130.13.5.2), once a launch,
 ; at the end of its first full write and before its sub-ticks are discarded:
 ; the COMMIT path itself - the pass, the closing clock sample - on a
 ; pseudo-lane whose pose map is its own map words, over 1 block row x 4
@@ -2209,7 +2217,7 @@ bz_wcalib:
 .a0:
     xor ax, ax
 .a:
-    add ax, BZ_WPATH            ; + the wheel's own path to bz_wcore (128.13.16)
+    add ax, BZ_WPATH            ; + the wheel's own path to bz_wcore (130.13.16)
     call .min1
     mov [bz_warr], ax
 .lcf:
@@ -2370,7 +2378,7 @@ bz_wctry:
     add dx, 24
     mov [bz_kr + 6], dx
     mov si, bz_kt
-    mov ax, [bz_px]             ; the ball's footprint (SPEC.md 128.4)
+    mov ax, [bz_px]             ; the ball's footprint (SPEC.md 130.4)
     and al, 0fch
     mov [si], ax
     add ax, BZ_FOOTW
@@ -2483,7 +2491,7 @@ bz_kmeet:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_props - THE WALK (SPEC.md 128.12.5.2), once a frame in bz_t0 after the
+; bz_props - THE WALK (SPEC.md 130.12.5.2), once a frame in bz_t0 after the
 ; steps and bz_foot, before the camera; nothing is written to the card.  The
 ; lanes kept are a SLICE [bz_lr0, bz_lr1) of those meeting the RANGE - the
 ; shown window's block rows widened by two on each side, the whole width
@@ -2492,7 +2500,7 @@ bz_kmeet:
 ; lane outside it costs nothing, and the walk reads no record for a lane's
 ; range, its clock, its window test or its footprint test (bz_pread's per-lane
 ; tables; no descriptor).  A lane that nothing about can change this frame is SKIPPED
-; after its range test (SPEC.md 128.13.5.3): a rotor drawn at its true pose
+; after its range test (SPEC.md 130.13.5.3): a rotor drawn at its true pose
 ; until its next change (bz_lnext), a post drawn dark with no lit frames and
 ; no kick it has not seen - except on a frame whose range moved, when every
 ; lane is walked.  A walk that skipped EVERY lane is not made again (THE QUIET
@@ -2500,7 +2508,7 @@ bz_kmeet:
 ; reads has moved: no rotor's next change reached (bz_lwake, the nearest), no
 ; flag touched, and bz_lqt still 1 - which EVERY writer outside the walk of
 ; what a skip reads (a kick's bz_pkick, a hook's or a sign's mark, a full
-; write, a harness's poke of bz_ldrw or bz_lhold) clears (SPEC.md 128.19.10
+; write, a harness's poke of bz_ldrw or bz_lhold) clears (SPEC.md 130.19.10
 ; item 10: the slice is never compared).  For each lane walked:
 ;   0. a POST's lit frames: one counted off when it begins the frame drawn
 ;      lit, all of them when it is wholly out of the shown window;
@@ -2515,11 +2523,11 @@ bz_kmeet:
 ;      (bz_mustp, the first); else meeting the ball's or the shadow's old or
 ;      new footprint, a CONTACT candidate; else a WHEEL candidate (bz_wcl,
 ;      raster order; bz_wheel drops one meeting a box).
-; THE PLATFORM (128.12.15 item 3): its whole rise outside the walk's range,
+; THE PLATFORM (130.12.15 item 3): its whole rise outside the walk's range,
 ; not on the card (bz_pline 8000h) and not computed; else its true line from
 ; n; its drawn and its true footprint both outside the shown window, its drawn
 ; line follows in RAM; else, its line changed, its box - which WAITS one frame
-; (SPEC.md 128.13.4.3: never two running, never while it carries the ball,
+; (SPEC.md 130.13.4.3: never two running, never while it carries the ball,
 ; never LEAVING - its drawn footprint shown and its true one not) on a
 ; CROWDED frame (the ball's and the shadow's groups two boxes, bz_bsone: a
 ; post lighting then is the group and lights on its kick's frame), or for a
@@ -2534,7 +2542,7 @@ bz_kmeet:
 ; candidate due longest once it has been due BZ_WPRO frames on such a frame,
 ; or BZ_WPRF on any (bz_wpro: PROMOTED; the slab's box waits for it).  Every other contact
 ; candidate and must-draw lane WAITS, its map unsynced (bz_ndef): display
-; only.  bz_heavy (128.12.7) from those choices and the ball before the
+; only.  bz_heavy (130.12.7) from those choices and the ball before the
 ; camera.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_props:
@@ -2562,10 +2570,10 @@ bz_props:
     mov dx, [bz_R0]             ; ITS ROWS AS THE LAST WALK READ THEM: the top
     cmp dx, [bz_pR0]            ; line, the range and the slice stand
     jne .top
-    mov dx, [bz_c0]             ; wave 7 (128.18.2): and its COLUMNS, or a
+    mov dx, [bz_c0]             ; wave 7 (130.18.2): and its COLUMNS, or a
     cmp dx, [bz_pc0]            ; lane outside the band may be coming back
     jne .walk0
-    mov dx, [bz_tsec]           ; wave 7 (128.18.5): and its clocks' SECOND
+    mov dx, [bz_tsec]           ; wave 7 (130.18.5): and its clocks' SECOND
     cmp dx, [bz_lcsec]
     jne .walk0
     cmp [bz_lqt], al            ; THE QUIET WALK: the last walk skipped every
@@ -2574,7 +2582,7 @@ bz_props:
     sub dx, [bz_nstep]          ; reached (bz_lwake, the first of them: a
     or dx, dx                   ; 16-bit difference, as the skip's), no flag
     jle .walk0                  ; touched, and bz_lqt still 1: a kick, a mark
-    mov dl, [bz_cksn]           ; or a poke would have cleared it (128.19.10
+    mov dl, [bz_cksn]           ; or a poke would have cleared it (130.19.10
     cmp dl, [bz_lcks]           ; item 10) - so this walk would skip every
     jne .walk0                  ; lane again, and is not made
 .plat0:
@@ -2600,7 +2608,7 @@ bz_props:
     mov byte [bz_lnsk], 1       ; (moved: a lane that has just ENTERED it is
     mov si, [bz_pra]            ; walked whatever its skip says - one whose
     mov [bz_ora], si            ; rows met the last range keeps its skip:
-    mov si, [bz_prb]            ; SPEC.md 128.19.10, the walk's cost a frame no
+    mov si, [bz_prb]            ; SPEC.md 130.19.10, the walk's cost a frame no
     mov [bz_orb], si            ; longer every slow lane in it; CL is 3 below)
     mov [bz_pra], dx
     mov [bz_prb], ax
@@ -2664,7 +2672,7 @@ bz_props:
     inc bx
 .b1d:
     mov [bz_lr1], bl
-    xor bx, bx                  ; 128.19.10: every lane of the new slice whose
+    xor bx, bx                  ; 130.19.10: every lane of the new slice whose
     mov bl, [bz_lr0]            ; rows did not meet the LAST range has ENTERED:
 .mk:                            ; marked
     cmp bl, [bz_lr1]
@@ -2688,17 +2696,17 @@ bz_props:
     mov byte [bz_lnsk], 0
 .walk:
     mov byte [bz_lqt], 1        ; (quiet until a lane is walked: .w0)
-    mov ax, [bz_c0]             ; wave 7 (128.18.2): THE COLUMN BAND, this
+    mov ax, [bz_c0]             ; wave 7 (130.18.2): THE COLUMN BAND, this
     sub ax, BZ_LCM              ; walk's [c0 - BZ_LCM, c0 + W + BZ_LCM): the
     mov [bz_pcl], ax            ; camera moves at most a column a frame, so a
     add ax, [bz_W]              ; lane outside it is synced before its column
     add ax, 2 * BZ_LCM          ; can enter
     mov [bz_pch], ax
-    xor bx, bx                  ; 128.19.10: the band MOVED - every lane of the
+    xor bx, bx                  ; 130.19.10: the band MOVED - every lane of the
     mov bl, [bz_lr0]            ; slice that was OUT and is IN it now is marked
     mov ax, [bz_c0]             ; (.l1's band test, here: one still out would
     cmp ax, [bz_pc0]            ; be walked only to be unmarked again, about
-    je .cm0                     ; 0.7k clk a lane - 128.19.10 item 7)
+    je .cm0                     ; 0.7k clk a lane - 130.19.10 item 7)
 .cm:
     cmp bl, [bz_lr1]
     jae .cm0
@@ -2737,7 +2745,7 @@ bz_props:
     xor bx, bx
     mov bl, [bz_lr0]
 .lane:
-    cmp bl, [bz_lr1]            ; 128.19.10: the next MARKED lane - a byte
+    cmp bl, [bz_lr1]            ; 130.19.10: the next MARKED lane - a byte
     jae .ldone                  ; scan, about 15 clk a lane passed over, where
     push es                     ; a skip cost about 800
     push ds
@@ -2771,7 +2779,7 @@ bz_props:
     add ax, cx
     cmp ax, [bz_pra]
     jle .nxo
-    mov al, [bz_ltcl + bx]      ; wave 7 (128.18.2): a lane wholly OUTSIDE
+    mov al, [bz_ltcl + bx]      ; wave 7 (130.18.2): a lane wholly OUTSIDE
     xor ah, ah                  ; the column band is not walked (marked OUT);
     cmp ax, [bz_pch]            ; one that was OUT and is back in it is
     jge .cout                   ; walked whatever its skip says
@@ -2787,7 +2795,7 @@ bz_props:
     mov byte [bz_lout + bx], 1
     jmp .nxo
 .cin:
-    cmp byte [bz_lnsk], 0       ; THE SKIP (SPEC.md 128.13.5.3): nothing about
+    cmp byte [bz_lnsk], 0       ; THE SKIP (SPEC.md 130.13.5.3): nothing about
     je .sk0                     ; the lane can change this frame - it is not
     mov ax, [bz_lrw + si]       ; (the range moved: a lane whose rows did NOT
     cmp ax, [bz_orb]            ; meet the last one has entered - walked)
@@ -2816,7 +2824,7 @@ bz_props:
     je .skc
     cmp byte [bz_lknd + bx], BZ_PK_SIGN ; (a SIGN is marked only when its pose
     je .w0                      ; was written, bz_nset: walked)
-    cmp byte [bz_lknd + bx], BZ_FK0 ; (wave 9, 128.25.18: so is a FAMILY lane,
+    cmp byte [bz_lknd + bx], BZ_FK0 ; (wave 9, 130.25.18: so is a FAMILY lane,
     jae .w0                     ; by its hooks - never a post's skip)
     or al, al                   ; ...or a POST is drawn dark, its lit frames
     jnz .w0                     ; none, every kick seen
@@ -2905,7 +2913,7 @@ bz_props:
     jmp short .next
 .wheel:
     mov al, [bz_wcn]            ; ...or the wheel's (at most six meet a
-    cmp al, 6                   ; window, 128.12.4.6)
+    cmp al, 6                   ; window, 130.12.4.6)
     jae .next
     cbw
     mov di, ax
@@ -2919,7 +2927,7 @@ bz_props:
 .next:
     cmp byte [bz_lknd + bx], BZ_PK_WINDMILL
     je .nn                      ; (a rotor stays marked: its own clock)
-    mov al, [bz_ldrw + bx]      ; 128.19.10: a SLOW lane stays marked while it
+    mov al, [bz_ldrw + bx]      ; 130.19.10: a SLOW lane stays marked while it
     xor al, [bz_ltru + bx]      ; is pending - drawn not true (a candidate not
     or al, [bz_lhold + bx]      ; yet committed) or lit
     mov [bz_latt + bx], al
@@ -2933,7 +2941,7 @@ bz_props:
     jmp short .nn               ; and the QUIET WALK's compare over the slice
                                 ; must not wait on a lane no walk will sync
                                 ; (an unknown 0FFh, never true: SPEC.md
-                                ; 128.19.10 item 7)
+                                ; 130.19.10 item 7)
 .plat:
     cmp byte [bz_pin], 0        ; THE PLATFORM: its whole rise outside the
     jne .pin                    ; range (bz_pin, .rng's), not on the card, and
@@ -2991,7 +2999,7 @@ bz_props:
     jz .nopl
     mov al, [bz_pylp]           ; (which WAITS a frame - never two running,
     or al, [bz_onp]             ; never under a ball the lift carries, never
-    jnz .pkeep                  ; leaving the window - SPEC.md 128.13.4.3:
+    jnz .pkeep                  ; leaving the window - SPEC.md 130.13.4.3:
     test byte [bz_pflag], 8     ; its drawn line holds, and the drawn line is
     jnz .pkeep                  ; what every writer draws, so the card stays
     call bz_bsone               ; the map's - (a) when the ball's and the
@@ -3081,7 +3089,7 @@ bz_props:
     ret
 
 ; bz_wpro - CF = 1 when the wheel candidate due longest (bz_wbest) is
-; PROMOTED to the contact slot (the final pass, SPEC.md 128.12.4.3): due
+; PROMOTED to the contact slot (the final pass, SPEC.md 130.12.4.3): due
 ; BZ_WPRO frames on a frame that allows a contact lane (bz_conok), or
 ; BZ_WPRF on any frame - so no lane reaches bz_wlate while a box can take it,
 ; and a rotor skips no pose it holds for BZ_WPRF frames.  Clobbers AX, BX, SI.
@@ -3158,7 +3166,7 @@ bz_lshown:
     clc
     ret
 
-; CF = 1 when lane BX is MUST-DRAW (SPEC.md 128.12.5.2): a windmill whose prop
+; CF = 1 when lane BX is MUST-DRAW (SPEC.md 130.12.5.2): a windmill whose prop
 ; index is on bz_wol (its IN cell in the ball's 3 x 3) and whose TRUE pose's
 ; gate state - closed for poses c0 >> shift .. c1 >> shift - 1 - differs from
 ; its DRAWN pose's, AL = its IN cell's RANK (0 the window's centre, 1 a side,
@@ -3215,8 +3223,8 @@ bz_lmust:
     jmp short .yes
 .post:                          ; a POST LIGHTING: true lit over drawn dark
     cmp byte [bz_lknd + bx], BZ_PK_CKPT ; (a FLAG is never must-draw: an
-    je .no                      ; ordinary due lane, SPEC.md 128.14.4.2)
-    cmp byte [bz_lknd + bx], BZ_PK_SIGN ; (nor a SIGN, 128.22.4.1)
+    je .no                      ; ordinary due lane, SPEC.md 130.14.4.2)
+    cmp byte [bz_lknd + bx], BZ_PK_SIGN ; (nor a SIGN, 130.22.4.1)
     je .no
     mov al, [bz_ltru + bx]      ; (the owner's preview: a hit always shows)
     cmp al, [bz_ldrw + bx]
@@ -3354,7 +3362,7 @@ bz_csync:
     ret
 
 ; bz_pyield - bz_mkboxes found no room for the lift's box beside a lighting
-; post (bz_pflag bit 2: the box could not wait, SPEC.md 128.13.4.3, or the
+; post (bz_pflag bit 2: the box could not wait, SPEC.md 130.13.4.3, or the
 ; frame was not crowded and still had no room): the post WAITS a frame - its map words back to its
 ; drawn pose, bz_ndef - and the box is the contact group (bz_crect2 to
 ; bz_crect, bz_ctype 2).  Clobbers AX, BX.
@@ -3378,10 +3386,10 @@ bz_pyield:
     mov [bz_crect + 6], ax
     ret
 
-; bz_cslab - the PLATFORM's box is the contact group (SPEC.md 128.12.4.3): its
+; bz_cslab - the PLATFORM's box is the contact group (SPEC.md 130.12.4.3): its
 ; drawn and true footprints, one box (the slab moves at most 6 lines in an
 ; 8-step frame: 18 + 6 lines, 18 + 12 after a waited frame, inside BZ_BOXL,
-; 128.13.4.3), BZ_BOXW words from its columns; then its drawn line is the
+; 130.13.4.3), BZ_BOXW words from its columns; then its drawn line is the
 ; true one (bz_pline).  Preserves all but the flags.
 bz_cslab:
     mov byte [bz_ctype], 2
@@ -3391,7 +3399,7 @@ bz_cslab:
     pop di
     ret
 ; bz_cslabr - the same, the rect into DI (bz_crect, or bz_crect2 beside a
-; lighting post: SPEC.md 128.12.5.2), bz_ctype untouched.
+; lighting post: SPEC.md 130.12.5.2), bz_ctype untouched.
 bz_cslabr:
     push ax
     push cx
@@ -3427,7 +3435,7 @@ bz_cslabr:
     ret
 
 ; bz_ptrue - the LIFT's (record BX) TRUE line at n = bz_nstep -> AX and
-; bz_ptru: its rise bbcourse.plat_pos's way (SPEC.md 128.12.6.4) - m = (n +
+; bz_ptru: its rise bbcourse.plat_pos's way (SPEC.md 130.12.6.4) - m = (n +
 ; seed) AND (P - 1), q = m in the first half of the period and P - 1 - m in
 ; the second, I = min(PMAX, max(0, q - W) v) - and the line poy - (I >> 8).
 ; Preserves all but AX and the flags.
@@ -3493,11 +3501,11 @@ bz_pshowny:
     ret
 
 ; AX = the shown slab's TRUE line: CF = 1 when it is NEAR the window's edge ON
-; THE BALL'S SIDE (128.12.7: within two card rows of its top or bottom, a word
+; THE BALL'S SIDE (130.12.7: within two card rows of its top or bottom, a word
 ; column of its left or right - the top only while the ball's footprint is in
 ; the window's upper half, the bottom only in its lower half, the left only
 ; in its left half, the right only in its right half), so an entering strip
-; may meet it.  Wave 6b (SPEC.md 128.17.6.3): the four edges' facts are
+; may meet it.  Wave 6b (SPEC.md 130.17.6.3): the four edges' facts are
 ; bz_pflag bits 4 - 7 with NO ball-side gate - the heavy rule's level 1
 ; reads the bit of the edge a pan heads for - and the clause is those bits
 ; masked by the ball's side.  Preserves all but the flags.
@@ -3578,7 +3586,7 @@ bz_pnear:
     pop ax
     ret
 
-; bz_pedge - THE EDGE CLAUSE's facts (SPEC.md 128.12.7), the window as it
+; bz_pedge - THE EDGE CLAUSE's facts (SPEC.md 130.12.7), the window as it
 ; stands before the camera (asked only where they are read: a contact lane's
 ; frame, and a heavy one's camera): bz_hedr = 1 when the ball's new footprint is within
 ; BZ_HEDGE lines of its top or bottom, bz_hedc = 1 within 24 px of its left or
@@ -3628,7 +3636,7 @@ bz_pedge:
 
 ; -> AL nonzero (ZF = 0) when this frame runs the OCCLUDER PASS: the centre's
 ; cell has OCC airborne or OCCG grounded, or a harness poked the ball (bz_mkboxes's
-; gate, SPEC.md 128.11.10.2).  Clobbers AX.
+; gate, SPEC.md 130.11.10.2).  Clobbers AX.
 bz_passon:
     mov ah, BZ_FOCC
     cmp byte [bz_air], 0
@@ -3640,7 +3648,7 @@ bz_passon:
     or al, [bz_pokd]
     ret
 
-; CF = 1 when a contact LANE may be drawn this frame (SPEC.md 128.12.4.3): no
+; CF = 1 when a contact LANE may be drawn this frame (SPEC.md 130.12.4.3): no
 ; occluder pass, the ball's new footprint outside the edge zone, and the
 ; ball's and the shadow's footprints - old and new - ONE box between them
 ; (bz_bsone), so the contact frame is at most two boxes.  A hidden ball's
@@ -3656,7 +3664,7 @@ bz_conok:
 ; bz_bsone - CF = 1 when the ball's and the shadow's footprints, old and new,
 ; are ONE box between them (bz_union's BZ_BOXW x BZ_BOXH); CF = 0 when the
 ; two groups are two boxes or more - a CROWDED frame, on which the platform's
-; box waits (SPEC.md 128.13.4.3 (a)).  A hidden ball's is one.  Clobbers AX,
+; box waits (SPEC.md 130.13.4.3 (a)).  A hidden ball's is one.  Clobbers AX,
 ; BX, SI.
 bz_bsone:
     cmp byte [bz_tube], 0
@@ -3694,10 +3702,10 @@ bz_bsone:
     ret
 
 ; CF = 1 when a frame with no contact group is HEAVY at level 1 (SPEC.md
-; 128.13.6): it shows the slab near the window's edge on the ball's side
+; 130.13.6): it shows the slab near the window's edge on the ball's side
 ; (bz_pnear, bz_pflag bit 1) - the clause alone: wave 3's occluder-pass and
 ; two-box clauses are gone, MEASURED to buy nothing on MILL and to cost
-; TRIAL (128.13.3.3, 128.13.3.4).  A hidden ball's is not, and is never
+; TRIAL (130.13.3.3, 130.13.3.4).  A hidden ball's is not, and is never
 ; asked: bz_props' .level makes a frame with a tube in transit light before
 ; it calls here.  (bz_props's .choose leaves the call out on a frame with
 ; nothing to choose and bz_pflag's bits 0 and 1 clear: a clause added here is
@@ -3709,7 +3717,7 @@ bz_hv1:
 .x:
     ret
 
-; bz_hspin - a harness's LATE FRAME (bz_hold, SPEC.md 128.12.5.6): a spin on
+; bz_hspin - a harness's LATE FRAME (bz_hold, SPEC.md 130.12.5.6): a spin on
 ; the clock for bz_hold x 256 PIT counts, then bz_hold = 0.  Preserves all but
 ; the flags.
 bz_hspin:
@@ -3736,25 +3744,25 @@ bz_hspin:
     ret
 
 ; =============================================================================
-; THE SLAB ON THE CARD (SPEC.md 128.12.4.3, 128.12.4.5, 128.12.6.4).  The
+; THE SLAB ON THE CARD (SPEC.md 130.12.4.3, 130.12.4.5, 130.12.6.4).  The
 ; platform is not in the map: every box that meets its drawn footprint
 ; (bz_pline) is composed with it - under the ball, or over it by ONE decision a
 ; frame (bz_povr) - and three things put it on the card: its BOX when its drawn
 ; line changes while it is shown (bz_props's contact, bz_cslab; merged with
-; the ball's group up to BZ_BOXL lines, THE RIDE BOX, SPEC.md 128.13.4.1, and
-; one frame late on a crowded frame, 128.13.4.3), its box after a FULL WRITE
+; the ball's group up to BZ_BOXL lines, THE RIDE BOX, SPEC.md 130.13.4.1, and
+; one frame late on a crowded frame, 130.13.4.3), its box after a FULL WRITE
 ; (bz_pfull), and its box CLIPPED to the cells a strip brings in (bz_pstrip).
 ; Nothing else writes it, so nothing else needs to know.
 ; =============================================================================
 BZ_PLB      equ BZ_PLW / 4      ; the slab's bytes a line (4 px a byte)
 %if BZ_PLSPR != 4 * BZ_PLH * BZ_PLB || (BZ_PLH & 1) || BZ_PLB != 2 * BZ_BOXW
- %error "the slab's sprite: two parity copies of an 18-line mask and frame, a box wide (SPEC.md 128.12.6.4)"
+ %error "the slab's sprite: two parity copies of an 18-line mask and frame, a box wide (SPEC.md 130.12.6.4)"
 %endif
 
 ; bz_pfull - a FULL WRITE's slab, after bz_lfull: the write puts the course
 ; alone on the card, so a slab SHOWN in the new window is drawn by its box
-; after it (a full write's boxes follow it, 128.12.6.4), and one outside it
-; follows n in RAM (128.12.15 item 3).  Preserves nothing.
+; after it (a full write's boxes follow it, 130.12.6.4), and one outside it
+; follows n in RAM (130.12.15 item 3).  Preserves nothing.
 bz_pfull:
     mov bl, [bz_pidx]
     cmp bl, 0ffh
@@ -3778,18 +3786,18 @@ bz_pfull:
     inc word [bz_ncon]
     ret
 
-; bz_pstrip - A STRIP MEETING THE SLAB (SPEC.md 128.12.4.3), after the camera
+; bz_pstrip - A STRIP MEETING THE SLAB (SPEC.md 130.12.4.3), after the camera
 ; (the strips are its), bz_wtop set: the entering rows and column bring course
 ; cells from the map, which does not hold the slab.  On a frame whose slab box
 ; was not chosen, the slab's box CLIPPED to those cells - the bounding rect of
 ; its footprint's meets with the rows and with the column, inside the
 ; footprint and so one box - is the contact group (bz_ctype 3).  A contact
 ; LANE yields it the slot: its map words go back to its drawn pose and it
-; waits (display only, 128.12.5.2) - a post LIGHTING too, a frame late; a
+; waits (display only, 130.12.5.2) - a post LIGHTING too, a frame late; a
 ; must-draw rotor cannot meet this case (the tool keeps a windmill and a
-; track out of one window, 128.12.4.6), and there the slab's strip cells
+; track out of one window, 130.12.4.6), and there the slab's strip cells
 ; wait for its next box.  It does not feed
-; bz_heavy (128.12.7: the slab NEAR the edge does).  Clobbers AX, BX, CX, DX.
+; bz_heavy (130.12.7: the slab NEAR the edge does).  Clobbers AX, BX, CX, DX.
 bz_pstrip:
     cmp byte [bz_pidx], 0ffh
     je .out
@@ -3941,7 +3949,7 @@ bz_pmeet:
 .no:
     ret
 
-; bz_povr - the slab's ONE DECISION a frame (SPEC.md 128.12.4.5): bz_pov FFh
+; bz_povr - the slab's ONE DECISION a frame (SPEC.md 130.12.4.5): bz_pov FFh
 ; when no slab is on the card, else 1 - OVER the ball - when
 ;     z_b + m < its top   and   s_b <= sP
 ; (z_b the ball's whole px, m BZ_CLIMB grounded and 0 airborne, as the
@@ -3976,7 +3984,7 @@ bz_povr:
     ret
 
 ; bz_pover - after the occluder pass: the slab OVER the ball (bz_pov 1) laid
-; into every box it meets, last (128.12.4.5's order).  Preserves nothing.
+; into every box it meets, last (130.12.4.5's order).  Preserves nothing.
 bz_pover:
     cmp byte [bz_pov], 1
     jne .out

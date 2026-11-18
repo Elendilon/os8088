@@ -13,16 +13,16 @@ input and nothing is re-implemented.
 With no courses it takes the Makefile's BZ_COURSES.  --png writes the fall
 pictures into this directory (occ-*.png).
 
-The variants (each a transform of the course's reach, SPEC.md 128.11.4.4):
+The variants (each a transform of the course's reach, SPEC.md 130.11.4.4):
   base      the shipped reach (a check: it must give the shipped records)
-  novoid    no position in a VOID cell at all (128.11.4.5's last row)
-  pits      void positions only in PITS (128.11.4.5's option (c))
+  novoid    no position in a VOID cell at all (130.11.4.5's last row)
+  pits      void positions only in PITS (130.11.4.5's option (c))
   vlow      VOID cells keep only heights at or above THR = the lowest solid floor
             within two tiles (= the kill height + 24 px): the falling positions
             below every nearby floor are dropped; the guest would GHOST or HIDE
             a ball there instead (the report's option V)
   vlow8     the same, THR - 8 (the last 16 px of a fall dropped, the first 8 kept)
-  vlow+walls  vlow, and the reach of 128.11.4.4 cut at WALLs the ball cannot
+  vlow+walls  vlow, and the reach of 130.11.4.4 cut at WALLs the ball cannot
             clear (the report's option T, a tighter reach)
 """
 import argparse
@@ -83,7 +83,7 @@ def open_touching(c):
 
 def thr_of(c, r):
     """THR: the lowest solid floor within two tiles, in px - the NEAR void's kill
-    height (its z0, 128.10.4.3) plus 24 px; the guest reads it off the cell"""
+    height (its z0, 130.10.4.3) plus 24 px; the guest reads it off the cell"""
     return 4 * c.cells[(r.wx, r.wy)][0] + 24
 
 
@@ -140,7 +140,7 @@ def wall_blocked(c):
 
 def v_vghost(c):
     """option V: no position in a VOID cell lays a record - except the lift's
-    shaft, where a ball stands on the slab (128.12.6.4) - and the guest ghosts
+    shaft, where a ball stands on the slab (130.12.6.4) - and the guest ghosts
     (or hides) the whole ball in a VOID cell below the cell's GHOST height
     (ghost_heights), which the tool stores in the cell"""
     return [r for r in c.reach if r.kind != B.KIND_VOID or (r.wx, r.wy) in c.slabcells]
@@ -305,7 +305,7 @@ class Analytic:
     (front_cells) is a plain whole cell (not a WALL-less prop's, not split) whose highest corner is above
     z + m, and (x, y) lies at or below N's TOP EDGE in that column - the first line N owns there (from an
     owners' render, which is what a guest would compute from N's z0, sx and sy).  Below the edge it takes
-    the column as N's (its top, its face to the ground: SPEC.md 128.27's grounded faces)."""
+    the column as N's (its top, its face to the ground: SPEC.md 130.27's grounded faces)."""
 
     def __init__(self, c, depth):
         self.c, self.depth = c, depth

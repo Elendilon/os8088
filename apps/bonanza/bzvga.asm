@@ -1,0 +1,2100 @@
+; =============================================================================
+; apps/bonanza/bzvga.asm - BONANZA's VGA PART, BZVGA.BIN (SPEC.md 130.46)
+;
+; The VGA's writers and its one-off converter, out of the resident image (which
+; has no room for them and whose CGA and Hercules plays never need them): a
+; lazy, compressed OP_SEG part, the last row (BZ_P_VGA), fetched on the desktop
+; for a VGA play (bz_vprep) and held through the bracket. The shell part's
+; shape (SPEC.md 130.19.2), taken whole:
+;   1. ITS OWN TABLES THROUGH CS: the conversion tables, the palette's and the
+;      sparkles' are read `[cs:...]`; nothing here is WRITTEN through CS, so on
+;      kern_mega, where CS is the claim's code alias (op_cseg), it is plain.
+;   2. THE PACKAGE THROUGH DS: every vector is entered with DS = ES = the
+;      package, and its bss is named by bzlink.inc, which names NO code label.
+;   3. IT NEVER CLAIMS: the balls' copies are the package's claim ([bz_vbseg]).
+;
+; THE MODEL (130.46.3): mode 0Dh, two planes, a stride P of 42 bytes a line
+; (CR13 21), the window W = 40 columns of H = 200 one-line rows; the byte of
+; world line L, column c is (P L + c) mod 64K in each plane, and S = (P R0 +
+; c0) mod 64K. THE ART (130.46.5) is PLANAR PAIRS: eight pixels a word, plane
+; 0's byte (bit 7 the leftmost) then plane 1's - converted once, here, at the
+; fetch; compose is bitwise, so it runs unchanged, and every writer below only
+; splits a word's two bytes into the two planes.
+; =============================================================================
+cpu 8086
+org 0
+%include "os88api.inc"
+%include "bzcourse.inc"         ; the course tables' macros (identical equates)
+%include "bzlink.inc"           ; the package's constants and bss (pxlink)
+%include "bzvga.inc"
+
+BZV_P       equ 44              ; the stride, bytes a line (CR13 = 22 words)
+BZV_W       equ 42              ; the ENGINE's window, columns (130.46.10): the
+                                ; display's 320 px and their panning inside it,
+                                ; and a two-column gutter in the stride
+BZV_H       equ 200             ; ...its rows, a line each
+BZV_MLIM    equ 25540           ; 1.5 refreshes, PIT counts (130.46.7)
+BZV_LBL     equ 2 * 76          ; bz_latechk's: 18 lines rise to window line 0,
+                                ; less the 16 it adds itself (130.46.7)
+
+    dw BZV_SIG0, BZV_SIG1
+    dw BZL_IMAGE, BZL_BSS
+    times BZV_VEC - ($ - $$) db 0   ; (a negative count fails: the head is BZV_VEC bytes)
+    times ($ - $$) - BZV_VEC db 0
+bzv_v0: jmp near bzv_conv           ; BZV_CONV (each entered from outside, by far call)
+bzv_v1: jmp near bzv_init           ; BZV_INIT
+bzv_v2: jmp near bzv_flip           ; BZV_FLIP
+bzv_v3: jmp near bzv_pan            ; BZV_PAN
+bzv_v4: jmp near bzv_row            ; BZV_ROW
+bzv_v5: jmp near bzv_col            ; BZV_COL
+bzv_v6: jmp near bzv_boxw           ; BZV_BOXW
+bzv_v7: jmp near bzv_blit           ; BZV_BLIT
+bzv_v8: jmp near bzv_wprect         ; BZV_WPRECT
+bzv_v9: jmp near bzv_card           ; BZV_CARD
+bzv_v10: jmp near bzv_roll          ; BZV_ROLL
+bzv_v11: jmp near bzv_cam           ; BZV_CAM
+bzv_v12: jmp near bzv_coast         ; BZV_COAST
+bzv_v13: jmp near bzv_page          ; BZV_PAGE
+    times BZV_VEC + BZV_VECB * BZV_NVEC - ($ - $$) db 0
+    times ($ - $$) - BZV_VEC - BZV_VECB * BZV_NVEC db 0
+
+; =============================================================================
+; THE CONVERSION TABLES (130.46.5): a CGA byte holds four pixels `hl` from bit
+; 7 down. bzv_tl[b] = its four pixels' plane-0 bits (the l's) in the high
+; nibble of the low byte and their plane-1 bits (the h's) in the high nibble of
+; the high byte - the LEFT four pixels of a planar pair; bzv_tr[b] the same in
+; the low nibbles, the RIGHT four. So a CGA word (left byte b0, right b1) is
+; the planar pair bzv_tl[b0] | bzv_tr[b1], plane 0's byte first in memory.
+; =============================================================================
+%macro BZV_NIBS 1               ; %1 = b -> bzv_l, bzv_h: its plane-0, plane-1 nibbles
+ %assign bzv_l 0
+ %assign bzv_h 0
+ %assign bzv_k 0
+ %rep 4
+  %assign bzv_px ((%1) >> (6 - 2 * bzv_k)) & 3
+  %assign bzv_l bzv_l | ((bzv_px & 1) << (3 - bzv_k))
+  %assign bzv_h bzv_h | (((bzv_px >> 1) & 1) << (3 - bzv_k))
+  %assign bzv_k bzv_k + 1
+ %endrep
+%endmacro
+bzv_tl:
+%assign bzv_b 0
+%rep 256
+ BZV_NIBS bzv_b
+            dw (bzv_l << 4) | ((bzv_h << 4) << 8)
+ %assign bzv_b bzv_b + 1
+%endrep
+bzv_tr:
+%assign bzv_b 0
+%rep 256
+ BZV_NIBS bzv_b
+            dw bzv_l | (bzv_h << 8)
+ %assign bzv_b bzv_b + 1
+%endrep
+
+; the CGA's 16 colours as the EGA/VGA attribute controller's 6-bit values (the
+; BIOS's mode-0Dh defaults: brown's 14h the one irregular)
+bzv_ega16:  db 00h, 01h, 02h, 03h, 04h, 05h, 14h, 07h
+            db 38h, 39h, 3Ah, 3Bh, 3Ch, 3Dh, 3Eh, 3Fh
+; the wheel's per-card words (bz_wb0 .. bz_warr, SPEC.md 130.12.5.3): the
+; rise to window line 0 18 lines (130.46.7), a line 76 PIT counts as the CGA's,
+; the refresh 17,025, the word costs the CGA's until bz_wcalib measures them
+bzv_wk:     dw 18, 76, 76, 17025, 285, 1000, 300
+%if ($ - bzv_wk) != 2 * BZ_WKN
+ %error "bz_vinit's per-card words are BZ_WKN"
+%endif
+; each material's two copies in [bz_vbseg] (bzvga.inc), and its part's size
+bzv_cbase:  dw 0, BZV_CR, 2 * BZV_CR, 2 * BZV_CR + BZV_CS
+            dw 2 * (BZV_CR + BZV_CS), 2 * (BZV_CR + BZV_CS) + BZV_CG
+bzv_bsize:  dw BZ_BAL_SIZER, BZ_BAL_SIZE, BZ_BAL_SIZEG
+%if BZ_BAL_ENT != 160 || BZ_BAL_FRMOFF >= BZ_BAL_SQOFF || BZ_BAL_SQOFF >= BZ_BAL_SHDOFF || BZ_BAL_SHDOFF >= BZ_BAL_SHAOFF || BZ_BAL_STROFF != BZ_BAL_SHAOFF
+ %error "the ball part's regions (bzconst.inc) are not the converter's (130.46.5)"
+%endif
+
+; THE SPARKLES' PLACES (SPEC.md 130.25.19), the VGA's: bzvideo.inc's BZ_SPRS
+; places in the same order, each at the eight shifts t = px & 7 - db its byte
+; in a ball's box from the sprite's row 0, word 0; dw the planar pair XORed
+; there on both lines; dw the next word's (the pair across a word, else 0).
+; Off the face both planes (the colour XOR 3), on it plane 0 alone (XOR 1, a
+; glint) - the CGA's. The left edge's alternative when (t & 3) + dx < 0, the
+; CGA's own rule, so both cards draw one picture
+BZV_SPE     equ 5
+%macro BZV_SPR 3-5 0, 0         ; dx, dy, face [, alt dx, alt dy]
+ %assign bzv_t 0
+ %rep 8
+  %assign bzv_dx %1
+  %assign bzv_dy %2
+  %if (bzv_t & 3) + %1 < 0
+   %assign bzv_dx %4
+   %assign bzv_dy %5
+  %endif
+  %assign bzv_x bzv_t + bzv_dx
+  %assign bzv_m0 (80h >> (bzv_x & 7))
+  %assign bzv_m1 0
+  %if (bzv_x & 7) < 7
+   %assign bzv_m0 bzv_m0 | (bzv_m0 >> 1)
+  %else
+   %assign bzv_m1 80h
+  %endif
+  %if bzv_x < 0 || bzv_x + 1 > 23 || bzv_dy > 14
+   %error "a sparkle's pair must stay inside the VGA sprite's 3 words and 16 rows"
+  %endif
+            db bzv_dy * 8 + 2 * (bzv_x >> 3)
+  %if %3
+            dw bzv_m0, bzv_m1
+  %else
+            dw bzv_m0 * 101h, bzv_m1 * 101h
+  %endif
+  %assign bzv_t bzv_t + 1
+ %endrep
+%endmacro
+bzv_spv:    BZV_SPR 0, 0, 0
+            BZV_SPR 15, 2, 0
+            BZV_SPR 4, 10, 1
+            BZV_SPR 14, 0, 0
+            BZV_SPR -1, 12, 0, 0, 12
+            BZV_SPR 9, 4, 1
+            BZV_SPR -1, 2, 0, 0, 2
+            BZV_SPR 15, 12, 0
+%if $ - bzv_spv != 8 * 8 * BZV_SPE
+ %error "eight places, eight shifts"
+%endif
+
+; =============================================================================
+; BZV_INIT - bz_vinit's VGA half (SPEC.md 130.46.3), after OSAPI_FSX_MODE set
+; 0Dh and bz_vinit [bz_vseg]: the geometry, the wheel's words, the camera's
+; limits, P*dr, and the card - CR13 21 (P 42), AC 12h 03h (planes 0 and 1),
+; AC 0 - 3 the course's four colours, the panning 0.  Preserves nothing.
+; =============================================================================
+bzv_init:
+    mov word [bz_W], BZV_W
+    mov word [bz_H], BZV_H
+    mov word [bz_rb], BZV_P
+    mov word [bz_rl], 1
+    mov byte [bz_lsh], 0
+    mov word [bz_bend], 0
+    mov word [bz_crtc], 3d4h
+    mov word [bz_vrport], 3dah
+    mov word [bz_vrbits], 0008h ; 3DAh bit 3 HIGH: in the retrace (the CGA's)
+    mov word [bz_vrlim], 2
+    mov word [bz_mlim], BZV_MLIM
+    mov word [bz_lblank], BZV_LBL
+    mov word [bz_smask], 0ffffh
+    mov byte [bz_vdiv], 1       ; the held divisor's short test, again a play
+    mov byte [bz_vfrm], 0       ; (130.46.10)
+    mov byte [bz_vlate], 0
+    mov byte [bz_vpan], 0
+    mov byte [bz_vrv], 0        ; the roll's phases start from the true ones (130.46.11)
+    push ds
+    pop es
+    mov di, bz_wb0
+    mov si, bzv_wk
+    mov cx, BZ_WKN
+.wk:
+    cs lodsw
+    stosw
+    loop .wk
+    mov ax, [bz_cols]           ; the camera's limits (130.10.8 item 4)
+    sub ax, BZV_W
+    mov [bz_cmax], ax
+    mov ax, [bz_brows]
+    mov cl, 3
+    shl ax, cl
+    sub ax, BZV_H
+    mov [bz_rmax], ax
+    mov word [bz_wtab], -2 * BZV_P ; P * dr, dr = -2 .. 2
+    mov word [bz_wtab + 2], -BZV_P
+    mov word [bz_wtab + 4], 0
+    mov word [bz_wtab + 6], BZV_P
+    mov word [bz_wtab + 8], 2 * BZV_P
+    mov dx, 3d4h                ; CR13: the offset, 21 words
+    mov ax, (BZV_P / 2) * 256 + 13h
+    out dx, ax
+    mov bl, [bz_crs]            ; the course's colour select (130.16.6)...
+    xor bh, bh
+    add bx, [bz_vcpal]
+    mov al, [bx]
+    mov ah, al
+    and al, 0fh                 ; ...index 0 its background
+    mov bx, bzv_ega16
+    cs xlat
+    mov [bz_vpal0], al
+    mov bl, 2                   ; ...1 - 3: palette 0's 2, 4, 6 or 1's 3, 5, 7,
+    test ah, 20h                ; each + 8 when bit 4 (intense)
+    jz .p0
+    inc bx
+.p0:
+    test ah, 10h
+    jz .pi
+    add bl, 8
+.pi:
+    mov cx, 3
+    mov di, bz_vpal0 + 1
+.pc:
+    mov al, bl
+    push bx
+    mov bx, bzv_ega16
+    cs xlat
+    pop bx
+    stosb
+    add bl, 2
+    loop .pc
+    pushf
+    cli
+    mov dx, 3dah                ; the attribute flip-flop to its index
+    in al, dx
+    mov dx, 3c0h
+    mov si, bz_vpal0
+    xor ah, ah
+.ac:
+    mov al, ah                  ; AC 0 - 3 (bit 5 clear: the screen off a moment)
+    out dx, al
+    lodsb
+    out dx, al
+    inc ah
+    cmp ah, 4
+    jb .ac
+    mov al, 12h                 ; AC 12h: planes 0 and 1 to the glass
+    out dx, al
+    mov al, 03h
+    out dx, al
+    mov al, 33h                 ; AC 13h, bit 5 set: the screen on, the panning 0
+    out dx, al
+    xor al, al
+    out dx, al
+    popf
+    retf
+
+; BZV_FLIP - AX = a start address (bytes) to CR0Ch (high), CR0Dh.  All kept.
+bzv_flip:
+    push ax
+    push cx
+    push dx
+    mov cx, ax
+    mov dx, 3d4h
+    mov al, 0ch
+    mov ah, ch
+    out dx, ax
+    mov al, 0dh
+    mov ah, cl
+    out dx, ax
+    pop dx
+    pop cx
+    pop ax
+    retf
+
+; BZV_PAN - AL = the pel panning (0 - 7) to AC 13h, index 33h (the screen on).
+; All kept.  bz_tv calls it at the rise, under CLI (130.46.4 rule 4)
+bzv_pan:
+    push ax
+    push dx
+    mov ah, al
+    mov dx, 3dah
+    in al, dx
+    mov dx, 3c0h
+    mov al, 33h
+    out dx, al
+    mov al, ah
+    out dx, al
+    pop dx
+    pop ax
+    retf
+
+; =============================================================================
+; BZV_ROW - bz_row's (SPEC.md 130.46.3): world line AX, world columns BX ..
+; BX+CX-1 (CX at least 1), each cell's line word from the course - the map
+; entry (map[L>>3][c]) + 2 (L&7) - plane 0's byte to plane 0, plane 1's to
+; plane 1, at (P L + c) mod 64K.  Whether a row goes into the slack (130.46.4
+; rule 1) or the full write, its order is free.  All kept.
+; =============================================================================
+bzv_row:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov es, [bz_vseg]
+    mov si, ax                  ; SI = L
+    mov dx, BZV_P
+    mul dx
+    add ax, bx
+    mov di, ax                  ; DI = P L + c0 (mod 64K)
+    mov ax, si
+    and al, 0f8h
+    push cx
+    mov cl, [bz_mapsh]
+    shl ax, cl
+    pop cx
+    shl bx, 1
+    add ax, bx
+    add ax, BZC_MAP             ; AX = the first cell's map entry
+    and si, 7
+    shl si, 1
+    mov bp, si                  ; BP = the line's word in a block
+    mov ds, [bz_mseg]           ; DS = the course's PICTURE part
+    mov bx, ax                  ; BX = the first cell's map entry
+    mov dx, 3c4h
+    cmp cx, BZV_W               ; (a row is at most the window's 42 cells;
+    ja .slow                    ; a longer one takes the plain loop)
+    mov si, BZV_W               ; UNROLLED (130.46.13): the body's cell k
+    sub si, cx                  ; reads map entry [BX + 2 k], so the row's
+    sub bx, si                  ; first cell is entered at k0 = 42 - CX,
+    sub bx, si                  ; BX moved back 2 k0
+    shl si, 1
+    mov cx, [cs:.rtab + si]     ; CX = the entry
+    mov ax, 0102h               ; plane 0
+    out dx, ax
+    push bx
+    push di
+    call cx
+    pop di
+    pop bx
+    mov ax, 0202h               ; plane 1
+    out dx, ax
+    inc bp
+    call cx
+    jmp .out
+.slow:
+    mov si, bx
+    push si
+    push di
+    push cx
+    mov ax, 0102h               ; plane 0
+    out dx, ax
+.p0:
+    lodsw
+    add ax, bp
+    mov bx, ax
+    mov al, [bx]
+    stosb
+    loop .p0
+    pop cx
+    pop di
+    pop si
+    mov ax, 0202h               ; plane 1
+    out dx, ax
+    inc bp
+.p1:
+    lodsw
+    add ax, bp
+    mov bx, ax
+    mov al, [bx]
+    stosb
+    loop .p1
+    jmp .out
+; the body: cell k's map entry at [BX + 2 k], its line's byte at the entry +
+; BP (DS: BP alone would address SS), to ES:DI ascending
+%if BZV_W != 42
+ %error "the row body below is 42 cells: BZV_W's"
+%endif
+
+.r0:
+    mov si, [bx + 0]
+    mov al, [ds:bp + si]
+    stosb
+.r1:
+    mov si, [bx + 2]
+    mov al, [ds:bp + si]
+    stosb
+.r2:
+    mov si, [bx + 4]
+    mov al, [ds:bp + si]
+    stosb
+.r3:
+    mov si, [bx + 6]
+    mov al, [ds:bp + si]
+    stosb
+.r4:
+    mov si, [bx + 8]
+    mov al, [ds:bp + si]
+    stosb
+.r5:
+    mov si, [bx + 10]
+    mov al, [ds:bp + si]
+    stosb
+.r6:
+    mov si, [bx + 12]
+    mov al, [ds:bp + si]
+    stosb
+.r7:
+    mov si, [bx + 14]
+    mov al, [ds:bp + si]
+    stosb
+.r8:
+    mov si, [bx + 16]
+    mov al, [ds:bp + si]
+    stosb
+.r9:
+    mov si, [bx + 18]
+    mov al, [ds:bp + si]
+    stosb
+.r10:
+    mov si, [bx + 20]
+    mov al, [ds:bp + si]
+    stosb
+.r11:
+    mov si, [bx + 22]
+    mov al, [ds:bp + si]
+    stosb
+.r12:
+    mov si, [bx + 24]
+    mov al, [ds:bp + si]
+    stosb
+.r13:
+    mov si, [bx + 26]
+    mov al, [ds:bp + si]
+    stosb
+.r14:
+    mov si, [bx + 28]
+    mov al, [ds:bp + si]
+    stosb
+.r15:
+    mov si, [bx + 30]
+    mov al, [ds:bp + si]
+    stosb
+.r16:
+    mov si, [bx + 32]
+    mov al, [ds:bp + si]
+    stosb
+.r17:
+    mov si, [bx + 34]
+    mov al, [ds:bp + si]
+    stosb
+.r18:
+    mov si, [bx + 36]
+    mov al, [ds:bp + si]
+    stosb
+.r19:
+    mov si, [bx + 38]
+    mov al, [ds:bp + si]
+    stosb
+.r20:
+    mov si, [bx + 40]
+    mov al, [ds:bp + si]
+    stosb
+.r21:
+    mov si, [bx + 42]
+    mov al, [ds:bp + si]
+    stosb
+.r22:
+    mov si, [bx + 44]
+    mov al, [ds:bp + si]
+    stosb
+.r23:
+    mov si, [bx + 46]
+    mov al, [ds:bp + si]
+    stosb
+.r24:
+    mov si, [bx + 48]
+    mov al, [ds:bp + si]
+    stosb
+.r25:
+    mov si, [bx + 50]
+    mov al, [ds:bp + si]
+    stosb
+.r26:
+    mov si, [bx + 52]
+    mov al, [ds:bp + si]
+    stosb
+.r27:
+    mov si, [bx + 54]
+    mov al, [ds:bp + si]
+    stosb
+.r28:
+    mov si, [bx + 56]
+    mov al, [ds:bp + si]
+    stosb
+.r29:
+    mov si, [bx + 58]
+    mov al, [ds:bp + si]
+    stosb
+.r30:
+    mov si, [bx + 60]
+    mov al, [ds:bp + si]
+    stosb
+.r31:
+    mov si, [bx + 62]
+    mov al, [ds:bp + si]
+    stosb
+.r32:
+    mov si, [bx + 64]
+    mov al, [ds:bp + si]
+    stosb
+.r33:
+    mov si, [bx + 66]
+    mov al, [ds:bp + si]
+    stosb
+.r34:
+    mov si, [bx + 68]
+    mov al, [ds:bp + si]
+    stosb
+.r35:
+    mov si, [bx + 70]
+    mov al, [ds:bp + si]
+    stosb
+.r36:
+    mov si, [bx + 72]
+    mov al, [ds:bp + si]
+    stosb
+.r37:
+    mov si, [bx + 74]
+    mov al, [ds:bp + si]
+    stosb
+.r38:
+    mov si, [bx + 76]
+    mov al, [ds:bp + si]
+    stosb
+.r39:
+    mov si, [bx + 78]
+    mov al, [ds:bp + si]
+    stosb
+.r40:
+    mov si, [bx + 80]
+    mov al, [ds:bp + si]
+    stosb
+.r41:
+    mov si, [bx + 82]
+    mov al, [ds:bp + si]
+    stosb
+.r42:
+    ret
+.rtab:
+    dw .r0, .r1, .r2, .r3, .r4, .r5, .r6, .r7
+    dw .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15
+    dw .r16, .r17, .r18, .r19, .r20, .r21, .r22, .r23
+    dw .r24, .r25, .r26, .r27, .r28, .r29, .r30, .r31
+    dw .r32, .r33, .r34, .r35, .r36, .r37, .r38, .r39
+    dw .r40, .r41, .r42
+.out:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; =============================================================================
+; BZV_COL - the entering column [bz_ccol], every line of the NEW window
+; ([bz_R0n] on, BZV_H of them), before the start address (130.46.4 rule 1):
+; the gutter's cells, off the glass.  A plane at a time, a block's lines from
+; one map entry, its eight UNROLLED (displacements, no per-line test: 44.6k
+; clocks a column looped, 130.46.12).  Preserves nothing (DS, ES the
+; package's again).
+; =============================================================================
+bzv_col:
+    mov es, [bz_vseg]
+    mov ax, [bz_R0n]            ; L
+    mov bx, [bz_ccol]
+    push ax
+    mov dx, BZV_P
+    mul dx
+    add ax, bx
+    mov di, ax                  ; DI = P L + c
+    pop ax
+    mov dx, ax
+    and dx, 7                   ; DL = j, the first line's in its block
+    and al, 0f8h
+    mov cl, [bz_mapsh]
+    shl ax, cl
+    shl bx, 1
+    add ax, bx
+    add ax, BZC_MAP
+    mov si, ax                  ; SI = its map entry
+    mov bp, 8
+    shl bp, cl                  ; BP = a block row's map bytes
+    push ds
+    mov ds, [bz_mseg]
+    mov ax, 0102h
+    xor dh, dh                  ; DH = the plane's byte
+    call .plane
+    mov ax, 0202h
+    inc dh
+    call .plane
+    pop ds
+    push ds
+    pop es
+    retf
+.plane:                         ; AX = the map mask, DL = j, DH = the plane
+    push si
+    push di
+    push dx
+    push dx
+    mov dx, 3c4h
+    out dx, ax
+    pop dx
+    mov al, dl                  ; the first block entered at its line j: DI
+    mov ah, BZV_P               ; back to where its line 0 would be
+    mul ah
+    sub di, ax
+    mov cl, dl                  ; CX = the blocks, (j + H + 7) / 8: the last
+    xor ch, ch                  ; whole (130.46.12: at most 7 lines past the
+    add cx, BZV_H + 7           ; window's foot, off the glass, rewritten
+    shr cx, 1                   ; when they enter as rows)
+    shr cx, 1
+    shr cx, 1
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    mov ax, [cs:.tab + bx]      ; the entry, line j
+    mov dl, dh
+    xor dh, dh                  ; DX = the plane's byte of a line
+    mov bx, [si]
+    add bx, dx
+    jmp ax
+.k0:
+    mov al, [bx + 0]
+    mov [es:di + 0 * BZV_P], al
+.k1:
+    mov al, [bx + 2]
+    mov [es:di + 1 * BZV_P], al
+.k2:
+    mov al, [bx + 4]
+    mov [es:di + 2 * BZV_P], al
+.k3:
+    mov al, [bx + 6]
+    mov [es:di + 3 * BZV_P], al
+.k4:
+    mov al, [bx + 8]
+    mov [es:di + 4 * BZV_P], al
+.k5:
+    mov al, [bx + 10]
+    mov [es:di + 5 * BZV_P], al
+.k6:
+    mov al, [bx + 12]
+    mov [es:di + 6 * BZV_P], al
+.k7:
+    mov al, [bx + 14]
+    mov [es:di + 7 * BZV_P], al
+    add di, 8 * BZV_P
+    add si, bp
+    mov bx, [si]
+    add bx, dx
+    dec cx
+    jnz .k0
+    pop dx
+    pop di
+    pop si
+    ret
+.tab:   dw .k0, .k1, .k2, .k3, .k4, .k5, .k6, .k7
+
+; =============================================================================
+; BZV_BOXW - box SI (a descriptor: +0 x0 world column, +2 y0 world line, +4 w
+; words, +6 h lines, +8 the buffer, 8 bytes a line) to the card, a line at a
+; time in raster order (130.46.4 rule 5): each line's even bytes to plane 0,
+; its odd to plane 1 - no conversion (130.46.5).  A later box overlapping an
+; earlier one writes the same bytes again (the CGA's band skip is a saving,
+; not a rule).  ONE BODY A WIDTH (1 - 4 words), unrolled: per line the map
+; mask twice and a `movsb` / `inc si` a byte, the buffer's and the card's
+; steps folded into four adds (V1's measure: 785 clocks a line looped, the
+; bar 500).  All kept.
+; =============================================================================
+%macro BZV_BWL 1                ; a line of %1 words, the loop round its box
+.w%1:
+    mov ax, 0102h
+    out dx, ax
+ %rep %1
+    movsb
+    inc si
+ %endrep
+    sub si, 2 * %1 - 1          ; back to the line's first odd byte
+    sub di, %1
+    mov ax, 0202h
+    out dx, ax
+ %rep %1
+    movsb
+    inc si
+ %endrep
+ %if 8 - 2 * %1 - 1 == -1
+    dec si
+ %else
+    add si, 8 - 2 * %1 - 1      ; the buffer's next line
+ %endif
+    add di, BZV_P - %1          ; the card's
+    dec bp
+    jnz .w%1
+    jmp .done
+%endmacro
+bzv_boxw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov es, [bz_vseg]
+    mov ax, [si + 2]
+    mov dx, BZV_P
+    mul dx
+    add ax, [si]
+    mov di, ax                  ; DI = the box's first byte on the card
+    mov bx, [si + 4]            ; BX = w
+    mov bp, [si + 6]            ; BP = h
+    mov si, [si + 8]            ; SI = the buffer
+    mov dx, 3c4h
+    or bp, bp
+    jz .done
+    dec bx
+    cmp bx, 3
+    ja .done                    ; (w 1 - 4: a box is BZ_BOXW words at most)
+    shl bx, 1
+    jmp [cs:.wtab + bx]
+.wtab:      dw .w1, .w2, .w3, .w4
+    BZV_BWL 1
+    BZV_BWL 2
+    BZV_BWL 3
+    BZV_BWL 4
+.done:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; =============================================================================
+; BZV_BLIT - bz_blit's (SPEC.md 130.46.5): a sprite of the ball part into box
+; SI, clipped to it - rows i at world lines AX + i, i < DX; MASK row 0 at DI
+; and the FRAME BX past it, both offsets into the CGA ball part (bz_sprite's,
+; bz_boxc's); BX = 0 no frame (the shadow: AND only); BX bit 15 the pickup
+; CUE's look, the sprite whole in the box (its sparkles).  The VGA's sprite is
+; the converted COPY (px & 4) / 4 of the material's, a row three words placed
+; at the world word px >> 3; an offset o becomes 16 + (o - 16) 6 / 5.  While
+; the dissolve's copies stand in ([bz_bseg] is the package, bzphys.inc
+; bz_fdis) they are the CGA's rows, and each word is converted as it is laid -
+; only then.  Keeps SI, DS, ES; clobbers AX, BX, CX, DX, DI, BP.
+; =============================================================================
+bzv_blit:
+    push si
+    mov [bz_bly], ax
+    mov [bz_blm], di
+    mov bp, bx                  ; BP = the flags' and the distance
+    and bx, 7fffh
+    ; rows i in [imin, imax): AX + i inside [y0, y0 + h)
+    mov cx, [si + 2]
+    sub cx, ax
+    jge .imin
+    xor cx, cx
+.imin:
+    mov [bz_imin], cx
+    mov ax, [si + 2]
+    add ax, [si + 6]
+    sub ax, [bz_bly]
+    cmp ax, dx
+    jle .imax
+    mov ax, dx
+.imax:
+    sub ax, cx
+    jg .rows
+    jmp .out
+.rows:
+    push dx                     ; (the sprite's rows: the whole test)
+    mov dx, ax                  ; DX = the rows laid
+    ; words k in [kmin, kmax) of three: px/8 + k inside [x0, x0 + w)
+    mov cx, [bz_px]
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1                   ; CX = the sprite's first world word
+    mov ax, [si]
+    sub ax, cx
+    jge .kmin
+    xor ax, ax
+.kmin:
+    mov [bz_kmin], ax
+    mov ax, [si]
+    add ax, [si + 4]
+    sub ax, cx
+    cmp ax, 3
+    jle .kmax
+    mov ax, 3
+.kmax:
+    sub ax, [bz_kmin]
+    jg .words
+    pop ax
+    jmp .out
+.words:
+    mov [bz_bw], ax             ; the words a row
+    ; the destination: buf + (y + imin - y0) 8 + 2 (px/8 + kmin - x0)
+    mov di, [bz_bly]
+    add di, [bz_imin]
+    sub di, [si + 2]
+    shl di, 1
+    shl di, 1
+    shl di, 1
+    add di, [si + 8]
+    add cx, [bz_kmin]
+    sub cx, [si]
+    shl cx, 1
+    add di, cx                  ; DI = the first word laid, ES = ours
+    pop ax                      ; AX = the sprite's rows
+    push di                     ; (the whole sprite's row 0, word 0 when it is
+    cmp dx, ax                  ;  whole: the sparkles)
+    jne .nw
+    cmp word [bz_bw], 3
+    je .wh
+.nw:
+    and bp, 7fffh               ; (clipped: no sparkles, as the CGA)
+.wh:
+    mov ax, [bz_bseg]
+    mov cx, ds
+    cmp ax, cx
+    jne .copy
+    jmp .conv
+.copy:
+    ; the converted copy: its base + 16 + (o - 16) / 5 * 6, the frame BX / 5 * 6
+    push dx                     ; (the rows laid)
+    mov ax, [bz_blm]
+    sub ax, 16
+    xor dx, dx
+    mov cx, 5
+    div cx
+    mov cx, ax
+    shl ax, 1
+    add ax, cx
+    shl ax, 1                   ; 6 (o - 16) / 5
+    add ax, 16
+    mov si, ax
+    mov ax, bx
+    xor dx, dx
+    mov cx, 5
+    div cx
+    mov bx, ax
+    shl ax, 1
+    add bx, ax
+    shl bx, 1                   ; BX = the frame's distance, 6-byte rows
+    mov al, [bz_mat]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1                   ; 4 m: the material's pair in bzv_cbase
+    test byte [bz_px], 4
+    jz .c0
+    inc ax
+    inc ax                      ; ...its copy 1
+.c0:
+    xchg ax, bx
+    mov bx, [cs:bzv_cbase + bx]
+    xchg ax, bx
+    add si, ax                  ; SI = mask row 0 in [bz_vbseg]
+    mov ax, [bz_imin]           ; ...row imin, word kmin
+    mov cx, ax
+    shl ax, 1
+    add ax, cx
+    shl ax, 1
+    add si, ax
+    mov ax, [bz_kmin]
+    shl ax, 1
+    add si, ax
+    pop dx
+    mov cx, [bz_bw]
+    push ds
+    mov ds, [bz_vbseg]
+    cmp cx, 3                   ; THE WHOLE ROW (130.46.13): three words, the
+    jne .part                   ; copy's rows 6 bytes - so the source runs on
+    or bx, bx                   ; by itself - and the box's next row 2 bytes
+    jz .sh3                     ; on: unrolled, no per-row saves or loop
+.r3:
+%rep 3
+    lodsw
+    and ax, [es:di]
+    or ax, [bx + si - 2]
+    stosw
+%endrep
+    inc di
+    inc di
+    dec dx
+    jnz .r3
+    jmp short .laid
+.sh3:
+%rep 3
+    lodsw
+    and ax, [es:di]
+    stosw
+%endrep
+    inc di
+    inc di
+    dec dx
+    jnz .sh3
+    jmp short .laid
+.part:
+    or bx, bx
+    jz .sh
+.r:                             ; mask AND, frame OR
+    push si
+    push di
+    push cx
+.w:
+    lodsw
+    and ax, [es:di]
+    or ax, [bx + si - 2]
+    stosw
+    loop .w
+    pop cx
+    pop di
+    pop si
+    add si, 6
+    add di, 8
+    dec dx
+    jnz .r
+    jmp short .laid
+.sh:                            ; the shadow: AND alone
+    push si
+    push di
+    push cx
+.sw:
+    lodsw
+    and ax, [es:di]
+    stosw
+    loop .sw
+    pop cx
+    pop di
+    pop si
+    add si, 6
+    add di, 8
+    dec dx
+    jnz .sh
+.laid:
+    pop ds
+    jmp .spark
+
+; THE DISSOLVE's copies, CGA rows of 5 bytes in the package ([bz_blm] the
+; mask's row 0, BX on to the frame's): each word of copy (px & 4) / 4 made
+; from them as it is laid - copy 0's words are bytes (0,1), (2,3), (4, pad),
+; copy 1's (pad, 0), (1,2), (3,4); a mask's pad keeps (FFh), a frame's is 0
+.conv:
+    mov si, [bz_blm]
+    mov ax, [bz_imin]
+    mov cx, ax
+    shl ax, 1
+    shl ax, 1
+    add ax, cx
+    add si, ax                  ; SI = row imin's first byte (5 a row)
+    mov cx, [bz_bw]
+.cr:
+    push si
+    push di
+    push cx
+    mov cx, [bz_kmin]           ; CX = k
+.cw:
+    push bx
+    mov ah, 0ffh                ; the mask's word k
+    call .cword
+    and [es:di], ax
+    pop bx
+    or bx, bx
+    jz .cn
+    push bx
+    push si
+    add si, bx
+    xor ah, ah                  ; ...the frame's
+    call .cword
+    pop si
+    pop bx
+    or [es:di], ax
+.cn:
+    inc di
+    inc di
+    inc cx
+    pop ax
+    push ax                     ; (the words a row)
+    add ax, [bz_kmin]
+    cmp cx, ax
+    jb .cw
+    pop cx
+    pop di
+    pop si
+    add si, 5
+    add di, 8
+    dec dx
+    jnz .cr
+    jmp short .spark
+; .cword - SI = a CGA row, CX = k (0 - 2), AH = the pad -> AX = word k of the
+; copy [bz_px] & 4 says, a planar pair.  Clobbers BX
+.cword:
+    push dx
+    mov dl, ah                  ; DL = the pad
+    mov bx, cx
+    shl bx, 1                   ; 2 k
+    test byte [bz_px], 4
+    jnz .cw1
+    mov al, [si + bx]           ; copy 0: bytes 2k, 2k + 1 (byte 5 the pad)
+    cmp bx, 4
+    mov ah, dl
+    je .cpair
+    mov ah, [si + bx + 1]
+    jmp short .cpair
+.cw1:
+    mov al, dl                  ; copy 1: bytes 2k - 1 (byte -1 the pad), 2k
+    or bx, bx
+    jz .cw1b
+    mov al, [si + bx - 1]
+.cw1b:
+    mov ah, [si + bx]
+.cpair:
+    mov dl, ah                  ; the pair: bzv_tl[AL] | bzv_tr[AH]
+    xor bh, bh
+    mov bl, al
+    shl bx, 1
+    mov ax, [cs:bzv_tl + bx]
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    or ax, [cs:bzv_tr + bx]
+    pop dx
+    ret
+
+; THE CUE's SPARKLES (SPEC.md 130.25.19): the whole sprite only (BP bit 15
+; kept), with BZ_CL_SP in the look - each of the three sparkles' place
+; ([bz_spq]: a pointer into bzvideo.inc's CGA table, BZ_SPRP bytes a place)
+; at shift px & 7 from bzv_spv, XORed on its two lines after the ball
+.spark:
+    pop di                      ; DI = the sprite's row 0, word 0 in the box
+    or bp, bp
+    jns .out
+    test byte [bz_clook], BZ_CL_SP
+    jz .out
+    mov cx, 3
+    mov si, bz_spq
+.sp:
+    lodsw
+    sub ax, [bz_vspr0]
+    xor dx, dx
+    mov bx, BZ_SPRP
+    div bx                      ; AX = the place
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1                   ; 8 place
+    mov bl, [bz_px]
+    and bx, 7
+    add ax, bx                  ; + t
+    mov bx, ax
+    shl ax, 1
+    shl ax, 1
+    add bx, ax                  ; 5 (8 place + t)
+    add bx, bzv_spv
+    mov al, [cs:bx]
+    xor ah, ah
+    push di
+    add di, ax
+    mov ax, [cs:bx + 1]
+    xor [es:di], ax
+    xor [es:di + 8], ax
+    mov ax, [cs:bx + 3]
+    xor [es:di + 2], ax
+    xor [es:di + 10], ax
+    pop di
+    loop .sp
+    jmp short .out
+.out:
+    pop si
+    retf
+
+; =============================================================================
+; BZV_WPRECT - bz_wprect's (bzwheel.inc, SPEC.md 130.12.5): rectangle SI (card
+; rows - lines here - [r0, r1), words [x0, x1)) of the lane whose pose is at
+; [bz_lsrc] (row stride [bz_lsst]; the lane's first block row [bz_lbr], first
+; word column [bz_lcl]), column by column: each block's pose word into the
+; map, then that block's lines inside [r0, r1) to the card, a plane at a time.
+; No ring end to cross (130.46.3).  DS = ES = ours on entry and on the way
+; out; clobbers AX - DI, BP.
+; =============================================================================
+bzv_wprect:
+    mov cx, [si + 2]
+    sub cx, [si]
+    jle .x
+    mov ax, [si + 6]
+    sub ax, [si + 4]
+    jg .go
+.x:
+    retf
+.go:
+    mov [bz_vwr0], cx           ; (the rows: a frame of locals in our bss)
+    mov ax, [si]
+    mov [bz_vwr0], ax           ; r0
+    mov ax, [si + 2]
+    mov [bz_vwr1], ax           ; r1
+    mov ax, [si + 4]
+    mov [bz_vwx], ax            ; x, from x0
+    mov ax, [si + 6]
+    mov [bz_vwx1], ax           ; x1
+    mov es, [bz_vseg]
+.col:
+    mov ax, [bz_vwr0]
+    mov cl, 3
+    shr ax, cl
+    mov [bz_vwbr], ax           ; br, from r0's block row
+.blk:
+    ; the pose: [lsrc + (br - lbr) lsst + 2 (x - lcl)], into the map entry
+    mov ax, [bz_vwbr]
+    sub ax, [bz_lbr]
+    mul word [bz_lsst]
+    add ax, [bz_lsrc]
+    mov si, [bz_vwx]
+    sub si, [bz_lcl]
+    shl si, 1
+    add si, ax
+    mov ax, [bz_vwbr]           ; the map entry: BZC_MAP + (8 br << mapsh) + 2 x
+    mov cl, 3
+    shl ax, cl
+    mov cl, [bz_mapsh]
+    shl ax, cl
+    add ax, [bz_vwx]
+    add ax, [bz_vwx]
+    add ax, BZC_MAP
+    mov di, ax
+    push ds
+    mov ds, [bz_mseg]           ; (the PICTURE part: the poses, the map, the blocks)
+    mov si, [si]
+    mov [di], si                ; SI = the block, into the map
+    pop ds
+    ; its lines [max(r0, 8 br), min(r1, 8 br + 8))
+    mov ax, [bz_vwbr]
+    mov cl, 3
+    shl ax, cl
+    mov bx, ax                  ; BX = 8 br
+    mov dx, ax
+    add dx, 8                   ; DX = 8 br + 8
+    cmp ax, [bz_vwr0]
+    jge .l0
+    mov ax, [bz_vwr0]
+.l0:
+    cmp dx, [bz_vwr1]
+    jle .l1
+    mov dx, [bz_vwr1]
+.l1:
+    sub dx, ax                  ; DX = the lines
+    jle .nb
+    sub bx, ax
+    neg bx
+    shl bx, 1
+    add si, bx                  ; SI = the first line's word in the block
+    push dx
+    mov dx, BZV_P
+    mul dx
+    add ax, [bz_vwx]
+    mov di, ax                  ; DI = P L + x
+    pop cx                      ; CX = the lines
+    push ds
+    mov ds, [bz_mseg]
+    mov bp, 0102h
+    call .pl
+    inc si
+    mov bp, 0202h
+    call .pl
+    pop ds
+.nb:
+    inc word [bz_vwbr]
+    mov ax, [bz_vwbr]
+    mov cl, 3
+    shl ax, cl
+    cmp ax, [bz_vwr1]
+    jl .blk
+    inc word [bz_vwx]
+    mov ax, [bz_vwx]
+    cmp ax, [bz_vwx1]
+    jl .col
+    push ds
+    pop es
+    retf
+.pl:                            ; BP = the map mask, CX lines from SI to DI on
+    push cx                     ; (a plane's bytes, a word apart)
+    push si
+    push di
+    mov ax, bp
+    mov dx, 3c4h
+    out dx, ax
+.pll:
+    movsb
+    inc si
+    add di, BZV_P - 1
+    loop .pll
+    pop di
+    pop si
+    pop cx
+    ret
+
+; BZV_CARD - bzcard.inc's cell on the VGA (SPEC.md 130.46.4): AX = the CGA's
+; word for it (colour 3 on 0: each pixel's pair 11 or 00), DX = the cell, BP =
+; the card's line - the planar pair to (P (crdy0 + BP) + S + crdc0 + DX) mod
+; 64K, a byte a plane.  ES = the card.  All kept
+bzv_card:
+    push ax
+    push bx
+    push dx
+    push di
+    mov bl, al                  ; the pair, through the tables
+    xor bh, bh
+    shl bx, 1
+    push word [cs:bzv_tl + bx]
+    mov bl, ah
+    xor bh, bh
+    shl bx, 1
+    mov bx, [cs:bzv_tr + bx]
+    pop ax
+    or bx, ax                   ; BX = the planar pair
+    mov di, dx
+    add di, [bz_S]
+    add di, [bz_crdc0]
+    mov ax, [bz_crdy0]
+    add ax, bp
+    mov dx, BZV_P
+    mul dx
+    add di, ax                  ; DI = the cell's byte
+    mov dx, 3c4h
+    mov ax, 0102h
+    out dx, ax
+    mov [es:di], bl
+    mov ax, 0202h
+    out dx, ax
+    mov [es:di], bh
+    pop di
+    pop dx
+    pop bx
+    pop ax
+    retf
+
+; =============================================================================
+; BZV_CONV - THE ART, CONVERTED ONCE (SPEC.md 130.46.5), at the end of every
+; bz_cload: the course's blocks and occluder masks (the PICTURE part) and the
+; platform slabs' sprites (the WORLD part) word for word in place - not a HELD
+; pathway's, converted when it was fetched ([bz_phre]) - and the three balls,
+; each into its two copies in [bz_vbseg], unless the copies there are of the
+; same three parts already (their segments kept in the claim's first six
+; bytes, rubber copy 0's head, which no blit reads).  Preserves nothing.
+; =============================================================================
+bzv_conv:
+    cmp byte [bz_phre], 0
+    jne .balls
+    mov es, [bz_mseg]
+    mov si, [es:BZC_BLKOFF]
+    mov cx, [es:BZC_NBLK]
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1                   ; 8 words a block
+    call .words
+    mov si, [es:BZC_MASKOFF]
+    mov cx, [es:BZC_NMASK]
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1
+    call .words
+    mov es, [bz_cseg]
+    mov cx, [es:BZC_NPROP]
+    mov di, [es:BZC_PROPOFF]
+    jcxz .balls
+.pr:
+    cmp byte [es:di + BZP_KIND], BZ_PK_PLATFORM
+    jne .pn
+    push cx
+    mov si, [es:di + BZP_PSPR]
+    mov cx, BZ_PLSPR / 2
+    call .words
+    pop cx
+.pn:
+    add di, BZ_PROPREC
+    loop .pr
+.balls:
+    mov es, [bz_vbseg]
+    mov ax, [bz_bsegs]
+    cmp ax, [es:0]
+    jne .bdo
+    mov ax, [bz_bsegs + 2]
+    cmp ax, [es:2]
+    jne .bdo
+    mov ax, [bz_bsegs + 4]
+    cmp ax, [es:4]
+    je .done
+.bdo:
+    xor bx, bx                  ; BX = 2 m
+.ball:
+    push bx
+    call .one
+    pop bx
+    inc bx
+    inc bx
+    cmp bx, 2 * BZ_NMAT
+    jb .ball
+    mov ax, [bz_bsegs]          ; (which parts the copies are of)
+    mov [es:0], ax
+    mov ax, [bz_bsegs + 2]
+    mov [es:2], ax
+    mov ax, [bz_bsegs + 4]
+    mov [es:4], ax
+.done:
+    push ds
+    pop es
+    retf
+; ES:SI, CX words (at least 1) converted in place.  Clobbers AX, BX, CX, SI
+.words:
+    jcxz .wx
+.wl:
+    mov bl, [es:si]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [cs:bzv_tl + bx]
+    mov bl, [es:si + 1]
+    xor bh, bh
+    shl bx, 1
+    or ax, [cs:bzv_tr + bx]
+    mov [es:si], ax
+    inc si
+    inc si
+    loop .wl
+.wx:
+    ret
+; ball 2m: [bz_bsegs + 2m]'s rows, 5 bytes from 16, into its two copies -
+; each row's pad by its region (a mask's keeps, a frame's is 0; an entry's
+; mask half then its frame half, BZ_BAL_ENT bytes).  ES = [bz_vbseg].
+.one:
+    mov ax, [cs:bzv_bsize + bx]
+    mov [bz_vwx1], ax           ; the part's size
+    shl bx, 1
+    mov di, [cs:bzv_cbase + bx] ; DI = copy 0's
+    mov bp, [cs:bzv_cbase + bx + 2]
+    sub bp, di                  ; BP = copy 1 - copy 0
+    shr bx, 1
+    push ds
+    mov ax, [bz_bsegs + bx]
+    mov [bz_vwx], ax
+    pop ds
+    add di, 16
+    mov si, 16                  ; SI = the row's offset in the part
+.row:
+    cmp si, [bz_vwx1]
+    jae .ox
+    call .pad                   ; DL = the row's pad
+    push ds
+    mov ds, [bz_vwx]
+    mov al, [si]                ; copy 0: (b0, b1), (b2, b3), (b4, pad)
+    mov ah, [si + 1]
+    call .pair
+    mov [es:di], ax
+    mov al, [si + 2]
+    mov ah, [si + 3]
+    call .pair
+    mov [es:di + 2], ax
+    mov al, [si + 4]
+    mov ah, dl
+    call .pair
+    mov [es:di + 4], ax
+    mov al, dl                  ; copy 1: (pad, b0), (b1, b2), (b3, b4)
+    mov ah, [si]
+    call .pair
+    mov [es:bp + di], ax
+    mov al, [si + 1]
+    mov ah, [si + 2]
+    call .pair
+    mov [es:bp + di + 2], ax
+    mov al, [si + 3]
+    mov ah, [si + 4]
+    call .pair
+    mov [es:bp + di + 4], ax
+    pop ds
+    add si, 5
+    add di, 6
+    jmp short .row
+.ox:
+    ret
+; AL, AH = a CGA word's bytes -> AX = its planar pair.  Clobbers BX
+.pair:
+    push dx
+    mov dl, ah
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov ax, [cs:bzv_tl + bx]
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    or ax, [cs:bzv_tr + bx]
+    pop dx
+    ret
+; SI = a row's offset -> DL = its pad: FFh a mask's row, 0 a frame's
+.pad:
+    push ax
+    push bx
+    mov dl, 0ffh
+    cmp si, BZ_BAL_FRMOFF       ; the masks
+    jb .px
+    xor dl, dl
+    cmp si, BZ_BAL_SQOFF        ; the roll frames
+    jb .px
+    mov ax, si
+    mov bx, BZ_BAL_SQOFF
+    cmp si, BZ_BAL_SHDOFF       ; squash entries
+    jb .ent
+    mov dl, 0ffh
+    cmp si, BZ_BAL_SHAOFF       ; the shadow's masks
+    jb .px
+    mov bx, BZ_BAL_SHAOFF       ; shatter or stretch entries
+.ent:
+    sub ax, bx
+    push dx
+    xor dx, dx
+    mov bx, BZ_BAL_ENT
+    div bx                      ; DX = the place in its entry
+    cmp dx, BZ_BAL_ENT / 2
+    pop dx
+    mov dl, 0ffh
+    jb .px
+    xor dl, dl
+.px:
+    pop bx
+    pop ax
+    ret
+; -----------------------------------------------------------------------------
+; bzv_cam - BZV_CAM (SPEC.md 130.46.12): the VGA's own camera, an axis at a
+; time in one of three states.  REST: the ball in the dead zone, the step
+; running down to 0.  PAN: to a FRAMING - the ball T from the trailing edge,
+; LATTICE's placement - on the trapezoid (bzv_page.goto), extended while the
+; ball is still ahead of it there, stopped short if the ball turns back.
+; TRACK: a ball moving its way at BZV_TON or more, followed at its own speed
+; (smoothed over ~8 frames) with a correction toward the trailing placement,
+; in whole steps with hysteresis; below BZV_TOFF the camera coasts to rest at
+; its stopping distance.  A slow, steady ball so gets a pan, a rest and a pan
+; - never the 1 px inching of a follower at the zone's edge.  BP = bz_camera's
+; centre line (world lines).  Sets bz_R0n, bz_c0n, bz_vcx (the display's
+; left px, for bz_vstart) and bz_vsm.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bzv_cam:
+    call .sync
+    mov di, bz_vcx
+    call .xmax
+    mov dx, [bz_lockc]          ; a LOCKED course (130.45): across, the
+    cmp dx, 0ffffh              ; lock's framing held - moved to on the
+    je .nlk                     ; trapezoid if it is not there already
+    inc dx
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    mov cl, BZV_SXM
+    call bzv_page.goto
+    jmp short .dn
+.nlk:
+    mov ax, [bz_px]             ; across: the ball's centre
+    add ax, 8
+    mov si, .tx
+    call .ax
+.dn:
+    mov ax, [bz_rmax]           ; down: the centre line
+    mov [bz_vemax], ax
+    mov ax, bp
+    mov di, bz_vcy
+    mov si, .ty
+    call .ax
+.win:
+    mov ax, [bz_vcy]            ; the engine's window: R0 the camera's line,
+    mov [bz_R0n], ax            ; c0 kept while vcx is in its 16 px of slack
+    mov ax, [bz_vcx]
+    mov bx, [bz_c0]
+    mov [bz_c0n], bx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    sub ax, bx
+    cmp ax, 16
+    jbe .c                      ; (unsigned: below c0 8 too)
+    or ax, ax                   ; ...else the NEAREST column that holds it:
+    mov ax, [bz_vcx]            ; left, vcx >> 3 (vcx in its first 8 px);
+    js .cl                      ; right, (vcx - 9) >> 3 (its last 8)
+    sub ax, 9
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    jmp short .cs
+.cl:
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+.cs:
+    mov [bz_c0n], ax
+.c:
+    mov byte [bz_vsm], 1
+    retf
+; RESYNC: the camera holds what was shown - an axis whose position is not the
+; shown one (the first frame, a cut or full write, a course edge's clamp, a
+; frame another camera ran) takes it, at REST, its velocity and step 0
+.sync:
+    mov ax, [bz_vx0]
+    mov di, bz_vcx
+    call .sy
+    mov ax, [bz_R0]
+    mov di, bz_vcy
+.sy:
+    cmp ax, [di]
+    je .sr
+    mov [di], ax
+    xor ax, ax
+    mov [di + 2], ax            ; vb
+    mov [di + 4], ax            ; s, the state
+    mov word [di + 8], 8000h    ; no last ball yet
+.sr:
+    ret
+; the axes' tables: the dead zone, the hard margins, the trailing placement
+; T, the display's extent (each a word, px or lines of the display), the most
+; tracking step a frame, and the most PAN step a 70 Hz tick (a frame's is it
+; times [bz_vdiv])
+BZV_TZL     equ 0
+BZV_TZR     equ 2
+BZV_TMLO    equ 4
+BZV_TMHI    equ 6
+BZV_TT      equ 8
+BZV_TEXT    equ 10
+BZV_TSMAX   equ 12
+BZV_TPAN    equ 13
+BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
+.tx:    dw BZV_ZXL, BZV_ZXR, BZV_MX, 320 - BZV_MX, BZV_TXP, 320
+        db BZV_SXM, BZV_PXT
+        dw BZV_XLA
+.ty:    dw BZV_ZYL, BZV_ZYR, BZV_MY, 200 - BZV_MY, BZV_TYP, 200
+        db BZV_SYM, BZV_PYT
+        dw BZV_YLA
+; ONE AXIS'S FRAME: AX = the ball's coordinate (world), DI = the axis (+0
+; the position, +2 vb the ball's velocity, 1/16 px a tick, smoothed; +4 s the
+; shown step; +5 the state, 0 REST, 1 PAN, 2 TRACK on, 3 TRACK back; +6 the
+; pan's target; +8 the last ball), SI = its table (CS), [bz_vemax] = the
+; position's most
+.ax:
+    mov [bz_vball], ax
+    mov bx, [di + 8]
+    mov [di + 8], ax
+    cmp bx, 8000h
+    jne .v0
+    mov bx, ax
+.v0:
+    mov dx, ax                  ; the ball's move, 1/16 px a tick ...
+    sub dx, bx
+    mov cx, dx                  ; (a JUMP - a respawn inside the window, a
+    add cx, BZV_JUMP            ; tube's exit - is no motion: more than
+    cmp cx, 2 * BZV_JUMP        ; BZV_JUMP a frame zeroes vb, so the camera
+    jbe .v2                     ; pans to a framing rather than tracking)
+    mov word [di + 2], 0
+    xor dx, dx
+.v2:
+    mov cl, 4
+    shl dx, cl
+    cmp byte [bz_vdiv], 1
+    je .v1
+    sar dx, 1
+.v1:
+    sub dx, [di + 2]            ; ... vb += (it - vb) / 8
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    add [di + 2], dx
+    mov bx, ax
+    sub bx, [di]                ; BX = rel, the ball in the display
+    mov dx, -1                  ; THE HARD MARGINS: a ball past one is
+    cmp bx, [cs:si + BZV_TMLO]  ; panned to (or tracked, if it already is
+    jl .mg                      ; that way)
+    neg dx
+    cmp bx, [cs:si + BZV_TMHI]
+    jle .st
+.mg:
+    call .tstate
+    cmp al, [di + 5]
+    je .trk
+    jmp .topan
+.st:
+    mov al, [di + 5]
+    cmp al, 1
+    je .pan
+    jb .rest
+    jmp .trk
+.rest:
+    mov dx, -1
+    cmp bx, [cs:si + BZV_TZL]
+    jl .ex
+    neg dx
+    cmp bx, [cs:si + BZV_TZR]
+    jg .ex
+    call .decay                 ; in the zone: at rest
+    jmp .fin
+.ex:
+    call .vdir                  ; out of it: moving that way fast, TRACK;
+    cmp ax, BZV_TON             ; else a PAN to the framing
+    jl .topan
+    jmp .gotrk
+.topan:
+    call .frame
+    mov byte [di + 5], 1
+    jmp .pmove
+.pan:
+    mov dx, [di + 6]
+    sub dx, [di]
+    jnz .p1
+    cmp byte [di + 4], 0
+    jne .pmove
+    mov byte [di + 5], 0        ; arrived and still: REST
+    jmp .rest
+.p1:
+    mov dx, 1                   ; DX = the pan's way
+    jns .p2
+    neg dx
+.p2:
+    call .vdir                  ; the ball has sped up its way: TRACK
+    cmp ax, BZV_TON
+    jl .p3
+    jmp .gotrk
+.p3:
+    mov ax, [bz_vball]          ; still heading out of the zone at the
+    sub ax, [di + 6]            ; target (within the look-ahead of its far
+    or dx, dx                   ; edge): the framing moves on, so a pan
+    js .p4                      ; never stops to start again
+    add ax, [cs:si + BZV_TLA]
+    cmp ax, [cs:si + BZV_TZR]
+    jle .p5
+    call .frame
+    jmp short .p5
+.p4:
+    sub ax, [cs:si + BZV_TLA]
+    cmp ax, [cs:si + BZV_TZL]
+    jge .p5
+    call .frame
+.p5:
+    or dx, dx                   ; turned back out of the zone behind: stop
+    js .p6                      ; where the step can stop
+    cmp bx, [cs:si + BZV_TZL]
+    jge .pmove
+    jmp short .p7
+.p6:
+    cmp bx, [cs:si + BZV_TZR]
+    jle .pmove
+.p7:
+    call .stopat
+.pmove:
+    mov dx, [di + 6]
+    mov cl, [cs:si + BZV_TPAN]
+    cmp byte [bz_vdiv], 1
+    je .pm1
+    shl cl, 1
+.pm1:
+    jmp bzv_page.goto           ; (its RET is ours)
+.gotrk:
+    call .tstate
+    mov [di + 5], al
+.trk:
+    mov dx, 1
+    cmp byte [di + 5], 2
+    je .t0
+    neg dx
+.t0:
+    call .vdir                  ; slowed: coast to rest at the stopping
+    cmp ax, BZV_TOFF            ; distance (a PAN there, which never
+    jge .t1                     ; overshoots)
+    call .stopat
+    mov byte [di + 5], 1
+    jmp .pmove
+.t1:
+    mov ax, [di + 2]            ; D = vb 16 [bz_vdiv] (1/256 px a frame) ...
+    mov cl, 4
+    shl ax, cl
+    cmp byte [bz_vdiv], 1
+    je .t2
+    shl ax, 1
+.t2:
+    mov cx, [cs:si + BZV_TT]    ; ... + 8 (rel - the trailing place)
+    or dx, dx
+    jns .t3
+    neg cx
+    add cx, [cs:si + BZV_TEXT]
+.t3:
+    sub bx, cx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add ax, bx
+    mov ch, [di + 4]            ; the step one toward it, past BZV_HYS
+    xor cl, cl
+    sub ax, cx
+    cmp ax, BZV_HYS
+    jg .up
+    cmp ax, -BZV_HYS
+    jge .fin
+    mov al, [di + 4]
+    dec ax
+    mov ah, [cs:si + BZV_TSMAX]
+    neg ah
+    cmp al, ah
+    jl .fin
+    mov [di + 4], al
+    jmp short .fin
+.up:
+    mov al, [di + 4]
+    inc ax
+    cmp al, [cs:si + BZV_TSMAX]
+    jg .fin
+    mov [di + 4], al
+.fin:
+    call .brake
+    mov al, [di + 4]
+    cbw
+    add [di], ax
+    ret
+; AL = the TRACK state for the way DX (2 on, 3 back)
+.tstate:
+    mov al, 2
+    or dx, dx
+    jns .ts
+    inc ax
+.ts:
+    ret
+; AX = vb in the way DX
+.vdir:
+    mov ax, [di + 2]
+    or dx, dx
+    jns .vd
+    neg ax
+.vd:
+    ret
+; the step one nearer 0
+.decay:
+    mov al, [di + 4]
+    or al, al
+    jz .dz
+    js .dn1
+    dec byte [di + 4]
+    ret
+.dn1:
+    inc byte [di + 4]
+.dz:
+    ret
+; the FRAMING for a ball leaving the way DX: the ball T from the trailing
+; edge (on: the position = ball - T; back: ball - (extent - T)), within the
+; course's edges, to [di + 6].  Keeps DX
+.frame:
+    mov ax, [bz_vball]
+    sub ax, [cs:si + BZV_TT]
+    or dx, dx
+    jns .f1
+    mov ax, [bz_vball]
+    sub ax, [cs:si + BZV_TEXT]
+    add ax, [cs:si + BZV_TT]
+.f1:
+    jmp short .clampt
+; the target where the step can stop, braking from this frame: the
+; position + s (|s| - 1) / 2 (with |s| it would hold the step: re-asked each
+; frame, the camera ran on at its speed - MOON's swing past the ball)
+.stopat:
+    mov al, [di + 4]
+    cbw
+    mov cx, ax
+    or ax, ax
+    jns .sa1
+    neg ax
+.sa1:
+    or ax, ax
+    jz .sa0
+    dec ax
+.sa0:
+    push bx
+    mov bx, ax
+    mov al, [cs:.tri + bx]
+    pop bx
+    xor ah, ah
+    or cx, cx
+    jns .sa2
+    neg ax
+.sa2:
+    add ax, [di]
+.clampt:
+    or ax, ax
+    jns .ct1
+    xor ax, ax
+.ct1:
+    cmp ax, [bz_vemax]
+    jle .ct2
+    mov ax, [bz_vemax]
+.ct2:
+    mov [di + 6], ax
+    ret
+; [bz_vemax] = the display's most left px on this course (its least is 0):
+; the window's last column, cmax, and its 16 px of slack.  Clobbers AX
+.xmax:
+    mov ax, [bz_cmax]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, 16
+    mov [bz_vemax], ax
+    ret
+; THE COURSE's EDGES (130.46.12): the step s shrinks by one a frame while
+; the edge it runs toward is nearer than its stopping distance s (s + 1) / 2,
+; and never passes it, so the camera arrives at an edge at rest rather than
+; being clamped there mid-pan.  DI as .ax, [bz_vemax] = the position's most
+; (its least 0).  Clobbers AX, CX.
+.brake:
+    mov al, [di + 4]
+    or al, al
+    jz .bk
+    jns .bp
+    neg al                      ; toward 0: the distance is the position
+    mov cx, [di]
+    call .bdist
+    neg al
+    jmp short .bset
+.bp:
+    mov cx, [bz_vemax]          ; toward the most
+    sub cx, [di]
+    call .bdist
+.bset:
+    mov [di + 4], al
+.bk:
+    ret
+; AL = |s| (1 - 8), CX = the distance to the edge -> AL = the |s| allowed:
+; the largest n <= |s| whose stopping distance n (n + 1) / 2 is within CX.
+; A CAP, not a nudge of one - so a TRACK pushing the step up each frame cannot
+; out-run it (MILL's demo: the step held at 3 - 4 against a one-a-frame brake
+; and was clamped 3 to 0 at the edge).  Last frame's step met the cap, so
+; the step falls at most one a frame: the braking is smooth
+.bdist:
+    or cx, cx
+    jg .bd1
+    xor al, al                  ; at it (or past): stopped
+    ret
+.bd1:
+    push bx
+    xor bh, bh
+.bd2:
+    or al, al
+    jz .bd3
+    mov bl, al
+    mov bl, [cs:.tri + bx]
+    cmp cx, bx
+    jae .bd3
+    dec al
+    jmp short .bd2
+.bd3:
+    pop bx
+    ret
+.tri:   db 0, 1, 3, 6, 10, 15, 21, 28, 36, 45
+
+; -----------------------------------------------------------------------------
+; bzv_page - BZV_PAGE (SPEC.md 130.46.12): the pathway's PAGED camera on the
+; VGA.  The CGA's moves its rows BZ_MAXR a frame toward the target page - on
+; the VGA, whose rows are lines, a crawl.  Here each axis MOVES to its target
+; (the page's top line AX; across, page 0's columns with the display on their
+; middle) on a trapezoid: one more line a frame up to the most, held there,
+; and braked on its stopping distance so it arrives exactly.  Sets what
+; bzv_cam sets.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bzv_page:
+    push ax
+    call bzv_cam.sync
+    pop dx
+    mov di, bz_vcy
+    mov cl, BZV_SYM
+    call .goto
+    mov dx, [bz_fixc]
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1
+    add dx, 8
+    mov di, bz_vcx
+    mov cl, BZV_SXM
+    call .goto
+    jmp bzv_cam.win
+; DI as bzv_cam.ax, DX = the target position, CL = the most step
+.goto:
+    mov ax, dx
+    sub ax, [di]                ; AX = d
+    mov ch, [di + 4]            ; CH = s
+    or ax, ax
+    jnz .g1
+    mov byte [di + 4], 0        ; there: at rest
+    ret
+.g1:
+    js .gl
+    or ch, ch                   ; d > 0: a step back first slows by one
+    jns .gp
+    inc ch
+    jmp short .gs
+.gp:
+    call .pick
+    jmp short .gs
+.gl:
+    neg ax                      ; d < 0, |d| in AX
+    or ch, ch
+    jle .gq
+    dec ch
+    jmp short .gs
+.gq:
+    neg ch
+    call .pick
+    neg ch
+.gs:
+    mov [di + 4], ch
+    mov al, ch
+    cbw
+    add [di], ax
+    ret
+; AX = |d|, CH = n (the step's size, 0 - most), CL = the most -> CH = the
+; largest of n + 1, n, n - 1 (at most CL) whose stopping distance n (n + 1)
+; / 2 is within |d|: one more a frame, held, braked to arrive exactly
+.pick:
+    push bx
+    mov bl, ch
+    inc bx
+    cmp bl, cl
+    ja .p1
+    call .fits
+    jnc .p3
+.p1:
+    mov bl, ch
+    or bl, bl
+    jz .p2
+    call .fits
+    jnc .p3
+.p2:
+    mov bl, ch
+    dec bl
+    jns .p3
+    xor bl, bl
+.p3:
+    mov ch, bl
+    pop bx
+    ret
+; CF = 0 when BL's stopping distance is within AX
+.fits:
+    push bx
+    xor bh, bh
+    mov bl, [cs:bzv_cam.tri + bx]
+    cmp ax, bx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; bzv_coast - BZV_COAST (SPEC.md 130.46.12): the camera through the FINISH
+; SEQUENCE.  The CGA's camera holds there (130.22.6); a smooth one stopped in
+; a frame jerks, so the VGA's coasts: no ball, no zone, no margin - each
+; axis's step one nearer 0 a frame (and the edges braked), its velocity 0.
+; Sets what bzv_cam sets.  Preserves nothing.
+; -----------------------------------------------------------------------------
+bzv_coast:
+    call bzv_cam.sync
+    mov di, bz_vcx
+    call bzv_cam.xmax
+    call .dec
+    mov di, bz_vcy
+    mov ax, [bz_rmax]
+    mov [bz_vemax], ax
+    call .dec
+    jmp bzv_cam.win
+.dec:
+    mov word [di + 2], 0
+    mov al, [di + 4]
+    or al, al
+    jz .z
+    js .n
+    dec al
+    jmp short .s
+.n:
+    inc al
+.s:
+    mov [di + 4], al
+.z:
+    call bzv_cam.brake
+    mov al, [di + 4]
+    cbw
+    add [di], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; bzv_roll - BZV_ROLL (SPEC.md 130.46.11): the roll's DISPLAYED phases.  The
+; texture repeats every 8, so at 35 Hz a ball moving 4 or more a frame reads as
+; turning BACKWARDS (the wagon wheel).  Shown, a phase advances at most 3 a
+; frame and never against the ball: y, free, steps toward the true phase by at
+; most 3 (and to it when that is a forward step of 3 or less); x keeps its low
+; 2 bits (the sprite's shift) and picks bit 2 so that its step has the ball's
+; sign - 1 to 4 of it when the ball moved 4 or more, so it never stops.  Display only: physics, replays and bz_frm's meaning are untouched.
+; AL = the true PHY, AH = the true x phase, CX = G; out AL, AH as shown.
+; Clobbers BX, DX.
+; -----------------------------------------------------------------------------
+bzv_roll:
+    cmp byte [bz_vrv], 0
+    jne .y
+    mov byte [bz_vrv], 1
+    jmp .keep                   ; the first frame shows the true phases
+.y:
+    mov dx, cx
+    sub dx, [bz_vG]             ; DX = the frame's G step
+    mov bl, al
+    sub bl, [bz_vpy]
+    and bl, 7                   ; BL = d, the true phase less the shown
+    or dx, dx
+    jz .x                       ; still: the true phase
+    js .yn
+    cmp bl, 4                   ; forward: d of 0 .. 3 is the true phase
+    jb .x
+    cmp dx, 3
+    jbe .yf
+    mov dx, 3
+.yf:
+    mov al, [bz_vpy]
+    add al, dl
+    jmp short .ym
+.yn:
+    or bl, bl                   ; backward: d of 0 or 5 .. 7
+    jz .x
+    cmp bl, 5
+    jae .x
+    neg dx
+    cmp dx, 3
+    jbe .yb
+    mov dx, 3
+.yb:
+    mov al, [bz_vpy]
+    sub al, dl
+.ym:
+    and al, 7
+.x:
+    mov bl, ah
+    sub bl, [bz_vpxd]
+    and bl, 7                   ; BL = d for x; d and d ^ 4 are the choices
+    mov dl, [bz_px]
+    sub dl, [bz_vpxp]           ; the ball's x step, signed (a byte: small)
+    js .xn
+    cmp dl, 4                   ; fast right (4 or more): d of 1 .. 4, so a
+    jl .xr                      ; 2, 4, 2, 4 frame never shows as 2, 0, 2, 0
+    or bl, bl
+    jz .xf
+    cmp bl, 4
+    jbe .keep
+    jmp short .xf
+.xr:
+    cmp bl, 4                   ; still or right: d of 0 .. 3
+    jb .keep
+.xf:
+    xor ah, 4
+    jmp short .keep
+.xn:
+    cmp dl, -4                  ; fast left: d of 4 .. 7
+    jg .xl
+    cmp bl, 4
+    jae .keep
+    jmp short .xf
+.xl:
+    or bl, bl                   ; left: d of 0 or 5 .. 7
+    jz .keep
+    cmp bl, 5
+    jae .keep
+    jmp short .xf
+.keep:
+    mov [bz_vpy], al
+    mov [bz_vpxd], ah
+    mov [bz_vG], cx
+    mov dl, [bz_px]
+    mov [bz_vpxp], dl
+    retf
+

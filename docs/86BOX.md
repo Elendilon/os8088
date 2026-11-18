@@ -369,6 +369,17 @@ MartyPC's namespace and which `tests/unit/t_machines.py` holds to its list.
 and the card, `_sb` and `_ne2k` tokens as in the kern_mega table below (an
 XT's card is an NE1000 at 300h on IRQ 3). `$OS88_86BOX_VM`, `$OS88_86BOX_SND`
 name another profile and another sound card.
+A name asking for a VGA keeps the profile's own VGA when it has one, and
+`$OS88_86BOX_CARD` names one outright (`pvga1a`, `oti067`, ...).
+
+**86Box's Paradise PVGA1A cannot stand in for the 5150 #2's** on the two
+questions VGA hardware scrolling asks (docs/plans/BOUNCE-BONANZA-VGA.md,
+V0). At this pin `vid_paradise.c` sets `svga->hoverride`, which zeroes the
+pel panning at every frame top, so it **never pans**, and in mode 0Dh it reads
+past 64KB rather than **wrapping**. The real chip does both (RealDMG's field
+probe). The OTI-067 pans (start and panning both taken at the frame's top,
+`svga_poll` at `vc == vtotal`) and wraps, so `vm/xt-vga` (8088, 4.77 MHz)
+and `vm/xt-v20-vga` (V20, 10 MHz), the VGA XTs on GLaBIOS, carry it.
 
 **An AT's CMOS is primed once per configuration** and cached under
 `build/86box/nvrcache/`, as below - the mr286's with its seed and MR BIOS's
@@ -480,6 +491,28 @@ the same for a far one. The comment on each wave 3 line names its break.
 a cycle COUNT that means anything. 86Box is not cycle-accurate, and its
 1 ms `step` is the resolution. A row whose assertion is a MartyPC cycle
 budget is not a port.
+
+## Trap: never overwrite a mounted floppy image
+
+Change a floppy through 86Box's media menu (eject and load, or another image
+and back) or `os88box.py NAME fdd DRIVE IMG` - never by copying a new build
+over the `.img` while the machine runs. 86Box's `.img` driver
+(`src/floppy/fdd_img.c`) keeps ONE CYLINDER of the image in RAM, re-read from
+the file only on a seek to a different cylinder, and keeps the file open:
+
+- **rewritten in place** (`cp` over it): the cylinder the head is parked on
+  is the OLD image's. os8088's saves end on the directory, so that is usually
+  cylinder 0 - and a Refresh then lists the old disk and a launch fails
+  (*"Cannot read my parts"*) until something moves the head; a reboot or a
+  media-menu swap cures it. Nothing is wrong with the image.
+- **replaced** (a new file renamed over it): 86Box goes on reading the
+  deleted one until the drive is loaded again.
+- a guest WRITE on a stale cylinder writes the whole buffered cylinder back
+  (`write_back`; read in the source, not measured).
+
+os8088 does not work round it - SPEC.md 18.9.1.4 is the record of the fix
+that was built and refused - but a program that WRITES after such a swap is
+refused rather than allowed to corrupt the new image (SPEC.md 18.9.1.3).
 
 ## What it is NOT
 

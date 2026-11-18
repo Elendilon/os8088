@@ -212,15 +212,30 @@ MOU_P2KOFF  equ 0x10            ; the command byte's bit 4: THE KEYBOARD
                                 ; the 8042's command byte and the other the
                                 ; slave 8259's mask, so they are named apart
 
-MOU_P2TMO   equ 2               ; ticks one handshake step may take (~110ms).
+MOU_P2TMO   equ 5               ; ticks one handshake step may take (~275ms).
                                 ; TICKS AND NOT A SPIN COUNT: a count sized on
                                 ; a 286 is some fifty times too short on a 486
                                 ; and one sized on a 486 is minutes on a 286,
-                                ; while [ticks] is the same quantity on both
-MOU_P2BAT   equ 5               ; ...and the reset's self-test, which the part
+                                ; while [ticks] is the same quantity on both.
+                                ; It was 2 (55-110 ms, by where in a tick the
+                                ; wait began) until an STPC board's controller
+                                ; answered an unanswered D4 FF with its own FE
+                                ; just PAST it (SPEC.md 9.9.1.1): the reply
+                                ; was then nobody's, and the keyboard with it.
+                                ; It bounds a wait and is spent only when a
+                                ; step FAILS - a mouse that answers is not
+                                ; slowed by a tick
+MOU_P2BAT   equ 2               ; ...and the reset's self-test, which the part
                                 ; is allowed half a second for, is that short
                                 ; wait RETRIED this many times rather than a
-                                ; second timeout to size
+                                ; second timeout to size: 2 x 5 ticks, the
+                                ; ~550 ms 5 x 2 gave before
+MOU_P2QUIET equ 3               ; ticks the output buffer must stay EMPTY
+                                ; before a failed probe hands the keyboard
+                                ; back (mou_p2drain, SPEC.md 9.9.1.1)...
+MOU_P2DMAX  equ 18              ; ...and the most that drain may take, ~1 s:
+                                ; a controller that never goes quiet must not
+                                ; hold the boot
 
 ; The arrow (SPEC.md 7.1) is 8 pixels wide and 12 rows tall. The tables used
 ; to be 16 rows of 16 bits because that is the classic cell, and for years
@@ -1687,13 +1702,14 @@ osapi_mouse_rel:
 %endif
     retf
 %else
-; kern_small: OSAPI_MOUSE_REL REFUSES (SPEC.md 9.14) - the owner gated the
-; accumulator out of the 64KB machine's budget. The cell stays where every
-; kernel has it and lands here: AX = 1, CF = 1 (`cmp al, 2` borrows as `stc`
-; sets it, and makes the body six bytes, EVEN, for t_hotpar)
+; kern_small: OSAPI_MOUSE_REL AND OSAPI_KEY_MAP REFUSE (SPEC.md 9.14, 9.7.3) -
+; the owner gated both off the 128KB machine, which is locked under its
+; 70.5KB heap rung. Both cells stay where every kernel has them and land
+; HERE: AX = 1, CF = 1, api_refuse's answer (xm_copy's three instructions,
+; called near), every other register kept. Four bytes, EVEN, for t_hotpar
 osapi_mouse_rel:
-    mov ax, 1
-    cmp al, 2
+osapi_key_map:
+    call xm_copy
     retf
 %endif
 
@@ -1853,8 +1869,8 @@ B3SECT                          ; ...SPLIT WITH mou_uart's BLOCK ABOVE: the
                                 ; mou_p2_init, so the two blocks land in ONE
                                 ; section on every build
 %endif
-                                ; ...and the overlay's last three: mou_p2dev,
-                                ; mou_p2flush and mou_p2_init, all of which only
+                                ; ...and the overlay's last four: mou_p2dev,
+                                ; mou_p2flush, mou_p2drain and mou_p2_init, all of which only
                                 ; mouse_init's probe reaches
 ; -----------------------------------------------------------------------------
 ; mou_p2dev - send AL to the AUXILIARY DEVICE and collect its acknowledgement
@@ -1894,6 +1910,48 @@ mou_p2flush:
     in  al, MOU_P2DAT
     loop .f
 .out:
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mou_p2drain - empty the 8042's output buffer UNTIL IT STAYS EMPTY
+; ins:  none
+; outs: none (all registers preserved)
+;
+; mou_p2flush empties what is there NOW. That is not enough after a step that
+; timed out: the controller may still answer it, and on the STPC board of
+; SPEC.md 9.9.1.1 it did - its own FE to an unanswered D4 FF arrived just past
+; MOU_P2TMO, as an AUX byte. With IRQ12 masked (as .fail leaves it) nobody
+; ever reads that byte, the 8042's one output buffer stays full, and the
+; KEYBOARD can deliver nothing for the session: no key, no LED ACK. So the
+; failure path waits for MOU_P2QUIET ticks with nothing arriving, taking
+; whatever does arrive, at most MOU_P2DMAX ticks in all. Runs with the
+; keyboard interface still disabled, so nothing it takes is a keystroke.
+; -----------------------------------------------------------------------------
+mou_p2drain:
+    push ax
+    push cx
+    push dx
+    mov dx, [ticks]             ; DX = when the drain began
+    mov cx, dx                  ; CX = when it was last busy
+.w:
+    in  al, MOU_P2CMD
+    test al, 0x01
+    jz .idle
+    in  al, MOU_P2DAT           ; a late byte: taken, and the quiet restarts
+    mov cx, [ticks]
+.idle:
+    mov ax, [ticks]
+    sub ax, dx                  ; wrap-safe, as mou_p2wr
+    cmp ax, MOU_P2DMAX
+    jae .out                    ; the cap: never hold the boot
+    mov ax, [ticks]
+    sub ax, cx
+    cmp ax, MOU_P2QUIET
+    jb .w
+.out:
+    pop dx
     pop cx
     pop ax
     ret
@@ -2171,6 +2229,11 @@ mou_p2_init:
                                 ; can supply (SPEC.md 9.9.6)
     mov al, 0xA7                ; the auxiliary port off again...
     call mou_ov_p2cw
+    call mou_p2drain            ; ...THE LATE ANSWER TAKEN, before anything
+                                ; hands the keyboard back (SPEC.md 9.9.1.1):
+                                ; a reply that lands after its step's wait is
+                                ; an aux byte nobody reads with IRQ12 masked,
+                                ; and the keyboard waits behind it for ever
     mov al, [mou_p2cmdr]        ; ...and its command byte EXACTLY as the BIOS
     call mou_ov_p2wcmd          ; had it, bit 4 aside - which is what this
                                 ; line SAID it did and did not (SPEC.md 9.9.7).
@@ -3221,7 +3284,13 @@ kbd_down:
 ; CF is 0 on both paths: `cmp [..], 0` never borrows, and the arm's first
 ; answer is always "up". No `cld`: DF = 0 on entry (SPEC.md 1). 32 bytes, 35
 ; on kern_mega (KDS), EVEN on every real-mode kernel for t_hotpar
+;
+; NOT ON kern_small (the owner, 2026-11-15): that kernel is locked under its
+; 70.5KB heap rung (SPEC.md 24.5.7's 128KB machine), and this body was 32 of
+; the 36 bytes that put it over. Its cell refuses there, beside
+; OSAPI_MOUSE_REL's (osapi_mouse_rel below)
 ; -----------------------------------------------------------------------------
+%ifndef KERN_SMALL
 osapi_key_map:
     push si
     push di
@@ -3244,6 +3313,7 @@ osapi_key_map:
     pop di
     pop si
     retf
+%endif
 
 ; =============================================================================
 ; The overrun guard (SPEC.md 9.8) - A FULL BIOS BUFFER IS A HANG, NOT A BEEP
