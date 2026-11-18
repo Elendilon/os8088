@@ -588,7 +588,7 @@ FAMILIES = (
                # SPEC.md 128.41.12: a LANE of a designer's gate ART (the tool's: +18 its gate, +19 the channel; its
                # pose the channel's FRAME, the slot's +2 + channel)
                {"name": "gatelane", "kind": FAM_K0 + 60, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
-                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 33,
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 40,
      # SPEC.md 128.41.12: the ART's kind and the slot's frames are an EXTENSION every course without art runs
      # unchanged on (no record of it holds +24 or a kind 76; the frames are bytes it never reads), so FAMV folds
      # the row as it was - the shipped PLAYGROUND, which names this family, stays byte for byte as it was
