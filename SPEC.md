@@ -272176,6 +272176,8 @@ BZ_NCRS`), so a course added by the other waves moves them and nothing else:
 | `+ 4` | *Moonlit Green* (A minor, swung 102) | 972 | 684 |
 | `+ 5` | *Summit Rush* (E minor, 164) | 1,030 | 763 |
 | `+ 6` | *Victory*, the finish's fanfare (130.22.9) | 224 | 177 (zlib) |
+| *(later rows)* | *(the table's numbering predates 130.26.5, which removed the title's song: the parts are `BZM0` *Fairway* ... `BZM5` *Victory*, `BZM6` the title screen's `attract`)* | | |
+| `BZM7.BIN` | *First Roll* (F major, 136.5, `groove 7 5`; 2026-11-18): FIRST ROLL's own, by its `music firstroll`. Listed in `bbmusic.NON_COURSE` so the default wrap (`course_song`, `(K - 1) mod n`) still counts the five course songs and no course falls onto the fanfare | 1,202 | |
 
 **A part a song**, so only the song playing is in memory: at most the sound
 part and one song, **2,071 bytes**, in two claims - on the desktop the title's,
@@ -273530,6 +273532,37 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
   the ball is drawn over it. Refused if any opaque pixel falls outside the
   picture. The Hercules gets it through `htab()` like every other pixel
   (130.11.3). **BUILT** (T1.2).
+- **`art` on a PLAY course** (the owner, 2026-11-18: *"I don't see any
+  reason to restrict 'art' to title only; we can just make sure we use it
+  smartly so it doesn't need collision or physics, and use occlusion on art
+  very sparingly. And avoid blowing up the size budget."*). The same
+  statement on any course but the pathway. On a play course `(X, Y)` is a
+  pixel of the PICTURE: x from its left edge (`16 (wx - wy) + x0` is a
+  cell's centre), y from its top (`8 (wx + wy) - h + y0`). No collision, no
+  physics.
+  - **Its occlusion is whatever is UNDER it** (the owner's question: *"its
+    pixels, ignore it and use whatever is under it's occlusion"*). The
+    canvas keeps, for every pixel, the cell row that drew it and that
+    geometry's height (`Canvas.sbuf`, `tbuf`), and the occluder masks are
+    cut from those, never from colours. ART writes a pixel's COLOUR only, so
+    each art pixel keeps the depth of the surface it was painted on, and an
+    occluder lays the block's pixels, art included, over the ball exactly
+    when that surface would hide it.
+    - On a floor top or a face, art becomes part of that floor or face.
+    - Over the void it has no depth, and the ball is always drawn over it
+      (a backdrop).
+    - The ghost dither (130.15.10) applies to it as to the surface under it.
+  - **MEASURED** (FIRST ROLL, two 6 x 4 decals, one on the hill's second
+    landing and one on the goal plateau's front): 1,339 occluder records and
+    174 masks with and without them, every record equal in column, key and
+    mask, its mask OFFSET moved by 96 bytes (six new blocks before the mask
+    table); the grid identical.
+  - **Its cost is the picture blocks it makes unique** (here 6 blocks, 96
+    bytes of RAM before packing), which `--sizes` and the build's part
+    report show.
+  - An art pixel with a depth of its OWN (art standing up in front of
+    something it does not lie on) is not built. When a course wants one, it
+    is a contract of its own, used sparingly.
 - **`label N COL ROW glyphs "TEXT" [ink C]`**: a lane of ONE block at cell
   `(COL, ROW)` of the CGA window (0 - 39, 0 - 24), posed by `bz_nst[N]` (0 -
   15): pose 0 the bare picture, pose `1 + i` the `i`-th character of TEXT

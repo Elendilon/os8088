@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 4, revision 5** (the owner's mark-ups on playtest 3) (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 7, revision 9** (the archway before the leap; the chevrons fixed)
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -15,6 +15,86 @@ then this course is built under a working name of its own in the tool,
 `ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
+- **Revision 9, from playtest 6's mark-up** (*"Pretty good."*):
+  - one more diagonal: the first landing's back corner (the owner blacked
+    out its top half; read off their edit by diffing it against the
+    preview);
+  - the CHEVRONS no longer paint over the rails. The generator reads which
+    cell drew each pixel last (the render's owner buffer) and paints only
+    where the lip's ramp is the visible surface. The owner's four black
+    pixels are applied after that (three where the tile showed through
+    the leading arm, one to even the forward arrow);
+  - the banner FRAME is replaced by a real ARCHWAY (SPEC.md 130.39; the
+    owner: *"The ball rolls in front of the arch, because its just art ...
+    But we have an actual arch, as a prop"*). An archway stands over flat
+    cells, at most 2 x 2, with a whole floor past it, so the leap's
+    approach is TWO wide from the walk:
+    - a 2 x 2 elbow;
+    - a 3-tile ramp falling 1.5 units;
+    - the arch's flat cell (`under 3`: a Hop passes);
+    - one flat tile, the lip;
+    - the gap.
+
+    The arch's legs take the rail blocks' places. The arch stands by the
+    leap, where the banner did (*"where it was before"*); the first try,
+    over the run-up's start, hid half the ramp. The landing is now 2.5
+    units below the lip;
+  - MEASURED on the model: 36.2 s, no fall, no pan. The part is 9,807 bytes on the disk.
+- **Revision 8, the owner's edit of the diagonal variant** (*"Add a
+  diagonal to the black marked column, and remove the red marked columns.
+  This starts them on a visually interesting platform, and its not that
+  hard to roll down a 2 wide path."*):
+  - the hill takes the variant's diagonal corners: the start plateau's
+    three outer corners and the landings' outer corners, each a half cell
+    made void (`hole half <side> tile`);
+  - the start plateau's FRONT corner is cut on a diagonal too;
+  - the first ramp is TWO wide (its outer columns removed). The start
+    stands on a raised platform with the tee on it
+    (`first/start-platform.png`);
+  - the marks were mapped to cells by projecting the variant's cells back
+    onto the preview's pixels;
+  - the course part is **10,000 bytes** on the disk (+537 for the
+    diagonals).
+- **Revision 7, art prototypes** (the owner, on the recommendations:
+  floating terraces for another course, not this one; a screenshot of
+  diagonal tiles; *"5: Oh, I think I like that; but we have to be careful
+  about how much view we block off. Add one ... right before the leap,
+  across the rail blocks; at a good height, we're not trying to prevent a
+  jump here"*; *"6: I like this maybe combined with art"*; the palette as
+  the first course's "default look"; *"make some art prototypes on the
+  course; it needs to fit in, look natural; so same style as the general
+  art and game, and high quality"*):
+  - the walk elbow's lone left block is gone (the first try removed its
+    twin, by the steps);
+  - `first/decals.py` (host-only, deterministic: the art's source) draws in
+    world coordinates and projects with the tool's own formula, one-pixel
+    black lines in the course's four colours. It writes the `roll_*.bba`
+    files and a marked ART block at the end of `roll.bbc`;
+  - **the prototypes**:
+    - a TEE mark under the start (a magenta disc, black rim, white
+      highlight);
+    - two CHEVRONS down the lip's ramp;
+    - a FRAME before the leap: the run-up's last rail blocks raised into
+      pillars, and a BANNER between them 4 units over the floor, so a Hop
+      passes under it;
+    - two LONE PILLARS floating in the void, each with a pennant in the
+      checkpoint flag's style;
+  - **cost** (MEASURED): the pillars +12 blocks and +47 occluder records,
+    the art +57 blocks (records and masks unchanged). The course part
+    8,622 -> **9,463 bytes** on the disk;
+  - **the diagonal-tile look** is a screenshot only (`first/diagonal-
+    variant.png`, today's left, chamfered right), not in the course.
+- **Revision 6, from playtest 4** (the owner: the middle clock "kind of
+  works there", the bottom clock and `stop down` "work great", the unwalled
+  hill "plays fine, and adds a bit of visual interest", the hole "in the
+  natural path of travel, though easy to avoid which works for a first
+  course"):
+  - the ledge's back rail is a see-through GUARD rail. Its first tile is
+    left open: a guard rail may not stand beside the hill's last ramp;
+  - flag 0 moves one space down, onto the line the ball takes into the
+    run-up;
+  - the lone rail block at the corner of the last step is gone. It read as
+    a tile at the walk's height, and that corner is open now.
 - **Revision 5, from playtest 3's mark-ups:**
   - **the hill has no rails and no back wall** (*"the guard here is that
     its so wide. We may or may not keep the idea; I just want to see if it
@@ -204,3 +284,43 @@ running down to the ground), and none stands behind a block.
 - **The model's steered run** is a scratch script in the session, not a
   row. It follows the sketch's route with a simple steering rule and
   reaches the goal in 35.7 s with no fall.
+
+## 7. Visual interest: recommendations (2026-11-18, for the owner)
+
+Each is priced in bytes or clocks. None is built; the owner picks.
+
+1. **Floating terraces instead of columns** (`float`, faces 3 units deep).
+   - Today every section stands on a column to the ground, so the course
+     reads as one magenta monolith.
+   - Floating the hill's landings, the walk and the leap's landing would
+     show void between the levels: depth, a silhouette and gaps the eye
+     reads as drops.
+   - It also SAVES bytes, since most of the picture is those columns.
+   - It is the standard column tile's twin, for the kit.
+2. **Decals with `art`** (now allowed on play courses, SPEC.md 130.23.2).
+   An art pixel takes the occlusion of the surface it is painted on, so a
+   decal on a floor or a face IS part of it, front tiles included. Measured:
+   the occluder records and masks are identical with and without.
+   - A START mark on the plateau, chevrons down the lip's ramp, a warning
+     ring round the hole, a painted finish banner on the goal plateau.
+   - A few hundred bytes each (the unique blocks they make).
+3. **Backdrop art in the void beside the course**: a sun or moon, a cloud
+   bank, a distant skyline, in the locked window's black margins and never
+   in front of the path. The window never pans across here, so a backdrop
+   stays put like a stage set. Its blocks are the cost, so it is kept
+   small.
+4. **Diagonal tiles** (SPEC.md 130.24) on the outer corners of the
+   landings and the goal plateau, to soften the stair-stepped edges. Tool
+   and picture only.
+5. **A frame at the finish**: an ARCHWAY (SPEC.md 130.39) over the goal
+   line, or two pillars and a painted banner between them. The arch is a
+   family part with lanes; the pillars and banner are picture only.
+6. **Lone pillars and towers in the void** (single floating tiles, as the
+   clock pillars are): rhythm and landmarks down the descent at a tile's
+   bytes each. Placed away from the path, they can never be in the way.
+7. **Palette and light**: the course's CGA palette (`palette`, SPEC.md
+   130.16.6) for a bright first course, chosen by the owner on the glass.
+
+**Suggested first try**: 1 and 2 together on the hill and the lip, one
+playtest, measured against today's 8,622 bytes.
+
