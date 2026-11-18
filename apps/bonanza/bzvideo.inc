@@ -95,7 +95,7 @@ bz_fullscreen:
     cmp al, [bz_cardk]          ; fetched the parts for
     jne .moved
     mov bx, bz_fsxm - 1
-    xlat                        ; AL = the card's mode (130.45.2)
+    xlat                        ; AL = the card's mode (130.46.2)
 .set:
     push ds
     pop es
@@ -150,7 +150,19 @@ bz_vinit:
     mov [bz_vseg], ax
     mov word [bz_smask], 0fffh  ; (the 6845's ring; the VGA's part sets 0FFFFh)
     cmp byte [bz_vga], 0        ; THE VGA: its half is the part's (SPEC.md
-    je .nvga                    ; 130.45.3), every variable below and its ports
+    je .nvga                    ; 130.46.3), every variable below and its ports
+    mov bl, [bz_crs]            ; ...and the course's LOCK (130.45.2 item 1):
+    xor bh, bh                  ; the CGA's byte, its 320 px framing, as the
+    shl bx, 1                   ; VGA window's column less one (the display
+    mov al, [bz_clocks + bx]    ; on the window's middle: x0 = lock 8;
+    cbw                         ; 130.46.12), FFFFh none
+    or ax, ax
+    js .vl
+    dec ax
+    jns .vl
+    xor ax, ax
+.vl:
+    mov [bz_lockc], ax
     BZ_VCALL BZV_INIT
     ret
 .nvga:
@@ -207,6 +219,14 @@ bz_vinit:
     mov ax, [bz_cols]
     sub ax, [bz_W]
     mov [bz_cmax], ax
+    mov bl, [bz_crs]            ; SPEC.md 130.45.2 item 1: the course's LOCK
+    xor bh, bh                  ; on this card, FFFFh none
+    shl bx, 1
+    add bl, [bz_herc]
+    adc bh, 0
+    mov al, [bz_clocks + bx]
+    cbw                         ; (FFh -> FFFFh; a c0 is at most cmax, < 80h)
+    mov [bz_lockc], ax
     mov ax, [bz_brows]
     mov cl, 3
     shl ax, cl
@@ -421,7 +441,7 @@ bz_rbR:
     inc bx
 %endmacro
 bz_row:
-    cmp byte [bz_vga], 0        ; THE VGA's row is one line (130.45.3), the part's
+    cmp byte [bz_vga], 0        ; THE VGA's row is one line (130.46.3), the part's
     je .c
     inc word [bz_nrow]
     BZ_VCALL BZV_ROW
@@ -1071,7 +1091,7 @@ bz_frun:
 ; DS = ES = ours.  Preserves all but AX, BX, CX, DX, DI, BP.
 bz_blit:
     cmp byte [bz_vga], 0        ; THE VGA: planar pairs at 8-pixel words, from
-    je .c                       ; the converted copies (130.45.5), the part's
+    je .c                       ; the converted copies (130.46.5), the part's
     BZ_VCALL BZV_BLIT
     ret
 .c:
@@ -2390,7 +2410,7 @@ bz_amodel:
     cmp [es:bz_awhi + bx], si
     jg .mbuild
     mov word [es:bz_omp], bz_achk ; every edge at or over the first laid
-    cmp byte [es:bz_vga], 0     ; (the VGA's checker, 130.45.5)
+    cmp byte [es:bz_vga], 0     ; (the VGA's checker, 130.46.5)
     je .achk
     mov word [es:bz_omp], bz_achkv
 .achk:
@@ -2437,7 +2457,7 @@ bz_amodel:
     sub di, bp                  ; DI = the lines
     mov dx, 00c0h               ; pixel 0's bit pair; ROR 2 walks 1 .. 7 (the
     cmp byte [bz_vga], 0        ; VGA's planar pair: its two bits, 8080h, ROR 1,
-    je .mc8                     ; SPEC.md 130.45.5)
+    je .mc8                     ; SPEC.md 130.46.5)
     mov dh, 80h
     mov dl, dh
 .mc8:
@@ -2499,7 +2519,7 @@ bz_amodel:
 ; model hides, by the line's place in its block
 bz_achk:
     dw 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch
-bz_achkv:                       ; ...the VGA's, as planar pairs (130.45.5)
+bz_achkv:                       ; ...the VGA's, as planar pairs (130.46.5)
     dw 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah
 
 ; bz_arange - bz_amodel's cache slots AL .. BL (words W0 + AL .. W0 + BL)
@@ -2751,7 +2771,7 @@ bz_ahalf:
 ; box starts or ends inside, and any other width, take the per-line loop.
 bz_boxw:
     cmp byte [bz_vga], 0        ; THE VGA: even bytes to plane 0, odd to plane 1
-    je .c                       ; (130.45.5), the part's
+    je .c                       ; (130.46.5), the part's
     BZ_VCALL BZV_BOXW
     ret
 .c:

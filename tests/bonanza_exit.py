@@ -990,7 +990,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         if len(base_rows) != shell_row() + 1 + R.after_shell():
             fails.append("the package has %d part rows, not %d courses, %d world parts, the sound, %d songs, "
                          "%d shipped demos, the shell, the pathway, the title's two, the families' and the VGA's "
-                         "(SPEC.md 130.11.3.1, 130.30.4.4, 130.20.3, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.45.6)" % (
+                         "(SPEC.md 130.11.3.1, 130.30.4.4, 130.20.3, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.46.6)" % (
                              len(base_rows), dict.__len__(R.CRS_K), ncrs2(), nsong(), ndemo()))
         for mat in mats if ways else ():
             choose_ball(g, mat)

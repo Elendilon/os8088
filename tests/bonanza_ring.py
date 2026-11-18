@@ -991,7 +991,7 @@ class Bz:
         return self.pre[0][self.sym[n] - self.sym["bz_phs"] + k]
 
     def vroll(self, lk):
-        """The VGA's SHOWN roll frame (SPEC.md 130.45.11): the guest's, which
+        """The VGA's SHOWN roll frame (SPEC.md 130.46.11): the guest's, which
         bbcourse.vroll must give from the last frame's shown phases whenever
         this guest was looked at on the frame before (a skipped frame, or the
         first, leaves the rule unchecked: the guest's phases are its own)."""
@@ -4334,7 +4334,7 @@ def build_tree(td, patches, size=360, src0=None, art=None, name="bonanza", appda
     assemble(src, art, binp)
     shell = shell_part(td, src, art, binp)      # wave 8a (130.19.2): LINKED against this tree's package
     fams = fam_parts(td, src, art)              # wave 9 (130.25.6.2): ...and so is every family part
-    vga = vga_part(td, src, art)                # SPEC.md 130.45.6: ...and the VGA's part
+    vga = vga_part(td, src, art)                # SPEC.md 130.46.6: ...and the VGA's part
     subprocess.run(["python3", "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88]
                    + part_args(art, src, shell, fams, vga)
                    + ["--part-compress", fmt or part_fmt()], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
@@ -4407,7 +4407,7 @@ def shell_part(td, src, art, binp):
 
 
 def vga_part(td, src, art):
-    """SPEC.md 130.45.6: a tree's VGA PART, BZVGA.BIN, assembled from the tree's
+    """SPEC.md 130.46.6: a tree's VGA PART, BZVGA.BIN, assembled from the tree's
     bzvga.asm against the bzlink.inc shell_part wrote for the tree's package.
     -> its path, or None for a tree with none (an earlier wave's)"""
     inc = os.path.join(td, "bzlink-inc")
@@ -4422,7 +4422,7 @@ def vga_part(td, src, art):
 def after_shell(src=None):
     """the part rows AFTER the shell's (SPEC.md 130.19.2): the pathway's (wave
     8b, 130.19.5), the title's two (SPEC.md 130.23), (wave 9, 130.25.6.2)
-    one a family, and (SPEC.md 130.45.6) the VGA part's, the last, where SRC's
+    one a family, and (SPEC.md 130.46.6) the VGA part's, the last, where SRC's
     package carries them"""
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     if "BZ_P_FBUN" in asm:                      # 130.25.6.9: a row a FETCH family, and the bundle's
@@ -4430,7 +4430,7 @@ def after_shell(src=None):
     else:
         nf = ("BZ_P_FAM" in asm) * len(BB.FAMILIES)
     return ("BZ_P_PATH" in asm) + 2 * ("BZ_P_TITLE" in asm) + ("BZ_P_KIT" in asm) + nf \
-        + ("BZ_P_VGA" in asm)                   # (130.37: the kit; 130.45.6: the VGA's part)
+        + ("BZ_P_VGA" in asm)                   # (130.37: the kit; 130.46.6: the VGA's part)
 
 
 def fam_parts(td, src, art):
@@ -4496,7 +4496,7 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
     elif "BZ_P_FAM" in asm:                     # wave 9 (130.25.6.2): the family parts, the last rows
         for i, f in enumerate(BB.FAMILIES):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
-    if "BZ_P_VGA" in asm:                       # SPEC.md 130.45.6: the VGA's part, the last row
+    if "BZ_P_VGA" in asm:                       # SPEC.md 130.46.6: the VGA's part, the last row
         out += ["--part", vga or at("build/bzvga.bin")]
     return out
 

@@ -63,7 +63,7 @@ OS88_DOCGLYPH8_END
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
 %include "bzsnd.inc"            ; the songs and the events (tools/bbmusic.py)
 %include "bzshell.inc"          ; the shell part's vectors (SPEC.md 130.19.2)
-%include "bzvga.inc"            ; the VGA part's vectors (SPEC.md 130.45.6)
+%include "bzvga.inc"            ; the VGA part's vectors (SPEC.md 130.46.6)
 %include "bzwin.inc"            ; the window's art: its sizes (the part draws it, 130.26.2)
 %include "drivers/sound/sndpkg.inc" ; SOUND.DRV's FM door (bzsound.inc), from the root
                                 ; as every bonanza row assembles it
@@ -185,7 +185,7 @@ BZ_P_KIT    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; THE KIT, BZKIT.BIN (SPEC.md 130.3
 BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 130.25.6.2): the family part
                                 ; rows, after every other row: a `fetch` family's own (ID order),
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (130.25.6.9); bz_ftab maps an ID
-BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.45.6): the last row
+BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.46.6): the last row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 130.14.3) ------------------------------------------------
 ; the TOUR is bzcourse.inc's BZ_NTOUR courses, BZ_TOUR's K in order: a short NAMED list
@@ -607,7 +607,7 @@ bz_repaint:
 
 ; -----------------------------------------------------------------------------
 ; bz_adapter - what this window's display is: AL = 1 CGA, 2 Hercules, 3 VGA
-; (SPEC.md 130.45.2), 0 none of them (or no FSX mode for it).  Preserves all
+; (SPEC.md 130.46.2), 0 none of them (or no FSX mode for it).  Preserves all
 ; but AX and the flags.
 ; -----------------------------------------------------------------------------
 bz_adapter:
@@ -644,7 +644,7 @@ bz_adapter:
     ret
 
 ; bz_setcard - AL = bz_adapter's 1 - 3: [bz_card] it, [bz_herc] 1 on the
-; Hercules alone, [bz_vga] 1 on the VGA alone (SPEC.md 130.45.2: a VGA play
+; Hercules alone, [bz_vga] 1 on the VGA alone (SPEC.md 130.46.2: a VGA play
 ; asks "Hercules?" and hears the CGA's no).  Clobbers AX.
 bz_setcard:
     mov [bz_cardk], al
@@ -743,7 +743,7 @@ bz_launch:
     mov si, bz_t_nofs
     call bz_toast
 .drop:
-    call bz_vdrop               ; the VGA's part and ball copies (130.45.6)
+    call bz_vdrop               ; the VGA's part and ball copies (130.46.6)
     call bz_cdrop               ; every part this launch fetched given back
     call bzs_gdrop              ; the song back, and the title (a finish's
     cmp byte [bz_shpend], 0     ; fanfare first, SPEC.md 130.20.6).  The
@@ -856,7 +856,7 @@ bz_cload:
     pop es
 .nherc:
     cmp byte [bz_vga], 0        ; the VGA's: converted ONCE, here, into planar
-    je .ok                      ; pairs (SPEC.md 130.45.5) by BZVGA.BIN
+    je .ok                      ; pairs (SPEC.md 130.46.5) by BZVGA.BIN
     push es
     call bz_vprep
     pop es
@@ -980,7 +980,7 @@ bz_game8:
 .ran:
     mov byte [bz_pgo], 0
 .drop:
-    call bz_vdrop               ; (the VGA's part, 130.45.6)
+    call bz_vdrop               ; (the VGA's part, 130.46.6)
     call bz_phfree              ; (the held pathway goes with the game, 130.22.7)
     call bz_cdrop
     call bzs_gdrop              ; (the title back)
@@ -2393,7 +2393,7 @@ bz_title8:
     jne .drop
     jmp bz_back                 ; (nothing written: the course's life is, 130.19.6)
 .drop:
-    call bz_vdrop               ; (the VGA's part, 130.45.6)
+    call bz_vdrop               ; (the VGA's part, 130.46.6)
     call bz_cdrop
     call bzs_gdrop              ; (the desktop's title song back)
     call bz_back
@@ -2769,7 +2769,7 @@ bz_crshdr:
     cmp byte [bz_herc], 0
     jne .vh
     shl ax, 1
-    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: x 4, 130.45.3)
+    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: x 4, 130.46.3)
     je .vs
     shl ax, 1
     jmp short .vs
@@ -4106,7 +4106,7 @@ bz_shdrop:
 TOASTSTR bz_t_shell, 'Bonanza: bad part'   ; (the shell part's and a family part's, bz_ffetch)
 
 ; -----------------------------------------------------------------------------
-; bz_vprep - THE VGA's ART (SPEC.md 130.45.5, 130.45.6), at the end of every
+; bz_vprep - THE VGA's ART (SPEC.md 130.46.5, 130.46.6), at the end of every
 ; bz_cload (at home; the bracket's own rounds included): BZVGA.BIN fetched if
 ; it is not held (stamped as the shell part is), its code alias taken again -
 ; every fetch before this one may have moved it - the balls' copies claimed
@@ -5272,6 +5272,8 @@ bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 130.30.4.4: each course's WORLD part's
                                 ; (the tool's, SPEC.md 130.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
                                 ; wave 6, SPEC.md 130.16.6: bz_vinit)
+bz_clocks:  BZ_CRS_LOCKS        ; ...their horizontal LOCKs, the CGA's c0 then the
+                                ; Hercules', FFh FFh none (SPEC.md 130.45: bz_vinit)
 bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 130.26.8): byte k its k-th course;
             BZ_TOUR             ; byte 0 BENCH, which kern_small's refused G names (bz_game)
 bz_s_dat:   db 'BONANZA.DAT', 0
@@ -5316,7 +5318,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITL
 %endif
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_KIT: BZKIT.BIN, the standard kit, HELD (130.37.5)
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
-    OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.45.6)
+    OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
 %if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
  %error "the demo rows follow the songs', one a tour course (SPEC.md 130.14.7.4)"

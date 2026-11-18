@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 2, revision 4** (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 3, revision 4 with the horizontal LOCK** (`apps/bonanza/courses/roll.bbc`,
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -119,12 +119,17 @@ by pinning it in the model):
   on the Hercules (with today's camera: 12.8 s on the CGA and 15.2 s on the
   Hercules, which fails G12).
 
-**The owner's decision**: a per-course HORIZONTAL LOCK. A course whose
-picture fits one window would hold the camera at one framing across. It is
-a camera change, so it needs a SPEC contract, a field in the course's
-header, the guest's camera and the tool's model to match, and the camera
-rows. In return it removes work from every frame on such a course, and
-makes "vertical first" (G2) a property rather than a fight with the camera.
+**Taken (the owner, 2026-11-18)**: *"Yes. We won't use this often due to
+visual interest, but for the intro course it fits fine, and it gives a
+'smoother' introduction."* **BUILT as SPEC.md 130.45**, `lock across`:
+- the tool centres the window on the course's picture: column 10 on the
+  CGA, 7 on the Hercules;
+- the game holds it, skipping the across axis.
+
+MEASURED on the model's steered run: **0 columns panned on either card**,
+and the longest stretch with no clock in view is 10.5 s (CGA) and 11.4 s
+(Hercules). The lock costs 51 bytes of code, 2 of bss and 2 a course of
+table.
 
 ## 3. The clocks (G9 - G12, G23)
 
@@ -136,12 +141,12 @@ running down to the ground), and none stands behind a block.
 |---|---|---|
 | start | right of the start plateau, off the hill | 0 - 2.6 s (0 - 4.8 s on the Hercules) |
 | middle | above the far corner after the chute (K3), high enough to clear its back rail | 15.5 - 23.0 s |
-| finish | left of the goal plateau, low enough that every goal cell's centred window holds it (the shipped finish-clock rule, SPEC.md 130.22.6) | 31.3 - 32.5 s on today's camera, which frames right after the leap and loses it before the goal; to the goal with the lock |
+| finish | left of the goal plateau, low enough that every goal cell's centred window holds it (the shipped finish-clock rule, SPEC.md 130.22.6) | 31.3 s to the goal (with the lock) |
 
 - G9 (start) and G10 (never two on one screen) pass at compile.
-- The longest stretch with none in view is 12.8 s on the CGA and 14.1 s on
-  the Hercules on today's camera (G12 passes, narrowly), and 10.5 s and
-  11.4 s with the horizontal lock.
+- With the lock the longest stretch with none in view is 10.5 s on the
+  CGA and 11.4 s on the Hercules, and every clock stays in view to the end
+  of its stretch.
 
 ## 4. Surfaces, lifts, pads and props
 

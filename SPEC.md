@@ -253261,7 +253261,7 @@ change.
 card pixels). Everything else is **refused on the desktop with the reason**
 (`CGA OR HERC ONLY`): VGA and EGA because the CGA arm's ring has not been
 proved on their CRTCs (a VGA's mode-4 address wrap is not a 6845's, and a
-guessed answer is not a fact, §47), MDA because it has no graphics. *(Since 130.45 the VGA plays its own arm, in mode 0Dh, and the toast reads
+guessed answer is not a fact, §47), MDA because it has no graphics. *(Since 130.46 the VGA plays its own arm, in mode 0Dh, and the toast reads
 `CGA, HERC OR VGA ONLY`; EGA and MDA are refused as here.)*
 
 **Kernels.** kern_big, and **kern_mega through the ordinary bracket**
@@ -283231,7 +283231,81 @@ refills a quarter turn, plus the warnings. The final pass's `bonanzaphys` /
    cost its cells' count of `WIN_CHG` and is not offered.
 4. **A shipped course** that uses it.
 
-### 130.45 THE VGA ARM (the owner's decisions, 2026-11-17/18; BUILDING on `bounce-bonanza-vga`)
+### 130.45 The horizontal LOCK: a course's camera held across (the owner, 2026-11-18)
+
+*"a per-course horizontal lock": "Yes. We won't use this often due to visual
+interest, but for the intro course it fits fine, and it gives a 'smoother'
+introduction."* The finding behind it is FIRST ROLL's first play, replayed
+on the model (docs/plans/bonanza-courses/FIRST-ROLL.md, section 2): LATTICE
+(130.17.6) frames the window at lattice positions 128 px apart and LEADS in
+the direction of travel, so a course that zigzags down the screen pans 16 -
+24 columns on every leg, in the air as well. FIRST ROLL's whole picture is
+320 px across: one CGA window holds all of it.
+
+#### 130.45.1 The statement and the tool
+
+    lock across
+
+- **Once, no arguments.** The tool takes the course's PICTURE EXTENT
+  across: from the left edge of its leftmost drawn cell to the right edge of
+  its rightmost (`16 (wx - wy) + x0`, 16 px either side of a cell's centre),
+  every non-VOID cell and every clock's digit lane counted. For each card it
+  places the window centred on that extent, `c0 = (lo + hi - 8 W) / 16`
+  rounded down, clamped to 0 - `cmax` (`cols - W`), and REFUSES the
+  statement, naming the card and the widths, when the extent does not lie
+  wholly inside that window: a lock never hides any of the course.
+- **`BZ_CRS_LOCKS`**, a table in `bzcourse.inc` beside `BZ_CRS_PALS`: two
+  bytes a course (the pathway and the title included, in `allc`'s order),
+  the CGA's `c0` then the Hercules', **FFh FFh for none**. It is not in the
+  course's part, so no part, identity or demo moves. A course without the
+  statement emits FFh FFh, and a build with no lock anywhere is the build
+  before it but for the table and the code below.
+- **The model**: `Physics` carries the course's `lockx` (`(c, h)` or None),
+  and `Glide` honours it exactly as the guest does (130.45.2). TRICKLE has no
+  host model (130.16.14) and the scripted camera (130.17.6.7) is a harness's,
+  so neither is compared.
+
+#### 130.45.2 The guest (binding: `bz_vinit`, `bz_camera`, `bz_lattice` and `bbcourse.Glide` do exactly this)
+
+1. **`bz_vinit`**, after `bz_cmax`: `bz_lockc` = the course's byte for the
+   card (`bz_clocks + 2 bz_crs + bz_herc`), zero-extended, or FFFFh for FFh.
+2. **The first frame and a cut** (130.10.8 item 3): the window is centred on
+   the ball as before, then, when `bz_lockc` is not FFFFh, `bz_c0n` =
+   `bz_lockc`, before the clamp. A course's FIXED or PAGED window (the
+   title's, the pathway's) is set after this and wins; neither says `lock`.
+3. **LATTICE** (`bz_lattice`): when `bz_lockc` is not FFFFh, the ACROSS axis
+   is skipped whole. `bz_c0n` = `bz_c0`, `bz_lax` is untouched, and no
+   column is withheld or counted (`bz_nwc`). DOWN runs as before.
+4. **TRICKLE**: its horizontal dead zone is skipped the same way, so `C`
+   changes the vertical behaviour only.
+5. **The scripted camera** (`bz_camscr`, a harness's) ignores the lock: it
+   is BENCH's, which has none.
+6. **The finish sequence** holds the camera as before.
+
+**Cost** (MEASURED, the `BZROLL=1` build's listing): **51 bytes of code**
+(`bz_vinit` 23, the first frame 10, TRICKLE 11, LATTICE 7), **2 bytes of
+bss** and **2 bytes a course of table** (20 with ten entries). On a locked course every frame does LESS work (the
+across axis's decision and any column it would have panned). An unlocked
+course's frame pays one compare and a branch, a few clocks.
+
+#### 130.45.3 What uses it, and the rows
+
+- **FIRST ROLL** (`roll.bbc`, the `BZROLL=1` knob) is its first and, for
+  now, only course.
+- **The rows** that read the camera, named for the final pass and not run
+  per change (fork rule 10):
+  - `bonanzaring`: its camera leg compares the guest's window to `Glide`
+    every frame. No shipped course is locked, so it moves only with a
+    locked course added to its scenarios;
+  - `bonanzacourse`;
+  - `bonanzaexit`;
+  - `bonanzamega`.
+  - The `--guide` run half (G3, G12) reads the lock through `Glide` at once.
+- **Red arm** (host): a `lock across` on a course wider than the window is
+  refused at its line. The tool's `--selfcheck` gains it when the item list
+  next moves.
+
+### 130.46 THE VGA ARM (the owner's decisions, 2026-11-17/18; BUILDING on `bounce-bonanza-vga`)
 
 *Plan and rationale: docs/plans/BOUNCE-BONANZA-VGA.md (its section numbers are
 cited as "plan N"); V0's measurements are its section 13.* This subsection is
@@ -283240,7 +283314,7 @@ arm"). It is written wave by wave: what V1 builds is binding here; what a
 later wave builds is marked **(V2)** and is not built until its own words are
 added.
 
-#### 130.45.1 The decisions
+#### 130.46.1 The decisions
 
 | | decided | by |
 |---|---|---|
@@ -283253,7 +283327,7 @@ added.
 | the machine | a V20 or better may be needed for 70 Hz; 4.77 MHz is a bonus | the owner (D7) |
 | the art | converted ONCE, at load, never per frame; nothing converted is stored on a disk | the owner, 2026-11-18 |
 
-#### 130.45.2 The adapter
+#### 130.46.2 The adapter
 
 `bz_adapter` (both copies: `bonanza.asm`, `bzshell.asm`) answers **3** for a
 `VID_VGA` display that offers `FSXM_VGA0D`. A VGA play sets `[bz_vga]` 1 and
@@ -283263,7 +283337,7 @@ refusal toast becomes `CGA, HERC OR VGA ONLY`; EGA and MDA are refused with
 it. A VGA under a kernel without `GFX_VGA` still comes up `VID_CGA` and plays
 the CGA arm (130.16.6), unchanged.
 
-#### 130.45.3 The ring on the VGA (plan 2)
+#### 130.46.3 The ring on the VGA (plan 2)
 
 After `OSAPI_FSX_MODE` (mode 0Dh: byte addressing, 200 lines double-scanned,
 70.1 Hz), `bz_vinit` sets CR13 = **21** (a stride `P` of **42** bytes a line),
@@ -283285,7 +283359,7 @@ MartyPC, 86Box's OTI-067 and, in the field, the PVGA1A: plan 13). Nothing on
 the VGA ever splits at a ring's end: offsets wrap in 16 bits, as the card
 does.
 
-#### 130.45.4 The order (binding; plan 2.4)
+#### 130.46.4 The order (binding; plan 2.4)
 
 Within one VGA frame:
 
@@ -283307,7 +283381,7 @@ Within one VGA frame:
 A full write blanks the screen with the sequencer (SR01 bit 5) rather than the
 mode register, and unblanks in the next frame's retrace.
 
-#### 130.45.5 The art, converted once (plan 3)
+#### 130.46.5 The art, converted once (plan 3)
 
 The VGA's art is held as **planar pairs**: eight pixels are a word, plane 0's
 byte (bit 7 the leftmost pixel) then plane 1's. Every operation compose
@@ -283330,7 +283404,7 @@ a copy. The conversion runs on the desktop at the fetch (and at a material
 change), about a quarter of a second for a big course (ESTIMATED); a play
 converts nothing.
 
-#### 130.45.6 The code part
+#### 130.46.6 The code part
 
 The arm's writers are a code part, **`BZVGA.BIN`** (`OP_SEG`, lazy,
 compressed; the row after the bundle, `BZ_P_VGA`), linked against the package
@@ -283340,7 +283414,7 @@ DS = ES = the package, clobber what each names, and `retf`. The resident image
 carries the dispatch at each writer (`[bz_vga]`) and nothing else of the
 VGA's. Nothing in it is written through CS (kern_mega's code alias).
 
-#### 130.45.7 The frame's numbers
+#### 130.46.7 The frame's numbers
 
 | | value |
 |---|---|
@@ -283350,14 +283424,14 @@ VGA's. Nothing in it is written through CS (kern_mega's code alias).
 | the rise to window line 0 | 1,166 - 1,176 us, **18.4 game lines** (`wb0` 18, MEASURED) |
 | `BZ_VSMARG` | 12 scanlines, 455 counts |
 
-#### 130.45.8 Not in V1
+#### 130.46.8 Not in V1
 
 The pixel camera, the panning and the pacing rules (V2); `bonanzaring`'s VGA
 card and the other rows' legs (V3); the field run (V4). V1 is checked by the
 host builds, `vgaprobe`, and a boot to look on MartyPC's `os8088_xt_vga` and
 86Box's `xt-v20-vga`.
 
-#### 130.45.9 V1, as built and measured (2026-11-18)
+#### 130.46.9 V1, as built and measured (2026-11-18)
 
 V1 is built: a VGA play runs every course, the pathway, the title and the
 cards in mode 0Dh, scrolling one line and one column a step (the panning
@@ -283398,16 +283472,16 @@ commit):
 The VGA's 68.1k-clock refresh holds the busy frame, but a third of the
 frames miss one: the edge wait under CLI takes the NEXT rise whenever the
 frame ends inside MartyPC's long vsync (31 scanlines). That is V2's to
-settle with the held divisor (130.45.1, D3: 35 Hz on the 8088 is the
+settle with the held divisor (130.46.1, D3: 35 Hz on the 8088 is the
 owner's accepted floor).
 
-#### 130.45.10 V2: the panning and the held divisor (BUILT, 2026-11-18)
+#### 130.46.10 V2: the panning and the held divisor (BUILT, 2026-11-18)
 
 **The cost**: resident image 50,666 -> **50,877 (+211)**, bss +10; `BZVGA.BIN` 3,280 -> **3,502**.
 
 **The geometry changes for the panning.** The stride `P` is **44** bytes
 (CR13 22) and the ENGINE's window `W` **42** columns: every rule of
-130.45.3 and 130.45.4 holds with these numbers (the gutter is two columns;
+130.46.3 and 130.46.4 holds with these numbers (the gutter is two columns;
 no two window cells share a byte, `|44 dr + db| <= 8,797`). LATTICE, the
 writers, the boxes, the lanes and the cards all work in the 42-column
 window exactly as they did in 40, and LATTICE frames the same centre (a
@@ -283415,7 +283489,7 @@ window exactly as they did in 40, and LATTICE frames the same centre (a
 
 **The display is a 320-pixel slice of it, at `x0`** (world px, `[bz_vx0]`):
 the start address written is `S + (x0 >> 3) - c0`, the pel panning `x0 &
-7` ([bz_vpan], at the rise, 130.45.4 rule 4). `x0` follows LATTICE's target
+7` ([bz_vpan], at the rise, 130.46.4 rule 4). `x0` follows LATTICE's target
 `t = (c0 + 1) 8` - its 40 columns in the middle - through a three-tap
 filter, `x0 = (t + 2 t' + t'' + 2) / 4` over this frame's target and the
 last two (`[bz_vt1]`, `[bz_vt2]`):
@@ -283436,7 +283510,7 @@ CGA's and Hercules' pictures are untouched.
 
 **The held divisor** (the owner's D3): `bz_vstart` counts frames that ended
 late (past `BZ_VBAND`, or a refresh) in windows of 64; the first window
-with **8 or more** (2 since 130.45.12) latches `[bz_vdiv]` 2 for the rest of the play - one
+with **8 or more** (2 since 130.46.12) latches `[bz_vdiv]` 2 for the rest of the play - one
 way, so the rate never alternates - and from then a frame done before the
 first rise after the last present waits that rise out (interrupts on) and
 presents at the second: **35 Hz**, a miss then 2.5 refreshes (`[bz_mlim]`
@@ -283455,9 +283529,9 @@ glass 40 of 40.
 
 **Not built: the ball drawn between physics steps** (plan 6, rule 3). The
 owner's look at V2a found no judder from it; what showed was the roll
-running BACKWARDS at speed, which 130.45.11 answers instead.
+running BACKWARDS at speed, which 130.46.11 answers instead.
 
-#### 130.45.11 The roll's shown phases (BZV_ROLL)
+#### 130.46.11 The roll's shown phases (BZV_ROLL)
 
 The ball's texture repeats every 8 (130.11's roll frame f = PHY 8 + x
 phase). At 35 Hz a fast ball moves 4 or more of a phase between presents,
@@ -283486,7 +283560,7 @@ shows a step of 4, the half period, which has no direction of its own. **Cost**:
 **Checked** (MartyPC, FIRST's free play, the arrows held, 599 presents): 9
 frames whose true x phase stepped against the ball, 0 shown.
 
-#### 130.45.12 V2c: the VGA's own camera (BZV_CAM)
+#### 130.46.12 V2c: the VGA's own camera (BZV_CAM)
 
 **The owner (2026-11-18)**: the ball rolls fine, but the camera *"does
 judder ... 'how it chooses to move', not 'the VGA timing is wrong'"*.
@@ -283546,7 +283620,7 @@ CGA's `BZ_MAXR` rows a frame is 2 lines on the VGA).
 
 **The engine's window from it**: `R0n` = `bz_vcy`'s whole line; `c0n` = c0
 while `bz_vcx` lies in [c0 8, c0 8 + 16] (the window's 16 px of slack,
-130.45.10), else the NEAREST column that holds it - `bz_vcx >> 3` moving
+130.46.10), else the NEAREST column that holds it - `bz_vcx >> 3` moving
 left, `(bz_vcx - 9) >> 3` moving right - so a camera that crossed one
 column moves the window one (re-centring it cost two, a full write). `bz_camera`'s tail clamps it to the
 course and turns a larger step into a full write, as for every mode; **the
@@ -283566,12 +283640,20 @@ fraction 0, that axis's velocity 0.
 hold, a cut and a harness's scripted camera run what they run on the CGA;
 the follower is only ever LATTICE's replacement in a play.
 
+**A LOCKED course** (130.45): `bz_vinit`'s VGA arm sets `bz_lockc` too - the
+CGA's byte (its 320 px framing), less one as the VGA window's column, so
+the display on the window's middle lands at x0 = lock x 8 - and across the
+camera holds that framing (moved to on `BZV_PAGE`'s trapezoid if it is not
+there), down follows as ever. (The lock arrived from `bounce-bonanza` while
+this arm was on its own branch: its `bz_vinit` code sat after the VGA's
+early return, so a VGA play read whatever `bz_lockc` held.)
+
 **The A/B (until the owner has dialled it in, then removed)**: on the VGA
 `C`'s second mode is LATTICE instead of TRICKLE, so the two can be played
 back to back; the face still names TRICKLE. `bz_camera` resets LATTICE on
 any change of mode (it did on the change back to GLIDE alone).
 
-**The rate** (130.45.10's divisor, revised here): a window of 64 frames
+**The rate** (130.46.10's divisor, revised here): a window of 64 frames
 latches 35 Hz at `BZ_VLATE` = **2** late frames (it was 8), and at 70 Hz a
 frame that finds a whole refresh already past counts as late however early
 in the next one it lands (it did not count at all). The first camera build
@@ -283602,14 +283684,14 @@ never changing by more than 1 a frame. The props merge does not move these
 bytes resident (the hook, the rows' allowance, the start's multiply, the
 divisor's miss count), 11 of bss, 325 in the part.
 
-#### 130.45.13 PLAYGROUND on the 8088 (the owner's replay, 2026-11-18)
+#### 130.46.13 PLAYGROUND on the 8088 (the owner's replay, 2026-11-18)
 
 **The owner**: PLAYGROUND, the stress course, plays smooth on the CGA but
 on the VGA slows *"even the music"*. **Measured** (MartyPC, the 8088 at
 4.77 MHz, the owner's `PLAY.BZR`, 20 guest seconds, a CS:IP sample every
 15 - 45k clocks): the VGA presents **24 - 26 frames a second** and the game
 falls to **46 - 47 steps** of 54.6 (the music is the steps' clock); the CGA
-48 frames and 53 steps. LATTICE measures the same as 130.45.12's camera:
+48 frames and 53 steps. LATTICE measures the same as 130.46.12's camera:
 the camera is not the cause.
 
 | | VGA | CGA |
