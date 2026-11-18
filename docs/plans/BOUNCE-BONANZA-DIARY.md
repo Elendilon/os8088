@@ -81,7 +81,7 @@ at that stop.
   columns. With the camera clamped at the course's top, the ball sits high in
   the window, and its box was still unwritten when the beam passed: one
   refresh showed the ball where it was. The fix writes the entering column
-  in raster order round the boxes (SPEC.md 128.2 rule 4).
+  in raster order round the boxes (SPEC.md 130.2 rule 4).
 - **The first route never scrolled up.** A host simulation of the autopilot
   and camera found it. The route gained a return leg, and `--selfcheck` now
   asserts that every axis goes both ways.
@@ -119,7 +119,7 @@ it hops every frame, and that reads as motion.
 
 The fix is a camera rule rather than a renderer: **rest, or move fast; never
 trickle.** Wave 0b ships three camera modes so the owner can choose by feel
-(SPEC.md 128.9): GLIDE, FOLLOW, and wave 0's TRICKLE as the control. TITHE
+(SPEC.md 130.9): GLIDE, FOLLOW, and wave 0's TRICKLE as the control. TITHE
 took about twenty rounds to feel right, and this is expected to be the same
 kind of loop.
 
@@ -129,12 +129,12 @@ kind of loop.
 **What was built.** Three camera modes, cycled with `C` in play or on the
 desktop face: GLIDE (rest inside the dead zone, then pan fast with a lead),
 FOLLOW (a camera velocity that eases toward the ball's), and wave 0's
-TRICKLE as the control. The optimisation list from SPEC.md 128.9, and the
+TRICKLE as the control. The optimisation list from SPEC.md 130.9, and the
 Hercules ball's mid tone now follows the course's checker instead of
 striping across it.
 
 **Measured** (MartyPC, the 1,200-frame benchmark, A/B against wave 0 built
-with its own art; SPEC.md 128.9 has the full table):
+with its own art; SPEC.md 130.9 has the full table):
 
 | | CGA wave 0 | CGA wave 0b | Hercules wave 0 | Hercules wave 0b |
 |---|---|---|---|---|
@@ -196,7 +196,7 @@ of the game.
   not only into pits. The worked example needs 32 records in one block row
   and 23 at one ball position, against bounds of 24 and 8; the benchmark
   needs 79 and 29. The tool refuses at 96 and 32 for now, and the choice is
-  the owner's (SPEC.md 128.10.12 O8).
+  the owner's (SPEC.md 130.10.12 O8).
 - **The benchmark course had to get narrower.** The void band round a course
   reaches four tiles sideways on screen, and every place the ball can be has
   to fit in the 512-pixel picture. Wave 0b's course was half again too wide.
@@ -246,7 +246,7 @@ with wave 0b's flat motion; physics comes next.
 
 ## 2026-11-12 (wave 1, the ball goes behind things)
 
-The occluder stage put the rule of SPEC.md 128.10.4.4 into the box compose.
+The occluder stage put the rule of SPEC.md 130.10.4.4 into the box compose.
 
 - **One routine, entered from the end of the compose.** `bz_occ` runs after
   the ball is drawn into a box. It visits only the new footprint's blocks,
@@ -262,7 +262,7 @@ The occluder stage put the rule of SPEC.md 128.10.4.4 into the box compose.
   footprints take two boxes, the card gets the FIRST box's bytes where the
   two overlap, and the first box is the old footprint's. So every box runs
   the pass, clipped to its share of the new footprint. A box with no share
-  walks nothing. SPEC.md 128.10.8 item 1 now says so.
+  walks nothing. SPEC.md 130.10.8 item 1 now says so.
 - **The cell's flag is a saving, never a verdict.** The pass runs only when
   the ball's cell is marked as one where a record could ever be laid. If a
   test has poked the ball somewhere and no step has run since, the window
@@ -291,7 +291,7 @@ The occluder stage put the rule of SPEC.md 128.10.4.4 into the box compose.
 
 ## 2026-11-12 (wave 1, the rows that will judge it)
 
-SPEC.md 128.10.11.3's rows were written in this stage and NOT run: the
+SPEC.md 130.10.11.3's rows were written in this stage and NOT run: the
 final pass runs every one of them once, with its red arms, and measures
 the `secs` each is registered with (all predicted here, and each row's
 description says so).
@@ -311,7 +311,7 @@ description says so).
   columns of a pan to the right. The probe settles the window low on the
   course's right instead and pans up and LEFT; the host model gives about
   12 qualifying frames on the CGA and 8 on the Hercules, against the five
-  required. SPEC.md 128.10.11.2 now says so.
+  required. SPEC.md 130.10.11.2 now says so.
 - **Physics is checked exactly, every frame.** `bonanzaphys` steps the
   host model to the guest's step count at every presented frame and
   compares eight numbers with no tolerance, over the benchmark on both
@@ -449,7 +449,7 @@ Story 1.3 is the one left unticked for that reason.
 
 ## 2026-11-12 (wave 2, the contract)
 
-Wave 2 is "feel", and its contract (SPEC.md 128.11) was written before any of
+Wave 2 is "feel", and its contract (SPEC.md 130.11) was written before any of
 its code. What it decides, and the one thing it measured to decide it:
 
 - **Three balls, and the hard fall as a mechanic.** The owner's D4 becomes
@@ -484,11 +484,11 @@ its code. What it decides, and the one thing it measured to decide it:
   it on either card and the host model runs the same bytes, which is the new
   `bonanzareplay` row.
 
-Intentions, not yet observations: every cost and size in 128.11.15 and
-128.11.16 is predicted; the final pass measures them.
+Intentions, not yet observations: every cost and size in 130.11.15 and
+130.11.16 is predicted; the final pass measures them.
 
 That was the first draft. The review below changed several of its
-numbers, and SPEC.md 128.11 is the authority: the 6-unit rebound is 3.7
+numbers, and SPEC.md 130.11 is the authority: the 6-unit rebound is 3.7
 units, the stun's fall 2 units and the shatter's 3, a Hop also fires at a
 contact (never adding to the rebound), the merge takes 10% on `BENCH` (13%
 on First Roll) with the final reach, and the package is predicted at 47 -
@@ -556,7 +556,7 @@ GLIDE and TRICKLE as the player's choice and drop FOLLOW. That matches what
 the wave-0b cadence measurement predicted - a camera that matches the ball's
 speed must hop as often as the ball crosses 8 px, so FOLLOW only evened the
 gaps - and the eye agreed with the numbers. Folded into wave 2 while its
-build was on its first stage (SPEC.md 128.11.11.1, story 2.15).
+build was on its first stage (SPEC.md 130.11.11.1, story 2.15).
 
 **Two more answers the same evening.** The benchmark route: the owner had
 only wave 1's, which "kind of goes in a circle a bit on a single bit of the
@@ -580,7 +580,7 @@ record pair no reachable position can tell apart becomes one record with
 its masks ANDed), bounds them per BLOCK (4) rather than per row, sets the
 new `OCCG` flag, and iterates the reach - the Hop's launch and every bounce
 bounded by the energy that reached it - to a fixed point. `Physics` is
-SPEC.md 128.11.8's step: the arrows' ramp, Hop with its window, Grip, half
+SPEC.md 130.11.8's step: the arrows' ramp, Hop with its window, Grip, half
 air control, landings judged against the floor's own rate, stun, shatter,
 reflecting walls with a symmetric edge test, and surfaces from a generated
 force/drag/brake table. `Glide` - the GLIDE model waves 0b and 1 wrote and
@@ -629,7 +629,7 @@ both parts in place before the bracket. `M` cycles the ball, `N` the course
 `R` is wired to replay the log once the recorder writes one. The face names
 the course, the ball and the camera.
 
-**A decision the contract had priced the other way.** SPEC.md 128.11.3
+**A decision the contract had priced the other way.** SPEC.md 130.11.3
 priced the translation as an unrolled block (8 lines, about 665 clk) with a
 `xor bh, 1` between tables. Two things changed it. The table lives in bss,
 whose address the assembler does not know, so `xor bh, 1` toggles between
@@ -663,7 +663,7 @@ and no squash, shadow or shatter; those are the engine stage's.
 
 ## 2026-11-12 (wave 2, the step)
 
-**What was built.** `bzphys.inc`'s `bz_step` is SPEC.md 128.11.8's: a key
+**What was built.** `bzphys.inc`'s `bz_step` is SPEC.md 130.11.8's: a key
 byte a step (the arrows, Space, Left Shift); the arrows' levels ramping up
 one a step and coasting down two; the Hop's six-step window, from the ground
 or at a contact, leaving at `max(HOP, rebound)` so it never pumps a bounce;
@@ -679,7 +679,7 @@ a 101-key keyboard's fake shifts from reading as Grip.
 
 **How it was checked.** The package's own bytes, assembled from the tree and
 run in an emulated 8086 on the host, against `bbcourse.Physics` at every
-step, comparing all of 128.11.8.1's state (the levels, the window, `kprev`,
+step, comparing all of 130.11.8.1's state (the levels, the window, `kprev`,
 the state and its count, the squash, `bz_gh`, the four counters, `lvz`):
 the benchmark on `BENCH` and `TRIAL` with every ball, scripted plays on
 `TRIAL` (the drop, the mat, the bumpers, the ice, the sand, the goal), and
@@ -763,7 +763,7 @@ measures it.
 
 ## 2026-11-13 (wave 2, the review's fixes)
 
-Four reviewers read the built wave against SPEC.md 128.11 - the picture, the
+Four reviewers read the built wave against SPEC.md 130.11 - the picture, the
 physics, the cost and the OS boundary - and fourteen findings came back.
 Everything below was checked on the host only; no emulator row ran.
 
@@ -795,7 +795,7 @@ scratch) gave the A/B for each fix:
 - `bz_tcmid`'s two marks gone, so a frame's marks do not grow with its boxes;
 - the wall restitution's `MUL` skipped when the answer is 0 by arithmetic.
 
-128.11.15 now carries the frame priced from the code and the busy restated
+130.11.15 now carries the frame priced from the code and the busy restated
 from it: about 43 - 43.5k on the CGA (54 - 55%), which puts `BENCH`'s
 "dying behind an edge at the bounds" frame at about 1.01 refreshes in the
 benchmark. That is a prediction for the final pass to measure, not a claim.
@@ -880,7 +880,7 @@ frames draw nothing), but 8 misses on the CGA and 2 on the Hercules.
 Six of the CGA's and both of the Hercules' are the fall and the flight
 over `OCC` cells, which the fallback layout allows. Two are the GROUNDED
 roll down the steep ramp, with GLIDE panning two rows a frame, which
-nothing allowed for; they are reported in 128.11.15 and the course is
+nothing allowed for; they are reported in 130.11.15 and the course is
 the owner's to tune. Sizes: image 14,200 (predicted about 15,100), bss
 5,805 (5,700), the region 19,968 (21.0KB), `BONANZA.O88` **47,334**
 against wave 1's 64,509 (predicted 47 - 51KB).
@@ -891,7 +891,7 @@ is the fake shift on a real 101-key keyboard (2.4, 2.12).
 
 ## 2026-11-13 (wave 3, the lanes and the wheel in the guest)
 
-The guest half of SPEC.md 128.12.4 and 128.12.5, in a new file,
+The guest half of SPEC.md 130.12.4 and 130.12.5, in a new file,
 `apps/bonanza/bzwheel.inc`, with the frame loop rearranged round it:
 `bz_t0` now runs `bz_foot` (the ball's screen state and its new
 footprints, moved out of the camera and the box layout), `bz_props` (the
@@ -942,7 +942,7 @@ Sizes: image 18,373 bytes (14,236 at this stage's start: wave 2's 14,200
 and `MILL`'s rows in the course tables), bss 6,121 (5,805); `bzwheel.inc`
 alone 3,920 bytes against about 2.1KB the contract priced for these parts.
 
-### Wave 3, the obstacles' physics (SPEC.md 128.12.6)
+### Wave 3, the obstacles' physics (SPEC.md 130.12.6)
 
 The windmill's gate, the tubes and their ghost, the bumpers' kick and the
 platform's carry went into `bzphys.inc`, step for step against
@@ -1004,7 +1004,7 @@ platform's carry went into `bzphys.inc`, step for step against
 Sizes: image 18,373 -> 21,387 bytes (+3,014, of which the props' physics
 2,865), bss 6,121 -> 6,160, `BONANZA.O88` 64,597 -> 66,501.
 
-### Wave 3, the slab on the glass and the engine's last pieces (SPEC.md 128.12.4.3 - 128.12.4.5)
+### Wave 3, the slab on the glass and the engine's last pieces (SPEC.md 130.12.4.3 - 130.12.4.5)
 
 The previous entry ended with the ball riding over a black moat. This stage
 drew the slab and checked the rest of the frame's new rules: the contact
@@ -1028,7 +1028,7 @@ contract rather than rewritten.
   contact lane's frame scrolls nothing), but TRICKLE scrolls whatever the
   heavy rule says. As built the lane yields: its map words go back to its
   drawn pose and it waits a frame, as a second lane touching the ball
-  already does. SPEC.md 128.12.4.3 now says so.
+  already does. SPEC.md 130.12.4.3 now says so.
 - **Checked by emulation, broken on purpose.** The package's own frame code
   ran under unicorn on `MILL` against an independent card oracle: rides
   from five phases of the slab's period, Hops, a ball under the slab (the
@@ -1063,7 +1063,7 @@ Sizes: image 21,387 -> 22,235 bytes (+848: 729 of routines, the rest hooks
 and the Hercules translation), bss 6,160 -> 6,179, `BONANZA.O88` 66,501 ->
 67,205. The contract priced the slab's drawing and translation at about 310.
 
-### Wave 3, the owner's preview: seven fixes (SPEC.md 128.12.16)
+### Wave 3, the owner's preview: seven fixes (SPEC.md 130.12.16)
 
 The owner played a preview of the wave on 86Box (a 5150 with the CGA) before
 the rows ran. "Most of this looks very good." Then four defects, a tuning
@@ -1112,7 +1112,7 @@ fuzz on a second lift course with a wall beside its shaft) - integer-exact;
 lit posts, each with a negative control built from what the preview showed;
 and one look boot a card. The rows are the final pass's.
 
-### Wave 3, the review: what four readers found (SPEC.md 128.12.17)
+### Wave 3, the review: what four readers found (SPEC.md 130.12.17)
 
 Four reviewers read the built wave with different questions - what reaches
 the glass, what physics does, what it costs, and what the OS sees - and
@@ -1154,7 +1154,7 @@ was real. The ones worth remembering:
 The image grew 745 bytes (22,218 -> 22,963) and bss 307 (six wheel slots,
 the walk's per-lane tables and the lift's second rectangle). The walk's own cost fell from the review's
 8 - 11k clocks a `MILL` frame to a mean of 3.9k (CGA) and 4.5k (Hercules)
-on the host's instruction pricing - still about twice what 128.12.11
+on the host's instruction pricing - still about twice what 130.12.11
 predicted, which the final pass will measure on MartyPC.
 
 How it was checked: the physics cross-check again (integer-exact over
@@ -1164,7 +1164,7 @@ against an independent card oracle (100 lift scenarios and 900 frames of
 `MILL`'s autopilot a card), plus one negative control per picture fix. No
 row ran; they are the final pass's.
 
-### Wave 3, the final pass: what the rows measured (SPEC.md 128.12.18)
+### Wave 3, the final pass: what the rows measured (SPEC.md 130.12.18)
 
 The nine rows ran once as one scoped soak call on MartyPC (and 86Box for
 kern_mega), after a first attempt at this pass was cut off by a container
@@ -1238,10 +1238,10 @@ Measured against the predictions:
 
 Wave 3b added no obstacle. It went after what wave 3's final pass had
 measured: the lift's frames, the wheel's commit, the heavy rule's effect on
-`TRIAL`, and six red arms that never met their case. SPEC.md 128.13 is the
-contract; the sound (128.20), built by another session on the same branch,
+`TRIAL`, and six red arms that never met their case. SPEC.md 130.13 is the
+contract; the sound (130.20), built by another session on the same branch,
 had landed first, so every target was measured with the sound off and on
-instead of through a harness pad (128.13.15).
+instead of through a harness pad (130.13.15).
 
 What was built, in four stages and a review round:
 
@@ -1261,7 +1261,7 @@ What was built, in four stages and a review round:
 - **The step.** The physics step's two copies of steps 4 - 6 became one
   (-560 bytes of image, -48 in the packed file).
 
-### Wave 3b, the final pass: what the rows measured (SPEC.md 128.13.16)
+### Wave 3b, the final pass: what the rows measured (SPEC.md 130.13.16)
 
 The eleven BONANZA rows ran as one scoped soak, then every red arm once.
 Ten rows pass. Two things still fail, and both are written down with their
@@ -1322,7 +1322,7 @@ Measured against the predictions:
   than wave 3, where 206 fewer was predicted. `BONANZA.O88` is 77,275
   bytes, still on one 360KB floppy.
 
-### Wave 3b, the verification: what a second reader found (SPEC.md 128.13.17)
+### Wave 3b, the verification: what a second reader found (SPEC.md 130.13.17)
 
 An independent verifier rebuilt everything from clean, ran every host gate
 and every row's `--check`, and looked at both cards. Nothing it checked was
@@ -1363,7 +1363,7 @@ as the final pass left them.
 
 ## 2026-11-13 (wave 4, the contract)
 
-SPEC.md 128.14 was written before any code, from four questions. What is
+SPEC.md 130.14 was written before any code, from four questions. What is
 a game here? How does a clock get onto a card with no split screen? What
 does a demo on the disk have to survive? And does the package have to be
 split up?
@@ -1433,10 +1433,10 @@ except the logged legs' own.
 scroll, we can keep it very minimal or even not have one. Gameplay and on
 course features outrank it." So wave 4 builds the HUD last, OFF by default,
 and ships it only if it costs MILL at most two missed frames a card with the
-speaker on (SPEC.md 128.14.16); otherwise it is removed and the clock lives on
+speaker on (SPEC.md 130.14.16); otherwise it is removed and the clock lives on
 the results face.
 
-## 2026-11-14 (wave 4, the final pass: what the rows measured, SPEC.md 128.14.26)
+## 2026-11-14 (wave 4, the final pass: what the rows measured, SPEC.md 130.14.26)
 
 Wave 4 was built in seven stages on one tree: the tool and the two new
 courses, the props in the guest, the round openings the owner asked for,
@@ -1775,12 +1775,12 @@ idea:
 
 ## 2026-11-14 (wave 5b's contract, checked cold, and the owner's answers)
 
-SPEC.md 128.15 was written before any code, and a cold consistency check
+SPEC.md 130.15 was written before any code, and a cold consistency check
 read it against the code and re-took its sizes. It left three things to
 fix, and the owner answered the open questions the same day.
 
 **The sizes were re-measured, not re-predicted.** The first figures in
-128.15.14 were a layout measurement plus two adjustments, and both
+130.15.14 were a layout measurement plus two adjustments, and both
 adjustments were wrong. The check built each course's stored form from
 its real part at `ef59209a` (the real header and directory, row planes
 with the high bits first, each section's own hole, the follow-up's
@@ -1804,7 +1804,7 @@ real figures are slightly higher) and packed it:
   records). Today every launch drops the course on the way out, so 5b is
   safe. Wave 8b fetches inside one bracket, so it must drop before a
   re-fetch or keep an "expanded" flag per claim. That is now a written
-  requirement in 128.15.4.5 and in the plan's wave 8b.
+  requirement in 130.15.4.5 and in the plan's wave 8b.
 - In `bz_oand`, AX already holds `bz_ofl2` when the mask is read. D's
   table lookup needs AX, so it moves in front of that load. Same
   instructions, same price.
@@ -1911,7 +1911,7 @@ these parts: ALL OK and equal.
 
 On the Hercules the ghost reads as a 2 x 1 grey over white and cyan, but
 barely at all over magenta, which that card already draws as a pattern.
-That is an owner's question (SPEC.md 128.15.15), not a fix.
+That is an owner's question (SPEC.md 130.15.15), not a fix.
 
 **The rows** gained a claim leg (`bonanzaexit`: the course claim at the
 bracket equals the tool's RAM form, all six courses), a PEAK demo leg
@@ -1997,7 +1997,7 @@ could decide a 13KB memory lever, the lever long courses need.
 - D's code is back behind the `BZREC` knob, taken from the last copies
   saved before the deletion. The default is now 8, so the shipped build is
   still C, byte for byte.
-- The rule is now about smoothness. SPEC.md 128.15.5.4 has it in full;
+- The rule is now about smoothness. SPEC.md 130.15.5.4 has it in full;
   in short:
   - **Count missed refreshes off the flip.** A frame held three refreshes
     missed two. The time a frame is reported presented jitters too much to
@@ -2077,7 +2077,7 @@ bytes larger than C's and the package 2,256 smaller.
 `bonanzawheel` failed only its known check (6) on the CGA. `bonanzaperf`
 failed once: one wheel lane was late (`bz_rwlate` 1) in PEAK's demo on the
 CGA with the sound on. Re-run alone, it passed. That is the open race in
-SPEC.md 128.13.17 item 6, which was first seen on MILL in wave 3b; D's
+SPEC.md 130.13.17 item 6, which was first seen on MILL in wave 3b; D's
 extra clocks are one more input to it, and it stays open. The by-hand
 BENCH A/B against `ef59209a` passed: +314 clk on the CGA and -143 on the
 Hercules, against a limit of +500. C was at -19, so D uses most of that
@@ -2096,7 +2096,7 @@ every ball, in different amounts. Rubber gets one boost a Hop. The drag is
 now fractional. There is a CGA palette per course, a camera that follows
 the ground line rather than the ball, and a seventh course, the
 PLAYGROUND, for gate 1. This entry is its final pass: every BONANZA row
-once, every red arm once, and the measurements SPEC.md 128.16.10 asks of
+once, every red arm once, and the measurements SPEC.md 130.16.10 asks of
 this pass. The re-baseline is the freeze's, after the owner plays.
 
 **The rows.** One scoped soak: ten rows passed and three failed. None of
@@ -2172,7 +2172,7 @@ is asked for and checked before it is committed.
 ## 2026-11-15 (wave 6b, the gate 1 retune: built, measured, and held)
 
 The owner played wave 6's playtest disk and wrote back four things
-(SPEC.md 128.17, verbatim there): braking "a bit high all around, lets try
+(SPEC.md 130.17, verbatim there): braking "a bit high all around, lets try
 6/3/1"; a boost they could "only get to bounce maybe 1 out of 20 tries and
 never when I'm moving"; 3-tile gaps "probably fine, if we design with it in
 mind"; and a camera that "bops back and forth" at the bottom of MILL's
@@ -2261,7 +2261,7 @@ the benchmark, where the goal ends nothing, and reports all nine falls).
 `bonanzaperf`'s 3b check that no one-step frame of BENCH misses now
 applies to frames that pan nothing, since BENCH's pans are LATTICE's now.
 One failure is real and left open: a wheel lane shown late on PEAK's
-Hercules demo (`bz_rwlate` 1), an old race (128.13.17 item 6) that LATTICE
+Hercules demo (`bz_rwlate` 1), an old race (130.13.17 item 6) that LATTICE
 made reproducible.
 
 **The arms.** Seventy emulator arms ran once, every one the wave added or
@@ -2334,7 +2334,7 @@ contact has landed the ball. Rather than spend a resident flag on a rule
 the engine already keeps, item 7 now asserts it over 2,303 steps of held
 and mashed Space, including falls, and the carried `pump` control (a
 contact Hop re-arming the token) breaks it eleven times. The rule is still
-written down as binding (SPEC.md 128.17.16.3), because the owner means to
+written down as binding (SPEC.md 130.17.16.3), because the owner means to
 lean on it in a course.
 
 Measured on the host: +36 bytes and +2 bss; the ladders unchanged; the
@@ -2524,7 +2524,7 @@ an engine limit: the window bound counted every lane the same, so the
 pathway held five nodes "because a screen can show at most six signs".
 The brief meant 2 - 6 ACTIVELY ANIMATING items a screen, with slow ones
 (a crystal that changes once a second) cheap enough to have many, and
-maps with many more than six. SPEC.md 128.19.10 is the rework, all six
+maps with many more than six. SPEC.md 130.19.10 is the rework, all six
 items approved: lanes bounded by RATE (rotors at most 6 a window, pose
 changes at most 6 a step); the tables sized by the largest course; a
 full write that syncs the shown window only; a binary-searched owner
@@ -2577,7 +2577,7 @@ respawn cell - and the build writes their course identity itself, because
 that identity is a checksum over every pixel of the picture, and the owner
 expects to repaint the art.
 
-**Decided** (SPEC.md 128.23): the title is a course after the pathway; a
+**Decided** (SPEC.md 130.23): the title is a course after the pathway; a
 `view` statement pins the window; `art` paints a committed pixmap over the
 finished picture; a `label` lane shows the slot digit; four `.bzt` demos of
 exactly 832 steps (15.23 s); a seventh song of exactly that length whose
@@ -2729,7 +2729,7 @@ checkered finish lets the ball roll off an edge without dying. Mid-build
 they added the last of those, and that the screen must not scroll during the
 finish.
 
-SPEC.md 128.22 was written first, then the work fanned out
+SPEC.md 130.22 was written first, then the work fanned out
 (`story-fanout`): the course tool (Opus), the finish sequence, the cards and
 save, the sounds and the art (Sonnet), then the guest's pathway (Opus) once
 the tool's formats were fixed. Every branch got an independent Opus
@@ -2761,7 +2761,7 @@ The one perf failure was older than the wave: the same late frame appears on
 the commit before it, the open item wave 10 owns.
 
 What it cost: the resident image 36,184 -> 39,897 bytes across the
-afternoon, the title screen's own code (128.23) included; wave 8R's share is
+afternoon, the title screen's own code (130.23) included; wave 8R's share is
 the finish +343, the cards and save +513, the sounds +161 and the signs,
 camera, follower and loop +1,832 net (2,849). The bss 9,080 -> 10,087, most
 of 8R's part the lane tables the pathway's 23 lanes size. The pathway part
@@ -2795,7 +2795,7 @@ Wave 8 was rebuilt because its plan and the owner had drifted apart, so wave
 9 began with a review of the plan before any contract. The plan's wave 9 had
 been written two days and a whole rework earlier, and the review turned up
 places where it no longer described the tree: the "at most 6 lanes a window"
-limit that 128.19.10 had already replaced with rate bounds, a claim table
+limit that 130.19.10 had already replaced with rate bounds, a claim table
 already full, and a test course that was going to be thrown away.
 
 The owner's framing settled the scope: this is the wave that lets every
@@ -2863,7 +2863,7 @@ against 0.4), and reads no older format (the owner: nothing is released).
 The four known-broken checks were all fixed, none removed; and a flaky sound
 row turned out to be the test racing FIRST's own 15-second clock.
 
-Diagonal tiles became a contract (SPEC.md 128.24) with pictures, and the owner
+Diagonal tiles became a contract (SPEC.md 130.24) with pictures, and the owner
 chose HALF and QUARTER cells, with CHANNELS (a tile that cradles the ball) as
 the next core type the format reserves room for. Wave 9 started in another
 session the same afternoon; the two sessions trade file and routine lists
@@ -2908,7 +2908,7 @@ assembled), `bonanza_phys.py --check`. **Not yet run**: `bonanzaring`'s
 camera leg on MartyPC, the guest's `BZL_PRE` against the model; it is in
 wave 9's final pass.
 
-## The window (SPEC.md 128.26; the plan BOUNCE-BONANZA-WINDOW.md)
+## The window (SPEC.md 130.26; the plan BOUNCE-BONANZA-WINDOW.md)
 
 *2026-11-16, a session beside wave 9's.* The owner's brief: the desktop window
 "up to spec", and the development keys and decided experiments out of a
@@ -2952,7 +2952,7 @@ base, not an argument: `bonanzapath`'s red was already there, and
 
 ## 2026-11-16 (grounded faces: the courses stop floating)
 
-*SPEC.md 128.27; the plan's story 9.10.* The owner looked at the courses and
+*SPEC.md 130.27; the plan's story 9.10.* The owner looked at the courses and
 asked why everything floated. Every face over the void hung three units
 (24 px, the tool's `FACE8`) and stopped, so a terrace six units up and a
 field at the bottom read the same: thin slabs in the dark. The question was
@@ -3020,7 +3020,7 @@ red), previews on both cards. The emulator rows are the final pass's.
 
 ### Wave 9: the recipe corrected, and the checks made fast (story 9.7)
 
-**What the recipe missed.** SPEC.md 128.25.6.8 was written before any family
+**What the recipe missed.** SPEC.md 130.25.6.8 was written before any family
 existed, as six steps. GLASS took it first, PICKUPS second, and the crack
 bug a third time; story 9.7 rewrote it as eight. The new steps are the ones
 nobody thought of until a family needed them:
@@ -3101,13 +3101,13 @@ face to the course count. The tour was every course but BENCH, and MAIN,
 the old text face, gave each tour course a scorecard line. Six courses
 made thirteen lines, exactly what a CGA window holds, and `bzface.inc`
 refused to build unless the line count was seven plus the tour. Since the
-window became pictures and a Play Game button (SPEC.md 128.26), MAIN and
+window became pictures and a Play Game button (SPEC.md 130.26), MAIN and
 the tour only answer while a test row sets `bz_dev`. They are
 instruments. The owner: *"1 and 2 seem good; those are both knob/test
 only now"*: drop the scorecard, and stop making every course a tour
 course.
 
-**What was done (SPEC.md 128.26.8).**
+**What was done (SPEC.md 130.26.8).**
 - MAIN is seven lines: the tour line, then the six it always had. The
   scorecard builder, its columns, its strings and its fit check went from
   the shell part. RESULTS still uses all thirteen lines.
@@ -3145,9 +3145,9 @@ the scratch builds. **Not run:** the emulator rows that walk the tour
 
 ## 2026-11-16 (shaped floors, C0: chutes and the pit as one table-driven cell)
 
-*Branch `bounce-shaped`; the contract SPEC.md 128.28, the plan
+*Branch `bounce-shaped`; the contract SPEC.md 130.28, the plan
 [BOUNCE-BONANZA-SHAPED.md](BOUNCE-BONANZA-SHAPED.md).* The owner had
-reserved kind 7 for a CHANNEL (128.24.13) and asked next for a pit "made of
+reserved kind 7 for a CHANNEL (130.24.13) and asked next for a pit "made of
 curved sides that you have to enter with enough speed to make it around and
 over and fly up the other side". An investigation before this wave rolled
 prototype channels built from today's ramps and halves through the model.
@@ -3168,7 +3168,7 @@ occluders, not the shading, are the biggest byte cost.
   symmetries. A straight, a taper, each corner cell and each piece of a bowl
   is a table; a chute turning the other way is the same tables mirrored.
 - The cell's own four bytes carry it: the slopes byte became the shape and
-  the symmetry, as 128.10.4.3 had always planned for its reserved kinds; no
+  the symmetry, as 130.10.4.3 had always planned for its reserved kinds; no
   record in section `D`. The tables are a new section `F`.
 - The slopes are forward differences of the table - two more byte reads -
   so no multiply enters the floor path, and the bound `|sx| + |sy| <= 7`
@@ -3230,7 +3230,7 @@ BONANZA.O88 +680 bytes resident, +36 bss.
 
 ## 2026-11-17 (shaped floors, C5: grounded faces merged in, and a knob build to play)
 
-*SPEC.md 128.28 (renumbered from 128.27, which bounce-bonanza's GROUNDED FACES took first).* The
+*SPEC.md 130.28 (renumbered from 130.27, which bounce-bonanza's GROUNDED FACES took first).* The
 owner asked for "a knob build with various shapes on a course to try ... a course I can easily
 launch". Merging bounce-bonanza first moved three things. A FIELD cell's faces over the void now follow
 the ground rule (and `float`) sample by sample along the profile, as `draw_ops` does for a plane. The
@@ -3254,15 +3254,15 @@ the answer was routes leaving pad 0 straight left and straight right on the scre
 The owner's brief: unmerged work pushes even PLAYGROUND past the 65,024
 bytes one part may be, so a course needs a second segment - and *"this
 must not hurt frame performance. Be smart about it."* Plan story 11.9,
-SPEC.md 128.30.
+SPEC.md 130.30.
 
-**The escape on file was the wrong one.** 128.15.8 had sketched the
+**The escape on file was the wrong one.** 130.15.8 had sketched the
 two-part course in wave 5b: the picture (map and blocks) in one part,
 everything else in the other, "a segment switch per laid group in the
 occluder lay, tens of clocks". It was an estimate nobody had built. So
 this round started by reading every place the guest touches the course
 part and writing down which sections each one reads, and through which
-segment register (128.30.2). Three hot loops each read two kinds of
+segment register (130.30.2). Three hot loops each read two kinds of
 section at once:
 - the occluder lay's line loop reads a block line (the picture), the box,
   and a mask (the occluders) - three segments in one loop;
@@ -3293,7 +3293,7 @@ the shipped package is byte for byte today's.
 The price of choosing it: the picture part has less room than the
 sketch's would. PLAYGROUND's picture plus occluders are about 39KB of the
 65,024, so about 26KB of growth; past that the next lever is a third part
-for the occluders, at clocks (128.30.10, an open question for the owner).
+for the occluders, at clocks (130.30.10, an open question for the owner).
 
 **What was measured.**
 - The shipped `bonanzadisk`, built before and after in private trees:
@@ -3334,7 +3334,7 @@ the ones that do read the changed tool or Makefile are `bonanzacourse` and
 The shaped floors and two-segment courses met in one tree: PLAYGROUND got
 wave C4's walkway and chutes back, and the radius-3 pit that never fit,
 which took it to 65,513 bytes as one part - so it became the first shipped
-two-part course (SPEC.md 128.30.11). The owner played it and asked one
+two-part course (SPEC.md 130.30.11). The owner played it and asked one
 question: *what does it cost - the package, the image, any CPU?*
 
 **Three trees, not two.** Comparing the owner's branch (A) with the merged
@@ -3377,7 +3377,7 @@ emulator rows themselves are the final pass's.
 
 ## 2026-11-17 (shaped floors, the picture: magenta, and the floor's grid bending into the shape)
 
-*SPEC.md 128.28.6.* The owner, looking at the knob build: "We might work on the dither visuals a bit."
+*SPEC.md 130.28.6.* The owner, looking at the knob build: "We might work on the dither visuals a bit."
 The first ink shaded each facet against a light from the upper left in six bands - white, white/cyan,
 the parity ink, parity/magenta, magenta, magenta/black - and on the glass the chute walls were a dark
 checker with lighter speckled edges: noise. The picture blocks were also the largest packed cost of a
@@ -3483,7 +3483,7 @@ default's identity, so a `BZFSHOW=1` build re-stamps it with its own (only when 
 the course compiled with the rule off; the rule moves the picture and never the physics, and the
 model's replay still checks the demo step for step) - otherwise the toggle would refuse to build.
 
-**What A costs, PREDICTED** (128.10.9's 55 clk a record passed over, 1.4k a record laid, on the
+**What A costs, PREDICTED** (130.10.9's 55 clk a record passed over, 1.4k a record laid, on the
 model's grounded steps on FIELD cells): about 2.2k clk a grounded step on SHAPE's chutes (median 1.4k,
 worst 12.9k), 1.5k on PITS, 2.4k on PLAYGROUND - where B spends nothing. Not measured on a 5150; the
 final pass's `bonanzaperf` is where that number comes from. **Tested**: host only - `make`, the shipped
@@ -3498,7 +3498,7 @@ never a physics step - and none of its cells was OCCG, so its 452 occluder recor
 tool now compiles a `pathway` course with no occluders (a rule, not a statement; no guest change). MEASURED:
 its part 24,150 -> 21,994 bytes of RAM, LZ4 8,390 -> 7,627, LZB 7,153 -> 6,551; identity C78Ah -> 98BAh,
 so a game in progress saved by an older build starts afresh (its slot names the old pathway). `--selfcheck` holds it at 0 records, with a negative control and a red arm (the rule
-removed: 452 records, red). The pathway's growth to 14 - 20 pads is parked. SPEC.md 128.31, plan 11.10.
+removed: 452 records, red). The pathway's growth to 14 - 20 pads is parked. SPEC.md 130.31, plan 11.10.
 
 ## 2026-11-17 (the glass demo, again: a bridge, a ramp and a spring)
 
@@ -3525,7 +3525,7 @@ route was a setup and a payoff: glass stops beside spring 2, backs off,
 and later skids onto it at speed. The owner had been about to propose the
 same path, and changed two things: glass should TRY the ramp and fail,
 then try the spring to get up; and it should enter over a hidden glass
-bridge (the GLASS family's path tiles, 128.25.8) that steel never found,
+bridge (the GLASS family's path tiles, 130.25.8) that steel never found,
 which also lets the pit become a real gap. The bridge is on LL's back
 row, because spring 1 and steel's fall are on the centre row.
 
@@ -3607,7 +3607,7 @@ is the measurement, and
 - **58% of the records exist only for a ball in a VOID cell**: falls and
   flights over gaps.
 - **Most records can be computed.** Since every face reaches the ground
-  plane (128.27), the picture under a front cell's top edge is that cell's.
+  plane (130.27), the picture under a front cell's top edge is that cell's.
   A model that reads up to 14 cells in front of the ball hides at most 0.1%
   of the ball's pixels that the rule does not. "Residual" records cover
   what it cannot see: props, split cells, cells further away. Everywhere
@@ -3630,7 +3630,7 @@ million positions of the binding physics, and the fall pictures in
 ## 2026-11-17 (AV: the occlusion computed in the void, built and timed)
 
 The owner: *"Let's try AV so I can play with it ... and see how much those
-fall-frame costs are."* AV is built (SPEC.md 128.29, branch
+fall-frame costs are."* AV is built (SPEC.md 130.29, branch
 `bounce-bonanza-av`): when the ball is in a VOID cell the occluder pass
 computes what hides it from the 14 cells in front of it, out of the grid's
 own bytes, and the part keeps only the residual records the computation
@@ -3689,7 +3689,7 @@ The owner, on AV's fall frames costing four to ten times the prediction:
 *"half the time when these come in so much higher it's because someone did it
 totally differently, and there is a cheaper way to do it after all."* An
 independent pass over the code and the approach (branch
-`bounce-bonanza-av2`, SPEC.md 128.29.5 and 128.29.9).
+`bounce-bonanza-av2`, SPEC.md 130.29.5 and 130.29.9).
 
 - **Why the estimate missed (PRICED from the instructions on the real fall
   frames).** The plan priced one frame's work: read the front cells, build 4
@@ -3740,7 +3740,7 @@ legs on both cards. **Not run**: the soak rows (the final pass's:
 
 The owner on the speed pass's two levers: build the neighbour reuse (*"the
 performance is worth it"*), hold the fold as a future item; then make AV
-merge-ready against `bounce-bonanza` (SPEC.md 128.29.5, 128.29.9, 128.29.11).
+merge-ready against `bounce-bonanza` (SPEC.md 130.29.5, 130.29.9, 130.29.11).
 
 - **The neighbour (built).** A ball stepping one cell forward sees the old
   cell's front rows 2 - 4 as its rows 1 - 3, so only row 4 is read and two
@@ -3752,7 +3752,7 @@ merge-ready against `bounce-bonanza` (SPEC.md 128.29.5, 128.29.9, 128.29.11).
 - **The fold (held, `BOUNCE-BONANZA-PLAN.md` T13).** About -1k a PEAK fall
   frame, twice on two-box frames, PREDICTED; deferred because it touches the
   walk every occluder frame runs.
-- **The merge.** Three things AV had not met, resolved on purpose: 128.28 had
+- **The merge.** Three things AV had not met, resolved on purpose: 130.28 had
   taken the same flag bit (`GF_ANA` moved to bit 6); FIELD cells' records are
   cut at the ball's real poses, so AV's non-void records pass the tiles too;
   a two-part course keeps the grid in the world part, so the model reads it
@@ -3783,7 +3783,7 @@ both cards. **Not run**: the soak rows (the final pass's).
 The props plan's P2, built beside WATER and WIND on a branch of its own
 (`bb-magnet`; the IDs were handed out first: WATER 7, MAGNET 8, WIND 9, so
 `bbcourse.FAMILIES` learned to carry a GAP - an ID another branch builds -
-and `BZ_FTAB` holds 0FFh for it). SPEC.md 128.33 is the record.
+and `BZ_FTAB` holds 0FFh for it). SPEC.md 130.33 is the record.
 
 - **The hover was the question to answer first.** The owner's vertical
   magnets only work if a ball held up over a gap is not killed on the way.
@@ -3849,7 +3849,7 @@ merge). The owner's design: a blower PUSHES the ball in its region, weighted
 glass x2, rubber x1, steel x1/4 (*"the push amounts sound right"*); steady
 or in gusts, so a bridge can be crossed between them; a flag or a small lane
 as the hint; and the gate the owner picked for the water's column - a wind
-across a THIN lower path, blowing hard to one side. SPEC.md 128.34 is the
+across a THIN lower path, blowing hard to one side. SPEC.md 130.34 is the
 contract, written first, and the as-built record.
 
 - **No resident byte.** The push is added to the working velocity in the
@@ -3908,7 +3908,7 @@ The owner's answers on WIND (through the lead): strength per blower and
 power-of-two gusts are fine as they are; and three changes - an updraft that
 lifts WITHOUT a jump, squiggles drawn in the air as the hint, and ground fans
 that spin when the ball is in their wind, the pennant only as an option.
-SPEC.md 128.34.11 is the record.
+SPEC.md 130.34.11 is the record.
 
 - **The launch is the take-off's three writes.** The grounded step rewrites
   gvz from the slopes, so a push there was lost; a `lift` updraft whose push
@@ -3953,7 +3953,7 @@ The owner asked for a thin GUARD RAIL: one that "blocks anything from getting
 over", high enough that rubber cannot boost over it from flat ground, and
 see-through, so it never hides where the ball goes. Its first job is the
 water column's: a rail along the walkway so only steel, sinking through the
-water, reaches the lower path. SPEC.md 128.35 is the contract.
+water, reaches the lower path. SPEC.md 130.35 is the contract.
 
 - **The physics needed nothing.** A WALL cell is already impassable at every
   height: the ball's circle stops at the cell's near edge, however high it
@@ -3969,7 +3969,7 @@ water, reaches the lower path. SPEC.md 128.35 is the contract.
   the existing occluder rule lays exactly them - and nothing else of the cell
   - over a ball behind. The ball shows through the gaps without a line of new
   occluder code.
-- **AV was the one trap.** The occlusion model of 128.29 counts a front WALL
+- **AV was the one trap.** The occlusion model of 130.29 counts a front WALL
   and hides everything under its top edge, gaps and all. Setting the
   "floating" flag on every guard cell makes the model pass over it, and the
   rail's pixels become residual records like a prop's drawing. No physics
@@ -4004,7 +4004,7 @@ soak rows (the final pass's).
 ## 2026-11-17 (WATER: the first prop of the round, built as a family)
 
 The owner's P1 (BOUNCE-BONANZA-PROPS.md, the sketch and W1 - W8), built on
-`bb-water` as SPEC.md 128.36: a family, ID 7, with no resident engine change.
+`bb-water` as SPEC.md 130.36: a family, ID 7, with no resident engine change.
 
 - **Decisions.** The plan's design held but for three points the code
   decided. (1) The `arch` is the TOOL's alone - no element, no WALL cell for
@@ -4046,14 +4046,14 @@ on CGA and Hercules. **Not run**: soak rows, `test-full`.
 ## 2026-11-17 (WATER, round two: ripples, the float line, the wobble)
 
 The owner looked at WATER ("reads as water well enough"; for the teal and
-magenta palette courses) and asked for four things; SPEC.md 128.36.9.
+magenta palette courses) and asked for four things; SPEC.md 130.36.9.
 
 - **Ripples.** `ripple` (animating while a ball is in that column) and
   `always` (a lone column) are lanes the POSE hook answers from the step
   count; they are MARKED only where a pose changes, so a quiet column costs
   nothing. The interesting choice was the ACTIVE ripple's phase: counted
   from the step the ball came in, so it starts at pose 0, and the one left
-  behind drops back - at most one event-lane change a step, inside 128.19.10's
+  behind drops back - at most one event-lane change a step, inside 130.19.10's
   rule. `always` lanes are counted FAST (they change on their own clock).
 - **The float line.** Asked for in physics, not as a draw offset. The grid's
   z0 moves in half units, so the float line is 4 px under the top - exactly
@@ -4081,7 +4081,7 @@ with three decisions of his own: HOLD the kit for the session rather than
 dropping it after the copy (*"if no claim is made after the course loads, the
 high-water mark is the same whether the kit is dropped or not"*), let it change
 freely (every ship rebuilds every course), and settle on ONE alignment -
-`Y0` = 4 (mod 8) - so the Y0 search goes. SPEC.md 128.37 is the contract;
+`Y0` = 4 (mod 8) - so the Y0 search goes. SPEC.md 130.37 is the contract;
 `BOUNCE-BONANZA-KIT.md` the stories.
 
 - **The question the owner asked to have verified**: is any claim made after
@@ -4146,7 +4146,7 @@ not here. +184 bytes of image, +2 of bss, nothing in the kernel.
 
 ## 2026-11-17 (the standard kit: the first final pass, and the owner's answers)
 
-The owner answered K1's three questions the same day (SPEC.md 128.37.12):
+The owner answered K1's three questions the same day (SPEC.md 130.37.12):
 
 - The F library: *"Whole is fine for now, we have to actually decide on,
   and make, standards. Which will probably be finished when we do real
@@ -4190,20 +4190,20 @@ assemble), `bonanza_ring.py --check-reds`, the pace model above, `checkdocs`.
 ## 2026-11-17 (the standard kit: merged with the props round)
 
 `origin/bounce-bonanza` moved while the kit was built: MAGNETS, WIND, the
-guard rail and WATER took SPEC.md 128.33 - 128.36, so **the kit's section
-is 128.37** now. Every kit reference was renumbered: the SPEC's notes, the
-code, the tests, this plan and this diary. MAGNETS' 128.33 references were
+guard rail and WATER took SPEC.md 130.33 - 130.36, so **the kit's section
+is 130.37** now. Every kit reference was renumbered: the SPEC's notes, the
+code, the tests, this plan and this diary. MAGNETS' 130.33 references were
 left alone. The guard rail's `--selfcheck` item is 16 too, so **the kit's
 item is 17**.
 
 - **The void fall**: `bonanzaring`'s second run went red again, on the
   CGA's TRICKLE leg. The tolerance in the entry above covered GLIDE only.
   Upstream had already fixed this from both ends: the guest's walk no longer
-  runs every frame of the fall (128.19.10 item 7: missed refreshes 17 - 19
+  runs every frame of the fall (130.19.10 item 7: missed refreshes 17 - 19
   down to 10 - 12), and the row allows a footprint outside only by the
   ball's travel over the steps still owed from two-step frames, every mode,
   reported. The merge takes both. **Our `RATE_LINES` tolerance is gone**,
-  and 128.16.8's note points at upstream's rule. One addition: on the
+  and 130.16.8's note points at upstream's rule. One addition: on the
   model, with the CGA's 10 - 12 misses spread over the fall, that allowance
   also excused `nosafe` (the arm's footprint 23 - 47 lines out against the
   shipped camera's 0 - 9), so it is capped at `GROUND_VIS`, 15 lines -
@@ -4297,7 +4297,7 @@ water section; frame sequences in `build/water-cb/bobframes-cga/` and
 The owner played both arms: *"E looks better, but it can't exit the water, and
 I don't want another round; B is good enough."* The hover sits lower than a
 climb under the walkway for most of its bob, so the edge bumps it back - the
-reason it was set aside, written into SPEC.md 128.36.10. E's code, its red arm
+reason it was set aside, written into SPEC.md 130.36.10. E's code, its red arm
 and the `BZWATERBOB` knob are deleted; B is the only surface bob, its period in
 water's FAMV. The part is B's 684 bytes again.
 ## 2026-11-17 (the ARCHWAY: a ceiling, built as a family)
@@ -4305,7 +4305,7 @@ water's FAMV. The part is B's 684 bytes again.
 The props plan's P10, the owner's design: an arch a ball ROLLS UNDER, whose
 underside a ball in the air hits, so it cannot Hop or boost over it - and so a
 gate that forces rubber to roll through a pad it would otherwise boost past.
-Built on `bb-arch` as SPEC.md 128.39: a family, ID 12, with no resident change.
+Built on `bb-arch` as SPEC.md 130.39: a family, ID 12, with no resident change.
 
 - **Decisions.** The plan had costed this as RESIDENT (the reserved UNDERSIDE
   flag, a ceiling test in steps 5 and 6). The family hooks turned out to be
@@ -4356,7 +4356,7 @@ records, the sweeps, the lintel, the visibility rule; red arms `arnowall`,
 `test-full`.
 ## 2026-11-17 (SPIKES and the crystal membrane)
 
-The props round's P5 and P8 as ONE family (SPEC.md 128.38, branch
+The props round's P5 and P8 as ONE family (SPEC.md 130.38, branch
 `bb-spike`): a spike floor, pop-up spikes on a timer, and a membrane only
 glass can stand on. All three are WATER's trick - a flat floor in the grid,
 rewritten in the 9-cell window for whichever ball is rolling.
@@ -4439,7 +4439,7 @@ in the ball parts and the image (49,870).
 ## 2026-11-17 (BOOST PADS: chevrons that push)
 
 The props plan's P4, built as a family beside SPIKES and the ARCH (the round
-fixed its ID, 10, its kinds, 48 on, and SPEC.md 128.40 beforehand); branch
+fixed its ID, 10, its kinds, 48 on, and SPEC.md 130.40 beforehand); branch
 `bb-boost`.
 
 - **Which hook.** WIND pushes from STEP and so walks a list of blowers every
@@ -4457,7 +4457,7 @@ fixed its ID, 10, its kinds, 48 on, and SPEC.md 128.40 beforehand); branch
   pair) beats the steepest ramp a ball can roll up (1 unit a tile, a pull of 8)
   and climbs it without the pad; rubber (8 against 8, less its drag) and steel
   (4) do not. A weighted pad is one byte of shifts if the owner wants pads to
-  matter as much for glass (SPEC.md 128.40.10).
+  matter as much for glass (SPEC.md 130.40.10).
 - **The steepest ramp.** A 1.5-unit-a-tile ramp is a WALL partway up: the
   next cell's edge stands more than a climb (4 px) above the ball's leading
   edge. So "a ramp a ball could not climb otherwise" is a 1-unit ramp from a
@@ -4519,7 +4519,7 @@ rows, `test-full`, a MartyPC look (the art did not change).
 The owner: *"Playground is our stress test of the entire system."* The brief
 was every merged prop of the round that fits, each where it is USED - a gate
 for the ball it is for, with something behind it - and what does not fit
-reported with its number. Branch `bb-playground`; SPEC.md 128.34.12 is the
+reported with its number. Branch `bb-playground`; SPEC.md 130.34.12 is the
 record.
 
 - **One family fitted, and the number is a shift.** PLAYGROUND already named
@@ -4639,11 +4639,11 @@ on PEAK's part - and its red `fam4` red), checkdocs. **Not run**: soak rows,
 ## 2026-11-17 (HUMPS: FIELD cells that rise)
 
 The props plan's P12, the round's "possible" one; branch `bb-hump`, SPEC.md
-128.44. The round had reserved a family ID for it (16) in case it needed one.
+130.44. The round had reserved a family ID for it (16) in case it needed one.
 It did not.
 
 - **The question first: does the engine already run a raised FIELD cell?**
-  128.28.2's cell was written for chutes and pits, but nothing in it says
+  130.28.2's cell was written for chutes and pits, but nothing in it says
   "below the lip": `z0` is the cell's lowest point and every table byte a
   height over it. A dome is a table whose middle is higher than its edges -
   the guest reads a byte, never a shape. So the design was the tool's alone,
@@ -4652,7 +4652,7 @@ It did not.
   and came out every step equal, and `symswap` (a stride swapped) goes red on
   six of them. 0 resident bytes, no family, `BZ_PHYSV` untouched.
 - **The profile.** A raised cosine over 16 gu: no slope at the crest or at the
-  foot, so the plate meets it with no edge. The slope bound (128.28.2: |sx| +
+  foot, so the plate meets it with no edge. The slope bound (130.28.2: |sx| +
   |sy| <= 7) binds at a dome's 45-degree points at 11 px; a ridge's middle
   alone would take 17, but its domed caps are the dome's. Two standards, 6 and
   10 px: HUMP's six humps cost 4 tables.
@@ -4664,12 +4664,12 @@ It did not.
   need half a cell there. A hump is a RUN-UP gate - and a material one
   wherever the room to run is short. The first is a no: a hump's steepest
   face is a ramp's, so every ball climbs it; a bounce would be a wall, which
-  is a different prop (and a `bounce` surface on a FIELD cell, which 128.28.3
+  is a different prop (and a `bounce` surface on a FIELD cell, which 130.28.3
   does not apply). Nothing takes off over a crest even at the cap - too round.
   A first run said rubber could not cross a 4 px hump at 384: it was COASTING
   (no key), 40 gu of drag before the foot; the arrows held, everything
   crossed - and the honest measure is from rest, the arrows held, by run-up.
-- **The picture.** The shapes' ink as it stands (128.28.6, the cell's parity in
+- **The picture.** The shapes' ink as it stands (130.28.6, the cell's parity in
   the two magentas) made a dome a flat magenta diamond: no sign it was RAISED.
   Four inks tried on the preview, side by side on both cards: black contour
   lines (speckled - a contour by the pixel above misses every vertical run),
@@ -4721,7 +4721,7 @@ PREDICTED.
 ## 2026-11-17 (SWITCHES, KEYS, GATES and the DRAWBRIDGE: one family)
 
 The props plan's P6 and P7 built together as ONE family (the round fixed its
-ID, 13, its kinds, 72 on, and SPEC.md 128.41 beforehand); branch `bb-gate`.
+ID, 13, its kinds, 72 on, and SPEC.md 130.41 beforehand); branch `bb-gate`.
 
 - **One family, not two.** A plate, a key, a gate and a bridge all read or
   write one thing - whether a switch has been thrown - and all draw the same
@@ -4757,7 +4757,7 @@ ID, 13, its kinds, 72 on, and SPEC.md 128.41 beforehand); branch `bb-gate`.
   ink stays as a second cue for VGA-era eyes.
 - **The bridge's lane.** First drawn as the whole top black (the crack's
   `wide` 4-block lane): a 2 x 3 bridge's lanes grouped and one cell's change
-  marked seven group lanes, over the window's six (128.32.7). The crack's
+  marked seven group lanes, over the window's six (130.32.7). The crack's
   2 x 2 band instead - each bridge cell its own lane, none shared - and a timed
   rectangle's cells a step apart (seeds S, S + 1, ...), so the timed lanes turn
   one a step, the popspikes' rule. It reads as the bridge folding cell by cell.
@@ -4773,7 +4773,7 @@ ID, 13, its kinds, 72 on, and SPEC.md 128.41 beforehand); branch `bb-gate`.
   five unicorn red arms and three model arms each went red (`gtwall` only once
   its patch took both of the WALL's writes: with the OR alone the cell became
   a VOID and parted at "the window", not "the ball" the arm was waiting for).
-- **Not measured:** the per-step cost (PREDICTED in 128.41.9: the final pass's
+- **Not measured:** the per-step cost (PREDICTED in 130.41.9: the final pass's
   rows on a `BZGATE=1` tree).
 - **LOOKED AT** once on MartyPC (the `BZGATE=1` tree, `build/gate`, CGA and
   Hercules; the ball POKED onto each switch through `bz_pokd`, as the phys
@@ -4797,7 +4797,7 @@ BUILD=build/gate BZGATE=1 bonanzadisk`; `bbcourse.py --selfcheck --only gate`
 
 The props plan's P9, built as a family beside the GATES, the TURNTABLE and
 the HUMPS (the round fixed its ID, 14, its kinds, 80 on, its knob and SPEC.md
-128.42 beforehand); branch `bb-tilt`.
+130.42 beforehand); branch `bb-tilt`.
 
 - **What tips it.** A timer would have been the cheap answer, but the plan
   asked for the classic see-saw, and weight turned out to cost a count and a
@@ -4846,7 +4846,7 @@ run**: soak rows, `test-full`; the per-step cost is PREDICTED.
 
 ## 2026-11-17 (the QUARTER-TURN TURNTABLE: holes that go round)
 
-P11, built as a family on `bb-turn` (ID 15, SPEC.md 128.43). The plan's words
+P11, built as a family on `bb-turn` (ID 15, SPEC.md 130.43). The plan's words
 were "half filled, a quarter turn every second or so, the cells switching; it
 does not carry the ball", and the smooth carrying turntable stays tabled.
 
@@ -4940,7 +4940,7 @@ Two follow-ups from the owner. *"Weight is good ... I would like the option of
 timed, though, which ignores weight and just see-saws on a custom per use
 timer"*, and *"do we have the option of using different gate art per course?"*
 
-- **The timed see-saw** (SPEC.md 128.42.11). `period 32|64|128|256 [flat F]
+- **The timed see-saw** (SPEC.md 130.42.11). `period 32|64|128|256 [flat F]
   [seed S]` on a `seesaw`: the popspike's timer on the step counter's low
   byte, the plate FLAT for the last F steps of each half period, its rest in
   the first half and its other end in the second - 0, 1, 2, 1, 0, never an
@@ -4958,7 +4958,7 @@ timer"*, and *"do we have the option of using different gate art per course?"*
   out east). The first LIFT had its ledge at the plate's top height; steel,
   stopped 2 px short against the ledge's wall at a sloped end, never got
   over - at 1.5 units every ball steps off.
-- **The gate styles** (SPEC.md 128.41.11): `gatestyle` per course, `style` per
+- **The gate styles** (SPEC.md 130.41.11): `gatestyle` per course, `style` per
   gate or bridge - grille (today's, the default), crystal shards, white
   pickets with planked decks, a portcullis grid with an iron-plate deck. Tool
   only; GATE with no style is GATE byte for byte. On a 15 px gate the
@@ -4976,7 +4976,7 @@ timer"*, and *"do we have the option of using different gate art per course?"*
 The owner: *"clocks don't have occlusion."* He was right, and it had been
 written down as a feature: wave 7 made the clock's crystal ball and post a
 MARK - painted at the clock's depth so that walls in front hid it, but with
-no depth key - and SPEC.md 128.18.5.1 said so in as many words, "a ball
+no depth key - and SPEC.md 130.18.5.1 said so in as many words, "a ball
 passing behind a clock is drawn over it". Every other prop that stands up
 from its tile (a flag's staff, a bumper's post, a magnet, the guard rail, the
 archway's lintel) is geometry keyed at its cell, and the occluder cut lays it
@@ -5011,6 +5011,425 @@ over a ball behind.
   bound at one position.
 - MOON's and PEAK's demos re-authored, identity only. PLAYGROUND's demo needs
   the same, and waits for the agent editing that course.
+
+## 2026-11-18 (wave 11 opens: the owner reviews the test courses)
+
+The first step toward real courses: the pipeline, the guides, then a first
+real course. Every course in the tree is a test course or an early attempt,
+and none of them stays. The owner played each pathway course and reviewed it
+as general lessons. The review covers only the courses built before most of
+the new props, so those props still need patterns of their own.
+
+The rules drawn from it are G1 - G22 in
+[bonanza-courses/README.md](bonanza-courses/README.md), the course design
+guide. That guide is wave 11's working document. The review itself, verbatim:
+
+> **First Roll:** A single ramp and jump; real courses will never go below
+> 25s, and rarely below 35s. The jump itself is good, though; it fails if you
+> just push straight on it, but succeeds if you slow down, or jump, or go to
+> either side. This scrolls horizontally, which is jerky for us though; jumps
+> should be planned in a way that the camera doesn't need to horizontally
+> scroll while we make them. In general, horizontal scrolling is worse than
+> vertical, so I expect our courses end up more vertical than horizontal;
+> with horizontal used sparingly.
+>
+> **Bounce Trial:** A test course to show you can bounce, from a height, over
+> a gap. Good concept, but nothing else here works well. Two clocks show up
+> on the same screen, and block the path. The jump itself was tuned before
+> our current ball physics. The ramp's lower landing isn't smooth. The sand
+> before the ending is just annoying, and the split double finish line was a
+> test for pathway, not how finishes are placed for any real course.
+>
+> **Clock placement**, while we are on that: You should be able to see a
+> clock face from any finish line, and the starting position. Inbetween
+> clocks should never show twice on the same screen, including near a finish
+> line. Clocks should not obstruct main pathways. Clocks CAN "float", with art
+> that supports that, or sit on a tile that isn't in the primary pathway, or
+> sit on a lone pillar, or be "attached" to the side of a pathway, sticking
+> out one tile on a stick or something. Clocks do not have to be visible on
+> every screen inbetween start and finish - as long as they can see them
+> periodically as they traverse, with no extremely long sections (15s+)
+> inbetween being able to see one, that is fine. I'm thinking that means 2-5
+> clocks a level, probably, with 3 being the "norm" on the 25-45s levels, and
+> more on the longer ones or ones with their finish lines distant from each
+> other.
+>
+> **Playground:** Just a test - but this one places many props, many tile
+> types, etc. We'll be putting the pit this has, or something like it, into
+> standard parts.
+>
+> **Windmill lane:** A test course for the first props, the windmill and the
+> bumper. Good things are the right side windmill, clearly visible where it
+> enters and exits. The initial clock placement is good. The ramp down into
+> the bumper section, and the bumper placement is good; the bumpers are easy
+> to hit but not inescapable. Easy mode with the rails so good for an early
+> course, a later course could use a similar idea without bumpers. Both
+> cannon uses are good; one halfway up a pillar, which is cool, and one
+> throwing you into a visual spin.
+> Bad things: The left windmill that exits invisibly, and strands you on a
+> side ledge. We should never softlock a player. The sand platform; sand
+> should be used when we want to help them slow down, or make it hard for
+> them to speed up/jump, not just on a huge platform. Aka, sparingly. The
+> lift to nowhere: It was a test, but lifts take you UP. There is no point in
+> a lift that just goes where you could jump anyway; though that doesn't
+> block off "you need to get BACK up" in the case of something like a keyed
+> gate. The clock placement at the end is mediocre; it would be better if it
+> was off the main finish platform.
+>
+> **Moonlit:** The ice at the start is pointless. The hole is not in a great
+> position, though at least it is visible. Half of the pads in this course
+> make any sense, relative to what is around them in the course. The slight
+> back and forth maze is decent; you can weave around it without slowing down
+> a ton if you are careful, or take it slow at a time cost. The straightway
+> is cool, but you should come into things like that with speed. The "jump
+> down, jump the gap, flag" is cool. Good flag positioning. The flag at the
+> start comes much too soon. The multiple tubes to different mini routes,
+> guided in by lanes, is a good idea - one of the times or ways you can
+> obscure a ball, briefly, and the mechanic is still clear. The pathway that
+> soft locks you is not ok. The stairs toward the end are fine. The slight
+> ramp up to the sand surrounded hole end is the first good use of sand. The
+> end clock positioning, like all these addon clocks, is ok but could be
+> better. Its out of the main pathway (because of the block behind/beside it)
+> but it doesn't visually fit in.
+>
+> **Summit rush:** The initial hill of ramps is a good introduction to ramps;
+> something like it might be the start of the new first roll/first course in
+> the game. The ice is slightly less pointless here, it prevents an early
+> brake. Flag position is decent. The double path, windmill or stairs, is
+> good; although the exit to the side of the stairs is awkward. The hidden
+> pathway from the windmill exit and the missing column line are neither good
+> at all. The skippable glass pad is an acceptable idea; go too fast, and you
+> might become glass, and break on trying to be quick on the stairs.
+>
+> **Interjecting on ball types:** Rubber is "the main ball". You'll spend
+> most of the game as it. This is "Bounce Bonanza". The other balls may have
+> a "focus course" each, but mainly, they are "mechanic" balls. You become
+> them, do a stretch of course, then go back to rubber.
+>
+> **And back to summit:** The flag position on the platform after the
+> stairs/windmill is good. Then, though, things get not good. The spring is
+> completely obscured. You have to guess where it is. Its positioned in a way
+> that requires specific timing and speed from the player, which is good, but
+> then its not obvious what controls give you that speed; mainly because you
+> can't see the result.
+> Making you become slow steel as a penalty if you just go straight, but
+> keeping that short, is fine. As is the "cannon into flag into glass". Then,
+> though, you cannot see the path - and it isn't a guarded path. So you once
+> again have to completely guess where you are going. You can't see the
+> spring. Its another "exactly this speed" - this time with you as glass,
+> dying, if you fail it - a fine concept for a later course, IF you can see
+> the mechanics. Clock positioning is not great on the main pathway, and
+> visually not fitting in, and the ending hole is hidden which is not
+> acceptable at all for a non-hidden/main path finish.
+>
+> And that is all the pathway courses - we have other tests, but they were
+> even more mechanic specific. We will take some of those test courses, for
+> example the double hump on the hump test course in the back right, as
+> standard parts.
+
+**Observed, from the tool's source**, to place each rule against a check that
+already exists:
+- `finish_clock_rule` already requires a clock in the window centred on every
+  finish, but says nothing about the start.
+- `clock_visibility` reports the share of route frames that show a clock, not
+  the longest stretch without one.
+- `trap_check` proves "no trap" from flags and pads only, not from every
+  reachable cell, so MILL's stranding ledge and MOON's dead end passed it.
+- `pans` reports pans per route, not pans while the ball is in the air.
+
+The plan's wave 11 now carries the stories that close those gaps (11.11 -
+11.15). Nothing was built or run for this entry: the guide, this diary entry
+and the plan were written, and `tools/checkdocs.py` was run.
+
+## 2026-11-18 (gates the designer draws)
+
+The owner, on the four gate styles: they read as "a slight recolor of the
+same gate"; what was wanted is for a course's designer to feed a gate
+WHATEVER art fits the course - a crumbling wall between two blocks, a
+portcullis rising into an arch, a door that opens - at a fixed frame count.
+SPEC.md 130.41.12 is the result.
+
+- **Four frames, the channel's clock.** A gate's art is a `.bba` of four
+  frames, shut to open, with its own footprint (`# foot` places it, `# cells`
+  makes it 1 - 3 gate cells wide). The guest keeps ONE 2-bit frame per
+  CHANNEL in the slot, stepped every 8 steps at a phase of its own, so two
+  channels never change a frame on one step and every art of a channel plays
+  together. The cell stays a wall until the open frame is on the glass.
+- **The see-saw's trick, again.** The tool draws each frame over the bare
+  picture at the gate's depth, puts what never changes (the portcullis's
+  arch) in the picture and cuts what does into lanes: GATE's three arts are
+  2, 1 and 2 lanes.
+- **A trap in the identity.** Adding a kind and slot bytes moved the gate
+  family's FAMV - and PLAYGROUND names the gate family, so its part, its
+  identity and its demo moved with it. The art is an extension no old record
+  can reach, so the row now folds its FAMV as it was; every shipped course is
+  byte for byte as before (the whole compile `cmp`'d).
+- **Another trap**: the parallel compile ships objects that live in module
+  globals by their PATH; an art dict straight out of the loader's cache came
+  back as a key the parent had never seen. The loader hands out copies.
+- **Layout lesson**: the first GATE layout hid two of the three arts behind
+  blocks two units proud in front of them. Blocks a unit proud, and void
+  between the corridors, let the art stand above what is in front.
+- MEASURED: the part 515 -> 630 bytes, resident 0, the three arts +2,524
+  bytes of GATE's part against presets in the same places; the model's
+  frames item and the unicorn's 30 scenes equal, four red arms red. LOOKED
+  AT in the tool's previews (CGA and Hercules), not on MartyPC.
+
+## 2026-11-18 (the pipeline's shape, clock art, and FIRST ROLL penned in)
+
+The owner's answers to the wave 11 review, verbatim:
+
+> For course one, also add "drops kill you, and you need to learn the
+> timing" (the good lesson from the current first roll).
+>
+> Clocks: Because the art has to go in per usage per course anyway, we could
+> have one or more if positioning demands it (like one standing, one
+> floating/attached to a block from the side), custom clock art per course,
+> where the clock art "fits in" with the theme of the course, or at least is
+> unique to it. The alternative is we could also consider some "standard
+> parts" clocks instead of "per course" art, if that savings is significant.
+> Then only have custom clocks occasionally, where a standard part one
+> couldn't be designed in easily. All clock art needs to be high quality,
+> regardless of standard or custom part.
+>
+> For the pipeline: We should pen in a course before we start putting it in
+> engine; that means imagine it up, make pictures, and do back and forth with
+> me. Then go in engine, play around, revise. Course cycles need to be FAST;
+> no soaks on them, no long tests, and we might even make multiple courses
+> before we do demos and performance checks; or run those in the background
+> while we continue working. I do not want what keeps happening, to happen
+> again - where iteration time is 30+ minutes on each simple change.
+
+**Where each went:**
+- the guide gains G23 (clock art) and its section 3 (pen in, then iterate
+  fast);
+- the plan's story 11.14 now prices standard-part clocks against custom art
+  per course before the second course is drawn;
+- story 11.16 is FIRST ROLL, with the owner's lesson in it.
+
+**FIRST ROLL, attempt 1, penned in**:
+[bonanza-courses/FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md). A host-only
+script, `bonanza-courses/first/sketch.py`, draws the plan and the course in
+the game's projection as plain blocks. It is the first of the pen-in step's
+pictures. The design:
+- a descent DOWN the screen, about 950 lines, swinging at most 216 px across;
+- SUMMIT's hill of ramps, turned into a railed tutorial;
+- an open-edged ledge (drops kill you);
+- the test FIRST ROLL's lip, re-planned so its flight does not pan, which
+  punishes too much speed;
+- three corners that lose their rails one at a time (brake);
+- one-unit steps (a drop onto floor is fine);
+- an open-edged walk;
+- a one-tile leap, which punishes too little speed;
+- a wide, visible goal;
+- three pillar clocks.
+
+The two jumps are the pair the owner's lesson asks for.
+
+**Observed while sketching, before any tool:**
+- The arrows push along the grid's diagonals, so Down is screen-down, and a
+  run along one grid axis moves 2 px across for each line down.
+- A course that runs "vertically" alternates +x and +y. The hill of ramps
+  does exactly that, which is why it suits an opening.
+- The CGA's dead zone across is 160 px. A route that swings more than that
+  costs a framing move or two, so this sheet puts them at the corners.
+- Whether they land there is 11.11's to measure.
+
+**Run**: the sketch script and `tools/checkdocs.py`. **Not run**: nothing
+in the engine; every time and the camera's behaviour are PREDICTED.
+
+## 2026-11-18 (FIRST ROLL, revision 2 of the pen-in)
+
+The owner, on revision 1's picture: *"This is a good start."* They marked it
+up, and wrote:
+
+> The first flag, lets move it to the middle of what I think I am reading as
+> T, right before the next segment. Lets add a shaped, double block, unfenced
+> but easily guided shape chute here, similar to the one already on the chute
+> test/playground. Fences come back up as they exit, but leave off the fence
+> on the end just like you have it; that way they can overshoot if they come
+> out full speed. Flag after the turn on E, before they set up for the
+> turn-then-jump. No flag right at the end - there is nothing to kill them
+> between there and the exit.
+>
+> Clock placement looks very good as far as readability and course position,
+> although if we do go with standard clocks we might need to keep clocks over
+> void, like the top one, so the standard part can be used.
+
+**Revision 2**
+([FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md), pictures redrawn):
+- flag 0 sits in T's middle at its exit, and T is railed but for the chute's
+  mouth;
+- the corners K1 and K2 are replaced by a two-wide `chute 2 round`, unfenced,
+  shaped as PLAYGROUND's is: along +x, down +y, along +x. D3's rails come
+  back up as it exits, and K3's end stays open;
+- flag 1 sits on E's last step, after the turn;
+- there is no flag past the leap;
+- all three clocks stand over the void.
+
+The sketch now draws a chute as a parabolic channel round its crease. That
+is an approximation of SPEC.md 130.28's tables, close enough to argue the
+shape over.
+
+**Run**: the sketch and `tools/checkdocs.py`. Nothing in the engine.
+## 2026-11-18 (the MEMBRANE becomes a net that tears)
+
+- **The ask** (the owner): the membrane looked like the revealed glass path,
+  and nothing said why glass crosses it and the others fall. "Thin threads",
+  and a short animation showing why the others fall through.
+- **The story**: glass is already the LIGHTEST ball (the see-saw's weights,
+  130.42), so the membrane became a NET OF THREADS that holds the light ball
+  and not the heavy ones: two sagging ropes from floor to floor, laced by two
+  crossing zigzags, every thread underlined black for the Hercules
+  (SPEC.md 130.38.5).
+- **Tried and dropped, on the owner's looks**: an eight-spoke spider's web a
+  cell (at 32 x 16 px the rings and spokes merge into a white blob), a
+  three-rope net (cluttered), and a tear across the whole run that snapped
+  the ropes (it read as "floating lines with no connection"). The owner's
+  pick: the looser two-rope net with a little more lacing, tearing only in
+  the middle.
+- **The animation**: each membrane cell's lane has a TORN pose - the lacing
+  inside the ropes gone, the cut threads hanging - shown while a non-glass
+  ball is under the net at that cell, mended at the respawn. Stateless in
+  the record: the spike slot's spare byte holds the torn element, STEP finds
+  it on the walk the popspikes already had and marks the two lanes.
+- **Measured**: the part 455 -> 558 bytes, ceiling 29 -> 35 paras (the
+  bundle +96 bytes RAM), no engine byte. **Run**: `--selfcheck --only
+  spike`, `spike_host` (eleven scenes equal at every step, `mem-rubber` torn
+  22 steps then mended, `mem-glass` never; eight red arms red, two new:
+  `sptear`, `sptmark`), `make` (fast tier), the BZSPIKE knob disk.
+  **LOOKED AT** in the tool's previews (CGA, Hercules) only, not booted.
+  **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+
+## 2026-11-18 (FIRST ROLL, revision 3: flags before danger, rails that protect, clocks over the void)
+
+The owner, on revision 2 (with a mark-up putting a flag at the top of the
+lip's run-up and crossing out the rail stub across the leap's run-up):
+
+> Sorry, forgot to mention it, but remove the fence that they would hit
+> entering F; on this easy course, fences are to protect them, not block
+> them.
+>
+> Clocks: I was not meaning the pillar below them, that is actually fine. I
+> meant the artwork behind them; that is what would block using a standard
+> part, because whatever is behind them has to be baked into the artwork;
+> its not composited on load. I know that makes things harder, which is why
+> "standard clocks" is still an open decision. If we can't design around it,
+> then we do customs.
+>
+> 1: Leap is good
+> 2: No this pacing looks pretty good; but it made me rethink that second
+> flag. We should flag right BEFORE what we think will kill them, not after,
+> and avoid making them redo long sections. Sorry, I'm learning as we go too.
+> So flag at C, instead of T.
+> 3: I think about right, although once I play we'll decide the style.
+> Guardrails or blockrails; block might work better here, as its a more
+> classic style, and the course is open enough it doesn't occlude much (what
+> guardrails are there to fix; this is not a rule, its just a style choice
+> per course, and even per individual rail).
+> 5: I think we'll remove all of the original courses later, and rewrite
+> tests. I don't see any value in keeping tons of old, prototype courses
+> around to "test", once we have solid baseline compares between then and
+> new.
+> 6: We'll have to get it in engine and have me play it to see.
+
+**Where it went:**
+- the guide's G20 is rewritten: a flag stands just before what can kill;
+- G24 is new: rails protect and never block, and their style is a choice
+  per course or per rail;
+- G23 gains the rule that decides standard clocks: what is BEHIND a clock;
+- the plan gains story 11.17 (retire the prototype courses after a
+  baseline compare, the tests rewritten, and the new course takes FIRST);
+- FIRST ROLL revision 3 has flag 0 at the top of C's run-up, no rail across
+  F's entry, and the clocks re-placed.
+
+**Discovered, placing the clocks.** Revision 2's clocks were all "over the
+void" by their pillars, but the middle and finish clocks had course art
+behind their heads: C's column and the goal plateau's faces. Moved out until
+their heads were clear, they then left their CGA windows altogether. The
+sketch now PLACES each clock by search: the nearest spot to the route point
+it serves that is
+- inside that point's window;
+- with only the void behind the head, on the picture drawn without clocks;
+- with no floor or wall in or next to its pillar's cell (the first search
+  put the finish clock on the plateau itself).
+
+Then each of the three has a void backdrop. On this course the choice is a
+narrow one, and it is a constraint on course shape that a standard clock
+brings with it.
+
+**Run**: the sketch and `tools/checkdocs.py`. Nothing in the engine.
+
+## 2026-11-18 (FIRST ROLL in the engine: playtest 1, and the guide's checks)
+
+The owner: *"Agreed, next is in engine and playtest. Checks are good."*
+
+**The course.** `apps/bonanza/courses/roll.bbc` (NAME `ROLL`, title "First
+Roll"):
+- its first draft was written by the sketch (`first/sketch.py --bbc`)
+  straight from the paper design, shifted 4 tiles so walls and pillars stay
+  inside the grid;
+- the rails are BLOCK rails (one wall tile on the void side of a railed
+  edge, 2 units proud). Trying guard rails instead is one keyword;
+- the tool's rules moved three things:
+  - slopes must be whole half units a tile, so the walk, the leap's run-up
+    and the finish ramp drop half a unit a tile;
+  - the chute's second leg drops 2 units, not 1 (four straight cells);
+  - everything after the chute sits a unit lower;
+- the clocks stand on lone one-tile pillars, as a clock must stand on a
+  floor tile today.
+
+**The playtest build** is a knob, `BZROLL=1`, on BZTURN's pattern:
+- ROLL goes after the shipped courses, so no K moves;
+- `pathroll.sed` puts ROLL on pad 0 in FIRST's place (ROLL has one finish,
+  so its exit 0 goes to TRIAL as FIRST's did);
+- `make BUILD=build/roll BZROLL=1 bonanzadisk` builds it, and without the
+  knob the build is the knob-less one.
+
+**Discovered:**
+- **The autopilot cannot follow a chute.** A `way` may not sit on a FIELD
+  cell, so the route stops at the chute's mouth (it took its last way there
+  and drove at the next one, past the chute, straight into the rail). The
+  tool's limit rule therefore has no route to price, and the playtest's
+  limit is given by hand: 60 s. The batched step replaces it with an AUTHOR
+  script.
+- **The tool's model says the halves work:**
+  - the route reaches the chute's mouth in about 12 s, through the hill, the
+    ledge and the lip;
+  - from flag 1 the autopilot rolls the walk, clears the leap at full speed
+    and finishes in 9.4 s;
+  - neither half falls.
+- **A re-emit from the sketch silently dropped hand edits**, the `limit`
+  among them. The first playtest build went out of the tree with no limit
+  and was rebuilt before anything was sent. The sketch now refuses to
+  overwrite an existing `.bbc`.
+
+**The checks (stories 11.11 and 11.13), BUILT.** A `guide` statement marks a
+real course:
+- G9 (a clock seen from the start) and G10 (never two clocks in one window,
+  checked pairwise, anywhere) are refused at every compile;
+- `bbcourse.py --guide` checks G1 (25 s), G3 (no pan during a jump), G11
+  (no clock in the ball's way) and G12 (15 s at most without a clock in
+  view) over every complete run.
+
+Every check was broken on purpose and went red; the guide's section 1.9
+lists the copies. ROLL passes G9 and G10. Its run-based half waits for an
+author script.
+
+**Open for the owner**: MILL's route pans 16 columns in one flight, very
+likely the cannon throw the review liked. Is a launcher's throw exempt from
+G3, which was written about jumps?
+
+**Run**:
+- the tool on ROLL;
+- `--guide` and the red copies above;
+- `make BUILD=build/roll BZROLL=1 bonanzadisk` and the system disks of that
+  tree;
+- `tools/checkdocs.py`.
+
+**Not run**: the guest. Per fork rule 5 the playtest disk is the owner's to
+boot; no emulator row.
 
 ## 2026-11-18 (VGA, V0: what the cards do when the picture moves)
 

@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/seesaw.asm - BONANZA's SEE-SAW FAMILY (SPEC.md 128.42, the
+; apps/bonanza/fam/seesaw.asm - BONANZA's SEE-SAW FAMILY (SPEC.md 130.42, the
 ; props round's P9), held equal to bbcourse.TiltFamily at every step.
 ;
 ; A see-saw is a TILT PLATE of NX x NY cells (2, 4 or 6 along its axis, 1 - 2
@@ -22,7 +22,7 @@
 ; The slot (bz_fsl + BZF_SLOT AL): +0 the plate the count is for (its element
 ; + 1, 0 none), +1 the COUNT.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -39,7 +39,7 @@ TL_PZ       equ 21
 TL_PLATE    equ 18              ; a lane's: its plate
 TLF_AXY     equ 1               ; +20's flags: the axis is y,
 TLF_PLUS    equ 2               ; ...the rest has the plus end down,
-TLF_TIME    equ 4               ; ...it is TIMED (SPEC.md 128.42.11):
+TLF_TIME    equ 4               ; ...it is TIMED (SPEC.md 130.42.11):
 TL_MASK     equ 22              ; +22 its period less 1,
 TL_FLAT     equ 23              ; +23 its steps FLAT each half period,
 TL_SEED     equ 24              ; +24 its seed
@@ -59,7 +59,7 @@ TL_SEED     equ 24              ; +24 its seed
     db 0
     dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 
 ; RESET: the slot zeroed; each TIMED plate's byte its pose on this step (the
@@ -131,7 +131,7 @@ tl_cell:
     retf
 
 ; STEP: the ball's weight on a plate; then each TIMED plate to its pose on the
-; next step (SPEC.md 128.42.11): on a change its byte, the refill, its lanes
+; next step (SPEC.md 130.42.11): on a change its byte, the refill, its lanes
 ; MARKED, and a ball grounded on it CARRIED
 tl_step:
     push ax

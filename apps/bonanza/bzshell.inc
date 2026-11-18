@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/bzshell.inc - the SHELL PART's ABI (SPEC.md 128.19.2), included
+; apps/bonanza/bzshell.inc - the SHELL PART's ABI (SPEC.md 130.19.2), included
 ; by the package (bonanza.asm) and by the part (bzshell.asm), so the two cannot
 ; hold different opinions about where a vector is.
 ;

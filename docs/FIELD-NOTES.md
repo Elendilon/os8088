@@ -19,7 +19,7 @@ Two rules the entries exist to serve:
   audio report sat here for months as a 5150 report and had come off PCem;
   the 5150 has no sound card.
 
-**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, 66, 68, and one residual
+**Still open:** 3 (mechanism D), 10, 14, 19, 24.2, 28, 32, 43, 61, 63, 64, 66, 68, 69, and one residual
 each in 33 and 37.
 
 ---
@@ -4350,3 +4350,53 @@ from the code and `git log`, nothing booted):
 **What changes with the answer**: an erroring ROM needs nothing; a lying ROM
 on a 9-sector disk is exactly what the new canary is for, and is the first
 XT-class ROM of that kind on record (note 31 found none).
+
+
+## 69. STPC 486 SBC: the PS/2 keyboard is dead on some boots and fine on others; only one PS/2 mouse is found (OPEN - fix landed, SPEC.md 9.9.1.1; awaiting the reporter's run of it)
+
+**The machine.** An industrial half-size SBC: ST STPC 486-class SoC, 32MB, a
+Phoenix "D486" BIOS, a Winbond W83977AF super I/O whose keyboard controller
+runs AMI MEGAKEY firmware (the board has two 8042s, the STPC's and the
+Winbond's), a Silicon Motion LynxEM+, an RTL8139C, a DiskOnChip 2000 boot, and
+one combined keyboard/mouse mini-DIN. Keyboard plugged straight in, no
+splitter; a serial mouse on COM1.
+
+**The symptom.** Under os8088 alone - BIOS, DOS and Windows fine - the
+keyboard is sometimes dead for the whole session: no keys and no LEDs. It
+came and went across days with nothing changed (a power-input change looked
+like a cure and was coincidence). The reporter also has to use one particular
+PS/2 mouse for it to be found.
+
+**What the input debug disk showed** (SPEC.md 127.5; two boots, `INPUT01.TXT`
+and `INPUT02.TXT` from build 1232, both bad at boot): no LED activity in the
+first key window, the keyboard back "before/during" the second, and
+
+- the kernel's probe stopped at step 4, *reset not ACKed* - nothing in the
+  aux port - with the BIOS's command byte `67` (IRQ12 enabled) and `int 11h`
+  bit 2 clear (the BIOS saw no mouse at POST);
+- the controller check found port 64h at `7D` (output buffer full, AUX byte,
+  TIMEOUT) and the byte waiting was `FE`, from the aux side;
+- every keystroke the BIOS stored that boot came AFTER the check took that
+  byte (*Keys the BIOS stored 56*, *After the check 56 stored*);
+- Probe PS/2 reproduced it each run: `D4 FF` with nothing in the 2-tick wait,
+  then `FE` from the aux side one step later.
+
+**Mechanism.** This controller's own no-device answer to `D4 FF` arrives just
+past the probe's 2-tick (55-110 ms) wait. The probe had given up and left
+IRQ12 masked, so that aux byte was never read, and the keyboard waited behind
+it in the 8042's one output buffer for the rest of the session. A race against
+the tick phase per boot - hence "sometimes". The one-mouse symptom is very
+likely the same short wait: replies forwarded through this controller are
+slow.
+
+**The fix** (SPEC.md 9.9.1.1): `MOU_P2TMO` 2 -> 5 ticks, and `mou_p2drain` on
+the probe's failure path, which takes any late byte until the buffer has been
+quiet 3 ticks, before the keyboard is handed back. Boot overlay only; no
+resident byte. **Held in reserve** (the owner): skipping the probe when
+`int 11h` bit 2 is clear, as DOS drivers do.
+
+**To close:** the reporter boots the rebuilt input debug disk several times;
+every `INPUTnnA.TXT` should show keys stored before the check, port 64h idle,
+and no aux byte waiting - and a PS/2 mouse other than the special one should
+be tried through a splitter.
+

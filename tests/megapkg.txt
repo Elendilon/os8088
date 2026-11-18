@@ -158,3 +158,17 @@ apps/snddiag/sdtext.inc 1        # A LABEL, not a kern_mega arm: Sound Debug's
     # Detect page prints ", kern_mega protected mode" after the CPU when
     # OSAPI_CPU_INFO's CPU_F_PM is set (SPEC.md 127.4), so a photograph says
     # which kernel it came from. One test, nothing that runs only there
+apps/inputchk/probe.inc 1        # THE SHIPPED BUILD REFUSING ONE LEG: the
+    # PS/2 probe's opt-in BIOS leg (SPEC.md 129.8.4) is not offered under
+    # kern_mega - p2x_again's `test byte [p2_cpuf], CPU_F_PM / jnz .no`. A
+    # BIOS int 15h there is reflected (on a 286 through a CPU reset) and so
+    # would the BIOS's IRQ12 handler be, so the answer would not be about the
+    # same machine. A fail-safe refusal of two instructions, not kern_mega work
+apps/inputchk/summary.inc 1     # INPUTCHK NAMING ITS KERNEL, display only
+    # (SPEC.md 129.5): sum_snap's `and ah, CPU_F_PM` banks the bit, and the
+    # Kernel row says kern_mega and the VMware section "not kern_emu" off it.
+    # No code runs only there and nothing is refused; two string picks
+apps/inputchk/kbd.inc 1         # THE KEYBOARD SECTION SKIPPING ONE ROW: the
+    # boot's master mask (mou_p2m1, SPEC.md 129.11.1) is kern_big's layout, so
+    # `test byte [p2_cpuf], CPU_F_PM / jnz .ck` leaves it off under kern_mega.
+    # Display only, two instructions

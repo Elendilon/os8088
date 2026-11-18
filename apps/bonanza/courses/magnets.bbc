@@ -1,4 +1,4 @@
-# Magnet Test - BONANZA's MAGNETS test course (SPEC.md 128.33), built only by the BZMAGNET=1 knob
+# Magnet Test - BONANZA's MAGNETS test course (SPEC.md 130.33), built only by the BZMAGNET=1 knob
 # (make BUILD=<tree> BZMAGNET=1 bonanzadisk).  Not shipped; not on the TOUR; the knob's pathway makes it pad 0,
 # so Play Game, Enter plays it.  Magnets pull STEEL only: try each section as steel, then as rubber.
 #

@@ -1,4 +1,4 @@
-# See-saw Test - BONANZA's SEE-SAW test course (SPEC.md 128.42), built only by the BZTILT=1 knob
+# See-saw Test - BONANZA's SEE-SAW test course (SPEC.md 130.42), built only by the BZTILT=1 knob
 # (make BUILD=<tree> BZTILT=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it
 # the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.  A see-saw is a
 # thin plate on a fulcrum that TIPS under the ball's weight: rolled onto one half, that half goes down - steel
@@ -14,7 +14,7 @@
 #    Roll on and up: past the pivot the plate tips and lays its far end down at the far plate's height, the ball
 #    carried down with it, and on to the goal (exit 0).  Glass, slow to tip it, may run off the top first and fall;
 #  - THE ROCKER (west): a 2-cell see-saw across a gap to a dead-end plate, resting tilted: every ball rocks it.
-#  - THE CLOCKWORK (north, then a long way east, out of the weight plates' windows: SPEC.md 128.42.11): TIMED
+#  - THE CLOCKWORK (north, then a long way east, out of the weight plates' windows: SPEC.md 130.42.11): TIMED
 #    see-saws, which ignore the ball's weight and swing on a timer (a fulcrum banded black).  THE LIFT: a plate
 #    whose near end is level with the hub at rest; roll down it to its far end, against the ledge's wall, and wait -
 #    the plate swings and LIFTS the ball to the ledge's height; roll off onto the ledge and its goal (exit 0).
