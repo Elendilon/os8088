@@ -1190,7 +1190,7 @@ record):
 | T8 | **retired item by item** | box writes 5.4 - 6.1k a play frame, at the floor; the wheel 0.45 - 1.7k a frame, `bz_wover` / `bz_wlate` 0 (asserted by the rows, green); preparation and walk: `bz_props` 1.8 - 2.6k after F3; TRIAL on the Hercules: D ON 0 missed; the two-box rotor frame (A15, priced 88k): 65 - 76k busy, never missed |
 | T9 | **moved out** | a size budget, not speed: `bonanza.bin` 50,062 bytes |
 | T10 | done | in 5b |
-| T11 | **proposed, in R's units** | CGA speaker ON at most **15 missed refreshes a 1,000 steps and no run of 3 outside a cut**; Hercules 5. Today MILL 11.6 and PLAYGROUND 2.0 pass; MOON 5.5 passes the rate but fails the run (9 at one pan); PEAK 33 - 38 fails (wave 13 eases it). The agent building a course measures it once through R |
+| T11 | **proposed, in R's units** | CGA speaker ON at most **15 missed refreshes a 1,000 steps and no run of 3 outside a cut**; Hercules 5. Today MILL 11.6 and PLAYGROUND 2.0 pass; MOON 5.5 passes the rate but fails the run (9 at one pan); PEAK 33 - 38 fails (wave 13 eases it). The agent building a course measures it once through R. **`bonanzaperf --baseline` now reports R beside D** (missed refreshes a 1,000 steps, longest run) and FLAGS a course over this proposal; the budget is still NOT ADOPTED (PEAK CGA ON measured 22.6 - 26.7 a 1,000 steps over 3 runs, 49 - 58 misses in 2,172 steps) |
 | T12 | **answered: no on the CGA** | a second box costs +15 - 17k (measured on MILL's two-box frames, D), and MILL's two-box frames miss 19 - 22% against ~2%; a ghost is a second box EVERY frame. Q-L6 is the owner's |
 | T13 | held, folded into O1 | `bz_amodel` 1.0k on PEAK's missed frames (0.19k elsewhere); after O1, re-price |
 
