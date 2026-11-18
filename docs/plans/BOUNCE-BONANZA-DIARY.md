@@ -5140,3 +5140,66 @@ already exists:
 The plan's wave 11 now carries the stories that close those gaps (11.11 -
 11.15). Nothing was built or run for this entry: the guide, this diary entry
 and the plan were written, and `tools/checkdocs.py` was run.
+
+## 2026-11-18 (the pipeline's shape, clock art, and FIRST ROLL penned in)
+
+The owner's answers to the wave 11 review, verbatim:
+
+> For course one, also add "drops kill you, and you need to learn the
+> timing" (the good lesson from the current first roll).
+>
+> Clocks: Because the art has to go in per usage per course anyway, we could
+> have one or more if positioning demands it (like one standing, one
+> floating/attached to a block from the side), custom clock art per course,
+> where the clock art "fits in" with the theme of the course, or at least is
+> unique to it. The alternative is we could also consider some "standard
+> parts" clocks instead of "per course" art, if that savings is significant.
+> Then only have custom clocks occasionally, where a standard part one
+> couldn't be designed in easily. All clock art needs to be high quality,
+> regardless of standard or custom part.
+>
+> For the pipeline: We should pen in a course before we start putting it in
+> engine; that means imagine it up, make pictures, and do back and forth with
+> me. Then go in engine, play around, revise. Course cycles need to be FAST;
+> no soaks on them, no long tests, and we might even make multiple courses
+> before we do demos and performance checks; or run those in the background
+> while we continue working. I do not want what keeps happening, to happen
+> again - where iteration time is 30+ minutes on each simple change.
+
+**Where each went:**
+- the guide gains G23 (clock art) and its section 3 (pen in, then iterate
+  fast);
+- the plan's story 11.14 now prices standard-part clocks against custom art
+  per course before the second course is drawn;
+- story 11.16 is FIRST ROLL, with the owner's lesson in it.
+
+**FIRST ROLL, attempt 1, penned in**:
+[bonanza-courses/FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md). A host-only
+script, `bonanza-courses/first/sketch.py`, draws the plan and the course in
+the game's projection as plain blocks. It is the first of the pen-in step's
+pictures. The design:
+- a descent DOWN the screen, about 950 lines, swinging at most 216 px across;
+- SUMMIT's hill of ramps, turned into a railed tutorial;
+- an open-edged ledge (drops kill you);
+- the test FIRST ROLL's lip, re-planned so its flight does not pan, which
+  punishes too much speed;
+- three corners that lose their rails one at a time (brake);
+- one-unit steps (a drop onto floor is fine);
+- an open-edged walk;
+- a one-tile leap, which punishes too little speed;
+- a wide, visible goal;
+- three pillar clocks.
+
+The two jumps are the pair the owner's lesson asks for.
+
+**Observed while sketching, before any tool:**
+- The arrows push along the grid's diagonals, so Down is screen-down, and a
+  run along one grid axis moves 2 px across for each line down.
+- A course that runs "vertically" alternates +x and +y. The hill of ramps
+  does exactly that, which is why it suits an opening.
+- The CGA's dead zone across is 160 px. A route that swings more than that
+  costs a framing move or two, so this sheet puts them at the corners.
+- Whether they land there is 11.11's to measure.
+
+**Run**: the sketch script and `tools/checkdocs.py`. **Not run**: nothing
+in the engine; every time and the camera's behaviour are PREDICTED.
