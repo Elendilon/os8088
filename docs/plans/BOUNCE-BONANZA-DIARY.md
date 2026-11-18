@@ -4569,3 +4569,29 @@ sweep, reach, art, model scenes; red arms `novoid`, `fallen` red), `tt_host`
 `ttmark`, `ttwarn`, `ttfast`, `ttfref` all red), `checkdocs`. **Not run**: soak
 rows, `test-full`, the whole `bonanza_phys --check`; the per-step cost is
 PREDICTED.
+
+## 2026-11-18 (the TURNTABLE becomes a platter)
+
+The owner, from the screenshots: *"The turntable art won't work like this; as a
+circle on top of squares/columns. Can we remove the squares/columns, and make
+the art fit in to the art style of the rest of the props better?"*
+
+- **Not tiles any more.** The tables' cells (and a 3 x 3's pivot) join the
+  UNDRAWN set glass and the guard rail already use, so the renderer draws no
+  top, no checker and no column for them; the neighbours' faces hang into the
+  space as beside a glass tile. In their place `tt_ops` adds the platter as
+  geometry ('post' ops keyed each cell's s, the archway lintel's way), so the
+  occluders still lay its front edge over a ball that drops through a port.
+- **The look.** A rounded square (squircle, exponent 4: it reads round but
+  covers its cells but for the outer corners' last few px), a pinwheel of
+  eight facets white and cyan in turn with magenta seams round a gem hub, a
+  bevel lit on the back left, a black outline, a half-unit magenta front edge
+  (solid left, dithered right like every wall face) and a short spindle under
+  the hub. A gap is an open PORT - black, its far inner wall magenta, its near
+  lip lit - and the warning its dotted seam. On the Hercules: white facets,
+  grey facets, black ports.
+- **What did not move**: the part (315 bytes), the bundle, the image, the lane
+  budget (a 2 x 2-block lane a cell, one change a step a table), the guest
+  (`tt_host`: eight scenes equal, every red arm red), every shipped course
+  (`cmp`). TURN's course part 18,997 -> 19,513.
+- **LOOKED AT** once on MartyPC per card, and the tool's previews of every pose.

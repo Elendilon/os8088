@@ -381,9 +381,11 @@ SWEEPS round the ring one cell a step (67 - 133 ms: it reads as turning, and
 a table costs the window's `WIN_CHG` one change a step - a 3 x 3 turning at
 once could not share a screen with a clock); a floor about to open shows its
 SEAM for 16 steps (fair play); a hole that closes over a fallen ball does not
-lift it; the art is black and white only - a ring and a hub painted on the
-table (it reads as one round thing on both cards), a black hole or a dotted
-seam in each cell's lane.
+lift it; the art (redone 2026-11-18 after the owner's first look: "a circle
+on top of squares/columns" won't work) is a crystal PLATTER drawn in place of
+the cells' tiles - a pinwheel of facets round a gem hub, a bevelled rim, a
+half-unit front edge and a spindle - each cell's lane an open PORT or its
+dotted seam.
 
 - [x] **T.1** SPEC.md 128.43: the contract (written PLANNED with the code,
       then as built and measured).
@@ -402,6 +404,9 @@ seam in each cell's lane.
       and falls off it (the model, the unicorn scenes).
 - [x] **T.5** LOOKED AT on MartyPC, CGA and Hercules (the knob tree) - see the
       diary's entry.
+- [x] **T.5b** The PLATTER (the owner's first impression, 2026-11-18: the ring over
+      checker tiles and columns would not work): the cells drawn as one crystal
+      platter, ports for gaps; previews and one MartyPC look per card, again.
 - [ ] **T.6** The per-step cost MEASURED (the final pass's `bonanzaphys` /
       `bonanzaperf` on a `BZTURN=1` tree; about 2.3k clocks a step on TURN
       PREDICTED).

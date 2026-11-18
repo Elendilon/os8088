@@ -279930,8 +279930,8 @@ PREDICTED.
 | D6 | a **WARNING**: a floor whose next rotation is a gap shows its SEAM (the hole's outline, dotted) for the last `warn` W = **16 steps (0.27 s)** of a quarter (0: none; refused at Q or more) | fair play: nothing drops the ball without a visible tell first; 16 steps is long enough to read, short enough that nothing feels slow (a quarter is still 64) |
 | D7 | **it carries nothing**: a cell that turns into a GAP is a NEAR VOID (the membrane's, 128.38: the floor less 3 units, kind and surface 0, its flags kept), so a ball on it - rolling or at rest - falls and respawns | the plan's rule; no carry physics, so no resident change |
 | D8 | **a hole that closes does not lift a ball out of it**: the window's CENTRE stays a void while the ball's whole-px z is under the cell's top | without it the engine's landing test (`gz <= h`) would pop a ball that fell into a hole back up 1 - 3 units the step the hole closed (SEEN on the model: rubber run into C's closing hole crossed to the goal plate) |
-| D9 | the ART: the picture holds each table as ONE ROUND THING lying on the floor - a black RING of radius N/2 - 0.1 cells round a white HUB with a black outline (the table's centre: a 2 x 2's shared corner, a 3 x 3's pivot); each switching cell's lane (a popspike's 2 x 2 blocks round its top's centre) draws pose 1 the SEAM (a dotted black outline) and pose 2 the HOLE (a black lens, `|u| / 2 + |v| < 4.5`, `|v| < 4`) | black and white only: CGA's cyan and magenta are the same grey checker on the Hercules, so a turntable told by colour would vanish there; the ring and hub say "this turns" on both cards, the holes moving round the hub say which way |
-| D10 | VISIBILITY (the owner's rule): the ring, hub, seams and holes are PAINTED on the tops (never an occluder), so a table hides nothing; a hole or seam more than half drawn over by geometry in front is refused | a mechanic is seen when the ball is not on it |
+| D9 | the ART (redone after the owner's first look, 2026-11-18: *"a circle on top of squares/columns" won't work*): the table is ONE OBJECT, a crystal PLATTER. Its cells (the pivot's too) are NOT drawn as tiles - no checker, no columns - and a geometry op (`tt_ops`, arch_ops' way: 'post' ops keyed each cell's s, so the occluders lay its front edge over a ball that falls through) draws in their place a rounded-square platter (squircle, exponent 4): a pinwheel of eight facets, white and cyan in turn with magenta seams, round a white gem HUB ringed black; a bevelled rim lit on the back left; a black outline; a FRONT EDGE half a unit thick (magenta, solid left, dithered right, as every wall face); a short SPINDLE under the hub. Each switching cell's lane holds pose 1 the SEAM (a dotted outline where a PORT will open) and pose 2 the open PORT (black, its far inner wall magenta, its near lip lit white) | on the Hercules cyan and magenta are one grey, so it reads as white facets, grey facets and black - a platter, not floor; the neighbours' faces hang into the space the cells left, as next to a glass tile |
+| D10 | VISIBILITY (the owner's rule): the platter is a thin slab (half a unit), so it hides only what is under it - a ball that drops through a port, which its front edge covers as a tile's face did; a port or seam more than half drawn over by geometry in front is refused | a mechanic is seen when the ball is not on it |
 
 #### 128.43.2 The statement
 
@@ -280102,13 +280102,10 @@ refills a quarter turn, plus the warnings. The final pass's `bonanzaphys` /
 
 #### 128.43.10 Open questions for the owner
 
-1. **The hole's size.** A gap is a black LENS in the middle of its cell (16 x
-   7 px), the crack's idiom, while the whole cell is a void: the 2 x 2-block
-   lane is what keeps a table's neighbouring lanes apart. A WIDE hole (the
-   whole top less a rim, `hole wide`'s 4-block lane) needs GROUP lanes
-   (128.32) - a 2 x 2 table's four cells as one group of 3^4 poses, a 3 x 3's
-   ring far past `GRP_QMAX` - so it is not built; say if the lens reads too
-   small on the glass.
+1. **The port's size.** A gap is an open PORT (14 x 7 px) in the middle of its cell while the whole cell is a void:
+   the 2 x 2-block lane keeps a table's neighbouring lanes apart. A whole-cell opening would need GROUP lanes
+   (128.32) - a 2 x 2's four cells one group of 3^4 poses, a 3 x 3's ring far past `GRP_QMAX` - so it is not
+   built. The platter's outer corners are trimmed a few px (the squircle) while the cells are whole squares.
 2. **The period and the warning**: 64 steps a quarter and a 16-step seam are
    the defaults to judge on TURN; `quarter 32` is the fast table.
 3. **The sweep** (D5) is 4 or 8 steps; a table that turns in ONE step would
