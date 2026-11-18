@@ -270507,6 +270507,17 @@ a frame, the size of 5b's measured D cost, which moved missed refreshes a
 second by -0.14 to +0.16; the larger term is the faster balls' pans, which
 the host predicts before the code.
 
+**`--baseline` reports R beside D (wave 10).** D times eight points a frame
+(about +4.7k clk of measuring), so on the CGA its missed refreshes read four
+to six times a play's. Every demo's runs are therefore repeated through `R`
+(a replay: a play's cost), and the report carries a second table of missed
+refreshes per 1,000 steps and the longest run of consecutive missed frames;
+D's table and its per-part breakdown are unchanged. A row over the PROPOSED
+per-course budget (the plan's wave 10 T11: CGA speaker ON at most 15 a 1,000
+steps, Hercules 5, no run of 3) is FLAGGED and fails nothing: **the budget is
+not yet adopted.** `--course NAME`, `--runs N` and `--sound` scope a run (its
+report is written as `-partial`).
+
 **The re-baseline is taken ONCE, at the FREEZE commit** (after gate 1's
 retune, 128.16.11), by `bonanzaperf --baseline`, in that commit's final
 pass:
