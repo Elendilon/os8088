@@ -283941,7 +283941,14 @@ PLAYGROUND, the stress test, is at 979 of `BLK_MAX` (1,024) today and the band t
 a course over `BLK_MAX` with the band is compiled again WITHOUT it, and the run says so on stderr. Whether
 PLAYGROUND shrinks or the occluders leave the picture's part to lift the limit is the owner's later call.
 
-#### 130.47.6 Cost (MEASURED with the host prototype, 21 courses, PLAYGROUND out, against the shipped kit)
+#### 130.47.6 Demos
+
+A course's identity (130.15.7) covers its picture, so THE LOOK moves every identity and a shipped demo's
+check 4 would refuse it. THE LOOK moves the picture's ink and nothing the replay meets, so a knob build
+re-stamps each demo with the build's identity and says so, as 130.22.6 does for the clocks; the replay check
+after it (the goal on the last step) still runs.
+
+#### 130.47.7 Cost (MEASURED with the host prototype, 21 courses, PLAYGROUND out, against the shipped kit)
 
 | | blocks | LZB | worst |
 |---|---|---|---|

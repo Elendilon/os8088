@@ -19514,6 +19514,13 @@ def check_demo(c, K, log, idents, where):
                                                                   idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
+    if bad and bad[0] == 4 and LOOK is not None:
+        # SPEC.md 130.47.6: THE LOOK moves the picture's ink and nothing the replay meets, so a knob build
+        # re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
+        restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: THE LOOK (%s) moved the picture "
+                       "only (SPEC.md 130.47.6)" % (where, struct.unpack_from("<H", log, 14)[0], idents[K], LOOK))
+        struct.pack_into("<H", log, 14, idents[K])
+        bad = check_log(bytes(log), len(idents), idents, physv=log[7])
     if bad:
         raise CourseError("%s: check %d: %s%s" % (where, bad[0], bad[1], " - a demo of an earlier build of %s: "
                                                   "record it again" % c.name if bad[0] == 4 else ""))
