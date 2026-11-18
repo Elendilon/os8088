@@ -4858,3 +4858,42 @@ Wave 10 started from a list written long before the engine looked like this. A r
 The per-course budget was not adopted. The owner's reasoning: decide it on the first real course, by how it plays, not on test courses.
 
 The same day the course plan changed shape. No existing course ships: FIRST, TRIAL, MILL, MOON, PEAK and the rest become reference and test courses, and the game's courses are new, taking lessons and pieces from them. The pipeline is worked out while making the first one.
+
+## 2026-11-18 (a clock is an occluder)
+
+The owner: *"clocks don't have occlusion."* He was right, and it had been
+written down as a feature: wave 7 made the clock's crystal ball and post a
+MARK - painted at the clock's depth so that walls in front hid it, but with
+no depth key - and SPEC.md 128.18.5.1 said so in as many words, "a ball
+passing behind a clock is drawn over it". Every other prop that stands up
+from its tile (a flag's staff, a bumper's post, a magnet, the guard rail, the
+archway's lintel) is geometry keyed at its cell, and the occluder cut lays it
+over a ball behind.
+
+- **Measured first, both directions.** A probe rolled a ball every 2 gu over
+  every reachable cell behind each clock on FIRST, TRIAL and MILL and
+  composited it the guest's way (the records, AV's model): 1,053 of 1,831
+  positions drew the ball over the clock, up to the whole ball, digits
+  included. The other direction was already right: a digit's poses are inked
+  only on the face pixels the picture shows, and a digit lane that meets the
+  ball's boxes is composed with the ball, never committed over it.
+- **The fix is the tool's alone.** The face's pixels (all but the shadow,
+  which is paint on the tile) are keyed at the clock's cell with the clock's
+  crown as their top. 0 resident bytes; the image and bss do not move.
+- **Two clocks had to move.** MILL's at (8, 11) put both windmills' doorways
+  in its shade (a must-draw rotor's frame runs no occluder pass, so that is
+  refused): now (6, 13). TRIAL's at (18, 17) put a fifth record in a block at
+  the bound of 4: now (18, 18). A first try gave the plinth its own (lower)
+  top; that split the clock into two records a block, and is kept off.
+- **What it costs is masks.** A clock's outline is a new mask shape in most
+  blocks it covers: FIRST 1,639 -> 1,936 bytes stored, TRIAL 3,404 -> 3,730,
+  MILL 7,577 -> 7,891, MOON +43, PEAK +249, PLAY +172.
+- **The visibility rule as a refusal.** `clock_vis` rolls the ball behind
+  every clock and refuses one that WHOLLY hides it for more than a ball
+  length (16 gu) by itself - the archway's rule. The worst is MOON's finish
+  clock, 16; a run there that a wall hides anyway is not the clock's.
+- **--selfcheck item 17** (section `clockocc`) holds it, with two red arms
+  watched red: the clock left a mark (a ball drawn over it again) and the
+  bound at one position.
+- MOON's and PEAK's demos re-authored, identity only. PLAYGROUND's demo needs
+  the same, and waits for the agent editing that course.

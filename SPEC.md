@@ -269353,7 +269353,8 @@ Where the build differs from the contract above, and why:
   is; a clock more than half hidden or off the picture is REFUSED. A mark
   is drawn under the ball, never in front of it, so **O25 holds by
   construction** and needs no refusal: a ball passing behind a clock is
-  drawn over it.
+  drawn over it. **Superseded by 128.18.5.4**: the face is geometry keyed at
+  the clock's cell, laid over a ball behind it.
 - **The font is 5 x 7** (`CLOCK_FONT`), a pixel in from its block's left
   and top, black on the ball's cyan (the owner, on the first clock build:
   *"I love the digit style"*).
@@ -269458,6 +269459,116 @@ new:
   the clocks' cells among the props' OBS cells, and item 10's `no_obs`
   control on the courses where a prop's cell would be SAFE but for its
   OBS.
+
+##### 128.18.5.4 A clock is an OCCLUDER (the owner, 2026-11-18)
+
+*"Clocks don't have occlusion."* 128.18.5.1 made the clock's art a MARK:
+painted into the picture at the clock's depth (so what stands in front of
+the clock's cell hides it) but with no depth KEY of its own, so the occluder
+cut (128.10.4.4) never saw it and a ball passing BEHIND a clock was drawn
+over its crystal ball, its post and its digits. Every other prop that stands
+up from its tile (a flag's staff, a bumper's post, a magnet, a guard rail,
+an archway's lintel) is geometry keyed at its cell; the clock now is too.
+
+**What was wrong, measured** (the tool's composite by the records, AV's
+model included: a ball every 2 gu over each reachable cell behind a clock, at
+its lowest and its highest height, the clocks where they stand now): on
+`FIRST`, `TRIAL` and `MILL`, of 1,831 such positions whose ball meets a
+clock's face, **1,053 drew the ball over a face pixel** - up to 208, the
+whole ball - and with the clock keyed, **none**. The other direction
+was already right, and is unchanged: a digit lane's poses are inked only on
+face pixels the picture shows (128.18.5.1), so a digit is never drawn over
+static geometry in front of the clock; and a lane that meets the ball's boxes
+is never the wheel's or the lead's (128.12.4.2) - its change waits, or is
+composed in the contact box with the ball and the occluders over it.
+
+**The rule** (binding: the tool alone, `clock_face_pix(..., tops=)` and the
+compile's CLOCK case):
+
+1. Every pixel of a clock's face that the picture shows (`face_pix`: the
+   plinth, the post, the dish, the crystal ball with its digits' window and
+   the finial) is GEOMETRY: its key `s` the clock's cell's `wx + wy`, its top
+   the clock's CROWN, `z4 + (the tile centre's floor line - the face's top
+   line)`, whole px - one top for the whole face, as a flag's staff has one
+   (a plinth at its own top, `z4 + 4`, split a block's pixels over two bands
+   and added a record to blocks already at the bound; it is kept as
+   `_CLOCK_PLINTH_OWN`, off).
+2. The SHADOW stays paint on the tile's top: a shadow pixel no later layer
+   covers keeps the tile's key.
+3. The digits' block is part of the face: its pixels are keyed whatever pose
+   is drawn, so the records' verdicts do not depend on the pose (128.12.4.5),
+   and a record over it lays the DRAWN digit through the map.
+4. The pathway's LIVES counter (`frame lives`) is not keyed: the pathway cuts
+   no occluder (128.31).
+
+So the records (128.10.4.4), AV's residual (128.29) and the OCC / OCCG flags
+are cut from the clock as from any post. **O25 now holds the ordinary way**:
+the clock is laid over a ball behind and below it, and a ball in front draws
+over it. The ghost dither (128.15.10.1) applies as to every record: on the
+card a ball behind a clock shows through it as a checker.
+
+**The visibility rule** (the owner's, 128.39.1 A10): partial occlusion is
+allowed; a ball may be WHOLLY hidden for at most one ball length. `clock_vis`
+rolls a grounded ball, a ground unit at a time, along x on each of the three
+cell rows behind each clock and along y on each of the three columns behind
+it (each at the cell's middle and 4 gu either side), over every reachable
+floor from 4 cells before the clock to 4 after, composited by the records; a
+position counts toward a run when the ball is wholly laid over WITH the
+clock's own pixels and not without them (a ball a wall hides anyway is the
+picture's, as before). A run past **`CLOCK_HIDE` (16 gu)** is REFUSED, naming
+the clock. MEASURED, the longest runs: `FIRST` 0 and 2, `TRIAL` 0, 4 and 2,
+`MILL` 0 and 8, `MOON` 16, `PEAK` 0 and 0, `PLAY` 8; the knob courses 0 - 8.
+A clock stays readable: it is laid OVER the ball, never under it.
+
+**Two placements moved** (the rule's cost, each refused by an existing bound
+until moved, `a course that then meets a bound is edited`, 128.37.6):
+
+| course | was | now | why |
+|---|---|---|---|
+| `MILL` | (8, 11) | **(6, 13)**, the front-left corner | at (8, 11) it stood in front of both windmills' doorways and set OCCG in their IN 3 x 3 (128.12.4.6: a must-draw rotor's frame runs no occluder pass) |
+| `TRIAL` | (18, 17) | **(18, 18)**, the lower floor's front row | its post added a fifth record to a block the ramp's foot already held at the bound of 4 (128.11.4.2) |
+
+**What it costs** (MEASURED, `make bonanzadisk` before and after):
+
+- **Resident: 0 bytes.** `bonanza.bin` 50,178 bytes and bss 12,468, both
+  unchanged; no `BZ_PHYSV` move (the clock's post physics, 128.18.5.3, is
+  unchanged; MILL's and TRIAL's posts stand in new cells).
+- **The parts** (RAM / LZ4 stored, records, masks after the ghost dither):
+
+| course | RAM | LZ4 | records | masks | OCC (OCCG) cells |
+|---|---|---|---|---|---|
+| `FIRST` | 9,048 -> 9,636 | 1,639 -> 1,936 | 81 -> 120 | 20 -> 44 | 43 (0) -> 45 (4) |
+| `TRIAL` | 15,078 -> 15,816 | 3,404 -> 3,730 | 297 -> 354 | 30 -> 61 | 118 (9) -> 119 (22) |
+| `MILL` | 26,129 -> 26,785 | 7,577 -> 7,891 | 394 -> 445 | 50 -> 76 | 195 (45) -> 211 (58) |
+| `MOON` | 38,867 -> 38,965 | 8,667 -> 8,710 | 1,588 -> 1,590 | 91 -> 96 | 457 (202), the same |
+| `PEAK` | 41,503 -> 42,093 | 10,300 -> 10,549 | 1,544 -> 1,570 | 75 -> 102 | 486 (211) -> 487 (212) |
+| `PLAY` (picture part) | 49,746 -> 50,096 | 15,615 -> 15,787 | 1,768 -> 1,788 | 186 -> 201 | 584 (100) -> 593 (115) |
+
+  Most of it is MASKS: a clock's outline cut by 8 x 8 blocks is a new mask
+  shape in most of the blocks it covers (16 bytes each). The bounds hold:
+  the most records in a block is 4 (bound 4) on every course that already
+  reached it, `FIRST` 2 -> 3; the most in a block row `FIRST` 10 -> 14,
+  `TRIAL` 20 -> 24 (bound 128). `BENCH`, the pathway and the title do not
+  move. The 360 KB `bonanza360.img` holds 130 of 354 clusters (129), the
+  1.44 MB one 255 (253).
+- **The route audit** (128.15.10.4): `TRIAL`'s route has the ball over half
+  hidden on 12 of 499 steps (0 before), wholly on none; `MILL`'s one
+  over-half stretch of 0.60 s from step 466, behind its finish clock
+  (22, 22). Reported, as the audit always is.
+- **Identities**: every course with a clock moves (new records); the
+  authored demos of `MOON` and `PEAK` re-authored, identity only (1,983 and
+  2,172 steps, unchanged); `PLAY`'s (1,504 steps) needs the same and is
+  re-authored with the next change to its course.
+
+**Proved by** `--selfcheck` section `clockocc`, item 17, on the shipped
+courses: every face pixel but the shadow keyed at its clock's cell; a ball
+rolled behind every clock never drawn over a face pixel; the longest
+wholly-hidden run within `CLOCK_HIDE`. Red arms: `clocknoocc` (the face left
+a mark, unkeyed: FIRST's face unkeyed and a ball drawn over it at 5 of 58
+positions - caught) and `clockvisb` (the bound at 1 position: FIRST's clock
+at (11, 4) refused at its 2). No guest byte moves, so the rows that read a
+clock's lanes (`bonanzawheel`'s CLOCK leg, `bonanzaring`'s glass on FIRST)
+see only the parts' new records, as on any course edit.
 
 #### 128.18.6 `music` and the sound events (stories 7.5, 7.6)
 
