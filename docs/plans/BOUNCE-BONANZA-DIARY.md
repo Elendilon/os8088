@@ -4895,3 +4895,132 @@ timer"*, and *"do we have the option of using different gate art per course?"*
   (eleven scenes equal at every step, ten red arms red) and `gt_host` (27
   equal, five red), `make bonanzadisk`, the BZTILT and BZGATE knob builds.
   **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+## 2026-11-18 (wave 11 opens: the owner reviews the test courses)
+
+The first step toward real courses: the pipeline, the guides, then a first
+real course. Every course in the tree is a test course or an early attempt,
+and none of them stays. The owner played each pathway course and reviewed it
+as general lessons. The review covers only the courses built before most of
+the new props, so those props still need patterns of their own.
+
+The rules drawn from it are G1 - G22 in
+[bonanza-courses/README.md](bonanza-courses/README.md), the course design
+guide. That guide is wave 11's working document. The review itself, verbatim:
+
+> **First Roll:** A single ramp and jump; real courses will never go below
+> 25s, and rarely below 35s. The jump itself is good, though; it fails if you
+> just push straight on it, but succeeds if you slow down, or jump, or go to
+> either side. This scrolls horizontally, which is jerky for us though; jumps
+> should be planned in a way that the camera doesn't need to horizontally
+> scroll while we make them. In general, horizontal scrolling is worse than
+> vertical, so I expect our courses end up more vertical than horizontal;
+> with horizontal used sparingly.
+>
+> **Bounce Trial:** A test course to show you can bounce, from a height, over
+> a gap. Good concept, but nothing else here works well. Two clocks show up
+> on the same screen, and block the path. The jump itself was tuned before
+> our current ball physics. The ramp's lower landing isn't smooth. The sand
+> before the ending is just annoying, and the split double finish line was a
+> test for pathway, not how finishes are placed for any real course.
+>
+> **Clock placement**, while we are on that: You should be able to see a
+> clock face from any finish line, and the starting position. Inbetween
+> clocks should never show twice on the same screen, including near a finish
+> line. Clocks should not obstruct main pathways. Clocks CAN "float", with art
+> that supports that, or sit on a tile that isn't in the primary pathway, or
+> sit on a lone pillar, or be "attached" to the side of a pathway, sticking
+> out one tile on a stick or something. Clocks do not have to be visible on
+> every screen inbetween start and finish - as long as they can see them
+> periodically as they traverse, with no extremely long sections (15s+)
+> inbetween being able to see one, that is fine. I'm thinking that means 2-5
+> clocks a level, probably, with 3 being the "norm" on the 25-45s levels, and
+> more on the longer ones or ones with their finish lines distant from each
+> other.
+>
+> **Playground:** Just a test - but this one places many props, many tile
+> types, etc. We'll be putting the pit this has, or something like it, into
+> standard parts.
+>
+> **Windmill lane:** A test course for the first props, the windmill and the
+> bumper. Good things are the right side windmill, clearly visible where it
+> enters and exits. The initial clock placement is good. The ramp down into
+> the bumper section, and the bumper placement is good; the bumpers are easy
+> to hit but not inescapable. Easy mode with the rails so good for an early
+> course, a later course could use a similar idea without bumpers. Both
+> cannon uses are good; one halfway up a pillar, which is cool, and one
+> throwing you into a visual spin.
+> Bad things: The left windmill that exits invisibly, and strands you on a
+> side ledge. We should never softlock a player. The sand platform; sand
+> should be used when we want to help them slow down, or make it hard for
+> them to speed up/jump, not just on a huge platform. Aka, sparingly. The
+> lift to nowhere: It was a test, but lifts take you UP. There is no point in
+> a lift that just goes where you could jump anyway; though that doesn't
+> block off "you need to get BACK up" in the case of something like a keyed
+> gate. The clock placement at the end is mediocre; it would be better if it
+> was off the main finish platform.
+>
+> **Moonlit:** The ice at the start is pointless. The hole is not in a great
+> position, though at least it is visible. Half of the pads in this course
+> make any sense, relative to what is around them in the course. The slight
+> back and forth maze is decent; you can weave around it without slowing down
+> a ton if you are careful, or take it slow at a time cost. The straightway
+> is cool, but you should come into things like that with speed. The "jump
+> down, jump the gap, flag" is cool. Good flag positioning. The flag at the
+> start comes much too soon. The multiple tubes to different mini routes,
+> guided in by lanes, is a good idea - one of the times or ways you can
+> obscure a ball, briefly, and the mechanic is still clear. The pathway that
+> soft locks you is not ok. The stairs toward the end are fine. The slight
+> ramp up to the sand surrounded hole end is the first good use of sand. The
+> end clock positioning, like all these addon clocks, is ok but could be
+> better. Its out of the main pathway (because of the block behind/beside it)
+> but it doesn't visually fit in.
+>
+> **Summit rush:** The initial hill of ramps is a good introduction to ramps;
+> something like it might be the start of the new first roll/first course in
+> the game. The ice is slightly less pointless here, it prevents an early
+> brake. Flag position is decent. The double path, windmill or stairs, is
+> good; although the exit to the side of the stairs is awkward. The hidden
+> pathway from the windmill exit and the missing column line are neither good
+> at all. The skippable glass pad is an acceptable idea; go too fast, and you
+> might become glass, and break on trying to be quick on the stairs.
+>
+> **Interjecting on ball types:** Rubber is "the main ball". You'll spend
+> most of the game as it. This is "Bounce Bonanza". The other balls may have
+> a "focus course" each, but mainly, they are "mechanic" balls. You become
+> them, do a stretch of course, then go back to rubber.
+>
+> **And back to summit:** The flag position on the platform after the
+> stairs/windmill is good. Then, though, things get not good. The spring is
+> completely obscured. You have to guess where it is. Its positioned in a way
+> that requires specific timing and speed from the player, which is good, but
+> then its not obvious what controls give you that speed; mainly because you
+> can't see the result.
+> Making you become slow steel as a penalty if you just go straight, but
+> keeping that short, is fine. As is the "cannon into flag into glass". Then,
+> though, you cannot see the path - and it isn't a guarded path. So you once
+> again have to completely guess where you are going. You can't see the
+> spring. Its another "exactly this speed" - this time with you as glass,
+> dying, if you fail it - a fine concept for a later course, IF you can see
+> the mechanics. Clock positioning is not great on the main pathway, and
+> visually not fitting in, and the ending hole is hidden which is not
+> acceptable at all for a non-hidden/main path finish.
+>
+> And that is all the pathway courses - we have other tests, but they were
+> even more mechanic specific. We will take some of those test courses, for
+> example the double hump on the hump test course in the back right, as
+> standard parts.
+
+**Observed, from the tool's source**, to place each rule against a check that
+already exists:
+- `finish_clock_rule` already requires a clock in the window centred on every
+  finish, but says nothing about the start.
+- `clock_visibility` reports the share of route frames that show a clock, not
+  the longest stretch without one.
+- `trap_check` proves "no trap" from flags and pads only, not from every
+  reachable cell, so MILL's stranding ledge and MOON's dead end passed it.
+- `pans` reports pans per route, not pans while the ball is in the air.
+
+The plan's wave 11 now carries the stories that close those gaps (11.11 -
+11.15). Nothing was built or run for this entry: the guide, this diary entry
+and the plan were written, and `tools/checkdocs.py` was run.
