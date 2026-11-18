@@ -4077,6 +4077,18 @@ def vga_cam(g, art=None):
             if cur:
                 runs.append(cur)
             short = [r for r in runs if r < VGA_MINMOVE]
+            if short and os.environ.get("VCAM_DEBUG"):
+                ends, cur = [], 0               # (where each short move ends: frame index, and the rows round it)
+                for i, x in enumerate(d + [0]):
+                    if x:
+                        cur += 1
+                    elif cur:
+                        if cur < VGA_MINMOVE:
+                            ends.append(i)
+                        cur = 0
+                for j in ends[:4]:
+                    print("  %s %s short move ending at frame %d of %d: steps %s rows %s" % (
+                        crs, nm, j, len(rows), d[max(0, j - 4):j + 3], rows[max(0, j - 2):j + 3]))
             jerks = [i for i in range(1, len(d)) if abs(d[i] - d[i - 1]) > 1
                      and not rows[i + 1][2] and not rows[i][2]]
             if short:
