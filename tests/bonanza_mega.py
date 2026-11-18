@@ -138,8 +138,9 @@ and PEAK among them - so the no-fault and no-leak checks are the expansion's
 on kern_mega too; and the parts are packed in the shipped build's format
 (the table's byte, printed: LZB unless a single-format kernel forced LZ4),
 decoded there through OSAPI_DECOMP.  A red tree packs its parts in the same
-format (R.build_tree).  Every launch is the Hercules': BONANZA refuses the
-Paradise VGA (bz_adapter), and the expansion runs before anything card's.
+format (R.build_tree).  Every launch after case 0v is the Hercules'; 0v runs
+the VGA's arm on the Paradise first (SPEC.md 130.46), a benchmark to its end
+and a play, the window not yet dragged.
 Needs a built 86Box (python3 tools/os88box.py build).
 """
 import argparse
@@ -817,6 +818,34 @@ def run(img_b, keep, tmp, cases=None):
         pkg = Pkg(b, sym)
         if "bz_dev" in sym:                             # SPEC.md 130.26.6: the instruments' keys (B, R, F's free
             b.cmd("memw 0x%X 01" % pkg.a("bz_dev"))     # play), which this row drives - the window's are a player's
+        # 0v. THE VGA's ARM on kern_mega (SPEC.md 130.46): the window still on the Paradise VGA - a benchmark to
+        # its end (the VGA part far-called through its code alias, the art converted in place, the balls' copies a
+        # claim, the planar writers) and a free play on the VGA's camera, left by Esc; after each every part row and
+        # claim as on the desktop.  (86Box's Paradise model neither pans nor wraps - SPEC.md 130.46.2 - so its
+        # picture is not judged here: bonanzaring's VGA card is on MartyPC.)
+        vrows, vclaims = pkg.rows(), claims(b, pkg, hs, eq)
+        b.tap("b", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 1, "the VGA's benchmark bracket", 60000, 100)
+        want(pkg.byte("bz_vga") == 1, "0v. the bracket on the Paradise is the VGA's ([bz_vga] %d)" % pkg.byte("bz_vga"))
+        want(pkg.word("bz_vbseg") != 0, "0v. the balls' converted copies claimed ([bz_vbseg] %04X)" % pkg.word("bz_vbseg"))
+        b.until(lambda: pkg.byte("bz_fs") == 0, "the VGA's benchmark's 1,200 frames", 240000, 500)
+        b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0 and pkg.word("bz_vbseg") == 0,
+                "the VGA's parts and copies dropped", 10000, 50)
+        b.ui_done(limit_ms=30000)
+        want(pkg.byte("bz_res") == 1 and pkg.word("bz_rframes") == 1200,
+             "0v. the VGA's benchmark finished: [bz_res] %d, %d frames" % (pkg.byte("bz_res"), pkg.word("bz_rframes")))
+        check_after("0v. the VGA's benchmark", pkg, vrows, vclaims, claims(b, pkg, hs, eq))
+        b.tap("f", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 100, "a VGA play of 100 frames",
+                60000, 100)
+        b.tap("escape", gap=300)
+        b.until(lambda: pkg.byte("bz_fs") == 0, "the VGA play to end on Esc", 30000, 100)
+        b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0 and pkg.word("bz_vbseg") == 0,
+                "the VGA play's parts and copies dropped", 10000, 50)
+        b.ui_done(limit_ms=30000)
+        check_after("0v. the VGA play", pkg, vrows, vclaims, claims(b, pkg, hs, eq))
+        print("   0v. the VGA's arm on kern_mega: a benchmark of 1,200 frames and a play, the rows and claims the "
+              "desktop's after each", flush=True)
         # the window onto the Hercules: display 1 sits RIGHT of the VGA ([vid_dlay] 0)
         d1 = b.memr(b.sym("vid_ctx") + G.VID_CTX_SZ, G.VID_CTX_SZ)
         vx1, cw1 = u16(d1, G.VID_CTX_VX), u16(d1, G.VID_CTX_CW)
