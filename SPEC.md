@@ -272176,6 +272176,8 @@ BZ_NCRS`), so a course added by the other waves moves them and nothing else:
 | `+ 4` | *Moonlit Green* (A minor, swung 102) | 972 | 684 |
 | `+ 5` | *Summit Rush* (E minor, 164) | 1,030 | 763 |
 | `+ 6` | *Victory*, the finish's fanfare (130.22.9) | 224 | 177 (zlib) |
+| *(later rows)* | *(the table's numbering predates 130.26.5, which removed the title's song: the parts are `BZM0` *Fairway* ... `BZM5` *Victory*, `BZM6` the title screen's `attract`)* | | |
+| `BZM7.BIN` | *First Roll* (F major, 136.5, `groove 7 5`; 2026-11-18): FIRST ROLL's own, by its `music firstroll`. Listed in `bbmusic.NON_COURSE` so the default wrap (`course_song`, `(K - 1) mod n`) still counts the five course songs and no course falls onto the fanfare | 1,202 | |
 
 **A part a song**, so only the song playing is in memory: at most the sound
 part and one song, **2,071 bytes**, in two claims - on the desktop the title's,

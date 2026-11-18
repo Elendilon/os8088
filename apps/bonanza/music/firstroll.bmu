@@ -1,0 +1,104 @@
+; BOUNCE BONANZA - song 8, course 1 "First Roll": "First Roll" (SPEC.md 130.20)
+;
+; F major at 136.5 BPM with a breath of swing: a 16th is a row, and the rows
+; alternate seven and five sub-ticks (`groove 7 5`), so an 8th is always 12
+; and only the off-beat 16ths land a little late - the skip of a rubber ball
+; that has just been set rolling. A pattern is two bars of 4/4, 3.5 s.
+;
+; The player's FIRST course, so the tune is welcoming and sure of itself,
+; never tense: plain I - IV - V harmony with one turn round the subdominant
+; side, F Bb | F C | F Bb | Gm7 C7 F, and a bridge that visits the relative
+; minor without dwelling there, Bb C | Am Dm | Gm C | Bb C7.
+;
+; The intro is the ball being tapped onto the course over C - C7: three taps
+; on G (a note, a 16th rest, a late 16th, a note) while the bass and the beat
+; set off alone, then a roll up the C7 arpeggio and back down onto the tune.
+; A's MOTIF is a HOP AND A ROLL - a chord tone, a skip down a third on the
+; swung 16th, back up and over to the fifth, a rest, then two quick notes
+; rolling down onto the third:
+;   a8 r16 f16 a8 >c8 r8 <a8 >c16 <b-16 a8      (over F)
+; answered a step higher on Bb; the second statement runs up to F5 and down
+; to a half close on C7, with a two-16th pickup back in; the fourth phrase
+; squeezes the hop onto Gm7 - C7 and lands on F with the chiparp's sparkle.
+; B turns to the GLOCKENSPIEL over a plucked harp pushing 3 + 3 + 2 and a
+; held bass: short arpeggio bounces climbing (Bb, C, Am), a step-wise
+; settle on Dm, then a scale that the horn takes over and runs down through
+; C7 onto the motif. Intro, A A' B A'' for ever: the loop is 10 patterns,
+; 35.2 s, about one first run of the course.
+;
+; Style borrowed, not notes: Fairway's two-bar patterns, its swung-16th
+; pickups and its bridge handed to the glockenspiel; Bounce Trial's
+; off-beat stabs and octave-popping pluck bass; Summit Rush's 3 + 3 + 2 push
+; (here on the harp, in the bridge).
+;
+; THE SPEAKER: the lead carries it. Kick and snare blip on the beats (the
+; hats and the claps' rasp are the AdLib's), and `spkbass` fills the lead's
+; rests with the bass: the intro's taps, and the 8th rest in the middle of
+; every motif becomes a low bounce under the ball. Every phrase names its
+; own instrument and volume at its start and a lead phrase that leaves the
+; horn comes back to it, so no phrase inherits a state its packing did not
+; assume.
+
+song firstroll "First Roll"
+groove 7 5
+unit 16
+rows 32
+measure 16
+spkbass
+voice lead horn
+voice bass pluckbass
+voice chord stab
+
+; --- the intro: the ball tapped onto the course, C | C7 ------------------------
+lead LI = @horn v13 r2 o4 g8 r16 g16 g8 r8 | c8 e8 g8 b-8 >c8 <b-8 g16 e16 g8 |
+bass BI = o2 c4 >c8 <c8 g4 r8 g8 | c4 >c8 <c8 g4 b-8 >c8 |
+chord CI = @stab v10 o4 r8 q18 [e g >c]4 [e g >c]4 [e g >c]4 [e g >c]4 [e g b-]4 [e g b-]4 [e g b-]4 q6 [e g b-]8
+drum DI = k4 h8 h8 s4 h8 h8 | k4 h8 h8 s8 s16 s16 T8 t8 |
+
+; The stabs land on every off-beat 8th: a note a quarter long gated (q18) to
+; half an 8th, so a bar of four stabs is four events and no rests; a stab
+; holds its chord across the bar line, which is why these carry no `|`.
+
+; --- A: the hop and the roll ------------------------------------------------------
+lead LA1 = @horn v13 o4 a8 r16 f16 a8 >c8 r8 <a8 >c16 <b-16 a8 |
+           b-8 r16 g16 b-8 >d8 r8 c8 <b-8 g8 |
+lead LA2 = @horn v13 o4 a8 r16 f16 a8 >c8 f8 e8 d8 c8 |
+           <b-8 >c8 d8 <b-8 g4 r8 e16 g16 |
+lead LA3 = @horn v13 o4 b-8 r16 g16 b-8 >d8 c8 r16 <g16 b-8 >e8 |
+           f8 c8 <a8 >c8 @chiparp f4 @horn r8 o4 e16 g16 |
+bass BA1 = o2 f4 >f8 <f8 c4 r8 a8 | b-4 >b-8 <b-8 f4 r8 a8 |
+bass BA2 = o2 f4 >f8 <f8 c4 r8 a8 | c4 >c8 <c8 g4 r8 e8 |
+bass BA3 = o2 g4 >g8 <g8 c4 >c8 <c8 | f4 >f8 <f8 c4 r8 a8 |
+chord CA1 = @stab v10 o4 r8 q18 [f a >c]4 [f a >c]4 [f a >c]4 [f a >c]4 [f b- >d]4 [f b- >d]4 [f b- >d]4 q6 [f b- >d]8
+chord CA2 = @stab v10 o4 r8 q18 [f a >c]4 [f a >c]4 [f a >c]4 [f a >c]4 [e g >c]4 [e g >c]4 [e g b-]4 q6 [e g b-]8
+chord CA3 = @stab v10 o4 r8 q18 [f b- >d]4 [f b- >d]4 [e g b-]4 [e g b-]4 [f a >c]4 [f a >c]4 [f a >c]4 q6 [f a >c]8
+drum DA = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h16 k16 k8 h8 s8 h8 |
+drum DF = k8 h8 s8 h8 k8 h8 s8 h8 | k8 h8 s8 h8 k8 s16 s16 T16 T16 t8 |
+
+; --- B: the bridge, on the glockenspiel over the harp's push ----------------------
+lead LB1 = @glock v13 o5 f8 d8 r16 <b-16 >d8 c4 <b-4 | >e8 c8 r16 <g16 >c8 e4 g4 |
+lead LB2 = @glock v13 o5 e8 c8 r16 <a16 >c8 e4 a4 | f8 e8 d8 c8 d4. r8 |
+lead LB3 = @glock v13 o5 d8 <b-8 r16 g16 b-8 >d4 g4 | e8 f8 g8 e8 c4 r8 g16 a16 |
+lead LB4 = @glock v13 o5 b-8 a8 g8 f8 d4 f8 b-8 | @horn v13 a8 g8 f8 e8 d8 c8 <b-8 g8 |
+bass BB1 = o2 b-2 f4. a8 | >c2 <g4. b8 |
+bass BB2 = o2 a2 e4. g8 | d2 a4. f8 |
+bass BB3 = o2 g2 d4. f8 | c2 g4. a8 |
+bass BB4 = o2 b-2 f4. a8 | >c4 <g4 >c8 <b-8 g8 e8 |
+chord CB1 = @harp v10 o4 [f b- >d]4. [f b- >d]4. [f b- >d]4 | [e g >c]4. [e g >c]4. [e g >c]4 |
+chord CB2 = @harp v10 o4 [e a >c]4. [e a >c]4. [e a >c]4 | [f a >d]4. [f a >d]4. [f a >d]4 |
+chord CB3 = @harp v10 o4 [g b- >d]4. [g b- >d]4. [g b- >d]4 | [e g >c]4. [e g >c]4. [e g >c]4 |
+chord CB4 = @harp v10 o4 [f b- >d]4. [f b- >d]4. [f b- >d]4 | [e g b-]4. [e g b-]4. [e g b-]4 |
+drum DB = k4 h8 h16 h16 c4 h8 k8 | k4 h8 h16 h16 c4 h8 h8 |
+
+order LI  BI  CI  DI          ; 0: the intro, C C7
+order LA1 BA1 CA1 DA          ; 1: A   F Bb - the loop comes back here
+order LA2 BA2 CA2 DF          ; 2:     F C(7), the half close
+order LA1 BA1 CA1 DA          ; 3: A'  F Bb
+order LA3 BA3 CA3 DF          ; 4:     Gm7 C7 F, the full close
+order LB1 BB1 CB1 DB          ; 5: B   Bb C
+order LB2 BB2 CB2 DB          ; 6:     Am Dm
+order LB3 BB3 CB3 DB          ; 7:     Gm C
+order LB4 BB4 CB4 DF          ; 8:     Bb C7, the run home
+order LA1 BA1 CA1 DA          ; 9: A'' F Bb
+order LA3 BA3 CA3 DF          ; 10:    Gm7 C7 F
+loop 1
