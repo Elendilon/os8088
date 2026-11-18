@@ -271071,7 +271071,7 @@ out: a stale pose enters with the column).
 
 #### 130.18.5 The course clock (story 7.2)
 
-- **The statement**: `clock WX WY [frame crystal]` - a prop on a FLOOR
+- **The statement**: `clock WX WY [frame STYLE]` (`crystal`, the default, or 130.18.5.2's others) - a prop on a FLOOR
   tile, at most `CLOCK_MAX` 4 a course. Its FRAME is static picture art the
   tool paints (the crystal ball, 24 x 16 px on a 2-px stick an occluder post
   like the flag's staff, 130.14.4.7); its DIGITS are LANES on the ball's
@@ -271141,6 +271141,29 @@ the course's blocks are:
   least as long as the one the owner chose (`TRIAL`'s first, at 24 + its
   rounding)
   and up to 7 px longer.
+
+**The other styles** (First Roll's options, 2026-11-18, the owner to pick):
+`clock WX WY frame STYLE` takes `crystal` (the default) or one of four more,
+drawn by `tools/bbcourse.py`'s `_CLOCK_DRAW`. Each is static art round the
+SAME digits' window (`clock_face_geom`'s place and size, plain inside), so
+the digits' lanes, the record, the occluder key (130.18.5.4, one crown top,
+the shadow paint) and the post's physics (130.18.5.3) are the crystal's; a
+style moves only the picture's blocks. The four new ones light the window
+WHITE rather than cyan, because on the Hercules cyan is the same grey checker
+as magenta and black digits on it barely read there:
+- **`pin`**, the mini-golf flagstick: a pole banded white and magenta in a cup
+  sunk in the tile, a white knob on top, the digits on a bevelled magenta
+  plate clamped to it, and a magenta pennant with a white "1" (course 1)
+  flying from its head;
+- **`tee`**, a giant golf ball on a tee: a white ball dimpled in a staggered
+  lattice, shaded cyan to the lower right, the digits on a round-cornered
+  label, on a magenta tee that flares to a cup and is pushed into the tile;
+- **`board`**, a scoreboard: a bevelled magenta board with a dithered right
+  side, one white panel holding "TIME" over the digits, on two lit posts,
+  under a small gabled roof with a white ball on its ridge;
+- **`lamp`**, a park lamp-post clock: a bell base and a collared post, a
+  funnel up to a lantern whose white glass is the digits' window, under a
+  magenta dome with a ball finial.
 
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo

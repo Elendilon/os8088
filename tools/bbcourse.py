@@ -928,6 +928,7 @@ HERC_LEFT, HERC_RIGHT = 2, 3  # the Hercules window's words left and right of th
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
 CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
+CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp")   # a clock's `frame`s (SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # wave 7 (SPEC.md 130.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
@@ -3276,10 +3277,10 @@ def parse(text, fname="<course>"):
                                   "printable glyphs, ink 0 - 3" % (where, NODE_MAX - 1, LANE_PMAX - 1))
             src.labels.append({"num": n, "col": col, "row": row, "glyphs": text, "ink": ink, "line": ln})
         elif st == "clock":                         # wave 7 (SPEC.md 130.18.5)
-            if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] != "crystal")):
-                raise CourseError("%s: clock takes <wx> <wy> [frame crystal]" % where)
+            if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] not in CLOCK_STYLES)):
+                raise CourseError("%s: clock takes <wx> <wy> [frame %s]" % (where, "|".join(CLOCK_STYLES)))
             src.clocks.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
-                               "frame": "crystal"})
+                               "frame": toks[4][1] if len(toks) == 5 else "crystal"})
         elif st == "pad":
             if len(toks) != 4 or toks[1][1] not in MAT_NAMES:
                 raise CourseError("%s: pad takes rubber|steel|glass <wx> <wy>" % where)
@@ -8377,6 +8378,9 @@ def clock_face_pix(p, x0, y0, style="crystal", tops=None):
     the clock's crown; the shadow is paint on the tile's top, no geometry, so none of its pixels is there"""
     if p.get("frame") == "lives":
         return lives_face_pix(p, x0, y0)
+    style = p.get("frame") or style                 # SPEC.md 130.18.5.2: the statement's `frame`
+    if style != "crystal":
+        return _CLOCK_DRAW[style](p, x0, y0, tops)
     cx, cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
     out = {}
@@ -8453,6 +8457,303 @@ def clock_face_pix(p, x0, y0, style="crystal", tops=None):
             if part != "shadow":
                 tops[xy] = p["z4"] + ph if part == "plinth" and _CLOCK_PLINTH_OWN else crown
     return out
+
+
+# THE CLOCK STYLES beside `crystal` (SPEC.md 130.18.5.2: "one style per course or so"), First Roll's options
+# (the owner, 2026-11-18).  Each is the static picture round the SAME digits' window - clock_face_geom's, its
+# place and size, kept plain - so the digits, their lanes, the records, the occluder key and the post's physics
+# are the crystal's; a style is chosen by `clock WX WY frame STYLE`.  Lit from the upper left; one-pixel black
+# edges; dithering only as the course's faces use it (a right face's magenta and black, a shadow's every other
+# pixel); a form is carried by its FILL as well as its edge (a black edge is lost against the void), and by
+# white and black on the Hercules, where cyan and magenta are one grey
+class _ClockArt(object):
+    """a style's canvas: PUT with a part ("shadow" paint on the tile, else geometry), and the tops at the end"""
+
+    def __init__(self, p, x0, y0):
+        self.p = p
+        self.cx, self.cy, self.fx, self.fy, _rx, _ry = clock_face_geom(p, x0, y0)
+        n = p["ndig"]
+        self.n = n
+        self.win = (self.fx - 4 * n - 1, self.fx + 4 * n, self.fy - 5, self.fy + 4)    # x0, x1, y0, y1
+        self.out, self.layer = {}, {}
+
+    def put(self, x, y, ink, part="geo"):
+        self.out[(x, y)] = ink
+        self.layer[(x, y)] = part
+
+    def blob(self, cells, ink):
+        """a solid form: CELLS (a set) edged in black where a 4-neighbour is outside it, the rest INK(x, y)"""
+        for (x, y) in cells:
+            edge = any((x + dx, y + dy) not in cells for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            self.put(x, y, BLK if edge else ink(x, y))
+
+    def pattern(self, rows, x, y, flip=False):
+        """a hand-drawn pattern, its top-left at (x, y): K black, W white, M magenta, C cyan, D the right
+        faces' magenta-and-black dither, '.' nothing; FLIP mirrors it"""
+        w = max(len(r) for r in rows)
+        for j, r in enumerate(rows):
+            for i, ch in enumerate(r):
+                if ch == ".":
+                    continue
+                px = x + (w - 1 - i if flip else i)
+                ink = {"K": BLK, "W": WHT, "M": MAG, "C": CYN}.get(ch)
+                if ch == "D":
+                    ink = MAG if (px + y + j) & 1 else BLK
+                self.put(px, y + j, ink)
+
+    def shadow(self, dx, rx, ry, dy=1.5):
+        """a soft dithered shadow on the tile, cast to the lower right: every other pixel black"""
+        cx, cy = self.cx, self.cy
+        for y in range(cy - 3, cy + 6):
+            for x in range(cx - 16, cx + 17):
+                e = ((x - cx - dx) / float(rx)) ** 2 + ((y - cy - dy) / float(ry)) ** 2
+                if e <= 1.0 and (x + y) & 1:
+                    self.put(x, y, BLK, "shadow")
+
+    def column(self, xl, y0, y1, lit=WHT, shade=MAG):
+        """a 4-px post, its left edge at XL: black, lit, shaded, black - rows Y0 .. Y1"""
+        for y in range(y0, y1 + 1):
+            for k, ink in enumerate((BLK, lit, shade, BLK)):
+                self.put(xl + k, y, ink)
+
+    def window(self, ink=CYN, frame=BLK, round_=False):
+        """the digits' window, plain INK, and a one-pixel FRAME round it (None: none; ROUND_: no corners)"""
+        wx0, wx1, wy0, wy1 = self.win
+        for y in range(wy0 - 1, wy1 + 2):
+            for x in range(wx0 - 1, wx1 + 2):
+                if wx0 <= x <= wx1 and wy0 <= y <= wy1:
+                    self.put(x, y, ink)
+                elif frame is not None and not (round_ and x in (wx0 - 1, wx1 + 1) and y in (wy0 - 1, wy1 + 1)):
+                    self.put(x, y, frame)
+
+    def done(self, tops):
+        """SPEC.md 130.18.5.4: one top for the whole face, the crown; the shadow is paint on the floor"""
+        if tops is not None:
+            crown = self.p["z4"] + self.cy - min(y for (_x, y) in self.out)
+            for xy, part in self.layer.items():
+                if part != "shadow":
+                    tops[xy] = crown
+        return self.out
+
+
+def _lit3(x0_, x1_):
+    """a lit form's ink across X0_ .. X1_: white at its left, magenta, the dither at its right"""
+    def ink(x, y):
+        if x <= x0_ + 1:
+            return WHT
+        if x >= x1_ - 1:
+            return MAG if (x + y) & 1 else BLK
+        return MAG
+    return ink
+
+
+_PIN_FLAG = ("KKK..............",
+             "WWWKKK...........",
+             "MMMWWWKKK........",
+             "MMWMMMWWWKK......",
+             "MWWMMMMMMWWKK....",
+             "MMWMMMMMMMMMWKK..",
+             "MMWMMMMMMMMMDDDKK",
+             "MMWMMMMMMMDDDKK..",
+             "MWWWMMMMDDDKK....",
+             "MMMMMDDDKK.......",
+             "MMMDDDKK.........",
+             "DDDKK............",
+             "KK...............")
+
+
+def _clock_pin(p, x0, y0, tops):
+    """`pin`: the mini-golf FLAGSTICK.  The pin stands in a cup sunk in the tile - a pole banded white and
+    magenta, black-edged, lit on its left, a white knob on its top - with the digits on a bevelled plate clamped
+    to it and a magenta pennant flying to the right from its head, a white rim of light along its top edge, its
+    lower edge in the right faces' dither, a white "1" on it (course 1)"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy = a.cx, a.cy
+    wx0, wx1, wy0, wy1 = a.win
+    a.shadow(6, 9, 2.6)
+    for y in range(cy - 2, cy + 3):                 # the CUP, sunk in the tile: black, its far wall magenta
+        for x in range(cx - 6, cx + 6):
+            e = ((x + 0.5 - cx) / 5.5) ** 2 + ((y + 0.5 - cy) / 2.2) ** 2
+            if e <= 1.0:
+                a.put(x, y, MAG if (e > 0.45 and y < cy) else BLK, "shadow")
+    ftop = wy0 - 17                                 # the pennant's top row
+    for y in range(ftop - 1, cy + 1):               # the POLE, banded every 3 px
+        band = ((cy - y) // 3) & 1
+        a.put(cx - 2, y, BLK)
+        a.put(cx - 1, y, WHT if band else MAG)
+        a.put(cx, y, CYN if band else MAG)
+        a.put(cx + 1, y, BLK)
+    a.pattern((".KK.", "KWWK", "KWCK"), cx - 2, ftop - 4)       # the knob
+    a.pattern(_PIN_FLAG, cx + 2, ftop)
+    py1, py0 = wy0 - 3, wy1 + 3                     # the PLATE round the window: black-edged, bevelled
+    for y in range(py1, py0 + 1):
+        for x in range(wx0 - 3, wx1 + 4):
+            if x in (wx0 - 3, wx1 + 3) or y in (py1, py0):
+                a.put(x, y, BLK)
+            elif (x == wx0 - 2 or y == py1 + 1) and not (x == wx1 + 2 or y == py0 - 1):
+                a.put(x, y, WHT)
+            else:
+                a.put(x, y, MAG)
+    a.window(WHT, BLK)
+    for y in (py1 - 1, py0 + 1):                    # the CLAMPS, above and below the plate
+        a.pattern(("KWWMMK",), cx - 3, y)
+    return a.done(tops)
+
+
+def _clock_tee(p, x0, y0, tops):
+    """`tee`: a giant GOLF BALL on a TEE.  A white ball dimpled in a staggered lattice (cyan dimples on its lit
+    side, black ones in its cyan shade to the lower right, none in its highlight), the digits on a label with
+    rounded corners; under it a magenta tee, lit on its left, flaring to a cup round the ball, its peg pushed
+    into the tile"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy = a.cx, a.cy, a.fx, a.fy
+    rx, ry = 16.5, 13.5
+    bot = int(math.floor(fy + ry - 0.5))            # the ball's lowest row
+    a.shadow(6, 10, 3.0)
+    for (dx, dy) in ((-1, 0), (0, 0), (-2, 1), (1, 1), (-1, 1), (0, 1)):    # the peg's hole in the turf
+        a.put(fx + dx, cy + dy, BLK, "shadow")
+    peg = set()
+    for y in range(bot - 2, cy + 1):                # the PEG, to its point in the hole
+        half = 1 if y >= cy - 1 else (2 if y >= cy - 3 else 3)
+        peg |= {(x, y) for x in range(fx - half, fx + half)}
+    for y in range(bot - 3, bot + 5):               # the CUP, flaring up to the ball
+        half = min(9, 3 + (bot + 5 - y))
+        peg |= {(x, y) for x in range(fx - half, fx + half)}
+    rows_ = {}
+    for (x, y) in peg:
+        lo, hi = rows_.get(y, (x, x))
+        rows_[y] = (min(lo, x), max(hi, x))
+    a.blob(peg, lambda x, y: WHT if x == rows_[y][0] + 1 else
+           ((MAG if (x + y) & 1 else BLK) if x == rows_[y][1] - 1 and x > rows_[y][0] + 2 else MAG))
+    ball = set()
+    for y in range(int(fy - ry) - 1, int(fy + ry) + 2):     # the BALL
+        for x in range(int(fx - rx) - 1, int(fx + rx) + 2):
+            ux, uy = (x + 0.5 - fx) / rx, (y + 0.5 - fy) / ry
+            if ux * ux + uy * uy <= 1.0:
+                ball.add((x, y))
+
+    def ink(x, y):
+        ux, uy = (x + 0.5 - fx) / rx, (y + 0.5 - fy) / ry
+        d = ux * ux + uy * uy
+        s_ = ux + 0.9 * uy
+        shade = s_ > 0.72 or (s_ > 0.45 and (x + y) & 1)       # the terminator dithered, as the crystal's
+        dimple = (y % 3 == 1) and (x + 2 * ((y // 3) & 1)) % 4 == 0
+        if dimple and not (ux + uy < -0.45 and d < 0.9):
+            return BLK if s_ > 0.45 else CYN
+        return CYN if shade else WHT
+    a.blob(ball, ink)
+    a.window(WHT, BLK, True)
+    return a.done(tops)
+
+
+_BOARD_TIME = (("###", ".#.", ".#.", ".#.", ".#."), ("###", ".#.", ".#.", ".#.", "###"),
+               ("#...#", "##.##", "#.#.#", "#...#", "#...#"), ("###", "#..", "##.", "#..", "###"))
+
+
+def _clock_board(p, x0, y0, tops):
+    """`board`: the course's SCOREBOARD.  A magenta board with a white bevel, its thickness a dithered right face
+    like a block's, holding one white black-framed panel: "TIME" lettered in black over a rule, and the digits
+    under it; two lit posts under it into the tile, and a little gabled roof over it - white on its lit slope,
+    magenta and black on its shaded one - with a white ball on its ridge"""
+    a = _ClockArt(p, x0, y0)
+    cy, fx = a.cy, a.fx
+    wx0, wx1, wy0, wy1 = a.win
+    X0, X1, Y0, Y1 = wx0 - 4, wx1 + 4, wy0 - 11, wy1 + 3
+    a.shadow(5, 12, 3.0)
+    for xl in (fx - 9, fx + 5):                     # the POSTS, each in a black socket
+        a.column(xl, Y1 + 1, cy)
+        a.pattern(("KKKK",), xl, cy + 1)
+    for y in range(Y0 + 1, Y1 + 2):                 # the board's THICKNESS, its right face
+        for x in (X1 + 1, X1 + 2):
+            a.put(x, y, BLK if (y == Y1 + 1 or x == X1 + 2) else (MAG if (x + y) & 1 else BLK))
+    for y in range(Y0, Y1 + 1):                     # the FACE
+        for x in range(X0, X1 + 1):
+            if x in (X0, X1) or y in (Y0, Y1):
+                ink = BLK
+            elif x == X0 + 1 or y == Y0 + 1:
+                ink = WHT
+            else:
+                ink = MAG
+            a.put(x, y, ink)
+    for y in range(wy0 - 9, wy0 - 1):               # the panel's head, white, framed as the window is
+        for x in range(wx0 - 1, wx1 + 2):
+            a.put(x, y, BLK if x in (wx0 - 1, wx1 + 1) or y == wy0 - 9 else WHT)
+    a.window(WHT, BLK)
+    tw = sum(len(g[0]) for g in _BOARD_TIME) + len(_BOARD_TIME) - 1
+    tx = (wx0 + wx1 + 1 - tw) // 2
+    for g in _BOARD_TIME:                           # "TIME"
+        for j, r in enumerate(g):
+            for i, ch in enumerate(r):
+                if ch == "#":
+                    a.put(tx + i, wy0 - 7 + j, BLK)
+        tx += len(g[0]) + 1
+    rl, rr, eave = X0 - 2, X1 + 4, Y0               # the ROOF, over the board and its thickness
+    mid = (rl + rr) / 2.0
+    half = (rr - rl + 1) / 2.0
+    rise = 7.0
+    roof = set()
+    for x in range(rl, rr + 1):
+        ytop = eave - rise * (1.0 - abs(x + 0.5 - mid - 0.5) / half)
+        roof |= {(x, y) for y in range(int(math.ceil(ytop - 0.5)), eave + 1)}
+    xm = int(mid + 0.5)
+    a.blob(roof, lambda x, y: WHT if x < xm else (MAG if (x + y) & 1 else BLK))
+    top = min(y for (x, y) in roof if x == xm)
+    a.pattern((".KK.", "KWWK", "KWCK", ".KK."), xm - 2, top - 3)   # the ball on the ridge
+    return a.done(tops)
+
+
+def _clock_lamp(p, x0, y0, tops):
+    """`lamp`: the park's LAMP-POST CLOCK.  A lit post on a bell base, two collars, a funnel up to a lantern
+    whose glass is the digits' window - lit WHITE, the lamp's glow - in a bevelled magenta frame with a dithered
+    right side, under a magenta dome white on its lit side and dithered in its shade, and a ball finial"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy = a.cx, a.cy
+    wx0, wx1, wy0, wy1 = a.win
+    a.shadow(5, 9, 2.6)
+    X0, X1, Y0, Y1 = wx0 - 4, wx1 + 4, wy0 - 4, wy1 + 4
+    base = set()
+    for k, y in enumerate(range(cy - 8, cy + 1)):   # the BELL base, flaring to the tile
+        h = 3 + (k * k) // 9
+        base |= {(x, y) for x in range(cx - h, cx + h)}
+    for y in range(cy - 11, cy - 8):                # its collar
+        base |= {(x, y) for x in range(cx - 4, cx + 4)}
+    a.column(cx - 2, Y1 + 4, cy - 10)               # the POST
+    a.blob(base, _lit3(cx - 9, cx + 8))
+    funnel = set()
+    for k, y in enumerate(range(Y1 + 1, Y1 + 6)):   # the FUNNEL under the lantern, and its collar
+        h = 7 - k if k < 4 else 4
+        funnel |= {(x, y) for x in range(cx - h, cx + h)}
+    a.blob(funnel, _lit3(cx - 7, cx + 6))
+    frame = {(x, y) for x in range(X0, X1 + 1) for y in range(Y0, Y1 + 1)}   # the LANTERN
+    a.blob(frame, lambda x, y: WHT if (x == X0 + 1 or y == Y0 + 1) and not (x == X1 - 1 or y == Y1 - 1)
+           else (MAG if x < X1 - 1 or (x + y) & 1 else BLK))
+    a.window(WHT, BLK)
+    dcx = (X0 + X1 + 1) / 2.0                       # the DOME, its eave a row wider than the lantern
+    drx, dry = (X1 - X0 + 5) / 2.0, 10.0
+    dome = set()
+    for y in range(int(Y0 - dry) - 1, Y0):
+        for x in range(X0 - 3, X1 + 4):
+            ux, uy = (x + 0.5 - dcx) / drx, (y + 1.0 - Y0) / dry
+            if ux * ux + uy * uy <= 1.0:
+                dome.add((x, y))
+
+    def dink(x, y):
+        ux, uy = (x + 0.5 - dcx) / drx, (y + 1.0 - Y0) / dry
+        if y == Y0 - 2:                             # the eave's rim of light
+            return WHT if ux < 0.45 else MAG
+        if ux + 0.6 * uy < -0.35:
+            return WHT
+        if ux > 0.45:
+            return MAG if (x + y) & 1 else BLK
+        return MAG
+    a.blob(dome, dink)
+    top = min(y for (_x, y) in dome)
+    xm = int(dcx)
+    a.pattern((".KK.", "KWMK", "KMMK", ".KK.", ".WM.", ".WM."), xm - 2, top - 5)    # the finial
+    return a.done(tops)
+
+
+_CLOCK_DRAW = {"pin": _clock_pin, "tee": _clock_tee, "board": _clock_board, "lamp": _clock_lamp}
 
 
 def clock_pose(tsec, place):
