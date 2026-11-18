@@ -1302,14 +1302,21 @@ adds.**
   use each prop.
 - Stories 11.11 - 11.15 below turn the checkable rules into the tool's
   refusals. 11.16 is the first real course.
-- **The order (a DRAFT, the owner's to set):**
+- **The pipeline is PEN IN, then iterate FAST** (the owner, 2026-11-18;
+  the guide's section 3). A course is imagined, drawn and argued over on
+  paper before the engine. In the engine, a revision is an edit, a compile
+  and a disk, in minutes. No soak, long test, demo or performance check
+  sits inside that loop: they are batched once a course settles, possibly
+  after several courses, or run in the background.
+- **The order:**
   1. the guide (done);
-  2. the first course's design sheet, on paper;
-  3. the cheap checks (11.11 - 11.13), so the first course is built against
-     them;
-  4. the clock frames (11.14) and the first standard parts (11.15), as far as
-     the first course needs them;
-  5. the course itself (11.16) to a playtest disk.
+  2. the first course's design sheet, on paper:
+     [FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md), attempt 1, PEN-IN;
+  3. the cheap checks (11.11, 11.13) once the sheet settles, so the course
+     goes into the engine against them;
+  4. the course in the engine (11.16), with the clock frames (11.14) and
+     parts (11.15) it needs;
+  5. 11.12, demos and performance, batched.
 - The older stories (11.4 - 11.8) are taken when that course needs them.
 
 | # | story | verified by |
@@ -1317,9 +1324,9 @@ adds.**
 | 11.11 | **Length and the camera on jumps** (G1, G3). The slowest finish's route under 25 s is refused, and so is a design sheet's target under it (BENCH, the labs and the pathway are exempt). `pans` gains an AIRBORNE column: the horizontal columns panned while the ball is off the floor, on every route and author script, listed per jump with its route step. A pan on an intended jump is refused, unless the sheet names that jump as an exception | `--selfcheck` with red arms (a short course; a jump that pans); `--pans` |
 | 11.12 | **No softlock** (G7). `trap_check` (today: from flags and pads) extended to every cell in the start's reach closure, for each ball the course can give there, under every family reset preset: a finish, a flag's respawn or a fall must stay reachable. Today's MILL (the left windmill's ledge) and MOON (the dead-end pathway) are its red arms. A price on the host is taken first, since PEAK's reach analysis already dominates its 15 s compile | `--selfcheck`; red arms MILL and MOON as they stand |
 | 11.13 | **The clock rules** (G9 - G12). A clock in the window at the START, as `finish_clock_rule` already requires at each finish. Never two clocks' digits inside one window, checked over the camera model of every route and author script, on both cards. No clock post on a route cell. The LONGEST stretch of route without a clock's digits in the window, refused past 15 s; it replaces `clock_visibility`'s share as the figure printed. Red arms: TRIAL (two in one window), SUMMIT (a clock on the route) | `--selfcheck`; red arms |
-| 11.14 | **Clock frames** (G11). Beside today's crystal ball on a stick: a FLOATING frame, a frame on a lone PILLAR, and a SIDE BRACKET that hangs a clock one tile off a pathway's edge. Tool art, chosen per clock (`clock WX WY frame F`), with the occluder posts each needs. Monochrome forms for the Hercules | `--png` previews, both cards; one look boot |
-| 11.15 | **The first standard parts** (the guide's section 4; the kit's K3). Each piece the first course uses is made a named part: the pit (PLAYGROUND), the double hump (HUMPS), the hill of ramps (SUMMIT), as the course asks for them. The kit is re-cut only when the owner asks | `--selfcheck` item 17; `--sizes` |
-| 11.16 | **The first real course**: its design sheet (`bonanza-courses/<NAME>.md`, under the guide's section 2), the `.bbc`, its routes and demos, the miss measurement (T11, decided on this course), then a playtest disk to the owner | the owner's play |
+| 11.14 | **Clock art** (G11, G23). Several frames in one course where positions demand it: standing on a lone PILLAR, FLOATING, a SIDE BRACKET that hangs a clock one tile off a pathway's edge. Tool art chosen per clock (`clock WX WY frame F`), with the occluder posts each needs and monochrome forms for the Hercules. **Priced first**: the bytes of standard-part clocks (kit pieces shared across courses) against custom clock art per course, so the owner can choose between per-course art as the rule and standard parts with custom art only occasionally. High quality either way | `--sizes`; `--png` previews, both cards; one look boot |
+| 11.15 | **The first standard parts** (the guide's section 5; the kit's K3). Each piece the first course uses is made a named part: the pit (PLAYGROUND), the double hump (HUMPS), the hill of ramps (SUMMIT), as the course asks for them. The kit is re-cut only when the owner asks | `--selfcheck` item 17; `--sizes` |
+| 11.16 | **The first real course, FIRST ROLL** (tutorial 1: roll, brake, ramps, and **drops kill you, and you learn the timing**). Pen-in: its design sheet [FIRST-ROLL.md](bonanza-courses/FIRST-ROLL.md) with the sketch's pictures, revised with the owner. Then the `.bbc` and playtest disks, iterated fast. Then, batched: its routes and demos, and the miss measurement (T11, decided on this course) | the owner's play |
 
 **The pipeline, per course:**
 1. **A design sheet**, `docs/plans/bonanza-courses/<NAME>.md`: the world,

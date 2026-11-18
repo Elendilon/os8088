@@ -12,7 +12,7 @@ designer's and the owner's judgment.*
 
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
-components are taken from them (section 4); none is reworked into a shipped
+components are taken from them (section 5); none is reworked into a shipped
 course.
 
 ## 1. The rules
@@ -90,6 +90,17 @@ course.
   course: 3 is the norm for 25 - 45 s, with more on longer courses or ones
   whose finishes are far apart. *Check: story 11.13 turns
   `clock_visibility`'s share into the LONGEST gap, refused past 15 s.*
+- **G23. Clock art is high quality, standard or custom.** Clock art is placed
+  per use and per course anyway, so a course may mix frames where its
+  positions demand it, such as one standing and one floating or fixed to the
+  side of a block. Two routes, and the owner chooses by what the bytes say:
+  - **custom clock art per course**, made to fit the course's theme, or at
+    least unique to it;
+  - **standard-part clocks** (a pillar, a float, a side bracket, and so on),
+    taken when the saving is significant, with custom art only where no
+    standard one can be designed in easily.
+  Either way every clock is held to the same bar of quality. *Story 11.14
+  prices both routes before the second course is drawn.*
 
 ### 1.6 Balls
 
@@ -141,7 +152,8 @@ CD6 boost spots.
 
 ## 2. The design sheet (`<NAME>.md`)
 
-One per shipped course, written before its `.bbc`. The plan's pipeline step 1
+One per shipped course, written before its `.bbc`; it is the PEN-IN of
+section 3. [FIRST-ROLL.md](FIRST-ROLL.md) is the first. The plan's pipeline step 1
 lists the fields: world, families (at most 3), start ball, finishes and their
 exits, time-limit target, palette, clock frame, song, and the one new idea.
 From this guide it also states:
@@ -158,7 +170,31 @@ From this guide it also states:
 - the place on the challenge curve and the help it gives or removes (CD2,
   G21).
 
-## 3. Props in use: patterns
+## 3. The pipeline: pen in first, then iterate FAST
+
+The owner's rule (2026-11-18): *"I do not want what keeps happening, to
+happen again - where iteration time is 30+ minutes on each simple change."*
+
+1. **Pen in.** Imagine the course, draw pictures and go back and forth with
+   the owner, all before the engine. The design sheet holds the pictures,
+   drawn by a host-only sketch script in the course's own folder
+   (`first/sketch.py` is the first). Revising a sheet costs minutes.
+2. **In the engine: play around and revise.** The `.bbc`, the tool's
+   `--png` previews, `--selfcheck` for that course alone (`--only`), a
+   playtest disk. **No soak, no long tests, no demos and no performance
+   checks inside the loop.** A change is an edit, a compile, a disk sent:
+   minutes, not half an hour.
+3. **Demos and performance afterwards, batched.** Routes, author scripts and
+   demos, the miss measurement (T11) and the course's rows are run when a
+   course settles, possibly after several courses, or in the background
+   while design goes on (fork rule 9). They never stand between an edit and
+   the next playtest disk.
+
+A tool check that is slow on a big course (story 11.12's softlock check is
+the likely one) runs in the batched step, not in the edit loop, unless it
+is fast enough not to be noticed.
+
+## 4. Props in use: patterns
 
 Most of the props (water, magnets, wind, boost pads, spikes and the
 membrane, gates and the drawbridge, the archway, the see-saw, the
@@ -176,7 +212,7 @@ what to avoid. The ones the test courses taught:
 | spring | only where both the spring and its landing are visible (G4) | SUMMIT, as the counter-example |
 | pads | where the ball is needed next (G14); a skippable trap pad (G15) | MOON, SUMMIT |
 
-## 4. Taken from the test courses
+## 5. Taken from the test courses
 
 | piece | from | as |
 |---|---|---|
