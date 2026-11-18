@@ -133,7 +133,7 @@ ramp("W", "x", 37, 42, 41, 44, Z - 17, Z - 18)
 # F  the leap: a railed run-up along +x, a ramp, a ONE-tile void gap, a
 #    landing two units under the lip (too slow and the ball drops in the gap)
 ramp("F", "x", 41, 42, 45, 45, Z - 18, Z - 20)
-rail(41, 42, 45, 42); rail(41, 45, 45, 45); rail(41, 44, 41, 45)
+rail(41, 42, 45, 42); rail(41, 45, 45, 45)    # no rail across F's entry: rails protect, never block
 floor("G", 46, 41, 50, 46, Z - 22)                           # G1, flag 1
 rail(46, 41, 50, 41); rail(50, 41, 50, 46)
 # H  the finish: a short ramp down and a wide goal plateau, all in view
@@ -144,10 +144,18 @@ rail(45, 48, 45, 53); rail(45, 53, 51, 53); rail(51, 48, 51, 53)
 GOAL = {(x, y) for x in range(45, 51) for y in range(51, 53)}
 
 START = (5.5, 5.5)
-FLAGS = [(23.0, 22.5, "flag 0"), (34.5, 35.5, "flag 1")]
+# a flag stands just BEFORE what can kill, so a fall never replays a long stretch
+FLAGS = [(21.5, 16.0, "flag 0"), (34.5, 35.5, "flag 1")]
 # clocks: (wx, wy, z of the face's foot, frame)
-# every clock a STANDARD part standing over the void, beside the path (no tile under it)
-CLOCKS = [(2.5, 8.5, Z, "over void"), (31.5, 23.5, Z - 9, "over void"), (52.5, 50.5, Z - 21, "over void")]
+# every clock on a lone pillar, placed so that ONLY THE VOID is behind its
+# head: a standard-part clock's art bakes in what is behind it (nothing is
+# composited at load), so the void is the one backdrop every use shares.
+# iso() checks it (BACKDROP) on the picture without the clocks
+# Each is given the ROUTE point whose CGA window must show it and the height
+# of its head; iso() places it at the nearest spot to that point that is
+# inside the window and has only void behind the head, and prints where.
+CLOCKS = [(0, Z, "start"), (15, Z - 9, "chute"), (-1, Z - 21, "finish")]
+PLACED = {}
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
 ROUTE = [(5.5, 5.5), (6, 9), (6, 12.5), (9, 12), (12, 12.5), (12, 15), (12, 17),
@@ -201,7 +209,7 @@ def plan(out):
     for x0, y0, x1, y1 in RAILS:
         d.line([x0 * S, y0 * S, x1 * S, y1 * S], fill=(255, 220, 0), width=3)
     d.line([(x * S, y * S) for x, y in ROUTE], fill=(255, 60, 60), width=2)
-    for x, y, z, f in CLOCKS:
+    for x, y, z, f in PLACED.values():
         d.ellipse([x * S - 7, y * S - 7, x * S + 7, y * S + 7], outline=(0, 255, 255), width=2)
     for x, y, t in FLAGS:
         d.polygon([(x * S, y * S - 8), (x * S + 10, y * S - 4), (x * S, y * S)], fill=(255, 80, 200))
@@ -270,10 +278,36 @@ def iso(out):
             seg.append(Q(wx, wy, zz + 2))
             d.line([Q(wx, wy, zz), Q(wx, wy, zz + 2)], fill=(200, 170, 0), width=1)
         d.line(seg, fill=(255, 220, 0), width=2)
+    WALLCELLS = {(x, y) for x0, y0, x1, y1, _ in WALLS for x in range(x0, x1) for y in range(y0, y1)}
+    bare = im.copy()                       # the course alone: the clocks' backdrop test
+    rx = [Q(x, y, zat(x, y))[0] for x, y in ROUTE]
+    mid = int((min(rx) + max(rx)) // 2)
+    for i, (k, z, name) in enumerate(CLOCKS):
+        ax, ay = Q(*ROUTE[k], zat(*ROUTE[k]))
+        best = None
+        for cy in range(int(ay) - 92, int(ay) + 92, 2):
+            for cx in range(mid - 150, mid + 151, 2):
+                if any(bare.getpixel((px, py)) != (10, 10, 25)
+                       for px in range(cx - 11, cx + 12, 2) for py in range(cy - 20, cy + 3, 2)):
+                    continue
+                u, v = (cy + miny + 8 * (z + 2)) / 8, (cx + minx) / 16
+                wx, wy = (u + v) / 2, (u - v) / 2      # its pillar's cell and the 8 round it: no floor, no wall
+                if any((int(wx) + a, int(wy) + b) in CELLS or (int(wx) + a, int(wy) + b) in WALLCELLS
+                       for a in (-1, 0, 1) for b in (-1, 0, 1)):
+                    continue
+                dd = (cx - ax) ** 2 + (cy - ay) ** 2
+                if best is None or dd < best[0]:
+                    best = (dd, cx, cy)
+        _, cx, cy = best
+        px, py = cx + minx, cy + miny
+        u, v = (py + 8 * (z + 2)) / 8, px / 16
+        PLACED[i] = ((u + v) / 2, (u - v) / 2, z, name)
     d.line([Q(x, y, zat(x, y) + 1) for x, y in ROUTE], fill=(255, 60, 60), width=2)
-    for x, y, z, f in CLOCKS:
+    for i, (x, y, z, name) in PLACED.items():
         cx, cy = Q(x, y, z + 2)
+        d.rectangle([cx - 3, cy, cx + 3, cy + 40], fill=(120, 100, 80), outline=(70, 60, 50))
         d.ellipse([cx - 9, cy - 18, cx + 9, cy], fill=(0, 200, 220), outline=(255, 255, 255))
+        d.text((cx - 12 - 6 * len(name), cy - 14), name, fill=(0, 255, 255))
     for x, y, t in FLAGS:
         bx, by = Q(x, y, zat(x, y))
         d.line([bx, by, bx, by - 20], fill=(255, 255, 255))
@@ -285,8 +319,6 @@ def iso(out):
         d.text((lx + 12, ly - 6), t, fill=(255, 255, 255))
     # the CGA window (320 x 200) at three places, and the no-pan band: the
     # route's px span against the camera's dead zone (160 px on the CGA)
-    rx = [Q(x, y, zat(x, y))[0] for x, y in ROUTE]
-    mid = (min(rx) + max(rx)) // 2
     for i, (x, y) in enumerate((ROUTE[0], ROUTE[15], ROUTE[-1])):
         _, cy = Q(x, y, zat(x, y))
         d.rectangle([mid - 160, cy - 100, mid + 160, cy + 100], outline=(0, 255, 255))
@@ -307,6 +339,8 @@ def route_len():
 
 if __name__ == "__main__":
     o = sys.argv[1] if len(sys.argv) > 1 else "."
-    plan(o + "/plan.png")
     span, h = iso(o + "/iso.png")
+    plan(o + "/plan.png")
     print("route %.1f tiles; px span %d; picture %d lines" % (route_len(), span, h))
+    for i, (x, y, z, name) in PLACED.items():
+        print("%s clock: over the void at wx %.1f, wy %.1f, head at z %d (only void behind it)" % (name, x, y, z))

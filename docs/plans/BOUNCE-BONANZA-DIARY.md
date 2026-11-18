@@ -5272,3 +5272,62 @@ is an approximation of SPEC.md 130.28's tables, close enough to argue the
 shape over.
 
 **Run**: the sketch and `tools/checkdocs.py`. Nothing in the engine.
+
+## 2026-11-18 (FIRST ROLL, revision 3: flags before danger, rails that protect, clocks over the void)
+
+The owner, on revision 2 (with a mark-up putting a flag at the top of the
+lip's run-up and crossing out the rail stub across the leap's run-up):
+
+> Sorry, forgot to mention it, but remove the fence that they would hit
+> entering F; on this easy course, fences are to protect them, not block
+> them.
+>
+> Clocks: I was not meaning the pillar below them, that is actually fine. I
+> meant the artwork behind them; that is what would block using a standard
+> part, because whatever is behind them has to be baked into the artwork;
+> its not composited on load. I know that makes things harder, which is why
+> "standard clocks" is still an open decision. If we can't design around it,
+> then we do customs.
+>
+> 1: Leap is good
+> 2: No this pacing looks pretty good; but it made me rethink that second
+> flag. We should flag right BEFORE what we think will kill them, not after,
+> and avoid making them redo long sections. Sorry, I'm learning as we go too.
+> So flag at C, instead of T.
+> 3: I think about right, although once I play we'll decide the style.
+> Guardrails or blockrails; block might work better here, as its a more
+> classic style, and the course is open enough it doesn't occlude much (what
+> guardrails are there to fix; this is not a rule, its just a style choice
+> per course, and even per individual rail).
+> 5: I think we'll remove all of the original courses later, and rewrite
+> tests. I don't see any value in keeping tons of old, prototype courses
+> around to "test", once we have solid baseline compares between then and
+> new.
+> 6: We'll have to get it in engine and have me play it to see.
+
+**Where it went:**
+- the guide's G20 is rewritten: a flag stands just before what can kill;
+- G24 is new: rails protect and never block, and their style is a choice
+  per course or per rail;
+- G23 gains the rule that decides standard clocks: what is BEHIND a clock;
+- the plan gains story 11.17 (retire the prototype courses after a
+  baseline compare, the tests rewritten, and the new course takes FIRST);
+- FIRST ROLL revision 3 has flag 0 at the top of C's run-up, no rail across
+  F's entry, and the clocks re-placed.
+
+**Discovered, placing the clocks.** Revision 2's clocks were all "over the
+void" by their pillars, but the middle and finish clocks had course art
+behind their heads: C's column and the goal plateau's faces. Moved out until
+their heads were clear, they then left their CGA windows altogether. The
+sketch now PLACES each clock by search: the nearest spot to the route point
+it serves that is
+- inside that point's window;
+- with only the void behind the head, on the picture drawn without clocks;
+- with no floor or wall in or next to its pillar's cell (the first search
+  put the finish clock on the plateau itself).
+
+Then each of the three has a void backdrop. On this course the choice is a
+narrow one, and it is a constraint on course shape that a standard clock
+brings with it.
+
+**Run**: the sketch and `tools/checkdocs.py`. Nothing in the engine.
