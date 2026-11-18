@@ -278544,6 +278544,102 @@ squiggles there in a gust and gone between; the thin path's static
 squiggles; the hop updraft's streamer and vertical squiggles; the bridge's
 fan turning frame by frame with the ball poked into its gust; the pit wind's
 plate, flag and squiggles over the pit.
+
+#### 128.34.12 A shipped course: PLAYGROUND's WIND YARD (2026-11-17)
+
+The props round put its merged props on PLAYGROUND, the owner's *"stress
+test of the entire system"*. Its FAMILY LIST had room for ONE more (below),
+so WIND is the family it took - the most kinds in one family (a gusting fan,
+a steady fan, a pit wind's lift, the ground fans spinning) - and the guard
+rail (128.35), which is not a family, came with it. The WIND YARD lies in
+front of FF, out through a gap at wx 17 in FF's front rail, its floor at FF's
+height and `float`ing (3-unit faces, not the basin's 15):
+
+| | where | what it is for |
+|---|---|---|
+| the GUST GATE | the stub (17, 29 - 32), the fan in the rail's gap, `+x`, 8, `gust 64 192`, its wisp over the stub | a timing gate for every ball (MEASURED on the model, crossing from FF after waits of 0 - 240 steps: rubber blown off on 2 of 16, glass on 6, steel on none) |
+| the HUB | (15 - 21, 33 - 37), a steel pad (19, 35) and a glass pad (20, 35) | each gate tried with the ball it is for |
+| the THIN PATH | (22 - 25, 36), a steady fan at (22, 36), `+y`, 10 | steel's gate: steel crosses at every speed tried, rubber and glass go over the front edge; the END PLATE (26 - 28, 35 - 37) holds steel's HOURGLASS behind a GUARD RAIL on its far and front edges |
+| the PIT WIND | a `lift` updraft at (15, 35), region (14 - 15, 34 - 36), 16, top 5, `flag` | glass's gate: rolled onto it, glass is launched with no Hop (apex 62 - 72 px) and, held -x, lands on the LEDGE (12 - 13, 34 - 36, 2.5 units up) by its HOURGLASS; rubber and steel stay down and roll into the pit |
+
+A fall off the hub, the thin path or into the pit respawns on the hub; off
+the stub, at the start. No wind is on the route, the demo's line or a
+scenario's (`bonanza_phys`'s glass, crack-lab and pickups legs). The demo
+was re-authored, the same keys (1,504 steps): identity 01A1h -> 37BDh.
+
+**What the stress costs (MEASURED, the build before against after):**
+`BZ_FAMMAX` 4 -> 4 (TITLE already names four); the picture part 49,746 ->
+54,088 bytes (10,936 under 65,024; LZ4 15,615 -> 18,250), the world part
+16,105 -> 16,366; `BZ_PROPMAX` 34 -> 40, `BZ_PROPALL` 44 -> 52, `BZ_FSTB`
+19 -> 22, `BZ_CRS_MAXCLAIM` 4,480 -> 4,736 paragraphs; the image 50,036 ->
+50,036, bss 12,145 -> **12,419 (+274)**, the bundle unchanged (WIND is
+already resident), `BONANZA.O88` 121,892 -> 124,118 (+2,226),
+`bonanza360.img` 128 -> 130 clusters. The windows (`check_bounds`, both
+cards): FAST lanes at most 2 of `WIN_LANES` 6 (0 before), lanes meeting a
+window at most 22 (20), and pose changes on one step at most **6 - exactly
+`WIN_CHG`** (5): the finish clock's window holds both fans, the gust's turns
+and the clock's digits. A step on PLAYGROUND pays WIND's STEP walk over
+four elements wherever the ball is: about 1.8k clocks, 2.1k in a region
+(PREDICTED from 128.34.7's counts; `bonanzaperf` is the final pass's).
+
+**THE LIMIT (as it stood on 2026-11-17; GONE since 128.25.6.5's "no family
+limit", 2026-11-18, and PLAYGROUND now names ten families: 128.34.13).** A
+course's family list is at most `BZ_FAMMAX` long, the
+courses' longest, and `bzfam.inc` finds a hook's list with a shift:
+`BZF_HL` = `BZ_FAMMAX` x `BZF_HE` (8) must be 32, so `BZ_FAMMAX` is exactly
+4. PLAYGROUND names probe, glass and pickups (each held by a `bonanza_phys`
+scenario) and now wind; a fifth - water, magnet, spike, archway, boost, or
+any of the round's later families - makes `BZ_FAMMAX` 5, `BZF_HL` 40, and the
+assembly stops at that `%error`. The cure is an engine change (a multiply or
+a 64-byte list, and the bss of `bz_fhl`, `bz_frec` and `bz_fsl` with it)
+and is the owner's call, not a course's.
+
+**A tool fault the guard rail found.** A vanishing crack's lane (128.25.18.1)
+and a thin bridge's walkway are cut from a RE-RENDER of the picture without
+the tile. That re-render drew guard cells as walls and left out the rails,
+the archways' lintels and the water's arches, so on a course with both a
+guard rail and a floating crack the whole difference became the crack's
+and it was refused (PLAYGROUND: 66 x 33 blocks). The re-render now uses the
+picture's own pipeline (`_reops`; since the see-saw's merge, its `_ops_of`); no
+shipped course had both, so every other part is byte for byte as before
+(MEASURED, `cmp`).
+
+#### 128.34.13 PLAYGROUND's PROP ALLEY and the BASIN's LIFT (2026-11-18)
+
+With no family limit (128.25.6.5) the owner asked for every merged prop on
+PLAYGROUND, and for *"a lift to that bottom area that you can't get out of
+currently"*. The course's text says where and why, section by section; the
+summary:
+
+| piece | where | for |
+|---|---|---|
+| the RAMP and a BOOST PAD (128.40) | off the wind yard's hub (21, 38 - 41), 4 -> 2 units, the pad at its foot pushing -y | the way down and back up: every ball climbs it (MEASURED on the model) |
+| WATER (128.36) and SPIKES (128.38) | a column in the hub's front row (18, 37), its FRONT ARCH onto spikes (18, 39 - 40) | steel's shortcut down; rubber and glass ride over the water |
+| POP-UP SPIKES | the spine's neck (22, 42) | a timing gate for every ball |
+| the ARCHWAY (128.39) over a STEEL PAD, then HANGING MAGNETS (128.33) | the hover lane, wy 42: under the arch no ball Hops or boosts over the pad, so all leave it steel; steel hovers over a 2-cell gap | MEASURED: rubber, glass and steel all cross as steel |
+| the MEMBRANE | the same gap on wy 44 | glass's alone: rubber and steel fall through |
+| the LIFT (128.12.6.4, one a course) | the basin's front-right corner (33, 33), the basin floor (-8) to a rim at 0 | the BASIN (a ball off the brake strip's side) had no way out but the hole |
+| a PLATE and a GATE (128.41) | the rim's path (32, 34) and its 1-wide neck (32, 35) | the plate opens the gate |
+| a timed DRAWBRIDGE (128.41) | (31 - 32, 38), 128 steps up in every 256 | a timing gate |
+| a HUMP (128.44) | a dome on the hub (16 - 17, 34 - 35), 5 px | an obstacle on the hub's floor |
+
+**NOT PLACED: the SEE-SAW (128.42) and the TURNTABLE (128.43)**, each for a
+format limit of the PICTURE part, MEASURED by compiling the course with each:
+a 4-byte occluder record names its MASK in one byte, so a course has at most
+**256 masks**, and the turntable (in the basin's exit or on the spine) took
+the course to 266 - 267, the see-saw to 266; and a map word indexes at most
+**1,024 blocks** - the see-saw cost 57 blocks (4 cells; 41 at 2), the
+turntable 39. The course with both was 1,102 blocks. Each could be placed in
+place of other pieces, which is the owner's choice; the tool now REFUSES the
+257th mask by name (it was a `ValueError` inside the encoder).
+
+**What it costs (MEASURED):** 984 blocks of 1,024; the picture part 59,390
+bytes of 65,024 (5,634 to spare); the world part 17,691; 66 props. Pads: 7 of
+8 (the hub's two removed, FF's being two cells from the gate; the arch's steel pad added). The demo
+re-authored, the same keys: identity 37BDh -> 9936h.
+Then the clocks began to occlude (128.18.5.4): the course reached 257
+masks, so the end plate's FRONT guard rail is left off (the far one stays);
+the demo re-authored again, the same keys: identity 9242h.
 ### 128.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
 
 The owner: a thin GUARD RAIL that *"blocks anything from getting over"*,

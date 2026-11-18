@@ -9691,6 +9691,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             o_ = tilt_ops(src.seesaws, o_, x0)
         return o_
     ops = _ops_of(tiles)
+    # a vanishing crack's and a bridge walkway's RE-RENDER (the tiles less one tile) is drawn by the same ops:
+    # guard cells as their rails, the lintels, the arches - a re-render that left them out differed from the
+    # picture wherever a course has one, and a vanishing crack's lane took that difference for its own
+    # (SPEC.md 128.25.18.1, 128.34.12)
+    _reops = _ops_of
     tlpose = {}                                     # SPEC.md 128.42.5: every see-saw in its FLAT pose, its other end's
     for pose in ((1, 2) if src.seesaws else ()):
         t2 = dict(tiles)
@@ -9783,9 +9788,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if bkey not in _VANISH_MEMO:
             ocv = render(tiles, ops, x0, y0, width, lines, True)
             nt = {k: v for k, v in tiles.items() if k not in bwalk and k not in gcells}
-            nops = draw_ops(nt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]}, ground, floats)
-            if props:
-                nops = prop_ops(nt, nops, props, x0)
+            nops = _reops(nt)
             ncv = render(nt, nops, x0, y0, width, lines)
             own_, alt_ = {}, {}
             for y in range(lines):
@@ -10082,10 +10085,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
                 if vkey not in _VANISH_MEMO:
                     vt = {k: v for k, v in tiles.items() if k not in gcells and k != p["at"]}
-                    vops = draw_ops(vt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]},
-                                    ground, floats)
-                    if props:
-                        vops = prop_ops(vt, vops, props, x0)
+                    vops = _reops(vt)
                     vcv = render(vt, vops, x0, y0, width, lines, owners)
                     g_ = {}
                     for y in range(lines):
@@ -10118,10 +10118,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))))
                 if vkey not in _VANISH_MEMO:        # (the Y0 search compiles nine times: the picture's change
                     vt = {k: v for k, v in tiles.items() if k not in gcells and k != p["at"]}  # is y0's shift)
-                    vops = draw_ops(vt, x0, {c for q in props if q["kind"] == PK_TUBE for c in q["body"]},
-                                    ground, floats)
-                    if props:
-                        vops = prop_ops(vt, vops, props, x0)
+                    vops = _reops(vt)
                     vcv = render(vt, vops, x0, y0, width, lines, owners)
                     g_ = {}
                     for y in range(lines):
@@ -10496,7 +10493,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     for bytes_ in (True, False):
         for i in order:
             if is_fam(props[i]["kind"]) and (props[i]["bits"] == 8) == bytes_ and props[i].get("comp") is None:
-                fsbs[i] = fsb
+                # (a kind with NO state bit records FSB 0, as its contract says - 128.34.3, 128.40.3 - and as
+                # its reader holds it: not the next free bit, which it was once an earlier element held bits)
+                fsbs[i] = fsb if props[i]["bits"] else 0
                 fsb += props[i]["bits"]
     jof = {i: j for j, i in enumerate(order)}
     for i in order:                                 # (a vanishing crack's companion: the crack's byte, 128.25.18.1)
@@ -11646,6 +11645,9 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     order, sec, end = part_layout(m, recb, bzc2)
     cols, brows, g = m["cols"], m["brows"], m["grid"]
     recs, masks = m["recs"], m["masks"]
+    if recb == 4 and len(masks) > 256:             # (a 4-byte record names its mask in ONE byte: a refusal,
+        raise CourseError("%s: %d occluder masks, over the 256 a 4-byte record's mask byte names "
+                          "(SPEC.md 128.15.5)" % (fname, len(masks)))     # not a ValueError in here)
     blkoff, occidx, occrec = sec["B"][0], sec["I"][0], sec["R"][0]
     maskoff, gridoff = sec["K"][0], sec["G"][0]
     celloff, rowtab, routeoff = sec["C"][0], sec["T"][0], sec["W"][0]
@@ -11917,6 +11919,9 @@ def _encode2(m, recb, ident=0, fname="<course>"):
     (oa, sa, ea), (ob, sb, eb) = part_layout2(m, recb)
     cols, brows, g = m["cols"], m["brows"], m["grid"]
     recs, masks = m["recs"], m["masks"]
+    if recb == 4 and len(masks) > 256:             # (a 4-byte record names its mask in ONE byte: a refusal,
+        raise CourseError("%s: %d occluder masks, over the 256 a 4-byte record's mask byte names "
+                          "(SPEC.md 128.15.5)" % (fname, len(masks)))     # not a ValueError in here)
     rl, pm = _props_runs(m)
     blkoff, occidx, occrec, maskoff, loff = sa["B"][0], sa["I"][0], sa["R"][0], sa["K"][0], sa["L"][0]
     gridoff, celloff, rowtab, routeoff = sb["G"][0], sb["C"][0], sb["T"][0], sb["W"][0]
