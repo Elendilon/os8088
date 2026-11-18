@@ -269353,7 +269353,8 @@ Where the build differs from the contract above, and why:
   is; a clock more than half hidden or off the picture is REFUSED. A mark
   is drawn under the ball, never in front of it, so **O25 holds by
   construction** and needs no refusal: a ball passing behind a clock is
-  drawn over it.
+  drawn over it. **Superseded by 128.18.5.4**: the face is geometry keyed at
+  the clock's cell, laid over a ball behind it.
 - **The font is 5 x 7** (`CLOCK_FONT`), a pixel in from its block's left
   and top, black on the ball's cyan (the owner, on the first clock build:
   *"I love the digit style"*).
@@ -269452,12 +269453,125 @@ new:
   so FIRST keeps ONE clock, at (3, 6), the plateau's front-left corner,
   which none of them crosses; the wheel's SIDE search reads `TRIAL`'s.
 - **Proved by**: `bonanza_phys`'s replay `clock` (MILL, rolled at the cap
-  into (8, 11): one post hit on the clock's record, back below the cap,
-  never past its centre) and its red arm `clkpass` (the kind left as
+  into (8, 11) - since 128.18.5.4 into (6, 13), from the right: one post
+  hit on the clock's record, back below the cap, never past its centre) and its red arm `clkpass` (the kind left as
   CLOCK: the ball rolls through, red at `clock`); --selfcheck item 4 with
   the clocks' cells among the props' OBS cells, and item 10's `no_obs`
   control on the courses where a prop's cell would be SAFE but for its
   OBS.
+
+##### 128.18.5.4 A clock is an OCCLUDER (the owner, 2026-11-18)
+
+*"Clocks don't have occlusion."* 128.18.5.1 made the clock's art a MARK:
+painted into the picture at the clock's depth (so what stands in front of
+the clock's cell hides it) but with no depth KEY of its own, so the occluder
+cut (128.10.4.4) never saw it and a ball passing BEHIND a clock was drawn
+over its crystal ball, its post and its digits. Every other prop that stands
+up from its tile (a flag's staff, a bumper's post, a magnet, a guard rail,
+an archway's lintel) is geometry keyed at its cell; the clock now is too.
+
+**What was wrong, measured** (the tool's composite by the records, AV's
+model included: a ball every 2 gu over each reachable cell behind a clock, at
+its lowest and its highest height; MILL's clocks at (6, 13) and (22, 22),
+TRIAL's at (4, 10), (18, 18) and (14, 18)): on
+`FIRST`, `TRIAL` and `MILL`, of 1,831 such positions whose ball meets a
+clock's face, **1,053 drew the ball over a face pixel** - up to 208, the
+whole ball - and with the clock keyed, **none**. The other direction
+was already right, and is unchanged: a digit lane's poses are inked only on
+face pixels the picture shows (128.18.5.1), so a digit is never drawn over
+static geometry in front of the clock; and a lane that meets the ball's boxes
+is never the wheel's or the lead's (128.12.4.2) - its change waits, or is
+composed in the contact box with the ball and the occluders over it.
+
+**The rule** (binding: the tool alone, `clock_face_pix(..., tops=)` and the
+compile's CLOCK case):
+
+1. Every pixel of a clock's face that the picture shows (`face_pix`: the
+   plinth, the post, the dish, the crystal ball with its digits' window and
+   the finial) is GEOMETRY: its key `s` the clock's cell's `wx + wy`, its top
+   the clock's CROWN, `z4 + (the tile centre's floor line - the face's top
+   line)`, whole px - one top for the whole face, as a flag's staff has one
+   (a plinth at its own top, `z4 + 4`, split a block's pixels over two bands
+   and added a record to blocks already at the bound; it is kept as
+   `_CLOCK_PLINTH_OWN`, off).
+2. The SHADOW stays paint on the tile's top: a shadow pixel no later layer
+   covers keeps the tile's key.
+3. The digits' block is part of the face: its pixels are keyed whatever pose
+   is drawn, so the records' verdicts do not depend on the pose (128.12.4.5),
+   and a record over it lays the DRAWN digit through the map.
+4. The pathway's LIVES counter (`frame lives`) is not keyed: the pathway cuts
+   no occluder (128.31).
+
+So the records (128.10.4.4), AV's residual (128.29) and the OCC / OCCG flags
+are cut from the clock as from any post. **O25 now holds the ordinary way**:
+the clock is laid over a ball behind and below it, and a ball in front draws
+over it. The ghost dither (128.15.10.1) applies as to every record: on the
+card a ball behind a clock shows through it as a checker.
+
+**The visibility rule** (the owner's, 128.39.1 A10): partial occlusion is
+allowed; a ball may be WHOLLY hidden for at most one ball length. `clock_vis`
+rolls a grounded ball, a ground unit at a time, along x on each of the three
+cell rows behind each clock and along y on each of the three columns behind
+it (each at the cell's middle and 4 gu either side), over every reachable
+floor from 4 cells before the clock to 4 after, composited by the records; a
+position counts toward a run when the ball is wholly laid over WITH the
+clock's own pixels and not without them (a ball a wall hides anyway is the
+picture's, as before). A run past **`CLOCK_HIDE` (16 gu)** is REFUSED, naming
+the clock. MEASURED, the longest runs: `FIRST` 0 and 2, `TRIAL` 0, 4 and 2,
+`MILL` 0 and 0, `MOON` 16, `PEAK` 0 and 0, `PLAY` 8; the knob courses 0 - 8.
+A clock stays readable: it is laid OVER the ball, never under it.
+
+**Three placements moved** (the rule's cost, each refused by an existing check
+until moved: *a course that then meets a bound is edited*, 128.37.6):
+
+| course | was | now | why |
+|---|---|---|---|
+| `MILL` | (8, 11) | **(6, 13)**, the front-left corner | at (8, 11) it stood in front of both windmills' doorways and set OCCG in their IN 3 x 3 (128.12.4.6: a must-draw rotor's frame runs no occluder pass) |
+| `MILL` | (22, 22), the finish clock | **(18, 27)**, the goal floor's front-left corner | it stood in front of the DROP's exit (20, 20) and made the fall cross an OCC cell (`--selfcheck` item 8: a flight from an exit runs no occluder pass); the finish clock rule (128.22.6) and the finish reach hold there |
+| `TRIAL` | (18, 17) | **(18, 18)**, the lower floor's front row | its post added a fifth record to a block the ramp's foot already held at the bound of 4 (128.11.4.2) |
+
+**What it costs** (MEASURED, `make bonanzadisk` before and after):
+
+- **Resident: 0 bytes.** `bonanza.bin` 50,178 bytes and bss 12,468, both
+  unchanged; no `BZ_PHYSV` move (the clock's post physics, 128.18.5.3, is
+  unchanged; MILL's and TRIAL's posts stand in new cells).
+- **The parts** (RAM / LZ4 stored, records, masks after the ghost dither):
+
+| course | RAM | LZ4 | records | masks | OCC (OCCG) cells |
+|---|---|---|---|---|---|
+| `FIRST` | 9,048 -> 9,636 | 1,639 -> 1,936 | 81 -> 120 | 20 -> 44 | 43 (0) -> 45 (4) |
+| `TRIAL` | 15,078 -> 15,816 | 3,404 -> 3,730 | 297 -> 354 | 30 -> 61 | 118 (9) -> 119 (22) |
+| `MILL` | 26,129 -> 27,101 | 7,577 -> 8,055 | 394 -> 449 | 50 -> 82 | 195 (45) -> 202 (49) |
+| `MOON` | 38,867 -> 38,965 | 8,667 -> 8,710 | 1,588 -> 1,590 | 91 -> 96 | 457 (202), the same |
+| `PEAK` | 41,503 -> 42,093 | 10,300 -> 10,549 | 1,544 -> 1,570 | 75 -> 102 | 486 (211) -> 487 (212) |
+| `PLAY` (picture part) | 49,746 -> 50,096 | 15,615 -> 15,787 | 1,768 -> 1,788 | 186 -> 201 | 584 (100) -> 593 (115) |
+
+  Most of it is MASKS: a clock's outline cut by 8 x 8 blocks is a new mask
+  shape in most of the blocks it covers (16 bytes each). The bounds hold:
+  the most records in a block is 4 (bound 4) on every course that already
+  reached it, `FIRST` 2 -> 3; the most in a block row `FIRST` 10 -> 14,
+  `TRIAL` 20 -> 24 (bound 128). `BENCH`, the pathway and the title do not
+  move. The 360 KB `bonanza360.img` holds 130 of 354 clusters (129), the
+  1.44 MB one 255 (253).
+- **The route audit** (128.15.10.4): `TRIAL`'s route has the ball over half
+  hidden on 12 of 499 steps (0 before), wholly on none; every other course's
+  route as before. Reported, as the audit always is.
+- **Identities**: every course with a clock moves (new records); the
+  authored demos of `MOON` and `PEAK` re-authored, identity only (1,983 and
+  2,172 steps, unchanged); `PLAY`'s (1,504 steps) needs the same and is
+  re-authored with the next change to its course.
+
+**Proved by** `--selfcheck` section `clockocc`, item 17, on the shipped
+courses: every face pixel but the shadow keyed at its clock's cell; a ball
+rolled behind every clock never drawn over a face pixel; the longest
+wholly-hidden run within `CLOCK_HIDE`. Red arms: `clocknoocc` (the face left
+a mark, unkeyed: FIRST's face unkeyed and a ball drawn over it at 5 of 58
+positions - caught) and `clockvisb` (the bound at 1 position: FIRST's clock
+at (11, 4) refused at its 2). `bonanza_phys`'s replay `clock` rolls into MILL's
+clock at its new cell from the right (268 of 384 back, as before). No guest
+byte moves, so the rows that read a
+clock's lanes (`bonanzawheel`'s CLOCK leg, `bonanzaring`'s glass on FIRST)
+see only the parts' new records, as on any course edit.
 
 #### 128.18.6 `music` and the sound events (stories 7.5, 7.6)
 
@@ -271625,7 +271739,7 @@ the pathway's rework.)
 | the demos | **four TITLE DEMOS**, text (`apps/bonanza/demos/title<N>.bzt`), each a START STATE (the ball, its position and velocity, airborne or not, and a respawn cell) and a `BZR1` run list, compiled into one part; the build writes the identity and checks each against the model and its own `expect` lines | a title demo starts where the brief puts the ball (dropped from above, already rolling), which a course's `start` cannot say; the identity is the build's so an art change never stales them |
 | their length | **`BZ_TSTEPS` = 832 steps** (15.23 s at 54.62 steps a second), every title demo exactly, the title song's one pass exactly | the brief: about 15 s, all the same length, the music ending with them |
 | the chain | title demo (random, never the one just shown) -> a COURSE DEMO (random of `BZ_NDEMO`, the shipped `BZD<K>`) -> the title again; any key in a course demo returns to the title at once - **except Esc, F and Alt+Enter, which leave the bracket as they do on the title** (128.23.4.1) | the brief; the exception the owner's (2026-11-16) |
-| the keys on the title | **P** plays (the game: the pathway loop, 128.19.5, in the same bracket); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
+| the keys on the title | **P** or **Enter** plays (the game: the pathway loop, 128.19.5, in the same bracket; Enter the owner's, 2026-11-18); **S** cycles the slot 1 -> 2 -> 3 -> 1 and **1 2 3** choose it, the label showing it at once; **Esc** leaves the bracket for the desktop; every other key is ignored | the brief; Esc is the bracket's way out everywhere else |
 | the way in | **Enter on the desktop face opens the title** (the bracket); P on the title is what Enter was (the game in the slot shown). F, B, R, D, V and the rest of the face are unchanged | the face stays the instruments' (128.19.3); the title is the game's front |
 | the way back | the pathway's **Esc** and the game's end return to the TITLE, not to the desktop | the game is entered from the title, so it leaves to it |
 | the song | a seventh song, **`attract`**, `apps/bonanza/music/attract.bmu`: one pass of exactly `BZ_TSTEPS` sub-ticks, its last order row silent with `loop` pointing at it, so it ends with the demo; the course's `music attract` picks it | no new player code: a song already plays from its top at every `bzs_open` and is step-locked to the physics in a replay (128.20.6) |
@@ -271764,7 +271878,7 @@ Inside ONE bracket, `bz_title` (resident: it is the bracket's):
 2. **Play it**: `bz_rlog` from demo `d`, `bz_mode` 2, the start block
    applied, `bz_nst[0]` = `1 + bz_slot`, the FIXED window, the course's song
    (`attract`) from its top. Keys, every frame (`bz_exitchk`'s title arm):
-   **P** -> 4; **S**, **1**, **2**, **3** -> `bz_slot` changed, `bz_nst[0]`
+   **P** or **Enter** -> 4; **S**, **1**, **2**, **3** -> `bz_slot` changed, `bz_nst[0]`
    set and the label's lane marked for the walk (a pose change, one block);
    **Esc** (or F, Alt+Enter) -> the bracket ends, the desktop; anything else
    drained and ignored. The demo's last step -> 3.
@@ -278430,6 +278544,102 @@ squiggles there in a gust and gone between; the thin path's static
 squiggles; the hop updraft's streamer and vertical squiggles; the bridge's
 fan turning frame by frame with the ball poked into its gust; the pit wind's
 plate, flag and squiggles over the pit.
+
+#### 128.34.12 A shipped course: PLAYGROUND's WIND YARD (2026-11-17)
+
+The props round put its merged props on PLAYGROUND, the owner's *"stress
+test of the entire system"*. Its FAMILY LIST had room for ONE more (below),
+so WIND is the family it took - the most kinds in one family (a gusting fan,
+a steady fan, a pit wind's lift, the ground fans spinning) - and the guard
+rail (128.35), which is not a family, came with it. The WIND YARD lies in
+front of FF, out through a gap at wx 17 in FF's front rail, its floor at FF's
+height and `float`ing (3-unit faces, not the basin's 15):
+
+| | where | what it is for |
+|---|---|---|
+| the GUST GATE | the stub (17, 29 - 32), the fan in the rail's gap, `+x`, 8, `gust 64 192`, its wisp over the stub | a timing gate for every ball (MEASURED on the model, crossing from FF after waits of 0 - 240 steps: rubber blown off on 2 of 16, glass on 6, steel on none) |
+| the HUB | (15 - 21, 33 - 37), a steel pad (19, 35) and a glass pad (20, 35) | each gate tried with the ball it is for |
+| the THIN PATH | (22 - 25, 36), a steady fan at (22, 36), `+y`, 10 | steel's gate: steel crosses at every speed tried, rubber and glass go over the front edge; the END PLATE (26 - 28, 35 - 37) holds steel's HOURGLASS behind a GUARD RAIL on its far and front edges |
+| the PIT WIND | a `lift` updraft at (15, 35), region (14 - 15, 34 - 36), 16, top 5, `flag` | glass's gate: rolled onto it, glass is launched with no Hop (apex 62 - 72 px) and, held -x, lands on the LEDGE (12 - 13, 34 - 36, 2.5 units up) by its HOURGLASS; rubber and steel stay down and roll into the pit |
+
+A fall off the hub, the thin path or into the pit respawns on the hub; off
+the stub, at the start. No wind is on the route, the demo's line or a
+scenario's (`bonanza_phys`'s glass, crack-lab and pickups legs). The demo
+was re-authored, the same keys (1,504 steps): identity 01A1h -> 37BDh.
+
+**What the stress costs (MEASURED, the build before against after):**
+`BZ_FAMMAX` 4 -> 4 (TITLE already names four); the picture part 49,746 ->
+54,088 bytes (10,936 under 65,024; LZ4 15,615 -> 18,250), the world part
+16,105 -> 16,366; `BZ_PROPMAX` 34 -> 40, `BZ_PROPALL` 44 -> 52, `BZ_FSTB`
+19 -> 22, `BZ_CRS_MAXCLAIM` 4,480 -> 4,736 paragraphs; the image 50,036 ->
+50,036, bss 12,145 -> **12,419 (+274)**, the bundle unchanged (WIND is
+already resident), `BONANZA.O88` 121,892 -> 124,118 (+2,226),
+`bonanza360.img` 128 -> 130 clusters. The windows (`check_bounds`, both
+cards): FAST lanes at most 2 of `WIN_LANES` 6 (0 before), lanes meeting a
+window at most 22 (20), and pose changes on one step at most **6 - exactly
+`WIN_CHG`** (5): the finish clock's window holds both fans, the gust's turns
+and the clock's digits. A step on PLAYGROUND pays WIND's STEP walk over
+four elements wherever the ball is: about 1.8k clocks, 2.1k in a region
+(PREDICTED from 128.34.7's counts; `bonanzaperf` is the final pass's).
+
+**THE LIMIT (as it stood on 2026-11-17; GONE since 128.25.6.5's "no family
+limit", 2026-11-18, and PLAYGROUND now names ten families: 128.34.13).** A
+course's family list is at most `BZ_FAMMAX` long, the
+courses' longest, and `bzfam.inc` finds a hook's list with a shift:
+`BZF_HL` = `BZ_FAMMAX` x `BZF_HE` (8) must be 32, so `BZ_FAMMAX` is exactly
+4. PLAYGROUND names probe, glass and pickups (each held by a `bonanza_phys`
+scenario) and now wind; a fifth - water, magnet, spike, archway, boost, or
+any of the round's later families - makes `BZ_FAMMAX` 5, `BZF_HL` 40, and the
+assembly stops at that `%error`. The cure is an engine change (a multiply or
+a 64-byte list, and the bss of `bz_fhl`, `bz_frec` and `bz_fsl` with it)
+and is the owner's call, not a course's.
+
+**A tool fault the guard rail found.** A vanishing crack's lane (128.25.18.1)
+and a thin bridge's walkway are cut from a RE-RENDER of the picture without
+the tile. That re-render drew guard cells as walls and left out the rails,
+the archways' lintels and the water's arches, so on a course with both a
+guard rail and a floating crack the whole difference became the crack's
+and it was refused (PLAYGROUND: 66 x 33 blocks). The re-render now uses the
+picture's own pipeline (`_reops`; since the see-saw's merge, its `_ops_of`); no
+shipped course had both, so every other part is byte for byte as before
+(MEASURED, `cmp`).
+
+#### 128.34.13 PLAYGROUND's PROP ALLEY and the BASIN's LIFT (2026-11-18)
+
+With no family limit (128.25.6.5) the owner asked for every merged prop on
+PLAYGROUND, and for *"a lift to that bottom area that you can't get out of
+currently"*. The course's text says where and why, section by section; the
+summary:
+
+| piece | where | for |
+|---|---|---|
+| the RAMP and a BOOST PAD (128.40) | off the wind yard's hub (21, 38 - 41), 4 -> 2 units, the pad at its foot pushing -y | the way down and back up: every ball climbs it (MEASURED on the model) |
+| WATER (128.36) and SPIKES (128.38) | a column in the hub's front row (18, 37), its FRONT ARCH onto spikes (18, 39 - 40) | steel's shortcut down; rubber and glass ride over the water |
+| POP-UP SPIKES | the spine's neck (22, 42) | a timing gate for every ball |
+| the ARCHWAY (128.39) over a STEEL PAD, then HANGING MAGNETS (128.33) | the hover lane, wy 42: under the arch no ball Hops or boosts over the pad, so all leave it steel; steel hovers over a 2-cell gap | MEASURED: rubber, glass and steel all cross as steel |
+| the MEMBRANE | the same gap on wy 44 | glass's alone: rubber and steel fall through |
+| the LIFT (128.12.6.4, one a course) | the basin's front-right corner (33, 33), the basin floor (-8) to a rim at 0 | the BASIN (a ball off the brake strip's side) had no way out but the hole |
+| a PLATE and a GATE (128.41) | the rim's path (32, 34) and its 1-wide neck (32, 35) | the plate opens the gate |
+| a timed DRAWBRIDGE (128.41) | (31 - 32, 38), 128 steps up in every 256 | a timing gate |
+| a HUMP (128.44) | a dome on the hub (16 - 17, 34 - 35), 5 px | an obstacle on the hub's floor |
+
+**NOT PLACED: the SEE-SAW (128.42) and the TURNTABLE (128.43)**, each for a
+format limit of the PICTURE part, MEASURED by compiling the course with each:
+a 4-byte occluder record names its MASK in one byte, so a course has at most
+**256 masks**, and the turntable (in the basin's exit or on the spine) took
+the course to 266 - 267, the see-saw to 266; and a map word indexes at most
+**1,024 blocks** - the see-saw cost 57 blocks (4 cells; 41 at 2), the
+turntable 39. The course with both was 1,102 blocks. Each could be placed in
+place of other pieces, which is the owner's choice; the tool now REFUSES the
+257th mask by name (it was a `ValueError` inside the encoder).
+
+**What it costs (MEASURED):** 984 blocks of 1,024; the picture part 59,390
+bytes of 65,024 (5,634 to spare); the world part 17,691; 66 props. Pads: 7 of
+8 (the hub's two removed, FF's being two cells from the gate; the arch's steel pad added). The demo
+re-authored, the same keys: identity 37BDh -> 9936h.
+Then the clocks began to occlude (128.18.5.4): the course reached 257
+masks, so the end plate's FRONT guard rail is left off (the far one stays);
+the demo re-authored again, the same keys: identity 9242h.
 ### 128.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
 
 The owner: a thin GUARD RAIL that *"blocks anything from getting over"*,

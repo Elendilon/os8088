@@ -213,7 +213,11 @@ while gvz is under 128 - glass rises, rubber and steel do not. The knob build
   - [x] **P3.9** GROUND FANS spin while the ball is in their wind and 2.9 s
         after (a FAST lane, counted against the window's 6 and its pose
         changes); the pennant only with `flag`.
-- [ ] **P3.10** A shipped course that uses it.
+- [x] **P3.10** A shipped course that uses it: PLAYGROUND's WIND YARD
+      (SPEC.md 128.34.12), with the GUARD RAIL's first shipped use - and the
+      limit it met: `BZ_FAMMAX` is 4 by `bzfam.inc`'s shift, PLAYGROUND's
+      list is full, so no other family of this round fits there without an
+      engine change.
 
 ## P5 SPIKES and P8 the MEMBRANE - as built (branch `bb-spike`, 2026-11-17)
 
@@ -583,3 +587,20 @@ is not lifted. Lanes redrawn on change only (`bz_fmark`); the channel's opening 
   of a fixed, generic frame count, with wider gates where the art needs it.
   OPEN; the four built styles stay as presets until it lands. Not started:
   the owner held new agents at the weekly capacity limit (2026-11-18).
+
+## A path past the picture part's 65,024 bytes (a brief look, 2026-11-18; NOT pursued)
+
+PLAYGROUND's picture part is 59,022 bytes: map 25,856, blocks 966 x 16 =
+15,456, occluder records 2,665 x 4 = 10,660, masks 250 x 16 = 4,000, MTAB 500,
+OCCIDX 204. The row writer's inner loop (`BZ_RWORD`, bzvideo.inc) reads the
+map word and copies the block's words through DS, so splitting the MAP from
+the BLOCKS would put a segment override or a row copy on every word. The path
+that leaves that loop alone splits the OCCLUDERS out instead - records,
+masks, MTAB and OCCIDX (about 15.4 KB) into a third part of their own: the
+picture part keeps map and blocks (room for about 2,048 blocks), masks go to
+512 with no ninth bit squeezed into the 4-byte record, and the cost falls on
+the occluder pass (laid only near the ball), which needs reworking and a
+MartyPC measurement. Predicted moderate engine work, the shape of the world
+split (128.30). The owner: on disk, 13 - 14 PLAYGROUND-sized courses fit
+without it, so it buys only a mix of longer and shorter courses - not pursued
+for now.
