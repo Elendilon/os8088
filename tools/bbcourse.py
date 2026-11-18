@@ -1121,6 +1121,7 @@ class Source:
         self.medals = None          # wave 8c (SPEC.md 130.19.8.3): (G, S, line), whole seconds
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
+        self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
         self.pathway = None         # wave 8b (SPEC.md 130.19.5): the line of `pathway` - THE pathway
         self.pages = None           # ...(N, line)
         self.ppads = []             # ...the pathway's pads: [dict num crs at line]
@@ -3190,6 +3191,10 @@ def parse(text, fname="<course>"):
                 raise CourseError("%s: fshow takes nothing, once (the SHOW rule on this course's FIELD cells, "
                                   "SPEC.md 130.28.6)" % where)
             src.fshow = ln
+        elif st == "lock":                          # SPEC.md 130.45: the horizontal LOCK
+            if src.lockx is not None or len(toks) != 2 or toks[1] != ('w', "across"):
+                raise CourseError("%s: lock takes `across`, once (the camera held across, SPEC.md 130.45)" % where)
+            src.lockx = ln
         elif st == "guide":                         # wave 11 (stories 11.11, 11.13): a REAL course, held to the
             if src.guide is not None or len(toks) != 1:     # course guide's checkable rules (guide_static_rule,
                 raise CourseError("%s: guide takes nothing, once (a real course held to the course guide, "
@@ -11158,6 +11163,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                  "cup" if cups else "goal"))
     c.limit, c.lroute = _course_limit(c, src, fname)   # wave 7 (SPEC.md 130.18.3): needs the part
     c.medals = _course_medals(c, src, fname)        # wave 8c (SPEC.md 130.19.8.3)
+    c.lockx = lock_across(c, src.lockx) if src.lockx else None   # SPEC.md 130.45: (CGA c0, Hercules c0) or None
     c.guide = src.guide                             # wave 11: the course guide's static half, at every compile
     c.guide_static = guide_static_rule(c, hack) if c.guide else None
     return c
@@ -14876,6 +14882,7 @@ class Physics:
             if getattr(course, "_grid", None) is None or course._grid.src is not course.cga:
                 course._grid = Grid(part, course.wcga)     # are only read by the model)
             self.grid = course._grid
+            self.lockx = getattr(course, "lockx", None)   # SPEC.md 130.45: read by Glide
         else:
             self.grid = Grid(part)
         self.play = play
@@ -16780,6 +16787,8 @@ class Glide:
             kx["Hr"] = ky["Hr"] = 0
         self.ax = LatAxis(kx, self.cmax, True)
         self.ay = LatAxis(ky, self.rmax, False)
+        lk = getattr(phys, "lockx", None)
+        self.lockc = lk[herc] if lk else None      # SPEC.md 130.45: bz_lockc, the camera held across
         self.h1, self.h2 = (1 << 30, 1 << 30) if _nocap else (LAT_H1, LAT_H2)
         self.scnt = 0                          # bz_camscr's frame counter
         self.level = 0                         # this frame's heavy level (the checks')
@@ -16838,6 +16847,8 @@ class Glide:
         p = self.p
         R = max(0, p.py + 8 - WIN_LINES // 2) >> self.lsh
         C = max(0, p.px + 8 - 4 * self.W) >> 3
+        if self.lockc is not None:              # SPEC.md 130.45.2 item 2: the lock, before the clamp
+            C = self.lockc
         self.R0, self.c0 = self._clamp(R, C)
         self.gpx = self.gpar = self.gpy = 0
         self.gdy = 0
@@ -16927,7 +16938,11 @@ class Glide:
         near = self.heavy.near if self.heavy is not None else 0
         self.level = level
         ax, ay = self.ax, self.ay
-        sc = ax.decide(bxc, c0, fastx, tube)
+        # SPEC.md 130.45.2 item 3: a LOCKED course skips the across axis whole (bz_lax untouched, no column)
+        if self.lockc is not None:
+            sc, ax.info = 0, {}
+        else:
+            sc = ax.decide(bxc, c0, fastx, tube)
         sr = ay.decide(cyc, R0, fasty and self._ringy, tube)
         self.want_c, self.want_r = ax.s != 0, ay.s != 0
         self.want = (bool(sr), bool(sc))
@@ -17937,6 +17952,12 @@ def emit_inc(courses, path=None, title=None):
               "%endmacro",
               "%macro BZ_CRS_PALS 0",
               "    db " + ", ".join("%03Xh" % c.pal for c in allc),
+              "%endmacro",
+              "; SPEC.md 130.45: each course's horizontal LOCK, the CGA's c0 then the Hercules', a byte",
+              "; each (`lock across`; FFh FFh none).  Not in the part: no identity moves",
+              "%macro BZ_CRS_LOCKS 0",
+              "    db " + ", ".join("%d, %d" % getattr(c, "lockx") if getattr(c, "lockx", None) else "0FFh, 0FFh"
+                                 for c in allc),
               "%endmacro",
               "; the face's field widths (SPEC.md 130.14.17 item 2: every face line fits",
               "; the CGA's 42 cells, which bonanza.asm asserts from these): the longest",
@@ -31511,6 +31532,32 @@ def main_author(argv):
     print("bbcourse: %s: %d runs, %d steps" % (out, struct.unpack_from("<H", log, 12)[0], p.nstep))
     return 0
 
+
+
+def lock_across(c, ln):
+    """SPEC.md 130.45.1: the horizontal LOCK's window per card -> (CGA c0, Hercules c0), the window centred on
+    the course's PICTURE EXTENT across (every non-VOID cell, 16 px either side of its centre, and every clock's
+    digit lane); REFUSED when the extent does not lie wholly inside the window on a card"""
+    xs = []
+    for k, t in rec_map(c.tiles).items():
+        if t.kind != KIND_VOID:
+            x = 16 * (k[0] - k[1]) + c.x0
+            xs += [x - 16, x + 16]
+    for rs in _clock_rects(c).values():
+        for bx, _by, bw, _bh in rs:
+            xs += [8 * bx, 8 * (bx + bw)]
+    lo, hi = min(xs), max(xs)
+    out = []
+    for herc in (0, 1):
+        W = CARDS[herc][0]
+        cmax = c.cols - W
+        c0 = max(0, min((lo + hi - 8 * W) // 16, cmax))
+        if lo < 8 * c0 or hi > 8 * (c0 + W):
+            raise CourseError("%s:%d: lock across: the picture is %d px across (%d - %d), wider than the %s's "
+                              "window of %d px: a lock never hides any of the course (SPEC.md 130.45.1)" % (
+                                  c.fname, ln, hi - lo, lo, hi, "Hercules" if herc else "CGA", 8 * W))
+        out.append(c0)
+    return tuple(out)
 
 
 # =============================================================================

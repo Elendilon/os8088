@@ -203,6 +203,14 @@ bz_vinit:
     mov ax, [bz_cols]
     sub ax, [bz_W]
     mov [bz_cmax], ax
+    mov bl, [bz_crs]            ; SPEC.md 130.45.2 item 1: the course's LOCK
+    xor bh, bh                  ; on this card, FFFFh none
+    shl bx, 1
+    add bl, [bz_herc]
+    adc bh, 0
+    mov al, [bz_clocks + bx]
+    cbw                         ; (FFh -> FFFFh; a c0 is at most cmax, < 80h)
+    mov [bz_lockc], ax
     mov ax, [bz_brows]
     mov cl, 3
     shl ax, cl

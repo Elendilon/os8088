@@ -35,8 +35,10 @@ course.
   makes it more interesting. What matters is WHERE the camera pans: on the
   ground, at a turn or a flat, never during a jump (G3), and not back and
   forth on every leg. A course whose whole picture fits one window may also
-  hold the camera still across, if the owner takes the per-course
-  horizontal lock (FIRST-ROLL.md, section 2).
+  hold the camera still across with **`lock across`** (SPEC.md 130.45;
+  the owner: "We won't use this often due to visual interest, but for the
+  intro course it fits fine"). The tool refuses it on a course wider than
+  the window.
 - **G3. A jump never needs a horizontal pan.** Plan each jump (take-off,
   flight and landing) so the camera does not scroll sideways while the ball
   is in the air. **A CANNON's throw is exempt**: the player is not steering
@@ -221,7 +223,7 @@ moves.
   in the air. Re-laying the course to a 168 px route swing still left five
   or six sweeps. The course's whole picture is 320 px across, so ONE fixed
   horizontal framing would show all of it. That is a camera change (a
-  per-course horizontal lock), and it is the owner's decision.
+  per-course horizontal lock). TAKEN and BUILT: SPEC.md 130.45, `lock across`.
 
 ## 2. The design sheet (`<NAME>.md`)
 

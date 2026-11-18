@@ -445,6 +445,7 @@ VAR bz_rl,2
 VAR bz_bend,2
 VAR bz_crtc,2
 VAR bz_cmax,2
+VAR bz_lockc,2                  ; SPEC.md 130.45: the course's locked c0 on this card, FFFFh none
 VAR bz_rmax,2
 VAR bz_vrport,2
 VAR bz_vrbits,2
@@ -2227,6 +2228,10 @@ bz_camera:
     shr ax, 1
     shr ax, 1
     shr ax, 1
+    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 2: a LOCKED course's
+    je .nlk                     ; window across is its lock (a FIXED or a
+    mov ax, [bz_lockc]          ; PAGED window, set below, wins)
+.nlk:
     mov [bz_c0n], ax
 %if BZ_TITLE
     cmp byte [bz_fixed], 0      ; SPEC.md 130.23.2: a FIXED window is the
@@ -2393,6 +2398,9 @@ bz_camera:
 .vdone:
     mov [bz_R0n], si
     ; horizontal: the dead zone [left + W*2, left + W*6] px
+    mov si, [bz_c0]
+    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 4: a LOCKED course
+    jne .hdone                  ; never moves across
     mov ax, [bz_px]
     add ax, 8                   ; the ball's centre px
     mov bx, [bz_c0]
@@ -2824,6 +2832,8 @@ bz_lattice:
     inc word [bz_nhedge]
 .lt:
     mov dx, [bz_c0]             ; ACROSS
+    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 3: a LOCKED course
+    jne .xr                     ; skips the axis whole (bz_lax untouched)
     mov si, bz_lax
     cmp byte [si + BZL_S], 0    ; at rest inside its band: no step, and
     jne .x                      ; nothing changes (steps 1 and 4, inline)

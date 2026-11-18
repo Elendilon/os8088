@@ -6,6 +6,7 @@
 course ROLL "First Roll"
 guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
 width 64
+lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
 ball rubber
 target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
 # the PLAYTEST's limit, given by hand: the autopilot cannot steer a chute yet (no `way` may sit on a FIELD

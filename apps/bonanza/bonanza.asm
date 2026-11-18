@@ -5153,6 +5153,8 @@ bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 130.30.4.4: each course's WORLD part's
                                 ; (the tool's, SPEC.md 130.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
                                 ; wave 6, SPEC.md 130.16.6: bz_vinit)
+bz_clocks:  BZ_CRS_LOCKS        ; ...their horizontal LOCKs, the CGA's c0 then the
+                                ; Hercules', FFh FFh none (SPEC.md 130.45: bz_vinit)
 bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 130.26.8): byte k its k-th course;
             BZ_TOUR             ; byte 0 BENCH, which kern_small's refused G names (bz_game)
 bz_s_dat:   db 'BONANZA.DAT', 0
