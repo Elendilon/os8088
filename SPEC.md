@@ -283229,3 +283229,77 @@ refills a quarter turn, plus the warnings. The final pass's `bonanzaphys` /
 3. **The sweep** (D5) is 4 or 8 steps; a table that turns in ONE step would
    cost its cells' count of `WIN_CHG` and is not offered.
 4. **A shipped course** that uses it.
+
+### 130.45 The horizontal LOCK: a course's camera held across (the owner, 2026-11-18)
+
+*"a per-course horizontal lock": "Yes. We won't use this often due to visual
+interest, but for the intro course it fits fine, and it gives a 'smoother'
+introduction."* The finding behind it is FIRST ROLL's first play, replayed
+on the model (docs/plans/bonanza-courses/FIRST-ROLL.md, section 2): LATTICE
+(130.17.6) frames the window at lattice positions 128 px apart and LEADS in
+the direction of travel, so a course that zigzags down the screen pans 16 -
+24 columns on every leg, in the air as well. FIRST ROLL's whole picture is
+320 px across: one CGA window holds all of it.
+
+#### 130.45.1 The statement and the tool
+
+    lock across
+
+- **Once, no arguments.** The tool takes the course's PICTURE EXTENT
+  across: from the left edge of its leftmost drawn cell to the right edge of
+  its rightmost (`16 (wx - wy) + x0`, 16 px either side of a cell's centre),
+  every non-VOID cell and every clock's digit lane counted. For each card it
+  places the window centred on that extent, `c0 = (lo + hi - 8 W) / 16`
+  rounded down, clamped to 0 - `cmax` (`cols - W`), and REFUSES the
+  statement, naming the card and the widths, when the extent does not lie
+  wholly inside that window: a lock never hides any of the course.
+- **`BZ_CRS_LOCKS`**, a table in `bzcourse.inc` beside `BZ_CRS_PALS`: two
+  bytes a course (the pathway and the title included, in `allc`'s order),
+  the CGA's `c0` then the Hercules', **FFh FFh for none**. It is not in the
+  course's part, so no part, identity or demo moves. A course without the
+  statement emits FFh FFh, and a build with no lock anywhere is the build
+  before it but for the table and the code below.
+- **The model**: `Physics` carries the course's `lockx` (`(c, h)` or None),
+  and `Glide` honours it exactly as the guest does (130.45.2). TRICKLE has no
+  host model (130.16.14) and the scripted camera (130.17.6.7) is a harness's,
+  so neither is compared.
+
+#### 130.45.2 The guest (binding: `bz_vinit`, `bz_camera`, `bz_lattice` and `bbcourse.Glide` do exactly this)
+
+1. **`bz_vinit`**, after `bz_cmax`: `bz_lockc` = the course's byte for the
+   card (`bz_clocks + 2 bz_crs + bz_herc`), zero-extended, or FFFFh for FFh.
+2. **The first frame and a cut** (130.10.8 item 3): the window is centred on
+   the ball as before, then, when `bz_lockc` is not FFFFh, `bz_c0n` =
+   `bz_lockc`, before the clamp. A course's FIXED or PAGED window (the
+   title's, the pathway's) is set after this and wins; neither says `lock`.
+3. **LATTICE** (`bz_lattice`): when `bz_lockc` is not FFFFh, the ACROSS axis
+   is skipped whole. `bz_c0n` = `bz_c0`, `bz_lax` is untouched, and no
+   column is withheld or counted (`bz_nwc`). DOWN runs as before.
+4. **TRICKLE**: its horizontal dead zone is skipped the same way, so `C`
+   changes the vertical behaviour only.
+5. **The scripted camera** (`bz_camscr`, a harness's) ignores the lock: it
+   is BENCH's, which has none.
+6. **The finish sequence** holds the camera as before.
+
+**Cost** (MEASURED, the `BZROLL=1` build's listing): **51 bytes of code**
+(`bz_vinit` 23, the first frame 10, TRICKLE 11, LATTICE 7), **2 bytes of
+bss** and **2 bytes a course of table** (20 with ten entries). On a locked course every frame does LESS work (the
+across axis's decision and any column it would have panned). An unlocked
+course's frame pays one compare and a branch, a few clocks.
+
+#### 130.45.3 What uses it, and the rows
+
+- **FIRST ROLL** (`roll.bbc`, the `BZROLL=1` knob) is its first and, for
+  now, only course.
+- **The rows** that read the camera, named for the final pass and not run
+  per change (fork rule 10):
+  - `bonanzaring`: its camera leg compares the guest's window to `Glide`
+    every frame. No shipped course is locked, so it moves only with a
+    locked course added to its scenarios;
+  - `bonanzacourse`;
+  - `bonanzaexit`;
+  - `bonanzamega`.
+  - The `--guide` run half (G3, G12) reads the lock through `Glide` at once.
+- **Red arm** (host): a `lock across` on a course wider than the window is
+  refused at its line. The tool's `--selfcheck` gains it when the item list
+  next moves.
