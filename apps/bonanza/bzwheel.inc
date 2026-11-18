@@ -1154,6 +1154,11 @@ BZ_WPF      equ 20                  ; the frame's bytes
  %error "bz_wprect's ADD SP, 20 is the frame's bytes (tools/stkbalance.py reads the number)"
 %endif
 bz_wprect:
+    cmp byte [bz_vga], 0        ; THE VGA's commit (SPEC.md 128.41.6): no ring
+    je .c                       ; end to cross, the part's
+    BZ_VCALL BZV_WPRECT
+    ret
+.c:
     mov cx, [si + 2]
     sub cx, [si]                ; CX = the rows
     jle .x
@@ -1537,6 +1542,8 @@ bz_lcraw:
 ; offsets are absolute, rb R + 2 x mod 8K), so bz_wcalib flags the lanes
 ; (bz_lxw) and bz_lcraw asks only for those.  Preserves all but SI, DI.
 bz_lwrp:
+    cmp byte [bz_vga], 0        ; (the VGA's ring is 64 KB: no column of a lane
+    jne bz_lwrp.r               ; ever crosses it, 128.41.3)
     push ax
     push bx
     push cx
@@ -1594,6 +1601,7 @@ bz_lwrp:
     pop cx
     pop bx
     pop ax
+.r:
     ret
 
 ; -----------------------------------------------------------------------------

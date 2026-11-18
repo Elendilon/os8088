@@ -74,7 +74,7 @@ bz_rhave:
 .out:
     ret
 
-; AL = 1 CGA, 2 Hercules, 0 neither (bonanza.asm's bz_adapter)
+; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 128.41.2)
 bz_adapter:
     push bx
     push dx
@@ -89,10 +89,17 @@ bz_adapter:
     jmp .out
 .herc:
     cmp dl, VID_HERC
-    jne .none
+    jne .vga
     test ax, 1 << FSXM_HERC
     jz .none
     mov al, 2
+    jmp .out
+.vga:
+    cmp dl, VID_VGA
+    jne .none
+    test ax, 1 << FSXM_VGA0D
+    jz .none
+    mov al, 3
     jmp .out
 .none:
     xor al, al

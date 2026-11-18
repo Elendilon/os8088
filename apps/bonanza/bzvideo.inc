@@ -92,13 +92,10 @@ bz_fullscreen:
     loop .release
 .mode:
     call bz_adapter             ; the display must still be the one the desktop
-    dec al                      ; fetched the parts for
-    cmp al, [bz_herc]
+    cmp al, [bz_cardk]          ; fetched the parts for
     jne .moved
-    mov al, FSXM_CGA320
-    cmp byte [bz_herc], 0
-    je .set
-    mov al, FSXM_HERC
+    mov bx, bz_fsxm - 1
+    xlat                        ; AL = the card's mode (128.41.2)
 .set:
     push ds
     pop es
@@ -136,6 +133,7 @@ bz_fullscreen:
 .refused:
     mov byte [bz_err], 1
     ret
+bz_fsxm:    db FSXM_CGA320, FSXM_HERC, FSXM_VGA0D ; bz_card's modes
 
 ; -----------------------------------------------------------------------------
 ; bz_vinit - the card's geometry, after OSAPI_FSX_MODE.  The Hercules is put on
@@ -150,6 +148,12 @@ bz_fullscreen:
 bz_vinit:
     mov ax, [bz_fsi + FSI_SEG]
     mov [bz_vseg], ax
+    mov word [bz_smask], 0fffh  ; (the 6845's ring; the VGA's part sets 0FFFFh)
+    cmp byte [bz_vga], 0        ; THE VGA: its half is the part's (SPEC.md
+    je .nvga                    ; 128.41.3), every variable below and its ports
+    BZ_VCALL BZV_INIT
+    ret
+.nvga:
     cmp byte [bz_herc], 0
     jne .herc
     mov bl, [bz_crs]            ; the CGA: the course's colour select
@@ -417,6 +421,12 @@ bz_rbR:
     inc bx
 %endmacro
 bz_row:
+    cmp byte [bz_vga], 0        ; THE VGA's row is one line (128.41.3), the part's
+    je .c
+    inc word [bz_nrow]
+    BZ_VCALL BZV_ROW
+    ret
+.c:
     push ax
     push bx
     push cx
@@ -1060,6 +1070,11 @@ bz_frun:
 ; byte path (clipped at the box's top or foot alone, still the word path).
 ; DS = ES = ours.  Preserves all but AX, BX, CX, DX, DI, BP.
 bz_blit:
+    cmp byte [bz_vga], 0        ; THE VGA: planar pairs at 8-pixel words, from
+    je .c                       ; the converted copies (128.41.5), the part's
+    BZ_VCALL BZV_BLIT
+    ret
+.c:
     push si
     mov bp, bx                  ; BP = the frame's distance (0: none)
     ; THE WHOLE SPRITE INSIDE THE BOX, which is what a ball's own box holds
@@ -2330,6 +2345,10 @@ bz_amodel:
     cmp [es:bz_awhi + bx], si
     jg .mbuild
     mov word [es:bz_omp], bz_achk ; every edge at or over the first laid
+    cmp byte [es:bz_vga], 0     ; (the VGA's checker, 128.41.5)
+    je .achk
+    mov word [es:bz_omp], bz_achkv
+.achk:
 .mlay:                          ; line: every pixel hidden, the checker alone
     push bx
     mov bx, -1
@@ -2371,7 +2390,12 @@ bz_amodel:
     rep stosw                   ; (ES = ours)
     mov di, [bz_are]
     sub di, bp                  ; DI = the lines
-    mov dx, 00c0h               ; pixel 0's bit pair; ROR 2 walks 1 .. 7
+    mov dx, 00c0h               ; pixel 0's bit pair; ROR 2 walks 1 .. 7 (the
+    cmp byte [bz_vga], 0        ; VGA's planar pair: its two bits, 8080h, ROR 1,
+    je .mc8                     ; SPEC.md 128.41.5)
+    mov dh, 80h
+    mov dl, dh
+.mc8:
     mov cx, 8
 .mcol:
     lodsw
@@ -2386,14 +2410,21 @@ bz_amodel:
     or [bz_atb + bx], dx
 .mc1:
     ror dx, 1
+    cmp byte [bz_vga], 0
+    jne .mc2
     ror dx, 1
+.mc2:
     loop .mcol
     mov cx, di
     mov di, bp
     and di, 7
     shl di, 1
     add di, bz_omsk             ; ES:DI = bz_omsk's line rs
-    mov dx, 3333h               ; the checker: even line 3333h, odd CCCCh
+    mov dx, 3333h               ; the checker: even line 3333h, odd CCCCh (the
+    cmp byte [bz_vga], 0        ; VGA's 5555h, AAAAh: the same pixels)
+    je .mchk
+    mov dx, 5555h
+.mchk:
     test bp, 1
     jz .mev
     not dx
@@ -2423,6 +2454,8 @@ bz_amodel:
 ; model hides, by the line's place in its block
 bz_achk:
     dw 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch, 3333h, 0cccch
+bz_achkv:                       ; ...the VGA's, as planar pairs (128.41.5)
+    dw 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah
 
 ; bz_arange - bz_amodel's cache slots AL .. BL (words W0 + AL .. W0 + BL)
 ; computed: each column's least edge line over the COUNTING front cells (H / 4
@@ -2672,6 +2705,11 @@ bz_ahalf:
 ; row, as the per-line loop does (a crossing row goes to bz_wseg).  A row the
 ; box starts or ends inside, and any other width, take the per-line loop.
 bz_boxw:
+    cmp byte [bz_vga], 0        ; THE VGA: even bytes to plane 0, odd to plane 1
+    je .c                       ; (128.41.5), the part's
+    BZ_VCALL BZV_BOXW
+    ret
+.c:
     push ax
     push bx
     push cx

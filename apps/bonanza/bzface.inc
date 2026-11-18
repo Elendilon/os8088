@@ -205,6 +205,10 @@ bz_adname:
     mov bx, bz_s_hercr
     cmp al, 2
     je .out
+    mov si, bz_s_vga
+    mov bx, bz_s_vgar
+    cmp al, 3
+    je .out
     mov si, bz_s_noad
 .none:
     mov bx, si
@@ -991,7 +995,8 @@ BZS bz_s_keyb,  'KEYS'
 BZS bz_s_mouse, 'MOUSE'
 BZS bz_s_cga,   'Adapter: CGA, 320x200 four colours'
 BZS bz_s_herc,  'Adapter: Hercules, 360x200 pair pixels'
-BZS bz_s_noad,  'CGA OR HERC ONLY'
+BZS bz_s_vga,   'Adapter: VGA, 320x200, two planes'
+BZS bz_s_noad,  'CGA, HERC OR VGA ONLY'
 BZS bz_s_small, 'NEEDS MORE MEMORY (128KB kernel)'
 BZS bz_s_camk,  'C '
 BZS bz_s_ballk, '  M '
@@ -1024,6 +1029,7 @@ BZS bz_s_err3,  "Another course's log"
 BZS bz_s_err4,  "Other physics' log"
 BZS bz_s_cgar,  'CGA frames '
 BZS bz_s_hercr, 'Herc frames '
+BZS bz_s_vgar,  'VGA frames '
 BZS bz_s_disp,  '  '
 BZS bz_s_hz,    ' Hz  misses '
 BZS bz_s_meas,  'BENCH autopilot'
@@ -1074,6 +1080,7 @@ BZ_FIT 0x, 1 + bz_s_xarm_n + 1
 BZ_FIT 1t, 1 + bz_s_tkeys_n
 BZ_FIT 2, 1 + bz_s_cga_n
 BZ_FIT 2h, 1 + bz_s_herc_n
+BZ_FIT 2v, 1 + bz_s_vga_n
 BZ_FIT 2s, 1 + bz_s_small_n
 BZ_FIT 2e, 1 + bz_s_err_n
 BZ_FIT 2d, 1 + bz_s_err2_n
