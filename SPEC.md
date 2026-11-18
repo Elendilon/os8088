@@ -285093,6 +285093,133 @@ marks read on white tiles and more weakly on a Hercules checker tile, where
 (the bars are bounded by the plaque's 7 px and the 15 px span) would let the
 styles differ more; that is a lane-size question, not a style one.
 
+#### 128.41.12 DESIGNER-SUPPLIED gate ART (2026-11-18, `bb-gateart`; BUILT)
+
+The owner: *"I would prefer to be able to have much varying gates; and for
+the designer to be able to have the option to do it per course (not 4
+styles, picked, but they can feed it whatever art they want so it fits the
+course; for example, a crumbling wall between two other blocks, or a
+portcullis that raises into an arch, or a doorway that opens, etc; having
+the animations be a certain frame count is fine to keep it generic)."* The
+four styles of 128.41.11 stay as the presets (and every course that names
+no art is byte for byte what it was); this is the feature.
+
+| | decision | why |
+|---|---|---|
+| A1 | the designer DRAWS a gate's art as a `.bba` text pixmap (128.23.2's reader: `.` transparent, `0` - `3` the CGA's inks), in `apps/bonanza/courses/gates/<name>.bba`, of **`GT_AFR` = 4 FRAMES** stacked top to bottom: frame 0 SHUT (a bridge: UP), frame 3 OPEN (DOWN), 1 and 2 the way between | a fixed, generic count is the owner's own offer; four reads as motion (a wall cracking, crumbling, gone; a portcullis a third up, two thirds, in its arch) and costs the guest one 2-bit frame a channel |
+| A2 | the file's header lines say what it is: `# frames 4`, `# for gate` or `# for bridge`, `# foot FX FY` (the art's pixel that lands on the TOP CENTRE of the element's first cell) and `# cells N` (a gate's width across its path, 1 - 3 cells; a bridge's art is 1, laid on every cell of it) | the art declares its own footprint, so one file serves any course; FX, FY place a picture of any size - taller than a cell (a wall, an arch), wider (the blocks either side) - with nothing else to say |
+| A3 | `prop gate <wx> <wy> channel C [along x\|y] art <name>` and `prop bridge ... channel C art <name>`; a course's `gateart <name>` and `bridgeart <name>` (once each) give every gate (bridge) that names neither `art` nor `style` its art. An element's `style` keeps the preset. A TIMED bridge takes no art (refused; 128.41.12.6 Q2) | per course and per element, as the owner asked; the presets stay reachable |
+| A4 | a gate of N cells is N GATE ELEMENTS - `along x` the cells `(wx, wy + i)`, `along y` `(wx + i, wy)` - each a WALL while shut (128.41.4's CELL), the first carrying the art; `along y` draws the art MIRRORED (x -> 2 FX - x) | a door of two cells is a wall of two cells; nothing new in physics. The view's x and y axes are each other's mirror, so one drawing serves both ways |
+| A5 | the ANIMATION is the CHANNEL's: the slot's +2 - +5 hold each channel's FRAME (0 - 3). STEP on step `n` (`bz_nstep`'s low byte) with `n AND 7` = 2 c: channel c open and its frame under 3, the frame + 1, every art lane of channel c MARKED, and at 3 the refill (`bz_fref`). So frame 1 shows within 8 steps of the opening and each next 8 steps later: OPEN 16 - 24 steps (0.29 - 0.43 s) after the plate or key (MEASURED on the model: 23 and 19 steps for openings on steps 1 and 5) | a frame a channel, not an element: every art of a channel plays together (as every preset of it opens together) at 4 bytes of the slot and no `bz_fst` byte. The phase per channel means two channels NEVER change a frame on one step, so the window's change bound counts one channel's lanes, not four |
+| A6 | PHYSICS UNCHANGED: a gate is a WALL and a bridge the NEAR VOID until its channel's frame is **3**, and the FLOOR from the step that frame is shown (the step STEP sets 3, the refill CELL writes). The art must show the way clear in frame 3 | the passage opens when it is seen to; a wall still half standing in frame 2 stops the ball as it looks as if it would |
+| A7 | the PICTURE holds frame 0. The tool draws each frame over the bare picture at the element's depth (a pixel shown where nothing in front of its cell drew - the clock's rule, so the block in front of a crumbling wall hides the wall); a pixel EQUAL in all four frames (an arch, the blocks' stubs) is the picture's alone; the blocks where frames differ are cut into lanes of at most 4 x 3 blocks (`cover_blocks`), each a record of kind **76, `gatelane`** (+2, +3 its gate's first cell, +18 its gate's record, +19 the channel), its pose the channel's frame. At most `GT_ALANES` = 6 lanes an art | the see-saw's machinery (128.42.5): the change is exact by construction; a lane per box, a record each, the guest's POSE one table read |
+| A8 | DEPTH: frame 0's pixels (and the static ones) are GEOMETRY keyed at the cell under them (an art of N cells cut by the nearest cell's column), one top a cell (its floor plus the rise to the art's highest pixel there) - the clock's occluder (128.18.5.4) - so a ball behind a shut gate is drawn behind it; the visibility rule (`clock_vis`'s, 16 gu wholly hidden) is applied to every art | the brief's precedent; the owner's visibility rule |
+| A9 | the CARDS: the art is in the CGA's inks and the Hercules gets it through `htab()` as every pixel (128.11.3) - no mono variant is drawn. Refused: two consecutive frames the SAME on the Hercules (cyan and magenta are one grey checker there), so the animation is seen on every card. Draw the structure black and white | one source for three cards; the refusal is the rule 128.41's D5 made by eye, made a check |
+
+##### 128.41.12.1 The record and the slot, as amended
+
+- A gate's or switched bridge's **+24 `GT_ART`**: 1 when it has art (every
+  cell of an N-cell gate), else 0. An art element has NO lane of its own
+  (its lanes are kind 76's), and CONTACT's channel walk does not mark it
+  (it has no lane to mark: `bz_latt` is the lanes').
+- **Kind 76 `gatelane`**: +16 FSB 0, +17 ATTEMPT, +18 its gate's record,
+  +19 its channel, the rest zero; a lane of 4 poses; no cell OBS, no owner
+  (the see-saw lane's precedent, 128.42.3).
+- **The slot**: +0 the open channels, +1 the timed bridges, **+2 - +5 each
+  channel's frame**; 6 of `BZF_SLOT`'s 8.
+- The family's kinds are five (72 - 76); `FAMV` moves.
+
+##### 128.41.12.2 The hooks, as amended (binding: the guest and `bbcourse.GateFamily`)
+
+- **STEP**: first the frame: c = (n AND 7) / 2 when n is even; channel c
+  open and +2 + c under 3: + 1, every kind-76 record of +19 c MARKED, and at
+  3 `bz_fref`. Then the timed bridges as before.
+- **POSE** of a kind-76 lane: +2 + its channel.
+- **CELL**: an art gate is SHUT while its channel's frame is under 3 (not
+  while its bit is clear); an art bridge DOWN once the frame is 3.
+- **CONTACT**: an art element is not marked.
+
+##### 128.41.12.3 The refusals (each a `--selfcheck --only gate` item 2 case)
+
+No such art file; a file not 4 frames, or with no `# for`, `# foot` or
+`# cells` line, or with them out of range; a gate's art on a bridge (or the
+reverse); `art` and `style` on one element; `art` on a timed bridge, a
+plate or a key; `gateart` or `bridgeart` twice; an art pixel off the
+picture; an N-cell gate whose cells are not each a gate's (a flat floor, no
+other prop, not the start's); frame 0 more than half hidden by what stands
+in front; more than `GT_ALANES` lanes; an art lane on another prop's lane's
+block; two consecutive frames the same on the Hercules; the window's change
+bound (128.19.10) with the art's lanes counted.
+
+**FAMV**: the gate row folds as it did before the art (`"famv": {"slot":
+2, "kinds": 4}` in its FAMILIES row): the art is an EXTENSION that every
+course without art runs unchanged on - none of its records holds +24 or a
+kind 76, and the frames are slot bytes it never reads - so the shipped
+PLAYGROUND, which names this family, is byte for byte what it was (its part,
+its identity and its demo). A course WITH art needs this part; the part
+ships in the same bundle as the course, as every part does.
+
+##### 128.41.12.4 GATE's art, and the proofs
+
+GATE gains three short corridors north of its start plate into a back hall
+with a goal, each shut by a gate of the designer's art
+(`apps/bonanza/courses/gates/`), each on a channel the presets already use
+so the preset scenes play the art's frames too: the DOOR (`box`, x 8: a
+frame and a plank door swinging away from the viewer), the CRUMBLE (`ring`,
+x 10: a brick wall between two blocks a unit proud, cracking, crumbling, to
+rubble; a second ring plate right before it), the PORTCULLIS (`plus`, x 12 -
+13: a stone arch over two cells, its grid rising into it). LOOKED AT in the
+tool's previews, both cards: the crumble and the portcullis read on both;
+the door is partly behind the crumble's left block and its open frame reads
+weakest (a leaf swung back is still a leaf).
+
+- **`--selfcheck --only gate`**: item 2, ten more refusals (no file, `art`
+  and `style`, a timed bridge's art, a gate's art on a bridge, art on a
+  plate, `gateart` twice, a file of 3 frames, frames the same on the
+  Hercules, a pixel off the picture, an art hidden behind a wall); item 3,
+  20 records, the art cells laneless; item 7, GATE's arts (5 lanes: 2, 1, 2;
+  4 poses each, naming gate and channel; the visibility rule's worst run 0
+  for all three), the FRAMES on the model (the crumble's channel opened on
+  steps 1 and 5: its frame steps on 8, 16, 24, n AND 7 = 0; WALL until
+  frame 3, FLOOR from it, 23 and 19 steps after the opening; every lane's
+  POSE the frame), and two red arms, each MEASURED red: `early` (the cell
+  opened at frame 0) and `still` (the frame never stepped); item 6's new
+  scene `art` (from (10, 7) over the corridor's ring plate into the crumble,
+  held while it falls, then through: every ball ends at y 3).
+- **`gt_host`** (`tests/bonanza_phys.py --check`'s unicorn half): the 30
+  scenes (`art` added) equal to the model at every step - the art lanes'
+  POSE and marks included - and two new red arms from the part's source,
+  each MEASURED red: `gtframe` (the frame's `inc` gone) parts at the slots
+  at step 32 of `art`; `gtearly` (an art gate walled by its channel's bit)
+  parts at the window at step 41 of `art`.
+
+##### 128.41.12.5 What it costs (MEASURED)
+
+| | |
+|---|---|
+| the part, `bzf-gate.bin` | 515 -> **630 bytes (+115)**: STEP's frame (a channel a step, its marking walk), POSE's art lane, `gt_open` (CELL's and `gt_down`'s shared open test), CONTACT's skip; `paras` 33 -> **40** |
+| resident | **0 bytes**: no resident source changed (`bzcourse.inc` gains `BZ_FK_GATELANE equ 76`); `bonanza.bin` 50,184; bss **+0** (the frames are the slot's +2 - +5) |
+| the bundle | `bzfbun.bin` **+112** (the part's 7 more paragraphs: the RAM every play pays) - 32,656 |
+| a step, a course naming GATE | PREDICTED (counted, not measured): the frame's test about 0.1k clk a step; at a channel's frame step (3 an opening) a walk of the records, about 40 clk a record |
+| the shipped courses | every `BZ<K>.BIN`, `BZD<K>.BIN`, the pathway, the title and the kit byte for byte as before (MEASURED: the whole compile `cmp`'d against the base tree's) |
+| a course's art | GATE with its three arts against the same gates as presets: RAM part **19,849 -> 22,373 (+2,524)**: their lanes' records and pose maps and the frames' new blocks |
+
+##### 128.41.12.6 Open questions for the owner
+
+1. The occluder is frame 0's: a ball behind an OPEN gate, where frame 0 had
+   a pixel and frame 3 has none, is laid over by what the map shows there
+   (the records are cut once, from the picture). Per-pose occluders are an
+   engine question.
+2. A TIMED bridge with art (frames by the timer's phase) is not built. A
+   SWITCHED bridge's art is in the tool and the part (`# for bridge`, DOWN
+   at frame 3) but no course carries one yet, so it is UNPROVED: no scene,
+   no preview.
+3. An art's lanes are counted against the window's change bound by
+   CHANNEL; a course with a big art and a clock in one window will meet
+   `WIN_CHG`. GT_ALANES (6) an art.
+4. The door: a better swing needs the leaf drawn as the reader expects
+   (perhaps sliding into the wall); designer's art, not engine.
+
 ### 128.42 The SEE-SAW: a tilt plate the ball's weight tips (the props round's P9, 2026-11-17; BUILT on `bb-tilt`)
 
 The props plan's P9 ([BOUNCE-BONANZA-PROPS.md](docs/plans/BOUNCE-BONANZA-PROPS.md)):
