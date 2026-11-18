@@ -5430,3 +5430,103 @@ G3, which was written about jumps?
 
 **Not run**: the guest. Per fork rule 5 the playtest disk is the owner's to
 boot; no emulator row.
+
+## 2026-11-18 (FIRST ROLL's first play, and revision 4)
+
+The owner played playtest 1 and sent the replay log:
+
+> 30s for me, not trying hard just going. I set another session on making
+> autopilot work for shapes. First demo of me playing attached (this one
+> will not become the official demo, its just a first run).
+>
+> None of the clocks is fully tiled behind void, and I'm starting to think
+> course design with that as a requirement is going to be very hard.
+> Lattice doesn't even bring the second clock into view, ever, only its
+> pillar. At least the top clock is partially behind another block, which
+> looks bad. I'm thinking the custom art might be the way to go here.
+>
+> The pit hole drop is not working as well here, because the user is not
+> guided "forward" like they were in first roll; so naturally we steer, and
+> then miss the hole. I think we need to go straight over it into the next
+> section.
+>
+> The block rails look good.
+>
+> The shape chute you actually have to be slightly cautious in, which is
+> good.
+>
+> How big did this course end up on disk?
+>
+> Cannon throw/spring throw: Cannon the user isn't trying to guide, so it
+> can probably get an exception. Spring they are; would prefer that not
+> scroll while jumping, though again, we can make exceptions to this on a
+> per use basis after I test.
+
+**The log, through the tool.** The play's log replays on the tool's model to
+the goal: 1,728 steps, 31.4 s, no fall, as played. `--guide`'s run half then
+refused it on G3, and following that up found the course's camera problem:
+- the ball swung 229 px across;
+- LATTICE panned 16 - 24 columns five times, two of them in the air (the
+  steps and the leap);
+- its framings sit 128 px apart and it leads in the direction of travel, so
+  the no-pan band is only about 110 px.
+
+A vertical course zigzags, and every leg between 4-wide pads crosses that
+band.
+
+**Revision 4** (the sheet has it whole):
+- the lip, the hole and the chute's mouth lie on one line, so forward means
+  over the hole;
+- the legs are balanced, for a 168 px swing in the sketch;
+- the clocks float on lone pillars placed for the camera, the middle one
+  later in the course;
+- three changes the tool forced:
+  - the chute is 8 px deep, so no block holds more than 4 occluder records;
+  - the course is 3 units shallower, because occluder record tops span at
+    most 255 px;
+  - the finish clock sits left of the goal, because every goal cell's
+    centred window must hold a clock.
+
+A level chute leg was tried and dropped: a slow ball cannot climb its end
+taper.
+
+**Measured on the model.** A scratch steering script follows the sketch's
+route: 35.7 s, no fall. It still pans five or six times a card, twice in
+the air. The course's whole picture is 320 px across, and with the camera
+PINNED at one framing in the model:
+- nothing pans;
+- every clock is in view where it serves;
+- the longest clockless stretch is 10.5 s on the CGA and 11.4 s on the
+  Hercules, against 12.8 s and 14.1 s on today's camera.
+
+A per-course horizontal lock is put to the owner as a camera change with a
+contract of its own.
+
+**G3's launcher answer, built.** A flight that starts as the ball leaves a
+tube (a cannon's throw) is not counted, and a spring's still is:
+- MILL's 16-column flight was its cannon, and passes now;
+- SUMMIT's other flight (very likely its second spring) stays red.
+
+**Run**: the log's replay; `--guide`; the scratch steering script on both
+cards, on today's camera and pinned; the compile and previews; the playtest
+build. **Not run**: the guest (fork rule 5).
+
+The owner, while revision 4 built: *"We'll have to see what works here, but
+we may not be able to avoid more horizontal; we want to keep the courses
+visually interesting, and I think that rule is making that hard."* The
+guide's G2 is softened to match. Horizontal is allowed; what is planned is
+where the camera pans (on the ground, never in a jump, and not back and forth
+on every leg). G3 stands.
+
+**The size the owner asked about**, revision 4 as built:
+- ROLL's part is 42,018 bytes in RAM and **8,803 bytes on the disk** (LZB,
+  as the package stores it);
+- against MILL's 6,592, MOON's 7,070 and PEAK's 8,617, the 60 s course;
+- the tool's report puts it over the old 30 s budget (reported, never
+  refused).
+
+Most of it is the picture: an 18KB map over 107 block rows, because the
+course falls 23 units and every section stands on a column down to the
+ground. FLOATING sections (faces 3 units deep) would cut that, and are worth
+trying when the layout settles.
+

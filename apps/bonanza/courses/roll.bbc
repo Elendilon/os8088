@@ -1,14 +1,14 @@
 # First Roll - the shipped course 1 in the making (docs/plans/bonanza-courses/FIRST-ROLL.md): tutorial 1,
 # rubber, no families.  Roll, brake, ramps and a shaped chute; drops kill you, and you learn the timing.
-# Built only by the BZROLL=1 knob for now (the pathway's pad 0), until it ships.  The first draft was
-# written by docs/plans/bonanza-courses/first/sketch.py --bbc from the paper design; this file is the
-# source from here on.
+# Built only by the BZROLL=1 knob for now (the pathway's pad 0), until it ships.  Written by
+# docs/plans/bonanza-courses/first/sketch.py --bbc from the paper design while the LAYOUT moves (revision 4:
+# the owner's first play); once it settles this file is the source and is edited by hand.
 course ROLL "First Roll"
 guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
 width 64
 ball rubber
 target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
-# the PLAYTEST's limit, given by hand: the autopilot cannot steer a chute (no `way` may sit on a FIELD
+# the PLAYTEST's limit, given by hand: the autopilot cannot steer a chute yet (no `way` may sit on a FIELD
 # cell), so its route stops at the chute's mouth and the tool's limit rule has no route to price.  The
 # batched step replaces this with an AUTHOR script's run and the tool's own rule (the guide, section 3)
 limit 60
@@ -21,25 +21,26 @@ floor rect  12  14  14  18  ramp x 12 14 24 22   # A
 floor rect  14  14  18  18  flat 22   # A
 floor rect  14  18  18  20  ramp y 18 20 22 20   # A
 floor rect  14  20  18  24  flat 20   # A
-floor rect  18  20  24  22  flat 20   # B
-floor rect  24  18  27  22  flat 20   # C
-floor rect  24  22  27  24  ramp y 22 24 20 19   # C
-floor rect  23  24  28  29  flat 16   # T
-floor rect  35  31  37  34  ramp x 35 37 13 12   # D
-floor rect  37  31  40  34  flat 12   # D
-floor rect  37  34  40  36  flat 11   # E
-floor rect  37  36  40  38  flat 10   # E
-floor rect  37  38  40  41  flat 9   # E
-floor rect  38  41  40  46  ramp y 41 46 9 6.5   # W
-floor rect  38  46  41  48  flat 6.5   # W
-floor rect  41  46  45  48  ramp x 41 45 6.5 4.5   # W
-floor rect  45  46  49  49  ramp x 45 49 4.5 2.5   # F
-floor rect  50  45  54  50  flat 0.5   # G
-floor rect  50  50  54  52  ramp y 50 52 0.5 -0.5   # G
-floor rect  49  52  55  57  flat -0.5   # H
+floor rect  18  21  24  23  flat 20   # B
+floor rect  24  20  27  24  flat 20   # C
+floor rect  24  24  27  26  ramp y 24 26 20 19   # C
+floor rect  23  26  28  30  flat 16   # T
+floor rect  33  32  35  34  flat 12.5   # D
+floor rect  35  32  38  35  flat 12.5   # D
+floor rect  35  35  38  37  flat 11.5   # E
+floor rect  35  37  38  39  flat 10.5   # E
+floor rect  35  39  38  42  flat 9.5   # E
+floor rect  38  40  42  42  flat 9.5   # W
+floor rect  42  40  44  43  flat 9.5   # W
+floor rect  42  43  44  47  ramp y 43 47 9.5 7.5   # W
+floor rect  42  47  45  50  flat 7.5   # F
+floor rect  45  47  49  50  ramp x 45 49 7.5 5.5   # F
+floor rect  50  46  54  51  flat 3.5   # G
+floor rect  50  51  54  53  ramp y 51 53 3.5 2.5   # G
+floor rect  49  53  55  58  flat 2.5   # H
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
-chute 2 round depth 10 way 28 26 16 way 32 26 15 way 32 32 13 way 35 32 13
+chute 2 round depth 8 way 26 30 16 way 26 33 15 way 33 33 12.5
 
 # rails: block rails (wall tiles) on the void side of each railed edge
 wall  tile   7   7  flat 28
@@ -89,113 +90,124 @@ wall  tile  18  16  flat 24
 wall  tile  18  17  flat 24
 wall  tile  18  18  flat 24
 wall  tile  18  19  flat 23
-wall  tile  18  22  flat 22
+wall  tile  18  20  flat 22
 wall  tile  18  23  flat 22
-wall  tile  19  19  flat 22
-wall  tile  20  19  flat 22
-wall  tile  21  19  flat 22
-wall  tile  22  19  flat 22
-wall  tile  22  24  flat 18
-wall  tile  22  25  flat 18
+wall  tile  19  20  flat 22
+wall  tile  20  20  flat 22
+wall  tile  21  20  flat 22
+wall  tile  22  20  flat 22
 wall  tile  22  26  flat 18
 wall  tile  22  27  flat 18
 wall  tile  22  28  flat 18
-wall  tile  23  19  flat 22
-wall  tile  23  22  flat 22
-wall  tile  23  23  flat 21.5
-wall  tile  23  29  flat 18
-wall  tile  24  17  flat 22
-wall  tile  24  29  flat 18
-wall  tile  25  17  flat 22
-wall  tile  25  29  flat 18
-wall  tile  26  17  flat 22
-wall  tile  26  29  flat 18
-wall  tile  27  18  flat 22
-wall  tile  27  19  flat 22
+wall  tile  22  29  flat 18
+wall  tile  23  20  flat 22
+wall  tile  23  23  flat 22
+wall  tile  23  24  flat 22
+wall  tile  23  25  flat 21.5
+wall  tile  23  30  flat 18
+wall  tile  24  19  flat 22
+wall  tile  24  30  flat 18
+wall  tile  25  19  flat 22
+wall  tile  26  19  flat 22
 wall  tile  27  20  flat 22
 wall  tile  27  21  flat 22
 wall  tile  27  22  flat 22
-wall  tile  27  23  flat 21.5
-wall  tile  27  29  flat 18
-wall  tile  28  24  flat 18
+wall  tile  27  23  flat 22
+wall  tile  27  24  flat 22
+wall  tile  27  25  flat 21.5
+wall  tile  27  30  flat 18
+wall  tile  28  26  flat 18
 wall  tile  28  27  flat 18
 wall  tile  28  28  flat 18
-wall  tile  34  33  flat 15
-wall  tile  35  30  flat 15
-wall  tile  35  34  flat 15
-wall  tile  36  30  flat 14.5
-wall  tile  36  34  flat 14.5
-wall  tile  36  35  flat 13
-wall  tile  36  36  flat 12
-wall  tile  36  37  flat 12
-wall  tile  36  38  flat 11
-wall  tile  36  39  flat 11
-wall  tile  36  40  flat 11
-wall  tile  37  30  flat 14
-wall  tile  37  41  flat 11
-wall  tile  38  30  flat 14
-wall  tile  38  48  flat 8.5
-wall  tile  39  30  flat 14
-wall  tile  39  48  flat 8.5
-wall  tile  40  34  flat 13
-wall  tile  40  35  flat 13
-wall  tile  40  36  flat 12
-wall  tile  40  37  flat 12
-wall  tile  40  38  flat 11
-wall  tile  40  39  flat 11
-wall  tile  40  40  flat 11
-wall  tile  40  48  flat 8.5
-wall  tile  45  45  flat 6.5
-wall  tile  45  49  flat 6.5
-wall  tile  46  45  flat 6
-wall  tile  46  49  flat 6
-wall  tile  47  45  flat 5.5
-wall  tile  47  49  flat 5.5
-wall  tile  48  45  flat 5
-wall  tile  48  49  flat 5
-wall  tile  48  52  flat 1.5
-wall  tile  48  53  flat 1.5
-wall  tile  48  54  flat 1.5
-wall  tile  48  55  flat 1.5
-wall  tile  48  56  flat 1.5
-wall  tile  49  50  flat 2.5
-wall  tile  49  51  flat 2
-wall  tile  49  57  flat 1.5
-wall  tile  50  44  flat 2.5
-wall  tile  50  57  flat 1.5
-wall  tile  51  44  flat 2.5
-wall  tile  51  57  flat 1.5
-wall  tile  52  44  flat 2.5
-wall  tile  52  57  flat 1.5
-wall  tile  53  44  flat 2.5
-wall  tile  53  57  flat 1.5
-wall  tile  54  45  flat 2.5
-wall  tile  54  46  flat 2.5
-wall  tile  54  47  flat 2.5
-wall  tile  54  48  flat 2.5
-wall  tile  54  49  flat 2.5
-wall  tile  54  50  flat 2.5
-wall  tile  54  51  flat 2
-wall  tile  54  57  flat 1.5
-wall  tile  55  52  flat 1.5
-wall  tile  55  53  flat 1.5
-wall  tile  55  54  flat 1.5
-wall  tile  55  55  flat 1.5
-wall  tile  55  56  flat 1.5
+wall  tile  28  29  flat 18
+wall  tile  33  31  flat 14.5
+wall  tile  34  31  flat 14.5
+wall  tile  34  34  flat 14.5
+wall  tile  34  35  flat 13.5
+wall  tile  34  36  flat 13.5
+wall  tile  34  37  flat 12.5
+wall  tile  34  38  flat 12.5
+wall  tile  34  39  flat 11.5
+wall  tile  34  40  flat 11.5
+wall  tile  34  41  flat 11.5
+wall  tile  35  31  flat 14.5
+wall  tile  35  42  flat 11.5
+wall  tile  36  31  flat 14.5
+wall  tile  36  42  flat 11.5
+wall  tile  37  31  flat 14.5
+wall  tile  37  42  flat 11.5
+wall  tile  38  35  flat 13.5
+wall  tile  38  36  flat 13.5
+wall  tile  38  37  flat 12.5
+wall  tile  38  38  flat 12.5
+wall  tile  38  39  flat 11.5
+wall  tile  41  42  flat 11.5
+wall  tile  41  47  flat 9.5
+wall  tile  41  48  flat 9.5
+wall  tile  41  49  flat 9.5
+wall  tile  42  39  flat 11.5
+wall  tile  42  50  flat 9.5
+wall  tile  43  39  flat 11.5
+wall  tile  43  50  flat 9.5
+wall  tile  44  40  flat 11.5
+wall  tile  44  41  flat 11.5
+wall  tile  44  42  flat 11.5
+wall  tile  44  46  flat 9.5
+wall  tile  44  50  flat 9.5
+wall  tile  45  46  flat 9.5
+wall  tile  45  50  flat 9.5
+wall  tile  46  46  flat 9
+wall  tile  46  50  flat 9
+wall  tile  47  46  flat 8.5
+wall  tile  47  50  flat 8.5
+wall  tile  48  46  flat 8
+wall  tile  48  50  flat 8
+wall  tile  48  53  flat 4.5
+wall  tile  48  54  flat 4.5
+wall  tile  48  55  flat 4.5
+wall  tile  48  56  flat 4.5
+wall  tile  48  57  flat 4.5
+wall  tile  49  51  flat 5.5
+wall  tile  49  52  flat 5
+wall  tile  49  58  flat 4.5
+wall  tile  50  45  flat 5.5
+wall  tile  50  58  flat 4.5
+wall  tile  51  45  flat 5.5
+wall  tile  51  58  flat 4.5
+wall  tile  52  45  flat 5.5
+wall  tile  52  58  flat 4.5
+wall  tile  53  45  flat 5.5
+wall  tile  53  58  flat 4.5
+wall  tile  54  46  flat 5.5
+wall  tile  54  47  flat 5.5
+wall  tile  54  48  flat 5.5
+wall  tile  54  49  flat 5.5
+wall  tile  54  50  flat 5.5
+wall  tile  54  51  flat 5.5
+wall  tile  54  52  flat 5
+wall  tile  54  58  flat 4.5
+wall  tile  55  53  flat 4.5
+wall  tile  55  54  flat 4.5
+wall  tile  55  55  flat 4.5
+wall  tile  55  56  flat 4.5
+wall  tile  55  57  flat 4.5
 
-hole  tile 25 26
-goal  rect 49 55 55 57  flat -0.5
+hole  tile 25 28
+goal  rect 49 56 55 58  flat 2.5
 start 9 9
-checkpoint 25 20 ball rubber   # flag 0
-checkpoint 38 39 ball rubber   # flag 1
+checkpoint 24 21 ball rubber   # flag 0
+checkpoint 36 40 ball rubber   # flag 1
 
 # clocks: each on a lone one-tile pillar, only void behind its head (the sketch's placement)
-floor tile 5 7  flat 22   # the start clock's pillar
-clock 5 7
-floor tile 29 36  flat 13   # the chute clock's pillar
-clock 29 36
-floor tile 56 61  flat -2.5   # the finish clock's pillar
-clock 56 61
+floor tile 14 9  flat 24   # the start clock's pillar
+float tile 14 9                # its faces hang 3 units: a lone pillar, not a column to the ground
+clock 14 9
+floor tile 36 29  flat 14   # the middle clock's pillar
+float tile 36 29                # its faces hang 3 units: a lone pillar, not a column to the ground
+clock 36 29
+floor tile 47 57  flat 0.5   # the finish clock's pillar
+float tile 47 57                # its faces hang 3 units: a lone pillar, not a column to the ground
+clock 47 57
 
 # the autopilot's route
 way 9 9
@@ -204,23 +216,22 @@ way 10 16
 way 13 16
 way 16 16
 way 16 19
-way 16 21
-way 17 21
-way 21 21
-way 25 20
-way 25 23
-way 25 24
-way 26 26
-way 27 26
-way 36 32
-way 38 32
-way 38 35
-way 39 40
-way 39 44
-way 39 47
-way 42 47
-way 45 47
-way 48 47
-way 51 48
-way 52 50
-way 52 56
+way 16 22
+way 18 22
+way 24 22
+way 25 22
+way 25 25
+way 25 27
+way 36 33
+way 36 37
+way 36 40
+way 39 41
+way 42 41
+way 43 42
+way 43 45
+way 43 48
+way 44 48
+way 47 48
+way 52 48
+way 52 51
+way 52 57
