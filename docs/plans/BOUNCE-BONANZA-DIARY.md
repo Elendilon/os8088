@@ -6043,3 +6043,15 @@ bytes on the disk (9,463).
 
 **Run**: the tool and previews; the model's steered run (37.2 s, no fall,
 no pan); the playtest build. **Not run**: the guest (fork rule 5).
+
+**Revision 8**, the same day. The owner edited the diagonal variant's
+screenshot: *"Add a diagonal to the black marked column, and remove the red
+marked columns. This starts them on a visually interesting platform, and
+its not that hard to roll down a 2 wide path."* Projected back to cells:
+- the black mark is the start plateau's front corner, now cut on a
+  diagonal;
+- the red marks are the first ramp's outer columns, so the ramp is 2 wide.
+
+The variant's other corner cuts came with it, as the edit was drawn on it.
+The model's run is unchanged (37.2 s, no fall, no pan). The part is 10,000
+bytes on the disk.
