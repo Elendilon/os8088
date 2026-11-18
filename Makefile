@@ -21777,7 +21777,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/bonanza/fam/bzthunk.inc apps/bonanza/fam/bzdoor.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
-                      apps/bonanza/bzshell.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
+                      apps/bonanza/bzshell.inc apps/bonanza/bzvga.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
@@ -21811,6 +21811,11 @@ $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
 	python3 tools/bzwinart.py -o $(BZ_ART)
+# THE VGA PART (SPEC.md 128.41.6): the VGA's writers and its one-off converter, LINKED as the
+# shell part is; the package's last row, after the families' (BZ_P_VGA)
+$(BUILD)/bzvga.bin: apps/bonanza/bzvga.asm apps/bonanza/bzvga.inc apps/os88api.inc $(BZ_ART)/bzcourse.inc \
+                    $(BZ_ART)/bzlink.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
 $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzwface.inc apps/bonanza/bzshell.inc \
                       apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
@@ -21826,11 +21831,11 @@ $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) ap
 # paragraph, its header's +11 its paragraphs - a row in every build
 $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin tools/os88pkg.py \
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
 		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
-		--part-compress $(BZPARTZF)
+		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 128)
 bonanza: $(BUILD)/bonanza.o88

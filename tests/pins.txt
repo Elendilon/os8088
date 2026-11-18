@@ -353,6 +353,19 @@ C apps/bonanza/bonanza.asm op:BZ_P_TDEMO # BZTDEMO.BIN, the title's demos: fetch
                                          # one demo's start block and log copied
                                          # out through ES and dropped inside
                                          # bz_tdemo's one call (SPEC.md 128.23.3)
+X apps/bonanza/bonanza.asm op:BZ_P_VGA # the VGA part's CODE (SPEC.md 128.41.6), far-called
+                                         # through bz_vfp, fetched on the first course of a
+                                         # VGA launch and held through its bracket, dropped
+                                         # after it (bz_vdrop). As the shell part's: declaring
+                                         # it needs an OP_ONMOVE hook BONANZA does not assemble,
+                                         # and a CS on the stack across a call that can claim
+                                         # is a wrong return; bz_vprep takes its code alias
+                                         # again after every fetch of the bracket's own rounds
+C apps/bonanza/bonanza.asm bz_vbseg     # the three balls' converted copies on the VGA
+                                         # (SPEC.md 128.41.5): claimed by bz_vprep on the
+                                         # desktop before the bracket, read by every frame's
+                                         # blits through DS, and freed by bz_vdrop as the
+                                         # bracket returns - inside the launch's one call
 X apps/bonanza/bonanza.asm op:BZ_P_SHELL # the shell part's CODE, far-called through
                                          # bz_shfp (its op_cseg word cached) and held
                                          # while the face is up, dropped before any

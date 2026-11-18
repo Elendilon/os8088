@@ -255,6 +255,20 @@ VAR bz_mode,1
 VAR bz_fs,1
 VAR bz_err,1
 VAR bz_herc,1
+VAR bz_vga,1                    ; SPEC.md 128.41.2: 1 a VGA play (bz_herc 0 then)
+VAR bz_cardk,1                  ; ...bz_adapter's 1 CGA, 2 Hercules, 3 VGA (bz_setcard)
+VAR bz_vfp,4                    ; 128.41.6: BZVGA.BIN's far vector (bz_vprep: its
+                                ; code alias; BZ_VCALL writes the offset)
+VAR bz_vbseg,2                  ; 128.41.5: the three balls' converted copies, a claim
+VAR bz_smask,2                  ; the start address's ring: 0FFFh, the VGA's 0FFFFh
+VAR bz_vpal0,4                  ; the VGA's AC 0 - 3 for the course (BZV_INIT's)
+VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
+VAR bz_vwr1,2                   ; has no writable memory of its own, 128.41.6)
+VAR bz_vwx,2
+VAR bz_vwx1,2
+VAR bz_vwbr,2
+VAR bz_vcpal,2                  ; bz_cpals' offset, and bz_spr0's (the sparkles'
+VAR bz_vspr0,2                  ; CGA table): set by bz_vprep for the part
 VAR bz_res,1
 VAR bz_full,1
 VAR bz_meas,1
@@ -1009,6 +1023,9 @@ bz_tr:                          ; slab when it is OVER the ball (128.12.4.5)
     cmp byte [bz_full], 0
     jne bz_tw
     call bz_rows
+    cmp byte [bz_vga], 0        ; THE VGA (SPEC.md 128.41.4 rule 1): the entering
+    je bz_tw                    ; column too, before the start address, in the
+    call bz_vcol                ; gutter the glass does not show
 bz_tw:
     mov bx, 2 * 4               ; the rows' part ends here (SPEC.md 128.12.5.6) -
     mov byte [bz_wld], 0        ; or, with no candidate, runs on to bz_tv's
@@ -1025,27 +1042,27 @@ bz_tv:                          ; parts keep their numbers)
     cmp byte [bz_full], 0       ; bz_vr may shut interrupts at the rise, and
     jne bz_tf                   ; bz_tb's POPF opens them after the FIRST box
     call bz_r0pend
+    cmp byte [bz_vga], 0        ; THE VGA (SPEC.md 128.41.4 rules 2 - 4): the
+    je .vr                      ; start address first, then the EDGE under CLI
+    call bz_vstart              ; every frame (bz_r0p), then the panning
+.vr:
     call bz_vr
+    cmp byte [bz_vga], 0
+    je bz_tf
+    xor al, al                  ; (V1: the panning is 0)
+    BZ_VCALL BZV_PAN
 bz_tf:
     mov bx, 3 * 4
     call bz_mark
-    cmp byte [bz_full], 0       ; S = (W*R0 + c0) mod 4096, KEPT (SPEC.md
-    jne .whole                  ; 128.9 item 4): a step adds W a row and the
-    mov ax, [bz_S]              ; column step to the shown S, the row's W*dr
-    add ax, [bz_dc]             ; out of a five-entry table (dr = -2 .. 2)
-    mov bx, [bz_dr]
-    shl bx, 1
-    add ax, [bz_wtab + 4 + bx]
-    jmp short .S
-.whole:
-    mov ax, [bz_R0n]            ; a full write: W*R0 = rb*R0 / 2
-    call bz_rbR
-    shr ax, 1
-    add ax, [bz_c0n]
-.S:
-    and ax, 0fffh
+    cmp byte [bz_full], 0       ; (the VGA wrote its start in bz_tv)
+    jne .new
+    cmp byte [bz_vga], 0
+    jne .shown
+.new:
+    call bz_snew
     call bz_flip
     mov [bz_S], ax
+.shown:
     mov ax, [bz_R0n]
     mov [bz_R0], ax
     mov ax, [bz_c0n]
@@ -1063,6 +1080,8 @@ bz_tf:
     je .lit                     ; retrace, so its first field is whole
     call bz_unblank             ; (SPEC.md 128.14.5.6)
 .lit:
+    cmp byte [bz_vga], 0        ; (the VGA's column went with its rows)
+    jne bz_tb
     mov ax, [bz_dc]
     or ax, ax
     jz bz_tb
@@ -3812,6 +3831,90 @@ bz_csplit:
     ret
 
 ; -----------------------------------------------------------------------------
+; bz_snew - AX = the new window's start address: S = (W*R0 + c0) mod 4096,
+; KEPT (SPEC.md 128.9 item 4) - a step adds the column step and W*dr (a
+; five-entry table, dr = -2 .. 2) to the shown S - or, on a full write, made
+; whole: W*R0 = rb*R0 / 2.  On the VGA (128.41.3) the table is P*dr, a full
+; write's P*R0 + c0, and the ring 64 KB ([bz_smask]).  Clobbers BX, DX.
+bz_snew:
+    cmp byte [bz_full], 0
+    jne .whole
+    mov ax, [bz_S]
+    add ax, [bz_dc]
+    mov bx, [bz_dr]
+    shl bx, 1
+    add ax, [bz_wtab + 4 + bx]
+    jmp short .S
+.whole:
+    mov ax, [bz_R0n]
+    cmp byte [bz_vga], 0
+    jne .vw
+    call bz_rbR                 ; a full write: W*R0 = rb*R0 / 2
+    shr ax, 1
+    jmp short .c
+.vw:
+    mul word [bz_rb]            ; the VGA's: P*R0, P = rb (bytes a line)
+.c:
+    add ax, [bz_c0n]
+.S:
+    and ax, [bz_smask]
+    ret
+
+; bz_vstart - the VGA's start address, before the edge (SPEC.md 128.41.4 rule
+; 2): AX = bz_snew's to CR0Ch/0Dh and [bz_S], and bz_r0p 1 - bz_vr then takes
+; the EDGE and shuts interrupts at it, every frame.  Late - past BZ_VBAND PIT
+; counts after the last rise, so within BZ_VSMARG of the display's end - the
+; rise is waited for FIRST (the old picture one refresh more: bz_vr's sample
+; makes it the frame's), and the start written after it.  Clobbers AX, BX, DX.
+BZ_VSMARG   equ 12 * 38         ; 12 scanlines (a scanline 38 PIT counts)
+BZ_VBAND    equ BZ_VREF - 24 * 38 ; the display's end (12 lines before the rise
+                                ; in mode 0Dh's timing) less BZ_VSMARG
+BZ_VREF     equ 17025           ; a mode 0Dh refresh, PIT counts (MEASURED, 128.41.7)
+bz_vstart:
+    mov byte [bz_r0p], 1
+    call bz_clk_sample
+    mov ax, [bz_subs]
+    sub ax, [bz_vsubs]
+    mov dx, [bz_vpit]
+    sub dx, [bz_pitl]
+    cmp ax, 1
+    ja .late                    ; (a whole sub-tick: past a refresh, unknown)
+    jb .in
+    add dx, BZ_SUB
+.in:
+    cmp dx, BZ_VREF             ; a refresh past: where in the next one
+    jb .ph
+    sub dx, BZ_VREF
+    jmp short .in
+.ph:
+    cmp dx, BZ_VBAND
+    jb .write
+.late:
+    call bz_vr                  ; the rise first, then the start after it
+.write:
+    call bz_snew
+    call bz_flip                ; (CR0Ch/0Dh on 3D4h: the CGA's own registers)
+    mov [bz_S], ax
+    ret
+
+; bz_vcol - the VGA's entering column, every row of the NEW window, before
+; the start address (128.41.4 rule 1): moving right the window's last column,
+; left its first.  Preserves nothing.
+bz_vcol:
+    mov ax, [bz_dc]
+    or ax, ax
+    jz .out
+    mov ax, [bz_c0n]            ; (MOV keeps OR's sign)
+    js .left
+    add ax, [bz_W]
+    dec ax
+.left:
+    inc word [bz_ncol]
+    mov [bz_ccol], ax
+    BZ_VCALL BZV_COL
+.out:
+    ret
+
 ; bz_rows - the entering ROWS (SPEC.md 128.2 rule 1), before the start address
 ; changes: moving down, the new window's bottom |dr| rows; moving up, its top
 ; ones - and of each only the cells NOT in an entering column (a diagonal
@@ -3889,6 +3992,8 @@ bz_unblank:
     mov byte [bz_blk], 0
 .out:
     push dx
+    cmp byte [bz_vga], 0
+    jne .vga
     mov dx, 3d8h
     cmp byte [bz_herc], 0
     je .o
@@ -3896,7 +4001,22 @@ bz_unblank:
     sub al, 20h                 ; 02h, 0Ah
 .o:
     out dx, al
+.p:
     pop dx
     pop ax
 .x:
     ret
+.vga:                           ; the VGA (SPEC.md 128.41.4): the sequencer's
+    mov ah, al                  ; SR01 bit 5, screen off, while AL's bit 3
+    mov dx, 3c4h                ; (video) is clear
+    mov al, 1
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 0dfh
+    test ah, 8
+    jnz .on
+    or al, 20h
+.on:
+    out dx, al
+    jmp short .p

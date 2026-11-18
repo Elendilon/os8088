@@ -63,6 +63,7 @@ OS88_DOCGLYPH8_END
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
 %include "bzsnd.inc"            ; the songs and the events (tools/bbmusic.py)
 %include "bzshell.inc"          ; the shell part's vectors (SPEC.md 128.19.2)
+%include "bzvga.inc"            ; the VGA part's vectors (SPEC.md 128.41.6)
 %include "bzwin.inc"            ; the window's art: its sizes (the part draws it, 128.26.2)
 %include "drivers/sound/sndpkg.inc" ; SOUND.DRV's FM door (bzsound.inc), from the root
                                 ; as every bonanza row assembles it
@@ -184,6 +185,7 @@ BZ_P_KIT    equ BZ_P_PATH + 1 + 2 * BZ_TITLE ; THE KIT, BZKIT.BIN (SPEC.md 128.3
 BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 128.25.6.2): the family part
                                 ; rows, after every other row: a `fetch` family's own (ID order),
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (128.25.6.9); bz_ftab maps an ID
+BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 128.41.6): the last row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
 ; --- the game (SPEC.md 128.14.3) ------------------------------------------------
 ; the TOUR is bzcourse.inc's BZ_NTOUR courses, BZ_TOUR's K in order: a short NAMED list
@@ -604,8 +606,9 @@ bz_repaint:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_adapter - what this window's display is: AL = 1 CGA, 2 Hercules, 0 neither
-; (or no FSX mode for it).  Preserves all but AX and the flags.
+; bz_adapter - what this window's display is: AL = 1 CGA, 2 Hercules, 3 VGA
+; (SPEC.md 128.41.2), 0 none of them (or no FSX mode for it).  Preserves all
+; but AX and the flags.
 ; -----------------------------------------------------------------------------
 bz_adapter:
     push bx
@@ -621,16 +624,36 @@ bz_adapter:
     jmp .out
 .herc:
     cmp dl, VID_HERC
-    jne .none
+    jne .vga
     test ax, 1 << FSXM_HERC
     jz .none
     mov al, 2
+    jmp .out
+.vga:
+    cmp dl, VID_VGA
+    jne .none
+    test ax, 1 << FSXM_VGA0D
+    jz .none
+    mov al, 3
     jmp .out
 .none:
     xor al, al
 .out:
     pop dx
     pop bx
+    ret
+
+; bz_setcard - AL = bz_adapter's 1 - 3: [bz_card] it, [bz_herc] 1 on the
+; Hercules alone, [bz_vga] 1 on the VGA alone (SPEC.md 128.41.2: a VGA play
+; asks "Hercules?" and hears the CGA's no).  Clobbers AX.
+bz_setcard:
+    mov [bz_cardk], al
+    dec ax
+    mov ah, al
+    and al, 1
+    mov [bz_herc], al
+    shr ah, 1
+    mov [bz_vga], ah
     ret
 
 ; -----------------------------------------------------------------------------
@@ -663,11 +686,10 @@ bz_launch:
     call bz_adapter
     or al, al
     jnz .ok
-    mov si, bz_t_adapt          ; VGA, EGA, MDA: CGA OR HERC ONLY
+    mov si, bz_t_adapt          ; EGA, MDA: CGA, HERC OR VGA ONLY
     jmp bz_toast
 .ok:
-    dec al
-    mov [bz_herc], al
+    call bz_setcard
     mov al, [bz_matsel]         ; the material (above)
     mov bl, [bz_mode]
     dec bl
@@ -721,6 +743,7 @@ bz_launch:
     mov si, bz_t_nofs
     call bz_toast
 .drop:
+    call bz_vdrop               ; the VGA's part and ball copies (128.41.6)
     call bz_cdrop               ; every part this launch fetched given back
     call bzs_gdrop              ; the song back, and the title (a finish's
     cmp byte [bz_shpend], 0     ; fanfare first, SPEC.md 128.20.6).  The
@@ -826,11 +849,18 @@ bz_cload:
                                 ; fetch can have MOVED the arena under an
                                 ; earlier one's (CF: no fetch, so it is 0)
     cmp byte [bz_herc], 0       ; the Hercules's parts are the CGA's through
-    je .ok                      ; BZ_HTAB, made here (SPEC.md 128.11.3)
+    je .nherc                   ; BZ_HTAB, made here (SPEC.md 128.11.3)
     push es                     ; (ES as the bracket call found it before:
     call bz_hgen                ; bz_hxlat leaves the ball's there)
     call bz_hxlat
     pop es
+.nherc:
+    cmp byte [bz_vga], 0        ; the VGA's: converted ONCE, here, into planar
+    je .ok                      ; pairs (SPEC.md 128.41.5) by BZVGA.BIN
+    push es
+    call bz_vprep
+    pop es
+    jc .drop
 .ok:
     clc
 .out:
@@ -929,8 +959,7 @@ bz_game8:
     mov si, bz_t_adapt
     jmp bz_toast
 .ok:
-    dec al
-    mov [bz_herc], al
+    call bz_setcard
     call bz_gslot
     call bz_shdrop              ; (never beside a course, 128.19.2)
     call bz_home
@@ -951,6 +980,7 @@ bz_game8:
 .ran:
     mov byte [bz_pgo], 0
 .drop:
+    call bz_vdrop               ; (the VGA's part, 128.41.6)
     call bz_phfree              ; (the held pathway goes with the game, 128.22.7)
     call bz_cdrop
     call bzs_gdrop              ; (the title back)
@@ -2330,8 +2360,7 @@ bz_title8:
     mov si, bz_t_adapt
     jmp bz_toast
 .ok:
-    dec al
-    mov [bz_herc], al
+    call bz_setcard
     call OSAPI_GET_TICKS        ; the title's own LFSR, seeded from the clock
     xor ax, [bz_pitl]           ; (never read by physics: replays stay exact)
     or ax, 1
@@ -2364,6 +2393,7 @@ bz_title8:
     jne .drop
     jmp bz_back                 ; (nothing written: the course's life is, 128.19.6)
 .drop:
+    call bz_vdrop               ; (the VGA's part, 128.41.6)
     call bz_cdrop
     call bzs_gdrop              ; (the desktop's title song back)
     call bz_back
@@ -2738,6 +2768,9 @@ bz_crshdr:
     xor bh, bh
     cmp byte [bz_herc], 0
     jne .vh
+    shl ax, 1
+    cmp byte [bz_vga], 0        ; (the VGA's rows are lines: x 4, 128.41.3)
+    je .vs
     shl ax, 1
     jmp short .vs
 .vh:
@@ -3835,7 +3868,7 @@ bz_toast:
     ret
 
 TOASTSTR bz_t_small, 'Bonanza: too little RAM'
-TOASTSTR bz_t_adapt, 'CGA OR HERC ONLY'
+TOASTSTR bz_t_adapt, 'CGA, HERC OR VGA ONLY'
 TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 
 ; -----------------------------------------------------------------------------
@@ -4057,6 +4090,92 @@ bz_shdrop:
     ret
 
 TOASTSTR bz_t_shell, 'Bonanza: bad part'   ; (the shell part's and a family part's, bz_ffetch)
+
+; -----------------------------------------------------------------------------
+; bz_vprep - THE VGA's ART (SPEC.md 128.41.5, 128.41.6), at the end of every
+; bz_cload (at home; the bracket's own rounds included): BZVGA.BIN fetched if
+; it is not held (stamped as the shell part is), its code alias taken again -
+; every fetch before this one may have moved it - the balls' copies claimed
+; once (BZV_PSIZE: one claim, held with the part), and the part's CONV run:
+; the course's art in place, the three balls into the claim.  CF = 1 refused
+; (toasted).  Preserves nothing.
+; -----------------------------------------------------------------------------
+bz_vprep:
+    mov al, BZ_P_VGA
+    call op_seg
+    or ax, ax
+    jnz .held
+    mov al, BZ_P_VGA
+    call op_fetch               ; (its refusal toasted)
+    jc .out
+    mov al, BZ_P_VGA
+    call op_seg
+    push es
+    mov es, ax
+    cmp word [es:0], BZV_SIG0
+    jne .bad
+    cmp word [es:2], BZV_SIG1
+    jne .bad
+    mov ax, [8]                 ; our image and bss sizes (OS88_HEADER)
+    cmp ax, [es:BZV_IMAGE]
+    jne .bad
+    mov ax, [10]
+    cmp ax, [es:BZV_BSSW]
+    jne .bad
+    pop es
+.held:
+    mov al, BZ_P_VGA
+    call op_cseg
+    mov [bz_vfp + 2], ax
+    cmp word [bz_vbseg], 0
+    jne .conv
+    mov bl, MEMP_AVAIL          ; ASKED first (os88api.inc, SPEC.md 38.6): a
+    call OSAPI_MEM_P            ; refused claim sheds the disk caches
+    mov si, bz_t_nomem
+    cmp ax, (BZV_PSIZE + 15) / 16
+    jb .toast
+    mov ax, (BZV_PSIZE + 15) / 16
+    mov bl, MEMP_CLAIM
+    call OSAPI_MEM_P            ; DX = the claim (pinned: MC_RLOC 0)
+    jc .toast
+    mov [bz_vbseg], dx
+.conv:
+    mov word [bz_vcpal], bz_cpals ; (two of our image's tables the part reads:
+    mov word [bz_vspr0], bz_spr0  ;  a label crosses the link only through bss)
+    BZ_VCALL BZV_CONV
+    clc
+.out:
+    ret
+.bad:
+    pop es
+    call bz_vdrop
+    mov si, bz_t_shell
+.toast:
+    call bz_toast
+    stc
+    ret
+
+; bz_vdrop - the VGA's part and the balls' copies given back (after a bracket
+; that was not left suspended, and with the suspended course's drop).  Any
+; card, any number of times.  Preserves every register.
+bz_vdrop:
+    push ax
+    push dx
+    push es
+    push ds
+    pop es
+    mov dx, [bz_vbseg]
+    or dx, dx
+    jz .p
+    call OSAPI_MEM_FREE
+    mov word [bz_vbseg], 0
+.p:
+    mov al, BZ_P_VGA
+    call op_drop
+    pop es
+    pop dx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; THE GAME'S BOOKS (SPEC.md 128.14.3.1, 128.14.3.3)
@@ -5168,7 +5287,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 128.25.5.2), then the WORLD parts
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (128.20.3)
  %rep BZS_NSONG
@@ -5183,6 +5302,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITL
 %endif
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_KIT: BZKIT.BIN, the standard kit, HELD (128.37.5)
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (128.25.6.9)
+    OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (128.41.6)
 OS88_PARTS_END
 %if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
  %error "the demo rows follow the songs', one a tour course (SPEC.md 128.14.7.4)"
