@@ -359,6 +359,12 @@ sd_page1:
     PUTS ' auto '
     mov al, [sd_rec+SDG_O_AUTO]
     call sd_yn
+    cmp byte [sd_rec+SDG_O_VER], 3
+    jb .tier
+    cmp byte [sd_rec+SDG_O_AIP], 2  ; the probe took it away (SPEC.md 34.5.8)
+    jne .tier
+    PUTS ' (8237 no wrap)'
+.tier:
     PUTS ' tier '
     cmp byte [sd_rec+SDG_O_SBUP], 0
     jne .up

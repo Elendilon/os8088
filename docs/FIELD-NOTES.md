@@ -4400,7 +4400,7 @@ every `INPUTnnA.TXT` should show keys stored before the check, port 64h idle,
 and no aux byte waiting - and a PS/2 mouse other than the special one should
 be tried through a splitter.
 
-## 70. STPC 486 SBC, ESS ES1868: Sound Blaster PCM plays one ring and goes quiet while its IRQs run on (OPEN - the debug disk's DMA lab is out; awaiting the reporter's run of it)
+## 70. STPC 486 SBC, ESS ES1868: Sound Blaster PCM plays one ring and goes quiet while its IRQs run on (OPEN - mechanism found, fix landed, SPEC.md 34.5.8; awaiting the reporter's run of it)
 
 **The machine.** Entry 69's STPC 486 board, with an ISA ESS AudioDrive
 ES1868F card (a Dream SAM2695 General MIDI daughterboard on it). Sound
@@ -4440,8 +4440,34 @@ at the top of memory, the 8237 barely read, no ACK - and logs the 8237 at
 each block IRQ; the ESS controller registers are read in both modes. All of
 it saves itself as benchlib reports `SOUNDAn.TXT` / `SOUNDBn.TXT`.
 
-**To close:** the reporter boots the new sound debug disk once and sends the
-two TXT files and what they heard during the lab (run numbers show on the
-screen). Which runs run on and which freeze at the wrap names the mechanism;
-a run that plays through is the fix's shape.
+**What the lab found** (`SOUNDA1/B1.TXT`, `SOUNDA2/B2.TXT`, two boots of
+build 1239, 2026-11-18, identical): **at an auto-init terminal count the
+board's 8237 reloads channel 1's ADDRESS and not its COUNT.** Every
+auto-init run's IRQ log ends `6400/0000/02` - the base address, a count of
+0000, TC - and every later sample reads the same, with TC set at each read
+and DREQ1 often pending (`:22`): the channel moves one byte over and over.
+NOAUTO, the control, stopped where a non-auto-init 8237 stops (`A400/FFFF`,
+past the end). Nothing os8088 varied mattered - the driver's register order
+and Creative's, slowed, the 8237 before the DSP, 4/8/16KB cycles, 8/16KB
+blocks, demand mode, `90h`, 11 kHz, a buffer at 16400h or at 7C000h, the
+8237 read one tick in four and never from the ISR, no ACK - all froze at the
+first wrap. **SINGLE (`14h` per 2KB block, the 8237 re-armed from the ISR)
+played the whole 2.4 s at the right rate** (53,706 bytes, 26 IRQs). The ESS
+controller registers are unremarkable (B8/B9 00: compatibility mode,
+single transfers).
+
+**The fix** (SPEC.md 34.5.8): `sbl_f_aiprobe`, attach-only, plays a 32-byte
+auto-init cycle once a load and looks for exactly this signature; found,
+`[sbl_auto]` is cleared and every stream takes the single-cycle path the
+SINGLE run proved. What the board loses with auto-init: rates above
+22,222 Hz, stereo, ADPCM4 and recording, all greyed through the caps.
+Reproduced before it was sent: MartyPC's 8237 patched (scratch, not
+committed) to reload the count as 0 gives the field log's every line - each
+auto-init lab run `FROZE at 0`, SINGLE `ran` - and with the probe the play
+test runs ten seconds through (220,794 bytes, 107 IRQs); unpatched, the probe
+keeps auto-init.
+
+**To close:** the reporter boots the rebuilt sound debug disk once more
+(page 1 should read `auto no (8237 no wrap)` and the play test should sound
+all ten seconds), then Tracker off the ordinary disks.
 

@@ -29,7 +29,7 @@ SNDV_DIAG    equ 14             ; the verb (sndpkg.inc's numbering, past
                                 ; which is how the package tells the builds
                                 ; apart
 SDG_SIG      equ 'SG'
-SDG_VER      equ 2
+SDG_VER      equ 3
 
 SDGF_COPY    equ 0              ; AL: ES:DI <- the record, CX = SDG_LEN
 SDGF_MIXRD   equ 1              ; AL: mixer register AH, read CL times (1..4)
@@ -185,7 +185,10 @@ SDG_O_IMR    equ 170            ; db master PIC mask, read at the copy
 SDG_O_IRR    equ 171            ; db master PIC request register
 SDG_O_ISRR   equ 172            ; db master PIC in-service register
 SDG_O_IMR2   equ 173            ; db slave PIC mask (0FFh on an XT: no slave)
-SDG_LEN      equ 174
+SDG_O_AIP    equ 174            ; db the auto-init probe (SPEC.md 34.5.8): 0
+                                ;    not run, 1 the 8237 wraps, 2 it does not
+                                ;    (single-cycle from here), 3 no TC seen
+SDG_LEN      equ 175
 
 ; =============================================================================
 %ifdef SNDDIAG
@@ -269,6 +272,7 @@ SDG_LEN      equ 174
 ; --- the resident record --------------------------------------------------------
 %macro SDG_STATE 0
 sdg_imeth:  db 0
+sdg_aip:    db 0
 sdg_m80:    db 0
 sdg_ftry:   db 0
 sdg_iwin:   db 0
@@ -477,7 +481,9 @@ sdg_copy:
     in al, 0xA1
 .noslave:
     stosb                                   ; 173
-%if SDG_LEN != 174
+    mov al, [sdg_aip]
+    stosb                                   ; 174
+%if SDG_LEN != 175
   %error "sdg_copy writes the record in SDG_O_* order"
 %endif
     popf

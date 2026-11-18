@@ -75818,6 +75818,45 @@ before the reloc rebuilds the gates (`drv_hi_ivt`, KERN-MEGA-PLAN 14.130;
 kern_mega `.cold` +70, kern_big and kern_small byte-identical). And
 `SNDV_RMODE`'s door (AL = 2, §53.2.3) no longer runs the discovery it used
 to run for a real-mode bracket: that is `SBL_ONCE`'s now and not resident.
+#### 34.5.8 An 8237 that does not wrap: the auto-init probe (2026-11-18)
+
+**Found on an STPC 486 SBC with an ESS ES1868** (docs/FIELD-NOTES.md 70, by
+the sound debug disk's DMA lab, §127.4.1). At an auto-init terminal count the
+board's integrated 8237 reloads channel 1's ADDRESS and not its COUNT: from
+the first TC on the channel reads `base/0000` for good and moves one byte
+over and over, while the card's own block counter raises IRQs at the right
+rate as if it were playing. Every auto-init regime froze at its first wrap -
+`1Ch`, `90h`, demand mode, the driver's and Creative's register order, 4, 8
+and 16KB cycles, 8 and 16KB blocks, two buffers, the 8237 barely read - and
+`14h` re-armed per block played through. The driver's IRQ-counted bookkeeping
+(§34.5.2.2) could not see it: one ring of sound, then silence with nothing
+stopped.
+
+So **`sbl_find` asks, once a load** (`sbl_f_aiprobe`, attach-only with the
+rest of §34.5.7): with `[sbl_auto]` set, a line found and no PicoMEM, a
+32-byte auto-init cycle over `0000:0400` (the BIOS data area - read, never
+written: playback DMA is memory to card), `40h D3`, `48h 1F 00`, `1Ch`, the
+card's line masked at the PIC and the speaker never switched on; then 2,048
+samples of channel 1 after its first TC. **Every sample at `{base, 0000}` is
+the signature, and `[sbl_auto]` is cleared**: every stream from then on takes
+the single-cycle path a DSP below 2.00 takes - the double buffer, `14h` per
+2KB half, the ISR re-arming the 8237 (§34.5). A sample anywhere else is a
+reload, and auto-init stays; no TC at all is no answer and changes nothing.
+That is the conservative way round on purpose: a false "broken" costs a
+working card its auto-init regimes, a missed one costs what it cost.
+
+What a machine that fails the probe loses with auto-init: rates above
+22,222 Hz (wide and high-speed are both auto-init; err 2, never a clamp),
+stereo and 16-bit formats (err 7), ADPCM4, recording (`SND_CAP_PCM_IN` is not
+published) and direct rings (the copy path plays them). `snd_sb_pub` already
+derives the caps from `[sbl_auto]`, so a package greys what is gone rather
+than being refused it. The probe is ~150 bytes of attach-only code - nothing
+resident - and runs in about 10 ms on the board that needs it. The debug
+build records its answer (`SDG_O_AIP`, record v3, §127.3) and page 1 says
+`(8237 no wrap)` beside `auto no`; the DMA lab still runs its auto-init runs
+there, by the DSP's version rather than the driver's regime, because the lab
+is how the fault is seen.
+
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -251622,6 +251661,10 @@ ISA reads after each 8237 write), `LF_QUIET` (the ISR reads nothing of the
 `2xEh` read: no SB-side ACK) and `LF_ESSRD`. The hook in `sbl_isr` is
 `SDG_LABHOOK`, nothing in the shipped build, so `SOUND.DRV` is byte for byte
 what it was.
+
+Record **v3** (2026-11-18) adds one byte at the end, `SDG_O_AIP`: what
+§34.5.8's auto-init probe answered (0 not run, 1 the 8237 wraps, 2 it does
+not and the driver plays single-cycle, 3 no terminal count seen).
 
 ### 127.4 SNDDIAG.O88 - Sound Debug (shipped)
 

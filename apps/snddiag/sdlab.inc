@@ -275,10 +275,11 @@ sl_start:
     call sl_row
     call sl_resp
     mov ah, [bx+SLT_NEED]                 ; needs
-    test ah, SLN_AUTO
-    jz .na
-    cmp byte [sd_rec+SDG_O_AUTO], 0
-    je .skip
+    test ah, SLN_AUTO               ; the DSP's version, not the driver's
+    jz .na                          ; regime: on a machine whose 8237 cannot
+    cmp byte [sd_rec+SDG_O_VERHI], 2    ; wrap the driver plays single-cycle
+    jb .skip                        ; (SPEC.md 34.5.8), and the lab is how
+                                    ; that is SEEN
 .na:
     test ah, SLN_HISP
     jz .nh
