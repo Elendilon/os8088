@@ -10,11 +10,10 @@ uses archway              # the ARCHWAY before the leap (SPEC.md 130.39)
 lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
 stop down                 # SPEC.md 130.45.4: the camera scrolls no further once the finish is in view
 ball rubber
+music firstroll           # its own song (2026-11-18); TRIAL's, the owner's favourite, is kept for course 3
 target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
-# the PLAYTEST's limit, given by hand: the autopilot cannot steer a chute yet (no `way` may sit on a FIELD
-# cell), so its route stops at the chute's mouth and the tool's limit rule has no route to price.  The
-# batched step replaces this with an AUTHOR script's run and the tool's own rule (the guide, section 3)
-limit 60
+# no `limit`: the TOOL's (SPEC.md 130.18.3) from the autopilot's route, which steers the chute since the
+# autopilot learned shapes (31.0 s -> 50 s; the owner, 2026-11-18: "50s is fine")
 
 # rooms (the sketch's sections)
 floor rect   8   8  12  12  flat 26   # A
