@@ -28,8 +28,10 @@ org 0
 %include "bzlink.inc"           ; the package's constants and bss (pxlink)
 %include "bzvga.inc"
 
-BZV_P       equ 42              ; the stride, bytes a line (CR13 = 21 words)
-BZV_W       equ 40              ; the window's columns (the panning 0: V1)
+BZV_P       equ 44              ; the stride, bytes a line (CR13 = 22 words)
+BZV_W       equ 42              ; the ENGINE's window, columns (128.41.10): the
+                                ; display's 320 px and their panning inside it,
+                                ; and a two-column gutter in the stride
 BZV_H       equ 200             ; ...its rows, a line each
 BZV_MLIM    equ 25540           ; 1.5 refreshes, PIT counts (128.41.7)
 BZV_LBL     equ 2 * 76          ; bz_latechk's: 18 lines rise to window line 0,
@@ -174,6 +176,10 @@ bzv_init:
     mov word [bz_mlim], BZV_MLIM
     mov word [bz_lblank], BZV_LBL
     mov word [bz_smask], 0ffffh
+    mov byte [bz_vdiv], 1       ; the held divisor's short test, again a play
+    mov byte [bz_vfrm], 0       ; (128.41.10)
+    mov byte [bz_vlate], 0
+    mov byte [bz_vpan], 0
     push ds
     pop es
     mov di, bz_wb0
