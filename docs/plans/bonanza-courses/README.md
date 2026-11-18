@@ -124,6 +124,18 @@ course.
   placed for the CAMERA: whole in view where it serves, never partly behind
   a block (FIRST ROLL's start clock was, and it looked bad). What is behind
   it no longer decides where it goes.
+  **The brief for a clock-art agent (the owner, 2026-11-18, choosing FIRST
+  ROLL's `pin`)** - repeated to every clock designer so far, so it goes in
+  the brief rather than the review:
+  - **Keep the CYAN digit window.** *"'cyan reads as grey checker on
+    Hercules' - it reads fine with the solid black numbers on top of it."*
+    Do not swap it for white on the Hercules' account.
+  - **No flat squares.** *"I don't like flat squares in general, because
+    they don't blend in with the art usually."* A clock is an OBJECT in the
+    scene that its digits belong to, not a panel stuck on a post: of
+    `pin`, `tee`, `board` and `lamp` only `pin` *"kind of works because it
+    is a sign hanging from a pole, which somewhat fits the art"*, and
+    `lamp` maybe.
 
 ### 1.6 Balls
 
