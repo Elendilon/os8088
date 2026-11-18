@@ -2194,7 +2194,10 @@ def fam_host():
     ao, af = arch_host(binp, lst, sym, fam)         # THE ARCHWAY (SPEC.md 128.39)
     so, sf = spike_host(binp, lst, sym)            # SPIKES (SPEC.md 128.38)
     bo, bf = bp_host(binp, lst, sym)               # BOOST PADS (SPEC.md 128.40)
-    return out + o_ + o2 + wo + ao + so + bo, fails + f_ + f2 + wf + af + sf + bf
+    go, gf = gt_host(binp, lst, sym)               # SWITCHES, KEYS, GATES, DRAWBRIDGE (SPEC.md 128.41)
+    to, tf = tilt_host(binp, lst, sym)             # THE SEE-SAW (SPEC.md 128.42)
+    tto, ttf = tt_host(binp, lst, sym)             # THE TURNTABLE (SPEC.md 128.43)
+    return out + o_ + o2 + wo + ao + so + bo + go + to + tto, fails + f_ + f2 + wf + af + sf + bf + gf + tf + ttf
 
 
 # ---- MAGNETS (SPEC.md 128.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -2449,6 +2452,77 @@ def bp_verdict(name, mat):
     return ok and poses == {0, 1}, "with its pads ended on %s%s%s, lit %d steps; without, %s%s" % (
         cell(p1), "" if f1 is None else " (FELL at %d)" % f1, "" if name != "gap" or p1.landed is None
         else ", met the low plate at step %d" % p1.landed, lit, cell(p0), "" if f0 is None else " (fell at %d)" % f0)
+
+
+# ---- SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 128.41.8): the BZGATE=1 knob's test course GATE, compiled
+# from its source and played on the default build's image and parts (the family's part is in every build's
+# resident bundle); its scenes are bbcourse.GT_SC's, judged on the model by bbcourse.gt_verdict -------------
+GT_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "gate.bbc")
+
+
+def gt_parts(src):
+    """the build's family rows with the GATE part assembled from SRC (text)"""
+    import shutil
+    import subprocess
+    with tempfile.TemporaryDirectory() as td:
+        d = os.path.join(td, "bonanza")
+        shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+        open(os.path.join(d, "fam", "gate.asm"), "w").write(src)
+        o = os.path.join(td, "part.bin")
+        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                        "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "gate.asm")],
+                       cwd=ROOT, check=True)
+        return fam_parts({"gate": open(o, "rb").read()})
+
+
+def gt_host(binp, lst, sym, scenes=None):
+    """SWITCHES, KEYS, GATES and the DRAWBRIDGE's unicorn half (SPEC.md 128.41.8): every scene of bbcourse.GT_SC
+    for every ball equal at every step (the ball, the slot, the window bz_nbr, every element's POSE and its marks),
+    what each is for asserted on the model (gt_verdict); and the red arms, each assembled from a broken copy of
+    the part's source and each of which must part from the model: `gtwall` (a shut gate's WALL never written: the
+    ball passes it), `gtmark` (an opened channel's marks gone: a gate that opens never drawn), `gtstep` (STEP's
+    entry 0: a timed bridge's turn never marked), `gtlift` (the centre's under-the-deck test gone: a bridge coming
+    down over a falling ball lifts it), `gtup` (an UP bridge's kind byte never written: the ball rolls on air)
+    -> (lines, failures)"""
+    out, fails = [], []
+    fam = fam_parts()
+    c = R.course("gate", src=GT_SRC)
+    sc = {}
+    for name in scenes or BB.GT_SC:
+        for mat in (BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS):
+            r = BB.gt_play(c, name, mat)
+            at = BB.GT_SC[name][0]
+            poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(at[0], at[1], 0, 0))
+            sc[(name, mat)] = (poke, r[0])
+            _p, bad = urun(binp, lst, sym, "gate", mat, r[0], fam, poke=poke, src=GT_SRC, k=0)
+            ok = BB.gt_verdict(name, mat, r)
+            out.append("gate %s, %s (%s): %s; fell %s, ended on %s, channels %d" % (
+                name, BB.MAT_NAMES[mat], BB.GT_WANT[name] if mat == BB.MAT_RUBBER else "as rubber's",
+                "; ".join(bad)[:200] or "equal at every step", r[1], r[2], r[3]))
+            fails += ["gate %s, %s: %s" % (name, BB.MAT_NAMES[mat], b) for b in bad] + (
+                [] if ok else ["gate %s, %s is not what it is for: fell %s, ended on %s" % (
+                    name, BB.MAT_NAMES[mat], r[1], r[2])])
+    if scenes:
+        return out, fails
+    gsrc = open(os.path.join(ROOT, "apps", "bonanza", "fam", "gate.asm")).read()
+    arms = (("gtwall", "    and byte [bz_nbr + bx + 2], 0f0h\n    or byte [bz_nbr + bx + 2], BZ_AR_WALL\n", "",
+             "the window", ("ringshut", BB.MAT_RUBBER)),
+            ("gtmark", "    call far [bz_fmkp]          ; (bz_fmark: the walk made; preserves all)\n", "",
+             "never drawn", ("ring", BB.MAT_STEEL)),
+            ("gtstep", "    dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell\n",
+             "    dw gt_reset, 0, gt_contact, 0, gt_pose, gt_cell\n", None, ("timed", BB.MAT_GLASS)),
+            ("gtlift", "    cmp [bz_gz + 1], ax\n    jl .up\n", "", "the ball", ("under", BB.MAT_RUBBER)),
+            ("gtup", "    mov byte [bz_nbr + bx + 2], 0\n", "", None, ("boxup", BB.MAT_GLASS)))
+    for arm, a_, b_, want, (name, mat) in arms:
+        assert gsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
+        poke, keys = sc[(name, mat)]
+        _p, bad = urun(binp, lst, sym, "gate", mat, keys, gt_parts(gsrc.replace(a_, b_)), poke=poke, src=GT_SRC,
+                       k=0)
+        hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
+            fails.append("red %s stayed green on the unicorn" % arm)
+    return out, fails
 
 
 def bp_parts(src):
@@ -2940,6 +3014,109 @@ def spike_host(binp, lst, sym):
             ff = fam_parts({"spike": open(o, "rb").read()})
         name, mat, poke, keys = next(s for s in sc if s[0] == scn)
         _p, bad = urun(binp, lst, sym, "spike", mat, keys, ff, poke=poke, src=SP_SRC, k=0)
+        hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    return out, fails
+
+
+# ---- THE SEE-SAW (SPEC.md 128.42): the BZTILT=1 test course's scenes, poked - each a tile, a ground velocity, the
+# keys, and what it is for, judged on the model's own trace; the part assembled from a patched seesaw.asm for each
+# red arm -------------------------------------------------------------------------------------------------------
+TL_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "tilt.bbc")
+
+
+def tl_scenes():
+    """[(name, material, (wx, wy, gvx, gvy), keys, what)] on TILT"""
+    X, Y, W = BB.K_R | BB.K_D, BB.K_D | BB.K_L, BB.K_U | BB.K_L
+    return [("ledge-glass", BB.MAT_GLASS, (7, 10, 0, 0), [X] * 200, "glass rolls up the LEDGE's plate and off its "
+             "high end onto the ledge before its light weight tips it: the goal (exit 1)"),
+            ("ledge-steel", BB.MAT_STEEL, (7, 10, 0, 0), [X] * 160, "steel tips the plate as soon as it is past the "
+             "pivot: carried down, the ledge a wall"),
+            ("ledge-rubber", BB.MAT_RUBBER, (7, 10, 0, 0), [X] * 160, "rubber tips it a moment later: the same"),
+            ("gate-steel", BB.MAT_STEEL, (8, 10, 0, 0), [Y] * 200, "steel's run-up takes it past the GATE's pivot: "
+             "the plate lays its far end down, the ball carried with it, on to the goal (exit 0)"),
+            ("gate-glass", BB.MAT_GLASS, (8, 14, 0, 0), [Y] * 150, "glass tips the gate late, near its top, and rides "
+             "it down"),
+            ("rocker", BB.MAT_RUBBER, (7, 11, 0, 0), [W] * 90 + [X] * 60, "rubber over the ROCKER and back: it tips "
+             "under the ball each way, and a respawn puts it back at rest"),
+            ("rest-respawn", BB.MAT_STEEL, (8, 10, 0, 0), [Y] * 150 + [Y | BB.K_RET] + [0] * 20, "a RETURN while the "
+             "gate is tipped: the respawn puts it back at rest (RESET marks its lanes)")]
+
+
+def tl_verdict(name, p, zs):
+    """what a TILT scene is for, on the model at its end (ZS: the ball's (cell, z px, air, the poses) every step)"""
+    poses = [z[3] for z in zs]
+    tipped = sorted(set(q for ps in poses for q in enumerate(ps)))
+    if name == "ledge-glass":
+        ok = p.goal and p.exit == 1 and p.nfall == 0
+        return ok, "glass on the ledge: goal %d exit %d, %d respawn(s), the poses %s" % (p.goal, p.exit, p.nfall,
+                                                                                           tipped)
+    if name in ("ledge-steel", "ledge-rubber"):
+        ok = not p.goal and (0, 2) in tipped and p.nfall == 0
+        return ok, "%s tipped the ledge's plate (%s) and stopped at its foot, no goal" % (MAT_N[p.mat], tipped)
+    if name in ("gate-steel", "gate-glass"):
+        jumps = [abs(b[1] - a[1]) for a, b in zip(zs, zs[1:]) if not a[2] and not b[2]]
+        ok = p.goal and p.exit == 0 and (1, 2) in tipped and "land" not in [e[0] for e in p.events]
+        return ok, "%s through the gate to the goal: %s, the poses %s, no landing, the most a grounded step moved z " \
+            "%s px (the carry)" % (MAT_N[p.mat], bool(p.goal), tipped, max(jumps or [0]))
+    if name == "rocker":
+        ok = (2, 2) in tipped and (2, 0) in tipped
+        return ok, "the rocker took the poses %s" % [q for q in tipped if q[0] == 2]
+    ok = (1, 2) in tipped and poses[-1][1] == 0 and p.nret >= 1
+    return ok, "the gate tipped (%s), back at rest after the RETURN: %s" % (tipped, poses[-1])
+
+
+def tl_reds():
+    """THE SEE-SAW's red arms: (name, (old, new) in seesaw.asm, scene, what must part)"""
+    return (("tlcell", ("    dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell\n",
+                        "    dw tl_reset, 0, 0, tl_step, tl_pose, 0\n"), "gate-steel", "the window"),
+            ("tlcarry", ("    mov [bz_gz + 1], ax\n", ""), "gate-steel", "the ball"),
+            ("tlmark", ("    call far [bz_fmkp]\n", ""), "gate-steel", "never drawn"),
+            ("tlfref", ("    mov byte [bz_fref], 1       ; the window refilled\n", ""), "gate-steel", None),
+            ("tlweight", ("    mov cl, BZ_TL_DWG\n", "    mov cl, BZ_TL_DWS\n"), "ledge-glass", None),
+            ("tlrst", ("    dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell\n",
+                       "    dw 0, 0, 0, tl_step, tl_pose, tl_cell\n"), "rest-respawn", None))
+
+
+def tilt_host(binp, lst, sym):
+    """THE SEE-SAW's unicorn half (SPEC.md 128.42): every scene on TILT equal at every step, what each is for, and
+    the red arms -> (lines, failures)"""
+    import shutil
+    import subprocess
+    out, fails = [], []
+    c = R.course("tilt", src=TL_SRC)
+    fam = fam_parts()
+    sc = []
+    for name, mat, at, keys, what in tl_scenes():
+        poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
+        sc.append((name, mat, poke, keys))
+        p, bad = urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=0)
+        q = model("tilt", mat, poke, src=TL_SRC)
+        pl = [r for r in q.props if r["kind"] == BB.FK_TILT]
+        zs = []
+        for k_ in keys:
+            q.step(k_)
+            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, tuple(q.fst[r["fsb"] >> 3] for r in pl)))
+        ok, saw = tl_verdict(name, q, zs)
+        out.append("tilt %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
+        fails += ["tilt %s: %s" % (name, b) for b in bad] + ([] if ok else ["tilt %s is not what it is for: %s"
+                                                                          % (name, saw)])
+    src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "seesaw.asm")).read()
+    for arm, (a_, b_), scn, want in tl_reds():
+        assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
+        with tempfile.TemporaryDirectory() as td:
+            d = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+            open(os.path.join(d, "fam", "seesaw.asm"), "w").write(src0.replace(a_, b_))
+            o = os.path.join(td, "part.bin")
+            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "seesaw.asm")],
+                           cwd=ROOT, check=True)
+            ff = fam_parts({"seesaw": open(o, "rb").read()})
+        name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
+        _p, bad = urun(binp, lst, sym, "tilt", mat, keys, ff, poke=poke, src=TL_SRC, k=0)
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:

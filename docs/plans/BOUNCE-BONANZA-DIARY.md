@@ -4635,3 +4635,293 @@ new five-family item and its red; the whole in the background),
 `bonanza_phys.py --check` (the new `every family` unicorn check - all twelve
 on PEAK's part - and its red `fam4` red), checkdocs. **Not run**: soak rows,
 `test-full`, a MartyPC look (nothing on the glass changed).
+
+## 2026-11-17 (HUMPS: FIELD cells that rise)
+
+The props plan's P12, the round's "possible" one; branch `bb-hump`, SPEC.md
+128.44. The round had reserved a family ID for it (16) in case it needed one.
+It did not.
+
+- **The question first: does the engine already run a raised FIELD cell?**
+  128.28.2's cell was written for chutes and pits, but nothing in it says
+  "below the lip": `z0` is the cell's lowest point and every table byte a
+  height over it. A dome is a table whose middle is higher than its edges -
+  the guest reads a byte, never a shape. So the design was the tool's alone,
+  and the proof was the guest's: tests/bonanza_dfield.py (the FIELD leg's
+  unicorn half) took the HUMP course into its courses and seven scripted runs
+  and came out every step equal, and `symswap` (a stride swapped) goes red on
+  six of them. 0 resident bytes, no family, `BZ_PHYSV` untouched.
+- **The profile.** A raised cosine over 16 gu: no slope at the crest or at the
+  foot, so the plate meets it with no edge. The slope bound (128.28.2: |sx| +
+  |sy| <= 7) binds at a dome's 45-degree points at 11 px; a ridge's middle
+  alone would take 17, but its domed caps are the dome's. Two standards, 6 and
+  10 px: HUMP's six humps cost 4 tables.
+- **What a hump does to each ball - measured, not designed.** The plan asked:
+  "rubber bounce off a steep face? steel rolls over with speed, stalls
+  without?" The second came free. Steel's arrow force is the least of the
+  three, so held from a standstill at a LOW hump's foot it stalls and rolls
+  back, and it needs about three cells of run at a HIGH one; rubber and glass
+  need half a cell there. A hump is a RUN-UP gate - and a material one
+  wherever the room to run is short. The first is a no: a hump's steepest
+  face is a ramp's, so every ball climbs it; a bounce would be a wall, which
+  is a different prop (and a `bounce` surface on a FIELD cell, which 128.28.3
+  does not apply). Nothing takes off over a crest even at the cap - too round.
+  A first run said rubber could not cross a 4 px hump at 384: it was COASTING
+  (no key), 40 gu of drag before the foot; the arrows held, everything
+  crossed - and the honest measure is from rest, the arrows held, by run-up.
+- **The picture.** The shapes' ink as it stands (128.28.6, the cell's parity in
+  the two magentas) made a dome a flat magenta diamond: no sign it was RAISED.
+  Four inks tried on the preview, side by side on both cards: black contour
+  lines (speckled - a contour by the pixel above misses every vertical run),
+  closed contours on the parity tones (busy), closed contours on solid magenta
+  (clean on the CGA, gone on the Hercules, where solid magenta is the cyan
+  floor's own half grey), and BANDS - a third of the height each,
+  `field_ms` / magenta / `field_ms`. Bands read as rings on a dome and stripes
+  on a ridge on both cards, in the owner's two magentas. Chosen; the owner's
+  eye is the open question.
+- **The occluders.** A FIELD facet's top was rounded DOWN to 16 px (`FTOPQ`,
+  for the 4-records-a-block bound): for a pit that is the safe side, for a
+  hump it is all of it - a 10 px hump on a 16 px plate topped at 16, so no
+  ball behind it would ever be laid under it, the plan's whole point. Exact
+  tops put a fifth record in a block; 2 px steps meet the bound. Measured: the
+  HIGH dome lays up to 42 lit px over a grounded ball behind it, the HIGH ridge
+  29, a LOW hump none - 6 px is inside the grounded margin once the depth is
+  counted.
+- **The visibility rule.** Built as a measured refusal (`hump_vis`, the
+  archway's sweep), and it found nothing to refuse: a hump stands at most 11 px
+  over a rim level with the floor behind, a ball is 16 px, so the ball's top
+  always shows. The sweep's first version blamed the hump for a ball the
+  PLATE hid (a floor 3 units lower behind it: 96 gu "hidden behind the hump");
+  it now counts only what the hump adds (the hump's cells flat at its base as
+  the counterfactual), and `hmnoattr` is the arm that shows why.
+- **The open ridge.** A speed bump a ball can roll round the end of is not a
+  gate, and a domed cap is low near a wall. So `open` cuts the ends square -
+  and an end is then a cliff its height, refused unless it meets a wall or the
+  void. HUMP's bump is across a bridge.
+- **Course details that bit.** A wall beside a hump must stand above the
+  hump's top; the autopilot's route demo fell 24 times until the route took
+  the bridge's entrance, and stalled at the bump's foot (18 falls) while a way
+  sat just before it - the autopilot, like steel, needs the run; the clock
+  rule wanted a clock in each finish's window, and a clock's post on the 2-wide
+  bridge KICKED steel off it (the scene caught it: a `kick` event), so the bridge's
+  clock stands on a landing beside its end; the tool's own time limit was
+  shorter than a look takes, so the course says `limit 99`.
+
+**Tested**: `make`, `make bonanzadisk` (every shipped course part, demo, the
+pathway, the title and the kit `cmp`-identical to the base tree's, 20 of 20),
+`make BUILD=build/hump BZHUMP=1 bonanzadisk`, `bbcourse.py --selfcheck --only
+hump` (15 refusals, the cells, tables, scenes, occluders and visibility; red
+arms `slope`, `hmtop`, `hmnoattr` red), `tests/bonanza_dfield.py` (CELLS, 20
+scripted runs - seven of them HUMP's - and 150 fuzz runs: every step equal;
+`symswap` red on six hump runs). LOOKED AT on the tool's previews, CGA and
+Hercules, and once on MartyPC, both cards (the knob tree; the screenshots
+are the session's, not committed). **Not run**: soak rows, `test-full`; the per-step cost is
+PREDICTED.
+
+## 2026-11-17 (SWITCHES, KEYS, GATES and the DRAWBRIDGE: one family)
+
+The props plan's P6 and P7 built together as ONE family (the round fixed its
+ID, 13, its kinds, 72 on, and SPEC.md 128.41 beforehand); branch `bb-gate`.
+
+- **One family, not two.** A plate, a key, a gate and a bridge all read or
+  write one thing - whether a switch has been thrown - and all draw the same
+  thing, the switch's mark. Two families would each need the other's state.
+- **Channels, not per-element bits.** The plan offered the pickups' COLLECTED
+  bit for keys. But a gate does not care which key opened it; it cares about
+  its CHANNEL. So the state is four bits of the family's slot, a channel each,
+  and no element has a state bit at all: a key's pose is "its channel is
+  shut", a plate's "its channel is open". The slot is zeroed by a play's start
+  and kept by a respawn - which is exactly LATCHING for the attempt, for free.
+- **Latching, and the question it removes.** A momentary plate is useless
+  with one ball (you cannot stand on it and walk through its gate). With
+  latching, a gate never closes during an attempt, so "a gate closing on the
+  ball" has no case to handle; the tool refuses a gate or bridge on the
+  start's cell, the one place a play could begin inside one. Timing lives in
+  the drawbridge instead.
+- **The bridge coming down over a falling ball.** The one real hazard: a
+  floor appearing round a ball that has dropped below the deck would lift it
+  back up (the engine sees a floor above the ball's feet). The CELL hook keeps
+  the window's centre a void while the ball's z is under the deck. The
+  `under` scene holds it, and its red arm `lift` was watched teleporting the
+  ball onto the deck (the unicorn: "the ball" parts at step 253).
+- **Absolute writes.** The incremental refill keeps six of the nine window
+  cells, already rewritten. Glass's crack guards its subtract against that; a
+  bridge goes both ways (void and back), so it writes both forms whole from
+  its record - the deck and the grid's +2 byte live in the record for that.
+  The unicorn half compares the guest's window with the model's at every
+  step, which is what would catch a stale kept cell.
+- **Pairing on a 1bpp card.** Magenta and cyan are one grey on the Hercules
+  and CGA, so colour cannot say which plate opens which gate. Every element of
+  a channel carries the channel's GLYPH (ring, plus, box, cross) black on a
+  7 x 7 white plaque; the previews on both cards read cleanly. The channel's
+  ink stays as a second cue for VGA-era eyes.
+- **The bridge's lane.** First drawn as the whole top black (the crack's
+  `wide` 4-block lane): a 2 x 3 bridge's lanes grouped and one cell's change
+  marked seven group lanes, over the window's six (128.32.7). The crack's
+  2 x 2 band instead - each bridge cell its own lane, none shared - and a timed
+  rectangle's cells a step apart (seeds S, S + 1, ...), so the timed lanes turn
+  one a step, the popspikes' rule. It reads as the bridge folding cell by cell.
+- **Scenes that steer.** The model's scenes steer to waypoints one axis at a
+  time, braking into each turn (`gt_keys`); the first version overshot every
+  corner and drove off the corridors' ends. Each scene has a control: the same
+  route from a tile that presses nothing (the gates stop it, the bridge drops
+  it) or at the wrong time (the timed bridge goes up under it).
+- **Measured.** The part is 515 bytes (33 paragraphs of the resident bundle,
+  +528 bytes of RAM every play pays), the image +1 (`BZ_FTAB`), bss +0; every
+  shipped course part, demo, the pathway and the title byte for byte as
+  before. The guest equal to the model in all 27 unicorn scenes first time; the
+  five unicorn red arms and three model arms each went red (`gtwall` only once
+  its patch took both of the WALL's writes: with the OR alone the cell became
+  a VOID and parted at "the window", not "the ball" the arm was waiting for).
+- **Not measured:** the per-step cost (PREDICTED in 128.41.9: the final pass's
+  rows on a `BZGATE=1` tree).
+- **LOOKED AT** once on MartyPC (the `BZGATE=1` tree, `build/gate`, CGA and
+  Hercules; the ball POKED onto each switch through `bz_pokd`, as the phys
+  harness does, rather than steered by held keys): at the start the ring
+  grilles shut across the corridor, the plus grilles across the lane, the key
+  floating in its nook, the box bridge's cells black with their plaques; a
+  ball rolled east stopped at the shut ring gates. The ring plate pressed
+  (`bz_fsl` 1, its plaque inverted), the plus key taken and the box plate
+  pressed (`bz_fsl` 7): the key gone, both pairs of gates gone, the box bridge
+  down. The timed bridge seen both up and down. Shots in `build/gate/shots/`
+  (kept out of git).
+
+**Tested**: `make` (the fast tier: 44 passed), `make bonanzadisk`, `make
+BUILD=build/gate BZGATE=1 bonanzadisk`; `bbcourse.py --selfcheck --only gate`
+(green, its three model arms red); `bonanza_phys`'s `gt_host` under unicorn
+(27 scenes equal at every step; red arms `gtwall`, `gtmark`, `gtstep`,
+`gtlift`, `gtup` red); one MartyPC look on each card. **Not run**: soak rows,
+`test-full`, the per-step cost.
+
+## 2026-11-17 (THE SEE-SAW: a plate the ball's weight tips)
+
+The props plan's P9, built as a family beside the GATES, the TURNTABLE and
+the HUMPS (the round fixed its ID, 14, its kinds, 80 on, its knob and SPEC.md
+128.42 beforehand); branch `bb-tilt`.
+
+- **What tips it.** A timer would have been the cheap answer, but the plan
+  asked for the classic see-saw, and weight turned out to cost a count and a
+  compare: the ball grounded on one half for a few steps moves the plate one
+  pose toward that half down. The interesting part is the consequence. The
+  half the ball is on always goes DOWN, so a weight see-saw can never LIFT the
+  ball: it lowers it, or lays a far end down as a bridge. A ledge is reached
+  only by getting off the high end before the plate reacts - which made the
+  weights the mechanic. Steel tips it in 2 steps, rubber in 8, glass in 28:
+  on the test course glass alone reaches the ledge, and steel and rubber tip
+  the plate away under themselves. The plan's "roll onto the low end, it tips,
+  roll up to a higher ledge" became "only something light gets up there".
+- **The number came off the model.** At glass 24 the ball arrived 2 gu short
+  of the ledge as the plate went to its far end; 28, and the ledge set at 3.5
+  units so that it is a 4 px climb from the FLAT pose too, gives glass the
+  ledge with a few steps to spare and rubber (12 steps to the far end) none.
+- **The carry.** The plan said "the lift's carry adapted". The lift adds its
+  rise to z; a plate knows its floor exactly at the ball's point, so the step
+  that changes a pose SETS z on the new floor. The grounded step's own floor
+  test then sees no gap either way: no fall, no landing (`gate-glass` rides 8
+  px down in one step with no landing event), and `tlcarry` and the model's
+  `nocarry` go red.
+- **The lanes were the surprise.** A plate is 2 - 6 cells and a lane at most
+  4 x 3 blocks, and every lane of a plate turns on the same step. The tool now
+  draws the whole picture three times (the plate at rest, FLAT and its other
+  end), takes the pixels that differ and cuts their blocks into lanes with
+  the pathway's reveal cutter. A 4 x 2 plate cut into ten lanes - over the
+  window's six pose changes a step - so the test course's plates are 4 x 1,
+  1 x 4 and 2 x 2 (5, 6 and 4 lanes), and it carries no clock (two clock
+  digits in a window plus a 6-lane plate is seven).
+- **Steel does not climb.** A slope of half a unit a cell pulls harder than
+  steel's arrows push, so steel from rest stalls on a plate's rising half: the
+  GATE gives it a run-up. The weight then tips the gate at once.
+- **The look.** The plate is the floor's own tiles on a thin slab (`float`'s
+  faces, 4 px), and a white fulcrum outlined black stands under the pivot's
+  front end, drawn just behind the plate so any pose lies over it.
+
+**Tested**: `make bonanzadisk` (every shipped course part, demo and the title
+byte for byte as before: `cmp`), `make BUILD=build/tilt BZTILT=1
+bonanzadisk`, `--selfcheck --only tilt` (nine refusals, records, reach,
+art, six model scenes, two model red arms red), `tilt_host` under unicorn
+(seven scenes equal at every step, six red arms red), `make` (the fast tier
+green; `t_bits` wanted the part's flag equates local), and one MartyPC look on
+the CGA and the Hercules (rubber tipping the LEDGE's plate and back). **Not
+run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+## 2026-11-17 (the QUARTER-TURN TURNTABLE: holes that go round)
+
+P11, built as a family on `bb-turn` (ID 15, SPEC.md 128.43). The plan's words
+were "half filled, a quarter turn every second or so, the cells switching; it
+does not carry the ball", and the smooth carrying turntable stays tabled.
+
+- **The shape of the data.** Every switching cell is its own element (one
+  record a cell, as SPIKES lays a rect), and a cell needs only FOUR BITS of
+  pattern: is it a floor after 0, 1, 2, 3 quarter turns. The tool works those
+  out from the `fill` (`oo/..`) by turning it backwards; the part never
+  rotates anything. Written twice in the byte, the next rotation's bit is one
+  shift away with no wrap, so the WARNING (a floor about to open) costs one
+  more test.
+- **The sweep, found by the budget.** The first version turned a whole table
+  on one step. The window's change bound (`WIN_CHG` 6) then priced a 3 x 3
+  half disc at 4 changes a turn, so with a clock (2 digits) and the event
+  lanes (1) no 3 x 3 could share a screen with anything. Offsetting each
+  cell's phase by its place round the ring makes the turn SWEEP - one cell a
+  step, 67 ms for a 2 x 2, 133 for a 3 x 3 - which costs a table ONE change a
+  step and, it turns out, reads more like turning than a blink does. The
+  count is now exact (`_tt_changes`: the worst of the 256 steps), not a sum of
+  worst cases.
+- **The ball under a closing hole.** On the model a ball that had fallen a
+  unit into a hole was popped back up when the hole closed - the landing test
+  (`gz <= h`) does not care how the ball got under the floor. So the window's
+  CENTRE stays a void while the ball is under its top. The unicorn then found
+  the guest's half of the bug the model cannot have: the window KEEPS its
+  cells when it moves one cell (`bz_win9i`), so the void stayed in the cell
+  the ball had just left, and the guest parted from the model at step 94.
+  CELL now writes every turntable floor back too (+2 bytes net); red arm
+  `ttkept` holds it.
+- **The art, black and white.** On the Hercules cyan and magenta are one
+  grey, so the table is told by a black RING and a white HUB painted on its
+  tops, and each cell's lane (a popspike's 2 x 2 blocks) holds a black HOLE or
+  a dotted SEAM. A whole-cell hole would need group lanes; the lens is the
+  crack's idiom, and it is the owner's question whether it is big enough.
+- **TURN.** The chain - two dominoes a quarter and a half apart with a
+  one-cell island between - and the disc, whose middle column is never open
+  end to end, so a crossing waits on the pivot. On the model every ball
+  crosses A from 8 of 32 start times and falls from the rest.
+- **Bytes.** The part 315 (20 paragraphs); the bundle +320 RAM, +178 packed;
+  `BONANZA.O88` +226; the image +3 (`BZ_FTAB` 13 - 15); bss 0; every shipped
+  course, demo and identity byte for byte as before.
+- **LOOKED AT** once on MartyPC, CGA and Hercules (`build/turn`): the tables
+  at rest through a turn (holes and seams moving round the hubs), and rubber
+  held east across A - falling through, respawning, crossing to the island on
+  the turn and falling into C. Readable on both cards.
+
+**Tested**: `make`, `make bonanzadisk`, `make BUILD=build/turn BZTURN=1
+bonanzadisk`, `--selfcheck --only turn` (16 refusals and the bound, records,
+sweep, reach, art, model scenes; red arms `novoid`, `fallen` red), `tt_host`
+(eight scenes equal at every step; red arms `ttcell`, `ttfallen`, `ttkept`,
+`ttmark`, `ttwarn`, `ttfast`, `ttfref` all red), `checkdocs`. **Not run**: soak
+rows, `test-full`, the whole `bonanza_phys --check`; the per-step cost is
+PREDICTED.
+
+## 2026-11-18 (the TURNTABLE becomes a platter)
+
+The owner, from the screenshots: *"The turntable art won't work like this; as a
+circle on top of squares/columns. Can we remove the squares/columns, and make
+the art fit in to the art style of the rest of the props better?"*
+
+- **Not tiles any more.** The tables' cells (and a 3 x 3's pivot) join the
+  UNDRAWN set glass and the guard rail already use, so the renderer draws no
+  top, no checker and no column for them; the neighbours' faces hang into the
+  space as beside a glass tile. In their place `tt_ops` adds the platter as
+  geometry ('post' ops keyed each cell's s, the archway lintel's way), so the
+  occluders still lay its front edge over a ball that drops through a port.
+- **The look.** A rounded square (squircle, exponent 4: it reads round but
+  covers its cells but for the outer corners' last few px), a pinwheel of
+  eight facets white and cyan in turn with magenta seams round a gem hub, a
+  bevel lit on the back left, a black outline, a half-unit magenta front edge
+  (solid left, dithered right like every wall face) and a short spindle under
+  the hub. A gap is an open PORT - black, its far inner wall magenta, its near
+  lip lit - and the warning its dotted seam. On the Hercules: white facets,
+  grey facets, black ports.
+- **What did not move**: the part (315 bytes), the bundle, the image, the lane
+  budget (a 2 x 2-block lane a cell, one change a step a table), the guest
+  (`tt_host`: eight scenes equal, every red arm red), every shipped course
+  (`cmp`). TURN's course part 18,997 -> 19,513.
+- **LOOKED AT** once on MartyPC per card, and the tool's previews of every pose.
