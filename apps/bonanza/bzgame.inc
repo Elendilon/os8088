@@ -276,8 +276,9 @@ VAR bz_vpxp,1                   ; ...px's low byte then
 VAR bz_vG,2                     ; ...and G then
 VAR bz_vcx,2                    ; 128.45.12, the VGA's camera: the display's left px,
 VAR bz_vvx,2                    ; ...its velocity (1/256 px a tick)
-VAR bz_vcxf,1                   ; ...its fraction (the three in this order: BZV_CAM)
-VAR bz_vcy,2                    ; ...its top line, its velocity, its fraction
+VAR bz_vcxf,1                   ; ...its SHOWN step, px a frame, signed (the three in
+                                ; this order: BZV_CAM)
+VAR bz_vcy,2                    ; ...its top line, its velocity, its shown step
 VAR bz_vvy,2
 VAR bz_vcyf,1
 VAR bz_vsm,1                    ; ...1: BZV_CAM ran this frame (bz_vstart shows bz_vcx)
@@ -3909,6 +3910,9 @@ bz_snew:
 BZ_VSMARG   equ 12 * 38         ; 12 scanlines (a scanline 38 PIT counts)
 BZ_VBAND    equ BZ_VREF - 24 * 38 ; the display's end (12 lines before the rise
                                 ; in mode 0Dh's timing) less BZ_VSMARG
+BZ_VLATE    equ 2               ; late frames in a window of 64 that latch 35 Hz
+                                ; (128.45.12: was 8, and a steady 70 Hz camera
+                                ; missed one frame in 17 below it)
 BZ_VREF     equ 17025           ; a mode 0Dh refresh, PIT counts (MEASURED, 128.45.7)
 bz_vstart:
     mov byte [bz_r0p], 0        ; (an extra wait below takes its rise with IRQs on)
@@ -3934,22 +3938,27 @@ bz_vstart:
     ; THE HELD DIVISOR (SPEC.md 128.45.10): presenting every second refresh, a
     ; frame done before the first rise after the last present waits it out
     cmp byte [bz_vdiv], 2
-    jne .test
+    jne .m1
     or bx, bx
     jnz .test
     call bz_vr                  ; (no CLI: a refresh's wait with IRQs on)
+    jmp short .test
+.m1:
+    or bx, bx                   ; at 70 Hz a refresh already past is a MISS,
+    jz .test                    ; however early in the next one (128.45.12)
+    inc byte [bz_vlate]
     jmp short .test
 .late:
     inc byte [bz_vlate]         ; ...the short test's count
     call bz_vr                  ; the rise first, then the start after it
 .test:                          ; THE DIVISOR'S TEST: 64-frame windows, and
-    cmp byte [bz_vdiv], 2       ; the first with 8 late latches 35 Hz for the
+    cmp byte [bz_vdiv], 2       ; the first with BZ_VLATE late latches 35 Hz for the
     je .write                   ; rest of the play - one way, so the rate never
-    inc byte [bz_vfrm]          ; alternates (128.45.10)
+    inc byte [bz_vfrm]          ; alternates (128.45.10; BZ_VLATE)
     cmp byte [bz_vfrm], 64
     jb .write
     mov byte [bz_vfrm], 0
-    cmp byte [bz_vlate], 8
+    cmp byte [bz_vlate], BZ_VLATE
     mov byte [bz_vlate], 0
     jb .write
     mov byte [bz_vdiv], 2

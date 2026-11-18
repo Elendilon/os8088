@@ -722,6 +722,11 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
 - [x] LATTICE kept for the benchmark, the fixed and paged windows, the
       finish, cuts and the scripted camera.
 - [x] The A/B: `C`'s second mode on the VGA is LATTICE (temporary).
+- [x] The owner's first look: stop-start microstutter, skips, a slow game
+      on the 5150. Measured: 70 Hz held with one frame in 17 missed, a
+      velocity rounded to 0, 1, 0, 1, and a snap that became a full write.
+      Now whole steady steps with hysteresis, margins that push not snap,
+      and 35 Hz latched at 2 late frames (misses counted).
 - [ ] The owner's feel: the zone, the spring, then drop the A/B.
 - *Checked*: MartyPC, BENCH's route on the camera 800 frames (0 px, glass
   exact, one full write, steps of at most 2 px), FIRST's free play 500.

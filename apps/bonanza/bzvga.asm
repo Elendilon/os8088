@@ -1189,10 +1189,12 @@ bzv_conv:
     pop ax
     ret
 ; -----------------------------------------------------------------------------
-; bzv_cam - BZV_CAM (SPEC.md 128.45.12): the VGA's own camera, a follower
-; with a dead zone, in 1/256 px, stepped [bz_vdiv] 70 Hz ticks a frame.  BP =
-; bz_camera's centre line (world lines).  Sets bz_R0n, bz_c0n, bz_vcx (the
-; display's left px, for bz_vstart) and bz_vsm.  Preserves nothing.
+; bzv_cam - BZV_CAM (SPEC.md 128.45.12): the VGA's own camera.  A follower
+; with a dead zone in 1/256 px, stepped [bz_vdiv] 70 Hz ticks a frame, whose
+; velocity the display shows as a WHOLE NUMBER of px (lines) a frame that
+; changes by one at a time, with hysteresis: a run is uniform, never 0, 1,
+; 0, 1.  BP = bz_camera's centre line (world lines).  Sets bz_R0n, bz_c0n,
+; bz_vcx (the display's left px, for bz_vstart) and bz_vsm.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bzv_cam:
     mov ax, [bz_vx0]            ; RESYNC: the camera holds what was shown
@@ -1232,21 +1234,19 @@ bzv_cam:
     pop ax
     dec al
     jnz .tick
-    mov ax, [bz_px]             ; THE HARD MARGINS
+    mov ax, [bz_px]             ; THE SHOWN STEPS: across, at most a column
     add ax, 8
-    mov dx, ax
-    sub dx, [bz_vcx]
     mov di, bz_vcx
     mov bx, BZV_MX
     mov cx, 320 - BZV_MX
-    call .hard
-    mov ax, bp
-    mov dx, ax
-    sub dx, [bz_vcy]
+    mov dl, BZV_SXM
+    call .show
+    mov ax, bp                  ; ...down, at most BZV_MAXR lines
     mov di, bz_vcy
     mov bx, BZV_MY
     mov cx, 200 - BZV_MY
-    call .hard
+    mov dl, BZV_SYM
+    call .show
     mov ax, [bz_vcy]            ; the engine's window: R0 the camera's line,
     mov [bz_R0n], ax            ; c0 kept while vcx is in its 16 px of slack
     mov ax, [bz_vcx]
@@ -1276,7 +1276,7 @@ bzv_cam:
     mov byte [bz_vsm], 1
     retf
 ; one axis's tick: AX = rel, DX/BX = the zone's ends, SI = |v|'s most, DI ->
-; the position word, its velocity word, its fraction byte
+; the position word, its velocity word (1/256 px a tick), its shown step byte
 .axis:
     cmp ax, bx
     jle .lo
@@ -1304,25 +1304,56 @@ bzv_cam:
     mov ax, si
 .v2:
     mov [di + 2], ax
-    add [di + 4], al            ; the position += v (24.8)
-    mov al, ah
-    cbw
-    adc [di], ax
     ret
-; the hard margin: AX = the ball's coordinate, DX = rel, BX/CX = its least
-; and most in the display, DI as .axis
-.hard:
-    cmp dx, bx
-    jl .h3                      ; too near the left/top: the position = c - BX
-    mov bx, cx
-    cmp dx, bx
-    jle .h4                     ; too near the right/bottom: c - CX
-.h3:
-    sub ax, bx
-    mov [di], ax
-    mov word [di + 2], 0
-    mov byte [di + 4], 0
-.h4:
+; the frame's SHOWN step: AX = the ball's coordinate, DI as .axis, BX/CX =
+; the least and most of its place in the display (the hard margins), DL =
+; the most step.  The velocity over the frame (v [bz_vdiv], 1/256 px) moves
+; the step s one toward it when it lies more than BZV_HYS past s; a ball
+; past a margin takes the most step its way at once (never a snap); the
+; position += s
+.show:
+    sub ax, [di]                ; AX = rel
+    mov dh, dl
+    neg dh                      ; DH = -most
+    cmp ax, bx
+    jl .neg                     ; past the near margin: the most step back
+    cmp ax, cx
+    jg .pos                     ; past the far one: the most step on
+    mov ax, [di + 2]            ; D = v ticks
+    cmp byte [bz_vdiv], 1
+    je .d1
+    add ax, ax
+.d1:
+    mov cl, [di + 4]            ; S = s 256
+    mov ch, cl
+    xor cl, cl
+    sub ax, cx                  ; D - S
+    cmp ax, BZV_HYS
+    jg .up
+    cmp ax, -BZV_HYS
+    jge .go
+    mov al, [di + 4]            ; one down
+    dec ax
+    cmp al, dh
+    jl .go
+    jmp short .set
+.up:
+    mov al, [di + 4]            ; one up
+    inc ax
+    cmp al, dl
+    jg .go
+    jmp short .set
+.neg:
+    mov al, dh
+    jmp short .set
+.pos:
+    mov al, dl
+.set:
+    mov [di + 4], al
+.go:
+    mov al, [di + 4]
+    cbw
+    add [di], ax
     ret
 
 ; -----------------------------------------------------------------------------
