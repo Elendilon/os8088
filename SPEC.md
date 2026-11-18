@@ -282832,7 +282832,9 @@ and the clock's digits. A step on PLAYGROUND pays WIND's STEP walk over
 four elements wherever the ball is: about 1.8k clocks, 2.1k in a region
 (PREDICTED from 128.34.7's counts; `bonanzaperf` is the final pass's).
 
-**THE LIMIT.** A course's family list is at most `BZ_FAMMAX` long, the
+**THE LIMIT (as it stood on 2026-11-17; GONE since 128.25.6.5's "no family
+limit", 2026-11-18, and PLAYGROUND now names ten families: 128.34.13).** A
+course's family list is at most `BZ_FAMMAX` long, the
 courses' longest, and `bzfam.inc` finds a hook's list with a shift:
 `BZF_HL` = `BZ_FAMMAX` x `BZF_HE` (8) must be 32, so `BZ_FAMMAX` is exactly
 4. PLAYGROUND names probe, glass and pickups (each held by a `bonanza_phys`
@@ -282848,8 +282850,43 @@ the tile. That re-render drew guard cells as walls and left out the rails,
 the archways' lintels and the water's arches, so on a course with both a
 guard rail and a floating crack the whole difference became the crack's
 and it was refused (PLAYGROUND: 66 x 33 blocks). The re-render now uses the
-picture's own pipeline (`_reops`); no shipped course had both, so every
-other part is byte for byte as before (MEASURED, `cmp`).
+picture's own pipeline (`_reops`; since the see-saw's merge, its `_ops_of`); no
+shipped course had both, so every other part is byte for byte as before
+(MEASURED, `cmp`).
+
+#### 128.34.13 PLAYGROUND's PROP ALLEY and the BASIN's LIFT (2026-11-18)
+
+With no family limit (128.25.6.5) the owner asked for every merged prop on
+PLAYGROUND, and for *"a lift to that bottom area that you can't get out of
+currently"*. The course's text says where and why, section by section; the
+summary:
+
+| piece | where | for |
+|---|---|---|
+| the RAMP and a BOOST PAD (128.40) | off the wind yard's hub (21, 38 - 41), 4 -> 2 units, the pad at its foot pushing -y | the way down and back up: every ball climbs it (MEASURED on the model) |
+| WATER (128.36) and SPIKES (128.38) | a column in the hub's front row (18, 37), its FRONT ARCH onto spikes (18, 39 - 40) | steel's shortcut down; rubber and glass ride over the water |
+| POP-UP SPIKES | the spine's neck (22, 42) | a timing gate for every ball |
+| the ARCHWAY (128.39) over a STEEL PAD, then HANGING MAGNETS (128.33) | the hover lane, wy 42: under the arch no ball Hops or boosts over the pad, so all leave it steel; steel hovers over a 2-cell gap | MEASURED: rubber, glass and steel all cross as steel |
+| the MEMBRANE | the same gap on wy 44 | glass's alone: rubber and steel fall through |
+| the LIFT (128.12.6.4, one a course) | the basin's front-right corner (33, 33), the basin floor (-8) to a rim at 0 | the BASIN (a ball off the brake strip's side) had no way out but the hole |
+| a PLATE and a GATE (128.41) | the rim's path (32, 34) and its 1-wide neck (32, 35) | the plate opens the gate |
+| a timed DRAWBRIDGE (128.41) | (31 - 32, 38), 128 steps up in every 256 | a timing gate |
+| a HUMP (128.44) | a dome on the hub (16 - 17, 34 - 35), 5 px | an obstacle on the hub's floor |
+
+**NOT PLACED: the SEE-SAW (128.42) and the TURNTABLE (128.43)**, each for a
+format limit of the PICTURE part, MEASURED by compiling the course with each:
+a 4-byte occluder record names its MASK in one byte, so a course has at most
+**256 masks**, and the turntable (in the basin's exit or on the spine) took
+the course to 266 - 267, the see-saw to 266; and a map word indexes at most
+**1,024 blocks** - the see-saw cost 57 blocks (4 cells; 41 at 2), the
+turntable 39. The course with both was 1,102 blocks. Each could be placed in
+place of other pieces, which is the owner's choice; the tool now REFUSES the
+257th mask by name (it was a `ValueError` inside the encoder).
+
+**What it costs (MEASURED):** 984 blocks of 1,024; the picture part 59,390
+bytes of 65,024 (5,634 to spare); the world part 17,691; 66 props. Pads: 7 of
+8 (the hub's two removed, FF's being two cells from the gate; the arch's steel pad added). The demo
+re-authored, the same keys: identity 37BDh -> 9936h.
 ### 128.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
 
 The owner: a thin GUARD RAIL that *"blocks anything from getting over"*,
