@@ -4566,3 +4566,41 @@ ended up jerky: it kept skipping whole sets of scrolls."* That branch was
 MartyPC (three greens, `--red swap` and `--red split` red) and on 86Box's
 OTI-067 on the 8088 XT (two greens), the V20 and the mr286 (green, `--red
 swap` red). **Not run**: soak rows beyond these, `test-full`, the field.
+
+## 2026-11-18 (VGA, V1: playable in mode 0Dh)
+
+The owner, on the art: *"convert once, up front, and not do anything
+expensive every frame"*. V1 is the arm that does exactly that.
+
+- **Compose did not change.** Every operation it performs is bitwise, so
+  with the blocks, masks and sprites re-laid once as planar pairs (8 pixels
+  a word, plane 0's byte then plane 1's) the existing box compose produces
+  the VGA's box, and the writer only splits even and odd bytes into the two
+  planes. The exceptions were few and small: WHERE the ball goes (an 8-pixel
+  word on the VGA, so the converted copies carry their shift: two copies a
+  ball, the second four pixels further right), the AV model's bit pair and
+  checker, and the sparkles' places.
+- **All three balls, not one.** The plan said "the ball in play"; the
+  material can change mid-course (`bz_setmat`), so all three are converted
+  at the launch: 62,496 bytes, just inside one segment, and converted again
+  only when the held balls change.
+- **The CGA's flip was already the VGA's.** CR0Ch/0Dh on port 3D4h are both
+  cards' start address; in byte mode the CGA routine's AX is the VGA's byte
+  address. The VGA's frame differs only in WHEN it is called: the start
+  before the edge, the edge under CLI every frame (`bz_r0p`, which already
+  meant exactly that), then the panning.
+- **The one defect the oracle found** on its first run: a left step's
+  column was written at the right edge, because an `inc` of a counter sat
+  between the `or` that tested the step's sign and the `js` that used it.
+  Fixed, the check read **600 frames, 0 pixels different**, every direction.
+- **The box writer** missed its bar looped (785 clocks a line) and met it
+  unrolled per width (508, with the instrument's own cost inside).
+- **On the 8088** the VGA arm is busy 51k clocks a frame against the CGA's
+  39k, and a third of its frames miss one refresh. The owner's D7 accepts 35
+  Hz there; holding it steady is V2's.
+
+**Tested**: `make` (the fast tier), `make bonanzadisk`, the oracle check on
+MartyPC (600 frames, twice: before and after the unrolled writer), the
+benchmark's instruments on MartyPC's VGA and CGA, looks on MartyPC and on
+86Box's `xt-v20-vga`. **Not run**: soak rows (`bonanzaring` and the rest
+have no VGA leg until V3), `test-full`, kern_mega, the field.
