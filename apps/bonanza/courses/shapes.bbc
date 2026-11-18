@@ -29,6 +29,37 @@ goal  tile 30 23  flat 2
 goal  tile  4 23  flat 2 exit 1
 goal  tile 30  3  flat 2 exit 2
 clock 28 23
+clock  6 23
+clock 28  4
 target 60
+# the ROUTE (SPEC.md 128.28.10): the autopilot through all three chutes - into each on a plate way, a way in
+# each of its legs and on its end taper (FIELD ways: steered on the ground, at a cruise), out on a plate way
 way 5 4
+way 8 11
+way 8 9
+way 8 6
+way 10 5
+way 13 5
+way 14 7
+way 14 9
+way 14 11
+way 20 11
+way 20 9
+way 20 6
+way 22 5
+way 25 5
+way 26 7
+way 26 8
+way 26 11
+way 18 13
+way 5 14
+way 5 16
+way 6 16
+way 10 16
+way 14 16
+way 14 18
+way 14 20
+way 18 20
+way 22 20
+way 23 20
 way 30 23

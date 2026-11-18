@@ -78,6 +78,18 @@ courses (C5) carry every shape instead.*
 | C4.1 [~] | PLAYGROUND (or a new test course): a 2-wide chute with two curved corners, a 1-wide chute, a sloped leg, a pit | **PARTLY**: PLAYGROUND carries the 2-wide chute (two radial corners, a climbing leg, a falling one) and the 1-wide chute; the PIT does not fit (its RECB 8 layout would be 73.7KB, SPEC.md 128.28.8) and a new course is a tour course (MAIN's 13 lines are full: `bzface.inc`), so the pit is in `--selfcheck`'s PIT course and the guest's harness only - the owner's call where it goes. Previews looked at, CGA and Hercules |
 | C4.2 [x] | the bonanza disk builds | `make bonanzadisk` |
 
+### After C4: the autopilot on shapes (2026-11-18)
+
+The owner: *"Bounce Bonanza's autopilot can't steer through shapes, and we're going to have those on our
+courses."* SPEC.md 128.28.10 is the contract; the diary's 2026-11-18 entry is the account.
+
+| # | story | verified by |
+|---|---|---|
+| A1 [x] | a `way` on a FIELD cell is allowed; the route marks it (x's bit 0) and puts it at ground height - the tool, `expand`, `bz_cxway` | `--selfcheck` item 7's autopilot rows; `bonanza_dfield` CELLS on SHAPE and PITS, red `wayplane` |
+| A2 [x] | `bz_auto` / `Physics.auto`: toward a FIELD way, the ground frame and the cruise floor `BZ_FVMIN` 256; plane ways unchanged | `bonanza_dfield` leg 6, every step equal, red `autoplane`; every shipped part `cmp`-identical |
+| A3 [x] | SHAPE's route through its three chutes and PITS's through both chutes, the dish and across the deep pit, to the goal with no fall | the model (1,895 and 2,339 steps); the old law sticks at SHAPE's first end taper |
+| A4 [ ] | a deep pit's RIM ridden by the autopilot (needs a run-up it does not plan) | not built: an author routes across a pit, not round it |
+
 ### Wave C5: the knob build (the owner, 2026-11-17)
 
 | # | story | verified by |

@@ -24,5 +24,40 @@ start 5 4
 goal  tile 30 27  flat 2
 clock 28 27
 target 60
+# the ROUTE (SPEC.md 128.28.10): the autopilot through both chutes, across the dish's middle, and across the
+# deep pit left to right on row 22, the line that misses its hole (its rim it cannot ride: no run-up)
 way 5 4
+way 5 6
+way 6 6
+way 10 6
+way 13 6
+way 13 8
+way 13 9
+way 17 9
+way 20 9
+way 21 9
+way 21 11
+way 22 3
+way 24 3
+way 24 4
+way 24 6
+way 25 8
+way 27 8
+way 29 9
+way 29 12
+way 29 14
+way 27 17
+way 19 17
+way 19 21
+way 21 21
+way 23 21
+way 25 21
+way 26 21
+way 26 25
+way 5 25
+way 5 22
+way 8 22
+way 13 22
+way 16 22
+way 16 26
 way 30 27

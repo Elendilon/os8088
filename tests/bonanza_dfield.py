@@ -20,6 +20,9 @@ compared EXACTLY with the model's.
      one at the lip's height), a sloped leg, a chute on a bridge left over its
      lip into the void, and MANY's falling leg over its shape-16 cells.
   4  FUZZ: N runs from random states near field cells, every step.
+  6  AUTOPILOT (SPEC.md 128.28.10): SHAPE's and PITS's routes through their shapes, the guest's bz_auto
+     under bz_apilot against Physics.auto, every step, to the goal (and the CELLS leg on their stored forms:
+     bz_cxway's FIELD ways).
   5  HUMPS (SPEC.md 128.44): the BZHUMP=1 test course, HUMP - FIELD cells RAISED over the plate round them, which
      no chute or pit lays (a dome's middle above every edge) and which the guest runs with no code of their own:
      a LOW dome rolled over from rest and stalled at by steel, the HIGH open ridge climbed by steel from the
@@ -52,7 +55,37 @@ def courses():
     cs = {k: BB.compile_course(t, "<%s>" % k.upper(), _hack={"no_finish": True})
           for k, t in (("chute", CHUTES), ("pit", PIT), ("bridge", BRIDGE), ("many", MANY))}
     cs["hump"] = BB.compile_course(BB.HM_TEST)      # SPEC.md 128.44: HUMP, the BZHUMP=1 knob's test course
+    for k in ("shapes", "pits"):                    # SPEC.md 128.28.10: the BZSHAPES=1 courses, whose routes
+        f = os.path.join(BB.COURSE_DIR, k + ".bbc")   # name FIELD ways (the CELLS leg: bz_cxway's form)
+        cs[k] = BB.compile_course(open(f).read(), f)
     return cs
+
+
+def autopilot(binp, sym, cs):
+    """SPEC.md 128.28.10: the AUTOPILOT under bz_apilot on SHAPE's and PITS's routes, through every chute, the
+    dish and the deep pit, to the goal: the guest's keys (bz_auto) against Physics.auto's, every step's state
+    and bz_wp equal -> [differences]"""
+    out = []
+    for k in ("shapes", "pits"):
+        c = cs[k]
+        g, p = DS.start(binp, sym, c, c.ball)
+        g.w("bz_apilot", 1)
+        n = 0
+        while n < 8000 and not p.goal:
+            g.call("bz_step")
+            k_ = p.auto()
+            p.step(k_)
+            n += 1
+            a, b = DS.gstate(g) + (g.r("bz_wp", 2), g.r("bz_kstep")), DS.mstate(p) + (p.wp, k_)
+            if a != b:
+                out.append("autopilot %s: step %d: guest %s model %s" % (c.name, n, a, b))
+                break
+        print("bonanza_dfield AUTOPILOT %-6s %4d steps, way %d of %d, goal %s, %d falls: %s" % (
+            c.name, n, p.wp, len(p.route), bool(p.goal), p.nfall, "every step equal" if not out else "FAIL"))
+        if not p.goal or p.nfall:
+            out.append("autopilot %s: the model's route ends at way %d, goal %s, %d falls" % (
+                c.name, p.wp, bool(p.goal), p.nfall))
+    return out
 
 
 def steer(n, before, after, turn_x):
@@ -218,6 +251,11 @@ def hostile(binp, sym, c):
 
 
 REDS = {
+    # 128.28.10: the autopilot steers every way as a plane way (no ground frame, no cruise)
+    "autoplane": [("bzgame.inc", "    and di, 1                   ; DI = 1 a FIELD way (128.28.10)\n    jz .plane\n",
+                   "    and di, 1                   ; DI = 1 a FIELD way (128.28.10)\n    jmp .plane  ; RED\n")],
+    # 128.28.10: the WAYS form writes a FIELD way as a plane's (no mark, its +1 read as slopes)
+    "wayplane": [("bonanza.asm", "    cmp ch, BZ_KFIELD\n    je .fld\n", "    cmp ch, BZ_KFIELD  ; RED wayplane\n")],
     # 128.28.5.3: no lift - a FIELD centre's plane neighbour blocks by the start z alone
     "nolift": [("bzphys.inc", "    cmp bl, BZ_KFIELD\n    je .lift\n", "    cmp bl, BZ_KFIELD  ; RED nolift\n")],
     # 128.28.5.3: field to field blocks
@@ -265,6 +303,7 @@ def check(n=150, seed=1127, verbose=True, patches=()):
             if verbose:
                 print("bonanza_dfield %-48s %3d steps, events %s: %s" % (
                     label, ns, ",".join(got) or "-", "FAIL" if err or miss or bad_ok else "every step equal"))
+        out += autopilot(binp, sym, cs)
         b, steps, kinds = fuzz(binp, sym, cs, n, seed)
         print("bonanza_dfield fuzz: %d runs, %d steps near field cells (seed %d), events %s: %s" % (
             n, steps, seed, kinds, "%d differ" % len(b) if b else "every step equal"))

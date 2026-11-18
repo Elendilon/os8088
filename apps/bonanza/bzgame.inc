@@ -167,6 +167,8 @@ BZ_VMAX     equ 512             ; the screen velocity is BZ_ACC / 2 off the one 
                                 ; BZ_VMAXG, BZ_VZMAX (bzcourse.inc), and a footprint
                                 ; that moves past one box takes 128.4's two-box path
 BZ_REACH    equ 12              ; the autopilot's waypoint radius, px
+BZ_FVMIN    equ 256             ; ...and its CRUISE floor toward a FIELD way
+                                ; (SPEC.md 128.28.10: bbcourse.BZ_FVMIN)
 BZ_KSC_F    equ 21h             ; the F key's make code
 BZ_KSC_B    equ 30h             ; ...and B's
 BZ_KSC_C    equ 2eh             ; ...and C's: the camera mode (SPEC.md 128.9)
@@ -1950,13 +1952,18 @@ bz_cnext:
 ; down the descent, a loop round the landing, the traverse, toward the climb,
 ; 128.10.11.1).  It wants a velocity of 8/256 px a
 ; step per px of distance, at most BZ_VMAX, and presses the arrow that closes
-; the gap.  Deterministic from the first frame.  Out: BL.  Preserves all else.
+; the gap.  Toward a FIELD way (x's bit 0 not X0's, SPEC.md 128.28.10) it
+; steers on the GROUND - the ball's point less its height, the ground's
+; velocity - with a CRUISE floor: unless it is the last way, the wanted
+; velocity doubled until an axis reaches BZ_FVMIN.  Deterministic from the
+; first frame.  Out: BL.  Preserves all else.
 ; -----------------------------------------------------------------------------
 bz_auto:
     push ax
     push cx
     push dx
     push si
+    push di
     push es
     mov es, [bz_cseg]           ; the route is the course part's (128.10.5.2)
 .again:
@@ -1964,10 +1971,27 @@ bz_auto:
     shl si, 1
     shl si, 1
     add si, [bz_wayoff]
-    mov ax, [es:si]
-    sub ax, [bz_bx + 1]         ; AX = dx, px
+    mov ax, [es:si]             ; AX = the way's x
+    mov di, [es:BZC_GRID]
+    mov di, [es:di + BZG_X0]
+    xor di, ax
+    and di, 1                   ; DI = 1 a FIELD way (128.28.10)
+    jz .plane
+    xor ax, 1                   ; (its own x)
+    mov cx, [bz_by]             ; the ball's GROUND point: (by + gz) >> 8
+    mov dx, [bz_by + 2]
+    add cx, [bz_gz]
+    adc dx, [bz_gz + 2]
+    mov cl, ch
+    mov ch, dl
+    neg cx
+    add cx, [es:si + 2]         ; CX = dy
+    jmp short .dx
+.plane:
     mov cx, [es:si + 2]
     sub cx, [bz_by + 1]         ; CX = dy
+.dx:
+    sub ax, [bz_bx + 1]         ; AX = dx, px
     mov dx, [bz_wp]
     inc dx
     cmp dx, [bz_nway]
@@ -1984,30 +2008,57 @@ bz_auto:
     jmp .again
 .steer:
     xor bl, bl
-    call bz_want                ; AX = the velocity wanted in x
-    sub ax, [bz_vx]
-    cmp ax, BZ_ACC / 2
+    call bz_want                ; the velocity wanted in x
+    xchg ax, cx                 ; CX = it, AX = dy
+    call bz_want                ; AX = the velocity wanted in y
+    mov dx, [bz_vy]             ; DX = the velocity compared in y
+    or di, di
+    jz .cmp
+    mov dx, [bz_gvx]            ; a FIELD way: the ground's, no dz
+    add dx, [bz_gvy]
+    sar dx, 1
+    mov si, [bz_wp]             ; the cruise floor, unless the last way or
+    inc si                      ; nothing wanted
+    cmp si, [bz_nway]
+    jae .cmp
+    mov si, ax
+    or si, cx
+    jz .cmp
+.dbl:
+    mov si, ax
+    add si, BZ_FVMIN - 1
+    cmp si, 2 * BZ_FVMIN - 1
+    jae .cmp
+    mov si, cx
+    add si, BZ_FVMIN - 1
+    cmp si, 2 * BZ_FVMIN - 1
+    jae .cmp
+    shl ax, 1
+    shl cx, 1
+    jmp short .dbl
+.cmp:
+    sub cx, [bz_vx]
+    cmp cx, BZ_ACC / 2
     jle .notr
     or bl, BZ_K_R
-    jmp .y
+    jmp short .y
 .notr:
-    cmp ax, -(BZ_ACC / 2)
+    cmp cx, -(BZ_ACC / 2)
     jge .y
     or bl, BZ_K_L
 .y:
-    mov ax, cx
-    call bz_want
-    sub ax, [bz_vy]
+    sub ax, dx
     cmp ax, BZ_ACC / 2
     jle .notd
     or bl, BZ_K_D
-    jmp .out
+    jmp short .out
 .notd:
     cmp ax, -(BZ_ACC / 2)
     jge .out
     or bl, BZ_K_U
 .out:
     pop es
+    pop di
     pop si
     pop dx
     pop cx
