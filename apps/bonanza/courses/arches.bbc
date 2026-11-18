@@ -1,4 +1,4 @@
-# Archways - BONANZA's ARCHWAY test course (SPEC.md 128.39), built only by the BZARCH=1 knob, as water.bbc is by
+# Archways - BONANZA's ARCHWAY test course (SPEC.md 130.39), built only by the BZARCH=1 knob, as water.bbc is by
 # BZWATER=1.  NOT a shipped course: the knob adds it to BZ_COURSES after the shipped ones and makes it the
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #

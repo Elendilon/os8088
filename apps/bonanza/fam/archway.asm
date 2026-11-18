@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/archway.asm - BONANZA's ARCHWAY FAMILY (SPEC.md 128.39, the
+; apps/bonanza/fam/archway.asm - BONANZA's ARCHWAY FAMILY (SPEC.md 130.39, the
 ; props round's P10): an arch over a path that a ball ROLLS UNDER - a CEILING -
 ; held equal to bbcourse.ArchFamily at every step.
 ;
@@ -19,7 +19,7 @@
 ; No RESET: a play's start and a respawn place the ball and refill (bz_place),
 ; which runs CELL before any STEP reads the slot.
 ;
-; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
 ; others are (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument; `retf`.
 ; =============================================================================
@@ -40,7 +40,7 @@ AR_CLR      equ 18              ; the element's record: its clearance (word)
     db 0
     dw 0, 0, 0, ar_step, 0, ar_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
 %endif
 
 ; CELL: the window's archway cells walled above the ball, the slot's band
