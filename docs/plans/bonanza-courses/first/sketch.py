@@ -17,6 +17,10 @@ SECTION = {}
 RAILS = []           # (x0, y0, x1, y1) a guard rail along a tile edge
 WALLS = []           # (x0, y0, x1, y1, z) a solid block
 HOLES = set()
+# revision 8 (the owner's edit of the diagonal variant): half cells made VOID - (wx, wy, side): the start
+# plateau's corners and its front corner on a diagonal, and the hill landings' outer corners
+HALVES = [(4, 4, "up"), (7, 4, "right"), (4, 7, "left"), (7, 7, "down"),
+          (4, 13, "left"), (13, 10, "right"), (10, 19, "left"), (13, 19, "down")]
 NOTES = []           # (wx, wy, z, text)
 
 
@@ -98,7 +102,7 @@ Z = 26                                   # the start's height, units
 # A  the start and the hill of ramps, UNRAILED (revision 5: the owner, "the guard here is that its so
 #    wide"): ramps alternate +y and +x; no rail and no back wall
 floor("A", 4, 4, 8, 8, Z)                                    # P0 the start
-ramp("A", "y", 4, 8, 8, 10, Z, Z - 2)                        # R1
+ramp("A", "y", 5, 8, 7, 10, Z, Z - 2)                        # R1: TWO wide (revision 8: the owner's edit)
 floor("A", 4, 10, 8, 14, Z - 2)                              # L1
 ramp("A", "x", 8, 10, 10, 14, Z - 2, Z - 4)                  # R2
 floor("A", 10, 10, 14, 14, Z - 4)                            # L2
@@ -404,6 +408,8 @@ def bbc(out):
     L.append("")
     for (x, y) in sorted(HOLES):
         L.append("hole  tile %d %d" % (x + OFF, y + OFF))
+    for x, y, side in HALVES:
+        L.append("hole  half %s tile %d %d          # a diagonal corner" % (side, x + OFF, y + OFF))
     L.append("goal  rect %d %d %d %d  flat %g" % (min(g[0] for g in GOAL) + OFF, min(g[1] for g in GOAL) + OFF,
                                                max(g[0] for g in GOAL) + 1 + OFF, max(g[1] for g in GOAL) + 1 + OFF,
                                                CELLS[min(GOAL)][0]))

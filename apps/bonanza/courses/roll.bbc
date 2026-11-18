@@ -17,7 +17,7 @@ limit 60
 
 # rooms (the sketch's sections)
 floor rect   8   8  12  12  flat 26   # A
-floor rect   8  12  12  14  ramp y 12 14 26 24   # A
+floor rect   9  12  11  14  ramp y 12 14 26 24   # A
 floor rect   8  14  12  18  flat 24   # A
 floor rect  12  14  14  18  ramp x 12 14 24 22   # A
 floor rect  14  14  18  18  flat 22   # A
@@ -146,6 +146,14 @@ wall  tile  55  56  flat 5.5
 wall  tile  55  57  flat 5.5
 
 hole  tile 25 29
+hole  half up tile 8 8          # a diagonal corner
+hole  half right tile 11 8          # a diagonal corner
+hole  half left tile 8 11          # a diagonal corner
+hole  half down tile 11 11          # a diagonal corner
+hole  half left tile 8 17          # a diagonal corner
+hole  half right tile 17 14          # a diagonal corner
+hole  half left tile 14 23          # a diagonal corner
+hole  half down tile 17 23          # a diagonal corner
 goal  rect 49 56 55 58  flat 3.5
 start 9 9
 checkpoint 24 22 ball rubber   # flag 0

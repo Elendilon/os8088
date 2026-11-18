@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 6, revision 7** (art prototypes) (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 6, revision 8** (art prototypes; the owner's start platform) (`apps/bonanza/courses/roll.bbc`,
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -15,6 +15,21 @@ then this course is built under a working name of its own in the tool,
 `ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
+- **Revision 8, the owner's edit of the diagonal variant** (*"Add a
+  diagonal to the black marked column, and remove the red marked columns.
+  This starts them on a visually interesting platform, and its not that
+  hard to roll down a 2 wide path."*):
+  - the hill takes the variant's diagonal corners: the start plateau's
+    three outer corners and the landings' outer corners, each a half cell
+    made void (`hole half <side> tile`);
+  - the start plateau's FRONT corner is cut on a diagonal too;
+  - the first ramp is TWO wide (its outer columns removed). The start
+    stands on a raised platform with the tee on it
+    (`first/start-platform.png`);
+  - the marks were mapped to cells by projecting the variant's cells back
+    onto the preview's pixels;
+  - the course part is **10,000 bytes** on the disk (+537 for the
+    diagonals).
 - **Revision 7, art prototypes** (the owner, on the recommendations:
   floating terraces for another course, not this one; a screenshot of
   diagonal tiles; *"5: Oh, I think I like that; but we have to be careful
