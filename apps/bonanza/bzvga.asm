@@ -1426,56 +1426,21 @@ bzv_conv:
     pop ax
     ret
 ; -----------------------------------------------------------------------------
-; bzv_cam - BZV_CAM (SPEC.md 130.46.12): the VGA's own camera.  A follower
-; with a dead zone in 1/256 px, stepped [bz_vdiv] 70 Hz ticks a frame, whose
-; velocity the display shows as a WHOLE NUMBER of px (lines) a frame that
-; changes by one at a time, with hysteresis: a run is uniform, never 0, 1,
-; 0, 1.  BP = bz_camera's centre line (world lines).  Sets bz_R0n, bz_c0n,
-; bz_vcx (the display's left px, for bz_vstart) and bz_vsm.  Preserves nothing.
+; bzv_cam - BZV_CAM (SPEC.md 130.46.12): the VGA's own camera, an axis at a
+; time in one of three states.  REST: the ball in the dead zone, the step
+; running down to 0.  PAN: to a FRAMING - the ball T from the trailing edge,
+; LATTICE's placement - on the trapezoid (bzv_page.goto), extended while the
+; ball is still ahead of it there, stopped short if the ball turns back.
+; TRACK: a ball moving its way at BZV_TON or more, followed at its own speed
+; (smoothed over ~8 frames) with a correction toward the trailing placement,
+; in whole steps with hysteresis; below BZV_TOFF the camera coasts to rest at
+; its stopping distance.  A slow, steady ball so gets a pan, a rest and a pan
+; - never the 1 px inching of a follower at the zone's edge.  BP = bz_camera's
+; centre line (world lines).  Sets bz_R0n, bz_c0n, bz_vcx (the display's
+; left px, for bz_vstart) and bz_vsm.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bzv_cam:
     call .sync
-    jmp short .ys
-.sync:
-    mov ax, [bz_vx0]            ; RESYNC: the camera holds what was shown
-    cmp ax, [bz_vcx]
-    je .xs
-    mov [bz_vcx], ax
-    xor ax, ax
-    mov [bz_vvx], ax
-    mov [bz_vcxf], al
-.xs:
-    mov ax, [bz_R0]
-    cmp ax, [bz_vcy]
-    je .yr
-    mov [bz_vcy], ax
-    xor ax, ax
-    mov [bz_vvy], ax
-    mov [bz_vcyf], al
-.yr:
-    ret
-.ys:
-    mov al, [bz_vdiv]
-.tick:
-    push ax
-    mov ax, [bz_px]             ; across: the ball's centre in the display
-    add ax, 8
-    sub ax, [bz_vcx]
-    mov di, bz_vcx
-    mov dx, BZV_ZXL
-    mov bx, BZV_ZXR
-    mov si, BZV_VXM
-    call .axis
-    mov ax, bp                  ; down: the centre line in it
-    sub ax, [bz_vcy]
-    mov di, bz_vcy
-    mov dx, BZV_ZYL
-    mov bx, BZV_ZYR
-    mov si, BZV_VYM
-    call .axis
-    pop ax
-    dec al
-    jnz .tick
     mov di, bz_vcx
     call .xmax
     mov dx, [bz_lockc]          ; a LOCKED course (130.45): across, the
@@ -1489,20 +1454,17 @@ bzv_cam:
     call bzv_page.goto
     jmp short .dn
 .nlk:
-    mov ax, [bz_px]             ; THE SHOWN STEPS: across, at most a column
+    mov ax, [bz_px]             ; across: the ball's centre
     add ax, 8
-    mov bx, BZV_MX
-    mov cx, 320 - BZV_MX
-    mov dl, BZV_SXM
-    call .show
+    mov si, .tx
+    call .ax
 .dn:
-    mov ax, bp                  ; ...down, at most BZV_MAXR lines
+    mov ax, [bz_rmax]           ; down: the centre line
+    mov [bz_vemax], ax
+    mov ax, bp
     mov di, bz_vcy
-    mov bx, BZV_MY
-    mov cx, 200 - BZV_MY
-    mov dl, BZV_SYM
-    mov si, [bz_rmax]
-    call .show
+    mov si, .ty
+    call .ax
 .win:
     mov ax, [bz_vcy]            ; the engine's window: R0 the camera's line,
     mov [bz_R0n], ax            ; c0 kept while vcx is in its 16 px of slack
@@ -1532,107 +1494,318 @@ bzv_cam:
 .c:
     mov byte [bz_vsm], 1
     retf
-; one axis's tick: AX = rel, DX/BX = the zone's ends, SI = |v|'s most, DI ->
-; the position word, its velocity word (1/256 px a tick), its shown step byte
-.axis:
-    cmp ax, bx
-    jle .lo
-    sub ax, bx                  ; e = rel - hi
-    jmp short .e
-.lo:
-    sub ax, dx                  ; e = rel - lo, if negative
-    jl .e
+; RESYNC: the camera holds what was shown - an axis whose position is not the
+; shown one (the first frame, a cut or full write, a course edge's clamp, a
+; frame another camera ran) takes it, at REST, its velocity and step 0
+.sync:
+    mov ax, [bz_vx0]
+    mov di, bz_vcx
+    call .sy
+    mov ax, [bz_R0]
+    mov di, bz_vcy
+.sy:
+    cmp ax, [di]
+    je .sr
+    mov [di], ax
     xor ax, ax
-.e:
-    mov cl, 3
-    shl ax, cl
-    add ax, [di + 2]            ; v + 8 e
-    mov dx, ax
-    sar dx, 1
-    sar dx, 1
-    sub ax, dx                  ; ... - (v >> 2)
-    cmp ax, si
-    jle .v1
-    mov ax, si
-.v1:
-    neg si
-    cmp ax, si
-    jge .v2
-    mov ax, si
-.v2:
-    mov [di + 2], ax
+    mov [di + 2], ax            ; vb
+    mov [di + 4], ax            ; s, the state
+    mov word [di + 8], 8000h    ; no last ball yet
+.sr:
     ret
-; the frame's SHOWN step: AX = the ball's coordinate, DI as .axis, BX/CX =
-; the least and most of its place in the display (the hard margins), DL =
-; the most step.  The velocity over the frame (v [bz_vdiv], 1/256 px) moves
-; the step s one toward it when it lies more than BZV_HYS past s; a ball
-; past a margin takes the most step its way at once (never a snap); the
-; position += s
-.show:
-    sub ax, [di]                ; AX = rel
-    mov dh, dl
-    neg dh                      ; DH = -most
-    cmp ax, bx
-    jl .neg                     ; past the near margin: the most step back
-    cmp ax, cx
-    jg .pos                     ; past the far one: the most step on
-    mov ax, [di + 2]            ; D = v ticks
+; the axes' tables: the dead zone, the hard margins, the trailing placement
+; T, the display's extent (each a word, px or lines of the display), the most
+; tracking step a frame, and the most PAN step a 70 Hz tick (a frame's is it
+; times [bz_vdiv])
+BZV_TZL     equ 0
+BZV_TZR     equ 2
+BZV_TMLO    equ 4
+BZV_TMHI    equ 6
+BZV_TT      equ 8
+BZV_TEXT    equ 10
+BZV_TSMAX   equ 12
+BZV_TPAN    equ 13
+BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
+.tx:    dw BZV_ZXL, BZV_ZXR, BZV_MX, 320 - BZV_MX, BZV_TXP, 320
+        db BZV_SXM, BZV_PXT
+        dw BZV_XLA
+.ty:    dw BZV_ZYL, BZV_ZYR, BZV_MY, 200 - BZV_MY, BZV_TYP, 200
+        db BZV_SYM, BZV_PYT
+        dw BZV_YLA
+; ONE AXIS'S FRAME: AX = the ball's coordinate (world), DI = the axis (+0
+; the position, +2 vb the ball's velocity, 1/16 px a tick, smoothed; +4 s the
+; shown step; +5 the state, 0 REST, 1 PAN, 2 TRACK on, 3 TRACK back; +6 the
+; pan's target; +8 the last ball), SI = its table (CS), [bz_vemax] = the
+; position's most
+.ax:
+    mov [bz_vball], ax
+    mov bx, [di + 8]
+    mov [di + 8], ax
+    cmp bx, 8000h
+    jne .v0
+    mov bx, ax
+.v0:
+    mov dx, ax                  ; the ball's move, 1/16 px a tick ...
+    sub dx, bx
+    mov cx, dx                  ; (a JUMP - a respawn inside the window, a
+    add cx, BZV_JUMP            ; tube's exit - is no motion: more than
+    cmp cx, 2 * BZV_JUMP        ; BZV_JUMP a frame zeroes vb, so the camera
+    jbe .v2                     ; pans to a framing rather than tracking)
+    mov word [di + 2], 0
+    xor dx, dx
+.v2:
+    mov cl, 4
+    shl dx, cl
     cmp byte [bz_vdiv], 1
-    je .d1
-    add ax, ax
-.d1:
-    mov cl, [di + 4]            ; S = s 256
-    mov ch, cl
+    je .v1
+    sar dx, 1
+.v1:
+    sub dx, [di + 2]            ; ... vb += (it - vb) / 8
+    sar dx, 1
+    sar dx, 1
+    sar dx, 1
+    add [di + 2], dx
+    mov bx, ax
+    sub bx, [di]                ; BX = rel, the ball in the display
+    mov dx, -1                  ; THE HARD MARGINS: a ball past one is
+    cmp bx, [cs:si + BZV_TMLO]  ; panned to (or tracked, if it already is
+    jl .mg                      ; that way)
+    neg dx
+    cmp bx, [cs:si + BZV_TMHI]
+    jle .st
+.mg:
+    call .tstate
+    cmp al, [di + 5]
+    je .trk
+    jmp .topan
+.st:
+    mov al, [di + 5]
+    cmp al, 1
+    je .pan
+    jb .rest
+    jmp .trk
+.rest:
+    mov dx, -1
+    cmp bx, [cs:si + BZV_TZL]
+    jl .ex
+    neg dx
+    cmp bx, [cs:si + BZV_TZR]
+    jg .ex
+    call .decay                 ; in the zone: at rest
+    jmp .fin
+.ex:
+    call .vdir                  ; out of it: moving that way fast, TRACK;
+    cmp ax, BZV_TON             ; else a PAN to the framing
+    jl .topan
+    jmp .gotrk
+.topan:
+    call .frame
+    mov byte [di + 5], 1
+    jmp .pmove
+.pan:
+    mov dx, [di + 6]
+    sub dx, [di]
+    jnz .p1
+    cmp byte [di + 4], 0
+    jne .pmove
+    mov byte [di + 5], 0        ; arrived and still: REST
+    jmp .rest
+.p1:
+    mov dx, 1                   ; DX = the pan's way
+    jns .p2
+    neg dx
+.p2:
+    call .vdir                  ; the ball has sped up its way: TRACK
+    cmp ax, BZV_TON
+    jl .p3
+    jmp .gotrk
+.p3:
+    mov ax, [bz_vball]          ; still heading out of the zone at the
+    sub ax, [di + 6]            ; target (within the look-ahead of its far
+    or dx, dx                   ; edge): the framing moves on, so a pan
+    js .p4                      ; never stops to start again
+    add ax, [cs:si + BZV_TLA]
+    cmp ax, [cs:si + BZV_TZR]
+    jle .p5
+    call .frame
+    jmp short .p5
+.p4:
+    sub ax, [cs:si + BZV_TLA]
+    cmp ax, [cs:si + BZV_TZL]
+    jge .p5
+    call .frame
+.p5:
+    or dx, dx                   ; turned back out of the zone behind: stop
+    js .p6                      ; where the step can stop
+    cmp bx, [cs:si + BZV_TZL]
+    jge .pmove
+    jmp short .p7
+.p6:
+    cmp bx, [cs:si + BZV_TZR]
+    jle .pmove
+.p7:
+    call .stopat
+.pmove:
+    mov dx, [di + 6]
+    mov cl, [cs:si + BZV_TPAN]
+    cmp byte [bz_vdiv], 1
+    je .pm1
+    shl cl, 1
+.pm1:
+    jmp bzv_page.goto           ; (its RET is ours)
+.gotrk:
+    call .tstate
+    mov [di + 5], al
+.trk:
+    mov dx, 1
+    cmp byte [di + 5], 2
+    je .t0
+    neg dx
+.t0:
+    call .vdir                  ; slowed: coast to rest at the stopping
+    cmp ax, BZV_TOFF            ; distance (a PAN there, which never
+    jge .t1                     ; overshoots)
+    call .stopat
+    mov byte [di + 5], 1
+    jmp .pmove
+.t1:
+    mov ax, [di + 2]            ; D = vb 16 [bz_vdiv] (1/256 px a frame) ...
+    mov cl, 4
+    shl ax, cl
+    cmp byte [bz_vdiv], 1
+    je .t2
+    shl ax, 1
+.t2:
+    mov cx, [cs:si + BZV_TT]    ; ... + 8 (rel - the trailing place)
+    or dx, dx
+    jns .t3
+    neg cx
+    add cx, [cs:si + BZV_TEXT]
+.t3:
+    sub bx, cx
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add ax, bx
+    mov ch, [di + 4]            ; the step one toward it, past BZV_HYS
     xor cl, cl
-    sub ax, cx                  ; D - S
+    sub ax, cx
     cmp ax, BZV_HYS
     jg .up
     cmp ax, -BZV_HYS
-    jge .go
-    mov al, [di + 4]            ; one down
+    jge .fin
+    mov al, [di + 4]
     dec ax
-    cmp al, dh
-    jl .go
-    jmp short .set
-.up:
-    mov al, [di + 4]            ; one up
-    inc ax
-    cmp al, dl
-    jg .go
-    jmp short .set
-.neg:
-    mov al, [di + 4]            ; past the near margin: one more step back a
-    dec ax                      ; frame (never a jump to the most: 130.46.12)
-    cmp al, dh
-    jl .go
-    jmp short .set
-.pos:
-    mov al, [di + 4]            ; past the far one: one more on
-    inc ax
-    cmp al, dl
-    jg .go
-.set:
+    mov ah, [cs:si + BZV_TSMAX]
+    neg ah
+    cmp al, ah
+    jl .fin
     mov [di + 4], al
-.go:
+    jmp short .fin
+.up:
+    mov al, [di + 4]
+    inc ax
+    cmp al, [cs:si + BZV_TSMAX]
+    jg .fin
+    mov [di + 4], al
+.fin:
     call .brake
     mov al, [di + 4]
     cbw
     add [di], ax
     ret
-; SI = the display's most left px on this course (its least is 0): the
-; window's last column, cmax, and its 16 px of slack
+; AL = the TRACK state for the way DX (2 on, 3 back)
+.tstate:
+    mov al, 2
+    or dx, dx
+    jns .ts
+    inc ax
+.ts:
+    ret
+; AX = vb in the way DX
+.vdir:
+    mov ax, [di + 2]
+    or dx, dx
+    jns .vd
+    neg ax
+.vd:
+    ret
+; the step one nearer 0
+.decay:
+    mov al, [di + 4]
+    or al, al
+    jz .dz
+    js .dn1
+    dec byte [di + 4]
+    ret
+.dn1:
+    inc byte [di + 4]
+.dz:
+    ret
+; the FRAMING for a ball leaving the way DX: the ball T from the trailing
+; edge (on: the position = ball - T; back: ball - (extent - T)), within the
+; course's edges, to [di + 6].  Keeps DX
+.frame:
+    mov ax, [bz_vball]
+    sub ax, [cs:si + BZV_TT]
+    or dx, dx
+    jns .f1
+    mov ax, [bz_vball]
+    sub ax, [cs:si + BZV_TEXT]
+    add ax, [cs:si + BZV_TT]
+.f1:
+    jmp short .clampt
+; the target where the step can stop, braking from this frame: the
+; position + s (|s| - 1) / 2 (with |s| it would hold the step: re-asked each
+; frame, the camera ran on at its speed - MOON's swing past the ball)
+.stopat:
+    mov al, [di + 4]
+    cbw
+    mov cx, ax
+    or ax, ax
+    jns .sa1
+    neg ax
+.sa1:
+    or ax, ax
+    jz .sa0
+    dec ax
+.sa0:
+    push bx
+    mov bx, ax
+    mov al, [cs:.tri + bx]
+    pop bx
+    xor ah, ah
+    or cx, cx
+    jns .sa2
+    neg ax
+.sa2:
+    add ax, [di]
+.clampt:
+    or ax, ax
+    jns .ct1
+    xor ax, ax
+.ct1:
+    cmp ax, [bz_vemax]
+    jle .ct2
+    mov ax, [bz_vemax]
+.ct2:
+    mov [di + 6], ax
+    ret
+; [bz_vemax] = the display's most left px on this course (its least is 0):
+; the window's last column, cmax, and its 16 px of slack.  Clobbers AX
 .xmax:
-    mov si, [bz_cmax]
-    shl si, 1
-    shl si, 1
-    shl si, 1
-    add si, 16
+    mov ax, [bz_cmax]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, 16
+    mov [bz_vemax], ax
     ret
 ; THE COURSE's EDGES (130.46.12): the step s shrinks by one a frame while
 ; the edge it runs toward is nearer than its stopping distance s (s + 1) / 2,
 ; and never passes it, so the camera arrives at an edge at rest rather than
-; being clamped there mid-pan.  DI as .axis, SI = the position's most (its
-; least 0).  Clobbers AX, CX.
+; being clamped there mid-pan.  DI as .ax, [bz_vemax] = the position's most
+; (its least 0).  Clobbers AX, CX.
 .brake:
     mov al, [di + 4]
     or al, al
@@ -1644,7 +1817,7 @@ bzv_cam:
     neg al
     jmp short .bset
 .bp:
-    mov cx, si                  ; toward the most
+    mov cx, [bz_vemax]          ; toward the most
     sub cx, [di]
     call .bdist
 .bset:
@@ -1700,9 +1873,8 @@ bzv_page:
     mov cl, BZV_SXM
     call .goto
     jmp bzv_cam.win
-; DI as bzv_cam.axis, DX = the target position, CL = the most step
+; DI as bzv_cam.ax, DX = the target position, CL = the most step
 .goto:
-    mov word [di + 2], 0
     mov ax, dx
     sub ax, [di]                ; AX = d
     mov ch, [di + 4]            ; CH = s
@@ -1783,7 +1955,8 @@ bzv_coast:
     call bzv_cam.xmax
     call .dec
     mov di, bz_vcy
-    mov si, [bz_rmax]
+    mov ax, [bz_rmax]
+    mov [bz_vemax], ax
     call .dec
     jmp bzv_cam.win
 .dec:
