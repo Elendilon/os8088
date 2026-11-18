@@ -107,7 +107,7 @@ def symbols(src=None, art=None):
     with tempfile.TemporaryDirectory() as td:
         p, b = os.path.join(td, "probe.asm"), os.path.join(td, "probe.bin")
         for _try in range(2):                   # (a VAR only an experiment's knob defines - the speed pass's
-            open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +    # BZS_SKIPTEST, off -
+            open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +    # (an experiment knob, off -
                                "\n".join("dw " + n for n in names))                    # is left out, named)
             r = subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                                 "-I", art + "/", "-o", b, p], cwd=ROOT, capture_output=True, text=True)

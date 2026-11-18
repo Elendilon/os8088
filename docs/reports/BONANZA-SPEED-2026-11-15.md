@@ -89,10 +89,12 @@ lower the miss count.
 
 ## The sound skip: auditioned, kept OFF (the owner, 2026-11-15)
 
+*REMOVED 2026-11-18 (the owner): wave 10 measured the rule on play - PEAK 76 missed both runs against 72 - 83 without it, no gain - and the knob and these scripts left the tree under the rule that A/Bs decided against are removed. The measurements below stay as the record.*
+
 *"Lets keep the sound skips on the table, for if later heavy courses need
 it. Current courses are all very light. But not put it in for now."*
 
-The knob is in the tree and off: `nasm -DBZS_SKIPTEST` (bzgame.inc). With it
+The knob was in the tree and off: `nasm -DBZS_SKIPTEST` (bzgame.inc; removed 2026-11-18). With it
 off the image is byte-identical. With it on, the frame loop leaves out the
 whole `bzs_frame` call as the poked byte `[bz_sskip]` says, never two frames
 running, and the next call catches the sub-ticks up: 0 none; N one frame in
@@ -113,9 +115,8 @@ MEASURED on the recordings' takes, SUMMIT's demo (40 s), a sub-tick 18.3 ms:
 The AdLib is the fragile arm: its register cap already spreads a downbeat
 over frames and a skip stacks on that. The recordings (twenty WAVs, SUMMIT
 and MILL, both arms, five takes) were sent to the owner and are not in the
-tree; [`docs/plans/bounce-bonanza/sndskip/`](../plans/bounce-bonanza/sndskip/)
-holds the three scripts that make them again (the knob build goes to
-`build/sk/`, never `build/`).
+tree; the three scripts that made them were removed with the knob (2026-11-18; they are in git history
+before that date).
 
 ## Open, for the owner
 

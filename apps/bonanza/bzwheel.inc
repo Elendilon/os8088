@@ -2073,7 +2073,7 @@ bz_lead:
     je .out
     cmp bx, 5 * 4
     je .m
-    call bz_mark
+    call bz_markm
     mov bx, 5 * 4
 .m:
     push ds
