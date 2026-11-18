@@ -9201,7 +9201,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     for bytes_ in (True, False):
         for i in order:
             if is_fam(props[i]["kind"]) and (props[i]["bits"] == 8) == bytes_ and props[i].get("comp") is None:
-                fsbs[i] = fsb
+                # (a kind with NO state bit records FSB 0, as its contract says - 128.34.3, 128.40.3 - and as
+                # its reader holds it: not the next free bit, which it was once an earlier element held bits)
+                fsbs[i] = fsb if props[i]["bits"] else 0
                 fsb += props[i]["bits"]
     jof = {i: j for j, i in enumerate(order)}
     for i in order:                                 # (a vanishing crack's companion: the crack's byte, 128.25.18.1)
