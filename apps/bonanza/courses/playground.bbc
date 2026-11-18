@@ -222,11 +222,11 @@ pit   12 6 4 radius 3 depth 16
 
 # 2026-11-17, the props round: the WIND YARD (SPEC.md 128.34) and the GUARD RAIL (128.35), in FRONT of FF, its
 # floor at FF's height and FLOATING (faces 3 units deep, not to the basin's ground: the picture's bytes).  Out
-# through the gap in FF's front rail (wx 17), one of the ball(s) it is for chosen on the HUB's pads:
+# through the gap in FF's front rail (wx 17), the ball(s) each gate is for taken on FF's pads beside the gap:
 #  - the GUST GATE: the stub out of the gap, one wide, a GUSTING fan in the gap blowing +x off the stub's open
 #    side, 64 steps in every 256 (its WISP over the stub) - every ball crosses between gusts; glass, blown twice
 #    as hard, has the shortest window;
-#  - the HUB, a STEEL pad and a GLASS pad on it, so each gate is tried with the ball it is for;
+#  - the HUB (its pads moved to the prop alley's arch, 2026-11-18: FF's steel and glass pads are two cells away);
 #  - the THIN PATH east (wy 36), a STEADY fan blowing +y off its front edge, strength 10 (two static squiggle
 #    clusters): rubber and glass go over whatever they do, steel leans into it and crosses to the END PLATE,
 #    its HOURGLASS steel's prize; a see-through GUARD RAIL on the plate's far and front edges stops a steel
@@ -237,8 +237,6 @@ pit   12 6 4 radius 3 depth 16
 #    lands on the ledge by its HOURGLASS (glass's prize, apex 62 - 72 px); rubber and steel are not lifted and
 #    roll into the pit.  A fall off the hub, the thin path or into the pit respawns on the hub; off the stub,
 #    at the start.
-# Room is left beside the yard (wx 10 - 14, wy 30 - 33 and east of the end plate) for the props round's
-# next families; the FAMILY LIST is full, though (BZ_FAMMAX 4: see the diary's 2026-11-17 entry).
 floor rect  17 29 18 33  flat 4
 floor rect  15 33 22 38  flat 4
 floor rect  22 36 26 37  flat 4
@@ -257,7 +255,20 @@ prop blower 15 35  face up  region 14 34 15 36  strength 16  top 5  lift  flag
 prop hourglass 27 36
 prop hourglass 12 35
 
-# PROP ALLEY (draft)
+# PROP ALLEY (2026-11-18, the props round's merged families on the owner's stress test; SPEC.md 128.33 - 128.40):
+# in FRONT of the wind yard's hub, 2 units up, floating.  Down the RAMP off the hub's front (21, 38 - 41, half a
+# unit a tile - every ball climbs back up it, a -y BOOST PAD at its foot pushing a slow steel ball on); the SPINE
+# (18 - 23, 42 - 43) west and east of its foot.  Its pieces, each for the ball(s) named:
+#  - the WATER column in the hub's front row (18, 37): rubber and glass ride over it, steel sinks to the bed and
+#    leaves by the FRONT ARCH onto the SPIKES at its mouth (18, 39 - 40), which steel rides and rubber pops on -
+#    steel's shortcut down, the owner's pairing of the two steel-only mechanisms;
+#  - a POP-UP SPIKE row on the spine's 1-wide neck (22, 42): every ball going east times it;
+#  - the HOVER LANE (wy 42): an ARCHWAY over a STEEL PAD (24, 42) - under its 2-unit arch no ball can Hop or
+#    boost over the pad, so every ball leaves it as steel - then a 2-cell gap under two HANGING MAGNETS on posts
+#    behind it: steel hovers across (MEASURED on the model: rubber, glass and steel all reach the far plate);
+#  - the MEMBRANE LANE (wy 44): the same gap bridged by the crystal MEMBRANE, glass's alone (rubber and steel
+#    fall through);
+#  - the FAR PLATE (28 - 31, 42 - 44), which the basin's exit (below) also reaches.
 floor rect  21 38 22 42  ramp y 38 42 4 2
 floor rect  18 42 24 44  flat 2
 floor rect  18 38 19 42  flat 2
@@ -283,7 +294,15 @@ prop magnet 27 41 face down +y
 prop membrane 26 44 28 45
 prop boost 21 42 face -y strength 40
 
-# BASIN EXIT (draft)
+# THE BASIN'S EXIT (the owner, 2026-11-18: "a lift to that bottom area that you can't get out of"): a ball off
+# the brake strip's side lands in the BASIN 8 units down (rubber bounces, steel is stunned, glass shatters and
+# respawns) and could leave it only by the hole.  The course's LIFT (one a course, SPEC.md 128.12.4.6) stands in
+# its front-right corner (33, 33): its slab docks at the basin's floor and at the HIGH RIM (32, 33), 8 units
+# up; nothing stands in the shaft's screen column in front of it (the slab is drawn behind what does).  From
+# the rim, south: a PLATE (32, 34) that opens the GATE on the 1-wide neck (32, 35) (SPEC.md 128.41), a timed
+# DRAWBRIDGE (31 - 32, 38), half-unit steps up to the far plate.  MEASURED on the model: rubber and steel ride
+# up and walk the whole exit when they board with the slab low; a fall respawns in the basin.  A HUMP (SPEC.md
+# 128.44) stands on the hub, a dome over its middle.
 floor tile  32 33  flat 0
 hole  tile  33 33
 floor rect  31 34 33 41  flat 0
