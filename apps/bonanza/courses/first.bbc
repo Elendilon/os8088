@@ -1,4 +1,4 @@
-# First Roll - BONANZA's course 1, the one Enter plays (SPEC.md 128.10.3).
+# First Roll - BONANZA's course 1, the one Enter plays (SPEC.md 130.10.3).
 # The worked example of the text format: every wave-1 rule in a minute.
 # Ships: everything under apps/bonanza/courses/ is a part of BONANZA.O88.
 course FIRST "First Roll"
@@ -12,26 +12,26 @@ goal  rect  13 4 14 7  flat 0             # C's last column is the goal
 hole  tile  12 5                          # a pit in C
 start 4 5
 
-# Wave 4 (SPEC.md 128.14.6): the route its ROUTE DEMO is the autopilot's run on
-# (128.14.7.4), along the plateau's back rail and C's back row, clear of the
+# Wave 4 (SPEC.md 130.14.6): the route its ROUTE DEMO is the autopilot's run on
+# (130.14.7.4), along the plateau's back rail and C's back row, clear of the
 # pit, to the goal column - and its par, the autopilot's time and a third
-# (128.14.3.1, PROVISIONAL).
+# (130.14.3.1, PROVISIONAL).
 way  4 5
 way 11 4
 way 13 4
-# wave 7 (SPEC.md 128.18.3): `par` is refused; the tool's limit from the route applies
-# Wave 5b (SPEC.md 128.15.8): the design time (CD3), the early class until its retrofit; the
+# wave 7 (SPEC.md 130.18.3): `par` is refused; the tool's limit from the route applies
+# Wave 5b (SPEC.md 130.15.8): the design time (CD3), the early class until its retrofit; the
 # course budget reads it (6275 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 30
 
-# wave 7 (SPEC.md 128.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
-# seconds left of the limit.  One since the clocks became POSTS (128.18.5.3): this course's every row is
+# wave 7 (SPEC.md 130.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
+# seconds left of the limit.  One since the clocks became POSTS (130.18.5.3): this course's every row is
 # a scripted run of --selfcheck item 7 or 8 or of bonanza_phys, so the clock stands at the plateau's
 # front-left corner, the one cell none of them crosses
 clock 3 6
 
-# the FINISH clock (wave 8R, SPEC.md 128.22.6: every finish has a clock in the CGA window centred on it,
+# the FINISH clock (wave 8R, SPEC.md 130.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
 clock 11 4

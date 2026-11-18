@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA: the GAME - the tour, BONANZA.DAT (SPEC.md 128.14.3, 128.14.14 bonanzagame, 128.26.8).
+"""BONANZA: the GAME - the tour, BONANZA.DAT (SPEC.md 130.14.3, 130.14.14 bonanzagame, 130.26.8).
 
     make bonanzadisk && python3 tests/bonanza_game.py [--adapter cga|herc|both] [--leg NAME ...]
     python3 tests/bonanza_game.py --red NAME        (a red arm, below)
@@ -20,20 +20,20 @@ bonanzadisk builds it, and nothing else):
           CUP; then a free play of FIRST with ANOTHER ball (M; the model says
           which one finishes) to its goal - and after each BONANZA.DAT is still
           ABSENT from the floppy (read off it on the host, os88flush): only a
-          PLAY with the course's own ball posts a best (128.14.3.3)
+          PLAY with the course's own ball posts a best (130.14.3.3)
   pause   a free play of FIRST with its own ball, P pressed in mid-play: no
           step for a guest second, the log unchanged; P again: the play ends at
           the model's goal step (the pause added none) with the model's log,
           and BONANZA.DAT holds FIRST's best alone
   tour    G: the TOUR's courses (BZ_TOUR, bbcourse.py's named list - a test
-          fixture since SPEC.md 128.26.8, no longer every course but BENCH),
+          fixture since SPEC.md 130.26.8, no longer every course but BENCH),
           each played by the autopilot with its own ball
           (bz_cballs): after each its time in bz_ttime (the model's steps), its
           falls in bz_tfall, bz_tour the next course; bz_tour BZ_NTOUR + 1 after
           the last and the total their sum; BONANZA.DAT read back = the expected BZS4
           bytes (`BZS4`, the count, each course's identity, best and falls,
           the tour's XOR and total); every course's launch time to its
-          bracket and floppy reads REPORTED - wave 5b (SPEC.md 128.15.13): on
+          bracket and floppy reads REPORTED - wave 5b (SPEC.md 130.15.13): on
           the BZC2 parts, stored compact and expanded at the fetch, in the
           shipped parts' format (printed)
   stop    a second tour: course 1 as before, the tour's course 2 played SLOWER
@@ -49,16 +49,16 @@ bonanzadisk builds it, and nothing else):
           (a 32-byte file whose bytes are a valid head with a best - the
           length; a bad magic; an entry of another identity; a best of 0; a
           tour of another XOR; a count of 9) - bz_dat after the entry proc is
-          the image 128.14.3.3 and 128.14.17 item 6 say (the file refused
+          the image 130.14.3.3 and 130.14.17 item 6 say (the file refused
           whole, or the bad entry alone), and the next best (FIRST by the
           autopilot) REWRITES THE FILE WHOLE as this build's BZS4 bytes
   noapp   a disk built WITHOUT SYSTEM\\APPDATA: a best toasts `Best times not
           saved` once (bz_toast reached once over two bests, bz_datw 1)
-  physdat wave 6 (SPEC.md 128.16.9, 128.16.14): BONANZA.DAT +5 is BZ_PHYSV.
+  physdat wave 6 (SPEC.md 130.16.9, 130.16.14): BONANZA.DAT +5 is BZ_PHYSV.
           One boot a file, each carrying THIS build's course identities and
           tour XOR and a best on every course and a tour total: +5 = 00h (5b's
-          unset value), +5 = A0h (5b's physics) and (wave 6b, SPEC.md 128.17.7,
-          128.17.10) +5 = 25h (wave 6's: the owner's round-1 disk) load with the identities
+          unset value), +5 = A0h (5b's physics) and (wave 6b, SPEC.md 130.17.7,
+          130.17.10) +5 = 25h (wave 6's: the owner's round-1 disk) load with the identities
           kept and EVERY best and the tour's cleared (bz_dat the first run's
           image), and the next best (FIRST by the autopilot) rewrites the
           file whole with +5 = BZ_PHYSV and FIRST's best alone; the same file
@@ -92,10 +92,10 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 DAT = "SYSTEM/APPDATA/BONANZA.DAT"
-NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 128.22.5: BZS4)
+NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 130.22.5: BZS4)
 LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp", "physdat")
-PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 128.16.9: PHYSV_SHIPPED's last before wave 6)
-PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 128.17.7: its bests cleared once)
+PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 130.16.9: PHYSV_SHIPPED's last before wave 6)
+PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 130.17.7: its bests cleared once)
 
 
 # ---- the model's side -----------------------------------------------------------
@@ -108,19 +108,19 @@ def ncrs():
 
 
 def tks():
-    """THE TOUR's courses, K in its order: bzcourse.inc's BZ_TOUR (SPEC.md 128.26.8 - a
+    """THE TOUR's courses, K in its order: bzcourse.inc's BZ_TOUR (SPEC.md 130.26.8 - a
     short NAMED list, bbcourse.py's TOUR, no longer every course but BENCH)"""
     return R.tour_ks()
 
 
 def ntour():
-    """bonanza.asm BZ_NTOUR: the tour's length (bzcourse.inc, SPEC.md 128.26.8)"""
+    """bonanza.asm BZ_NTOUR: the tour's length (bzcourse.inc, SPEC.md 130.26.8)"""
     return len(tks())
 
 
 def physv():
     """this build's BZ_PHYSV, read out of the GENERATED bzcourse.inc (never a
-    literal: a retune moves it, SPEC.md 128.16.11)"""
+    literal: a retune moves it, SPEC.md 130.16.11)"""
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
     return int(re.search(r"^BZ_PHYSV\s+equ\s+0?([0-9A-Fa-f]+)h", inc, re.M).group(1), 16)
@@ -168,7 +168,7 @@ def tourx():
     return x
 
 
-SLOTB = 22 + 4 * NENT          # save v4 (wave 8R round 2, SPEC.md 128.22.5): 23 entries, the tour, three 114-byte slots
+SLOTB = 22 + 4 * NENT          # save v4 (wave 8R round 2, SPEC.md 130.22.5): 23 entries, the tour, three 114-byte slots
 SLOT_OFF = 8 + 6 * NENT + 6    # BZD_SLOT: the first slot
 TOUR_OFF = 8 + 6 * NENT        # BZD_TOUR
 DAT_FILE = SLOT_OFF + 3 * SLOTB
@@ -183,7 +183,7 @@ def crs_max():
 
 
 def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exits=None, best=None, z3=0, tail=b""):
-    """one 114-byte BZS4 slot (SPEC.md 128.22.5): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open pads,
+    """one 114-byte BZS4 slot (SPEC.md 130.22.5): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open pads,
     +8 the done ones, +12 the routes opened, +16 taken (dwords), +20 the pathway's identity, +22 the exits
     found (a word a course, 23), +68 the best a course (23 words).  TAIL is poked over the last bytes"""
     ex = [0] * NENT
@@ -203,7 +203,7 @@ def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exit
 
 
 def dat_image(best=None, tour=0, count=None, pv=None, slots=None, old=0):
-    """the bytes bz_dat holds and a save writes (SPEC.md 128.14.3.3, 128.22.5): `BZS4`, 494 bytes, 23 entries
+    """the bytes bz_dat holds and a save writes (SPEC.md 130.14.3.3, 130.22.5): `BZS4`, 494 bytes, 23 entries
     (BEST {K: (steps, falls)}), the tour's 6 bytes (TOUR the total, 0 none), +5 PV (this build's BZ_PHYSV by
     default) and three 114-byte SLOTS (bytes, or empty).  OLD = 64 / 304: an older layout's LENGTH, magic
     `BZT1` / `BZS3` (no longer read: the bytes only have to be of that length)"""
@@ -224,8 +224,8 @@ def dat_image(best=None, tour=0, count=None, pv=None, slots=None, old=0):
 
 def hostile_set():
     """[(name, the file's bytes, the bz_dat image the entry proc must make,
-    the best the next FIRST play files)] - SPEC.md 128.14.3.3's hostile set and
-    128.14.17 item 6's whole-file refusals.  FIRST's play (the autopilot, its
+    the best the next FIRST play files)] - SPEC.md 130.14.3.3's hostile set and
+    130.14.17 item 6's whole-file refusals.  FIRST's play (the autopilot, its
     own ball) is the next best in every case, so each file is REWRITTEN WHOLE"""
     t1, _ = auto_steps(1)
     first = dat_image()
@@ -258,7 +258,7 @@ def hostile_set():
     bad = bytearray(good)
     struct.pack_into("<HHH", bad, 8 + 6 * (NENT - 1), 0x1234, 77, 3)        # the LAST entry (K 22): a course
     out.append(("entlast", bytes(bad), first, {1: (t1, 0)}))                # that does not exist: refused whole
-    # no older layout is read (128.22.5): `BZT1`, `BZS2` and `BZS3` are unrecognised - the first run's image
+    # no older layout is read (130.22.5): `BZT1`, `BZS2` and `BZS3` are unrecognised - the first run's image
     out.append(("old1", dat_image({1: (t1 + 99, 2), 2: (499, 0)}, old=64), first, {1: (t1, 0)}))
     out.append(("old3", dat_image({1: (t1 + 99, 2), 2: (499, 0)}, old=304), first, {1: (t1, 0)}))
     # ...and a SLOT judged alone: one of another pathway emptied, one of this pathway's kept
@@ -275,14 +275,14 @@ def hostile_set():
     out.append(("zero3", dat_image({2: (499, 0)}, slots=slot(3, z3=1) + slot(3, best={NENT - 1: 1}) +
                                     slot(3, exits={nc: 1})),
                 dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
-    # BZS4 (128.22.5): the exits found and the best of a course past the courses - K = NCRS and NENT - 1 (the
+    # BZS4 (130.22.5): the exits found and the best of a course past the courses - K = NCRS and NENT - 1 (the
     # last word) - each EMPTIES its slot alone; the words of the courses that exist are kept
     out.append(("wide", dat_image({2: (499, 0)}, slots=slot(3, exits={NENT - 1: 0x8000}) + slot(3, best={nc: 7}) +
                                    slot(3, exits={1: 1, nc - 1: 0x8001}, best={1: 300, nc - 1: 450})),
                 dat_image({2: (499, 0)}, slots=bytes(2 * SLOTB) + slot(3, exits={1: 1, nc - 1: 0x8001},
                                                                        best={1: 300, nc - 1: 450})),
                 {1: (t1, 0), 2: (499, 0)}))
-    # EXPLORE rests on any pad of the pathway's, none of them in the open set (128.19.8): KEPT (the verify of
+    # EXPLORE rests on any pad of the pathway's, none of them in the open set (130.19.8): KEPT (the verify of
     # 8R.5: the reader emptied it, and with it the slot's exits found and bests); a pad past the pathway's
     # emptied whatever its open bit says, in either mode
     np_ = npad()
@@ -294,7 +294,7 @@ def hostile_set():
 
 
 def npad():
-    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD (128.22.3)"""
+    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD (130.22.3)"""
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
     m = re.search(r"^BZ_PATH_NPAD\s+equ\s+(\d+)", inc, re.M)
@@ -390,7 +390,7 @@ def leg_posts(g):
         d = read_dat(g)
         if d is not None:
             fails.append("posts: after %s BONANZA.DAT is ON the floppy (%d bytes): only a play with the course's "
-                         "own ball posts a best (SPEC.md 128.14.3.3)" % (what, len(d)))
+                         "own ball posts a best (SPEC.md 130.14.3.3)" % (what, len(d)))
         if g.b("bz_newb"):
             fails.append("posts: after %s [bz_newb] is 1" % what)
     if read_dat(g) is not None:
@@ -461,7 +461,7 @@ def leg_pause(g):
     m.run()
     if n1 != n2 or n1 >= t1:
         fails.append("pause: P pressed at step >= 40: the steps %d then %d a guest second later (the goal at %d): "
-                     "a pause runs no step (SPEC.md 128.14.4.7)" % (n1, n2, t1))
+                     "a pause runs no step (SPEC.md 130.14.4.7)" % (n1, n2, t1))
     if log1 != log2:
         fails.append("pause: the log changed while paused")
     g.key("KeyP")
@@ -526,7 +526,7 @@ def leg_tour(g, best):
             d.hex() if d else "ABSENT", exp.hex()))
     if bytes(g.m.read(g.a("bz_dat"), DAT_FILE)) != exp:
         fails.append("tour: [bz_dat] is not the expected image")
-    print("%s tour (the parts %s, the courses BZC2's, expanded at each fetch: SPEC.md 128.15.13, the launch times "
+    print("%s tour (the parts %s, the courses BZC2's, expanded at each fetch: SPEC.md 130.15.13, the launch times "
           "REPORTED): %s; total %d steps; BONANZA.DAT the expected BZS4 bytes: %s" % (
               g.tag, R.part_fmt().upper(), "; ".join(rep), total, "yes" if not fails else "NO"), flush=True)
     return fails, best, total
@@ -538,7 +538,7 @@ def leg_stop(g, best, total):
     m = g.m
     T = tks()
     if len(T) < 3:
-        return ["stop: the tour has %d course(s); the leg plays into its third (BZ_TOUR, SPEC.md 128.26.8)"
+        return ["stop: the tour has %d course(s); the leg plays into its third (BZ_TOUR, SPEC.md 130.26.8)"
                 % len(T)]
     k2 = T[1]                                   # the tour's course 2 (its K)
     guard(g)
@@ -609,7 +609,7 @@ def leg_face(g):
     m.run()
     if after != before or n or dlg not in (0, 0xFFFF):
         fails.append("face: during a tour G, N, M, B, R, D, L and V changed (tour, course, ball, demo) %s -> %s%s, "
-                     "%d launch(es), chooser %04X (SPEC.md 128.14.3.4: they do nothing)" % (
+                     "%d launch(es), chooser %04X (SPEC.md 130.14.3.4: they do nothing)" % (
                          before[:4], after[:4], ", the log changed" if before[4] != after[4] else "", n, dlg))
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_tour") == ntour() + 2, "Esc on the face to stop the tour", guest=10)
@@ -632,7 +632,7 @@ def leg_hostile(tag, sym, td, cases=None, o88=None):
             g = open_game(ui, tag, sym)
             got = bytes(g.m.read(g.a("bz_dat"), DAT_FILE))
             if got != want:
-                fails.append("hostile %s: [bz_dat] after the entry proc %s, SPEC.md 128.14.3.3's %s" % (
+                fails.append("hostile %s: [bz_dat] after the entry proc %s, SPEC.md 130.14.3.3's %s" % (
                     name, got.hex(), want.hex()))
             free_play(g, 1, R.course_k(1).ball, "hostile %s: FIRST" % name)
             d = read_dat(g)
@@ -673,7 +673,7 @@ def leg_noapp(tag, sym, td, o88=None):
 
 def physdat_set():
     """[(name, the file's bytes, the bz_dat image the entry proc must make, the
-    best the next FIRST play files)] - SPEC.md 128.16.9's three cases: each file
+    best the next FIRST play files)] - SPEC.md 130.16.9's three cases: each file
     carries THIS build's course identities and tour XOR, a best on every course
     and a tour total, and differs only at +5"""
     t1, _ = auto_steps(1)
@@ -752,7 +752,7 @@ def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
 
 REDS = {
     # the writer keeps the LAST time: the best compare taken out
-    # - in bz_post AND in bz_dsave's merge with the file, which since the review (128.14.25 item 4)
+    # - in bz_post AND in bz_dsave's merge with the file, which since the review (130.14.25 item 4)
     # keeps the smaller of the two by itself: either alone is masked by the other (the final pass of
     # wave 4: the bz_post arm alone stayed GREEN)
     "besttime": [("bonanza.asm", "    jcxz .set\n    cmp ax, cx\n    jae .out\n.set:\n",
@@ -760,22 +760,22 @@ REDS = {
                  ("bonanza.asm", "    cmp ax, dx\n    jae .mn\n",
                   "    nop                         ; RED besttime: the merge keeps ours\n")],
     # the length check removed: a short file's bytes are checked as a whole one
-    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v4 (128.22.5): `BZS4`, exactly one sector; any\n"
+    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v4 (130.22.5): `BZS4`, exactly one sector; any\n"
                 "    jne bz_dnorm                ; other length (an older layout too) is unrecognised\n",
                 "    nop                         ; RED datlen: no length check\n")],
     # a replay posts a best
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],
     "noappdata": [],
-    # wave 8R (128.22.5, the verify of 8R.5): EXPLORE's pad held to the open set - the explore slot emptied
+    # wave 8R (130.22.5, the verify of 8R.5): EXPLORE's pad held to the open set - the explore slot emptied
     "explorepad": [("bonanza.asm", "    test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays\n"
-                    "    jnz .n                      ; any pad, 128.19.8: none of them in the set)\n",
+                    "    jnz .n                      ; any pad, 130.19.8: none of them in the set)\n",
                     "    nop                         ; RED explorepad: EXPLORE's pad must be open\n")],
-    # BZS4 (128.22.5): the bests of courses past the courses not held to zero - the slot keeps a best for
+    # BZS4 (130.22.5): the bests of courses past the courses not held to zero - the slot keeps a best for
     # a course that does not exist
     "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST + 2 * BZ_NCRS]\n    mov cx, BZ_NEXITPAD\n    call bz_dzero\n    jnz .bad\n",
                   "    nop                         ; RED pastbest: the bests past the courses unchecked\n")],
-    # wave 6 (SPEC.md 128.16.14): +5 not checked - a file under other physics keeps its bests
+    # wave 6 (SPEC.md 130.16.14): +5 not checked - a file under other physics keeps its bests
     "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)\n    je .phys\n"
                  "    xor cl, cl\n.phys:\n",
                  "    nop                         ; RED physdat: +5 not checked\n.phys:\n")],
@@ -816,7 +816,7 @@ def check():
         bad.append("BZS4 is %d bytes: not under one sector, so every save is a full replace" % DAT_FILE)
     if crs_max() != NENT or ncrs() > NENT:
         bad.append("BZ_CRS_MAX %d is not the test's NENT %d (or %d courses exceed it)" % (crs_max(), NENT, ncrs()))
-    try:                                        # the tool REFUSES more than BZ_CRS_MAX courses (SPEC.md 128.22.5)
+    try:                                        # the tool REFUSES more than BZ_CRS_MAX courses (SPEC.md 130.22.5)
         BB.compile_all([os.path.join(ROOT, "apps/bonanza/courses/first.bbc")] * (BB.CRS_MAX + 1))
         bad.append("bbcourse built %d courses: BZ_CRS_MAX is %d" % (BB.CRS_MAX + 1, BB.CRS_MAX))
     except BB.CourseError as e:

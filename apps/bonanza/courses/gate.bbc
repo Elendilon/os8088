@@ -1,4 +1,4 @@
-# Gate Test - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE test course (SPEC.md 128.41), built only by the
+# Gate Test - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE test course (SPEC.md 130.41), built only by the
 # BZGATE=1 knob (make BUILD=<tree> BZGATE=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES
 # and makes it the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 # A PLATE (rolled over) or a KEY (touched) opens its CHANNEL for the attempt: every gate of it opens and every
@@ -12,7 +12,7 @@
 #  - south-east, the TIMED DRAWBRIDGE (wy 11 - 12): six cells over the void, down 128 steps in every 256 (2.3 s each way);
 #    caught up, the ball falls; a goal across it;
 #  - west, the BOX DRAWBRIDGE (wy 10 - 11): two cells up until the box plate is rolled over; a goal across it.
-# THE ART's STYLES (SPEC.md 128.41.11), one an element group: the ring gates CRYSTAL, the plus gates PORTCULLIS,
+# THE ART's STYLES (SPEC.md 130.41.11), one an element group: the ring gates CRYSTAL, the plus gates PORTCULLIS,
 # the timed drawbridge's deck PICKET (planks), the box drawbridge the default GRILLE (its plain seam).
 course GATE "Gate Test"
 width  128
