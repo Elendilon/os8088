@@ -31591,8 +31591,9 @@ def main_demo(argv):
 # PLAYGROUND's.  Not shipped and not in the tour: --selfcheck item 15 compiles it, `make bonanzatwoseg` adds it to a
 # private build as course 7
 TWOSEG_EXT = ("\n# SPEC.md 130.30.7: the lane run on down the screen off the platform's foot, until one part refuses "
-              "the course\nfloor box 15 17 81 106 flat 2.5\n")     # (to 106, was 121, when PLAYGROUND's crack and
-# group labs merged, 2026-11-17: its picture part 67,504 bytes at 121, over 130.30.4.1's 65,024; 63,202 at 106)
+              "the course\nfloor box 15 17 81 92 flat 2.5\n")      # (to 106, was 121, when PLAYGROUND's crack and
+# group labs merged, 2026-11-17: its picture part 67,504 bytes at 121, over 130.30.4.1's 65,024; 63,202 at 106;
+# to 92 when THE LOOK's wall tops landed, 2026-11-18 (130.47.3): 68,002 at 106, 64,868 at 95)
 
 
 def twoseg_text():
