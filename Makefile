@@ -22882,6 +22882,19 @@ BZLOOKSTAMP := $(BUILD)/.bzlook-$(or $(BZLOOK),0)
 $(BZLOOKSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzlook-*
 	@touch $@
+#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.8): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes; with BZLOOK it replaces the contact band (make BUILD=build/shadow BZROLL=1 BZSHADOW=1 bonanzadisk)
+# BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
+# default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
+BZSHADOW ?=
+ifeq ($(filter $(BZSHADOW),1),)
+ifneq ($(BZSHADOW),)
+$(error BZSHADOW=$(BZSHADOW) is 1 or empty)
+endif
+endif
+BZSHADOWSTAMP := $(BUILD)/.bzshadow-$(or $(BZSHADOW),0)
+$(BZSHADOWSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzshadow-*
+	@touch $@
 # SPEC.md 130.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
@@ -22934,9 +22947,9 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) $(BZLOOKSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) $(BZLOOKSTAMP) $(BZSHADOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZLOOK),--look $(BZLOOK)) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZLOOK),--look $(BZLOOK)) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)

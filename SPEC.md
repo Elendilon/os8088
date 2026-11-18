@@ -292943,3 +292943,23 @@ after it (the goal on the last step) still runs.
 
 The kit is not re-cut (130.37: the owner's call), so a new block is the course's own; a re-cut would win some
 back, unmeasured.
+
+#### 130.47.8 Cast shadows (`BZSHADOW=1`, OFF by default)
+
+The owner's verdict on the host prototypes (2026-11-18): the contact band read as fuzz in motion, and of
+four light directions only one cast shadows that matter - "good art, not good info", since a shadow says
+where something tall stands over lower floor, not the depth that was missing - and they cost bytes, so
+fewer courses to a disk. Kept as a renderer for a disk that can afford it (a 1.44MB VGA disk), off by
+default; with it on, it REPLACES the contact band (130.47.4).
+
+The light comes from `-x+y` (screen up-left; the sw faces stay the lit ones, the se faces the shaded), and
+rises 1 px of height a gu, so a two-unit (16 px) step casts a shadow one tile long. A TOP pixel at world
+`(gx, gy, z)` (130.47.4's buffers) is in shadow when, marching toward the light in 2 gu steps, another cell's
+top stands above the ray: a whole cell's own sloped PLANE (so a ramp casts the ramp, not a block at its top
+corner); a split cell its records' highest corner; a FIELD cell its `hmax`. A shadowed pixel is darkened by
+the 50% dither (`(x + y)` even black). Faces receive none. No shadow falls on, or from, a cell that moves
+(130.47.4's set). The same block-limit retry (130.47.5) drops the shadows for a course they put over
+`BLK_MAX`, and the same re-stamp (130.47.6) carries the demos.
+
+Cost (MEASURED, the host): MILL 6,592 LZB today, 7,078 with shadows alone, 7,288 with the dither look and
+shadows; ROLL 9,807, 10,713 and 11,282.
