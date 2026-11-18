@@ -279902,3 +279902,129 @@ putting-out's mark gone - "never drawn" at step 33 of the chain), `bpair`
 3. A pad on a SLOPE (a launch ramp) is refused, as every family element on a
    ramp is: a pad pushing a ball UP a ramp past where the arrows can is the
    one thing it cannot do today.
+
+### 128.41 THE VGA ARM (the owner's decisions, 2026-11-17/18; BUILDING on `bounce-bonanza-vga`)
+
+*Plan and rationale: docs/plans/BOUNCE-BONANZA-VGA.md (its section numbers are
+cited as "plan N"); V0's measurements are its section 13.* This subsection is
+the contract for the arm that replaces the wave-14 story H5 ("VGA runs the CGA
+arm"). It is written wave by wave: what V1 builds is binding here; what a
+later wave builds is marked **(V2)** and is not built until its own words are
+added.
+
+#### 128.41.1 The decisions
+
+| | decided | by |
+|---|---|---|
+| the mode | `FSXM_VGA0D`, 320 x 200 x 16 planar, two planes used | the owner (D1) |
+| the camera | LATTICE's framings (128.17.6), reached by pixel pans **(V2)**; V1 steps whole columns and one-line rows | the owner (D2) |
+| pacing | the camera on game time; the divisor (70 or 35 Hz) held from a short test at the bracket's start **(V2)** | the owner (D3) |
+| H5 | retired: this arm replaces it | the owner (D4) |
+| EGA | refused, later or never | the owner (D5) |
+| colours | the CGA's four (attribute controller registers 0 - 3) | the owner (D6) |
+| the machine | a V20 or better may be needed for 70 Hz; 4.77 MHz is a bonus | the owner (D7) |
+| the art | converted ONCE, at load, never per frame; nothing converted is stored on a disk | the owner, 2026-11-18 |
+
+#### 128.41.2 The adapter
+
+`bz_adapter` (both copies: `bonanza.asm`, `bzshell.asm`) answers **3** for a
+`VID_VGA` display that offers `FSXM_VGA0D`. A VGA play sets `[bz_vga]` 1 and
+`[bz_herc]` 0: every site that asks only "Hercules or not" takes the CGA's
+answer, and every site where the VGA differs asks `[bz_vga]` first. The
+refusal toast becomes `CGA, HERC OR VGA ONLY`; EGA and MDA are refused with
+it. A VGA under a kernel without `GFX_VGA` still comes up `VID_CGA` and plays
+the CGA arm (128.16.6), unchanged.
+
+#### 128.41.3 The ring on the VGA (plan 2)
+
+After `OSAPI_FSX_MODE` (mode 0Dh: byte addressing, 200 lines double-scanned,
+70.1 Hz), `bz_vinit` sets CR13 = **21** (a stride `P` of **42** bytes a line),
+AC 12h = **03h** (planes 0 and 1 reach the glass) and AC 0 - 3 to the course's
+four colours (`bz_vpals`, the CGA palette's colours as EGA 6-bit values), with
+the screen blanked.
+
+    byte of world line L, world column b (8 px), each of planes 0 and 1:
+        (P * L + b) mod 65536
+    S = (P * R0 + c0) mod 65536        (bytes; R0 in LINES: rl 1, lsh 0)
+
+`bz_W` is the window's width, **40** columns while the panning is 0 (41 with
+the panning, **(V2)**); `bz_H` is **200** rows of one line. `P` is never `W`:
+the two columns of the stride the glass does not show are a GUTTER. An
+entering column's cells, in both directions, lie in it until the start
+address changes (plan 2.2), and no two cells of a window share a byte (`|P dr
++ db| <= 8,398 < 65,536`). The CRTC's address wraps at 64 KB (MEASURED on
+MartyPC, 86Box's OTI-067 and, in the field, the PVGA1A: plan 13). Nothing on
+the VGA ever splits at a ring's end: offsets wrap in 16 bits, as the card
+does.
+
+#### 128.41.4 The order (binding; plan 2.4)
+
+Within one VGA frame:
+
+1. **Entering rows AND the entering column** are written before the start
+   address changes, every cell of them, all off the glass (128.2's rules 1 and
+   3 become one).
+2. **The start address** `S_new` to CR0Ch/0Dh, at least `BZ_VSMARG` (12
+   scanlines) before the display's end, predicted from the last rise
+   (`bz_vedge`) and the refresh. A frame later than that waits for the rise,
+   keeps the old picture one more refresh (a counted miss), and writes the
+   start after it.
+3. **The rise, under CLI**: `bz_vr` waits for the EDGE (out of the retrace,
+   then into it), never the level, and shuts interrupts at it EVERY frame
+   (128.4's row-0 rule, always on).
+4. **The pel panning** (AC 13h, index 33h) at the rise, before the first
+   displayed line: **0 in V1**; the camera's `x0 & 7` **(V2)**.
+5. **The boxes**, in raster order, as 128.2's rule 4 (no column to split).
+
+A full write blanks the screen with the sequencer (SR01 bit 5) rather than the
+mode register, and unblanks in the next frame's retrace.
+
+#### 128.41.5 The art, converted once (plan 3)
+
+The VGA's art is held as **planar pairs**: eight pixels are a word, plane 0's
+byte (bit 7 the leftmost pixel) then plane 1's. Every operation compose
+performs is bitwise per pixel (a block copy, mask AND and frame OR, the
+shadow's AND, an occluder's `((buf ^ blk) & mask) ^ blk`), so compose runs
+unchanged on planar pairs and its box is written by splitting the even and
+odd bytes into the two planes: nothing is converted per frame.
+
+| what | converted | where |
+|---|---|---|
+| the course's blocks, the occluder masks, the platform slab's sprites | in place, word for word, at the fetch | the course parts |
+| the ball in play: roll frames, masks, squash, shatter or stretch, the shadow | into TWO copies with 6-byte rows (3 words, 24 px): copy 0 as the CGA entry lies, copy 1 four pixels further right | one claim, `[bz_vbseg]` |
+| the AV model's bit pair and checker (128.29), the sparkles' places (128.25.19) | per card, by table | the resident image |
+
+A CGA ball entry is 5-byte rows at a 4-pixel byte (`px >> 2`) holding the
+shift `px & 3`; the VGA places a row at the 8-pixel word `px >> 3` and takes
+copy `(px & 4) / 4`, so the shift is whole for every frame, the pathway's fold
+included. An offset `o` into the ball part becomes `(o - 16) x 6 / 5 + 16` in
+a copy. The conversion runs on the desktop at the fetch (and at a material
+change), about a quarter of a second for a big course (ESTIMATED); a play
+converts nothing.
+
+#### 128.41.6 The code part
+
+The arm's writers are a code part, **`BZVGA.BIN`** (`OP_SEG`, lazy,
+compressed; the row after the bundle, `BZ_P_VGA`), linked against the package
+as the shell part is (`bzlink.inc`), fetched on the desktop only for a VGA
+play and dropped with the bracket. Its vectors are entered by `call far` with
+DS = ES = the package, clobber what each names, and `retf`. The resident image
+carries the dispatch at each writer (`[bz_vga]`) and nothing else of the
+VGA's. Nothing in it is written through CS (kern_mega's code alias).
+
+#### 128.41.7 The frame's numbers
+
+| | value |
+|---|---|
+| a refresh | 70.07 Hz, 14.27 ms, **17,025 PIT counts** (MEASURED, plan 13.2) |
+| a miss | `BZ_MLIMV` **25,540** counts (1.5 refreshes) |
+| a game line | 2 scanlines, 75.8 counts (the wheel's `wla`/`wlb` 76) |
+| the rise to window line 0 | 1,166 - 1,176 us, **18.4 game lines** (`wb0` 18, MEASURED) |
+| `BZ_VSMARG` | 12 scanlines, 455 counts |
+
+#### 128.41.8 Not in V1
+
+The pixel camera, the panning and the pacing rules (V2); `bonanzaring`'s VGA
+card and the other rows' legs (V3); the field run (V4). V1 is checked by the
+host builds, `vgaprobe`, and a boot to look on MartyPC's `os8088_xt_vga` and
+86Box's `xt-v20-vga`.
