@@ -1,6 +1,6 @@
 # FIRST ROLL: design sheet, attempt 1
 
-*Status: **IN THE ENGINE, playtest 5, revision 6** (the owner's mark-ups on playtests 3 and 4) (`apps/bonanza/courses/roll.bbc`,
+*Status: **IN THE ENGINE, playtest 6, revision 7** (art prototypes) (`apps/bonanza/courses/roll.bbc`,
 built by `make BUILD=build/roll BZROLL=1 bonanzadisk`). While the LAYOUT
 moves, `first/sketch.py --bbc --force` writes `roll.bbc` from the sketch, and
 its header lines travel in the sketch, so nothing hand-made is lost. Once
@@ -15,6 +15,35 @@ then this course is built under a working name of its own in the tool,
 `ROLL`, and it takes FIRST when the prototype goes.
 
 **What each revision changed (the owner, 2026-11-18):**
+- **Revision 7, art prototypes** (the owner, on the recommendations:
+  floating terraces for another course, not this one; a screenshot of
+  diagonal tiles; *"5: Oh, I think I like that; but we have to be careful
+  about how much view we block off. Add one ... right before the leap,
+  across the rail blocks; at a good height, we're not trying to prevent a
+  jump here"*; *"6: I like this maybe combined with art"*; the palette as
+  the first course's "default look"; *"make some art prototypes on the
+  course; it needs to fit in, look natural; so same style as the general
+  art and game, and high quality"*):
+  - the walk elbow's lone left block is gone (the first try removed its
+    twin, by the steps);
+  - `first/decals.py` (host-only, deterministic: the art's source) draws in
+    world coordinates and projects with the tool's own formula, one-pixel
+    black lines in the course's four colours. It writes the `roll_*.bba`
+    files and a marked ART block at the end of `roll.bbc`;
+  - **the prototypes**:
+    - a TEE mark under the start (a magenta disc, black rim, white
+      highlight);
+    - two CHEVRONS down the lip's ramp;
+    - a FRAME before the leap: the run-up's last rail blocks raised into
+      pillars, and a BANNER between them 4 units over the floor, so a Hop
+      passes under it;
+    - two LONE PILLARS floating in the void, each with a pennant in the
+      checkpoint flag's style;
+  - **cost** (MEASURED): the pillars +12 blocks and +47 occluder records,
+    the art +57 blocks (records and masks unchanged). The course part
+    8,622 -> **9,463 bytes** on the disk;
+  - **the diagonal-tile look** is a screenshot only (`first/diagonal-
+    variant.png`, today's left, chamfered right), not in the course.
 - **Revision 6, from playtest 4** (the owner: the middle clock "kind of
   works there", the bottom clock and `stop down` "work great", the unwalled
   hill "plays fine, and adds a bit of visual interest", the hole "in the

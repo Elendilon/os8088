@@ -5994,3 +5994,52 @@ form.
 
 **Run**: the tool and previews; the model's steered run (37.2 s, no pans);
 the playtest build. **Not run**: the guest (fork rule 5).
+
+## 2026-11-18 (FIRST ROLL revision 7: the first art prototypes)
+
+The owner, on the recommendations:
+
+> Tested that last build; the corner block is still there. the rest of the
+> changes on that round look very good. For the previous list: 1: Floating:
+> For another course we'll use that, but not this one. 4: Quick screenshot
+> of this look, and I'll decide. 5: Oh, I think I like that; but we have
+> to be careful about how much view we block off. Add one to the screenshot
+> right before the leap, across the rail blocks; at a good height, we're
+> not trying to prevent a jump here. 6: I like this maybe combined with
+> art; worth a try, anyway. 7: We can try a couple, but I think this
+> palette is kind of the "default look", which is good to have the first
+> course in. Then, make some art prototypes on the course; it needs to fit
+> in, look natural; so same style as the general art and game, and high
+> quality.
+
+Before that, on whether art can share the floor's occlusion: *"Instead of
+'always on top' or 'always below' just 'its pixels, ignore it and use
+whatever is under it's occlusion'."* That is how the tool already works.
+Measured, and SPEC.md 130.23.2 is corrected (an hour earlier it said the
+ball is always drawn over art, which was wrong).
+
+**The corner block**: the circle covered two lone blocks. The first try
+removed the one by the steps; the one the owner meant was its twin at the
+walk's elbow ("The ball is behind it, but otherwise yes"). It is gone now.
+
+**The art's source** is `first/decals.py`, a host generator kept beside the
+sketch:
+- shapes in WORLD coordinates (a disc on a floor, chevrons on a ramp, a
+  cloth on an upright plane), projected with the tool's own formula;
+- filled in the four colours with a one-pixel black line;
+- written as `.bba` files and a marked block of course lines, so a re-run
+  replaces only its own.
+
+**The prototypes** are the sheet's revision 7. Measured: the pillars cost
+12 blocks and 47 occluder records, the art 57 blocks, and the part 841
+bytes on the disk (9,463).
+
+**Looked at**, in the tool's preview at 4x:
+- the tee reads as a painted disc;
+- the chevrons point downhill, thin on the dithered ramp (thicker is one
+  number in the generator);
+- the banner hangs cleanly between the pillars, clear of the run-up;
+- the pennants are small.
+
+**Run**: the tool and previews; the model's steered run (37.2 s, no fall,
+no pan); the playtest build. **Not run**: the guest (fork rule 5).
