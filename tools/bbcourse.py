@@ -1079,6 +1079,7 @@ class Source:
         self.name = self.title = None
         self.width = None
         self.origin = None
+        self.gstyle = None          # SPEC.md 128.41.11: `gatestyle`, the course's gate art STYLE (None: GRILLE)
         self.rooms = []
         self.holes = []
         self.start = None           # ((wx, wy), line)
@@ -1776,6 +1777,12 @@ GT_KEY = ("#########", "#.......#", "#.......#", "#.......#", "#.......#", "#...
           "#########", "   #o#   ", "   #o### ", "   #oooo#", "   #o### ", "   #o#   ", "   ###   ")
 GT_BARH = 9                   # px: a gate's bars over its floor (its posts too); its half width GT_BARW
 GT_BARW = 7
+# THE GATE ART's STYLES (SPEC.md 128.41.11): a course's `gatestyle`, or an element's `style`, picks the look of a
+# shut gate's bars and of a drawbridge's deck - tool only (the picture and the lanes; no record field, no resident
+# byte).  GRILLE is the look GATE was built with and every course's default; each keeps the channel's plaque black
+# on white, and its bars' structure black and white, so a style reads on the 1bpp cards as on the CGA
+GT_STYLES = ("grille", "crystal", "picket", "portcullis")
+GT_CRYH = (6, 9, 7, 10, 7, 9, 6)   # CRYSTAL: its seven shards' heights, px (the middle one under the plaque)
 
 
 def gt_plaque(cx, cy, ch, inv=False):
@@ -1807,15 +1814,52 @@ def gt_base(cx, cy, along):
     return lambda u: cy + (u if along else -u) // 2
 
 
-def gt_bars_pix(cx, cy, ch, along):
+def gt_bars_pix(cx, cy, ch, along, style=0):
     """a SHUT GATE (SPEC.md 128.41.5): a grille standing across the path on its cell's top - black posts at its
-    ends, black rails top and bottom, bars alternately black and the channel's ink, the plaque in its middle"""
+    ends, black rails top and bottom, bars alternately black and the channel's ink, the plaque in its middle.  Its
+    STYLE (SPEC.md 128.41.11): 1 CRYSTAL, seven shards of the crystal tiles' kind, black-outlined, white and the
+    channel's ink in turn, their tops pointed; 2 PICKET, four white pickets, black-outlined and pointed, on two black
+    rails; 3 PORTCULLIS, an iron grid - black bars every third column and three black rails, each bar a white
+    sheen beside it, its feet SPIKES (the bottom row only under the bars).  Every style in the grille's 15 px and
+    its plaque where the grille's is"""
     b = gt_base(cx, cy, along)
     out = {}
-    for u in range(-GT_BARW, GT_BARW + 1):
-        for h in range(GT_BARH + (1 if abs(u) == GT_BARW else 0)):
-            ink = BLK if abs(u) == GT_BARW or h in (0, GT_BARH - 1) or u & 1 == 0 else GT_INK[ch]
-            out[(cx + u, b(u) - h)] = ink
+    if style == 1:
+        for k, hgt in enumerate(GT_CRYH):           # the shards at u = -6, -4, .., 6: a shard is its column, its
+            uc = 2 * k - 6                          # tip a px over it, and an outline either side (shared with
+            for h in range(hgt + 1):                # its neighbour's, the taller of the two)
+                out[(cx + uc, b(uc) - h)] = BLK if h in (0, hgt) else (WHT if k & 1 else GT_INK[ch])
+            for u in (uc - 1, uc + 1):
+                for h in range(hgt):
+                    out[(cx + u, b(u) - h)] = BLK
+    elif style == 2:
+        for uc in (-6, -2, 2, 6):                   # four pickets, each its white column and a black outline, its
+            for h in range(GT_BARH + 1):            # point a px over the outline
+                out[(cx + uc, b(uc) - h)] = BLK if h in (0, GT_BARH) else WHT
+            for u in (uc - 1, uc + 1):
+                for h in range(GT_BARH):
+                    out[(cx + u, b(u) - h)] = BLK
+        for u in (-4, 0, 4):                        # the rails between them
+            for h in (2, 6):
+                out[(cx + u, b(u) - h)] = BLK
+    elif style == 3:
+        for u in range(-GT_BARW, GT_BARW + 1):
+            bar = (u + 7) % 3 == 0                  # bars at u = -7, -4, .., 5 and the posts at the ends
+            post = abs(u) == GT_BARW
+            for h in range(GT_BARH + (1 if post else 0)):
+                if bar or post:
+                    out[(cx + u, b(u) - h)] = BLK
+                elif h in (2, 5, GT_BARH - 1):
+                    out[(cx + u, b(u) - h)] = BLK
+                elif (u + 7) % 3 == 1 and h:        # the sheen beside each bar, white
+                    out[(cx + u, b(u) - h)] = WHT
+                elif h:
+                    out[(cx + u, b(u) - h)] = GT_INK[ch]
+    else:
+        for u in range(-GT_BARW, GT_BARW + 1):
+            for h in range(GT_BARH + (1 if abs(u) == GT_BARW else 0)):
+                ink = BLK if abs(u) == GT_BARW or h in (0, GT_BARH - 1) or u & 1 == 0 else GT_INK[ch]
+                out[(cx + u, b(u) - h)] = ink
     out.update(gt_plaque(cx, b(0) - GT_BARH // 2, ch))
     return out
 
@@ -1853,14 +1897,29 @@ def gt_plate_pix(cx, cy, ch, pressed=0):
     return out
 
 
-def gt_deck_pix(cx, cy):
-    """a DRAWBRIDGE's deck (in the picture): a black seam round its top, a trapdoor's outline"""
+def gt_deck_pix(cx, cy, style=0):
+    """a DRAWBRIDGE's deck (in the picture): a black seam round its top, a trapdoor's outline.  Its STYLE (SPEC.md
+    128.41.11) adds, inside the seam: 1 CRYSTAL, the facets - a black X from the top's centre toward its corners,
+    a black-ringed white jewel at its middle; 2 PICKET, PLANKS - black seams across the deck every 4 px of one axis;
+    3 PORTCULLIS, an iron plate - a black cross bar along each axis, a white boss at their crossing"""
     out = {}
     for v in range(-8, 8):
         for u in range(-16, 16):
-            if BA.crystal_top_ink(u, v) is not None and abs(u) / 2.0 + abs(v) >= 6.5 \
-                    and abs(u) / 2.0 + abs(v) < 7.0 + 0.5 * (u & 1):
+            if BA.crystal_top_ink(u, v) is None:
+                continue
+            d = abs(u) / 2.0 + abs(v)
+            if d >= 6.5 and d < 7.0 + 0.5 * (u & 1):
                 out[(cx + u, cy + v)] = BLK
+            elif d >= 6.0 or style == 0:
+                continue
+            elif style == 1 and abs(u + (u < 0)) - 2 * abs(v) in (0, 1) and 1 < abs(v) < 5:
+                out[(cx + u, cy + v)] = BLK
+            elif style == 1 and abs(u + (u < 0)) + 2 * abs(v) <= 3:
+                out[(cx + u, cy + v)] = WHT if abs(u + (u < 0)) + 2 * abs(v) <= 1 else BLK
+            elif style == 2 and (u // 2 + v) % 4 == 0 and d < 5.5:
+                out[(cx + u, cy + v)] = BLK
+            elif style == 3 and (u == 2 * v or u == 2 * v + 1 or u == -2 * v or u == -2 * v - 1) and d < 5.5:
+                out[(cx + u, cy + v)] = WHT if d < 1.0 else BLK
     return out
 
 
@@ -1959,9 +2018,17 @@ def _parse_spike(toks, where, ln, fam, kr):
 
 GT_SYNTAX = {GT_KP: "<wx> <wy> channel %s" % "|".join(GT_CHANNELS),
              GT_KK: "<wx> <wy> channel %s" % "|".join(GT_CHANNELS),
-             GT_KG: "<wx> <wy> channel %s [along x|y]" % "|".join(GT_CHANNELS),
-             GT_KB: "<wx> <wy> [<x1> <y1>] channel %s | period <%s> on <steps> [seed <s>]"
-             % ("|".join(GT_CHANNELS), "|".join(map(str, GT_PERIODS)))}
+             GT_KG: "<wx> <wy> channel %s [along x|y] [style %s]" % ("|".join(GT_CHANNELS), "|".join(GT_STYLES)),
+             GT_KB: "<wx> <wy> [<x1> <y1>] channel %s | period <%s> on <steps> [seed <s>], [style %s]"
+             % ("|".join(GT_CHANNELS), "|".join(map(str, GT_PERIODS)), "|".join(GT_STYLES))}
+
+
+def _gt_style(tok, where):
+    """a gate art STYLE's name (SPEC.md 128.41.11) -> its index in GT_STYLES"""
+    if tok[1] not in GT_STYLES:
+        raise CourseError("%s: a gate style is %s, not %r (SPEC.md 128.41.11)" % (where, ", ".join(GT_STYLES),
+                                                                                tok[1]))
+    return GT_STYLES.index(tok[1])
 
 
 def _parse_gate(toks, where, ln, fam, kr):
@@ -1981,7 +2048,7 @@ def _parse_gate(toks, where, ln, fam, kr):
         if b[0] <= at[0] or b[1] <= at[1]:
             raise CourseError("%s: bridge's rect %d %d %d %d is empty" % (where, at[0], at[1], b[0], b[1]))
     d = {"line": ln, "kind": k, "fam": fam, "at": at, "cls": CL_ATTEMPT, "seed": None, "gch": None, "galong": 0,
-         "per": None, "on": None, "sseed": None}
+         "per": None, "on": None, "sseed": None, "gstyle": None}
     while i < len(toks):
         t = toks[i][1] if toks[i][0] == 'w' else None
         if t == "reset":
@@ -1999,6 +2066,9 @@ def _parse_gate(toks, where, ln, fam, kr):
         elif t in ("period", "on", "seed") and k == GT_KB and d["gch"] is None and i + 1 < len(toks) \
                 and d[{"period": "per", "on": "on", "seed": "sseed"}[t]] is None:
             d[{"period": "per", "on": "on", "seed": "sseed"}[t]] = _int(toks[i + 1], where, t)
+            i += 2
+        elif t == "style" and k in (GT_KG, GT_KB) and i + 1 < len(toks) and d["gstyle"] is None:
+            d["gstyle"] = _gt_style(toks[i + 1], where)   # SPEC.md 128.41.11: this gate's or bridge's look
             i += 2
         else:
             raise CourseError("%s: %s, not %r" % (where, use, toks[i][1]))
@@ -2751,6 +2821,11 @@ def parse(text, fname="<course>"):
             if len(toks) != 2 or toks[1][1] not in ("64", "128"):
                 raise CourseError("%s: width is 64 or 128" % where)
             src.width = int(toks[1][1])
+        elif st == "gatestyle":                     # SPEC.md 128.41.11: the course's gate art STYLE
+            if src.gstyle is not None or len(toks) != 2:
+                raise CourseError("%s: gatestyle takes one of %s, once (SPEC.md 128.41.11)" % (where,
+                                                                                          ", ".join(GT_STYLES)))
+            src.gstyle = _gt_style(toks[1], where)
         elif st == "origin":
             if src.origin is not None or len(toks) != 2:
                 raise CourseError("%s: origin takes one <X0>, once" % where)
@@ -6020,7 +6095,8 @@ def build_props(src, tiles, fname):
             props[-1]["bp"] = sp["bp"]
         if sp["kind"] in GT_KINDS:                  # SPEC.md 128.41.3: the channel (GT_TIMED a timed bridge's), a
             props[-1].update(gch=GT_TIMED if sp["gch"] is None else sp["gch"], galong=sp["galong"],   # gate's way,
-                             deck=t.z0, gkd=KIND_FLOOR | t.surf << 4)   # a bridge's deck and its grid's +2 byte
+                             deck=t.z0, gkd=KIND_FLOOR | t.surf << 4,   # a bridge's deck and its grid's +2 byte;
+                             gstyle=sp["gstyle"] if sp.get("gstyle") is not None else src.gstyle or 0)  # its look
             if sp["per"] is not None:
                 props[-1].update(on=sp["on"], smask=sp["per"] - 1, sseed=sp["sseed"])
         if "mg" in sp:                              # MAGNETS (SPEC.md 128.33.2): +22 a hanging one's CEILING
@@ -7680,7 +7756,7 @@ def prop_ops(tiles, ops, props, x0):
             wx, wy = p["at"]                        # the compile's
             cx, cy = 16 * (wx - wy) + x0, 8 * (wx + wy) + 8 - p["z4"]
             pix = gt_plate_pix(cx, cy, p["gch"]) if p["kind"] == GT_KP else gt_groove_pix(cx, cy, p["galong"]) \
-                if p["kind"] == GT_KG else gt_deck_pix(cx, cy)
+                if p["kind"] == GT_KG else gt_deck_pix(cx, cy, p.get("gstyle", 0))
             sp0 = _op_spans(ops, p["at"], "top")
             pix = {xy: c for xy, c in pix.items() if any(a <= xy[0] < b for a, b in sp0.get(xy[1], ()))}
             p["gt_pix"] = pix
@@ -9885,7 +9961,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 raw = gt_hole_pix(cx, cy, p["gch"])
                 rect = ((cx - 8) >> 3, (cy - 4 + y0) >> 3, 2, 2)
             else:
-                raw = gt_bars_pix(cx, cy, p["gch"], p["galong"])
+                raw = gt_bars_pix(cx, cy, p["gch"], p["galong"], p.get("gstyle", 0))
                 ys_ = [y + y0 for _, y in raw]
                 rect = ((cx - GT_BARW) >> 3, min(ys_) >> 3, ((cx + GT_BARW) >> 3) - ((cx - GT_BARW) >> 3) + 1,
                         (max(ys_) >> 3) - (min(ys_) >> 3) + 1)
@@ -29849,6 +29925,15 @@ def _gt_cases():
         ("`uses gate` and no element", C, "no element of it is placed"),
         ("a gate hidden behind a wall in front of it", C + P + "wall rect 9 7 11 9 flat 9\n"
          "prop gate 8 6 channel ring\n", "is HIDDEN"),
+        # SPEC.md 128.41.11: the art's STYLES
+        ("a gate of no style", C + P + "prop gate 8 6 channel ring style hedge\n", "a gate style is grille"),
+        ("a course gatestyle of no style", C.replace("uses gate", "gatestyle brick\nuses gate") + P
+         + "prop gate 8 6 channel ring\n", "a gate style is grille"),
+        ("a gatestyle twice", C.replace("uses gate", "gatestyle picket\ngatestyle crystal\nuses gate") + P
+         + "prop gate 8 6 channel ring\n", "gatestyle takes one of"),
+        ("a style twice", C + P + "prop gate 8 6 channel ring style picket style crystal\n", "not 'style'"),
+        ("a style on a plate", C + P + "prop plate 6 6 channel box style picket\nprop gate 8 6 channel box\n"
+         "prop gate 9 6 channel ring\n", "not 'style'"),
     ]
 
 
@@ -29935,6 +30020,25 @@ def _sc_gate(X, res):
     res.append(("5 GATES' pairing (128.41.5): the %d channels' glyphs, black on a white plaque, pairwise distinct "
                 "(each element of a channel carries its plaque)" % GT_NCH,
                 len(set(gl)) == GT_NCH and all(set(gt_plaque(0, 0, ch).values()) == {BLK, WHT} for ch in range(GT_NCH))))
+    # SPEC.md 128.41.11: the STYLES - pairwise distinct bars and decks, every bar style carrying the plaque whole and
+    # black-and-white structure (both inks, so the 1bpp cards see it), in the grille's span; GATE's elements as
+    # written; and the course with every `style` taken out exactly the course with `gatestyle grille`
+    bars = [gt_bars_pix(0, 0, 0, 0, k) for k in range(len(GT_STYLES))]
+    decks = [frozenset(gt_deck_pix(0, 0, k).items()) for k in range(len(GT_STYLES))]
+    pq = gt_plaque(0, -(GT_BARH // 2), 0)
+    sok = len(set(frozenset(b_.items()) for b_ in bars)) == len(bars) and len(set(decks)) == len(decks) \
+        and all(all(b_.get(xy) == v for xy, v in pq.items()) and {BLK, WHT} <= set(b_.values())
+                and max(abs(x) for x, _y in b_) <= GT_BARW for b_ in bars)
+    gst = sorted(set((GT_STYLES[p_["gstyle"]], PK_NAMES[p_["kind"]]) for p_ in c.props if p_["kind"] in (GT_KG, GT_KB)))
+    plain = open(GT_TEST).read()
+    for nm in GT_STYLES:
+        plain = plain.replace(" style %s" % nm, "")
+    c0, c1 = compile_course(plain, fname=GT_TEST + " (no style)"), \
+        compile_course(plain.replace("uses gate", "gatestyle grille\nuses gate"), fname=GT_TEST + " (grille)")
+    res.append(("5 GATES' styles (128.41.11): %s - bars and decks pairwise distinct, the plaque whole on every one, "
+                "black and white in each, inside the grille's %d px; GATE's elements %s; GATE with no `style` is "
+                "GATE with `gatestyle grille` (%d bytes)" % (", ".join(GT_STYLES), 2 * GT_BARW + 1, gst, len(c0.cga)),
+                sok and c0.cga == c1.cga and c0.cga != c.cga and len(gst) == 4))
     s = gt_scenes(c)
     bad = ["%s %s" % (n_, MAT_NAMES[m_]) for (n_, m_), v in sorted(s.items()) if not gt_verdict(n_, m_, v)]
     res.append(("6 GATES' scenes on the model (128.41.8), every ball: %s%s" % (
