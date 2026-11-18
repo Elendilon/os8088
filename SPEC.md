@@ -278046,10 +278046,13 @@ answer AX as the last hook left it (0 none). **BUILT.**
 now").** The dispatch used to walk every slot of the course on every call:
 the slot's part head read through its data segment, its run of kinds
 tested, its entry fetched and copied into a far pointer, about 470 clk a
-family on each STEP. `bz_ffetch` now builds, as it takes each slot, ONE
-LIST PER HOOK (`bz_fhl`, `BZ_NHOOK` 7 lists of `BZ_FAMMAX` 8-byte entries;
-`bz_fhn` each list's length, a word): for every hook whose bit the part's
-mask (+8) has and whose entry (+12 + 2b) is not 0, an entry of +0 that
+family on each STEP. `bz_ffetch` now builds, once every slot is taken, ONE
+LIST PER HOOK - hook by hook, each slot in order - PACKED into one pool
+(`bz_fhl`, `BZ_FHENT` 8-byte entries; `bz_fhs` `BZ_NHOOK` + 1 words, hook b's
+list running from `bz_fhs[b]` to `bz_fhs[b + 1]`, both absolute offsets;
+128.25.6.5 says why the pool is the family table's size): for every hook
+whose bit the part's mask (+8) has and whose entry (+12 + 2b) is not 0, an
+entry of +0 that
 entry and the slot's CODE segment (a far pointer, on kern_mega the code
 selector `op_cseg` gave), +4 the slot, +5 the part's kinds' count and +6
 its first kind (+9, +10). `bz_fall` walks the hook's list and calls `call
@@ -278064,7 +278067,13 @@ and `bz_fnf` at `bz_ffetch`'s start and `bz_cdrop`. A harness that writes
 the slot records itself writes the lists too (`bonanza_dsplit.fam_load`).
 MEASURED: image +64 (the dispatch 17 shorter, `bz_ffetch`'s list build +70,
 `bz_fhz` 14, `bz_cdrop` -3), bss +234 (`bz_fhl` 224, `bz_fhn` 14, `bz_ffp`'s 4
-gone); the cycles are in 128.19.10 item 9.
+gone); the cycles are in 128.19.10 item 9. **Since 128.25.6.5's NO FAMILY
+LIMIT (2026-11-18)** the lists are packed and the dispatch finds one by two
+loads (`bz_fhs[b]`, `bz_fhs[b + 1]`) where it took a load, `mov cl, 4`,
+`shl si, cl` and an add: about 64 clk where it was about 102 (each
+instruction its clocks or 4.34 x its bytes, PERFORMANCE.md Part 2), so
+-38 clk a dispatch; `bz_ffetch`'s build is a second loop, hook by hook over
+the slots (+10 image bytes in all, MEASURED).
 
 **PINNED (story 9.1): the sites, exactly.**
 
@@ -278154,12 +278163,54 @@ remainders; a refill request does not). Both bytes are cleared there.
 
 | limit | value | refused by |
 |---|---|---|
-| families | **3** | the tool |
+| families FETCHED (home `fetch`, 128.25.6.9) | **3** | the tool |
+| families in all (resident and fetched) | **none: every family of the build** (below) | `uses` refuses a family named twice or not in `FAMILIES`, which is the whole bound |
 | timed pickup kinds | **both may be used** (the owner, Q1): speed and jump together on one course, and at once on the ball; 128.25.9 says how they combine | the tool's proofs, not a count |
 | the lanes' RATE | 128.19.10's (rotors at most 6 a window; pose changes at most `WIN_CHG` 6 a step); a family's element lanes are SLOW lanes unless it declares them FAST | the tool, as today |
 | the family parts' bytes | summed into `BZ_CRS_ARENA` (128.25.4.2), so the held-pathway decision sees them | the tool |
 | the course part, the packed budget | 128.15.8's | the tool |
 | claims | none: families are arena parts | - |
+
+**NO FAMILY LIMIT (the owner, 2026-11-18: "Raise the family limit").** Until
+then a course named at most FOUR families in all: the hook lists (128.25.6.3)
+were `BZ_NHOOK` fixed lists of `BZ_FAMMAX` entries each, found with a SHIFT,
+so `BZF_HL` had to be 32 and `BZ_FAMMAX` exactly 4 (the courses' longest list,
+TITLE's). PLAYGROUND, the owner's stress test of the whole system, is meant
+to carry most of the props, and the reason for a small limit - disk reads per
+course load - went with the RESIDENT BUNDLE (128.25.6.9: a course load reads
+nothing per resident family). So the engine is sized to the WHOLE FAMILY
+TABLE, and a course may name every family of the build:
+
+- `BZ_FAMMAX` (bbcourse `fam_slots`) is the number of families in
+  `FAMILIES` - the slots (`bz_frec` 6 bytes, `bz_fsl` `BZF_SLOT` 8 each). It
+  is GENERATED from the family table, not from the courses' longest list: a
+  course edit never moves the package's bss (and with it every part's
+  `BZL_BSS` stamp), a harness scenario or a test course may name any family
+  without outgrowing the build, and the courses' longest list is headed for
+  the table's size anyway once PLAYGROUND carries the props.
+- `BZ_FHENT` (bbcourse `fam_hook_entries`) is every family's hooks summed,
+  the hook lists' POOL: a course names each family once, so its lists never
+  hold more. A built part whose mask (+8) has a hook its `FAMILIES` row lacks
+  would write past the pool, so the build's `fbundle` step refuses one
+  (`fam_maskcheck`, every part, fetched and resident).
+- bzfam.inc's `%error`s pin what the code assumes: a slot is a byte
+  (`bz_fnf`, an entry's +4: `BZ_FAMMAX` 1 - 255), a hook's mask bit is AH's in
+  the list build (`BZ_NHOOK` <= 8), and `BZ_FHENT` is at most `BZ_FAMMAX` x
+  `BZ_NHOOK`.
+
+MEASURED (the shipped build, twelve families, 36 hooks): bss **+178**
+(12,152 -> 12,330: `bz_fhl` 224 -> 288, `bz_fhs` 16 for `bz_fhn`'s 14,
+`bz_frec` 24 -> 72, `bz_fsl` 32 -> 96), image **+10** (50,165 -> 50,175),
+`BONANZA.O88` +1; each family added costs 14 + 8 x its hooks bytes of bss.
+The fixed-list layout raised instead, MEASURED by assembling it: a cap of 8
+**+280** bss (and +4 clk a dispatch, `mov cl, 5`), of 16 **+840** (+8 clk) -
+and the next cap to bite. The courses' and demos' compiled bytes are
+unchanged (the course format is untouched); every family part's bytes move,
+as on any bss change, by its `BZL_BSS` stamp. `--selfcheck` section `w9`
+compiles a course of five families; bonanza_phys's unicorn half fetches
+EVERY family onto one course and checks each slot and each hook's list
+against the parts' heads, its red `fam4` (the list build stopped at four
+slots) red.
 
 ##### 128.25.6.6 Physics determinism
 
@@ -278292,8 +278343,9 @@ fills its slot record (its `op_fetch` is a no-op - the part is here - and it
 takes the segments again, which a regrow may have moved), and its hooks are
 called exactly as a fetched family's. A course's family list holds its
 fetched families (at most 3) and its resident ones; the slots (`bz_frec`,
-`bz_fsl`) are sized to the longest list the courses have
-(`BZ_FAMMAX`, the tool's, never under 3).
+`bz_fsl`) are one for every family of the build (`BZ_FAMMAX`, the tool's,
+128.25.6.5's NO FAMILY LIMIT; until 2026-11-18 the longest list the courses
+had, never under 3).
 
 **Why the arena's floor, and not the carve.** The owner's words were "an EAGER
 code part loaded with the package in the carve". MEASURED (`62cdee325`, the
@@ -278310,7 +278362,8 @@ names the family fetches it then, and it stays (a hole the arena carries
 until the package ends).
 
 **BUILT** (story 9.8): `FAMILIES`' `home`; bzcourse.inc's `BZ_FID_<NAME>`
-and `BZ_FAMMAX` (the courses' longest list, at least 3) - and, until the
+and `BZ_FAMMAX` (then the courses' longest list, at least 3; since 128.25.6.5's
+NO FAMILY LIMIT every family of the build) - and, until the
 bundle, `BZ_FHMASK` (bit ID - 1 a resident family's), which the bundle left
 with no reader and the tool no longer emits; the tool's 3-a-course count and `crs_arena` count
 only home `fetch`. ROTOR, SPRING and TUBE are `resident`; the probe
