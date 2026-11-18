@@ -3901,6 +3901,62 @@ def arch_vis(c, bound=AR_HIDE):
     return out
 
 
+CLOCK_HIDE = AR_HIDE          # SPEC.md 128.18.5.4: ground units a ball rolled behind a clock may be WHOLLY hidden in a
+                              # row (the owner's visibility rule: one ball length, the archway's A10)
+
+
+def clock_vis(c, bound=CLOCK_HIDE):
+    """SPEC.md 128.18.5.4: each clock (not the pathway's lives counters, which cut no occluder) against a ball
+    BEHIND it.  A ball rolled GROUNDED, a ground unit at a time, along x on each of the three cell rows behind the
+    clock and along y on each of the three columns behind it (the cell's middle and 4 gu either side), over every
+    floor of the reach from 4 cells before the clock to 4 after, composited by the records.  -> [(clock number,
+    its cell, positions that meet its face, of them positions where the ball is drawn OVER a face pixel (the
+    rule's composite: no ghost), the longest run of positions meeting the face with EVERY lit pixel laid
+    over)]; refused (CourseError) past BOUND - the owner's one ball length"""
+    out = []
+    zr = {}
+    for rc in c.reach:
+        zr.setdefault((rc.wx, rc.wy), rc)
+    for p in c.props:
+        if p["kind"] != PK_CLOCK or p.get("place") or p.get("frame") == "lives" or not p.get("face_pix"):
+            continue
+        face = set(p["face_pix"])
+        (cx_, cy_) = p["at"]
+        met = over = worst = 0
+        for ax in (0, 1):
+            for back in (1, 2, 3):
+                for off in (4, 8, 12):
+                    run = 0
+                    for g in range(16 * ((cx_ if ax == 0 else cy_) - 4), 16 * ((cx_ if ax == 0 else cy_) + 5)):
+                        gx, gy = (g, 16 * (cy_ - back) + off) if ax == 0 else (16 * (cx_ - back) + off, g)
+                        t = c.tiles.get((gx >> 4, gy >> 4))
+                        if (gx >> 4, gy >> 4) not in zr or t is None or isinstance(t, Split) \
+                                or t.kind not in (KIND_FLOOR, KIND_GOAL) or (gx >> 4) + (gy >> 4) >= cx_ + cy_:
+                            run = 0
+                            continue
+                        z = _h4t(t, gx & 15, gy & 15) // 4
+                        px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
+                        lit = ball_pixels(px, py)
+                        on = [q for q in lit if q in face]
+                        if not on:
+                            run = 0
+                            continue
+                        met += 1
+                        hid, mine = _arch_laid(c, px, py, (gx >> 4) + (gy >> 4), z, False, own=(cx_ + cy_, face))
+                        if any(q not in hid and c.pic[q[1]][q[0]] != lit[q] for q in on):
+                            over += 1
+                        # (wholly hidden BY the clock: with its pixels, and not without them - a ball a wall in
+                        # front hides anyway is the picture's, as it was before the clock was an occluder)
+                        run = run + 1 if all(q in hid for q in lit) and not all(q in hid - mine for q in lit) else 0
+                        worst = max(worst, run)
+        if worst > bound:
+            raise CourseError("%s:%d: a ball rolled behind the clock at (%d, %d) is WHOLLY hidden for %d ground units "
+                              "in a row, past one ball length (%d: SPEC.md 128.18.5.4)" % (
+                                  c.fname, p["line"], cx_, cy_, worst, bound))
+        out.append((p["num"], p["at"], met, over, worst))
+    return out
+
+
 def hump_ends(src, tiles):
     """SPEC.md 128.44.1: an OPEN ridge's end is a cliff its height (a cross-section): what lies past it is a WALL or
     the void, never a floor a ball could roll into it from; and a hump's rim is level with the cells round it -
@@ -4046,17 +4102,26 @@ def hump_vis(c, bound=HUMP_HIDE, see=HUMP_SEE, attr=True):
     return out
 
 
-def _arch_laid(c, px, py, sb, zb, air):
-    """the ball pixels the guest's records lay over a ball at top-left (px, py), its row sb, whole height zb"""
+def _arch_laid(c, px, py, sb, zb, air, own=None):
+    """the ball pixels the guest's records lay over a ball at top-left (px, py), its row sb, whole height zb.
+    OWN (s, pixels): -> (that, the pixels laid ONLY by records keyed s that are among PIXELS - a clock's own,
+    clock_vis)"""
     m = 0 if air else CLIMB
     x4 = px & ~3
     hid = set()
+    mine, other = set(), set()
     for br in range(py >> 3, ((py + FOOT_H - 1) >> 3) + 1):
         for bc in range(x4 >> 3, ((x4 + FOOT_W - 1) >> 3) + 1):
             for r in c.by_block.get((br, bc), ()):
                 if sb < r["s"] and zb + m < r["top"]:
                     hid.update(r["pix"])
-    return hid
+                    if own is not None:
+                        if r["s"] == own[0]:
+                            mine.update(r["pix"] & own[1])
+                            other.update(r["pix"] - own[1])
+                        else:
+                            other.update(r["pix"])
+    return hid if own is None else (hid, mine - other)
 
 
 def guard_ops(tiles, ops, x0, _key=0):
@@ -10570,6 +10635,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
     if src.archways and occluders:                  # SPEC.md 128.39.1 A10: the visibility rule, measured
         c.arch_vis = arch_vis(c, 2 if hack.get("arvis") else AR_HIDE)
+    c.clock_vis = clock_vis(c, 1 if hack.get("clockvisb") else CLOCK_HIDE) if occluders and pth is None else []
     if occluders and any(fd["what"] == "hump" for fd in src.fields):   # SPEC.md 128.44.4: the visibility rule
         c.hump_vis = hump_vis(c, attr=not hack.get("hmnoattr"))
     c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 128.22): the pathway's, None on a course
@@ -27863,6 +27929,54 @@ def _sc_arch(X, res):
                     any(want in w for w in caught)))
 
 
+def _clockocc_checks(res, courses, _hack=None):
+    """item 17 (SPEC.md 128.18.5.4): on each course of COURSES with a clock (FIRST alone, recompiled with _HACK,
+    when _hack is given - the red arms), the clock is an OCCLUDER: its face's pixels (the shadow apart) keyed at
+    its cell, a ball rolled behind it never drawn over a face pixel, and wholly hidden by it for at most
+    CLOCK_HIDE ground units in a row"""
+    if _hack is not None:
+        f = next(c.fname for c in courses if c.name == "FIRST")
+        courses = [compile_course(f, _hack=_hack)]
+    for c in courses:
+        if not c.clock_vis:
+            continue
+        keyed = all(c.sbuf[y][x] == p["at"][0] + p["at"][1] for p in c.props if p["kind"] == PK_CLOCK
+                    and not p.get("place") and p.get("face_pix") for sh in (_clock_shadow(p, c.x0, c.y0),)
+                    for (x, y) in p["face_pix"] if (x, y) not in sh)
+        met = sum(v[2] for v in c.clock_vis)
+        over = sum(v[3] for v in c.clock_vis)
+        res.append(("17 %s: every clock's face keyed at its cell (SPEC.md 128.18.5.4)%s" % (
+            c.name, "" if keyed else " -- a face pixel NOT keyed"), keyed))
+        res.append(("17 %s: a ball rolled behind a clock is laid under it: at %d positions meeting a face, %d drawn "
+                    "over one; wholly hidden by a clock at most %s gu in a row (the bound %d)" % (
+                        c.name, met, over, ", ".join("%d" % v[4] for v in c.clock_vis), CLOCK_HIDE),
+                    met > 0 and over == 0 and all(v[4] <= CLOCK_HIDE for v in c.clock_vis)))
+
+
+def _clock_shadow(p, x0, y0):
+    """a clock's SHADOW pixels nothing later draws over (paint on its tile: never keyed)"""
+    tops = {}
+    face = clock_face_pix(p, x0, y0, tops=tops)
+    return {xy for xy in face if xy not in tops}
+
+
+def _sc_clockocc(X, res):
+    """--selfcheck's section `clockocc` (SPEC.md 128.18.5.4): item 17 on the shipped courses, and its red arms"""
+    _clockocc_checks(res, X.courses)
+    for what, hack, want in (
+            ("the clock left a MARK, unkeyed (a ball behind drawn over it)", {"clocknoocc": True}, "drawn over one"),
+            ("the visibility bound at 1 position", {"clockvisb": True}, "WHOLLY hidden")):
+        r_ = []
+        try:
+            _clockocc_checks(r_, X.courses, _hack=hack)
+        except CourseError as e:
+            r_.append(("compile: %s" % e, False))
+        caught = [w for w, g in r_ if not g]
+        res.append(("17 clock negative control: %s - caught (%s)" % (what, "; ".join(w[:90] for w in caught)
+                                                                     or "NOT CAUGHT"),
+                    any(want in w for w in caught)))
+
+
 def _sc_palette(X, res):
     """--selfcheck's section `palette` (selfcheck(): a fork of its state after the compile)"""
     courses = X.courses
@@ -28529,7 +28643,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20}
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10}
 
 
 def _av_floats_want(c):
@@ -29872,7 +29986,8 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
-             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn")
+             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
+             "_sc_clockocc")
 
 
 def _selfcheck(paths, res, skipped, S):
