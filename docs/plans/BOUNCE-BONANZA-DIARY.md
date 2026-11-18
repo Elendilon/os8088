@@ -5238,3 +5238,18 @@ eye.
 **Tested**: `make bonanzadisk`, the replay profile on both cards (MartyPC),
 BENCH's scripted camera 400 frames (0 px). **Not run**: soak rows on these
 commits, a V20, the owner's eye.
+- **"Decent", then two more.** The camera jerked rolling into TRIAL's finish
+  - the goal sits at the course's edge, and the window was clamped there
+  mid-pan, a stop in one frame (and the finish sequence would have frozen
+  it in one too). And the pathway scrolled too slowly: the marble outran a
+  camera capped at 4 lines a frame. Now the step brakes on its stopping
+  distance before an edge, the finish coasts the camera to rest, the dead
+  zone is LATTICE's band (it rests far more), a ball past the margin
+  accelerates the camera rather than jumping it, and the cap is 8 lines.
+  TRIAL's demo: the camera brakes 2, 1, 1 ... 0 into the left edge and
+  holds its line for the last 45 frames. BENCH: the step changes 10 times
+  in 800 frames, where it was 30.
+- **A bug of my own on the way**: moving the resync into a subroutine left
+  its early exit jumping past the new `ret`, into the tick loop inside the
+  call. TRIAL's demo hung on the VGA at its third frame; bisected in three
+  builds (the pre-merge, the merge, the last commit).
