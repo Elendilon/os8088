@@ -269,6 +269,11 @@ VAR bz_vt2,2
 VAR bz_vdiv,1                   ; the held divisor, 1 or 2 (70 or 35 Hz)
 VAR bz_vfrm,1                   ; the short test: frames seen, of 64,
 VAR bz_vlate,1                  ; ...and those late
+VAR bz_vrv,1                    ; 128.41.11: the roll's shown phases valid (BZV_ROLL)
+VAR bz_vpy,1                    ; ...the shown PHY
+VAR bz_vpxd,1                   ; ...the shown x phase
+VAR bz_vpxp,1                   ; ...px's low byte then
+VAR bz_vG,2                     ; ...and G then
 VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
 VAR bz_vwr1,2                   ; has no writable memory of its own, 128.41.6)
 VAR bz_vwx,2
@@ -1079,6 +1084,7 @@ bz_tf:
     mov [bz_vt1], bx            ; (the filter at rest on it)
     mov [bz_vt2], bx
     mov byte [bz_vpan], 0
+    mov byte [bz_vrv], 0        ; ...and the roll's shown phases (128.41.11)
     inc ax
     push ax
     xor al, al
@@ -2690,11 +2696,17 @@ bz_sprite:
     add al, ah
     and al, 7
 .f:
-    mov cl, 3
-    shl al, cl
     mov ah, [bz_px]
     add ah, dl                  ; (DL 0 or 4: the shift px & 3 is kept)
     and ah, 7
+    cmp byte [bz_vga], 0        ; the VGA shows the phases BZV_ROLL picks:
+    je .fx                      ; never a backward roll at 35 Hz (128.41.11)
+    pop cx
+    push cx                     ; CX = G
+    BZ_VCALL BZV_ROLL
+.fx:
+    mov cl, 3
+    shl al, cl
     or al, ah
     xor ah, ah
     mov [bz_frm], ax            ; AL = f

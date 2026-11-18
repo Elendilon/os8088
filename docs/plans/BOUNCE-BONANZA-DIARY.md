@@ -4634,3 +4634,23 @@ The owner tested V1 ("I think it works") and asked for V2.
 **Tested**: `make`, `make bonanzadisk`, the oracle on MartyPC (600 + 400
 frames, card memory and glass), the 8088's benchmark instruments. **Not
 run**: soak rows, kern_mega, the field.
+
+## 2026-11-18 (VGA, V2b: the ball that spun backwards)
+
+- **The owner's look**: no judder from the physics steps, but at speed the
+  ball "seems to slightly spin backwards, for a fraction of a second".
+- **A wagon wheel.** The texture repeats every 8 pixels and the roll frame
+  is the ball's position mod 8. At 35 Hz a fast ball moves 4 - 7 of that
+  between presents, and an advance of 6 reads as -2. The CGA presents
+  about twice as often, so it rarely gets there.
+- **The fix chooses the shown phase, not the drawing.** Down the screen the
+  phase is free, so the shown one steps toward the true one by at most 3
+  and in the ball's direction. Across, the low two bits ARE the sprite's
+  pixel shift, so only bit 2 can move - and the pathway's fold already
+  flips exactly that bit - so of the two candidates the one stepping the
+  ball's way is shown. VGA only, in the VGA part: 24 resident bytes.
+- **Measured**, FIRST's free play with the arrows held on MartyPC: 9 of 599
+  frames would have rolled backwards, 0 do.
+
+**Tested**: `make bonanzadisk`, the roll check on MartyPC. **Not run**: the
+owner's eye on the fix, soak rows (the V2a soak was running behind it).

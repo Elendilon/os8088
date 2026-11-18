@@ -689,7 +689,7 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
   (busy 51.1k clocks, 410 misses in 1,200: V2's divisor). Rows named:
   `bonanzaring`, `bonanzaperf`, `bonanzaexit` (their VGA legs are V3's).
 
-### V2: smooth (M) - V2a BUILT (SPEC.md 128.41.10); V2b the owner's call
+### V2: smooth (M) - V2a BUILT (SPEC.md 128.41.10); V2b the roll (128.41.11)
 
 - [x] The pixel camera, as a DISPLAY over LATTICE rather than inside it:
       the engine's window 42 columns (P 44), LATTICE unchanged, the display a
@@ -701,11 +701,11 @@ the background at the end. Disks per fork rule 3. BONANZA ships on its own
       latching 35 Hz one way. Rule 1 is NOT taken: LATTICE's cadence stays a
       function of frames (128.9), as on the CGA, so the cards agree.
 - [x] Rule 4: the edge wait is the only pacing (it was already).
-- [ ] **V2b: rule 3, the ball drawn between steps.** Display only, but every
-      user of `bz_px` and the ring row's oracle change with it. Left until the
-      owner has looked at V2a on the glass: at 35 Hz a frame holds one or two
-      physics steps, and whether that judder against the even pan shows is
-      the question.
+- [x] **V2b: what the owner's look found** - not judder from the steps but
+      the roll spinning BACKWARDS at speed (35 Hz aliasing of an 8-periodic
+      texture). BZV_ROLL shows phases that never step against the ball and
+      at most 3 a frame (SPEC.md 128.41.11). Rule 3 (the ball between steps)
+      stays unbuilt: nothing on the glass asked for it.
 - *Checked*: the oracle on MartyPC - LATTICE 600 frames and the scripted
   camera 400, 0 pixels in card memory, the rendered glass (the panning
   applied) exact on every sampled frame; the 8088's benchmark: 35 Hz held,

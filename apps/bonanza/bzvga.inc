@@ -32,7 +32,9 @@ BZV_BOXW    equ 6               ; box SI to the card (bz_boxw's); all kept
 BZV_BLIT    equ 7               ; bz_blit's, its registers (128.41.5); keeps SI, DS, ES
 BZV_WPRECT  equ 8               ; bz_wprect's, its registers; clobbers AX - DI, BP
 BZV_CARD    equ 9               ; bzcard.inc's glyph cell (128.41.4); see bz_card's VGA arm
-BZV_NVEC    equ 10
+BZV_ROLL    equ 10              ; the roll's DISPLAYED phases (128.41.11): AL = PHY, AH = the
+                                ; x phase, CX = G in, the shown AL, AH out; clobbers BX, DX
+BZV_NVEC    equ 11
 ; a ball part's copy: its 16-byte head, then every 5-byte row as 6 (SPEC.md
 ; 128.41.5); copy 0 then copy 1 (four pixels further right), each material's
 ; pair from a paragraph, in bz_bsegs' order (rubber, steel, glass)

@@ -280126,9 +280126,31 @@ frames: LATTICE's camera 600 frames, 0 pixels, the glass 30 of 30 exact;
 the scripted camera (every direction, 35 Hz) 400 frames, 0 pixels, the
 glass 40 of 40.
 
-**Not built (V2b, the owner's to decide on the glass)**: the ball drawn
-between physics steps (plan 6, rule 3). At 35 Hz a frame holds one or two
-of the 54.6 Hz steps, so a rolling ball moves 1 - 2 steps a frame against a
-display that pans evenly; whether that judder shows, and is worth an
-interpolated drawing (display only, but every user of `bz_px`, the oracle's
-included), is a question for the PVGA1A and a look.
+**Not built: the ball drawn between physics steps** (plan 6, rule 3). The
+owner's look at V2a found no judder from it; what showed was the roll
+running BACKWARDS at speed, which 128.41.11 answers instead.
+
+#### 128.41.11 The roll's shown phases (BZV_ROLL)
+
+The ball's texture repeats every 8 (128.11's roll frame f = PHY 8 + x
+phase). At 35 Hz a fast ball moves 4 or more of a phase between presents,
+and an advance of 5 - 7 reads as one of 3 - 1 the other way: the owner saw
+the ball "spin backwards for a fraction of a second". On the VGA alone
+`bz_sprite` hands the true phases to the part's `BZV_ROLL` (AL = PHY, AH =
+the x phase, CX = G), which returns the SHOWN ones:
+
+- **y** (free): with the G step positive, the true phase when it is 0 - 3
+  ahead of the shown one, otherwise the shown one plus min(3, step);
+  negative, the mirror; still, the true phase.
+- **x** (its low 2 bits are the sprite's shift px & 3, so only bit 2 is
+  free): of the true phase and the true phase ^ 4, the one whose step from
+  the shown one is 0 - 3 when the ball moved right or not at all, and 0 or
+  -1 - -3 when it moved left.
+
+`[bz_vrv]` 0 (BZV_INIT, and the full write) shows the true phases once.
+Display only: `bz_frm` is the frame drawn, and physics, replays, demos and
+the CGA's and Hercules' pictures are untouched. A ball moving 8 a frame
+shows no x roll at all, the one aliasing bit 2 cannot remove. **Cost**:
+24 bytes resident (the call and the reset), 6 of bss, 300 in the part.
+**Checked** (MartyPC, FIRST's free play, the arrows held, 599 presents): 9
+frames whose true x phase stepped against the ball, 0 shown.
