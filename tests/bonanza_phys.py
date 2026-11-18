@@ -3124,6 +3124,107 @@ def tilt_host(binp, lst, sym):
     return out, fails
 
 
+# ---- THE TURNTABLE (SPEC.md 128.43): the BZTURN=1 test course's scenes - each the ball poked at rest on a cell,
+# WAIT steps still, then rolled - judged on the model's own trace; the part assembled from a patched turntable.asm
+# for each red arm ----------------------------------------------------------------------------------------------
+TT_SRC = os.path.join(ROOT, "apps", "bonanza", "courses", "turntable.bbc")
+
+
+def tt_scenes():
+    """[(name, material, (wx, wy), keys, what)] on TURN"""
+    RD, LD, RU = BB.K_R | BB.K_D, BB.K_L | BB.K_D, BB.K_R | BB.K_U
+    return [("tt-early", BB.MAT_RUBBER, (9, 6), [0] * 40 + [RD] * 110, "rubber rolls onto table A while its row "
+             "is turning away: it drops through a gap and respawns"),
+            ("tt-ontime", BB.MAT_RUBBER, (9, 6), [0] * 216 + [RD] * 90, "rubber crosses A on its turn to the island"),
+            ("tt-steel", BB.MAT_STEEL, (9, 6), [0] * 200 + [RD] * 110, "steel crosses A on its turn"),
+            ("tt-glass", BB.MAT_GLASS, (9, 6), [0] * 232 + [RD] * 90, "glass crosses A on its turn"),
+            ("tt-island", BB.MAT_RUBBER, (12, 6), [0] * 136 + [RD] * 90, "rubber waits on the island for C (out of "
+             "phase with A) and crosses it to the goal plate"),
+            ("tt-pivot", BB.MAT_STEEL, (6, 9), [0] * 160 + [LD] * 47 + [RU] * 8 + [0] * 120, "steel steps onto the disc "
+             "and rests on its PIVOT through a turn"),
+            ("tt-fallen", BB.MAT_RUBBER, (9, 6), [0] * 9 + [RD] * 150, "rubber crosses A and runs on onto C, into a hole "
+             "that closes over it: it falls on, never lifted"),
+            ("tt-rest", BB.MAT_GLASS, (10, 6), [0] * 120, "glass at rest on a cell of A: the cell turns into a gap "
+             "under it and it falls")]
+
+
+def tt_verdict(name, p, zs):
+    """what a TURN scene is for, on the model at its end (ZS: the ball's (cell, z px, air) every step)"""
+    at = (p.gx >> 12, p.gy >> 12)
+    if name in ("tt-early", "tt-fallen", "tt-rest"):
+        lift = any(z2 > z1 and c2 == c1 and z1 < 16 and not f2 for (c1, z1, _a, _f), (c2, z2, _b, f2)
+                   in zip(zs, zs[1:]))
+        return p.nfall >= 1 and not lift, "%d respawn(s), never lifted out of a hole (%s)" % (p.nfall, lift)
+    if name == "tt-pivot":
+        piv = sum(1 for c_, _z, a, f in zs if c_ == (6, 11) and not a and not f)
+        return p.nfall == 0 and at == (6, 11) and piv > 64, "steel on the pivot %d steps, no fall, at %s" % (piv, at)
+    far = 15 if name == "tt-island" else 12
+    k = next((i for i, (c_, _z, _a, f) in enumerate(zs) if c_[0] >= far or f), None)
+    ok = k is not None and not zs[k][3] and zs[k][0][0] >= far
+    return ok, "%s across before any fall (step %s), at %s" % (MAT_N[p.mat], k, zs[k][0] if k is not None else at)
+
+
+def tt_reds():
+    """THE TURNTABLE's red arms: (name, (old, new) in turntable.asm, scene, what must part)"""
+    return (("ttcell", ("    dw 0, 0, 0, tt_step, tt_pose, tt_cell\n", "    dw 0, 0, 0, tt_step, tt_pose, 0\n"),
+             "tt-early", "the window"),
+            ("ttfallen", ("    jne .w                      ; its top, a gap all the same\n",
+                          "    jmp short .w\n"), "tt-fallen", None),
+            ("ttkept", (("    jne .w                      ; its top, a gap all the same\n", "    jne .n\n"),
+                        ("    jge .w\n", "    jge .n\n")), "tt-fallen", "the window"),
+            ("ttmark", ("    call far [bz_fmkp]          ; its lane MARKED\n", ""), "tt-rest", "never drawn"),
+            ("ttfref", ("    ja .nx\n    mov byte [bz_fref], 1\n", "    ja .nx\n"), "tt-rest", None),
+            ("ttwarn", ("    jae .x                      ; the warning\n", "    jmp short .f\n"), "tt-rest",
+             "pose"),
+            ("ttfast", ("    jz .c\n", "    jz .nx\n"), "tt-rest", None))
+
+
+def tt_host(binp, lst, sym):
+    """THE TURNTABLE's unicorn half (SPEC.md 128.43): every scene on TURN equal at every step, what each is for,
+    and the red arms -> (lines, failures)"""
+    import shutil
+    import subprocess
+    out, fails = [], []
+    c = R.course("turn", src=TT_SRC)
+    fam = fam_parts()
+    sc = []
+    for name, mat, at, keys, what in tt_scenes():
+        poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
+        sc.append((name, mat, poke, keys))
+        p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, poke=poke, src=TT_SRC, k=0)
+        q = model("turn", mat, poke, src=TT_SRC)
+        zs = []
+        for k_ in keys:
+            q.step(k_)
+            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, q.nfall))
+        ok, saw = tt_verdict(name, q, zs)
+        out.append("turntable %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
+        fails += ["turntable %s: %s" % (name, b) for b in bad] + ([] if ok else [
+            "turntable %s is not what it is for: %s" % (name, saw)])
+    src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "turntable.asm")).read()
+    for arm, pat, scn, want in tt_reds():
+        src1 = src0
+        for a_, b_ in (pat if isinstance(pat[0], tuple) else (pat,)):
+            assert src1.count(a_) == 1, "red %s: its patch does not apply" % arm
+            src1 = src1.replace(a_, b_)
+        with tempfile.TemporaryDirectory() as td:
+            d = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
+            open(os.path.join(d, "fam", "turntable.asm"), "w").write(src1)
+            o = os.path.join(td, "part.bin")
+            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "turntable.asm")],
+                           cwd=ROOT, check=True)
+            ff = fam_parts({"turntable": open(o, "rb").read()})
+        name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, ff, poke=poke, src=TT_SRC, k=0)
+        hit = next((b for b in bad if want is None or want in b), None)
+        out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+        if not hit:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    return out, fails
+
+
 def _noentry(part, h):
     """a family part with hook H's entry zeroed (a red arm: the hook never called)"""
     b = bytearray(part)
