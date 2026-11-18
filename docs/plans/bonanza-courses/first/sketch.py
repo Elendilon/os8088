@@ -136,7 +136,7 @@ rail(34, 33, 34, 35); rail(34, 35, 34, 37); rail(31, 40, 34, 40)   # (34, 37) op
 # W  the walk: two tiles wide, BOTH edges open: +x, a railed elbow, +y
 floor("W", 34, 38, 38, 40, Z - 16.5)                         # W1, level
 floor("W", 38, 38, 40, 41, Z - 16.5)
-rail(40, 38, 40, 41); rail(38, 38, 40, 38); rail(38, 40, 38, 41)
+rail(40, 38, 40, 41); rail(38, 38, 40, 38)   # the elbow's lone left block gone: it read as a tile (revision 7)
 ramp("W", "y", 38, 41, 40, 43, Z - 16.5, Z - 17.5)          # 2 tiles (revision 5: the lip took 2)
 # F  the leap: a railed elbow, a run-up along +x (no rail across its entry:
 #    rails protect, never block), a ONE-tile gap, a landing 2 units under the lip
