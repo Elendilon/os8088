@@ -283826,7 +283826,7 @@ window for the ball that is rolling. **No resident engine code, no surface,
 | rubber and glass | their window holds LOW, a 4 px drop - so a ball rolling on LANDS - and while the window's CENTRE is a spike cell `bz_mrec`'s HARD, HSTEPS and HTHR are **SHATTER, `BZ_SHA_STEPS` (24), 0**: any landing there is 128.11's hard landing's SHATTER, then the respawn as today. Glass shows its four shatter frames, rubber its **POP** (128.38.5). The three values replaced are kept once, on the way in, and put back on the way out (WATER's HTHR rule) |
 | a Hop | an airborne ball over spikes is not killed; rubber Hops one row, so a GATE covers most of the floor (the owner's reading, the plan's P1 note) |
 | pop-up spikes | the same on a timer: UP while `((n + SEED) AND MASK) < ON` (n `bz_nstep`'s low byte; the period `MASK + 1` 32, 64, 128 or 256 steps); UP as spikes, DOWN an ordinary floor at B for every ball. Two poses, a SLOW timed lane, marked on change |
-| the membrane | FLOOR for glass alone; every other ball's window holds a NEAR VOID there (z0 less 6 half units, kind and surface 0, its flags kept: a broken crack's, 128.25.18), so it falls through to the kill 3 units down and respawns |
+| the membrane | FLOOR for glass alone; every other ball's window holds a NEAR VOID there (z0 less 6 half units, kind and surface 0, its flags kept: a broken crack's, 128.25.18), so it falls through to the kill 3 units down and respawns. It is a NET OF THREADS, and glass the lightest ball (128.42's weights): a heavier ball TEARS it, the cell's lane showing the torn net while the ball is under it (128.38.5, the owner's, 2026-11-18) |
 | visibility | the spikes and the film are PAINTED into the picture - never an occluder - so they never hide the ball (the owner's rule allows partial occlusion; this hides nothing) |
 
 #### 128.38.2 The statements (BUILT)
@@ -283851,14 +283851,17 @@ its own: the window's one-change-a-step rule). `1 <= N < period`,
 Records: +16 FSB 0 and +17 the class `ATTEMPT` (no state bits: STATELESS);
 spikes +18 LOW, +19 TIP (signed half units), +20 - +31 zero; a popspike the
 same and +20 ON, +21 MASK, +22 SEED, +23 - +31 zero; a membrane +18 its
-floor's z0, +19 - +31 zero. `read_part` refuses any other, and a cell that is
-not a NORMAL flat FLOOR at B with OBS, not SAFE. The slot (7 of `BZF_SLOT`'s
-8): +0 the material STEP last saw, +1 IN (the centre a killing spike at the
-last refill), +2 HARD and +3 HSTEPS as they were, +4 HTHR (word) as it was,
-+6 the course's popspikes.
+floor's z0, +19 - +31 zero. A popspike and a membrane have a lane of 2 poses,
+spikes none. `read_part` refuses any other, and a cell that is
+not a NORMAL flat FLOOR at B with OBS, not SAFE. The slot (all 8 of
+`BZF_SLOT`'s): +0 the material STEP last saw, +1 IN (the centre a killing
+spike at the last refill), +2 HARD and +3 HSTEPS as they were, +4 HTHR (word)
+as it was, +6 the course's popspikes and membranes, +7 TORN (the torn
+membrane's element + 1, 0 none). The family's REV is 2 (the slot and the
+membrane's lane, 2026-11-18).
 
-- **RESET** counts the popspikes (+6), so STEP walks the records only on a
-  course that has one.
+- **RESET** counts the popspikes and membranes (+6), so STEP walks the
+  records only on a course that has one.
 - **CELL**, every refill, per ball and idempotent (written from the record):
   a spike or an UP popspike TIP for steel and LOW for any other ball; a DOWN
   popspike B (TIP less one) for every ball; a membrane, for every ball but
@@ -283870,8 +283873,13 @@ last refill), +2 HARD and +3 HSTEPS as they were, +4 HTHR (word) as it was,
   n + 1 is MARKED (`bz_fmark`) and refills the window (`bz_fref`) when its
   cell is in it - so a spike that rises under a resting rubber ball drops its
   floor a half unit and the landing pops it, and one that rises under steel
-  lifts it 4 px (the grounded step's `z = h`).
-- **POSE**: a popspike 1 while UP.
+  lifts it 4 px (the grounded step's `z = h`). The same walk finds the TORN
+  membrane: the one at the window's centre while the ball is not glass and
+  its whole-px z (`[bz_gz + 1]`) is under its 4 z0 - fallen through it - and
+  none otherwise; on a change both lanes, the one it was and the one it is,
+  are MARKED. So the net tears as the ball drops in and mends on the
+  respawn; a rubber Hop over it, above the net, tears nothing.
+- **POSE**: a popspike 1 while UP; a membrane 1 while TORN.
 
 **Two families on `bz_mrec`.** WATER keeps the HTHR it replaced the same way,
 so a refill whose centre moved straight from a water cell to a spike (or the
@@ -283909,11 +283917,28 @@ control (item 6).
 - **Popspikes**: the picture holds four black SLITS round the top's centre
   (DOWN); the lane (the crack's 2 x 2 blocks round the top's centre, so a row
   of them shares no block) draws the four blades at pose 1 (UP).
-- **The membrane**: its tile is NOT DRAWN (a glass tile's rule: the ground
-  beyond shows, neighbours' faces hang into the gap), and over it a film -
-  the revealed glass's white pane outline and dashed glint (`glass_pane_ink`
-  over the run of membrane cells) and a sparse white stipple, one pixel in
-  32: thin, fragile, white on whatever lies behind on both cards.
+- **The membrane** (redrawn, the owner's, 2026-11-18: the first film -
+  the revealed glass's pane outline and glint with a stipple - read as the
+  glass path itself, and said nothing of why only glass crosses): its tile
+  is NOT DRAWN (a glass tile's rule: the ground beyond shows), and over the
+  gap a NET OF THREADS (`membrane_art`): each maximal run of membrane cells
+  along the membranes' longer axis carries two white ROPES (`MEM_STRANDS`,
+  a tenth of a cell in from either side) from the floor at one end to the
+  floor at the other, SAGGING to the run's middle (`MEM_SAG`: 2 px and a px
+  a cell, at most 5), laced between them by two zigzag threads a cell's
+  period apart and crossing (`MEM_LACE`), a lattice that looks able to carry
+  a light ball; every thread underlined black (the spikes' outline rule), so
+  it reads on a white top and on the Hercules' dither. Painted into the
+  picture, clipped by what is in front.
+- **The TEAR** (`membrane_tear`, each membrane cell's lane, pose 1): round
+  the cell's middle the LACING inside the ropes is gone (`MEM_HOLE`: within
+  0.32 of the middle along the run and 0.2 clear of each rope; the picture
+  behind it restored, as it was before the props' art) while BOTH ROPES
+  hold, and each white thread the hole cut HANGS from the cut, `MEM_HANG`
+  (4) px and a black tip - a net snapped under a weight, still strung
+  between the floors. The lane is the tear's pixels' blocks (2 x 2 or 2 x 3
+  on SPIKE, disjoint along a run), so a course whose geometry hides a whole
+  tear is refused.
 - **Rubber's POP** (`bonanza_assets.pop_frame`): the ball part's shatter
   table is the one at `B2_SHAOFF`, where rubber's STRETCH is entry 0; the
   pop adds entries **1 - 3** after it - the BURST (the skin torn into eight
@@ -283939,10 +283964,16 @@ control (item 6).
 | `BONANZA.O88` | 122,032 | 122,658 | +626 |
 | every shipped course part, demo and identity | | | unchanged, byte for byte (`cmp`) |
 
+**The net and its tear** (2026-11-18): the part 455 -> **558 bytes** (+103:
+the membrane walk in STEP, `sp_tmark`, POSE's membrane case), its ceiling
+`paras` 29 -> **35**, so the resident bundle **+96 bytes of RAM** (6
+paragraphs) in every play; no engine byte. SPIKE's course part grows by its
+four membrane lanes (2 poses each). No shipped course names the family.
+
 **Per step (PREDICTED, not measured on MartyPC):** a course that does not
 name the family pays nothing new. Naming it: STEP the material compare, about
-40 clocks, and on a course with popspikes a walk of the records - about 30
-clocks a record and 80 a popspike, about 1.5k clocks a step on SPIKE (35
+40 clocks, and on a course with popspikes or membranes a walk of the records - about 30
+clocks a record, 80 a popspike and about 60 a membrane (a non-glass ball), about 1.5k clocks a step on SPIKE (35
 records); CELL on a refill, about 35 clocks a record and 100 a family cell in
 the window, and the kill's four words when the centre is a spike.
 
@@ -283979,7 +284010,10 @@ from a patched `spike.asm`: `spcell` (CELL's entry 0: the window), `spkill`
 (the kill never set: the working values), `spput` (never put back: the
 working values after the respawn), `spmark` (a flip unmarked: never drawn),
 `spfref` (no refill on a flip), `spmem` (the membrane a floor for all: the
-window) - all six go red. `--selfcheck --only spike`: the ten refusals, the
+window), `sptear` (never torn: the POSE) and `sptmark` (the tear never
+marked: never drawn) - all eight go red. `mem-rubber` is judged torn for the
+steps it is under the net (22) and mended after its respawn, `mem-glass`
+never torn. `--selfcheck --only spike`: the ten refusals, the
 records and cells (item 3), the reach and its control (item 6), the art and
 its control `nospikeart` (item 10), the scenes on the model and two model red
 arms (`nokill`, `allfloor`; item 11).
@@ -284076,7 +284110,8 @@ read on either layout).
 2. The spikes' height is fixed at a half unit (a climb). Taller tips would
    need steel to arrive from a level approach; not built (no `up` clause).
 3. The art on both cards, and whether the membrane should differ more from
-   the revealed glass path.
+   the revealed glass path. **Answered** (2026-11-18): it does - a net of
+   threads that a heavier ball tears (128.38.5).
 ### 128.39 The ARCHWAY: an arch to roll under (the props round's P10, 2026-11-17)
 
 The owner (docs/plans/BOUNCE-BONANZA-PROPS.md, P10): an ARCH spans a path; a

@@ -17,17 +17,22 @@
 ;              while ((n + seed) AND mask) < on, n bz_nstep's low byte.  Up:
 ;              as SPIKES.  Down: B for every ball (an ordinary floor).  Its lane
 ;              is the spikes, pose 1 up.
-;   MEMBRANE   a crystal film, FLOOR for glass alone: +18 its floor's z0; every
-;              other ball's window holds a NEAR VOID there (z0 less 3 units,
-;              kind and surface 0, its flags kept: a broken crack's), so it falls
-;              through.
+;   MEMBRANE   a NET OF THREADS, FLOOR for glass alone (the lightest ball):
+;              +18 its floor's z0; every other ball's window holds a NEAR VOID
+;              there (z0 less 3 units, kind and surface 0, its flags kept: a
+;              broken crack's), so it falls through - and while it is under
+;              the net in a membrane cell that cell's lane is TORN, pose 1.
 ; Hooks: RESET (the course's popspikes counted, so STEP walks only for them),
 ; CELL (above; idempotent, written from the record), STEP (a changed material
 ; asks for the refill, bz_fref; a popspike whose pose the count about to be
 ; made flips is MARKED, bz_fmark, and refills the window when it is in it),
-; POSE (a popspike's: 1 up).  The slot (bz_fsl + BZF_SLOT AL): +0 the material
-; STEP last saw, +1 IN (the centre a killing spike at the last refill), +2 the
-; HARD and HSTEPS replaced, +4 the HTHR replaced, +6 the popspikes.
+; STEP also finds the TORN membrane - the window's centre a membrane, the ball
+; not glass and its whole-px z under the net's 4 z0 - and marks the lanes of the
+; one it was and the one it is; POSE (a popspike's: 1 up; a membrane's: 1
+; TORN).  The slot (bz_fsl + BZF_SLOT AL): +0 the material STEP last saw, +1 IN
+; (the centre a killing spike at the last refill), +2 the HARD and HSTEPS
+; replaced, +4 the HTHR replaced, +6 the popspikes and membranes (STEP's walk),
+; +7 TORN, the torn membrane's element + 1 (0 none).
 ;
 ; A FAMILY PART (SPEC.md 128.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
@@ -42,7 +47,8 @@ org 0
 SP_IN       equ 1               ; the slot's bytes
 SP_HARD     equ 2
 SP_HTHR     equ 4
-SP_NPOP     equ 6
+SP_NWALK    equ 6
+SP_TORN     equ 7
 SP_LOW      equ 18              ; the record: LOW, TIP (signed half units),
 SP_TIP      equ 19              ; a popspike's ON, MASK, SEED
 SP_ON       equ 20
@@ -68,7 +74,7 @@ SP_MZ       equ 18              ; a membrane's: its floor's z0
  %error "the family part's header is BZF_HDR bytes (SPEC.md 128.25.6.2)"
 %endif
 
-; RESET: the course's popspikes counted
+; RESET: the course's popspikes and membranes counted
 sp_reset:
     call sp_slot
     xor dx, dx
@@ -76,14 +82,14 @@ sp_reset:
 .l:
     jcxz .x
     cmp byte [es:si], BZ_FK_POPSPIKES
-    jne .n
+    jb .n
     inc dx
 .n:
     add si, 32
     dec cx
     jmp short .l
 .x:
-    mov [di + SP_NPOP], dl
+    mov [di + SP_NWALK], dl
     retf
 
 ; CELL: the window's cells of the family for this ball, then the centre's rule
@@ -176,7 +182,8 @@ sp_cell:
     retf
 
 ; STEP: a changed material's refill; each popspike the count about to be made
-; flips MARKED, and the window refilled when it is in it
+; flips MARKED, and the window refilled when it is in it; the TORN membrane
+; found (BP: its element + 1), and on a change both lanes MARKED
 sp_step:
     call sp_slot
     mov al, [bz_mat]
@@ -185,12 +192,14 @@ sp_step:
     mov [di], al
     mov byte [bz_fref], 1
 .p:
-    cmp byte [di + SP_NPOP], 0
+    cmp byte [di + SP_NWALK], 0
     je .x
     call sp_walk
-    xor bx, bx
+    xor bx, bx                  ; (CX > 0: NWALK counted records)
+    xor bp, bp
 .l:
-    jcxz .x
+    cmp byte [es:si], BZ_FK_MEMBRANE
+    je .mem
     cmp byte [es:si], BZ_FK_POPSPIKES
     jne .nx
     mov al, [bz_nstep]          ; up on n against up on n + 1
@@ -221,12 +230,45 @@ sp_step:
 .nx:
     add si, 32
     inc bx
-    dec cx
-    jmp short .l
+    loop .l
+    jmp short .t
+.mem:                           ; TORN: the window's centre, not glass, under
+    cmp byte [bz_mat], BZ_MAT_GLASS
+    je .nx
+    mov ax, [es:si + 2]
+    cmp ax, [bz_nwin]
+    jne .nx
+    mov al, [es:si + SP_MZ]     ; ...the net: z < 4 z0, signed
+    cbw
+    shl ax, 1
+    shl ax, 1
+    cmp [bz_gz + 1], ax
+    jge .nx
+    lea bp, [bx + 1]
+    jmp short .nx
+.t:
+    mov ax, bp                  ; a change: the lanes of the one it was and
+    xchg al, [di + SP_TORN]     ; the one it is MARKED
+    cmp al, [di + SP_TORN]
+    je .x
+    call sp_tmark
+    mov ax, bp
+    call sp_tmark
 .x:
     retf
 
-; POSE: BX = a popspike -> AL 1 up, 0 down
+; AL = a membrane's element + 1, or 0 -> its lane MARKED.  Preserves all but BX.
+sp_tmark:
+    or al, al
+    jz .x
+    dec ax
+    mov bl, al
+    xor bh, bh
+    call far [bz_fmkp]
+.x:
+    ret
+
+; POSE: BX = a popspike -> AL 1 up, 0 down; a membrane -> AL 1 TORN
 sp_pose:
     push cx
     mov es, [bz_cseg]
@@ -235,6 +277,19 @@ sp_pose:
     shl si, cl
     add si, [bz_poff]
     pop cx
+    cmp byte [es:si], BZ_FK_MEMBRANE
+    jne .pop
+    push di
+    call sp_slot
+    mov al, [di + SP_TORN]
+    pop di
+    dec ax
+    sub al, bl                  ; (BH 0: an element's index is a byte)
+    cmp al, 1                   ; AL 0 (TORN) -> 1, else 0
+    mov al, 0
+    adc al, 0
+    retf
+.pop:
     mov al, [bz_nstep]
     add al, [es:si + SP_SEED]
     and al, [es:si + SP_MASK]

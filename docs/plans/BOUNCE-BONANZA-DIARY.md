@@ -4895,3 +4895,32 @@ timer"*, and *"do we have the option of using different gate art per course?"*
   (eleven scenes equal at every step, ten red arms red) and `gt_host` (27
   equal, five red), `make bonanzadisk`, the BZTILT and BZGATE knob builds.
   **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
+
+## 2026-11-18 (the MEMBRANE becomes a net that tears)
+
+- **The ask** (the owner): the membrane looked like the revealed glass path,
+  and nothing said why glass crosses it and the others fall. "Thin threads",
+  and a short animation showing why the others fall through.
+- **The story**: glass is already the LIGHTEST ball (the see-saw's weights,
+  128.42), so the membrane became a NET OF THREADS that holds the light ball
+  and not the heavy ones: two sagging ropes from floor to floor, laced by two
+  crossing zigzags, every thread underlined black for the Hercules
+  (SPEC.md 128.38.5).
+- **Tried and dropped, on the owner's looks**: an eight-spoke spider's web a
+  cell (at 32 x 16 px the rings and spokes merge into a white blob), a
+  three-rope net (cluttered), and a tear across the whole run that snapped
+  the ropes (it read as "floating lines with no connection"). The owner's
+  pick: the looser two-rope net with a little more lacing, tearing only in
+  the middle.
+- **The animation**: each membrane cell's lane has a TORN pose - the lacing
+  inside the ropes gone, the cut threads hanging - shown while a non-glass
+  ball is under the net at that cell, mended at the respawn. Stateless in
+  the record: the spike slot's spare byte holds the torn element, STEP finds
+  it on the walk the popspikes already had and marks the two lanes.
+- **Measured**: the part 455 -> 558 bytes, ceiling 29 -> 35 paras (the
+  bundle +96 bytes RAM), no engine byte. **Run**: `--selfcheck --only
+  spike`, `spike_host` (eleven scenes equal at every step, `mem-rubber` torn
+  22 steps then mended, `mem-glass` never; eight red arms red, two new:
+  `sptear`, `sptmark`), `make` (fast tier), the BZSPIKE knob disk.
+  **LOOKED AT** in the tool's previews (CGA, Hercules) only, not booted.
+  **Not run**: soak rows, `test-full`; the per-step cost is PREDICTED.
