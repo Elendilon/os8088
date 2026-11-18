@@ -57,6 +57,19 @@ def page(m):
     raise M.MartyError("Sound Debug's text buffer has no header row")
 
 
+def turn(m, key, tab):
+    """Press a page key and wait, on the GUEST, until the header row marks
+    that page as shown - the program's own text, not a frame count."""
+    def shown(mm):
+        try:
+            return tab in page(mm)[0]
+        except M.MartyError:
+            return False
+    m.key(key)
+    m.run()                             # (advance leaves it paused)
+    M.until(m, shown, what="Sound Debug's page %s" % tab)
+
+
 def show(rows, what):
     print("---- %s" % what)
     for r in rows:
@@ -100,8 +113,7 @@ def main():
             f = r.split()
             if len(f) >= 2 and f[0].isdigit():
                 lab[f[1]] = r[48:].strip()
-        m.key("Digit5")
-        m.advance(frames=25)
+        turn(m, "Digit5", "[5 More]")
         p5 = page(m)
         show(p5, "page 5")
         for r in p5[2:5]:
@@ -118,8 +130,7 @@ def main():
             check(res.startswith("ran"), "lab %s ran on (%r)" % (name, res))
         check("SOUNDA1.TXT saved" in p5[15] and "SOUNDB1.TXT saved" in p5[15],
               "both reports saved (%r)" % p5[15])
-        m.key("Digit2")
-        m.advance(frames=25)
+        turn(m, "Digit2", "[2 Play]")
         rows = page(m)
         show(rows, "page 2, as the play test left it")
         check("Done." in rows[1], "the play test started by itself and "
@@ -139,8 +150,7 @@ def main():
         check("watchdog 0" in rows[14], "no watchdog stop")
         check("steady" in rows[15], "the verdict names nothing as stopped")
 
-        m.key("Digit1")
-        m.advance(frames=25)
+        turn(m, "Digit1", "[1 Detect]")
         p1 = page(m)
         show(p1, "page 1")
         check("debug build" in p1[2], "the -DSNDDIAG driver answered "
@@ -149,8 +159,7 @@ def main():
         check(p1[11].startswith("BLASTER=A220"), "a BLASTER= line")
         check("tier attached" in p1[13], "the verdict says the tier is up")
 
-        m.key("Digit3")
-        m.advance(frames=25)
+        turn(m, "Digit3", "[3 Regs]")
         p3 = page(m)
         show(p3, "page 3")
         check("DSP writes" in p3[10], "the DSP write log is shown")

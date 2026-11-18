@@ -32,10 +32,6 @@
 
 # --- high --------------------------------------------------------------------
 
-high apps/inputchk/inputchk.asm   # NOT SHIPPED TO kern_mega: Input Check
-    # rides only the debug-input disks, whose kernel is kern_big (SPEC.md
-    # 127.5). Upstream's MOUSECHK - the same source and the same class byte -
-    # ran on kern_mega (its SPEC 126.12)
 high apps/snddiag/snddiag.asm   # NEVER LOADED BY kern_mega: Sound Debug ships
     # only on the debug-sound disks, whose kernel is kern_big (SPEC.md 127.2),
     # and it reads a record only that disk's -DSNDDIAG SOUND.DRV keeps. A
@@ -44,4 +40,3 @@ high apps/snddiag/snddiag.asm   # NEVER LOADED BY kern_mega: Sound Debug ships
 # --- highmem -----------------------------------------------------------------
 
 highmem apps/snddiag/snddiag.asm   # NEVER LOADED BY kern_mega: the debug-sound disks are kern_big, as for high
-highmem apps/inputchk/inputchk.asm   # NOT SHIPPED TO kern_mega: Input Check rides only the debug-input disks, kern_big (SPEC.md 127.5); upstream's MOUSECHK, its source, declared OS88_HIGHMEM after running on kern_mega

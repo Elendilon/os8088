@@ -156,8 +156,13 @@ apps/redline/inspmod.inc 3       # THE SHIPPED BUILD STAYING CORRECT, not a
     # (SPEC.md 103.7.1). Three lines, no code that runs only there
 apps/snddiag/sdtext.inc 1        # A LABEL, not a kern_mega arm: Sound Debug's
     # Detect page prints ", kern_mega protected mode" after the CPU when
-    # OSAPI_CPU_INFO's CPU_F_PM is set (SPEC.md 127.4), so a photograph says
+    # OSAPI_CPU_INFO's CPU_F_PM is set (SPEC.md 127.4), so the report says
     # which kernel it came from. One test, nothing that runs only there
+apps/snddiag/sdlab.inc 1         # THE SHIPPED BUILD REFUSING THE LAB: sl_begin
+    # tests CPU_F_PM and says "kern_mega (protected mode) is not a lab
+    # machine" on page 4 (SPEC.md 127.4.1) - the lab programs the 8237 with
+    # PHYSICAL addresses computed from its claims, which are selectors there.
+    # One test and a refusal, nothing that runs only there
 apps/inputchk/probe.inc 1        # THE SHIPPED BUILD REFUSING ONE LEG: the
     # PS/2 probe's opt-in BIOS leg (SPEC.md 129.8.4) is not offered under
     # kern_mega - p2x_again's `test byte [p2_cpuf], CPU_F_PM / jnz .no`. A

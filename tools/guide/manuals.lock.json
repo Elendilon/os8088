@@ -623,6 +623,14 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "INPUTCHK_O88": {
+  "sources": [
+   "apps/inputchk"
+  ],
+  "stamped": "d697605cb",
+  "strings": "4b26d26ae7a729d8",
+  "why": "written from INPDEBUG.TXT and SPEC.md 129.12: the automatic run, the A and B reports, the keys after it"
+ },
  "INSTALL_O88": {
   "sources": [
    "apps/install"
@@ -1079,9 +1087,9 @@
   "sources": [
    "apps/snddiag"
   ],
-  "stamped": "7e798409c",
-  "strings": "5a86ccfd83267560",
-  "why": "written from apps/snddiag/snddiag.asm and sdtext.inc: pages, keys, rates, the D8h column's na/--, the autostart and the debug driver"
+  "stamped": "d697605cb",
+  "strings": "1dcac5f166e047c3",
+  "why": "rewritten for five pages, the DMA lab, the auto-saved SOUNDA/SOUNDB reports and the new keys; photograph wording gone"
  },
  "SOLITAIR_O88": {
   "sources": [
