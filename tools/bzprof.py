@@ -71,6 +71,25 @@ def vga_listing(td):
     return lst
 
 
+def fam_tables(td):
+    """{family: (its built part's bytes, its listing's labels)} - every apps/bonanza/fam/*.asm assembled here
+    with a listing, so a sample in the parts arena names its family by the bytes at its CS:0 and its routine
+    by the offset"""
+    out = {}
+    fdir = os.path.join(ROOT, "apps", "bonanza", "fam")
+    for fn in sorted(os.listdir(fdir)):
+        if not fn.endswith(".asm"):
+            continue
+        name = fn[:-4]
+        lst, binp = os.path.join(td, "f-%s.lst" % name), os.path.join(td, "f-%s.bin" % name)
+        r = subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/bonanza/",
+                            "-I", R.at("build/bonanza-art") + "/", "-l", lst, "-o", binp, "apps/bonanza/fam/" + fn],
+                           cwd=ROOT, capture_output=True)
+        if r.returncode == 0:
+            out[name] = (open(binp, "rb").read(), labels(lst))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--machine", default="os8088_xt_vga")
@@ -86,6 +105,7 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         pk = labels(os.path.join(ROOT, R.at("build/bonanza.lst")))
         vg = labels(vga_listing(td)) if vga else []
+        fams = fam_tables(td)
         img = os.path.join(td, "apps.img")
         shutil.copy(R.at("build/bonanza360.img"), img)
         if a.replay:
@@ -111,7 +131,7 @@ def main():
             m.pause()
             base = g.base
             vseg = int.from_bytes(bytes(m.read(g.a("bz_vfp") + 2, 2)), "little") if vga else 0
-            prof, per = collections.Counter(), []
+            prof, per, foreign = collections.Counter(), [], collections.Counter()
             f0, s0 = g.w("bz_frames"), g.d("bz_nstep")
             last, t, nxt = (f0, s0), 0.0, 1.0
             rnd = random.Random(1)
@@ -126,11 +146,25 @@ def main():
                 elif vseg and (vseg << 4) <= flat < (vseg << 4) + 0x2000:
                     prof["vga " + name(vg, flat - (vseg << 4))] += 1
                 else:
-                    prof["seg %04X" % r["cs"]] += 1
+                    foreign[(r["cs"], r["ip"])] += 1
                 if t >= nxt:
                     f, st = g.w("bz_frames"), g.d("bz_nstep")
                     per.append(((f - last[0]) & 0xFFFF, st - last[1]))
                     last, nxt = (f, st), nxt + 1.0
+            # a segment outside both listings: a FAMILY when the bytes at its CS:0 are one of the built family
+            # parts' (named by routine in that part's listing), else named by the claim it falls in
+            # a sample outside both listings: its 16 bytes looked for in every built family part - found once,
+            # it is that family's, at that offset (named by routine in the part's listing); else named by the
+            # claim it falls in.  (Not CS:0: a family's code is not entered at its part's first byte.)
+            where = {}
+            for (cs, ip), v in foreign.items():
+                lin = ((cs << 4) + ip) & 0xFFFFF
+                if lin not in where:
+                    code = bytes(m.read(lin, 16))
+                    hits = [(n, b.find(code)) for n, (b, _) in fams.items() if b.find(code) >= 0]
+                    where[lin] = hits[0] if len(hits) == 1 else None
+                h = where[lin]
+                prof["fam %s %s" % (h[0], name(fams[h[0]][1], h[1])) if h else "seg %04X" % cs] += v
             import bonanza_exit as E        # the claims, to name a segment outside the two listings
             hm = E._tools_heapmap()
             mp = hm.Map(E.Q(m), {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live", "mem_tab")})
