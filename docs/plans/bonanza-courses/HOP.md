@@ -6,6 +6,43 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## Art options (2026-11-19): for the owner to pick
+
+The owner: *"Give me a few options for signs, and some minimal 'interest'
+art/course piece options."* `hop/art.py` draws each option (FIRST ROLL's
+decal machinery, signs.py's board as the baseline) into a SCRATCH copy of
+the course (`art.py sheet DIR`), compiles it, measures the course part, and
+draws a comparison sheet in palette 0, CGA and Hercules. Nothing here is in
+`hop.bbc` yet: once the owner chooses, `art.py --signs S --extras E
+--into-course` replaces signs.py's ART block.
+
+MEASURED, the course part packed as it ships (LZB), against no signs at all
+(7,209 bytes); the extras each against today's board signs (7,537):
+
+| sign style | what it is | LZB |
+|---|---|---|
+| `board` | today's board on a banded post (the baseline) | +328 |
+| `hang` | a rounded plate hanging by two chains from a gallows arm: the pin clock's kind | +374 |
+| `banner` | a cloth between two posts in the rail's plane, the words sheared with it | +510 |
+| `icon` | the hanging plate with a picture, no words: one arc onto a step, or a bounce in the air and a second arc | +319 |
+| `floor` | a red road marking with yellow letters, painted on T1 and U1 | +624 |
+
+| extra | what it is | LZB |
+|---|---|---|
+| `tee` | a red start disc with a yellow highlight under the spawn | +55 |
+| `chev` | two red chevrons down the lip ramp R, before the drop | +210 |
+| `goal` | two pennants on the goal's back rail | +114 |
+| `tufts` | five grass tufts with a flower on back and side rail tops | +151 |
+| `pillar` | a lone floating pillar with a pennant in the void west of H, 4 tiles from the nearest rail | +150 |
+
+Together: today's board signs with all five extras +692; the hanging plates
+with the tee, chevrons, goal pennants and pillar +562 (both against today).
+The tufts are 13 x 9 px and barely read at the game's scale.
+
+![the sign options](hop/art-signs.png)
+
+![the interest pieces](hop/art-extras.png)
+
 ## The limit and the demo (2026-11-19)
 
 A sub-agent taught the tool's autopilot to Hop (SPEC.md 130.14.7.4.1: a
