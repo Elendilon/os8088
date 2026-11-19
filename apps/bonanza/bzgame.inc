@@ -238,6 +238,7 @@ BZ_SPR_SHA  equ 68              ; ...and shatter k 68 + k (roll frames 0 - 63)
 BZ_SPR_STR  equ 72              ; ...and rubber's stretch 72 (wave 6, 130.16.4.4)
 BZ_NBOXMAX  equ 4
 BZ_AFL      equ 8               ; bz_amodel's front table: bytes a cell (130.29.5)
+BZ_AXMAX    equ 24              ; ...its EXTRA slots: a split piece's half-edge each (130.48.3)
 ; THE EARLY STEP (bz_early): a step that is already due by the clock runs in
 ; the retrace wait's idle time instead of at the next frame's top (SPEC.md
 ; 130.4; shipped 2026-11-15, the A/B knob and the harness's off switch
@@ -588,6 +589,14 @@ VAR bz_ars,2
 VAR bz_are,2
 VAR bz_aprep,1
 VAR bz_namod,2
+VAR bz_axl,BZ_AFL * BZ_AXMAX    ; SPEC.md 130.48.3: THE EXTRA SLOTS - a split
+VAR bz_axe,2                    ; piece's half-edge each (H / 4, X, Y, k, the
+VAR bz_alim,2                   ; flags), their end, a walk's end; V's VOID
+VAR bz_avm,1                    ; pieces (a bit each, 0: a VOID cell) and its
+VAR bz_avk,1                    ; split kind; bz_axcell's piece's half-edges
+VAR bz_axed,1                   ; its cell's X and whether it is V's own
+VAR bz_axx,2
+VAR bz_axo,1
 VAR bz_omp,2                    ; bz_olay's mask in our segment: bz_omsk, or
                                 ; the model's (bz_amodel; bz_crshdr sets it)
 VAR bz_okt,1                    ; the 4-byte record (SPEC.md 130.15.5): bz_ozk

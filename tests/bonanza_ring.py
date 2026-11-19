@@ -875,7 +875,7 @@ class Ref:
                     ball[(x4 + j, y)] = nv
         hidden = ghosted = 0
         if lk.gate:                              # the records (130.10.4.4's rule) over the
-            m = 0 if lk.air else BB.CLIMB       # footprint's lines and the ball's columns,
+            m = 0 if lk.oair else BB.CLIMB      # footprint's lines and the ball's columns,
             for br in range(lk.py >> 3, ((lk.py + BB.FOOT_H - 1) >> 3) + 1):    # each laying its pixels
                 for bc in range(x4 >> 3, ((x4 + BB.FOOT_W - 1) >> 3) + 1):     # LESS the checker's: the
                     for rec in self.c.by_block.get((br, bc), ()):              # card's model, the ghost
@@ -893,7 +893,7 @@ class Ref:
                                 out[(x, y)] = lay[y][x]
             # SPEC.md 130.29: in a VOID cell of a GF_ANA part the guest's model lays too, after the records
             # (bbcourse.amodel_pix reads the same RAM form), its mask ORed with the checker as a record's is
-            for (x, y) in BB.amodel_pix(self.c, (lk.gx >> 12, lk.gy >> 12), lk.zb, lk.air, lk.px, lk.py):
+            for (x, y) in BB.amodel_pix(self.c, (lk.gx >> 12, lk.gy >> 12), lk.zb, lk.oair, lk.px, lk.py):
                 if (x, y) not in out:
                     continue
                 if BB.ghost(x, y):
@@ -1077,6 +1077,8 @@ class Bz:
                   mat=mat, px=px, py=py, y0=grid.y0,
                   stf=f("bz_stf", "B") if "bz_stf" in self.sym else 0)    # (wave 6: the stretch, 130.16.4.4)
         lk.zb = lk.gz >> 8
+        # SPEC.md 130.48: the rule's air state - a LOW FLIGHT over a floor takes the grounded margin (bz_occ's key)
+        lk.oair = 1 if lk.air and not (lk.ghv and lk.zb < (lk.gh >> 2) + BB.CLIMB) else 0
         # the HIDDEN ball (SPEC.md 130.14.19 item 4): bz_hidn, in a tube or HOLED OUT - its capture frame
         # restores its footprint; an earlier wave's build has bz_tube alone
         lk.tube = hidn if hidn is not None else f("bz_tube", "B") if "bz_tube" in self.sym else 0

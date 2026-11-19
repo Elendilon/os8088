@@ -9314,6 +9314,45 @@ def field_zlo(tiles, rc, gx, gy, _raise=0):
     return min(max((t.h[v][u] >> 2) + _raise, rc.zlo), rc.zhi)
 
 
+def pose_floor(tiles, wx, wy, gx, gy):
+    """SPEC.md 130.48: the floor (whole px) under a ball centred at (gx, gy) (1/256 gu) in cell (wx, wy) - the
+    picked record's plane at the integer point, a FIELD cell's height there - or None over the void (and a wall)"""
+    t = tiles.get((wx, wy))
+    u, v = (gx >> 8) - 16 * wx, (gy >> 8) - 16 * wy
+    if isinstance(t, FieldTile):
+        return t.h[v][u] >> 2
+    if isinstance(t, Split):
+        t = t.halves[pick(t.diag, gx & 4095, gy & 4095)]
+    if not isinstance(t, Tile) or t.kind not in (KIND_FLOOR, KIND_GOAL):
+        return None
+    return (16 * t.z0 + t.sx * u + t.sy * v) >> 2
+
+
+def pose_of(c, rc, gx, gy):
+    """SPEC.md 130.48: a REAL pose at reach cell rc's point (gx, gy): -> (its lowest whole px, the margin's floor
+    or None) - the floor there (rc.zlo over the void), clamped to the cell's range; None where no ball's centre
+    can be (a split cell's WALL piece: physics's walls are never under the centre, 130.24.7)"""
+    t = c.tiles.get((rc.wx, rc.wy))
+    if isinstance(t, Split):
+        r_ = t.halves[pick(t.diag, gx & 4095, gy & 4095)]
+        if r_ is not None and r_.kind == KIND_WALL:
+            return None
+    f = pose_floor(c.tiles, rc.wx, rc.wy, gx, gy)
+    if f is None:
+        return rc.zlo, None
+    return min(max(f, rc.zlo), rc.zhi), f
+
+
+def oair_at(air, z, f):
+    """the rule's air state (SPEC.md 130.48: a LOW FLIGHT over floor f takes the grounded margin)"""
+    return 1 if air and not (f is not None and z < f + CLIMB) else 0
+
+
+def mcell(gx, gy):
+    """the model's cell argument for a ball centred at (gx, gy), 1/256 gu: (wx, wy, pu, pv) (SPEC.md 130.48.1)"""
+    return (gx >> 12, gy >> 12, gx & 4095, gy & 4095)
+
+
 def _ball_cols():
     """the ball's lit rows in each of its 16 columns, (first, last): ONE circle at every alignment (the
     frames differ in ink only)"""
@@ -9413,7 +9452,59 @@ def _field_occ(cv, rc, t, x0, y0, occ, _raise=0, other=None, show=FSHOW, lift=CL
 _BALL_COLS = _ball_cols()
 
 
-def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, show=FSHOW, lift=CLIMB):
+def feet_real(reach, tiles, x0, dyn=None):
+    """SPEC.md 130.10.4.4 as 130.48 amends it: the footprints the CUTTER takes over the reach, at the poses a
+    ball can really be in -> [(rc, zlo, zhi, xl, xh, yt0, yb0, flo, void)], feet()'s tuple, FLO: the square's
+    points are all FLOOR (or GOAL), so a ball there is at or over the floor and the low-flight margin holds (a
+    pixel lays only where its top is over the square's lowest floor + BZ_CLIMB), and VOID: the square's points
+    are a split cell's VOID ones (the model's, 130.48.4, where it runs).  A static RAMP (a whole FLOOR or GOAL
+    tile with a slope) is cut in SUB x SUB squares of ground units, each at the lowest floor of its integer
+    points; a static SPLIT cell's squares are cut twice where they hold both kinds - its VOID points at the
+    cell's own range, its solid ones at their lowest floor (a WALL piece's top: no margin); a flat floor is
+    one square at its floor; every other cell (VOID, WALL, FIELD - _field_occ's - and the cells that move or
+    vanish) is feet()'s whole cell.  DYN is (those cells, SUB); None: feet()'s whole cells everywhere, no
+    margin (the cut before 130.48, the A/B and the red arm)"""
+    out = []
+    dyn, sub = dyn if dyn is not None else (None, 16)
+    for rc in reach:
+        t = tiles.get((rc.wx, rc.wy))
+        xl, xh = foot_x(rc, x0)
+        whole = (rc, rc.zlo, rc.zhi, xl, xh, 8 * rc.s - 13, 8 * rc.s + 17, False, False)
+        if dyn is None or (rc.wx, rc.wy) in dyn or t is None or isinstance(t, FieldTile):
+            out.append(whole)
+            continue
+        if isinstance(t, Tile):
+            if t.kind not in (KIND_FLOOR, KIND_GOAL):
+                out.append(whole)
+                continue
+            if not t.sx and not t.sy:
+                out.append((rc, max(rc.zlo, min((16 * t.z0) >> 2, rc.zhi)),) + whole[2:7] + (True, False))
+                continue
+        xc = 16 * rc.a + x0
+        for v0 in range(0, 16, sub):
+            for u0 in range(0, 16, sub):
+                zl, flo, vd = None, True, False
+                for v in range(v0, v0 + sub):
+                    for u in range(u0, u0 + sub):
+                        r_ = t.halves[pick(t.diag, u << 8, v << 8)] if isinstance(t, Split) else t
+                        if r_ is None or r_.kind == KIND_VOID:
+                            vd = True
+                            continue
+                        if r_.kind not in (KIND_FLOOR, KIND_GOAL):
+                            flo = False
+                        h = (16 * r_.z0 + r_.sx * u + r_.sy * v) >> 2
+                        zl = h if zl is None else min(zl, h)
+                off = (u0 + v0) >> 1
+                foot = (xc + u0 - v0 - sub - 8, xc + u0 - v0 + sub + 7, 8 * rc.s + off - 13, 8 * rc.s + off + sub + 1)
+                if vd:
+                    out.append((rc, rc.zlo, rc.zhi) + foot + (False, True))
+                if zl is not None:
+                    out.append((rc, min(max(zl, rc.zlo), rc.zhi), rc.zhi) + foot + (flo, False))
+    return out
+
+
+def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, show=FSHOW, lift=CLIMB, dyn=None,
+               avsplit=()):
     """-> (records, occ pixel set): SPEC.md 130.10.4.4.  A pixel is an occluder
     when SOME reachable position's footprint covers it and the rule lays it
     back there: the ball's cell row before the pixel's, and the ball lower
@@ -9427,7 +9518,9 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, s
     w, h = cv.w, cv.h
     tiles = tiles or {}
     fcells = []
-    for rc, zlo, zhi, xl, xh, yt0, yb0 in feet(reach, tiles, x0, 16):
+    for rc, zlo, zhi, xl, xh, yt0, yb0, flo, vd in feet_real(reach, tiles, x0, dyn):
+        if vd and id(rc) in avsplit:            # (SPEC.md 130.48.4: a split cell's VOID square is the model's)
+            continue
         t = tiles.get((rc.wx, rc.wy)) if rc.kind == KIND_FIELD else None
         if isinstance(t, FieldTile) and (FOCC if sub is None else sub) < 16:
             fcells.append((rc, t))
@@ -9444,7 +9537,7 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, s
                     continue
                 tp = tr[x]
                 zmax = min(zhi, tp - 1)          # the highest ball the pixel still hides
-                if zmax < zlo:
+                if zmax < zlo or (flo and tp <= zlo + CLIMB):   # (OVER A FLOOR: the low-flight margin, below)
                     continue
                 # above every footprint low enough - a ball at whole height zmax
                 # with a FRACTION (any zmax below the apex) has its top a line
@@ -9644,12 +9737,49 @@ def amodel_f(k, d, right):
     return (k * (2 * d + 1) + (4 if right else 3)) >> 3
 
 
+AV_XMAX = 24                  # SPEC.md 130.48.3: the front table's EXTRA slots (a split cell's pieces' half-edges)
+AV_SPLIT = True               # SPEC.md 130.48: the model in a split cell's VOID piece, and over front pieces (False:
+#                               130.29's model, which passes over every split cell - the A/B and the red arm)
+# SPEC.md 130.48.2: a piece's half-edges - (side, apex): side L the columns [X - 16, X - 1], R [X, X + 15]; apex T
+# the cell's top corner (130.29.2's F on the piece's own plane), C the cell's centre (the L - R diagonal's F)
+PIECE_EDGES = {(KIND_TB, 0): (("L", "T"),), (KIND_TB, 1): (("R", "T"),),
+               (KIND_LR, 0): (("L", "T"), ("R", "T")), (KIND_LR, 1): (("L", "C"), ("R", "C")),
+               (KIND_Q, Q_N): (("R", "T"),), (KIND_Q, Q_E): (("R", "C"),), (KIND_Q, Q_S): (("L", "C"),),
+               (KIND_Q, Q_W): (("L", "T"),)}
+FRONT_PIECES = ((KIND_LR, 1), (KIND_Q, Q_E), (KIND_Q, Q_S))     # keyed s + 1 (130.24.6.3)
+
+
+def amodel_hedge(he, x):
+    """a HALF-EDGE's line in picture column x (SPEC.md 130.29.2's E; 130.48.2's centre edge), or None outside
+    its 16 columns.  he = (H, X, Y, k, right, centre)"""
+    _H, X, Y, k, right, cen = he
+    if right:
+        if not X <= x <= X + 15:
+            return None
+        d = x - X
+    else:
+        if not X - 16 <= x < X:
+            return None
+        d = X - 1 - x
+    if cen:
+        return Y + ((k * (2 * d + 1) + 8) >> 4)
+    return Y + amodel_f(k, d, right)
+
+
+def _piece_h(z0, sx, sy, poly):
+    """a piece's highest point, px, rounded UP to a multiple of 4 (its polygon's vertices in half cells)"""
+    h = max(4 * z0 + 2 * (sx * hx + sy * hy) for hx, hy in poly)
+    return -((-h) // 4) * 4
+
+
 class AGrid:
-    """the model's view of a grid (SPEC.md 130.29.2): what bz_amodel reads - NROWS, SMIN, AMIN, KW, X0, Y0, the
-    GF_ANA flag and each cell's four bytes through ROWTAB.  From a part's RAM form (AGrid(part)), or from a
-    compile's cell dictionary before the part exists (AGrid.of_cells: the same bytes, the build's own use)"""
+    """the model's view of a grid (SPEC.md 130.29.2, 130.48): what bz_amodel reads - NROWS, SMIN, AMIN, KW, X0, Y0,
+    the GF_ANA flag, each cell's four bytes through ROWTAB and a split cell's records in D.  From a part's RAM
+    form (AGrid(part)), or from a compile's cell dictionary and pairs before the part exists (AGrid.of_cells:
+    the same bytes, the build's own use)"""
 
     def __init__(self, p=None):
+        self.split = AV_SPLIT
         if p is None:
             return
         g = struct.unpack_from("<H", p, 26)[0]
@@ -9660,19 +9790,32 @@ class AGrid:
         rows = struct.unpack_from("<%dH" % self.nrows, p, rt)
         self._b = lambda r, k: struct.unpack_from("<bBBB", p, rows[r] + 4 * k)
 
+        def pc(r, k):
+            po, kd = struct.unpack_from("<HB", p, rows[r] + 4 * k)
+            return [struct.unpack_from("<bBBB", p, po + 4 * h) for h in range(NREC[kd & 15])]
+        self._p = pc
+
     @classmethod
-    def of_cells(cls, cells, smin, amin, kw, nrows, x0, y0, gflags):
+    def of_cells(cls, cells, smin, amin, kw, nrows, x0, y0, gflags, pairs=None):
         a = cls()
         a.nrows, a.smin, a.amin, a.kw, a.x0, a.y0, a.gflags = nrows, smin, amin, kw, x0, y0, gflags
+        pairs = pairs or {}
 
-        def b(r, k):
+        def wxy(r, k):
             s = smin + r
             av = amin + 2 * k + (s & 1)
-            c = cells.get(((s + av) >> 1, (s - av) >> 1))
+            return ((s + av) >> 1, (s - av) >> 1)
+
+        def b(r, k):
+            c = cells.get(wxy(r, k))
             if c is None:
                 return (Z_OPEN, 0, KIND_VOID, 0)
             return (c[0] if not (c[2] & 15) in SPLIT_KINDS else 0, c[1], c[2], c[3])
-        a._b = b
+
+        def pc(r, k):
+            return [tuple((v - 256 if j == 0 and v > 127 else v) for j, v in enumerate(h))
+                    for h in pairs[wxy(r, k)]]
+        a._b, a._p = b, pc
         return a
 
     def raw(self, wx, wy):
@@ -9682,18 +9825,67 @@ class AGrid:
             return None
         return self._b(r, k)
 
-    def runs(self, wx, wy):
-        """the model runs for a ball centred in (wx, wy): GF_ANA, and the cell inside the grid, VOID, not OBS"""
+    def pieces(self, wx, wy):
+        """a split cell's records (z0, slopes byte, kind byte, flags), in D's order"""
+        return self._p(wx + wy - self.smin, (wx - wy - self.amin) >> 1)
+
+    def runs(self, wx, wy, pu=None, pv=None):
+        """the model runs for a ball centred in (wx, wy) - at in-cell point (pu, pv), 1/256 gu, in a split cell:
+        GF_ANA, the cell inside the grid and VOID, not OBS - or (SPEC.md 130.48.1) a split cell whose picked
+        record is VOID"""
         if not self.gflags & GF_ANA:
             return False
         b = self.raw(wx, wy)
-        return b is not None and b[2] & 15 == KIND_VOID and not b[3] & FL_OBS
+        if b is None:
+            return False
+        if b[2] & 15 == KIND_VOID:
+            return not b[3] & FL_OBS
+        if self.split and b[2] & 15 in SPLIT_KINDS and pu is not None:
+            return self.pieces(wx, wy)[pick(b[2] & 15, pu, pv)][2] & 15 == KIND_VOID
+        return False
+
+    def void_pt(self, wx, wy, u, v):
+        """split cell (wx, wy)'s record at integer point (u, v) gu is VOID (the pick of 130.24.7.1)"""
+        b = self.raw(wx, wy)
+        return self.pieces(wx, wy)[pick(b[2] & 15, u << 8, v << 8)][2] & 15 == KIND_VOID
+
+    def _hedges(self, out, z0, sl, sN, aN, edges):
+        sx, sy = (0, 0) if _AV_FLAT else (_nib(sl & 15), _nib(sl >> 4))
+        X, Y = 16 * aN + self.x0, 8 * sN + self.y0 - 4 * z0
+        return [(X, Y, sx, sy, side, apex) for side, apex in edges]
+
+    def _piece(self, out, rec, kind, i, sN, aN):
+        z0, sl, kd, fl = rec
+        if kd & 15 not in (KIND_FLOOR, KIND_WALL, KIND_GOAL):
+            return
+        if self._nx >= AV_XMAX:                     # SPEC.md 130.48.3: the guest's EXTRA slots are full - the
+            return                                  # rest of the pieces in its order are passed over (residual)
+        sx, sy = (0, 0) if _AV_FLAT else (_nib(sl & 15), _nib(sl >> 4))
+        H = _piece_h(z0, sx, sy, PIECE_POLY[(kind, i)])
+        X, Y = 16 * aN + self.x0, 8 * sN + self.y0 - 4 * z0
+        for side, apex in PIECE_EDGES[(kind, i)]:
+            if self._nx >= AV_XMAX:
+                break
+            self._nx += 1
+            if apex == "T":
+                out.append((H, X, Y, 2 - (sx if side == "R" else sy), side == "R", False))
+            else:
+                out.append((H, X, Y + 8 - 2 * (sx + sy), (sy - sx) if side == "R" else (sx - sy), side == "R", True))
 
     def front(self, wx, wy, depth=None):
-        """-> [(H, X, Y, kr, kl)] the READABLE front cells of (wx, wy) in the guest's order, whatever their height:
-        H the highest corner (px), X, Y the edge's apex, kr = 2 - sx and kl = 2 - sy the halves' slope terms"""
+        """-> [(H, X, Y, k, right, centre)] the HALF-EDGES of the READABLE front cells of (wx, wy) and of their
+        pieces (SPEC.md 130.29.2, 130.48.2), whatever their height: H the highest corner (px; a piece's own,
+        rounded up to 4), X the cell's apex column, Y its edge's apex line (a centre edge's: the centre's)"""
         out = []
+        self._nx = 0                                # (the extra slots filled, in the guest's order)
         s, a = wx + wy, wx - wy
+        if self.split:                              # V's own FRONT pieces (keyed s + 1, 130.24.6.3)
+            b = self.raw(wx, wy)
+            if b is not None and b[2] & 15 in SPLIT_KINDS and not b[3] & FL_FLOAT:
+                kind = b[2] & 15
+                for i, rec in enumerate(self.pieces(wx, wy)):
+                    if (kind, i) in FRONT_PIECES:
+                        self._piece(out, rec, kind, i, s, a)
         for d in range(1, (OCCDEPTH if depth is None else depth) + 1):
             r = s - self.smin + d
             if not 0 <= r < self.nrows:
@@ -9705,11 +9897,19 @@ class AGrid:
                     continue
                 z0, sl, kd, fl = self._b(r, k)
                 kind = kd & 15
+                sN = s + d
+                aN = self.amin + 2 * k + (sN & 1)
+                if kind in SPLIT_KINDS:
+                    if self.split and not fl & (FL_OBS | FL_FLOAT):
+                        for j, rec in enumerate(self._p(r, k)):
+                            self._piece(out, rec, kind, j, sN, aN)
+                    continue
                 if kind not in (KIND_FLOOR, KIND_WALL, KIND_GOAL) or fl & FL_OBS \
                         or (kind != KIND_GOAL and fl & FL_FLOAT):
                     continue
-                sN = s + d
-                out.append(self.geom((z0, sl), sN, self.amin + 2 * k + (sN & 1)))
+                H, X, Y, kr, kl = self.geom((z0, sl), sN, aN)
+                out.append((H, X, Y, kr, True, False))
+                out.append((H, X, Y, kl, False, False))
         return out
 
     def geom(self, b, sN, aN):
@@ -9721,7 +9921,7 @@ class AGrid:
 
 
 def amodel_edge(cell, x):
-    """a front cell's top edge in picture column x (SPEC.md 130.29.2's E), or None outside its 32 columns"""
+    """a whole cell's top edge in picture column x (SPEC.md 130.29.2's E), or None outside its 32 columns"""
     _H, X, Y, kr, kl = cell
     if X <= x <= X + 15:
         return Y + amodel_f(kr, x - X, True)
@@ -9731,11 +9931,13 @@ def amodel_edge(cell, x):
 
 
 def amodel_cols(front, xlo, xhi):
-    """-> {x: [(E, H), ...] sorted by E} over columns xlo .. xhi: every readable front cell's edge there"""
+    """-> {x: [(E, H), ...] sorted by E} over columns xlo .. xhi: every half-edge's line there"""
     out = {}
-    for cell in front:
-        for x in range(max(xlo, cell[1] - 16), min(xhi, cell[1] + 15) + 1):
-            out.setdefault(x, []).append((amodel_edge(cell, x), cell[0]))
+    for he in front:
+        X = he[1]
+        lo, hi = (X, X + 15) if he[4] else (X - 16, X - 1)
+        for x in range(max(xlo, lo), min(xhi, hi) + 1):
+            out.setdefault(x, []).append((amodel_hedge(he, x), he[0]))
     for v in out.values():
         v.sort()
     return out
@@ -9755,7 +9957,8 @@ def amodel_z(cols, x, y):
 def amodel_pix(course, cell, zb, air, px, py):
     """the footprint pixels (20 x 16 from px & ~3, as composite) the guest's model hides for a ball centred in
     CELL at whole height zb (SPEC.md 130.29.2), read from the course's RAM form: an empty set where the model
-    does not run (no GF_ANA, a cell that is not VOID, OBS, no cell given)"""
+    does not run (no GF_ANA, a cell that is not VOID, OBS, no cell given).  CELL is (wx, wy) or (wx, wy, pu,
+    pv), the in-cell point 1/256 gu - a split cell's VOID piece runs the model (SPEC.md 130.48.1)"""
     if cell is None:
         return set()
     ag = getattr(course, "_agrid", None)
@@ -9766,7 +9969,7 @@ def amodel_pix(course, cell, zb, air, px, py):
         return set()
     key = zb + (0 if air else CLIMB)
     x4 = px & ~3
-    fr = [f for f in g.front(*cell) if f[0] > key]
+    fr = [f for f in g.front(cell[0], cell[1]) if f[0] > key]
     cols = amodel_cols(fr, x4, x4 + FOOT_W - 1)
     out = set()
     for x, evs in cols.items():
@@ -9776,31 +9979,74 @@ def amodel_pix(course, cell, zb, air, px, py):
     return out
 
 
-def av_positions(reach, grid, slabcells):
-    """the reach cells the model runs in (SPEC.md 130.29.3): kind VOID in the reach, and VOID, not OBS, inside
-    the part's grid"""
-    return [rc for rc in reach if rc.kind == KIND_VOID and (rc.wx, rc.wy) not in slabcells and grid.runs(rc.wx, rc.wy)]
+class AvPos:
+    """a position the model runs at (SPEC.md 130.29.3, 130.48.4): reach cell rc's whole area (a VOID cell) or one
+    SUB x SUB square of a split cell's area holding a VOID point - its footprint feet()'s way (xl, xh, yt0,
+    yb0 at Y0 = 0) over the heights [zlo, zhi], and PTS its in-cell integer points the model runs at (None: all)"""
+    __slots__ = ("rc", "zlo", "zhi", "xl", "xh", "yt0", "yb0", "pts", "wx", "wy", "s")
+
+    def __init__(self, rc, xl, xh, yt0, yb0, pts=None):
+        self.rc, self.zlo, self.zhi, self.xl, self.xh, self.yt0, self.yb0, self.pts = \
+            rc, rc.zlo, rc.zhi, xl, xh, yt0, yb0, pts
+        self.wx, self.wy, self.s = rc.wx, rc.wy, rc.s
+
+
+def av_positions(reach, grid, slabcells, x0=None, sub=FOCC):
+    """the positions the model runs at (SPEC.md 130.29.3, 130.48.4): every reach cell whose kind is VOID and whose
+    part-grid cell is VOID, not OBS, inside the grid (its whole area), and every SUB x SUB square of a split
+    reach cell (grid.split) holding a point whose record is VOID -> [AvPos].  x0: the picture's (default the
+    grid's)"""
+    x0 = grid.x0 if x0 is None else x0
+    out = []
+    for rc in reach:
+        if (rc.wx, rc.wy) in slabcells:
+            continue
+        if rc.kind == KIND_VOID:
+            if grid.runs(rc.wx, rc.wy):
+                xl, xh = foot_x(rc, x0)
+                out.append(AvPos(rc, xl, xh, 8 * rc.s - 13, 8 * rc.s + 17))
+            continue
+        if not (grid.split and grid.gflags & GF_ANA and rc.kind in SPLIT_KINDS):
+            continue
+        b = grid.raw(rc.wx, rc.wy)
+        if b is None or b[2] & 15 not in SPLIT_KINDS:
+            continue
+        xc = 16 * rc.a + x0
+        for v0 in range(0, 16, sub):
+            for u0 in range(0, 16, sub):
+                pts = [(u, v) for v in range(v0, v0 + sub) for u in range(u0, u0 + sub)
+                       if grid.void_pt(rc.wx, rc.wy, u, v)]
+                if pts:
+                    off = (u0 + v0) >> 1
+                    out.append(AvPos(rc, xc + u0 - v0 - sub - 8, xc + u0 - v0 + sub + 7,
+                                     8 * rc.s + off - 13, 8 * rc.s + off + sub + 1, pts))
+    return out
+
+
+def _av_lines(q, y0, lines):
+    """an AvPos's lines and each line's heights: [(y, zlo_y, zhi_y)] - the ball's lit rows at whole height z are
+    yt0 - z + Y0 - 1 (a fraction) .. yb0 - z + Y0"""
+    out = []
+    for y in range(max(q.yt0 - q.zhi + y0 - 1, 0), min(q.yb0 - q.zlo + y0, lines - 1) + 1):
+        lo, hi = max(q.zlo, q.yt0 + y0 - 1 - y), min(q.zhi, q.yb0 + y0 - y)
+        if lo <= hi:
+            out.append((y, lo, hi))
+    return out
 
 
 def av_residual(cv, rcs, grid, x0, y0, depth=None):
-    """the RESIDUAL occluder pixels (SPEC.md 130.29.3) over the VOID positions RCS: {(x, y): (s, top)} - each
-    footprint pixel the rule lays at some height of the cell at which the model does not hide it"""
+    """the RESIDUAL occluder pixels (SPEC.md 130.29.3) over the model's positions RCS (AvPos): {(x, y): (s, top)} -
+    each footprint pixel the rule lays at some height of the position at which the model does not hide it"""
     occ = {}
     w, h = cv.w, cv.h
-    for rc in rcs:
-        xl, xh = foot_x(rc, x0)
-        xl, xh = max(xl, 0), min(xh, w - 1)
-        cols = amodel_cols(grid.front(rc.wx, rc.wy, depth), xl, xh)
-        base = 8 * rc.s + y0
-        for y in range(max(foot_top(rc, rc.zhi) + y0 - 1, 0), min(foot_top(rc, rc.zlo) + y0 + 30, h - 1) + 1):
+    for q in rcs:
+        xl, xh = max(q.xl, 0), min(q.xh, w - 1)
+        cols = amodel_cols(grid.front(q.wx, q.wy, depth), xl, xh)
+        for y, zlo_y, zhi_y in _av_lines(q, y0, h):
             sr, tr = cv.sbuf[y], cv.tbuf[y]
-            zlo_y = max(rc.zlo, base - 14 - y)
-            zhi_y = min(rc.zhi, base + 17 - y)
-            if zlo_y > zhi_y:
-                continue
             for x in range(xl, xh + 1):
                 sp = sr[x]
-                if sp <= rc.s:
+                if sp <= q.s:
                     continue
                 tp = tr[x]
                 if max(zlo_y, amodel_z(cols, x, y)) <= min(zhi_y, tp - 1):
@@ -9837,15 +10083,17 @@ def _group_occ(occ):
 
 
 def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=False, tiles=None, sub=None,
-               _raise=0, show=None, lift=CLIMB):
-    """AV's records (SPEC.md 130.29.3): today's occluder pixels over every reach cell the model does not run in
-    (_occluders', a FIELD cell's ball at its real poses: TILES, SUB, _RAISE, SHOW and LIFT as there, 130.28.6), the
-    residual over the ones it does (VOID cells: never a FIELD cell), grouped and merged as today -> (raw,
-    merged, occ pixels, VOID positions)"""
-    rcs = av_positions(reach, grid, slabcells)
-    ids = {id(rc) for rc in rcs}
+               _raise=0, show=None, lift=CLIMB, dyn=None):
+    """AV's records (SPEC.md 130.29.3, 130.48.4): today's occluder pixels over every position the model does not run
+    at (_occluders', a FIELD cell's ball at its real poses: TILES, SUB, _RAISE, SHOW and LIFT as there, 130.28.6;
+    a split cell's FLOOR squares at their floor, 130.48.5), the residual over the ones it does (VOID cells, a
+    split cell's VOID squares: never a FIELD cell), grouped and merged as today -> (raw, merged, occ pixels, the
+    model's positions)"""
+    rcs = av_positions(reach, grid, slabcells, x0)
+    ids = {id(p_.rc) for p_ in rcs if p_.pts is None}
+    sids = {id(p_.rc) for p_ in rcs if p_.pts is not None}
     _r, occ = _occluders(cv, [rc for rc in reach if id(rc) not in ids], x0, y0, 0, 0, tiles, sub, _raise, show,
-                         lift)       # (SHOW and LIFT: 130.28.6's toggle, as the compile's own cut - None, off)
+                         lift, dyn, avsplit=sids)  # (SHOW and LIFT: 130.28.6's toggle, as the compile's own cut)
     occ = dict(occ)
     if not _noresidual:
         occ.update(av_residual(cv, rcs, grid, x0, y0, depth))
@@ -9854,71 +10102,75 @@ def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=Fa
 
 
 def av_proof(c, grid=None, rcs=None):
-    """item 15's COMPLETENESS (SPEC.md 130.29.7): at every VOID position (every whole height, airborne) and every
-    pixel of its superset footprint the rule lays, the model (read from the PART) hides it or a SHIPPED record
-    (merged, undithered: c.records) lays it.  -> (pixel-cells tried, [the first few misses])"""
+    """item 15's COMPLETENESS (SPEC.md 130.29.7): at every position the model runs at (every whole height,
+    airborne) and every pixel of its superset footprint the rule lays, the model (read from the PART) hides it or
+    a SHIPPED record (merged, undithered: c.records) lays it.  -> (pixel-cells tried, [the first few misses])"""
     grid = grid or AGrid(world_of(c))
-    rcs = rcs if rcs is not None else av_positions(c.reach, grid, c.slabcells)
+    rcs = rcs if rcs is not None else av_positions(c.reach, grid, c.slabcells, c.x0)
     pix_rec = {}
     for r in c.records:                         # (an ALL-KEEP record - every pixel of it one the checker keeps,
         for p in r["pix"]:                      # so dropped: laying it changes no pixel - counts as laid: since
             pix_rec.setdefault(p, []).append(r)     # 130.28's real-pose cut, PLAYGROUND's pit makes one-pixel ones)
     tried, miss = 0, []
-    for rc in rcs:
-        xl, xh = foot_x(rc, c.x0)
-        xl, xh = max(xl, 0), min(xh, c.width - 1)
-        cols = amodel_cols(grid.front(rc.wx, rc.wy), xl, xh)
-        base = 8 * rc.s + c.y0
-        for y in range(max(foot_top(rc, rc.zhi) + c.y0 - 1, 0), min(foot_top(rc, rc.zlo) + c.y0 + 30,
-                                                                    c.lines - 1) + 1):
+    for q in rcs:
+        xl, xh = max(q.xl, 0), min(q.xh, c.width - 1)
+        cols = amodel_cols(grid.front(q.wx, q.wy), xl, xh)
+        for y, zlo_y, zhi_y in _av_lines(q, c.y0, c.lines):
             sr, tr = c.sbuf[y], c.tbuf[y]
-            zlo_y = max(rc.zlo, base - 14 - y)
-            zhi_y = min(rc.zhi, base + 17 - y)
             for x in range(xl, xh + 1):
-                if sr[x] <= rc.s:
+                if sr[x] <= q.s:
                     continue
                 lo, hi = max(zlo_y, amodel_z(cols, x, y)), min(zhi_y, tr[x] - 1)
                 if lo > hi:
                     continue
                 tried += 1
-                if not any(r["s"] > rc.s and r["top"] > hi for r in pix_rec.get((x, y), ())):
+                if not any(r["s"] > q.s and r["top"] > hi for r in pix_rec.get((x, y), ())):
                     if len(miss) < 4:
-                        miss.append(((rc.wx, rc.wy), (x, y), lo, hi))
+                        miss.append(((q.wx, q.wy), (x, y), lo, hi))
     return tried, miss
 
 
 def av_wrong(c, grid=None, step=2):
-    """WRONG-HIDE (SPEC.md 130.29.7): over each VOID cell's lattice (z in STEP px, the ball's top-left on a 4 px
-    lattice over the cell's area, airborne) the ball's lit pixels the model hides that the rule does not -> (ball
-    pixels, wrong pixels, the worst position (share, cell, z, px, py) or None, positions)"""
+    """WRONG-HIDE (SPEC.md 130.29.7): over each model position's lattice (z in STEP px, the ball's centre on a 4 px
+    lattice over the cell's area - a split cell's VOID points of it - airborne) the ball's lit pixels the model
+    hides that the rule does not -> (ball pixels, wrong pixels, the worst position (share, cell, z, px, py) or
+    None, positions)"""
     grid = grid or AGrid(world_of(c))
     nb = nw = npos = 0
     worst = None
-    for rc in av_positions(c.reach, grid, c.slabcells):
-        xl, xh = foot_x(rc, c.x0)
-        cols = amodel_cols(grid.front(rc.wx, rc.wy), max(xl, 0), min(xh, c.width - 1))
+    seen = set()
+    for q in av_positions(c.reach, grid, c.slabcells, c.x0):
+        xl, xh = q.xl, q.xh
+        cols = amodel_cols(grid.front(q.wx, q.wy), max(xl, 0), min(xh, c.width - 1))
         zs = {}                                     # (x, y) -> (Z, the rule's threshold) for the cell
-        for z in range(rc.zlo, rc.zhi + 1, step):
-            for gx in range(16 * rc.wx, 16 * rc.wx + 16, 4):
-                for gy in range(16 * rc.wy, 16 * rc.wy + 16, 4):
-                    px = gx - gy + c.x0 - 8
-                    py = (gx + gy) // 2 - z + c.y0 - 13
-                    if px < 0 or py < 0 or px + 20 >= c.width or py + 16 >= c.lines:
-                        continue
-                    bp = ball_pixels(px, py)
-                    w = 0
-                    for (x, y) in bp:
-                        t = zs.get((x, y))
-                        if t is None:
-                            sp = c.sbuf[y][x]
-                            t = zs[(x, y)] = (amodel_z(cols, x, y), c.tbuf[y][x] if sp > rc.s else -(1 << 30))
-                        if t[0] > z >= t[1]:
-                            w += 1
-                    npos += 1
-                    nb += len(bp)
-                    nw += w
-                    if w and (worst is None or w / float(len(bp)) > worst[0]):
-                        worst = (w / float(len(bp)), (rc.wx, rc.wy), z, px, py)
+        if q.pts is None:
+            lat = [(u, v) for u in range(0, 16, 4) for v in range(0, 16, 4)]
+        else:
+            lat = [(u, v) for (u, v) in q.pts if not u & 1 and not v & 1]
+        for z in range(q.zlo, q.zhi + 1, step):
+            for u, v in lat:
+                if (q.wx, q.wy, u, v, z) in seen:
+                    continue
+                seen.add((q.wx, q.wy, u, v, z))
+                gx, gy = 16 * q.wx + u, 16 * q.wy + v
+                px = gx - gy + c.x0 - 8
+                py = (gx + gy) // 2 - z + c.y0 - 13
+                if px < 0 or py < 0 or px + 20 >= c.width or py + 16 >= c.lines:
+                    continue
+                bp = ball_pixels(px, py)
+                w = 0
+                for (x, y) in bp:
+                    t = zs.get((x, y))
+                    if t is None:
+                        sp = c.sbuf[y][x]
+                        t = zs[(x, y)] = (amodel_z(cols, x, y), c.tbuf[y][x] if sp > q.s else -(1 << 30))
+                    if t[0] > z >= t[1]:
+                        w += 1
+                npos += 1
+                nb += len(bp)
+                nw += w
+                if w and (worst is None or w / float(len(bp)) > worst[0]):
+                    worst = (w / float(len(bp)), (q.wx, q.wy), z, px, py)
     return nb, nw, worst, npos
 
 
@@ -10149,7 +10401,33 @@ def _course_limit(c, src, fname):
     return min(LIMIT_MAX, limit_rule(route_steps)), route_steps
 
 
+REALSUBS = (8, 16)             # SPEC.md 130.48.5: the squares a course over the 256 masks is cut again at, in turn
+
+
 def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
+    """(SPEC.md 130.48.5: a course whose real-pose cut names more than the 256 masks a record's byte holds is cut
+    again in larger squares - 8, then 16 ground units - and then as before 130.48, and the run says so)"""
+    try:
+        return _compile_shadow(source, fname, occluders, _hack, crsinfo)
+    except CourseError as e:
+        h = dict(_hack or {})
+        if "occluder masks, over the 256" not in str(e) or "realsub" in h or h.get("realcut") is False:
+            raise
+        last = e
+    for sub in REALSUBS + (None,):
+        h2 = dict(h, realsub=sub) if sub else dict(h, realcut=False)
+        sys.stderr.write("bbcourse: %s; cut again %s (SPEC.md 130.48.5)\n" % (
+            last, "in %d gu squares" % sub if sub else "at whole cells"))
+        try:
+            return _compile_shadow(source, fname, occluders, h2, crsinfo)
+        except CourseError as e:
+            if "occluder masks, over the 256" not in str(e):
+                raise
+            last = e
+    raise last
+
+
+def _compile_shadow(source, fname=None, occluders=True, _hack=None, crsinfo=None):
     """(SPEC.md 130.47.5: with CAST SHADOWS a course over BLK_MAX with them is compiled again without them, and
     the run says so - PLAYGROUND, the stress test, is the one)"""
     global _SHADOW_IN, _SHADOW_OK
@@ -11103,8 +11381,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     # ... can we keep it around as a toggle we can turn on at will?") - on with --fshow (make's BZFSHOW=1) or a
     # course's `fshow`; _hack fshow (None: off, else its bound) overrides both, --selfcheck's arms
     fshow = hack["fshow"] if "fshow" in hack else (FSHOW if FSHOW_ALL or src.fshow is not None else None)
+    # SPEC.md 130.48: the cut at the REAL poses - a static ramp or split cell in squares at the floor under them,
+    # a floor's low flight under the grounded margin; DYN the cells that move or vanish keep the whole cell.
+    # _hack realcut False: the cut before it (the A/B, --selfcheck's red arm)
+    dyn = None if hack.get("realcut") is False else frozenset(
+        set(gcells) | set(rails) | ttcells | bridges | set(slabcells) | {c_ for sw in src.seesaws for c_ in sw["cells"]}
+        | {c_ for (t_, _z) in tt_tabs.values() for c_ in [t_["at"]]}
+        | {p["at"] for p in props if isinstance(p.get("at"), tuple)})
+    if dyn is not None:
+        dyn = (dyn, hack.get("realsub", FOCC))
     raw, occpix = _occluders(cv, reach, x0, y0, cols, brows, tiles, hack.get("focc"), hack.get("fraise", 0),
-                             fshow, hack.get("flift", CLIMB)) if cutocc else ([], {})
+                             fshow, hack.get("flift", CLIMB), dyn) if cutocc else ([], {})
     q = block_queries(reach, x0, y0, width, feet(reach, tiles, x0, hack.get("focc"))) if cutocc else {}
     records = merge_records(raw, q)
     per_row, per_block = {}, {}
@@ -11146,11 +11433,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         cells_v = {k_: list(v_) for k_, v_ in cells.items()}
         for c_ in pcell:
             cells_v[c_][3] |= FL_OBS
-        ag = AGrid.of_cells(cells_v, smin, amin, kw, nrows, x0, y0, GF_ANA)
+        if AV_SPLIT and not hack.get("noavsplit") and not hack.get("nofloatflag"):
+            for c_ in floats:                       # SPEC.md 130.48.1: a FLOATING split cell is FL_FLOAT too, and
+                if isinstance(tiles.get(c_), Split) and c_ not in gcells:   # the model passes over its pieces
+                    cells[c_][3] |= FL_FLOAT
+                    cells_v[c_][3] |= FL_FLOAT
+        ag = AGrid.of_cells(cells_v, smin, amin, kw, nrows, x0, y0, GF_ANA, pairs)
+        ag.split = AV_SPLIT and not hack.get("noavsplit")
         raw, records, occpix, av_rcs = av_records(cv, reach, ag, slabcells, x0, y0, q, depth=hack.get("occdepth"),
                                                   _noresidual=hack.get("noresidual"), tiles=tiles,
                                                   sub=hack.get("focc"), _raise=hack.get("fraise", 0), show=fshow,
-                                                  lift=hack.get("flift", CLIMB))
+                                                  lift=hack.get("flift", CLIMB), dyn=dyn)
         per_row, per_block = {}, {}
         for r in records:
             per_row[r["brow"]] = per_row.get(r["brow"], 0) + 1
@@ -13631,8 +13924,9 @@ def _read_bzc2(p, pw, fname, split=False):
         if kd & 15 in SPLIT_KINDS:                  # SPEC.md 130.24.5: a SPLIT cell and its records in D
             po = struct.unpack_from("<H", p, celloff + 4 * i)[0]
             nr = NREC[kd & 15]
-            if fl & ~(FL_OCC | FL_OCCG) or (fl & FL_OCCG and not fl & FL_OCC):
-                bad("cell %d" % i, "a split cell's flags %02Xh (SAFE, OBS and bits 4 - 7 never)" % fl)
+            if fl & ~(FL_OCC | FL_OCCG | FL_FLOAT) or (fl & FL_OCCG and not fl & FL_OCC):
+                bad("cell %d" % i, "a split cell's flags %02Xh (SAFE, OBS and bits 4, 5 and 7 never; 6 FL_FLOAT, "
+                    "SPEC.md 130.48.1)" % fl)
             if not (doff <= po and po + 4 * nr <= doff + dlen and (po - doff) % 4 == 0):
                 bad("cell %d" % i, "a split cell's offset %d is not %d records inside D (%d, %d bytes)"
                     % (po, nr, doff, dlen))
@@ -16020,6 +16314,12 @@ class Physics:
     @property
     def sb(self):
         return (self.gx >> 12) + (self.gy >> 12)
+
+    @property
+    def oair(self):
+        """SPEC.md 130.48: the occluder rule's AIR STATE - airborne, and not a LOW FLIGHT: a ball over a floor
+        (bz_ghv) less than BZ_CLIMB px over it takes the grounded margin, as bz_occ's key does"""
+        return 1 if self.air and not (self.ghv and (self.gz >> 8) < (self.gh >> 2) + CLIMB) else 0
 
     @property
     def G8(self):
@@ -22406,7 +22706,7 @@ def vis_run(c, keys=None, mat=None):
             continue
         bp = ball_pixels(p.px, p.py)
         laid = set()
-        for r in laid_at(c, p.px, p.py, p.sb, p.zb, p.air):
+        for r in laid_at(c, p.px, p.py, p.sb, p.zb, p.oair):
             laid |= r["pix"]
         ow = {}
         n = 0
@@ -24082,15 +24382,18 @@ def _props_course_checks(c, res, tag):
             if not (xl <= rx[2] and rx[0] <= xh):
                 continue
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (130.28.6: a FIELD cell's floor there)
+            po_ = pose_of(c, rc, gx, gy)            # (130.48: a REAL pose there - its floor, its margin)
+            zl_, f_ = po_ or (None, None)
+            for z in (sorted({zl_, rc.zhi}) if po_ else ()):
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
                 if not _meet((px & ~3, py, (px & ~3) + FOOT_W, py + FOOT_H), *rx):
                     continue
-                for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
+                for air in ((1,) if f_ is None else (0, 1)):
+                    air = oair_at(air, z, f_)
                     for q in L["poses"]:
                         tried += 1
-                        cl_ = (rc.wx, rc.wy)
+                        cl_ = mcell(gx, gy)
                         if _composite_pose(c, L, q, px, py, rc.s, z, air, "records", cl_) != \
                                 _composite_pose(c, L, q, px, py, rc.s, z, air, "pixels", cl_):
                             mism += 1
@@ -25023,7 +25326,7 @@ def _route_stats(c, steps):
         if cl[4] & FL_OCC:
             occ += 1
             air_occ += p.air
-            lays.append(len(laid_at(c, p.px, p.py, p.sb, p.zb, p.air)))
+            lays.append(len(laid_at(c, p.px, p.py, p.sb, p.zb, p.oair)))
         occg += bool(cl[4] & FL_OCCG)
         gated += bool(cl[4] & (FL_OCC if p.air else FL_OCCG))
     _route_stats.gated = gated
@@ -26319,15 +26622,17 @@ def _w5_dither(courses, res, demos=None):
         pos = []
         for rc in c.reach:
             gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-            for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (130.28.6: a FIELD cell's floor there)
-                for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
-                    pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z, air,
-                                (rc.wx, rc.wy)))
+            po_ = pose_of(c, rc, gx, gy)            # (130.48: a REAL pose there - its floor, its margin)
+            zl_, f_ = po_ or (None, None)
+            for z in (sorted({zl_, rc.zhi}) if po_ else ()):
+                for air in ((1,) if f_ is None else (0, 1)):
+                    pos.append((((gx - gy) >> 8) + c.x0 - 8, (((gx + gy) >> 1) >> 8) - z + c.y0 - 13, rc.s, z,
+                                oair_at(air, z, f_), mcell(gx, gy)))
         ph = Physics(c, play=True)
         while ph.nstep < DEMO_STEPS and not ph.goal:
             ph.step(ph.auto())
             if not ph.nstep & 3 and not ph.tube and not ph.hid:
-                pos.append((ph.px, ph.py, ph.sb, ph.zb, ph.air, (ph.gx >> 12, ph.gy >> 12)))
+                pos.append((ph.px, ph.py, ph.sb, ph.zb, ph.oair, mcell(ph.gx, ph.gy)))
         diff = cnt = ghosts = 0
         for px, py, sb, z, air, cl_ in pos:         # (cl_: the ball's cell, SPEC.md 130.29's model there)
             lset = set()
@@ -28179,19 +28484,22 @@ def _course_items(c, k, res, t):
     ag5 = AGrid(world_of(c))                  # (SPEC.md 130.29: the control's record is one the model does not cover)
     for rc in c.reach:
         gx, gy = (16 * rc.wx + 8) << 8, (16 * rc.wy + 8) << 8
-        for z in sorted({field_zlo(c.tiles, rc, gx, gy), rc.zhi}):   # (130.28.6: a FIELD cell's floor there)
-            for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
+        po_ = pose_of(c, rc, gx, gy)                # (130.48: a REAL pose there - its floor, its margin)
+        zl_, f_ = po_ or (None, None)
+        for z in (sorted({zl_, rc.zhi}) if po_ else ()):
+            for air in ((1,) if f_ is None else (0, 1)):
+                air = oair_at(air, z, f_)
                 px = ((gx - gy) >> 8) + c.x0 - 8
                 py = (((gx + gy) >> 1) >> 8) - z + c.y0 - 13
                 tried += 1
-                A = composite(c, px, py, rc.s, z, air, "records", cell=(rc.wx, rc.wy))
-                Bp = composite(c, px, py, rc.s, z, air, "pixels", cell=(rc.wx, rc.wy), cut=c.occpix)
+                A = composite(c, px, py, rc.s, z, air, "records", cell=mcell(gx, gy))
+                Bp = composite(c, px, py, rc.s, z, air, "pixels", cell=mcell(gx, gy), cut=c.occpix)
                 if A != Bp:
                     mism += 1
-                if first_laid is None and not ag5.runs(rc.wx, rc.wy):
+                if first_laid is None and not ag5.runs(*mcell(gx, gy)):
                     for r in laid_at(c, px, py, rc.s, z, air):
                         if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
-                            first_laid = (r, px, py, rc.s, z, air, (rc.wx, rc.wy))
+                            first_laid = (r, px, py, rc.s, z, air, mcell(gx, gy))
                             break
     res.append(("5 %s: the ball composited through the MERGED RECORDS equals the per-pixel buffer's over the cut's "
                 "pixels (tops raised to the unmerged records'), at the centre of every reachable cell, lowest and highest, both air "
@@ -28201,14 +28509,17 @@ def _course_items(c, k, res, t):
     for rc in c.reach:
         if rc.zhi <= rc.zlo:
             continue
-        for z in sorted({field_zlo(c.tiles, rc, (16 * rc.wx) << 8, (16 * rc.wy) << 8), rc.zhi - 1}):
+        po_ = pose_of(c, rc, (16 * rc.wx) << 8, (16 * rc.wy) << 8)  # (130.48: a REAL pose)
+        zl_, f_ = po_ or (None, None)
+        for z in (sorted({zl_, rc.zhi - 1}) if po_ else ()):
             gx, gy, gz = (16 * rc.wx) << 8, (16 * rc.wy) << 8, (z << 8) + 128
             px = ((gx - gy) >> 8) + c.x0 - 8
             py = (((gx + gy) >> 1) - gz >> 8) + c.y0 - 13
-            for air in ((1,) if rc.kind == KIND_VOID else (0, 1)):
+            for air in ((1,) if f_ is None else (0, 1)):
+                air = oair_at(air, z, f_)
                 ftried += 1
-                if composite(c, px, py, rc.s, z, air, "records", cell=(rc.wx, rc.wy)) != composite(
-                        c, px, py, rc.s, z, air, "pixels", cell=(rc.wx, rc.wy)):
+                if composite(c, px, py, rc.s, z, air, "records", cell=mcell(gx, gy)) != composite(
+                        c, px, py, rc.s, z, air, "pixels", cell=mcell(gx, gy)):
                     fmism += 1
                 if laid_at(c, px, py, rc.s, z, air):
                     if not c.cells[(rc.wx, rc.wy)][3] & FL_OCC:
@@ -28352,8 +28663,9 @@ def _sc_crosscommit(X, res):
                 # (that tool had no Y0 search; and SPEC.md 130.27's ground plane is a picture rule that tool lacks:
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
-                                                "occ": "off", "nolook": True})
-                # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink)
+                                                "occ": "off", "nolook": True, "realcut": False, "noavsplit": True})
+                # (and SPEC.md 130.29's AV off: today's records; 130.47's look off: that tool's ink; and 130.48's
+                # real-pose cut off: the whole cells that tool cut)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
@@ -28664,7 +28976,7 @@ def _water_checks(res):
         p = Physics(cc, mat=mat)
         p.gx, p.gy, p.gz, p.air = gx, gy, z << 8, 0
         p._derive(True)
-        return laid_at(cc, p.px, p.py, p.sb, p.zb, p.air, card=True, cell=(gx >> 12, gy >> 12))
+        return laid_at(cc, p.px, p.py, p.sb, p.zb, p.oair, card=True, cell=mcell(gx, gy))
     deep = steel_at(c, (16 * 8 + 8) << 8, (16 * 8 + 8) << 8)     # the sketch's column, at its bed
     door = steel_at(c, (16 * 8 + 8) << 8, (16 * 8 + 15) << 8)    # ...rolling out through its arch
     _WATER_S0 = True
@@ -29444,11 +29756,11 @@ def _sc_y0moon(X, res):
     # alignment that compiles - the height was never the limit
     mtxt = os.path.join(ROOT, "apps", "bonanza", "courses", "moon.bbc")
     try:
-        compile_course(mtxt, _hack={"hopmax": 366, "y0add": 0})
-        forced = "compiled"
+        compile_course(mtxt, _hack={"hopmax": 366, "y0add": 0, "realcut": False, "noavsplit": True})
+        forced = "compiled"                         # (SPEC.md 130.48: on the whole-cell cut, the one it was taken on)
     except CourseError as e:
         forced = str(e)
-    mc = y0_search(mtxt, None, {"hopmax": 366}, None)
+    mc = y0_search(mtxt, None, {"hopmax": 366, "realcut": False, "noavsplit": True}, None)
     mok = [k for k, n in enumerate(mc or []) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
     res.append(("6 negative control: MOON with every Hop at 366 refuses at +0 (%s) and the Y0 search finds %d "
                 "alignment(s) that meet the bounds (%s)" % (
@@ -31717,11 +32029,11 @@ def ghost_previews(c, base, Image, at=None):
             if p.tube or p.hid:
                 continue
             laid = set()
-            for r in laid_at(c, p.px, p.py, p.sb, p.zb, p.air):
+            for r in laid_at(c, p.px, p.py, p.sb, p.zb, p.oair):
                 laid |= r["pix"]
             k = sum(1 for q in ball_pixels(p.px, p.py) if q in laid)
             if k > best[0]:
-                best = (k, (p.px, p.py, p.sb, p.zb, p.air, p.nstep))
+                best = (k, (p.px, p.py, p.sb, p.zb, p.oair, p.nstep))
         if best[1] is None:
             return None
         at = best[1]
