@@ -98,6 +98,8 @@ wa_reset:
 ; CELL: the window's water cells for this ball, then the centre's rules
 wa_cell:
     call wa_slot                ; DI = the slot
+    xor ax, ax                  ; (a new window: the STEP runs next, 130.25.6.11)
+    call wa_setwk
     call wa_walk                ; ES = the course, BP its list, CL its count
     mov bp, bx                  ; (a byte: 255 props at most)
 %if BZ_WA_FBSH                  ; CH = rubber's and glass's floor under the
@@ -339,7 +341,36 @@ wa_step:
     test byte [es:si + WA_RIP], WR_ALWAYS
     jnz .x
     call far [bz_fmkp]
-.x:
+.x:                             ; THE WAKE (130.25.6.11): the ball in or over
+    xor ax, ax                  ; water (WA_IN), every step; else the next
+    test byte [di + WA_IN], 3   ; ripple turn - an ALWAYS one at (n + 1)
+    jnz .w                      ; AND 7 = 0, the ACTIVE one at (n + 1 - ENT)
+    mov cx, 4000h               ; AND 7 = 0 - or none
+    mov dx, (1 << BZ_WA_RSH) - 1
+    cmp byte [di + WA_NALW], 0
+    je .wa
+    mov ax, -2
+    sub ax, [bz_nstep]
+    and ax, dx
+    inc ax
+    mov cx, ax
+.wa:
+    cmp byte [di + WA_ACT], 0
+    je .wb
+    mov al, [di + WA_ENT]
+    xor ah, ah
+    sub ax, 2
+    sub ax, [bz_nstep]
+    and ax, dx
+    inc ax
+    cmp ax, cx
+    jae .wb
+    mov cx, ax
+.wb:
+    mov ax, cx
+    add ax, [bz_nstep]
+.w:
+    call wa_setwk
     retf
 
 ; POSE: BX = the element -> AL its ripple's phase
@@ -364,6 +395,7 @@ wa_pose:
     retf
 
     BZ_FWALK wa_walk
+    BZ_FSETWK wa_setwk
     BZ_FREC wa_lrec, bx
     BZ_FREC wa_recp, bp
 

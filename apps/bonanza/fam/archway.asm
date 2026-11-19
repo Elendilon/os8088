@@ -97,6 +97,17 @@ ar_cell:
     inc bp
     loop .r
 .x:
+    xor ax, ax                  ; (130.25.6.11: an archway in the window, its
+    cmp word [di], 8000h        ; STEP every step; none - LO, HI and CC still
+    jne .w                      ; 8000h, 7FFFh, 7FFFh - no STEP until the next
+    cmp word [di + 2], 7fffh    ; window)
+    jne .w
+    cmp word [di + 4], 7fffh
+    jne .w
+    mov ax, [bz_nstep]
+    add ax, 4000h
+.w:
+    call ar_setwk
     retf
 
 ; STEP: the centre's ceiling, then the band's refill
@@ -129,6 +140,7 @@ ar_step:
     retf
 
     BZ_FWALK ar_walk
+    BZ_FSETWK ar_setwk
     BZ_FREC ar_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.

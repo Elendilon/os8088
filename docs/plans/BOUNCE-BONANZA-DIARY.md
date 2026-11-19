@@ -6326,3 +6326,39 @@ worth more than this course:
   red; `wd_vis` forced off goes red on the wind scenes, 41 failures, then
   restored); `make`, `make bonanzadisk`; MartyPC VGA frames and profile.
   **Not run**: soak rows, `test-full`.
+
+## 2026-11-19 (the families' STEP at its wake)
+
+- **The question** (the owner): *"We don't process everything, ever ... if
+  it's not on screen why does it need physics at all?"* Right: a timer's
+  state is a function of the step count, read when something looks; what the
+  ball changes is on the screen while it changes it. The last round made each
+  family walk only its own records, but every STEP still ran every step and
+  polled every timer for a turn.
+- **Measured first** (`bzprof --steps 200 280` on the owner's PLAYGROUND log,
+  re-stamped; the option is new): in the crack lab, VGA 34.4 frames a second
+  and CGA 50.3; the family dispatch, the walk and the families ~16 - 17%.
+- **The wake** (SPEC.md 130.25.6.11): each slot a `bz_nstep` to run at
+  (`bz_fwk`), `bz_fstp` skipping the slots whose wake is ahead, everyone
+  called on a play's start, a respawn, the walk's slice moving or the
+  material changing. SPIKE, GATE and TURNTABLE schedule their timers' next
+  turn - only for a timer whose lane is in the slice or whose cell is in the
+  window - and GLASS, BOOST, PICKUPS, ARCHWAY, MAGNET and WATER sleep while
+  idle and are woken by the CONTACT or CELL that makes them busy.
+- **Caught on the way**: ARCHWAY first took "LO still 8000h" for "no
+  archway in the window", but a ball UNDER an archway sets HI alone - the
+  STEP slept while the ball rose past it and `--check` parted at step 56.
+  MAGNET's tube/holed exit first slept too; nothing wakes it when the ball
+  comes out, so only "not steel" sleeps.
+- **Measured** (the same stretch): VGA 34.4 -> 35.9 (the cap), CGA 50.3 ->
+  50.9; the PLAYGROUND demo VGA 37.0, CGA **60.0**. SPIKE, GATE and
+  TURNTABLE left the profile. The CGA's lab is its drawing now (~20%).
+- **Bytes**: the turn's arithmetic was a macro in three parts (~110 bytes
+  each); it is the engine's `bz_ftnext` now, the parts' stubs five lines.
+  Package +256 image +38 bss (916 left), parts +543, ceilings +31 paragraphs.
+- **Run**: `make bonanzadisk`, `tests/bonanza_phys.py --check` (every family
+  scenario equal at every step; red `spwake`, `ttwake` - the wake a step late
+  - go red), `bzprof` on both cards at the base and after. **Not run**: soak
+  rows (the phase's scoped soak: `bonanzaphys`, `bonanzaring`,
+  `bonanzawheel`, `bonanzaperf`, `bonanzareplay`, `bonanzademo`,
+  `bonanzamega`).

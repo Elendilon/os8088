@@ -99,6 +99,8 @@ sp_reset:
 ; CELL: the window's cells of the family for this ball, then the centre's rule
 sp_cell:
     call sp_slot                ; DI = the slot
+    xor ax, ax                  ; (a new window: the STEP runs next, 130.25.6.11)
+    call sp_setwk
     call sp_walk                ; ES = the course, BP its list, CX its count
     mov bp, bx
     xor dx, dx                  ; DL = the centre kills, DH = the kind less SPIKES
@@ -192,6 +194,7 @@ sp_cell:
 ; found (BP: its element + 1), and on a change both lanes MARKED
 sp_step:
     call sp_slot
+    mov word [bz_fwkk], 4000h   ; (130.25.6.11: the nearest wake, a distance)
     mov al, [bz_mat]
     cmp al, [di]
     je .p
@@ -220,7 +223,7 @@ sp_step:
     cmp ah, [es:si + SP_ON]
     sbb dh, dh
     cmp dl, dh
-    je .nx
+    je .tn
     push bx
     mov bl, [bx]                ; (its element: the list's byte)
     xor bh, bh
@@ -230,24 +233,28 @@ sp_step:
     sub al, [bz_nwin]
     inc al
     cmp al, 2
-    ja .nx
+    ja .tn
     mov al, [es:si + 3]
     sub al, [bz_nwin + 1]
     inc al
     cmp al, 2
-    ja .nx
+    ja .tn
     mov byte [bz_fref], 1
+.tn:
+    mov dl, [bx]                ; its NEXT turn, when it can matter
+    call sp_next
 .nx:
     inc bx
     loop .l
     jmp short .t
 .mem:                           ; TORN: the window's centre, not glass, under
+    mov ax, [es:si + 2]         ; the net: z < 4 z0, signed - and while a
+    cmp ax, [bz_nwin]           ; membrane is the centre, a STEP every step
+    jne .nx
+    mov word [bz_fwkk], 1
     cmp byte [bz_mat], BZ_MAT_GLASS
     je .nx
-    mov ax, [es:si + 2]
-    cmp ax, [bz_nwin]
-    jne .nx
-    mov al, [es:si + SP_MZ]     ; ...the net: z < 4 z0, signed
+    mov al, [es:si + SP_MZ]
     cbw
     shl ax, 1
     shl ax, 1
@@ -263,11 +270,18 @@ sp_step:
     mov ax, bp                  ; a change: the lanes of the one it was and
     xchg al, [di + SP_TORN]     ; the one it is MARKED
     cmp al, [di + SP_TORN]
-    je .x
+    je .tw
     call sp_tmark
     mov ax, bp
     call sp_tmark
+.tw:
+    cmp byte [di + SP_TORN], 0  ; (TORN: every step, until it is not)
+    je .x
+    mov word [bz_fwkk], 1
 .x:
+    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)
+    add ax, [bz_nstep]
+    call sp_setwk
     retf
 
 ; AL = a membrane's element + 1, or 0 -> its lane MARKED.  Preserves all but BX.
@@ -312,6 +326,11 @@ sp_pose:
     retf
 
     BZ_FWALK sp_walk
+    BZ_FSETWK sp_setwk
+    BZ_FTNEXT sp_next, SP_ON, SP_MASK, 0
+%if SP_SEED != SP_MASK + 1
+ %error "bz_ftnext reads the SEED at the MASK + 1"
+%endif
     BZ_FREC sp_rec, bx
     BZ_FREC sp_recp, bp
 
