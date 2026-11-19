@@ -35,21 +35,23 @@ BANK = os.path.join(MUSDIR, "bank.bmb")
 # THE MANIFEST: song S is SONGS[S]. 0 - 4 the courses' (SPEC.md 130.20.6,
 # 130.26.5: course K plays song (K - 1) mod 5, BENCH song 0); 5 the finish's
 # fanfare; 6 the TITLE SCREEN's one-shot (SPEC.md 130.23.1: the title course's
-# `music attract`); 7 First Roll's own, played only by its `music firstroll`
-# (NON_COURSE, so the wrap is unchanged).  The desktop's song 0, `title`, is GONE (130.26.5: the
+# `music attract`); 7 First Roll's own, played only by its `music firstroll`,
+# and 8 Little Hop's, by its `music littlehop` (NON_COURSE, so the wrap is unchanged).  The desktop's song 0, `title`, is GONE (130.26.5: the
 # window is silent).
 SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "moonlit.bmu", "summit.bmu",
          "victory.bmu",              # wave 8R (130.22.9): the finish's fanfare; APPEND, never insert
          "attract.bmu",              # SPEC.md 130.23.1: the title screen's
-         "firstroll.bmu"]            # First Roll's own, by its `music firstroll` (NON_COURSE)
+         "firstroll.bmu",            # First Roll's own, by its `music firstroll` (NON_COURSE)
+         "littlehop.bmu"]            # Little Hop's own, by its `music littlehop` (NON_COURSE)
 
 # songs that are NOT in the courses' rotation (the wrap in bbcourse.course_song skips
 # them, and counts only songs 0 - 4, which must stay the first five): the finish's
 # fanfare (130.22.9), the title screen's attract demo (130.23), and a song a course
-# plays only by NAMING it with `music` - First Roll's own, `firstroll`. A course may
+# plays only by NAMING it with `music` - First Roll's own, `firstroll`, and Little
+# Hop's, `littlehop`. A course may
 # name any of these but the fanfare (bbcourse's `music` statement).
-NON_COURSE = ("victory", "attract", "firstroll")
+NON_COURSE = ("victory", "attract", "firstroll", "littlehop")
 
 # SPEC.md 130.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
 # demo (bbcourse.TITLE_STEPS, BZ_TSTEPS): its order rows before `loop` play
