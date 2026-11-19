@@ -272529,7 +272529,8 @@ in a play the course's. 4,904 bytes of the floppy. The sound part:
       +0  the 11-byte OPL2 patch in SOUND.DRV's order (§34.2)
       +11 macro: a byte offset into the macro pool, 0FFh none
       +12 the patch's ID: instruments with the same 11 bytes share it
-      +13 vibrato delay (sub-ticks)   +14 depth (1/16 semitone)
+      +13 vibrato delay (sub-ticks)   +14 bits 0 - 3 its depth (1/16
+          semitone), bit 4 `ring`: the macro LOOPS - an arpeggio (`spkring`)
       +15 bits 0 - 6 a drum's speaker blip (sub-ticks), bit 7 `alt` (130.20.4)
 +10 dw effects (a word each)   +12 dw the event map: 3 materials x 11 events
 +14 dw the macro pool: length, loop, then signed semitones, one a sub-tick
@@ -272551,7 +272552,11 @@ A song part:
 +8  rows a pattern    +9  order length    +10 loop row   +11 flags
       bit 0 `spkbass`: the speaker takes the bass where the lead rests
       bit 1 `spkring`: a drum keyed INSIDE an arpeggiated lead note (one
-            whose instrument has a macro) is not blipped on the speaker
+            whose instrument's macro LOOPS: its +14 bit 4) is not blipped on
+            the speaker. The record's bit, not whether the pitch still moves
+            (V_DYN), which a macro that does not loop clears when it ends: a
+            horn's two-sub-tick scoop is no arpeggio, and the beat blips on
+            under its held note (Summit Rush's B, First Roll)
 +12 dw order (4 bytes a row: lead, bass, chord, drum phrase; 0FFh silent)
 +14 dw phrases (a word each)    +16 dw chord shapes (two intervals each)
 +18 the four channels' instruments
@@ -272576,7 +272581,7 @@ face's fifth line names it and, under AUTO, the arm found.
 
 | arm | plays | through |
 |---|---|---|
-| **speaker** | ONE voice: the effect (its silences too), else a drum's blip (`spk N` sub-ticks from its key; under `spkring` not one keyed after an arpeggiated lead note began, which would break the arpeggio's ring - Trial's B), else the lead, else - `spkbass` - the bass once the lead has been silent 2 sub-ticks | `OSAPI_SND_TONE`, only when the PITCH or the note sounding it changes, every tone with a duration: the source's sub-ticks left in system ticks, plus one, so nothing drones when the loop stops |
+| **speaker** | ONE voice: the effect (its silences too), else a drum's blip (`spk N` sub-ticks from its key; under `spkring` not one keyed after an arpeggiated lead note began - one whose instrument's macro loops, the record's `ring` bit - which would break the arpeggio's ring: Trial's B, the arpeggiated cadences of Summit Rush and First Roll), else the lead, else - `spkbass` - the bass once the lead has been silent 2 sub-ticks | `OSAPI_SND_TONE`, only when the PITCH or the note sounding it changes, every tone with a duration: the source's sub-ticks left in system ticks, plus one, so nothing drones when the loop stops |
 | **AdLib** | channels 0 - 4 lead, bass, chord; the drums on 5, or on 6 for an instrument marked `alt` (the noise family: snare, hat, clap); the effect on 7; 8 is the tone tier's (§34.12) | `SND_FM_CLAIM` (OPL2 mode), then at most ONE `SNDV_OPLW` batch a frame of only the registers a voice that changed (`bzs_dirty`) needs: A0h/B0h, the carrier's 40h for a volume, a patch when the channel's patch ID changes |
 
 **What a register costs decides the AdLib's design.** MEASURED on MartyPC's
