@@ -88,6 +88,7 @@ EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
           "PICKUP"]                                     # wave 9 (130.25.19): a family's event, PICKUPS' take
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
+SONG_FLAG_SPKRING = 2
 
 OPL_SLOT = [0, 1, 2, 8, 9, 10, 16, 17, 18]
 OPL_OPREG = [0x20, 0x40, 0x60, 0x80, 0xE0]
@@ -571,6 +572,8 @@ def parse_song(path, bank):
             s.measure = int(t[1])
         elif k == "spkbass":
             s.flags |= SONG_FLAG_SPKBASS
+        elif k == "spkring":
+            s.flags |= SONG_FLAG_SPKRING
         elif k == "desktop":
             s.desk = True               # the title: every row a multiple of 3
         elif k == "voice":
@@ -612,6 +615,13 @@ def parse_song(path, bank):
         raise ScoreError("%s: rows must be 1..255 and a multiple of the groove" % base)
     if not 0 <= s.loop < len(s.order) or len(s.order) > 255:
         raise ScoreError("%s: loop %d is outside the order" % (base, s.loop))
+    if s.flags & SONG_FLAG_SPKRING:     # the guest's test is V_DYN, which only
+        for kind, evs in s.phrases.values():    # a LOOPING macro keeps set
+            for e in evs:
+                mac = bank.insts[e.inst].macro if kind == CH_LEAD and e.notes else None
+                if mac and mac[0] >= len(mac[1]):
+                    raise ScoreError("%s: spkring, and the lead's %s has a macro that "
+                                     "does not loop" % (base, e.inst))
     return s
 
 
@@ -1092,7 +1102,14 @@ class Seq:
         d = self.v[5]
         if d.on:
             spk = self.p[self.inst_rec(d.inst) + 15] & 0x7F
-            if spk and d.age <= spk:
+            lead = self.v[0]
+            # `spkring`: a drum keyed AFTER an arpeggiated lead note began
+            # is the chip's alone - its blip would break the ring.  The
+            # guest asks V_DYN, which a LOOPING macro never clears; the
+            # song's parse refuses a lead macro that does not loop
+            if spk and d.age <= spk and not (
+                    self.flags & SONG_FLAG_SPKRING and lead.on and d.age < lead.age
+                    and self.p[self.inst_rec(lead.inst) + 11] != 0xFF):
                 return d.pitch, spk - d.age + 1, 0x200 | d.keys
         lead = self.v[0]
         if lead.on:
