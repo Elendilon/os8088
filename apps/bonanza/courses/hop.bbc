@@ -156,11 +156,11 @@ checkpoint 12 35 ball rubber   # flag 2
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 34 9  flat 26   # the start clock's tile (on top of the rail block it replaces)
-clock 34 9
+clock 34 9 frame frogl
 floor tile 9 23  flat 29.25   # the middle clock's tile (on top of the rail block it replaces)
-clock 9 23
+clock 9 23 frame frogr
 floor tile 29 32  flat 22.75   # the finish clock's tile (on top of the rail block it replaces)
-clock 29 32
+clock 29 32 frame frogb
 
 # the autopilot's route
 way 33 11

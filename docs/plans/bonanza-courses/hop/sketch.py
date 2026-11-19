@@ -183,6 +183,11 @@ FLAGS = [(15.5, 20.5, "flag 0"), (8.5, 20.5, "flag 1"), (8.5, 31.5, "flag 2")]
 # clocks (the owner places them; these are first guesses): (wx, wy, the tile's floor z, name, kind)
 CLOCKS = [(30.5, 5.5, Z + 2, "start", "block"), (5.5, 19.5, Z + 5.25, "middle", "block"),
           (25.5, 28.5, Z - 1.25, "finish", "block")]
+# each clock's frame (the owner, 2026-11-19: the FROG, "adorable"; then "could the front change slightly between
+# uses, so it sits a little better on its block?"): SPEC.md 130.18.5.2's per-use frog variants - the start's foot
+# over A's edge toward the path below-left, the middle's over its front-right edge toward H's floor, the finish's
+# over the drop on its right, looking back over its shoulder at the goal
+FRAMES = {"start": "frogl", "middle": "frogr", "finish": "frogb"}
 PLACED = {}
 SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "JUMP\nTWICE!")]   # "JUMP!" on T1's north rail, "JUMP TWICE!" on U1's
 
@@ -471,7 +476,7 @@ def bbc(out):
             "float": "a lone floating pillar"}[kind]))
         if kind == "float":                     # (a block's clock stands on its column, grounded: revision 6)
             L.append("float tile %d %d%s" % (px, py, THICKS))
-        L.append("clock %d %d" % (px, py))
+        L.append("clock %d %d%s" % (px, py, " frame %s" % FRAMES[name] if name in FRAMES else ""))
     L.append("")
     L.append("# the autopilot's route")
     for x, y in ROUTE:
