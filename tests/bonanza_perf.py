@@ -124,7 +124,8 @@ WAVE 4 (SPEC.md 130.14.14, 130.14.16, 130.14.17 item 7).  --ab's default is now
 order: the balls, the courses, the sound, the songs): BENCH OFF with bz_hvoff 1
 on both, and THIS build's mean busy at most +0.5k over 3b's ASSERTED ON BOTH
 CARDS (PREDICTED +0.15 - 0.3k on the CGA, 130.14.12).  THE DEMO LEGS (`demo`): every
-shipped demo (V with bz_vk poked, BZD1 - BZD6) through D on both cards, sound
+shipped demo (V with bz_vk poked, BZD1 - BZD<n>: every BZD<n>.BIN the art
+holds, eight since ROLL and HOP shipped with route demos) through D on both cards, sound
 OFF and ON: ASSERTED the replay's end the model's (bonanza_demo.model_end),
 bz_wover and bz_wlate 0; REPORTED busy mean and p95, the misses with their
 parts, pads, springs and lip-outs.  D's OVERHEAD (`dover`): MILL's route demo
@@ -161,8 +162,8 @@ part table's byte, R.part_fmt), not os88pkg's default (130.15.9).
 
 WAVE 6 (SPEC.md 130.16.10, 130.16.14).  The physics moves every demo's path
 and BENCH's course, so NOTHING end to end is asserted against an earlier
-build: the final pass REPORTS, both cards, speaker ON (the `demo` leg, all
-six shipped demos BZD1 - BZD6 through D):
+build: the final pass REPORTS, both cards, speaker ON (the `demo` leg, every
+shipped demo through D - six then, BZD1 - BZD6; eight since ROLL and HOP):
   - per demo: misses, MISSED REFRESHES A SECOND off each frame's flip (a
     frame held k refreshes misses k - 1; a second is the frames' own clocks),
     runs of two or more misses (the stutter half of the owner's smoothness
