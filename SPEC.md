@@ -280384,16 +280384,20 @@ cyan or not, is one way of doing that):
 The owner chose `frog` for LITTLE HOP (2026-11-19, *"the frog is
 adorable"*; `spring` kept in reserve) and asked that it *"sit a little
 better"* on each block, a clock's `frame` being per use. So three per-use
-variants of the same frog, for a frog on a BLOCK: no lily pad, a dithered
-shadow on the block's top, the frog sat 2 px further back, and one front arm
-reaching to the top's front edge, the foot flat along it with three toes
-curled over it:
-- **`frogl`**: the arm to the front-LEFT edge, the eyes turned down-left
-  (HOP's start clock, the path below it to the left);
-- **`frogr`**: the arm to the front-RIGHT edge, the eyes turned down-right
-  (the middle clock, H's floor below it to the right);
-- **`frogb`**: the arm to the front-right edge (the drop), the eyes turned
-  back over its shoulder up-left (the finish clock, the goal behind it).
+variants of the same frog, for a frog on a BLOCK, squatting on the top as
+a frog does (round 2: *"legs where legs go"*; round 1's arm reaching over an
+edge read as a stray limb): no lily pad, a dithered shadow on the top, the
+haunches folded at its sides with their feet tucked in front of them, the
+front legs straight down under its chest and the front feet planted near
+the top's front corner - all of it on the top's diamond:
+- **`frogl`**: squatting, the legs a pixel left and the eyes turned
+  down-left (HOP's start clock, the path below it to the left);
+- **`frogr`**: squatting, the legs a pixel right and the eyes turned
+  down-right (the middle clock, H's floor below it to the right);
+- **`frogb`**: SITTING UP - a slimmer body, small haunches tucked low - the
+  eyes turned back over its shoulder up-left (the finish clock, the goal
+  behind it; the slimmer pose keeps a ball behind it within 130.18.5.4's
+  one ball length).
 
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo

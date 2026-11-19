@@ -9058,22 +9058,28 @@ def _clock_spring(p, x0, y0, tops):
     return a.done(tops)
 
 
-def _clock_frog(p, x0, y0, tops, edge=None, gaze=None):
+def _clock_frog(p, x0, y0, tops, shift=None, gaze=None, up=False):
     """`frog`: a FROG squatting on a LILY PAD, no window: the digits sit on its pale throat.  The pad is paint
     on the tile (colour 1, its rim lit colour 3, a notch cut out of it); the frog's body an egg of colour 1, lit
     colour 3 at its upper left and black-dithered in its shade, its haunches folded at its sides, its toes
     splayed on the pad, two bulging eyes on its head, a blush, a wide mouth and a throat of colour 3.
-    Its per-use variants (_FROG_POSES, Little Hop's three blocks): EDGE "L" or "R" - no pad, a dithered shadow
-    on the block's top instead, and the front foot on that side stretched to the block's front-left or
-    front-right top edge, its toes curled over it; GAZE (dx, dy) - the pupils turned that way and the eyes
-    leaning a pixel after them"""
+    Its per-use variants (_FROG_POSES, Little Hop's three blocks) SQUAT ON THE BLOCK'S TOP as a frog does, all
+    of it on the top's diamond: no pad, a dithered shadow on the top; the haunches folded at its sides, their
+    feet tucked in front of them; the front legs straight down in front of its body, the front feet planted
+    near the top's front corner, three toes each.  SHIFT: the legs and feet moved that many px across (away from
+    the drop, toward the path); GAZE (dx, dy): the pupils turned that way and the eyes leaning a pixel after them;
+    UP: SITTING UP rather than squatting - a slimmer body, the haunches small and tucked low under it"""
     a = _ClockArt(p, x0, y0)
     cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
     wx1 = a.win[1]
-    for (x, y) in (_ellipse(cx + 2, cy + 1.0, 12.5, 4.5, cx - 16, cx + 17, cy - 6, cy + 7) if edge else ()):
-        if abs(x + 0.5 - cx) / 16.0 + abs(y + 0.5 - cy) / 8.0 <= 0.92 and (x + y) & 1:
-            a.put(x, y, BLK, "shadow")              # (a variant on a block: its shadow on the block's top)
-    for (x, y) in (() if edge else _ellipse(cx, cy + 0.5, 15.5, 6.0, cx - 17, cx + 17, cy - 7, cy + 7)):   # the PAD
+    block = shift is not None
+
+    def ontop(x, y, m=1.0):                         # (x, y) on the tile's top diamond, M of its size
+        return abs(x + 0.5 - cx) / 16.0 + abs(y + 0.5 - cy) / 8.0 <= m
+    for (x, y) in (_ellipse(cx + 2, cy + 2.0, 12.0, 4.5, cx - 16, cx + 17, cy - 6, cy + 8) if block else ()):
+        if ontop(x, y, 0.92) and (x + y) & 1:
+            a.put(x, y, BLK, "shadow")              # (on a block: its shadow on the block's top)
+    for (x, y) in (() if block else _ellipse(cx, cy + 0.5, 15.5, 6.0, cx - 17, cx + 17, cy - 7, cy + 7)):   # the PAD
         ang = math.atan2(y + 0.5 - cy - 0.5, (x + 0.5 - cx) / 2.5)
         if 0.25 < ang < 0.85 or abs(x + 0.5 - cx) / 16.0 + abs(y + 0.5 - cy) / 8.0 > 0.92:
             continue                                # its notch, to the lower right; nothing off its own tile
@@ -9082,8 +9088,9 @@ def _clock_frog(p, x0, y0, tops, edge=None, gaze=None):
         ink = BLK if d > 0.8 else (WHT if (d > 0.5 and ux + uy < -0.4) else
                                    ((CYN if (x + y) & 1 else BLK) if ux > 0.55 else CYN))
         a.put(x, y, ink, "shadow")
-    top, bot = fy - 13, cy - (4 if edge else 2)     # (on a block: sat a little back, the edges in front shown)
-    by_, bry, brx = (top + bot + 1) / 2.0, (bot + 1 - top) / 2.0, 4 * n + 6.5
+    top, bot = fy - 13, (cy - 4 if block else cy - 2)
+    by_, bry, brx = (top + bot + 1) / 2.0, (bot + 1 - top) / 2.0, 4 * n + (5.0 if up else 6.5)
+    sh = shift or 0
 
     def skin(ux, uy, x, y):
         if ux + uy < -0.95:
@@ -9096,9 +9103,14 @@ def _clock_frog(p, x0, y0, tops, edge=None, gaze=None):
         uy = (y + 0.5 - by_) / bry
         return ((x + 0.5 - fx) / (brx * (0.86 + 0.14 * uy))) ** 2 + uy * uy <= 1.0
     for sx in (-1, 1):                              # the HAUNCHES, folded at its sides
-        hx, hy = fx + sx * (brx - 4), bot - 5.0
-        a.blob(_ellipse(hx, hy, 6.5, 5.5, int(hx) - 8, int(hx) + 8, int(hy) - 7, int(hy) + 7),
-               lambda x, y, hx=hx, hy=hy: skin((x + 0.5 - hx) / 6.5, (y + 0.5 - hy) / 5.5, x, y))
+        if up:
+            hx, hy, hrx, hry = cx + sx * 7.5 + sh, cy - 4.0, 5.0, 4.5
+        elif block:
+            hx, hy, hrx, hry = cx + sx * 9.5 + sh, cy - 5.0, 6.5, 5.5
+        else:
+            hx, hy, hrx, hry = fx + sx * (brx - 4), bot - 5.0, 6.5, 5.5
+        a.blob(_ellipse(hx, hy, hrx, hry, int(hx) - 8, int(hx) + 8, int(hy) - 7, int(hy) + 7),
+               lambda x, y, hx=hx, hy=hy, hrx=hrx, hry=hry: skin((x + 0.5 - hx) / hrx, (y + 0.5 - hy) / hry, x, y))
     body = {(x, y) for y in range(top - 1, bot + 2) for x in range(int(fx - brx) - 2, int(fx + brx) + 2)
             if egg(x, y)}
     a.blob(body, lambda x, y: skin((x + 0.5 - fx) / brx, (y + 0.5 - by_) / bry, x, y))
@@ -9107,36 +9119,20 @@ def _clock_frog(p, x0, y0, tops, edge=None, gaze=None):
         if all(q in body for q in ((x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))):
             ux = (x + 0.5 - fx) / brx_
             a.put(x, y, (WHT if (x + y) & 1 else CYN) if ux > 0.8 and x > wx1 else WHT)
-    for tx in (fx - 8, fx + 3):                     # the front TOES on the pad
-        if not (edge == "L" and tx < fx or edge == "R" and tx > fx):
+    if block:
+        for sx in (-1, 1):                          # the hind FEET, tucked in front of the haunches
+            a.pattern(("KCKCK", "KKKKK"), cx + sx * (10 if up else 12) - 2 + sh, cy - 1, flip=sx > 0)
+        for sx in (-1, 1):                          # the FRONT LEGS, straight down under its chest
+            lx = cx + sx * 3 + sh
+            for y in range(bot - 3, cy + 2):
+                for k, ink in ((-2, BLK), (-1, WHT if sx < 0 else CYN), (0, CYN), (1, CYN), (2, BLK)):
+                    a.put(lx + k, y, ink)
+            a.pattern(("KCCCK", "CKCKC", "K.K.K"), lx - 2, cy + 1)     # ... and the FEET planted, three toes
+    else:
+        for tx in (fx - 8, fx + 3):                 # the front TOES on the pad
             a.pattern(("KCKCK", "CCCCC", "KKKKK"), tx, bot - 1)
-    for sx in (() if edge else (-1, 1)):            # the hind toes beside the haunches (on the pad)
-        a.pattern(("K.K.", "CKCK", "KKKK"), fx + sx * (int(brx) + 3) - 2, bot - 1, flip=sx > 0)
-    if edge:                                        # the front ARM reaching to the block's EDGE, a webbed foot
-        def mx(x):                                  # flat on its top by the edge, three toes curled over it -
-            return x if edge == "L" else 2 * cx - 1 - x     # drawn for the front-left edge, mirrored for the right
-
-        def rim(x):                                 # the top's front-left edge's row under column x (unmirrored)
-            return cy + (x - cx + 16) // 2
-        arm = {}                                    # (x, y): its ink
-        for x in range(cx - 11, cx - 2):            # the palm, flat on the top along the edge, lit along its top
-            arm[(mx(x), rim(x) - 2)] = WHT
-            arm[(mx(x), rim(x) - 1)] = CYN
-        for k in range(7):                          # the arm, from the body down to the palm: lit, shaded
-            cc = cx - 3 - (4 * k + 3) // 6
-            y = cy - 6 + k
-            for x, ink in ((cc - 1, WHT), (cc, CYN), (cc + 1, CYN if (cc + 1 + y) & 1 else BLK)):
-                arm[(mx(x), y)] = ink if edge == "L" or ink == CYN else (WHT if ink != WHT else CYN)
-        for (x, y) in arm:                          # its outline OUTSIDE it, where nothing of the frog is
-            for q in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                if q not in arm and a.layer.get(q) != "geo":
-                    a.put(q[0], q[1], BLK)
-        for (x, y), ink in arm.items():
-            a.put(x, y, ink)
-        for x in (cx - 10, cx - 7, cx - 4):         # the toes over the edge
-            yr = rim(x)
-            a.put(mx(x), yr, CYN)
-            a.put(mx(x), yr + 1, BLK)
+        for sx in (-1, 1):                          # the hind toes beside the haunches
+            a.pattern(("K.K.", "CKCK", "KKKK"), fx + sx * (int(brx) + 3) - 2, bot - 1, flip=sx > 0)
     gx, gy = gaze or (0, 0)
     for sx in (-1, 1):                              # the EYES, bulging on its head
         ex, ey = fx + sx * 7 + (gx > 0) - (gx < 0), top - 1.0
@@ -9244,11 +9240,12 @@ def _clock_shroom(p, x0, y0, tops):
 _CLOCK_DRAW = {"pin": _clock_pin, "tee": _clock_tee, "board": _clock_board, "lamp": _clock_lamp,
                "spring": _clock_spring, "frog": _clock_frog, "ball": _clock_ball, "shroom": _clock_shroom}
 # the frog's per-use variants (the owner, 2026-11-19: "could the front change slightly between uses, so it sits a
-# little better on its block?"): on a block, the front foot over its front-LEFT edge looking down-left, over its
-# front-RIGHT edge looking down-right, or over its front-right edge looking back over its shoulder up-left
-_FROG_POSES = {"frogl": ("L", (-2, 1)), "frogr": ("R", (1, 1)), "frogb": ("R", (-2, -2))}
-for _k, (_e, _g) in _FROG_POSES.items():
-    _CLOCK_DRAW[_k] = (lambda e, g: lambda p, x0, y0, tops: _clock_frog(p, x0, y0, tops, e, g))(_e, _g)
+# little better on its block?", then: "legs where legs go"): squatting on a block's top, its legs and feet shifted
+# a px (SHIFT) and its eyes turned (GAZE) - down-left, down-right, or (frogb, SITTING UP, slimmer: the finish
+# clock's bound) back over its shoulder up-left
+_FROG_POSES = {"frogl": (-1, (-2, 1), False), "frogr": (1, (1, 1), False), "frogb": (-1, (-2, -2), True)}
+for _k, (_e, _g, _u) in _FROG_POSES.items():
+    _CLOCK_DRAW[_k] = (lambda e, g, u: lambda p, x0, y0, tops: _clock_frog(p, x0, y0, tops, e, g, u))(_e, _g, _u)
 
 
 def clock_pose(tsec, place):
