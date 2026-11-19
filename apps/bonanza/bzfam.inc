@@ -621,8 +621,9 @@ bz_fbfind:
     mov es, dx
     sub [si + BZF_RCSEG], dx    ; ...its code segment's distance from it
     mov dl, [si + BZF_RIDV]     ; DL = the ID
-    mov bx, BZ_BALB             ; BX = a header's byte, from the first: past
+    mov bx, BZ_FAMB             ; BX = a header's byte, from the first: past
                                 ; the three balls at the bundle's head (130.25.5.2)
+                                ; and its sound (130.50.2)
     xor cx, cx
 .w:
     cmp word [es:bx], 'BF'

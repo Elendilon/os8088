@@ -1,4 +1,4 @@
-# Bounce Bonanza: songs in their courses, the finish's tunes resident (PROPOSED)
+# Bounce Bonanza: songs in their courses, the finish's tunes resident (BUILDING; SPEC.md 130.50)
 
 The owner, 2026-11-19: *"Victory/death are sounds always loaded, and each
 course's song will be unique to that course. This may be part of why load
@@ -84,12 +84,13 @@ about 0.2 s. To be MEASURED with the same probe after.
 
 ## Stories
 
-- [ ] **S1** `BZSND.BIN` carries VICTORY and TIME'S UP at paragraph offsets
-      (bbmusic); the guest derives their segments (`OSAPI_SEG`), on
-      kern_big and kern_mega.
-- [ ] **S2** The sound part fetched at the open and HELD (the arena's
-      floor); `bzs_gfetch`/`bzs_gdrop0` stop fetching and dropping it;
-      `bz_arload` re-derives the tunes' segments.
+- [x] **S1 + S2** (the owner: *"there is already a shared family/ball part
+      ... it can go in that and save an extra int13h even on initial
+      load"*): the sound part, VICTORY and TIME'S UP ride the RESIDENT
+      BUNDLE after the balls (SPEC.md 130.50.2), their segments derived
+      with `OSAPI_SEG` by `bz_bsload`; no fetch or drop at a launch, no
+      new row, no new read at the open. MEASURED: PEAK 3.47 -> 2.69 s,
+      MOON 2.95 -> 2.68 s.
 - [ ] **S3** The tool writes each course's song into its course part (and
       the pathway's and the title's); the guest plays it from there.
 - [ ] **S4** The song part rows retired; `crs_arena` and `BZ_CRS_ARENA`
