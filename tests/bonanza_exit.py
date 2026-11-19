@@ -37,13 +37,14 @@ and asserts, against what was read on the desktop BEFORE that launch:
   3  as a POSITIVE CONTROL, inside every bracket: the course's row(s) and
      the bundle's FETCHED with a segment, the three held balls' segments
      (bz_bsegs) set and the sprite's (bz_bseg) the material's, [bz_mat] the
-     ball M chose (a replay's the log's, B's its course's), and the claims
+     course's own ball (a replay's the log's; each material is played on a
+     course whose own ball it is, since a play rolls no other), and the claims
      the desktop's less the shell plus the course's part(s) and the arena.
 
-THE DESKTOP KEYS (130.11.11.2): for each of M and N (HANDLERS: C, the
-camera mode, is no desktop key since TRICKLE went, 130.46.12) - counted by a logged breakpoint on its
-handler (bz_ballkey, bz_crskey), since a short cycle would hide an odd count -
-HELD for 1.5 s (MartyPC's keyboard
+THE DESKTOP KEYS (130.11.11.2): T (HANDLERS: C, the camera mode, went
+with TRICKLE, 130.46.12, and M and N on 2026-11-19, 130.11.5.4) - counted by
+a logged breakpoint on its handler (bz_tkey), since a two-way toggle would
+hide an odd count - HELD for 1.5 s (MartyPC's keyboard
 repeats after 0.5 s, ten times a second) it advances EXACTLY ONCE; pressed,
 released for 0.2 s and pressed again it advances TWICE.
 
@@ -158,7 +159,7 @@ import bonanza_phys as P       # noqa: E402
 OP_ROW, OP_T_ROWS, OP_R_FLAG, OP_R_ZKB = 8, 10, 1, 6        # apps/os88parts.inc
 OP_LAZY, OP_FETCHED = 8, 32
 WAYS = ("esc", "f", "altenter", "goal", "replayend", "replayesc")
-HANDLERS = (("KeyM", "bz_ballkey"), ("KeyN", "bz_crskey"))
+HANDLERS = (("KeyT", "bz_tkey"),)
 
 
 class Q(object):
@@ -462,7 +463,7 @@ def launch(g, way, crs=None, fails=None):
 
 
 def keyed_launch(g, key, what, fails):
-    """KEY (G, Enter, D: a launch of the package's own choosing) with the claim leg at its fsx_run"""
+    """KEY (Enter, D: a launch of the package's own choosing) with the claim leg at its fsx_run"""
     g.m.bp_exec(g.m.sym("fsx_run"))
     g.key(key)
     at_fsx(g, what, fails)
@@ -520,7 +521,7 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
     elif way.startswith("replay"):
         want_mat = m.read(g.a("bz_rlog") + 5, 1)[0]   # R the log's (SPEC.md 130.11.12.2)
     else:
-        want_mat = mat                              # a play M's
+        want_mat = R.course(crs).ball               # a play its course's own (SPEC.md 130.11.5.4)
     reads = launch(g, way, None if crs == "first" else crs, fails)
     pc = g.b("bz_pc")
     r_in, c_in = rows(g), claims(g)
@@ -883,23 +884,20 @@ def ui_settle(g):
     g.ui.settle()
 
 
-def choose_ball(g, mat):
-    """M until [bz_matsel] is MAT (one press each: the guard needs the key UP
-    between presses, so the next waits for [bz_dkk] to clear)"""
-    m = g.m
-    for _ in range(4):
-        if g.b("bz_matsel") == mat:
-            return
-        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard to see M come up", guest=5)
-        k0 = g.b("bz_matsel")
-        g.key("KeyM")
-        M.until(m, lambda _: g.b("bz_matsel") != k0, "M to change the ball", guest=5)
-    assert g.b("bz_matsel") == mat, "M never reached material %d" % mat
+def own_course(mat):
+    """the course (name) the claim leg plays material MAT on: the lowest K but BENCH whose OWN ball it is
+    (a play rolls its course's ball, SPEC.md 130.11.5.4) - None when no course has that ball"""
+    R.CRS_K["bench"]                            # (fills the course table)
+    for n in sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__):
+        if R.CRS_K[n] and R.course(n).ball == mat:
+            return n
+    return None
 
 
 def held_keys(g):
     """SPEC.md 130.11.11.2 on the desktop: -> failures.  Each key's handler is
-    counted by a logged breakpoint (C's two modes would hide an odd count)."""
+    counted by a logged breakpoint (T's two controls would hide an odd count);
+    the control is put back to KEYS after."""
     m = g.m
     fails = []
     for key, h in HANDLERS:
@@ -929,6 +927,9 @@ def held_keys(g):
         if twice != 2:
             fails.append("%s pressed twice 0.2 s apart advanced %d times, not twice (a real second press was "
                          "swallowed)" % (key, twice))
+    m.pause()
+    g.putb("bz_ctl", 0)                         # (T toggled an odd number of times: KEYS again)
+    m.run()
     return fails
 
 
@@ -968,9 +969,12 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                          "(SPEC.md 130.11.3.1, 130.30.4.4, 130.50, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.46.6)" % (
                              len(base_rows), dict.__len__(R.CRS_K), ncrs2(), ndemo()))
         for mat in mats if ways else ():
-            choose_ball(g, mat)
+            crs = own_course(mat)
+            if crs is None:
+                print("%s: no course rolls %s - its claim leg is not driven" % (tag, BB.MAT_NAMES[mat]), flush=True)
+                continue
             for way in ways:
-                f, line = one(g, way, base_rows, base_claims, mat)
+                f, line = one(g, way, base_rows, base_claims, mat, crs=crs)
                 print("%s %s" % (tag, line), flush=True)
                 fails += f
                 if f:
@@ -982,7 +986,6 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             print("%s %s" % (tag, line), flush=True)
             fails += f
         if mill and not fails:                  # wave 3: MILL (row 6) every way out, and Esc in a tube
-            choose_ball(g, R.course("mill").ball)
             for way in [w for w in ways if w in WAYS] + ["tubeesc", "bench"]:
                 f, line = one(g, way, base_rows, base_claims, R.course("mill").ball, crs="mill")
                 print("%s %s" % (tag, line), flush=True)
@@ -991,7 +994,6 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                     break
         if w4 and not fails:                    # wave 4: MOON and PEAK (SUMMIT), their three balls; wave 6:
             for crs in ("moon", "peak", "play"):    # the PLAYGROUND's three pads (SPEC.md 130.16.14)
-                choose_ball(g, R.course(crs).ball)
                 for way in [w for w in ways if w in WAYS]:
                     f, line = one(g, way, base_rows, base_claims, R.course(crs).ball, crs=crs)
                     print("%s %s" % (tag, line), flush=True)
@@ -1005,7 +1007,6 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             names = sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__)    # VGA, which runs no claim leg,
             todo = ["trial"] if tag == "vga" else [n for n in names if n not in CLAIMED.get(tag, set())]
             for crs in todo:                    # TRIAL's alone, as before
-                choose_ball(g, R.course(crs).ball)
                 f, line = one(g, "esc", base_rows, base_claims, R.course(crs).ball, crs=crs)
                 print("%s %s" % (tag, line), flush=True)
                 fails += f
@@ -1037,7 +1038,7 @@ REDS = {
               "    jne .redleak\n    mov al, [bz_pc]\n"),
              ("bonanza.asm", "    call op_drop\n%if BZ_PATH_NPAD\n.held:\n%endif\n",
               "    call op_drop\n.redleak:\n%if BZ_PATH_NPAD\n.held:\n%endif\n")],
-    # the held-key guard taken out: every typed C, M or N acts
+    # the held-key guard taken out: every typed T acts
     "crepeat": [("bonanza.asm", "    call bz_dkey                ; AH = the make code: CF = 1 a repeat, swallowed\n"
                  "    jc .done\n", "    ; RED crepeat: no guard\n")],
     # bz_dkk never cleared: the key never reads as come up

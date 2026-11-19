@@ -75,8 +75,8 @@ BONANZA plays on a CGA or a Hercules only - and then:
   9  LAST, the DOUBLE-CLICK of PEAKA.BZR in B:'s Disk window: a second
      BONANZA opens holding it (bz_rlog, [bz_lsv] 2);
  10  WAVE 6 (SPEC.md 130.16.12, 130.16.14), before 7 - 9: the PLAYGROUND on
-     the Hercules ([bz_crsel] and [bz_matsel] poked to it and its ball,
-     Enter): the launch fetches the course and its THREE ball rows (its three
+     the Hercules ([bz_crsel] poked to it - a play rolls its own ball -
+     and F): the launch fetches the course and its THREE ball rows (its three
      pads: 1 + 3 claims inside), so rubber's part with its STRETCH entry is
      translated through its own selector (bz_hxball's +12 + +14 entries);
      a play with a Hop and its BOOST - Space held for STEPS, the second
@@ -741,8 +741,7 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
     k = R.CRS_K["play"]
     c = R.course("play")
     nballs = len({c.ball} | {r["mat"] for r in c.part["props"] if r["kind"] == BB.PK_PAD})
-    memw(b, pkg.a("bz_crsel"), bytes([k]))
-    memw(b, pkg.a("bz_matsel"), bytes([c.ball]))
+    memw(b, pkg.a("bz_crsel"), bytes([k]))    # (a play rolls the course's own ball, c.ball)
     b.tap("f", gap=300)                         # (F: a free play - Enter is the game since wave 8b, 130.19.5)
     b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "the PLAYGROUND's play", 60000, 100)
     want(pkg.byte("bz_crs") == k and pkg.byte("bz_mode") == 0 and pkg.byte("bz_herc") == 1,

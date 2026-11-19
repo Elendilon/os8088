@@ -10,8 +10,8 @@
 ;
 ; This file is the header, the window and its desktop face (SPEC.md 130.1,
 ; 130.6, 130.14.3): the title, the keys, the adapter line, the held log's
-; line, the tour's SCORECARD, and after a benchmark the RESULTS page - and the
-; game's books: the tour, the best times and BONANZA.DAT (130.14.21).  bzvideo.inc is the bracket, the mode, the retrace wait, the ring
+; line, and after a benchmark the RESULTS page - and the
+; game's books: the best times and BONANZA.DAT (130.14.21).  bzvideo.inc is the bracket, the mode, the retrace wait, the ring
 ; writers and the boxes (130.2, 130.4); bzgame.inc is the frame loop, the
 ; simulation, the camera, the autopilot and the instruments (130.4 - 130.6).
 ; Nothing here is a reference game's: the ball is tools/bonanza_assets.py's
@@ -194,22 +194,14 @@ BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 130.25.6.2): the family part
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (130.25.6.9); bz_ftab maps an ID
 BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.46.6): the last row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
-; --- the game (SPEC.md 130.14.3) ------------------------------------------------
-; the TOUR is bzcourse.inc's BZ_NTOUR courses, BZ_TOUR's K in order: a short NAMED list
-; (tools/bbcourse.py TOUR), a test fixture - not every course (SPEC.md 130.26.8)
-%if BZ_NTOUR < 1 || BZ_NTOUR > BZ_NCRS - 1
- %error "the tour is 1 - BZ_NCRS - 1 courses, never BENCH (bbcourse.py's tour_ks refuses the rest)"
-%endif
-BZ_TOURMAX  equ BZ_NTOUR * 65534 ; a tour's total a file may hold: each under
-                                ; the 65,535-step clamp (130.14.3.3)
 ; --- BONANZA.DAT (SPEC.md 130.14.3.3, 130.22.5): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
 ; `BZS4` (wave 8R round 2, item 8R.14): 494 bytes laid out for BZ_CRS_MAX = 23 courses
 BZD_ENT     equ 8               ; 23 entries, K 0 - 22 (BENCH's unused): +0 the
 BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
 BZD_NENT    equ BZ_CRS_MAX      ; none), +4 that best's falls
-BZD_TOUR    equ BZD_ENT + BZD_NENT * BZD_ENTB ; the tour: +0 the XOR of its courses' identities,
-                                ; +2 its best total in steps, DWORD (6 bytes, no zeros)
-BZD_SLOT    equ BZD_TOUR + 6    ; three game SLOTS after the bests: +0 lives, +1
+BZD_RSV     equ BZD_ENT + BZD_NENT * BZD_ENTB ; 6 RESERVED bytes, written zero and zeroed
+                                ; on load (the tour's until 130.26.8; BZS5 drops them)
+BZD_SLOT    equ BZD_RSV + 6     ; three game SLOTS after the bests: +0 lives, +1
 BZD_SLOTB   equ 22 + 4 * BZ_CRS_MAX ; the MODE (bit 0), +2 the PAD, +3 zero,
 BZD_NSLOT   equ 3               ; +4 the OPEN pads and +8 the DONE ones
 BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; (a dword each, a bit a pad), +12 the routes
@@ -265,9 +257,9 @@ bz_entry:
     mov [bz_homedir], dx        ; 130.14.7.6): BONANZA.DAT's volume, whatever
     mov [bz_homevol], bl        ; a dialog does to the instance later
     call bz_dload               ; the best times (130.14.3.3); kern_small: none
-    mov byte [bz_crsel], BZ_CRS_FIRST ; the course Enter plays, and its ball
-    mov al, [bz_cballs + BZ_CRS_FIRST] ; (N and M change them, SPEC.md
-    mov [bz_matsel], al         ; 130.11.5.4)
+%ifdef BZDEV
+    mov byte [bz_crsel], BZ_CRS_FIRST ; the course F plays (a row pokes another)
+%endif
     OS88_REGION_MOVABLE
     OS88_ALTENTER_ARM
     mov ax, [bz_win]            ; THE WINDOW (SPEC.md 130.26): the Play Game
@@ -383,21 +375,16 @@ bz_onkey:
     je .play
 %endif
     cmp al, 27
-    je .esc
+    je .done                    ; (Esc: nothing on the face)
     or al, 20h
     cmp al, 'f'
     je .play
-    call bz_intour              ; A TOUR withholds every key that would replace
-    jc .tour                    ; its state or its log (130.14.3.4)
     cmp al, 'b'
     je .bench
     cmp al, 'r'
     je .replay
-    mov si, bz_devk             ; G, M, N, D, L, V, W, T, S: one press however
-    jmp short .tk               ; long it is held (SPEC.md 130.11.11.2,
-.tour:                          ; 130.14.3.4) - in a tour W, T, S alone
-    mov si, bz_devkt
-.tk:
+    mov si, bz_devk             ; D, L, V, W, T, S: one press however long it
+.tk:                            ; is held (SPEC.md 130.11.11.2)
     mov bx, [si + 1]            ; (a key, its handler: bz_devk)
     cmp al, [si]
     je .held
@@ -410,13 +397,6 @@ bz_onkey:
     jc .done
     call bx
     jmp short .done
-.esc:
-    call bz_intour              ; Esc on the face between two tour courses
-    jnc .done                   ; STOPS the tour (otherwise nothing, as before)
-    mov byte [bz_tour], BZ_NTOUR + 2
-    mov si, bz_stopl
-    call bz_redraw
-    jmp short .done
 .replay:
     call bz_rhave               ; R: offered only when there is a log
     jne .done                   ; (SPEC.md 130.11.12.2): its course, and
@@ -426,15 +406,8 @@ bz_onkey:
 .bench:
     mov ax, 1 | (BZ_CRS_BENCH << 8) ; B: the benchmark, on BENCH (SPEC.md
     jmp short .go               ; 130.10.11.1)
-.play:
-    call bz_intour              ; Enter, F, Alt+Enter: in a tour its next
-    jnc .free                   ; course
-    call bz_tgo
-    jmp short .done
 %if BZ_PATH_NPAD
-.game:                          ; Enter, Alt+Enter: THE GAME (wave 8b,
-    call bz_intour              ; 130.19.5) - in a tour, its next course
-    jc .play
+.game:                          ; Enter, Alt+Enter: THE GAME (wave 8b, 130.19.5)
 %if BZ_TITLE
     call bz_playgame            ; (SPEC.md 130.23.4: the TITLE, P its game;
 %else                           ; 130.26.4: or where the window was asked for)
@@ -442,9 +415,9 @@ bz_onkey:
 %endif
     jmp short .done
 %endif
-.free:
-    mov al, 0                   ; ...otherwise play the selected course
-    mov ah, [bz_crsel]          ; freely (SPEC.md 130.11.11.3)
+.play:
+    mov al, 0                   ; F: a free play of the selected course, its
+    mov ah, [bz_crsel]          ; own ball (SPEC.md 130.11.11.3)
 .go:
     call bz_go
 .done:
@@ -456,38 +429,6 @@ bz_onkey:
 .out:
     jmp bz_rret
 
-%ifdef BZDEV
-; G (one press, bz_dkey): a NEW TOUR (SPEC.md 130.14.3.1) - its times cleared
-; and course 1 launched.  On kern_small nothing changes: bz_launch toasts the
-; refusal (130.1).
-bz_game:
-    cmp byte [bz_small], 0
-    jne bz_tgo
-    xor ax, ax
-    mov bx, bz_ttime
-.z:
-    mov [bx], ax
-    inc bx
-    inc bx
-    cmp bx, bz_tfall + 2 * BZ_NTOUR
-    jb .z
-    mov byte [bz_tour], 1
-    call bz_tgo
-    cmp byte [bz_tour], 1       ; still course 1: its launch was REFUSED (a
-    jne .ran                    ; course that ran moved the tour on, or Esc
-    mov si, bz_stopl            ; stopped it), so no bracket repainted the face
-    jmp bz_redraw               ; and the tour's lines are drawn here
-.ran:
-    ret
-; the tour's next course, played with its own ball (bz_launch); a refused
-; launch leaves the tour where it was, so Enter tries it again.  [bz_tour] k is
-; the tour's k-th course, BZ_TOUR's byte k - 1 (SPEC.md 130.26.8)
-bz_tgo:
-    mov bl, [bz_tour]
-    xor bh, bh
-    mov ah, [bz_ctour + bx]
-    mov al, 0
-%endif
 ; AL = the mode, AH = the course: launched, and a best it set saved
 bz_go:
     mov [bz_mode], al
@@ -612,9 +553,9 @@ bz_setcard:
 ; refusal is here, where a toast can still be drawn (SPEC.md 130.1, 130.7).
 ; In: [bz_mode] (0 play, 1 benchmark, 2 replay, 3 the demo benchmark: a
 ; replay, measured, SPEC.md 130.14.7.3) and [bz_crs].  The MATERIAL is
-; chosen here (SPEC.md 130.11.5.4): a play rolls the session's ball
-; ([bz_matsel], M), a benchmark the course's own (BENCH's for B; the course a
-; harness poked at this entry otherwise), a replay the log's.  Course K's part
+; chosen here (SPEC.md 130.11.5.4): a play or a benchmark rolls the course's
+; own (BENCH's for B; the course a harness poked at this entry otherwise), a
+; replay the log's.  Course K's part
 ; (row BZ_P_CRS + K) is fetched - the same row on both cards - and expanded
 ; in place at once (bz_cexp, SPEC.md 130.15.4.5); the balls are HELD since the
 ; open (bz_bget, 130.25.5.2); on the Hercules the course is translated in
@@ -631,22 +572,10 @@ bz_launch:
     mov byte [bz_newb], 0       ; (only this launch's play may set a best)
     call bz_fsok                ; kern_small (the parts are more heap than the
     jc .ret                     ; 128KB machine has) and EGA, MDA refused
-    mov al, [bz_matsel]         ; the material (above)
-    mov bl, [bz_mode]
-    dec bl
-%ifdef BZDEV
-    jns .nplay
-    call bz_intour              ; 0: a play, M's - but a TOUR's course rolls
-    jnc .mat                    ; its own (SPEC.md 130.14.3.1)
-    jmp short .own
-%else
-    js .mat                     ; 0: a play, M's (no tour: the BZDEV build's)
-%endif
-.nplay:
-    mov al, [bz_rlog + BZR_MAT]
-    jnz .mat                    ; 2, 3: a replay, the log's
-.own:
-    mov bl, [bz_crs]            ; 1: a benchmark, the course's own
+    mov al, [bz_rlog + BZR_MAT] ; the material (above): 2, 3 a replay, the
+    cmp byte [bz_mode], 2       ; log's
+    jae .mat
+    mov bl, [bz_crs]            ; 0, 1: a play or a benchmark, the course's own
     xor bh, bh
     mov al, [bz_cballs + bx]
 .mat:
@@ -3837,11 +3766,10 @@ TOASTSTR bz_t_nofs, 'Bonanza: no full screen'
 ; strings, which BZS measures, and its fields at their widest - is asserted
 ; under the strings (BZ_FIT), so a longer string fails the build.
 ; -----------------------------------------------------------------------------
-BZ_NLINE    equ 7               ; MAIN's lines: the tour's, then six (SPEC.md 130.26.8:
-                                ; the scorecard's line a tour course is gone, so MAIN
-                                ; no longer grows with the courses).  The CGA's content
+BZ_NLINE    equ 7               ; MAIN's lines (SPEC.md 130.26.8: no scorecard, so MAIN
+                                ; never grows with the courses).  The CGA's content
                                 ; holds 13 lines of 42 cells; RESULTS draws all 13
-BZ_LTOUR    equ 0               ; the tour's line
+BZ_LHEAD    equ 0               ; line 0: the title, or a refused replay's reason
 BZ_FACEW    equ 42
 BZ_TIMEW    equ 6               ; a time: `ss.hh`, `ssss.h` (from 100 s) or `20:00+`
 BZ_FALLMAX  equ 9999            ; falls are shown, and filed, to four digits
@@ -3857,80 +3785,12 @@ bz_redraw:
     mov al, BZH_REDRAW
     jmp short bz_shcall
 
-; M and N on the desktop (one press each, bz_dkey): the next ball or course,
-; and the lines that name them redrawn.  N sets the ball to the new course's
-; own (SPEC.md 130.11.5.4).  Every one is the session's.  (C, the camera
-; mode, is gone: LATTICE won, and the VGA has its own, 130.46.12.)
-bz_ballkey:
-    inc byte [bz_matsel]
-    cmp byte [bz_matsel], BZ_NMAT
-    jb bz_line3
-    mov byte [bz_matsel], 0
-bz_line3:
-    mov al, 3
-    jmp short bz_redraw1
 bz_line4:                       ; S (bzsound.inc bzs_skey): the sound's line
     mov al, 4
 bz_redraw1:
     mov ah, al                  ; the LINE vector's line is AH
     mov al, BZH_LINE
     jmp short bz_shcall
-
-%if BZ_CRS_BENCH != 0
- %error "bz_crskey cycles courses 1 .. BZ_NCRS - 1: BENCH must be course 0"
-%endif
-bz_crskey:
-    mov bl, [bz_crsel]          ; every course but BENCH: FIRST, TRIAL, ...
-    inc bx
-    cmp bl, BZ_NCRS
-    jb .k
-    mov bl, 1
-.k:
-    mov [bz_crsel], bl
-    xor bh, bh
-    mov al, [bz_cballs + bx]
-    mov [bz_matsel], al
-    mov si, bz_crsl             ; Enter's title (1) and the ball (3)
-    jmp bz_redraw
-bz_crsl:    db 1, 3, 0ffh
-bz_stopl:   db 1, 3, 5, BZ_LTOUR, 0ffh ; a tour stopped on the face: the keys, M,
-                                ; the demo keys and the tour's line
-
-; CF = 1 while a tour's course is next or playing ([bz_tour] 1 - BZ_NTOUR, SPEC.md
-; 130.14.3.1).  Preserves all but the flags.
-bz_intour:
-    push ax
-    mov al, [bz_tour]
-    dec al
-    cmp al, BZ_NTOUR
-    pop ax
-    ret
-
-
-; -> DX:AX = the tour's total steps, the sum of [bz_ttime]'s BZ_NTOUR; BL = 1
-; when one of them is the 65,535 clamp (such a total is never kept, 130.14.3.1).
-; Preserves all else.  (bz_post's; the face's own copy is in bzface.inc)
-bz_ttotal:
-    push cx
-    push si
-    xor ax, ax
-    cwd
-    mov bl, al
-    mov si, bz_ttime
-    mov cx, BZ_NTOUR
-.s:
-    cmp word [si], 0ffffh
-    jne .a
-    mov bl, 1
-.a:
-    add ax, [si]
-    adc dx, 0
-    inc si
-    inc si
-    loop .s
-    pop si
-    pop cx
-    ret
 
 %endif
 ; -----------------------------------------------------------------------------
@@ -4135,9 +3995,8 @@ bz_vdrop:
 ; bz_post - after the frame loop, IN the bracket (bzvideo.inc), so the face the
 ; kernel's restore paints is the new one: what the run just did, in memory
 ; only.  B: its RESULTS page.  A play or a replay: the held log's line (line
-; 6).  A PLAY alone: in a tour, its time entered (a finish) or the tour
-; STOPPED (Esc, F, Alt+Enter); and a best, when it finished with the course's
-; own ball under the 65,535-step clamp - and the tour's, at its last (BZ_NTOUR's).
+; 6).  A PLAY alone: a best, when it finished with the course's own ball
+; under the 65,535-step clamp.
 ; [bz_newb] = 1 when a best was set: bz_dsave writes the file on the desktop.
 ; Preserves nothing.
 bz_post:
@@ -4181,42 +4040,6 @@ bz_post:
     mov [bz_lsend], al
     cmp byte [bz_mode], 0       ; a replay posts nothing
     jne .out
-%ifdef BZDEV                    ; (a TOUR: the instruments' G alone, 130.26.6.1)
-    call bz_intour
-    jnc .best
-    cmp byte [bz_goal], 0
-    jne .enter
-    mov byte [bz_tour], BZ_NTOUR + 2 ; stopped: no total is entered
-    ret
-.enter:
-    mov bl, [bz_tour]           ; (bz_crs is the tour's course k)
-    xor bh, bh
-    shl bx, 1
-    mov ax, [bz_lsn]
-    mov [bz_ttime - 2 + bx], ax
-    mov ax, [bz_lsf]
-    mov [bz_tfall - 2 + bx], ax
-    inc byte [bz_tour]
-    cmp byte [bz_tour], BZ_NTOUR + 1
-    jne .best
-    call bz_ttotal              ; the last: the total, DX:AX
-    or bl, bl
-    jnz .best                   ; (one at the clamp: never kept)
-    mov cx, [bz_dat + BZD_TOUR + 2]
-    mov bx, [bz_dat + BZD_TOUR + 4]
-    mov si, cx
-    or si, bx
-    jz .tset                    ; no best tour yet
-    cmp dx, bx
-    ja .best
-    jb .tset
-    cmp ax, cx
-    jae .best
-.tset:
-    mov [bz_dat + BZD_TOUR + 2], ax
-    mov [bz_dat + BZD_TOUR + 4], dx
-    mov byte [bz_newb], 1
-%endif
 .best:
     cmp byte [bz_goal], 0       ; THE COURSE'S BEST: a finish, started with
     je .out                     ; the course's own ball, under the clamp, and
@@ -4338,26 +4161,10 @@ bz_dnorm:
     inc bx
     cmp bx, 2 * BZD_NENT
     jb .e
-    or cl, cl                   ; THE TOUR: this build's XOR and a total 1 -
-    jz .tclr                    ; BZ_TOURMAX (393,204)
-    cmp word [bz_dat + BZD_TOUR], BZ_CRS_TOURX
-    jne .tclr
-    mov ax, [bz_dat + BZD_TOUR + 2]
-    mov dx, [bz_dat + BZD_TOUR + 4]
-    sub ax, 1
-    sbb dx, 0
-    jc .tclr
-    cmp dx, (BZ_TOURMAX - 1) >> 16
-    ja .tclr
-    jb .tok
-    cmp ax, (BZ_TOURMAX - 1) & 0ffffh
-    jbe .tok
-.tclr:
-    xor ax, ax
-    mov [bz_dat + BZD_TOUR + 2], ax
-    mov [bz_dat + BZD_TOUR + 4], ax
-.tok:
-    mov word [bz_dat + BZD_TOUR], BZ_CRS_TOURX
+    xor ax, ax                  ; the RESERVED 6 bytes (the tour's until
+    mov [bz_dat + BZD_RSV], ax  ; SPEC.md 130.26.8): zero whatever the file
+    mov [bz_dat + BZD_RSV + 2], ax ; held
+    mov [bz_dat + BZD_RSV + 4], ax
     ret
 
 ; bz_dchk - BONANZA.DAT's header and entries in [bz_dat], checked IN FULL
@@ -4365,7 +4172,7 @@ bz_dnorm:
 ; with the length); the count it was written with 1 - BZD_NENT; +6 - +7 zero
 ; (+5, the physics, any value: bz_dnorm judges it, 130.16.9); every entry's
 ; falls at most 9,999; every UNUSED entry (BENCH's, and K at or past the
-; count) all zero.  The tour is bz_dnorm's, the slots bz_dslots'.  -> CL = 1
+; count) all zero.  The reserved bytes are bz_dnorm's, the slots bz_dslots'.  -> CL = 1
 ; it passes, 0 it is refused whole.  Clobbers AX, BX, SI.
 bz_dchk:
     xor cl, cl
@@ -4409,7 +4216,7 @@ bz_dchk:
 ; that fails - no folder, write-protected, full - toasts ONCE a session and
 ; the bests stay in memory (SPEC.md 130.14.3.3).  The save MERGES: the file is
 ; read again first (bz_dload, as hostile as at the entry) and the smaller best
-; of the two kept per entry and for the tour, so a second instance - a
+; of the two kept per entry, so a second instance - a
 ; double-clicked .BZR opens one - never overwrites the first's bests with its
 ; older copy.  Preserves nothing.
 bz_dsave:
@@ -4448,25 +4255,6 @@ bz_dsave:
     add si, BZD_ENTB
     add di, BZD_ENTB
     loop .m
-    mov ax, [bz_dmine + BZD_TOUR + 2] ; the tour's total, 32 bits, the same way
-    mov dx, [bz_dmine + BZD_TOUR + 4]
-    sub ax, 1
-    sbb dx, 0
-    mov bx, [bz_dat + BZD_TOUR + 2]
-    mov cx, [bz_dat + BZD_TOUR + 4]
-    sub bx, 1
-    sbb cx, 0
-    cmp dx, cx
-    ja .tk
-    jb .tm
-    cmp ax, bx
-    jae .tk
-.tm:
-    add ax, 1
-    adc dx, 0
-    mov [bz_dat + BZD_TOUR + 2], ax
-    mov [bz_dat + BZD_TOUR + 4], dx
-.tk:
     call bz_dwrite
     pop es
     jnc .out
@@ -4758,8 +4546,7 @@ bz_dkey_d:
     ret
 
 ; W (one press): the held log through the SAVE dialog as `<NAME>.BZR` (SPEC.md
-; 130.14.7.1); bz_wdone writes it.  A tour's held log is the course just
-; played.  A dialog already up refuses, and that dialog is the answer.
+; 130.14.7.1); bz_wdone writes it.  A dialog already up refuses, and that dialog is the answer.
 bz_wkey:
     call bz_bigok
     jc .out
@@ -5199,7 +4986,7 @@ bz_onwake:
     jmp bz_rret
 
 %ifdef BZDEV
-; V (one press, not in a tour): the next SHIPPED demo, 1 - 5 in turn, into the
+; V (one press): the next SHIPPED demo, 1 - 5 in turn, into the
 ; held log (SPEC.md 130.14.7.4) - its part fetched at home, copied whole (a
 ; PART is trusted: the tool checked it, 130.10.6.2) and dropped.  It replaces
 ; the session's last log, as a new play does.
@@ -5229,19 +5016,19 @@ bz_vkey:
 
 %endif
 ; a new held log (L, V): the lines that name it and offer its keys - the demo
-; keys, the log's line, and the tour line's refused-replay reason, now stale
+; keys, the log's line, and line 0's refused-replay reason, now stale
 bz_dheld:
     mov byte [bz_err], 0
 %ifdef BZDEV
     mov si, bz_heldl
     jmp bz_redraw
-bz_heldl:   db 5, 6, BZ_LTOUR, 0ffh
+bz_heldl:   db 5, 6, BZ_LHEAD, 0ffh
 %else
     ret                         ; (the player's face has no line to redraw)
 %endif
 
 %ifdef BZDEV
-; T (one press, in a tour too): the control, KEYS or MOUSE (SPEC.md 130.14.8)
+; T (one press): the control, KEYS or MOUSE (SPEC.md 130.14.8)
 bz_tkey:
     xor byte [bz_ctl], 1
     mov si, bz_tlines
@@ -5249,20 +5036,14 @@ bz_tkey:
 bz_tlines:  db 3, 6, 0ffh
 
 ; bz_onkey's one-press instrument keys under bz_dev (SPEC.md 130.26.6): the
-; key (lower case), its handler; a tour's own from bz_devkt; 0 ends it
-bz_devk:    db 'g'
-            dw bz_game
-            db 'm'
-            dw bz_ballkey
-            db 'n'
-            dw bz_crskey
-            db 'd'
+; key (lower case), its handler; 0 ends it
+bz_devk:    db 'd'
             dw bz_dkey_d        ; the demo benchmark (130.14.7.3)
             db 'l'
             dw bz_lkey          ; load a demo (130.14.7.2)
             db 'v'
             dw bz_vkey          ; the next shipped demo (130.14.7.4)
-bz_devkt:   db 'w'
+            db 'w'
             dw bz_wkey          ; save the held log (130.14.7.1)
             db 't'
             dw bz_tkey          ; the control, KEYS or MOUSE (130.14.8)
@@ -5315,8 +5096,6 @@ bz_clocks:  BZ_CRS_LOCKS        ; ...their horizontal LOCKs, the CGA's c0 then t
                                 ; Hercules', FFh FFh none (SPEC.md 130.45: bz_vinit)
 bz_cbots:   BZ_CRS_BOTS         ; ...their BOTTOM LINEs, a word each, 0 none
                                 ; (SPEC.md 130.45.4: bz_vinit's bottom stop)
-bz_ctour:   db BZ_CRS_BENCH     ; THE TOUR (SPEC.md 130.26.8): byte k its k-th course;
-            BZ_TOUR             ; byte 0 BENCH, which kern_small's refused G names (bz_game)
 bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzvideo.inc"
 %include "bzcard.inc"           ; wave 8c (130.19.8): the cards
@@ -5348,7 +5127,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; them (SPEC.md 130.25.4), so a play holds three claims with the pathway held
 ; and two without.  The three balls, then each course
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
-; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
+; and its songs, and a shipped demo a course (every one but BENCH).  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
 OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2), then the WORLD parts
@@ -5364,7 +5143,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
 %if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
- %error "the demo rows follow the songs', one a tour course (SPEC.md 130.14.7.4)"
+ %error "the demo rows follow the songs', one a course but BENCH (SPEC.md 130.14.7.4)"
 %endif
 
 %define OS88UI_ABOUT
@@ -5388,8 +5167,6 @@ VAR bz_pgo,1                    ; 1: this key left RESULTS (or a refused replay)
 VAR bz_pc,1                     ; the course's part row (BZ_P_CRS + K)
 VAR bz_bform,1                  ; the HELD balls' form: 0 the CGA's, 1 Hercules-
                                 ; translated (bz_hxlat, bz_bget; 130.25.5.2)
-VAR bz_crsel,1                  ; the course Enter plays (N): FIRST, TRIAL, ...
-VAR bz_matsel,1                 ; the ball a play rolls (M; N sets the course's)
 VAR bz_mat,1                    ; THIS launch's material, 0 rubber, 1 steel,
                                 ; 2 glass (bz_launch; bz_pinit copies its
                                 ; BZ_MATTAB record, SPEC.md 130.11.5.2)
@@ -5532,11 +5309,7 @@ VAR bz_crdy0,2
 VAR bz_crdbk,2
 VAR bz_crdbs,2
 VAR bz_crdgr,2
-; the game (SPEC.md 130.14.3): the tour, the held log's line, the bests
-%ifdef BZDEV
-VAR bz_ttime,2 * BZ_NTOUR       ; the tour's steps a course, 0 none (bz_game
-VAR bz_tfall,2 * BZ_NTOUR       ; clears both: keep them together) and falls
-%endif
+; the game (SPEC.md 130.14.3): the held log's line, the bests
 VAR bz_homedir,2                ; where BONANZA.O88 was launched from: its
                                 ; folder (130.14.7.6) ...
 VAR bz_lsn,2                    ; line 6: the last play's or replay's steps
@@ -5549,9 +5322,8 @@ VAR bz_dat,BZD_FILE             ; BONANZA.DAT's image, always this build's whole
                                 ; save writes
 VAR bz_homevol,1                ; ...and its volume (os88data.inc's OD_TVOL)
 %ifdef BZDEV
-VAR bz_tour,1                   ; 0 none, k 1 - BZ_NTOUR course k next or playing,
-                                ; BZ_NTOUR + 1 finished, + 2 stopped (130.14.3.1)
-%endif
+VAR bz_crsel,1                  ; the course F plays: FIRST, or one a row pokes
+%endif                          ; (in bz_tour's place: the VARs after bz_nst stay even)
 VAR bz_lsv,1                    ; line 6: 1 = a play or a replay ran (bz_post)
 VAR bz_lsk,1                    ; ...its course
 VAR bz_lsc,1                    ; ...the flags it reached
@@ -5596,11 +5368,6 @@ VAR bz_apilot,1                 ; a HARNESS byte, never set by the package: a
 %endif
 VAR bz_tax,BZT_SIZE             ; the stick's x axis (bzgame.inc bz_tmouse) ...
 VAR bz_tay,BZT_SIZE             ; ...and its y axis
-%ifdef BZDEV
-%if bz_tfall != bz_ttime + 2 * BZ_NTOUR
- %error "bz_game clears bz_ttime and bz_tfall as one run"
-%endif
-%endif
 %if (BZ_BSS & 1)
  %error "the game's VARs stay even"
 %endif

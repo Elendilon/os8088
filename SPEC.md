@@ -264703,12 +264703,15 @@ the player try.
 
 ##### 130.11.5.4 How the player picks one
 
-On the desktop, **`N`** cycles the COURSE a play starts on (every course but
-`BENCH`: `FIRST`, then `TRIAL`) and sets the ball to that course's; **`M`**
-cycles the BALL (rubber, steel, glass) for the plays that follow, in this
-session (not on disk), as `C` does for the camera. A held key is one press
-(130.11.11.2). The face names both (130.11.11.3). The benchmark always rolls
-`BENCH`'s own ball. Pads on a course that swap the ball (plan 5.5) are wave
+**A play rolls its course's OWN ball** (`bz_cballs[K]`, the `ball`
+statement's), as the benchmark rolls `BENCH`'s and a replay the log's
+(`bz_launch`). Nothing picks a ball and no key picks a course: the player's
+course is the pathway pad they play (130.22), and the `BZDEV=1` build's free
+play (F) plays `[bz_crsel]` - `FIRST` at the entry, or a course a row POKES
+there (130.26.6). *Until 2026-11-19 `N` cycled the course and `M` the ball
+of the plays that followed, test instruments the owner removed with the
+tour (130.26.8): a row that needs a course pokes it, so no row depends on
+the courses' order.* Pads on a course that swap the ball (plan 5.5) are wave
 4's: they need a drawn pad and all three balls' parts at once (about 30KB of
 claims, 130.11.16).
 
@@ -265444,12 +265447,12 @@ time a replay reports is the play's, being the same steps); without results
 the play's keys follow on two lines (`Arrows roll  Space hop  L.Shift grip`,
 `Esc, F or Alt+Enter: back`). C, M and N redraw only the lines that name
 what they changed (line 3; N line 1 as well), each one `OSAPI_FONT_RUN`.
+*(C went with TRICKLE, N and M on 2026-11-19, 130.11.5.4: T redraws line 3.)*
 
-**As built (`bonanza.asm`).** The session's choices are `bz_crsel` (N; the
-entry proc sets `FIRST`) and `bz_matsel` (M; N sets it to the course's own,
-`bzcourse.inc`'s `BZ_CRS_BALLS`), and `bz_launch` resolves the play's
-material into `bz_mat` from `bz_mode`: a play takes `bz_matsel`, a benchmark
-the ball of the course it runs (`BENCH`'s for B; the course a harness pokes
+**As built (`bonanza.asm`).** F plays `bz_crsel` (the entry proc sets
+`FIRST`; a row pokes another; the `BZDEV=1` build's alone since 2026-11-19),
+and `bz_launch` resolves the play's material into `bz_mat` from `bz_mode`:
+a play and a benchmark take the ball of the course they run (`BENCH`'s for B; the course a harness pokes
 into `bz_crs` at `bz_launch`'s entry otherwise, so `TRIAL`'s legs roll
 `TRIAL`'s ball), a replay the log's +5. There is a log when `bz_rlog` starts
 `BZR1`, which the recorder writes when a play starts (`bz_rhave`); R with no
@@ -270325,13 +270328,15 @@ named, which is binding, and the old sentence is superseded.
 
 ##### 130.14.3.1 Free play, the tour, and what a fall costs
 
-*Since 130.26.6.1 the tour is assembled in the `BZDEV=1` build alone.*
+***There is NO TOUR** (the owner, 2026-11-19, 130.26.8): `G`, `bz_tour`, its
+times, its line on MAIN and BONANZA.DAT's tour field are deleted, and `N`
+and `M` with them. The tour paragraphs and the table below are history;
+"Time", "What a fall costs" and "Par" still hold for every play.*
 
-**FREE PLAY** is wave 3's play: `N` picks a course (every course but
-`BENCH`), `M` the ball it starts with, Enter (F, Alt+Enter) plays it once
-to its finish or until Esc. Its log is held (130.11.12), its time is
-written on the face, and a time under the course's best is kept when the
-play started with the course's own ball (130.14.3.3).
+**FREE PLAY** (the `BZDEV=1` build's F) plays `[bz_crsel]` - `FIRST`, or a
+course a row pokes - with the course's own ball, once to its finish or
+until Esc. Its log is held (130.11.12), its time is written on the face,
+and a time under the course's best is kept (130.14.3.3).
 
 *The owner, 2026-11-17 (130.26.8): the tour is no longer every course but
 `BENCH` - it is a short NAMED list, `tools/bbcourse.py`'s `TOUR`, emitted as
@@ -270410,9 +270415,15 @@ beats it.
 window's face is 130.26.2's.*
 
 *The owner, 2026-11-17 (130.26.8): MAIN's scorecard lines are DROPPED. MAIN
-is lines 0 - 6 (`BZ_NLINE` 7), whatever the courses or the tour; RESULTS
-still draws all thirteen. The table's rows 7 - 11 / 7 - 12 below are
-history.*
+is lines 0 - 6 (`BZ_NLINE` 7), whatever the courses; RESULTS still draws
+all thirteen. The table's rows 7 - 11 / 7 - 12 below are history.*
+
+*Since 2026-11-19 (no tour, no `N` or `M`, 130.26.8) MAIN reads: line 0
+(`BZ_LHEAD`) `BOUNCE BONANZA`, or a refused replay's reason (`Another
+course's log`, `Other physics' log`); line 1 `ENTER SLOT <n>  LIVES <l>
+TIMED|EXPLORE  F <NAME>` (130.19.8.3; F's course, `[bz_crsel]`); line 3
+`T <control>` alone; line 5 the demo keys with no tour form. The table's
+tour and `M` forms below are history; `T` and `S` redraw line 3 or 4 alone.*
 
 The CGA's content holds thirteen lines (130.10.6.2) of 42 cells; every line
 is one opaque `OSAPI_FONT_RUN` padded to the content's width, as now, and
@@ -270470,7 +270481,7 @@ before this wave, write-protected or full - toasts `Best times not saved`
 (a `TOASTSTR`) once a session, and the bests stay in memory for the
 session; a READ that fails is the first-run case, silent.
 
-*Since wave 8R round 2 (130.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour is at +146 with no trailing zeros. The table below is `BZT1`'s header, no longer read (130.22.5: no older layout is).*
+*Since wave 8R round 2 (130.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour was at +146 with no trailing zeros - since 2026-11-19 (130.26.8) six RESERVED bytes there, written zero and zeroed on load, with no tour best to merge or check. The table below is `BZT1`'s header, no longer read (130.22.5: no older layout is).*
 
 64 bytes:
 
@@ -270487,7 +270498,9 @@ tour course does) and has a time under 65,535 steps (130.14.3.1). A
 replay (R), a demo benchmark (D), a shipped demo (V) or a loaded file (L)
 never posts one, whatever it reaches; nor does a free play started with
 another ball by `M`, whose time is shown and not kept. `bz_newb` is set
-only when a play posted.
+only when a play posted. *(Since 2026-11-19 there is no `M` and no tour,
+130.26.8: every play starts with its course's own ball, and nothing but
+the entries is merged or checked.)*
 
 **It is HOSTILE** (§19): `od_read` answers the bytes it got, and every one
 is checked before any is used - the length exactly 64, the magic, +5 - +7
@@ -270510,32 +270523,33 @@ the game refuses at the launch keys (130.1), so the entry proc SKIPS
 
 ##### 130.14.3.4 The keys
 
-| key | where | in a tour | does |
-|---|---|---|---|
-| G | desktop | no | start a TOUR (130.14.3.1) |
-| Enter, F, Alt+Enter | desktop | yes | during a tour, the next course; otherwise play the selected course freely |
-| Esc | desktop | yes | during a tour, STOP it (otherwise the window's own Esc, as now) |
-| N | desktop | no | the next course (`FIRST` .. `SUMMIT`), its ball with it |
-| M | desktop | no | the next ball a free play starts with |
-| C | play, desktop | yes | the camera mode (GLIDE, TRICKLE) |
-| T | desktop | yes | the control: KEYS, MOUSE (130.14.8) |
-| S | desktop | yes | the sound (130.20.4) |
-| B | desktop | no | the ENGINE benchmark: the autopilot on `BENCH` (130.6, unchanged) |
-| R | desktop | no | replay the held log, watched (130.11.12.2) |
-| D | desktop | no | the DEMO benchmark: the held log replayed with the instruments (130.14.7.3) |
-| W | desktop | yes | save the held log (Save dialog, 130.14.7.1); in a tour, the course just played |
-| L | desktop | no | load a log (Open dialog, 130.14.7.2) |
-| V | desktop | no | the next SHIPPED demo into the held log (130.14.7.4) |
-| arrows, Space, Left Shift | play | yes | roll, Hop, Grip (130.11.7), whatever the control |
-| Backspace | play | yes | RETURN: the ball back to the last flag (or the start), as a fall (130.14.4.5); key byte bit 6, recorded |
-| P | play, replay | yes | PAUSE: no step runs until P again; ignored in B and D (130.14.4.7) |
-| the mouse | play, `T MOUSE` | yes | tilt; left button Hop, right Grip (130.14.8) |
-| Esc, F, Alt+Enter | play, replay, demo | yes | back to the desktop (in a tour course: the tour stops) |
+*As built since 2026-11-19 (130.26.8): no `G` (the tour), `N` or `M`; `C`
+went with TRICKLE (130.46.12). Every key but the play's is the `BZDEV=1`
+build's (130.26.6.1).*
 
-`G`, `T`, `D`, `W`, `L`, `V`, `P` and Backspace are one press however
+| key | where | does |
+|---|---|---|
+| Enter, Alt+Enter | desktop | THE GAME (130.19.5, 130.23.4) |
+| F | desktop | a free play of `[bz_crsel]`'s course, its own ball |
+| Esc | desktop | the window's own Esc (nothing on the face) |
+| T | desktop | the control: KEYS, MOUSE (130.14.8) |
+| S | desktop | the sound (130.20.4) |
+| B | desktop | the ENGINE benchmark: the autopilot on `BENCH` (130.6, unchanged) |
+| R | desktop | replay the held log, watched (130.11.12.2) |
+| D | desktop | the DEMO benchmark: the held log replayed with the instruments (130.14.7.3) |
+| W | desktop | save the held log (Save dialog, 130.14.7.1) |
+| L | desktop | load a log (Open dialog, 130.14.7.2) |
+| V | desktop | the next SHIPPED demo into the held log (130.14.7.4) |
+| arrows, Space, Left Shift | play | roll, Hop, Grip (130.11.7), whatever the control |
+| Backspace | play | RETURN: the ball back to the last flag (or the start), as a fall (130.14.4.5); key byte bit 6, recorded |
+| P | play, replay | PAUSE: no step runs until P again; ignored in B and D (130.14.4.7) |
+| the mouse | play, `T MOUSE` | tilt; left button Hop, right Grip (130.14.8) |
+| Esc, F, Alt+Enter | play, replay, demo | back to the desktop |
+
+`T`, `S`, `D`, `W`, `L`, `V`, `P` and Backspace are one press however
 long they are held (130.11.11.2's guard); their make codes join the
 bracket's release wait as Enter's do (130.11.11.3). Every key that launches
-or fetches - G, Enter, B, R, D, V - and L and W toast kern_small's refusal
+or fetches - Enter, F, B, R, D, V - and L and W toast kern_small's refusal
 there (130.1).
 
 #### 130.14.4 Checkpoints, the cup, pads and springs
@@ -282310,7 +282324,7 @@ laid out for 23 courses and three slots:
 | +0 | `BZS4` |
 | +4 the course count, +5 `BZ_PHYSV`, +6 - +7 zero | as `BZS3`'s |
 | +8 | **23 entries** of 6 bytes (+8 - +145), K 0 - 22 (BENCH's and those past the courses all zero): +0 the course's IDENTITY, +2 its best in STEPS (0 none), +4 its best's falls - 130.14.3.3's, unchanged |
-| +146 | the TOUR, **6 bytes**: +0 the XOR of the tour's courses' identities (*the `BZ_TOUR` list's, `BZ_CRS_TOURX`, 130.26.8: a course off the tour moves nothing here*), +2 its best total in steps, DWORD (*the two zero bytes `BZS3` kept after it are gone*) |
+| +146 | **6 RESERVED bytes** (`BZD_RSV`): written zero, and zeroed on load whatever the file holds (a non-zero field refuses nothing). *Until 2026-11-19 the TOUR's - the XOR of its courses' identities and its best total, a DWORD - which went with the tour (130.26.8); the layout is kept so `BZS4` files stay readable, and the coming `BZS5` removes the field* |
 | +152 | three SLOTS of **114 bytes** (+152, +266, +380) |
 
 A slot: +0 - +21 `BZS3`'s (+0 lives, +1 the mode, +2 the pad, +3 zero, +4 open,
@@ -286919,8 +286933,10 @@ identity moves (the song is not in it). `bonanzamusic` checks the manifest;
 
 A byte of bss the package NEVER sets: while it is 0 the window answers
 Enter, Alt+Enter and F alone; a row pokes it to 1 and the window answers
-130.14.3.2's keys as before - B, R, D, W, L, V, N, M, C, G, T, S, and **F
-a free play** of the selected course (the rows' free plays). The old slot
+130.14.3.2's keys as before - B, R, D, W, L, V, T, S, and **F a free
+play** of `[bz_crsel]`'s course (the rows' free plays; a row POKES the course
+there). N, M and G went on 2026-11-19 with the tour (130.26.8), C with
+TRICKLE. The old slot
 keys 1 2 3, E and X went on 2026-11-19 (130.19.8.3): the Saves menu is
 their door, and no row pressed them.
 The instruments' code stays (the rows are what they are for); only their
@@ -286939,12 +286955,11 @@ shipped `BONANZA.O88` is the player's alone. Behind the knob:
 - **the harness bytes**: `bz_dev`, `bz_apilot`, `bz_phforce`, `bz_hold`,
   `bz_hvoff`, `bz_tpoke`, `bz_camscr` (and `bz_scnt`);
 - **the instruments' door and keys**: `bz_onkey`'s `.dev` dispatch and its
-  handlers - B, R, D, W, L, V, N, M, G, T, S and the free F (`bz_game`,
-  `bz_tgo`, `bz_ballkey`, `bz_crskey`, `bz_dkey_d`, `bz_wkey`, `bz_lkey`,
-  `bz_wdone`, `bz_vkey`, `bz_tkey`, `bz_skey`, `bz_devk`), `bz_redraw` and
-  `bz_redraw1` (a line of the instruments' face), the TOUR (`bz_intour`,
-  `bz_ttotal`, `bz_tour`, `bz_ttime`, `bz_tfall`, `bz_post`'s tour arm,
-  `bz_launch`'s tour ball) and the RESULTS page (`bz_post`'s B/D arm);
+  handlers - B, R, D, W, L, V, T, S and the free F (`bz_crsel`,
+  `bz_dkey_d`, `bz_wkey`, `bz_lkey`, `bz_wdone`, `bz_vkey`, `bz_tkey`,
+  `bz_skey`, `bz_devk`), `bz_redraw` and `bz_redraw1` (a line of the
+  instruments' face) and the RESULTS page (`bz_post`'s B/D arm) - *the
+  TOUR, N and M were here until 2026-11-19 and are deleted (130.26.8)*;
 - **the benchmark and the measurements**: mode 1 (B) and mode 3 (D) - the
   autopilot (`bz_auto`, `bz_want`), `bz_step`'s `.auto` and `.apil`, the
   physics' four "the benchmark ignores it" tests, P ignored in B and D,
@@ -286992,6 +287007,47 @@ Elendilon` (the owner, 2026-11-16: the description line goes - launching
 the game says what it is).
 
 #### 130.26.8 MAIN and the tour, test fixtures (the owner, 2026-11-17)
+
+**THE TOUR, `N` AND `M` ARE DELETED** (the owner, 2026-11-19: *"having
+everything depend on an order that can and will change is bad; lets not
+depend on that"*). They were prototype test instruments, and the rows and
+rules built on them read COURSE NUMBERS out of a build - the tour's list
+`BZ_TOUR`, `N`'s cycle from `FIRST` - so adding or reordering a course
+moved what a row drove. What the game does now:
+
+- **No tour**: `G`, `bz_game`, `bz_tgo`, `bz_tour`, `bz_ttime`, `bz_tfall`,
+  `bz_intour` (and the shell part's copy), `bz_ttotal`, `bz_ctour`,
+  `bz_stopl`, `BZ_TOURMAX` and `bz_post`'s tour arm are gone, and with them
+  Esc's stop on the face (Esc there does nothing) and Enter/F/Alt+Enter's
+  "next tour course". `tools/bbcourse.py` no longer has `TOUR` or `tour_ks`
+  and emits no `BZ_NTOUR`, `BZ_TOUR` or `BZ_CRS_TOURX`.
+- **No `N` or `M`**: `bz_crskey`, `bz_ballkey` and `bz_matsel` are gone. A
+  play rolls its course's own ball (130.11.5.4). F plays `[bz_crsel]`,
+  `FIRST` at the entry; a row that wants another course POKES `bz_crsel`
+  (or `bz_crs` at `bz_launch`'s entry, as rows always have).
+- **MAIN** is still seven lines; line 0 is `BZ_LHEAD` (`bz_lhead`: the
+  title, or a refused replay's reason), line 3 is `T <control>` alone, and
+  line 5 has no tour form (130.14.3.2).
+- **BONANZA.DAT** keeps its `BZS4` layout: +146's six bytes are RESERVED
+  (`BZD_RSV`), written zero and zeroed on load, and the save merges no tour
+  total (130.22.5). The coming `BZS5` removes them.
+- **The rows**: `bonanzagame`, `bonanzareplay`, `bonanzamega` and
+  `bonanzaexit` poke the course instead of pressing `N`/`M`;
+  `bonanzaexit`'s held-key leg presses `T`; `bonanzagame`'s posts leg lost
+  its other-ball play (its only subject was `M`) and its hostile set gained
+  `rsv` (the reserved bytes not zero: the file kept, those zeroed);
+  `bonanza_ring.tour_ks()` and `bonanzagame`'s `dat_tourx()` are gone, as is
+  `bbcourse --selfcheck`'s tour item.
+- **Bytes (MEASURED, `make bonanza` and the `BZDEV=1` tree, against
+  17ba75d86)**: the shipped package image 50,974 -> **50,843** (-131: the
+  tour field's load check and merge, `bz_matsel`, and the shell part's
+  title table, which only the tour line read), its bss 8,827 -> **8,825**;
+  its shell part 10,853 -> **10,476** (-377); `BONANZA.O88` 161,077 ->
+  **160,760**. The `BZDEV=1` package 52,689 -> **52,256** (-433), bss 8,949
+  -> **8,923** (-26), its shell part 12,437 -> **11,830** (-607).
+
+*What follows is the 2026-11-17 record, history since the deletion above.*
+
 
 Since 130.26 the player's window shows pictures and Play Game; MAIN
 (130.14.3.2) and the TOUR (130.14.3.1) answer only under `bz_dev`
