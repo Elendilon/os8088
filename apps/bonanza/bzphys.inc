@@ -1743,7 +1743,31 @@ bz_bok:
     mov dx, [si + 2]            ; (SI: C, the window's centre - D3: or its
     and dx, (BZ_FL_OBS << 8) | 0edh ; picked record, 130.24.7.1)
     cmp dx, 1
-    jne .no
+    je .firm
+    cmp dx, (BZ_FL_OBS << 8) | 1 ; OBS for a FLAT prop, the centre's owner
+    jne .no                     ; (130.16.4.1.1: BZ_BOKT, a bit a kind)
+    push bx
+    push cx
+    mov bl, [bz_wckd]           ; (bz_wcen + 1: its kind, 0 none)
+    cmp bl, BZ_BOKTN
+    jae .nf
+    mov cl, bl
+    and cl, 7
+    mov ch, 1
+    shl ch, cl
+    mov cl, 3
+    shr bl, cl
+    xor bh, bh
+    test [bz_bokt + bx], ch
+    jnz .f1
+.nf:
+    pop cx
+    pop bx
+    jmp short .no
+.f1:
+    pop cx
+    pop bx
+.firm:
     mov dx, [bz_mrec + BZM_BADD] ; round 3b: AX = min(VZMAX, max(BOOST, rr
     add dx, bp                  ; + BADD)), the boost ADDED to the bounce
     cmp dx, ax
@@ -4946,3 +4970,5 @@ bz_mattab:
     BZ_MATTAB
 bz_surftab:
     BZ_SURFTAB
+bz_bokt:                        ; the boost's FLAT props (SPEC.md 130.16.4.1.1)
+    BZ_BOKT
