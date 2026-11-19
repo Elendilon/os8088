@@ -21620,10 +21620,16 @@ BZ_ART := $(BUILD)/bonanza-art
 # rows' order and the file's order cannot drift.
 BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
-              apps/bonanza/courses/playground.bbc
+              apps/bonanza/courses/playground.bbc \
+              apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
+# (7 FIRST ROLL and 8 LITTLE HOP, the real courses 1 and 2 (wave 11; the pathway's pads 0 and 1 since
+# 2026-11-19): appended, so every course before them keeps its K; the BZROLL knob that carried them is gone)
 # wave 8b (SPEC.md 130.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
+# the PAD-0 TEST KNOBS' map (2026-11-19): the prototype pathway the shipped one replaced, which each knob's
+# path<knob>.sed edits to put its course on pad 0 (their seds name its pads and cells)
+BZ_PATHTEST := apps/bonanza/courses/pathtest.bbc
 #> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 130.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
 # BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
 # can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
@@ -21639,11 +21645,11 @@ endif
 endif
 ifeq ($(BZSHAPES),1)
 BZ_COURSES += apps/bonanza/courses/shapes.bbc apps/bonanza/courses/pits.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathshapes.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathshapes.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathshapes.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathshapes.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathshapes.sed $(BZ_PATHTEST) > $@
 endif
 BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
@@ -21665,11 +21671,11 @@ ifeq ($(BZSHAPES),1)
 $(error BZMAGNET=1 and BZSHAPES=1 both make their course the pathway's pad 0: one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/magnets.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathmagnet.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathmagnet.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathmagnet.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathmagnet.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathmagnet.sed $(BZ_PATHTEST) > $@
 endif
 BZMAGNETSTAMP := $(BUILD)/.bzmagnet-$(or $(BZMAGNET),0)
 $(BZMAGNETSTAMP): | $(BUILD)
@@ -21694,11 +21700,11 @@ ifeq ($(BZMAGNET),1)
 $(error BZWIND=1 and BZMAGNET=1 both make their course the pathway's pad 0: build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/wind.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathwind.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathwind.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathwind.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathwind.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathwind.sed $(BZ_PATHTEST) > $@
 endif
 BZWINDSTAMP := $(BUILD)/.bzwind-$(or $(BZWIND),0)
 $(BZWINDSTAMP): | $(BUILD)
@@ -21723,11 +21729,11 @@ ifneq ($(filter 1,$(BZMAGNET) $(BZWIND)),)
 $(error BZRAIL=1 with BZMAGNET=1 or BZWIND=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/rails.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathrail.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathrail.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathrail.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathrail.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathrail.sed $(BZ_PATHTEST) > $@
 endif
 BZRAILSTAMP := $(BUILD)/.bzrail-$(or $(BZRAIL),0)
 $(BZRAILSTAMP): | $(BUILD)
@@ -21753,11 +21759,11 @@ ifneq ($(filter 1,$(BZMAGNET) $(BZWIND) $(BZRAIL)),)
 $(error BZWATER=1 with BZMAGNET=1, BZWIND=1 or BZRAIL=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/water.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathwater.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathwater.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathwater.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathwater.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathwater.sed $(BZ_PATHTEST) > $@
 endif
 BZWATERSTAMP := $(BUILD)/.bzwater-$(or $(BZWATER),0)
 $(BZWATERSTAMP): | $(BUILD)
@@ -21780,11 +21786,11 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER)),)
 $(error BZARCH=1 with BZSHAPES=1, BZMAGNET=1, BZWIND=1, BZRAIL=1 or BZWATER=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/arches.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/patharch.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/patharch.sed
 BZ_PATH := $(BUILD)/bonanza-art/patharch.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/patharch.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/patharch.sed $(BZ_PATHTEST) > $@
 endif
 BZARCHSTAMP := $(BUILD)/.bzarch-$(or $(BZARCH),0)
 $(BZARCHSTAMP): | $(BUILD)
@@ -21806,11 +21812,11 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARC
 $(error BZSPIKE=1 with BZSHAPES=1, BZMAGNET=1, BZWIND=1, BZRAIL=1, BZWATER=1 or BZARCH=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/spike.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathspike.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathspike.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathspike.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathspike.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathspike.sed $(BZ_PATHTEST) > $@
 endif
 BZSPIKESTAMP := $(BUILD)/.bzspike-$(or $(BZSPIKE),0)
 $(BZSPIKESTAMP): | $(BUILD)
@@ -21833,11 +21839,11 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARC
 $(error BZBOOST=1 with BZSHAPES, BZMAGNET, BZWIND, BZRAIL or BZWATER=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/boost.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathboost.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathboost.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathboost.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathboost.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathboost.sed $(BZ_PATHTEST) > $@
 endif
 BZBOOSTSTAMP := $(BUILD)/.bzboost-$(or $(BZBOOST),0)
 $(BZBOOSTSTAMP): | $(BUILD)
@@ -21860,11 +21866,11 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARC
 $(error BZHUMP=1 with BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT or BZTURN=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/humps.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathhump.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathhump.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathhump.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathhump.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathhump.sed $(BZ_PATHTEST) > $@
 endif
 BZHUMPSTAMP := $(BUILD)/.bzhump-$(or $(BZHUMP),0)
 $(BZHUMPSTAMP): | $(BUILD)
@@ -21883,15 +21889,15 @@ $(error BZQSTEP=$(BZQSTEP) is 1 or empty)
 endif
 endif
 ifeq ($(BZQSTEP),1)
-ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZTURN) $(BZHUMP) $(BZROLL)),)
-$(error BZQSTEP=1 with another pad-0 knob (BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT, BZTURN, BZHUMP, BZROLL): each makes its course the pathway's pad 0 - build one at a time)
+ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZTURN) $(BZHUMP)),)
+$(error BZQSTEP=1 with another pad-0 knob (BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT, BZTURN, BZHUMP): each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/qsteps.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathqstep.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathqstep.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathqstep.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathqstep.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathqstep.sed $(BZ_PATHTEST) > $@
 endif
 BZQSTEPSTAMP := $(BUILD)/.bzqstep-$(or $(BZQSTEP),0)
 $(BZQSTEPSTAMP): | $(BUILD)
@@ -21914,11 +21920,11 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARC
 $(error BZGATE=1 with another pad-0 knob (BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZTILT, BZTURN, BZHUMP): each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/gate.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathgate.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathgate.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathgate.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathgate.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathgate.sed $(BZ_PATHTEST) > $@
 endif
 BZGATESTAMP := $(BUILD)/.bzgate-$(or $(BZGATE),0)
 $(BZGATESTAMP): | $(BUILD)
@@ -21941,11 +21947,11 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARC
 $(error BZTILT=1 with another pad-0 knob (BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTURN, BZHUMP): each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/tilt.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathtilt.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathtilt.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathtilt.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathtilt.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathtilt.sed $(BZ_PATHTEST) > $@
 endif
 BZTILTSTAMP := $(BUILD)/.bztilt-$(or $(BZTILT),0)
 $(BZTILTSTAMP): | $(BUILD)
@@ -21968,44 +21974,15 @@ ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARC
 $(error BZTURN=1 with BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT or BZHUMP=1: each makes its course the pathway's pad 0 - build one at a time)
 endif
 BZ_COURSES += apps/bonanza/courses/turntable.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathturn.sed
+BZ_PATHSRC := $(BZ_PATHTEST) apps/bonanza/courses/pathturn.sed
 BZ_PATH := $(BUILD)/bonanza-art/pathturn.bbc
 $(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
 	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathturn.sed apps/bonanza/courses/path.bbc > $@
+	sed -f apps/bonanza/courses/pathturn.sed $(BZ_PATHTEST) > $@
 endif
 BZTURNSTAMP := $(BUILD)/.bzturn-$(or $(BZTURN),0)
 $(BZTURNSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzturn-*
-	@touch $@
-#> [Knobs] BZROLL=1 :: Bounce Bonanza with the real courses in the making - FIRST ROLL on pad 0 in FIRST's place (Play Game, Enter plays it) and ISLAND HOP on pad 1 in TRIAL's (docs/plans/bonanza-courses/) - a knob build, into a private tree (make BUILD=build/roll BZROLL=1 bonanzadisk)
-# BZROLL=1 (wave 11, story 11.16; BZTURN's precedent) adds apps/bonanza/courses/roll.bbc to BZ_COURSES (after
-# the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
-# with apps/bonanza/courses/pathroll.sed applied: pad 0 becomes ROLL in FIRST's place (ROLL has one finish, so
-# its exit 0 goes where FIRST's did), and, since course 2 was penned in, ISLAND HOP's hop.bbc too, pad 1 in TRIAL's
-# place.  The playtest build of the pen-in-then-iterate loop (the course guide,
-# section 3): refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
-# knob-less one.  When the course ships it moves into BZ_COURSES and the knob goes.
-BZROLL ?=
-ifeq ($(filter $(BZROLL),1),)
-ifneq ($(BZROLL),)
-$(error BZROLL=$(BZROLL) is 1 or empty)
-endif
-endif
-ifeq ($(BZROLL),1)
-ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZHUMP) $(BZTURN)),)
-$(error BZROLL=1 with another pad-0 test course knob: each makes its course the pathway's pad 0 - build one at a time)
-endif
-BZ_COURSES += apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathroll.sed
-BZ_PATH := $(BUILD)/bonanza-art/pathroll.bbc
-$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
-	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathroll.sed apps/bonanza/courses/path.bbc > $@
-endif
-BZROLLSTAMP := $(BUILD)/.bzroll-$(or $(BZROLL),0)
-$(BZROLLSTAMP): | $(BUILD)
-	@rm -f $(BUILD)/.bzroll-*
 	@touch $@
 #> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 130.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
@@ -22024,7 +22001,7 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
-#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZROLL=1 BZSHADOW=1 bonanzadisk)
+#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
 BZSHADOW ?=
@@ -22107,7 +22084,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs

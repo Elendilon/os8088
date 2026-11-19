@@ -6688,3 +6688,23 @@ any suggested changes."*
   course tool's selfcheck and `bonanza_phys --check`. **Named for the
   soak**: `bonanzasound`, `bonanzaexit`, `bonanzapath`, `bonanzademo`,
   `bonanzaring`, `bonanzatitle`.
+
+## 2026-11-19 (the pathway, option A, shipped; First Roll and Little Hop default)
+
+The owner sketched the map (eight courses, 1 - 2 - 3 along the bottom, the split
+at 3) and an agent built three options with the real tool. The owner took A for
+its density: *"We'll have a minimum of 14 courses, and a maximum of 20"*, and the
+engine allows about five pages, because page 0's top line is held in one byte
+times 4. The owner marked up page 0 twice. Once it read *"Page 0 is good for
+now"*, it went in: `path.bbc` is option A, with ROLL and HOP in the default course
+list and the BZROLL knob retired.
+
+*Observed* on the way:
+- The 5 x 7 title face costs bytes rather than saving them. An 8 x 8 letter fills
+  exactly one block and repeats share blocks.
+- A three-way pad needs one straight route among its three.
+- Moving Downhill Decision's pad crowded the bottom row. Lowering its art beside
+  the old pad was the answer.
+
+The tool learnt `titles 5x7` and an icon's `title "..."` / `tdx`. The old map
+lives on as `pathtest.bbc`, the test knobs' base.

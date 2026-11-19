@@ -1,54 +1,63 @@
-# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 130.22).
-# A PROTOTYPE of today's six courses on two pages (the owner, 2026-11-16: a
-# path screen; the map's final shape, 14 - 20 courses, is a later wave's).
-# The marble AUTO-ROLLS along a route between glowing pads: finishing course
-# A by exit E opens the one route keyed (A, E), whose gate sinks; an arrow
-# on that route's side of the screen takes it, Enter plays the pad's course.
+# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 130.22).  The SHIPPED map since 2026-11-19:
+# option A of docs/plans/bonanza-courses/pathway/ (the owner's concept sketch, "Faithful"), page 0 as the
+# owner marked it up; PAGE 1 IS A PROTOTYPE ("screen 2 is fully undecided yet ... prototype only for now").
+# The marble AUTO-ROLLS along a route between glowing pads: finishing course A by exit E opens the one route
+# keyed (A, E), whose gate sinks; an arrow on that route's side of the screen takes it, Enter plays the pad's
+# course.
 #
-#   page 1 (above):   PEAK <-up-left-  MOON
-#                                   ^ up (crosses into page 1)
-#   page 0 (below):   MILL <-up- TRIAL -right-> PLAY (a side pad; PLAY -up, left-> MILL, wave 8R round 2)
-#                                   ^ up-right
-#                                 FIRST (pad 0, where a new game rests)
+#   page 1 (above, PROTOTYPE): 8 <-up-left- 7 <-up- 6        5 (up the right-hand climb from 4)
+#   page 0 (below):            6 <-left- 3 -up-> 4
+#                                        ^ up the right-hand road
+#                              1 -right-> 2
 #
-# A screen direction is a ground step: +x down-right, -x up-left, +y
-# down-left, -y up-right; both axes at once (equal amounts) down, up, left
-# or right.  No secret route on the shipped map (--selfcheck tests one).
+# 1 FIRST ROLL (ROLL) and 2 LITTLE HOP (HOP) are the real first courses; 3 DOWNHILL DECISION is TRIAL standing
+# in (its two exits the split) until it is built; 4 - 8 are the old test courses standing in.  The icons are
+# docs/plans/bonanza-courses/pathway/gen.py's (32 x 24, placeholders for 3 - 8).  A screen direction is a
+# ground step: +x down-right, -x up-left, +y down-left, -y up-right; both axes at once (equal amounts) down,
+# up, left or right.
 course PATH "The Pathway"
 width  64
 ball   rubber
 pathway
 music  fairway                              # (8b.10 gives the pathway its own)
 rail   crystal                              # the route material (SPEC.md 130.22.8)
-view   0 340                                # page 0's CGA window, centred at projection (0, 340)
+view   0 332                                # page 0's CGA window: 8 lines up, so the gate on 6's route and the
+                                            # titles there are wholly on page 0 (the owner's mark-up)
 pages  2
+titles 5x7                                  # the map's titles in the 5 x 7 face (SPEC.md 130.22.2, 2026-11-19)
 float  rect 0 0 64 64                       # the whole map FLOATS (the owner, 2026-11-16): crystal islands
                                             # with short icicle faces are the pathway's look (SPEC.md 130.27.2)
 
 # pad N COURSE WX WY
-pad 0 FIRST  22 26
-pad 1 TRIAL  22 21
-pad 2 MILL   18 17
-pad 3 PLAY   25 18
-pad 4 MOON   13 12
-pad 5 PEAK    7 12
+pad 0 ROLL  21 28                           # 1 First Roll: where a new game rests
+pad 1 HOP   24 25                           # 2 Little Hop
+pad 2 TRIAL 24 17                           # 3 Downhill Decision (TRIAL stands in: two exits, the split)
+pad 3 MILL  20 13                           # 4
+pad 4 PEAK  12  5                           # 5 (page 1)
+pad 5 MOON  15 17                           # 6
+pad 6 PLAY   9 11                           # 7 (page 1)
+pad 7 FIRST  4 11                           # 8 (page 1)
 
 # route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...
-route 0 1 exit 0  path 22,26 22,21                  # FIRST -> TRIAL, up-right
-route 1 2 exit 0  path 22,21 18,17                  # TRIAL's back goal -> MILL, up
-route 1 3 exit 1  path 22,21 25,18                  # TRIAL's front goal (130.19.4) -> PLAY, right
-route 3 2 exit 0  path 25,18 25,17 18,17                  # PLAY -> MILL, up then left (R1: a player who took TRIAL's exit 1 continues to MILL and so to MOON)
-route 2 4 exit 0  path 18,17 13,12                  # MILL -> MOON, up, into page 1
-route 4 5 exit 0  path 13,12 10,12 8,12,1 7,12,1    # MOON -> PEAK, up-left and up a ramp
+route 0 1 exit 0  path 21,28 24,25                  # 1 -> 2, right along the bottom road
+route 1 2 exit 0  path 24,25 28,21 24,17            # 2 -> 3, right then up
+route 2 3 exit 0  path 24,17 20,13                  # 3's exit 0 -> 4, UP (the Up arrow)
+route 2 5 exit 1  path 24,17 15,17                  # 3's exit 1 -> 6, UP-LEFT (the Left arrow)
+route 3 4 exit 0  path 20,13 12,5                   # 4 -> 5, up the right-hand climb into page 1
+route 5 6 exit 0  gate 14 16  path 15,17 9,11       # 6 -> 7, up into page 1
+route 6 7 exit 0  path 9,11 4,11                    # 7 -> 8, up-left
 
-# icon N FILE SX SY [fps F]: frame 0 the rest pose, the rest while the marble rests here
-icon 0 icons/first.bba        -120 376
-icon 1 icons/trial.bba         -88 328
-icon 2 icons/mill.bba          -96 272
-icon 3 icons/playground.bba     96 304
-icon 4 icons/moon.bba           40 192
-icon 5 icons/summit.bba       -104 104
+# icon N FILE SX SY [fps F] [title "TEXT"] [tdx DX]: frame 0 the rest pose, the rest while the marble rests
+# here; a title on the map in place of the course's ("|" breaks a line), DX px off the icon's centre
+icon 0 icons/first32x24.bba       -128 368
+icon 1 icons/frog32x24.bba         -32 368
+icon 2 icons/fork32x24.bba          56 352  title "Downhill|Decision"  tdx -25
+icon 3 icons/mill32x24.bba          56 256  tdx -21
+icon 4 icons/summit32x24.bba        24 128
+icon 5 icons/moon32x24.bba         -80 256  tdx -26
+icon 6 icons/playground32x24.bba    -8 160
+icon 7 icons/trial32x24.bba        -88  96  title "Bounce Trial"
 
 # the lives, one counter a page
-lives 29 22
-lives 11  4
+lives 16 23
+lives  6  4
