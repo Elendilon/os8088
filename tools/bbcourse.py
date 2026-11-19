@@ -10830,7 +10830,7 @@ def attach_song(c, song):
     """SPEC.md 130.50.3: course C's parts re-encoded with SONG (its music's own part, bbmusic's) as section S,
     the (world) part's last - .model, .cga, .stored, the world part's, the Hercules' forms and .part.  The
     identity does not move (it is taken without the song).  Refused past one part's PARTMAX"""
-    m = dict(c.model, song=bytes(song) if song else None)
+    m = dict(c.model, song=bytes(song)) if song else _nosong(c.model)
     fname = c.fname
     if not c.split:
         if one_part_len(m, 4) > PARTMAX:
@@ -13421,7 +13421,11 @@ def _song_of(p, off, ln):
 def _nosong(m):
     """the model without its song: what a course's IDENTITY is taken over (SPEC.md 130.50.3 - a change of music
     re-stamps no demo and refuses no replay)"""
-    return dict(m, song=None) if m.get("song") else m
+    if not m.get("song"):
+        return m
+    m = dict(m)
+    del m["song"]
+    return m
 
 
 def _ident_bytes(p8):
@@ -13442,17 +13446,26 @@ def _ident_bytes(p8):
 def ram_identity(p):
     """the course's identity from any BZC2 RAM form: Fletcher's pair over the
     RAM form AS RECB 8 LAYS IT OUT (130.15.7), whatever this part's RECB"""
-    if p[32] != 8 or _has_song(p):      # (SPEC.md 130.50.3: the identity is taken without the song)
-        p = _encode(_nosong(decode_part(p)), 8)
+    p = _strip_song(p)                  # (SPEC.md 130.50.3: the identity is taken without the song)
+    if p[32] != 8:
+        p = _encode(decode_part(p), 8)
     return _fletcher(_ident_bytes(p))
 
 
-def _has_song(p):
-    """a BZC2 RAM form whose directory has an S section"""
+def _strip_song(p):
+    """a BZC2 RAM form without section S (SPEC.md 130.50.3): its bytes and its directory entry gone, DIROFF and
+    NSEC with them - exactly the part a compile with no song lays out, S being the last section"""
     if p[:4] not in (b"BZC2", MAGIC_WORLD, MAGIC_PIC):
-        return False
+        return p
     do, ns = struct.unpack_from("<HH", p, 38)
-    return any(p[do + DIRENT * j] == ord("S") for j in range(ns))
+    ents = [bytes(p[do + DIRENT * j:do + DIRENT * (j + 1)]) for j in range(ns)]
+    keep = [e for e in ents if e[0] != ord("S")]
+    if len(keep) == ns:
+        return p
+    soff = struct.unpack_from("<H", next(e for e in ents if e[0] == ord("S")), 2)[0]
+    q = bytearray(p[:soff]) + b"".join(keep)
+    struct.pack_into("<HH", q, 38, soff, len(keep))
+    return bytes(q)
 
 
 def encode_part(m, recb, fname="<course>"):
@@ -13465,7 +13478,7 @@ def identity_form(c):
     """SPEC.md 130.15.7: the 8-byte-record layout of a ONE-part course's model, the form its identity is
     Fletcher'd over (the guest's records are 4 bytes; this is the identity's own bytes, derived from the
     model, never a RAM form that ships)"""
-    return encode_part(c.model, 8, c.name)
+    return encode_part(_nosong(c.model), 8, c.name)     # (SPEC.md 130.50.3: never the song)
 
 
 def encode_bzc1(m):
@@ -13550,7 +13563,9 @@ def decode_part(p):
          "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (pend - pthoff) if pthoff else 0,
-         "npages": npages, "fam": ((pthoff or pend) - famoff) if famoff else 0, "nfam": nfam, "song": song}
+         "npages": npages, "fam": ((pthoff or pend) - famoff) if famoff else 0, "nfam": nfam}
+    if song:                                        # (SPEC.md 130.50.3: a model holds "song" only when it has one)
+        m["song"] = song
     m["kit"] = kit_decode([p]) if bzc2 else {}      # SPEC.md 130.37.4
     if nprop:
         end = pend if bzc2 else len(p)
@@ -13761,8 +13776,9 @@ def _ident_bytes2(a, b):
 def ram_identity2(a, b):
     """a two-part course's identity from its RAM forms: Fletcher's pair over its RECB 4 parts (130.30.4.3), a
     RECB 8 build's parts re-encoded as D first"""
-    if a[32] != 4 or _has_song(b):      # (SPEC.md 130.50.3: the identity is taken without the song)
-        a, b = _encode2(_nosong(decode_parts(a, b)), 4)
+    b = _strip_song(b)                  # (SPEC.md 130.50.3: the identity is taken without the song)
+    if a[32] != 4:
+        a, b = _encode2(decode_parts(a, b), 4)
     return _fletcher(_ident_bytes2(a, b))
 
 
@@ -13827,8 +13843,9 @@ def decode_parts(a, b):
          "route": [struct.unpack_from("<HH", b, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (pendb - pthoff) if pthoff else 0,
          "npages": npages, "fam": ((pthoff or pendb) - famoff) if famoff else 0, "nfam": nfam,
-         "song": _song_of(b, *eb["S"]) if "S" in eb else None,
          "kit": kit_decode([a, b])}                 # SPEC.md 130.37.4
+    if "S" in eb:                                   # (SPEC.md 130.50.3: a model holds "song" only when it has one)
+        m["song"] = _song_of(b, *eb["S"])
     if nprop:
         pw = bytearray(b[propoff:pendb])
         rl = PROPREC * nprop
@@ -24121,9 +24138,15 @@ def _boost_checks(res, mill=None):
             out["MILL's lift slab"] = (1 if q is not None and q.onp else 0, q.nboost if q is not None else 0)
         return out
     fl = floors()
+    PAD = "a pad's cell"                            # (SPEC.md 130.16.4.1.1: a pad is a FLAT prop - it boosts)
     res.append(("7 firm level floors only: a Hop's first contact on %s, Space 2 steps before it, never boosts"
-                % "; ".join("%s (%d contacts)" % (k, v[0]) for k, v in fl.items()),
-                all(v[0] and not v[1] for v in fl.values())))
+                % "; ".join("%s (%d contacts)" % (k, v[0]) for k, v in fl.items() if k != PAD),
+                all(v[0] and not v[1] for k, v in fl.items() if k != PAD)))
+    fln = floors(_noflat=True)
+    res.append(("7 a FLAT prop's cell is a firm floor (SPEC.md 130.16.4.1.1): %s boosts (%d of %d contacts); the "
+                "negative control `noflat` (rule 4 refusing every OBS cell, as before) does not (%d)"
+                % (PAD, fl[PAD][1], fl[PAD][0], fln[PAD][1]),
+                fl[PAD][0] and fl[PAD][1] > 0 and fln[PAD][1] == 0))
     flr = floors(_boost_rise=True)
     res.append(("7 negative control `boostrise` (the slope test left out, the boost added to the ramp's rate): the "
                 "ramp case boosts (%d of %d)" % (flr["a ramp"][1], flr["a ramp"][0]), flr["a ramp"][1] > 0))
@@ -31457,6 +31480,8 @@ def _sc_kit(X, res):
         src = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         try:
             c0 = compile_course(src, _hack={"nokit": True})
+            if c.model.get("song"):                 # (SPEC.md 130.50.3: the same song, as the build attached)
+                attach_song(c0, c.model["song"])
         except CourseError as e:
             same.append(False)
             notes.append("%s: %s" % (c.name, e))
