@@ -273398,6 +273398,21 @@ above, BUILT:
   the wheel's passes. The row runs the CGA and the Hercules; the VGA's
   measurement above was a probe of the same reads.
 
+##### 130.22.6.2 No occluder pass in a finish (the owner, 2026-11-19)
+
+The owner: the finish's frames are the heavy ones - the DISSOLVE, and a ball
+in the air or falling on some courses - and *"being behind something just
+dithers the ball, which is pointless when its dithering to dissolve too"*.
+So the occluder pass's gate (`bz_ogate`, set by `bz_mkboxes`; 130.11.10.2,
+130.29) is 0 for the whole sequence (`bz_fcnt` > 1): the ball's box is the
+course, the shadow and the sprite, with no occluder walk laid over it. A
+ball that rolls behind a prop while it dissolves is drawn in front of it
+for those steps. Nothing else reads the gate's value but `bz_occ` and the
+shadow's test beside it, which take it as any frame with no occluder.
+No missed refresh was seen on the owner's VGA at 4.77 MHz before the
+change; it is for a goal with other animated props in view. Cost: 7
+bytes of code, nothing measured.
+
 #### 130.22.7 Memory: the pathway HELD (BUILT)
 
 At the game's entry the pathway's part is fetched and kept (`bz_phold`) if
