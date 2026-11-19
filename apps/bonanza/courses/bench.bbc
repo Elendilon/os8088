@@ -17,6 +17,7 @@
 #    unit at a ramp's foot is 4.25 px to the floor function, over BZ_CLIMB),
 #    and the pits are off the route.
 course BENCH "Proving Ground"
+music fairway    # SPEC.md 130.50.3: every course names its song (the song it had by position)
 width  64
 ball   rubber
 

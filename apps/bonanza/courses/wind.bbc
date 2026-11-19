@@ -18,6 +18,7 @@
 # second goal (22, 7), so one clock serves both finishes (two clocks and two fans in one window are 7 pose
 # changes a step).
 course WIND "Wind Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 origin 256
 ball   rubber

@@ -19,6 +19,7 @@
 #    rolled off it falls 4 units - a shatter on stone, landed whole on the water;
 #  - the finish (exit 0) on the yard below the first arch; exit 1, the walkway's far end, goes on to FIRST.
 course WATER "Water Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 ball   rubber
 uses   water

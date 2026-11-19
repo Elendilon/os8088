@@ -105,3 +105,38 @@ declared.
 ### Phase 4 - measured
 - [ ] Every row's `secs` re-measured; the scoped bonanza soak's wall clock
       before and after.
+
+## Order independence and the save file (the owner, 2026-11-19)
+
+The owner: *"having everything depend on an order that can and will change
+is bad; lets not depend on that. Once those two are done, then bench can come
+out of the shipping build."* Decided:
+
+- [x] **Every course names its song** (`music` on every `.bbc`; no song by
+      position). `bbcourse.course_song` refuses a course without one.
+- [ ] **N and M go, and so does the tour** (G, MAIN's tour line,
+      `BZ_TOUR`, `BZ_CRS_TOURX`); rows poke the course and ball instead.
+      BONANZA.DAT's +146 tour bytes are a reserved zero field until BZS5.
+- [ ] **No K in the game's defaults**: Enter's course is the pathway's
+      pad 0, not `BZ_CRS_FIRST`; the demos are a table of named rows, not
+      `BZD<K>`/`BZ_NCRS - 1`; the tool's exemptions name courses.
+- [ ] **No K in the rows**: courses found by NAME (`CRS_K[name]` only as a
+      lookup), never a literal K, never "every K but 0", never "the demo of
+      K - 1".
+- [ ] **Then BENCH leaves the shipping build**: B benchmarks a course it is
+      given (a test course in the `BZDEV=1` tree).
+
+The save file, BZS5 (PROPOSED - the owner rejected keying progress by course
+name: *"The pathway is a progression tree; if we move a course from spot 5
+to spot 17, then they just have a random place far ahead of their current
+progress unlocked ... Now they have no way to get back."*):
+
+- **Progress** is keyed by the pathway's PAD NUMBER and exit, which stay put
+  when a course moves between pads; the pathway gets a `version` line that is
+  raised to reset progress deliberately when its tree changes shape.
+- **Bests** are keyed by course NAME + the course's `version` line + the
+  physics version: an art change keeps a best, a raised `version` clears
+  only that course's (*"Course version: Yes, this is good."*).
+- **Replays** stay keyed by the course's identity (*"keep it as is"*).
+- Pre-release, so no BZS4 migration: a BZS4 file is refused as any foreign
+  file is.

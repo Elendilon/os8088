@@ -11,6 +11,7 @@
 #  - south, THE DISC: a 3 x 3 table, its back half filled round its PIVOT - its middle row is never open end to
 #    end, so a crossing steps on, waits on the pivot for the turn and steps off (a dead end).
 course TURN "Turntable Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 origin 320
 ball   rubber

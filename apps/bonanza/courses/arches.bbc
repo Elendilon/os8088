@@ -13,6 +13,7 @@
 #  - C, a TWO-WIDE path along x off T's right, a 3-unit two-wide archway the ball rolls through (a Hop passes
 #    under a 3-unit underside); exit 1 at its end goes on to FIRST.
 course ARCH "Archways"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 ball rubber
 uses archway
