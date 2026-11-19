@@ -280381,6 +280381,20 @@ cyan or not, is one way of doing that):
   colour-3 stem with a skirt ring, dark gills under the eave, and a tall
   colour-2 dome spotted colour 3, the digits on its one big spot.
 
+The owner chose `frog` for LITTLE HOP (2026-11-19, *"the frog is
+adorable"*; `spring` kept in reserve) and asked that it *"sit a little
+better"* on each block, a clock's `frame` being per use. So three per-use
+variants of the same frog, for a frog on a BLOCK: no lily pad, a dithered
+shadow on the block's top, the frog sat 2 px further back, and one front arm
+reaching to the top's front edge, the foot flat along it with three toes
+curled over it:
+- **`frogl`**: the arm to the front-LEFT edge, the eyes turned down-left
+  (HOP's start clock, the path below it to the left);
+- **`frogr`**: the arm to the front-RIGHT edge, the eyes turned down-right
+  (the middle clock, H's floor below it to the right);
+- **`frogb`**: the arm to the front-right edge (the drop), the eyes turned
+  back over its shoulder up-left (the finish clock, the goal behind it).
+
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
 re-authored).
