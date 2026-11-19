@@ -158,8 +158,10 @@ bz_bplace:
     and al, 1
     mov [bz_wtall], al
     xor ax, ax                  ; the button: none under the instruments' face
+%ifdef BZDEV
     cmp byte [bz_dev], 0
     jne .n
+%endif
     inc ax
 .n:
     mov [bz_wbn], ax

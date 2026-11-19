@@ -109,7 +109,7 @@ def symbols(src=None, art=None):
         for _try in range(2):                   # (a VAR only an experiment's knob defines - the speed pass's
             open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +    # (an experiment knob, off -
                                "\n".join("dw " + n for n in names))                    # is left out, named)
-            r = subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+            r = subprocess.run(R.NASM + ["-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                                 "-I", art + "/", "-o", b, p], cwd=ROOT, capture_output=True, text=True)
             if r.returncode == 0:
                 break
@@ -599,6 +599,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half: the model and the red arms")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check:
         if subprocess.run(["python3", "tools/bbmusic.py", "--selfcheck"], cwd=ROOT).returncode:
             sys.exit(1)

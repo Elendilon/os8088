@@ -6,6 +6,7 @@
 ;;; package's bss through DS, as every vector is entered with DS = the package.
 ;;; =============================================================================
 
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
 bz_face:
     call bz_fgeom
     jc .out
@@ -59,6 +60,7 @@ bz_face:
 .out:
     ret
 
+%endif
 ; the face's geometry: [bz_fw], [bz_fh], [bz_ox], [bz_oy], [bz_fcells].  CF = 1
 ; when the window has none.  Clobbers AX, BX, CX, DX.
 bz_fgeom:
@@ -82,6 +84,7 @@ bz_fgeom:
 .out:
     ret
 
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
 ; the window's clip armed and the face's geometry read: CF = 1 when either
 ; cannot be had - or when this key LEAVES the RESULTS page ([bz_pgo]), whose
 ; whole MAIN face bz_onkey paints after it, so no line is drawn twice.
@@ -190,6 +193,7 @@ bz_l2:
     mov si, bx
     jmp bz_lline
 
+%endif
 ; the adapter's names: SI = line 2's (`Adapter: ...`, or why there is none),
 ; BX = the results' prefix (`CGA frames `).  Clobbers AX.
 bz_adname:
@@ -215,6 +219,7 @@ bz_adname:
 .out:
     ret
 
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
 ; line 3: the settings and their keys, `M <ball>  T <control>`; a tour
 ; rolls each course's own ball, so M is not offered in one
 bz_l3:
@@ -698,6 +703,7 @@ bz_t100:
 ; bz_lstr: SI = a NUL string -> bz_lbuf holds it (DI = its end)
 bz_lstr:
     call bz_lbeg
+%endif
 ; bz_lcat: append SI's NUL string at DI - the PART's own, read through CS
 ; (SPEC.md 130.19.2: the face's strings live in the shell part)
 bz_lcat:
@@ -712,6 +718,7 @@ bz_lcat:
 .e:
     pop ax
     ret
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
 ; bz_lcatd: the same for a string in the PACKAGE's segment (DS): bss names
 bz_lcatd:
     push ax
@@ -797,6 +804,7 @@ bz_ltime:
     pop ax
     ret
 
+%endif
 ; AL = a character, appended at DI unless the line is full
 bz_lch:
     cmp di, bz_lbuf + BZ_LMAX
@@ -806,6 +814,7 @@ bz_lch:
 .full:
     ret
 
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
 ; AX = an unsigned word, appended at DI in decimal.  Preserves all.
 bz_lnumw:
     push dx
@@ -897,6 +906,7 @@ bz_line:
     pop ax
     ret
 
+%endif
 ; BX = the first content row, DX = the last: filled white across the cells'
 ; width (bz_fillrect's x range)
 bz_fillrows:

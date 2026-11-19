@@ -404,6 +404,35 @@ def at(p):
     return os88build.at(p)
 
 
+# THE TEST BUILD (SPEC.md 130.26.6.1): the instruments' keys and face, the benchmark, the autopilot, the
+# measured marks, the scripted camera and every harness byte (bz_dev, bz_apilot, bz_hold, bz_hvoff,
+# bz_tpoke, bz_phforce, bz_camscr) are assembled only with -DBZDEV - `make BZDEV=1`, never the shipped
+# BONANZA.O88.  A row that drives any of them calls dev() first: it builds (or reuses) the BZDEV=1 private
+# tree (os88build.tree, docs/WRITING-TESTS.md 5) and APPLIES it, so every `build/...` this process names
+# through at() - the floppies, build/bonanza-art, build/bzf-*.bin, build/bzshell.bin - is the tree's, and
+# every package assembly a row makes itself (symbols, shell_symbols, assemble, the red trees' parts) passes
+# NASM's -DBZDEV, so the symbol map describes the package the row boots.  A row ABOUT the shipped game
+# (bonanzatitle, bonanzaav) never calls it and reads the shipped build.
+DEV_TARGETS = ("os8088-360.img", "bonanza360.img", "bonanza.img")
+DEV = False
+NASM = ["nasm"]                     # every package assembly's command: + -DBZDEV once dev() ran
+
+
+def dev():
+    """this process's BONANZA is the BZDEV=1 build (above): its tree built once and applied.  -> the Tree"""
+    global DEV
+    t = os88build.tree("BZDEV=1", targets=DEV_TARGETS).apply()
+    if not DEV:
+        DEV = True
+        NASM.append("-DBZDEV")
+    return t
+
+
+def pxdefs():
+    """tools/pxlink.py's defines for this process's package (its link map: SPEC.md 130.19.2)"""
+    return ["-D", "BZDEV"] if DEV else []
+
+
 def prefetch(names):
     """the shipped courses NAMES compiled at once, a core each (BB.par_map), into course()'s table: what
     course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
@@ -491,7 +520,7 @@ def symbols(src=None, art=None):
         for _ in range(2):                      # a name inside an arm this build leaves out (wave 5b's
             open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +     # `%if BZ_REC = 4`:
                                "\n".join("dw " + n for n in names))                    # a C build's) is
-            r = subprocess.run(["nasm", "-f", "bin", "-I", apps, "-I", d + "/", "-I", art + "/", "-o", b, p],
+            r = subprocess.run(NASM + ["-f", "bin", "-I", apps, "-I", d + "/", "-I", art + "/", "-o", b, p],
                                cwd=ROOT, capture_output=True, text=True)              # not this build's:
             gone = set(re.findall(r"symbol `([\w.]+)' not defined", r.stderr))       # dropped, once
             if not r.returncode or not gone:
@@ -527,9 +556,16 @@ def shell_symbols(src=None, art=None):
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "probe.asm")
         b = os.path.join(td, "probe.bin")
-        open(p, "w").write(open(asm).read() + "\n" + "\n".join("dw " + n for n in names))
-        subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
-                        "-I", art + "/", "-o", b, p], cwd=ROOT, check=True, capture_output=True)
+        for _ in range(2):                      # (a label of the instruments' face is the BZDEV build's
+            open(p, "w").write(open(asm).read() + "\n" + "\n".join("dw " + n for n in names))   # alone:
+            r = subprocess.run(NASM + ["-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                                       "-I", art + "/", "-o", b, p], cwd=ROOT, capture_output=True, text=True)
+            gone = set(re.findall(r"symbol `([\w.]+)' not defined", r.stderr))   # dropped, once)
+            if not r.returncode or not gone:
+                break
+            names = [n for n in names if n not in gone]
+        if r.returncode:
+            raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
         raw = open(b, "rb").read()
     _SHELL[key] = dict(zip(names, struct.unpack("<%dH" % len(names), raw[-2 * len(names):])))
     return _SHELL[key]
@@ -4631,7 +4667,7 @@ def patch_tree(src, patches):
 
 
 def assemble(src, art, binp):
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=ROOT, check=True)
 
 
@@ -4646,10 +4682,10 @@ def shell_part(td, src, art, binp):
     inc = os.path.join(td, "bzlink-inc")
     os.makedirs(inc, exist_ok=True)
     subprocess.run(["python3", "tools/pxlink.py", binp, "--src", os.path.join(src, "bonanza.asm"), "-I",
-                    os.path.join(ROOT, "apps") + "/", "-I", src + "/", "-I", art + "/", "--prefix", "BZL", "--consts",
+                    os.path.join(ROOT, "apps") + "/", "-I", src + "/", "-I", art + "/"] + pxdefs() + ["--prefix", "BZL", "--consts",
                     "BZ", "-o", os.path.join(inc, "bzlink.inc")], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     out = os.path.join(td, "bzshell.bin")
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzshell.asm")], cwd=ROOT, check=True)
     return out
 
@@ -4662,7 +4698,7 @@ def vga_part(td, src, art):
     if not os.path.exists(os.path.join(src, "bzvga.asm")) or not os.path.exists(os.path.join(inc, "bzlink.inc")):
         return None
     out = os.path.join(td, "bzvga.bin")
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzvga.asm")], cwd=ROOT, check=True)
     return out
 
@@ -4694,7 +4730,7 @@ def fam_parts(td, src, art):
     out = []
     for f in BB.FAMILIES:
         o = os.path.join(td, "bzf-%s.bin" % f["name"])
-        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+        subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                         "-I", os.path.dirname(inc) + "/", "-I", art + "/", "-o", o,
                         os.path.join(src, "fam", f["name"] + ".asm")], cwd=ROOT, check=True)
         out.append(o)
@@ -4775,7 +4811,7 @@ def check_reds(reds, label):
                     pa = os.path.join(src, "fam", nm + ".asm")
                     if f != "fam/%s.asm" % nm and '"%s"' % f not in open(pa).read():
                         continue
-                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
                                     src + "/", "-I", art + "/", "-o", os.path.join(td, "part.bin"), pa],
                                    cwd=ROOT, check=True)
             return "%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
@@ -5099,6 +5135,7 @@ def main():
     ap.add_argument("--check-reds", action="store_true",
                     help="the host half only: every red arm's anchors found and its broken copy assembles")
     a = ap.parse_args()
+    dev()                               # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check_reds:
         COURSES["bench"]                        # (fills the table)
         prefetch(sorted(COURSES))               # (the host half reads every shipped course)

@@ -2057,7 +2057,7 @@ def fam_host():
             name = os.path.splitext(os.path.basename(f))[0]
             name = {"bztube": "tube"}.get(name, name)
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(src, "fam", name + ".asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({name: open(o, "rb").read()})
@@ -2104,7 +2104,7 @@ def fam_host():
                 shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
                 open(os.path.join(src, "fam", "glass.asm"), "w").write(txt)
                 o = os.path.join(td, "part.bin")
-                subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
                                 src + "/", "-I", R.at("build/bonanza-art") + "/", "-o", o,
                                 os.path.join(src, "fam", "glass.asm")], cwd=ROOT, check=True)
                 ff = fam_parts({"glass": open(o, "rb").read()})
@@ -2122,7 +2122,7 @@ def fam_host():
         shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
         open(os.path.join(src, "fam", "glass.asm"), "w").write(txt)
         o = os.path.join(td, "part.bin")
-        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+        subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
                         src + "/", "-I", R.at("build/bonanza-art") + "/", "-o", o,
                         os.path.join(src, "fam", "glass.asm")], cwd=ROOT, check=True)
         ff = fam_parts({"glass": open(o, "rb").read()})
@@ -2338,7 +2338,7 @@ def mg_parts(over=None, src=None):
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
             open(os.path.join(d, "fam", "magnet.asm"), "w").write(src)
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "magnet.asm")],
                            cwd=ROOT, check=True)
             over = open(o, "rb").read()
@@ -2490,7 +2490,7 @@ def gt_parts(src):
         shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
         open(os.path.join(d, "fam", "gate.asm"), "w").write(src)
         o = os.path.join(td, "part.bin")
-        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+        subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                         "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "gate.asm")],
                        cwd=ROOT, check=True)
         return fam_parts({"gate": open(o, "rb").read()})
@@ -2560,7 +2560,7 @@ def bp_parts(src):
         shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
         open(os.path.join(d, "fam", "boost.asm"), "w").write(src)
         o = os.path.join(td, "part.bin")
-        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+        subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                         "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "boost.asm")],
                        cwd=ROOT, check=True)
         return fam_parts({"boost": open(o, "rb").read()})
@@ -2815,7 +2815,7 @@ def water_host(binp, lst, sym, fam):
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
             open(os.path.join(src, "fam", "water.asm"), "w").write(src0.replace(a_, b_))
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(src, "fam", "water.asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({"water": open(o, "rb").read()})
@@ -2918,7 +2918,7 @@ def arch_host(binp, lst, sym, fam):
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
             open(os.path.join(src, "fam", "archway.asm"), "w").write(src0.replace(a_, b_))
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(src, "fam", "archway.asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({"archway": open(o, "rb").read()})
@@ -3040,7 +3040,7 @@ def spike_host(binp, lst, sym):
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
             open(os.path.join(d, "fam", "spike.asm"), "w").write(src0.replace(a_, b_))
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "spike.asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({"spike": open(o, "rb").read()})
@@ -3180,7 +3180,7 @@ def tilt_host(binp, lst, sym):
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
             open(os.path.join(d, "fam", "seesaw.asm"), "w").write(src0.replace(a_, b_))
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "seesaw.asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({"seesaw": open(o, "rb").read()})
@@ -3281,7 +3281,7 @@ def tt_host(binp, lst, sym):
             shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), d)
             open(os.path.join(d, "fam", "turntable.asm"), "w").write(src1)
             o = os.path.join(td, "part.bin")
-            subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "turntable.asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({"turntable": open(o, "rb").read()})
@@ -4858,6 +4858,7 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="the host half only: the replays proved on the model, every red arm assembled")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check:
         # (the unicorn halves - fam_host's and the SPLIT leg's - are independent of the replays' proofs and
         # of each other: each a forked child of this process (BB.jobs_default() > 1), started first, its
