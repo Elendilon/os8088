@@ -11,7 +11,9 @@
 #                              1 -right-> 2
 #
 # 1 FIRST ROLL (ROLL) and 2 LITTLE HOP (HOP) are the real first courses; 3 DOWNHILL DECISION is TRIAL standing
-# in (its two exits the split) until it is built; 4 - 8 are the old test courses standing in.  The icons are
+# in (its two exits the split) until it is built; 4 - 8 are the old test courses standing in (8 is the OLD
+# First Roll, labelled "Bounce Trial" so no two pads read FIRST ROLL).  Every course of the default build
+# has a pad here but BENCH, the benchmark (the owner, 2026-11-19: no test course nobody can reach).  The icons are
 # docs/plans/bonanza-courses/pathway/gen.py's (32 x 24, placeholders for 3 - 8).  A screen direction is a
 # ground step: +x down-right, -x up-left, +y down-left, -y up-right; both axes at once (equal amounts) down,
 # up, left or right.
@@ -36,7 +38,8 @@ pad 3 MILL  20 13                           # 4
 pad 4 PEAK  12  5                           # 5 (page 1)
 pad 5 MOON  15 17                           # 6
 pad 6 PLAY   9 11                           # 7 (page 1)
-pad 7 FIRST  4 11                           # 8 (page 1)
+pad 7 FIRST  4 11                           # 8 (page 1): the OLD First Roll standing in, LABELLED "Bounce Trial"
+                                            # below (the map has the real First Roll on pad 0); replaced with page 1
 
 # route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...
 route 0 1 exit 0  path 21,28 24,25                  # 1 -> 2, right along the bottom road
