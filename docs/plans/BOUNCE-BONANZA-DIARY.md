@@ -6420,3 +6420,33 @@ manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
 - **Run**: `make bonanzadisk`, `tests/bonanza_phys.py --check`, the frame
   breakdowns above. **Not run**: soak rows for this round (the running
   soak froze before it).
+
+## 2026-11-19 (the keys on the window; the finish clock's run time, in one update)
+
+- **The keys on the window** (SPEC.md 130.26.9). The owner asked for a
+  short set of instructions in the window's free whitespace: *Roll - Arrow
+  Keys*, *Hop / Double Bounce - Space*, *Brake - Left Shift*. The band
+  between the title and the ledge, which 130.26.1 had kept for "a line or
+  two of text later", is 50 px on CGA, 74 on Hercules, 104 on VGA; three
+  10 px lines fit all three, and the longest (27 cells, 216 px) fits the
+  440 px content with room to spare. A first cut set the lines as a
+  centred table (the actions right-aligned on one ` - ` column); the owner
+  asked for them *"leftish, to balance the space better"*, so they are
+  left-aligned on the Play Game button's left edge, over the button, with
+  the ledge balancing them on the right. LOOKED AT on MartyPC's CGA, Hercules and VGA: no
+  overlap with the title, the button or the ledge.
+- **The finish clock** (SPEC.md 130.22.6.1). Two complaints: the clock
+  flashed the seconds LEFT, and its digits did not flash together. The
+  first is display only: `bz_fflash` now shows the limit less `bz_tsec`
+  (`bz_nstep / 55` at the finishing step), from the finishing step on; a
+  timeout still flashes 0. The second is the wheel: each digit is a lane,
+  committed alone against the retrace deadline, so a phase could land a
+  frame or more apart, and one under the ball's box went through the
+  contact slot by itself. In a finish the digits are now the wheel's only,
+  and `bz_wclk` commits them as ONE group, back to back with interrupts
+  shut, ahead of the beam or behind it, or not at all that frame.
+- **Run**: `make bonanza bonanzadisk`, the `BZDEV=1` tree, `checkdocs`,
+  the window on three adapters. **Named for the soak**: `bonanzapath`
+  (item 2 now checks the lit pose is the run's time, and item 2s that the
+  shown digits are drawn all lit or none at every frame), `bonanzawheel`,
+  `bonanzatitle`, `bonanzaring`.
