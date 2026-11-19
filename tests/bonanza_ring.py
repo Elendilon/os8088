@@ -506,6 +506,8 @@ def symbols(src=None, art=None):
         t = open(p).read()
         names += re.findall(r"^VAR (bzs?_\w+),", t, re.M)      # (bzs_: the sound's, 130.20)
         names += re.findall(r"^(bzs?_\w+):", t, re.M)
+        names += re.findall(r"^(bzs?_\w+)\s+equ\s+bzs?_", t, re.M)   # a VAR shared by an alias
+                                                # (bz_lbuf on bz_boxbuf, bz_dmine on bz_font: the room trim)
         names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, t, re.M)]
         names += ["%s.%s" % (pr, lo) for pr, lo in LOCAL_SYMS if _has_local(t, pr, lo)]
     inc = os.path.join(ROOT, "apps", "os88parts.inc")
