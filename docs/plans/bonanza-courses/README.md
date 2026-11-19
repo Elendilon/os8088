@@ -10,6 +10,8 @@ Where a rule is checked by `tools/bbcourse.py`, the check is named; where it
 is not yet, the story that adds it is named. A rule with neither is the
 designer's and the owner's judgment.*
 
+*The pathway's initial-look options (2026-11-19) are in [pathway/](pathway/README.md).*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
