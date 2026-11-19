@@ -6600,6 +6600,56 @@ its motif two hops with the second higher), checking both arms by rendering
 them. It merged as song 9, because another session's time-up tune had taken 8
 in the meantime. The owner: *"Doing good on these songs; I don't think I have
 any suggested changes."*
+## 2026-11-19 (the reach from the start, and a flight's height by distance: measured, not taken)
+
+- **The question** (the owner, on ROLL's map after SPEC.md 130.49): no ball
+  can get behind the two pennant pillars, and the falls behind ramp corners
+  look like they could be handled smarter - does the tool know the death
+  fall's time?
+- **Tried, on a branch** (`bb-occ2`, not merged): launches only from cells a
+  ball can reach from the start (props' cells seeded); each flight's height
+  capped by its distance (it cannot be at its apex three tiles out - the
+  speed is clamped per axis to the cap, 384); a FIELD cell's launch at its
+  own steepest slope instead of the steepest any shape can have.
+- **What it measured**: the reach shrank (FIRST's total height range 6,892 ->
+  6,612 px, ROLL's 14% less) and **not one record, mask, OCC flag, Y0 or
+  part byte moved on any of the nine courses**. Records hide a ball LOWER
+  than what is in front of it; what the profile removes is high in the air,
+  over everything, and never needed a record. Every solid cell was already
+  reachable from the start by the model, the pillars too: a launch off the
+  chute's banks 5 cells away (the model's fastest rate up a slope) reaches
+  the void round them at 155 - 167 px, and the low end is the fall itself.
+- **The death fall**: falling the 3 units to the kill takes 23 steps and at
+  the cap covers 34 ground units - the 2-tile void band. So a ball can be
+  anywhere in the band at any height down to its kill: the low end, which
+  is what the records are for, is real.
+- **What would remove them**: a reach that knows a flight's DIRECTION, or a
+  designer's statement that a cell is scenery no ball reaches (`scenery
+  <shape>`, refused where an autopilot route or demo goes near). The second
+  is cheap and the owner's call.
+
+## 2026-11-19 (the record's limits: a top bias a band, masks a band by choice, `noocclude`)
+
+- **The ask** (the owner): courses keep hitting the 4-byte record's two bytes -
+  its top relative to ONE course-wide bias (255 px, about 32 units, where the
+  quarter heights opened 60) and its mask, one of 256.
+- **The top** (SPEC.md 130.51): measured first - a course's tops span up to 223
+  px, but at most 130 inside any band of 16 block rows. So the bias is a band's:
+  a small table (`Y`), and the guest takes the band's key at the pass's first
+  row and where a row starts a band. PREDICTED +25 bytes and +100 - 160 clk a
+  pass; MEASURED +42 bytes and about +200 (the first build tested the band on
+  every row, about +250, before the row's own first line said when to look). A
+  54-unit staircase, 433 px of tops, compiles.
+- **The masks** (130.52): the same table, by CHOICE - `masks banded` in a
+  course gives each band its own 256, stored (ROLL +514 bytes packed), and a
+  course without it pays 2 bytes a band and nothing else.
+- **`noocclude <shape>`** (130.53): the author says no ball needs occluding
+  there; ROLL's pillars, 32 records.
+- **The fall's speed**: what a slower take-off could save is at most what
+  dropping the void band's outer cells altogether saves - 3% on ROLL and PEAK.
+  Not built.
+- **Run**: `tests/bonanza_av.py` on every course, ROLL and a banded ROLL (red
+  arms `aband`, `amband`); `--selfcheck`'s sections; `make`.
 
 ## 2026-11-19 (the songs: in the bundle and in the courses)
 

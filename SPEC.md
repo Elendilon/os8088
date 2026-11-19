@@ -264386,7 +264386,7 @@ decoder writes them as match copies.
 | +4 - +31 | `BZC1`'s fields at `BZC1`'s offsets (130.10.5.1): `COLS`, `BROWS`, `N`, `MAPSH`, `BLKOFF`, `OCCIDX`, `OCCREC`, `NOCC`, `MASKOFF`, `NMASK`, `ROWB`, `GRIDOFF`, `PROPOFF`, `NPROP`. Every offset is a RAM offset |
 | +32 | `RECB`: the record's size in RAM, 4 or 8 (byte) |
 | +33 | `SB`: the s bias, a SIGNED byte, -128 - 127 (0 when `RECB` is 8) |
-| +34 | `TB`: the top bias, signed px (word; 0 when `RECB` is 8) |
+| +34 | `TB`: the top bias, signed px (word; 0 when `RECB` is 8). *Since 130.50: `YOFF`, the offset of section `Y`, the top bias a BAND of 16 block rows* |
 | +36 | `MTAB`: the mask table's offset (word; 0 when `RECB` is 8) |
 | +38 | `DIROFF`: the directory's offset (word) |
 | +40 | `NSEC`: the directory's entries (word, at most 16) |
@@ -271399,16 +271399,20 @@ cyan or not, is one way of doing that):
 The owner chose `frog` for LITTLE HOP (2026-11-19, *"the frog is
 adorable"*; `spring` kept in reserve) and asked that it *"sit a little
 better"* on each block, a clock's `frame` being per use. So three per-use
-variants of the same frog, for a frog on a BLOCK: no lily pad, a dithered
-shadow on the block's top, the frog sat 2 px further back, and one front arm
-reaching to the top's front edge, the foot flat along it with three toes
-curled over it:
-- **`frogl`**: the arm to the front-LEFT edge, the eyes turned down-left
-  (HOP's start clock, the path below it to the left);
-- **`frogr`**: the arm to the front-RIGHT edge, the eyes turned down-right
-  (the middle clock, H's floor below it to the right);
-- **`frogb`**: the arm to the front-right edge (the drop), the eyes turned
-  back over its shoulder up-left (the finish clock, the goal behind it).
+variants of the same frog, for a frog on a BLOCK, squatting on the top as
+a frog does (round 2: *"legs where legs go"*; round 1's arm reaching over an
+edge read as a stray limb): no lily pad, a dithered shadow on the top, the
+haunches folded at its sides with their feet tucked in front of them, the
+front legs straight down under its chest and the front feet planted near
+the top's front corner - all of it on the top's diamond:
+- **`frogl`**: squatting, the legs a pixel left and the eyes turned
+  down-left (HOP's start clock, the path below it to the left);
+- **`frogr`**: squatting, the legs a pixel right and the eyes turned
+  down-right (the middle clock, H's floor below it to the right);
+- **`frogb`**: SITTING UP - a slimmer body, small haunches tucked low - the
+  eyes turned back over its shoulder up-left (the finish clock, the goal
+  behind it; the slimmer pose keeps a ball behind it within 130.18.5.4's
+  one ball length).
 
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
@@ -285185,3 +285189,120 @@ course and fetches nothing else for sound:
   MOON's cup, the one launch row left to leak), and every row that compares
   the guest's part with the host's (`bonanza_ring.course()` attaches the
   song).
+
+### 130.51 The top bias a BAND of block rows (the owner, 2026-11-19; on `bb-occ2`)
+
+The owner, 2026-11-19: the 4-byte record's top byte `t' = top_C - TB`
+(130.15.5.1), `TB` one bias for the whole course, *"limits vertical maximum to
+32"* - a course's record tops may span at most 255 px, about 32 units, and
+130.48's quarter units opened courses of 60. MEASURED over the nine courses
+(ROLL and HOP the knob builds'): the tops span 77 - 223 px a course (ROLL 223,
+PEAK 221, MILL 209), but at most **130 px inside any band of 16 block rows**
+(PLAYGROUND; ROLL 92, PEAK 71).
+
+#### 130.51.1 The decisions
+
+| | decision |
+|---|---|
+| the band | **16 block rows** (128 picture lines): band `b = br >> 4` |
+| the bias | `TB[b] = min(top_C over band b's records) - 1`, a signed word a band; `t' = top_C - TB[br >> 4]` in 1 - 255, refused naming the band (a band, not the course, now bounds a record's top) |
+| where | a new section, tag **`Y`**, form 0 PLAIN, `2 NBANDS` bytes, `NBANDS = ceil(BROWS / 16)`, after `O` in RAM order (a picture part's on a two-part course, 130.30); the header's +34, which was `TB`, is now **`YOFF`**, its offset |
+| the guest | `bz_occ` keeps the frame's key `z_b + m` (`bz_okey`) and, at each block row of the walk whose band differs from the last row's (`bz_oband`, emptied each pass), takes `kt = clamp(z_b + m - TB[b], 0, 255)` from the table - at most twice a pass (a footprint is 16 lines) |
+| the summary | `bz_osum`'s greatest `t'` a row is band-relative, as the row's `kt` is: unchanged |
+| unchanged | the mask byte and its 256 (130.51.4) |
+
+#### 130.51.2 PREDICTED
+
+- **Code**: about +25 bytes in `bz_occ` (the band's test at a block row and
+  the key's reload on a new band), `bz_crshdr` the same size.
+- **Clocks**: a block row's band test about 20 clk (`(line << 1)`'s high
+  byte), at most 3 a pass; a reload about 50, at most 2: **+100 to +160 clk a
+  gated pass**, against 79.6k a CGA refresh (0.2%). The pass's once-a-frame
+  `TB` subtraction goes.
+- **Bytes**: the table `2 NBANDS` (ROLL 9 bands: 18) and its directory entry
+  (8): about **+26 bytes a part** in RAM and stored (PLAIN), a few less packed.
+- **What it buys**: a course whose tops span more than 255 px compiles while
+  each band's span stays under 255 - every shipped course with half its range
+  free.
+
+#### 130.51.3 The checks
+
+`read_part`: `YOFF` names section `Y` of `2 NBANDS` bytes and every `t'` is
+1 - 255 against its band's `TB`. `tests/bonanza_av.py` (the guest against the
+host over every course, its records decoded band by band) and a red arm (the
+band's reload skipped: a footprint across a band edge tests the wrong key).
+
+#### 130.51.4 The masks
+
+A mask table a band is 130.52, a course's own choice.
+
+#### 130.51.5 As built (MEASURED)
+
+| | PREDICTED | MEASURED |
+|---|---|---|
+| code | about +25 bytes | **+42 bytes** of image (50,950 -> 50,992): `bz_otbk` (the band's `kt`, called at the pass's first block row and where a row's first line is a multiple of 128) and the row test (`test al, 7Fh`), less the pass's old `TB` subtraction; bss +2 (`bz_ozkt`) |
+| clocks | +100 to +160 a gated pass | **about +200**: `bz_otbk` 201 - 204 clk a pass (PRICED under unicorn over 150 positions of ROLL and of PEAK), the row test about 20 a later row, the old subtraction about 40 less - 0.25% of a CGA refresh |
+| bytes | about +26 a part | **+14 to +26 a stored part** (`Y` and its directory entry: FIRST 3 bands +14, ROLL 9 bands +26), +192 over the nine courses |
+| what it buys | | the tallest band's span on the shipped courses 130 px (PLAYGROUND) against 223 for a whole course (ROLL); a 54-unit staircase (433 px of tops) compiles, its widest band 49 px |
+
+A first build tested the band at EVERY block row (`line >> 7` against the last
+row's): about 53 clk a row, PRICED at about +250 a pass; the row's own first
+line says whether it starts a band, so only a band's first row pays.
+
+`tests/bonanza_av.py`: every buffer, laid count and verdict the host's on every
+course, ROLL and HOP; its red arm `aband` (no `kt` at a band's first row) red.
+
+
+### 130.52 A mask table a band, opted into: `masks banded` (the owner, 2026-11-19; on `bb-occ2`)
+
+The owner, 2026-11-19: *"We're building courses right now, and it would be
+nice to have less limits. Could we make it opt-in per course? Eat the size if
+we need it, don't if not?"* The record's mask byte (130.15.5.1) names one of a
+course's at most 256 masks.
+
+| | decision |
+|---|---|
+| the statement | **`masks banded`**, once, nothing after it: this course's records name their masks in their BAND's table (130.51: 16 block rows), so a band - not the course - holds at most 256 |
+| the band's entry | `Y` is **4 bytes a band** for every course: `TB` (signed word, 130.51) and the offset of that band's mask table (word). Without the statement every band names the one table at `MTAB`, as before |
+| `O` | without the statement: form 4 MASKTAB, derived (`2 NMASK`, nothing stored), as before. With it: form **0 PLAIN**, the bands' tables end to end - each band's masks' offsets in mask order, a mask in as many bands as use it - STORED |
+| the record | `m` its band's table's index; `NMASK` may pass 256 |
+| the guest | `bz_otbk` (130.51) loads the band's table into `bz_mtab` with its `TB`; `bz_oprep` reads it as before. One path for both forms |
+| refusals | a band past 256 masks (naming it); without the statement, a course past 256 as before (and the cut's fallback to coarser squares, 130.49.5) |
+| `read_part` | `O`'s directory form says which; every band's table inside `O`, every word a mask's offset, every record's index inside its band's table |
+
+**MEASURED**: the guest **+9 bytes** (51,001 against 130.51's 50,992; the
+mask offset's load in `bz_otbk`), about +30 clk a band's first row (PRICED from the two instructions). Every
+course's `Y` is 2 bytes a band more (ROLL's 9 bands +18). A course that opts in
+pays its tables: ROLL **+246 bytes of RAM, +514 packed (LZ4)** (156 masks, its
+bands' tables 279 entries); the PLAYGROUND +260 and +828. `tests/bonanza_av.py`
+equal on every course and on a banded ROLL; red arm `amband` (the band's table
+not loaded) red. *No shipped course opts in*: since 130.49 the PLAYGROUND's 4 gu
+cut names 252 masks and no course falls back.
+
+### 130.53 `noocclude`: cells no ball needs occluding in (the owner, 2026-11-19; on `bb-occ2`)
+
+The owner, on ROLL's two pennant pillars: *"A shape statement for 'don't need
+occlusion here' could give us something to reduce records, if we have the need
+to, and seems simple."*
+
+    noocclude <shape>        no record is cut for a ball position in the shape's cells
+
+- **What it does**: the cutter (130.49.5) and AV's residual (130.49.4) leave
+  out every reach position whose cell is in a `noocclude` shape; a ball there
+  is drawn whole but for AV's model, which costs no record. The gate's flags
+  and the merge's queries keep the whole reach (a superset, as before).
+- **Refused** on the start's cell and on every `way`'s: the ball is there in
+  play. The shape is whole cells (no `half` or `quarter`), any number of
+  statements.
+- **The proofs** (item 5's composites, item 15's completeness and WRONG-HIDE)
+  pass the shape's cells over.
+- **MEASURED**: ROLL with `noocclude rect 29 37 34 42` and `noocclude rect 49 41
+  54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. Not written into any
+  course: it is the author's to place.
+
+**The fall's speed** (the owner's question): a ball falling off an edge does not
+leave at the cap, so the void band's far cells could be cut by how far a REAL
+take-off carries. The bound of what that could save, MEASURED by taking every
+VOID position two or more cells from any solid cell out of the cut altogether:
+ROLL 1,116 -> 1,083 (3%), PEAK 1,356 -> 1,310 (3%), FIRST 68 -> 61. A speed
+model could only save less: not built.
