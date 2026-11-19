@@ -309,6 +309,25 @@ def void_cell(crs):
     raise AssertionError("no VOID cell on the course")
 
 
+def clock_lit(g):
+    """the clock digit lanes meeting the SHOWN window (bz_lshown's test) whose DRAWN pose (bz_ldrw) is lit, not
+    blank (pose 0) -> their count"""
+    n = g.b("bz_nlane")
+    rd = lambda name, k: g.m.read(g.a(name), k)
+    knd, drw, tcl, tw = rd("bz_lknd", n), rd("bz_ldrw", n), rd("bz_ltcl", n), rd("bz_ltw", n)
+    q0 = struct.unpack("<%dH" % n, rd("bz_ltq0", 2 * n))
+    q1 = struct.unpack("<%dH" % n, rd("bz_ltq1", 2 * n))
+    r0, h, c0, w = g.w("bz_R0"), g.w("bz_H"), g.w("bz_c0"), g.w("bz_W")
+    lit = 0
+    for i in range(n):
+        if knd[i] != BB.PK_CLOCK:
+            continue
+        if not (r0 < q1[i] and r0 + h > q0[i] and tcl[i] < c0 + w and tcl[i] + tw[i] > c0):
+            continue
+        lit += drw[i] != 0
+    return lit
+
+
 def finish_first(g, fails):
     """item 2: FIRST from pad 0, the autopilot to its goal, the finish sequence,
     a fall in it, Enter skipping it.  -> paused at bz_fend, breakpoints clear"""
@@ -336,21 +355,39 @@ def finish_first(g, fails):
     g.putb("bz_apilot", 0)
     R.poke_ball(g, (void[0] << 12) + 0x800, (void[1] << 12) + 0x800, -2048 * 256, air=1)
     blanks, units, still, cell = set(), set(), True, True
+    # SPEC.md 130.22.6.1: the lit phase shows the RUN's time (the limit less the seconds left), not the seconds left
+    crs = g.b("bz_crs")
+    lim = struct.unpack("<H", g.m.read(g.a("bz_clims") + 2 * crs, 2))[0]
+    run = lim - g.w("bz_tsec")
+    lit, runok, nlit = set(), True, []
     for _ in range(24):
         if sp.next() != "bz_t0":
             break
-        blanks.add(g.b("bz_ffl") >> 7)
+        bl = g.b("bz_ffl") >> 7
+        blanks.add(bl)
         units.add(g.b("bz_tdig"))
+        if not bl:
+            lit.add(g.b("bz_tdig"))
+            runok = runok and g.b("bz_tdig") == run % 10 + 1
+        nlit.append(clock_lit(g))
         still = still and (g.w("bz_R0"), g.w("bz_c0")) == (r0, c0)
         cell = cell and (g.d("bz_gx") >> 12, g.d("bz_gy") >> 12) == void
     fall = g.w("bz_nfall") == nfall and cell
     left = g.b("bz_fcnt")
-    check(fails, len(blanks) == 2 and len(units) >= 2 and still and fall, "2.",
-          "FIRST's finish sequence: the clock blank %s, its units' poses %s, the camera still %s; a fall poked in "
-          "it neither counted (falls %d -> %d) nor respawned (on its void cell %s)" % (
-              sorted(blanks), sorted(units), still, nfall, g.w("bz_nfall"), cell),
-          "the finish sequence (blank %s, units %s, still %s) or its fall (respawned or counted: %s)" % (
-              sorted(blanks), sorted(units), still, not fall))
+    # ...and the shown clock digits change TOGETHER (130.22.6.1, bz_wclk): at every frame's start either none of
+    # them is drawn lit or all that the run's time lights are, never some
+    whole = max(nlit or [0])
+    split = [n for n in nlit if n not in (0, whole)]
+    check(fails, whole > 0 and not split, "2s.",
+          "FIRST's finish: the shown clock digits drawn lit a frame %s - all %d or none, never split" % (
+              sorted(set(nlit)), whole),
+          "the flash's digits split across frames (lit counts a frame %s)" % nlit)
+    check(fails, len(blanks) == 2 and len(units) >= 2 and lit and runok and still and fall, "2.",
+          "FIRST's finish sequence: the clock blank %s, its units' poses %s (lit %s: the run's %d s of %d), the "
+          "camera still %s; a fall poked in it neither counted (falls %d -> %d) nor respawned (on its void cell %s)" % (
+              sorted(blanks), sorted(units), sorted(lit), run, lim, still, nfall, g.w("bz_nfall"), cell),
+          "the finish sequence (blank %s, units %s, lit %s against the run's %d s, still %s) or its fall "
+          "(respawned or counted: %s)" % (sorted(blanks), sorted(units), sorted(lit), run, still, not fall))
     sp.done(run=False)
     sp = Stops(g, ("bz_fend",))
     hit = sp.press("Enter", guest=5)

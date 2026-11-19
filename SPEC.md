@@ -282161,7 +282161,8 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
   frozen) and the CAMERA holds (no step, no scroll, not even a pan already
   running); for **`FIN_STEPS` = 110 steps** (about 2.0 s) the course's clock
   digits FLASH, the time and blank alternating every 7 steps (each change
-  marks the clock lanes, item 6), and the VICTORY tune plays (130.22.9).
+  marks the clock lanes, item 6; the time is the RUN's and the digits
+  change together, 130.22.6.1), and the VICTORY tune plays (130.22.9).
   A **GOAL** (checkers) finish leaves the physics running: the ball rolls
   on, and a fall, a shatter or a kill plane in those steps neither kills
   nor respawns it (the ball simply goes on, clipped to the window as it
@@ -282325,6 +282326,51 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
   the title. **BUILT:** `bz_kintro`, `bz_kresult` and their strings are gone;
   `bz_grounds` fetches a course straight from the pathway and goes straight
   back to it.
+
+##### 130.22.6.1 The finish's clock: the run's time, in one update (the owner, 2026-11-19)
+
+The owner: *"clocks, when showing flashing at the end, [should] flash their
+numbers in sync (likely as one update), and ... show the time of the run
+rather than flashing the seconds remaining."* Two changes to the sequence
+above, BUILT:
+
+- **What flashes is the RUN's time**: the whole seconds the play took, the
+  course's limit less `bz_tsec` (`bz_fflash`) - exactly `bz_nstep` / 55
+  rounded down at the finishing step, since the clock counts down one a 55
+  steps from the limit (130.18.3) - where the clocks counted the seconds
+  LEFT. It shows from the finishing step itself (`bz_fstart` calls
+  `bz_fflash`), not after the first blank. `bz_tsec` and the physics are
+  untouched: only the digits' poses (`bz_tdig`, display state, through
+  `bz_tdsax`) change, so no replay, log or `state7()` moves. The run's time
+  fits the clock's digits: it is at most the limit, which sized them. **A
+  TIMEOUT still flashes 0** (time's up: the run's time would be the limit
+  itself), and EXPLORE (no limit, no countdown) flashes what its clocks
+  show.
+- **The digits change together**: each digit is a LANE (130.18.5), and the
+  wheel commits lanes one by one against the retrace's deadline
+  (130.12.5.3), so a flash's digits could reach the glass a frame or more
+  apart, and a digit under the ball's box went through the contact slot
+  alone. In a finish (`bz_fcnt` > 1) a clock digit due and shown is the
+  WHEEL's only - never a contact or must-draw lane, never `bz_wbest` (so
+  never PROMOTED alone) - and is counted (`bz_wgcn`). `bz_wclk`, before
+  pass 1, takes every clock candidate out of the two passes and commits
+  them as ONE GROUP: only when every counted digit is a candidate, prepared
+  and met by no box; back to back with interrupts shut; AHEAD of the beam
+  when the group's summed cost' ends before the least AHEAD bound, else
+  spinning (interrupts open between turns, as pass 2) until the beam is
+  past the greatest BEHIND time, provided the group then still ends by the
+  deadline. Otherwise every digit stays due and the group is tried again
+  next frame, so a phase may show late but never split. The finish is a
+  light frame (the camera held, the ball dissolving), so the group's few
+  commits (a digit lane's ~1.2k clk, PREDICTED from 130.13.5.1's prices)
+  fit the retrace wait on every adapter; outside a finish the clocks'
+  once-a-second change is committed as before. Costs: 6 bytes of bss
+  (`bz_wgcn`, `bz_wgca`, `bz_wgcb`) and the package's code below.
+- **Rows**: `bonanzapath` item 2 reads the flash's lit pose against the
+  run's time (`bz_tdig` = (limit - `bz_tsec`) mod 10, + 1) and both phases,
+  and its item 2s counts, at every frame's start, the clock digits meeting
+  the shown window that are DRAWN lit (`bz_ldrw`): all of them or none,
+  never a split; `bonanzawheel` covers the wheel's passes.
 
 #### 130.22.7 Memory: the pathway HELD (BUILT)
 
@@ -286418,7 +286464,7 @@ ESTIMATED as in 130.18. The plan's stories are
 
 | decision | chosen | why |
 |---|---|---|
-| the face | **pictures and one button, no text**: the title (130.26.2) centred near the top; a LEDGE with the rubber marble on it, running off the content's right edge; a standard **Play Game** button (`os88ui_btn`, 13.8's gesture) centred in the space LEFT of the ledge, its middle on the ledge's top face (the owner's mock-up, 2026-11-16 - first it stood at the bottom centre, in front of the ledge). The space between the title and the ledge is kept for a line or two of text later; today one line appears there only to say why Play Game is greyed (kern_small, an adapter the bracket cannot drive) | the owner's brief, and the look once built |
+| the face | **pictures and one button, no text**: the title (130.26.2) centred near the top; a LEDGE with the rubber marble on it, running off the content's right edge; a standard **Play Game** button (`os88ui_btn`, 13.8's gesture) centred in the space LEFT of the ledge, its middle on the ledge's top face (the owner's mock-up, 2026-11-16 - first it stood at the bottom centre, in front of the ledge). The space between the title and the ledge carries the player's KEYS, three lines (130.26.9), under one line that appears only to say why Play Game is greyed (kern_small, an adapter the bracket cannot drive) | the owner's brief, and the look once built |
 | the size | **fixed** (`OSAPI_WM_PREFER`'s three sizes, no `WF_SIZABLE`): the art does not scale (the owner, 2026-11-16, reversing the first build's resizable window). The face still lays itself out from `OSAPI_WM_CONTENT` at every paint, and the button is re-placed before every press (`OS88UI_BT_PLACE`), as a clamped size or a moved window needs | the old size was the text's; the new one is the art's |
 | what draws it | the pictures and the ground in the SHELL PART (130.19.2, `BZH_FACE`), each picture one `OSAPI_GFX_BLIT1` and every other pixel one fill, nothing twice; the button in the resident image (the library's gesture is data the part may not write) after the part returns | 130.19.2's part keeps the face out of a play's memory; the button's record and its press are the package's |
 | the keys on the window | **Enter, Alt+Enter and F** are Play Game; **nothing else**. Every instrument key of 130.14.3.2 (B, R, D, W, L, V, N, M, C, G) and the old settings keys (T, S; E, 1 2 3 and X until 2026-11-19, now gone: the Saves menu is theirs) answer only while the harness byte **`bz_dev`** is set (130.26.6) | the brief: the menus carry the settings; the instruments are the rows' |
@@ -286662,6 +286708,36 @@ scorecard dropped, and the tour no longer all the courses. BUILT:
   generated `bzcourse.inc`; `bonanzagame`'s tour, stop and check halves
   and `bonanzaexit`'s tour legs walk it (the cup leg pokes MOON's tour
   STEP, not its K) instead of deriving the tour from `BZ_COURSES`.
+
+#### 130.26.9 The keys on the face (the owner, 2026-11-19)
+
+The owner: *"a short set of instructions fit naturally into the free
+whitespace"* - the band between the title and the ledge, which 130.26.1
+kept for it. Three lines, the owner's words:
+
+```
+Roll - Arrow Keys
+Hop / Double Bounce - Space
+Brake - Left Shift
+```
+
+- **The block**: the lines LEFT-aligned on the Play Game button's left
+  edge, so the keys stand over the button and the ledge balances them on
+  the right (the owner, 2026-11-19: *"align leftish side, to balance the
+  space better"* - a first build set the actions right-aligned on a
+  centred ` - ` column); centred DOWN the band left between the title (and
+  the greyed button's reason, when it shows) and the ledge's top. A band
+  shorter than the three lines' 30 px draws none (no window today: the
+  band is 50 px on a 640 x 200 desktop, 74 on EGA and Hercules, 104 on
+  VGA).
+- **Drawn** by `bzw_keys` in the shell part, each line one
+  `OSAPI_FONT_RUN` (6.1) in a `BZ_LH` band with its air, left and right
+  filled around it and the air above the block one fill: nothing twice,
+  as 130.26.2's every other pixel. The reason line shares the same
+  routine (`bzw_lbline`). Black on the white ground, as the reason: no
+  colour, so every adapter draws it alike.
+- **Fit**: the longest line, 27 cells, needs 216 px of the 440 px content;
+  a narrower window clips it (the clip region, 11.3).
 
 ### 130.27 Grounded faces (the owner's decision, 2026-11-16)
 

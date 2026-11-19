@@ -235,6 +235,10 @@ VAR bz_wct,6 * BZ_WSLOT         ; bz_wheel's candidates, prepared once: each
                                 ; BEHIND time (130.12.5.3)
 VAR bz_wmin,2                   ; ...the cheapest cost' among them
 VAR bz_wnp,1                    ; ...and how many were prepared (the clock's room)
+VAR bz_wgcn,2                   ; THE CLOCK GROUP (bz_wclk, a finish's only): the
+VAR bz_wgca,2                   ; clock digits due and shown this frame (a byte,
+VAR bz_wgcb,2                   ; bz_props's), the group's AHEAD bound (the least)
+                                ; and BEHIND time (the most)
 VAR bz_lrw,2 * BZ_PROPMAX       ; each lane's first block row, its block rows
 VAR bz_lhh,BZ_PROPMAX           ; and its record's kind (bz_pread: the walk
 VAR bz_lknd,BZ_PROPMAX          ; reads no record for its range or a post);
@@ -1858,6 +1862,7 @@ bz_wheel:
     jc .skip
     cmp ax, [bz_wdl]
     ja .skip
+    call bz_wclk                ; (a finish's clock digits: one group, first)
     xor bx, bx
 .a:                             ; PASS 1: AHEAD of the beam
     cmp bl, [bz_wnp]
@@ -1938,6 +1943,120 @@ bz_wheel:
 .skip:
     inc word [bz_wskip]
 .out:
+    ret
+
+; bz_wclk - THE CLOCK GROUP (SPEC.md 130.22.6.1), in a finish (bz_fcnt > 1):
+; the flash's digits reach the glass in ONE frame or not at all.  Every clock
+; candidate is taken out of the passes (bit 7); then, when ALL the clock digits
+; due and shown (bz_wgcn) are candidates and prepared, none met by a box, they
+; commit back to back with interrupts shut - ahead of the beam when the whole
+; group ends before it reaches the group's first line, else behind it,
+; spinning (interrupts open between turns, as pass 2) until it has passed the
+; group's last, when the group still ends by the deadline.  Otherwise they all
+; stay due for a later frame.  ES = ours.  Preserves nothing.
+bz_wclk:
+    cmp byte [bz_fcnt], 1
+    jbe .r
+    xor bx, bx
+    xor cx, cx                  ; CL the clock candidates, CH those prepared
+    xor dx, dx                  ; DX the group's cost'
+    mov word [bz_wgca], 0ffffh
+    mov [bz_wgcb], dx
+.l:
+    cmp bl, [bz_wcn]
+    jae .e
+    call .clk
+    jne .n
+    inc cl
+    test byte [bz_wcl + bx], 80h ; (met by a box: not this frame)
+    jnz .m
+    cmp bl, [bz_wnp]            ; (not prepared: no room this frame)
+    jae .m
+    inc ch
+    call bz_wslot
+    add dx, [si + BZ_WCSTO]
+    jnc .c
+    mov dx, 0ffffh
+.c:
+    mov ax, [si + 2 * BZ_WBLK]
+    cmp ax, [bz_wgca]
+    jae .c1
+    mov [bz_wgca], ax
+.c1:
+    mov ax, [si + 2 * BZ_WBLK + 2]
+    cmp ax, [bz_wgcb]
+    jbe .m
+    mov [bz_wgcb], ax
+.m:
+    or byte [bz_wcl + bx], 80h  ; (the passes skip it, whatever is decided)
+.n:
+    inc bx
+    jmp short .l
+.e:
+    or cl, cl
+    jz .r
+    cmp cl, ch
+    jne .r
+    cmp cl, [bz_wgcn]
+    jne .r
+    pushf
+    cli
+    call .now                   ; AX = now + the group, CF past the deadline
+    jc .x
+    cmp ax, [bz_wgca]           ; AHEAD of the beam
+    jbe .go
+    mov ax, [bz_wgcb]           ; BEHIND it: only when the group would still
+    add ax, dx                  ; end by the deadline once the beam has passed
+    jc .x
+    cmp ax, [bz_wdl]
+    ja .x
+.spin:
+    popf
+    pushf
+    cli
+    call .now
+    jc .x
+    sub ax, dx
+    cmp ax, [bz_wgcb]
+    jb .spin
+.go:
+    xor bx, bx
+.g:
+    cmp bl, [bz_wcn]
+    jae .x
+    call .clk
+    jne .gn
+    call bz_wslot
+    call bz_wload
+    call bz_wcommit             ; (AL the lane: .clk's)
+.gn:
+    inc bx
+    jmp short .g
+.x:
+    popf
+.r:
+    ret
+; candidate BX: AL = its lane, ZF = 1 when that lane is a clock's digit
+.clk:
+    push bx
+    mov al, [bz_wcl + bx]
+    and al, 7fh
+    mov bl, al
+    xor bh, bh
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK
+    pop bx
+    ret
+; AX = now + DX, CF = 1 when either is past a word or the deadline
+.now:
+    call bz_clk_sample
+    call bz_wnow
+    jc .nx
+    add ax, dx
+    jc .nx
+    cmp [bz_wdl], ax            ; (CF = 1: the deadline is before it)
+    ret
+.nx:
+    stc
     ret
 
 ; bz_wroom - CF = 1 when the clock leaves no room before the deadline to
@@ -2559,6 +2678,7 @@ bz_props:
     mov [bz_must + 6], ax
     mov [bz_must + 8], ax
     mov [bz_must + 10], ax
+    mov [bz_wgcn], ax           ; (the clock group's count, bz_wclk)
     cmp [bz_first], al          ; the first frame is a centred full write:
     jne .ret                    ; bz_lfull's
     cmp [bz_nlane], al          ; no lane and no lift (BENCH, FIRST, TRIAL):
@@ -2914,6 +3034,20 @@ bz_props:
     jne .aged
     inc word [bz_wlate]
 .aged:
+    cmp byte [bz_fcnt], 1       ; IN A FINISH a clock's digit is the WHEEL's
+    jbe .aged1                  ; alone, counted for its group (bz_wclk: the
+    cmp byte [bz_lknd + bx], BZ_PK_CLOCK ; flash's digits on the glass at
+    jne .aged1                  ; once) - never a contact lane, never the one
+    inc byte [bz_wgcn]          ; due longest (no promotion draws one alone)
+    mov al, [bz_wcn]
+    cmp al, 6
+    jae .next
+    cbw
+    mov di, ax
+    mov [bz_wcl + di], bl
+    inc byte [bz_wcn]
+    jmp short .next
+.aged1:
     call bz_lmust               ; 4. a must-draw rotor or post ...
     jnc .cont
     inc byte [bz_mcnt]

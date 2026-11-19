@@ -102,12 +102,14 @@ bz_wface:
     add ax, [cs:si + 4]
     mov [bz_wy], ax
     call bzw_reason             ; [bz_wy] stepped past it, when there is one
-    ; 4. down to the ledge
+    ; 4. the keys, centred in what is left above the ledge (SPEC.md 130.26.9)
+    call bzw_keys
+    ; 5. down to the ledge
     mov bx, [bz_wy]
     mov dx, [bz_wly]
     dec dx
     call bzw_fillw
-    ; 5. the ledge's rows: above the button, the button's, below it
+    ; 6. the ledge's rows: above the button, the button's, below it
     mov si, di
     mov bx, [bz_wly]            ; rows [wly, wby0)
     mov [bz_wy], bx
@@ -148,7 +150,7 @@ bz_wface:
     mov ax, [bz_wlx]
     call bzw_rowpicr
 .foot:
-    ; 6. under the ledge, to the content's foot
+    ; 7. under the ledge, to the content's foot
     mov bx, [bz_wly]
     add bx, [cs:si + 4]
     mov dx, [bz_fh]
@@ -454,6 +456,18 @@ bzw_reason:
     jns .x
     xor ax, ax
 .x:
+    call bzw_lbline
+.none:
+    pop di
+    pop si
+    ret
+
+; bzw_lbline - the line in bz_lbuf, DI pixels wide, at content x AX, as a
+; BZ_LH band at [bz_wy] (2 lines of air and the cell): its left filled, the
+; air over its width, the cell by OSAPI_FONT_RUN (ground and glyph in one
+; pass), its right filled; [bz_wy] stepped past it.  Clobbers AX, BX, CX, DX,
+; SI.
+bzw_lbline:
     mov word [bz_wh], BZ_LH
     push ax
     mov cx, ax
@@ -485,7 +499,50 @@ bzw_reason:
     dec cx
     call bzw_fillh
     add word [bz_wy], BZ_LH
-.none:
+    ret
+
+; bzw_keys - the player's keys (SPEC.md 130.26.9): BZW_NKEYS lines, left-
+; aligned on the Play Game button's left edge (the block over the button, the
+; ledge balancing it on the right), the block centred down the band [bz_wy,
+; bz_wly) left above the ledge; the air above it filled, [bz_wy] stepped past
+; it.  A band too short for it draws none.  Clobbers AX, BX, CX, DX.
+BZW_NKEYS   equ 3
+bzw_keyt:
+    db 'Roll - Arrow Keys', 0
+    db 'Hop / Double Bounce - Space', 0
+    db 'Brake - Left Shift', 0
+bzw_keys:
+    push si
+    push di
+    mov ax, [bz_wly]
+    sub ax, [bz_wy]
+    sub ax, BZW_NKEYS * BZ_LH
+    jl .out
+    shr ax, 1                   ; the air above it
+    mov bx, [bz_wy]
+    add [bz_wy], ax
+    mov dx, [bz_wy]
+    dec dx
+    call bzw_fillw
+    mov si, bzw_keyt
+.line:
+    mov di, bz_lbuf
+    call bz_lcat                ; SI past the line's NUL
+    mov byte [di], 0
+    sub di, bz_lbuf
+    mov cl, 3
+    shl di, cl                  ; DI = its width in pixels
+    mov ax, [bz_wbx0]           ; the button's left, content-relative
+    or ax, ax
+    jns .x
+    xor ax, ax
+.x:
+    push si
+    call bzw_lbline
+    pop si
+    cmp si, bzw_keys
+    jb .line
+.out:
     pop di
     pop si
     ret

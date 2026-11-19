@@ -1768,6 +1768,11 @@ bz_fstart:
     cmp byte [bz_mode], 0
     jne .r
     mov word [bz_fcnt], (BZ_FIN_STEPS + 1) | (7 << 8)
+    push ax                     ; the first phase shows the RUN's time at once
+    push bx                     ; (SPEC.md 130.22.6.1), not the seconds left
+    call bz_fflash
+    pop bx
+    pop ax
 .r:
     ret
 
@@ -1841,9 +1846,13 @@ bz_fend:
     ret
 
 ; bz_fflash - the clock digits' new state - blank (bit 7 of bz_ffl) or the
-; frozen time - and EVERY clock lane MARKED (130.19.10 item 6 marks them only
-; on a new second); bz_lcsec is made unequal so the walk's clock skip does not
-; hold either.  Preserves CX.
+; RUN's time, frozen (SPEC.md 130.22.6.1: the whole seconds the play took,
+; the limit less the seconds left, where the clocks counted those down; a
+; timeout's 0 and EXPLORE's clock as they stand) - and
+; EVERY clock lane MARKED (130.19.10 item 6 marks them only on a new second);
+; bz_lcsec is made unequal so the walk's clock skip does not hold either.  The
+; wheel commits the marked digits as ONE group in a finish (bz_wclk).
+; Preserves CX.
 bz_fflash:
     test byte [bz_ffl], 80h
     jz .show
@@ -1852,7 +1861,21 @@ bz_fflash:
     mov [bz_tdig + 1], ax
     jmp short .mk
 .show:
-    call bz_tdset
+    mov ax, [bz_tsec]           ; the seconds left: as they stand with no limit
+    cmp byte [bz_tout], 0       ; (EXPLORE's 0, 130.19.8.3) or on a TIMEOUT
+    jne .sh                     ; (0: time's up) ...
+    cmp byte [bz_xmode], 0
+    jne .sh
+    mov bl, [bz_crs]
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bz_clims + bx]     ; ...else the limit (bz_pinit's) less them
+    or bx, bx
+    jz .sh
+    sub bx, ax
+    mov ax, bx
+.sh:
+    call bz_tdsax
 .mk:
     mov ax, [bz_tsec]
     not ax
@@ -2119,8 +2142,6 @@ bz_fdtab:
 ; second.  Preserves all but the flags.
 bz_tdset:
     push ax
-    push cx
-    push dx
     mov ax, [bz_tsec]
 %if BZ_PATH_NPAD
     cmp byte [bz_crs], BZ_CRS_PATH ; wave 8b (130.19.5): the pathway's clock
@@ -2129,6 +2150,14 @@ bz_tdset:
     xor ah, ah
 .t:
 %endif
+    call bz_tdsax
+    pop ax
+    ret
+; bz_tdsax - the same from AX (0 - 999): the finish's run time (bz_fflash)
+bz_tdsax:
+    push ax
+    push cx
+    push dx
     mov cl, 10
     div cl                      ; AL = tsec / 10 (at most 99), AH the units
     inc ah
