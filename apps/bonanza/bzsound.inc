@@ -1555,6 +1555,16 @@ bzs_spk:
     sub ax, [di + V_T0]         ; spk - (now - t0) left
     cmp ax, cx
     jae .lead
+    test byte [bzs_flags], 2    ; `spkring`: a drum keyed AFTER an arpeggiated
+    jz .blip                    ; lead note began is the chip's alone, or its
+    cmp byte [bzs_v + V_ON], 0  ; blip breaks the ring (Seq.spk_choice)
+    je .blip
+    cmp byte [bzs_v + V_DYN], 0 ; (V_DYN: the lead's instrument has a macro)
+    je .blip
+    mov bx, [di + V_T0]
+    sub bx, [bzs_v + V_T0]
+    jg .lead
+.blip:
     sub cx, ax
     mov bh, 2
     jmp short .vk

@@ -25,6 +25,10 @@
 ; On the speaker the LEAD carries it (q0: no gaps, so the bass is heard
 ; only in the lead's written rests - the octave pops between the motif's
 ; notes); kick, snare and clap blip on the beats, hats are chip-only.
+; `spkring`: B's arpeggios RING on the speaker as on the chip - a kick, clap
+; or snare keyed inside one (B's drums fall on every beat, so most of its
+; held arpeggios were cut once or twice by a 2-sub-tick blip: the "break-up")
+; is the chip's alone; a hit on an arpeggio's first sub-tick still blips.
 
 song trial "Bounce Trial"
 groove 6
@@ -32,6 +36,7 @@ unit 16
 rows 32
 measure 16
 spkbass
+spkring
 voice lead chip
 voice bass pluckbass
 voice chord stab
