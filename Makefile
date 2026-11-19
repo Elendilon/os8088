@@ -22874,6 +22874,30 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
+#> [Knobs] BZDOWN=1 :: Bounce Bonanza with DOWNHILL DECISION, course 3 in the making (docs/plans/bonanza-courses/DOWN.md), on the shipped pathway's pad 2 in TRIAL's place - a knob build, into a private tree (make BUILD=build/down BZDOWN=1 bonanzadisk)
+# BZDOWN=1 (wave 11; the retired BZROLL's precedent) adds apps/bonanza/courses/down.bbc to BZ_COURSES (after the
+# shipped ones, so every shipped course keeps its K) and compiles the pathway from the SHIPPED path.bbc with
+# apps/bonanza/courses/pathdown.sed applied: pad 2 plays DOWN instead of TRIAL (DOWN has TRIAL's two exits).  The
+# playtest build of the pen-in-then-iterate loop.  STAMPED; without it the build is byte for byte the knob-less
+# one.  When the course ships it moves into BZ_COURSES, the map names it, and the knob goes.
+BZDOWN ?=
+ifeq ($(filter $(BZDOWN),1),)
+ifneq ($(BZDOWN),)
+$(error BZDOWN=$(BZDOWN) is 1 or empty)
+endif
+endif
+ifeq ($(BZDOWN),1)
+BZ_COURSES += apps/bonanza/courses/down.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathdown.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathdown.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathdown.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZDOWNSTAMP := $(BUILD)/.bzdown-$(or $(BZDOWN),0)
+$(BZDOWNSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzdown-*
+	@touch $@
 #> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
@@ -22957,7 +22981,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZDOWNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
