@@ -6362,3 +6362,19 @@ worth more than this course:
   rows (the phase's scoped soak: `bonanzaphys`, `bonanzaring`,
   `bonanzawheel`, `bonanzaperf`, `bonanzareplay`, `bonanzademo`,
   `bonanzamega`).
+
+## 2026-11-19 (Island Hop, revision 3)
+
+The owner kept palette 0 but on black (*"non-black backgrounds later in the
+game, as 'special' courses"*), kept the bounce and the spring, and sent back
+the rest: the double jumps *"MUCH too hard"* for a course that should say
+*"these mechanics exist"*, islands a tile apart that looked joined, and the
+floating style itself, saved for hard aerial courses. Revision 3 is grounded,
+with only 1-tile Hops and railed 1-unit steps, and three void tiles between
+parts that do not connect.
+
+*Observed* while drawing it: between grounded columns a 1-tile gap shows the
+near island's side face, which is also what a step's riser looks like, so a
+gap and a step were indistinguishable. Floating only the row before each gap,
+one unit thick, leaves a black notch under the lip. That is the gap's sign,
+and it costs no rule and no byte of guest code.
