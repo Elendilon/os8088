@@ -6,6 +6,67 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## Art, round 2 (2026-11-19): the picks in, and course-specific options
+
+**In the course** (`art.py --signs banner,floor --extras chev,goal
+--into-course`), the owner's picks from round 1:
+- "JUMP!" is the BANNER, and *"see if the posts can fit without changing
+  heights"*: both posts stand on T1's back-rail run of three equal blocks
+  (x 29 - 31, tops 27). The words are proportional (`text_px(prop=True)`)
+  to make the room: the posts are 42 px apart, inside the run's 48. A post
+  past the run refuses.
+- "JUMP TWICE!" is the FLOOR paint on U1, before the step.
+- The chevrons down the lip ramp; the goal's pennants, provisionally.
+- The course part is 7,901 bytes on the disk (LZB): +364 against the two
+  boards it replaces.
+
+**Round 2's options** (`art.py sheet2 DIR`): each one alone on that course,
+its cost against it in LZB. A goal option is costed against the course
+without the pennants (whose own cost is +135), because it replaces them. The
+owner's rule: *"this is course specific, not generic markings in general"*,
+so the motifs are Little Hop's own: the Hop's arc, the "and again", the
+spring, the drop and bounce.
+
+| group | option | what it is | LZB |
+|---|---|---|---|
+| column | `col-trail` | a Hop and its "and again" painted on the basin's front: two dashed arcs landing on a painted ball | +151 |
+| column | `col-spring` | the basin's spring painted large on its front: a coil of loops between two plates, a ball on top | +236 |
+| column | `col-drop` | the drop and bounce painted on the lip's drop face: a dashed fall, one rebound arc, the ball | +239 |
+| gap | `gap-shadow` | the slot a gap would show: H's face black from B's floor level down 2 units | -17 |
+| gap | `gap-soft` | the same, its upper half combed | +53 |
+| gap | `gap-edge` | yellow-and-black hazard stripes along B's west edge | +64 |
+| gap | `gap-arc` | the spring's throw drawn in the air: dots onto H, an arrowhead | +183 |
+| flowers | `flowers-daisy` | 24 yellow daisies with a black eye painted into 14 rail tops' checker, no outline | +141 |
+| flowers | `flowers-poppy` | the same as red poppies with leaves | +141 |
+| goal | `goal-bunting` | bunting along the goal's back rail: two poles, red, yellow and green flags | +260 |
+| goal | `goal-balloons` | three balloons, red, yellow, green, tied to the back rail | +246 |
+| goal | `goal-blooms` | the goal's rails planted as flower beds, poppies and daisies | +77 |
+
+**Where the column art goes, MEASURED**: the hopping autopilot's route
+through the camera model (`CamRun`, every frame's window: CGA 1,533
+frames, Hercules 1,300). The red face in view longest is the basin B's
+front, the +y faces of the rail row (15 - 17, 26) and its column: 56 - 58%
+of the CGA frames, 30 - 53% of the Hercules'. Next is the lip's drop face
+(10 - 13, 27): 35 - 51%.
+
+**Why the spring's gap does not read**: the void column x 14 stands IN FRONT
+of H's +x face, so the camera sees H's face through it, running down to B's
+floor edge exactly as a wall would. A 1-tile gap there leaves in view only
+the strip of H's face from B's floor level down 2 units (z 19.75 - 21.75).
+`gap-shadow` paints that strip black. It is the cheapest option of the round,
+because a solid run packs better than the dithered face it covers.
+
+The flowers' black eye is the pixel that carries them on the Hercules, where
+red and green are one checker; even so they are faint there. They are meant to.
+
+![column art](hop/art2-1.png)
+
+![the spring's gap](hop/art2-2.png)
+
+![flowers](hop/art2-3.png)
+
+![the goal](hop/art2-4.png)
+
 ## Art options (2026-11-19): for the owner to pick
 
 The owner: *"Give me a few options for signs, and some minimal 'interest'
@@ -13,8 +74,8 @@ art/course piece options."* `hop/art.py` draws each option (FIRST ROLL's
 decal machinery, signs.py's board as the baseline) into a SCRATCH copy of
 the course (`art.py sheet DIR`), compiles it, measures the course part, and
 draws a comparison sheet in palette 0, CGA and Hercules. Nothing here is in
-`hop.bbc` yet: once the owner chooses, `art.py --signs S --extras E
---into-course` replaces signs.py's ART block.
+`hop.bbc` until the owner chose; `art.py --signs S --extras E
+--into-course` then replaced signs.py's ART block (round 2, above).
 
 MEASURED, the course part packed as it ships (LZB), against no signs at all
 (7,209 bytes); the extras each against today's board signs (7,537):
