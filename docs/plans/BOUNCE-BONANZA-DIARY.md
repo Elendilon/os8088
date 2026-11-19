@@ -6650,3 +6650,41 @@ any suggested changes."*
   Not built.
 - **Run**: `tests/bonanza_av.py` on every course, ROLL and a banded ROLL (red
   arms `aband`, `amband`); `--selfcheck`'s sections; `make`.
+
+## 2026-11-19 (the songs: in the bundle and in the courses)
+
+- **The question.** The owner suspected the always-loaded finish tunes and
+  per-course songs were part of the growing load times. MEASURED first
+  (MartyPC's 5150, a breakpoint at every `op_fetch` to the first frame): a
+  launch fetched the course, the sound part, the song, VICTORY and TIME'S
+  UP, and gave all of them back after. The sound parts are small; what costs
+  is a READ for each one whose sectors were not in the track already read -
+  two of the four on PEAK and on MOON (~0.3 - 0.5 s each), none on FIRST.
+  About 29% of PEAK's and MOON's launch.
+- **Stage 1: the bundle.** The owner: *"there is already a shared
+  family/ball part; if it has room, it can go in that and save an extra
+  int13h even on initial load."* It has: the RESIDENT BUNDLE, read once at
+  the open. The sound part and the two tunes now sit between the balls and
+  the families (+1,776 bytes held, no new row, no new read). One trap: "the
+  fanfare is held" had also been the gate for "this play's finish has its
+  tune", and with the tunes always resident a replay's finish would have
+  lost its GOAL effect - so the gate became its own flag, `bzs_fin`.
+  PEAK 3.47 -> 2.69 s, MOON 2.95 -> 2.68 s.
+- **Stage 2: the songs in the courses.** Each course part gains a last
+  section, `S`: zeros to the next paragraph and then the song, so the player
+  still reads it at offset 0 of a derived segment (kern_mega's rule: no
+  segment arithmetic). The identity is taken WITHOUT it, so changing a
+  course's music never re-stamps a demo or refuses a replay. The tool's
+  part reader had four places that assumed the props run to the directory,
+  and BENCH (no props) one more for its route; each was found by the
+  reader's own checks failing. The guest's `bz_cdrop` now lets go of the
+  song before it frees the part. PEAK 2.29 s, MOON 2.19 s, FIRST 0.94 s
+  (a free play), with only the course read; `BONANZA.O88` 469 bytes smaller.
+- **Found on the way**: `tests/pins.txt` still excused the four sound
+  words' claims after stage 1; the fast tier does not run that gate, the
+  `full` tier's `pins` row does. Fixed in stage 2.
+- **Run**: `make` (fast tier 44/44), the `BZDEV=1` tree, the launch probe
+  and the song/title/pathway/time's-up probes on MartyPC, `t_pins`, the
+  course tool's selfcheck and `bonanza_phys --check`. **Named for the
+  soak**: `bonanzasound`, `bonanzaexit`, `bonanzapath`, `bonanzademo`,
+  `bonanzaring`, `bonanzatitle`.

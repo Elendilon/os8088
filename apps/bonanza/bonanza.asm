@@ -183,7 +183,7 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_SONG + BZS_NSONG ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1
+BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1 (no song rows: SPEC.md 130.50)
 BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
@@ -864,13 +864,8 @@ bz_arload:
     shl bx, 1
     mov ax, [bz_bsegs + bx]
     mov [bz_bseg], ax
-    mov al, [bzs_song]          ; the song (0 none: row 0 is a ball's)
-    or al, al
-    jz .r
-    call op_seg
-    mov [bzs_mseg], ax
-.r:
-    ret
+    ret                         ; (the song is the course part's, which is no
+                                ; arena row: it does not move - SPEC.md 130.50.3)
 
 %if BZ_PATH_NPAD
 ; the pathway's part, HELD (130.22.7): bz_phrel's test is the heap's largest
@@ -2529,6 +2524,9 @@ bz_cnex:        BZ_CRS_NEXITS
 ; NEVER the balls, held in the bundle for the instance (SPEC.md 130.25.5.2).  The
 ; song is bzs_gdrop's.  Preserves nothing.
 bz_cdrop:
+    xor ax, ax                  ; SPEC.md 130.50.3: the song is the course
+    mov [bzs_live], al          ; part's - the sequencer lets go of it before
+    mov [bzs_mseg], ax          ; the part is given back
     push ds                     ; ES = ours, not whatever the bracket left:
     pop es                      ; op_drop restores its caller's ES after the
                                 ; free, and on kern_mega a part's own selector
@@ -5305,7 +5303,7 @@ bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
 bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECSTEPS
                                 ; steps, a word each (0 none; wave 7, 130.18.3)
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
-bz_csongs:  BZ_CRS_SONGS        ; ...their songs, a byte each (wave 7, 130.18.6)
+; (their songs: each course part's own section S since SPEC.md 130.50.3 - no table)
 bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word each
 %if BZ_NCRS2
 bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 130.30.4.4: each course's WORLD part's row (0: one part)
@@ -5343,7 +5341,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %endif
 
 ; --- the part table (SPEC.md 130.11.3.1, 20.12) --------------------------------
-; 3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO rows, in the Makefile's BZ_PARTS
+; BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + ... rows (no sound rows since SPEC.md 130.50), in the Makefile's BZ_PARTS
 ; order, every one OP_LAZY | OP_COMP - and a play's SMALL ones, the balls, the
 ; sound part, the songs (the fanfare is one) and the families' code parts
 ; (wave 9, SPEC.md 130.25.6.2), OP_ARENA: ONE claim between
@@ -5352,11 +5350,8 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2), then the WORLD parts
- %rep BZS_NSONG
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SONG + S: BZM<S>.BIN
- %endrep
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (130.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (130.19.2)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_PATH: BZPATH.BIN, the pathway (130.19.5)
@@ -5368,7 +5363,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + 
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
+%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
  %error "the demo rows follow the songs', one a tour course (SPEC.md 130.14.7.4)"
 %endif
 
