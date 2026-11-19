@@ -586,7 +586,7 @@ def listing(td, patches=()):
     src = os.path.join(ROOT, "apps", "bonanza") if not patches else os.path.join(td, "bonanza")
     lst = os.path.join(td, "bonanza.lst")
     art = R.at("build/bonanza-art")
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", art + "/", "-o", os.path.join(td, "lst.bin"), "-l", lst, os.path.join(src, "bonanza.asm")],
                    cwd=ROOT, check=True)
     out = {}
@@ -787,6 +787,7 @@ def main():
     ap.add_argument("--reds", action="store_true", help="every red arm: each must go red")
     ap.add_argument("--price", action="store_true", help="D3.4: the steps priced (130.11.15's method)")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.price:
         price_report(a.runs, a.seed)
         return

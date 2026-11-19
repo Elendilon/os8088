@@ -21,6 +21,14 @@ and music and impacts (S). There is no in-play HUD (it did not fit; SPEC.md
 130.14.16) - the time is on the results face. SPEC.md 130.10 - 130.14 and
 130.20 are the contract.
 
+**The test build.** The keys below - and the tour, the benchmark, the
+results page and the demo keys - are the TEST INSTRUMENTS, and since wave 4
+of the space plan they exist only in a `make BUILD=build/bzdev BZDEV=1
+bonanzadisk` build (SPEC.md 130.26.6.1). The shipped game's window answers
+Enter, F and Alt+Enter (Play Game), F5 and F6 (save and load a replay) and
+its menus. The camera is LATTICE alone: TRICKLE, which C used to select, is
+deleted (SPEC.md 130.9).
+
 Keys, on the desktop: Enter, F or Alt+Enter plays the selected course with
 the selected ball. **N cycles the course** through the six ("First Roll",
 "Bounce Trial", "Windmill Lane", "Moonlit Green", "Summit Rush", the
@@ -30,9 +38,7 @@ own - the seventh, "Proving Ground", is the benchmark's, played by B) and **M cy
 own course, "Proving Ground", with that course's ball (the autopilot drives
 the course's route for 1,200 frames, then the window shows the frames, the
 display rate, the refreshes missed and the worst frame, and the cost of each
-part of a frame; the benchmark always runs the GLIDE camera). **C toggles
-the camera** between GLIDE and TRICKLE (SPEC.md 130.11.11.1) on the desktop,
-where the face names it, and while playing. C, M and N held down count as
+part of a frame). M and N held down count as
 ONE press, and every choice lasts until the package closes. **R replays the
 last play** - the same steps, on either card - once one has been recorded
 (SPEC.md 130.11.12). Any key after a benchmark's results returns the window

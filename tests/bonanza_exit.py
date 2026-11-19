@@ -743,7 +743,7 @@ def wave4_exits(g, ui, base_rows, base_claims):
     ui.open("EXIT.BZR")                          # the double-click: a new instance with the log
     g2 = R.Bz(ui, g.tag, g.sym, live=True)
     ui.settle()
-    if bytes(m.read(g2.a("bz_rlog"), 4)) != b"BZR1":
+    if bytes(g2.read_log(4)) != b"BZR1":
         fails.append("double-click: BONANZA opened without EXIT.BZR's log")
     fails += after(g2, "the double-click", base_rows, base_claims)
     return fails
@@ -1146,6 +1146,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check:
         for line in R.check_reds(REDS, "bonanza_exit"):
             print(line)

@@ -318,6 +318,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--reds", action="store_true")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.red or a.reds:
         for name in ([a.red] if a.red else sorted(REDS)):
             bad = check(a.runs, a.seed, verbose=False, patches=REDS[name])
