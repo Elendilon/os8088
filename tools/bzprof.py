@@ -65,7 +65,7 @@ def name(tab, off):
 def vga_listing(td):
     lst = os.path.join(td, "bzvga.lst")
     out = os.path.join(td, "bzvga.bin")
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/bonanza/",
+    subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/bonanza/",
                     "-I", R.at("build/bonanza-art") + "/", "-l", lst, "-o", out, "apps/bonanza/bzvga.asm"],
                    cwd=ROOT, check=True)
     return lst
@@ -102,6 +102,7 @@ def main():
                     help="sample only while the physics step bz_nstep is in [A, B) (a stretch of a replay)")
     a = ap.parse_args()
     vga = "vga" in a.machine
+    R.dev()                     # (the BZDEV=1 build, SPEC.md 130.26.6.1: R, V and the demos' keys are its own)
     art = R.at("build/bonanza-art")
     sym = R.symbols(None, art)
     with tempfile.TemporaryDirectory() as td:
