@@ -183,7 +183,7 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1 (no song rows: SPEC.md 130.50)
+BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo row i: BZ_P_DEMO + i, course bz_dcrs[i] (130.14.7.4)
 BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
@@ -194,31 +194,29 @@ BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 130.25.6.2): the family part
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (130.25.6.9); bz_ftab maps an ID
 BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.46.6): the last row
 BZ_LIVES    equ 5               ; a new game's lives (8b.5)
-; --- BONANZA.DAT (SPEC.md 130.14.3.3, 130.22.5): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
-; `BZS4` (wave 8R round 2, item 8R.14): 494 bytes laid out for BZ_CRS_MAX = 23 courses
-BZD_ENT     equ 8               ; 23 entries, K 0 - 22 (BENCH's unused): +0 the
-BZD_ENTB    equ 6               ; course's IDENTITY, +2 its best in STEPS (0
-BZD_NENT    equ BZ_CRS_MAX      ; none), +4 that best's falls
-BZD_RSV     equ BZD_ENT + BZD_NENT * BZD_ENTB ; 6 RESERVED bytes, written zero and zeroed
-                                ; on load (the tour's until 130.26.8; BZS5 drops them)
-BZD_SLOT    equ BZD_RSV + 6     ; three game SLOTS after the bests: +0 lives, +1
-BZD_SLOTB   equ 22 + 4 * BZ_CRS_MAX ; the MODE (bit 0), +2 the PAD, +3 zero,
+; --- BONANZA.DAT (SPEC.md 130.14.3.3, 130.22.5.1): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
+; `BZS5`: 488 bytes, keyed by what stays put - a best by its course's SAVE KEY, progress by PAD
+BZD_ENT     equ 8               ; 23 best entries IN NO ORDER: +0 the course's
+BZD_ENTB    equ 6               ; SAVE KEY (BZ_CRS_KEYS; 0 empty), +2 its best in
+BZD_NENT    equ BZ_CRS_MAX      ; STEPS (0 none), +4 that best's falls
+BZD_SLOT    equ BZD_ENT + BZD_NENT * BZD_ENTB ; three game SLOTS after the bests: +0 lives,
+BZD_SLOTB   equ 22 + 4 * BZ_PAD_MAX ; +1 the MODE (bit 0), +2 the PAD, +3 zero,
 BZD_NSLOT   equ 3               ; +4 the OPEN pads and +8 the DONE ones
 BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; (a dword each, a bit a pad), +12 the routes
 BZD_SPAD    equ 2               ; OPENED and +16 TAKEN (a dword each), +20 the
-BZD_SOPEN   equ 4               ; pathway's identity, +22 the exits found (a
-BZD_SDONE   equ 8               ; word a course, 23 courses, +22 - +67), +68 the
-BZD_SROPN   equ 12              ; best a course (steps, a word a course, 23
-BZD_SRTAK   equ 16              ; courses, +68 - +113): 114 bytes a slot.
-BZD_SID     equ 20
+BZD_SOPEN   equ 4               ; pathway's VERSION (BZ_PATH_VER), +22 the exits
+BZD_SDONE   equ 8               ; found (a word a PAD, 23 pads, +22 - +67), +68
+BZD_SROPN   equ 12              ; the best a pad (steps, a word a pad, +68 -
+BZD_SRTAK   equ 16              ; +113): 114 bytes a slot.
+BZD_SVER    equ 20
 BZD_SEXIT   equ 22
-BZD_SBEST   equ BZD_SEXIT + 2 * BZ_CRS_MAX
+BZD_SBEST   equ BZD_SEXIT + 2 * BZ_PAD_MAX
 ; UNDER one sector, never a WHOLE one: od_write takes its in-place arm (one
 ; sector, no FAT, no entry) only for a count that is not a multiple of 512
 ; (os88data.inc), and the slot is written at a course's ENTRY inside the
 ; bracket (130.19.6) - at 512 bytes every save would be a full replace
-%if BZD_FILE >= 512 || BZD_SBEST + 2 * BZ_CRS_MAX != BZD_SLOTB || BZD_SID - BZD_SOPEN != 16 || BZ_NCRS > BZ_CRS_MAX
- %error "save v4 is under ONE sector, a word a course in both tables (SPEC.md 130.22.5)"
+%if BZD_FILE >= 512 || BZD_SBEST + 2 * BZ_PAD_MAX != BZD_SLOTB || BZD_SVER - BZD_SOPEN != 16 || BZ_NCRS > BZ_CRS_MAX || BZ_PATH_NPAD > BZ_PAD_MAX
+ %error "BZS5 is under ONE sector, a word a pad in both tables (SPEC.md 130.22.5.1)"
 %endif
 BZD_NPAD    equ BZ_PATH_NPAD    ; the pads a slot's +2 may name (130.22.3)
 %if BZD_NPAD > 32
@@ -258,7 +256,7 @@ bz_entry:
     mov [bz_homevol], bl        ; a dialog does to the instance later
     call bz_dload               ; the best times (130.14.3.3); kern_small: none
 %ifdef BZDEV
-    mov byte [bz_crsel], BZ_CRS_FIRST ; the course F plays (a row pokes another)
+    mov byte [bz_crsel], BZ_CRS_DEFAULT ; the course F plays: pad 0's (a row pokes another)
 %endif
     OS88_REGION_MOVABLE
     OS88_ALTENTER_ARM
@@ -874,7 +872,7 @@ bz_gslot:
 
 ; bz_gstore - the game's state into the slot played (130.22.5): AL lives
 ; (bz_gstorl: AL given), the pad, the open and done pads and the routes
-; (bz_nopen ... bz_nrtk, 16 bytes, the slot's order), the pathway's identity.
+; (bz_nopen ... bz_nrtk, 16 bytes, the slot's order), the pathway's version.
 ; Preserves all but AX and SI.
 bz_gstore:
     mov al, [bz_lives]
@@ -883,8 +881,7 @@ bz_gstorl:
     mov [si], al
     mov al, [bz_ppad]
     mov [si + BZD_SPAD], al
-    mov ax, [bz_cids + 2 * BZ_CRS_PATH]
-    mov [si + BZD_SID], ax
+    mov word [si + BZD_SVER], BZ_PATH_VER
     push cx
     push di
     push es
@@ -892,7 +889,7 @@ bz_gstorl:
     pop es
     lea di, [si + BZD_SOPEN]
     mov si, bz_nopen
-    mov cx, (BZD_SID - BZD_SOPEN) / 2
+    mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep movsw
     pop es
     pop di
@@ -913,7 +910,7 @@ bz_gload:
     pop es
     add si, BZD_SOPEN
     mov di, bz_nopen
-    mov cx, (BZD_SID - BZD_SOPEN) / 2
+    mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep movsw
     pop es
     pop di
@@ -935,7 +932,7 @@ bz_gnew:
     mov byte [si + BZD_SPAD], 0
     lea di, [si + BZD_SOPEN]
     xor ax, ax
-    mov cx, (BZD_SID - BZD_SOPEN) / 2
+    mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep stosw
     mov byte [si + BZD_SOPEN], 1
     pop es
@@ -996,18 +993,24 @@ BZ_PE_OVER  equ 3               ; ...the last one
 BZ_PW_GSTEP equ 6               ; steps a gate pose: 1 - 5, the roll after 30 (0.55 s)
 BZ_PW_OSTEP equ 96              ; the GAME OVER effect's steps (82 sub-ticks) before its card
 
-; bz_medal - course BL's DONE pose (8c.3, 130.19.8.3; a pad's sign, 130.22.2):
-; DL = 3 GOLD (the slot's best for it at or under G), 2 SILVER (at or under
-; S), 1 else.  Preserves all but DX.
+; bz_medal - pad AL's DONE pose, BL the course it plays (8c.3, 130.19.8.3; a
+; pad's sign, 130.22.2): DL = 3 GOLD (the slot's best for the PAD at or under
+; the course's G, 130.22.5.1), 2 SILVER (at or under S), 1 else.  Preserves
+; all but DX.
 bz_medal:
     push ax
     push bx
     push si
     xor bh, bh
     shl bx, 1
+    shl bx, 1                   ; BX = 4K, the course's medals
     call bz_dslot
+    push bx
+    xor ah, ah
+    xchg ax, bx
+    shl bx, 1                   ; ...and 2 x the pad, its best
     mov ax, [si + bx + BZD_SBEST]
-    shl bx, 1
+    pop bx
     mov dl, 1
     or ax, ax
     jz .o
@@ -2081,8 +2084,8 @@ bz_grounds:
 .ntw:
     cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 130.22.6)
     je .life
-    call bz_dslot               ; the exit FOUND (130.19.6), a word a course,
-    mov bl, [bz_crs]            ; in either mode
+    call bz_dslot               ; the exit FOUND (130.19.6), a word a PAD
+    mov bl, [bz_ppad]           ; (130.22.5.1), in either mode
     xor bh, bh
     shl bx, 1
     mov cl, [bz_exit]
@@ -2443,6 +2446,8 @@ bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 %endmacro
 %endif
 bz_cnex:        BZ_CRS_NEXITS
+bz_dcrs:        BZ_DEMO_CRS     ; each shipped demo row's course K (130.14.7.4)
+bz_pexits:      BZ_PAD_EXITS    ; each pad's course's exits, a bit each (130.22.5.1)
  %if BZ_PATH_NPAD > 32
   %error "the save keeps a bit a pad in a dword (SPEC.md 130.22.5)"
  %endif
@@ -4048,32 +4053,34 @@ bz_post:
     mov al, [bz_cballs + bx]
     cmp al, [bz_rlog + BZR_MAT]
     jne .out
+    shl bx, 1                   ; the course's entry, by its SAVE KEY
+    mov ax, [bz_ckeys + bx]     ; (130.22.5.1): its own, or an empty one
+    mov di, bz_dat + BZD_ENT
+    call bz_dbest
     mov ax, [bz_lsn]
     cmp ax, 0ffffh
     je .out
-    mov si, bx                  ; entry K: bz_dat + BZD_ENT + 6K
-    shl si, 1
-    add si, bx
-    shl si, 1
-    mov cx, [bz_dat + BZD_ENT + 2 + si]
+    mov cx, [si + 2]
     jcxz .set
     cmp ax, cx
     jae .out
 .set:
-    mov [bz_dat + BZD_ENT + 2 + si], ax
+    mov [si + 2], ax
     mov ax, [bz_lsf]
-    mov [bz_dat + BZD_ENT + 4 + si], ax
+    mov [si + 4], ax
+    mov ax, [bz_ckeys + bx]
+    mov [si], ax
     mov byte [bz_newb], 1
 .out:
     ret
 
 ; bz_dload - the entry proc's read of BONANZA.DAT (SPEC.md 130.14.3.3), and
 ; [bz_dat] made this build's whole image whatever it found.  The file is
-; HOSTILE (§19): exactly BZD_FILE bytes and `BZS4` (no older layout is read,
-; 130.22.5), then bz_dchk's whole-file checks
+; HOSTILE (§19): exactly BZD_FILE bytes and `BZS5` (no older layout is read,
+; 130.22.5.1), then bz_dchk's whole-file checks
 ; (130.14.17 item 6) - any failure and it is treated as ABSENT; then
-; bz_dnorm keeps an entry only under this build's identity with a best 1 -
-; 65,534.  A missing file or folder is the first run: silent.  kern_small
+; bz_dnorm keeps an entry only under one of this build's SAVE KEYS, the
+; first entry holding it, with a best 1 - 65,534.  A missing file or folder is the first run: silent.  kern_small
 ; refuses at the launch keys (130.1), so it reads nothing.  Preserves nothing.
 bz_dload:
     xor cl, cl
@@ -4101,9 +4108,9 @@ bz_dload:
 %endif
     or dx, dx
     jnz bz_dnorm
-    cmp ax, BZD_FILE            ; save v4 (130.22.5): `BZS4`, exactly one sector; any
+    cmp ax, BZD_FILE            ; BZS5 (130.22.5.1): exactly BZD_FILE bytes; any
     jne bz_dnorm                ; other length (an older layout too) is unrecognised
-    cmp word [bz_dat + 2], 'S4'
+    cmp word [bz_dat + 2], 'S5'
     jne bz_dnorm
     call bz_dchk
 ; CL = 1: keep what this build can file; 0: nothing (the first run's image).
@@ -4124,87 +4131,104 @@ bz_dnorm:
     je .phys
     xor cl, cl
 .phys:
-    mov word [bz_dat], 'BZ'     ; `BZS4`, the count and BZ_PHYSV, two zero bytes
-    mov word [bz_dat + 2], 'S4'
+    mov word [bz_dat], 'BZ'     ; `BZS5`, the count and BZ_PHYSV, two zero bytes
+    mov word [bz_dat + 2], 'S5'
     mov word [bz_dat + 4], BZ_NCRS | (BZ_PHYSV << 8)
     mov word [bz_dat + 6], 0
-    mov si, bz_dat + BZD_ENT
-    xor bx, bx                  ; BX = 2K
-.e:
-    xor ax, ax                  ; the identity entry K is filed under: 0 for
-    cmp bx, 2 * BZ_NCRS         ; BENCH's and past the courses
-    jae .id
-    or bx, bx
-    jz .id
-    mov ax, [bz_cids + bx]
-.id:
-    or ax, ax                   ; BENCH's entry and those past the courses are
-    jz .clr                     ; ALWAYS zero, whatever the file filed under
-    or cl, cl                   ; identity 0 there (a count-8 file's entry 6
-    jz .clr                     ; would otherwise be kept, then written under
-                                ; this build's count, and the next read would
-                                ; refuse the whole file); a course identity is
-                                ; never 0 (bbcourse asserts it)
-    cmp ax, [si]                ; a course rebuilt with another identity
-    jne .clr                    ; loses its best by itself
-    mov dx, [si + 2]
-    dec dx                      ; a best 1 - 65,534
+    mov di, bz_dat + BZD_ENT    ; THE BESTS (130.22.5.1), in the file's order:
+.e:                             ; an entry is kept under one of this build's
+    mov ax, [di]                ; SAVE KEYS (never 0), with a best 1 - 65,534,
+    or cl, cl                   ; and only the FIRST entry with that key; any
+    jz .clr                     ; other is emptied
+    mov si, bz_ckeys
+    mov bx, BZ_NCRS
+.k:
+    cmp ax, [si]
+    je .kk
+    inc si
+    inc si
+    dec bx
+    jnz .k
+    jmp short .clr              ; (a foreign key, and 0)
+.kk:
+    mov dx, [di + 2]
+    dec dx
     cmp dx, 0fffdh
-    jbe .keep
+    ja .clr
+    push di
+    mov di, bz_dat + BZD_ENT
+    call bz_dbest               ; the first entry holding the key ...
+    pop di
+    cmp si, di                  ; ...is this one: kept
+    je .keep
 .clr:
-    mov word [si + 2], 0
-    mov word [si + 4], 0
+    xor ax, ax
+    mov [di], ax
+    mov [di + 2], ax
+    mov [di + 4], ax
 .keep:
-    mov [si], ax
-    add si, BZD_ENTB
-    inc bx
-    inc bx
-    cmp bx, 2 * BZD_NENT
+    add di, BZD_ENTB
+    cmp di, bz_dat + BZD_SLOT
     jb .e
-    xor ax, ax                  ; the RESERVED 6 bytes (the tour's until
-    mov [bz_dat + BZD_RSV], ax  ; SPEC.md 130.26.8): zero whatever the file
-    mov [bz_dat + BZD_RSV + 2], ax ; held
-    mov [bz_dat + BZD_RSV + 4], ax
+    ret
+
+; bz_dbest - AX = a save key (never 0), DI = a best table's first entry ->
+; SI the FIRST entry holding the key, else the first EMPTY one (key 0: one is
+; always there in an image bz_dnorm made, its keys distinct and at most
+; BZ_NCRS of BZD_NENT).  Preserves all else.
+bz_dbest:
+    push cx
+    push di
+    xor si, si
+    mov cx, BZD_NENT
+.l:
+    cmp [di], ax
+    je .hit
+    or si, si
+    jnz .n
+    cmp word [di], 0
+    jne .n
+    mov si, di
+.n:
+    add di, BZD_ENTB
+    loop .l
+    jmp short .o
+.hit:
+    mov si, di
+.o:
+    pop di
+    pop cx
     ret
 
 ; bz_dchk - BONANZA.DAT's header and entries in [bz_dat], checked IN FULL
-; (SPEC.md 130.14.17 item 6, 130.22.5): `BZ` (+2 `S4`: bz_dload matched it
+; (SPEC.md 130.14.17 item 6, 130.22.5.1): `BZ` (+2 `S5`: bz_dload matched it
 ; with the length); the count it was written with 1 - BZD_NENT; +6 - +7 zero
 ; (+5, the physics, any value: bz_dnorm judges it, 130.16.9); every entry's
-; falls at most 9,999; every UNUSED entry (BENCH's, and K at or past the
-; count) all zero.  The reserved bytes are bz_dnorm's, the slots bz_dslots'.  -> CL = 1
-; it passes, 0 it is refused whole.  Clobbers AX, BX, SI.
+; falls at most 9,999; every EMPTY entry (key 0) all zero.  The keys are
+; bz_dnorm's, the slots bz_dslots'.  -> CL = 1 it passes, 0 it is refused
+; whole.  Clobbers AX, SI.
 bz_dchk:
     xor cl, cl
-    cmp word [bz_dat], 'BZ'     ; (+2 `S4`: bz_dload matched it with the
+    cmp word [bz_dat], 'BZ'     ; (+2 `S5`: bz_dload matched it with the
     jne .out                    ; length)
     mov al, [bz_dat + 4]
     dec al
     cmp al, BZD_NENT
     jae .out
-    inc ax
     cmp word [bz_dat + 6], 0
     jne .out
     mov si, bz_dat + BZD_ENT
-    xor bl, bl                  ; K
 .e:
     cmp word [si + 4], BZ_FALLMAX
     ja .out
-    or bl, bl
-    jz .z
-    cmp bl, al
-    jb .n
-.z:
     cmp word [si], 0
-    jne .out
-    cmp word [si + 2], 0
-    jne .out
-    cmp word [si + 4], 0
-    jne .out
+    jne .n
+    mov ax, [si + 2]
+    or ax, [si + 4]
+    jnz .out
 .n:
     add si, BZD_ENTB
-    inc bx
-    cmp bl, BZD_NENT
+    cmp si, bz_dat + BZD_SLOT
     jb .e
     inc cx
 .out:
@@ -4216,7 +4240,8 @@ bz_dchk:
 ; that fails - no folder, write-protected, full - toasts ONCE a session and
 ; the bests stay in memory (SPEC.md 130.14.3.3).  The save MERGES: the file is
 ; read again first (bz_dload, as hostile as at the entry) and the smaller best
-; of the two kept per entry, so a second instance - a
+; of the two kept per course, matched by SAVE KEY (130.22.5.1: each image's
+; entries are in no order), so a second instance - a
 ; double-clicked .BZR opens one - never overwrites the first's bests with its
 ; older copy.  Preserves nothing.
 bz_dsave:
@@ -4237,23 +4262,27 @@ bz_dsave:
     add si, bz_dmine - bz_dat
     mov cx, BZD_SLOTB / 2
     rep movsw
-    mov si, bz_dmine + BZD_ENT
+    mov bx, bz_dmine + BZD_ENT  ; per course: each of our entries (bz_dnorm
+    mov cx, BZD_NENT            ; made both images: this build's keys, each
+.m:                             ; once, a best 1 - 65,534) against the disk's
+    mov ax, [bx]                ; entry for its key, or an empty one there (0 -
+    or ax, ax                   ; 1 is the largest, so "none" never wins)
+    jz .mn
     mov di, bz_dat + BZD_ENT
-    mov cx, BZD_NENT            ; per entry (both carry this build's identities
-.m:                             ; and zeros where no best is: 0 - 1 is the
-    mov ax, [si + 2]            ; largest, so "none" never wins)
+    call bz_dbest
+    mov di, si
+    mov si, bx
+    mov ax, [si + 2]
     dec ax
     mov dx, [di + 2]
     dec dx
     cmp ax, dx
     jae .mn
-    mov ax, [si + 2]
-    mov [di + 2], ax
-    mov ax, [si + 4]
-    mov [di + 4], ax
+    movsw                       ; the key, the best and its falls
+    movsw
+    movsw
 .mn:
-    add si, BZD_ENTB
-    add di, BZD_ENTB
+    add bx, BZD_ENTB
     loop .m
     call bz_dwrite
     pop es
@@ -4315,15 +4344,16 @@ bz_dslz:
     pop ax
     ret
 
-; bz_dslots - each SLOT judged alone (save v4, SPEC.md 130.22.5): EMPTIED when
+; bz_dslots - each SLOT judged alone (BZS5, SPEC.md 130.22.5.1): EMPTIED when
 ; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
 ; a route TAKEN is not one OPENED, its exits found or its bests past the
-; courses (K at or past BZ_NCRS) are not zero, or - it having lives - pad 0
-; is not open, it is
-; not this build's pathway's, its pad is not one of the pathway's
-; (BZD_NPAD), or - TIMED - its pad is not open (EXPLORE rests on any pad:
-; every one is open to it, none in the open set).  An empty slot (lives 0)
-; keeps its exits found.  Preserves all but the flags.
+; pathway's PADS (at or past BZ_PATH_NPAD) are not zero, +20 is not this
+; build's pathway VERSION, or - it having lives - pad 0 is not open, its pad
+; is not one of the pathway's (BZD_NPAD), or - TIMED - its pad is not open
+; (EXPLORE rests on any pad: every one is open to it, none in the open set).
+; An empty slot (lives 0) keeps its exits found.  Then each pad's exits found
+; are masked to the exits of the course it plays (BZ_PAD_EXITS).  Preserves
+; all but the flags.
 bz_dslots:
     push ax
     push bx
@@ -4348,21 +4378,20 @@ bz_dslots:
     not ax
     test ax, [si + BZD_SRTAK + 2]
     jnz .bad
-    lea di, [si + BZD_SEXIT + 2 * BZ_NCRS] ; the exits found and the bests of
-    mov cx, BZ_NEXITPAD         ; courses that are not here are zero
+    lea di, [si + BZD_SEXIT + 2 * BZ_PATH_NPAD] ; the exits found and the bests
+    mov cx, BZ_NPADPAST         ; of pads that are not here are zero
     call bz_dzero
     jnz .bad
-    lea di, [si + BZD_SBEST + 2 * BZ_NCRS]
-    mov cx, BZ_NEXITPAD
+    lea di, [si + BZD_SBEST + 2 * BZ_PATH_NPAD]
+    mov cx, BZ_NPADPAST
     call bz_dzero
     jnz .bad
+    cmp word [si + BZD_SVER], BZ_PATH_VER ; this build's pathway VERSION (an
+    jne .bad                    ; all-zero slot's emptying changes nothing)
     cmp byte [si], 0
     je .n
     test byte [si + BZD_SOPEN], 1 ; a game with lives has pad 0 open ...
     jz .bad
-    mov ax, [bz_cids + 2 * BZ_CRS_PATH] ; ...on this build's pathway ...
-    cmp ax, [si + BZD_SID]
-    jne .bad
     mov al, [si + BZD_SPAD]     ; ...its pad one of the pathway's (the
     cmp al, BZD_NPAD            ; loop indexes the part's tables by it) ...
     jae .bad
@@ -4383,6 +4412,18 @@ bz_dslots:
     rep stosw
     pop es
 .n:
+    push si                     ; each pad's exits found masked to its
+    mov di, bz_pexits           ; course's (130.22.5.1: the course on a pad
+.x:                             ; can change under its progress)
+    mov ax, [di]
+    and [si + BZD_SEXIT], ax
+    inc si
+    inc si
+    inc di
+    inc di
+    cmp di, bz_pexits + 2 * BZ_PATH_NPAD
+    jb .x
+    pop si
     add si, BZD_SLOTB
     dec bl
     jnz .s
@@ -4395,7 +4436,7 @@ bz_dslots:
 
 ; bz_dzero - ZF = 1 when the CX words at DS:DI are all zero (CX 0: they are).
 ; Preserves all but CX, DI.
-BZ_NEXITPAD equ BZ_CRS_MAX - BZ_NCRS ; the words a slot's tables hold past the courses
+BZ_NPADPAST equ BZ_PAD_MAX - BZ_PATH_NPAD ; the words a slot's tables hold past the pads
 bz_dzero:
     push ax
     xor ax, ax                  ; (ZF = 1 for CX = 0)
@@ -4986,7 +5027,7 @@ bz_onwake:
     jmp bz_rret
 
 %ifdef BZDEV
-; V (one press): the next SHIPPED demo, 1 - 5 in turn, into the
+; V (one press): the next SHIPPED demo, the rows in turn, into the
 ; held log (SPEC.md 130.14.7.4) - its part fetched at home, copied whole (a
 ; PART is trusted: the tool checked it, 130.10.6.2) and dropped.  It replaces
 ; the session's last log, as a new play does.
@@ -5084,6 +5125,7 @@ bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
 bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECSTEPS
                                 ; steps, a word each (0 none; wave 7, 130.18.3)
 bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
+bz_ckeys:   BZ_CRS_KEYS         ; ...their SAVE KEYS, a word each (130.22.5.1)
 ; (their songs: each course part's own section S since SPEC.md 130.50.3 - no table)
 bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word each
 %if BZ_NCRS2
@@ -5142,8 +5184,8 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
- %error "the demo rows follow the songs', one a course but BENCH (SPEC.md 130.14.7.4)"
+%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
+ %error "the demo rows follow the courses', at most one a course (SPEC.md 130.14.7.4)"
 %endif
 
 %define OS88UI_ABOUT

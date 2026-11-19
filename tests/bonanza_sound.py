@@ -491,7 +491,9 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                         fails.append("S: OFF kept a song (%04X)" % g.w("bzs_mseg"))
                 m.run()
                 M.guest_sleep(m, 0.4)
-            # 3. FIRST - a free play, F (Enter is the TITLE since SPEC.md 130.23.4)
+            # 3. FIRST - a free play, F (Enter is the TITLE since SPEC.md 130.23.4), [bz_crsel] POKED: it
+            m.pause()                   # starts on pathway pad 0's course
+            g.putb("bz_crsel", R.CRS_K["first"])
             m.run()
             g.key("KeyF")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 30, "the bracket is up", guest=60)
