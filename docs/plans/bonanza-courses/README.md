@@ -237,7 +237,40 @@ moves.
   horizontal framing would show all of it. That is a camera change (a
   per-course horizontal lock). TAKEN and BUILT: SPEC.md 130.45, `lock across`.
 
-## 2. The design sheet (`<NAME>.md`)
+### 1.10 Reading the course: guidance from LITTLE HOP (2026-11-19)
+
+*Guidance, not rules (the owner: "mostly good general guides, but not hard
+constraints"). What course 2's seven revisions taught about what the player
+can SEE; each is a default to depart from with a reason.*
+
+- **Climb up the screen, drop down it.** The camera sees only a tile's +x
+  and +y faces, so a step UP climbed moving +x or +y shows no riser and
+  reads as flat; climbed moving -x or -y, the riser faces the player. A drop
+  reads best taken moving +x or +y, the edge left behind showing its face.
+- **A gap between grounded columns needs a LIP.** The near island's side face
+  fills a 1-tile gap exactly as it fills a step's riser, so the two look
+  alike. Floating the lip row before the gap one unit thick (`float ...
+  thick 1`) leaves a black notch under it: a notch means a gap, no notch a
+  step. The lip is on the island whose face is in view: the near one for a
+  gap taken down the screen, the far one for a gap climbed up it.
+- **Keep apart what does not connect.** Two surfaces a tile apart at nearly
+  one height read as one hop, whether or not the course means it; about
+  three void tiles, or a clear height difference, keeps a non-route
+  neighbour from looking like the route.
+- **The jump rungs** (quarter heights, SPEC.md 130.48): a 3/4-unit step
+  is the EASY jump (no ball rolls up it, every ball's Hop climbs it), and a
+  1-unit step is the hard single jump or rubber's easy double jump. A 1-tile
+  gap is an easy Hop; a 2-tile gap needs a precise "and again".
+- **Give a start some roll room.** At least three tiles before the first
+  jump, so a player never has to back up to get going.
+- **Signs say what to do next, where it is done**: "JUMP!" before the jump,
+  not after it ("a 'here is what you need to do' instruction instead of a
+  'do this to get here' instruction").
+- *Specific to a TEACHING course, not general:* a long run-up before a move
+  being taught (LITTLE HOP's five-tile U1 before the double jump). A test
+  course may cut it short on purpose.
+
+
 
 One per shipped course, written before its `.bbc`; it is the PEN-IN of
 section 3. [FIRST-ROLL.md](FIRST-ROLL.md) is the first. The plan's pipeline step 1

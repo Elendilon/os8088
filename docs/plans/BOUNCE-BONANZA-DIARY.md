@@ -6520,6 +6520,52 @@ steel, easy double bounce for rubber, hard but possible double bounce for rubber
 - **Run**: the oracle over 24 courses; `make` (the fast tier 44/44); the tool's ladder and item 48 with two
   reds by hand; `tests/bonanza_dsplit.py`, `tests/bonanza_dfield.py`, `tests/bonanza_dquarter.py` (unicorn).
   **Not run**: the bonanza soak rows (the phase's soak, in the background after the commit).
+## 2026-11-19 (occluders at the real poses; AV over split cells - branch `bb-occfix`)
+
+- **The question** (the owner, looking at a map of ROLL's occluder records):
+  why are there records over the open, front-facing platforms at the top,
+  where the ball is always on top and only a fall behind them should hide
+  it - and that should be AV's?
+- **The answer, pose by pose** (each of the 342 records in the circled area
+  tried against every pose a ball can REALLY be in - its centre on a 2 gu
+  lattice, at or over the floor there, both air states): 142 were laid at
+  no real pose - the reach took every cell's whole area at every height from
+  its LOWEST, so a ramp's low end was taken under its high end and a
+  diagonal corner's empty half under its floor half; 84 bit a ball bouncing
+  on a ramp - the rule's "in front" is the cell row, and the next cell of
+  the same ramp is one row nearer and higher at its back, so a ball half a
+  pixel off the ramp lost its lower corner; 116 hid a ball falling through a
+  diagonal corner's empty half, or beside one, where AV did not run (a
+  split cell is not VOID) or could not see (its front cells passed over
+  every split cell).
+- **What was built** (SPEC.md 130.49): the low flight (an airborne ball
+  under `BZ_CLIMB` over the floor under it takes the grounded margin - the
+  guest already kept that floor, `bz_gh`); the cut at real poses (ramps and
+  split cells in 4 gu squares at the floor under them); and AV over split
+  cells (the model in a split cell's VOID piece, picked as physics picks;
+  pieces in front counted as HALF-EDGES in 24 extra slots, a diagonal's
+  edge from the cell's centre, measured against the renderer's fill rule).
+  ROLL 1,507 -> 1,116 records, the circle 342 -> 56; BENCH 1,309 -> 291.
+- **What was found on the way**: the PLAYGROUND's finer cut named 262 masks,
+  over the 256 a record's byte holds, so a course over it is cut again in
+  coarser squares (it takes 8 gu: 252); one PLAYGROUND cell needs 30 extra
+  slots, so the guest stops at 24 in a fixed order and the tool's model
+  stops in the same one; a split cell can FLOAT, so it carries `FL_FLOAT`
+  now; and `cbw` ate the own-cell flag in the first guest (unicorn found it
+  at the 30-slot cell, the second position it tried there).
+- **The cost** (MartyPC, A/B against f6b7c84, frames paired): a corner fall
+  frame +7.8k on the CGA at first - a corner's own diagonal is a horizontal
+  edge, and every frame built a per-column mask for it. The FLAT WORD (a word
+  whose edge is one line is laid from that line under the checker, no mask)
+  took it to **+5.8k / +4.7k** (mean / median; CGA; the Hercules +6.1k /
+  +4.7k): what any fall AV takes over costs (ROLL's plain fall frames 16.5k,
+  its corner ones now 11.7k). Every other frame, on MILL's falls, PEAK's and
+  PEAK's demo, f6b7c84's.
+- **Pictures**: `docs/plans/bounce-bonanza/occ-real/` - the map before and
+  after, and twelve ball poses before and after (red: records, pink: AV).
+- **Run**: `make`, `tests/bonanza_av.py` (every course, ROLL, HOP; four red
+  arms), `bbcourse.py --selfcheck` (only the PLAYGROUND's three standing reds,
+  red at f6b7c84 too), the fall legs above. **Not run**: a soak.
 ## 2026-11-19 (rubber's boost on a flag; TIME'S UP)
 
 - **"I can't bounce with rubber if there is a checkpoint flag on the

@@ -1524,7 +1524,16 @@ bz_occ:
 .o1:
     mov ax, [bz_gz + 1]         ; the key: z_b + m
     cmp byte [bz_air], 0
-    jne .air
+    je .grd
+    cmp byte [bz_ghv], 0        ; SPEC.md 130.49: a LOW FLIGHT - airborne over a
+    je .air                     ; floor (bz_ghv; its h4 bz_gh), under BZ_CLIMB px
+    mov bx, [bz_gh]             ; over it - takes the grounded margin, so a ball
+    sar bx, 1                   ; bouncing on a ramp is not cut into the next
+    sar bx, 1                   ; cell of the same ramp
+    add bx, BZ_CLIMB
+    cmp ax, bx
+    jge .air
+.grd:
     add ax, BZ_CLIMB
 .air:
     sub ax, [bz_otb]            ; THE 4-BYTE RECORD (SPEC.md 130.15.5.1): kt =
@@ -1977,7 +1986,7 @@ bz_amodel:
     jne .look
     mov si, [es:bz_avp]         ; THE SAME GRID CELL: V's verdict kept
     or si, si
-    jnz .run
+    jnz .pick
     ret
 .look:
     mov [es:bz_awx], ax
@@ -2005,12 +2014,57 @@ bz_amodel:
     shl ax, 1
     shl ax, 1
     add si, ax                  ; V's four bytes
-    test byte [si + 2], 0fh
-    jnz .lno                     ; not VOID: today's pass alone
+    mov al, [si + 2]
+    and al, 0fh
+    jz .lvoid
+    cmp al, BZ_KTB              ; SPEC.md 130.49.1: a SPLIT cell - its VOID
+    jb .lno                     ; pieces a bit each (bz_avm), and the model
+    cmp al, BZ_KQ               ; runs where the ball's pick names one
+    ja .lno                     ; (anything else: today's pass alone)
+    mov [es:bz_avk], al
+    mov bx, [si]                ; its records in D (this part, PLAIN)
+    mov dl, 2
+    cmp al, BZ_KQ
+    jne .lp0
+    mov dl, 4
+.lp0:
+    xor ah, ah
+    mov cl, 1
+.lp:
+    test byte [bx + 2], 0fh
+    jnz .lpn
+    or ah, cl
+.lpn:
+    add bx, 4
+    shl cl, 1
+    dec dl
+    jnz .lp
+    or ah, ah
+    jz .lno                     ; (no VOID piece)
+    mov [es:bz_avm], ah
+    jmp short .lset
+.lvoid:
     test byte [si + 3], BZ_FL_OBS
     jnz .lno                     ; (a lift's shaft is OBS)
+    mov byte [es:bz_avm], 0
+.lset:
     mov [es:bz_avp], si
     pop ds
+.pick:                          ; a split V: the model runs when the ball's
+    cmp byte [es:bz_avm], 0     ; pick (bz_dpick, physics's own) is VOID
+    je .run
+    push ds
+    push es
+    pop ds
+    mov al, [bz_avk]
+    call bz_dpick               ; (DS = ours; SI kept)
+    pop ds
+    mov cl, al
+    mov al, 1
+    shl al, cl
+    test [es:bz_avm], al
+    jnz .run
+    ret
 .run:
     inc word [es:bz_namod]
     mov ax, [es:bz_gz + 1]      ; K = z_b + m, and floor(K / 2): H > K iff
@@ -2037,6 +2091,8 @@ bz_amodel:
     mov dx, -1                  ; read with it, through the WORLD part.  DX:
     cmp word [es:bz_acptr], -1  ; THE NEIGHBOUR (the speed pass, SPEC.md
     je .nfull                   ; 130.29.5): a V one step in front of the
+    cmp word [es:bz_axe], bz_axl ; (130.49.3: a table with extra slots is
+    jne .nfull                  ; read whole)
     mov ax, [es:bz_awx]         ; table's own cell, (wx + 1, wy) or (wx, wy +
     mov bx, [es:bz_awy]         ; 1), sees that cell's rows 2 - 4 as its rows
     sub ax, [es:bz_atx]         ; 1 - 3, from i = 1 (DX = 1) or i = 0 (DX =
@@ -2082,6 +2138,19 @@ bz_amodel:
     mov word [es:bz_aminc], 7fffh
     mov byte [es:bz_avld], 0
     mov word [es:bz_alcol], -1
+    mov word [es:bz_axe], bz_axl ; SPEC.md 130.49.2: the extra slots, from V's
+    mov al, [si + 2]            ; own FRONT pieces (keyed s + 1) when V is
+    and al, 0fh                 ; split
+    cmp al, BZ_KTB
+    jb .nown
+    test byte [si + 3], BZ_FL_FLOAT
+    jnz .nown
+    push dx
+    mov dx, [es:bz_aan]         ; (Xv; [bz_ayb] is 8 s + Y0)
+    mov ah, 1
+    call bz_axcell
+    pop dx
+.nown:
     mov di, bz_afl              ; ES:DI: the table
     mov word [es:bz_ad], 1      ; THE FRONT CELLS: d = 1 .. BZ_OCCDEPTH
     or dx, dx
@@ -2185,7 +2254,16 @@ bz_amodel:
     and al, 0fh
     dec al
     cmp al, 2
+    jbe .cwh
+    cmp al, BZ_KQ - 1
     ja .cno
+    test ah, BZ_FL_FLOAT        ; SPEC.md 130.49.2: a SPLIT front cell - its
+    jnz .cno                    ; slot stays unreadable (no shadow), its
+    inc al                      ; pieces go to the extra slots (a FLOATING
+    xor ah, ah                  ; one: passed over)
+    call bz_axcell
+    jmp .cno
+.cwh:
     test ah, BZ_FL_OBS
     jnz .cno
     cmp al, 2
@@ -2303,7 +2381,9 @@ bz_amodel:
     mov byte [es:bz_avld], 0    ; 2)), the words dropped: BX the highest H / 2
     mov word [es:bz_alcol], -1
     mov bx, 8000h               ; at or under it, DX the least over it (a cell
-    mov dx, 7fffh               ; whose halves are both left out apart)
+    mov dx, 7fffh               ; whose halves are both left out apart; then
+    mov si, [es:bz_afe]         ; the extra slots, 130.49.3)
+    mov [es:bz_alim], si
     mov si, bz_afl
     jmp short .ct
 .cl:
@@ -2323,8 +2403,15 @@ bz_amodel:
 .cn:
     add si, BZ_AFL
 .ct:
-    cmp si, [es:bz_afe]
+    cmp si, [es:bz_alim]
     jb .cl
+    mov cx, [es:bz_axe]
+    cmp cx, [es:bz_alim]
+    je .cte
+    mov [es:bz_alim], cx
+    mov si, bz_axl
+    jmp short .ct
+.cte:
     mov [es:bz_amaxnc], bx
     mov [es:bz_aminc], dx
 .words:
@@ -2439,7 +2526,7 @@ bz_amodel:
     call bz_oprep
 .mprep:
     cmp [es:bz_awhi + bx], si
-    jg .mbuild
+    jg .mpart
     mov word [es:bz_omp], bz_achk ; every edge at or over the first laid
     cmp byte [es:bz_vga], 0     ; (the VGA's checker, 130.46.5)
     je .achk
@@ -2465,6 +2552,36 @@ bz_amodel:
 .mout:
     mov word [es:bz_omp], bz_omsk
     ret
+.mpart:                         ; SPEC.md 130.49.7: a FLAT word - its eight
+    mov ax, [es:bz_awlo + bx]   ; columns' least edge one line E (a split
+    cmp ax, [es:bz_awhi + bx]   ; piece's centre edge, a flat L - R diagonal):
+    jne .mbuild                 ; no mask built, the lines [E, re) laid under
+    push bx                     ; the checker alone - bz_oprep's lines moved
+    sub ax, [es:bz_of]          ; down by E - rs for the lay and back
+    push word [es:bz_of]
+    push word [es:bz_on]
+    push word [es:bz_ofl2]
+    push word [es:bz_orw]
+    add [es:bz_of], ax
+    sub [es:bz_on], ax
+    shl ax, 1
+    add [es:bz_ofl2], ax
+    shl ax, 1
+    shl ax, 1
+    add [es:bz_orw], ax
+    mov word [es:bz_omp], bz_achk
+    cmp byte [es:bz_vga], 0     ; (the VGA's checker, 130.46.5)
+    je .mpc
+    mov word [es:bz_omp], bz_achkv
+.mpc:
+    mov bx, -1
+    call bz_olay
+    pop word [es:bz_orw]
+    pop word [es:bz_ofl2]
+    pop word [es:bz_on]
+    pop word [es:bz_of]
+    pop bx
+    jmp .mnext
 .mbuild:                        ; THE WORD'S MASK over the laid lines [rs, re):
     push bx                     ; each column's first hidden line - rs (0 ..
     push dx                     ; re - rs - 1, or none) puts its pixel's bit
@@ -2597,10 +2714,19 @@ bz_arange:
     add ax, bx
     dec ax
     mov [bz_axw7], ax
+    mov si, [bz_afe]            ; (the table, then the extra slots: 130.49.3)
+    mov [bz_alim], si
     mov si, bz_afl
 .e:
-    cmp si, [bz_afe]
+    cmp si, [bz_alim]
     jb .e1
+    mov ax, [bz_axe]
+    cmp ax, [bz_alim]
+    je .ee
+    mov [bz_alim], ax
+    mov si, bz_axl
+    jmp short .e
+.ee:
     jmp .mm
 .e1:
     mov ax, [si]
@@ -2635,6 +2761,8 @@ bz_arange:
     sub ax, dx                  ; d'
     mov cx, bp
     inc cx                      ; CX = the columns
+    test byte [si + 7], 8
+    jnz .rx                     ; (an extra slot: its own k, 130.49.2)
     mov bl, [si + 6]
     and bl, 0fh
     jnz .rk
@@ -2664,6 +2792,28 @@ bz_arange:
     mov bx, [si + 4]            ; BX = Y
     call bz_ahalf
     pop dx
+    jmp short .left
+.rx:                            ; AN EXTRA SLOT's right half-edge: k its +6,
+    shl ax, 1                   ; num = k (2 d' + 1) + 4 (apex T, / 8) or + 8
+    inc ax                      ; (apex the centre, / 16), +2 k a column
+    mov bl, [si + 6]
+    imul bl
+    mov dl, bl
+    xchg ax, dx
+    cbw
+    shl ax, 1
+    xchg ax, dx                 ; DX = 2 k
+    mov bx, [si + 4]
+    test byte [si + 7], 4
+    jnz .rxc
+    add ax, 4
+    call bz_ahalf
+    pop dx
+    jmp short .left
+.rxc:
+    add ax, 8
+    call bz_ahalf4
+    pop dx
 .left:                          ; THE LEFT HALF: [max(X - 16, x0), min(X - 1,
     test byte [si + 7], 2       ; x1)], d' = X - 1 - x, num = kl (2 d' + 1)
     jnz .en                     ; + 3, -2 kl a column (d' falls), kl = 2 - sy
@@ -2690,6 +2840,8 @@ bz_arange:
     sub ax, cx                  ; d' = X - 1 - x
     mov cx, bp
     inc cx
+    test byte [si + 7], 8
+    jnz .lx
     mov bl, [si + 6]
     and bl, 0f0h
     jnz .lk
@@ -2718,6 +2870,27 @@ bz_arange:
 .lh:
     mov bx, [si + 4]
     call bz_ahalf
+    jmp short .en
+.lx:                            ; AN EXTRA SLOT's left half-edge: num = k (2
+    shl ax, 1                   ; d' + 1) + 3 (apex T) or + 8 (the centre),
+    inc ax                      ; -2 k a column
+    mov bl, [si + 6]
+    imul bl
+    mov dl, bl
+    xchg ax, dx
+    cbw
+    shl ax, 1
+    neg ax
+    xchg ax, dx                 ; DX = -2 k
+    mov bx, [si + 4]
+    test byte [si + 7], 4
+    jnz .lxc
+    add ax, 3
+    call bz_ahalf
+    jmp short .en
+.lxc:
+    add ax, 8
+    call bz_ahalf4
 .en:
     add si, BZ_AFL
     jmp .e
@@ -2766,6 +2939,7 @@ bz_arange:
 bz_ahalf:
     push cx
     mov cl, 5
+.sh:
     shl ax, cl
     shl dx, cl
     pop cx
@@ -2784,6 +2958,192 @@ bz_ahalf:
     inc di
     loop .c
     ret
+
+; bz_ahalf4 - bz_ahalf with num / 16 (SPEC.md 130.49.2's centre edge): num is
+; carried x 16, so its high byte is num >> 4.
+bz_ahalf4:
+    push cx
+    mov cl, 4
+    jmp short bz_ahalf.sh
+
+; bz_axcell - SPEC.md 130.49.2: a SPLIT cell's pieces' HALF-EDGES into the
+; extra slots (bz_axl .. bz_axe): SI = the cell's four bytes (DS = the world
+; part), AL its kind (4 - 6), AH nonzero for V's OWN cell (its FRONT pieces
+; alone: an LR's down half, a quartered cell's E and S, keyed s + 1), DX its
+; apex column X, [bz_ayb] its row's 8 s + Y0.  Each FLOOR, WALL or GOAL piece
+; (z0 QUARTER units, SPEC.md 130.48): H / 2 = z0 + the greatest of its
+; vertices' 0 (T), 2 sx (R), 2 (sx + sy) (B), 2 sy (L) and sx + sy (the
+; centre); a slot each of its half-edges (bz_axtab), H / 2, X, Y (T: 8 s +
+; Y0 - 2 z0; the centre: that + 8 - 2 (sx
+; + sy)), k (T right 2 - sx, T left 2 - sy, centre right sy - sx, centre left
+; sx - sy) and the flags (8 an extra slot, 4 the centre, 1 / 2 the half it is
+; not); and the count set's interval (bz_akq's) as .cell's.  ES = ours.  At
+; BZ_AXMAX slots it stops (the tool refuses a course that needs more).
+; Preserves all.
+bz_axcell:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bl, al
+    sub bl, BZ_KTB
+    shl bl, 1
+    shl bl, 1
+    xor bh, bh                  ; BX = the first piece's bz_axtab entry (2 bytes)
+    mov cx, 2
+    cmp al, BZ_KQ
+    jne .n
+    mov cl, 4
+.n:
+    mov [es:bz_axx], dx
+    mov [es:bz_axo], ah         ; (V's own: kept, AH is the loop's)
+    mov si, [si]                ; SI = its records in D
+    mov di, [es:bz_axe]
+.p:
+    push cx
+    mov al, [si + 2]
+    and al, 0fh
+    dec al
+    cmp al, 2
+    ja .pn                      ; (VOID: nothing)
+    mov al, [es:bz_axtab + bx + 1]
+    cmp byte [es:bz_axo], 0
+    je .pall
+    test al, 80h
+    jz .pn                      ; V's own: front pieces alone
+.pall:
+    mov [es:bz_axed], al
+    mov al, [si + 1]            ; sx, sy (signed nibbles) -> CL, CH
+    mov cl, 4
+    mov ch, al
+    shl al, cl
+    sar al, cl
+    sar ch, cl
+    mov cl, al
+    mov al, [es:bz_axtab + bx]  ; the vertices: T 1, R 2, B 4, L 8, C 16 -
+    xor dl, dl                  ; in QUARTER units over z0 (SPEC.md 130.48):
+    test al, 2                  ; T 0, R 2 sx, B 2 (sx + sy), L 2 sy, the
+    jz .v1                      ; centre sx + sy; DL = the greatest (T: 0)
+    cmp cl, dl
+    jle .v1
+    mov dl, cl
+.v1:
+    mov dh, cl
+    add dh, ch                  ; DH = sx + sy
+    test al, 4
+    jz .v2
+    cmp dh, dl
+    jle .v2
+    mov dl, dh
+.v2:
+    test al, 8
+    jz .v3
+    cmp ch, dl
+    jle .v3
+    mov dl, ch
+.v3:
+    shl dl, 1                   ; (T, R, B, L: twice the half-unit greatest)
+    test al, 16
+    jz .v4
+    cmp dh, dl
+    jle .v4
+    mov dl, dh                  ; the centre: sx + sy
+.v4:
+    mov al, dl
+    cbw
+    mov bp, ax
+    mov al, [si]
+    cbw
+    add bp, ax                  ; BP = H / 2
+    shl ax, 1
+    neg ax
+    add ax, [es:bz_ayb]         ; AX = Y (apex T): 8 s + Y0 - 2 z0
+    mov dl, 1                   ; the half-edges, a bit each: LT 1, RT 2,
+.e:                             ; LC 4, RC 8
+    test [es:bz_axed], dl
+    jz .en
+    cmp di, bz_axl + BZ_AFL * BZ_AXMAX
+    jae .en
+    push bx
+    mov [es:di], bp             ; H / 2
+    mov bx, [es:bz_axx]
+    mov [es:di + 2], bx         ; X
+    mov bx, ax
+    test dl, 0ch
+    jz .et
+    push ax                     ; a centre edge: Y + 8 - 2 (sx + sy)
+    mov al, dh
+    cbw
+    shl ax, 1
+    sub bx, ax
+    add bx, 8
+    pop ax
+.et:
+    mov [es:di + 4], bx         ; Y
+    mov bh, 9                   ; k and the flags: LT 2 - sy ...
+    mov bl, 2
+    sub bl, ch
+    cmp dl, 1
+    je .ek
+    mov bh, 0ah                 ; ... RT 2 - sx ...
+    mov bl, 2
+    sub bl, cl
+    cmp dl, 2
+    je .ek
+    mov bh, 0dh                 ; ... LC sx - sy ...
+    mov bl, cl
+    sub bl, ch
+    cmp dl, 4
+    je .ek
+    mov bh, 0eh                 ; ... RC sy - sx
+    mov bl, ch
+    sub bl, cl
+.ek:
+    mov [es:di + 6], bx
+    pop bx
+    add di, BZ_AFL
+    cmp bp, [es:bz_akq]         ; the count set's interval, as .cell's
+    jg .egt
+    cmp bp, [es:bz_amaxnc]
+    jle .en
+    mov [es:bz_amaxnc], bp
+    jmp short .en
+.egt:
+    cmp bp, [es:bz_aminc]
+    jge .en
+    mov [es:bz_aminc], bp
+.en:
+    shl dl, 1
+    cmp dl, 16
+    jb .e
+.pn:
+    pop cx
+    add si, 4
+    add bx, 2
+    dec cx
+    jz .pd
+    jmp .p
+.pd:
+    mov [es:bz_axe], di
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; bz_axtab - a piece's vertices (T 1, R 2, B 4, L 8, the centre 16) and its
+; half-edges (LT 1, RT 2, LC 4, RC 8; 80h a FRONT piece), by its kind's base
+; (TB 0, LR 2, QUARTERED 4) plus its index in D (130.24.6.1, 130.49.2)
+bz_axtab:
+    db 0dh, 01h, 07h, 02h               ; TB: A (T, B, L), B (T, R, B)
+    db 0bh, 03h, 0eh, 8ch               ; LR: A up (T, R, L), B down (R, B, L)
+    db 13h, 02h, 16h, 88h, 1ch, 84h, 19h, 01h   ; N, E, S, W
 
 ; bz_boxw - box SI (a descriptor) to the card, a line at a time, each line
 ; split where it crosses the ring's 8KB end.  DS = ours.  Preserves all.
