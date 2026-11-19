@@ -114,7 +114,7 @@ out of the shipping build."* Decided:
 
 - [x] **Every course names its song** (`music` on every `.bbc`; no song by
       position). `bbcourse.course_song` refuses a course without one.
-- [ ] **N and M go, and so does the tour** (G, MAIN's tour line,
+- [x] **N and M go, and so does the tour** (G, MAIN's tour line,
       `BZ_TOUR`, `BZ_CRS_TOURX`); rows poke the course and ball instead.
       BONANZA.DAT's +146 tour bytes are a reserved zero field until BZS5.
 - [ ] **No K in the game's defaults**: Enter's course is the pathway's

@@ -60,7 +60,7 @@ bz_fullscreen:
     OS88_ALTENTER_SEED
     call bz_fload               ; wave 8c (130.19.8): the cards' glyphs, while
                                 ; the desktop's font is still legal to ask
-    ; Let the key that got us here (Enter, F, B, R, G or D) release before the mode set
+    ; Let the key that got us here (Enter, F, B, R or D) release before the mode set
     ; can mask its break.  The wait is the bracket's, never the scheduler's,
     ; and BOUNDED: OSAPI_KEY_DOWN is advice (a break lost in a long
     ; interrupts-off stretch leaves a key reading down for good), so after
@@ -78,9 +78,6 @@ bz_fullscreen:
     call OSAPI_KEY_DOWN
     jc .wait
     mov al, BZ_KSC_R
-    call OSAPI_KEY_DOWN
-    jc .wait
-    mov al, BZ_KSC_G            ; (G starts a tour's first course, 130.14.3.4)
     call OSAPI_KEY_DOWN
     jc .wait
     mov al, BZ_KSC_D            ; (D, the demo benchmark, 130.14.7.3)
@@ -120,7 +117,7 @@ bz_fullscreen:
     call bz_vinit
     call bzs_open               ; the sound's arm and the course's song (130.20)
     call bz_play                ; the frame loop, until a key or the benchmark ends
-    call bz_post                ; the tour, the bests, the face's page: memory
+    call bz_post                ; the bests, the held log's line, the face's page: memory
     call bzs_close              ; only, before the kernel's restore paints it
 .leave:
     xor ax, ax                  ; the start address home on the way out (the

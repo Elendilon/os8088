@@ -6708,3 +6708,22 @@ list and the BZROLL knob retired.
 
 The tool learnt `titles 5x7` and an icon's `title "..."` / `tdx`. The old map
 lives on as `pathtest.bbc`, the test knobs' base.
+
+## 2026-11-19 (the tour, N and M deleted: no row depends on the courses' order)
+
+The owner: *"tests/rules/etc are depending on course numbers in a build ...
+having everything depend on an order that can and will change is bad; lets not
+depend on that."* The tour (G), the course key N and the ball key M were
+prototype test instruments, and the rows that drove them read course numbers
+out of the build - the tour's list, N's cycle from FIRST. All three went
+(SPEC.md 130.26.8): a play rolls its course's own ball, F plays whatever course
+a row POKES into `bz_crsel`, and BONANZA.DAT's tour field is six reserved bytes
+written zero until the coming BZS5 drops them.
+
+*Observed*: the shipped package lost 131 bytes of image and its shell part 377 -
+the course TITLE table sat outside the test build's fence although only the
+tour's line read it. Removing the tour's one byte of bss made the test build's
+VARs odd: `bz_nst`'s size, `(BZ_NSIGN + 1) & ~1`, expands inside the VAR macro
+to `(BZ_BSS + BZ_NSIGN + 1) & ~1`, so it EVENS the running total, and only the
+bytes after it decide the parity. `bz_crsel` now sits where `bz_tour` was.
+

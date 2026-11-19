@@ -14,51 +14,41 @@ else is read at build time or at run time. See SPEC.md 130 and
 benchmark's "Proving Ground" - with flags, ball-swap pads, springs, tubes,
 windmills, bumper posts, a lift and the cup; three balls (rubber, steel,
 glass), each with its own Hop and Grip, and rubber's one BOOST (Space again
-at a Hop's first contact); a tour
-on G and best times kept on disk; demos saved and loaded on
+at a Hop's first contact); best
+times kept on disk; demos saved and loaded on
 disk (W, L), benchmarked (D) and shipped (V); the mouse as a tilt stick (T);
 and music and impacts (S). There is no in-play HUD (it did not fit; SPEC.md
 130.14.16) - the time is on the results face. SPEC.md 130.10 - 130.14 and
 130.20 are the contract.
 
-**The test build.** The keys below - and the tour, the benchmark, the
-results page and the demo keys - are the TEST INSTRUMENTS, and since wave 4
+**The test build.** The keys below - and the benchmark, the results page
+and the demo keys - are the TEST INSTRUMENTS, and since wave 4
 of the space plan they exist only in a `make BUILD=build/bzdev BZDEV=1
 bonanzadisk` build (SPEC.md 130.26.6.1). The shipped game's window answers
 Enter, F and Alt+Enter (Play Game), F5 and F6 (save and load a replay) and
 its menus. The camera is LATTICE alone: TRICKLE, which C used to select, is
 deleted (SPEC.md 130.9).
 
-Keys, on the desktop: Enter, F or Alt+Enter plays the selected course with
-the selected ball. **N cycles the course** through the six ("First Roll",
-"Bounce Trial", "Windmill Lane", "Moonlit Green", "Summit Rush", the
-"Playground", then "First Roll" again; each sets the ball to the course's
-own - the seventh, "Proving Ground", is the benchmark's, played by B) and **M cycles the ball**
-(rubber, steel, glass); the face names both. **B runs the benchmark** on its
-own course, "Proving Ground", with that course's ball (the autopilot drives
-the course's route for 1,200 frames, then the window shows the frames, the
+Keys, on the desktop: Enter or Alt+Enter plays the game; **F plays the
+selected course** - "First Roll", or one a test pokes into `bz_crsel` - with
+that course's own ball (there is no key to pick a course or a ball: N, M and
+the tour G went on 2026-11-19, SPEC.md 130.26.8, because rows that pressed
+them depended on the courses' order). **B runs the benchmark** on its own
+course, "Proving Ground", with that course's ball (the autopilot drives the
+course's route for 1,200 frames, then the window shows the frames, the
 display rate, the refreshes missed and the worst frame, and the cost of each
-part of a frame). M and N held down count as
-ONE press, and every choice lasts until the package closes. **R replays the
-last play** - the same steps, on either card - once one has been recorded
+part of a frame). A key held down counts as ONE press. **R replays the last
+play** - the same steps, on either card - once one has been recorded
 (SPEC.md 130.11.12). Any key after a benchmark's results returns the window
-to its main face. Playing: the arrows roll
-the ball, Space hops, Left Shift grips; Esc, F or Alt+Enter goes back to the
-desktop.
+to its main face. Playing: the arrows roll the ball, Space hops, Left Shift
+grips; Esc, F or Alt+Enter goes back to the desktop. While playing, **P
+pauses** and Backspace returns the ball to its last flag. The best course
+times are kept in `SYSTEM\APPDATA\BONANZA.DAT` on the game's own disk.
+After any play or replay the face shows its time, how it ended, its falls
+and the flags it reached.
 
-**The game** (SPEC.md 130.14.3): **G starts a tour** of the six courses
-after the benchmark's, each with its own ball, raced for total time against
-each course's par - there are no lives, a fall costs the way back. After each
-course Enter plays the next; Esc in a course or on the window between two
-stops the tour. (Since SPEC.md 130.26.8 the tour is a short named list of
-courses and a test instrument, and the window shows no scorecard.) While playing, **P pauses** and Backspace
-returns the ball to its last flag. The best course times and the best tour
-are kept in `SYSTEM\APPDATA\BONANZA.DAT` on the game's own disk (only a play
-started with the course's own ball sets one). After any play or replay the
-face shows its time, how it ended, its falls and the flags it reached.
-
-**The Playground** (SPEC.md 130.16.8), N five times from "First Roll", is
-the balls' testing ground, in the CGA's other palette: behind its apron a
+**The Playground** (SPEC.md 130.16.8) is the balls' testing ground, in the
+CGA's other palette: behind its apron a
 STEP LADDER of four terraces - half a unit (every ball rolls up), one unit
 (rubber's and glass's Hop), a unit and a half (rubber's Hop and its BOOST)
 and two units (nobody's) - each a dead end; a GAP LADDER of one, two and
@@ -73,7 +63,7 @@ dialog; a `.BZR` is BONANZA's document, so double-clicking one in a Disk
 window opens the game with it. A loaded file is checked in full before it is
 used - another build's course, other physics, a damaged or foreign file is
 refused and the demo held is kept. **V** takes the next of the six shipped
-demos (one a tour course), **R** watches the demo held and **D** times it:
+demos (one a course), **R** watches the demo held and **D** times it:
 the demo replayed with the benchmark's instruments, its results on the same
 page as B's. **T** switches the control between KEYS and MOUSE: with the
 mouse the pointer is a tilt stick - its offset from where it was when the
