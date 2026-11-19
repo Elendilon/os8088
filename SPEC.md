@@ -273366,25 +273366,37 @@ above, BUILT:
   apart, and a digit under the ball's box went through the contact slot
   alone. In a finish (`bz_fcnt` > 1) a clock digit due and shown is the
   WHEEL's only - never a contact or must-draw lane, never `bz_wbest` (so
-  never PROMOTED alone) - and is counted (`bz_wgcn`). `bz_wclk`, before
-  pass 1, takes every clock candidate out of the two passes and commits
-  them as ONE GROUP: only when every counted digit is a candidate, prepared
-  and met by no box; back to back with interrupts shut; AHEAD of the beam
-  when the group's summed cost' ends before the least AHEAD bound, else
-  spinning (interrupts open between turns, as pass 2) until the beam is
-  past the greatest BEHIND time, provided the group then still ends by the
-  deadline. Otherwise every digit stays due and the group is tried again
-  next frame, so a phase may show late but never split. The finish is a
-  light frame (the camera held, the ball dissolving), so the group's few
-  commits (a digit lane's ~1.2k clk, PREDICTED from 130.13.5.1's prices)
-  fit the retrace wait on every adapter; outside a finish the clocks'
-  once-a-second change is committed as before. Costs: 6 bytes of bss
-  (`bz_wgcn`, `bz_wgca`, `bz_wgcb`) and the package's code below.
+  never PROMOTED alone) - and is counted (`bz_wgcn`). `bz_wclk`, at the
+  wheel's TOP (before its room and rise tests), commits them as ONE GROUP on
+  the first frame they are due: when every counted digit is a candidate
+  and none meets one of the frame's boxes, each is PREPARED whatever the
+  clock's room, and they commit back to back with interrupts shut - AHEAD
+  of the beam when the group's summed cost' ends before the least AHEAD
+  bound, else once the beam has passed the greatest BEHIND time (spinning,
+  interrupts open between turns, as pass 2), past the deadline if it must
+  (that frame presents a refresh later, with the camera held: nothing
+  moves to show it), and at once when the last wait saw no rise. The
+  commits skip the TRIM (an overrun by choice is not the calibration's).
+  Then every clock leaves the wheel's list; a group that waits (a digit
+  not listed, or met by a box) stays due for the next frame. Outside a
+  finish the clocks' once-a-second change is committed as before.
+  *The first build* tested the group against the wheel's credit like any
+  candidate, and the finish's early frames (the ball still rolling and
+  dissolving) left no room to PREPARE one: MEASURED on MartyPC's VGA, the
+  finish clock held its last countdown figure for 26 frames, and on the
+  owner's VGA at 4.77 MHz it froze blank; on the CGA the phases landed
+  unevenly. MEASURED after the fix (FIRST, MartyPC, every frame of the
+  sequence): the drawn digits follow the phase from the frame after each
+  change on the CGA and the VGA. Costs: 6 bytes of bss (`bz_wgcn`,
+  `bz_wgca`, `bz_wgcb`) and the package's code.
 - **Rows**: `bonanzapath` item 2 reads the flash's lit pose against the
   run's time (`bz_tdig` = (limit - `bz_tsec`) mod 10, + 1) and both phases,
   and its item 2s counts, at every frame's start, the clock digits meeting
   the shown window that are DRAWN lit (`bz_ldrw`): all of them or none,
-  never a split; `bonanzawheel` covers the wheel's passes.
+  never a split, and as the phase says on every frame whose phase is the
+  frame before's (one frame's lag, never a stall); `bonanzawheel` covers
+  the wheel's passes. The row runs the CGA and the Hercules; the VGA's
+  measurement above was a probe of the same reads.
 
 #### 130.22.7 Memory: the pathway HELD (BUILT)
 

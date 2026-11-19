@@ -1811,6 +1811,9 @@ bz_wheel:
     mov byte [bz_wld], 0
     cmp byte [bz_wcn], 0
     je .out
+    call bz_wclk                ; a finish's clock digits: one group, first,
+    cmp byte [bz_wcn], 0        ; whatever the room (and out of the list)
+    je .out
     cmp byte [bz_wvok], 0
     je .skip
     push ds
@@ -1862,7 +1865,6 @@ bz_wheel:
     jc .skip
     cmp ax, [bz_wdl]
     ja .skip
-    call bz_wclk                ; (a finish's clock digits: one group, first)
     xor bx, bx
 .a:                             ; PASS 1: AHEAD of the beam
     cmp bl, [bz_wnp]
@@ -1945,95 +1947,130 @@ bz_wheel:
 .out:
     ret
 
-; bz_wclk - THE CLOCK GROUP (SPEC.md 130.22.6.1), in a finish (bz_fcnt > 1):
-; the flash's digits reach the glass in ONE frame or not at all.  Every clock
-; candidate is taken out of the passes (bit 7); then, when ALL the clock digits
-; due and shown (bz_wgcn) are candidates and prepared, none met by a box, they
-; commit back to back with interrupts shut - ahead of the beam when the whole
-; group ends before it reaches the group's first line, else behind it,
-; spinning (interrupts open between turns, as pass 2) until it has passed the
-; group's last, when the group still ends by the deadline.  Otherwise they all
-; stay due for a later frame.  ES = ours.  Preserves nothing.
+; bz_wclk - THE CLOCK GROUP (SPEC.md 130.22.6.1), in a finish (bz_fcnt > 1),
+; at the wheel's top: the flash's digits reach the glass in ONE frame - the
+; first after they change - and are taken out of the list.  When every clock
+; digit due and shown (bz_wgcn) is a candidate and none meets one of the
+; frame's boxes, each is PREPARED (whatever the clock's room: the finish's
+; frames are not paced by the wheel's credit) and they commit back to back
+; with interrupts shut: AHEAD of the beam when the whole group ends before it
+; reaches the group's first line, else once it has passed the group's last
+; (spinning, interrupts open between turns, as pass 2) - past the deadline if
+; it must: that frame presents a refresh later, with the camera held.  With
+; no rise to reckon from (bz_wvok 0) they commit at once.  Otherwise they all
+; stay due for the next frame.  A commit here is bz_wcommit's without the
+; trim (an overrun of choice is not the calibration's).  Preserves nothing.
 bz_wclk:
     cmp byte [bz_fcnt], 1
     jbe .r
+    push ds
+    pop es
     xor bx, bx
-    xor cx, cx                  ; CL the clock candidates, CH those prepared
-    xor dx, dx                  ; DX the group's cost'
-    mov word [bz_wgca], 0ffffh
-    mov [bz_wgcb], dx
+    xor cx, cx                  ; CL the clock candidates
 .l:
     cmp bl, [bz_wcn]
     jae .e
     call .clk
     jne .n
     inc cl
-    test byte [bz_wcl + bx], 80h ; (met by a box: not this frame)
-    jnz .m
-    cmp bl, [bz_wnp]            ; (not prepared: no room this frame)
-    jae .m
-    inc ch
-    call bz_wslot
-    add dx, [si + BZ_WCSTO]
-    jnc .c
-    mov dx, 0ffffh
-.c:
-    mov ax, [si + 2 * BZ_WBLK]
-    cmp ax, [bz_wgca]
-    jae .c1
-    mov [bz_wgca], ax
-.c1:
-    mov ax, [si + 2 * BZ_WBLK + 2]
-    cmp ax, [bz_wgcb]
-    jbe .m
-    mov [bz_wgcb], ax
-.m:
-    or byte [bz_wcl + bx], 80h  ; (the passes skip it, whatever is decided)
 .n:
     inc bx
     jmp short .l
 .e:
     or cl, cl
     jz .r
-    cmp cl, ch
-    jne .r
-    cmp cl, [bz_wgcn]
-    jne .r
+    cmp cl, [bz_wgcn]           ; (one due and shown is not listed: wait)
+    jne .drop
+    call bz_wreck
+    mov byte [bz_lmode], 1
+    xor dx, dx                  ; DX the group's cost'
+    mov word [bz_wgca], 0ffffh
+    mov [bz_wgcb], dx
+    xor bx, bx
+.p:
+    cmp bl, [bz_wcn]
+    jae .t
+    call .clk
+    jne .pn
+    call bz_wprep
+    call bz_lrect
+    call bz_wboxm               ; (a box composed its drawn pose: wait)
+    jc .drop
+    call bz_wslot
+    call bz_wsave
+    call bz_wahead
+    cmp ax, [bz_wgca]
+    jae .p1
+    mov [bz_wgca], ax
+.p1:
+    call bz_wbehind
+    cmp ax, [bz_wgcb]
+    jbe .p2
+    mov [bz_wgcb], ax
+.p2:
+    add dx, [bz_wcst]
+    jnc .pn
+    mov dx, 0ffffh
+.pn:
+    inc bx
+    jmp short .p
+.t:
     pushf
     cli
-    call .now                   ; AX = now + the group, CF past the deadline
-    jc .x
+    cmp byte [bz_wvok], 0       ; (no rise known: now)
+    je .go
+    call .now
+    jc .go
+    add ax, dx
+    jc .sp
     cmp ax, [bz_wgca]           ; AHEAD of the beam
     jbe .go
-    mov ax, [bz_wgcb]           ; BEHIND it: only when the group would still
-    add ax, dx                  ; end by the deadline once the beam has passed
-    jc .x
-    cmp ax, [bz_wdl]
-    ja .x
-.spin:
-    popf
+.sp:
+    popf                        ; BEHIND it: spin until it has passed
     pushf
     cli
     call .now
-    jc .x
-    sub ax, dx
+    jc .go
     cmp ax, [bz_wgcb]
-    jb .spin
+    jb .sp
 .go:
     xor bx, bx
 .g:
     cmp bl, [bz_wcn]
-    jae .x
+    jae .gx
     call .clk
     jne .gn
     call bz_wslot
     call bz_wload
-    call bz_wcommit             ; (AL the lane: .clk's)
+    push bx
+    mov bl, al
+    xor bh, bh
+    call bz_wcore
+    mov al, [bz_ltru + bx]
+    mov [bz_ldrw + bx], al
+    mov byte [bz_lage + bx], 0
+    inc word [bz_wcom]
+    pop bx
 .gn:
     inc bx
     jmp short .g
-.x:
+.gx:
     popf
+.drop:                          ; every clock out of the wheel's list
+    xor bx, bx
+.d:
+    cmp bl, [bz_wcn]
+    jae .r
+    call .clk
+    je .dd
+    inc bx
+    jmp short .d
+.dd:
+    push bx
+    mov bl, al
+    call bz_wdrop
+    pop bx
+    jmp short .d
 .r:
     ret
 ; candidate BX: AL = its lane, ZF = 1 when that lane is a clock's digit
@@ -2046,18 +2083,10 @@ bz_wclk:
     cmp byte [bz_lknd + bx], BZ_PK_CLOCK
     pop bx
     ret
-; AX = now + DX, CF = 1 when either is past a word or the deadline
+; AX = now (bz_wnow), CF = 1 past a word
 .now:
     call bz_clk_sample
-    call bz_wnow
-    jc .nx
-    add ax, dx
-    jc .nx
-    cmp [bz_wdl], ax            ; (CF = 1: the deadline is before it)
-    ret
-.nx:
-    stc
-    ret
+    jmp bz_wnow
 
 ; bz_wroom - CF = 1 when the clock leaves no room before the deadline to
 ; PREPARE one more candidate (BZ_WPRP) and commit it at the commit's fixed part

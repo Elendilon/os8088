@@ -6451,3 +6451,25 @@ manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
   (item 2 now checks the lit pose is the run's time, and item 2s that the
   shown digits are drawn all lit or none at every frame), `bonanzawheel`,
   `bonanzatitle`, `bonanzaring`.
+
+## 2026-11-19 (the finish clock, again: it froze on the VGA)
+
+- **The owner's test** (VGA at 4.77 MHz): on FIRST the clock showed the run's
+  2, went blank and never lit again; on Bounce Trial it went blank and
+  stayed. The CGA flashed, slightly unevenly.
+- **Found** with a probe on MartyPC's VGA (FIRST, every frame of the finish:
+  the phase, the clock lanes' drawn and true poses, the wheel's count): for
+  the first 26 frames the wheel prepared NO candidate (`bz_wnp` 0) - the
+  frames, the ball still rolling and dissolving, left no room - so the group
+  never committed and the finish clock held its countdown figure. The first
+  build had taken the clocks away from the contact slot and promotion, the
+  two paths that used to draw a starved lane, and put nothing in their
+  place. The soak's `bonanzapath` passed it: CGA only, 24 frames, and no
+  check of WHEN the digits followed the phase.
+- **Fixed**: `bz_wclk` runs at the wheel's top in a finish, prepares the
+  group whatever the room and commits it on the first frame its digits are
+  due (ahead of the beam, behind it, or past the deadline: that frame shows
+  a refresh late while the camera is held). MEASURED after: the drawn
+  digits follow the phase from the next frame, every phase, on the CGA and
+  the VGA. `bonanzapath` 2s now fails a frame whose digits lag a phase that
+  has stood a frame.

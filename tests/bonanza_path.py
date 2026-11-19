@@ -369,19 +369,24 @@ def finish_first(g, fails):
         if not bl:
             lit.add(g.b("bz_tdig"))
             runok = runok and g.b("bz_tdig") == run % 10 + 1
-        nlit.append(clock_lit(g))
+        nlit.append((bl, clock_lit(g)))
         still = still and (g.w("bz_R0"), g.w("bz_c0")) == (r0, c0)
         cell = cell and (g.d("bz_gx") >> 12, g.d("bz_gy") >> 12) == void
     fall = g.w("bz_nfall") == nfall and cell
     left = g.b("bz_fcnt")
     # ...and the shown clock digits change TOGETHER (130.22.6.1, bz_wclk): at every frame's start either none of
     # them is drawn lit or all that the run's time lights are, never some
-    whole = max(nlit or [0])
-    split = [n for n in nlit if n not in (0, whole)]
-    check(fails, whole > 0 and not split, "2s.",
-          "FIRST's finish: the shown clock digits drawn lit a frame %s - all %d or none, never split" % (
-              sorted(set(nlit)), whole),
-          "the flash's digits split across frames (lit counts a frame %s)" % nlit)
+    # ...and DRAWN as the phase says by the frame after it changed (one frame's lag, never a stall: on the VGA
+    # the group once waited for the wheel's room, the clock frozen on the countdown for 26 frames)
+    whole = max([n for _, n in nlit] or [0])
+    split = [n for _, n in nlit if n not in (0, whole)]
+    stale = [k for k in range(1, len(nlit)) if nlit[k][0] == nlit[k - 1][0]
+             and nlit[k][1] != (0 if nlit[k][0] else whole)]
+    check(fails, whole > 0 and not split and not stale, "2s.",
+          "FIRST's finish: the shown clock digits drawn lit a frame %s - all %d or none, never split, and as the "
+          "phase says from the frame after it changes" % (sorted(set(n for _, n in nlit)), whole),
+          "the flash's digits split (%s) or lagged their phase (frames %s): (blank, lit) a frame %s" % (
+              split, stale, nlit))
     check(fails, len(blanks) == 2 and len(units) >= 2 and lit and runok and still and fall, "2.",
           "FIRST's finish sequence: the clock blank %s, its units' poses %s (lit %s: the run's %d s of %d), the "
           "camera still %s; a fall poked in it neither counted (falls %d -> %d) nor respawned (on its void cell %s)" % (
