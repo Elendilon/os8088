@@ -17,7 +17,10 @@
 ;
 ; The SPEAKER hears the lead whole - every rest in it is filled by the bass
 ; (`spkbass`) - with the kick and snare blipping the beats; hats are silent
-; there. The arpeggiated notes (chiparp, chiparpm) arpeggiate on both arms.
+; there. The arpeggiated notes (chiparp, chiparpm) arpeggiate on both arms,
+; and `spkring` lets them RING on the speaker: a kick or snare keyed inside
+; one is the chip's alone. The horn's scoop is no arpeggio (its macro does not
+; loop), so B's drums still blip under its held notes.
 
 song summit "Summit Rush"
 groove 5
@@ -25,6 +28,7 @@ unit 16
 rows 16
 measure 16
 spkbass
+spkring
 voice lead trumpet
 voice bass pluckbass
 voice chord stab
