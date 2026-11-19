@@ -271491,7 +271491,10 @@ route (130.6's autopilot, from the start, until the goal or 3,600 steps) as
 a keyboard log and packs that, deterministically (`ident`, `physics` and
 all written by the tool; nothing committed). The autopilot presses arrows
 only, so a route demo never falls, hops, grips or swaps: it is a ROUTE's
-benchmark, not the game's. Wave 4 ships five demos the day it lands, and
+benchmark, not the game's. *(Wave 11: a course the arrows alone cannot
+finish - one BUILT on the Hop - gets the HOPPING autopilot's route
+instead, 130.14.7.4.1, which presses Space as well; it still never falls,
+grips, swaps or RETURNs.)* Wave 4 ships five demos the day it lands, and
 each is replaced by the owner's the day one is committed.
 
 Parts are trusted (130.10.6.2): the guest copies a shipped demo into
@@ -271507,6 +271510,78 @@ few hundred bytes packed.
 `bonanzaperf` runs every shipped demo through `D` on both cards
 (130.14.14): **those five are the benchmark's demos** from this wave on,
 and the owner's recordings become the game's benchmark as they land (O10).
+
+###### 130.14.7.4.1 The HOPPING autopilot: a route demo that jumps
+
+*(Wave 11, HOP, 2026-11-19.)* 130.6's autopilot holds arrows toward the
+course's `way`s and nothing else, so on a course built on the Hop - a
+3/4-unit step, a 1-unit step only rubber's "and again" climbs, a 1-tile
+gap - its route stops at the first of them: the route demo is INPUTS ONLY
+and 130.18.3 has no route to make a limit from (`hop.bbc` carried a hand
+`limit 70` for that reason). Courses are re-laid many times, so the answer
+follows the course's route by itself rather than a script per course: the
+tool (`route_plan`, host only; the guest's `bz_auto` and the log format do
+not change) SEARCHES for the keys.
+
+- **What it presses**: each step, 130.6's autopilot's arrows exactly
+  (`Physics.auto`, so it still takes the ways in order by 130.6's reach
+  test), plus Space on the steps the search picks. A Hop is one step of
+  Space; its "and again" a second step of Space `TRAP_AGAIN` (2) steps
+  later, `trap hop`'s pair (130.14.4.1.1).
+- **The search**: way by way (a LEG: from the step one way is taken to the
+  step the next is). A leg's tries, in order: the arrows alone, for at most
+  `PLAN_SEG` (330) steps; then a Hop on each step `t` from the leg's first
+  up to the step the arrows failed on, or took the way on, plus one (each
+  try given `PLAN_FLIGHT`, 200, steps after its press); then the Hop with
+  its "and again" on each `t`. A try SUCCEEDS when the way is taken (or the
+  goal reached) with no fall, no shatter, no RETURN and no timeout; it FAILS
+  on one of those, or after `PLAN_STALL` (24) steps grounded with the
+  ball's ground point unmoved (a step face it cannot roll up). The legs are
+  searched depth first: the first try that succeeds is kept and the next
+  leg searched from its state; a leg with no success goes back to the
+  previous leg's next try, of which at most `PLAN_ALT` (4) Hops are kept.
+  A try is stepped only when the search asks for it, so a leg the arrows
+  finish costs one run. The search gives up after `PLAN_BUDGET` (3,000,000)
+  steps stepped in all, or a route over `PLAN_STEPS` (8,000, the limit's
+  cap); the course then has no route, as before.
+- **Only where the arrows fail**: the build runs 130.6's autopilot first,
+  exactly as before (the route demo's 3,600 steps, the limit's 8,000), and
+  searches ONLY when that does not reach the goal - so every course the
+  arrows finish keeps its route demo, its route steps, its limit and its
+  medals byte for byte (`--selfcheck`'s `hopplan` asserts the route demos;
+  the 25 course files' limits, routes, medals and demos were compared old
+  tool against new, and only HOP's moved). Nothing in a course opts in:
+  the geometry decides, through the model.
+- **The route**: the search's keys are the limit's route (130.18.3's
+  `route_steps`, and so the medals, 130.19.8.3) and the route demo's log,
+  COMPLETE when its replay under the course's limit reaches the goal, and
+  INPUTS ONLY otherwise or when it is over `DEMO_STEPS`. The build's demo
+  line adds `N Hops, M boosts` to a route demo that hops. It is a host
+  search over a deterministic model in a fixed order, so it is
+  deterministic: two builds give the same bytes. The plan is kept on the
+  course (one search a compile, for the limit and the demo).
+- **MEASURED** (the tool as built): HOP's route **1,415 steps (25.7 s)**,
+  11 Space presses, 9 Hops and 2 boosts, the replay at the goal on its last
+  step with 0 falls and 0 returns, the search a few seconds; without its
+  hand `limit` the tool's limit is **45 s** (medals G 30, S 39). GATE, the
+  one other course file the arrows do not finish and that has a finish, is
+  searched and found no route (about 13 s): it stays INPUTS ONLY.
+- **`--selfcheck`'s `hopplan`**: HOP's route found, its replay at the goal
+  on its last step with no fall and no RETURN, the limit's and the route
+  demo's the same keys; RED ARM: with Space taken away (`route_plan`'s
+  `nohop`, and 130.6's autopilot for 8,000 steps) HOP does not finish; and
+  every compiled course the arrows finish has a route demo that is the
+  arrows' keys exactly.
+- **Not handled**: the search presses Space only - never Grip, never a
+  RETURN, never a tilt; it follows the `way`s in order (no branch, no
+  optional route); glass and steel are searched the same way but no
+  shipped course needs it yet, and a stall test made for a rolling ball may
+  read a resting glass or steel ball on a ledge as a failure; and a route
+  whose only solution needs a Hop more than `PLAN_FLIGHT` steps before the
+  next way, or a Space pattern other than a Hop or a Hop and its "and
+  again" 2 steps later, is not found; and on a course that is searched, a
+  leg the arrows alone take in more than `PLAN_SEG` steps counts as failed
+  and is given Hops.
 
 ##### 130.14.7.5 The association, and the double-click's path
 
@@ -280090,7 +280165,8 @@ out: a stale pose enters with the column).
   only at the timeout.
 - **The tool's limit** (Q-86, when a course gives none): the slowest
   finish's route time (the autopilot's, wave 4's routes; one finish a
-  course until wave 8b) times **1.5** for the tutorial and **1.25** for the
+  course until wave 8b; the HOPPING autopilot's where the arrows alone
+  do not finish, 130.14.7.4.1) times **1.5** for the tutorial and **1.25** for the
   rest, plus one fall's allowance (**`FALL_S` 8 s**, a constant until wave
   11's pipeline measures a course's own), floored at the autopilot's main
   route times 1.3, rounded UP to 5 s. **An explicit `limit` under that
@@ -280099,8 +280175,9 @@ out: a stale pose enters with the column).
   the timeout, short of its goal). The tutorial's 1.5 waits for wave 11,
   which marks the tutorial's courses.
 - **`BENCH`** has no limit (the benchmark runs 1,200 frames regardless),
-  by its name; a course whose autopilot cannot finish and that gives no
-  `limit` has none (the tool's own test courses).
+  by its name; a course whose autopilot cannot finish - the hopping
+  autopilot's search included (130.14.7.4.1) - and that gives no `limit`
+  has none (the tool's own test courses).
 - **As built** (MEASURED, the tool): `FIRST` 15 s (its route 154 steps),
   `TRIAL` 20 (499), `MILL` 30 (778), `MOON` 55 (2,031), `PEAK` 55 (1,876),
   `PLAY` **40, explicit** (its route 235 steps gives 15, but its AUTHOR demo
