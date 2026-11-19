@@ -6,6 +6,18 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## The limit and the demo (2026-11-19)
+
+A sub-agent taught the tool's autopilot to Hop (SPEC.md 130.14.7.4.1: a
+host-only search adding Space where the arrows alone fail; courses the
+arrows finish are untouched, byte for byte). Little Hop's route demo is now
+COMPLETE: **1,397 steps, 25.6 s, 9 Hops, 1 "and again", 0 falls**, so the
+tool's limit would be 45 s. The owner: *"Playing little hop 'naturally', I'm
+coming in ~32-35s. I think 60s is probably good here, giving the player
+plenty of time to miss jumps, retry, and still make it in (times will get
+tighter later on, but we're still on the training courses)."* So `limit 60`,
+written; the medals stay the tool's, gold 30 s and silver 39 s.
+
 ## The song (2026-11-19)
 
 `littlehop.bmu` (BZM9.BIN, A major, 149 BPM, `groove 7 4`; a sub-agent's,

@@ -383,9 +383,8 @@ origin 528                # the reach's span centred in the 1024 px
 uses spring
 ball rubber
 music littlehop           # its own song (2026-11-19): light and bouncy, its motif a Hop and an "and again"
+limit 60                  # the owner (2026-11-19): played naturally in 32 - 35 s; a training course, room to miss and retry (the autopilot: 25.6 s, the tool's 45)
 trap hop                  # NO TRAP presses the Hop and its "and again" too: the course is built on them (SPEC.md 130.14.4.1.1)
-# the PLAYTEST's limit, by hand: the autopilot cannot Hop, so its route stops at the first gap
-limit 70
 palette 0                 # the owner: green, red, yellow - on black (non-black grounds are kept for special courses)
 target 30                 # the design class; the sheet aims at about 35 s
 """
