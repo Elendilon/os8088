@@ -6432,8 +6432,9 @@ manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
   440 px content with room to spare. A first cut set the lines as a
   centred table (the actions right-aligned on one ` - ` column); the owner
   asked for them *"leftish, to balance the space better"*, so they are
-  left-aligned on the Play Game button's left edge, over the button, with
-  the ledge balancing them on the right. LOOKED AT on MartyPC's CGA, Hercules and VGA: no
+  left-aligned on the Play Game button's left edge; then, from the owner's
+  mock-up, a cell left of the title's left edge and centred between the
+  title and the button's top. LOOKED AT on MartyPC's CGA, Hercules and VGA: no
   overlap with the title, the button or the ledge.
 - **The finish clock** (SPEC.md 130.22.6.1). Two complaints: the clock
   flashed the seconds LEFT, and its digits did not flash together. The

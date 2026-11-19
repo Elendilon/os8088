@@ -277735,15 +277735,20 @@ Hop / Double Bounce - Space
 Brake - Left Shift
 ```
 
-- **The block**: the lines LEFT-aligned on the Play Game button's left
-  edge, so the keys stand over the button and the ledge balances them on
-  the right (the owner, 2026-11-19: *"align leftish side, to balance the
-  space better"* - a first build set the actions right-aligned on a
-  centred ` - ` column); centred DOWN the band left between the title (and
-  the greyed button's reason, when it shows) and the ledge's top. A band
-  shorter than the three lines' 30 px draws none (no window today: the
-  band is 50 px on a 640 x 200 desktop, 74 on EGA and Hercules, 104 on
-  VGA).
+- **The block**: the lines LEFT-aligned one cell (8 px) left of the
+  title's left edge, and centred DOWN the space between the title (and the
+  greyed button's reason, when it shows) and the Play Game button's top -
+  never lower than the ledge's top allows (the owner's mock-up,
+  2026-11-19: *"ever so slightly past the title to the left, and visually
+  centered between play now and the title"*; two earlier builds set a
+  centred table, then the lines over the button's left edge). A line may
+  share ROWS with the ledge picture when it ends left of the picture (on a
+  640 x 200 desktop the third line stands beside the ledge's left end):
+  its right is filled only to the ledge's left, the rest of its rows above
+  the ledge's top filled across, and the ledge's rows down to the block's
+  foot (`bz_wkb`) put down the picture alone - nothing twice. A line that
+  would reach into the picture puts the whole block above the ledge's top
+  instead, and a band too short for that draws none.
 - **Drawn** by `bzw_keys` in the shell part, each line one
   `OSAPI_FONT_RUN` (6.1) in a `BZ_LH` band with its air, left and right
   filled around it and the air above the block one fill: nothing twice,

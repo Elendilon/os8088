@@ -113,12 +113,27 @@ bz_wface:
     mov si, di
     mov bx, [bz_wly]            ; rows [wly, wby0)
     mov [bz_wy], bx
+    mov cx, [bz_wkb]            ; ...the first of them the KEYS' rows too (their
+    sub cx, bx                  ; lines filled left of the ledge, bzw_keys):
+    jle .own                    ; the picture alone there
+    mov [bz_wh], cx
+    push cx
+    xor bx, bx
+    call bzw_bandptr
+    mov ax, [bz_wlx]
+    mov cx, [cs:si + 2]
+    call bzw_blitsl
+    pop cx
+    add [bz_wy], cx             ; CX = the picture's next row
+    jmp short .rest
+.own:
+    xor cx, cx                  ; (from the picture's row 0)
+.rest:
     mov ax, [bz_wby0]
-    sub ax, bx
+    sub ax, [bz_wy]
     jle .mid
     mov [bz_wh], ax
     mov ax, [bz_wlx]
-    xor cx, cx                  ; (from the picture's row 0)
     call bzw_rowpicr
 .mid:
     mov ax, [bz_wby1]           ; rows [wby0, wby1]
@@ -456,6 +471,9 @@ bzw_reason:
     jns .x
     xor ax, ax
 .x:
+    mov cx, [bz_fw]
+    dec cx
+    mov [bz_wrr], cx            ; (its right filled to the content's edge)
     call bzw_lbline
 .none:
     pop di
@@ -465,7 +483,7 @@ bzw_reason:
 ; bzw_lbline - the line in bz_lbuf, DI pixels wide, at content x AX, as a
 ; BZ_LH band at [bz_wy] (2 lines of air and the cell): its left filled, the
 ; air over its width, the cell by OSAPI_FONT_RUN (ground and glyph in one
-; pass), its right filled; [bz_wy] stepped past it.  Clobbers AX, BX, CX, DX,
+; pass), its right filled to column [bz_wrr]; [bz_wy] stepped past it.  Clobbers AX, BX, CX, DX,
 ; SI.
 bzw_lbline:
     mov word [bz_wh], BZ_LH
@@ -494,18 +512,21 @@ bzw_lbline:
     mov ax, CBLACK | (CWHITE << 8)
     call OSAPI_FONT_RUN
     pop ax
-    add ax, di                  ; its right
-    mov cx, [bz_fw]
-    dec cx
+    add ax, di                  ; its right, to [bz_wrr]
+    mov cx, [bz_wrr]
     call bzw_fillh
     add word [bz_wy], BZ_LH
     ret
 
 ; bzw_keys - the player's keys (SPEC.md 130.26.9): BZW_NKEYS lines, left-
-; aligned on the Play Game button's left edge (the block over the button, the
-; ledge balancing it on the right), the block centred down the band [bz_wy,
-; bz_wly) left above the ledge; the air above it filled, [bz_wy] stepped past
-; it.  A band too short for it draws none.  Clobbers AX, BX, CX, DX.
+; aligned a cell left of the title's left edge, the block centred down the
+; space between the title (and a reason) and the Play Game button's top.  A
+; line may share rows with the ledge picture when it ends left of it (its
+; right filled to the ledge's left, and above the ledge's top the rest; the
+; ledge's rows then put down the picture alone up to [bz_wkb]); otherwise the
+; block stands above the ledge.  The air above it filled, [bz_wy] and
+; [bz_wkb] stepped past it; a band too short draws none.  Clobbers AX, BX,
+; CX, DX.
 BZW_NKEYS   equ 3
 bzw_keyt:
     db 'Roll - Arrow Keys', 0
@@ -514,35 +535,101 @@ bzw_keyt:
 bzw_keys:
     push si
     push di
-    mov ax, [bz_wly]
+    mov ax, [bz_wy]
+    mov [bz_wkb], ax            ; (none: the ledge's rows its own)
+    mov ax, [bz_wby0]           ; the top: centred above the button
     sub ax, [bz_wy]
     sub ax, BZW_NKEYS * BZ_LH
     jl .out
-    shr ax, 1                   ; the air above it
-    mov bx, [bz_wy]
-    add [bz_wy], ax
-    mov dx, [bz_wy]
+    shr ax, 1
+    add ax, [bz_wy]
+    mov bx, ax                  ; BX = the block's top
+    mov si, bzw_keyt            ; every line meeting the ledge's rows must end
+    mov dx, bx                  ; left of the ledge picture, or the block
+.ck:                            ; stands above it
+    add dx, BZ_LH               ; DX = the line's foot
+    call .len                   ; CX = its pixels
+    cmp dx, [bz_wly]
+    jbe .ck1
+    call .x
+    add cx, ax
+    cmp cx, [bz_wlx]
+    jbe .ck1
+    mov bx, [bz_wly]
+    sub bx, BZW_NKEYS * BZ_LH
+    cmp bx, [bz_wy]
+    jl .out
+    jmp short .go
+.ck1:
+    cmp si, bzw_keys
+    jb .ck
+.go:
+    push bx                     ; the air above it
+    mov dx, bx
     dec dx
+    mov bx, [bz_wy]
     call bzw_fillw
+    pop bx
+    mov [bz_wy], bx
     mov si, bzw_keyt
 .line:
+    mov ax, [bz_fw]             ; its right: to the content's edge, or to the
+    dec ax                      ; ledge's left when it meets the ledge's rows
+    mov dx, [bz_wy]
+    add dx, BZ_LH
+    cmp dx, [bz_wly]
+    jbe .r
+    mov ax, [bz_wly]            ; (its rows above the ledge's top: the rest of
+    cmp ax, [bz_wy]             ; the width filled here)
+    jle .r1
+    push ax
+    mov ax, [bz_wlx]
+    mov cx, [bz_fw]
+    dec cx
+    mov bx, [bz_wy]
+    pop dx
+    dec dx
+    call bzw_fill
+.r1:
+    mov ax, [bz_wlx]
+    dec ax
+.r:
+    mov [bz_wrr], ax
     mov di, bz_lbuf
     call bz_lcat                ; SI past the line's NUL
     mov byte [di], 0
     sub di, bz_lbuf
     mov cl, 3
     shl di, cl                  ; DI = its width in pixels
-    mov ax, [bz_wbx0]           ; the button's left, content-relative
-    or ax, ax
-    jns .x
-    xor ax, ax
-.x:
+    call .x
     push si
     call bzw_lbline
     pop si
     cmp si, bzw_keys
     jb .line
+    mov ax, [bz_wy]
+    mov [bz_wkb], ax
 .out:
     pop di
     pop si
+    ret
+; AX = the block's left: a cell left of the title's, at least 0
+.x:
+    mov ax, [bz_wtx]
+    sub ax, 8
+    jns .xr
+    xor ax, ax
+.xr:
+    ret
+; SI a line: CX = its width in pixels, SI past its NUL
+.len:
+    xor cx, cx
+.l:
+    cmp byte [cs:si], 0
+    je .le
+    inc si
+    add cx, 8
+    jmp short .l
+.le:
+    inc si
     ret

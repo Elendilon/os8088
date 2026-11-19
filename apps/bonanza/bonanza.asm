@@ -5444,6 +5444,8 @@ VAR bz_wby0,2
 VAR bz_wby1,2
 VAR bz_wy,2
 VAR bz_wh,2
+VAR bz_wkb,2                    ; the face's keys (bzw_keys): their foot, a line's
+VAR bz_wrr,2                    ; right fill's last column (bzw_lbline)
 VAR bz_wsrc,2
 VAR bz_wsw,2
 VAR bz_wsb,2
