@@ -6378,3 +6378,13 @@ near island's side face, which is also what a step's riser looks like, so a
 gap and a step were indistinguishable. Floating only the row before each gap,
 one unit thick, leaves a black notch under the lip. That is the gap's sign,
 and it costs no rule and no byte of guest code.
+
+## 2026-11-19 (Island Hop, revision 4)
+
+The owner kept the lips (*"an excellent finding"*) and asked for an easy hop
+just under the double jump's step, a longer U2, signs, the basin flag on two
+lines at once, and K a tile farther. *Observed*, from the tool's own ladder:
+no STEP is an easy hop, since half a unit rolls up and one unit is the hard
+Hop. A 1-tile gap half a unit up is one, though: it can't be rolled, and a Hop
+crosses it in 311 ms. The signs are boards on posts in the pin clock's
+manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
