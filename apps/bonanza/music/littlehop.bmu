@@ -44,6 +44,7 @@
 ; phrase names its instrument and volume at its start.
 
 song littlehop "Little Hop"
+spkring
 groove 7 4
 unit 16
 rows 32

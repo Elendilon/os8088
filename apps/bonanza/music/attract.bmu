@@ -15,6 +15,7 @@
 ; eighth and off-beat stabs (the title theme's ska "and").
 
 song attract "Attract"
+spkring
 groove 6 7
 unit 16
 rows 32
