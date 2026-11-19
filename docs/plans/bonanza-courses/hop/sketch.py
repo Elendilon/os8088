@@ -182,7 +182,7 @@ lip(9, 30, 10, 33)                                            # Hop E
 
 START = (15.5, 3.5)
 # a flag stands just BEFORE what can kill, so a fall never replays a long stretch
-FLAGS = [(13.5, 20.5, "flag 0"), (6.5, 19.5, "flag 1"), (6.5, 31.5, "flag 2")]
+FLAGS = [(13.5, 20.5, "flag 0"), (6.5, 20.5, "flag 1"), (6.5, 31.5, "flag 2")]
 # clocks (the owner places them; these are first guesses): (wx, wy, the tile's floor z, name, kind)
 CLOCKS = [(15.5, 1.5, Z + 2.5, "start", "block"), (3.5, 19.5, Z + 5, "middle", "block"),
           (23.5, 28.5, Z - 1.5, "finish", "block")]

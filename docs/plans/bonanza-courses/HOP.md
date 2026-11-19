@@ -21,6 +21,9 @@ The owner: *"Plays pretty well."*
   tool's camera model: at the spawn the CGA window covers picture x 592 - 912
   and the sign's board starts at 613. It leaves the view once the ball rolls
   right for the first Hops.
+- **Flag 1 on the spring's landing** (the owner, while testing: *"move the
+  checkpoint after the spring so its on the target landing area"*), H's
+  waypoint cell, where the throw comes down.
 - **The name: "Little Hop"**, the owner's suggestion; the island theme is
   saved for a much later course.
 

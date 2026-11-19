@@ -165,7 +165,7 @@ spring 14 24 768                      # SPEC.md 130.14: thrown up, away from the
 goal  rect 24 29 27 35  flat 21
 start 19 7
 checkpoint 17 24 ball rubber   # flag 0
-checkpoint 10 23 ball rubber   # flag 1
+checkpoint 10 24 ball rubber   # flag 1
 checkpoint 10 35 ball rubber   # flag 2
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
