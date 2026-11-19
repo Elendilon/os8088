@@ -2356,7 +2356,7 @@ bz_tround:
     mov byte [bz_tgame], 1
     mov byte [bz_rsm], 1        ; (bz_play: no bz_pinit, no new log)
     call bz_grounds.crs
-    jmp short .gout
+    jmp .gout
 .title:
     mov byte [bz_tmode], 1
 .pick:
@@ -2364,6 +2364,15 @@ bz_tround:
     and al, BZ_TNDEMO - 1
     cmp al, [bz_tlast]
     je .pick
+    cmp byte [bz_tnew], 0       ; a FIRST RUN's first: a RUBBER one (SPEC.md
+    je .pk                      ; 130.23.3.1, BZ_TRUBBER)
+    mov cl, al
+    mov ah, 1
+    shl ah, cl
+    test ah, BZ_TRUBBER
+    jz .pick
+    mov byte [bz_tnew], 0
+.pk:
     mov [bz_tlast], al
     call bz_tdemo               ; its start block and its log (bz_tblk, bz_rlog)
     jc .out
@@ -4256,7 +4265,16 @@ bz_dload:
     call od_read                ; (a file over BZD_FILE bytes is FERR_BIG before
     pop es                      ; any data is read: the image is untouched)
     mov cl, 0
+%if BZ_TITLE
+    jnc .rd
+    cmp ax, FERR_NOENT          ; NO FILE: a first run (SPEC.md 130.23.3.1) -
+    jne bz_dnorm                ; the title's first demo a rubber one
+    mov byte [bz_tnew], 1
+    jmp bz_dnorm
+.rd:
+%else
     jc bz_dnorm
+%endif
     or dx, dx
     jnz bz_dnorm
     cmp ax, BZD_FILE            ; save v4 (130.22.5): `BZS4`, exactly one sector; any
@@ -5426,6 +5444,8 @@ VAR bz_tlast,1                  ; ...the title demo last shown (0FFh none)
 VAR bz_tsel,1                   ; ...the one fetched
 VAR bz_tgame,1                  ; ...1: a game was played (its slot written at the bracket's end)
 VAR bz_tlfsr,2                  ; ...the title's LFSR (bz_trand)
+VAR bz_tnew,2                   ; ...1: no BONANZA.DAT at the launch - the first title demo
+                                ; is a RUBBER one (130.23.3.1); a word: the title's bytes stay odd
 %else
 VAR bz_tpad,1                   ; (the VARs stay even: the title's seven bytes
 %endif                          ; are odd, and bz_dev evens them)

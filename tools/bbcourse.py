@@ -19421,6 +19421,8 @@ def emit_title(title, courses):
             "BZ_TSTEPS       equ %d      ; every title demo's steps, and the title song's pass (130.23.3)"
             % TITLE_STEPS,
             "BZ_TNDEMO       equ %d        ; BZTDEMO.BIN's demos" % TITLE_NDEMO,
+            "BZ_TRUBBER      equ %d        ; bit n - 1: title demo n is rubber's (a first run's first, 130.23.3.1)"
+            % title_rubber_mask(),
             "BZ_TSTART       equ %d       ; a title demo's START BLOCK, bytes" % TSTART,
             ""]
 
@@ -20642,6 +20644,22 @@ TITLE_EVENTS = ("respawn", "takeoff", "hop", "hopc", "land", "bounce", "boost", 
 
 def title_demo_path(n, demo_dir=None):
     return os.path.join(demo_dir or DEMO_DIR, "title%d.bzt" % n)
+
+
+def title_rubber_mask(demo_dir=None):
+    """SPEC.md 130.23.3.1: bit n - 1 set for title demo n whose ball is RUBBER - the FIRST title demo a
+    machine with no BONANZA.DAT shows is one of these (the owner: nobody's first look at the game is a
+    ball that does not bounce).  A build with none refuses"""
+    m = 0
+    for n in range(1, TITLE_NDEMO + 1):
+        dp = title_demo_path(n, demo_dir)
+        if os.path.exists(dp):
+            with open(dp, "r", encoding="ascii") as f:
+                if parse_bzt(f.read(), dp)["ball"] == MAT_RUBBER:
+                    m |= 1 << (n - 1)
+    if not m:
+        raise CourseError("no RUBBER title demo: a first run's title must open with one (SPEC.md 130.23.3.1)")
+    return m
 
 
 def parse_bzt(text, fname="<title demo>"):
