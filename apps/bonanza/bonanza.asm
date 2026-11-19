@@ -55,9 +55,6 @@ OS88_DOCGLYPH8_END
                                 ; mode set, says nothing (SPEC.md 53.7, 130.19.5)
 %define OP_WANT_ARENA           ; a play's SMALL parts - the balls, the sound part,
                                 ; the songs - share ONE claim (SPEC.md 130.25.4)
-%define OP_ARFORCE bz_arforce   ; HARNESS: the arena claimed at the ceiling and
-                                ; the batch unreserved, so a growth MOVES it
-                                ; (SPEC.md 20.12.16, 130.25.13)
 %include "os88parts.inc"
 %include "bzconst.inc"          ; the ball part's layout (tools/bonanza_assets.py)
 %include "bzcourse.inc"         ; the courses and their part rows (tools/bbcourse.py)
@@ -297,6 +294,7 @@ bz_paint:
     mov si, bz_credits
     call os88ui_about_d
 .done:
+bz_rret:                        ; (every handler's tail: SAVE's registers back)
     RESTORE
     ret
 
@@ -306,8 +304,7 @@ bz_about:
     mov bx, [bz_win]
     mov si, bz_credits
     call os88ui_about
-    RESTORE
-    ret
+    jmp bz_rret
 
 bz_click:
     SAVE
@@ -316,8 +313,7 @@ bz_click:
     mov byte [bz_abon], 0
     call bz_repaint
 .done:
-    RESTORE
-    ret
+    jmp bz_rret
 
 bz_onkey:
     SAVE
@@ -354,8 +350,6 @@ bz_onkey:
     call bz_mlabels
     jmp .out
 .dev:
-    mov ch, [bz_xarm]           ; (wave 8c: X's first press holds only until
-    mov byte [bz_xarm], 0       ; the next key, 130.19.8.3)
     mov cl, [bz_page]           ; a key on the RESULTS page is acted on as on
     mov byte [bz_page], 0       ; MAIN and returns the face to it (SPEC.md
     mov [bz_pgo], cl            ; 130.14.3.2): repainted whole at .done
@@ -377,81 +371,22 @@ bz_onkey:
     je .play
     call bz_intour              ; A TOUR withholds every key that would replace
     jc .tour                    ; its state or its log (130.14.3.4)
-%if BZ_PATH_NPAD
-    cmp al, '1'                 ; wave 8c (130.19.8.3): 1 2 3 the SLOT, E its
-    jb .ns                      ; MODE, X twice ERASES it
-    cmp al, '3'
-    ja .ns
-    sub al, '1'
-    mov [bz_slot], al
-    jmp short .slotl
-.ns:
-    cmp al, 'e'
-    jne .nx
-    call bz_dslot
-    xor byte [si + 1], 1
-    jmp short .slotw
-.nx:
-    cmp al, 'x'
-    jne .nslot
-    or ch, ch
-    jnz .erase
-    mov byte [bz_xarm], 1
-    jmp short .slotl
-.erase:
-    call bz_dslot
-    mov di, si
-    push es
-    push ds
-    pop es
-    mov cx, BZD_SLOTB / 2
-    xor ax, ax
-    rep stosw
-    pop es
-.slotw:
-    mov byte [bz_gsave], 1      ; the slot to BONANZA.DAT (the merge keeps the
-    call bz_home                ; others; at home, as every file is)
-    jc .slotl
-    call bz_dsave
-    call bz_back
-.slotl:
-    mov si, bz_slotl
-    call bz_redraw
-    jmp .done
-.nslot:
-%endif
-    mov bx, bz_game
-    cmp al, 'g'
-    je .held
     cmp al, 'b'
     je .bench
     cmp al, 'r'
     je .replay
-    mov bx, bz_ballkey          ; C, M, N, G, D, L, V, W, T: one press however
-    cmp al, 'm'                 ; long it is held (SPEC.md 130.11.11.2,
-    je .held                    ; 130.14.3.4)
-    mov bx, bz_crskey
-    cmp al, 'n'
+    mov si, bz_devk             ; G, M, N, D, L, V, W, T, S: one press however
+    jmp short .tk               ; long it is held (SPEC.md 130.11.11.2,
+.tour:                          ; 130.14.3.4) - in a tour W, T, S alone
+    mov si, bz_devkt
+.tk:
+    mov bx, [si + 1]            ; (a key, its handler: bz_devk)
+    cmp al, [si]
     je .held
-    mov bx, bz_dkey_d           ; D: the demo benchmark (130.14.7.3)
-    cmp al, 'd'
-    je .held
-    mov bx, bz_lkey             ; L: load a demo (130.14.7.2)
-    cmp al, 'l'
-    je .held
-    mov bx, bz_vkey             ; V: the next shipped demo (130.14.7.4)
-    cmp al, 'v'
-    je .held
-.tour:
-    mov bx, bz_wkey             ; W: save the held log (130.14.7.1)
-    cmp al, 'w'
-    je .held
-    mov bx, bz_tkey             ; T: the control, KEYS or MOUSE (130.14.8)
-    cmp al, 't'
-    je .held
-    mov bx, bz_skey             ; S: the sound (SPEC.md 130.20.4), at home
-    cmp al, 's'
-    jne .done
+    add si, 3
+    cmp byte [si], 0
+    jne .tk
+    jmp short .done
 .held:
     call bz_dkey                ; AH = the make code: CF = 1 a repeat, swallowed
     jc .done
@@ -500,8 +435,7 @@ bz_onkey:
     mov byte [bz_pgo], 0
     call bz_repaint
 .out:
-    RESTORE
-    ret
+    jmp bz_rret
 
 ; G (one press, bz_dkey): a NEW TOUR (SPEC.md 130.14.3.1) - its times cleared
 ; and course 1 launched.  On kern_small nothing changes: bz_launch toasts the
@@ -580,8 +514,7 @@ bz_ontimer:
 .up:
     mov byte [bz_dkk], 0
 .done:
-    RESTORE
-    ret
+    jmp bz_rret
 
 ; ZF = 1 when [bz_rlog] holds a log (the recorder's signature, SPEC.md
 ; 130.11.12.1).  The log is the package's own bss, written by the package:
@@ -675,18 +608,8 @@ bz_launch:
                                 ; suspended pathway is only memory, and stays)
     mov byte [bz_towin], 0
     mov byte [bz_newb], 0       ; (only this launch's play may set a best)
-    cmp byte [bz_small], 0
-    je .big
-    mov si, bz_t_small          ; kern_small: the parts are more heap than the
-    jmp bz_toast                ; 128KB machine has
-.big:
-    call bz_adapter
-    or al, al
-    jnz .ok
-    mov si, bz_t_adapt          ; EGA, MDA: CGA, HERC OR VGA ONLY
-    jmp bz_toast
-.ok:
-    call bz_setcard
+    call bz_fsok                ; kern_small (the parts are more heap than the
+    jc .ret                     ; 128KB machine has) and EGA, MDA refused
     mov al, [bz_matsel]         ; the material (above)
     mov bl, [bz_mode]
     dec bl
@@ -945,18 +868,8 @@ bz_arload:
 ; -----------------------------------------------------------------------------
 bz_game8:
     mov byte [bz_newb], 0
-    cmp byte [bz_small], 0
-    je .big
-    mov si, bz_t_small
-    jmp bz_toast
-.big:
-    call bz_adapter
-    or al, al
-    jnz .ok
-    mov si, bz_t_adapt
-    jmp bz_toast
-.ok:
-    call bz_setcard
+    call bz_fsok
+    jc .ret
     call bz_gslot
     call bz_shdrop              ; (never beside a course, 130.19.2)
     call bz_home
@@ -2346,18 +2259,8 @@ bz_phfree:
 ; -----------------------------------------------------------------------------
 bz_title8:
     mov byte [bz_newb], 0
-    cmp byte [bz_small], 0
-    je .big
-    mov si, bz_t_small
-    jmp bz_toast
-.big:
-    call bz_adapter
-    or al, al
-    jnz .ok
-    mov si, bz_t_adapt
-    jmp bz_toast
-.ok:
-    call bz_setcard
+    call bz_fsok
+    jc .ret
     call OSAPI_GET_TICKS        ; the title's own LFSR, seeded from the clock
     xor ax, [bz_pitl]           ; (never read by physics: replays stay exact)
     or ax, 1
@@ -3949,7 +3852,6 @@ bz_crskey:
     mov si, bz_crsl             ; Enter's title (1) and the ball (3)
     jmp bz_redraw
 bz_crsl:    db 1, 3, 0ffh
-bz_slotl:   db BZ_LTOUR, 1, 0ffh  ; (8c: the slot's keys and Enter's line)
 bz_stopl:   db 1, 3, 5, BZ_LTOUR, 0ffh ; a tour stopped on the face: the keys, M,
                                 ; the demo keys and the tour's line
 
@@ -4764,8 +4666,23 @@ bz_bigok:
     cmp byte [bz_small], 0
     je .out                     ; (CF = 0)
     mov si, bz_t_small
+.t:
     call bz_toast
     stc
+.out:
+    ret
+; bz_fsok - a bracket's refusals (bz_launch, bz_title8, bz_game8): kern_small,
+; then an adapter with no mode of ours (EGA, MDA: CGA, HERC OR VGA ONLY), each
+; toasted, CF = 1; else the card's bytes set (bz_setcard), CF = 0.
+bz_fsok:
+    call bz_bigok
+    jc .out
+    call bz_adapter
+    or al, al
+    mov si, bz_t_adapt
+    jz bz_bigok.t
+    call bz_setcard
+    clc
 .out:
     ret
 
@@ -5162,8 +5079,7 @@ bz_onwake:
     jc .done
     call bz_dheld
 .done:
-    RESTORE
-    ret
+    jmp bz_rret
 
 ; V (one press, not in a tour): the next SHIPPED demo, 1 - 5 in turn, into the
 ; held log (SPEC.md 130.14.7.4) - its part fetched at home, copied whole (a
@@ -5176,30 +5092,8 @@ bz_vkey:
     jc .out
     mov al, [bz_vk]
     add al, BZ_P_DEMO
-    mov [bz_pc], al
-    call op_fetch
-    jc .back
-    mov al, [bz_pc]
-    call op_seg
-    push es
-    mov es, ax
-    xor di, di
-    call bz_esz
-    cld
-    push ds
-    push ds
-    push es
-    pop ds                      ; DS = the part, ES = ours
-    pop es
-    xor si, si
-    mov di, bz_rlog
-    rep movsb
-    pop ds
-    pop es                      ; (op_fetch left ES the part's own selector:
-    push ds                     ; op_drop restores its caller's ES after the
-    pop es                      ; free, a #GP on kern_mega - ES = ours, as
-    mov al, [bz_pc]             ; bz_fullscreen's .drop; the final pass of
-    call op_drop                ; wave 4: bonanzamega's fault in V)
+    call bz_tlog                ; fetched, copied whole and dropped with ES =
+    jc .back                    ; ours (bz_tcopy: kern_mega's lesson in V)
     mov byte [bz_lsv], 3
     inc byte [bz_vk]
     cmp byte [bz_vk], BZ_NDEMO
@@ -5227,6 +5121,28 @@ bz_tkey:
     mov si, bz_tlines
     jmp bz_redraw
 bz_tlines:  db 3, 6, 0ffh
+
+; bz_onkey's one-press instrument keys under bz_dev (SPEC.md 130.26.6): the
+; key (lower case), its handler; a tour's own from bz_devkt; 0 ends it
+bz_devk:    db 'g'
+            dw bz_game
+            db 'm'
+            dw bz_ballkey
+            db 'n'
+            dw bz_crskey
+            db 'd'
+            dw bz_dkey_d        ; the demo benchmark (130.14.7.3)
+            db 'l'
+            dw bz_lkey          ; load a demo (130.14.7.2)
+            db 'v'
+            dw bz_vkey          ; the next shipped demo (130.14.7.4)
+bz_devkt:   db 'w'
+            dw bz_wkey          ; save the held log (130.14.7.1)
+            db 't'
+            dw bz_tkey          ; the control, KEYS or MOUSE (130.14.8)
+            db 's'
+            dw bz_skey          ; the sound (130.20.4), at home
+            db 0
 
 TOASTSTR bz_t_out, "Bonanza's disk is out"
 TOASTSTR bz_t_saved, 'Demo saved'
@@ -5287,6 +5203,12 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %endif
 %if 4 * BZ_BOXB < 512
  %error "bz_hgen: BZ_HTAB's 512 bytes do not fit bz_boxbuf"
+%endif
+%if BZ_LMAX + 2 > 4 * BZ_BOXB
+ %error "bz_lbuf shares bz_boxbuf: the face's longest line does not fit it"
+%endif
+%if BZD_FILE > 8 * BZC_NGLYPH
+ %error "bz_dmine shares bz_font: BONANZA.DAT's image does not fit it"
 %endif
 
 ; --- the part table (SPEC.md 130.11.3.1, 20.12) --------------------------------
@@ -5354,7 +5276,10 @@ VAR bz_ox,2
 VAR bz_oy,2
 VAR bz_fcells,2
 VAR bz_fy,2
-VAR bz_lbuf,BZ_LMAX + 2
+bz_lbuf     equ bz_boxbuf       ; the face's line (bzface.inc, bzwface.inc: built and
+                                ; drawn at once, on the desktop) SHARES the box
+                                ; buffers, which are the bracket's and a fetch's
+                                ; scratch only (SPEC.md 130.19.8.1)
 VAR bz_shfp,4                   ; the shell part's far pointer (bz_shcall)
 VAR bz_dlo,2                    ; D3 (SPEC.md 130.24.5.2): the part's section D,
 VAR bz_dhi,2                    ; [bz_dlo, bz_dhi) (0, 0 none), and C, the cells
@@ -5374,7 +5299,6 @@ VAR bz_phold,1                  ; 1: the pathway's part is HELD (bz_cload, bz_ph
 VAR bz_kseg,2                   ; THE KIT's segment (bz_kget's, op_seg's; bz_cxkit reads it, SPEC.md 130.37.4)
 VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the hold
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (130.22.7); never set by the package
-VAR bz_arforce,2                ; HARNESS, byte 0: nonzero forces the arena's next growth to MOVE it (OP_ARFORCE, 130.25.13); never set by the package
 VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
 VAR bz_pwck,1                   ; wave 8R (130.22.4.4): the course Enter at a pad plays
 VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 130.22.4.1), even
@@ -5390,9 +5314,9 @@ VAR bz_tlast,1                  ; ...the title demo last shown (0FFh none)
 VAR bz_tsel,1                   ; ...the one fetched
 VAR bz_tgame,1                  ; ...1: a game was played (its slot written at the bracket's end)
 VAR bz_tlfsr,2                  ; ...the title's LFSR (bz_trand)
-VAR bz_tpad,1                   ; (the VARs stay even)
-%endif
-VAR bz_xarm,1                   ; ...1: X pressed once (the second erases the slot)
+%else
+VAR bz_tpad,1                   ; (the VARs stay even: the title's seven bytes
+%endif                          ; are odd, and bz_dev evens them)
 ; THE WINDOW (SPEC.md 130.26): the button, the face's layout, the menus, the
 ; replays and the suspended bracket
 VAR bz_dev,1                    ; HARNESS: 1 the instruments' keys and face (130.26.6); never set by the package
@@ -5480,7 +5404,9 @@ VAR bz_homedir,2                ; where BONANZA.O88 was launched from: its
                                 ; folder (130.14.7.6) ...
 VAR bz_lsn,2                    ; line 6: the last play's or replay's steps
 VAR bz_lsf,2                    ; ...its falls (to 9,999)
-VAR bz_dmine,BZD_FILE           ; bz_dsave's: ours, while the disk's is merged in
+bz_dmine    equ bz_font         ; bz_dsave's: ours, while the disk's is merged in -
+                                ; on the desktop, where bz_font is free (bz_fload
+                                ; loads it afresh at every bracket: 130.19.8.1)
 VAR bz_dat,BZD_FILE             ; BONANZA.DAT's image, always this build's whole
                                 ; file (bz_dnorm): what the face shows and the
                                 ; save writes

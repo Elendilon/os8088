@@ -221,8 +221,7 @@ bz_onup:
     jz .out
     call bz_playgame
 .out:
-    RESTORE
-    ret
+    jmp bz_rret
 bz_ondrag:
     push ax
     push bx
