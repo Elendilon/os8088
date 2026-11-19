@@ -3216,7 +3216,8 @@ bz_cxramp:                      ; CX words from AX, DX apart
 
 ; 6 WAYS: each way's tile (wx, wy), a byte each; written as the ball's picture
 ; top-left on the tile's centre (the tool's rule, 130.10.4.5):
-;   x = 16 a + X0 - 8,  y = 8 s - 2 (2 z0 + sx + sy) + Y0 - 5,
+;   x = 16 a + X0 - 8,  y = 8 s - 2 (z0 + sx + sy) + Y0 - 5 (z0 QUARTER units,
+; SPEC.md 130.48),
 ; s = wx + wy, a = wx - wy, z0, sx and sy the tile's CELL's, found as
 ; bzphys.inc finds a cell: ROWTAB[s - SMIN] + 4 ((a - AMIN) >> 1).  NWAY
 ; counts; way w's words end before way w + 1's stored pair.  A way on a FIELD
@@ -3264,13 +3265,12 @@ bz_cxway:
     shl ah, cl
     sar ah, cl                  ; AH = sx
     add ch, ah                  ; CH = sx + sy
-    cbw
-    shl ax, 1                   ; AX = 2 z0
+    cbw                         ; AX = z0
     xchg ax, cx
     mov al, ah
     cbw
     add ax, cx
-    shl ax, 1                   ; AX = 2 (2 z0 + sx + sy)
+    shl ax, 1                   ; AX = 2 (z0 + sx + sy)
     mov cl, 3
     shl dx, cl
     sub dx, ax
@@ -3293,13 +3293,13 @@ bz_cxway:
 ; as its difference from the RULE: a VOID cell's z0 as z0 - rule_z0 (8 bits),
 ; and every cell's SAFE bit XOR rule_safe.  The rule, as the tool builds the
 ; grid (bbcourse.cells_rule is this routine's model):
-;   V = a cell's lowest corner + 79h, z0 + min(0, sx) + min(0, sy) + 79h in
-;       8 bits, UNSIGNED, for a cell that is not VOID; FFh for a VOID cell
-;       and outside the grid
+;   V = a cell's lowest corner + 73h, z0 + 2 min(0, sx) + 2 min(0, sy) + 73h
+;       in 8 bits (z0 QUARTER units, SPEC.md 130.48.3), UNSIGNED, for a cell
+;       that is not VOID; FFh for a VOID cell and outside the grid
 ;   rule_z0 = the least V within two tiles (Chebyshev in wx and wy) + 81h:
-;       the least corner less 6 (NEAR), or FFh + 81h = -128 (OPEN).  The bias
+;       the least corner less 12 (NEAR), or FFh + 81h = -128 (OPEN).  The bias
 ;       makes OPEN's value the sentinel's and the order the corners' for every
-;       corner a NEAR cell can hold (-122 .. 127; -122's NEAR z0 IS -128)
+;       corner a NEAR cell can hold (-116 .. 127; -116's NEAR z0 IS -128)
 ;   rule_safe = a FLOOR cell with sx = sy = 0, OBS clear and its four edge
 ;       neighbours not VOID
 ; The 5 x 5 least is SEPARABLE: A = the least V on the wx diagonal's 5 cells
@@ -3448,7 +3448,7 @@ bz_cxcel:
     jbe .g4
     mov al, [di + 2 * BZ_CXRW - 1]
 .g4:
-    add al, 81h                 ; the least corner - 6, or FFh + 81h = -128
+    add al, 81h                 ; the least corner - 12, or FFh + 81h = -128
     add [es:si], al             ; z0 = the stored difference + rule_z0
 .gan:
     add si, 4
@@ -3493,23 +3493,25 @@ bz_cxcel:
     add sp, 18                  ; BZ_CXF: the frame's nine words (spelled as
     ret                         ; a number, which tools/stkbalance.py reads)
 .v:                             ; DL = z0, DH = sy : sx (CL = 4) -> AL = V,
-    mov al, 79h                 ; z0 + min(0, sx) + min(0, sy) + 79h.  Clobbers
-    add al, dl                  ; DX
-    test dh, 8
+    mov al, 73h                 ; z0 + 2 min(0, sx) + 2 min(0, sy) + 73h, in
+    add al, dl                  ; quarter units (SPEC.md 130.48.3).  Clobbers
+    test dh, 8                  ; DX
     jz .lx
     mov dl, dh
     or dl, 0F0h                 ; sx < 0
     add al, dl
+    add al, dl
 .lx:
     sar dh, cl                  ; DH = sy
     jns .lv
+    add al, dh
     add al, dh
 .lv:
     ret
 .ssp:                           ; D3: a split cell's V, the least of its
     mov al, [es:si + 2]         ; records' that are not VOID (FFh: none, or
     and al, 15                  ; records bz_drec refuses) - or a FIELD cell's,
-    cmp al, BZ_KFIELD           ; z0 + 79h (SPEC.md 130.28.2: its +1 is not
+    cmp al, BZ_KFIELD           ; z0 + 73h (SPEC.md 130.28.2: its +1 is not
     jne .ssq                    ; slopes)
     mov dl, [es:si]
     xor dh, dh

@@ -1,0 +1,40 @@
+# Quarter Steps - BONANZA's QUARTER-UNIT STEPS test course (SPEC.md 130.48), built only by the BZQSTEP=1 knob
+# (make BUILD=<tree> BZQSTEP=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it
+# the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
+#
+# A level PLATE at 2 units, the three balls' pads at its front.  Off its LEFT side (up-left on the screen, so
+# every riser faces the camera), EIGHT LANES, two cells wide each, every one a STEP UP from the plate - from the
+# back: 1/4, 1/2, 3/4, 1, 1 1/4, 1 1/2, 1 3/4 and 2 units.
+# Today's ladder (130.48.5): 1/4 and 1/2 every ball rolls up; 3/4 rubber Hops easily, glass too, steel barely;
+# 1 rubber and glass Hop precisely, steel not at all; 1 1/4 and 1 1/2 rubber's Hop and BOOST (Space again just
+# before the first bounce), the first easily; 1 3/4 and 2 nobody.  Lanes side by side step into each other too.
+# The goals: exit 0 at the end of the 1/4 lane, exit 1 at the end of the 1 1/4 lane (a Hop and its boost).
+course QSTP "Quarter Steps"
+width 128
+origin 448
+ball rubber
+target 30
+
+floor rect 10 4 16 20 flat 2
+pad rubber 14 18
+pad steel 13 18
+pad glass 12 18
+start 14 15
+
+floor rect  6  4 10  6 flat 2.25
+floor rect  6  6 10  8 flat 2.5
+floor rect  6  8 10 10 flat 2.75
+floor rect  6 10 10 12 flat 3
+floor rect  6 12 10 14 flat 3.25
+floor rect  6 14 10 16 flat 3.5
+floor rect  6 16 10 18 flat 3.75
+floor rect  6 18 10 20 flat 4
+goal tile 6 4 flat 2.25
+goal tile 6 12 flat 3.25 exit 1
+clock 11 4
+clock 11 12
+limit 99
+way 14 15
+way 12 5
+way 8 5
+way 6 4
