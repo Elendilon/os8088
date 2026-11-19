@@ -125,7 +125,7 @@ BZC_PROPOFF equ 28              ; the prop table (SPEC.md 130.12.3.1): its first
 BZC_NPROP   equ 30              ; record, and the records (0: none)
 BZC_RECB    equ 32              ; byte: the record's size in RAM, 4 or 8
 BZC_SB      equ 33              ; signed byte: the s bias (0 when RECB is 8)
-BZC_TB      equ 34              ; the top bias, signed px (0 when RECB is 8)
+BZC_TB      equ 34              ; YOFF (SPEC.md 130.51, was TB): the bands' top biases, a signed word a band
 BZC_MTAB    equ 36              ; the mask table (0 when RECB is 8)
 BZC_DIROFF  equ 38              ; the section directory (SPEC.md 130.15.4.2):
 BZC_NSEC    equ 40              ; its offset and its 8-byte entries
