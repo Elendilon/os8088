@@ -1,10 +1,22 @@
 # COURSE 2, "Little Hop" (HOP; was "Island Hop"): design sheet
 
-*Status: **IN ENGINE, revision 7** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
+*Status: **IN ENGINE, revision 8** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
 written by `hop/sketch.py --bbc --force`, compiles with every check, and the
 BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
+
+## Revision 8 (2026-11-19): roll room at the start
+
+The owner: *"The course feels very secure, newbie friendly, and good to me"*,
+then: *"The start area needs to be 3 blocks at least, so they have some roll
+room before the first jump and don't have to move backwards. We can cut one
+of the tiles from jump twice to support that."* A is three tiles, U1 five;
+everything west of U1 moved a tile east (`origin 528`). "JUMP TWICE!" is
+still off the spawn's screen (the CGA window from x 704, the sign 613 - 667).
+The lessons went into the course guide as GUIDANCE, section 1.10. An agent
+is teaching the tool's autopilot to Hop, so the route demo and the limit come
+from the course again (today: `limit 70` by hand, the demo "inputs only").
 
 ## Revision 7 (2026-11-19): quarter heights - the start flipped east, 3/4 lips
 
