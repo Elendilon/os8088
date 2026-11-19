@@ -15,7 +15,7 @@ float  rect 0 0 64 64
 
 pad 0 ROLL  21 28                 # sketch 1
 pad 1 HOP   24 25                 # sketch 2
-pad 2 TRIAL 24 17                 # sketch 3
+pad 2 TRIAL 26 19                 # sketch 3
 pad 3 MILL  20 13                 # sketch 4
 pad 4 PEAK  12  5                 # sketch 5
 pad 5 MOON  15 17                 # sketch 6
@@ -23,16 +23,16 @@ pad 6 PLAY   9 11                 # sketch 7
 pad 7 FIRST  4 11                 # sketch 8
 
 route 0 1 exit 0  path 21,28 24,25
-route 1 2 exit 0  path 24,25 28,21 24,17
-route 2 3 exit 0  path 24,17 20,13
-route 2 5 exit 1  path 24,17 15,17
+route 1 2 exit 0  path 24,25 28,21 26,19
+route 2 3 exit 0  gate 23 16  path 26,19 20,13
+route 2 5 exit 1  path 26,19 17,19 15,17
 route 3 4 exit 0  path 20,13 12,5
 route 5 6 exit 0  gate 14 16  path 15,17 9,11
 route 6 7 exit 0  path 9,11 4,11
 
 icon 0 ../../../docs/plans/bonanza-courses/pathway/icons/first32x24.bba -128 368
 icon 1 ../../../docs/plans/bonanza-courses/pathway/icons/frog32x24.bba -32 368
-icon 2 ../../../docs/plans/bonanza-courses/pathway/icons/fork32x24.bba 56 336
+icon 2 ../../../docs/plans/bonanza-courses/pathway/icons/fork32x24.bba 24 368
 icon 3 ../../../docs/plans/bonanza-courses/pathway/icons/mill32x24.bba 56 256
 icon 4 ../../../docs/plans/bonanza-courses/pathway/icons/summit32x24.bba 24 128
 icon 5 ../../../docs/plans/bonanza-courses/pathway/icons/moon32x24.bba -80 256

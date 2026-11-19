@@ -154,3 +154,19 @@ prototype only for now."* So, in `gen.py`'s option A:
 
 Both `|` and `@DX@` live in this generator's 5 x 7 face; if A ships, the
 tool's title drawing takes them (and the 5 x 7 face) as a grammar change.
+
+### Revision 3 (2026-11-19): Downhill Decision two steps down
+
+The owner: *"For downhill decision, could we move the pad down 2, and then the
+icon/course name down as well, so it doesn't overdraw the path? The gates can
+stay where they are."* Pad 3 is at (26, 19), two screen steps down. Two
+consequences of the rules:
+- the route to 6 may not leave pad 3 upward too (the climb to 4 does), and a
+  line through its old gate cell would meet the climb's fat band, so it runs
+  the old diagonal two cells lower (y 19) and steps up into 6 at its end; its
+  gate is now the first cell from 3. The gate on the climb to 4 is kept at
+  (23, 16);
+- under that route there is room for Downhill Decision's icon and two-line
+  title only further left, so the icon is 32 px left of its first place and
+  LITTLE HOP's title is set 24 px left of its icon to keep the two titles
+  apart.
