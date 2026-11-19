@@ -143,6 +143,7 @@ VAR bzs_pseg,2                  ; the sound part's segment, 0 none
 VAR bzs_mseg,2                  ; the song part's segment, 0 none
 VAR bzs_vic,1                   ; 1: the fanfare played this play (the desktop's goal effect is then not)
 VAR bzs_vseg,2                  ; the VICTORY fanfare's, fetched with the course's song (8R.6), 0 none
+VAR bzs_tseg,2                  ; ...and the TIME'S UP tune's beside it (130.22.9.1), 0 none
 VAR bzs_hzt,2                   ; the sound part's tables (its header, copied)
 VAR bzs_opt,2
 VAR bzs_ins,2
@@ -241,6 +242,12 @@ bzs_gfetch:
     mov al, BZ_P_SONG + BZ_SONG_VICTORY
     call op_seg
     mov [bzs_vseg], ax
+    mov al, BZ_P_SONG + BZ_SONG_TIMEUP ; ...and the timeout's tune (130.22.9.1),
+    call op_fetch               ; the same way: not had, the timeout plays
+    jc .r                       ; its effect
+    mov al, BZ_P_SONG + BZ_SONG_TIMEUP
+    call op_seg
+    mov [bzs_tseg], ax
 .r:
     ret
 
@@ -250,9 +257,17 @@ bzs_gfetch:
 bzs_gdrop:
 bzs_gdrop0:
     push ax
-    cmp word [bzs_vseg], 0      ; the arena's fetch order backwards: the
-    je .nv                      ; fanfare, the song, the sound part (SPEC.md
-    push ds                     ; 130.25.4.2)
+    cmp word [bzs_tseg], 0      ; the arena's fetch order backwards: the
+    je .nt                      ; time's-up tune, the fanfare, the song, the
+    push ds                     ; sound part (SPEC.md 130.25.4.2)
+    pop es
+    mov al, BZ_P_SONG + BZ_SONG_TIMEUP
+    call op_drop
+    mov word [bzs_tseg], 0
+.nt:
+    cmp word [bzs_vseg], 0
+    je .nv
+    push ds
     pop es
     mov al, BZ_P_SONG + BZ_SONG_VICTORY
     call op_drop
@@ -312,7 +327,7 @@ bzs_ev:
 ; all.
 bzs_victory:
     cmp byte [bz_goal], 0
-    je .r
+    je .tu
     cmp byte [bzs_arm], BZS_A_NONE
     je .r
     cmp byte [bzs_mode], BZS_M_FX
@@ -326,6 +341,21 @@ bzs_victory:
     call bzs_rstart             ; (preserves all but flags; sets live)
     pop ax
 .r:
+    ret
+.tu:                            ; A TIMEOUT (SPEC.md 130.22.9.1): the time's-up
+    cmp byte [bz_tout], 0       ; tune the same way, when it was had
+    je .r
+    cmp byte [bzs_arm], BZS_A_NONE
+    je .r
+    cmp byte [bzs_mode], BZS_M_FX
+    jae .r
+    cmp word [bzs_tseg], 0
+    je .r
+    push ax
+    mov ax, [bzs_tseg]
+    mov [bzs_mseg], ax
+    call bzs_rstart
+    pop ax
     ret
 
 ; bzs_fsnd - the sound part fetched and its tables read.  CF = 1 it could not
@@ -583,6 +613,8 @@ bzs_events:
     jnz .t1
     cmp byte [bz_tout], 0
     je .nt
+    cmp word [bzs_tseg], 0      ; (130.22.9.1: the time's-up tune plays in
+    jne .nt                     ; the effect's place, as the fanfare in GOAL's)
     mov al, BZS_E_TIMEOUT
     jmp short .tf
 .t1:

@@ -361,6 +361,12 @@ C apps/bonanza/bzsound.inc bzs_vseg      # the VICTORY fanfare (BZM6.BIN, 224
                                          # every sub-tick as bzs_mseg once it
                                          # plays, dropped by bzs_gdrop0 on every
                                          # way the play ends (SPEC.md 130.22.9)
+C apps/bonanza/bzsound.inc bzs_tseg      # the TIME'S UP tune (BZM8.BIN): fetched
+                                         # beside the fanfare for a play of a
+                                         # course, started by the finish on a
+                                         # TIMEOUT as the fanfare on a goal,
+                                         # dropped first by bzs_gdrop0 (SPEC.md
+                                         # 130.22.9.1)
 C apps/bonanza/bonanza.asm @bz_tlog      # a shipped demo's part (BZD<K>), fetched, its log
                                          # copied whole into the log (bz_rin) and dropped
                                          # inside bz_tlog's one call; ES holds the

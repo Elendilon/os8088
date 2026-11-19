@@ -275841,8 +275841,9 @@ hold:
    shaft's grid cell carries `OBS`, so this one does not. So never on a
    ramp or a ramp's lip (where it would add to the floor's own rate), never
    on sand (soft) or a `bounce` mat (a trampoline already), and never on
-   any prop's cell (a spring, a pad, a flag, the cup, a tube's mouth, a
-   post, the lift's shaft: the lift is a moving floor);
+   a prop's cell (a spring, the cup, a tube's mouth, a post, the lift's
+   shaft: the lift is a moving floor) - *but on a FLAT prop's, since
+   130.16.4.1.1*;
 5. `rr = r if r >= BMIN else 0` (the rebound, as item 3 takes it) is
    below `BOOST`.
 
@@ -275893,6 +275894,49 @@ both and prints the exact threshold (130.16.5.3).
 
 **A jump pickup** (wave 9, story 9.3) raises `HOP`, never `BOOST`, so the
 two never stack; 9.3's own proofs include the boost's.
+
+###### 130.16.4.1.1 Rule 4 on a FLAT prop (the owner, 2026-11-19)
+
+The owner: *"I can't bounce with rubber if there is a checkpoint flag on
+the tile"*, and *"if the flag bounce issue also applies to other flat props
+that you should be able to boost while on, fix those too. Things like
+springs or water it makes sense you can't."* Rule 4's `OBS clear` was
+written for the lift's shaft, but every prop marks its cell `OBS` (its
+owner is how the step finds it, 130.12.3.2), so the boost was refused on a
+flag, a pad, a pickup and every other prop the ball rolls over; the Hop
+still worked there, which is what the owner saw.
+
+**The rule**: an `OBS` cell passes rule 4 when the window centre's owner's
+kind is a FLAT one - the cell otherwise passing it (FLOOR or GOAL, level,
+`normal` or `ice`, no platform carrying):
+
+| flat (boost allowed) | not (refused, as before) |
+|---|---|
+| the checkpoint flag, the material pad; PICKUPS' hourglass, speed and jump; a BOOST PAD; GLASS's crack and glass tile; the gate family's pressure PLATE and KEY; a MAGNET's and WIND's (blower, wisp) cells | a spring, water, spikes and pop-up spikes, the crystal membrane, the cup, a tube, the lift, a turntable, a drawbridge, a gate (moving, or barred overhead); a windmill, a bumper and a clock (obstacles the ball never stands on) |
+
+- **The model**: `bbcourse.BOOST_FLOOR_KINDS` (the two wave-4 kinds and
+  `BOOST_FLOOR_NAMES`, family kinds by name), read by `firm_level` through
+  `flat_centre` - the window centre's entry in `wol`, the guest's
+  `bz_wcen`. `boost_floor_table()` is `BZ_BOKT`: 12 bytes, bit (k AND 7)
+  of byte k >> 3 for kinds 0 - 95, emitted into `bzcourse.inc` and HASHED
+  into `BZ_PHYSV` (`phys_tables()`), so the guest's table and the model's
+  set cannot part.
+- **The guest**: `bz_bok`, when the masked cell is `OBS` with the kind and
+  surface passing, tests `bz_wckd` (the centre's owner's kind, `bz_wcen` +
+  1, 0 for none) against `BZ_BOKT` (`bz_bokt`, beside `bz_surftab`). The
+  late grace's opening (130.17.4.5) reads the same `bz_bok`, so it follows.
+- **The physics' identity**: `PHYS_REV` 14 and the table move `BZ_PHYSV`
+  from **23h** (appended to `PHYSV_SHIPPED`) to **EDh**. The three shipped
+  `.bzd` demos (MOON, PEAK, PLAY) are re-stamped `physics ED`: the build
+  replays each under the new physics, and all three (and FIRST's, TRIAL's
+  and MILL's route demos, and the title demos' `expect`s) still end
+  COMPLETE. As every `BZ_PHYSV` move does (130.16.9), a `.BZR` or a
+  BONANZA.DAT best written under 23h is refused or cleared.
+- **The row**: `bonanzaphys`'s wave-6 replays gain **`flagboost`** - a Hop
+  from rest on PEAK's checkpoint flag (18, 24), Space before its contact
+  there: a boost - found and proved on the model, with the `noflat` arm
+  (`Physics(_noflat=True)`: rule 4 refusing every `OBS` cell, as before)
+  turning it into a contact Hop.
 
 ##### 130.16.4.2 `BOOST_V` and its apex
 
@@ -282575,6 +282619,34 @@ claim and not `bzs_vic` - and when the fanfare played (`bzs_vic`)
 finish comes back without a second fanfare; a play that ends to the desktop
 without the fanfare (a replay, a fetch refused, EFFECTS ONLY) still gets the
 GOAL effect there.
+
+##### 130.22.9.1 TIME'S UP: the timeout's tune (the owner, 2026-11-19)
+
+The owner: *"I think we're supposed to have a death music, like victory
+music? But it never plays."* None was ever designed: a TIMEOUT ran the
+finish sequence with its TIMEOUT effect and the course's song playing on.
+The owner chose a tune for the TIMEOUT alone (a fall or a shatter respawns
+and the course goes on, so its song should too), written to VICTORY's
+shape:
+
+- **`apps/bonanza/music/timeup.bmu`**, song `BZ_SONG_TIMEUP` (appended to
+  `bbmusic.SONGS` and the Makefile's `BZ_SONGS`, so no song number moves;
+  in `NON_COURSE`, so no course's `music` may name it): A minor at 164 BPM,
+  two patterns of 11 rows = **exactly 110 sub-ticks**, the horn falling by
+  semitones G, F#, F (the "wah, wah, wah") and landing on a long E over
+  the dominant, a sinking bass and a strings pad, a tom then a kick; a
+  third pattern of silence is the last order row and `loop` points at it.
+  *Unheard by the owner yet: the ear is theirs.*
+- **Fetched beside the fanfare** by `bzs_gfetch` (the same rule: a PLAY of
+  a COURSE, with music), into the ARENA (130.25.4.2), so the timeout starts
+  it with no disk read: `bzs_tseg`, registered in `tests/pins.txt`;
+  `crs_arena` counts it; `bzs_gdrop0` drops it FIRST (the arena's order
+  backwards) and `bz_arload` re-reads its segment.
+- **Played** by `bzs_victory` at the sequence's first step when `bz_goal`
+  is 0 and `bz_tout` 1, as the fanfare on a goal; and, held, it REPLACES
+  the TIMEOUT effect (`bzs_events`), as the fanfare replaces GOAL's. Not
+  had (a claim refused, EFFECTS ONLY, no arm): the effect plays and the
+  course's song plays on, as before.
 
 **Claims.** A play holds the course, up to three balls, the sound part, the
 course's song and now the fanfare: SEVEN of `MEM_OWNER_MAX`'s eight data

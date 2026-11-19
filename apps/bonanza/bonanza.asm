@@ -867,6 +867,9 @@ bz_arload:
     mov al, BZ_P_SONG + BZ_SONG_VICTORY
     call op_seg
     mov [bzs_vseg], ax
+    mov al, BZ_P_SONG + BZ_SONG_TIMEUP ; (130.22.9.1)
+    call op_seg
+    mov [bzs_tseg], ax
     mov al, [bzs_song]          ; the song (0 none: row 0 is a ball's)
     or al, al
     jz .r
