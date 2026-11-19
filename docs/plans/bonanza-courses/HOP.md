@@ -1,10 +1,35 @@
 # COURSE 2, "Island Hop" (HOP): design sheet
 
-*Status: **IN ENGINE, revision 2** (2026-11-18): `apps/bonanza/courses/hop.bbc`,
+*Status: **IN ENGINE, revision 3** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
 written by `hop/sketch.py --bbc --force`, compiles with every check, and the
 BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
+
+## Revision 3 (2026-11-19): grounded, easy, clear
+
+The owner on revision 2: palette 0 good, but on BLACK (*"I want to introduce
+non-black backgrounds later in the game, as 'special' courses"*); the fall
+and bounce and the spring work; *"The level's double jumps are MUCH too hard.
+This level should be telling them that 'jump, and double jump: these
+mechanics exist', not testing their perfect use of them"*; *"Some of the path
+is not clear, or appears to connect where it actually doesn't"* (islands a
+tile apart round the start); and *"'floating' implies 'difficult jumps' ...
+we should save that style (as a complete map style) for when we get to
+difficult aerial jumps."*
+
+- **Grounded**: every island a column to the ground.
+- **Easy**: every Hop is a 1-tile gap (its 549 ms window), every "and again"
+  a 1-unit step railed on both sides, so a miss bounces back; the only
+  2-tile gap is the bounce's. Six legs: two Hops (+x), a ramp down, two
+  steps (-x), the basin and its spring throwing -x onto H, the lip, drop and
+  bounce (+y), then a Hop and a step once more, and the goal.
+- **Clear**: parts that do not connect stand at least three void tiles apart.
+- **The lips** (*observed* in the picture): between grounded columns a 1-tile
+  gap shows the near island's side face, exactly as a step's riser does, so
+  the two looked alike. The row before each gap floats one unit thick, so a
+  black notch under the lip marks every gap and a step shows none. This is
+  the only floating left, and it is a reading aid rather than the style.
 
 ## Revision 2: what changed, and why
 
