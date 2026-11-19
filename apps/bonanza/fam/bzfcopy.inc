@@ -23,7 +23,8 @@ bz_lrecsi:
 
 %ifdef FC_H4
 ; bz_h4 - the window cell at SI's floor at the point DL = u, DH = v (0 - 16),
-; in quarter px: 16 z0 + sx u + sy v, sx the slope byte's low nibble and sy
+; in quarter px: 8 z0 + sx u + sy v (z0 QUARTER units, SPEC.md 130.48), sx
+; the slope byte's low nibble and sy
 ; its high one, each signed (bzphys.inc's, which reads the products out of
 ; its table bz_prod: here IMUL, the same numbers).  -> AX.  Clobbers BX, CX.
 bz_h4:
@@ -41,8 +42,7 @@ bz_h4:
     cbw
     shl ax, 1
     shl ax, 1
-    shl ax, 1
-    shl ax, 1                   ; 16 z0
+    shl ax, 1                   ; 8 z0
     add ax, bx
     ret
 %endif

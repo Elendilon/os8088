@@ -1922,8 +1922,9 @@ bz_olines:
 ; bz_amodel - SPEC.md 130.29: THE MODEL, in a VOID cell of a GF_ANA part, once
 ; bz_occ's walk has laid every group.  A front cell N = (wx + i, wy + d - i),
 ; d = 1 .. BZ_OCCDEPTH, i = 0 .. d - a FLOOR, WALL or GOAL, not OBS, not
-; FL_FLOAT unless a GOAL, its highest corner H = 4 (z0 + max(sx, 0) +
-; max(sy, 0)) over the key K = z_b + m - hides every picture pixel at or
+; FL_FLOAT unless a GOAL, its highest corner H = 2 (z0 + 2 max(sx, 0) +
+; 2 max(sy, 0)) (z0 QUARTER units, SPEC.md 130.48) over the key K = z_b + m
+; - hides every picture pixel at or
 ; under its top edge, E(x) = Y + ((kr (2 d + 1) + 4) >> 3), d = x - X, right
 ; of its apex X and Y + ((kl (2 d + 1) + 3) >> 3), d = X - 1 - x, left of it,
 ; kr = 2 - sx, kl = 2 - sy (130.29.2).  Each block word of the footprint gets
@@ -1940,12 +1941,12 @@ bz_olines:
 ; - the ball's grid cell (bz_awx, bz_awy) the same as the last frame's: V and
 ;   its verdict are kept (bz_avp), no ROWTAB read;
 ; - a NEW V (bz_acptr) reads its 14 front cells once into the front table
-;   bz_afl, a slot each in (d, i) order: H / 4 (8000h: not readable), X, Y,
+;   bz_afl, a slot each in (d, i) order: H / 2 (8000h: not readable), X, Y,
 ;   the slopes byte and the SHADOWED halves: a flat half whose columns a flat
 ;   parent cell at d - 1 covers at or over it whenever it counts is never the
 ;   least in any column, so it is never computed (.cyes);
-; - the count set is an interval of floor(K / 4), [bz_amaxnc, bz_aminc): the
-;   highest H / 4 that does not count, the least that does (a wholly shadowed
+; - the count set is an interval of floor(K / 2), [bz_amaxnc, bz_aminc): the
+;   highest H / 2 that does not count, the least that does (a wholly shadowed
 ;   cell apart).  K outside it recounts from the table (no grid byte read)
 ;   and drops the words.  No cell counting is the cell's TOP TEST (the
 ;   owner's, 2026-11-17): the same cell and the ball at or over every front
@@ -2012,12 +2013,11 @@ bz_amodel:
     pop ds
 .run:
     inc word [es:bz_namod]
-    mov ax, [es:bz_gz + 1]      ; K = z_b + m, and floor(K / 4): H > K iff
-    cmp byte [es:bz_air], 0     ; H / 4 > it
-    jne .air
+    mov ax, [es:bz_gz + 1]      ; K = z_b + m, and floor(K / 2): H > K iff
+    cmp byte [es:bz_air], 0     ; H / 2 > it (H a multiple of 2 px: quarter
+    jne .air                    ; units, SPEC.md 130.48)
     add ax, BZ_CLIMB
 .air:
-    sar ax, 1
     sar ax, 1
     mov [es:bz_akq], ax
     cmp si, [es:bz_acptr]
@@ -2171,7 +2171,7 @@ bz_amodel:
     mov [es:bz_arowl], bx
     inc cx                      ; d + 1 cells, k0 .. k0 + d
 .cell:
-    mov word [es:di], 8000h     ; not readable (H / 4 under every key: no
+    mov word [es:di], 8000h     ; not readable (H / 2 under every key: no
                                 ; pass reads the rest of its slot)
     cmp ax, [es:bz_akw]
     jae .cnext                  ; (a negative k is huge)
@@ -2192,9 +2192,9 @@ bz_amodel:
     je .cyes
     test ah, BZ_FL_FLOAT
     jnz .cno
-.cyes:                          ; READABLE: X, the slopes, H / 4 = z0 +
-    mov [es:di + 2], dx         ; max(sx, 0) + max(sy, 0) and Y = 8 (s + d)
-    mov al, [si + 1]            ; + Y0 - 4 z0
+.cyes:                          ; READABLE: X, the slopes, H / 2 = z0 +
+    mov [es:di + 2], dx         ; 2 max(sx, 0) + 2 max(sy, 0) and Y = 8 (s + d)
+    mov al, [si + 1]            ; + Y0 - 2 z0 (z0 quarter units, 130.48)
     mov [es:di + 6], al
     mov ah, al
     and al, 0fh                 ; (a nibble 8 - 15 is a negative slope)
@@ -2210,12 +2210,12 @@ bz_amodel:
 .h2:
     add al, ah
     xor ah, ah
+    shl ax, 1
     mov cx, ax
     mov al, [si]
     cbw
     add cx, ax
-    mov [es:di], cx             ; CX = H / 4
-    shl ax, 1
+    mov [es:di], cx             ; CX = H / 2
     shl ax, 1
     neg ax
     add ax, [es:bz_ayb]
@@ -2260,7 +2260,7 @@ bz_amodel:
     cmp [es:si + 4], ax
     jg .csh
     or byte [es:di + 7], 2      ; the left half shadowed
-.csh:                           ; THE COUNT SET's interval (CX = H / 4, a cell
+.csh:                           ; THE COUNT SET's interval (CX = H / 2, a cell
     cmp byte [es:di + 7], 3     ; with both halves shadowed apart)
     je .cno
     cmp cx, [es:bz_akq]
@@ -2300,7 +2300,7 @@ bz_amodel:
 .lwords:
     jmp .words
 .count:                         ; THE COUNT SET from the table (AX = floor(K /
-    mov byte [es:bz_avld], 0    ; 4)), the words dropped: BX the highest H / 4
+    mov byte [es:bz_avld], 0    ; 2)), the words dropped: BX the highest H / 2
     mov word [es:bz_alcol], -1
     mov bx, 8000h               ; at or under it, DX the least over it (a cell
     mov dx, 7fffh               ; whose halves are both left out apart)
@@ -2554,8 +2554,8 @@ bz_achkv:                       ; ...the VGA's, as planar pairs (130.46.5)
     dw 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah, 5555h, 0aaaah
 
 ; bz_arange - bz_amodel's cache slots AL .. BL (words W0 + AL .. W0 + BL)
-; computed: each column's least edge line over the COUNTING front cells (H / 4
-; > floor(K / 4)), their halves the shadow test left, 7FFFh where none; then
+; computed: each column's least edge line over the COUNTING front cells (H / 2
+; > floor(K / 2)), their halves the shadow test left, 7FFFh where none; then
 ; each word's least and greatest (bz_awlo, bz_awhi) and its bit in bz_avld.
 ; The slots' columns are one run (16 bytes a word), so a half meets it in one
 ; run of columns and is stepped along it by the formula's own increment; a

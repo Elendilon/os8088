@@ -5,7 +5,8 @@
 ; Three kinds, each a FLAT FLOOR cell of the grid (OBS, never SAFE) rewritten
 ; in the 9-cell window PER BALL by CELL, as WATER's are (SPEC.md 130.36):
 ;   SPIKES     the floor's base B in the grid; record +18 LOW (B less a half
-;              unit), +19 TIP (B plus a half unit).  Steel's window holds TIP
+;              unit), +19 TIP (B plus a half unit), quarter units (SPEC.md
+;              130.48.4).  Steel's window holds TIP
 ;              (pushed up onto the tips, a climb, and it rolls on); every other
 ;              ball's LOW - so it drops onto them and LANDS - and, with the
 ;              window's CENTRE a spike cell, bz_mrec's HARD, HSTEPS and HTHR
@@ -27,7 +28,7 @@
 ; asks for the refill, bz_fref; a popspike whose pose the count about to be
 ; made flips is MARKED, bz_fmark, and refills the window when it is in it),
 ; STEP also finds the TORN membrane - the window's centre a membrane, the ball
-; not glass and its whole-px z under the net's 4 z0 - and marks the lanes of the
+; not glass and its whole-px z under the net's 2 z0 - and marks the lanes of the
 ; one it was and the one it is; POSE (a popspike's: 1 up; a membrane's: 1
 ; TORN).  The slot (bz_fsl + BZF_SLOT AL): +0 the material STEP last saw, +1 IN
 ; (the centre a killing spike at the last refill), +2 the HARD and HSTEPS
@@ -50,7 +51,7 @@ SP_HARD     equ 2
 SP_HTHR     equ 4
 SP_NWALK    equ 6
 SP_TORN     equ 7
-SP_LOW      equ 18              ; the record: LOW, TIP (signed half units),
+SP_LOW      equ 18              ; the record: LOW, TIP (signed quarter units),
 SP_TIP      equ 19              ; a popspike's ON, MASK, SEED
 SP_ON       equ 20
 SP_MASK     equ 21
@@ -140,7 +141,8 @@ sp_cell:
     and ah, [es:si + SP_MASK]
     cmp ah, [es:si + SP_ON]
     jb .up
-    dec ax
+    dec ax                      ; B = TIP less a half unit (2 quarter units,
+    dec ax                      ; SPEC.md 130.48.4)
     jmp short .w
 .up:
     cmp byte [bz_mat], BZ_MAT_STEEL
@@ -156,7 +158,7 @@ sp_cell:
     cmp byte [bz_mat], BZ_MAT_GLASS
     je .n
     mov al, [es:si + SP_MZ]     ; not glass: a NEAR VOID, its kill 3 units down
-    sub al, 6
+    sub al, 12                  ; (quarter units, SPEC.md 130.48.4)
     mov [bz_nbr + bx], al
     mov byte [bz_nbr + bx + 2], 0
 .n:
@@ -248,7 +250,7 @@ sp_step:
     loop .l
     jmp short .t
 .mem:                           ; TORN: the window's centre, not glass, under
-    mov ax, [es:si + 2]         ; the net: z < 4 z0, signed - and while a
+    mov ax, [es:si + 2]         ; the net: z < 2 z0, signed - and while a
     cmp ax, [bz_nwin]           ; membrane is the centre, a STEP every step
     jne .nx
     mov word [bz_fwkk], 1
@@ -256,8 +258,7 @@ sp_step:
     je .nx
     mov al, [es:si + SP_MZ]
     cbw
-    shl ax, 1
-    shl ax, 1
+    shl ax, 1                   ; (z0 quarter units, SPEC.md 130.48.4)
     cmp [bz_gz + 1], ax
     jge .nx
     push bx
