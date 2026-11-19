@@ -10912,14 +10912,14 @@ def attach_song(c, song):
     return c
 
 
-def course_song(c, k):
-    """the song course K plays: its `music`, else K - 1 (BENCH 0), past the
-    last course song wrapping to 0 (130.20.6's rule, now the tool's; 130.26.5
-    took the desktop's song 0 away, so every course song is one lower)"""
-    if c.src.music is not None:
-        return c.src.music[0]
-    n = len([x for x in song_names() if x not in _non_course()])
-    return 0 if k == 0 else (k - 1) % n
+def course_song(c, k=None):
+    """the song course C plays: its `music` line (SPEC.md 130.50.3: EVERY course of a build names its song -
+    no song by position any more, so moving a course never changes its music).  K is kept for the callers'
+    signature and read by nothing.  Refused for a course with no `music`"""
+    if c.src.music is None:
+        raise CourseError("%s: no `music` line - every course names its song (SPEC.md 130.50.3; the song by "
+                          "position, 130.20.6's rule, is gone)" % getattr(c, "fname", c.name))
+    return c.src.music[0]
 
 
 def limit_rule(route_steps, tutorial=False):
@@ -30883,8 +30883,7 @@ def _sc_inc(X, res):
             why = str(e)
         res.append(("4 wave 7's refusal: %s is refused (%s)" % (what, why[:120]),
                     why != "accepted" and ("par is refused" in why if what == "par" else "under the route" in why)))
-    # wave 7 (SPEC.md 130.18.6): `music NAME` names the song; the title and an unknown name are refused;
-    # without it the courses keep 130.20.6's rule, now the tool's table
+    # wave 7 (SPEC.md 130.18.6): `music NAME` names the song; the title and an unknown name are refused
     base = 'course MUS "m"\nwidth 128\norigin 352\nfloor rect 3 10 9 14 flat 4\ngoal rect 9 10 12 14 flat 4\nstart 5 12\n'
     mc = compile_course(base + "music trial\n", "<music>", occluders=False)
     sn = song_names()
@@ -30896,15 +30895,19 @@ def _sc_inc(X, res):
             mr.append("accepted")
         except CourseError as e:
             mr.append("refused" if "music takes" in str(e) else str(e))
-    # SPEC.md 130.26.5: the desktop's song 0 (`title`) is GONE, so the courses' songs closed up - BENCH
-    # song 0, course K song (K - 1) mod the course songs; `music title` is refused as no song at all
-    ncs = len([x for x in sn if x not in _non_course()])
+    # SPEC.md 130.50.3: EVERY course names its song - no song by position (130.20.6's rule is gone), so a
+    # course with no `music` line is refused at the build, and moving a course never changes its music
+    try:
+        course_song(compile_course(base, "<music none>", occluders=False))
+        nomus = "accepted"
+    except CourseError as e:
+        nomus = "refused" if "no `music` line" in str(e) else str(e)
     res.append(("4 `music trial` gives song %d (%s); `music title` (no such song since 130.26.5), an unknown name and "
-                "the fanfare %s; the courses' songs %s, 130.20.6's rule as 130.26.5 left it (BENCH 0, K -> (K - 1) mod %d)"
-                % (course_song(mc, 3), sn[course_song(mc, 3)], " and ".join(mr), rule, ncs),
-                course_song(mc, 3) == sn.index("trial") and mr == ["refused", "refused", "refused"]
-                and "title" not in sn
-                and rule == [0 if k == 0 else (k - 1) % ncs for k in range(len(courses))]
+                "the fanfare %s; a course with no `music` %s; the courses' songs %s, each its own `music` line"
+                % (course_song(mc), sn[course_song(mc)], " and ".join(mr), nomus, rule),
+                course_song(mc) == sn.index("trial") and mr == ["refused", "refused", "refused"]
+                and "title" not in sn and nomus == "refused"
+                and rule == [c.src.music[0] for c in courses]
                 and "    db " + ", ".join(str(x) for x in rule) in inc))
     # item 4's controls: each table the step reads moves BZ_PHYSV (a user's .BZR saved under other
     # physics is refused, not replayed down another path)

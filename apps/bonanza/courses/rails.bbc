@@ -17,6 +17,7 @@
 #  - P, the start plate on the left, with a pad for each ball.
 # Goals: exit 0 at F's left end, exit 1 at L's left end.
 course RAIL "Guard Rails"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 origin 384
 ball   rubber

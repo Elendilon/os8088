@@ -20,6 +20,7 @@
 #    the plate swings and LIFTS the ball to the ledge's height; roll off onto the ledge and its goal (exit 0).
 #    THE SWING: a plate across to a dead-end pad, level only while it passes FLAT - time the crossing.
 course TILT "See-saw Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width 128
 origin 384
 ball rubber

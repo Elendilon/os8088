@@ -24,6 +24,7 @@
 #  6. the last green, UP a gentle ramp so the ball arrives slow, sand round
 #     the CUP (capture 160).
 course MOON "Moonlit Green"
+music moonlit    # SPEC.md 130.50.3: every course names its song (the song it had by position)
 width 64
 ball rubber
 # story 9.8 (SPEC.md 130.25.20): today's props' families, home RESIDENT (130.25.6.9)

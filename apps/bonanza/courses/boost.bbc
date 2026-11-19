@@ -14,6 +14,7 @@
 #    wall; its two +x pads (`flat`) throw the ball over a 2-cell gap onto the LOW plate at 1.5 units - without them
 #    every ball falls short.  A ramp climbs from the low plate back to the goal plate.
 course BOOS "Boost Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width 128
 origin 256
 ball rubber

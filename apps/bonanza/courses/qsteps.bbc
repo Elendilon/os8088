@@ -10,6 +10,7 @@
 # before the first bounce), the first easily; 1 3/4 and 2 nobody.  Lanes side by side step into each other too.
 # The goals: exit 0 at the end of the 1/4 lane, exit 1 at the end of the 1 1/4 lane (a Hop and its boost).
 course QSTP "Quarter Steps"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width 128
 origin 448
 ball rubber

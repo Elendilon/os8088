@@ -22,6 +22,7 @@
 #  7. the RUBBER pad, the short climb to the sand green and the CUP
 #     (capture 160).
 course PEAK "Summit Rush"
+music summit     # SPEC.md 130.50.3: every course names its song (the song it had by position)
 width 64
 ball rubber
 # story 9.8 (SPEC.md 130.25.20): today's props' families, home RESIDENT (130.25.6.9)
