@@ -187,6 +187,8 @@ way 27 32
 art hop_sign0.bba 842 127
 art hop_sign1.bba 561 182
 art hop_chev.bba 267 136
-art hop_goal0.bba 479 279
-art hop_goal1.bba 527 303
+art hop_gaparc.bba 339 113
+art hop_goalbunt.bba 463 272
+art hop_flowers.bba 287 74
+art hop_colspring.bba 350 221
 # ---- end ART ----

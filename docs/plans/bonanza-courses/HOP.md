@@ -104,6 +104,18 @@ The tufts are 13 x 9 px and barely read at the game's scale.
 
 ![the interest pieces](hop/art-extras.png)
 
+## The art in the course (2026-11-19)
+
+The owner's picks, written by `hop/art.py --signs banner,floor --extras
+chev,gap-arc,goal-bunting,flowers-poppy,col-spring --into-course` (after
+`sketch.py --bbc --force`): the "JUMP!" banner on T1's three-block rail, the
+"JUMP TWICE!" floor paint, the lip's chevrons, the spring's throw drawn as
+dots in the air (`gap-arc`: *"innovative ... let me play it, to make sure it
+doesn't feel wrong as I move around over it"*), the goal bunting, the
+poppies, and the painted spring on the basin's front (*"I love the spring
+idea; its not reading bad, but do one more pass"*: on the build for a look
+while a more readable one is drawn). The clocks are the frogs (round 2).
+
 ## The limit and the demo (2026-11-19)
 
 A sub-agent taught the tool's autopilot to Hop (SPEC.md 130.14.7.4.1: a
