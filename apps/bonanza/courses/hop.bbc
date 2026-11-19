@@ -1,10 +1,10 @@
 # Course 2, tutorial 2 (working name HOP; docs/plans/bonanza-courses/HOP.md): rubber, the Hop, rubber's "and
 # again", a spring.  Floating islands.  Written by docs/plans/bonanza-courses/hop/sketch.py --bbc while the
 # layout moves; edited by hand once it settles.
-course HOP "Island Hop"
+course HOP "Little Hop"
 guide                     # a REAL course: held to the course guide's checkable rules
 width 128                 # the islands swing 30 tiles across, and a fall drifts 3 more each side (NEAR void): 1024 px, scrolled (G2)
-origin 576                # the reach's span centred in the 1024 px
+origin 560                # the reach's span centred in the 1024 px
 uses spring
 ball rubber
 trap hop                  # NO TRAP presses the Hop and its "and again" too: the course is built on them (SPEC.md 130.14.4.1.1)
@@ -14,143 +14,144 @@ palette 0                 # the owner: green, red, yellow - on black (non-black 
 target 30                 # the design class; the sheet aims at about 35 s
 
 # rooms (the sketch's sections)
-floor rect  18   8  21  12  flat 24   # A
-floor rect  22   8  25  12  flat 24   # T
-floor rect  26   8  29  12  flat 24   # T
-floor rect  26  12  29  16  ramp y 12 16 24 22   # D
+floor rect  18   6  21  10  flat 25   # A
+floor rect  22   6  25  10  flat 25   # T
+floor rect  26   6  29  10  flat 25   # T
+floor rect  26  10  29  16  ramp y 10 16 25 22   # D
 floor rect  26  16  29  20  flat 22   # L
 floor rect  19  16  25  20  flat 22.5   # U
-floor rect  15  16  19  20  flat 23.5   # U
-floor rect  15  20  18  22  ramp y 20 22 23.5 21.5   # D
-floor rect  12  22  19  26  flat 21.5   # B
-floor rect   7  22  11  26  flat 27.5   # H
-floor rect   7  26  11  28  ramp y 26 28 27.5 25.5   # R
-floor rect   7  28  11  31  flat 19.5   # F
-floor rect   7  34  13  37  flat 21.5   # K
-floor rect  14  34  18  38  flat 21.5   # E
-floor rect  14  30  18  34  flat 22.5   # S
-floor rect  18  30  21  34  ramp x 18 21 22.5 21   # G
-floor rect  21  29  26  35  flat 21   # G
-float rect  20   8  21  12 thick 1   # the lip over a gap
-float rect  24   8  25  12 thick 1   # the lip over a gap
+floor rect  16  16  19  20  flat 23.5   # U
+floor rect  16  20  19  22  ramp y 20 22 23.5 21.5   # D
+floor rect  13  22  20  26  flat 21.5   # B
+floor rect   8  22  12  26  flat 27.5   # H
+floor rect   8  26  12  28  ramp y 26 28 27.5 25.5   # R
+floor rect   8  28  12  31  flat 19.5   # F
+floor rect   8  34  14  37  flat 21.5   # K
+floor rect  15  34  19  38  flat 21.5   # E
+floor rect  15  30  19  34  flat 22.5   # S
+floor rect  19  30  22  34  ramp x 19 22 22.5 21   # G
+floor rect  22  29  27  35  flat 21   # G
+float rect  20   6  21  10 thick 1   # the lip over a gap
+float rect  24   6  25  10 thick 1   # the lip over a gap
 float rect  24  16  25  20 thick 1   # the lip over a gap
-float rect   7  30  11  31 thick 1   # the lip over a gap
-float rect  12  34  13  37 thick 1   # the lip over a gap
+float rect   8  30  12  31 thick 1   # the lip over a gap
+float rect  13  34  14  37 thick 1   # the lip over a gap
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
 
 # rails: block rails (wall tiles) on the void side of each railed edge
-wall  tile   6  22  flat 29.5
-wall  tile   6  24  flat 29.5
-wall  tile   6  25  flat 29.5
-wall  tile   6  26  flat 29.5
-wall  tile   6  27  flat 28.5
-wall  tile   6  28  flat 21.5
-wall  tile   6  29  flat 21.5
-wall  tile   6  30  flat 21.5
-wall  tile   6  34  flat 23.5
-wall  tile   6  35  flat 23.5
-wall  tile   6  36  flat 23.5
-wall  tile   7  21  flat 29.5
-wall  tile   7  37  flat 23.5
+wall  tile   7  22  flat 29.5
+wall  tile   7  24  flat 29.5
+wall  tile   7  25  flat 29.5
+wall  tile   7  26  flat 29.5
+wall  tile   7  27  flat 28.5
+wall  tile   7  28  flat 21.5
+wall  tile   7  29  flat 21.5
+wall  tile   7  30  flat 21.5
+wall  tile   7  34  flat 23.5
+wall  tile   7  35  flat 23.5
+wall  tile   7  36  flat 23.5
 wall  tile   8  21  flat 29.5
 wall  tile   8  37  flat 23.5
 wall  tile   9  21  flat 29.5
 wall  tile   9  37  flat 23.5
 wall  tile  10  21  flat 29.5
 wall  tile  10  37  flat 23.5
+wall  tile  11  21  flat 29.5
 wall  tile  11  37  flat 23.5
-wall  tile  12  21  flat 23.5
-wall  tile  12  26  flat 23.5
 wall  tile  12  37  flat 23.5
 wall  tile  13  21  flat 23.5
 wall  tile  13  26  flat 23.5
-wall  tile  13  30  flat 24.5
-wall  tile  13  31  flat 24.5
-wall  tile  13  32  flat 24.5
-wall  tile  13  33  flat 24.5
-wall  tile  14  16  flat 25.5
-wall  tile  14  17  flat 25.5
-wall  tile  14  18  flat 25.5
-wall  tile  14  19  flat 25.5
-wall  tile  14  20  flat 25.5
-wall  tile  14  21  flat 24.5
+wall  tile  13  37  flat 23.5
+wall  tile  14  21  flat 23.5
 wall  tile  14  26  flat 23.5
-wall  tile  14  38  flat 23.5
-wall  tile  15  15  flat 25.5
+wall  tile  14  30  flat 24.5
+wall  tile  14  31  flat 24.5
+wall  tile  14  32  flat 24.5
+wall  tile  14  33  flat 24.5
+wall  tile  15  16  flat 25.5
+wall  tile  15  17  flat 25.5
+wall  tile  15  18  flat 25.5
+wall  tile  15  19  flat 25.5
+wall  tile  15  20  flat 25.5
+wall  tile  15  21  flat 24.5
 wall  tile  15  26  flat 23.5
 wall  tile  15  38  flat 23.5
 wall  tile  16  15  flat 25.5
 wall  tile  16  26  flat 23.5
 wall  tile  16  38  flat 23.5
-wall  tile  17   8  flat 26
-wall  tile  17   9  flat 26
-wall  tile  17  10  flat 26
-wall  tile  17  11  flat 26
+wall  tile  17   6  flat 27
+wall  tile  17   7  flat 27
+wall  tile  17   8  flat 27
+wall  tile  17   9  flat 27
 wall  tile  17  15  flat 25.5
 wall  tile  17  26  flat 23.5
 wall  tile  17  38  flat 23.5
-wall  tile  18   7  flat 26
-guard tile  18  12                # see-through
+wall  tile  18   5  flat 27
+guard tile  18  10                # see-through
 wall  tile  18  15  flat 25.5
-wall  tile  18  20  flat 25.5
-wall  tile  18  21  flat 24.5
 wall  tile  18  26  flat 23.5
-wall  tile  18  29  flat 24.5
-wall  tile  18  34  flat 23.5
-wall  tile  18  35  flat 23.5
-wall  tile  18  36  flat 23.5
-wall  tile  18  37  flat 23.5
-guard tile  19  12                # see-through
+wall  tile  18  38  flat 23.5
+guard tile  19  10                # see-through
 wall  tile  19  15  flat 24.5
-wall  tile  19  22  flat 23.5
-wall  tile  19  23  flat 23.5
-wall  tile  19  24  flat 23.5
-wall  tile  19  25  flat 23.5
-wall  tile  19  29  flat 24
-wall  tile  20   7  flat 26
-guard tile  20  12                # see-through
+wall  tile  19  20  flat 25.5
+wall  tile  19  21  flat 24.5
+wall  tile  19  26  flat 23.5
+wall  tile  19  29  flat 24.5
+wall  tile  19  34  flat 23.5
+wall  tile  19  35  flat 23.5
+wall  tile  19  36  flat 23.5
+wall  tile  19  37  flat 23.5
+wall  tile  20   5  flat 27
+guard tile  20  10                # see-through
 wall  tile  20  15  flat 24.5
 guard tile  20  20                # see-through
-wall  tile  20  29  flat 23.5
+wall  tile  20  22  flat 23.5
+wall  tile  20  23  flat 23.5
+wall  tile  20  24  flat 23.5
+wall  tile  20  25  flat 23.5
+wall  tile  20  29  flat 24
 wall  tile  21  15  flat 24.5
 guard tile  21  20                # see-through
-wall  tile  21  28  flat 23
-wall  tile  21  35  flat 23
-wall  tile  22   7  flat 26
-guard tile  22  12                # see-through
+wall  tile  21  29  flat 23.5
+wall  tile  22   5  flat 27
+guard tile  22  10                # see-through
 wall  tile  22  15  flat 24.5
 guard tile  22  20                # see-through
 wall  tile  22  28  flat 23
 wall  tile  22  35  flat 23
-wall  tile  23   7  flat 26
-guard tile  23  12                # see-through
+wall  tile  23   5  flat 27
+guard tile  23  10                # see-through
 wall  tile  23  15  flat 24.5
 guard tile  23  20                # see-through
 wall  tile  23  28  flat 23
 wall  tile  23  35  flat 23
-wall  tile  24   7  flat 26
-guard tile  24  12                # see-through
+wall  tile  24   5  flat 27
+guard tile  24  10                # see-through
 wall  tile  24  15  flat 24.5
 guard tile  24  20                # see-through
 wall  tile  24  28  flat 23
 wall  tile  24  35  flat 23
 wall  tile  25  28  flat 23
 wall  tile  25  35  flat 23
-wall  tile  26   7  flat 26
-wall  tile  26  29  flat 23
-wall  tile  26  30  flat 23
-wall  tile  26  31  flat 23
-wall  tile  26  33  flat 23
-wall  tile  26  34  flat 23
-wall  tile  27   7  flat 26
+wall  tile  26   5  flat 27
+wall  tile  26  28  flat 23
+wall  tile  26  35  flat 23
+wall  tile  27   5  flat 27
 guard tile  27  20                # see-through
-wall  tile  28   7  flat 26
+wall  tile  27  29  flat 23
+wall  tile  27  30  flat 23
+wall  tile  27  31  flat 23
+wall  tile  27  33  flat 23
+wall  tile  27  34  flat 23
+wall  tile  28   5  flat 27
 guard tile  28  20                # see-through
-wall  tile  29   8  flat 26
-wall  tile  29   9  flat 26
-wall  tile  29  10  flat 26
-wall  tile  29  11  flat 26
+wall  tile  29   6  flat 27
+wall  tile  29   7  flat 27
+wall  tile  29   8  flat 27
+wall  tile  29   9  flat 27
+wall  tile  29  10  flat 27
+wall  tile  29  11  flat 26.5
 wall  tile  29  12  flat 26
 wall  tile  29  13  flat 25.5
 wall  tile  29  14  flat 25
@@ -160,45 +161,43 @@ wall  tile  29  17  flat 24
 wall  tile  29  18  flat 24
 wall  tile  29  19  flat 24
 
-spring 13 24 768                      # SPEC.md 130.14: thrown up, away from the camera
-goal  rect 23 29 26 35  flat 21
-start 19 9
-checkpoint 16 24 ball rubber   # flag 0
-checkpoint 9 23 ball rubber   # flag 1
-checkpoint 9 35 ball rubber   # flag 2
+spring 14 24 768                      # SPEC.md 130.14: thrown up, away from the camera
+goal  rect 24 29 27 35  flat 21
+start 19 7
+checkpoint 17 24 ball rubber   # flag 0
+checkpoint 10 23 ball rubber   # flag 1
+checkpoint 10 35 ball rubber   # flag 2
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
-floor tile 19 7  flat 25.5   # the start clock's tile (on top of the rail block it replaces)
-clock 19 7
-floor tile 6 23  flat 29   # the middle clock's tile (on top of the rail block it replaces)
-clock 6 23
-floor tile 26 32  flat 22.5   # the finish clock's tile (on top of the rail block it replaces)
-float tile 26 32 thick 1
-clock 26 32
+floor tile 19 5  flat 26.5   # the start clock's tile (on top of the rail block it replaces)
+clock 19 5
+floor tile 7 23  flat 29   # the middle clock's tile (on top of the rail block it replaces)
+clock 7 23
+floor tile 27 32  flat 22.5   # the finish clock's tile (on top of the rail block it replaces)
+clock 27 32
 
 # the autopilot's route
-way 19 9
-way 23 10
-way 27 10
-way 27 14
+way 19 7
+way 23 8
+way 27 8
+way 27 13
 way 27 18
 way 23 18
-way 22 18
-way 19 18
-way 16 18
-way 16 21
-way 16 24
-way 13 24
-way 9 24
-way 9 27
-way 9 29
-way 9 35
-way 11 35
-way 16 36
-way 16 32
-way 19 32
-way 24 32
+way 20 18
+way 17 18
+way 17 21
+way 17 24
+way 14 24
+way 10 24
+way 10 27
+way 10 29
+way 10 35
+way 12 35
+way 17 36
+way 17 32
+way 20 32
+way 25 32
 # ---- ART (generated by docs/plans/bonanza-courses/hop/signs.py) ----
-art hop_sign0.bba 681 176
-art hop_sign1.bba 581 112
+art hop_sign0.bba 825 92
+art hop_sign1.bba 613 160
 # ---- end ART ----

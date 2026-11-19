@@ -1,10 +1,28 @@
-# COURSE 2, "Island Hop" (HOP): design sheet
+# COURSE 2, "Little Hop" (HOP; was "Island Hop"): design sheet
 
-*Status: **IN ENGINE, revision 5** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
+*Status: **IN ENGINE, revision 6** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
 written by `hop/sketch.py --bbc --force`, compiles with every check, and the
 BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
+
+## Revision 6 (2026-11-19): signs where the move is, a longer first ramp, "Little Hop"
+
+The owner: *"Plays pretty well."*
+- **"JUMP!" on T1's north rail** (*"you have to jump there too"*) and
+  **"JUMP TWICE!" on U1's**, before the step: *"a 'here is what you need to
+  do' instruction instead of a 'do this to get here' instruction"*.
+- **The finish clock's block stands on a full column** to the ground, so it
+  no longer breaks the back wall (block clocks no longer float).
+- **The first ramp is six tiles** (it was four), the start one unit higher.
+  Not double: the picture is 1024 px, and the reach now spans exactly the 60
+  tiles it allows (`origin 560`; U2 three tiles to pay for it). The aim, to
+  take "JUMP TWICE!" out of the spawn's view, is NOT met. *Measured* with the
+  tool's camera model: at the spawn the CGA window covers picture x 592 - 912
+  and the sign's board starts at 613. It leaves the view once the ball rolls
+  right for the first Hops.
+- **The name: "Little Hop"**, the owner's suggestion; the island theme is
+  saved for a much later course.
 
 ## Revision 5 (2026-11-19): the long platform is U1
 
