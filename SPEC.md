@@ -254985,8 +254985,45 @@ lever.
 
 ##### 130.10.11.1 The benchmark's course
 
-`apps/bonanza/courses/bench.bbc` (`BENCH`, "Proving Ground", `K = 0`) is
-wave 0b's test course written in the text format, changed only where
+*Since 2026-11-19 BENCH is the TEST BUILD's alone (130.26.6.1).* The
+owner: *"having everything depend on an order that can and will change is
+bad ... Once those two are done, then bench can come out of the shipping
+build"* - and both were done (the N, M and tour keys gone, 130.26.8; no
+course K in the game's defaults, 130.14.7.4 and 130.22.5.1). The Makefile
+names the file as **`BZ_BENCH`**, outside `BZ_COURSES`, and only
+`BZDEV=1`'s block puts it in, AHEAD of every other course
+(`BZ_COURSES := $(BZ_BENCH) $(BZ_COURSES)`, after the knobs' `+=` lines),
+so in the test build it is still course 0 and every K there is what it
+was: that build's `bzcourse.inc` is byte for byte the one the shipped
+build wrote before (MEASURED, `cmp`). The shipped build has no benchmark
+(B is `BZDEV`'s, 130.26.6.1), so it carries no BENCH: its courses are
+`FIRST` 0 ... `HOP` 7, `BZ_CRS_BENCH` is not defined there, and nothing
+the shipped package assembles names it - B's `.bench` (`mov ax, 1 |
+(BZ_CRS_BENCH << 8)`: a benchmark of the course in AH, a row poking
+`[bz_crs]` at `bz_launch` for another) sits inside `bz_onkey`'s `.dev`
+under `%ifdef BZDEV`. The course stage's stamp now includes `BZDEVSTAMP`,
+since BENCH is a course of the one build and not the other.
+`bbcourse.default_paths()` reads `BZ_BENCH` and `BZ_COURSES` both, the
+test build's list, so a bare `--selfcheck` (the `bonanzacourse` row) and
+`make bonanza-course-check` still check BENCH's route, item 8's directions
+and the visibility control on it; `bbcourse.BENCH_NAMES` keeps its
+exemptions by NAME, in whichever build has it. The bonanza rows fill their
+course tables with `bonanza_ring.crs_fill()` (no longer by asking for
+`"bench"`, which a shipped tree's table does not hold), the claim leg's
+`own_course` skips BENCH by name, and `bonanza_perf --baseline` walks B's
+BENCH and then `demo_ks()` rather than K 1 .. N - 1. MEASURED (`make
+bonanza bonanzadisk`, before and after): the package's image **50,980 ->
+50,944 (-36**, the per-course tables' ninth row and `BZ_CRS_TITLEW` 14 ->
+13), its bss 8,819 unchanged; **`BONANZA.O88` 153,963 -> 149,693 bytes
+(-4,270**: BENCH's part, 30,031 bytes packed to 4,165, and its table
+rows); `bonanza360.img` **159 -> 155 of 354 clusters in use, 195 -> 199
+free (+4KB)**. The `BZDEV=1` build should be unchanged - its assembly
+differs from before only in comments and its `bzcourse.inc` is identical -
+though only its after was measured: image 52,393, bss 8,917, 161 clusters
+on its 360KB floppy.
+
+`apps/bonanza/courses/bench.bbc` (`BENCH`, "Proving Ground", `K = 0` in the
+`BZDEV=1` build) is wave 0b's test course written in the text format, changed only where
 physics v1 needs it: every ramp at a whole half unit a tile and inside
 130.10.3's limits; every solid tile inside `3 .. 252`; the steps on the
 return leg made a ramp the autopilot can climb (a one-unit step is 8 px,
@@ -262493,7 +262530,9 @@ same bytes under their new names (MEASURED, `cmp`). MEASURED (`make bonanza`): t
 And `bz_crsel` (`BZDEV=1`'s F) starts on **`BZ_CRS_DEFAULT`**, the course
 on pathway pad 0 (the tool's), not `BZ_CRS_FIRST`; Enter's game already
 starts a new game on pad 0. `BENCH` stays in the build, its position no
-longer depended on (it is still course 0 today).
+longer depended on (it is still course 0 today). *And since the same day it
+is in the `BZDEV=1` build alone, still course 0 there (130.10.11.1); the
+shipped build's courses start at `FIRST`.*
 
 One DEMO PART a tour course, `BZD<K>.BIN` (`K` 1 - 5), rows
 `BZ_P_DEMO + K - 1` with `BZ_P_DEMO = BZ_P_SONG + BZS_NSONG`, after the
@@ -278084,6 +278123,8 @@ shipped `BONANZA.O88` is the player's alone. Behind the knob:
   (`bz_rcopy`, `bz_rframes` .. `bz_rnpwt`, 84 bytes);
 - **the scripted camera** (130.17.6.7: `bz_camera.script`, `.sax`,
   `bz_scyc`), the harness's late frame (`bz_hspin`);
+- **BENCH**, the benchmark's course (`BZ_BENCH`, course 0 of this build and
+  in no other, since 2026-11-19: 130.10.11.1);
 - **the shell part's instruments' face**: `bzface.inc`'s MAIN and RESULTS
   builders and the shell's `BZH_REDRAW` and `BZH_LINE` vectors (a `retf`
   in the shipped part, whose face is `bz_wface`'s alone).

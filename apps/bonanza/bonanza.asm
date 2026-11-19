@@ -402,8 +402,10 @@ bz_onkey:
     mov al, 2
     jmp short .go
 .bench:
-    mov ax, 1 | (BZ_CRS_BENCH << 8) ; B: the benchmark, on BENCH (SPEC.md
-    jmp short .go               ; 130.10.11.1)
+    mov ax, 1 | (BZ_CRS_BENCH << 8) ; B: the benchmark of the course in AH -
+    jmp short .go               ; BENCH, which BZDEV=1 alone carries, as
+                                ; course 0; a row pokes [bz_crs] at
+                                ; bz_launch for another (SPEC.md 130.10.11.1)
 %if BZ_PATH_NPAD
 .game:                          ; Enter, Alt+Enter: THE GAME (wave 8b, 130.19.5)
 %if BZ_TITLE
@@ -552,7 +554,7 @@ bz_setcard:
 ; In: [bz_mode] (0 play, 1 benchmark, 2 replay, 3 the demo benchmark: a
 ; replay, measured, SPEC.md 130.14.7.3) and [bz_crs].  The MATERIAL is
 ; chosen here (SPEC.md 130.11.5.4): a play or a benchmark rolls the course's
-; own (BENCH's for B; the course a harness poked at this entry otherwise), a
+; own (BENCH's for B, the BZDEV build's; the course a harness poked at this entry otherwise), a
 ; replay the log's.  Course K's part
 ; (row BZ_P_CRS + K) is fetched - the same row on both cards - and expanded
 ; in place at once (bz_cexp, SPEC.md 130.15.4.5); the balls are HELD since the

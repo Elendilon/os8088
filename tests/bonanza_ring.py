@@ -467,14 +467,21 @@ def _songed(c, name):
     return c
 
 
+def crs_fill():
+    """both course tables (COURSES, CRS_K) filled from the build's bzcourse.inc - never by asking for one
+    course's name, which a build may not carry (BENCH is the BZDEV=1 build's alone, SPEC.md 130.10.11.1)"""
+    for t in (COURSES, CRS_K):
+        if not dict.__len__(t):
+            try:
+                t[""]                            # (fills the table: no course is named "")
+            except KeyError:
+                pass
+
+
 def crs_all():
     """{name: K} of every course of the build (CRS_K, filled): BZ_COURSES's order is the K, never a
     literal"""
-    if not dict.__len__(CRS_K):
-        try:
-            CRS_K[""]                            # (fills the table: no course is named "")
-        except KeyError:
-            pass
+    crs_fill()
     return dict(dict.items(CRS_K))
 
 
@@ -5266,7 +5273,7 @@ def main():
     a = ap.parse_args()
     dev()                               # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check_reds:
-        COURSES["bench"]                        # (fills the table)
+        crs_fill()                              # (fills the table)
         prefetch(sorted(COURSES))               # (the host half reads every shipped course)
         for line in check_reds(REDS, "bonanza_ring"):
             print(line)

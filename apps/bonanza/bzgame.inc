@@ -23,7 +23,7 @@
 ;                      position at the end of every step (bzphys.inc, SPEC.md
 ;                      130.10.8); the physics state is bzphys.inc's head
 ;   bz_crs      byte   the course played: K (bzcourse.inc's BZ_CRS_*), from
-;                      bz_crsel (a row's poke) for F, BZ_CRS_BENCH for B, the log's
+;                      bz_crsel (a row's poke) for F, BZ_CRS_BENCH for B (BZDEV's alone), the log's
 ;                      for R; a harness pokes it at bz_launch's entry
 ;   bz_mat      byte   the material played, 0 rubber, 1 steel, 2 glass
 ;                      (bonanza.asm bz_launch: the course's own for a play or
@@ -312,8 +312,8 @@ VAR bz_row0,1                   ; 1: this frame's box is at window row 0 (bz_csp
 VAR bz_r0p,1                    ; 1: a box starts at the new window's first line
                                 ; (bz_r0pend): bz_vr shuts interrupts at the rise
 VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
-VAR bz_crs,1                    ; the course K: BZ_CRS_FIRST to play, BZ_CRS_BENCH
-                                ; for the benchmark (bzcourse.inc)
+VAR bz_crs,1                    ; the course K: bz_crsel's to play, BZ_CRS_BENCH
+                                ; for BZDEV's benchmark (bzcourse.inc)
 VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
 VAR bz_fixed,2                  ; SPEC.md 130.23.2: 1 the course's window is FIXED (+1 zero)
 VAR bz_fixr,2                   ; ...at R0 (this card's card rows) and c0 (words):
