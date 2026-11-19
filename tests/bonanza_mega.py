@@ -288,6 +288,27 @@ class Pkg(object):
     def word(self, n):
         return u16(self.b.memr(self.a(n), 2))
 
+    def log(self, n=4096, base=None):
+        """the session's replay log, its first N bytes as one run (SPEC.md 130.11.12.1): the 16-byte
+        header resident at bz_rlog, the runs in THE KIT's zero tail - [bz_kseg] an LDT selector here,
+        read through its descriptor (b.lin), never added to.  BASE: another instance's region's"""
+        base = self.base() if base is None else base
+        hdr = bytes(self.b.memr(base + self.sym["bz_rlog"], min(n, BB.RLOG_HDR)))
+        if n <= BB.RLOG_HDR:
+            return hdr
+        ks = u16(self.b.memr(base + self.sym["bz_kseg"], 2))
+        assert ks, "the kit is not here ([bz_kseg] 0): the log has no runs"
+        return hdr + bytes(self.b.memr(self.b.lin(ks) + BB.kit_rlog_off() + BB.RLOG_HDR, n - BB.RLOG_HDR))
+
+    def log_w(self, log):
+        """LOG (bbcourse.encode_log's bytes) into the session's log, the rest zeroed: the runs into the
+        kit's tail, then the header into bz_rlog"""
+        log = bytes(log) + bytes(BB.RLOG_SIZE - len(log))
+        ks = self.word("bz_kseg")
+        assert ks, "the kit is not here ([bz_kseg] 0): the log has no runs"
+        memw(self.b, self.b.lin(ks) + BB.kit_rlog_off() + BB.RLOG_HDR, log[BB.RLOG_HDR:])
+        memw(self.b, self.a("bz_rlog"), log[:BB.RLOG_HDR])
+
     def rows(self):
         base = self.base()
         n = self.b.memr(base + self.sym["op_table"] + 8, 1)[0]
@@ -396,7 +417,7 @@ def phys(b, pkg):
 
 def log_keys(b, pkg):
     """the key bytes of the play bz_rlog holds (its runs; SPEC.md 130.11.12.1)"""
-    raw = b.memr(pkg.a("bz_rlog"), 4096)
+    raw = pkg.log()
     if raw[:4] != b"BZR1":
         return []
     n = u16(raw, 12)
@@ -525,7 +546,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     demo = open(os.path.join(R.at("build/bonanza-art"), "BZD%d.BIN" % peak), "rb").read()
     memw(b, pkg.a("bz_vk"), bytes([peak - 1]))
     b.tap("v", gap=300)
-    b.until(lambda: bytes(b.memr(pkg.a("bz_rlog"), len(demo))) == demo, "V to load PEAK's demo", 20000, 50)
+    b.until(lambda: pkg.log(len(demo)) == demo, "V to load PEAK's demo", 20000, 50)
     b.ui_done(limit_ms=20000)
     cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo", demo, "peak", inside=3,
                     base_claims=base_claims, hs=hs, eq=eq)
@@ -546,7 +567,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     b.tap("return", gap=300)
     b.ui_done(limit_ms=30000)
     other = R.make_log([0] * 30, R.CRS_K["first"], 0)
-    memw(b, pkg.a("bz_rlog"), other + bytes(BB.RLOG_SIZE - len(other)))
+    pkg.log_w(other)
     b.tap("l", gap=300)
     b.ui_done(limit_ms=20000)
     x, y, _w = top_win(b)
@@ -554,7 +575,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     b.to(*G.row_xy((x, y), row))                # the chooser's row (os88geom.row_xy, SPEC.md 22)
     b.click(2)
     b.ui_done(limit_ms=30000)
-    got = bytes(b.memr(pkg.a("bz_rlog"), len(demo)))
+    got = pkg.log(len(demo))
     want(got == demo and pkg.byte("bz_lsv") == 2, "8. W saved %s and L read it back through the Open form: bz_rlog "
          "the demo's %d bytes (%s), the log line a file's ([bz_lsv] %d)" % (
              SAVENAME, len(demo), "equal" if got == demo else "DIFFERENT", pkg.byte("bz_lsv")))
@@ -579,7 +600,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     new = [s for s in bonanzas(b) if s not in before]
     if new:
         base = b.lin(new[0])
-        got = bytes(b.memr(base + pkg.sym["bz_rlog"], len(demo)))
+        got = pkg.log(len(demo), base)
         lsv = b.memr(base + pkg.sym["bz_lsv"], 1)[0]
         want(got == demo and lsv == 2, "9. the double-clicked %s opened a BONANZA holding it: bz_rlog %s, [bz_lsv] "
              "%d" % (SAVENAME, "the file's" if got == demo else "NOT the file's", lsv))
@@ -620,7 +641,7 @@ def mill_replay(b, pkg, keys, what, poke=None):
     before its steps, the one place a poke is the step's input (bonanzawheel's
     harness byte, SPEC.md 130.12.5.6).  -> (bz_nstep at the poke, the end state)"""
     log = R.make_log(keys, R.CRS_K["mill"], R.course("mill").ball)
-    memw(b, pkg.a("bz_rlog"), log + bytes(BB.RLOG_SIZE - len(log)))
+    pkg.log_w(log)
     b.tap("r", gap=300)
     b.until(lambda: pkg.byte("bz_fs") == 1, "R's MILL replay (%s)" % what, 60000, 20)
     want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_crs") == R.CRS_K["mill"] and pkg.byte("bz_herc") == 1,
@@ -924,7 +945,7 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
         b.ui_done(limit_ms=30000)
         play_end = phys(b, pkg)
-        log = b.memr(pkg.a("bz_rlog"), 16)
+        log = pkg.log(16)
         keys = log_keys(b, pkg)
         want(log[:4] == b"BZR1" and log[6] & 1 and any(k & 0x10 for k in keys) and any(k & 0x20 for k in keys),
              "3. the play's log: BZR1, COMPLETE, %d steps, with a Hop (bit 4) and Grip (bit 5) recorded" % len(keys))
@@ -1029,14 +1050,13 @@ REDS = {
                "    mov [cs:bx], si             ; RED mapcs: the pass's map store through CS\n"
                "    add si, [bp + 8]            ; SI")],
 }
-# wave 4 (SPEC.md 130.14.14): L's copy reaches the staging claim by ADDING A PARAGRAPH to its segment (the
-# head from seg:0, the rest from seg + 1:0 - the same bytes in real mode): on a selector, another descriptor
-REDS["stageseg"] = [("bonanza.asm", "    pop ds                      ; DS = the claim, ES = ours\n    pop es\n"
-                     "    xor si, si\n    mov di, bz_rlog\n    rep movsb\n",
-                     "    pop ds                      ; DS = the claim, ES = ours\n    pop es\n"
-                     "    xor si, si\n    mov di, bz_rlog\n    sub cx, 16                  ; RED stageseg\n"
-                     "    push cx\n    mov cx, 16\n    rep movsb\n    pop cx\n    mov si, ds\n    inc si\n"
-                     "    mov ds, si\n    xor si, si\n    rep movsb\n")]
+# wave 4 (SPEC.md 130.14.14): L's copy reaches the staging claim by DOING ARITHMETIC on its segment (since
+# the RLOG wave, 130.11.12.1, bz_rin's source is the claim LESS a paragraph at offset 16 - the same bytes in
+# real mode): on a selector, another descriptor
+REDS["stageseg"] = [("bonanza.asm", "    xor si, si                  ; claim's own selector at 0\n    call bz_rin\n",
+                     "    mov si, es                  ; RED stageseg: the claim less a paragraph\n"
+                     "    dec si\n    mov es, si\n    mov si, 16\n    call bz_rin\n"
+                     "    mov si, es\n    inc si\n    mov es, si\n")]
 # wave 5b (SPEC.md 130.15.11): ROWTAB's stores through a CS override - written where the part's selector
 # is meant, a code selector on kern_mega: a #GP at the first launch's expansion
 REDS["expcs"] = [("bonanza.asm", "    lea ax, [bx + 32]\nbz_cxramp:                      ; CX words from AX, DX apart\n",

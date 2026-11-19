@@ -675,7 +675,7 @@ def load_demo(g, kd, art=None):
     m.run()
     M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
     g.key("KeyV")
-    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
+    M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
     return demo
 
 
