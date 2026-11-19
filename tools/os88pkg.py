@@ -211,6 +211,13 @@ def main() -> int:
                          "when it makes the stream shorter, because every "
                          "decoder that reads a part knows it; this is the "
                          "door for one that does not")
+    ap.add_argument("--part-data", metavar="PART.bin", dest="part_data",
+                    action="append", default=[],
+                    help="PART.bin, also given with --part, holds DATA and no "
+                         "code: the surviving-far-call gate passes it over, "
+                         "since data can spell `9A lo hi <KERNEL_SEG>` by "
+                         "chance (SPEC.md 20.3.3). Name only a part no CPU "
+                         "executes")
     ap.add_argument("--part", metavar="PART.bin", action="append", default=[],
                     help="append a part after the image, 16-aligned, and "
                          "fill its row in the package's own part table. One "
@@ -330,8 +337,12 @@ def main() -> int:
     # THE SURVIVING-FAR-CALL GATE (SPEC.md 20.3.3): every far call into
     # KERNEL_SEG in the image and its parts lands on a published cell, and -
     # once T5's door is switched on - on no rare one.
-    farcall_gate([args.input] + list(args.part),
-                 [a] + [read_file(p) for p in args.part])
+    data = {os.path.normpath(p) for p in args.part_data}
+    stray = data - {os.path.normpath(p) for p in args.part}
+    if stray:
+        fail("--part-data %s is no --part of this package" % ", ".join(sorted(stray)))
+    code = [p for p in args.part if os.path.normpath(p) not in data]
+    farcall_gate([args.input] + code, [a] + [read_file(p) for p in code])
 
     out = bytearray(a)
     if args.compress and args.compress_if:

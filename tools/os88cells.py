@@ -483,9 +483,10 @@ def stale(doors, root=ROOT):
 #     broken on purpose (tests/unit/t_cellgate.py).
 #
 # `9A` followed by four chosen bytes is the false positive this can have: data
-# that happens to spell a far call to KERNEL_SEG at a non-cell offset. None
-# exists in the tree; if one ever does, it fails the build loudly at the
-# packer with the offset in the message, which is the place to find it.
+# that happens to spell a far call to KERNEL_SEG at a non-cell offset. It
+# fails the build loudly at the packer with the offset in the message. The
+# first was ROLL's course part (`9A 04 02 60 00`, 2026-11-19): a part that is
+# data and no code is named with `os88pkg --part-data`, and passed over.
 def sdk_switch(root=ROOT):
     """(KERNEL_SEG, OS88_RARE_DOOR) as apps/os88api.inc states them."""
     t = open(os.path.join(root, "apps", "os88api.inc")).read()

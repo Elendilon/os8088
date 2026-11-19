@@ -207,3 +207,7 @@ art roll_chev.bba 230 401
 art roll_pen0.bba 127 590
 art roll_pen1.bba 383 830
 # ---- end ART ----
+# the two pennant pillars stand alone in the void, out of every route's reach:
+# no ball is ever behind them, so they cut no occluder records (SPEC.md 130.53)
+noocclude rect 29 37 34 42
+noocclude rect 49 41 54 46
