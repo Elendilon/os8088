@@ -128,7 +128,7 @@ model's (`spy`).
      post's corner - it WAITS with lit cells outside every box, card =
      oracle, at least one such frame); and THE PWAIT SCENE (the ball
      airborne at two points 48 px apart while the lift rises from its dock,
-     the window's bottom edge through the slab, TRICKLE: every WAITED frame
+     the window's bottom edge through the slab, HELD (cam_hold): every WAITED frame
      and the frame after it checked - `pwait`, at least FEAT_EACH a card -
      at least 20 lift steps inside it, and a waited frame on which an
      entering row meets the slab's drawn footprint, bz_ctype 3, by the ball
@@ -162,7 +162,7 @@ model's (`spy`).
      by the checker).  Every private tree packs its parts in the shipped
      build's format (part_fmt: build/bonanza.o88's table, SPEC.md 130.15.9).
  10  WAVE 6 (SPEC.md 130.16.14): THE GROUND LEG (`ground`), the ground line
-     and its latch, replayed in GLIDE and TRICKLE (ground_check proves each
+     and its latch, replayed in GLIDE (TRICKLE's replays deleted with it) (ground_check proves each
      scenario and arm on the model; `ringcy` is RETIRED by wave 6b: LATTICE's
      rows never read the ring and the guest deleted its y half; `nolatch`'s
      model signature under LATTICE is the void fall's row pan HALTING, its
@@ -404,6 +404,35 @@ def at(p):
     return os88build.at(p)
 
 
+# THE TEST BUILD (SPEC.md 130.26.6.1): the instruments' keys and face, the benchmark, the autopilot, the
+# measured marks, the scripted camera and every harness byte (bz_dev, bz_apilot, bz_hold, bz_hvoff,
+# bz_tpoke, bz_phforce, bz_camscr) are assembled only with -DBZDEV - `make BZDEV=1`, never the shipped
+# BONANZA.O88.  A row that drives any of them calls dev() first: it builds (or reuses) the BZDEV=1 private
+# tree (os88build.tree, docs/WRITING-TESTS.md 5) and APPLIES it, so every `build/...` this process names
+# through at() - the floppies, build/bonanza-art, build/bzf-*.bin, build/bzshell.bin - is the tree's, and
+# every package assembly a row makes itself (symbols, shell_symbols, assemble, the red trees' parts) passes
+# NASM's -DBZDEV, so the symbol map describes the package the row boots.  A row ABOUT the shipped game
+# (bonanzatitle, bonanzaav) never calls it and reads the shipped build.
+DEV_TARGETS = ("os8088-360.img", "bonanza360.img", "bonanza.img")
+DEV = False
+NASM = ["nasm"]                     # every package assembly's command: + -DBZDEV once dev() ran
+
+
+def dev():
+    """this process's BONANZA is the BZDEV=1 build (above): its tree built once and applied.  -> the Tree"""
+    global DEV
+    t = os88build.tree("BZDEV=1", targets=DEV_TARGETS).apply()
+    if not DEV:
+        DEV = True
+        NASM.append("-DBZDEV")
+    return t
+
+
+def pxdefs():
+    """tools/pxlink.py's defines for this process's package (its link map: SPEC.md 130.19.2)"""
+    return ["-D", "BZDEV"] if DEV else []
+
+
 def prefetch(names):
     """the shipped courses NAMES compiled at once, a core each (BB.par_map), into course()'s table: what
     course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
@@ -477,6 +506,8 @@ def symbols(src=None, art=None):
         t = open(p).read()
         names += re.findall(r"^VAR (bzs?_\w+),", t, re.M)      # (bzs_: the sound's, 130.20)
         names += re.findall(r"^(bzs?_\w+):", t, re.M)
+        names += re.findall(r"^(bzs?_\w+)\s+equ\s+bzs?_", t, re.M)   # a VAR shared by an alias
+                                                # (bz_lbuf on bz_boxbuf, bz_dmine on bz_font: the room trim)
         names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, t, re.M)]
         names += ["%s.%s" % (pr, lo) for pr, lo in LOCAL_SYMS if _has_local(t, pr, lo)]
     inc = os.path.join(ROOT, "apps", "os88parts.inc")
@@ -491,7 +522,7 @@ def symbols(src=None, art=None):
         for _ in range(2):                      # a name inside an arm this build leaves out (wave 5b's
             open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +     # `%if BZ_REC = 4`:
                                "\n".join("dw " + n for n in names))                    # a C build's) is
-            r = subprocess.run(["nasm", "-f", "bin", "-I", apps, "-I", d + "/", "-I", art + "/", "-o", b, p],
+            r = subprocess.run(NASM + ["-f", "bin", "-I", apps, "-I", d + "/", "-I", art + "/", "-o", b, p],
                                cwd=ROOT, capture_output=True, text=True)              # not this build's:
             gone = set(re.findall(r"symbol `([\w.]+)' not defined", r.stderr))       # dropped, once
             if not r.returncode or not gone:
@@ -527,9 +558,16 @@ def shell_symbols(src=None, art=None):
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "probe.asm")
         b = os.path.join(td, "probe.bin")
-        open(p, "w").write(open(asm).read() + "\n" + "\n".join("dw " + n for n in names))
-        subprocess.run(["nasm", "-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
-                        "-I", art + "/", "-o", b, p], cwd=ROOT, check=True, capture_output=True)
+        for _ in range(2):                      # (a label of the instruments' face is the BZDEV build's
+            open(p, "w").write(open(asm).read() + "\n" + "\n".join("dw " + n for n in names))   # alone:
+            r = subprocess.run(NASM + ["-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
+                                       "-I", art + "/", "-o", b, p], cwd=ROOT, capture_output=True, text=True)
+            gone = set(re.findall(r"symbol `([\w.]+)' not defined", r.stderr))   # dropped, once)
+            if not r.returncode or not gone:
+                break
+            names = [n for n in names if n not in gone]
+        if r.returncode:
+            raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
         raw = open(b, "rb").read()
     _SHELL[key] = dict(zip(names, struct.unpack("<%dH" % len(names), raw[-2 * len(names):])))
     return _SHELL[key]
@@ -1116,14 +1154,28 @@ class Bz:
         raw = self.m.read(self.a("bz_boxes"), 4 * BZ_BOXD)
         return [struct.unpack_from("<HhHH", raw, i * BZ_BOXD) + (raw[i * BZ_BOXD + 18],) for i in range(min(n, 4))]
 
-    def read_log(self):
-        """bz_rlog's 4,096 bytes"""
-        return self.m.read(self.a("bz_rlog"), BB.RLOG_SIZE)
+    def log_runs(self):
+        """the linear address of the replay log's RUNS (SPEC.md 130.11.12.1): the log is two pieces - its
+        16-byte header resident at bz_rlog, its runs in THE KIT's zero tail ([bz_kseg]:BZ_KIT_RLOG + 16).
+        Asserts the kit is here (a log with no kit has no runs)"""
+        ks = self.w("bz_kseg")
+        assert ks, "the kit is not here ([bz_kseg] 0): the log has no runs"
+        return (ks << 4) + BB.kit_rlog_off() + BB.RLOG_HDR
+
+    def read_log(self, n=None):
+        """the session's log, its first N bytes (all 4,096 by default) as one run of bytes: bz_rlog's
+        header, then the runs out of the kit's tail"""
+        n = BB.RLOG_SIZE if n is None else n
+        hdr = bytes(self.m.read(self.a("bz_rlog"), min(n, BB.RLOG_HDR)))
+        return hdr + (bytes(self.m.read(self.log_runs(), n - BB.RLOG_HDR)) if n > BB.RLOG_HDR else b"")
 
     def write_log(self, log):
-        """a log (bbcourse.encode_log's bytes) into bz_rlog, the rest zeroed"""
-        assert len(log) <= BB.RLOG_SIZE
-        self.m.write(self.a("bz_rlog"), bytes(log) + bytes(BB.RLOG_SIZE - len(log)))
+        """a log (bbcourse.encode_log's bytes) into the session's - the header into bz_rlog, the runs into
+        the kit's tail, the rest zeroed"""
+        assert BB.RLOG_HDR <= len(log) <= BB.RLOG_SIZE
+        log = bytes(log) + bytes(BB.RLOG_SIZE - len(log))
+        self.m.write(self.log_runs(), log[BB.RLOG_HDR:])
+        self.m.write(self.a("bz_rlog"), log[:BB.RLOG_HDR])
 
     def decode(self, S):
         """The card memory as the 6845 scans it from start address S (words)."""
@@ -2116,14 +2168,14 @@ OVER_FRAMES = 12
 
 # THE DEFER SCENE (SPEC.md 130.13.7 item 1): a post of the cluster made REALLY drawn lit and then due while
 # the ball's every frame is two boxes - so its contact candidacy waits (bz_ndef) and its cells outside the
-# boxes stay lit on the glass, as its map and bz_ldrw say.  At its K-th bz_t0 (TRICKLE, the window centred
+# boxes stay lit on the glass, as its map and bz_ldrw say.  At its K-th bz_t0 (cam_hold, the window centred
 # on DF_Q1 by a full write): held at Q1 to DF_KICK, the KICK poked there (it lights as the must-draw), then
 # from DF_KICK + 1 its lit frames poked to 0 (DUE) and the ball alternately at Q2, Q1 for DF_ALT frames -
 # under BZ_WPRF (5) - then held at Q1 to DF_END (one box: it goes dark as the contact group)
 DF_KICK, DF_ALT, DF_END = 5, 4, 12
 # THE PWAIT SCENE (SPEC.md 130.13.12): the ball held airborne alternately at two points 48 px apart (every
 # frame's ball group two boxes: a CROWDED frame, 130.13.4.3 (a)) while the lift RISES from its low dock,
-# the window's bottom edge through the slab (TRICKLE), for PW_FRAMES frames; on a frame after one that did
+# the window's bottom edge through the slab (cam_hold), for PW_FRAMES frames; on a frame after one that did
 # not wait, the ball poked across the band's FOOT instead (the camera steps down a row, the entering row
 # meeting the slab's drawn footprint on a waited frame: bz_ctype 3), PW_TRIES times at most; then held at one
 # point PW_END frames (one box: the slab's is drawn - 18 + 2 x 6 lines at most)
@@ -2179,7 +2231,7 @@ def defer_poke(g, plan, k):
     else:
         poke_ball(g, q1[0], q1[1], q1[2], 0, 0, 0, air=1, same_cell=k > 0)
     if k == 0:
-        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds while the ball moves in the band
+        cam_hold(g)                             # the window HELD while the ball moves (the zeroed script)
         g.putb("bz_first", 1)                   # the next frame: a full write centred on Q1
         return None
     if k == DF_KICK:                            # the KICK (bz_pkick + 1, 130.13.14 item 10): drawn lit
@@ -2471,7 +2523,7 @@ def mill_play(g, ref):
         if len(fails) >= 4:
             break
     m.bp_exec()
-    g.putb("bz_cmode", 0)
+    cam_release(g)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the MILL play ends on Esc", guest=60)
@@ -2509,7 +2561,7 @@ def pwait_step(g, sc, n, nfr):
     n0, R0, c0, cen, p1, p2 = sc["pw"]
     k = sc["k"]
     if k == 0:
-        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds; it steps a row on a crossing
+        cam_hold(g)                             # the window HELD; it steps a row on a crossing (below)
         g.putb("bz_first", 1)                   # the next frame: a full write centred on CEN
         poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
         return
@@ -2525,7 +2577,8 @@ def pwait_step(g, sc, n, nfr):
         P = None
         if sc["tries"] < PW_TRIES and j >= 2 and not sc["strip"] and not g.b("bz_pyld"):
             # ACROSS THE BAND'S FOOT on a frame that may wait (the last one did not): the centre 2 lines past
-            # 2L/3 of the window as it stands - TRICKLE steps it down a row, the row entering at the foot
+            # 2L/3 of the window as it stands - the held camera steps it down a row (cam_hold's step, as
+            # TRICKLE's band did until it was deleted), the row entering at the foot
             lsh = 1 if g.tag == "cga" else 2
             top, left = R0n << lsh, 8 * c0n
             crs = sc["crs"]
@@ -2549,17 +2602,44 @@ def pwait_step(g, sc, n, nfr):
         if P:
             sc["tries"] += 1
             poke_ball(g, P[0], P[1], P[2], 0, 0, 0, air=1)
+            cam_hold(g, (1, 0))                 # this frame: one row down
         else:
+            cam_hold(g)
             q = p1 if j % 2 == 0 else p2
             poke_ball(g, q[0], q[1], q[2], 0, 0, 0, air=1)
         return
     if sc["pwn1"] is None:
         sc["pwn1"] = n & 0xFFFF
     sc["pwend"] += 1                            # ENDED at one point: one box, the slab's drawn
+    cam_hold(g)                                 # (held: no try's row step)
     poke_ball(g, p1[0], p1[1], p1[2], 0, 0, 0, air=1, same_cell=sc["pwend"] > 1)
 
 
 # ---- the row-0 probe (SPEC.md 130.10.11.2) ----------------------------------
+def cam_hold(g, step=(0, 0)):
+    """THE WINDOW HELD (or stepped by STEP = (rows, columns) THIS frame), where a
+    scene needs the camera still: the SCRIPTED camera ([bz_camscr] 1, SPEC.md
+    130.17.6.7, a BZDEV build's) with every entry of its cycle bz_scyc poked to
+    STEP - so (0, 0) holds the window while the ball's footprint stays
+    BZ_SCR_MX px / BZ_SCR_MY lines inside it.  It replaced TRICKLE (bz_cmode 1),
+    which these scenes poked for the same hold until TRICKLE was deleted
+    (130.11.11.1).  Call it at a bz_t0, every frame whose step differs; the
+    shipped cycle is banked on the first call and put back by cam_release."""
+    a = g.a("bz_scyc")
+    if getattr(g, "_scyc", None) is None:
+        g._scyc = g.m.read(a, 16)
+    g.m.write(a, bytes((step[0] & 255, step[1] & 255)) * 8)
+    g.putb("bz_camscr", 1)
+
+
+def cam_release(g):
+    """cam_hold undone: the shipped cycle back, [bz_camscr] 0 (its clearing is a cut)"""
+    if getattr(g, "_scyc", None) is not None:
+        g.m.write(g.a("bz_scyc"), g._scyc)
+        g._scyc = None
+    g.putb("bz_camscr", 0)
+
+
 def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False, air=None, ztop=None, lvl=None):
     """The position and the velocities (SPEC.md 130.10.7.1), 24.8 values, and
     what a poke owes besides: bz_pokd = 1, so the next step refills the window
@@ -2650,7 +2730,7 @@ def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False, xzone
     cell (or, SLOPES, any floor: re-poked every frame, a step's roll is a
     fraction of a pixel), none of FLAGS set, its circle wholly inside the cell, its picture
     top on one of the window lines LINES (from TOP, the window's first world
-    line) and its centre in GLIDE's and TRICKLE's dead zone ([2W, 6W] px from
+    line) and its centre in the dead zone ([2W, 6W] px from
     LEFT), nearest the window's centre first.  A ball held there moves no
     camera: grounded, its line is the camera's (wave 6, SPEC.md 130.16.7),
     where a ball held AIRBORNE puts the camera on the GROUND line under it.
@@ -2730,8 +2810,8 @@ RE_HOLD = 8
 # COLUMN on a frame or two a run on the CGA, or on none - wave 4's heavier frames moved which frames
 # step a column, and two runs saw 0 - so the `enter_col` feature gets a scene of its own, the MILL
 # play's last: a centred full write with the window's left (right) edge just right (left) of a rotor's
-# or a post's columns, the ball HELD there; then on the dead zone's edge (TRICKLE, bz_cmode 1: the
-# window holds until the ball crosses it), held; then 2 px across it, so the window steps one column
+# or a post's columns, the ball HELD there; then on the dead zone's edge (cam_hold: the
+# window held), held; then 2 px across it, and the window steps one column (cam_hold's step)
 # and the column it brings in is the lane's.  The Hercules' 45-word window holds every MILL lane's
 # columns whatever c0, so the scene has no window there (FEAT_OPTIONAL: reported)
 EC_STEP = 3                         # the centred full write and two held frames, then the dead zone's edge
@@ -2774,7 +2854,7 @@ def entercol_poke(g, plan, k):
     """THE ENTERING-COLUMN SCENE's pokes at its K-th bz_t0"""
     _lane, _R0, _c0, cen, hold, side = plan
     if k == 0:
-        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds until the dead zone's edge
+        cam_hold(g)                             # the window HELD until the step (EC_STEP + 2)
         g.putb("bz_first", 1)                   # the next frame: a full write centred on CEN
         poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
     elif k < EC_STEP:
@@ -2785,6 +2865,7 @@ def entercol_poke(g, plan, k):
         poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=1, same_cell=True)
     else:                                       # 2 px across the edge, in the cell: one column step
         poke_ball(g, hold[0] + 256 * side, hold[1] - 256 * side, hold[2], 0, 0, 0, air=1, same_cell=True)
+        cam_hold(g, (0, side) if k == EC_STEP + 2 else (0, 0))   # (TRICKLE stepped on the crossing frame alone)
 
 
 def ringend_plan(g, crs):
@@ -2883,7 +2964,6 @@ def probe(g, ref):
     g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
     g.putb("bz_crs", CRS_K["bench"])            # play mode, on the benchmark's course
-    g.putb("bz_cmode", 0)                       # GLIDE (C cycles it; it persists)
     if "bz_hvoff" in g.sym:                     # the shipped camera: a poked frame is HEAVY
         g.putb("bz_hvoff", 0)                   # (level 1, SPEC.md 130.12.7)
     g.putb("bz_tpoke", 1)                       # time play's boxes: only a benchmark's are
@@ -3124,7 +3204,7 @@ CAM_PRICE = 527             # the ground-line block's as-built price at WORST, c
                             # SPEC.md 130.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
                             # not a retunable
 CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 130.16.14)
-MODES = ((0, "GLIDE"), (1, "TRICKLE"))
+MODES = ((0, "GLIDE"),)         # (TRICKLE, mode 1, deleted with the camera mode: SPEC.md 130.11.11.1)
 
 
 def ground_scenarios():
@@ -3241,7 +3321,7 @@ def ground_margin(px, py, R0, c0, Wc, rl):
 
 
 def ground_replay(g, s, mode, art=None):
-    """one GROUND replay in MODE (0 GLIDE, 1 TRICKLE): every frame the guest's
+    """one GROUND replay in MODE (0, GLIDE: the one camera): every frame the guest's
     window equals Glide's off the same log (GLIDE), the footprint inside the
     window, no row reversal while airborne on a void fall; the stretch's frames
     card = oracle; the ground-line block's span.  -> (fails, tallies)"""
@@ -3250,9 +3330,6 @@ def ground_replay(g, s, mode, art=None):
     c = course(s["crs"], art=art)
     ref = Ref(tag, c, art)
     m = g.m
-    m.pause()
-    g.putb("bz_cmode", mode)
-    m.run()
     label = "%s GROUND %s %s" % (tag, s["name"], dict(MODES)[mode])
     start_replay(g, make_log(s["keys"], CRS_K[s["crs"]], s["mat"]), s["poke"])
     p = P.model(s["crs"], s["mat"], s["poke"])
@@ -3361,9 +3438,6 @@ def ground_replay(g, s, mode, art=None):
         if fr > len(s["keys"]) * 5 // 4 + 50:
             fails.append("%s: the replay ran %d frames past its %d steps" % (label, fr, len(s["keys"])))
     end_replay(g, label)
-    m.pause()
-    g.putb("bz_cmode", 0)
-    m.run()
     sp = tal["spans"]
     bound = int(CAM_PRICE * CAM_SLACK)
     if not fails and sp and max(sp) > bound:
@@ -3381,9 +3455,9 @@ def ground_replay(g, s, mode, art=None):
     return fails, tal
 
 
-def ground_part(g, art=None, only=None, modes=(0, 1)):
-    """the GROUND leg (SPEC.md 130.16.14 bonanzaring): every scenario in GLIDE
-    and in TRICKLE.  -> (fails, tallies)"""
+def ground_part(g, art=None, only=None, modes=(0,)):
+    """the GROUND leg (SPEC.md 130.16.14 bonanzaring): every scenario under
+    the one camera (its TRICKLE replays went with TRICKLE).  -> (fails, tallies)"""
     fails, out = [], {}
     pre, _say = ground_check()
     if pre:
@@ -3729,9 +3803,6 @@ def camera_replay(g, s, art=None):
     tag, m = g.tag, g.m
     c = course(s["crs"], art=art)
     label = "%s CAMERA %s" % (tag, s["name"])
-    m.pause()
-    g.putb("bz_cmode", 0)
-    m.run()
     log = s["log"] or make_log(s["keys"], CRS_K[s["crs"]], s["mat"])
     start_replay(g, log, s["poke"])
     p = P.model(s["crs"], s["mat"], s["poke"])
@@ -4042,9 +4113,9 @@ def vga_cam(g, art=None):
         for _ in range(12):
             g.key("KeyV")
             M.until(m, lambda _: g.b("bz_dkk") == 0, "V's key up", guest=5)
-            if bytes(m.read(g.a("bz_rlog"), len(demo))) == demo:
+            if bytes(g.read_log(len(demo))) == demo:
                 break
-        if bytes(m.read(g.a("bz_rlog"), len(demo))) != demo:
+        if bytes(g.read_log(len(demo))) != demo:
             fails.append("%s: V never loaded BZD%d.BIN" % (crs, kd))
             continue
         g.key("KeyD")
@@ -4174,7 +4245,7 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
             out["fails"] += f
         if "ground" in parts and not out["fails"]:    # wave 6 (SPEC.md 130.16.14): the ground line
             f, out["ground"] = ground_part(g, art, only=GROUND_ONLY.get("only"), modes=GROUND_ONLY.get("modes",
-                                                                                                    (0, 1)))
+                                                                                                    (0,)))
             out["fails"] += f
         if "camera" in parts and not out["fails"]:    # wave 6b (SPEC.md 130.17.10): LATTICE
             f, out["camera"] = camera_part(g, art)
@@ -4299,7 +4370,7 @@ def load_demo(g, kd):
     m.run()
     M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
     g.key("KeyV")
-    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
+    M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
     return demo
 
 
@@ -4598,7 +4669,7 @@ def patch_tree(src, patches):
 
 
 def assemble(src, art, binp):
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=ROOT, check=True)
 
 
@@ -4613,10 +4684,10 @@ def shell_part(td, src, art, binp):
     inc = os.path.join(td, "bzlink-inc")
     os.makedirs(inc, exist_ok=True)
     subprocess.run(["python3", "tools/pxlink.py", binp, "--src", os.path.join(src, "bonanza.asm"), "-I",
-                    os.path.join(ROOT, "apps") + "/", "-I", src + "/", "-I", art + "/", "--prefix", "BZL", "--consts",
+                    os.path.join(ROOT, "apps") + "/", "-I", src + "/", "-I", art + "/"] + pxdefs() + ["--prefix", "BZL", "--consts",
                     "BZ", "-o", os.path.join(inc, "bzlink.inc")], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     out = os.path.join(td, "bzshell.bin")
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzshell.asm")], cwd=ROOT, check=True)
     return out
 
@@ -4629,7 +4700,7 @@ def vga_part(td, src, art):
     if not os.path.exists(os.path.join(src, "bzvga.asm")) or not os.path.exists(os.path.join(inc, "bzlink.inc")):
         return None
     out = os.path.join(td, "bzvga.bin")
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                     "-I", inc + "/", "-I", art + "/", "-o", out, os.path.join(src, "bzvga.asm")], cwd=ROOT, check=True)
     return out
 
@@ -4661,7 +4732,7 @@ def fam_parts(td, src, art):
     out = []
     for f in BB.FAMILIES:
         o = os.path.join(td, "bzf-%s.bin" % f["name"])
-        subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+        subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
                         "-I", os.path.dirname(inc) + "/", "-I", art + "/", "-o", o,
                         os.path.join(src, "fam", f["name"] + ".asm")], cwd=ROOT, check=True)
         out.append(o)
@@ -4742,7 +4813,7 @@ def check_reds(reds, label):
                     pa = os.path.join(src, "fam", nm + ".asm")
                     if f != "fam/%s.asm" % nm and '"%s"' % f not in open(pa).read():
                         continue
-                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
+                    subprocess.run(NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I",
                                     src + "/", "-I", art + "/", "-o", os.path.join(td, "part.bin"), pa],
                                    cwd=ROOT, check=True)
             return "%s --red %s: anchors found, the broken copy assembles (%d bytes%s)" % (
@@ -5066,6 +5137,7 @@ def main():
     ap.add_argument("--check-reds", action="store_true",
                     help="the host half only: every red arm's anchors found and its broken copy assembles")
     a = ap.parse_args()
+    dev()                               # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check_reds:
         COURSES["bench"]                        # (fills the table)
         prefetch(sorted(COURSES))               # (the host half reads every shipped course)

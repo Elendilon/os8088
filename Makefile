@@ -22883,6 +22883,24 @@ BZSHADOWSTAMP := $(BUILD)/.bzshadow-$(or $(BZSHADOW),0)
 $(BZSHADOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshadow-*
 	@touch $@
+#> [Knobs] BZDEV=1 :: Bounce Bonanza's TEST BUILD (SPEC.md 130.26.6.1): the harness bytes, the instruments' keys and face, the benchmark, the autopilot, the measured marks and the scripted camera the bonanza rows drive - none of it shipped; a knob build, into a private tree (make BUILD=build/bzdev BZDEV=1 bonanzadisk)
+# BZDEV=1 (the owner, 2026-11-19: "anything that is a test only needs to be on a knob. We don't ship tests")
+# assembles BONANZA.O88 with -DBZDEV: bz_dev and every key and page it opens (B R D F G V W L N M T S, the tour,
+# the results page, the benchmark), the instruments (the measured marks, bz_presented's period, the beam
+# check, the results copy), the autopilot and bz_apilot, the scripted camera, bz_hold, bz_hvoff, bz_phforce,
+# and the shell part's instruments' face. Off, the package is the player's alone. STAMPED: the package, its
+# link map and its shell part are rebuilt when it turns on or off; the courses are not (no part changes).
+BZDEV ?=
+ifeq ($(filter $(BZDEV),1),)
+ifneq ($(BZDEV),)
+$(error BZDEV=$(BZDEV) is 1 or empty)
+endif
+endif
+BZDEVDEF := $(if $(BZDEV),-DBZDEV)
+BZDEVSTAMP := $(BUILD)/.bzdev-$(or $(BZDEV),0)
+$(BZDEVSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzdev-*
+	@touch $@
 # SPEC.md 130.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
@@ -22975,8 +22993,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc apps/os88pself.inc apps/os88data.inc \
                       apps/bonanza/bzshell.inc apps/bonanza/bzvga.inc apps/bonanza/bzcard.inc apps/bonanza/bzmenu.inc \
-                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
+                      $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZDEVSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(BZDEVDEF) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
 # THE ART FILES ARE PARTS OF IT (SPEC.md 130.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
@@ -23003,7 +23021,7 @@ BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 # (never a code label) into bzlink.inc, which the part assembles against.
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
-		-I $(BZ_ART)/ --prefix BZL --consts BZ -o $@
+		-I $(BZ_ART)/ $(if $(BZDEV),-D BZDEV) --prefix BZL --consts BZ -o $@
 # The window's art (SPEC.md 130.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
@@ -23014,8 +23032,8 @@ $(BUILD)/bzvga.bin: apps/bonanza/bzvga.asm apps/bonanza/bzvga.inc apps/os88api.i
                     $(BZ_ART)/bzlink.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
 $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzwface.inc apps/bonanza/bzshell.inc \
-                      apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
+                      apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc $(BZDEVSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(BZDEVDEF) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
 # wave 9 (SPEC.md 130.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row (BZ_FAMS: every
 # family, whatever its home; a family added there and not here leaves `famparts` naming a file nothing
 # builds), each apps/bonanza/fam/<name>.asm

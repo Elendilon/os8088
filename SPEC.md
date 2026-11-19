@@ -262549,15 +262549,25 @@ the choice persists across plays in the session (not on disk).
 *Since 130.46.12 (the owner, 2026-11-18: "Glide/trickle are closed tests,
 lattice won"): `C` is gone, in play and on the desktop, and line 3 of the
 face reads `M <ball>  T <control>`. LATTICE (GLIDE's rule) is the CGA's and
-the Hercules' only camera and 130.46.14's the VGA's; TRICKLE remains only
-as a harness's poke of `bz_cmode` (three soak rows hold the window still
-with it), to go when those scenes are reworked.*
+the Hercules' only camera and 130.46.14's the VGA's.*
+
+*Since wave 4 of the space plan (the owner, 2026-11-19: "trickle lost the
+a/b"): **TRICKLE is DELETED, and with it the camera MODE itself** -
+`bz_cmode`, `bz_cuse`, `BZ_CMODES`, `bz_camera`'s TRICKLE path and the
+resume glue that put LATTICE at rest when GLIDE came back (184 bytes,
+measured). There is no mode byte to poke and no dispatch for a second
+camera to hang off: `bz_camera` calls `bz_lattice` (or the VGA's
+`BZV_CAM`, 130.46.12) and nothing else. A scene that needs the window held
+still pokes the SCRIPTED camera (130.17.6.7) with its cycle zeroed
+(`tests/bonanza_ring.py` `cam_hold`) - a harness's tool in the `BZDEV`
+build (130.26.6.1), not a camera. A new camera is a new design reviewed as
+one, not a mode byte put back.*
 
 | mode | `bz_cmode` | horizontal | vertical |
 |---|---|---|---|
 | **GLIDE** (the default) | 0 | REST until the ball's CENTRE leaves the dead zone (the middle half, unchanged); then PAN toward the target column that puts the ball on the dead zone's TRAILING edge - a quarter-window behind the centre, so the camera LEADS by a quarter-window in the direction of travel (the sign of `vx`, at rest the last one) - rounded so the ball lands inside the edge and clamped to the course; one column every second frame, and every frame while the ball is faster than 4 px a frame or still outside the dead zone; re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball on the band's trailing edge (the camera leads by a sixth of the window), at one row a frame, two while the ball is faster than 2 lines a frame, and one more while one row still leaves the ball outside the band, until reached |
 | **FOLLOW** (removed in wave 2, 130.11.11.1) | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
-| **TRICKLE** | 2 | wave 0's camera exactly (130.5): kept for the A/B | wave 0's |
+| **TRICKLE** (deleted, wave 4 of the space plan) | 2 | wave 0's camera exactly (130.5): kept for the A/B until it lost it | wave 0's |
 
 *Wave 6b (130.17.6): GLIDE's rules in this table are replaced by LATTICE
 (130.17.6.2): return hysteresis, lattice framings, a pan that never
@@ -265341,6 +265351,8 @@ mode, and the choice persists for the session. `bz_camfollow` and every byte
 that serves only FOLLOW are deleted, not kept behind a flag; 130.9's FOLLOW
 row and its cadence figures stay as the record of why. Any row or red arm
 that cycles the modes cycles two. The benchmark still runs GLIDE.
+*TRICKLE followed FOLLOW in the space plan's wave 4 (130.9's note): the
+camera has ONE rule now and no mode byte.*
 
 **As built (`bzgame.inc`).** The ring is `bz_trx`, `bz_try` and its index
 `bz_tri`, kept by `bz_camera` on EVERY frame after the first in both modes
@@ -265453,13 +265465,49 @@ for each step in it), so **a play is its first state and a byte a step**. The
 first state is the course's start (`bz_pinit`), so the log holds only the
 course, the ball and the bytes:
 
-| at | `bz_rlog`, 4,096 bytes of bss |
+| at | the log, 4,096 bytes: +0 - +15 at `bz_rlog` (bss), +16 on in THE KIT's tail |
 |---|---|
 | +0 | `BZR1` |
 | +4 | the course `K`; +5 the material; +6 flags: bit 0 COMPLETE (the play ended - goal, Esc, F or Alt+Enter), bit 1 TRUNCATED (the buffer filled); +7 zero |
 | +8 | the steps recorded, DWORD |
 | +12 | the runs recorded, word; +14 two zero bytes |
 | +16 | the RUNS: pairs (key byte, count 1 - 255), at most 2,040 |
+
+**Where it lives (the RLOG wave, 2026-11-19).** The log is the format above,
+but not one piece of memory. Its 16-byte HEADER is resident at `bz_rlog`
+(every reader of the course, the ball, the flags, the steps or the identity
+- about forty sites, and the shell part's `bz_rhave` - reads it there,
+unchanged), and its RUNS are a ZERO TAIL of 4,096 bytes on THE KIT
+(`BZKIT.BIN`, 130.37.2: `bbcourse.kit_file`, the pieces then the tail), at
+`[bz_kseg]:BZR_K + 16` (`BZR_K` = `BZ_KIT_RLOG`, the pieces' length, which
+the tool emits): log offset X is kit offset `BZR_K + X`. The tail's first 16
+bytes are where `bz_rout` copies the header before a WRITE (W, Save Replay,
+F5), so a log goes to a file as one `ES:BX`. **Why the kit**, against a claim
+of its own at the open: the kit is already fetched at the open, pinned and
+held for the instance (130.37.5), so the tail costs no claim, no relocation
+proc and no `MEM_OWNER_MAX` slot; it packs to about 4 bytes on the disk
+(`BZKIT.BIN` 3,948 -> 3,952 LZB) and `BZ_KIT_CLAIM` grows by itself. It
+freed 4,080 bytes of bss for 110 of code: 64,967 -> 60,997 of the 65,024
+(`OS88_IMAGE_END`, 20.1.1). **A log with no kit**: on kern_small the kit is
+given back at the open and `[bz_kseg]` cleared, and nothing there records or
+loads a log (`bz_bigok`, the refused bracket). On the big kernels the open's
+quiet fetch can be refused on a short heap; every way a log is LOADED (`L`,
+the double-click, `V`, F6, the title's demos, a tour's) asks `bz_rkit` first,
+which fetches the kit (`bz_kget`: aloud on the desktop, quiet in the bracket)
+and refuses as that fetch does; a PLAY that starts with no kit (only the
+pathway can: a play course fetches it, 130.37.5) records NO log - the header
+unsigned, `bz_rtr` set as a truncation sets it - so no run is ever written
+through a segment of 0. kern_mega: `[bz_kseg]` is `op_seg`'s selector, read
+and written through, never added to. **The copies**: every whole log that
+arrives - a file's staging claim, a shipped demo, a title demo - goes
+through `bz_rin` (the header to `bz_rlog`, the runs to the kit, from the
+source's own segment or selector at an offset). **Cost**: the recorder's
+flush (`bz_rstore`) and the player's next-run read (`bz_rnext`) each load ES
+from `[bz_kseg]` once a RUN, not a step - about 30 clk a run; the step's
+inline extension touches no log byte and is unchanged. **Harness**: the
+rows read and write the log through `bonanza_ring.Bz.read_log` /
+`write_log` (and `bonanza_mega.Pkg.log` / `log_w` through the selector's
+descriptor), which put the two pieces together.
 
 **Recording** (play only, at step 1) keeps the CURRENT run in two fixed
 cells, `bz_rk` (its key byte) and `bz_rn` (its count): a byte equal to
@@ -265512,7 +265560,7 @@ row for 130.10.6.2). A replay records nothing. It plays the log on any card:
 the CGA's play replayed on the Hercules is the same trajectory, step for
 step.
 
-**The log is trusted because the package wrote it**, in its own bss, and the
+**The log is trusted because the package wrote it**, in its own memory (the header in its bss, the runs in its held kit, 130.11.12.1), and the
 trusted-part rule (130.10.6.2) does not cover it: it is not a part. `R`
 chooses part rows from it (+4 selects row `3 + K`, +5 a ball row) and decodes
 its runs without a check. A log read from a FILE would be hostile input
@@ -270272,6 +270320,8 @@ named, which is binding, and the old sentence is superseded.
 
 ##### 130.14.3.1 Free play, the tour, and what a fall costs
 
+*Since 130.26.6.1 the tour is assembled in the `BZDEV=1` build alone.*
+
 **FREE PLAY** is wave 3's play: `N` picks a course (every course but
 `BENCH`), `M` the ball it starts with, Enter (F, Alt+Enter) plays it once
 to its finish or until Esc. Its log is held (130.11.12), its time is
@@ -270350,6 +270400,9 @@ the shortcuts and the optional branches on purpose: finding one is what
 beats it.
 
 ##### 130.14.3.2 The face: the MAIN page and the RESULTS page
+
+*Since 130.26.6.1 both pages are the `BZDEV=1` build's alone; the shipped
+window's face is 130.26.2's.*
 
 *The owner, 2026-11-17 (130.26.8): MAIN's scorecard lines are DROPPED. MAIN
 is lines 0 - 6 (`BZ_NLINE` 7), whatever the courses or the tour; RESULTS
@@ -271804,7 +271857,8 @@ segment from `op_seg`, used whole and translated in place on the Hercules
 as the first is (130.11.14); `bz_bsegs` holds three selectors. The demo's
 staging claim is an `OSAPI_MEM_P` claim, an LDT selector, read into by
 `OSAPI_FILE_READ` (ES:BX = it:0), checked through `[es:]` and copied into
-`bz_rlog` whole, never added to - on both the dialog's path and the
+`bz_rlog` whole, never added to (`bz_rin` since 130.11.12.1's RLOG wave: the
+header to `bz_rlog`, the runs into the kit's selector at `BZR_K + 16`) - on both the dialog's path and the
 double-click's; the dialogs, `os88data.inc`'s walk, `OSAPI_FILE_HERE` and
 `OSAPI_FILE_GOTO_QM`, `OSAPI_MOUSE` and `OSAPI_VIDEO` are ordinary slots
 the ordinary bracket's table and the desktop carry. The blank's two `OUT`s
@@ -272415,7 +272469,8 @@ final pass.
 2. **W** (130.14.7.1) builds `<NAME>.BZR` from the held log's course and
    opens the Save form; `bz_wdone` copies the kernel's name out (`bz_gname`)
    and writes `16 + 2 N` or `16 + 3 N` bytes from `bz_rlog` with one
-   `OSAPI_FILE_WRITE`; `Demo saved`, or the kernel's own text
+   `OSAPI_FILE_WRITE` (since 130.11.12.1's RLOG wave from the kit's tail,
+   `bz_rout` having copied the header ahead of the runs); `Demo saved`, or the kernel's own text
    (`OSAPI_FERR_TEXT`). A play's log carries `BZ_PHYSV` at +7 (`bz_rfin`).
 3. **L** (130.14.7.2): `bz_ldone` refuses `Not a Bonanza demo` for an
    extension that is not `BZR` and a size outside 16 - 4,096 (`DX` not 0
@@ -278765,6 +278820,10 @@ steps over the step rate (`FIRST` 2.82, `MOON` 39.00, `PEAK` 39.77).
    replay reports it.
 
 ##### 130.17.6.7 `BENCH` and item 8: the scripted camera
+
+*Since 130.26.6.1 the scripted camera is the `BZDEV=1` build's alone; since
+TRICKLE's deletion (130.9) it is also the rows' way to HOLD the window -
+its cycle poked to (0, 0), `bonanza_ring.cam_hold`.*
 
 `--selfcheck` item 8 (130.11.11.1) asserts all eight step directions at
 least 5 times on both cards over `BENCH`'s 1,200 frames: it is the proof
@@ -286466,6 +286525,62 @@ keys 1 2 3, E and X went on 2026-11-19 (130.19.8.3): the Saves menu is
 their door, and no row pressed them.
 The instruments' code stays (the rows are what they are for); only their
 door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
+*Since 130.26.6.1 the byte and everything behind it exist only in the
+`BZDEV=1` build.*
+
+##### 130.26.6.1 The test build, `BZDEV=1` (BUILT, wave 4 of the space plan)
+
+The owner, 2026-11-19: *"anything that is a test only needs to be on a
+knob. We don't ship tests."* Every byte only a row reaches is assembled
+under `%ifdef BZDEV`, which the Makefile's `BZDEV=1` knob passes (STAMPED,
+into a private tree: `make BUILD=build/bzdev BZDEV=1 bonanzadisk`). The
+shipped `BONANZA.O88` is the player's alone. Behind the knob:
+
+- **the harness bytes**: `bz_dev`, `bz_apilot`, `bz_phforce`, `bz_hold`,
+  `bz_hvoff`, `bz_tpoke`, `bz_camscr` (and `bz_scnt`);
+- **the instruments' door and keys**: `bz_onkey`'s `.dev` dispatch and its
+  handlers - B, R, D, W, L, V, N, M, G, T, S and the free F (`bz_game`,
+  `bz_tgo`, `bz_ballkey`, `bz_crskey`, `bz_dkey_d`, `bz_wkey`, `bz_lkey`,
+  `bz_wdone`, `bz_vkey`, `bz_tkey`, `bz_skey`, `bz_devk`), `bz_redraw` and
+  `bz_redraw1` (a line of the instruments' face), the TOUR (`bz_intour`,
+  `bz_ttotal`, `bz_tour`, `bz_ttime`, `bz_tfall`, `bz_post`'s tour arm,
+  `bz_launch`'s tour ball) and the RESULTS page (`bz_post`'s B/D arm);
+- **the benchmark and the measurements**: mode 1 (B) and mode 3 (D) - the
+  autopilot (`bz_auto`, `bz_want`), `bz_step`'s `.auto` and `.apil`, the
+  physics' four "the benchmark ignores it" tests, P ignored in B and D,
+  bz_presented's period, worst and missed refreshes and BENCH's end, the
+  measured marks (`bz_mark.meas`, `bz_markm`: the shipped `bz_mark` IS
+  `bz_clk_sample`, and every `BZ_MARKM` site assembles to nothing), the
+  beam check (`bz_latechk`; the shipped `bz_wbox` IS `bz_boxw`), `bz_meas`,
+  `bz_res`, `bz_dtr`, `bz_ppit`, `bz_psubs` and the results copy
+  (`bz_rcopy`, `bz_rframes` .. `bz_rnpwt`, 84 bytes);
+- **the scripted camera** (130.17.6.7: `bz_camera.script`, `.sax`,
+  `bz_scyc`), the harness's late frame (`bz_hspin`);
+- **the shell part's instruments' face**: `bzface.inc`'s MAIN and RESULTS
+  builders and the shell's `BZH_REDRAW` and `BZH_LINE` vectors (a `retf`
+  in the shipped part, whose face is `bz_wface`'s alone).
+
+**What a PLAYER reaches stays shipped**: the window, its menus
+(`bzmenu.inc`), Play Game, the title and its demos, the pathway and its V
+demo, Save and Load Replay, a double-clicked `.BZR`, the mouse and the
+sound's menu toggle. MEASURED: the shipped package **49,265 image + 8,564
+bss = 57,829, 7,195 bytes free** (the window was 5,355 free after
+TRICKLE's deletion: 1,716 image and 124 bss); the `BZDEV=1` package
+50,983 + 8,688 = 59,671, **5,353 free** - it must fit `APP_MAX_SIZE` too,
+and `OS88_IMAGE_END` checks it in its own build. The shell part is 10,455
+bytes shipped (5,244 packed) against 12,039 (6,446) in the knob build.
+
+**The rows run the knob build.** `bonanza_ring.dev()` builds and APPLIES
+the `BZDEV=1` private tree (`os88build.tree`, targets the 360KB system
+floppy, `bonanza360.img` and `bonanza.img`), so every `build/...` a row
+names through `at()` is the tree's, and every package it assembles itself
+- `symbols`, `shell_symbols`, `assemble`, a red tree's link map and parts -
+passes `-DBZDEV` (`bonanza_ring.NASM`, `pxdefs`). Every bonanza row that
+drives an instrument calls it first: bonanzaring, bonanzaperf, bonanzaphys,
+bonanzareplay, bonanzaexit, bonanzapath, bonanzamega, bonanzasound,
+bonanzagame, bonanzademo, bonanzawheel, and the host rows bonanza_dsplit
+and bonanza_dfield. **bonanzatitle and bonanza_av are about the shipped
+game and read the shipped build.**
 
 #### 130.26.7 The About card (BUILT)
 
@@ -290456,7 +290571,10 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
   black block; each class's bitmap at most 512 bytes (`KIT_BMMAX`: 4,096
   pieces, the guest's scratch, 130.37.4); the part within one part's 65,024.
 - **The part**, `BZKIT.BIN` (`BZK1`), its RAM form its stored form (nothing
-  expands it; `os88pkg` packs it LZB as it packs every row):
+  expands it; `os88pkg` packs it LZB as it packs every row) - and, after the
+  pieces, a ZERO TAIL of 4,096 bytes that is the REPLAY LOG's home
+  (130.11.12.1; `kit_file` = `kit_part` and the tail, `BZ_KIT_RLOG` its
+  offset):
 
 | at | |
 |---|---|
@@ -290557,7 +290675,9 @@ anyway, ordered so that holding it walls nothing**:
 - **held for the instance**, as the bundle is; only the close gives it back;
 - **again at a play course's load** if the open's fetch was refused
   (`bz_cload`: `bz_kget`, aloud): no play course without it. The pathway and
-  the title never need it;
+  the title never need it for their PICTURES - but a log's runs live in its
+  tail (130.11.12.1), so loading any log (`bz_rkit`: the title's demos, `L`,
+  `V`) fetches it too, and a pathway play started without it records none;
 - **kern_small** (which refuses every launch, 130.1) gives it back right
   after the open, once `bz_small` is known;
 - **memory short**: the pathway is the part dropped, never the kit or the
@@ -292606,7 +292726,8 @@ the direction of travel, so a course that zigzags down the screen pans 16 -
    is skipped whole. `bz_c0n` = `bz_c0`, `bz_lax` is untouched, and no
    column is withheld or counted (`bz_nwc`). DOWN runs as before.
 4. **TRICKLE**: its horizontal dead zone is skipped the same way, so `C`
-   changes the vertical behaviour only.
+   changes the vertical behaviour only. *(TRICKLE is deleted since wave 4 of
+   the space plan, 130.9: its 11 bytes here went with it.)*
 5. **The scripted camera** (`bz_camscr`, a harness's) ignores the lock: it
    is BENCH's, which has none.
 6. **The finish sequence** holds the camera as before.
