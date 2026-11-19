@@ -96,6 +96,9 @@ BZ_LMAX     equ 88              ; the longest padded line (a 720px Hercules cont
 BZ_BALPS    equ BZ_BAL_SIZER / 16 ; steel's paragraph in the bundle (rubber's 0)
 BZ_BALPG    equ BZ_BALPS + BZ_BAL_SIZE / 16 ; glass's
 BZ_BALB     equ BZ_BAL_SIZER + BZ_BAL_SIZE + BZ_BAL_SIZEG ; the families' first byte
+%if BZ_SNDP * 16 != BZ_BALB || BZ_FAMB < BZ_BALB || BZ_FAMB & 15
+ %error "the bundle's SOUND starts where the balls end and the families after it (SPEC.md 130.50.2)"
+%endif
 %if (BZ_BAL_SIZER | BZ_BAL_SIZE | BZ_BAL_SIZEG) & 15 || BZ_BALB > 65535 - 4096
  %error "the bundle's balls are whole paragraphs, the families after them in one segment (130.25.5.2)"
 %endif
@@ -861,15 +864,6 @@ bz_arload:
     shl bx, 1
     mov ax, [bz_bsegs + bx]
     mov [bz_bseg], ax
-    mov al, BZ_P_SND
-    call op_seg
-    mov [bzs_pseg], ax
-    mov al, BZ_P_SONG + BZ_SONG_VICTORY
-    call op_seg
-    mov [bzs_vseg], ax
-    mov al, BZ_P_SONG + BZ_SONG_TIMEUP ; (130.22.9.1)
-    call op_seg
-    mov [bzs_tseg], ax
     mov al, [bzs_song]          ; the song (0 none: row 0 is a ball's)
     or al, al
     jz .r
@@ -2639,7 +2633,16 @@ bz_bsload:
     mov ax, BZ_BALPG
     call .sub
     mov [bz_bsegs + 4], ax
-    ret
+    mov ax, BZ_SNDP             ; SPEC.md 130.50.2: and the SOUND after them -
+    call .sub                   ; the sound part, VICTORY and TIME'S UP
+    mov [bzs_pseg], ax
+    mov ax, BZ_VICP
+    call .sub
+    mov [bzs_vseg], ax
+    mov ax, BZ_TUPP
+    call .sub
+    mov [bzs_tseg], ax
+    jmp bzs_ptab                ; (its tables: the header's, copied)
 .sub:                           ; AX = DX + AX paragraphs, 0 for none
     or dx, dx
     jz .z
@@ -5349,9 +5352,8 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a tour course.  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2), then the WORLD parts
-    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SND: BZSND.BIN (130.20.3)
  %rep BZS_NSONG
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_ARENA ; BZ_P_SONG + S: BZM<S>.BIN
  %endrep
@@ -5366,7 +5368,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG + BZ_NDEMO + 3 + 2 * BZ_TITL
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + 1 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
+%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + BZS_NSONG || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
  %error "the demo rows follow the songs', one a tour course (SPEC.md 130.14.7.4)"
 %endif
 

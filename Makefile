@@ -22133,6 +22133,8 @@ bonanza-sizes: $(BUILD)/bonanza.o88
 BZ_SONGS := fairway trial windmill moonlit summit victory attract firstroll timeup littlehop
 BZ_MUSSRC := apps/bonanza/music/bank.bmb $(addprefix apps/bonanza/music/,$(addsuffix .bmu,$(BZ_SONGS)))
 BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7 8 9,$(BZ_ART)/BZM$(i).BIN)
+BZ_SONGPARTS := $(foreach i,0 1 2 3 4 5 6 7 8 9,$(BZ_ART)/BZM$(i).BIN)   # (the package's song rows; BZSND.BIN rides the
+                                    # RESIDENT BUNDLE since SPEC.md 130.50.2)
 BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
 $(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
 	python3 tools/bbmusic.py -o $(BZ_ART)
@@ -22164,7 +22166,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
 # halves, so a build with none packs exactly the arguments it always did.
 BZ_PARTS1 := $(BZ_CRSPARTS)
-BZ_PARTS2 := $(BZ_SNDPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+BZ_PARTS2 := $(BZ_SONGPARTS) $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 
@@ -22198,7 +22200,7 @@ $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) ap
 # THE RESIDENT BUNDLE (SPEC.md 130.25.6.9, 130.25.5.2): the three balls' stored BZB3 parts first (generated
 # in place once, at the open), then the home-`resident` families' parts back to back, each from a
 # paragraph, its header's +11 its paragraphs - a row in every build
-$(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) tools/bbcourse.py
+$(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) $(BZ_MUSSRC) tools/bbmusic.py tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)

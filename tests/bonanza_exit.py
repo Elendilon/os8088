@@ -68,9 +68,10 @@ the tour: bz_tour BZ_NTOUR + 2, 8) and the cup (a tour poked to stand at MOON) -
 stopped on the face, V's fetch and drop, D's end, W through the Save dialog, L
 through the Open dialog and the DOUBLE-CLICK of the saved .BZR (a new
 instance): every row as before and the claims as before after each.
-  padleak      the sound part's row not dropped at a cup: MOON's goal leaves
-               BZ_P_SND fetched (it was the glass ball's row 2 until SPEC.md
-               130.25.5.2, whose balls are held for the instance: no ball row)
+  padleak      the course's SONG not dropped at a cup: MOON's goal leaves its
+               song's row fetched (it was the glass ball's row 2 until SPEC.md
+               130.25.5.2, whose balls are held for the instance, then the sound
+               part's until 130.50.2 put that in the bundle too)
 
 WAVE 5B (SPEC.md 130.15.4.5, 130.15.13): THE CLAIM LEG.  A course part is
 fetched in its STORED form and expanded in place by bz_cexp; between that
@@ -260,10 +261,15 @@ def world_row(k):
 
 
 def snd_row():
-    """BZ_P_SND, the sound part's row (SPEC.md 130.20.3): after the courses'
-    rows and the two-part courses' WORLD rows (130.30.4.4)"""
+    """BZ_P_SONG, the first SONG's row (SPEC.md 130.20.3; the sound part's own row went into the RESIDENT
+    BUNDLE, 130.50.2): after the courses' rows and the two-part courses' WORLD rows (130.30.4.4)"""
     R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
     return CRS_ROW0 + dict.__len__(R.CRS_K) + ncrs2()
+
+
+def moon_song_row():
+    """MOON's song's row: padleak's red keeps it at the cup"""
+    return snd_row() + BB.course_song(R.course("moon"), R.CRS_K["moon"])
 
 
 def shell_row():
@@ -272,7 +278,7 @@ def shell_row():
     courses, bzcrs2.lst's world parts, the sound, the songs, the demos) and
     held to the package's BZ_P_SHELL, so a row the table gains that this count
     does not know of is a refusal here rather than a wrong row read quietly"""
-    k = snd_row() + 1 + nsong() + ndemo()
+    k = snd_row() + nsong() + ndemo()
     pk = link_row("BZ_P_SHELL")
     assert pk is None or pk == k, ("the shell part's row: the build's lists count %d, the package's "
                                    "BZ_P_SHELL is %d - a part row this row does not know of" % (k, pk))
@@ -1073,11 +1079,11 @@ REDS = {
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
-# (SPEC.md 130.25.5.2: no ball row is dropped any more - the balls are held for the instance - so the cup's
-# leak is the SOUND PART's, the arena row a play of MOON fetches beside its song, kept at the cup)
-REDS["padleak"] = [("bzsound.inc", "    mov al, BZ_P_SND\n    call op_drop\n    mov word [bzs_pseg], 0\n",
-                    "    mov al, BZ_P_SND            ; RED padleak: the sound part kept at the cup\n"
-                    "    cmp byte [bz_hid], 0\n    jne .rpl\n    call op_drop\n.rpl:\n    mov word [bzs_pseg], 0\n")]
+# (SPEC.md 130.25.5.2, 130.50.2: no ball row and no sound part's row is dropped any more - both are held in
+# the bundle - so the cup's leak is the SONG's, the arena row a play of MOON fetches, kept at the cup)
+REDS["padleak"] = [("bzsound.inc", "    mov al, [bzs_song]\n    call bzs_dsong\n    xor ax, ax\n",
+                    "    mov al, [bzs_song]          ; RED padleak: the song kept at the cup\n"
+                    "    cmp byte [bz_hid], 0\n    jne .rpl\n    call bzs_dsong\n.rpl:\n    xor ax, ax\n")]
 # wave 5b (SPEC.md 130.15.13): the expansion broken, each red at the CLAIM LEG's first differing offset -
 # WDIFF's count one record short (the last record left as differences), ROWTAB's last word never written,
 # and the guest's SAFE rule without its OBS test (a prop's cell made SAFE: MILL's first)
@@ -1126,7 +1132,7 @@ RED_RUN["kitlate"] = {"ways": (), "mats": (), "bench": False, "mill": False, "w4
                       "trial": False, "cover": False, "pal": False}
 RED_RUN["kitdrop"] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False,
                       "trial": False, "cover": False, "pal": False}
-RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % snd_row(),  # BZ_P_SND "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
+RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % moon_song_row(),  # MOON's song "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
             "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL",
             "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT",
             "kitlate": "the kit (row", "kitdrop": lambda: "held part row %d is not fetched" % kit_row()}
