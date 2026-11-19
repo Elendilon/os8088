@@ -134,3 +134,23 @@ limit.
 - The first run compiles the BZROLL=1 courses, which takes about 3 minutes.
   What the pathway reads of them is remembered in
   `build/bonanza-pathway/courses.json`.
+
+## Option A, revision 2 (2026-11-19): the owner's mark-up of page 0
+
+The owner chose A's direction (*"I like A and C; but probably this will push
+us towards A"*: 14 - 20 courses, and A's density is what fits the engine's
+five pages) and marked page 0 up: *"Keeps the icons closer to their owners,
+text more associated, gates and text fully on screen, lives a little more in
+the middle. Note this is screen 1 only; screen 2 is fully undecided yet ...
+prototype only for now."* So, in `gen.py`'s option A:
+- the icons of 3, 4 and 6 sit beside their pads, and their TITLES are set
+  off to the icon's left, clear of the routes (`@DX@` before a title in
+  `TITLES`); DOWNHILL DECISION is on TWO lines (a `|` in a title, the 5 x 7
+  face only - the tool's own 8 x 8 face is one line);
+- page 0's window 8 lines higher (`view 0 332`), so the gate on 6's route and
+  both titles there are wholly on page 0 (16 lines would put pad 1 within
+  the 24 lines the tool keeps from a page's edge);
+- the page-0 lives counter one cell up and in (16, 23).
+
+Both `|` and `@DX@` live in this generator's 5 x 7 face; if A ships, the
+tool's title drawing takes them (and the 5 x 7 face) as a grammar change.

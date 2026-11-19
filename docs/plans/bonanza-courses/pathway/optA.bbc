@@ -9,7 +9,7 @@ ball   rubber
 pathway
 music  fairway
 rail   crystal
-view   0 340
+view   0 332
 pages  2
 float  rect 0 0 64 64
 
@@ -27,17 +27,17 @@ route 1 2 exit 0  path 24,25 28,21 24,17
 route 2 3 exit 0  path 24,17 20,13
 route 2 5 exit 1  path 24,17 15,17
 route 3 4 exit 0  path 20,13 12,5
-route 5 6 exit 0  path 15,17 9,11
+route 5 6 exit 0  gate 14 16  path 15,17 9,11
 route 6 7 exit 0  path 9,11 4,11
 
 icon 0 ../../../docs/plans/bonanza-courses/pathway/icons/first32x24.bba -128 368
 icon 1 ../../../docs/plans/bonanza-courses/pathway/icons/frog32x24.bba -32 368
-icon 2 ../../../docs/plans/bonanza-courses/pathway/icons/fork32x24.bba 24 360
-icon 3 ../../../docs/plans/bonanza-courses/pathway/icons/mill32x24.bba 24 248
-icon 4 ../../../docs/plans/bonanza-courses/pathway/icons/summit32x24.bba 24 120
-icon 5 ../../../docs/plans/bonanza-courses/pathway/icons/moon32x24.bba -120 248
-icon 6 ../../../docs/plans/bonanza-courses/pathway/icons/playground32x24.bba -8 152
-icon 7 ../../../docs/plans/bonanza-courses/pathway/icons/trial32x24.bba -88 104
+icon 2 ../../../docs/plans/bonanza-courses/pathway/icons/fork32x24.bba 56 336
+icon 3 ../../../docs/plans/bonanza-courses/pathway/icons/mill32x24.bba 56 256
+icon 4 ../../../docs/plans/bonanza-courses/pathway/icons/summit32x24.bba 24 128
+icon 5 ../../../docs/plans/bonanza-courses/pathway/icons/moon32x24.bba -80 256
+icon 6 ../../../docs/plans/bonanza-courses/pathway/icons/playground32x24.bba -8 160
+icon 7 ../../../docs/plans/bonanza-courses/pathway/icons/trial32x24.bba -88 96
 
-lives 17 24
+lives 16 23
 lives 6 4
