@@ -6592,3 +6592,11 @@ steel, easy double bounce for rubber, hard but possible double bounce for rubber
   tune's part on the sequence's first step, plays from its top, and both
   finish songs are given back at the play's end. Not yet heard by the
   owner.
+
+## 2026-11-19 (Little Hop's song)
+
+A sub-agent wrote Little Hop's own song (`littlehop.bmu`, A major at 149 BPM,
+its motif two hops with the second higher), checking both arms by rendering
+them. It merged as song 9, because another session's time-up tune had taken 8
+in the meantime. The owner: *"Doing good on these songs; I don't think I have
+any suggested changes."*
