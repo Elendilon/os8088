@@ -1,10 +1,18 @@
 # COURSE 2, "Island Hop" (HOP): design sheet
 
-*Status: **IN ENGINE, revision 4** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
+*Status: **IN ENGINE, revision 5** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
 written by `hop/sketch.py --bbc --force`, compiles with every check, and the
 BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
+
+## Revision 5 (2026-11-19): the long platform is U1
+
+The owner: *"For the longer platform, I meant U1 jump, not U2; aka, give them
+room to get a rolling start for their jump."* U1 (the easy hop's ledge) is
+six tiles long, the step's run-up; U2 is four again, and "JUMP TWICE!" stands
+on its back rail. Another session is looking at an easy-jump height in the
+tuning; this course goes on as if nothing changes there.
 
 ## Revision 4 (2026-11-19): the easy hop, a long U2, signs, the basin's line, K farther
 
@@ -21,7 +29,7 @@ continue using for now"*; difficulty *"Much better"*.
   U2: *"an 'easy hop', followed by the 'hard single jump, or easy double
   jump'"*. A gap climbed up the screen shows its FAR island's face, so U1's
   lip is the one that floats.
-- **U2 is seven tiles long** (it was four), the ramp off its far end.
+- **U2 is seven tiles long** (it was four), the ramp off its far end. *(Revision 5: the owner meant U1.)*
 - **Signs**: "JUMP!" on U1's back rail past the easy hop and "JUMP TWICE!" on
   U2's past the step, boards on posts (`hop/signs.py`, FIRST ROLL's decal
   machinery and the tree's 8 x 8 face). From leg 1, "JUMP!" stands in view

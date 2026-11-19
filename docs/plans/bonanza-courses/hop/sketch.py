@@ -135,11 +135,11 @@ floor("L", 22, 12, 25, 16, Z - 2)
 rail(25, 12, 25, 16); rail(23, 16, 25, 16, "guard")
 # LEG 3, -x (revision 4, the owner): the EASY HOP - a 1-tile gap onto a ledge half a unit UP, which no ball rolls
 # over and a Hop alone climbs (311 ms) - then the step: "the hard single jump, or easy double jump" (128 ms, or
-# 531 ms with its "and again") onto U2, a long platform with rolling room, so nobody rolls back down the step
-floor("U", 18, 12, 21, 16, Z - 1.5)                          # U1: the easy hop's ledge (gap x 21)
-rail(18, 12, 21, 12); rail(19, 16, 21, 16, "guard")
-floor("U", 11, 12, 18, 16, Z - 0.5)                          # U2: one unit up, seven tiles long
-rail(11, 12, 18, 12); rail(11, 12, 11, 16); rail(15, 16, 17, 16, "guard")
+# 531 ms with its "and again") onto U2; U1 is the long platform, the step's rolling start
+floor("U", 15, 12, 21, 16, Z - 1.5)                          # U1: the easy hop's ledge (gap x 21), SIX tiles long:
+rail(15, 12, 21, 12); rail(16, 16, 21, 16, "guard")          #   the step's rolling start (the owner, revision 5)
+floor("U", 11, 12, 15, 16, Z - 0.5)                          # U2: one unit up
+rail(11, 12, 15, 12); rail(11, 12, 11, 16)
 # LEG 4, +y then -x: down off U2's far end to the basin; the flag stands where the ramp's centre line meets the
 # spring's row, so a respawn rolls straight on into it; the SPRING throws the ball -x onto H, six units up
 ramp("D", "y", 11, 16, 14, 18, Z - 0.5, Z - 2.5)
@@ -186,14 +186,14 @@ FLAGS = [(12.5, 20.5, "flag 0"), (5.5, 19.5, "flag 1"), (5.5, 31.5, "flag 2")]
 CLOCKS = [(15.5, 3.5, Z + 1.5, "start", "block"), (2.5, 19.5, Z + 5, "middle", "block"),
           (22.5, 28.5, Z - 1.5, "finish", "block")]
 PLACED = {}
-SIGNS = [(19.5, 11.5, "JUMP!"), (14.5, 11.5, "JUMP\nTWICE!")]   # (the back-rail block, its words): hop/signs.py
+SIGNS = [(19.5, 11.5, "JUMP!"), (13.5, 11.5, "JUMP\nTWICE!")]   # (the back-rail block, its words): hop/signs.py
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
 ROUTE = [(15.5, 5.5), (17, 6), (19.5, 6), (21, 6), (23.5, 6), (23.5, 10), (23.5, 14), (21, 14), (19.5, 14),
          (18, 14), (15, 14), (12.5, 14), (12.5, 17), (12.5, 20), (9, 20), (7, 20), (5, 20), (5, 23), (5, 25.5),
          (5, 28.5), (5, 31.5), (7.5, 31.5), (9.5, 31.5), (12, 32), (12, 28), (15.5, 28), (20, 28)]
 LABELS = [(15.5, 6, "A start"), (19.5, 6, "T1 hop"), (23.5, 6, "T2 hop"), (23.5, 10, "D"), (23.5, 14, "L"),
-          (19.5, 14, "U1 easy hop"), (14, 14, "U2 step+again"), (12.5, 17, "D"), (12, 20, "B spring"),
+          (18, 14, "U1 easy hop, run"), (13, 14, "U2 step+again"), (12.5, 17, "D"), (12, 20, "B spring"),
           (5, 20, "H high"), (5, 23, "R lip"), (5, 25.5, "F drop 6"), (6, 31.5, "K bounce +2"), (12, 32, "E hop"),
           (12, 28, "S step+again"), (20, 28, "G goal")]
 
