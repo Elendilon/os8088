@@ -6,6 +6,12 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## The song (2026-11-19)
+
+`littlehop.bmu` (BZM9.BIN, A major, 149 BPM, `groove 7 4`; a sub-agent's,
+its motif a Hop and an "and again"). The owner: *"Doing good on these songs;
+I don't think I have any suggested changes."* Done.
+
 ## Revision 8 (2026-11-19): roll room at the start
 
 The owner: *"The course feels very secure, newbie friendly, and good to me"*,
