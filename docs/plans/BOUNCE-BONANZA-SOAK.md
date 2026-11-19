@@ -126,7 +126,8 @@ out of the shipping build."* Decided:
 - [ ] **Then BENCH leaves the shipping build**: B benchmarks a course it is
       given (a test course in the `BZDEV=1` tree).
 
-The save file, BZS5 (PROPOSED - the owner rejected keying progress by course
+The save file, BZS5 (AGREED, the owner 2026-11-19: *"Progress by pad seems
+good."* - after rejecting keying progress by course
 name: *"The pathway is a progression tree; if we move a course from spot 5
 to spot 17, then they just have a random place far ahead of their current
 progress unlocked ... Now they have no way to get back."*):
