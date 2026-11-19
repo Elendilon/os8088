@@ -32916,7 +32916,7 @@ def _o88_arms(courses, demo_files):
                     f.write(c.wstored)
                 parts.append(p)
         parts += [need[3]] + [os.path.join(art, n) for n in songs]
-        for name in sorted(demo_files, key=lambda n: int(n[3:-4])):
+        for name in demo_files:                  # (the rows' order: named by course, SPEC.md 130.14.7.4)
             p = os.path.join(td, name)
             with open(p, "wb") as f:
                 f.write(demo_files[name])
