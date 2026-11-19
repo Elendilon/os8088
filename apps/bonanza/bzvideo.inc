@@ -1536,10 +1536,12 @@ bz_occ:
 .grd:
     add ax, BZ_CLIMB
 .air:
-    sub ax, [bz_otb]            ; THE 4-BYTE RECORD (SPEC.md 130.15.5.1): kt =
-    BZ_OCLAMP                   ; clamp(z_b + m - TB, 0, 255), a byte - CH for
-    mov ch, al                  ; the whole pass - and the word s_b + SB - br,
-    mov ax, [bz_olo]            ; unclamped, one less a block row (each row's
+    mov [bz_ozkt], ax           ; THE 4-BYTE RECORD (SPEC.md 130.15.5.1): kt =
+    mov ax, [bz_olo]            ; clamp(z_b + m - TB, 0, 255) - TB the BAND's
+                                ; (130.50: CH, made by bz_otbk at the first block
+                                ; row and again where a row starts a band) -
+                                ; and the word s_b + SB - br,
+                                ; unclamped, one less a block row (each row's
     and al, 0f8h                ; ks is its clamp, from its own br)
     mov [bz_obr], ax            ; the first block row's first line
     mov cl, 3
@@ -1551,6 +1553,7 @@ bz_occ:
     push ds
     pop es                      ; ES = ours
     mov ds, [bz_mseg]           ; DS = the course's PICTURE part (130.30.5: occluders, map, blocks)
+    call bz_otbk                 ; (CH: the first block row's band's kt)
 .brow:
     mov ax, [es:bz_ozk]         ; the row's key in a register first: CL = ks =
     BZ_OCLAMP                   ; clamp(s_b + SB - br, 0, 255) from THIS row's
@@ -1676,6 +1679,10 @@ bz_occ:
     mov [es:bz_obr], ax
     cmp ax, [es:bz_ohi]
     jge .amod
+    test al, 7fh                ; SPEC.md 130.50: a row that starts a BAND (its
+    jnz .brow1                  ; first line a multiple of 128) takes its kt
+    call bz_otbk
+.brow1:
     jmp .brow
 .amod:
     call bz_amodel              ; SPEC.md 130.29: the model, in a VOID cell
@@ -1708,6 +1715,23 @@ bz_occ:
 .and:
     call bz_oand                ; a second or later: ANDed into bz_omsk
     jmp short .skip
+
+; bz_otbk - SPEC.md 130.50: kt for the block row bz_obr's BAND, b = line >> 7:
+; CH = clamp(z_b + m - TB[b], 0, 255), TB[b] the signed word b of the bands'
+; table (YOFF, bz_otb) in the PICTURE part.  DS = the course's picture part,
+; ES = ours.  Clobbers AX, BX.
+bz_otbk:
+    mov bx, [es:bz_obr]
+    shl bx, 1                   ; BH = line >> 7 (a line is under 32,768)
+    mov bl, bh
+    xor bh, bh
+    shl bx, 1
+    add bx, [es:bz_otb]
+    mov ax, [es:bz_ozkt]
+    sub ax, [bx]
+    BZ_OCLAMP
+    mov ch, al
+    ret
 
 ; the hints' words, by the block row mod 4: four words of bss the fill used to
 ; hold its run in (bzgame.inc's bz_fmp .. bz_fln, free since the speed pass)

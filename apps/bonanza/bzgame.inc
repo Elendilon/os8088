@@ -602,7 +602,8 @@ VAR bz_omp,2                    ; bz_olay's mask in our segment: bz_omsk, or
 VAR bz_okt,1                    ; the 4-byte record (SPEC.md 130.15.5): bz_ozk
                                 ; holds s_b + SB; kt = clamp(z_b + m - TB) (bz_occ)
 VAR bz_osbias,2                 ; SB sign-extended, TB, MTAB (bz_crshdr)
-VAR bz_otb,2
+VAR bz_otb,2                    ; (130.50: YOFF, the bands' TB table's offset)
+VAR bz_ozkt,2                   ; ...and the pass's z_b + m (bz_otbk's)
 VAR bz_mtab,2
 VAR bz_boxes,BZ_NBOXMAX * BZ_BOXD
 VAR bz_boxbuf,4 * BZ_BOXB          ; four box buffers (SPEC.md 130.11.10.1),
