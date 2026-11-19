@@ -576,7 +576,7 @@ bz_gfload:
     jae .none
     cmp al, 'v'
     jne .f6
-    dec bl                      ; V: BZD<K>, a tour course's (1 - BZ_NDEMO)
+    dec bl                      ; V: BZD<K>, the course's (1 - BZ_NDEMO)
     cmp bl, BZ_NDEMO
     jae .none
     mov al, BZ_P_DEMO
