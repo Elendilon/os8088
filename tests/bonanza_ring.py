@@ -1116,14 +1116,28 @@ class Bz:
         raw = self.m.read(self.a("bz_boxes"), 4 * BZ_BOXD)
         return [struct.unpack_from("<HhHH", raw, i * BZ_BOXD) + (raw[i * BZ_BOXD + 18],) for i in range(min(n, 4))]
 
-    def read_log(self):
-        """bz_rlog's 4,096 bytes"""
-        return self.m.read(self.a("bz_rlog"), BB.RLOG_SIZE)
+    def log_runs(self):
+        """the linear address of the replay log's RUNS (SPEC.md 130.11.12.1): the log is two pieces - its
+        16-byte header resident at bz_rlog, its runs in THE KIT's zero tail ([bz_kseg]:BZ_KIT_RLOG + 16).
+        Asserts the kit is here (a log with no kit has no runs)"""
+        ks = self.w("bz_kseg")
+        assert ks, "the kit is not here ([bz_kseg] 0): the log has no runs"
+        return (ks << 4) + BB.kit_rlog_off() + BB.RLOG_HDR
+
+    def read_log(self, n=None):
+        """the session's log, its first N bytes (all 4,096 by default) as one run of bytes: bz_rlog's
+        header, then the runs out of the kit's tail"""
+        n = BB.RLOG_SIZE if n is None else n
+        hdr = bytes(self.m.read(self.a("bz_rlog"), min(n, BB.RLOG_HDR)))
+        return hdr + (bytes(self.m.read(self.log_runs(), n - BB.RLOG_HDR)) if n > BB.RLOG_HDR else b"")
 
     def write_log(self, log):
-        """a log (bbcourse.encode_log's bytes) into bz_rlog, the rest zeroed"""
-        assert len(log) <= BB.RLOG_SIZE
-        self.m.write(self.a("bz_rlog"), bytes(log) + bytes(BB.RLOG_SIZE - len(log)))
+        """a log (bbcourse.encode_log's bytes) into the session's - the header into bz_rlog, the runs into
+        the kit's tail, the rest zeroed"""
+        assert BB.RLOG_HDR <= len(log) <= BB.RLOG_SIZE
+        log = bytes(log) + bytes(BB.RLOG_SIZE - len(log))
+        self.m.write(self.log_runs(), log[BB.RLOG_HDR:])
+        self.m.write(self.a("bz_rlog"), log[:BB.RLOG_HDR])
 
     def decode(self, S):
         """The card memory as the 6845 scans it from start address S (words)."""
@@ -4042,9 +4056,9 @@ def vga_cam(g, art=None):
         for _ in range(12):
             g.key("KeyV")
             M.until(m, lambda _: g.b("bz_dkk") == 0, "V's key up", guest=5)
-            if bytes(m.read(g.a("bz_rlog"), len(demo))) == demo:
+            if bytes(g.read_log(len(demo))) == demo:
                 break
-        if bytes(m.read(g.a("bz_rlog"), len(demo))) != demo:
+        if bytes(g.read_log(len(demo))) != demo:
             fails.append("%s: V never loaded BZD%d.BIN" % (crs, kd))
             continue
         g.key("KeyD")
@@ -4299,7 +4313,7 @@ def load_demo(g, kd):
     m.run()
     M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
     g.key("KeyV")
-    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
+    M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo, "V to load BZD%d.BIN" % kd, guest=20)
     return demo
 
 

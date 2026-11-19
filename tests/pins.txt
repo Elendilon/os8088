@@ -324,7 +324,7 @@ C apps/bonanza/bonanza.asm bz_lseg       # a demo file's STAGING claim (L's dial
                                          # or a double-clicked .BZR): claimed at
                                          # exactly the file's size, read into as
                                          # OSAPI_FILE_READ's ES:BX, checked and
-                                         # copied into bz_rlog, and freed - all
+                                         # copied into the log (bz_rin), and freed - all
                                          # inside bz_lfile's one call (SPEC.md
                                          # 130.14.7.2, 130.14.7.5)
 C apps/bonanza/bzsound.inc bzs_pseg      # the sound part (tables, instruments,
@@ -349,7 +349,7 @@ C apps/bonanza/bzsound.inc bzs_vseg      # the VICTORY fanfare (BZM6.BIN, 224
                                          # plays, dropped by bzs_gdrop0 on every
                                          # way the play ends (SPEC.md 130.22.9)
 C apps/bonanza/bonanza.asm @bz_tlog      # a shipped demo's part (BZD<K>), fetched, its log
-                                         # copied whole into bz_rlog and dropped
+                                         # copied whole into the log (bz_rin) and dropped
                                          # inside bz_tlog's one call; ES holds the
                                          # segment throughout (SPEC.md 130.14.7.4)
 C apps/bonanza/bonanza.asm op:BZ_P_TDEMO # BZTDEMO.BIN, the title's demos: fetched,
@@ -403,16 +403,20 @@ N apps/bonanza/bonanza.asm op:BZ_P_FBUN # the RESIDENT BUNDLE (bz_bget: bz_entry
 N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 130.37.5: bz_kget,
                                          # bz_entry's quiet fetch before the bundle, again
                                          # by a play course's load if the open's was
-                                         # refused): 14,612 bytes the courses' expansion
-                                         # copies pieces from, HELD for the instance's life
+                                         # refused): 15,446 bytes - 11,350 of pieces the
+                                         # courses' expansion copies from, then the
+                                         # replay log's 4,096-byte zero tail - HELD for the instance's life
                                          # by the owner's rule (2026-11-17) and fetched FIRST
                                          # so it sits under the arena on the first-fit heap
                                          # and walls none of a launch's claims. PINNED as the
                                          # bundle is: BONANZA defines no OP_ONMOVE, so the
                                          # row's banked segment could not follow a move;
                                          # bz_kseg itself is read only inside bz_cexp
+                                         # and by the replay log's routines, whose RUNS
+                                         # live in the kit's zero tail (SPEC.md
+                                         # 130.11.12.1), never across a move
 C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
-                                         # copied whole into bz_rlog and dropped
+                                         # copied whole into the log (bz_rin) and dropped
                                          # inside V's one key call (SPEC.md
                                          # 130.14.7.4)
 C apps/wirearena/wirearena.asm @wa_loadarena # an arena part, fetched, read

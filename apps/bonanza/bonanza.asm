@@ -169,7 +169,14 @@ BZR_NRUN    equ 12              ; word: the runs recorded
 BZR_ID      equ 14              ; word: the course's identity (130.12.8)
 BZR_RUNS    equ 16              ; the runs: (key byte, count 1 - 255) pairs, or
                                 ; with TILT (key byte, tilt byte, count) triples
-BZR_SIZE    equ 4096            ; the log, bz_rlog: at most 2,040 runs (1,360 TILT)
+BZR_SIZE    equ 4096            ; the log: at most 2,040 runs (1,360 TILT)
+BZR_K       equ BZ_KIT_RLOG     ; ...and WHERE it is (SPEC.md 130.11.12.1): its header
+                                ; RESIDENT at bz_rlog, its runs in THE KIT's zero tail
+                                ; at [bz_kseg]:BZR_K + 16 - log offset X at BZR_K + X.
+                                ; The tail's head is the header's copy for a write
+%if BZ_KIT_RLOGB != BZR_SIZE
+ %error "THE KIT's zero tail is the replay log's whole size (bbcourse.py's RLOG_SIZE)"
+%endif
 BZR_DONE    equ 1
 BZR_TRUNC   equ 2
 BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
@@ -251,6 +258,7 @@ bz_entry:
     jz .big                     ; kern_small plays nothing (SPEC.md 130.1): the
     mov al, BZ_P_KIT            ; kit is given back (op_drop preserves every
     call op_drop                ; register; ES is still the kernel's)
+    mov word [bz_kseg], 0       ; (no kit: no log, 130.11.12.1)
 .big:
     mov [bz_win], bx
     call OSAPI_FILE_HERE        ; where BONANZA.O88 was launched from (SPEC.md
@@ -2505,8 +2513,11 @@ bz_tround:
     jmp bzs_gdrop0
 
 ; bz_tdemo - title demo AL (0 - 3) out of BZTDEMO.BIN: its START BLOCK into
-; bz_tblk and its log into bz_rlog, the part given back.  CF = 1 refused.
+; bz_tblk and its log into the session's (bz_rin), the part given back.  CF = 1
+; refused (the kit, the log's home, refused too: bz_rkit).
 bz_tdemo:
+    call bz_rkit
+    jc .out
     mov [bz_tsel], al
     mov al, BZ_P_TDEMO
     mov [bz_pc], al
@@ -2523,12 +2534,15 @@ bz_tdemo:
     lea di, [si + BZ_TSTART]
     call bz_esz                 ; CX = its log's bytes
     add cx, BZ_TSTART
-    mov di, bz_tblk             ; (bz_rlog follows bz_tblk: one copy)
+    mov di, bz_tblk             ; (bz_rlog follows bz_tblk: the block and the
+    mov dx, BZ_TSTART + BZR_RUNS ; header one copy, then the runs)
     jmp short bz_tcopy
 
-; bz_tlog - part AL (a shipped demo, BZD<K>) into bz_rlog, given back.  CF = 1
-; refused.
+; bz_tlog - part AL (a shipped demo, BZD<K>) into the session's log (bz_rin),
+; given back.  CF = 1 refused (or the kit, the log's home: bz_rkit).
 bz_tlog:
+    call bz_rkit
+    jc bz_tdemo.out
     mov [bz_pc], al
     call op_fetch
     jc bz_tdemo.out
@@ -2540,16 +2554,10 @@ bz_tlog:
     call bz_esz
     xor si, si
     mov di, bz_rlog
-bz_tcopy:                       ; CX bytes from the part (ES) at SI to DI
-    mov byte [bz_rown], 0       ; (bz_rlog is no longer a play the player made)
-    cld
-    push ds
-    push ds
-    push es
-    pop ds                      ; DS = the part, ES = ours
-    pop es
-    rep movsb
-    pop ds
+    mov dx, BZR_RUNS
+bz_tcopy:                       ; CX bytes from the part (ES) at SI: DX to DI,
+    mov byte [bz_rown], 0       ; the rest the runs (the log no longer a play
+    call bz_rin.di              ; the player made)
     pop es
     push ds                     ; (op_drop with ES = ours: bz_vkey's kern_mega
     pop es                      ; lesson)
@@ -4830,12 +4838,8 @@ bz_lkey:
 ; the file IS the log, `16 + 2 N` or `16 + 3 N` bytes - and a toast either way
 bz_wdone:
     call bz_gname
-    push ds
-    pop es
-    mov di, bz_rlog
-    call bz_esz                 ; CX = the held log's bytes
+    call bz_rout                ; ES:BX, CX = the held log, one piece
     mov si, bz_dname
-    mov bx, bz_rlog
     xor dx, dx
     call OSAPI_FILE_WRITE
     mov si, bz_t_saved
@@ -4923,6 +4927,73 @@ bz_esz:
     add cx, BZR_RUNS
     ret
 
+; bz_rin - a whole log, CX bytes (16 - 4,096) at ES:SI, into the session's
+; (SPEC.md 130.11.12.1): its header into bz_rlog, its runs into THE KIT's
+; tail.  bz_rin.di: DX bytes into DI first (bz_tdemo: the start block and the
+; header, bz_tblk and bz_rlog adjacent).  The kit is here (bz_rkit); a source
+; selector is read from, never added to.  Preserves ES; clobbers AX, CX, DX,
+; SI, DI.
+bz_rin:
+    mov di, bz_rlog
+    mov dx, BZR_RUNS
+.di:
+    push ds
+    push es
+    mov ax, [bz_kseg]
+    push ds
+    push es
+    pop ds                      ; DS = the source, ES = ours
+    pop es
+    cld
+    sub cx, dx
+    xchg cx, dx
+    rep movsb                   ; the resident head
+    mov cx, dx
+    mov es, ax
+    mov di, BZR_K + BZR_RUNS
+    rep movsb                   ; the runs
+    pop es
+    pop ds
+    ret
+
+; bz_rout - the session's log as ONE piece for a write (130.11.12.1): its
+; header copied to the kit's tail, ahead of its runs.  -> ES:BX = the log, CX
+; = its bytes.  Clobbers AX, SI, DI.
+bz_rout:
+    mov es, [bz_kseg]
+    mov si, bz_rlog
+    mov di, BZR_K
+    mov bx, di
+    mov cx, BZR_RUNS / 2
+    cld
+    rep movsw
+    mov di, bx
+    jmp short bz_esz
+
+; bz_rkit - CF = 1 when a log has no home (130.11.12.1): THE KIT is not here
+; and bz_kget is refused (aloud on the desktop; inside the bracket quiet,
+; OP_SAYGATE).  Preserves every register but the flags.
+bz_rkit:
+    cmp word [bz_kseg], 1
+    jae .out                    ; (CF = 0)
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call bz_kget
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; bz_lfile - a demo FILE, which is HOSTILE (SPEC.md 19, 130.14.7.2): [bz_dname]
 ; in the instance's folder, CX its size (L: the dialog's, 16 - 4,096, AL = 0)
@@ -4936,6 +5007,8 @@ bz_esz:
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_lfile:
+    call bz_rkit                ; (no kit, no home for its runs: refused, and
+    jc bz_rkit.out              ; op_fetch said why)
     mov [bz_lcap], al
     mov [bz_lfsz], cx
     mov ax, cx
@@ -4981,17 +5054,9 @@ bz_lfile:
     call bz_lchk                ; 2 - 8
     or si, si
     jnz .ref
-    mov cx, [bz_lfsz]            ; PASSED: the bytes into the log
-    cld
-    push ds
-    push ds
-    push es
-    pop ds                      ; DS = the claim, ES = ours
-    pop es
-    xor si, si
-    mov di, bz_rlog
-    rep movsb
-    pop ds
+    mov cx, [bz_lfsz]            ; PASSED: the bytes into the log, from the
+    xor si, si                  ; claim's own selector at 0
+    call bz_rin
     call .free
     pop es
     mov byte [bz_rown], 0       ; (a file's log is not the player's to save again)
@@ -5172,6 +5237,8 @@ bz_onwake:
 bz_vkey:
     call bz_bigok
     jc .out
+    call bz_rkit                ; (the log's home, 130.11.12.1)
+    jc .out
     call bz_home
     jc .out
     mov al, [bz_vk]
@@ -5185,16 +5252,8 @@ bz_vkey:
     mov es, ax
     xor di, di
     call bz_esz
-    cld
-    push ds
-    push ds
-    push es
-    pop ds                      ; DS = the part, ES = ours
-    pop es
     xor si, si
-    mov di, bz_rlog
-    rep movsb
-    pop ds
+    call bz_rin
     pop es                      ; (op_fetch left ES the part's own selector:
     push ds                     ; op_drop restores its caller's ES after the
     pop es                      ; free, a #GP on kern_mega - ES = ours, as
@@ -5537,9 +5596,10 @@ VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row
 %if BZ_TITLE
 VAR bz_tblk,BZ_TSTART           ; SPEC.md 130.23.3: a title demo's START BLOCK (bz_tapply), bz_rlog right
 %endif                          ; after it (bz_tdemo copies the two as one)
-VAR bz_rlog,BZR_SIZE                ; THE REPLAY LOG (SPEC.md 130.11.12.1): `BZR1`,
-                                ; the course (+4), the material (+5), flags,
-                                ; the steps, the runs.  The recorder writes
-                                ; it; R replays it (bz_rhave)
+VAR bz_rlog,BZR_RUNS            ; THE REPLAY LOG's HEADER (SPEC.md 130.11.12.1):
+                                ; `BZR1`, the course (+4), the material (+5),
+                                ; flags, the steps, the runs' count; the runs
+                                ; are in THE KIT's tail (BZR_K).  The recorder
+                                ; writes it; R replays it (bz_rhave)
 OS88_BSS BZ_BSS
 OS88_IMAGE_END

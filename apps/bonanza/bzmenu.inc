@@ -480,12 +480,8 @@ bz_rsave:
     or al, al
     jnz .n
     push es
-    push ds
-    pop es
-    mov di, bz_rlog
-    call bz_esz                 ; CX = the log's bytes
+    call bz_rout                ; ES:BX, CX = the log, one piece (130.11.12.1)
     mov si, bz_dname
-    mov bx, bz_rlog
     xor dx, dx
     call OSAPI_FILE_WRITE
     pop es
@@ -572,7 +568,7 @@ bz_gfsave:
     jmp bz_kwait
 
 ; bz_gfload - F6 (AL 'l') or V (AL 'v'): course [bz_pwck]'s newest save, or its
-; shipped demo, into bz_rlog.  CF = 1 none (its card shown).
+; shipped demo, into the session's log.  CF = 1 none (its card shown).
 bz_gfload:
     mov bl, [bz_pwck]
     cmp bl, BZ_NCRS

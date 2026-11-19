@@ -107,7 +107,8 @@
 ;   bz_row0     byte   1: this frame's FIRST box is at window row 0 and the
 ;                      column's rows down to its last line went first (bz_csplit)
 ;
-; THE REPLAY LOG (SPEC.md 130.11.12) is bonanza.asm's bz_rlog; the recorder's
+; THE REPLAY LOG (SPEC.md 130.11.12) is bonanza.asm's bz_rlog (its header; its
+; runs in THE KIT's tail at [bz_kseg]:BZR_K + 16); the recorder's
 ; and the player's cells are bz_rptr (the next pair), bz_rk and bz_rn (the
 ; current run: its key byte and count - in a replay the count LEFT), bz_rruns
 ; (a replay's runs not yet read), bz_rtr (1: truncated) and bz_rtrs (DWORD, the
@@ -371,7 +372,7 @@ VAR bz_fog,1                    ; bz_fold (the pathway's roll): last frame's G,
 VAR bz_fox,1                    ; the px phase's fold and G's (0 or 4; bz_foy
 VAR bz_foy,1                    ; must follow bz_fox)
 ; the replay log's recorder and player (SPEC.md 130.11.12)
-VAR bz_rptr,2                   ; the next run's pair in bz_rlog
+VAR bz_rptr,2                   ; the next run's pair, in the kit (BZR_K + 16 on)
 VAR bz_rruns,2                  ; a replay: the runs not yet read
 VAR bz_rtrs,4                   ; the steps recorded, when TRUNCATED
 VAR bz_rk,1                     ; the current run: its key byte, its count (a
@@ -815,7 +816,7 @@ bz_play:
     mov [bz_rn], al             ; the log: no current run, from its first pair
     mov [bz_estp], ax           ; (and bz_ersp)
     mov [bz_nearly], ax
-    mov word [bz_rptr], bz_rlog + BZR_RUNS
+    mov word [bz_rptr], BZR_K + BZR_RUNS ; (in the kit, 130.11.12.1)
 .rs1:
     mov di, bz_frames
     mov cx, BZ_LIVE / 2
@@ -854,6 +855,8 @@ bz_play:
     call bz_rwid
     jmp short .play
 .rec:                           ; a play: a new log, `BZR1`, its course and
+    cmp word [bz_kseg], 0       ; (no kit, no home for its runs - the pathway
+    je .norec                   ; on a short heap: no log, 130.11.12.1)
     mov byte [bz_rown], 1       ; ball, no flags, steps or runs - the player's
     mov word [bz_rlog], 'BZ'    ; own (Save Replay, SPEC.md 130.26.3)
     mov word [bz_rlog + 2], 'R1'
@@ -878,6 +881,13 @@ bz_play:
     mov ax, [es:di + BZG_ID]
     mov [bz_rlog + BZR_ID], ax
     pop es
+    jmp short .play
+.norec:
+    xor ax, ax
+    mov [bz_rlog], ax           ; (bz_rhave: none)
+    mov [bz_rown], al
+    mov byte [bz_rk], 0ffh      ; ...and nothing recorded: bz_rrec's TRUNCATED
+    mov byte [bz_rtr], 1        ; state, with no flag set
 .play:
     call bz_clk_sample
     mov ax, [bz_subs]
@@ -1388,7 +1398,7 @@ bz_rrec:
     cmp byte [bz_rtr], 0
     jne .out
     call bz_rstore
-    cmp word [bz_rptr], bz_rlog + BZR_SIZE
+    cmp word [bz_rptr], BZR_K + BZR_SIZE
     jb .new
     mov byte [bz_rtr], 1        ; full: TRUNCATED at this step
     or byte [bz_rlog + BZR_FLAGS], BZR_TRUNC
@@ -1413,16 +1423,16 @@ bz_rstore:
     or ah, ah
     jz .out
     mov al, [bz_rk]
+    push es
+    mov es, [bz_kseg]           ; the runs: THE KIT's tail (130.11.12.1)
     mov di, [bz_rptr]
     cmp byte [bz_rw], 2
     je .pair
-    mov [di], al                ; (key byte, tilt byte, count)
-    inc di
+    stosb                       ; (key byte, tilt byte, count)
     mov al, [bz_rt]
 .pair:
-    mov [di], ax
-    inc di
-    inc di
+    stosw
+    pop es
     mov [bz_rptr], di
     inc word [bz_rlog + BZR_NRUN]
     mov byte [bz_rn], 0
@@ -1474,16 +1484,19 @@ bz_rleft:
 bz_rnext:
     cmp byte [bz_rn], 0
     jne .cur
+    push es
+    mov es, [bz_kseg]           ; the runs: THE KIT's tail (130.11.12.1)
     mov si, [bz_rptr]
-    lodsb                       ; the key byte
+    es lodsb                    ; the key byte
     mov [bz_rk], al
     mov al, BZ_TILT_KEYS        ; a keyboard log's caps are 8 (130.14.8.2)
     cmp byte [bz_rw], 2
     je .k
-    lodsb                       ; a TILT log's tilt byte
+    es lodsb                    ; a TILT log's tilt byte
 .k:
     mov [bz_rt], al
-    lodsb                       ; the count (1 - 255)
+    es lodsb                    ; the count (1 - 255)
+    pop es
     mov [bz_rn], al
     mov [bz_rptr], si
     dec word [bz_rruns]

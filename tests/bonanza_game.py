@@ -375,7 +375,7 @@ def free_play(g, k, mat, what):
 
 def logs_equal(g, keys, k, mat):
     want = R.make_log(keys, k, mat)
-    got = g.m.read(g.a("bz_rlog"), len(want))
+    got = g.read_log(len(want))
     return bytes(got) == want, want, bytes(got)
 
 
@@ -401,7 +401,7 @@ def leg_posts(g):
     guard(g)
     g.key("KeyV")
     demo1 = open(os.path.join(ROOT, art, "BZD1.BIN"), "rb").read()
-    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo1))) == demo1,
+    M.until(m, lambda _: bytes(g.read_log(len(demo1))) == demo1,
             "V to put FIRST's shipped demo (BZD1.BIN) in the log", guest=20)
     g.key("KeyR")
     bracket(g, "R of FIRST's demo")
@@ -418,7 +418,7 @@ def leg_posts(g):
         g.key("KeyV")
         M.until(m, lambda _: g.b("bz_vk") != v0, "V to load the next shipped demo", guest=20)
     demo4 = open(os.path.join(ROOT, art, "BZD4.BIN"), "rb").read()
-    if bytes(m.read(g.a("bz_rlog"), len(demo4))) != demo4:
+    if bytes(g.read_log(len(demo4))) != demo4:
         fails.append("posts: V four times did not leave MOON's shipped demo (BZD4.BIN) in the log")
     guard(g)
     g.key("KeyD")

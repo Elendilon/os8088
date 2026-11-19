@@ -256464,13 +256464,49 @@ for each step in it), so **a play is its first state and a byte a step**. The
 first state is the course's start (`bz_pinit`), so the log holds only the
 course, the ball and the bytes:
 
-| at | `bz_rlog`, 4,096 bytes of bss |
+| at | the log, 4,096 bytes: +0 - +15 at `bz_rlog` (bss), +16 on in THE KIT's tail |
 |---|---|
 | +0 | `BZR1` |
 | +4 | the course `K`; +5 the material; +6 flags: bit 0 COMPLETE (the play ended - goal, Esc, F or Alt+Enter), bit 1 TRUNCATED (the buffer filled); +7 zero |
 | +8 | the steps recorded, DWORD |
 | +12 | the runs recorded, word; +14 two zero bytes |
 | +16 | the RUNS: pairs (key byte, count 1 - 255), at most 2,040 |
+
+**Where it lives (the RLOG wave, 2026-11-19).** The log is the format above,
+but not one piece of memory. Its 16-byte HEADER is resident at `bz_rlog`
+(every reader of the course, the ball, the flags, the steps or the identity
+- about forty sites, and the shell part's `bz_rhave` - reads it there,
+unchanged), and its RUNS are a ZERO TAIL of 4,096 bytes on THE KIT
+(`BZKIT.BIN`, 130.37.2: `bbcourse.kit_file`, the pieces then the tail), at
+`[bz_kseg]:BZR_K + 16` (`BZR_K` = `BZ_KIT_RLOG`, the pieces' length, which
+the tool emits): log offset X is kit offset `BZR_K + X`. The tail's first 16
+bytes are where `bz_rout` copies the header before a WRITE (W, Save Replay,
+F5), so a log goes to a file as one `ES:BX`. **Why the kit**, against a claim
+of its own at the open: the kit is already fetched at the open, pinned and
+held for the instance (130.37.5), so the tail costs no claim, no relocation
+proc and no `MEM_OWNER_MAX` slot; it packs to about 4 bytes on the disk
+(`BZKIT.BIN` 3,948 -> 3,952 LZB) and `BZ_KIT_CLAIM` grows by itself. It
+freed 4,080 bytes of bss for 110 of code: 64,967 -> 60,997 of the 65,024
+(`OS88_IMAGE_END`, 20.1.1). **A log with no kit**: on kern_small the kit is
+given back at the open and `[bz_kseg]` cleared, and nothing there records or
+loads a log (`bz_bigok`, the refused bracket). On the big kernels the open's
+quiet fetch can be refused on a short heap; every way a log is LOADED (`L`,
+the double-click, `V`, F6, the title's demos, a tour's) asks `bz_rkit` first,
+which fetches the kit (`bz_kget`: aloud on the desktop, quiet in the bracket)
+and refuses as that fetch does; a PLAY that starts with no kit (only the
+pathway can: a play course fetches it, 130.37.5) records NO log - the header
+unsigned, `bz_rtr` set as a truncation sets it - so no run is ever written
+through a segment of 0. kern_mega: `[bz_kseg]` is `op_seg`'s selector, read
+and written through, never added to. **The copies**: every whole log that
+arrives - a file's staging claim, a shipped demo, a title demo - goes
+through `bz_rin` (the header to `bz_rlog`, the runs to the kit, from the
+source's own segment or selector at an offset). **Cost**: the recorder's
+flush (`bz_rstore`) and the player's next-run read (`bz_rnext`) each load ES
+from `[bz_kseg]` once a RUN, not a step - about 30 clk a run; the step's
+inline extension touches no log byte and is unchanged. **Harness**: the
+rows read and write the log through `bonanza_ring.Bz.read_log` /
+`write_log` (and `bonanza_mega.Pkg.log` / `log_w` through the selector's
+descriptor), which put the two pieces together.
 
 **Recording** (play only, at step 1) keeps the CURRENT run in two fixed
 cells, `bz_rk` (its key byte) and `bz_rn` (its count): a byte equal to
@@ -256523,7 +256559,7 @@ row for 130.10.6.2). A replay records nothing. It plays the log on any card:
 the CGA's play replayed on the Hercules is the same trajectory, step for
 step.
 
-**The log is trusted because the package wrote it**, in its own bss, and the
+**The log is trusted because the package wrote it**, in its own memory (the header in its bss, the runs in its held kit, 130.11.12.1), and the
 trusted-part rule (130.10.6.2) does not cover it: it is not a part. `R`
 chooses part rows from it (+4 selects row `3 + K`, +5 a ball row) and decodes
 its runs without a check. A log read from a FILE would be hostile input
@@ -262815,7 +262851,8 @@ segment from `op_seg`, used whole and translated in place on the Hercules
 as the first is (130.11.14); `bz_bsegs` holds three selectors. The demo's
 staging claim is an `OSAPI_MEM_P` claim, an LDT selector, read into by
 `OSAPI_FILE_READ` (ES:BX = it:0), checked through `[es:]` and copied into
-`bz_rlog` whole, never added to - on both the dialog's path and the
+`bz_rlog` whole, never added to (`bz_rin` since 130.11.12.1's RLOG wave: the
+header to `bz_rlog`, the runs into the kit's selector at `BZR_K + 16`) - on both the dialog's path and the
 double-click's; the dialogs, `os88data.inc`'s walk, `OSAPI_FILE_HERE` and
 `OSAPI_FILE_GOTO_QM`, `OSAPI_MOUSE` and `OSAPI_VIDEO` are ordinary slots
 the ordinary bracket's table and the desktop carry. The blank's two `OUT`s
@@ -263426,7 +263463,8 @@ final pass.
 2. **W** (130.14.7.1) builds `<NAME>.BZR` from the held log's course and
    opens the Save form; `bz_wdone` copies the kernel's name out (`bz_gname`)
    and writes `16 + 2 N` or `16 + 3 N` bytes from `bz_rlog` with one
-   `OSAPI_FILE_WRITE`; `Demo saved`, or the kernel's own text
+   `OSAPI_FILE_WRITE` (since 130.11.12.1's RLOG wave from the kit's tail,
+   `bz_rout` having copied the header ahead of the runs); `Demo saved`, or the kernel's own text
    (`OSAPI_FERR_TEXT`). A play's log carries `BZ_PHYSV` at +7 (`bz_rfin`).
 3. **L** (130.14.7.2): `bz_ldone` refuses `Not a Bonanza demo` for an
    extension that is not `BZR` and a size outside 16 - 4,096 (`DX` not 0
@@ -281377,7 +281415,10 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
   black block; each class's bitmap at most 512 bytes (`KIT_BMMAX`: 4,096
   pieces, the guest's scratch, 130.37.4); the part within one part's 65,024.
 - **The part**, `BZKIT.BIN` (`BZK1`), its RAM form its stored form (nothing
-  expands it; `os88pkg` packs it LZB as it packs every row):
+  expands it; `os88pkg` packs it LZB as it packs every row) - and, after the
+  pieces, a ZERO TAIL of 4,096 bytes that is the REPLAY LOG's home
+  (130.11.12.1; `kit_file` = `kit_part` and the tail, `BZ_KIT_RLOG` its
+  offset):
 
 | at | |
 |---|---|
@@ -281478,7 +281519,9 @@ anyway, ordered so that holding it walls nothing**:
 - **held for the instance**, as the bundle is; only the close gives it back;
 - **again at a play course's load** if the open's fetch was refused
   (`bz_cload`: `bz_kget`, aloud): no play course without it. The pathway and
-  the title never need it;
+  the title never need it for their PICTURES - but a log's runs live in its
+  tail (130.11.12.1), so loading any log (`bz_rkit`: the title's demos, `L`,
+  `V`) fetches it too, and a pathway play started without it records none;
 - **kern_small** (which refuses every launch, 130.1) gives it back right
   after the open, once `bz_small` is known;
 - **memory short**: the pathway is the part dropped, never the kit or the
