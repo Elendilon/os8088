@@ -384,18 +384,9 @@ bz_ltour:
     mov si, bz_s_err4
     cmp byte [bz_err], 4
     je bz_lline
-    cmp byte [bz_tour], 0       ; wave 8c (130.19.8.3): no tour - the SLOT's
-    jne .tr                     ; keys, or X's second press asked for
-    mov si, bz_s_skeys
-    cmp byte [bz_xarm], 0
-    je bz_lline
-    mov si, bz_s_xarm
-    call bz_lstr
-    mov al, [bz_slot]
-    add al, '1'
-    call bz_lch
-    jmp bz_line
-.tr:
+    mov si, bz_s_title          ; no tour: the title (the slot's own keys went
+    cmp byte [bz_tour], 0       ; with the Saves menu, SPEC.md 130.26.6; line 1
+    je bz_lline                 ; names the slot)
     mov al, [bz_tour]
     dec al
     cmp al, BZ_NTOUR
@@ -972,8 +963,6 @@ BZS bz_s_lv,    '  LIVES '
 BZS bz_s_timed, '  TIMED'
 BZS bz_s_expl,  '  EXPLORE'
 BZS bz_s_fk,    '  F '
-BZS bz_s_skeys, '1 2 3 SLOT  E MODE  X ERASE'
-BZS bz_s_xarm,  'X AGAIN: ERASE SLOT '
 BZS bz_s_tkeys, 'ENTER next  ESC stop tour'
 BZS bz_s_sndk,  'S SOUND '
 bz_s_smodes: dw bz_s_sauto, bz_s_sspkf, bz_s_sfx, bz_s_soff
@@ -1068,8 +1057,6 @@ BZS bz_s_p5,    '  box write      '
 %endif
 BZ_FIT 0, 1 + bz_s_title_n
 BZ_FIT 1, 1 + bz_s_keys_n + 1 + bz_s_lv_n + 1 + bz_s_expl_n + bz_s_fk_n + BZ_CRS_NAMEW
-BZ_FIT 0s, 1 + bz_s_skeys_n
-BZ_FIT 0x, 1 + bz_s_xarm_n + 1
 BZ_FIT 1t, 1 + bz_s_tkeys_n
 BZ_FIT 2, 1 + bz_s_cga_n
 BZ_FIT 2h, 1 + bz_s_herc_n
