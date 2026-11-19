@@ -55,12 +55,12 @@ wave 4 below.
 
 | wave | what | bytes | state |
 |---|---|---|---|
-| 1 | Trims: `bz_dmine` shares `bz_font` and `bz_lbuf` shares `bz_boxbuf` (584 bss, lifetimes disjoint: desktop vs bracket); `bz_nearly`, `bz_arforce`, a dead `xor`; the old face's slot keys 1/2/3, E, X (no row presses them, the Saves menu does the same); folded duplicates (`bz_vkey`'s copy, the adapter refusal, RESTORE tails, the dev-key chain); exact physics duplicates (`BZ_START` x2, the windmill door, `bz_psync`, the field symmetry table, `bz_prod`); the `bz_early` `%if BZ_PATH_NPAD` assembly bug | ~1.2K est. | in progress |
-| 2 | The replay log's runs out of bss into a zero-filled tail on the kit part (fetched at open, held all session — no new claim, no new read); the 16-byte header stays resident | ~3,950 est. | in progress |
+| 1 | Trims: `bz_dmine` shares `bz_font` and `bz_lbuf` shares `bz_boxbuf` (584 bss, lifetimes disjoint: desktop vs bracket); `bz_nearly`, `bz_arforce`, a dead `xor`; the old face's slot keys 1/2/3, E, X (no row presses them, the Saves menu does the same); folded duplicates (`bz_vkey`'s copy, the adapter refusal, RESTORE tails, the dev-key chain); exact physics duplicates (`BZ_START` x2, the windmill door, `bz_psync`, the field symmetry table, `bz_prod`); the `bz_early` `%if BZ_PATH_NPAD` assembly bug | **1,153 measured** (image 51,607 → 51,044, bss 13,360 → 12,770) | done, `dbaadf1eb` |
+| 2 | The replay log's runs out of bss into a zero-filled tail on the kit part (fetched at open, held all session — no new claim, no new read); the 16-byte header stays resident (SPEC.md 130.11.12.1) | **3,970 measured** alone (bss −4,080, image +110) | done, `9d220c554` |
 | 3 | The sound code into the sound part — **held in reserve**, below | 3,172 measured | reserve |
 | 4 | Test-only code behind a `BZDEV` knob, the rows building it — below | ~1K est. | next, after 1 and 2 |
 
-Waves 1 and 2 land with their measured numbers in this table when they merge.
+Together, merged (`5d9b5bb9f`): **51,163 image + 8,690 bss = 59,853, 5,171 bytes free** (was 57). The soak rows that cover both: bonanzaphys, bonanzawheel, bonanzareplay, bonanzademo, bonanzaperf, bonanzaring, bonanzaexit, bonanzamega, bonanzagame, bonanzatitle, bonanzapath, bonanzacourse.
 
 ## Reserve: wave 3, the sound code into the sound part (3,172 bytes, MEASURED)
 
