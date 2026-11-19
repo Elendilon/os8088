@@ -239,7 +239,7 @@ def leg_save(g, ui):
     fails = []
     m = g.m
     k = R.CRS_K["mill"]
-    GM.free_play(g, k, R.course_k(k).ball, "MILL by the autopilot")
+    GM.free_play(g, k, "MILL by the autopilot")
     want = mill_log()
     got = bytes(g.read_log(len(want)))
     if got != want:
@@ -257,7 +257,7 @@ def leg_save(g, ui):
     if f is not None and f != got:
         fails.append("save: the file read back off the floppy (%d bytes) is not bz_rlog's %d" % (len(f), len(got)))
     try:
-        GM.free_play(g, k, R.course_k(k).ball, "MILL after W (the fetch from home)")
+        GM.free_play(g, k, "MILL after W (the fetch from home)")
         ok = bool(g.b("bz_goal"))
     except (AssertionError, M.MartyError) as e:  # (a refused launch: no bracket ever comes up -
         ok = False                               # until's own error, the `nohome` red's case)

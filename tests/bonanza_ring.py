@@ -4892,6 +4892,21 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
     if "BZ_P_VGA" in asm:                       # SPEC.md 130.46.6: the VGA's part, the last row
         out += ["--part", vga or at("build/bzvga.bin")]
+    return out + data_parts(out, art)
+
+
+def data_parts(parts, art):
+    """the --part-data marks the Makefile gives (os88pkg, SPEC.md 20.3.3): every part out of the ART tree -
+    the courses, their world parts, the demos, the pathway, the title and the kit - is DATA, whose bytes can
+    spell a far call into the kernel by chance (ROLL's did); the shell, the families, the bundle and the VGA
+    part are code, and the gate keeps them.  [] for an os88pkg without the flag"""
+    if "--part-data" not in open(os.path.join(ROOT, "tools", "os88pkg.py")).read():
+        return []
+    art = os.path.realpath(art)
+    out = []
+    for i in range(0, len(parts), 2):
+        if parts[i] == "--part" and os.path.dirname(os.path.realpath(parts[i + 1])) == art:
+            out += ["--part-data", parts[i + 1]]
     return out
 
 

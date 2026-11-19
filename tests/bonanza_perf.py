@@ -1196,7 +1196,7 @@ def ab_tree(td, commit=AB_COMMIT):
         parts += ["--part", os.path.join(art, p)]
     # packed in the SHIPPED build's parts format (SPEC.md 130.15.9), never os88pkg's default
     subprocess.run([sys.executable, "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + parts
-                   + ["--part-compress", R.part_fmt()], cwd=R.ROOT, check=True, stdout=subprocess.DEVNULL)
+                   + ["--part-compress", R.part_fmt()] + R.data_parts(parts, art), cwd=R.ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", img, "--size", "360", o88], cwd=R.ROOT,
                    check=True, stdout=subprocess.DEVNULL)
     return img, src, art
