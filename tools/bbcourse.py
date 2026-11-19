@@ -26928,17 +26928,35 @@ def _w4_route(c, res):
         p.step_auto()
         if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
             air_occ += 1
+    how = ""
+    if not p.goal and getattr(c, "traphop", None):
+        # wave 11 (SPEC.md 130.14.4.1.1, 130.14.7.4.1): a course BUILT ON THE HOP (`trap hop`, LITTLE HOP) is
+        # one the arrows alone cannot finish by design, and its route is the HOPPING autopilot's (route_plan:
+        # the limit's and the route demo's).  So for such a course - and only such a course: one without
+        # `trap hop` is still held to the arrows alone - the item replays that plan's keys and holds it to the
+        # same goal, no fall and every flag, inside DEMO_STEPS
+        plan = route_plan(c)
+        p = Physics(c, play=True)
+        air_occ = 0
+        for k_ in (plan or ())[:DEMO_STEPS]:
+            if p.goal:
+                break
+            p.step(k_)
+            if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
+                air_occ += 1
+        how = " (`trap hop`: the HOPPING autopilot's route, 130.14.7.4.1, %s)" % (
+            "%d steps" % len(plan) if plan else "NONE found")
     kinds = {}
     for e in p.events:
         if e[0] in ("flag", "pad", "spring", "capture", "lip", "cup"):
             kinds[e[0]] = kinds.get(e[0], 0) + 1
     want = {"flag": sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)}
     res.append(("8 %s: the autopilot reaches the %s at step %s (%.1f s) with no fall in %d steps, touching every "
-                "flag (%s), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
-                "cells (priced in the demo legs, 130.14.6)" % (
+                "flag (%s of %d), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
+                "cells (priced in the demo legs, 130.14.6)%s" % (
                     c.name, "cup" if c.gflags & GF_CUP else "goal", p.nstep if p.goal else "-",
-                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), p.npad, p.nspr,
-                    kinds.get("capture", 0), air_occ),
+                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), want["flag"], p.npad,
+                    p.nspr, kinds.get("capture", 0), air_occ, how),
                 p.goal == 1 and p.nfall == 0 and kinds.get("flag", 0) == want["flag"]))
     return p
 
@@ -29459,7 +29477,19 @@ def _course_items(c, k, res, t):
                 A = composite(c, px, py, rc.s, z, air, "records", cell=mcell(gx, gy))
                 Bp = composite(c, px, py, rc.s, z, air, "pixels", cell=mcell(gx, gy), cut=c.occpix)
                 if A != Bp:
-                    mism += 1
+                    # (wave 11, ROLL's chute: a merged record keeps its FIRST member's s and top (merge_records),
+                    # so a member with a higher s and a lower top - ROLL's block (74, 21): (66, 96) merged into
+                    # (65, 105) - has its tops raised here while its s is not lowered, and the raised buffer
+                    # then hides a pixel at s_b 65, z_b + m 96 - 104 that NEITHER the member nor the merged
+                    # record lays: the reference's artefact, not the guest's.  So a pixel of A differs only when
+                    # it is neither the raised buffer's nor the plain per-pixel rule's - the unmerged tops)
+                    rz, c._raised = c._raised, {}
+                    try:
+                        Bq = composite(c, px, py, rc.s, z, air, "pixels", cell=mcell(gx, gy), cut=c.occpix)
+                    finally:
+                        c._raised = rz
+                    if any(v != Bp.get(p) and v != Bq.get(p) for p, v in A.items()):
+                        mism += 1
                 if first_laid is None and not ag5.runs(*mcell(gx, gy)):
                     for r in laid_at(c, px, py, rc.s, z, air):
                         if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
@@ -29597,7 +29627,21 @@ def _sc_crosscommit(X, res):
     # (wave D5, SPEC.md 130.24: a course with a SPLIT cell - MOON's coast - is written in `box`, which that
     # commit's grammar lacks, and its part holds halves no tool of that tree lays: excluded by its geometry,
     # as the PLAYGROUND is by name; the rest still carry the chain)
-    w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())]
+    # (wave 11: FIRST ROLL and LITTLE HOP, the real courses, are written in geometry that commit's grammar
+    # cannot say at all - ROLL's `chute`, HOP's quarter heights - and like the PLAYGROUND neither is in that
+    # tree: the chain is the courses whose FILE is in 503031d4's tree, which it compiled then.  It still has
+    # to cover the five it was written for - BENCH, FIRST, TRIAL, MILL and PEAK (summit.bbc) - or the item fails)
+    import subprocess
+
+    def _in_w5(c):
+        return subprocess.run(["git", "cat-file", "-e", "%s:apps/bonanza/courses/%s" % (
+            W5_COMMIT, os.path.basename(c.fname))], cwd=ROOT, capture_output=True).returncode == 0
+    w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())
+          and _in_w5(c)]
+    W5_CHAIN = ("BENCH", "FIRST", "TRIAL", "MILL", "PEAK")
+    if [c.name for c in w5] != [n for n in (c.name for c in courses) if n in W5_CHAIN]:
+        res.append(("1 the cross-commit chain covers %s's courses %s (it covers %s)" % (
+            W5_COMMIT, ", ".join(W5_CHAIN), ", ".join(c.name for c in w5) or "none"), False))
     import tempfile
     w5dir = tempfile.mkdtemp(prefix="bbw5")
     w5txt = []
@@ -31187,7 +31231,8 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
                 flags_ok))
     if not c.av or flags_only:
         return
-    rcs = av_positions(c.reach, g, c.slabcells)
+    rcs = [q for q in av_positions(c.reach, g, c.slabcells)
+           if (q.wx, q.wy) not in getattr(c, "noocc", ())]      # (SPEC.md 130.53: the proofs pass them over)
     tried, miss = av_proof(c, g, rcs)
     res.append(("15 %s: COMPLETENESS - at %d VOID positions' every height, %d (pixel, cell) cases the rule lays are "
                 "each hidden by the model read from the PART or laid by a shipped record%s" % (
