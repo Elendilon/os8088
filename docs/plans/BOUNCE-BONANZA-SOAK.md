@@ -117,13 +117,13 @@ out of the shipping build."* Decided:
 - [x] **N and M go, and so does the tour** (G, MAIN's tour line,
       `BZ_TOUR`, `BZ_CRS_TOURX`); rows poke the course and ball instead.
       BONANZA.DAT's +146 tour bytes are a reserved zero field until BZS5.
-- [ ] **No K in the game's defaults**: Enter's course is the pathway's
+- [x] **No K in the game's defaults**: Enter's course is the pathway's
       pad 0, not `BZ_CRS_FIRST`; the demos are a table of named rows, not
       `BZD<K>`/`BZ_NCRS - 1`; the tool's exemptions name courses.
 - [ ] **No K in the rows**: courses found by NAME (`CRS_K[name]` only as a
       lookup), never a literal K, never "every K but 0", never "the demo of
       K - 1".
-- [ ] **Then BENCH leaves the shipping build**: B benchmarks a course it is
+- [x] **Then BENCH leaves the shipping build**: B benchmarks a course it is
       given (a test course in the `BZDEV=1` tree).
 
 The save file, BZS5 (AGREED, the owner 2026-11-19: *"Progress by pad seems
@@ -141,3 +141,21 @@ progress unlocked ... Now they have no way to get back."*):
 - **Replays** stay keyed by the course's identity (*"keep it as is"*).
 - Pre-release, so no BZS4 migration: a BZS4 file is refused as any foreign
   file is.
+
+## Measured (scoped soak `-k 'bonanza*'`, 4 lanes)
+
+| run | tree | wall | ok / FAIL / SKIP | the reds |
+|---|---|---|---|---|
+| baseline, 7 emulator rows | 145bfb760 | 1:03 | 5 / 2 / 0 | ring TIMEOUT (CPU 1,500 s), sound (a stale leg) |
+| phase 1, 17 rows | 7064886658 | 1:54 | 12 / 4 / 1 | course (stale checks, ROLL flag 1), ring (Herc TRIAL), demo and path (harness) |
+| order + BZS5 + no BENCH, 17 rows | 42432ee993 | 1:38 | 13 / 3 / 1 | course (ROLL flag 1, PAD_MAX, PLAY), ring (Herc TRIAL), exit (F's course) |
+
+Per row at 42432ee993, seconds: phys 2,778, demo 2,597, exit 2,528, ring
+2,447, wheel 1,782, replay 1,766, perf 1,299, path 1,296, course 1,229,
+physhost 1,183, sound 721, game 559 (2,756 at 7064886658: one hostile file
+a boot), dquarter 450, title 44. bonanzaring finishes now (the caches);
+phase 3 is where the wall clock comes down.
+
+Owner decision open: ROLL's flag 1 at (36,42) is bounced past by a rubber
+ball on section E's steps (the selfcheck's item 8; a fall at the leap then
+respawns at flag 0).
