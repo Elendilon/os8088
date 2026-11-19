@@ -428,25 +428,21 @@ def log_keys(b, pkg):
 
 
 def title_rows(n):
-    """the desktop's title holds two rows while the window is open (SPEC.md
-    130.20.6): the sound part and song 0, after the courses' - the rows a
-    package with sound has past 3 + BZ_NCRS (none for one without)"""
+    """the rows the desktop's title holds while the window is open: the SHELL
+    part's (wave 8a, SPEC.md 130.19.2), the RESIDENT BUNDLE's and the kit's
+    (bonanza_exit.title_rows).  No sound or song row: the window is silent
+    (130.26.5), the sound part rides the bundle (130.50.2) and each course's
+    song is a section of its course part (130.50.3).  An earlier wave's art
+    with no sound (no bzsnd.inc) has no shell either: nothing held"""
     inc = os.path.join(R.at("build/bonanza-art"), "bzsnd.inc")
     if not os.path.exists(inc):
         return set()
-    # the sound's row is BZ_P_CRS + BZ_NCRS (SPEC.md 130.20.3; BZ_P_CRS 0 since 130.25.5.2, the balls
-    # in the resident bundle), whatever follows the songs (wave 4's demos, 130.14.7.4) - not counted back
-    # from the last row
     import bonanza_exit as X
-    R.CRS_K["bench"]                            # (fills the table: bzcourse.inc's BZ_NCRS courses)
-    snd = X.CRS_ROW0 + dict.__len__(R.CRS_K)
-    # wave 8a (SPEC.md 130.19.2): the SHELL part, the last row, is held on the desktop as the title is,
-    # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
-    # (wave 8b, 130.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
-    shell = n - 1 - R.after_shell()             # (SPEC.md 130.23: and the title's two rows after it)
-    # story 9.8 (SPEC.md 130.25.6.9): and the RESIDENT BUNDLE, fetched at the start, never dropped (the
-    # three balls in it since 130.25.5.2)
-    return ({shell} if snd >= 3 else set()) | X.title_rows()
+    # wave 8a (SPEC.md 130.19.2): the SHELL part is held on the desktop as the title is, and dropped for
+    # every bracket (the claims inside are the desktop's less it: SHELL_IN); the rows after it (the
+    # pathway's, the title's two, the families', the VGA's) are R.after_shell()'s
+    shell = n - 1 - R.after_shell()
+    return {shell} | X.title_rows()
 
 
 SHELL_IN = -1                                   # the shell's claim, gone inside every bracket (130.19.2)
@@ -749,9 +745,10 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
          "10. F plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
              pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
-    ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4): the balls, the sound part, the song
-                                                # and the fanfare are ONE claim, the arena - the desktop title's
-                                                # (pkg.ar0) become the play's
+    ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4): the arena, ONE claim - its floor
+                                                # the resident bundle (the balls, the sound part, VICTORY and
+                                                # TIME'S UP: 130.25.5.2, 130.50.2), the song in the course part
+                                                # (130.50.3) - the desktop title's (pkg.ar0) become the play's
     np = crs_parts(k)                           # SPEC.md 130.30.11: PLAYGROUND is TWO parts, a claim each
     want(len(inside) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "10. inside: the course "
          "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the "
@@ -897,10 +894,11 @@ def run(img_b, keep, tmp, cases=None):
         b.until(lambda: pkg.byte("bz_fs") == 1, "the benchmark's bracket", 60000, 100)
         want(pkg.byte("bz_herc") == 1, "1. the bracket is the Hercules' ([bz_herc] %d)" % pkg.byte("bz_herc"))
         inside = claims(b, pkg, hs, eq)
-        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4, 130.25.6.9): the course a claim, the
-                                                    # ball, the sound part and the song in the ARENA - which since
-                                                    # the resident bundle is claimed at bz_entry, so the desktop's
-                                                    # arena (pkg.ar0) is the bracket's, not a second claim
+        ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4, 130.25.6.9): the course a claim (its
+                                                    # song a section of it, 130.50.3), the balls and the sound in
+                                                    # the ARENA's resident bundle (130.50.2) - claimed at bz_entry,
+                                                    # so the desktop's arena (pkg.ar0) is the bracket's, not a
+                                                    # second claim
         want(len(inside) == len(base_claims) + SHELL_IN + 1 - pkg.ar0 + ar_in and ar_in, "1. inside: the course "
              "and the arena claimed, the shell gone (%d claims against %d, the arena %d on the desktop)"
              % (len(inside), len(base_claims), pkg.ar0))

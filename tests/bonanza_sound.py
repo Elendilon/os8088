@@ -17,8 +17,11 @@ LEG spk, os8088_5150_cga_gla (no card, the owner's 5150 #1):
   1  THE WINDOW IS SILENT (SPEC.md 130.26.5): no arm, no song held;
   2  S (the harness's key, bz_dev) toggles OFF and AUTO, the window silent
      either way;
-  3  F plays FIRST: course 1's song (song 0 since 130.26.5, the part row after
-     the sound part's) in the bracket, three stops held to the model;
+  3  F plays FIRST: course 1's song (song 0 since 130.26.5) in the bracket,
+     three stops held to the model - the song the model is given READ OUT OF
+     FIRST's built course part, its section S (SPEC.md 130.50.3: no song row
+     since; parts() below), and the sound part BZSND.BIN, which rides the
+     resident bundle (130.50.2);
   4  THE EVENTS, poked into the counters the physics keeps (SPEC.md 130.20.5)
      at a stop, each ball in turn (bz_mat): a bounce, a wall, a bumper's face -
      the next frame's slot holds that ball's effect (its instrument, priority
@@ -62,9 +65,11 @@ countdown's own state there) and fails if the clock still moved, and every
 wait for an idle slot FAILS when an effect never frees it.
 
 WAVE 5B (SPEC.md 130.15.9, 130.15.13): unchanged in logic.  The parts table's
-format byte is the whole table's, so with LZB parts (shipped) the sound part and the
-songs are LZB parts like the courses: the title's fetch on the desktop and
-course 1's song in the bracket are decoded by OSAPI_DECOMP's LZB arm, and the
+format byte is the whole table's, so with LZB parts (shipped) every part is
+an LZB part.  Since SPEC.md 130.50 there is no sound or song part ROW: the
+sound part is in the RESIDENT BUNDLE (fetched once at the open, 130.50.2)
+and course 1's song is section S of FIRST's course part (130.50.3), each
+decoded by OSAPI_DECOMP's LZB arm with the row that carries it, and the
 model comparison holds the decoded bytes to bbmusic's.  The format is printed
 at the start; a red tree packs its parts in it (bonanza_ring.build_tree).
 """
@@ -83,56 +88,46 @@ os.chdir(ROOT)
 import os88marty as M          # noqa: E402
 import os88ui                  # noqa: E402
 import bbmusic as BM           # noqa: E402
+import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 MACHINE = {"spk": "os8088_5150_cga_gla", "fm": "os8088_5150_sb"}
 MHZ = 4.77273
 V_SIZE, F_SIZE = 26, 22                 # bzsound.inc's records
 A_NONE, A_SPK, A_FM = 0, 1, 2
-FILES = ("bonanza.asm", "bzvideo.inc", "bzgame.inc", "bzwheel.inc", "bzphys.inc", "bzsound.inc")
-EXTRA = ("bzs_frame.fend",)
 EV = {e: i for i, e in enumerate(BM.EVENTS)}
 
+# the package's symbol map is bonanza_ring's (R.symbols: every bz_/bzs_ label and VAR, and the LOCAL_SYMS
+# bzs_frame.fend this row prices to) - assembled ONCE a process for a tree, never a second copy here
+symbols = R.symbols
 
-def symbols(src=None, art=None):
-    """bz_/bzs_ labels and VARs, by assembling a `dw` table onto the package"""
-    d = src or os.path.join(ROOT, "apps", "bonanza")
-    art = art or R.at("build/bonanza-art")
-    names = []
-    for f in FILES:
-        t = open(os.path.join(d, f)).read()
-        names += re.findall(r"^VAR (bzs?_\w+),", t, re.M)
-        names += re.findall(r"^(bzs?_\w+):", t, re.M)
-    names = sorted(set(names)) + list(EXTRA)
-    with tempfile.TemporaryDirectory() as td:
-        p, b = os.path.join(td, "probe.asm"), os.path.join(td, "probe.bin")
-        for _try in range(2):                   # (a VAR only an experiment's knob defines - the speed pass's
-            open(p, "w").write(open(os.path.join(d, "bonanza.asm")).read() + "\n" +    # (an experiment knob, off -
-                               "\n".join("dw " + n for n in names))                    # is left out, named)
-            r = subprocess.run(R.NASM + ["-f", "bin", "-I", os.path.join(ROOT, "apps") + "/", "-I", d + "/",
-                                "-I", art + "/", "-o", b, p], cwd=ROOT, capture_output=True, text=True)
-            if r.returncode == 0:
-                break
-            undef = set(re.findall(r"symbol `(\w+)' not defined", r.stderr))
-            if not undef or _try:
-                raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
-            names = [n for n in names if n not in undef]
-        raw = open(b, "rb").read()
-    return dict(zip(names, struct.unpack("<%dH" % len(names), raw[-2 * len(names):])))
+
+def part_song(part, fname="<part>"):
+    """SPEC.md 130.50.3: the song a course part carries - its section S, the LAST section, the song from
+    the first paragraph at or after S's offset to the section's end (bbcourse._song_of) - out of the part's
+    STORED form as the floppy holds it, expanded to its RAM form as bz_cexp expands it.  -> bytes, or None
+    for a part with no S"""
+    ram = BB.expand(part, fname)
+    diroff, nsec = struct.unpack_from("<HH", ram, 38)
+    for j in range(nsec):
+        tag, _form, off, ln, _st = struct.unpack_from("<BBHHH", ram, diroff + BB.DIRENT * j)
+        if tag == ord("S"):
+            return BB._song_of(ram, off, ln)
+    return None
 
 
 def parts(art=None):
+    """(the sound part, FIRST's song): BZSND.BIN, the bytes the RESIDENT BUNDLE carries (SPEC.md 130.50.2), and
+    the song read out of FIRST's own built course part, BZ<K>.BIN's section S (130.50.3) - the bytes the
+    guest's bzs_csong plays, not bbmusic's BZM<S>.BIN intermediate"""
     art = art or R.at("build/bonanza-art")
     snd = open(os.path.join(art, "BZSND.BIN"), "rb").read()
-    songs = [open(os.path.join(art, "BZM%d.BIN" % i), "rb").read() for i in range(len(BM.SONGS))]
-    inc = open(os.path.join(art, "bzcourse.inc")).read()
-    ncrs = int(re.search(r"^BZ_NCRS\s+equ\s+(\d+)", inc, re.M).group(1))
-    pcrs = int(re.search(r"^BZ_P_CRS\s+equ\s+(\d+)", inc, re.M).group(1))   # (0 since SPEC.md 130.25.5.2: the
-                                                                                # balls ride the bundle; 3 before)
-    n2 = re.search(r"^BZ_NCRS2\s+equ\s+(\d+)", inc, re.M)  # SPEC.md 130.30.4.4: the two-part courses' WORLD
-    ncrs2 = int(n2.group(1)) if n2 else 0                    # rows come between the courses' and the sound's
-    return snd, songs, pcrs + ncrs + ncrs2 - 1  # ... and the row before BZ_P_SONG (the sound part's own
-                                                # row until SPEC.md 130.50.2 put it in the bundle)
+    k = R.CRS_K["first"]
+    fn = os.path.join(art, "BZ%d.BIN" % k)
+    song = part_song(open(fn, "rb").read(), fn)
+    if not song:
+        raise AssertionError("%s (FIRST, course %d) carries no song: no section S (SPEC.md 130.50.3)" % (fn, k))
+    return snd, song
 
 
 def stop(g, label="bzs_tp", guest=10):
@@ -459,7 +454,7 @@ def cost(g, frames=120):
 
 
 def leg(arm_name, apps=None, src=None, art=None, only=None):
-    snd, songs, p_snd = parts(art)
+    snd, song = parts(art)
     sym = symbols(src, art)
     fails, notes = [], []
     want_arm = A_FM if arm_name == "fm" else A_SPK
@@ -508,7 +503,7 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                 for k in range(3):
                     for _ in range(25 + 40 * k):
                         stop(g)
-                    f, n = held(g, snd, songs[0], want_arm, "FIRST")
+                    f, n = held(g, snd, song, want_arm, "FIRST")
                     fails += f
             # 4. THE EVENTS (the speaker leg; the slots are the same code on both),
             # FIRST's limit stopped first: its clock's LOW and TICKs are w7's to poke
@@ -651,8 +646,9 @@ def main():
             print("bonanza_sound --red %s: red, as it must be" % a.red)
         return
     bad, notes = [], []
-    print("bonanza_sound: the parts are %s (the parts table's format byte, SPEC.md 130.15.9): the sound part and "
-          "the songs decoded in it" % R.part_fmt().upper(), flush=True)
+    print("bonanza_sound: the parts are %s (the parts table's format byte, SPEC.md 130.15.9): the resident bundle "
+          "(the sound part, 130.50.2) and FIRST's course part (its song, 130.50.3) decoded in it"
+          % R.part_fmt().upper(), flush=True)
     for lg in (("spk", "fm") if a.leg == "both" else (a.leg,)):
         f, n = leg(lg)
         bad += ["%s: %s" % (lg, x) for x in f]

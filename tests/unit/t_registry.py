@@ -44,13 +44,13 @@ BUILDS_WITHOUT_MAKE = {
 
 # Not registered, and why. Keep the reason specific and true.
 UNREGISTERED = {
-    "bonanza_dsplit.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) "
+    "bonanza_dsplit.py": "a module: tests/bonanza_phys.py --check (the bonanzaphyshost row) "
                          "imports and runs it - BONANZA's split cells under unicorn (SPEC.md 130.24, D3); "
                          "its red arms by hand, --reds",
-    "bonanza_av.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) imports and "
+    "bonanza_av.py": "a module: tests/bonanza_phys.py --check (the bonanzaphyshost row) imports and "
                      "runs it - BONANZA's AV model (SPEC.md 130.29) in bz_occ under unicorn against bbcourse's, "
                      "every course; its red arms by hand, --red amodel | acache | aneigh",
-    "bonanza_dfield.py": "a module: tests/bonanza_phys.py --check (the bonanzaphys row's host half) "
+    "bonanza_dfield.py": "a module: tests/bonanza_phys.py --check (the bonanzaphyshost row) "
                          "imports and runs it - BONANZA's FIELD cells under unicorn (SPEC.md 130.28, C3); "
                          "its red arms by hand, --reds",
     "modkeep.py": "run by the `modcache` row (tests/modcache.py imports and "
