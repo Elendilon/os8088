@@ -66,7 +66,7 @@ declared.
 ### Phase 1 - working and honest (now)
 - [ ] The TOUR's tests deleted: bonanzagame's `tour`, `stop`, `face` legs and
       helpers, the `tourx` hostile case; bonanzaexit's tour exits.
-- [ ] bonanzapath rewritten for the shipped map (pad 0 ROLL, pad 1 HOP) and its
+- [x] bonanzapath rewritten for the shipped map (pad 0 ROLL, pad 1 HOP) and its
       secret leg on a fixed test map; bbcourse's `path` section likewise.
 - [ ] bonanzaexit: the claim leg covers every K (a cheap launch per course,
       ROLL and HOP included); the three red arms whose expected text sits in a
