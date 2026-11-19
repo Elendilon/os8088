@@ -264433,6 +264433,7 @@ section, in RAM order:
 | `T` | `ROWTAB` | `2 NROWS` | 5 ROWTAB | 0 |
 | `W` | the route | `4 NWAY` | 6 WAYS | `2 NWAY` |
 | `P` | the props: records, pose maps, tube segments, sprites (130.12.3.1), only when `NPROP` > 0 | as 130.12.3.1 | 0 PLAIN | the same |
+| `S` | the course's SONG (130.50.3): zeros to the next paragraph, then the song; the (world) part's LAST section, and outside the identity | the zeros and the song | 0 PLAIN | the same |
 
 **The rules the tool checks at build time** (the guest checks none of them,
 130.10.6.2). `read_part` checks the same rules on every part it reads:
@@ -285130,14 +285131,57 @@ rides it, between the balls and the families:
   keeps no SONG - the sound part is held), `bonanzaexit` (`padleak`'s red
   now keeps MOON's song at the cup), `bonanzapath` (the finish's tune).
 
-#### 130.50.3 Each course's song in its course part (PLANNED)
+#### 130.50.3 Each course's song in its course part (BUILT)
 
-The song becomes a section of the course part, so a launch reads it with
-the course: tag `S`, form PLAIN, the LAST section of the part (of the WORLD
-part for a two-part course, the one at `bz_cseg`), its RAM span the zeros to
-the next paragraph and then the song, so the guest derives the song's
-segment with `OSAPI_SEG` and the player reads it at offset 0 as now. A song
-two courses share is copied into both. The course's IDENTITY (130.15.7) is
-taken without `S`, so a change of music never re-stamps a demo or refuses a
-replay. The pathway's and the title's parts carry theirs the same way. Then
-the song rows go.
+The song is a section of the course part, so a launch reads it with the
+course and fetches nothing else for sound:
+
+- **Section `S`** (130.15.4.2), form PLAIN, the LAST section of the part - of
+  the WORLD part for a two-part course (130.30.4.2: the part at `bz_cseg`) -
+  its RAM span the zeros from its offset to the next paragraph, then the
+  song (`bbmusic`'s own `BZM<S>.BIN` bytes, now only the tool's
+  intermediate): the song starts on a paragraph, so the player still reads
+  it at offset 0 of a segment. A song two courses play is copied into both.
+  The pathway's and the title's parts (`attract`) carry theirs the same way,
+  at `emit_inc`'s numbering (`BZ_CRS_PATH`, `BZ_CRS_TITLE`).
+- **The tool**: `attach_song(c, song)` re-encodes a compiled course with
+  the song (`c.model["song"]`, `.cga`, `.stored`, the world part's, the
+  Hercules' forms and `.part`), called by `compile_all` for every course,
+  the pathway and the title with `course_song(c, k)` - and by the rows'
+  `bonanza_ring.course()`, so the host's forms are the guest's byte for
+  byte. `part_layout` and `part_layout2` lay `S` last; `_encode` and
+  `_encode2` write it; `decode_part`/`decode_parts` read it back (the props,
+  the pathway's tables and the family list end where `S` begins, not at
+  `DIROFF`); `read_part` checks the zeros and that the props end at `S`.
+  A part that no longer fits one part with its song is refused.
+- **The IDENTITY (130.15.7, 130.30.4.3) is taken WITHOUT `S`**
+  (`_nosong`): a change of music never re-stamps a demo, refuses a replay
+  or clears a best. `attach_song` refuses a song that moved it.
+- **The guest**: `bzs_gfetch` fetches nothing - `bzs_csong` walks `bz_cseg`'s
+  directory for `S` and derives the song's segment with `OSAPI_SEG`'s
+  `SEG_SUB` (kern_mega: the part's own LDT selector), into `bzs_mseg`;
+  `bzs_song` is now a flag (1: the course part's song). **`bz_cdrop` clears
+  `bzs_mseg` and `bzs_live` before it gives the part back**, so the
+  sequencer never reads a freed part; `bzs_gdrop0` has nothing to drop.
+  `bzs_fsong`, `bzs_dsong`, the song rows (`BZ_P_SONG`), the guest's
+  `bz_csongs` table and `bz_arload`'s song word are gone; the demos' rows
+  follow the courses' and the world parts' directly.
+- **Costs** (MEASURED, `make bonanza`): every course part grows by its
+  song (FIRST 9,326 -> 10,175 bytes of RAM; PEAK 41,391 -> 42,484), packed
+  with it; `BONANZA.O88` 133,626 -> **133,157** bytes - the ten song rows
+  and their table entries went, and the copies pack with their courses.
+- **MEASURED** (MartyPC's 5150, the launch probe, to the first frame):
+
+  | | before 130.50 | the bundle (130.50.2) | songs in the parts |
+  |---|---|---|---|
+  | PEAK | 3.47 s, 4 reads | 2.69 s | **2.29 s, 2 reads** |
+  | MOON | 2.95 s, 4 reads | 2.68 s | **2.19 s, 2 reads** |
+  | FIRST (a free play) | | | **0.94 s, 1 read** |
+
+  The song plays from the part (`bzs_song` 1, `bzs_mseg` inside it) on a
+  course, the title and the pathway; TIME'S UP at a timeout from the bundle.
+- **Rows**: `bonanzasound` (the play's song the course part's), `bonanzaexit`
+  (no sound rows in the count; `padleak`'s red now keeps the COURSE PART at
+  MOON's cup, the one launch row left to leak), and every row that compares
+  the guest's part with the host's (`bonanza_ring.course()` attaches the
+  song).
