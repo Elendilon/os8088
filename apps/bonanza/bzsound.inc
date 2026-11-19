@@ -64,7 +64,8 @@ BZI_CAR40   equ 6
 BZI_MAC     equ 11              ; byte: from the macro pool, 0FFh none
 BZI_PID     equ 12              ; the patch's id: instruments that share one
 BZI_VDL     equ 13
-BZI_VDP     equ 14
+BZI_VDP     equ 14              ; bits 0 - 3 the vibrato's depth, bit 4
+BZI_RING    equ 10h             ; `ring`: its macro LOOPS (bzs_spk, `spkring`)
 BZI_SPK     equ 15              ; bits 0 - 6 a drum's blip, bit 7 `alt`: the
                                 ; AdLib's second drum channel (6)
 ; the song part's header
@@ -1559,8 +1560,9 @@ bzs_spk:
     jz .blip                    ; lead note began is the chip's alone, or its
     cmp byte [bzs_v + V_ON], 0  ; blip breaks the ring (Seq.spk_choice)
     je .blip
-    cmp byte [bzs_v + V_DYN], 0 ; (V_DYN: the lead's instrument has a macro)
-    je .blip
+    mov si, [bzs_v + V_IREC]    ; ...whose instrument's macro LOOPS (an
+    test byte [es:si + BZI_VDP], BZI_RING   ; arpeggio): its record says so,
+    jz .blip                    ; where V_DYN goes 0 when a macro runs out
     mov bx, [di + V_T0]
     sub bx, [bzs_v + V_T0]
     jg .lead
@@ -2003,8 +2005,8 @@ bzs_patch:
     add al, 3
     sub bl, 5
     jnz .md
-    cmp byte [es:si + BZI_VDP], 0 ; the carrier's 20h: its VIB
-    je .md
+    test byte [es:si + BZI_VDP], 0Fh ; the carrier's 20h: its VIB (the
+    jz .md                      ; depth's bits; bit 4 is BZI_RING)
     or ah, 40h
 .md:
     add al, [bzs_opreg + bx]

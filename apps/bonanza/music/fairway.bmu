@@ -30,6 +30,7 @@
 ; chords say v10, each at its own start.
 
 song fairway "Fairway"
+spkring
 groove 8 6
 unit 16
 rows 32
