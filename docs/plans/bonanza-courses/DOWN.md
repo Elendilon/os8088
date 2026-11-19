@@ -1,7 +1,43 @@
-# COURSE 3, "Downhill Decision" (DOWN): design sheet, attempt 1
+# COURSE 3, "Downhill Decision" (DOWN): design sheet
 
-*Status: **PEN-IN**, on paper only (the guide's pipeline, section 3). Nothing is
-built. Distances are tiles, heights units; numbers marked PREDICTED come from
+*Status: **IN ENGINE, first build** (2026-11-19): `apps/bonanza/courses/down.bbc`,
+written by `down/sketch.py --bbc --force`, on the `BZDOWN=1` playtest knob's pad 2
+(TRIAL's place). Every check passes and the route demo finishes (22.0 s, steel,
+no falls). Attempt 1's sections below are the pen-in, kept for its reasoning.*
+
+## The first build (2026-11-19): what the owner's notes and the tool changed
+
+The owner's notes on the pen-in:
+- a 3-wide line into a 3 x 3 FUNNEL whose last column's outer cells are
+  diagonal guides into the 1-wide booster chute, flag 0 in its middle;
+- NO flag on the landing between the chute and the hub (a respawn there could
+  never cross on);
+- the lift was hidden, so glass goes SOUTH and steel EAST;
+- the stairs look safe at the start (two 1-unit steps, one 3-unit middle step,
+  one more flush onto the finish);
+- the exits as the map would have them flipped: steel exit 0 (to 4), glass
+  exit 1 (to 6);
+- NO archways: a pad at each exit, since a rubber ball that hops one dies on
+  the spikes or on the glass-only MEMBRANE bridge, which introduces both.
+
+What the tool and the autopilot found, *measured* each time:
+- the ramp's foot needed a flat cell into the corner chute (the ball fell
+  through the gap the chute's start left);
+- the chute corner had to be shallower (8 px) and the humps moved two tiles
+  along and made 8 px high: six occluder records stacked in a block;
+- the booster chute's front is a see-through guard (a block hid the pads;
+  its first tile stays a block, and three pads, not four);
+- the first gap is 2 tiles (from rest at flag 0 the boosted throw fell 0.2
+  tiles short of 3);
+- the hub and both legs are 2 units lower, so rubber's bounce off the landing
+  clears the second 3-tile gap;
+- the steel exit is OFF the arrival line, with TWO pads in a row. A ball
+  arriving fast still makes little hops and skipped a single pad, then
+  popped on the spikes as rubber, which a player would meet too;
+- spikes never touch water (a plain row between them);
+- the momentum hump is 8 px (at 11 the slow steel ball out of the water
+  stopped);
+- the glass finish's clock is beside its goal (each finish needs one in view). Distances are tiles, heights units; numbers marked PREDICTED come from
 the tool's ladders and the rules quoted, not from a run. `down/sketch.py` draws
 the pictures.*
 
