@@ -74,6 +74,10 @@ REDS = {
     "apick": [("bzvideo.inc", "    test [es:bz_avm], al\n    jnz .run\n    ret\n",
                "    jmp .run                    ; RED apick\n")],
     "acent": [("bzvideo.inc", ".rxc:\n    add ax, 8\n", ".rxc:\n    add ax, 24                  ; RED acent\n")],
+    # SPEC.md 130.50: a band's TB taken at the pass's first block row alone (a footprint across a band edge keeps
+    # the first band's kt)
+    "aband": [("bzvideo.inc", "    jnz .brow1                  ; first line a multiple of 128) takes its kt\n    call bz_otbk",
+               "    jnz .brow1\n    nop                         ; RED aband\n    nop\n    nop")],
     # SPEC.md 130.49.7: the flat word's lay from the first laid line, not from its edge
     "aflat": [("bzvideo.inc", "    add [es:bz_of], ax\n    sub [es:bz_on], ax\n",
                "    nop                         ; RED aflat\n    nop\n")],

@@ -273297,7 +273297,7 @@ decoder writes them as match copies.
 | +4 - +31 | `BZC1`'s fields at `BZC1`'s offsets (130.10.5.1): `COLS`, `BROWS`, `N`, `MAPSH`, `BLKOFF`, `OCCIDX`, `OCCREC`, `NOCC`, `MASKOFF`, `NMASK`, `ROWB`, `GRIDOFF`, `PROPOFF`, `NPROP`. Every offset is a RAM offset |
 | +32 | `RECB`: the record's size in RAM, 4 or 8 (byte) |
 | +33 | `SB`: the s bias, a SIGNED byte, -128 - 127 (0 when `RECB` is 8) |
-| +34 | `TB`: the top bias, signed px (word; 0 when `RECB` is 8) |
+| +34 | `TB`: the top bias, signed px (word; 0 when `RECB` is 8). *Since 130.50: `YOFF`, the offset of section `Y`, the top bias a BAND of 16 block rows* |
 | +36 | `MTAB`: the mask table's offset (word; 0 when `RECB` is 8) |
 | +38 | `DIROFF`: the directory's offset (word) |
 | +40 | `NSEC`: the directory's entries (word, at most 16) |
@@ -293908,3 +293908,70 @@ other did not) are not quoted.
 `Physics.oair`'s), `bonanzaphys`, `bonanzareplay` (the re-authored demos),
 `bonanzaperf` (the fall legs), `bonanzawheel`, `bonanzapath`, `bonanzatitle`,
 `bonanzaexit`, `bonanzamega`.
+
+### 130.50 The top bias a BAND of block rows (the owner, 2026-11-19; on `bb-occ2`)
+
+The owner, 2026-11-19: the 4-byte record's top byte `t' = top_C - TB`
+(130.15.5.1), `TB` one bias for the whole course, *"limits vertical maximum to
+32"* - a course's record tops may span at most 255 px, about 32 units, and
+130.48's quarter units opened courses of 60. MEASURED over the nine courses
+(ROLL and HOP the knob builds'): the tops span 77 - 223 px a course (ROLL 223,
+PEAK 221, MILL 209), but at most **130 px inside any band of 16 block rows**
+(PLAYGROUND; ROLL 92, PEAK 71).
+
+#### 130.50.1 The decisions
+
+| | decision |
+|---|---|
+| the band | **16 block rows** (128 picture lines): band `b = br >> 4` |
+| the bias | `TB[b] = min(top_C over band b's records) - 1`, a signed word a band; `t' = top_C - TB[br >> 4]` in 1 - 255, refused naming the band (a band, not the course, now bounds a record's top) |
+| where | a new section, tag **`Y`**, form 0 PLAIN, `2 NBANDS` bytes, `NBANDS = ceil(BROWS / 16)`, after `O` in RAM order (a picture part's on a two-part course, 130.30); the header's +34, which was `TB`, is now **`YOFF`**, its offset |
+| the guest | `bz_occ` keeps the frame's key `z_b + m` (`bz_okey`) and, at each block row of the walk whose band differs from the last row's (`bz_oband`, emptied each pass), takes `kt = clamp(z_b + m - TB[b], 0, 255)` from the table - at most twice a pass (a footprint is 16 lines) |
+| the summary | `bz_osum`'s greatest `t'` a row is band-relative, as the row's `kt` is: unchanged |
+| unchanged | the mask byte and its 256 (130.50.4) |
+
+#### 130.50.2 PREDICTED
+
+- **Code**: about +25 bytes in `bz_occ` (the band's test at a block row and
+  the key's reload on a new band), `bz_crshdr` the same size.
+- **Clocks**: a block row's band test about 20 clk (`(line << 1)`'s high
+  byte), at most 3 a pass; a reload about 50, at most 2: **+100 to +160 clk a
+  gated pass**, against 79.6k a CGA refresh (0.2%). The pass's once-a-frame
+  `TB` subtraction goes.
+- **Bytes**: the table `2 NBANDS` (ROLL 9 bands: 18) and its directory entry
+  (8): about **+26 bytes a part** in RAM and stored (PLAIN), a few less packed.
+- **What it buys**: a course whose tops span more than 255 px compiles while
+  each band's span stays under 255 - every shipped course with half its range
+  free.
+
+#### 130.50.3 The checks
+
+`read_part`: `YOFF` names section `Y` of `2 NBANDS` bytes and every `t'` is
+1 - 255 against its band's `TB`. `tests/bonanza_av.py` (the guest against the
+host over every course, its records decoded band by band) and a red arm (the
+band's reload skipped: a footprint across a band edge tests the wrong key).
+
+#### 130.50.4 The masks: not yet
+
+A mask table a band (the record's mask byte relative to its band's slice)
+would lift the 256 masks the same way, but the slices must be STORED (today's
+`O` is derived from the masks and stores nothing): PREDICTED 300 - 500 bytes a
+course packed and about 300 of RAM (ROLL: 298 entries against 156). The cut
+already falls back to coarser squares (130.49.5) rather than refuse. Held for
+the owner.
+
+#### 130.50.5 As built (MEASURED)
+
+| | PREDICTED | MEASURED |
+|---|---|---|
+| code | about +25 bytes | **+42 bytes** of image (50,950 -> 50,992): `bz_otbk` (the band's `kt`, called at the pass's first block row and where a row's first line is a multiple of 128) and the row test (`test al, 7Fh`), less the pass's old `TB` subtraction; bss +2 (`bz_ozkt`) |
+| clocks | +100 to +160 a gated pass | **about +200**: `bz_otbk` 201 - 204 clk a pass (PRICED under unicorn over 150 positions of ROLL and of PEAK), the row test about 20 a later row, the old subtraction about 40 less - 0.25% of a CGA refresh |
+| bytes | about +26 a part | **+14 to +26 a stored part** (`Y` and its directory entry: FIRST 3 bands +14, ROLL 9 bands +26), +192 over the nine courses |
+| what it buys | | the tallest band's span on the shipped courses 130 px (PLAYGROUND) against 223 for a whole course (ROLL); a 54-unit staircase (433 px of tops) compiles, its widest band 49 px |
+
+A first build tested the band at EVERY block row (`line >> 7` against the last
+row's): about 53 clk a row, PRICED at about +250 a pass; the row's own first
+line says whether it starts a band, so only a band's first row pays.
+
+`tests/bonanza_av.py`: every buffer, laid count and verdict the host's on every
+course, ROLL and HOP; its red arm `aband` (no `kt` at a band's first row) red.

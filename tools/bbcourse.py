@@ -173,15 +173,22 @@ F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
             "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
-            "L": F_PLAIN}             # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
+            "L": F_PLAIN, "Y": F_PLAIN}   # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
              "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
              "F": "the FIELD cells' tables",
              "T": "ROWTAB",
-             "W": "the route", "P": "the props", "L": "the lanes' pose maps"}
+             "W": "the route", "P": "the props", "L": "the lanes' pose maps", "Y": "the bands' top biases"}
 # SPEC.md 130.30: a course past one part is TWO - the PICTURE part (these tags, BZ<K>.BIN, its magic BZP2) and the
 # WORLD part (every other tag, BZ<K>W.BIN, BZW2); one part keeps BZC2
-PIC_TAGS = "MBIRKOL"
+PIC_TAGS = "MBIRKOYL"
+BAND_SH = 4                   # SPEC.md 130.50: a BAND is 16 block rows (br >> 4), each its own top bias TB
+_ONETB = False                # _hack onetb (item 1's cross-commit check alone): ONE TB at +34, no section Y, as before
+
+
+def nbands(brows):
+    """SPEC.md 130.50: the bands a picture of BROWS block rows has"""
+    return (brows + (1 << BAND_SH) - 1) >> BAND_SH
 MAGIC_PIC, MAGIC_WORLD = b"BZP2", b"BZW2"
 COLS_MAX = 128                # ROWPLANES' scratch: COLS / 4 <= 32 bytes of bz_boxbuf
 BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
@@ -10595,7 +10602,9 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
     global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ
     hack = _hack or {}
-    _HALFZ = bool(hack.get("halfz"))                # (SPEC.md 130.48: item 1's cross-commit check, half units)
+    _HALFZ = bool(hack.get("halfz"))
+    global _ONETB
+    _ONETB = bool(hack.get("onetb"))                # (SPEC.md 130.50: item 1's check, the course-wide TB)                # (SPEC.md 130.48: item 1's cross-commit check, half units)
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
@@ -12718,13 +12727,19 @@ def _fletcher(b):
     return s2 ^ (((s1 << 8) | (s1 >> 8)) & 0xFFFF)
 
 
-def rec_biases(recs, fname="<course>"):
-    """SPEC.md 130.15.5.1: SB = 1 - min(s - br), TB = min(top) - 1 over the
-    course's records, and the bounds, refused naming the course"""
+def rec_biases(recs, fname="<course>", brows=None):
+    """SPEC.md 130.15.5.1, 130.50: SB = 1 - min(s - br) over the course's records, and TB a BAND of 16 block rows,
+    min(top) - 1 over the band's records (0 for a band with none) -> (SB, [TB a band]); the bounds refused naming
+    the course and the record (a band, not the course, bounds a record's top)"""
+    brows = brows if brows is not None else (max((r[0] for r in recs), default=0) + 1)
+    TBS = [0] * nbands(brows)
     if not recs:
-        return 0, 0
+        return 0, TBS
     SB = 1 - min(s - br for br, col, s, top, mi in recs)
-    TB = min(top for br, col, s, top, mi in recs) - 1
+    for b_ in range(len(TBS)):
+        ts = [top for br, col, s, top, mi in recs if br >> BAND_SH == b_ or _ONETB]
+        if ts:
+            TBS[b_] = min(ts) - 1
     if not -128 <= SB <= 127:
         raise CourseError("%s: the 4-byte records' s bias SB = %d is outside -128 - 127 (a record's s - br "
                           "spans %d - %d)" % (fname, SB, 1 - SB, max(s - br for br, col, s, top, mi in recs)))
@@ -12733,10 +12748,13 @@ def rec_biases(recs, fname="<course>"):
             raise CourseError("%s: the record of block row %d, column %d (s %d) has s' = %d, outside 1 - 255: "
                               "the course's records span more than 255 cell rows about their block rows"
                               % (fname, br, col, s, s - br + SB))
+        TB = TBS[br >> BAND_SH]
         if not 1 <= top - TB <= 255:
             raise CourseError("%s: the record of block row %d, column %d (top %d) has t' = %d, outside 1 - 255: "
-                              "the course's records' tops span more than 255 px" % (fname, br, col, top, top - TB))
-    return SB, TB
+                              "the tops of band %d (block rows %d - %d) span more than 255 px (SPEC.md 130.50)"
+                              % (fname, br, col, top, top - TB, br >> BAND_SH, (br >> BAND_SH) << BAND_SH,
+                                 (((br >> BAND_SH) + 1) << BAND_SH) - 1))
+    return SB, TBS
 
 
 def part_layout(m, recb, bzc2=True):
@@ -12748,6 +12766,7 @@ def part_layout(m, recb, bzc2=True):
             ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
     if bzc2 and recb == 4:
         lens.append(("O", 2 * len(m["masks"])))
+        lens.append(("Y", 0 if _ONETB else 2 * nbands(m["brows"])))     # SPEC.md 130.50: the bands' top biases
     lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
              ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
     if m["props"]:
@@ -12898,7 +12917,7 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     celloff, rowtab, routeoff = sec["C"][0], sec["T"][0], sec["W"][0]
     propoff = sec["P"][0] if "P" in sec else 0
     nprop = m["props"]["n"] if m["props"] else 0
-    SB, TB = rec_biases(recs, fname) if recb == 4 else (0, 0)
+    SB, TBS = rec_biases(recs, fname, brows) if recb == 4 else (0, [0] * nbands(brows))
     present = [t for t in order if sec[t][1]] if bzc2 else []
     diroff = end
     b = bytearray(end + DIRENT * len(present))
@@ -12907,7 +12926,8 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
                      occrec, len(recs), maskoff, len(masks), 2 * cols, gridoff, propoff)
     struct.pack_into("<H", b, 30, nprop)
     if bzc2:
-        struct.pack_into("<BbhHHH", b, 32, recb, SB, TB, sec["O"][0] if recb == 4 else 0, diroff, len(present))
+        struct.pack_into("<BbHHHH", b, 32, recb, SB, (TBS[0] & 0xFFFF if _ONETB else sec["Y"][0]) if recb == 4 else 0,
+                         sec["O"][0] if recb == 4 else 0, diroff, len(present))   # (+34 YOFF, SPEC.md 130.50: was TB)
     struct.pack_into("<%dH" % len(m["idx"]), b, sec["M"][0], *[blkoff + 16 * i for i in m["idx"]])
     b[blkoff:blkoff + len(m["blocks"])] = m["blocks"]
     cnt = [0] * brows
@@ -12922,12 +12942,14 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         if recb == 8:
             struct.pack_into("<BBHhH", b, occrec + 8 * i, col, 0, s, top, maskoff + 16 * mi)
         else:
-            b[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TB, mi))
+            b[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TBS[br >> BAND_SH], mi))
     for i, mk in enumerate(masks):
         b[maskoff + 16 * i:maskoff + 16 * i + 16] = mk
     if bzc2 and recb == 4:
         for i in range(len(masks)):
             struct.pack_into("<H", b, sec["O"][0] + 2 * i, maskoff + 16 * i)
+        if not _ONETB:
+            struct.pack_into("<%dh" % len(TBS), b, sec["Y"][0], *TBS)
     b[gridoff:gridoff + GHDR] = (b"BZG1" + struct.pack("<HhhHHHhH", g["nrows"], g["smin"], g["amin"], g["kw"],
                                                         rowtab, g["x0"], g["y0"], ident)
                                  + struct.pack("<HHHH", g["swx"], g["swy"], len(m["route"]), routeoff)
@@ -13038,7 +13060,9 @@ def decode_part(p):
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", p, 4)
     nprop = struct.unpack_from("<H", p, 30)[0]
-    recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", p, 32) if bzc2 else (8, 0, 0, 0, len(p), 0)
+    recb, SB, yoff, mtab, diroff, nsec = struct.unpack_from("<BbHHHH", p, 32) if bzc2 else (8, 0, 0, 0, len(p), 0)
+    TBS = (([yoff - 65536 if yoff > 32767 else yoff] * nbands(brows)) if _ONETB else
+           list(struct.unpack_from("<%dh" % nbands(brows), p, yoff))) if recb == 4 else [0] * nbands(brows)
     idx = [(w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * brows), p, hdr)]
     oi = struct.unpack_from("<%dH" % (brows + 1), p, occidx)
     recs = []
@@ -13049,7 +13073,7 @@ def decode_part(p):
                 recs.append((br, col, s, top, (moff - maskoff) // 16))
             else:
                 col, s_, t_, mi = p[occrec + 4 * k:occrec + 4 * k + 4]
-                recs.append((br, col, s_ + br - SB, t_ + TB, mi))
+                recs.append((br, col, s_ + br - SB, t_ + TBS[br >> BAND_SH], mi))
     masks = [bytes(p[maskoff + 16 * i:maskoff + 16 * i + 16]) for i in range(nmask)]
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", p, gridoff + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", p, gridoff + 20)
@@ -13139,6 +13163,7 @@ def part_layout2(m, recb):
           ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
     if recb == 4:
         la.append(("O", 2 * len(m["masks"])))
+        la.append(("Y", 0 if _ONETB else 2 * nbands(m["brows"])))      # SPEC.md 130.50
     la.append(("L", pm))
     lb = [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
           ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
@@ -13173,7 +13198,7 @@ def _encode2(m, recb, ident=0, fname="<course>"):
     propoff = sb["P"][0] if "P" in sb else 0
     nprop = m["props"]["n"] if m["props"] else 0
     plen = len(m["props"]["blob"]) - pm if m["props"] else 0
-    SB, TB = rec_biases(recs, fname) if recb == 4 else (0, 0)
+    SB, TBS = rec_biases(recs, fname, brows) if recb == 4 else (0, [0] * nbands(brows))
     pa, pb = [t for t in oa if sa[t][1]], [t for t in ob if sb[t][1]]
     for ln in (ea + DIRENT * len(pa), eb + DIRENT * len(pb)):
         if ln > 0xFFFF:
@@ -13182,7 +13207,8 @@ def _encode2(m, recb, ident=0, fname="<course>"):
     struct.pack_into("<13H", hdr, 4, cols, brows, len(m["blocks"]) // 16, 4 if cols == 64 else 5, blkoff, occidx,
                      occrec, len(recs), maskoff, len(masks), 2 * cols, gridoff, propoff)
     struct.pack_into("<H", hdr, 30, nprop)
-    struct.pack_into("<BbhH", hdr, 32, recb, SB, TB, sa["O"][0] if recb == 4 else 0)
+    struct.pack_into("<BbHH", hdr, 32, recb, SB, (TBS[0] & 0xFFFF if _ONETB else sa["Y"][0]) if recb == 4 else 0,
+                     sa["O"][0] if recb == 4 else 0)
     if m.get("pth"):                                # the pathway's tables and its family list, in the WORLD part
         struct.pack_into("<HB", hdr, 42, propoff + plen - m["pth"], m.get("npages", 0))
     if m.get("fam"):
@@ -13207,12 +13233,14 @@ def _encode2(m, recb, ident=0, fname="<course>"):
         if recb == 8:
             struct.pack_into("<BBHhH", a, occrec + 8 * i, col, 0, s, top, maskoff + 16 * mi)
         else:
-            a[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TB, mi))
+            a[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TBS[br >> BAND_SH], mi))
     for i, mk in enumerate(masks):
         a[maskoff + 16 * i:maskoff + 16 * i + 16] = mk
     if recb == 4:
         for i in range(len(masks)):
             struct.pack_into("<H", a, sa["O"][0] + 2 * i, maskoff + 16 * i)
+        if not _ONETB:
+            struct.pack_into("<%dh" % len(TBS), a, sa["Y"][0], *TBS)
     blob = m["props"]["blob"] if m["props"] else b""
     if pm:
         lb = bytearray(blob[rl:rl + pm])
@@ -13295,7 +13323,9 @@ def decode_parts(a, b):
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", a, 4)
     nprop = struct.unpack_from("<H", a, 30)[0]
-    recb, SB, TB, mtab = struct.unpack_from("<BbhH", a, 32)
+    recb, SB, yoff, mtab = struct.unpack_from("<BbHH", a, 32)
+    TBS = (([yoff - 65536 if yoff > 32767 else yoff] * nbands(brows)) if _ONETB else
+           list(struct.unpack_from("<%dh" % nbands(brows), a, yoff))) if recb == 4 else [0] * nbands(brows)
 
     def ents(p):
         do, ns = struct.unpack_from("<HH", p, 38)
@@ -13312,7 +13342,7 @@ def decode_parts(a, b):
                 recs.append((br, col, s, top, (moff - maskoff) // 16))
             else:
                 col, s_, t_, mi = a[occrec + 4 * k:occrec + 4 * k + 4]
-                recs.append((br, col, s_ + br - SB, t_ + TB, mi))
+                recs.append((br, col, s_ + br - SB, t_ + TBS[br >> BAND_SH], mi))
     masks = [bytes(a[maskoff + 16 * i:maskoff + 16 * i + 16]) for i in range(nmask)]
     nrows, smin, amin, kw, rowtab, x0, y0, ident = struct.unpack_from("<HhhHHHhH", b, gridoff + 4)
     swx, swy, nway, routeoff = struct.unpack_from("<HHHH", b, gridoff + 20)
@@ -13619,7 +13649,7 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
     b = bytearray(st)
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", b, 4)
-    recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", b, 32)
+    recb, SB, yoff, mtab, diroff, nsec = struct.unpack_from("<BbHHHH", b, 32)
     pend = set()
     where = ["?"]
 
@@ -13833,7 +13863,7 @@ def _read_bzc2(p, pw, fname, split=False):
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", p, 4)
     nprop = struct.unpack_from("<H", p, 30)[0]
-    recb, SB, TB, mtab, diroff, nsec = struct.unpack_from("<BbhHHH", p, 32)
+    recb, SB, yoff, mtab, diroff, nsec = struct.unpack_from("<BbHHHH", p, 32)   # (+34 YOFF, SPEC.md 130.50)
     nw = len(pw)
     wdiroff, wnsec = struct.unpack_from("<HH", pw, 38)
     if split and (p[4:38] != pw[4:38] or p[42:HDR] != pw[42:HDR]):
@@ -13851,8 +13881,8 @@ def _read_bzc2(p, pw, fname, split=False):
         bad("N", "%d blocks, over the %d a map word's 10-bit index reaches" % (nblk, BLK_MAX))
     if recb not in (4, 8):
         bad("RECB", str(recb))
-    if recb == 8 and (SB or TB or mtab):
-        bad("RECB", "8 with SB %d, TB %d, MTAB %d (all 0 under C)" % (SB, TB, mtab))
+    if recb == 8 and (SB or yoff or mtab):          # (YOFF: TB under _ONETB)
+        bad("RECB", "8 with SB %d, YOFF %d, MTAB %d (all 0 under C)" % (SB, yoff, mtab))
     pthoff, npages = struct.unpack_from("<HB", p, 42)   # wave 8R (130.22.3): PTHOFF and NPAGES
     if blkoff != HDR + 2 * cols * brows:
         bad("BLKOFF", str(blkoff))
@@ -13866,7 +13896,14 @@ def _read_bzc2(p, pw, fname, split=False):
         bad("MTAB", "offset %d, not MASKOFF + 16 NMASK" % mtab)
     if recb == 4 and nmask > 256:
         bad("NMASK", "%d, over the 256 a record's index byte names" % nmask)
-    maskend = maskoff + 16 * nmask + (2 * nmask if recb == 4 else 0)      # the mask table's end
+    nband = 0 if _ONETB else nbands(brows)          # SPEC.md 130.50: the bands' top biases, Y, after the mask table
+    if _ONETB:
+        TBS = [yoff - 65536 if yoff > 32767 else yoff] * nbands(brows)
+    else:
+        if recb == 4 and yoff != maskoff + 16 * nmask + 2 * nmask:
+            bad("YOFF", "offset %d, not MTAB + 2 NMASK" % yoff)
+        TBS = list(struct.unpack_from("<%dh" % nband, p, yoff)) if recb == 4 and yoff + 2 * nband <= n else [0] * nband
+    maskend = maskoff + 16 * nmask + (2 * nmask + 2 * nband if recb == 4 else 0)   # the mask table's and Y's end
     if gridoff != (HDR if split else maskend):
         bad("GRIDOFF", str(gridoff))
     if bool(propoff) != bool(nprop) or nprop > PROP_ALL:
@@ -13898,6 +13935,8 @@ def _read_bzc2(p, pw, fname, split=False):
             ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
     if recb == 4:
         want.append(("O", mtab, 2 * nmask))
+        if nband:
+            want.append(("Y", yoff, 2 * nband))
     if split:                                       # SPEC.md 130.30.4.2: the pose maps, the picture part's last
         want.append(("L", maskend, llen))
     want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
@@ -13998,7 +14037,7 @@ def _read_bzc2(p, pw, fname, split=False):
                 bad("record %d" % i, "s' %d, t' %d: each must be 1 - 255" % (s_, t_))
             if mi >= nmask:
                 bad("record %d" % i, "mask index %d of %d" % (mi, nmask))
-            recs.append((col, s_ + br - SB, t_ + TB, maskoff + 16 * mi))
+            recs.append((col, s_ + br - SB, t_ + TBS[br >> BAND_SH], maskoff + 16 * mi))
     if recb == 4:
         for i in range(nmask):
             if struct.unpack_from("<H", p, mtab + 2 * i)[0] != maskoff + 16 * i:
@@ -14254,7 +14293,7 @@ def _read_bzc2(p, pw, fname, split=False):
     return {"cols": cols, "brows": brows, "nblk": nblk, "mapsh": mapsh, "blkoff": blkoff,
             "occidx": occidx, "occrec": occrec, "nocc": nocc, "maskoff": maskoff, "nmask": nmask,
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
-            "recb": recb, "sb": SB, "tb": TB, "mtab": mtab, "diroff": pdiroff, "nsec": nsec, "dir": ents,
+            "recb": recb, "sb": SB, "tb": TBS, "yoff": yoff, "mtab": mtab, "diroff": pdiroff, "nsec": nsec, "dir": ents,
             "split": split, "wdiroff": wdiroff if split else None, "wnsec": wnsec if split else None,
             "propoff": propoff, "nprop": nprop, "props": props, "ident": ident, "model": model,
             "npages": npages, "pthoff": pthoff, "path": path, "fams": fams, "nfst": nfst, "rmask": rmask,
@@ -26605,9 +26644,10 @@ def rec4_verdicts(c, sb_delta=0, wrap=False):
     byte compare against the rule.  -> (verdicts compared, first mismatch or
     None).  sb_delta, wrap: the negative controls (SB one lower; a key that
     wraps)"""
-    SB, TB = rec_biases(c.model["recs"], c.name)
+    SB, TBS = rec_biases(c.model["recs"], c.name, c.model["brows"])
     n = 0
     for br, col, s, top, mi in c.model["recs"]:
+        TB = TBS[br >> BAND_SH]                     # (SPEC.md 130.50: the record's band's)
         s_, t_ = s - br + SB, top - TB
         qs = set(c.queries.get((br, col), ()))
         ks = (-300, -129, -1, 0, 1, s_ - 1, s_, s_ + 1, 254, 255, 256, 300, 511, 600)
@@ -26646,8 +26686,9 @@ def _w5_compact(courses, res):
                         c.name, len(c.cga), c.part["nsec"], len(c.masks), holes,
                         "" if not why else " -- " + "; ".join(why)), not why))
         n, bad = rec4_verdicts(c)
-        SB, TB = rec_biases(c.model["recs"], c.name)
-        res.append(("10 %s: the 4-byte records' byte compares (SB %d, TB %d) give the rule's verdict on all %d "
+        SB, TB = rec_biases(c.model["recs"], c.name, c.model["brows"])
+        TB = "%d - %d over %d bands" % (min(TB), max(TB), len(TB))
+        res.append(("10 %s: the 4-byte records' byte compares (SB %d, TB %s) give the rule's verdict on all %d "
                     "(record, query) pairs - every query of the merge's set, and keys poked either side of both "
                     "clamps%s" % (c.name, SB, TB, n, "" if bad is None else " -- differs at %s" % (bad,)),
                     bad is None))
@@ -28896,7 +28937,7 @@ def _sc_crosscommit(X, res):
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
                                                 "occ": "off", "nolook": True, "halfz": True,
-                                                "realcut": False, "noavsplit": True})
+                                                "realcut": False, "noavsplit": True, "onetb": True})
                 # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink; and
                 # 130.48's quarter units off: that tool's half-unit bytes, no rebase, the CELLS rule's 79h; and
                 # 130.49's real-pose cut off: the whole cells that tool cut)
@@ -30207,7 +30248,7 @@ def _twoseg_checks(courses, res, paths):
     res.append(("15 TWOSEG: read_parts takes it - the picture part's sections %s, the world part's %s; the two headers "
                 "the same but the magic and the directory; %d lanes' pose maps in L, the picture part's [%s, %s)" % (
                     tags[0], tags[1], len(lanes), loff, lend),
-                tags[0] in ("MBIRKOL", "MBIRKO") and tags[1].startswith("GC") and set(tags[1]) <= set("GCDFTWP")
+                tags[0] in ("MBIRKOYL", "MBIRKOY") and tags[1].startswith("GC") and set(tags[1]) <= set("GCDFTWP")
                 and c.cga[4:38] == c.wcga[4:38] and c.cga[42:HDR] == c.wcga[42:HDR]
                 and all(loff <= d["lane"]["off"] < lend for d in lanes) and bool(lanes)))
     res.append(("15 TWOSEG: decode_parts gives back the model the compile serialised (the pose maps back in the "
