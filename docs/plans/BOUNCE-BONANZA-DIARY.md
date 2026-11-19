@@ -6450,6 +6450,18 @@ steel, easy double bounce for rubber, hard but possible double bounce for rubber
 - **The ladder now has the owner's tiers**, at today's tuning: 1/2 unit rolls; 3/4 an easy Hop for rubber
   (18 take-off points of 70) and glass (11), steel's 2 (37 ms); 1 unit a precise Hop (rubber 7, glass 3,
   steel none); 1 1/4 rubber's Hop and boost from 15; 1 1/2 from 7; 1 3/4 nobody.
+- **The soak found one the oracle could not.** `bonanzamega` replayed PEAK's demo on kern_mega and the ball
+  ended 88 px low: the SPRING family's contact still computed `16 z0`, with a variable shift
+  (`mov cl, 4`) that the sweep for runs of single shifts never matched. The tool's model was right, so
+  comparing the tool against itself could not see it. A replay of MOON's and PEAK's demos through the
+  guest under unicorn is now part of `tests/bonanza_dquarter.py` (PLAYGROUND's leaves that harness's
+  stack unbalanced at the base too).
+- **The selfcheck's own half-unit arithmetic**: items 3, 4, 6 and 7 compared bytes against half-unit
+  expectations, and item 1 - the current tool against 503031d4's parts byte for byte - needed the same
+  kind of switch 130.27 and 130.47 added (`halfz`: half-unit bytes, no rebase, the old CELLS bias). With
+  it, item 1 holds: quarter units are the ONLY change to a part.
+- **A test course to play**: `BZQSTEP=1` (BZHUMP's shape) makes QSTP the pathway's pad 0 - eight lanes off
+  one plate, stepping up 1/4 to 2 units, every riser facing the camera.
 - **Not done here**: the occluder records' tops still span at most 255 px, about 32 units - the bound that
   cut ROLL - so the 60-unit course needs the occluder session's per-row bias too.
 - **Run**: the oracle over 24 courses; `make` (the fast tier 44/44); the tool's ladder and item 48 with two

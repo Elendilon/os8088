@@ -12,9 +12,14 @@ EXACTLY with the model's.
      onto it (it lands); steel's against it; a quarter ramp climbed; a fall into a pit whose kill height is a
      quarter course's (12 quarter units under its lowest corner).
   3  FUZZ: N runs from random states beside QDEV's quarter steps, every step.
+  4  THE DEMOS: MOON's and PEAK's shipped demos replayed through the guest, every step against the
+     model - every family those courses use (PEAK's springs found the one 16 z0 the first pass missed), on a
+     course written in half units and on PEAK, rebased 24.
 
 --reds: each red arm (a broken package) must go red: `h16` (bz_h4's flat floor back to 16 z0), `kill4` (the
-VOID kill test back to 4 z0 px), `cells79` (the CELLS rule's bias back to 79h).
+VOID kill test back to 4 z0 px), `cells79` (the CELLS rule's bias back to 79h).  A family's code cannot have a
+red arm here - DS.fam_load loads the BUILT family parts (build/bzf-<name>.bin), not a patched tree - so the
+SPRING's 16 z0 (leg 4's find) has its red in the record instead: bonanzamega, on 454746ed0, failed on it.
 """
 import argparse
 import os
@@ -118,6 +123,18 @@ def check(n=200, seed=1119, verbose=True, patches=()):
         print("bonanza_dquarter fuzz: %d runs, %d steps beside QDEV's quarter steps (seed %d): %s" % (
             n, steps, seed, "%d differ" % len(b) if b else "every step equal"))
         out += b[:10]
+        for name in ("moon", "summit"):         # (PLAYGROUND's leaves this harness's stack unbalanced at step 0
+            # at the base too, faec308: its families need what DS.start does not set up - bonanzareplay plays it)
+            cd = BB.compile_course(os.path.join(BB.COURSE_DIR, name + ".bbc"))
+            dm = BB.parse_bzd(open(os.path.join(ROOT, "apps", "bonanza", "demos", name + ".bzd")).read())
+            K = [os.path.basename(q) for q in BB.default_paths()].index(name + ".bbc")
+            _K, mat, kt, _fl = BB.decode_log_t(BB.bzd_log(dm, K))
+            g, p = DS.start(binp, sym, cd, mat)
+            err, ns, _ev = DS.run(g, p, [k for k, _t in kt], "%s's demo" % name.upper(), stop_goal=False)
+            print("bonanza_dquarter the %s demo (rebased %d): %d steps: %s" % (name.upper(), cd.src.zbase, ns,
+                                                                           err or "every step equal"))
+            if err:
+                out.append(err)
     return out
 
 
