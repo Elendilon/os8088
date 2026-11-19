@@ -298,6 +298,7 @@ its course's identity, SPEC.md 130.12.8), `build_tree` and the course cache.
 """
 import argparse
 import collections
+import hashlib
 import os
 import re
 import shutil
@@ -438,8 +439,8 @@ def prefetch(names):
     course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
     todo = [n for n in names if os.path.join(ROOT, COURSES[n]) not in _COURSE]
     for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n])), todo)):
-        if e is None:
-            _COURSE[os.path.join(ROOT, COURSES[n])] = c
+        if e is None:                   # (with its song, as course() attaches it: a songless compile here was
+            _COURSE[os.path.join(ROOT, COURSES[n])] = _songed(c, n)    # every later course()'s, 130.50.3)
 
 
 def course(name, src=None, art=None):
@@ -448,16 +449,22 @@ def course(name, src=None, art=None):
     SRC: a course file other than the shipped one (a red tree's)."""
     path = src or os.path.join(ROOT, COURSES[name])
     if path not in _COURSE:
-        c = BB.compile_course(path)
-        songs = BB._music()[1]          # SPEC.md 130.50.3: the part carries its course's song, as the build's
-        try:                            # (K: the song rule's input - a red tree's patched file is the same
-            k = CRS_K[name]             # course, and its tree's build gives it the same song)
-        except KeyError:
-            k = None
-        if songs and k is not None:
-            BB.attach_song(c, songs[BB.course_song(c, k)])
-        _COURSE[path] = c
+        _COURSE[path] = _songed(BB.compile_course(path), name)
     return _COURSE[path]
+
+
+def _songed(c, name):
+    """compile C of course NAME with its song attached, as the build's (SPEC.md 130.50.3: the part carries its
+    course's song).  K is the song rule's input - a red tree's patched file is the same course, and its
+    tree's build gives it the same song"""
+    songs = BB._music()[1]
+    try:
+        k = CRS_K[name]
+    except KeyError:
+        k = None
+    if songs and k is not None:
+        BB.attach_song(c, songs[BB.course_song(c, k)])
+    return c
 
 
 def course_k(k):
@@ -494,18 +501,65 @@ def _has_local(text, proc, local):
     m = re.search(r"^%s:" % re.escape(proc), text, re.M)
     if not m:
         return False
-    nxt = re.search(r"^bz_\w+:", text[m.end():], re.M)
+    nxt = re.search(r"^bzs?_\w+:", text[m.end():], re.M)     # (the next proc: a bz_ or a bzs_ one)
     body = text[m.end():m.end() + nxt.start()] if nxt else text[m.end():]
     return re.search(r"^\.%s:" % re.escape(local), body, re.M) is not None
+
+
+_SYMS = {}
+
+
+def _tree_key(*dirs, deep=()):
+    """an honest key for an assembly over DIRS (the art, the SDK's includes: their top-level files) and DEEP
+    (the package's source, whose fam/ it includes: every file under it) - each file's path and content
+    digest, so a red arm's tree, a patched copy, another art tree or a file edited since the last call is
+    a different key, never the shipped tree's answer"""
+    h = hashlib.sha1()
+
+    def one(p):
+        h.update(p.encode() + b"\0")
+        with open(p, "rb") as f:
+            h.update(hashlib.sha1(f.read()).digest())
+    for d in dirs:
+        d = os.path.abspath(d)
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            if os.path.isfile(os.path.join(d, n)):
+                one(os.path.join(d, n))
+    for d in deep:
+        for base, subs, files in os.walk(os.path.abspath(d)):
+            subs.sort()
+            for n in sorted(files):
+                one(os.path.join(base, n))
+    return h.hexdigest()
 
 
 def symbols(src=None, art=None):
     """Every bz_ label and VAR of the package (and EXTRA_SYMS, and LOCAL_SYMS as
     'proc.local'), by assembling it with a table of `dw label` on the end (the
     guest's own offsets, no listing parsing).  A file of FILES a source does not
-    have is skipped: an earlier wave's package (bonanza_perf's A/B leg)."""
-    d = src or os.path.join(ROOT, "apps", "bonanza")
-    art = art or at("build/bonanza-art")
+    have is skipped: an earlier wave's package (bonanza_perf's A/B leg).
+
+    ONCE A PROCESS for a given tree (BOUNCE-BONANZA-SOAK principle 5): keyed on
+    the source dir, the art dir, the SDK include dir and NASM's command (its
+    -DBZDEV), each dir by its files' CONTENT (_tree_key), so a red tree or a
+    different art never gets the shipped tree's map.  A fresh dict each call."""
+    d = os.path.abspath(src or os.path.join(ROOT, "apps", "bonanza"))
+    art = os.path.abspath(art or at("build/bonanza-art"))
+    apps = os.path.join(os.path.dirname(d), "") if os.path.exists(
+        os.path.join(os.path.dirname(d), "os88api.inc")) else os.path.join(ROOT, "apps") + "/"
+    key = (d, art, apps, tuple(NASM),           # (drivers/sound: bonanza.asm's sndpkg.inc, from the root)
+           _tree_key(art, apps, os.path.join(ROOT, "drivers", "sound"), deep=(d,)))
+    if key not in _SYMS:
+        _SYMS[key] = _symbols(d, art, apps)
+    return dict(_SYMS[key])
+
+
+def _symbols(d, art, apps):
+    """symbols()'s assembly, uncached"""
     names = []
     for f in FILES:
         p = os.path.join(d, f)
@@ -522,8 +576,6 @@ def symbols(src=None, art=None):
     names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, open(inc).read(), re.M)]
     names += [n for n in EXTRA_EQUS if re.search(r"^%s\s+equ\b" % n, open(inc).read(), re.M)]
     names = sorted(set(names))
-    apps = os.path.join(os.path.dirname(d), "") if os.path.exists(
-        os.path.join(os.path.dirname(d), "os88api.inc")) else os.path.join(ROOT, "apps") + "/"
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "probe.asm")
         b = os.path.join(td, "probe.bin")
@@ -3203,7 +3255,18 @@ CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 130.16.14
 MODES = ((0, "GLIDE"),)         # (TRICKLE, mode 1, deleted with the camera mode: SPEC.md 130.11.11.1)
 
 
+_GROUND = {}
+
+
 def ground_scenarios():
+    """ground_scenarios_() once a process (they read only the SHIPPED courses and the host's model, never a
+    red tree's: course() with no SRC): -> fresh copies of the dicts"""
+    if "scen" not in _GROUND:
+        _GROUND["scen"] = ground_scenarios_()
+    return [dict(s) for s in _GROUND["scen"]]
+
+
+def ground_scenarios_():
     """the GROUND leg's replays, each a log on its course and a poke, PROVED on
     the model: -> [dict(name, crs, mat, poke, keys, fall, stretch)].  The
     PLAYGROUND's bounce chain onto the 1.5-unit ledge and its `boostdrop` are
@@ -3261,6 +3324,16 @@ def ground_glide(s, herc, kind=None):
 
 
 def ground_check():
+    """ground_check_() once a process - ground_part runs it per card, and it is the scenarios, GLIDE three
+    times and play_fall six times over the SHIPPED courses and the host's model (nothing a red tree's
+    package can move): -> (fails, lines), fresh lists"""
+    if "check" not in _GROUND:
+        _GROUND["check"] = ground_check_()
+    bad, say = _GROUND["check"]
+    return list(bad), list(say)
+
+
+def ground_check_():
     """the host half of the GROUND leg (SPEC.md 130.16.14, 130.17.10): each
     scenario proved, and each arm's model PARTING where its check is - `camz`
     on the PLAYGROUND's bounce chain, `nosafe` and `nolatch` on the void fall
@@ -4898,7 +4971,12 @@ REDS = {
     # inside, and the old stays on the card outside it
     "defer": [("bzwheel.inc", "    jnc .wheel\n    inc byte [bz_ccnt]\n",
                "    jnc .wheel\n    push ax                     ; RED defer: every contact candidate synced\n"
-               "    mov al, [bz_ltru + bx]\n    call bz_lsync\n    pop ax\n    inc byte [bz_ccnt]\n")],
+               "    mov al, [bz_ltru + bx]\n    call bz_lsync\n    pop ax\n    inc byte [bz_ccnt]\n"),
+              # (its 9 bytes put a `jmp short .next` above it past the short reach - the red tree refused
+              # to assemble; that jump made near in the red tree only, which changes no logic)
+              ("bzwheel.inc", "    inc byte [bz_wcn]\n    jmp short .next\n.aged1:\n",
+               "    inc byte [bz_wcn]\n    jmp near .next              ; (RED defer: its insertion's reach)\n"
+               ".aged1:\n")],
     # wave 3b (SPEC.md 130.13.12).  The RIDE BOX composed without the slab's layer under the ball (bz_pblit
     # skipped when the platform's box merged into the ball's group): the card loses the slab under the ball
     "ridebox": [("bzvideo.inc", "    cmp byte [bz_pov], 0\n    jne .shadow\n    call bz_pblit\n",
