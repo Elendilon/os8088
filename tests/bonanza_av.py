@@ -78,6 +78,9 @@ REDS = {
     # the first band's kt)
     "aband": [("bzvideo.inc", "    jnz .brow1                  ; first line a multiple of 128) takes its kt\n    call bz_otbk",
                "    jnz .brow1\n    nop                         ; RED aband\n    nop\n    nop")],
+    # SPEC.md 130.51: the band's mask table not loaded (a `masks banded` course reads band 0's slice everywhere)
+    "amband": [("bzvideo.inc", "    mov ax, [bx + 2]\n    mov [es:bz_mtab], ax\n",
+                "    nop                         ; RED amband\n")],
     # SPEC.md 130.49.7: the flat word's lay from the first laid line, not from its edge
     "aflat": [("bzvideo.inc", "    add [es:bz_of], ax\n    sub [es:bz_on], ax\n",
                "    nop                         ; RED aflat\n    nop\n")],

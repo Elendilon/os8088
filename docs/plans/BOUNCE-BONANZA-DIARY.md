@@ -6620,3 +6620,26 @@ steel, easy double bounce for rubber, hard but possible double bounce for rubber
   designer's statement that a cell is scenery no ball reaches (`scenery
   <shape>`, refused where an autopilot route or demo goes near). The second
   is cheap and the owner's call.
+
+## 2026-11-19 (the record's limits: a top bias a band, masks a band by choice, `noocclude`)
+
+- **The ask** (the owner): courses keep hitting the 4-byte record's two bytes -
+  its top relative to ONE course-wide bias (255 px, about 32 units, where the
+  quarter heights opened 60) and its mask, one of 256.
+- **The top** (SPEC.md 130.50): measured first - a course's tops span up to 223
+  px, but at most 130 inside any band of 16 block rows. So the bias is a band's:
+  a small table (`Y`), and the guest takes the band's key at the pass's first
+  row and where a row starts a band. PREDICTED +25 bytes and +100 - 160 clk a
+  pass; MEASURED +42 bytes and about +200 (the first build tested the band on
+  every row, about +250, before the row's own first line said when to look). A
+  54-unit staircase, 433 px of tops, compiles.
+- **The masks** (130.51): the same table, by CHOICE - `masks banded` in a
+  course gives each band its own 256, stored (ROLL +514 bytes packed), and a
+  course without it pays 2 bytes a band and nothing else.
+- **`noocclude <shape>`** (130.52): the author says no ball needs occluding
+  there; ROLL's pillars, 32 records.
+- **The fall's speed**: what a slower take-off could save is at most what
+  dropping the void band's outer cells altogether saves - 3% on ROLL and PEAK.
+  Not built.
+- **Run**: `tests/bonanza_av.py` on every course, ROLL and a banded ROLL (red
+  arms `aband`, `amband`); `--selfcheck`'s sections; `make`.
