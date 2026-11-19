@@ -20,6 +20,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"         ; the course tables' equates (BZ_FK0, BZP_FSB, ...)
 %include "bzlink.inc"           ; the package's constants and bss (pxlink)
+%include "fam/bzfwalk.inc"
 
 PR_ID       equ BZ_FID_PROBE    ; (bzcourse.inc's: never a literal, SPEC.md 130.25.6.2)
 PR_KIND     equ BZ_FK0
@@ -84,6 +85,9 @@ pr_step:
     inc word [di + 4]
     retf
 
+    BZ_FWALK pr_walk
+    BZ_FREC pr_recp, bp
+
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
 pr_slot:
     push ax
@@ -108,12 +112,14 @@ pr_pose:
 ; CELL: every TOUCHED probe in the window has its cell's +3 bit 7 set in
 ; bz_nbr - the window, never the grid (SPEC.md 130.25.7.2)
 pr_cell:
-    mov es, [bz_cseg]
-    mov si, [bz_poff]
-    mov cl, [bz_nprop]
-    xor ch, ch
-    xor bx, bx
+    call pr_slot                ; (its own records: SPEC.md 130.25.6.10)
+    call pr_walk
+    mov bp, bx                  ; BP the list, CX its count
+    jcxz .x
 .r:
+    call pr_recp
+    mov bl, [ds:bp]             ; BX = the element (pr_bit's)
+    xor bh, bh
     cmp byte [es:si], PR_KIND
     jne .n
     mov al, [es:si + 2]         ; dx = wx - window's wx + 1, 0 - 2 (the
@@ -143,9 +149,9 @@ pr_cell:
     jz .n
     or byte [bz_nbr + di + 3], 80h
 .n:
-    add si, 32
-    inc bx
+    inc bp
     loop .r
+.x:
     retf
 
 ; BX = an element -> SI = its TOUCHED bit's byte in bz_fst, AL the bit

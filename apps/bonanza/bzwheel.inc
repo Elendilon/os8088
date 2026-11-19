@@ -2609,8 +2609,7 @@ bz_props:
     cmp ax, [bz_prb]
     je .walk0
 .rng:
-    mov byte [bz_fwall], 1      ; (130.25.6.11: lanes entering - every family's
-                                ; STEP runs next and schedules their flips)
+    push word [bz_lr0]          ; (the slice before: 130.25.6.11, at .b1d)
     mov byte [bz_lnsk], 1       ; (moved: a lane that has just ENTERED it is
     mov si, [bz_pra]            ; walked whatever its skip says - one whose
     mov [bz_ora], si            ; rows met the last range keeps its skip:
@@ -2678,26 +2677,44 @@ bz_props:
     inc bx
 .b1d:
     mov [bz_lr1], bl
+    pop ax                      ; 130.25.6.11: the SLICE moved (a lane entered
+    cmp ax, [bz_lr0]            ; or left it, not merely the range) - every
+    je .rsl                     ; family's STEP runs next and schedules the
+    mov byte [bz_fwall], 1      ; turns of the lanes now in it
+.rsl:
     xor bx, bx                  ; 130.19.10: every lane of the new slice whose
     mov bl, [bz_lr0]            ; rows did not meet the LAST range has ENTERED:
-.mk:                            ; marked
-    cmp bl, [bz_lr1]
-    jae .walk
-    mov si, bx
-    shl si, 1
-    mov ax, [bz_lrw + si]
-    cmp ax, [bz_orb]
-    jge .mk1
+.mk:                            ; marked - and only the slice's two ENDS can
+    cmp bl, [bz_lr1]            ; hold one (130.19.10 item 13: the lanes are
+    jae .walk                   ; sorted by first row, so a lane starting at
+    mov si, bx                  ; or past ora that is above orb met the last
+    shl si, 1                   ; range): THE TOP, forward while brow < ora -
+    mov ax, [bz_lrw + si]       ; entered when brow + h <= ora ...
+    cmp ax, [bz_ora]
+    jge .mkb
     mov cl, [bz_lhh + bx]
     xor ch, ch
     add ax, cx
     cmp ax, [bz_ora]
     jg .mk2
-.mk1:
     mov byte [bz_latt + bx], 1
 .mk2:
     inc bx
     jmp short .mk
+.mkb:                           ; ... THE BOTTOM, back from lr1 - 1 while
+    mov dl, bl                  ; brow >= orb (not into the top's): entered
+    mov bl, [bz_lr1]
+.mkl:
+    cmp bl, dl
+    jbe .walk
+    dec bx
+    mov si, bx
+    shl si, 1
+    mov ax, [bz_lrw + si]
+    cmp ax, [bz_orb]
+    jl .walk
+    mov byte [bz_latt + bx], 1
+    jmp short .mkl
 .walk0:
     mov byte [bz_lnsk], 0
 .walk:
@@ -2713,11 +2730,23 @@ bz_props:
     mov ax, [bz_c0]             ; (.l1's band test, here: one still out would
     cmp ax, [bz_pc0]            ; be walked only to be unmarked again, about
     je .cm0                     ; 0.7k clk a lane - 130.19.10 item 7)
-.cm:
-    cmp bl, [bz_lr1]
-    jae .cm0
-    cmp byte [bz_lout + bx], 0
-    je .cmn
+.cm:                            ; (130.19.10 item 13: the next OUT lane by a
+    mov cl, [bz_lr1]            ; byte scan, as .lane's next mark - a lane in
+    sub cl, bl                  ; the band costs about 15 clk, not a test)
+    jbe .cm0
+    xor ch, ch
+    push es
+    push ds
+    pop es
+    lea di, [bz_lout + bx]
+.cmn:
+    xor al, al
+    jcxz .cmx
+    repe scasb
+    je .cmx                     ; (none OUT left)
+    mov bx, di
+    dec bx
+    sub bx, bz_lout             ; BX = that lane (BH 0: under 256)
     mov al, [bz_ltcl + bx]
     xor ah, ah
     cmp ax, [bz_pch]
@@ -2727,9 +2756,10 @@ bz_props:
     cmp ax, [bz_pcl]
     jle .cmn
     mov byte [bz_latt + bx], 1
-.cmn:
-    inc bx
-    jmp short .cm
+    jmp short .cmn
+.cmx:
+    pop es
+    xor bx, bx
 .cm0:
     mov bl, [bz_lr0]            ; ...and a new SECOND marks the clocks' digits
     mov ax, [bz_tsec]

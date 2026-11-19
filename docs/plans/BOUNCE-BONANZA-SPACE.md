@@ -200,3 +200,18 @@ widening the shell part, and costs a row, a read and a generalised
 shrinking `bz_fhl`/`bz_frec`/`bz_fsl` (the owner's NO FAMILY LIMIT, 130.25.6.5);
 bss over one-shot entry code (~180 at most, WM_CREATE may paint during open);
 `bz_boxbuf` as a claim (a third segment in the hottest code).
+
+## The soak (2026-11-19)
+
+Scoped `bonanza*`, in the background, at `98861d542` (waves 1, 2 and 4):
+12 of 15 green. Then the two CPU timeouts re-run at `b6d544218`:
+`bonanzaexit` green; `bonanzaring` red on exactly its two standing failures
+(CGA `voidfall`'s window margin, 17 px against 15; the Hercules TRIAL's
+three-box frame), which BOUNCE-BONANZA-VGA.md records failing the same at
+`6d1b64c46`, before any of this. `bonanzacourse` red on its standing three
+PLAYGROUND selfcheck items (the oversized course, the same plan). What this
+work broke, and fixed: `symbols()` did not read a VAR shared by an alias
+(`bz_lbuf`, `bz_dmine`), which took down bonanzaphys, demo and replay
+(`98861d542`); and the first BZDEV tree build is charged to the first row
+that takes its lock, so the knob rows' timeouts carry `BZDEV_TREE_CPU`
+(`b6d544218`).

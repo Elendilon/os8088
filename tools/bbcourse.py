@@ -442,7 +442,7 @@ CLASS_NAMES = ("attempt", "respawn", "flag")
 FAMILIES = (
     {"name": "probe", "id": 1, "rev": 1, "hooks": H_RESET | H_ENTER | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 7, "kinds": ({"name": "probe", "kind": FAM_K0, "bits": 1, "cls": None, "art": "pennant",
-                           "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 20,
+                           "forms": ("own",), "states": (0, 1), "pickup": False},), "paras": 23,
      "home": HOME_FETCH},
     # GLASS (SPEC.md 130.25.8, 130.25.18): the CRACKED TILE (a byte an element: 0 whole, 1 cracked by one
     # glass impact, 2 - T + 1 COUNTING to its break, FFh broken - a VOID in the window, its kill 3 units under
