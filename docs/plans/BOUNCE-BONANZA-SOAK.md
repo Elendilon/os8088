@@ -64,18 +64,18 @@ declared.
 ## The phases
 
 ### Phase 1 - working and honest (now)
-- [ ] The TOUR's tests deleted: bonanzagame's `tour`, `stop`, `face` legs and
+- [x] The TOUR's tests deleted: bonanzagame's `tour`, `stop`, `face` legs and
       helpers, the `tourx` hostile case; bonanzaexit's tour exits.
 - [x] bonanzapath rewritten for the shipped map (pad 0 ROLL, pad 1 HOP) and its
       secret leg on a fixed test map; bbcourse's `path` section likewise.
-- [ ] bonanzaexit: the claim leg covers every K (a cheap launch per course,
+- [x] bonanzaexit: the claim leg covers every K (a cheap launch per course,
       ROLL and HOP included); the three red arms whose expected text sits in a
       comment fixed.
-- [ ] `bonanza_phys --check` registered as a row of its own (the test-only
+- [x] `bonanza_phys --check` registered as a row of its own (the test-only
       courses' only gate).
-- [ ] The per-process caches: `symbols()`, `replays()`/`prove()`, the ground
+- [x] The per-process caches: `symbols()`, `replays()`/`prove()`, the ground
       checks, `title.bbc`'s compile.
-- [ ] Stale text (song rows, three ball rows, BZD1 - BZD6) brought to the game.
+- [x] Stale text (song rows, three ball rows, BZD1 - BZD6) brought to the game.
 
 ### Phase 2 - the test courses
 - [ ] **TPLAY** (physics and replays): ramps (one steep), a lip and gap, a void
