@@ -3368,6 +3368,10 @@ bz_mkboxes:
     mov al, [bz_nbr + BZN_C + 3] ; is 0 or 1)
     and al, ah
     or al, [bz_pokd]
+    cmp byte [bz_fcnt], 1       ; ...and NONE in a finish: the dissolve dithers
+    jbe .og2                    ; the ball anyway (SPEC.md 130.22.6.2)
+    xor al, al
+.og2:
     mov [bz_ogate], al
     mov ax, [bz_px]             ; BP = 0 when the ball has not moved and the
     mov bp, ax                  ; window has not either (the old px, py are
