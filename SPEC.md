@@ -284528,3 +284528,125 @@ The pathway's courses (FIRST, TRIAL, MILL, PLAYGROUND, MOON, PEAK) and ROLL, and
 So THE LOOK cost 1,870 bytes against a kit cut before it, and the re-cut more than paid it back. Cast shadows
 on top: MILL 6,505 to about 7,000, ROLL 9,262 to about 10,200 (measured against the earlier kit: MILL +486,
 ROLL +906).
+
+### 130.48 QUARTER-UNIT HEIGHTS and the 60-unit course (the owner, 2026-11-19)
+
+The owner, 2026-11-19: *"'1 is easy, 1.5 absolutely requires double bounce' is still too little room to tune
+a course; we need all of 'can roll up it, can't roll up it but easy jump or slightly harder for steel, can
+single jump it but its a little more precise or very precise for steel, easy double bounce for rubber, hard
+but possible double bounce for rubber'"*, and *"lets also unlock 63 high course design"*.
+
+Heights moved in HALF units (4 px), and `BZ_CLIMB` is 4 px, so the step after the one every ball rolls up
+was already a whole unit, a hard Hop. Quarter units (2 px) put a rung between every pair: a **3/4-unit (6 px)
+step** no ball rolls up and every ball Hops, a 1 1/4-unit step between the Hop and the boost, and so on.
+Nothing about the ball changes: this section is the height's FORMAT and the courses' RANGE, and the
+physics of a course written in half units is exactly what it was.
+
+#### 130.48.1 The decisions, in one table
+
+| decision | chosen | why |
+|---|---|---|
+| the text course | every height a multiple of **0.25** units, -60 to 63.75 as written (130.10.3's `h`, and every height a statement takes) | the owner's tiers need 2 px rungs |
+| a HEIGHT BYTE in a part | **signed, QUARTER units (2 px)**: a cell's `z0` (130.10.4.3, a NEAR VOID's kill height, a FIELD cell's base 130.28.2), a split cell's records in section `D` (130.24.5.2), every prop record's height field (130.48.4) | one unit everywhere a byte holds a height, so a prop on a quarter-height floor is expressible |
+| slopes | **unchanged**: half units a tile, `-8 .. 7` (wave 1's `-4 .. 4`) | a half unit a tile is a quarter px a ground unit, the floor function's own unit; quarter-unit slopes would be eighth px |
+| the floor | `h4 = 8 z0 + sx u + sy v` (quarter px; it was `16 z0`) | the same height for the same course: `z0` is twice what it was |
+| a corner | `z0 + 2 (sx dx + sy dy)` quarter units | |
+| the kill height | 3 units (**12** quarter units) under the lowest corner within two tiles; an OPEN cell's -128 still kills at **-512 px** (`4 z0`, as before), not `2 z0` | 130.10.4.3's, in the new unit; OPEN's is an absolute fall that no course's bytes describe, so it keeps the length it had (BUILT: PEAK's demo found it, 130.48.6) |
+| the REBASE | the tool subtracts `B` units from EVERY height of a course - its cells, its records, its props, its ground plane - `B` a multiple of **2**, the least that makes every byte fit; `B = 0` when the course already fits | a course is written as its author thinks of it (0 at the bottom, up to 60 units); the guest never sees an absolute height. 2, not 1: THE LOOK's checker (130.47.2) steps every 2 units, and the kit's `Y0 = 4 (mod 8)` (130.37.6) moves by `8 B` |
+| the range | after the rebase, every solid cell's LOWEST corner at least **-116** (-29 units) and every `z0` at most **127** (31.75 units): **60.75 units** of floors and walls, the kill height inside the byte. Refused at the line that breaks it, naming the height and the span | 130.15.6's CELLS rule biases a lowest corner into 8 bits (130.48.3) |
+| a FIELD cell's base | `z0` EVEN (a whole half unit): `2 (hmin // 16)` | its tables are the bytes they were, so section `F`'s sharing and its 32-table bound do not move |
+| THE LOOK's checker | the colour of `floor(h / 2 units)` with `h` the height AS WRITTEN (before the rebase): `(wx + wy + floor(z0 / 4)) & 1`, `z0` the tile's half units plus `2 B` | a quarter-height tile takes its half-unit neighbours' colour, and the rebase never recolours a course (it is the tool's picture alone: no guest byte) |
+| physics | **unchanged** (`PHYS_REV` stays): every constant, every test, every trajectory; `BZ_CLIMB` 4 px. A rebased course's trajectories are the same translated by `8 B` px, but for a fall into an OPEN cell, whose -512 px is absolute: on BENCH and PEAK that fall is `8 B` px shorter (PEAK's demo never reaches one) | a 3/4-unit step is exactly what the climb test already refuses and the Hop's margin already lands on |
+| the families | each whose record holds a height - glass, water, spike, gate, see-saw, turntable - has its `rev` raised, so its `FAMV` (130.25.6.1) moves and no older part is read with the new units | |
+| identities | every course's moves (its bytes do); the shipped demos are written again by `bbcourse.py author`, the same runs, their identities alone changed (130.47.4's precedent) | |
+
+#### 130.48.2 What changes in the guest
+
+Every place that reads a height byte: `bz_h4` and the flat-floor fast paths in `bzphys.inc` (`8 z0`, one
+shift fewer: 2 bytes and about 8 clk saved at each), the VOID kill test (`2 z0` px), `bz_fh4` (`8 z0 + F`),
+`bzfcopy.inc`'s copy of the floor function, `bonanza.asm`'s tile projection
+(`y = 8 s - 2 (z0 + sx + sy) + Y0 - 5`) and its CELLS rule (130.48.3), `bzvideo.inc`'s floating cell
+(`H / 2 = z0 + 2 max(sx, 0) + ...`), and the families' constants that are heights (130.48.4). Nothing is
+added to a hot path; the cost is MEASURED by `bonanzaperf` in the final pass.
+
+#### 130.48.3 The CELLS rule in quarter units
+
+130.15.6's rule with the new corner and kill: a solid cell's `V` is its LOWEST corner,
+`z0 + 2 min(0, sx) + 2 min(0, sy)`, plus **73h**, in 8 bits, compared unsigned (`FFh` VOID and outside the
+grid, as before); `rule_z0` is the least `V` within two tiles plus **81h**, as before - so a ring of VOID still
+gives `FFh + 81h` = -128, OPEN's. That is the lowest corner less 12 for every corner from -116 to 127, and a
+corner of -116 (whose `V` is `FFh`) gives -128, which is its kill and OPEN's at once, as -122 did before. The tool
+refuses a lowest corner under -116 (130.48.1's range), so no NEAR cell's kill wraps.
+
+#### 130.48.4 The props' height fields
+
+Each is a signed byte of QUARTER units, rebased with the course, and each family's constant that is a height
+is doubled with it:
+
+| record | field | the family's constants |
+|---|---|---|
+| WATER (130.36.1) | +18 the bed, +19 the top; the float line the top less a HALF unit (`2`) | the float line's `-1` is `-2`, the bob's phase 0 or 2, the float line's px `2 z` |
+| SPIKES (130.38.3) | +18 LOW, +19 TIP (LOW + 4: the base B less and plus a half unit); a membrane's +18 its floor's `z0` | a popspike's DOWN floor `TIP - 2`; the membrane's near void `- 12`; the net `2 z0` px; the FAMV's near-void depth 12 |
+| THE TURNTABLE (130.43) | +18 TZ | `TT_VOIDH` (`TT_VOID`) 6 is 12; the ball under its top `2 TZ` px |
+| THE GATE (130.41.3) | +19 a bridge's DECK | its drop (`GT_DROP`, the row's consts) 6 is 12 |
+| THE SEE-SAW (130.42.3) | +21 PZ; a plank's `z0 = PZ + 2 s (k - L / 2)` | the carry's floor `8 z0 + s w` |
+| THE GLASS tile (130.25.8) | its kill when broken, 3 units under (`12`, `glass.asm`'s `sub ..., 12`) | |
+| A LIFT's shaft (130.12.3.2) | its kill is a grid byte, written by the tool (quarter units with every other) | |
+| MAGNETS (130.33.2) | +22 a hanging one's ceiling is PX, as it was: unchanged | |
+| THE SPRING (130.14.4.6) | no height field; its CONTACT finds the floor under the centre again | `8 z0` (`spring.asm`'s shift 3, not 4: the one site the first pass missed, found by `bonanzamega` replaying PEAK's demo, 130.48.6) |
+
+#### 130.48.5 The ladders (130.16.5.3)
+
+The step ladder gains the rungs **0.75, 1.25 and 1.75 units**, printed with the others, and asserts the
+quarter rung's point: at 0.75 no ball rolls up and every ball's Hop gets there from at least one take-off
+point. The other asserted shapes are unchanged. The ball retune (a separate session's) will move the counts
+and is what decides how the tiers are spaced; this section only makes the rungs exist.
+
+#### 130.48.6 What building found (BUILT on `bb-quarter`)
+
+- **The oracle.** Every course in `apps/bonanza/courses/` (24) was compiled before the change and after: the
+  same picture, occluder records, rule records, reach, route and grid layout, every cell's height byte exactly
+  twice what it was - and on the two REBASED courses, BENCH (`B` 22) and SUMMIT (PEAK, `B` 24), the same less
+  `4 B` with `Y0`, the records' tops and the reach less `8 B` px. The guest's own routines under unicorn
+  (`tests/bonanza_dsplit.py`, `tests/bonanza_dfield.py`, `tests/bonanza_dquarter.py`) equal the model at every
+  step.
+- **A missed `16 z0`.** The SPRING family's contact computed the floor with `mov cl, 4` / `shl ax, cl`, a
+  form the first sweep (runs of single shifts) did not match. The tool's model was right, so the oracle could
+  not see it; `bonanzamega` replaying PEAK's demo on the glass did (its first spring launch, step 797, 88 px
+  low). `tests/bonanza_dquarter.py` now replays MOON's and PEAK's demos through the guest under unicorn (its
+  harness loads the BUILT family parts, so the spring's red is that soak run, not an arm of its own).
+- **Two absolute heights.** An OPEN cell's kill (above), and the AUTHOR script's `steer` at a VOID cell, which
+  aimed at that cell's picture point at height 0: it aims at height 0 AS WRITTEN now (`+ 8 B` on `Y0`), so
+  PEAK's demo is the run it was, step for step. MOON's, PEAK's and PLAYGROUND's demos changed their `ident`
+  lines alone.
+- **The tool's build side stays in half units.** A quarter height reaches it as `bbcourse.Q`, an exact `n.5`
+  whose whole results are plain ints (`4 x Q(7.5)` is the px 30), so the picture, reach and occluders needed no
+  change; every byte goes through `zq()`, which refuses what is not a whole quarter or outside the byte.
+- **The ladder at today's tuning** (130.16.5.3's, take-off points of 70): 1/2 unit every ball rolls up; **3/4**
+  rubber's Hop 18 (330 ms), glass's 11 (201 ms), steel's 2 (37 ms); 1 unit rubber 7, glass 3, steel none;
+  **1 1/4** rubber's Hop and boost 15, no Hop alone; 1 1/2 the boost 7; 1 3/4 and 2 nobody - the owner's five
+  tiers: rolled, an easy Hop (steel's hard), a precise one (steel's none), an easy double, a hard double.
+
+#### 130.48.7 It amends
+
+- **130.10.2** - a height unit's halves are now QUARTERS in the grid; heights stay px.
+- **130.10.3** - `h` a multiple of 0.25; the range and the rebase (130.48.1).
+- **130.10.4.3** - `z0` quarter units, `h4 = 8 z0 + sx u + sy v`, the kill height 12.
+- **130.15.6** - the CELLS rule's bias and corner (130.48.3).
+- **130.24.5.2** - a split record's `z0` quarter units.
+- **130.28.2** - a FIELD cell's base `z0` quarter units and even; its floor `8 z0 + F`.
+- **130.47.2** - the checker's term `z0 >> 3`.
+- **130.36.1, 130.38.3, 130.41.3, 130.42.3, 130.43** - the fields of 130.48.4.
+
+#### 130.48.8 The rows
+
+- `bonanzacourse` (host): the grammar's quarter heights and the refusals (a height not a multiple of 0.25; a
+  span over 60.75 units); the rebase on a tall test course (its picture, records and route equal to the same
+  course written 2 units lower); a quarter-step course compiled, its picture and records checked by the
+  existing exactness items; the ladder's new rungs. **Red**: the encoder writing half units (`z0` not
+  doubled) fails the grid's `expand == RAM` and the physics replays.
+- `tests/bonanza_dsplit.py`, `tests/bonanza_dfield.py` (host, unicorn): unchanged scenes plus a quarter-step
+  scene, the guest's step equal to the model's every step.
+- `bonanzaphys`, `bonanzareplay`, `bonanzademo`, `bonanzaexit`, `bonanzaperf` (MartyPC): the demos replayed
+  under the new identities, the guest equal to the model, the CELLS expansion equal to the RAM form, and
+  the frame's cost.

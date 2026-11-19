@@ -8,7 +8,7 @@
 ; cell that turns into a gap drops the ball.  Each SWITCHING cell is an element
 ; (a 3 x 3's centre is the PIVOT, a plain floor); the grid holds it as a FLAT
 ; FLOOR at TZ with OBS, and CELL rewrites it in the 9-cell window.  Its record:
-;   +18 TZ     its floor's z0 (half units)
+;   +18 TZ     its floor's z0 (quarter units, SPEC.md 130.48.4)
 ;   +19 SEQ    bit r: a floor at rotation r, the nibble written twice so bit
 ;              r + 1 is the next rotation's with no wrap
 ;   +20 QSH    the quarter's shift (Q = 1 << QSH), +21 QMASK (Q - 1)
@@ -21,7 +21,7 @@
 ;   CELL  each element in the window that is a gap - or is the window's CENTRE
 ;         with the ball's whole-px z ([bz_gz + 1]) under its top, 4 TZ: the
 ;         ball has fallen into its hole, and a hole that closes over it must
-;         not lift it - a NEAR VOID: TZ less 6 half units, kind and surface 0,
+;         not lift it - a NEAR VOID: TZ less 12 quarter units, kind and surface 0,
 ;         its flags kept (the membrane's: SPEC.md 130.38); every other
 ;         element in the window written back a FLOOR (TZ, KIND_FLOOR): the
 ;         window KEEPS its cells when it moves one cell (bz_win9i), and a cell
@@ -49,7 +49,7 @@ TT_QSH      equ 20
 TT_QMASK    equ 21
 TT_SEED     equ 22
 TT_WAT      equ 23
-TT_VOIDH    equ 6               ; a gap: half units under the floor (bbcourse.TT_VOID)
+TT_VOIDH    equ 12              ; a gap: quarter units under the floor (bbcourse.TT_VOID)
 TT_KFLOOR   equ 1               ; a floor's kind byte: KIND_FLOOR, SURF_NORMAL (the
                                 ; tool refuses a table on any other surface)
 
@@ -106,8 +106,7 @@ tt_cell:
     jne .w                      ; its top, a gap all the same
     mov al, dl
     cbw
-    shl ax, 1
-    shl ax, 1
+    shl ax, 1                   ; 2 TZ px (quarter units, SPEC.md 130.48.4)
     cmp [bz_gz + 1], ax
     jge .w
 .gap:

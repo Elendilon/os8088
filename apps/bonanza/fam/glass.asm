@@ -260,8 +260,9 @@ gl_pose:
 .g:
     retf
 
-; CELL: every BROKEN crack in the window made a VOID there - its z0 less 6
-; half units (3 units: the kill), kind and surface 0, its flags kept - once
+; CELL: every BROKEN crack in the window made a VOID there - its z0 less 12
+; quarter units (3 units: the kill, SPEC.md 130.48.4), kind and surface 0,
+; its flags kept - once
 ; (a cell bz_win9i kept from the last window is already VOID).  Nothing
 ; broken (the slot's +1 0, most refills): nothing walked
 gl_cell:
@@ -304,7 +305,7 @@ gl_cell:
     and al, 15
     cmp al, 1                   ; (a FLOOR still: not yet overlaid)
     jne .n
-    sub byte [bz_nbr + di], 6
+    sub byte [bz_nbr + di], 12
     mov byte [bz_nbr + di + 2], 0
 .n:
     inc bp
