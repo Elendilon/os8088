@@ -33,6 +33,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
     db 'BF'
     db BZ_FID_PICKUPS           ; (bzcourse.inc's: the ID is FAMILIES' alone)
@@ -124,6 +125,10 @@ pu_contact:
     call pu_joff
 .s1:
     mov [di], ax
+    push ax                     ; (its STEP every step now: 130.25.6.11)
+    xor ax, ax
+    call pu_setwk
+    pop ax
     mov byte [bz_wacc], BZ_PU_SACC
     mov word [bz_vup], BZ_PU_SVUP
     call pu_tab
@@ -144,6 +149,10 @@ pu_contact:
     mov word [bz_mrec + BZM_HOP], BZ_PU_JHOP
 .j2:
     mov [di + 2], ax
+    push ax                     ; (its STEP every step now: 130.25.6.11)
+    xor ax, ax
+    call pu_setwk
+    pop ax
     retf
 
 ; STEP: each timer counted down, its effect ended at 0; a running jump's Hop
@@ -189,7 +198,17 @@ pu_step:
     or dl, 2
 .c:
     mov [bz_cue], dl
+    xor ax, ax                  ; (130.25.6.11: an effect running, every
+    mov cx, [di]                ; step; none, none until CONTACT starts one)
+    or cx, [di + 2]
+    jnz .w
+    mov ax, [bz_nstep]          ; (idle: no STEP until something wakes it,
+    add ax, 4000h               ; 130.25.6.11)
+.w:
+    call pu_setwk
     retf
+
+    BZ_FSETWK pu_setwk
 
 ; POSE (AH the kind): 1 the icon, 0 gone - COLLECTED, or an hourglass while
 ; there is no limit

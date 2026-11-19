@@ -70,6 +70,15 @@ VAR bz_flst,BZ_PROPALL          ; SPEC.md 130.25.6.10): +0 its list's start in
                                 ; bz_flst, +1 their count - each a record's
                                 ; index, in record order: the records whose
                                 ; kind is the family's run
+VAR bz_fwk,BZ_FAMMAX * 2        ; per slot, its STEP's WAKE (bz_fstp, SPEC.md
+                                ; 130.25.6.11): the bz_nstep its STEP next runs
+                                ; at, 0 every step (a family that never writes it)
+VAR bz_fwkk,2                   ; a waking family's scratch: its nearest wake so far
+VAR bz_ftnp,4                   ; bz_ftnext's far pointer (bz_fstp writes it)
+VAR bz_fwm,1                    ; the material bz_fstp last saw
+VAR bz_fwall,1                  ; 1: every STEP runs at the next bz_fstp (a play's
+                                ; start, a respawn, the walk's slice moved, a
+                                ; material changed)
 %endmacro
 
 ; -----------------------------------------------------------------------------
@@ -258,6 +267,157 @@ bz_flist:
     ret
 
 ; -----------------------------------------------------------------------------
+; bz_fstp - every family's STEP (SPEC.md 130.25.6.11), bz_step's: as bz_fall's
+; walk of the STEP list, but a slot whose WAKE (bz_fwk) is a step still AHEAD
+; is not called - a family that schedules itself (its timers' next flip, its
+; ball-local work) costs a step nothing until then.  Every slot is called,
+; whatever its wake, when bz_fwall is set or the material moved since the
+; last call (a family's STEP compares it); bz_fwall cleared after.  DS = ours.
+; Preserves all but AX.
+; -----------------------------------------------------------------------------
+bz_fstp:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov word [bz_fmkp], bz_fmark
+    mov [bz_fmkp + 2], cs
+    mov word [bz_ftnp], bz_ftnext
+    mov [bz_ftnp + 2], cs
+    mov al, [bz_mat]
+    cmp al, [bz_fwm]
+    je .m
+    mov [bz_fwm], al
+    mov byte [bz_fwall], 1
+.m:
+    mov si, [bz_fhs + 2 * BZ_HK_STEP]
+    mov di, [bz_fhs + 2 * BZ_HK_STEP + 2]
+    mov dx, [bz_nstep]          ; DX = n, CL = forced (every slot called)
+    mov cl, [bz_fwall]
+.s:
+    cmp si, di
+    jae .done
+    mov al, [si + BZF_HESLOT]
+    or cl, cl
+    jnz .call
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bz_fwk + bx]
+    or bx, bx                   ; (0: every step)
+    jz .call
+    sub bx, dx
+    jg .next                    ; (signed: the wake still ahead)
+.call:
+    push cx
+    push dx
+    push si
+    push di
+    xor ah, ah                  ; AL the slot, AH 0
+    push ds
+    pop es
+    call far [si]
+    pop di
+    pop si
+    pop dx
+    pop cx
+.next:
+    add si, BZF_HE
+    jmp short .s
+.done:
+    mov byte [bz_fwall], 0
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_ftnext - a TIMER's next turn (SPEC.md 130.25.6.11), a family STEP's by
+; `call far [bz_ftnp]` (fam/bzfwalk.inc's BZ_FTNEXT): ES:SI = its record, DL
+; its element, AL = the offset of its ON, AH = 1 a turntable's (its MASK turn
+; always, ON its warning while 0 < ON <= MASK) or 0 a popspike's (ON 0 never
+; up, ON past MASK always: no turn), BX = the offset of its MASK, its SEED the
+; byte after.  The STEP at n compares n with n + 1, so the turn is seen by the
+; STEP at n + k, k >= 1 the least with ((n + k + seed) AND mask) = ON - 1 or
+; MASK; when its lane is in the walk's slice [bz_lr0, bz_lr1) or its cell in
+; the window, bz_fwkk (a distance) is lowered to k - a turn anywhere else marks
+; and refills nothing.  Preserves all but AX and BX.
+; -----------------------------------------------------------------------------
+bz_ftnext:
+    push cx
+    cmp dl, [bz_lr0]
+    jb .win
+    cmp dl, [bz_lr1]
+    jb .go
+.win:
+    mov cl, [es:si + 2]         ; (the window: wx, wy within one of its centre)
+    sub cl, [bz_nwin]
+    inc cx
+    cmp cl, 2
+    ja .x
+    mov cl, [es:si + 3]
+    sub cl, [bz_nwin + 1]
+    inc cx
+    cmp cl, 2
+    ja .x
+.go:
+    push dx
+    push di
+    mov di, ax                  ; DI: ON's offset, the kind of timer
+    mov cl, [es:si + bx]
+    xor ch, ch                  ; CX = mask
+    mov al, [bz_nstep]
+    add al, [es:si + bx + 1]
+    xor ah, ah
+    and ax, cx                  ; AX = q, the phase on n
+    mov dx, ax
+    not ax                      ; the MASK turn: ((mask - q - 1) AND mask) + 1
+    dec ax
+    and ax, cx
+    inc ax
+    push ax
+    mov bx, di
+    xor bh, bh
+    mov al, [es:si + bx]
+    xor ah, ah                  ; AX = ON
+    or ax, ax
+    jz .no
+    cmp ax, cx
+    ja .no
+    sub ax, dx                  ; the ON turn: ((ON - q - 2) AND mask) + 1
+    dec ax
+    dec ax
+    and ax, cx
+    inc ax
+    pop dx
+    cmp ax, dx
+    jbe .min
+    mov ax, dx
+    jmp short .min
+.no:
+    pop ax
+    mov bx, di
+    or bh, bh                   ; (a popspike's no-turn: none)
+    jz .out
+.min:
+    cmp ax, [bz_fwkk]
+    jae .out
+    mov [bz_fwkk], ax
+.out:
+    pop di
+    pop dx
+.x:
+    pop cx
+    retf
+
+; -----------------------------------------------------------------------------
 ; bz_frst - a RESPAWN's families (SPEC.md 130.25.6.3, 130.25.7.2), from bz_step's
 ; .resp before the place: the RESPAWN class cleared - bz_fst AND NOT the
 ; course's RESPAWN MASK, its NFST bytes after the (ID, FAMV) pairs - then RESET
@@ -293,6 +453,7 @@ bz_frst:
 .r:
     pop es
     pop ds
+    mov byte [bz_fwall], 1      ; (every STEP runs next: 130.25.6.11)
     mov ax, 0100h | BZ_HK_RESET ; AH = 1: the RESPAWN class (a family with no
     call bz_fall                ; RESET entry is not called)
     pop di

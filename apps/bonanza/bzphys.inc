@@ -391,6 +391,7 @@ bz_pinit:
                                 ; first refill)
     call bz_flist               ; (130.25.6.10: each family's own records,
     mov es, [bz_cseg]           ; before its RESET walks them)
+    mov byte [bz_fwall], 1      ; (every STEP runs at the first step: 130.25.6.11)
     mov ax, BZ_HK_RESET         ; wave 9 (130.25.6.3): the families' RESET, class
     call bz_fall                ; 0 (bz_fst and the slots are zero), before the
                                 ; start's refill reads the state (none: no call)
@@ -1302,8 +1303,7 @@ bz_step:
     pop cx
     ret
 .fstep:                         ; (out of line) every family's STEP hook
-    mov ax, BZ_HK_STEP
-    call bz_fall
+    call bz_fstp                ; (each at its wake, 130.25.6.11)
     jmp .count2
 .poked:                         ; (out of the hot path) a harness's POKE: the
     mov al, [bz_pokd]           ; window round the ball's cell, whatever it was,

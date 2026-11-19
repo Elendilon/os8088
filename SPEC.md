@@ -276230,6 +276230,80 @@ their ceilings +30 paragraphs (`FAMILIES`' paras: spike 40, gate 44,
 turntable 24, water 47, seesaw 56, magnet 29, glass 48, archway 18). No
 kernel byte.
 
+##### 130.25.6.11 A family's STEP runs at its WAKE (the owner, 2026-11-19)
+
+*"We don't process everything, ever ... the events, and the other checks,
+and any family code, run against the list or a subset of the list never
+everything."* 130.25.6.10 made a family walk only its own records, but its
+STEP still ran every step and polled every timer for a turn. Nothing
+offscreen needs that: a timer's state is a function of the step count, read
+when something looks (the walk's POSE, the window's CELL), and a family whose
+state the ball moves is on the screen while it moves it.
+
+**The wake.** Each slot has a word `bz_fwk`: the `bz_nstep` its STEP next
+runs at, 0 every step (the default: a family that never writes it runs as
+before). `bz_fstp` (`bz_step`'s, in place of `bz_fall`'s STEP walk) calls a
+slot only when its wake is not ahead (a signed 16-bit difference) - or every
+slot when `bz_fwall` is set: a play's start (`bz_pinit`), a respawn
+(`bz_frst`), the walk's slice moved (`bz_props`' `.rng`: lanes entering need
+their turns scheduled) or the material changed since the last call (every
+STEP that compares it then runs). A family writes its wake (`BZ_FSETWK`,
+`fam/bzfwalk.inc`) at the end of its STEP; a CELL (a new window) or a CONTACT
+that starts something writes 0, so the STEP of that same step runs.
+
+**Timers** (`BZ_FTNEXT`): the STEP at n compares a timer's state on n and n
++ 1, so its next turn is seen by the STEP at n + k, k >= 1 the least with
+((n + k + seed) AND mask) = ON - 1 or MASK. Only a timer whose lane is in the
+walk's slice `[bz_lr0, bz_lr1)` or whose cell is in the window counts: a turn
+anywhere else marks nothing (130.19.10 item 11) and refills nothing. The
+STEP's wake is n plus the nearest (`bz_fwkk`, a distance, 4000h none).
+
+| family | its STEP sleeps | wakes at |
+|---|---|---|
+| SPIKE | popspikes and membranes | the nearest popspike turn in the slice or the window; every step while a membrane is the window's centre or TORN is set |
+| GATE | timed bridges, the channels' art | the nearest bridge turn; every step while an open channel's art is short of its last frame (CONTACT opening one writes 0) |
+| TURNTABLE | its turns and warnings | the nearest candidate step (t of n + 1 is 0 or WAT) |
+| GLASS | nothing counting | CONTACT starting a count writes 0; every step while one counts |
+| BOOST | no pad lit | CONTACT writes 0; every step while one is lit |
+| PICKUPS | no timed effect | CONTACT starting one writes 0 |
+| ARCHWAY | no archway in the window (CELL's LO still 8000h) | every step while one is |
+| MAGNET | the ball not steel | the material's change; every step while steel (in a tube or holed too: nothing wakes it when it comes out) |
+| WATER | the ball neither in nor over water | the next ripple turn (an ALWAYS one at (n + 1) AND 7 = 0, the ACTIVE one at (n + 1 - ENT) AND 7 = 0) |
+| WIND, PROBE, SEESAW, ROTOR, SPRING, TUBE | - | every step, as before (the probe counts its steps; wind is 130.34.14's) |
+
+**State**: none moves - the wake is the engine's and the families' cache,
+never compared with the model, and every STEP that would change a slot, a
+`bz_fst` byte, `bz_fref`, the ball or a mark runs at its step.
+`bonanzaphys --check` holds every family scenario guest == model at every
+step, a pose change in the slice marked; red `spwake` and `ttwake` (the wake
+one step late) go red ("never drawn").
+
+**MEASURED** (MartyPC, the owner's PLAYGROUND log re-stamped, steps 200 -
+279: the crack lab, `bzprof --steps 200 280`):
+
+| | before (68f947c85) | after |
+|---|---|---|
+| VGA 8088, frames a second | 34.4 | **36.6** (the 35 Hz camera's cap) |
+| CGA 5150, frames a second | 50.3 | 50.1 (its misses are the drawing's, ~20%) |
+| the hook dispatch (`bz_fh0`, + `bz_fstp` after) | 5.0 - 5.2% | 4.1 - 4.5% |
+| SPIKE, GATE, TURNTABLE STEP | 1.2 - 1.5% each | off the profile |
+
+The PLAYGROUND demo (`bzprof --demo play`) after it: VGA 37.0 frames a
+second (the cap), CGA **60.0** (every refresh). What the dispatch still costs
+(`bz_fstp`, ~3%) is its walk of ten STEP entries and the three families that
+run every step (the probe, wind, a counting glass).
+
+**The turn's arithmetic is the engine's** (`bz_ftnext`, far through
+`bz_ftnp`, which `bz_fstp` points): a family's `BZ_FTNEXT` is a five-line
+stub naming where its record keeps ON and MASK (its SEED the byte after,
+asserted in each part). **Bytes**: `BONANZA.O88`'s image +256 and bss +38
+(`bz_fwk` 30, `bz_fwkk`, `bz_fwm`, `bz_fwall`, `bz_ftnp`; 916 bytes left
+under `APP_MAX_SIZE`); the parts +543 (spike 628 -> 702, gate 697 -> 784,
+turntable 371 -> 452, glass 751 -> 788, boost 192 -> 229, pickups 483 ->
+532, archway 275 -> 323, magnet 449 -> 489, water 752 -> 842), their
+ceilings (`FAMILIES`' paras) spike 45, gate 50, turntable 29, glass 50,
+archway 21, magnet 32, water 54 (+31 paragraphs). No kernel byte.
+
 #### 130.25.7 Per-play state and resets (story 9.2)
 
 ##### 130.25.7.1 The reset classes

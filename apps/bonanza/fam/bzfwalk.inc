@@ -65,3 +65,42 @@
     pop cx
     ret
 %endmacro
+
+; -----------------------------------------------------------------------------
+; THE WAKE (SPEC.md 130.25.6.11): a family that schedules its STEP writes the
+; bz_nstep it next needs into bz_fwk (BZ_FSETWK; 0 every step).  Between, the
+; engine does not call it (bz_fstp) - unless a play starts, a respawn, the
+; walk's slice moves or the material changes, when every STEP runs.  A STEP
+; that schedules finds the nearest of its timers' next flips in bz_fwkk
+; (BZ_FTNEXT: a timer counts only when its lane is in the walk's slice or its
+; cell in the window - a flip anywhere else marks nothing and refills nothing),
+; and a CELL or CONTACT that changes what the STEP must watch writes 0.
+; -----------------------------------------------------------------------------
+
+; BZ_FSETWK name: DI = the slot's bytes, AX = the wake -> bz_fwk.  Preserves all.
+%macro BZ_FSETWK 1
+%1:
+    push bx
+    mov bx, di
+    sub bx, bz_fsl
+    shr bx, 1
+    shr bx, 1
+    mov [bz_fwk + bx], ax
+    pop bx
+    ret
+%endmacro
+
+; BZ_FTNEXT name, ON, MASK, TT: a timer's next turn into bz_fwkk - the
+; engine's bz_ftnext (bzfam.inc, far through bz_ftnp, which bz_fstp points;
+; one copy for every family), told where the record keeps ON and MASK (SEED
+; the byte after MASK) and TT (0 a popspike's timer, 1 a turntable's).  ES:SI
+; = the record, DL its element.  Preserves all but AX.
+%macro BZ_FTNEXT 4
+%1:
+    push bx
+    mov ax, %2 | %4 << 8
+    mov bx, %3
+    call far [bz_ftnp]
+    pop bx
+    ret
+%endmacro

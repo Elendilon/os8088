@@ -145,6 +145,8 @@ gl_contact:
     mov [di + 3], bl
 .cnt:
     inc byte [di]
+    xor ax, ax                  ; (counting: the STEP every step, 130.25.6.11)
+    call gl_setwk
 .mark:
     call gl_mark                ; its lane MARKED and the next walk made
 .out:                           ; (bz_fmark, 130.25.6.3)
@@ -165,8 +167,15 @@ gl_contact:
 gl_step:
     call gl_slot
     mov dl, [di]                ; DL: the counting cracks still to meet
-    or dl, dl
-    jz .out
+    xor ax, ax                  ; (130.25.6.11: counting, a STEP every step;
+    or dl, dl                   ; none, none until CONTACT starts one)
+    jnz .run
+    mov ax, [bz_nstep]
+    add ax, 4000h
+    call gl_setwk
+    retf
+.run:
+    call gl_setwk
     push bp
     mov es, [bz_cseg]
     mov al, [di + 2]
@@ -329,6 +338,7 @@ gl_mark:
     ret
 
     BZ_FWALK gl_walk
+    BZ_FSETWK gl_setwk
     BZ_FREC gl_recp, bp
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.
