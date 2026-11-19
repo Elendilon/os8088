@@ -6294,3 +6294,35 @@ worth more than this course:
   `bzprof` on VGA and CGA at the base and after. **Not run**: soak rows
   (named for the phase's scoped soak: `bonanzaphys`, `bonanzawheel`,
   `bonanzaring`, `bonanzaperf`, `bonanzamega`).
+
+## 2026-11-19 (after the per-family lists: WIND, and marks off the column band)
+
+- **Re-measured** the owner's PLAYGROUND log (re-stamped to the course's new
+  identity, 868Ch; the same keys) on MartyPC's VGA XT after 130.25.6.10's
+  lists, sampling the PC every 3 - 9k clocks and binning by step. Spike and
+  gate were down to ~1k a step each; **WIND was the largest family at
+  ~3.3 - 3.8k a step wherever the ball was**, against 130.34.7's predicted
+  1.3k with the ball under a blower.
+- **Discovered**: the walk's slice is block ROWS, and on the isometric
+  picture a row crosses the whole course - the wind yard sits on the crack
+  lab's rows a screen to the left. So item 11's slice test kept every wind
+  mark, and the gust tests behind them ran every step; the walk then found
+  those lanes OUT of the column band (`bz_lout`) and unmarked them again.
+- **Done** (SPEC.md 130.34.14, 130.19.10 item 12): `bz_fm1` drops a mark the
+  last walk held OUT of the band (the band moving re-marks it, `.cm`); WIND
+  tests the region before the gust, and skips the gust tests and fan-frame
+  compares that decide only a mark the slice or band would drop. The state
+  is the full step's; `WindFamily` is unchanged.
+- **Measured** (VGA, the same log): the apron 42.4 -> 50.0 frames/s (busy
+  62.7k -> 56.3k a frame); the crack lab 29.6 -> 30.3 (114k -> 111k). WIND's
+  share in the lab ~3.8k -> ~2.2k a step. Bytes: the image +7 (`bz_fm1`),
+  the WIND part 525 -> 593 (paras 33 -> 38).
+- **What the lab still pays is not a family**: with the camera scrolling
+  every frame, the walk re-reads every in-band lane's TRUE pose through the
+  full family dispatch (`bz_props` + `bz_fh0` ~8k a step there, ~5.6k on the
+  apron), and the camera's row writes. That is the next thing to look at.
+- **Run**: `tests/bonanza_phys.py --check` (every scene equal at every step;
+  the new `tt-rest` arm with every lane OUT, nothing marked, and red `ttband`
+  red; `wd_vis` forced off goes red on the wind scenes, 41 failures, then
+  restored); `make`, `make bonanzadisk`; MartyPC VGA frames and profile.
+  **Not run**: soak rows, `test-full`.

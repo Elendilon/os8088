@@ -281123,6 +281123,21 @@ the skip's kinds, three taken jumps) - item 6 below.
    `tt-rest` with the slice EMPTY: nothing marked, the walk never woken; red
    `ttslice` (the slice test NOPed) goes red there. MEASURED with
    130.25.6.10.
+12. **(the owner's field report, 2026-11-18) A mark off the column band
+   is no mark either.** Item 11's slice is ROWS, and on the isometric
+   picture a row runs across the whole course: PLAYGROUND's wind yard
+   (17 - 22, 29 - 36) is on the crack lab's (35 - 44, 14 - 19) rows a screen
+   to the left, so its fans and gust turns marked lanes inside the slice
+   that the walk then found OUT of the column band (`bz_lout`) and unmarked
+   again - about 0.7k clk a lane, and a walk woken for it. `bz_fm1` now also
+   drops a mark whose lane `bz_lout` holds OUT. Nothing is lost, by the
+   walk's own band rules: when the band MOVES, every lane of the slice that
+   was OUT and is in it now is marked (`.cm`), and an OUT lane back in the
+   band is walked whatever its skip says. A lane `bz_lout` holds IN, or no
+   walk has yet judged (0 at a play's start), is marked as before. +7 bytes
+   of the image. `bonanzaphys`'s unicorn half plays `tt-rest` with every lane
+   OUT (`urun`'s `out`): nothing marked; red `ttband` (the new test NOPed)
+   goes red there.
 
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
@@ -289657,6 +289672,37 @@ re-authored, the same keys: identity 37BDh -> 9936h.
 Then the clocks began to occlude (130.18.5.4): the course reached 257
 masks, so the end plate's FRONT guard rail is left off (the far one stays);
 the demo re-authored again, the same keys: identity 9242h.
+#### 130.34.14 WIND off the screen costs a region test (the owner's field report, 2026-11-18)
+
+The owner: props off the screen, or on it and still, should cost almost
+nothing. **MEASURED** on their PLAYGROUND log (down and right held into the
+crack lab, MartyPC's `os8088_xt_vga`, the guest's PC sampled every 3 - 9k
+clocks and binned by step, after 130.25.6.10's lists): WIND cost about
+**3.3k clocks a step wherever the ball was** - `wd_step` 1.8 - 2.0k, the
+gust test `wd_on` 0.7 - 1.2k, `wd_rec` and `wd_turn` the rest - against
+130.34.7's predicted 1.3k with the ball UNDER a blower. Its yard is a screen
+away from the lab: every gust test there decided only a MARK that
+`bz_fmark` then dropped off the slice (130.19.10 item 11).
+
+So STEP now does, for each element of its list:
+
+- a WISP, or a FLAGGED blower's gust turn: the two gust tests and the mark
+  only when the element's lane can be marked - in the walk's slice
+  `[bz_lr0, bz_lr1)` (a lone element's lane is its index) and not held OUT
+  of the column band (`bz_lout`, 130.19.10 item 12), or a GROUP MEMBER,
+  whose lanes `bz_fmark` checks one by one;
+- a BLOWER's push: the region test FIRST (the ball's cell, `bz_nwin`; 0FFh
+  dead, never inside), and the gust test only for a cell inside it - the
+  push needs both, and a FAN's spin goes to `BZ_WD_SPIN` only on both, so
+  with the cell outside the result is the same without the gust test;
+- a FAN's spin byte: always (it is state), and its two frames compared for
+  a mark only when its lane can be marked.
+
+Every state byte and every mark `bz_fmark` keeps are the full step's, so
+`bbcourse.WindFamily` is unchanged and `tests/bonanza_phys.py --check`
+holds the guest to it. POSE is unchanged (a lane entering the slice reads
+its true pose there, 130.19.10 item 6).
+
 ### 130.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
 
 The owner: a thin GUARD RAIL that *"blocks anything from getting over"*,

@@ -520,7 +520,7 @@ FAMILIES = (
      "kinds": ({"name": "blower", "kind": FAM_K0 + 24, "bits": 8, "cls": CL_ATTEMPT, "art": "wind",
                 "forms": ("own",), "states": (0,), "pickup": False},
                {"name": "wisp", "kind": FAM_K0 + 25, "bits": 0, "cls": CL_ATTEMPT, "art": "wisp",
-                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 33,
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 38,
      "home": HOME_RESIDENT},
     # BOOST PADS (SPEC.md 130.40, the props round's P4): a pad of CHEVRONS on a flat floor that pushes a GROUNDED
     # ball whose centre is on it along its FACE (+18: +x -x +y -y) by its STRENGTH (+19), the SAME for every ball

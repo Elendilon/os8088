@@ -1804,7 +1804,7 @@ def _cellb(c):
     return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
 
 
-def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None, slice=None):
+def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None, slice=None, out=()):
     """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
     bz_step under unicorn, the model stepped beside it and compared after
     every step: the ball (Physics.state), and on a course with families
@@ -1816,6 +1816,8 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     lanes [lo, hi) (bz_lr0, bz_lr1), default every lane - bz_fmark marks
     and wakes nothing outside it (SPEC.md 130.19.10 item 11), so a pose
     change there must leave its lane UNmarked, and one inside it marked.
+    OUT: lanes poked OUT of the column band (bz_lout 1, as a walk leaves a
+    lane of the slice outside it): unmarked too (130.19.10 item 12).
     -> (model, failures)"""
     c = R.course(crs, src=src)
     g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
@@ -1864,6 +1866,8 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     lo, hi = slice if slice is not None else (0, 255)   # (130.19.10 item 11: the walk's slice, which no walk
     g.w("bz_lr0", lo, 1)                                # moves here)
     g.w("bz_lr1", hi, 1)
+    for j in out:                                       # (130.19.10 item 12: held OUT of the column band)
+        g.w("bz_lout", 1, 1, j)
     alll = [pr["i"] for pr in p.props if pr.get("lane")]    # SPEC.md 130.19.10 item 10: EVERY lane's KICK and
     for i, k in enumerate(keys):                            # HOLD too (bz_pkick, bz_lhold: a post's)
         g.w("bz_keys", k, 1)
@@ -1884,6 +1888,11 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                     if g.r("bz_latt", 1, False, pr["i"]):
                         bad.append("step %d: element %d off the slice [%d, %d) MARKED (pose %d -> %d)" % (
                             i, pr["i"], lo, hi, q0, q1))
+                    continue
+                if pr["i"] in out:              # (OUT of the column band: never marked, item 12)
+                    if g.r("bz_latt", 1, False, pr["i"]):
+                        bad.append("step %d: element %d OUT of the band MARKED (pose %d -> %d)" % (
+                            i, pr["i"], q0, q1))
                     continue
                 if q1 != q0 and (not g.r("bz_latt", 1, False, pr["i"]) or g.r("bz_lqt", 1, False)):
                     bad.append("step %d: element %d's pose %d -> %d, but bz_latt %d, bz_lqt %d (never drawn)" % (
@@ -3291,6 +3300,19 @@ def tt_host(binp, lst, sym):
         if arm == "ttslice-green":
             out.append("turntable tt-rest, the slice empty: %s" % ("; ".join(bad)[:200] or "nothing marked"))
             fails += ["turntable tt-rest (the slice empty): %s" % b for b in bad]
+        else:
+            out.append("red %s (tt-rest): %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
+            if not hit:
+                fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+    # SPEC.md 130.19.10 item 12: tt-rest's flips with every lane held OUT of the column band (bz_lout) - nothing
+    # marked; red ttband, bz_fm1's band test gone (its 7 bytes after the slice's 12)
+    alln = list(range(len(R.course("turn", src=TT_SRC).props)))     # (every record's lane byte: OUT)
+    for arm, pp in (("ttband-green", ()), ("ttband", (("bz_fm1", b"\x90" * 19),))):
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=0, out=alln)
+        hit = next((b for b in bad if "OUT of the band" in b), None)
+        if arm == "ttband-green":
+            out.append("turntable tt-rest, every lane OUT of the band: %s" % ("; ".join(bad)[:200] or "nothing marked"))
+            fails += ["turntable tt-rest (every lane OUT): %s" % b for b in bad]
         else:
             out.append("red %s (tt-rest): %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
             if not hit:
