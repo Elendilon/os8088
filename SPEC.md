@@ -281550,6 +281550,8 @@ A song part:
 +0  'BM', version 1, groove length     +4  the groove: four sub-tick counts
 +8  rows a pattern    +9  order length    +10 loop row   +11 flags
       bit 0 `spkbass`: the speaker takes the bass where the lead rests
+      bit 1 `spkring`: a drum keyed INSIDE an arpeggiated lead note (one
+            whose instrument has a macro) is not blipped on the speaker
 +12 dw order (4 bytes a row: lead, bass, chord, drum phrase; 0FFh silent)
 +14 dw phrases (a word each)    +16 dw chord shapes (two intervals each)
 +18 the four channels' instruments
@@ -281574,7 +281576,7 @@ face's fifth line names it and, under AUTO, the arm found.
 
 | arm | plays | through |
 |---|---|---|
-| **speaker** | ONE voice: the effect (its silences too), else a drum's blip (`spk N` sub-ticks from its key), else the lead, else - `spkbass` - the bass once the lead has been silent 2 sub-ticks | `OSAPI_SND_TONE`, only when the PITCH or the note sounding it changes, every tone with a duration: the source's sub-ticks left in system ticks, plus one, so nothing drones when the loop stops |
+| **speaker** | ONE voice: the effect (its silences too), else a drum's blip (`spk N` sub-ticks from its key; under `spkring` not one keyed after an arpeggiated lead note began, which would break the arpeggio's ring - Trial's B), else the lead, else - `spkbass` - the bass once the lead has been silent 2 sub-ticks | `OSAPI_SND_TONE`, only when the PITCH or the note sounding it changes, every tone with a duration: the source's sub-ticks left in system ticks, plus one, so nothing drones when the loop stops |
 | **AdLib** | channels 0 - 4 lead, bass, chord; the drums on 5, or on 6 for an instrument marked `alt` (the noise family: snare, hat, clap); the effect on 7; 8 is the tone tier's (§34.12) | `SND_FM_CLAIM` (OPL2 mode), then at most ONE `SNDV_OPLW` batch a frame of only the registers a voice that changed (`bzs_dirty`) needs: A0h/B0h, the carrier's 40h for a volume, a patch when the channel's patch ID changes |
 
 **What a register costs decides the AdLib's design.** MEASURED on MartyPC's
