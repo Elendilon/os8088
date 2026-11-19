@@ -293708,3 +293708,203 @@ and is what decides how the tiers are spaced; this section only makes the rungs 
 - `bonanzaphys`, `bonanzareplay`, `bonanzademo`, `bonanzaexit`, `bonanzaperf` (MartyPC): the demos replayed
   under the new identities, the guest equal to the model, the CELLS expansion equal to the RAM form, and
   the frame's cost.
+### 130.49 Occluders at the REAL poses, the low flight, and AV over split cells (the owner, 2026-11-19; on `bb-occfix`)
+
+The owner, 2026-11-19, looking at an occluder-record map of ROLL: *"At the
+top area, there are wide open, front facing platforms and a couple of
+ramps. At all times the ball is entirely on top of these; the only way they
+occlude at all is falling behind them, which should be handled by AV not
+occluder records."* The map's records over ROLL's top platforms (342 of
+them in the area circled) were explained ball pose by ball pose: 142 were
+laid at NO pose a ball can be in, 84 bit a ball bouncing on a ramp (a
+WRONG hide: the ball is on top), and the other 116 hid a ball falling
+through a diagonal corner's empty half, or past one, where AV (130.29) did
+not run or could not see. The owner's decisions:
+
+| | decision |
+|---|---|
+| **130.49.6, the low flight** | an airborne ball less than `BZ_CLIMB` px over the floor under it (`bz_ghv`, its height `bz_gh`) takes the grounded margin. "For sure, fix this" |
+| **130.49.5, the real-pose cut** | records are cut at the poses a ball can really be in: a ramp or split cell in squares at the floor under them. "This one seems free" |
+| **130.49.1 - 4, AV over split cells** | the model runs in a split cell's VOID piece, and counts split pieces in front. "Do it, optimise it, and check it didn't tank performance" |
+| shapes (FIELD cells) | NOT changed: their "inside the shape" occlusion is the owner's, kept; the last to target if ever |
+| where | a branch of its own, `bb-occfix`, until it works and its performance is accepted |
+
+Everything a rail, an arch, a block or a prop hides is unchanged: those
+records are right, and the map after this section is what remains of them.
+
+#### 130.49.1 The model in a split cell
+
+130.29.2's model runs, in addition, when the ball's centre cell V is a
+SPLIT cell (kinds 4 - 6), not `FL_FLOAT`, and the record its PICK names at
+the ball's in-cell point (130.24.7.1, `pu = gx & 0FFFh`, `pv = gy & 0FFFh`)
+is VOID. The guest notes V's VOID pieces as a bit mask when it first reads
+V, and on every frame in V picks with physics's own `bz_dpick`.
+
+A split cell that FLOATS (130.27.2) carries `FL_FLOAT` (+3 bit 6) as a
+whole cell does; the model passes over its pieces. `read_part` accepts bit 6
+on a split cell (bits 4, 5 and 7 stay zero); no step of physics reads it.
+
+#### 130.49.2 Pieces in front: half-edges
+
+A front cell (130.29.2's `N`) that is SPLIT, not `FL_FLOAT`, counts piece by
+piece. Each FLOOR, WALL or GOAL piece contributes HALF-EDGES - one per half
+of the cell's columns its top edge spans - and V's OWN front pieces (an LR
+cell's down half, a quartered cell's E and S: keyed `s + 1`, 130.24.6.3)
+count too:
+
+| piece | its half-edges |
+|---|---|
+| TB A (left) / B (right) | left `T` / right `T` |
+| LR A (up) | left `T`, right `T` |
+| LR B (down) | left `C`, right `C` |
+| QUARTERED N, E, S, W | right `T`; right `C`; left `C`; left `T` |
+
+A `T` half-edge is 130.29.2's `E(x)` on the piece's own plane (`Y = 8 sN +
+Y0 - 2 z0`, `z0` quarter units (130.48); the right half `k = 2 - sx`, `+ 4`; the left `k = 2 - sy`, `+
+3`). A `C` half-edge is the L - R diagonal from the cell's centre, `Yc = Y +
+8 - 2 (sx + sy)`:
+
+    E(x) = Yc + floor((k (2 d + 1) + 8) / 16),   right: d = x - X, k = sy - sx;   left: d = X - 1 - x, k = sx - sy
+
+(MEASURED against `spans` over every slope pair -4 .. 4: equal in all 81 on
+the flat and in every column but the three at each end of the steep ones.)
+A piece's `H` is its OWN polygon's highest vertex - `T`, `R`, `B`, `L` and
+the centre `2 z0 + 2 (sx + sy)` - every one an even px, as the guest's `H / 2` holds it (130.48). Below its
+top edge a piece is its top, then its faces down to the ground plane
+(130.27.1: a FRONT face too), so the model's argument is a whole cell's.
+
+#### 130.49.3 The guest's extra slots
+
+A split piece's half-edges go to a table of their own, `bz_axl`, **24
+slots** (`BZ_AXMAX`) of the front table's 8 bytes - `H / 2`, X, Y, `k`, the
+flags (8 an extra slot, 4 a `C` edge, 1 / 2 the half it is not) - and
+`bz_arange` and the count set walk it after the 14 regular slots. A split
+cell's own regular slot stays unreadable, so the parent's shadow
+(130.29.5) never reads a piece. The slots fill in a fixed order - V's own
+front pieces, then `d = 1 .. 4`, `i = 0 .. d`, each cell's pieces in `D`'s
+order and each piece's half-edges left before right - and at `BZ_AXMAX` the
+rest are passed over; the tool's model fills and stops in the same order, so
+what is passed over is the residual's. A table with any extra slot is read
+WHOLE at the next V (the neighbour's copy, 130.29.5, copies regular slots
+only).
+
+#### 130.49.4 The residual over split cells
+
+130.29.3's VOID positions are, in addition, each `FOCC x FOCC` square of a
+split reach cell holding a VOID point (its footprint 130.28.6's square, its
+heights the cell's range): the residual is computed there exactly as over a
+VOID cell. The square's other points are cut by the rule (130.49.5).
+Completeness (`av_proof`) and WRONG-HIDE (`av_wrong`, a split square's VOID
+points of its lattice) run over the same positions.
+
+#### 130.49.5 The real-pose cut
+
+130.10.4.4's reachable set took every reach cell's WHOLE area at every height
+from its lowest to its highest. The cutter (`feet_real`) takes, for a STATIC
+cell:
+
+- a flat FLOOR or GOAL cell: its area at its floor and above;
+- a RAMP (a sloped FLOOR or GOAL whole cell): `FOCC x FOCC` squares (4 ground
+  units), each at the lowest floor of its integer points;
+- a SPLIT cell: the same squares, cut twice where a square holds both - its
+  VOID points at the cell's whole range (the model's where it runs,
+  130.49.4), its solid ones at their lowest floor;
+- every other cell - VOID, WALL, a FIELD cell (130.28.6's own cut) and the
+  cells that MOVE or vanish (glass, guard rails, bridges, turntables,
+  see-saws, lifts' slabs, every prop's cell) - its whole area, as before.
+
+A square over FLOOR or GOAL alone lays a pixel only where its top is over
+the square's lowest floor + `BZ_CLIMB` (130.49.6). Physics never leaves a
+ball's centre below the floor of the record under it (130.24.7.1, step 6),
+so the cut lays every pixel the rule lays at a real pose. The merge's
+queries (130.11.4.1) and the gate's flags (`OCC`, `OCCG`) keep the whole-cell
+superset: the merge stays exact over it, and the flags stay a superset of the
+real poses' verdicts.
+
+**The 256 masks** (130.15.5): a finer cut makes more distinct masks. A course
+whose real-pose cut names more than 256 is cut again in 8, then 16 unit
+squares, then as before this section, and the run says so on stderr - the
+PLAYGROUND, 250 masks before and 262 at 4 units, takes 8.
+
+#### 130.49.6 The low flight
+
+The rule's margin `m` (130.10.4.4) is `BZ_CLIMB` for a grounded ball, and
+for an AIRBORNE ball over a floor (`bz_ghv` set) whose `z_b` is under
+`(bz_gh >> 2) + BZ_CLIMB`; 0 otherwise. A ball bouncing on a ramp rose a
+pixel off it and the next cell of the same ramp, one row nearer by its cell
+index and higher at its back than the ball's front, was laid over the ball's
+lower corner. Its one cost is the grounded margin's: a ball that low over a
+step of exactly a half unit is drawn whole over that step's 4 px face. The
+gate is unchanged (`OCC` for an airborne ball, a superset of `OCCG`).
+`bbcourse.Physics.oair` is the host's air state for the rule.
+
+#### 130.49.7 The flat word
+
+A footprint word whose eight columns' least edge is ONE line `E` (`bz_awlo
+= bz_awhi`: a flat piece's centre edge, the horizontal L - R diagonal) is laid
+without a mask: `bz_oprep`'s lines are moved down to `[E, re)` and laid under
+the checker alone (`bz_achk`, `bz_achkv` on the VGA), and moved back. A whole
+cell's half-edge falls a line every two columns, so only a centre edge makes
+one; it is the corner fall's case. PRICED on ROLL's two corner falls (frame
+after frame, the cell cache as play uses it): a frame behind (8, 8)'s own
+down half 20.3k -> 12.4k clk.
+
+#### 130.49.8 As built (MEASURED)
+
+**Records** (the tool, `--occ void`, f6b7c84's cut against this section's):
+
+| course | records | masks |
+|---|---|---|
+| BENCH | 1,309 -> 291 | 68 -> 41 |
+| FIRST | 120 -> 68 | 44 -> 33 |
+| TRIAL | 355 -> 212 | 61 -> 56 |
+| MILL | 449 -> 352 | 82 -> 70 |
+| MOON | 1,594 -> 1,035 | 96 -> 74 |
+| PEAK | 1,573 -> 1,356 | 102 -> 85 |
+| PLAY | 2,673 -> 2,420 | 250 -> 252 (8 gu squares: 130.49.5) |
+| ROLL (`BZROLL=1`) | 1,507 -> 1,116 | 170 -> 156 |
+| HOP (`BZROLL=1`) | 1,200 -> 992 | 108 -> 92 |
+| the title | 344 -> 298 | 43 -> 41 |
+
+ROLL's top platforms, the owner's circled area: 342 records -> 56, of which 14
+hide a ball falling behind the start CLOCK (a prop: the model passes over it,
+rightly) and 42 are the residual's own superset (a square's whole height
+range at its whole footprint).
+
+**The guest against the host** (`tests/bonanza_av.py`, unicorn): every buffer
+byte, laid count and model verdict equal on every shipped part, the pathway,
+the title, ROLL, HOP and the PLAYGROUND (300 VOID positions, the falls, the
+CORNER falls of 130.49.4's squares, the others with a third of the airborne
+ones a LOW FLIGHT). Red arms, each red: `lowfl` (the margin left out),
+`apick` (a split V's pick ignored), `acent` (a centre edge a line low),
+`aflat` (a flat word laid from the first laid line).
+
+**The fall frames** (MartyPC, `tests/bonanza_perf.py`'s `avfall_leg` with
+ROLL's falls added, `AVFALL["roll"]`: U and D through the start platform's
+corners (8, 8) and (11, 11), L, R, UL and UR off its plain edges; this build
+and f6b7c84 each replayed through R, frames paired by step count, the pass's
+span; AV - f6b7c84, mean / median):
+
+| card, run | VOID cells | SPLIT pieces | other gated frames | frames presented |
+|---|---|---|---|---|
+| CGA, MILL falls | -0.3k / +0.1k | - | (6 frames) | 1,109 / 1,104 |
+| CGA, PEAK falls | +0.1k / +0.1k | - | -0.2k / 0.0k | 1,175 / 1,181 |
+| CGA, PEAK's demo | +0.1k / +0.1k | - | -0.1k / 0.0k | 2,371 / 2,370 |
+| CGA, ROLL falls | -0.2k / +0.1k | **+5.8k / +4.7k** (22 frames; 5.9k -> 11.7k) | -0.8k / -0.6k | 783 / 783 |
+| Hercules, MILL falls | +0.2k / +0.1k | - | (4 frames) | 938 / 944 |
+| Hercules, PEAK falls | +0.6k / +0.1k | - | -0.3k / -0.1k | 1,011 / 1,016 |
+| Hercules, PEAK's demo | +0.6k / +0.1k | - | -0.3k / 0.0k | 2,021 / 2,023 |
+| Hercules, ROLL falls | -0.5k / +0.1k | **+6.1k / +4.7k** (20 frames; 5.7k -> 11.9k) | -0.1k / -0.6k | 668 / 665 |
+
+A corner's fall frame now costs what any fall frame AV takes over costs (ROLL's
+VOID cells: 16.5k on the CGA), and before the flat word (130.49.7) it was
++7.8k / +1.8k on the CGA and +9.6k / +12.3k on the Hercules. Every other frame
+is f6b7c84's. The worst frames ("worst" pairs a frame one build gated and the
+other did not) are not quoted.
+
+**The rows** (the final pass's): `bonanzacourse` (items 1, 5, 6 and 15 move:
+1 and 6 compile on the whole-cell cut, 5's positions are REAL poses), `bonanzaav`
+(`tests/bonanza_av.py`), `bonanzaring` (its oracle's air state is
+`Physics.oair`'s), `bonanzaphys`, `bonanzareplay` (the re-authored demos),
+`bonanzaperf` (the fall legs), `bonanzawheel`, `bonanzapath`, `bonanzatitle`,
+`bonanzaexit`, `bonanzamega`.

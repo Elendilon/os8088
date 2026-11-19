@@ -2658,6 +2658,7 @@ bz_bsload:
 bz_crshdr:
     mov word [bz_acptr], -1     ; (SPEC.md 130.29: the model's cell, emptied,
     mov word [bz_awx], -1       ; its grid cell,
+    mov word [bz_axe], bz_axl   ; no extra slot (130.49.3),
     mov word [bz_omp], bz_omsk  ; and bz_olay's mask in our segment)
     push es
     mov es, [bz_cseg]
