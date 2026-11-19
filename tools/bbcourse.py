@@ -1210,6 +1210,8 @@ class Source:
         self.palette = None         # wave 6 (SPEC.md 130.16.6): (the 3D9h byte, line); never in the part
         self.music = None           # wave 7 (SPEC.md 130.18.6): (the song's number, line); never in the part
         self.medals = None          # wave 8c (SPEC.md 130.19.8.3): (G, S, line), whole seconds
+        self.version = None         # SPEC.md 130.22.5.1: `version <n>`, (n, line): the save key's (a course's) or
+                                    # the slots' (the pathway's); in no part and no identity
         self.noocc = []             # SPEC.md 130.53: [(frozenset of cells, line)] - `noocclude`'s
         self.mbands = None          # SPEC.md 130.52: `masks banded`'s line - a mask table a band (opted into)
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
@@ -3396,6 +3398,11 @@ def _parse_text(text, fname="<course>"):
                     or not LIMIT_MIN <= int(toks[1][1]) <= LIMIT_MAX:
                 raise CourseError("%s: limit takes whole seconds, %d - %d" % (where, LIMIT_MIN, LIMIT_MAX))
             src.limit = (int(toks[1][1]), ln)
+        elif st == "version":                       # SPEC.md 130.22.5.1: the save's version, 1 - 255
+            if src.version is not None or len(toks) != 2 or toks[1][0] != 'w' or not _INT.match(toks[1][1]) \
+                    or not 1 <= int(toks[1][1]) <= 255:
+                raise CourseError("%s: version takes <n>, 1 - 255, once (SPEC.md 130.22.5.1)" % where)
+            src.version = (int(toks[1][1]), ln)
         elif st == "medals":                        # wave 8c (SPEC.md 130.19.8.3): medals G S
             if src.medals is not None or len(toks) != 3:
                 raise CourseError("%s: medals takes <G> <S> (whole seconds), once" % where)
@@ -5251,6 +5258,7 @@ def page_windows(view, npages, x0, y0, fname):
 
 PATH_STMTS = ("pages", "icon", "route", "lives", "rail", "titles")
 PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 130.22.5)
+PAD_MAX = 23                  # BZ_PAD_MAX: the pads a pathway may have, BONANZA.DAT's word-a-pad tables (130.22.5.1)
 PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
 PAD_POSES = 4                 # a pad's sign: 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (130.22.2)
@@ -5516,6 +5524,9 @@ def path_prepare(src, fname, crsinfo):
     if not pads or nums != list(range(len(nums))):
         raise CourseError("%s:%d: the pads are numbered %s, not 0 - %d with pad 0 the start" % (
             f, src.pathway, nums, max(len(nums) - 1, 0)))
+    if len(pads) > PAD_MAX:
+        raise CourseError("%s:%d: %d pads: BZ_PAD_MAX is %d, the width of a BONANZA.DAT slot's word-a-pad "
+                          "tables (SPEC.md 130.22.5.1)" % (f, src.pathway, len(pads), PAD_MAX))
     for q in pads:
         if q["crs"] not in crsnames or q["crs"] == "BENCH":
             raise CourseError("%s:%d: pad %d plays %r, which is not a course of BZ_COURSES (BENCH is none): %s"
@@ -12429,6 +12440,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 130.22): the pathway's, None on a course
     c.paged = pth is not None
     c.ident = ident
+    c.version = src.version[0] if src.version else 1   # SPEC.md 130.22.5.1: never in the identity above
     c.gflags, c.padmask = gflags, padmask
     c.par = 0                                       # (wave 7: refused; kept for the cross-commit item 1)
     c.pal = src.palette[0] if src.palette else PAL_DEFAULT     # wave 6: not in the part (130.16.6)
@@ -19471,6 +19483,26 @@ def _raised_tops(course):
 # the outputs
 # =============================================================================
 
+def save_key(c):
+    """SPEC.md 130.22.5.1: a course's SAVE KEY, BONANZA.DAT's best entries' +0 - CRC-16/CCITT of its NAME's
+    bytes then its `version` byte.  Moves when the name or the version does, never with the art or the K"""
+    return crc16_ccitt(c.name.encode("ascii") + bytes([getattr(c, "version", 1)]))
+
+
+def check_keys(courses):
+    """SPEC.md 130.22.5.1: no two courses share a save key, and none is 0 (an empty entry's)"""
+    keys = [save_key(c) for c in courses]
+    for k, c in enumerate(courses):
+        if keys[k] == 0:
+            raise CourseError("%s: its save key (CRC-16/CCITT of %r and version %d) is 0, an empty entry's: "
+                              "raise its version (SPEC.md 130.22.5.1)" % (c.fname, c.name, c.version))
+        if keys[k] in keys[:k]:
+            o = courses[keys.index(keys[k])]
+            raise CourseError("%s and %s share the save key %04Xh: raise one's version (SPEC.md 130.22.5.1)"
+                              % (o.fname, c.fname, keys[k]))
+    return keys
+
+
 def emit_inc(courses, path=None, title=None):
     allc = courses + ([path] if path is not None else [])   # wave 8b (130.19.5): the pathway's entry LAST
     if title is not None:                           # SPEC.md 130.23.1: the TITLE's after the pathway's
@@ -19527,6 +19559,11 @@ def emit_inc(courses, path=None, title=None):
               "BZ_SECSTEPS     equ %d       ; wave 7: the clock's second, steps (130.18.1)" % SEC_STEPS,
               "%macro BZ_CRS_IDS 0",
               "    dw " + ", ".join("%05Xh" % c.ident for c in allc),
+              "%endmacro",
+              "; SPEC.md 130.22.5.1: each course's SAVE KEY (CRC-16/CCITT of its NAME, then its `version`), a",
+              "; word a course - BONANZA.DAT's best entries are found by it, never by K",
+              "%macro BZ_CRS_KEYS 0",
+              "    dw " + ", ".join("%05Xh" % k for k in check_keys(courses)),
               "%endmacro",
               "; each course's FLAGS (checkpoints), a byte a course: the face's `flags <n>/<m>`",
               "%macro BZ_CRS_NCKS 0",
@@ -20035,14 +20072,23 @@ def emit_path(path, courses, title=None):
            "%macro BZ_CRS_ARENA 0",
            "    dw " + ", ".join(str(crs_arena(c, k, len(courses))) for k, c in enumerate(_allc(courses, path, title))),
            "%endmacro"]
+    out += ["BZ_PAD_MAX      equ %d       ; the most pads (SPEC.md 130.22.5.1): a BONANZA.DAT slot's "
+            "word-a-pad tables" % PAD_MAX]
     if path is None:
-        return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 130.22)", "BZ_PATH_CLAIM   equ 0", ""]
+        return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 130.22)", "BZ_PATH_CLAIM   equ 0",
+                      "BZ_PATH_VER     equ 1", ""]
     pth = path.pth
     return out + [
         "; wave 8R (SPEC.md 130.22): THE PATHWAY - course BZ_CRS_PATH (= BZ_NCRS: its entry",
         "; last in every BZ_CRS_ table), part BZPATH.BIN; its tables are the part's (PTHOFF)",
         "BZ_CRS_PATH     equ %d" % len(courses),
-        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PADS),
+        "BZ_PATH_VER     equ %d        ; its `version` (SPEC.md 130.22.5.1): a slot's +20" % path.version,
+        "; SPEC.md 130.22.5.1: each pad's EXITS, a bit an exit of the course it plays - a slot's exits",
+        "; found are masked to them on load (a word a pad)",
+        "%macro BZ_PAD_EXITS 0",
+        "    dw " + ", ".join("%05Xh" % sum(1 << e for e in course_exits(courses[q["K"]])) for q in pth["pads"]),
+        "%endmacro",
+        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PAD_MAX),
         "BZ_PATH_CLAIM   equ %d      ; paragraphs: the pathway part's RAM form" % ((len(path.cga) + 15) // 16),
         ""]
 
@@ -20722,7 +20768,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     check_physv()                              # wave 6 (SPEC.md 130.16.9): no earlier physics' value
     if len(paths) > CRS_MAX:
         raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
-                          "BONANZA.DAT's BZS4 (SPEC.md 130.22.5)" % (len(paths), CRS_MAX))
+                          "BONANZA.DAT's BZS5 (SPEC.md 130.22.5.1)" % (len(paths), CRS_MAX))
     # (the courses and the title, a core each: no compile reads another's; the first refusal in the
     # sequential order is the one raised, and the title's where the sequential run compiled it)
     got = par_map(compile_course, list(paths) + ([title] if title else []))
@@ -20735,6 +20781,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
         raise CourseError("two courses share a NAME: %s" % names)
+    check_keys(courses)                            # SPEC.md 130.22.5.1: the save keys
     for c_ in courses:
         finish_reach_rule(c_)
     compile_all.clocks = [finish_clock_rule(c) for c in courses]   # wave 8R (SPEC.md 130.22.6): every finish

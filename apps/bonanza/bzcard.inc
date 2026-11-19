@@ -278,11 +278,12 @@ bz_knum:
     loop .o
     ret
 
-; bz_kinfo - THE INFO CARD (130.22.6): AL = the pad's course K.  Its NAME; its
-; ball; LIMIT s; GOLD s and SILVER s; BEST s.t and the medal won, or NOT
-; PLAYED; EXITS n OF m (the exits found of those the course has); and NOT
-; SAVED while the last write of BONANZA.DAT was refused.  The slot is the one
-; played (bz_dslot).  Drawn over the frozen frame (bz_card); bz_kinfow waits
+; bz_kinfo - THE INFO CARD (130.22.6): AL = the pad's course K, [bz_ppad] the
+; pad.  Its NAME; its ball; LIMIT s; GOLD s and SILVER s; BEST s.t and the
+; medal won, or NOT PLAYED; EXITS n OF m (the exits found of those the course
+; has); and NOT SAVED while the last write of BONANZA.DAT was refused.  The
+; slot is the one played (bz_dslot); its best and exits found are the PAD's
+; (130.22.5.1).  Drawn over the frozen frame (bz_card); bz_kinfow waits
 ; for a key and takes it away.  Preserves ES, nothing else.
 bz_kinfo:
     mov [bz_ikc], al
@@ -334,9 +335,8 @@ bz_kinfo:
     pop ax
     call bz_ksec
     call bz_kend
-    call bz_kk                  ; BEST s.t and its medal, or NOT PLAYED
-    shl bx, 1
-    call bz_dslot
+    call bz_kp                  ; BEST s.t and its medal, or NOT PLAYED: the
+    call bz_dslot               ; PAD's (130.22.5.1)
     mov ax, [si + bx + BZD_SBEST]
     mov [bz_ibest], ax
     mov si, bz_ks_notp
@@ -372,8 +372,7 @@ bz_kinfo:
     call bz_kput
 .bl:
     call bz_kend
-    call bz_kk                  ; EXITS n OF m
-    shl bx, 1
+    call bz_kp                  ; EXITS n OF m: the PAD's found of its course's
     call bz_dslot
     mov ax, [si + bx + BZD_SEXIT]
     xor cx, cx
@@ -418,6 +417,11 @@ bz_kend:
 bz_kk:
     mov bl, [bz_ikc]
     xor bh, bh
+    ret
+bz_kp:                          ; BX = 2 x the pad shown (the slot's words)
+    mov bl, [bz_ppad]
+    xor bh, bh
+    shl bx, 1
     ret
 bz_ksec:
     xor dx, dx

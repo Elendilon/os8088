@@ -25,12 +25,14 @@ bonanzadisk builds it, and nothing else):
           and BONANZA.DAT holds FIRST's best alone
   hostile one boot a file: a BONANZA.DAT the host wrote onto SYSTEM\\APPDATA
           (a 32-byte file whose bytes are a valid head with a best - the
-          length; a bad magic; an entry of another identity; a best of 0; a
-          count past BZD_NENT; the 6 reserved bytes at +146 not zero, ...;
-          slots judged alone) - bz_dat after the
+          length; a bad magic; an entry under a foreign key; a duplicate key;
+          a best of 0; a count past BZD_NENT; entries out of order, ...;
+          slots judged alone, keyed by PAD: another pathway version, a pad
+          word past the pathway's, exit bits past the pad's course's) -
+          bz_dat after the
           entry proc is the image 130.14.3.3 and 130.14.17 item 6 say (the file refused
           whole, or the bad entry alone), and the next best (FIRST by the
-          autopilot) REWRITES THE FILE WHOLE as this build's BZS4 bytes
+          autopilot) REWRITES THE FILE WHOLE as this build's BZS5 bytes
   noapp   a disk built WITHOUT SYSTEM\\APPDATA: a best toasts `Best times not
           saved` once (bz_toast reached once over two bests, bz_datw 1)
   physdat wave 6 (SPEC.md 130.16.9, 130.16.14): BONANZA.DAT +5 is BZ_PHYSV.
@@ -53,6 +55,11 @@ build/) and PASSES only if the row FAILS - at its own check:
   noappdata   the leg's image built without SYSTEM\\APPDATA: the pause leg's read-back
   physdat     wave 6: bz_dnorm's +5 test left out (a file under other physics
               keeps its bests): the physdat leg's cleared-bests check, a best kept
+  explorepad  EXPLORE's pad held to the open set: hostile explore
+  pastbest    the bests past the pathway's pads unchecked: hostile wide
+  dupkey      BZS5: a second entry with a key kept: hostile dupkey
+  exitmask    BZS5: the exits found not masked to the pad's course: hostile exitbits
+  pathver     BZS5: a slot of another pathway version kept: hostile pathver
 """
 import argparse
 import os
@@ -70,7 +77,7 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 DAT = "SYSTEM/APPDATA/BONANZA.DAT"
-NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 130.22.5: BZS4)
+NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 130.22.5.1: BZS5's best entries)
 LEGS = ("posts", "pause", "hostile", "noapp", "physdat")
 PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 130.16.9: PHYSV_SHIPPED's last before wave 6)
 PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 130.17.7: its bests cleared once)
@@ -81,8 +88,13 @@ _AUTO = {}
 
 
 def ncrs():
-    R.CRS_K["bench"]
-    return dict.__len__(R.CRS_K)
+    """BZ_NCRS, the courses of the build (bzcourse.inc's)"""
+    return _equ("BZ_NCRS")
+
+
+def first():
+    """FIRST's course K, by its NAME (never a literal K: BZ_COURSES's order moves)"""
+    return R.CRS_K["first"]
 
 
 def physv():
@@ -115,39 +127,64 @@ def auto_keys(k, mat=None):
     return _AUTO[(k, mat)][2]
 
 
-def ids():
-    """K -> the identity BONANZA.DAT files entry K under: course K's (1 - 5),
-    0 for BENCH's and past the courses (bz_dnorm)"""
-    return {k: (R.course_k(k).ident if 1 <= k < ncrs() else 0) for k in range(NENT)}
+def _inc():
+    return open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
 
 
-SLOTB = 22 + 4 * NENT          # save v4 (wave 8R round 2, SPEC.md 130.22.5): 23 entries, 6 reserved bytes, three 114-byte slots
-RSV_OFF = 8 + 6 * NENT          # BZD_RSV: the 6 reserved bytes (the tour's until SPEC.md 130.26.8), written zero
-SLOT_OFF = RSV_OFF + 6          # BZD_SLOT: the first slot
+def _words(macro):
+    """a `dw` macro of the generated bzcourse.inc, as ints"""
+    import re
+    m = re.search(r"^%%macro %s 0\n\s+dw ([^\n]+)" % macro, _inc(), re.M)
+    return [int(x.strip().rstrip("h"), 16) for x in m.group(1).split(",")]
+
+
+def _equ(name):
+    import re
+    return int(re.search(r"^%s\s+equ\s+(\d+)" % name, _inc(), re.M).group(1))
+
+
+def keys():
+    """K -> course K's SAVE KEY (SPEC.md 130.22.5.1): bzcourse.inc's BZ_CRS_KEYS"""
+    return dict(enumerate(_words("BZ_CRS_KEYS")))
+
+
+def path_ver():
+    """the pathway's version, a slot's +20 (BZ_PATH_VER, SPEC.md 130.22.5.1)"""
+    return _equ("BZ_PATH_VER")
+
+
+def pad_exits():
+    """pad -> the exits of the course it plays, a bit each (BZ_PAD_EXITS): a slot's exits found are masked
+    to them on load"""
+    return _words("BZ_PAD_EXITS")
+
+
+PAD_MAX = 23                    # BZ_PAD_MAX (SPEC.md 130.22.5.1): a slot's word-a-pad tables
+SLOTB = 22 + 4 * PAD_MAX        # BZS5 (SPEC.md 130.22.5.1): 23 best entries, three 114-byte slots
+SLOT_OFF = 8 + 6 * NENT         # BZD_SLOT: the first slot, +146 (no reserved bytes since BZS5)
 DAT_FILE = SLOT_OFF + 3 * SLOTB
-assert DAT_FILE == 494, "BZS4 is 494 bytes: under one sector, never a whole one (od_write's in-place arm)"
+BB_LIVES = 5                    # bonanza.asm BZ_LIVES, a slot's most lives
+assert DAT_FILE == 488, "BZS5 is 488 bytes: under one sector, never a whole one (od_write's in-place arm)"
 
 
 def crs_max():
     """bzcourse.inc's BZ_CRS_MAX (the tool's, bonanza.asm BZD_NENT)"""
-    import re
-    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
-    return int(re.search(r"^BZ_CRS_MAX\s+equ\s+(\d+)", inc, re.M).group(1))
+    return _equ("BZ_CRS_MAX")
 
 
-def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exits=None, best=None, z3=0, tail=b""):
-    """one 114-byte BZS4 slot (SPEC.md 130.22.5): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open pads,
-    +8 the done ones, +12 the routes opened, +16 taken (dwords), +20 the pathway's identity, +22 the exits
-    found (a word a course, 23), +68 the best a course (23 words).  TAIL is poked over the last bytes"""
-    ex = [0] * NENT
+def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ver=None, exits=None, best=None, z3=0, tail=b""):
+    """one 114-byte BZS5 slot (SPEC.md 130.22.5.1): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open
+    pads, +8 the done ones, +12 the routes opened, +16 taken (dwords), +20 the pathway's VERSION, +22 the
+    exits found (a word a PAD, 23), +68 the best a pad (23 words).  TAIL is poked over the last bytes"""
+    ex = [0] * PAD_MAX
     for k, v in (exits or {}).items():
         ex[k] = v
-    be = [0] * NENT
+    be = [0] * PAD_MAX
     for k, v in (best or {}).items():
         be[k] = v
     b = struct.pack("<BBBBIIIIH", lives, mode, pad, z3, open_, done, ropn, rtak,
-                    R.path_ident() if ident is None else ident)
-    b += struct.pack("<%dH%dH" % (NENT, NENT), *ex, *be)
+                    path_ver() if ver is None else ver)
+    b += struct.pack("<%dH%dH" % (PAD_MAX, PAD_MAX), *ex, *be)
     b = bytearray(b)
     if tail:
         b[SLOTB - len(tail):] = tail
@@ -155,104 +192,184 @@ def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ident=None, exit
     return bytes(b)
 
 
-def dat_image(best=None, rsv=bytes(6), count=None, pv=None, slots=None, old=0):
-    """the bytes bz_dat holds and a save writes (SPEC.md 130.14.3.3, 130.22.5): `BZS4`, 494 bytes, 23 entries
-    (BEST {K: (steps, falls)}), the 6 reserved bytes (RSV: zero in every image the package makes), +5 PV (this build's BZ_PHYSV by
-    default) and three 114-byte SLOTS (bytes, or empty).  OLD = 64 / 304: an older layout's LENGTH, magic
-    `BZT1` / `BZS3` (no longer read: the bytes only have to be of that length)"""
-    best = best or {}
-    b = bytearray((b"BZT1" if old == 64 else b"BZS3" if old else b"BZS4")
-                  + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
-    idt = ids()
-    for k in range(NENT):
-        t, f = best.get(k, (0, 0))
-        b += struct.pack("<HHH", idt[k], t, f)
-    assert len(rsv) == 6
-    b += rsv
+def entries(best):
+    """BEST -> the 23 entries in FILE ORDER: a dict {K: (steps, falls)} fills entries 0, 1, ... in its order;
+    a list is the entries themselves, each (K, steps, falls) or None for an empty one"""
+    if isinstance(best, dict):
+        best = [(k, t, f) for k, (t, f) in best.items()]
+    out = list(best) + [None] * (NENT - len(best))
+    assert len(out) == NENT
+    return out
+
+
+def dat_image(best=None, count=None, pv=None, slots=None, old=0, magic=b"BZS5"):
+    """the bytes bz_dat holds and a save writes (SPEC.md 130.14.3.3, 130.22.5.1): `BZS5`, 488 bytes, 23 best
+    entries in NO ORDER (BEST, entries()'s forms: each +0 the course's SAVE KEY, +2 the steps, +4 the falls),
+    +5 PV (this build's BZ_PHYSV by default) and three 114-byte SLOTS (bytes, or empty).  OLD = 64 / 304 /
+    494: an older layout's LENGTH (`BZT1` / `BZS3` / `BZS4`, no longer read: the bytes only have to be of
+    that length)"""
+    kt = keys()
+    if old:
+        magic = {64: b"BZT1", 304: b"BZS3", 494: b"BZS4"}[old]
+    b = bytearray(magic + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
+    for e in entries(best or {}):
+        if e is None:
+            b += bytes(6)
+        else:
+            k, t, f = e
+            b += struct.pack("<HHH", kt[k], t, f)
     b += slots if slots is not None else bytes(3 * SLOTB)
     assert len(b) == DAT_FILE
     if old:
-        b = b[:old]
+        b = (b + bytes(max(0, old - len(b))))[:old]
+    return bytes(b)
+
+
+def posted(best, k, t, f=0):
+    """BEST (entries()'s forms) after a play's best T on course K as bz_post files it (130.22.5.1): into the
+    entry holding K's key when T beats it, else into the FIRST EMPTY entry -> the list form"""
+    es = entries(best)
+    for i, e in enumerate(es):
+        if e is not None and e[0] == k:
+            if not e[1] or t < e[1]:
+                es[i] = (k, t, f)
+            return es
+    es[es.index(None)] = (k, t, f)
+    return es
+
+
+def model_load(raw):
+    """SPEC.md 130.22.5.1's reader, in Python - an independent second reading of the rules bz_dload,
+    bz_dchk, bz_dnorm and bz_dslots apply: RAW -> the image the entry proc makes"""
+    kt = keys()
+    ks = set(kt.values())
+    np_, vx = npad(), pad_exits()
+    ok = len(raw) == DAT_FILE and raw[:4] == b"BZS5" and 1 <= raw[4] <= NENT and raw[6:8] == b"\0\0"
+    b = bytearray(raw) if ok else bytearray(DAT_FILE)
+    if ok:
+        for i in range(NENT):
+            key, t, f = struct.unpack_from("<HHH", b, 8 + 6 * i)
+            if f > 9999 or (key == 0 and (t or f)):
+                ok = False
+        if not ok:
+            b = bytearray(DAT_FILE)
+    for s_ in range(3):
+        o = SLOT_OFF + s_ * SLOTB
+        lv, md, pd, z3, op, dn, ro, rt, ver = struct.unpack_from("<BBBBIIIIH", b, o)
+        wd = struct.unpack_from("<%dH" % (2 * PAD_MAX), b, o + 22)
+        bad = lv > BB_LIVES or md & 0xFE or z3 or rt & ~ro or any(wd[np_:PAD_MAX]) or any(wd[PAD_MAX + np_:]) \
+            or ver != path_ver() or (lv and (not op & 1 or pd >= np_ or (not md & 1 and not op >> pd & 1)))
+        if bad:
+            b[o:o + SLOTB] = bytes(SLOTB)
+        for p_ in range(np_):
+            w = struct.unpack_from("<H", b, o + 22 + 2 * p_)[0]
+            struct.pack_into("<H", b, o + 22 + 2 * p_, w & vx[p_])
+    if b[5] != physv():
+        ok = False
+    b[0:8] = b"BZS5" + bytes([ncrs(), physv(), 0, 0])
+    seen = set()
+    for i in range(NENT):
+        o = 8 + 6 * i
+        key, t, f = struct.unpack_from("<HHH", b, o)
+        if not ok or key not in ks or not 1 <= t <= 65534 or key in seen:
+            b[o:o + 6] = bytes(6)
+        else:
+            seen.add(key)
     return bytes(b)
 
 
 def hostile_set():
     """[(name, the file's bytes, the bz_dat image the entry proc must make,
-    the best the next FIRST play files)] - SPEC.md 130.14.3.3's hostile set and
-    130.14.17 item 6's whole-file refusals.  FIRST's play (the autopilot, its
-    own ball) is the next best in every case, so each file is REWRITTEN WHOLE"""
-    t1, _ = auto_steps(1)
+    the bests the next FIRST play files)] - SPEC.md 130.14.3.3's hostile set,
+    130.14.17 item 6's whole-file refusals and 130.22.5.1's keys and pads.
+    FIRST's play (the autopilot, its own ball) is the next best in every case,
+    so each file is REWRITTEN WHOLE"""
+    F, T = R.CRS_K["first"], R.CRS_K["trial"]
+    t1, _ = auto_steps(F)
     first = dat_image()
     out = []
-    good = bytearray(dat_image({1: (t1 + 99, 2), 2: (499, 0)}))
+    good = bytearray(dat_image({F: (t1 + 99, 2), T: (499, 0)}))
     # the LENGTH: 32 bytes that are a valid head with FIRST's best (the datlen red shows it)
-    short = bytes(dat_image({1: (99, 0)})[:32])
-    out.append(("short", short, first, {1: (t1, 0)}))
+    short = bytes(dat_image({F: (99, 0)})[:32])
+    out.append(("short", short, first, {F: (t1, 0)}))
     bad = bytearray(good)
-    bad[3] = ord("5")                                     # `BZS5`
-    out.append(("magic", bytes(bad), first, {1: (t1, 0)}))
+    bad[3] = ord("4")                                     # `BZS4` at BZS5's length
+    out.append(("magic", bytes(bad), first, {F: (t1, 0)}))
     bad = bytearray(good)
-    struct.pack_into("<H", bad, 8 + 6 * 1, R.course_k(1).ident ^ 0x0101)   # FIRST's entry of another identity
-    out.append(("ident", bytes(bad), dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
+    struct.pack_into("<H", bad, 8, keys()[F] ^ 0x0101)    # FIRST's entry under a FOREIGN key: dropped alone
+    out.append(("foreign", bytes(bad), dat_image([None, (T, 499, 0)]), posted([None, (T, 499, 0)], F, t1)))
     bad = bytearray(good)
-    struct.pack_into("<HH", bad, 8 + 6 * 1 + 2, 0, 3)                       # FIRST's best 0 (its falls 3)
-    out.append(("zero", bytes(bad), dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
+    struct.pack_into("<HH", bad, 8 + 2, 0, 3)             # FIRST's best 0 (its falls 3)
+    out.append(("zero", bytes(bad), dat_image([None, (T, 499, 0)]), posted([None, (T, 499, 0)], F, t1)))
     bad = bytearray(good)
     bad[4] = NENT + 1                                                       # a count past BZD_NENT
-    out.append(("count", bytes(bad), first, {1: (t1, 0)}))
+    out.append(("count", bytes(bad), first, {F: (t1, 0)}))
     bad = bytearray(good)
     bad[4] = 0                                                              # no courses
-    out.append(("count0", bytes(bad), first, {1: (t1, 0)}))
+    out.append(("count0", bytes(bad), first, {F: (t1, 0)}))
     bad = bytearray(good)
     bad[6] = 1                                                              # +6 - +7 not zero
-    out.append(("hdr67", bytes(bad), first, {1: (t1, 0)}))
+    out.append(("hdr67", bytes(bad), first, {F: (t1, 0)}))
     bad = bytearray(good)
-    struct.pack_into("<HHH", bad, 8 + 6 * (NENT - 1), 0x1234, 77, 3)        # the LAST entry (K 22): a course
-    out.append(("entlast", bytes(bad), first, {1: (t1, 0)}))                # that does not exist: refused whole
-    # the 6 RESERVED bytes (+146, the tour's until SPEC.md 130.26.8) not zero: the file kept, those zeroed
-    out.append(("rsv", dat_image({1: (t1 + 99, 2), 2: (499, 0)}, rsv=b"\x34\x12\x99\x99\x01\x00"),
-                dat_image({1: (t1 + 99, 2), 2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
-    # no older layout is read (130.22.5): `BZT1`, `BZS2` and `BZS3` are unrecognised - the first run's image
-    out.append(("old1", dat_image({1: (t1 + 99, 2), 2: (499, 0)}, old=64), first, {1: (t1, 0)}))
-    out.append(("old3", dat_image({1: (t1 + 99, 2), 2: (499, 0)}, old=304), first, {1: (t1, 0)}))
-    # ...and a SLOT judged alone: one of another pathway emptied, one of this pathway's kept
-    nc = ncrs()
+    struct.pack_into("<HHH", bad, 8 + 6 * (NENT - 1), 0, 77, 3)             # the LAST entry EMPTY (key 0) with
+    out.append(("entlast", bytes(bad), first, {F: (t1, 0)}))                # a best: refused whole
+    # the entries are in NO ORDER (130.22.5.1): TRIAL's at entry 20, FIRST's at 5 - both kept where they are,
+    # and FIRST's next best files into its own entry
+    scat = [None] * 5 + [(F, t1 + 99, 2)] + [None] * 14 + [(T, 499, 0)]
+    out.append(("order", dat_image(scat), dat_image(scat), posted(scat, F, t1)))
+    # a DUPLICATE key: the first entry holding it is kept, the second dropped (though its best is better)
+    dup = [(T, 499, 0), (F, t1 + 99, 2), (F, 50, 0)]
+    out.append(("dupkey", dat_image(dup), dat_image(dup[:2]), posted(dup[:2], F, t1)))
+    # no older layout is read (130.22.5.1): `BZT1`, `BZS3` and `BZS4` are unrecognised - the first run's image
+    out.append(("old1", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=64), first, {F: (t1, 0)}))
+    out.append(("old3", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=304), first, {F: (t1, 0)}))
+    out.append(("old4", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=494), first, {F: (t1, 0)}))
+    # ...and a SLOT judged alone: one of another pathway VERSION emptied, one of this pathway's kept
+    np_ = npad()
     keep = slot(3, 1, 1, 0b11, 0b1, 0b101, 0b001, exits={1: 1, 2: 3}, best={1: 300})
-    other = slot(4, ident=R.path_ident() ^ 0x5A5A)
+    other = slot(4, ver=path_ver() + 1)
     taken = slot(2, ropn=1, rtak=3)                       # a route TAKEN that was never opened
-    out.append(("slot", dat_image({2: (499, 0)}, slots=keep + other + taken),
-                dat_image({2: (499, 0)}, slots=keep + bytes(2 * SLOTB)), {1: (t1, 0), 2: (499, 0)}))
-    # the pad: not open / past 31; node 0's pad shut; +3, the last best word and a course's exits past the courses
-    out.append(("pad", dat_image({2: (499, 0)}, slots=slot(3, pad=1) + slot(3, pad=32, open_=0xFFFFFFFF) +
+    out.append(("slot", dat_image({T: (499, 0)}, slots=keep + other + taken),
+                dat_image({T: (499, 0)}, slots=keep + bytes(2 * SLOTB)), posted({T: (499, 0)}, F, t1)))
+    # another pathway VERSION empties a slot whatever its lives: a finished game's exits found and bests too
+    fin = slot(0, exits={0: 1}, best={0: 9})
+    out.append(("pathver", dat_image({T: (499, 0)}, slots=slot(0, ver=path_ver() + 1, exits={0: 1}, best={0: 9}) +
+                                     fin + bytes(SLOTB)),
+                dat_image({T: (499, 0)}, slots=bytes(SLOTB) + fin + bytes(SLOTB)), posted({T: (499, 0)}, F, t1)))
+    # the pad: not open / past 31; pad 0 shut; +3, the last best word and a pad's exits past the pads
+    out.append(("pad", dat_image({T: (499, 0)}, slots=slot(3, pad=1) + slot(3, pad=32, open_=0xFFFFFFFF) +
                                   slot(3, open_=2)),
-                dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
-    out.append(("zero3", dat_image({2: (499, 0)}, slots=slot(3, z3=1) + slot(3, best={NENT - 1: 1}) +
-                                    slot(3, exits={nc: 1})),
-                dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
-    # BZS4 (130.22.5): the exits found and the best of a course past the courses - K = NCRS and NENT - 1 (the
-    # last word) - each EMPTIES its slot alone; the words of the courses that exist are kept
-    out.append(("wide", dat_image({2: (499, 0)}, slots=slot(3, exits={NENT - 1: 0x8000}) + slot(3, best={nc: 7}) +
-                                   slot(3, exits={1: 1, nc - 1: 0x8001}, best={1: 300, nc - 1: 450})),
-                dat_image({2: (499, 0)}, slots=bytes(2 * SLOTB) + slot(3, exits={1: 1, nc - 1: 0x8001},
-                                                                       best={1: 300, nc - 1: 450})),
-                {1: (t1, 0), 2: (499, 0)}))
+                dat_image({T: (499, 0)}), posted({T: (499, 0)}, F, t1)))
+    out.append(("zero3", dat_image({T: (499, 0)}, slots=slot(3, z3=1) + slot(3, best={PAD_MAX - 1: 1}) +
+                                    slot(3, exits={np_: 1})),
+                dat_image({T: (499, 0)}), posted({T: (499, 0)}, F, t1)))
+    # BZS5 (130.22.5.1): the exits found and the best of a pad past the pathway's pads - pad NPAD and
+    # PAD_MAX - 1 (the last word) - each EMPTIES its slot alone; the words of the pads that exist are kept
+    w3 = slot(3, exits={1: 1, np_ - 1: 1}, best={1: 300, np_ - 1: 450})
+    out.append(("wide", dat_image({T: (499, 0)}, slots=slot(3, exits={PAD_MAX - 1: 0x8000}) +
+                                   slot(3, best={np_: 7}) + w3),
+                dat_image({T: (499, 0)}, slots=bytes(2 * SLOTB) + w3), posted({T: (499, 0)}, F, t1)))
+    # each pad's exits found MASKED to the exits of the course on it (130.22.5.1: the course on a pad can
+    # change under its progress) - every bit set on every pad, in a kept slot and an empty one
+    vx = pad_exits()
+    allx = {p_: 0xFFFF for p_ in range(np_)}
+    out.append(("exitbits", dat_image({T: (499, 0)}, slots=slot(3, exits=allx) + slot(0, exits=allx) +
+                                       bytes(SLOTB)),
+                dat_image({T: (499, 0)}, slots=slot(3, exits=dict(enumerate(vx))) +
+                          slot(0, exits=dict(enumerate(vx))) + bytes(SLOTB)), posted({T: (499, 0)}, F, t1)))
     # EXPLORE rests on any pad of the pathway's, none of them in the open set (130.19.8): KEPT (the verify of
     # 8R.5: the reader emptied it, and with it the slot's exits found and bests); a pad past the pathway's
     # emptied whatever its open bit says, in either mode
-    np_ = npad()
     xkeep = slot(3, mode=1, pad=np_ - 1, exits={1: 1}, best={1: 300})
-    out.append(("explore", dat_image({2: (499, 0)}, slots=xkeep + slot(3, pad=np_, open_=0xFFFFFFFF) +
+    out.append(("explore", dat_image({T: (499, 0)}, slots=xkeep + slot(3, pad=np_, open_=0xFFFFFFFF) +
                                       slot(3, mode=1, pad=np_)),
-                dat_image({2: (499, 0)}, slots=xkeep + bytes(2 * SLOTB)), {1: (t1, 0), 2: (499, 0)}))
+                dat_image({T: (499, 0)}, slots=xkeep + bytes(2 * SLOTB)), posted({T: (499, 0)}, F, t1)))
     return out
 
 
 def npad():
     """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD (130.22.3)"""
-    import re
-    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
-    m = re.search(r"^BZ_PATH_NPAD\s+equ\s+(\d+)", inc, re.M)
-    return int(m.group(1))
+    return _equ("BZ_PATH_NPAD")
 
 
 # ---- the guest's side -----------------------------------------------------------
@@ -383,7 +500,8 @@ def leg_pause(g):
     """P in mid-play: no step while paused, the log unchanged; the time the model's"""
     fails = []
     m = g.m
-    k, mat = 1, R.course_k(1).ball
+    k = first()
+    mat = R.course_k(k).ball
     t1, _ = auto_steps(k)
     select(g, k)
     g.key("KeyF")
@@ -425,7 +543,6 @@ def leg_pause(g):
 def leg_hostile(tag, sym, td, cases=None, o88=None):
     """one boot a hostile BONANZA.DAT: bz_dat as the checks say, then the file rewritten whole"""
     fails = []
-    t1, _ = auto_steps(1)
     for name, raw, want, nxt in hostile_set():
         if cases and name not in cases:
             continue
@@ -438,7 +555,7 @@ def leg_hostile(tag, sym, td, cases=None, o88=None):
             if got != want:
                 fails.append("hostile %s: [bz_dat] after the entry proc %s, SPEC.md 130.14.3.3's %s" % (
                     name, got.hex(), want.hex()))
-            free_play(g, 1, "hostile %s: FIRST" % name)
+            free_play(g, first(), "hostile %s: FIRST" % name)
             d = read_dat(g)
             exp = dat_image(nxt, slots=want[SLOT_OFF:])     # (the slots as the entry proc kept them)
             if d != exp:
@@ -458,10 +575,10 @@ def leg_noapp(tag, sym, td, o88=None):
         m = g.m
         with M.bp_trace(m, "toast_show", log=True) as tr:     # (the kernel's: fixed, where the
                                                                 # package's region may move in a launch)
-            free_play(g, 1, "noapp FIRST")
+            free_play(g, first(), "noapp FIRST")
             n1 = tr.count()
             txt = ui.toast()[0]
-            free_play(g, 2, "noapp TRIAL")
+            free_play(g, R.CRS_K["trial"], "noapp TRIAL")
             n2 = tr.count() - n1
         if n1 != 1 or "Best times not saved" not in txt or g.b("bz_datw") != 1:
             fails.append("noapp: the first best's failed save toasted %d time(s), the toast %r, bz_datw %d: want "
@@ -480,14 +597,16 @@ def physdat_set():
     best the next FIRST play files)] - SPEC.md 130.16.9's three cases: each file
     carries THIS build's course identities and a best on every course, and
     differs only at +5"""
-    t1, _ = auto_steps(1)
-    best = {k: (t1 + 50 + k, 1) for k in range(1, ncrs())}           # every best SLOWER than FIRST's play
+    F = first()
+    t1, _ = auto_steps(F)
+    R.CRS_K["first"]
+    best = {k: (t1 + 50 + k, 1) for k in sorted(dict.values(R.CRS_K))}  # every best SLOWER than FIRST's play
     pv = physv()
     out = []
     for name, v in (("unset", 0x00), ("5b", PHYSV_5B), ("w6", PHYSV_6)):
-        out.append((name, dat_image(best, pv=v), dat_image(), {1: (t1, 0)}))
+        out.append((name, dat_image(best, pv=v), dat_image(), {F: (t1, 0)}))
     out.append(("same", dat_image(best, pv=pv), dat_image(best),
-                {k: ((t1, 0) if k == 1 else v) for k, v in best.items()}))
+                {k: ((t1, 0) if k == F else v) for k, v in best.items()}))
     assert pv not in (0x00, PHYSV_5B, PHYSV_6), "BZ_PHYSV %02Xh is an earlier physics' value (bbcourse refuses " \
         "it)" % pv
     return out, best
@@ -506,13 +625,15 @@ def leg_physdat(tag, sym, td, o88=None):
             g = open_game(ui, tag, sym)
             got = bytes(g.m.read(g.a("bz_dat"), DAT_FILE))
             if got != want:
-                kept = [k for k in range(1, ncrs()) if struct.unpack_from("<H", got, 8 + 6 * k + 2)[0]]
+                kt = {v: k for k, v in keys().items()}
+                kept = [kt.get(struct.unpack_from("<H", got, 8 + 6 * i)[0]) for i in range(NENT)
+                        if struct.unpack_from("<H", got, 8 + 6 * i + 2)[0]]
                 fails.append("physdat %s: [bz_dat] after the entry proc %s, want %s (+5 %02Xh, this build's "
                              "BZ_PHYSV %02Xh: %s; a best kept on course(s) %s)" % (
                                  name, got.hex(), want.hex(), raw[5], physv(),
                                  "every best CLEARED" if raw[5] != physv() else "every best KEPT",
                                  kept or "none"))
-            free_play(g, 1, "physdat %s: FIRST" % name)
+            free_play(g, first(), "physdat %s: FIRST" % name)
             d = read_dat(g)
             exp = dat_image(nxt)
             if d != exp:
@@ -547,7 +668,7 @@ def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
 
 REDS = {
     # the length check removed: a short file's bytes are checked as a whole one
-    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v4 (130.22.5): `BZS4`, exactly one sector; any\n"
+    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; BZS5 (130.22.5.1): exactly BZD_FILE bytes; any\n"
                 "    jne bz_dnorm                ; other length (an older layout too) is unrecognised\n",
                 "    nop                         ; RED datlen: no length check\n")],
     # a replay posts a best
@@ -558,10 +679,21 @@ REDS = {
     "explorepad": [("bonanza.asm", "    test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays\n"
                     "    jnz .n                      ; any pad, 130.19.8: none of them in the set)\n",
                     "    nop                         ; RED explorepad: EXPLORE's pad must be open\n")],
-    # BZS4 (130.22.5): the bests of courses past the courses not held to zero - the slot keeps a best for
-    # a course that does not exist
-    "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST + 2 * BZ_NCRS]\n    mov cx, BZ_NEXITPAD\n    call bz_dzero\n    jnz .bad\n",
-                  "    nop                         ; RED pastbest: the bests past the courses unchecked\n")],
+    # BZS5 (130.22.5.1): the bests of pads past the pathway's not held to zero - the slot keeps a best for
+    # a pad that does not exist
+    "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST + 2 * BZ_PATH_NPAD]\n    mov cx, BZ_NPADPAST\n"
+                  "    call bz_dzero\n    jnz .bad\n",
+                  "    nop                         ; RED pastbest: the bests past the pads unchecked\n")],
+    # BZS5: a second entry with a key kept - the dupkey file's second FIRST entry survives
+    "dupkey": [("bonanza.asm", "    cmp si, di                  ; ...is this one: kept\n    je .keep\n",
+                "    jmp short .keep             ; RED dupkey: every entry with a key of ours kept\n")],
+    # BZS5: the exits found not masked to the pad's course's - the exitbits file's bits survive
+    "exitmask": [("bonanza.asm", "    mov ax, [di]\n    and [si + BZD_SEXIT], ax\n",
+                  "    mov ax, [di]                ; RED exitmask: no mask\n")],
+    # BZS5: a slot of another pathway VERSION kept
+    "pathver": [("bonanza.asm", "    cmp word [si + BZD_SVER], BZ_PATH_VER ; this build's pathway VERSION (an\n"
+                 "    jne .bad                    ; all-zero slot's emptying changes nothing)\n",
+                 "    nop                         ; RED pathver: the version not checked\n")],
     # wave 6 (SPEC.md 130.16.14): +5 not checked - a file under other physics keeps its bests
     "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)\n    je .phys\n"
                  "    xor cl, cl\n.phys:\n",
@@ -569,23 +701,40 @@ REDS = {
 }
 RED_LEGS = {"datlen": ("hostile",), "replaybest": ("posts",),
             "noappdata": ("pause",), "physdat": ("physdat",), "explorepad": ("hostile",),
-            "pastbest": ("hostile",)}
+            "pastbest": ("hostile",), "dupkey": ("hostile",), "exitmask": ("hostile",),
+            "pathver": ("hostile",)}
 RED_WANT = {"datlen": "hostile short", "replaybest": "posts: after R",
             "noappdata": "pause: BONANZA.DAT", "physdat": "every best CLEARED",
-            "explorepad": "hostile explore", "pastbest": "hostile wide"}
+            "explorepad": "hostile explore", "pastbest": "hostile wide", "dupkey": "hostile dupkey",
+            "exitmask": "hostile exitbits", "pathver": "hostile pathver"}
 
 
 def check():
     """the host half: the model's plays, the hostile set decided, the reds assembled"""
     bad = []
-    t1, f1 = auto_steps(1)
+    t1, f1 = auto_steps(first())
     print("bonanza_game FIRST: the autopilot's play %s steps, %d falls" % (t1, f1))
     if t1 is None:
         bad.append("FIRST: the model's autopilot does not finish (every leg plays FIRST to its goal)")
-    print("bonanza_game BZ_CRS_MAX %d: BZS4 %d bytes (the slots at +%d, %d each; under one sector)" % (
-        crs_max(), DAT_FILE, SLOT_OFF, SLOTB))
+    print("bonanza_game BZ_CRS_MAX %d, BZ_PAD_MAX %d: BZS5 %d bytes (the slots at +%d, %d each; under one "
+          "sector)" % (crs_max(), _equ("BZ_PAD_MAX"), DAT_FILE, SLOT_OFF, SLOTB))
     if DAT_FILE >= 512 or DAT_FILE % 512 == 0:  # od_write's one-sector arm refuses a whole sector (os88data.inc)
-        bad.append("BZS4 is %d bytes: not under one sector, so every save is a full replace" % DAT_FILE)
+        bad.append("BZS5 is %d bytes: not under one sector, so every save is a full replace" % DAT_FILE)
+    if _equ("BZ_PAD_MAX") != PAD_MAX or npad() > PAD_MAX:
+        bad.append("BZ_PAD_MAX %d is not the test's %d (or %d pads exceed it)" % (_equ("BZ_PAD_MAX"), PAD_MAX,
+                                                                                 npad()))
+    import binascii                             # the keys, re-derived with the standard library's CRC-CCITT
+    for k, key in keys().items():               # (SPEC.md 130.22.5.1: CRC-16/CCITT of the NAME, then the
+        c = R.course_k(k)                       # version byte)
+        want = binascii.crc_hqx(c.name.encode("ascii") + bytes([c.version]), 0xFFFF)
+        if key != want or not key:
+            bad.append("course %s's save key %04Xh, CRC-16/CCITT of its name and version %d says %04Xh"
+                       % (c.name, key, c.version, want))
+    if len(set(keys().values())) != ncrs():
+        bad.append("BZ_CRS_KEYS has %d keys for %d courses, or a duplicate" % (len(keys()), ncrs()))
+    print("bonanza_game save keys: %s; the pathway version %d; the pads' exits %s" % (
+        ", ".join("%s %04Xh" % (R.course_k(k).name, v) for k, v in keys().items()), path_ver(),
+        " ".join("%X" % v for v in pad_exits())))
     if crs_max() != NENT or ncrs() > NENT:
         bad.append("BZ_CRS_MAX %d is not the test's NENT %d (or %d courses exceed it)" % (crs_max(), NENT, ncrs()))
     try:                                        # the tool REFUSES more than BZ_CRS_MAX courses (SPEC.md 130.22.5)
@@ -594,10 +743,17 @@ def check():
     except BB.CourseError as e:
         print("bonanza_game bbcourse refuses %d courses: %s" % (BB.CRS_MAX + 1, e))
     for name, raw, want, nxt in hostile_set():
-        print("bonanza_game hostile %-6s %2d bytes -> bz_dat %s; the next best files %s" % (
-            name, len(raw), "the first run's" if want == dat_image() else "kept in part", nxt))
+        mod = model_load(raw)                   # the rules read a second time, in Python: the case's image
+        if mod != want:                         # is the one SPEC.md 130.22.5.1 says
+            bad.append("hostile %s: the case wants bz_dat %s, the Python reader makes %s" % (
+                name, want.hex(), mod.hex()))
+        print("bonanza_game hostile %-8s %3d bytes -> bz_dat %s (the Python reader %s); the next best files %s" % (
+            name, len(raw), "the first run's" if want == dat_image() else "kept in part",
+            "agrees" if mod == want else "DISAGREES", [e for e in entries(nxt) if e]))
     cases, _best = physdat_set()
     for name, raw, want, nxt in cases:
+        if model_load(raw) != want:
+            bad.append("physdat %s: the case's bz_dat is not the Python reader's" % name)
         print("bonanza_game physdat %-5s +5 %02Xh (BZ_PHYSV %02Xh) -> bz_dat %s; the next best files %s" % (
             name, raw[5], physv(), "the first run's (every best cleared)" if want == dat_image() else
             "the file's (every best kept)", sorted(nxt)))
