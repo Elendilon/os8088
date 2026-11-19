@@ -338,7 +338,7 @@ LOCAL_SYMS = (("bz_shcall", "fc"), ("bz_tb", "first"), ("bz_wbox", "wr"), ("bz_w
               # PROMOTED (bz_props's two entries), and the sound's span a frame (130.20.7)
               ("bz_props", "pwt"), ("bz_props", "promo"), ("bzs_frame", "fend"),
               # wave 4 (SPEC.md 130.14.14): a demo file's read (bonanzademo: the disk is touched
-              # there, and FERR_BIG lands in .rerr), the tour's post and the respawn's blank
+              # there, and FERR_BIG lands in .rerr) and the respawn's blank
               ("bz_lfile", "read"), ("bz_lfile", "rerr"),
               # wave 6 (SPEC.md 130.16.14): the camera's GROUND LINE block, bracketed for its span
               ("bz_camera", "gline"), ("bz_camera", "cyd"),
@@ -639,20 +639,6 @@ def guest_propmax(art=None):
     build's largest course's lanes - not the tool's ceiling, bbcourse.PROP_MAX"""
     t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
     return int(re.search(r"^BZ_PROPMAX\s+equ\s+(\d+)", t, re.M).group(1))
-
-
-def tour_ks(art=None):
-    """THE TOUR (SPEC.md 130.26.8): its courses' K in order, BZ_TOUR's bytes out of the
-    GENERATED bzcourse.inc - a short NAMED list (bbcourse.py's TOUR), not every course
-    but BENCH, so a row never derives it from BZ_COURSES.  BZ_NTOUR is its length."""
-    t = open(os.path.join(art or at("build/bonanza-art"), "bzcourse.inc")).read()
-    m = re.search(r"^%macro BZ_TOUR 0\n\s+db ([^\n]+)", t, re.M)
-    if not m:
-        raise SystemExit("bonanza rows: bzcourse.inc has no BZ_TOUR (built before SPEC.md 130.26.8)")
-    ks = [int(x) for x in m.group(1).split(",")]
-    n = int(re.search(r"^BZ_NTOUR\s+equ\s+(\d+)", t, re.M).group(1))
-    assert n == len(ks), "bzcourse.inc's BZ_NTOUR %d is not BZ_TOUR's %d bytes" % (n, len(ks))
-    return ks
 
 
 def medals(crs):
@@ -4773,7 +4759,7 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))      # course part; the sound part's row until 130.50.2's bundle)
         files += (["BZSND.BIN"] if "BZ_P_SND: BZSND.BIN" in asm else []) + ["BZM%d.BIN" % i for i in range(ns)]
-    if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a tour course, after the
+    if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a course but BENCH, after the
         files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 130.14.7.4, 130.14.22 item 7)
     out = []
     for p in files:

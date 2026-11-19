@@ -11,9 +11,9 @@ every step's key byte into bz_rlog (BZR1, run-length pairs), and R on the
 desktop REPLAYS it.  This row holds the recorder, the player and
 bbcourse.Physics.run_log to one another:
 
-  1  RECORD (the CGA): N on the desktop (the course a play starts on: FIRST,
-     then TRIAL - [bz_crsel] must name TRIAL, and [bz_matsel] TRIAL's ball),
-     Enter, then REAL keys held and released through MartyPC's debug server
+  1  RECORD (the CGA): TRIAL chosen for F's free play ([bz_crsel] POKED:
+     there is no course key since 2026-11-19, SPEC.md 130.11.5.4; the play
+     rolls TRIAL's own ball), F, then REAL keys held and released through MartyPC's debug server
      at chosen frames for about 600 frames - every arrow, Space (a Hop),
      Left Shift (Grip), the chord off H's lip and the bounce over the gap -
      and Esc.  At every frame's bz_presented the guest's state is read (the
@@ -79,7 +79,7 @@ keyboard play of the same route is bonanzaperf's to report, not this row's.
              the row expects differ - `tilt map`
 
 WAVE 6 (SPEC.md 130.16.14): THE PLAYGROUND, a real-key play RECORDED on the
-CGA and REPLAYED on the Hercules (leg `play`).  N to the PLAYGROUND, Enter,
+CGA and REPLAYED on the Hercules (leg `play`).  The PLAYGROUND selected, F,
 then keys decided at each bz_presented off the guest's own state (a model
 poked from it predicts what the next steps do - the keys are still the
 debug server's real presses, and the log is what the guest recorded):
@@ -166,25 +166,21 @@ def open_pkg(ui, tag, sym):
     return g
 
 
+def select(g, k):
+    """course K for F's free play: [bz_crsel] POKED (no course key since 2026-11-19, SPEC.md 130.11.5.4)"""
+    g.m.pause()
+    g.putb("bz_crsel", k)
+    g.m.run()
+
+
 def record(g):
-    """Part 1: N to TRIAL, Enter, the script's real keys, Esc.  -> (failures,
+    """Part 1: TRIAL selected, F, the script's real keys, Esc.  -> (failures,
     the log, the frames' states {nstep: (state, state2)}, the end state)"""
     m = g.m
     rd = P.Reader(g)
     fails = []
-    m.pause()
-    k0 = g.b("bz_crsel")
-    m.run()
-    g.key("KeyN")
-    M.until(m, lambda _: g.b("bz_crsel") != k0, "N to change the course", guest=10)
-    m.pause()
-    crs, mat = g.b("bz_crsel"), g.b("bz_matsel")
-    tcrs = R.course("trial")
-    if crs != R.CRS_K["trial"] or mat != tcrs.ball:
-        fails.append("record: N chose course %d with ball %d, not TRIAL (%d) with its ball %d" % (
-            crs, mat, R.CRS_K["trial"], tcrs.ball))
-        return fails, None, {}, None
-    m.run()
+    crs, mat = R.CRS_K["trial"], R.course("trial").ball
+    select(g, crs)
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyF")
     held, seen, frames = set(), {}, 0
@@ -192,9 +188,9 @@ def record(g):
         assert m.wait_stop(60) == "breakpoint", "the play stopped presenting (frame %d)" % frames
         if not frames:
             g.check_base()
-            if g.b("bz_mode") != 0 or g.b("bz_crs") != crs:
-                fails.append("record: Enter launched mode %d on course %d, not a play of TRIAL" % (
-                    g.b("bz_mode"), g.b("bz_crs")))
+            if g.b("bz_mode") != 0 or g.b("bz_crs") != crs or g.b("bz_mat") != mat:
+                fails.append("record: F launched mode %d on course %d with ball %d, not a play of TRIAL with its "
+                             "own ball %d (SPEC.md 130.11.5.4)" % (g.b("bz_mode"), g.b("bz_crs"), g.b("bz_mat"), mat))
                 break
         frames += 1
         st, s2, ext = rd.read()
@@ -421,23 +417,8 @@ def record_play(g):
     fails = []
     k_play = R.CRS_K["play"]
     c = R.course("play")
-    for _ in range(dict.__len__(R.CRS_K) + 1):
-        m.pause()
-        k0 = g.b("bz_crsel")
-        m.run()
-        if k0 == k_play:
-            break
-        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        g.key("KeyN")
-        M.until(m, lambda _: g.b("bz_crsel") != k0, "N to change the course", guest=10)
-    m.pause()
-    crs, mat = g.b("bz_crsel"), g.b("bz_matsel")
-    if crs != k_play or mat != c.ball:
-        fails.append("record PLAY: N chose course %d with ball %d, not the PLAYGROUND (%d) with its ball %d" % (
-            crs, mat, k_play, c.ball))
-        m.run()
-        return fails, None, {}, None
-    m.run()
+    crs, mat = k_play, c.ball
+    select(g, crs)
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyF")
     held, seen, frames = set(), {}, 0
@@ -759,7 +740,7 @@ def offset_for(c, E):
 
 
 def record_mouse(g, ui):
-    """T MOUSE, N to MOON, the pointer at the window's centre, Enter; the row
+    """T MOUSE, MOON selected, the pointer at the window's centre, Enter; the row
     moves the pointer through MOUSE_SCRIPT round the anchor; Esc.  -> (failures,
     the log, the end state)"""
     m = g.m
@@ -768,14 +749,7 @@ def record_mouse(g, ui):
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         g.key("KeyT")
         M.until(m, lambda _: g.b("bz_ctl") == 1, "T to choose MOUSE", guest=5)
-    k = R.CRS_K["moon"]
-    for _ in range(8):
-        if g.b("bz_crsel") == k:
-            break
-        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        k0 = g.b("bz_crsel")
-        g.key("KeyN")
-        M.until(m, lambda _: g.b("bz_crsel") != k0, "N to change the course", guest=5)
+    select(g, R.CRS_K["moon"])
     ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
     g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the mouse play's bracket", guest=60)
@@ -856,7 +830,7 @@ def record_mouse(g, ui):
 def record_mouse_boost(g, ui):
     """WAVE 6B (SPEC.md 130.17.4.3, 130.17.10): the left button under T MOUSE
     is the key byte's Space bit, so a mid-flight second CLICK arms the boost.
-    T MOUSE, N to the PLAYGROUND, the pointer at the window's centre (the
+    T MOUSE, the PLAYGROUND selected, the pointer at the window's centre (the
     anchor: caps 0, the ball rests on the apron), Enter; at bz_presented the
     row clicks (the Hop), releases, clicks again when a model poked from the
     guest says the first contact is BOOST_AHEAD steps off or nearer, releases,
@@ -874,14 +848,8 @@ def record_mouse_boost(g, ui):
         g.key("KeyT")
         M.until(m, lambda _: g.b("bz_ctl") == 1, "T to choose MOUSE", guest=5)
     k_play = R.CRS_K["play"]
-    for _ in range(dict.__len__(R.CRS_K) + 1):
-        if g.b("bz_crsel") == k_play:
-            break
-        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        k0 = g.b("bz_crsel")
-        g.key("KeyN")
-        M.until(m, lambda _: g.b("bz_crsel") != k0, "N to change the course", guest=5)
-    mat = g.b("bz_matsel")
+    select(g, k_play)
+    mat = R.course("play").ball
     ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyF")
