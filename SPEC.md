@@ -282960,6 +282960,28 @@ expect  EVENT [N]         # the model's event EVENT (its `events` kinds) at leas
   length and the silence (`ATTRACT_STEPS`; red when the groove is 6 6).
   PROVISIONAL until the owner has heard it (the sound plan's S9).
 
+##### 130.23.3.1 A first run opens with rubber (the owner, 2026-11-19)
+
+The owner: *"If bonanza.dat doesn't exist (they have never loaded the game
+before; we already load this on startup so we don't need to add any extra
+disk i/o) then the first title screen demo played should be one of the two
+rubber ones. I don't want anyone's very first experience with Bounce
+Bonanza to be a demo of a ball type that doesn't bounce."* BUILT:
+
+- **The fact** is the launch's own read: `bz_dload`'s `od_read` of
+  BONANZA.DAT failing with **`FERR_NOENT`** sets `bz_tnew` (a word, so the
+  title's bytes stay odd). Any other failure - a disk error, an
+  unrecognised or other-physics file - is not a first run.
+- **The pick**: the title's random pick (`bz_trand`, never the last shown)
+  is drawn again until it is a demo in **`BZ_TRUBBER`**, then `bz_tnew` is
+  cleared, so only the first demo of the first session is constrained; the
+  next is random as before, and the next launch has a BONANZA.DAT as soon
+  as anything was saved.
+- **`BZ_TRUBBER`** is the tool's (`bbcourse.title_rubber_mask`): bit n - 1
+  set for each `title<n>.bzt` whose `ball` is rubber - today 1 and 4 - so a
+  demo re-authored with another ball moves the mask, never a hard-coded
+  index. A build with no rubber title demo is refused.
+
 #### 130.23.4 The title's loop (PLANNED)
 
 Inside ONE bracket, `bz_title` (resident: it is the bracket's):
