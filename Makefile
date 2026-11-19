@@ -23003,9 +23003,9 @@ bonanza-sizes: $(BUILD)/bonanza.o88
 # THE SOUND (SPEC.md 130.20): tools/bbmusic.py packs the bank and the songs
 # under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
 # and writes bzsnd.inc.  BZ_SONGS is the tool's SONGS manifest, in its order.
-BZ_SONGS := fairway trial windmill moonlit summit victory attract firstroll
+BZ_SONGS := fairway trial windmill moonlit summit victory attract firstroll timeup
 BZ_MUSSRC := apps/bonanza/music/bank.bmb $(addprefix apps/bonanza/music/,$(addsuffix .bmu,$(BZ_SONGS)))
-BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7,$(BZ_ART)/BZM$(i).BIN)
+BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7 8,$(BZ_ART)/BZM$(i).BIN)
 BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
 $(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
 	python3 tools/bbmusic.py -o $(BZ_ART)

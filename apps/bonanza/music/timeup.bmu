@@ -1,0 +1,33 @@
+; BOUNCE BONANZA - TIME'S UP (SPEC.md 130.22.9.1): the timeout's tune, played
+; over the finish sequence's 2 s (BZ_FIN_STEPS = 110 sub-ticks) in the course
+; song's place, as the VICTORY fanfare is on a goal.  A minor at 164 BPM - a
+; 16th is a row of FIVE sub-ticks - two patterns of 11 rows, exactly 110
+; sub-ticks of sound:
+;   A  the horn falls by semitones: G, F#, F - the "wah, wah, wah"
+;   B  ...and lands on a long E over A minor's dominant, sagging to silence
+; and a third pattern of nothing, which `loop` points at: the song does NOT
+; repeat, it ends in silence (victory.bmu's shape).
+; On the speaker the lead is the whole tune (the bass only where it rests).
+
+song timeup "Time's Up"
+groove 5
+unit 16
+rows 11
+spkbass
+voice lead horn
+voice bass bass
+voice chord strings
+
+lead LA = o4 v14 g4 f+4 f8. |
+lead LB = o4 v14 e2 v10 e16 r8 |
+bass BA = o3 l16 c:4 c:4 b:3 |
+bass BB = o2 l16 a:8 r:3 |
+chord CA = o3 [e g >c]:4 [d+ f+ a]:4 [d f b]:3 |
+chord CB = o3 [e g+ b]:8 r:3 |
+drum DA = l16 t r r r t r r r t r r |
+drum DB = l16 k:8 r:3 |
+
+order LA BA CA DA
+order LB BB CB DB
+order - - - -
+loop 2
