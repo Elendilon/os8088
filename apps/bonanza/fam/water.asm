@@ -3,7 +3,8 @@
 ; owner's design P1), held equal to bbcourse.WaterFamily at every step.
 ;
 ; A water cell is FLOOR at its top H in the grid (flat, sand, OBS); its element
-; record's +18 is its BED B, +19 its top H (signed half units), +20 its ripple
+; record's +18 is its BED B, +19 its top H (signed QUARTER units, SPEC.md
+; 130.48.4), +20 its ripple
 ; (BZ_WR_RIPPLE: a lane; BZ_WR_ALWAYS: animated always, else while the ball is
 ; in it).  Four hooks:
 ;   RESET the course's ALWAYS ripples counted (STEP walks for them only then).
@@ -32,7 +33,7 @@
 ;   POSE  ALWAYS: (step >> WA_RSH) & 1; the ACTIVE ripple: ((step - entry) >>
 ;         WA_RSH) & 1; any other 0 (the picture's rings).
 ; The slot (bz_fsl + BZF_SLOT AL): +0 the material STEP last saw, +1 IN, +2
-; the HTHR replaced (word), +4 the centre's float line (half units), +5 the
+; the HTHR replaced (word), +4 the centre's float line (quarter units), +5 the
 ; ACTIVE ripple's entry step (low byte), +6 the ALWAYS ripples, +7 the ACTIVE
 ; ripple (its element + 1, 0 none).
 ;
@@ -103,15 +104,16 @@ wa_cell:
     call wa_walk                ; ES = the course, BP its list, CL its count
     mov bp, bx                  ; (a byte: 255 props at most)
 %if BZ_WA_FBSH                  ; CH = rubber's and glass's floor under the
-    mov al, [bz_nstep]          ; top, half units: the bob's phase (the top,
-    mov ch, BZ_WA_FBSH          ; or the float line; SPEC.md 130.36.10)
-    xchg cl, ch
+    mov al, [bz_nstep]          ; top, quarter units (SPEC.md 130.48.4): the
+    mov ch, BZ_WA_FBSH          ; bob's phase (the top, or the float line a
+    xchg cl, ch                 ; half unit, 2, under it; SPEC.md 130.36.10)
     shr al, cl
     xchg cl, ch
     and al, 1
+    shl al, 1
     mov ch, al
 %else
-    mov ch, 1
+    mov ch, 2
 %endif
     xor dx, dx                  ; DX = the centre's element's record, 0 none
     and byte [di + WA_IN], 1    ; (bit 1: a water cell in the window, below)
@@ -159,6 +161,7 @@ wa_cell:
     jz .out
     mov si, dx                  ; THE CENTRE a water cell: its float line
     mov al, [es:si + WA_HTOP]
+    dec ax                      ; (a half unit: 2 quarter units, 130.48.4)
     dec ax
     mov [di + WA_TOP], al
     test byte [es:si + WA_RIP], WR_RIPPLE
@@ -252,9 +255,8 @@ wa_step:
     call wa_slot
     test byte [di + WA_IN], 1
     jz .m
-    mov al, [di + WA_TOP]       ; DX = the float line, px
+    mov al, [di + WA_TOP]       ; DX = the float line, px (2 z, quarter units)
     cbw
-    shl ax, 1
     shl ax, 1
     xchg ax, dx
     cmp byte [bz_mat], BZ_MAT_STEEL
