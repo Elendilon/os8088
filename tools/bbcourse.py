@@ -10511,6 +10511,9 @@ def _course_limit(c, src, fname):
         except IndexError:                          # (the route ran out before the goal)
             pass
         route_steps = n if p.goal else None
+        if route_steps is None:                     # SPEC.md 130.14.7.4.1: the arrows alone do not finish -
+            plan = route_plan(c)                    # the hopping autopilot's route, when it finds one
+            route_steps = len(plan) if plan is not None else None
     if src.limit is not None:
         lim, ln = src.limit
         if route_steps is not None and lim * SEC_STEPS < route_steps * LIMIT_FLOOR:
@@ -20326,14 +20329,123 @@ def bzd_log(d, K):
 def route_demo(c, K):
     """a ROUTE DEMO (SPEC.md 130.14.7.4): the model's autopilot on the
     course's route with the course's ball, from the start until the goal or
-    DEMO_STEPS steps, as a keyboard log"""
+    DEMO_STEPS steps, as a keyboard log.  When the arrows alone do not reach
+    the goal, the HOPPING autopilot's keys (route_plan, 130.14.7.4.1) are the
+    demo instead, if it finds a route inside DEMO_STEPS"""
     p = Physics(c, play=True)
     keys = []
     while len(keys) < DEMO_STEPS and not p.goal and not p.tout:
         k = p.auto()
         p.step(k)
         keys.append(k)
+    if not p.goal:
+        plan = route_plan(c)
+        if plan is not None and len(plan) <= DEMO_STEPS:
+            q = Physics(c, play=True)               # (the plan's keys under the course's limit: a timeout is
+            for k in plan:                          # not a goal, and the demo then says inputs only)
+                if q.goal or q.tout:
+                    break
+                q.step(k)
+            return encode_log(plan, K, c.ball, bool(q.goal), c.ident)
     return encode_log(keys, K, c.ball, bool(p.goal), c.ident)
+
+
+# the HOPPING autopilot (SPEC.md 130.14.7.4.1): a host search over 130.6's autopilot with Space added
+PLAN_SEG = 330                # a leg's steps (way to way) before the arrows alone have failed it
+PLAN_STALL = 24               # ...or this many steps grounded with the ball's ground point unmoved (a step face)
+PLAN_FLIGHT = 200             # a Hop's try: the steps after its press it has to reach the next way in
+PLAN_ALT = 4                  # the tries a leg keeps for the backtrack (the first that reach the next way)
+PLAN_BUDGET = 3000000         # steps the whole search may step before it gives up (no route: inputs only)
+PLAN_STEPS = 8000             # ...and the route's own steps, the limit's autopilot's cap (_course_limit)
+
+
+def _plan_leg(p, hops, n):
+    """step p in place: 130.6's autopilot, Space added on the steps in HOPS (counted from 0), for at most n
+    steps -> (ok, keys, the step it failed on): ok when the next way is taken (p.wp moves) or the goal reached
+    with no fall, no RETURN and no timeout; a fall, a shatter or PLAN_STALL steps stuck fail it"""
+    w, nf, keys = p.wp, p.nfall, []
+    last, still = None, 0
+    for i in range(n):
+        k = p.auto() | (K_HOP if i in hops else 0)
+        p.step(k)
+        keys.append(k)
+        if p.nfall != nf or p.nret or p.tout or p.mst == ST_SHATTER:
+            return False, keys, i
+        if p.goal or p.wp != w:
+            return True, keys, i
+        at = (p.gx >> 8, p.gy >> 8)
+        if at == last and not p.air:
+            still += 1
+            if still >= PLAN_STALL:
+                return False, keys, i - PLAN_STALL
+        else:
+            still = 0
+        last = at
+    return False, keys, n
+
+
+def _plan_tries(p, spent, nohop=False):
+    """a leg's tries from state p, in order, the ones that take the next way: the arrows alone; then a Hop
+    pressed on each step t from the leg's first up to the step the arrows failed or took the way on (+1),
+    then a Hop with its "and again" (Space again TRAP_AGAIN steps later, `trap hop`'s pair) on each; at most
+    PLAN_ALT Hops.  Lazy: a Hop is tried only when the search comes back for one.  spent: [steps stepped],
+    the budget's count -> yields (keys, the Physics after them)"""
+    q = _clone(p)
+    ok, keys, fail = _plan_leg(q, (), PLAN_SEG)
+    spent[0] += len(keys)
+    if ok:                                          # (and the Hops before the step it takes the way on, for
+        yield keys, q                               # the backtrack: a way taken in the air can strand the ball)
+    if nohop:                                       # (the selfcheck's red arm: the arrows alone)
+        return
+    found = 0
+    for again in (False, True):
+        for t in range(min(fail + 2, PLAN_SEG)):
+            if spent[0] > PLAN_BUDGET:
+                return
+            q = _clone(p)
+            ok, keys, _f = _plan_leg(q, (t, t + TRAP_AGAIN) if again else (t,), t + PLAN_FLIGHT)
+            spent[0] += len(keys)
+            if ok:
+                yield keys, q
+                found += 1
+                if found >= PLAN_ALT:
+                    return
+
+
+def route_plan(c, nohop=False):
+    """the HOPPING autopilot (SPEC.md 130.14.7.4.1): the keys of a route from the start to the goal that
+    follows 130.6's autopilot way by way, pressing Space only where the arrows alone fail a leg, found by a
+    depth-first search over each leg's tries (_plan_tries) with backtracking; never a fall or a RETURN.  ->
+    the key list, or None (no route inside PLAN_BUDGET's steps or PLAN_STEPS long).  Deterministic: the
+    model and a fixed order.  Kept on the course (one search for the limit and the demo)"""
+    memo = c.__dict__.setdefault("_hplan", {})     # (kept with the course, the compile cache's copy too;
+    key = (c.ident, c.ball, nohop)                  # by its identity and ball: a course edited is another)
+    if key in memo:
+        return memo[key]
+    p0 = Physics(c, play=True)
+    p0.tsec = 0                                     # (the route's own time: the limit is made from it)
+    spent = [0]
+    stack = [([], _plan_tries(p0, spent, nohop))]
+    out = None
+    try:
+        while stack and spent[0] <= PLAN_BUDGET:
+            keys, it = stack[-1]
+            nxt = next(it, None)
+            if nxt is None:
+                stack.pop()
+                continue
+            k2, q = nxt
+            ks = keys + k2
+            if len(ks) > PLAN_STEPS:
+                continue
+            if q.goal:
+                out = ks
+                break
+            stack.append((ks, _plan_tries(q, spent, nohop)))
+    except IndexError:                              # (the route ran out before the goal, as _course_limit's)
+        out = None
+    memo[key] = out
+    return out
 
 
 def replay_log(c, log):
@@ -22534,10 +22646,13 @@ def write_out(out, paths, path=None, title=None):
     for K, d in sorted(compile_all.demos.items()):
         _K, mat, fl, pv, steps, N, ident = struct.unpack_from("<BBBBIHH", d["log"], 4)
         print("  demo %d %s (%s): %d bytes, %d runs, %d steps (%.2f s), %s, %s%s; the model's replay ends with %d "
-              "falls, %d returns" % (K, courses[K].name, d["where"], len(d["log"]), N, steps,
-                                     steps * STEP_PIT / float(PIT_HZ), MAT_NAMES[mat],
-                                     "COMPLETE" if fl & RL_COMPLETE else "inputs only",
-                                     " TILT" if fl & RL_TILT else "", d["p"].nfall, d["p"].nret))
+              "falls, %d returns%s" % (K, courses[K].name, d["where"], len(d["log"]), N, steps,
+                                       steps * STEP_PIT / float(PIT_HZ), MAT_NAMES[mat],
+                                       "COMPLETE" if fl & RL_COMPLETE else "inputs only",
+                                       " TILT" if fl & RL_TILT else "", d["p"].nfall, d["p"].nret,
+                                       # (SPEC.md 130.14.7.4.1: a route demo that hops says so)
+                                       ", %d Hops, %d boosts" % (d["p"].nhop, d["p"].nboost)
+                                       if d["kind"] == "route" and d["p"].nhop else ""))
         for w in d["warn"]:
             print("bbcourse: warning: %s" % w, file=sys.stderr)
     return courses
@@ -30044,6 +30159,55 @@ def _sc_demos4(X, res):
     _w4_demos(courses, paths, res)
 
 
+def _sc_hopplan(X, res):
+    """--selfcheck's section `hopplan` (SPEC.md 130.14.7.4.1): the HOPPING autopilot finishes HOP (course 2,
+    built on the Hop) with no fall and no RETURN, its route is the limit's and the route demo's, and its red
+    arm (the arrows alone, route_plan's nohop) does not finish; a course the arrows finish is not searched"""
+    hp = os.path.join(COURSE_DIR, "hop.bbc")
+    c = compile_course(hp)
+    plain = Physics(c, play=True)
+    plain.tsec = 0
+    for _i in range(PLAN_STEPS):
+        if plain.goal:
+            break
+        plain.step(plain.auto())
+    plan, red = route_plan(c), route_plan(c, nohop=True)
+    q, first = Physics(c, play=True), None
+    q.tsec = 0
+    for i, k in enumerate(plan or ()):
+        q.step(k)
+        if q.goal and first is None:
+            first = i + 1
+    hops = sum(1 for i, k in enumerate(plan or ()) if k & K_HOP and not (i and plan[i - 1] & K_HOP))
+    log = route_demo(c, 2)
+    fl, steps = log[6], struct.unpack_from("<I", log, 8)[0]
+    ok = plan is not None and first == len(plan) and not q.nfall and not q.nret and q.nhop and red is None \
+        and not plain.goal and c.lroute == len(plan) and fl & RL_COMPLETE and steps == len(plan) \
+        and bytes(log[RLOG_HDR:]) == bytes(encode_log(plan, 2, c.ball, True, c.ident)[RLOG_HDR:])
+    res.append(("4 the hopping autopilot (130.14.7.4.1): HOP's route found with Space (%s steps, %.1f s, %d presses, "
+                "%d Hops, %d boosts), its replay at the goal on its last step with %d falls and %d returns, the "
+                "limit's route (%s) and the route demo's (%d steps, %s); RED ARM: the arrows alone (route_plan's "
+                "nohop, and 130.6's autopilot for %d steps) do not finish (%s)" % (
+                    len(plan) if plan else "NO", len(plan or ()) / float(SEC_STEPS), hops, q.nhop, q.nboost, q.nfall,
+                    q.nret, c.lroute, steps, "COMPLETE" if fl & RL_COMPLETE else "inputs only", PLAN_STEPS,
+                    "none" if red is None else "FINISHED in %d" % len(red)), bool(ok)))
+    # every compiled course the arrows alone finish: its route demo is the plain autopilot's, key for key
+    same, n = True, 0
+    for k, cc in enumerate(X.courses):
+        if not k or len(cc.route) < 2 or not cc.lroute:
+            continue
+        p = Physics(cc, play=True)
+        keys = []
+        while len(keys) < DEMO_STEPS and not p.goal and not p.tout:
+            keys.append(p.auto())
+            p.step(keys[-1])
+        if p.goal:
+            n += 1
+            same = same and bytes(route_demo(cc, k)) == bytes(encode_log(keys, k, cc.ball, True, cc.ident))
+    res.append(("4 a course the arrows alone finish is never searched (130.14.7.4.1): %d courses' route demos are "
+                "130.6's autopilot's keys exactly" % n, same and n > 0))
+
+
 def _sc_inc(X, res):
     """--selfcheck's section `inc` (selfcheck(): a fork of its state after the compile)"""
     a, courses, byname = X.a, X.courses, X.byname
@@ -30407,7 +30571,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10}
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30}
 
 
 def _av_floats_want(c):
@@ -31892,7 +32056,7 @@ def selfcheck_sections():
 _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind", "_sc_palette", "_sc_tables", "_sc_courses",
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
-             "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
+             "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
              "_sc_clockocc")
