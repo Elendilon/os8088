@@ -18506,7 +18506,8 @@ class Glide:
         ax, ay = self.ax, self.ay
         # SPEC.md 130.45.2 item 3: a LOCKED course skips the across axis whole (bz_lax untouched, no column)
         if self.lockc is not None:
-            sc, ax.info = 0, {}
+            sc, ax.info = 0, {"w": 0, "off": 0, "lo": 0, "hi": 0, "born": False, "rise": None, "stop": False,
+                              "s0": ax.s}       # (decide()'s keys, none set: the frame's readers index them)
         else:
             sc = ax.decide(bxc, c0, fastx, tube)
         sr = ay.decide(cyc, R0, fasty and self._ringy, tube)
