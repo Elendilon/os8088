@@ -15,6 +15,7 @@
 # The finish (exit 0, to the pathway's next pad) is the far corner; exit 1 at the near corner goes on to
 # PITS, the second shape course.
 course SHAPE "Shape Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 origin 480
 ball   rubber

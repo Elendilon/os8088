@@ -346,8 +346,9 @@ def w7_events(g, snd):
         return fails
     held_at(1)
     # SPEC.md 130.22.9.1: with the TIME'S UP tune held (bzs_tseg, a play with music) the tune plays in the
-    # TIMEOUT effect's place - no effect keyed; with it not had (poked away: a refused fetch) the effect, as
-    # before.  The tune itself starts at the finish sequence's first step (bzs_victory), which a poke of the
+    # TIMEOUT effect's place - no effect keyed; in a play whose finish has no tune (bzs_fin 0: EFFECTS ONLY,
+    # a replay, a benchmark - TIME'S UP is the RESIDENT BUNDLE's since 130.50.2, so bzs_tseg is never 0 beside
+    # bzs_fin 1 and poking it away tested a state no play reaches) the effect, as before.  The tune itself starts at the finish sequence's first step (bzs_victory), which a poke of the
     # clock does not run: its start is bonanzapath's and the probe's
     tseg = g.w("bzs_tseg") if "bzs_tseg" in g.sym else 0
     if tseg:
@@ -365,16 +366,17 @@ def w7_events(g, snd):
         stop(g)
         if not idle_w7():
             return fails
-        g.put("bzs_tseg", 0)
+        fin = g.b("bzs_fin")
+        g.putb("bzs_fin", 0)
     seq0 = g.w("bzs_fxseq")
     stop(g, "bzs_frame")
     g.put("bz_tsec", 0)
     g.putb("bz_tout", 1)
     stop(g)
-    fails += check("TIMEOUT", "the timeout%s" % (" (TIME'S UP not had)" if tseg else ""), seq0)
+    fails += check("TIMEOUT", "the timeout%s" % (" (no finish tune, bzs_fin 0)" if tseg else ""), seq0)
     g.putb("bz_tout", 0)                        # (the play goes on: the row's next steps run in it)
     if tseg:
-        g.put("bzs_tseg", tseg)                 # (given back by bzs_gdrop0 at the play's end)
+        g.putb("bzs_fin", fin)                  # (cleared by bzs_gdrop0 at the play's end)
     return fails
 
 

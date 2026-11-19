@@ -49005,6 +49005,11 @@ once**:
   disk layer at private offsets by design (`tests/unit/t_kdfar.py` polices
   those), and a cell newer than the SDK is A4's question and The Wire's cell
   fence's (§92.2).
+  A part that is DATA (no CPU executes it) can spell `9A lo hi <KERNEL_SEG>`
+  by chance; ROLL's course part did (`9A 04 02 60 00`, 2026-11-19).
+  `os88pkg --part-data PART` names such a part (it must also be a `--part`)
+  and the gate passes it over. BONANZA names its course, demo, path, title
+  and kit parts so (`BZ_DATAPARTS`); its code parts stay under the gate.
 
 `tests/unit/t_cellgate.py` (fast) proves the routing and the gate: a probe
 assembles byte-identical to a hand-written twin (`CD 81 <index>` for a door
@@ -282352,6 +282357,58 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
 `count`, `count0`, `hdr67`, `entlast`, `old1`, `old3`, `slot`, `pad`,
 `zero3`, `wide`, `explore`; red arms `datlen`, `pastbest`, `explorepad`).
 
+##### 130.22.5.1 BZS5: keyed by what stays put, not by K (PLANNED, the owner 2026-11-19)
+
+`BZS4` keys everything by course K, a course's position in `BZ_COURSES`:
+a best is entry K, a slot's exits found and best are word K. K moves
+whenever a course is added, dropped or reordered, so a reorder hands one
+course's record to another. The owner: *"having everything depend on an
+order that can and will change is bad"*. Keying PROGRESS by course name was
+refused (*"The pathway is a progression tree; if we move a course from spot
+5 to spot 17, then they just have a random place far ahead of their current
+progress unlocked ... Now they have no way to get back"*), and the plan
+below accepted (*"Progress by pad seems good."*, *"Course version: Yes, this
+is good."*, replays *"keep it as is"*). **`BZS5`**, still one sector:
+
+- **Two new statements.** A course's `version <n>` (1 - 255, default 1)
+  and the pathway's `version <n>` in `path.bbc` (default 1). Neither is in
+  any part or identity. Raising one is the designer's deliberate reset.
+- **A course's SAVE KEY** is CRC-16/CCITT of its NAME's bytes then its
+  version byte, emitted as `BZ_CRS_KEYS` (a word a course). The tool
+  REFUSES a build in which two courses share a key or a key is 0.
+- **Bests are keyed by course.** They are 23 entries of 6 bytes, as
+  before: +0 the key (0 empty), +2 the best in steps, +4 its falls. The
+  file's entries are in no order; the reader finds each course's entry
+  by key, and a key that is not this build's, or a second entry with the
+  same key, is dropped. So an art change keeps a best, a raised `version`
+  clears that course's alone, and `BZ_PHYSV` (+5) still clears them all.
+- **Progress is keyed by PAD.** A slot's +20 is the pathway's VERSION
+  (`BZ_PATH_VER`), not its identity, so editing the map keeps a game and
+  raising the version empties every slot. The exits found and the game's
+  best a course become **a word a PAD**, 23 pads (`BZ_PAD_MAX`; the tool
+  refuses a pathway with more). A pad's progress stays on the pad when
+  the course on it changes, and its exits-found bits are masked to that
+  course's exits on load.
+- **The tour's 6 bytes go** (the tour left with 130.26.8's instruments).
+- **The layout** is 488 bytes:
+
+  | at | |
+  |---|---|
+  | +0 | `BZS5` |
+  | +4 the course count, +5 `BZ_PHYSV`, +6 - +7 zero | |
+  | +8 | 23 best entries x 6 (+8 - +145) |
+  | +146 | three slots of 114 bytes (+146, +260, +374) |
+
+  A slot is +0 - +19 as `BZS4`'s, +20 the pathway's version, +22 the
+  exits found (a word a pad, +22 - +67) and +68 the game's best a pad (+68
+  - +113).
+- **The hostile rules are `BZS4`'s**, with a pad in place of a course K
+  (a pad's words past the pathway's pads must be zero) and a slot of
+  another pathway version emptied.
+- **Replays** (`.BZR`) keep the course identity check (130.14.7.2).
+- **No older layout is read.** Nothing is released, so a `BZS4` file is
+  refused whole like any other foreign file.
+
 #### 130.22.6 The finish and the cards (PLANNED; the cards' bullets and the finish BUILT)
 
 - **The FINISH SEQUENCE (BUILT, wave 8R: `bz_fstart`, `bz_fstep`, `bz_fflash`, `bz_fend`
@@ -294319,8 +294376,9 @@ to, and seems simple."*
 - **The proofs** (item 5's composites, item 15's completeness and WRONG-HIDE)
   pass the shape's cells over.
 - **MEASURED**: ROLL with `noocclude rect 29 37 34 42` and `noocclude rect 49 41
-  54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. Not written into any
-  course: it is the author's to place.
+  54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. It is the author's to
+  place, and ROLL carries exactly those two (2026-11-19: 1,110 -> 1,078 on the
+  course as it then stood), so a shipped course exercises the statement.
 
 **The fall's speed** (the owner's question): a ball falling off an edge does not
 leave at the cap, so the void band's far cells could be cut by how far a REAL

@@ -23017,6 +23017,12 @@ BZ_PARTS1 := $(BZ_CRSPARTS)
 BZ_PARTS2 := $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
+# the parts that are DATA, no code (os88pkg --part-data, SPEC.md 20.3.3): a
+# course's bytes can spell a far call into the kernel by chance, and did
+# (ROLL, `9A 04 02 60 00`), so the far-call gate passes these over. The
+# shell, the families and the VGA part are code, and the gate keeps them.
+BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN \
+                $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 
 # THE SHELL PART (SPEC.md 130.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
@@ -23054,7 +23060,8 @@ $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/b
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
 		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
-		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF)
+		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF) \
+		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) $$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)
 bonanza: $(BUILD)/bonanza.o88

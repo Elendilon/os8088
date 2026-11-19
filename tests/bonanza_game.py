@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""BONANZA: the GAME - the tour, BONANZA.DAT (SPEC.md 130.14.3, 130.14.14 bonanzagame, 130.26.8).
+"""BONANZA: the GAME - the bests and BONANZA.DAT (SPEC.md 130.14.3, 130.14.14 bonanzagame).
 
     make bonanzadisk && python3 tests/bonanza_game.py [--adapter cga|herc|both] [--leg NAME ...]
     python3 tests/bonanza_game.py --red NAME        (a red arm, below)
-    python3 tests/bonanza_game.py --check           (the host half: the model's tour, the hostile
+    python3 tests/bonanza_game.py --check           (the host half: the model's plays, the hostile
                                                      files built and decided, every red arm assembled)
 
 The game is driven by the AUTOPILOT: `bz_apilot` (a harness byte, never set
 by the package) makes a PLAY take its key bytes from `bz_auto`, recorded as a
-play's (bzphys.inc bz_step) - so a tour course is played by exactly the keys
-bbcourse.Physics.auto() chooses, and its time is the MODEL's: the route demo's
-steps (bbcourse.route_demo), the same on both cards.  The legs, on MartyPC's
+play's (bzphys.inc bz_step) - so a course is played by exactly the keys
+bbcourse.Physics.auto() chooses, and its time is the MODEL's, the same on
+both cards.  The legs, on MartyPC's
 CGA (os8088_5150_cga_gla) and Hercules (os8088_5150_herc_gla), each on a disk
 the row builds (the shipped build/bonanza.o88, with SYSTEM\\APPDATA as
 bonanzadisk builds it, and nothing else):
@@ -25,54 +25,34 @@ bonanzadisk builds it, and nothing else):
           step for a guest second, the log unchanged; P again: the play ends at
           the model's goal step (the pause added none) with the model's log,
           and BONANZA.DAT holds FIRST's best alone
-  tour    G: the TOUR's courses (BZ_TOUR, bbcourse.py's named list - a test
-          fixture since SPEC.md 130.26.8, no longer every course but BENCH),
-          each played by the autopilot with its own ball
-          (bz_cballs): after each its time in bz_ttime (the model's steps), its
-          falls in bz_tfall, bz_tour the next course; bz_tour BZ_NTOUR + 1 after
-          the last and the total their sum; BONANZA.DAT read back = the expected BZS4
-          bytes (`BZS4`, the count, each course's identity, best and falls,
-          the tour's XOR and total); every course's launch time to its
-          bracket and floppy reads REPORTED - wave 5b (SPEC.md 130.15.13): on
-          the BZC2 parts, stored compact and expanded at the fetch, in the
-          shipped parts' format (printed)
-  stop    a second tour: course 1 as before, the tour's course 2 played SLOWER
-          (the autopilot withheld for a guest second: its steps the idle ones
-          plus the model's from rest), Esc in course 3 - bz_tour 8 (stopped),
-          the finished courses entered, no total, and BONANZA.DAT UNCHANGED
-          (neither course's time is under its best; no tour total)
-  face    a third tour: course 1, then on the face G, N, M, B, R, D, L and V
-          each DO NOTHING (bz_tour, bz_crsel, bz_matsel, bz_vk and bz_rlog as
-          they were, no launch reached bz_launch, no chooser), then Esc on the
-          face stops it (bz_tour 8, BZ_NTOUR + 2)
   hostile one boot a file: a BONANZA.DAT the host wrote onto SYSTEM\\APPDATA
           (a 32-byte file whose bytes are a valid head with a best - the
           length; a bad magic; an entry of another identity; a best of 0; a
-          tour of another XOR; a count of 9) - bz_dat after the entry proc is
-          the image 130.14.3.3 and 130.14.17 item 6 say (the file refused
+          count past BZD_NENT, ...; slots judged alone) - bz_dat after the
+          entry proc is the image 130.14.3.3 and 130.14.17 item 6 say (the file refused
           whole, or the bad entry alone), and the next best (FIRST by the
           autopilot) REWRITES THE FILE WHOLE as this build's BZS4 bytes
   noapp   a disk built WITHOUT SYSTEM\\APPDATA: a best toasts `Best times not
           saved` once (bz_toast reached once over two bests, bz_datw 1)
   physdat wave 6 (SPEC.md 130.16.9, 130.16.14): BONANZA.DAT +5 is BZ_PHYSV.
           One boot a file, each carrying THIS build's course identities and
-          tour XOR and a best on every course and a tour total: +5 = 00h (5b's
-          unset value), +5 = A0h (5b's physics) and (wave 6b, SPEC.md 130.17.7,
+          the file's tour field (BZ_CRS_TOURX, a total) and a best on every
+          course: +5 = 00h (5b's unset value), +5 = A0h (5b's physics) and
+          (wave 6b, SPEC.md 130.17.7,
           130.17.10) +5 = 25h (wave 6's: the owner's round-1 disk) load with the identities
-          kept and EVERY best and the tour's cleared (bz_dat the first run's
+          kept and EVERY best and the tour total cleared (bz_dat the first run's
           image), and the next best (FIRST by the autopilot) rewrites the
           file whole with +5 = BZ_PHYSV and FIRST's best alone; the same file
           with +5 = BZ_PHYSV keeps every best (the control: the clear is the
           physics test's, not the identities').  Every expected byte is
-          DERIVED - BZ_PHYSV out of the build's bzcourse.inc, the course count
-          out of BZ_COURSES and the tour out of BZ_TOUR - so a retune turns nothing red
+          DERIVED - BZ_PHYSV and BZ_CRS_TOURX out of the build's bzcourse.inc,
+          the course count out of BZ_COURSES - so a retune turns nothing red
 
 --red NAME builds a broken package (or image) in a temporary directory (never
 build/) and PASSES only if the row FAILS - at its own check:
-  besttime    the writer keeps the LAST time, not the least: the stop leg's file
   datlen      BONANZA.DAT's length check removed: the 32-byte file's best is shown
   replaybest  a replay posts a best: the posts leg's R
-  noappdata   the leg's image built without SYSTEM\\APPDATA: the tour's read-back
+  noappdata   the leg's image built without SYSTEM\\APPDATA: the pause leg's read-back
   physdat     wave 6: bz_dnorm's +5 test left out (a file under other physics
               keeps its bests): the physdat leg's cleared-bests check, a best kept
 """
@@ -93,7 +73,7 @@ import bonanza_ring as R       # noqa: E402
 
 DAT = "SYSTEM/APPDATA/BONANZA.DAT"
 NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 130.22.5: BZS4)
-LEGS = ("posts", "pause", "tour", "stop", "face", "hostile", "noapp", "physdat")
+LEGS = ("posts", "pause", "hostile", "noapp", "physdat")
 PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 130.16.9: PHYSV_SHIPPED's last before wave 6)
 PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 130.17.7: its bests cleared once)
 
@@ -107,17 +87,6 @@ def ncrs():
     return dict.__len__(R.CRS_K)
 
 
-def tks():
-    """THE TOUR's courses, K in its order: bzcourse.inc's BZ_TOUR (SPEC.md 130.26.8 - a
-    short NAMED list, bbcourse.py's TOUR, no longer every course but BENCH)"""
-    return R.tour_ks()
-
-
-def ntour():
-    """bonanza.asm BZ_NTOUR: the tour's length (bzcourse.inc, SPEC.md 130.26.8)"""
-    return len(tks())
-
-
 def physv():
     """this build's BZ_PHYSV, read out of the GENERATED bzcourse.inc (never a
     literal: a retune moves it, SPEC.md 130.16.11)"""
@@ -126,23 +95,16 @@ def physv():
     return int(re.search(r"^BZ_PHYSV\s+equ\s+0?([0-9A-Fa-f]+)h", inc, re.M).group(1), 16)
 
 
-def name_k(k):
-    R.CRS_K["bench"]
-    return [n for n in R.CRS_K if R.CRS_K[n] == k][0]
-
-
-def auto_steps(k, mat=None, idle=0):
+def auto_steps(k, mat=None):
     """the model's autopilot PLAY on course K with material MAT (its own ball
-    by default), after IDLE steps with no key: -> (steps at its goal, falls),
-    (None, falls) when it does not finish within bbcourse.DEMO_STEPS"""
-    key = (k, mat, idle)
+    by default): -> (steps at its goal, falls), (None, falls) when it does not
+    finish within bbcourse.DEMO_STEPS"""
+    key = (k, mat)
     if key not in _AUTO:
         c = R.course_k(k)
         p = BB.Physics(c, play=True, mat=c.ball if mat is None else mat)
-        for _ in range(idle):
-            p.step(0)
-        keys = [0] * idle
-        while p.nstep < BB.DEMO_STEPS + idle and not p.goal:
+        keys = []
+        while p.nstep < BB.DEMO_STEPS and not p.goal:
             kb = p.auto()
             p.step(kb)
             keys.append(kb)
@@ -150,9 +112,9 @@ def auto_steps(k, mat=None, idle=0):
     return _AUTO[key][:2]
 
 
-def auto_keys(k, mat=None, idle=0):
-    auto_steps(k, mat, idle)
-    return _AUTO[(k, mat, idle)][2]
+def auto_keys(k, mat=None):
+    auto_steps(k, mat)
+    return _AUTO[(k, mat)][2]
 
 
 def ids():
@@ -161,16 +123,16 @@ def ids():
     return {k: (R.course_k(k).ident if 1 <= k < ncrs() else 0) for k in range(NENT)}
 
 
-def tourx():
-    x = 0
-    for k in tks():
-        x ^= R.course_k(k).ident
-    return x
+def dat_tourx():
+    """the tour field's +0 a BZS4 file carries (bz_dnorm writes this build's
+    BZ_CRS_TOURX there): bzcourse.inc's, never derived from the tour's list"""
+    import re
+    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_CRS_TOURX\s+equ\s+0?([0-9A-Fa-f]+)h", inc, re.M).group(1), 16)
 
 
 SLOTB = 22 + 4 * NENT          # save v4 (wave 8R round 2, SPEC.md 130.22.5): 23 entries, the tour, three 114-byte slots
-SLOT_OFF = 8 + 6 * NENT + 6    # BZD_SLOT: the first slot
-TOUR_OFF = 8 + 6 * NENT        # BZD_TOUR
+SLOT_OFF = 8 + 6 * NENT + 6    # BZD_SLOT: the first slot (after BZD_TOUR's 6 bytes)
 DAT_FILE = SLOT_OFF + 3 * SLOTB
 assert DAT_FILE == 494, "BZS4 is 494 bytes: under one sector, never a whole one (od_write's in-place arm)"
 
@@ -214,7 +176,7 @@ def dat_image(best=None, tour=0, count=None, pv=None, slots=None, old=0):
     for k in range(NENT):
         t, f = best.get(k, (0, 0))
         b += struct.pack("<HHH", idt[k], t, f)
-    b += struct.pack("<HI", tourx(), tour)
+    b += struct.pack("<HI", dat_tourx(), tour)
     b += slots if slots is not None else bytes(3 * SLOTB)
     assert len(b) == DAT_FILE
     if old:
@@ -243,9 +205,6 @@ def hostile_set():
     bad = bytearray(good)
     struct.pack_into("<HH", bad, 8 + 6 * 1 + 2, 0, 3)                       # FIRST's best 0 (its falls 3)
     out.append(("zero", bytes(bad), dat_image({2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
-    bad = bytearray(good)
-    struct.pack_into("<HI", bad, TOUR_OFF, tourx() ^ 0x8001, 5000)                # a tour of another XOR
-    out.append(("tourx", bytes(bad), dat_image({1: (t1 + 99, 2), 2: (499, 0)}), {1: (t1, 0), 2: (499, 0)}))
     bad = bytearray(good)
     bad[4] = NENT + 1                                                       # a count past BZD_NENT
     out.append(("count", bytes(bad), first, {1: (t1, 0)}))
@@ -481,140 +440,6 @@ def leg_pause(g):
             d.hex() if d else None, exp.hex()))
     print("%s pause: paused at step %d for a guest second, the play to its goal at %d (the model's %d), the log "
           "the model's, BONANZA.DAT FIRST's best: %s" % (g.tag, n1, n, t1, "yes" if not fails else "NO"), flush=True)
-    return fails, {k: (t1, 0)}
-
-
-def tour_state(g):
-    n = ntour()
-    raw = g.m.read(g.a("bz_ttime"), 4 * n)
-    return g.b("bz_tour"), struct.unpack("<%dH" % n, raw[:2 * n]), struct.unpack("<%dH" % n, raw[2 * n:])
-
-
-def leg_tour(g, best):
-    """G: the TOUR's courses (BZ_TOUR) by the autopilot; bz_ttime, bz_tour, the
-    total, the file"""
-    fails = []
-    m = g.m
-    T = tks()
-    want = [auto_steps(K)[0] for K in T]
-    guard(g)
-    m.disk(reset=True)
-    g.key("KeyG")
-    rep = []
-    for k, K in enumerate(T, 1):                # k the tour's step, K its course
-        if k > 1:
-            m.disk(reset=True)
-            g.key("Enter")
-        reads, up = bracket(g, "tour course %d" % k, guest=200)
-        tour, tt, tf = tour_state(g)
-        rep.append("%s %d steps (%d reads, %.2f s to the bracket)" % (name_k(K).upper(), tt[k - 1], reads, up))
-        if tt[k - 1] != want[k - 1] or tf[k - 1] != 0:
-            fails.append("tour: course %d (%s) entered %d steps and %d falls, the model's autopilot %d and 0" % (
-                k, name_k(K).upper(), tt[k - 1], tf[k - 1], want[k - 1]))
-        if tour != k + 1:
-            fails.append("tour: after course %d bz_tour is %d, not %d" % (k, tour, k + 1))
-        if fails:
-            return fails, best, 0
-    total = sum(want)
-    for k, K in enumerate(T, 1):
-        if K not in best or want[k - 1] < best[K][0]:
-            best[K] = (want[k - 1], 0)
-    exp = dat_image(best, total)
-    d = read_dat(g)
-    if d != exp:
-        fails.append("tour: BONANZA.DAT read back off the floppy %s, the expected BZS4 bytes %s" % (
-            d.hex() if d else "ABSENT", exp.hex()))
-    if bytes(g.m.read(g.a("bz_dat"), DAT_FILE)) != exp:
-        fails.append("tour: [bz_dat] is not the expected image")
-    print("%s tour (the parts %s, the courses BZC2's, expanded at each fetch: SPEC.md 130.15.13, the launch times "
-          "REPORTED): %s; total %d steps; BONANZA.DAT the expected BZS4 bytes: %s" % (
-              g.tag, R.part_fmt().upper(), "; ".join(rep), total, "yes" if not fails else "NO"), flush=True)
-    return fails, best, total
-
-
-def leg_stop(g, best, total):
-    """a second tour: course 2 slower, Esc in course 3: stopped, the file unchanged"""
-    fails = []
-    m = g.m
-    T = tks()
-    if len(T) < 3:
-        return ["stop: the tour has %d course(s); the leg plays into its third (BZ_TOUR, SPEC.md 130.26.8)"
-                % len(T)]
-    k2 = T[1]                                   # the tour's course 2 (its K)
-    guard(g)
-    g.key("KeyG")
-    bracket(g, "stop tour course 1", guest=200)
-    m.pause()
-    g.putb("bz_apilot", 0)                      # course 2 held back a guest second: slower
-    m.run()
-    g.key("Enter")
-    M.until(m, lambda _: g.b("bz_fs") == 1, "stop tour course 2's bracket", guest=60)
-    M.guest_sleep(m, 1.0)
-    wk = R.Walker(g, t0=True)
-    m.bp_exec(wk.t0)
-    while wk.next() != "t0":
-        pass
-    idle = g.d("bz_nstep")
-    g.putb("bz_apilot", 1)
-    m.bp_exec()
-    m.run()
-    bracket(g, "stop tour course 2", guest=200)
-    t2, _ = auto_steps(k2, idle=idle)
-    tour, tt, _tf = tour_state(g)
-    if tt[1] != t2:
-        fails.append("stop: course 2 held %d idle steps entered %d steps, the model's %d" % (idle, tt[1], t2))
-    g.key("Enter")
-    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 20, "stop tour course 3 under way", guest=60)
-    g.key("Escape")
-    # (the bracket is already up: the Esc ends it - so wait for its END, not
-    # bracket()'s rise, which never comes again; the final pass of wave 4)
-    M.until(m, lambda _: g.b("bz_fs") == 0, "stop tour course 3 to end on Esc", guest=60)
-    M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "stop tour course 3: its parts dropped",
-            guest=30)
-    motor_off(g)
-    tour, tt, _tf = tour_state(g)
-    if tour != ntour() + 2 or tt[2] != 0 or tt[0] != auto_steps(T[0])[0]:
-        fails.append("stop: Esc in course 3 left bz_tour %d and the times %s; want %d (stopped), course 3 "
-                     "not entered" % (tour, tt, ntour() + 2))
-    exp = dat_image(best, total)
-    d = read_dat(g)
-    if d != exp:
-        fails.append("stop: BONANZA.DAT after the stopped tour %s, the first tour's %s: a slower course 2 or the "
-                     "stopped tour changed it" % (d.hex() if d else "ABSENT", exp.hex()))
-    print("%s stop: course 2 slower by %d idle steps (%d), Esc in course 3: bz_tour %d, the file unchanged: %s" % (
-        g.tag, idle, t2, tour, "yes" if not fails else "NO"), flush=True)
-    return fails
-
-
-def leg_face(g):
-    """a third tour: the withheld keys on the face, then Esc on the face"""
-    fails = []
-    m = g.m
-    guard(g)
-    g.key("KeyG")
-    bracket(g, "face tour course 1", guest=200)
-    m.pause()
-    before = (g.b("bz_tour"), g.b("bz_crsel"), g.b("bz_matsel"), g.b("bz_vk"), bytes(g.read_log()))
-    m.run()
-    with M.bp_trace(m, g.a("bz_launch"), log=True) as tr:
-        for key in ("KeyG", "KeyN", "KeyM", "KeyB", "KeyR", "KeyD", "KeyL", "KeyV"):
-            g.key(key)
-            M.guest_sleep(m, 0.3)
-            guard(g)
-        M.guest_sleep(m, 0.5)
-        n = tr.count()
-    m.pause()
-    after = (g.b("bz_tour"), g.b("bz_crsel"), g.b("bz_matsel"), g.b("bz_vk"), bytes(g.read_log()))
-    dlg = g.ui._word("fdlg_win")
-    m.run()
-    if after != before or n or dlg not in (0, 0xFFFF):
-        fails.append("face: during a tour G, N, M, B, R, D, L and V changed (tour, course, ball, demo) %s -> %s%s, "
-                     "%d launch(es), chooser %04X (SPEC.md 130.14.3.4: they do nothing)" % (
-                         before[:4], after[:4], ", the log changed" if before[4] != after[4] else "", n, dlg))
-    g.key("Escape")
-    M.until(m, lambda _: g.b("bz_tour") == ntour() + 2, "Esc on the face to stop the tour", guest=10)
-    print("%s face: the eight keys withheld in a tour, Esc on the face stopped it: %s" % (
-        g.tag, "yes" if not fails else "NO"), flush=True)
     return fails
 
 
@@ -636,7 +461,7 @@ def leg_hostile(tag, sym, td, cases=None, o88=None):
                     name, got.hex(), want.hex()))
             free_play(g, 1, R.course_k(1).ball, "hostile %s: FIRST" % name)
             d = read_dat(g)
-            exp = dat_image(nxt, tour=struct.unpack_from("<I", want, TOUR_OFF + 2)[0], slots=want[SLOT_OFF:])  # (as the entry proc kept them)
+            exp = dat_image(nxt, slots=want[SLOT_OFF:])     # (the slots as the entry proc kept them)
             if d != exp:
                 fails.append("hostile %s: the next best did not rewrite the file whole: %s, want %s" % (
                     name, d.hex() if d else "ABSENT", exp.hex()))
@@ -674,8 +499,8 @@ def leg_noapp(tag, sym, td, o88=None):
 def physdat_set():
     """[(name, the file's bytes, the bz_dat image the entry proc must make, the
     best the next FIRST play files)] - SPEC.md 130.16.9's three cases: each file
-    carries THIS build's course identities and tour XOR, a best on every course
-    and a tour total, and differs only at +5"""
+    carries THIS build's course identities and BZ_CRS_TOURX, a best on every
+    course and a tour total, and differs only at +5"""
     t1, _ = auto_steps(1)
     best = {k: (t1 + 50 + k, 1) for k in range(1, ncrs())}           # every best SLOWER than FIRST's play
     pv = physv()
@@ -725,22 +550,13 @@ def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
     fails = []
     with tempfile.TemporaryDirectory() as td:
         img = img_main or R.disk(td, appdata=appdata, name="game", o88=o88)
-        if set(legs) & {"posts", "pause", "tour", "stop", "face"}:
+        if set(legs) & {"posts", "pause"}:
             with boot(tag, img) as ui:
                 g = open_game(ui, tag, sym)
-                best, total = {}, 0
                 if "posts" in legs:
                     fails += leg_posts(g)
                 if "pause" in legs and not fails:
-                    f, best = leg_pause(g)
-                    fails += f
-                if "tour" in legs and not fails:
-                    f, best, total = leg_tour(g, best)
-                    fails += f
-                if "stop" in legs and not fails:
-                    fails += leg_stop(g, best, total)
-                if "face" in legs and not fails:
-                    fails += leg_face(g)
+                    fails += leg_pause(g)
         if "hostile" in legs and not fails:
             fails += leg_hostile(tag, sym, td, o88=o88)
         if "noapp" in legs and not fails:
@@ -751,14 +567,6 @@ def run(tag, legs=LEGS, src=None, img_main=None, appdata=True, o88=None):
 
 
 REDS = {
-    # the writer keeps the LAST time: the best compare taken out
-    # - in bz_post AND in bz_dsave's merge with the file, which since the review (130.14.25 item 4)
-    # keeps the smaller of the two by itself: either alone is masked by the other (the final pass of
-    # wave 4: the bz_post arm alone stayed GREEN)
-    "besttime": [("bonanza.asm", "    jcxz .set\n    cmp ax, cx\n    jae .out\n.set:\n",
-                  "    jcxz .set\n    nop                         ; RED besttime: the last time kept\n.set:\n"),
-                 ("bonanza.asm", "    cmp ax, dx\n    jae .mn\n",
-                  "    nop                         ; RED besttime: the merge keeps ours\n")],
     # the length check removed: a short file's bytes are checked as a whole one
     "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; save v4 (130.22.5): `BZS4`, exactly one sector; any\n"
                 "    jne bz_dnorm                ; other length (an older layout too) is unrecognised\n",
@@ -780,36 +588,21 @@ REDS = {
                  "    xor cl, cl\n.phys:\n",
                  "    nop                         ; RED physdat: +5 not checked\n.phys:\n")],
 }
-RED_LEGS = {"besttime": ("pause", "tour", "stop"), "datlen": ("hostile",), "replaybest": ("posts",),
-            "noappdata": ("tour",), "physdat": ("physdat",), "explorepad": ("hostile",),
+RED_LEGS = {"datlen": ("hostile",), "replaybest": ("posts",),
+            "noappdata": ("pause",), "physdat": ("physdat",), "explorepad": ("hostile",),
             "pastbest": ("hostile",)}
-RED_WANT = {"besttime": "stop: BONANZA.DAT", "datlen": "hostile short", "replaybest": "posts: after R",
-            "noappdata": "tour: BONANZA.DAT", "physdat": "every best and the tour CLEARED",
+RED_WANT = {"datlen": "hostile short", "replaybest": "posts: after R",
+            "noappdata": "pause: BONANZA.DAT", "physdat": "every best and the tour CLEARED",
             "explorepad": "hostile explore", "pastbest": "hostile wide"}
 
 
 def check():
-    """the host half: the model's tour, the hostile set decided, the reds assembled"""
+    """the host half: the model's plays, the hostile set decided, the reds assembled"""
     bad = []
-    for k, K in enumerate(tks(), 1):
-        t, f = auto_steps(K)
-        print("bonanza_game tour course %d %s: the autopilot's play %s steps, %d falls" % (
-            k, name_k(K).upper(), t, f))
-        if t is None or f:
-            bad.append("tour course %d (%s): the model's autopilot does not finish without a fall" % (
-                k, name_k(K).upper()))
-    x = tourx()
-    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
-    import re
-    gx = int(re.search(r"^BZ_CRS_TOURX\s+equ\s+0?([0-9A-Fa-f]+)h", inc, re.M).group(1), 16)
-    print("bonanza_game the tour's XOR %04Xh, bzcourse.inc's %04Xh" % (x, gx))
-    if x != gx:
-        bad.append("the tour's identity XOR %04X is not bzcourse.inc's BZ_CRS_TOURX %04X" % (x, gx))
-    k2 = tks()[1]
-    print("bonanza_game the stop leg's course 2 held 60 idle steps: %s steps" % (auto_steps(k2, idle=60)[0],))
-    if auto_steps(k2, idle=60)[0] != auto_steps(k2)[0] + 60:
-        print("bonanza_game  (TRIAL from rest after idle steps is not its route + the idle steps: the row computes "
-              "the expected time from the model, so this is reported only)")
+    t1, f1 = auto_steps(1)
+    print("bonanza_game FIRST: the autopilot's play %s steps, %d falls" % (t1, f1))
+    if t1 is None:
+        bad.append("FIRST: the model's autopilot does not finish (every leg plays FIRST to its goal)")
     print("bonanza_game BZ_CRS_MAX %d: BZS4 %d bytes (the slots at +%d, %d each; under one sector)" % (
         crs_max(), DAT_FILE, SLOT_OFF, SLOTB))
     if DAT_FILE >= 512 or DAT_FILE % 512 == 0:  # od_write's one-sector arm refuses a whole sector (os88data.inc)

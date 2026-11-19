@@ -32,12 +32,11 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MUSDIR = os.path.join(ROOT, "apps", "bonanza", "music")
 BANK = os.path.join(MUSDIR, "bank.bmb")
-# THE MANIFEST: song S is SONGS[S]. 0 - 4 the courses' (SPEC.md 130.20.6,
-# 130.26.5: course K plays song (K - 1) mod 5, BENCH song 0); 5 the finish's
-# fanfare; 6 the TITLE SCREEN's one-shot (SPEC.md 130.23.1: the title course's
-# `music attract`); 7 First Roll's own, played only by its `music firstroll`,
-# and 9 Little Hop's, by its `music littlehop` (NON_COURSE, so the wrap is unchanged).  The desktop's song 0, `title`, is GONE (130.26.5: the
-# window is silent).
+# THE MANIFEST: song S is SONGS[S]. Every course NAMES its song with `music`
+# (SPEC.md 130.50.3: no song by position any more); 5 the finish's fanfare and
+# 8 TIME'S UP are no course's; 6 the TITLE SCREEN's one-shot (SPEC.md 130.23.1:
+# the title course's `music attract`); 7 First Roll's and 9 Little Hop's own.
+# APPEND, never insert: a song's number is its part's place in the build.
 SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "moonlit.bmu", "summit.bmu",
          "victory.bmu",              # wave 8R (130.22.9): the finish's fanfare; APPEND, never insert
@@ -46,12 +45,9 @@ SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "timeup.bmu",               # SPEC.md 130.22.9.1: the timeout's tune; APPEND, never insert
          "littlehop.bmu"]            # Little Hop's own, by its `music littlehop` (NON_COURSE)
 
-# songs that are NOT in the courses' rotation (the wrap in bbcourse.course_song skips
-# them, and counts only songs 0 - 4, which must stay the first five): the finish's
-# fanfare (130.22.9), the title screen's attract demo (130.23), and a song a course
-# plays only by NAMING it with `music` - First Roll's own, `firstroll`, and Little
-# Hop's, `littlehop`. A course may
-# name any of these but the fanfare (bbcourse's `music` statement).
+# songs no course may be built around by default: the finish's tunes (which no course
+# may NAME), the title screen's and the courses' own (SPEC.md 130.50.3: every course
+# names its song, so this list is now only what bbcourse's `music` refuses and reports)
 NON_COURSE = ("victory", "attract", "firstroll", "timeup", "littlehop")
 
 # SPEC.md 130.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
