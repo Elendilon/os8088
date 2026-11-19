@@ -98,6 +98,8 @@ def main():
     src.add_argument("--demo", metavar="COURSE", help="a shipped demo by its course's name (trial, mill, play ...)")
     ap.add_argument("--secs", type=float, default=20.0, help="guest seconds measured (default 20)")
     ap.add_argument("--top", type=int, default=30, help="routines listed (default 30)")
+    ap.add_argument("--steps", type=int, nargs=2, metavar=("A", "B"),
+                    help="sample only while the physics step bz_nstep is in [A, B) (a stretch of a replay)")
     a = ap.parse_args()
     vga = "vga" in a.machine
     art = R.at("build/bonanza-art")
@@ -135,10 +137,18 @@ def main():
             f0, s0 = g.w("bz_frames"), g.d("bz_nstep")
             last, t, nxt = (f0, s0), 0.0, 1.0
             rnd = random.Random(1)
-            while t < a.secs and g.b("bz_fs") == 1:
-                c = rnd.randint(15000, 45000)
+            win0 = win1 = None
+            while (t < a.secs or a.steps) and g.b("bz_fs") == 1:
+                c = rnd.randint(3000, 9000) if a.steps else rnd.randint(15000, 45000)   # (a stretch: denser)
                 m.advance(cycles=c)
                 t += c / CPS
+                if a.steps and not a.steps[0] <= g.d("bz_nstep") < a.steps[1]:
+                    if g.d("bz_nstep") >= a.steps[1]:
+                        break
+                    continue
+                if a.steps and win0 is None:
+                    win0 = (g.w("bz_frames"), g.d("bz_nstep"), t)
+                win1 = (g.w("bz_frames"), g.d("bz_nstep"), t)
                 r = m.regs()
                 flat = (r["cs"] << 4) + r["ip"]
                 if base <= flat < base + 0x10000:
@@ -176,6 +186,10 @@ def main():
     if per:
         print("  mean %.1f frames and %.1f steps a second" % (sum(p[0] for p in per) / len(per),
                                                               sum(p[1] for p in per) / len(per)))
+    if win0 and win1 and win1[2] > win0[2]:
+        dt = win1[2] - win0[2]
+        print("  steps %d - %d: %.2f guest s, %.1f frames and %.1f steps a second" % (
+            win0[1], win1[1], dt, ((win1[0] - win0[0]) & 0xFFFF) / dt, (win1[1] - win0[1]) / dt))
     for k, v in prof.most_common(a.top):
         where = ""
         if k.startswith("seg "):
