@@ -21870,6 +21870,33 @@ BZHUMPSTAMP := $(BUILD)/.bzhump-$(or $(BZHUMP),0)
 $(BZHUMPSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzhump-*
 	@touch $@
+#> [Knobs] BZQSTEP=1 :: Bounce Bonanza with its QUARTER STEPS test course, QSTP (SPEC.md 130.48): eight lanes stepping up 1/4 to 2 units from one plate, every step of the quarter-unit ladder side by side - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/qstep BZQSTEP=1 bonanzadisk)
+# BZQSTEP=1 (SPEC.md 130.48, BZHUMP's precedent) adds apps/bonanza/courses/qsteps.bbc to BZ_COURSES (after the
+# shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
+# apps/bonanza/courses/pathqstep.sed applied: pad 0 becomes QSTP, FIRST gets pad 6 beside it.  Pad 0 is one
+# course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
+# knob-less one.
+BZQSTEP ?=
+ifeq ($(filter $(BZQSTEP),1),)
+ifneq ($(BZQSTEP),)
+$(error BZQSTEP=$(BZQSTEP) is 1 or empty)
+endif
+endif
+ifeq ($(BZQSTEP),1)
+ifneq ($(filter 1,$(BZSHAPES) $(BZMAGNET) $(BZWIND) $(BZRAIL) $(BZWATER) $(BZARCH) $(BZSPIKE) $(BZBOOST) $(BZGATE) $(BZTILT) $(BZTURN) $(BZHUMP) $(BZROLL)),)
+$(error BZQSTEP=1 with another pad-0 knob (BZSHAPES, BZMAGNET, BZWIND, BZRAIL, BZWATER, BZARCH, BZSPIKE, BZBOOST, BZGATE, BZTILT, BZTURN, BZHUMP, BZROLL): each makes its course the pathway's pad 0 - build one at a time)
+endif
+BZ_COURSES += apps/bonanza/courses/qsteps.bbc
+BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathqstep.sed
+BZ_PATH := $(BUILD)/bonanza-art/pathqstep.bbc
+$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
+	@mkdir -p $(dir $@)
+	sed -f apps/bonanza/courses/pathqstep.sed apps/bonanza/courses/path.bbc > $@
+endif
+BZQSTEPSTAMP := $(BUILD)/.bzqstep-$(or $(BZQSTEP),0)
+$(BZQSTEPSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzqstep-*
+	@touch $@
 #> [Knobs] BZGATE=1 :: Bounce Bonanza with its SWITCHES, KEYS, GATES and DRAWBRIDGE test course, GATE (SPEC.md 130.41): a plate's gate, a key's gate, a timed drawbridge and a switched one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/gate BZGATE=1 bonanzadisk)
 # BZGATE=1 (SPEC.md 130.41.6, BZBOOST's precedent) adds apps/bonanza/courses/gate.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
@@ -22080,7 +22107,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZROLLSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
                    $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
