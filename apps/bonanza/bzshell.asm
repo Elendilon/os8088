@@ -33,20 +33,27 @@ bzh_v2: jmp near bzh_line       ; BZH_LINE
     times ($ - $$) - BZH_VEC - BZH_VECB * BZH_NVEC db 0
 
 bzh_face:                       ; the PLAYER's face, or with the harness byte
-    cmp byte [bz_dev], 0        ; set the instruments' (SPEC.md 130.26.6)
+%ifdef BZDEV                    ; set the instruments' (SPEC.md 130.26.6; the
+    cmp byte [bz_dev], 0        ; BZDEV build's alone, 130.26.6.1)
     jne .dev
+%endif
     call bz_wface
     retf
+%ifdef BZDEV
 .dev:
     call bz_face
     retf
+%endif
 bzh_redraw:                     ; (a line of the instruments' face: the player's
-    cmp byte [bz_dev], 0        ; has none)
+%ifdef BZDEV                    ; has none)
+    cmp byte [bz_dev], 0
     je .out
     call bz_redraw
 .out:
+%endif
     retf
 bzh_line:                       ; AH = the line
+%ifdef BZDEV
     cmp byte [bz_dev], 0
     je .out
     call bz_fclip
@@ -54,9 +61,11 @@ bzh_line:                       ; AH = the line
     mov al, ah
     call bz_fline
 .out:
+%endif
     retf
 
 ; --- the package's helpers the face reads, copied (SPEC.md 130.19.2) ---------
+%ifdef BZDEV
 ; CF = 1 while a tour's course is next or playing (bonanza.asm's bz_intour)
 bz_intour:
     push ax
@@ -73,6 +82,7 @@ bz_rhave:
     cmp word [bz_rlog + 2], 'R1'
 .out:
     ret
+%endif
 
 ; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 130.46.2)
 bz_adapter:

@@ -121,9 +121,13 @@ BZ_WLBUD    equ 3               ; the LEAD's budget: it ends by BZ_WLBUD / 8 of
 %endif
 
 %macro BZ_WHEEL_VARS 0
+%ifdef BZDEV                    ; the harness's bytes: a BZDEV build's (SPEC.md 130.26.6.1)
 VAR bz_hold,1
 VAR bz_hvoff,1
 VAR bz_camscr,1                 ; a harness's: the SCRIPTED camera (130.17.6.7)
+%else
+VAR bz_hpad,1                   ; (the three's place: the wheel's VARs stay even)
+%endif
 VAR bz_cln,1
 VAR bz_wcal,1
 VAR bz_wvok,1                   ; 1: the last bz_vr saw a rise, no time-out
@@ -2081,7 +2085,7 @@ bz_lead:
     je .out
     cmp bx, 5 * 4
     je .m
-    call bz_markm
+    BZ_MARKM
     mov bx, 5 * 4
 .m:
     push ds
@@ -3071,8 +3075,12 @@ bz_props:
     xor ah, ah
     add [bz_ndef], ax
 .lvq:
+%ifdef BZDEV
     mov al, [bz_hvoff]          ; a harness's A/B, or a hidden ball: none
     or al, [bz_tube]
+%else
+    cmp byte [bz_tube], 0       ; a hidden ball: none
+%endif
     jz .lv
     mov byte [bz_heavy], 0
     ret
@@ -3717,6 +3725,7 @@ bz_hv1:
 .x:
     ret
 
+%ifdef BZDEV
 ; bz_hspin - a harness's LATE FRAME (bz_hold, SPEC.md 130.12.5.6): a spin on
 ; the clock for bz_hold x 256 PIT counts, then bz_hold = 0.  Preserves all but
 ; the flags.
@@ -3743,6 +3752,7 @@ bz_hspin:
     pop ax
     ret
 
+%endif
 ; =============================================================================
 ; THE SLAB ON THE CARD (SPEC.md 130.12.4.3, 130.12.4.5, 130.12.6.4).  The
 ; platform is not in the map: every box that meets its drawn footprint

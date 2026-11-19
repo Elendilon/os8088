@@ -1175,7 +1175,7 @@ def ab_tree(td, commit=AB_COMMIT):
                        stdout=subprocess.DEVNULL)
     src = os.path.join(w, "apps", "bonanza")
     binp, o88, img = (os.path.join(td, n) for n in ("bonanza.bin", "BONANZA.O88", "bonanza360.img"))
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", os.path.join(w, "apps") + "/", "-I", src + "/",
+    subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(w, "apps") + "/", "-I", src + "/",
                     "-I", art + "/", "-o", binp, os.path.join(src, "bonanza.asm")], cwd=R.ROOT, check=True)
     nc = len(order) if order else len(crs)
     if "BZBALR.BIN" in mk:                      # wave 2's part order (its Makefile's BZ_PARTS): the three
@@ -1711,6 +1711,7 @@ def main():
     ap.add_argument("--runs", type=int, help="--baseline only: this many runs a configuration (default 6 for MILL "
                                               "and PEAK, 3 for the rest)")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     tags = {"both": ("cga", "herc"), "all": ("cga", "herc", "vga")}.get(a.adapter, (a.adapter,))
     if a.check:
         for line in R.check_reds(REDS, "bonanza_perf"):

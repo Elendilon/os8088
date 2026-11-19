@@ -1079,13 +1079,14 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
     a = ap.parse_args()
+    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check:
         for line in R.check_reds(REDS, "bonanza_mega"):
             print(line)
         return 0
-    for f in ("mega.img", "megak/kernel.map", "bonanza.img"):
+    for f in ("mega.img", "megak/kernel.map"):
         if not os.path.exists(os.path.join(B, f)):
-            sys.exit("bonanza_mega: build/%s is not built - `make mega bonanzadisk`" % f)
+            sys.exit("bonanza_mega: build/%s is not built - `make mega`" % f)
     tmp = tempfile.mkdtemp(prefix="bonanzamega")
     try:
         print("bonanza_mega: the parts are %s (the parts table's format byte, SPEC.md 130.15.9): every course "
@@ -1112,7 +1113,7 @@ def main():
             print("bonanza_mega --red %s: PASS (the row fails against the broken package)" % a.red)
             return 0
         img_b = os.path.join(tmp, "bonanza.img")
-        shutil.copy(os.path.join(B, "bonanza.img"), img_b)
+        shutil.copy(R.at("build/bonanza.img"), img_b)     # (the BZDEV tree's: R.dev)
         run(img_b, a.keep, tmp)
     finally:
         if a.keep or (FAILS and not a.red):

@@ -351,8 +351,10 @@ bz_pinit:
     mov di, bz_phs
     mov cx, BZ_PHSN / 2
     rep stosw
+%ifdef BZDEV
     cmp byte [bz_mode], 1       ; wave 7 (130.18.4): a play's or a replay's time
     je .nolim                   ; limit, the course's (bz_clims; 0 none: BENCH);
+%endif
     cmp byte [bz_xmode], 0      ; (wave 8c, 130.19.8.3: EXPLORE has none)
     jne .nolim
     mov bl, [bz_crs]            ; the benchmark has none
@@ -576,13 +578,17 @@ bz_step:
     ; ---- 1. the keys, whatever the ball's state: the key byte K ----
     mov al, [bz_mode]
     cmp al, 1
+%ifdef BZDEV
     je .auto
+%endif
     ja .replay
     mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte
     mov bh, [bz_tilt]           ; (bz_input),
+%ifdef BZDEV
     cmp byte [bz_apilot], 0     ; ...or, under a HARNESS's bz_apilot, the
     jne .apil                   ; autopilot's (SPEC.md 130.14.14 bonanzagame)
 .apild:
+%endif
     mov [bz_tby], bh
     cmp bl, [bz_rk]             ; RECORDED - the current run extended while
     jne .rec                    ; both are the same and it is under 255 steps
@@ -598,6 +604,7 @@ bz_step:
 .replay:
     call bz_rnext               ; a REPLAY: the log's next byte and tilt byte
     jmp short .key
+%ifdef BZDEV
 .apil:                          ; a play whose key bytes are the autopilot's,
     call bz_auto                ; recorded as a play's: the tour row's driver
     mov bh, BZ_TILT_KEYS        ; (out of the hot path: never set by the
@@ -609,6 +616,7 @@ bz_step:
     jmp short .lv               ; byte stored or compared (130.14.12's BENCH
                                 ; row; bz_play sets bz_tby to the keyboard's
                                 ; once, and only a play or a replay moves it)
+%endif
 .key:
     test bl, BZ_K_RET           ; wave 4: RETURN (Backspace) first, and the
     jnz .kret                   ; step runs nothing else (130.14.4.5)
@@ -1253,8 +1261,10 @@ bz_step:
     ja .sgoal                   ; (D3: a SPLIT centre, its picked record's)
     mov si, bz_nbr + BZN_C
 .goalr:
+%ifdef BZDEV
     cmp byte [bz_mode], 1       ; play or a replay: the benchmark ignores it
     je .end
+%endif
     cmp word [bz_goal], 0       ; (a finish sequence rolling on over a second
     jne .end                    ; goal cell: the first one stands, 130.22.6)
     mov al, [si + 3]            ; wave 8b (130.19.4): the cell's EXIT, its
@@ -2269,8 +2279,10 @@ bz_prule:
     call bz_vmax                ; max(|gvx|, |gvy|) <= capture: HOLES OUT
     cmp ax, [es:si + BZP_UCAP]
     ja .lip
+%ifdef BZDEV
     cmp byte [bz_mode], 1       ; ...in a play or a replay (the goal line's
     je .inmo                    ; rule: the benchmark rolls over it)
+%endif
     cmp word [bz_goal], 0       ; (in a FINISH SEQUENCE, a goal line's or a
     jne .hole                   ; timeout's: holed, the finish unchanged)
     mov al, [es:si + BZP_UEXIT] ; wave 8b (130.19.4): the cup's EXIT (bit 7

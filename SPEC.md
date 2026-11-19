@@ -270320,6 +270320,8 @@ named, which is binding, and the old sentence is superseded.
 
 ##### 130.14.3.1 Free play, the tour, and what a fall costs
 
+*Since 130.26.6.1 the tour is assembled in the `BZDEV=1` build alone.*
+
 **FREE PLAY** is wave 3's play: `N` picks a course (every course but
 `BENCH`), `M` the ball it starts with, Enter (F, Alt+Enter) plays it once
 to its finish or until Esc. Its log is held (130.11.12), its time is
@@ -270398,6 +270400,9 @@ the shortcuts and the optional branches on purpose: finding one is what
 beats it.
 
 ##### 130.14.3.2 The face: the MAIN page and the RESULTS page
+
+*Since 130.26.6.1 both pages are the `BZDEV=1` build's alone; the shipped
+window's face is 130.26.2's.*
 
 *The owner, 2026-11-17 (130.26.8): MAIN's scorecard lines are DROPPED. MAIN
 is lines 0 - 6 (`BZ_NLINE` 7), whatever the courses or the tour; RESULTS
@@ -278816,6 +278821,10 @@ steps over the step rate (`FIRST` 2.82, `MOON` 39.00, `PEAK` 39.77).
 
 ##### 130.17.6.7 `BENCH` and item 8: the scripted camera
 
+*Since 130.26.6.1 the scripted camera is the `BZDEV=1` build's alone; since
+TRICKLE's deletion (130.9) it is also the rows' way to HOLD the window -
+its cycle poked to (0, 0), `bonanza_ring.cam_hold`.*
+
 `--selfcheck` item 8 (130.11.11.1) asserts all eight step directions at
 least 5 times on both cards over `BENCH`'s 1,200 frames: it is the proof
 that the scroll ENGINE's paths (a row each way, a column each way, the four
@@ -286442,6 +286451,62 @@ keys 1 2 3, E and X went on 2026-11-19 (130.19.8.3): the Saves menu is
 their door, and no row pressed them.
 The instruments' code stays (the rows are what they are for); only their
 door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
+*Since 130.26.6.1 the byte and everything behind it exist only in the
+`BZDEV=1` build.*
+
+##### 130.26.6.1 The test build, `BZDEV=1` (BUILT, wave 4 of the space plan)
+
+The owner, 2026-11-19: *"anything that is a test only needs to be on a
+knob. We don't ship tests."* Every byte only a row reaches is assembled
+under `%ifdef BZDEV`, which the Makefile's `BZDEV=1` knob passes (STAMPED,
+into a private tree: `make BUILD=build/bzdev BZDEV=1 bonanzadisk`). The
+shipped `BONANZA.O88` is the player's alone. Behind the knob:
+
+- **the harness bytes**: `bz_dev`, `bz_apilot`, `bz_phforce`, `bz_hold`,
+  `bz_hvoff`, `bz_tpoke`, `bz_camscr` (and `bz_scnt`);
+- **the instruments' door and keys**: `bz_onkey`'s `.dev` dispatch and its
+  handlers - B, R, D, W, L, V, N, M, G, T, S and the free F (`bz_game`,
+  `bz_tgo`, `bz_ballkey`, `bz_crskey`, `bz_dkey_d`, `bz_wkey`, `bz_lkey`,
+  `bz_wdone`, `bz_vkey`, `bz_tkey`, `bz_skey`, `bz_devk`), `bz_redraw` and
+  `bz_redraw1` (a line of the instruments' face), the TOUR (`bz_intour`,
+  `bz_ttotal`, `bz_tour`, `bz_ttime`, `bz_tfall`, `bz_post`'s tour arm,
+  `bz_launch`'s tour ball) and the RESULTS page (`bz_post`'s B/D arm);
+- **the benchmark and the measurements**: mode 1 (B) and mode 3 (D) - the
+  autopilot (`bz_auto`, `bz_want`), `bz_step`'s `.auto` and `.apil`, the
+  physics' four "the benchmark ignores it" tests, P ignored in B and D,
+  bz_presented's period, worst and missed refreshes and BENCH's end, the
+  measured marks (`bz_mark.meas`, `bz_markm`: the shipped `bz_mark` IS
+  `bz_clk_sample`, and every `BZ_MARKM` site assembles to nothing), the
+  beam check (`bz_latechk`; the shipped `bz_wbox` IS `bz_boxw`), `bz_meas`,
+  `bz_res`, `bz_dtr`, `bz_ppit`, `bz_psubs` and the results copy
+  (`bz_rcopy`, `bz_rframes` .. `bz_rnpwt`, 84 bytes);
+- **the scripted camera** (130.17.6.7: `bz_camera.script`, `.sax`,
+  `bz_scyc`), the harness's late frame (`bz_hspin`);
+- **the shell part's instruments' face**: `bzface.inc`'s MAIN and RESULTS
+  builders and the shell's `BZH_REDRAW` and `BZH_LINE` vectors (a `retf`
+  in the shipped part, whose face is `bz_wface`'s alone).
+
+**What a PLAYER reaches stays shipped**: the window, its menus
+(`bzmenu.inc`), Play Game, the title and its demos, the pathway and its V
+demo, Save and Load Replay, a double-clicked `.BZR`, the mouse and the
+sound's menu toggle. MEASURED: the shipped package **49,265 image + 8,564
+bss = 57,829, 7,195 bytes free** (the window was 5,355 free after
+TRICKLE's deletion: 1,716 image and 124 bss); the `BZDEV=1` package
+50,983 + 8,688 = 59,671, **5,353 free** - it must fit `APP_MAX_SIZE` too,
+and `OS88_IMAGE_END` checks it in its own build. The shell part is 10,455
+bytes shipped (5,244 packed) against 12,039 (6,446) in the knob build.
+
+**The rows run the knob build.** `bonanza_ring.dev()` builds and APPLIES
+the `BZDEV=1` private tree (`os88build.tree`, targets the 360KB system
+floppy, `bonanza360.img` and `bonanza.img`), so every `build/...` a row
+names through `at()` is the tree's, and every package it assembles itself
+- `symbols`, `shell_symbols`, `assemble`, a red tree's link map and parts -
+passes `-DBZDEV` (`bonanza_ring.NASM`, `pxdefs`). Every bonanza row that
+drives an instrument calls it first: bonanzaring, bonanzaperf, bonanzaphys,
+bonanzareplay, bonanzaexit, bonanzapath, bonanzamega, bonanzasound,
+bonanzagame, bonanzademo, bonanzawheel, and the host rows bonanza_dsplit
+and bonanza_dfield. **bonanzatitle and bonanza_av are about the shipped
+game and read the shipped build.**
 
 #### 130.26.7 The About card (BUILT)
 
