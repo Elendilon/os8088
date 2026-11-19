@@ -66,7 +66,7 @@ RED_WANT = {"view": "2. ", "chain": "8. "}
 
 
 def title_k():
-    R.CRS_K["bench"]
+    R.crs_fill()
     return dict.__len__(R.CRS_K) + 1            # BZ_CRS_TITLE = BZ_CRS_PATH + 1 = BZ_NCRS + 1
 
 

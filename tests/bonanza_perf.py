@@ -1163,10 +1163,13 @@ def ab_tree(td, commit=AB_COMMIT):
     crs = sorted(os.listdir(os.path.join(w, "apps", "bonanza", "courses"))) \
         if os.path.isdir(os.path.join(w, "apps", "bonanza", "courses")) else []
     mk = git("show", "%s:Makefile" % commit).stdout
-    order = []
+    order, bench = [], []
     for line in mk.replace("\\\n", " ").splitlines():      # (its continuation lines joined: wave 3's
-        if line.startswith("BZ_COURSES :="):                # list runs over two)
+        if line.startswith("BZ_COURSES :=") and not order:  # list runs over two)
             order = line.split(":=", 1)[1].split()
+        elif line.startswith("BZ_BENCH :="):            # since BENCH left the shipped build (SPEC.md 130.10.11.1):
+            bench = line.split(":=", 1)[1].split()      # the BZDEV build's course 0, as R.NASM's -DBZDEV wants
+    order = bench + order
     if order and "tools/bbcourse.py" in tools:
         subprocess.run([sys.executable, os.path.join(w, "tools", "bbcourse.py"), "-o", art] +
                        [os.path.join(w, c) for c in order], cwd=w, check=True, stdout=subprocess.DEVNULL)
@@ -1571,7 +1574,7 @@ def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
                 g = R.Bz(ui, tag, sym)
                 ui.settle()
                 set_snd(g, snd == "on")
-                for kd in [None] + list(range(1, len(R.CRS_K))):
+                for kd in [None] + R.demo_ks():     # B's BENCH, then every shipped demo's course (by NAME)
                     name = "bench" if kd is None else names[kd]
                     if only and name not in only:
                         continue

@@ -147,7 +147,7 @@ TAG = ["?"]
 def path_k():
     global BB_PATH
     if BB_PATH is None:
-        R.CRS_K["bench"]                # (fills the table: the pathway's K is BZ_NCRS)
+        R.crs_fill()                    # (fills the table: the pathway's K is BZ_NCRS)
         BB_PATH = dict.__len__(R.CRS_K)
     return BB_PATH
 

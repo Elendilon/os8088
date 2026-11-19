@@ -250,7 +250,7 @@ def world_row(k):
     names = open(p).read().split() if os.path.exists(p) else []
     if "BZ%dW.BIN" % k not in names:
         return None
-    R.CRS_K["bench"]
+    R.crs_fill()
     return CRS_ROW0 + dict.__len__(R.CRS_K) + names.index("BZ%dW.BIN" % k)
 
 
@@ -258,7 +258,7 @@ def snd_row():
     """the row after the courses' and the two-part courses' WORLD rows (130.30.4.4): the DEMOS' first since
     SPEC.md 130.50 (the sound part went into the RESIDENT BUNDLE, each song into its course part - no
     sound rows)"""
-    R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
+    R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
     return CRS_ROW0 + dict.__len__(R.CRS_K) + ncrs2()
 
 
@@ -391,7 +391,7 @@ def claim_check(g, what):
               "bonanzaring's VGA card checks it on the card)", flush=True)
         return []
     k = g.b("bz_crs")
-    R.CRS_K["bench"]                            # (fills the course table)
+    R.crs_fill()                                # (fills the course table)
     name = [n for n in R.CRS_K if R.CRS_K[n] == k][0]
     pic, world = ram_forms(k, g.tag)
     cpic, cworld = ram_forms(k, "cga")
@@ -885,11 +885,12 @@ def ui_settle(g):
 
 
 def own_course(mat):
-    """the course (name) the claim leg plays material MAT on: the lowest K but BENCH whose OWN ball it is
-    (a play rolls its course's ball, SPEC.md 130.11.5.4) - None when no course has that ball"""
-    R.CRS_K["bench"]                            # (fills the course table)
+    """the course (name) the claim leg plays material MAT on: the lowest K but BENCH (by NAME: it is the
+    BZDEV build's alone) whose OWN ball it is (a play rolls its course's ball, SPEC.md 130.11.5.4) - None
+    when no course has that ball"""
+    R.crs_fill()                                # (fills the course table)
     for n in sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__):
-        if R.CRS_K[n] and R.course(n).ball == mat:
+        if n != "bench" and R.course(n).ball == mat:
             return n
     return None
 
@@ -962,7 +963,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
         if any(not base_rows[i][0] & OP_FETCHED for i in title):
             fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 130.20.6)"
                          % sorted(title))
-        R.CRS_K["bench"]                    # (fills the course table: BZ_NCRS of them)
+        R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
         if len(base_rows) != shell_row() + 1 + R.after_shell():
             fails.append("the package has %d part rows, not %d courses, %d world parts, %d shipped demos, the "
                          "shell, the pathway, the title's two, the families' and the VGA's - no sound rows "
@@ -1003,7 +1004,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                 if fails:
                     break
         if rest and not fails:                  # wave 5b: one launch (F, Esc) of every course no leg above
-            R.CRS_K["bench"]                    # launched, for the claim leg (TRIAL, ROLL, HOP ...); on the
+            R.crs_fill()                        # launched, for the claim leg (TRIAL, ROLL, HOP ...); on the
             names = sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__)    # VGA, which runs no claim leg,
             todo = ["trial"] if tag == "vga" else [n for n in names if n not in CLAIMED.get(tag, set())]
             for crs in todo:                    # TRIAL's alone, as before
@@ -1019,7 +1020,7 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
             fails += held_keys(g)
         if w4 and not fails:                    # (last: it closes the window)
             fails += wave4_exits(g, ui, base_rows, base_claims)
-        R.CRS_K["bench"]
+        R.crs_fill()
         seen = CLAIMED.get(tag, set())
         print("%s THE CLAIM LEG (SPEC.md 130.15.13): the course claim = the tool's RAM form at fsx_run on %s" % (
             tag, ", ".join(sorted(n.upper() for n in seen)) or "no launch"), flush=True)

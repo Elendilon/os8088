@@ -2711,8 +2711,7 @@ WATER_STEPS = 160
 
 
 def _water_course():
-    R.COURSES["bench"]                          # (fills both tables)
-    R.CRS_K["bench"]
+    R.crs_fill()                                # (fills both tables)
     if "water" not in dict.keys(R.COURSES):
         dict.__setitem__(R.COURSES, "water", "apps/bonanza/courses/water.bbc")
         dict.__setitem__(R.CRS_K, "water", R.CRS_K["play"])
@@ -2859,8 +2858,7 @@ def water_host(binp, lst, sym, fam):
 # BZARCH=1 knob's course), compiled here from the tree whatever the build, as WATER's are: the family's part is
 # in every build's resident bundle
 def _arch_course():
-    R.COURSES["bench"]                          # (fills both tables)
-    R.CRS_K["bench"]
+    R.crs_fill()                                # (fills both tables)
     if "arch" not in dict.keys(R.COURSES):
         dict.__setitem__(R.COURSES, "arch", "apps/bonanza/courses/arches.bbc")
         dict.__setitem__(R.CRS_K, "arch", R.CRS_K["play"])

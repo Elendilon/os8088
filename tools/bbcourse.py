@@ -5259,7 +5259,8 @@ def page_windows(view, npages, x0, y0, fname):
 PATH_STMTS = ("pages", "icon", "route", "lives", "rail", "titles")
 PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 130.22.5)
 BENCH_NAMES = ("BENCH",)      # the courses that are the BENCHMARK's alone, by NAME (never by K): no pad, no shipped
-                              # demo, no `target` (130.14.7.4, 130.15.8)
+                              # demo, no `target` (130.14.7.4, 130.15.8) - and in the BZDEV=1 build alone
+                              # (the Makefile's BZ_BENCH, SPEC.md 130.10.11.1)
 PAD_MAX = 23                  # BZ_PAD_MAX: the pads a pathway may have, BONANZA.DAT's word-a-pad tables (130.22.5.1)
 PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
@@ -33183,15 +33184,18 @@ def ghost_previews(c, base, Image, at=None):
 
 
 def default_paths():
-    """BZ_COURSES, read out of the Makefile - the one authority on the courses
-    and their order (K) - so a course added there is compiled and selfchecked
-    by a bare `bbcourse.py --selfcheck` (the bonanzacourse row) too, never a
-    hand copy of the list that can drift from it"""
+    """the BZDEV=1 build's courses, read out of the Makefile - the one authority on the courses
+    and their order (K): BZ_BENCH (BENCH, the benchmark's course, which only that build carries:
+    SPEC.md 130.10.11.1) and then BZ_COURSES, as BZDEV's block puts them - so a course added there
+    is compiled and selfchecked by a bare `bbcourse.py --selfcheck` (the bonanzacourse row) too,
+    BENCH included, never a hand copy of the list that can drift from it"""
     with open(os.path.join(ROOT, "Makefile"), encoding="utf-8", errors="replace") as f:
-        m = re.search(r"^BZ_COURSES\s*:=\s*((?:.*\\\n)*.+)$", f.read(), re.M)
+        mk = f.read()
+    m = re.search(r"^BZ_COURSES\s*:=\s*((?:.*\\\n)*.+)$", mk, re.M)
     if not m:
         raise SystemExit("bbcourse: the Makefile has no BZ_COURSES line")
-    return [os.path.join(ROOT, p) for p in m.group(1).replace("\\", " ").split()]
+    b = re.search(r"^BZ_BENCH\s*:=\s*(\S+)\s*$", mk, re.M)
+    return [os.path.join(ROOT, p) for p in ([b.group(1)] if b else []) + m.group(1).replace("\\", " ").split()]
 
 
 def _course_list(paths):
