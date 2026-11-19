@@ -869,7 +869,30 @@ def ev_of(crs, mat, poke, keys):
     return p, [e[0] for e in p.events]
 
 
+_ONCE = {}
+
+
+def _once_list(fn):
+    """FN (a no-argument scenario list over the SHIPPED courses and the host's model) computed once a
+    process: each call -> fresh copies of its dicts"""
+    def wrap():
+        if fn.__name__ not in _ONCE:
+            _ONCE[fn.__name__] = fn()
+        return [dict(s) for s in _ONCE[fn.__name__]]
+    wrap.__name__, wrap.__doc__ = fn.__name__, fn.__doc__
+    return wrap
+
+
 def replays():
+    """replays_() ONCE A PROCESS (BOUNCE-BONANZA-SOAK principle 5): the scenarios read only the SHIPPED
+    courses (R.course with no SRC) and the host's model, never a red tree's package, so a red arm's run
+    gets the same list honestly.  -> fresh copies of the dicts (prove() writes `parts_at` into its own)"""
+    if "replays" not in _ONCE:
+        _ONCE["replays"] = replays_()
+    return [dict(s) for s in _ONCE["replays"]]
+
+
+def replays_():
     """-> [scenario dicts]: name, course, material, poke (None: the start), the
     key bytes, the proof on the model (a description and a bool), and the red
     arm the scenario is the check of (the model's switch, when it has one)"""
@@ -3373,6 +3396,7 @@ def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0):
     return d
 
 
+@_once_list
 def mill_replays():
     """SPEC.md 130.12.13.2's thirteen MILL scenarios (fifteen replays: drop
     with each ball), each found and PROVED on the model - the idle steps that
@@ -3566,6 +3590,7 @@ def w4_poke(crs, wx, wy, mat, gvx=0, gvy=0, lift=0, extra=None, recpoke=None):
     return d
 
 
+@_once_list
 def w4_replays():
     """wave 4's replays, each FOUND and PROVED on the model on the shipped
     MOON and PEAK (SUMMIT) - the approaches searched, so a re-laid course re-finds
@@ -4454,23 +4479,50 @@ def drag_span(g, s):
     return fails, out
 
 
+_PROVED = {}
+
+
+def _scen_key(s):
+    """a scenario's whole input to prove(): what it plays and what its red arms switch (not its name alone -
+    two scenario lists, replays()'s and mill_replays()'s, may carry the same name)"""
+    return repr((s["name"], s["crs"], s["mat"], s["poke"], list(s["keys"]), s.get("tilts"), s["ok"], s["what"],
+                 s["red"]))
+
+
 def prove(S):
-    """the host's proof of each scenario: -> failure lines (empty: all proved)"""
+    """the host's proof of each scenario: -> failure lines (empty: all proved).  Each scenario proved once
+    a process (_PROVED, keyed on everything it plays: _scen_key); its `parts_at` written into S's dict"""
     bad = []
     for s in S:
-        if not s["ok"]:
-            bad.append("replay %s: the model does not show what the scenario is for (%s)" % (s["name"], s["what"]))
-        for red in (s["red"] if isinstance(s["red"], list) else [s["red"]] if s["red"] else []):
-            at = parts(s["crs"], s["mat"], s["poke"], s["keys"], s.get("tilts"), **red)
-            if at is None:
-                bad.append("replay %s: the broken model %s never parts from the model over its %d steps: the "
-                           "scenario cannot catch its red arm" % (s["name"], red, len(s["keys"])))
-            else:
-                s["parts_at"] = min(at, s.get("parts_at") or at)
+        k = _scen_key(s)
+        if k not in _PROVED:
+            sb, pat = [], None
+            if not s["ok"]:
+                sb.append("replay %s: the model does not show what the scenario is for (%s)" % (s["name"], s["what"]))
+            for red in (s["red"] if isinstance(s["red"], list) else [s["red"]] if s["red"] else []):
+                at = parts(s["crs"], s["mat"], s["poke"], s["keys"], s.get("tilts"), **red)
+                if at is None:
+                    sb.append("replay %s: the broken model %s never parts from the model over its %d steps: the "
+                              "scenario cannot catch its red arm" % (s["name"], red, len(s["keys"])))
+                else:
+                    pat = min(at, pat or at)
+            _PROVED[k] = (sb, pat)
+        sb, pat = _PROVED[k]
+        bad += sb
+        if pat is not None:
+            s["parts_at"] = min(pat, s.get("parts_at") or pat)
     return bad
 
 
 def prove_wave1():
+    """prove_wave1_() once a process (the shipped FIRST and BENCH and the host's model only): -> fresh lists"""
+    if "wave1" not in _ONCE:
+        _ONCE["wave1"] = prove_wave1_()
+    bad, say = _ONCE["wave1"]
+    return list(bad), list(say)
+
+
+def prove_wave1_():
     """the host's proof of wave 1's scenarios and red arms on the wave-2 model:
     the pit reaches its SAFE cell's respawn, the lip and the bench part from
     their broken models.  -> (failure lines, report lines)"""
