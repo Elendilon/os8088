@@ -127,9 +127,12 @@ course.
   **The brief for a clock-art agent (the owner, 2026-11-18, choosing FIRST
   ROLL's `pin`)** - repeated to every clock designer so far, so it goes in
   the brief rather than the review:
-  - **Keep the CYAN digit window.** *"'cyan reads as grey checker on
-    Hercules' - it reads fine with the solid black numbers on top of it."*
-    Do not swap it for white on the Hercules' account.
+  - **The digits fit into the art.** A clock needs no "window" at all: the
+    first clock arts have none, and the owner calls that *"perfectly
+    acceptable and good"*. **Cyan is not forbidden**: *"it really does read
+    fine on herc"* with the solid black numbers on top, so do not avoid it
+    (or swap it for white) on the Hercules' account; but art that works
+    well without cyan is equally welcome (the owner, 2026-11-19).
   - **No flat squares.** *"I don't like flat squares in general, because
     they don't blend in with the art usually."* A clock is an OBJECT in the
     scene that its digits belong to, not a panel stuck on a post: of
