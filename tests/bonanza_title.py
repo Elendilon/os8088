@@ -17,7 +17,7 @@ the bracket, and in that one bracket:
      and its falls, tube rides and spring launches EQUAL the model's replay of
      the same demo (bbcourse.title_start and its runs, the .bzt the build
      packed);
-  5. a COURSE DEMO follows (bz_tmode 2, bz_crs a tour course, the window its
+  5. a COURSE DEMO follows (bz_tmode 2, bz_crs a course but BENCH, the window its
      own camera's); a key ends it and the title is back (bz_tmode 1);
   6. P plays THE GAME: the pathway, the slot shown (2); its Esc is the title
      again;

@@ -607,7 +607,7 @@ bz_step:
     jmp short .key
 %ifdef BZDEV
 .apil:                          ; a play whose key bytes are the autopilot's,
-    call bz_auto                ; recorded as a play's: the tour row's driver
+    call bz_auto                ; recorded as a play's: the rows' driver
     mov bh, BZ_TILT_KEYS        ; (out of the hot path: never set by the
     jmp short .apild            ; package itself)
 .auto:
