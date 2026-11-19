@@ -1,5 +1,9 @@
 # BOUNCE BONANZA — an isometric rolling-ball game for the 5150 (investigation and plan)
 
+**THE RESIDENT WINDOW (2026-11-19):** the package filled its 65,024-byte
+window (57 bytes free); what was taken out, and the moves held in reserve for
+the next time, are [BOUNCE-BONANZA-SPACE.md](BOUNCE-BONANZA-SPACE.md).
+
 **STATUS (2026-11-16): WAVE 8R's ROUNDS AND THE DIAGONAL TILES (SPEC.md 130.24) IN PROGRESS; WAVE 9's CONTRACT WRITTEN (SPEC.md 130.25), its story 9.0 next.** Earlier:
 
 **STATUS (2026-11-15): WAVES 5a TO 6b DONE, GATE 1 CLOSED AS A BASELINE
