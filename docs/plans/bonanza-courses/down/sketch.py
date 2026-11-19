@@ -120,7 +120,8 @@ def mark(x, y, kind, text=""):
 floor("A", 4, 4, 5, 5, Z)                                    # the start: ONE tile, guard rails round it
 rail(4, 4, 5, 4, "guard"); rail(4, 4, 4, 5); rail(5, 4, 5, 5)        # (the sides block rails: a guard may not touch the ramp)
 ramp("R", "y", 4, 5, 5, 10, Z, Z - 10)                       # a STEEP ramp, 2 units a tile (the most), railed
-rail(4, 5, 4, 10); rail(5, 5, 5, 10)
+floor("R", 4, 10, 5, 11, Z - 10)                             # its foot, flat, into the corner chute
+rail(4, 5, 4, 11); rail(5, 5, 5, 11)
 chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
 floor("H", 8, 11, 18, 14, Z - 11)                            # the HUMP RUN, now 3 wide (rev 2), unguarded, along +x
 for hx in (12, 16):                                          # two humps, 2 long x 3 wide (clear of the corner)
@@ -141,41 +142,41 @@ for x in range(29, 32):
 floor("L", 34, 10, 39, 15, Z - 23)                           # a WIDE GAP (x 32 - 33) and a DROP onto L: easy,
                                                              # unguarded, NO FLAG (a respawn there could never
                                                              # cross on); rubber BOUNCES on over a second gap
-floor("X", 42, 8, 48, 17, Z - 24)                            # the HUB, large and safe (x 39 - 41 the gap; 6 wide: the width)
-rail(42, 8, 48, 8); rail(48, 8, 48, 12); rail(48, 13, 48, 17); rail(42, 17, 45, 17); rail(46, 17, 48, 17)
+floor("X", 42, 8, 48, 17, Z - 26)                            # the HUB, large and safe (x 39 - 41 the gap; 6 wide: the width)
+rail(42, 8, 48, 8); rail(48, 8, 48, 14); rail(48, 15, 48, 17); rail(42, 17, 45, 17); rail(46, 17, 48, 17)
 # 2. THE SPLIT: two exits out of the hub - EAST a STEEL pad, SOUTH a GLASS pad (rev 2: swapped, so the glass
 #    leg's lift climbs up the screen in view; rev 3: no archways - a rubber ball that hops a pad dies on the
 #    spikes or the membrane, which introduces both)
-mark(47.5, 12.5, "steel", "steel pad")
+mark(47.5, 14.5, "steel", "steel pad")
 mark(45.5, 16.5, "glass", "glass pad")
 # 3a. STEEL (east, +x): SPIKES on the only path, a WATER SINK, MOMENTUM, the finish
-floor("S", 48, 11, 52, 14, Z - 24)
-for y in range(11, 14):
+floor("S", 48, 13, 52, 16, Z - 26)
+for y in range(13, 16):
     for x in range(49, 51):
         mark(x + 0.5, y + 0.5, "spike", "")
-rail(48, 11, 53, 11); rail(48, 14, 52, 14)                     # (the north rail seals the water too)
-floor("W", 52, 11, 53, 14, Z - 24)                           # the WATER column (3 units deep) across the path
-for y in range(11, 14):
+rail(48, 13, 53, 13); rail(48, 16, 52, 16)                     # (the north rail seals the water too)
+floor("W", 52, 13, 53, 16, Z - 26)                           # the WATER column (3 units deep) across the path
+for y in range(13, 16):
     mark(52.5, y + 0.5, "water", "")
-rail(53, 11, 53, 14)                                         # a rail ON TOP past it: no Hop over the water
-floor("T", 52, 14, 55, 19, Z - 27)                           # steel sinks and rolls out of the front (+y) ARCH, 3 down
-floor("M", 52, 19, 55, 23, Z - 27)                           # MOMENTUM: a HUMP across the path (EXTRA), which steel
-mark(53.5, 20.5, "hump", "hump")                             #   crests with its speed (two ramps stacked too many records)
-floor("G", 51, 23, 56, 27, Z - 27)                           # FINISH 1, steel (exit 0)
+rail(53, 13, 53, 16)                                         # a rail ON TOP past it: no Hop over the water
+floor("T", 52, 16, 55, 21, Z - 29)                           # steel sinks and rolls out of the front (+y) ARCH, 3 down
+floor("M", 52, 21, 55, 25, Z - 29)                           # MOMENTUM: a HUMP across the path (EXTRA), which steel
+mark(53.5, 22.5, "hump", "hump")                             #   crests with its speed (two ramps stacked too many records)
+floor("G", 51, 25, 56, 29, Z - 29)                           # FINISH 1, steel (exit 0)
 # 3b. GLASS (south, +y): a WEB BRIDGE, a LIFT climbing up the screen, then the CHOICE down the screen
-floor("K", 45, 17, 46, 22, Z - 24)                           # the WEB BRIDGE: 1 wide, a glass-only MEMBRANE over the void
+floor("K", 45, 17, 46, 22, Z - 26)                           # the WEB BRIDGE: 1 wide, a glass-only MEMBRANE over the void
 for y in range(17, 22):
     mark(45.5, y + 0.5, "crack", "")
-floor("P", 43, 22, 47, 25, Z - 24)                           # the bridge's landing
+floor("P", 43, 22, 47, 25, Z - 26)                           # the bridge's landing
 mark(42.5, 23.5, "lift", "LIFT up 4")                        # the LIFT, on P's west edge: it rises in FRONT of Q
-floor("Q", 36, 21, 42, 27, Z - 20)                           # the CHOICE plateau, behind the lift (its face in view)
-ramp("Y", "y", 37, 27, 39, 31, Z - 20, Z - 26)               # (left) a SAFE CHUTE down (a ramp sketched; a shape)
-floor("Z", 39, 27, 41, 28, Z - 21)                           # (right) STAIRS: two safe 1-unit steps, then ONE
-floor("Z", 39, 28, 41, 29, Z - 22)                           #   3-unit step in the middle (glass SHATTERS from 3),
-floor("Z", 39, 29, 41, 30, Z - 25)                           #   then one more onto the finish, flush
-floor("Z", 39, 30, 41, 31, Z - 26)
-floor("V", 35, 31, 43, 35, Z - 26)                           # FINISH 2, glass (exit 1)
-GOAL = {(x, y) for x in range(51, 56) for y in range(25, 27)} | {(x, y) for x in range(35, 43) for y in range(33, 35)}
+floor("Q", 36, 21, 42, 27, Z - 22)                           # the CHOICE plateau, behind the lift (its face in view)
+ramp("Y", "y", 37, 27, 39, 31, Z - 22, Z - 28)               # (left) a SAFE CHUTE down (a ramp sketched; a shape)
+floor("Z", 39, 27, 41, 28, Z - 23)                           # (right) STAIRS: two safe 1-unit steps, then ONE
+floor("Z", 39, 28, 41, 29, Z - 24)                           #   3-unit step in the middle (glass SHATTERS from 3),
+floor("Z", 39, 29, 41, 30, Z - 27)                           #   then one more onto the finish, flush
+floor("Z", 39, 30, 41, 31, Z - 28)
+floor("V", 35, 31, 43, 35, Z - 28)                           # FINISH 2, glass (exit 1)
+GOAL = {(x, y) for x in range(51, 56) for y in range(27, 29)} | {(x, y) for x in range(35, 43) for y in range(33, 35)}
 
 # the PROPS the sketch does not model, as the engine's statements (world cells: sketch + OFF)
 def _w(x):
@@ -192,36 +193,37 @@ EXTRA = [
     "# the BOOSTER chute's pads (SPEC.md 130.40)",
 ] + ["prop boost %d %d face +x strength 40" % (_w(x), _w(12)) for x in range(29, 32)] + [   # (three: the first tile's block hid a fourth)
     "# the split: a pad at each exit (no archways: a rubber ball that hops one dies on what follows)",
-    "pad steel %d %d" % (_w(47), _w(12)),
+    "pad steel %d %d" % (_w(47), _w(14)),        # (TWO in a row: rubber's little hops after the landings
+    "pad steel %d %d" % (_w(48), _w(14)),        #  skipped one and popped on the spikes)        # (off the arrival line: a bouncing ball settles first)
     "pad glass %d %d" % (_w(45), _w(16)),
     "# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH",
-    "prop spikes %d %d %d %d" % (_w(49), _w(11), _w(51), _w(14)),      # (two rows: a spiked cell never touches water)
-    "water rect %d %d %d %d top %g bed %g" % (_w(52), _w(11), _w(53), _w(14), Z - 24, Z - 27),
-    "arch %d %d +y" % (_w(52), _w(13)),
+    "prop spikes %d %d %d %d" % (_w(49), _w(13), _w(51), _w(16)),      # (two rows: a spiked cell never touches water)
+    "water rect %d %d %d %d top %g bed %g" % (_w(52), _w(13), _w(53), _w(16), Z - 26, Z - 29),
+    "arch %d %d +y" % (_w(52), _w(15)),
     "# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)",
     "prop membrane %d %d %d %d" % (_w(45), _w(17), _w(46), _w(22)),
     "prop platform %d %d 4" % (_w(42), _w(23)),
-    "# steel's MOMENTUM: a ridge hump across its 3-wide path, the tallest a hump may be (11 px)",
-    "hump %d %d %g along x 3 open height 11" % (_w(52), _w(21), Z - 27),
+    "# steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)",
+    "hump %d %d %g along x 3 open height 8" % (_w(52), _w(23), Z - 29),
 ]
-GOAL_RECTS = [(51, 25, 56, 27, Z - 27, 0, "steel"), (35, 33, 43, 35, Z - 26, 1, "glass")]
+GOAL_RECTS = [(51, 27, 56, 29, Z - 29, 0, "steel"), (35, 33, 43, 35, Z - 28, 1, "glass")]
 
 START = (4.5, 4.5)
-FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (48.5, 12.5, "flag 2", "steel"),
+FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (48.5, 13.5, "flag 2", "steel"),
          (44.5, 23.5, "flag 3", "glass")]
-CLOCKS = [(6.5, 4.5, Z, "start", "block"), (56.5, 24.5, Z - 25.5, "steel finish", "block"),
-          (34.5, 32.5, Z - 24.5, "glass finish", "block")]
+CLOCKS = [(6.5, 4.5, Z, "start", "block"), (56.5, 26.5, Z - 27.5, "steel finish", "block"),
+          (43.5, 33.5, Z - 26.5, "glass finish", "block")]
 FRAMES = {}
 PLACED = {}
 SIGNS = []
-ROUTE = [(4.5, 4.5), (4.5, 10), (5, 12.5), (8, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
-         (45, 12.5), (48, 12.5), (52.5, 12.5), (52.5, 15), (53.5, 19), (53.5, 23), (53.5, 25.5)]
+ROUTE = [(4.5, 4.5), (4.5, 8.5), (8.5, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
+         (45, 12.5), (46, 14.5), (48, 14.5), (52.5, 14.5), (52.5, 17), (53.5, 21), (53.5, 25), (53.5, 27.5)]
 ROUTE2 = [(45.5, 12.5), (45.5, 17), (45.5, 22), (44.5, 23.5), (42.5, 23.5), (39, 24), (38, 27), (38, 31), (38, 33.5)]
 LABELS = [(4.5, 4.5, "start (1 tile)"), (4.5, 7, "STEEP ramp"), (5, 12, "shape corner"), (12, 12.5, "hump run"),
           (21, 12.5, "3 inclines"), (26, 12, "funnel+flag"), (29, 12.5, "BOOSTER chute"), (33, 12.5, "wide gap+drop"),
-          (36, 12.5, "landing (no flag)"), (40, 12.5, "bounce gap"), (45, 11, "HUB"), (47.5, 12, "steel pad"),
-          (50, 12.5, "spikes"), (52.5, 12, "water sink"), (53, 16, "3 down"), (53, 21, "momentum"),
-          (53, 25, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (42.5, 23.5, "lift"),
+          (36, 12.5, "landing (no flag)"), (40, 12.5, "bounce gap"), (45, 11, "HUB"), (47.5, 14, "steel pad"),
+          (50, 14.5, "spikes"), (52.5, 14, "water sink"), (53, 18, "3 down"), (53, 23, "momentum"),
+          (53, 27, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (42.5, 23.5, "lift"),
           (38, 23, "choice"), (37.5, 29, "safe chute"), (40, 28, "stairs"), (38, 33, "FINISH glass")]
 
 # --- drawing ----------------------------------------------------------------
@@ -300,7 +302,7 @@ def iso(out):
     def Q(wx, wy, z):
         x, y = P(wx, wy, z)
         return x - minx, y - miny
-    ground = Z - 30 - 3
+    ground = Z - 32 - 3
     items = [((x, y), c, False) for (x, y), c in CELLS.items()]
     for x0, y0, x1, y1, z in WALLS:
         for x in range(x0, x1):
