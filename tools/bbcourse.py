@@ -27796,32 +27796,34 @@ def _w5_budget(courses, res):
 PATH_TEST_HID = ('course HID "Hidden Exit"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nstart 5 12\n'
                  'goal rect 12 10 13 12 flat 0\ngoal rect 12 12 13 14 flat 0 exit 1 hidden\nclock 9 11\n'
                  'way 11 12\nlimit 30\n')
-# a private map (the selfcheck's alone): FIRST -> HID; HID's exit 0 -> TRIAL (the END); HID's hidden exit 1
-# a SECRET route to SIDE (a pad that leads nowhere)
+# a private map (the selfcheck's alone): ROLL -> HID; HID's exit 0 -> HOP (the END); HID's hidden exit 1
+# a SECRET route to SIDE (a pad that leads nowhere; it plays ROLL again - a pad's course is only its label
+# here).  The shipped courses only (2026-11-19: ROLL and HOP), so no prototype's leaving moves it
 PATH_TEST = """course PT "Test Path"
 width  64
 pathway
 view   0 340
-pad 0 FIRST 23 24
+pad 0 ROLL  23 24
 pad 1 HID   20 21
-pad 2 TRIAL 16 17
-pad 3 MILL  14 21
+pad 2 HOP   16 17
+pad 3 ROLL  14 21
 route 0 1 exit 0 path 23,24 20,21
 route 1 2 exit 0 path 20,21 16,17
 route 1 3 exit 1 secret path 20,21 14,21
 icon 3 icons/mill.bba -152 240
 lives 26 26
 """
-# ...and the SHORTCUT: HID's hidden exit 1 straight to MOON, the END, where the open way passes TRIAL
+# ...and the SHORTCUT: HID's hidden exit 1 straight to pad 3 (ROLL again), the END, where the open way
+# passes HOP
 PATH_SHORT = """course PS "Test Shortcut"
 width  64
 pathway
 view   0 340
 pages  2
-pad 0 FIRST 23 24
+pad 0 ROLL  23 24
 pad 1 HID   20 21
-pad 2 TRIAL 16 17
-pad 3 MOON  10 15
+pad 2 HOP   16 17
+pad 3 ROLL  10 15
 route 0 1 exit 0 path 23,24 20,21
 route 1 2 exit 0 path 20,21 16,17
 route 2 3 exit 0 path 16,17 10,17 10,15
@@ -27836,7 +27838,23 @@ def _path_compile(text, courses, what, extra=()):
     return compile_course(text, fname="<%s>" % what, crsinfo=info)
 
 
+def _path_sub(text, *pairs):
+    """TEXT with each (OLD, NEW) of PAIRS replaced, every OLD found exactly once - else _PATH_NOANCHOR and the
+    missing one, which _path_refused reports as the case's failure (a refusal control whose edit no longer
+    applies compiles the map unchanged and would read as a refusal that stopped firing)"""
+    for old, new in pairs:
+        if text.count(old) != 1:
+            return _PATH_NOANCHOR + old
+        text = text.replace(old, new)
+    return text
+
+
+_PATH_NOANCHOR = "\0no anchor: "
+
+
 def _path_refused(text, courses, want, what, extra=(), proofs=False):
+    if text.startswith(_PATH_NOANCHOR):
+        return False, "its edit's anchor %r is not (once) in the map" % text[len(_PATH_NOANCHOR):]
     try:
         pc = _path_compile(text, courses, what, extra)
         if proofs:
@@ -27894,13 +27912,18 @@ def _path_checks(courses, res):
     sec = [r for r in pth["routes"] if r["secret"]]
     res.append(("8R the shipped map has no secret route (130.22.2's brief: the secret path is the selfcheck's)",
                 not sec))
-    # the map's layout rules: route 1's reverse first step, pad 0 first, PLAY a side pad; at least one route
-    # crossing from page 0 to page 1
+    # the map's layout (option A, the owner's, 2026-11-19): pad 0 plays ROLL, pad 1 HOP, ROLL's exit 0 the
+    # route to HOP and HOP's exit 0 on to pad 2 (DOWNHILL DECISION's place), whose exits 0 and 1 branch; at
+    # least one route crossing between pages
     cross = [r for r in pth["routes"] if pth["pads"][r["a"]]["page"] != pth["pads"][r["b"]]["page"]]
-    res.append(("8R the shipped map: pad 0 plays FIRST, pad 1 TRIAL with its exits 0 and 1 branching, %d route%s "
-                "crossing between pages" % (len(cross), "" if len(cross) == 1 else "s"),
-                pth["pads"][0]["crs"] == "FIRST" and pth["pads"][1]["crs"] == "TRIAL"
-                and sorted(r["exit"] for r in pth["routes"] if r["a"] == 1) == [0, 1] and cross))
+    keyed = {(r["a"], r["exit"]): r["b"] for r in pth["routes"]}
+    res.append(("8R the shipped map: pad 0 plays ROLL, pad 1 HOP, ROLL's exit 0 -> HOP, HOP's exit 0 -> pad 2 "
+                "(%s) with its exits 0 and 1 branching, %d route%s crossing between pages" % (
+                    pth["pads"][2]["crs"] if len(pth["pads"]) > 2 else "-", len(cross),
+                    "" if len(cross) == 1 else "s"),
+                pth["pads"][0]["crs"] == "ROLL" and pth["pads"][1]["crs"] == "HOP" and keyed.get((0, 0)) == 1
+                and keyed.get((1, 0)) == 2 and sorted(r["exit"] for r in pth["routes"] if r["a"] == 2) == [0, 1]
+                and keyed[(2, 0)] != keyed[(2, 1)] and cross))
     # the refusals, each provoked on the shipped text or the private map
     hid = compile_course(PATH_TEST_HID, fname="<HID>", occluders=False, _hack={"no_bounds": 1})
     hid.title = "Hidden Exit"
@@ -27932,51 +27955,47 @@ def _path_checks(courses, res):
         sv = [str(e)]
     res.append(("8R a secret route that reaches the end in fewer pads is a SHORTCUT (%s)" % sv,
                 len(sv) == 1 and sv[0].startswith("SHORTCUT")))
+    # (every edit anchored on the text as it is: _path_sub fails the case when an anchor has gone)
+    P = lambda *pairs: _path_sub(ptext, *pairs)
+    T = lambda *pairs: _path_sub(PATH_TEST, *pairs)
     cases = [
         ("a pathway statement on a course", 'course X "x"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nstart 5 12\n'
          'goal rect 12 10 13 14 flat 0\npages 2\n', "is the pathway's statement", False),
-        ("`node` (8b's prototype)", ptext.replace("pages  2", "pages  2\nnode 0 FIRST 6 6 sign 6 5"), "is gone",
-         False),
-        ("pads not numbered from 0", ptext.replace("pad 5 PEAK", "pad 6 PEAK").replace("route 4 5", "route 4 6"),
-         "not 0 - ", False),
-        ("a path that does not start on A's cell", ptext.replace("path 22,26 22,21", "path 22,25 22,21"),
+        ("`node` (8b's prototype)", P(("pages  2", "pages  2\nnode 0 ROLL 6 6 sign 6 5")), "is gone", False),
+        ("pads not numbered from 0", P(("pad 7 FIRST", "pad 8 FIRST")), "not 0 - ", False),
+        ("a path that does not start on A's cell", P(("path 21,28 24,25", "path 20,29 24,25")),
          "not from pad 0's cell", False),
-        ("a step along both axes that changes height", ptext.replace("path 22,21 18,17 ", "path 22,21 18,17,1 "),
+        ("a step along both axes that changes height", P(("path 24,17 20,13 ", "path 24,17 22,15,1 20,13 ")),
          "changes height", False),
-        ("a step neither along one axis nor both equally", ptext.replace("path 22,21 25,18", "path 22,21 25,19"),
+        ("a step neither along one axis nor both equally", P(("path 24,25 28,21 24,17", "path 24,25 28,22 24,17")),
          "neither along one axis", False),
-        ("a ramp between neighbouring cells", ptext.replace("13,12 10,12 8,12,1 7,12,1", "13,12 9,12 8,12,1 7,12,1"),
+        ("a ramp between neighbouring cells", P(("path 24,17 15,17", "path 24,17 17,17 16,17,1 15,17,1")),
          "between two neighbouring cells", False),
-        ("two routes crossing", ptext.replace("path 25,18 25,17 18,17", "path 25,18 20,18 20,17 18,17"),
-         "crosses the route", False),
-        ("(A, E) keyed twice", ptext.replace("route 1 3 exit 1 ", "route 1 3 exit 0 "), "already opens", False),
-        ("two diagonals sharing an arrow", ptext.replace("route 1 3 exit 1  path 22,21 25,18",
-                                                         "route 1 3 exit 1  path 22,21 22,18 25,18")
-         .replace("route 0 1 exit 0  path 22,26 22,21", "route 0 1 exit 0  path 22,26 26,26 26,21 22,21"),
+        ("two routes crossing", P(("path 24,17 15,17", "path 24,17 24,15 15,15 15,17")), "crosses the route", False),
+        ("(A, E) keyed twice", P(("route 2 5 exit 1 ", "route 2 5 exit 0 ")), "already opens", False),
+        # (pad 5's route up made up-right: its Right then shared with the down-right route back to pad 2)
+        ("two diagonals sharing an arrow", P(("gate 14 16  path 15,17 9,11", "path 15,17 15,11 9,11")),
          "claimed by two diagonals", False),
-        ("a pad no route opens (unreachable)", ptext.replace("route 4 5 exit 0 ", "route 5 4 exit 0 ").replace(
-            "path 13,12 10,12 8,12,1 7,12,1", "path 7,12,1 8,12,1 10,12 13,12"), "not reachable", False),
-        ("a pad outside every page's window", ptext.replace("pad 3 PLAY   25 18", "pad 3 PLAY   26 16").replace(
-            "path 25,18 25,17 18,17", "path 26,16 26,17 18,17").replace("path 22,21 25,18", "path 22,21 25,18 26,18 26,16").replace("icon 3 icons/playground.bba     96 304",
-                                                                         ""),
+        ("a pad no route opens (unreachable)", P(("route 6 7 exit 0  path 9,11 4,11",
+                                                  "route 7 6 exit 0  path 4,11 9,11")), "not reachable", False),
+        ("a pad outside every page's window", P(("pad 0 ROLL  21 28", "pad 0 ROLL  24 32"),
+                                                ("path 21,28 24,25", "path 24,32 24,25")),
          "inside no page's CGA window", False),
-        ("a page with no lives counter", ptext.replace("lives 11  4", ""), "has no `lives` counter", False),
-        ("an icon off a block's corner", ptext.replace("icon 0 icons/first.bba        -120 376",
-                                                      "icon 0 icons/first.bba        -116 376"),
+        ("a page with no lives counter", P(("lives  6  4\n", "")), "has no `lives` counter", False),
+        ("an icon off a block's corner", P(("icon 0 icons/first32x24.bba       -128 368",
+                                            "icon 0 icons/first32x24.bba       -124 368")),
          "not a block's corner", False),
-        ("a gate on a secret route", PATH_TEST.replace("exit 1 secret path", "exit 1 secret gate 17 21 path"),
-         "has no gate", False),
-        ("a gate off its route", ptext.replace("route 0 1 exit 0  path", "route 0 1 exit 0  gate 21 21 path"),
+        ("a gate on a secret route", T(("exit 1 secret path", "exit 1 secret gate 17 21 path")), "has no gate", False),
+        ("a gate off its route", P(("route 0 1 exit 0  path", "route 0 1 exit 0  gate 21 21 path")),
          "not a cell on the route", False),
-        ("a route opened by an exit its course has not", ptext.replace("route 4 5 exit 0 ", "route 4 5 exit 3 "),
+        ("a route opened by an exit its course has not", P(("route 0 1 exit 0 ", "route 0 1 exit 3 ")),
          "which it has not", True),
-        ("a secret route opened by an exit that is not hidden", PATH_TEST.replace("route 1 2 exit 0 ",
-                                                                                  "route 1 2 exit 1 ")
-         .replace("route 1 3 exit 1 secret", "route 1 3 exit 0 secret"), "is not HIDDEN", True),
-        ("a secret route neither SHORTCUT nor SIDE", PATH_TEST.replace("route 1 2 exit 0 path 20,21 16,17",
-                                                                       "route 1 2 exit 0 path 20,21 16,17\n"
-                                                                       "route 3 2 exit 0 path 14,21 13,20 13,17 "
-                                                                       "16,17"),
+        ("a secret route opened by an exit that is not hidden", T(("route 1 2 exit 0 ", "route 1 2 exit 1 "),
+                                                                  ("route 1 3 exit 1 secret", "route 1 3 exit 0 secret")),
+         "is not HIDDEN", True),
+        ("a secret route neither SHORTCUT nor SIDE", T(("route 1 2 exit 0 path 20,21 16,17",
+                                                        "route 1 2 exit 0 path 20,21 16,17\n"
+                                                        "route 3 2 exit 0 path 14,21 13,20 13,17 16,17")),
          "neither a SHORTCUT", False),
     ]
     for what, text, want, prf in cases:
@@ -28003,10 +28022,10 @@ def _path_checks(courses, res):
     except CourseError as e:
         why = str(e)
     res.append(("8R refused: a route left with no arrow (%s)" % why[:80], "has no arrow" in why))
-    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal); (22, 27) puts the
-    # `lives` frame's digit, right of its marble, on pad 0's lane (the crystal ball's was (23, 28)'s, above it)
-    fired, msg = _path_refused(ptext.replace("lives 29 22", "lives 22 27"), courses, "a lives counter's digit",
-                               "a lane over a lives digit", ex)
+    # a lane over a lives counter's digit (was an internal StopIteration, not a refusal); (21, 29), the cell
+    # below pad 0's, puts the `lives` frame's digit on pad 0's lane
+    fired, msg = _path_refused(_path_sub(ptext, ("lives 16 23", "lives 21 29")), courses,
+                               "a lives counter's digit", "a lane over a lives digit", ex)
     res.append(("8R refused: a pad's lane over a lives counter's digit%s" % ("" if fired else " -- got: " + msg[:160]),
                 fired))
     # the follower's word arithmetic (SPEC.md 130.22.4.2): a ramp over FOL_SEGMAX px long (FOL_DZMAX, 127 px,
@@ -28033,12 +28052,18 @@ def _path_checks(courses, res):
                     and gp == [(168, 168, 0), (232, 232, 0)] if what == "up" else
                     len(whole) == 5 and len(hv) == 8 and {p_[0] for p_ in pcs} == {diag}
                     and gp == [(168, 232, 0), (232, 168, 0)]))
-    # the key map's rule: a straight claim beats a diagonal (TRIAL's Up and Right are straights' and its
-    # Left and Down the down-left route's alone)
-    k1 = pth["pads"][1]["keys"]
-    res.append(("8R the key map: at TRIAL a straight route takes its one arrow (Up %s, Right %s) and the down-left "
-                "diagonal both of its own (Down %s, Left %s)" % (k1[0], k1[3], k1[1], k1[2]),
-                k1[0] == (1, 0) and k1[3] == (2, 0) and k1[1] == (0, 1) and k1[2] == (0, 1)))
+    # the key map's rule: a straight claim beats a diagonal - at pad 2 the straight routes take Up (on to pad 3)
+    # and Down (back to pad 1), and the up-left diagonal to pad 5 only its free arrow, Left; at pad 5 that
+    # diagonal, down-right back to pad 2, takes both of its own (Down, Right) beside the straight Up
+    rid = {(r["a"], r["b"]): r["i"] for r in pth["routes"]}
+    k2, k5 = pth["pads"][2]["keys"], pth["pads"][5]["keys"]
+    d25 = rid.get((2, 5))
+    res.append(("8R the key map: at pad 2 the straights take their one arrow each (Up %s, Down %s) and the up-left "
+                "diagonal its free one (Left %s; Right %s); at pad 5 that diagonal back both of its own (Down %s, "
+                "Right %s) beside the straight Up %s" % (k2[0], k2[1], k2[2], k2[3], k5[1], k5[3], k5[0]),
+                d25 is not None and k2[0] == (rid.get((2, 3)), 0) and k2[1] == (rid.get((1, 2)), 1)
+                and k2[2] == (d25, 0) and k2[3] is None and k5[1] == k5[3] == (d25, 1)
+                and k5[0] == (rid.get((5, 6)), 0) and k5[2] is None))
     # the tables' reader refuses a corrupt table (a red control of read_path_tables)
     bad = bytearray(pc.cga)
     o = part["pthoff"] + 4 + PADREC * len(pth["pads"])
