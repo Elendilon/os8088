@@ -2365,7 +2365,7 @@ def mg_host(binp, lst, sym):
     # gone (a field a whole band of rows), the wiggle's pose change left unmarked (never drawn)
     arms = (("mgstep", "    dw 0, 0, 0, mg_step, mg_pose, 0\n", "    dw 0, 0, 0, 0, mg_pose, 0\n", None,
              ("hover-steel",)),
-            ("mgsteel", "    jne .stop\n", "    je .stop\n", None, ("pull-rubber", "rail-rubber")),
+            ("mgsteel", "    jne .stopf\n", "    je .stopf\n", None, ("pull-rubber", "rail-rubber")),
             ("mgdamp", "    sar dx, 1\n    sar dx, 1\n    sar dx, 1\n", "    xor dx, dx\n", "the ball",
              ("hover-steel",)),
             ("mgscan", "    or ah, ah\n    jnz .n\n", "    or ah, ah\n", None, ("pull-fast", "hover-steel")),
@@ -2779,8 +2779,8 @@ def water_reds():
             ("wabsnap", ("    sub word [bz_gz], 4 << 8\n    sbb word [bz_gz + 2], 0\n", ""), "water-float", "the ball"),
             ("wabflip", ("    mov byte [bz_fref], 1\n    test al, 1 << BZ_WA_FBSH\n", "    test al, 1 << BZ_WA_FBSH\n"),
              "water-float", "the window"),
-            ("waact", ("    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n    call far [bz_fmkp]\n.x:\n    retf\n\n"
-                       "; POSE", "    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n.x:\n    retf\n\n; POSE"),
+            ("waact", ("    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n    call far [bz_fmkp]\n.x: ",
+                       "    test byte [es:si + WA_RIP], WR_ALWAYS\n    jnz .x\n.x: "),
              "water-rubber", "never drawn"),
             ("waalw", ("    xor bh, bh\n    call far [bz_fmkp]\n    pop bx\n.wn:", "    xor bh, bh\n    pop bx\n.wn:"),
              "water-deep", "never drawn"))
@@ -3001,7 +3001,11 @@ def sp_reds():
             ("spput", ("    mov ax, [di + SP_HARD]\n    mov [bz_mrec + BZM_HARD], ax\n", ""), "spike-rubber",
              "working values"),
             ("spmark", ("    call far [bz_fmkp]          ; its lane MARKED\n", ""), "pop-rise", "never drawn"),
-            ("spfref", ("    ja .nx\n    mov byte [bz_fref], 1\n", "    ja .nx\n"), "pop-rise", None),
+            ("spfref", ("    ja .tn\n    mov byte [bz_fref], 1\n", "    ja .tn\n"), "pop-rise", None),
+            # SPEC.md 130.25.6.11: the WAKE one step late - the STEP sleeps through a turn (its mark, its refill)
+            ("spwake", ("    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)\n    add ax, [bz_nstep]\n",
+                    "    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)\n    add ax, [bz_nstep]\n"
+                    "    inc ax\n"), "pop-rise", None),
             ("spmem", ("    cmp byte [bz_mat], BZ_MAT_GLASS\n    je .n\n", "    jmp .n\n"), "mem-rubber", "the window"),
             ("sptear", ("    lea bp, [bx + 1]\n", ""), "mem-rubber", "POSE"),
             ("sptmark", ("    mov ax, bp\n    call sp_tmark\n", ""), "mem-rubber", "never drawn"))
@@ -3242,7 +3246,11 @@ def tt_reds():
             ("ttkept", (("    jne .w                      ; its top, a gap all the same\n", "    jne .n\n"),
                         ("    jge .w\n", "    jge .n\n")), "tt-fallen", "the window"),
             ("ttmark", ("    call far [bz_fmkp]          ; its lane MARKED\n", ""), "tt-rest", "never drawn"),
-            ("ttfref", ("    ja .nx\n    mov byte [bz_fref], 1\n", "    ja .nx\n"), "tt-rest", None),
+            ("ttfref", ("    ja .tn\n    mov byte [bz_fref], 1\n", "    ja .tn\n"), "tt-rest", None),
+            # SPEC.md 130.25.6.11: the WAKE one step late - the STEP sleeps through a turn (its mark, its refill)
+            ("ttwake", ("    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)\n    add ax, [bz_nstep]\n",
+                    "    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)\n    add ax, [bz_nstep]\n"
+                    "    inc ax\n"), "tt-rest", None),
             ("ttwarn", ("    jae .x                      ; the warning\n", "    jmp short .f\n"), "tt-rest",
              "pose"),
             ("ttfast", ("    jz .c\n", "    jz .nx\n"), "tt-rest", None))

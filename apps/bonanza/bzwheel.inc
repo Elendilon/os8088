@@ -2605,6 +2605,8 @@ bz_props:
     cmp ax, [bz_prb]
     je .walk0
 .rng:
+    mov byte [bz_fwall], 1      ; (130.25.6.11: lanes entering - every family's
+                                ; STEP runs next and schedules their flips)
     mov byte [bz_lnsk], 1       ; (moved: a lane that has just ENTERED it is
     mov si, [bz_pra]            ; walked whatever its skip says - one whose
     mov [bz_ora], si            ; rows met the last range keeps its skip:
