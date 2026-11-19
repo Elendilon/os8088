@@ -44,9 +44,9 @@ poked at bz_launch's entry), the rubber ball off H's lip and over the gap -
 its period, misses (130.11.15's target 0, reported), shadow frames
 (bz_rnshd), the frames of one, two, three and four boxes, the bounces
 (bz_nbnc), the records laid (bz_rnlay) - and the CAMERA: a log of the same
-flight (the chord off H's lip from the start) REPLAYED once in GLIDE and once
-in TRICKLE (the benchmark always rolls GLIDE), the rows each mode pans
-(bz_row's hits outside full writes) over the bounces (130.11.11.1, O9).
+flight (the chord off H's lip from the start) REPLAYED once (LATTICE, the one
+camera: TRICKLE is deleted, 130.11.11.1), the rows it pans (bz_row's hits
+outside full writes) over the bounces (O9).
 
 WAVE 3 (SPEC.md 130.12.13.2).  The marks gain bz_tw: rows end there, and
 bz_tw .. bz_tv is the WHEEL's part - the commits in the retrace wait and
@@ -174,9 +174,8 @@ six shipped demos BZD1 - BZD6 through D):
     step rate: `bbcourse.py --pans`'s figure, bbcourse.pans, 130.16.13), and
     the occluder pass's span a frame (bz_occ's gate to
     bz_pover) - each beside 5b's when --ab ran 5b's own demos;
-  - TRIAL's bounce leg (the camera's replays): the rows panned a bounce in
-    GLIDE and TRICKLE under the GROUND LINE, against wave 2's 251 and 137
-    (CGA) - REPORTED;
+  - TRIAL's bounce leg (the camera's replay): the rows panned a bounce
+    under the GROUND LINE, against wave 2's GLIDE 251 (CGA) - REPORTED;
   - --ab's default is now 5b's commit, 503031d4 (its own art, sound and
     demos): BENCH's busy REPORTED against it (wave 6 moves BENCH's course:
     not like for like, so the +0.5k guard is not asserted until the freeze
@@ -270,7 +269,7 @@ AB_OVER = 500                  # 130.14.17 item 7, kept by 130.15.13: BENCH's me
                                # the anchor's, BOTH cards - the standing guard on the frame's cost
 AB_ASSERT = False              # wave 6 (130.16.10): BENCH's course moved, so the guard is REPORTED until the
                                # freeze commit re-anchors it on its own package (three runs for its spread)
-W2_TRIAL_ROWS = {"GLIDE": 251, "TRICKLE": 137}   # wave 2's rows over TRIAL's five bounces, CGA (130.16.7)
+W2_TRIAL_ROWS = {"GLIDE": 251}  # wave 2's rows over TRIAL's five bounces, CGA (130.16.7; TRICKLE's 137 went with it)
 STEP_HZ = BB.PIT_HZ / float(BB.STEP_PIT)          # steps a second of play (54.6)
 # (wave 6's review C1: 5b's MILL_MODE_COLS split - under 67 columns its "49-column mode" - is gone: under wave
 # 6's physics MILL's demo pans 106 columns on the CGA, which that split would have reported as one of 5b's two
@@ -1002,17 +1001,16 @@ R_REFRESH = {"cga": 79648.0, "herc": 93790.0}     # clocks, MartyPC's cards (wav
 
 
 def camera(g, tag):
-    """the rows each camera mode pans over TRIAL's bounces: a log of the chord off
-    H's lip from the start, replayed in GLIDE and in TRICKLE (the benchmark
-    always rolls GLIDE).  Reported, not asserted (O9)."""
+    """the rows the camera pans over TRIAL's bounces: a log of the chord off
+    H's lip from the start, replayed once (LATTICE: the one camera since
+    TRICKLE was deleted, SPEC.md 130.11.11.1).  Reported, not asserted (O9)."""
     m = g.m
     keys = [0] * 4 + [BB.K_R | BB.K_D] * 260
     log = R.make_log(keys, R.CRS_K["trial"], R.course("trial").ball)
     res = {}
-    for mode, name in ((0, "GLIDE"), (1, "TRICKLE")):
+    for name in ("GLIDE",):
         m.pause()
         g.write_log(log)
-        g.putb("bz_cmode", mode)
         with M.bp_trace(m, g.a("bz_row"), g.a("bz_fullw"), log=True, cap=20000) as tr:
             g.key("KeyR")
             M.until(m, lambda _: g.b("bz_fs") == 1, "the camera's replay starts", guest=60)
@@ -1024,9 +1022,6 @@ def camera(g, tag):
         nb = g.w("bz_nbnc")
         res[name] = (rows, nb)
         m.run()
-    m.pause()
-    g.putb("bz_cmode", 0)
-    m.run()
     print("  camera over TRIAL's flight (%d steps, replayed), the GROUND LINE's (SPEC.md 130.16.7): %s; wave 2's "
           "%s (CGA) - REPORTED" % (len(keys), "; ".join(
               "%s %d rows panned over %d bounces (%.1f a bounce)" % (k, v[0], v[1], v[0] / float(v[1] or 1))

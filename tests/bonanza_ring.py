@@ -128,7 +128,7 @@ model's (`spy`).
      post's corner - it WAITS with lit cells outside every box, card =
      oracle, at least one such frame); and THE PWAIT SCENE (the ball
      airborne at two points 48 px apart while the lift rises from its dock,
-     the window's bottom edge through the slab, TRICKLE: every WAITED frame
+     the window's bottom edge through the slab, HELD (cam_hold): every WAITED frame
      and the frame after it checked - `pwait`, at least FEAT_EACH a card -
      at least 20 lift steps inside it, and a waited frame on which an
      entering row meets the slab's drawn footprint, bz_ctype 3, by the ball
@@ -162,7 +162,7 @@ model's (`spy`).
      by the checker).  Every private tree packs its parts in the shipped
      build's format (part_fmt: build/bonanza.o88's table, SPEC.md 130.15.9).
  10  WAVE 6 (SPEC.md 130.16.14): THE GROUND LEG (`ground`), the ground line
-     and its latch, replayed in GLIDE and TRICKLE (ground_check proves each
+     and its latch, replayed in GLIDE (TRICKLE's replays deleted with it) (ground_check proves each
      scenario and arm on the model; `ringcy` is RETIRED by wave 6b: LATTICE's
      rows never read the ring and the guest deleted its y half; `nolatch`'s
      model signature under LATTICE is the void fall's row pan HALTING, its
@@ -2130,14 +2130,14 @@ OVER_FRAMES = 12
 
 # THE DEFER SCENE (SPEC.md 130.13.7 item 1): a post of the cluster made REALLY drawn lit and then due while
 # the ball's every frame is two boxes - so its contact candidacy waits (bz_ndef) and its cells outside the
-# boxes stay lit on the glass, as its map and bz_ldrw say.  At its K-th bz_t0 (TRICKLE, the window centred
+# boxes stay lit on the glass, as its map and bz_ldrw say.  At its K-th bz_t0 (cam_hold, the window centred
 # on DF_Q1 by a full write): held at Q1 to DF_KICK, the KICK poked there (it lights as the must-draw), then
 # from DF_KICK + 1 its lit frames poked to 0 (DUE) and the ball alternately at Q2, Q1 for DF_ALT frames -
 # under BZ_WPRF (5) - then held at Q1 to DF_END (one box: it goes dark as the contact group)
 DF_KICK, DF_ALT, DF_END = 5, 4, 12
 # THE PWAIT SCENE (SPEC.md 130.13.12): the ball held airborne alternately at two points 48 px apart (every
 # frame's ball group two boxes: a CROWDED frame, 130.13.4.3 (a)) while the lift RISES from its low dock,
-# the window's bottom edge through the slab (TRICKLE), for PW_FRAMES frames; on a frame after one that did
+# the window's bottom edge through the slab (cam_hold), for PW_FRAMES frames; on a frame after one that did
 # not wait, the ball poked across the band's FOOT instead (the camera steps down a row, the entering row
 # meeting the slab's drawn footprint on a waited frame: bz_ctype 3), PW_TRIES times at most; then held at one
 # point PW_END frames (one box: the slab's is drawn - 18 + 2 x 6 lines at most)
@@ -2193,7 +2193,7 @@ def defer_poke(g, plan, k):
     else:
         poke_ball(g, q1[0], q1[1], q1[2], 0, 0, 0, air=1, same_cell=k > 0)
     if k == 0:
-        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds while the ball moves in the band
+        cam_hold(g)                             # the window HELD while the ball moves (the zeroed script)
         g.putb("bz_first", 1)                   # the next frame: a full write centred on Q1
         return None
     if k == DF_KICK:                            # the KICK (bz_pkick + 1, 130.13.14 item 10): drawn lit
@@ -2485,7 +2485,7 @@ def mill_play(g, ref):
         if len(fails) >= 4:
             break
     m.bp_exec()
-    g.putb("bz_cmode", 0)
+    cam_release(g)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the MILL play ends on Esc", guest=60)
@@ -2523,7 +2523,7 @@ def pwait_step(g, sc, n, nfr):
     n0, R0, c0, cen, p1, p2 = sc["pw"]
     k = sc["k"]
     if k == 0:
-        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds; it steps a row on a crossing
+        cam_hold(g)                             # the window HELD; it steps a row on a crossing (below)
         g.putb("bz_first", 1)                   # the next frame: a full write centred on CEN
         poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
         return
@@ -2539,7 +2539,8 @@ def pwait_step(g, sc, n, nfr):
         P = None
         if sc["tries"] < PW_TRIES and j >= 2 and not sc["strip"] and not g.b("bz_pyld"):
             # ACROSS THE BAND'S FOOT on a frame that may wait (the last one did not): the centre 2 lines past
-            # 2L/3 of the window as it stands - TRICKLE steps it down a row, the row entering at the foot
+            # 2L/3 of the window as it stands - the held camera steps it down a row (cam_hold's step, as
+            # TRICKLE's band did until it was deleted), the row entering at the foot
             lsh = 1 if g.tag == "cga" else 2
             top, left = R0n << lsh, 8 * c0n
             crs = sc["crs"]
@@ -2563,17 +2564,44 @@ def pwait_step(g, sc, n, nfr):
         if P:
             sc["tries"] += 1
             poke_ball(g, P[0], P[1], P[2], 0, 0, 0, air=1)
+            cam_hold(g, (1, 0))                 # this frame: one row down
         else:
+            cam_hold(g)
             q = p1 if j % 2 == 0 else p2
             poke_ball(g, q[0], q[1], q[2], 0, 0, 0, air=1)
         return
     if sc["pwn1"] is None:
         sc["pwn1"] = n & 0xFFFF
     sc["pwend"] += 1                            # ENDED at one point: one box, the slab's drawn
+    cam_hold(g)                                 # (held: no try's row step)
     poke_ball(g, p1[0], p1[1], p1[2], 0, 0, 0, air=1, same_cell=sc["pwend"] > 1)
 
 
 # ---- the row-0 probe (SPEC.md 130.10.11.2) ----------------------------------
+def cam_hold(g, step=(0, 0)):
+    """THE WINDOW HELD (or stepped by STEP = (rows, columns) THIS frame), where a
+    scene needs the camera still: the SCRIPTED camera ([bz_camscr] 1, SPEC.md
+    130.17.6.7, a BZDEV build's) with every entry of its cycle bz_scyc poked to
+    STEP - so (0, 0) holds the window while the ball's footprint stays
+    BZ_SCR_MX px / BZ_SCR_MY lines inside it.  It replaced TRICKLE (bz_cmode 1),
+    which these scenes poked for the same hold until TRICKLE was deleted
+    (130.11.11.1).  Call it at a bz_t0, every frame whose step differs; the
+    shipped cycle is banked on the first call and put back by cam_release."""
+    a = g.a("bz_scyc")
+    if getattr(g, "_scyc", None) is None:
+        g._scyc = g.m.read(a, 16)
+    g.m.write(a, bytes((step[0] & 255, step[1] & 255)) * 8)
+    g.putb("bz_camscr", 1)
+
+
+def cam_release(g):
+    """cam_hold undone: the shipped cycle back, [bz_camscr] 0 (its clearing is a cut)"""
+    if getattr(g, "_scyc", None) is not None:
+        g.m.write(g.a("bz_scyc"), g._scyc)
+        g._scyc = None
+    g.putb("bz_camscr", 0)
+
+
 def poke_ball(g, gx, gy, gz, gvx=0, gvy=0, gvz=0, same_cell=False, air=None, ztop=None, lvl=None):
     """The position and the velocities (SPEC.md 130.10.7.1), 24.8 values, and
     what a poke owes besides: bz_pokd = 1, so the next step refills the window
@@ -2664,7 +2692,7 @@ def rest_in_window(crs, grid, top, left, Wc, lines, flags=0, slopes=False, xzone
     cell (or, SLOPES, any floor: re-poked every frame, a step's roll is a
     fraction of a pixel), none of FLAGS set, its circle wholly inside the cell, its picture
     top on one of the window lines LINES (from TOP, the window's first world
-    line) and its centre in GLIDE's and TRICKLE's dead zone ([2W, 6W] px from
+    line) and its centre in the dead zone ([2W, 6W] px from
     LEFT), nearest the window's centre first.  A ball held there moves no
     camera: grounded, its line is the camera's (wave 6, SPEC.md 130.16.7),
     where a ball held AIRBORNE puts the camera on the GROUND line under it.
@@ -2744,8 +2772,8 @@ RE_HOLD = 8
 # COLUMN on a frame or two a run on the CGA, or on none - wave 4's heavier frames moved which frames
 # step a column, and two runs saw 0 - so the `enter_col` feature gets a scene of its own, the MILL
 # play's last: a centred full write with the window's left (right) edge just right (left) of a rotor's
-# or a post's columns, the ball HELD there; then on the dead zone's edge (TRICKLE, bz_cmode 1: the
-# window holds until the ball crosses it), held; then 2 px across it, so the window steps one column
+# or a post's columns, the ball HELD there; then on the dead zone's edge (cam_hold: the
+# window held), held; then 2 px across it, and the window steps one column (cam_hold's step)
 # and the column it brings in is the lane's.  The Hercules' 45-word window holds every MILL lane's
 # columns whatever c0, so the scene has no window there (FEAT_OPTIONAL: reported)
 EC_STEP = 3                         # the centred full write and two held frames, then the dead zone's edge
@@ -2788,7 +2816,7 @@ def entercol_poke(g, plan, k):
     """THE ENTERING-COLUMN SCENE's pokes at its K-th bz_t0"""
     _lane, _R0, _c0, cen, hold, side = plan
     if k == 0:
-        g.putb("bz_cmode", 1)                   # TRICKLE: the window holds until the dead zone's edge
+        cam_hold(g)                             # the window HELD until the step (EC_STEP + 2)
         g.putb("bz_first", 1)                   # the next frame: a full write centred on CEN
         poke_ball(g, cen[0], cen[1], cen[2], 0, 0, 0, air=1)
     elif k < EC_STEP:
@@ -2799,6 +2827,7 @@ def entercol_poke(g, plan, k):
         poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=1, same_cell=True)
     else:                                       # 2 px across the edge, in the cell: one column step
         poke_ball(g, hold[0] + 256 * side, hold[1] - 256 * side, hold[2], 0, 0, 0, air=1, same_cell=True)
+        cam_hold(g, (0, side) if k == EC_STEP + 2 else (0, 0))   # (TRICKLE stepped on the crossing frame alone)
 
 
 def ringend_plan(g, crs):
@@ -2897,7 +2926,6 @@ def probe(g, ref):
     g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
     g.putb("bz_crs", CRS_K["bench"])            # play mode, on the benchmark's course
-    g.putb("bz_cmode", 0)                       # GLIDE (C cycles it; it persists)
     if "bz_hvoff" in g.sym:                     # the shipped camera: a poked frame is HEAVY
         g.putb("bz_hvoff", 0)                   # (level 1, SPEC.md 130.12.7)
     g.putb("bz_tpoke", 1)                       # time play's boxes: only a benchmark's are
@@ -3138,7 +3166,7 @@ CAM_PRICE = 527             # the ground-line block's as-built price at WORST, c
                             # SPEC.md 130.16.7's per-path table; airborne over a floor unlatched is 384/388) - a COST,
                             # not a retunable
 CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 130.16.14)
-MODES = ((0, "GLIDE"), (1, "TRICKLE"))
+MODES = ((0, "GLIDE"),)         # (TRICKLE, mode 1, deleted with the camera mode: SPEC.md 130.11.11.1)
 
 
 def ground_scenarios():
@@ -3255,7 +3283,7 @@ def ground_margin(px, py, R0, c0, Wc, rl):
 
 
 def ground_replay(g, s, mode, art=None):
-    """one GROUND replay in MODE (0 GLIDE, 1 TRICKLE): every frame the guest's
+    """one GROUND replay in MODE (0, GLIDE: the one camera): every frame the guest's
     window equals Glide's off the same log (GLIDE), the footprint inside the
     window, no row reversal while airborne on a void fall; the stretch's frames
     card = oracle; the ground-line block's span.  -> (fails, tallies)"""
@@ -3264,9 +3292,6 @@ def ground_replay(g, s, mode, art=None):
     c = course(s["crs"], art=art)
     ref = Ref(tag, c, art)
     m = g.m
-    m.pause()
-    g.putb("bz_cmode", mode)
-    m.run()
     label = "%s GROUND %s %s" % (tag, s["name"], dict(MODES)[mode])
     start_replay(g, make_log(s["keys"], CRS_K[s["crs"]], s["mat"]), s["poke"])
     p = P.model(s["crs"], s["mat"], s["poke"])
@@ -3375,9 +3400,6 @@ def ground_replay(g, s, mode, art=None):
         if fr > len(s["keys"]) * 5 // 4 + 50:
             fails.append("%s: the replay ran %d frames past its %d steps" % (label, fr, len(s["keys"])))
     end_replay(g, label)
-    m.pause()
-    g.putb("bz_cmode", 0)
-    m.run()
     sp = tal["spans"]
     bound = int(CAM_PRICE * CAM_SLACK)
     if not fails and sp and max(sp) > bound:
@@ -3395,9 +3417,9 @@ def ground_replay(g, s, mode, art=None):
     return fails, tal
 
 
-def ground_part(g, art=None, only=None, modes=(0, 1)):
-    """the GROUND leg (SPEC.md 130.16.14 bonanzaring): every scenario in GLIDE
-    and in TRICKLE.  -> (fails, tallies)"""
+def ground_part(g, art=None, only=None, modes=(0,)):
+    """the GROUND leg (SPEC.md 130.16.14 bonanzaring): every scenario under
+    the one camera (its TRICKLE replays went with TRICKLE).  -> (fails, tallies)"""
     fails, out = [], {}
     pre, _say = ground_check()
     if pre:
@@ -3743,9 +3765,6 @@ def camera_replay(g, s, art=None):
     tag, m = g.tag, g.m
     c = course(s["crs"], art=art)
     label = "%s CAMERA %s" % (tag, s["name"])
-    m.pause()
-    g.putb("bz_cmode", 0)
-    m.run()
     log = s["log"] or make_log(s["keys"], CRS_K[s["crs"]], s["mat"])
     start_replay(g, log, s["poke"])
     p = P.model(s["crs"], s["mat"], s["poke"])
@@ -4188,7 +4207,7 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
             out["fails"] += f
         if "ground" in parts and not out["fails"]:    # wave 6 (SPEC.md 130.16.14): the ground line
             f, out["ground"] = ground_part(g, art, only=GROUND_ONLY.get("only"), modes=GROUND_ONLY.get("modes",
-                                                                                                    (0, 1)))
+                                                                                                    (0,)))
             out["fails"] += f
         if "camera" in parts and not out["fails"]:    # wave 6b (SPEC.md 130.17.10): LATTICE
             f, out["camera"] = camera_part(g, art)

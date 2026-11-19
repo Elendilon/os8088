@@ -51,7 +51,7 @@ On MartyPC's CGA and Hercules XTs, five legs a card:
          bottom-RIGHT corner where no window reaches the left; on the
          Hercules no window reaches either (its 45 words hold every MILL
          lane's columns): REPORTED there.
-  STALE  play mode on MILL, TRICKLE (SPEC.md 130.13.7 item 4): a centred full
+  STALE  play mode on MILL, the window held (R.cam_hold; SPEC.md 130.13.7 item 4): a centred full
          write puts a ROTOR wholly above the window's top (its last card row
          R0 - 1) with the ball held; after 16 steps, on a frame whose true pose
          has a different lowest row from the full write's, the ball is poked
@@ -1394,7 +1394,8 @@ def stale_plan(g, ref):
 
 
 def stale_leg(g, ref):
-    """THE STALE SCENE (SPEC.md 130.13.7 item 4): [bz_cmode] 1 (TRICKLE); a
+    """THE STALE SCENE (SPEC.md 130.13.7 item 4): the window HELD (R.cam_hold,
+    which replaced TRICKLE's [bz_cmode] 1 when TRICKLE was deleted); a
     centred full write puts a ROTOR wholly above the window's top (its last
     card row R0 - 1, in the walk's range) with the ball HELD at the centre;
     after STALE_STEPS steps, on a frame whose true pose shows a different
@@ -1413,7 +1414,7 @@ def stale_leg(g, ref):
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
-    g.putb("bz_cmode", 1)                         # TRICKLE (put back at the leg's end)
+    R.cam_hold(g)                                 # the window HELD (released at the leg's end)
     plan = stale_plan(g, ref)
     if plan is None:
         rep.append("(9) the STALE scene: SKIP - no window on this card puts a MILL rotor wholly above its top with "
@@ -1461,8 +1462,10 @@ def stale_leg(g, ref):
                         if n - st["n0"] >= STALE_STEPS and all(low_rows(p) != low_rows(st["fw"]) for p in far):
                             st["step"] = k        # THE ROW: just over the band's top edge
                             R.poke_ball(g, up[0], up[1], up[2], 0, 0, 0, air=0)
+                            R.cam_hold(g, (-1, 0))          # ...and the camera UP one row, this frame
                 else:
                     R.poke_ball(g, up[0], up[1], up[2], 0, 0, 0, air=0, same_cell=True)
+                    R.cam_hold(g)                 # (held again after the row)
                 return None
             out = pres_snap(g)
             out["k"] = st["k"]
@@ -1496,7 +1499,7 @@ def stale_leg(g, ref):
                 fails.append("(9) the STALE scene, frame %d: rotor %d brought in by the row shows %d px that are not "
                              "its TRUE pose %d (its bz_ldrw %s): the map was left stale while it was off the glass"
                              % (e[0], e[1], e[4], e[2], e[3]))
-    g.putb("bz_cmode", 0)
+    R.cam_release(g)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "the STALE leg's play ends on Esc", guest=60)
@@ -1572,7 +1575,8 @@ def side_plan(g, ref):
 
 
 def side_leg(g, ref):
-    """THE SIDE SCENE (SPEC.md 130.18.2, story 7.1): [bz_cmode] 1 (TRICKLE); a
+    """THE SIDE SCENE (SPEC.md 130.18.2, story 7.1): the window HELD (R.cam_hold,
+    TRICKLE's [bz_cmode] 1 until TRICKLE was deleted); a
     centred full write puts a ROTOR or a clock's digit in the window's rows
     but wholly OUTSIDE the column band, the ball HELD resting in the dead
     zone; on every frame while the window holds, the lane is marked OUT
@@ -1618,7 +1622,7 @@ def side_leg(g, ref):
         m.run()
         M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the %s play runs" % crs_name, guest=60)
         m.pause()
-        g.putb("bz_cmode", 1)
+        R.cam_hold(g)
     if plan is None:
         rep.append("(9) the SIDE scene: SKIP - no window on this card puts a lane of any course in its rows and "
                    "wholly outside the column band with the ball centred on a floor (the `nocol` arm is UNJUDGED "
@@ -1659,7 +1663,8 @@ def side_leg(g, ref):
                             moved = rotor_pose(rec, n) != st["fw"] and rotor_pose(rec, n + 1) != st["fw"]
                         if n - st["n0"] >= SIDE_STEPS and moved:
                             st["step"] = k
-                            g.putb("bz_camscr", 1)      # the SCRIPT: a column a frame toward the lane
+                            R.cam_release(g)            # the SCRIPT's own cycle: a column a frame toward
+                            g.putb("bz_camscr", 1)      # the lane
                 if st["step"] is not None:
                     R.poke_ball(g, hold[0], hold[1], hold[2], 0, 0, 0, air=0, same_cell=True)
                     c0 = g.w("bz_c0")           # R (0, +1) or L (0, -1) to the lane's window, then a
@@ -1706,8 +1711,7 @@ def side_leg(g, ref):
                              "are not its TRUE pose %d (its bz_ldrw %s): the map was left stale while it was "
                              "outside the band" % (e[0], e[1], e[4], e[2], e[3]))
     if plan is not None:
-        g.putb("bz_camscr", 0)                  # (its clearing is a cut)
-        g.putb("bz_cmode", 0)
+        R.cam_release(g)                        # (its clearing is a cut)
         m.run()
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0, "the SIDE leg's play ends on Esc", guest=60)
