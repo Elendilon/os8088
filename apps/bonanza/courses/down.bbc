@@ -1,0 +1,153 @@
+# Course 3 (DOWN; docs/plans/bonanza-courses/DOWN.md): DOWNHILL DECISION, the tutorial's reward - SPEED, then a
+# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 0, GLASS south (a membrane bridge,
+# a lift, a choice of stairs) to exit 1.  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
+# while the layout moves.
+course DOWN "Downhill Decision"
+guide                     # a REAL course: held to the course guide's checkable rules
+width 128
+origin 256                # the reach spans the 60 tiles 1024 px allow
+uses boost spike water
+ball rubber
+music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
+target 60
+
+# rooms (the sketch's sections)
+floor rect   8   8   9   9  flat 40   # A
+floor rect   8   9   9  14  ramp y 9 14 40 30   # R
+floor rect   8  14   9  15  flat 30   # R
+floor rect  12  15  22  18  flat 29   # H
+floor rect  22  15  24  18  ramp x 22 24 29 27   # D
+floor rect  24  15  27  18  ramp x 24 27 27 25.5   # D
+floor rect  27  15  29  18  ramp x 27 29 25.5 21.5   # D
+floor rect  29  15  31  18  flat 21.5   # F
+floor rect  31  16  32  17  flat 21.5   # F
+floor rect  32  16  36  17  flat 21.5   # B
+floor rect  38  14  43  19  flat 17   # L
+floor rect  46  12  52  21  flat 14   # X
+floor rect  52  17  56  20  flat 14   # S
+floor rect  56  17  57  20  flat 14   # W
+floor rect  56  20  59  25  flat 11   # T
+floor rect  56  25  59  29  flat 11   # M
+floor rect  55  29  60  33  flat 11   # G
+floor rect  49  21  50  26  flat 14   # K
+floor rect  47  26  51  29  flat 14   # P
+floor rect  40  25  46  31  flat 18   # Q
+floor rect  41  31  43  35  ramp y 31 35 18 12   # Y
+floor rect  43  31  45  32  flat 17   # Z
+floor rect  43  32  45  33  flat 16   # Z
+floor rect  43  33  45  34  flat 13   # Z
+floor rect  43  34  45  35  flat 12   # Z
+floor rect  39  35  47  39  flat 12   # V
+
+# the chute (SPEC.md 130.28): unfenced, its shape guides
+chute 2 round depth 8 way 8 15 30 way 8 17 30 way 12 17 29
+
+# rails: block rails (wall tiles) on the void side of each railed edge
+wall  tile   7   8  flat 42
+wall  tile   7   9  flat 42
+wall  tile   7  10  flat 40
+wall  tile   7  11  flat 38
+wall  tile   7  12  flat 36
+wall  tile   7  13  flat 34
+guard tile   8   7                # see-through
+wall  tile   9   8  flat 42
+wall  tile   9   9  flat 42
+wall  tile   9  10  flat 40
+wall  tile   9  11  flat 38
+wall  tile   9  12  flat 36
+wall  tile   9  13  flat 34
+wall  tile   9  14  flat 32
+wall  tile  32  15  flat 23.5
+wall  tile  32  17  flat 23.5
+wall  tile  33  15  flat 23.5
+guard tile  33  17                # see-through
+wall  tile  34  15  flat 23.5
+guard tile  34  17                # see-through
+wall  tile  35  15  flat 23.5
+guard tile  35  17                # see-through
+wall  tile  46  11  flat 16
+wall  tile  46  21  flat 16
+wall  tile  47  11  flat 16
+wall  tile  47  21  flat 16
+wall  tile  48  11  flat 16
+wall  tile  48  21  flat 16
+wall  tile  49  11  flat 16
+wall  tile  50  11  flat 16
+wall  tile  50  21  flat 16
+wall  tile  51  11  flat 16
+wall  tile  51  21  flat 16
+wall  tile  52  12  flat 16
+wall  tile  52  13  flat 16
+wall  tile  52  14  flat 16
+wall  tile  52  15  flat 16
+wall  tile  52  16  flat 16
+wall  tile  52  20  flat 16
+wall  tile  53  16  flat 16
+wall  tile  53  20  flat 16
+wall  tile  54  16  flat 16
+wall  tile  54  20  flat 16
+wall  tile  55  16  flat 16
+wall  tile  55  20  flat 16
+wall  tile  56  16  flat 16
+wall  tile  57  17  flat 16
+wall  tile  57  18  flat 16
+wall  tile  57  19  flat 16
+
+
+# the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)
+floor half left tile 31 15  flat 21.5
+wall  half right tile 31 15  flat 23.5
+floor half up tile 31 17  flat 21.5
+wall  half down tile 31 17  flat 23.5
+# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 130.44)
+hump 17 15 29 along y 3 open height 8
+hump 21 15 29 along y 3 open height 8
+# the BOOSTER chute's pads (SPEC.md 130.40)
+prop boost 33 16 face +x strength 40
+prop boost 34 16 face +x strength 40
+prop boost 35 16 face +x strength 40
+# the split: a pad at each exit (no archways: a rubber ball that hops one dies on what follows)
+pad steel 51 18
+pad steel 52 18
+pad glass 49 20
+# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH
+prop spikes 53 17 55 20
+water rect 56 17 57 20 top 14 bed 11
+arch 56 19 +y
+# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)
+prop membrane 49 21 50 26
+prop platform 46 27 4
+# steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)
+hump 56 27 11 along x 3 open height 8
+
+goal  rect 55 31 60 33  flat 11   # the steel finish
+goal  rect 39 37 47 39  flat 12 exit 1   # the glass finish
+start 8 8
+checkpoint 30 16 ball rubber   # flag 0
+checkpoint 49 16 ball rubber   # flag 1
+checkpoint 52 17 ball steel   # flag 2
+checkpoint 48 27 ball glass   # flag 3
+
+# clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
+floor tile 10 8  flat 40   # the start clock's tile (on top of the rail block it replaces)
+clock 10 8
+floor tile 60 30  flat 12.5   # the steel finish clock's tile (on top of the rail block it replaces)
+clock 60 30
+floor tile 47 37  flat 13.5   # the glass finish clock's tile (on top of the rail block it replaces)
+clock 47 37
+
+# the autopilot's route
+way 8 8
+way 8 12
+way 22 16
+way 29 16
+way 32 16
+way 41 16
+way 49 16
+way 50 18
+way 52 18
+way 56 18
+way 56 21
+way 57 25
+way 57 29
+way 57 31
