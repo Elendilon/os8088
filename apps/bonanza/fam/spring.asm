@@ -26,13 +26,14 @@ org 0
 ; CONTACT: BX the spring (the centre's owner), after step 6.  bz_prule's
 ; .spring as it was, with BX - the floor's h4 under the centre, which the hook
 ; is not handed - found again: a spring's cell is a FLAT FLOOR (the tool's and
-; the reader's rule, 130.14.4.1), so step 6 found 16 z0 there
+; the reader's rule, 130.14.4.1), so step 6 found 8 z0 there (z0 QUARTER
+; units, SPEC.md 130.48)
 sp_contact:
     mov es, [bz_cseg]
     call bz_lrecsi              ; SI = its record
     mov al, [bz_nbr + BZN_C]
     cbw
-    mov cl, 4
+    mov cl, 3
     shl ax, cl
     xchg ax, bx                 ; BX = the h4
 .spring:                        ; A SPRING (130.14.4.6), never under a

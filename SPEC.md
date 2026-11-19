@@ -293471,6 +293471,7 @@ is doubled with it:
 | THE GLASS tile (130.25.8) | its kill when broken, 3 units under (`12`, `glass.asm`'s `sub ..., 12`) | |
 | A LIFT's shaft (130.12.3.2) | its kill is a grid byte, written by the tool (quarter units with every other) | |
 | MAGNETS (130.33.2) | +22 a hanging one's ceiling is PX, as it was: unchanged | |
+| THE SPRING (130.14.4.6) | no height field; its CONTACT finds the floor under the centre again | `8 z0` (`spring.asm`'s shift 3, not 4: the one site the first pass missed, found by `bonanzamega` replaying PEAK's demo, 130.48.6) |
 
 #### 130.48.5 The ladders (130.16.5.3)
 
@@ -293487,6 +293488,11 @@ and is what decides how the tiers are spaced; this section only makes the rungs 
   `4 B` with `Y0`, the records' tops and the reach less `8 B` px. The guest's own routines under unicorn
   (`tests/bonanza_dsplit.py`, `tests/bonanza_dfield.py`, `tests/bonanza_dquarter.py`) equal the model at every
   step.
+- **A missed `16 z0`.** The SPRING family's contact computed the floor with `mov cl, 4` / `shl ax, cl`, a
+  form the first sweep (runs of single shifts) did not match. The tool's model was right, so the oracle could
+  not see it; `bonanzamega` replaying PEAK's demo on the glass did (its first spring launch, step 797, 88 px
+  low). `tests/bonanza_dquarter.py` now replays MOON's and PEAK's demos through the guest under unicorn (its
+  harness loads the BUILT family parts, so the spring's red is that soak run, not an arm of its own).
 - **Two absolute heights.** An OPEN cell's kill (above), and the AUTHOR script's `steer` at a VOID cell, which
   aimed at that cell's picture point at height 0: it aims at height 0 AS WRITTEN now (`+ 8 B` on `Y0`), so
   PEAK's demo is the run it was, step for step. MOON's, PEAK's and PLAYGROUND's demos changed their `ident`

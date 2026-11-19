@@ -1195,6 +1195,8 @@ def _height2(tok, where, rel=False):
 _ZBASE2 = 0
 _ZSEEN = None
 _LOOKB = 0                    # half units: _compile_course's src.zbase x 2, for render()'s checker
+_HALFZ = False                # --selfcheck item 1's switch alone (_hack "halfz"): the bytes in HALF units, no rebase,
+                              # the CELLS rule's 79h - the parts as a tool before SPEC.md 130.48 wrote them
 ZQ_LO, ZQ_HI = -116, 127      # SPEC.md 130.48.1: a solid cell's lowest corner and its z0, quarter units
 
 
@@ -1245,6 +1247,10 @@ class Q(float):
 def zq(h2):
     """SPEC.md 130.48.1: a height in HALF units (an int, or an exact n.5) -> the QUARTER units every height byte
     of a part holds; refuses anything finer (an int that is not)"""
+    if _HALFZ:                                  # (item 1's cross-commit check: a part as it was)
+        if h2 != int(h2):
+            raise CourseError("a quarter height (%r half units) under the half-unit switch" % (h2,))
+        return int(h2)
     q = 2 * h2
     if q != int(q):
         raise CourseError("a height of %r half units is not a whole number of quarter units" % (h2,))
@@ -1257,7 +1263,7 @@ def zq(h2):
 def rebase_units(seen, fname):
     """SPEC.md 130.48.1: the whole units B to subtract from every absolute height (quarter units in `seen`):
     0 when they fit ZQ_LO .. ZQ_HI, else the B that centres them; refused when the span cannot fit"""
-    if not seen:
+    if not seen or _HALFZ:
         return 0
     lo, hi = min(seen), max(seen)
     if lo >= ZQ_LO and hi <= ZQ_HI:
@@ -10309,8 +10315,9 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ
     hack = _hack or {}
+    _HALFZ = bool(hack.get("halfz"))                # (SPEC.md 130.48: item 1's cross-commit check, half units)
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
@@ -10329,6 +10336,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _HM_FTOP = False
         _NOLOOK = False
         _LOOKB = 0
+        _HALFZ = False
         _REACH_MEMO = saved
 
 
@@ -13187,6 +13195,8 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
         return kw * r2 + k2 if 0 <= r2 < nrows and 0 <= k2 < kw else None
     def vrec(z0, sl):
         sx, sy = _nib(sl & 15), _nib(sl >> 4)
+        if _HALFZ:                                  # (item 1's switch: the rule as it was)
+            return (z0 + min(0, sx) + min(0, sy) + 0x79) & 0xFF
         return (z0 + 2 * min(0, sx) + 2 * min(0, sy) + 0x73) & 0xFF     # (SPEC.md 130.48.3)
     V, H = [], {}
     for i in range(n):
@@ -13437,7 +13447,8 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
                     wrw(S + 4 * w + 2, 8 * s + y0 - 5)
                     continue
                 sl = b[co + 1]
-                y = 8 * s + 8 - 2 * (z0 + _nib(sl & 15) + _nib(sl >> 4)) + y0 - 13   # (z0 quarter units, 130.48)
+                y = 8 * s + 8 - 2 * ((2 * z0 if _HALFZ else z0) + _nib(sl & 15) + _nib(sl >> 4)) + y0 - 13
+                # (z0 quarter units, SPEC.md 130.48; half units under item 1's switch)
                 wrw(S + 4 * w, 16 * a + x0 - 8)
                 wrw(S + 4 * w + 2, y)
         else:
@@ -27342,12 +27353,12 @@ def _split_physics(res):
             if seen:
                 gx, gy, gz = seen[0]
                 return (gx >> 12, gy >> 12) == (17, 10) and pick(KIND_TB, gx & 0xFFF, gy & 0xFFF) == 1 \
-                    and gz < (4 * kill) << 8 and prev >= (4 * kill) << 8, kill, i
+                    and gz < (2 * kill) << 8 and prev >= (2 * kill) << 8, kill, i    # (quarter units, 130.48)
             prev = p.gz
         return False, kill, None
     ok, kill, n = fall()
     res.append(("7 SPLIT (130.24.7.1): a ball falling in a VOID half is killed at the half's own kill height (%d "
-                "half units, 130.24.5.3's NEAR at its cell), on step %s" % (kill, n), ok))
+                "quarter units, 130.24.5.3's NEAR at its cell, SPEC.md 130.48), on step %s" % (kill, n), ok))
     # D2.1: a goal half's exit: the goal counts when the centre is in the GOAL half, its exit the half's
     p = at(cr, 15, 8, 8 << 8, 8 << 8, -192, 0, play=True)
     hit = None
@@ -28226,7 +28237,7 @@ def _course_items(c, k, res, t):
                 okk = False
             for h, tl in enumerate(ent.halves):
                 if tl is None:
-                    if pr[h][3] != KIND_VOID or pr[h][0] != _near_low(c.tiles, wx, wy) - 6:
+                    if pr[h][3] != KIND_VOID or pr[h][0] != zq(_near_low(c.tiles, wx, wy)) - 12:
                         okv = False
                 elif pr[h][3] != tl.kind or pr[h][5] != tl.surf:
                     okk = False
@@ -28283,9 +28294,9 @@ def _course_items(c, k, res, t):
                 continue
             cl = g.cell(wx, wy)
             near = [r_ for tt in _cheb(c.tiles, wx, wy, 2) for r_ in tile_recs(tt)]
-            want = (min(min(tt.corners()) for tt in near) - 6) if near else Z_OPEN
-            if (wx, wy) in c.slabcells:
-                want = (c.slabcells[(wx, wy)][0] >> 2) - 6
+            want = (zq(min(min(tt.corners()) for tt in near)) - 12) if near else Z_OPEN    # (quarter units,
+            if (wx, wy) in c.slabcells:                                                  # SPEC.md 130.48)
+                want = 2 * (c.slabcells[(wx, wy)][0] >> 2) - 12
             if cl[3] != KIND_VOID or cl[0] != want or cl[4] & FL_SAFE or cl[5]:
                 okv = False
     res.append(("4 %s: at all 256 integer points of every solid cell h4 is the plane the renderer drew%s" % (
@@ -28533,8 +28544,9 @@ def _sc_crosscommit(X, res):
                 # (that tool had no Y0 search; and SPEC.md 130.27's ground plane is a picture rule that tool lacks:
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
-                                                "occ": "off", "nolook": True})
-                # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink)
+                                                "occ": "off", "nolook": True, "halfz": True})
+                # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink; and
+                # 130.48's quarter units off: that tool's half-unit bytes, no rebase, the CELLS rule's 79h)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
@@ -28839,7 +28851,7 @@ def _water_checks(res):
     res.append(("6 water (130.36): the reach takes the BED form - the water cells' zlo the bed (%s px), and their "
                 "top (%s px) with `noforms`" % (sorted({by[r["at"]].zlo for r in wat}), sorted({by0[r["at"]].zlo
                                                                                             for r in wat})),
-                all(by[r["at"]].zlo == 0 and by0[r["at"]].zlo == 4 * r["top"] for r in wat)))
+                all(by[r["at"]].zlo == 0 and by0[r["at"]].zlo == 2 * r["top"] for r in wat)))
 
     def steel_at(cc, gx, gy, mat=MAT_STEEL, z=0):  # (the footprint's pixels the card lays over a ball there)
         p = Physics(cc, mat=mat)
@@ -28991,12 +29003,12 @@ def _sc_spike(X, res):
     sp_ = [r for r in sk + pk if r["at"] in by]
     res.append(("6 spikes (130.38): the reach takes the BED form at LOW and the TIP form, and a membrane's VOID - "
                 "the spike cells' zlo %s px and zhi at least the tips %s, a membrane's zlo %s; with `noforms` the "
-                "base %s" % (sorted({by[r["at"]].zlo for r in sp_}), sorted({4 * r["tip"] for r in sp_}),
+                "base %s" % (sorted({by[r["at"]].zlo for r in sp_}), sorted({2 * r["tip"] for r in sp_}),
                              sorted({by[r["at"]].zlo for r in mk if r["at"] in by}),
                              sorted({by0[r["at"]].zlo for r in sp_})),
-                sp_ and all(by[r["at"]].zlo == 4 * r["low"] and by[r["at"]].zhi >= 4 * r["tip"]
-                            and by0[r["at"]].zlo == 4 * r["low"] + 4 for r in sp_)
-                and all(by[r["at"]].zlo == 4 * (r["mz"] - 6) for r in mk if r["at"] in by)))
+                sp_ and all(by[r["at"]].zlo == 2 * r["low"] and by[r["at"]].zhi >= 2 * r["tip"]
+                            and by0[r["at"]].zlo == 2 * r["low"] + 4 for r in sp_)
+                and all(by[r["at"]].zlo == 2 * (r["mz"] - 12) for r in mk if r["at"] in by)))
     # the art: the corridor's blades in the picture (white and black on its tops); a membrane cell undrawn but
     # its film; a popspike's slits in the picture and its blades the lane's pose 1
     cn = compile_course(open(SP_TEST).read(), fname=SP_TEST + " (no art)", _hack={"nospikeart": True})
@@ -29111,7 +29123,7 @@ def _sc_tilt(X, res):
     g = Grid(c.cga)
     pl = [r for r in c.part["props"] if r["kind"] == FK_TILT]
     ln = [r for r in c.part["props"] if r["kind"] == FK_TILTL]
-    cok = all(g.cell(*q)[:4] == (tl_cell(r, 0, q) + (KIND_FLOOR,)) and not g.cell(*q)[4] & (FL_OBS | FL_SAFE)
+    cok = all(g.cell(*q)[:4] == (tl_cell(r, 0, q, True) + (KIND_FLOOR,)) and not g.cell(*q)[4] & (FL_OBS | FL_SAFE)
               for r in pl for q in [(r["at"][0] + i, r["at"][1] + j) for i in range(r["tlnx"]) for j in range(r["tlny"])])
     per = [sum(1 for q in ln if q["tlp"] == r["i"]) for r in pl]
     lok = all(q["lane"]["poses"] == 3 and c.part["props"][q["tlp"]]["kind"] == FK_TILT for q in ln) \
@@ -31030,7 +31042,7 @@ def _sc_turn(X, res):
     tr = [r for r in recs if r["at"] in by]
     res.append(("6 turntable (130.43.6): the reach takes a switching cell's VOID - zlo %s px; with `noforms` its "
                 "floor %s" % (sorted({by[r["at"]].zlo for r in tr}), sorted({by0[r["at"]].zlo for r in tr if r["at"] in by0})),
-                tr and all(by[r["at"]].zlo == 4 * (r["tz"] - TT_VOID) and by0[r["at"]].zlo == 4 * r["tz"] for r in tr)))
+                tr and all(by[r["at"]].zlo == 2 * (r["tz"] - TT_VOID) and by0[r["at"]].zlo == 2 * r["tz"] for r in tr)))
     cn = compile_course(open(TT_TEST).read(), fname=TT_TEST + " (no art)", _hack={"nottart": True})
     res.append(("10 turntable (130.43.5): the PLATTERS are in the picture, the tables' cells not drawn as tiles (the course part %d bytes; %d with the "
                 "art's control `nottart`, its tiles drawn instead); every port and seam pose drawn" % (len(c.cga), len(cn.cga)),
@@ -31416,7 +31428,8 @@ def _sc_gate(X, res):
                 and sorted(r["sseed"] for r in tm) == list(range(6))
                 and all((not r["lane"] if r.get("gart") else r["lane"] and r["lane"]["poses"] == 2)
                         and r["fsb"] == 0 and r["cls"] == CL_ATTEMPT
-                        and (r["kind"] != GT_KB or (r["deck"] == 4 and r["gkd"] == KIND_FLOOR)) for r in recs)))
+                        and (r["kind"] != GT_KB or (r["deck"] == 8 and r["gkd"] == KIND_FLOOR)) for r in recs)))   # (2 units,
+                                                                                  # quarter units: SPEC.md 130.48.4)
     gl = [frozenset(xy for xy, ink in gt_plaque(0, 0, ch).items() if ink == BLK) for ch in range(GT_NCH)]
     res.append(("5 GATES' pairing (130.41.5): the %d channels' glyphs, black on a white plaque, pairwise distinct "
                 "(each element of a channel carries its plaque)" % GT_NCH,
