@@ -780,6 +780,179 @@ ROUND2 = {
 }
 
 
+# ==== ROUND 3: the painted spring, more readable (the owner: "I love the spring idea; its not reading bad,
+# but do one more pass and see if we can get a more readable spring") ======================================
+# col-spring's coil is a stack of loops on a 48 px face and reads a little like a ladder.  What says SPRING
+# is a HELIX: one strand winding, its near half bright and thick over its far half thin and dark, so the eye
+# sees it go round.  Three ways, all on the basin's front (still the face the camera shows most):
+#   col-spring2  the helix PAINTED on the face (sheared with it), fewer and fatter turns, a cap and a ball
+#   col-spring3  the helix standing UPRIGHT against the face (screen-level, an object rather than a decal),
+#                stretched, the ball flying off its cap with motion marks: the throw
+#   col-spring4  the same upright helix COMPRESSED, the ball squashed on its cap, "boing" ticks either side
+
+def helix(bm, cx, ytop, ybot, rx, ry, turns, band=2):
+    """a coil's HELIX between ytop and ybot: the far half of each turn a one-pixel black line, the near half a
+    yellow band `band` px thick, black-lined above and below, drawn over the far half"""
+    n = int(turns * 160)
+    back, front = [], []
+    for i in range(n + 1):
+        t = i / float(n) * turns
+        a = 2 * math.pi * t
+        x = cx + rx * math.cos(a)
+        y = ytop + ry + (ybot - ytop - 2 * ry) * (t / turns) + ry * math.sin(a)
+        (front if math.sin(a) > 0 else back).append((int(round(x)), int(round(y))))
+    for q in back:
+        bm[q] = K
+    for (x, y) in front:
+        for d in range(-1, band + 1):
+            q = (x, y + d)
+            if d in range(band):
+                bm[q] = Y
+            elif bm.get(q) != Y:
+                bm[q] = K
+
+
+def disc(bm, cx, cy, rx, ry, col, rim=K):
+    """a flat disc seen from above the face: an ellipse filled with col, black-lined"""
+    got = {(x, y) for y in range(cy - ry - 1, cy + ry + 2) for x in range(cx - rx - 1, cx + rx + 2)
+           if ((x - cx) / (rx + 0.5)) ** 2 + ((y - cy) / (ry + 0.5)) ** 2 <= 1.0}
+    for (x, y) in got:
+        edge = any((x + dx, y + dy) not in got for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        bm[(x, y)] = rim if edge else col
+
+
+def egg(bm, cx, cy, rx, ry):
+    """the BALL, squashed or round: a yellow ellipse, black-lined, its shade red low right, a glint"""
+    got = {(x, y) for y in range(cy - ry - 1, cy + ry + 2) for x in range(cx - rx - 1, cx + rx + 2)
+           if ((x - cx) / (rx + 0.5)) ** 2 + ((y - cy) / (ry + 0.5)) ** 2 <= 1.0}
+    for (x, y) in got:
+        edge = any((x + dx, y + dy) not in got for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        shade = (x - cx) / float(rx) + (y - cy) / float(ry) > 0.9
+        bm[(x, y)] = K if edge else (R if shade else Y)
+    bm[(cx - rx // 2, cy - ry // 2)] = Y
+
+
+def paste_screen(a, c, X0, Yf, ztop, bm, host):
+    """paste bitmap {(x, y): colour} level on the SCREEN (an object standing against the face, not painted on
+    it): (0, 0) is the face's top-left corner, the point (X0, Yf, ztop)"""
+    sx0, sy0 = D.floor_point(c, X0, Yf, ztop)
+    for (u, v), col in bm.items():
+        x, y = int(sx0) + u, int(sy0) + v
+        if D.owner_at(x, y) in host:
+            a.px[(x, y)] = col
+
+
+def col_spring2(c):
+    a = D.Art()
+    bm = {}
+    cx, rx, ry = 24, 11, 5                         # fewer, rounder turns, red showing between them
+    top, bot = 16, 58
+    disc(bm, cx, bot, rx + 2, 3, Y)                # the foot plate
+    helix(bm, cx, top, bot, rx, ry, 3.0, 2)
+    disc(bm, cx, top, rx + 2, 3, Y)                # the cap
+    egg(bm, cx, top - 9, 5, 5)                     # the ball on it
+    paste_yplane(a, c, BFRONT[1], BFRONT[0][0], BFRONT[2], bm, BFRONT_CELLS)
+    return a
+
+
+def col_spring3(c):
+    a = D.Art()
+    bm = {}
+    cx, rx, ry = 24, 10, 4                         # (24 px right of the face's top-left: its middle)
+    top, bot = 34, 72                              # the face runs 12 - 76 px down here (it recedes 12)
+    disc(bm, cx, bot, rx + 2, 3, Y)
+    helix(bm, cx, top, bot, rx, ry, 3.0, 2)
+    disc(bm, cx, top, rx + 2, 3, Y)
+    egg(bm, cx, top - 18, 5, 5)                    # the ball, thrown clear
+    for dx in (-7, 0, 7):                          # motion marks between the cap and the ball
+        for v in range(top - 10, top - 4):
+            if (v + dx) % 3:
+                bm[(cx + dx, v)] = Y if dx == 0 else K
+    paste_screen(a, c, BFRONT[0][0], BFRONT[1], BFRONT[2], bm, BFRONT_CELLS)
+    return a
+
+
+def col_spring4(c):
+    a = D.Art()
+    bm = {}
+    cx, rx, ry = 24, 12, 4
+    top, bot = 50, 70
+    disc(bm, cx, bot, rx + 2, 3, Y)
+    helix(bm, cx, top, bot, rx, ry, 2.5, 1)
+    disc(bm, cx, top, rx + 2, 3, Y)
+    egg(bm, cx, top - ry - 4, 8, 4)                # the ball, squashed on the cap
+    for side in (-1, 1):                           # "boing": three ticks out from the squash
+        for k, (du, dv) in enumerate(((13, -10), (15, -6), (13, -2))):
+            for s_ in range(3):
+                bm[(cx + side * (du + s_), top + dv - (s_ if k == 0 else (-s_ if k == 2 else 0)))] = Y
+    paste_screen(a, c, BFRONT[0][0], BFRONT[1], BFRONT[2], bm, BFRONT_CELLS)
+    return a
+
+
+ROUND3 = {
+    "col-spring2": ("hop_colspring", col_spring2, "the basin's front: its spring, a fat helix painted on the face"),
+    "col-spring3": ("hop_colspring", col_spring3, "the basin's front: its spring standing upright, the ball thrown"),
+    "col-spring4": ("hop_colspring", col_spring4, "the basin's front: its spring compressed, the ball squashed"),
+}
+PICK3_EXTRAS = ("chev", "gap-arc", "goal-bunting", "flowers-poppy")   # the course as built, less its col-spring
+
+
+def sheet3(out):
+    """round 3: today's col-spring against the three new springs, each alone on the course as built"""
+    from PIL import Image, ImageDraw
+    import subprocess
+    os.makedirs(out, exist_ok=True)
+    variants = [("base-nospring", PICK3_EXTRAS)] + [(n, PICK3_EXTRAS + (n,))
+                                                     for n in ("col-spring", "col-spring2", "col-spring3",
+                                                               "col-spring4")]
+    res = {}
+    for name, ex in variants:
+        d = os.path.join(out, name)
+        os.makedirs(d, exist_ok=True)
+        for fn in os.listdir(d):
+            if fn.endswith(".bba"):
+                os.remove(os.path.join(d, fn))
+        pre = "hx_" + re.sub(r"[^a-z0-9]", "", name) + "_"
+        p = build(PICK_SIGNS, ex, d, pre)
+        mine = [fn for fn in os.listdir(d) if fn.startswith(pre) and fn.endswith(".bba")]
+        for fn in mine:
+            with open(os.path.join(d, fn), "rb") as f_, open(os.path.join(CDIR, fn), "wb") as g_:
+                g_.write(f_.read())
+        try:
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bbcourse.py"), p, "--png", d],
+                               capture_output=True, text=True)
+        finally:
+            for fn in mine:
+                os.remove(os.path.join(CDIR, fn))
+        c, m = measure(p)
+        m["ok"] = r.returncode == 0
+        res[name] = (c, m)
+        print("%-14s compile %s  LZB %5d  LZ4 %5d  stored %6d  blocks %4d%s" % (
+            name, "ok" if m["ok"] else "FAILED", m["lzb"], m["lz4"], m["stored"], m["blocks"],
+            "" if m["ok"] else "\n" + (r.stderr or r.stdout)[-600:]), flush=True)
+    pics = {n: pictures(c, Image) for n, (c, m) in res.items()}
+    box = (318, 180, 418, 300)
+    rows = []
+    for n in ("col-spring", "col-spring2", "col-spring3", "col-spring4"):
+        ims = [crop_pair(*pics["base-nospring"], box, Image)[0]] + list(crop_pair(*pics[n], box, Image))
+        lab = "%s%s   LZB %+d" % (n.upper(), " (today's)" if n == "col-spring" else "",
+                                  res[n][1]["lzb"] - res["base-nospring"][1]["lzb"])
+        rows.append((lab, ims))
+    grid(rows, Image, ImageDraw, "LITTLE HOP round 3 - the painted spring on the basin's front; palette 0, x%d"
+         % ZOOM, ["without (CGA)", "with (CGA)", "with (Hercules)"]).save(os.path.join(out, "round3-spring.png"))
+    lines = ["variant        compile    LZB    LZ4  stored  blocks"]
+    for n, (c, m) in res.items():
+        lines.append("%-14s %-7s %6d %6d %7d %7d" % (n, "ok" if m["ok"] else "FAILED", m["lzb"], m["lz4"],
+                                                    m["stored"], m["blocks"]))
+        pics[n][0].save(os.path.join(out, "full-%s-cga.png" % n))
+        pics[n][1].save(os.path.join(out, "full-%s-herc.png" % n))
+    with open(os.path.join(out, "costs.txt"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print("\n".join(lines))
+    print("sheet3: %s" % out)
+ROUND2.update(ROUND3)                              # (one registry for --extras and build())
+
+
 # ---- assembling a variant ------------------------------------------------------------------------
 _CAPTURED = []
 _OWNERS = {}
@@ -1103,6 +1276,8 @@ def sheet2(out):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "sheet3":
+        return sheet3(sys.argv[2] if len(sys.argv) > 2 else "hop-art3")
     if len(sys.argv) > 1 and sys.argv[1] == "sheet2":
         return sheet2(sys.argv[2] if len(sys.argv) > 2 else "hop-art2")
     if len(sys.argv) > 1 and sys.argv[1] == "sheet":
