@@ -32840,7 +32840,9 @@ def _o88_arms(courses, demo_files):
         for fmt in ("lz4", "lzb"):
             o88 = os.path.join(td, "BONANZA.O88")
             r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"), "--compress-if=lz4", binf,
-                                "-o", o88, "--part-compress", fmt] + [a for p in parts for a in ("--part", p)],
+                                "-o", o88, "--part-compress", fmt] + [a for p in parts for a in ("--part", p)]
+                               + [a for p in parts if p.startswith(td) for a in ("--part-data", p)],  # (the courses'
+                                                    # and demos' data parts, as the Makefile's BZ_DATAPARTS: SPEC.md 20.3.3)
                                cwd=ROOT, capture_output=True, text=True)
             if r.returncode:
                 return {"error": (r.stderr or r.stdout)[-300:]}

@@ -48134,6 +48134,11 @@ once**:
   disk layer at private offsets by design (`tests/unit/t_kdfar.py` polices
   those), and a cell newer than the SDK is A4's question and The Wire's cell
   fence's (§92.2).
+  A part that is DATA (no CPU executes it) can spell `9A lo hi <KERNEL_SEG>`
+  by chance; ROLL's course part did (`9A 04 02 60 00`, 2026-11-19).
+  `os88pkg --part-data PART` names such a part (it must also be a `--part`)
+  and the gate passes it over. BONANZA names its course, demo, path, title
+  and kit parts so (`BZ_DATAPARTS`); its code parts stay under the gate.
 
 `tests/unit/t_cellgate.py` (fast) proves the routing and the gate: a probe
 assembles byte-identical to a hand-written twin (`CD 81 <index>` for a door
@@ -285333,8 +285338,9 @@ to, and seems simple."*
 - **The proofs** (item 5's composites, item 15's completeness and WRONG-HIDE)
   pass the shape's cells over.
 - **MEASURED**: ROLL with `noocclude rect 29 37 34 42` and `noocclude rect 49 41
-  54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. Not written into any
-  course: it is the author's to place.
+  54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. It is the author's to
+  place, and ROLL carries exactly those two (2026-11-19: 1,110 -> 1,078 on the
+  course as it then stood), so a shipped course exercises the statement.
 
 **The fall's speed** (the owner's question): a ball falling off an edge does not
 leave at the cap, so the void band's far cells could be cut by how far a REAL
