@@ -1427,7 +1427,10 @@ def fall_leg(g, tag):
 # bz_rlog: the same key bytes on every build, so frames pair up by their step count n).  A fall: from the
 # state the last one left (the start, or a respawn), LEAD held N steps, then FALL held until the respawn.
 AVFALL = {"mill": (("DR", 20, "DL"), ("U", 60, "D"), ("D", 60, "UL"), ("R", 120, "DL"), ("DL", 120, "DR")),
-          "peak": (("D", 60, "D"), ("DR", 20, "D"), ("R", 120, "D"))}
+          "peak": (("D", 60, "D"), ("DR", 20, "D"), ("R", 120, "D")),
+          # SPEC.md 130.48: ROLL's start platform's falls (BZROLL=1) - U and D through its diagonal corners (8, 8)
+          # and (11, 11), L, R, UL and UR off its plain edges
+          "roll": (("U", 0, "U"), ("D", 0, "D"), ("L", 0, "L"), ("R", 0, "R"), ("UL", 0, "UL"), ("UR", 0, "UR"))}
 _AVK = {"U": BB.K_U, "D": BB.K_D, "L": BB.K_L, "R": BB.K_R}
 
 
@@ -1469,7 +1472,7 @@ def avfall_void(c, keys, mat=None):
         p.step(k)
         wx, wy = p.gx >> 12, p.gy >> 12
         cl = c.cells.get((wx, wy))
-        if p.air and not p.tube and cl and cl[3] & BB.FL_OCC and ag.runs(wx, wy):
+        if p.air and not p.tube and cl and cl[3] & BB.FL_OCC and ag.runs(*BB.mcell(p.gx, p.gy)):
             out.add(i + 1)
     return out
 
@@ -1488,9 +1491,9 @@ def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
     out = {}
     set_snd(g, False)
     for run_ in runs:
-        if run_ == "peakdemo":
-            c = R.course("peak")
-            k = R.CRS_K["peak"]
+        if run_.endswith("demo"):               # (a course's shipped demo: peakdemo, playdemo ...)
+            c = R.course(run_[:-4])
+            k = R.CRS_K[run_[:-4]]
             demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % k), "rb").read()
             _K, mat, kt, _fl = BB.decode_log_t(demo)
             keys = [k_ for k_, _t in kt]
