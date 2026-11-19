@@ -9,7 +9,7 @@
 ;   GATE    a WALL in the window while its channel is shut (CELL); +19 its way
 ;   BRIDGE  +18 its channel, or BZ_GT_TIMED and a popspike's timer (+21 ON,
 ;           +22 MASK, +23 SEED: DOWN while ((n + seed) AND mask) < on); +19
-;           its DECK (signed half units), +20 its grid's +2 byte.  DOWN: CELL
+;           its DECK (signed quarter units), +20 its grid's +2 byte.  DOWN: CELL
 ;           writes the grid's floor back (absolute, so a kept cell is right);
 ;           UP: a NEAR VOID, the deck less BZ_GT_DROP, kind and surface 0 (a
 ;           broken crack's).  DOWN but the window's centre with the ball's
@@ -285,8 +285,7 @@ gt_cell:
     jne .dn
     mov al, dl
     cbw
-    shl ax, 1
-    shl ax, 1
+    shl ax, 1                   ; 2 DECK px (quarter units, SPEC.md 130.48.4)
     cmp [bz_gz + 1], ax
     jl .up
 .dn:

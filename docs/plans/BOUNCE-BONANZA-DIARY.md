@@ -6420,3 +6420,38 @@ manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
 - **Run**: `make bonanzadisk`, `tests/bonanza_phys.py --check`, the frame
   breakdowns above. **Not run**: soak rows for this round (the running
   soak froze before it).
+
+## 2026-11-19 (quarter-unit heights, on `bb-quarter`)
+
+The owner wanted more rungs between "rolls up" and "needs the boost": *"can roll up it, can't roll up it but
+easy jump or slightly harder for steel, can single jump it but its a little more precise or very precise for
+steel, easy double bounce for rubber, hard but possible double bounce for rubber"* - and courses up to about
+63 units high. Experimental, on a branch of its own. SPEC.md 130.48 is the contract;
+[BOUNCE-BONANZA-QUARTER.md](BOUNCE-BONANZA-QUARTER.md) the stories.
+
+- **The format, not the physics.** Every height byte of a part (a cell's `z0`, a split record's, a prop
+  record's) is QUARTER units now; slopes stay half units a tile, and the floor is `8 z0 + sx u + sy v`. The
+  guest lost a shift at every floor read. The byte holds -32 to 31.75 units, so the tool REBASES a taller
+  course - every absolute height less `B` whole units - and the guest never sees an absolute height. A course
+  may span 60.75 units of floors and walls.
+- **An oracle before the first edit.** All 24 courses were compiled and pickled at the base. After the
+  change every one has the same picture, occluder records, reach and route, its height bytes doubled; BENCH
+  and SUMMIT, which needed the rebase (22 and 24 units), the same less the rebase. That comparison found
+  nothing; the demos found two things.
+- **PEAK's demo moved, twice over.** Re-authored, it took 2,198 steps instead of 2,172 while the same keys
+  replayed identically. A step-by-step diff of the author against the base found it: the script's `steer`
+  at a VOID cell aimed at that cell's picture point at height 0 - an absolute height, 24 units higher after
+  the rebase. It aims at height 0 as written now. The other absolute height was an OPEN cell's kill, -128:
+  in quarter units `2 z0` would have halved a fall into the open void on every course, so it keeps its
+  -512 px.
+- **The build side stayed in half units.** A quarter reaches the picture, reach and occluder code as
+  `bbcourse.Q`, a float whose whole results are ints (4 x 7.5 is the pixel 30), so 170-odd functions
+  needed no change and every integer-only operation still refuses a stray quarter loudly.
+- **The ladder now has the owner's tiers**, at today's tuning: 1/2 unit rolls; 3/4 an easy Hop for rubber
+  (18 take-off points of 70) and glass (11), steel's 2 (37 ms); 1 unit a precise Hop (rubber 7, glass 3,
+  steel none); 1 1/4 rubber's Hop and boost from 15; 1 1/2 from 7; 1 3/4 nobody.
+- **Not done here**: the occluder records' tops still span at most 255 px, about 32 units - the bound that
+  cut ROLL - so the 60-unit course needs the occluder session's per-row bias too.
+- **Run**: the oracle over 24 courses; `make` (the fast tier 44/44); the tool's ladder and item 48 with two
+  reds by hand; `tests/bonanza_dsplit.py`, `tests/bonanza_dfield.py`, `tests/bonanza_dquarter.py` (unicorn).
+  **Not run**: the bonanza soak rows (the phase's soak, in the background after the commit).
