@@ -46,7 +46,8 @@ ICON_OUT = os.path.join(HERE, "icons")
 ICON_REL = os.path.relpath(ICON_OUT, B.COURSE_DIR)            # an icon FILE is under apps/bonanza/courses/
 
 COURSES = B.default_paths() + [os.path.join("apps", "bonanza", "courses", n) for n in ("roll.bbc", "hop.bbc")]
-TITLES = {"TRIAL": "Downhill Decision", "FIRST": "Bounce Trial"}     # the sheet's stand-ins (module docstring)
+TITLES = {"TRIAL": "@-25@Downhill|Decision", "FIRST": "Bounce Trial",     # the sheet's stand-ins
+          "MOON": "@-26@Moonlit Green", "MILL": "@-21@Windmill Lane"}    # (@DX@: option A's titles set off their icons, the owner's mark-up)
 
 # sketch number -> (course, icon stem)
 SKETCH = {1: ("ROLL", "first"), 2: ("HOP", "frog"), 3: ("TRIAL", "fork"), 4: ("MILL", "mill"),
@@ -173,16 +174,26 @@ def icon_file(stem, w, h):
 # =============================================================================
 def caps57_pixels(text, x, y, ink=3):
     """the 5 x 7 small caps (os88cdart.CAPS), 6 px a letter, centred where text_pixels' 8 x 8 run would be,
-    its baseline that run's"""
-    w = 6 * len(text) - 1
-    x0 = x + 4 * len(text) - w // 2
+    its baseline that run's.  A "|" breaks the title into LINES (the owner's 2026-11-19 mark-up of A:
+    DOWNHILL over DECISION), each centred on the same column, the last on the run's baseline and each
+    one before it 9 lines higher"""
+    cx = x + 4 * len(text)
+    m = re.match(r"@(-?\d+)@", text)
+    if m:
+        cx += int(m.group(1))
+        text = text[m.end():]
+    lines = text.split("|")
     out = {}
-    for i, ch in enumerate(text):
-        g = CAPS.get(ch, CAPS[" "])
-        for r, row in enumerate(g):
-            for k, cc in enumerate(row):
-                if cc == "#":
-                    out[(x0 + 6 * i + k, y + 1 + r)] = ink
+    for n, t in enumerate(lines):
+        w = 6 * len(t) - 1
+        x0 = cx - w // 2
+        ly = y - 9 * (len(lines) - 1 - n)
+        for i, ch in enumerate(t):
+            g = CAPS.get(ch, CAPS[" "])
+            for r, row in enumerate(g):
+                for k, cc in enumerate(row):
+                    if cc == "#":
+                        out[(x0 + 6 * i + k, ly + 1 + r)] = ink
     return out
 
 
@@ -196,18 +207,18 @@ FACES = {"8x8": B.text_pixels, "5x7": caps57_pixels}
 # route: (a, b, exit, "path ...") in sketch numbers;  lives: [(wx, wy)]
 OPTIONS = {
     "A": dict(
-        name="Faithful", pages=2, view=(0, 340), font="5x7", float=True, rail="crystal",
+        name="Faithful", pages=2, view=(0, 332), font="5x7", float=True, rail="crystal",
         blurb="the sketch's layout over two pages: 1-2-3 along a broad bottom road, the split at 3 - a straight "
               "climb to 4-5 on the right, a long diagonal to 6, then 7 and out to 8 at the far left; "
               "32 x 24 icons, 5 x 7 titles",
         pads={1: (21, 28, (32, 24), "U", 0, 0), 2: (24, 25, (32, 24), "U", 0, 0),
-              3: (24, 17, (32, 24), "L", -36, 40), 4: (20, 13, (32, 24), "L", -34, 0),
-              5: (12, 5, (32, 24), "L", -34, 0), 6: (15, 17, (32, 24), "L", -34, 0),
+              3: (24, 17, (32, 24), "L", -2, 24), 4: (20, 13, (32, 24), "L", 1, 0),
+              5: (12, 5, (32, 24), "L", -34, 0), 6: (15, 17, (32, 24), "L", 4, 16),
               7: (9, 11, (32, 24), "R", 0, 8), 8: (4, 11, (32, 24), "R", 0, -8)},
         routes=[(1, 2, 0, "21,28 24,25"), (2, 3, 0, "24,25 28,21 24,17"),
                 (3, 4, 0, "24,17 20,13"), (3, 6, 1, "24,17 15,17"),
-                (4, 5, 0, "20,13 12,5"), (6, 7, 0, "15,17 9,11"), (7, 8, 0, "9,11 4,11")],
-        lives=[(17, 24), (6, 4)]),
+                (4, 5, 0, "20,13 12,5"), (6, 7, 0, "15,17 9,11", (14, 16)), (7, 8, 0, "9,11 4,11")],
+        lives=[(16, 23), (6, 4)]),
     "B": dict(
         name="Roomy", pages=4, view=(0, 740), font="8x8", float=True, rail="crystal",
         blurb="sparser: two or three pads a page over four pages, today's 48 x 32 icons (Downhill Decision's "
@@ -245,7 +256,7 @@ def pad_xy(wx, wy, x0, y0, h2=0):
 def pad_h2(o, n):
     """pad N's height in half units, from the route ends at its cell"""
     wx, wy = o["pads"][n][:2]
-    for _a, _b, _e, pts in o["routes"]:
+    for _a, _b, _e, pts in (r[:4] for r in o["routes"]):
         for t in pts.split():
             v = t.split(",")
             if (int(v[0]), int(v[1])) == (wx, wy):
@@ -270,8 +281,10 @@ def write_source(key, o, x0=None, y0=None):
         wx, wy = o["pads"][n][:2]
         lines.append("pad %d %-5s %2d %2d                 # sketch %d" % (n - 1, SKETCH[n][0], wx, wy, n))
     lines.append("")
-    for a, b, e, pts in o["routes"]:
-        lines.append("route %d %d exit %d  path %s" % (a - 1, b - 1, e, pts))
+    for r in o["routes"]:
+        a, b, e, pts = r[:4]
+        gate = "gate %d %d  " % r[4] if len(r) > 4 else ""
+        lines.append("route %d %d exit %d  %spath %s" % (a - 1, b - 1, e, gate, pts))
     lines.append("")
     if x0 is not None:
         for n in sorted(o["pads"]):
