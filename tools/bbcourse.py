@@ -453,7 +453,7 @@ FAMILIES = (
      "kinds": ({"name": "crack", "kind": FAM_K0 + 1, "bits": 8, "cls": 1, "art": "crack",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
                {"name": "glass", "kind": FAM_K0 + 2, "bits": 1, "cls": 0, "art": "glass",
-                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 48,
+                "forms": ("own",), "states": (0, 1), "pickup": False}), "paras": 50,
      "home": HOME_RESIDENT},
     {"name": "rotor", "id": 3, "rev": 1, "hooks": H_PROP, "slot": 0,
      "kinds": ({"name": "windmill", "kind": 22, "bits": 0, "cls": CL_ATTEMPT, "art": None, "forms": ("own",),
@@ -490,7 +490,7 @@ FAMILIES = (
     # `resident` (the owner's default, 2026-11-17); kind 26.  CONSTS fold WA_SINK, WA_HTHR and WA_ESH
     {"name": "water", "id": 7, "rev": 1, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "WA",
      "kinds": ({"name": "water", "kind": FAM_K0 + 10, "bits": 0, "cls": CL_ATTEMPT, "art": None,
-                "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 47,
+                "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 54,
      "home": HOME_RESIDENT},
     # MAGNETS (SPEC.md 130.33): a magnet on a post pulls STEEL along its FIELD (`range` cells out from the post
     # along `face`) toward the post, S >> (k - 1) at the k-th cell; a magnet `face down` hangs over its field
@@ -500,7 +500,7 @@ FAMILIES = (
     # BZ_FTAB holds 0FFh in a gap); kind 32; home `resident` (the owner's rule, 2026-11-17: every family resident unless chosen otherwise; 130.33.9)
     {"name": "magnet", "id": 8, "rev": 1, "hooks": H_STEP | H_POSE, "slot": 8, "consts": "MG",
      "kinds": ({"name": "magnet", "kind": FAM_K0 + 16, "bits": 1, "cls": CL_ATTEMPT, "art": "magnet",
-                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 29,
+                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 32,
      "home": HOME_RESIDENT},
     # WIND (SPEC.md 130.34): the BLOWER - a fan grate on a flat floor that PUSHES the ball while its centre
     # is in the element's REGION (record +20 - +23), along its FACE (+18: +x -x +y -y, or up: an UPDRAFT on an
@@ -551,7 +551,7 @@ FAMILIES = (
                {"name": "popspikes", "kind": FAM_K0 + 41, "bits": 0, "cls": CL_ATTEMPT, "art": "spikes",
                 "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
                {"name": "membrane", "kind": FAM_K0 + 42, "bits": 0, "cls": CL_ATTEMPT, "art": "web",
-                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 40,
+                "forms": ("own", "void"), "states": (0,), "pickup": False}), "paras": 45,
      "home": HOME_RESIDENT},
     # THE ARCHWAY (SPEC.md 130.39, the props round's P10): an arch over a path that a ball ROLLS UNDER - a
     # CEILING.  Each archway cell an element (+18 its CLEARANCE, whole px), anchored on its cell but NO owner (no
@@ -563,7 +563,7 @@ FAMILIES = (
     # home `resident`; CONSTS AR_TOPB, AR_RSH
     {"name": "archway", "id": 12, "rev": 1, "hooks": H_STEP | H_CELL, "slot": 6, "consts": "AR",
      "kinds": ({"name": "archway", "kind": FAM_K0 + 48, "bits": 0, "cls": CL_ATTEMPT, "art": None,
-                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 18,
+                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 21,
      "home": HOME_RESIDENT},
     # SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 130.41, the props round's P6 and P7, one family): a PLATE
     # (rolled over, grounded) or a KEY (touched, collected) OPENS its CHANNEL - one of GT_NCH, each its GLYPH
@@ -589,7 +589,7 @@ FAMILIES = (
                # SPEC.md 130.41.12: a LANE of a designer's gate ART (the tool's: +18 its gate, +19 the channel; its
                # pose the channel's FRAME, the slot's +2 + channel)
                {"name": "gatelane", "kind": FAM_K0 + 60, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
-                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 44,
+                "forms": ("own",), "states": (0,), "pickup": False}), "paras": 50,
      # SPEC.md 130.41.12: the ART's kind and the slot's frames are an EXTENSION every course without art runs
      # unchanged on (no record of it holds +24 or a kind 76; the frames are bytes it never reads), so FAMV folds
      # the row as it was - the shipped PLAYGROUND, which names this family, stays byte for byte as it was
@@ -620,7 +620,7 @@ FAMILIES = (
     # props round's fixed assignment: gates 13, see-saw 14 are a GAP here); kind FAM_K0 + 72; CONSTS TT_*
     {"name": "turntable", "id": 15, "rev": 1, "hooks": H_STEP | H_POSE | H_CELL, "slot": 0, "consts": "TT",
      "kinds": ({"name": "turntable", "kind": FAM_K0 + 72, "bits": 0, "cls": CL_ATTEMPT, "art": "turn",
-                "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 24,
+                "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 29,
      "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6     # GLASS's constants (its row's CONSTS, the part's equates):

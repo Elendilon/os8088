@@ -53,7 +53,7 @@ org 0
 mg_step:
     call mg_slot
     cmp byte [bz_mat], BZ_MAT_STEEL
-    jne .stop
+    jne .stopf
     mov al, [bz_tube]
     or al, [bz_hid]
     jnz .stop
@@ -93,9 +93,19 @@ mg_step:
     xor bh, bh
     call far [bz_fmkp]          ; (bz_fmark: the walk made; BX the element)
 .out:
+    xor ax, ax                  ; (steel: every step, 130.25.6.11)
+    call mg_setwk
     retf
-.stop:
-    call mg_stop
+.stop:                          ; (steel in a tube or holed: every step -
+    call mg_stop                ; nothing wakes it when it comes out)
+    xor ax, ax
+    call mg_setwk
+    retf
+.stopf:                         ; (not steel: idle until the material moves,
+    call mg_stop                ; which wakes every STEP, 130.25.6.11)
+    mov ax, [bz_nstep]
+    add ax, 4000h
+    call mg_setwk
     retf
 
 ; POSE (BX the element): 0 idle; while it pulls 1, then 2
@@ -239,6 +249,7 @@ mg_stop:
     ret
 
     BZ_FWALK mg_walk
+    BZ_FSETWK mg_setwk
     BZ_FREC mg_rec, bx
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.

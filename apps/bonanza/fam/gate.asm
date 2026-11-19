@@ -99,6 +99,8 @@ gt_contact:
     test [di], al
     jnz .out
     or [di], al
+    xor ax, ax                  ; (its art steps from now: the STEP every step)
+    call gt_setwk
     inc word [bz_nfev]          ; (the pickup's sound)
     mov byte [bz_fref], 1
     call gt_walk                ; every element of the channel MARKED
@@ -128,6 +130,7 @@ gt_contact:
 ; window refilled when it is in it
 gt_step:
     call gt_slot
+    mov word [bz_fwkk], 4000h   ; (130.25.6.11: the nearest wake, a distance)
     mov al, [bz_nstep]          ; SPEC.md 130.41.12 A5: channel c's art frame
     test al, 1                  ; steps on n AND 7 = 2 c
     jnz .t
@@ -164,6 +167,18 @@ gt_step:
     inc bx
     loop .ml
 .t:
+    mov dl, [di]                ; (a channel open and its art not at its last
+    xor bx, bx                  ; frame: a STEP every step until it is)
+.a:
+    shr dl, 1
+    jnc .an
+    cmp byte [di + 2 + bx], GT_AFR - 1
+    jae .an
+    mov word [bz_fwkk], 1
+.an:
+    inc bx
+    cmp bl, 4
+    jb .a
     cmp byte [di + 1], 0
     je .x
     call gt_walk
@@ -186,20 +201,26 @@ gt_step:
     cmp ah, [es:si + GT_ON]
     sbb dh, dh
     cmp dl, dh
-    je .nx
+    je .tn
     push bx                     ; its lane MARKED
     mov bl, [bx]                ; (its element: the list's byte)
     xor bh, bh
     call far [bz_fmkp]
     call gt_win                 ; ...and in the window: the refill
     pop bx
-    jc .nx
+    jc .tn
     mov byte [bz_fref], 1
+.tn:
+    mov dl, [bx]                ; its NEXT turn, when it can matter
+    call gt_next
 .nx:
     inc bx
     dec cx
     jmp short .l
 .x:
+    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)
+    add ax, [bz_nstep]
+    call gt_setwk
     retf
 
 ; POSE: AH = the kind, BX = the element -> AL
@@ -234,6 +255,8 @@ gt_pose:
 ; CELL: a shut gate's cell a WALL; a bridge's written from its record
 gt_cell:
     call gt_slot                ; DI = the slot
+    xor ax, ax                  ; (a new window: the STEP runs next, 130.25.6.11)
+    call gt_setwk
     call gt_walk                ; ES = the course, BP its list, CX its count
     mov bp, bx
     jcxz .x
@@ -355,6 +378,11 @@ gt_rec:
     ret
 
     BZ_FWALK gt_walk
+    BZ_FSETWK gt_setwk
+    BZ_FTNEXT gt_next, GT_ON, GT_MASK, 0
+%if GT_SEED != GT_MASK + 1
+ %error "bz_ftnext reads the SEED at the MASK + 1"
+%endif
     BZ_FREC gt_lrec, bx
     BZ_FREC gt_recp, bp
 

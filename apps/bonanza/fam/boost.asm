@@ -32,6 +32,7 @@ org 0
 %include "os88api.inc"
 %include "bzcourse.inc"
 %include "bzlink.inc"
+%include "fam/bzfwalk.inc"
 
 BP_DIR      equ 18              ; the record's fields (SPEC.md 130.40.3)
 BP_STR      equ 19
@@ -68,6 +69,8 @@ bp_contact:
     cmp byte [bz_mst], BZ_ST_SHAT
     je .out
     call bp_slot
+    xor ax, ax                  ; (its STEP from now: 130.25.6.11)
+    call bp_setwk
     inc bx                      ; BX = the pad + 1 (at most 255: PROP_ALL)
     mov al, [di]
     cmp al, bl
@@ -123,9 +126,16 @@ bp_contact:
 ; STEP: the lit pad's steps one less; at 0 it is put out, its lane MARKED
 bp_step:
     call bp_slot
+    xor ax, ax                  ; (a pad lit: every step, 130.25.6.11)
+    call bp_setwk
     mov bl, [di]
     or bl, bl
-    jz .out
+    jnz .lit
+    mov ax, [bz_nstep]          ; (idle: no STEP until something wakes it,
+    add ax, 4000h               ; 130.25.6.11)
+    call bp_setwk
+    retf
+.lit:
     dec byte [di + 1]
     jnz .out
     mov [di], bh                ; (BH 0: bp_slot's)
@@ -133,6 +143,8 @@ bp_step:
     call far [bz_fmkp]          ; (bz_fmark: the walk made; BX the element)
 .out:
     retf
+
+    BZ_FSETWK bp_setwk
 
 ; POSE: 1 for the lit pad, 0 for every other
 bp_pose:

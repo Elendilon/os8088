@@ -67,6 +67,11 @@ TT_KFLOOR   equ 1               ; a floor's kind byte: KIND_FLOOR, SURF_NORMAL (
 
 ; CELL: the window's gaps (and a fallen ball's centre) a NEAR VOID
 tt_cell:
+    call tt_slot                ; (a new window: the STEP runs next, 130.25.6.11)
+    push ax
+    xor ax, ax
+    call tt_setwk
+    pop ax
     call tt_walk                ; ES = the course, BP its list, CX its count
     mov bp, bx
     jcxz .x
@@ -120,6 +125,8 @@ tt_cell:
 ; STEP: each pose the count about to be made changes MARKED, and the window
 ; refilled when it is in it
 tt_step:
+    call tt_slot
+    mov word [bz_fwkk], 4000h   ; (130.25.6.11: the nearest wake, a distance)
     call tt_walk
 .l:
     jcxz .x
@@ -132,7 +139,7 @@ tt_step:
     and al, [es:si + TT_QMASK]
     jz .c
     cmp al, [es:si + TT_WAT]
-    jne .nx
+    jne .tn
 .c:
     mov al, [bz_nstep]          ; the pose on n against n + 1
     call tt_at
@@ -141,7 +148,7 @@ tt_step:
     inc ax
     call tt_at
     cmp al, dl
-    je .nx
+    je .tn
     push bx
     mov bl, [bx]                ; (its element: the list's byte)
     xor bh, bh
@@ -151,18 +158,24 @@ tt_step:
     sub al, [bz_nwin]
     inc ax
     cmp al, 2
-    ja .nx
+    ja .tn
     mov al, [es:si + 3]
     sub al, [bz_nwin + 1]
     inc ax
     cmp al, 2
-    ja .nx
+    ja .tn
     mov byte [bz_fref], 1
+.tn:
+    mov dl, [bx]                ; its NEXT candidate step, when it can matter
+    call tt_next
 .nx:
     inc bx
     dec cx
     jmp short .l
 .x:
+    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)
+    add ax, [bz_nstep]
+    call tt_setwk
     retf
 
 ; POSE: BX = the element -> AL its pose
@@ -207,6 +220,24 @@ tt_at:
     ret
 
     BZ_FWALKA tt_walk
+    BZ_FSETWK tt_setwk
+    BZ_FTNEXT tt_next, TT_WAT, TT_QMASK, 1
+%if TT_SEED != TT_QMASK + 1
+ %error "bz_ftnext reads the SEED at the MASK + 1"
+%endif
+
+; AL = the slot -> DI = its bytes (the wake's index; the family keeps no slot
+; byte).  Preserves all else.
+tt_slot:
+    push ax
+    xor ah, ah
+    mov di, ax
+    shl di, 1
+    shl di, 1
+    shl di, 1
+    add di, bz_fsl
+    pop ax
+    ret
     BZ_FREC tt_rec, bx
     BZ_FREC tt_recp, bp
 

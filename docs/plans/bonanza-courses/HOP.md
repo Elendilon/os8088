@@ -1,10 +1,73 @@
 # COURSE 2, "Island Hop" (HOP): design sheet
 
-*Status: **IN ENGINE, revision 2** (2026-11-18): `apps/bonanza/courses/hop.bbc`,
+*Status: **IN ENGINE, revision 5** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
 written by `hop/sketch.py --bbc --force`, compiles with every check, and the
 BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
+
+## Revision 5 (2026-11-19): the long platform is U1
+
+The owner: *"For the longer platform, I meant U1 jump, not U2; aka, give them
+room to get a rolling start for their jump."* U1 (the easy hop's ledge) is
+six tiles long, the step's run-up; U2 is four again, and "JUMP TWICE!" stands
+on its back rail. Another session is looking at an easy-jump height in the
+tuning; this course goes on as if nothing changes there.
+
+## Revision 4 (2026-11-19): the easy hop, a long U2, signs, the basin's line, K farther
+
+The owner on revision 3: the lips *"an excellent finding ... likely one we
+continue using for now"*; difficulty *"Much better"*.
+
+- **The easy hop.** *"Do we have a level that cannot be climbed by rolling
+  (aka requires a jump), but is slightly lower than U1?"* No step does:
+  heights are half units, and half a unit rolls up for every ball
+  (130.16.5.3). A **1-tile gap onto a ledge half a unit UP** does, measured
+  with the tool's ladder (rubber at the cap): no roll, a Hop **311 ms**, a Hop
+  and its "and again" 677 ms (a level 1-tile gap: 549 and 769; a 1-unit step:
+  128 and 531). So L, the gap, U1 half a unit up, then U1's one-unit step to
+  U2: *"an 'easy hop', followed by the 'hard single jump, or easy double
+  jump'"*. A gap climbed up the screen shows its FAR island's face, so U1's
+  lip is the one that floats.
+- **U2 is seven tiles long** (it was four), the ramp off its far end. *(Revision 5: the owner meant U1.)*
+- **Signs**: "JUMP!" on U1's back rail past the easy hop and "JUMP TWICE!" on
+  U2's past the step, boards on posts (`hop/signs.py`, FIRST ROLL's decal
+  machinery and the tree's 8 x 8 face). From leg 1, "JUMP!" stands in view
+  just below the first two Hops as well.
+- **The basin**: wider (seven tiles), the flag on the ramp's centre line AND
+  on the spring's row, three tiles before it, so a respawn rolls straight on.
+- **K three tiles from F** (it was two). NO TRAP still proves it. *Measured*
+  with the model: from rest on each of H's 16 cells holding each of the 8
+  directions, 20 of 128 runs land on K, against 13 of 128 at two tiles (that
+  comparison moved K's floor and not its rails, so it is a rough one). The
+  owner's playtest says whether it is still EASY.
+- **Fitting 1024 px**: the leg-1 islands, L and U1 three wide, the ramp off
+  U2 two tiles, H four wide, F and K three deep (`origin 576`).
+
+## Revision 3 (2026-11-19): grounded, easy, clear
+
+The owner on revision 2: palette 0 good, but on BLACK (*"I want to introduce
+non-black backgrounds later in the game, as 'special' courses"*); the fall
+and bounce and the spring work; *"The level's double jumps are MUCH too hard.
+This level should be telling them that 'jump, and double jump: these
+mechanics exist', not testing their perfect use of them"*; *"Some of the path
+is not clear, or appears to connect where it actually doesn't"* (islands a
+tile apart round the start); and *"'floating' implies 'difficult jumps' ...
+we should save that style (as a complete map style) for when we get to
+difficult aerial jumps."*
+
+- **Grounded**: every island a column to the ground.
+- **Easy**: every Hop is a 1-tile gap (its 549 ms window), every "and again"
+  a 1-unit step railed on both sides, so a miss bounces back; the only
+  2-tile gap is the bounce's. Six legs: two Hops (+x), a ramp down, two
+  steps (-x), the basin and its spring throwing -x onto H, the lip, drop and
+  bounce (+y), then a Hop and a step once more, and the goal.
+- **Clear**: parts that do not connect stand at least three void tiles apart.
+- **The lips** (*observed* in the picture): between grounded columns a 1-tile
+  gap shows the near island's side face, exactly as a step's riser does, so
+  the two looked alike. The row before each gap floats one unit thick, so a
+  black notch under the lip marks every gap and a step shows none. This is
+  the only floating left, and it is a reading aid rather than the style.
 
 ## Revision 2: what changed, and why
 
