@@ -270481,7 +270481,7 @@ before this wave, write-protected or full - toasts `Best times not saved`
 (a `TOASTSTR`) once a session, and the bests stay in memory for the
 session; a READ that fails is the first-run case, silent.
 
-*Since wave 8R round 2 (130.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour was at +146 with no trailing zeros - since 2026-11-19 (130.26.8) six RESERVED bytes there, written zero and zeroed on load, with no tour best to merge or check. The table below is `BZT1`'s header, no longer read (130.22.5: no older layout is).*
+*Since wave 8R round 2 (130.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour was at +146 with no trailing zeros - since 2026-11-19 (130.26.8) six RESERVED bytes there, written zero and zeroed on load, with no tour best to merge or check. Since `BZS5` (130.22.5.1) the file is 488 bytes, its 23 entries keyed by each course's SAVE KEY in no order, and the slots at +146. The table below is `BZT1`'s header, no longer read (130.22.5: no older layout is).*
 
 64 bytes:
 
@@ -282313,7 +282313,10 @@ card of FIRST with a seeded slot (`LIMIT 15`, `GOLD 4  SILVER 5`, `BEST 2.8` and
 its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
 
 **BZS4 (wave 8R, round 2, item 8R.14: 14 - 20 courses, the owner's "Courses
-past 7: Plan is 14-20, so we would need that wider").** The owner's plan for
+past 7: Plan is 14-20, so we would need that wider").** *HISTORY since
+`BZS5` (130.22.5.1), which replaced this layout whole and reads no `BZS4`
+file: the K-keyed entries, the slot's identity at +20 and its words a
+course K below are what `BZS5` keyed by course and by pad instead.* The owner's plan for
 the game is 14 - 20 courses, and `BZS3` held eight: a course K of 8 or more
 read past the slot's tables. **`BZ_CRS_MAX` = 23** (a constant of `tools/bbcourse.py`,
 emitted into `bzcourse.inc`; the tool REFUSES a build of more courses) is the
@@ -282326,7 +282329,7 @@ laid out for 23 courses and three slots:
 | +0 | `BZS4` |
 | +4 the course count, +5 `BZ_PHYSV`, +6 - +7 zero | as `BZS3`'s |
 | +8 | **23 entries** of 6 bytes (+8 - +145), K 0 - 22 (BENCH's and those past the courses all zero): +0 the course's IDENTITY, +2 its best in STEPS (0 none), +4 its best's falls - 130.14.3.3's, unchanged |
-| +146 | **6 RESERVED bytes** (`BZD_RSV`): written zero, and zeroed on load whatever the file holds (a non-zero field refuses nothing). *Until 2026-11-19 the TOUR's - the XOR of its courses' identities and its best total, a DWORD - which went with the tour (130.26.8); the layout is kept so `BZS4` files stay readable, and the coming `BZS5` removes the field* |
+| +146 | **6 RESERVED bytes** (`BZD_RSV`): written zero, and zeroed on load whatever the file holds (a non-zero field refuses nothing). *Until 2026-11-19 the TOUR's - the XOR of its courses' identities and its best total, a DWORD - which went with the tour (130.26.8); `BZS5` (130.22.5.1) removed the field* |
 | +152 | three SLOTS of **114 bytes** (+152, +266, +380) |
 
 A slot: +0 - +21 `BZS3`'s (+0 lives, +1 the mode, +2 the pad, +3 zero, +4 open,
@@ -282373,7 +282376,7 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
 `count`, `count0`, `hdr67`, `entlast`, `old1`, `old3`, `slot`, `pad`,
 `zero3`, `wide`, `explore`; red arms `datlen`, `pastbest`, `explorepad`).
 
-##### 130.22.5.1 BZS5: keyed by what stays put, not by K (PLANNED, the owner 2026-11-19)
+##### 130.22.5.1 BZS5: keyed by what stays put, not by K (BUILT; the owner 2026-11-19)
 
 `BZS4` keys everything by course K, a course's position in `BZ_COURSES`:
 a best is entry K, a slot's exits found and best are word K. K moves
@@ -282424,6 +282427,72 @@ is good."*, replays *"keep it as is"*). **`BZS5`**, still one sector:
 - **Replays** (`.BZR`) keep the course identity check (130.14.7.2).
 - **No older layout is read.** Nothing is released, so a `BZS4` file is
   refused whole like any other foreign file.
+
+**BUILT.** `tools/bbcourse.py` parses `version <n>` (1 - 255, once) in any
+course and in the pathway (`Source.version`, `Course.version`, set after the
+identity is taken, so neither a part nor an identity moves) and emits
+`BZ_CRS_KEYS` (`save_key`: `crc16_ccitt(NAME + version byte)`, a word a
+course, BENCH's included; `check_keys` refuses a key of 0 or two courses
+sharing one, at `compile_all` and again at the emit), `BZ_PATH_VER`,
+`BZ_PAD_MAX` = 23 (`PAD_MAX`; `path_prepare` refuses a pathway of more pads)
+and **`BZ_PAD_EXITS`**, a word a pad, the bit mask of the exits of the course
+the pad plays (`course_exits`): `BZ_CRS_NEXITS` is a COUNT, and the exits
+are numbered by the course (`exit <n>`), so a count is no mask, and the
+pathway's part, where a pad's course lives, is not resident when the file is
+read - so the mask is resident, 2 bytes a pad. In `bonanza.asm`:
+
+- The best entries stay in the FILE's order in memory too (no sort: the
+  merge's copy already fills `bz_font`, and a second 138-byte buffer is bss
+  for nothing). `bz_dbest` (AX a key, DI a table -> SI the first entry
+  holding it, else the first empty one) is the one lookup: `bz_post` files a
+  course's best into its key's entry or the first empty one, `bz_dnorm`
+  keeps an entry only when its key is one of `bz_ckeys` (`BZ_CRS_KEYS`), its
+  best is 1 - 65,534 and `bz_dbest` finds it as the key's FIRST entry (a
+  duplicate is dropped, its best better or not), and `bz_dsave` merges each
+  of our entries into the disk's entry for its key (or an empty one there).
+  After `bz_dnorm` an image holds each key at most once and at most
+  `BZ_NCRS` of 23, so an empty entry is always there.
+- `bz_dchk` refuses the file whole on: not `BZ`; the count outside 1 - 23;
+  +6 - +7 not zero; any entry's falls over 9,999; an EMPTY entry (key 0)
+  with a best or falls (BZS4's "an unused entry all zero", with an entry
+  emptied by its key in place of one placed by K).
+- A slot's +20 is `BZ_PATH_VER` (`bz_gstore`, `mov word`); `bz_dslots`
+  empties a slot whose +20 is not it WHATEVER ITS LIVES (a finished game's
+  exits found and bests are the old pathway's too: an all-zero slot's
+  emptying changes nothing), or whose exits-found or best word of a pad at
+  or past `BZ_PATH_NPAD` is not zero (`BZ_NPADPAST` words), and then ANDs
+  each pad's exits found with `bz_pexits` (`BZ_PAD_EXITS`) - in every slot,
+  an empty one too.
+- Everything that read a slot's word K reads the PAD's: the finish's exit
+  found and the slot's best (`bz_grounds`, by `bz_ppad`), `bz_medal` (AL the
+  pad for the best, BL the course for its G and S: `bz_ppad1` passes both),
+  and the info card's BEST and EXITS n OF m (`bz_kp`: `[bz_ppad]`, the pad
+  resting - the one card caller; the course's NAME, ball, limit, medals and
+  exit count stay the course's).
+- `bz_cids` (the identities) is kept for the replays (130.14.7.2); its
+  pathway entry is no longer read by the slots.
+
+**Deviations from the text above: none in the layout.** Two readings made
+explicit: the version check covers every slot, not only one with lives (the
+text's "a slot of another pathway version emptied"); and BENCH has a key like
+any course (its best is now filed and kept rather than zeroed by position;
+only a `BZDEV=1` build can play it).
+
+MEASURED (`make bonanza`, the shipped build): the package's image 50,873 ->
+50,958 bytes (+85: `BZ_CRS_KEYS` 18, `BZ_PAD_EXITS` 16, the rest the code -
+`bz_dbest`, the key loop, the exit mask and the version store, against the
+BZS4 identity and K-order code they replace) and its bss 8,825 -> 8,819 (-6:
+`bz_dat`, 494 -> 488; `bz_dmine` shares `bz_font`); the `BZDEV=1` build's 52,286 -> 52,371 (+85) and 8,923 -> 8,917.
+`tests/bonanza_game.py`'s hostile set is BZS5's: `short`, `magic` (`BZS4`
+at 488 bytes), `foreign` (BZS4's `ident`: a foreign key drops that entry
+alone), `zero`, `count`, `count0`, `hdr67`, `entlast` (now an EMPTY entry
+with a best: refused whole), `order` (entries out of K order kept where
+they are), `dupkey`, `old1`, `old3`, `old4`, `slot`, `pathver`, `pad`,
+`zero3`, `wide` (a pad word past the pathway's), `exitbits` (the mask) and
+`explore`; its `--check` reads every case a second time with a Python
+reader of these rules (`model_load`) and re-derives every key with
+`binascii.crc_hqx`; red arms `datlen`, `pastbest`, `explorepad`, `physdat`,
+`replaybest`, `noappdata`, and BZS5's `dupkey`, `exitmask`, `pathver`.
 
 #### 130.22.6 The finish and the cards (PLANNED; the cards' bullets and the finish BUILT)
 
@@ -287032,7 +287101,7 @@ moved what a row drove. What the game does now:
   line 5 has no tour form (130.14.3.2).
 - **BONANZA.DAT** keeps its `BZS4` layout: +146's six bytes are RESERVED
   (`BZD_RSV`), written zero and zeroed on load, and the save merges no tour
-  total (130.22.5). The coming `BZS5` removes them.
+  total (130.22.5). `BZS5` (130.22.5.1) has since removed them.
 - **The rows**: `bonanzagame`, `bonanzareplay`, `bonanzamega` and
   `bonanzaexit` poke the course instead of pressing `N`/`M`;
   `bonanzaexit`'s held-key leg presses `T`; `bonanzagame`'s posts leg lost
