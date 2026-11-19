@@ -281212,6 +281212,24 @@ the skip's kinds, three taken jumps) - item 6 below.
    OUT (`urun`'s `out`): nothing marked; red `ttband` (the new test NOPed)
    goes red there.
 
+13. **(the owner, 2026-11-19) A camera move costs the lanes ENTERING, not the
+   slice.** On a range move `.mk` tested every lane of the new slice against
+   the last range, and on a band move `.cm` tested every lane for OUT: a scan
+   of the whole slice each time, which while the camera pans (PLAYGROUND's
+   crack lab, a row a frame and two columns every other one) was every
+   frame. The lanes are sorted by first block row, so a lane that ENTERED
+   (its rows not meeting the last range) is at one of the slice's two ends:
+   `.mk` walks forward while `brow < ora` (entered when `brow + h <= ora`)
+   and back from `bz_lr1 - 1` while `brow >= orb`, and stops; every lane
+   between starts inside the last range. `.cm` finds the next OUT lane with
+   `repe scasb` over `bz_lout` (about 15 clk a lane in the band), as `.lane`
+   finds the next mark. MEASURED with 130.25.6.11's slice rule and the
+   PROBE's CELL on its list (130.25.6.10), the owner's PLAYGROUND log on
+   MartyPC's CGA (`frames` by logged marks): the roll over (steps 0 - 200)
+   56.1 -> 58.0 frames a second; the crack lab's panning stretch (233 - 280)
+   38.7 -> **46.9**, its two-refresh frames 16 -> 11 of 33 - 40, sim+camera
+   51.9k -> 39.1k clk a frame; the rest of the log 55.5 -> 57.1.
+
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
 seeing exactly what the mark exists for - and pass with the poke
@@ -285231,8 +285249,10 @@ runs at, 0 every step (the default: a family that never writes it runs as
 before). `bz_fstp` (`bz_step`'s, in place of `bz_fall`'s STEP walk) calls a
 slot only when its wake is not ahead (a signed 16-bit difference) - or every
 slot when `bz_fwall` is set: a play's start (`bz_pinit`), a respawn
-(`bz_frst`), the walk's slice moved (`bz_props`' `.rng`: lanes entering need
-their turns scheduled) or the material changed since the last call (every
+(`bz_frst`), the walk's SLICE changed (`bz_props`' `.rng`, when `bz_lr0` or
+`bz_lr1` moved - a lane entered or left it, which needs its turns scheduled;
+not every move of the range, which while the camera pans is nearly every
+frame and woke every family that often) or the material changed since the last call (every
 STEP that compares it then runs). A family writes its wake (`BZ_FSETWK`,
 `fam/bzfwalk.inc`) at the end of its STEP; a CELL (a new window) or a CONTACT
 that starts something writes 0, so the STEP of that same step runs.
