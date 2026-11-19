@@ -1,10 +1,33 @@
 # COURSE 2, "Little Hop" (HOP; was "Island Hop"): design sheet
 
-*Status: **IN ENGINE, revision 6** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
+*Status: **IN ENGINE, revision 7** (2026-11-19): `apps/bonanza/courses/hop.bbc`,
 written by `hop/sketch.py --bbc --force`, compiles with every check, and the
 BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
+
+## Revision 7 (2026-11-19): quarter heights - the start flipped east, 3/4 lips
+
+Quarter-unit heights landed (SPEC.md 130.48): a **3/4-unit step** is the rung
+the course lacked, no ball rolling up it and every ball's Hop climbing it.
+The owner: *"If we start the course by flipping the current start area to
+the east, and replace the void gaps with 3/4th lips, that would take the
+'Jump Twice' off the initial screen? And show the lips (which display better
+in that perspective)."*
+
+- **Leg 1 runs -x from an east start**: A, then two 3/4 steps up (T1, T2),
+  each riser climbed up the screen and so facing the player; the void gaps
+  and their floating lips are gone from it. "JUMP!" stays on T1's north rail.
+- **The easy hop L -> U1 is a 3/4 step too** (no gap): the owner's
+  revision-4 ask, *"can't be climbed by rolling, but slightly lower than U1"*,
+  answered exactly; then U1's six-tile run-up and the one-unit step.
+- **"JUMP TWICE!" is off the spawn's screen**, *measured* with the tool's
+  camera model: the CGA window at the spawn covers picture x 704 - 1023, the
+  sign 613 - 667; the Hercules' two extra words on the left reach about 672.
+- The first ramp is two tiles again, steep (2 units a tile), and the rest of
+  the course is a quarter unit higher from U1 on; the reach spans the 60
+  tiles 1024 px allows (`origin 544`). The bounce's and Hop E's gaps keep
+  their lips.
 
 ## Revision 6 (2026-11-19): signs where the move is, a longer first ramp, "Little Hop"
 
