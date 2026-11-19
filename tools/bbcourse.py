@@ -1231,6 +1231,7 @@ class Source:
         self.routes = []            # ...[dict a b exit secret gate pts line]
         self.lives = []             # ...[dict at line]
         self.rail = None            # ...(material name, line)
+        self.ptitles = None         # ...`titles 5x7`'s line (SPEC.md 130.22.2, 2026-11-19): the map's 5 x 7 titles
         # SPEC.md 130.23.2: THE TITLE - a course nobody plays, behind a fixed window
         self.title_ln = None        # the line of `title`
         self.view = None            # (SX, SY, line, drop): the CGA window's centre, projection px (a pathway's
@@ -5222,6 +5223,28 @@ def text_pixels(text, x, y, ink=3):
     return out
 
 
+def map_title_pixels(title, cx, y, small=False, ink=3):
+    """a pad's TITLE on the map (SPEC.md 130.22.2, amended 2026-11-19): TITLE's lines (a `|` breaks one)
+    each centred on column CX, the LAST line's top at Y and each before it 9 lines higher; SMALL: the 5 x 7
+    small caps (tools/os88cdart.py's CAPS, 6 px a letter, a missing letter a space), else 130.23.2's 8 x 8
+    face (one line exactly as text_pixels draws it: the shipped map's titles before 2026-11-19 unchanged)"""
+    lines = title.split("|")
+    out = {}
+    for n, t in enumerate(lines):
+        ly = y - 9 * (len(lines) - 1 - n)
+        if not small:
+            out.update(text_pixels(t, cx - 4 * len(t), ly, ink))
+            continue
+        from os88cdart import CAPS
+        x0 = cx - (6 * len(t) - 1) // 2
+        for i, ch in enumerate(t):
+            for r, row in enumerate(CAPS.get(ch, CAPS[" "])):
+                for k, cc in enumerate(row):
+                    if cc == "#":
+                        out[(x0 + 6 * i + k, ly + 1 + r)] = ink
+    return out
+
+
 def page_windows(view, npages, x0, y0, fname):
     """the pages' windows once 130.23.2's view code has set Y0: -> {"tops":
     [page k's top line], "left": the CGA window's first px, "c0", "c0h"}"""
@@ -5233,7 +5256,7 @@ def page_windows(view, npages, x0, y0, fname):
 # --- end shared with 130.23 (title) ---
 
 
-PATH_STMTS = ("pages", "icon", "route", "lives", "rail")
+PATH_STMTS = ("pages", "icon", "route", "lives", "rail", "titles")
 PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 130.22.5)
 PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
@@ -5300,14 +5323,37 @@ def _parse_path_stmt(src, st, toks, where, ln):
             raise CourseError("%s: a pad is 0 - %d, not %d" % (where, PATH_PADS - 1, n))
         src.ppads.append({"line": ln, "num": n, "crs": toks[2][1],
                           "at": (_int(toks[3], where, "WX"), _int(toks[4], where, "WY"))})
-    elif st == "icon":                              # icon N FILE SX SY [fps F]
-        if len(toks) not in (5, 7) or toks[2][0] != 'w' or (len(toks) == 7 and toks[5][1] != "fps"):
-            raise CourseError("%s: icon takes <N> <FILE> <SX> <SY> [fps <F>]" % where)
-        fps = _int(toks[6], where, "fps") if len(toks) == 7 else ICON_FPS
+    elif st == "icon":                              # icon N FILE SX SY [fps F] [title "TEXT"] [tdx DX]
+        usage = '%s: icon takes <N> <FILE> <SX> <SY> [fps <F>] [title "<TEXT>"] [tdx <DX>]' % where
+        if len(toks) < 5 or toks[2][0] != 'w':
+            raise CourseError(usage)
+        fps, ptitle, tdx = None, None, None
+        i = 5
+        while i < len(toks):                        # (SPEC.md 130.22.2, amended 2026-11-19: title and tdx)
+            w = toks[i][1] if toks[i][0] == 'w' else None
+            if w == "fps" and fps is None and i + 1 < len(toks):
+                fps = _int(toks[i + 1], where, "fps")
+            elif w == "title" and ptitle is None and i + 1 < len(toks) and toks[i + 1][0] == '"':
+                ptitle = toks[i + 1][1]
+                if not 1 <= len(ptitle) <= 32 or any(q in ptitle for q in "'`"):
+                    raise CourseError("%s: an icon's title is 1 - 32 characters, no quote marks" % where)
+            elif w == "tdx" and tdx is None and i + 1 < len(toks):
+                tdx = _int(toks[i + 1], where, "tdx")
+                if not -64 <= tdx <= 64:
+                    raise CourseError("%s: an icon's tdx is -64 - 64, not %d" % (where, tdx))
+            else:
+                raise CourseError(usage)
+            i += 2
+        fps = ICON_FPS if fps is None else fps
         if not 1 <= fps <= ICON_FPS_MAX:
             raise CourseError("%s: an icon's fps is 1 - %d, not %d" % (where, ICON_FPS_MAX, fps))
         src.icons.append({"line": ln, "num": _int(toks[1], where, "N"), "file": toks[2][1],
-                          "at": (_int(toks[3], where, "SX"), _int(toks[4], where, "SY")), "fps": fps})
+                          "at": (_int(toks[3], where, "SX"), _int(toks[4], where, "SY")), "fps": fps,
+                          "title": ptitle, "tdx": tdx or 0})
+    elif st == "titles":                            # titles 5x7 (SPEC.md 130.22.2, 2026-11-19)
+        if len(toks) != 2 or toks[1] != ('w', "5x7") or src.ptitles is not None:
+            raise CourseError("%s: titles takes `5x7`, once (the map's titles in the 5 x 7 face)" % where)
+        src.ptitles = ln
     elif st == "route":                             # route A B exit E [secret] [gate WX WY] path P ...
         if len(toks) < 7 or toks[3][1] != "exit":
             raise CourseError("%s: route takes <A> <B> exit <E> [secret] [gate <WX> <WY>] path <WX,WY[,H]> ..."
@@ -5597,9 +5643,10 @@ def path_prepare(src, fname, crsinfo):
     for lv in lives:
         room({lv["at"]: ("flat", 0)}, lv["line"], src.rooms)
         rail.add(lv["at"])
-        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "lives"})
+        src.clocks.append({"line": lv["line"], "at": lv["at"], "frame": "lives",
+                           "small57": src.ptitles is not None})     # (`titles 5x7` writes its LIVES too)
     return {"pads": pads, "routes": routes, "icons": icons, "lives": lives, "rail": rail,
-            "secret_rooms": secret_rooms, "npages": src.pages[0] if src.pages else 1,
+            "titles57": src.ptitles is not None, "secret_rooms": secret_rooms, "npages": src.pages[0] if src.pages else 1,
             "crystal": rail_crystal(src), "surf": (SURFACES.index(src.rail[0]) if src.rail and
                                                    src.rail[0] in SURFACES else SURF_ICE)}
 
@@ -5856,7 +5903,7 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
         ic = pth["icons"].get(q["num"])
         targets = [canv[q["num"]]] if q["hidden"] else allcv
         cx, cy = _pad_centre(q, x0, y0)
-        title = q["title"].upper()
+        title = ((ic or {}).get("title") or q["title"]).upper()
         if ic:
             b = bba_frames(os.path.join(COURSE_DIR, ic["file"]) if not os.path.isabs(ic["file"]) else ic["file"],
                            "%s:%d" % (f, ic["line"]))
@@ -5882,10 +5929,10 @@ def path_signs(pth, src, c_props, cv, rcv, x0, y0, vinfo, fname):
                     if (x >> 3, y >> 3) not in anim:
                         t.rows[y][x] = ink
             icon_frames[q["num"]] = (frames, anim, ic)
-            tx, ty = px + b["w"] // 2 - 4 * len(title), py - 10
+            tcx, ty = px + b["w"] // 2 + ic["tdx"], py - 10
         else:
-            tx, ty = cx - 4 * len(title), cy - 22
-        tp = text_pixels(title, tx, ty)
+            tcx, ty = cx, cy - 22
+        tp = map_title_pixels(title, tcx, ty, pth.get("titles57"))
         for (x, y) in tp:
             if not (0 <= x < cv.w and 0 <= y < cv.h):
                 raise CourseError("%s:%d: pad %d's title %r runs off the picture" % (f, q["line"], q["num"], title))
@@ -6789,7 +6836,8 @@ def build_props(src, tiles, fname):
         for place in range(ndig):                   # (130.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0, "frame": sp["frame"],
-                          "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH})
+                          "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH,
+                          "small57": sp.get("small57", False)})     # (a lives counter's LIVES face)
     for lb in src.labels:                           # SPEC.md 130.23.2: a LABEL - a SIGN (wave 8R, 130.22.4.1,
         # the lead's D9), its number the label's N: a lane and nothing else, anchored at SIGN_AT, a cell no
         # course has, so no OBS cell is its and physics never meets it
@@ -8698,7 +8746,7 @@ def lives_face_pix(p, x0, y0):
     out.update(lives_marble(px + 0.5, top_y - 5.5, 6.2))
     bx, by = clock_digit_block(p, x0, y0)
     out.update(label_glyph("x", bx - 1, by, WHT))
-    out.update(text_pixels("LIVES", cx - 20, cy - LIVES_CUP, WHT))
+    out.update(map_title_pixels("LIVES", cx, cy - LIVES_CUP, p.get("small57"), WHT))  # (8 x 8: as before)
     return out
 
 

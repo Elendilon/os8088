@@ -281692,6 +281692,19 @@ finishes and exits (130.19.4), lives (8b.5), the ball per course (8b.9),
 exploration and medals (130.19.8.3), the pause card (130.19.8.1) and the
 game-over card, and the lanes at scale (130.19.10), which the pathway needs.
 
+**The shipped map since 2026-11-19** is option A of
+`docs/plans/bonanza-courses/pathway/` (the owner's concept sketch, page 0 as
+the owner marked it up; page 1 a PROTOTYPE): pad 0 is **FIRST ROLL** (`ROLL`,
+course 1, where a new game rests), pad 1 **LITTLE HOP** (`HOP`, course 2), pad 2
+DOWNHILL DECISION's place (TRIAL standing in with its two exits: the split, Up
+to 4 and Left to 6), and pads 3 - 7 the old test courses standing in. ROLL
+and HOP are in `BZ_COURSES` by default, appended as courses 7 and 8 so every
+course before them keeps its K, and the `BZROLL` knob that carried them is
+retired. The map the shipped one replaced is `pathtest.bbc`, the base the
+pad-0 test-course knobs' `path<knob>.sed` edit (they name its pads and cells);
+the first two courses have no pad there. The map is 22,784 bytes in RAM and
+6,561 LZB (the prototype's, compiled today: 21,954 and 6,514).
+
 #### 130.22.1 The decisions, in one table
 
 | decision | chosen (the owner's, 2026-11-16, unless marked) | why |
@@ -281767,6 +281780,23 @@ refused on any other course (`view` is also the title's, 130.23.2):
   white, centred 10 lines above the icon (22 above the pad without one), in
   the picture - or in the reveal of a hidden pad. Refused: a frame or title
   pixel off the picture, two lanes sharing a block.
+  *Amended 2026-11-19 (the shipped map, option A of
+  docs/plans/bonanza-courses/pathway/): the full statement is
+  `icon N FILE SX SY [fps F] [title "TEXT"] [tdx DX]`. **`title "TEXT"`**
+  writes TEXT on the map in place of the course's title (1 - 32
+  characters, upper-cased); a **`|`** in it breaks the title into LINES,
+  each centred on the same column, the LAST on the one-line title's top
+  line and each line before it 9 lines higher. **`tdx DX`** moves the
+  title's centre DX px (-64 - 64) across from the icon's centre, so a
+  title can stand clear of a route beside its icon. Both are the picture's
+  alone: no byte of the part's tables, no guest change.*
+- **`titles 5x7`** *(2026-11-19)*: at most once, the map's titles in the
+  tree's 5 x 7 small caps (`tools/os88cdart.py`'s `CAPS`, 6 px a letter)
+  instead of the 8 x 8 face; a letter `CAPS` lacks is a space. Narrower
+  titles (DOWNHILL DECISION 102 px against 136) at a price MEASURED on the
+  options: an 8 x 8 letter is exactly one block and repeats share blocks, a
+  6 px letter straddles two, so the 5 x 7 face costs about 260 - 300 bytes
+  LZB on a map of eight titles rather than saving them.
 - **`route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...`**: a route
   from pad A to pad B, OPENED by finishing A's course by exit E, travelled
   both ways once open. `path` lists cells from A's to B's; each step between

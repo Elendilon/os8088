@@ -380,22 +380,11 @@ def compile_option(key, o):
 
 
 def today():
-    """today's BZROLL=1 pathway (path.bbc through pathroll.sed), for the costs' baseline"""
-    src = open(os.path.join(B.COURSE_DIR, "path.bbc")).read()
-    for ln in open(os.path.join(B.COURSE_DIR, "pathroll.sed")).read().splitlines():
-        m = re.match(r"^s/\^(.*)\$/(.*)/$", ln)
-        if m:
-            src = re.sub("^" + re.escape(m.group(1)) + "$", m.group(2), src, flags=re.M)
-        m = re.match(r"^s/\^(.*?) /(.*?) /$", ln)
-        if m:
-            src = re.sub("^" + re.escape(m.group(1)) + " ", m.group(2) + " ", src, flags=re.M)
-        m = re.match(r"^/\^(.*)/d$", ln)
-        if m:
-            src = "\n".join(x for x in src.split("\n") if not x.startswith(m.group(1)))
+    """the costs' BASELINE: the prototype map the shipped one replaced on 2026-11-19 (now pathtest.bbc, the test
+    knobs' base), as it compiles with today's course list"""
+    src = open(os.path.join(B.COURSE_DIR, "pathtest.bbc")).read()
     cs = courses()
-    pc = B.compile_course(src, fname="<path.bbc + pathroll.sed>", crsinfo=[(c.name, c.title) for c in cs])
-    proofs(pc, cs)
-    return pc
+    return B.compile_course(src, fname="<pathtest.bbc>", crsinfo=[(c.name, c.title) for c in cs])
 
 
 def costs(pc):
