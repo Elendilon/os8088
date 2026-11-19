@@ -6,6 +6,27 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## Art, round 3 (2026-11-19): a more readable spring
+
+The owner, on `col-spring`: *"I love the spring idea; its not reading bad,
+but do one more pass and see if we can get a more readable spring."* Its
+stacked loops read a little like a ladder. A spring reads as a HELIX: one
+strand winding round, its near half a yellow band over its far half's thin
+black line, with red face showing between the turns. `art.py sheet3 DIR`
+builds the three new springs, each alone on the course as built. Each cost
+is LZB against that course without a spring; today's `col-spring` is +214.
+
+| option | what it is | LZB |
+|---|---|---|
+| `col-spring2` | three round helix turns PAINTED on the face (sheared with it), a cap, a ball on it | +314 |
+| `col-spring3` | the helix standing UPRIGHT against the face (level on the screen, an object rather than a decal), stretched, the ball thrown clear of its cap with motion marks | +233 |
+| `col-spring4` | the upright helix COMPRESSED under a squashed ball, "boing" ticks either side | +193 |
+
+`col-spring3` reads most plainly as a spring on both cards. `col-spring4`
+is the cheapest, but squashed it reads as a stack more than a coil.
+
+![the springs](hop/art3-spring.png)
+
 ## Art, round 2 (2026-11-19): the picks in, and course-specific options
 
 **In the course** (`art.py --signs banner,floor --extras chev,goal
