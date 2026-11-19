@@ -547,7 +547,6 @@ def vga_run(apps=None, src=None, art=None):
         out.append(("VGA BENCH", bad, summ))
         bad = []
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        R.CRS_K["bench"]
         for n in range(3):                      # (the first key after a bracket can land before the face takes
             try:                                # keys: V again)
                 load_demo(g, R.CRS_K["play"], art)
@@ -669,7 +668,7 @@ def load_demo(g, kd, art=None):
     """V with bz_vk poked to KD - 1: the shipped demo BZD<KD>.BIN in the log
     (ART: another build's art directory, --ab's)"""
     m = g.m
-    demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+    demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
     m.pause()
     g.putb("bz_vk", kd - 1)
     m.run()
@@ -1188,7 +1187,9 @@ def ab_tree(td, commit=AB_COMMIT):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))      # under 130.50.2, neither since 130.50.3
         plist += (["BZSND.BIN"] if "BZ_PARTS2 := $(BZ_SNDPARTS)" in mk else []) + ["BZM%d.BIN" % i for i in range(ns)]
-    if "BZ_DEMOPARTS" in mk:                    # wave 4's: a shipped demo a course but BENCH, after the songs
+    if "bzdemo.lst" in mk:                      # the shipped demos named by course, bbcourse's row order
+        plist += open(os.path.join(art, "bzdemo.lst")).read().split()       # (SPEC.md 130.14.7.4)
+    elif "BZ_DEMOPARTS" in mk:                  # wave 4's: a shipped demo a course but BENCH, after the songs
         plist += ["BZD%d.BIN" % k for k in range(1, nc)]
     parts = []
     for p in plist:
@@ -1495,7 +1496,7 @@ def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
         if run_.endswith("demo"):               # (a course's shipped demo: peakdemo, playdemo ...)
             c = R.course(run_[:-4])
             k = R.CRS_K[run_[:-4]]
-            demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % k), "rb").read()
+            demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), R.demo_name(k)), "rb").read()
             _K, mat, kt, _fl = BB.decode_log_t(demo)
             keys = [k_ for k_, _t in kt]
             log = demo
@@ -1559,8 +1560,7 @@ def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
     with its spread, keyed to its log; written to a new dated report.  -> its path"""
     import datetime
     rows, plays = [], []
-    R.CRS_K["bench"]
-    names = {v: n for n, v in dict.items(R.CRS_K)}
+    names = {v: n for n, v in R.crs_all().items()}
     for tag in tags:
         sym = R.symbols()
         for snd in sounds:
@@ -1720,9 +1720,8 @@ def main():
     if a.check:
         for line in R.check_reds(REDS, "bonanza_perf"):
             print(line)
-        R.CRS_K["bench"]                        # wave 6: the pans' prediction for every shipped demo, both cards
-        for kd in range(1, len(R.CRS_K)):
-            demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+        for kd in R.demo_ks():                  # wave 6: the pans' prediction for every shipped demo, both cards
+            demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
             held = [k for k, _t in BB.decode_log_t(demo)[2] if k & (BB.K_HOP | BB.K_GRIP)]
             for herc in (0, 1):
                 c, rw, two, sec = pans_pred(demo, herc)

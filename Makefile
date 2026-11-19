@@ -22483,7 +22483,9 @@ apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront
 # floppy or live media; `bonanzadisk` is its own floppy in all four geometries.
 BZ_ART := $(BUILD)/bonanza-art
 # THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 130.10.3): course K is the K-th
-# of this list - 0 the benchmark's, 1 the one Enter plays, 2 the rubber ball's
+# of this list, its part row K - and NOTHING ELSE keys by K (SPEC.md 130.22.5.1,
+# 130.14.7.4: the save keys courses by name, the game starts on pathway pad 0's,
+# the demos and BENCH's exemptions go by NAME).  As listed: 0 the benchmark's, 1 FIRST, 2 the rubber ball's
 # trial, 3 the obstacles' (SPEC.md 130.12.9), 4 and 5 wave 4's (MOON, Moonlit
 # Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 6 wave 6's PLAYGROUND (PLAY,
 # SPEC.md 130.16.8); 1 - 6 are the tour - and
@@ -22934,19 +22936,19 @@ $(BZDEVSTAMP): | $(BUILD)
 BZ_TITLE := apps/bonanza/courses/title.bbc
 BZ_TITLESRC := $(BZ_TITLE) apps/bonanza/courses/title.bba $(wildcard apps/bonanza/demos/*.bzt)
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
-# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a tour course, BZD<K>.BIN for K
-# 1 - 6, written by the same run - a course's apps/bonanza/demos/<file>.bzd
-# when it has one (text, checked by the model), else the ROUTE DEMO the tool
-# makes from the course's route.  Their part rows follow the songs'
-# (BZ_P_DEMO = BZ_P_SONG + BZS_NSONG, bzcourse.inc's BZ_DEMO_PARTS).
+# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a course but the benchmark's, chosen by
+# course NAME (bbcourse.BENCH_NAMES, never by K), each BZD<NAME>.BIN, written by the same
+# run - a course's apps/bonanza/demos/<file>.bzd when it has one (text, checked by the
+# model), else the ROUTE DEMO the tool makes from the course's route.  The tool lists
+# them in row order in bzdemo.lst (as bzcrs2.lst the world parts); their rows follow the
+# courses' and the world parts' (BZ_P_DEMO, bzcourse.inc's BZ_DEMO_PARTS and BZ_DEMO_CRS).
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
-BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw turntable
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
-BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst
+BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst $(BZ_ART)/bzdemo.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 130.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -23028,7 +23030,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
 # since SPEC.md 130.25.5.2), then the sound part and one part a song (SPEC.md 130.20.3), then
-# one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 130.14.7.4, 130.16.2).
+# one shipped demo a course but the benchmark's, bzdemo.lst's BZD<NAME>.BIN (SPEC.md 130.14.7.4, 130.16.2).
 # SPEC.md 130.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
 # apps/bonanza/courses/kit.bzk), the row after the title's demos, before the family rows.
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 130.25.6.9): a home-`fetch`
@@ -23038,14 +23040,14 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
 # halves, so a build with none packs exactly the arguments it always did.
 BZ_PARTS1 := $(BZ_CRSPARTS)
-BZ_PARTS2 := $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+BZ_PARTS2 := $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 # the parts that are DATA, no code (os88pkg --part-data, SPEC.md 20.3.3): a
 # course's bytes can spell a far call into the kernel by chance, and did
 # (ROLL, `9A 04 02 60 00`), so the far-call gate passes these over. The
 # shell, the families and the VGA part are code, and the gate keeps them.
-BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN \
+BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN \
                 $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 
 # THE SHELL PART (SPEC.md 130.19.2, wave 8a): the desktop face, out of the
@@ -23080,12 +23082,13 @@ $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) ap
 # paragraph, its header's +11 its paragraphs - a row in every build
 $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) $(BZ_MUSSRC) tools/bbmusic.py tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_ART)/bzdemo.lst $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
-		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
+		$$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst) $(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
 		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF) \
-		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) $$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst)
+		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) $$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
+		$$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)
 bonanza: $(BUILD)/bonanza.o88
