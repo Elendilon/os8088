@@ -126,7 +126,7 @@ def main():
                 g.putb("bz_vk", kd - 1)
                 m.run()
                 g.key("KeyV")
-                M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo, "V to load the demo", guest=20)
+                M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo, "V to load the demo", guest=20)
                 M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
             g.key("KeyR")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the replay runs", guest=120)

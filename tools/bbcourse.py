@@ -12380,9 +12380,9 @@ def kit_check(kit, where="<kit>"):
                 where, len(kit[t]), t, 8 * KIT_BMMAX, KIT_BMMAX))
     if kit["B"] and kit["B"][0] != bytes(16):
         raise CourseError("%s: the kit's block 0 is not the black block" % where)
-    if len(kit_part(kit)) > PARTMAX:
+    if len(kit_file(kit)) > PARTMAX:
         raise CourseError("%s: the kit's part is %d bytes, over the %d a part may be" % (
-            where, len(kit_part(kit)), PARTMAX))
+            where, len(kit_file(kit)), PARTMAX))
 
 
 def kit_part(kit):
@@ -12398,6 +12398,19 @@ def kit_part(kit):
     for t in KIT_TAGS:
         b += b"".join(kit[t])
     return bytes(b)
+
+
+def kit_file(kit):
+    """BZKIT.BIN as shipped and held (SPEC.md 130.37.2, 130.11.12.1): kit_part's bytes, then RLOG_SIZE zero
+    bytes - the replay log's home.  The guest keeps the log's 16-byte header resident (bz_rlog) and its RUNS at
+    kit_rlog_off() + 16 in the held kit; the tail's first 16 bytes are where the header is copied for a write,
+    so a log goes to a file as one piece.  Zeros pack to almost nothing, and the kit's claim grows by them"""
+    return kit_part(kit) + bytes(RLOG_SIZE)
+
+
+def kit_rlog_off(kit=None):
+    """the replay log's offset in the held kit (BZ_KIT_RLOG): kit_part's length"""
+    return len(kit_part(kit if kit is not None else kit_load()))
 
 
 def kit_bmlen(n):
@@ -18403,6 +18416,10 @@ def emit_inc(courses, path=None, title=None):
         "BZ_KWMAX        equ %d       ; the most cells a grid row has (CELLS' scratch rows, SPEC.md 130.15.6)" % KW_MAX,
         "BZ_KIT_CLAIM    equ %d      ; paragraphs: THE KIT's claim, BZKIT.BIN's RAM form, op_lazyp's slack and a "
         "granule in (SPEC.md 130.37.5: bz_phrel counts it while the kit is not here)" % kit_claim(),
+        "BZ_KIT_RLOG     equ %d   ; the replay log's offset in the held kit, its zero tail of BZ_KIT_RLOGB "
+        "(SPEC.md 130.11.12.1)" % kit_rlog_off(),
+        "BZ_KIT_RLOGB    equ %d    ; the tail's bytes: RLOG_SIZE, the log's whole size (bonanza.asm's BZR_SIZE)"
+        % RLOG_SIZE,
         "BZ_KIT_BMB      equ %d       ; the bytes of the kit's largest bitmap, bz_cxkit's scratch (SPEC.md 130.37.4)"
         % max([kit_bmlen(len(kit_load()[t])) for t in KIT_TAGS] + [0]),
         "BZ_CRS_NAMEB    equ 6        ; BZ_CRS_NAMES: a row, the NAME NUL-padded",
@@ -19026,7 +19043,7 @@ def crs_maxclaim(path, courses):
 def kit_claim(kit=None):
     """SPEC.md 130.37.5: the kit's claim, paragraphs - its RAM form's, CLAIM_SLACK (op_lazyp's) and to the
     granule, as crs_maxclaim counts a course's"""
-    return _granule(_para(len(kit_part(kit if kit is not None else kit_load()))) + CLAIM_SLACK)
+    return _granule(_para(len(kit_file(kit if kit is not None else kit_load()))) + CLAIM_SLACK)
 
 
 def crs_armax(path, courses):
@@ -19667,7 +19684,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     if pc is not None:
         files["BZPATH.BIN"] = pc.stored
     compile_all.path = pc
-    files["BZKIT.BIN"] = kit_part(kit_load())      # SPEC.md 130.37.2: THE KIT, its own row, held for the session
+    files["BZKIT.BIN"] = kit_file(kit_load())      # SPEC.md 130.37.2, 130.11.12.1: THE KIT, its own row, held for the session
     if tc is not None:
         files["BZTITLE.BIN"] = tc.stored
         BZ_TITLE_K[0] = len(courses) + 1            # (BZ_CRS_TITLE: the demos' logs name it)
@@ -30158,9 +30175,9 @@ def _sc_kit(X, res):
             and part[o:o + sz * n] == b"".join(kit[t])
         off += sz * n
     res.append(("16 the kit's part BZK1 (%d bytes: %s) names each class's pieces where they lie, block 0 black, "
-                "and the build ships it as BZKIT.BIN" % (
+                "and the build ships it, the replay log's zero tail after it (130.11.12.1), as BZKIT.BIN" % (
                     len(part), ", ".join("%d %s" % (len(kit[t]), t) for t in KIT_TAGS)),
-                hdr_ok and off == len(part) and X.a[1].get("BZKIT.BIN") == part
+                hdr_ok and off == len(part) and X.a[1].get("BZKIT.BIN") == kit_file(kit)
                 and (not kit["B"] or kit["B"][0] == bytes(16))))
     play = [c for c in X.courses if c.kit_use is not None]
     # every play course at the ONE alignment, and its kit pieces at its sections' heads (read_part's rules)
@@ -31473,7 +31490,7 @@ def _o88_arms(courses, demo_files):
             parts.append(p)
         p = os.path.join(td, "BZKIT.BIN")       # SPEC.md 130.37: the kit's row, before the family rows
         with open(p, "wb") as f:
-            f.write(kit_part(kit_load()))
+            f.write(kit_file(kit_load()))
         parts.append(p)
         bun = os.path.join(bdir, FBUN_FILE)     # ...last, as the family rows are, when it is built)
         if os.path.exists(bun):
@@ -31593,7 +31610,7 @@ def sizes(paths):
         tot["lzb"] += whole["lzb"]
         tot["ram"] += len(c.cga) + len(c.wcga or b"")
     print("\n  the %d courses: LZ4 %d, LZB %d packed; RAM %d" % (len(courses), tot["lz4"], tot["lzb"], tot["ram"]))
-    kp = kit_part(kit_load())
+    kp = kit_file(kit_load())
     print("  THE KIT (SPEC.md 130.37): BZKIT.BIN %d bytes of RAM, held; LZB %d (%s).  The play courses' LZB "
           "against their kit-less compiles: %d bytes less, %.2fx the kit's" % (
               len(kp), packed_len(kp, "lzb"), ", ".join("%s %d" % (t, len(kit_load()[t])) for t in KIT_TAGS),

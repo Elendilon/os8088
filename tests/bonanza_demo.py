@@ -241,7 +241,7 @@ def leg_save(g, ui):
     k = R.CRS_K["mill"]
     GM.free_play(g, k, R.course_k(k).ball, "MILL by the autopilot")
     want = mill_log()
-    got = bytes(m.read(g.a("bz_rlog"), len(want)))
+    got = bytes(g.read_log(len(want)))
     if got != want:
         fails.append("save: MILL's play left a log that is not the model's (%d bytes)" % len(want))
     GM.guard(g)
@@ -278,7 +278,7 @@ def leg_load(g, ui):
     GM.guard(g)
     g.key("KeyL")
     pick(ui, "SYSTEM/" + SAVENAME)
-    M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(want))) == want, "L to load %s" % SAVENAME, guest=20)
+    M.until(m, lambda _: bytes(g.read_log(len(want))) == want, "L to load %s" % SAVENAME, guest=20)
     lfn = bytes(m.read(g.a("bz_lfn"), 13)).split(b"\0")[0].decode("latin-1")
     if g.b("bz_lsv") != 2 or lfn != SAVENAME:
         fails.append("load: the log line is kind %d naming %r, not 2 and %r" % (g.b("bz_lsv"), lfn, SAVENAME))
@@ -310,7 +310,7 @@ def leg_ship(g):
         demo = open(os.path.join(ROOT, art, "BZD%d.BIN" % kd), "rb").read()
         GM.guard(g)
         g.key("KeyV")
-        M.until(m, lambda _: bytes(m.read(g.a("bz_rlog"), len(demo))) == demo,
+        M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo,
                 "V to load BZD%d.BIN" % kd, guest=20)
         GM.guard(g)
         g.key("KeyD")
@@ -455,7 +455,7 @@ def leg_dclick(ui, tag, sym, g):
         rows, claims = fresh(g)
         why = X.kit_held(g, rows)               # (SPEC.md 130.37.5: fetched at the open, whatever it was handed)
         if toast is None:
-            if bytes(m.read(g.a("bz_rlog"), len(want))) != want or g.b("bz_lsv") != 2:
+            if bytes(g.read_log(len(want))) != want or g.b("bz_lsv") != 2:
                 why.append("the log is not %s's (bz_lsv %d)" % (name, g.b("bz_lsv")))
             base_claims = claims
             g.key("KeyR")
@@ -465,7 +465,7 @@ def leg_dclick(ui, tag, sym, g):
         else:
             if txt is None:
                 why.append("no `%s` toast (it says %r)" % (T[toast], ui.toast()[0]))
-            if bytes(m.read(g.a("bz_rlog"), 4)) == b"BZR1":
+            if bytes(g.read_log(4)) == b"BZR1":
                 why.append("a log is held")
             if claims != base_claims:
                 why.append("the claims %s, a plain open's %s" % (claims, base_claims))
@@ -522,11 +522,10 @@ REDS = {
     # the staging claim not freed on a refusal
     "stageleak": [("bonanza.asm", ".ref:\n    call .free\n    pop es\n.toast:\n",
                    ".ref:\n    pop es                      ; RED stageleak: the claim kept\n.toast:\n")],
-    # the bytes into bz_rlog BEFORE the checks (the checks run on the log's copy)
+    # the bytes into the log (bz_rin) BEFORE the checks (the checks run on the log's copy)
     "inplace": [("bonanza.asm", ".chk:\n    call bz_lchk                ; 2 - 8\n",
-                 ".chk:\n    mov cx, [bz_lfsz]           ; RED inplace: into the log first\n    cld\n"
-                 "    push ds\n    push ds\n    push es\n    pop ds\n    pop es\n    xor si, si\n"
-                 "    mov di, bz_rlog\n    rep movsb\n    pop ds\n    mov es, [bz_lseg]\n"
+                 ".chk:\n    mov cx, [bz_lfsz]           ; RED inplace: into the log first\n"
+                 "    xor si, si\n    call bz_rin\n"     # (bz_rin keeps ES, the claim: SPEC.md 130.11.12.1)
                  "    call bz_lchk\n")],
     # bz_home does not go home
     "nohome": [("bonanza.asm", "bz_home:\n    push bx\n",

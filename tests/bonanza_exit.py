@@ -743,7 +743,7 @@ def wave4_exits(g, ui, base_rows, base_claims):
     ui.open("EXIT.BZR")                          # the double-click: a new instance with the log
     g2 = R.Bz(ui, g.tag, g.sym, live=True)
     ui.settle()
-    if bytes(m.read(g2.a("bz_rlog"), 4)) != b"BZR1":
+    if bytes(g2.read_log(4)) != b"BZR1":
         fails.append("double-click: BONANZA opened without EXIT.BZR's log")
     fails += after(g2, "the double-click", base_rows, base_claims)
     return fails
