@@ -271251,6 +271251,29 @@ WHITE:
   funnel up to a lantern whose white glass is the digits' window, under a
   magenta dome with a ball finial.
 
+**LITTLE HOP's options** (2026-11-19, the owner to pick; the brief is the
+course guide's G23, `docs/plans/bonanza-courses/README.md`): four more, each
+a springy thing of a playground for the course that teaches the Hop. They
+are drawn in the course's inks by index (colour 1, 2, 3: green, red and
+yellow on HOP's palette 0), round the same digits' blocks, and three of them
+have NO window: the digits sit on a plain part of the object itself (the
+owner, 2026-11-19: the rule is that the digits fit into the art; a window,
+cyan or not, is one way of doing that):
+- **`spring`**, a jack-in-the-box: a round puck sunk in the tile, a coiled
+  spring (its front turns lit, its back turns dark) and, bobbing on it, a
+  capsule-shaped drum lying across, bolted at its ends, whose face is the
+  colour-1 window, with wobble marks either side;
+- **`frog`**, a frog squatting on a lily pad (paint on the tile, notched):
+  an egg-shaped colour-1 body, its haunches folded at its sides, toes
+  splayed, two bulging eyes, a blush and a wide mouth, the digits on its
+  pale colour-3 throat;
+- **`ball`**, a rubber ball caught mid-bounce over its shadow, speed marks
+  under it: colour 2 above and below a broad colour-3 band bowed round its
+  middle, the digits on the band;
+- **`shroom`**, a bounce mushroom (the platform games' springboard): a short
+  colour-3 stem with a skirt ring, dark gills under the eave, and a tall
+  colour-2 dome spotted colour 3, the digits on its one big spot.
+
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
 re-authored).

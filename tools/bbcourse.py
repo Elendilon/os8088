@@ -929,7 +929,7 @@ HERC_LEFT, HERC_RIGHT = 2, 3  # the Hercules window's words left and right of th
 CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 1 + d the digit d
 CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
-CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp")   # a clock's `frame`s (SPEC.md 130.18.5.2)
+CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom")   # a clock's `frame`s (SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # wave 7 (SPEC.md 130.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
@@ -8983,7 +8983,230 @@ def _clock_lamp(p, x0, y0, tops):
     return a.done(tops)
 
 
-_CLOCK_DRAW = {"pin": _clock_pin, "tee": _clock_tee, "board": _clock_board, "lamp": _clock_lamp}
+# Little Hop's options (the owner to pick, 2026-11-19; README G23's brief: the window colour 1, no flat squares,
+# the clock an OBJECT of the scene).  The course is about the HOP, so each is a springy thing of a playground:
+# drawn in the course's inks by index (colour 1, 2, 3 - green, red, yellow on palette 0)
+def _ellipse(cx_, cy_, rx, ry, x0_, x1_, y0_, y1_):
+    """the cells (x, y) of X0_ .. X1_, Y0_ .. Y1_ whose centres lie in the ellipse round (CX_, CY_)"""
+    return {(x, y) for y in range(y0_, y1_ + 1) for x in range(x0_, x1_ + 1)
+            if ((x + 0.5 - cx_) / rx) ** 2 + ((y + 0.5 - cy_) / ry) ** 2 <= 1.0}
+
+
+def _clock_spring(p, x0, y0, tops):
+    """`spring`: a JACK-IN-THE-BOX clock.  A round puck sunk on the tile, a coiled spring up from it - its
+    front turns lit colour 3 on the left, colour 2, dithered to the right; its back turns dark - and on top,
+    bobbing, a rounded drum (a capsule lying across, lit colour 3 along its top, colour 2, dithered under)
+    whose face is the digits' window, two bolts at its ends and wobble marks either side of it"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy = a.cx, a.cy
+    wx0, wx1, wy0, wy1 = a.win
+    a.shadow(5, 10, 2.6)
+    ct, prx, pry = cy - 3, 8.5, 3.5                 # the PUCK: its top an ellipse, its side 3 px deep
+    puck = {}
+    for x in range(cx - 9, cx + 9):
+        dx = (x + 0.5 - cx) / prx
+        if abs(dx) > 1.0:
+            continue
+        h = pry * math.sqrt(1.0 - dx * dx)
+        for y in range(int(math.floor(ct - h + 0.5)), int(math.floor(ct + h + 0.5)) + 4):
+            puck[(x, y)] = "top" if y + 0.5 <= ct + h else "side"
+    a.blob(set(puck), lambda x, y: (WHT if x < cx + 2 else MAG) if puck[(x, y)] == "top" else
+           (WHT if x <= cx - 7 else ((MAG if (x + y) & 1 else BLK) if x >= cx + 5 else MAG)))
+    Y0, Y1 = wy0 - 5, wy1 + 5                       # the DRUM round the window
+    X0, X1 = wx0 - 6, wx1 + 6
+    ytop, ybot = Y1 + 1, ct - 2                     # the COIL between them
+    pitch = 4.0
+    turns = (ybot - ytop) / pitch
+    back, front = {}, {}
+    for k in range(int(turns * 96) + 1):
+        t = k / 96.0
+        ang = 2 * math.pi * t
+        x = int(math.floor(cx - 0.5 + 6.5 * math.cos(ang) + 0.5))
+        y = int(math.floor(ybot - pitch * t + 1.6 * math.sin(ang) + 0.5))
+        for yy in (y, y - 1):
+            (front if math.sin(ang) > 0 else back)[(x, yy)] = math.cos(ang)
+    for (x, y) in back:
+        a.put(x, y, MAG if (x + y) & 1 else BLK)
+    for (x, y) in front:
+        for (nx, ny) in ((x, y - 1), (x, y + 1)):
+            if (nx, ny) not in front:
+                a.put(nx, ny, BLK)
+    for (x, y), c_ in front.items():
+        a.put(x, y, WHT if c_ < -0.3 else ((MAG if (x + y) & 1 else BLK) if c_ > 0.6 else MAG))
+    rad = (Y1 - Y0 + 1) / 2.0
+    drum = {(x, y) for y in range(Y0, Y1 + 1) for x in range(X0, X1 + 1)
+            if X0 + rad <= x + 0.5 <= X1 + 1 - rad or
+            min((x + 0.5 - X0 - rad) ** 2, (x + 0.5 - X1 - 1 + rad) ** 2) + (y + 0.5 - Y0 - rad) ** 2 <= rad * rad}
+
+    def dink(x, y):
+        r_ = (y + 0.5 - Y0) / (Y1 + 1 - Y0)
+        if r_ < 0.22 or (x < X0 + 3 and r_ < 0.6):
+            return WHT
+        if r_ > 0.8 or x > X1 - 3:
+            return MAG if (x + y) & 1 else BLK
+        return MAG
+    a.blob(drum, dink)
+    for bx in (X0 + 3, X1 - 3):                     # the BOLTS
+        a.pattern(("KWK", "KMK"), bx - 1, (wy0 + wy1) // 2 - 1)
+    a.window(CYN, BLK, True)
+    for side, xb in ((-1, X0 - 3), (1, X1 + 3)):    # the WOBBLE marks, ( and )
+        for j, dy in enumerate((-3, -2, -1, 0, 1, 2, 3)):
+            off = 0 if abs(dy) < 2 else 1
+            a.put(xb - side * off, (Y0 + Y1) // 2 + dy, WHT)
+    return a.done(tops)
+
+
+def _clock_frog(p, x0, y0, tops):
+    """`frog`: a FROG squatting on a LILY PAD, no window: the digits sit on its pale throat.  The pad is paint
+    on the tile (colour 1, its rim lit colour 3, a notch cut out of it); the frog's body an egg of colour 1, lit
+    colour 3 at its upper left and black-dithered in its shade, its haunches folded at its sides, its toes
+    splayed on the pad, two bulging eyes on its head, a blush, a wide mouth and a throat of colour 3"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx1 = a.win[1]
+    for (x, y) in _ellipse(cx, cy + 0.5, 15.5, 6.0, cx - 17, cx + 17, cy - 7, cy + 7):   # the PAD (paint)
+        ang = math.atan2(y + 0.5 - cy - 0.5, (x + 0.5 - cx) / 2.5)
+        if 0.25 < ang < 0.85 or abs(x + 0.5 - cx) / 16.0 + abs(y + 0.5 - cy) / 8.0 > 0.92:
+            continue                                # its notch, to the lower right; nothing off its own tile
+        ux, uy = (x + 0.5 - cx) / 15.5, (y - cy) / 6.0
+        d = ux * ux + uy * uy
+        ink = BLK if d > 0.8 else (WHT if (d > 0.5 and ux + uy < -0.4) else
+                                   ((CYN if (x + y) & 1 else BLK) if ux > 0.55 else CYN))
+        a.put(x, y, ink, "shadow")
+    top, bot = fy - 13, cy - 2
+    by_, bry, brx = (top + bot + 1) / 2.0, (bot + 1 - top) / 2.0, 4 * n + 6.5
+
+    def skin(ux, uy, x, y):
+        if ux + uy < -0.95:
+            return WHT
+        if ux + 0.6 * uy > 0.5:
+            return CYN if (x + y) & 1 else BLK
+        return CYN
+
+    def egg(x, y):                                  # the body: an egg, wider low down
+        uy = (y + 0.5 - by_) / bry
+        return ((x + 0.5 - fx) / (brx * (0.86 + 0.14 * uy))) ** 2 + uy * uy <= 1.0
+    for sx in (-1, 1):                              # the HAUNCHES, folded at its sides
+        hx, hy = fx + sx * (brx - 4), bot - 5.0
+        a.blob(_ellipse(hx, hy, 6.5, 5.5, int(hx) - 8, int(hx) + 8, int(hy) - 7, int(hy) + 7),
+               lambda x, y, hx=hx, hy=hy: skin((x + 0.5 - hx) / 6.5, (y + 0.5 - hy) / 5.5, x, y))
+    body = {(x, y) for y in range(top - 1, bot + 2) for x in range(int(fx - brx) - 2, int(fx + brx) + 2)
+            if egg(x, y)}
+    a.blob(body, lambda x, y: skin((x + 0.5 - fx) / brx, (y + 0.5 - by_) / bry, x, y))
+    brx_, bry_ = 4 * n + 4.0, 7.5                   # the BELLY, the digits on it
+    for (x, y) in _ellipse(fx - 0.5, fy + 0.5, brx_, bry_, fx - 4 * n - 6, fx + 4 * n + 6, fy - 10, fy + 10):
+        if all(q in body for q in ((x, y), (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))):
+            ux = (x + 0.5 - fx) / brx_
+            a.put(x, y, (WHT if (x + y) & 1 else CYN) if ux > 0.8 and x > wx1 else WHT)
+    for tx in (fx - 8, fx + 3):                     # the front TOES on the pad
+        a.pattern(("KCKCK", "CCCCC", "KKKKK"), tx, bot - 1)
+    for sx in (-1, 1):                              # the hind toes beside the haunches
+        a.pattern(("K.K.", "CKCK", "KKKK"), fx + sx * (int(brx) + 3) - 2, bot - 1, flip=sx > 0)
+    for sx in (-1, 1):                              # the EYES, bulging on its head
+        ex, ey = fx + sx * 7, top - 1.0
+        a.blob(_ellipse(ex, ey, 5.0, 5.0, ex - 6, ex + 6, int(ey) - 6, int(ey) + 6),
+               lambda x, y, ex=ex: WHT if x < ex + 2 else (WHT if (x + y) & 1 else CYN))
+        px = ex - 1 if sx < 0 else ex - 1
+        a.pattern(("KK", "KK", "KK"), px, int(ey) - 1)
+        a.put(px, int(ey) - 2, WHT)
+    for x in range(fx - 8, fx + 8):                 # the wide MOUTH over its throat
+        a.put(x, fy - 7, BLK)
+    for x in (fx - 2, fx + 1):                      # nostrils
+        a.put(x, fy - 11, BLK)
+    for sx in (-1, 1):                              # the blush
+        a.pattern(("MM",), fx + sx * 6 - (1 if sx < 0 else 0), fy - 9)
+    return a.done(tops)
+
+
+def _clock_ball(p, x0, y0, tops):
+    """`ball`: a RUBBER BALL caught mid-bounce, no window: the digits sit on its band.  It floats over its
+    shadow on the tile, colour 2 above and below a broad band of colour 3 round its middle (black-edged, bowed
+    to the sphere), lit at its upper left with a glint, black-dithered in its shade; speed marks under it"""
+    a = _ClockArt(p, x0, y0)
+    fx, fy, n = a.fx, a.fy, a.n
+    wx0, wx1, wy0, wy1 = a.win
+    r = 4 * n + 9.0
+    bcx, bcy = fx, fy
+    a.shadow(4, 8, 2.2)
+    ball = _ellipse(bcx, bcy, r, r, int(bcx - r) - 1, int(bcx + r) + 1, int(bcy - r) - 1, int(bcy + r) + 1)
+
+    def ink(x, y):
+        ux, uy = (x + 0.5 - bcx) / r, (y + 0.5 - bcy) / r
+        uz = math.sqrt(max(0.0, 1.0 - ux * ux - uy * uy))
+        lit = -0.5 * ux - 0.6 * uy + 0.62 * uz
+        mid = bcy - 0.5 + 3.0 * (1.0 - math.sqrt(max(0.0, 1.0 - ux * ux)))   # the band's middle: bowed
+        off = y + 0.5 - mid
+        plain = wx0 <= x <= wx1                     # (no shade under the digits)
+        if abs(off) > 6.5:
+            if abs(off) < 7.5:
+                return BLK                          # the band's edges
+            c_ = WHT if (lit > 0.975 and off < 0) else MAG
+        else:
+            c_ = WHT
+            if plain:
+                return c_
+        if lit < -0.1 or (lit < 0.2 and (x + y) & 1):
+            return BLK if (x + y) & 1 else c_
+        return c_
+    a.blob(ball, ink)
+    bot = int(bcy + r)
+    for dx, ln in ((-7, 2), (-2, 3), (3, 3), (8, 2)):    # the SPEED marks under it
+        for k in range(ln):
+            a.put(fx + dx, bot + 3 + k + (1 if abs(dx) > 5 else 0), WHT)
+    return a.done(tops)
+
+
+def _clock_shroom(p, x0, y0, tops):
+    """`shroom`: a BOUNCE MUSHROOM, the platform games' springboard, no window: the digits sit on the big
+    pale spot on its cap.  A short stem (colour 3, lit at its left, dithered with colour 2 at its right, a skirt
+    ring and a foot flared on the tile), the dark gills under the eave, and a tall domed cap of colour 2 - a rim
+    of light along its upper left, a black dither in its shade - spotted colour 3"""
+    a = _ClockArt(p, x0, y0)
+    cy, fx, fy, n = a.cy, a.fx, a.fy, a.n
+    wx0, wx1, wy0, wy1 = a.win
+    a.shadow(5, 10, 2.6)
+    Yb = wy1 + 6                                    # the cap's eave
+    stem = {}
+    for y in range(Yb, cy + 1):
+        hw = 5 if y < cy - 3 else 5 + (y - cy + 4) // 2
+        if y in (Yb + 4, Yb + 5):
+            hw = 7                                  # the skirt ring
+        for x in range(fx - hw, fx + hw):
+            stem[(x, y)] = hw
+    a.blob(set(stem), lambda x, y: WHT if x < fx + stem[(x, y)] - 3 or y in (Yb + 4,) else
+           (MAG if (x + y) & 1 else WHT))
+    crx, cry = 4 * n + 12.5, 23.0
+    gills = _ellipse(fx, Yb + 0.0, crx - 3, 3.0, int(fx - crx), int(fx + crx), Yb, Yb + 3)
+    for (x, y) in gills:
+        a.put(x, y, BLK if x & 1 or y >= Yb + 2 else MAG)
+    cap = {(x, y) for (x, y) in _ellipse(fx, Yb + 1.0, crx, cry, int(fx - crx) - 1, int(fx + crx) + 1,
+                                         int(Yb - cry) - 1, Yb + 1) if y <= Yb}
+    srx, sry, scx, scy = 4 * n + 3.5, 6.5, fx - 1.0, fy - 0.5     # the BIG SPOT, under the digits
+    spots = ((-0.5, -0.8, 3.4), (0.2, -0.86, 3.0), (0.7, -0.62, 2.6), (-0.9, -0.3, 2.4), (0.88, -0.2, 2.2))
+
+    def cink(x, y):
+        ux, uy = (x + 0.5 - fx) / crx, (y - Yb - 1.0) / cry
+        d = ux * ux + uy * uy
+        e = ((x + 0.5 - scx) / srx) ** 2 + ((y + 0.5 - scy) / sry) ** 2
+        if e <= 1.0:
+            return WHT if e < 0.8 or ux < 0.3 or (wx0 <= x <= wx1 and wy0 <= y <= wy1) else \
+                (WHT if (x + y) & 1 else MAG)
+        if e <= 1.3 and ux > -0.25:
+            return BLK                              # its edge, in the cap's shade
+        for sx, sy, sr in spots:
+            if ((x + 0.5 - fx - sx * crx) / sr) ** 2 + ((y + 0.5 - Yb - 1 - sy * cry) / (sr * 0.8)) ** 2 <= 1:
+                return (WHT if (x + y) & 1 else BLK) if ux + 0.4 * uy > 0.62 else WHT
+        if d > 0.88 and ux + uy < -0.75:
+            return WHT                              # the rim of light
+        if ux + 0.4 * uy > 0.62 or y == Yb:
+            return MAG if (x + y) & 1 else BLK
+        return MAG
+    a.blob(cap, cink)
+    return a.done(tops)
+
+
+_CLOCK_DRAW = {"pin": _clock_pin, "tee": _clock_tee, "board": _clock_board, "lamp": _clock_lamp,
+               "spring": _clock_spring, "frog": _clock_frog, "ball": _clock_ball, "shroom": _clock_shroom}
 
 
 def clock_pose(tsec, place):
