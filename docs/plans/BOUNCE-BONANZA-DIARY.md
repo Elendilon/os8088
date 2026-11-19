@@ -6473,3 +6473,30 @@ manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
   digits follow the phase from the next frame, every phase, on the CGA and
   the VGA. `bonanzapath` 2s now fails a frame whose digits lag a phase that
   has stood a frame.
+
+## 2026-11-19 (rubber's boost on a flag; TIME'S UP)
+
+- **"I can't bounce with rubber if there is a checkpoint flag on the
+  tile."** Rule 4 of the boost wanted the centre's cell `OBS` clear - a
+  test written for the lift's shaft - but every prop marks its cell `OBS`
+  so the step can find its owner, so the boost was refused on a flag, a
+  pad, a pickup, a pressure plate. The owner widened it: *"other flat
+  props ... springs or water it makes sense you can't."* A table of FLAT
+  kinds (`BOOST_FLOOR_KINDS`, the guest's `BZ_BOKT`, a bit a kind) now lets
+  rule 4 through on those, hashed into `BZ_PHYSV` so model and guest
+  cannot drift. `BZ_PHYSV` 23h -> EDh; the three shipped `.bzd` demos
+  re-stamped and replayed COMPLETE by the build. `bonanzaphys` gained
+  `flagboost` (PEAK's flag at (18, 24)): the model boosts, the `noflat`
+  arm - the old rule - gives the contact Hop the owner saw, and
+  `bonanza_phys --check` passed (the guest under unicorn equal at every
+  step).
+- **"A death music, like victory music?"** There never was one. The owner
+  chose the TIMEOUT alone (a fall respawns and the course goes on) and
+  asked me to write it: `timeup.bmu`, A minor, the horn falling G, F#, F
+  and landing on a long E, 110 sub-ticks like the fanfare, then silence.
+  Fetched beside the fanfare into the arena, started by the finish on a
+  timeout, and in place of the TIMEOUT effect. MEASURED on MartyPC's CGA
+  (FIRST, the clock poked to its last second): the sequencer moves to the
+  tune's part on the sequence's first step, plays from its top, and both
+  finish songs are given back at the play's end. Not yet heard by the
+  owner.

@@ -3170,7 +3170,8 @@ def parse(text, fname="<course>"):
             if src.music is not None:
                 raise CourseError("%s: music given twice" % where)
             names = song_names()
-            csongs = [x for x in names if x != "victory"]   # (8R.6: the fanfare is the finish's; a
+            csongs = [x for x in names if x not in ("victory", "timeup")]   # (8R.6: the fanfare and 130.22.9.1's
+            # time's-up tune are the finish's; a
             # course may still NAME a non-course song - the title's `music attract`, 130.23)
             if len(toks) != 2 or toks[1][1] not in csongs:
                 raise CourseError("%s: music takes a course song's name: %s"
@@ -15351,7 +15352,7 @@ class Physics:
                  _east_w1=False, _no_stun=False, _abs_impact=False, _no_airclimb=False, _hop_add=False,
                  _gate_late=False, _kick_k=False, _no_carry=False, _stick=False, _exit_vel=False,
                  _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
-                 _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False,
+                 _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False, _noflat=False,
                  _no_clear=False, _boost_rise=False, _pump=False, _springoff=False, _iceplain=False,
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
@@ -15440,6 +15441,7 @@ class Physics:
         self.drx = self.dry = 0
         self.surf, self.dmask = 0xFF, 0
         self._ceil_drag, self._rem_wide, self._slab_boost = _ceil_drag, _rem_wide, _slab_boost
+        self._noflat = _noflat                      # (the `noflat` arm: rule 4 refuses every OBS cell, as before 130.16.4.1.1)
         self._no_clear, self._boost_rise, self._pump = _no_clear, _boost_rise, _pump
         # wave 6b's state (SPEC.md 130.17.4.3): bz_btok's third value (2, the
         # flight ARMED) needs none; the LATE GRACE's steps left (bz_bgr, 0 when
@@ -16475,9 +16477,19 @@ class Physics:
     def firm_level(self, Cv, slab):
         """SPEC.md 130.16.4.1's rule 4 on the GRID cell Cv (the one the step
         reads before step 6 substitutes the lift's slab): kind FLOOR or GOAL,
-        level, surface normal or ice, OBS clear, and no platform carrying"""
+        level, surface normal or ice, OBS clear - or OBS for a FLAT prop the
+        ball rolls over, the window centre's owner a BOOST_FLOOR_KINDS kind
+        (SPEC.md 130.16.4.1.1) - and no platform carrying"""
         return (Cv[3] in (KIND_FLOOR, KIND_GOAL) and Cv[1] == 0 and Cv[2] == 0
-                and Cv[5] in (SURF_NORMAL, SURF_ICE) and not Cv[4] & FL_OBS and slab is None)
+                and Cv[5] in (SURF_NORMAL, SURF_ICE) and (not Cv[4] & FL_OBS or self.flat_centre())
+                and slab is None)
+
+    def flat_centre(self):
+        """the window centre's OBS owner is a FLAT prop (bz_wcen's kind, the guest's: BZ_BOKT)"""
+        if self._noflat:
+            return False
+        i = next((i for c, i in self.wol if c == 4), None)
+        return i is not None and self.props[i]["kind"] in BOOST_FLOOR_KINDS
 
     def _land(self, C, h, K, stun, Cv=None, slab=None):
         """SPEC.md 130.11.8.5: a contact with a floor, judged RELATIVE to it.
@@ -16827,6 +16839,26 @@ PHYS_REV = 12                 # SPEC.md 130.24.7 (story D2.4): the step reads sp
                               # the diagonal inside a cell, the edges by their owning half, the corner's rays)
 PHYS_REV = 13                 # SPEC.md 130.28.5 (story C2): the step reads FIELD cells (the table's floor and
                               # slopes, the field-to-field edge, the lift)
+PHYS_REV = 14                 # SPEC.md 130.16.4.1.1: the boost's rule 4 takes a FLAT prop's OBS cell
+# SPEC.md 130.16.4.1.1: the props whose OBS cell is a FLAT floor the ball rolls over - rubber's boost is
+# allowed there (rule 4).  Not a spring, water, spikes or the membrane, a cup or a tube, the lift, a turntable,
+# a drawbridge or a gate (moving, or barred overhead), nor an obstacle the ball never stands on (a windmill,
+# a bumper, a clock).  The guest reads BZ_BOKT, a bit a kind; phys_tables() hashes it into BZ_PHYSV.
+BOOST_FLOOR_NAMES = ("crack", "glass", "hourglass", "speed", "jump", "magnet", "blower", "wisp", "boost",
+                     "plate", "key")
+BOOST_FLOOR_KINDS = frozenset((PK_CHECKPOINT, PK_PAD) + tuple(
+    k["kind"] for f in FAMILIES for k in f["kinds"] if k["name"] in BOOST_FLOOR_NAMES))
+assert len(BOOST_FLOOR_KINDS) == 2 + len(BOOST_FLOOR_NAMES), "a BOOST_FLOOR_NAMES name is not a family kind"
+BOKT_KINDS = 96                 # BZ_BOKT's reach: kinds 0 - 95, a bit each
+
+
+def boost_floor_table():
+    """BZ_BOKT: bit (k AND 7) of byte (k >> 3) set for a kind in BOOST_FLOOR_KINDS"""
+    assert max(BOOST_FLOOR_KINDS) < BOKT_KINDS
+    t = bytearray(BOKT_KINDS // 8)
+    for k in BOOST_FLOOR_KINDS:
+        t[k >> 3] |= 1 << (k & 7)
+    return bytes(t)
 PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, SQSTEPS, WMIN, E_BUMPER, E_MAT,
                BMIN_MAT, SAND_K, SHA_STEPS, TMIN, E_GATE, PRAD, KICK_K, KICK_A, PL_VMAX, LIPZ, BGRACE, SEC_STEPS,
                DIAG, DWMIN, PHYS_REV)
@@ -16839,7 +16871,7 @@ PHYS_CONSTS = (VMAXG, VZMAX, G, CLIMB, STICK, RAD, GSL, LVL_MAX, HOPWIN, SQTHR, 
 # APPENDS THE VALUE IT REPLACES, in the same commit; this build's own value is
 # never in it (bzcourse.inc is generated and untracked, so SPEC.md and this list
 # are where the values are recorded).
-PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21, 0xB1)
+PHYSV_SHIPPED = (0x00, 0x9A, 0xE6, 0xA0, 0x25, 0x53, 0xFD, 0x11, 0xD0, 0x21, 0xB1, 0x23)
 
 
 def crc16_ccitt(data, crc=0xFFFF):
@@ -16856,7 +16888,7 @@ def phys_tables():
     BZ_SURFTAB (ice, sand and the mat derived from each material), the corner
     table and the bumpers' OCTANT table, as bzcourse.inc emits them"""
     return (surftab() + bytes((v & 255) for e in CORNER for v in e)
-            + bytes((v & 255) for e in OCTANT for v in e) + split_tables())
+            + bytes((v & 255) for e in OCTANT for v in e) + split_tables() + boost_floor_table())
 
 
 def split_tables():
@@ -18821,6 +18853,12 @@ def emit_inc(courses, path=None, title=None):
     for i in range(0, len(st), 16):
         lines.append("    db " + ", ".join(str(b) for b in st[i:i + 16]) + "   ; " + MAT_NAMES[i // 16])
     lines += ["%endmacro", "",
+              "; BZ_BOKT (SPEC.md 130.16.4.1.1): the boost's FLAT props, bit (k AND 7) of byte k >> 3, kinds",
+              "; 0 - %d" % (BOKT_KINDS - 1),
+              "BZ_BOKTN        equ %d" % BOKT_KINDS,
+              "%macro BZ_BOKT 0",
+              "    db " + ", ".join("%03Xh" % b for b in boost_floor_table()),
+              "%endmacro", "",
               "; the corner table (SPEC.md 130.10.7.3): 36 entries indexed 6 |du| + |dv|,",
               "; each |nx|, |ny| (x 64) and the push depth in 1/16 gu; zeros where",
               "; du^2 + dv^2 >= 36 (no contact)",
@@ -18990,34 +19028,37 @@ def crs_mats(c):
 
 @functools.lru_cache(maxsize=None)
 def _music():
-    """(the sound part, the songs' parts, the VICTORY song's index or None)"""
+    """(the sound part, the songs' parts, the finish's songs' indices: VICTORY's and TIMEUP's, each or None)"""
     import bbmusic
     try:
         snd, songs, _bank, src = bbmusic.load_parts()
     except Exception:                               # (a music build error is bbmusic's to report)
-        return b"", [], None
-    vic = next((i for i, sg in enumerate(src) if getattr(sg, "id", None) == "victory"), None)
-    return snd, songs, vic
+        return b"", [], (None, None)
+    fin = tuple(next((i for i, sg in enumerate(src) if getattr(sg, "id", None) == n), None)
+                for n in ("victory", "timeup"))
+    return snd, songs, fin
 
 
 def crs_arena(c, k, ncrs):
     """SPEC.md 130.25.4.2: course K's ARENA RESERVE, paragraphs - what bz_cload
     fetches into the arena (20.12.16) for it, in its order: (its balls until
     130.25.5.2: now held in the bundle under op_artop, not counted) the sound part, its song and, for a course (K < ncrs; not the
-    pathway, not the title), the victory fanfare bzs_gfetch fetches beside it
+    pathway, not the title), the victory fanfare and the time's-up tune
+    (130.22.9.1) bzs_gfetch fetches beside it
     and (wave 9) each family part it names, at FAMILIES' paras ceiling
     - each its RAM form's paragraphs, which is where the arena's top advances
     to - plus ONE fetch's room past the last: op_lazyp claims at most
     CLAIM_SLACK past a part's paragraphs, and the batch's peak is the last
     part's fetch over everything before it.  A part of a play that wants less
     (a replay, sound OFF) leaves the reserve unused and bz_arload fits it"""
-    snd, songs, vic = _music()
+    snd, songs, fin = _music()
     n = _para(len(snd))                 # (no ball: the balls are the arena's floor, held, 130.25.5.2)
     sk = course_song(c, k)
     if sk < len(songs):
         n += _para(len(songs[sk]))
-    if k < ncrs and vic is not None and vic < len(songs):
-        n += _para(len(songs[vic]))
+    for f in fin:                       # the fanfare and (130.22.9.1) the time's-up tune, a course's
+        if k < ncrs and f is not None and f < len(songs):
+            n += _para(len(songs[f]))
     src = getattr(c, "src", None)                   # wave 9 (130.25.6.2): its FAMILIES' parts, the batch's
     n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ())    # last fetches, each at its ceiling - a
              if fm.get("home", HOME_FETCH) == HOME_FETCH)           # RESIDENT one is the arena's floor already (130.25.6.9)

@@ -42,14 +42,15 @@ SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "moonlit.bmu", "summit.bmu",
          "victory.bmu",              # wave 8R (130.22.9): the finish's fanfare; APPEND, never insert
          "attract.bmu",              # SPEC.md 130.23.1: the title screen's
-         "firstroll.bmu"]            # First Roll's own, by its `music firstroll` (NON_COURSE)
+         "firstroll.bmu",            # First Roll's own, by its `music firstroll` (NON_COURSE)
+         "timeup.bmu"]               # SPEC.md 130.22.9.1: the timeout's tune; APPEND, never insert
 
 # songs that are NOT in the courses' rotation (the wrap in bbcourse.course_song skips
 # them, and counts only songs 0 - 4, which must stay the first five): the finish's
 # fanfare (130.22.9), the title screen's attract demo (130.23), and a song a course
 # plays only by NAMING it with `music` - First Roll's own, `firstroll`. A course may
 # name any of these but the fanfare (bbcourse's `music` statement).
-NON_COURSE = ("victory", "attract", "firstroll")
+NON_COURSE = ("victory", "attract", "firstroll", "timeup")
 
 # SPEC.md 130.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
 # demo (bbcourse.TITLE_STEPS, BZ_TSTEPS): its order rows before `loop` play
@@ -1407,6 +1408,8 @@ def emit(outdir):
     for si, sg in enumerate(songs):     # a song's index, by its id (wave 8R: the finish's tune)
         if sg.id == "victory":
             lines.append("BZ_SONG_VICTORY  equ %d        ; the finish's fanfare (130.22.9)" % si)
+        if sg.id == "timeup":
+            lines.append("BZ_SONG_TIMEUP   equ %d        ; the timeout's tune (130.22.9.1)" % si)
     lines += [
         "BZS_NINST       equ %d" % len(bank.insts),
         "BZS_NFX         equ %d" % len(bank.sfx),

@@ -3972,6 +3972,32 @@ def w6_replays():
     add("liftnot", "mill", R_, pk, keys, "a Hop on MILL's lift slab, Space before its contact (step %s) on it: %s, "
         "onp %d" % (c, [k_ for _i, k_ in cs][:1], p.onp), c and [k_ for _i, k_ in cs][:1] == ["hopc"]
         and not p.nboost and p.onp, red={"_slab_boost": True})
+    # flagboost (SPEC.md 130.16.4.1.1): a Hop from rest on a checkpoint FLAG's cell, Space before its contact
+    # there: a boost - the flag's OBS no longer refuses rule 4 (the `noflat` arm: as before, a contact Hop)
+    res = None
+    for crs in ("trial", "peak", "mill", "moon"):
+        for fl in [r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_CHECKPOINT]:
+            pk = pl_poke(crs, fl["at"], R_)
+            base = [0] * 3 + [K.K_HOP] + [0] * 80
+            _p, cs = run_ix(crs, R_, pk, base)
+            c = first_after(cs, 3)
+            if c is None:
+                continue
+            keys = with_space(base, c - 2)[:c + 20]
+            q = model(crs, R_, pk)
+            for i in range(c + 1):
+                q.step(keys[i])
+            if (q.gx >> 12, q.gy >> 12) != tuple(fl["at"]):
+                continue
+            p, cs = run_ix(crs, R_, pk, keys)
+            if p.nboost == 1 and not p.nfall:
+                res = (crs, fl["at"], pk, keys, c)
+                break
+        if res:
+            break
+    crs, at, pk, keys, c = res if res else ("trial", None, rest, [0], None)
+    add("flagboost", crs, R_, pk, keys, "a Hop from rest on %s's checkpoint flag %s, Space before its contact "
+        "(step %s) on it: a boost" % (crs.upper(), at, c), res, red={"_noflat": True}, nboost=1)
     # springarm (round 3b, SPEC.md 130.17.17; wave 6's springnot): a Hop taken on PEAK's spring rides the
     # spring's launch, which now TAKES the token, so Space before that flight's first contact boosts there
     # (`springoff`, round 3's spring that spent it: a contact Hop)
