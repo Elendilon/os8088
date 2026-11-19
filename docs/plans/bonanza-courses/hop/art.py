@@ -88,16 +88,39 @@ def wall_top(wx, wy):
     return SG.rail_top(wx, wy)
 
 
-def text_px(lines, ink=K):
+def _glyph_cols(ch):
+    g = B.label_glyph(ch, 0, 0, K)
+    xs = [x for x, _ in g] or [0]
+    return g, min(xs), max(xs) + 1
+
+
+def text_px(lines, ink=K, prop=False):
     """the words in the tree's 8 x 8 face, each line centred: -> ({(x, y): ink}, width, height); the glyphs'
-    blank top row and bottom row are trimmed, so a line is 6 px and lines are 8 apart"""
-    tw = max(len(t) for t in lines) * 8 - 1
+    blank top row and bottom row are trimmed, so a line is 6 px and lines are 8 apart.  prop: PROPORTIONAL,
+    each glyph its own inked width and one blank column between (a space 3 wide), for a cloth that must fit
+    between posts"""
+    def advance(t):
+        if not prop:
+            return [(8 * i, 0) for i in range(len(t))], 8 * len(t) - 1
+        pos, x = [], 0
+        for ch in t:
+            g, a, b = _glyph_cols(ch)
+            if ch == " ":
+                pos.append((x, 0))
+                x += 3
+                continue
+            pos.append((x, a))
+            x += b - a + 1
+        return pos, x - 1
+    widths = [advance(t)[1] for t in lines]
+    tw = max(widths)
     out = {}
     for r, t in enumerate(lines):
-        x0 = (tw - (8 * len(t) - 1)) // 2
-        for i, ch in enumerate(t):
+        pos, lw = advance(t)
+        x0 = (tw - lw) // 2
+        for (px_, a), ch in zip(pos, t):
             for (gx, gy), _ in B.label_glyph(ch, 0, 0, ink).items():
-                out[(x0 + 8 * i + gx, 8 * r + gy - 1)] = ink
+                out[(x0 + px_ + gx - a, 8 * r + gy - 1)] = ink
     return out, tw, 8 * len(lines) - 2
 
 
@@ -167,11 +190,32 @@ def hang_sign(c, sx, sy, words=None, icon=None):
     return a
 
 
-def banner_sign(c, sx, sy, words):
+def rail_run(sx, sy):
+    """the run of rail blocks along x at row sy, through (sx, sy), whose tops are all the height of (sx, sy)'s:
+    -> (first x, last x + 1, the top)"""
+    z = wall_top(sx, sy)
+
+    def same(x):
+        try:
+            return wall_top(x, sy) == z
+        except SystemExit:
+            return False
+    x0, x1 = sx, sx + 1
+    while same(x0 - 1):
+        x0 -= 1
+    while same(x1):
+        x1 += 1
+    return x0, x1, z
+
+
+def banner_sign(c, sx, sy, words, fit=False):
     """a CLOTH between two posts in the plane of the rail (y = sy + 0.5, along x): it recedes with the rail,
-    so it is sheared one row down for every two columns to the right, words and all"""
+    so it is sheared one row down for every two columns to the right, words and all.  fit (the owner, round
+    2: "see if the posts can fit without changing heights"): both posts stand on the run of equal-height rail
+    blocks the sign's block is in, the cloth centred on the run and its words PROPORTIONAL to make the room;
+    a post past the run refuses"""
     a = D.Art()
-    ink, tw, th = text_px(words.split("\n"))
+    ink, tw, th = text_px(words.split("\n"), prop=fit)
     w, h = tw + 8, th + 8
     px = {}
 
@@ -190,6 +234,9 @@ def banner_sign(c, sx, sy, words):
     for (x, y), v in ink.items():
         px[(x + 4, y + 4)] = v
     X0 = sx + 0.5                                  # the cloth's middle over the sign's block
+    if fit:
+        r0, r1, _z = rail_run(sx, sy)
+        X0 = (r0 + r1) / 2.0                       # ...or over the run's middle
     Yp = sy + 0.5
     mx, my = D.floor_point(c, X0, Yp, wall_top(sx, sy))
     ox = int(mx) - w // 2                          # the cloth's left column
@@ -199,6 +246,9 @@ def banner_sign(c, sx, sy, words):
     for side, x in (("l", -2), ("r", w + 1)):      # the posts: from the cloth's top to the rail block below
         Xp = X0 + (ox + x + 0.5 - mx) / 16.0
         cell = int(math.floor(Xp))
+        if fit and not (r0 + 1.5 / 16 <= Xp <= r1 - 1.5 / 16):
+            raise SystemExit("art.py: the banner's %s post (x %.2f) is off the rail run %d - %d at y %d"
+                             % (side, Xp, r0, r1, sy))
         try:
             zt = wall_top(cell, sy)
         except SystemExit:
@@ -402,6 +452,334 @@ def pillar_lines():
             "floor tile %d %d  flat %g" % (x, y, z), "float tile %d %d" % (x, y)]
 
 
+# ==== ROUND 2 (the owner, 2026-11-19: "more creative ... course specific, not generic markings") ==========
+# Little Hop is about hopping, the "and again" and a spring, so the motifs are the ball's own: its arcs, its
+# bounce, the spring's coil.  Each piece is drawn in a PLANE of the scene and projected, so it lies on the
+# face or the floor it is painted on, never flat to the screen.
+
+def paste_yplane(a, c, Yf, X0, ztop, bm, host=None):
+    """paste bitmap {(u, v): colour} drawn in the upright plane y = Yf (a +y face, the camera's left-hand
+    face): u px along +x from X0, v px down from height ztop.  The plane recedes one row for every two
+    columns, so the bitmap is sheared with it.  host: the cells it may paint (the owner buffer)"""
+    sx0, sy0 = D.floor_point(c, X0, Yf, ztop)
+    for (u, v), col in bm.items():
+        x, y = int(sx0) + u, int(sy0) + v + u // 2
+        if host is None or D.owner_at(x, y) in host:
+            a.px[(x, y)] = col
+
+
+def dots_arc(bm, p0, p1, peak, on=3, off=2):
+    """a DASHED yellow line, two px thick, along a parabola from p0 to p1 (bitmap px) rising `peak` px over the
+    chord - the ball's path, the course's motif"""
+    pts, last = [], None
+    n = 400
+    for i in range(n + 1):
+        t = i / float(n)
+        q = (int(round(p0[0] + (p1[0] - p0[0]) * t)),
+             int(round(p0[1] + (p1[1] - p0[1]) * t - peak * 4 * t * (1 - t))))
+        if q != last:
+            pts.append(q)
+            last = q
+    for k, (x, y) in enumerate(pts[1:-1]):
+        if k % (on + off) < on:
+            bm[(x, y)] = Y
+            bm[(x + 1, y)] = Y
+
+
+def ball_bm(bm, cx, cy, r=4):
+    """a painted BALL: yellow, black-lined, a red crescent low right (its shade on a red face is the face)"""
+    for y in range(cy - r - 1, cy + r + 2):
+        for x in range(cx - r - 1, cx + r + 2):
+            d = math.hypot(x - cx, y - cy)
+            if d <= r + 0.5:
+                edge = d > r - 0.6
+                bm[(x, y)] = K if edge else (R if (x - cx) + (y - cy) > r * 0.9 else Y)
+    bm[(cx - 1, cy - 2)] = Y
+
+
+# the column face the camera shows most (MEASURED: the hopping autopilot's route through the camera model,
+# every frame's window - CGA 1,533 frames, Hercules 1,300): the basin B's front, the +y faces of the block
+# rail row (15 - 17, 26) and its column, in view on 56 - 58% of the CGA frames and 30 - 53% of the
+# Hercules'.  Next: the lip's drop face (10 - 13, 27), 35 - 51%.
+BFRONT = ((15, 18), 27, 24.0)                          # x0 x1 of the face, its plane y, its top
+BFRONT_CELLS = {(15, 26), (16, 26), (17, 26)}
+LIPFACE = ((10, 14), 28, 25.75)                        # R's +y face over F: the drop
+LIPFACE_CELLS = {(x, 27) for x in range(10, 14)}
+
+
+def col_trail(c):
+    """on the basin's front: the ball's HOP painted along the face - two dotted arcs, a Hop and its "and
+    again", landing on a painted ball, a black tick where each bounce touches"""
+    a = D.Art()
+    bm = {}
+    g = 50                                         # the painted ground line, px under the top
+    dots_arc(bm, (44, g), (27, g), 26)
+    dots_arc(bm, (27, g), (14, g - 2), 14)
+    for u in (43, 27):
+        for du in (-2, -1, 0, 1, 2):
+            bm[(u + du, g + 3)] = K
+    ball_bm(bm, 9, g - 4, 5)
+    paste_yplane(a, c, BFRONT[1], BFRONT[0][0], BFRONT[2], bm, BFRONT_CELLS)
+    return a
+
+
+def col_spring(c):
+    """on the basin's front: the basin's SPRING painted large, a yellow coil between two plates, black-lined,
+    a ball on top: what the basin holds, seen from the path before it"""
+    a = D.Art()
+    bm = {}
+    cx, top, bot, half = 24, 18, 52, 8
+    for v in range(top - 2, top + 1):              # the top plate
+        for u in range(cx - half - 2, cx + half + 3):
+            bm[(u, v)] = K if v != top - 1 or u in (cx - half - 2, cx + half + 2) else Y
+    for v in range(bot, bot + 3):                  # the foot plate
+        for u in range(cx - half - 2, cx + half + 3):
+            bm[(u, v)] = K if v != bot + 1 or u in (cx - half - 2, cx + half + 2) else Y
+    per = 6                                        # the coil: a stack of turns, each an ellipse lying
+    k = 0                                          # in the face - its far half a thin black line, its near
+    while top + 3 + k * per <= bot - 3:            # half a yellow band, black-lined (on a face, a coil seen
+        vc = top + 3 + k * per                     # from the side is exactly that)
+        k += 1
+        for i in range(-half, half + 1):
+            dv = 3.0 * math.sqrt(max(0.0, 1 - (i / float(half)) ** 2))
+            bm[(cx + i, int(round(vc - dv)))] = K
+        for i in range(-half, half + 1):
+            dv = int(round(3.0 * math.sqrt(max(0.0, 1 - (i / float(half)) ** 2))))
+            for d in (-1, 0, 1, 2):
+                q = (cx + i, vc + dv + d)
+                bm[q] = Y if d in (0, 1) else (K if bm.get(q) != Y else Y)
+    ball_bm(bm, cx, top - 8, 4)
+    paste_yplane(a, c, BFRONT[1], BFRONT[0][0], BFRONT[2], bm, BFRONT_CELLS)
+    return a
+
+
+def col_drop(c):
+    """on the lip's drop face (R over F): the DROP AND BOUNCE painted - the ball's dotted fall off the lip's
+    edge, one big rebound arc and the ball - the course's own trick, on the face the player drops past"""
+    a = D.Art()
+    bm = {}
+    g = 42
+    for v in range(4, g):                          # the fall, dashed
+        if v % 5 < 3:
+            for dx in (0, 1):
+                bm[(8 + dx + v // 10, v)] = Y
+    for du in (-2, -1, 0, 1, 2):
+        bm[(12 + du, g + 3)] = K
+    dots_arc(bm, (12, g), (52, g - 6), 30)
+    ball_bm(bm, 56, g - 11, 5)
+    paste_yplane(a, c, LIPFACE[1], LIPFACE[0][0], LIPFACE[2], bm, LIPFACE_CELLS)
+    return a
+
+
+# THE SPRING'S GAP: B's spring throws -x over the void column x 14 onto H.  The void tile stands IN FRONT of
+# H's +x face, so the camera sees H's face through it, butting onto B's floor edge: no gap reads.  What a
+# gap would show there is the strip of H's face between B's floor level and 2 units under it (the strip a
+# 1-tile gap leaves in view: z 19.75 - 21.75 at x 14, y 22 - 26) - so paint THAT dark.
+GAP = (14, (22, 26), 19.75, 21.75)
+H_EAST = {(13, y) for y in range(22, 26)}
+B_WEST = (15, (22, 26), 21.75)
+SPRING_ARC = ((16.5, 24.5, 21.75), (11.6, 23.6, 27.75), 4.2)   # the spring's throw: from, to, peak over the chord
+
+
+def gap_shadow(c, soft=False):
+    """the gap's SHADOW: H's +x face black where a gap leaves it in view; soft: the lower half dithered, a
+    slot that fades"""
+    a = D.Art()
+    X, (y0, y1), za, zb = GAP
+
+    def plane(sx, sy):
+        Yy = X - (sx - c.x0) / 16.0
+        z = (8 * (X + Yy) + c.y0 - sy) / 8.0
+        return Yy, z
+    p = [D.floor_point(c, X, yy, zz) for yy in (y0, y1) for zz in (za, zb)]
+    for sy in range(int(min(q[1] for q in p)) - 1, int(max(q[1] for q in p)) + 2):
+        for sx in range(int(min(q[0] for q in p)) - 1, int(max(q[0] for q in p)) + 2):
+            Yy, z = plane(sx + 0.5, sy + 0.5)
+            if y0 <= Yy <= y1 and za <= z <= zb and D.owner_at(sx, sy) in H_EAST:
+                if soft and z > (za + zb) / 2:     # soft: the upper half only darkened, a slot that fades
+                    if c.pic[sy][sx] == R and (sx // 2 + sy) % 2 == 0:
+                        a.px[(sx, sy)] = K
+                    continue
+                a.px[(sx, sy)] = K
+    return a
+
+
+def gap_edge(c):
+    """B's west EDGE marked as a drop: a band of yellow and black hazard stripes along the floor's last
+    quarter tile before the void, the stripes running with the throw"""
+    a = D.Art(host={(15, y) for y in range(22, 26)})
+    X, (y0, y1), z = B_WEST
+    zf = lambda X_, Y_: z
+
+    def inside(sx, sy):
+        X_, Y_ = D.unproject_floor(c, sx, sy, zf)
+        return X <= X_ <= X + 0.32 and y0 <= Y_ <= y1
+
+    def colour(sx, sy):
+        X_, Y_ = D.unproject_floor(c, sx, sy, zf)
+        return YEL if int(math.floor((Y_ - X_) * 4)) % 2 else K
+    p = [D.floor_point(c, xx, yy, z) for xx in (X, X + 1) for yy in (y0, y1)]
+    box = (int(min(q[0] for q in p)) - 2, int(min(q[1] for q in p)) - 2, int(max(q[0] for q in p)) + 3,
+           int(max(q[1] for q in p)) + 3)
+    got = {(x, y) for y in range(box[1], box[3]) for x in range(box[0], box[2]) if inside(x + 0.5, y + 0.5)
+           and D.owner_at(x, y) in a.host}
+    for (x, y) in got:
+        a.px[(x, y)] = colour(x + 0.5, y + 0.5)
+    return a
+
+
+def gap_arc(c):
+    """the spring's THROW drawn in the air: yellow dots, black-lined, along the arc from the spring onto H, an
+    arrowhead where it lands - "this throws you over there" """
+    a = D.Art()
+    (x0, y0, z0), (x1, y1, z1), peak = SPRING_ARC
+    pts = []
+    n = 13
+    for i in range(1, n):
+        t = i / float(n)
+        X = x0 + (x1 - x0) * t
+        Yy = y0 + (y1 - y0) * t
+        z = z0 + (z1 - z0) * t + peak * 4 * t * (1 - t)
+        pts.append(D.floor_point(c, X, Yy, z))
+    for sx, sy in pts[1:-1]:
+        x, y = int(sx), int(sy)
+        for dx in (-1, 0, 1, 2):
+            for dy in (-1, 0, 1, 2):
+                a.px[(x + dx, y + dy)] = Y if dx in (0, 1) and dy in (0, 1) else K
+        for dx, dy in ((-1, -1), (2, -1), (-1, 2), (2, 2)):
+            del a.px[(x + dx, y + dy)]
+    (ax, ay), (bx, by) = pts[-2], pts[-1]           # the arrowhead, pointing along the last chord
+    d = math.hypot(bx - ax, by - ay) or 1
+    ux, uy = (bx - ax) / d, (by - ay) / d
+    tip = (bx + ux * 2, by + uy * 2)
+    head = set()
+    for k in range(7):
+        for w in range(-k // 2 - 1, k // 2 + 2):
+            head.add((int(round(tip[0] - ux * k - uy * w * 0.9)), int(round(tip[1] - uy * k + ux * w * 0.9))))
+    for (x, y) in head:
+        edge = any((x + dx, y + dy) not in head for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        a.px[(x, y)] = K if edge else Y
+    return a
+
+
+# FLOWERS that blend (round 1's tufts "are not blending in well"): no outline and no upright sprite - a flower
+# is a few pixels PAINTED into the rail top's own green-and-yellow checker, as a floor decal on that top, so
+# it lies on the block like the checker does.  Placed on the rail tops the route sees most.
+FLOWER_CELLS = [(15, 26), (16, 26), (17, 26), (15, 21), (18, 15), (19, 15), (20, 15), (9, 22), (9, 24), (25, 12),
+                (35, 11), (35, 13), (24, 28), (27, 28)]
+FLOWER_SPOTS = [((0.32, 0.38), (0.70, 0.66)), ((0.62, 0.30), (0.36, 0.72)), ((0.50, 0.50),)]
+# a BLACK eye in each: the one pixel that carries a flower on the Hercules, where red and green are one checker
+DAISY = {(0, -1): Y, (-1, 0): Y, (1, 0): Y, (0, 1): Y, (0, 0): K}           # yellow petals, a black eye
+POPPY = {(0, -1): R, (-1, 0): R, (1, 0): R, (0, 1): R, (0, 0): K, (-1, 2): G, (1, 2): G}   # a poppy: red, black eye
+
+
+def flowers(c, cells, kind, spots=FLOWER_SPOTS):
+    a = D.Art()
+    pat = DAISY if kind == "daisy" else POPPY
+    for i, (wx, wy) in enumerate(cells):
+        z = wall_top(wx, wy)
+        for fx, fy in spots[i % len(spots)]:
+            sx, sy = D.floor_point(c, wx + fx, wy + fy, z)
+            sx, sy = int(sx), int(sy)
+            for (dx, dy), col in pat.items():
+                if D.owner_at(sx + dx, sy + dy) == (wx, wy):
+                    a.px[(sx + dx, sy + dy)] = col
+    return a
+
+
+# THE GOAL, round 2 (the pennants are the baseline)
+GOAL_BACK = (24, 29, 28)                               # the back rail: x 24 - 28 at y 28, its tops z 23
+
+
+def goal_bunting(c):
+    """BUNTING along the goal's back rail: two poles at its ends and a sagging line of little flags, red,
+    yellow and green in turn, in the rail's plane"""
+    a = D.Art()
+    x0, x1, wy = GOAL_BACK
+    z = wall_top(x0, wy)
+    Yp = wy + 0.5
+    X0, X1 = x0 + 0.5, x1 - 0.5
+    w = int(round((X1 - X0) * 16))
+    tall = 26
+    bm = {}
+    for u in (0, w):                               # the poles, yellow between black
+        for v in range(-tall, 1):
+            bm[(u - 1, v)] = K
+            bm[(u, v)] = Y
+        bm[(u, -tall - 1)] = K
+        bm[(u - 1, -tall - 1)] = K
+    line = {}
+    for u in range(1, w):                          # the line, sagging 5 px
+        t = u / float(w)
+        line[u] = -tall + 2 + int(round(5 * 4 * t * (1 - t)))
+        bm[(u, line[u])] = K
+    cols = (R, Y, G)
+    k = 0
+    for u0 in range(3, w - 10, 14):                # the flags: triangles hanging from the line
+        col = cols[k % 3]
+        k += 1
+        tri = {(du, dv) for du in range(11) for dv in range(1, 13) if abs(du - 5) <= 5.5 - dv * 0.45}
+        for (du, dv) in tri:
+            edge = any((du + a_, dv + b_) not in tri for a_, b_ in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            bm[(u0 + du, line[u0 + du] + dv)] = K if edge else col
+    paste_yplane(a, c, Yp, X0, z, bm)
+    return a
+
+
+def goal_balloons(c):
+    """BALLOONS tied to the goal's back rail: three, red, yellow and green, bobbing on red strings - a party at
+    the finish, round like the ball"""
+    a = D.Art()
+    x0, x1, wy = GOAL_BACK
+    for (wx, colr, lift, sway) in ((x0, R, 30, -3), (x0 + 2, Y, 36, 2), (x1 - 1, G, 31, 3)):
+        bx, by = D.floor_point(c, wx + 0.5, wy + 0.5, wall_top(wx, wy))
+        bx, by = int(bx), int(by)
+        cx, cy = bx + sway, by - lift
+        for v in range(cy + 6, by + 1):            # the string, a red wiggle
+            t = (v - cy - 6) / float(max(1, by - cy - 6))
+            a.px[(int(round(bx + sway * (1 - t) + (1 if (v // 3) % 2 else 0))), v)] = R
+        for y in range(cy - 7, cy + 8):            # the balloon: an egg, black-lined, a highlight
+            for x in range(cx - 6, cx + 7):
+                d = ((x - cx) / 5.0) ** 2 + ((y - cy) / 6.0) ** 2
+                if d <= 1.0:
+                    a.px[(x, y)] = colr
+        got = {p for p, v in a.px.items() if v == colr and abs(p[0] - cx) <= 6 and abs(p[1] - cy) <= 7}
+        for (x, y) in got:
+            if any((x + dx, y + dy) not in got for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                a.px[(x, y)] = K
+        a.px[(cx - 2, cy - 3)] = Y if colr != Y else G
+        a.px[(cx - 2, cy - 2)] = Y if colr != Y else G
+        for dx in (-1, 0, 1):                      # the knot
+            a.px[(cx + dx, cy + 7)] = K
+    return a
+
+
+def goal_blooms(c):
+    """the goal's rails turned FLOWER BEDS: every block of the back and side rails planted with the blending
+    flowers, poppies and daisies in turn - a garden at the finish"""
+    cells = [(x, 28) for x in range(24, 29)] + [(29, y) for y in (29, 30, 31, 33, 34)]
+    a = flowers(c, cells[0::2], "poppy", (((0.3, 0.35), (0.7, 0.4), (0.5, 0.75)),))
+    b = flowers(c, cells[1::2], "daisy", (((0.35, 0.3), (0.65, 0.65), (0.3, 0.75)),))
+    a.px.update(b.px)
+    return a
+
+
+ROUND2 = {
+    "col-trail": ("hop_coltrail", col_trail, "the basin's front: a Hop and its \"and again\" painted, dotted arcs"),
+    "col-spring": ("hop_colspring", col_spring, "the basin's front: its SPRING painted large"),
+    "col-drop": ("hop_coldrop", col_drop, "the lip's drop face: the drop and bounce painted"),
+    "gap-shadow": ("hop_gapshadow", gap_shadow, "the spring's gap: H's face dark where a gap shows it"),
+    "gap-soft": ("hop_gapsoft", lambda c: gap_shadow(c, True), "the spring's gap: H's face dark, fading"),
+    "gap-edge": ("hop_gapedge", gap_edge, "the spring's gap: hazard stripes on B's edge"),
+    "gap-arc": ("hop_gaparc", gap_arc, "the spring's throw: a dotted arc onto H"),
+    "flowers-daisy": ("hop_flowers", lambda c: flowers(c, FLOWER_CELLS, "daisy"), "daisies painted into rail tops"),
+    "flowers-poppy": ("hop_flowers", lambda c: flowers(c, FLOWER_CELLS, "poppy"), "poppies painted into rail tops"),
+    "goal-bunting": ("hop_goalbunt", goal_bunting, "bunting along the goal's back rail"),
+    "goal-balloons": ("hop_goalball", goal_balloons, "balloons tied to the goal's back rail"),
+    "goal-blooms": ("hop_goalbloom", goal_blooms, "the goal's rails as flower beds"),
+}
+
+
 # ---- assembling a variant ------------------------------------------------------------------------
 _CAPTURED = []
 _OWNERS = {}
@@ -437,7 +815,9 @@ def build(signs, extras, outdir, prefix="hop_"):
     path = os.path.join(outdir, "hop.bbc")
     c = owners(src + geo_txt, path)
     pieces = []
+    styles = signs.split(",")
     for i, (x, y, words) in enumerate(S.SIGNS):
+        signs = styles[min(i, len(styles) - 1)]
         sx, sy = int(x) + S.OFF, int(y) + S.OFF
         one = words.replace("\n", " ")
         if signs == "board":
@@ -445,7 +825,7 @@ def build(signs, extras, outdir, prefix="hop_"):
         elif signs == "hang":
             art = hang_sign(c, sx, sy, words)
         elif signs == "banner":
-            art = banner_sign(c, sx, sy, words)
+            art = banner_sign(c, sx, sy, words, fit=True)
         elif signs == "icon":
             art = hang_sign(c, sx, sy, icon=icon(i == 1))
         elif signs == "floor":
@@ -466,6 +846,10 @@ def build(signs, extras, outdir, prefix="hop_"):
     if "pillar" in extras:
         x, y, z = PILLAR
         pieces.append((prefix + "pillar", pennant(c, x, y, z), "the lone pillar's PENNANT"))
+    for e in extras:                               # round 2's
+        if e in ROUND2:
+            fn, f, note = ROUND2[e]
+            pieces.append((prefix + fn[len("hop_"):], f(c), note))
     lines = []
     for name, art, note in pieces:
         fn = name + ".bba"
@@ -625,20 +1009,119 @@ def sheet(out):
     print("sheet: %s" % out)
 
 
+PICK_SIGNS, PICK_EXTRAS = "banner,floor", ("chev", "goal")      # the owner's round-1 picks: the course as built
+CROPS2 = {"col-trail": (318, 186, 418, 296), "col-spring": (318, 186, 418, 296), "col-drop": (226, 140, 340, 250),
+          "gap-shadow": (318, 140, 428, 250), "gap-soft": (318, 140, 428, 250), "gap-edge": (318, 140, 428, 250),
+          "gap-arc": (300, 110, 430, 250), "flowers-daisy": (318, 176, 418, 250),
+          "flowers-poppy": (318, 176, 418, 250), "goal-bunting": (420, 250, 560, 390),
+          "goal-balloons": (420, 250, 560, 390), "goal-blooms": (420, 250, 560, 390), "goal": (420, 250, 560, 390)}
+CROPS2_B = {"flowers-daisy": (540, 96, 650, 176), "flowers-poppy": (540, 96, 650, 176)}
+GROUPS2 = [("1. ART ON THE COLUMN THE CAMERA SHOWS MOST (the basin's front; the lip's drop face)",
+            ("col-trail", "col-spring", "col-drop")),
+           ("2. THE SPRING'S GAP (B -> H)", ("gap-shadow", "gap-soft", "gap-edge", "gap-arc")),
+           ("3. FLOWERS THAT BLEND (painted into the rail tops' checker)", ("flowers-daisy", "flowers-poppy")),
+           ("4. THE GOAL (pennants are the baseline)", ("goal", "goal-bunting", "goal-balloons", "goal-blooms"))]
+
+
+def sheet2(out):
+    """round 2's options, each alone on the course as the owner picked it (banner + floor signs, chevrons,
+    goal pennants); the goal's alternatives REPLACE the pennants"""
+    from PIL import Image, ImageDraw
+    import subprocess
+    os.makedirs(out, exist_ok=True)
+    opts = [o for _, g in GROUPS2 for o in g if o != "goal"]
+    variants = [("base", PICK_EXTRAS), ("base-nogoal", ("chev",))]
+    for o in opts:
+        variants.append((o, ("chev", o) if o.startswith("goal-") else PICK_EXTRAS + (o,)))
+    res = {}
+    for name, ex in variants:
+        d = os.path.join(out, name)
+        os.makedirs(d, exist_ok=True)
+        for fn in os.listdir(d):
+            if fn.endswith(".bba"):
+                os.remove(os.path.join(d, fn))
+        pre = "hx_" + re.sub(r"[^a-z0-9]", "", name) + "_"
+        p = build(PICK_SIGNS, ex, d, pre)
+        mine = [fn for fn in os.listdir(d) if fn.startswith(pre) and fn.endswith(".bba")]
+        for fn in mine:
+            with open(os.path.join(d, fn), "rb") as f_, open(os.path.join(CDIR, fn), "wb") as g_:
+                g_.write(f_.read())
+        try:
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bbcourse.py"), p, "--png", d],
+                               capture_output=True, text=True)
+        finally:
+            for fn in mine:
+                os.remove(os.path.join(CDIR, fn))
+        c, m = measure(p)
+        m["ok"] = r.returncode == 0
+        res[name] = (c, m)
+        print("%-16s compile %s  LZB %5d  LZ4 %5d  stored %6d  blocks %4d%s" % (
+            name, "ok" if m["ok"] else "FAILED", m["lzb"], m["lz4"], m["stored"], m["blocks"],
+            "" if m["ok"] else "\n" + (r.stderr or r.stdout)[-600:]), flush=True)
+    pics = {n: pictures(c, Image) for n, (c, m) in res.items()}
+
+    def cost(n):
+        ref = "base-nogoal" if n.startswith("goal-") else "base"
+        m, b = res[n][1], res[ref][1]
+        return "LZB %+d" % (m["lzb"] - b["lzb"])
+    lines = ["variant          compile    LZB    LZ4  stored  blocks   cost"]
+    for n, (c, m) in res.items():
+        lines.append("%-16s %-7s %6d %6d %7d %7d   %s" % (n, "ok" if m["ok"] else "FAILED", m["lzb"], m["lz4"],
+                                                         m["stored"], m["blocks"],
+                                                         "" if n.startswith("base") else cost(n)))
+    with open(os.path.join(out, "costs.txt"), "w") as f:
+        f.write("\n".join(lines) + "\n(an option's cost is against `base`; a goal option's against `base-nogoal`, "
+                "replacing the pennants)\n")
+    for gname, opts_ in GROUPS2:
+        rows = []
+        for o in opts_:
+            n = "base" if o == "goal" else o
+            box = CROPS2[o]
+            ims = [crop_pair(pics["base-nogoal" if o.startswith("goal") else "base"][0],
+                             pics["base-nogoal" if o.startswith("goal") else "base"][1], box, Image)[0]]
+            ims += list(crop_pair(pics[n][0], pics[n][1], box, Image))
+            if o in CROPS2_B:
+                ims += list(crop_pair(pics[n][0], pics[n][1], CROPS2_B[o], Image))
+            lab = ("PENNANTS (baseline, round 1), LZB %+d" % (res["base"][1]["lzb"] - res["base-nogoal"][1]["lzb"])
+                   if o == "goal" else "%s   %s" % (o.upper(), cost(o)))
+            rows.append((lab, ims))
+        width = max(len(r[1]) for r in rows)
+        for r in rows:
+            while len(r[1]) < width:
+                r[1].append(Image.new("RGB", (8, 8), (40, 40, 48)))
+        head = ["without (CGA)", "with (CGA)", "with (Hercules)"] + (["second place (CGA)", "(Hercules)"]
+                                                                     if width > 3 else [])
+        slug = gname.split(".")[0]
+        grid(rows, Image, ImageDraw, "LITTLE HOP round 2 - " + gname + "; palette 0, x%d" % ZOOM, head).save(
+            os.path.join(out, "round2-%s.png" % slug))
+    for n in res:
+        cga, herc = pics[n]
+        cga.save(os.path.join(out, "full-%s-cga.png" % n))
+        herc.save(os.path.join(out, "full-%s-herc.png" % n))
+    print("\n".join(lines))
+    print("sheet2: %s" % out)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "sheet2":
+        return sheet2(sys.argv[2] if len(sys.argv) > 2 else "hop-art2")
     if len(sys.argv) > 1 and sys.argv[1] == "sheet":
         return sheet(sys.argv[2] if len(sys.argv) > 2 else "hop-art")
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--signs", choices=SIGN_STYLES, default="board")
-    ap.add_argument("--extras", default="", help="comma-separated: " + ",".join(EXTRAS))
+    ap.add_argument("--signs", default="board", help="a style for both signs, or one per sign (JUMP!, JUMP "
+                    "TWICE!) separated by a comma: " + ", ".join(SIGN_STYLES))
+    ap.add_argument("--extras", default="", help="comma-separated: " + ",".join(EXTRAS + tuple(ROUND2)))
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--out", help="a SCRATCH directory: DIR/hop.bbc and its .bba files")
     g.add_argument("--into-course", action="store_true", help="write into apps/bonanza/courses/")
     a = ap.parse_args()
+    for st in a.signs.split(","):
+        if st not in SIGN_STYLES:
+            ap.error("no sign style %r (%s)" % (st, ", ".join(SIGN_STYLES)))
     ex = tuple(e for e in a.extras.split(",") if e)
     for e in ex:
-        if e not in EXTRAS:
-            ap.error("no extra %r (%s)" % (e, ", ".join(EXTRAS)))
+        if e not in EXTRAS and e not in ROUND2:
+            ap.error("no extra %r (%s)" % (e, ", ".join(EXTRAS + tuple(ROUND2))))
     out = CDIR if a.into_course else a.out
     os.makedirs(out, exist_ok=True)
     p = build(a.signs, ex, out)
