@@ -1716,17 +1716,22 @@ bz_occ:
     call bz_oand                ; a second or later: ANDed into bz_omsk
     jmp short .skip
 
-; bz_otbk - SPEC.md 130.50: kt for the block row bz_obr's BAND, b = line >> 7:
-; CH = clamp(z_b + m - TB[b], 0, 255), TB[b] the signed word b of the bands'
-; table (YOFF, bz_otb) in the PICTURE part.  DS = the course's picture part,
-; ES = ours.  Clobbers AX, BX.
+; bz_otbk - SPEC.md 130.50, 130.51: the block row bz_obr's BAND, b = line >>
+; 7, from entry b of the bands' table (YOFF, bz_otb; 4 bytes an entry) in the
+; PICTURE part: CH = kt = clamp(z_b + m - TB[b], 0, 255), and bz_mtab = its
+; mask table (one table for every band, or a band's own under `masks
+; banded`; bz_oprep's DI).  DS = the course's picture part, ES = ours.
+; Clobbers AX, BX.
 bz_otbk:
     mov bx, [es:bz_obr]
     shl bx, 1                   ; BH = line >> 7 (a line is under 32,768)
     mov bl, bh
     xor bh, bh
     shl bx, 1
+    shl bx, 1
     add bx, [es:bz_otb]
+    mov ax, [bx + 2]
+    mov [es:bz_mtab], ax
     mov ax, [es:bz_ozkt]
     sub ax, [bx]
     BZ_OCLAMP

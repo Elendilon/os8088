@@ -284965,14 +284965,9 @@ PEAK 221, MILL 209), but at most **130 px inside any band of 16 block rows**
 host over every course, its records decoded band by band) and a red arm (the
 band's reload skipped: a footprint across a band edge tests the wrong key).
 
-#### 130.50.4 The masks: not yet
+#### 130.50.4 The masks
 
-A mask table a band (the record's mask byte relative to its band's slice)
-would lift the 256 masks the same way, but the slices must be STORED (today's
-`O` is derived from the masks and stores nothing): PREDICTED 300 - 500 bytes a
-course packed and about 300 of RAM (ROLL: 298 entries against 156). The cut
-already falls back to coarser squares (130.49.5) rather than refuse. Held for
-the owner.
+A mask table a band is 130.51, a course's own choice.
 
 #### 130.50.5 As built (MEASURED)
 
@@ -284989,3 +284984,58 @@ line says whether it starts a band, so only a band's first row pays.
 
 `tests/bonanza_av.py`: every buffer, laid count and verdict the host's on every
 course, ROLL and HOP; its red arm `aband` (no `kt` at a band's first row) red.
+
+
+### 130.51 A mask table a band, opted into: `masks banded` (the owner, 2026-11-19; on `bb-occ2`)
+
+The owner, 2026-11-19: *"We're building courses right now, and it would be
+nice to have less limits. Could we make it opt-in per course? Eat the size if
+we need it, don't if not?"* The record's mask byte (130.15.5.1) names one of a
+course's at most 256 masks.
+
+| | decision |
+|---|---|
+| the statement | **`masks banded`**, once, nothing after it: this course's records name their masks in their BAND's table (130.50: 16 block rows), so a band - not the course - holds at most 256 |
+| the band's entry | `Y` is **4 bytes a band** for every course: `TB` (signed word, 130.50) and the offset of that band's mask table (word). Without the statement every band names the one table at `MTAB`, as before |
+| `O` | without the statement: form 4 MASKTAB, derived (`2 NMASK`, nothing stored), as before. With it: form **0 PLAIN**, the bands' tables end to end - each band's masks' offsets in mask order, a mask in as many bands as use it - STORED |
+| the record | `m` its band's table's index; `NMASK` may pass 256 |
+| the guest | `bz_otbk` (130.50) loads the band's table into `bz_mtab` with its `TB`; `bz_oprep` reads it as before. One path for both forms |
+| refusals | a band past 256 masks (naming it); without the statement, a course past 256 as before (and the cut's fallback to coarser squares, 130.49.5) |
+| `read_part` | `O`'s directory form says which; every band's table inside `O`, every word a mask's offset, every record's index inside its band's table |
+
+**MEASURED**: the guest **+9 bytes** (51,001 against 130.50's 50,992; the
+mask offset's load in `bz_otbk`), about +30 clk a band's first row (PRICED from the two instructions). Every
+course's `Y` is 2 bytes a band more (ROLL's 9 bands +18). A course that opts in
+pays its tables: ROLL **+246 bytes of RAM, +514 packed (LZ4)** (156 masks, its
+bands' tables 279 entries); the PLAYGROUND +260 and +828. `tests/bonanza_av.py`
+equal on every course and on a banded ROLL; red arm `amband` (the band's table
+not loaded) red. *No shipped course opts in*: since 130.49 the PLAYGROUND's 4 gu
+cut names 252 masks and no course falls back.
+
+### 130.52 `noocclude`: cells no ball needs occluding in (the owner, 2026-11-19; on `bb-occ2`)
+
+The owner, on ROLL's two pennant pillars: *"A shape statement for 'don't need
+occlusion here' could give us something to reduce records, if we have the need
+to, and seems simple."*
+
+    noocclude <shape>        no record is cut for a ball position in the shape's cells
+
+- **What it does**: the cutter (130.49.5) and AV's residual (130.49.4) leave
+  out every reach position whose cell is in a `noocclude` shape; a ball there
+  is drawn whole but for AV's model, which costs no record. The gate's flags
+  and the merge's queries keep the whole reach (a superset, as before).
+- **Refused** on the start's cell and on every `way`'s: the ball is there in
+  play. The shape is whole cells (no `half` or `quarter`), any number of
+  statements.
+- **The proofs** (item 5's composites, item 15's completeness and WRONG-HIDE)
+  pass the shape's cells over.
+- **MEASURED**: ROLL with `noocclude rect 29 37 34 42` and `noocclude rect 49 41
+  54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. Not written into any
+  course: it is the author's to place.
+
+**The fall's speed** (the owner's question): a ball falling off an edge does not
+leave at the cap, so the void band's far cells could be cut by how far a REAL
+take-off carries. The bound of what that could save, MEASURED by taking every
+VOID position two or more cells from any solid cell out of the cut altogether:
+ROLL 1,116 -> 1,083 (3%), PEAK 1,356 -> 1,310 (3%), FIRST 68 -> 61. A speed
+model could only save less: not built.
