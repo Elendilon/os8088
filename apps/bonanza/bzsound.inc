@@ -130,19 +130,21 @@ F_SEGN      equ 20              ; segments begun, a byte: the speaker's re-send
 F_SVOL      equ 21              ; the segment's own volume: the AdLib's level
 F_SIZE      equ 22
 
-; the part rows (bonanza.asm's table: after the courses)
-BZ_P_SND    equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; (after the WORLD parts' rows, 130.30.4.4)
-BZ_P_SONG   equ BZ_P_SND + 1    ; song S's row: BZ_P_SONG + S
+; the part rows (bonanza.asm's table: after the courses).  The sound part is
+; no row of its own since SPEC.md 130.50.2: it is the RESIDENT BUNDLE's
+BZ_P_SONG   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; song S's row: BZ_P_SONG + S (after the WORLD parts', 130.30.4.4)
 
 %macro BZ_SND_VARS 0
 VAR bzs_mode,1                  ; the player's choice (S): BZS_M_*
 VAR bzs_arm,1                   ; the arm open now: BZS_A_*
 VAR bzs_live,1                  ; 1: a song is playing
 VAR bzs_song,1                  ; the song part's row, 0 none
-VAR bzs_pseg,2                  ; the sound part's segment, 0 none
+VAR bzs_pseg,2                  ; the sound part's segment, 0 none: the BUNDLE's (130.50.2, bz_bsload)
 VAR bzs_mseg,2                  ; the song part's segment, 0 none
 VAR bzs_vic,1                   ; 1: the fanfare played this play (the desktop's goal effect is then not)
-VAR bzs_vseg,2                  ; the VICTORY fanfare's, fetched with the course's song (8R.6), 0 none
+VAR bzs_fin,1                   ; 1: this play's finish has its tune (130.50.2: a PLAY of a COURSE with
+                                ; music, bzs_gfetch's) - the gate the held fanfare's segment was
+VAR bzs_vseg,2                  ; the VICTORY fanfare's, in the BUNDLE (130.50.2, bz_bsload), 0 none
 VAR bzs_tseg,2                  ; ...and the TIME'S UP tune's beside it (130.22.9.1), 0 none
 VAR bzs_hzt,2                   ; the sound part's tables (its header, copied)
 VAR bzs_opt,2
@@ -214,72 +216,75 @@ bzs_toggle:
 ; bz_launch's: the course's song for the bracket, and back to the title
 ; -----------------------------------------------------------------------------
 
-; bzs_gfetch - the title off, and the sound part and course [bz_crs]'s song
-; fetched (wave 7, 130.18.6: bz_csongs, the course's `music` or 130.20.6's
-; rule, the tool's - course K plays song K, BENCH song 1, past five wraps).  A
-; part that cannot be had (its toast said why) leaves the play SILENT, never
-; refused.  Preserves nothing.
+; bzs_gfetch - course [bz_crs]'s song fetched (wave 7, 130.18.6: bz_csongs,
+; the course's `music` or 130.20.6's rule, the tool's - course K plays song K,
+; BENCH song 1, past five wraps).  The sound part, VICTORY and TIME'S UP are
+; the RESIDENT BUNDLE's (SPEC.md 130.50.2): no fetch; with no bundle (kern_small
+; plays nothing) the play is SILENT, never refused, and so is a song that
+; cannot be had (its toast said why).  bzs_fin set for a play whose finish has
+; its tune.  Preserves nothing.
 bzs_gfetch:
+    mov byte [bzs_fin], 0
     cmp byte [bzs_mode], BZS_M_OFF
     je .r
-    call bzs_fsnd
-    jc .r
+    cmp word [bzs_pseg], 0
+    je .r
     mov bl, [bz_crs]
     xor bh, bh
     mov al, [bz_csongs + bx]
     add al, BZ_P_SONG
     call bzs_fsong
     jc .r
-    cmp byte [bz_mode], 0       ; ...and the fanfare beside it, so the finish
-    jne .r                      ; starts it with NO disk read (8R.6, D2) - for
-    cmp byte [bz_crs], BZ_NCRS  ; a PLAY of a COURSE only, the one thing that
-    jae .r                      ; has a finish sequence (not a replay, a
+    cmp byte [bz_mode], 0       ; ...and the FINISH'S TUNES held (8R.6, D2;
+    jne .r                      ; 130.50.2: in the bundle, no read at all) -
+    cmp byte [bz_crs], BZ_NCRS  ; for a PLAY of a COURSE only, the one thing
+    jae .r                      ; with a finish sequence (not a replay, a
     cmp byte [bzs_mode], BZS_M_FX ; benchmark, a demo, the pathway or the
-    jae .r                      ; title), and with music; not had: the
-    mov al, BZ_P_SONG + BZ_SONG_VICTORY ; finish plays without it
-    call op_fetch
-    jc .r
-    mov al, BZ_P_SONG + BZ_SONG_VICTORY
-    call op_seg
-    mov [bzs_vseg], ax
-    mov al, BZ_P_SONG + BZ_SONG_TIMEUP ; ...and the timeout's tune (130.22.9.1),
-    call op_fetch               ; the same way: not had, the timeout plays
-    jc .r                       ; its effect
-    mov al, BZ_P_SONG + BZ_SONG_TIMEUP
-    call op_seg
-    mov [bzs_tseg], ax
+    jae .r                      ; title), and with music
+    mov byte [bzs_fin], 1
 .r:
     ret
 
-; bzs_gdrop, bzs_gdrop0 - the course's song and the sound part given back
-; (after the bracket, and between the game's rounds, wave 8b, SPEC.md
-; 130.19.5).  The window plays nothing after it (130.26.5).  Preserves AX.
+; bzs_gdrop, bzs_gdrop0 - the course's song given back (after the bracket, and
+; between the game's rounds, wave 8b, SPEC.md 130.19.5); the sound part and
+; the finish's tunes are the bundle's and stay (130.50.2).  The window plays
+; nothing after it (130.26.5).  Preserves AX.
 bzs_gdrop:
 bzs_gdrop0:
     push ax
-    cmp word [bzs_tseg], 0      ; the arena's fetch order backwards: the
-    je .nt                      ; time's-up tune, the fanfare, the song, the
-    push ds                     ; sound part (SPEC.md 130.25.4.2)
-    pop es
-    mov al, BZ_P_SONG + BZ_SONG_TIMEUP
-    call op_drop
-    mov word [bzs_tseg], 0
-.nt:
-    cmp word [bzs_vseg], 0
-    je .nv
-    push ds
-    pop es
-    mov al, BZ_P_SONG + BZ_SONG_VICTORY
-    call op_drop
-    mov word [bzs_vseg], 0
-.nv:
     mov al, [bzs_song]
     call bzs_dsong
-    mov al, BZ_P_SND
-    call op_drop
-    mov word [bzs_pseg], 0
-    mov byte [bzs_vic], 0
+    xor ax, ax
+    mov [bzs_vic], ax           ; (bzs_vic and bzs_fin)
     pop ax
+    ret
+
+; bzs_ptab - the sound part's tables (its header) copied, once the bundle is
+; here (bz_bsload's): bzs_pseg not 0.  Preserves all but the flags.
+bzs_ptab:
+    cmp word [bzs_pseg], 0
+    je .r
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    push ds
+    pop es
+    mov di, bzs_hzt
+    mov si, BZSH_HZT
+    mov cx, 6
+    mov ds, [bzs_pseg]
+    cld
+    rep movsw
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+.r:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -326,6 +331,8 @@ bzs_ev:
 ; course's song then plays on).  Call it once at the finish start.  Preserves
 ; all.
 bzs_victory:
+    cmp byte [bzs_fin], 0       ; (130.50.2: a play whose finish has its tune)
+    je .r
     cmp byte [bz_goal], 0
     je .tu
     cmp byte [bzs_arm], BZS_A_NONE
@@ -356,31 +363,6 @@ bzs_victory:
     mov [bzs_mseg], ax
     call bzs_rstart
     pop ax
-    ret
-
-; bzs_fsnd - the sound part fetched and its tables read.  CF = 1 it could not
-; be had.  Clobbers AX, BX, CX, DX, SI, DI, ES.
-bzs_fsnd:
-    mov al, BZ_P_SND
-    call op_fetch
-    jc .r
-    mov al, BZ_P_SND
-    call op_seg
-    mov [bzs_pseg], ax
-    mov es, ax
-    mov si, BZSH_HZT
-    mov di, bzs_hzt
-    mov cx, 6
-.c:
-    mov ax, [es:si]
-    mov [di], ax
-    inc si
-    inc si
-    inc di
-    inc di
-    loop .c
-    clc
-.r:
     ret
 
 ; bzs_fsong - part row AL (a song) fetched as the song.  CF = 1 not had.
@@ -613,7 +595,7 @@ bzs_events:
     jnz .t1
     cmp byte [bz_tout], 0
     je .nt
-    cmp word [bzs_tseg], 0      ; (130.22.9.1: the time's-up tune plays in
+    cmp byte [bzs_fin], 0       ; (130.22.9.1: the time's-up tune plays in
     jne .nt                     ; the effect's place, as the fanfare in GOAL's)
     mov al, BZS_E_TIMEOUT
     jmp short .tf
@@ -699,7 +681,7 @@ bzs_events:
     jnz .shat                   ; loop leaves; the desktop plays its GOAL after
     cmp byte [bz_goal], 0       ; it, bzs_gdrop) - but a play that has the
     je .shat                    ; fanfare plays THAT instead, through the
-    cmp word [bzs_vseg], 0      ; finish sequence (bzs_victory, 8R.6): its
+    cmp byte [bzs_fin], 0       ; finish sequence (bzs_victory, 8R.6): its
     jne .shat                   ; goal step can end a frame before it starts
     mov al, BZS_E_GOAL
     call bzs_trig0

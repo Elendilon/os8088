@@ -131,7 +131,8 @@ def parts(art=None):
                                                                                 # balls ride the bundle; 3 before)
     n2 = re.search(r"^BZ_NCRS2\s+equ\s+(\d+)", inc, re.M)  # SPEC.md 130.30.4.4: the two-part courses' WORLD
     ncrs2 = int(n2.group(1)) if n2 else 0                    # rows come between the courses' and the sound's
-    return snd, songs, pcrs + ncrs + ncrs2      # ... and BZ_P_SND's row
+    return snd, songs, pcrs + ncrs + ncrs2 - 1  # ... and the row before BZ_P_SONG (the sound part's own
+                                                # row until SPEC.md 130.50.2 put it in the bundle)
 
 
 def stop(g, label="bzs_tp", guest=10):
@@ -489,9 +490,8 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                     got = (g.b("bzs_mode"), g.b("bzs_arm"), g.b("bzs_live"))
                     if got != (mode, arm, live):
                         fails.append("S: mode, arm, live %s - not %s" % (got, (mode, arm, live)))
-                    if mode == 3 and (g.w("bzs_pseg") or g.w("bzs_mseg")):
-                        fails.append("S: OFF kept a part (sound %04X, song %04X)"
-                                     % (g.w("bzs_pseg"), g.w("bzs_mseg")))
+                    if mode == 3 and g.w("bzs_mseg"):      # (the sound part is the BUNDLE's, held: 130.50.2)
+                        fails.append("S: OFF kept a song (%04X)" % g.w("bzs_mseg"))
                 m.run()
                 M.guest_sleep(m, 0.4)
             # 3. FIRST - a free play, F (Enter is the TITLE since SPEC.md 130.23.4)

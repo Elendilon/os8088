@@ -294049,3 +294049,85 @@ other did not) are not quoted.
 `Physics.oair`'s), `bonanzaphys`, `bonanzareplay` (the re-authored demos),
 `bonanzaperf` (the fall legs), `bonanzawheel`, `bonanzapath`, `bonanzatitle`,
 `bonanzaexit`, `bonanzamega`.
+
+### 130.50 Songs in their courses, the sound in the bundle (the owner, 2026-11-19)
+
+The owner: *"Victory/death are sounds always loaded, and each course's song
+will be unique to that course. This may be part of why load times have been
+going up ... lets explore putting victory/death into the shared resident
+part, and each course's song in with its course part (if that means
+duplication, where one song goes in multiple course parts right now that is
+fine; as I said, each course gets its own song for the release)."* And, on
+the held memory: *"yes: But check, I think there is already a shared
+family/ball part; if it has room, it can go in that and save an extra int13h
+even on initial load."* The plan and its measurements are
+[docs/plans/BOUNCE-BONANZA-SONGS.md](docs/plans/BOUNCE-BONANZA-SONGS.md).
+
+#### 130.50.1 What a launch fetched (MEASURED before)
+
+MartyPC's 5150 (4.77 MHz, CGA, the 360 KB disks), a breakpoint at every
+`op_fetch` to the first frame: a launch fetched the course, then the sound
+part (`BZSND.BIN`, 1,383 bytes), the course's song, VICTORY and TIME'S UP -
+each given back at the play's end and fetched again at the next. A part
+whose sectors were not in the track already read cost a floppy read,
+0.3 - 0.5 s: the sound was **0.24 s of FIRST's 1.98 s** (no read), **about
+1.0 s of PEAK's 3.47 s** and **0.85 s of MOON's 2.95 s** (two reads each).
+
+#### 130.50.2 The sound part, VICTORY and TIME'S UP in the RESIDENT BUNDLE (BUILT)
+
+The RESIDENT BUNDLE (130.25.6.9, 130.25.5.2) is ONE row, read once by
+`bz_entry`, the arena's floor, never dropped while BONANZA runs. The sound
+rides it, between the balls and the families:
+
+| bundle byte | holds |
+|---|---|
+| 0 | the three balls (`BZ_BALB` bytes, 130.25.5.2) |
+| `BZ_BALB` = `BZ_SNDP` x 16 | `BZSND.BIN`, padded to a paragraph |
+| `BZ_VICP` x 16 | the VICTORY song, padded |
+| `BZ_TUPP` x 16 | the TIME'S UP song, padded |
+| `BZ_FAMB` | the resident families (130.25.6.9's walk starts here) |
+
+- **The tool**: `bbcourse.sound_block()` (the music's own parts, through
+  `bbmusic.load_parts`) and `fam_bundle`, which lays it after the balls;
+  `bzcourse.inc` carries `BZ_SNDP`, `BZ_VICP`, `BZ_TUPP` (paragraphs of the
+  bundle) and `BZ_FAMB`, and `bonanza.asm` refuses a bundle whose sound does
+  not start at `BZ_BALB`. The bundle's rule in the Makefile depends on the
+  music's sources. `crs_arena` (`BZ_CRS_ARENA`) no longer counts them.
+- **The guest**: `bz_bsload` derives `bzs_pseg`, `bzs_vseg` and `bzs_tseg`
+  from the bundle with `OSAPI_SEG`'s `SEG_SUB`, as it derives the balls' -
+  no segment arithmetic, so kern_mega gets the bundle's DATA selector at
+  each - and copies the sound part's header tables (`bzs_ptab`, what
+  `bzs_fsnd` did); `bz_arload` re-derives them whenever the arena may have
+  moved. `bzs_fsnd`, the sound part's row and its fetch and drop, and the
+  fanfare's and TIME'S UP's fetches and drops are gone; `bzs_gdrop0` gives
+  back the course's song alone.
+- **The finish's gate**: "the fanfare is held" was the test that a play's
+  finish has its tune (the GOAL and TIMEOUT effects suppressed for it,
+  130.22.9, 130.22.9.1). The tunes are always here now, so the test is
+  **`bzs_fin`**, set by `bzs_gfetch` for a PLAY (`bz_mode` 0) of a COURSE
+  (`bz_crs` < `BZ_NCRS`) with music (`bzs_mode` < `BZS_M_FX`), and cleared
+  by `bzs_gdrop0`: a replay's, a demo's or EFFECTS ONLY's finish still
+  plays its GOAL effect.
+- **Costs**: the bundle +1,776 bytes of RAM held for the instance (the
+  sound part 1,392, VICTORY 224, TIME'S UP 160 as paragraphs), no new row
+  and no new read: the open's one bundle read grows by their packed bytes.
+  kern_small fetches no bundle and plays nothing, as before.
+- **MEASURED after** (the same probe): **PEAK 3.47 -> 2.69 s, MOON 2.95 ->
+  2.68 s**; what a launch still fetches for sound is the course's song (PEAK
+  0.35 s, MOON 0.45 s, a read each) - 130.50.3's. TIME'S UP plays at a
+  timeout from the bundle's copy (MartyPC's CGA, FIRST, the clock poked).
+- **Rows**: `bonanzasound` (the first song's row one earlier; sound OFF
+  keeps no SONG - the sound part is held), `bonanzaexit` (`padleak`'s red
+  now keeps MOON's song at the cup), `bonanzapath` (the finish's tune).
+
+#### 130.50.3 Each course's song in its course part (PLANNED)
+
+The song becomes a section of the course part, so a launch reads it with
+the course: tag `S`, form PLAIN, the LAST section of the part (of the WORLD
+part for a two-part course, the one at `bz_cseg`), its RAM span the zeros to
+the next paragraph and then the song, so the guest derives the song's
+segment with `OSAPI_SEG` and the player reads it at offset 0 as now. A song
+two courses share is copied into both. The course's IDENTITY (130.15.7) is
+taken without `S`, so a change of music never re-stamps a demo or refuses a
+replay. The pathway's and the title's parts carry theirs the same way. Then
+the song rows go.

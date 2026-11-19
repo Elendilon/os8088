@@ -808,13 +808,30 @@ def fam_balls(art):
     return out
 
 
-def fam_bundle(parts, balls):
-    """the RESIDENT BUNDLE's bytes (SPEC.md 130.25.6.9, 130.25.5.2): BALLS (fam_balls: the three balls'
-    BZB3 parts, which the guest generates in place once, at the open), then from BZ_BALB on FAM_RES's
-    parts out of PARTS ({name: the part's own bytes}) in ID order, each padded to a paragraph, its
-    header's +11 its paragraphs.  BALLS None: the layout before 130.25.5.2 (a harness's older tree)"""
+def sound_block():
+    """SPEC.md 130.50.2: the RESIDENT BUNDLE's SOUND, after the balls - the sound part BZSND.BIN, the VICTORY
+    fanfare and TIME'S UP, each padded to a paragraph -> (its bytes, (the sound part's, VICTORY's, TIME'S
+    UP's paragraph within it)).  Empty when the music does not build (bbmusic's error to report)"""
+    snd, songs, fin = _music()
+    if not snd or None in fin:
+        return b"", (0, 0, 0)
+    out, at = bytearray(), []
+    for blob in (snd, songs[fin[0]], songs[fin[1]]):
+        at.append(len(out) >> 4)
+        out += blob + bytes(-len(blob) & 15)
+    return bytes(out), tuple(at)
+
+
+def fam_bundle(parts, balls, sound=True):
+    """the RESIDENT BUNDLE's bytes (SPEC.md 130.25.6.9, 130.25.5.2, 130.50.2): BALLS (fam_balls: the three
+    balls' BZB3 parts, which the guest generates in place once, at the open), then the SOUND (sound_block,
+    unless SOUND is False: a harness's older tree), then from BZ_FAMB on FAM_RES's parts out of PARTS
+    ({name: the part's own bytes}) in ID order, each padded to a paragraph, its header's +11 its
+    paragraphs.  BALLS None: the layout before 130.25.5.2 (a harness's older tree)"""
     assert balls is None or len(balls) == sum(BA.B2_SIZE), "the bundle's head is the three balls' RAM forms"
     out = bytearray(balls or b"")
+    if balls is not None and sound:
+        out += sound_block()[0]
     for f in FAM_RES:
         b = bytearray(parts[f["name"]])
         assert b[:2] == b"BF" and b[2] == f["id"] and b[FAM_HDR_PARAS] == 0, \
@@ -19491,6 +19508,12 @@ def emit_inc(courses, path=None, title=None):
               "BZ_NFROW        equ %d        ; the family part rows" % fam_nrows(),
               "BZF_HPARAS      equ %d       ; a part's header byte: its paragraphs inside the bundle (0 alone)"
               % FAM_HDR_PARAS,
+              "BZ_SNDP         equ %d     ; SPEC.md 130.50.2: the bundle's sound part, its paragraph (after "
+              "the balls)" % ((sum(BA.B2_SIZE) >> 4) + sound_block()[1][0]),
+              "BZ_VICP         equ %d     ; ...VICTORY's" % ((sum(BA.B2_SIZE) >> 4) + sound_block()[1][1]),
+              "BZ_TUPP         equ %d     ; ...TIME'S UP's" % ((sum(BA.B2_SIZE) >> 4) + sound_block()[1][2]),
+              "BZ_FAMB         equ %d     ; ...and the families' first byte, past it (bz_fbfind's walk)"
+              % (sum(BA.B2_SIZE) + len(sound_block()[0])),
               "BZ_FAMMAX       equ %d       ; the slots (bz_frec, bz_fsl): EVERY family of the build, so a "
               "course may name them all (SPEC.md 130.25.6.5)" % fam_slots(),
               "BZ_FHENT        equ %d       ; the hook lists' entries (bz_fhl): every family's hooks, summed "
@@ -19798,14 +19821,11 @@ def crs_arena(c, k, ncrs):
     CLAIM_SLACK past a part's paragraphs, and the batch's peak is the last
     part's fetch over everything before it.  A part of a play that wants less
     (a replay, sound OFF) leaves the reserve unused and bz_arload fits it"""
-    snd, songs, fin = _music()
-    n = _para(len(snd))                 # (no ball: the balls are the arena's floor, held, 130.25.5.2)
-    sk = course_song(c, k)
+    _snd, songs, _fin = _music()
+    n = 0                               # (no ball, and no sound part, fanfare or TIME'S UP: the BUNDLE's, the
+    sk = course_song(c, k)              # arena's floor, held - 130.25.5.2, 130.50.2)
     if sk < len(songs):
         n += _para(len(songs[sk]))
-    for f in fin:                       # the fanfare and (130.22.9.1) the time's-up tune, a course's
-        if k < ncrs and f is not None and f < len(songs):
-            n += _para(len(songs[f]))
     src = getattr(c, "src", None)                   # wave 9 (130.25.6.2): its FAMILIES' parts, the batch's
     n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ())    # last fetches, each at its ceiling - a
              if fm.get("home", HOME_FETCH) == HOME_FETCH)           # RESIDENT one is the arena's floor already (130.25.6.9)
