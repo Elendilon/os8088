@@ -173,12 +173,14 @@ F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
             "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
-            "L": F_PLAIN, "Y": F_PLAIN}   # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
+            "L": F_PLAIN, "Y": F_PLAIN,   # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
+            "S": F_PLAIN}             # SPEC.md 130.50.3: the course's SONG, its (world) part's last section
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
              "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
              "F": "the FIELD cells' tables",
              "T": "ROWTAB",
-             "W": "the route", "P": "the props", "L": "the lanes' pose maps", "Y": "the bands' top biases"}
+             "W": "the route", "P": "the props", "L": "the lanes' pose maps", "Y": "the bands' top biases",
+             "S": "the course's song"}
 # SPEC.md 130.30: a course past one part is TWO - the PICTURE part (these tags, BZ<K>.BIN, its magic BZP2) and the
 # WORLD part (every other tag, BZ<K>W.BIN, BZW2); one part keeps BZC2
 PIC_TAGS = "MBIRKOYL"
@@ -10824,6 +10826,44 @@ def _non_course():
     return bbmusic.NON_COURSE
 
 
+def attach_song(c, song):
+    """SPEC.md 130.50.3: course C's parts re-encoded with SONG (its music's own part, bbmusic's) as section S,
+    the (world) part's last - .model, .cga, .stored, the world part's, the Hercules' forms and .part.  The
+    identity does not move (it is taken without the song).  Refused past one part's PARTMAX"""
+    m = dict(c.model, song=bytes(song) if song else None)
+    fname = c.fname
+    if not c.split:
+        if one_part_len(m, 4) > PARTMAX:
+            raise CourseError("%s: with its song the part is %d bytes, over the %d one part may be (SPEC.md "
+                              "130.50.3)" % (fname, one_part_len(m, 4), PARTMAX))
+        cga, wcga = encode_part(m, 4, fname), None
+    else:
+        for nm, ln in zip(("picture", "world"), two_part_lens(m, REC)):
+            if ln > PARTMAX:
+                raise CourseError("%s: with its song the course's %s part is %d bytes, over the %d one part may "
+                                  "be (SPEC.md 130.50.3)" % (fname, nm, ln, PARTMAX))
+        cga, wcga = encode_parts(m, REC, fname)
+    c.model = m
+    c.cga = bytes(cga)
+    c.stored = stored_form(m, REC, c.cga, fname)
+    if expand(c.stored, fname) != c.cga:
+        raise CourseError("%s: the stored form does not expand to the RAM form (with its song)" % fname)
+    if c.split:
+        c.wcga = bytes(wcga)
+        c.wstored = stored_form(m, REC, c.wcga, fname)
+        if expand(c.wstored, fname) != c.wcga:
+            raise CourseError("%s: the world part's stored form does not expand to its RAM form (with its song)"
+                              % fname)
+        c.herc, c.wherc = herc_translate_parts(c.cga, c.wcga)
+    else:
+        c.herc = herc_translate_course(c.cga)
+    c.part_bytes = c.stored
+    c.part = read_parts(c.cga, c.wcga, fname) if c.split else read_part(c.cga, fname)
+    if c.part["ident"] != c.ident:
+        raise CourseError("%s: the song moved the identity (SPEC.md 130.50.3: it must not)" % fname)
+    return c
+
+
 def course_song(c, k):
     """the song course K plays: its `music`, else K - 1 (BENCH 0), past the
     last course song wrapping to 0 (130.20.6's rule, now the tool's; 130.26.5
@@ -13150,9 +13190,13 @@ def part_layout(m, recb, bzc2=True):
              ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
     if m["props"]:
         lens.append(("P", len(m["props"]["blob"])))
+    if bzc2 and m.get("song"):
+        lens.append(("S", len(m["song"])))
     off = HDR if bzc2 else HDR1
     sec = {}
     for t, n in lens:
+        if t == "S":                    # SPEC.md 130.50.3: zeros to the next paragraph, then the song
+            n += -off & 15
         sec[t] = (off, n)
         off += n
     return [t for t, n in lens], sec, off
@@ -13360,10 +13404,24 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         for o in m["props"]["blk"]:
             struct.pack_into("<H", pb, o, struct.unpack_from("<H", pb, o)[0] + blkoff)
         b[propoff:propoff + len(pb)] = pb
+    if "S" in sec and sec["S"][1]:      # SPEC.md 130.50.3: the song at the section's end, a paragraph's start
+        off, ln = sec["S"]
+        b[off + ln - len(m["song"]):off + ln] = m["song"]
     for j, t in enumerate(present):
         off, ln = sec[t]
         struct.pack_into("<BBHHH", b, diroff + DIRENT * j, ord(t), sec_form(t, m), off, ln, stored_len(t, m, ln))
     return b
+
+
+def _song_of(p, off, ln):
+    """section S's song: its bytes from the first paragraph at or after OFF to the section's end"""
+    return bytes(p[off + (-off & 15):off + ln])
+
+
+def _nosong(m):
+    """the model without its song: what a course's IDENTITY is taken over (SPEC.md 130.50.3 - a change of music
+    re-stamps no demo and refuses no replay)"""
+    return dict(m, song=None) if m.get("song") else m
 
 
 def _ident_bytes(p8):
@@ -13384,14 +13442,22 @@ def _ident_bytes(p8):
 def ram_identity(p):
     """the course's identity from any BZC2 RAM form: Fletcher's pair over the
     RAM form AS RECB 8 LAYS IT OUT (130.15.7), whatever this part's RECB"""
-    if p[32] != 8:
-        p = _encode(decode_part(p), 8)
+    if p[32] != 8 or _has_song(p):      # (SPEC.md 130.50.3: the identity is taken without the song)
+        p = _encode(_nosong(decode_part(p)), 8)
     return _fletcher(_ident_bytes(p))
+
+
+def _has_song(p):
+    """a BZC2 RAM form whose directory has an S section"""
+    if p[:4] not in (b"BZC2", MAGIC_WORLD, MAGIC_PIC):
+        return False
+    do, ns = struct.unpack_from("<HH", p, 38)
+    return any(p[do + DIRENT * j] == ord("S") for j in range(ns))
 
 
 def encode_part(m, recb, fname="<course>"):
     """the model's RAM form under RECB `recb`, its identity stamped (130.15.7)"""
-    ident = _fletcher(_ident_bytes(_encode(m, 8, fname=fname)))
+    ident = _fletcher(_ident_bytes(_encode(_nosong(m), 8, fname=fname)))
     return bytes(_encode(m, recb, ident=ident, fname=fname))
 
 
@@ -13465,8 +13531,11 @@ def decode_part(p):
     celloff = gridoff + GHDR
     cells = bytearray(p[celloff:celloff + 4 * kw * nrows])
     pairs = ftabs = b""
+    pend, song = diroff, None                       # SPEC.md 130.50.3: the props end where S begins
     for j in range(nsec):                           # SPEC.md 130.24.5.2: section D, if there is one
         tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
+        if tag == ord("S"):
+            pend, song = off, _song_of(p, off, ln)
         if tag == ord("F"):                         # SPEC.md 130.28.2: section F, the FIELD tables
             ftabs = bytes(p[off:off + ln])
         if tag == ord("D"):
@@ -13480,11 +13549,11 @@ def decode_part(p):
                   "gflags": gflags, "padmask": padmask, "view": gview},
          "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
-         "props": None, "pth": (diroff - pthoff) if pthoff else 0,
-         "npages": npages, "fam": ((pthoff or diroff) - famoff) if famoff else 0, "nfam": nfam}
+         "props": None, "pth": (pend - pthoff) if pthoff else 0,
+         "npages": npages, "fam": ((pthoff or pend) - famoff) if famoff else 0, "nfam": nfam, "song": song}
     m["kit"] = kit_decode([p]) if bzc2 else {}      # SPEC.md 130.37.4
     if nprop:
-        end = diroff if bzc2 else len(p)
+        end = pend if bzc2 else len(p)
         pb = bytearray(p[propoff:end])
         selfp, blkp = [], []
         for i in range(nprop):
@@ -13551,10 +13620,14 @@ def part_layout2(m, recb):
           ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
     if m["props"]:
         lb.append(("P", len(m["props"]["blob"]) - pm))
+    if m.get("song"):                   # SPEC.md 130.50.3: the WORLD part's last section
+        lb.append(("S", len(m["song"])))
     out = []
     for lens in (la, lb):
         off, sec = HDR, {}
         for t, n in lens:
+            if t == "S":                # zeros to the next paragraph, then the song
+                n += -off & 15
             sec[t] = (off, n)
             off += n
         out.append(([t for t, _n in lens], sec, off))
@@ -13659,6 +13732,9 @@ def _encode2(m, recb, ident=0, fname="<course>"):
             v = loff + v - rl if rl <= v < rl + pm else propoff + v - (pm if v >= rl + pm else 0)
             struct.pack_into("<H", pw, o, v)
         b[propoff:propoff + len(pw)] = pw
+    if "S" in sb and sb["S"][1]:        # SPEC.md 130.50.3: the song at the section's end, a paragraph's start
+        off, ln = sb["S"]
+        b[off + ln - len(m["song"]):off + ln] = m["song"]
     for buf, sec, end, present in ((a, sa, ea, pa), (b, sb, eb, pb)):
         for j, t in enumerate(present):
             off, ln = sec[t]
@@ -13685,15 +13761,15 @@ def _ident_bytes2(a, b):
 def ram_identity2(a, b):
     """a two-part course's identity from its RAM forms: Fletcher's pair over its RECB 4 parts (130.30.4.3), a
     RECB 8 build's parts re-encoded as D first"""
-    if a[32] != 4:
-        a, b = _encode2(decode_parts(a, b), 4)
+    if a[32] != 4 or _has_song(b):      # (SPEC.md 130.50.3: the identity is taken without the song)
+        a, b = _encode2(_nosong(decode_parts(a, b)), 4)
     return _fletcher(_ident_bytes2(a, b))
 
 
 def encode_parts(m, recb, fname="<course>", _hack=None):
     """the model's two parts under RECB `recb`, the identity stamped -> (picture, world) bytes.  _hack:
     --selfcheck item 15's red arm `ident1` (the identity over the world part alone)"""
-    a4, b4 = _encode2(m, 4, fname=fname)
+    a4, b4 = _encode2(_nosong(m), 4, fname=fname)
     ib = _ident_bytes2(a4, b4)
     ident = _fletcher(ib[len(a4):] if (_hack or {}).get("ident1") else ib)
     return tuple(bytes(x) for x in _encode2(m, recb, ident=ident, fname=fname))
@@ -13714,6 +13790,7 @@ def decode_parts(a, b):
         return {chr(p[do + DIRENT * j]): struct.unpack_from("<HH", p, do + DIRENT * j + 2) for j in range(ns)}
     ea, eb = ents(a), ents(b)
     dirb = struct.unpack_from("<H", b, 38)[0]
+    pendb = eb["S"][0] if "S" in eb else dirb       # SPEC.md 130.50.3: the props end where S begins
     idx = [(w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * brows), a, HDR)]
     oi = struct.unpack_from("<%dH" % (brows + 1), a, occidx)
     recs = []
@@ -13748,11 +13825,12 @@ def decode_parts(a, b):
                   "gflags": gflags, "padmask": padmask, "view": gview},
          "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
          "route": [struct.unpack_from("<HH", b, routeoff + 4 * i) for i in range(nway)], "ways": None,
-         "props": None, "pth": (dirb - pthoff) if pthoff else 0,
-         "npages": npages, "fam": ((pthoff or dirb) - famoff) if famoff else 0, "nfam": nfam,
+         "props": None, "pth": (pendb - pthoff) if pthoff else 0,
+         "npages": npages, "fam": ((pthoff or pendb) - famoff) if famoff else 0, "nfam": nfam,
+         "song": _song_of(b, *eb["S"]) if "S" in eb else None,
          "kit": kit_decode([a, b])}                 # SPEC.md 130.37.4
     if nprop:
-        pw = bytearray(b[propoff:dirb])
+        pw = bytearray(b[propoff:pendb])
         rl = PROPREC * nprop
         loff, pm = ea.get("L", (0, 0))
         pmb = bytearray(a[loff:loff + pm])
@@ -14340,8 +14418,16 @@ def _read_bzc2(p, pw, fname, split=False):
     want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
              ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("F", gridoff + GHDR + 4 * kw * nrows + dlen, flen),
              ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
+    send = wdiroff if split else diroff             # SPEC.md 130.50.3: S, the (world) part's last section
+    for j in range(wnsec if split else nsec):
+        if pw[send + DIRENT * j] == ord("S"):
+            so, sl = struct.unpack_from("<HH", pw, send + DIRENT * j + 2)
+            if sl <= -so & 15 or any(pw[so:so + (-so & 15)]):
+                bad("section S", "(%d, %d): not zeros to the next paragraph and then a song" % (so, sl))
+            want.append(("S", so, sl))
+            send = so
     if nprop:
-        want.append(("P", propoff, (wdiroff if split else diroff) - propoff))
+        want.append(("P", propoff, send - propoff))
     wantd = {t: (o, ln) for t, o, ln in want}
     ents, seen = [], set()
     for k, (q, do, ns) in enumerate(dirs):
@@ -14467,7 +14553,7 @@ def _read_bzc2(p, pw, fname, split=False):
     if bool(gflags & GF_PAGED) != bool(pthoff) or bool(gflags & GF_PAGED) != (1 <= npages <= PATH_PAGES) \
             or (not gflags & GF_PAGED and npages):
         bad("+42", "PTHOFF %d, NPAGES %d with FLAGS %02Xh" % (pthoff, npages, gflags))
-    if pthoff and (not nprop or not propoff + PROPREC * nprop <= pthoff < diroff):
+    if pthoff and (not nprop or not propoff + PROPREC * nprop <= pthoff < send):
         bad("PTHOFF", "%d is not inside the props" % pthoff)
     if amin & 1:
         bad("AMIN", "odd")
@@ -14485,7 +14571,7 @@ def _read_bzc2(p, pw, fname, split=False):
     for r, o in enumerate(rt):
         if o < celloff or o + 4 * kw > cellend:
             bad("ROWTAB[%d]" % r, "row outside the cells")
-    if routeoff != rowtab + 2 * nrows or routeoff + 4 * nway != (propoff if nprop else diroff):
+    if routeoff != rowtab + 2 * nrows or routeoff + 4 * nway != (propoff if nprop else send):
         bad("route", "offset %d, %d ways" % (routeoff, nway))
     route = [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)]
     for (bx, by) in route:
@@ -14575,7 +14661,7 @@ def _read_bzc2(p, pw, fname, split=False):
     if bool(nfam) != bool(famoff) or nfam > len(FAMILIES):
         bad("+45", "NFAM %d with FAMOFF %d" % (nfam, famoff))
     if famoff:
-        fend = pthoff or diroff
+        fend = pthoff or send
         if not nprop or not propoff + PROPREC * nprop <= famoff < fend:
             bad("FAMOFF", "%d is not inside the props" % famoff)
         fams = [tuple(p[famoff + 2 * j:famoff + 2 * j + 2]) for j in range(nfam)]
@@ -14589,7 +14675,7 @@ def _read_bzc2(p, pw, fname, split=False):
         if len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])) > FAM_MAX:
             bad("FAMOFF", "%d fetched families, over the %d a course may name" % (
                 len(fam_fetched([FAM_BY_ID[x] for x, _v in fams if x in FAM_BY_ID])), FAM_MAX))
-    props = read_props(p, propoff, nprop, blkoff, occidx, bad, famoff or pthoff or diroff,
+    props = read_props(p, propoff, nprop, blkoff, occidx, bad, famoff or pthoff or send,
                        pmaps=(p_, maskend, llen) if split else None) if nprop else []
     fk = [k for fid, _v in fams for k in FKIND if FKIND[k][0]["id"] == fid]
     for d in props:                                 # wave 9: every family element's family is listed, its
@@ -14603,7 +14689,7 @@ def _read_bzc2(p, pw, fname, split=False):
                     d["fsb"], d["bits"], nfst))
     path = None
     if pthoff:
-        path = read_path_tables(p, pthoff, diroff, max([d["num"] + 1 for d in props if d["kind"] == PK_SIGN] + [0]),
+        path = read_path_tables(p, pthoff, send, max([d["num"] + 1 for d in props if d["kind"] == PK_SIGN] + [0]),
                                 fname)
     # wave 4: the header's flags and pad mask are the records' (SPEC.md 130.14.4.2)
     kinds = [d["kind"] for d in props]
@@ -19813,8 +19899,8 @@ def emit_inc(courses, path=None, title=None):
               "%endmacro", ""] + emit_wrows(courses) + [
               "; wave 4's shipped demos (SPEC.md 130.14.7.4): one a course but BENCH, K 1 - BZ_NCRS - 1,",
               "; BZD<K>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
-              "; rows follow the songs': demo K at BZ_P_DEMO + K - 1 (bonanza.asm defines",
-              "; BZ_P_DEMO = BZ_P_SONG + BZS_NSONG)",
+              "; rows follow the courses' and the WORLD parts': demo K at BZ_P_DEMO + K - 1 (no sound",
+              "; rows since SPEC.md 130.50)",
               "BZ_NDEMO        equ %d" % (len(courses) - 1),
               "%macro BZ_DEMO_PARTS 0",
               " %rep BZ_NDEMO",
@@ -19982,11 +20068,9 @@ def crs_arena(c, k, ncrs):
     CLAIM_SLACK past a part's paragraphs, and the batch's peak is the last
     part's fetch over everything before it.  A part of a play that wants less
     (a replay, sound OFF) leaves the reserve unused and bz_arload fits it"""
-    _snd, songs, _fin = _music()
     n = 0                               # (no ball, and no sound part, fanfare or TIME'S UP: the BUNDLE's, the
-    sk = course_song(c, k)              # arena's floor, held - 130.25.5.2, 130.50.2)
-    if sk < len(songs):
-        n += _para(len(songs[sk]))
+                                        # arena's floor, held - 130.25.5.2, 130.50.2; and no song: the
+                                        # course part's own section S, 130.50.3)
     src = getattr(c, "src", None)                   # wave 9 (130.25.6.2): its FAMILIES' parts, the batch's
     n += sum(fm["paras"] for fm, _l in getattr(src, "uses", ())    # last fetches, each at its ceiling - a
              if fm.get("home", HOME_FETCH) == HOME_FETCH)           # RESIDENT one is the arena's floor already (130.25.6.9)
@@ -20639,6 +20723,10 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         raise CourseError("%s: --title names a course with no `title` statement" % title)
     if any(c.src.title_ln is not None for c in courses) or (pc is not None and pc.src.title_ln is not None):
         raise CourseError("the title is --title's, never a course of BZ_COURSES or the pathway")
+    songs = _music()[1]                            # SPEC.md 130.50.3: each course's song in its own part - the
+    for k, c in enumerate(_allc(courses, pc, tc)):  # pathway's and the title's too, at emit_inc's numbering
+        if songs:
+            attach_song(c, songs[course_song(c, k)])
     for k, c in enumerate(courses):
         c.packed4 = check_budget(c, k)
     files = {}

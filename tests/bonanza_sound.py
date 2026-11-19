@@ -499,9 +499,9 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             g.key("KeyF")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 30, "the bracket is up", guest=60)
             m.pause()
-            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != p_snd + 1:
-                fails.append("play: arm %d, song row %d - not arm %d, row %d (song 0)"
-                             % (g.b("bzs_arm"), g.b("bzs_song"), want_arm, p_snd + 1))
+            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != 1:   # (SPEC.md 130.50.3: the course part's song)
+                fails.append("play: arm %d, song %d - not arm %d and the course part's song (1)"
+                             % (g.b("bzs_arm"), g.b("bzs_song"), want_arm))
             if only not in ("mat", "noboost"):
                 for k in range(3):
                     for _ in range(25 + 40 * k):

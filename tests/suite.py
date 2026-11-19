@@ -5632,7 +5632,7 @@ SOAK = [
         "groove step and sub-ticks left against bbmusic.Seq stepped bzs_nsub sub-ticks. "
         "SPEAKER leg (os8088_5150_cga_gla): the title on the desktop and the Hz the "
         "speaker last sent against the model's fold; S's four choices (OFF giving both "
-        "parts back); FIRST's song (row BZ_P_SONG + 1) in the bracket; each ball's bounce, "
+        "parts back); FIRST's song (its course part's section S, SPEC.md 130.50.3) in the bracket; each ball's bounce, "
         "wall and bumper poked into bz_nbnc / bz_nwall - the slot holds that ball's effect "
         "and the three balls' differ; Esc back to the title. ADLIB leg (os8088_5150_sb, "
         "SOUND.DRV at boot): the same state checks, and whenever no voice is dirty every "
