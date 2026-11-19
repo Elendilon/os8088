@@ -2138,7 +2138,8 @@ def fam_host():
         ff = dict(fam)
         row = max(ff)
         b = bytearray(ff[row])
-        b[sum(BB.BA.B2_SIZE) + BB.FAM_HDR_PARAS] += 1   # (the first FAMILY header: past the balls, 130.25.5.2)
+        b[sum(BB.BA.B2_SIZE) + len(BB.sound_block()[0]) + BB.FAM_HDR_PARAS] += 1   # (the first FAMILY header: past
+                                                # the balls, 130.25.5.2, and the sound, 130.50.2)
         ff[row] = bytes(b)
         cf = []
         for parts in (fam, ff):                 # (the control first: the same leg, the build's bundle)
