@@ -51972,8 +51972,9 @@ step may shed a purgeable cache before the exact need is tried.
 row pokes: while it is non-zero `op_areserve` reserves nothing and the arena
 is claimed from the CEILING (`MEMP_CLAIM_HI`), under the claims stacked
 there, so the batch's next growth cannot extend it in place and MOVES it -
-the move the shifting above exists for, made on demand (BONANZA's
-`bz_arforce`, §130.25.13). Without the define it is not assembled.
+the move the shifting above exists for, made on demand (BONANZA defined it
+as `bz_arforce` until it was dropped as unreachable, §130.25.13). Without
+the define it is not assembled, and no shipped package defines it now.
 
 **What it costs** (MEASURED, BONANZA, the one table with `OP_ARENA` rows):
 **407 bytes** of the standard - `op_fetch` +99 (357 -> 456), `op_drop` +11
@@ -254590,10 +254591,12 @@ blocks.
    play**: `bz_goal = 1`. The benchmark ignores the goal.
 9. `nstep += 1`, and the SCREEN state is derived (130.10.8).
 
-`h4` and the products `sx u`, `sy v` come from a 256-byte table in the
-package, `T[(n & 15) << 4 | u] = n u` for signed `n` -8..7 and `u` 0..15
-(at most 120 in size, a signed byte): two table reads where an 8088 `IMUL`
-is about 90 clocks each. The 24.8 height is `h4 << 6`. Step 2's `sx gvx`
+`h4` and the products `sx u`, `sy v` come from a 128-byte table in the
+package, `T[n << 4 | u] = n u` for `n` 0..7 and `u` 0..15; a negative `n`
+is `-(T[(~n) << 4 | u] + u)` (the index the slope nibble XOR `F0h`), so
+every product is at most 120 in size, a signed byte: two table reads where
+an 8088 `IMUL` is about 90 clocks each, about 30 clocks more for a negative
+slope (the 256-byte table of every signed `n` until 2026-11-19). The 24.8 height is `h4 << 6`. Step 2's `sx gvx`
 is a word times `|s| <= 4`: shifts and an add, no `IMUL`. Integer `(u, v)`
 in step 5 ignores the 8-bit fractions, and `bbcourse.Physics` does exactly
 the same. **That makes the edge test ASYMMETRIC, and wave 1 keeps it**: the
@@ -271801,6 +271804,14 @@ before.
   strings in a box centred on the 200 lines and the window's `bz_W` cells,
   a white rule round it, straight into the shown page by the formula
   above, a cell a word through `bz_x4` (a nibble's bits doubled).
+  **`bz_font` is the bracket's only**: loaded afresh at every entry, it is
+  free on the desktop, where the player's face uses it as scratch
+  (`bzwface.inc`) and `bz_dsave`'s copy of ours, `bz_dmine`, IS it (an
+  `equ`, 2026-11-19: `BZD_FILE` bytes saved, an `%error` if the file
+  outgrows the 512). The instruments' face line `bz_lbuf` likewise IS the
+  first `BZ_LMAX + 2` bytes of `bz_boxbuf`, the bracket's box buffers and a
+  fetch's scratch (`bz_cexp`, `bz_ballgen`, `bz_hgen` then `bz_hxlat`): a
+  line is built and drawn at once on the desktop, and no fetch runs between.
 - **P** shows `PAUSED` / `P RESUME  R RETRY  ESC MAP` on a GAME's course
   (`bz_gcourse`), `PAUSED` / `P RESUME  ESC QUIT` in a free play and on the
   pathway. Resuming sets `bz_freq`, which the frame loop ORs into
@@ -271843,7 +271854,10 @@ before.
   **X** twice erases it (the first press arms, the second within the same
   face erases: the slot zeroed and written); **E** toggles the slot's
   MODE, TIMED or EXPLORE. Enter's line shows them: `ENTER PLAY  SLOT n
-  LIVES l  TIMED|EXPLORE`.
+  LIVES l  TIMED|EXPLORE`. **Gone since 2026-11-19**: no row pressed
+  them and the window's Saves menu (130.26) does all three, so the
+  instruments' face (130.26.6) dropped them to free room; the title's
+  bracket keeps its own 1 2 3 and S (130.23).
 - **The slot's +1** becomes the MODE (bit 0: 1 EXPLORE; bits 1 - 7 zero, the
   rest of the hostility unchanged), and **+24 - +39** the slot's BEST a
   course (a word a course K, steps, 0 none); +40 - +47 stay zero.
@@ -271861,11 +271875,11 @@ before.
   slot's best for the course; a node's sign is **GOLD** (4) at or under G,
   **SILVER** (3) at or under S, **DONE** (2) otherwise; the result card
   says `GOLD` or `SILVER` after the time.
-- **As built**: the face's line 0 (no tour) is `1 2 3 SLOT  E MODE  X
-  ERASE`, or `X AGAIN: ERASE SLOT n` after X's first press (any other key
-  disarms it); line 1 `ENTER SLOT n  LIVES l  TIMED|EXPLORE  F <NAME>` (N
-  still cycles F's course, M its ball). E and X write the slot at once
-  (`bz_gsave`, `bz_dsave`, at home). `bz_gmask` is the goal gate's set:
+- **As built**: the face's line 0 (no tour) is `BOUNCE BONANZA` (until
+  2026-11-19 it was `1 2 3 SLOT  E MODE  X ERASE`, or `X AGAIN: ERASE SLOT
+  n` after X's first press); line 1 `ENTER SLOT n  LIVES l  TIMED|EXPLORE  F <NAME>` (N
+  still cycles F's course, M its ball). The Saves menu's erase and mode
+  write the slot at once (`bz_gsave`, `bz_dsave`, at home). `bz_gmask` is the goal gate's set:
   the open nodes in TIMED, kept in step as edges open more, FFFFh in
   EXPLORE. The tool's medals today: FIRST 4/5 s, TRIAL 11/14, MILL 17/22,
   MOON 43/55, PEAK 40/52, PLAY 5/7.
@@ -275207,19 +275221,19 @@ the arena line of `tests/pins.txt` (its N debt) now holds the balls too.
   (`tests/bonanza_ring.py`'s `EXTRA_EQUS`).
 - **The arena is PINNED** in BONANZA (no `OP_ONMOVE`): its parts' segments sit
   in DS and ES under the frame, bucket C as before (tests/pins.txt).
-- **`bz_arforce`** (bss, a word, byte 0): the harness's `OP_ARFORCE` byte -
-  non-zero, `op_areserve` reserves nothing and the arena is claimed from the
-  ceiling, so the batch's next growth MOVES it (20.12.16). NOT driven by any
-  row yet: `bonanzamega`'s forced-move leg (130.25.13) is to be written on it.
-  **Since story 9.8 (130.25.6.9) the arena is claimed at `bz_entry`** by
-  the RESIDENT families' bundle's fetch, before any harness can set the
-  byte, so the ceiling claim no longer happens in a session: the forced-move
-  leg must arrange its move another way (a claim pressed against the
-  arena's top before the launch, or the byte honoured by `op_arset`'s
-  REGROW arm), or set the byte before the package starts.
-  SEEN once by hand (the verifier, MartyPC CGA, an F play of MOON with
-  `bz_arforce` 1): the arena claimed at 90A0h for the rubber ball moved to
-  2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
+- **`bz_arforce` is gone** (story 9.8's consequence; dropped 2026-11-19 to
+  free the package's window, 2 bytes of bss): it was the harness's `OP_ARFORCE` byte - non-zero,
+  `op_areserve` reserved nothing and the arena was claimed from the ceiling,
+  so the batch's next growth MOVED it (20.12.16). No row ever drove it, and
+  since story 9.8 (130.25.6.9) the arena is claimed at `bz_entry` by the
+  RESIDENT families' bundle's fetch, before any harness could set the byte,
+  so the ceiling claim no longer happened in a session. BONANZA no longer
+  defines `OP_ARFORCE`; `bonanzamega`'s forced-move leg (130.25.13), when it
+  is written, arranges its move another way (a claim pressed against the
+  arena's top before the launch) or brings the define back behind a knob.
+  SEEN once by hand while it existed (the verifier, MartyPC CGA, an F play of
+  MOON with the byte 1): the arena claimed at 90A0h for the rubber ball moved
+  to 2E40h at steel's growth, row 0's word shifted with it while `bz_bsegs`
   still held 90A0h, and after `bz_arload` every package word (the three
   balls, `bz_bseg`, `bzs_pseg`, `bzs_mseg`, `bzs_vseg`) equalled its row's
   and every arena part's bytes equalled its RAM form; the play drew, and Esc
@@ -276546,7 +276560,8 @@ that first new course replaces them.
   pathway held); every arena part dropped on every way out; a red arm drops
   the parts out of order and must still leave the arena empty.
 - **`bonanzamega`**: the family part far-called through `SEG_SUBC` on 86Box;
-  the arena moved by a regrow under it (a forced move, `bz_arforce`).
+  the arena moved by a regrow under it (a forced move: to be arranged without
+  `bz_arforce`, which is gone - 130.25.13).
 - **`bonanzaperf`**: the hook sites' price on a course with no family
   (within 0.1k a step of today), the sparkles' frames.
 - **`bonanza-check`** (`make`): the ball generator against `build_ball2`
@@ -277267,7 +277282,7 @@ ESTIMATED as in 130.18. The plan's stories are
 | the face | **pictures and one button, no text**: the title (130.26.2) centred near the top; a LEDGE with the rubber marble on it, running off the content's right edge; a standard **Play Game** button (`os88ui_btn`, 13.8's gesture) centred in the space LEFT of the ledge, its middle on the ledge's top face (the owner's mock-up, 2026-11-16 - first it stood at the bottom centre, in front of the ledge). The space between the title and the ledge is kept for a line or two of text later; today one line appears there only to say why Play Game is greyed (kern_small, an adapter the bracket cannot drive) | the owner's brief, and the look once built |
 | the size | **fixed** (`OSAPI_WM_PREFER`'s three sizes, no `WF_SIZABLE`): the art does not scale (the owner, 2026-11-16, reversing the first build's resizable window). The face still lays itself out from `OSAPI_WM_CONTENT` at every paint, and the button is re-placed before every press (`OS88UI_BT_PLACE`), as a clamped size or a moved window needs | the old size was the text's; the new one is the art's |
 | what draws it | the pictures and the ground in the SHELL PART (130.19.2, `BZH_FACE`), each picture one `OSAPI_GFX_BLIT1` and every other pixel one fill, nothing twice; the button in the resident image (the library's gesture is data the part may not write) after the part returns | 130.19.2's part keeps the face out of a play's memory; the button's record and its press are the package's |
-| the keys on the window | **Enter, Alt+Enter and F** are Play Game; **nothing else**. Every instrument key of 130.14.3.2 (B, R, D, W, L, V, N, M, C, G) and the old settings keys (E, T, S, 1 2 3, X) answer only while the harness byte **`bz_dev`** is set (130.26.6) | the brief: the menus carry the settings; the instruments are the rows' |
+| the keys on the window | **Enter, Alt+Enter and F** are Play Game; **nothing else**. Every instrument key of 130.14.3.2 (B, R, D, W, L, V, N, M, C, G) and the old settings keys (T, S; E, 1 2 3 and X until 2026-11-19, now gone: the Saves menu is theirs) answer only while the harness byte **`bz_dev`** is set (130.26.6) | the brief: the menus carry the settings; the instruments are the rows' |
 | the menus | **Game**: Play Game, Save Replay (F5), Load Replay... (F6), a rule, Explore, Use Mouse, Sound; **Saves**: Load Slot 1 / 2 / 3, a rule, Erase Slot 1 / 2 / 3 (130.26.3) | the brief |
 | a toggle's mark | **`* ` before a chosen item, two spaces before the rest**: the kernel's pull-down has no check mark (12.2) and its font no tick glyph (6.1, 32 - 126), so the mark is Tracker's (45.17.1) - a star the ITEM carries, never `MENU_DIS`, which means unavailable | the brief asks for check marks; this is the system's nearest |
 | the desktop's song | **gone**, and its track, `title.bmu`, with it: the window is silent. The game's songs keep their names; their numbers close up (130.26.5) | the brief |
@@ -277385,8 +277400,10 @@ identity moves (the song is not in it). `bonanzamusic` checks the manifest;
 
 A byte of bss the package NEVER sets: while it is 0 the window answers
 Enter, Alt+Enter and F alone; a row pokes it to 1 and the window answers
-130.14.3.2's keys as before - B, R, D, W, L, V, N, M, C, G, T, S, E, 1 2 3,
-X, and **F a free play** of the selected course (the rows' free plays).
+130.14.3.2's keys as before - B, R, D, W, L, V, N, M, C, G, T, S, and **F
+a free play** of the selected course (the rows' free plays). The old slot
+keys 1 2 3, E and X went on 2026-11-19 (130.19.8.3): the Saves menu is
+their door, and no row pressed them.
 The instruments' code stays (the rows are what they are for); only their
 door is shut. `bonanza_ring.Bz` pokes it at launch for every row.
 
@@ -278360,7 +278377,9 @@ profile keeps it, which is what caps the depth.
 - **The tables** (`bzphys.inc`): `BZ_FSYM`, for each symmetry the origin
   `17 V + U` of `(0, 0)`, the strides `DU`, `DV` (+-1, +-17), and which of
   four 17-entry word tables (`k`, `-k`, `17 k`, `-17 k`) walks `u` and which
-  `v`, so the index is two table reads and two adds; `bz_fsb` (bss), each
+  `v` (8 bytes an entry, each walk a BYTE offset from the first table, since
+  2026-11-19: 64 bytes less, about 25 clocks more a lookup), so the index is
+  two table reads and two adds; `bz_fsb` (bss), each
   shape's table's offset in the course, filled once by `bz_pinit` from
   section `F`'s directory entry.
 - **`bz_fhp`**: SI a FIELD cell, DL, DH = `(u, v)` -> AX = `h4`; the shape is

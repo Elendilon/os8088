@@ -363,7 +363,6 @@ bz_pinit:
     mov byte [bz_t55], BZ_SECSTEPS
 .nolim:
     call bz_tdset               ; (wave 7: the clocks' first digits)
-    xor ax, ax
     mov ax, 0fffah              ; every post starts dark: its last kick -6
     mov di, bz_pkick            ; (bbcourse.Physics's pkick)
     mov cx, BZ_PROPMAX
@@ -843,7 +842,7 @@ bz_step:
     or cl, 2
 .w2:
     mov [bz_wch], cl
-    BZ_START                    ; a new cell: the START's ground position kept
+    call bz_sstart              ; a new cell: the START's ground position kept
                                 ; for the fallback's undo (gx - gvx: only the
                                 ; move has touched it yet)
     call bz_win9i               ; the centre's new cell
@@ -876,26 +875,17 @@ bz_step:
     jnz .split                  ; path, the prop path's with its own step 5
     cmp byte [bz_wch], 0        ; the START for the fallback's undo, which
     jne .pst0                   ; wave 2 keeps only on a cell change (a post's
-    BZ_START                    ; push can change it here) ...
+    call bz_sstart              ; push can change it here) ...
 .pst0:                          ; (the lift's carry moves z alone, which the
                                 ; start does not keep: the undo takes it back)
-    mov byte [bz_pdoor], 1      ; the centre's cell's prop (bz_wol's cell 4):
-    mov ax, [bz_wcen]           ; a plain tube's IN, the capture test (step 4);
-    dec al                      ; a windmill's IN, its doorway (step 5)
-    js .walls
-    mov bl, al
-    xor bh, bh
-    cmp ah, BZ_PK_WINDMILL
-    jne .ptube
-    call bz_lrecsi
-    mov [bz_pdi], al
-    mov al, [es:si + BZP_TGVX]  ; 0 -x, 1 -y: bz_pdoor 2 or 3
-    add al, 2
-    mov [bz_pdoor], al
-    jmp short .walls
-.ptube:
+    call bz_sdoor               ; the centre's cell's prop (bz_wol's cell 4):
+    mov ax, [bz_wcen]           ; a windmill's IN, its doorway (step 5,
+    dec al                      ; bz_pdoor 2 or 3, else 1); a plain tube's IN,
+    js .walls                   ; the capture test (step 4)
     cmp ah, BZ_PK_TUBE
     jne .walls
+    mov bl, al
+    xor bh, bh
     call bz_tdrain              ; (the TUBE family's DRAIN, 130.25.20.2)
     jnc .walls
     jmp .end
@@ -1240,20 +1230,7 @@ bz_step:
 .pclr:                          ; ...CLEARED otherwise
     mov byte [bz_onp], 0
 .pps:
-    mov al, [bz_psp]            ; bz_ps (bz_psync's, in line: every step of
-    cmp byte [bz_wol], 0        ; the prop path ends here)
-    je .pp1
-    inc ax
-.pp1:
-    cmp byte [bz_tube], 0
-    je .pp2
-    or al, 2
-.pp2:
-    cmp byte [bz_onp], 0
-    je .pp3
-    or al, 4
-.pp3:
-    mov [bz_ps], al
+    call bz_psync               ; bz_ps (every step of the prop path ends here)
     ; ---- 8. SAFE and the goal: not shattering ----
 .safe:
     cmp byte [bz_mst], BZ_ST_SHAT
@@ -3914,8 +3891,9 @@ bz_dinner:
     stc
     ret
 
-; bz_sstart - BZ_START for the split path (its .split with a prop in the
-; window, bz_dinner's first push).  Clobbers AX, DX.
+; bz_sstart - BZ_START, the one instance: bz_step's new cell and its prop
+; path, the split path (its .split with a prop in the window, bz_dinner's
+; first push).  Clobbers AX, DX.
 bz_sstart:
     BZ_START
     ret
@@ -4159,8 +4137,10 @@ bz_dcorn:
 ; -----------------------------------------------------------------------------
 ; bz_h4 - the floor of the plane cell at SI (in bz_nbr) at its point (DL = u,
 ; DH = v, each 0 .. 16) in QUARTER px: h4 = 16 z0 + sx u + sy v (130.10.4.3).
-; The products are bz_prod's, T[(n & 15) << 4 | u] = n u; the far edge (16)
-; is 16 n, the slope nibble moved to the high nibble.  -> AX.  Clobbers BX, CX.
+; The products are bz_prod's, T[n << 4 | u] = n u for n 0 - 7; a negative n
+; is -((~n) u + u), T at (~n) << 4 | u (the slope nibble XOR F0h): every
+; product -120 .. 105, a byte; the far edge (16) is 16 n, the slope nibble
+; moved to the high nibble.  -> AX.  Clobbers BX, CX.
 ; -----------------------------------------------------------------------------
 bz_h4:
     mov ch, [si + 1]            ; sy : sx
@@ -4173,6 +4153,13 @@ bz_h4:
     cmp dl, 16
     je .ue
     or al, dl
+    jns .up
+    xor al, 0f0h                ; sx < 0: (~sx) u ...
+    xlat
+    add al, dl                  ; ...+ u, negated: sx u
+    neg al
+    jmp short .ue
+.up:
     xlat                        ; sx u
 .ue:
     cbw
@@ -4182,6 +4169,13 @@ bz_h4:
     cmp dh, 16
     je .ve
     or al, dh
+    jns .vp
+    xor al, 0f0h                ; (as sx's)
+    xlat
+    add al, dh
+    neg al
+    jmp short .ve
+.vp:
     xlat                        ; sy v
 .ve:
     cbw
@@ -4632,7 +4626,7 @@ bz_wtail.nfs:
 
 ; bz_fhp - SI = a FIELD cell's 4 bytes (DS), DL = u, DH = v (0 .. 16), ES =
 ; the course -> AX = h4 there, 16 z0 + F[17 V + U] (quarter px); DI = that
-; byte's offset in ES, BX = 16 x the symmetry (bz_fh4's).  Preserves CX, DX,
+; byte's offset in ES, BX = 8 x the symmetry (bz_fh4's).  Preserves CX, DX,
 ; SI, BP.  The shape is the +1's bits 0 - 3 with bit 7 its fifth (0 - 31).
 bz_fhp:
     push si
@@ -4645,20 +4639,21 @@ bz_fhp:
     shl ax, 1
     mov di, ax
     mov di, [bz_fsb + di]       ; the table
-    and bx, 70h                 ; BX = 16 x the symmetry: its BZ_FSYM entry
+    and bx, 70h                 ; BX = 8 x the symmetry: its BZ_FSYM entry
+    shr bx, 1
     add di, [bz_fsymt + bx]     ; + the origin
-    mov si, [bz_fsymt + bx + 6] ; + u's walk: u DU
-    mov al, dl
+    mov al, dl                  ; + u's walk: u DU (the walk's byte offset
+    xor ah, ah                  ; from bz_fkp1, + 2u: under 256, BZ_FWALKS)
+    shl ax, 1
+    add al, [bz_fsymt + bx + 6]
+    mov si, ax
+    add di, [bz_fkp1 + si]
+    mov al, dh                  ; + v's: v DV
     xor ah, ah
     shl ax, 1
-    add si, ax
-    add di, [si]
-    mov si, [bz_fsymt + bx + 8] ; + v's: v DV
-    mov al, dh
-    xor ah, ah
-    shl ax, 1
-    add si, ax
-    add di, [si]
+    add al, [bz_fsymt + bx + 7]
+    mov si, ax
+    add di, [bz_fkp1 + si]
     pop si
     mov al, [si]                ; 16 z0 + the byte
     cbw
@@ -4699,8 +4694,9 @@ bz_fh4:
     pop bx
     ret
 
-; BZ_FSYM: a symmetry s (bit 0 MU, 1 MV, 2 SW) -> 16 bytes: the index of
-; (0, 0), DU, DV, u's walk, v's walk (the multiples of DU, DV, 0 - 16), pad
+; BZ_FSYM: a symmetry s (bit 0 MU, 1 MV, 2 SW) -> 8 bytes: the index of
+; (0, 0), DU, DV, and u's walk and v's (the multiples of DU, DV, 0 - 16), each
+; a BYTE, its table's offset from bz_fkp1
 %macro BZ_FSYMENT 1
  %assign %%mu (%1) & 1
  %assign %%mv ((%1) >> 1) & 1
@@ -4715,24 +4711,23 @@ bz_fh4:
  %endif
     dw %%o, %%du, %%dv
  %if %%du == 1
-    dw bz_fkp1
+    db bz_fkp1 - bz_fkp1
  %elif %%du == -1
-    dw bz_fkm1
+    db bz_fkm1 - bz_fkp1
  %elif %%du == 17
-    dw bz_fkp17
+    db bz_fkp17 - bz_fkp1
  %else
-    dw bz_fkm17
+    db bz_fkm17 - bz_fkp1
  %endif
  %if %%dv == 1
-    dw bz_fkp1
+    db bz_fkp1 - bz_fkp1
  %elif %%dv == -1
-    dw bz_fkm1
+    db bz_fkm1 - bz_fkp1
  %elif %%dv == 17
-    dw bz_fkp17
+    db bz_fkp17 - bz_fkp1
  %else
-    dw bz_fkm17
+    db bz_fkm17 - bz_fkp1
  %endif
-    dw 0, 0, 0
 %endmacro
 bz_fsymt:
 %assign bz_s 0
@@ -4755,6 +4750,9 @@ bz_fkp17:
     BZ_FWALK 17
 bz_fkm17:
     BZ_FWALK -17
+%if bz_fkm17 + 2 * 16 - bz_fkp1 > 255 || $ - bz_fsymt != 8 * 8 + 4 * 2 * 17
+ %error "BZ_FSYM: a walk's byte offset (+ 2 x 16) must stay under 256, an entry 8 bytes"
+%endif
 ; the lift's offsets: each window cell's (16 dx, 16 dy), bz_nbr's order
 bz_fmap:
     db -16, -16, 0, -16, 16, -16
@@ -4883,14 +4881,10 @@ bz_derive:
     ret
 
 ; the products of bz_h4: T[(n & 15) << 4 | u] = n u, n -8 .. 7, u 0 .. 15
-bz_prod:
+bz_prod:                        ; n u, n 0 - 7 (bz_h4: a negative n through ~n)
 %assign bz_i 0
-%rep 256
- %assign bz_n bz_i >> 4
- %if bz_n >= 8
-  %assign bz_n bz_n - 16
- %endif
-    db (bz_n * (bz_i & 15)) & 0ffh
+%rep 128
+    db (bz_i >> 4) * (bz_i & 15)
  %assign bz_i bz_i + 1
 %endrep
 
