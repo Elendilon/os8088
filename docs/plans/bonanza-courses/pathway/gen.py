@@ -46,7 +46,7 @@ ICON_OUT = os.path.join(HERE, "icons")
 ICON_REL = os.path.relpath(ICON_OUT, B.COURSE_DIR)            # an icon FILE is under apps/bonanza/courses/
 
 COURSES = B.default_paths() + [os.path.join("apps", "bonanza", "courses", n) for n in ("roll.bbc", "hop.bbc")]
-TITLES = {"TRIAL": "@-25@Downhill|Decision", "FIRST": "Bounce Trial",     # the sheet's stand-ins
+TITLES = {"TRIAL": "@-15@Downhill|Decision", "HOP": "@-24@Little Hop", "FIRST": "Bounce Trial",     # the sheet's stand-ins
           "MOON": "@-26@Moonlit Green", "MILL": "@-21@Windmill Lane"}    # (@DX@: option A's titles set off their icons, the owner's mark-up)
 
 # sketch number -> (course, icon stem)
@@ -212,11 +212,14 @@ OPTIONS = {
               "climb to 4-5 on the right, a long diagonal to 6, then 7 and out to 8 at the far left; "
               "32 x 24 icons, 5 x 7 titles",
         pads={1: (21, 28, (32, 24), "U", 0, 0), 2: (24, 25, (32, 24), "U", 0, 0),
-              3: (24, 17, (32, 24), "L", -2, 24), 4: (20, 13, (32, 24), "L", 1, 0),
+              3: (26, 19, (32, 24), "L", -32, 24), 4: (20, 13, (32, 24), "L", 1, 0),
               5: (12, 5, (32, 24), "L", -34, 0), 6: (15, 17, (32, 24), "L", 4, 16),
               7: (9, 11, (32, 24), "R", 0, 8), 8: (4, 11, (32, 24), "R", 0, -8)},
-        routes=[(1, 2, 0, "21,28 24,25"), (2, 3, 0, "24,25 28,21 24,17"),
-                (3, 4, 0, "24,17 20,13"), (3, 6, 1, "24,17 15,17"),
+        routes=[(1, 2, 0, "21,28 24,25"), (2, 3, 0, "24,25 28,21 26,19"),      # (3 two steps DOWN, the owner's
+                (3, 4, 0, "26,19 20,13", (23, 16)),                         #  rev 2: its art clear of the route;
+                (3, 6, 1, "26,19 17,19 15,17"),                             #  4's gate kept; 6's route the old
+                                                                            #  diagonal two cells lower, up into
+                                                                            #  6 at its end, its gate at 3)
                 (4, 5, 0, "20,13 12,5"), (6, 7, 0, "15,17 9,11", (14, 16)), (7, 8, 0, "9,11 4,11")],
         lives=[(16, 23), (6, 4)]),
     "B": dict(
