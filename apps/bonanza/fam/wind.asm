@@ -129,6 +129,8 @@ wd_step:
     call wd_rec                 ; SI = its record
     cmp byte [es:si], BZ_FK_WISP
     jne .blower
+    call wd_vis                 ; (off the slice its mark would be dropped:
+    jnc .nx                     ; no gust test, 130.34.14)
     push si
     mov al, [es:si + WD_DIR]    ; (a wisp: its blower's gust)
     xor ah, ah
@@ -141,11 +143,21 @@ wd_step:
 .blower:
     test byte [es:si + WD_DIR], WD_FFLAG
     jz .nf
+    call wd_vis
+    jnc .nf
     call wd_turn                ; (a flag: marked on its gust's turns)
 .nf:
+    mov ch, 0                   ; CH: 1 blowing with the cell in its region
+    cmp dl, [es:si + WD_X0]     ; the REGION first: outside it neither the
+    jb .nb                      ; push nor the spin wants the gust test
+    cmp dl, [es:si + WD_X1]     ; (130.34.14; 0FFh dead is never inside)
+    ja .nb
+    cmp dh, [es:si + WD_Y0]
+    jb .nb
+    cmp dh, [es:si + WD_Y1]
+    ja .nb
     mov ax, [bz_nstep]
     call wd_on
-    mov ch, 0                   ; CH: 1 blowing with the cell in its region
     jnc .nb
     call wd_field
     adc ch, 0
@@ -168,6 +180,8 @@ wd_step:
 .sp:
     mov [bz_fst + bx], ch
     pop bx
+    call wd_vis                 ; (the frames compared only for a lane that
+    jnc .nx                     ; can be marked)
     mov al, [bz_nstep]
     call wd_fp                  ; the frame it showed (AH the old byte, n)
     mov cl, al
@@ -324,6 +338,28 @@ wd_on:
     ret
 .yes:
     stc
+    ret
+
+; ES:SI element BX's record (BH 0) -> CF set when its lane can be MARKED: in
+; the walk's slice [bz_lr0, bz_lr1) (a lone element's lane is its index) and
+; not held OUT of the column band (bz_lout), or a
+; GROUP MEMBER (bz_fmark tests its lanes).  Off it, bz_fmark drops the mark,
+; so a test that decides only a mark is skipped (SPEC.md 130.34.14).
+; Preserves all but the flags.
+wd_vis:
+    test byte [es:si + BZP_FLAGS], BZ_PF_GRP
+    jnz .y
+    cmp bl, [bz_lr0]
+    jb .n
+    cmp bl, [bz_lr1]
+    jae .n
+    cmp byte [bz_lout + bx], 0  ; (OUT of the column band: dropped too,
+    jne .n                      ; 130.19.10 item 12)
+.y:
+    stc
+    ret
+.n:
+    clc
     ret
 
 ; BX = an element -> SI = its record's offset in [bz_cseg].  Clobbers CL.

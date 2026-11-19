@@ -154,7 +154,8 @@ bz_fh0:
 ; every lane it lists.  A lane OUTSIDE the walk's slice [bz_lr0, bz_lr1) is
 ; neither marked nor makes the walk (130.19.10 item 11): entering the range
 ; marks it anyway (item 6), so a popspike flipping off the screen costs the
-; frame nothing.  Preserves everything.
+; frame nothing; nor is one the last walk held OUT of the column band (item
+; 12).  Preserves everything.
 ; -----------------------------------------------------------------------------
 bz_fmark:
     push si                     ; (the COMMON path - a lone element - saves
@@ -185,12 +186,16 @@ bz_fmark:
     pop si
     retf
 
-; lane BX (BH 0) marked and the walk made, when it is in the slice
+; lane BX (BH 0) marked and the walk made, when it is in the slice and the
+; last walk did not hold it OUT of the column band (130.19.10 item 12: the
+; band moving marks it back, `.cm`, and its re-entry walks it)
 bz_fm1:
     cmp bl, [bz_lr0]
     jb .x
     cmp bl, [bz_lr1]
     jae .x
+    cmp byte [bz_lout + bx], 0
+    jne .x
     mov byte [bz_latt + bx], 1
     mov byte [bz_lqt], 0
 .x:
