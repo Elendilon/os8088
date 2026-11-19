@@ -446,6 +446,9 @@ def launch(g, way, crs=None, fails=None):
     fails = [] if fails is None else fails
     m.disk(reset=True)
     key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "KeyF"
+    if crs is None and key == "KeyF":           # F plays BZ_CRS_DEFAULT, pathway pad 0's course (SPEC.md
+        crs = "first"                           # 130.14.7.4), never a fixed one: the legs written for FIRST
+                                                # (goal()'s scene, the way's parts) poke it
     if crs and not way.startswith("replay"):
         m.bp_exec(g.a("bz_launch"))
         g.key(key)
