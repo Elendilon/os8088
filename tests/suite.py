@@ -254,6 +254,13 @@ class Row:
         self.timeout = timeout or max(60, int(secs * 4) + 30)
 
 
+# SPEC.md 130.26.6.1: the BONANZA rows run the BZDEV=1 build, and the first row to
+# take os88build.tree's lock builds it INSIDE its own CPU budget (no preflight
+# builds a knob tree) - bonanzaexit was cut off at 901 of 900 CPU s with every
+# leg green.  This is that build's CPU, added to each such row's timeout.
+BZDEV_TREE_CPU = 600
+
+
 def py(*a):
     return ["python3"] + list(a)
 
@@ -5344,7 +5351,7 @@ SOAK = [
         "oracle on the W4 part (BENCH's few occluded frames never met a skipped record on the CGA; MOON's "
         "demo did, on both cards). Every private tree packs its parts in the shipped build's format (part_fmt, SPEC.md "
         "130.15.9). " + "secs MEASURED in 5b's re-take on the shipped D build (293.7 s, PEAK's demo leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (753.4 s re-run alone beside three rows; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900,
+        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaperf", "soak", py("tests/bonanza_perf.py"), 966.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes; TRIAL's camera leg replays once (TRICKLE is deleted). "
@@ -5407,7 +5414,7 @@ SOAK = [
         "130.15.5.4; --fmt-ab, the parts' format A/B, left with the LZ4/LZB knob once LZB was decided, "
         "130.15.9). "
         "secs MEASURED in 5b's re-take on the shipped D build (354.5 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (627.6 s re-run alone beside three rows; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=1800,
+        needs=("marty", "nasm"), timeout=1800 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 705.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -5444,7 +5451,7 @@ SOAK = [
         "launch on a shatter), return (bz_nret 1, bz_nfall unchanged), tilt (a TILT log, caps 0 - 8, "
         "8 -> 2 under a held arrow: 8, 6, 4, 2) - each on both cards, the new counters compared. Red "
         "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (705.0 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900,
+        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 471.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -5477,7 +5484,7 @@ SOAK = [
         "of the pointer placed (bbcourse.TiltStick), a respawn re-anchoring, the log replayed on the "
         "Hercules equal at every frame; its busy against the keyboard play reported. Red arm `--red "
         "tiltmap`. secs MEASURED in 5b's re-take on the shipped D build (78.9 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (183.9 s re-run alone; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900,
+        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaexit", "soak", py("tests/bonanza_exit.py"), 902.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -5513,7 +5520,7 @@ SOAK = [
         "expoff1|rowtab1|cellsafe` (WDIFF a record short, ROWTAB NROWS - 1 words: red at FIRST, the first "
         "launch; the guest's SAFE rule without OBS: red at MILL), each at the claim leg. secs MEASURED in "
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900,
+        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 115.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -5543,7 +5550,7 @@ SOAK = [
         "red at 2.); a wait that raises after an item failed is one more failure (an abort), so a red is "
         "judged by its item. secs MEASURED: 115 s host for the whole row (both cards' main legs and the "
         "secret leg, 8R pathrow); each red arm ~30 s and red at its item.",
-        needs=("marty", "nasm"), timeout=600,
+        needs=("marty", "nasm"), timeout=600 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzatitle", "soak", py("tests/bonanza_title.py"), 60.0,
         "THE TITLE SCREEN (SPEC.md 130.23) on MartyPC's CGA and Hercules, in one bracket: Enter opens the "
@@ -5601,7 +5608,7 @@ SOAK = [
         "printed), so the no-fault and no-leak checks are the expansion's too; red arm `--red expcs` (ROWTAB's "
         "stores through a CS override: a #GP charged to BONANZA at the first launch). secs MEASURED in "
         "5b's re-take on the shipped D build (63.6 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (118.0 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("86box", "nasm"), timeout=900,
+        needs=("86box", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/mega.img", "build/bonanza.img")),
     Row("bonanzamusic", "soak", ["python3", "tools/bbmusic.py", "--selfcheck"], 1.0,
         "WAVE 6 (SPEC.md 130.16.4.4): rubber's BOOST effect present and not its HOP's (by name or by content), steel's and glass's none; control: rubber's BOOST mapped to its HOP's effect, caught. "
@@ -5636,7 +5643,7 @@ SOAK = [
         "check. WAVE 5B (SPEC.md 130.15.9): the sound part and the songs are packed in the parts table's "
         "format (LZB, shipped; printed) and decoded in it; the row is unchanged in logic and a red "
         "tree packs in the same format. secs MEASURED in 5b's final pass (32.3 s, both legs). secs MEASURED in 6b's final pass (60.0 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), serial=True, timeout=900,
+        needs=("marty", "nasm"), serial=True, timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzagame", "soak", py("tests/bonanza_game.py"), 920.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -5657,7 +5664,7 @@ SOAK = [
         "at the fetch, in the shipped parts' format, printed). `--check` (host): the model's tour, the tour XOR against "
         "bzcourse.inc, the hostile set decided, every red arm assembled. Red arms `--red "
         "besttime|datlen|replaybest|noappdata`. secs MEASURED in 5b's re-take on the shipped D build (321.2 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (917.2 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=1800,
+        needs=("marty", "nasm"), timeout=1800 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzademo", "soak", py("tests/bonanza_demo.py"), 690.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -5681,7 +5688,7 @@ SOAK = [
         "L's identity check (`Damaged demo file`); and the same log put in the log and R pressed is refused "
         "by the launch's (bz_err 3, no step) with the face's `Another course's log`. secs MEASURED in "
         "5b's re-take on the shipped D build (283.9 s, the wave4 leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (687.8 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=1200,
+        needs=("marty", "nasm"), timeout=1200 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzawheel", "soak", py("tests/bonanza_wheel.py"), 162.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes; the STALE and SIDE scenes hold the window with bonanza_ring.cam_hold where they poked TRICKLE, which is deleted. "
@@ -5726,7 +5733,7 @@ SOAK = [
         "models read the tool's RAM form (the props, the lanes' pose maps and the cells at that form's "
         "offsets, which moved), the form the guest holds after bz_cexp; re-run on the BZC2 parts, a red tree "
         "packed in the shipped parts' format. secs MEASURED in 5b's re-take on the shipped D build (69.0 s, (6) failing on the CGA as before; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (118.6 - 161.6 s over three runs; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900,
+        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("arclock", "soak", py("tests/arclock.py", "build/arcade/invcode.bin",
                               "build/arcade/invaux.bin",
