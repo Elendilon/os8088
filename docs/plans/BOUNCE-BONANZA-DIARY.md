@@ -6388,3 +6388,35 @@ no STEP is an easy hop, since half a unit rolls up and one unit is the hard
 Hop. A 1-tile gap half a unit up is one, though: it can't be rolled, and a Hop
 crosses it in 311 ms. The signs are boards on posts in the pin clock's
 manner, drawn by `hop/signs.py` with FIRST ROLL's decal machinery.
+
+## 2026-11-19 (where a CGA frame goes in the crack lab; windmills and cracks at once)
+
+- **The questions** (the owner): is the ~20% "waiting for retrace" the idle
+  process - spare in light frames, none in heavy ones - and can anything be
+  calculated ahead? And the crack demo's 50 frames a second on the CGA: is
+  it 60 over the roll and 30 in the lab, and what takes the time where
+  nothing animates?
+- **Measured by stretch** (the owner's log on MartyPC's CGA, every frame by
+  the logged marks of `tests/bonanza_perf.py`): the roll over 56.1, the
+  crack lab 46.1 (steps 233 - 280: 38.7), the rest 55.5. The wait is the
+  leftover: ~41k of a 79.6k refresh in a one-step roll frame, ~2k in a late
+  lab frame, 55 - 75k after a miss (the refresh it missed). The loop already
+  runs a DUE step in the wait (`bz_early`); a step not yet due would add a
+  step of input lag and does not fit where it is wanted (a lab step ~25k,
+  the room ~11k).
+- **What the lab spent**: from step 233 the camera pans every frame (a row
+  each frame, two columns every other), the props' walk and the families
+  were ~19%, the drawing ~18%. Three faults, all fixed: every range move
+  woke every family (now only a SLICE change); `.mk` and `.cm` scanned the
+  whole slice on each move (now the slice's ends and the OUT lanes); the
+  PROBE's CELL walked every record. The lab's panning stretch 38.7 -> 46.9,
+  the roll 56.1 -> 58.0, the rest 55.5 -> 57.1.
+- **Windmills and cracks on one screen** (a private MILL with GLASS and
+  five cracks on the start tier, under both windmills; a scripted log
+  rolling over them, three cracks breaking): **59.4 frames a second, 4 of
+  458 frames two refreshes**, the rotors' commits in the wait (0.23 a
+  frame), the frame idle 49% of its time. Its camera does not pan: what
+  costs in the lab is the panning with the props.
+- **Run**: `make bonanzadisk`, `tests/bonanza_phys.py --check`, the frame
+  breakdowns above. **Not run**: soak rows for this round (the running
+  soak froze before it).
