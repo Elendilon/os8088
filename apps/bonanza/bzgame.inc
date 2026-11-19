@@ -23,11 +23,11 @@
 ;                      position at the end of every step (bzphys.inc, SPEC.md
 ;                      130.10.8); the physics state is bzphys.inc's head
 ;   bz_crs      byte   the course played: K (bzcourse.inc's BZ_CRS_*), from
-;                      bz_crsel (N) for a play, BZ_CRS_BENCH for B, the log's
+;                      bz_crsel (a row's poke) for F, BZ_CRS_BENCH for B, the log's
 ;                      for R; a harness pokes it at bz_launch's entry
 ;   bz_mat      byte   the material played, 0 rubber, 1 steel, 2 glass
-;                      (bonanza.asm bz_launch: M's for a play, the course's own
-;                      for a benchmark, the log's for a replay)
+;                      (bonanza.asm bz_launch: the course's own for a play or
+;                      a benchmark, the log's for a replay)
 ;   bz_px,bz_py word   the integer px this frame drew the ball at (= the word at
 ;                      bz_bx+1 / bz_by+1 when the frame began its boxes)
 ;   bz_frm      word   the ROLL frame: PHY * 8 + (px & 7), PHY the vertical phase
@@ -173,7 +173,6 @@ BZ_KSC_F    equ 21h             ; the F key's make code
 BZ_KSC_B    equ 30h             ; ...and B's
 BZ_KSC_BKSP equ 0eh             ; ...and Backspace's: RETURN (SPEC.md 130.14.4.5)
 BZ_KSC_R    equ 13h             ; ...and R's: the replay (SPEC.md 130.11.12.2)
-BZ_KSC_G    equ 22h             ; ...and G's: the tour (SPEC.md 130.14.3.1)
 BZ_KSC_P    equ 19h             ; ...and P's: PAUSE (SPEC.md 130.14.4.7)
 BZ_KSC_D    equ 20h             ; ...and D's: the demo benchmark (130.14.7.3)
 BZ_FIN_STEPS equ 110            ; wave 8R (130.22.6): the finish sequence's steps

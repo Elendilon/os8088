@@ -1187,7 +1187,7 @@ def ab_tree(td, commit=AB_COMMIT):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))      # under 130.50.2, neither since 130.50.3
         plist += (["BZSND.BIN"] if "BZ_PARTS2 := $(BZ_SNDPARTS)" in mk else []) + ["BZM%d.BIN" % i for i in range(ns)]
-    if "BZ_DEMOPARTS" in mk:                    # wave 4's: a shipped demo a tour course, after the songs
+    if "BZ_DEMOPARTS" in mk:                    # wave 4's: a shipped demo a course but BENCH, after the songs
         plist += ["BZD%d.BIN" % k for k in range(1, nc)]
     parts = []
     for p in plist:

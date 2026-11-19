@@ -66,15 +66,6 @@ bzh_line:                       ; AH = the line
 
 ; --- the package's helpers the face reads, copied (SPEC.md 130.19.2) ---------
 %ifdef BZDEV
-; CF = 1 while a tour's course is next or playing (bonanza.asm's bz_intour)
-bz_intour:
-    push ax
-    mov al, [bz_tour]
-    dec al
-    cmp al, BZ_NTOUR
-    pop ax
-    ret
-
 ; ZF = 1 when [bz_rlog] holds a log (bonanza.asm's bz_rhave)
 bz_rhave:
     cmp word [bz_rlog], 'BZ'
