@@ -124,8 +124,8 @@ THICKS = "" if THICK == 3 else " thick %g" % THICK
 # LEG 1, -x (revision 7, the owner, with QUARTER heights, SPEC.md 130.48): the start FLIPPED to the east, and the
 # two void gaps replaced by 3/4-UNIT STEPS UP ("lips"), which no ball rolls up and every ball's Hop climbs.  Climbed
 # moving -x, each riser faces the player.  The spawn's view is far east of "JUMP TWICE!"
-floor("A", 28, 6, 30, 10, Z + 0.5)                           # the start island
-rail(28, 6, 30, 6); rail(30, 6, 30, 10); rail(29, 10, 30, 10, "guard")
+floor("A", 28, 6, 31, 10, Z + 0.5)                           # the start island, three tiles (the owner: roll room)
+rail(28, 6, 31, 6); rail(31, 6, 31, 10); rail(29, 10, 31, 10, "guard")
 floor("T", 25, 6, 28, 10, Z + 1.25)                          # T1: 3/4 up (the first Hop)
 rail(25, 6, 28, 6); rail(26, 10, 27, 10, "guard")
 floor("T", 22, 6, 25, 10, Z + 2)                             # T2: 3/4 up again
@@ -137,63 +137,63 @@ floor("L", 22, 12, 25, 16, Z - 2)
 rail(25, 12, 25, 16); rail(23, 16, 25, 16, "guard")
 # LEG 3, -x: the EASY HOP is now a 3/4 step up onto U1 (the owner's "can't roll up, easy jump, slightly lower than
 # U1"), then U1's six-tile run-up, then the step: "the hard single jump, or easy double jump" (1 unit) onto U2
-floor("U", 16, 12, 22, 16, Z - 1.25)                         # U1: 3/4 up from L, six tiles long
-rail(16, 12, 22, 12); rail(17, 16, 21, 16, "guard")
-floor("U", 13, 12, 16, 16, Z - 0.25)                         # U2: one unit up
-rail(13, 12, 16, 12); rail(13, 12, 13, 16)
+floor("U", 17, 12, 22, 16, Z - 1.25)                         # U1: 3/4 up from L, five tiles long
+rail(17, 12, 22, 12); rail(18, 16, 21, 16, "guard")
+floor("U", 14, 12, 17, 16, Z - 0.25)                         # U2: one unit up
+rail(14, 12, 17, 12); rail(14, 12, 14, 16)
 # LEG 4, +y then -x: down off U2's far end to the basin; the flag stands where the ramp's centre line meets the
 # spring's row, so a respawn rolls straight on into it; the SPRING throws the ball -x onto H, six units up
-ramp("D", "y", 13, 16, 16, 18, Z - 0.25, Z - 2.25)
-rail(13, 16, 13, 18); rail(16, 16, 16, 18)
-floor("B", 10, 18, 17, 22, Z - 2.25)                         # B: the basin, wide
-rail(10, 18, 13, 18); rail(16, 18, 17, 18); rail(17, 18, 17, 22); rail(10, 22, 17, 22)
-SPRINGS.append((11, 20, 768))                                # thrown -x, over the void column (x 9), onto H
-floor("H", 5, 18, 9, 22, Z + 3.75)                           # H: six units over the basin
-rail(5, 18, 9, 18); rail(5, 18, 5, 22)                       # (an over-throw is caught)
+ramp("D", "y", 14, 16, 17, 18, Z - 0.25, Z - 2.25)
+rail(14, 16, 14, 18); rail(17, 16, 17, 18)
+floor("B", 11, 18, 18, 22, Z - 2.25)                         # B: the basin, wide
+rail(11, 18, 14, 18); rail(17, 18, 18, 18); rail(18, 18, 18, 22); rail(11, 22, 18, 22)
+SPRINGS.append((12, 20, 768))                                # thrown -x, over the void column (x 10), onto H
+floor("H", 6, 18, 10, 22, Z + 3.75)                           # H: six units over the basin
+rail(6, 18, 10, 18); rail(6, 18, 6, 22)                       # (an over-throw is caught)
 # LEG 5, +y: TRIAL's drop and bounce - down the lip ramp, six units onto F, rubber's rebound onto K, two units
 # over F, three tiles on
-ramp("R", "y", 5, 22, 9, 24, Z + 3.75, Z + 1.75)             # R: the lip
-rail(5, 22, 5, 24)
-floor("F", 5, 24, 9, 27, Z - 4.25)                           # F: six units under the lip
-rail(5, 24, 5, 27)
-floor("K", 5, 30, 11, 33, Z - 2.25)                          # K: past a 3-tile gap (y 27 - 29)
-rail(5, 30, 5, 33); rail(5, 33, 11, 33)
+ramp("R", "y", 6, 22, 10, 24, Z + 3.75, Z + 1.75)             # R: the lip
+rail(6, 22, 6, 24)
+floor("F", 6, 24, 10, 27, Z - 4.25)                           # F: six units under the lip
+rail(6, 24, 6, 27)
+floor("K", 6, 30, 12, 33, Z - 2.25)                          # K: past a 3-tile gap (y 27 - 29)
+rail(6, 30, 6, 33); rail(6, 33, 12, 33)
 # LEG 6, +x then -y: once more, both moves - a Hop over a 1-tile gap, a step with its "and again" - then the goal
-floor("E", 12, 30, 16, 34, Z - 2.25)                         # E: a Hop (gap x 11)
-rail(12, 34, 16, 34); rail(16, 30, 16, 34)
-floor("S", 12, 26, 16, 30, Z - 1.25)                         # S: one unit up from E, climbed -y
-rail(12, 26, 12, 30)
-ramp("G", "x", 16, 26, 19, 30, Z - 1.25, Z - 2.75)           # G: down, +x, to the goal
-rail(16, 26, 19, 26)
-floor("G", 19, 25, 24, 31, Z - 2.75)                         # the goal plateau
-rail(19, 25, 24, 25); rail(24, 25, 24, 31); rail(19, 31, 24, 31)
-GOAL = {(x, y) for x in range(21, 24) for y in range(25, 31)}
+floor("E", 13, 30, 17, 34, Z - 2.25)                         # E: a Hop (gap x 12)
+rail(13, 34, 17, 34); rail(17, 30, 17, 34)
+floor("S", 13, 26, 17, 30, Z - 1.25)                         # S: one unit up from E, climbed -y
+rail(13, 26, 13, 30)
+ramp("G", "x", 17, 26, 20, 30, Z - 1.25, Z - 2.75)           # G: down, +x, to the goal
+rail(17, 26, 20, 26)
+floor("G", 20, 25, 25, 31, Z - 2.75)                         # the goal plateau
+rail(20, 25, 25, 25); rail(25, 25, 25, 31); rail(20, 31, 25, 31)
+GOAL = {(x, y) for x in range(22, 25) for y in range(25, 31)}
 
 # THE LIPS: a grounded island's face fills a 1-tile gap exactly as it fills a step's riser, so a gap and a step
 # look alike.  The lip row of each gap FLOATS one unit thick, a black notch under it saying "gap" (the NEAR
 # island's, both gaps being taken down the screen)
 def lip(x0, y0, x1, y1):
     ROOMS_TXT.append("float rect %3d %3d %3d %3d thick 1   # the lip over a gap" % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF))
-lip(5, 26, 9, 27)                                            # the bounce's gap
-lip(10, 30, 11, 33)                                          # Hop E
+lip(6, 26, 10, 27)                                            # the bounce's gap
+lip(11, 30, 12, 33)                                          # Hop E
 
-START = (28.5, 7.5)
+START = (29.5, 7.5)
 # a flag stands just BEFORE what can kill, so a fall never replays a long stretch
-FLAGS = [(14.5, 20.5, "flag 0"), (7.5, 20.5, "flag 1"), (7.5, 31.5, "flag 2")]
+FLAGS = [(15.5, 20.5, "flag 0"), (8.5, 20.5, "flag 1"), (8.5, 31.5, "flag 2")]
 # clocks (the owner places them; these are first guesses): (wx, wy, the tile's floor z, name, kind)
-CLOCKS = [(29.5, 5.5, Z + 2, "start", "block"), (4.5, 19.5, Z + 5.25, "middle", "block"),
-          (24.5, 28.5, Z - 1.25, "finish", "block")]
+CLOCKS = [(30.5, 5.5, Z + 2, "start", "block"), (5.5, 19.5, Z + 5.25, "middle", "block"),
+          (25.5, 28.5, Z - 1.25, "finish", "block")]
 PLACED = {}
-SIGNS = [(26.5, 5.5, "JUMP!"), (17.5, 11.5, "JUMP\nTWICE!")]   # "JUMP!" on T1's north rail, "JUMP TWICE!" on U1's
+SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "JUMP\nTWICE!")]   # "JUMP!" on T1's north rail, "JUMP TWICE!" on U1's
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
-ROUTE = [(28.5, 7.5), (26.5, 8), (23.5, 8), (23.5, 11), (23.5, 14), (20, 14), (17, 14), (14.5, 14), (14.5, 17),
-         (14.5, 20), (11, 20), (9, 20), (7, 20), (7, 23), (7, 25.5), (7, 28.5), (7, 31.5), (9.5, 31.5),
-         (11.5, 31.5), (14, 32), (14, 28), (17.5, 28), (22, 28)]
-LABELS = [(29, 8, "A start"), (26.5, 8, "T1 3/4 up"), (23.5, 8, "T2 3/4 up"), (23.5, 11, "D"), (23.5, 14, "L"),
-          (19, 14, "U1 3/4 up, run"), (14.5, 14, "U2 step+again"), (14.5, 17, "D"), (14, 20, "B spring"),
-          (7, 20, "H high"), (7, 23, "R lip"), (7, 25.5, "F drop 6"), (8, 31.5, "K bounce +2"), (14, 32, "E hop"),
-          (14, 28, "S step+again"), (22, 28, "G goal")]
+ROUTE = [(29.5, 7.5), (26.5, 8), (23.5, 8), (23.5, 11), (23.5, 14), (20, 14), (18, 14), (15.5, 14), (15.5, 17),
+         (15.5, 20), (12, 20), (10, 20), (8, 20), (8, 23), (8, 25.5), (8, 28.5), (8, 31.5), (10.5, 31.5),
+         (12.5, 31.5), (15, 32), (15, 28), (18.5, 28), (23, 28)]
+LABELS = [(29.5, 8, "A start"), (26.5, 8, "T1 3/4 up"), (23.5, 8, "T2 3/4 up"), (23.5, 11, "D"), (23.5, 14, "L"),
+          (19.5, 14, "U1 3/4 up, run"), (15.5, 14, "U2 step+again"), (15.5, 17, "D"), (15, 20, "B spring"),
+          (8, 20, "H high"), (8, 23, "R lip"), (8, 25.5, "F drop 6"), (9, 31.5, "K bounce +2"), (15, 32, "E hop"),
+          (15, 28, "S step+again"), (23, 28, "G goal")]
 
 # --- drawing ----------------------------------------------------------------
 SECCOL = {"K": (240, 160, 160), "S": (150, 200, 240), "U": (150, 200, 240), "V": (240, 200, 150), "R": (200, 200, 120), "L": (160, 220, 160),
@@ -379,7 +379,7 @@ HEAD_TXT = """
 course HOP "Little Hop"
 guide                     # a REAL course: held to the course guide's checkable rules
 width 128                 # the islands swing 30 tiles across, and a fall drifts 3 more each side (NEAR void): 1024 px, scrolled (G2)
-origin 544                # the reach's span centred in the 1024 px
+origin 528                # the reach's span centred in the 1024 px
 uses spring
 ball rubber
 trap hop                  # NO TRAP presses the Hop and its "and again" too: the course is built on them (SPEC.md 130.14.4.1.1)
