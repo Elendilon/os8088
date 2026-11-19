@@ -438,8 +438,7 @@ def title_rows(n):
     # in the resident bundle), whatever follows the songs (wave 4's demos, 130.14.7.4) - not counted back
     # from the last row
     import bonanza_exit as X
-    R.CRS_K["bench"]                            # (fills the table: bzcourse.inc's BZ_NCRS courses)
-    snd = X.CRS_ROW0 + dict.__len__(R.CRS_K)
+    snd = X.CRS_ROW0 + len(R.crs_all())        # (bzcourse.inc's BZ_NCRS courses)
     # wave 8a (SPEC.md 130.19.2): the SHELL part, the last row, is held on the desktop as the title is,
     # and dropped for every bracket (the claims inside are the desktop's less it: SHELL_IN)
     # (wave 8b, 130.19.5: and the PATHWAY's row after it, the last - fetched by Enter's game alone)
@@ -543,7 +542,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     own selector) and D of what L read; and, last, the DOUBLE-CLICK of the
     saved .BZR in B:'s Disk window opening a second BONANZA with it held"""
     peak = R.CRS_K["peak"]
-    demo = open(os.path.join(R.at("build/bonanza-art"), "BZD%d.BIN" % peak), "rb").read()
+    demo = open(os.path.join(R.at("build/bonanza-art"), R.demo_name(peak)), "rb").read()
     memw(b, pkg.a("bz_vk"), bytes([peak - 1]))
     b.tap("v", gap=300)
     b.until(lambda: pkg.log(len(demo)) == demo, "V to load PEAK's demo", 20000, 50)
@@ -913,7 +912,8 @@ def run(img_b, keep, tmp, cases=None):
         b.tap("f", gap=300)                     # (F: a free play, wave 8b)
         b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 100, "a play of 100 frames",
                 60000, 100)
-        want(pkg.byte("bz_crs") == R.CRS_K["first"] and pkg.byte("bz_mode") == 0, "2. F plays FIRST")
+        want(pkg.byte("bz_crs") == R.crs_default() and pkg.byte("bz_mode") == 0,
+             "2. F plays pathway pad 0's course (BZ_CRS_DEFAULT)")
         b.tap("escape", gap=300)
         b.until(lambda: pkg.byte("bz_fs") == 0, "the play to end on Esc", 30000, 100)
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)

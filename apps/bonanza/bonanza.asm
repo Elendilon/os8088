@@ -183,7 +183,7 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo K (1 - 6): BZ_P_DEMO + K - 1 (no song rows: SPEC.md 130.50)
+BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo row i: BZ_P_DEMO + i, course bz_dcrs[i] (130.14.7.4)
 BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
@@ -256,7 +256,7 @@ bz_entry:
     mov [bz_homevol], bl        ; a dialog does to the instance later
     call bz_dload               ; the best times (130.14.3.3); kern_small: none
 %ifdef BZDEV
-    mov byte [bz_crsel], BZ_CRS_FIRST ; the course F plays (a row pokes another)
+    mov byte [bz_crsel], BZ_CRS_DEFAULT ; the course F plays: pad 0's (a row pokes another)
 %endif
     OS88_REGION_MOVABLE
     OS88_ALTENTER_ARM
@@ -2446,6 +2446,7 @@ bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 %endmacro
 %endif
 bz_cnex:        BZ_CRS_NEXITS
+bz_dcrs:        BZ_DEMO_CRS     ; each shipped demo row's course K (130.14.7.4)
 bz_pexits:      BZ_PAD_EXITS    ; each pad's course's exits, a bit each (130.22.5.1)
  %if BZ_PATH_NPAD > 32
   %error "the save keeps a bit a pad in a dword (SPEC.md 130.22.5)"
@@ -5026,7 +5027,7 @@ bz_onwake:
     jmp bz_rret
 
 %ifdef BZDEV
-; V (one press): the next SHIPPED demo, 1 - 5 in turn, into the
+; V (one press): the next SHIPPED demo, the rows in turn, into the
 ; held log (SPEC.md 130.14.7.4) - its part fetched at home, copied whole (a
 ; PART is trusted: the tool checked it, 130.10.6.2) and dropped.  It replaces
 ; the session's last log, as a new play does.
@@ -5183,8 +5184,8 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO != BZ_NCRS - 1 || BZ_P_CRS != 0
- %error "the demo rows follow the songs', one a course but BENCH (SPEC.md 130.14.7.4)"
+%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
+ %error "the demo rows follow the courses', at most one a course (SPEC.md 130.14.7.4)"
 %endif
 
 %define OS88UI_ABOUT

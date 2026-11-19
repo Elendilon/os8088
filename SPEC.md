@@ -271458,6 +271458,29 @@ compare (O48 keeps it until the owner retires it).
 
 ##### 130.14.7.4 Shipped demos: parts, from text
 
+*Since 2026-11-19 (with 130.22.5.1: nothing in the game's defaults by K) the
+demos are a TABLE OF NAMED ROWS, and the text below is how they were laid
+out before.* `tools/bbcourse.py` makes one demo for every course but those
+in `BENCH_NAMES` (by course NAME: `BENCH`), in course order, each part file
+named by its course, **`BZD<NAME>.BIN`** (`BZDFIRST.BIN`, `BZDPEAK.BIN`
+...), and lists them in that row order in `bzdemo.lst`, which the
+Makefile's package rule reads as it reads `bzcrs2.lst` (no `BZD<K>` list
+of `seq 1 N-1` any more). `bzcourse.inc` carries `BZ_NDEMO` (the rows) and
+**`BZ_DEMO_CRS`**, a byte a row, the course K that row's demo plays
+(`bz_dcrs`). Row i is `BZ_P_DEMO + i`; the pathway's V on a pad
+(`bz_gfload`) finds the course's row in `bz_dcrs` (no row: none, as for a
+course with no demo), where it took row K - 1; V's cycle and the title's
+draw were already by row and read the course out of the log. `bonanza.asm`
+asserts `BZ_NDEMO` <= `BZ_NCRS` in place of `BZ_NDEMO` = `BZ_NCRS` - 1. The
+other rules keyed by "course 0" are keyed by `BENCH_NAMES` too: no `target`
+(`check_budget`), the visibility audit's exemption, the author check's skip
+and the no-pathway fallback of the pads' courses. The demo parts are the
+same bytes under their new names (MEASURED, `cmp`). MEASURED (`make bonanza`): the package's image 50,958 -> 50,976 (+18: `bz_dcrs` 8, the lookup 10), its bss 8,819 unchanged; the `BZDEV=1` build's 52,371 -> 52,389.
+And `bz_crsel` (`BZDEV=1`'s F) starts on **`BZ_CRS_DEFAULT`**, the course
+on pathway pad 0 (the tool's), not `BZ_CRS_FIRST`; Enter's game already
+starts a new game on pad 0. `BENCH` stays in the build, its position no
+longer depended on (it is still course 0 today).
+
 One DEMO PART a tour course, `BZD<K>.BIN` (`K` 1 - 5), rows
 `BZ_P_DEMO + K - 1` with `BZ_P_DEMO = BZ_P_SONG + BZS_NSONG`, after the
 sound's rows; `OS88_PARTS_BEGIN` counts `3 + BZ_NCRS + 1 + BZS_NSONG +
