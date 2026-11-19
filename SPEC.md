@@ -49005,6 +49005,11 @@ once**:
   disk layer at private offsets by design (`tests/unit/t_kdfar.py` polices
   those), and a cell newer than the SDK is A4's question and The Wire's cell
   fence's (§92.2).
+  A part that is DATA (no CPU executes it) can spell `9A lo hi <KERNEL_SEG>`
+  by chance; ROLL's course part did (`9A 04 02 60 00`, 2026-11-19).
+  `os88pkg --part-data PART` names such a part (it must also be a `--part`)
+  and the gate passes it over. BONANZA names its course, demo, path, title
+  and kit parts so (`BZ_DATAPARTS`); its code parts stay under the gate.
 
 `tests/unit/t_cellgate.py` (fast) proves the routing and the gate: a probe
 assembles byte-identical to a hand-written twin (`CD 81 <index>` for a door
