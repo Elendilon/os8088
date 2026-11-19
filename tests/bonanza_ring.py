@@ -448,7 +448,15 @@ def course(name, src=None, art=None):
     SRC: a course file other than the shipped one (a red tree's)."""
     path = src or os.path.join(ROOT, COURSES[name])
     if path not in _COURSE:
-        _COURSE[path] = BB.compile_course(path)
+        c = BB.compile_course(path)
+        songs = BB._music()[1]          # SPEC.md 130.50.3: the part carries its course's song, as the build's
+        try:                            # (K: the song rule's input - a red tree's patched file is the same
+            k = CRS_K[name]             # course, and its tree's build gives it the same song)
+        except KeyError:
+            k = None
+        if songs and k is not None:
+            BB.attach_song(c, songs[BB.course_song(c, k)])
+        _COURSE[path] = c
     return _COURSE[path]
 
 
@@ -4761,10 +4769,10 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
     lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 130.30.4.4: the two-part courses' WORLD parts
     if os.path.exists(lst):
         files += open(lst).read().split()
-    if "BZS_NSONG" in asm:
+    if "%rep BZS_NSONG" in asm:                 # (the song rows, until SPEC.md 130.50.3 put each song in its
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
-                           re.M).group(1))
-        files += ["BZSND.BIN"] + ["BZM%d.BIN" % i for i in range(ns)]
+                           re.M).group(1))      # course part; the sound part's row until 130.50.2's bundle)
+        files += (["BZSND.BIN"] if "BZ_P_SND: BZSND.BIN" in asm else []) + ["BZM%d.BIN" % i for i in range(ns)]
     if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a tour course, after the
         files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 130.14.7.4, 130.14.22 item 7)
     out = []

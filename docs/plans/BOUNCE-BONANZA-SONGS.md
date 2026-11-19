@@ -1,4 +1,4 @@
-# Bounce Bonanza: songs in their courses, the finish's tunes resident (BUILDING; SPEC.md 130.50)
+# Bounce Bonanza: songs in their courses, the finish's tunes resident (BUILT; SPEC.md 130.50)
 
 The owner, 2026-11-19: *"Victory/death are sounds always loaded, and each
 course's song will be unique to that course. This may be part of why load
@@ -91,10 +91,13 @@ about 0.2 s. To be MEASURED with the same probe after.
       with `OSAPI_SEG` by `bz_bsload`; no fetch or drop at a launch, no
       new row, no new read at the open. MEASURED: PEAK 3.47 -> 2.69 s,
       MOON 2.95 -> 2.68 s.
-- [ ] **S3** The tool writes each course's song into its course part (and
-      the pathway's and the title's); the guest plays it from there.
-- [ ] **S4** The song part rows retired; `crs_arena` and `BZ_CRS_ARENA`
-      shrink by them; `tests/pins.txt` loses `bzs_vseg`, `bzs_tseg`.
-- [ ] **S5** MEASURED: the launch probe again on FIRST, PEAK, MOON;
+- [x] **S3** The tool writes each course's song into its course part as
+      section `S` (and the pathway's and the title's); the guest plays it
+      from there (SPEC.md 130.50.3). The identity is taken without it.
+- [x] **S4** The song part rows retired; `crs_arena` and `BZ_CRS_ARENA`
+      count no sound. (`bzs_vseg` and `bzs_tseg` stay in `tests/pins.txt`'s
+      words as the bundle's derived segments.)
+- [x] **S5** MEASURED: PEAK 3.47 -> 2.29 s, MOON 2.95 -> 2.19 s, FIRST
+      0.94 s (a free play); the soak's rows below in the final pass:
       `bonanzasound`, `bonanzapath`, `bonanzademo` and `bonanzaexit` in the
       final pass; the title, a course, a replay and the pathway heard.

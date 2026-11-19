@@ -130,17 +130,17 @@ F_SEGN      equ 20              ; segments begun, a byte: the speaker's re-send
 F_SVOL      equ 21              ; the segment's own volume: the AdLib's level
 F_SIZE      equ 22
 
-; the part rows (bonanza.asm's table: after the courses).  The sound part is
-; no row of its own since SPEC.md 130.50.2: it is the RESIDENT BUNDLE's
-BZ_P_SONG   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; song S's row: BZ_P_SONG + S (after the WORLD parts', 130.30.4.4)
+; no part rows: the sound part, VICTORY and TIME'S UP are the RESIDENT
+; BUNDLE's (SPEC.md 130.50.2), each course's song its own part's section S
+; (130.50.3)
 
 %macro BZ_SND_VARS 0
 VAR bzs_mode,1                  ; the player's choice (S): BZS_M_*
 VAR bzs_arm,1                   ; the arm open now: BZS_A_*
 VAR bzs_live,1                  ; 1: a song is playing
-VAR bzs_song,1                  ; the song part's row, 0 none
+VAR bzs_song,1                  ; 1: the song is the course part's (section S, 130.50.3), 0 none
 VAR bzs_pseg,2                  ; the sound part's segment, 0 none: the BUNDLE's (130.50.2, bz_bsload)
-VAR bzs_mseg,2                  ; the song part's segment, 0 none
+VAR bzs_mseg,2                  ; the song's segment (inside the course part, or a finish tune's), 0 none
 VAR bzs_vic,1                   ; 1: the fanfare played this play (the desktop's goal effect is then not)
 VAR bzs_fin,1                   ; 1: this play's finish has its tune (130.50.2: a PLAY of a COURSE with
                                 ; music, bzs_gfetch's) - the gate the held fanfare's segment was
@@ -216,24 +216,20 @@ bzs_toggle:
 ; bz_launch's: the course's song for the bracket, and back to the title
 ; -----------------------------------------------------------------------------
 
-; bzs_gfetch - course [bz_crs]'s song fetched (wave 7, 130.18.6: bz_csongs,
-; the course's `music` or 130.20.6's rule, the tool's - course K plays song K,
-; BENCH song 1, past five wraps).  The sound part, VICTORY and TIME'S UP are
-; the RESIDENT BUNDLE's (SPEC.md 130.50.2): no fetch; with no bundle (kern_small
-; plays nothing) the play is SILENT, never refused, and so is a song that
-; cannot be had (its toast said why).  bzs_fin set for a play whose finish has
-; its tune.  Preserves nothing.
+; bzs_gfetch - course [bz_crs]'s song: section S of its own part, fetched with
+; it (SPEC.md 130.50.3: the tool puts each course's song - its `music`, or
+; 130.20.6's rule - in the part), so there is NOTHING to fetch: bzs_csong
+; points the sequencer at it.  The sound part, VICTORY and TIME'S UP are the
+; RESIDENT BUNDLE's (130.50.2).  With no bundle (kern_small plays nothing) or no
+; section S the play is SILENT, never refused.  bzs_fin set for a play whose
+; finish has its tune.  Preserves nothing.
 bzs_gfetch:
     mov byte [bzs_fin], 0
     cmp byte [bzs_mode], BZS_M_OFF
     je .r
     cmp word [bzs_pseg], 0
     je .r
-    mov bl, [bz_crs]
-    xor bh, bh
-    mov al, [bz_csongs + bx]
-    add al, BZ_P_SONG
-    call bzs_fsong
+    call bzs_csong
     jc .r
     cmp byte [bz_mode], 0       ; ...and the FINISH'S TUNES held (8R.6, D2;
     jne .r                      ; 130.50.2: in the bundle, no read at all) -
@@ -252,11 +248,50 @@ bzs_gfetch:
 bzs_gdrop:
 bzs_gdrop0:
     push ax
-    mov al, [bzs_song]
-    call bzs_dsong
-    xor ax, ax
+    xor ax, ax                  ; (the song was the course part's: nothing to
+    mov [bzs_song], al          ; give back - bz_cdrop gave the part back and
+    mov [bzs_live], al          ; let go of it first)
+    mov [bzs_mseg], ax
     mov [bzs_vic], ax           ; (bzs_vic and bzs_fin)
     pop ax
+    ret
+
+; bzs_csong - the song in course part [bz_cseg]: its directory's section S
+; (SPEC.md 130.50.3: zeros to a paragraph, then the song), the song's
+; paragraph made a segment with OSAPI_SEG (no arithmetic: kern_mega's LDT
+; selector, the part's own) into bzs_mseg, bzs_song 1.  CF = 1 none (a part
+; built with no song).  Clobbers AX, BX, CX, DX.
+bzs_csong:
+    push es
+    mov dx, [bz_cseg]
+    or dx, dx
+    jz .no
+    mov es, dx
+    mov bx, [es:BZC_DIROFF]
+    mov cx, [es:BZC_NSEC]
+    jcxz .no
+.e:
+    cmp byte [es:bx], 'S'
+    je .hit
+    add bx, BZX_ENTB
+    loop .e
+.no:
+    pop es
+    stc
+    ret
+.hit:
+    mov ax, [es:bx + BZX_OFF]
+    add ax, 15
+    mov cl, 4
+    shr ax, cl                  ; AX = the song's paragraph in the part
+    mov bl, SEG_SUB
+    xor cx, cx
+    call OSAPI_SEG              ; DX = its segment
+    jc .no
+    mov [bzs_mseg], dx
+    mov byte [bzs_song], 1
+    pop es
+    clc
     ret
 
 ; bzs_ptab - the sound part's tables (its header) copied, once the bundle is
@@ -365,32 +400,6 @@ bzs_victory:
     pop ax
     ret
 
-; bzs_fsong - part row AL (a song) fetched as the song.  CF = 1 not had.
-; Clobbers AX, BX, CX, DX, SI, DI, ES.
-bzs_fsong:
-    push ax
-    call op_fetch
-    pop ax
-    jc .r
-    mov [bzs_song], al
-    call op_seg
-    mov [bzs_mseg], ax
-    clc
-.r:
-    ret
-
-; bzs_dsong - part row AL (the song, 0 none) given back.  Preserves all.
-bzs_dsong:
-    or al, al
-    jz .r
-    mov byte [bzs_song], 0
-    mov byte [bzs_live], 0
-    mov word [bzs_mseg], 0
-    push ds                     ; (op_drop restores ES: ours, never the
-    pop es                      ; part's selector, which is gone after it)
-    call op_drop
-.r:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; THE BRACKET: open, a frame, close

@@ -1182,11 +1182,11 @@ def ab_tree(td, commit=AB_COMMIT):
         plist = ["BZBALR.BIN", "BZBALS.BIN", "BZBALG.BIN"] + ["BZ%d.BIN" % k for k in range(nc)]   # balls, a
     else:                                       # course a part; wave 1's: the ball's two, each course's two
         plist = ["BZBALC.BIN", "BZBALH.BIN"] + ["BZ%d%s.BIN" % (k, c) for k in range(nc) for c in "CH"]
-    if "BZ_SNDPARTS" in mk:                     # 3b's: the sound part and a part a song, after the courses
-        import re
+    if "BZ_PARTS2 := $(BZ_SNDPARTS)" in mk or "BZ_PARTS2 := $(BZ_SONGPARTS)" in mk:   # 3b's: the sound part
+        import re                               # and a part a song, after the courses - the song rows alone
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
-                           re.M).group(1))
-        plist += ["BZSND.BIN"] + ["BZM%d.BIN" % i for i in range(ns)]
+                           re.M).group(1))      # under 130.50.2, neither since 130.50.3
+        plist += (["BZSND.BIN"] if "BZ_PARTS2 := $(BZ_SNDPARTS)" in mk else []) + ["BZM%d.BIN" % i for i in range(ns)]
     if "BZ_DEMOPARTS" in mk:                    # wave 4's: a shipped demo a tour course, after the songs
         plist += ["BZD%d.BIN" % k for k in range(1, nc)]
     parts = []
