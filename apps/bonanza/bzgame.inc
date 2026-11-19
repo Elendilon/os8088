@@ -65,10 +65,9 @@
 ;                      bz_presented less those runs, and a LEAD), 6 the WHEEL,
 ;                      idle (bz_tw..bz_tv, wave 3, appended so 0 - 5 keep their
 ;                      numbers: SPEC.md 130.12.5.6).  CPU clocks = counts x 4.
-;   bz_cmode    byte   the camera MODE (SPEC.md 130.11.11.1): 0 GLIDE, 1 TRICKLE
-;                      (FOLLOW is gone).  C toggles it, in play and on the desktop;
-;                      it persists across plays (bss, never reset).  The benchmark
-;                      runs GLIDE whatever it says and leaves it alone
+;   (no camera MODE: LATTICE is the one camera, TRICKLE and FOLLOW are
+;                      deleted, SPEC.md 130.11.11.1 - a harness that needs the
+;                      window held pokes the SCRIPTED camera, bz_camscr)
 ;   bz_lax,bz_lay 16 bytes each: LATTICE's axes (wave 6b, SPEC.md 130.17.6.2),
 ;                      across and down, BZL_* offsets: +0 s (the pan's sign),
 ;                      +1 last, +2 fast, +3 since (across), +4 held (the heavy
@@ -181,7 +180,6 @@ BZ_FIN_STEPS equ 110            ; wave 8R (130.22.6): the finish sequence's step
 BZ_FDSTEPS  equ 5               ; 8R.11 (130.22.6): the DISSOLVE's steps a density -
                                 ; whole, 7 dithered, then gone at 8 x 5 = 40 steps
 BZ_FDMSK    equ BZ_BAL_ROWS * BZ_BAL_RB ; (its copies: a sprite's mask, bz_fdb)
-BZ_CMODES   equ 2               ; GLIDE, TRICKLE (SPEC.md 130.11.11.1)
 ; GLIDE's "faster than 4 px a FRAME" across is the ball's TRAVEL over the last
 ; FOUR frames (SPEC.md 130.11.11.1), in the 24.8 low word of bz_bx: rate-proof,
 ; where wave 1's |v| against a per-card constant assumed the full refresh.
@@ -315,15 +313,12 @@ VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
 VAR bz_crs,1                    ; the course K: BZ_CRS_FIRST to play, BZ_CRS_BENCH
                                 ; for the benchmark (bzcourse.inc)
 VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
-VAR bz_cmode,1                  ; the camera mode: 0 GLIDE (LATTICE), 1 TRICKLE - a
-                                ; HARNESS's poke alone since C went (130.46.12)
 VAR bz_fixed,2                  ; SPEC.md 130.23.2: 1 the course's window is FIXED (+1 zero)
 VAR bz_fixr,2                   ; ...at R0 (this card's card rows) and c0 (words):
 VAR bz_fixc,2                   ; bz_crshdr's, from BZG1 +30 / +31
 VAR bz_paged,2                  ; SPEC.md 130.22.4.3: 1 the window is PAGED (+1 the pages,
                                 ; BZC2 +44), page 0's at bz_fixr / bz_fixc (bz_crshdr's)
 VAR bz_pgk,2                    ; ...the TARGET page (bz_pgtgt; +1 zero)
-VAR bz_cuse,1                   ; ...the one this frame used (a benchmark: GLIDE)
 VAR bz_bkey,1                   ; ...and Backspace (RETURN: one press, one step)
 VAR bz_gfast,1                  ; GLIDE: 1 while the ball is FAST across: its
                                 ; travel over four frames (130.11.11.1)
@@ -2192,25 +2187,19 @@ bz_foot:
 ; bz_camera - the new window, from the ball's position (bz_foot, rule 0).  Runs ONCE A FRAME, after the frame's steps (SPEC.md
 ; 130.9: the camera is part of the simulation, and its cadence is the frame
 ; rate's).  The first frame centres the window on the ball and is a FULL WRITE,
-; as is any step past BZ_MAXR/BZ_MAXC.  After it, the MODE (bz_cmode; GLIDE in
-; a benchmark, SPEC.md 130.11.11.1):
-;
-;   GLIDE   LATTICE since wave 6b (bz_lattice, SPEC.md 130.17.6.2): the
-;           camera RESTS, or it PANS to a lattice framing ahead of the ball,
-;           at one rate a pan that only rises; a pan never reverses inside
-;           the band, and coming back needs a hysteresis more
-;   TRICKLE wave 0's camera, unchanged (SPEC.md 130.5): the "classic" one
-;
-; Both read the camera's centre line off 130.16.7's GROUND LINE, at most
-; BZ_MAXR rows and BZ_MAXC columns a frame, clamped to the course - so 130.2
-; rule 4's column split is the same in both.  GLIDE's "fast" across is the
-; ball's travel over the last four frames, kept in every mode (the ring
-; bz_trx: SPEC.md 130.11.11.1, bbcourse.Glide's).  GLIDE's steps are DELAYED
-; on a HEAVY frame (bz_lhv, from bz_props's bz_heavy and bz_pflag's near-edge
-; bits, SPEC.md 130.17.6.3); TRICKLE is wave 0's exactly.  A harness's
-; bz_camscr replaces GLIDE by a SCRIPT (130.17.6.7); its clearing is a cut.
-; Sets bz_R0n, bz_c0n, bz_dr, bz_dc, bz_full, bz_meas, bz_cuse.  Preserves
-; nothing.
+; as is any step past BZ_MAXR/BZ_MAXC.  After it, ONE camera - there is no
+; mode (TRICKLE deleted, SPEC.md 130.11.11.1): LATTICE since wave 6b
+; (bz_lattice, SPEC.md 130.17.6.2) - the camera RESTS, or it PANS to a
+; lattice framing ahead of the ball, at one rate a pan that only rises; a
+; pan never reverses inside the band, and coming back needs a hysteresis
+; more.  It reads the camera's centre line off 130.16.7's GROUND LINE, at
+; most BZ_MAXR rows and BZ_MAXC columns a frame, clamped to the course.  Its
+; "fast" across is the ball's travel over the last four frames (the ring
+; bz_trx: SPEC.md 130.11.11.1, bbcourse.Glide's), its steps DELAYED on a
+; HEAVY frame (bz_lhv, from bz_props's bz_heavy and bz_pflag's near-edge
+; bits, SPEC.md 130.17.6.3).  A harness's bz_camscr replaces it by a SCRIPT
+; (130.17.6.7); its clearing is a cut.  Sets bz_R0n, bz_c0n, bz_dr, bz_dc,
+; bz_full, bz_meas.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_camera:
     cmp byte [bz_fcnt], 0       ; THE FINISH SEQUENCE (130.22.6): the camera
@@ -2231,18 +2220,6 @@ bz_camera:
     mov [bz_meas], al
     ret
 .nfs:
-    mov al, [bz_cmode]          ; the mode this frame: the benchmark's is GLIDE
-    cmp byte [bz_mode], 1       ; whatever the player chose, so its route and
-    jne .muse                   ; its numbers stay comparable (bz_cmode is
-    xor al, al                  ; left as it was)
-.muse:
-    xchg al, [bz_cuse]          ; GLIDE again after TRICKLE (C): LATTICE
-    or al, al                   ; starts at rest, its bands at the window
-    jz .ncs0                    ; as it stands
-    cmp byte [bz_cuse], 0
-    jne .ncs0
-    call bz_latrst
-.ncs0:
     cmp byte [bz_camscr], 0     ; bz_camscr CLEARED after a scripted frame
     jne .ncs                    ; (bz_scnt bit 7): a cut (130.17.6.7)
     test byte [bz_scnt], 80h
@@ -2412,82 +2389,13 @@ bz_camera:
     add bp, ax                  ; BP = cy + 8
 .cyd:
     cmp byte [bz_vga], 0        ; THE VGA's play: its own camera (130.46.12),
-    je .gl                      ; the benchmark's LATTICE (C does nothing
-    cmp byte [bz_mode], 1       ; on the VGA: C is gone)
-    je .lat
+    je .gl                      ; the benchmark's LATTICE
+    cmp byte [bz_mode], 1
+    je .gl
     BZ_VCALL BZV_CAM
     jmp .moved
 .gl:
-    cmp byte [bz_cuse], 0
-    jne .trickle
-.lat:
-    call bz_lattice             ; GLIDE: LATTICE (wave 6b, 130.17.6.2)
-    jmp .moved
-.trickle:
-    ; --- TRICKLE, wave 0's camera (SPEC.md 130.5) ---
-    ; vertical: the band [T + 1/3, T + 2/3] of the window's lines
-    mov ax, bp                  ; the camera's centre line (the ground line's)
-    mov bx, [bz_R0]
-    shl bx, cl                  ; T, the window's top line
-    mov dx, ax
-    sub dx, bx
-    mov si, [bz_R0]
-    cmp dx, BZ_LINES / 3
-    jge .notup
-    sub ax, BZ_LINES / 3        ; the top that puts the ball on the band's top
-    jge .up
-    xor ax, ax
-.up:
-    shr ax, cl
-    mov si, ax
-    mov ax, [bz_R0]
-    sub ax, BZ_MAXR
-    cmp si, ax
-    jge .vdone
-    mov si, ax
-    jmp .vdone
-.notup:
-    cmp dx, 2 * BZ_LINES / 3
-    jle .vdone
-    sub ax, 2 * BZ_LINES / 3    ; ...on the band's foot, rounded up a row
-    add ax, [bz_rl]
-    dec ax
-    shr ax, cl
-    mov si, ax
-    mov ax, [bz_R0]
-    add ax, BZ_MAXR
-    cmp si, ax
-    jle .vdone
-    mov si, ax
-.vdone:
-    mov [bz_R0n], si
-    ; horizontal: the dead zone [left + W*2, left + W*6] px
-    mov si, [bz_c0]
-    cmp word [bz_lockc], 0ffffh ; SPEC.md 130.45.2 item 4: a LOCKED course
-    jne .hdone                  ; never moves across
-    mov ax, [bz_px]
-    add ax, 8                   ; the ball's centre px
-    mov bx, [bz_c0]
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    sub ax, bx                  ; ...in the window
-    mov dx, [bz_W]
-    shl dx, 1                   ; a quarter of the window's px
-    mov si, [bz_c0]
-    cmp ax, dx
-    jge .notl
-    dec si
-    jmp .hdone
-.notl:
-    mov bx, dx
-    shl bx, 1
-    add bx, dx                  ; three quarters
-    cmp ax, bx
-    jle .hdone
-    inc si
-.hdone:
-    mov [bz_c0n], si
+    call bz_lattice             ; THE camera: LATTICE (wave 6b, 130.17.6.2)
 .moved:
     call bz_clampwin
     mov byte [bz_full], 0
@@ -2594,7 +2502,7 @@ bz_scyc:                        ; the script's cycle: (row, column), R DR D DL
 %if BZ_PATH_NPAD
 ; --- the PAGED camera (wave 8R, SPEC.md 130.22.4.3): the columns page 0's
 ; always; the rows move toward the TARGET page's at BZ_MAXR rows a frame
-; (no GLIDE, no TRICKLE, no C), a whole page's scroll only when the
+; (no LATTICE), a whole page's scroll only when the
 ; marble's footprint centre line leaves the target's window ---
 bz_camera.paged:
     call bz_pgtgt               ; AX = the target page's R0
@@ -3246,7 +3154,7 @@ bz_lexit:
     ret
 
 ; bz_latrst - LATTICE's axes at REST (the first frame and a cut, SPEC.md
-; 130.17.6.2; and GLIDE resumed after TRICKLE): s, last, fast and held 0,
+; 130.17.6.2): s, last, fast and held 0,
 ; since 9; each axis's unit, range, constants (the card's) and band at the
 ; window as it stands; the script's count 0.  Clobbers AX, BX, CL, DX, SI, DI.
 bz_latrst:

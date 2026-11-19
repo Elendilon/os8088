@@ -253563,15 +253563,25 @@ the choice persists across plays in the session (not on disk).
 *Since 130.46.12 (the owner, 2026-11-18: "Glide/trickle are closed tests,
 lattice won"): `C` is gone, in play and on the desktop, and line 3 of the
 face reads `M <ball>  T <control>`. LATTICE (GLIDE's rule) is the CGA's and
-the Hercules' only camera and 130.46.14's the VGA's; TRICKLE remains only
-as a harness's poke of `bz_cmode` (three soak rows hold the window still
-with it), to go when those scenes are reworked.*
+the Hercules' only camera and 130.46.14's the VGA's.*
+
+*Since wave 4 of the space plan (the owner, 2026-11-19: "trickle lost the
+a/b"): **TRICKLE is DELETED, and with it the camera MODE itself** -
+`bz_cmode`, `bz_cuse`, `BZ_CMODES`, `bz_camera`'s TRICKLE path and the
+resume glue that put LATTICE at rest when GLIDE came back (184 bytes,
+measured). There is no mode byte to poke and no dispatch for a second
+camera to hang off: `bz_camera` calls `bz_lattice` (or the VGA's
+`BZV_CAM`, 130.46.12) and nothing else. A scene that needs the window held
+still pokes the SCRIPTED camera (130.17.6.7) with its cycle zeroed
+(`tests/bonanza_ring.py` `cam_hold`) - a harness's tool in the `BZDEV`
+build (130.26.6.1), not a camera. A new camera is a new design reviewed as
+one, not a mode byte put back.*
 
 | mode | `bz_cmode` | horizontal | vertical |
 |---|---|---|---|
 | **GLIDE** (the default) | 0 | REST until the ball's CENTRE leaves the dead zone (the middle half, unchanged); then PAN toward the target column that puts the ball on the dead zone's TRAILING edge - a quarter-window behind the centre, so the camera LEADS by a quarter-window in the direction of travel (the sign of `vx`, at rest the last one) - rounded so the ball lands inside the edge and clamped to the course; one column every second frame, and every frame while the ball is faster than 4 px a frame or still outside the dead zone; re-aiming every frame, until the target is reached; then rest | the same shape on rows: rest inside the band (the middle third, unchanged); when the ball leaves it, pan toward the row that puts the ball on the band's trailing edge (the camera leads by a sixth of the window), at one row a frame, two while the ball is faster than 2 lines a frame, and one more while one row still leaves the ball outside the band, until reached |
 | **FOLLOW** (removed in wave 2, 130.11.11.1) | 1 | a camera VELOCITY in 1/256 px a frame eases toward the ball's (by a quarter of the difference a frame) plus a correction toward the dead-zone centre; its POSITION accumulates and steps a column whenever it crosses a column, so steps come at an even cadence that matches the ball | the same, in lines, stepping a row whenever it crosses a row |
-| **TRICKLE** | 2 | wave 0's camera exactly (130.5): kept for the A/B | wave 0's |
+| **TRICKLE** (deleted, wave 4 of the space plan) | 2 | wave 0's camera exactly (130.5): kept for the A/B until it lost it | wave 0's |
 
 *Wave 6b (130.17.6): GLIDE's rules in this table are replaced by LATTICE
 (130.17.6.2): return hysteresis, lattice framings, a pan that never
@@ -256355,6 +256365,8 @@ mode, and the choice persists for the session. `bz_camfollow` and every byte
 that serves only FOLLOW are deleted, not kept behind a flag; 130.9's FOLLOW
 row and its cadence figures stay as the record of why. Any row or red arm
 that cycles the modes cycles two. The benchmark still runs GLIDE.
+*TRICKLE followed FOLLOW in the space plan's wave 4 (130.9's note): the
+camera has ONE rule now and no mode byte.*
 
 **As built (`bzgame.inc`).** The ring is `bz_trx`, `bz_try` and its index
 `bz_tri`, kept by `bz_camera` on EVERY frame after the first in both modes
@@ -283589,7 +283601,8 @@ the direction of travel, so a course that zigzags down the screen pans 16 -
    is skipped whole. `bz_c0n` = `bz_c0`, `bz_lax` is untouched, and no
    column is withheld or counted (`bz_nwc`). DOWN runs as before.
 4. **TRICKLE**: its horizontal dead zone is skipped the same way, so `C`
-   changes the vertical behaviour only.
+   changes the vertical behaviour only. *(TRICKLE is deleted since wave 4 of
+   the space plan, 130.9: its 11 bytes here went with it.)*
 5. **The scripted camera** (`bz_camscr`, a harness's) ignores the lock: it
    is BENCH's, which has none.
 6. **The finish sequence** holds the camera as before.
