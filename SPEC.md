@@ -272716,7 +272716,13 @@ and HOP are in `BZ_COURSES` by default, appended as courses 7 and 8 so every
 course before them keeps its K, and the `BZROLL` knob that carried them is
 retired. The map the shipped one replaced is `pathtest.bbc`, the base the
 pad-0 test-course knobs' `path<knob>.sed` edit (they name its pads and cells);
-the first two courses have no pad there. The map is 22,784 bytes in RAM and
+the first two courses have no pad there. **Every course of the default build
+has a pad but BENCH** (the benchmark, never played): the owner's rule,
+2026-11-19, *"I just don't want test courses no one can get to in the
+non-knob build"*. Pad 7 is the OLD First Roll (`FIRST`, course 1) standing
+in, its map title "Bounce Trial" so no two pads read FIRST ROLL; in a game
+it still says "First Roll", and the title screen's demos include its route
+demo. It goes when page 1 is designed. The map is 22,784 bytes in RAM and
 6,561 LZB (the prototype's, compiled today: 21,954 and 6,514).
 
 #### 130.22.1 The decisions, in one table
