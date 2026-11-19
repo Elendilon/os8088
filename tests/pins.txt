@@ -428,10 +428,6 @@ N apps/bonanza/bonanza.asm bz_kseg      # THE KIT (BZKIT.BIN, SPEC.md 130.37.5: 
                                          # and by the replay log's routines, whose RUNS
                                          # live in the kit's zero tail (SPEC.md
                                          # 130.11.12.1), never across a move
-C apps/bonanza/bonanza.asm @bz_vkey      # a shipped demo's part (V): fetched,
-                                         # copied whole into the log (bz_rin) and dropped
-                                         # inside V's one key call (SPEC.md
-                                         # 130.14.7.4)
 C apps/wirearena/wirearena.asm @wa_loadarena # an arena part, fetched, read
                                          # into both halves and dropped inside
                                          # wa_loadarena's one call (the Game
