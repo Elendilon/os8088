@@ -21,6 +21,7 @@
 # cross.  This layout's airborne steps over OCC cells are counted instead
 # (`bbcourse.py --selfcheck` item 8).
 course TRIAL "Bounce Trial"
+music trial      # SPEC.md 130.50.3: every course names its song (the song it had by position)
 width  64
 ball   rubber
 

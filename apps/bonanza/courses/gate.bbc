@@ -15,6 +15,7 @@
 # THE ART's STYLES (SPEC.md 130.41.11), one an element group: the ring gates CRYSTAL, the plus gates PORTCULLIS,
 # the timed drawbridge's deck PICKET (planks), the box drawbridge the default GRILLE (its plain seam).
 course GATE "Gate Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 origin 320
 ball   rubber

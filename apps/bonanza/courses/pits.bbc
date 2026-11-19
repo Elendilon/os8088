@@ -10,6 +10,7 @@
 #    and radius 2, 8 px, with NO hole - a dish to circle in.  A fall through the hole respawns on the
 #    plate beside it.
 course PITS "Pits and Banks"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width  128
 origin 480
 ball   rubber

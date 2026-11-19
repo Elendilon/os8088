@@ -1,58 +1,82 @@
 #!/usr/bin/env python3
 """bonanzapath - THE PATHWAY's loop on the glass (SPEC.md 130.22.4, wave 8R;
-rewritten from wave 8b's rolled prototype, 130.19.5).
+rewritten from wave 8b's rolled prototype, 130.19.5; brought to the SHIPPED
+map, option A, 2026-11-19: pad 0 FIRST ROLL, pad 1 LITTLE HOP).
 
 BONANZA on MartyPC, CGA and Hercules.  Enter on the face opens the TITLE and
 P there plays THE GAME (SPEC.md 130.23.4, `enter_game`): the pathway comes up
 in the bracket, the FOLLOWER's play (bz_mode 4).  Every item is asserted on
 the guest's own state (bz_* reads, breakpoints on its labels), its timing on
-the guest's clock:
+the guest's clock.  The pads, routes and arrows are the GUEST's tables (the
+pathway part's, `guest_tables`), never numbers written here: pad 0 and the
+route its finish opens, the pad that route reaches (pad 1), the arrows each
+pad's key map gives a route, the nearest DIAGONAL (a route two arrows take)
+and the nearest route between pages.  The courses played are the shipped
+ones, pad 0's (ROLL) and pad 1's (HOP); a prototype pad is rolled ACROSS on
+the way to a diagonal and a page, never played.
 
   0. a new game: five lives, the marble RESTING on pad 0's cell, every gate
      closed;
   1. no arrow moves it (pad 0's routes are closed); Space shows the INFO card
      of pad 0's course (bz_kinfow, AL its K), a key takes it down;
-  2. Enter plays FIRST, the autopilot finishes it: the FINISH SEQUENCE - the
-     clock's digit lanes alternate (bz_ffl's blank bit, bz_tdig's units), the
-     camera still (bz_R0, bz_c0), and a ball poked over a VOID cell below its
-     kill height in the sequence falls on, neither counted nor respawned
-     (bz_nfall, its cell) - then Enter SKIPS it (bz_fend with steps left);
-  3. back on the pathway pad 0 is DONE (its sign a medal pose), route (0, exit
-     0) OPENED, its gate's sign posed 1 - 5 in order and its LANE drawn at 5;
-     the marble AUTO-ROLLS to pad 1, its position bbcourse.Follow's at every
-     STEP of the roll (bz_follow's entries), RESTING on pad 1;
-  4. Down at pad 1 (a down-left route: both of its arrows) takes route 0 back
-     to pad 0 (Follow, reversed), Up brings it back; LEFT, the diagonal's
-     second arrow, takes it too, and Right brings it back;
-  5. the routes 1 -> 2, 2 -> 4 and 4 -> 5 opened by a poke: Up to MILL (pad
-     2), Up to MOON (pad 4, page 1): bz_R0 at every bz_presented on page 0's rows (bz_fixr) until it
-     moves BZ_MAXR rows a frame to page 1's and stops there; bz_c0 never moves;
-  6. RESTING on MOON its icon's lanes are walked (their drawn pose changes)
-     and no other icon's lane is MARKED (bz_latt) at any walk's entry
-     (bz_props); on PEAK (up a ramp, pad 5) MOON's icon is back at its rest
-     pose and its lanes unmarked at every walk's entry;
-  7. the HELD pathway: Enter at PEAK plays it beside the pathway's row, kept
-     fetched (bz_phold 1) and re-entered with no fetch (bz_phre); Esc in the
-     course costs a LIFE (4) on the counters (their digit lanes drawn 1 + 4);
-  8. the FORCED fallback (bz_phforce, poked before the game is entered again
-     from the title): the pathway dropped for the course and fetched after;
-  9. the lives poked to 1, a course left by Esc: the GAME OVER - the pathway's
-     OVER state (its sound), then the card (bz_kover), then the title.
+  2. Enter plays pad 0's course (ROLL), its ball POKED next to its goal (the
+     shortest play there is) and, once the camera has come to rest there, into
+     it: the FINISH SEQUENCE - the clock's digit lanes alternate (bz_ffl's
+     blank bit, bz_tdig's units) and are drawn together (2s), the camera still
+     (bz_R0, bz_c0), and a ball poked over a VOID cell below its kill height in
+     the sequence falls on, neither counted nor respawned (bz_nfall, its cell) -
+     then Enter SKIPS it (bz_fend with steps left: 2e);
+  3. back on the pathway pad 0 is DONE (its sign a medal pose), the route its
+     exit keys OPENED, its gate's sign posed 1 - 5 in order and its LANE drawn
+     at 5; the marble AUTO-ROLLS to that route's far pad (pad 1), its position
+     bbcourse.Follow's at every STEP of the roll (bz_follow's entries), RESTING
+     there;
+  4. every arrow pad 1's key map gives that route takes it BACK to pad 0
+     (Follow, reversed), and every arrow pad 0's gives it brings it back (on
+     the shipped map Left and Right: a straight road);
+  5. the HELD pathway: Enter at pad 1 plays its course (HOP) beside the
+     pathway's row, kept fetched (bz_phold 1) and re-entered with no fetch
+     (bz_phre); Esc in the course costs a LIFE (4) on the counters (their digit
+     lanes drawn 1 + 4: 5l);
+  6. the FORCED fallback (bz_phforce, poked before the game is entered again
+     from the title): HOP again, the pathway dropped for the course and fetched
+     after;
+  7. the lives poked to 1, HOP left by Esc: the GAME OVER - the pathway's OVER
+     state (its sound), then the card (bz_kover), then the title;
+  8. P again: a NEW game (five lives, resting on pad 0, no route open); every
+     route opened by a poke, the marble rolled to the nearest pad with a
+     DIAGONAL route (two arrows: on the shipped map pad 5's down-right road back
+     to pad 2, Down and Right) and each of that pad's arrows on it takes the
+     route (Follow), the far pad's arrow bringing it back (8d);
+  9. the PAGED camera: the nearest route between pages taken (on the shipped
+     map pad 5 up to pad 6, page 1): bz_R0 at every bz_presented on the start
+     page's rows (bz_fixr less a page's card rows a page) until it moves BZ_MAXR
+     rows a frame to the far page's and stops there; bz_c0 never moves;
+ 10. RESTING on that route's far pad its icon's lanes are walked (their drawn
+     pose changes) and no other icon's lane is MARKED (bz_latt) at any walk's
+     entry (bz_props); rolled on (pad 6 to 7 on the shipped map), the left
+     pad's icon is back at its rest pose and its lanes unmarked at every walk's
+     entry (10b; "up a ramp, gz > 0" is checked only when that route climbs -
+     the shipped map has no ramp, and a SKIP line says so).
 
 The SECRET leg (after the main leg on the first card; `--leg secret` alone)
-plays a PRIVATE tree: path.bbc's route 1 -> 3 (TRIAL's exit 1 to PLAY) made
-`secret` and TRIAL's exit-1 goal `hidden` (tools/bbcourse.py builds its art
-into a temporary directory).  FIRST finished, TRIAL finished by its hidden
-exit 1: no gate, the route rolled at once, its REVEAL groups posed 1 one at a
-time, each once the marble's distance passes its own (the tables'), PLAY's
-hidden pad shown at the arrival and TRIAL's pad (the visible end) with the
-route drawn (+ 4).
+plays a PRIVATE tree built off the shipped files (SECRET_PATCH, each anchor
+asserted, so a moved line fails loudly): ROLL's goal split, its right part
+exit 1 HIDDEN; the map given one more pad (pad N, HOP, up from pad 0) and the
+SECRET route 0 -> N keyed by ROLL's exit 1 (pad 0's icon left off: its lane
+holds the blocks the route draws in).  ROLL finished by its hidden exit 1: no
+gate, the route rolled at once, its REVEAL groups posed 1 one at a time, each
+once the marble's distance passes its own (the tables'), the hidden pad shown
+at the arrival and pad 0 (the visible end) with the route drawn (+ 4).  ITS
+COST: tools/bbcourse.py compiles every course of BZ_COURSES into a temporary
+art tree, then build_tree assembles and packs a package of its own - minutes
+of host CPU before the boot, the most expensive part of the row (BOUNCE-
+BONANZA-SOAK's phase 2 gives it a test pathway of its own).
 
 Red arms: `nopage` (bz_crshdr never sets PAGED: the camera follows like GLIDE,
-R0 off the page rows - 5.), `nogate` (bz_nset marks no lane: the gate's poses
-never drawn - 3.), `nodiag` (Left, the down-left diagonal's second arrow, is
-not the pathway's - 4.), `finfall` (a fall in a goal's finish sequence
-respawns the ball - 2.).
+R0 off the page rows - 9.), `nogate` (bz_nset marks no lane: the gate's poses
+never drawn - 3.), `nodiag` (Left is not the pathway's arrow: pad 1's way back
+- 4.), `finfall` (a fall in a goal's finish sequence respawns the ball - 2.).
 
 --check (the host half): every red arm's anchors found and its copy
 assembles; the private map compiles with its secret route; and bz_follow run
@@ -63,6 +87,7 @@ of the private one, both ways - the arithmetic item 3 then checks on the glass.
 """
 import argparse
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -87,28 +112,33 @@ REDS = {
     # bz_nset: the pose written, no lane MARKED
     "nogate": [("bzwheel.inc", "    cmp [es:si + BZP_SNUM], cl\n    jne .n\n    mov byte [bz_latt + bx], 1\n",
                 "    cmp [es:si + BZP_SNUM], cl\n    jne .n\n    nop                         ; RED nogate\n")],
-    # bz_pwkey: Left is not the pathway's (the down-left diagonal's second arrow ignored)
+    # bz_pwkey: Left is not the pathway's (pad 1's arrow back to pad 0 on the shipped map ignored)
     "nodiag": [("bonanza.asm", "    inc bx\n    cmp ah, KSC_LEFT\n    je .k\n",
                 "    inc bx\n    cmp ah, 0ffh                ; RED nodiag\n    je .k\n")],
     # bz_step .respawn: a fall in a FINISH SEQUENCE respawns as in play
     "finfall": [("bzphys.inc", "    je .rsp                     ; plane or an open cell neither kills nor\n",
                  "    jmp .rsp                    ; RED finfall\n")],
 }
-RED_WANT = {"nopage": "5.", "nogate": "3.", "nodiag": "4.", "finfall": "2."}
+RED_WANT = {"nopage": "9.", "nogate": "3.", "nodiag": "4.", "finfall": "2."}
 
 ST_REST, ST_ROLL, ST_GATE, ST_OVER = 0, 1, 2, 3     # bz_pwst (bonanza.asm BZ_PW_*)
 PROPREC = 32                                        # a record's bytes (bz_lrecsi: five shifts)
 BZP_SNUM = 28
 MAXR = 2                                            # bzgame.inc BZ_MAXR
 LINES = 200                                         # bzvideo.inc BZ_LINES
+ARROWS = ("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight")    # a pad's key map's order (130.22.4.5)
+SETTLE = 8                                          # frames R0 and c0 unchanged: the camera at rest
 
-# the private map (the SECRET leg): TRIAL's exit-1 route a secret one, its goal hidden, and PLAY's own route
-# on to MILL (8R.9, round 2) left out, so the secret route is a SIDE (PLAY leads nowhere) as the leg needs
-SECRET_PATCH = [("path.bbc", "route 1 3 exit 1  path 22,21 25,18", "route 1 3 exit 1 secret path 22,21 25,18"),
-                ("path.bbc", "route 3 2 exit 0  path 25,18 25,17 18,17", "# (route 3 2: not on the private map)"),
-                ("trial.bbc", "goal  rect   8 18  9 19  flat 2 exit 1",
-                 "goal  rect   8 18  9 19  flat 2 exit 1 hidden")]
-COURSES = ["bench", "first", "trial", "mill", "moon", "summit", "playground"]
+# the private map (the SECRET leg), built off the SHIPPED files: ROLL's goal split, its right part a HIDDEN
+# exit 1; the map's extra pad and secret route are APPENDED by secret_text (their pad number is the map's
+# count), anchored on pad 0's line - and pad 0's icon left off (the route up from pad 0 draws in its lane's
+# blocks: bbcourse refuses the two together).  Every OLD must be in its file exactly once (R.patch_tree)
+SECRET_ROLL = ("roll.bbc", "goal  rect 49 56 55 58  flat 3.5",
+               "goal  rect 49 56 52 58  flat 3.5\ngoal  rect 52 56 55 58  flat 3.5 exit 1 hidden")
+SECRET_PAD0 = "pad 0 ROLL  21 28"                   # (the route below starts on its cell)
+SECRET_ICON0 = re.compile(r"^icon 0 .*\n", re.M)
+SECRET_HIDDEN = ("HOP", (18, 25), "21,28 18,25")    # the hidden pad's course and cell, the route's path
+SECRET_CRS, SECRET_EXIT = "roll", 1
 
 BB_PATH = None
 TAG = ["?"]
@@ -120,6 +150,12 @@ def path_k():
         R.CRS_K["bench"]                # (fills the table: the pathway's K is BZ_NCRS)
         BB_PATH = dict.__len__(R.CRS_K)
     return BB_PATH
+
+
+def crs_name(k):
+    """bzcourse.inc's name of course K (R.CRS_K's)"""
+    path_k()
+    return next(n for n, v in R.CRS_K.items() if v == k)
 
 
 # ---- the part's tables (SPEC.md 130.22.3) -----------------------------------------------------------
@@ -160,6 +196,79 @@ def guest_tables(g):
     base = g.w("bz_cseg") << 4
     pth = struct.unpack("<H", g.m.read(base + 42, 2))[0]
     return tables_of(bytes(g.m.read(base + pth, 2048)))
+
+
+# ---- the map's walk, off the tables ------------------------------------------------------------------
+
+def arrows(T, pad, ri, rev):
+    """the arrows pad PAD's key map gives route RI (REV: travelled B to A) -> their key names"""
+    want = ri | (0x80 if rev else 0)
+    return [ARROWS[k] for k, v in enumerate(T["keys"][pad]) if v == want]
+
+
+def ways(T, pad):
+    """the routes leaving PAD (secret ones left out): [(route index, rev, the far pad)]"""
+    out = []
+    for i, r in enumerate(T["routes"]):
+        if r["secret"]:
+            continue
+        if r["a"] == pad:
+            out.append((i, False, r["b"]))
+        elif r["b"] == pad:
+            out.append((i, True, r["a"]))
+    return out
+
+
+def walk(T, frm, to):
+    """the shortest roll from pad FRM to pad TO over the open map: [(route, rev, from, to)] (None: no way)"""
+    prev, todo = {frm: None}, [frm]
+    while todo:
+        p = todo.pop(0)
+        if p == to:
+            break
+        for ri, rev, q in ways(T, p):
+            if q not in prev:
+                prev[q] = (ri, rev, p)
+                todo.append(q)
+    if to not in prev:
+        return None
+    legs, p = [], to
+    while prev[p] is not None:
+        ri, rev, q = prev[p]
+        legs.append((ri, rev, q, p))
+        p = q
+    return legs[::-1]
+
+
+def by_distance(T, frm):
+    """every pad reachable from FRM, nearest first (ties: page 0 first, then the pad number)"""
+    d = {frm: 0}
+    todo = [frm]
+    while todo:
+        p = todo.pop(0)
+        for _ri, _rev, q in ways(T, p):
+            if q not in d:
+                d[q] = d[p] + 1
+                todo.append(q)
+    return sorted(d, key=lambda p: (d[p], T["pads"][p]["page"], p))
+
+
+def find_diagonal(T, frm):
+    """the nearest pad (page 0 first) with a route two of its arrows take -> (pad, route, rev, far pad) or None"""
+    for p in by_distance(T, frm):
+        for ri, rev, q in ways(T, p):
+            if len(arrows(T, p, ri, rev)) >= 2:
+                return p, ri, rev, q
+    return None
+
+
+def find_page_route(T, frm):
+    """the nearest route between two pages, taken from its end nearest FRM -> (start pad, route, rev, far pad)"""
+    for p in by_distance(T, frm):
+        for ri, rev, q in ways(T, p):
+            if T["pads"][p]["page"] != T["pads"][q]["page"]:
+                return p, ri, rev, q
+    return None
 
 
 def lanes_of(g, kind):
@@ -213,6 +322,14 @@ def resting(g, pad, what):
 def course_up(g, k, what):
     """course K's play REACHED (bz_t0), from a pad's Enter"""
     M.until(g.m, lambda _: g.b("bz_mode") == 0 and g.b("bz_crs") == k and g.w("bz_cseg") != 0, what, guest=60)
+
+
+def roll_to(g, T, legs, what):
+    """the marble rolled along LEGS (walk()'s), each leg's first arrow, resting at each far pad"""
+    for ri, rev, frm, to in legs:
+        M.guest_sleep(g.m, 0.2)                 # (the arrows up: the held guard let go)
+        g.key(arrows(T, frm, ri, rev)[0])
+        resting(g, to, "%s: resting on pad %d" % (what, to))
 
 
 class Stops:
@@ -296,6 +413,10 @@ def check(fails, ok, n, line, why):
     return ok
 
 
+def skip(n, why):
+    print("%s %s SKIP: %s" % (TAG[0], n, why), flush=True)
+
+
 def void_cell(crs):
     """a VOID cell of the course (a ball under its kill height there respawns, in play)"""
     grid = BB.Grid(crs.cga, crs.wcga)
@@ -307,6 +428,28 @@ def void_cell(crs):
             except (IndexError, KeyError, ValueError):
                 continue
     raise AssertionError("no VOID cell on the course")
+
+
+def goal_cells(crs, exit_=None):
+    """the course's GOAL cells (of exit EXIT_, any when None) -> [(cell, its APRON: a flat plain FLOOR neighbour
+    at the goal's height, or None)], the cells with an apron first, then the middle of the run first"""
+    tiles = BB.rec_map(crs.tiles)
+    goals = sorted(c for c, t in tiles.items() if len(c) == 2 and t.kind == BB.KIND_GOAL   # (whole cells:
+                   and (exit_ is None or t.exit == exit_))                                 # a ball poked centred)
+    out = []
+    for c in goals:
+        t = tiles[c]
+        ap = None
+        for d in ((0, -1), (-1, 0), (0, 1), (1, 0)):
+            n = (c[0] + d[0], c[1] + d[1])
+            u = tiles.get(n)
+            if u is not None and u.kind == BB.KIND_FLOOR and not u.sx and not u.sy and u.z0 == t.z0 \
+                    and n not in crs.pcell:
+                ap = n
+                break
+        out.append((c, ap))
+    mid = len(out) // 2
+    return sorted(out, key=lambda e: (e[1] is None, abs(out.index(e) - mid)))
 
 
 def clock_lit(g):
@@ -328,36 +471,68 @@ def clock_lit(g):
     return lit
 
 
-def finish_first(g, fails):
-    """item 2: FIRST from pad 0, the autopilot to its goal, the finish sequence,
-    a fall in it, Enter skipping it.  -> paused at bz_fend, breakpoints clear"""
+def finish_pad0(g, fails, k):
+    """item 2: course K from pad 0, its ball poked beside its goal and, the camera at rest, into it; the finish
+    sequence, a fall in it, Enter skipping it.  -> the exit finished by (None: no finish), the guest paused at
+    bz_fend, breakpoints clear"""
     m = g.m
-    void = void_cell(R.course("first"))         # (the host's work BEFORE the play: the sequence is ~3 guest s)
+    name = crs_name(k)
+    crs = R.course(name)                        # (the host's work BEFORE the play: the sequence is ~3 guest s)
+    void = void_cell(crs)
+    cells = goal_cells(crs)
+    gc, ap = cells[0]
+    if ap is None:
+        raise AssertionError("%s: no goal cell with a plain floor beside it to rest the ball on" % name)
+    mat = crs.ball
+    pa = BB.Physics(crs, play=True, mat=mat).poke(*ap)
+    pg = BB.Physics(crs, play=True, mat=mat).poke(*gc)
     g.key("Enter")
-    course_up(g, R.CRS_K["first"], "FIRST from pad 0")
-    X.at_t0(g, lambda g_: g_.putb("bz_apilot", 1))
+    course_up(g, k, "%s from pad 0" % name.upper())
+    X.at_t0(g, lambda g_: R.poke_ball(g_, pa.gx, pa.gy, pa.gz, 0, 0, 0, air=0))
+    # the camera comes to rest over the ball (a scroll at BZ_MAXR rows a frame): then the goal, so the finish
+    # sequence's window is the goal's, its clock in it (130.22.6), as a play's would be
+    sp = Stops(g, ("bz_t0",))
+    last, same = None, 0
+    for _ in range(1200):
+        if sp.next() != "bz_t0":
+            break
+        cam = (g.w("bz_R0"), g.w("bz_c0"))
+        same = same + 1 if cam == last else 0
+        last = cam
+        if same >= SETTLE:
+            break
+    settled = same >= SETTLE
+    if settled:
+        R.poke_ball(g, pg.gx, pg.gy, pg.gz, 0, 0, 0, air=0)
+    sp.done(run=False)
+    if not settled:
+        check(fails, False, "2.", "%s's finish: the camera at rest beside the goal" % name.upper(),
+              "the camera never came to rest over the ball beside the goal (R0, c0 %s)" % (last,))
+        m.run()
+        return None
     # the guest STOPPED at the goal step's bz_fstart (a poll of bz_fcnt lets the guest run on while the host
     # reads: a whole sequence can pass before the next breakpoint is set)
     sp = Stops(g, ("bz_fstart",))
-    hit = sp.next(guest=120)
+    hit = sp.next(guest=30)
     sp.done(run=False)
     if hit != "bz_fstart":
-        check(fails, False, "2.", "FIRST's finish sequence: the autopilot's goal step (%s)" % hit,
-              "the autopilot reached no goal (%s)" % hit)
-        return
+        check(fails, False, "2.", "%s's finish sequence: the goal step (%s)" % (name.upper(), hit),
+              "the ball poked into the goal %s finished nothing (%s)" % (gc, hit))
+        return None
+    ex = g.b("bz_exit")
     sp = Stops(g, ("bz_t0", "bz_fend"))
     hit = sp.next()
     if hit != "bz_t0":
         sp.done()
-        check(fails, False, "2.", "FIRST's finish sequence", "the sequence ended before its frames were read")
-        return
+        check(fails, False, "2.", "%s's finish sequence" % name.upper(),
+              "the sequence ended before its frames were read")
+        return None
     r0, c0, nfall = g.w("bz_R0"), g.w("bz_c0"), g.w("bz_nfall")
-    g.putb("bz_apilot", 0)
     R.poke_ball(g, (void[0] << 12) + 0x800, (void[1] << 12) + 0x800, -2048 * 256, air=1)
     blanks, units, still, cell = set(), set(), True, True
     # SPEC.md 130.22.6.1: the lit phase shows the RUN's time (the limit less the seconds left), not the seconds left
-    crs = g.b("bz_crs")
-    lim = struct.unpack("<H", g.m.read(g.a("bz_clims") + 2 * crs, 2))[0]
+    kc = g.b("bz_crs")
+    lim = struct.unpack("<H", g.m.read(g.a("bz_clims") + 2 * kc, 2))[0]
     run = lim - g.w("bz_tsec")
     lit, runok, nlit = set(), True, []
     for _ in range(24):
@@ -380,17 +555,19 @@ def finish_first(g, fails):
     # the group once waited for the wheel's room, the clock frozen on the countdown for 26 frames)
     whole = max([n for _, n in nlit] or [0])
     split = [n for _, n in nlit if n not in (0, whole)]
-    stale = [k for k in range(1, len(nlit)) if nlit[k][0] == nlit[k - 1][0]
-             and nlit[k][1] != (0 if nlit[k][0] else whole)]
+    stale = [i for i in range(1, len(nlit)) if nlit[i][0] == nlit[i - 1][0]
+             and nlit[i][1] != (0 if nlit[i][0] else whole)]
+    up = name.upper()
     check(fails, whole > 0 and not split and not stale, "2s.",
-          "FIRST's finish: the shown clock digits drawn lit a frame %s - all %d or none, never split, and as the "
-          "phase says from the frame after it changes" % (sorted(set(n for _, n in nlit)), whole),
+          "%s's finish: the shown clock digits drawn lit a frame %s - all %d or none, never split, and as the "
+          "phase says from the frame after it changes" % (up, sorted(set(n for _, n in nlit)), whole),
           "the flash's digits split (%s) or lagged their phase (frames %s): (blank, lit) a frame %s" % (
               split, stale, nlit))
     check(fails, len(blanks) == 2 and len(units) >= 2 and lit and runok and still and fall, "2.",
-          "FIRST's finish sequence: the clock blank %s, its units' poses %s (lit %s: the run's %d s of %d), the "
-          "camera still %s; a fall poked in it neither counted (falls %d -> %d) nor respawned (on its void cell %s)" % (
-              sorted(blanks), sorted(units), sorted(lit), run, lim, still, nfall, g.w("bz_nfall"), cell),
+          "%s's finish sequence (exit %d, the goal %s): the clock blank %s, its units' poses %s (lit %s: the run's "
+          "%d s of %d), the camera still %s; a fall poked in it neither counted (falls %d -> %d) nor respawned "
+          "(on its void cell %s)" % (up, ex, gc, sorted(blanks), sorted(units), sorted(lit), run, lim, still,
+                                     nfall, g.w("bz_nfall"), cell),
           "the finish sequence (blank %s, units %s, lit %s against the run's %d s, still %s) or its fall "
           "(respawned or counted: %s)" % (sorted(blanks), sorted(units), sorted(lit), run, still, not fall))
     sp.done(run=False)
@@ -400,6 +577,7 @@ def finish_first(g, fails):
     sp.done(run=False)
     check(fails, hit == "bz_fend" and fc > 1, "2e.", "Enter in the sequence (%d steps left) ends the play at once: "
           "bz_fend with %d left" % (left, fc), "Enter did not skip the finish sequence (%s, %d left)" % (hit, fc))
+    return ex
 
 
 def aborts(leg):
@@ -411,10 +589,10 @@ def aborts(leg):
         fails = []
         try:
             leg(tag, fails, *a, **k)
-        except M.MartyError as e:
+        except (M.MartyError, KeyError, IndexError) as e:
             why = str(e).split(" THE BUDGET")[0]
-            print("%s aborted: %s" % (tag, why), flush=True)
-            fails.append("abort (after %d failed item(s)): %s" % (len(fails), why))
+            print("%s aborted: %s: %s" % (tag, type(e).__name__, why), flush=True)
+            fails.append("abort (after %d failed item(s)): %s: %s" % (len(fails), type(e).__name__, why))
         return fails
     return run_
 
@@ -442,13 +620,14 @@ def run(tag, fails, apps=None, src=None):
             and at == (p0["gx"], p0["gy"]) and not any(gates)
         lives = g.b("bz_lives")
         m.run()
-        if not check(fails, ok, "0.", "a new game: lives %d, resting on pad 0 at %s (its cell %s), the gates %s" % (
-                lives, at, (p0["gx"], p0["gy"]), gates), "a new game is not resting on pad 0, every gate closed"):
+        if not check(fails, ok, "0.", "a new game: lives %d, resting on pad 0 (%s) at %s (its cell %s), the gates %s"
+                     % (lives, crs_name(p0["k"]).upper(), at, (p0["gx"], p0["gy"]), gates),
+                     "a new game is not resting on pad 0, every gate closed"):
             return fails
         # --- 1. no arrow moves it; Space the INFO card ---------------------------------------------------
         at0 = pos(g)
-        for k in ("ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"):
-            g.key(k)
+        for key in ARROWS:
+            g.key(key)
             M.guest_sleep(m, 0.3)
         check(fails, pos(g) == at0 and g.b("bz_pwst") == ST_REST and g.b("bz_ppad") == 0, "1.",
               "the four arrows at pad 0 (its routes closed): still resting there",
@@ -463,10 +642,17 @@ def run(tag, fails, apps=None, src=None):
         check(fails, hit == "bz_kinfow" and k == p0["k"] and on_path(g), "1i.",
               "Space: the INFO card of pad 0's course (K %s, the pad's %d), a key takes it down" % (k, p0["k"]),
               "Space did not show pad 0's course's info card (%s, K %s)" % (hit, k))
-        # --- 2. FIRST, its finish sequence, Enter skipping it ---------------------------------------------
-        finish_first(g, fails)
-        # --- 3. pad 0 DONE, the gate, the auto-roll to pad 1 (from the course's bz_fend, still paused) ------
-        rt0 = T["routes"][0]
+        # --- 2. pad 0's course finished, its finish sequence, Enter skipping it ----------------------------
+        ex = finish_pad0(g, fails, p0["k"])
+        if ex is None:
+            return fails
+        # --- 3. pad 0 DONE, the gate, the auto-roll (from the course's bz_fend, still paused) ---------------
+        ri0 = next(i for i, r in enumerate(T["routes"]) if r["a"] == 0 and r["e"] == ex)
+        rt0 = T["routes"][ri0]
+        b0 = rt0["b"]
+        if rt0["gate"] is None:
+            check(fails, False, "3.", "the route pad 0's exit %d opens has a gate" % ex, "route %d has no gate" % ri0)
+            return fails
         sp = Stops(g, ("bz_follow", "bz_presented", "bz_pwdep"))
         seen, drawn, gl, hit = [], set(), None, None
         for _ in range(600):
@@ -481,104 +667,47 @@ def run(tag, fails, apps=None, src=None):
                     seen.append(p)
             elif hit == "bz_presented" and gl:
                 drawn |= {ldrw(g, i) for i in gl}
-        done = bool(g.d("bz_ndone") & 1 and g.d("bz_nrop") & 1)
+        done = bool(g.d("bz_ndone") & 1 and g.d("bz_nrop") & (1 << ri0))
         medal = nst(g, p0["sign"])
         check(fails, seen == [1, 2, 3, 4, 5] and 5 in drawn and done and medal >= 1, "3.",
-              "back on the pathway: pad 0 DONE (its sign %d), route 0 OPENED, its gate posed %s, its lane drawn %s"
-              % (medal, seen, sorted(drawn)),
-              "the gate of (0, exit 0): poses %s, drawn %s, done and opened %s, pad 0's sign %d" % (
-                  seen, sorted(drawn), done, medal))
+              "back on the pathway: pad 0 DONE (its sign %d), route %d (0 -> %d, exit %d) OPENED, its gate posed %s, "
+              "its lane drawn %s" % (medal, ri0, b0, ex, seen, sorted(drawn)),
+              "the gate of (0, exit %d): poses %s, drawn %s, done and opened %s, pad 0's sign %d" % (
+                  ex, seen, sorted(drawn), done, medal))
         if hit == "bz_pwdep":
-            why, n = follow_roll(g, rt0, False, "the auto-roll to pad 1")
+            why, n = follow_roll(g, rt0, False, "the auto-roll to pad %d" % b0)
         else:
             sp.done()
             why, n = "no departure after the gate (%s)" % hit, 0
-        check(fails, why is None and g.b("bz_ppad") == 1, "3r.", "the auto-roll to pad 1: bbcourse.Follow's position "
-              "at every one of its %d steps, RESTING on pad 1" % n, why or "not resting on pad 1")
-        # --- 4. Down and Left (the down-left diagonal) take it back, Up and Right bring it back ------------
-        for key, rev, dest in (("ArrowDown", True, 0), ("ArrowUp", False, 1),
-                               ("ArrowLeft", True, 0), ("ArrowRight", False, 1)):
-            resting(g, 1 - dest, "resting before %s" % key)
-            M.guest_sleep(m, 0.2)                   # (the arrows up: the held guard let go)
-            why, n = follow_roll(g, rt0, rev, "%s at pad %d" % (key, 1 - dest), key=key)
-            check(fails, why is None and g.b("bz_ppad") == dest, "4.", "%s at pad %d: route 0 %s, Follow's every one "
-                  "of %d steps, resting on pad %d" % (key, 1 - dest, "B to A" if rev else "A to B", n, dest),
-                  why or "%s did not take route 0 to pad %d" % (key, dest))
+        check(fails, why is None and g.b("bz_ppad") == b0, "3r.", "the auto-roll to pad %d: bbcourse.Follow's "
+              "position at every one of its %d steps, RESTING on pad %d" % (b0, n, b0),
+              why or "not resting on pad %d" % b0)
+        # --- 4. every arrow on that route takes it back, and brings it back ------------------------------
+        back, fwd = arrows(T, b0, ri0, True), arrows(T, 0, ri0, False)
+        if not back or not fwd:
+            check(fails, False, "4.", "route %d's arrows" % ri0, "route %d has no arrow (back %s, on %s)" % (
+                ri0, back, fwd))
+        for i in range(max(len(back), len(fwd)) if back and fwd else 0):
+            why = None
+            for key, rev, frm, dest in ((back[i % len(back)], True, b0, 0), (fwd[i % len(fwd)], False, 0, b0)):
+                resting(g, frm, "resting on pad %d before %s" % (frm, key))
+                M.guest_sleep(m, 0.2)               # (the arrows up: the held guard let go)
+                why, n = follow_roll(g, rt0, rev, "%s at pad %d" % (key, frm), key=key)
+                check(fails, why is None and g.b("bz_ppad") == dest, "4.", "%s at pad %d: route %d %s, Follow's every "
+                      "one of %d steps, resting on pad %d" % (key, frm, ri0, "B to A" if rev else "A to B", n, dest),
+                      why or "%s did not take route %d to pad %d" % (key, ri0, dest))
+                if why:
+                    break
             if why:
                 break
-        # --- 5. the PAGED camera: Up to MILL, Up to MOON (page 1) ------------------------------------------
-        resting(g, 1, "resting on pad 1")
-        m.pause()
-        rid = {(r["a"], r["b"]): i for i, r in enumerate(T["routes"])}
-        # (opened by a poke: TRIAL to MILL, MILL to MOON for this item, MOON to PEAK for 6b's ramp)
-        g.putd("bz_nrop", g.d("bz_nrop") | (1 << rid[(1, 2)]) | (1 << rid[(2, 4)]) | (1 << rid[(4, 5)]))
-        fixr = g.w("bz_fixr")
-        m.run()
-        M.guest_sleep(m, 0.2)
-        g.key("ArrowUp")
-        resting(g, 2, "resting on MILL (pad 2)")
-        M.guest_sleep(m, 0.3)
-        c0 = g.w("bz_c0")
-        sp = Stops(g, ("bz_presented",))
-        m.key("ArrowUp", up=False)
-        seq = []
-        for i in range(400):
-            if sp.next() != "bz_presented":
-                break
-            if i == 2:
-                m.key("ArrowUp", down=False)
-            seq.append((g.w("bz_R0"), g.w("bz_c0"), g.b("bz_pwst"), g.b("bz_ppad")))
-            if seq[-1][2] == ST_REST and seq[-1][3] == 4 and seq[-1][0] == fixr - rows:
-                break
-        sp.done()
-        rs = [s[0] for s in seq]
-        steps = [b - a for a, b in zip(rs, rs[1:]) if b != a]
-        okp = bool(rs) and rs[0] == fixr and rs[-1] == fixr - rows and bool(steps) \
-            and all(d == -MAXR for d in steps[:-1]) and -MAXR <= steps[-1] < 0 and all(s[1] == c0 for s in seq)
-        check(fails, okp, "5.", "Up from MILL to MOON (page 1): R0 %d (page 0's %d) -> %d (page 1's %d) in %d moves "
-              "of %s rows a frame, c0 %d throughout" % (rs[0] if rs else -1, fixr, rs[-1] if rs else -1, fixr - rows,
-                                                         len(steps), sorted(set(steps)), c0),
-              "the PAGED camera: R0 %s, c0 %s" % (rs[:6] + ["..."] + rs[-4:], sorted({s[1] for s in seq})))
-        # --- 6. an icon's lanes walked only while its pad is the marble's ---------------------------------
-        resting(g, 4, "resting on MOON (pad 4)")
-        M.until(m, lambda _: g.w("bz_R0") == fixr - rows, "the page's scroll ended", guest=10)
-        sl = lanes_of(g, BB.PK_SIGN)
-        icons = {i: q["isign"] for i, q in enumerate(T["pads"]) if q["isign"] is not None}
-        moon = [i for i, n in sl.items() if n == icons[4]]
-        other = [i for i, n in sl.items() if n in icons.values() and n != icons[4]]
-        # (the MARKS are read at the walk's ENTRY, bz_props: after it a lane it walked is unmarked again, so a
-        # mark set on a lane that should have none would be gone by bz_presented)
-        sp = Stops(g, ("bz_props", "bz_presented"))
-        drawn, marked = set(), set()
-        for _ in range(180):
-            hit = sp.next()
-            if hit == "bz_props":
-                marked |= {i for i in other if g.m.read(g.a("bz_latt") + i, 1)[0]}
-            elif hit == "bz_presented":
-                drawn |= {ldrw(g, i) for i in moon}
-            else:
-                break
-        sp.done()
-        check(fails, len(drawn) >= 2 and not marked, "6.", "resting on MOON: its icon's lanes drawn at poses %s, no "
-              "other icon's lane marked" % sorted(drawn),
-              "the icons' marks: MOON's lanes drawn %s, others marked %s" % (sorted(drawn), sorted(marked)))
-        g.key("ArrowLeft")                          # up-left and up a ramp: PEAK
-        resting(g, 5, "resting on PEAK (pad 5)")
-        sp = Stops(g, ("bz_props",))               # (the marks at the walk's entry, as above)
-        mk = set()
-        for _ in range(60):
-            if sp.next() != "bz_props":
-                break
-            mk |= {i for i in moon if g.m.read(g.a("bz_latt") + i, 1)[0]}
-        pose, gz = nst(g, icons[4]), g.sd("bz_gz")
-        sp.done()
-        check(fails, pose == 0 and not mk and gz > 0, "6b.", "on PEAK (up the ramp, gz %d): MOON's icon at its rest "
-              "pose, its lanes unmarked" % (gz >> 8), "leaving MOON: its icon's pose %d, marked %s" % (pose, sorted(mk)))
-        # --- 7. the HELD pathway; Esc in a course costs a life ---------------------------------------------
-        k5 = T["pads"][5]["k"]
+        # --- 5. the HELD pathway; Esc in a course costs a life ---------------------------------------------
+        resting(g, b0, "resting on pad %d" % b0)
+        kb = T["pads"][b0]["k"]
+        nb = crs_name(kb).upper()
         held = []
+        M.guest_sleep(m, 0.2)
         g.key("Enter")
-        course_up(g, k5, "PEAK from pad 5")
+        course_up(g, kb, "%s from pad %d" % (nb, b0))
         X.at_t0(g, lambda g_: held.append((g_.b("bz_phold"), X.rows(g_)[prow][0] & X.OP_FETCHED)))
         g.key("Escape")
         M.until(m, lambda _: on_path(g), "the pathway after Esc", guest=60)
@@ -586,14 +715,14 @@ def run(tag, fails, apps=None, src=None):
         M.guest_sleep(m, 0.3)
         m.pause()
         dig = sorted({ldrw(g, i) for i in lanes_of(g, BB.PK_CLOCK)})
-        lives, re = g.b("bz_lives"), g.b("bz_phre")
+        lives, re_ = g.b("bz_lives"), g.b("bz_phre")
         m.run()
-        check(fails, held == [(1, X.OP_FETCHED)] and re == 1, "7.", "PEAK played beside the HELD pathway (phold, its "
-              "row fetched: %s), the pathway re-entered from the hold (phre %d)" % (held, re),
-              "the pathway was not held across the course (%s, phre %d)" % (held, re))
-        check(fails, lives == 4 and 1 + 4 in dig, "7l.", "Esc in PEAK cost a life: lives %d, the counters' digit "
-              "lanes drawn %s" % (lives, dig), "Esc cost no life on the counters (lives %d, drawn %s)" % (lives, dig))
-        # --- 8. the FORCED fallback: the game entered again from the title with bz_phforce ------------------
+        check(fails, held == [(1, X.OP_FETCHED)] and re_ == 1, "5.", "%s played beside the HELD pathway (phold, its "
+              "row fetched: %s), the pathway re-entered from the hold (phre %d)" % (nb, held, re_),
+              "the pathway was not held across the course (%s, phre %d)" % (held, re_))
+        check(fails, lives == 4 and 1 + 4 in dig, "5l.", "Esc in %s cost a life: lives %d, the counters' digit "
+              "lanes drawn %s" % (nb, lives, dig), "Esc cost no life on the counters (lives %d, drawn %s)" % (lives, dig))
+        # --- 6. the FORCED fallback: the game entered again from the title with bz_phforce ------------------
         g.key("Escape")
         to_title(g)
         m.pause()
@@ -602,20 +731,20 @@ def run(tag, fails, apps=None, src=None):
         enter_game(g, "the pathway, forced", title=True)
         held = []
         g.key("Enter")
-        course_up(g, k5, "PEAK again")
+        course_up(g, kb, "%s again" % nb)
         X.at_t0(g, lambda g_: held.append((g_.b("bz_phold"), X.rows(g_)[prow][0] & X.OP_FETCHED)))
         g.key("Escape")
         M.until(m, lambda _: on_path(g), "the pathway fetched again", guest=60)
-        back = X.rows(g)[prow][0] & X.OP_FETCHED
-        check(fails, held == [(0, 0)] and back, "8.", "forced (bz_phforce): the pathway dropped for the course (%s) "
-              "and fetched again after (%s)" % (held, bool(back)), "the forced fallback held the pathway (%s)" % held)
-        # --- 9. the last life: the GAME OVER --------------------------------------------------------------
+        back_ = X.rows(g)[prow][0] & X.OP_FETCHED
+        check(fails, held == [(0, 0)] and back_, "6.", "forced (bz_phforce): the pathway dropped for %s (%s) and "
+              "fetched again after (%s)" % (nb, held, bool(back_)), "the forced fallback held the pathway (%s)" % held)
+        # --- 7. the last life: the GAME OVER --------------------------------------------------------------
         m.pause()
         g.putb("bz_phforce", 0)
         g.putb("bz_lives", 1)
         m.run()
         g.key("Enter")
-        course_up(g, k5, "a course with the last life")
+        course_up(g, kb, "%s with the last life" % nb)
         X.at_t0(g, lambda g_: None)
         sp = Stops(g, ("bz_kover",))
         hit = sp.press("Escape", guest=60)
@@ -624,23 +753,171 @@ def run(tag, fails, apps=None, src=None):
         M.guest_sleep(m, 1.0)
         g.key("Space")
         to_title(g)
-        check(fails, hit == "bz_kover" and st == ST_OVER and g.b("bz_lives") == 0, "9.", "the last life lost: the "
+        check(fails, hit == "bz_kover" and st == ST_OVER and g.b("bz_lives") == 0, "7.", "the last life lost: the "
               "pathway's GAME OVER (its state %d), then the card, then the title" % st,
               "the game over: %s, the pathway's state %d, lives %d" % (hit, st, g.b("bz_lives")))
+        # --- 8. a NEW game; the nearest DIAGONAL's two arrows -------------------------------------------
+        enter_game(g, "a new game after the game over", title=True)
+        m.pause()
+        lives, pad, st, nrop = g.b("bz_lives"), g.b("bz_ppad"), g.b("bz_pwst"), g.d("bz_nrop")
+        allr = sum(1 << i for i, r in enumerate(T["routes"]) if not r["secret"])
+        g.putd("bz_nrop", allr)                     # (every route opened by a poke: the walk below crosses pads
+        m.run()                                     # whose courses this row never plays)
+        check(fails, lives == 5 and pad == 0 and st == ST_REST and nrop == 0, "8.", "P after the game over: a NEW "
+              "game - lives %d, resting on pad %d, no route open (%08Xh)" % (lives, pad, nrop),
+              "not a new game after the game over (lives %d, pad %d, state %d, routes %08Xh)" % (lives, pad, st, nrop))
+        dg = find_diagonal(T, 0)
+        at_pad = 0
+        if dg is None:
+            skip("8d.", "no route of the map is taken by two arrows (a diagonal): its two arrows are not tested")
+        else:
+            dp, dri, drev, dq = dg
+            roll_to(g, T, walk(T, 0, dp), "to the diagonal")
+            at_pad = dp
+            for key in arrows(T, dp, dri, drev):
+                ret = arrows(T, dq, dri, not drev)[0]
+                why = None
+                for k_, rev, frm, dest in ((key, drev, dp, dq), (ret, not drev, dq, dp)):
+                    resting(g, frm, "resting on pad %d before %s" % (frm, k_))
+                    M.guest_sleep(m, 0.2)
+                    why, n = follow_roll(g, T["routes"][dri], rev, "%s at pad %d" % (k_, frm), key=k_)
+                    check(fails, why is None and g.b("bz_ppad") == dest, "8d.", "%s at pad %d (route %d, %s of its "
+                          "two arrows %s): Follow's every one of %d steps, resting on pad %d" % (
+                              k_, frm, dri, "one" if frm == dp else "back", arrows(T, dp, dri, drev), n, dest),
+                          why or "%s did not take route %d to pad %d" % (k_, dri, dest))
+                    if why:
+                        break
+                if why:
+                    break
+        # --- 9. the PAGED camera: the nearest route between pages ------------------------------------------
+        pr = find_page_route(T, at_pad)
+        if pr is None:
+            skip("9.", "no route of the map crosses between pages: the paged camera is not tested")
+            skip("10.", "the icon walk follows item 9's route: not tested")
+        else:
+            sp_, pri, prev_, zp = pr
+            resting(g, at_pad, "resting on pad %d" % at_pad)
+            roll_to(g, T, walk(T, at_pad, sp_), "to the page route")
+            M.guest_sleep(m, 0.3)
+            fixr = g.w("bz_fixr")
+            r_from, r_to = fixr - rows * T["pads"][sp_]["page"], fixr - rows * T["pads"][zp]["page"]
+            c0 = g.w("bz_c0")
+            key = arrows(T, sp_, pri, prev_)[0]
+            sp = Stops(g, ("bz_presented",))
+            m.key(key, up=False)
+            seq = []
+            for i in range(400):
+                if sp.next() != "bz_presented":
+                    break
+                if i == 2:
+                    m.key(key, down=False)
+                seq.append((g.w("bz_R0"), g.w("bz_c0"), g.b("bz_pwst"), g.b("bz_ppad")))
+                if seq[-1][2] == ST_REST and seq[-1][3] == zp and seq[-1][0] == r_to:
+                    break
+            sp.done()
+            sgn = -1 if r_to < r_from else 1
+            rs = [s[0] for s in seq]
+            steps = [b - a for a, b in zip(rs, rs[1:]) if b != a]
+            okp = bool(rs) and rs[0] == r_from and rs[-1] == r_to and bool(steps) \
+                and all(d == sgn * MAXR for d in steps[:-1]) and 0 < sgn * steps[-1] <= MAXR \
+                and all(s[1] == c0 for s in seq)
+            check(fails, okp, "9.", "%s from pad %d (page %d) to pad %d (page %d), route %d: R0 %d (the page's %d) -> "
+                  "%d (the page's %d) in %d moves of %s rows a frame, c0 %d throughout" % (
+                      key, sp_, T["pads"][sp_]["page"], zp, T["pads"][zp]["page"], pri, rs[0] if rs else -1, r_from,
+                      rs[-1] if rs else -1, r_to, len(steps), sorted(set(steps)), c0),
+                  "the PAGED camera: R0 %s, c0 %s" % (rs[:6] + ["..."] + rs[-4:], sorted({s[1] for s in seq})))
+            # --- 10. an icon's lanes walked only while its pad is the marble's ------------------------------
+            resting(g, zp, "resting on pad %d" % zp)
+            M.until(m, lambda _: g.w("bz_R0") == r_to, "the page's scroll ended", guest=10)
+            sl = lanes_of(g, BB.PK_SIGN)
+            icons = {i: q["isign"] for i, q in enumerate(T["pads"]) if q["isign"] is not None}
+            if zp not in icons:
+                skip("10.", "pad %d has no icon: the icon walk is not tested" % zp)
+            else:
+                mine = [i for i, n in sl.items() if n == icons[zp]]
+                other = [i for i, n in sl.items() if n in icons.values() and n != icons[zp]]
+                # (the MARKS are read at the walk's ENTRY, bz_props: after it a lane it walked is unmarked again,
+                # so a mark set on a lane that should have none would be gone by bz_presented)
+                sp = Stops(g, ("bz_props", "bz_presented"))
+                drawn, marked = set(), set()
+                for _ in range(180):
+                    hit = sp.next()
+                    if hit == "bz_props":
+                        marked |= {i for i in other if g.m.read(g.a("bz_latt") + i, 1)[0]}
+                    elif hit == "bz_presented":
+                        drawn |= {ldrw(g, i) for i in mine}
+                    else:
+                        break
+                sp.done()
+                check(fails, len(drawn) >= 2 and not marked, "10.", "resting on pad %d: its icon's lanes drawn at "
+                      "poses %s, no other icon's lane marked" % (zp, sorted(drawn)),
+                      "the icons' marks: pad %d's lanes drawn %s, others marked %s" % (zp, sorted(drawn), sorted(marked)))
+                # rolled on: a route on from the icon's pad other than the one it came by, else that one back
+                on = [w for w in ways(T, zp) if w[0] != pri] or [w for w in ways(T, zp)]
+                lri, lrev, lq = on[0]
+                lrt = T["routes"][lri]
+                climb = (lrt["pts"][0] if lrev else lrt["pts"][-1])[2] > (lrt["pts"][-1] if lrev else lrt["pts"][0])[2]
+                M.guest_sleep(m, 0.2)
+                g.key(arrows(T, zp, lri, lrev)[0])
+                resting(g, lq, "resting on pad %d" % lq)
+                sp = Stops(g, ("bz_props",))           # (the marks at the walk's entry, as above)
+                mk = set()
+                for _ in range(60):
+                    if sp.next() != "bz_props":
+                        break
+                    mk |= {i for i in mine if g.m.read(g.a("bz_latt") + i, 1)[0]}
+                pose, gz = nst(g, icons[zp]), g.sd("bz_gz")
+                sp.done()
+                if not climb:
+                    skip("10b.", "route %d (pad %d to %d) does not climb: the ramp's gz > 0 is not checked (the "
+                         "shipped map has no ramp)" % (lri, zp, lq))
+                check(fails, pose == 0 and not mk and (gz > 0 or not climb), "10b.", "on pad %d (route %d%s): pad "
+                      "%d's icon at its rest pose, its lanes unmarked" % (
+                          lq, lri, ", up its ramp: gz %d" % (gz >> 8) if climb else "", zp),
+                      "leaving pad %d: its icon's pose %d, marked %s, gz %d" % (zp, pose, sorted(mk), gz >> 8))
+        M.guest_sleep(m, 0.3)
+        g.key("Escape")
+        to_title(g)
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
     return fails
 
 
+def course_files():
+    """BZ_COURSES's files in K order (bzcourse.inc's, R.COURSES): every course the build compiles"""
+    path_k()
+    return [R.COURSES[n] for n in sorted(R.CRS_K, key=lambda n: R.CRS_K[n])]
+
+
+def secret_text(ptext):
+    """the private map's text off the shipped path.bbc's (SECRET_PATCH's account above): -> (text, the hidden
+    pad's number)"""
+    assert ptext.count(SECRET_PAD0) == 1, "the secret leg's anchor %r is not in path.bbc (once): re-anchor it" % (
+        SECRET_PAD0,)
+    assert len(SECRET_ICON0.findall(ptext)) == 1, "the secret leg: path.bbc has no (one) `icon 0` line"
+    pads = [int(n) for n in re.findall(r"^pad\s+(\d+)\s", ptext, re.M)]
+    n = max(pads) + 1
+    crs, (wx, wy), path = SECRET_HIDDEN
+    return SECRET_ICON0.sub("", ptext) + (
+        "\n# THE SECRET LEG's (tests/bonanza_path.py): a hidden pad up from pad 0, ROLL's hidden exit 1's route\n"
+        "pad %d %s %d %d\nroute 0 %d exit %d secret path %s\n" % (n, crs, wx, wy, n, SECRET_EXIT, path)), n
+
+
 def secret_art(td):
     """the PRIVATE tree's art: build/bonanza-art copied, the courses copied with
-    SECRET_PATCH, and tools/bbcourse.py's run over them into it -> (art, courses)"""
+    the secret patches, and tools/bbcourse.py's run over them (EVERY course: its
+    bzcourse.inc is written whole) into it -> (art, courses)"""
     art, crs = os.path.join(td, "art"), os.path.join(td, "courses")
     shutil.copytree(R.at("build/bonanza-art"), art)
     shutil.copytree(os.path.join(ROOT, "apps", "bonanza", "courses"), crs)
-    R.patch_tree(crs, SECRET_PATCH)
-    files = [os.path.join(crs, n + ".bbc") for n in COURSES]
-    subprocess.run(["python3", "tools/bbcourse.py", "-o", art, "--path", os.path.join(crs, "path.bbc"),
+    R.patch_tree(crs, [SECRET_ROLL])
+    pp = os.path.join(crs, "path.bbc")
+    with open(pp) as f:
+        text, _n = secret_text(f.read())
+    with open(pp, "w") as f:
+        f.write(text)
+    files = [os.path.join(crs, os.path.basename(p)) for p in course_files()]
+    subprocess.run(["python3", "tools/bbcourse.py", "-o", art, "--path", pp,
                     "--title", os.path.join(crs, "title.bbc")] + files, cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
     return art, crs
@@ -648,18 +925,18 @@ def secret_art(td):
 
 @aborts
 def run_secret(tag, fails):
-    """the SECRET leg: a private tree's map and TRIAL"""
+    """the SECRET leg: a private tree's map and ROLL"""
     with tempfile.TemporaryDirectory() as td:
         art, crs = secret_art(td)
         src, img = R.build_tree(td, [], art=art)
         T = tables(open(os.path.join(art, "BZPATH.BIN"), "rb").read())
         rt = next(r for r in T["routes"] if r["secret"])
         hid, vend = T["pads"][rt["b"]], T["pads"][rt["a"]]
-        # the host's work BEFORE the plays: TRIAL's compile is ~4 host s since the Y0 search (SPEC.md
-        # 130.25.3; 1 s before it), ~20 GUEST s at MartyPC's pace - done after TRIAL came up it ran out
-        # TRIAL's own 20 s limit, and the poke landed on the pathway the timeout went back to
-        trial = R.course("trial", src=os.path.join(crs, "trial.bbc"), art=art)
-        p = BB.Physics(trial, play=True, mat=trial.ball).poke(8, 18)
+        # the host's work BEFORE the plays (a course's compile is host seconds, many guest ones at MartyPC's
+        # pace: done after the course came up it once ran out the course's limit)
+        c = R.course(SECRET_CRS, src=os.path.join(crs, SECRET_CRS + ".bbc"), art=art)
+        gc = goal_cells(c, rt["e"])[0][0]
+        p = BB.Physics(c, play=True, mat=c.ball).poke(*gc)
         with os88ui.boot(R.at("build/os8088-360.img"), apps=img, machine=R.MACHINE[tag]) as ui:
             ui.open_drive("B")
             ui.open("BONANZA.O88")
@@ -669,21 +946,13 @@ def run_secret(tag, fails):
             path_k()
             enter_game(g)
             rv0 = list(m.read(g.a("bz_nst") + rt["rsign"], len(rt["dist"])))
-            check(fails, nst(g, hid["sign"]) == 0 and not any(rv0), "s0.", "the private map: the hidden pad's sign 0 "
-                  "and the secret route's %d reveal groups 0" % len(rt["dist"]), "the secret route shown at the start")
-            g.key("Enter")                          # FIRST, then the auto-roll to TRIAL
-            course_up(g, R.CRS_K["first"], "FIRST")
-            X.at_t0(g, lambda g_: g_.putb("bz_apilot", 1))
-            M.until(m, lambda _: on_path(g), "the pathway after FIRST", guest=180)
-            m.pause()
-            g.putb("bz_apilot", 0)
-            m.run()
-            resting(g, rt["a"], "resting on TRIAL")
-            M.guest_sleep(m, 0.3)
-            g.key("Enter")                          # TRIAL, finished by its HIDDEN exit 1
-            course_up(g, R.CRS_K["trial"], "TRIAL")
+            check(fails, nst(g, hid["sign"]) == 0 and not any(rv0) and rt["a"] == 0, "s0.", "the private map: the "
+                  "hidden pad's sign 0 and the secret route's %d reveal groups 0" % len(rt["dist"]),
+                  "the secret route shown at the start (or not from pad 0)")
+            g.key("Enter")                          # ROLL, finished by its HIDDEN exit
+            course_up(g, R.CRS_K[SECRET_CRS], SECRET_CRS.upper())
             X.at_t0(g, lambda g_: R.poke_ball(g_, p.gx, p.gy, p.gz, 0, 0, 0, air=0))
-            M.until(m, lambda _: g.b("bz_fcnt") > 1, "TRIAL's hidden finish", guest=30)
+            M.until(m, lambda _: g.b("bz_fcnt") > 1, "%s's hidden finish" % SECRET_CRS.upper(), guest=30)
             ex = g.b("bz_exit")
             sp = Stops(g, ("bz_pwdep",))
             hit = sp.press("Enter", guest=120)      # (the finish skipped)
@@ -706,9 +975,10 @@ def run_secret(tag, fails):
             sp.done()
             ok = hit == "bz_pwdep" and ex == rt["e"] and order and order[-1] == len(rt["dist"]) and not bad \
                 and g.b("bz_ppad") == rt["b"] and nst(g, hid["sign"]) >= 1 and nst(g, vend["sign"]) >= 4
-            check(fails, ok, "s1.", "TRIAL finished by its hidden exit %d: the secret route rolled at once (no gate), "
-                  "its reveal groups shown %s along it, PLAY's hidden pad shown (%d) and TRIAL's with the route (%d)"
-                  % (ex, order, nst(g, hid["sign"]), nst(g, vend["sign"])),
+            check(fails, ok, "s1.", "%s finished by its hidden exit %d (the goal %s): the secret route rolled at once "
+                  "(no gate), its reveal groups shown %s along it, the hidden pad %d shown (%d) and pad %d's with the "
+                  "route (%d)" % (SECRET_CRS.upper(), ex, gc, order, rt["b"], nst(g, hid["sign"]), rt["a"],
+                                  nst(g, vend["sign"])),
                   "the secret route's reveal: %s, exit %d, order %s, %s" % (hit, ex, order, bad[:3]))
             g.key("Escape")
             to_title(g)
@@ -768,6 +1038,22 @@ def follower_check(binp, part, sym):
     return bad
 
 
+def plan_lines(T):
+    """the main leg's walk on map T, as the guest's tables give it (the host's account of items 3 - 10)"""
+    out = []
+    r0 = [(i, r) for i, r in enumerate(T["routes"]) if r["a"] == 0 and not r["secret"]]
+    for i, r in r0:
+        out.append("route %d (pad 0 exit %d -> pad %d): on %s, back %s" % (
+            i, r["e"], r["b"], arrows(T, 0, i, False), arrows(T, r["b"], i, True)))
+    dg = find_diagonal(T, 0)
+    out.append("the diagonal: %s" % ("none" if dg is None else "pad %d, route %d to pad %d, arrows %s, back %s" % (
+        dg[0], dg[1], dg[3], arrows(T, dg[0], dg[1], dg[2]), arrows(T, dg[3], dg[1], not dg[2]))))
+    pr = find_page_route(T, dg[0] if dg else 0)
+    out.append("the page route: %s" % ("none" if pr is None else "pad %d (page %d) -> pad %d (page %d), route %d, %s" % (
+        pr[0], T["pads"][pr[0]]["page"], pr[3], T["pads"][pr[3]]["page"], pr[1], arrows(T, pr[0], pr[1], pr[2]))))
+    return out
+
+
 def host_check():
     for line in R.check_reds(REDS, "bonanza_path"):
         print(line)
@@ -775,9 +1061,23 @@ def host_check():
         binp = os.path.join(td, "bonanza.bin")
         R.assemble(os.path.join(ROOT, "apps", "bonanza"), R.at("build/bonanza-art"), binp)
         part = open(R.at("build/bonanza-art/BZPATH.BIN"), "rb").read()
+        T = tables(part)
+        for line in plan_lines(T):
+            print("bonanza_path the shipped map's walk: %s" % line)
+        dg = find_diagonal(T, 0)
+        assert T["pads"][0]["k"] == R.CRS_K["roll"] and T["pads"][1]["k"] == R.CRS_K["hop"], \
+            "the shipped map's pads 0 and 1 are not ROLL and HOP: the row's items 2 - 7 play them"
+        assert any(r["a"] == 0 and r["b"] == 1 for r in T["routes"]), "no route from pad 0 to pad 1"
+        assert arrows(T, 1, next(i for i, r in enumerate(T["routes"]) if r["a"] == 0 and r["b"] == 1), True) \
+            == ["ArrowLeft"], "pad 1's way back to pad 0 is no longer Left alone: the nodiag red arm needs re-aiming"
+        assert dg is not None and find_page_route(T, dg[0]) is not None, "the map has no diagonal or no page route"
+        g0 = goal_cells(R.course(crs_name(T["pads"][0]["k"])))
+        assert g0 and g0[0][1] is not None, "pad 0's course has no goal cell with a plain floor beside it"
+        print("bonanza_path pad 0's course: the ball rests at %s and is poked into the goal at %s" % (
+            g0[0][1], g0[0][0]))
         bad = follower_check(binp, part, R.symbols())
         print("bonanza_path the follower under unicorn, the shipped pathway: its %d routes both ways against "
-              "bbcourse.Follow: %s" % (len(tables(part)["routes"]), "; ".join(bad) or "every step equal"))
+              "bbcourse.Follow: %s" % (len(T["routes"]), "; ".join(bad) or "every step equal"))
         assert not bad, "bz_follow is not bbcourse.Follow"
         art, crs = secret_art(td)
         src = os.path.join(td, "bonanza")
@@ -787,7 +1087,11 @@ def host_check():
         T = tables(part)
         sec = [r for r in T["routes"] if r["secret"]]
         assert len(sec) == 1 and sec[0]["gate"] is None and sec[0]["dist"] and T["pads"][sec[0]["b"]]["hidden"] \
-            and T["pads"][sec[0]["a"]]["vend"], "the private map's secret route is not as the leg needs it"
+            and T["pads"][sec[0]["a"]]["vend"] and sec[0]["a"] == 0 and sec[0]["e"] == SECRET_EXIT, \
+            "the private map's secret route is not as the leg needs it"
+        c = R.course(SECRET_CRS, src=os.path.join(crs, SECRET_CRS + ".bbc"), art=art)
+        assert BB.course_exits(c).get(SECRET_EXIT) is True and goal_cells(c, SECRET_EXIT), \
+            "the private %s has no hidden exit %d goal" % (SECRET_CRS.upper(), SECRET_EXIT)
         bad = follower_check(binp, part, R.symbols(src, art))
         print("bonanza_path the private map: secret route %d -> %d (exit %d), %d reveal groups at %s ground px; the "
               "follower under unicorn on its %d routes: %s" % (

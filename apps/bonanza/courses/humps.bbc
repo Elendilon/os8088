@@ -13,6 +13,7 @@
 #  - THE HIDE (front): a HIGH dome with a glass pad behind it and the exit 1 goal beyond: the dome hides part of
 #    the pad and of a ball rolling behind it, never all of either for more than a ball length (130.44.4).
 course HUMP "Hump Test"
+music fairway    # a test course: SPEC.md 130.50.3, every course names its song
 width 128
 origin 448
 ball rubber
