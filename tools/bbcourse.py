@@ -5261,7 +5261,7 @@ PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 130.22.5)
 BENCH_NAMES = ("BENCH",)      # the courses that are the BENCHMARK's alone, by NAME (never by K): no pad, no shipped
                               # demo, no `target` (130.14.7.4, 130.15.8) - and in the BZDEV=1 build alone
                               # (the Makefile's BZ_BENCH, SPEC.md 130.10.11.1)
-PAD_MAX = 23                  # BZ_PAD_MAX: the pads a pathway may have, BONANZA.DAT's word-a-pad tables (130.22.5.1)
+PATH_PAD_MAX = 23             # BZ_PAD_MAX: the pads a pathway may have, BONANZA.DAT's word-a-pad tables (130.22.5.1)
 PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
 PAD_POSES = 4                 # a pad's sign: 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (130.22.2)
@@ -5527,9 +5527,9 @@ def path_prepare(src, fname, crsinfo):
     if not pads or nums != list(range(len(nums))):
         raise CourseError("%s:%d: the pads are numbered %s, not 0 - %d with pad 0 the start" % (
             f, src.pathway, nums, max(len(nums) - 1, 0)))
-    if len(pads) > PAD_MAX:
+    if len(pads) > PATH_PAD_MAX:
         raise CourseError("%s:%d: %d pads: BZ_PAD_MAX is %d, the width of a BONANZA.DAT slot's word-a-pad "
-                          "tables (SPEC.md 130.22.5.1)" % (f, src.pathway, len(pads), PAD_MAX))
+                          "tables (SPEC.md 130.22.5.1)" % (f, src.pathway, len(pads), PATH_PAD_MAX))
     for q in pads:
         if q["crs"] not in crsnames or q["crs"] in BENCH_NAMES:
             raise CourseError("%s:%d: pad %d plays %r, which is not a course of BZ_COURSES (BENCH is none): %s"
@@ -20086,7 +20086,7 @@ def emit_path(path, courses, title=None):
            "    dw " + ", ".join(str(crs_arena(c, k, len(courses))) for k, c in enumerate(_allc(courses, path, title))),
            "%endmacro"]
     out += ["BZ_PAD_MAX      equ %d       ; the most pads (SPEC.md 130.22.5.1): a BONANZA.DAT slot's "
-            "word-a-pad tables" % PAD_MAX]
+            "word-a-pad tables" % PATH_PAD_MAX]
     if path is None:
         return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 130.22)", "BZ_PATH_CLAIM   equ 0",
                       "BZ_PATH_VER     equ 1", "BZ_CRS_DEFAULT  equ %d" % demo_ks(courses)[0], ""]
@@ -20103,7 +20103,7 @@ def emit_path(path, courses, title=None):
         "%macro BZ_PAD_EXITS 0",
         "    dw " + ", ".join("%05Xh" % sum(1 << e for e in course_exits(courses[q["K"]])) for q in pth["pads"]),
         "%endmacro",
-        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PAD_MAX),
+        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PAD_MAX),
         "BZ_PATH_CLAIM   equ %d      ; paragraphs: the pathway part's RAM form" % ((len(path.cga) + 15) // 16),
         ""]
 
