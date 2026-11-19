@@ -602,6 +602,9 @@ def scenario(g, crs, name):
     (wx, wy), gvx, gvy, nmax = SCEN[name]
     rd = Reader(g)
     fails = []
+    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: FIRST poked)
+    g.putb("bz_crsel", R.CRS_K["first"])
+    m.run()
     g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on FIRST runs", guest=60)
     m.pause()

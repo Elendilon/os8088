@@ -460,13 +460,47 @@ def course(name, src=None, art=None):
     return _COURSE[path]
 
 
+def crs_all():
+    """{name: K} of every course of the build (CRS_K, filled): BZ_COURSES's order is the K, never a
+    literal"""
+    if not dict.__len__(CRS_K):
+        try:
+            CRS_K[""]                            # (fills the table: no course is named "")
+        except KeyError:
+            pass
+    return dict(dict.items(CRS_K))
+
+
+def crs_default():
+    """BZ_CRS_DEFAULT: the course F starts on (the BZDEV build's bz_crsel), pathway pad 0's - by the map,
+    never a literal K (SPEC.md 130.14.7.4)"""
+    t = open(os.path.join(ROOT, at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_CRS_DEFAULT\s+equ\s+(\d+)", t, re.M).group(1))
+
+
+def crs_name(k):
+    """course K's NAME, upper case as its `course` statement spells it"""
+    return [n for n, v in crs_all().items() if v == k][0].upper()
+
+
+def demo_name(k):
+    """course K's SHIPPED DEMO's part file (SPEC.md 130.14.7.4): BZD<NAME>.BIN, named by the course, never
+    by K"""
+    return "BZD%s.BIN" % crs_name(k)
+
+
+def demo_ks(art=None):
+    """the courses with a shipped demo, K in the demo rows' order: bbcourse's bzdemo.lst (V's cycle, the
+    title's draw)"""
+    with open(os.path.join(art or at("build/bonanza-art"), "bzdemo.lst")) as f:
+        names = f.read().split()
+    kt = crs_all()
+    return [kt[n[3:-4].lower()] for n in names]
+
+
 def course_k(k):
     """course K's compile (BZ_COURSES's order)"""
-    name = [n for n in CRS_K if CRS_K[n] == k] if dict.__len__(CRS_K) else None
-    if not name:
-        CRS_K["bench"]                           # (fills the table)
-        name = [n for n in CRS_K if CRS_K[n] == k]
-    return course(name[0])
+    return course(crs_name(k).lower())
 
 
 def ball_part(mat, tag, art=None):
@@ -1263,6 +1297,9 @@ def pic_now(g, ref, st=None):
 def glass(g, ref):
     """Part 1: the card's own rasterisation of a resting ball's frame (FIRST)."""
     m, tag = g.m, g.tag
+    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: FIRST poked)
+    g.putb("bz_crsel", CRS_K["first"])
+    m.run()
     g.key("KeyF")                   # (F: a free play - Enter is the game since wave 8b)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 20, "play mode runs", guest=60)
     m.pause()
@@ -3547,7 +3584,7 @@ def _dither_scen():
     """camhyst's scenario (DITHER_SCEN): PLAY's demo to the fork, then the
     dither map's branch, as a TILT log -> the scenario"""
     crs, nfork, t = DITHER_SCEN
-    log = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % CRS_K[crs]), "rb").read()
+    log = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(CRS_K[crs])), "rb").read()
     _k, mat, kt, _fl = BB.decode_log_t(log)
     p = BB.Physics(course(crs), play=True, mat=mat)
     for k, tt in kt[:nfork]:
@@ -3562,7 +3599,7 @@ def _dither_scen():
 
 
 def _demo_scen(name, crs):
-    log = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % CRS_K[crs]), "rb").read()
+    log = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(CRS_K[crs])), "rb").read()
     _k, mat, kt, _fl = BB.decode_log_t(log)
     return {"name": name, "crs": crs, "mat": mat, "poke": None, "keys": [k for k, _t in kt],
             "tilts": [t for _k, t in kt], "log": log}
@@ -4102,7 +4139,7 @@ def vga_cam(g, art=None):
     m, fails, t = g.m, [], {}
     for crs in VGA_DEMOS:
         kd = CRS_K[crs]
-        demo = open(os.path.join(art or at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+        demo = open(os.path.join(art or at("build/bonanza-art"), demo_name(kd)), "rb").read()
         m.pause()
         g.putb("bz_vk", 0)
         m.run()
@@ -4360,7 +4397,7 @@ class Loop:
 def load_demo(g, kd):
     """V with [bz_vk] poked to KD - 1: the shipped demo BZD<KD>.BIN in the log (130.14.22 item 7)"""
     m = g.m
-    demo = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+    demo = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(kd)), "rb").read()
     m.pause()
     g.putb("bz_vk", kd - 1)
     m.run()
@@ -4759,8 +4796,10 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))      # course part; the sound part's row until 130.50.2's bundle)
         files += (["BZSND.BIN"] if "BZ_P_SND: BZSND.BIN" in asm else []) + ["BZM%d.BIN" % i for i in range(ns)]
-    if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a course but BENCH, after the
-        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 130.14.7.4, 130.14.22 item 7)
+    if os.path.exists(os.path.join(art, "bzdemo.lst")):     # the shipped demos named by course (SPEC.md
+        files += open(os.path.join(art, "bzdemo.lst")).read().split()   # 130.14.7.4), bbcourse's row order
+    elif "BZ_NDEMO" in asm:                     # wave 4: one shipped demo a course but BENCH, after the
+        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (an older tree's: by K, 130.14.22 item 7)
     out = []
     for p in files:
         out += ["--part", os.path.join(art, p)]
@@ -5014,8 +5053,7 @@ def nodither_art(td):
     ones.  -> the copy's directory"""
     art = os.path.join(td, "art-nodither")
     shutil.copytree(at("build/bonanza-art"), art)
-    CRS_K["bench"]                              # (fills the table)
-    order = sorted(CRS_K.items(), key=lambda kv: kv[1])
+    order = sorted(crs_all().items(), key=lambda kv: kv[1])
     # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
     und = dict(zip([n for n, _k in order], BB.par_map(
         lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}),
