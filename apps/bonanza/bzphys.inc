@@ -1123,10 +1123,13 @@ bz_step:
     je .takeoff                 ; grounded over no floor: off it goes
     or al, al
     jnz .fnext                  ; (no other kind is under an airborne ball)
-    mov al, [si]                ; VOID: below its kill height, 4 z0 px?
-    cbw
+    mov al, [si]                ; VOID: below its kill height, 2 z0 px?
+    cbw                         ; (z0 QUARTER units, SPEC.md 130.48.1 -
+    shl ax, 1                   ; but OPEN's -128 still kills at -512 px,
+    cmp ax, -256                ; 4 z0: the fall it always was)
+    jne .kq
     shl ax, 1
-    shl ax, 1
+.kq:
     cmp [bz_gz + 1], ax
     jge .fnext
     jmp .respawn
@@ -1137,11 +1140,10 @@ bz_step:
     cmp al, BZ_KFLOOR
     jne .nfloor                 ; (a FLOOR, nearly always: no jump taken)
 .solid:
-    cmp byte [si + 1], 0        ; a FLAT floor (most steps): 16 z0 wherever
-    jne .sslope                 ; the centre is, without bz_h4
-    mov al, [si]
+    cmp byte [si + 1], 0        ; a FLAT floor (most steps): 8 z0 wherever
+    jne .sslope                 ; the centre is, without bz_h4 (z0 quarter
+    mov al, [si]                ; units, SPEC.md 130.48)
     cbw
-    shl ax, 1
     shl ax, 1
     shl ax, 1
     shl ax, 1
@@ -3231,11 +3233,10 @@ bz_blocks:
     cmp al, BZ_KFLOOR           ; (a floor is the likeliest: first, and it
     jne .other                  ; falls through)
 .plane:
-    cmp byte [si + 1], 0        ; a FLAT floor (most): bz_h4's 16 z0, here
+    cmp byte [si + 1], 0        ; a FLAT floor (most): bz_h4's 8 z0, here
     jne .slope
     mov al, [si]
     cbw
-    shl ax, 1
     shl ax, 1
     shl ax, 1
     shl ax, 1
@@ -4148,7 +4149,8 @@ bz_dcorn:
 
 ; -----------------------------------------------------------------------------
 ; bz_h4 - the floor of the plane cell at SI (in bz_nbr) at its point (DL = u,
-; DH = v, each 0 .. 16) in QUARTER px: h4 = 16 z0 + sx u + sy v (130.10.4.3).
+; DH = v, each 0 .. 16) in QUARTER px: h4 = 8 z0 + sx u + sy v (130.10.4.3;
+; z0 in QUARTER units since SPEC.md 130.48).
 ; The products are bz_prod's, T[n << 4 | u] = n u for n 0 - 7; a negative n
 ; is -((~n) u + u), T at (~n) << 4 | u (the slope nibble XOR F0h): every
 ; product -120 .. 105, a byte; the far edge (16) is 16 n, the slope nibble
@@ -4157,7 +4159,7 @@ bz_dcorn:
 bz_h4:
     mov ch, [si + 1]            ; sy : sx
     or ch, ch
-    jz .flat                    ; no slope: 16 z0 wherever
+    jz .flat                    ; no slope: 8 z0 wherever
     mov bx, bz_prod
     mov al, ch
     mov cl, 4
@@ -4196,14 +4198,12 @@ bz_h4:
     cbw
     shl ax, 1
     shl ax, 1
-    shl ax, 1
-    shl ax, 1                   ; 16 z0
+    shl ax, 1                   ; 8 z0
     add ax, cx
     ret
 .flat:
     mov al, [si]
     cbw
-    shl ax, 1
     shl ax, 1
     shl ax, 1
     shl ax, 1
@@ -4637,7 +4637,7 @@ bz_wtail.nfs:
 ; =============================================================================
 
 ; bz_fhp - SI = a FIELD cell's 4 bytes (DS), DL = u, DH = v (0 .. 16), ES =
-; the course -> AX = h4 there, 16 z0 + F[17 V + U] (quarter px); DI = that
+; the course -> AX = h4 there, 8 z0 + F[17 V + U] (quarter px); DI = that
 ; byte's offset in ES, BX = 8 x the symmetry (bz_fh4's).  Preserves CX, DX,
 ; SI, BP.  The shape is the +1's bits 0 - 3 with bit 7 its fifth (0 - 31).
 bz_fhp:
@@ -4667,9 +4667,8 @@ bz_fhp:
     mov si, ax
     add di, [bz_fkp1 + si]
     pop si
-    mov al, [si]                ; 16 z0 + the byte
+    mov al, [si]                ; 8 z0 + the byte
     cbw
-    shl ax, 1
     shl ax, 1
     shl ax, 1
     shl ax, 1

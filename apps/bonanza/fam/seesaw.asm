@@ -6,7 +6,8 @@
 ; across) on a pivot at its middle, in three POSES: 0 its rest, 1 FLAT, 2 its
 ; other end down.  Pose P's slope is s = (1 - P), negated when its REST has
 ; the plus end down; its cell k along the axis is a slope cell at
-; z0 = PZ + s (k - L / 2) half units, its slopes byte s along the axis.
+; z0 = PZ + 2 s (k - L / 2) quarter units (SPEC.md 130.48.4), its slopes byte
+; s along the axis.
 ;   the PLATE's record: +16 FSB (a BYTE of bz_fst, the pose: RESPAWN class, so
 ;          a respawn puts it at rest), +18 NX, +19 NY, +20 TLF_AXY (its axis
 ;          is y) | TLF_PLUS (its rest has the plus end down), +21 PZ; its
@@ -299,7 +300,7 @@ tl_weigh:
 ; plate's) -> the ball CARRIED.  Preserves SI, DI, BP.
 tl_carry:
     call tl_cellz               ; the ball CARRIED: z = the new floor
-    mov bl, [bz_gx + 1]         ; at its point, 16 z0 + s w (w its gu in the
+    mov bl, [bz_gx + 1]         ; at its point, 8 z0 + s w (w its gu in the
     test byte [es:si + TL_FL], TLF_AXY   ; cell along the axis), h4 in
     jz .w2                      ; quarter px
     mov bl, [bz_gy + 1]
@@ -307,7 +308,7 @@ tl_carry:
     and bx, 15
     cbw
     mov dl, cl                  ; (DL = s)
-    mov cl, 4
+    mov cl, 3                   ; (8 z0: z0 quarter units, SPEC.md 130.48.4)
     shl ax, cl
     or dl, dl
     jz .h
@@ -361,7 +362,8 @@ tl_cellz:
 .k:
     shr bh, 1
     sub bl, bh                  ; BL = k - L / 2
-    mov al, [es:si + TL_PZ]     ; AL = PZ + s (k - L / 2)
+    shl bl, 1                   ; ...in quarter units (SPEC.md 130.48.4)
+    mov al, [es:si + TL_PZ]     ; AL = PZ + 2 s (k - L / 2)
     or ah, ah
     jz .z
     jns .p

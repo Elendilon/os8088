@@ -448,7 +448,7 @@ FAMILIES = (
     # glass impact, 2 - T + 1 COUNTING to its break, FFh broken - a VOID in the window, its kill 3 units under
     # the floor) and the GLASS PATH tile (a bit: REVEALED).  CONSTS fold into its FAMV: CRACK_TS, CRACK_TR,
     # CRACK_LATE
-    {"name": "glass", "id": 2, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL,
+    {"name": "glass", "id": 2, "rev": 2, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL,
      "slot": 1, "consts": (14, 28, 6), "group": True,     # (SPEC.md 130.32: its RESET walks every record)
      "kinds": ({"name": "crack", "kind": FAM_K0 + 1, "bits": 8, "cls": 1, "art": "crack",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},
@@ -488,7 +488,7 @@ FAMILIES = (
     # (WA_ESH) and HTHR raised (no shatter, no stun) - put back when the centre leaves it.  STEP: below H in a
     # water cell the fall capped at WA_SINK; a changed material refills the window.  No state bits; home
     # `resident` (the owner's default, 2026-11-17); kind 26.  CONSTS fold WA_SINK, WA_HTHR and WA_ESH
-    {"name": "water", "id": 7, "rev": 1, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "WA",
+    {"name": "water", "id": 7, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "WA",
      "kinds": ({"name": "water", "kind": FAM_K0 + 10, "bits": 0, "cls": CL_ATTEMPT, "art": None,
                 "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 54,
      "home": HOME_RESIDENT},
@@ -545,7 +545,7 @@ FAMILIES = (
     # bz_mrec's HARD, HSTEPS and HTHR while the window's centre is one); a POPSPIKE the same on a timer (+20 ON,
     # +21 MASK, +22 SEED), an ordinary floor while down, its lane the spikes; a MEMBRANE floor for glass alone,
     # a NEAR VOID (a broken crack's) for the others.  STATELESS; home `resident`; CONSTS SP_*
-    {"name": "spike", "id": 11, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "SP",
+    {"name": "spike", "id": 11, "rev": 3, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "SP",
      "kinds": ({"name": "spikes", "kind": FAM_K0 + 40, "bits": 0, "cls": CL_ATTEMPT, "art": None,
                 "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
                {"name": "popspikes", "kind": FAM_K0 + 41, "bits": 0, "cls": CL_ATTEMPT, "art": "spikes",
@@ -576,8 +576,8 @@ FAMILIES = (
     # lifted onto it when it comes down.  STATELESS elements (the channels are the slot's); a lane each, marked on
     # change only; ID 13 (the props round's fixed assignment); kinds FAM_K0 + 56 on; home `resident`; group (a
     # bridge's lanes, the whole top, share blocks with its neighbours': SPEC.md 130.32)
-    {"name": "gate", "id": 13, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL, "slot": 6,
-     "consts": (4, 6, 255), "group": True,
+    {"name": "gate", "id": 13, "rev": 2, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE | H_CELL, "slot": 6,
+     "consts": (4, 12, 255), "group": True,     # (GT_NCH, GT_DROP: quarter units since SPEC.md 130.48.4, GT_TIMED)
      "kinds": ({"name": "plate", "kind": FAM_K0 + 56, "bits": 0, "cls": CL_ATTEMPT, "art": "gate",
                 "forms": ("own",), "states": (0,), "pickup": False},
                {"name": "key", "kind": FAM_K0 + 57, "bits": 0, "cls": CL_ATTEMPT, "art": "icon",
@@ -604,7 +604,7 @@ FAMILIES = (
     # puts every plate back at rest); its LANES are records of their own (the second kind, +18 the plate), the
     # picture's change between the poses cut into lanes.  ID 14 (the props round's fixed assignment: 13 the gates'
     # on another branch, so a GAP here); kinds FAM_K0 + 64 on; home `resident`; CONSTS TL_DW, TL_TS
-    {"name": "seesaw", "id": 14, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 3, "consts": "TL",
+    {"name": "seesaw", "id": 14, "rev": 3, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 3, "consts": "TL",
      "kinds": ({"name": "seesaw", "kind": FAM_K0 + 64, "bits": 8, "cls": CL_RESPAWN, "art": None,
                 "forms": ("own", "tilt"), "states": (0,), "pickup": False},
                {"name": "seesawlane", "kind": FAM_K0 + 65, "bits": 0, "cls": CL_ATTEMPT, "art": "tilt",
@@ -618,7 +618,7 @@ FAMILIES = (
     # (the membrane's), and the centre's too while the ball is below its top (fallen in); STEP marks a pose that
     # changes and refills the window; POSE 0 floor, 1 the warning, 2 a gap.  STATELESS, no slot.  ID 15 (the
     # props round's fixed assignment: gates 13, see-saw 14 are a GAP here); kind FAM_K0 + 72; CONSTS TT_*
-    {"name": "turntable", "id": 15, "rev": 1, "hooks": H_STEP | H_POSE | H_CELL, "slot": 0, "consts": "TT",
+    {"name": "turntable", "id": 15, "rev": 2, "hooks": H_STEP | H_POSE | H_CELL, "slot": 0, "consts": "TT",
      "kinds": ({"name": "turntable", "kind": FAM_K0 + 72, "bits": 0, "cls": CL_ATTEMPT, "art": "turn",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 29,
      "home": HOME_RESIDENT},
@@ -712,7 +712,7 @@ GT_FART = 1                   # ...a gate's or switched bridge's +24: it has art
 GT_ADIR = os.path.join(COURSE_DIR, "gates")     # ...where `art <name>` finds <name>.bba
 GT_NCH = 4                    # CHANNELS a course: the slot's +0, a bit each
 GT_CHANNELS = ("ring", "plus", "box", "cross")  # each channel's GLYPH, its name in the source
-GT_DROP = 6                   # half units: an UP bridge's near void, its kill 3 units under its deck (a broken crack's)
+GT_DROP = 12                  # QUARTER units (SPEC.md 130.48.4): an UP bridge's near void, its kill 3 units under its deck (a broken crack's)
 GT_TIMED = 255                # a bridge's +18 when it runs on a timer, not a channel
 GT_PERIODS = SP_PERIODS       # a timed bridge's period: a popspike's (a power of two, its MASK a byte)
 # THE SEE-SAW's constants (SPEC.md 130.42): TL_DW and TL_TS in its FAMV (its row's "TL")
@@ -734,7 +734,7 @@ TT_QUARTERS = (32, 64)        # steps a quarter turn (0.53 s, 1.07 s at 60 steps
                               # low byte's 256, so one byte times every table
 TT_QDEF = 64                  # ...when not written: "a quarter turn every second or so"
 TT_WDEF = 16                  # the WARNING: steps before a turn a floor cell about to open shows its seam (0.27 s)
-TT_VOID = 6                   # half units: a gap's NEAR VOID under the floor (the membrane's, a broken crack's)
+TT_VOID = 12                  # QUARTER units (SPEC.md 130.48.4): a gap's NEAR VOID under the floor (the membrane's, a broken crack's)
 FAM_BY_NAME = dict((f["name"], f) for f in FAMILIES)
 FAM_BY_ID = dict((f["id"], f) for f in FAMILIES)
 FKIND = dict((k["kind"], (f, k)) for f in FAMILIES for k in f["kinds"])     # kind -> (family, its row)
@@ -875,7 +875,7 @@ def famv(f):
     elif f.get("consts") == "MG":               # MAGNETS' (130.33)
         b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX, MG_BOB, MG_BOBP))
     elif f.get("consts") == "SP":               # SPIKES' (130.38): the kill's HSTEPS and state, the near void's
-        b += bytes((SHA_STEPS, HARD_SHATTER, 6)) + struct.pack("<4H", *SP_PERIODS)    # depth, the periods
+        b += bytes((SHA_STEPS, HARD_SHATTER, 12)) + struct.pack("<4H", *SP_PERIODS)   # (12: 130.48.4)    # depth, the periods
     elif f.get("consts") == "AR":               # THE ARCHWAY's (130.39): the clearance's margin, the rebound
         b += bytes((AR_TOPB, AR_RSH))
     elif f.get("consts") == "TL":               # THE SEE-SAW's (130.42): the weight by ball, the transit
@@ -1046,7 +1046,7 @@ class CourseError(Exception):
 # =============================================================================
 
 _NAME = re.compile(r"^[A-Z0-9]{1,5}$")
-_HEIGHT = re.compile(r"^-?\d+(\.[05])?$")
+_HEIGHT = re.compile(r"^-?\d+(\.(0|00|5|50|25|75))?$")     # SPEC.md 130.48: quarter units
 _INT = re.compile(r"^-?\d+$")
 
 
@@ -1094,6 +1094,7 @@ class Source:
 
     def __init__(self, fname):
         self.fname = fname
+        self.zbase = 0              # SPEC.md 130.48.1: the REBASE, whole units (parse())
         self.name = self.title = None
         self.width = None
         self.origin = None
@@ -1159,21 +1160,118 @@ def _int(tok, where, what):
     return v
 
 
-def _height2(tok, where):
-    """a height in units, a multiple of 0.5 from -60 to 63.5 -> half units"""
+def _height2(tok, where, rel=False):
+    """a height in units -> HALF units (SPEC.md 130.48): an ABSOLUTE height is a multiple of 0.25 from -60 to
+    63.75, and comes back as an int, or as an exact float n.5 for a quarter (a whole number of QUARTER units,
+    halved), less the course's REBASE (_ZBASE2, parse()'s); a RELATIVE one (rel: a rail's height over its floor,
+    an arch's clearance, a drop tube's fall) is a multiple of 0.5, never rebased"""
     if tok[0] != 'w' or not _HEIGHT.match(tok[1]):
-        raise CourseError("%s: height %r is not a whole number of half units" % (where, tok[1]))
+        raise CourseError("%s: height %r is not a whole number of quarter units" % (where, tok[1]))
     s = tok[1]
     neg = s.startswith("-")
     if neg:
         s = s[1:]
     whole, _, frac = s.partition(".")
-    h2 = 2 * int(whole) + (1 if frac == "5" else 0)
+    h4 = 4 * int(whole) + {"": 0, "0": 0, "00": 0, "5": 2, "50": 2, "25": 1, "75": 3}[frac]
     if neg:
-        h2 = -h2
-    if not -120 <= h2 <= 127:
-        raise CourseError("%s: height %s is out of range (-60 to 63.5 units)" % (where, tok[1]))
-    return h2
+        h4 = -h4
+    if rel and h4 & 1:
+        raise CourseError("%s: height %s is not a whole number of half units (this height is RELATIVE: SPEC.md "
+                          "130.48.1)" % (where, tok[1]))
+    if not -240 <= h4 <= 255:
+        raise CourseError("%s: height %s is out of range (-60 to 63.75 units)" % (where, tok[1]))
+    if rel:
+        return h4 >> 1
+    if _ZSEEN is not None:
+        _ZSEEN.append(h4)
+    h4 -= 2 * _ZBASE2
+    return h4 >> 1 if not h4 & 1 else Q(h4 / 2.0)
+
+
+# SPEC.md 130.48.1: THE REBASE.  parse() reads a course once with no rebase, collecting every ABSOLUTE height
+# (_ZSEEN, quarter units); if its bytes would not fit it reads it again with every absolute height less
+# _ZBASE2 half units (2 B, B whole units), the least shift that centres it.  The guest never sees an absolute
+# height, so the course is the same course; THE LOOK's checker alone reads the height as written (_LOOKB)
+_ZBASE2 = 0
+_ZSEEN = None
+_LOOKB = 0                    # half units: _compile_course's src.zbase x 2, for render()'s checker
+ZQ_LO, ZQ_HI = -116, 127      # SPEC.md 130.48.1: a solid cell's lowest corner and its z0, quarter units
+
+
+class Q(float):
+    """SPEC.md 130.48: a height in HALF units that carries a QUARTER - n.5 exactly.  The build side (tiles, the
+    picture, the reach, the occluders) was written in half units and stays so; a quarter course hands it these,
+    and every result that is WHOLE comes back a plain int (4 x Q(7.5) is the px 30, Q(7.5) // 4 the int 1), so
+    the arithmetic it already does is right.  What must be an int and is not - a byte, a shift, a mask, a range
+    - refuses loudly, never truncates; a part's height bytes go through zq()"""
+    __slots__ = ()
+
+    @staticmethod
+    def of(v):
+        return int(v) if v == int(v) else Q(v)
+
+    def __add__(self, o):
+        return Q.of(float(self) + o)
+
+    __radd__ = __add__
+
+    def __sub__(self, o):
+        return Q.of(float(self) - o)
+
+    def __rsub__(self, o):
+        return Q.of(o - float(self))
+
+    def __mul__(self, o):
+        return Q.of(float(self) * o)
+
+    __rmul__ = __mul__
+
+    def __neg__(self):
+        return Q.of(-float(self))
+
+    def __abs__(self):
+        return Q.of(abs(float(self)))
+
+    def __floordiv__(self, o):
+        return int(float(self) // o)
+
+    def __rfloordiv__(self, o):
+        return int(o // float(self))
+
+    def __repr__(self):
+        return "Q(%g)" % float(self)
+
+
+def zq(h2):
+    """SPEC.md 130.48.1: a height in HALF units (an int, or an exact n.5) -> the QUARTER units every height byte
+    of a part holds; refuses anything finer (an int that is not)"""
+    q = 2 * h2
+    if q != int(q):
+        raise CourseError("a height of %r half units is not a whole number of quarter units" % (h2,))
+    if not -128 <= q <= 127:
+        raise CourseError("a height of %g units is outside the -32 - 31.75 a part's height byte holds after the "
+                          "rebase (SPEC.md 130.48.1)" % (q / 4.0))
+    return int(q)
+
+
+def rebase_units(seen, fname):
+    """SPEC.md 130.48.1: the whole units B to subtract from every absolute height (quarter units in `seen`):
+    0 when they fit ZQ_LO .. ZQ_HI, else the B that centres them; refused when the span cannot fit"""
+    if not seen:
+        return 0
+    lo, hi = min(seen), max(seen)
+    if lo >= ZQ_LO and hi <= ZQ_HI:
+        return 0
+    if hi - lo > ZQ_HI - ZQ_LO:
+        raise CourseError("%s: the course's heights span %g units (%g to %g), over the %g a course holds "
+                          "(SPEC.md 130.48.1)" % (fname, (hi - lo) / 4.0, lo / 4.0, hi / 4.0,
+                                                  (ZQ_HI - ZQ_LO) / 4.0))
+    b = int(round(((lo + hi) - (ZQ_LO + ZQ_HI)) / 8.0))
+    while hi - 4 * b > ZQ_HI:
+        b += 1
+    while lo - 4 * b < ZQ_LO:
+        b -= 1
+    return b
 
 
 def _shape(toks, i, where):
@@ -1352,9 +1450,9 @@ def _heightspec(toks, i, where):
             raise CourseError("%s: a ramp's p0 and p1 must differ" % where)
         num, den = h1 - h0, p1 - p0           # r = 2 (h1 - h0) / (p1 - p0), half units
         if num % den:
-            raise CourseError("%s: ramp rate %d/%d is not a whole number of half units a tile"
+            raise CourseError("%s: ramp rate %g/%d is not a whole number of half units a tile"
                               % (where, num, den))
-        r = num // den
+        r = int(num // den)                   # (SPEC.md 130.48: its ends may be quarters, its rate never is)
         lim = 2 if axis == "s" else 4
         if abs(r) > lim:
             raise CourseError("%s: ramp rate %d half units a tile is past the %s ramp's limit of %d"
@@ -1398,7 +1496,7 @@ def _parse_tube(toks, where, ln):
         elif w == "height" and i + 2 <= len(toks) and t["height"] is None:
             if t["sub"] != TK_DROP:
                 raise CourseError("%s: height is a DROP tube's alone" % where)
-            t["height"] = _height2(toks[i + 1], where)
+            t["height"] = _height2(toks[i + 1], where, rel=True)
             i += 2
         else:
             raise CourseError("%s: unknown or repeated tube clause %r" % (where, w))
@@ -2899,7 +2997,7 @@ def _parse_archway(toks, where, ln):
     if len(rest) not in (2, 4) or rest[0] != ('w', "along") or rest[1][1] not in ("x", "y") \
             or (len(rest) == 4 and rest[2] != ('w', "under")):
         raise CourseError("%s: %s" % (where, use))
-    under = _height2(rest[3], where) if len(rest) == 4 else AR_UDEF
+    under = _height2(rest[3], where, rel=True) if len(rest) == 4 else AR_UDEF
     if not AR_UMIN <= under <= AR_UMAX:
         raise CourseError("%s: an archway's underside is %s - %s units over its floor, not %s%s (SPEC.md 130.39.2)"
                           % (where, AR_UMIN / 2, AR_UMAX / 2, under / 2,
@@ -2976,6 +3074,23 @@ def _parse_prop(toks, where, ln):
 
 
 def parse(text, fname="<course>"):
+    """SPEC.md 130.48.1: the course, rebased (src.zbase, whole units) when its heights need it"""
+    global _ZBASE2, _ZSEEN
+    saved = _ZBASE2, _ZSEEN
+    try:
+        _ZBASE2, _ZSEEN = 0, []
+        src = _parse_text(text, fname)
+        b = rebase_units(_ZSEEN, fname)
+        if b:
+            _ZBASE2, _ZSEEN = 2 * b, None
+            src = _parse_text(text, fname)
+        src.zbase = b
+        return src
+    finally:
+        _ZBASE2, _ZSEEN = saved
+
+
+def _parse_text(text, fname="<course>"):
     src = Source(fname)
     for ln, raw in enumerate(text.split("\n"), 1):
         where = "%s:%d" % (fname, ln)
@@ -3136,7 +3251,7 @@ def parse(text, fname="<course>"):
             rest = [t_[1] for t_ in toks[i:]]
             if len(rest) not in (0, 2) or (rest and rest[0] != "height"):
                 raise CourseError("%s: guard takes a shape and [height <units>] (SPEC.md 130.35.1)" % where)
-            h2 = _height2(toks[i + 1], where) if rest else GUARD_H2
+            h2 = _height2(toks[i + 1], where, rel=True) if rest else GUARD_H2
             if not GUARD_H2MIN <= h2 <= GUARD_H2MAX:
                 raise CourseError("%s: a guard rail is %s - %s units over the floor it guards, not %s (SPEC.md "
                                   "130.35.2)" % (where, GUARD_H2MIN / 2, GUARD_H2MAX / 2, h2 / 2))
@@ -7817,7 +7932,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                             for x in range(a, b):
                                 row[x] = ink
             else:
-                cv.fill(sp, WHT if (wx + wy + (0 if _NOLOOK else t.z0 // 4)) & 1 else CYN, s, top, own)
+                cv.fill(sp, WHT if (wx + wy + (0 if _NOLOOK else int((t.z0 + _LOOKB) // 4))) & 1 else CYN, s, top, own)
                                                     # (130.47.2: by height too)
             cv.outline(sp, also=_shift(left, y0) if left else None)
     if SHADOW and _SHADOW_OK:
@@ -9671,7 +9786,7 @@ class AGrid:
             c = cells.get(((s + av) >> 1, (s - av) >> 1))
             if c is None:
                 return (Z_OPEN, 0, KIND_VOID, 0)
-            return (c[0] if not (c[2] & 15) in SPLIT_KINDS else 0, c[1], c[2], c[3])
+            return (zq(c[0]) if not (c[2] & 15) in SPLIT_KINDS else 0, c[1], c[2], c[3])   # (130.48: quarter)
         a._b = b
         return a
 
@@ -9717,7 +9832,8 @@ class AGrid:
         Y its edge's apex, kr = 2 - sx and kl = 2 - sy the halves' slope terms (SPEC.md 130.29.2)"""
         z0, sl = b[0], b[1]
         sx, sy = (0, 0) if _AV_FLAT else (_nib(sl & 15), _nib(sl >> 4))
-        return (4 * (z0 + max(sx, 0) + max(sy, 0)), 16 * aN + self.x0, 8 * sN + self.y0 - 4 * z0, 2 - sx, 2 - sy)
+        return (2 * (z0 + 2 * max(sx, 0) + 2 * max(sy, 0)), 16 * aN + self.x0, 8 * sN + self.y0 - 2 * z0, 2 - sx,
+                2 - sy)                             # (z0 quarter units, SPEC.md 130.48)
 
 
 def amodel_edge(cell, x):
@@ -10193,7 +10309,7 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB
     hack = _hack or {}
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
@@ -10212,6 +10328,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _DOWN_S0 = False
         _HM_FTOP = False
         _NOLOOK = False
+        _LOOKB = 0
         _REACH_MEMO = saved
 
 
@@ -10295,7 +10412,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             text = f.read()
     else:
         text = source
+    global _LOOKB
     src = parse(text, fname)
+    _LOOKB = 2 * src.zbase                          # SPEC.md 130.48.1: THE LOOK reads the height as written
     pth = None
     if src.pathway is not None:                     # wave 8R (SPEC.md 130.22.2): THE PATHWAY, its rooms laid
         pth = path_prepare(src, fname, crsinfo if crsinfo is not None else _course_info(default_paths()))
@@ -11266,9 +11385,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             elif (wx, wy) in pairs:                 # SPEC.md 130.24.5: the pair's offset, RELATIVE to D in the
                 cellb += struct.pack("<HBB", len(pairb), c[2], c[3])     # model (the encoder makes it absolute)
                 for h in pairs[(wx, wy)]:
-                    pairb += struct.pack("<bBBB", *h)
+                    pairb += struct.pack("<bBBB", zq(h[0]), h[1], h[2], h[3])     # (SPEC.md 130.48: quarter units)
             else:
-                cellb += struct.pack("<bBBB", c[0], c[1], c[2], c[3])
+                cellb += struct.pack("<bBBB", zq(c[0]), c[1], c[2], c[3])
     recp, pmb, segb, sprb = bytearray(), bytearray(), bytearray(), bytearray()
     selfp, blkp = [], []
     so = segoff
@@ -11356,20 +11475,20 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         elif is_fam(p["kind"]):                     # wave 9 (SPEC.md 130.25.6.4): +16 FSB, +17 the class
             p["fsb"] = fsbs[i]
             if p["kind"] == FK_WATER:               # (+18, +19: WATER's bed and top, half units, 130.36)
-                rec += struct.pack("<BBbbB11x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["bed"], p["top"],
-                                   p["rip"])               # (+20: WR_RIPPLE, WR_ALWAYS)
+                rec += struct.pack("<BBbbB11x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], zq(p["bed"]),
+                                   zq(p["top"]), p["rip"])  # (130.48.4: bed and top in quarter units)               # (+20: WR_RIPPLE, WR_ALWAYS)
             elif p["kind"] in (SP_K, SP_KP):        # SPIKES (130.38): +18 LOW, +19 TIP; a popspike's +20 ON,
-                rec += struct.pack("<BBbbBBB9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["low"], p["tip"],
-                                   p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))   # +21 MASK, +22 SEED
+                rec += struct.pack("<BBbbBBB9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], zq(p["low"]),
+                                   zq(p["tip"]), p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))   # +21 MASK, +22 SEED
             elif p["kind"] == TT_K:                 # THE TURNTABLE (130.43): +18 TZ, +19 SEQ (twice), +20 QSH,
-                rec += struct.pack("<BBbBBBBB8x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["tz"],
+                rec += struct.pack("<BBbBBBBB8x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], zq(p["tz"]),
                                    p["tseq"] | p["tseq"] << 4, p["tqsh"], (1 << p["tqsh"]) - 1, p["tseed"],
                                    p["twat"])           # +21 QMASK, +22 SEED, +23 WAT
             elif p["kind"] == SP_KM:                # ...a membrane's +18 its floor's z0
-                rec += struct.pack("<BBb13x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["mz"])
+                rec += struct.pack("<BBb13x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], zq(p["mz"]))
             elif p["kind"] in GT_KINDS:             # SPEC.md 130.41.3: +18 the channel (GT_TIMED), +19 a gate's way or
                 rec += struct.pack("<BBBbBBBBB7x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], p["gch"],   # a
-                                   p["galong"] if p["kind"] == GT_KG else p["deck"] if p["kind"] == GT_KB else 0,
+                                   p["galong"] if p["kind"] == GT_KG else zq(p["deck"]) if p["kind"] == GT_KB else 0,
                                    p["gkd"] if p["kind"] == GT_KB else 0,      # bridge's deck, +20 its grid's +2
                                    p.get("on", 0), p.get("smask", 0), p.get("sseed", 0),  # +21 - +23 its timer,
                                    GT_FART if p.get("gart") is not None else 0)   # +24 its ART (130.41.12)
@@ -11386,7 +11505,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             elif p["kind"] == FK_ARCH:              # THE ARCHWAY (SPEC.md 130.39.3): +18 the CLEARANCE, whole px
                 rec += struct.pack("<BBh12x", 0, p["cls"], p["clr"])
             elif p["kind"] == FK_TILT:              # THE SEE-SAW (SPEC.md 130.42.3): +18 NX, +19 NY, +20 the flags,
-                rec += struct.pack("<BBBBBbBBB7x", p["fsb"], p["cls"], p["tlnx"], p["tlny"], p["tlf"], p["tlpz"],
+                rec += struct.pack("<BBBBBbBBB7x", p["fsb"], p["cls"], p["tlnx"], p["tlny"], p["tlf"], zq(p["tlpz"]),
                                    p["tlmask"], p["tlflat"], p["tlseed"])     # (+22 - +24 a TIMED one's, 130.42.11)
             elif p["kind"] == FK_TILTL:             # ...+21 PZ; a lane's +18 its plate's record
                 rec += struct.pack("<BBB13x", 0, p["cls"], jofid[id(p["tlof"])])
@@ -13040,13 +13159,14 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
     fields neither the RAM nor the stored form changes (a VOID cell's z0 and
     SAFE are the two it does not read), so the stored cells give the same rule
     as the RAM ones.
-      V = a cell's lowest corner + 79h, z0 + min(0, sx) + min(0, sy) + 79h in
-          8 bits, UNSIGNED, for a cell that is not VOID; FFh for a VOID cell
-          and outside the grid
+      V = a cell's lowest corner + 73h, z0 + 2 min(0, sx) + 2 min(0, sy) +
+          73h in 8 bits (QUARTER units, SPEC.md 130.48.3), UNSIGNED, for a
+          cell that is not VOID; FFh for a VOID cell and outside the grid
       rz = the least V within two tiles (Chebyshev, in wx and wy) + 81h, in 8
-          bits: the least corner less 6 (NEAR), or -128 where no cell within
-          two tiles is solid (OPEN, FFh + 81h).  For corners -122 .. 127, the
-          ones a NEAR cell can be built from, that is 130.10.4.3's rule
+          bits: the least corner less 12 (NEAR), or -128 where no cell within
+          two tiles is solid (OPEN, FFh + 81h).  For corners -116 .. 127, the
+          ones a NEAR cell can be built from, that is 130.10.4.3's rule (-116's
+          NEAR z0 IS -128, OPEN's)
       rs = 1 on a FLOOR cell with sx = sy = 0, OBS clear and none of its four
           edge neighbours VOID or outside the grid
     SPEC.md 130.24.5.3, a SPLIT cell (kind 4 or 5): its V is the least of its
@@ -13067,7 +13187,7 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
         return kw * r2 + k2 if 0 <= r2 < nrows and 0 <= k2 < kw else None
     def vrec(z0, sl):
         sx, sy = _nib(sl & 15), _nib(sl >> 4)
-        return (z0 + min(0, sx) + min(0, sy) + 0x79) & 0xFF
+        return (z0 + 2 * min(0, sx) + 2 * min(0, sy) + 0x73) & 0xFF     # (SPEC.md 130.48.3)
     V, H = [], {}
     for i in range(n):
         z0, sl, kd = cells[4 * i], cells[4 * i + 1], cells[4 * i + 2]
@@ -13317,7 +13437,7 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
                     wrw(S + 4 * w + 2, 8 * s + y0 - 5)
                     continue
                 sl = b[co + 1]
-                y = 8 * s + 8 - (4 * z0 + 2 * (_nib(sl & 15) + _nib(sl >> 4))) + y0 - 13
+                y = 8 * s + 8 - 2 * (z0 + _nib(sl & 15) + _nib(sl >> 4)) + y0 - 13   # (z0 quarter units, 130.48)
                 wrw(S + 4 * w, 16 * a + x0 - 8)
                 wrw(S + 4 * w + 2, y)
         else:
@@ -13667,7 +13787,7 @@ def _read_bzc2(p, pw, fname, split=False):
             s_ = smin + r_
             a_ = amin + 2 * k_ + (s_ & 1)
             tab = p[foff + FTAB * fshape(sl):foff + FTAB * fshape(sl) + FTAB]
-            fcells[((s_ + a_) >> 1, (s_ - a_) >> 1)] = [[16 * z0 + tab[fidx(sl >> 4 & 7, u, v)] for u in range(17)]
+            fcells[((s_ + a_) >> 1, (s_ - a_) >> 1)] = [[8 * z0 + tab[fidx(sl >> 4 & 7, u, v)] for u in range(17)]
                                                         for v in range(17)]
         elif kd & 15 > KIND_GOAL or kd >> 4 > SURF_BOUNCE \
                 or fl & ~(FL_SAFE | FL_OCC | FL_OCCG | FL_OBS | (0xF0 if kd & 15 == KIND_GOAL else 0)
@@ -13771,14 +13891,14 @@ def _read_bzc2(p, pw, fname, split=False):
                 if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
                 else (0, 0, 0, 0)
             clr_ = struct.unpack_from("<h", p, propoff + PROPREC * d["i"] + 18)[0]
-            if kd & 15 != KIND_FLOOR or sl or clr_ < 4 * z0 + 4 * AR_UMIN - AR_TOPB:
+            if kd & 15 != KIND_FLOOR or sl or clr_ < 2 * z0 + 4 * AR_UMIN - AR_TOPB:
                 bad("prop %d" % d["i"], "an archway's cell is not a flat FLOOR under its clearance")
         elif d["kind"] == FK_TILT:                  # SPEC.md 130.42.3: every cell the plate's FLOOR at rest, no OBS,
             for c_ in [(d["at"][0] + i_, d["at"][1] + j_) for i_ in range(d["tlnx"]) for j_ in range(d["tlny"])]:
                 r_, k_ = c_[0] + c_[1] - smin, (c_[0] - c_[1] - amin) >> 1      # not SAFE
                 z0, sl, kd, fl = struct.unpack_from("<bBBB", p, rt[r_] + 4 * k_) \
                     if 0 <= r_ < nrows and 0 <= k_ < kw else (0, 0, 0, 0)
-                z_, sx_, sy_ = tl_cell(d, 0, c_)
+                z_, sx_, sy_ = tl_cell(d, 0, c_, True)
                 if kd & 15 != KIND_FLOOR or fl & (FL_OBS | FL_SAFE) or z0 != z_ \
                         or sl != (sx_ & 15) | ((sy_ & 15) << 4):
                     bad("prop %d" % d["i"], "a see-saw's cell (%d, %d) is not its plate's floor at rest" % c_)
@@ -13803,7 +13923,7 @@ def _read_bzc2(p, pw, fname, split=False):
                 if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
                 else (0, 0, 0, 0)
             if kd != KIND_FLOOR or sl or not fl & FL_OBS or fl & FL_SAFE \
-                    or z0 != (d["mz"] if d["kind"] == SP_KM else d["low"] + 1):
+                    or z0 != (d["mz"] if d["kind"] == SP_KM else d["low"] + 2):
                 bad("prop %d" % d["i"], "a %s's grid cell is not a normal FLAT FLOOR at its base with OBS, not "
                     "SAFE" % PK_NAMES[d["kind"]])
     # the identity, over C's RAM form (130.15.7) - or a two-part course's over its D parts (130.30.4.3) - and
@@ -13979,7 +14099,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 if cls != CL_ATTEMPT or fsb_ \
                         or (kr["kind"] == SP_KM and (p[r + 19:r + 32] != bytes(13) or not d["lane"]
                                                      or d["lane"]["poses"] != 2)) \
-                        or (kr["kind"] != SP_KM and (tip_ != low_ + 2
+                        or (kr["kind"] != SP_KM and (tip_ != low_ + 4      # (quarter units, 130.48.4)
                                                      or p[r + (23 if pop else 20):r + 32] != bytes(9 if pop else 12)
                                                      or bool(d["lane"]) != pop
                                                      or (pop and (sm_ + 1 not in SP_PERIODS or not 1 <= on_ <= sm_
@@ -14234,12 +14354,13 @@ class Grid:
         return (z0, _nib(sl & 15), _nib(sl >> 4), kd & 15, fl, kd >> 4)
 
     def fworld(self, z0, sl):
-        """a FIELD cell's world heights from its +0 and +1: 16 z0 + its table through its symmetry"""
+        """a FIELD cell's world heights from its +0 and +1: 8 z0 (quarter units, SPEC.md 130.48) + its table
+        through its symmetry"""
         key = (z0, sl)
         w = self._fw.get(key)
         if w is None:
             o = FTAB * fshape(sl)
-            w = self._fw[key] = [[16 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
+            w = self._fw[key] = [[8 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
         return w
 
     def pair(self, wx, wy):
@@ -14561,7 +14682,7 @@ class GlassFamily(Family):
             if pr["kind"] == FK_CRACK and pr["at"] in win and p.fst[pr["fsb"] >> 3] == CR_BROKEN:
                 c = win[pr["at"]]
                 if c[3] == KIND_FLOOR:              # (idempotent, as the guest's must be: a kept cell)
-                    c[0] -= 6
+                    c[0] -= 12                      # (3 units, quarter units: SPEC.md 130.48.4)
                     c[3] = KIND_VOID
                     c[5] = 0
 
@@ -14894,7 +15015,7 @@ class WaterFamily(Family):
         anyw = 0
         # SPEC.md 130.36.10: rubber's and glass's floor - the float line a half unit under the top, or the top
         # itself on the other half of the bob's period
-        dz = p.nstep >> WA_FBSH & 1 if WA_FBSH else 1
+        dz = 2 * (p.nstep >> WA_FBSH & 1) if WA_FBSH else 2     # (a half unit: 2 quarter units, 130.48.4)
         for pr in p.props:
             if pr["kind"] == FK_WATER and pr["at"] in win:
                 win[pr["at"]][0] = pr["bed"] if p.mat == MAT_STEEL else pr["top"] - dz
@@ -14903,7 +15024,7 @@ class WaterFamily(Family):
                     cen = pr
         sb[1] = (sb[1] & 1) | anyw                  # (bit 1: a water cell in the window)
         if cen is not None:
-            sb[4] = (cen["top"] - 1) & 255
+            sb[4] = (cen["top"] - 2) & 255
             if not sb[1] & 1:
                 sb[1] |= 1
                 sb[2], sb[3] = p.hthr & 255, (p.hthr >> 8) & 255
@@ -14921,7 +15042,7 @@ class WaterFamily(Family):
 
     def step(self, p, slot):
         sb = p.fsl[slot]
-        top = 4 * (sb[4] - 256 if sb[4] & 0x80 else sb[4])
+        top = 2 * (sb[4] - 256 if sb[4] & 0x80 else sb[4])
         if sb[1] & 1 and p.air and p.mat == MAT_STEEL:
             if p.gz >> 8 < top:                     # steel under the float line: no way across (it sinks STRAIGHT
                 p.gvx = p.gvy = 0                   # down, never out of an arch above its sill), the WOBBLE, the cap
@@ -14978,10 +15099,10 @@ class SpikeFamily(Family):
             c = win[pr["at"]]
             if pr["kind"] == SP_KM:
                 if p.mat != MAT_GLASS:
-                    c[0], c[3], c[5] = pr["mz"] - 6, KIND_VOID, 0
+                    c[0], c[3], c[5] = pr["mz"] - 12, KIND_VOID, 0
                 continue
             if not sp_up(pr, n):
-                c[0] = pr["tip"] - 1
+                c[0] = pr["tip"] - 2
             elif p.mat == MAT_STEEL:
                 c[0] = pr["tip"]
             else:
@@ -15012,7 +15133,7 @@ class SpikeFamily(Family):
             if pr["kind"] == SP_KP and sp_up(pr, n) != sp_up(pr, n + 1) \
                     and abs(pr["at"][0] - wx) <= 1 and abs(pr["at"][1] - wy) <= 1:
                 p.fref = 1
-            elif pr["kind"] == SP_KM and p.mat != MAT_GLASS and pr["at"] == (wx, wy) and Z < 4 * pr["mz"]:
+            elif pr["kind"] == SP_KM and p.mat != MAT_GLASS and pr["at"] == (wx, wy) and Z < 2 * pr["mz"]:
                 torn = pr["i"] + 1
         sb[7] = torn
 
@@ -15137,7 +15258,7 @@ class GateFamily(Family):
             if pr["kind"] == GT_KG:                                             # last frame)
                 if not op and not _GT_NOWALL:
                     c[3] = KIND_WALL
-            elif (op if pr.get("gart") else gt_down(pr, n, ch)) and not (pr["at"] == (cx, cy) and Z < 4 * pr["deck"] and not _GT_LIFT):
+            elif (op if pr.get("gart") else gt_down(pr, n, ch)) and not (pr["at"] == (cx, cy) and Z < 2 * pr["deck"] and not _GT_LIFT):
                 c[0], c[3], c[5] = pr["deck"], KIND_FLOOR, pr["gkd"] >> 4
             else:
                 c[0], c[3], c[5] = pr["deck"] - GT_DROP, KIND_VOID, 0
@@ -15172,12 +15293,14 @@ def tl_slope(pr, pose):
     return (-1 if pr["tlf"] & TL_FPLUS else 1) * (1 - pose)
 
 
-def tl_cell(pr, pose, c):
-    """-> (z0, sx, sy) of the plate's cell C in POSE: z0 = PZ + s (k - L / 2), k the cell's place along the axis"""
+def tl_cell(pr, pose, c, q=False):
+    """-> (z0, sx, sy) of the plate's cell C in POSE: z0 = PZ + s (k - L / 2), k the cell's place along the axis;
+    q: PR is a RECORD's (read_props': PZ and z0 in QUARTER units, z0 = PZ + 2 s (k - L / 2), SPEC.md 130.48.4),
+    else the parsed plate's (half units)"""
     sl = tl_slope(pr, pose)
     ay = pr["tlf"] & TL_FAXY
     k = c[1] - pr["at"][1] if ay else c[0] - pr["at"][0]
-    z0 = pr["tlpz"] + sl * (k - tl_len(pr) // 2)
+    z0 = pr["tlpz"] + (2 if q else 1) * sl * (k - tl_len(pr) // 2)
     return (z0, 0, sl) if ay else (z0, sl, 0)
 
 
@@ -15193,8 +15316,8 @@ def tl_tpose(pr, n):
 
 def tl_carry(p, pr, pose):
     """the ball CARRIED by a plate's new POSE (SPEC.md 130.42.4): z the new floor at its point, its quarter px"""
-    z0, sx, sy = tl_cell(pr, pose, (p.gx >> 12, p.gy >> 12))
-    p.gz = (16 * z0 + sx * ((p.gx >> 8) & 15) + sy * ((p.gy >> 8) & 15)) << 6
+    z0, sx, sy = tl_cell(pr, pose, (p.gx >> 12, p.gy >> 12), True)
+    p.gz = (8 * z0 + sx * ((p.gx >> 8) & 15) + sy * ((p.gy >> 8) & 15)) << 6
 
 
 class TiltFamily(Family):
@@ -15226,7 +15349,7 @@ class TiltFamily(Family):
             pose = p.fst[pr["fsb"] >> 3]
             for c in win:
                 if tl_in(pr, c):
-                    win[c][0], win[c][1], win[c][2] = tl_cell(pr, pose, c)
+                    win[c][0], win[c][1], win[c][2] = tl_cell(pr, pose, c, True)
 
     def step(self, p, slot):
         self._weigh(p, slot)
@@ -15285,7 +15408,7 @@ class TurnFamily(Family):
     """THE TURNTABLE (SPEC.md 130.43.4).  An element is a SWITCHING cell (tt_pose: 0 floor, 1 the warning, 2 a gap,
     from the step's low byte).  No slot.  CELL: each element in the window that is a gap at n - or is the window's
     CENTRE with the ball's whole-px z under its top (4 TZ: fallen into its hole, so a closing hole never lifts it)
-    - a NEAR VOID (TZ less TT_VOID half units, kind and surface 0, its flags kept: the membrane's); every other
+    - a NEAR VOID (TZ less TT_VOID quarter units, kind and surface 0, its flags kept: the membrane's); every other
     element the grid's FLOOR (the guest writes it back: its window keeps cells when it moves, bz_win9i; this
     window is always refilled from the grid, so it already holds it).  STEP: an
     element whose pose differs between n and n + 1 MARKS its lane (the guest's bz_fmark) and, in the window, asks
@@ -15301,7 +15424,7 @@ class TurnFamily(Family):
                 continue
             if _TT_NOVOID:
                 continue
-            if tt_pose(pr, n) == 2 or (pr["at"] == (cx, cy) and Z < 4 * pr["tz"] and not _TT_NOFALLEN):
+            if tt_pose(pr, n) == 2 or (pr["at"] == (cx, cy) and Z < 2 * pr["tz"] and not _TT_NOFALLEN):
                 c = win[pr["at"]]
                 c[0], c[3], c[5] = pr["tz"] - TT_VOID, KIND_VOID, 0
 
@@ -15510,7 +15633,7 @@ class Physics:
     def h4(c, u, v):
         if c[3] == KIND_FIELD:                      # SPEC.md 130.28.2: a FIELD record carries its world heights
             return c[6][v][u]
-        return 16 * c[0] + c[1] * u + c[2] * v
+        return 8 * c[0] + c[1] * u + c[2] * v          # (z0 quarter units, SPEC.md 130.48)
 
     def blocks(self, c, u, v, at=None):
         """does neighbour c block the ball at its point (u, v)?  A WALL always;
@@ -16411,7 +16534,8 @@ class Physics:
             if solid and self.gz <= h:
                 contact = self._land(C, h, K, stun, Cv, slab)
                 onslab = slab is not None
-            elif Cv[3] == KIND_VOID and not solid and self.gz < (4 * Cv[0]) << 8:
+            elif Cv[3] == KIND_VOID and not solid and self.gz < (2 * Cv[0] << (Cv[0] == Z_OPEN)) << 8:
+                # (2 z0 px: quarter units, SPEC.md 130.48.1 - but OPEN's -128 still kills at -512 px, 4 z0)
                 self._respawn()
                 return self._end()
         # wave 4 (SPEC.md 130.14.4.7): the four props' rules on the PROP path, for
@@ -17956,7 +18080,8 @@ def ledge_gaps(step=128, mat=MAT_RUBBER):
 
 LAD_PTS = 70                  # take-off points, 1.5 gu apart at the cap (the chord's +x speed)
 LAD_X0, LAD_LIP = 14, 20      # the ball starts on tile 14's centre; the near floor ends at tile 20
-LAD_STEPS = (("half a unit", 0.5), ("1 unit", 1), ("1.5 units", 1.5), ("2 units", 2))
+LAD_STEPS = (("half a unit", 0.5), ("3/4 unit", 0.75), ("1 unit", 1), ("1 1/4 units", 1.25), ("1.5 units", 1.5),
+             ("1 3/4 units", 1.75), ("2 units", 2))      # (SPEC.md 130.48.5: the quarter rungs)
 LAD_GAPS = ((1, 0), (2, 0), (2, -0.5), (3, 0), (3, -0.5),       # (tiles, the far floor's height against the near;
             (3, -1), (3, -1.5), (3, -2), (3, -3))                # the 3-tile drops: wave 6's review, 130.16.4.2)
 _LAD_C = {}
@@ -18158,12 +18283,58 @@ def ladder_text(st, gp):
     return "\n".join(L)
 
 
+QSTEP_TEXT = ("course QSTP \"Quarter Steps\"\nwidth 64\nfloor rect 3 4 6 7 flat 0\nfloor rect 6 4 8 7 flat 0.75\n"
+              "floor rect 8 4 10 7 flat 2\nfloor rect 10 4 12 7 ramp x 10 12 2.25 3.25\nfloor rect 12 4 14 7 flat 3.25\n"
+              "goal rect 13 4 14 7 flat 3.25\nstart 4 5\n")   # SPEC.md 130.48: 3/4, 1 1/4 and a quarter ramp's ends
+
+
+def quarter_checks():
+    """SPEC.md 130.48's host items: -> [(what, ok)].  (a) QSTEP_TEXT compiles, each cell's z0 byte the QUARTER
+    units its statement wrote (3/4 -> 3, 2 -> 8, the ramp 2.25 -> 9 rising 2 a tile, 3.25 -> 13) and the kill past
+    the goal 12 under its lowest corner; (b) FIRST written 32 units higher (a multiple of THE LOOK's 2-unit checker
+    step, 130.47.2, which reads heights as written) is REBASED (its zbase non-zero) and its
+    picture, its records (each top less the rebase's px) and its route are FIRST's; its z0 bytes FIRST's less 4 B.
+    RED, by hand (2026-11-19): the rebase's subtraction taken out of _height2 makes (b) a REFUSAL (35 units past
+    the byte); the encoder packing half units makes FIRST's stored form not expand to its RAM form"""
+    out = []
+    c = compile_course(QSTEP_TEXT, "<qstep>", occluders=False)
+    g = Grid(c.cga)
+    want = {(4, 5): 0, (6, 5): 3, (8, 5): 8, (10, 5): 9, (11, 5): 11, (12, 5): 13, (14, 5): 1}
+    got = {k: g.cell(*k)[0] for k in want}
+    out.append(("48 a quarter-step course's z0 bytes are its heights in QUARTER units (3/4 -> 3, the ramp 2.25 "
+                "-> 9, 11, the kill past the goal 13 - 12): %s" % got, got == want))
+    F = _first_text()
+    hi = re.sub(r"\b(flat|ramp [xys] -?\d+ -?\d+) (-?[\d.]+)( -?[\d.]+)?",
+                lambda m: "%s %g%s" % (m.group(1), float(m.group(2)) + 32,
+                                       "" if not m.group(3) else " %g" % (float(m.group(3)) + 32)), F)
+    a = compile_course(F, "<first>")
+    try:
+        b = compile_course(hi, "<first +32>")
+        zb = b.src.zbase
+        ga, gb = Grid(a.cga), Grid(b.cga)
+        dz = 4 * (zb - 32)                          # b's bytes against a's: +32 units written, less the rebase
+        same = (a.pic == b.pic and a.y0 == b.y0 + 8 * (zb - 32) and ga.route == gb.route
+                and sorted((r["brow"], r["col"], r["s"], r["top"]) for r in a.records)
+                == sorted((r["brow"], r["col"], r["s"], r["top"] + 8 * (zb - 32)) for r in b.records)
+                and all(gb.cell(wx, wy)[0] == (ga.cell(wx, wy)[0] - dz if ga.cell(wx, wy)[0] != Z_OPEN else Z_OPEN)
+                        for wx in range(0, 20) for wy in range(0, 12)))
+        msg = "zbase %d, Y0 %d against %d" % (zb, b.y0, a.y0)
+    except CourseError as e:
+        zb, same, msg = 0, False, "refused: %s" % e
+    out.append(("48 FIRST written 32 units higher is REBASED and is FIRST: its picture, records, route and z0 "
+                "bytes (less 4 B) - %s" % msg, bool(zb) and same))
+    return out
+
+
 def ladder_verdicts(st, gp):
     """130.16.5.3's asserted shapes: -> [(what, ok)]"""
     R, S, Gl = MAT_RUBBER, MAT_STEEL, MAT_GLASS
     out = []
     out.append(("half a unit: every ball rolls up, no Hop needed, and its Hop gets there from every take-off point",
                 all(st[(0.5, m)]["roll"] and len(st[(0.5, m)]["hop"]) == LAD_PTS for m in range(3))))
+    out.append(("3/4 unit (SPEC.md 130.48.5): no ball rolls up it, and every ball's Hop gets onto it from at least 1 "
+                "take-off point (rubber %d, glass %d, steel %d)" % tuple(len(st[(0.75, m)]["hop"]) for m in (R, Gl, S)),
+                not any(st[(0.75, m)]["roll"] for m in range(3)) and all(st[(0.75, m)]["hop"] for m in range(3))))
     out.append(("1 unit: rubber's Hop and glass's at least 1 take-off point (%d, %d), steel's none (%d)" % (
         len(st[(1, R)]["hop"]), len(st[(1, Gl)]["hop"]), len(st[(1, S)]["hop"])),
         st[(1, R)]["hop"] and st[(1, Gl)]["hop"] and not st[(1, S)]["hop"]))
@@ -18765,7 +18936,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_BP_FFLAT     equ %d        ; record +18's flag over the face: `flat`, no weighting" % BP_FFLAT,
               "; SWITCHES, KEYS, GATES and the DRAWBRIDGE's constants (SPEC.md 130.41; bbcourse GT_*)",
               "BZ_GT_TIMED     equ %d      ; a bridge's +18 when it runs on a timer" % GT_TIMED,
-              "BZ_GT_DROP      equ %d        ; an UP bridge's near void: its deck less this (half units)" % GT_DROP,
+              "BZ_GT_DROP      equ %d       ; an UP bridge's near void: its deck less this (quarter units)" % GT_DROP,
               "BZ_GT_NCH       equ %d        ; channels: the slot's +0, a bit each" % GT_NCH,
               "; THE SEE-SAW's constants (SPEC.md 130.42; bbcourse TL_*)",
               "BZ_TL_DWR       equ %d        ; the weight: steps on a half before an END pose moves, rubber" % TL_DW[0],
@@ -20891,7 +21062,8 @@ def author_demo(c, K, script):
         elif act[0] == "steer":
             n0 = p.nfall
             pt = _way_point(c, act[1]) if act[1] in c.tiles else (
-                16 * (act[1][0] - act[1][1]) + c.x0 - 8, 8 * (act[1][0] + act[1][1]) - 5 + c.y0)
+                16 * (act[1][0] - act[1][1]) + c.x0 - 8, 8 * (act[1][0] + act[1][1]) - 5 + c.y0
+                + 8 * c.src.zbase)                  # (a void cell's point at height 0 AS WRITTEN: 130.48.1)
             while p.nfall == n0:
                 step(steer(pt))
         elif act[0] == "ret":
@@ -22088,6 +22260,14 @@ def _grammar_cases():
          "past the s ramp's limit of 2"),
         ("a height out of range", _swap(F, "flat 0             # C", "flat 64            # C"),
          "out of range"),
+        # SPEC.md 130.48.1: quarter units, the span, and a RELATIVE height's half units
+        ("a height that is not a whole quarter unit", _swap(F, "flat 0             # C", "flat 0.3           # C"),
+         "not a whole number of quarter units"),
+        ("a course whose heights span over 60.75 units", _swap(F, "flat 0             # C", "flat -31           # C")
+         .replace("flat 4                             # A", "flat 31                            # A")
+         .replace("wall  rect   3 3  7 4  flat 6", "wall  rect   3 3  7 4  flat 33"), "over the 60.75 a course holds"),
+        ("a RELATIVE height (a rail's) in quarter units", F + "guard tile 3 2 height 1.25\n",
+         "is not a whole number of half units (this height is RELATIVE"),
         ("a solid tile at wx = 2", F + "floor tile 2 5 flat 4\n", "solid outside 3 .. 252"),
         ("a wall no higher than a neighbouring floor", _swap(F, "wall  rect   3 3  7 4  flat 6", "wall rect 3 3 7 4 flat 4"),
          "is not above the floor"),
@@ -23545,7 +23725,7 @@ def _physics_checks(first, res, trial=None, mill=None):
         trail.append((p.nstep, p.gz, p.gx >> 12, p.respawned))
         if p.respawned:
             break
-    kill = 4 * Physics(first).cell(1, 5)[0] << 8
+    kill = 2 * Physics(first).cell(1, 5)[0] << 8      # (z0 quarter units, SPEC.md 130.48)
     res.append(("7 FIRST: poked off A's west side at the cap, it enters the OPEN cell (0, 5) at step 29 still above "
                 "the NEAR band's kill height, and respawns at once",
                 trail[-1][0] == 29 and trail[-1][3] and trail[-2][2] == 1 and trail[-2][1] > kill
@@ -23734,6 +23914,7 @@ def _physics_checks(first, res, trial=None, mill=None):
         print("      " + line)
     for what, good in ladder_verdicts(st, gp):
         res.append(("7 the ladders: " + what, good))
+    res += quarter_checks()
     for line in cd5_text(gp).split("\n"):
         print("    " + line)
     # wave 6b (SPEC.md 130.17.4.2): the flight armed in the air is the contact's flight, and the grace's
@@ -24028,7 +24209,7 @@ def _props_course_checks(c, res, tag):
                 obs_ok = False
     p = Physics(c)
     scan_ok = all(p.owner(cell) is not None and c.order[p.owner(cell)["i"]] == pi for cell, pi in c.pcell.items())
-    kill_ok = all(g.cell(*t)[3] == KIND_VOID and g.cell(*t)[0] == pr["h2"] - 6 and not g.cell(*t)[4] & FL_SAFE
+    kill_ok = all(g.cell(*t)[3] == KIND_VOID and g.cell(*t)[0] == zq(pr["h2"]) - 12 and not g.cell(*t)[4] & FL_SAFE
                   for pr in c.props if pr["kind"] == PK_PLATFORM for t in pr["track"])
     nwm = [pr for pr in c.props if pr["kind"] == PK_WINDMILL]
     seeds_ok = True
@@ -28797,7 +28978,7 @@ def _sc_spike(X, res):
     cok = all(g.cell(*r["at"])[3] == KIND_FLOOR and g.cell(*r["at"])[5] == SURF_NORMAL
               and g.cell(*r["at"])[4] & (FL_OBS | FL_SAFE) == FL_OBS
               and (r["mz"] == g.cell(*r["at"])[0] if r["kind"] == SP_KM else
-                   (r["low"], r["tip"]) == (g.cell(*r["at"])[0] - 1, g.cell(*r["at"])[0] + 1)) for r in recs)
+                   (r["low"], r["tip"]) == (g.cell(*r["at"])[0] - 2, g.cell(*r["at"])[0] + 2)) for r in recs)
     lok = all(bool(r["lane"]) == (r["kind"] != SP_K) for r in recs) and all(r["lane"]["poses"] == 2 for r in pk + mk)
     res.append(("3 spikes (130.38): SPIKE's %d spikes, %d popspikes and %d membrane cells are normal FLAT FLOORs at "
                 "their base with OBS and not SAFE, +18 LOW and +19 TIP a half unit either side of it (a membrane's +18 "
@@ -29057,7 +29238,7 @@ def _arch_checks(res, hack=None):
             and all(r["i"] > max(q["i"] for q in c.part["props"] if q["kind"] != FK_ARCH) for r in arc) \
             and all(g.cell(*r["at"])[3] == KIND_FLOOR and bool(g.cell(*r["at"])[4] & FL_OBS) == (r["at"] in pads)
                     for r in arc) \
-            and all(g.cell(*l)[3] == KIND_WALL and g.cell(*l)[0] == a["top"] for a in c.src.archways
+            and all(g.cell(*l)[3] == KIND_WALL and g.cell(*l)[0] == zq(a["top"]) for a in c.src.archways
                     for l in a["legs"]) and len(legs) == 6
         res.append(("3 arch (130.39.3): ARCH's four archway cells are FLAT FLOORs (OBS only under the pad), their "
                     "records the LAST, +18 the clearance (16, 16, 24, 24 px); six legs WALLs at the lintel's top", ok))
@@ -30455,7 +30636,7 @@ def _sc_magnet(X, res):
     recs = [r for r in c.part["props"] if r["kind"] == K_MAGNET]
     got = sorted((r["at"], r["mg"][:4]) for r in recs)
     g = Physics(c).grid
-    ceil = all(r["mg"][4] == (4 * g.cell(*r["at"])[0] + MG_CEIL if r["mg"][1] & MG_DOWN else 0) for r in recs)
+    ceil = all(r["mg"][4] == (2 * g.cell(*r["at"])[0] + MG_CEIL if r["mg"][1] & MG_DOWN else 0) for r in recs)
     res.append(("3 MAGNETS' records (130.33.2): %d magnets, +18 - +21 the source's (way, DOWN, range, strength), "
                 "a hanging one's +22 its ceiling, each a lane of 3 poses (the wiggle)" % len(recs),
                 got == want and ceil and all(r["lane"] and r["lane"]["poses"] == 3 for r in recs)))

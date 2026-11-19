@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 import bbcourse as BB          # noqa: E402
 import bonanza_dsplit as DS    # noqa: E402
+import bonanza_ring as R       # noqa: E402
 
 PS, CS, SS = DS.PS, DS.CS, DS.SS
 
