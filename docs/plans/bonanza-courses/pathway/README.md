@@ -170,3 +170,15 @@ consequences of the rules:
   title only further left, so the icon is 32 px left of its first place and
   LITTLE HOP's title is set 24 px left of its icon to keep the two titles
   apart.
+
+### Revision 4 (2026-11-19): back to revision 2's routes, the art lower
+
+The owner: *"This one crowds the bottom far too much ... We can't have the
+path stay where it was, and have 'up arrow' go up, and 'left arrow' go up a
+little, then to the left path? ... we could also do what I had in my earlier
+edit (previous path configuration) and just have the icon (and title) a bit
+lower."* Revision 2's routes did exactly that (the climb to 4 leaves pad 3 UP,
+the route to 6 UP-LEFT, so Up takes one and Left the other), so revision 3
+is undone: pad 3 back at (24, 17), and Downhill Decision's icon and two-line
+title 16 px lower, clear of the route to 6's underside; LITTLE HOP's title
+centred over its frog again.
