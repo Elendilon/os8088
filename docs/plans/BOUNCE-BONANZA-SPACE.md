@@ -139,10 +139,19 @@ Shape: a `BZDEV=1` build knob into a private tree (the `BZSHAPES` precedent),
 which every bonanza row builds and runs instead of `build/bonanza.o88`. The
 harness bytes (`bz_dev`, `bz_phforce`, `bz_apilot`) go with it. Two things to
 settle first: whether a row that is ABOUT the shipped game (the title, the
-pathway, the menus) should still run the shipped build, and TRICKLE — the C
-key switches it in real play (`bz_input`, ungated), though the About card does
-not list C, and ~10 bonanza_ring legs use it as their held-window camera
-(~200 bytes if it goes too).
+pathway, the menus) should still run the shipped build.
+
+**TRICKLE goes, not behind the knob** (the owner, 2026-11-19: *"trickle lost
+the a/b"*; it has been asked for several times). Since `0781e64f1` (SPEC.md
+130.9, 130.46.12) C is gone from play and the desktop and LATTICE is the
+camera; what is left is TRICKLE's PATH in `bz_camera` (`.trickle`..`.moved`,
+the `.muse`/`bz_latrst` resume glue, `bz_cuse`, `BZ_CMODES`, `bz_cmode`
+itself), reached only by a harness poking `bz_cmode` = 1 to hold the window
+still in bonanza_ring (~10 legs), bonanza_wheel and bonanza_perf. Wave 4
+deletes the path and moves those legs onto a hold that is not a camera
+(`bz_camscr` or `bz_hold`, which the same rows already use), and SPEC.md
+130.11.11.1 says TRICKLE is gone. (The survey's "C switches TRICKLE in play"
+was read off a tree 185 commits stale; it is not true at `bb943bde5`.)
 
 ## Reserve: other moves, roughly by bytes per effort
 
