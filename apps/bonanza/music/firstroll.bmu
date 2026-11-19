@@ -37,7 +37,9 @@
 ; every motif becomes a low bounce under the ball. Every phrase names its
 ; own instrument and volume at its start and a lead phrase that leaves the
 ; horn comes back to it, so no phrase inherits a state its packing did not
-; assume.
+; assume. `spkring`: the chiparp's arpeggios RING on the speaker, a drum keyed
+; inside one the chip's alone; the horn's scoop does not loop, so it is no
+; arpeggio and the beat still blips under the horn.
 
 song firstroll "First Roll"
 groove 7 5
@@ -45,6 +47,7 @@ unit 16
 rows 32
 measure 16
 spkbass
+spkring
 voice lead horn
 voice bass pluckbass
 voice chord stab

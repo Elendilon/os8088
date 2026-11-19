@@ -85,6 +85,7 @@ EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
 SONG_FLAG_SPKRING = 2
+BZI_RING = 0x10                         # an instrument's +14 bit 4: its macro loops
 
 OPL_SLOT = [0, 1, 2, 8, 9, 10, 16, 17, 18]
 OPL_OPREG = [0x20, 0x40, 0x60, 0x80, 0xE0]
@@ -611,13 +612,6 @@ def parse_song(path, bank):
         raise ScoreError("%s: rows must be 1..255 and a multiple of the groove" % base)
     if not 0 <= s.loop < len(s.order) or len(s.order) > 255:
         raise ScoreError("%s: loop %d is outside the order" % (base, s.loop))
-    if s.flags & SONG_FLAG_SPKRING:     # the guest's test is V_DYN, which only
-        for kind, evs in s.phrases.values():    # a LOOPING macro keeps set
-            for e in evs:
-                mac = bank.insts[e.inst].macro if kind == CH_LEAD and e.notes else None
-                if mac and mac[0] >= len(mac[1]):
-                    raise ScoreError("%s: spkring, and the lead's %s has a macro that "
-                                     "does not loop" % (base, e.inst))
     return s
 
 
@@ -757,7 +751,8 @@ def build_snd(bank):
     for n in names:
         i = bank.insts[n]
         out += bytes(i.fm)
-        out += bytes([mpos.get(n, 0xFF), pids.index(bytes(i.fm)), i.vdelay, i.vdepth,
+        ring = BZI_RING if i.macro and i.macro[0] < len(i.macro[1]) else 0
+        out += bytes([mpos.get(n, 0xFF), pids.index(bytes(i.fm)), i.vdelay, i.vdepth | ring,
                       i.spk | (i.alt << 7)])
     out += macros
     fxbytes = bytearray()
@@ -1100,12 +1095,14 @@ class Seq:
             spk = self.p[self.inst_rec(d.inst) + 15] & 0x7F
             lead = self.v[0]
             # `spkring`: a drum keyed AFTER an arpeggiated lead note began
-            # is the chip's alone - its blip would break the ring.  The
-            # guest asks V_DYN, which a LOOPING macro never clears; the
-            # song's parse refuses a lead macro that does not loop
+            # is the chip's alone - its blip would break the ring.  An
+            # ARPEGGIO is a lead instrument whose macro LOOPS: +14's bit 4,
+            # BZI_RING, which build_snd sets (the guest asks the record, not
+            # V_DYN, which a macro that does not loop clears when it ends -
+            # Summit's and First Roll's horn, whose scoop is no arpeggio)
             if spk and d.age <= spk and not (
                     self.flags & SONG_FLAG_SPKRING and lead.on and d.age < lead.age
-                    and self.p[self.inst_rec(lead.inst) + 11] != 0xFF):
+                    and self.p[self.inst_rec(lead.inst) + 14] & BZI_RING):
                 return d.pitch, spk - d.age + 1, 0x200 | d.keys
         lead = self.v[0]
         if lead.on:
@@ -1167,7 +1164,7 @@ class Chip:
     def patch(self, c, inst):
         r = self.q.inst_rec(inst)
         pb = list(self.q.p[r:r + 11])
-        if self.q.p[r + 14]:            # a vibrato: the chip's own, on the carrier
+        if self.q.p[r + 14] & 0x0F:     # a vibrato: the chip's own, on the carrier
             pb[5] |= 0x40
         s = OPL_SLOT[c]
         regs = [(OPL_OPREG[k] + s, pb[k]) for k in range(5)]
