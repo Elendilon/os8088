@@ -218,6 +218,26 @@ form, 130.18.7: form (ii) shipped) - decided A/Bs are not kept.  No red arm is n
 and `level1` re-run (level1's anchor is bz_hv1's text, which 6b left as it
 was: the near-edge bits went into bz_pnear); `halfcal` is retired here (its
 bz_wover never fires under LATTICE's MILL frames) and kept in bonanza_wheel.
+
+PHASE 3 (docs/plans/BOUNCE-BONANZA-SOAK.md: "gates gate; reports report").  The REGISTERED row (no --leg, no
+--sound) runs its ASSERTED GATES alone, one boot a card (GATES):
+  bench   BENCH, sound OFF, [bz_hvoff] 1 - the floor, the instruments' agreement, the one-step misses
+          (phase_misses).  BENCH stays the A/B's course: the old builds carry BENCH, not TMIL;
+  trial   BENCH, sound ON, the shipped camera ([bz_hvoff] 0): bz_nhvy 0 ASSERTED - BENCH has no prop and no
+          slab, so no frame of it is heavy (TRIAL's assertion, on a test course; `level1`'s leg);
+  mill    TMIL ("Wheel and Ring", SPEC.md 130.54), sound ON, the shipped camera: bz_wover / bz_wlate 0 and the
+          Hercules' LIFT STRETCH at most LIFT_MISS - STOPPED (measure's stop_step) PERF_STOP steps short of
+          its route's goal (the route's last feature; the lift beside F is passed by then);
+  ride    TMIL's lift (18, 22), sound OFF: no line-change miss, bz_late 0 (`rideoff`'s leg);
+  demo    the SHIPPED courses' shipped demos (ROLL's, HOP's) through D, sound ON: the end the model's,
+          bz_wover / bz_wlate 0;
+  and the VGA's BENCH (35 Hz, misses) and its clock over TMIL's autopilot route as a log, through R.
+--leg / --sound name legs and sounds explicitly (every named leg in every named sound); --baseline runs THE
+FULL MATRIX (every leg, OFF and ON, the AdLib arm) as a REPORT before its re-baseline - by hand, never the
+registered row.  Every leg once on a prototype course is on a test course now: TRIAL's and MILL's on BENCH and
+TMIL, the ride's on TMIL's lift, D's overhead (`dover`) on TMIL's route log, the fall leg on BENCH's
+autopilot (its falls, bz_safe's respawns), the AV fall frames off TMIL's edges, the TRIAL camera report on
+TPLY's chord off H's lip.
 """
 import argparse
 import os
@@ -277,6 +297,11 @@ STEP_HZ = BB.PIT_HZ / float(BB.STEP_PIT)          # steps a second of play (54.6
 # known modes.  MILL's columns are reported against the host's prediction, bbcourse.pans, instead)
 DEMO_CAP = 4000                # frames a shipped demo's D presents at most (MOON's: ~2,300 on the CGA)
 LIFT_MISS = 3                  # 130.13.4.5: the Hercules' lift stretch, missed refreshes at most (sound ON)
+PERF_CRS = "tmil"              # phase 3: the props' course (SPEC.md 130.54), found by NAME
+PERF_STOP = 30                 # ...its benchmark stopped this many steps before its route's goal (~0.55 s)
+# THE GATES (phase 3): the registered row's legs, each in the sound its assertion is about (the module's
+# docstring); everything else is --baseline's REPORT
+GATES = {"bench": ("off",), "trial": ("on",), "mill": ("on",), "ride": ("off",), "demo": ("on",)}
 SND_OFF, SND_AUTO = 3, 0       # bzs_mode: OFF, and AUTO (the speaker on a 5150 without an AdLib)
 SKIP_RC = 77
 # WAVE 5B (SPEC.md 130.15.5.4, 130.15.9): the occluder pass's span a frame - its gate open (bz_occ.gate) to
@@ -401,7 +426,7 @@ def addrs(g):
 NPART = {True: 7, False: 6}
 
 
-def measure(g, crs=None, pokes=None, key="KeyB", frames_cap=BENCH, framed=False):
+def measure(g, crs=None, pokes=None, key="KeyB", frames_cap=BENCH, framed=False, stop_step=None):
     """one benchmark under logged breakpoints: -> (frames, the package's
     instruments, the refresh in clocks, presented hits).  CRS: the course
     poked into [bz_crs] at bz_launch's entry; POKES {bss byte: value} poked
@@ -410,7 +435,11 @@ def measure(g, crs=None, pokes=None, key="KeyB", frames_cap=BENCH, framed=False)
     plain replay (the package's instruments then not filled: pkg None).
     FRAMED (wave 5b, SPEC.md 130.15.5.4): the guest paused, stepped to the
     card's next COMPLETED frame and the key pressed there, so its phase
-    against the refresh is the same in every run"""
+    against the refresh is the same in every run.
+    STOP_STEP (phase 3): the benchmark ENDED, with its results, once the guest
+    has run that many steps (R.bench_end, its frame count poked - and taken
+    back out of the package's `frames`, so the counts still agree exactly): a
+    test course's route reaches its goal before 1,200 frames"""
     m = g.m
     a = addrs(g)
     pres = a["bz_presented"]
@@ -449,6 +478,16 @@ def measure(g, crs=None, pokes=None, key="KeyB", frames_cap=BENCH, framed=False)
             raise AssertionError("the benchmark runs course %d, not the poked %d" % (g.b("bz_crs"), crs))
         c0, f0 = m.status()["cycles"], m.cards()[0]["frames"]
         m.run()
+        skew = 0
+        if stop_step is not None:
+            M.until(m, lambda _: g.d("bz_nstep") >= stop_step or g.b("bz_fs") == 0,
+                    "the benchmark's %d steps" % stop_step, guest=120)
+            m.pause()
+            if g.b("bz_fs"):
+                k0 = g.w("bz_frames")
+                R.bench_end(g)
+                skew = g.w("bz_frames") - k0    # (the frames the poke skipped: out of the package's count)
+            m.run()
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's frames (%s)" % key, guest=120 * frames_cap // BENCH)
         m.pause()
         c1, f1 = m.status()["cycles"], m.cards()[0]["frames"]
@@ -462,7 +501,7 @@ def measure(g, crs=None, pokes=None, key="KeyB", frames_cap=BENCH, framed=False)
     assert g.b("bz_res") == 1 and g.b("bz_err") == 0, "the benchmark did not finish (res %d, err %d)" % (
         g.b("bz_res"), g.b("bz_err"))
     np = NPART["bz_tw" in g.sym]
-    pkg = {"frames": g.w("bz_rframes"), "mfr": g.w("bz_rmfr"), "ncol": g.w("bz_rncol"),
+    pkg = {"frames": g.w("bz_rframes") - skew, "mfr": g.w("bz_rmfr"), "ncol": g.w("bz_rncol"),
            "nrow": g.w("bz_rnrow"), "nfull": g.w("bz_rnfull"), "miss": g.w("bz_rmiss"),
            "fmax": g.d("bz_rfmax") * 4, "tos": g.w("bz_tos"),
            "acc": [struct.unpack("<I", g.m.read(g.a("bz_racc") + 4 * i, 4))[0] * 4 for i in range(np)]}
@@ -510,8 +549,9 @@ ADLIB = "os8088_5150_sb"       # the 5150 with an AdLib (SOUND.DRV at boot): S's
 VGA_MISS_MAX = 60                       # BENCH's misses on the VGA, of 1,200 (MEASURED 27 - 50: SPEC.md 130.46.12)
 VGA_STEPS_MIN = 52.0                    # a guest second's steps over PLAYGROUND's demo: the game in real time (54.6
                                         # nominal; 46 before the step loop's clock sample, SPEC.md 130.46.13)
-VGA_DEMO_SECS = 15                      # ...the guest seconds measured, after VGA_DEMO_LEAD of lead-in
-VGA_DEMO_LEAD = 3
+VGA_DEMO_SECS = 10                      # ...the guest seconds measured, after VGA_DEMO_LEAD of lead-in (phase 3:
+VGA_DEMO_LEAD = 2                       # over TMIL's autopilot route as a log - 723 steps, 13.2 s - not PLAYGROUND's
+                                        # demo, 3 + 15 s; the gate's steps a second over 10 s, not 15)
 
 
 def vga_run(apps=None, src=None, art=None):
@@ -549,7 +589,9 @@ def vga_run(apps=None, src=None, art=None):
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         for n in range(3):                      # (the first key after a bracket can land before the face takes
             try:                                # keys: V again)
-                load_demo(g, R.CRS_K["play"], art)
+                g.m.pause()                     # (phase 3: TMIL's route, a log made from the model)
+                g.write_log(R.auto_log(PERF_CRS))
+                g.m.run()
                 break
             except M.MartyError:
                 if n == 2:
@@ -557,7 +599,7 @@ def vga_run(apps=None, src=None, art=None):
                 M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         g.key("KeyR")
-        M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "PLAYGROUND's demo runs", guest=120)
+        M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "TMIL's route log runs", guest=120)
         m.advance(cycles=VGA_DEMO_LEAD * 4772727)
         m.pause()
         f0, s0 = g.w("bz_frames"), g.d("bz_nstep")
@@ -567,25 +609,27 @@ def vga_run(apps=None, src=None, art=None):
         f1, s1, fs = g.w("bz_frames"), g.d("bz_nstep"), g.b("bz_fs")
         m.run()
         sps, fps = (s1 - s0) / float(VGA_DEMO_SECS), ((f1 - f0) & 0xFFFF) / float(VGA_DEMO_SECS)
-        print("vga PLAYGROUND's demo: %.1f steps a guest second (at least %.1f), %.1f frames (REPORTED)" % (
+        print("vga TMIL's route: %.1f steps a guest second (at least %.1f), %.1f frames (REPORTED)" % (
             sps, VGA_STEPS_MIN, fps), flush=True)
         if not fs:
-            bad.append("vga PLAYGROUND's demo ended inside the %d s measured" % (VGA_DEMO_LEAD + VGA_DEMO_SECS))
+            bad.append("vga TMIL's route ended inside the %d s measured" % (VGA_DEMO_LEAD + VGA_DEMO_SECS))
         elif sps < VGA_STEPS_MIN:
-            bad.append("vga PLAYGROUND's demo: %.1f steps a guest second, at least %.1f - the game clock lost "
+            bad.append("vga TMIL's route: %.1f steps a guest second, at least %.1f - the game clock lost "
                        "time (SPEC.md 130.46.13)" % (sps, VGA_STEPS_MIN))
-        out.append(("VGA PLAYGROUND", bad, {"sps": sps, "fps": fps}))
+        out.append(("VGA TMIL", bad, {"sps": sps, "fps": fps}))
         g.key("Escape")
         M.until(m, lambda _: g.b("bz_fs") == 0, "the demo ends on Esc", guest=60)
     return out
 
 
 def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None, sounds=SOUNDS, old=False,
-        machine=None):
+        machine=None, gates=None):
     """-> [(label, failures, summary)].  Wave 3b's legs (SPEC.md 130.13.12,
     130.13.15; the module's docstring).  OLD: the A/B's other side, wave 3's
     build - BENCH ([bz_hvoff] 1) and MILL alone, no sound.  MACHINE: another
-    MartyPC machine of the card TAG (the AdLib arm's).  The VGA: vga_run."""
+    MartyPC machine of the card TAG (the AdLib arm's).  The VGA: vga_run.
+    GATES (phase 3): {leg: sounds} - each leg only in its sounds (the
+    registered row's GATES); None, every leg in every sound."""
     if tag == "vga":
         return [] if old else vga_run(apps, src, art)
     sym = R.symbols(src, art)
@@ -598,11 +642,13 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
         ui.settle()
         if old:                                 # (the A/B's BENCH and MILL are OFF; its demos as asked)
             sounds = tuple(sounds) if "demo" in legs else ("off",)
+        def want(leg, snd):
+            return leg in legs and (gates is None or snd in gates.get(leg, ()))
         for snd in sounds:
             on = snd == "on"
             set_snd(g, on)
             lab = " (sound %s)" % snd.upper()
-            if "bench" in legs and not (old and on):
+            if want("bench", snd) and not (old and on):
                 # OFF: THE A/B LEG, LIKE FOR LIKE - wave 3 has no sound, and both builds run [bz_hvoff] 1 (no
                 # heavy rule), engine against engine.  ON: the shipped camera, as played (REPORTED)
                 hv = 1 if not on else 0
@@ -615,43 +661,41 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
                 elif not old and summ["miss"]:
                     bad += phase_misses(tag, summ, ab_steps)
                 out.append(("BENCH " + snd, bad, summ))
-            if old:
-                if "mill" in legs and not on:
-                    fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["mill"], pokes={"bz_hvoff": 0})
-                    bad, summ = report("%s MILL (%s)" % (tag, AB_COMMIT[:8]), fr, pkg, refresh, npres)
-                    mill_line(tag, fr, pkg, summ, refresh, assert_lift=False, assert_wheel=False)
-                    out.append(("MILL off", bad, summ))
-                continue
-            if trial and "trial" in legs:
-                fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["trial"], pokes={"bz_hvoff": 0})
-                bad, summ = report("%s TRIAL (the shipped camera)%s" % (tag, lab), fr, pkg, refresh, npres)
+            if old:                             # (phase 3: the A/B is BENCH's alone - an old build has no TMIL,
+                continue                        # and its MILL leaves with the prototype courses)
+            if trial and want("trial", snd):
+                # (phase 3: TRIAL's assertion on BENCH, a test course with no prop and no slab: the shipped
+                # camera's frames there are bz_hvoff 1's exactly, SPEC.md 130.13.6)
+                fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["bench"], pokes={"bz_hvoff": 0})
+                bad, summ = report("%s BENCH (the shipped camera)%s" % (tag, lab), fr, pkg, refresh, npres)
                 heavy_line(tag, pkg, summ)
-                # TRIAL has no slab and no prop: its camera is bz_hvoff 1's exactly (SPEC.md 130.13.6)
                 if pkg.get("nhvy", 0):
-                    bad.append("%s TRIAL%s: bz_nhvy %d, 0 asserted - TRIAL has no slab, so no frame of it is "
-                               "heavy (SPEC.md 130.13.6)" % (tag, lab, pkg["nhvy"]))
-                print("  TRIAL's misses %d%s, against wave 2's 8 (CGA) / 2 (Hercules): REPORTED (130.13.6)" % (
-                    summ["miss"], lab), flush=True)
+                    bad.append("%s BENCH%s: bz_nhvy %d, 0 asserted - BENCH has no prop and no slab, so no frame of "
+                               "it is heavy (SPEC.md 130.13.6)" % (tag, lab, pkg["nhvy"]))
                 out.append(("TRIAL " + snd, bad, summ))
-                if not on:
+                if not on and gates is None:    # (a REPORT: the matrix's)
                     summ["camera"] = camera(g, tag)
-            if "mill" in legs:
-                ways = ((0, "this build"), (1, "this build, bz_hvoff 1")) if not on else ((0, "this build"),)
+            if want("mill", snd):
+                ways = ((0, "this build"), (1, "this build, bz_hvoff 1")) if not on and gates is None else \
+                    ((0, "this build"),)
+                stop = R.autopilot_keys(PERF_CRS)[1]
                 for hv, what in ways:
-                    fr, pkg, refresh, npres = measure(g, crs=R.CRS_K["mill"], pokes={"bz_hvoff": hv})
-                    bad, summ = report("%s MILL (%s)%s" % (tag, what, lab), fr, pkg, refresh, npres)
+                    fr, pkg, refresh, npres = measure(g, crs=R.CRS_K[PERF_CRS], pokes={"bz_hvoff": hv},
+                                                      stop_step=stop - PERF_STOP if stop else None)
+                    bad, summ = report("%s TMIL (%s)%s" % (tag, what, lab), fr, pkg, refresh, npres)
                     heavy_line(tag, pkg, summ)
                     bad += mill_line(tag, fr, pkg, summ, refresh, assert_lift=on and hv == 0)
                     idle_line(fr, refresh, summ)
                     out.append(("MILL %s%s" % (snd, "" if not hv else " hvoff"), bad, summ))
-            if "ride" in legs:
+            if want("ride", snd):
                 bad, summ = ride(g, tag, corner=False, on=on)
                 out.append(("ride " + snd, bad, summ))
-            if "corner" in legs:
+            if want("corner", snd):
                 bad, summ = ride(g, tag, corner=True, on=on)
                 out.append(("corner ride " + snd, bad, summ))
         if set(legs) & {"demo", "dover"}:
-            out += demo_legs(g, tag, legs, sounds, old, art)
+            out += demo_legs(g, tag, legs, tuple(x for x in sounds if gates is None or x in gates.get("demo", ())),
+                             old, art, shipped=gates is not None)
         if "fall" in legs and not old:          # wave 6b (SPEC.md 130.17.10): FIRST's fall-and-respawn replay
             bad, summ = fall_leg(g, tag)
             out.append(("fall", bad, summ))
@@ -710,29 +754,34 @@ def demo_leg(g, tag, kd, snd, old=False, art=None):
     return bad, summ
 
 
-def demo_legs(g, tag, legs, sounds, old=False, art=None):
+def demo_legs(g, tag, legs, sounds, old=False, art=None, shipped=False):
     """every shipped demo through D, sound OFF and ON, and D's overhead
     against R.  OLD: --ab's build, its own demos (its art's BZD*.BIN), no
-    overhead leg.  -> [(label, failures, summary)]"""
+    overhead leg.  SHIPPED (phase 3, the gates): the SHIPPED courses' demos
+    alone (ROLL's, HOP's).  -> [(label, failures, summary)]"""
     out = []
-    mill = R.CRS_K["mill"]
-    nd = len(R.CRS_K) - 1
     if old:
         nd = len([f for f in os.listdir(art) if re.match(r"BZD\d+\.BIN$", f)])
+        kds = list(range(1, nd + 1))
+    else:
+        names = {v: n for n, v in R.crs_all().items()}
+        kds = [k for k in R.demo_ks() if not shipped or names[k] in R.SHIPPED_CRS]
     if "demo" in legs:
         for snd in sounds:
-            for kd in range(1, nd + 1):
+            for kd in kds:
                 bad, summ = demo_leg(g, tag, kd, snd, old, art)
                 out.append(("D BZD%d %s" % (kd, snd), bad, summ))
     if old:
         return out
-    if "dover" in legs:
-        load_demo(g, mill)
+    if "dover" in legs:                         # (phase 3: TMIL's route, a log made from the model)
+        g.m.pause()
+        g.write_log(R.auto_log(PERF_CRS))
+        g.m.run()
         set_snd(g, False)
         frd, _pkg, _r, _n = measure(g, key="KeyD", frames_cap=DEMO_CAP)
         frr, _pkg, _r, _n = measure(g, key="KeyR", frames_cap=DEMO_CAP)
         bd, br = busy_of(frd), busy_of(frr)
-        print("\n%s D's OVERHEAD (SPEC.md 130.14.7.3, REPORTED): MILL's route demo through D busy %.0f clk (p95 %d) "
+        print("\n%s D's OVERHEAD (SPEC.md 130.14.7.3, REPORTED): TMIL's route log through D busy %.0f clk (p95 %d) "
               "and through R %.0f (p95 %d), under the same outside trace: %+.0f a frame" % (
                   tag.upper(), bd["mean"], bd["p95"], br["mean"], br["p95"], bd["mean"] - br["mean"]), flush=True)
         set_snd(g, True)
@@ -902,7 +951,7 @@ def ride(g, tag, corner=False, on=True):
     ASSERTED; with it ON, and the rest, REPORTED.
     -> (failures, summary)"""
     m = g.m
-    crs = R.course("mill")
+    crs = R.course(PERF_CRS)
     P_ = R.plat_rec(crs)
     a = addrs(g)
     pres = a.pop("bz_presented")
@@ -910,12 +959,12 @@ def ride(g, tag, corner=False, on=True):
     m.bp_exec(g.a("bz_launch"))
     g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
-    g.putb("bz_crs", R.CRS_K["mill"])
+    g.putb("bz_crs", R.CRS_K[PERF_CRS])
     g.putb("bz_hvoff", 0)
     g.putb("bz_tpoke", 1)                       # its boxes timed: bz_latechk counts bz_late (130.13.4.1)
     m.bp_exec(wk.t0)
     m.run()
-    assert m.wait_stop(60) == "breakpoint", "the MILL play did not reach bz_t0"
+    assert m.wait_stop(60) == "breakpoint", "the TMIL play did not reach bz_t0"
     n = g.d("bz_nstep")
     R.slab_ball(g, P_, n, 0, 0, True)
     if corner:                                  # toward the diamond's left corner: gx - d, gy + d
@@ -959,7 +1008,7 @@ def ride(g, tag, corner=False, on=True):
     what = "CORNER RIDE (the ball %d gu toward the slab's left corner)" % RIDE_CORNER if corner else \
         "RIDE (the ball on the slab's middle: the ride box)"
     lab = "sound %s" % ("ON" if on else "OFF")
-    print("\n%s %s, %s (MILL, %d steps, still carried at the end: %s): %d frames; the slab's line unchanged on %d, "
+    print("\n%s %s, %s (TMIL, %d steps, still carried at the end: %s): %d frames; the slab's line unchanged on %d, "
           "busy mean %.0f (%.0f%%) max %d; its line changed on %d (%d of them ONE box), busy mean %.0f (%.0f%%) p95 %d "
           "max %d (%.0f%%); misses %d%s; bz_late %d; GLIDE's rows withheld %d, the longest deferral %d frames" % (
               tag.upper(), what, lab, RIDE_STEPS, "yes" if onp else "NO", len(meas), s1["n"], s1["mean"],
@@ -1003,10 +1052,12 @@ R_REFRESH = {"cga": 79648.0, "herc": 93790.0}     # clocks, MartyPC's cards (wav
 def camera(g, tag):
     """the rows the camera pans over TRIAL's bounces: a log of the chord off
     H's lip from the start, replayed once (LATTICE: the one camera since
-    TRICKLE was deleted, SPEC.md 130.11.11.1).  Reported, not asserted (O9)."""
+    TRICKLE was deleted, SPEC.md 130.11.11.1).  Reported, not asserted (O9).
+    Phase 3: TPLY's start (19, 14) and its chord along +wy off H's lip (TRIAL
+    turned a quarter: SPEC.md 130.54, tply.bbc)."""
     m = g.m
-    keys = [0] * 4 + [BB.K_R | BB.K_D] * 260
-    log = R.make_log(keys, R.CRS_K["trial"], R.course("trial").ball)
+    keys = [0] * 4 + [BB.K_L | BB.K_D] * 260
+    log = R.make_log(keys, R.CRS_K["tply"], R.course("tply").ball)
     res = {}
     for name in ("GLIDE",):
         m.pause()
@@ -1022,7 +1073,7 @@ def camera(g, tag):
         nb = g.w("bz_nbnc")
         res[name] = (rows, nb)
         m.run()
-    print("  camera over TRIAL's flight (%d steps, replayed), the GROUND LINE's (SPEC.md 130.16.7): %s; wave 2's "
+    print("  camera over TPLY's flight off H's lip (%d steps, replayed), the GROUND LINE's (SPEC.md 130.16.7): %s; wave 2's "
           "%s (CGA) - REPORTED" % (len(keys), "; ".join(
               "%s %d rows panned over %d bounces (%.1f a bounce)" % (k, v[0], v[1], v[0] / float(v[1] or 1))
               for k, v in res.items()), ", ".join("%s %d" % kv for kv in W2_TRIAL_ROWS.items())), flush=True)
@@ -1320,11 +1371,7 @@ def w6_line(lab, tag, fr, refresh, demo, kd, pred=True):
     out = dict(sm, cols=cols, rows=rows, cols_s=cols / secs, rows_s=rows / secs,
                occ=(sum(occ) / len(occ)) if occ else 0.0, occ_frames=len(occ),
                ident=BB.log_ident(demo), steps=steps, crc=zlib.crc32(bytes(demo[16:])) & 0xFFFFFFFF)
-    mode = ""
-    if kd == R.CRS_K["mill"]:
-        out["mode"] = "%d columns" % cols
-        mode = ", MILL's camera panned %d columns (the host's prediction %d, bbcourse.py --pans)" % (
-            cols, pans_pred(demo, tag == "herc")[0])
+    mode = ""                                   # (MILL's camera-mode line left with the prototype courses)
     pr = ""
     if pred:
         pc, prw, ptwo, psec = pans_pred(demo, tag == "herc")
@@ -1374,24 +1421,30 @@ def w6_ab_print(tag, res, ores):
 
 
 # ---- WAVE 6B (SPEC.md 130.17.10, story 6b.7): FIRST's falls ----
-FALL_STEPS = 1100              # FIRST's autopilot steps the host lists falls over (B's 1,200 frames run ~1,090)
+FALL_STEPS = 1100              # the autopilot's steps the host lists falls over (B's 1,200 frames run ~1,090)
+FALL_CRS = "bench"             # phase 3: BENCH (no flag, no cup: its falls respawn at bz_safe - the plan's
+                               # TPLAY table: +wx from its start falls at step 210) - FIRST's leg, on a test course.
+                               # BENCH's AUTOPILOT never falls (B's play=False model, 1,100 steps: none), so the
+                               # loop is a key script made from the model and REPLAYED through R (AVFALL's form):
+FALL_SCRIPT = (("RD", 0, "RD"),) * 5    # +wx held off the start tier into the void, respawn, five times
 
 
 def fall_log(steps=None):
-    """FIRST's autopilot (a loop of falls and respawns, 130.17.6.6) as the
-    BENCHMARK runs it (B with bz_crs poked: the guest's autopilot, the
-    model's play=False, where the GOAL ends nothing - a replay through R
-    ends at the goal, and FIRST's autopilot crosses its goal on the way to
-    its first fall at step 154): the model's (take-off step, respawn step)
-    for every fall over STEPS steps.  -> ([(take-off, respawn)], steps)"""
-    c = R.course("first")
-    p = BB.Physics(c, play=False, mat=c.ball)
-    n = steps or FALL_STEPS
-    for _ in range(n):
-        p.step_auto()
+    """a loop of falls and respawns (130.17.6.6) - phase 3: FALL_SCRIPT on
+    FALL_CRS (BENCH), a key script made from the model (avfall_keys' form: the
+    lead, then the fall's key until the respawn, 30 idle steps) and replayed
+    through R; FIRST's autopilot, run by B, left with the prototype courses:
+    the model's (take-off step, respawn step) for every fall over its keys
+    (STEPS: at most).  -> ([(take-off, respawn)], steps, the keys)"""
+    c, keys = avfall_keys(FALL_CRS, FALL_SCRIPT)
+    keys = keys[:steps or FALL_STEPS]
+    p = BB.Physics(c, play=True, mat=c.ball)
+    for k in keys:
+        p.step(k)
+    n = len(keys)
     tk = [e[1] for e in p.events if e[0] == "takeoff"]
     falls = [(max([s for s in tk if s < r] or [0]), r) for r in [e[1] for e in p.events if e[0] == "respawn"]]
-    return falls, n
+    return falls, n, keys
 
 
 def fall_leg(g, tag):
@@ -1403,10 +1456,13 @@ def fall_leg(g, tag):
     last: the run's end) - its misses, missed refreshes and runs of two or
     more, REPORTED.  The frames' step counts are the guest's own, so the
     windows are the model's steps.  -> (failures, summary)"""
-    falls, _n = fall_log()
+    falls, _n, keys = fall_log()
     set_snd(g, True)
-    fr, _pkg, refresh, _np = measure(g, crs=R.CRS_K["first"], pokes={"bz_hvoff": 0})
-    lab = "%s FIRST's falls through B (FIRST's autopilot, sound ON)" % tag
+    g.m.pause()
+    g.write_log(R.make_log(keys, R.CRS_K[FALL_CRS], R.course(FALL_CRS).ball))
+    g.m.run()
+    fr, _pkg, refresh, _np = measure(g, key="KeyR", frames_cap=DEMO_CAP)
+    lab = "%s %s's falls through R (FALL_SCRIPT, a log made from the model, sound ON)" % (tag, FALL_CRS.upper())
     n = fr[-1]["n"] if fr else 0
     falls = [(a, r_) for a, r_ in falls if r_ < n]
     out = {"falls": []}
@@ -1434,8 +1490,9 @@ def fall_leg(g, tag):
 # falls off MILL's and PEAK's edges and PEAK's shipped demo, each REPLAYED through R (the log written into
 # bz_rlog: the same key bytes on every build, so frames pair up by their step count n).  A fall: from the
 # state the last one left (the start, or a respawn), LEAD held N steps, then FALL held until the respawn.
-AVFALL = {"mill": (("DR", 20, "DL"), ("U", 60, "D"), ("D", 60, "UL"), ("R", 120, "DL"), ("DL", 120, "DR")),
-          "peak": (("D", 60, "D"), ("DR", 20, "D"), ("R", 120, "D")),
+AVFALL = {# phase 3 (MILL's and PEAK's scripts left with the prototype courses): off TMIL's start tier A's edges (its start (9, 12): west, south and south-west into the
+          # void; no flag, so each respawns on bz_safe) - re-derived for the test course
+          "tmil": (("L", 0, "L"), ("D", 0, "D"), ("DL", 0, "DL")),
           # SPEC.md 130.49: ROLL's start platform's falls (BZROLL=1) - U and D through its diagonal corners (8, 8)
           # and (11, 11), L, R, UL and UR off its plain edges
           "roll": (("U", 0, "U"), ("D", 0, "D"), ("L", 0, "L"), ("R", 0, "R"), ("UL", 0, "UL"), ("UR", 0, "UR"))}
@@ -1449,12 +1506,12 @@ def _avkey(s):
     return k
 
 
-def avfall_keys(name):
-    """-> (the course, the key bytes): AVFALL[name]'s falls one after another, on the model"""
+def avfall_keys(name, script=None):
+    """-> (the course, the key bytes): AVFALL[name]'s falls (or SCRIPT's) one after another, on the model"""
     c = R.course(name)
     p = BB.Physics(c, play=True)
     keys = []
-    for lead, n, fall in AVFALL[name]:
+    for lead, n, fall in script or AVFALL[name]:
         for _ in range(n):
             p.step(_avkey(lead))
             keys.append(_avkey(lead))
@@ -1492,7 +1549,7 @@ def _art_ident(art, k):
     return struct.unpack_from("<H", ram, struct.unpack_from("<H", ram, 26)[0] + 18)[0]
 
 
-def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
+def avfall_leg(g, tag, art=None, runs=("tmil",)):
     """THE FALL FRAMES (SPEC.md 130.29.9, REPORTED): each run's log replayed through R, speaker OFF; per run the
     occluder pass's span on the VOID frames (the model's) and on the other frames whose gate opened.  ART: the
     build's art (its identities).  -> {run: {n: span}} over every frame the pass ran on, and the VOID set"""
@@ -1529,7 +1586,8 @@ def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
     set_snd(g, True)
     return out
 
-BASE_RUNS = {"mill": 6, "peak": 6}         # the re-baseline's runs a configuration (130.16.10); 3 for the rest
+BASE_RUNS = {}                             # the re-baseline's runs a configuration by course NAME (130.16.10: MILL
+                                           # and PEAK had 6, and left with the prototype courses); 3 for the rest
 BASE_DEFAULT = 3
 # THE PLAY FIGURES' PROPOSED BUDGET (BOUNCE-BONANZA-PLAN wave 10 T11; NOT YET ADOPTED, so a course over it is
 # FLAGGED in the table and never fails the run): missed refreshes per 1,000 steps through R, CGA speaker ON /
@@ -1598,7 +1656,7 @@ def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
                         cols = sum(1 for r in fr if r["column"])
                         runs.append({"busy": stats([r["busy"] for r in meas])["mean"], "misses": sm["misses"],
                                      "per_s": sm["per_s"], "runs2": sm["runs2"], "longest": sm["longest"],
-                                     "mode": "%d" % cols if name == "mill" else ""})
+                                     "mode": "%d" % cols})
                     rows.append((tag, snd, name, key, runs))
                     if kd is not None:          # the same demo through R: what a player gets (D measures, ~+4.7k clk a frame)
                         pr = []
@@ -1633,7 +1691,7 @@ def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
             f.write("| %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s |\n" % (
                 tag.upper(), snd.upper(), name.upper(), key, len(runs), sp("busy", "%.0f"), sp("misses", "%.1f"),
                 sp("per_s", "%.2f"), sp("runs2", "%.1f"), sp("longest", "%.1f"),
-                ", ".join(r["mode"] for r in runs) if name == "mill" else "-"))
+                ", ".join(r["mode"] for r in runs)))
         f.write("\n## PLAY: the same demos through R (a replay, a play's cost: nothing measured)\n\n"
                 "D above times 8 points a frame (~+4.7k clk a frame of measuring), so on the CGA it reads four "
                 "to six times what a player gets; R is the play figure.  Missed refreshes are each frame's "
@@ -1726,7 +1784,8 @@ def main():
     if a.check:
         for line in R.check_reds(REDS, "bonanza_perf"):
             print(line)
-        for kd in R.demo_ks():                  # wave 6: the pans' prediction for every shipped demo, both cards
+        names = {v: n for n, v in R.crs_all().items()}
+        for kd in [k for k in R.demo_ks() if names[k] in R.SHIPPED_CRS]:   # the pans' prediction, the shipped demos
             demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
             held = [k for k, _t in BB.decode_log_t(demo)[2] if k & (BB.K_HOP | BB.K_GRIP)]
             for herc in (0, 1):
@@ -1738,13 +1797,36 @@ def main():
                           kd, ("CGA", "Hercules")[herc], c / sec, rw / sec, c, rw, sec, two, c6 / s6, r6 / s6, t6,
                           "; its keys hold Space or Grip on %d steps" % len(held) if held else
                           "; its keys hold neither Space nor Grip (like for like across a physics change)"))
-        falls, n = fall_log()                  # wave 6b: the fall leg's falls, and the A/B's commit
-        print("bonanza_perf the fall leg: FIRST's autopilot as B runs it, %d falls (take-off, respawn) in %d steps: %s"
-              % (len(falls), n, falls))
-        assert len(falls) >= 4, "FIRST's autopilot falls %d times in %d steps: the fall leg needs a loop" % (
-            len(falls), n)
+        falls, n, _k = fall_log()              # wave 6b: the fall leg's falls, and the A/B's commit
+        print("bonanza_perf the fall leg: %s's FALL_SCRIPT replayed through R, %d falls (take-off, respawn) in %d steps: %s"
+              % (FALL_CRS.upper(), len(falls), n, falls))
+        assert len(falls) >= 4, "%s's FALL_SCRIPT falls %d times in %d steps: the fall leg needs a loop" % (
+            FALL_CRS.upper(), len(falls), n)
+        for run_ in AVFALL:                     # (the AV fall frames' scripts: each fall reaches its respawn)
+            c, keys = avfall_keys(run_)
+            p = BB.Physics(c, play=True)
+            for k in keys:
+                p.step(k)
+            nr = sum(1 for e in p.events if e[0] == "respawn")
+            print("bonanza_perf the AV fall frames on %s: %d steps, %d respawns of %d falls" % (
+                run_.upper(), len(keys), nr, len(AVFALL[run_])))
+            assert nr >= len(AVFALL[run_]), "AVFALL[%r]: %d of its %d falls respawn on the model" % (
+                run_, nr, len(AVFALL[run_]))
+        stop = R.autopilot_keys(PERF_CRS)[1]
+        print("bonanza_perf the TMIL leg: its autopilot route reaches the goal at step %s; the benchmark stops at %s"
+              % (stop, stop and stop - PERF_STOP))
+        assert stop, "TMIL's autopilot never reaches its goal: the mill leg's stop has no step"
         return
-    if a.baseline:
+    if a.baseline:                              # THE FULL MATRIX first (a REPORT, by hand), then the re-baseline
+        for tag in tags:
+            for label, bad, _ in run(tag, a.apps, a.src, a.art, legs=LEGS, sounds=SOUNDS):
+                for b in bad:
+                    print("  (the matrix, REPORTED) %s %s: %s" % (tag, label, b))
+            if tag == "cga":
+                for label, bad, _ in run(tag, a.apps, a.src, a.art, trial=False, sounds=("on",), machine=ADLIB,
+                                         legs=("mill", "ride")):
+                    for b in bad:
+                        print("  (AdLib, REPORTED) %s %s: %s" % (tag, label, b))
         baseline(tuple(t_ for t_ in tags if t_ != "vga"), [c.lower() for c in a.course] if a.course else None, a.runs, tuple(a.sound) if a.sound else SOUNDS)
         return
     if a.red:
@@ -1765,7 +1847,8 @@ def main():
                 print("bonanza_perf --red %s (%s): went red as it must" % (a.red, tag), flush=True)
         print("bonanza_perf --red %s: PASS (the row fails against the broken package)" % a.red)
         return
-    legs = tuple(a.leg) if a.leg else LEGS
+    gates = None if (a.leg or a.sound or a.ab) else GATES     # (phase 3: the registered row runs its gates)
+    legs = tuple(a.leg) if a.leg else tuple(GATES) if gates else LEGS
     allbad = []
     skip = None
     if a.ab:
@@ -1780,7 +1863,7 @@ def main():
         for tag in tags if legs else ():
             ores = None
             if ab:                                  # wave 3 first: its frames' step counts judge the A/B's misses
-                ores = run(tag, *ab, trial=False, legs=tuple(x for x in legs if x in ("bench", "mill", "demo")),
+                ores = run(tag, *ab, trial=False, legs=tuple(x for x in legs if x in ("bench", "demo")),
                            old=True)
                 for label, obad, _ in ores:
                     for b in obad:
@@ -1788,7 +1871,8 @@ def main():
                     allbad += ["%s: %s" % (a.ab, b) for b in obad]
             ob = [s for lab, _, s in ores or () if lab == "BENCH off"]
             res = run(tag, a.apps, a.src, a.art, trial=not a.no_trial, legs=legs,
-                      ab_steps=ob[0]["steps"] if ob else None, sounds=tuple(a.sound) if a.sound else SOUNDS)
+                      ab_steps=ob[0]["steps"] if ob else None, sounds=tuple(a.sound) if a.sound else SOUNDS,
+                      gates=gates)
             for label, bad, _ in res:
                 for b in bad:
                     print("FAIL %s %s: %s" % (tag, label, b))
@@ -1799,7 +1883,7 @@ def main():
                 for b in bad:
                     print("FAIL %s A/B: %s" % (tag, b))
                 allbad += bad
-            if tag == "cga" and not a.no_adlib and "on" in (a.sound or SOUNDS):
+            if tag == "cga" and not a.no_adlib and not gates and "on" in (a.sound or SOUNDS):
                 # THE ADLIB ARM (SPEC.md 130.13.15 item 2): S's AUTO on the 5150 with an AdLib plays the
                 # chip - MILL's lift stretch and the ride, REPORTED (nothing asserted)
                 print("\nCGA, THE ADLIB ARM (%s, the sound at AUTO): REPORTED" % ADLIB, flush=True)
