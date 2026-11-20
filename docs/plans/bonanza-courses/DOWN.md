@@ -5,6 +5,12 @@ written by `down/sketch.py --bbc --force`, on the `BZDOWN=1` playtest knob's pad
 (TRIAL's place). Every check passes and the route demo finishes (22.0 s, steel,
 no falls). Attempt 1's sections below are the pen-in, kept for its reasoning.*
 
+*Rev 6 (2026-11-20), **ON TRIAL**: the line from the ramp through the corner chute into the hump run is 3
+wide all the way - the ramp 3 wide (its left rail kept, the right side open as rev 5 made it, no flat foot:
+the chute's end taper is the foot) and `chute 3 round depth 8` (SPEC.md 130.28.4; the study is
+[CHUTE3.md](CHUTE3.md)). The owner playtests it and decides whether it stays; `CHUTE_W = 2` in
+`down/sketch.py` and a re-emit puts the 2-wide line back exactly.*
+
 ## The first build (2026-11-19): what the owner's notes and the tool changed
 
 The owner's notes on the pen-in:

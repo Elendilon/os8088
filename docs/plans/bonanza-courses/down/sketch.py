@@ -64,12 +64,17 @@ def ramp(sec, axis, x0, y0, x1, y1, z0, z1, float_=None):
 CHUTE = {}          # (wx, wy) -> the height function of the chute it is part of
 
 
-def chute(sec, ways, depth):
-    """a 2-wide shaped channel: its crease through the cell corners `ways`
-    [(x, y, lip z)], its bottom `depth` units under the lip on the crease,
-    rising as a parabola to the lip one tile either side"""
-    CHUTE_TXT.append("chute 2 round depth %d " % round(depth * 8)
+def chute(sec, ways, depth, wide=2):
+    """a shaped channel, WIDE cells across (SPEC.md 130.28.4): 2-wide, its crease
+    through the cell CORNERS `ways` [(x, y, lip z)]; 3-wide, through the CELLS
+    `ways` (their centres), each inner way the middle of a 3 x 3 corner block.
+    Its bottom `depth` units under the lip on the crease, rising as a parabola
+    to the lip at its sides (one tile either side of a 2-wide crease, a tile
+    and a half of a 3-wide's)"""
+    CHUTE_TXT.append("chute %d round depth %d " % (wide, round(depth * 8))
                      + " ".join("way %d %d %g" % (x + OFF, y + OFF, z) for x, y, z in ways))
+    if wide == 3:
+        return _chute3(sec, ways, depth)
     segs, L = [], 0.0
     for (ax, ay, az), (bx, by, bz) in zip(ways, ways[1:]):
         n = abs(bx - ax) + abs(by - ay)
@@ -98,6 +103,37 @@ def chute(sec, ways, depth):
                 CHUTE[(x, y)] = h
 
 
+def _chute3(sec, ways, depth):
+    """chute()'s 3-wide arm: the crease through the ways' cell centres"""
+    cs = [(x + 0.5, y + 0.5, z) for x, y, z in ways]
+
+    def near(px, py):
+        best = None
+        for (ax, ay, az), (bx, by, bz) in zip(cs, cs[1:]):
+            n = abs(bx - ax) + abs(by - ay)
+            t = max(0.0, min(1.0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / (n * n)))
+            qx, qy = ax + (bx - ax) * t, ay + (by - ay) * t
+            dd = ((px - qx) ** 2 + (py - qy) ** 2) ** 0.5
+            if best is None or dd < best[0]:
+                best = (dd, az + (bz - az) * t)
+        return best
+
+    def h(px, py):
+        dd, lip = near(px, py)
+        return lip - depth * (1 - min(dd / 1.5, 1.0) ** 2)
+    cells = set()
+    for (ax, ay, _a), (bx, by, _b) in zip(ways, ways[1:]):      # each leg, way to way, 3 across
+        for x in range(min(ax, bx) - (ax == bx), max(ax, bx) + 1 + (ax == bx)):
+            for y in range(min(ay, by) - (ay == by), max(ay, by) + 1 + (ay == by)):
+                cells.add((x, y))
+    for x, y, _z in ways[1:-1]:                                 # each corner: the 3 x 3 block round its way
+        cells.update((x + a, y + b) for a in (-1, 0, 1) for b in (-1, 0, 1))
+    for (x, y) in cells:
+        CELLS[(x, y)] = (h(x, y), h(x + 1, y), h(x + 1, y + 1), h(x, y + 1))
+        SECTION[(x, y)] = sec
+        CHUTE[(x, y)] = h
+
+
 def rail(x0, y0, x1, y1, style="block"):
     """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 130.35), the
     style a choice per rail (the course guide's G24); either takes the tile on the void side of the edge"""
@@ -119,10 +155,18 @@ def mark(x, y, kind, text=""):
 # 1. SPEED -------------------------------------------------------------------
 floor("A", 4, 4, 5, 5, Z)                                    # the start: ONE tile, guard rails round it
 rail(4, 4, 5, 4, "guard"); rail(4, 4, 4, 5); rail(5, 4, 5, 5)   # (rev 4: the start tile keeps all three - a start must be SAFE)
-ramp("R", "y", 4, 5, 5, 10, Z, Z - 10)                       # a STEEP ramp, 2 units a tile (the most), railed
-floor("R", 4, 10, 5, 11, Z - 10)                             # its foot, flat, into the corner chute
-rail(4, 5, 4, 11)                                            # (rev 5: the LEFT rail kept, the right one gone - it hid the ball at the spawn and down the ramp)
-chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
+# rev 6 (the owner, ON TRIAL): the line from the ramp through the corner chute into the hump run 3 wide all the
+# way (docs/plans/bonanza-courses/CHUTE3.md).  CHUTE_W = 2 restores rev 5's 2-wide line, byte for byte
+CHUTE_W = 3
+if CHUTE_W == 2:
+    ramp("R", "y", 4, 5, 5, 10, Z, Z - 10)                   # a STEEP ramp, 2 units a tile (the most), railed
+    floor("R", 4, 10, 5, 11, Z - 10)                         # its foot, flat, into the corner chute
+    rail(4, 5, 4, 11)                                        # (rev 5: the LEFT rail kept, the right one gone - it hid the ball at the spawn and down the ramp)
+    chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
+else:
+    ramp("R", "y", 3, 5, 6, 10, Z, Z - 10)                   # the STEEP ramp, 3 wide (no flat foot: the chute's
+    rail(3, 5, 3, 10)                                        #   end taper is the foot); its LEFT rail, the right open (rev 5)
+    chute("C", [(4, 10, Z - 10), (4, 12, Z - 10), (7, 12, Z - 11)], 1.0, wide=3)   # the CORNER, 3 x 3, turns it +x
 floor("H", 8, 11, 18, 14, Z - 11)                            # the HUMP RUN, now 3 wide (rev 2), unguarded, along +x
 for hx in (12, 16):                                          # two humps, 2 long x 3 wide (clear of the corner)
     for x in range(hx, hx + 2):

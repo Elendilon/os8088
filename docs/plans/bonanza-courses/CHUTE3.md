@@ -1,5 +1,15 @@
 # CHUTE3: what 3-wide chutes cost (a costed study, 2026-11-20)
 
+*Status (later the same day): **TAKEN, ON TRIAL.** The owner: "Have an agent do the tool work. After I test
+it we'll decide if it stays, or if we go back to 2." Section 5's items 1, 2 and 4 are done: `chute 3` is in
+SPEC.md 130.28.3 / 130.28.4 marked on trial, the leg-length refusals name which leg and its minimum,
+`--selfcheck`'s `splitphys` section carries the CHUT3 course (8 orientations, 10 tables), the short-leg
+refusals, the 15 / 13 px ring, three FIELD runs and two SEAM-rule red arms, and DOWN's sketch lays the line
+3 wide (`CHUTE_W = 3` in [down/sketch.py](down/sketch.py); `CHUTE_W = 2` re-emits the 2-wide down.bbc byte
+for byte). Item 3, the autopilot, is not this work. The new start is
+[chute3/down-start-cga.png](chute3/down-start-cga.png) (the tool's CGA preview) and
+[chute3/down-start-2v3.png](chute3/down-start-2v3.png) (the sketch, 2-wide against 3-wide). The study below is kept as it was written.*
+
 The owner, designing course 3 (DOWN, [DOWN.md](DOWN.md)): the line from the start ramp through the
 corner chute into the 3-wide hump run should be 3 wide all the way, and `chute 2 round` is only 2 wide.
 *"Why are shapes limited to 2 wide? ... lets set an agent on what 3-wide chutes would cost and defer

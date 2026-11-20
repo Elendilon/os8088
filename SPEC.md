@@ -278728,28 +278728,31 @@ reads it the same way.
 
 #### 130.28.3 The text course
 
-    chute <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> [<z>] ...
+    chute <1|2|3> <round|bank> depth <px> way <x> <y> <z> way <x> <y> [<z>] ...
     pit   <x> <y> <z> radius <r> depth <px> [hole <h>]
     fshow
 
-- **`chute`**: a channel 1 or 2 cells wide, its cross-section `round`
+- **`chute`**: a channel 1, 2 or 3 cells wide, its cross-section `round`
   (curved throughout) or `bank` (a flat bottom between banks that ease into
   the lip), `depth` px from its LIP to its bottom. The `way`s are points ON
-  ITS CREASE: for a 1-wide chute the CELLS its crease runs through the
-  centre of; for a 2-wide chute the cell CORNERS its crease (a cell edge)
-  runs through. Consecutive ways differ in one coordinate only (an
+  ITS CREASE: for a 1-wide or a 3-wide chute the CELLS its crease runs
+  through the centre of; for a 2-wide chute the cell CORNERS its crease (a
+  cell edge) runs through. Consecutive ways differ in one coordinate only (an
   axis-aligned leg); every inner way is a 90-degree corner, which the tool
   lays RADIAL; the first and last ways are the chute's ends, each laid as a
   TAPER (the channel rising to its lip over one cell). `<z>` is the lip's
   height in units (130.10.3's heights); a later way's, when given, makes the
   leg before it a SLOPE, which must be a whole number of half units a tile
   over the leg's straight cells (corners and tapers are level).
-  **`chute 3` is a PROTOTYPE, not this contract** (the owner deferred it,
-  2026-11-20): the tool accepts it on the study's branch to price it -
-  ways are cells as for 1-wide, a corner is the 3 x 3 cells round its way,
-  an end the way's row of 3. Its costs and what finishing it takes are
-  [docs/plans/bonanza-courses/CHUTE3.md](docs/plans/bonanza-courses/CHUTE3.md);
-  no course uses it.
+  **`chute 3` is ON TRIAL** (the owner, 2026-11-20: *"After I test it we'll
+  decide if it stays, or if we go back to 2"*): it is this contract, laid by
+  the tool and checked by `--selfcheck`, and DOWN (course 3) is the one
+  course that uses it, for its start line; the owner's playtest decides
+  whether it stays. Going back is the tool's 3-wide arm and these lines out,
+  and DOWN's sketch at `CHUTE_W = 2`. No guest byte knows a chute's width
+  (a FIELD cell names a table, 130.28.2), so neither way moves the guest.
+  The study that priced it is
+  [docs/plans/bonanza-courses/CHUTE3.md](docs/plans/bonanza-courses/CHUTE3.md).
 - **`pit`**: a bowl centred on the cell corner `(x, y)`, `radius` `r` cells
   (2 - 4), its lip at `<z>` and its bottom `depth` px below, round a HOLE:
   the central `2h x 2h` cells (`h` 1 if left out, 0 for none) are VOID, so a
@@ -278785,7 +278788,7 @@ table its heights less `16 z0`) and finds, for each, a stored table and a
 symmetry that reproduce it exactly, adding a table when none does.
 
 - **The cross-section** `p(c)`, `c` the distance from the crease in ground
-  units, `W` the half width (8 a 1-wide chute, 16 a 2-wide), `D` the depth in
+  units, `W` the half width (8 a 1-wide chute, 16 a 2-wide, 24 a 3-wide), `D` the depth in
   quarter px, `p(0) = 0`, `p(W) = D`. BUILT (C2, `bbcourse.fprofile`): a
   quadratic from `c0` to `c1 = W / 2`, then a STRAIGHT bank at the slope `s`
   the curve reached, to the lip - `round` with `c0 = 0`, `bank` with a flat
@@ -278797,7 +278800,9 @@ symmetry that reproduce it exactly, adding a table when none does.
   half up is not symmetric under a mirror, so a depth is accepted by
   orientation; the deepest every orientation of a corner accepts (MEASURED,
   a ring of four corners each way): **2-wide `round` 10 px, `bank` 8 px;
-  1-wide `round` 5 px, `bank` 4 px**.
+  1-wide `round` 5 px, `bank` 4 px; 3-wide (on trial) `round` 15 px, `bank`
+  13 px** - the bound scales with the width, so a wider chute takes a deeper
+  corner.
 - **A straight** cell: the depth below the lip `D - p(c)` across the leg,
   the leg's slope along it.
 - **A taper** (an end): over the end cell the depth falls linearly to 0 at
@@ -278806,8 +278811,17 @@ symmetry that reproduce it exactly, adding a table when none does.
   round the cell corner on the inside of the turn (`c = abs(r - 8)`, `r` the
   distance from that point); a 2-wide chute's is the 2 x 2 cells round its
   way's corner point, swept round the far corner of that block on the
-  inside of the turn (`c = abs(r - 16)`). Where `c > W` (the outer corner of
-  the block) the floor is the lip.
+  inside of the turn (`c = abs(r - 16)`); a 3-wide chute's (on trial) is
+  the 3 x 3 cells round its way's cell, swept round the far corner of that
+  block on the inside of the turn (`c = abs(r - 24)`) - an odd width is the
+  1-wide's geometry scaled up, an even one the 2-wide's. Where `c > W` (the
+  outer corner of the block) the floor is the lip.
+- **The 3-wide pieces** (on trial): a straight is the leg's row of 3 cells
+  across the crease; a taper is the end way's own row of 3. One standard
+  profile and depth is **10 tables** (straight 2 - centre and side - taper
+  2, corner 6: 3 on the block's diagonal and 3 mirrored pairs), against the
+  2-wide's 5 and the 1-wide's 3, out of a course's 32 (130.28.2); each sloped
+  leg adds 2 for each distinct rate.
 - **A pit**: `lip - P(r)`, `r` the distance from its centre, `P` the depth
   `D` at the hole's edge (`r = 16 h`) falling to 0 at `r = 16 radius`. BUILT
   (C2, `bbcourse.pit_profile`): `P = D (1 - x^2)`, `x = (r - 16 h) / (16
@@ -278831,7 +278845,20 @@ symmetry that reproduce it exactly, adding a table when none does.
   cells between them (the ways' own cells are the corners or the end
   tapers), so `n >= 1`; a 2-wide leg between crease points `n` apart has `n
   - 2` straight cell pairs (a corner's block reaches one cell either side of
-  its point, an end's taper is the one pair after it), so `n >= 2`.
+  its point, an end's taper is the one pair after it), so `n >= 2`; a
+  3-wide leg (on trial) between ways `n` cells apart has `n - 1 - k` straight
+  rows, `k` the corners at its ends (a corner's 3 x 3 block reaches one cell
+  into each of its legs, as a 2-wide's does, but an end's taper is the way's
+  own row, as a 1-wide's is): **end to end `n >= 1`, end to corner `n >= 2`,
+  corner to corner `n >= 3`**. A shorter leg is refused naming which of the
+  three it is and its minimum.
+- **The 3-wide STANDARD depth** (on trial): 8 px `round`, not the 15 px the
+  slope bound allows. What binds first is the occluder cap (130.11.4.2) over
+  a tall drop: on DOWN's corner, 8 px gives at most 3 records a block, 10 px
+  4 (the bound) and 12 px is refused (MEASURED, CHUTE3.md), so 10 px is
+  DOWN's ceiling. A 3-wide `round` 8 px chute is not in the kit (130.37):
+  its 10 tables cost a course about 950 bytes of `F`, LZB, until a pool
+  course's use re-cuts the kit.
 
 #### 130.28.5 Physics (binding once built: the guest and `bbcourse.Physics` do exactly this)
 
@@ -278901,6 +278928,19 @@ stand as checks are `--selfcheck`'s FIELD runs and `tests/bonanza_dfield.py`):
 | 2-wide `bank` 8 px | turns at 384 | turns at 150 - 384 |
 | 1-wide `round` 5 px | turns at 340; at 384 rolls OUT over the outer lip | turns at 150 - 340; 384 OUT |
 | 1-wide `bank` 4 px | 384 OUT | turns at 150 - 300; 340 and 384 OUT |
+| 3-wide `round` 8 - 15 px, `bank` 8 - 13 px (on trial; CHUTE3.md) | comes round and stops by drag in the outgoing leg's start; none leaves over the lip | turns at every entry speed 150 - 384 |
+
+A 3-wide chute's checks (on trial) are `--selfcheck`'s CHUT3 course - two
+mirrored `round` 8 px chutes of four corners each, all eight orientations,
+10 tables - with the leg-length refusals and the shortest legs accepted,
+the deepest-depth ring (15 / 13 px taken, one more refused), FIELD runs
+(the corner carried round at 250 rubber and 384 steel with the turn held,
+which fail with the arrows let go; a ball at rest within 7 units of the
+crease, no dither, from a cross speed of 300) and two red arms the SEAM
+rule refuses (a corner's radial centre at 16, the 2-wide's; a taper's run
+laid a row in). The autopilot's exit from a 3-wide taper after a slow
+corner stalls on CHUTE3.md's scratch course; DOWN's route crosses its taper
+with the ramp's speed.
 
 So the 2-wide carries a ball that is steered round at anything up to the
 speed cap, and the 1-wide throws it out at the top of the range - the
