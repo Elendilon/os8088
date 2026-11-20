@@ -262884,6 +262884,62 @@ foot and waits for the slab (course 3, DOWN's steel leg, rev 11).
   whose low dock the ball cannot stop on (a slope, a 1-cell dock reached at
   speed) needs a way placed before it.
 
+###### 130.14.7.4.4 The AIM: a flag the arrows roll past
+
+*(2026-11-20.)* 130.14.18 item 9 holds a route to touching every flag, and
+130.6's arrows aim at the next `way` only: where the ball drifts off a turn
+or flies down steps it can take the way by 130.6's reach test while passing
+a flag one cell off, touching nothing. FIRST ROLL's route did exactly that
+until its `way 36 39` became `way 35 39`. The owner's rule: the courses are
+for humans - a flag, a floor or a wall is never moved to suit the
+autopilot; a `way` line is the autopilot's own and may be moved, and the
+autopilot may get smarter. This is the second half: the search steers
+through a flag on its own, so a route no longer depends on its ways
+happening to pass over each flag's cell.
+
+- **When**: the route demo's arrows (or `route_plan`'s first two passes)
+  reach the goal having touched fewer flags than the course has. Then a
+  FLAG PASS searches again - the first pass's tries, then (finding none) the
+  second's - with two changes: the goal is taken only with every flag
+  touched (a goal that skipped one is a dead end, and the search backs up),
+  and each leg's tries begin with its AIMS.
+- **An AIM** (`_plan_aims`): for each flag not yet touched whose cell the
+  leg's arrows pass within `PLAN_FLAG_NEAR` (3) cells of (Chebyshev, the
+  ball's ground cell on any step of the arrows' run of the leg), nearest
+  pass first, the leg again with the arrows aimed at the flag's cell: the
+  route is cut to END at the flag's way point, so 130.6's reach test cannot
+  pass it and its arrows slow the ball onto it; the moment the flag is
+  touched the route is whole again and 130.6's arrows go on to the leg's
+  way. The try succeeds by the leg's usual tests AND the flag touched. The
+  keys are 130.6's arrows throughout (the guest's `bz_auto` and the log
+  format do not change; the tool only chooses where they aim).
+- **What does not move**: a course whose arrows touch every flag is never
+  searched (its route demo is the arrows' keys, `hopplan`'s item 4); a
+  course with no route at all is not searched again (no time is added to
+  GATE's, BENCH's, TILT's or RAILS's search); a route the first passes find
+  touching every flag is kept byte for byte; and a flag pass that finds
+  nothing leaves the route it had. The LIMIT's route (130.18.3, and so the
+  medals) stays the arrows' when they finish: a flag is a respawn point,
+  not a gate, and the player is not made to touch one. Measured: every
+  shipped, `BZDOWN=1` and `BZDEV=1` part and `bzcourse.inc` byte-identical
+  to the tool before it (no shipped route skips a flag today). On FIRST
+  ROLL as it was before `way 35 39` (`way 36 39`): the arrows reach the goal
+  in 1,707 steps touching 1 flag of 2; the flag pass's route demo is 1,809
+  steps, COMPLETE, both flags, 0 falls, 0 returns, about 10 s of search.
+- **Item 8** (130.14.18 item 9) replays the flag pass's route for a course
+  whose arrows skip a flag, as it replays the hopping route for a `trap
+  hop` course, and holds it to the same goal, no fall and every flag.
+- **`--selfcheck`'s `hopplan`, item 6**: `_FLAGSIDE`, a flat floor, two
+  ways on a straight line and a flag two cells off it - 130.6's arrows reach
+  the goal touching no flag; the route demo reaches it touching the flag,
+  with no fall and no return; RED ARM: `_NOFLAG` (the flag pass off, the
+  arrows' route accepted as before) touches none.
+- **Not handled**: an aim starts at the leg's first step (no aim from a
+  later step, no aim with a Hop, a hold or a wait in the same try); a flag
+  more than `PLAN_FLAG_NEAR` cells from every leg's arrows is not aimed at;
+  and a flag the ball can reach only from a leg it is not near is left to
+  the course's ways.
+
 ##### 130.14.7.5 The association, and the double-click's path
 
 The header gains `OS88_ASSOC16` with `OS88_ASSOC_EXT 'BZR'` and a document
