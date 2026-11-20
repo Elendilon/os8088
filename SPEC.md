@@ -266423,9 +266423,12 @@ format.
 | +16 | 16 bytes of the kind's own (130.12.6) |
 
 **After the grid** the part carries, in this order, the records (`NPROP x
-32`), the pose maps, the tube SEGMENTS (130.12.6.1) and the platform SPRITES
-(130.12.6.4). All of it is the CGA's; the Hercules translation touches only
-the blocks (which include every pose's) and the sprites' frame halves.
+32`), the pose maps, the tube SEGMENTS (130.12.6.1) and the platform SPRITE
+(130.12.6.4): ONE, every lift's record's +22 naming it (130.12.4.7: it is the
+same 576 bytes for every lift), laid once whatever the lifts. All of it is
+the CGA's; the Hercules translation touches only the blocks (which include
+every pose's) and the sprite's frame halves - once (`bz_hxlat`, and the VGA
+arm's `bzv_conv`, stop at the first lift).
 
 ##### 130.12.3.2 The grid: `OBS`, and the window's list
 
@@ -266808,7 +266811,8 @@ of it that rises above the slab's top there (130.12.6.4).
 | rotor pose changes among the lanes meeting any window | **at most 2 on one step, and 2 in any two consecutive steps** | a frame of up to two steps then needs at most two rotor commits, which the CGA's wait holds at `MILL`'s mean busy (130.12.11); the seeds give it, the tool checks it (130.12.3.4) |
 | lanes in the walk's range (130.12.5.2: a window's block rows, two either side, the full width) | 8 | the walk's cost a frame |
 | a lift's shaft and a WINDMILL's rotor in one window | **never** | a must-draw rotor and the platform's box are the two contact groups that cannot wait (130.12.4.3) |
-| lifts in a COURSE | **1** | likewise in a window; and the guest tracks ONE lift (`bz_pidx`, `bz_pline`, its sprite and columns: the review, 130.12.17), so a second, in another window, would be a bare shaft on the glass that physics still carries a ball through |
+| lifts in a COURSE | **`BZ_LIFTMAX`, 2** (`bbcourse.LIFT_MAX`) | the guest's lift table (`bz_plt`, 10 bytes a lift: 130.12.4.7) |
+| two lifts' TRACKS (the slab over its whole rise) in one window WIDENED by the walk's margins - the range's lines (two block rows above, three below) and `BZ_LCM` (2) word columns either side - on either card, at any position | **never** | the guest tracks ONE lift, the one whose track meets that widened window (130.12.4.7): so none is handed over while another is on the card, and the plain one-a-window bound (O24) follows from it |
 | a lane meeting the lift's sprite at any height of its rise | never | a commit would erase the platform |
 | a lift's `v` | at most 192 (0.75 lines a step), a multiple of 64 | its drawn and true footprints stay one box at `BZ_STEPS` (18 + 6 lines) |
 | a windmill's doorway | IN and every FLOOR cell of IN's 3 x 3 with `OCC` and `OCCG` clear | a must-draw rotor's frame never runs the occluder pass |
@@ -266817,6 +266821,80 @@ of it that rises above the slab's top there (130.12.6.4).
 Several lanes meeting the ball's boxes on one frame is NOT refused (a bumper
 CLUSTER, which is what a pinball bumper green is): one is the contact, the
 others wait (130.12.5.2).
+
+##### 130.12.4.7 Two lifts: the TRACKED one (the owner, 2026-11-20)
+
+*"How many lifts can we have on a stage? ... Lifts were one of the first
+things in the game; they can be reworked to new standards if that makes it
+easier."* The study is docs/plans/bonanza-courses/LIFT2.md. Physics was
+never the limit: every physics routine finds a lift by its RECORD
+(`bz_ppos` keyed by the record's offset, `bz_carry` by `bz_onp`, the floor
+and `bz_slabon` by the shaft cell's owner), so any number of lifts are
+ridden, carried and fallen through. Only the DISPLAY holds one lift: its
+record's numbers cached (`bz_pidx`, `bz_pspr`, `bz_php`, `bz_psa`, `bz_pox`,
+`bz_poy`, `bz_pyt`, `bz_pyb`; `bz_pcache`'s clock bytes, `v`, `PMAX`, the
+high top's line and the column bounds) and its slab on the card (`bz_pline`,
+`bz_ptru`, `bz_pin`, `bz_pov`, `bz_pflag`'s slab bits). So a course has up
+to `BZ_LIFTMAX` (2) lifts, and the display TRACKS one of them:
+
+- **The tracked lift is the window's.** It is the first lift whose TRACK -
+  its slab over its whole rise, lines `[pyt, pyb)`, word columns
+  `[pxlo, pxhi]` - meets the shown window WIDENED as the walk widens it for
+  lanes: the range's lines `[8 ra, 8 rb)` (130.12.5.2) and the column band
+  `[c0 - BZ_LCM, c0 + W + BZ_LCM)` (130.18.2). None meeting it, the tracked
+  one stands. The tool refuses two tracks in one widened window
+  (130.12.4.6), and the camera moves at most a column and the range's rows a
+  frame without a full write, so a lift is tracked at least a frame before
+  any of it can be shown, and the lift it was handed from is then neither
+  shown nor on the card: its display state was n's alone (`.pout`,
+  130.12.15 item 3), and nothing of it is kept.
+- **`bz_psel`** makes the choice: from `bz_props`'s `.plat`, every frame, on
+  a course with two lifts (one compare on a course with one), and from
+  `bz_pfull`, so a full write - the launch's first frame, a respawn, a
+  tube, a paged camera - lands on the right lift before the calibration's
+  corner test reads it. It walks the LIFT TABLE `bz_plt` (`BZ_PLTE`, 10
+  bytes a lift: the record, a pad, the track's four words), filled by
+  `bz_pread` as it reads each lift. A HAND-OVER loads the lift's numbers
+  (`bz_pload`, the cache `bz_pread` made inline before, now a routine
+  falling into `bz_pcache`), puts its slab off the card (`bz_pline` 8000h)
+  and in the range (`bz_pin` 1: its track meets the range's lines, which is
+  how it was chosen); `.plat` then takes it as any lift arriving: its true
+  line followed in RAM until a strip or its box draws it. A BZDEV build
+  counts hand-overs in `bz_nphand`.
+- **Independent phases.** A lift's height is a function of `n` and its own
+  seed (`bz_ppos`, `bbcourse.plat_pos`), so every lift moves all the time;
+  the tool's default seeds put two lifts half a period apart. On re-entry
+  the player sees a lift where its clock has it, as one lift leaving the
+  window and coming back always has.
+- **ONE sprite.** The slab's sprite is the same 576 bytes for every lift, so
+  the part holds it once and every lift's record names it (130.12.3.1); the
+  Hercules and VGA conversions translate it once.
+- **Cost (MEASURED, `nasm` spans, against the tree before):** `bz_psel` 108
+  bytes; `bz_pread` 462 -> 404 and `bz_pload` 99 (the inline cache moved
+  out, and the table's fill in: +41 together); `bz_pfull` 55 -> 62;
+  `bz_props`'s `.plat` .. `.choose` 106 -> 117; `bz_hxlat` +2; `bzv_conv`
+  +2 (the VGA part): `bonanza.bin` 50,954 -> 51,123 (+169), bss +22
+  (`bz_plt` 20, `bz_plp` 2; a BZDEV build's `bz_nphand` 2 more). Package
+  bytes, not kernel bytes; no kern_mega arm (package code and bss in its
+  own segment, the course read through `bz_cseg` as before). A second lift
+  costs a course its 32-byte record and no sprite.
+- **Per frame (PREDICTED):** on a two-lift course `bz_psel` is about 25
+  instructions and four memory compares a table entry, about 400 clk; on a
+  one-lift course `.plat` pays a compare and a branch, about 25. A
+  hand-over (`bz_pload` with `bz_pcache`'s `div`) is about 1.5k clk, once a
+  crossing, on a frame whose new lift is by construction not shown: no box,
+  no wheel candidate and no `bz_heavy` input is added, and the four-box
+  frame is the one-lift course's.
+- **The host model** (`bbcourse.Heavy.track`) makes the same choice frame by
+  frame, so its route statistics stay the guest's.
+- **Checked** by the selfcheck's `lift2` section on TLFT (130.54.7), each
+  item with a red arm: the one sprite (a second lift pointed past it is
+  refused by the part reader); the route riding both lifts; on both cards
+  the hand-overs and no frame showing an UNTRACKED lift's track (red arm
+  `lift2track`, no hand-over: the first lift's bare shaft on hundreds of
+  frames); the widened bound (a lift moved into a widened window but no
+  plain one is refused; red arm `lift2wide` accepts it); a third lift
+  refused.
 
 #### 130.12.5 The wheel, adapted from TITHE
 
@@ -268267,7 +268345,7 @@ guest code only, no row run; the rows are the final pass's.
 | W7 (cost): `bz_owner`'s scan per record | real, repriced | the cell's `(wx, wy)` compared as one word; about 50 raw a record, written into 130.12.11's row (a per-cell owner byte was not taken: the scan's worst is a refill step's) | 130.12.11 |
 | P1 (physics): the identity misses an exchange of words | real | Fletcher's pair; `--selfcheck` item 1's negative control is `MILL` with its seeds swapped | 130.12.8 |
 | P2 (physics): `bz_pkick`'s comment describes the step-counted lit time | real | reworded: the lit time is the display's | `bzphys.inc` |
-| m1 (OS): two lifts compile, the guest tracks one | real | the tool refuses a second lift in a course | 130.12.4.6 |
+| m1 (OS): two lifts compile, the guest tracks one | real | the tool refuses a second lift in a course; **closed by a design (2026-11-20)**: two lifts a course, the TRACKED one the window's (130.12.4.7) | 130.12.4.6, 130.12.4.7 |
 | m2 (OS): `bonanzamega`'s ride poke may straddle the spin's end | real (harness) | every write is checked to have landed inside the spin; a miss is a harness miss, retried once | `tests/bonanza_mega.py` |
 | m3 (OS): `bonanzaexit`'s `tubeesc` never shows the ball hidden at the Esc | real (harness) | the Esc is judged at `bz_exitchk`'s leave, `bz_tube` read there | `tests/bonanza_exit.py` |
 | m4 (OS): `bonanzacourse`'s `secs` predicted | real | measured, 79 | 130.12.13.2 |
@@ -294944,3 +295022,27 @@ already run:
 - **Not yet** (phase 3 of docs/plans/BOUNCE-BONANZA-SOAK.md): bonanzapath's
   legs still carry the shipped map's wording, and its SECRET leg still builds
   its private tree; the plan maps each leg onto the route above.
+
+#### 130.54.7 TLFT, "two lifts" (BUILT 2026-11-20)
+
+**TLFT** (`apps/bonanza/courses/tlft.bbc`, "Two Lifts", rubber) is
+130.12.4.7's home: two lifts, each its own window's, and a route the
+autopilot rolls across both. Lift 1 (12, 6), `L` 2, between the start tier A
+(14) and the strip B (12), in the start window on both cards; B's ramp down
+along `+y`, a corner and a ramp down along `+x`, so the camera scrolls down
+the whole way and the tracked lift is HANDED OVER on the descent; lift 2
+(31, 21), `L` 2, between D (2) and the goal tier E (0). Walls stop the
+bounce off lift 1 and the corner's overshoot. The two tracks are 334 lines
+apart (the widened window needs about 240); the default seeds put the lifts half a
+period apart (0 and 128). Width 128 (origin 400): the descent swings
+`wx - wy` from -9 to 17, and its reach with it.
+
+**MEASURED**: the autopilot reaches the goal in 565 steps (10.3 s), no fall,
+on lift 1's slab at step 62 (a bounce: rolled off A into the shaft) and
+carried by lift 2's from step 539 to 553; the host model hands over twice
+on each card (to lift 1 at the launch's full write - `bz_pread` leaves the
+last lift tracked - and to lift 2 on the descent: CGA 621 frames, the
+Hercules 526) with no frame showing an untracked lift. The part holds one
+sprite. A test course: no pad (the test map's pads are unchanged), no
+shipped demo; its rows are 130.12.4.7's (bonanzacourse's `lift2` section, and
+on the glass bonanzaring, bonanzaphys, bonanzawheel, bonanzamega).

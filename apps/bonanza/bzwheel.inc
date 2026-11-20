@@ -73,6 +73,11 @@ BZ_CALN     equ 8               ; the calibration's samples a size
 BZ_PWHEEL   equ 6               ; the wheel's part (bz_tw .. bz_tv), appended
 BZ_WKN      equ 7               ; bz_vinit's per-card words, bz_wb0 .. bz_warr
 BZ_PLNONE   equ 8000h           ; bz_pline: the slab is not on the card
+BZ_PLTE     equ 10              ; a lift table entry (bz_plt): its record, pad,
+                                ; and its track's four words
+%if BZ_LIFTLCM != BZ_LCM || BZ_LIFTMAX < 1
+ %error "the tool's lift bound widens a window by BZ_LIFTLCM: bz_psel's band is BZ_LCM (SPEC.md 130.12.4.7)"
+%endif
 BZ_FOOTW    equ BZ_BAL_RB * 4   ; the ball's footprint, px (SPEC.md 130.4)
 BZ_WBLK     equ 19              ; a wheel slot: the lane state bz_lbr .. bz_lq1,
 BZ_WSLOT    equ 2 * BZ_WBLK + 4 ; ...then its AHEAD bound and BEHIND time
@@ -125,6 +130,7 @@ BZ_WLBUD    equ 3               ; the LEAD's budget: it ends by BZ_WLBUD / 8 of
 VAR bz_hold,1
 VAR bz_hvoff,1
 VAR bz_camscr,1                 ; a harness's: the SCRIPTED camera (130.17.6.7)
+VAR bz_nphand,2                 ; a harness's: the lift hand-overs (bz_psel, 130.12.4.7)
 %else
 VAR bz_hpad,1                   ; (the three's place: the wheel's VARs stay even)
 %endif
@@ -279,6 +285,9 @@ VAR bz_pcl,2                    ; ...and that walk's column band [pcl, pch),
 VAR bz_pch,2                    ; c0 - BZ_LCM to c0 + W + BZ_LCM
 VAR bz_pR0,2                    ; bz_R0 as the walk last read it (8000h: none):
                                 ; bz_pwy and the range are that window's
+VAR bz_plt,BZ_PLTE * BZ_LIFTMAX ; THE LIFT TABLE (bz_psel, SPEC.md 130.12.4.7): a
+VAR bz_plp,2                    ; lift's record and its track's pxlo, pxhi, pyt,
+                                ; pyb, BZ_PLTE bytes a lift; and its end
 VAR bz_pin,1                    ; 1: the lift's rise meets the walk's range
 VAR bz_pxlo,2                   ; the slab's columns against a window's first
 VAR bz_pxhi,2                   ; word c: met when c <= pxhi and c + W > pxlo
@@ -338,6 +347,10 @@ bz_pread:
     mov word [bz_prb], 8000h    ; and an EMPTY one, met by no lane)
     mov word [bz_pR0], 8000h
     mov byte [bz_pidx], 0ffh
+    mov word [bz_plp], bz_plt   ; (no lift in the table yet)
+%ifdef BZDEV
+    mov word [bz_nphand], 0     ; (a launch's hand-overs: the first is bz_pfull's)
+%endif
     mov di, bz_ldrw             ; every lane unknown: bz_lfull syncs them all
     mov cx, BZ_PROPMAX / 2
     mov ax, 0ffffh
@@ -438,46 +451,18 @@ bz_pread:
 .nl:
     cmp byte [es:si + BZP_KIND], BZ_PK_PLATFORM
     jne .np
-    mov [bz_pidx], bl           ; the LIFT's sprite (SPEC.md 130.12.6.4): its
-    mov ax, [es:si + BZP_PSPR]  ; columns 16 (Awx - Awy - 1) + X0, its line
-    mov [bz_pspr], ax           ; 8 (Awx + Awy) - (hP + I) + Y0, I = 0 .. 8 L
-    mov ax, [es:si + BZP_PHP]
-    mov [bz_php], ax
-    mov al, [es:si + BZP_WX]
-    mov dl, [es:si + BZP_WY]
-    xor ah, ah
-    xor dh, dh
-    push ax
-    add ax, dx
-    mov [bz_psa], ax            ; (sP's base, bz_povr)
-    pop ax
-    push ax
-    sub ax, dx
-    dec ax
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    add ax, [bz_x0]
-    mov [bz_pox], ax
-    pop ax
-    add ax, dx
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    sub ax, [es:si + BZP_PHP]
-    add ax, [bz_y0]
-    mov [bz_poy], ax
-    mov dl, [es:si + BZP_PL]    ; ...its rise's top line, - 8 L, and its
-    shl dx, 1                   ; foot, + the sprite
-    shl dx, 1
-    shl dx, 1
-    sub ax, dx
-    mov [bz_pyt], ax
-    add ax, dx
-    add ax, BZ_PLH
-    mov [bz_pyb], ax
-    call bz_pcache
+    call bz_pload               ; a LIFT: its cache (the last one read stays
+    mov di, [bz_plp]            ; tracked until bz_pfull's bz_psel), and its
+    mov [di], bl                ; TRACK in the lift table (SPEC.md 130.12.4.7)
+    mov ax, [bz_pxlo]
+    mov [di + 2], ax
+    mov ax, [bz_pxhi]
+    mov [di + 4], ax
+    mov ax, [bz_pyt]
+    mov [di + 6], ax
+    mov ax, [bz_pyb]
+    mov [di + 8], ax
+    add word [bz_plp], BZ_PLTE
 .np:
     inc bl
     add si, BZ_PROPREC
@@ -562,8 +547,54 @@ bz_lfull:
     mov word [bz_pline], BZ_PLNONE
     ret
 
+; bz_pload - THE TRACKED LIFT is record BL, ES:SI (bz_pread for each lift,
+; bz_psel at a hand-over, SPEC.md 130.12.4.7): its sprite (SPEC.md 130.12.6.4)
+; and columns, 16 (Awx - Awy - 1) + X0, its line 8 (Awx + Awy) - (hP + I) + Y0,
+; I = 0 .. 8 L, its rise's top and foot - then bz_pcache, which it falls into.
+; Clobbers AX, DX.
+bz_pload:
+    mov [bz_pidx], bl
+    mov ax, [es:si + BZP_PSPR]  ; columns 16 (Awx - Awy - 1) + X0, its line
+    mov [bz_pspr], ax           ; 8 (Awx + Awy) - (hP + I) + Y0, I = 0 .. 8 L
+    mov ax, [es:si + BZP_PHP]
+    mov [bz_php], ax
+    mov al, [es:si + BZP_WX]
+    mov dl, [es:si + BZP_WY]
+    xor ah, ah
+    xor dh, dh
+    push ax
+    add ax, dx
+    mov [bz_psa], ax            ; (sP's base, bz_povr)
+    pop ax
+    push ax
+    sub ax, dx
+    dec ax
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, [bz_x0]
+    mov [bz_pox], ax
+    pop ax
+    add ax, dx
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    sub ax, [es:si + BZP_PHP]
+    add ax, [bz_y0]
+    mov [bz_poy], ax
+    mov dl, [es:si + BZP_PL]    ; ...its rise's top line, - 8 L, and its
+    shl dx, 1                   ; foot, + the sprite
+    shl dx, 1
+    shl dx, 1
+    sub ax, dx
+    mov [bz_pyt], ax
+    add ax, dx
+    add ax, BZ_PLH
+    mov [bz_pyb], ax
+
 ; bz_pcache - the LIFT's record ES:SI where bz_ptrue and the slab's window
-; tests read it (bz_pread): the clock's bytes, v, PMAX, the line at its high
+; tests read it (bz_pload): the clock's bytes, v, PMAX, the line at its high
 ; top, the last q - W the rise is still under PMAX at (bz_pqt = min(255,
 ; PMAX / v); 255, every q - W multiplied, when v is 0 or its product could
 ; pass a word), and its columns as word bounds - the slab [pox, pox + PLW)
@@ -3142,6 +3173,10 @@ bz_props:
                                 ; (an unknown 0FFh, never true: SPEC.md
                                 ; 130.19.10 item 7)
 .plat:
+    cmp word [bz_plp], bz_plt + 2 * BZ_PLTE ; a second lift: the TRACKED one is
+    jb .plat1                   ; the window's (SPEC.md 130.12.4.7)
+    call bz_psel
+.plat1:
     cmp byte [bz_pin], 0        ; THE PLATFORM: its whole rise outside the
     jne .pin                    ; range (bz_pin, .rng's), not on the card, and
     cmp byte [bz_pidx], 0ffh    ; no strip can reach it this frame
@@ -3637,7 +3672,7 @@ bz_cslabr:
     pop ax
     ret
 
-; bz_ptrue - the LIFT's (record BX) TRUE line at n = bz_nstep -> AX and
+; bz_ptrue - the TRACKED LIFT's TRUE line at n = bz_nstep -> AX and
 ; bz_ptru: its rise bbcourse.plat_pos's way (SPEC.md 130.12.6.4) - m = (n +
 ; seed) AND (P - 1), q = m in the first half of the period and P - 1 - m in
 ; the second, I = min(PMAX, max(0, q - W) v) - and the line poy - (I >> 8).
@@ -3969,10 +4004,8 @@ BZ_PLB      equ BZ_PLW / 4      ; the slab's bytes a line (4 px a byte)
 ; after it (a full write's boxes follow it, 130.12.6.4), and one outside it
 ; follows n in RAM (130.12.15 item 3).  Preserves nothing.
 bz_pfull:
-    mov bl, [bz_pidx]
-    cmp bl, 0ffh
+    cmp byte [bz_pidx], 0ffh
     je .out
-    xor bh, bh
     mov word [bz_pR0], 8000h    ; (bz_pwy is the new window's: the next walk
     mov ax, [bz_R0n]            ; reads its own again)
     mov cl, [bz_lsh]
@@ -3980,6 +4013,10 @@ bz_pfull:
     mov [bz_pwy], ax
     mov ax, [bz_c0n]
     mov [bz_pwc], ax
+    cmp word [bz_plp], bz_plt + 2 * BZ_PLTE ; (a second lift: the new window's,
+    jb .one                     ; SPEC.md 130.12.4.7 - a respawn, a tube or the
+    call bz_psel                ; launch's first frame lands beside either)
+.one:
     call bz_ptrue
     call bz_pshown
     jc .box
@@ -3989,6 +4026,65 @@ bz_pfull:
 .box:
     call bz_cslab               ; (bz_pline 8000h: its true footprint alone)
     inc word [bz_ncon]
+    ret
+
+; bz_psel - THE TRACKED LIFT (SPEC.md 130.12.4.7), on a course with two: the
+; first in the lift table (bz_plt) whose TRACK - its slab over its whole rise,
+; [pyt, pyb) x words [pxlo, pxhi] - meets the window bz_pwy, bz_pwc WIDENED
+; as the walk widens it: the range's lines [8 ra, 8 rb) (130.12.5.2) and the
+; column band [c0 - BZ_LCM, c0 + W + BZ_LCM) (130.18.2).  The tool refuses
+; two tracks in one widened window (130.12.4.6), so the lift handed over from
+; is outside it: neither shown nor on the card, its display state n's alone.
+; The one handed to is loaded (bz_pload), not on the card (bz_pline 8000h),
+; and in the range (bz_pin 1); none meeting it leaves the tracked one as it
+; stands.  Clobbers AX, BX, CX, DX, SI, DI.
+bz_psel:
+    mov ax, [bz_pwy]
+    mov cl, 3
+    mov dx, ax
+    shr dx, cl                  ; DX = 8 ra, AX = 8 rb: bz_props's .rng
+    sub dx, 2
+    shl dx, cl
+    add ax, BZ_LINES - 1
+    shr ax, cl
+    add ax, 3
+    shl ax, cl
+    mov cx, [bz_pwc]            ; CX, DI: the band [lo, hi)
+    sub cx, BZ_LCM
+    mov di, cx
+    add di, [bz_W]
+    add di, 2 * BZ_LCM
+    mov si, bz_plt
+.e:
+    cmp si, [bz_plp]
+    jae .x                      ; none: the tracked one stands
+    cmp [si + 8], dx            ; pyb > 8 ra
+    jle .n
+    cmp [si + 6], ax            ; pyt < 8 rb
+    jge .n
+    cmp [si + 4], cx            ; pxhi >= lo
+    jl .n
+    cmp [si + 2], di            ; pxlo < hi
+    jl .hit
+.n:
+    add si, BZ_PLTE
+    jmp short .e
+.hit:
+    mov bl, [si]
+    cmp bl, [bz_pidx]
+    je .x
+    xor bh, bh
+    push es
+    mov es, [bz_cseg]
+    call bz_lrecsi
+    call bz_pload
+    pop es
+    mov word [bz_pline], BZ_PLNONE
+    mov byte [bz_pin], 1
+%ifdef BZDEV
+    inc word [bz_nphand]        ; (the hand-overs: a harness's count)
+%endif
+.x:
     ret
 
 ; bz_pstrip - A STRIP MEETING THE SLAB (SPEC.md 130.12.4.3), after the camera

@@ -1058,6 +1058,9 @@ OCT_N = 11                    # the octant table's reach: max(|du|, |dv|) <= 11
 PL_PERIODS = (64, 128, 256)
 PL_LMAX = 8                   # a LIFT's rise, units (SPEC.md 130.12.6.4)
 PL_VMAX = 192                 # a lift's v, 1/256 px a step (0.75 lines a step), a multiple of 64
+LIFT_MAX = 2                  # LIFTS a course: the guest's lift table (bz_plt, bz_psel), SPEC.md 130.12.4.7
+LIFT_LCM = 2                  # the walk's column band's margin, words (bzwheel.inc's BZ_LCM): a lift's
+                              # track is TRACKED from a window widened by it (130.12.4.7)
 PL_W, PL_H = 32, 18           # its sprite: 4 words x 18 lines (16 of top, 2 of lip)
 PL_SPR = 2 * 2 * PL_W // 4 * PL_H              # two parity copies x (mask + frame): 576
 LANE_WMAX, LANE_HMAX = 4, 3   # a lane: BZ_BOXW words x BZ_BOXH / 8 block rows
@@ -6687,6 +6690,9 @@ def build_props(src, tiles, fname):
                           "K": sp["kick"], "KA": KICK_A, "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8,
                           "top": 4 * t.z0 + POST_H})
         else:
+            if ip >= LIFT_MAX:                  # the guest's lift table (bz_plt): SPEC.md 130.12.4.7
+                raise CourseError("%s:%d: lift %d: a course holds at most %d (SPEC.md 130.12.4.6)"
+                                  % (f, ln, ip + 1, LIFT_MAX))
             L, P, W = sp["L"], sp["period"], sp["dwell"]
             A = at                                      # THE SHAFT: one VOID cell
             if A in tiles:
@@ -6704,9 +6710,6 @@ def build_props(src, tiles, fname):
             if v > PL_VMAX:
                 raise CourseError("%s:%d: the lift's v %d is over %d (a longer period or a shorter dwell)"
                                   % (f, ln, v, PL_VMAX))
-            if ip:                              # the guest tracks ONE lift (bzwheel.inc's
-                raise CourseError("%s:%d: a second lift: a course holds one (SPEC.md 130.12.4.6)"
-                                  % (f, ln))    # bz_pidx, bz_pline, its sprite)
             seed = sp["seed"] if sp["seed"] is not None else ip * P // npl
             ip += 1
             claim(A, ln, "shaft")
@@ -10886,7 +10889,7 @@ def herc_translate_course(part):
     rb = PL_W // 4
     for k in range(nprop):
         r0 = propoff + PROPREC * k
-        if p[r0] == PK_PLATFORM:
+        if p[r0] == PK_PLATFORM:          # (the FIRST lift's: every lift shares its sprite, 130.12.4.7)
             so = struct.unpack_from("<H", p, r0 + 22)[0]
             for cp in range(2):
                 fo = so + cp * 2 * rb * PL_H + rb * PL_H
@@ -10894,6 +10897,7 @@ def herc_translate_course(part):
                     for j in range(rb):
                         o = fo + rb * r + j
                         p[o] = t[256 * ((cp + r) & 1) + p[o]]
+            break
     return bytes(p)
 
 
@@ -12338,11 +12342,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 rec += struct.pack("<BBBB12x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], d18,
                                    d19)                    # (+18, +19: PICKUPS' duration and OVERWRITE, 130.25.19)
         else:
-            rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo, p["pmax"])
+            if not sprb:                # ONE sprite, every lift's (SPEC.md 130.12.4.7): the first lift lays it
+                sprb += slab_b
+                spo1 = spo
+                spo += PL_SPR
+            rec += struct.pack("<HBBhHH6x", p["v"], p["W"], p["L"], p["hP"], spo1, p["pmax"])
             selfp.append(PROPREC * j + 22)
-            p["spoff"] = spo
-            sprb += slab_b
-            spo += PL_SPR
+            p["spoff"] = spo1
         assert len(rec) == PROPREC
         recp += rec
     blkb = bytearray()
@@ -12522,7 +12528,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     if props and not hack.get("no_exits"):
         check_exits(c)
     if props and occluders and not hack.get("no_bounds"):
-        c.bounds = check_bounds(c)
+        c.bounds = check_bounds(c, hack)
         if pth is not None:
             c.path_bounds = check_path_bounds(c)
     # wave 4 (SPEC.md 130.14.4.1): GOAL cells or a cup, never both, never neither
@@ -12904,9 +12910,11 @@ def _wind_turns(c, recs, where):
                 seen[n] = r
 
 
-def check_bounds(c):
+def check_bounds(c, hack=None):
     """SPEC.md 130.12.4.6's bounds over every window position on both cards,
-    and the start window's calibration corner.  -> a dict for the report"""
+    and the start window's calibration corner.  -> a dict for the report.  HACK: --selfcheck's red
+    arms (`lift2wide`: the two lifts' WIDENED window test off, 130.12.4.7)"""
+    hack = hack or {}
     lanes, slabs = _rects(c)
     info = {}
     for herc in (0, 1):
@@ -12921,6 +12929,7 @@ def check_bounds(c):
             ya, yb = R * rl, R * rl + WIN_LINES
             ra, rb = 8 * ((ya >> 3) - 2), 8 * (((yb - 1) >> 3) + 3)
             inrange = [L for L in lanes if L[1] < rb and ra < L[3]]
+            slr = [S for S in slabs if S[1] < rb and ra < S[3]]     # (the tracked lift's rows, 130.12.4.7)
             nfr = sum(1 for L in inrange if lane_fast(L[4]))
             most_r = max(most_r, nfr)
             most_rall = max(most_rall, len(inrange))
@@ -12963,6 +12972,16 @@ def check_bounds(c):
                                           "it out of a weight one's windows, SPEC.md 130.42.11)"
                                           % _tilt_chg(meet, c.part["props"]) if _tilt_chg(meet, c.part["props"]) else ""))
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
+                if len(slr) > 1 and not hack.get("lift2wide"):
+                    wl, wr = 8 * (C - LIFT_LCM), 8 * (C + W + LIFT_LCM)
+                    sw = [S for S in slr if S[0] < wr and wl < S[2]]
+                    if len(sw) > 1:     # SPEC.md 130.12.4.7: the guest TRACKS one lift, the one whose track meets
+                        raise CourseError(  # the window widened by the walk's margins
+                            "%s: two lifts' tracks (lines %d and %d) in one %s window widened by the walk's margins "
+                            "(row %d, column %d: lines %d - %d, px %d - %d) - the guest tracks one (SPEC.md "
+                            "130.12.4.7); move one further off" % (c.fname, c.props[c.order[sw[0][4]["i"]]]["line"],
+                                                                   c.props[c.order[sw[1][4]["i"]]]["line"],
+                                                                   "Hercules" if herc else "CGA", R, C, ra, rb, wl, wr))
                 if len(sl) > 1:
                     raise CourseError("%s: two platforms in one %s window (row %d, column %d)"
                                       % (c.fname, "Hercules" if herc else "CGA", R, C))
@@ -15251,13 +15270,17 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             if not d["lane"] or cx != 16 * d["at"][0] + 8 or cy != 16 * d["at"][1] + 8:
                 bad("prop %d" % d["i"], "a bumper's record")
             d.update(K=K, lit=lit, ph=ph, cx=cx, cy=cy, KA=KA)
-    for d in out:                                  # the sprites after every segment
+    spr1 = None
+    for d in out:                                  # the sprite after every segment: ONE, every lift's (130.12.4.7)
         r = propoff + PROPREC * d["i"]
         if d["kind"] == PK_PLATFORM:
             v, W, L, hP, so, pmax = struct.unpack_from("<HBBhHH", p, r + 16)
-            if d["lane"] or so != tail or pmax != 2048 * L or not 1 <= L <= PL_LMAX or v & 63:
+            if d["lane"] or so != (tail if spr1 is None else spr1) or pmax != 2048 * L or not 1 <= L <= PL_LMAX \
+                    or v & 63:
                 bad("prop %d" % d["i"], "a lift's record")
-            tail += PL_SPR
+            if spr1 is None:
+                spr1 = so
+                tail += PL_SPR
             d.update(v=v, W=W, L=L, hP=hP, hT=hP + 8 * L, spoff=so, pmax=pmax)
     if tail != n:
         bad("props", "the tail ends at %d, the part at %d" % (tail, n))
@@ -18755,6 +18778,30 @@ class Heavy:
         self.seen = {}                          # the kick it last saw (bz_lkick)
         self.age = {}                           # frames due and shown (bz_lage)
         self.near = 0                           # wave 6b: bz_pflag bits 4 - 7, the slab near each edge
+        # SPEC.md 130.12.4.7: the TRACKED lift (bz_pidx) - the last one bz_pread read, then bz_psel's: the first
+        # whose track meets the window widened by the walk's margins; an untracked lift is not on the card
+        self.lifts = sorted((r for r in phys.props if r["kind"] == PK_PLATFORM), key=lambda r: r["i"])
+        self.trk = self.lifts[-1]["i"] if self.lifts else None
+        self.nhand = 0                          # bz_psel's hand-overs (bz_nphand)
+        self.notrack = False                    # --selfcheck's red arm `lift2track`: no hand-over at all
+
+    def track(self, R0, c0, W, rl):
+        """bz_psel (SPEC.md 130.12.4.7) for the window at row R0, column c0: the hand-over, if any"""
+        if len(self.lifts) < 2 or self.notrack:
+            return
+        p = self.p
+        ya = R0 * rl
+        ra, rb = 8 * ((ya >> 3) - 2), 8 * (((ya + WIN_LINES - 1) >> 3) + 3)
+        wl, wr = 8 * (c0 - LIFT_LCM), 8 * (c0 + W + LIFT_LCM)
+        for r in self.lifts:
+            x_l, yt = slab_xy(r, 8 * r["L"], p.x0, p.y0)
+            yb = slab_xy(r, 0, p.x0, p.y0)[1] + PL_H
+            if x_l < wr and wl < x_l + PL_W and yt < rb and ra < yb:
+                if r["i"] != self.trk:
+                    self.trk = r["i"]
+                    self.pline.pop(r["i"], None)    # (bz_pline 8000h: its true line until it is drawn)
+                    self.nhand += 1
+                return
 
     def full_sync(self, g):
         """a FULL WRITE's lanes and slab (bz_lfull, bz_pfull): every lane drawn
@@ -18825,9 +18872,12 @@ class Heavy:
         # the ball's side of the window (bz_pnear: GLIDE pans toward it)
         up = bool(new) and 2 * new[1] + FOOT_H < 2 * ya + WIN_LINES
         left = bool(new) and 2 * new[0] + FOOT_W < xa + xb
+        self.track(g.R0, g.c0, W, rl)          # (bz_props's .plat: bz_psel, SPEC.md 130.12.4.7)
         for r in p.props:
             L = r["lane"]
             if r["kind"] == PK_PLATFORM:
+                if r["i"] != self.trk:          # an UNTRACKED lift: not on the card, nothing of it read
+                    continue
                 x_l, y_t = slab_xy(r, plat_pos(r, p.nstep & 0xFFFF) >> 8, p.x0, p.y0)
                 r4 = (x_l, y_t, x_l + PL_W, y_t + PL_H)
                 yd = self.pline.get(r["i"], y_t)
@@ -19772,6 +19822,8 @@ def emit_inc(courses, path=None, title=None):
               "BZ_PK_CLOCK     equ %d        ; wave 7: a clock's digit, a one-block lane (130.18.5)" % PK_CLOCK,
               "BZ_PK_BUMPER    equ %d" % PK_BUMPER,
               "BZ_PK_PLATFORM  equ %d" % PK_PLATFORM,
+              "BZ_LIFTMAX      equ %d        ; LIFTS a course (the lift table, bz_psel: SPEC.md 130.12.4.7)" % LIFT_MAX,
+              "BZ_LIFTLCM      equ %d        ; ...tracked from a window widened by BZ_LCM words (the tool's bound)" % LIFT_LCM,
               "BZ_PF_LANE      equ %d        ; record +1: the record has a lane" % PF_LANE,
               "BZ_PF_GRP       equ %d        ; ...a GROUP MEMBER: no lane, +8 - +15 its group lanes (SPEC.md 130.32.4)" % PF_GRP,
               "BZP_KIND        equ 0        ; record fields",
@@ -31095,6 +31147,145 @@ def _sc_physics(X, res):
         _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("MILL"))
 
 
+def _lift2_shared(c):
+    """-> True when every lift's record (+22) names ONE sprite and the part holds it once (read_part's tail)"""
+    offs = {p["spoff"] for p in c.props if p["kind"] == PK_PLATFORM}
+    return len(offs) == 1
+
+
+def _lift2_watch(c, herc, notrack=False):
+    """the autopilot on C under the camera and the display model (cam_auto's harness, frame by frame) -> (frames,
+    hand-overs, violations): a violation is a frame whose SHOWN window meets an UNTRACKED lift's track - the bare
+    shaft SPEC.md 130.12.4.7 exists to prevent (the guest draws only the tracked lift's slab)"""
+    p = Physics(c, play=True)
+    r = CamRun(c, herc, p, 1.0, True)
+    h = r.g.heavy
+    h.notrack = notrack
+    W, H, rl, lsh = CARDS[herc]
+    tracks = {}
+    for pr in h.lifts:
+        x_l, yt = slab_xy(pr, 8 * pr["L"], p.x0, p.y0)
+        tracks[pr["i"]] = (x_l, yt, x_l + PL_W, slab_xy(pr, 0, p.x0, p.y0)[1] + PL_H)
+    bad = 0
+
+    def st():
+        if p.goal:
+            return False
+        p.step(p.auto())
+    while r.fr < 4000 and r.frame(st):
+        ya, xa = r.g.R0 * rl, 8 * r.g.c0
+        for i, t in tracks.items():
+            if i != h.trk and _meet(t, xa, ya, xa + 8 * W, ya + WIN_LINES):
+                bad += 1
+    return r.fr, h.nhand, bad, bool(p.goal)
+
+
+def _sc_lift2(X, res):
+    """--selfcheck's section `lift2` (SPEC.md 130.12.4.7): TWO LIFTS on TLFT - one sprite, the route riding both,
+    the tracked lift handed over with no untracked lift ever shown, and the bounds - each with a red arm"""
+    c = X.byname.get("TLFT")
+    if c is None:
+        res.append(("lift2: TLFT (the two-lift test course) is in the build", False))
+        return
+    lifts = [p for p in c.props if p["kind"] == PK_PLATFORM]
+    # 1. ONE sprite: both records name it, the part reader accepted the layout; red arm: the second record
+    #    pointed past it is refused by that reader
+    form = c.wcga if c.split else c.cga
+    po = struct.unpack_from("<H", form, 28)[0]
+    lrecs = [q["i"] for q in c.part["props"] if q["kind"] == PK_PLATFORM]     # (their records' indices)
+    r2 = po + PROPREC * lrecs[1]
+    red = bytearray(form)
+    struct.pack_into("<H", red, r2 + 22, struct.unpack_from("<H", red, r2 + 22)[0] + PL_SPR)
+    try:
+        read_part(bytes(red), "<TLFT, its second lift past the one sprite>")
+        refused = False
+    except CourseError as e:
+        refused = "a lift's record" in str(e)
+    res.append(("lift2 1: TLFT's %d lifts share ONE sprite (record +22 %s, the part's tail holding it once); red arm: "
+                "a second lift pointed past it is refused by the part reader (%s)" % (
+                    len(lifts), sorted({p["spoff"] for p in lifts}), "refused" if refused else "ACCEPTED"),
+                len(lifts) == 2 and _lift2_shared(c) and refused))
+    # 2. the route rides both: the autopilot to the goal, no fall, carried by each lift (bz_onp its index + 1)
+    q = Physics(c, play=True)
+    ons = set()
+    n = 0
+    while n < 8000 and not q.goal:
+        q.step(q.auto())
+        if q.onp:
+            ons.add(q.onp - 1)
+        n += 1
+    res.append(("lift2 2: TLFT's route by the autopilot reaches the goal in %d steps, %d falls, on the slab of lifts %s "
+                "(want both, %s)" % (n, q.nfall, sorted(ons), sorted(lrecs)),
+                bool(q.goal) and not q.nfall and ons == set(lrecs)))
+    # 3. the display model on both cards: hand-overs, and never an untracked lift's track in the shown window;
+    #    red arm `lift2track` (no hand-over: the last lift read stays tracked) shows the first lift's bare shaft
+    for herc in (0, 1):
+        fr, nh, bad, goal = _lift2_watch(c, herc)
+        _fr, _nh, rbad, _g = _lift2_watch(c, herc, notrack=True)
+        res.append(("lift2 3: TLFT on the %s, the autopilot under the camera: %d frames to the goal, %d hand-over(s), "
+                    "%d frames with an UNTRACKED lift in the shown window; red arm lift2track (no hand-over): %d" % (
+                        "Hercules" if herc else "CGA", fr, nh, bad, rbad), goal and nh >= 1 and bad == 0 and rbad > 0))
+    # 4. the bounds: lift 2 moved to where a WIDENED window (the walk's margins) holds both tracks and no plain
+    #    window does - refused; red arm `lift2wide` (the widened test off): accepted
+    import copy
+    k2 = c.props.index(lifts[1])
+    found = None
+    for dy in range(0, 40):
+        for dx in range(0, 40):
+            at = (lifts[1]["at"][0] - dx, lifts[1]["at"][1] - dy)
+            c2 = copy.copy(c)
+            c2.props = list(c.props)
+            c2.props[k2] = dict(lifts[1], at=at)
+            _ln, sl = _rects(c2)
+            a, b = sl[0], sl[1]
+            plain = wide = False
+            for herc in (0, 1):
+                W, H, rl, lsh = CARDS[herc]
+                for R in range(c.brows * 8 // rl - H + 1):
+                    ya, yb = R * rl, R * rl + WIN_LINES
+                    ra, rb = 8 * ((ya >> 3) - 2), 8 * (((yb - 1) >> 3) + 3)
+                    for C in range(c.cols - W + 1):
+                        xa, xb = 8 * C, 8 * (C + W)
+                        plain = plain or (_meet(a, xa, ya, xb, yb) and _meet(b, xa, ya, xb, yb))
+                        wl, wr = 8 * (C - LIFT_LCM), 8 * (C + W + LIFT_LCM)
+                        wide = wide or (_meet(a, wl, ra, wr, rb) and _meet(b, wl, ra, wr, rb))
+                    if plain:
+                        break
+                if plain:
+                    break
+            if wide and not plain:
+                found = (at, c2)
+                break
+        if found:
+            break
+    ok4 = found is not None
+    msg = acc = None
+    if found:
+        try:
+            check_bounds(found[1])
+        except CourseError as e:
+            msg = str(e)
+        try:
+            check_bounds(found[1], {"lift2wide": 1})
+            acc = True
+        except CourseError:
+            acc = False
+        ok4 = msg is not None and "widened" in msg and acc
+    res.append(("lift2 4: lift 2 moved to %s - both tracks in one window widened by the walk's margins, in no plain "
+                "window - is refused (%s); red arm lift2wide accepts it (%s)" % (
+                    found[0] if found else "NOWHERE FOUND", "refused" if msg else "ACCEPTED",
+                    "accepted" if acc else "refused"), ok4))
+    # 5. LIFT_MAX: a third lift is refused, by name and count
+    src = open(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)).read()
+    try:
+        compile_course(src + "\nprop platform 20 6 2\n", "<TLFT and a third lift>")
+        m5 = None
+    except CourseError as e:
+        m5 = str(e)
+    res.append(("lift2 5: a third lift is refused (%s)" % (m5 or "ACCEPTED"),
+                m5 is not None and "at most %d" % LIFT_MAX in m5))
+
+
 def _sc_props(X, res):
     """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
@@ -31685,7 +31876,8 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30}
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30,
+           "lift2": 10}
 
 
 def _av_floats_want(c):
@@ -33176,7 +33368,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc")
+             "_sc_clockocc", "_sc_lift2")
 
 
 def _selfcheck(paths, res, skipped, S):
