@@ -937,7 +937,9 @@ class Ref:
         # guest's bz_ldrw names; and the platform is on the card at its drawn line
         self._lanes = {r["i"]: BB._lane_of(crs, r) for r in crs.part["props"] if r["lane"]} \
             if crs.part.get("props") else {}
-        self._plat = next((r for r in crs.part.get("props") or () if r["kind"] == BB.PK_PLATFORM), None)
+        self._plats = [r for r in crs.part.get("props") or () if r["kind"] == BB.PK_PLATFORM]
+        self._plat = self._plats[0] if self._plats else None    # (two lifts, SPEC.md 130.12.4.7: rule() takes
+                                                                # the one the card's slab is, by its columns)
         self._vcache = {}
         self.ghosted = 0            # foot()'s last count of ball pixels drawn through a laid record (a ghost)
         self.view = None            # (lanes {record: pose}, slab (x_l, y_t, over) or None), or None
@@ -949,8 +951,9 @@ class Ref:
         the square's centre at the drawn line), and never over a hidden ball"""
         if not view or not view[1] or self._plat is None:
             return view
-        P = self._plat
         x_l, y_t = view[1][0], view[1][1]
+        g = self.c.part["grid"]
+        P = next((q for q in self._plats if BB.slab_xy(q, 0, g["x0"], g["y0"])[0] == x_l), self._plat)
         top = P["hP"] + BB.slab_rise(P, y_t, self.c.part["grid"]["x0"], self.c.part["grid"]["y0"])
         sP = BB.slab_s(P)
         over = not getattr(lk, "tube", 0) and lk.zb + (0 if lk.air else BB.CLIMB) < top and lk.sb <= sP
