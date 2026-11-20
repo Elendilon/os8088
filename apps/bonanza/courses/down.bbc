@@ -74,11 +74,11 @@ guard tile  53  20                # see-through
 wall  tile  54  16  flat 16
 guard tile  54  20                # see-through
 wall  tile  55  16  flat 16
-wall  tile  55  20  flat 16
+guard tile  55  20                # see-through
 guard tile  56  16                # see-through
 guard tile  57  17                # see-through
 guard tile  57  18                # see-through
-wall  tile  57  19  flat 16
+guard tile  57  19                # see-through
 
 
 # the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)
@@ -99,7 +99,7 @@ pad glass 49 19
 # steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH
 prop spikes 53 17 55 20
 water rect 56 17 57 20 top 14 bed 11
-arch 56 19 +y
+arch 56 19 +y guard
 # glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)
 prop membrane 49 21 50 26
 prop platform 46 27 4

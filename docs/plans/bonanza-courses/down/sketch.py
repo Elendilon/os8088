@@ -201,11 +201,11 @@ floor("S", 48, 13, 52, 16, Z - 26)
 for y in range(13, 16):
     for x in range(49, 51):
         mark(x + 0.5, y + 0.5, "spike", "")
-rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 51, 16, "guard"); rail(51, 16, 52, 16)   # (rev 7: the FRONT a guard, the spikes seen through it; its last tile a block, beside the lower floor) (over the water a GUARD: it seals and shows it)
+rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 52, 16, "guard")   # (rev 7: the FRONT a guard, the spikes seen through it) (over the water a GUARD: it seals and shows it) (rev 8: its last tile a guard too - beside S and the lower T, a two-height guard, SPEC.md 130.35.9)
 floor("W", 52, 13, 53, 16, Z - 26)                           # the WATER column (3 units deep) across the path
 for y in range(13, 16):
     mark(52.5, y + 0.5, "water", "")
-rail(53, 13, 53, 15, "guard"); rail(53, 15, 53, 16)         # a GUARD rail past it (rev 4: the water seen; its last tile a block, beside the lower floor): no Hop over it
+rail(53, 13, 53, 16, "guard")                                # a GUARD rail past it (rev 4: the water seen): no Hop over it (rev 8: its last tile a guard round the corner onto the lower T, 130.35.9)
 floor("T", 52, 16, 55, 21, Z - 29)                           # steel sinks and rolls out of the front (+y) ARCH, 3 down
 floor("M", 52, 21, 55, 25, Z - 29)                           # MOMENTUM: a HUMP across the path (EXTRA), which steel
 mark(53.5, 22.5, "hump", "hump")                             #   crests with its speed (two ramps stacked too many records)
@@ -245,7 +245,7 @@ EXTRA = [
     "# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH",
     "prop spikes %d %d %d %d" % (_w(49), _w(13), _w(51), _w(16)),      # (two rows: a spiked cell never touches water)
     "water rect %d %d %d %d top %g bed %g" % (_w(52), _w(13), _w(53), _w(16), Z - 26, Z - 29),
-    "arch %d %d +y" % (_w(52), _w(15)),
+    "arch %d %d +y guard" % (_w(52), _w(15)),     # (rev 8: the FRONT edge guarded - rubber and glass stay on the water; steel sinks under the rail and out, SPEC.md 130.35.10)
     "# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)",
     "prop membrane %d %d %d %d" % (_w(45), _w(17), _w(46), _w(22)),
     "prop platform %d %d 4" % (_w(42), _w(23)),

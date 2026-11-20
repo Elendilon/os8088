@@ -22,7 +22,10 @@
 ;         follows makes no bz_surfset.  With the centre not one and IN set,
 ;         the HTHR put back and bz_surf 0FFh: that test then rebuilds bz_se.
 ;         And the ACTIVE ripple the centre's, its entry step kept; the one it
-;         replaces MARKED when it stood at pose 1 (it goes back to 0).
+;         replaces MARKED when it stood at pose 1 (it goes back to 0).  A
+;         GUARDED arch's exit (+20 WR_GUARDX, WR_GUARDY; SPEC.md 130.35.10) a
+;         WALL while its water cell is the centre and the ball not steel, else
+;         the FLOOR it is.
 ;   STEP  IN, airborne and under the float line: gvx = gvy = 0 (it sinks
 ;         straight down, never out of an arch above its sill), every 32 steps
 ;         gvz = +BZ_WA_BOB (the WOBBLE; BZ_WA_BOB 0 assembles none), else gvz
@@ -57,10 +60,12 @@ WA_ACT      equ 7
 WA_BED      equ 18              ; the element's record: its bed, its top, its ripple
 WA_HTOP     equ 19
 WA_RIP      equ 20
-WR_RIPPLE   equ 1               ; +20's bits: a ripple lane, animated always
-WR_ALWAYS   equ 2
-%if WR_RIPPLE != BZ_WR_RIPPLE || WR_ALWAYS != BZ_WR_ALWAYS
- %error "the water record's +20 bits are bbcourse's WR_RIPPLE, WR_ALWAYS"
+WR_RIPPLE   equ 1               ; +20's bits: a ripple lane, animated always,
+WR_ALWAYS   equ 2               ; the +x arch guarded, the +y arch guarded
+WR_GUARDX   equ 4
+WR_GUARDY   equ 8
+%if WR_RIPPLE != BZ_WR_RIPPLE || WR_ALWAYS != BZ_WR_ALWAYS || WR_GUARDX != BZ_WR_GUARDX || WR_GUARDY != BZ_WR_GUARDY
+ %error "the water record's +20 bits are bbcourse's WR_RIPPLE, WR_ALWAYS, WR_GUARDX, WR_GUARDY"
 %endif
 
     db 'BF'
@@ -140,6 +145,7 @@ wa_cell:
     xor bh, bh
     shl bx, 1
     shl bx, 1
+    call wa_guard               ; (SPEC.md 130.35.10: its guarded arches)
     mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less CH
     sub al, ch                  ; (SPEC.md 130.36.10) ...
     or byte [di + WA_IN], 2
@@ -401,6 +407,34 @@ wa_pose:
     BZ_FREC wa_lrec, bx
     BZ_FREC wa_recp, bp
 
+; SPEC.md 130.35.10: a water cell's GUARDED arches (ES:SI its record, AL its
+; column in the window, 0 - 2, BX its cell's offset in bz_nbr): each one's exit
+; in the window gets its kind nibble.  Out of wa_cell's loop, which a body this
+; long would push past every short jump.  -> AH the kind.  Preserves all else.
+wa_guard:
+    mov ah, BZ_WA_KFLOOR        ; SPEC.md 130.35.10: each GUARDED arch's exit
+    cmp bl, BZN_C               ; in the window - a WALL with this cell the
+    jne .k                      ; centre and the ball not steel (the rail
+    cmp byte [bz_mat], BZ_MAT_STEEL ; along the face's top: a ball on the
+    je .k                       ; water stays on it), else the FLOOR it is
+    inc ah                      ; in the grid (bz_win9i keeps window cells:
+.k:                             ; written both ways, it is idempotent)
+    test byte [es:si + WA_RIP], WR_GUARDX
+    jz .gy
+    cmp al, 2                   ; (+x: one column on, in the window)
+    jae .gy
+    and byte [bz_nbr + bx + 4 + 2], 0f0h
+    or [bz_nbr + bx + 4 + 2], ah
+.gy:
+    test byte [es:si + WA_RIP], WR_GUARDY
+    jz .x
+    cmp bl, 24                  ; (+y: one row on, in the window)
+    jae .x
+    and byte [bz_nbr + bx + 12 + 2], 0f0h
+    or [bz_nbr + bx + 12 + 2], ah
+.x:
+    ret
+
 ; BX = an element -> ES:SI its record.  Preserves all else.
 wa_rec:
     push cx
@@ -429,6 +463,9 @@ wa_slot:
 
 %if BZN_C != 16
  %error "the window's centre is its fifth cell (BZN_C 16): wa_cell's compare"
+%endif
+%if BZ_WA_KWALL != BZ_WA_KFLOOR + 1
+ %error "wa_cell walls a guarded arch's exit with an inc: KIND_WALL is KIND_FLOOR + 1"
 %endif
 %if $ - $$ > BZ_FAMP_WATER * 16
  %error "the water part passes its FAMILIES paras ceiling: raise it there"
