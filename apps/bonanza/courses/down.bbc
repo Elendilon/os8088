@@ -5,7 +5,7 @@
 course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules
 width 128
-origin 256                # the reach spans the 60 tiles 1024 px allow
+origin 288                # the reach spans the 60 tiles 1024 px allow
 uses boost spike water
 ball rubber
 music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
@@ -31,12 +31,20 @@ floor rect  55  29  60  33  flat 11   # G
 floor rect  49  21  50  26  flat 14   # K
 floor rect  47  26  51  29  flat 14   # P
 floor rect  40  25  46  31  flat 18   # Q
-floor rect  42  31  43  35  ramp y 31 35 18 12   # Y
-floor rect  43  31  45  32  flat 17   # Z
-floor rect  43  32  45  33  flat 16   # Z
-floor rect  43  33  45  34  flat 13   # Z
-floor rect  43  34  45  35  flat 12   # Z
-floor rect  39  35  47  39  flat 12   # V
+floor rect  35  27  40  28  flat 18   # K
+floor rect  32  26  35  29  flat 18   # P
+floor rect  33  23  34  26  flat 18   # K
+floor rect  32  21  35  23  flat 18   # P
+floor rect  30  27  32  28  flat 18   # K
+floor rect  24  26  29  29  flat 18   # W
+floor rect  24  29  29  30  flat 18   # Y
+floor rect  29  26  30  30  flat 18   # Y
+floor rect  21  26  24  29  flat 18   # Y
+floor rect  21  31  25  34  flat 16   # Z
+floor rect  25  31  27  33  flat 13   # Z
+floor rect  23  34  25  36  flat 14   # Z
+floor rect  25  33  27  37  flat 12   # Z
+floor rect  27  31  35  37  flat 10   # V
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
 chute 3 round depth 8 way 8 13 30 way 8 16 30 way 11 16 29
@@ -50,6 +58,11 @@ wall  tile   6  12  flat 34
 wall  tile   7   7  flat 42
 guard tile   8   6                # see-through
 wall  tile   9   7  flat 42
+guard tile  24  25                # see-through
+guard tile  25  25                # see-through
+guard tile  26  25                # see-through
+guard tile  27  25                # see-through
+guard tile  28  25                # see-through
 wall  tile  32  15  flat 23.5
 wall  tile  32  17  flat 23.5
 wall  tile  33  15  flat 23.5
@@ -103,16 +116,24 @@ arch 56 19 +y
 # glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)
 prop membrane 49 21 50 26
 prop platform 46 27 4
+# glass's maze (rev 9): its strands membrane, the FLOAT pool (water, no arch), the far bank's BOOST
+prop membrane 35 27 40 28
+prop membrane 33 23 34 26
+prop membrane 30 27 32 28
+water rect 24 26 29 29 top 18 bed 15
+prop boost 22 28 face +y strength 40
 # steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)
 hump 56 27 11 along x 3 open height 8
 
 goal  rect 55 31 60 33  flat 11   # the steel finish
-goal  rect 39 37 47 39  flat 12 exit 1   # the glass finish
+goal  rect 33 31 35 37  flat 10 exit 1   # the glass finish
 start 8 7
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
 checkpoint 48 27 ball glass   # flag 2
 checkpoint 42 27 ball glass   # flag 3
+checkpoint 33 27 ball glass   # flag 4
+checkpoint 22 27 ball glass   # flag 5
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
@@ -121,8 +142,8 @@ floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block i
 clock 50 11
 floor tile 60 30  flat 12.5   # the steel finish clock's tile (on top of the rail block it replaces)
 clock 60 30
-floor tile 47 37  flat 13.5   # the glass finish clock's tile (on top of the rail block it replaces)
-clock 47 37
+floor tile 35 34  flat 11.5   # the glass finish clock's tile (on top of the rail block it replaces)
+clock 35 34
 
 # the autopilot's route
 way 8 7
