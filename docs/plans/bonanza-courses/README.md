@@ -12,6 +12,8 @@ designer's and the owner's judgment.*
 
 *The pathway's initial-look options (2026-11-19) are in [pathway/](pathway/README.md).*
 
+*What 3-wide chutes would cost (a deferred study for DOWN, 2026-11-20) is [CHUTE3.md](CHUTE3.md).*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped

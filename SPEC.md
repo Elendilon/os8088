@@ -278744,6 +278744,12 @@ reads it the same way.
   height in units (130.10.3's heights); a later way's, when given, makes the
   leg before it a SLOPE, which must be a whole number of half units a tile
   over the leg's straight cells (corners and tapers are level).
+  **`chute 3` is a PROTOTYPE, not this contract** (the owner deferred it,
+  2026-11-20): the tool accepts it on the study's branch to price it -
+  ways are cells as for 1-wide, a corner is the 3 x 3 cells round its way,
+  an end the way's row of 3. Its costs and what finishing it takes are
+  [docs/plans/bonanza-courses/CHUTE3.md](docs/plans/bonanza-courses/CHUTE3.md);
+  no course uses it.
 - **`pit`**: a bowl centred on the cell corner `(x, y)`, `radius` `r` cells
   (2 - 4), its lip at `<z>` and its bottom `depth` px below, round a HOLE:
   the central `2h x 2h` cells (`h` 1 if left out, 0 for none) are VOID, so a
