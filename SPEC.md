@@ -285705,3 +285705,30 @@ part legs run on the shipped two-part course instead (the plan, per leg).
   three 130.54 items pass (the Makefile cross-check; BENCH written without
   `--dev` REFUSED, no stamp left; `test` with `guide` REFUSED); every item
   of TQUIK and TCUP passes; the reds are PLAY's items 3 and 4, as before.
+
+#### 130.54.4 TMIL, "the wheel and the ring" (BUILT 2026-11-20)
+
+TMIL (`apps/bonanza/courses/tmil.bbc`, "Wheel and Ring", rubber; the plan's
+TMILL) is the course bonanzawheel's and bonanzaring's MILL, TRIAL and BENCH
+legs move to in phase 3 (docs/plans/BOUNCE-BONANZA-SOAK.md carries its
+per-leg table). Its top is MILL's cell for cell (A, the house, both windmills
+with their seeds, B, C), so the gate logs and the pokes there carry over by
+name; below it B's ramp, the posts' strip W, a DROP onto F, the LIFT (18, 22)
+(L 6), and the CANNON over the low floor onto the goal ledge. THE RING'S END
+is in the course rather than in a poked scene: post (7, 13)'s lane crosses it
+on the CGA and post (20, 16)'s on the Hercules, and the autopilot's own ball
+boxes cross it on both cards (the Hercules on W at (21, 15), the CGA on F at
+(19, 20)) - card offsets are absolute, so these spots are the world's
+(`bbcourse.ring_cross`).
+
+- **As built (MEASURED, host)**: 20,970 bytes stored, 4,590 LZB; K 11 in the
+  test build (after TCUP); the package's image 52,465 -> 52,501 (+36, a row of
+  every per-course table), `BONANZA.O88` 164,662 bytes, `bonanza360.img` 169
+  of 354 clusters; the shipped build byte for byte unchanged. Identity 05D7h.
+  The autopilot reaches the goal at step 723 (13.1 s), no fall, one kick; the
+  tool's limit, 25 s.
+- **PREDICTED (the host model, `glide_run` with the heavy rule)**: every
+  feature of the three legs by about frame 730 on the CGA and 660 on the
+  Hercules - THREE BOXES (ball, shadow, the lift's box) on both cards from
+  the route, at about 601 / 510 - and the scripted camera's eight directions
+  three times each by frame 60. MartyPC's first phase-3 run measures them.

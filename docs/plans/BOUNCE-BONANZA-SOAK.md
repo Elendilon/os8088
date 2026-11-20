@@ -93,9 +93,10 @@ the shipped build's.
       with a SAFE cell, rails and a bumper rail, ice, sand and mat strips, a
       split goal (two exits), an apron with rungs and 1 / 1.5 / 2-unit tops,
       a cup, pads, flags, springs, a timeout limit.
-- [ ] **TMILL** (the wheel and the ring): rotors and lighting posts (2- and
+- [x] **TMILL** (the wheel and the ring): rotors and lighting posts (2- and
       3-word lanes, one crossing the ring's end), a lift with docks, a tube
-      and a cannon, a clock, scrolling both ways, occluders.
+      and a cannon, a clock, scrolling both ways, occluders.  BUILT as
+      **TMIL** (`tmil.bbc`, "Wheel and Ring", rubber; the table below).
 - [x] **TQUICK** (exits and the save), BUILT as two courses because a course
       finishes at a goal or in a cup, never both (130.14.4.1): **TQUIK**
       (`tquik.bbc`; a NAME is five characters) - rubber, the goal 165
@@ -131,6 +132,64 @@ the shipped build's.
   | demo, `wave4` (another build's identity) | MOON's demo with EB84h | a TQUIK log with its +14 identity changed | the identity check alone |
   | demo, `ship` | every shipped demo | ROLL's and HOP's (the shipped ones) | unchanged |
   | demo, `hostile` | MOON's demo, this build's logs | TQUIK logs made from the model | - |
+
+  **TMIL as built** (`apps/bonanza/courses/tmil.bbc`; the file's header is the
+  map).  MILL's top cell for cell - the start tier A (16), the house, both
+  windmills on KEEP tubes (seeds 16 and the derived 36), B (20) and C (18) -
+  so bonanzaphys's `knock` / `pass` gate logs and every poke on that part
+  carry over by name; then B's ramp down along +y (20 -> 12) onto W, a strip
+  at 12 the route crosses along +x, three bumpers, a DROP from W onto F (8),
+  the LIFT (18, 22) between F and the low floor L (2), and the CANNON from F
+  along -x over L onto the goal ledge G (4).  20,970 bytes stored, 4,590 LZB
+  (MILL 26,785 RAM); compiles in about 28 s cold.  The autopilot finishes:
+  goal at step 723 (13.1 s), no fall, one kick; limit the tool's 25 s.
+
+  THE RING'S END is designed in, not poked: a card row's offset is
+  (rb R + 2 x) mod 8192 for world card row R and word x (bbcourse.ring_cross),
+  so the spots are fixed in the world -
+  - **lanes**: post 4 (7, 13) on A, lines 192 - 208, crosses on the CGA (row
+    102); post 6 (20, 16) on W, lines 352 - 368, crosses on the Hercules (row
+    90) - one 2-word lane a card; post 6 has W's back, a level floor about
+    60 lines above it, for the LOW scenario (post 4's, C, is unchecked: the
+    CGA's LOW_NEAR is 0 and its `wrapcommit` optional);
+  - **3- and 4-word ball boxes** (`wrapbox`, 0 checked on any course today):
+    the route's own frames - the Hercules at (21, 15) on W (box x0 45, row
+    90), the CGA at (19, 20) on F (box x0 30, row 204).
+
+  Frames below are the HOST MODEL's (bbcourse.glide_run, the autopilot under
+  LATTICE with the heavy rule, CGA / Hercules frames at the card's refresh,
+  the census script of the TMILL agent): PREDICTED, not measured - the guest's
+  boxes and commits are only MartyPC's, and phase 3's first run measures them.
+  A leg's "frames" is the frame by which every feature it needs has appeared
+  FEAT_EACH (3) times, so a benchmark can stop there (today B runs a fixed
+  BZ_BENCH 1,200; stopping early is the row's - bz_fs is watched anyway).
+
+  | row, leg | today: course, feature | TMIL: feature (cell) | frames needed (CGA / Herc) |
+  |---|---|---|---|
+  | wheel, BENCH (benchmark, breakpoints on every commit) | MILL, 1,200 frames: rotors shown, a kick, 2- and 3-word commits, HOLD_FROM 120 late frames | both rotors shown from frame 1; the kick of post 5 (17, 16); posts 5 and 6 shown from 256 / 212 | ~400 / ~350 (the kick at 331 / 282 and enough held frames after 120) |
+  | wheel, LOW (+ the BEAM sweep) | MILL play, a post at window line 160, held ball | post 6 (Herc crossing, `wrapcommit`) from W's back; post 4 (CGA crossing) if low_plan finds C | unchanged: the scenario's own ~48 + 138 frames |
+  | wheel, CORNER | MILL's post 6, scripted camera | post 4 (7, 13), column 21 (a CGA window reaches its left; the Hercules' REPORTED as today) | unchanged (<= 10 tries) |
+  | wheel, STALE | MILL, a rotor above the window's top | the windmills (lines 144 - 184), ball held on the ramp or W | unchanged |
+  | wheel, SIDE | MILL, a rotor / clock digit beside the column band | the clock (6, 13) beside the windmills, or the finish clock (11, 21) | unchanged |
+  | wheel, CLOCK | FIRST, ball held at the start | TMIL's clock (6, 13) is in the start's window (or TQUIK's) | unchanged |
+  | wheel, GATE | MILL's `knock` / `pass` logs (windmill (9, 9)) | the same windmill, the same cells and seed: the logs re-stamped for TMIL | unchanged |
+  | ring, `bench` (8 directions, full write, laid records, controls) | BENCH, 1,200 frames, scripted camera | the scripted camera on TMIL: every direction 3 times by frame 60 / 60; records laid over the ball from 326 / 278 (7 / 6 frames, LAY_EACH 6) | ~340 / ~290 |
+  | ring, `trial` (shadow own box, three boxes, shadow inside, raster order) | TRIAL, 1,200 frames (+ a poke for three boxes; Herc red today) | the DROP's bounces on F: shadow own 570 / 484, inside 584 / 497; THREE BOXES (ball, shadow, the lift's box) 601 / 510, on BOTH cards from the route | ~620 / ~530 |
+  | ring, `mill` (crotor, cpost, defer, pbox, pclip, enter_row, enter_col, transit, exits, wrapcommit; ahead/behind/lead via LOW) | MILL, 1,200 frames | crotor 81 / 69 (windmill (9, 9)); transit 106 / 91; exits 139, ~560, ~720; enter_row ~256 / 212 (posts entering as B's ramp pans down); cpost the kick 331 / 282; defer 339 / 511; pbox 382 / 389; pclip at the lift (not in the host model: from ~380 on); enter_col ~720 / ~650 (G's clock; the Hercules' optional); wrapcommit from LOW (post 6) | ~730 / ~660 (the whole route; the goal is ~795 / ~665 frames) |
+  | ring, the ring's end (`wrapbox`) | none on any route (0 checked); the MILL play's poked scene | ON THE ROUTE: Herc (21, 15) at 447, CGA (19, 20) at 692 (12 / 10 frames) | inside the `mill` leg's frames |
+  | ring, MILL play: `ride`, `pover`, `ridebox`, `pwait`, DEFER, ring's-end and entering-column scenes | MILL's lift (26, 18), posts, poked spots | the lift (18, 22) (L 6, F the high dock, L the low), posts 5 / 6, the route's own ring's-end spots | unchanged (scenario lengths: RIDE_FRAMES 150, PW_FRAMES 24 / 21 ...) |
+  | ring, `probe` (row 0) | BENCH play at the top clamp | TMIL's top: C (18) and B (20) under the window's top rows | unchanged (<= 30 frames) |
+  | ring, `camera` | MILL's RAMP_POKE (15, 7), MILL route demo, SIDE_SCEN (21, 17), TRIAL's drop, PEAK | RAMP_POKE / SIDE_SCEN re-found on TMIL (B ends at wx 14, (21, 17) is no floor); the route a make_log of TMIL's autopilot; the drop's fall for TRIAL's | per scenario |
+  | perf, `mill` (OFF x 3, ON with the lift stretch) | MILL, 1,200 frames each | TMIL's benchmark to past the lift stretch | ~730 / ~660 |
+  | perf, `trial` (+ the bounce camera replay) | TRIAL, 1,200 frames | the drop's bounces on F | ~620 / ~530 |
+  | perf, `ride` / `corner` | MILL's lift | TMIL's lift (18, 22) | unchanged (RIDE_STEPS 296) |
+  | perf, `dover` | MILL's shipped route demo | a make_log of TMIL's autopilot (723 steps) | 723 steps |
+  | perf, `avfall` | MILL's AVFALL key scripts | re-derived off A's, W's and F's edges | per fall |
+  | perf, `bench` (the A/B) | BENCH | stays BENCH: the old builds carry BENCH, not TMIL | 1,200 |
+
+  So the ring's three benchmarks (BENCH, TRIAL, MILL: 3 x 1,200 frames a card)
+  become ONE TMIL run of ~730 / ~660, and the wheel's MILL benchmark ~400 /
+  ~350 - if a row stops at its last feature rather than at BZ_BENCH.
 - [ ] **A test pathway** for bonanzapath's secret and paging legs.
 - [ ] The B benchmark takes a course (no hard-wired BENCH).
 
