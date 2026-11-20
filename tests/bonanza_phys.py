@@ -949,6 +949,14 @@ def tp_rect(H):
     return BB._rect(r), r
 
 
+def play_rect(H):
+    """the apron rung of top H as bbcourse's PLAY_RUNGS names it: bonanza_ring's ground scenarios call it
+    inside its tply_geom(), which swaps TPLY's cells into those constants (phase 3 renamed this module's
+    own to tp_rect; this one stays for its caller)"""
+    r = dict(BB.PLAY_RUNGS)[H]
+    return BB._rect(r), r
+
+
 def ev_of(crs, mat, poke, keys):
     p = run_keys(crs, mat, poke, keys)
     return p, [e[0] for e in p.events]

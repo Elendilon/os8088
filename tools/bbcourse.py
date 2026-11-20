@@ -30062,6 +30062,9 @@ def _sc_crosscommit(X, res):
     if [c.name for c in w5] != [n for n in (c.name for c in courses) if n in W5_CHAIN]:
         res.append(("1 the cross-commit chain covers %s's courses %s (it covers %s)" % (
             W5_COMMIT, ", ".join(W5_CHAIN), ", ".join(c.name for c in w5) or "none"), False))
+    # (that commit's tool exempts course 0 from `target` - BENCH was course 0 there, and is a test course
+    # after the shipped ones here since SPEC.md 130.54: it is handed BENCH first, in its own order)
+    w5.sort(key=lambda c: c.name != "BENCH")
     import tempfile
     w5dir = tempfile.mkdtemp(prefix="bbw5")
     w5txt = []
@@ -30069,7 +30072,7 @@ def _sc_crosscommit(X, res):
         src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         with open(src_path) as fh:
             kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"],
-                                                                                 ["uses"], ["float"])]
+                                                                                 ["uses"], ["float"], ["test"])]
             # (story 9.8, SPEC.md 130.25.20: `uses` left out too - that grammar lacks it, and a family list is
             # not in that commit's parts; this tool compiles the text with the family rule off, "famuses";
             # and 130.27.2's `float`, which that grammar lacks too)

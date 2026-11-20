@@ -17,7 +17,12 @@
 #  - the LIFT (18, 22), L 6: F its high dock, the low floor L (2) its low one, low in the picture (a lift's
 #    track and a rotor never share a CGA window);
 #  - the CANNON from F along -x over L onto G (4), the goal: scrolling up and left after the descent's down
-#    and right; occluder records laid over the ball on the route (W, from about frame 326); two clocks.
+#    and right; occluder records laid over the ball on the route (W, from about frame 326); two clocks;
+#  - the QUIET PAD Q (0) and its post (33, 42), off the route and below everything: bonanzawheel's CORNER
+#    leg's LIGHT diagonal step (SPEC.md 130.13.7 item 5) - the post's first row on the window's bottom edge,
+#    the ball held still on Q's flat floor at its centre, and nothing else in the window that moves (its
+#    top, line 562 on the CGA / 564 on the Hercules, is about 60 lines under the lift's lowest reach and
+#    further from every rotor, clock and tube).  Post 6 shares its window with both rotors and the clock.
 # width 64 with origin 272: the reach's footprints fill the picture's 512 px, left (G) and right (B, W's end).
 course TMIL "Wheel and Ring"
 test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
@@ -41,6 +46,8 @@ wall  tile 17 19        flat 8.5          # the cannon's body
 floor tile 16 19        flat 8            # its mouth
 floor rect 11 18 14 22  flat 4            # G, the goal ledge
 goal  rect 11 18 13 21  flat 4
+floor rect 29 28 34 33  flat 0            # Q, the corner leg's quiet pad: off the route, far below it
+floor rect 32 41 35 44  flat 0            # ...and its post's pad
 
 tube keep   9 9  12 6  via 9 6            # the route's windmill: A to B
 prop windmill 9 9  seed 16
@@ -52,6 +59,7 @@ prop bumper 17 16                         # kicked on the route
 tube drop  22 16  22 18  out +y  height 2 # W to F
 tube launch 18 19  16 19  speed -288 0 480   # F over L to G
 prop platform 18 22 6                     # the lift: F (8) high, L (2) low
+prop bumper 33 42                         # the corner leg's post, alone at the bottom
 
 start 9 12
 way  9 12
