@@ -413,7 +413,7 @@ bz_pinit:
     mov [bz_ckmat], al          ; with (130.14.18 item 3), until a flag
     mov al, [es:di + BZG_WX]
     mov ah, [es:di + BZG_WY]
-    mov [bz_safe], ax           ; the start is SAFE (130.10.4.5)
+    mov [bz_safe], ax           ; bz_safe starts on the start (130.10.4.5)
     call bz_place
 %if BZ_TITLE
     cmp byte [bz_tmode], 1      ; SPEC.md 130.23.3: a TITLE DEMO starts from its

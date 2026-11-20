@@ -6758,9 +6758,8 @@ def build_props(src, tiles, fname):
                           "mask": P - 1, "shift": 0, "seed": seed, "h2": lo, "hP": 4 * lo, "hT": 4 * lo + 8 * L,
                           "pmax": 2048 * L, "track": [A]})
     # wave 4 (SPEC.md 130.14.4.1): flags, pads, the cup and springs, each on a
-    # FLAT FLOOR with no VOID among its four edge neighbours (SAFE's own
-    # conditions) and no other prop; a flag or a cup on a NORMAL surface, a
-    # spring not on ice
+    # FLAT FLOOR - whatever its neighbours, VOID beside it or not (2026-11-20) -
+    # and no other prop; a flag or a cup on a NORMAL surface, a spring not on ice
     start_ball = src.ball[0] if src.ball else MAT_RUBBER
     for what, lst, cap in (("checkpoint", src.ckpts, CKPT_MAX), ("pad", src.pads, PAD_MAX),
                            ("cup", src.cups, CUP_MAX), ("spring", src.springs, SPRING_MAX)):
@@ -6777,11 +6776,8 @@ def build_props(src, tiles, fname):
         t = tiles.get(at)
         if (t is None or t.kind != KIND_FLOOR or t.sx or t.sy) and "flat" not in _CHECKS_OFF:
             raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, what, at[0], at[1]))
-        if not all(edge_rec(tiles.get((at[0] + dx, at[1] + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()) \
-                and kind != PK_SPRING:              # (SPEC.md 130.14.4.1: a SPRING may stand at a pit's edge -
-            # it launches and never places a ball; once the title's waiver alone, 130.23.2)
-            raise CourseError("%s:%d: a %s on (%d, %d) with VOID beside it (a flag, a pad and the cup "
-                              "stand where a SAFE cell could)" % (f, ln, what, at[0], at[1]))
+        # (no rule about its neighbours: SPEC.md 130.14.4.1 - a flag, a pad, the cup and a spring may stand
+        # on a one-tile path or at its end; a respawn is the cell's centre at rest, 130.14.4.5)
         if kind in (PK_CHECKPOINT, PK_CUP) and t.surf != SURF_NORMAL:
             raise CourseError("%s:%d: a %s on (%d, %d): it stands on NORMAL ground, not %s"
                               % (f, ln, what, at[0], at[1], SURFACES[t.surf]))
@@ -11358,12 +11354,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         _FAST_EXTRA, _DOWN_S0, repr(crsinfo)), _reach)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
-    # the start: SAFE
+    # the start (SPEC.md 130.10.4.5): a FLAT FLOOR and no prop's cell - whatever its neighbours (2026-11-20:
+    # until then SAFE, four solid edge neighbours; a respawn there is the centre at rest, 130.14.4.5)
     (swx, swy), sln = src.start
     sc = cells.get((swx, swy))
-    if pth is None and (sc is None or not sc[3] & FL_SAFE):     # (the pathway's: pad 0, no physics there)
-        raise CourseError("%s:%d: start (%d, %d) is not SAFE (a flat floor with four solid edge neighbours)"
-                          % (fname, sln, swx, swy))
+    if pth is None and (sc is None or sc[2] & 15 != KIND_FLOOR or sc[1] or (swx, swy) in pcell):
+        # (the pathway's: pad 0, no physics there)
+        raise CourseError("%s:%d: start (%d, %d) is not a flat FLOOR clear of props" % (fname, sln, swx, swy))
     for (wx, wy), ln in src.ways + [w for b in sorted(src.branches) for w in src.branches[b]]:
         t = tiles.get((wx, wy))
         if t is None or t.kind == KIND_WALL:
@@ -24036,7 +24033,8 @@ def _grammar_cases():
         ("a solid tile at wx = 2", F + "floor tile 2 5 flat 4\n", "solid outside 3 .. 252"),
         ("a wall no higher than a neighbouring floor", _swap(F, "wall  rect   3 3  7 4  flat 6", "wall rect 3 3 7 4 flat 4"),
          "is not above the floor"),
-        ("a start that is not SAFE", _swap(F, "start 4 5", "start 8 5"), "is not SAFE"),
+        ("a start on a ramp", _swap(F, "start 4 5", "start 8 5"), "is not a flat FLOOR"),
+        ("a start on a WALL", _swap(F, "start 4 5", "start 4 3"), "is not a flat FLOOR"),
         ("a way on a VOID tile", F + "way 12 5\n", "is on a VOID tile"),
         ("a footprint past the width", _swap(F, "width  64\n", "width  64\norigin 64\n"), "past the 512 px width"),
         ("a prop of no kind (prop is wave 3's statement)", F + "prop tile 4 4\n", "prop takes windmill, bumper or platform"),
@@ -27112,7 +27110,7 @@ def _w4_cases():
         ("a flag on sand", C + "surface sand rect 6 5 8 7\ncheckpoint 6 6\n", "NORMAL ground, not sand"),
         ("the cup on ice", C + "surface ice tile 12 6\n", "NORMAL ground, not ice"),
         ("a spring on ice", C + "surface ice tile 6 6\nspring 6 6 300\n", "ice"),
-        ("a pad with VOID beside it", C + "pad rubber 4 6\n", "with VOID beside it"),
+        ("a start on a pad", C + "pad rubber 5 6\n", "is not a flat FLOOR clear of props"),
         ("two props on one cell", C + "pad rubber 6 6\nspring 6 6 300\n", "already belongs"),
         ("a way with a bad branch", C + "way 6 6 branch toolongname\n", "branch <name>"),
         ("a branch way on a WALL", C + "way 6 3 branch B\n", "is on a WALL"),
@@ -30733,7 +30731,7 @@ def _sc_grammar(X, res, part=(0, 1)):
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     if mine():                                      # SPEC.md 130.14.4.1: a SPRING may stand at a pit's edge
-        try:                                        # (VOID west of (4, 6)); a pad there is refused (above)
+        try:                                        # (VOID west of (4, 6)); _sc_flags: a flag, a pad, the cup
             compile_course(_W4C.replace("origin 224\n", "origin 224\nuses spring\n") + "spring 4 6 300\n",
                            fname="<a spring at a pit's edge>")
             ok_, msg = True, "compiled"
@@ -32055,6 +32053,7 @@ def _sc_flags(X, res):
     res.append(("5 negative controls: a flag behind a wall 5 units tall is REFUSED (HIDDEN); one behind a wall 2 "
                 "units tall keeps %d pennant pixels under the wall with the clip taken out, 0 with it" % _pfront(raw),
                 hid and _pfront(half) == 0 and _pfront(raw) > 0))
+    _sc_onepath(res)
     # item 6's control (130.14.17 item 5): a spring's launch left out of zhi fails item 6's spring test
     fx = _W4C + "uses spring\nspring 8 7 512\n"
     # (round 3b, SPEC.md 130.17.17: both without the boost's launch, whose added bounce now covers the
@@ -32065,6 +32064,79 @@ def _sc_flags(X, res):
                 "6's spring test, which the same course passes with it" % (
                     spring_bounds(cs)[0][0][1], spring_bounds(cs)[0][0][2]),
                 not spring_bounds(cs)[1] and spring_bounds(cf)[1]))
+
+
+def _sc_onepath(res):
+    """SPEC.md 130.14.4.1, 130.10.4.5 (the owner, 2026-11-20): a flag, the start, a pad and the cup on a
+    ONE-TILE path (VOID both sides) or at its end.  _W9B's bridge is (9 - 11, 5); a spur (6, 8 - 10) runs
+    off its start area to a dead end.  Each compiles (NO TRAP included) and the model replays it: a respawn
+    is the cell's centre at rest and stays there.  Red arms: each placement HAS VOID beside it by the old
+    rule, read off the compiled grid (so the acceptance is not vacuous), and the same cell left toward that
+    VOID falls (so a fall would be seen)"""
+    texts = (("a flag on the bridge", _swap(_W9B, "checkpoint 7 6", "checkpoint 10 5"), (10, 5)),
+             ("the start on the bridge", _swap(_W9B, "start 5 6", "start 10 5"), (10, 5)),
+             ("the start on the bridge, a GOAL course (bz_safe)", _swap(_swap(_W9B, "start 5 6", "start 10 5"),
+                                                                       "cup 14 6\ncheckpoint 7 6\n",
+                                                                       "goal rect 15 4 17 8 flat 4\n"), (10, 5)),
+             ("a pad at the spur's end", _W9B + "floor rect 6 8 7 11 flat 4\npad steel 6 10\n", (6, 10)),
+             ("the cup on the bridge", _swap(_W9B, "cup 14 6", "cup 10 5"), (10, 5)))
+    for what, text, at in texts:
+        try:
+            c = compile_course(text, fname="<%s>" % what)
+        except CourseError as e:
+            res.append(("5 accepted (130.14.4.1): %s -- got: %s" % (what, e), False))
+            continue
+        g = Physics(c).grid
+        void = [d for d in ((1, 0), (-1, 0), (0, 1), (0, -1)) if g.cell(at[0] + d[0], at[1] + d[1])[3] == KIND_VOID]
+        ctr = ((16 * at[0] + 8) << 8, (16 * at[1] + 8) << 8)
+
+        def still(p, n=300):                        # n idle steps: on the centre, grounded, no fall
+            f0 = p.nfall
+            for _ in range(n):
+                p.step(0)
+            return (p.gx, p.gy) == ctr and not p.air and p.nfall == f0 and p.gvx == p.gvy == 0
+        if "flag" in what or "start" in what:
+            # the respawn: left at rest (the start) or touched (the flag), then rolled off into the VOID
+            p = Physics(c, play=True)
+            if "flag" in what:
+                p.poke(*at)
+            ok0 = "flag" in what or still(p, 60)
+            p.poke(at[0], at[1], gvx=96 * void[0][0], gvy=96 * void[0][1])
+            for _ in range(200):
+                p.step(0)
+                if p.respawned:
+                    break
+            fell = p.nfall == 1 and _ev(p, "respawn")[-1:] and _ev(p, "respawn")[-1][2] == at
+            ok = ok0 and bool(fell) and still(p)
+            p.step(K_RET)                           # ...and RETURN puts it there again, at rest
+            ok = ok and _ev(p, "return")[-1:] and _ev(p, "return")[-1][2] == at and still(p)
+            got = "respawned on it at rest and stayed 300 steps, RETURN the same"
+        elif "pad" in what:
+            p = Physics(c, play=True).poke(*at)
+            ok = still(p) and p.mat == MAT_STEEL and p.npad == 1
+            q = Physics(c, play=True).poke(at[0], at[1], gvy=96)    # (the red arm: off its end, it falls)
+            for _ in range(200):
+                q.step(0)
+                if q.respawned:
+                    break
+            fell = q.nfall == 1
+            got = "a ball poked on it at rest is steel and stays; rolled off its end it falls"
+        else:
+            p = Physics(c, play=True).poke(9, 5, gvx=96)   # coasting along the bridge into the mouth
+            for _ in range(200):
+                p.step(0)
+                if p.goal:
+                    break
+            q = Physics(c, play=True).poke(at[0] - 1, at[1], gvy=96)     # (the red arm: off the bridge, it falls)
+            for _ in range(200):
+                q.step(0)
+                if q.respawned:
+                    break
+            ok, fell = bool(p.goal) and p.nfall == 0, q.nfall == 1
+            got = "a ball coasting along the bridge holes out; one rolled off beside it falls"
+        res.append(("5 accepted (130.14.4.1, 130.10.4.5): %s at %s, VOID %s beside it (the old rule's refusal: "
+                    "the red arm) - %s" % (what, at, "on %d sides" % len(void), got),
+                    bool(ok) and bool(fell) and len(void) >= 2))
 
 
 def _sc_y0moon(X, res):

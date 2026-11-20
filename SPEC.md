@@ -253859,7 +253859,7 @@ generator's own rule (130.3), so wave 0b's course is a direct transcription.
     origin   <X0>                    optional: px, a multiple of 16; default width x 4 (the middle)
     <style>  <shape> <height>        a ROOM
     hole     <shape>                 those tiles become VOID, after every room
-    start    <wx> <wy>               the tile the ball starts on (it must be SAFE, 130.10.4.3)
+    start    <wx> <wy>               the tile the ball starts on (a flat FLOOR clear of props, 130.10.4.5)
     way      <wx> <wy>               one autopilot waypoint; the route is the ways in file order
 
     <style>  ::= floor | wall | goal
@@ -254110,7 +254110,7 @@ One cell a tile, four bytes, stored by screen row (130.10.2):
 | +0 `z0` | signed, HALF units: the floor's height at the tile's top corner `(wx, wy)`. A NEAR VOID cell holds its KILL height instead: 3 units below the lowest CORNER of the solid cells within two tiles (Chebyshev; where the drawn faces end for its neighbours). An OPEN cell (none within two tiles) holds -128 |
 | +1 slopes | low nibble `sx`, high nibble `sy`, each signed -8..7: half units a tile along `+wx` and `+wy`. wave 1's tool writes neither past -4 .. 4 |
 | +2 kind | low nibble: 0 VOID, 1 FLOOR, 2 WALL, 3 GOAL - each a PLANE; **4 - 15 RESERVED for non-planar floors** (corner ramps, bank, bowl and funnel quadrants: plan 3 and 8), whose slopes byte a later wave re-reads as the shape's parameter. Wave 1's tool never writes them and the guest's floor function (130.10.7.3) dispatches on this nibble, so a shape is a new case, not a new format. High nibble: the SURFACE, 0 in wave 1 (wave 2's ice, sand and the rest) |
-| +3 flags | bit 0 SAFE: a respawn cell - a FLOOR with no slope and no VOID among its four edge neighbours; bit 1 OCC: a ball anywhere in this cell may be behind an occluder (130.10.4.4), so the box compose runs the occluder pass; bits 2 - 7 zero (wave 2's thin-wall edges and wave 3's features take them) |
+| +3 flags | bit 0 SAFE: a respawn cell for `bz_safe` (the last one stood on, where a course with no flag and no cup respawns, 130.10.7.3 step 8) - a FLOOR with no slope and no VOID among its four edge neighbours. It is the AUTOMATIC respawn's rule only: the start, a flag, a pad and the cup are not held to it (130.10.4.5, 130.14.4.1), because a respawn there is the cell's centre at rest (130.14.4.5), which a one-tile path holds as well as a room; bit 1 OCC: a ball anywhere in this cell may be behind an occluder (130.10.4.4), so the box compose runs the occluder pass; bits 2 - 7 zero (wave 2's thin-wall edges and wave 3's features take them) |
 
 The floor's height at a point of a solid cell, `u = gx & 15` and
 `v = gy & 15` the integer ground units inside it, in QUARTER px:
@@ -254223,7 +254223,18 @@ the CGA's 1,093 steps on an OCC cell, 1.11 records laid on those on average,
 ##### 130.10.4.5 The route and the start
 
 `way` tiles become the ball's picture top-left at the tile's centre on its
-floor (the generator's rule), in order. `start` must be SAFE.
+floor (the generator's rule), in order. `start` must be a FLAT FLOOR
+(kind FLOOR, no slope) that is no prop's cell - whatever its neighbours: a
+start on a one-tile path, VOID on both sides, or at a path's dead end is
+legal (the owner, 2026-11-20: "you can sit on any one tile at a time").
+Until then it had to be SAFE (130.10.4.3); nothing read that. The ball is
+placed on the start's centre at rest (`bz_place`, the respawn's own
+placement), so it stays there until a key moves it, and on a course with no
+flag and no cup `bz_safe` starts as the start's cell whether or not it is
+SAFE (`bz_pinit`): a fall before the ball has stood on a SAFE cell respawns
+on the start, as it always did. Refused: a start on a ramp, a WALL, a VOID
+tile, a split or FIELD cell, or a prop's cell (a pad would swap, a spring
+launch and the cup hole out at the first step).
 
 ##### 130.10.4.6 What `--selfcheck` asserts
 
@@ -254239,7 +254250,8 @@ so nothing under `apps/` is a fixture.
 2. **The grammar**: each refusal fires on a line written to trip it - a
    ramp rate that is not a whole half unit, an `x` ramp at 5 and an `s`
    ramp at 3, a height out of range, a solid tile at `wx = 2`, a wall no
-   higher than a neighbouring floor, a start that is not SAFE, a `way` on a
+   higher than a neighbouring floor, a start on a ramp, a WALL or a pad (not
+   a flat FLOOR clear of props, 130.10.4.5), a `way` on a
    VOID tile, a footprint past the width, a reserved statement and an
    unknown one, a part over 65,024 bytes, a block row over the records
    bound, a position laying over the laid bound (provisionally 96 and 32,
@@ -261740,14 +261752,25 @@ there (130.1).
 The four props after every room, `surface` and `hole`, as 130.12.3.3's
 props. Each refusal names the line:
 
-- the tile of each must be a FLAT FLOOR with no other prop, and - but for a
-  `spring` - no VOID among its four edge neighbours (SAFE's own conditions,
-  130.10.4.3: a flag and the cup are respawn and capture cells, a pad a swap a
-  ball may rest on). **A `spring` may stand at a pit's edge** (the owner,
-  2026-11-20: a spring at the lip of a gap on a 1-wide path): it launches,
-  it never places a ball, so its neighbours decide nothing - the title's
-  waiver (130.23.2) made general; a `checkpoint` or a `cup` also a NORMAL
-  surface; a `spring` not `ice`;
+- the tile of each must be a FLAT FLOOR with no other prop - whatever its
+  neighbours: VOID beside it, on a one-tile path or at a path's dead end,
+  is legal (the owner, 2026-11-20: "later on we'll want to have flags and
+  spawns on 1 tile pathways ... you can sit on any one tile at a time"). A
+  `checkpoint` or a `cup` also a NORMAL surface; a `spring` not `ice`.
+  *Until 2026-11-20 each had to have no VOID among its four edge neighbours
+  (SAFE's conditions, 130.10.4.3, "so that a SAFE cell could be where they
+  are"); a spring was waived first, the same day (it launches and never
+  places a ball), then the rest, when nothing was found that read it: a
+  flag's respawn is its cell's centre at rest (130.14.4.5, `bz_rflag` /
+  `bz_placeat`, the model's `_respawn`), which reads no neighbour and stays
+  put on a flat NORMAL floor; a pad swaps a ball that ends a step grounded
+  on it (130.14.4.4); the cup captures in its mouth (130.14.4.3); NO TRAP
+  (below) runs its eight directions from the cell whatever is beside it, a
+  run that falls off simply reaching nothing; and the cell's SAFE bit,
+  cleared on every prop's cell, never changes - so no course's part moved.
+  What the player takes on beside a pit is the player's: a ball left
+  rolling sideways off a one-tile flag falls and respawns there, at rest
+  (`--selfcheck` section `flags`, `_sc_onepath`).*
 - at most 8 checkpoints (numbered 0 - 7 in file order), 8 pads, ONE cup,
   4 springs; at most 16 props with a lane (windmills, bumpers, flags) and
   32 props in all (130.14.4.2);
@@ -274529,9 +274552,10 @@ On a course with **`title`** (once, no clauses; refused beside `pathway`,
 
 - **A title's spring may stand at a pit's edge.** The props' rule that a
   flag, a pad, the cup and a spring have floor on all four sides (so that a
-  SAFE cell could be where they are) is waived for a spring on a course with
-  `title`: the title is never played, and its demos name their own respawn
-  cells (130.23.3). LL's spring stands on its front edge over the pit, where
+  SAFE cell could be where they are) was waived here first, for a spring on
+  a course with `title`: the title is never played, and its demos name their
+  own respawn cells (130.23.3). *Since 2026-11-20 the rule is gone for every
+  course and every one of the four (130.14.4.1).* LL's spring stands on its front edge over the pit, where
   the steel's try-and-fail jump and the rubber's carry across both need it.
 
 - **The title's art, as built** (T1.4): `tools/bbtitle.py` DRAWS it from
