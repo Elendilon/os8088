@@ -5060,6 +5060,9 @@ RED_ONLY.update({"noexit": ("exit1",)})
 RED_ONLY.update({"noadd": ("boostfall",), "nospent": ("spentspring",), "toutoff": ("timeout",),
                  "clkpass": ("clock",)})
 RED_WANT.update({"toutoff": "timeout frame"})
+# (clkpass and noexit carried no RED_WANT, so `--red clkpass|noexit` died on a KeyError rather than
+# judging the arm - red_aims found it, 2026-11-20)
+RED_WANT.update({"clkpass": "clock frame", "noexit": "exit1 frame"})
 RED_WANT.update({"noadd": "boostfall", "nospent": "spentspring"})
 # wave 6b (SPEC.md 130.17.10): the trigger and the late grace broken six ways, each red at its own replay.
 # heldarm: Space HELD arms the token too (the edge path arms as shipped; the no-edge path as well)

@@ -1121,12 +1121,14 @@ REDS = {
                 "    and al, 0efh                ; RED hopbit: Space not recorded\n")],
     # the recorder appends once a FRAME: bz_play records the frame's key byte
     # before its steps (a frame of no step too), and bz_step records nothing
-    "framekeys": [("bzgame.inc", "    mov byte [bz_resp], 0       ; (a respawn in this frame's steps: the cut)\n",
-                   "    mov byte [bz_resp], 0       ; (a respawn in this frame's steps: the cut)\n"
+    # (re-anchored 2026-11-20: the bz_resp clear became the early step's xchg, 1d562e022 - the anchor is
+    # the block's last line now, the frame's steps not yet begun)
+    "framekeys": [("bzgame.inc", "    mov [bz_estp], ah\n    mov cx, [bz_subs]           ; (sampled at the last frame's end mark)\n",
+                   "    mov [bz_estp], ah\n"
                    "    cmp byte [bz_mode], 0       ; RED framekeys: once a frame\n    jne .redfk\n"
                    "    mov bl, [bz_keys]\n    cmp bl, [bz_rk]\n    jne .redrec\n    cmp byte [bz_rn], 255\n"
                    "    jae .redrec\n    inc byte [bz_rn]\n    jmp short .redfk\n.redrec:\n    call bz_rrec\n"
-                   ".redfk:\n"),
+                   ".redfk:\n    mov cx, [bz_subs]           ; (sampled at the last frame's end mark)\n"),
                   ("bzphys.inc", "    mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte\n",
                    "    mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte\n"
                    "    mov byte [bz_tby], BZ_TILT_KEYS ; RED framekeys: not a step's\n"
