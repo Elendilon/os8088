@@ -89,10 +89,32 @@ selfcheck compiles and checks them, and its `courses` section cross-checks
 the Makefile's lists against the `test` lines. BENCH is one of them now and
 moved from course 0 to after the shipped courses: the test build's K are
 the shipped build's.
-- [ ] **TPLAY** (physics and replays): ramps (one steep), a lip and gap, a void
-      with a SAFE cell, rails and a bumper rail, ice, sand and mat strips, a
-      split goal (two exits), an apron with rungs and 1 / 1.5 / 2-unit tops,
-      a cup, pads, flags, springs, a timeout limit.
+- [x] **TPLAY** (physics and replays), BUILT as **TPLY** (`tply.bbc`, rubber,
+      `limit 20`, on `BZ_TESTCRS`): the PLAYGROUND's APRON at TRIAL's start
+      height - the start (19, 14), four ADJACENT rungs along its back row (2 /
+      1.5 / 1 / 0.5 units up, wx 7 - 18, wy 9 - 11, approached along -wy from
+      the front row wy 17; a 64-wide course has no width for apron between
+      them), the BRAKE STRIP (lane wx 12, wy 18 - 20) off its front into a
+      void over a well 16 units down; TRIAL turned a quarter (cell (Tx, Ty) ->
+      (Ty + 8, Tx + 9)): H's lip the apron's front edge, F, the gap, G and its
+      far rail, the STEEP ramp, the mat, the turn, the ICE between BUMPER
+      rails, the SAND, the SPLIT GOAL (25, 17) exit 0 / (26, 17) exit 1; a
+      YARD off the turn: FIRST's PLATEAU with its back RAIL and its ramp's
+      2-unit LIP, the three PADS, SPRING 1 (29, 35; 640, throws rubber onto
+      the plateau) and SPRING 2 (37, 30; 512), a plain EAST wall (38, 28 - 29),
+      flag 0's HOLE; a 14-cell level STRIP (`box 2 6 70 98`) for the drag;
+      FLAG 0 (26, 26, rubber) on the turn and FLAG 1 (19, 26, glass) on G. The
+      autopilot: exit 1 in 529 steps (9.7 s), no fall, both flags; NO TRAP
+      holds; one part, 30,979 bytes RAM, 91 masks (95 UNDITHERED - under the
+      256, so `nodither` can compile it: PLAYGROUND's 292 cannot). **Not on
+      it, and why**: the CUP (a course finishes at a goal or in a cup - TCUP
+      has it); the SAFE respawn (a flag or a cup sets GF_CKPT and every
+      respawn goes to the flag, so `pit` and the `respawn` arm move to BENCH,
+      which has neither: +wx from its start falls at step 210 and respawns on
+      (19, 14), not the start (6, 14)); the timeout's wait (TQUIK's 8 s; TPLY's
+      20 s times out at step 1,100 as the model says); the FAMILIES (wave 9's
+      glass, probe and pickups - open: a family test course, or the knob
+      courses that already carry their hosts).
 - [ ] **TMILL** (the wheel and the ring): rotors and lighting posts (2- and
       3-word lanes, one crossing the ring's end), a lift with docks, a tube
       and a cannon, a clock, scrolling both ways, occluders.
@@ -131,6 +153,63 @@ the shipped build's.
   | demo, `wave4` (another build's identity) | MOON's demo with EB84h | a TQUIK log with its +14 identity changed | the identity check alone |
   | demo, `ship` | every shipped demo | ROLL's and HOP's (the shipped ones) | unchanged |
   | demo, `hostile` | MOON's demo, this build's logs | TQUIK logs made from the model | - |
+
+  TPLAY's legs, phase 3 (the rows are NOT rewritten yet). Every home below
+  was PROVED on the model (2026-11-20, `bbcourse.Physics` on the compiled
+  course: the scenario's own search pointed at TPLY - `PLAY_RUNGS`,
+  `PLAY_FRONT`, `PLAY_LANE`, `PLAY_STRIP`, `PLAY_GAPROW` given TPLY's cells -
+  or its poke turned with the course): the event the scenario names happens
+  there, and where it has a red arm, the broken model PARTS there.
+
+  | row, scenario (its red arm) | today: course, feature | TPLY's home (or TCUP's, BENCH's, TQUIK's) |
+  |---|---|---|
+  | phys 2, `pit` (`respawn`) | FIRST: (5, 5) at 364 off B's lip over C into the void, SAFE (6, 5) | **BENCH** (no flag, no cup: a respawn is bz_safe's); on TPLY a fall respawns at a flag |
+  | phys 2, `lip` (`takeoff`) | FIRST: (9, 6) at 100 off B's lip, a rubber bounce on C | the plateau ramp's lip: (33, 32) at +wx 100 - takeoff, bounce |
+  | phys 2, `rail` | FIRST: (5, 4) at (-150, -250) into the rail at wy 3 | the plateau's back rail (wy 30): (29, 31) at (-150, -250) - gvy -243 to 89 |
+  | phys 2, `goal` (the face's goal line) | FIRST: (12, 6) at 250 into C's goal column | the split goal from the sand, (25, 19) along -wy - exit 0 |
+  | phys 3, `ramp-*`, `hop`, `hopagain` | TRIAL's start | the start (19, 14): the arrows, then the chord along +wy - no fall, each ball |
+  | phys 3, `stepup` (`airwall`) | FIRST: a Hop up B's ramp at -200 | the plateau's ramp: (33, 32) at -wx 200, a Hop - `_no_airclimb` parts at step 4 |
+  | phys 3, `grip` | TRIAL: H (5, 11) at 300 | H (19, 14) at +wy 300 - stopped, no takeoff |
+  | phys 3, `catch` | TRIAL: F (10, 11), 6 units up | F (19, 19), 6 units up |
+  | phys 3, `eastwall` (`edge`) | TRIAL: the chord into G's east rail | the yard's plain EAST wall: (35, 28) at +wx 300 - `_east_w1` parts (G's rail faces +wy here) |
+  | phys 3, `bumper` | TRIAL: steel (13, 17) at gvy -200 | steel (25, 22) at gvx -200 into the ice's back rail - 179 = 230/256 of it |
+  | phys 3, `ice`, `sand` | TRIAL: (15, 17), (12, 18) at -300 | (25, 24), (26, 21) at gvy -300 - -300 kept; 40 steps on the sand |
+  | phys 3, `mat` | TRIAL_MAT (19, 14) | the mat (23, 29) |
+  | phys 3, `bounce` (`bounce`), `stun` (`stun`), `shatter` (`shatter`) | TRIAL: `shot()` off H's lip over the gap | `shot()` turned: 20 gu before H's lip (wy 18) along +wy at the cap - rubber onto G; steel stunned, glass shattered on F |
+  | phys 3, `ramphop-*` (`absimpact`) | TRIAL: (17, 11) down the steep ramp | G (19, 26) along +wx at the cap, a Hop - `_abs_impact` parts at 35 / 40 |
+  | phys 4, the MILL replays | MILL | TMILL |
+  | phys 5, `flag` (`ckpt`) | MOON's flag 0 and a pit | flag 0 (26, 26) rolled into the hole (26, 30) - respawned on it; `_ckpt_safe` parts at 137 |
+  | phys 5, `flagmat-*` (`ckmat`) | PEAK's flag 3 (glass), MOON's flag 2 (rubber) | flag 1 (glass), flag 0 (rubber) |
+  | phys 5, `padswap-*` (`padftg`) | every pad of MOON and PEAK | the three pads (30 / 32 / 34, 29) |
+  | phys 5, `cup-128`, `cup-lip` (`cupv`), `cup-stun`, `cup-shatter` | PEAK's cup | **TCUP**'s cup (13, 5): 128 from (12, 5) holes out, 256 lips out; the stun and the shatter as PEAK's |
+  | phys 5, `spring-tier` | PEAK's spring 1 onto the upper tier | spring 1 (29, 35) from (29, 36) at -wy 192 - grounded on the plateau |
+  | phys 5, `spring-max` (`springsum`), `spring-shatter` | PEAK's spring 2 | either spring (589 = max(360, the rebound)) |
+  | phys 5, `return` | MOON's flag 1 | flag 0 or flag 1 |
+  | phys 5, `tilt` (`tiltcap`) | FIRST's start | the start |
+  | phys 6, `boost`, `pumpchk` (`pump`), `bouncefirst` (`tokbst`), `steelglass-*` | PLAYGROUND's start on the apron | the start |
+  | phys 6, `boostclimb`, `boostdrop`, `boostfall` (`noadd`) | PLAYGROUND's 1.5 / 1 / 2-unit rungs | the rungs 1.5 (wx 10 - 12), 1 (13 - 15), 2 (7 - 9), as found there |
+  | phys 6, `rampnot` (`rampboost`) | TRIAL's or FIRST's ramp | the steep ramp (21, 25) |
+  | phys 6, `sandnot`, `matnot` | PLAYGROUND's sand lane and mat | the sand (25, 18), the mat (21, 28) |
+  | phys 6, `liftnot` (`slabcell`) | MILL's lift | TMILL |
+  | phys 6, `flagboost` (`noflat`) | TRIAL / PEAK / MILL / MOON flags | flag 1 (19, 26) (flag 0 too) |
+  | phys 6, `springarm` (`springoff`), `spentspring` (`nospent`) | PEAK's springs, (24, 33) to (27, 33) | spring 1: at (160, 0); from (26, 35) along +wx at 160 |
+  | phys 6, `drag-rest`, `drag-cap` (`ceildrag`, `slowdrag`; the span) | PLAYGROUND's longest level run, RIGHT held | the STRIP, one arrow DOWN: from rest at (35, 30), 320 steps to 250 (the top 252); from the cap at (36, 32), 203 steps to 257. Phase 3 CHANGES the arrow (Right's run would need 26 cells of width) and stops the search on ANY event (its `corner` exemption picks a ball pinned in a corner on TPLY) |
+  | phys 6, `gripglass`; 6b `gripsteel` | PLAYGROUND's apron | the apron's back row, (7, 12) |
+  | phys 7 (6b), `armearly` (`armwin`), `armroll`, `armlate` (`nograce`, `graceoff`), `armlate5` (`grace5`), `hoponly` (`hopedge`), `armheld` (`noheld`), `ledgehold` (`heldarm`, `nogate`), `fallarm` (`nofall`), `fallnone`, `mashchain`, `gripchain` | PLAYGROUND's apron and rungs | the apron and rungs: each as written, `PLAY_RUNGS` / `PLAY_FRONT` pointed at TPLY |
+  | phys 7, `timeout` (`toutoff`) | FIRST's limit | **TQUIK** (8 s); TPLY's 20 s times out at step 1,100 |
+  | phys 7, `exit0`, `exit1` | TRIAL's split goal | the split goal, from (25, 19) / (26, 19) along -wy |
+  | phys 9, `glass-*`, `probe` (`famrsp`), `pickups`; `--check`'s families (`famcell`) | PLAYGROUND's families and demo | OPEN: no family on TPLY |
+  | phys `--check`, the no-family unicorn runs | MOON's and PEAK's demos | TPLY's route demo (TQUIK's, TCUP's) |
+  | replay 1 - 3, `record`, `replay`, `inject` (`hopbit`, `framekeys`) | TRIAL: free play off H's lip and over the gap; steel stunned, glass shattered on F | TPLY from its start: H's lip 3.5 tiles along +wy, the gap, F |
+  | replay 4, MILL (`propclock`, `noident`) | MILL | TMILL |
+  | replay, wave 4 `mouse` (`tiltmap`) | MOON, T MOUSE, a respawn | TPLY free play (the gap or the strip's void respawns it) |
+  | replay, wave 6 `play`, 6b's mouse boost | PLAYGROUND: a Hop and its boost at the start, along the apron to the brake strip, Grip | the start, -wx along the apron to the lane wx 12, down it, Grip: rubber stops 1.9 tiles onto the strip (`play_grip`; steel stops on neither course) |
+  | ring ground, `boostclimb` (`camz`), `boostdrop` | PLAYGROUND (bonanzaphys's) | TPLY (bonanzaphys's) |
+  | ring ground and camera, `trialdrop` (`camring`, `latpad`) | TRIAL (bonanzaphys's `bounce`) | TPLY's `bounce` |
+  | ring ground, `voidfall` (`nosafe`, `nolatch`) | PLAYGROUND's strip lane into its void | the lane wx 12 into the void over the well: `play_fall` CGA kill 213, `nosafe` lost 191, `nolatch` halts at 198; Hercules kill 181, lost 169 (PLAYGROUND: 228 / 220 / 223) |
+  | ring camera, `dither` (`camhyst`) | PLAYGROUND's demo at its fork | OPEN: a fork of TPLY's route demo, to be searched |
+  | ring camera, `ramp-*`, `mill-demo`, `side`, `peak-demo` (`camcap`), `peak-cannon` (`campreaim`, `camprex`) | MILL, PEAK (the lift, the cannon) | TMILL |
+  | ring, `nodither` (the bench leg's data) | every course undithered: PLAYGROUND's 292 masks refuse | TPLY undithered: 95 masks |
 - [ ] **A test pathway** for bonanzapath's secret and paging legs.
 - [ ] The B benchmark takes a course (no hard-wired BENCH).
 
