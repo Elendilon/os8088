@@ -261777,7 +261777,7 @@ centre cell's surface (130.11.7.1); `bz_npad` += 1. The arrows' levels,
 the squash and a STUN carry over (a stunned ball rolled onto a pad by
 nothing but its stop does not exist: a stun stops every velocity, so a pad
 is reached stunned only by landing on it). From the next frame the sprite
-is the new material's (`bz_bsegs[bz_mat]`, 130.14.4.7). A pad gives its
+is the new material's (`bz_bsegs[bz_mat]`, 130.14.4.7) - drawn on that frame even when nothing else about the ball changed: `bz_setmat` invalidates `bz_ospr`, as a cue look's change does, because `bz_mkboxes`'s idle test compares no material (*until 2026-11-20 a swap on a still ball - a ball poked or creeping onto a pad - left the old ball on the glass until it next moved; found by bonanzaring's W4 `tply-pad-*` on TPLY, +10 bytes*). A pad gives its
 material again only after the ball has left it with another (`bz_mat`
 differs), so standing on a pad swaps once. The launch fetches the starting
 ball, every ball the pad mask names AND every flag's own ball (a respawn
