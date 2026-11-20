@@ -94806,6 +94806,45 @@ pass leaves binding:
   instead, and `ark_fire` saves nothing either. The worker's static stack
   chain is 50 bytes, from 64; it keeps `OS88_STACK_192`.
 
+### 44.13 A still board is promised to the raise cache
+
+Arkanoid's whole repaint is the wall - every brick, both rails, the status
+strip - so a raise over a paused game drew all of it again although nothing
+had moved since the window was covered. §11.96.1 is a mode and Arkanoid has
+both kinds: `ark_still` is the test, and `ark_promise`/`ark_unpromise` say it
+to the kernel through `OSAPI_WM_FLAG` only when the answer changes
+(`[ark_prom]`, born zero as the class is born without `WF_SAVEU`).
+
+**Promised**: `M_PAUSE` and `M_OVER` once the paddle has stopped and its
+draw is not owed, and `M_READY` when, in addition, no capsule or bolt is in
+the air or owed an erase (a death leaves them falling). **Never in play**:
+§44.8's focus pause is noticed by the worker a frame after the window over
+the game came up, and the kernel banks the game as that window comes up, so
+a cache taken mid-rally is a picture without the PAUSED banner, whose own
+draw is then skipped while covered. Withdrawn through the rally, the raise
+repaints as it always did, banner and all, and the still face after it is
+promised then. `M_DEAD` and `M_CLEAR` count down to a new board, so they are
+not still either.
+
+| site | what it says |
+|---|---|
+| the worker, after every frame it DREW | the board as it stands |
+| `ark_paint`, after the whole board | the same |
+| the worker, when a frame is SKIPPED (hidden, wholly covered, or the credits up) | withdrawn: the change was not drawn, so what was banked is the past |
+| `ark_cmd_pause`, `ark_cmd_new`, and Space outside `M_PAUSE` (a serve) | withdrawn on the UI task, BEFORE anything moves - §11.96.1's urgent direction |
+
+**A promised board that has nothing new does not arm a clip.** Arming drops
+the cache (§11.96.18 keeps it only when the window is wholly covered), so a
+paused game that took `OSAPI_WM_CLIP_SET` every tick, as the worker did,
+would destroy its own cache whenever it was partly visible and pay the
+z-order walk for nothing. While promised the worker asks `ark_still` first
+and takes the lock for nothing more; `[ark_full]` is not raised either, so a
+cached raise is not followed by the whole board drawn again. The paddle is
+what can still change: `ark_do_paddle` reads `OSAPI_KEY_DOWN`, which is the
+machine's key state and not the front window's, so an arrow typed into a
+window over a paused game moves its paddle - and that frame falls through,
+withdraws if it cannot draw, and the raise repaints.
+
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
 A four-channel ProTracker MOD player: `tracker.asm` (shell, menus, the file
@@ -128320,6 +128359,39 @@ Image −55, file −60.
   twelve frames, so it is cheaper as well as shorter.
 
 Image −64, file −42.
+
+### 67.27 A paused game is promised to the raise cache
+
+A whole repaint here is the web alone at ~180 ms on the target (§67.5.6), so
+a raise over a paused game that drew it again had nothing to show for it.
+§11.96.1 is a mode, and **`CYS_PAUSE` is the one state that is still**: the
+attract screen and both warps animate, game over runs its debris and its
+clock, and **play is never promised** - `cy_focus_ck`'s pause is noticed by
+the worker a frame after the window over the game came up, after the kernel
+banked it, and the PAUSED banner's own draw is then skipped while covered.
+Withdrawn through play, the raise repaints as it always did, banner and all,
+and the still face after it is promised then.
+
+`cy_still` is the test - outside the bracket, `CYS_PAUSE`, the banner on the
+glass (`[cy_msgp]`), and no layout, repaint, HUD or panel owed -
+`cy_promise`/`cy_unpromise` say it through `OSAPI_WM_FLAG` only when the
+answer changes (`[cy_prom]`), and every site holds the gfx lock:
+
+| site | what it says |
+|---|---|
+| `cy_render`, after every frame it drew (not in the bracket, §53.7) | the game as it stands |
+| `cy_paint`, after the whole picture | the same |
+| `cy_render`, a frame SKIPPED (hidden or wholly covered) | withdrawn |
+| unpause, `cy_newgame`, `cy_go_fsx` | withdrawn on the UI task BEFORE anything moves |
+| `cy_panel_up` | withdrawn: the panel draws there without a clip, and a menu pick can reach a window only partly visible |
+
+**A promised, still pause does not arm a clip**: `cy_render` asks `cy_still`
+first and takes the lock for nothing more, because arming drops the cache
+(§11.96.18 keeps it only for a wholly covered window) and a paused game
+armed on every tick. The early out skips `cy_track` as well, which is safe
+because every path that draws again goes through it first. Inside the
+bracket `[cy_prom]` is always 0, so `cy_key_common`, which the bracket's
+loop shares, never calls the kernel from there.
 
 ### 67.13 What is deliberately not here
 
@@ -177387,6 +177459,37 @@ data follows the user-decided C64 precedent (docs/C64-SPEC.md). The About card
 carries the product, the reference and its commit, the author's copyright and
 licence, the ROM and Dossier credits, and nothing about how the build renders.
 
+### 91.1 The window is promised to the raise cache in every mode
+
+A whole PACCMAN repaint recomposes every band out of the two RAMs, ~2.5 s
+of XT, so a raise that put the window back from §11.96's cache instead is the
+largest saving any package here gets from it. The class is born
+`OS88_WF_KEEPH | OS88_WF_OWNBG | OS88_WF_SAVEU`, in every mode, play and the
+attract screen included - unlike Arkanoid (§44.13) and Cyclone (§67.27),
+which promise only while paused.
+
+The difference is what losing the front does. `pmc_frame` ticks the game
+and flushes its bands only while `os88_wm_top()` answers this window, asked
+under the gfx lock in the same hold as the flush, and otherwise does nothing
+at all: it is a freeze, not a pause, and it owes no banner. So the glass is
+current whenever another window can come up over the game and nothing moves
+while it is up - §11.96.1's question 1 answered no by construction. Two
+cases look like exceptions and are not. A chunked flush (`PMC_HOLD_BANDS`)
+drops the lock between bands, so a window raised inside that break banks a
+field with some bands still owed; and a key or a menu command that reaches
+the game while it is not frontmost marks bands without drawing them. Either
+way the marks stand, and the first frame after the raise flushes them over
+what the cache put back - exactly what that frame would have drawn had the
+window never been covered.
+
+The one drawing from a callback is the About card: `os88_about` draws it
+with no region armed, which tells the kernel nothing, and a menu pick can
+reach a window only partly visible - when a cache of it exists. So it
+withdraws the promise first, which drops that cache, and makes it again once
+the card is up, because the card stands still until a key or a command takes
+it down. `os88_fullscreen` needs nothing: the frame changes, and §11.96's
+rect compare refuses a cache taken at the old one.
+
 ## 92. THE WIRE — the online software library (`apps/thewire/thewire.asm`)
 
 The Wire is a window listing every program the project publishes, fetched
@@ -216085,6 +216188,33 @@ by the gates (`tests/gorillascity.py` sweeps eleven surfaces,
 decodes every FM row and `tests/gorillasreactions.py` catches every tone the
 guest's own sequencer requests), so the generator stays the one statement of
 what every byte must be.
+
+### 99.6. The window is promised to the raise cache in every mode
+
+A full Gorillas paint converts the whole scene through the scaler (99.4's
+budgets are 1.8 s on VGA and 0.6 s on CGA and Hercules), so putting a covered
+window back from §11.96's cache instead is worth the promise - and Gorillas,
+unlike the other real-time games, can make it in **every** mode, flight and
+the animated intro included. The class is born `WF_OWNBG | WF_SAVEU`.
+
+§11.96.1's question 1 is answered no by construction. `gr_worker` advances
+the game only when the window is unobscured, frontmost (`OSAPI_WM_TOP`) and
+owns the menu bar (`OSAPI_MENU_OWNER`), asked under the gfx lock in the same
+hold as the frame's draw, and otherwise only holds the music; a key or a
+menu command whose clip cannot be armed is dropped (`gr_clipped`). So the
+glass is current at every moment another window can come up, nothing moves
+while it is up, and losing the front owes no banner - the freeze draws
+nothing, which is what lets Arkanoid's "never while playing" (§44.13) not
+apply here. A command reaching a partly covered window arms its clip, which
+drops the cache, and draws.
+
+The one withdrawal is the fullscreen bracket: `gr_key` clears the flag
+before `OSAPI_FSX_RUN`, because the game moves on inside it and
+`fsx_restore`'s `wm_paint_all` would put a covered window back from a cache
+taken before it, and sets it again on return, where `W_PAINT` has already
+run under the still-held lock. On a VGA the window's content is more than a
+word of four-plane bytes (§11.96.11's sizing), so the kernel declines the
+cache there and the promise only pays on CGA and Hercules.
 
 ## 100. DrMarco (`apps/drmario/drmario.asm`)
 

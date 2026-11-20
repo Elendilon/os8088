@@ -43,9 +43,19 @@
 /* THE WINDOW'S CLASS (SPEC.md 11.104): hang over the dock, do not be
  * shortened (KEEPH); the content origin on 8, the default - BLITP and BLIT1
  * both refuse an unaligned x (11.94); every pixel is ours, so skip the white
- * fill the arcade field would cover (OWNBG). */
+ * fill the arcade field would cover (OWNBG).
+ *
+ * AND THE RAISE CACHE'S PROMISE, IN EVERY MODE (SAVEU; SPEC.md 91.1, 11.96.1).
+ * A whole repaint is every band recomposed, 2.5 s of XT, and the promise
+ * costs nothing to keep here: pmc_frame ticks and flushes ONLY while
+ * os88_wm_top() is this window, asked under the gfx lock in the same hold as
+ * the flush, so nothing on the field moves while another window is over it,
+ * and losing the front owes no banner - it is a freeze, not a pause. What a
+ * key or a command changes while we are not frontmost is MARKED, not drawn,
+ * and the first frame after the raise flushes it over whatever the cache put
+ * back. The About card is the one thing drawn from a callback (os88_about). */
 static struct os88_class pmc_cls = {
-    OS88_CLASS_LEN, OS88_WF_KEEPH | OS88_WF_OWNBG,
+    OS88_CLASS_LEN, OS88_WF_KEEPH | OS88_WF_OWNBG | OS88_WF_SAVEU,
     os88_t_paint, os88_t_onkey, 0, os88_t_about,
     0, 0, 0, 0, 0, 0, 0, 0, 0
 };
@@ -594,7 +604,14 @@ void os88_about(void *win)
         pmc_paused = 1;
         pmc_pause_item();       /* the ONLY place a paused window says so */
     }
+    /* THE CARD IS DRAWN HERE, WITH NO REGION ARMED, so nothing tells the
+     * kernel the glass changed - and a menu pick can reach a window that is
+     * only partly visible, which is when a cache of it exists. Withdrawing
+     * drops that cache; the card stands still until a key or a command takes
+     * it down, so the promise is made again at once (SPEC.md 91.1). */
+    os88_wm_flag(win, OS88_WFB_SAVEU, 0);
     os88_about_card(win, pmc_about_lines);
+    os88_wm_flag(win, OS88_WFB_SAVEU, 1);
 }
 
 /* os88_onkey - PRESSES. The steering is NOT here: a direction is a LEVEL the
