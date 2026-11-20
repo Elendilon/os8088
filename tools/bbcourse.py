@@ -9891,6 +9891,7 @@ class Course:
     .wcga, .wstored and .wherc its world part's: SPEC.md 130.30)"""
     split = False
     wcga = wstored = wherc = None
+    plan = sstored = None               # SPEC.md 130.30.12: a SHEETED course's plan and its sheets' stored forms
     test = False                    # SPEC.md 130.54: `test`, a TEST course (the BZDEV=1 build's alone)
 
 
@@ -11009,13 +11010,17 @@ def attach_song(c, song):
         cga, wcga = encode_part(m, 4, fname), None
     else:
         for nm, ln in zip(("picture", "world"), two_part_lens(m, REC)):
-            if ln > PARTMAX:
+            if ln > PARTMAX and not (nm == "picture" and getattr(c, "plan", None)):
                 raise CourseError("%s: with its song the course's %s part is %d bytes, over the %d one part may "
                                   "be (SPEC.md 130.50.3)" % (fname, nm, ln, PARTMAX))
-        cga, wcga = encode_parts(m, REC, fname)
+        if getattr(c, "plan", None):            # SPEC.md 130.30.12: the song is the world part's; the plan holds
+            cga, wcga = encode_sheets(m, REC, c.plan, fname)
+        else:
+            cga, wcga = encode_parts(m, REC, fname)
     c.model = m
-    c.cga = bytes(cga)
-    c.stored = stored_form(m, REC, c.cga, fname)
+    c.cga = cga if getattr(c, "plan", None) else bytes(cga)
+    set_sheet_forms(c, m, fname)
+    c.stored = stored_form(m, REC, c.cga, fname, mrows=(0, c.plan["n"]) if getattr(c, "plan", None) else None)
     if expand(c.stored, fname) != c.cga:
         raise CourseError("%s: the stored form does not expand to the RAM form (with its song)" % fname)
     if c.split:
@@ -12078,6 +12083,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     if least > PARTMAX and (pth is not None or src.title_ln is not None):
         raise CourseError("%s: the course part is at least %d bytes before any occluder, over the %d "
                           "one part may be, by %d" % (fname, least, PARTMAX, least - PARTMAX))
+    # (SPEC.md 130.30.12: a picture past one part is SHEETS, so its least is a sheet's - at least SH_WLO + SH_WHI
+    # + 1 + 2 LANE_HMAX map rows; sheet_plan refuses the rest once the occluders are cut)
+    lpic -= 2 * cols * max(0, brows - (SH_WLO + SH_WHI + 1 + 2 * LANE_HMAX))
     for nm, ln in (("picture", lpic), ("world", lworld)):
         if ln > PARTMAX:
             raise CourseError("%s: the course's %s part is at least %d bytes before any occluder, over the %d "
@@ -12481,8 +12489,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                  t.z0, t.sx, t.sy))
     # SPEC.md 130.30.4.1: ONE part while its RAM form AND its identity form (130.15.7: the 8-byte layout the
     # identity is taken over, which must lay out too) each fit one; past that TWO, a PICTURE part and a WORLD part
-    split = one_part_len(model, 4) > PARTMAX or one_part_len(model, 8) > PARTMAX or hack.get("split")
-    wcga = None
+    split = one_part_len(model, 4) > PARTMAX or one_part_len(model, 8) > PARTMAX or hack.get("split") \
+        or hack.get("sheets")
+    wcga = plan = None
     if not split:
         cga = bytearray(encode_part(model, 4, fname))
         cw = cga
@@ -12492,18 +12501,22 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                               "the title are always ONE part (SPEC.md 130.30.4.1)" % (
                                   fname, "pathway" if pth is not None else "title", one_part_len(model, 4),
                                   PARTMAX, one_part_len(model, 4) - PARTMAX))
-        for nm, ln in zip(("picture", "world"), two_part_lens(model, REC)):
-            if ln > PARTMAX:
-                raise CourseError("%s: the course's %s part is %d bytes, over the %d one part may be, by %d "
-                                  "(SPEC.md 130.30.4.1)" % (fname, nm, ln, PARTMAX, ln - PARTMAX))
-        cga, wcga = encode_parts(model, REC, fname, _hack=hack)
-        cga = bytearray(cga)
+        lp_, lw_ = two_part_lens(model, REC)
+        if lw_ > PARTMAX:
+            raise CourseError("%s: the course's world part is %d bytes, over the %d one part may be, by %d "
+                              "(SPEC.md 130.30.4.1)" % (fname, lw_, PARTMAX, lw_ - PARTMAX))
+        if lp_ > PARTMAX or hack.get("sheets"):    # SPEC.md 130.30.12: its picture part in SHEETS, cut by rows
+            plan = sheet_plan(model, REC, fname, _hack=hack)
+            cga, wcga = encode_sheets(model, REC, plan, fname, _hack=hack)
+        else:
+            cga, wcga = encode_parts(model, REC, fname, _hack=hack)
+            cga = bytearray(cga)
         cw = wcga
     gridoff = struct.unpack_from("<H", cw, 26)[0]
     propoff = struct.unpack_from("<H", cw, 28)[0]
     ident = struct.unpack_from("<H", cw, gridoff + 18)[0]
     rl_, pm_ = _props_runs(model)
-    loff_ = part_layout2(model, REC)[0][1]["L"][0] if split else 0
+    loff_ = part_layout2(model, REC, (0, plan["n"]) if plan else None)[0][1]["L"][0] if split else 0
     for p in props:                           # the props' offsets, absolute in THIS build's RAM form (a two-part
         if p.get("lane"):                     # course's pose maps in its picture part, SPEC.md 130.30.4.2)
             p["lane"]["off"] += (loff_ - rl_) if split else propoff
@@ -12579,8 +12592,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             umasks.append(r["mask"])
     c.model_u = dict(model, masks=umasks,
                      recs=[(r["brow"], r["col"], r["s"], r["top"], uidx[r["mask"]]) for r in records])
-    c.cga = bytes(cga)
-    c.stored = stored_form(model, REC, c.cga, fname)
+    c.cga = cga if plan else bytes(cga)         # (a SHEETED course's: its SheetBytes, SPEC.md 130.30.12)
+    c.plan = plan
+    set_sheet_forms(c, model, fname)
+    c.stored = stored_form(model, REC, c.cga, fname, mrows=(0, plan["n"]) if plan else None)
     if expand(c.stored, fname) != c.cga:        # the build's own check; --selfcheck item 10 does both and more
         raise CourseError("%s: the stored form does not expand to the RAM form" % fname)
     # SPEC.md 130.30: a TWO-PART course - .cga and .stored its PICTURE part's, .wcga and .wstored its WORLD
@@ -13509,8 +13524,8 @@ def stored_len(tag, m, ram_len):
     if kr is not None:                              # SPEC.md 130.37.4: the bitmap, then its own pieces
         return kit_bmlen(kr["n"]) + ram_len - KIT_SIZE[tag] * len(kr["idx"])
     f = F_PLAIN if tag == "O" and m.get("mband") else SEC_FORM[tag]
-    if f == F_ROWPLANES:
-        return 5 * m["cols"] * m["brows"] // 4
+    if f == F_ROWPLANES:                            # (a SHEET's map is fewer rows than BROWS: SPEC.md 130.30.12)
+        return 5 * ram_len // 8
     if f == F_COUNTS:
         return m["brows"]
     if f in (F_MASKTAB, F_ROWTAB):
@@ -13810,12 +13825,13 @@ def one_part_len(m, recb):
     return end + DIRENT * sum(1 for t in order if sec[t][1])
 
 
-def part_layout2(m, recb):
+def part_layout2(m, recb, mrows=None):
     """SPEC.md 130.30.4.2: [(order, {tag: (offset, RAM length)}, the sections' end)] for the picture part and
-    the world part, each from HDR, empty sections included as part_layout's"""
+    the world part, each from HDR, empty sections included as part_layout's.  mrows (m0, n): a SHEET's (SPEC.md
+    130.30.12), its map n block rows from row m0 - every other section as the picture part's"""
     g = m["grid"]
     _rl, pm = _props_runs(m)
-    la = [("M", 2 * m["cols"] * m["brows"]), ("B", len(m["blocks"])), ("I", 2 * (m["brows"] + 1)),
+    la = [("M", 2 * m["cols"] * (m["brows"] if mrows is None else mrows[1])), ("B", len(m["blocks"])), ("I", 2 * (m["brows"] + 1)),
           ("R", recb * len(m["recs"])), ("K", 16 * len(m["masks"]))]
     if recb == 4:
         la.append(("O", otab_len(m)))
@@ -13844,9 +13860,11 @@ def two_part_lens(m, recb):
     return tuple(end + DIRENT * sum(1 for t in order if sec[t][1]) for order, sec, end in part_layout2(m, recb))
 
 
-def _encode2(m, recb, ident=0, fname="<course>"):
-    """SPEC.md 130.30.4.2: the model as its two parts under RECB `recb` -> (picture, world), bytearrays"""
-    (oa, sa, ea), (ob, sb, eb) = part_layout2(m, recb)
+def _encode2(m, recb, ident=0, fname="<course>", mrows=None):
+    """SPEC.md 130.30.4.2: the model as its two parts under RECB `recb` -> (picture, world), bytearrays.
+    mrows (m0, n): the picture part as a SHEET (SPEC.md 130.30.12) - its map block rows m0 .. m0 + n - 1 and
+    magic BZS<s> left to the caller; every other byte of either part the same"""
+    (oa, sa, ea), (ob, sb, eb) = part_layout2(m, recb, mrows)
     cols, brows, g = m["cols"], m["brows"], m["grid"]
     recs, masks = m["recs"], m["masks"]
     if recb == 4 and len(masks) > 256 and not m.get("mband"):             # (a 4-byte record names its mask in ONE byte: a refusal,
@@ -13880,7 +13898,8 @@ def _encode2(m, recb, ident=0, fname="<course>"):
         buf[0:4] = magic
         struct.pack_into("<HH", buf, 38, end, len(present))
     # the PICTURE part: the map, the blocks, the occluders, the mask table, the pose maps
-    struct.pack_into("<%dH" % len(m["idx"]), a, HDR, *[blkoff + 16 * i for i in m["idx"]])
+    mi_ = m["idx"] if mrows is None else m["idx"][cols * mrows[0]:cols * (mrows[0] + mrows[1])]
+    struct.pack_into("<%dH" % len(mi_), a, HDR, *[blkoff + 16 * i for i in mi_])
     a[blkoff:blkoff + len(m["blocks"])] = m["blocks"]
     cnt = [0] * brows
     for r in recs:
@@ -13965,8 +13984,14 @@ def _ident_bytes2(a, b):
 
 def ram_identity2(a, b):
     """a two-part course's identity from its RAM forms: Fletcher's pair over its RECB 4 parts (130.30.4.3), a
-    RECB 8 build's parts re-encoded as D first"""
+    RECB 8 build's parts re-encoded as D first - a SHEETED course's over its sheets and then its world part
+    (130.30.12.4)"""
     b = _strip_song(b)                  # (SPEC.md 130.50.3: the identity is taken without the song)
+    if sheets_of(a) is not None:
+        pics = a.sheets
+        if pics[0][32] != 4:
+            pics, b = _encode_sheets(decode_sheets(pics, b, a.plan), 4, a.plan)
+        return _fletcher(_ident_bytesN(pics, b))
     if a[32] != 4:
         a, b = _encode2(decode_parts(a, b), 4)
     return _fletcher(_ident_bytes2(a, b))
@@ -13981,10 +14006,13 @@ def encode_parts(m, recb, fname="<course>", _hack=None):
     return tuple(bytes(x) for x in _encode2(m, recb, ident=ident, fname=fname))
 
 
-def decode_parts(a, b):
+def decode_parts(a, b, _mrows=None):
     """a two-part course's RAM forms (SPEC.md 130.30.4.2) -> the model a one-part compile of it has
     (decode_part's): the pose maps back in the props blob after the records.  Reads; does not check
-    (read_parts checks, and then calls this)"""
+    (read_parts checks, and then calls this).  A SHEETED course's (SPEC.md 130.30.12) through its SheetBytes;
+    _mrows (m0, n): A's map is one sheet's, its rows m0 .. m0 + n - 1 (every other row's words block 0)"""
+    if sheets_of(a) is not None and _mrows is None:
+        return decode_sheets(a.sheets, b, a.plan)
     (cols, brows, nblk, mapsh, blkoff, occidx, occrec, nocc, maskoff, nmask, rowb, gridoff,
      propoff) = struct.unpack_from("<13H", a, 4)
     nprop = struct.unpack_from("<H", a, 30)[0]
@@ -13997,7 +14025,12 @@ def decode_parts(a, b):
     ea, eb = ents(a), ents(b)
     dirb = struct.unpack_from("<H", b, 38)[0]
     pendb = eb["S"][0] if "S" in eb else dirb       # SPEC.md 130.50.3: the props end where S begins
-    idx = [(w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * brows), a, HDR)]
+    if _mrows is None:
+        idx = [(w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * brows), a, HDR)]
+    else:
+        idx = [0] * (cols * brows)
+        idx[cols * _mrows[0]:cols * (_mrows[0] + _mrows[1])] = [
+            (w - blkoff) // 16 for w in struct.unpack_from("<%dH" % (cols * _mrows[1]), a, HDR)]
     oi = struct.unpack_from("<%dH" % (brows + 1), a, occidx)
     recs = []
     for br in range(brows):
@@ -14086,7 +14119,15 @@ def course_model(c):
 
 def herc_translate_parts(a, b):
     """SPEC.md 130.30.5: bz_hxlat on a two-part course - the picture part's blocks, the world part's lifts'
-    sprites (each part through herc_translate_course's rule) -> (picture, world)"""
+    sprites (each part through herc_translate_course's rule) -> (picture, world).  A SHEETED course's: every
+    sheet's blocks (bz_hxshb, SPEC.md 130.30.12.5), the lifts' once"""
+    if sheets_of(a) is not None:
+        hs, hw = [], None
+        for q in a.sheets:
+            hq, hw_ = herc_translate_parts(q, b)
+            hs.append(hq)
+            hw = hw if hw is not None else hw_
+        return SheetBytes(hs, a.plan), hw
     t = htab()
     a, b = bytearray(a), bytearray(b)
     nblk, _, blkoff = struct.unpack_from("<HHH", a, 8)
@@ -14108,15 +14149,189 @@ def herc_translate_parts(a, b):
     return bytes(a), bytes(b)
 
 
+# --- SPEC.md 130.30.12: SHEETS - a picture part past one part, cut by ROWS ------------------------------------
+#
+# A two-part course whose PICTURE part would pass PARTMAX ships it as k SHEETS (k <= SHEET_MAX): k picture parts,
+# each the picture part with its map cut to the SAME n block rows from its own first row m0 - so every section
+# after the map (B I R K O Y L), the header and the directory sit at the same offsets with the same bytes in
+# every sheet, and only the map's rows and the magic (BZS0, BZS1, ...) differ.  The guest plays ONE sheet at a
+# time through bz_mseg, as it plays a picture part; when the camera's window would leave the sheet it switches
+# (bz_shchk), rebuilding bz_mrow for the sheet's rows (the rows outside CLAMPED to its first or its
+# (m0 + n - H)th, so a lane's whole-rect write lands in a margin row and never past the map) and writing every
+# lane's drawn pose into the new sheet's map.  The plan (sheet_plan) is derived from the model alone.
+
+SHEET_MAX = 2                 # sheets a course may have: one claim more than a two-part course (SPEC.md 130.30.12.6)
+SH_WLO, SH_WHI = 2, 28        # the block rows a frame may read or draw round a window whose top is block row tb:
+                              # [tb - 2, tb + 28] - the 200-line window's 26, the VGA's 7 lines under it and the
+                              # old window a camera step away (8 lines at most, BZ_MAXR and BZV_MAXR), rounded up
+MAGIC_SHEETS = tuple(b"BZS" + bytes((0x30 + i,)) for i in range(4))
+
+
+class SheetBytes(bytes):
+    """a SHEETED course's picture (SPEC.md 130.30.12): sheet 0's RAM form as the bytes - BZ<K>.BIN, its length
+    the part's - with .sheets every sheet's (sheet 0's first) and .plan the plan they were cut by.  Every reader
+    that takes a course's picture part as bytes (decode_parts, read_parts, ram_identity2, herc_translate_parts)
+    reads the sheets through it"""
+    def __new__(cls, sheets, plan):
+        o = super().__new__(cls, bytes(sheets[0]))
+        o.sheets = tuple(bytes(x) for x in sheets)
+        o.plan = plan
+        return o
+
+    def __reduce__(self):               # (pickled whole: the compile's worker processes and its cache)
+        return (SheetBytes, (self.sheets, self.plan))
+
+
+def sheets_of(p):
+    """a picture part's sheets (SPEC.md 130.30.12), or None for a picture part of its own"""
+    return getattr(p, "sheets", None)
+
+
+def lane_hmax(m):
+    """the tallest lane's block rows (1 when there is none): the margin a sheet keeps (SPEC.md 130.30.12.2)"""
+    pr, h = m["props"], 1
+    if pr:
+        for i in range(pr["n"]):
+            r = PROPREC * i
+            if pr["blob"][r + 1] & PF_LANE:
+                h = max(h, pr["blob"][r + 12])
+    return h
+
+
+def _sheet_try(B, n, k, H):
+    """k sheets of n block rows over B, spread evenly, each with margins H -> its sheets' plan, or None when a
+    window the camera may take is served by none of them (SPEC.md 130.30.12.2)"""
+    out = []
+    for s in range(k):
+        m0 = (s * (B - n) + (k - 1) // 2) // (k - 1)
+        top, bot = m0 == 0, m0 + n == B
+        c0 = 0 if top else m0 + H                   # COVERAGE [c0, c1): the rows read or drawn while it is shown
+        c1 = B if bot else m0 + n - H
+        slo = 0 if top else c0 + SH_WLO             # the window top rows it SERVES: [slo, shi]
+        shi = None if bot else c1 - 1 - SH_WHI
+        if shi is not None and shi < slo:
+            return None
+        out.append({"m0": m0, "c0": c0, "c1": c1, "slo": slo, "shi": shi,
+                    "hic": m0 + n - 1 if bot else m0 + n - H,      # bz_mrow's clamp: rows past it read it
+                    "tlo": 8 * slo, "thi": 0x7FFF if shi is None else 8 * shi + 7})
+    for a_, b_ in zip(out, out[1:]):                # every top row served: the ranges touch or overlap
+        if a_["shi"] < b_["slo"] - 1:
+            return None
+    return out
+
+
+def sheet_plan(m, recb, fname="<course>", k=None, _hack=None):
+    """SPEC.md 130.30.12.2: a course's SHEETS from its model - the fewest sheets (2 .. SHEET_MAX) and, for them,
+    the fewest rows n a sheet that serve every window -> {"n", "k", "H", "fixed", "sheets": [...]}.  Refused
+    when none lays out within PARTMAX.  _hack wsh: --selfcheck item 16's red arm (the window a row short)"""
+    global SH_WHI
+    B, rowb = m["brows"], 2 * m["cols"]
+    H = lane_hmax(m)
+    fixed = two_part_lens(m, recb)[0] - rowb * B    # every byte of the picture part but its map's
+    nmax = min((PARTMAX - fixed) // rowb, B - 1)
+    keep = SH_WHI
+    if (_hack or {}).get("wsh"):
+        SH_WHI -= 1
+    try:
+        for kk in ([k] if k else range(2, SHEET_MAX + 1)):
+            for n in range(max(1, -(-B // kk)), nmax + 1):
+                pl = _sheet_try(B, n, kk, H)
+                if pl is not None:
+                    return {"n": n, "k": kk, "H": H, "fixed": fixed, "sheets": pl}
+    finally:
+        SH_WHI = keep
+    raise CourseError("%s: the course's picture part is %d bytes, over the %d one part may be, and %s SHEETS of "
+                      "it do not lay out: a sheet holds %d bytes besides its map, so at most %d of the %d block "
+                      "rows (%d bytes a row), and its windows need %d rows of overlap and %d of margin (SPEC.md "
+                      "130.30.12.2)" % (fname, fixed + rowb * B, PARTMAX, k or "up to %d" % SHEET_MAX, fixed,
+                                        max(nmax, 0), B, rowb, SH_WLO + SH_WHI + 1, 2 * H))
+
+
+def _ident_bytesN(pics, b):
+    """SPEC.md 130.30.12.4: a SHEETED course's words for the identity - every sheet's RAM form in order and then
+    the world part's, the identity word and each directory entry's FORM and STORED LENGTH taken as 0 (130.30.4.3's
+    rule, its one picture part become k)"""
+    out = b""
+    for q in list(pics) + [b]:
+        q = bytearray(q)
+        if q[:4] == MAGIC_WORLD:
+            g = struct.unpack_from("<H", q, 26)[0]
+            q[g + 18:g + 20] = b"\0\0"
+        diroff, nsec = struct.unpack_from("<HH", q, 38)
+        for j in range(nsec):
+            e = diroff + DIRENT * j
+            q[e + 1] = 0
+            q[e + 6:e + 8] = b"\0\0"
+        out += bytes(q)
+    return out
+
+
+def _encode_sheets(m, recb, plan, ident=0, fname="<course>"):
+    """the model as its sheets and its world part under RECB `recb` -> ([sheet bytearrays], world bytearray)"""
+    pics, w = [], None
+    for i, sh in enumerate(plan["sheets"]):
+        a, b = _encode2(m, recb, ident=ident, fname=fname, mrows=(sh["m0"], plan["n"]))
+        a[0:4] = MAGIC_SHEETS[i]
+        pics.append(a)
+        w = b
+    return pics, w
+
+
+def encode_sheets(m, recb, plan, fname="<course>", _hack=None):
+    """SPEC.md 130.30.12: the model's SHEETS and world part, the identity stamped -> (SheetBytes, world bytes).
+    _hack ident1: the identity over the world part alone (item 16's red arm)"""
+    p4, w4 = _encode_sheets(_nosong(m), 4, plan, fname=fname)
+    ib = _ident_bytesN(p4, w4)
+    ident = _fletcher(ib[sum(len(q) for q in p4):] if (_hack or {}).get("ident1") else ib)
+    pics, w = _encode_sheets(m, recb, plan, ident=ident, fname=fname)
+    return SheetBytes(pics, plan), bytes(w)
+
+
+def decode_sheets(sheets, b, plan):
+    """a SHEETED course's RAM forms -> the model a one-part compile of it has: sheet 0's sections, and each
+    block row's map words from a sheet that holds the row (every row a sheet holds is the model's row)"""
+    n = plan["n"]
+    m = decode_parts(sheets[0], b, _mrows=(plan["sheets"][0]["m0"], n))
+    idx = list(m["idx"])
+    cols, blkoff = m["cols"], struct.unpack_from("<H", sheets[0], 12)[0]
+    for q, sh in zip(sheets, plan["sheets"]):
+        w = struct.unpack_from("<%dH" % (cols * n), q, HDR)
+        idx[cols * sh["m0"]:cols * (sh["m0"] + n)] = [(x - blkoff) // 16 for x in w]
+    m["idx"] = idx
+    return m
+
+
+def set_sheet_forms(c, m, fname):
+    """a SHEETED course's per-sheet forms (SPEC.md 130.30.12): .sstored each sheet's STORED form (BZ<K>.BIN,
+    BZ<K>S1.BIN, ...), each checked to expand in place to its RAM form; .sstored None for every other course"""
+    sh = sheets_of(c.cga)
+    c.sstored = None
+    if sh is None:
+        return
+    c.sstored = []
+    for i, (q, x) in enumerate(zip(sh, c.plan["sheets"])):
+        st_ = stored_form(m, REC, q, fname, mrows=(x["m0"], c.plan["n"]))
+        if expand(st_, fname) != q:
+            raise CourseError("%s: sheet %d's stored form does not expand to its RAM form" % (fname, i))
+        c.sstored.append(st_)
+
+
+def sheet_rams(c):
+    """every RAM form a course's play claims: its picture part (or each SHEET, SPEC.md 130.30.12) and its world
+    part when it is two"""
+    sh = sheets_of(c.cga)
+    return list(sh if sh else [c.cga]) + ([c.wcga] if getattr(c, "wcga", None) else [])
+
+
 # --- the stored form (130.15.4.3, 130.15.4.4) --------------------------------
 
-def _rowplanes(m, _low_first=False):
+def _rowplanes(m, _low_first=False, mrows=None):
     """1 ROWPLANES: a block row's C/4 high bytes (cell j's two high bits at bits
     2 (j AND 3) of byte j >> 2), then its C low bytes.  _low_first: item 10's
     negative control, the order that does NOT expand in place"""
     C = m["cols"]
     out = bytearray()
-    for r in range(m["brows"]):
+    for r in (range(m["brows"]) if mrows is None else range(mrows[0], mrows[0] + mrows[1])):  # (a SHEET's rows)
         row = m["idx"][C * r:C * (r + 1)]
         hi = bytearray(C // 4)
         for j, v in enumerate(row):
@@ -14252,10 +14467,11 @@ def cells_exceptions(ram, _no_obs=False):
     return out
 
 
-def stored_form(m, recb, ram=None, fname="<course>", _hack=None):
+def stored_form(m, recb, ram=None, fname="<course>", _hack=None, mrows=None):
     """the STORED form (130.15.4.3): the RAM form with every section's slot
     holding its own zero HOLE and then its stored bytes; the header and the
-    directory as they sit in RAM.  _hack: item 10's negative controls"""
+    directory as they sit in RAM.  _hack: item 10's negative controls.  mrows: a SHEET's map rows (SPEC.md
+    130.30.12)"""
     hack = _hack or {}
     ram = ram if ram is not None else encode_part(m, recb, fname)
     st = bytearray(ram)
@@ -14266,7 +14482,7 @@ def stored_form(m, recb, ram=None, fname="<course>", _hack=None):
         if form == F_PLAIN:
             data = ram[off:off + ln]
         elif form == F_ROWPLANES:
-            data = _rowplanes(m, hack.get("low_first", False))
+            data = _rowplanes(m, hack.get("low_first", False), mrows)
         elif form == F_COUNTS:
             cnt = [0] * m["brows"]
             for r in m["recs"]:
@@ -14348,7 +14564,8 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
             pend = set()
         elif form == F_ROWPLANES:
             q = cols // 4
-            for r in range(brows):
+            for r in range(ln // (2 * cols)):       # (its own RAM length counts: a SHEET's map is fewer rows than
+                                                    # BROWS, SPEC.md 130.30.12 - BROWS's rows for every other part)
                 src = S + H + r * (q + cols)
                 hi_at, lo_at = (src + cols, src) if hack.get("low_first") else (src, src + q)
                 scratch = [rd(hi_at + k) for k in range(q)]           # bz_boxbuf
@@ -14511,19 +14728,24 @@ def read_parts(a, b, fname="<course>"):
     part (BZW2: G C D T W P), checked by read_part's rules over the sections each holds - the two headers the
     same but their magic and directory, each directory its own part's - and the identity (130.30.4.3) and the
     canonical layout over the two.  The same dict as read_part's, with split True and each directory entry's
-    part (0 the picture, 1 the world)"""
+    part (0 the picture, 1 the world).  A SHEETED course's (SPEC.md 130.30.12) through its SheetBytes: every
+    sheet checked, sheet 0's sections read"""
+    if sheets_of(a) is not None:
+        return _read_bzc2(a.sheets[0], b, fname, split=True, sheets=a.sheets, plan=a.plan)
     return _read_bzc2(a, b, fname, split=True)
 
 
-def _read_bzc2(p, pw, fname, split=False):
+def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
     """read_part and read_parts: p the part (the PICTURE part's bytes), pw the WORLD part's (p itself for one
     part).  Every check that reads the map, the blocks or the occluders reads p, every one that reads the grid,
-    the route or the props reads pw"""
+    the route or the props reads pw.  sheets, plan: a SHEETED course's (SPEC.md 130.30.12) - p its sheet 0, the
+    map each sheet's rows, and the canonical layout over every sheet"""
     def bad(field, why):
         raise CourseError("%s: part field %s: %s" % (fname, field, why))
 
     n = len(p)
-    for q, magic in (((p, MAGIC_PIC), (pw, MAGIC_WORLD)) if split else ((p, b"BZC2"),)):
+    pmag = [(q, MAGIC_SHEETS[i]) for i, q in enumerate(sheets)] if sheets else [(p, MAGIC_PIC)]
+    for q, magic in ((pmag + [(pw, MAGIC_WORLD)]) if split else ((p, b"BZC2"),)):
         if len(q) < HDR or q[:4] != magic:
             bad("magic", "not %s" % magic.decode())
         if len(q) > PARTMAX:
@@ -14552,7 +14774,13 @@ def _read_bzc2(p, pw, fname, split=False):
     if recb == 8 and (SB or yoff or mtab):          # (YOFF: TB under _ONETB)
         bad("RECB", "8 with SB %d, YOFF %d, MTAB %d (all 0 under C)" % (SB, yoff, mtab))
     pthoff, npages = struct.unpack_from("<HB", p, 42)   # wave 8R (130.22.3): PTHOFF and NPAGES
-    if blkoff != HDR + 2 * cols * brows:
+    mr = plan["n"] if sheets else brows             # the map's block rows (a SHEET's n, SPEC.md 130.30.12)
+    if sheets and (len(sheets) != plan["k"] or not 1 <= mr < brows or any(
+            len(q) != n or q[4:] != p[4:HDR] + q[HDR:HDR + 2 * cols * mr] + p[HDR + 2 * cols * mr:]
+            for q in sheets)):
+        bad("sheets", "%d sheets of %d block rows, not each sheet 0's bytes but its magic and its map (SPEC.md "
+            "130.30.12.1)" % (len(sheets), mr))
+    if blkoff != HDR + 2 * cols * mr:
         bad("BLKOFF", str(blkoff))
     if occidx != blkoff + 16 * nblk:
         bad("OCCIDX", "offset %d" % occidx)
@@ -14614,7 +14842,7 @@ def _read_bzc2(p, pw, fname, split=False):
                 flen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
             if q[do + DIRENT * j] == ord("L"):
                 llen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
-    want = [("M", HDR, 2 * cols * brows), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
+    want = [("M", HDR, 2 * cols * mr), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
             ("R", occrec, recb * nocc), ("K", maskoff, 16 * nmask)]
     if recb == 4:
         want.append(("O", mtab, olen))
@@ -14695,8 +14923,21 @@ def _read_bzc2(p, pw, fname, split=False):
         if e["dlen"] != stored_len(e["tag"], m_, e["len"]) or e["dlen"] > e["len"]:
             bad("directory entry %s" % e["tag"], "stored length %d, its form's is %d" % (
                 e["dlen"], stored_len(e["tag"], m_, e["len"])))
-    # the map: every word a block offset inside the part
-    mp = struct.unpack_from("<%dH" % (cols * brows), p, HDR)
+    # the map: every word a block offset inside the part (a SHEETED course's: every sheet's rows, and the map
+    # the course's, each row from the first sheet that holds it)
+    if sheets:
+        mp = [None] * (cols * brows)
+        for q, sh in zip(sheets, plan["sheets"]):
+            for i, w in enumerate(struct.unpack_from("<%dH" % (cols * mr), q, HDR)):
+                if w < blkoff or w >= occidx or (w - blkoff) % 16:
+                    bad("sheet %s map[%d]" % (q[3:4].decode(), i), "word %d is not a block offset" % w)
+                if mp[cols * sh["m0"] + i] is None:
+                    mp[cols * sh["m0"] + i] = w
+        if None in mp:
+            bad("sheets", "block row %d is in no sheet" % (mp.index(None) // cols))
+        mp = tuple(mp)
+    else:
+        mp = struct.unpack_from("<%dH" % (cols * brows), p, HDR)
     for i, w in enumerate(mp):
         if w < blkoff or w >= occidx or (w - blkoff) % 16:
             bad("map[%d]" % i, "word %d is not a block offset" % w)
@@ -14968,7 +15209,24 @@ def _read_bzc2(p, pw, fname, split=False):
                     "SAFE" % PK_NAMES[d["kind"]])
     # the identity, over C's RAM form (130.15.7) - or a two-part course's over its D parts (130.30.4.3) - and
     # the canonical layout
-    if split:
+    if sheets:                                      # SPEC.md 130.30.12.4: over every sheet, then the world
+        sb_ = SheetBytes(sheets, plan)
+        model = decode_parts(sb_, p)
+        rid = ram_identity2(sb_, p)
+        if ident != rid:
+            bad("BZG1 +18", "identity %04Xh is not the sheets' and the world part's sum %04Xh" % (ident, rid))
+        pl_ = sheet_plan(model, recb, fname)
+        if (pl_["n"], pl_["k"], pl_["sheets"]) != (plan["n"], plan["k"], plan["sheets"]):
+            bad("sheets", "%d sheets of %d rows from %s, where the model's plan is %d of %d from %s (SPEC.md "
+                "130.30.12.2)" % (plan["k"], plan["n"], [x["m0"] for x in plan["sheets"]], pl_["k"], pl_["n"],
+                                  [x["m0"] for x in pl_["sheets"]]))
+        qs, qw = _encode_sheets(model, recb, plan, ident=ident)
+        for k, (q, mine) in enumerate(zip(list(qs) + [qw], list(sheets) + [p])):
+            if q != mine:
+                at_ = next((i for i in range(min(len(q), len(mine))) if q[i] != mine[i]), min(len(q), len(mine)))
+                bad("layout", "%s is not its own model's serialisation (first difference at offset %d)"
+                    % ("the world part" if k == len(sheets) else "sheet %d" % k, at_))
+    elif split:
         model = decode_parts(p_, p)
         rid = ram_identity2(p_, p)
         if ident != rid:
@@ -14991,6 +15249,7 @@ def _read_bzc2(p, pw, fname, split=False):
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
             "recb": recb, "sb": SB, "tb": TBS, "yoff": yoff, "mtab": mtab, "diroff": pdiroff, "nsec": nsec, "dir": ents,
             "split": split, "wdiroff": wdiroff if split else None, "wnsec": wnsec if split else None,
+            "sheets": plan if sheets else None,
             "propoff": propoff, "nprop": nprop, "props": props, "ident": ident, "model": model,
             "npages": npages, "pthoff": pthoff, "path": path, "fams": fams, "nfst": nfst, "rmask": rmask,
             "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "rowtab": rt,
@@ -20152,12 +20411,13 @@ def emit_inc(courses, path=None, title=None):
     lines += ["%endmacro", "",
               "; the course part rows: BZ_NCRS, one a course, every one",
               "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 130.11.3.1) - and after them each TWO-PART course's",
-              "; WORLD part (SPEC.md 130.30.4.4), BZ<K>W.BIN, in course order",
+              "; WORLD part (SPEC.md 130.30.4.4), BZ<K>W.BIN, in course order, then each SHEETED course's",
+              "; sheets past its first (SPEC.md 130.30.12.5), BZ<K>S<i>.BIN, in course order",
               "%macro BZ_CRS_PARTS 0",
-              " %rep BZ_NCRS + BZ_NCRS2",
-              "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN, then BZ<K>W.BIN",
+              " %rep BZ_NCRS + BZ_NCRS2 + BZ_NSHEET",
+              "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN, then BZ<K>W.BIN, then BZ<K>S<i>.BIN",
               " %endrep",
-              "%endmacro", ""] + emit_wrows(courses) + [
+              "%endmacro", ""] + emit_wrows(courses) + emit_sheets(courses) + [
               "; wave 4's shipped demos (SPEC.md 130.14.7.4): one a course but the benchmark's (by NAME),",
               "; BZD<NAME>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
               "; rows follow the courses' and the WORLD parts', in course order: demo row i at BZ_P_DEMO + i",
@@ -20200,6 +20460,40 @@ def emit_wrows(courses):
     if n2:
         out += ["%macro BZ_CRS_WROW 0", "    db " + ", ".join(str(x) for x in w), "%endmacro"]
     return out + [""]
+
+
+def emit_sheets(courses):
+    """SPEC.md 130.30.12.5: BZ_NSHEET (the build's sheet parts past each course's first: 0, and the package is
+    assembled as it was before sheets existed) and, with any, BZ_SHMAX, BZ_SHENT, BZ_CRS_SHN (a byte a course:
+    its sheets, 0 none), BZ_CRS_SHI (a word a course: its first entry's offset in BZ_SHTAB) and BZ_SHTAB (an
+    entry a sheet: its part row and a byte 0, then the words m0, hic, tlo and thi)"""
+    sh = [(k, c.plan) for k, c in enumerate(courses) if sheets_of(c.cga)]
+    n = sum(pl["k"] - 1 for _k, pl in sh)
+    out = ["; SPEC.md 130.30.12.5: the SHEETED courses' extra sheets (0: none, and the package is assembled as it",
+           "; was before sheets existed); with any, each course's sheets and their table",
+           "BZ_NSHEET       equ %d" % n]
+    if not n:
+        return out + [""]
+    row = BZ_P_CRS + len(courses) + sum(1 for c in courses if c.split)
+    shn, shi, tab = [0] * len(courses), [0] * len(courses), []
+    for k, pl in sh:
+        shn[k], shi[k] = pl["k"], SHENT * len(tab)
+        for i, x in enumerate(pl["sheets"]):
+            tab.append((BZ_P_CRS + k if not i else row, x))
+            row += 1 if i else 0
+    out += ["BZ_SHMAX        equ %d" % max(pl["k"] for _k, pl in sh),
+            "BZ_SHENT        equ %d       ; a sheet's entry: its row, 0, m0, hic, tlo, thi" % SHENT,
+            "%macro BZ_CRS_SHN 0", "    db " + ", ".join(str(x) for x in shn), "%endmacro",
+            "%macro BZ_CRS_SHI 0", "    dw " + ", ".join(str(x) for x in shi), "%endmacro",
+            "%macro BZ_SHTAB 0"]
+    for r, x in tab:
+        out.append("    db %d, 0\n    dw %d, %d, %d, %d   ; rows %d - %d, served tops %d - %s" % (
+            r, x["m0"], x["hic"], x["tlo"], x["thi"], x["m0"], x["hic"], x["slo"],
+            "end" if x["shi"] is None else x["shi"]))
+    return out + ["%endmacro", ""]
+
+
+SHENT = 10                    # a BZ_SHTAB entry's bytes (SPEC.md 130.30.12.5)
 
 
 def emit_title(title, courses):
@@ -20364,7 +20658,7 @@ def crs_maxclaim(path, courses):
     part, and not the victory fanfare, a defect - compared against the
     largest free run; the small parts are the ARENA's now (crs_armax).  A
     TWO-PART course's is both its parts' claims, each so (SPEC.md 130.30.5)"""
-    return max([sum(_granule(_para(len(q)) + CLAIM_SLACK) for q in (courses[k].cga, courses[k].wcga) if q)
+    return max([sum(_granule(_para(len(q)) + CLAIM_SLACK) for q in sheet_rams(courses[k]))
                 for k in _pad_courses(path, courses)] + [0])
 
 
@@ -21010,6 +21304,9 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         files["BZ%d.BIN" % k] = c.stored       # the STORED form (SPEC.md 130.15.12.1); os88pkg packs it
         if c.split:                             # SPEC.md 130.30.4.4: a two-part course's WORLD part
             files["BZ%dW.BIN" % k] = c.wstored
+        for i, st_ in enumerate(getattr(c, "sstored", None) or ()):
+            if i:                               # SPEC.md 130.30.12.5: a SHEETED course's sheets past sheet 0
+                files["BZ%dS%d.BIN" % (k, i)] = st_
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
         files[demo_file(courses[k])] = d["log"]
@@ -21026,7 +21323,9 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     # SPEC.md 130.30.4.4: the world parts' file names in row order, which the Makefile passes as --part after
     # the courses' (empty: none)
     texts = {"bzcourse.inc": emit_inc(courses, pc, tc),
-             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split),
+             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split)
+             + "".join("BZ%dS%d.BIN\n" % (k, i) for k, c in enumerate(courses)   # (SPEC.md 130.30.12.5: then the
+                       for i in range(1, len(sheets_of(c.cga) or ()))),             # sheets, in row order)
              "bzdemo.lst": "".join(demo_file(courses[k]) + "\n" for k in sorted(demos))}
     return courses, files, texts
 
@@ -22666,6 +22965,9 @@ def report(c, k=None):
         print("    TWO PARTS (SPEC.md 130.30): the picture part %d bytes (%d under 65,024), the world part %d (%d "
               "under); stored %d and %d" % (len(c.cga), PARTMAX - len(c.cga), len(c.wcga), PARTMAX - len(c.wcga),
                                             len(c.stored), len(c.wstored)))
+    if c.sstored:                                   # SPEC.md 130.30.12: the picture part in SHEETS
+        print("    SHEETS (SPEC.md 130.30.12): %d of %d block rows each, from rows %s, every one %d bytes" % (
+            c.plan["k"], c.plan["n"], ", ".join(str(x["m0"]) for x in c.plan["sheets"]), len(c.cga)))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
           "dithered left out of the part); most in a block %d -> %d (bound "
           "%d), in a block row %d -> %d (bound %d); most laid at a position %d%s; %d OCC cells (%d OCCG) of %d "
@@ -32163,6 +32465,184 @@ def _twoseg_checks(courses, res, paths):
                                                                      for w, g in out), all(g for _w, g in out)))
 
 
+def _sc_sheets(X, res):
+    """--selfcheck's section `sheets`: item 16, SHEETS (SPEC.md 130.30.12.7)"""
+    _sheets_checks(X.courses, res, X.paths)
+
+
+def _sheet_earned(c):
+    """SPEC.md 130.30.12.1: a course is SHEETED only when its two-part PICTURE part is refused (over PARTMAX).
+    -> True for every other course and for a sheeted one that earned it"""
+    return not getattr(c, "sstored", None) or two_part_lens(c.model, REC)[0] > PARTMAX
+
+
+def sheet_walk(plan, brows, tbmax):
+    """the guest's rule (bz_shchk, SPEC.md 130.30.12.3) over every window top block row from 0 down to TBMAX
+    and back -> [(tb, the sheet shown)]: the shown sheet kept while it serves tb, else the first that does"""
+    cur, out = 0, []
+    for tb in list(range(0, tbmax + 1)) + list(range(tbmax, -1, -1)):
+        x = plan["sheets"][cur]
+        if not (x["slo"] <= tb and (x["shi"] is None or tb <= x["shi"])):
+            cur = next(i for i, y in enumerate(plan["sheets"])
+                       if y["slo"] <= tb and (y["shi"] is None or tb <= y["shi"]))
+        out.append((tb, cur))
+    return out
+
+
+def _sheets_checks(courses, res, paths):
+    """SPEC.md 130.30.12.7, item 16: TTALL compiles as SHEETS, each expands in place, read_parts takes them and
+    decode_parts gives the model back, the identity is 130.30.12.4's, every window the camera may take is in the
+    coverage of the sheet the guest's rule shows and its map words there are the model's, every lane's
+    whole-rect write from the clamped bz_mrow stays in the map, the autopilot reaches the goal through the
+    seam, and every course is sheeted only when its two-part picture part is refused - and the negative
+    controls: a sheet's map a row off, a sheet's blocks changed, the identity over the world part alone, a
+    plan a window row short, a sheeted pathway, each REFUSED, and PLAYGROUND forced into sheets, CAUGHT"""
+    res.append(("16 SHEETS: a course is sheeted only when its two-part PICTURE part is refused (SPEC.md "
+                "130.30.12.1): %s" % (", ".join("%s %d sheets of %d rows (its picture part %d bytes)" % (
+                    c.name, c.plan["k"], c.plan["n"], two_part_lens(c.model, REC)[0])
+                    for c in courses if c.sstored) or "none"), all(_sheet_earned(c) for c in courses)))
+    byname = {c.name: c for c in courses}
+    tpath = os.path.join(COURSE_DIR, "ttall.bbc")
+    c = byname.get("TTALL") or compile_course(tpath)
+    pl, m, B, cols = c.plan, c.model, c.brows, c.cols
+    sh = sheets_of(c.cga)
+    lp = two_part_lens(m, REC)[0]
+    res.append(("16 TTALL is SHEETED: its picture part would be %d bytes, over %d; %s sheets of %d block rows (of %d) "
+                "from rows %s, each %d bytes; the world part %d" % (
+                    lp, PARTMAX, pl and pl["k"], pl and pl["n"], B, pl and [x["m0"] for x in pl["sheets"]],
+                    len(c.cga), len(c.wcga or b"")),
+                bool(sh) and lp > PARTMAX and all(len(q) <= PARTMAX and q[:4] == MAGIC_SHEETS[i]
+                                                   for i, q in enumerate(sh))
+                and c.wcga[:4] == MAGIC_WORLD and len(sh) == pl["k"] <= SHEET_MAX))
+    ok_exp = True
+    for st, ram in list(zip(c.sstored, sh)) + [(c.wstored, c.wcga)]:
+        try:
+            ok_exp = ok_exp and expand(st, "<TTALL>", sim=True) == ram
+        except CourseError:
+            ok_exp = False
+    res.append(("16 TTALL: each sheet's STORED form and the world part's expand IN PLACE to their RAM forms (the "
+                "simulation of 130.15.4.4; ROWPLANES counts a sheet's map by its own length)", ok_exp))
+    mlen = 2 * cols * pl["n"]
+    same = all(q[4:] == sh[0][4:HDR] + q[HDR:HDR + mlen] + sh[0][HDR + mlen:] for q in sh)
+    try:
+        read_parts(c.cga, c.wcga, "<TTALL>")
+        rd = True
+    except CourseError:
+        rd = False
+    res.append(("16 TTALL: read_parts takes the sheets and the world part; every sheet sheet 0's bytes but its magic "
+                "and its map's %d rows; decode_parts gives back the model the compile serialised" % pl["n"],
+                rd and same and models_equal(decode_parts(c.cga, c.wcga), m)))
+    idw = struct.unpack_from("<H", c.wcga, c.part["gridoff"] + 18)[0]
+    s1 = bytearray(sh[1])                          # (a map byte of sheet 1, and a world byte: each moves it)
+    s1[HDR + 2 * cols * (pl["n"] - 1)] ^= 1
+    w1 = bytearray(c.wcga)
+    w1[c.part["gridoff"] + GHDR] ^= 1
+    moved = (ram_identity2(SheetBytes([sh[0], bytes(s1)] + list(sh[2:]), pl), c.wcga) != c.ident,
+             ram_identity2(c.cga, bytes(w1)) != c.ident)
+    res.append(("16 TTALL: its identity %04Xh is 130.30.12.4's - Fletcher's pair over every sheet's D RAM form and "
+                "then the world part's - at the world part's BZG1 +18; a sheet's map byte and a world byte each "
+                "move it" % c.ident, idw == c.ident == ram_identity2(c.cga, c.wcga) and all(moved)))
+    # THE WINDOWS: every top the camera may take, down and back, in the shown sheet's coverage and its words
+    tbmax = max(0, (8 * B - BZ_LINES_SC) >> 3)
+    bad = []
+    blkoff = struct.unpack_from("<H", sh[0], 12)[0]
+    lanes = [d for d in c.part["props"] if d.get("lane")]
+    lanecell = {(d["lane"]["brow"] + r, d["lane"]["col"] + k)
+                for d in lanes for r in range(d["lane"]["h"]) for k in range(d["lane"]["w"])}
+    walk = sheet_walk(pl, B, tbmax)
+    for tb, s in walk:
+        x = pl["sheets"][s]
+        lo, hi = max(0, tb - SH_WLO), min(B - 1, tb + SH_WHI)
+        if lo < x["c0"] or hi >= x["c1"]:
+            bad.append("top %d: rows %d - %d outside sheet %d's coverage %d - %d" % (tb, lo, hi, s, x["c0"], x["c1"]))
+            break
+        for br in range(lo, hi + 1):
+            e = min(max(br, x["m0"]), x["hic"]) - x["m0"]
+            if e != br - x["m0"]:
+                bad.append("top %d: row %d clamped in sheet %d" % (tb, br, s))
+                break
+            ws = struct.unpack_from("<%dH" % cols, sh[s], HDR + 2 * cols * e)
+            if any(ws[k] != blkoff + 16 * m["idx"][cols * br + k] for k in range(cols) if (br, k) not in lanecell):
+                bad.append("top %d: sheet %d's row %d is not the model's" % (tb, s, br))
+                break
+        if bad:
+            break
+    for s, x in enumerate(pl["sheets"]):           # every lane's whole-rect write stays in the map; a lane in
+        for d in lanes:                             # the coverage is written where it is
+            L = d["lane"]
+            e = min(max(L["brow"], x["m0"]), x["hic"]) - x["m0"]
+            incov = L["brow"] + L["h"] > x["c0"] and L["brow"] < x["c1"]
+            if e + L["h"] > pl["n"] or (incov and e != L["brow"] - x["m0"]):
+                bad.append("sheet %d: lane %d's rows %d - %d write rows %d - %d of its map (of %d)%s" % (
+                    s, d["i"], L["brow"], L["brow"] + L["h"] - 1, e, e + L["h"] - 1, pl["n"],
+                    " clamped in its coverage" if incov else ""))
+    seen = sorted({s for _tb, s in walk})
+    res.append(("16 TTALL: every window top 0 - %d down and back (%d tops) is in the coverage of the sheet bz_shchk's "
+                "rule shows - block rows [top - %d, top + %d] - and that sheet's words there are the model's (a "
+                "lane's cells apart: their drawn pose's); every lane's write from the clamped bz_mrow inside its "
+                "sheet's map; sheets shown %s%s" % (tbmax, len(walk), SH_WLO, SH_WHI, seen,
+                                                   "" if not bad else " -- " + "; ".join(bad[:3])),
+                not bad and seen == list(range(pl["k"]))))
+    p_ = Physics(c, play=True)
+    n, rows = 0, set()
+    while n < DEMO_STEPS and not p_.goal and not p_.tout:
+        p_.step(p_.auto())
+        n += 1
+        rows.add(p_.py >> 3)
+    s0 = pl["sheets"][0]["shi"]
+    s1_ = pl["sheets"][-1]["slo"]
+    res.append(("16 TTALL: the model's autopilot reaches the goal in %d steps through the WORLD part, its ball from "
+                "block row %d to %d - across the seam (sheet 0 serves tops to %d, the last from %d)" % (
+                    n, min(rows), max(rows), s0, s1_),
+                bool(p_.goal) and min(rows) <= s0 and max(rows) >= s1_ + 25))
+    # the negative controls: each a set of RAM forms that must be refused, or a compile
+    ctl = []
+    x1 = pl["sheets"][1]
+    q = bytearray(sh[1])                            # sheet 1's map a row off (its rows from m0 + 1)
+    q[HDR:HDR + mlen] = q[HDR + 2 * cols:HDR + mlen] + q[HDR + mlen - 2 * cols:HDR + mlen]
+    ctl.append(("a sheet's map a row off", SheetBytes([sh[0], bytes(q)] + list(sh[2:]), pl), c.wcga))
+    q = bytearray(sh[1])                            # sheet 1's blocks not sheet 0's
+    q[blkoff + 16] ^= 0x55
+    ctl.append(("a sheet's blocks changed", SheetBytes([sh[0], bytes(q)] + list(sh[2:]), pl), c.wcga))
+    ctl.append(("the identity over the world part alone",) + encode_sheets(m, REC, pl, "<TTALL>", _hack={"ident1": 1}))
+    pl2 = dict(pl, sheets=[dict(y) for y in pl["sheets"]])
+    pl2["sheets"][1]["m0"] = x1["m0"] + 1           # (a plan the tables would name, not the model's)
+    ctl.append(("a plan the model's is not",) + encode_sheets(m, REC, pl2, "<TTALL>") if x1["m0"] + pl["n"] < B
+               else ("a plan the model's is not", c.cga, c.wcga[:-1]))
+    out = []
+    for what, a_, b_ in ctl:
+        try:
+            read_parts(a_, b_, "<TTALL, %s>" % what)
+            out.append((what, False))
+        except (CourseError, struct.error, IndexError, ValueError):
+            out.append((what, True))
+    try:
+        compile_course(tpath, _hack={"wsh": 1})
+        out.append(("a plan a window row short (SH_WHI - 1)", False))
+    except CourseError as e:
+        out.append(("a plan a window row short (SH_WHI - 1)", "sheets" in str(e)))
+    try:
+        compile_course(os.path.join(COURSE_DIR, "path.bbc"), _hack={"sheets": True},
+                       crsinfo=[(y.name, y.title) for y in courses])
+        out.append(("a sheeted pathway", False))
+    except CourseError as e:
+        out.append(("a sheeted pathway", "always ONE part" in str(e)))
+    two = [k for k, y in enumerate(courses) if y.split and not y.sstored and paths and k < len(paths)]
+    if two:                                         # (the red arm of the first line: a two-part course that fits,
+        k = min(two, key=lambda k_: len(courses[k_].cga))   # forced into sheets)
+        try:
+            f2 = compile_course(paths[k], _hack={"sheets": True})
+            out.append(("%s (two parts) forced into sheets" % courses[k].name,
+                        bool(f2.sstored) and not _sheet_earned(f2)))
+        except CourseError:
+            out.append(("%s (two parts) forced into sheets" % courses[k].name, False))
+    res.append(("16 SHEETS negative controls REFUSED: %s" % ", ".join("%s %s" % (w, "yes" if g else "NO")
+                                                                  for w, g in out), all(g for _w, g in out)))
+
+
+BZ_LINES_SC = 200             # the window's lines on every card (bzvideo.inc's BZ_LINES, bzvga.asm's BZV_H)
+
+
 def _sc_title(X, res):
     """--selfcheck's section `title` (selfcheck(): a fork of its state after the compile)"""
     _title_checks(res)                        # SPEC.md 130.23.6: the title's statements and demos
@@ -32292,7 +32772,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
            "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30,
-           "lift2": 10, "width": 8}
+           "lift2": 10, "width": 8, "sheets": 120}
 
 
 def _av_floats_want(c):
@@ -33885,7 +34365,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc", "_sc_lift2", "_sc_width")
+             "_sc_clockocc", "_sc_lift2", "_sc_width", "_sc_sheets")
 
 
 def _selfcheck(paths, res, skipped, S):
@@ -34104,15 +34584,27 @@ def sizes(paths):
         pt = c.part
         stores = [c.stored] + ([c.wstored] if c.split else [])     # (a two-part course's both, 130.30)
         pw = [{f: packed_len(st, f) for f, _ in fmts} for st in stores]
-        whole = {f: sum(q[f] for q in pw) for f, _ in fmts}
+        more = list(c.sstored[1:]) if c.sstored else []   # (a SHEETED course's other sheets, 130.30.12)
+        ps = [{f: packed_len(st, f) for f, _ in fmts} for st in more]
+        whole = {f: sum(q[f] for q in pw + ps) for f, _ in fmts}
         print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
-            k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores), sum(len(st) for st in stores),
-            sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))
+            k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores + more),
+            sum(len(st) for st in stores + more), sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))
         if c.split:
             print("    TWO PARTS (SPEC.md 130.30): the picture part %d bytes (%d of headroom under %d), LZ4 %d, LZB %d; "
                   "the world part %d (%d), LZ4 %d, LZB %d" % (
                       len(c.cga), PARTMAX - len(c.cga), PARTMAX, pw[0]["lz4"], pw[0]["lzb"], len(c.wcga),
                       PARTMAX - len(c.wcga), pw[1]["lz4"], pw[1]["lzb"]))
+        if c.sstored:
+            pl = c.plan
+            print("    SHEETS (SPEC.md 130.30.12): the picture part as %d sheets of %d block rows (of %d; margins %d), "
+                  "each %d bytes (%d of headroom): %s; one picture part would be %d" % (
+                      pl["k"], pl["n"], c.brows, pl["H"], len(c.cga), PARTMAX - len(c.cga), "; ".join(
+                          "sheet %d rows %d - %d, coverage %d - %d, window tops %d - %s, LZ4 %d, LZB %d" % (
+                              i, x["m0"], x["m0"] + pl["n"] - 1, x["c0"], x["c1"] - 1, x["slo"],
+                              "end" if x["shi"] is None else x["shi"], (pw[0] if not i else ps[i - 1])["lz4"],
+                              (pw[0] if not i else ps[i - 1])["lzb"]) for i, x in enumerate(pl["sheets"])),
+                      two_part_lens(c.model, REC)[0]))
         print("    %-3s %-18s %-10s %7s %7s %9s %9s" % ("tag", "section", "form", "RAM", "stored", "LZ4 share",
                                                        "LZB share"))
         for e in pt["dir"]:
@@ -34165,7 +34657,7 @@ def sizes(paths):
                       whole["lzb"], "OVER" if whole["lzb"] > bg else "under"))
         tot["lz4"] += whole["lz4"]
         tot["lzb"] += whole["lzb"]
-        tot["ram"] += len(c.cga) + len(c.wcga or b"")
+        tot["ram"] += sum(len(q) for q in sheet_rams(c))
     print("\n  the %d courses: LZ4 %d, LZB %d packed; RAM %d" % (len(courses), tot["lz4"], tot["lzb"], tot["ram"]))
     kp = kit_file(kit_load())
     print("  THE KIT (SPEC.md 130.37): BZKIT.BIN %d bytes of RAM, held; LZB %d (%s).  The play courses' LZB "
