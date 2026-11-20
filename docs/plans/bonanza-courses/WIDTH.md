@@ -6,7 +6,15 @@ is set by the glass leg's west reach, and [LIFT2.md](LIFT2.md) section 4
 needs steel's lift at `wx - wy >= 45`. Its footprint is then
 `16 x 45 + 288 +- 24` = px 984 - 1,032, which is past the last pixel.
 
-This is a STUDY. Nothing here is built. Each figure is marked:
+**BUILT (2026-11-20): option A, `width` up to 160.** SPEC.md 130.10.4.2's
+amendment is the contract and 130.54.8's TWIDE the test course; the sections
+below are the study as it was written, and the measured cost of what was built
+is in that amendment's commit. What changed from the plan: `width` takes any
+multiple of 8 from 64 to 160 (not only 160), `BROWS` is bounded at
+`BZ_MROWS` = 256 by the tool, and the `lock across` refusal at `c0 >= 128`
+is unreachable at 160 (`cmax` 120) and stands as a guard.
+
+This was a STUDY. Each figure is marked:
 
 - **MEASURED**: the tool's own `--sizes` output, or a nasm assembly at this
   tree (`f72395607`, `bounce-bonanza`).

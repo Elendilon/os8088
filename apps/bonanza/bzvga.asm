@@ -324,14 +324,12 @@ bzv_row:
     add ax, bx
     mov di, ax                  ; DI = P L + c0 (mod 64K)
     mov ax, si
-    and al, 0f8h
-    push cx
-    mov cl, [bz_mapsh]
-    shl ax, cl
-    pop cx
-    shl bx, 1
-    add ax, bx
-    add ax, BZC_MAP             ; AX = the first cell's map entry
+    shr ax, 1
+    shr ax, 1
+    and al, 0feh                ; AX = 2 (L >> 3)
+    xchg ax, bx
+    shl ax, 1
+    add ax, [bz_mrow + bx]      ; AX = the first cell's map entry
     and si, 7
     shl si, 1
     mov bp, si                  ; BP = the line's word in a block
@@ -601,15 +599,14 @@ bzv_col:
     pop ax
     mov dx, ax
     and dx, 7                   ; DL = j, the first line's in its block
-    and al, 0f8h
-    mov cl, [bz_mapsh]
-    shl ax, cl
+    shr ax, 1
+    shr ax, 1
+    and al, 0feh                ; AX = 2 (L >> 3)
+    xchg ax, si
+    mov si, [bz_mrow + si]
     shl bx, 1
-    add ax, bx
-    add ax, BZC_MAP
-    mov si, ax                  ; SI = its map entry
-    mov bp, 8
-    shl bp, cl                  ; BP = a block row's map bytes
+    add si, bx                  ; SI = its map entry
+    mov bp, [bz_rowb]           ; BP = a block row's map bytes
     push ds
     mov ds, [bz_mseg]
     mov ax, 0102h
@@ -1144,15 +1141,11 @@ bzv_wprect:
     sub si, [bz_lcl]
     shl si, 1
     add si, ax
-    mov ax, [bz_vwbr]           ; the map entry: BZC_MAP + (8 br << mapsh) + 2 x
-    mov cl, 3
-    shl ax, cl
-    mov cl, [bz_mapsh]
-    shl ax, cl
-    add ax, [bz_vwx]
-    add ax, [bz_vwx]
-    add ax, BZC_MAP
-    mov di, ax
+    mov di, [bz_vwbr]           ; the map entry: bz_mrow[br] + 2 x
+    shl di, 1
+    mov di, [bz_mrow + di]
+    add di, [bz_vwx]
+    add di, [bz_vwx]
     push ds
     mov ds, [bz_mseg]           ; (the PICTURE part: the poses, the map, the blocks)
     mov si, [si]

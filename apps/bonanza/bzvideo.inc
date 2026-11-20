@@ -499,12 +499,12 @@ bz_row:
     mov dx, ax
     and dx, 7
     shl dx, 1                   ; DX = the first line's word in a block
-    and ax, 0fff8h
-    mov cl, [bz_mapsh]
-    shl ax, cl                  ; (L0 >> 3) * ROWB: the block row's map
-    add ax, BZC_MAP
+    shr ax, 1
+    shr ax, 1
+    and al, 0feh                ; AX = 2 (L0 >> 3)
+    xchg ax, si                 ; (SI = R is spent: BZ_RWORD loads it)
     shl bx, 1
-    add bx, ax                  ; BX = the map entry of the first word
+    add bx, [bz_mrow + si]      ; BX = the map entry of the first word
     pop cx
     mov ax, 2000h               ; the words before the ring's end
     sub ax, di
@@ -653,12 +653,12 @@ bz_col:
     shl ax, cl                  ; AX = L0
     mov dx, ax
     and dx, 7                   ; the line in its block
-    and ax, 0fff8h
-    mov cl, [bz_mapsh]
-    shl ax, cl                  ; (L0 >> 3) * ROWB
-    add ax, BZC_MAP
-    add si, ax
-    mov bx, si                  ; BX = the map entry of the first block
+    shr ax, 1
+    shr ax, 1
+    and al, 0feh                ; AX = 2 (L0 >> 3)
+    xchg ax, bx
+    mov bx, [bz_mrow + bx]      ; MAP + (L0 >> 3) ROWB (130.10.4.2)
+    add bx, si                  ; BX = the map entry of the first block
     pop cx                      ; CX = the rows
     mov ax, cx                  ; the first RUN: the rows before the wrap row
     cmp ax, bp
@@ -861,12 +861,13 @@ bz_boxc:
     mov dx, 8
     sub dx, bp                  ; DX = the first run's lines (to the block's end)
     shl bp, 1                   ; BP = L0's line word in a block
-    and al, 0f8h
-    mov cl, [bz_mapsh]
-    shl ax, cl                  ; (L0 >> 3) * ROWB
-    add ax, BZC_MAP
-    mov bx, [si]
-    shl bx, 1
+    shr ax, 1
+    shr ax, 1
+    and al, 0feh                ; AX = 2 (L0 >> 3)
+    xchg ax, bx
+    mov bx, [bz_mrow + bx]      ; MAP + (L0 >> 3) ROWB (130.10.4.2)
+    mov ax, [si]
+    shl ax, 1
     add bx, ax                  ; BX = the map entry of (L0, x0)
     mov di, [si + 8]            ; DI = the buffer's first line
     mov cx, [si + 4]            ; CX = the word columns
@@ -1742,7 +1743,7 @@ bz_ohint:
 
 ; bz_oprep - a block row's first LAID record: the lines of the row inside the
 ; footprint ([bz_of, + bz_on), bz_ofl2 = 2 x the first's place in the block),
-; its map row (bz_omrow: MAP + (B << MAPSH), as the fill's) and DI = MTAB.  A
+; its map row (bz_omrow: bz_mrow[B / 8], as the fill's) and DI = MTAB.  A
 ; row that lays nothing never pays for them (the speed pass: 6 rows in 10 on
 ; MILL's demo).  DS = the course part, ES = ours.  Preserves all but AX and DI.
 bz_oprep:
@@ -1773,9 +1774,10 @@ bz_oprep:
     and bx, 7
     shl bx, 1
     mov [es:bz_ofl2], bx        ; 2 x the first line's place in the block
-    mov cl, [es:bz_mapsh]
-    shl ax, cl
-    add ax, BZC_MAP
+    shr ax, 1                   ; (B a block row's first line: 8 br)
+    shr ax, 1
+    xchg ax, di
+    mov ax, [es:bz_mrow + di]
     mov [es:bz_omrow], ax
     mov di, [es:bz_mtab]
     pop cx

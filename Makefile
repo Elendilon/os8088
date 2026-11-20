@@ -22501,7 +22501,7 @@ BZ_ART := $(BUILD)/bonanza-art
 # TPLY (the plan's TPLAY), the physics and replay rows' (the prototypes' features on one course).
 # TLFT (Two Lifts), SPEC.md 130.12.4.7's: two lifts, the tracked one handed over on its route.
 # bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
-BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc apps/bonanza/courses/tply.bbc apps/bonanza/courses/tlft.bbc
+BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc apps/bonanza/courses/tply.bbc apps/bonanza/courses/tlft.bbc apps/bonanza/courses/twide.bbc
 BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
