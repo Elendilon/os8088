@@ -1,0 +1,87 @@
+# Play Test - TPLY (the plan's TPLAY: a NAME is five characters), a TEST course (SPEC.md 130.54.2): the
+# BZDEV=1 build's alone, after the shipped courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped
+# demo.  "Physics and replays" (docs/plans/BOUNCE-BONANZA-SOAK.md): the home of the bonanzaphys,
+# bonanzareplay and bonanzaring-ground scenarios that ran on the PROTOTYPES (FIRST, TRIAL, MOON, PEAK,
+# PLAYGROUND), each feature a few steps from the start or from a poked cell.  Four parts:
+#  - the APRON (PLAYGROUND's, at H's height): the start (19, 14) on a level 15 x 6 tier, its four RUNGS
+#    along the back row (tops 2, 1.5, 1 and 0.5 units up, x 7 - 18, wy 9 - 11; approached along -wy from
+#    the front row wy 17; ADJACENT, no apron between them: a 64-wide course has the width for no more),
+#    and the BRAKE STRIP (lane wx 12, wy 18 - 20) off its front edge into a VOID over the well (14 - 15,
+#    21 - 24: a floor 16 units down, so the fall is as long as PLAYGROUND's - the GLIDE `nosafe` and
+#    `nolatch` arms need it);
+#  - TRIAL turned a quarter (its +wx is +wy here; cell (Tx, Ty) -> (Ty + 8, Tx + 9)): H's LIP the apron's
+#    front edge over F (18 - 21, 18 - 21, 6 units down), the 2-tile GAP, G (18 - 21, 24 - 27, 2 above F)
+#    and its far rail, the STEEP ramp along +wx off G (2 units a tile, 4 tiles), the MAT beside its foot,
+#    the turn, the ICE back along -wy between BUMPER rails, the SAND and the SPLIT GOAL (25, 17) exit 0,
+#    (26, 17) exit 1 - the autopilot's route, as TRIAL's: off the lip, bounced over the gap onto G, down
+#    the ramp, along the ice to exit 1 in 529 steps (9.7 s), no fall, both flags touched;
+#  - the YARD (at the goal's height, off the turn): FIRST's PLATEAU (28 - 30, 31 - 33, 4 up) with its back
+#    RAIL and its RAMP down along +wx to a 2-unit LIP onto a 3-column foot and the void past it; the PADS
+#    (one of each ball); SPRING 1 (29, 35) two rows before the plateau's face, which throws rubber onto it,
+#    and SPRING 2 (37, 30); a plain EAST wall (38, 28 - 29: the +wx edge test, TRIAL's G rail turned away
+#    from it); the HOLE (26, 30) flag 0 rolls into;
+#  - the STRIP (`box 2 6 70 98`, from the yard's foot down the screen): 14 cells of level ground along
+#    +wx +wy, the drag's one-arrow (Down) run from rest to the axis model's top and from the cap back to it.
+#  Two FLAGS on the route: flag 0 (26, 26) on the turn, rubber, the hole beside it; flag 1 (19, 26) on G,
+#  glass.  A course with a flag (or a cup) respawns at the flag, never at bz_safe (GF_CKPT), so the SAFE
+#  respawn is BENCH's, not this course's.  `limit 20`: a timeout is TQUIK's (8 s) to wait out.
+course TPLY "Play Test"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music trial      # SPEC.md 130.50.3: every course names its song
+width 64
+ball rubber
+uses spring
+# the APRON (H, the start tier), its rungs, the brake strip and the well under its void
+floor rect   7 12 22 18  flat 14
+floor rect   7  9 10 12  flat 16              # the 2-unit top
+floor rect  10  9 13 12  flat 15.5            # 1.5
+floor rect  13  9 16 12  flat 15              # 1
+floor rect  16  9 19 12  flat 14.5            # 0.5
+floor rect  11 18 14 21  flat 14              # the brake strip, lane wx 12
+floor rect  14 21 16 25  flat -2              # the well: the strip's void falls as far as PLAYGROUND's
+# F, the gap, G and its far rail
+floor rect  18 18 22 22  flat 8
+floor rect  18 24 22 28  flat 10
+wall  rect  18 28 22 29  flat 10.5
+# the steep ramp along +wx off G, its inner rail, the mat beside its foot
+floor rect  21 25 25 28  ramp x 21 25 10 2
+wall  rect  21 24 25 25  flat 10.5
+floor rect  21 28 25 30  flat 2
+surface bounce rect 21 28 25 30
+# the turn, the ice back along -wy between bumper rails, the sand, the split goal
+floor rect  25 25 27 28  flat 2
+floor rect  25 20 27 25  flat 2
+surface ice rect 25 20 27 25
+wall  rect  24 20 25 24  flat 2.5
+wall  rect  27 18 28 28  flat 2.5
+surface bounce rect 24 20 25 24
+surface bounce rect 27 20 28 28
+floor rect  25 18 27 20  flat 2
+surface sand rect 25 18 27 20
+goal  rect  25 17 26 18  flat 2
+goal  rect  26 17 27 18  flat 2 exit 1
+# the YARD: the plateau, the pads, the springs, the east wall, flag 0's hole; the drag's strip below it
+floor rect  25 28 39 36  flat 2
+floor rect  28 36 31 37  flat 2               # spring 1's footing (no void beside a spring)
+wall  rect  38 28 39 30  flat 3               # the plain east wall
+hole  tile  26 30
+floor box    2  6 70 98  flat 2               # the drag's strip
+wall  rect  28 30 31 31  flat 8               # the plateau's back rail, 2 units proud
+floor rect  28 31 31 34  flat 6               # the plateau
+floor rect  31 31 35 34  ramp x 31 35 6 4     # its ramp; the lip, 2 units, onto the foot (35 - 37)
+pad rubber 30 29
+pad steel  32 29
+pad glass  34 29
+spring 29 35 640                              # onto the plateau (PEAK's 768 throws rubber past it)
+spring 37 30 512
+checkpoint 26 26 ball rubber                  # flag 0, the turn
+checkpoint 19 26 ball glass                   # flag 1, G
+start 19 14
+way 19 14
+way 19 26
+way 23 26
+way 26 26
+way 26 22
+way 26 17
+limit 20
+clock 26 23                                   # the finish clock (SPEC.md 130.22.6), TRIAL's, off the route
