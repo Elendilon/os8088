@@ -5898,7 +5898,8 @@ SOAK = [
         "secs MEASURED in 5b's re-take on the shipped D build (354.5 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (627.6 s re-run alone beside three rows; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=1800 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 705.0,
+    Row("bonanzaphys", "soak", py("tests/bonanza_phys.py"), 240.0,
+        "BOUNCE-BONANZA-SOAK PHASE 3 (docs/plans/BOUNCE-BONANZA-SOAK.md, its TPLAY table): every scenario on a TEST course (SPEC.md 130.54) - wave 1's four as SCEN_T (pit on BENCH, its SAFE respawn on (19, 18); lip, rail and goal on TPLY), the replays on TPLY (TRIAL's H, F, gap and G turned a quarter, the PLAYGROUND's apron and rungs, a yard with the plateau, pads, springs, flags and hole), TMIL (MILL's top cell for cell: the windmills, the lift, the cannon, the drop, three posts), TCUP (the cup) and TQUIK (the timeout); no prototype course is named (the families' wave 9 replays, PLAYGROUND's, are `--families`' by hand: no test course has a family). The physics is proved STEP FOR STEP under unicorn by bonanzaphyshost (every replay, the whole state this row compares a frame), so this row replays MARTY's 15 representative replays a card (one of each mechanism; `--every` all of them) and its benchmark stops at bench_stop() (120 steps past the slope red's parting, at least 300) by Esc instead of BZ_BENCH's 1,200 frames. One boot a card, as before. secs: ESTIMATED from the frames removed (about 2,800 frames a card where ~12,000 were: 705 s x 0.23 + boots and the tree), not measured - the lead's soak re-measures it. "
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
         "GATE 1 ROUND 3B (SPEC.md 130.17.17): every frame also bz_bsp; boostfall now BOOSTS at the bounce plus BADD (red noadd); springnot becomes springarm (the launch takes the token; red springoff for springtok); new spentspring (a boost whose bounce rides PEAK's spring: one boost; red nospent); hopedge, nofall, takeoff and slabcell re-anchored. GATE 1 ROUND 3 (SPEC.md 130.17.16): armlate4 becomes armlate5 (red grace5 for grace4); armheld now BOOSTS (red noheld); ledgehold holds Space through the ledge contact (reds heldarm, nogate); new fallarm (rubber rolled off PLAY's 1-unit top, no Hop, a tap 2 steps after the take-off: a boost; red nofall) and fallnone (no Space: no boost); hopedge and takeoff re-anchored on the moved token write. WAVE 6B (SPEC.md 130.17.4, 130.17.10): every frame also bz_bgr and bz_bgd (Physics.state6's two new values), and each new replay ends with the model's nboost on the guest, checked by name; wave 6's boost replays re-proved on 6b's model and kept (their second press 2 steps before the contact now ARMS the flight); new replays on both cards, FOUND and PROVED on the model: armearly (the second press 14 steps before the first contact: a boost wave 6's window refused), armroll (rubber at the cap with a chord, the second press mid-flight: a boost), armlate (2 steps after a bouncing first contact: the GRACE converts at k = 2), armlate4 (BGRACE + 1 after: nboost 0), hoponly (one tap: no boost), armheld (Space held from the Hop through the contact: no boost), ledgehold (a Hop at the half-unit lip, Space held 4 steps, its first contact on the ledge: no boost), mashchain (rubber at the cap, Space tapped every 2 steps through three contacts: one boost), gripchain RE-KEYED (mid-flight taps: two boost cycles 51 steps apart), gripsteel (steel at the cap, Grip 3: stopped in the axis model's steps; gripglass kept at Grip 1). Red arms, each at its own replay: heldarm (Space HELD arms: ledgehold), hopedge (the Hop's own edge arms: hoponly), armwin (wave 6's token-and-window test: armearly), nograce (no grace: armlate), grace4 (a 4-step grace in the rule: armlate4), graceoff (the conversion without its k - 1 lift: armlate's state). The CARRIED arms pump, tokbst, rampboost, slabcell, springtok re-anchored on 6b's bz_land/bz_bok and re-proved by --check (each scenario's broken model parts); every new and carried arm's guest was run under unicorn against the shipped model on its scenario before registration and parts there (the shipped guest equal at every step on all twenty boost and Grip replays). secs: PREDICTED (wave 6's 430 s + ten replays a card), re-measured in the final pass. WAVE 6 (SPEC.md 130.16.3.1, 130.16.4, 130.16.14): every frame also bz_btok, bz_stf, bz_nboost, bz_drx and bz_dry against Physics.state6(); new replays FOUND and PROVED on the model (--check), both cards: boost, boostclimb, boostdrop, boostfall, pumpchk, bouncefirst, gripchain, rampnot (a ramp of TRIAL's, searched), sandnot, matnot, liftnot (MILL), springnot (a Hop on PEAK's spring: the launch spends the token), steelglass-steel/-glass, drag-rest, drag-cap, gripglass; every expected value the model's or MATERIALS' (no retunable literal); THE DRAG'S COST: drag-rest replayed again under breakpoints at bz_gax's entry and return, every CLEAN dragged call (no sch_isr entry inside) at most DRAG_PRICE 428 + 25%; hopagain is glass's now. Red arms: pump (pumpchk), rampboost (rampnot), tokbst (bouncefirst), slabcell (liftnot), ceildrag (drag-rest), slowdrag (the drag's span), springtok (springnot). "
         "BONANZA's physics on the guest EQUALS bbcourse.Physics (SPEC.md "
@@ -5935,7 +5936,8 @@ SOAK = [
         "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (705.0 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzaphyshost", "soak", py("tests/bonanza_phys.py", "--check"), 710.0,
+    Row("bonanzaphyshost", "soak", py("tests/bonanza_phys.py", "--check"), 750.0,
+        "BOUNCE-BONANZA-SOAK PHASE 3: fam_host's scenario pass now runs EVERY bonanzaphys replay (85, all on the TEST courses TPLY, TMIL, TCUP, TQUIK) under unicorn with urun's FULL comparison - the whole state the MartyPC row compares a frame (Physics.state2 - 7, the exit, the counters, a pad's tables), compared every STEP - so bonanzaphys replays only a representative few; the no-family route runs are TMIL's, TPLY's, TQUIK's and TCUP's route demos (were MILL's, MOON's and PEAK's), `bunwalk` on TMIL and every_family on TPLY's part; the benchmark's whole route proved not to fall (the guest leg stops early); every red arm checked AIMED at a scenario that exists (red_aims). The families' own scenarios stay PLAYGROUND's (no test course has a family). secs: ESTIMATED (+ ~35 s of unicorn on one core), not measured. "
         "BONANZA's physics, HOST HALF (docs/plans/BOUNCE-BONANZA-SOAK.md phase 1): `bonanza_phys.py --check`, "
         "which no row ran before - the only gate of the TEST-ONLY courses. Under unicorn, no emulator: the "
         "package's own routines (the BZDEV=1 build, bonanza_ring.dev()'s private tree) against "
@@ -5961,6 +5963,7 @@ SOAK = [
         "BZDEV=1 tree already built (x 1.25).",
         needs=("unicorn", "nasm"), timeout=300 + BZDEV_TREE_CPU),
     Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 471.0,
+        "BOUNCE-BONANZA-SOAK PHASE 3: every leg on a TEST course (SPEC.md 130.54) - the record, inject, mouse and play legs on TPLY (TRIAL's H, F and gap turned a quarter: the script's Left and Right swap, the chord off the lip is Left + Down; the play leg runs WEST along the PLAYGROUND's apron to the brake strip's lane wx 12), the MILL leg (record, Hercules and VGA replays, the identity refusal) on TMIL, MILL's top cell for cell; no prototype is named. --check now also proves the MILL leg's knock-back delay on TMIL's model and the play leg's script on TPLY's (judged as the guest's log is). Already one boot a card (CGA, Hercules, VGA); its frames are the legs' own, so secs: ESTIMATED unchanged (471 s), not re-measured. "
         "NO COURSE KEY (SPEC.md 130.11.5.4, 130.26.8, the owner 2026-11-19): N and M are gone, so every record leg POKES [bz_crsel] (TRIAL, the PLAYGROUND, MOON) before F and the play rolls the course's own ball - the record leg checks [bz_mat] is it. "
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
         "secs MEASURED in V3's scoped soak (471 s, the VGA's replays in). THE VGA (SPEC.md 130.46): the CGA's TRIAL, PLAYGROUND and MILL logs replayed on os8088_xt_vga to the model's end, the refusal and the injects. "
@@ -6035,40 +6038,41 @@ SOAK = [
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 115.0,
+    Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 600.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
-        "8R (the final pass of 7a644820e): the SECRET leg models TRIAL's poke BEFORE the plays - compiled after TRIAL came up (~4 host s since the Y0 search, SPEC.md 130.25.3, about 20 guest s at MartyPC's pace) it ran out TRIAL's 20 s limit, and the poke landed on the pathway the timeout went back to. "
-        "WAVE 8R (SPEC.md 130.22.4, 130.22.10; REWRITTEN for the SHIPPED map, option A, 2026-11-19: pad 0 "
-        "ROLL, pad 1 HOP; every pad, route and arrow read off the guest's own tables, the courses PLAYED only "
-        "ROLL and HOP): THE PATHWAY's loop on MartyPC's CGA and Hercules, reached as the title session does "
-        "(Enter on the face, P on the title), every item on guest state: a new game RESTS on pad 0 (5 lives, "
-        "every gate closed); no arrow moves it, Space shows pad 0's course's INFO card (bz_kinfow); Enter "
-        "plays ROLL, its ball poked beside the goal and, the camera at rest, into it - the FINISH SEQUENCE's "
-        "clock blank alternating and drawn together, the camera still, a ball poked over a VOID cell in it "
-        "neither counted nor respawned, Enter skipping it (bz_fend with steps left); pad 0 DONE, the route "
-        "its exit keys OPENED, its gate's sign 1 - 5 and its lane drawn at 5, the AUTO-ROLL to pad 1 equal "
-        "to bbcourse.Follow at EVERY STEP (bz_follow's entries); pad 1's arrow on that route (Left) takes it "
-        "back and pad 0's (Right) brings it back, each Follow's; HOP played beside the HELD pathway "
-        "(bz_phold, its row fetched, bz_phre) and left by Esc: a life, the counters' digit lanes drawn 1 + "
-        "4; the forced fallback (bz_phforce) drops and re-fetches it; the last life's GAME OVER (the "
-        "pathway's OVER state, bz_kover, the title); P again a NEW game; every route opened by a poke, the "
-        "nearest DIAGONAL (pad 5's road back to pad 2: Down and Right) each arrow Follow's both ways; the "
-        "nearest route between pages (pad 5 up to pad 6): bz_R0 from page 0's rows by BZ_MAXR a frame to "
-        "page 1's and still, bz_c0 never moving; resting there its icon's lanes drawn at several poses and "
-        "no other icon's lane marked (bz_latt), rolled on (to pad 7) its icon back at rest and unmarked (the "
-        "map has no ramp: the old gz check prints a SKIP). The SECRET leg (first card): a private tree off "
-        "the shipped files (ROLL's goal split, its right part a hidden exit 1; the map given a hidden pad up "
-        "from pad 0 and the secret route keyed by that exit; every anchor asserted; bbcourse compiles every "
-        "course into a temporary art tree, the leg's main cost): ROLL finished by its hidden exit, the route "
-        "rolled at once with no gate, its reveal groups posed in order each past its distance, the hidden "
-        "pad and pad 0's visible end shown. --check (host): the reds assemble, the shipped map's walk (pads "
-        "0 and 1 ROLL and HOP, a diagonal, a page route, pad 0's goal and apron), the private map compiles, "
-        "and bz_follow under unicorn equals bbcourse.Follow on every route of both maps both ways. Red arms: "
-        "nopage (no PAGED bit: GLIDE, red at 9.), nogate (bz_nset marks nothing: the gate's lane never drawn "
-        "past 1, red at 3.), nodiag (Left not the pathway's: red at 4.), finfall (a fall in a finish sequence "
-        "respawns: red at 2.); a wait that raises after an item failed is one more failure (an abort), so a "
-        "red is judged by its item. secs: 115 s was MEASURED on the old map (8R pathrow; 1,482 s in a 4-lane "
-        "soak, 2026-11-19); the rewrite is NOT yet re-measured (BOUNCE-BONANZA-SOAK phase 4).",
+        "BOUNCE-BONANZA-SOAK PHASE 3 (2026-11-20): the row walks THE TEST MAP (SPEC.md 130.54.6, pathdev.bbc, the "
+        "BZDEV=1 build's pathway) in ONE BOOT A CARD, the secret leg included: no private tree, no patch, no course "
+        "recompiled. Every pad, route and arrow read off the guest's own tables; the courses PLAYED are ROLL (pad 0), "
+        "HOP (pad 1) and TQUIK (pad 2, the secret leg); no prototype course is named or rolled across. "
+        "WAVE 8R (SPEC.md 130.22.4, 130.22.10): THE PATHWAY's loop on MartyPC's CGA and Hercules, reached as the "
+        "title session does (Enter on the face, P on the title), every item on guest state: a new game RESTS on pad 0 "
+        "(5 lives, every gate closed); no arrow moves it, Space shows pad 0's course's INFO card (bz_kinfow); Enter "
+        "plays ROLL, its ball poked beside the goal and, the camera at rest, into it - the FINISH SEQUENCE's clock "
+        "blank alternating and drawn together, the camera still, a ball poked over a VOID cell in it neither counted "
+        "nor respawned, Enter skipping it (bz_fend with steps left); pad 0 DONE, the route its exit keys OPENED, its "
+        "gate's sign 1 - 5 and its lane drawn at 5, the AUTO-ROLL to pad 1 equal to bbcourse.Follow at EVERY STEP "
+        "(bz_follow's entries); pad 1's arrow on that route (Left) takes it back and pad 0's (Right) brings it back, "
+        "each Follow's; HOP played beside the HELD pathway (bz_phold, its row fetched, bz_phre) and left by Esc: a "
+        "life, the counters' digit lanes drawn 1 + 4; the forced fallback (bz_phforce) drops and re-fetches it; the "
+        "last life's GAME OVER (the pathway's OVER state, bz_kover, the title); P again a NEW game, the secret route "
+        "closed (s0.: the hidden pad's sign and its reveal groups 0); every other route opened by a poke, the nearest "
+        "DIAGONAL (pad 2 TQUIK up-left to pad 3 TCUP: Up and Left) each arrow Follow's both ways; the nearest route "
+        "between pages (pad 3 up to pad 4 TPLY): bz_R0 from page 0's rows by BZ_MAXR a frame to page 1's and still, "
+        "bz_c0 never moving; resting there its icon's lanes drawn at several poses and no other icon's lane marked "
+        "(bz_latt), rolled on up the one-cell RAMP to pad 5 TMIL its icon back at rest and unmarked and the marble's "
+        "gz > 0 (10b., CHECKED now: the shipped map had no ramp); then s1., the SECRET route: rolled back to pad 2, "
+        "TQUIK finished by its HIDDEN exit 1, route 2 -> 6 rolled at once with no gate, its reveal groups posed in "
+        "order each past its distance, the hidden pad 6 and pad 2's visible end shown. --check (host): the reds "
+        "assemble; the test map's walk as the row takes it (pads 0 and 1 ROLL and HOP, pad 1's way back Left alone, "
+        "the diagonal, the page route to an icon pad, the climb on from it, the secret route keyed by a hidden exit "
+        "and reachable from 10b.'s pad); bz_follow under unicorn equals bbcourse.Follow on all six routes both ways "
+        "(the secret one and the ramp included). Red arms: nopage (no PAGED bit: GLIDE, red at 9.), nogate (bz_nset "
+        "marks nothing: the gate's lane never drawn past 1, red at 3.), nodiag (Left not the pathway's: red at 4.), "
+        "finfall (a fall in a finish sequence respawns: red at 2.); a wait that raises after an item failed is one "
+        "more failure (an abort), so a red is judged by its item. secs an ESTIMATE, not measured (BOUNCE-BONANZA-SOAK "
+        "phase 4 re-measures): 1,296 s in the 4-lane soak at 42432ee993 was three boots (main x 2 cards, the secret "
+        "leg's private boot) plus the private tree's every-course compile; now two boots and no compile, each carrying "
+        "~40 guest s more (the secret leg on both cards).",
         needs=("marty", "nasm"), timeout=600 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzatitle", "soak", py("tests/bonanza_title.py"), 60.0,
@@ -6084,8 +6088,16 @@ SOAK = [
         "check 2. secs MEASURED: 26.3 s the CGA alone, each card a boot.",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
-    Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 333.0,
+    Row("bonanzamega", "soak", py("tests/bonanza_mega.py"), 300.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes (its 1.44MB floppy the tree's bonanza.img). "
+        "BOUNCE-BONANZA-SOAK PHASE 3 (2026-11-20): no prototype course - case 2's F checks BZ_CRS_DEFAULT (ROLL, "
+        "pad 0's; it said FIRST, stale since F's course became the map's), case 5 replays TMIL's autopilot route "
+        "(the TEST course, SPEC.md 130.54: a windmill's KEEP capture, a kick, the DROP and the cannon's LAUNCH, 723 "
+        "steps to its goal) where MILL's was, CASE 6 (MILL's ride poked onto MILL's slab) DELETED with MILL, cases "
+        "7 - 9 run HOP's shipped demo (V with bz_vk poked to its bzdemo.lst row, saved as HOPA.BZR) where PEAK's "
+        "ran, case 10 runs TPLY (the PLAYGROUND's apron and three pads, ONE part: the two-part claim check has no "
+        "test course to run on) where the PLAYGROUND ran; stretchcs is red at TPLY's launch. secs 300.0 an ESTIMATE "
+        "(case 6 and MILL's longer route gone), not measured. "
         "secs MEASURED in V3's scoped soak (333 s, case 0v in). CASE 0V (SPEC.md 130.46): the VGA's arm on kern_mega, on the Paradise before the drag - a benchmark to its end and a play, [bz_vga] 1, the balls' copies claimed, every row and claim the desktop's after each (86Box's Paradise neither pans nor wraps: its picture not judged). "
         "WAVE 6B (SPEC.md 130.17.8, 130.17.10): case 10's boost is pressed MID-FLIGHT (Space again when the model poked from the guest says the first contact is bonanza_replay.BOOST_AHEAD, 12, steps off or nearer: it arms the flight), the stretch still drawn from rubber's translated part on kern_mega's Hercules; no PKG_MEGA arm (the trigger, the grace and LATTICE are package code and bss, no segment arithmetic). stretchcs re-runs. WAVE 6 (SPEC.md 130.16.12, 130.16.14): case 10, the PLAYGROUND on kern_mega's Hercules - the course and its three ball rows through their selectors (rubber's stretch translated), a play with a Hop and its BOOST (Space held for steps, the second press when a model poked from the guest's state puts the contact 1 - 3 steps off), bz_nboost >= 1, the model's run of its log its end, its replay by R the same end; no fault, no leak. Red arm stretchcs (the stretch entry's translation through CS): case 10 alone, an exception charged to BONANZA at the PLAYGROUND's launch. THE FINAL PASS: the Hop's flight loop steps the HELD 86Box machine one step a pass (at most 120; it read the held machine and hung 37 minutes in the soak); secs: 74 s re-run, x 1.25. "
         "BONANZA on kern_mega needs no PKG_MEGA arm (SPEC.md 130.11.14) and "
@@ -6141,6 +6153,9 @@ SOAK = [
         "secs measured on the host (0.9 s, rounded up)"),
     Row("bonanzasound", "soak", py("tests/bonanza_sound.py"), 60.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
+        "BOUNCE-BONANZA-SOAK PHASE 3 (2026-11-20): step 3's F plays ROLL (SOUND_CRS, by name: shipped, pad 0's) "
+        "where it played the prototype FIRST; the model's song is read out of ROLL's course part, and `groove` "
+        "straightens ROLL's 7 5 swing (firstroll.bmu) - no boot or frame removed, secs unchanged. "
         "WAVE 6B (SPEC.md 130.17.10): re-run on the moved image, no change in logic and no new arm (noboost "
         "carried): FIRST plays under LATTICE and 6b's bss, and the grace's conversion counts bz_nboost one to "
         "three steps after a bounce's bz_nbnc. "

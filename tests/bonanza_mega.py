@@ -23,7 +23,8 @@ BONANZA plays on a CGA or a Hercules only - and then:
 
   1  B, the benchmark, to its end on the Hercules ([bz_herc] 1 inside, the
      results left: [bz_res] 1, 1,200 frames in [bz_rframes]);
-  2  Enter, a play of FIRST, left by Esc after 100 frames;
+  2  F, a free play of BZ_CRS_DEFAULT (pathway pad 0's course, ROLL),
+     left by Esc after 100 frames;
   3  a play with a HOP (Space) and GRIP (Left Shift held ALONE for 2 steps,
      then the GREY Right with it), left by Esc, then its REPLAY by R run to
      its end; and "3. the fake-shift release" (SPEC.md 130.13.7 item 6):
@@ -51,33 +52,33 @@ BONANZA plays on a CGA or a Hercules only - and then:
      keyboard sends no fake shift, the case could not go red, and it reports
      SKIP with that reason (asserting nothing about it);
 
-  5  MILL (wave 3, SPEC.md 130.12.12): the model's log from MILL's start -
-     the knock-back, the windmill's tunnel, a kick, the chute and the cannon
-     - poked into bz_rlog with MILL's identity and replayed by R on the
-     Hercules: the lanes' map words written through the course part's own
-     selector, its blocks and the platform's frames translated; the end
-     state the model's;
-  6  bonanzaphys's `ride` replayed on the Hercules, the ball poked onto the
-     slab in the first frame's bz_hold SPIN (the one point a poke is the
-     next step's input: bz_hold 255, then the frame count seen to move);
-     the end state the model's;
+  5  TMIL (wave 3, SPEC.md 130.12.12; the TEST course "Wheel and Ring",
+     SPEC.md 130.54, since BOUNCE-BONANZA-SOAK phase 3 - it was the
+     prototype MILL): the model's autopilot log from TMIL's start to its goal
+     - a windmill's capture, its KEEP tubes, a bumper's kick - stamped with
+     TMIL's identity and replayed by R on the Hercules: the lanes' map words
+     written through the course part's own selector, its blocks and its
+     lift's frames translated; the end state the model's.  (Case 6, MILL's
+     `ride` poked onto MILL's slab in a bz_hold spin, is gone with MILL: its
+     subject was the poke onto that course's lift, and the translation it
+     exercised is every launch's - case 5's among them);
 
-  7  WAVE 4 (SPEC.md 130.14.14): PEAK's shipped demo (V) through D on the
-     Hercules: the launch fetches the course and ALL THREE ball parts (two
-     claims inside: the course and the ARENA the balls share, SPEC.md
-     130.25.4), its end state the model's replay of the demo, and at
-     least one respawn's cut after the first full write - each blanked by
-     an OUT to 3B8h, no fault;
+  7  WAVE 4 (SPEC.md 130.14.14): HOP's shipped demo (V, bz_vk poked to its
+     row of bzdemo.lst) through D on the Hercules: the launch fetches the
+     course and the ARENA the balls share (SPEC.md 130.25.4), its end state
+     the model's replay of the demo, and its first full write blanked by an
+     OUT to 3B8h (a respawn's cut REPORTED), no fault;
   8  W through the Save form into the instance's folder (B:'s root, as
-     PEAKA.BZR) and L of it back through the Open form (its row by SPEC.md
+     HOPA.BZR) and L of it back through the Open form (its row by SPEC.md
      19.4's order, double-clicked): bz_rlog the demo's bytes, then D of it
      to the model's end - L's staging claim used whole through its selector;
-  9  LAST, the DOUBLE-CLICK of PEAKA.BZR in B:'s Disk window: a second
+  9  LAST, the DOUBLE-CLICK of HOPA.BZR in B:'s Disk window: a second
      BONANZA opens holding it (bz_rlog, [bz_lsv] 2);
- 10  WAVE 6 (SPEC.md 130.16.12, 130.16.14), before 7 - 9: the PLAYGROUND on
-     the Hercules ([bz_crsel] poked to it - a play rolls its own ball -
-     and F): the launch fetches the course and its THREE ball rows (its three
-     pads: 1 + 3 claims inside), so rubber's part with its STRETCH entry is
+ 10  WAVE 6 (SPEC.md 130.16.12, 130.16.14), before 7 - 9: TPLY (the TEST
+     course, SPEC.md 130.54: the PLAYGROUND's apron and its three pads, since
+     phase 3) on the Hercules ([bz_crsel] poked to it by NAME - a play rolls
+     its own ball - and F): the launch fetches the course and the arena with
+     its THREE ball rows, so rubber's part with its STRETCH entry is
      translated through its own selector (bz_hxball's +12 + +14 entries);
      a play with a Hop and its BOOST - Space held for STEPS, the second
      press MID-FLIGHT, when a model poked from the guest's state says the
@@ -85,7 +86,9 @@ BONANZA plays on a CGA or a Hercules only - and then:
      nearer (wave 6b, SPEC.md 130.17.4.2, 130.17.10: an edge anywhere in the
      flight arms it; three tries) - so the stretch is DRAWN there; left by Esc: [bz_nboost] at least 1, the model's run of the log
      the play's end and boosting too; then its REPLAY by R to the same end;
-     no fault, no leak;
+     no fault, no leak.  (TPLY is ONE part: the PLAYGROUND's two-part claim
+     check - picture and world parts two claims, SPEC.md 130.30.5 - has no
+     test course to run on; course_claims keeps its arm for when one does);
 
 The B: window lists SYSTEM\\APPDATA's folder first since wave 4 (SPEC.md
 19.4: folders first, then by name), so every row's point is computed from
@@ -113,7 +116,7 @@ the row FAILS at its own check:
             package, at the first Hercules launch
   mapcs     the commit's PASS stores a block's map word through CS (wave
             3b, SPEC.md 130.13.11: bz_wprect.col's `mov [cs:bx], si`): an
-            exception in the fault log at MILL's launch (the calibration
+            exception in the fault log at TMIL's launch (the calibration
             commits through the pass)
   stageseg  (wave 4) L's copy reaches the staging claim by adding a paragraph
             to its segment: an exception in the fault log at case 8's L
@@ -127,14 +130,14 @@ the row FAILS at its own check:
             write - a #GP charged to BONANZA at the first launch (B)
   stretchcs (wave 6) the stretch entry's translation written through CS
             (bz_hxball, rubber's part only: +14 not 0): its run is case 10
-            ALONE, so the exception is charged to BONANZA at the PLAYGROUND's
+            ALONE, so the exception is charged to BONANZA at TPLY's
             launch (every launch on the Hercules that fetches rubber's part
             would fault the same way)
 
 WAVE 5B (SPEC.md 130.15.11, 130.15.13): every launch above fetches its course
 part in BZC2's STORED form and expands it in place (bz_cexp) through the
-part's own LDT selector, before bz_hgen and bz_hxlat - B's BENCH, FIRST, MILL
-and PEAK among them - so the no-fault and no-leak checks are the expansion's
+part's own LDT selector, before bz_hgen and bz_hxlat - B's BENCH, ROLL, TMIL,
+TPLY and HOP among them - so the no-fault and no-leak checks are the expansion's
 on kern_mega too; and the parts are packed in the shipped build's format
 (the table's byte, printed: LZB unless a single-format kernel forced LZ4),
 decoded there through OSAPI_DECOMP.  A red tree packs its parts in the same
@@ -460,8 +463,11 @@ def check_after(what, pkg, base_rows, base_claims, got_claims):
     want(got_claims == base_claims, "%s: the instance's claims as before the launch: %s" % (what, got_claims))
 
 
-# ---- wave 4 (SPEC.md 130.14.14): PEAK, W, L, D and the double-click -------------------------
-SAVENAME = "PEAKA.BZR"
+# ---- wave 4 (SPEC.md 130.14.14): a shipped demo, W, L, D and the double-click -------------------------
+# the courses this row plays, by NAME (never a K; no prototype course - BOUNCE-BONANZA-SOAK phase 3): the shipped
+# demo of 7 - 9 (HOP's, the shorter of the two shipped courses' at 1,397 steps), and the TEST courses of 5 and 10
+DEMO_CRS, MILL_CRS, PLAY_CRS = "hop", "tmil", "tply"
+SAVENAME = "HOPA.BZR"
 
 
 def root_rows(img, extra=()):
@@ -531,29 +537,30 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
 
 
 def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
-    """7 - 9 (SPEC.md 130.14.14 bonanzamega): PEAK's shipped demo by D on the
-    Hercules with its three balls - the launch fetching the course and all three ball parts
-    through their own selectors, a respawn's cut blanking the card (an OUT to
-    3B8h, no fault); W into the instance's folder through the Save form and L
-    of it back through the Open form (the staging claim used whole through its
-    own selector) and D of what L read; and, last, the DOUBLE-CLICK of the
-    saved .BZR in B:'s Disk window opening a second BONANZA with it held"""
-    peak = R.CRS_K["peak"]
-    demo = open(os.path.join(R.at("build/bonanza-art"), "BZD%d.BIN" % peak), "rb").read()
-    memw(b, pkg.a("bz_vk"), bytes([peak - 1]))
+    """7 - 9 (SPEC.md 130.14.14 bonanzamega): a SHIPPED course's demo (DEMO_CRS, HOP) by D on the Hercules -
+    the launch fetching the course and the arena through their own selectors, its first full write blanking
+    the card (an OUT to 3B8h, no fault); W into the instance's folder through the Save form and L of it back
+    through the Open form (the staging claim used whole through its own selector) and D of what L read; and,
+    last, the DOUBLE-CLICK of the saved .BZR in B:'s Disk window opening a second BONANZA with it held"""
+    kd = R.CRS_K[DEMO_CRS]
+    nm = DEMO_CRS.upper()
+    c = R.course(DEMO_CRS)
+    nballs = len({c.ball} | {r["mat"] for r in c.part["props"] if r["kind"] == BB.PK_PAD})
+    demo = open(os.path.join(R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
+    memw(b, pkg.a("bz_vk"), bytes([R.demo_ks().index(kd)]))     # (V's next row: bzdemo.lst's order)
     b.tap("v", gap=300)
-    b.until(lambda: pkg.log(len(demo)) == demo, "V to load PEAK's demo", 20000, 50)
+    b.until(lambda: pkg.log(len(demo)) == demo, "V to load %s's demo" % nm, 20000, 50)
     b.ui_done(limit_ms=20000)
-    cuts = demo_run(b, pkg, "d", "7. D of PEAK's demo", demo, "peak", inside=3,
+    cuts = demo_run(b, pkg, "d", "7. D of %s's demo" % nm, demo, DEMO_CRS, inside=nballs,
                     base_claims=base_claims, hs=hs, eq=eq)
     # the first full write ASSERTED, a respawn's cut REPORTED: not every
     # respawn cuts (one inside the window scrolls instead), and which of
-    # PEAK's do on the Hercules moved between two runs of the final pass of
+    # PEAK's did on the Hercules moved between two runs of the final pass of
     # wave 4 (1 and 2 full writes) - as bonanzaring's W4 replays already
     # report it (SPEC.md 130.14.24 item 2)
-    want(cuts >= 1, "7. D of PEAK's demo: %d full write(s) - the first, BLANKED (bz_blank's OUT "
-         "to 3B8h), with no fault; respawn cuts %d (REPORTED)" % (cuts, max(cuts - 1, 0)))
-    check_after("7. D of PEAK's demo", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    want(cuts >= 1, "7. D of %s's demo: %d full write(s) - the first, BLANKED (bz_blank's OUT "
+         "to 3B8h), with no fault; respawn cuts %d (REPORTED)" % (nm, cuts, max(cuts - 1, 0)))
+    check_after("7. D of %s's demo" % nm, pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
     # 8. W through the Save form, L through the Open form, D of what it read
     b.tap("w", gap=300)
     b.ui_done(limit_ms=20000)
@@ -562,7 +569,7 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
     b.type(SAVENAME)
     b.tap("return", gap=300)
     b.ui_done(limit_ms=30000)
-    other = R.make_log([0] * 30, R.CRS_K["first"], 0)
+    other = R.make_log([0] * 30, R.crs_default(), 0)   # (any other log: L must replace it)
     pkg.log_w(other)
     b.tap("l", gap=300)
     b.ui_done(limit_ms=20000)
@@ -576,12 +583,13 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
          "the demo's %d bytes (%s), the log line a file's ([bz_lsv] %d)" % (
              SAVENAME, len(demo), "equal" if got == demo else "DIFFERENT", pkg.byte("bz_lsv")))
     check_after("8. W and L", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
-    demo_run(b, pkg, "d", "8. D of the loaded log", demo, "peak", inside=3, base_claims=base_claims, hs=hs, eq=eq)
+    demo_run(b, pkg, "d", "8. D of the loaded log", demo, DEMO_CRS, inside=nballs, base_claims=base_claims, hs=hs,
+             eq=eq)
     check_after("8. D of the loaded log", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
     # 9. the double-click, LAST (a second instance: sel_of would read either after it)
     before = bonanzas(b)
     # B:'s Disk window still lists the root as it read it before W (the final
-    # pass of wave 4: SYSTEM, BONANZA.O88, README.MD - PEAKA.BZR's row was
+    # pass of wave 4: SYSTEM, BONANZA.O88, README.MD - the saved file's row was
     # README's): its Refresh button, 227 px right of and 21 up from FIRST,
     # clicked twice (the first may only front the window)
     for _ in range(2):
@@ -604,25 +612,21 @@ def w4_cases(b, pkg, img_b, base_rows, base_claims, hs, eq):
         want(False, "9. the double-click opened no second BONANZA")
 
 
-# ---- MILL on the Hercules (SPEC.md 130.12.12) ------------------------------------
+# ---- TMIL on the Hercules (SPEC.md 130.12.12) -------------------------------------
 def memw(b, addr, data):
     for i in range(0, len(data), 512):
         b.cmd("memw 0x%X %s" % (addr + i, bytes(data[i:i + 512]).hex()))
 
 
 def mill_route_log():
-    """the model's MILL log from the course's start (bbcourse.Physics, as
-    bonanzaphys writes its logs): no key for the delay that makes the
-    autopilot's first approach to its windmill a KNOCK-BACK, then the
-    autopilot's own key bytes - the knock, the windmill's tunnel (a KEEP), the
-    bumpers' kicks, the chute (a DROP) and the cannon (a LAUNCH).  -> (keys,
+    """the model's TMIL log from the course's start (bbcourse.Physics, as bonanzaphys writes its logs): the
+    autopilot's own key bytes to the goal - a windmill's capture, the KEEP tubes, a bumper's kick.  -> (keys,
     the model at their end, the events)"""
-    import bonanza_replay as RP
-    delay = RP.mill_delay()[0] or 0
-    p = BB.Physics(R.course("mill"), play=True)
+    c = R.course(MILL_CRS)
+    p = BB.Physics(c, play=True)
     keys = []
-    for i in range(delay + 900):
-        k = 0 if i < delay else p.auto()
+    for _ in range(1500):
+        k = p.auto()
         keys.append(k)
         p.step(k)
         if p.goal:
@@ -630,93 +634,37 @@ def mill_route_log():
     return keys, p, [e for e in p.events if e[0] in ("knock", "capture", "kick", "exit")]
 
 
-def mill_replay(b, pkg, keys, what, poke=None):
-    """KEYS as a MILL log (its identity stamped) in bz_rlog, R, to its end; POKE:
-    {name: bytes} written into the bss in the first frame's bz_hold SPIN - bz_hold
-    poked 255 and the frame count seen to move, so the guest is in bz_t0's spin
-    before its steps, the one place a poke is the step's input (bonanzawheel's
-    harness byte, SPEC.md 130.12.5.6).  -> (bz_nstep at the poke, the end state)"""
-    log = R.make_log(keys, R.CRS_K["mill"], R.course("mill").ball)
+def mill_replay(b, pkg, keys, what):
+    """KEYS as a TMIL log (its identity stamped) in bz_rlog, R, to its end -> the end state"""
+    k = R.CRS_K[MILL_CRS]
+    log = R.make_log(keys, k, R.course(MILL_CRS).ball)
     pkg.log_w(log)
     b.tap("r", gap=300)
-    b.until(lambda: pkg.byte("bz_fs") == 1, "R's MILL replay (%s)" % what, 60000, 20)
-    want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_crs") == R.CRS_K["mill"] and pkg.byte("bz_herc") == 1,
-         "%s: R replays MILL on the Hercules ([bz_err] %d)" % (what, pkg.byte("bz_err")))
-    s0 = None
-    if poke:
-        memw(b, pkg.a("bz_hold"), b"\xff")
-        f0 = pkg.word("bz_frames")
-        b.until(lambda: pkg.word("bz_frames") != f0, "a frame presented, the next one's spin begun", 10000, 1)
-        want(pkg.byte("bz_hold") != 0, "%s: the poke lands in bz_t0's spin ([bz_hold] still set)" % what)
-        s0 = nstep(b, pkg)
-        for n, v in poke(s0).items():
-            memw(b, pkg.a(n), v)
-        # every write must have landed INSIDE the spin (bz_hold x 256 counts, about 55 ms at
-        # 86Box's real-time pace): still spinning, no step taken.  A miss is the HARNESS's (the
-        # socket's round trips outran the spin), not the guest's: the caller retries it once
-        landed = pkg.byte("bz_hold") != 0 and nstep(b, pkg) == s0
+    b.until(lambda: pkg.byte("bz_fs") == 1, "R's %s replay (%s)" % (MILL_CRS.upper(), what), 60000, 20)
+    want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_crs") == k and pkg.byte("bz_herc") == 1,
+         "%s: R replays %s on the Hercules ([bz_err] %d)" % (what, MILL_CRS.upper(), pkg.byte("bz_err")))
     b.until(lambda: pkg.byte("bz_fs") == 0, "the %s replay to reach its end" % what, 240000, 100)
     b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
     b.ui_done(limit_ms=30000)
-    if poke and not landed:
-        return None, None
-    return s0, phys(b, pkg)
-
-
-def ride_poke(pkg, b):
-    """bonanzaphys's `ride` scenario, poked at step S0: the ball resting on the
-    LIFT's slab at its low dock, carried - its bytes (state, screen state, the
-    window's refill flag, bz_onp, bz_ps's bit 2)"""
-    import bonanza_phys as P
-
-    def at(s0):
-        pk = P.slab_poke(s0)
-        kx = struct.unpack("<i", b.memr(pkg.a("bz_kx"), 4))[0]
-        ky = struct.unpack("<i", b.memr(pkg.a("bz_ky"), 4))[0]
-        ps = pkg.byte("bz_ps")
-        return {"bz_gx": struct.pack("<I", pk["gx"]), "bz_gy": struct.pack("<I", pk["gy"]),
-                "bz_gz": struct.pack("<i", pk["gz"]), "bz_gvx": struct.pack("<h", pk["gvx"]),
-                "bz_gvy": struct.pack("<h", pk["gvy"]), "bz_gvz": struct.pack("<h", pk["gvz"]),
-                "bz_air": bytes([pk["air"]]), "bz_ztop": struct.pack("<h", pk["ztop"]),
-                "bz_bx": struct.pack("<i", pk["gx"] - pk["gy"] + kx),
-                "bz_by": struct.pack("<i", ((pk["gx"] + pk["gy"]) >> 1) - pk["gz"] + ky),
-                "bz_vx": b"\0\0", "bz_vy": b"\0\0", "bz_onp": bytes([pk["onp"]]),
-                "bz_ps": bytes([ps | 4]), "bz_pokd": b"\1"}
-    return at
+    return phys(b, pkg)
 
 
 def mill_cases(b, pkg, base_rows, base_claims, hs, eq):
-    """5 and 6: MILL on the Hercules - every launch translates MILL's blocks and
-    its platform's frames through BZ_HTAB, and every lane's map words are written
-    through the course part's own selector (130.12.12)"""
-    import bonanza_phys as P
+    """5: TMIL on the Hercules - its launch translates TMIL's blocks and its lift's frames through BZ_HTAB, and
+    every lane's map words are written through the course part's own selector (130.12.12)"""
+    nm = MILL_CRS.upper()
+    c = R.course(MILL_CRS)
     keys, p, ev = mill_route_log()
-    kinds = {(e[0], R.course("mill").part["props"][e[2]]["kind"]) for e in ev}
-    want(("knock", BB.PK_WINDMILL) in kinds and ("kick", BB.PK_BUMPER) in kinds and
-         ("capture", BB.PK_WINDMILL) in kinds and len({e[2] for e in ev if e[0] == "exit"} - {
-             r["i"] for r in R.course("mill").part["props"] if r["kind"] == BB.PK_WINDMILL}) >= 2,
-         "5. the model's MILL log (%d steps) goes through a knock-back, a windmill's KEEP tunnel, a kick, the "
-         "chute (DROP) and the cannon (LAUNCH): %s" % (len(keys), ", ".join("%s@%d" % (e[0], e[1]) for e in ev)))
-    _, end = mill_replay(b, pkg, keys, "5. the MILL route")
-    want(end == p.state(), "5. the MILL route replayed on the Hercules ends at the model's state: %s (the model %s)" % (
-        end, p.state()))
-    check_after("5. the MILL route's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
-    s = next(x for x in P.mill_replays() if x["name"] == "ride")
-    for attempt in (1, 2):
-        s0, end = mill_replay(b, pkg, s["keys"], "6. the ride", poke=ride_poke(pkg, b))
-        if s0 is not None:
-            break
-        print("   ..   6. the ride: a poke write landed after bz_t0's spin ended (a harness miss, attempt %d)"
-              % attempt, flush=True)
-    want(s0 is not None, "6. the ride's poke landed inside one bz_hold spin (every write; two attempts)")
-    if s0 is None:
-        return
-    q = P.model("mill", s["mat"], P.slab_poke(s0 or 0))
-    q.nstep = s0 or 0
-    P.advance(q, len(s["keys"]), s["keys"])
-    want(end == q.state(), "6. the ride (poked onto the slab at step %s, carried up the lift, off at its high rim) "
-         "replayed on the Hercules ends at the model's state: %s (the model %s)" % (s0, end, q.state()))
-    check_after("6. the ride's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    kinds = {(e[0], c.part["props"][e[2]]["kind"]) for e in ev}
+    want(p.goal and ("capture", BB.PK_WINDMILL) in kinds and ("kick", BB.PK_BUMPER) in kinds and
+         len({e[2] for e in ev if e[0] == "exit"} - {
+             r["i"] for r in c.part["props"] if r["kind"] == BB.PK_WINDMILL}) >= 2,
+         "5. the model's %s log (%d steps, to its goal) goes through a windmill's capture, a kick and two tubes: %s"
+         % (nm, len(keys), ", ".join("%s@%d" % (e[0], e[1]) for e in ev)))
+    end = mill_replay(b, pkg, keys, "5. the %s route" % nm)
+    want(end == p.state(), "5. the %s route replayed on the Hercules ends at the model's state: %s (the model %s)" % (
+        nm, end, p.state()))
+    check_after("5. the %s route's replay" % nm, pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
 
 
 class _PkgS(object):
@@ -730,30 +678,31 @@ class _PkgS(object):
 
 
 def play_case(b, pkg, base_rows, base_claims, hs, eq):
-    """10 (wave 6, SPEC.md 130.16.14 bonanzamega): the PLAYGROUND on kern_mega's
-    Hercules - its three ball rows through their selectors, a play with a Hop
+    """10 (wave 6, SPEC.md 130.16.14 bonanzamega): TPLY (PLAY_CRS, the test course with the PLAYGROUND's apron
+    and three pads) on kern_mega's Hercules - its three ball rows through their selectors, a play with a Hop
     and its boost, its replay to the same end"""
     import bonanza_replay as RP
-    k = R.CRS_K["play"]
-    c = R.course("play")
+    k = R.CRS_K[PLAY_CRS]
+    c = R.course(PLAY_CRS)
+    nm = PLAY_CRS.upper()
     nballs = len({c.ball} | {r["mat"] for r in c.part["props"] if r["kind"] == BB.PK_PAD})
     memw(b, pkg.a("bz_crsel"), bytes([k]))    # (a play rolls the course's own ball, c.ball)
     b.tap("f", gap=300)                         # (F: a free play - Enter is the game since wave 8b, 130.19.5)
-    b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "the PLAYGROUND's play", 60000, 100)
+    b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 10, "%s's play" % nm, 60000, 100)
     want(pkg.byte("bz_crs") == k and pkg.byte("bz_mode") == 0 and pkg.byte("bz_herc") == 1,
-         "10. F plays the PLAYGROUND on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
-             pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
+         "10. F plays %s on the Hercules (course %d, mode %d, [bz_herc] %d)" % (
+             nm, pkg.byte("bz_crs"), pkg.byte("bz_mode"), pkg.byte("bz_herc")))
     inside = claims(b, pkg, hs, eq)
     ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4): the arena, ONE claim - its floor
                                                 # the resident bundle (the balls, the sound part, VICTORY and
                                                 # TIME'S UP: 130.25.5.2, 130.50.2), the song in the course part
                                                 # (130.50.3) - the desktop title's (pkg.ar0) become the play's
-    np = crs_parts(k)                           # SPEC.md 130.30.11: PLAYGROUND is TWO parts, a claim each
+    np = crs_parts(k)                           # SPEC.md 130.30.11: a two-part course a claim a part (TPLY: one)
     want(len(inside) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "10. inside: the course "
          "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the "
          "arena %d on the desktop)" % (np, nballs, len(inside), len(base_claims), pkg.ar0))
     course_claims("10. inside", b, pkg, hs, eq, k)
-    steps(b, pkg, 5, "the PLAYGROUND's first steps")
+    steps(b, pkg, 5, "%s's first steps" % nm)
     rd = _PkgS(b, pkg)
     boosted, tries = False, 0
     for tries in (1, 2, 3):
@@ -764,7 +713,7 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
             st = phys(b, pkg)
             if not st[7]:
                 break                                   # landed: the window missed
-            q = RP.ghost(rd, "play", c.ball, st, ((0, 0, 0, 0), 0, 0, 0, 0, 0, 0))
+            q = RP.ghost(rd, PLAY_CRS, c.ball, st, ((0, 0, 0, 0), 0, 0, 0, 0, 0, 0))
             n = RP.to_contact(q)
             if n is not None and n <= RP.BOOST_AHEAD:
                 hold(b, pkg, "space", 2)                # Space again MID-FLIGHT: it ARMS the boost (wave 6b)
@@ -774,11 +723,11 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
         if pkg.word("bz_nboost") > nb0:
             boosted = True
             break
-    want(boosted, "10. a Hop and its BOOST on the PLAYGROUND, Space held for steps ([bz_nboost] %d after %d "
-         "tr%s): the stretch drawn from rubber's translated part" % (pkg.word("bz_nboost"), tries,
+    want(boosted, "10. a Hop and its BOOST on %s, Space held for steps ([bz_nboost] %d after %d "
+         "tr%s): the stretch drawn from rubber's translated part" % (nm, pkg.word("bz_nboost"), tries,
                                                                    "y" if tries == 1 else "ies"))
     b.tap("escape", gap=300)
-    b.until(lambda: pkg.byte("bz_fs") == 0, "the PLAYGROUND's play to end on Esc", 30000, 100)
+    b.until(lambda: pkg.byte("bz_fs") == 0, "%s's play to end on Esc" % nm, 30000, 100)
     b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
     b.ui_done(limit_ms=30000)
     play_end = phys(b, pkg)
@@ -788,17 +737,17 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
         p.step(kb)
     want(p.state() == play_end and p.nboost >= 1, "10. the model's run of the play's log (%d steps) ends at the "
          "play's state and boosts: %s, nboost %d (the play %s)" % (len(keys), p.state(), p.nboost, play_end))
-    check_after("10. the PLAYGROUND's play", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    check_after("10. %s's play" % nm, pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
     b.tap("r", gap=300)
-    b.until(lambda: pkg.byte("bz_fs") == 1, "R's PLAYGROUND replay", 60000, 100)
+    b.until(lambda: pkg.byte("bz_fs") == 1, "R's %s replay" % nm, 60000, 100)
     want(pkg.byte("bz_mode") == 2 and pkg.byte("bz_herc") == 1, "10. R replays it on the Hercules")
-    b.until(lambda: pkg.byte("bz_fs") == 0, "the PLAYGROUND replay to reach its end", 120000, 100)
+    b.until(lambda: pkg.byte("bz_fs") == 0, "the %s replay to reach its end" % nm, 120000, 100)
     b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
     b.ui_done(limit_ms=30000)
     rep_end = phys(b, pkg)
-    want(rep_end == play_end, "10. the PLAYGROUND's replay ends where the play did: %s (the play %s)" % (
-        rep_end, play_end))
-    check_after("10. the PLAYGROUND's replay", pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
+    want(rep_end == play_end, "10. %s's replay ends where the play did: %s (the play %s)" % (
+        nm, rep_end, play_end))
+    check_after("10. %s's replay" % nm, pkg, base_rows, base_claims, claims(b, pkg, hs, eq))
 
 
 def run(img_b, keep, tmp, cases=None):
@@ -911,7 +860,8 @@ def run(img_b, keep, tmp, cases=None):
         b.tap("f", gap=300)                     # (F: a free play, wave 8b)
         b.until(lambda: pkg.byte("bz_fs") == 1 and pkg.word("bz_frames") > 100, "a play of 100 frames",
                 60000, 100)
-        want(pkg.byte("bz_crs") == R.CRS_K["first"] and pkg.byte("bz_mode") == 0, "2. F plays FIRST")
+        want(pkg.byte("bz_crs") == R.crs_default() and pkg.byte("bz_mode") == 0,
+             "2. F plays BZ_CRS_DEFAULT (%s, pathway pad 0's)" % R.crs_name(R.crs_default()))
         b.tap("escape", gap=300)
         b.until(lambda: pkg.byte("bz_fs") == 0, "the play to end on Esc", 30000, 100)
         b.until(lambda: pkg.word("bz_cseg") == 0 and pkg.word("bz_bseg") == 0, "the parts dropped", 10000, 50)
@@ -1041,7 +991,7 @@ REDS = {
                   "    mov al, 2ah                 ; RED shiftmap: Left Shift through OSAPI_KEY_DOWN\n"
                   "    call OSAPI_KEY_DOWN\n    jnc .ms\n")],
     # wave 3b (SPEC.md 130.13.11): the commit's PASS stores a block's map word through CS - a
-    # code selector on kern_mega takes no write: an exception at MILL's launch (the calibration's
+    # code selector on kern_mega takes no write: an exception at TMIL's launch (the calibration's
     # idempotent commit is the pass itself) or its first commit
     "mapcs": [("bzwheel.inc", "    mov [bx], si                ; ...into the map\n    add si, [bp + 8]            ; SI",
                "    mov [cs:bx], si             ; RED mapcs: the pass's map store through CS\n"

@@ -23180,7 +23180,7 @@ bonanzaexit: bonanzadisk $(BUILD)/os8088-360.img
 #> [Applications] bonanzapath :: Bounce Bonanza's game loop: the pathway, a node's course, a finish opening the next node, lives and game over, in one bracket (SPEC.md 130.19.5)
 bonanzapath: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_path.py
-#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (MILL's route and ride), the fake shifts; no fault, no leak (SPEC.md 130.11.17.2, 130.12.12)
+#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (TMIL's route, TPLY's boost, HOP's demo), the fake shifts; no fault, no leak (SPEC.md 130.11.17.2, 130.12.12)
 bonanzamega: bonanzadisk $(BUILD)/mega.img
 	python3 tests/bonanza_mega.py
 #> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 130.12.13.2)
