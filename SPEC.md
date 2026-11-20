@@ -23708,9 +23708,12 @@ it must arm `wm_clip_set` first (§11.3) and that drops the cache.
 Marked today: **Note Pad** (its worker watches typing), **Minesweeper** (no
 worker, and the only `GET_TICKS` in it seeds the mines), **Piano** (no worker;
 its one polling loop runs inside a click callback), **Solitaire** (no
-worker, so the table moves only when a card is dragged) — and the **Disk
-window**, which is the kernel's own and keeps the promise mechanically
-rather than by assertion (§22.14).
+worker, so the table moves only when a card is dragged), **CWORD**
+(§73.12.5), **LOOM** (WEAVE-SPEC §1.7.2), **Gorillas** (§99.6) and **PACCMAN**
+(§91.1) - the last two because their game advances only while the window is
+frontmost, asked under the lock that draws it - and the **Disk window**, which
+is the kernel's own and keeps the promise mechanically rather than by
+assertion (§22.14).
 
 **IT IS A MODE AND NOT A CLASSIFICATION, and the list above is a list of
 windows that are always in it.** `wm_saveu` has no latch: the bit is per
@@ -23721,8 +23724,13 @@ sometimes — `apps/paint` already does, re-answering from `pt_onresize` when
 the adapter moves under it (§11.98), the Browser does it per fetch
 (§71.11), Tracker while a song is paused or stopped (§45.21.12), SHEET while
 no macro runs and none of its dialogs is up (§81.120), REDLINE once a run's
-bars have finished growing (§103.8) and System Check once its scan has
-finished (§118.15).
+bars have finished growing (§103.8), System Check once its scan has
+finished (§118.15), Frotz and RunCPM while they wait for a key (§61.16,
+§74.7), and Arkanoid and Cyclone in their still modes (§44.13, §67.27). A
+game that pauses when it loses the front does NOT get to promise while it
+plays: the kernel banks the cover synchronously, before the worker's next
+frame notices and owes its PAUSED banner, and there is no focus-loss
+callback to hook - so it promises only once that banner is on the glass.
 
 The two directions are not symmetric and only one of them is urgent.
 **Entering** a live mode must reach the kernel before the content moves, or
@@ -26833,7 +26841,9 @@ invalidates by disagreeing rather than by `wm_saveu` remembering to drop.
 **Binding on whoever builds the cache**: the declaration alone does not
 invalidate anything.
 
-**Marked today: Note Pad.** It is the window §11.96's own headline came off —
+**Marked today: Note Pad**, and since then CWORD (§73.12.5), RunCPM (§74.7)
+and Frotz per promise unless the story asked for colour (§61.16). Note Pad is
+the window §11.96's own headline came off —
 1,026 ms to raise, 578 ms of it lettering — and its content is `CBLACK`,
 `CWHITE` and the scroll bar's `gfx_fill_gray`, which is a 50% dither of 15
 and 0 rather than a grey. Every other `WF_SAVEU` window in the tree fails it:
