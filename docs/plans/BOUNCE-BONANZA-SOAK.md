@@ -162,7 +162,9 @@ the shipped build's.
   carry over by name; then B's ramp down along +y (20 -> 12) onto W, a strip
   at 12 the route crosses along +x, three bumpers, a DROP from W onto F (8),
   the LIFT (18, 22) between F and the low floor L (2), and the CANNON from F
-  along -x over L onto the goal ledge G (4).  20,970 bytes stored, 4,590 LZB
+  along -x over L onto the goal ledge G (4); below everything, off the route,
+  the quiet pad Q (0) and its post (33, 42) for the CORNER leg.  28,026 bytes
+  stored, 4,874 LZB (20,970 / 4,590 before Q)
   (MILL 26,785 RAM); compiles in about 28 s cold.  The autopilot finishes:
   goal at step 723 (13.1 s), no fall, one kick; limit the tool's 25 s.
 
@@ -190,7 +192,7 @@ the shipped build's.
   |---|---|---|---|
   | wheel, BENCH (benchmark, breakpoints on every commit) | MILL, 1,200 frames: rotors shown, a kick, 2- and 3-word commits, HOLD_FROM 120 late frames | both rotors shown from frame 1; the kick of post 5 (17, 16); posts 5 and 6 shown from 256 / 212 | ~400 / ~350 (the kick at 331 / 282 and enough held frames after 120) |
   | wheel, LOW (+ the BEAM sweep) | MILL play, a post at window line 160, held ball | post 6 (Herc crossing, `wrapcommit`) from W's back; post 4 (CGA crossing) if low_plan finds C | unchanged: the scenario's own ~48 + 138 frames |
-  | wheel, CORNER | MILL's post 6, scripted camera | post 4 (7, 13), column 21 (a CGA window reaches its left; the Hercules' REPORTED as today) | unchanged (<= 10 tries) |
+  | wheel, CORNER | MILL's post 6, scripted camera | post 9 (33, 42) on the quiet pad Q, nothing else moving in its window (post 6's window holds both rotors and the clock: its step frame 57 - 97k after the rise); bottom-left corner on both cards (CGA R0 281, c0 16; Hercules R0 141, c0 16 - the Hercules now JUDGED, no longer REPORTED) | unchanged (<= 10 tries) |
   | wheel, STALE | MILL, a rotor above the window's top | the windmills (lines 144 - 184), ball held on the ramp or W | unchanged |
   | wheel, SIDE | MILL, a rotor / clock digit beside the column band | the clock (6, 13) beside the windmills, or the finish clock (11, 21) | unchanged |
   | wheel, CLOCK | FIRST, ball held at the start | TMIL's clock (6, 13) is in the start's window (or TQUIK's) | unchanged |
@@ -339,8 +341,8 @@ the shipped build's.
 - [ ] bonanzacourse: the prototype-tied sections moved to test courses.
 
 ### Phase 4 - measured
-- [ ] Every row's `secs` re-measured; the scoped bonanza soak's wall clock
-      before and after.
+- [x] Every row's `secs` re-measured; the scoped bonanza soak's wall clock
+      before and after (below).
 
 ## Order independence and the save file (the owner, 2026-11-19)
 
@@ -395,3 +397,39 @@ phase 3 is where the wall clock comes down.
 Owner decision open: ROLL's flag 1 at (36,42) is bounced past by a rubber
 ball on section E's steps (the selfcheck's item 8; a fall at the leap then
 respawns at flag 0).
+
+## Phase 4 - measured (2026-11-20, scoped soak `-k 'bonanza*'`, 4 lanes, at 38c83d5111)
+
+The rows on the TEST courses, every one green but bonanzacourse (PLAY's three
+known items and ROLL's flag 1, the owner's) and bonanzamega (no 86Box in the
+container). **Wall clock 1:03**, against 1:54 (phase 1) and 1:38 (before phase 3)
+for the same seventeen rows. Seconds a row, each MEASURED in this run with
+four lanes busy (the rows' `secs` are set to these):
+
+| row | before phase 3 | now |
+|---|---|---|
+| bonanzaphys | 2,778 | 638 |
+| bonanzademo | 2,597 | 544 |
+| bonanzaexit | 2,528 | 1,123 |
+| bonanzaring | 2,447 | 1,703 (its first full pass this session; TIMEOUT at the baseline) |
+| bonanzawheel | 1,782 | 622 |
+| bonanzareplay | 1,766 | 981 |
+| bonanzaperf | 1,299 | 578 |
+| bonanzapath | 1,296 | 1,223 |
+| bonanzacourse | 1,229 | 1,312 |
+| bonanzaphyshost | 1,183 | 869 |
+| bonanzasound | 721 | 421 |
+| bonanzagame | 559 | 1,343 (25 boots a card at the baseline: 2,756) |
+| bonanzadquarter | 450 | 947 |
+| bonanzatitle | 44 | 51 |
+
+What the test courses found in the GAME, fixed: a ball swap on a still
+ball drew nothing (SPEC.md 130.14.4.4; `bz_setmat` invalidates `bz_ospr`).
+And in the HARNESS: the bench leg's late-box rule stricter than 130.11.10.3,
+a respawn inside the window wrongly expected to cut (130.10.8 item 3), the
+probe on a course whose start is far from the top clamp, TMIL's corner
+scene too heavy (a quiet post added), perf's demo row and first R.
+
+Open: the families (glass, probe, pickups) and the two-part leg still have
+no test course - both live on PLAYGROUND until one is made; bonanzamega's
+legs await an 86Box run.

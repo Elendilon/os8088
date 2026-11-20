@@ -1142,6 +1142,16 @@ def corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L=200):
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
     grid = BB.Grid(crs.cga, crs.wcga)
+    # a LIFT moves by itself every step and is no lane (its plate is drawn as a box, SPEC.md 130.12.5):
+    # its picture's reach, generous - the cell's centre at z 0 (the lowest it can be drawn), up to the
+    # plate at its top dock (hT) and a margin - in lines and px, so a window showing it counts it busy
+    kx, ky = grid.x0 - 8, grid.y0 - 13
+    lifts = []
+    for r in crs.part["props"]:
+        if r["kind"] == BB.PK_PLATFORM:
+            wx, wy = r["at"]
+            cx, cy = 16 * (wx - wy) + kx + 8, 8 * (wx + wy) + 8 + ky
+            lifts.append((cy - r["hT"] - 24, cy + 24, cx - 24, cx + 24))
     plans = []
     for side in (-1, 1):
         for i in sorted(rects, key=lambda j: (recs[j]["kind"] != BB.PK_WINDMILL, j)):
@@ -1162,11 +1172,17 @@ def corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L=200):
                 busy = [j for j in rects if j != i and recs[j]["kind"] != BB.PK_BUMPER and any(
                     (lambda qq: qq[0] < r0 + H and qq[1] > r0 and qq[2] < cc + Wc and qq[3] > cc)(
                         lane_cells(rects, j, lsh)) for r0, cc in ((R0, c0), (R0 + 1, c0 + side)))]
+                busy += [b for b in lifts if any(b[0] < (r0 + H) << lsh and b[1] > r0 << lsh and
+                                                 b[2] < 8 * (cc + Wc) and b[3] > 8 * cc
+                                                 for r0, cc in ((R0, c0), (R0 + 1, c0 + side)))]
                 plans.append((len(busy), len(plans), (i, R0, c0, cen, side)))
     # (8R.13) the LIGHTEST first: the fewest OTHER lanes shown round the step that change by themselves
     # (rotors, clocks) - each a wheel candidate on the step frame, prepared before the corner's lane
-    # in raster order; a post changes only when kicked.  MILL's post 4 shares its window with rotor 1
-    # and the course clock's digits, post 6 with post 5 alone
+    # in raster order; a post changes only when kicked; a LIFT is counted too (it moves every step, its
+    # box composed on the step frame).  MILL's post 4 shares its window with rotor 1 and the course
+    # clock's digits, post 6 with post 5 alone; TMIL's post 6 with both rotors and the clock's two digits
+    # (the step frame 57 - 97k after the rise on the CGA), so TMIL carries post 9 (33, 42) on a quiet pad
+    # below everything: nothing else in its window moves
     return min(plans)[2] if plans else None
 
 
