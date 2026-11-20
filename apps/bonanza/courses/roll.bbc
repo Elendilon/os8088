@@ -184,7 +184,8 @@ way 24 25
 way 24 28
 way 24 30
 way 36 35
-way 36 39
+way 35 39            # (not 36: the drift off the turn at (36, 35) carried the ball down the steps on
+                     # x = 37, past flag 1's cell; aimed one left it rolls over the flag, item 8)
 way 36 42
 way 39 43
 way 42 43

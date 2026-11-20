@@ -25562,7 +25562,9 @@ def _props_course_checks(c, res, tag):
     info = c.part
     # 3. every pose, both cards; every pose map word a block (read_part); the slab; the marks
     bad_c, bad_h = _lanes_decode(c, c.cga, False), _lanes_decode(c, c.herc, True)
-    slab_ok = _slab_decode(c, c.cga, False) and _slab_decode(c, c.herc, True)
+    # (the lifts' sprite is in the WORLD part on a two-part course, its spoff that part's, SPEC.md 130.30.4.2, and
+    # translated for the Hercules there, herc_translate_parts)
+    slab_ok = _slab_decode(c, world_of(c), False) and _slab_decode(c, c.wherc if c.split else c.herc, True)
     marks = True
     for pr in c.props:
         if pr["kind"] == PK_TUBE:
@@ -29954,6 +29956,9 @@ def _course_items(c, k, res, t):
         for tt in shape:
             if tt in c.tiles:
                 want_s[tt] = surf
+    for wd in getattr(c.src, "waters", ()):         # SPEC.md 130.36: a `water` cell is a SAND floor, laid after
+        for tt in wd["cells"]:                      # every other statement (its surface whatever they said)
+            want_s[tt] = SURF_SAND
     for tt in c.tiles:
         if isinstance(c.tiles[tt], Split):          # (a split cell's surface: its floor halves', 130.24.4)
             if g.cell(*tt)[5] != max([h.surf for h in c.tiles[tt].halves if h is not None and h.kind != KIND_WALL]
@@ -32159,12 +32164,14 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
 
 def _av_floats_want(c):
     """SPEC.md 130.29.4: the cells FL_FLOAT is set on - every FLOOR or WALL whole cell a `float` names that the
-    picture draws (a glass tile's is not drawn), on a GF_ANA part"""
+    picture draws (a glass tile's is not drawn, nor a membrane's: 130.38.5, the glass tile's rule), on a GF_ANA
+    part; and every floating SPLIT cell the picture draws (SPEC.md 130.49.1, AV_SPLIT)"""
     if not c.av:
         return set()
-    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass"}
-    return {k for k in c.floats if k in c.tiles and not isinstance(c.tiles[k], Split)
-            and c.tiles[k].kind in (KIND_FLOOR, KIND_WALL) and k not in gc} | set(getattr(c, "rails", ()))
+    gc = {p_["at"] for p_ in c.props if p_.get("art") == "glass" or p_["kind"] == SP_KM}
+    return {k for k in c.floats if k in c.tiles and k not in gc and (
+        c.tiles[k].kind in (KIND_FLOOR, KIND_WALL) if not isinstance(c.tiles[k], Split) else AV_SPLIT)} \
+        | set(getattr(c, "rails", ()))
 
 
 def _av_checks(c, res, tag, off=None, flags_only=False):
@@ -32176,8 +32183,8 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
     got_f = {k for k in c.cells if g.raw(*k) is not None and g.raw(*k)[3] & FL_FLOAT}
     path = getattr(c, "pth", None) is not None          # (SPEC.md 130.31: the pathway cuts no occluder, so no model)
     flags_ok = c.av == (not fgoal and not path) and bool(g.gflags & GF_ANA) == c.av and got_f == want_f
-    res.append(("15 %s: GF_ANA %s%s; FL_FLOAT on exactly the %d floating FLOOR and WALL cells the picture draws "
-                "(SPEC.md 130.29.4)" % (tag, "set" if g.gflags & GF_ANA else "clear",
+    res.append(("15 %s: GF_ANA %s%s; FL_FLOAT on exactly the %d floating FLOOR, WALL and split cells the picture "
+                "draws (SPEC.md 130.29.4, 130.49.1)" % (tag, "set" if g.gflags & GF_ANA else "clear",
                                         " (a floating GOAL cell keeps it off)" if fgoal else
                                         " (the pathway: no occluders, 130.31)" if path else "", len(want_f)),
                 flags_ok))
