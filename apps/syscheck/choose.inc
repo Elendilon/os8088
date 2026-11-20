@@ -240,7 +240,7 @@ sc_tmove:
     push si
     push ax
     mov bx, si
-    call OSAPI_WM_CLIP_SET
+    call sc_clip
     pop ax
     jc .done
     call sc_pen
@@ -448,7 +448,7 @@ sc_vmove:
     push si
     push ax
     mov bx, si
-    call OSAPI_WM_CLIP_SET
+    call sc_clip
     pop ax
     jc .done
     call sc_pen

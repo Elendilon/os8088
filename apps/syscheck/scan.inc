@@ -34,6 +34,7 @@ P_HIB       equ 7
 ; out: nothing; every register preserved
 ; -----------------------------------------------------------------------------
 sc_scan_begin:
+    call sc_unpromise               ; BEFORE anything moves (SPEC.md 118.15)
     push ax
     push cx
     push di

@@ -23719,7 +23719,10 @@ window record, the take reads it at the moment it takes (`wm_su_take` through
 spot. So an application whose content stands still *sometimes* may say so
 sometimes — `apps/paint` already does, re-answering from `pt_onresize` when
 the adapter moves under it (§11.98), the Browser does it per fetch
-(§71.11), and Tracker while a song is paused or stopped (§45.21.12).
+(§71.11), Tracker while a song is paused or stopped (§45.21.12), SHEET while
+no macro runs and none of its dialogs is up (§81.120), REDLINE once a run's
+bars have finished growing (§103.8) and System Check once its scan has
+finished (§118.15).
 
 The two directions are not symmetric and only one of them is urgent.
 **Entering** a live mode must reach the kernel before the content moves, or
@@ -158463,6 +158466,39 @@ substitute for the fix. Fixing it properly needs `fx_` formatting at a chosen
 precision, the equivalent of SHEET's `.fit` loop; the `#` fill alone is cheap
 and would at least stop the wrong number.
 
+### 81.120 The grid is promised to the raise cache while nothing moves it unseen
+
+SHEET's main window says `WF_SAVEU` (§11.96) as a MODE (§11.96.1): a
+raise over an idle grid puts it back from the kernel's cache instead of
+lettering every visible cell, which is the most expensive repaint the
+package has. The class is still born without the flag. `sh_promise` decides,
+`sh_unpromise` withdraws, and `[sh_prom]` is what the kernel was last told,
+so `OSAPI_WM_FLAG` is called on a change and not on every repaint.
+
+Question 1 disqualifies two states, and each is withdrawn **before** the
+grid can move:
+
+| state | why the cache would lie | where it is withdrawn |
+|---|---|---|
+| a MACRO RUN, going or paused | `WAIT` and `ON.TIME` carry a run on from the timer, `ALERT`, `INPUT`, Single Step and `DIALOG.BOX` from a window in front of the grid, and `ECHO(FALSE)` changes cells and paints nothing until the run ends (§81.86) | `sh_macro_onalert`, the one door every start and every resumption comes through, before the module runs a cell. An `ON.TIME` that is only waiting moves nothing, so it keeps the promise until it fires |
+| one of SHEET's own DIALOGS up (Format, Border, the one-line dialog, Paste list, Note, Data Form) | they are not modal (`sh_onclick` cancels one on a grid click), and an apply runs while the dialog is in FRONT: `sh_select` moves the selection with `sh_selpaint`, which arms no region, so `wm_clip_set` never hears of it and a cache §11.96.16's precover banked when the dialog came up would put the OLD selection back when it goes | `sh_k_wm_show`, the one show all six go through, before the window lands |
+
+And a third, per §11.96.18: `sh_repaint` refused by its clip (SHEET wholly
+covered, so the change was not drawn) withdraws, because `wm_clip_set` keeps
+a cache when it refuses.
+
+It is promised again only where the whole content was just drawn - the end
+of `sh_paint`, and a visible `sh_repaint` - and only when no run and no
+dialog is left. Every site is on the UI task with the gfx lock held (§20.6
+rule 7). `os88ui_ask`'s alerts need nothing: their completions run after the
+alert is gone (§75.3), and a run's own alerts are a run. The Chart window
+(§82) and the dialogs make no promise of their own.
+
+**What it buys depends on the adapter.** The window is sizable and colour,
+so no `WF_1BPP`: at its default 560x380 on a VGA the four-plane cache is
+about 100KB, past `wm_su_kb`'s 64,512, and is simply not taken - the old
+path - while a smaller window, and every 1bpp adapter, is banked.
+
 ## 82. CHART — charting, and the buffer both halves draw into
 
 > **`CHART.O88` no longer ships (2026-09-03).** SHEET draws the same charts
@@ -219166,6 +219202,33 @@ through `os88wseq.inc`'s stream (18.4.9.4) - an append of any size - with
 own lines and the stream takes it from there, so a page is any length and
 nothing is claimed. A toast says the name, or `Report not saved`.
 
+### 103.8 The dashboard is promised to the raise cache once the bars stand
+
+REDLINE says `WF_SAVEU` (§11.96) as a MODE (§11.96.1). `rl_promise` decides,
+`rl_unpromise` withdraws, `[rl_prom]` is what the kernel was last told, and
+the class is born without the flag.
+
+| state | promised? | why |
+|---|---|---|
+| a run (`rl_busy`) | withdrawn at the top of `rl_run`, before anything moves | it owns the window for minutes, draws progress into it and opens the live lab over it |
+| the result bars growing (`ru_anim` below `RU_ANIM_STEPS`) | withdrawn by `ru_start_animation` | `ru_timer` steps them on the UI timer (§13.9) whether or not the window can be seen - question 1 exactly |
+| otherwise | promised after `ru_paint` draws the whole window, and after the timer's LAST frame is drawn | nothing else moves the window: every other draw is a key, a click, a wheel or a menu command, which only the front window gets |
+
+**`ru_timer` arms a region now.** A timer runs in `W_ONCLICK`'s
+environment, with no region (§13.9, §11.3), and the animation drew its bars
+straight onto the glass - over any window on top of REDLINE. It goes through
+`ru_clip` like every handler's draw; wholly covered, the frame is skipped and
+the clock goes on, and the next `W_PAINT` draws the bars at whatever step
+they reached.
+
+**`ru_clip` withdraws when it refuses** (§11.96.18): a change that was not
+drawn makes a banked cache a picture of the past, and `wm_clip_set` keeps one
+when it refuses. One place, so every caller - the Tune and Inspect tabs'
+included - is covered.
+
+The window is 632x448 and in colour, so on a VGA its four-plane cache is
+past `wm_su_kb`'s 64,512 and is not taken; on the 1bpp adapters it is.
+
 ## 105. MIDIRack — a MIDI file player (`apps/midirack/`)
 
 `MIDIRACK.O88`, "MIDIRack" in the header name field. A **Standard MIDI File**,
@@ -235994,6 +236057,36 @@ any order and case:
 
 So `SYSCHECK.O88 C: DEFRAG REPORT` defragments the hard disk and leaves the
 report on it. kern_small has no links and its System Check is not shipped.
+
+### 118.15 A finished scan is promised to the raise cache
+
+System Check says `WF_SAVEU` (§11.96) as a MODE (§11.96.1): **promised once
+the scan has finished and everything it owed the glass is drawn**, so a raise
+puts the results back from the kernel's cache instead of lettering every
+row, path and counter again. `sc_promise` decides, `sc_unpromise` withdraws,
+`[sc_prom]` is what the kernel was last told, and the class is born without
+the flag.
+
+While a scan runs, `sc_onwake` (§118.3) changes the rows, the counters and
+the bar slice by slice whether or not the window can be seen, and
+`sc_drawowed` SKIPS when the clip refuses - the owed bits stay set for the
+next paint. That is question 1's disqualifier exactly, so:
+
+- `sc_scan_begin` withdraws, before the first slice - the chooser's Scan, a
+  link's scan at the first paint (§118.14.9), and Clean Up's rescan alike;
+- `sc_clip`, which every handler's draw goes through, withdraws when the clip
+  refuses (§11.96.18: the wholly covered case keeps the cache);
+- `sc_promise` runs after each wake's draw and at the end of `sc_paint`, and
+  promises only when `sc_run` is 0 and nothing is owed (`sc_dirty`'s nine
+  `SYD_*` bits, `SYD_OWED`, and `sc_drows`) - so a scan that ended while the
+  window was covered, or under the About card, is promised only after the
+  paint that shows its end. The nine and not the word: a scan's begin and its
+  end both owe `0xFFFF`, `sc_drawowed` clears the bits that mean something,
+  and the first cut tested the word and so never promised after a scan the
+  wakes had drawn to its end.
+
+The window is 626x436 and in colour, so on a VGA its four-plane cache is
+past `wm_su_kb`'s 64,512 and is not taken; on Hercules and CGA it is.
 
 ## 119. CDROM.DRV — CD-ROM data and audio (`drivers/cdrom/`, `apps/cdrack/`)
 

@@ -98,12 +98,59 @@ rl_paint:
 
 ; ru_clip - arm the kernel's clip on our window for a handler's drawing.
 ; CF = 1: none of it is visible. Preserves every register.
+; A refusal means the change being made is NOT drawn, and wm_clip_set leaves a
+; cache the kernel banked standing when it refuses (SPEC.md 11.96.18) - so it
+; withdraws the promise here, once for every caller (103.8)
 ru_clip:
     push bx
     mov bx, [rl_win]
     call OSAPI_WM_CLIP_SET
     pop bx
+    jc rl_unpromise                 ; (keeps CF = 1, and returns for us)
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; rl_promise - WF_SAVEU as the window stands (SPEC.md 103.8, 11.96.1): PROMISED
+; while no run is going and the result bars have finished growing, so a raise
+; puts the dashboard back from the kernel's cache instead of lettering it
+; again; WITHDRAWN for a run (rl_run, which owns the window for minutes and
+; opens the lab over it) and for the bars' growth, which ru_timer steps on the
+; UI timer whether or not the window can be seen. rl_unpromise is the
+; withdrawal alone, and drops whatever was banked. Lock held (SPEC.md 20.6
+; rule 7: the clear frees the cache). The kernel is asked only when the
+; answer CHANGES - [rl_prom] is what it was last told; the class is born
+; without the flag. Preserves all, flags included.
+; -----------------------------------------------------------------------------
+rl_promise:
+    pushf
+    push ax
+    xor ax, ax
+    cmp byte [rl_busy], 0           ; a run: the window is its progress
+    jne rl_unpromise.say
+    cmp word [ru_anim], RU_ANIM_STEPS ; the bars still growing on the timer
+    jb rl_unpromise.say
+    inc ax
+    jmp short rl_unpromise.say
+rl_unpromise:
+    pushf
+    push ax
+    xor al, al
+.say:
+    cmp al, [rl_prom]
+    je .out
+    push bx
+    mov bx, [rl_win]
+    or bx, bx                       ; before wm_create: nothing to say it to
+    jz .pop
+    mov [rl_prom], al
+    mov ah, WFB_SAVEU
+    call OSAPI_WM_FLAG              ; BX is [rl_win], never a stray register
+.pop:                               ; (SPEC.md 11.96.11.4)
+    pop bx
+.out:
+    pop ax
+    popf
     ret
 rl_key:
     push ax
@@ -211,6 +258,7 @@ rl_about:
     jmp rl_repaint
 
 rl_run:
+    call rl_unpromise               ; BEFORE the window starts moving (103.8)
     mov byte [rl_busy], 1
     mov word [rl_active_label], rl_running
     xor ax, ax
@@ -1200,6 +1248,7 @@ rl_label_scroll: db 'L3 Full canvas scroll', 0
 rl_label_composition: db 'L3 Nested moving windows', 0
 rl_label_resize: db 'L3 Window resize/repaint', 0
 rl_busy: db 0
+rl_prom: db 0                       ; WF_SAVEU as the kernel was last told
 rl_pass: dw 0
 rl_active_row: dw 0
 rl_active_label: dw rl_running
