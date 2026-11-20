@@ -44,7 +44,10 @@ model's (`spy`).
      the eight scroll directions, the first few where the oracle hides part of
      the ball behind a record, then one moving frame in 97.  Every direction
      must appear and a checked frame must hide some ball behind a record.
-     bz_rlate must be 0 after it.  Negative controls on a diagonal frame: the
+     After it bz_rlate must equal the boxes counted late at bz_wbox (a
+     breakpoint on its count), none of them a frame's FIRST box (130.9 item
+     6); a later box of a multi-box frame - TMIL's lift box above the ball's -
+     is 130.11.10.3's counted exception, REPORTED.  Negative controls on a diagonal frame: the
      decode at S + 1 and a poked wrong camera must mismatch.
   3  THE TRIAL LEG (SPEC.md 130.11.17.2): the benchmark on TRIAL ([bz_crs]
      poked at bz_launch's entry; the rubber ball off H's lip, over the gap) -
@@ -1629,6 +1632,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None, crs=None, st
     extra = ("bz_col", "bz_boxw", "bz_occ.gate") if order else ()
     if mill:
         extra += ("bz_wcommit", box_point(g))
+    extra += (LATE_AT,)                         # (every late box, by index: bz_wbox's `inc word [bz_late]`)
     wk = Walker(g, t0=trial, extra=extra)
     if kcrs is not None or hvoff is not None or camscr is not None:
         m.bp_exec(g.a("bz_launch"))
@@ -1665,11 +1669,15 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None, crs=None, st
     npwt0 = 0
     fview = None
     wraps, tallest = 0, [0, 0]
+    lates = []                              # [(frame, box index, boxes, (x0, y0, w, h))]: bz_late's every count
     while True:
         k = wk.next()
         if first:
             g.check_base()
             first = False
+        if k == LATE_NAME:
+            lates.append(late_hit(g, wk.r))
+            continue
         if k == "t0":
             # TRIAL's route makes no frame of three boxes (its shadow jumps a
             # line only over OCC cells, where the gate drops a box of its own),
@@ -1859,15 +1867,23 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None, crs=None, st
                 tag, leg, fr, "every check it owes made" if not (goal and g.d("bz_nstep") + 2 >= goal)
                 else "two steps short of the goal", nend), flush=True)
             break
+    late = None
+    if not fails:
+        la = g.a(LATE_AT[0]) + LATE_AT[1]       # (a stopped run's last frames: their late boxes counted too)
+        m.bp_exec(la)
+        while True:
+            m.run()
+            if m.wait_stop(guest=5) != "breakpoint":
+                break
+            lates.append(late_hit(g, m.regs()))
     m.bp_exec()
     m.run()
-    late = None
     if not fails:
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark ends", guest=120)
         assert g.b("bz_res") == 1, "the benchmark left no results"
         late = g.w("bz_rlate")
-        if late and not trial and stop != "laid":     # (the BENCH leg's: the scripted camera's row-0 boxes)
-            fails.append("bz_rlate = %d: a box at window row 0 was not ahead of the beam" % late)
+        if not trial and stop != "laid":        # (the BENCH leg's - SPEC.md 130.11.10.3, 130.9 item 6)
+            fails += late_verdict(late, lates)
         dropped(g, "the %s benchmark" % leg)
     print("%s %s benchmark to frame %d: %d frames checked at bz_presented and %d at bz_tf (the old window "
           "intact at the latch); the full write %d" % (tag, leg, fr, checks, tfchecks, full_checked), flush=True)
@@ -1970,6 +1986,38 @@ def order_check(ev, H, rl, wtop, ccol, dc):
         return "the column rows written before each box %s, raster order says %s%s" % (
             got, exp, " (a box holds a column cell: the whole column first)" if whole else "")
     return None
+
+
+LATE_AT = ("bz_wbox.out", -4)              # bz_wbox's `inc word [bz_late]` (4 bytes, FF 06): a box counted late
+LATE_NAME = "%s+%d" % LATE_AT
+
+
+def late_hit(g, r):
+    """at LATE_AT (bz_wbox's count of a late box, SI the box, DI twice its index): -> (frame, box index,
+    boxes this frame, (x0, window line, words, lines))"""
+    x0, y0, w, h = struct.unpack("<HhHH", g.m.read(g.base + r["si"], 8))
+    return (g.w("bz_frames") + 1, r["di"] // 2, g.w("bz_nbox"), (x0, y0 - g.w("bz_wtop"), w, h))
+
+
+def late_verdict(late, lates):
+    """the benchmark's late boxes against SPEC.md 130.11.10.3 and 130.9 item 6: the FIRST box (the one at
+    window row 0 when there is one, whose column rows went first) is never late; a LATER box of a multi-box
+    frame is the documented exception, counted and finished, and REPORTED here (a test course's props make
+    multi-box frames - TMIL's lift box above the ball's - where BENCH made none).  bz_rlate must be exactly
+    the boxes seen counted at bz_wbox (so a count from anywhere else, the `late` red's, still fails)
+    -> fails"""
+    out = []
+    if late != len(lates):
+        out.append("bz_rlate = %d, but %d box(es) were counted late at bz_wbox: the count is not the boxes' "
+                   "(SPEC.md 130.11.10.3)" % (late, len(lates)))
+    for fr, i, n, (x0, wl, w, h) in lates:
+        if i == 0 or n < 2:
+            out.append("bz_rlate: frame %d's FIRST box (of %d; word %d, window lines %d-%d) was not ahead of the "
+                       "beam (SPEC.md 130.9 item 6)" % (fr, n, x0, wl, wl + h - 1))
+        else:
+            print("  late box (REPORTED, SPEC.md 130.11.10.3's counted exception): frame %d, box %d of %d, word "
+                  "%d, %d words, window lines %d-%d" % (fr, i, n, x0, w, wl, wl + h - 1), flush=True)
+    return out
 
 
 def negative_controls(g, ref, st, lk):
