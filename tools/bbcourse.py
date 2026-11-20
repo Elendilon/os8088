@@ -11187,6 +11187,8 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
+    global _SHEETS_X
+    _SHEETS_X = hack.get("sheetmax", 0)             # (item 15's --occ off compile: more sheets, sheet_plan)
     saved, _REACH_MEMO = _REACH_MEMO, {}            # (this call's own: a compile inside it gets its own)
     try:
         # SPEC.md 130.37.6: no Y0 SEARCH since the kit - a play course compiles at Y0 = KIT_Y0 (mod 8), the one
@@ -11202,6 +11204,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _NOLOOK = False
         _LOOKB = 0
         _HALFZ = False
+        _SHEETS_X = 0
         _REACH_MEMO = saved
 
 
@@ -14158,6 +14161,7 @@ def herc_translate_parts(a, b):
 # lane's drawn pose into the new sheet's map.  The plan (sheet_plan) is derived from the model alone.
 
 SHEET_MAX = 2                 # sheets a course may have: one claim more than a two-part course (SPEC.md 130.30.12.6)
+_SHEETS_X = 0                 # (a comparison compile's own larger bound: compile_course's _hack sheetmax, sheet_plan)
 SH_WLO, SH_WHI = 2, 28        # the block rows a frame may read or draw round a window whose top is block row tb:
                               # [tb - 2, tb + 28] - the 200-line window's 26, the VGA's 7 lines under it and the
                               # old window a camera step away (8 lines at most, BZ_MAXR and BZV_MAXR), rounded up
@@ -14220,7 +14224,11 @@ def _sheet_try(B, n, k, H):
 def sheet_plan(m, recb, fname="<course>", k=None, _hack=None):
     """SPEC.md 130.30.12.2: a course's SHEETS from its model - the fewest sheets (2 .. SHEET_MAX) and, for them,
     the fewest rows n a sheet that serve every window -> {"n", "k", "H", "fixed", "sheets": [...]}.  Refused
-    when none lays out within PARTMAX.  _hack wsh: --selfcheck item 16's red arm (the window a row short)"""
+    when none lays out within PARTMAX.  _hack wsh: --selfcheck item 16's red arm (the window a row short);
+    _SHEETS_X: more sheets than SHEET_MAX may be tried (up to MAGIC_SHEETS') - set by compile_course's
+    _hack sheetmax for the length of ONE compile, its encoder's plan and its reader's both, and only for the
+    selfcheck's COMPARISON compiles (item 15's --occ off: a sheeted course's picture WITHOUT AV's cut is
+    larger still, and is compared, never shipped)"""
     global SH_WHI
     B, rowb = m["brows"], 2 * m["cols"]
     H = lane_hmax(m)
@@ -14230,7 +14238,8 @@ def sheet_plan(m, recb, fname="<course>", k=None, _hack=None):
     if (_hack or {}).get("wsh"):
         SH_WHI -= 1
     try:
-        for kk in ([k] if k else range(2, SHEET_MAX + 1)):
+        kmax = min(max(SHEET_MAX, _SHEETS_X), len(MAGIC_SHEETS))
+        for kk in ([k] if k else range(2, kmax + 1)):
             for n in range(max(1, -(-B // kk)), nmax + 1):
                 pl = _sheet_try(B, n, kk, H)
                 if pl is not None:
@@ -24045,7 +24054,14 @@ def _grammar_cases():
         ("an unknown surface", F + "surface mud tile 4 5\n", "unknown surface 'mud'"),
         ("an unknown ball", F + "ball wood\n", "unknown ball 'wood'"),
         ("a second ball", F + "ball glass\n", "a second 'ball' statement"),
-        ("a part over 65,024 bytes", BIG, "one part may be"),
+        # (SPEC.md 130.30.12: a picture past 65,024 bytes is cut into SHEETS now, so BIG - 311 block rows -
+        # lays out as two and is refused for its height alone, by the read-back of its parts; the refusal of a
+        # picture over one part is now that its sheets do not lay out: TTALL under --occ off, 94,592 bytes)
+        ("a course over %d block rows (BIG's picture, once a part over 65,024 bytes, is SHEETS)" % BROWS_MAX,
+         BIG, "part field BROWS: 311"),
+        ("a picture over 65,024 bytes whose %d SHEETS do not lay out (TTALL under --occ off)" % SHEET_MAX,
+         open(os.path.join(COURSE_DIR, "ttall.bbc")).read(), "one part may be, and up to %d SHEETS of it do "
+         "not lay out" % SHEET_MAX, {"occ": "off"}),
         # SPEC.md 130.27.2: `float`'s refusals
         ("a float on a half", F + "float half up tile 4 5\n", "float takes whole cells"),
         ("a float with a height", F + "float rect 3 4 7 7 flat 4\n", "float takes a shape and nothing else"),
@@ -24179,14 +24195,24 @@ def _wave3_cases():
 
 
 def _decode(part, herc=False):
-    """an independent reader: the map and blocks back to game pixels"""
+    """an independent reader: the map and blocks back to game pixels.  A SHEETED course's (SPEC.md 130.30.12:
+    its SheetBytes) each block row from a sheet whose map holds it (rows m0 .. m0 + n - 1), sheet-relative,
+    its blocks that sheet's"""
     cols, brows = struct.unpack_from("<HH", part, 4)
     blkoff = struct.unpack_from("<H", part, 12)[0]
     occidx = struct.unpack_from("<H", part, 14)[0]
     rows = [bytearray(8 * cols) for _ in range(8 * brows)]
+    sh, whole = sheets_of(part), part
     for by in range(brows):
+        row = by
+        if sh is not None:
+            n = whole.plan["n"]
+            i = next((i for i, x in enumerate(whole.plan["sheets"]) if x["m0"] <= by < x["m0"] + n), None)
+            if i is None:
+                raise CourseError("block row %d is in no sheet's map" % by)
+            part, row = sh[i], by - whole.plan["sheets"][i]["m0"]
         for bx in range(cols):
-            off = struct.unpack_from("<H", part, HDR + 2 * (by * cols + bx))[0]
+            off = struct.unpack_from("<H", part, HDR + 2 * (row * cols + bx))[0]
             if off < blkoff or off >= occidx or (off - blkoff) % 16:
                 raise CourseError("map word %d at (%d, %d) is not a block offset" % (off, bx, by))
             for y in range(8):
@@ -30277,10 +30303,12 @@ def _course_items(c, k, res, t):
                 and c.cga[pt["blkoff"]:pt["blkoff"] + 16] == bytes(16)))
     bad = bytearray(c.cga)
     w0 = struct.unpack_from("<H", bad, HDR + 2 * 37)[0]
-    alt = next(HDR + 2 * i for i, w in enumerate(pt["map"]) if w != w0)
+    sh = sheets_of(c.cga)                       # (a SHEETED course: the word moved inside sheet 0's own map, and
+    nmap = c.plan["n"] * c.cols if sh else len(pt["map"])      # the decode of every sheet, 130.30.12)
+    alt = next(HDR + 2 * i for i, w in enumerate(pt["map"][:nmap]) if w != w0)
     struct.pack_into("<H", bad, HDR + 2 * 37, struct.unpack_from("<H", bad, alt)[0])
     try:
-        dd = _decode(bytes(bad))
+        dd = _decode(SheetBytes([bad] + list(sh[1:]), c.plan) if sh else bytes(bad))
         caught = any(bytes(dd[y]) != bytes(c.pic[y]) for y in range(c.lines))
     except CourseError:
         caught = True
@@ -33183,9 +33211,10 @@ def _sc_av(X, res):
         every.append(compile_course(os.path.join(COURSE_DIR, "title.bbc")))
     except CourseError as e:
         res.append(("15 the pathway and the title compile (%s)" % e, False))
-    for c in every:
-        off = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),
-                             _hack={"occ": "off"}, crsinfo=[(q.name, q.title) for q in courses]
+    for c in every:                             # (sheetmax: a SHEETED course's picture under --occ off is
+        off = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),   # larger
+                             _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)},   # still - TTALL's 94,592
+                             crsinfo=[(q.name, q.title) for q in courses]       # bytes, past 2 sheets: 130.30.12)
                              if c.pth is not None else None)
         _av_checks(c, res, c.name, off)
     byname = {c.name: c for c in courses}
