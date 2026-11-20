@@ -108,10 +108,11 @@ BZ_BALB     equ BZ_BAL_SIZER + BZ_BAL_SIZE + BZ_BAL_SIZEG ; the families' first 
 ; here is checked on the guest: tools/bbcourse.py checked every one of them at
 ; build time (SPEC.md 130.10.6.2).  BZC1's fields keep their offsets; the map
 ; moved from +32 to +48 behind BZC2's own (130.15.4.1).
-BZC_COLS    equ 4               ; word columns: 64 or 128
+BZC_COLS    equ 4               ; word columns: 64, 128 or 160
 BZC_BROWS   equ 6               ; block rows
 BZC_NBLK    equ 8               ; N, blocks (bz_hxlat)
-BZC_MAPSH   equ 10              ; 4 for 64 columns, 5 for 128
+BZC_MAPSH   equ 10              ; 4 for 64 columns, 5 for 128, 0 any other
+                                ; width: not read (bz_mrow, 130.10.4.2)
 BZC_BLKOFF  equ 12              ; block 0's offset (bz_hxlat, bz_cexp)
 BZC_OCCIDX  equ 14              ; OCCIDX: BROWS + 1 words, each the offset of
                                 ; the block row's first occluder record
@@ -2613,10 +2614,18 @@ bz_crshdr:
     mov [bz_cols], ax
     mov ax, [es:BZC_BROWS]
     mov [bz_brows], ax
-    mov al, [es:BZC_MAPSH]
-    mov [bz_mapsh], al
     mov ax, [es:BZC_ROWB]
     mov [bz_rowb], ax
+    xchg ax, dx                 ; SPEC.md 130.10.4.2: bz_mrow[br] = MAP + br
+    mov ax, BZC_MAP             ; ROWB, every row the table holds (BZ_MROWS,
+    mov bx, bz_mrow             ; the tool's bound on BROWS): the writers'
+.mrow:                          ; block row's map, any COLS (no shift)
+    mov [bx], ax
+    add ax, dx
+    inc bx
+    inc bx
+    cmp bx, bz_mrow + 2 * BZ_MROWS
+    jne .mrow
     mov di, [es:BZC_GRID]
     mov [bz_goff], di
 %if BZ_TITLE
@@ -3266,7 +3275,7 @@ bz_cxway:
 ; non-VOID cell two tiles inside the grid (read_part), so the edge reads stay
 ; in the grid.  DS = ours (the A rows), ES = the part; the frame is SS:BP.
 ; About 0.19 s on PEAK, with bz_cxsafe (priced, 130.15.6).
-BZ_CXRW     equ 36              ; an A row's stride: a pad, KW cells, a pad
+BZ_CXRW     equ 44              ; an A row's stride: a pad, KW cells, a pad (1,280 px)
 BZ_CXNS     equ 4 * BZ_BOXB / BZ_CXRW   ; the A rows bz_boxbuf holds
 %if BZ_CXRW < BZ_KWMAX + 2 || BZ_CXNS < 10 || BZ_CXRW & 1
  %error "bz_cxcel: bz_boxbuf does not hold its window of A rows"

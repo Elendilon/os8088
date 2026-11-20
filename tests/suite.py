@@ -5482,6 +5482,15 @@ SOAK = [
         "each went red when registered. secs MEASURED 2026-11-19: 60 s wall on a loaded 4-core box, with the "
         "BZDEV=1 tree already built (x 1.25).",
         needs=("unicorn", "nasm"), timeout=300 + BZDEV_TREE_CPU),
+    Row("bonanzawide", "soak", py("tests/bonanza_wide.py"), 50.0,
+        "BONANZA's WIDEST COURSE in the guest (SPEC.md 130.10.4.2's amendment, 130.54.8), host only: the "
+        "shipped package's own bz_crshdr and box fill under unicorn on TWIDE (160 word columns, 1,280 px) and "
+        "HOP (128) - bz_mrow's 256 words MAP + br ROWB, and bz_boxc's buffer exactly the part's words on 59 "
+        "boxes, the far east (word column 159) at every first-line offset among them. Red arms by hand, "
+        "`--red mrow` (the table not built past row 0) and `--red shift` (the box fill back on a 128-column "
+        "shift: TWIDE red, HOP green); each went red when registered. secs MEASURED 2026-11-20: 40 s wall on a "
+        "loaded 4-core box, the tree already built (x 1.25).",
+        needs=("unicorn", "nasm")),
     Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 981.0,
         "BOUNCE-BONANZA-SOAK PHASE 3: every leg on a TEST course (SPEC.md 130.54) - the record, inject, mouse and play legs on TPLY (TRIAL's H, F and gap turned a quarter: the script's Left and Right swap, the chord off the lip is Left + Down; the play leg runs WEST along the PLAYGROUND's apron to the brake strip's lane wx 12), the MILL leg (record, Hercules and VGA replays, the identity refusal) on TMIL, MILL's top cell for cell; no prototype is named. --check now also proves the MILL leg's knock-back delay on TMIL's model and the play leg's script on TPLY's (judged as the guest's log is). Already one boot a card (CGA, Hercules, VGA); its frames are the legs' own, so secs: ESTIMATED unchanged (471 s), not re-measured. "
         "NO COURSE KEY (SPEC.md 130.11.5.4, 130.26.8, the owner 2026-11-19): N and M are gone, so every record leg POKES [bz_crsel] (TRIAL, the PLAYGROUND, MOON) before F and the play rolls the course's own ball - the record leg checks [bz_mat] is it. "

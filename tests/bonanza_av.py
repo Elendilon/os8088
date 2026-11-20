@@ -129,7 +129,7 @@ class Pass:
 
     def block_word(self, br, w, ly):
         p = self.c.cga
-        off = struct.unpack_from("<H", p, self.mapoff + ((8 * br) << self.mapsh) + 2 * w)[0]
+        off = struct.unpack_from("<H", p, self.mapoff + 2 * self.cols * br + 2 * w)[0]
         return struct.unpack_from("<H", p, off + 2 * ly)[0]
 
     def run(self, pos, wtop, c0n, rnd, trace=False):
