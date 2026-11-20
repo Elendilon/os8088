@@ -587,18 +587,19 @@ def vga_run(apps=None, src=None, art=None):
         out.append(("VGA BENCH", bad, summ))
         bad = []
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        for n in range(3):                      # (the first key after a bracket can land before the face takes
-            try:                                # keys: V again)
-                g.m.pause()                     # (phase 3: TMIL's route, a log made from the model)
-                g.write_log(R.auto_log(PERF_CRS))
-                g.m.run()
+        g.m.pause()                             # (phase 3: TMIL's route, a log made from the model, written in:
+        g.write_log(R.auto_log(PERF_CRS))       # no V, so R is the FIRST key after B's bracket - and that key
+        g.m.run()                               # can land before the RESULTS face takes keys: R AGAIN, as V was.
+        for n in range(3):                      # Measured: the first R after B left bz_mode 1 and the face on
+            M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)     # RESULTS for 120 guest s)
+            g.key("KeyR")
+            try:                                # (the launch fetches the course: ~4.5 guest s to the bracket)
+                M.until(m, lambda _: g.b("bz_mode") == 2 and g.b("bz_fs") == 1, "R starts TMIL's route log",
+                        guest=20)
                 break
             except M.MartyError:
                 if n == 2:
                     raise
-                M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        g.key("KeyR")
         M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "TMIL's route log runs", guest=120)
         m.advance(cycles=VGA_DEMO_LEAD * 4772727)
         m.pause()
