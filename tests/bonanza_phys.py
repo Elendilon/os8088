@@ -2381,7 +2381,7 @@ def mg_host(binp, lst, sym):
     for name, mat, at, n, ret, what in MG_SCENES:
         poke, keys = mg_poke(mat, at), mg_keys(n, ret)
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "mags", mat, keys, fam, poke=poke, src=MG_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "mags", mat, keys, fam, poke=poke, src=MG_SRC, k=R.CRS_K["bench"])
         ok, saw = mg_verdict(name, mat, poke, keys)
         out.append("magnet %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
         fails += ["magnet %s: %s" % (name, b) for b in bad] + ([] if ok else ["magnet %s is not what it is "
@@ -2409,7 +2409,7 @@ def mg_host(binp, lst, sym):
         hit = None
         for name, mat, poke, keys in sc:
             if name in scs and hit is None:
-                _p, bad = urun(binp, lst, sym, "mags", mat, keys, ff, poke=poke, src=MG_SRC, k=0)
+                _p, bad = urun(binp, lst, sym, "mags", mat, keys, ff, poke=poke, src=MG_SRC, k=R.CRS_K["bench"])
                 hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -2543,7 +2543,7 @@ def gt_host(binp, lst, sym, scenes=None):
             at = BB.GT_SC[name][0]
             poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(at[0], at[1], 0, 0))
             sc[(name, mat)] = (poke, r[0])
-            _p, bad = urun(binp, lst, sym, "gate", mat, r[0], fam, poke=poke, src=GT_SRC, k=0)
+            _p, bad = urun(binp, lst, sym, "gate", mat, r[0], fam, poke=poke, src=GT_SRC, k=R.CRS_K["bench"])
             ok = BB.gt_verdict(name, mat, r)
             out.append("gate %s, %s (%s): %s; fell %s, ended on %s, channels %d" % (
                 name, BB.MAT_NAMES[mat], BB.GT_WANT[name] if mat == BB.MAT_RUBBER else "as rubber's",
@@ -2570,7 +2570,7 @@ def gt_host(binp, lst, sym, scenes=None):
         assert gsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]
         _p, bad = urun(binp, lst, sym, "gate", mat, keys, gt_parts(gsrc.replace(a_, b_)), poke=poke, src=GT_SRC,
-                       k=0)
+                       k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -2611,7 +2611,7 @@ def bp_host(binp, lst, sym):
             keys = bp_play(bp_course(), mat, at, keyf, n)[0]
             poke = poke_of(BB.Physics(bp_course(), play=True, mat=mat).poke(*at))
             sc[(name, mat)] = (poke, keys)
-            _p, bad = urun(binp, lst, sym, "boos", mat, keys, fam, poke=poke, src=BP_SRC, k=0)
+            _p, bad = urun(binp, lst, sym, "boos", mat, keys, fam, poke=poke, src=BP_SRC, k=R.CRS_K["bench"])
             ok, saw = bp_verdict(name, mat)
             out.append("boost %s, %s (%s): %s; %s" % (name, BB.MAT_NAMES[mat], what if mat == BB.MAT_RUBBER else
                                                       "as rubber's", "; ".join(bad)[:200] or "equal at every step",
@@ -2634,7 +2634,7 @@ def bp_host(binp, lst, sym):
     for arm, a_, b_, want, (name, mat) in arms:
         assert bsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]
-        _p, bad = urun(binp, lst, sym, "boos", mat, keys, bp_parts(bsrc.replace(a_, b_)), poke=poke, src=BP_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "boos", mat, keys, bp_parts(bsrc.replace(a_, b_)), poke=poke, src=BP_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3050,7 +3050,7 @@ def spike_host(binp, lst, sym):
     for name, mat, at, keys, what in sp_scenes():
         poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=R.CRS_K["bench"])
         q = model("spike", mat, poke, src=SP_SRC)
         zs = []
         mems = [pr for pr in q.props if pr["kind"] == BB.SP_KM]
@@ -3074,7 +3074,7 @@ def spike_host(binp, lst, sym):
                            cwd=ROOT, check=True)
             ff = fam_parts({"spike": open(o, "rb").read()})
         name, mat, poke, keys = next(s for s in sc if s[0] == scn)
-        _p, bad = urun(binp, lst, sym, "spike", mat, keys, ff, poke=poke, src=SP_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "spike", mat, keys, ff, poke=poke, src=SP_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3190,7 +3190,7 @@ def tilt_host(binp, lst, sym):
     for name, mat, at, keys, what in tl_scenes():
         poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
         q = model("tilt", mat, poke, src=TL_SRC)
         pl = [r for r in q.props if r["kind"] == BB.FK_TILT]
         zs = []
@@ -3214,7 +3214,7 @@ def tilt_host(binp, lst, sym):
                            cwd=ROOT, check=True)
             ff = fam_parts({"seesaw": open(o, "rb").read()})
         name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
-        _p, bad = urun(binp, lst, sym, "tilt", mat, keys, ff, poke=poke, src=TL_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "tilt", mat, keys, ff, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3293,7 +3293,7 @@ def tt_host(binp, lst, sym):
     for name, mat, at, keys, what in tt_scenes():
         poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, poke=poke, src=TT_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, poke=poke, src=TT_SRC, k=R.CRS_K["bench"])
         q = model("turn", mat, poke, src=TT_SRC)
         zs = []
         for k_ in keys:
@@ -3319,7 +3319,7 @@ def tt_host(binp, lst, sym):
                            cwd=ROOT, check=True)
             ff = fam_parts({"turntable": open(o, "rb").read()})
         name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
-        _p, bad = urun(binp, lst, sym, "turn", mat, keys, ff, poke=poke, src=TT_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, ff, poke=poke, src=TT_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3328,7 +3328,7 @@ def tt_host(binp, lst, sym):
     # woken (every lane off it); red ttslice, bz_fmark's slice test gone (its lane marked though off it)
     name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == "tt-rest")
     for arm, pp in (("ttslice-green", ()), ("ttslice", (("bz_fm1", b"\x90" * 12),))):
-        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=0, slice=(0, 0))
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=R.CRS_K["bench"], slice=(0, 0))
         hit = next((b for b in bad if "off the slice" in b), None)
         if arm == "ttslice-green":
             out.append("turntable tt-rest, the slice empty: %s" % ("; ".join(bad)[:200] or "nothing marked"))
@@ -3341,7 +3341,7 @@ def tt_host(binp, lst, sym):
     # marked; red ttband, bz_fm1's band test gone (its 7 bytes after the slice's 12)
     alln = list(range(len(R.course("turn", src=TT_SRC).props)))     # (every record's lane byte: OUT)
     for arm, pp in (("ttband-green", ()), ("ttband", (("bz_fm1", b"\x90" * 19),))):
-        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=0, out=alln)
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=R.CRS_K["bench"], out=alln)
         hit = next((b for b in bad if "OUT of the band" in b), None)
         if arm == "ttband-green":
             out.append("turntable tt-rest, every lane OUT of the band: %s" % ("; ".join(bad)[:200] or "nothing marked"))
