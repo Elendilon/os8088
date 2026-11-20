@@ -261740,9 +261740,14 @@ there (130.1).
 The four props after every room, `surface` and `hole`, as 130.12.3.3's
 props. Each refusal names the line:
 
-- the tile of each must be a FLAT FLOOR with no VOID among its four edge
-  neighbours (SAFE's own conditions, 130.10.4.3) and no other prop; a
-  `checkpoint` or a `cup` also a NORMAL surface; a `spring` not `ice`;
+- the tile of each must be a FLAT FLOOR with no other prop, and - but for a
+  `spring` - no VOID among its four edge neighbours (SAFE's own conditions,
+  130.10.4.3: a flag and the cup are respawn and capture cells, a pad a swap a
+  ball may rest on). **A `spring` may stand at a pit's edge** (the owner,
+  2026-11-20: a spring at the lip of a gap on a 1-wide path): it launches,
+  it never places a ball, so its neighbours decide nothing - the title's
+  waiver (130.23.2) made general; a `checkpoint` or a `cup` also a NORMAL
+  surface; a `spring` not `ice`;
 - at most 8 checkpoints (numbered 0 - 7 in file order), 8 pads, ONE cup,
   4 springs; at most 16 props with a lane (windmills, bumpers, flags) and
   32 props in all (130.14.4.2);
