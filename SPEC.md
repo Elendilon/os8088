@@ -262875,7 +262875,10 @@ foot and waits for the slab (course 3, DOWN's steel leg, rev 11).
   period (`dwell` and the run, about 80 of 260 steps at `L` 4), so the
   lengths are finer than the period's half. While the stop lasts, and while
   a lift carries the ball (`onp`), the ground point standing still is not
-  `PLAN_STALL`'s "stuck".
+  `PLAN_STALL`'s "stuck". Nor, on any leg, is a ball whose HEIGHT moves
+  (the stall compares the ground point and the height): a steel ball
+  sinking a deep water column (DOWN rev 15's 6-unit column) stands still on
+  the ground for longer than `PLAN_STALL`.
 - **The second pass's**, after the holds: `route_plan`'s first pass is
   unchanged, so every course it solves keeps its route byte for byte.
 - **Measured**: DOWN (rev 11) goes from no route (inputs only: the steel
