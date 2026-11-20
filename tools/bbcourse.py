@@ -30062,6 +30062,9 @@ def _sc_crosscommit(X, res):
     if [c.name for c in w5] != [n for n in (c.name for c in courses) if n in W5_CHAIN]:
         res.append(("1 the cross-commit chain covers %s's courses %s (it covers %s)" % (
             W5_COMMIT, ", ".join(W5_CHAIN), ", ".join(c.name for c in w5) or "none"), False))
+    # (that commit's tool exempts course 0 from `target` - BENCH was course 0 there, and is a test course
+    # after the shipped ones here since SPEC.md 130.54: it is handed BENCH first, in its own order)
+    w5.sort(key=lambda c: c.name != "BENCH")
     import tempfile
     w5dir = tempfile.mkdtemp(prefix="bbw5")
     w5txt = []
