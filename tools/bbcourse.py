@@ -27895,35 +27895,19 @@ def _w5_budget(courses, res):
 # wave 8R (SPEC.md 130.22.10): the pathway's --selfcheck items
 # =============================================================================
 
-PATH_TEST_HID = ('course HID "Hidden Exit"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nstart 5 12\n'
-                 'goal rect 12 10 13 12 flat 0\ngoal rect 12 12 13 14 flat 0 exit 1 hidden\nclock 9 11\n'
-                 'way 11 12\nlimit 30\n')
-# a private map (the selfcheck's alone): ROLL -> HID; HID's exit 0 -> HOP (the END); HID's hidden exit 1
-# a SECRET route to SIDE (a pad that leads nowhere; it plays ROLL again - a pad's course is only its label
-# here).  The shipped courses only (2026-11-19: ROLL and HOP), so no prototype's leaving moves it
-PATH_TEST = """course PT "Test Path"
-width  64
-pathway
-view   0 340
-pad 0 ROLL  23 24
-pad 1 HID   20 21
-pad 2 HOP   16 17
-pad 3 ROLL  14 21
-route 0 1 exit 0 path 23,24 20,21
-route 1 2 exit 0 path 20,21 16,17
-route 1 3 exit 1 secret path 20,21 14,21
-icon 3 icons/mill.bba -152 240
-lives 26 26
-"""
-# ...and the SHORTCUT: HID's hidden exit 1 straight to pad 3 (ROLL again), the END, where the open way
-# passes HOP
+# the SHORTCUT (a private map, the selfcheck's alone): TQUIK's hidden exit 1 (SPEC.md 130.54, the test course
+# the test map keys its own secret route by) straight to pad 3 (ROLL again), the END, where the open way passes
+# HOP.  A pad's course is only its label here; ROLL, HOP and a TEST course, so no prototype's leaving moves it.
+# (The SIDE verdict, the reveal lanes and the secret route's refusals are the TEST MAP's own route 2 -> 6 since
+# BOUNCE-BONANZA-SOAK phase 3: the private map PATH_TEST and its course HID are gone.)
 PATH_SHORT = """course PS "Test Shortcut"
 width  64
 pathway
+test
 view   0 340
 pages  2
 pad 0 ROLL  23 24
-pad 1 HID   20 21
+pad 1 TQUIK 20 21
 pad 2 HOP   16 17
 pad 3 ROLL  10 15
 route 0 1 exit 0 path 23,24 20,21
@@ -27933,6 +27917,11 @@ route 1 3 exit 1 secret path 20,21 8,21 8,13 10,13 10,15
 lives 26 26
 lives 4 10
 """
+# the test map's ICON line the secret item's edit hangs the hidden pad's icon after (an icon on pad 6, BENCH:
+# the build's map has none there, so the hidden pad's icon lanes - one pose more, 0 the bare picture - are
+# checked on an edited copy; its block corner (96, 288) is pad 6's cell's as icon 4's is pad 4's)
+PATH_DEV_ICON = "icon 4 icons/playground32x24.bba  -112 168"
+PATH_DEV_HIDICON = "icon 6 icons/mill32x24.bba         96 288"
 
 
 def _path_compile(text, courses, what, extra=()):
@@ -28089,8 +28078,6 @@ def _testmap_checks(courses, res):
 def _path_checks(courses, res):
     t0 = time.time()
     shipped = os.path.join(COURSE_DIR, "path.bbc")
-    with open(shipped, encoding="ascii") as f:
-        ptext = f.read()
     pc = compile_course(shipped, crsinfo=[(c.name, c.title) for c in courses])
     proofs = path_proofs(pc, courses)
     pth, part = pc.pth, pc.part
@@ -28147,25 +28134,33 @@ def _path_checks(courses, res):
                 and keyed.get((1, 0)) == 2 and sorted(r["exit"] for r in pth["routes"] if r["a"] == 2) == [0, 1]
                 and keyed[(2, 0)] != keyed[(2, 1)] and cross))
     _testmap_checks(courses, res)
-    # the refusals, each provoked on the shipped text or the private map
-    hid = compile_course(PATH_TEST_HID, fname="<HID>", occluders=False, _hack={"no_bounds": 1})
-    hid.title = "Hidden Exit"
-    ex = [hid]
-    tp = _path_compile(PATH_TEST, courses, "the private map", ex)
-    tproofs = path_proofs(tp, list(courses) + ex)
+    # the refusals, each provoked on THE TEST MAP's text (SPEC.md 130.54.6; BOUNCE-BONANZA-SOAK phase 3): it does
+    # not move when the shipped map is redrawn as real courses ship, and its secret route 2 -> 6 (TQUIK's hidden
+    # exit 1, a SIDE) is the one the private map PATH_TEST and its course HID were written to carry
+    with open(PATH_DEV, encoding="ascii") as f:
+        dtext = f.read()
+    ex = ()
+    hidi = _path_sub(dtext, (PATH_DEV_ICON, PATH_DEV_ICON + "\n" + PATH_DEV_HIDICON))
+    if hidi.startswith(_PATH_NOANCHOR):
+        raise CourseError("the path section: the test map's %r is gone - re-anchor PATH_DEV_ICON" % PATH_DEV_ICON)
+    tp = _path_compile(hidi, courses, "the test map, an icon on its hidden pad", ex)
+    path_proofs(tp, list(courses))
     srt = [r for r in tp.pth["routes"] if r["secret"]][0]
     hp = tp.pth["pads"][srt["b"]]
     rv = [L for L in tp.lanes if tp.props[L["prop"]]["kind"] == PK_SIGN
           and tp.props[L["prop"]]["spec"]["kind"] == "reveal"]
     hl = [L for L in tp.lanes if tp.props[L["prop"]]["kind"] == PK_SIGN and tp.props[L["prop"]]["num"] in
           (hp["sign"], hp["isign"])]
-    print("      the private map's secret route: %s; %d reveal groups at %s ground px; the hidden pad's lanes %s "
-          "poses" % (srt["verdict"], len(rv), srt["rdist"], sorted({len(L["poses"]) for L in hl})))
-    res.append(("8R a secret route on a private map: its verdict SIDE, its pad, icon and cells absent from the "
-                "picture and drawn by %d REVEAL lanes (one sign each, distances strictly increasing), its hidden "
-                "pad's lanes one pose more (0 the bare picture)" % len(rv),
+    print("      the test map's secret route (an icon hung on its hidden pad): %s; %d reveal groups at %s ground px; "
+          "the hidden pad's lanes %s poses" % (srt["verdict"], len(rv), srt["rdist"],
+                                               sorted({len(L["poses"]) for L in hl})))
+    res.append(("8R the test map's secret route %d -> %d (%s's exit %d; an icon hung on its hidden pad): its verdict "
+                "SIDE, its pad, icon and cells absent from the picture and drawn by %d REVEAL lanes (one sign each, "
+                "distances strictly increasing), its hidden pad's lanes (sign and icon) one pose more (0 the bare "
+                "picture)" % (srt["a"], srt["b"], tp.pth["pads"][srt["a"]]["crs"], srt["exit"], len(rv)),
                 srt["verdict"] == "SIDE" and rv and srt["rdist"] == sorted(set(srt["rdist"]))
-                and hp["hidden"] and hl
+                and hp["hidden"] and hp["isign"] is not None
+                and {tp.props[L["prop"]]["num"] for L in hl} == {hp["sign"], hp["isign"]}
                 and all(len(L["poses"]) == (PAD_POSES + 1 if tp.props[L["prop"]]["num"] == hp["sign"]
                                             else hp["iposes"] + 1) for L in hl)
                 and all(not L["poses"][0] for L in rv + hl)
@@ -28179,28 +28174,30 @@ def _path_checks(courses, res):
     res.append(("8R a secret route that reaches the end in fewer pads is a SHORTCUT (%s)" % sv,
                 len(sv) == 1 and sv[0].startswith("SHORTCUT")))
     # (every edit anchored on the text as it is: _path_sub fails the case when an anchor has gone)
-    P = lambda *pairs: _path_sub(ptext, *pairs)
-    T = lambda *pairs: _path_sub(PATH_TEST, *pairs)
+    P = lambda *pairs: _path_sub(dtext, *pairs)
     cases = [
         ("a pathway statement on a course", 'course X "x"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nstart 5 12\n'
          'goal rect 12 10 13 14 flat 0\npages 2\n', "is the pathway's statement", False),
         ("`node` (8b's prototype)", P(("pages  2", "pages  2\nnode 0 ROLL 6 6 sign 6 5")), "is gone", False),
-        ("pads not numbered from 0", P(("pad 7 FIRST", "pad 8 FIRST")), "not 0 - ", False),
+        ("pads not numbered from 0", P(("pad 6 BENCH", "pad 7 BENCH")), "not 0 - ", False),
         ("a path that does not start on A's cell", P(("path 21,28 24,25", "path 20,29 24,25")),
          "not from pad 0's cell", False),
-        ("a step along both axes that changes height", P(("path 24,17 20,13 ", "path 24,17 22,15,1 20,13 ")),
+        ("a step along both axes that changes height", P(("path 24,25 19,20 ", "path 24,25 22,23,1 19,20 ")),
          "changes height", False),
-        ("a step neither along one axis nor both equally", P(("path 24,25 28,21 24,17", "path 24,25 28,22 24,17")),
+        ("a step neither along one axis nor both equally", P(("path 24,25 19,20 ", "path 24,25 21,21 19,20 ")),
          "neither along one axis", False),
-        ("a ramp between neighbouring cells", P(("path 24,17 15,17", "path 24,17 17,17 16,17,1 15,17,1")),
+        ("a ramp between neighbouring cells", P(("path 19,20 14,20", "path 19,20 16,20 15,20,1 14,20,1")),
          "between two neighbouring cells", False),
-        ("two routes crossing", P(("path 24,17 15,17", "path 24,17 24,15 15,15 15,17")), "crosses the route", False),
-        ("(A, E) keyed twice", P(("route 2 5 exit 1 ", "route 2 5 exit 0 ")), "already opens", False),
-        # (pad 5's route up made up-right: its Right then shared with the down-right route back to pad 2)
-        ("two diagonals sharing an arrow", P(("gate 14 16  path 15,17 9,11", "path 15,17 15,11 9,11")),
+        # (route 2 -> 3 sent down, across route 1 -> 2's cells and back up to pad 3)
+        ("two routes crossing", P(("path 19,20 14,20", "path 19,20 23,20 23,24 14,24 14,20")),
+         "crosses the route", False),
+        ("(A, E) keyed twice", P(("route 2 3 exit 0 ", "route 2 3 exit 1 ")), "already opens", False),
+        # (route 1 -> 2 made to reach pad 2 along +y: its Down and Left, Left the up-left diagonal's too)
+        ("two diagonals sharing an arrow", P(("path 24,25 19,20 ", "path 24,25 19,25 19,20 ")),
          "claimed by two diagonals", False),
-        ("a pad no route opens (unreachable)", P(("route 6 7 exit 0  path 9,11 4,11",
-                                                  "route 7 6 exit 0  path 4,11 9,11")), "not reachable", False),
+        ("a pad no route opens (unreachable)", P(("route 4 5 exit 0  path 9,15 9,13,1 9,11,1",
+                                                  "route 5 4 exit 0  path 9,11,1 9,13,1 9,15")), "not reachable",
+         False),
         ("a pad outside every page's window", P(("pad 0 ROLL  21 28", "pad 0 ROLL  24 32"),
                                                 ("path 21,28 24,25", "path 24,32 24,25")),
          "inside no page's CGA window", False),
@@ -28208,17 +28205,19 @@ def _path_checks(courses, res):
         ("an icon off a block's corner", P(("icon 0 icons/first32x24.bba       -128 368",
                                             "icon 0 icons/first32x24.bba       -124 368")),
          "not a block's corner", False),
-        ("a gate on a secret route", T(("exit 1 secret path", "exit 1 secret gate 17 21 path")), "has no gate", False),
+        ("a gate on a secret route", P(("exit 1 secret  path", "exit 1 secret  gate 21 18  path")), "has no gate",
+         False),
         ("a gate off its route", P(("route 0 1 exit 0  path", "route 0 1 exit 0  gate 21 21 path")),
          "not a cell on the route", False),
         ("a route opened by an exit its course has not", P(("route 0 1 exit 0 ", "route 0 1 exit 3 ")),
          "which it has not", True),
-        ("a secret route opened by an exit that is not hidden", T(("route 1 2 exit 0 ", "route 1 2 exit 1 "),
-                                                                  ("route 1 3 exit 1 secret", "route 1 3 exit 0 secret")),
+        ("a secret route opened by an exit that is not hidden", P(("route 2 3 exit 0 ", "route 2 3 exit 1 "),
+                                                                  ("route 2 6 exit 1 secret", "route 2 6 exit 0 secret")),
          "is not HIDDEN", True),
-        ("a secret route neither SHORTCUT nor SIDE", T(("route 1 2 exit 0 path 20,21 16,17",
-                                                        "route 1 2 exit 0 path 20,21 16,17\n"
-                                                        "route 3 2 exit 0 path 14,21 13,20 13,17 16,17")),
+        # (the hidden pad given a road on, to pad 3: no longer a dead end, nor a shorter way to the end)
+        ("a secret route neither SHORTCUT nor SIDE", P(("route 2 6 exit 1 secret  path 19,20 23,16",
+                                                        "route 2 6 exit 1 secret  path 19,20 23,16\n"
+                                                        "route 6 3 exit 0  path 23,16 23,13 17,13 17,17 14,20")),
          "neither a SHORTCUT", False),
     ]
     for what, text, want, prf in cases:
@@ -28247,7 +28246,7 @@ def _path_checks(courses, res):
     res.append(("8R refused: a route left with no arrow (%s)" % why[:80], "has no arrow" in why))
     # a lane over a lives counter's digit (was an internal StopIteration, not a refusal); (21, 29), the cell
     # below pad 0's, puts the `lives` frame's digit on pad 0's lane
-    fired, msg = _path_refused(_path_sub(ptext, ("lives 16 23", "lives 21 29")), courses,
+    fired, msg = _path_refused(_path_sub(dtext, ("lives 16 23", "lives 21 29")), courses,
                                "a lives counter's digit", "a lane over a lives digit", ex)
     res.append(("8R refused: a pad's lane over a lives counter's digit%s" % ("" if fired else " -- got: " + msg[:160]),
                 fired))
@@ -28275,18 +28274,31 @@ def _path_checks(courses, res):
                     and gp == [(168, 168, 0), (232, 232, 0)] if what == "up" else
                     len(whole) == 5 and len(hv) == 8 and {p_[0] for p_ in pcs} == {diag}
                     and gp == [(168, 232, 0), (232, 168, 0)]))
-    # the key map's rule: a straight claim beats a diagonal - at pad 2 the straight routes take Up (on to pad 3)
-    # and Down (back to pad 1), and the up-left diagonal to pad 5 only its free arrow, Left; at pad 5 that
-    # diagonal, down-right back to pad 2, takes both of its own (Down, Right) beside the straight Up
-    rid = {(r["a"], r["b"]): r["i"] for r in pth["routes"]}
-    k2, k5 = pth["pads"][2]["keys"], pth["pads"][5]["keys"]
-    d25 = rid.get((2, 5))
-    res.append(("8R the key map: at pad 2 the straights take their one arrow each (Up %s, Down %s) and the up-left "
-                "diagonal its free one (Left %s; Right %s); at pad 5 that diagonal back both of its own (Down %s, "
-                "Right %s) beside the straight Up %s" % (k2[0], k2[1], k2[2], k2[3], k5[1], k5[3], k5[0]),
-                d25 is not None and k2[0] == (rid.get((2, 3)), 0) and k2[1] == (rid.get((1, 2)), 1)
-                and k2[2] == (d25, 0) and k2[3] is None and k5[1] == k5[3] == (d25, 1)
-                and k5[0] == (rid.get((5, 6)), 0) and k5[2] is None))
+    # the key map's rule (SPEC.md 130.22.4.5), on THE TEST MAP's pads 2 and 3 (BOUNCE-BONANZA-SOAK phase 3: not
+    # the shipped map's, which is redrawn as real courses ship): at pad 2 the straights take their one arrow each
+    # (Down back to pad 1, Right the secret route to pad 6) and the up-left DIAGONAL to pad 3 both of its own
+    # (Up, Left); at pad 3 that diagonal back both of its own (Down, Right) beside the straight Up to pad 4, Left
+    # nobody's.  A straight BEATING a diagonal to an arrow is a synthetic pad's (the test map has no such pad): a
+    # straight down (+x +y) and the down-right diagonal (+x) leave it, Down the straight's, Right the diagonal's
+    dpc = _path_compile(dtext, courses, "the test map")
+    dpth = dpc.pth
+    rid = {(r["a"], r["b"]): r["i"] for r in dpth["routes"]}
+    k2, k3 = dpth["pads"][2]["keys"], dpth["pads"][3]["keys"]
+    d23 = rid.get((2, 3))
+    syn = {"pads": [{"num": 0}, {"num": 1}, {"num": 2}],
+           "routes": [{"i": 0, "a": 0, "b": 1, "line": 1, "src": {"pts": [(5, 5, 0), (8, 8, 0)]}},
+                      {"i": 1, "a": 0, "b": 2, "line": 2, "src": {"pts": [(5, 5, 0), (9, 5, 0)]}}]}
+    try:
+        ks = path_keymap(syn, "<a straight and a diagonal>")[0]
+    except CourseError as e:
+        ks = str(e)
+    res.append(("8R the key map, the test map: at pad 2 the straights their one arrow each (Down %s, Right %s) and "
+                "the up-left diagonal both of its own (Up %s, Left %s); at pad 3 that diagonal back both (Down %s, "
+                "Right %s) beside the straight Up %s, Left %s; a synthetic pad's straight down beats the down-right "
+                "diagonal to Down (keys %s)" % (k2[1], k2[3], k2[0], k2[2], k3[1], k3[3], k3[0], k3[2], ks),
+                d23 is not None and k2[0] == k2[2] == (d23, 0) and k2[1] == (rid.get((1, 2)), 1)
+                and k2[3] == (rid.get((2, 6)), 0) and k3[1] == k3[3] == (d23, 1) and k3[0] == (rid.get((3, 4)), 0)
+                and k3[2] is None and ks == [None, (0, 0), None, (1, 0)]))
     # the tables' reader refuses a corrupt table (a red control of read_path_tables)
     bad = bytearray(pc.cga)
     o = part["pthoff"] + 4 + PADREC * len(pth["pads"])
