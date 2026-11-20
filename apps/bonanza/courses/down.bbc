@@ -12,8 +12,8 @@ music trial               # the owner: Bounce Trial, kept for course 3 (its spea
 target 60
 
 # rooms (the sketch's sections)
-floor rect   8   8   9   9  flat 40   # A
-floor rect   7   9  10  14  ramp y 9 14 40 30   # R
+floor rect   8   7   9   8  flat 40   # A
+floor rect   7   8  10  13  ramp y 8 13 40 30   # R
 floor rect  12  15  22  18  flat 29   # H
 floor rect  22  15  24  18  ramp x 22 24 29 27   # D
 floor rect  24  15  27  18  ramp x 24 27 27 25.5   # D
@@ -31,7 +31,7 @@ floor rect  55  29  60  33  flat 11   # G
 floor rect  49  21  50  26  flat 14   # K
 floor rect  47  26  51  29  flat 14   # P
 floor rect  40  25  46  31  flat 18   # Q
-floor rect  41  31  43  35  ramp y 31 35 18 12   # Y
+floor rect  42  31  43  35  ramp y 31 35 18 12   # Y
 floor rect  43  31  45  32  flat 17   # Z
 floor rect  43  32  45  33  flat 16   # Z
 floor rect  43  33  45  34  flat 13   # Z
@@ -39,17 +39,17 @@ floor rect  43  34  45  35  flat 12   # Z
 floor rect  39  35  47  39  flat 12   # V
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
-chute 3 round depth 8 way 8 14 30 way 8 16 30 way 11 16 29
+chute 3 round depth 8 way 8 13 30 way 8 16 30 way 11 16 29
 
 # rails: block rails (wall tiles) on the void side of each railed edge
-wall  tile   6   9  flat 42
-wall  tile   6  10  flat 40
-wall  tile   6  11  flat 38
-wall  tile   6  12  flat 36
-wall  tile   6  13  flat 34
-wall  tile   7   8  flat 42
-guard tile   8   7                # see-through
-wall  tile   9   8  flat 42
+wall  tile   6   8  flat 42
+wall  tile   6   9  flat 40
+wall  tile   6  10  flat 38
+wall  tile   6  11  flat 36
+wall  tile   6  12  flat 34
+wall  tile   7   7  flat 42
+guard tile   8   6                # see-through
+wall  tile   9   7  flat 42
 wall  tile  32  15  flat 23.5
 wall  tile  32  17  flat 23.5
 wall  tile  33  15  flat 23.5
@@ -68,11 +68,11 @@ wall  tile  52  13  flat 16
 wall  tile  52  14  flat 16
 wall  tile  52  15  flat 16
 wall  tile  52  16  flat 16
-wall  tile  52  20  flat 16
+guard tile  52  20                # see-through
 wall  tile  53  16  flat 16
-wall  tile  53  20  flat 16
+guard tile  53  20                # see-through
 wall  tile  54  16  flat 16
-wall  tile  54  20  flat 16
+guard tile  54  20                # see-through
 wall  tile  55  16  flat 16
 wall  tile  55  20  flat 16
 guard tile  56  16                # see-through
@@ -87,7 +87,7 @@ wall  half right tile 31 15  flat 23.5
 floor half up tile 31 17  flat 21.5
 wall  half down tile 31 17  flat 23.5
 # the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 130.44)
-hump 17 15 29 along y 3 open height 8
+hump 15 15 29 along y 3 open height 8
 hump 21 15 29 along y 3 open height 8
 # the BOOSTER chute's pads (SPEC.md 130.40)
 prop boost 33 16 face +x strength 40
@@ -108,15 +108,15 @@ hump 56 27 11 along x 3 open height 8
 
 goal  rect 55 31 60 33  flat 11   # the steel finish
 goal  rect 39 37 47 39  flat 12 exit 1   # the glass finish
-start 8 8
+start 8 7
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
 checkpoint 48 27 ball glass   # flag 2
 checkpoint 42 27 ball glass   # flag 3
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
-floor tile 10 8  flat 40   # the start clock's tile (on top of the rail block it replaces)
-clock 10 8
+floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
+clock 10 7
 floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
 clock 50 11
 floor tile 60 30  flat 12.5   # the steel finish clock's tile (on top of the rail block it replaces)
@@ -125,8 +125,8 @@ floor tile 47 37  flat 13.5   # the glass finish clock's tile (on top of the rai
 clock 47 37
 
 # the autopilot's route
-way 8 8
-way 8 12
+way 8 7
+way 8 11
 way 12 16
 way 22 16
 way 29 16

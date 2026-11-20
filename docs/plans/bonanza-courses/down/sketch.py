@@ -153,8 +153,11 @@ def mark(x, y, kind, text=""):
 # its own exit.  Grounded (no floating), the climbs up the screen and the drops down it (the guide's 1.10).
 # =============================================================================
 # 1. SPEED -------------------------------------------------------------------
-floor("A", 4, 4, 5, 5, Z)                                    # the start: ONE tile, guard rails round it
-rail(4, 4, 5, 4, "guard"); rail(4, 4, 4, 5); rail(5, 4, 5, 5)   # (rev 4: the start tile keeps all three - a start must be SAFE)
+import os as _os
+SHAPE_N = int(_os.environ.get("DOWN_SHAPE_N", "1"))   # rev 7 (the owner, ON TRIAL): the shape N rows longer NORTH, the start moved with it
+N = SHAPE_N
+floor("A", 4, 4 - N, 5, 5 - N, Z)                                    # the start: ONE tile, guard rails round it
+rail(4, 4 - N, 5, 4 - N, "guard"); rail(4, 4 - N, 4, 5 - N); rail(5, 4 - N, 5, 5 - N)   # (rev 4: the start tile keeps all three - a start must be SAFE)
 # rev 6 (the owner, ON TRIAL): the line from the ramp through the corner chute into the hump run 3 wide all the
 # way (docs/plans/bonanza-courses/CHUTE3.md).  CHUTE_W = 2 restores rev 5's 2-wide line, byte for byte
 CHUTE_W = 3
@@ -164,11 +167,11 @@ if CHUTE_W == 2:
     rail(4, 5, 4, 11)                                        # (rev 5: the LEFT rail kept, the right one gone - it hid the ball at the spawn and down the ramp)
     chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
 else:
-    ramp("R", "y", 3, 5, 6, 10, Z, Z - 10)                   # the STEEP ramp, 3 wide (no flat foot: the chute's
-    rail(3, 5, 3, 10)                                        #   end taper is the foot); its LEFT rail, the right open (rev 5)
-    chute("C", [(4, 10, Z - 10), (4, 12, Z - 10), (7, 12, Z - 11)], 1.0, wide=3)   # the CORNER, 3 x 3, turns it +x
+    ramp("R", "y", 3, 5 - N, 6, 10 - N, Z, Z - 10)           # the STEEP ramp, 3 wide (no flat foot: the chute's
+    rail(3, 5 - N, 3, 10 - N)                                #   end taper is the foot); its LEFT rail, the right open (rev 5)
+    chute("C", [(4, 10 - N, Z - 10), (4, 12, Z - 10), (7, 12, Z - 11)], 1.0, wide=3)   # the CORNER, 3 x 3, turns it +x
 floor("H", 8, 11, 18, 14, Z - 11)                            # the HUMP RUN, now 3 wide (rev 2), unguarded, along +x
-for hx in (12, 16):                                          # two humps, 2 long x 3 wide (clear of the corner)
+for hx in (10, 16):                                          # two humps, 2 long x 3 wide (rev 7: the first 2 west - the shape, 2 flats, the hump)
     for x in range(hx, hx + 2):
         for y in (11, 12, 13):
             CELLS[(x, y)] = (Z - 10, Z - 10, Z - 10, Z - 10)
@@ -198,7 +201,7 @@ floor("S", 48, 13, 52, 16, Z - 26)
 for y in range(13, 16):
     for x in range(49, 51):
         mark(x + 0.5, y + 0.5, "spike", "")
-rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 52, 16)   # (over the water a GUARD: it seals and shows it)
+rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 51, 16, "guard"); rail(51, 16, 52, 16)   # (rev 7: the FRONT a guard, the spikes seen through it; its last tile a block, beside the lower floor) (over the water a GUARD: it seals and shows it)
 floor("W", 52, 13, 53, 16, Z - 26)                           # the WATER column (3 units deep) across the path
 for y in range(13, 16):
     mark(52.5, y + 0.5, "water", "")
@@ -214,7 +217,7 @@ for y in range(17, 22):
 floor("P", 43, 22, 47, 25, Z - 26)                           # the bridge's landing
 mark(42.5, 23.5, "lift", "LIFT up 4")                        # the LIFT, on P's west edge: it rises in FRONT of Q
 floor("Q", 36, 21, 42, 27, Z - 22)                           # the CHOICE plateau, behind the lift (its face in view)
-ramp("Y", "y", 37, 27, 39, 31, Z - 22, Z - 28)               # (left) a SAFE CHUTE down (a ramp sketched; a shape)
+ramp("Y", "y", 38, 27, 39, 31, Z - 22, Z - 28)               # (left; rev 7 ONE wide, so the stairs look the safer) a CHUTE down (a ramp sketched; a shape)
 floor("Z", 39, 27, 41, 28, Z - 23)                           # (right) STAIRS: two safe 1-unit steps, then ONE
 floor("Z", 39, 28, 41, 29, Z - 24)                           #   3-unit step in the middle (glass SHATTERS from 3),
 floor("Z", 39, 29, 41, 30, Z - 27)                           #   then one more onto the finish, flush
@@ -232,7 +235,7 @@ EXTRA = [
     "floor half up tile %d %d  flat %g" % (_w(27), _w(13), Z - 18.5),
     "wall  half down tile %d %d  flat %g" % (_w(27), _w(13), Z - 16.5),
     "# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 130.44)",
-    "hump %d %d %g along y 3 open height 8" % (_w(13), _w(11), Z - 11),
+    "hump %d %d %g along y 3 open height 8" % (_w(11), _w(11), Z - 11),
     "hump %d %d %g along y 3 open height 8" % (_w(17), _w(11), Z - 11),
     "# the BOOSTER chute's pads (SPEC.md 130.40)",
 ] + ["prop boost %d %d face +x strength 40" % (_w(x), _w(12)) for x in range(29, 32)] + [   # (three: the first tile's block hid a fourth)
@@ -251,15 +254,15 @@ EXTRA = [
 ]
 GOAL_RECTS = [(51, 27, 56, 29, Z - 29, 0, "steel"), (35, 33, 43, 35, Z - 28, 1, "glass")]
 
-START = (4.5, 4.5)
+START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
          (38.5, 23.5, "flag 3", "glass")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
-CLOCKS = [(6.5, 4.5, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (56.5, 26.5, Z - 27.5, "steel finish", "block"),
+CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (56.5, 26.5, Z - 27.5, "steel finish", "block"),
           (43.5, 33.5, Z - 26.5, "glass finish", "block")]
 FRAMES = {}
 PLACED = {}
 SIGNS = []
-ROUTE = [(4.5, 4.5), (4.5, 8.5), (8.5, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
+ROUTE = [(4.5, 4.5 - N), (4.5, 8.5 - N), (8.5, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
          (45, 12.5), (46, 14.5), (48, 14.5), (52.5, 14.5), (52.5, 17), (53.5, 21), (53.5, 25), (53.5, 27.5)]
 ROUTE2 = [(45.5, 12.5), (45.5, 17), (45.5, 22), (44.5, 23.5), (42.5, 23.5), (39, 24), (38, 27), (38, 31), (38, 33.5)]
 LABELS = [(4.5, 4.5, "start (1 tile)"), (4.5, 7, "STEEP ramp"), (5, 12, "shape corner"), (12, 12.5, "hump run"),
