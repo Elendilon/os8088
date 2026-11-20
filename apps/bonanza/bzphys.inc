@@ -2414,6 +2414,9 @@ bz_setmat:
     shl bx, 1
     mov si, [bz_bsegs + bx]
     mov [bz_bseg], si
+    mov ah, [bz_spr]            ; a new material is a new picture: never an
+    not ah                      ; idle frame (bz_mkboxes compares no material;
+    mov [bz_ospr], ah           ; a swap on a still ball drew nothing, 130.14.4.4)
     mov ah, BZ_MATREC
     mul ah
     add ax, bz_mattab
