@@ -118,10 +118,10 @@ def mark(x, y, kind, text=""):
 # =============================================================================
 # 1. SPEED -------------------------------------------------------------------
 floor("A", 4, 4, 5, 5, Z)                                    # the start: ONE tile, guard rails round it
-rail(4, 4, 5, 4, "guard"); rail(4, 4, 4, 5); rail(5, 4, 5, 5)        # (the sides block rails: a guard may not touch the ramp)
+rail(4, 4, 5, 4, "guard"); rail(4, 4, 4, 5); rail(5, 4, 5, 5)   # (rev 4: the start tile keeps all three - a start must be SAFE)
 ramp("R", "y", 4, 5, 5, 10, Z, Z - 10)                       # a STEEP ramp, 2 units a tile (the most), railed
 floor("R", 4, 10, 5, 11, Z - 10)                             # its foot, flat, into the corner chute
-rail(4, 5, 4, 11); rail(5, 5, 5, 11)
+rail(5, 5, 5, 9)                                             # (rev 4: the left rail gone; the right one's last two blocks gone, to try)
 chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
 floor("H", 8, 11, 18, 14, Z - 11)                            # the HUMP RUN, now 3 wide (rev 2), unguarded, along +x
 for hx in (12, 16):                                          # two humps, 2 long x 3 wide (clear of the corner)
@@ -143,22 +143,22 @@ floor("L", 34, 10, 39, 15, Z - 23)                           # a WIDE GAP (x 32 
                                                              # unguarded, NO FLAG (a respawn there could never
                                                              # cross on); rubber BOUNCES on over a second gap
 floor("X", 42, 8, 48, 17, Z - 26)                            # the HUB, large and safe (x 39 - 41 the gap; 6 wide: the width)
-rail(42, 8, 48, 8); rail(48, 8, 48, 14); rail(48, 15, 48, 17); rail(42, 17, 45, 17); rail(46, 17, 48, 17)
+rail(42, 8, 48, 8); rail(48, 8, 48, 14); rail(48, 15, 48, 17)    # (rev 4: the front rails gone, to see it)
 # 2. THE SPLIT: two exits out of the hub - EAST a STEEL pad, SOUTH a GLASS pad (rev 2: swapped, so the glass
 #    leg's lift climbs up the screen in view; rev 3: no archways - a rubber ball that hops a pad dies on the
 #    spikes or the membrane, which introduces both)
 mark(47.5, 14.5, "steel", "steel pad")
-mark(45.5, 16.5, "glass", "glass pad")
+mark(45.5, 15.5, "glass", "glass pad")
 # 3a. STEEL (east, +x): SPIKES on the only path, a WATER SINK, MOMENTUM, the finish
 floor("S", 48, 13, 52, 16, Z - 26)
 for y in range(13, 16):
     for x in range(49, 51):
         mark(x + 0.5, y + 0.5, "spike", "")
-rail(48, 13, 53, 13); rail(48, 16, 52, 16)                     # (the north rail seals the water too)
+rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 52, 16)   # (over the water a GUARD: it seals and shows it)
 floor("W", 52, 13, 53, 16, Z - 26)                           # the WATER column (3 units deep) across the path
 for y in range(13, 16):
     mark(52.5, y + 0.5, "water", "")
-rail(53, 13, 53, 16)                                         # a rail ON TOP past it: no Hop over the water
+rail(53, 13, 53, 15, "guard"); rail(53, 15, 53, 16)         # a GUARD rail past it (rev 4: the water seen; its last tile a block, beside the lower floor): no Hop over it
 floor("T", 52, 16, 55, 21, Z - 29)                           # steel sinks and rolls out of the front (+y) ARCH, 3 down
 floor("M", 52, 21, 55, 25, Z - 29)                           # MOMENTUM: a HUMP across the path (EXTRA), which steel
 mark(53.5, 22.5, "hump", "hump")                             #   crests with its speed (two ramps stacked too many records)
@@ -193,9 +193,8 @@ EXTRA = [
     "# the BOOSTER chute's pads (SPEC.md 130.40)",
 ] + ["prop boost %d %d face +x strength 40" % (_w(x), _w(12)) for x in range(29, 32)] + [   # (three: the first tile's block hid a fourth)
     "# the split: a pad at each exit (no archways: a rubber ball that hops one dies on what follows)",
-    "pad steel %d %d" % (_w(47), _w(14)),        # (TWO in a row: rubber's little hops after the landings
-    "pad steel %d %d" % (_w(48), _w(14)),        #  skipped one and popped on the spikes)        # (off the arrival line: a bouncing ball settles first)
-    "pad glass %d %d" % (_w(45), _w(16)),
+    "pad steel %d %d" % (_w(47), _w(14)),        # (off the arrival line; rev 4: one pad again, the owner)
+    "pad glass %d %d" % (_w(45), _w(15)),        # (rev 4: one north)
     "# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH",
     "prop spikes %d %d %d %d" % (_w(49), _w(13), _w(51), _w(16)),      # (two rows: a spiked cell never touches water)
     "water rect %d %d %d %d top %g bed %g" % (_w(52), _w(13), _w(53), _w(16), Z - 26, Z - 29),
@@ -209,9 +208,9 @@ EXTRA = [
 GOAL_RECTS = [(51, 27, 56, 29, Z - 29, 0, "steel"), (35, 33, 43, 35, Z - 28, 1, "glass")]
 
 START = (4.5, 4.5)
-FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (48.5, 13.5, "flag 2", "steel"),
-         (44.5, 23.5, "flag 3", "glass")]
-CLOCKS = [(6.5, 4.5, Z, "start", "block"), (56.5, 26.5, Z - 27.5, "steel finish", "block"),
+FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
+         (38.5, 23.5, "flag 3", "glass")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
+CLOCKS = [(6.5, 4.5, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (56.5, 26.5, Z - 27.5, "steel finish", "block"),
           (43.5, 33.5, Z - 26.5, "glass finish", "block")]
 FRAMES = {}
 PLACED = {}
