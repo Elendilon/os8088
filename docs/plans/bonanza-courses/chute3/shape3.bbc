@@ -1,0 +1,52 @@
+# SHAPE3 - CHUTE3.md's scratch course (docs/plans/bonanza-courses/CHUTE3.md): the PROTOTYPE `chute 3` on a plate,
+# the way shapes.bbc lays the 1- and 2-wide ones.  NOT a shipped course and in no build: compile it by hand,
+#   python3 tools/bbcourse.py docs/plans/bonanza-courses/chute3/shape3.bbc -o <dir> --png <dir>
+# Back to front:
+#  - a 3-WIDE `round` chute 10 px deep, up, right and down: two radial corners turning the same way;
+#  - a 3-WIDE `bank` chute 8 px deep, the same shape, its second leg CLIMBING 1.5 units to a raised corner
+#    and its third FALLING back to the plate;
+#  - in front, a 3-WIDE `round` chute 10 px deep, an S: corners turning BOTH ways (it adds no table).
+course SHP3 "Shape Test 3"
+music fairway
+width  128
+origin 480
+ball   rubber
+
+floor rect   4  3 31 25  flat 2
+chute 3 round depth 10 way  9 10 2 way  9 5 way 16 5 way 16 10
+chute 3 bank  depth 8  way 22 10 2 way 22 5 way 28 5 3.5 way 28 10 2
+chute 3 round depth 10 way  6 16 2 way 14 16 way 14 21 way 22 21
+
+start 5 4
+goal  tile 30 24  flat 2
+clock 28 24
+target 60
+way 5 4
+way 9 11
+way 9 10
+way 9 6
+way 11 5
+way 14 5
+way 16 7
+way 16 10
+way 16 11
+way 22 11
+way 22 9
+way 22 6
+way 24 5
+way 27 5
+way 28 7
+way 28 10
+way 28 11
+way 18 13
+way 5 14
+way 5 16
+way 6 16
+way 10 16
+way 14 16
+way 14 18
+way 14 21
+way 18 21
+way 22 21
+way 23 21
+way 30 24

@@ -3266,9 +3266,9 @@ def _parse_text(text, fname="<course>"):
                 raise CourseError("%s: a second 'ball' statement" % where)
             src.ball = (MAT_NAMES.index(toks[1][1]), ln)
         elif st == "chute":                         # SPEC.md 130.28.3: a channel of FIELD cells
-            if len(toks) < 5 or toks[1][1] not in ("1", "2") or toks[2][1] not in F_PROFILES \
+            if len(toks) < 5 or toks[1][1] not in ("1", "2", "3") or toks[2][1] not in F_PROFILES \
                     or toks[3][1] != "depth":
-                raise CourseError("%s: chute takes <1|2> <round|bank> depth <px> way <x> <y> <z> way <x> <y> "
+                raise CourseError("%s: chute takes <1|2|3> <round|bank> depth <px> way <x> <y> <z> way <x> <y> "
                                   "[<z>] ..." % where)
             dep = _int(toks[4], where, "depth")
             if not 1 <= dep <= 60:
@@ -3891,12 +3891,16 @@ def chute_cells(f, where):
         d = dirs[i]
         L = abs(bx - ax) + abs(by - ay)             # cells (1-wide) or crease units (2-wide)
         za, zb = 16 * z2[i], 16 * z2[i + 1]         # the lips, quarter px
-        nstr = L - 1 if wide == 1 else L - 2
+        # a 3-wide chute (CHUTE3.md's prototype): its crease runs through cell CENTRES as a 1-wide one's, its
+        # corners are the 3 x 3 cells round their way (one cell into each leg), its ends the way's row of 3
+        c3a = 1 if wide == 3 and 0 < i else 0       # way i is a corner: its block takes the leg's first cell
+        c3b = 1 if wide == 3 and i + 1 < n else 0   # way i + 1 is a corner
+        nstr = L - 1 - c3a - c3b if wide in (1, 3) else L - 2
         if nstr < 0:
             raise CourseError("%s: chute leg %d, (%d, %d) to (%d, %d), is too short: %d %s, under the %d its "
                               "corners and ends take (SPEC.md 130.28.4)" % (where, i + 1, ax, ay, bx, by, L,
-                                                                          "cells" if wide == 1 else "units",
-                                                                          1 if wide == 1 else 2))
+                                                                          "cells" if wide != 2 else "units",
+                                                                          1 + c3a + c3b if wide != 2 else 2))
         if za != zb:
             if nstr == 0 or (zb - za) % (16 * nstr):
                 raise CourseError("%s: chute leg %d rises %s units over %d straight cells: not a whole number "
@@ -3907,18 +3911,23 @@ def chute_cells(f, where):
         if wide == 1:
             ox, oy = 16 * ax + 8, 16 * ay + 8       # way i's centre: the crease
             first, cnt = 1, nstr                    # cells 1 .. L - 1 from way i
+        elif wide == 3:
+            ox, oy = 16 * ax + 8, 16 * ay + 8
+            first, cnt = 1 + c3a, nstr
         else:
             ox, oy = 16 * ax, 16 * ay
             first, cnt = 1, nstr                    # cell pairs: run 16 .. L*16 - 16
         for j in range(first, first + cnt):
-            for side in ((0,) if wide == 1 else (-1, 0)):
+            for side in ((0,) if wide == 1 else (-1, 0, 1) if wide == 3 else (-1, 0)):
                 if wide == 1:
                     cell = (ax + d[0] * j, ay + d[1] * j)
+                elif wide == 3:
+                    cell = (ax + d[0] * j + (side if d[0] == 0 else 0), ay + d[1] * j + (side if d[1] == 0 else 0))
                 else:                               # the pair either side of the crease, run [16 j, 16 j + 16)
                     rx, ry = ax + (d[0] * j if d[0] >= 0 else d[0] * (j + 1)), ay + (d[1] * j if d[1] >= 0
                                                                                   else d[1] * (j + 1))
                     cell = (rx + (side if d[0] == 0 else 0), ry + (side if d[1] == 0 else 0))
-                t0 = 8 if wide == 1 else 16             # the run at the straights' start
+                t0 = 8 if wide == 1 else 8 + 16 * c3a if wide == 3 else 16   # the run at the straights' start
 
                 def fn(gx, gy, ox=ox, oy=oy, d=d, za=za, rate=rate, t0=t0, lip=False):
                     t = (gx - ox) * d[0] + (gy - oy) * d[1]
@@ -3936,6 +3945,10 @@ def chute_cells(f, where):
             ox, oy = 16 * px_ + 8, 16 * py_ + 8
             e0 = (ox - 8 * dd[0], oy - 8 * dd[1])   # the open edge's middle
             cells = [(px_, py_)]
+        elif wide == 3:
+            ox, oy = 16 * px_ + 8, 16 * py_ + 8
+            e0 = (ox - 8 * dd[0], oy - 8 * dd[1])
+            cells = [(px_ + (s_ if dd[0] == 0 else 0), py_ + (s_ if dd[1] == 0 else 0)) for s_ in (-1, 0, 1)]
         else:
             ox, oy = 16 * px_, 16 * py_
             e0 = (ox, oy)
@@ -3956,6 +3969,9 @@ def chute_cells(f, where):
         if wide == 1:
             cx, cy = 16 * px_ + 8 - 8 * di[0] + 8 * do[0], 16 * py_ + 8 - 8 * di[1] + 8 * do[1]
             cells, R0 = [(px_, py_)], 8
+        elif wide == 3:
+            cx, cy = 16 * px_ + 8 - 24 * di[0] + 24 * do[0], 16 * py_ + 8 - 24 * di[1] + 24 * do[1]
+            cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0, 1) for b in (-1, 0, 1)], 24
         else:
             cx, cy = 16 * px_ - 16 * di[0] + 16 * do[0], 16 * py_ - 16 * di[1] + 16 * do[1]
             cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0) for b in (-1, 0)], 16
