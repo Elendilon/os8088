@@ -5491,6 +5491,18 @@ SOAK = [
         "shift: TWIDE red, HOP green); each went red when registered. secs MEASURED 2026-11-20: 40 s wall on a "
         "loaded 4-core box, the tree already built (x 1.25).",
         needs=("unicorn", "nasm")),
+    Row("bonanzasheet", "soak", py("tests/bonanza_sheet.py"), 40.0,
+        "BONANZA's SHEETS in the guest (SPEC.md 130.30.12), host only: the BZDEV=1 build's package (its sheets' "
+        "code assembles only beside a sheeted course: TTALL, a TEST course) under unicorn - bz_cexp on each "
+        "sheet's and the world part's stored forms (ROWPLANES counting a sheet's own rows); bz_crshdr and "
+        "bz_pread on TTALL; then every lane given a drawn pose its map does not hold and the window's top "
+        "stepped down the 217-row picture two card rows a frame and back, bz_shchk at each: the sheet the "
+        "rule's (2 switches), bz_mrow clamped to its rows, its bounds, every bz_ltmo, every map word a frame "
+        "may read the model's (a lane's cell its drawn pose's), nothing past a sheet's map moved. Red arms by "
+        "hand, `--red clamp`, `lanes`, `rowplanes` and `serve`; each went red when registered. secs MEASURED "
+        "2026-11-20: 31 s wall, the BZDEV=1 tree already built (x 1.25); the tree's first build is minutes, "
+        "not in secs.",
+        needs=("unicorn", "nasm")),
     Row("bonanzareplay", "soak", py("tests/bonanza_replay.py"), 981.0,
         "BOUNCE-BONANZA-SOAK PHASE 3: every leg on a TEST course (SPEC.md 130.54) - the record, inject, mouse and play legs on TPLY (TRIAL's H, F and gap turned a quarter: the script's Left and Right swap, the chord off the lip is Left + Down; the play leg runs WEST along the PLAYGROUND's apron to the brake strip's lane wx 12), the MILL leg (record, Hercules and VGA replays, the identity refusal) on TMIL, MILL's top cell for cell; no prototype is named. --check now also proves the MILL leg's knock-back delay on TMIL's model and the play leg's script on TPLY's (judged as the guest's log is). Already one boot a card (CGA, Hercules, VGA); its frames are the legs' own, so secs: ESTIMATED unchanged (471 s), not re-measured. "
         "NO COURSE KEY (SPEC.md 130.11.5.4, 130.26.8, the owner 2026-11-19): N and M are gone, so every record leg POKES [bz_crsel] (TRIAL, the PLAYGROUND, MOON) before F and the play rolls the course's own ball - the record leg checks [bz_mat] is it. "

@@ -280600,13 +280600,17 @@ Everything here is MEASURED unless it says otherwise.
 
 #### 130.30.10 Open questions for the owner
 
-1. **The picture part's own cap.** (d) puts the picture and its occluders
-   in one 65,024-byte part, and `PLAYGROUND` fills about 39KB of it (50,590
-   bytes since 130.30.11: 14,434 of room). If the
-   owner's growth is mostly picture and occluders past that, the next
-   lever is (e), a third part for the occluders, at (b)'s clocks - or a
-   split inside the picture (the map apart from the blocks, a DS switch a
-   block in every writer), which this section does not price further.
+1. **The picture part's own cap.** CLOSED (2026-11-20) by 130.30.12: a
+   picture part past 65,024 is cut by block ROWS into SHEETS, one shown at
+   a time, at 0 clk a frame in every writer and the occluder pass - not
+   (e)'s third part at (b)'s clocks, nor a split inside the picture
+   (130.30.12.1 prices both and four more). *(Was: (d) puts the picture and
+   its occluders in one 65,024-byte part, and `PLAYGROUND` fills about 39KB
+   of it - 50,590 bytes since 130.30.11, 14,434 of room. If the owner's
+   growth is mostly picture and occluders past that, the next lever is (e),
+   a third part for the occluders, at (b)'s clocks - or a split inside the
+   picture, the map apart from the blocks, a DS switch a block in every
+   writer, which this section does not price further.)*
 2. **A two-part pathway** is refused: the held pathway (130.22.7) would
    need both its parts held. Say if the pathway is expected to grow past
    one part.
@@ -280693,6 +280697,317 @@ controller's READ commands.
   paragraphs more heap than A's, as two claims (3,168 and 960) where A
   had one of 3,104 - the largest claim 64 paragraphs larger. Every other
   course is unchanged.
+
+#### 130.30.12 SHEETS: a picture part past one part, cut by rows (2026-11-20)
+
+**The brief** (the owner): a course whose picture part would pass 65,024
+must be able to move something out of it, and *"not lose more than trivial
+speed when something does move into a course's other part"*; every course
+that fits today's parts keeps its parts byte for byte and its frames'
+cost. DOWN (130.10.4.2 at 160 columns) is at 61,268 bytes of picture part
+and growing, and later courses will pass it too. 130.30.10 item 1 left
+the lever open; this section closes it.
+
+**The decision: the picture part is cut by BLOCK ROWS into SHEETS**, k of
+them (k at most `SHEET_MAX`, 2), each a whole picture part whose MAP holds
+the same n block rows from its own first row `m0`, every other section
+whole. One sheet is SHOWN at a time - `bz_mseg` is its segment, as it is a
+picture part's - and the camera's window always lies inside the shown
+sheet's rows, so **every writer, the occluder pass and the wheel's commit
+run the instructions they run today, at 0 clk**. When the window would
+leave the shown sheet, `bz_shchk` makes the sheet that holds it the shown
+one (130.30.12.3).
+
+##### 130.30.12.1 The options, priced
+
+PREDICTED at max(EU + EA, 4.34 a byte) on the 8088 (PERFORMANCE.md Part 2,
+8088 timings: the 8086's + 4 a word access). A frame at 60 Hz is about
+79,500 clk. "Laid group": a block word the occluder pass lays (130.10.8),
+at most 9 a frame.
+
+| option | what moves | the cost | what it buys DOWN | verdict |
+|---|---|---|---|---|
+| (e) / (b) the occluders apart (130.30.3) | `I R O Y` to a third part (or the world part), `K` with the blocks | the pass needs THREE segments - ours (the boxes, `bz_omsk`, the variables), the picture (`M B K`), the occluders - and has two: DS switched round every laid group's lay, `mov ds, [es:bz_mseg]` and back, 5 bytes and 20 clk each, **43 clk a group** and 43 more for each extra record ANDed (`bz_oand` reads `K`); about **560 clk worst** (9 groups, 4 extra records), every frame the pass runs. 0 for a course that fits only if the walk is assembled twice (about 700 bytes) and chosen a pass (about 30 clk) or the lay called through a vector (+14 clk a call) | 7,868 bytes, once (about 15 block rows) | refused: never 0, and one lever only |
+| a copy of the window's occluder rows into a near buffer | `R` out; the rows the window shows copied into the picture part as the camera crosses a row | about 700 clk a block row crossed (DOWN's 61 bytes of records a row, `rep movsw`), and the buffer re-centred every ~15 rows (1 - 2K words, **17k - 34k clk on one frame**) | `R` less twice the window's records: about 3.3KB | refused: little bought, a spike |
+| a segment register pinned for the pass | nothing apart | none needed - but there is no third register: SS cannot move while interrupts are live and the pass calls and pushes, CS is the code | - | impossible |
+| the lanes' pose maps `L` out | `L` to the world part | `L` is not cold: the wheel's commit reads a pose word a block (`bz_wprect`) and `bz_lsync` / `bz_lmap` copy from it each committed frame - a DS switch each | 472 bytes | refused: no lever |
+| the map apart from the blocks | `M` or `B` apart | a DS switch a block in every writer (`bz_row`, `bz_col`, `bz_boxc`, the VGA's): 43 clk x 40 - 80 blocks a row or column, **1.7k - 3.4k clk a scrolled row** | the map: 37,760 | refused: the frames pay most |
+| **SHEETS (chosen)** | the map's rows (and everything else duplicated) | **0 clk in every writer, the occluder pass and the wheel**; bz_camera's `jnz` (8.7 clk a frame, the fetch floor) and, on a frame whose window moved down or up, `bz_shchk`'s test (143 clk: taken jnz 16, call 23, two compares and their jumps 55, ret 20, jmp back 15) - **0.18% of such a frame**; at a SWITCH (once each way across a seam), `bz_shmrow` and the lanes, **about 6k + 450 a lane on one frame** (8,462 MEASURED on TTALL, 130.30.12.9) | the map, by rows: about 190 block rows at DOWN's density with two sheets (130.30.12.9), `BROWS_MAX`'s 256 with a third | **taken** |
+
+Why SHEETS: it is the only option at 0 in the per-frame hot paths (the
+three couplings 130.30.2 lists all stay inside one segment), and the only
+one that scales with the course - the map, the biggest section by far
+(37,760 of DOWN's 61,268), is what it cuts. Its price is RAM (each sheet
+carries the blocks, the occluders and the overlap again) and one frame's
+spike a seam crossed, both off the per-frame path.
+
+##### 130.30.12.2 The format and the plan
+
+**When.** A two-part course (130.30.4.1) whose PICTURE part would pass
+65,024 bytes (`two_part_lens`) is SHEETED; every other course is exactly as
+before (its parts, its identity, its demos). The pathway and the title are
+always one part (refused, 130.30.4.1). Refused past `SHEET_MAX` sheets
+(*"... no SHEETS of it lay out ..."*, naming the bytes a sheet holds
+besides its map and the rows that leaves).
+
+**A sheet** is a `BZP2` picture part (130.30.4.2) but for:
+
+- its magic: `BZS0`, `BZS1`, ... (sheet 0 is `BZ<K>.BIN`, the course's own
+  row; sheet i is `BZ<K>S<i>.BIN`);
+- its map: n block rows, `M` = 2 COLS n bytes at +48, the course's rows `m0`
+  .. `m0 + n - 1` (every map word the absolute offset of its block, as
+  ever). So **every section after the map (`B I R K O Y L`), the header
+  and the directory sit at the SAME offsets with the SAME bytes in every
+  sheet** - `BLKOFF`, `OCCIDX`, the mask table, a lane's pose-map offset
+  (the world part's lane record +14), a pose map's block offsets, all one
+  value whichever sheet is shown - and only the map's rows and the magic
+  differ. The header's `BROWS` is the course's; `I` (`OCCIDX`) and `R` hold
+  every row's records in every sheet.
+- its stored form: `M`'s ROWPLANES counts the section's own RAM length (n
+  rows) where it counted `BROWS` - the same count for every other part
+  (130.30.12.5).
+
+**The plan** (`sheet_plan`, derived from the model alone, so the parts and
+the guest's table cannot disagree):
+
+- `H`, the margin: the tallest lane's block rows (1 with none).
+- The rows a frame may read or draw round a window whose top is block row
+  `tb`: **[tb - 2, tb + 28]** (`SH_WLO`, `SH_WHI`) - the 200-line window's
+  26 rows, the VGA's 7 lines under it (130.46.4) and the old window a camera
+  step away (8 lines at most: `BZ_MAXR`, `BZV_MAXR`), the boxes' old
+  footprints and the wheel's commits to the shown window among them.
+- Sheet s's COVERAGE: [c0, c1) = [m0 + H, m0 + n - H), the first sheet's
+  from 0 and the last's to `BROWS`. It SERVES the window tops [c0 + 2, c1 -
+  29] (from 0 for the first, to the end for the last).
+- n is the fewest rows a sheet for which k sheets spread evenly (`m0` =
+  round(s (BROWS - n) / (k - 1))) serve every top: consecutive sheets'
+  served ranges touch or overlap - an overlap of at least 30 + 2H rows -
+  and each sheet within 65,024 bytes.
+- `bz_mrow`'s CLAMP: a row outside [m0, hic], hic = m0 + n - H (the last
+  sheet's m0 + n - 1), reads row m0's or row hic's entry. A lane's whole
+  rect (`bz_lsync`, `bz_lmap`: h <= H rows from its first row's entry)
+  then lands inside the sheet's map, in MARGIN rows when the lane is
+  outside the coverage, and where it is when the lane meets the coverage -
+  never past the map.
+
+##### 130.30.12.3 The guest: the shown sheet
+
+Assembled only into a build with a sheeted course (`BZ_NSHEET` > 0, the
+extra sheets' count); **a build with none is today's package, byte for
+byte**.
+
+- **`bz_camera`** (bzgame.inc): after `bz_dr` is set, a `jnz` to
+  `bz_shchk` when the window moved down or up; the cut's path (the first
+  frame and a respawn's) calls `bz_shfind`.
+- **`bz_shchk`**: [bz_R0n] inside [`bz_shlo`, `bz_shhi`] (the shown sheet's
+  served tops in this card's rows: `bz_lsh` applied to the table's lines)
+  returns; else **`bz_shfind`** walks the course's sheets and makes the
+  first that serves the top the shown one (`bz_shset`). A course of one
+  picture part has 8000h and 7FFFh: never a switch.
+- **`bz_shset`**: `bz_mseg` the sheet's segment; `bz_shmrow` (bz_mrow
+  rebuilt, the clamp, and the bounds); every lane's first map word
+  (`bz_ltmo`) found again; and every lane's DRAWN pose (`bz_ldrw`, 0FFh
+  none) written into the sheet's map by `bz_lsync` (RAM only) - so the
+  sheet's map holds what the card shows, as the last sheet's did. Nothing
+  is drawn: the rows on the glass are the same pixels in both sheets.
+- **`bz_crshdr`** shows sheet 0 at the launch (its rows) with its bounds
+  EMPTY (7FFFh, 8000h): the card's `bz_lsh` may not be this launch's yet,
+  so the first frame's cut searches.
+
+##### 130.30.12.4 The identity
+
+**Fletcher's pair over every sheet's D RAM form in order and then the world
+part's**, with 130.30.4.3's fields taken as 0 (the world part's `BZG1` +18;
+every directory entry's FORM byte and STORED LENGTH) - 130.30.4.3's rule,
+its one picture part become k. The guest compares the word at the world
+part's `GRIDOFF + 18`, as ever.
+
+##### 130.30.12.5 The rows, the launch and the drop
+
+- **The rows**: sheet 0 is course K's row; the sheets past it follow the
+  world parts' rows, in course order: `BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + j`,
+  each `OP_ASSET, OP_LAZY | OP_COMP`; the demo rows and every later one
+  move up by `BZ_NSHEET`. `bzcrs2.lst` lists them after the world parts,
+  so the Makefile passes them as it passes those.
+- **`bzcourse.inc`**: `BZ_NSHEET` (0: none, and nothing below is
+  assembled); with any, `BZ_SHMAX`, `BZ_SHENT`, `BZ_CRS_SHN` (a byte a
+  course: its sheets, 0 none), `BZ_CRS_SHI` (a word a course: its first
+  entry in `bz_shtab`) and `BZ_SHTAB` (an entry a sheet: its row, 0, then
+  `m0`, `hic`, `tlo` and `thi`, the served tops in LINES - 7FFFh for the
+  last).
+- **The launch**: `bz_cload` keeps sheet 0's segment in `bz_shseg`;
+  `bz_cload2` fetches and expands each sheet past 0 (`bz_cexp` through
+  `bz_cseg`, which the world part takes next) BEFORE the world part, whose
+  expansion stays the last (130.30.5's rule: `bz_dfind`'s bounds the
+  world's). `bz_cxmap` (ROWPLANES) counts the section's RAM length / ROWB.
+  The Hercules translates each sheet's blocks (`bz_hxshs`, the lifts' once);
+  the VGA converts each sheet's blocks and masks (`bz_vshs`: `BZV_CONV`
+  with `bz_vcp` 1, which skips the lifts and the balls, `bz_mseg` sheet 0's
+  again after).
+- **The drop**: `bz_cdrop` drops every world and sheet row (a row not here
+  is a no-op) and zeroes `bz_shn`.
+- **kern_mega**: each sheet is a claim and an LDT selector from `op_seg`;
+  `bz_shseg` and `bz_mseg` hold selectors and nothing adds to one - no
+  `PKG_MEGA` arm (130.15.11, 130.30.5).
+- **kern_small**: `bz_launch` refuses every course there (130.1).
+
+##### 130.30.12.6 Costs
+
+- **A frame**: 0 clk in `bz_row`, `bz_col`, `bz_boxc`, `bz_occ` and its
+  callees, the wheel's commit and `bz_lsync` / `bz_lmap`, on every card -
+  the same instructions (they load `[bz_mseg]` and read `bz_mrow`).
+  `bz_camera`: 8.7 clk (PREDICTED) on a frame whose window does not move
+  down or up, 143 on one that does; **paid by every course in a build that
+  has a sheeted course, and by none in any other build** (they assemble
+  without it).
+- **NASM's jumps**: code that moves can turn a short conditional jump at
+  the edge of its range into a jump round a near one (+12 clk when not
+  taken). One did: `bz_lead`'s `je .out` (127 bytes in the BZDEV build)
+  went long when the sheets' code moved it; it is `je short` now - the
+  same bytes in every shipped build, and an assembly error if it ever
+  outgrows its range.
+- **A switch** (one frame each way across a seam): `bz_shmrow` (rep stosw
+  for the clamped runs, about 14 clk a word; the sheet's own rows about
+  35 clk each), `bz_ltmo` again and `bz_lsync` for each lane (about 450
+  clk a lane) - MEASURED in 130.30.12.9.
+- **The launch**: one more fetch, claim and expansion a sheet past 0, and
+  its blocks translated (Hercules) or converted (VGA).
+- **RAM**: each sheet is the picture part less (BROWS - n) map rows, so a
+  sheeted course holds the blocks, the occluders and the overlap rows k
+  times.
+- **Claims**: one more a sheet past 0 (130.30.5's count: region, arena,
+  the sheets, the world part, the kit) - so a sheeted course **lets the
+  held pathway go** at its launch (`bz_phfree`, as `bz_phrel`'s drop; the
+  pathway is read again after), which keeps a VGA play (its part and its
+  balls' copies) within `MEM_OWNER_MAX`'s eight.
+- **Bytes**: MEASURED in 130.30.12.9.
+
+##### 130.30.12.7 The tool and its selfcheck
+
+- `sheet_plan`, `encode_sheets` (the model's sheets and world part, the
+  identity stamped), `decode_sheets` (the model back: each row's words
+  from a sheet that holds it), `read_parts` over the sheets (each checked;
+  each sheet sheet 0's bytes but its magic and its map; the plan the
+  model's; the canonical layout and the identity over all of them).
+  A sheeted course's `.cga` is a `SheetBytes` - sheet 0's bytes, with
+  `.sheets` and `.plan` - so every reader that takes the picture part as
+  bytes reads the sheets through it; `.sstored` holds each sheet's stored
+  form (`BZ<K>.BIN`, `BZ<K>S<i>.BIN`).
+- `--sizes` prints the sheets, their rows, coverage, served tops and
+  packed sizes.
+- **`--selfcheck` item 16, SHEETS** (section `sheets`): a course is
+  sheeted only when its two-part picture part is refused; TTALL is
+  sheeted, every sheet and the world part within 65,024; each stored form
+  expands IN PLACE (the simulation); `read_parts` takes them and the model
+  comes back; the identity is 130.30.12.4's and a sheet's map byte and a
+  world byte each move it; **every window top the camera may take, down
+  and back under bz_shchk's rule, is inside the coverage of the sheet
+  shown and that sheet's words there are the model's**, and every lane's
+  write from the clamped table stays in its sheet's map; the model's
+  autopilot reaches the goal across the seam. Its negative controls, each
+  REFUSED (MEASURED): a sheet's map a row off, a sheet's blocks changed,
+  the identity over the world part alone, a plan the model's is not, a
+  plan a window row short (`SH_WHI` - 1), a sheeted pathway - and the
+  first line's red arm, PLAYGROUND (two parts, fitting) forced into
+  sheets, which the rule CATCHES.
+- **`tests/bonanza_sheet.py`** (unicorn, bonanza_wide's method, on a BZDEV
+  art): the package's own `bz_cexp` on each sheet's and the world part's
+  stored forms; `bz_crshdr` and `bz_pread` on TTALL; then every lane given
+  a drawn pose its map does not hold, the window's top stepped down the
+  picture two card rows a frame and back with `bz_shchk` at each: the sheet
+  shown is the rule's, `bz_mrow`, the bounds and every `bz_ltmo` are its,
+  every map word a frame may read is the model's (a lane's cell its drawn
+  pose's), and no byte past any sheet's map moves. Red arms `clamp`,
+  `lanes`, `rowplanes` and `serve`, each caught (MEASURED).
+
+##### 130.30.12.8 TTALL, the test course
+
+`apps/bonanza/courses/ttall.bbc`, a TEST course (130.54: the BZDEV=1
+build's alone, `BZ_TESTCRS`, no pad, no shipped demo): a zig-zag ribbon
+down the picture at 160 word columns - six flat legs five cells wide,
+along +x and +y in turn, with back rails, corner stops, the GOAL on the
+last leg's last row and the finish clock beside it, the steel ball. Its
+picture is 217 block rows (1,736 lines); its picture part would be 82,758
+bytes, so it ships as 2 SHEETS of 125 rows (rows 0 - 124 and 92 - 216); the
+model's autopilot reaches the goal in 2,510 steps from block row 15 to 205,
+so the camera's window crosses the seam on the way down.
+
+##### 130.30.12.9 As built (2026-11-20)
+
+MEASURED unless it says otherwise.
+
+- **Every course that fits is today's, byte for byte.** Three private
+  trees at one build number, before and after (`make BUILD=<tree>
+  bonanzadisk`): the SHIPPED build and the `BZDOWN=1` build - every
+  `BZ<K>.BIN`, `BZ<K>W.BIN`, demo, ball and kit part, `bonanza.bin`,
+  `bzshell.bin`, `bzvga.bin`, `BONANZA.O88` and the four floppy images
+  `cmp` equal; only the generated TEXT of `bzcourse.inc` (`BZ_NSHEET equ 0`,
+  the parts macro's `%rep` naming it) and `bzlink.inc` (that constant)
+  differ. The `BZDEV=1` build (TTALL added as its 16th course): every part
+  it had is the same bytes but `BZTDEMO.BIN`, whose four logs name the
+  title's course number, 16 then 17 - the course count, not the sheets -
+  and TTALL adds `BZ15.BIN`, `BZ15S1.BIN` and `BZ15W.BIN`.
+- **0 clk in the frame's routines.** The `BZDEV=1` listings before and
+  after, routine by routine: `bz_row`, `bz_col`, `bz_boxc`, `bz_occ`,
+  `bz_oprep`, `bz_oand`, `bz_olay`, `bz_olines`, `bz_wprect`, `bz_lsync`,
+  `bz_lmap`, `bz_pblit`, `bz_step`, `bz_wheel`, `bz_lead`, `bz_mkboxes`,
+  `bz_rows`, `bz_fullw` and `bz_lfull` the same length from the same source
+  (their bytes differ only in the addresses the code before them moved);
+  `bz_camera` +10 (the `jnz`, its call and the cut's call). `bz_lead`'s
+  `je short` (130.30.12.6) is what keeps `bz_lead` in that list.
+- **The bytes** (the `BZDEV=1` package against the same courses assembled
+  with `BZ_NSHEET` 0): **+574 image and +13 bss** - `bz_shchk` 16,
+  `bz_shfind` 44, `bz_shset` 71, `bz_shmrow` 66, `bz_hxshs` 52, `bz_vshs`
+  51, `bz_cload` +39 (sheet 0's word; a held pathway let go), `bz_cload2`
+  +69 (the sheets' fetch loop), `bz_crshdr` +73, `bz_camera` +10,
+  `bz_cxmap` +4, `bz_cdrop` +3; the tables 68 (`bz_cshn` 16, `bz_cshi` 32,
+  `bz_shtab` 20: per course and per sheet) and a part row 8. `bzvga.bin`
+  +7 (`bz_vcp`'s test). The shipped package: 0.
+- **TTALL** (`--sizes`): 217 block rows at 160 columns; one picture part
+  would be **82,758** bytes (one part of everything 105,703). Two sheets of
+  **125** rows, margins 1 (its lanes are the clock's digits), each
+  **53,318** bytes (11,706 of room): sheet 0 rows 0 - 124, coverage 0 -
+  123, window tops 0 - 95; sheet 1 rows 92 - 216, coverage 93 - 216, tops
+  95 on. The world part 23,007. Packed LZB 1,438 + 1,509 + 817 (LZ4 1,795 +
+  1,845 + 1,021). Identity 8B51h.
+- **DOWN forced into sheets** (`_hack sheets`, a check of the plan on the
+  course that motivated it, not a ship): 2 sheets of 76 of its 118 rows,
+  margins 2 (its tallest lane), 47,828 bytes each against its 61,268-byte
+  picture part, the world part 19,356 the same; `decode_parts` gives the
+  model back. At its density (320 bytes of map and about 199 of the rest a
+  block row, the records' 63 of them growing with the rows) two sheets hold
+  about 190 block rows (PREDICTED: 446 n <= 51,092 with B = 2n - 34), about
+  1.6 times DOWN today; a third sheet (`SHEET_MAX` 3, one claim more) would
+  reach the format's 256.
+- **It plays** (MartyPC `os8088_5150_cga_gla`, the `BZDEV=1` tree: TTALL's
+  model autopilot log through D, the measured benchmark replay, one boot):
+  the goal reached in **2,509 frames**; `bz_shset` ran twice - the launch's
+  first frame (its cut, sheet 0: the bounds were empty) and the seam on the
+  way down, at `bz_R0n` 384 (window top line 768, block row 96, the first
+  top sheet 0 does not serve). Busy mean 58,272 clk, 248 misses, the worst
+  frame 177,980 (the launch's full write) - TTALL's own figures, a course
+  that scrolls both ways at 160 columns all the way down; there is no
+  one-picture-part twin of it to set beside them, and the frames' code is
+  the same instructions (above).
+- **A switch: 8,462 guest cycles** (the seam; the launch's 8,470), entry to
+  return of `bz_shset` - PREDICTED 7.1k (`bz_shmrow` about 6.2k, two lanes
+  about 450 each): about 11% of one 60 Hz frame, once each way across a
+  seam.
+- **A frame whose window moved down or up: `bz_shchk`'s fast path 92 - 99
+  guest cycles** entry to return (40 frames sampled), so about 150 with the
+  taken `jnz`, the call and the jump back - PREDICTED 143. A frame whose
+  window did not move: the `jnz`'s 8.7 (PREDICTED; not separable on the
+  glass).
+- **The checks**: `--selfcheck` sections `sheets` and `twoseg` pass (every
+  item 16 line and its seven controls); `tests/bonanza_sheet.py` passes and
+  each of its four red arms is caught. Not run here (the lead's final
+  pass): `bonanzasheet`, `bonanzacourse` whole, and the emulator rows that
+  read a course part - `bonanzaexit`'s claim leg compares `[bz_mseg]` with
+  the tool's picture part, which for a sheeted course is the SHOWN sheet,
+  and `bonanzamega` (a sheeted course's selectors on kern_mega).
+- **A 256KB machine** (PREDICTED): TTALL's play claims 3,333 + 3,333 +
+  1,438 paragraphs for its course where one part could not; a course that
+  fits claims what it did.
 
 ### 130.31 The pathway carries no occluders (the owner, 2026-11-17)
 
