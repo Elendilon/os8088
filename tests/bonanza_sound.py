@@ -17,9 +17,10 @@ LEG spk, os8088_5150_cga_gla (no card, the owner's 5150 #1):
   1  THE WINDOW IS SILENT (SPEC.md 130.26.5): no arm, no song held;
   2  S (the harness's key, bz_dev) toggles OFF and AUTO, the window silent
      either way;
-  3  F plays FIRST: course 1's song (song 0 since 130.26.5) in the bracket,
-     three stops held to the model - the song the model is given READ OUT OF
-     FIRST's built course part, its section S (SPEC.md 130.50.3: no song row
+  3  F plays ROLL (a SHIPPED course, pathway pad 0's: BOUNCE-BONANZA-SOAK
+     phase 3 took the row off the prototype FIRST): the course part's song in
+     the bracket, three stops held to the model - the song the model is given
+     READ OUT OF ROLL's built course part, its section S (SPEC.md 130.50.3: no song row
      since; parts() below), and the sound part BZSND.BIN, which rides the
      resident bundle (130.50.2);
   4  THE EVENTS, poked into the counters the physics keeps (SPEC.md 130.20.5)
@@ -36,8 +37,9 @@ own capture loud in play, and Esc and the window's close giving the chip back
 
 --red NAME builds a broken package in a temporary directory and PASSES only if
 the row FAILS at its own check:
-  groove   every row the groove's FIRST count: FIRST's 8 6 swing played
-           straight - the bracket's model comparison fails
+  groove   every row the groove's FIRST count: ROLL's song's 7 5 swing
+           (firstroll.bmu) played straight - the bracket's model comparison
+           fails
   mat      every event played as the rubber ball's: the events check fails
   noboost  wave 6: bz_nboost left out of bzs_ctab (its slot names bz_ntube
            again): the boost check's rubber poke keys no effect
@@ -52,8 +54,8 @@ a boost contact keys no LAND (bz_nland, bz_lvz past BZS_LMIN and bz_nboost
 poked in one frame: one effect keyed, the BOOST).  The effect numbers are read
 out of the built BZSND.BIN, never written here.
 
-WAVE 8R ROUND 2 (SPEC.md 130.20.5, 130.18.6): THE COURSE'S CLOCK HELD.  FIRST has
-a 15 s limit and its countdown ran under step 4: its LOW at 10 s and a TICK
+WAVE 8R ROUND 2 (SPEC.md 130.20.5, 130.18.6): THE COURSE'S CLOCK HELD.  FIRST (the
+course this row played then; ROLL since phase 3) had a 15 s limit and its countdown ran under step 4: its LOW at 10 s and a TICK
 every second after are the game's own, and one keyed in a poked frame was a
 second effect ('rubber's boost keyed 2'), while w7's pokes left bz_t55 stale,
 so the poked 10 s could run out a step later under its own LOW (priority 4)
@@ -68,7 +70,7 @@ WAVE 5B (SPEC.md 130.15.9, 130.15.13): unchanged in logic.  The parts table's
 format byte is the whole table's, so with LZB parts (shipped) every part is
 an LZB part.  Since SPEC.md 130.50 there is no sound or song part ROW: the
 sound part is in the RESIDENT BUNDLE (fetched once at the open, 130.50.2)
-and course 1's song is section S of FIRST's course part (130.50.3), each
+and the played course's song is section S of its course part (130.50.3), each
 decoded by OSAPI_DECOMP's LZB arm with the row that carries it, and the
 model comparison holds the decoded bytes to bbmusic's.  The format is printed
 at the start; a red tree packs its parts in it (bonanza_ring.build_tree).
@@ -117,17 +119,23 @@ def part_song(part, fname="<part>"):
 
 
 def parts(art=None):
-    """(the sound part, FIRST's song): BZSND.BIN, the bytes the RESIDENT BUNDLE carries (SPEC.md 130.50.2), and
-    the song read out of FIRST's own built course part, BZ<K>.BIN's section S (130.50.3) - the bytes the
-    guest's bzs_csong plays, not bbmusic's BZM<S>.BIN intermediate"""
+    """(the sound part, ROLL's song): BZSND.BIN, the bytes the RESIDENT BUNDLE carries (SPEC.md 130.50.2), and
+    the song read out of the played course's (SOUND_CRS, ROLL) own built course part, BZ<K>.BIN's section S
+    (130.50.3) - the bytes the guest's bzs_csong plays, not bbmusic's BZM<S>.BIN intermediate"""
     art = art or R.at("build/bonanza-art")
     snd = open(os.path.join(art, "BZSND.BIN"), "rb").read()
-    k = R.CRS_K["first"]
+    k = R.CRS_K[SOUND_CRS]
     fn = os.path.join(art, "BZ%d.BIN" % k)
     song = part_song(open(fn, "rb").read(), fn)
     if not song:
-        raise AssertionError("%s (FIRST, course %d) carries no song: no section S (SPEC.md 130.50.3)" % (fn, k))
+        raise AssertionError("%s (%s, course %d) carries no song: no section S (SPEC.md 130.50.3)" % (
+            fn, SOUND_CRS.upper(), k))
     return snd, song
+
+
+# the course step 3 plays (by NAME, never by K): ROLL, shipped and pathway pad 0's (BOUNCE-BONANZA-SOAK phase 3,
+# no prototype course); its song, firstroll, swings 7 5, so the groove arm still has a swing to straighten
+SOUND_CRS = "roll"
 
 
 def stop(g, label="bzs_tp", guest=10):
@@ -174,7 +182,7 @@ def set_clock(g, secs):
 
 def clock_off(g):
     """the course's LIMIT stopped for the contact checks (bz_tsec 0: no limit):
-    FIRST's 15 s run under them - its LOW at 10 s and a TICK every second
+    the course's limit runs under them (FIRST's 15 s did) - its LOW at 10 s and a TICK every second
     after are the game's, and one keyed in a poke's frame is a second effect
     beside the poked one (rubber's boost 'keyed 2 effect(s)').  One frame
     takes the copy (bz_tsec 0 and no bz_tout: nothing keyed)"""
@@ -491,9 +499,9 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                         fails.append("S: OFF kept a song (%04X)" % g.w("bzs_mseg"))
                 m.run()
                 M.guest_sleep(m, 0.4)
-            # 3. FIRST - a free play, F (Enter is the TITLE since SPEC.md 130.23.4), [bz_crsel] POKED: it
-            m.pause()                   # starts on pathway pad 0's course
-            g.putb("bz_crsel", R.CRS_K["first"])
+            # 3. ROLL - a free play, F (Enter is the TITLE since SPEC.md 130.23.4), [bz_crsel] POKED to it by
+            m.pause()                   # name (F's default is pathway pad 0's course, ROLL on today's map)
+            g.putb("bz_crsel", R.CRS_K[SOUND_CRS])
             m.run()
             g.key("KeyF")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 30, "the bracket is up", guest=60)
@@ -505,10 +513,10 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                 for k in range(3):
                     for _ in range(25 + 40 * k):
                         stop(g)
-                    f, n = held(g, snd, song, want_arm, "FIRST")
+                    f, n = held(g, snd, song, want_arm, SOUND_CRS.upper())
                     fails += f
             # 4. THE EVENTS (the speaker leg; the slots are the same code on both),
-            # FIRST's limit stopped first: its clock's LOW and TICKs are w7's to poke
+            # the course's limit stopped first: its clock's LOW and TICKs are w7's to poke
             if arm_name == "spk" and only != "groove" and "bz_tsec" in g.sym:
                 clock_off(g)
             if arm_name == "spk" and only not in ("groove", "noboost"):
@@ -570,7 +578,7 @@ REDS["notick"] = [("bzsound.inc", "    cmp ax, [bzs_ltsec]         ; moved - the
     # wave 8R round 2: an effect's 0 terminator read but its slot never freed
 REDS["nofree"] = [("bzsound.inc", "    jnz .seg\n    mov word [di + F_PTR], 0\n",
                    "    jnz .seg\n    mov byte [di + F_LEFT], 1    ; RED nofree: the slot never freed\n")]
-RED_WANT = {"groove": "FIRST", "mat": "events", "noboost": "boost: rubber's boost keyed 0",
+RED_WANT = {"groove": SOUND_CRS.upper(), "mat": "events", "noboost": "boost: rubber's boost keyed 0",
             "noflag": "w7: bz_nckpt poked keyed 0", "notick": "w7: 30 seconds left keyed 0",
             "nofree": "the effect slot never went idle"}
 
@@ -649,8 +657,8 @@ def main():
         return
     bad, notes = [], []
     print("bonanza_sound: the parts are %s (the parts table's format byte, SPEC.md 130.15.9): the resident bundle "
-          "(the sound part, 130.50.2) and FIRST's course part (its song, 130.50.3) decoded in it"
-          % R.part_fmt().upper(), flush=True)
+          "(the sound part, 130.50.2) and %s's course part (its song, 130.50.3) decoded in it"
+          % (R.part_fmt().upper(), SOUND_CRS.upper()), flush=True)
     for lg in (("spk", "fm") if a.leg == "both" else (a.leg,)):
         f, n = leg(lg)
         bad += ["%s: %s" % (lg, x) for x in f]
