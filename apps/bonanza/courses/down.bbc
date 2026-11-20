@@ -4,8 +4,8 @@
 # while the layout moves.
 course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules
-width 128
-origin 288                # the reach spans the 60 tiles 1024 px allow
+width 160
+origin 288                # 1,280 px (SPEC.md 130.10.4.2): steel's north-west leg
 uses boost spike water
 ball rubber
 music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
@@ -25,9 +25,10 @@ floor rect  38  14  43  19  flat 17   # L
 floor rect  46  12  52  21  flat 14   # X
 floor rect  52  17  56  20  flat 14   # S
 floor rect  56  17  57  20  flat 14   # W
-floor rect  56  20  59  25  flat 11   # T
-floor rect  56  25  59  29  flat 11   # M
-floor rect  55  29  60  33  flat 11   # G
+floor rect  56  20  60  21  flat 11   # T
+floor rect  60  11  64  21  flat 11   # T
+floor rect  34   7  64  10  flat 15   # M
+floor rect  28   6  34  11  flat 15   # G
 floor rect  49  21  50  26  flat 14   # K
 floor rect  47  26  51  29  flat 14   # P
 floor rect  46  27  47  28  flat 14   # K
@@ -132,10 +133,12 @@ prop membrane 36 23 37 24
 prop membrane 32 27 33 28
 water rect 24 26 29 29 top 14 bed 11
 prop boost 22 28 face +y strength 40
-# steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)
-hump 56 27 11 along x 3 open height 8
+# steel (rev 11): the SPIKE CARPET north, the LIFT up 4, a ridge hump across the top, 8 px
+prop spikes 60 12 64 17
+prop platform 61 10 4
+hump 52 7 15 along y 3 open height 8
 
-goal  rect 55 31 60 33  flat 11   # the steel finish
+goal  rect 28 6 30 11  flat 15   # the steel finish
 goal  rect 35 31 37 37  flat 7 exit 1   # the glass finish
 start 8 7
 checkpoint 30 16 ball rubber   # flag 0
@@ -144,14 +147,15 @@ checkpoint 48 27 ball glass   # flag 2
 checkpoint 43 27 ball glass   # flag 3
 checkpoint 34 27 ball glass   # flag 4
 checkpoint 22 27 ball glass   # flag 5
+checkpoint 59 8 ball steel   # flag 6
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
 clock 10 7
 floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
 clock 50 11
-floor tile 60 30  flat 12.5   # the steel finish clock's tile (on top of the rail block it replaces)
-clock 60 30
+floor tile 27 8  flat 16.5   # the steel finish clock's tile (on top of the rail block it replaces)
+clock 27 8
 floor tile 37 34  flat 8.5   # the glass finish clock's tile (on top of the rail block it replaces)
 clock 37 34
 
@@ -167,7 +171,11 @@ way 49 16
 way 50 18
 way 52 18
 way 56 18
-way 56 21
-way 57 25
-way 57 29
-way 57 31
+way 56 20
+way 61 20
+way 61 13
+way 61 11
+way 61 8
+way 51 8
+way 42 8
+way 30 8
