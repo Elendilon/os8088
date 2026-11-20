@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """bonanzapath - THE PATHWAY's loop on the glass (SPEC.md 130.22.4, wave 8R;
 rewritten from wave 8b's rolled prototype, 130.19.5; brought to the SHIPPED
-map, option A, 2026-11-19: pad 0 FIRST ROLL, pad 1 LITTLE HOP).
+map, option A, 2026-11-19: pad 0 FIRST ROLL, pad 1 LITTLE HOP; onto the TEST
+MAP, 2026-11-20, BOUNCE-BONANZA-SOAK phase 3).
 
 BONANZA on MartyPC, CGA and Hercules.  Enter on the face opens the TITLE and
 P there plays THE GAME (SPEC.md 130.23.4, `enter_game`): the pathway comes up
@@ -10,20 +11,20 @@ the guest's own state (bz_* reads, breakpoints on its labels), its timing on
 the guest's clock.  The pads, routes and arrows are the GUEST's tables (the
 pathway part's, `guest_tables`), never numbers written here: pad 0 and the
 route its finish opens, the pad that route reaches (pad 1), the arrows each
-pad's key map gives a route, the nearest DIAGONAL (a route two arrows take)
-and the nearest route between pages.  The courses played are the shipped
-ones, pad 0's (ROLL) and pad 1's (HOP); a prototype pad is rolled ACROSS on
-the way to a diagonal and a page, never played.
+pad's key map gives a route, the nearest DIAGONAL (a route two arrows take),
+the nearest route between pages, the road on from its far pad, and the
+SECRET route.  No prototype course is named, played or rolled across.
 
-THE MAP IT BOOTS (2026-11-20, SPEC.md 130.54.6): the BZDEV=1 build's pathway
-is the TEST MAP (apps/bonanza/courses/pathdev.bbc), no longer the shipped
-path.bbc: pads 0 and 1 the shipped map's cell for cell (ROLL, HOP; Right, Left
-back), the rest test courses - the diagonal at pad 2 (TQUIK, Up and Left to
-TCUP), the page route TCUP -> TPLY (page 1, its icon), the climb TPLY -> TMIL
-(1 unit up: 10b's gz > 0 now checked), and a secret route by TQUIK's hidden
-exit 1 to a hidden pad.  The items below still say "the shipped map" where
-they were written for it; phase 3 of docs/plans/BOUNCE-BONANZA-SOAK.md
-rewrites them (the secret leg onto the test map's own route, no patch).
+THE MAP IT BOOTS (SPEC.md 130.54.6; BOUNCE-BONANZA-SOAK phase 3): the BZDEV=1
+build's pathway is the TEST MAP (apps/bonanza/courses/pathdev.bbc), not the
+shipped path.bbc: pads 0 and 1 the shipped map's cell for cell (ROLL, HOP;
+Right, Left back), the rest TEST courses - the diagonal at pad 2 (TQUIK, Up
+and Left to pad 3 TCUP), the page route TCUP -> pad 4 TPLY (page 1, its icon),
+the climb TPLY -> pad 5 TMIL (1 unit up), and the SECRET route 2 -> 6 by
+TQUIK's hidden exit 1 to the hidden pad 6 (BENCH).  ONE BOOT A CARD walks
+every item below, the secret leg's included: the build's own map, no patch,
+no private compile.  The courses PLAYED are ROLL (2.), HOP (5. - 7.) and
+TQUIK (s1.); the rest are only rolled across.
 
   0. a new game: five lives, the marble RESTING on pad 0's cell, every gate
      closed;
@@ -43,7 +44,7 @@ rewrites them (the secret leg onto the test map's own route, no patch).
      there;
   4. every arrow pad 1's key map gives that route takes it BACK to pad 0
      (Follow, reversed), and every arrow pad 0's gives it brings it back (on
-     the shipped map Left and Right: a straight road);
+     the test map, as on the shipped one, Left and Right: a straight road);
   5. the HELD pathway: Enter at pad 1 plays its course (HOP) beside the
      pathway's row, kept fetched (bz_phold 1) and re-entered with no fetch
      (bz_phre); Esc in the course costs a LIFE (4) on the counters (their digit
@@ -54,34 +55,26 @@ rewrites them (the secret leg onto the test map's own route, no patch).
   7. the lives poked to 1, HOP left by Esc: the GAME OVER - the pathway's OVER
      state (its sound), then the card (bz_kover), then the title;
   8. P again: a NEW game (five lives, resting on pad 0, no route open); every
-     route opened by a poke, the marble rolled to the nearest pad with a
-     DIAGONAL route (two arrows: on the shipped map pad 5's down-right road back
-     to pad 2, Down and Right) and each of that pad's arrows on it takes the
-     route (Follow), the far pad's arrow bringing it back (8d);
-  9. the PAGED camera: the nearest route between pages taken (on the shipped
-     map pad 5 up to pad 6, page 1): bz_R0 at every bz_presented on the start
+     route but the secret one opened by a poke; the secret route CLOSED (s0.:
+     its hidden pad's sign 0, its reveal groups 0); the marble rolled to the
+     nearest pad with a DIAGONAL route (two arrows: on the test map pad 2's
+     up-left road to pad 3, Up and Left) and each of that pad's arrows on it
+     takes the route (Follow), the far pad's arrow bringing it back (8d);
+  9. the PAGED camera: the nearest route between pages taken (on the test
+     map pad 3 up to pad 4, page 1): bz_R0 at every bz_presented on the start
      page's rows (bz_fixr less a page's card rows a page) until it moves BZ_MAXR
      rows a frame to the far page's and stops there; bz_c0 never moves;
  10. RESTING on that route's far pad its icon's lanes are walked (their drawn
      pose changes) and no other icon's lane is MARKED (bz_latt) at any walk's
-     entry (bz_props); rolled on (pad 6 to 7 on the shipped map), the left
-     pad's icon is back at its rest pose and its lanes unmarked at every walk's
-     entry (10b; "up a ramp, gz > 0" is checked only when that route climbs -
-     the shipped map has no ramp, and a SKIP line says so).
-
-The SECRET leg (after the main leg on the first card; `--leg secret` alone)
-plays a PRIVATE tree built off the shipped files (SECRET_PATCH, each anchor
-asserted, so a moved line fails loudly): ROLL's goal split, its right part
-exit 1 HIDDEN; the map given one more pad (pad N, HOP, up from pad 0) and the
-SECRET route 0 -> N keyed by ROLL's exit 1 (pad 0's icon left off: its lane
-holds the blocks the route draws in).  ROLL finished by its hidden exit 1: no
-gate, the route rolled at once, its REVEAL groups posed 1 one at a time, each
-once the marble's distance passes its own (the tables'), the hidden pad shown
-at the arrival and pad 0 (the visible end) with the route drawn (+ 4).  ITS
-COST: tools/bbcourse.py compiles every course of BZ_COURSES into a temporary
-art tree, then build_tree assembles and packs a package of its own - minutes
-of host CPU before the boot, the most expensive part of the row (BOUNCE-
-BONANZA-SOAK's phase 2 gives it a test pathway of its own).
+     entry (bz_props); rolled on (pad 4 up the ramp to pad 5 on the test map),
+     the left pad's icon is back at its rest pose and its lanes unmarked at
+     every walk's entry, and the marble UP the ramp (gz > 0: 10b);
+ s1. THE SECRET route, in the same boot: the marble rolled over the open map
+     to the secret route's pad (pad 2), Enter plays its course (TQUIK), its
+     ball poked into the goal of the route's HIDDEN exit (exit 1): no gate, the
+     route rolled at once, its REVEAL groups posed 1 one at a time, each once
+     the marble's distance passes its own (the tables'), the hidden pad shown
+     at the arrival and the visible end (pad 2) with the route drawn (+ 4).
 
 Red arms: `nopage` (bz_crshdr never sets PAGED: the camera follows like GLIDE,
 R0 off the page rows - 9.), `nogate` (bz_nset marks no lane: the gate's poses
@@ -89,18 +82,19 @@ never drawn - 3.), `nodiag` (Left is not the pathway's arrow: pad 1's way back
 - 4.), `finfall` (a fall in a goal's finish sequence respawns the ball - 2.).
 
 --check (the host half): every red arm's anchors found and its copy
-assembles; the private map compiles with its secret route; and bz_follow run
-under unicorn against bbcourse.Follow on every route of the shipped part and
-of the private one, both ways - the arithmetic item 3 then checks on the glass.
+assembles; the test map's walk as the row takes it (pads 0 and 1 ROLL and HOP,
+pad 1's way back Left alone - nodiag's aim -, a diagonal, a page route to an
+icon pad, a CLIMB on from it, the secret route keyed by a hidden exit and
+reachable from 10b.'s pad); and bz_follow run under unicorn against
+bbcourse.Follow on every route of the test map (the secret one and the ramp
+included), both ways - the arithmetic items 3, 4, 8d and s1 then check on
+the glass.
 
-    python3 tests/bonanza_path.py [--tag cga|herc] [--leg main|secret] [--red ARM] [--check]
+    python3 tests/bonanza_path.py [--tag cga|herc] [--red ARM] [--check]
 """
 import argparse
 import os
-import re
-import shutil
 import struct
-import subprocess
 import sys
 import tempfile
 
@@ -138,17 +132,6 @@ MAXR = 2                                            # bzgame.inc BZ_MAXR
 LINES = 200                                         # bzvideo.inc BZ_LINES
 ARROWS = ("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight")    # a pad's key map's order (130.22.4.5)
 SETTLE = 8                                          # frames R0 and c0 unchanged: the camera at rest
-
-# the private map (the SECRET leg), built off the SHIPPED files: ROLL's goal split, its right part a HIDDEN
-# exit 1; the map's extra pad and secret route are APPENDED by secret_text (their pad number is the map's
-# count), anchored on pad 0's line - and pad 0's icon left off (the route up from pad 0 draws in its lane's
-# blocks: bbcourse refuses the two together).  Every OLD must be in its file exactly once (R.patch_tree)
-SECRET_ROLL = ("roll.bbc", "goal  rect 49 56 55 58  flat 3.5",
-               "goal  rect 49 56 52 58  flat 3.5\ngoal  rect 52 56 55 58  flat 3.5 exit 1 hidden")
-SECRET_PAD0 = "pad 0 ROLL  21 28"                   # (the route below starts on its cell)
-SECRET_ICON0 = re.compile(r"^icon 0 .*\n", re.M)
-SECRET_HIDDEN = ("HOP", (18, 25), "21,28 18,25")    # the hidden pad's course and cell, the route's path
-SECRET_CRS, SECRET_EXIT = "roll", 1
 
 BB_PATH = None
 TAG = ["?"]
@@ -607,8 +590,14 @@ def aborts(leg):
     return run_
 
 
+def host_tables():
+    """the pathway part's tables as the build wrote them (BZPATH.BIN, the part the guest fetches)"""
+    return tables(open(R.at("build/bonanza-art/BZPATH.BIN"), "rb").read())
+
+
 @aborts
 def run(tag, fails, apps=None, src=None):
+    sec = secret_plan(host_tables())            # (the host's work BEFORE the boot: the secret leg's poke)
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
                      machine=R.MACHINE[tag]) as ui:
         ui.open_drive("B")
@@ -776,6 +765,22 @@ def run(tag, fails, apps=None, src=None):
         check(fails, lives == 5 and pad == 0 and st == ST_REST and nrop == 0, "8.", "P after the game over: a NEW "
               "game - lives %d, resting on pad %d, no route open (%08Xh)" % (lives, pad, nrop),
               "not a new game after the game over (lives %d, pad %d, state %d, routes %08Xh)" % (lives, pad, st, nrop))
+        # s0. the SECRET route (SPEC.md 130.54.6) closed at the new game: its hidden pad's sign 0, its reveal
+        # groups 0 - its pad's and route's tables the guest's own, as the host planned them
+        if sec is None:
+            skip("s0.", "the map has no secret route: the secret leg is not tested")
+        else:
+            srt = T["routes"][sec["ri"]]
+            hid = T["pads"][srt["b"]]
+            m.pause()
+            rv0, hs0 = reveal(g, srt), nst(g, hid["sign"])
+            m.run()
+            check(fails, srt == sec["rt"] and hs0 == 0 and not any(rv0) and hid["hidden"], "s0.", "the new game: "
+                  "the secret route %d (pad %d -> hidden pad %d, %s's exit %d) closed - the hidden pad's sign %d, "
+                  "its %d reveal groups %s" % (sec["ri"], srt["a"], srt["b"], sec["name"], srt["e"], hs0,
+                                               len(srt["dist"]), rv0),
+                  "the secret route shown at a new game (the hidden pad's sign %d, reveal %s) or not the build's "
+                  "table" % (hs0, rv0))
         dg = find_diagonal(T, 0)
         at_pad = 0
         if dg is None:
@@ -880,11 +885,14 @@ def run(tag, fails, apps=None, src=None):
                 sp.done()
                 if not climb:
                     skip("10b.", "route %d (pad %d to %d) does not climb: the ramp's gz > 0 is not checked (the "
-                         "shipped map has no ramp)" % (lri, zp, lq))
+                         "test map's climb is gone: --check refuses that)" % (lri, zp, lq))
                 check(fails, pose == 0 and not mk and (gz > 0 or not climb), "10b.", "on pad %d (route %d%s): pad "
                       "%d's icon at its rest pose, its lanes unmarked" % (
                           lq, lri, ", up its ramp: gz %d" % (gz >> 8) if climb else "", zp),
                       "leaving pad %d: its icon's pose %d, marked %s, gz %d" % (zp, pose, sorted(mk), gz >> 8))
+        # --- s1. the SECRET route, in the same boot: its key's course finished by its hidden exit ----------
+        if sec is not None:
+            secret_leg(g, fails, T, sec)
         M.guest_sleep(m, 0.3)
         g.key("Escape")
         to_title(g)
@@ -893,109 +901,76 @@ def run(tag, fails, apps=None, src=None):
     return fails
 
 
-def course_files():
-    """BZ_COURSES's files in K order (bzcourse.inc's, R.COURSES): every course the build compiles"""
-    path_k()
-    return [R.COURSES[n] for n in sorted(R.CRS_K, key=lambda n: R.CRS_K[n])]
+def secret_plan(T):
+    """the SECRET leg's host work, done BEFORE the boot (a course's compile is host seconds, many guest ones at
+    MartyPC's pace: done after the course came up it once ran out the course's limit): the map T's secret
+    route, its key's course and the goal cell of that exit, and the model's poke into it -> dict, or None (the
+    map has no secret route)"""
+    ri = next((i for i, r in enumerate(T["routes"]) if r["secret"]), None)
+    if ri is None:
+        return None
+    rt = T["routes"][ri]
+    k = T["pads"][rt["a"]]["k"]
+    c = R.course(crs_name(k))
+    gc = goal_cells(c, rt["e"])[0][0]
+    p = BB.Physics(c, play=True, mat=c.ball).poke(*gc)
+    return dict(ri=ri, rt=rt, k=k, name=crs_name(k).upper(), gc=gc, poke=(p.gx, p.gy, p.gz))
 
 
-def secret_text(ptext):
-    """the private map's text off the shipped path.bbc's (SECRET_PATCH's account above): -> (text, the hidden
-    pad's number)"""
-    assert ptext.count(SECRET_PAD0) == 1, "the secret leg's anchor %r is not in path.bbc (once): re-anchor it" % (
-        SECRET_PAD0,)
-    assert len(SECRET_ICON0.findall(ptext)) == 1, "the secret leg: path.bbc has no (one) `icon 0` line"
-    pads = [int(n) for n in re.findall(r"^pad\s+(\d+)\s", ptext, re.M)]
-    n = max(pads) + 1
-    crs, (wx, wy), path = SECRET_HIDDEN
-    return SECRET_ICON0.sub("", ptext) + (
-        "\n# THE SECRET LEG's (tests/bonanza_path.py): a hidden pad up from pad 0, ROLL's hidden exit 1's route\n"
-        "pad %d %s %d %d\nroute 0 %d exit %d secret path %s\n" % (n, crs, wx, wy, n, SECRET_EXIT, path)), n
+def reveal(g, rt):
+    """the secret route RT's reveal groups' poses (bz_nst from its rsign)"""
+    return list(g.m.read(g.a("bz_nst") + rt["rsign"], len(rt["dist"])))
 
 
-def secret_art(td):
-    """the PRIVATE tree's art: build/bonanza-art copied, the courses copied with
-    the secret patches, and tools/bbcourse.py's run over them (EVERY course: its
-    bzcourse.inc is written whole) into it -> (art, courses)"""
-    art, crs = os.path.join(td, "art"), os.path.join(td, "courses")
-    shutil.copytree(R.at("build/bonanza-art"), art)
-    shutil.copytree(os.path.join(ROOT, "apps", "bonanza", "courses"), crs)
-    R.patch_tree(crs, [SECRET_ROLL])
-    pp = os.path.join(crs, "path.bbc")
-    with open(pp) as f:
-        text, _n = secret_text(f.read())
-    with open(pp, "w") as f:
-        f.write(text)
-    files = [os.path.join(crs, os.path.basename(p)) for p in course_files()]
-    subprocess.run(["python3", "tools/bbcourse.py", "-o", art] + (["--dev"] if R.DEV else []) + ["--path", pp,
-                    "--title", os.path.join(crs, "title.bbc")] + files, cwd=ROOT, check=True,   # (--dev: the BZDEV
-                                                    # build's TEST courses are in its list, SPEC.md 130.54)
-                   stdout=subprocess.DEVNULL)
-    return art, crs
-
-
-@aborts
-def run_secret(tag, fails):
-    """the SECRET leg: a private tree's map and ROLL"""
-    with tempfile.TemporaryDirectory() as td:
-        art, crs = secret_art(td)
-        src, img = R.build_tree(td, [], art=art)
-        T = tables(open(os.path.join(art, "BZPATH.BIN"), "rb").read())
-        rt = next(r for r in T["routes"] if r["secret"])
-        hid, vend = T["pads"][rt["b"]], T["pads"][rt["a"]]
-        # the host's work BEFORE the plays (a course's compile is host seconds, many guest ones at MartyPC's
-        # pace: done after the course came up it once ran out the course's limit)
-        c = R.course(SECRET_CRS, src=os.path.join(crs, SECRET_CRS + ".bbc"), art=art)
-        gc = goal_cells(c, rt["e"])[0][0]
-        p = BB.Physics(c, play=True, mat=c.ball).poke(*gc)
-        with os88ui.boot(R.at("build/os8088-360.img"), apps=img, machine=R.MACHINE[tag]) as ui:
-            ui.open_drive("B")
-            ui.open("BONANZA.O88")
-            g = R.Bz(ui, tag, R.symbols(src, art), live=True)
-            ui.settle()
-            m = g.m
-            path_k()
-            enter_game(g)
-            rv0 = list(m.read(g.a("bz_nst") + rt["rsign"], len(rt["dist"])))
-            check(fails, nst(g, hid["sign"]) == 0 and not any(rv0) and rt["a"] == 0, "s0.", "the private map: the "
-                  "hidden pad's sign 0 and the secret route's %d reveal groups 0" % len(rt["dist"]),
-                  "the secret route shown at the start (or not from pad 0)")
-            g.key("Enter")                          # ROLL, finished by its HIDDEN exit
-            course_up(g, R.CRS_K[SECRET_CRS], SECRET_CRS.upper())
-            X.at_t0(g, lambda g_: R.poke_ball(g_, p.gx, p.gy, p.gz, 0, 0, 0, air=0))
-            M.until(m, lambda _: g.b("bz_fcnt") > 1, "%s's hidden finish" % SECRET_CRS.upper(), guest=30)
-            ex = g.b("bz_exit")
-            sp = Stops(g, ("bz_pwdep",))
-            hit = sp.press("Enter", guest=120)      # (the finish skipped)
-            order, bad, k = [], [], 0
-            if hit == "bz_pwdep":
-                sp = Stops(g, ("bz_follow",))
-                while sp.next() == "bz_follow":
-                    s = g.d("bz_pws") >> 8
-                    rv = list(m.read(g.a("bz_nst") + rt["rsign"], len(rt["dist"])))
-                    n = sum(rv)
-                    if rv != [1] * n + [0] * (len(rv) - n):
-                        bad.append("not in order at step %d: %s" % (k, rv))
-                    if any(rt["dist"][i] > s for i in range(n)):
-                        bad.append("a group shown before its distance at step %d (s %d)" % (k, s))
-                    if not order or order[-1] != n:
-                        order.append(n)
-                    if g.b("bz_pwst") != ST_ROLL:
-                        break
-                    k += 1
-            sp.done()
-            ok = hit == "bz_pwdep" and ex == rt["e"] and order and order[-1] == len(rt["dist"]) and not bad \
-                and g.b("bz_ppad") == rt["b"] and nst(g, hid["sign"]) >= 1 and nst(g, vend["sign"]) >= 4
-            check(fails, ok, "s1.", "%s finished by its hidden exit %d (the goal %s): the secret route rolled at once "
-                  "(no gate), its reveal groups shown %s along it, the hidden pad %d shown (%d) and pad %d's with the "
-                  "route (%d)" % (SECRET_CRS.upper(), ex, gc, order, rt["b"], nst(g, hid["sign"]), rt["a"],
-                                  nst(g, vend["sign"])),
-                  "the secret route's reveal: %s, exit %d, order %s, %s" % (hit, ex, order, bad[:3]))
-            g.key("Escape")
-            to_title(g)
-            g.key("Escape")
-            M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "the desktop", guest=30)
-    return fails
+def secret_leg(g, fails, T, sec):
+    """s1. (SPEC.md 130.54.6): from wherever the main leg left the marble, rolled over the open map to the pad
+    the secret route leaves (on the test map pad 2, TQUIK), Enter plays its course, the ball poked into the goal
+    of the route's HIDDEN exit (TQUIK's exit 1): no gate, the route rolled at once, its REVEAL groups posed 1 one
+    at a time, each once the marble's distance passes its own (the tables'), the hidden pad shown at the arrival
+    and the visible end (the pad it left) with the route drawn (+ 4)"""
+    m = g.m
+    rt = sec["rt"]
+    hid, vend = T["pads"][rt["b"]], T["pads"][rt["a"]]
+    at = g.b("bz_ppad")
+    resting(g, at, "resting on pad %d before the secret leg" % at)
+    legs = walk(T, at, rt["a"])
+    if legs is None:
+        check(fails, False, "s1.", "a way from pad %d to pad %d (the secret route's start)" % (at, rt["a"]),
+              "no open way from pad %d to pad %d" % (at, rt["a"]))
+        return
+    roll_to(g, T, legs, "to the secret route's pad")
+    M.guest_sleep(m, 0.2)
+    g.key("Enter")                              # the course, finished by its HIDDEN exit
+    course_up(g, sec["k"], "%s from pad %d" % (sec["name"], rt["a"]))
+    X.at_t0(g, lambda g_: R.poke_ball(g_, *sec["poke"], 0, 0, 0, air=0))
+    M.until(m, lambda _: g.b("bz_fcnt") > 1, "%s's hidden finish" % sec["name"], guest=30)
+    ex = g.b("bz_exit")
+    sp = Stops(g, ("bz_pwdep",))
+    hit = sp.press("Enter", guest=120)          # (the finish skipped)
+    order, bad, k = [], [], 0
+    if hit == "bz_pwdep":
+        sp = Stops(g, ("bz_follow",))
+        while sp.next() == "bz_follow":
+            s = g.d("bz_pws") >> 8
+            rv = reveal(g, rt)
+            n = sum(rv)
+            if rv != [1] * n + [0] * (len(rv) - n):
+                bad.append("not in order at step %d: %s" % (k, rv))
+            if any(rt["dist"][i] > s for i in range(n)):
+                bad.append("a group shown before its distance at step %d (s %d)" % (k, s))
+            if not order or order[-1] != n:
+                order.append(n)
+            if g.b("bz_pwst") != ST_ROLL:
+                break
+            k += 1
+    sp.done()
+    ok = hit == "bz_pwdep" and ex == rt["e"] and order and order[-1] == len(rt["dist"]) and not bad \
+        and g.b("bz_ppad") == rt["b"] and nst(g, hid["sign"]) >= 1 and nst(g, vend["sign"]) >= 4
+    check(fails, ok, "s1.", "%s (pad %d) finished by its hidden exit %d (the goal %s): the secret route %d rolled at "
+          "once (no gate), its reveal groups shown %s along it, the hidden pad %d shown (%d) and pad %d's with the "
+          "route (%d)" % (sec["name"], rt["a"], ex, sec["gc"], sec["ri"], order, rt["b"], nst(g, hid["sign"]),
+                          rt["a"], nst(g, vend["sign"])),
+          "the secret route's reveal: %s, exit %d, order %s, %s" % (hit, ex, order, bad[:3]))
 
 
 # ---- the host half -----------------------------------------------------------------------------------
@@ -1090,41 +1065,44 @@ def host_check():
         print("bonanza_path the follower under unicorn, the test map: its %d routes both ways against "
               "bbcourse.Follow: %s" % (len(T["routes"]), "; ".join(bad) or "every step equal"))
         assert not bad, "bz_follow is not bbcourse.Follow"
-        art, crs = secret_art(td)
-        src = os.path.join(td, "bonanza")
-        shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
-        R.assemble(src, art, binp)
-        part = open(os.path.join(art, "BZPATH.BIN"), "rb").read()
-        T = tables(part)
-        sec = [r for r in T["routes"] if r["secret"]]
-        assert len(sec) == 1 and sec[0]["gate"] is None and sec[0]["dist"] and T["pads"][sec[0]["b"]]["hidden"] \
-            and T["pads"][sec[0]["a"]]["vend"] and sec[0]["a"] == 0 and sec[0]["e"] == SECRET_EXIT, \
-            "the private map's secret route is not as the leg needs it"
-        c = R.course(SECRET_CRS, src=os.path.join(crs, SECRET_CRS + ".bbc"), art=art)
-        assert BB.course_exits(c).get(SECRET_EXIT) is True and goal_cells(c, SECRET_EXIT), \
-            "the private %s has no hidden exit %d goal" % (SECRET_CRS.upper(), SECRET_EXIT)
-        bad = follower_check(binp, part, R.symbols(src, art))
-        print("bonanza_path the private map: secret route %d -> %d (exit %d), %d reveal groups at %s ground px; the "
-              "follower under unicorn on its %d routes: %s" % (
-                  sec[0]["a"], sec[0]["b"], sec[0]["e"], len(sec[0]["dist"]), sec[0]["dist"], len(T["routes"]),
-                  "; ".join(bad) or "every step equal"))
-        assert not bad, "bz_follow is not bbcourse.Follow on the private map"
+        # the SECRET leg's route, the build's own (SPEC.md 130.54.6): one secret route, no gate, its reveal
+        # groups, a HIDDEN far pad, its start the VISIBLE END - opened by a hidden exit of that pad's course, a
+        # goal of that exit to poke the ball into; the main leg's walk reaches its start from where 10b. leaves
+        sec = secret_plan(T)
+        srt = sec and sec["rt"]
+        assert sec is not None and [r["secret"] for r in T["routes"]].count(True) == 1 and srt["gate"] is None \
+            and srt["dist"] and T["pads"][srt["b"]]["hidden"] and T["pads"][srt["a"]]["vend"], \
+            "the test map's secret route is not as the secret leg needs it"
+        c = R.course(sec["name"].lower())
+        assert BB.course_exits(c).get(srt["e"]) is True, "%s's exit %d is not HIDDEN" % (sec["name"], srt["e"])
+        pr = find_page_route(T, dg[0])
+        zp = pr[3]
+        on = [w for w in ways(T, zp) if w[0] != pr[1]] or ways(T, zp)
+        lrt = T["routes"][on[0][0]]
+        lz = (lrt["pts"][0] if on[0][1] else lrt["pts"][-1])[2] - (lrt["pts"][-1] if on[0][1] else lrt["pts"][0])[2]
+        assert T["pads"][zp]["isign"] is not None and lz > 0, \
+            "the page route's far pad %d has no icon (10.) or its road on (route %d) does not climb (10b.)" % (
+                zp, on[0][0])
+        assert walk(T, on[0][2], srt["a"]) is not None, "no open way from pad %d to the secret route's pad %d" % (
+            on[0][2], srt["a"])
+        print("bonanza_path the icon pad %d (10.), rolled on up route %d's ramp (10b., %d ground px up); the secret route "
+              "%d -> hidden pad %d by %s's hidden exit %d (its goal %s), %d reveal groups at %s ground px" % (
+                  zp, on[0][0], lz, srt["a"], srt["b"], sec["name"], srt["e"], sec["gc"], len(srt["dist"]),
+                  srt["dist"]))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", choices=("cga", "herc"), action="append")
-    ap.add_argument("--leg", choices=("main", "secret"), action="append")
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true",
-                    help="the host half: the red arms assemble, the private map compiles, the follower = Follow")
+                    help="the host half: the red arms assemble, the test map's walk, the follower = Follow")
     a = ap.parse_args()
     R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check:
         host_check()
         return 0
     tags = tuple(a.tag or ("cga", "herc"))
-    legs = tuple(a.leg or ("main", "secret"))
     if a.red:
         with tempfile.TemporaryDirectory() as td:
             src, img = R.build_tree(td, REDS[a.red])
@@ -1139,10 +1117,7 @@ def main():
         return 0
     fails = []
     for tag in tags:
-        if "main" in legs:
-            fails += ["%s: %s" % (tag, f) for f in run(tag)]
-        if "secret" in legs and tag == tags[0]:
-            fails += ["%s secret: %s" % (tag, f) for f in run_secret(tag)]
+        fails += ["%s: %s" % (tag, f) for f in run(tag)]
     for f in fails:
         print("FAIL " + f)
     print("bonanzapath: %s" % ("PASS" if not fails else "%d FAIL" % len(fails)))
