@@ -4926,8 +4926,9 @@ def w4_scenarios():
     FOUND on the model by bonanzaphys's own wave-4 recipes pointed at a TEST course, once a process:
       tply-route  TPLY's autopilot route as a log (auto_log): both FLAGS raised on the route (MOON's demo's
                   flags), the first full write and its blank, every frame of its w4_windows checked;
-      tply-flag   off flag 0 (26, 26) into the hole beside it (26, 30): a fall, the RESPAWN on the flag - a
-                  respawn's full write, blanked (MOON's demo's pit);
+      tply-flag   off flag 0 (26, 26) and into a hole FAR from it (w4_cuts): a fall, the RESPAWN on the flag
+                  outside the window - a CUT, the respawn's full write, blanked (MOON's demo's pit).  (The
+                  hole beside the flag respawns INSIDE the window: no cut, 130.10.8 item 3, no full write);
       tply-pad-N  a ball of another material rolled onto each of TPLY's three pads: the PAD swap;
       cup-128     TCUP's cup from a neighbour at 128: the CAPTURE (PEAK's cup's);
       cup-lip     across TCUP's mouth at the fastest speed under VMAXG that LIPS OUT: the pop;
@@ -4955,19 +4956,25 @@ def w4_scenarios():
     found = None
     for d in P.DIR8:
         for v in (0, 192, BB.VMAXG):
-            ux = (1 if d & BB.K_R else -1 if d & BB.K_L else 0)
-            uy = (1 if d & BB.K_D else -1 if d & BB.K_U else 0)
-            pk = P.w4_poke("tply", *F0["at"], mat=0, gvx=ux * v, gvy=uy * v)
-            ks = [d] * 240
-            p = P.run_keys("tply", 0, pk, ks)
-            r = evs(p, "respawn")
-            if evs(p, "flag") and r and r[0][2] == tuple(F0["at"]) and p.nfall >= 1:
-                found = (pk, ks[:r[0][1] + 30], r[0][1])
+            for mat in (0, 1, 2):
+                ux = (1 if d & BB.K_R else -1 if d & BB.K_L else 0)
+                uy = (1 if d & BB.K_D else -1 if d & BB.K_U else 0)
+                pk = P.w4_poke("tply", *F0["at"], mat=mat, gvx=ux * v, gvy=uy * v)
+                ks = [d] * 400
+                p = P.run_keys("tply", mat, pk, ks)
+                r = evs(p, "respawn")
+                if evs(p, "flag") and r and r[0][2] == tuple(F0["at"]) and p.nfall >= 1:
+                    ks = ks[:r[0][1] + 30]
+                    if w4_cuts("tply", mat, pk, ks):
+                        found = (pk, ks, r[0][1], mat)
+                        break
+            if found:
                 break
         if found:
             break
-    add("tply-flag", "tply", 0, found[0] if found else {}, found[1] if found else [0],
-        "off flag 0 %s: a fall, respawned ON it at step %s" % (F0["at"], found and found[2]), found)
+    add("tply-flag", "tply", found[3] if found else 0, found[0] if found else {}, found[1] if found else [0],
+        "off flag 0 %s: a fall FAR from it, respawned ON it at step %s - outside the window, so a CUT (130.10.8 "
+        "item 3) on both cards at every pace W4_CUTPACE tries" % (F0["at"], found and found[2]), found)
     for pd in P.w4_rec("tply", BB.PK_PAD):
         mat = (pd["mat"] + 1) % 3
         best = None
@@ -5007,6 +5014,37 @@ def w4_scenarios():
         "across TCUP's mouth: LIPPED OUT at step %s (at %s)" % (lip and lip[2], lip and lip[3]), lip)
     _W4.update(out)
     return _W4
+
+
+W4_CUTPACE = (0.7, 1.0, 1.4)            # tply-flag: the paces (bbcourse.CamRun's SLOW) its respawn must CUT at
+
+
+def w4_cuts(crs, mat, poke, keys):
+    """does the run of KEYS (course CRS, ball MAT, POKE as the replay pokes it) respawn OUTSIDE the window, so
+    the respawn's frame is a CUT - 130.10.8 item 3's full write, blanked (130.14.5.6) - on both cards, by
+    bbcourse.CamRun's camera at every pace in W4_CUTPACE?  A respawn INSIDE the window is no cut (the boxes
+    draw it, 130.10.8 item 3), and the guest's pace is not the model's to the frame, so a respawn the model
+    cuts only at one pace is no scenario for W4's `respawn` tally (a full write after the first frame)"""
+    import bonanza_phys as P
+    c = course(crs)
+    for herc in (0, 1):
+        for slow in W4_CUTPACE:
+            p = P.model(crs, mat, poke)
+            r = BB.CamRun(c, herc, p, slow)
+            it = iter(keys)
+
+            def st():
+                k = next(it, None)
+                if k is None:
+                    return False
+                p.step(k, BB.TILT_KEYS)
+            cut = None
+            while cut is None and r.frame(st):
+                if r.rows[-1]["resp"]:
+                    cut = r.rows[-1]["full"]
+            if not cut:
+                return False
+    return True
 
 
 def w4_windows(crs, keys):
@@ -5051,6 +5089,8 @@ def w4_part(g, art=None):
             continue
         f, out[name] = w4_replay(g, Ref(g.tag, course(s_["crs"]), art), "%s W4 %s" % (g.tag, name), log=s_["log"],
                                  poke=s_["poke"] or None, windows=s_["windows"])
+        print("%s W4 %s: %s" % (g.tag, name, ", ".join("%s %d" % kv for kv in sorted(out[name].items()) if kv[1])),
+              flush=True)
         fails += f
     return fails, out
 
