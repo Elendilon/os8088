@@ -162,7 +162,9 @@ the shipped build's.
   carry over by name; then B's ramp down along +y (20 -> 12) onto W, a strip
   at 12 the route crosses along +x, three bumpers, a DROP from W onto F (8),
   the LIFT (18, 22) between F and the low floor L (2), and the CANNON from F
-  along -x over L onto the goal ledge G (4).  20,970 bytes stored, 4,590 LZB
+  along -x over L onto the goal ledge G (4); below everything, off the route,
+  the quiet pad Q (0) and its post (33, 42) for the CORNER leg.  28,026 bytes
+  stored, 4,874 LZB (20,970 / 4,590 before Q)
   (MILL 26,785 RAM); compiles in about 28 s cold.  The autopilot finishes:
   goal at step 723 (13.1 s), no fall, one kick; limit the tool's 25 s.
 
@@ -190,7 +192,7 @@ the shipped build's.
   |---|---|---|---|
   | wheel, BENCH (benchmark, breakpoints on every commit) | MILL, 1,200 frames: rotors shown, a kick, 2- and 3-word commits, HOLD_FROM 120 late frames | both rotors shown from frame 1; the kick of post 5 (17, 16); posts 5 and 6 shown from 256 / 212 | ~400 / ~350 (the kick at 331 / 282 and enough held frames after 120) |
   | wheel, LOW (+ the BEAM sweep) | MILL play, a post at window line 160, held ball | post 6 (Herc crossing, `wrapcommit`) from W's back; post 4 (CGA crossing) if low_plan finds C | unchanged: the scenario's own ~48 + 138 frames |
-  | wheel, CORNER | MILL's post 6, scripted camera | post 4 (7, 13), column 21 (a CGA window reaches its left; the Hercules' REPORTED as today) | unchanged (<= 10 tries) |
+  | wheel, CORNER | MILL's post 6, scripted camera | post 9 (33, 42) on the quiet pad Q, nothing else moving in its window (post 6's window holds both rotors and the clock: its step frame 57 - 97k after the rise); bottom-left corner on both cards (CGA R0 281, c0 16; Hercules R0 141, c0 16 - the Hercules now JUDGED, no longer REPORTED) | unchanged (<= 10 tries) |
   | wheel, STALE | MILL, a rotor above the window's top | the windmills (lines 144 - 184), ball held on the ramp or W | unchanged |
   | wheel, SIDE | MILL, a rotor / clock digit beside the column band | the clock (6, 13) beside the windmills, or the finish clock (11, 21) | unchanged |
   | wheel, CLOCK | FIRST, ball held at the start | TMIL's clock (6, 13) is in the start's window (or TQUIK's) | unchanged |
