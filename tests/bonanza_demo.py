@@ -6,51 +6,48 @@
     python3 tests/bonanza_demo.py --check           (the host half: the hostile set built and each file's
                                                      refusal decided by bbcourse.check_log; the reds assembled)
 
-On MartyPC's CGA and Hercules, BONANZA on a disk the row builds (the shipped
-build/bonanza.o88, SYSTEM\\APPDATA, and a folder HOSTILE of files the HOST
-wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py):
+On MartyPC's CGA and Hercules, ONE BOOT A CARD, BONANZA on a disk the row builds (the
+shipped build/bonanza.o88, SYSTEM\\APPDATA, and a folder HOSTILE of files the HOST
+wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py).  Every log is MADE FROM THE
+MODEL on TQUIK, the test course whose goal is 165 autopilot steps (3.0 s) from its start (SPEC.md 130.54,
+found by NAME), never a prototype course's or demo's; the shipped demos are ROLL's and HOP's alone:
 
-  save     a free play of MILL by the autopilot, then W through the Save dialog
-           (os88ui's chooser verbs) into ANOTHER folder (SYSTEM) as MILLA.BZR:
+  save     a free play of TQUIK by the autopilot, then W through the Save dialog
+           (os88ui's chooser verbs) into ANOTHER folder (SYSTEM) as QUIKA.BZR:
            the file read back off the floppy on the host equals bz_rlog's bytes,
            which equal the model's log of that play (bbcourse.encode_log); then
-           Enter plays MILL again - the dialog moved the instance, so the play's
+           F plays TQUIK again - the dialog moved the instance, so the play's
            fetches must go HOME first (130.14.7.6: `nohome`'s check)
-  load     the log overwritten (a FIRST log poked in), L of SYSTEM\\MILLA.BZR:
+  load     the log overwritten (another TQUIK log poked in), L of SYSTEM\\QUIKA.BZR:
            bz_rlog the file's bytes again, the face's log line its name
            (bz_lsv 2, bz_lfn); R to the model's end state (bbcourse.replay_log);
            D: the RESULTS page (bz_page, bz_res) and its measured frames those
            its replay presented (bz_rframes = bz_frames at its end)
-  ship     V through the shipped demos (bz_vk 0 - BZ_NDEMO - 1: six since wave 6,
-           the PLAYGROUND's BZD6 the one that BOOSTS, SPEC.md 130.16.8): each
-           BZD<K>.BIN in bz_rlog byte for byte, D'd to its recorded end equal
+  ship     V of the SHIPPED demos, ROLL's and HOP's ([bz_vk] poked to each one's row): each
+           BZD<NAME>.BIN in bz_rlog byte for byte, D'd to its recorded end equal
            to the model's replay of it (nstep, the position, the velocities,
-           the falls, and bz_nboost - BZD6's at least 1, the boost's guest/model
-           proof in a whole play); each
-           carries its course's identity, wave 5b's (SPEC.md 130.15.10.5),
-           not a wave 4 one
-  wave4    (wave 5b, SPEC.md 130.15.7) MOON's demo as a wave 4 build wrote it
-           (identity EB84h) put in the log and R pressed: REFUSED by the
+           the falls, and bz_nboost); each carries its course's identity (SPEC.md 130.15.10.5)
+  wave4    (wave 5b, SPEC.md 130.15.7) a TQUIK log whose +14 identity is not TQUIK's (ANOTHER BUILD's: the
+           identity XOR W4_XOR) put in the log and R pressed: REFUSED by the
            launch's identity check ([bz_err] 3, no step) and the face says
            "Another course's log"
   hostile  THE HOSTILE SET (130.14.7.2), each through L's Open dialog: an
            extension not BZR, 15 bytes, 4,097 bytes, a bad magic, K = BZ_NCRS,
-           material 3, +6 bit 3, an identity of another build (MOON's
-           shipped demo as a wave 4 build wrote it: EB84h, wave 5b), +7 another
-           physics, N = 0, a length one byte off 16 + 2N, a TILT log one off
+           material 3, +6 bit 3, an identity of another build (the wave4 leg's log),
+           +7 another physics, N = 0, a length one byte off 16 + 2N, a TILT log one off
            16 + 3N, steps one off the sum, a count of 0, a key byte with bit 7,
            a tilt nibble of 9, and (wave 6, SPEC.md 130.16.14) +7 = A0h (5b's
            BZ_PHYSV) and +7 = 00h, and (wave 6b, 130.17.10) +7 = 25h (wave
-           6's, the owner's round-1 logs), each THIS build's log with only +7
+           6's, the owner's round-1 logs), each THIS build's TQUIK log with only +7
            changed as H09 is - each REFUSED with its toast (`Not a Bonanza
            demo` for the first three, `Demo from other physics` for +7, `Damaged
            demo file` for the rest), bz_rlog unchanged byte for byte, no part
            row fetched, the instance's claims as before (tools/heapmap.py), and
            for the first three bz_lfile NEVER ENTERED - so no claim and no
            OSAPI_FILE_READ (breakpoints on bz_lfile and its read)
-  dclick   with the window closed, a DOUBLE-CLICK on SYSTEM\\MILLA.BZR in the
+  dclick   with the window closed, a DOUBLE-CLICK on SYSTEM\\QUIKA.BZR in the
            Disk window opens BONANZA with it loaded (bz_rlog, bz_lsv 2, bz_lfn),
-           and R after it fetches MILL from home and replays to the model's end;
+           and R after it fetches TQUIK from home and replays to the model's end;
            then the double-click legs of the set, each a new instance: 4,097
            bytes refused by FERR_BIG before any data (`Not a Bonanza demo`, the
            read's capacity 4,096), 15 bytes (`Not a Bonanza demo`), a bad
@@ -85,25 +82,30 @@ import bonanza_exit as X       # noqa: E402
 import bonanza_game as GM      # noqa: E402
 
 LEGS = ("save", "load", "ship", "wave4", "hostile", "dclick")
-SAVENAME = "MILLA.BZR"
-# WAVE 5B (SPEC.md 130.15.7, 130.15.10.5): the identities BZC2's RAM form and the dither moved - MOON's and
-# PEAK's as a wave 4 build stamped them (0e5e46ca's bzcourse.inc, the shipped demos' old `ident` lines)
-W4_IDENT = {"moon": 0xEB84, "peak": 0x7D69}
+SAVENAME = "QUIKA.BZR"
+SHIPPED = ("roll", "hop")       # the shipped courses, whose shipped demos the ship leg runs
+W4_XOR = 0x5A5A                 # ANOTHER BUILD's identity: TQUIK's XOR this (a wave 4 build stamped its courses
+                                # with identities a later RAM form moved, SPEC.md 130.15.7 - any other value is one)
 PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 130.16.9: PHYSV_SHIPPED's last before wave 6)
 PHYSV_6 = 0x25                  # wave 6's BZ_PHYSV, the owner's gate-1 playtest (SPEC.md 130.17.7: PHYSV_SHIPPED's
                                 # last before wave 6b)
 
 
+def quik():
+    """TQUIK's K, by its NAME (SPEC.md 130.54: the test course every log here is made on)"""
+    return R.CRS_K["tquik"]
+
+
+def w4_ident():
+    """the identity ANOTHER BUILD stamped on TQUIK (TQUIK's own XOR W4_XOR)"""
+    return R.course_k(quik()).ident ^ W4_XOR
+
+
 def wave4_log():
-    """MOON's shipped demo AS A WAVE 4 BUILD WROTE IT: BZD<MOON>.BIN with its
-    +14 identity MOON's wave 4 one (EB84h).  Physics did not move (BZ_PHYSV
-    A0h), so the authored demo's runs are the same and only `ident` changed
-    (SPEC.md 130.15.7)."""
-    k = R.CRS_K["moon"]
-    with open(os.path.join(ROOT, R.at("build/bonanza-art"), R.demo_name(k)), "rb") as f:
-        b = bytearray(f.read())
-    struct.pack_into("<H", b, 14, W4_IDENT["moon"])
-    return bytes(b)
+    """TQUIK's log (the model's autopilot play) AS ANOTHER BUILD WROTE IT: its +14 identity not TQUIK's
+    (w4_ident) - the runs the same, only `ident` changed (SPEC.md 130.15.7)"""
+    k = quik()
+    return R.make_log(GM.auto_keys(k), k, R.course_k(k).ball, ident=w4_ident())
 
 
 def toasts():
@@ -112,14 +114,20 @@ def toasts():
     return {n: s for n, s in re.findall(r"^TOASTSTR (bz_t_\w+), ['\"](.*)['\"]\s*$", t, re.M)}
 
 
-def mill_log():
-    k = R.CRS_K["mill"]
+def quik_log():
+    """TQUIK's log MADE FROM THE MODEL: the autopilot's play to its goal (bonanza_game.auto_keys)"""
+    k = quik()
     return R.make_log(GM.auto_keys(k), k, R.course_k(k).ball)
 
 
+def other_log():
+    """a second, different TQUIK log (the load leg's: overwritten by L): 30 steps of no key"""
+    return R.make_log([0] * 30, quik(), R.course_k(quik()).ball)
+
+
 def tilt_log():
-    """a valid TILT log of MOON (130.14.8.3): 40 steps, its caps changing"""
-    k = R.CRS_K["moon"]
+    """a valid TILT log of TQUIK (130.14.8.3): 40 steps, its caps changing"""
+    k = quik()
     keys = [BB.K_R] * 20 + [BB.K_D] * 20
     tilts = [0x80 + (i // 5) for i in range(20)] + [0x08 + 0x10 * (i // 5) for i in range(20)]
     return BB.encode_log(keys, course=k, mat=R.course_k(k).ball, ident=R.course_k(k).ident, tilts=tilts)
@@ -128,9 +136,8 @@ def tilt_log():
 def hostile_set():
     """[(file name, bytes, the toast's label, the check bbcourse.check_log fails
     or None for a refusal before it, first-three)] - SPEC.md 130.14.14's set"""
-    good = bytearray(mill_log())
+    good = bytearray(quik_log())
     tl = bytearray(tilt_log())
-    k = R.CRS_K["mill"]
     out = [("H01.BZX", bytes(good), "bz_t_notbzr", None, True),
            ("H02.BZR", bytes(good[:15]), "bz_t_notbzr", 1, True),
            ("H03.BZR", bytes(good) + bytes(4097 - len(good)), "bz_t_notbzr", 1, True)]
@@ -143,8 +150,8 @@ def hostile_set():
     mut("H05.BZR", lambda b: b.__setitem__(4, GM.ncrs()))
     mut("H06.BZR", lambda b: b.__setitem__(5, 3))
     mut("H07.BZR", lambda b: b.__setitem__(6, b[6] | 8))
-    out.append(("H08.BZR", wave4_log(), "bz_t_dmg", None, False))     # another BUILD's identity: MOON's wave 4
-                                                                    # demo, EB84h (SPEC.md 130.15.13)
+    out.append(("H08.BZR", wave4_log(), "bz_t_dmg", None, False))     # another BUILD's identity: TQUIK's
+                                                                    # log with w4_ident (SPEC.md 130.15.13)
     mut("H09.BZR", lambda b: b.__setitem__(7, (BB.PHYSV ^ 0x5A) & 0xFF), "bz_t_phys")
     # wave 6 (SPEC.md 130.16.14): THIS build's log with +7 5b's BZ_PHYSV (A0h) and the unset 00h - a real 5b log
     # of a course whose identity moved fails check 4 first (130.16.9), so it cannot be this case
@@ -185,8 +192,16 @@ def check_set():
             bad.append("hostile %s: bbcourse.check_log ACCEPTS it" % name)
         if chk and toast == "bz_t_phys" and chk[0] != 5:
             bad.append("hostile %s: refused at check %d, not 5 (physics)" % (name, chk[0]))
+    dks = R.demo_ks()
+    for n in SHIPPED:                           # the ship leg's demos: the shipped courses' own
+        if R.CRS_K[n] not in dks:
+            bad.append("ship: %s has no shipped demo in this build (bzdemo.lst)" % n.upper())
+    if GM.auto_steps(quik())[0] is None:
+        bad.append("TQUIK: the model's autopilot does not reach the goal (every log here is its play)")
     ids = [R.course_k(i).ident for i in range(GM.ncrs())]
-    for nm, lg in (("MILL's autopilot", mill_log()), ("MOON's TILT", tilt_log())):
+    if w4_ident() in ids:
+        bad.append("wave4: another build's identity %04Xh is a course's of this build" % w4_ident())
+    for nm, lg in (("TQUIK's autopilot", quik_log()), ("TQUIK's TILT", tilt_log())):
         if BB.check_log(lg, GM.ncrs(), ids) is not None:
             bad.append("the base %s log is itself refused: %s" % (nm, BB.check_log(lg, GM.ncrs(), ids)))
     return bad
@@ -238,12 +253,12 @@ def pick(ui, path):
 def leg_save(g, ui):
     fails = []
     m = g.m
-    k = R.CRS_K["mill"]
-    GM.free_play(g, k, "MILL by the autopilot")
-    want = mill_log()
+    k = quik()
+    GM.free_play(g, k, "TQUIK by the autopilot")
+    want = quik_log()
     got = bytes(g.read_log(len(want)))
     if got != want:
-        fails.append("save: MILL's play left a log that is not the model's (%d bytes)" % len(want))
+        fails.append("save: TQUIK's play left a log that is not the model's (%d bytes)" % len(want))
     GM.guard(g)
     g.key("KeyW")
     ui.chooser_save(SAVENAME, folders=("SYSTEM",))
@@ -257,13 +272,13 @@ def leg_save(g, ui):
     if f is not None and f != got:
         fails.append("save: the file read back off the floppy (%d bytes) is not bz_rlog's %d" % (len(f), len(got)))
     try:
-        GM.free_play(g, k, "MILL after W (the fetch from home)")
+        GM.free_play(g, k, "TQUIK after W (the fetch from home)")
         ok = bool(g.b("bz_goal"))
     except (AssertionError, M.MartyError) as e:  # (a refused launch: no bracket ever comes up -
         ok = False                               # until's own error, the `nohome` red's case)
         fails.append("save: the play after W did not run (%s): its parts were not read from home, toast %r" % (
             e, ui.toast()[0]))
-    print("%s save: MILL's log the model's, W into SYSTEM, the file = bz_rlog, the play after W at home: %s" % (
+    print("%s save: TQUIK's log the model's, W into SYSTEM, the file = bz_rlog, the play after W at home: %s" % (
         g.tag, "yes" if not fails and ok else "NO"), flush=True)
     return fails
 
@@ -271,9 +286,9 @@ def leg_save(g, ui):
 def leg_load(g, ui):
     fails = []
     m = g.m
-    want = mill_log()
+    want = quik_log()
     m.pause()
-    g.write_log(R.make_log([0] * 30, R.CRS_K["first"], 0))
+    g.write_log(other_log())
     m.run()
     GM.guard(g)
     g.key("KeyL")
@@ -306,8 +321,12 @@ def leg_ship(g):
     g.putb("bz_vk", 0)
     m.run()
     rep = []
-    for kd in R.demo_ks(art):                   # (V's cycle: the demo rows' order)
+    dks = R.demo_ks(art)                        # (V's cycle: the demo rows' order)
+    for kd in [R.CRS_K[n] for n in SHIPPED]:    # the SHIPPED courses' demos alone
         demo = open(os.path.join(ROOT, art, R.demo_name(kd)), "rb").read()
+        m.pause()
+        g.putb("bz_vk", dks.index(kd))          # (the row V loads next)
+        m.run()
         GM.guard(g)
         g.key("KeyV")
         M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo,
@@ -321,21 +340,17 @@ def leg_ship(g):
                                                          ", %d boost(s)" % got[8] if len(got) > 8 else ""))
         if got != want:
             fails.append("ship: D of BZD%d.BIN ended at %s, the model's replay at %s" % (kd, got, want))
-        if BB.log_ident(demo) != R.course_k(kd).ident or BB.log_ident(demo) in W4_IDENT.values():
-            fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (wave 5b's new ones, "
-                         "SPEC.md 130.15.10.5)" % (kd, BB.log_ident(demo), R.course_k(kd).ident))
-    if "bz_nboost" in g.sym and not any(model_end(open(os.path.join(ROOT, art, R.demo_name(kd)), "rb").read())[8]
-                                        for kd in R.demo_ks(art)):
-        fails.append("ship: no shipped demo BOOSTS in the model (BZD%d, the PLAYGROUND's, must: SPEC.md 130.16.8)"
-                     % R.CRS_K["play"])
+        if BB.log_ident(demo) != R.course_k(kd).ident:
+            fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (SPEC.md 130.15.10.5)"
+                         % (kd, BB.log_ident(demo), R.course_k(kd).ident))
     print("%s ship: %s, each D'd to the model's end: %s" % (g.tag, ", ".join(rep), "yes" if not fails else "NO"),
           flush=True)
     return fails
 
 
 def leg_wave4(g):
-    """WAVE 5B (SPEC.md 130.15.7, 130.15.13): MOON's demo as a wave 4 build
-    wrote it (identity EB84h) put in the log and R pressed - the launch's own
+    """WAVE 5B (SPEC.md 130.15.7, 130.15.13): a TQUIK log as another build
+    wrote it (w4_ident) put in the log and R pressed - the launch's own
     identity check REFUSES it ([bz_err] 3, no step played) and the face says
     "Another course's log".  (Through L the same file is refused earlier, by
     the hostile pass's identity check - H08, `Damaged demo file`.)  -> failures"""
@@ -367,11 +382,11 @@ def leg_wave4(g):
     M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "R's refusal to settle", guest=30)
     fails = []
     if played or g.b("bz_err") != 3 or g.d("bz_nstep") != n0 or not found:
-        fails.append("wave4: MOON's demo with its wave 4 identity %04Xh PLAYED, or was not refused as another "
-                     "course's log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's line %r; "
-                     "SPEC.md 130.15.7)" % (W4_IDENT["moon"], played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
-    print("%s wave4: R of MOON's demo as a wave 4 build wrote it (identity %04Xh, MOON's now %04Xh): %s" % (
-        g.tag, W4_IDENT["moon"], R.course("moon").ident, "refused, the face says %r" % found if not fails
+        fails.append("wave4: TQUIK's log with another build's identity %04Xh PLAYED, or was not refused as "
+                     "another course's log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's "
+                     "line %r; SPEC.md 130.15.7)" % (w4_ident(), played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
+    print("%s wave4: R of TQUIK's log as another build wrote it (identity %04Xh, TQUIK's %04Xh): %s" % (
+        g.tag, w4_ident(), R.course("tquik").ident, "refused, the face says %r" % found if not fails
         else "PLAYED or not refused"), flush=True)
     return fails
 
@@ -381,7 +396,7 @@ def leg_hostile(g, ui):
     m = g.m
     T = toasts()
     m.pause()
-    g.write_log(mill_log())
+    g.write_log(quik_log())
     m.run()
     for name, raw, toast, _chk, first in hostile_set():
         base_rows, base_claims = fresh(g)
@@ -429,7 +444,7 @@ def leg_dclick(ui, tag, sym, g):
     T = toasts()
     m = ui.m
     base_claims = None
-    want = mill_log()
+    want = quik_log()
     cases = [("SYSTEM", SAVENAME, None)] + [("HOSTILE", n, t) for n, t in (
         ("H03.BZR", "bz_t_notbzr"), ("H02.BZR", "bz_t_notbzr"), ("H08.BZR", "bz_t_dmg"))]
     where = "B:/"
