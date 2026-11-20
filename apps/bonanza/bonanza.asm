@@ -3671,6 +3671,7 @@ bz_hxlat:
     xor bx, bp                  ; (table 0 again)
     pop di
     pop cx
+    jmp short .noplat           ; (ONE sprite, every lift's: SPEC.md 130.12.4.7)
 .pnext:
     add di, BZ_PROPREC
     loop .prec

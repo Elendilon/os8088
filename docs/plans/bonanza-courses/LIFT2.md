@@ -1,5 +1,14 @@
 # LIFT2: two lifts in a course (a costed study, 2026-11-20)
 
+*Status (later the same day): **BUILT** (the owner: "build it ... the re-point design with BZ_LIFTMAX 2 and
+the shared sprite"). SPEC.md 130.12.4.7 is the contract, TLFT (130.54.7) the test course, the selfcheck's
+`lift2` section the host check. MEASURED against the prediction below: `bonanza.bin` +169 bytes (predicted
+~170) and bss +22 (predicted 21); `bz_psel` 108, `bz_pload` 99 (the inline cache moved out, `bz_pread` 462 ->
+404), `bz_pfull` +7, `.plat` +11, the two sprite conversions +2 each. Two things differ from section 2: the
+hand-over sets `bz_pin` to 1 directly (the track was chosen BECAUSE it meets the range's lines, so no
+`bz_ppin` routine was needed), and the shared sprite made the Hercules and VGA conversions stop at the first
+lift. DOWN keeps one lift (section 4 stands). The study below is kept as it was written.*
+
 The owner, designing course 3 (DOWN, [DOWN.md](DOWN.md)): *"How many lifts can
 we have on a stage? I'm thinking steel will probably need a lift itself; so we
 may need to take glass's lift if we can't support 2."* Today the answer is
