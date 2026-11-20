@@ -294718,3 +294718,41 @@ boxes cross it on both cards (the Hercules on W at (21, 15), the CGA on F at
   Hercules - THREE BOXES (ball, shadow, the lift's box) on both cards from
   the route, at about 601 / 510 - and the scripted camera's eight directions
   three times each by frame 60. MartyPC's first phase-3 run measures them.
+
+#### 130.54.5 TPLY, "physics and replays" (MEASURED, 2026-11-20)
+
+**TPLY** (`apps/bonanza/courses/tply.bbc`, "Play Test", rubber; the plan's
+TPLAY, a NAME being five characters) is the home of the bonanzaphys,
+bonanzareplay and bonanzaring ground scenarios that ran on the PROTOTYPES
+(FIRST, TRIAL, MOON, PEAK, PLAYGROUND); the plan's per-leg table names each
+scenario's cell. Its parts:
+
+- the PLAYGROUND's APRON at TRIAL's start height - the start, four RUNGS
+  along its back row (tops 2, 1.5, 1 and 0.5 units up, adjacent: a 64-wide
+  course has no width for apron between them, every floor corner standing
+  within `wx - wy` of -10 .. 10), and the BRAKE STRIP off its front edge into
+  a VOID over a well 16 units down, so that fall is as long as the
+  PLAYGROUND's;
+- TRIAL turned a quarter: H's lip the apron's front edge, F, the gap, G, the
+  steep ramp, the mat, the ice between bumper rails, the sand and the SPLIT
+  GOAL (exits 0 and 1) - the autopilot's route, TRIAL's;
+- a YARD at the goal's height: FIRST's plateau with its back rail and its
+  ramp's 2-unit lip, the three PADS, two SPRINGS (one throws rubber onto the
+  plateau), a plain east wall, and a hole beside FLAG 0; a level STRIP
+  (`box`) fourteen cells long for the drag's one-arrow run;
+- two FLAGS on the route (rubber and glass) and `limit 20`.
+
+Two features are on other test courses BY RULE, not by choice: a CUP (a
+course finishes at goal cells or in a cup, 130.14.4.1: TCUP's), and the
+respawn on bz_safe - a course with a flag or a cup sets GF_CKPT and respawns
+at its last flag (130.14.4.5), so the SAFE respawn is BENCH's, which has
+neither. The families (130.25) are on no test course yet.
+
+As built: course 11 of the test build, one part of 32,068 bytes in RAM, 91
+masks (95 undithered: under the 256, so `nodither`'s undithered compile of
+every course succeeds where PLAYGROUND's 292 refuse), compiled in about 8 s;
+the autopilot reaches exit 1 in 529 steps (9.7 s), no fall, both flags
+touched; NO TRAP holds from every flag and pad. The shipped build is byte
+for byte what it was (`BONANZA.O88` 149,693 bytes, the four images); the
+test build's `BONANZA.O88` is 166,214 bytes, its image 52,465 -> 52,501 (+36,
+a row of every per-course table).

@@ -22498,8 +22498,9 @@ BZ_ART := $(BUILD)/bonanza-art
 # THE TEST COURSES (SPEC.md 130.54): the courses the rows play, each with a `test` statement, the BZDEV=1
 # build's alone - BZDEV's block below puts them AFTER every other course, so none shifts a shipped course's K.
 # BENCH (Proving Ground), the benchmark's; TQUIK (the plan's TQUICK) and TCUP, the exits' and the save's (a goal, a cup).
+# TPLY (the plan's TPLAY), the physics and replay rows' (the prototypes' features on one course).
 # bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
-BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc
+BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc apps/bonanza/courses/tply.bbc
 BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
