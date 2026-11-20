@@ -210,37 +210,42 @@ floor("T", 52, 16, 55, 21, Z - 29)                           # steel sinks and r
 floor("M", 52, 21, 55, 25, Z - 29)                           # MOMENTUM: a HUMP across the path (EXTRA), which steel
 mark(53.5, 22.5, "hump", "hump")                             #   crests with its speed (two ramps stacked too many records)
 floor("G", 51, 25, 56, 29, Z - 29)                           # FINISH 1, steel (exit 0)
-# 3b. GLASS (south, +y): a WEB BRIDGE, a LIFT climbing up the screen, then the CHOICE down the screen
+# 3b. GLASS (south, +y): a WEB BRIDGE, then (rev 10, the owner) WEST at the bridge's height - no lift (it goes to
+# steel, which climbs): a WEB MAZE of solid islands joined by ONE-cell membrane links (glass-only, easy to
+# steer), the old plateau its first island; a FLOAT pool (water, no arch) as one crossing; a BOOST off the far
+# bank; then STAIRS with two valid-looking ways (glass shatters from 3): a couple of steps down, then the
+# straight way 3, 1, 1 and the way round 2, 1, 2
 floor("K", 45, 17, 46, 22, Z - 26)                           # the WEB BRIDGE: 1 wide, a glass-only MEMBRANE over the void
 for y in range(17, 22):
     mark(45.5, y + 0.5, "crack", "")
-floor("P", 43, 22, 47, 25, Z - 26)                           # the bridge's landing
-mark(42.5, 23.5, "lift", "LIFT up 4")                        # the LIFT, on P's west edge: it rises in FRONT of Q
-floor("Q", 36, 21, 42, 27, Z - 22)                           # the CHOICE plateau, behind the lift (its face in view)
-# rev 9 (the owner, a DRAFT): glass goes on WEST - a simple WEB MAZE over the void (1-wide membrane strands, one
-# dead end), a FLOAT pool as one of its crossings (water with no arch: glass rides it), a BOOST off the pool's far
-# bank over a gap onto the stair platform, and a WRAPPED staircase to the finish: the safe way round in 2-unit
-# steps, the short way straight down in two 3-unit drops (glass SHATTERS from 3) - "the choice is between the 3/2"
-floor("K", 31, 23, 36, 24, Z - 22)                           # strand 1, west off the plateau
-floor("P", 28, 22, 31, 25, Z - 22)                           # the maze's junction (a flag)
-floor("K", 29, 19, 30, 22, Z - 22)                           # strand 2, north: a DEAD END
-floor("P", 28, 17, 31, 19, Z - 22)                           #   its little pad (nothing there)
-floor("K", 26, 23, 28, 24, Z - 22)                           # strand 3, west, into the pool
-floor("W", 20, 22, 25, 25, Z - 22)                           # the FLOAT pool, 3 deep, no arch: glass rides across
-rail(20, 22, 25, 22, "guard")                                # a guard rail seals it north, a bank south,
-floor("Y", 20, 25, 25, 26, Z - 22)
-floor("Y", 25, 22, 26, 26, Z - 22)                           # and a bank east, where strand 3 lands    #   and either side of strand 3's mouth
+floor("P", 43, 22, 47, 25, Z - 26)                           # the bridge's landing (a flag)
+LINKS = [(42, 23), (36, 23), (34, 21), (32, 23), (32, 19), (28, 23)]
+for lx, ly in LINKS:                                         # the maze's LINKS: one membrane cell each
+    floor("K", lx, ly, lx + 1, ly + 1, Z - 26)
+    mark(lx + 0.5, ly + 0.5, "crack", "")
+floor("Q", 37, 20, 42, 27, Z - 26)                           # island 1, the old plateau (a flag)
+floor("Q", 33, 22, 36, 25, Z - 26)                           # island A2: the way on (west), and north to A1
+floor("Q", 33, 18, 36, 21, Z - 26)                           # island A1: west to B1, a DEAD END
+floor("Q", 29, 22, 32, 25, Z - 26)                           # island B2: the junction (a flag), west to the pool
+floor("Q", 29, 18, 32, 21, Z - 26)                           # island B1 (dead end)
+floor("W", 20, 22, 25, 25, Z - 26)                           # the FLOAT pool, 3 deep, no arch: glass rides across
+rail(20, 22, 25, 22, "guard")                                # a guard rail seals it north, banks south and east
+floor("Y", 20, 25, 25, 26, Z - 26)
+floor("Y", 25, 22, 28, 26, Z - 26)                           # the east bank, where B2's link lands
 for x in range(20, 25):
     for y in range(22, 25):
         mark(x + 0.5, y + 0.5, "water", "")
-floor("Y", 17, 22, 20, 25, Z - 22)                           # the far bank (a flag), and its BOOST south
+floor("Y", 17, 22, 20, 25, Z - 26)                           # the far bank (a flag), and its BOOST south
 mark(18.5, 24.5, "boost", "")
-floor("Z", 17, 27, 21, 30, Z - 24)                           # the STAIR platform, 2 down past a 2-tile gap
-floor("Z", 21, 27, 23, 29, Z - 27)                           # the SHORT way, straight on east: 3, then 3 - glass shatters
-floor("Z", 19, 30, 21, 32, Z - 26)                           # the SAFE way wraps round, south then east: 2,
-floor("Z", 21, 29, 23, 33, Z - 28)                           #   2,
-floor("V", 23, 27, 31, 33, Z - 30)                           #   2 - onto FINISH 2, glass (exit 1)
-GOAL = {(x, y) for x in range(51, 56) for y in range(27, 29)} | {(x, y) for x in range(29, 31) for y in range(27, 33)}
+floor("Z", 17, 27, 21, 30, Z - 27)                           # the STAIR platform past a 2-tile gap, 1 down,
+floor("Z", 21, 27, 23, 30, Z - 28)                           #   and a second step: the FORK
+floor("Z", 23, 27, 25, 29, Z - 31)                           # the STRAIGHT way: 3 (glass shatters),
+floor("Z", 25, 27, 27, 29, Z - 32)                           #   1, then 1 onto the finish
+floor("Z", 21, 30, 23, 32, Z - 30)                           # the way ROUND: 2,
+floor("Z", 23, 30, 25, 33, Z - 31)                           #   1, then 2 onto the finish
+floor("V", 27, 27, 33, 29, Z - 33)                           # FINISH 2, glass (exit 1): an L round the two ways
+floor("V", 25, 29, 33, 33, Z - 33)
+GOAL = {(x, y) for x in range(51, 56) for y in range(27, 29)} | {(x, y) for x in range(31, 33) for y in range(27, 33)}
 
 # the PROPS the sketch does not model, as the engine's statements (world cells: sketch + OFF)
 def _w(x):
@@ -265,38 +270,33 @@ EXTRA = [
     "arch %d %d +y" % (_w(52), _w(15)),
     "# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)",
     "prop membrane %d %d %d %d" % (_w(45), _w(17), _w(46), _w(22)),
-    "prop platform %d %d 4" % (_w(42), _w(23)),
-    "# glass's maze (rev 9): its strands membrane, the FLOAT pool (water, no arch), the far bank's BOOST",
-    "prop membrane %d %d %d %d" % (_w(31), _w(23), _w(36), _w(24)),
-    "prop membrane %d %d %d %d" % (_w(29), _w(19), _w(30), _w(22)),
-    "prop membrane %d %d %d %d" % (_w(26), _w(23), _w(28), _w(24)),
-    "water rect %d %d %d %d top %g bed %g" % (_w(20), _w(22), _w(25), _w(25), Z - 22, Z - 25),
+    "# glass's maze (rev 10): one-cell membrane LINKS, the FLOAT pool (water, no arch), the far bank's BOOST",
+] + ["prop membrane %d %d %d %d" % (_w(lx), _w(ly), _w(lx + 1), _w(ly + 1)) for lx, ly in LINKS] + [
+    "water rect %d %d %d %d top %g bed %g" % (_w(20), _w(22), _w(25), _w(25), Z - 26, Z - 29),
     "prop boost %d %d face +y strength 40" % (_w(18), _w(24)),
     "# steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)",
     "hump %d %d %g along x 3 open height 8" % (_w(52), _w(23), Z - 29),
 ]
-GOAL_RECTS = [(51, 27, 56, 29, Z - 29, 0, "steel"), (29, 27, 31, 33, Z - 30, 1, "glass")]
+GOAL_RECTS = [(51, 27, 56, 29, Z - 29, 0, "steel"), (31, 27, 33, 33, Z - 33, 1, "glass")]
 
 START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
-         (38.5, 23.5, "flag 3", "glass"), (29.5, 23.5, "flag 4", "glass"), (18.5, 23.5, "flag 5", "glass")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
+         (39.5, 23.5, "flag 3", "glass"), (30.5, 23.5, "flag 4", "glass"), (18.5, 23.5, "flag 5", "glass")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
 CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (56.5, 26.5, Z - 27.5, "steel finish", "block"),
-          (31.5, 30.5, Z - 28.5, "glass finish", "block")]
+          (33.5, 30.5, Z - 31.5, "glass finish", "block")]
 FRAMES = {}
 PLACED = {}
 SIGNS = []
 ROUTE = [(4.5, 4.5 - N), (4.5, 8.5 - N), (8.5, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
          (45, 12.5), (46, 14.5), (48, 14.5), (52.5, 14.5), (52.5, 17), (53.5, 21), (53.5, 25), (53.5, 27.5)]
-ROUTE2 = [(45.5, 12.5), (45.5, 17), (45.5, 22), (44.5, 23.5), (42.5, 23.5), (38, 23.5), (29.5, 23.5), (22, 23.5), (18.5, 23.5), (18.5, 28.5),
-          (19.5, 30.5), (20, 31), (22, 31), (25, 30), (30, 30)]
+ROUTE2 = [(45.5, 12.5), (45.5, 17), (45.5, 22), (44.5, 23.5), (39, 23.5), (34.5, 23.5), (30.5, 23.5), (26.5, 23.5),
+          (22, 23.5), (18.5, 23.5), (18.5, 28.5), (22, 28.5), (22, 31), (24, 31.5), (27, 31), (32, 30)]
 LABELS = [(4.5, 4.5, "start (1 tile)"), (4.5, 7, "STEEP ramp"), (5, 12, "shape corner"), (12, 12.5, "hump run"),
           (21, 12.5, "3 inclines"), (26, 12, "funnel+flag"), (29, 12.5, "BOOSTER chute"), (33, 12.5, "wide gap+drop"),
           (36, 12.5, "landing (no flag)"), (40, 12.5, "bounce gap"), (45, 11, "HUB"), (47.5, 14, "steel pad"),
           (50, 14.5, "spikes"), (52.5, 14, "water sink"), (53, 18, "3 down"), (53, 23, "momentum"),
-          (53, 27, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (42.5, 23.5, "lift"),
-          (38, 23, "plateau"), (33, 22.5, "strand"), (29, 22, "junction"), (29, 17.5, "dead end"),
-          (22, 22.5, "FLOAT pool"), (18, 22, "bank+boost"), (17, 28, "stair platform"), (20, 32, "safe 2s"),
-          (23, 27, "3s"), (29, 32, "FINISH glass")]
+          (53, 27, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (39, 22, "island 1"), (34, 22, "A2"), (34, 18, "A1"), (30, 22, "B2 junction"),
+          (22, 22.5, "FLOAT pool"), (18, 22, "bank+boost"), (17, 28, "stairs"), (23, 27, "3"), (21, 32, "2"), (29, 31, "FINISH glass")]
 
 # --- drawing ----------------------------------------------------------------
 SECCOL = {k: v for k, v in zip("ARCHDBLXSWTMGNKPQYZVF", [(120, 200, 120), (200, 200, 120), (150, 210, 200),
