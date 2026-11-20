@@ -3,26 +3,34 @@
 
     make bonanzadisk && python3 tests/bonanza_exit.py [--adapter cga|herc|both] [--no-keys]
     python3 tests/bonanza_exit.py --red NAME                    (a red arm, below)
-    python3 tests/bonanza_exit.py --check                            (the host half: the red arms assemble)
+    python3 tests/bonanza_exit.py --check            (the host half: the red arms assemble, the test courses
+                                                      carry what each leg and each red arm is aimed at)
 
-A launch fetches course K's lazy, compressed part (row K: the balls have no
-rows since SPEC.md 130.25.5.2 - all three are HELD in the RESIDENT BUNDLE,
-fetched at the open) - and a two-part course its world part too (130.30.5) -
-and holds them for the bracket's whole life, so they stay PINNED and every
-way out must drop them.  This row takes every way out, on every card, WITH
-EACH BALL (M on the desktop: rubber, steel, glass):
+ON THE TEST COURSES (SPEC.md 130.54, docs/plans/BOUNCE-BONANZA-SOAK.md phase 3): ONE BOOT A CARD, and
+every leg on a course built for it, found by NAME - TQUIK (the goal 165 autopilot steps from the start, a
+KEEP tube off the route, `palette 0`), TCUP (the cup, steel, the default palette) and BENCH (B's own) -
+never on a prototype course.  The balls are HELD in the resident bundle (130.25.5.2), so one ball's pass
+is the test: there is no loop over the materials any more.
 
-    Esc, F, Alt+Enter    a play of FIRST (F, free play), left by that key
-    the goal             a play of FIRST whose ball is POKED onto the goal
-                         column at bz_t0: the play ends the frame after
-    a replay's end       R, a log of FIRST with that ball (the row writes it
-                         into bz_rlog: 120 steps), run to its end
+A launch fetches course K's lazy, compressed part (row K) - and a two-part course its world part too
+(130.30.5) - and holds them for the bracket's whole life, so they stay PINNED and every way out must drop
+them.  This row takes every way out, on every card:
+
+    Esc, F, Alt+Enter    a play of TQUIK (F, [bz_crs] poked at bz_launch), left by that key
+    the goal             a play of TQUIK whose ball is POKED onto its first GOAL cell at bz_t0: the play
+                         ends the frame after
+    a replay's end       R, a log of TQUIK (the row writes it into bz_rlog: 120 steps), run to its end
     Esc in a replay      R, a log of 600 steps, left by Esc
-    the benchmark's end  B, BENCH with BENCH's ball, its 1,200th frame (once)
-
-    and, wave 3 (SPEC.md 130.12.13.2), on MILL (its own part row) every way out
-    above - its goal, a log of MILL, its benchmark - and Esc while the ball
-    is HIDDEN in a tube (poked into the chute's drain)
+    Esc while HIDDEN     TQUIK, the ball poked into its KEEP tube's IN cell (a drain) and Esc taken while
+                         [bz_tube] says it is inside
+    the cup              TCUP, the ball poked at rest in its cup's mouth: holes out ([bz_hid]) and ends
+    the benchmark's end  B, BENCH (B's own course), its end path reached a few frames in: [bz_frames]
+                         poked to BZ_BENCH less BENCH_TAIL once the bracket is up (the end is the same
+                         compare at frame 1,200; nothing here needs the 1,200 frames before it)
+    the world part       every TWO-PART course of the build (bzcrs2.lst), F then Esc: its picture part
+                         and world part fetched and dropped (130.30.5).  NO TEST COURSE IS TWO PARTS yet
+                         (a two-part picture is over 65,024 bytes), so this is the PLAYGROUND today - by
+                         the build's list, never by name: when it leaves, the leg says it ran on none
 
 and asserts, against what was read on the desktop BEFORE that launch:
 
@@ -37,9 +45,8 @@ and asserts, against what was read on the desktop BEFORE that launch:
   3  as a POSITIVE CONTROL, inside every bracket: the course's row(s) and
      the bundle's FETCHED with a segment, the three held balls' segments
      (bz_bsegs) set and the sprite's (bz_bseg) the material's, [bz_mat] the
-     course's own ball (a replay's the log's; each material is played on a
-     course whose own ball it is, since a play rolls no other), and the claims
-     the desktop's less the shell plus the course's part(s) and the arena.
+     course's own ball (a replay's the log's), and the claims the desktop's less the shell plus the
+     course's part(s) and the arena.
 
 THE DESKTOP KEYS (130.11.11.2): T (HANDLERS: C, the camera mode, went
 with TRICKLE, 130.46.12, and M and N on 2026-11-19, 130.11.5.4) - counted by
@@ -53,36 +60,19 @@ bracket (MartyPC's own counter, m.disk(): no guest instrument).  A refused
 fetch is not driven (it needs a heap too short at one moment and not the
 next, SPEC.md 130.10.11.3); the review reads that path.
 
---red NAME builds a broken package in a temporary directory (never build/)
-and PASSES only if the row FAILS - at its own check:
-  leak         the goal path does not drop the course's row: fails at the
-               goal, and only there
-  crepeat      the held-key guard taken out: a held key advances more than once
-  overswallow  bz_dkk never cleared: the second press is swallowed
-
-WAVE 4 (SPEC.md 130.14.14): a launch fetches the course and EVERY ball its pad
-mask names with the starting one (130.14.4.4) - since SPEC.md 130.25.5.2 the
-balls are HELD in the resident bundle, so a launch fetches only the course;
-the part rows are BZ_NCRS + the world parts + BZ_NDEMO + the shell and the
-rows after it (no ball rows, 130.25.5.2; no sound rows, 130.50); MOON and
-PEAK (SUMMIT) take every way out above (their GOAL is the CUP: the ball
-poked at rest in its mouth holes out, bz_hid); then, last (it closes the
-window), V's fetch and drop, D's end, W through the Save dialog, L through
-the Open dialog and the DOUBLE-CLICK of the saved .BZR (a new instance):
-every row as before and the claims as before after each.
-  padleak      the COURSE PART not dropped at a cup: MOON's goal leaves its row
-               fetched (it was the glass ball's row 2 until SPEC.md 130.25.5.2,
-               whose balls are held for the instance, then the sound part's and the
-               song's until 130.50 put the one in the bundle and the other in the
-               course part: the course is a play's last row of its own)
+WAVE 4 (SPEC.md 130.14.14): a launch fetches only the course (the balls are held, 130.25.5.2); the part
+rows are BZ_NCRS + the world parts + BZ_NDEMO + the shell and the rows after it (no ball rows, no sound
+rows, 130.50).  Then, last (it closes the window): V's fetch and drop (ROLL's SHIPPED demo, [bz_vk] poked
+to its row - the shipped demos are the shipped courses' alone), D's end (a TQUIK log made from the model's
+autopilot play, bbcourse.encode_log), W through the Save dialog, L through the Open dialog and the
+DOUBLE-CLICK of the saved .BZR (a new instance): every row as before and the claims as before after each.
 
 WAVE 5B (SPEC.md 130.15.4.5, 130.15.13): THE CLAIM LEG.  A course part is
 fetched in its STORED form and expanded in place by bz_cexp; between that
 (and bz_hxlat on the Hercules) and OSAPI_FSX_RUN nothing writes it, and inside
-the bracket the lanes' writer does.  So EVERY launch the row makes - FIRST,
-MILL, MOON, PEAK, PLAY, BENCH (B), D's (FIRST's demo) and one launch (F,
-then Esc) of every course of BZ_COURSES no other leg launched, added for
-this leg (TRIAL, ROLL, HOP ...) - stops at the kernel's fsx_run (a kernel address: the package's region may
+the bracket the lanes' writer does.  So EVERY launch the row makes - and one cheap launch (F, then Esc)
+of every course of BZ_COURSES no other leg launched (by the build's own table, never a list of names) -
+stops at the kernel's fsx_run (a kernel address: the package's region may
 move while the launch claims), and there the course claim ([bz_cseg], found
 in the heap map, at least the part's length) must equal byte for byte the
 tool's RAM form (bbcourse's cga; the art's
@@ -90,38 +80,43 @@ BZ<K>.BIN checked to be the same compile's stored form) on the CGA, or its
 htab() translation on the Hercules; a difference names the first offset and
 its BZC2 section.  The full run must have compared EVERY course K of
 BZ_COURSES (on the CGA and the Hercules: the VGA converts its art in place).
-V opens no bracket and is checked as before.  Red arms, each red at the claim
-leg's first differing offset:
-  expoff1      WDIFF's count one record short (the last record left as its
-               differences): the first launch (FIRST)
-  rowtab1      ROWTAB writes NROWS - 1 words: the first launch (FIRST)
-  cellsafe     the guest's SAFE rule without its OBS test (bz_cxsafe): a prop's
-               cell made SAFE - MILL (the first course with props)
+V opens no bracket and is checked as before.
 
-WAVE 6 (SPEC.md 130.16.6, 130.16.8, 130.16.14): the PLAYGROUND (course 6,
-`PLAY`) takes every way out as MOON and PEAK do.  And THE PALETTE, once a card: a launch of the
-PLAYGROUND and one of FIRST, each stopped at the kernel's fsx_run and then at
-the first of bz_vinit.vpal (bz_vinit's labelled `out` to 3D9h, resolved through the
-package's own symbols) and bz_presented:
+WAVE 6 (SPEC.md 130.16.6, 130.16.8, 130.16.14): THE PALETTE, once a card: a launch of TQUIK (`palette 0`,
+10h) and one of TCUP (the default 30h), each stopped at the kernel's fsx_run and then at the first of
+bz_vinit.vpal (bz_vinit's labelled `out` to 3D9h, resolved through the package's own symbols) and
+bz_presented:
   - on the CGA bz_vinit.vpal is reached first with AL the course's BZ_CRS_PALS byte
     (read out of the guest's own table, bz_cpals); a few frames later, the
     ball at rest, MartyPC's RENDERED frame (m.fbuf), aligned on the card's own
     picture, shows the ball's body index - the most common non-black index in
-    its 16 x 16 footprint - in the colour that byte selects (the PLAYGROUND's
-    10h: palette 0's light red; FIRST's 30h: palette 1's light magenta), and
-    every index the frame holds in its byte's colour: nearest of the CGA's
-    sixteen, so MartyPC's exact RGB is not this row's business;
+    its 16 x 16 footprint - in the colour that byte selects (TQUIK's 10h: palette 0's light red; TCUP's
+    30h: palette 1's light magenta), and every index the frame holds in its byte's colour: nearest of the
+    CGA's sixteen, so MartyPC's exact RGB is not this row's business;
   - on the Hercules bz_presented is reached first: bz_vinit.vpal is NEVER hit;
   - after each bracket the desktop renders only the COLOURS its capture before
     the launch held, both of them (the menu bar's band left out): 3D9h's low
     nibble is the 1bpp desktop's foreground, so a colour select left behind
     shows there.  Not the bitmap: BONANZA's own window is in the frame and
     its face is rewritten after every play, Esc included (the review's F1).
-  Red arms:
-  nopal        the `out` left out: the PLAYGROUND's rendered colour (palette 1's,
-               the BIOS's 30h)
+
+--red NAME builds a broken package in a temporary directory (never build/)
+and PASSES only if the row FAILS - at its own check (each aimed at a leg on a test course; --check
+proves the course carries what the arm needs):
+  leak         the goal path does not drop the course's row: fails at TQUIK's goal, and only there
+  crepeat      the held-key guard taken out: a held key advances more than once
+  overswallow  bz_dkk never cleared: the second press is swallowed
+  padleak      the COURSE PART not dropped at a cup: TCUP's goal leaves its row fetched
+  expoff1      WDIFF's count one record short: the claim leg's first launch (TQUIK)
+  rowtab1      ROWTAB writes NROWS - 1 words: the claim leg's first launch (TQUIK)
+  cellsafe     the guest's SAFE rule without its OBS test (bz_cxsafe): a prop's cell made SAFE - TQUIK's
+               KEEP tube's cells (the host's rule without the OBS clause parts there: --check)
+  nopal        the `out` left out: TQUIK's rendered colour (palette 1's, the BIOS's 30h)
   hercpal      the bz_herc branch round the write removed, so it runs on the
                Hercules: the bz_vinit.vpal breakpoint is hit there
+  kitlate      the kit not fetched at the open: the desktop's kit check
+  kitdrop      the kit dropped with each course: the held row not fetched after the first launch
+  vgakeep      bz_vdrop a RET: the VGA's part kept after a launch (the VGA card)
 """
 import argparse
 import os
@@ -154,11 +149,11 @@ def _tools_heapmap():
 heapmap = _tools_heapmap()
 import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
-import bonanza_phys as P       # noqa: E402
 
 OP_ROW, OP_T_ROWS, OP_R_FLAG, OP_R_ZKB = 8, 10, 1, 6        # apps/os88parts.inc
 OP_LAZY, OP_FETCHED = 8, 32
 WAYS = ("esc", "f", "altenter", "goal", "replayend", "replayesc")
+BENCH_TAIL = 8                  # B's frames run before its end compare: [bz_frames] poked to BZ_BENCH less these
 HANDLERS = (("KeyT", "bz_tkey"),)
 
 
@@ -262,9 +257,23 @@ def snd_row():
     return CRS_ROW0 + dict.__len__(R.CRS_K) + ncrs2()
 
 
-def moon_row():
-    """MOON's course part's row: padleak's red keeps it at the cup"""
-    return CRS_ROW0 + R.CRS_K["moon"]
+def crs_row(name):
+    """course NAME's own part's row (by name, never a literal K): padleak's red keeps TCUP's at the cup"""
+    return CRS_ROW0 + R.CRS_K[name]
+
+
+def bench_frames():
+    """BZ_BENCH, the benchmark's frames (bzgame.inc), read out of the source"""
+    import re
+    t_ = open(os.path.join(ROOT, "apps", "bonanza", "bzgame.inc")).read()
+    return int(re.search(r"^BZ_BENCH\s+equ\s+(\d+)", t_, re.M).group(1))
+
+
+def two_part():
+    """the build's TWO-PART courses, by name, in row order (bzcrs2.lst's BZ<K>W.BIN): the world part's leg"""
+    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
+    names = open(p).read().split() if os.path.exists(p) else []
+    return [R.crs_name(int(n[2:-5])).lower() for n in names]
 
 
 def shell_row():
@@ -446,9 +455,8 @@ def launch(g, way, crs=None, fails=None):
     fails = [] if fails is None else fails
     m.disk(reset=True)
     key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "KeyF"
-    if crs is None and key == "KeyF":           # F plays BZ_CRS_DEFAULT, pathway pad 0's course (SPEC.md
-        crs = "first"                           # 130.14.7.4), never a fixed one: the legs written for FIRST
-                                                # (goal()'s scene, the way's parts) poke it
+    # (F plays BZ_CRS_DEFAULT, pathway pad 0's course, SPEC.md 130.14.7.4, and B BENCH: every leg here
+    # names its course, so a play is POKED onto it at bz_launch - CRS None leaves the key's own)
     if crs and not way.startswith("replay"):
         m.bp_exec(g.a("bz_launch"))
         g.key(key)
@@ -484,23 +492,21 @@ def at_t0(g, poke):
     m.run()
 
 
-def goal(g, crs="first"):
-    """Play to the goal: FIRST's ball poked onto its goal column at bz_t0; on
-    another course, onto the centre of its first GOAL cell, at rest."""
+def goal(g, crs):
+    """Play to the goal: the ball poked at bz_t0 onto the centre of the course's first GOAL cell, at rest -
+    or, on a course with a CUP, at rest in its mouth (it holes out)."""
     cup = [r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_CUP]
-    if crs == "first":
-        (wx, wy), gvx, gvy, _ = P.SCEN["goal"]
-    elif cup:                                   # wave 4: the CUP, the ball at rest in its mouth
+    if cup:                                     # wave 4: the CUP, the ball at rest in its mouth
         (wx, wy), gvx, gvy = cup[0]["at"], 0, 0
     else:
         grid = BB.Grid(R.course(crs).cga, R.course(crs).wcga)
-        wx, wy = next((x, y) for y in range(256) for x in range(256) if grid.cell(x, y)[3] == BB.KIND_GOAL)
+        wx, wy = next((x, y) for y in range(256) for x in range(256) if grid.cell(x, y)[3] & 15 == BB.KIND_GOAL)
         gvx = gvy = 0
     p = BB.Physics(R.course(crs), play=True, mat=g.b("bz_mat")).poke(wx, wy, gvx, gvy)
     at_t0(g, lambda g_: R.poke_ball(g_, p.gx, p.gy, p.gz, p.gvx, p.gvy, p.gvz, air=0))
 
 
-def into_tube(g, crs="mill"):
+def into_tube(g, crs):
     """the ball poked onto the centre of the course's first plain tube's IN
     cell (a DRAIN: SPEC.md 130.12.6.1) at bz_t0: the next step captures it;
     -> once the guest says it is hidden ([bz_tube])"""
@@ -510,22 +516,25 @@ def into_tube(g, crs="mill"):
     M.until(g.m, lambda _: g.b("bz_tube") != 0, "the ball to be swallowed by the tube at %s" % (tb["at"],), guest=10)
 
 
-def one(g, way, base_rows, base_claims, mat, crs="first"):
-    """One launch on CRS left by WAY with the ball MAT chose: -> (failures, the
-    report line).  B on FIRST is BENCH's benchmark (B's own course)."""
+def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
+    """One launch on CRS left by WAY: -> (failures, the report line).  A play rolls its course's own ball,
+    a replay the log's (made with MAT, the course's by default).  WAY "bench" is B on its own course
+    (BENCH: CRS is ignored), ended early (BENCH_TAIL)."""
     m = g.m
     fails = []
+    if way == "bench":
+        crs = "bench"                           # (B's own course, BZ_CRS_BENCH: never poked)
+    if mat is None:
+        mat = R.course(crs).ball
     if way.startswith("replay"):                # a log of CRS with this ball: 2 s to its end, or
         m.pause()                               # 11 s to be left by Esc early
         g.write_log(R.make_log([0] * (120 if way == "replayend" else 600), R.CRS_K[crs], mat))
         m.run()
-    if way == "bench":
-        want_mat = R.course("bench" if crs == "first" else crs).ball    # B rolls its course's own ball
-    elif way.startswith("replay"):
+    if way.startswith("replay"):
         want_mat = m.read(g.a("bz_rlog") + 5, 1)[0]   # R the log's (SPEC.md 130.11.12.2)
     else:
-        want_mat = R.course(crs).ball               # a play its course's own (SPEC.md 130.11.5.4)
-    reads = launch(g, way, None if crs == "first" else crs, fails)
+        want_mat = R.course(crs).ball               # a play its course's own (SPEC.md 130.11.5.4), B's too
+    reads = launch(g, way, None if way == "bench" else crs, fails)
     pc = g.b("bz_pc")
     r_in, c_in = rows(g), claims(g)
     # SPEC.md 130.25.5.2: the balls have no rows - all three are HELD in the resident bundle (its row is
@@ -562,9 +571,10 @@ def one(g, way, base_rows, base_claims, mat, crs="first"):
         if not cs or (ms != cs) != (wrow is not None):
             fails.append("%s: inside the bracket [bz_cseg] %04X and [bz_mseg] %04X - a %d-part course's (SPEC.md "
                          "130.30.5)" % (way, cs, ms, np))
-    if way == "bench":
+    if way == "bench":                          # (the guest paused with the bracket up: BENCH_TAIL frames
+        g.put("bz_frames", max(g.w("bz_frames"), bench_frames() - BENCH_TAIL))     # to B's own end)
         m.run()
-        M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark's 1,200 frames", guest=120)
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark to its end (BZ_BENCH)", guest=60)
     elif way == "goal":
         goal(g, crs)
         M.until(m, lambda _: g.b("bz_fs") == 0, "the play to end at the goal", guest=60)
@@ -677,22 +687,34 @@ def guard(g):
     M.until(g.m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
 
 
+def quik_log():
+    """TQUIK's log MADE FROM THE MODEL: the autopilot's play to the goal (bbcourse.Physics.auto, 165 steps),
+    encoded with TQUIK's identity (bonanza_ring.make_log) - never a shipped demo"""
+    import bonanza_game as GM
+    k = R.CRS_K["tquik"]
+    return R.make_log(GM.auto_keys(k), k, R.course("tquik").ball)
+
+
 def wave4_exits(g, ui, base_rows, base_claims):
-    """SPEC.md 130.14.14: V's fetch and drop, D's end, W, L and the
-    double-click - each with the rows and the claims as before"""
+    """SPEC.md 130.14.14: V's fetch and drop (ROLL's shipped demo), D's end (a TQUIK log made from the
+    model), W, L and the double-click - each with the rows and the claims as before"""
     m = g.m
     fails = []
+    vk = R.demo_ks().index(R.CRS_K["roll"])     # (the demo rows' order: [bz_vk] the row V loads next)
     m.pause()
-    g.putb("bz_vk", 0)
+    g.putb("bz_vk", vk)
     m.run()
     guard(g)
     g.key("KeyV")
-    M.until(m, lambda _: g.b("bz_vk") == 1, "V to load FIRST's shipped demo", guest=20)
+    M.until(m, lambda _: g.b("bz_vk") != vk, "V to load ROLL's shipped demo", guest=20)
     fails += after(g, "V", base_rows, base_claims)
+    m.pause()
+    g.write_log(quik_log())
+    m.run()
     guard(g)
-    keyed_launch(g, "KeyD", "D of FIRST's demo", fails)
+    keyed_launch(g, "KeyD", "D of TQUIK's log", fails)
     M.until(m, lambda _: g.b("bz_fs") == 1, "D's bracket", guest=60)
-    M.until(m, lambda _: g.b("bz_fs") == 0, "D to its end", guest=120)
+    M.until(m, lambda _: g.b("bz_fs") == 0, "D to its end", guest=60)
     fails += after(g, "D's end", base_rows, base_claims)
     guard(g)
     g.key("KeyW")
@@ -780,7 +802,7 @@ def desktop_colours(a):
     return out
 
 
-def palette_leg(g, crss=("play", "first")):
+def palette_leg(g, crss=("tquik", "tcup")):
     """SPEC.md 130.16.6 (bonanzaexit's wave 6 leg): the colour select on the
     CGA, none on the Hercules, the desktop restored after each bracket"""
     m, tag = g.m, g.tag
@@ -887,17 +909,6 @@ def ui_settle(g):
     g.ui.settle()
 
 
-def own_course(mat):
-    """the course (name) the claim leg plays material MAT on: the lowest K but BENCH (by NAME: it is the
-    BZDEV build's alone) whose OWN ball it is (a play rolls its course's ball, SPEC.md 130.11.5.4) - None
-    when no course has that ball"""
-    R.crs_fill()                                # (fills the course table)
-    for n in sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__):
-        if n != "bench" and R.course(n).ball == mat:
-            return n
-    return None
-
-
 def held_keys(g):
     """SPEC.md 130.11.11.2 on the desktop: -> failures.  Each key's handler is
     counted by a logged breakpoint (T's two controls would hide an odd count);
@@ -937,8 +948,9 @@ def held_keys(g):
     return fails
 
 
-def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=True, mill=True, w4=True,
+def run(tag, ways=WAYS, apps=None, src=None, tube=True, cup=True, bench=True, world=True, keys=True, w4=True,
         rest=True, cover=True, pal=True):
+    """ONE BOOT of card TAG, every leg the card owes on its test course (the module's docstring) -> failures"""
     sym = R.symbols(src)
     fails = []
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
@@ -972,46 +984,30 @@ def run(tag, ways=WAYS, apps=None, src=None, mats=(0, 1, 2), bench=True, keys=Tr
                          "shell, the pathway, the title's two, the families' and the VGA's - no sound rows "
                          "(SPEC.md 130.11.3.1, 130.30.4.4, 130.50, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.46.6)" % (
                              len(base_rows), dict.__len__(R.CRS_K), ncrs2(), ndemo()))
-        for mat in mats if ways else ():
-            crs = own_course(mat)
-            if crs is None:
-                print("%s: no course rolls %s - its claim leg is not driven" % (tag, BB.MAT_NAMES[mat]), flush=True)
-                continue
-            for way in ways:
-                f, line = one(g, way, base_rows, base_claims, mat, crs=crs)
-                print("%s %s" % (tag, line), flush=True)
-                fails += f
-                if f:
-                    break
-            if fails:
-                break
-        if bench and not fails:
-            f, line = one(g, "bench", base_rows, base_claims, 0)
+        plan = [(w, "tquik") for w in ways]     # the six ways out, ONCE, on TQUIK (130.25.5.2: the balls held)
+        if tube:
+            plan.append(("tubeesc", "tquik"))   # Esc with the ball HIDDEN in TQUIK's KEEP tube
+        if cup:
+            plan.append(("goal", "tcup"))       # the CUP's way out (and padleak's leg)
+        if bench:
+            plan.append(("bench", None))        # B, BENCH, to its end
+        if world:                               # a TWO-PART course's world part (130.30.5): no test course is
+            two = two_part()                    # two parts, so the build's own list (the PLAYGROUND today)
+            print("%s the world part's leg (SPEC.md 130.30.5): %s" % (
+                tag, ", ".join(n.upper() for n in two) if two else
+                "NO two-part course in this build - the leg ran on none"), flush=True)
+            plan += [("esc", n) for n in two]
+        for way, crs in plan:
+            f, line = one(g, way, base_rows, base_claims, crs=crs or "tquik")
             print("%s %s" % (tag, line), flush=True)
             fails += f
-        if mill and not fails:                  # wave 3: MILL (row 6) every way out, and Esc in a tube
-            for way in [w for w in ways if w in WAYS] + ["tubeesc", "bench"]:
-                f, line = one(g, way, base_rows, base_claims, R.course("mill").ball, crs="mill")
-                print("%s %s" % (tag, line), flush=True)
-                fails += f
-                if f:
-                    break
-        if w4 and not fails:                    # wave 4: MOON and PEAK (SUMMIT), their three balls; wave 6:
-            for crs in ("moon", "peak", "play"):    # the PLAYGROUND's three pads (SPEC.md 130.16.14)
-                for way in [w for w in ways if w in WAYS]:
-                    f, line = one(g, way, base_rows, base_claims, R.course(crs).ball, crs=crs)
-                    print("%s %s" % (tag, line), flush=True)
-                    fails += f
-                    if f:
-                        break
-                if fails:
-                    break
-        if rest and not fails:                  # wave 5b: one launch (F, Esc) of every course no leg above
-            R.crs_fill()                        # launched, for the claim leg (TRIAL, ROLL, HOP ...); on the
-            names = sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__)    # VGA, which runs no claim leg,
-            todo = ["trial"] if tag == "vga" else [n for n in names if n not in CLAIMED.get(tag, set())]
-            for crs in todo:                    # TRIAL's alone, as before
-                f, line = one(g, "esc", base_rows, base_claims, R.course(crs).ball, crs=crs)
+            if f:
+                break
+        if rest and not fails and tag != "vga":     # wave 5b: one launch (F, Esc) of every course no leg above
+            R.crs_fill()                            # launched, for the claim leg - the build's own table, in K
+            names = sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__)    # order (the VGA runs no claim leg)
+            for crs in [n for n in names if n not in CLAIMED.get(tag, set())]:
+                f, line = one(g, "esc", base_rows, base_claims, crs=crs)
                 print("%s %s" % (tag, line), flush=True)
                 fails += f
                 if f:
@@ -1049,13 +1045,13 @@ REDS = {
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
 # (SPEC.md 130.25.5.2, 130.50.2: no ball row and no sound part's row is dropped any more - both are held in
-# the bundle - so the cup's leak is the SONG's, the arena row a play of MOON fetches, kept at the cup)
+# the bundle - so the cup's leak is the COURSE PART's, TCUP's row, kept at the cup)
 REDS["padleak"] = [("bonanza.asm", "    call op_drop\n%if BZ_PATH_NPAD\n.held:\n%endif\n",
                     "    cmp byte [bz_hid], 0        ; RED padleak: the course part kept at the cup\n"
                     "    jne .rpl\n    call op_drop\n.rpl:\n%if BZ_PATH_NPAD\n.held:\n%endif\n")]
 # wave 5b (SPEC.md 130.15.13): the expansion broken, each red at the CLAIM LEG's first differing offset -
 # WDIFF's count one record short (the last record left as differences), ROWTAB's last word never written,
-# and the guest's SAFE rule without its OBS test (a prop's cell made SAFE: MILL's first)
+# and the guest's SAFE rule without its OBS test (a prop's cell made SAFE: TQUIK's tube's)
 REDS["expoff1"] = [("bonanza.asm", "    sub cx, bx\n    shr cx, 1                   ; the words after the first record\n",
                     "    sub cx, bx\n    sub cx, bx                  ; RED expoff1: one record short\n"
                     "    shr cx, 1                   ; the words after the first record\n")]
@@ -1064,15 +1060,7 @@ REDS["rowtab1"] = [("bonanza.asm", "bz_cxrtb:\n    mov bx, [es:BZC_GRID]\n    mo
                     "    dec cx                      ; RED rowtab1: NROWS - 1 words\n")]
 REDS["cellsafe"] = [("bonanza.asm", "    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE\n    jnz .no\n",
                      "    ; RED cellsafe: no OBS test\n")]
-RED_RUN = {"leak": {"keys": False}, "crepeat": {"ways": (), "bench": False, "mill": False},
-           "overswallow": {"ways": (), "bench": False, "mill": False}}
-RED_RUN["padleak"] = {"keys": False, "mats": (), "bench": False, "mill": False, "w4": True}
-RED_RUN["leak"]["w4"] = False
-RED_RUN["crepeat"]["w4"] = RED_RUN["overswallow"]["w4"] = False
-for _r in ("expoff1", "rowtab1"):               # the first launch: FIRST, Esc
-    RED_RUN[_r] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False}
-RED_RUN["cellsafe"] = {"ways": ("esc",), "mats": (), "bench": False, "mill": True, "w4": False, "keys": False}
-# wave 6 (SPEC.md 130.16.14): the colour select's write left out (the PLAYGROUND renders palette 1), and its
+# wave 6 (SPEC.md 130.16.14): the colour select's write left out (TQUIK renders palette 1), and its
 # Hercules branch removed (the labelled write runs there)
 REDS["nopal"] = [("bzvideo.inc", ".vpal:\n    out dx, al\n",
                   ".vpal:\n    nop                         ; RED nopal: no write\n")]
@@ -1082,12 +1070,6 @@ REDS["hercpal"] = [("bzvideo.inc", ".nvga:\n    cmp byte [bz_herc], 0\n    jne .
                     ".nvga:\n    mov bl, [bz_crs]            ; RED hercpal: the write on the Hercules too\n"
                     "    xor bh, bh\n    mov al, [bz_cpals + bx]\n    mov dx, 3d9h\n.vpal:\n    out dx, al\n"
                     "    cmp byte [bz_herc], 0\n    jne .herc\n")]
-for _r in ("nopal", "hercpal"):
-    RED_RUN[_r] = {"ways": (), "mats": (), "bench": False, "mill": False, "w4": False, "keys": False}
-for _r in RED_RUN:                              # (only the full run covers every course and launches the ones
-    RED_RUN[_r].setdefault("cover", False)      # no other leg does; only the palette reds' the palette leg)
-    RED_RUN[_r].setdefault("rest", False)
-    RED_RUN[_r].setdefault("pal", _r in ("nopal", "hercpal"))
 # SPEC.md 130.37.5: the kit not fetched at the open (the first launch's bz_kget fetches it, so only the
 # desktop's check sees it), and the kit dropped with each course (held no longer: re-read every launch)
 REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (SPEC.md 130.37.5), HELD for the instance:\n"
@@ -1097,22 +1079,101 @@ REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (S
 REDS["kitdrop"] = [("bonanza.asm", "                                ; (NO BALL: held for the instance, 130.25.5.2)\n",
                     "    mov al, BZ_P_KIT            ; RED kitdrop: the kit dropped with the course\n"
                     "    call op_drop\n")]
-RED_RUN["kitlate"] = {"ways": (), "mats": (), "bench": False, "mill": False, "w4": False, "keys": False,
-                      "rest": False, "cover": False, "pal": False}
-RED_RUN["kitdrop"] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False,
-                      "rest": False, "cover": False, "pal": False}
-RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % moon_row(),  # MOON's course part
-            "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
-            "expoff1": "claim leg, FIRST", "rowtab1": "claim leg, FIRST", "cellsafe": "claim leg, MILL",
-            "nopal": "palette PLAY: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT",
-            "kitlate": "the kit (row", "kitdrop": lambda: "held part row %d is not fetched" % kit_row()}
-RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",)}    # each palette red goes red on its own card
 # the VGA's part and the balls' converted copies never dropped after a launch (bz_vdrop a RET): the rows and the
 # claims after the bracket are not the desktop's (SPEC.md 130.46.6)
 REDS["vgakeep"] = [("bonanza.asm", "bz_vdrop:\n", "bz_vdrop:\n    ret                         ; RED vgakeep\n")]
-RED_RUN["vgakeep"] = {"ways": ("esc",), "mats": (0,), "bench": False, "mill": False, "w4": False, "keys": False}
-RED_TAGS["vgakeep"] = ("vga",)
-RED_WANT["vgakeep"] = "is still FETCHED after the launch"
+
+
+# Each red arm runs only the legs it needs (the rest OFF), aimed at a leg on a test course; --check proves the
+# course carries what the arm is aimed at (aims()).
+RUN_LEGS = ("tube", "cup", "bench", "world", "keys", "w4", "rest", "cover", "pal")
+
+
+def _only(ways=(), **on):
+    """a red arm's run(): WAYS on TQUIK and the legs named ON, every other leg off"""
+    d = {k: False for k in RUN_LEGS}
+    d.update(on)
+    d["ways"] = ways
+    return d
+
+
+RED_RUN = {
+    "leak": _only(WAYS),                        # TQUIK's six ways: red at the goal, and only there
+    "crepeat": _only(keys=True), "overswallow": _only(keys=True),
+    "padleak": _only(cup=True),                 # TCUP's cup
+    "expoff1": _only(("esc",)), "rowtab1": _only(("esc",)),     # the claim leg's first launch: TQUIK
+    "cellsafe": _only(("esc",)),                # TQUIK's KEEP tube's cells (a prop's)
+    "nopal": _only(pal=True), "hercpal": _only(pal=True),
+    "kitlate": _only(), "kitdrop": _only(("esc",)),
+    "vgakeep": _only(("esc",)),
+}
+RED_WANT = {"padleak": lambda: "part row %d is still FETCHED" % crs_row("tcup"),  # TCUP's course part
+            "leak": "goal:", "crepeat": "held 1.5 s advanced", "overswallow": "pressed twice",
+            "expoff1": "claim leg, TQUIK", "rowtab1": "claim leg, TQUIK", "cellsafe": "claim leg, TQUIK",
+            "nopal": "palette TQUIK: the ball's body", "hercpal": "bz_vinit.vpal breakpoint was HIT",
+            "kitlate": "the kit (row", "kitdrop": lambda: "held part row %d is not fetched" % kit_row(),
+            "vgakeep": "is still FETCHED after the launch"}
+RED_TAGS = {"nopal": ("cga",), "hercpal": ("herc",), "vgakeep": ("vga",)}   # each goes red on its own card
+assert set(RED_RUN) == set(RED_WANT) == set(REDS), "every red arm has its run and its check"
+
+
+def pals():
+    """{K: the course's colour select byte} out of the build's BZ_CRS_PALS (bzcourse.inc)"""
+    import re
+    inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    m_ = re.search(r"^%macro BZ_CRS_PALS 0\n\s+db ([^\n]+)", inc, re.M)
+    return dict(enumerate(int(x.strip().rstrip("h"), 16) for x in m_.group(1).split(",")))
+
+
+def aims():
+    """THE HOST HALF OF THE AIM: every leg's test course carries what the leg and its red arm need, read off
+    the build and the tool's compile -> (lines, failures).  The arms are re-aimed at test courses (phase 3);
+    an arm aimed at a feature its course lost would go green against a broken package"""
+    import bonanza_game as GM
+    lines, bad = [], []
+    R.crs_fill()
+    q, c = R.course("tquik"), R.course("tcup")
+    pk = pals()
+    props_q = [r["kind"] for r in q.part["props"]]
+    grid = BB.Grid(q.cga, q.wcga)
+    goals = [(x, y) for y in range(64) for x in range(64) if grid.cell(x, y)[3] & 15 == BB.KIND_GOAL]
+    steps, falls = GM.auto_steps(R.CRS_K["tquik"])
+    lines.append("TQUIK: %d goal cell(s) (the goal's way, leak), a KEEP tube %s (tubeesc), its ball %s, its "
+                 "colour select %02Xh (nopal: not the BIOS's 30h), the autopilot's goal at step %s (D's log)"
+                 % (len(goals), "yes" if BB.PK_TUBE in props_q else "NO", BB.MAT_NAMES[q.ball],
+                    pk[R.CRS_K["tquik"]], steps))
+    if not goals:
+        bad.append("TQUIK has no GOAL cell: the goal's way and the leak red have nothing to end on")
+    if BB.PK_TUBE not in props_q:
+        bad.append("TQUIK has no tube: tubeesc's Esc while hidden is not driven")
+    if pk[R.CRS_K["tquik"]] == 0x30:
+        bad.append("TQUIK's colour select is the BIOS's 30h: the nopal red renders the same colour")
+    if steps is None:
+        bad.append("TQUIK: the model's autopilot does not reach the goal (wave 4's D log)")
+    cups = [r for r in c.part["props"] if r["kind"] == BB.PK_CUP]
+    lines.append("TCUP: %d cup(s) (the cup's way out, padleak), its ball %s, its colour select %02Xh" % (
+        len(cups), BB.MAT_NAMES[c.ball], pk[R.CRS_K["tcup"]]))
+    if not cups:
+        bad.append("TCUP has no cup: the cup's way out and the padleak red have nothing to hole in")
+    # expoff1: WDIFF one record short must change the RAM form (the tool's own control of the same fault)
+    wd = len(q.model["recs"]) > 1 and BB.expand(q.stored, q.name, _hack={"wdiff_short": True}) != q.cga
+    lines.append("TQUIK: WDIFF one record short changes the RAM form: %s (expoff1)" % ("yes" if wd else "NO"))
+    if not wd:
+        bad.append("TQUIK: WDIFF one record short leaves the RAM form as it is - the expoff1 red cannot fire")
+    # cellsafe: the SAFE rule without its OBS clause parts from the course's own cells off a lift's shaft
+    shaft = set(q.slabcells)
+    exc = [(x, y) for x, y, _w in BB.cells_exceptions(q.cga, _no_obs=True) if (x, y) not in shaft]
+    lines.append("TQUIK: the SAFE rule without its OBS clause parts at %d cell(s) %s (cellsafe)" % (
+        len(exc), exc[:6]))
+    if not exc:
+        bad.append("TQUIK: no prop's cell would be SAFE but for its OBS - the cellsafe red cannot fire there")
+    dk = R.demo_ks()
+    if R.CRS_K["roll"] not in dk:
+        bad.append("ROLL has no shipped demo: wave 4's V has none to load")
+    two = two_part()
+    lines.append("the world part's leg: %s" % (", ".join(n.upper() for n in two) if two else
+                                                "no two-part course in this build (the leg runs on none)"))
+    return lines, bad
 
 
 def main():
@@ -1124,8 +1185,14 @@ def main():
     a = ap.parse_args()
     R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check:
+        lines, bad = aims()
+        for line in lines:
+            print("bonanza_exit aim: %s" % line)
         for line in R.check_reds(REDS, "bonanza_exit"):
             print(line)
+        for b in bad:
+            print("FAIL %s" % b)
+        assert not bad, "%d aim failure(s)" % len(bad)
         return
     tags = {"both": ("cga", "herc"), "all": ("cga", "herc", "vga")}.get(a.adapter, (a.adapter,))
     if a.red and a.red in RED_TAGS:
