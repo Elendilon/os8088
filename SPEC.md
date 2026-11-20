@@ -263971,7 +263971,10 @@ lever.
 
 ##### 130.10.11.1 The benchmark's course
 
-*Since 2026-11-19 BENCH is the TEST BUILD's alone (130.26.6.1).* The
+*Since 2026-11-19 BENCH is the TEST BUILD's alone (130.26.6.1); since
+130.54 it is a TEST COURSE (`test`), listed in `BZ_TESTCRS` and put AFTER
+the shipped courses - the paragraph below is how it stood before, as
+course 0.* The
 owner: *"having everything depend on an order that can and will change is
 bad ... Once those two are done, then bench can come out of the shipping
 build"* - and both were done (the N, M and tour keys gone, 130.26.8; no
@@ -271498,7 +271501,8 @@ compare (O48 keeps it until the owner retires it).
 *Since 2026-11-19 (with 130.22.5.1: nothing in the game's defaults by K) the
 demos are a TABLE OF NAMED ROWS, and the text below is how they were laid
 out before.* `tools/bbcourse.py` makes one demo for every course but those
-in `BENCH_NAMES` (by course NAME: `BENCH`), in course order, each part file
+in `BENCH_NAMES` (by course NAME: `BENCH`; since 130.54 every TEST course,
+by its `test` statement), in course order, each part file
 named by its course, **`BZD<NAME>.BIN`** (`BZDFIRST.BIN`, `BZDPEAK.BIN`
 ...), and lists them in that row order in `bzdemo.lst`, which the
 Makefile's package rule reads as it reads `bzcrs2.lst` (no `BZD<K>` list
@@ -287109,8 +287113,9 @@ shipped `BONANZA.O88` is the player's alone. Behind the knob:
   (`bz_rcopy`, `bz_rframes` .. `bz_rnpwt`, 84 bytes);
 - **the scripted camera** (130.17.6.7: `bz_camera.script`, `.sax`,
   `bz_scyc`), the harness's late frame (`bz_hspin`);
-- **BENCH**, the benchmark's course (`BZ_BENCH`, course 0 of this build and
-  in no other, since 2026-11-19: 130.10.11.1);
+- **the TEST COURSES** (130.54: `BZ_TESTCRS`, after every other course of
+  this build and in no other) - BENCH, the benchmark's course (130.10.11.1;
+  course 0 of this build from 2026-11-19 until 130.54), TQUIK and TCUP;
 - **the shell part's instruments' face**: `bzface.inc`'s MAIN and RESULTS
   builders and the shell's `BZH_REDRAW` and `BZH_LINE` vectors (a `retf`
   in the shipped part, whose face is `bz_wface`'s alone).
@@ -294582,3 +294587,85 @@ take-off carries. The bound of what that could save, MEASURED by taking every
 VOID position two or more cells from any solid cell out of the cut altogether:
 ROLL 1,116 -> 1,083 (3%), PEAK 1,356 -> 1,310 (3%), FIRST 68 -> 61. A speed
 model could only save less: not built.
+
+### 130.54 TEST COURSES: courses the rows play, in the test build alone (the owner, 2026-11-19)
+
+The owner, on the soak rows: *"bundle tests together more ... one in
+emulator boot can test more things at once; with custom test courses set up
+to test the things ... we can get rid of all dependencies on the prototype
+courses as they leave the game. Only ROLL and little hop are shipping
+courses right now."* (docs/plans/BOUNCE-BONANZA-SOAK.md, phase 2.) A TEST
+COURSE is a course built for a row to play: small, quick to reach its
+finish, carrying exactly the features its legs need, and never shipped.
+BENCH (130.10.11.1) was the first, and it is one of them now.
+
+#### 130.54.1 The contract
+
+- **The `test` statement** (no arguments, once) marks a course a test
+  course. It writes nothing into the part, so it moves no identity
+  (130.15.7). A test course is exempt, BY ITS STATEMENT and never by K, from
+  what only a shipped course owes: it may have no `target` (no course budget,
+  130.15.8; one it does give is checked as any course's), it gets no shipped
+  demo (no `BZD<NAME>.BIN`, not in `bzdemo.lst`, V's cycle or the title's
+  draw, 130.14.7.4), and no pathway `pad` may play it (130.22.2). It may not
+  say `guide` (a guide course is a real one, held to the course guide). Every
+  other rule - the grammar, the picture, the part's 65,024 bytes, the limit,
+  the finish clocks, the occluders - binds it as it binds a shipped course.
+  `bbcourse.BENCH_NAMES` is gone: its four exemptions read `c.test`.
+- **The Makefile's `BZ_TESTCRS`** lists the test courses, and only `BZDEV=1`'s
+  block puts them in, AFTER every other course - the shipped ones and any
+  knob's (`BZ_COURSES := $(BZ_COURSES) $(BZ_TESTCRS)`) - so no test course
+  shifts a shipped course's K: in the test build every shipped course has the
+  K it has in the shipped build. **BENCH moved there** (it was course 0 of the
+  test build until this section), so the test build's K are now the shipped
+  build's, and nothing may care either way (130.14.7.4: courses by NAME).
+  The Makefile's `BZ_BENCH` is gone (bzgame.inc's `BZ_BENCH`, the
+  benchmark's 1,200 frames, is another name); `BZ_CRS_BENCH` is still
+  written, by name.
+- **Never shipped, as a gate.** `bbcourse.py -o` REFUSES a `test` course
+  unless it is given `--dev`, which the Makefile passes when `BZDEV=1` is on;
+  so a test course listed in a shipped build fails the build rather than
+  shipping. The selfcheck's `courses` section cross-checks the Makefile: every
+  file of `BZ_TESTCRS` says `test`, and no file of the shipped `BZ_COURSES`
+  does.
+- **The selfcheck sees them.** `bbcourse.default_paths()` - the bare
+  `--selfcheck`'s list, the `bonanzacourse` row's - is the test build's:
+  `BZ_COURSES`'s first line and then `BZ_TESTCRS`, as BZDEV's block orders
+  them; `make bonanza-course-check` passes the same. So a test course is
+  compiled and checked (its route, its limit, its clocks, its budget when it
+  has a target) by every selfcheck.
+- **A row finds a test course by NAME** (`bonanza_ring.CRS_K[name]`, as every
+  course), in the test build the rows already run (130.26.6.1).
+
+#### 130.54.2 TQUIK and TCUP, "exits and the save"
+
+Two courses, because a course finishes at GOAL cells or in a CUP, never
+both (130.14.4.1): TQUIK (the plan's TQUICK; a course NAME is five
+characters) finishes at a goal, TCUP in a cup. Both are a few cells, a few
+seconds of the autopilot from the start, one part each.
+
+**TQUIK** (`apps/bonanza/courses/tquik.bbc`, "Quick Test", rubber):
+
+- a start plate, a ramp down and a foot whose last column is the GOAL - the
+  autopilot's play reaches it in a few seconds (the goal and the replay's
+  end, bonanzaexit; a best and the hostile and physics files' next best,
+  bonanzagame; a play saved, loaded, replayed and benchmarked, bonanzademo);
+- a CHECKPOINT flag on the route, and a hole beside the foot (a fall
+  respawns at the flag);
+- a plain KEEP tube off the route, its IN cell a drain a row pokes the ball
+  into (bonanzaexit's Esc while the ball is hidden, `into_tube`), its OUT
+  cell on the plate;
+- `palette 0` (10h: not the BIOS's 30h, so the CGA's colour select shows,
+  bonanzaexit's palette leg and its `nopal` red);
+- a short `limit`, so a row can wait a TIMEOUT out quickly;
+- the finish clock the finish rule asks for (130.22.6).
+
+**TCUP** (`apps/bonanza/courses/tcup.bbc`, "Cup Test"): a plate, a ramp and
+a CUP the autopilot holes out in (the cup's way out and `padleak`'s red,
+bonanzaexit; a second course's best, bonanzagame's `noapp`), the default
+palette (30h, the palette leg's second course), and a different ball from
+TQUIK's, so the two courses roll two materials.
+
+**No two-part twin.** A two-part course is one whose picture is over
+65,024 bytes (130.30), which takes a course of ROLL's size; the rows' world
+part legs run on the shipped two-part course instead (the plan, per leg).
