@@ -1,4 +1,5 @@
-# Proving Ground - BONANZA's course 0, the benchmark's (SPEC.md 130.10.11.1).
+# Proving Ground - BONANZA's benchmark course (SPEC.md 130.10.11.1), a TEST course: the BZDEV=1 build's
+# alone, after the shipped courses (the Makefile's BZ_TESTCRS, SPEC.md 130.54).
 #
 # Wave 0b's generated test course (SPEC.md 130.3) - a start plateau, a long
 # descent with a rail, a landing, a traverse left with a block, a climb, a
@@ -17,6 +18,7 @@
 #    unit at a ramp's foot is 4.25 px to the floor function, over BZ_CLIMB),
 #    and the pits are off the route.
 course BENCH "Proving Ground"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
 music fairway    # SPEC.md 130.50.3: every course names its song (the song it had by position)
 width  64
 ball   rubber

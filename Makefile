@@ -21615,16 +21615,18 @@ BZ_ART := $(BUILD)/bonanza-art
 # the demos and BENCH's exemptions go by NAME).  As listed: 0 FIRST, 1 the rubber ball's
 # trial, 2 the obstacles' (SPEC.md 130.12.9), 3 and 4 wave 4's (MOON, Moonlit
 # Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 5 wave 6's PLAYGROUND (PLAY,
-# SPEC.md 130.16.8) - every one a K higher in the BZDEV=1 build, where BENCH,
-# the benchmark's course (BZ_BENCH, below), is course 0 and nowhere else
-# (SPEC.md 130.10.11.1: the shipped game has no benchmark, so it carries no
-# BENCH).  ONE bbcourse.py
+# SPEC.md 130.16.8) - the same K in the BZDEV=1 build, whose TEST courses
+# (BZ_TESTCRS, below: BENCH, the benchmark's, among them) come AFTER every
+# other course and nowhere else (SPEC.md 130.54: the shipped game carries no
+# test course).  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
 # rows' order and the file's order cannot drift.
-# BENCH (Proving Ground), the benchmark's course: the BZDEV=1 build's alone, put first by BZDEV's block
-# below (bbcourse.default_paths() reads this line and BZ_COURSES's: the selfcheck checks BENCH as well)
-BZ_BENCH := apps/bonanza/courses/bench.bbc
+# THE TEST COURSES (SPEC.md 130.54): the courses the rows play, each with a `test` statement, the BZDEV=1
+# build's alone - BZDEV's block below puts them AFTER every other course, so none shifts a shipped course's K.
+# BENCH (Proving Ground), the benchmark's; TQUIK (the plan's TQUICK) and TCUP, the exits' and the save's (a goal, a cup).
+# bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
+BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc
 BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
@@ -22050,10 +22052,11 @@ $(BZSHADOWSTAMP): | $(BUILD)
 # assembles BONANZA.O88 with -DBZDEV: bz_dev and every key and page it opens (B R D F G V W L N M T S, the tour,
 # the results page, the benchmark), the instruments (the measured marks, bz_presented's period, the beam
 # check, the results copy), the autopilot and bz_apilot, the scripted camera, bz_hold, bz_hvoff, bz_phforce,
-# and the shell part's instruments' face - and BENCH, the benchmark's course (BZ_BENCH), as course 0, ahead
-# of the shipped courses and any knob's (2026-11-19: "then bench can come out of the shipping build"). Off,
-# the package is the player's alone. STAMPED: the package, its link map, its shell part and the courses
-# (BENCH is a course of the one build and not the other) are rebuilt when it turns on or off.
+# and the shell part's instruments' face - and the TEST COURSES (BZ_TESTCRS: BENCH, the benchmark's, TQUIK,
+# TCUP), AFTER the shipped courses and any knob's (SPEC.md 130.54; 2026-11-19: "then bench can come out of the
+# shipping build"), compiled with bbcourse's --dev (without it a `test` course is refused). Off, the package
+# is the player's alone. STAMPED: the package, its link map, its shell part and the courses (the test courses
+# are courses of the one build and not the other) are rebuilt when it turns on or off.
 BZDEV ?=
 ifeq ($(filter $(BZDEV),1),)
 ifneq ($(BZDEV),)
@@ -22061,7 +22064,7 @@ $(error BZDEV=$(BZDEV) is 1 or empty)
 endif
 endif
 ifeq ($(BZDEV),1)
-BZ_COURSES := $(BZ_BENCH) $(BZ_COURSES)
+BZ_COURSES := $(BZ_COURSES) $(BZ_TESTCRS)
 endif
 BZDEVDEF := $(if $(BZDEV),-DBZDEV)
 BZDEVSTAMP := $(BUILD)/.bzdev-$(or $(BZDEV),0)
@@ -22073,8 +22076,8 @@ $(BZDEVSTAMP): | $(BUILD)
 BZ_TITLE := apps/bonanza/courses/title.bbc
 BZ_TITLESRC := $(BZ_TITLE) apps/bonanza/courses/title.bba $(wildcard apps/bonanza/demos/*.bzt)
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
-# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a course but the benchmark's, chosen by
-# course NAME (bbcourse.BENCH_NAMES, never by K), each BZD<NAME>.BIN, written by the same
+# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a course but a TEST course's (its `test`
+# statement, SPEC.md 130.54, never by K), each BZD<NAME>.BIN, written by the same
 # run - a course's apps/bonanza/demos/<file>.bzd when it has one (text, checked by the
 # model), else the ROUTE DEMO the tool makes from the course's route.  The tool lists
 # them in row order in bzdemo.lst (as bzcrs2.lst the world parts); their rows follow the
@@ -22122,7 +22125,7 @@ $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py to
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
                    $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZDOWNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
                    $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
@@ -22134,7 +22137,7 @@ bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
 #> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 130.10.4.6, 130.15.12.3); the title art is tools/bbtitle.py's (130.23.2)
 bonanza-course-check:
-	python3 tools/bbcourse.py --selfcheck $(BZ_BENCH) $(filter-out $(BZ_BENCH),$(BZ_COURSES))
+	python3 tools/bbcourse.py --selfcheck $(filter-out $(BZ_TESTCRS),$(BZ_COURSES)) $(BZ_TESTCRS)
 	python3 tools/bbtitle.py --check
 #> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 130.15.12.2); minutes
 bonanza-sizes: $(BUILD)/bonanza.o88
