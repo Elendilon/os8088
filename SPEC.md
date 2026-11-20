@@ -137656,6 +137656,36 @@ to **18,116**.
   one on itself.
 
 
+#### 73.12.5 The raise cache: promised from the class, two colours
+
+CWORD's class carries `OS88_WF_SAVEU | OS88_WF_1BPP` (§11.96.1, §11.96.17),
+and both are promised for the window's whole life rather than toggled.
+**§11.96.1's three questions answer themselves.** The worker draws nothing:
+it sleeps four ticks and destroys the window on File > Close/Exit. There is no
+`W_ONTIMER`, so the caret does not blink. The one place a draw is skipped is
+`cw_show()`'s `os88_wm_obscured()` test, and every caller of it is a callback
+on a FRONT window: a key and the wheel go to the front, a click on a covered
+window only raises it (§81.86.4), the Standard File dialog is modal and torn
+down before `os88_onfile()` (§38.6), and `os88_onwake()` is CALLED by
+`assoc_run` straight after `wm_show` drew this window on top (§54.10). It is
+not posted, so nothing can cover the window between the show and the load. So
+no promise has to wait for the launch document: it holds from the
+first paint. A raise that puts the cache back skips `os88_paint()`, and that
+paint resets only state the pixels also show: the shadow, the caret, an open
+dropdown and a dialog come back exactly as the state still describes them.
+
+**The two-colour claim is what makes the promise pay on a colour adapter.**
+Four planes of a 592x384 window's content are ~108KB, past `wm_su_kb`'s 64,512
+and refused; one plane is ~27KB. The audit is short because the program draws
+in few ways. Text, rules and boxes are `OS88_BLACK`/`OS88_WHITE`. The caret
+and selection are `os88_gfx_xor_fill`, an inversion. The ruler's scale and
+every proportional row are `os88_gfx_blit1` bands. The single grey is a
+disabled dropdown item: an `os88_font_run()` under `os88_gfx_pen(1)`, which
+§11.96.17.1's renderer turns into a checkerboard of 0 and 15. On a VGA a
+greyed item therefore reads stippled black rather than solid colour 8, as
+Note Pad's does. The flag changes nothing on Hercules, CGA or MDA, where the
+content was one plane anyway.
+
 ### 73.13 The build targets, and what is deliberately not in `all`
 
 `apps/cc/Makefile.inc` is a **fragment**, included by the top-level Makefile

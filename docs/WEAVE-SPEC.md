@@ -732,6 +732,28 @@ first toggle of an instance it also costs one 17KB claim and one floppy read
 for the module, ~400 ms of `int 13h` on the target, spent on the UI task and
 deliberately outside the gfx lock.
 
+#### 1.7.2 LOOM promises the raise cache
+
+LOOM's class carries `OS88_WF_SAVEU` (SPEC.md §11.96.1): its content does not
+change while it is not drawing. Nothing in it moves by itself. There is no
+worker or timer (the caret is static, `apps/loom/loom.asm` says why), and no
+`W_ONWAKE`; the launch document is spent in the first `W_PAINT`, which no
+cache can stand in for. Every editing callback reaches a FRONT window, and
+the Standard File dialog is modal. **The one answer that can arrive while
+LOOM is covered is the close alert's**, because `os88ui_ask` is not modal
+(SPEC.md §75.3.1). So `lm_alertdone()`'s Save arm raises the window
+(`os88_wm_front`) before it saves. A failed save repaints the sidebar and
+writes its sentence on the status row, and drawn under another window that
+would both paint over it and leave the cache a picture of the rows before
+the save. Cancel draws nothing new and Discard closes.
+
+**It is NOT `WF_1BPP`** (SPEC.md §11.96.17). `os88ui`'s greyed controls and
+the Preview pane's WEAVE painter put colour 8 on a VGA, so the claim would be
+false. Without it, the window's standard rect (the whole desktop band) needs
+a four-plane cache of ~130KB on a VGA, past `wm_su_kb`'s 64,512, and the
+cache is refused. The promise therefore pays on Hercules and CGA, where the
+content is one plane of ~11-26KB, and is a harmless refusal on VGA and EGA.
+
 ---
 
 ## 2. The .WAB bundle
