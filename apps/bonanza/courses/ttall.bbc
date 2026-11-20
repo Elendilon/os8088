@@ -1,0 +1,46 @@
+# Tall Test - TTALL, a TEST course (SPEC.md 130.54, 130.30.12.8): the BZDEV=1 build's alone, after the shipped
+# courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  "The far south": the one course whose
+# PICTURE part does not fit one part, so it ships in SHEETS (SPEC.md 130.30.12) - two picture parts cut by
+# block rows, the camera's window switching from the first to the second on the way down and back again if the
+# ball climbs back - and the rows that play it (bonanzasheet's legs, by hand) cross a sheet's edge -
+#  - a ZIG-ZAG RIBBON down the picture at the widest width, 160 word columns (1,280 px): six flat legs five
+#    cells wide, along +x, +y, +x, +y, +x and +y, 32 cells each, so the route runs from s = wx + wy of 4 to
+#    about 200 - some 200 block rows, whose map alone (320 bytes a row) is past what one part holds;
+#  - each leg's BACK RAIL and, at each corner, a STOP wall the turn does not overshoot;
+#  - the route from the north-west end to the GOAL, the last leg's last row: the autopilot rides every leg, so
+#    the camera's window goes down the whole picture and crosses the sheets' seam;
+#  - the STEEL ball, the finish clock beside the goal.
+course TTALL "Tall Test"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 130.50.3: every course names its song
+width 160
+origin 640        # x0: a = wx - wy from -10 to 38 on the legs, px 480 - 1,248
+ball steel
+floor rect     5     5   37    10  flat 4                # leg 1, along +x
+wall  rect     5     4   37     5  flat 12               # its back rail
+wall  rect   37     4   38    10  flat 12               # the corner's stop
+floor rect   32    10   37   42  flat 4                # leg 2, along +y
+wall  rect   37    10   38   37  flat 12               # its back rail
+wall  rect   32   42   38   43  flat 12               # the corner's stop
+floor rect   37   37   69   42  flat 4                # leg 3, along +x
+wall  rect   38   36   69   37  flat 12               # its back rail
+wall  rect   69   36   70   42  flat 12               # the corner's stop
+floor rect   64   42   69   74  flat 4                # leg 4, along +y
+wall  rect   69   42   70   69  flat 12               # its back rail
+wall  rect   64   74   70   75  flat 12               # the corner's stop
+floor rect   69   69  101   74  flat 4                # leg 5, along +x
+wall  rect   70   68  101   69  flat 12               # its back rail
+wall  rect  101   68  102   74  flat 12               # the corner's stop
+floor rect   96   74  101 106  flat 4                # leg 6, along +y
+wall  rect  101   74  102 107  flat 12               # its back rail
+goal  rect   96 105  101 106  flat 4                # the goal, leg 6's last row
+wall  rect   96 106  101 107  flat 12               # the END WALL, the picture's far south
+start 7 7
+way 7 7
+way 34 7
+way 34 39
+way 66 39
+way 66 71
+way 98 71
+way 98 104
+clock 96 103                                        # the finish clock (SPEC.md 130.22.6)
