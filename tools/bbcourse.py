@@ -30069,7 +30069,7 @@ def _sc_crosscommit(X, res):
         src_path = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)
         with open(src_path) as fh:
             kept = [ln for ln in fh.read().split("\n") if ln.split()[:1] not in (["clock"], ["limit"], ["music"],
-                                                                                 ["uses"], ["float"])]
+                                                                                 ["uses"], ["float"], ["test"])]
             # (story 9.8, SPEC.md 130.25.20: `uses` left out too - that grammar lacks it, and a family list is
             # not in that commit's parts; this tool compiles the text with the family rule off, "famuses";
             # and 130.27.2's `float`, which that grammar lacks too)
