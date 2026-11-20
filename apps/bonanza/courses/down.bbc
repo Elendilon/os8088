@@ -6,7 +6,7 @@ course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules
 width 160
 origin 304                # 1,280 px (SPEC.md 130.10.4.2): steel's north-west leg
-uses boost spike water
+uses boost spike water spring
 ball rubber
 music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
 target 60
@@ -26,9 +26,18 @@ floor rect  46  12  52  21  flat 14   # X
 floor rect  52  17  56  20  flat 14   # S
 floor rect  56  17  57  20  flat 14   # W
 floor rect  56  20  60  21  flat 11   # T
-floor rect  60  11  64  21  flat 11   # T
-floor rect  34   7  63  10  flat 15   # M
-floor rect  28   6  34  11  flat 15   # G
+floor rect  60   7  63  21  flat 11   # T
+floor rect  55   6  59  11  flat 15   # H
+floor rect  52  10  55  11  flat 15   # K
+floor rect  46  10  50  11  flat 15   # K
+floor rect  41  10  44  11  flat 15   # K
+floor rect  50   6  55   8  flat 15   # N
+floor rect  46   4  52   6  flat 15   # N
+floor rect  41   6  48   8  flat 15   # N
+floor rect  37   6  41  11  flat 15   # C
+floor rect  36   6  37   8  flat 15   # C
+floor rect  35   7  36   8  flat 15   # W
+floor rect  28   8  36  13  flat 9   # G
 floor rect  49  21  50  26  flat 14   # K
 floor rect  47  26  51  29  flat 14   # P
 floor rect  46  27  47  28  flat 14   # K
@@ -79,10 +88,15 @@ wall  tile  32  15  flat 23.5
 wall  tile  32  17  flat 23.5
 wall  tile  33  15  flat 23.5
 guard tile  33  17                # see-through
+guard tile  34   7                # see-through
 wall  tile  34  15  flat 23.5
 guard tile  34  17                # see-through
+guard tile  35   6                # see-through
 wall  tile  35  15  flat 23.5
 guard tile  35  17                # see-through
+wall  tile  36   8  flat 17
+wall  tile  36   9  flat 17
+wall  tile  36  10  flat 17
 wall  tile  46  11  flat 16
 wall  tile  47  11  flat 16
 wall  tile  48  11  flat 16
@@ -138,12 +152,15 @@ prop membrane 44 29 45 30
 prop membrane 38 23 39 24
 water rect 24 26 29 29 top 14 bed 11 open
 prop boost 22 27 face +y strength 40
-# steel (rev 11): the SPIKE CARPET north, the LIFT up 4, a ridge hump across the top, 8 px
-prop spikes 60 12 64 17
-prop platform 61 10 4
-hump 52 7 15 along y 3 open height 8
+# steel (rev 15): the momentum hump across the run north, the LIFT up 4 on its west side, the column
+hump 60 14 11 along x 3 open height 8
+prop platform 59 8 4
+water rect 35 7 36 8 top 15 bed 9
+arch 35 7 +y
+spring 52 10 640
+spring 46 10 640
 
-goal  rect 28 6 30 11  flat 15   # the steel finish
+goal  rect 28 8 30 13  flat 9   # the steel finish
 goal  rect 35 31 37 37  flat 6 exit 1   # the glass finish
 start 8 7
 checkpoint 30 16 ball rubber   # flag 0
@@ -153,14 +170,14 @@ checkpoint 44 27 ball glass   # flag 3
 checkpoint 36 27 ball glass   # flag 4
 checkpoint 22 26 ball glass   # flag 5
 checkpoint 22 32 ball glass   # flag 7
-checkpoint 59 8 ball steel   # flag 6
+checkpoint 56 8 ball steel   # flag 6
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
 clock 10 7
 floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
 clock 50 11
-floor tile 27 8  flat 16.5   # the steel finish clock's tile (on top of the rail block it replaces)
+floor tile 27 8  flat 10.5   # the steel finish clock's tile (on top of the rail block it replaces)
 clock 27 8
 floor tile 37 34  flat 7.5   # the glass finish clock's tile (on top of the rail block it replaces)
 clock 37 34
@@ -179,9 +196,18 @@ way 52 18
 way 56 18
 way 56 20
 way 61 20
-way 61 13
-way 61 11
-way 61 8
-way 51 8
-way 42 8
-way 30 8
+way 61 12
+way 61 9
+way 60 8
+way 57 8
+way 52 6
+way 50 5
+way 47 5
+way 46 6
+way 42 6
+way 38 7
+way 36 6
+way 35 7
+way 35 8
+way 31 10
+way 28 10

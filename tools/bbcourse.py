@@ -21519,7 +21519,8 @@ def _plan_leg(p, hops, n, hold=None, aim=None, trail=None):
             return False, keys, i
         if p.goal or p.wp != w:
             return aim is None or bool(p.cksn >> aim[0] & 1), keys, i
-        at = (p.gx >> 8, p.gy >> 8)
+        at = (p.gx >> 8, p.gy >> 8, p.gz >> 8)      # (the height too: a steel ball SINKING a deep water column,
+                                                    # its ground point still, is not stuck - SPEC.md 130.14.7.4.3)
         if hold is not None and hold[0] == 2 and (i < hold[1] + hold[2] or p.onp):
             still = 0                               # (a WAIT's stop, or the lift it waited for carrying the
                                                     # ball, is not stuck: SPEC.md 130.14.7.4.3)
