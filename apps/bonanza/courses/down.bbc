@@ -44,12 +44,13 @@ chute 2 round depth 8 way 8 15 30 way 8 17 30 way 12 17 29
 
 # rails: block rails (wall tiles) on the void side of each railed edge
 wall  tile   7   8  flat 42
+wall  tile   7   9  flat 42
+wall  tile   7  10  flat 40
+wall  tile   7  11  flat 38
+wall  tile   7  12  flat 36
+wall  tile   7  13  flat 34
 guard tile   8   7                # see-through
 wall  tile   9   8  flat 42
-wall  tile   9   9  flat 42
-wall  tile   9  10  flat 40
-wall  tile   9  11  flat 38
-wall  tile   9  12  flat 36
 wall  tile  32  15  flat 23.5
 wall  tile  32  17  flat 23.5
 wall  tile  33  15  flat 23.5
