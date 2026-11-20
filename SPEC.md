@@ -291508,6 +291508,25 @@ a retune moves it).
 
 Image and bss unchanged; no shipped course, demo or identity moves (no shipped
 course names water).
+#### 130.36.11 An `open` pool: water no steel ball can reach (the owner, 2026-11-20; BUILT)
+
+130.36.4's SEAL rule (every edge neighbour of a water cell closes the column
+at its bed) exists for STEEL: a steel ball sinks to the bed and must not roll
+out through the glass. A pool that no steel ball can reach needs no seal -
+course 3's glass leg (DOWN rev 13): its float pool lies past a membrane, which
+only glass crosses (130.38), so the owner had its south side opened: the
+water's side seen, and a glass ball that floats off the edge falls.
+
+- **The statement**: `water <shape> top <H> bed <B> open [ripple ...] [always
+  ...]` - `open` straight after the bed.
+- **The tool** skips the seal for an `open` water's cells, and refuses an
+  `arch` on one (an arch is a sealed column's way out). Nothing else
+  changes: the cells are the same water elements, the part the same bytes
+  (`open` is not stored), the guest the same code.
+- **The designer's promise**: no steel ball reaches an `open` pool. The tool
+  does not prove it (no reach analysis by ball); a steel ball that did would
+  roll out at the bed through the open face, as the seal rule describes.
+
 ### 130.37 The standard kit (the owner, 2026-11-17)
 
 The owner's idea, priced by `docs/reports/BONANZA-KIT-2026-11-17.md` (the

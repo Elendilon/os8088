@@ -2955,7 +2955,7 @@ def _parse_water(toks, where, ln):
     bed at B.  `ripple` names cells whose ripples ANIMATE while the ball is in them; `always` cells whose ripples
     animate all the time (the owner's W7: "animate only as something is on it, or, with an option, animate
     always if we use one column only").  Every other water top carries its ripples drawn, still"""
-    use = "water takes <shape> top <H> bed <B> [ripple <wx> <wy> ...] [always <wx> <wy> ...]"
+    use = "water takes <shape> top <H> bed <B> [open] [ripple <wx> <wy> ...] [always <wx> <wy> ...]"
     if len(toks) < 2:
         raise CourseError("%s: %s" % (where, use))
     cells, i = _shape(toks, 1, where)
@@ -2967,6 +2967,9 @@ def _parse_water(toks, where, ln):
                           "would climb out through the glass, and rubber in at the bed (SPEC.md 130.36)"
                           % (where, bed / 2.0, CLIMB, top / 2.0))
     i += 4
+    opn = False
+    if i < len(toks) and toks[i] == ('w', "open"):    # SPEC.md 130.36.11: a pool no steel ball can reach - its
+        opn, i = True, i + 1                       # column need not be SEALED at the bed
     rip = {}
     word = None
     while i < len(toks):
@@ -2984,7 +2987,7 @@ def _parse_water(toks, where, ln):
         i += 2
     if word is not None and not rip:
         raise CourseError("%s: %s" % (where, use))
-    return {"cells": frozenset(cells), "top": top, "bed": bed, "rip": rip, "line": ln}
+    return {"cells": frozenset(cells), "top": top, "bed": bed, "rip": rip, "line": ln, "open": opn}
 
 
 def _parse_hump(toks, where, ln):
@@ -6801,7 +6804,8 @@ def build_props(src, tiles, fname):
     # FLAT FLOOR no other prop has and never on a split cell (130.24.2); and every family named has one
     named = [fm for fm, _l in src.uses]
     welem = [{"line": wd["line"], "kind": FK_WATER, "at": c, "cls": CL_ATTEMPT, "seed": None, "bed": wd["bed"],
-              "top": wd["top"], "rip": wd["rip"].get(c, 0)} for wd in getattr(src, "waters", ())
+              "top": wd["top"], "rip": wd["rip"].get(c, 0), "open": wd.get("open", False)}
+             for wd in getattr(src, "waters", ())
              for c in sorted(wd["cells"])]
     for sp in src.props + welem:                    # (SPEC.md 130.36: a water statement's cells, an element each)
         if not is_fam(sp["kind"]):
@@ -6823,7 +6827,7 @@ def build_props(src, tiles, fname):
                       "dur": sp.get("dur", 0), "ow": sp.get("ow", 0), "hole": sp.get("hole", "small")})
         if sp["kind"] == FK_WATER:                  # (SPEC.md 130.36: a ripple's lane, `ripple` or `always`)
             props[-1].update(bed=sp["bed"], top=sp["top"], rip=sp["rip"], always=bool(sp["rip"] & WR_ALWAYS),
-                             art="ripple" if sp["rip"] else None)
+                             art="ripple" if sp["rip"] else None, open=sp.get("open", False))
         if sp["kind"] in (SP_K, SP_KP, SP_KM):      # SPIKES (SPEC.md 130.38): LOW and TIP round the base; a
             props[-1].update(low=t.z0 - 1, tip=t.z0 + 1, mz=t.z0, surf=t.surf)    # popspike's timer
             if sp["kind"] == SP_KP:
@@ -7305,6 +7309,11 @@ def water_checks(src, tiles, props, fname):
             wat[at]["wg"] = wat[at].get("wg", 0) | (WR_GUARDX if side == 0 else WR_GUARDY)
             src.wguards[(at, side)] = a["guard"]
     for at, p in sorted(wat.items()):
+        if p.get("open"):                           # SPEC.md 130.36.11: `open` - a pool no steel ball reaches
+            if arch.get(at):
+                raise CourseError("%s:%d: an `open` water has no arch: its column is not sealed for a steel ball "
+                                  "to roll out of (SPEC.md 130.36.11)" % (fname, p["line"]))
+            continue
         for e, (dx, dy) in sorted(EDGE_D.items()):
             nb = (at[0] + dx, at[1] + dy)
             if nb in wat:
@@ -30518,6 +30527,8 @@ def _water_cases():
             ("a column open on its +y face (no arch: steel would roll out at the bed)", _WAT + "water tile 6 6 top 3 "
              "bed 0\n", "not SEALED"),
             ("a column beside VOID", _WAT + "water tile 9 5 top 3 bed 0\n", "is VOID"),
+            ("an arch on an `open` water (130.36.11)", _WAT + "water tile 6 6 top 3 bed 0 open\narch 6 6 +y\n",
+             "an `open` water has no arch"),
             ("a column beside a floor too low", _WAT + "floor rect 7 5 8 6 flat 0.5\nwater tile 6 5 top 3 bed 0\n",
              "a floor too low"),
             ("an arch on a cell that is not water", _WAT + "water tile 6 6 top 3 bed 0\narch 6 6 +y\narch 5 6 +y\n",
@@ -30557,6 +30568,15 @@ def _water_checks(res):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (water, 130.36): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    # SPEC.md 130.36.11: an `open` pool needs no seal - the column beside VOID compiles with `open`; red arm, the
+    # same text without it is refused (the case above)
+    try:
+        compile_course(_WAT + "water tile 9 5 top 3 bed 0 open\n", fname="<an open pool>", occluders=False)
+        oko, msg = True, "compiled"
+    except CourseError as e:
+        oko, msg = False, str(e)
+    res.append(("2 an `open` pool (130.36.11): a column beside VOID with `open` %s; without it refused (above)"
+                % ("compiles" if oko else "is refused -- " + msg[:120]), oko))
     wbbc = os.path.join(COURSE_DIR, "water.bbc")
     c = compile_course(wbbc)
     wat = [r for r in c.part["props"] if r["kind"] == FK_WATER]
