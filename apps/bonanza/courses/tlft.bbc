@@ -1,0 +1,46 @@
+# Two Lifts - TLFT, a TEST course (SPEC.md 130.54): the BZDEV=1 build's alone, after the shipped courses (the
+# Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  SPEC.md 130.12.4.7's home: a course with TWO
+# lifts, each its own window's, and a route the autopilot rolls across both -
+#  - lift 1 (12, 6), L 2: the start tier A (14) its high dock, the strip B (12) its low one; the route rolls
+#    off A into its shaft, onto its slab wherever the clock has it (a drop of at most 2 units), and off it
+#    onto B - the guest's FIRST tracked lift, in the start window on both cards;
+#  - the descent: B's ramp down along +y (12 to 7), the corner C, a ramp down along +x (7 to 2) - the camera
+#    scrolls DOWN the whole way, and the tracked lift is HANDED OVER (bz_psel) on it, the first lift leaving
+#    the window widened by the walk's margins before the second enters it;
+#  - lift 2 (31, 21), L 2: the floor D (2) its high dock, the goal tier E (0) its low one, ridden the same
+#    way onto the goal;
+#  - both lifts the default seeds, half a period apart (bbcourse: ip x P / npl), so each moves on its own
+#    phase while the other is shown.
+# width 128 with origin 400: the picture's 1,024 px hold the descent's swing (wx - wy -9 to 17) and its reach.
+course TLFT "Two Lifts"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music trial      # SPEC.md 130.50.3: every course names its song
+width 128
+origin 400
+ball rubber
+
+floor rect  8  4 12  9  flat 14           # A, the start tier: lift 1's high dock
+floor rect 13  4 17  9  flat 12           # B, lift 1's low dock
+floor rect 13  9 17 19  ramp y 9 19 12 7  # B's descent along +y
+floor rect 13 19 17 23  flat 7            # C, the corner
+floor rect 17 19 27 23  ramp x 17 27 7 2  # the descent along +x
+floor rect 27 19 31 23  flat 2            # D, lift 2's high dock
+floor rect 32 19 37 25  flat 0            # E, lift 2's low dock and the goal
+goal  rect 33 19 36 24  flat 0
+wall  rect 17  3 18  9  flat 16           # B's east wall: the bounce off lift 1 stops there
+wall  rect  8  9 12 10  flat 16           # A's south wall
+wall  rect 13 23 17 24  flat 9            # C's south wall: the corner turned, not overshot
+wall  rect 37 19 38 25  flat 2            # E's east wall
+
+prop platform 12 6 2                      # lift 1: A (14) high, B (12) low
+prop platform 31 21 2                     # lift 2: D (2) high, E (0) low
+
+start 10 6
+way 10 6
+way 15 6
+way 15 21
+way 29 21
+way 34 21
+
+clock  9 8                                # the start clock, off the route
+clock 36 24                               # the finish clock (SPEC.md 130.22.6), beside the goal

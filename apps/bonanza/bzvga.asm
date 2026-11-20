@@ -1301,6 +1301,7 @@ bzv_conv:
     mov cx, BZ_PLSPR / 2
     call .words
     pop cx
+    jmp short .balls            ; (ONE sprite, every lift's: SPEC.md 130.12.4.7)
 .pn:
     add di, BZ_PROPREC
     loop .pr
