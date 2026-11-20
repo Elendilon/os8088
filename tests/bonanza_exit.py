@@ -220,7 +220,8 @@ def bsegs(g):
 
 
 def ncrs2():
-    """the two-part courses' WORLD part rows (SPEC.md 130.30.4.4): one a line of
+    """the two-part courses' WORLD part rows (SPEC.md 130.30.4.4) and then the
+    SHEETED courses' other sheets' (BZ<K>S<i>.BIN, 130.30.12.5): one a line of
     the build's bzcrs2.lst, in row order after the courses' own - 0 for a tree
     with none (empty) or older than 130.30 (no file)"""
     p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
@@ -270,10 +271,24 @@ def bench_frames():
 
 
 def two_part():
-    """the build's TWO-PART courses, by name, in row order (bzcrs2.lst's BZ<K>W.BIN): the world part's leg"""
+    """the build's TWO-PART courses, by name, in row order (bzcrs2.lst's BZ<K>W.BIN): the world part's leg.
+    A SHEETED course (SPEC.md 130.30.12) is two parts too and is among them; its other sheets' lines
+    (BZ<K>S<i>.BIN, after every world part's) name no course of their own"""
     p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
     names = open(p).read().split() if os.path.exists(p) else []
-    return [R.crs_name(int(n[2:-5])).lower() for n in names]
+    return [R.crs_name(int(n[2:-5])).lower() for n in names if n.endswith("W.BIN")]
+
+
+def sheet_rows(k):
+    """course K's other SHEETS' rows (SPEC.md 130.30.12.5): the bzcrs2.lst line BZ<K>S<i>.BIN, i = 1, 2, ...,
+    is row BZ_P_CRS + BZ_NCRS + its line, as world_row's - [] for a course that is not sheeted"""
+    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
+    names = open(p).read().split() if os.path.exists(p) else []
+    R.crs_fill()
+    out = []
+    while "BZ%dS%d.BIN" % (k, len(out) + 1) in names:
+        out.append(CRS_ROW0 + dict.__len__(R.CRS_K) + names.index("BZ%dS%d.BIN" % (k, len(out) + 1)))
+    return out
 
 
 def shell_row():
@@ -336,6 +351,7 @@ CLAIMED = {}                    # tag -> the courses whose claim was compared, b
 
 
 _RAM = {}
+_SHEETS = {}
 
 
 def ram_forms(k, tag, art=None):
@@ -346,14 +362,18 @@ def ram_forms(k, tag, art=None):
     (SPEC.md 130.30) (the picture part, the world part), herc_translate_parts'
     on the Hercules.  The art's BZ<K>.BIN (and BZ<K>W.BIN) must be the same
     compile's STORED forms, or the comparison would be with another tree's
-    courses."""
+    courses.  A SHEETED course (SPEC.md 130.30.12): the picture part is its
+    sheet 0 (what bz_cload fetches at the course's own row and bz_crshdr
+    shows), its other sheets' forms sheet_forms() - their BZ<K>S<i>.BIN
+    checked here too."""
     art = art or R.at("build/bonanza-art")
     key = (k, tag, art)
     if key not in _RAM:
         c = R.course_k(k)
         ram, stored = c.cga, c.stored
         wram, wstored = (c.wcga, c.wstored) if c.split else (None, None)
-        for f_, want in (("BZ%d.BIN" % k, stored), ("BZ%dW.BIN" % k, wstored)):
+        more = [("BZ%dS%d.BIN" % (k, i), st_) for i, st_ in enumerate(c.sstored or ()) if i]
+        for f_, want in [("BZ%d.BIN" % k, stored), ("BZ%dW.BIN" % k, wstored)] + more:
             if want is None:
                 continue
             with open(os.path.join(ROOT, art, f_), "rb") as f:
@@ -361,10 +381,19 @@ def ram_forms(k, tag, art=None):
                     raise SystemExit("%s/%s is not this tree's course %s as stored: the art is "
                                      "stale (`make bonanzadisk`)" % (art, f_, c.name))
         if wram is not None:
-            _RAM[key] = BB.herc_translate_parts(ram, wram) if tag == "herc" else (bytes(ram), bytes(wram))
+            pw = BB.herc_translate_parts(ram, wram) if tag == "herc" else (ram, bytes(wram))
+            _SHEETS[key] = [bytes(q) for q in (BB.sheets_of(pw[0]) or ())[1:]]
+            _RAM[key] = (bytes(pw[0]), pw[1])
         else:
             _RAM[key] = (BB.herc_translate_course(ram) if tag == "herc" else bytes(ram), None)
     return _RAM[key]
+
+
+def sheet_forms(k, tag, art=None):
+    """a SHEETED course K's other sheets (1, 2, ...) as the card holds them at the claim leg (SPEC.md
+    130.30.12.5: on the Hercules each translated, bz_hxshs) - [] for any other course"""
+    ram_forms(k, tag, art)
+    return _SHEETS.get((k, tag, art or R.at("build/bonanza-art")), [])
 
 
 def ram_form(k, tag, art=None):
@@ -408,9 +437,23 @@ def claim_check(g, what):
     # a TWO-PART course (SPEC.md 130.30.5): the picture part in [bz_mseg], the world part in [bz_cseg]
     legs = [("bz_cseg", pic, cpic, "")] if world is None else [("bz_mseg", pic, cpic, "picture "),
                                                                ("bz_cseg", world, cworld, "world ")]
+    # a SHEETED course (SPEC.md 130.30.12.5): every other sheet a claim of its own, its segment the word
+    # [bz_shseg + 2 i] (sheet 0's [bz_shseg] the picture part's above), each its RAM form (on the Hercules its
+    # blocks translated, bz_hxshs) - and at fsx_run the SHOWN sheet, [bz_mseg], is sheet 0 (bz_crshdr's)
+    shs = sheet_forms(k, g.tag)
+    legs += [(("bz_shseg", i), q, cq, "sheet %d " % i)
+             for i, (q, cq) in enumerate(zip(shs, sheet_forms(k, "cga")), 1)]
     out = []
+    if shs and g.w("bz_mseg") != g.w("bz_shseg"):
+        out.append("%s: claim leg, %s: [bz_mseg] %04X at fsx_run is not sheet 0's segment [bz_shseg] %04X "
+                   "(bz_crshdr shows sheet 0, SPEC.md 130.30.12.3)" % (what, name.upper(), g.w("bz_mseg"),
+                                                                       g.w("bz_shseg")))
     for word, want, cwant, which in legs:
-        seg = g.w(word)
+        if isinstance(word, tuple):             # (a sheet's word: the i-th of bz_shseg)
+            seg = struct.unpack("<H", bytes(m.read(g.a(word[0]) + 2 * word[1], 2)))[0]
+            word = "%s + %d" % (word[0], 2 * word[1])
+        else:
+            seg = g.w(word)
         cl = [c for c in mp.claims if c.seg == seg]
         if not cl:
             out.append("%s: claim leg, %s: [%s] %04X is no claim of the heap map" % (what, name.upper(), word, seg))
@@ -541,7 +584,8 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     # fetched since the open), so the control is the course's row and the bundle's FETCHED, the three
     # ball segments (bz_bsegs) set, and the sprite's (bz_bseg) the material's
     wrow = world_row(g.b("bz_crs"))            # SPEC.md 130.30.5: a two-part course's WORLD part, a row and a
-    for i in [pc, fbun_row()] + ([wrow] if wrow is not None else []):      # claim of its own beside the picture's
+    srows = sheet_rows(g.b("bz_crs"))          # claim of its own beside the picture's; a SHEETED course's other
+    for i in [pc, fbun_row()] + ([wrow] if wrow is not None else []) + srows:     # sheets one each (130.30.12.5)
         f, z = r_in[i]
         if not f & OP_FETCHED or not z:
             fails.append("%s: inside the bracket row %d is not fetched (flags %02X zkb %04X): the control cannot "
@@ -560,9 +604,17 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     # become the play's: two claims however many balls, and no fanfare term
     ar_in = 1 if g.w("op_arena") else 0
     np = 1 if wrow is None else 2               # (130.30.5: the picture part and the world part, a claim each)
+    np += len(srows)                            # (130.30.12.5: and a SHEETED course's every other sheet)
+    prow, phgo = link_row("BZ_P_PATH"), 0       # (130.30.12.6: a SHEETED course lets a held pathway go)
+    if srows and prow is not None and base_rows[prow][0] & OP_FETCHED:
+        if r_in[prow][0] & OP_FETCHED:
+            fails.append("%s: inside a SHEETED course's bracket the held pathway (row %d) is still fetched "
+                         "(SPEC.md 130.30.12.6: bz_cload lets it go)" % (way, prow))
+        else:
+            phgo = 1
     if g.tag == "vga":                          # (130.46.6: the VGA's code part and the balls' converted
         np += 2                                 # copies, both held through the bracket)
-    if len(c_in) != len(base_claims) - 1 + np - g.ar0 + ar_in or not ar_in:
+    if len(c_in) != len(base_claims) - 1 + np - g.ar0 + ar_in - phgo or not ar_in:
         fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + the "
                      "course's %d part(s) + the arena (%d on the desktop, %d here): %s" % (
                          way, len(c_in), len(base_claims), np, g.ar0, ar_in, c_in))
@@ -647,7 +699,7 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     line = "%s %s (%s): rows %s fetched inside; %d floppy reads to the bracket; after it every row as before " \
            "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat],
                                              ",".join(str(i) for i in [pc] + ([wrow] if wrow is not None else [])
-                                                      + [fbun_row()]), reads, "yes" if not fails else "NO")
+                                                      + srows                                                      + [fbun_row()]), reads, "yes" if not fails else "NO")
     return fails, line
 
 

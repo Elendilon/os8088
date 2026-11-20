@@ -53,6 +53,7 @@ import bonanza_ring as R       # noqa: E402
 
 CS, PS = D.CS, D.PS
 PS2 = 0x5000                    # a two-part course's WORLD part (SPEC.md 130.30)
+SHS = 0x8000                    # a SHEETED course's sheets past sheet 0 (SPEC.md 130.30.12), 1000h apart
 BOXD, BOXW = 20, 4
 LINES = 200
 CHKW = (0x3333, 0xCCCC)
@@ -126,10 +127,41 @@ class Pass:
         self.mapsh, self.mapoff = info["mapsh"], BB.HDR
         self.cols = info["cols"]
         self.nneigh = 0
+        # A SHEETED course (SPEC.md 130.30.12): sheet 0 at PS (above), each other sheet at a segment of its own
+        # (SHS up), and the sheet SHOWN for a window chosen by the plan's rule (show(): the shown one while it
+        # serves the window's top, else the first that does) - bz_mseg its segment and bz_mrow its rows clamped
+        # to [m0, hic], as bz_shset leaves them (tests/bonanza_sheet.py proves bz_shchk makes exactly those).
+        # The host reads each block row's map word from a sheet that HOLDS the row, sheet-relative, so a
+        # window whose rows the shown sheet does not hold (a clamped read) parts from the host.
+        self.sheets = BB.sheets_of(c.cga)
+        self.shown = None
+        if self.sheets:
+            self.segs = [PS] + [SHS + 0x1000 * (i - 1) for i in range(1, len(self.sheets))]
+            for s_, q in zip(self.segs[1:], self.sheets[1:]):
+                self.g.mu.mem_write(s_ * 16, bytes(q))
+
+    def show(self, wtop):
+        """a SHEETED course: the sheet serving the window's top WTOP (lines) made the shown one"""
+        pl = self.c.plan
+        if self.shown is not None and pl["sheets"][self.shown]["tlo"] <= wtop <= pl["sheets"][self.shown]["thi"]:
+            return
+        self.shown = next(i for i, x in enumerate(pl["sheets"]) if x["tlo"] <= wtop <= x["thi"])
+        x, rowb = pl["sheets"][self.shown], 2 * self.cols
+        self.g.w("bz_mseg", self.segs[self.shown], 2)
+        mrow = b"".join(struct.pack("<H", BB.HDR + (min(max(br, x["m0"]), x["hic"]) - x["m0"]) * rowb)
+                        for br in range(self.c.brows))
+        self.g.mu.mem_write(CS * 16 + self.sym["bz_mrow"], mrow)
 
     def block_word(self, br, w, ly):
-        p = self.c.cga
-        off = struct.unpack_from("<H", p, self.mapoff + 2 * self.cols * br + 2 * w)[0]
+        if not self.sheets:
+            p, row = self.c.cga, br
+        else:                                   # (a sheet holding block row BR: its map is rows m0 .. m0 + n - 1)
+            pl = self.c.plan
+            i = next((i for i, x in enumerate(pl["sheets"]) if x["m0"] <= br < x["m0"] + pl["n"]), None)
+            if i is None:
+                raise AssertionError("block row %d is in no sheet of %s" % (br, self.c.name))
+            p, row = self.sheets[i], br - pl["sheets"][i]["m0"]
+        off = struct.unpack_from("<H", p, self.mapoff + 2 * self.cols * row + 2 * w)[0]
         return struct.unpack_from("<H", p, off + 2 * ly)[0]
 
     def run(self, pos, wtop, c0n, rnd, trace=False):
@@ -147,6 +179,8 @@ class Pass:
         DL, DH = max(nfx0, c0n), min(nfx1, c0n + W - 1)
         if olo >= ohi or DL > DH:
             return None
+        if self.sheets:
+            self.show(wtop)
         g.w("bz_gx", gx, 4)
         g.w("bz_gy", gy, 4)
         g.w("bz_gz", gz, 4)
