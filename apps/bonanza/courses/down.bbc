@@ -13,8 +13,7 @@ target 60
 
 # rooms (the sketch's sections)
 floor rect   8   7   9   8  flat 40   # A
-floor rect   8   8   9  13  ramp y 8 13 40 30   # R
-floor rect   8  13   9  14  flat 30   # R
+floor rect   7   8  10  13  ramp y 8 13 40 30   # R
 floor rect  12  15  22  18  flat 29   # H
 floor rect  22  15  24  18  ramp x 22 24 29 27   # D
 floor rect  24  15  27  18  ramp x 24 27 27 25.5   # D
@@ -40,15 +39,15 @@ floor rect  43  34  45  35  flat 12   # Z
 floor rect  39  35  47  39  flat 12   # V
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
-chute 2 round depth 8 way 8 14 30 way 8 17 30 way 12 17 29
+chute 3 round depth 8 way 8 13 30 way 8 16 30 way 11 16 29
 
 # rails: block rails (wall tiles) on the void side of each railed edge
+wall  tile   6   8  flat 42
+wall  tile   6   9  flat 40
+wall  tile   6  10  flat 38
+wall  tile   6  11  flat 36
+wall  tile   6  12  flat 34
 wall  tile   7   7  flat 42
-wall  tile   7   8  flat 42
-wall  tile   7   9  flat 40
-wall  tile   7  10  flat 38
-wall  tile   7  11  flat 36
-wall  tile   7  12  flat 34
 guard tile   8   6                # see-through
 wall  tile   9   7  flat 42
 wall  tile  32  15  flat 23.5
@@ -128,6 +127,7 @@ clock 47 37
 # the autopilot's route
 way 8 7
 way 8 11
+way 12 16
 way 22 16
 way 29 16
 way 32 16
