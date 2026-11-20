@@ -22513,6 +22513,8 @@ BZ_PATH := apps/bonanza/courses/path.bbc
 # the PAD-0 TEST KNOBS' map (2026-11-19): the prototype pathway the shipped one replaced, which each knob's
 # path<knob>.sed edits to put its course on pad 0 (their seds name its pads and cells)
 BZ_PATHTEST := apps/bonanza/courses/pathtest.bbc
+# THE TEST MAP (SPEC.md 130.54.6): the BZDEV=1 build's pathway (its block below), never shipped (`test`)
+BZ_PATHDEV := apps/bonanza/courses/pathdev.bbc
 #> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 130.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
 # BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
 # can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
@@ -22928,7 +22930,8 @@ $(BZSHADOWSTAMP): | $(BUILD)
 # check, the results copy), the autopilot and bz_apilot, the scripted camera, bz_hold, bz_hvoff, bz_phforce,
 # and the shell part's instruments' face - and the TEST COURSES (BZ_TESTCRS: BENCH, the benchmark's, TQUIK,
 # TCUP), AFTER the shipped courses and any knob's (SPEC.md 130.54; 2026-11-19: "then bench can come out of the
-# shipping build"), compiled with bbcourse's --dev (without it a `test` course is refused). Off, the package
+# shipping build"), and THE TEST MAP (pathdev.bbc, 130.54.6) as the pathway unless a knob gives its own,
+# compiled with bbcourse's --dev (without it a `test` course or map is refused). Off, the package
 # is the player's alone. STAMPED: the package, its link map, its shell part and the courses (the test courses
 # are courses of the one build and not the other) are rebuilt when it turns on or off.
 BZDEV ?=
@@ -22939,6 +22942,12 @@ endif
 endif
 ifeq ($(BZDEV),1)
 BZ_COURSES := $(BZ_COURSES) $(BZ_TESTCRS)
+# ...and THE TEST MAP (SPEC.md 130.54.6) in place of the shipped pathway: pads 0 and 1 the shipped map's (ROLL,
+# HOP), the rest the test courses', one route a feature the rows walk (straight, diagonal, across the pages,
+# an icon, a climb, a secret route by TQUIK's hidden exit). A pad-0 knob's map (BZ_PATHTEST + its sed) wins.
+ifeq ($(BZ_PATH),apps/bonanza/courses/path.bbc)
+BZ_PATH := $(BZ_PATHDEV)
+endif
 endif
 BZDEVDEF := $(if $(BZDEV),-DBZDEV)
 BZDEVSTAMP := $(BUILD)/.bzdev-$(or $(BZDEV),0)

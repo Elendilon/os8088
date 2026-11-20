@@ -5534,11 +5534,13 @@ def path_prepare(src, fname, crsinfo):
     if len(pads) > PATH_PAD_MAX:
         raise CourseError("%s:%d: %d pads: BZ_PAD_MAX is %d, the width of a BONANZA.DAT slot's word-a-pad "
                           "tables (SPEC.md 130.22.5.1)" % (f, src.pathway, len(pads), PATH_PAD_MAX))
+    if src.test is not None:                       # SPEC.md 130.54.6: a TEST MAP's pads may play a test course
+        tests = set()
     for q in pads:
         if q["crs"] not in crsnames or q["crs"] in tests:
             raise CourseError("%s:%d: pad %d plays %r, which is not a course of BZ_COURSES (a test course is none, "
-                              "SPEC.md 130.54): %s" % (f, q["line"], q["num"], q["crs"],
-                                                       ", ".join(n for n in crsnames if n not in tests)))
+                              "SPEC.md 130.54, but on a test map, 130.54.6): %s" % (
+                                  f, q["line"], q["num"], q["crs"], ", ".join(n for n in crsnames if n not in tests)))
         q["K"] = crsnames.index(q["crs"])
         q["title"] = crsinfo[q["K"]][1]
     pad_at = {q["at"]: q for q in pads}
@@ -23265,6 +23267,8 @@ def write_out(out, paths, path=None, title=None, dev=False):
     st = os.path.join(out, ".bz-crs")
     try:
         tests = [n for n, _t, tst in _course_info(paths) if tst]   # (before the compile: it decides nothing)
+        if path and _course_info([path])[0][2]:     # SPEC.md 130.54.6: a TEST MAP (`test` on the pathway)
+            tests.append("the test map %s" % os.path.basename(path))
         if tests and not dev:
             raise CourseError("%s: a TEST course (`test`), the BZDEV=1 build's alone: this build is not `--dev`, so "
                               "it would ship (SPEC.md 130.54)" % ", ".join(tests))
@@ -27933,6 +27937,126 @@ def _path_refused(text, courses, want, what, extra=(), proofs=False):
         return want in str(e), str(e)
 
 
+PATH_DEV = os.path.join(COURSE_DIR, "pathdev.bbc")    # SPEC.md 130.54.6: THE TEST MAP, the BZDEV=1 build's pathway
+
+
+def testmap_features(pth):
+    """SPEC.md 130.54.6: the features the test map carries, off its compiled pathway -> {feature: (route, pad,
+    ...) or None}: `straight` pad 0's route to pad 1 and the arrows each end gives it; `diagonal` the first
+    route a pad's key map gives TWO arrows (pad, route); `paged` the first route between two pages; `icon` the
+    paged route's far pad when it has an icon; `climb` a route on from that pad ending higher than it starts;
+    `secret` the secret route, its hidden pad"""
+    pads, routes = pth["pads"], pth["routes"]
+
+    def arrows(p, ri, rev):
+        return [KEY_ARROWS[k] for k, v in enumerate(pads[p]["keys"]) if v == (ri, rev)]
+    out = dict.fromkeys(("straight", "diagonal", "paged", "icon", "climb", "secret"))
+    r01 = next((r for r in routes if r["a"] == 0 and r["b"] == 1 and not r["secret"]), None)
+    if r01 is not None:
+        out["straight"] = (r01["i"], arrows(0, r01["i"], False), arrows(1, r01["i"], True))
+    for q in pads:
+        for r in routes:
+            if r["secret"] or q["num"] not in (r["a"], r["b"]):
+                continue
+            if out["diagonal"] is None and len(arrows(q["num"], r["i"], q["num"] == r["b"])) >= 2:
+                out["diagonal"] = (q["num"], r["i"])
+    pr = next((r for r in routes if not r["secret"] and pads[r["a"]]["page"] != pads[r["b"]]["page"]), None)
+    if pr is not None:
+        out["paged"] = (pr["i"], pads[pr["a"]]["page"], pads[pr["b"]]["page"])
+        far = pr["b"]
+        if pads[far]["isign"] is not None:
+            out["icon"] = far
+        for r in routes:
+            if r["secret"] or r["i"] == pr["i"] or far not in (r["a"], r["b"]):
+                continue
+            g = r["gpts"] if r["a"] == far else r["gpts"][::-1]
+            if g[-1][2] > g[0][2]:
+                out["climb"] = (r["i"], g[-1][2])
+                break
+    sr = next((r for r in routes if r["secret"]), None)
+    if sr is not None and pads[sr["b"]]["hidden"]:
+        out["secret"] = (sr["i"], sr["a"], sr["b"], sr["exit"])
+    return out
+
+
+def _testmap_checks(courses, res):
+    """SPEC.md 130.54.6: THE TEST MAP - compiled against the test build's courses, its features each present,
+    every pad past the shipped map's first two playing a TEST course; and the two refusals that keep it out of
+    a shipped build"""
+    info = [(c.name, c.title, c.test) for c in courses]
+    shipped_pc = compile_course(os.path.join(COURSE_DIR, "path.bbc"), crsinfo=info)
+    try:
+        pc = compile_course(PATH_DEV, crsinfo=info)
+        proofs = path_proofs(pc, courses)
+        why = None
+    except CourseError as e:
+        pc, proofs, why = None, [], str(e)
+    if pc is None:
+        res.append(("130.54.6 the test map compiles -- got: %s" % why[:200], False))
+        return
+    pth = pc.pth
+    ft = testmap_features(pth)
+    byk = {c.name: c for c in courses}
+    sp = shipped_pc.pth["pads"]
+    same01 = all(pth["pads"][i]["crs"] == sp[i]["crs"] and pth["pads"][i]["at"] == sp[i]["at"] for i in (0, 1))
+    rest = [q["crs"] for q in pth["pads"][2:]]
+    print("    the test map: %d pads (%s), %d routes, %d pages; part %d bytes in RAM, LZ4 %d; %s" % (
+        len(pth["pads"]), " ".join(q["crs"] for q in pth["pads"]), len(pth["routes"]), pth["npages"], len(pc.cga),
+        packed_len(pc.stored, "lz4"), "; ".join("%s %s" % kv for kv in ft.items())))
+    for line in proofs:
+        print("      route %s" % line)
+    ok = (same01 and all(byk[n].test for n in rest) and all(v is not None for v in ft.values())
+          and ft["straight"][1] == ["Right"] and ft["straight"][2] == ["Left"] and len(pc.cga) <= PARTMAX
+          and pc.src.test is not None)
+    res.append(("130.54.6 the test map compiles against the test build's courses (%d pads, %d routes, %d bytes): "
+                "pads 0 and 1 the shipped map's (%s, %s, their cells), the rest TEST courses (%s); a STRAIGHT route "
+                "0 -> 1 (Right, Left back: %s), a DIAGONAL (pad, route %s), a route across the PAGES %s, an ICON on "
+                "its far pad (%s), a CLIMB on from it (route, end gz %s), a SECRET route (route, pad, its hidden "
+                "pad, exit %s)" % (len(pth["pads"]), len(pth["routes"]), len(pc.cga), sp[0]["crs"], sp[1]["crs"],
+                                   ", ".join(rest), ft["straight"], ft["diagonal"], ft["paged"], ft["icon"],
+                                   ft["climb"], ft["secret"]), ok))
+    # the secret route's key a HIDDEN exit of its course, its verdict a SIDE or a SHORTCUT (path_proofs)
+    sr = pth["routes"][ft["secret"][0]] if ft["secret"] else None
+    ex = course_exits(courses[pth["pads"][sr["a"]]["K"]]) if sr else {}
+    res.append(("130.54.6 the test map's secret route: opened by %s's exit %s, HIDDEN (%s), %s" % (
+        pth["pads"][sr["a"]]["crs"] if sr else "-", sr["exit"] if sr else "-", ex.get(sr["exit"]) if sr else "-",
+        sr.get("verdict") if sr else "-"), bool(sr) and ex.get(sr["exit"]) is True and bool(sr.get("verdict"))))
+    # refused: a test course on a pad of the SHIPPED map (130.22.2) - and accepted once the map says `test`
+    with open(os.path.join(COURSE_DIR, "path.bbc"), encoding="ascii") as f:
+        ptext = f.read()
+    tq = next((c.name for c in courses if c.test), None)
+    bad = _path_sub(ptext, ("pad 1 HOP ", "pad 1 %-4s" % tq)) if tq else _PATH_NOANCHOR + "a test course"
+    for what, text, want in (("a test course on a pad of the shipped map", bad, "a test course is none"),):
+        if text.startswith(_PATH_NOANCHOR):
+            fired, got = False, "its edit's anchor is gone"
+        else:
+            try:
+                compile_course(text, fname="<%s>" % what, crsinfo=info)
+                fired, got = False, "compiled"
+            except CourseError as e:
+                fired, got = want in str(e), str(e)
+        okm = False
+        if not text.startswith(_PATH_NOANCHOR):
+            try:
+                compile_course("test\n" + text, fname="<the same, `test`>", crsinfo=info)
+                okm = True
+            except CourseError as e:
+                got += " / with `test`: " + str(e)
+        res.append(("130.54.6 refused: %s (%s); the same map saying `test` compiles%s" % (
+            what, tq, "" if fired and okm else " -- got: " + got[:200]), fired and okm))
+    # refused: the test map written without --dev (it would ship), no stamp left
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            write_out(td, [], path=PATH_DEV)
+            got, fired = "accepted", False
+        except CourseError as e:
+            got, fired = str(e), "not `--dev`" in str(e)
+        caught = fired and not os.path.exists(os.path.join(td, ".bz-crs"))
+    res.append(("130.54.6 refused: the test map written without --dev (it would ship)%s" % (
+        "" if caught else " -- got: " + got[:200]), caught))
+
+
 def _path_checks(courses, res):
     t0 = time.time()
     shipped = os.path.join(COURSE_DIR, "path.bbc")
@@ -27993,6 +28117,7 @@ def _path_checks(courses, res):
                 pth["pads"][0]["crs"] == "ROLL" and pth["pads"][1]["crs"] == "HOP" and keyed.get((0, 0)) == 1
                 and keyed.get((1, 0)) == 2 and sorted(r["exit"] for r in pth["routes"] if r["a"] == 2) == [0, 1]
                 and keyed[(2, 0)] != keyed[(2, 1)] and cross))
+    _testmap_checks(courses, res)
     # the refusals, each provoked on the shipped text or the private map
     hid = compile_course(PATH_TEST_HID, fname="<HID>", occluders=False, _hack={"no_bounds": 1})
     hid.title = "Hidden Exit"
@@ -33253,10 +33378,11 @@ def default_paths():
 
 def test_rule():
     """SPEC.md 130.54: -> the Makefile's files whose `test` statement is wrong - every file of BZ_TESTCRS says
-    `test`, no file of the shipped BZ_COURSES (its first line) does: [(file, why)]"""
+    `test`, no file of the shipped BZ_COURSES (its first line) does; and the maps (130.54.6) likewise, the test
+    map BZ_PATHDEV saying it and the shipped pathway BZ_PATH (its first line) not: [(file, why)]"""
     mk = _makefile()
     bad = []
-    for var, want in (("BZ_COURSES", False), ("BZ_TESTCRS", True)):
+    for var, want in (("BZ_COURSES", False), ("BZ_TESTCRS", True), ("BZ_PATH", False), ("BZ_PATHDEV", True)):
         for p in _mk_list(mk, var) or []:
             with open(os.path.join(ROOT, p), encoding="ascii") as f:
                 has = bool(re.search(r"^\s*test\s*(#.*)?$", f.read(), re.M))

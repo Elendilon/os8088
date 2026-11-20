@@ -15,6 +15,16 @@ and the nearest route between pages.  The courses played are the shipped
 ones, pad 0's (ROLL) and pad 1's (HOP); a prototype pad is rolled ACROSS on
 the way to a diagonal and a page, never played.
 
+THE MAP IT BOOTS (2026-11-20, SPEC.md 130.54.6): the BZDEV=1 build's pathway
+is the TEST MAP (apps/bonanza/courses/pathdev.bbc), no longer the shipped
+path.bbc: pads 0 and 1 the shipped map's cell for cell (ROLL, HOP; Right, Left
+back), the rest test courses - the diagonal at pad 2 (TQUIK, Up and Left to
+TCUP), the page route TCUP -> TPLY (page 1, its icon), the climb TPLY -> TMIL
+(1 unit up: 10b's gz > 0 now checked), and a secret route by TQUIK's hidden
+exit 1 to a hidden pad.  The items below still say "the shipped map" where
+they were written for it; phase 3 of docs/plans/BOUNCE-BONANZA-SOAK.md
+rewrites them (the secret leg onto the test map's own route, no patch).
+
   0. a new game: five lives, the marble RESTING on pad 0's cell, every gate
      closed;
   1. no arrow moves it (pad 0's routes are closed); Space shows the INFO card
@@ -1064,10 +1074,10 @@ def host_check():
         part = open(R.at("build/bonanza-art/BZPATH.BIN"), "rb").read()
         T = tables(part)
         for line in plan_lines(T):
-            print("bonanza_path the shipped map's walk: %s" % line)
+            print("bonanza_path the test map's walk: %s" % line)
         dg = find_diagonal(T, 0)
         assert T["pads"][0]["k"] == R.CRS_K["roll"] and T["pads"][1]["k"] == R.CRS_K["hop"], \
-            "the shipped map's pads 0 and 1 are not ROLL and HOP: the row's items 2 - 7 play them"
+            "the test map's pads 0 and 1 are not ROLL and HOP: the row's items 2 - 7 play them"
         assert any(r["a"] == 0 and r["b"] == 1 for r in T["routes"]), "no route from pad 0 to pad 1"
         assert arrows(T, 1, next(i for i, r in enumerate(T["routes"]) if r["a"] == 0 and r["b"] == 1), True) \
             == ["ArrowLeft"], "pad 1's way back to pad 0 is no longer Left alone: the nodiag red arm needs re-aiming"
@@ -1077,7 +1087,7 @@ def host_check():
         print("bonanza_path pad 0's course: the ball rests at %s and is poked into the goal at %s" % (
             g0[0][1], g0[0][0]))
         bad = follower_check(binp, part, R.symbols())
-        print("bonanza_path the follower under unicorn, the shipped pathway: its %d routes both ways against "
+        print("bonanza_path the follower under unicorn, the test map: its %d routes both ways against "
               "bbcourse.Follow: %s" % (len(T["routes"]), "; ".join(bad) or "every step equal"))
         assert not bad, "bz_follow is not bbcourse.Follow"
         art, crs = secret_art(td)

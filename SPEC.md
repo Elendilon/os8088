@@ -281848,7 +281848,8 @@ refused on any other course (`view` is also the title's, 130.23.2):
   top line is at most 1,020 - about five pages with the default drop.
 - **`pad N COURSE WX WY`** (the material pad's `pad rubber|steel|glass WX
   WY` is told apart by its integer N): pad N (0 - 31, numbered from 0; pad 0
-  is the start) plays COURSE, a course of `BZ_COURSES` but `BENCH`; its cell
+  is the start) plays COURSE, a course of `BZ_COURSES` but a TEST course
+  (130.54; on the TEST MAP, a pathway saying `test`, any course: 130.54.6); its cell
   is a FLAT FLOOR of the route material at the height its routes give it
   (every route end there agrees), and the pad is a SIGN lane over it
   (130.22.4.1) with **`PAD_POSES` = 4**: 0 OPEN (glowing), 1 DONE, 2
@@ -294607,7 +294608,8 @@ BENCH (130.10.11.1) was the first, and it is one of them now.
   what only a shipped course owes: it may have no `target` (no course budget,
   130.15.8; one it does give is checked as any course's), it gets no shipped
   demo (no `BZD<NAME>.BIN`, not in `bzdemo.lst`, V's cycle or the title's
-  draw, 130.14.7.4), and no pathway `pad` may play it (130.22.2). It may not
+  draw, 130.14.7.4), and no pad of the SHIPPED pathway may play it (130.22.2;
+  a pad of the TEST MAP may, 130.54.6). It may not
   say `guide` (a guide course is a real one, held to the course guide). Every
   other rule - the grammar, the picture, the part's 65,024 bytes, the limit,
   the finish clocks, the occluders - binds it as it binds a shipped course.
@@ -294659,6 +294661,9 @@ seconds of the autopilot from the start, one part each.
   bonanzaexit's palette leg and its `nopal` red);
 - a short `limit`, so a row can wait a TIMEOUT out quickly;
 - the finish clock the finish rule asks for (130.22.6).
+- *(2026-11-20)* the goal column's front cell (14, 7) a HIDDEN exit 1
+  (`exit 1 hidden`): the key of the test map's SECRET route (130.54.6). The
+  autopilot still finishes by exit 0 (165 steps).
 
 **TCUP** (`apps/bonanza/courses/tcup.bbc`, "Cup Test"): a plate, a ramp and
 a CUP the autopilot holes out in (the cup's way out and `padleak`'s red,
@@ -294756,3 +294761,73 @@ touched; NO TRAP holds from every flag and pad. The shipped build is byte
 for byte what it was (`BONANZA.O88` 149,693 bytes, the four images); the
 test build's `BONANZA.O88` is 166,214 bytes, its image 52,465 -> 52,501 (+36,
 a row of every per-course table).
+
+#### 130.54.6 THE TEST MAP: the test build's pathway (BUILT 2026-11-20)
+
+bonanzapath walked the SHIPPED map (130.22: option A, redrawn as real courses
+ship) across PROTOTYPE pads to find a diagonal, a page and an icon, found no
+climb on it at all (its 10b SKIPPED), and built its secret route by patching
+`path.bbc` and `roll.bbc` and recompiling every course into a private tree. The
+TEST MAP is a pathway built for the rows instead, in the build the rows
+already run:
+
+- **`test` on a pathway** marks it a TEST MAP (the course statement, 130.54.1,
+  on the pathway: it writes nothing into the part). Its pads may play any
+  course of the build, TEST courses included (130.22.2's pad rule lifted for
+  it alone); every other pathway rule binds it as it binds the shipped map.
+  `bbcourse.py -o` REFUSES a test map without `--dev` (the same gate as a test
+  course's, before the compile, no stamp left), so none ships.
+- **The Makefile**: `BZ_PATHDEV` is `apps/bonanza/courses/pathdev.bbc`, and
+  `BZDEV=1`'s block makes it `BZ_PATH` when `BZ_PATH` is still the shipped
+  `path.bbc` - a pad-0 knob's map (`BZ_PATHTEST` + its sed, 130.28 ...) wins,
+  so a knob with `BZDEV=1` keeps its course on pad 0. **The shipped build is
+  byte for byte what it was**: the test map is not one of its inputs.
+  `bbcourse.test_rule` (the selfcheck's `courses` section) holds `BZ_PATHDEV`
+  to saying `test` and `BZ_PATH`'s first line to not.
+- **One map, one boot, every leg.** Pads 0 and 1 are the shipped map's cell
+  for cell (ROLL at (21, 28), HOP at (24, 25), their icons, ROLL's exit 0 the
+  route across: Right, Left back), so what a row does on a new game's first
+  two pads it does unchanged - Enter on pad 0 plays ROLL in either build. The
+  rest are test courses, one route a feature:
+
+  | pad | course | cell | page | |
+  |---|---|---|---|---|
+  | 0 | ROLL | (21, 28) | 0 | the shipped map's; a new game rests here |
+  | 1 | HOP | (24, 25) | 0 | the shipped map's |
+  | 2 | TQUIK | (19, 20) | 0 | the goal course (130.54.2) |
+  | 3 | TCUP | (14, 20) | 0 | |
+  | 4 | TPLY | (9, 15) | 1 | its ICON (`playground32x24`) |
+  | 5 | TMIL | (9, 11), 1 unit up | 1 | a dead end |
+  | 6 | BENCH | (23, 16) | 0 | HIDDEN: only the secret route reaches it |
+
+  | route | key | shape | the feature |
+  |---|---|---|---|
+  | 0 -> 1 | ROLL's exit 0 | across (Right; Left back) | STRAIGHT, the gate |
+  | 1 -> 2 | HOP's exit 0 | up | straight |
+  | 2 -> 3 | TQUIK's exit 0 | up-left, along -x | the DIAGONAL: pad 2's Up and Left both take it, pad 3's Down and Right bring it back |
+  | 3 -> 4 | TCUP's exit 0 | up | ACROSS THE PAGES (page 0 -> 1): the paged camera; its far pad the icon's |
+  | 4 -> 5 | TPLY's exit 0 | up-right, a one-cell RAMP of 1 unit | the CLIMB (the follower's gz, 10b) |
+  | 2 -> 6 | TQUIK's exit 1, **hidden** | right | the SECRET route, a SIDE (130.22.2's verdict): reveal groups, a hidden pad |
+
+  **TQUIK carries the hidden exit** (its goal column split: (14, 4 - 7) exit
+  0, the front cell (14, 7) exit 1 `hidden`, beside C's floor so a row pokes
+  the ball into it): the autopilot still reaches exit 0 in 165 steps, no
+  fall. BENCH sits on the hidden pad because a pad plays a course and the
+  build has no other left; it is never played from there.
+- **The selfcheck** (`path`): the test map compiled against the test build's
+  courses, its features each present (`bbcourse.testmap_features`: straight,
+  diagonal, paged, icon, climb, secret) and every pad past 1 a test course;
+  its secret route opened by a HIDDEN exit, its verdict SIDE; REFUSED, a
+  test course on a pad of the shipped map, and the same map compiles once it
+  says `test`; REFUSED, the test map written without `--dev`.
+- **As built (MEASURED, host)**: the test map 20,338 bytes in RAM, LZ4 6,532
+  (`BZPATH.BIN` stored 21,183 against the shipped map's 23,631); the test
+  build's package image 52,537 -> 52,535 (-2), `BONANZA.O88` 170,872 -> 169,910, `bonanza360.img` 174 of 354
+  clusters. The shipped `BONANZA.O88` (149,693 bytes) and the four
+  `bonanza*.img` `cmp` identical before and after. `bonanza_path.py --check`
+  walks it on the host: the diagonal pad 2 (route 2), the page route pad 3 ->
+  pad 4, bz_follow under unicorn equal to `bbcourse.Follow` on all six routes
+  both ways, the ramp's included.
+- **Not yet** (phase 3 of docs/plans/BOUNCE-BONANZA-SOAK.md): bonanzapath's
+  legs still carry the shipped map's wording, and its SECRET leg still builds
+  its private tree; the plan maps each leg onto the route above.
