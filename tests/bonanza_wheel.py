@@ -177,6 +177,16 @@ import bonanza_ring as R       # noqa: E402
 import bonanza_phys as P       # noqa: E402
 
 BENCH = 1200                   # bzgame.inc BZ_BENCH
+# PHASE 3 (docs/plans/BOUNCE-BONANZA-SOAK.md): every leg on the TEST course TMIL ("Wheel and Ring", SPEC.md
+# 130.54) - MILL's top cell for cell (both windmills on their KEEP tubes, seed 16 and the derived 36, the
+# clock at (6, 13)), posts crossing the ring's end on both cards, a lift - found by NAME, so no row
+# notices when the prototype courses leave the build
+WHEEL_CRS = "tmil"
+# ...and the BENCH leg STOPS (R.bench_end, with its results) at this frame rather than at BZ_BENCH's 1,200:
+# the plan's TMIL table has both rotors shown from frame 1, the kick of post (17, 16) at 331 (CGA) / 282
+# (Hercules) on the host model, posts 5 and 6 shown from 256 / 212 - so enough HOLD_FROM late frames after
+# 120 and the kick's lit spell - and TMIL's route reaches its goal at ~795 / ~665 frames
+BENCH_STOP = {"cga": 420, "herc": 370}
 LSH = {"cga": 1, "herc": 2}    # card rows to lines: rl = 1 << lsh
 TO0 = {"cga": 38, "herc": 98}  # lines from the sync's rise to window line 0 (SPEC.md 130.12.5.3)
 LINE = {"cga": 304.0, "herc": 63.4 * 4}     # clocks a line (76 counts; the Hercules about 63.4)
@@ -321,8 +331,8 @@ def boot_pkg(tag, apps, src):
     return ui, sym
 
 
-def launch_mill(g, key, hvoff, crs="mill"):
-    """KEY (B or Enter) on the desktop, stopped at bz_launch's entry: MILL (or
+def launch_mill(g, key, hvoff, crs=WHEEL_CRS):
+    """KEY (B or Enter) on the desktop, stopped at bz_launch's entry: TMIL (or
     CRS) into [bz_crs], [bz_hvoff] HVOFF; the guest left STOPPED there"""
     m = g.m
     m.bp_exec(g.a("bz_launch"))
@@ -590,18 +600,20 @@ def bench_leg(g, ref, wr):
         st["pr"] = out
         # a frame made LATE on purpose: the NEXT frame's bz_t0 spins (SPEC.md 130.12.5.6)
         f = out["frames"] + 1
+        if f >= BENCH_STOP[tag] and "end" not in st:  # (phase 3: the leg's last needed frame)
+            st["end"] = R.bench_end(g)
         if f >= HOLD_FROM and f % HOLD_EVERY == 0:
             v = HOLD_VALS[(f // HOLD_EVERY) % len(HOLD_VALS)]
             g.putb("bz_hold", v)
             st["holds"][f] = v
         return out
 
-    launch_mill(g, "KeyB", 0)
+    launch_mill(g, "KeyB", 0, crs=WHEEL_CRS)
     stops = wa + [A["bz_wcommit"], A["bz_tv"], A["bz_presented"]]
     with M.bp_trace(m, *(stops + logged), log=logged, regs=True, on_hit=on_hit, cap=BENCH * 60 + 40000) as tr:
         m.run()
-        M.until(m, lambda _: g.b("bz_fs") == 1, "the MILL benchmark starts", guest=60)
-        M.until(m, lambda _: g.b("bz_fs") == 0, "the MILL benchmark's %d frames" % BENCH, guest=600)
+        M.until(m, lambda _: g.b("bz_fs") == 1, "the TMIL benchmark starts", guest=60)
+        M.until(m, lambda _: g.b("bz_fs") == 0, "the TMIL benchmark's %d frames" % BENCH_STOP[tag], guest=600)
         m.pause()
         hits = tr.hits
         assert not tr.overflowed, "the trace overflowed its cap: hits are missing"
@@ -611,7 +623,10 @@ def bench_leg(g, ref, wr):
         res["cT"] = struct.unpack("<3H", m.read(g.a("bz_cT"), 6))
         res["cal"] = (g.w("bz_wlw"), g.w("bz_wcw"), g.w("bz_warr"))
         m.run()
-    R.dropped(g, "the MILL benchmark")
+    R.dropped(g, "the TMIL benchmark")
+    rframes = st.get("end")
+    if rframes:
+        res["bz_rframes"] = rframes             # (the run STOPPED: bench_end's count, not the poked 1,200)
     return judge_bench(g, ref, hits, res, st, A, wa, site_wc[0], wc, rects, recs, rotors, H, Wc)
 
 
@@ -795,7 +810,8 @@ def judge_bench(g, ref, hits, res, st, A, wa, wsite, wc, rects, recs, rotors, H,
                 nsame += 1
                 if nsame <= 3:
                     fails.append("(1) frame %d: a write of pose %d over bz_ldrw[%d] = %d, NO change (at %s)" % (
-                        fi + 1, wd["new"], wd["lane"], wd["old"], "bz_wcommit" if wd["site"] == wsite else "bz_lsync"))
+                        fi + 1, wd["new"], wd["lane"], wd["old"], "bz_wcommit" if wd["site"] == wsite else
+                        "bz_ldrw writer #%d" % wd.get("site", 0)))
         for cm in fr["commits"]:
             if "ldrw" not in cm:
                 fails.append("(1) frame %d: a %s commit of lane %d wrote no bz_ldrw" % (fi + 1, cm.get("kind"),
@@ -988,7 +1004,7 @@ def low_leg(g, ref):
     k0 = R.LOW_FRAMES
     st = {"k": -1, "plan": None, "what": {}, "sweep": {}, "cand": {}}
     nfr = k0 + SWEEP_CYCLE * len(SWEEP_HOLD) + 2
-    launch_mill(g, "KeyF", 0)
+    launch_mill(g, "KeyF", 0, crs=WHEEL_CRS)
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
@@ -1176,7 +1192,7 @@ def corner_leg(g, ref):
     rects = R.lane_rects(crs)
     grid = BB.Grid(crs.cga, crs.wcga)
     fails, rep = [], []
-    launch_mill(g, "KeyF", 0)
+    launch_mill(g, "KeyF", 0, crs=WHEEL_CRS)
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
@@ -1410,7 +1426,7 @@ def stale_leg(g, ref):
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
     fails, rep = [], []
-    launch_mill(g, "KeyF", 0)
+    launch_mill(g, "KeyF", 0, crs=WHEEL_CRS)
     m.run()
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the MILL play runs", guest=60)
     m.pause()
@@ -1598,9 +1614,9 @@ def side_leg(g, ref):
     # (since wave 8R TRIAL's FINISH clock, the first that can: SPEC.md 130.22.10) - planned on the host
     # before the play is launched
     plan = None
-    R.COURSES["mill"]                           # (8R.13: every course, MILL first - BZ_COURSES's names)
-    for cname in ["mill"] + [n for n in R.COURSES if n != "mill"]:
-        cref = R.Ref(tag, R.course(cname)) if cname != "mill" else ref
+    R.crs_fill()                                # (phase 3: the TEST courses, TMIL first - by name)
+    for cname in [WHEEL_CRS] + [n for n in R.TEST_CRS if n != WHEEL_CRS and n in R.COURSES]:
+        cref = R.Ref(tag, R.course(cname)) if cname != WHEEL_CRS else ref
 
         class _G:                               # (the plan reads only the card's window bounds)
             pass
@@ -1720,7 +1736,9 @@ def side_leg(g, ref):
 
 
 # ---- the CLOCK leg: wave 7's course clocks (SPEC.md 130.18.5) --------------------------
-CLOCK_FRAMES = 420              # frames of FIRST's play, held at its start: about 7 seconds of the clock
+CLOCK_FRAMES = 420              # frames of TMIL's play, held at its start: about 7 seconds of the clock
+CLOCK_NEAR = 6                  # tiles: the clock digits judged are the ones this near the start (TMIL's (6, 13),
+                                # MILL's place, in the start's window; the FINISH clock (11, 21) is G's, far off)
 CLOCK_LAG = 3                   # frames a digit may trail its second (the wheel defers a commit a frame or two)
 
 
@@ -1733,18 +1751,19 @@ def clock_leg(g, ref):
     a frame); the card under every shown digit lane equals the oracle on the
     frames it is checked (enter_check's picture).  `clkfreeze` (bz_tdset never
     called on a second) leaves the digits behind.  -> (failures, reports)"""
-    m, tag = g.m, g.tag
+    m = g.m
     fails, rep = [], []
-    crs = R.course("first")
-    fref = R.Ref(tag, crs)
+    crs = R.course(WHEEL_CRS)
     recs = {r["i"]: r for r in crs.part["props"]}
-    digs = [i for i in recs if recs[i]["kind"] == BB.PK_CLOCK]
+    sx, sy = BB.Grid(crs.cga, crs.wcga).start
+    digs = [i for i in recs if recs[i]["kind"] == BB.PK_CLOCK and
+            max(abs(recs[i]["at"][0] - sx), abs(recs[i]["at"][1] - sy)) <= CLOCK_NEAR]
     if not digs:
-        rep.append("(14) the CLOCK: SKIP - FIRST has no clock")
+        fails.append("(14) the CLOCK: %s has no clock within %d tiles of its start" % (WHEEL_CRS.upper(), CLOCK_NEAR))
         return fails, rep
-    launch_mill(g, "KeyF", 0, crs="first")
+    launch_mill(g, "KeyF", 0, crs=WHEEL_CRS)
     m.run()
-    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the FIRST play runs", guest=60)
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the TMIL play runs", guest=60)
     m.pause()
     hold = None
     st = {"k": 0, "last": {}, "since": {}, "changes": {i: 0 for i in digs}, "bad": [], "secs": set(),
@@ -1780,7 +1799,7 @@ def clock_leg(g, ref):
         M.until(m, lambda _: st["k"] >= CLOCK_FRAMES, "the CLOCK leg's frames", guest=120)
         m.pause()
     nsec = len(st["secs"])
-    rep.append("(14) the CLOCK: FIRST held at its start %d frames, the seconds left %s - %s (%d seconds); each "
+    rep.append("(14) the CLOCK: TMIL held at its start %d frames, the seconds left %s - %s (%d seconds); each "
                "digit lane's changes %s; frames a digit trailed its second past %d: %d" % (
                    st["k"], max(st["secs"]), min(st["secs"]), nsec, sorted(st["changes"].values()), CLOCK_LAG,
                    len(st["bad"])))
@@ -1806,10 +1825,10 @@ def gate_leg(g, scen):
     """-> (failures, reports)"""
     m = g.m
     fails, rep = [], []
-    crs = R.course("mill")
-    recs = {r["i"]: r for r in crs.part["props"]}
     for s in scen:
-        log = R.make_log(s["keys"], R.CRS_K["mill"], s["mat"])
+        crs = R.course(s["crs"])
+        recs = {r["i"]: r for r in crs.part["props"]}
+        log = R.make_log(s["keys"], R.CRS_K[s["crs"]], s["mat"])
         m.pause()
         g.write_log(log)
         wk = R.Walker(g, t0=True)
@@ -1820,7 +1839,7 @@ def gate_leg(g, scen):
         pk = s["poke"]
         R.poke_ball(g, pk["gx"], pk["gy"], pk["gz"], pk["gvx"], pk["gvy"], pk["gvz"], air=pk["air"],
                     ztop=pk["ztop"], lvl=pk["lvl"])
-        p = P.model("mill", s["mat"], pk)
+        p = P.model(s["crs"], s["mat"], pk)
         wk.arm()
         n0, judged = 0, []
         while True:
@@ -1867,8 +1886,39 @@ def gate_leg(g, scen):
     return fails, rep
 
 
-def gate_scen():
-    return [s for s in P.mill_replays() if s["name"] in ("knock", "pass")]
+_GATE = []
+
+
+def gate_scen(crs=WHEEL_CRS):
+    """bonanzaphys's `knock` and `pass` (its mill_replays' gate()), FOUND here on TMIL - the same windmill
+    (9, 9), cells and seed as MILL's (phase 3): the ball at the doorway's front, Up-Right held after D idle
+    steps, D searched over the gate's mask until the first gate event is a KNOCK (the gate closed) or a
+    CAPTURE (open) of that rotor and the tunnel's exit follows - once a process"""
+    if _GATE:
+        return [dict(s_) for s_ in _GATE]
+    c = R.course(crs)
+    W1 = next(r for r in c.part["props"] if r["kind"] == BB.PK_WINDMILL and r["at"] == (9, 9))
+    q = BB.Physics(c, play=True, mat=0).poke(W1["at"][0], W1["at"][1] + 2, 0, 0)
+    q._derive(True)
+    pk = P.poke_of(q)
+    upr = BB.K_U | BB.K_R
+    for name, want, red in (("knock", "knock", {"_gate_late": True}), ("pass", "capture", None)):
+        found = None
+        for d in range(W1["mask"] + 1):
+            keys = [0] * d + [upr] * 200
+            p = P.run_keys(crs, 0, pk, keys)
+            ge = [e for e in p.events if e[0] in ("knock", "capture")]
+            ex = [e for e in p.events if e[0] == "exit"]
+            if ge and ge[0][0] == want and ge[0][2] == W1["i"] and ex:
+                found = keys[:ex[0][1] + 20], ge, p
+                break
+        keys = found[0] if found else [0]
+        ok = found and (want != "knock" or (found[1][0][0] == "knock" and any(e[0] == "capture" for e in found[1])))
+        _GATE.append({"name": name, "crs": crs, "mat": 0, "poke": pk, "keys": keys, "ok": bool(ok), "red": red,
+                      "what": "%s at the doorway of %s on %s after %d idle steps: %s" % (
+                          name, W1["at"], crs.upper(), len(keys) - keys.count(upr) if found else -1,
+                          [(e[0], e[1]) for e in found[1]] if found else None)})
+    return [dict(s_) for s_ in _GATE]
 
 
 LEGS = ("bench", "low", "corner", "stale", "side", "clock", "gate")
@@ -1891,7 +1941,7 @@ def run(tag, legs=LEGS, apps=None, src=None):
             g.m.pause()
             g.putb("bzs_mode", 3)
             g.m.run()
-        ref = R.Ref(tag, R.course("mill"))
+        ref = R.Ref(tag, R.course(WHEEL_CRS))
         cover = {"beam": [], "cost": {2: [], 3: []}}
         for leg, fn in (("bench", lambda: bench_leg(g, ref, wr)), ("low", lambda: low_leg(g, ref))):
             if leg in legs:
@@ -1943,9 +1993,12 @@ REDS = {
                 "    jne .due\n",
                 "    call bz_ltrue               ; 1. the true pose\n    cmp al, [bz_ldrw + bx]\n"
                 "    jmp short .due              ; RED repeat: every lane committed every visit\n")],
-    "ahead": [("bzwheel.inc", "    call bz_wcore\n    mov al, [bz_ltru + bx]\n    mov [bz_ldrw + bx], al\n",
+    # (bz_wcommit's, told from bz_wclk's identical store - the finish clock's group commit, fe66c7742 - by the
+    # lines after it: bz_wcommit's goes on to bz_wnow)
+    "ahead": [("bzwheel.inc", "    call bz_wcore\n    mov al, [bz_ltru + bx]\n    mov [bz_ldrw + bx], al\n"
+               "    mov byte [bz_lage + bx], 0\n    inc word [bz_wcom]\n    call bz_wnow\n",
                "    call bz_wcore\n    mov al, [bz_ltru + bx]\n    inc al                      ; RED ahead: a pose past\n"
-               "    mov [bz_ldrw + bx], al\n")],
+               "    mov [bz_ldrw + bx], al\n    mov byte [bz_lage + bx], 0\n    inc word [bz_wcom]\n    call bz_wnow\n")],
     "nobeam": [("bzwheel.inc", "    cmp dx, [si + 2 * BZ_WBLK]\n    ja .anf\n",
                 "    nop                         ; RED nobeam: no AHEAD test\n"),
                ("bzwheel.inc", "    cmp dx, ax\n    jae .now\n",
@@ -2030,7 +2083,9 @@ def main():
             print("FAIL %s" % b)
         wr = writers()
         print("bonanza_wheel: bz_ldrw's writers at image offsets %s" % ", ".join("%04Xh" % o for o in wr))
-        assert len(wr) == 2, "bz_ldrw has %d writers, not bz_lsync's and bz_wcommit's" % len(wr)
+        # (three since fe66c7742: bz_lsync's, bz_wcommit's and bz_wclk's - the finish clock's group commit,
+        # SPEC.md 130.22.6, a lane-writer of its own; (1) holds it to the same rule)
+        assert len(wr) == 3, "bz_ldrw has %d writers, not bz_lsync's, bz_wcommit's and bz_wclk's" % len(wr)
         for line in R.check_reds(REDS, "bonanza_wheel"):
             print(line)
         assert not bad, "%d gate log(s) not proved on the model" % len(bad)
