@@ -44,19 +44,12 @@ chute 2 round depth 8 way 8 15 30 way 8 17 30 way 12 17 29
 
 # rails: block rails (wall tiles) on the void side of each railed edge
 wall  tile   7   8  flat 42
-wall  tile   7   9  flat 42
-wall  tile   7  10  flat 40
-wall  tile   7  11  flat 38
-wall  tile   7  12  flat 36
-wall  tile   7  13  flat 34
 guard tile   8   7                # see-through
 wall  tile   9   8  flat 42
 wall  tile   9   9  flat 42
 wall  tile   9  10  flat 40
 wall  tile   9  11  flat 38
 wall  tile   9  12  flat 36
-wall  tile   9  13  flat 34
-wall  tile   9  14  flat 32
 wall  tile  32  15  flat 23.5
 wall  tile  32  17  flat 23.5
 wall  tile  33  15  flat 23.5
@@ -66,16 +59,10 @@ guard tile  34  17                # see-through
 wall  tile  35  15  flat 23.5
 guard tile  35  17                # see-through
 wall  tile  46  11  flat 16
-wall  tile  46  21  flat 16
 wall  tile  47  11  flat 16
-wall  tile  47  21  flat 16
 wall  tile  48  11  flat 16
-wall  tile  48  21  flat 16
 wall  tile  49  11  flat 16
-wall  tile  50  11  flat 16
-wall  tile  50  21  flat 16
 wall  tile  51  11  flat 16
-wall  tile  51  21  flat 16
 wall  tile  52  12  flat 16
 wall  tile  52  13  flat 16
 wall  tile  52  14  flat 16
@@ -88,9 +75,9 @@ wall  tile  54  16  flat 16
 wall  tile  54  20  flat 16
 wall  tile  55  16  flat 16
 wall  tile  55  20  flat 16
-wall  tile  56  16  flat 16
-wall  tile  57  17  flat 16
-wall  tile  57  18  flat 16
+guard tile  56  16                # see-through
+guard tile  57  17                # see-through
+guard tile  57  18                # see-through
 wall  tile  57  19  flat 16
 
 
@@ -108,8 +95,7 @@ prop boost 34 16 face +x strength 40
 prop boost 35 16 face +x strength 40
 # the split: a pad at each exit (no archways: a rubber ball that hops one dies on what follows)
 pad steel 51 18
-pad steel 52 18
-pad glass 49 20
+pad glass 49 19
 # steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH
 prop spikes 53 17 55 20
 water rect 56 17 57 20 top 14 bed 11
@@ -125,12 +111,14 @@ goal  rect 39 37 47 39  flat 12 exit 1   # the glass finish
 start 8 8
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
-checkpoint 52 17 ball steel   # flag 2
-checkpoint 48 27 ball glass   # flag 3
+checkpoint 48 27 ball glass   # flag 2
+checkpoint 42 27 ball glass   # flag 3
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 10 8  flat 40   # the start clock's tile (on top of the rail block it replaces)
 clock 10 8
+floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
+clock 50 11
 floor tile 60 30  flat 12.5   # the steel finish clock's tile (on top of the rail block it replaces)
 clock 60 30
 floor tile 47 37  flat 13.5   # the glass finish clock's tile (on top of the rail block it replaces)
