@@ -24055,7 +24055,14 @@ def _grammar_cases():
         ("an unknown surface", F + "surface mud tile 4 5\n", "unknown surface 'mud'"),
         ("an unknown ball", F + "ball wood\n", "unknown ball 'wood'"),
         ("a second ball", F + "ball glass\n", "a second 'ball' statement"),
-        ("a part over 65,024 bytes", BIG, "one part may be"),
+        # (SPEC.md 130.30.12: a picture past 65,024 bytes is cut into SHEETS now, so BIG - 311 block rows -
+        # lays out as two and is refused for its height alone, by the read-back of its parts; the refusal of a
+        # picture over one part is now that its sheets do not lay out: TTALL under --occ off, 94,592 bytes)
+        ("a course over %d block rows (BIG's picture, once a part over 65,024 bytes, is SHEETS)" % BROWS_MAX,
+         BIG, "part field BROWS: 311"),
+        ("a picture over 65,024 bytes whose %d SHEETS do not lay out (TTALL under --occ off)" % SHEET_MAX,
+         open(os.path.join(COURSE_DIR, "ttall.bbc")).read(), "one part may be, and up to %d SHEETS of it do "
+         "not lay out" % SHEET_MAX, {"occ": "off"}),
         # SPEC.md 130.27.2: `float`'s refusals
         ("a float on a half", F + "float half up tile 4 5\n", "float takes whole cells"),
         ("a float with a height", F + "float rect 3 4 7 7 flat 4\n", "float takes a shape and nothing else"),
@@ -24189,14 +24196,24 @@ def _wave3_cases():
 
 
 def _decode(part, herc=False):
-    """an independent reader: the map and blocks back to game pixels"""
+    """an independent reader: the map and blocks back to game pixels.  A SHEETED course's (SPEC.md 130.30.12:
+    its SheetBytes) each block row from a sheet whose map holds it (rows m0 .. m0 + n - 1), sheet-relative,
+    its blocks that sheet's"""
     cols, brows = struct.unpack_from("<HH", part, 4)
     blkoff = struct.unpack_from("<H", part, 12)[0]
     occidx = struct.unpack_from("<H", part, 14)[0]
     rows = [bytearray(8 * cols) for _ in range(8 * brows)]
+    sh, whole = sheets_of(part), part
     for by in range(brows):
+        row = by
+        if sh is not None:
+            n = whole.plan["n"]
+            i = next((i for i, x in enumerate(whole.plan["sheets"]) if x["m0"] <= by < x["m0"] + n), None)
+            if i is None:
+                raise CourseError("block row %d is in no sheet's map" % by)
+            part, row = sh[i], by - whole.plan["sheets"][i]["m0"]
         for bx in range(cols):
-            off = struct.unpack_from("<H", part, HDR + 2 * (by * cols + bx))[0]
+            off = struct.unpack_from("<H", part, HDR + 2 * (row * cols + bx))[0]
             if off < blkoff or off >= occidx or (off - blkoff) % 16:
                 raise CourseError("map word %d at (%d, %d) is not a block offset" % (off, bx, by))
             for y in range(8):
@@ -30287,10 +30304,12 @@ def _course_items(c, k, res, t):
                 and c.cga[pt["blkoff"]:pt["blkoff"] + 16] == bytes(16)))
     bad = bytearray(c.cga)
     w0 = struct.unpack_from("<H", bad, HDR + 2 * 37)[0]
-    alt = next(HDR + 2 * i for i, w in enumerate(pt["map"]) if w != w0)
+    sh = sheets_of(c.cga)                       # (a SHEETED course: the word moved inside sheet 0's own map, and
+    nmap = c.plan["n"] * c.cols if sh else len(pt["map"])      # the decode of every sheet, 130.30.12)
+    alt = next(HDR + 2 * i for i, w in enumerate(pt["map"][:nmap]) if w != w0)
     struct.pack_into("<H", bad, HDR + 2 * 37, struct.unpack_from("<H", bad, alt)[0])
     try:
-        dd = _decode(bytes(bad))
+        dd = _decode(SheetBytes([bad] + list(sh[1:]), c.plan) if sh else bytes(bad))
         caught = any(bytes(dd[y]) != bytes(c.pic[y]) for y in range(c.lines))
     except CourseError:
         caught = True
