@@ -2248,7 +2248,10 @@ bz_lead:
     cmp byte [bz_ctype], 0
     jne .out
     cmp byte [bz_wvok], 0
-    je .out
+    je short .out               ; (SHORT: .out is 124 bytes on, 127 with BZDEV's
+                                ; marks - NASM's passes made it a jump round a
+                                ; near one, 12 clk more a frame, when code
+                                ; elsewhere moved: SPEC.md 130.30.12.6)
     dec ax
     mov cl, al                  ; CL = the lane
     push bx

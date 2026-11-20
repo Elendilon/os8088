@@ -470,6 +470,15 @@ VAR bz_mseg,2                  ; a one-part course's both the same segment)
 %else
 bz_mseg     equ bz_cseg         ; (no two-part course in this build: one word, today's bytes)
 %endif
+%if BZ_NSHEET                   ; SPEC.md 130.30.12: a SHEETED course's sheets (none in this build: no bss)
+VAR bz_shseg,2 * BZ_SHMAX       ; ...each sheet's segment (kern_mega: its selector), sheet 0's first
+VAR bz_shent,2                  ; ...the course's first BZ_SHTAB entry (bz_shtab + BZ_CRS_SHI[K])
+VAR bz_shlo,2                   ; ...the window tops (bz_R0n, this card's rows) the shown sheet serves,
+VAR bz_shhi,2                   ; signed: 8000h and 7FFFh on every other course (bz_shchk never switches)
+VAR bz_shn,1                    ; ...its sheets (0: one picture part) and the one bz_mseg is
+VAR bz_shcur,1
+VAR bz_vcp,1                    ; 1: BZV_CONV converts the picture's blocks and masks alone (a sheet past 0)
+%endif
 VAR bz_bseg,2                   ; the sprite's ball part: bz_bsegs[bz_mat]
 VAR bz_bsegs,2 * BZ_NMAT        ; wave 4 (SPEC.md 130.14.4.7): each material's
                                 ; ball part, 0 when this launch did not fetch it
@@ -2374,6 +2383,9 @@ bz_camera:
     dec bx
     dec bx
     jns .tf
+%if BZ_NSHEET
+    call bz_shfind              ; SPEC.md 130.30.12.3: the cut's window in its SHEET
+%endif
     jmp .decided
 .modes:
 %if BZ_TITLE
@@ -2497,6 +2509,10 @@ bz_camera:
     mov ax, [bz_R0n]
     sub ax, [bz_R0]
     mov [bz_dr], ax
+%if BZ_NSHEET
+    jnz .shk                    ; SPEC.md 130.30.12.3: a window that moved down or up -
+.shkr:                          ; is it still in the shown SHEET? (bz_shchk)
+%endif
     mov ax, [bz_c0n]
     sub ax, [bz_c0]
     mov [bz_dc], ax
@@ -2513,6 +2529,11 @@ bz_camera:
     mov [bz_meas], al
 %endif
     ret
+%if BZ_NSHEET
+.shk:
+    call bz_shchk
+    jmp short .shkr
+%endif
 %ifdef BZDEV
 .script:
     ; --- bz_camscr's SCRIPTED camera (SPEC.md 130.17.6.7, bbcourse.Glide.
@@ -3307,6 +3328,128 @@ bz_outwin:
     cmp ax, dx                  ; CF = 1: its foot below the window's
 .out:
     ret
+
+%if BZ_NSHEET
+; -----------------------------------------------------------------------------
+; bz_shchk - SPEC.md 130.30.12.3: the camera's new window [bz_R0n] inside the
+; SHEET bz_mseg is (its top in [bz_shlo, bz_shhi], this card's rows: a frame's
+; every read and write of the map is then inside the sheet's coverage), else
+; the sheet that serves it made the shown one (bz_shset) - the tool proved one
+; does, so a top no sheet serves keeps the sheet.  On a course of one picture
+; part the bounds are 8000h and 7FFFh: never a switch.  bz_camera's, on a frame
+; whose window moved down or up; bz_shfind, the search alone, on a cut (the
+; launch's first frame among them: bz_crshdr leaves a SHEETED course's bounds
+; EMPTY, since the card's bz_lsh may not be set yet, so its first window
+; searches and bz_shset sets them).  Clobbers AX, BX, CX, DX, SI.
+; -----------------------------------------------------------------------------
+bz_shchk:
+    mov ax, [bz_R0n]
+    cmp ax, [bz_shlo]
+    jl bz_shfind
+    cmp ax, [bz_shhi]
+    jg bz_shfind
+    ret
+bz_shfind:
+    mov ax, [bz_R0n]
+    mov si, [bz_shent]          ; each sheet's served tops, in this card's rows
+    xor bx, bx
+.t:
+    cmp bl, [bz_shn]
+    jae .r                      ; (none: keep this one)
+    mov cl, [bz_lsh]
+    mov dx, [si + 6]
+    shr dx, cl
+    cmp ax, dx
+    jl .n
+    mov dx, [si + 8]
+    shr dx, cl
+    cmp ax, dx
+    jle bz_shset
+.n:
+    add si, BZ_SHENT
+    inc bx
+    jmp short .t
+.r:
+    ret
+
+; bz_shset - SHEET BL (its BZ_SHTAB entry SI) made the shown one (SPEC.md
+; 130.30.12.3): bz_mseg its segment, bz_mrow its rows (bz_shmrow), and every
+; lane's first map word (bz_ltmo, as bz_winit made it) found again in it and
+; its DRAWN pose (bz_ldrw, 0FFh none) written into its map (bz_lsync, RAM
+; only) - so the sheet's map holds what the card shows, as the shown sheet's
+; did.  Nothing is drawn.  Clobbers AX, BX, CX, DX, SI.
+bz_shset:
+    mov [bz_shcur], bl
+    xor bh, bh
+    shl bx, 1
+    mov ax, [bz_shseg + bx]
+    mov [bz_mseg], ax
+    call bz_shmrow
+    xor bx, bx
+.l:
+    cmp bl, [bz_nlane]
+    jae .d
+    mov si, bx
+    shl si, 1
+    push si
+    mov si, [bz_lrw + si]       ; the lane's first block row
+    shl si, 1
+    mov ax, [bz_mrow + si]
+    pop si
+    mov dl, [bz_ltcl + bx]
+    xor dh, dh
+    add ax, dx
+    add ax, dx
+    mov [bz_ltmo + si], ax
+    mov al, [bz_ldrw + bx]
+    cmp al, 0ffh
+    je .n
+    call bz_lsync
+.n:
+    inc bx
+    jmp short .l
+.d:
+    ret
+
+; bz_shmrow - the sheet whose BZ_SHTAB entry is SI: bz_mrow[br] = MAP + (e -
+; m0) ROWB, e = br clamped to [m0, hic] (a row past either end reads the
+; sheet's first or its hic-th, a MARGIN row: a lane's whole-rect write from
+; it stays inside the map, SPEC.md 130.30.12.2), and bz_shlo, bz_shhi its
+; served tops in this card's rows.  Clobbers AX, CX, DX.
+bz_shmrow:
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov dx, [bz_rowb]
+    mov di, bz_mrow
+    mov ax, BZC_MAP
+    mov cx, [si + 2]            ; [0, m0): the first row's
+    rep stosw
+    mov cx, [si + 4]
+    sub cx, [si + 2]
+    inc cx                      ; [m0, hic]: the sheet's own
+.r:
+    stosw
+    add ax, dx
+    loop .r
+    sub ax, dx                  ; (hic, BZ_MROWS): the hic-th's
+    mov cx, bz_mrow + 2 * BZ_MROWS
+    sub cx, di
+    shr cx, 1
+    rep stosw
+    mov cl, [bz_lsh]
+    mov ax, [si + 6]
+    shr ax, cl
+    mov [bz_shlo], ax
+    mov ax, [si + 8]
+    shr ax, cl
+    mov [bz_shhi], ax
+    pop es
+    pop di
+    ret
+%endif
 
 ; [bz_R0n], [bz_c0n] clamped to the course.  Clobbers AX.
 bz_clampwin:

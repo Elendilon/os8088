@@ -1282,6 +1282,10 @@ bzv_conv:
     shl cx, 1
     shl cx, 1
     call .words
+%if BZ_NSHEET
+    cmp byte [bz_vcp], 0        ; SPEC.md 130.30.12.5: a SHEET past 0 - its
+    jne .done                   ; blocks and masks alone (bz_vshs)
+%endif
     mov es, [bz_cseg]
     mov cx, [es:BZC_NPROP]
     mov di, [es:BZC_PROPOFF]
