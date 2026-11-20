@@ -294809,9 +294809,23 @@ is in the course rather than in a poked scene: post (7, 13)'s lane crosses it
 on the CGA and post (20, 16)'s on the Hercules, and the autopilot's own ball
 boxes cross it on both cards (the Hercules on W at (21, 15), the CGA on F at
 (19, 20)) - card offsets are absolute, so these spots are the world's
-(`bbcourse.ring_cross`).
+(`bbcourse.ring_cross`). Below everything, off the route, the QUIET PAD Q (0)
+and its post (33, 42), the fourth bumper (lane 9): bonanzawheel's CORNER
+leg's LIGHT diagonal step (130.13.7 item 5, 130.13.14 item 9). Post 6, the
+leg's lane before it, shares its window with both rotors and the clock's two
+digits, and on MartyPC its step frame's work ended 57 - 97k clocks after the
+sync's rise on the CGA (sim and camera 22 - 59k of it). Q's corner window
+(CGA R0 281, c0 16, its top line 562; Hercules R0 141, c0 16, line 564) holds
+the post's first row on its bottom edge and the ball held still on Q's flat
+floor at its centre, and NOTHING else that moves: its top is about 60 lines
+under the lift's lowest reach (`corner_plan` counts a lift in the window as
+busy) and further from every rotor, clock and tube. The lane crosses neither
+card's ring end, and no route window reaches Q (the route's lowest window
+ends near line 500), so the route's frames are as before.
 
-- **As built (MEASURED, host)**: 20,970 bytes stored, 4,590 LZB; K 11 in the
+- **As built (MEASURED, host)**: 20,970 bytes stored, 4,590 LZB (with Q:
+  28,026 -> 4,874, 512 x 856 px against 512 x 560, `bonanza360.img` +1
+  cluster); K 11 in the
   test build (after TCUP); the package's image 52,465 -> 52,501 (+36, a row of
   every per-course table), `BONANZA.O88` 164,662 bytes, `bonanza360.img` 169
   of 354 clusters; the shipped build byte for byte unchanged. Identity 05D7h.
