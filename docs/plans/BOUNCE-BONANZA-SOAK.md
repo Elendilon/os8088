@@ -269,7 +269,61 @@ the shipped build's.
   | ring camera, `dither` (`camhyst`) | PLAYGROUND's demo at its fork | OPEN: a fork of TPLY's route demo, to be searched |
   | ring camera, `ramp-*`, `mill-demo`, `side`, `peak-demo` (`camcap`), `peak-cannon` (`campreaim`, `camprex`) | MILL, PEAK (the lift, the cannon) | TMILL |
   | ring, `nodither` (the bench leg's data) | every course undithered: PLAYGROUND's 292 masks refuse | TPLY undithered: 95 masks |
-- [ ] **A test pathway** for bonanzapath's secret and paging legs.
+- [x] **A test pathway** for bonanzapath's secret and paging legs. BUILT as
+      **THE TEST MAP** (SPEC.md 130.54.6, `apps/bonanza/courses/pathdev.bbc`,
+      `test` on the pathway): the BZDEV=1 build compiles it as its pathway in
+      place of `path.bbc` (`BZ_PATHDEV`; a pad-0 knob's map still wins), so
+      ONE boot walks every leg and the shipped build is byte for byte what it
+      was. Pads 0 ROLL and 1 HOP are the shipped map's cell for cell; then 2
+      TQUIK, 3 TCUP, 4 TPLY (page 1, an icon), 5 TMIL (1 unit up), 6 BENCH
+      (hidden). Routes: 0 -> 1 STRAIGHT across (ROLL's exit 0); 1 -> 2 up;
+      2 -> 3 the DIAGONAL (Up and Left; TQUIK's exit 0); 3 -> 4 across the
+      PAGES (TCUP's exit 0); 4 -> 5 the CLIMB, a one-cell ramp of 1 unit
+      (TPLY's exit 0); 2 -> 6 SECRET, a SIDE, keyed by TQUIK's new HIDDEN exit
+      1 (its goal column's front cell (14, 7)). The shipped map keeps its
+      host items (bbcourse's `path` section compiles `path.bbc`), and
+      bonanzapath can keep a light host-side look at it (pad 0 ROLL -> pad 1
+      HOP in a non-BZDEV build's `BZPATH.BIN`) if phase 3 wants one.
+
+  The legs on it, phase 3 (bonanzapath is NOT rewritten yet: today it walks
+  the test map through its own table reads, which already find every feature
+  below, and its secret leg still patches the shipped files):
+
+  | bonanzapath leg | today (the shipped map) | on the test map |
+  |---|---|---|
+  | 0. a new game resting on pad 0, gates closed | pad 0 ROLL | unchanged (pad 0 ROLL, the shipped cell) |
+  | 1. no arrow moves it; Space the info card | pad 0 | unchanged |
+  | 2. / 2s / 2e. ROLL's finish sequence, the clock, the fall in it, Enter skipping it | ROLL poked to its goal | unchanged: ROLL (a shipped course; TQUIK's goal is the cheaper home if phase 3 wants it, as pad 2) |
+  | 3. / 3r. pad 0 DONE, its gate's poses, the auto-roll | route 0 -> 1 | unchanged: route 0 -> 1, the same cells |
+  | 4. every arrow takes it back and brings it back (`nodiag`'s red: pad 1's Left) | route 0 -> 1, Right / Left | unchanged |
+  | 5. / 5l. the HELD pathway, Esc costs a life | HOP on pad 1 | unchanged |
+  | 6. the forced fallback | HOP | unchanged |
+  | 7. the game over | HOP | unchanged |
+  | 8. a new game, every route poked open | the shipped routes | the test map's five open routes (the secret one left closed, as today) |
+  | 8d. the DIAGONAL's two arrows | pad 5's road back to pad 2 (prototype pads) | pad 2 (TQUIK) -> pad 3 (TCUP): Up and Left, back Down and Right |
+  | 9. the PAGED camera (`nopage`'s red) | pad 5 -> pad 6 (MOON -> PLAY) | pad 3 (TCUP, page 0) -> pad 4 (TPLY, page 1), Up |
+  | 10. the icon's lanes walked, no other icon's marked | pad 6 (PLAY's icon) | pad 4 (TPLY, `playground32x24`); pads 0 and 1 the other icons |
+  | 10b. rolled on: the icon at rest, unmarked, "up a ramp, gz > 0" | pad 6 -> 7, no ramp: SKIPPED | pad 4 -> pad 5 (TMIL) up the ramp, gz 1 unit: CHECKED |
+  | s0. / s1. the SECRET route: reveal groups in order, the hidden pad shown, the visible end with the route | a private tree: ROLL's goal split by a patch, a pad and a secret route appended to path.bbc, EVERY course recompiled | the build's own: TQUIK (pad 2) finished by its hidden exit 1, route 2 -> 6 to the hidden pad 6 - no patch, no private compile, the main leg's boot (s0. at the new game, s1. after 8.) |
+  | `--check`: the follower under unicorn | the shipped part's routes and the private map's | the test map's six routes both ways (the ramp's included) - one part, no private map |
+
+  bbcourse's `path` selfcheck items, phase 3 (today they run on the shipped
+  `path.bbc` and the private maps PATH_TEST / PATH_SHORT, which name only
+  ROLL, HOP and a synthetic HID - no prototype course - so they need no move
+  to stop depending on prototypes; what ties them is the shipped map's
+  SHAPE):
+
+  | item | today | on the test map |
+  |---|---|---|
+  | the shipped pathway compiles, no occluders, tables read back, no secret route | `path.bbc` | stays the shipped map's (it is the shipped part) |
+  | the shipped map's layout (pad 0 ROLL, pad 1 HOP, pad 2's two exits branching, a page route) | `path.bbc` | stays (the owner's map; redrawn with it) |
+  | a secret route's reveal lanes, its hidden pad's poses (SIDE) | PATH_TEST (HID's hidden exit) | the test map's route 2 -> 6 (TQUIK's exit 1, SIDE): PATH_TEST and PATH_TEST_HID can go |
+  | a SHORTCUT verdict | PATH_SHORT | stays PATH_SHORT (the test map's secret route is a SIDE) |
+  | the refusals edited on the shipped text (`P(...)`: pad numbering, steps, ramps, crossings, keyed twice, two diagonals, unreachable, off-window, lives, icon corner, gate off route, exit it has not) | anchored on `path.bbc`'s lines (pad 7 FIRST, route 2 5, pad 5's gate ...) | re-anchored on `pathdev.bbc`, which does not move when the shipped map is redrawn |
+  | the refusals on the private map (`T(...)`: gate on a secret route, a non-hidden key, neither SHORTCUT nor SIDE) | PATH_TEST | on `pathdev.bbc`'s route 2 -> 6 |
+  | the key map: straights beat a diagonal | the shipped pads 2 and 5 | the test map's pads 2 (Down a straight, Up and Left the diagonal) and 3 |
+  | every route followed both ways arrives exactly | the shipped routes | both maps' (the test map's ramp included) |
+  | 130.54.6: the test map's features, its secret's hidden key, the two refusals | - | BUILT (this item) |
 - [ ] The B benchmark takes a course (no hard-wired BENCH).
 
 ### Phase 3 - the rows on them, bundled
