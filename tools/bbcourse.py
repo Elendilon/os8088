@@ -21007,16 +21007,37 @@ PLAN_FLIGHT = 200             # a Hop's try: the steps after its press it has to
 PLAN_ALT = 4                  # the tries a leg keeps for the backtrack (the first that reach the next way)
 PLAN_BUDGET = 3000000         # steps the whole search may step before it gives up (no route: inputs only)
 PLAN_STEPS = 8000             # ...and the route's own steps, the limit's autopilot's cap (_course_limit)
+PLAN_HOLD = (16, 32, 64, 128) # a HOLD's lengths (SPEC.md 130.14.7.4.2): the steps it holds one ground axis...
+PLAN_HOLD_EVERY = 4           # ...from every 4th step of the leg up to the step the arrows failed on
+# a world push (sign x, sign y) as held arrows (SPEC.md 130.11.8.2's _forces: Right pushes +x -y, Down +x +y)
+PLAN_W2K = {(1, 0): K_R | K_D, (-1, 0): K_L | K_U, (0, 1): K_L | K_D, (0, -1): K_R | K_U,
+            (1, 1): K_D, (1, -1): K_R, (-1, 1): K_L, (-1, -1): K_U, (0, 0): 0}
 
 
-def _plan_leg(p, hops, n):
+def _plan_hold(p, k, ax):
+    """a HOLD's keys (SPEC.md 130.14.7.4.2): 130.6's arrows K as a world push, its push on ground axis AX (0 x,
+    1 y) replaced by a brake of the ball's velocity on that axis (against it past AUTO_ACC / 2, else none), the
+    other axis's push kept: the ball holds its line on that axis while the autopilot rolls it along the other"""
+    fx = bool(k & K_R) - bool(k & K_L) + bool(k & K_D) - bool(k & K_U)
+    fy = bool(k & K_L) - bool(k & K_R) + bool(k & K_D) - bool(k & K_U)
+    s = [(fx > 0) - (fx < 0), (fy > 0) - (fy < 0)]
+    v = p.gvy if ax else p.gvx
+    s[ax] = -1 if v > AUTO_ACC // 2 else 1 if v < -(AUTO_ACC // 2) else 0
+    return PLAN_W2K[tuple(s)] | (k & ~(K_L | K_R | K_U | K_D))
+
+
+def _plan_leg(p, hops, n, hold=None):
     """step p in place: 130.6's autopilot, Space added on the steps in HOPS (counted from 0), for at most n
     steps -> (ok, keys, the step it failed on): ok when the next way is taken (p.wp moves) or the goal reached
-    with no fall, no RETURN and no timeout; a fall, a shatter or PLAN_STALL steps stuck fail it"""
+    with no fall, no RETURN and no timeout; a fall, a shatter or PLAN_STALL steps stuck fail it.  HOLD: (axis,
+    t, length), the arrows _plan_hold's on steps t .. t + length - 1 (SPEC.md 130.14.7.4.2)"""
     w, nf, keys = p.wp, p.nfall, []
     last, still = None, 0
     for i in range(n):
-        k = p.auto() | (K_HOP if i in hops else 0)
+        k = p.auto()
+        if hold is not None and hold[1] <= i < hold[1] + hold[2]:
+            k = _plan_hold(p, k, hold[0])
+        k |= K_HOP if i in hops else 0
         p.step(k)
         keys.append(k)
         if p.nfall != nf or p.nret or p.tout or p.mst == ST_SHATTER:
@@ -21034,19 +21055,26 @@ def _plan_leg(p, hops, n):
     return False, keys, n
 
 
-def _plan_tries(p, spent, nohop=False):
+def _plan_tries(p, spent, nohop=False, hold=False):
     """a leg's tries from state p, in order, the ones that take the next way: the arrows alone; then a Hop
     pressed on each step t from the leg's first up to the step the arrows failed or took the way on (+1),
     then a Hop with its "and again" (Space again TRAP_AGAIN steps later, `trap hop`'s pair) on each; at most
-    PLAN_ALT Hops.  Lazy: a Hop is tried only when the search comes back for one.  spent: [steps stepped],
-    the budget's count -> yields (keys, the Physics after them)"""
+    PLAN_ALT Hops; and with HOLD (the second pass, SPEC.md 130.14.7.4.2) then the HOLDS, at most PLAN_ALT.
+    Lazy: a Hop is tried only when the search comes back for one.  spent: [steps stepped], the budget's count
+    -> yields (keys, the Physics after them)"""
     q = _clone(p)
     ok, keys, fail = _plan_leg(q, (), PLAN_SEG)
     spent[0] += len(keys)
     if ok:                                          # (and the Hops before the step it takes the way on, for
         yield keys, q                               # the backtrack: a way taken in the air can strand the ball)
-    if nohop:                                       # (the selfcheck's red arm: the arrows alone)
-        return
+    if not nohop:                                   # (nohop: the selfcheck's red arm, the arrows alone)
+        yield from _plan_hops(p, spent, fail)
+    if hold:
+        yield from _plan_holds(p, spent, fail)
+
+
+def _plan_hops(p, spent, fail):
+    """_plan_tries' Hops (SPEC.md 130.14.7.4.1)"""
     found = 0
     for again in (False, True):
         for t in range(min(fail + 2, PLAN_SEG)):
@@ -21062,20 +21090,52 @@ def _plan_tries(p, spent, nohop=False):
                     return
 
 
-def route_plan(c, nohop=False):
+def _plan_holds(p, spent, fail):
+    """_plan_tries' HOLDS (SPEC.md 130.14.7.4.2): the leg again, the arrows _plan_hold's for PLAN_HOLD's
+    lengths (shortest first) from every PLAN_HOLD_EVERY'th step up to the step the arrows failed on (+1), the
+    ground's x axis held before its y at each; at most PLAN_ALT"""
+    found = 0
+    for n in PLAN_HOLD:
+        for t in range(0, min(fail + 2, PLAN_SEG), PLAN_HOLD_EVERY):
+            for ax in (0, 1):
+                if spent[0] > PLAN_BUDGET:
+                    return
+                q = _clone(p)
+                ok, keys, _f = _plan_leg(q, (), PLAN_SEG, (ax, t, n))
+                spent[0] += len(keys)
+                if ok:
+                    yield keys, q
+                    found += 1
+                    if found >= PLAN_ALT:
+                        return
+
+
+def route_plan(c, nohop=False, nohold=False):
     """the HOPPING autopilot (SPEC.md 130.14.7.4.1): the keys of a route from the start to the goal that
     follows 130.6's autopilot way by way, pressing Space only where the arrows alone fail a leg, found by a
-    depth-first search over each leg's tries (_plan_tries) with backtracking; never a fall or a RETURN.  ->
-    the key list, or None (no route inside PLAN_BUDGET's steps or PLAN_STEPS long).  Deterministic: the
-    model and a fixed order.  Kept on the course (one search for the limit and the demo)"""
+    depth-first search over each leg's tries (_plan_tries) with backtracking; never a fall or a RETURN.  When
+    that finds no route, a SECOND pass adds the HOLDS (SPEC.md 130.14.7.4.2: the arrows holding the ball's
+    line on one ground axis for a window - a thin ramp with no rail on one side), so a course the first pass
+    solves keeps its route byte for byte.  -> the key list, or None (no route inside PLAN_BUDGET's steps, each
+    pass, or PLAN_STEPS long).  Deterministic: the model and a fixed order.  Kept on the course (one search for
+    the limit and the demo).  nohop, nohold: the selfcheck's red arms"""
     memo = c.__dict__.setdefault("_hplan", {})     # (kept with the course, the compile cache's copy too;
-    key = (c.ident, c.ball, nohop)                  # by its identity and ball: a course edited is another)
+    key = (c.ident, c.ball, nohop, nohold)          # by its identity and ball: a course edited is another)
     if key in memo:
         return memo[key]
+    out = _plan_search(c, nohop, False)
+    if out is None and not nohold:
+        out = _plan_search(c, nohop, True)
+    memo[key] = out
+    return out
+
+
+def _plan_search(c, nohop, hold):
+    """route_plan's depth-first search, one pass -> the keys or None"""
     p0 = Physics(c, play=True)
     p0.tsec = 0                                     # (the route's own time: the limit is made from it)
     spent = [0]
-    stack = [([], _plan_tries(p0, spent, nohop))]
+    stack = [([], _plan_tries(p0, spent, nohop, hold))]
     out = None
     try:
         while stack and spent[0] <= PLAN_BUDGET:
@@ -21091,10 +21151,9 @@ def route_plan(c, nohop=False):
             if q.goal:
                 out = ks
                 break
-            stack.append((ks, _plan_tries(q, spent, nohop)))
+            stack.append((ks, _plan_tries(q, spent, nohop, hold)))
     except IndexError:                              # (the route ran out before the goal, as _course_limit's)
         out = None
-    memo[key] = out
     return out
 
 
@@ -31058,6 +31117,18 @@ def _sc_demos4(X, res):
     _w4_demos(courses, paths, res)
 
 
+# SPEC.md 130.14.7.4.2's case: DOWN's start as it was laid (2026-11-20) - a ramp ONE tile wide running +y, railed
+# on its -x side only, its foot into a round chute that turns +x - and a goal past the chute.  130.6's arrows,
+# aimed at the way past the chute, drift the ball +x off the ramp's open side before the chute takes it
+_THINRAMP = ('course N "n"\nwidth 64\norigin 256\nball rubber\nfloor rect 8 8 9 9 flat 40\n'
+             'floor rect 8 9 9 14 ramp y 9 14 40 30\nfloor rect 8 14 9 15 flat 30\nfloor rect 12 15 22 18 flat 29\n'
+             'chute 2 round depth 8 way 8 15 30 way 8 17 30 way 12 17 29\n'
+             + "".join("wall tile 7 %d flat %d\n" % (y, z) for y, z in ((8, 42), (9, 42), (10, 40), (11, 38),
+                                                                        (12, 36), (13, 34)))
+             + 'wall tile 9 8 flat 42\nwall tile 8 7 flat 42\ngoal rect 18 15 22 18 flat 29\nstart 8 8\n'
+             'way 8 8\nway 8 12\nway 20 16\n')
+
+
 def _sc_hopplan(X, res):
     """--selfcheck's section `hopplan` (SPEC.md 130.14.7.4.1): the HOPPING autopilot finishes HOP (course 2,
     built on the Hop) with no fall and no RETURN, its route is the limit's and the route demo's, and its red
@@ -31070,7 +31141,7 @@ def _sc_hopplan(X, res):
         if plain.goal:
             break
         plain.step(plain.auto())
-    plan, red = route_plan(c), route_plan(c, nohop=True)
+    plan, red = route_plan(c), route_plan(c, nohop=True, nohold=True)
     q, first = Physics(c, play=True), None
     q.tsec = 0
     for i, k in enumerate(plan or ()):
@@ -31090,6 +31161,27 @@ def _sc_hopplan(X, res):
                     len(plan) if plan else "NO", len(plan or ()) / float(SEC_STEPS), hops, q.nhop, q.nboost, q.nfall,
                     q.nret, c.lroute, steps, "COMPLETE" if fl & RL_COMPLETE else "inputs only", PLAN_STEPS,
                     "none" if red is None else "FINISHED in %d" % len(red)), bool(ok)))
+    # SPEC.md 130.14.7.4.2: the HOLD - a thin ramp with an open side, curving at its foot, finished with no fall
+    c = compile_course(_THINRAMP, "<a thin ramp, railed on one side, into a chute>")
+    plain = Physics(c, play=True)
+    for _i in range(PLAN_STEPS):
+        if plain.goal or plain.nfall:
+            break
+        plain.step(plain.auto())
+    plan, red = route_plan(c), route_plan(c, nohold=True)
+    q = Physics(c, play=True)
+    q.tsec = 0
+    for k in plan or ():
+        q.step(k)
+    ok = plan is not None and q.goal and not q.nfall and not q.nret and not q.nhop and red is None \
+        and plain.nfall and not plain.goal
+    res.append(("4 the HOLD (130.14.7.4.2): a one-tile ramp railed on one side only, into a chute turning toward "
+                "its open side - 130.6's arrows %s; the search with its holds finds a route (%s steps), its replay "
+                "at the goal with %d falls, %d returns and %d Hops; RED ARM: the search without the holds "
+                "(route_plan's nohold) finds %s" % (
+                    "FALL off the open side" if plain.nfall else "do not fall (the case is gone)",
+                    len(plan) if plan else "NO", q.nfall, q.nret, q.nhop,
+                    "none" if red is None else "one in %d" % len(red)), bool(ok)))
     # every compiled course the arrows alone finish: its route demo is the plain autopilot's, key for key
     same, n = True, 0
     for k, cc in enumerate(X.courses):
