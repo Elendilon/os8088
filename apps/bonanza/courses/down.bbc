@@ -47,7 +47,7 @@ floor rect  35  26  38  29  flat 14   # Q
 floor rect  43  30  46  33  flat 14   # Q
 floor rect  35  22  38  25  flat 14   # Q
 floor rect  24  26  29  29  flat 14   # W
-floor rect  29  26  34  30  flat 14   # Y
+floor rect  29  26  34  29  flat 14   # Y
 floor rect  21  25  24  29  flat 14   # Y
 floor rect  21  31  25  34  flat 12   # Z
 floor rect  25  31  27  34  flat 11   # Z
@@ -152,6 +152,7 @@ checkpoint 48 27 ball glass   # flag 2
 checkpoint 44 27 ball glass   # flag 3
 checkpoint 36 27 ball glass   # flag 4
 checkpoint 22 26 ball glass   # flag 5
+checkpoint 22 32 ball glass   # flag 7
 checkpoint 59 8 ball steel   # flag 6
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block

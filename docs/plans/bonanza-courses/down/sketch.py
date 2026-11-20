@@ -244,7 +244,7 @@ rail(20, 22, 25, 22, "guard")                                # a guard rail nort
                                                              #   reaches past the membrane, so the pool is `open` -
                                                              #   unsealed at its bed - and its side is seen; a glass
                                                              #   ball off its edge falls: no way round)
-floor("Y", 25, 22, 30, 26, Z - 26)                           # the east bank, where the junction's link lands
+floor("Y", 25, 22, 30, 25, Z - 26)                           # the east bank, where the junction's link lands (rev 14: the pool's 3 rows)
 for x in range(20, 25):
     for y in range(22, 25):
         mark(x + 0.5, y + 0.5, "water", "")
@@ -296,7 +296,7 @@ GOAL_RECTS = [(24, 2, 26, 7, Z - 25, 0, "steel"), (31, 27, 33, 33, Z - 34, 1, "g
 
 START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
-         (40.5, 23.5, "flag 3", "glass"), (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"),
+         (40.5, 23.5, "flag 3", "glass"), (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"), (18.5, 28.5, "flag 7", "glass"),
          (55.5, 4.5, "flag 6", "steel")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
 CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (23.5, 4.5, Z - 23.5, "steel finish", "block"),
           (33.5, 30.5, Z - 32.5, "glass finish", "block")]
