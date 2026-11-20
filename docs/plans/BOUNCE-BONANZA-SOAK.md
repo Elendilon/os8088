@@ -341,8 +341,8 @@ the shipped build's.
 - [ ] bonanzacourse: the prototype-tied sections moved to test courses.
 
 ### Phase 4 - measured
-- [ ] Every row's `secs` re-measured; the scoped bonanza soak's wall clock
-      before and after.
+- [x] Every row's `secs` re-measured; the scoped bonanza soak's wall clock
+      before and after (below).
 
 ## Order independence and the save file (the owner, 2026-11-19)
 
@@ -397,3 +397,39 @@ phase 3 is where the wall clock comes down.
 Owner decision open: ROLL's flag 1 at (36,42) is bounced past by a rubber
 ball on section E's steps (the selfcheck's item 8; a fall at the leap then
 respawns at flag 0).
+
+## Phase 4 - measured (2026-11-20, scoped soak `-k 'bonanza*'`, 4 lanes, at 38c83d5111)
+
+The rows on the TEST courses, every one green but bonanzacourse (PLAY's three
+known items and ROLL's flag 1, the owner's) and bonanzamega (no 86Box in the
+container). **Wall clock 1:03**, against 1:54 (phase 1) and 1:38 (before phase 3)
+for the same seventeen rows. Seconds a row, each MEASURED in this run with
+four lanes busy (the rows' `secs` are set to these):
+
+| row | before phase 3 | now |
+|---|---|---|
+| bonanzaphys | 2,778 | 638 |
+| bonanzademo | 2,597 | 544 |
+| bonanzaexit | 2,528 | 1,123 |
+| bonanzaring | 2,447 | 1,703 (its first full pass this session; TIMEOUT at the baseline) |
+| bonanzawheel | 1,782 | 622 |
+| bonanzareplay | 1,766 | 981 |
+| bonanzaperf | 1,299 | 578 |
+| bonanzapath | 1,296 | 1,223 |
+| bonanzacourse | 1,229 | 1,312 |
+| bonanzaphyshost | 1,183 | 869 |
+| bonanzasound | 721 | 421 |
+| bonanzagame | 559 | 1,343 (25 boots a card at the baseline: 2,756) |
+| bonanzadquarter | 450 | 947 |
+| bonanzatitle | 44 | 51 |
+
+What the test courses found in the GAME, fixed: a ball swap on a still
+ball drew nothing (SPEC.md 130.14.4.4; `bz_setmat` invalidates `bz_ospr`).
+And in the HARNESS: the bench leg's late-box rule stricter than 130.11.10.3,
+a respawn inside the window wrongly expected to cut (130.10.8 item 3), the
+probe on a course whose start is far from the top clamp, TMIL's corner
+scene too heavy (a quiet post added), perf's demo row and first R.
+
+Open: the families (glass, probe, pickups) and the two-part leg still have
+no test course - both live on PLAYGROUND until one is made; bonanzamega's
+legs await an 86Box run.
