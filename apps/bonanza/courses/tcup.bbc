@@ -1,0 +1,22 @@
+# Cup Test - TCUP, a TEST course (SPEC.md 130.54.2): the BZDEV=1 build's alone, after the shipped courses (the
+# Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  TQUIK's partner for "exits and the save"
+# (docs/plans/BOUNCE-BONANZA-SOAK.md): a course finishes at GOAL cells or in a CUP, never both (SPEC.md
+# 130.14.4.1), so the cup's way out is a course of its own -
+#  - a start plate, a ramp down along +x and a foot with the CUP on the route: the autopilot holes out in
+#    291 steps (5.3 s), no fall (the cup's exit, a second course's best);
+#  - the STEEL ball (TQUIK's is rubber: the two roll two materials) and the default palette (30h, the BIOS's:
+#    the palette leg's second course beside TQUIK's 10h); the tool's limit; the finish clock beside the foot.
+course TCUP "Cup Test"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 130.50.3: every course names its song
+width 64
+ball steel
+floor rect   3 4  7 7  flat 4             # the start plate
+wall  rect   3 3  7 4  flat 6             # its back rail
+floor rect   7 4 11 7  ramp x 7 11 4 2    # the ramp, down along +x
+floor rect  11 4 15 7  flat 2             # the foot
+cup 13 5                                  # the finish
+start 4 5
+way 4 5
+way 13 5
+clock 11 6                                # the finish clock (SPEC.md 130.22.6)

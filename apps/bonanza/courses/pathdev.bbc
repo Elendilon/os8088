@@ -1,0 +1,58 @@
+# THE TEST MAP (SPEC.md 130.54.6, 2026-11-20): the BZDEV=1 build's pathway in place of path.bbc - the rows'
+# map, never shipped (`test`: bbcourse.py -o refuses it without --dev).  Its pads play the TEST courses
+# (130.54) besides the two shipped ones, so bonanzapath's legs walk a map built for them and depend neither on
+# the shipped map's shape (which is redrawn as real courses ship) nor on a prototype course.  Each route is
+# one feature the rows need:
+#
+#   page 1 (above):        5 TMIL (1 unit up)
+#                          ^ up-right, UP A RAMP (the CLIMB; TPLY's exit 0)
+#                          4 TPLY [icon]
+#                          ^ up, across the page line (the PAGED camera; TCUP's exit 0)
+#   page 0 (below):  3 TCUP <-up-left (the DIAGONAL: Up and Left; TQUIK's exit 0)- 2 TQUIK -right..> 6 BENCH
+#                                                                         ^ up      (SECRET: TQUIK's hidden exit 1,
+#                                                                         |          a SIDE pad, hidden)
+#                                                    0 ROLL -right-> 1 HOP   (STRAIGHT: the shipped map's pads 0
+#                                                                             and 1, cell for cell)
+#
+# Pads 0 and 1 and their route are the shipped map's exactly (cells, icons, ROLL's exit 0 the key), so what a
+# row does on the shipped map's first two pads it does here unchanged (Enter on pad 0 plays ROLL, pad 1's way
+# back is Left alone).  A screen direction is a ground step: +x down-right, -x up-left, +y down-left, -y
+# up-right; both axes at once (equal amounts) down, up, left or right.
+course PATH "The Test Map"
+test                                        # SPEC.md 130.54.6: a TEST MAP - the BZDEV=1 build's alone, its pads
+                                            # may play test courses
+width  64
+ball   rubber
+pathway
+music  fairway
+rail   crystal
+view   0 332                                # page 0's CGA window, the shipped map's
+pages  2
+titles 5x7
+float  rect 0 0 64 64
+
+# pad N COURSE WX WY
+pad 0 ROLL  21 28                           # the shipped map's pad 0: where a new game rests
+pad 1 HOP   24 25                           # the shipped map's pad 1
+pad 2 TQUIK 19 20                           # the goal course; its hidden exit 1 the secret route's key
+pad 3 TCUP  14 20                           # the diagonal's far end
+pad 4 TPLY   9 15                           # page 1, the ICON pad
+pad 5 TMIL   9 11                           # page 1, 1 unit up: the climb's end (a dead end)
+pad 6 BENCH 23 16                           # HIDDEN: only the secret route reaches it (a SIDE pad)
+
+# route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...
+route 0 1 exit 0  path 21,28 24,25                  # STRAIGHT across (Right; Left back): the shipped map's
+route 1 2 exit 0  path 24,25 19,20                  # straight UP
+route 2 3 exit 0  path 19,20 14,20                  # the DIAGONAL, up-left along -x: Up and Left both take it
+route 3 4 exit 0  path 14,20 9,15                    # straight up ACROSS THE PAGES (page 0 -> page 1)
+route 4 5 exit 0  path 9,15 9,13,1 9,11,1           # up-right UP A RAMP (one cell, 1 unit): the CLIMB
+route 2 6 exit 1 secret  path 19,20 23,16           # the SECRET route, TQUIK's hidden exit 1: right to a hidden pad
+
+# icon N FILE SX SY [fps F] [title "TEXT"] [tdx DX]
+icon 0 icons/first32x24.bba       -128 368          # (the shipped map's)
+icon 1 icons/frog32x24.bba         -32 368          # (the shipped map's)
+icon 4 icons/playground32x24.bba  -112 168          # the ICON leg's pad (the far end of the page route)
+
+# the lives, one counter a page
+lives 16 23
+lives  6  4

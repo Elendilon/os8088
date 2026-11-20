@@ -576,11 +576,17 @@ bz_gfload:
     jae .none
     cmp al, 'v'
     jne .f6
-    dec bl                      ; V: BZD<K>, the course's (1 - BZ_NDEMO)
+    mov al, bl                  ; V: the course's shipped demo, its row found
+    xor bx, bx                  ; in bz_dcrs (130.14.7.4: by the table, never
+.dr:                            ; by K - 1)
+    cmp al, [bz_dcrs + bx]
+    je .dg
+    inc bx
     cmp bl, BZ_NDEMO
-    jae .none
-    mov al, BZ_P_DEMO
-    add al, bl
+    jb .dr
+    jmp short .none
+.dg:
+    lea ax, [bx + BZ_P_DEMO]
     call bz_tlog
     jc .none
     mov byte [bz_rown], 0

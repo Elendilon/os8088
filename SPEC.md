@@ -254985,8 +254985,48 @@ lever.
 
 ##### 130.10.11.1 The benchmark's course
 
-`apps/bonanza/courses/bench.bbc` (`BENCH`, "Proving Ground", `K = 0`) is
-wave 0b's test course written in the text format, changed only where
+*Since 2026-11-19 BENCH is the TEST BUILD's alone (130.26.6.1); since
+130.54 it is a TEST COURSE (`test`), listed in `BZ_TESTCRS` and put AFTER
+the shipped courses - the paragraph below is how it stood before, as
+course 0.* The
+owner: *"having everything depend on an order that can and will change is
+bad ... Once those two are done, then bench can come out of the shipping
+build"* - and both were done (the N, M and tour keys gone, 130.26.8; no
+course K in the game's defaults, 130.14.7.4 and 130.22.5.1). The Makefile
+names the file as **`BZ_BENCH`**, outside `BZ_COURSES`, and only
+`BZDEV=1`'s block puts it in, AHEAD of every other course
+(`BZ_COURSES := $(BZ_BENCH) $(BZ_COURSES)`, after the knobs' `+=` lines),
+so in the test build it is still course 0 and every K there is what it
+was: that build's `bzcourse.inc` is byte for byte the one the shipped
+build wrote before (MEASURED, `cmp`). The shipped build has no benchmark
+(B is `BZDEV`'s, 130.26.6.1), so it carries no BENCH: its courses are
+`FIRST` 0 ... `HOP` 7, `BZ_CRS_BENCH` is not defined there, and nothing
+the shipped package assembles names it - B's `.bench` (`mov ax, 1 |
+(BZ_CRS_BENCH << 8)`: a benchmark of the course in AH, a row poking
+`[bz_crs]` at `bz_launch` for another) sits inside `bz_onkey`'s `.dev`
+under `%ifdef BZDEV`. The course stage's stamp now includes `BZDEVSTAMP`,
+since BENCH is a course of the one build and not the other.
+`bbcourse.default_paths()` reads `BZ_BENCH` and `BZ_COURSES` both, the
+test build's list, so a bare `--selfcheck` (the `bonanzacourse` row) and
+`make bonanza-course-check` still check BENCH's route, item 8's directions
+and the visibility control on it; `bbcourse.BENCH_NAMES` keeps its
+exemptions by NAME, in whichever build has it. The bonanza rows fill their
+course tables with `bonanza_ring.crs_fill()` (no longer by asking for
+`"bench"`, which a shipped tree's table does not hold), the claim leg's
+`own_course` skips BENCH by name, and `bonanza_perf --baseline` walks B's
+BENCH and then `demo_ks()` rather than K 1 .. N - 1. MEASURED (`make
+bonanza bonanzadisk`, before and after): the package's image **50,980 ->
+50,944 (-36**, the per-course tables' ninth row and `BZ_CRS_TITLEW` 14 ->
+13), its bss 8,819 unchanged; **`BONANZA.O88` 153,963 -> 149,693 bytes
+(-4,270**: BENCH's part, 30,031 bytes packed to 4,165, and its table
+rows); `bonanza360.img` **159 -> 155 of 354 clusters in use, 195 -> 199
+free (+4KB)**. The `BZDEV=1` build should be unchanged - its assembly
+differs from before only in comments and its `bzcourse.inc` is identical -
+though only its after was measured: image 52,393, bss 8,917, 161 clusters
+on its 360KB floppy.
+
+`apps/bonanza/courses/bench.bbc` (`BENCH`, "Proving Ground", `K = 0` in the
+`BZDEV=1` build) is wave 0b's test course written in the text format, changed only where
 physics v1 needs it: every ramp at a whole half unit a tile and inside
 130.10.3's limits; every solid tile inside `3 .. 252`; the steps on the
 return leg made a ramp the autopilot can climb (a one-unit step is 8 px,
@@ -261495,7 +261535,7 @@ before this wave, write-protected or full - toasts `Best times not saved`
 (a `TOASTSTR`) once a session, and the bests stay in memory for the
 session; a READ that fails is the first-run case, silent.
 
-*Since wave 8R round 2 (130.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour was at +146 with no trailing zeros - since 2026-11-19 (130.26.8) six RESERVED bytes there, written zero and zeroed on load, with no tour best to merge or check. The table below is `BZT1`'s header, no longer read (130.22.5: no older layout is).*
+*Since wave 8R round 2 (130.22.5, `BZS4`) the file is 494 bytes and this block is laid out for `BZ_CRS_MAX` = 23 courses: the entries are 23, K 0 - 22, at +8, and the tour was at +146 with no trailing zeros - since 2026-11-19 (130.26.8) six RESERVED bytes there, written zero and zeroed on load, with no tour best to merge or check. Since `BZS5` (130.22.5.1) the file is 488 bytes, its 23 entries keyed by each course's SAVE KEY in no order, and the slots at +146. The table below is `BZT1`'s header, no longer read (130.22.5: no older layout is).*
 
 64 bytes:
 
@@ -262471,6 +262511,32 @@ AUTOPILOT on `BENCH`, the HUD off, the ENGINE benchmark the A/B legs
 compare (O48 keeps it until the owner retires it).
 
 ##### 130.14.7.4 Shipped demos: parts, from text
+
+*Since 2026-11-19 (with 130.22.5.1: nothing in the game's defaults by K) the
+demos are a TABLE OF NAMED ROWS, and the text below is how they were laid
+out before.* `tools/bbcourse.py` makes one demo for every course but those
+in `BENCH_NAMES` (by course NAME: `BENCH`; since 130.54 every TEST course,
+by its `test` statement), in course order, each part file
+named by its course, **`BZD<NAME>.BIN`** (`BZDFIRST.BIN`, `BZDPEAK.BIN`
+...), and lists them in that row order in `bzdemo.lst`, which the
+Makefile's package rule reads as it reads `bzcrs2.lst` (no `BZD<K>` list
+of `seq 1 N-1` any more). `bzcourse.inc` carries `BZ_NDEMO` (the rows) and
+**`BZ_DEMO_CRS`**, a byte a row, the course K that row's demo plays
+(`bz_dcrs`). Row i is `BZ_P_DEMO + i`; the pathway's V on a pad
+(`bz_gfload`) finds the course's row in `bz_dcrs` (no row: none, as for a
+course with no demo), where it took row K - 1; V's cycle and the title's
+draw were already by row and read the course out of the log. `bonanza.asm`
+asserts `BZ_NDEMO` <= `BZ_NCRS` in place of `BZ_NDEMO` = `BZ_NCRS` - 1. The
+other rules keyed by "course 0" are keyed by `BENCH_NAMES` too: no `target`
+(`check_budget`), the visibility audit's exemption, the author check's skip
+and the no-pathway fallback of the pads' courses. The demo parts are the
+same bytes under their new names (MEASURED, `cmp`). MEASURED (`make bonanza`): the package's image 50,958 -> 50,976 (+18: `bz_dcrs` 8, the lookup 10), its bss 8,819 unchanged; the `BZDEV=1` build's 52,371 -> 52,389.
+And `bz_crsel` (`BZDEV=1`'s F) starts on **`BZ_CRS_DEFAULT`**, the course
+on pathway pad 0 (the tool's), not `BZ_CRS_FIRST`; Enter's game already
+starts a new game on pad 0. `BENCH` stays in the build, its position no
+longer depended on (it is still course 0 today). *And since the same day it
+is in the `BZDEV=1` build alone, still course 0 there (130.10.11.1); the
+shipped build's courses start at `FIRST`.*
 
 One DEMO PART a tour course, `BZD<K>.BIN` (`K` 1 - 5), rows
 `BZ_P_DEMO + K - 1` with `BZ_P_DEMO = BZ_P_SONG + BZS_NSONG`, after the
@@ -272796,7 +272862,8 @@ refused on any other course (`view` is also the title's, 130.23.2):
   top line is at most 1,020 - about five pages with the default drop.
 - **`pad N COURSE WX WY`** (the material pad's `pad rubber|steel|glass WX
   WY` is told apart by its integer N): pad N (0 - 31, numbered from 0; pad 0
-  is the start) plays COURSE, a course of `BZ_COURSES` but `BENCH`; its cell
+  is the start) plays COURSE, a course of `BZ_COURSES` but a TEST course
+  (130.54; on the TEST MAP, a pathway saying `test`, any course: 130.54.6); its cell
   is a FLAT FLOOR of the route material at the height its routes give it
   (every route end there agrees), and the pad is a SIGN lane over it
   (130.22.4.1) with **`PAD_POSES` = 4**: 0 OPEN (glowing), 1 DONE, 2
@@ -273332,7 +273399,10 @@ card of FIRST with a seeded slot (`LIMIT 15`, `GOLD 4  SILVER 5`, `BEST 2.8` and
 its medal, `EXITS 1 OF 1`), and the seeded `BZS3` file read back byte for byte.
 
 **BZS4 (wave 8R, round 2, item 8R.14: 14 - 20 courses, the owner's "Courses
-past 7: Plan is 14-20, so we would need that wider").** The owner's plan for
+past 7: Plan is 14-20, so we would need that wider").** *HISTORY since
+`BZS5` (130.22.5.1), which replaced this layout whole and reads no `BZS4`
+file: the K-keyed entries, the slot's identity at +20 and its words a
+course K below are what `BZS5` keyed by course and by pad instead.* The owner's plan for
 the game is 14 - 20 courses, and `BZS3` held eight: a course K of 8 or more
 read past the slot's tables. **`BZ_CRS_MAX` = 23** (a constant of `tools/bbcourse.py`,
 emitted into `bzcourse.inc`; the tool REFUSES a build of more courses) is the
@@ -273345,7 +273415,7 @@ laid out for 23 courses and three slots:
 | +0 | `BZS4` |
 | +4 the course count, +5 `BZ_PHYSV`, +6 - +7 zero | as `BZS3`'s |
 | +8 | **23 entries** of 6 bytes (+8 - +145), K 0 - 22 (BENCH's and those past the courses all zero): +0 the course's IDENTITY, +2 its best in STEPS (0 none), +4 its best's falls - 130.14.3.3's, unchanged |
-| +146 | **6 RESERVED bytes** (`BZD_RSV`): written zero, and zeroed on load whatever the file holds (a non-zero field refuses nothing). *Until 2026-11-19 the TOUR's - the XOR of its courses' identities and its best total, a DWORD - which went with the tour (130.26.8); the layout is kept so `BZS4` files stay readable, and the coming `BZS5` removes the field* |
+| +146 | **6 RESERVED bytes** (`BZD_RSV`): written zero, and zeroed on load whatever the file holds (a non-zero field refuses nothing). *Until 2026-11-19 the TOUR's - the XOR of its courses' identities and its best total, a DWORD - which went with the tour (130.26.8); `BZS5` (130.22.5.1) removed the field* |
 | +152 | three SLOTS of **114 bytes** (+152, +266, +380) |
 
 A slot: +0 - +21 `BZS3`'s (+0 lives, +1 the mode, +2 the pad, +3 zero, +4 open,
@@ -273392,7 +273462,7 @@ a whole sector; its hostile set carries `BZS4`'s cases (`short`, `magic`,
 `count`, `count0`, `hdr67`, `entlast`, `old1`, `old3`, `slot`, `pad`,
 `zero3`, `wide`, `explore`; red arms `datlen`, `pastbest`, `explorepad`).
 
-##### 130.22.5.1 BZS5: keyed by what stays put, not by K (PLANNED, the owner 2026-11-19)
+##### 130.22.5.1 BZS5: keyed by what stays put, not by K (BUILT; the owner 2026-11-19)
 
 `BZS4` keys everything by course K, a course's position in `BZ_COURSES`:
 a best is entry K, a slot's exits found and best are word K. K moves
@@ -273443,6 +273513,72 @@ is good."*, replays *"keep it as is"*). **`BZS5`**, still one sector:
 - **Replays** (`.BZR`) keep the course identity check (130.14.7.2).
 - **No older layout is read.** Nothing is released, so a `BZS4` file is
   refused whole like any other foreign file.
+
+**BUILT.** `tools/bbcourse.py` parses `version <n>` (1 - 255, once) in any
+course and in the pathway (`Source.version`, `Course.version`, set after the
+identity is taken, so neither a part nor an identity moves) and emits
+`BZ_CRS_KEYS` (`save_key`: `crc16_ccitt(NAME + version byte)`, a word a
+course, BENCH's included; `check_keys` refuses a key of 0 or two courses
+sharing one, at `compile_all` and again at the emit), `BZ_PATH_VER`,
+`BZ_PAD_MAX` = 23 (`PAD_MAX`; `path_prepare` refuses a pathway of more pads)
+and **`BZ_PAD_EXITS`**, a word a pad, the bit mask of the exits of the course
+the pad plays (`course_exits`): `BZ_CRS_NEXITS` is a COUNT, and the exits
+are numbered by the course (`exit <n>`), so a count is no mask, and the
+pathway's part, where a pad's course lives, is not resident when the file is
+read - so the mask is resident, 2 bytes a pad. In `bonanza.asm`:
+
+- The best entries stay in the FILE's order in memory too (no sort: the
+  merge's copy already fills `bz_font`, and a second 138-byte buffer is bss
+  for nothing). `bz_dbest` (AX a key, DI a table -> SI the first entry
+  holding it, else the first empty one) is the one lookup: `bz_post` files a
+  course's best into its key's entry or the first empty one, `bz_dnorm`
+  keeps an entry only when its key is one of `bz_ckeys` (`BZ_CRS_KEYS`), its
+  best is 1 - 65,534 and `bz_dbest` finds it as the key's FIRST entry (a
+  duplicate is dropped, its best better or not), and `bz_dsave` merges each
+  of our entries into the disk's entry for its key (or an empty one there).
+  After `bz_dnorm` an image holds each key at most once and at most
+  `BZ_NCRS` of 23, so an empty entry is always there.
+- `bz_dchk` refuses the file whole on: not `BZ`; the count outside 1 - 23;
+  +6 - +7 not zero; any entry's falls over 9,999; an EMPTY entry (key 0)
+  with a best or falls (BZS4's "an unused entry all zero", with an entry
+  emptied by its key in place of one placed by K).
+- A slot's +20 is `BZ_PATH_VER` (`bz_gstore`, `mov word`); `bz_dslots`
+  empties a slot whose +20 is not it WHATEVER ITS LIVES (a finished game's
+  exits found and bests are the old pathway's too: an all-zero slot's
+  emptying changes nothing), or whose exits-found or best word of a pad at
+  or past `BZ_PATH_NPAD` is not zero (`BZ_NPADPAST` words), and then ANDs
+  each pad's exits found with `bz_pexits` (`BZ_PAD_EXITS`) - in every slot,
+  an empty one too.
+- Everything that read a slot's word K reads the PAD's: the finish's exit
+  found and the slot's best (`bz_grounds`, by `bz_ppad`), `bz_medal` (AL the
+  pad for the best, BL the course for its G and S: `bz_ppad1` passes both),
+  and the info card's BEST and EXITS n OF m (`bz_kp`: `[bz_ppad]`, the pad
+  resting - the one card caller; the course's NAME, ball, limit, medals and
+  exit count stay the course's).
+- `bz_cids` (the identities) is kept for the replays (130.14.7.2); its
+  pathway entry is no longer read by the slots.
+
+**Deviations from the text above: none in the layout.** Two readings made
+explicit: the version check covers every slot, not only one with lives (the
+text's "a slot of another pathway version emptied"); and BENCH has a key like
+any course (its best is now filed and kept rather than zeroed by position;
+only a `BZDEV=1` build can play it).
+
+MEASURED (`make bonanza`, the shipped build): the package's image 50,873 ->
+50,958 bytes (+85: `BZ_CRS_KEYS` 18, `BZ_PAD_EXITS` 16, the rest the code -
+`bz_dbest`, the key loop, the exit mask and the version store, against the
+BZS4 identity and K-order code they replace) and its bss 8,825 -> 8,819 (-6:
+`bz_dat`, 494 -> 488; `bz_dmine` shares `bz_font`); the `BZDEV=1` build's 52,286 -> 52,371 (+85) and 8,923 -> 8,917.
+`tests/bonanza_game.py`'s hostile set is BZS5's: `short`, `magic` (`BZS4`
+at 488 bytes), `foreign` (BZS4's `ident`: a foreign key drops that entry
+alone), `zero`, `count`, `count0`, `hdr67`, `entlast` (now an EMPTY entry
+with a best: refused whole), `order` (entries out of K order kept where
+they are), `dupkey`, `old1`, `old3`, `old4`, `slot`, `pathver`, `pad`,
+`zero3`, `wide` (a pad word past the pathway's), `exitbits` (the mask) and
+`explore`; its `--check` reads every case a second time with a Python
+reader of these rules (`model_load`) and re-derives every key with
+`binascii.crc_hqx`; red arms `datlen`, `pastbest`, `explorepad`, `physdat`,
+`replaybest`, `noappdata`, and BZS5's `dupkey`, `exitmask`, `pathver`.
 
 #### 130.22.6 The finish and the cards (PLANNED; the cards' bullets and the finish BUILT)
 
@@ -277992,6 +278128,9 @@ shipped `BONANZA.O88` is the player's alone. Behind the knob:
   (`bz_rcopy`, `bz_rframes` .. `bz_rnpwt`, 84 bytes);
 - **the scripted camera** (130.17.6.7: `bz_camera.script`, `.sax`,
   `bz_scyc`), the harness's late frame (`bz_hspin`);
+- **the TEST COURSES** (130.54: `BZ_TESTCRS`, after every other course of
+  this build and in no other) - BENCH, the benchmark's course (130.10.11.1;
+  course 0 of this build from 2026-11-19 until 130.54), TQUIK and TCUP;
 - **the shell part's instruments' face**: `bzface.inc`'s MAIN and RESULTS
   builders and the shell's `BZH_REDRAW` and `BZH_LINE` vectors (a `retf`
   in the shipped part, whose face is `bz_wface`'s alone).
@@ -278051,7 +278190,7 @@ moved what a row drove. What the game does now:
   line 5 has no tour form (130.14.3.2).
 - **BONANZA.DAT** keeps its `BZS4` layout: +146's six bytes are RESERVED
   (`BZD_RSV`), written zero and zeroed on load, and the save merges no tour
-  total (130.22.5). The coming `BZS5` removes them.
+  total (130.22.5). `BZS5` (130.22.5.1) has since removed them.
 - **The rows**: `bonanzagame`, `bonanzareplay`, `bonanzamega` and
   `bonanzaexit` poke the course instead of pressing `N`/`M`;
   `bonanzaexit`'s held-key leg presses `T`; `bonanzagame`'s posts leg lost
@@ -285463,3 +285602,246 @@ take-off carries. The bound of what that could save, MEASURED by taking every
 VOID position two or more cells from any solid cell out of the cut altogether:
 ROLL 1,116 -> 1,083 (3%), PEAK 1,356 -> 1,310 (3%), FIRST 68 -> 61. A speed
 model could only save less: not built.
+
+### 130.54 TEST COURSES: courses the rows play, in the test build alone (the owner, 2026-11-19)
+
+The owner, on the soak rows: *"bundle tests together more ... one in
+emulator boot can test more things at once; with custom test courses set up
+to test the things ... we can get rid of all dependencies on the prototype
+courses as they leave the game. Only ROLL and little hop are shipping
+courses right now."* (docs/plans/BOUNCE-BONANZA-SOAK.md, phase 2.) A TEST
+COURSE is a course built for a row to play: small, quick to reach its
+finish, carrying exactly the features its legs need, and never shipped.
+BENCH (130.10.11.1) was the first, and it is one of them now.
+
+#### 130.54.1 The contract
+
+- **The `test` statement** (no arguments, once) marks a course a test
+  course. It writes nothing into the part, so it moves no identity
+  (130.15.7). A test course is exempt, BY ITS STATEMENT and never by K, from
+  what only a shipped course owes: it may have no `target` (no course budget,
+  130.15.8; one it does give is checked as any course's), it gets no shipped
+  demo (no `BZD<NAME>.BIN`, not in `bzdemo.lst`, V's cycle or the title's
+  draw, 130.14.7.4), and no pad of the SHIPPED pathway may play it (130.22.2;
+  a pad of the TEST MAP may, 130.54.6). It may not
+  say `guide` (a guide course is a real one, held to the course guide). Every
+  other rule - the grammar, the picture, the part's 65,024 bytes, the limit,
+  the finish clocks, the occluders - binds it as it binds a shipped course.
+  `bbcourse.BENCH_NAMES` is gone: its four exemptions read `c.test`.
+- **The Makefile's `BZ_TESTCRS`** lists the test courses, and only `BZDEV=1`'s
+  block puts them in, AFTER every other course - the shipped ones and any
+  knob's (`BZ_COURSES := $(BZ_COURSES) $(BZ_TESTCRS)`) - so no test course
+  shifts a shipped course's K: in the test build every shipped course has the
+  K it has in the shipped build. **BENCH moved there** (it was course 0 of the
+  test build until this section), so the test build's K are now the shipped
+  build's, and nothing may care either way (130.14.7.4: courses by NAME).
+  The Makefile's `BZ_BENCH` is gone (bzgame.inc's `BZ_BENCH`, the
+  benchmark's 1,200 frames, is another name); `BZ_CRS_BENCH` is still
+  written, by name.
+- **Never shipped, as a gate.** `bbcourse.py -o` REFUSES a `test` course
+  unless it is given `--dev`, which the Makefile passes when `BZDEV=1` is on;
+  so a test course listed in a shipped build fails the build rather than
+  shipping. The selfcheck's `courses` section cross-checks the Makefile: every
+  file of `BZ_TESTCRS` says `test`, and no file of the shipped `BZ_COURSES`
+  does.
+- **The selfcheck sees them.** `bbcourse.default_paths()` - the bare
+  `--selfcheck`'s list, the `bonanzacourse` row's - is the test build's:
+  `BZ_COURSES`'s first line and then `BZ_TESTCRS`, as BZDEV's block orders
+  them; `make bonanza-course-check` passes the same. So a test course is
+  compiled and checked (its route, its limit, its clocks, its budget when it
+  has a target) by every selfcheck.
+- **A row finds a test course by NAME** (`bonanza_ring.CRS_K[name]`, as every
+  course), in the test build the rows already run (130.26.6.1).
+
+#### 130.54.2 TQUIK and TCUP, "exits and the save"
+
+Two courses, because a course finishes at GOAL cells or in a CUP, never
+both (130.14.4.1): TQUIK (the plan's TQUICK; a course NAME is five
+characters) finishes at a goal, TCUP in a cup. Both are a few cells, a few
+seconds of the autopilot from the start, one part each.
+
+**TQUIK** (`apps/bonanza/courses/tquik.bbc`, "Quick Test", rubber):
+
+- a start plate, a ramp down and a foot whose last column is the GOAL - the
+  autopilot's play reaches it in a few seconds (the goal and the replay's
+  end, bonanzaexit; a best and the hostile and physics files' next best,
+  bonanzagame; a play saved, loaded, replayed and benchmarked, bonanzademo);
+- a CHECKPOINT flag on the route, and a hole beside the foot (a fall
+  respawns at the flag);
+- a plain KEEP tube off the route, its IN cell a drain a row pokes the ball
+  into (bonanzaexit's Esc while the ball is hidden, `into_tube`), its OUT
+  cell on the plate;
+- `palette 0` (10h: not the BIOS's 30h, so the CGA's colour select shows,
+  bonanzaexit's palette leg and its `nopal` red);
+- a short `limit`, so a row can wait a TIMEOUT out quickly;
+- the finish clock the finish rule asks for (130.22.6).
+- *(2026-11-20)* the goal column's front cell (14, 7) a HIDDEN exit 1
+  (`exit 1 hidden`): the key of the test map's SECRET route (130.54.6). The
+  autopilot still finishes by exit 0 (165 steps).
+
+**TCUP** (`apps/bonanza/courses/tcup.bbc`, "Cup Test"): a plate, a ramp and
+a CUP the autopilot holes out in (the cup's way out and `padleak`'s red,
+bonanzaexit; a second course's best, bonanzagame's `noapp`), the default
+palette (30h, the palette leg's second course), and a different ball from
+TQUIK's, so the two courses roll two materials.
+
+**No two-part twin.** A two-part course is one whose picture is over
+65,024 bytes (130.30), which takes a course of ROLL's size; the rows' world
+part legs run on the shipped two-part course instead (the plan, per leg).
+
+#### 130.54.3 As built (MEASURED, 2026-11-20)
+
+- **The shipped build is byte for byte what it was**: `make bonanza
+  bonanzadisk` before and after, `cmp` - `BONANZA.O88` (149,693 bytes) and
+  all four `bonanza*.img` identical; only the course stage's stamp moved.
+- **The test build** (`make BUILD=build/bzdev BZDEV=1 bonanza bonanzadisk`):
+  eleven courses, FIRST 0 ... HOP 7 as in the shipped build, BENCH 8, TQUIK
+  9, TCUP 10; the package's image **52,393 -> 52,465 (+72**, two more rows of
+  every per-course table), its bss 8,917 unchanged; `BONANZA.O88` 160,085
+  bytes; `bonanza360.img` 165 of 354 clusters. The parts, stored and LZB:
+  TQUIK 10,679 -> 2,135, TCUP 9,575 -> 1,773 (BENCH 30,031 -> 4,165, as
+  before). Each compiles in under a second.
+- **The model**: TQUIK's autopilot reaches its goal in 165 steps (3.0 s),
+  passing flag 0, no fall (its limit 8 s, explicit); a ball poked onto the
+  tube's IN cell is hidden for 16 steps (MILL's drop: 16); a ball poked into
+  the hole after the flag respawns. TCUP's autopilot holes out in 291 steps
+  (5.3 s), no fall (the tool's limit, 15 s).
+- **The selfcheck** (`--only inc,tables,path,demos4,budget,courses`): the
+  three 130.54 items pass (the Makefile cross-check; BENCH written without
+  `--dev` REFUSED, no stamp left; `test` with `guide` REFUSED); every item
+  of TQUIK and TCUP passes; the reds are PLAY's items 3 and 4, as before.
+
+#### 130.54.4 TMIL, "the wheel and the ring" (BUILT 2026-11-20)
+
+TMIL (`apps/bonanza/courses/tmil.bbc`, "Wheel and Ring", rubber; the plan's
+TMILL) is the course bonanzawheel's and bonanzaring's MILL, TRIAL and BENCH
+legs move to in phase 3 (docs/plans/BOUNCE-BONANZA-SOAK.md carries its
+per-leg table). Its top is MILL's cell for cell (A, the house, both windmills
+with their seeds, B, C), so the gate logs and the pokes there carry over by
+name; below it B's ramp, the posts' strip W, a DROP onto F, the LIFT (18, 22)
+(L 6), and the CANNON over the low floor onto the goal ledge. THE RING'S END
+is in the course rather than in a poked scene: post (7, 13)'s lane crosses it
+on the CGA and post (20, 16)'s on the Hercules, and the autopilot's own ball
+boxes cross it on both cards (the Hercules on W at (21, 15), the CGA on F at
+(19, 20)) - card offsets are absolute, so these spots are the world's
+(`bbcourse.ring_cross`).
+
+- **As built (MEASURED, host)**: 20,970 bytes stored, 4,590 LZB; K 11 in the
+  test build (after TCUP); the package's image 52,465 -> 52,501 (+36, a row of
+  every per-course table), `BONANZA.O88` 164,662 bytes, `bonanza360.img` 169
+  of 354 clusters; the shipped build byte for byte unchanged. Identity 05D7h.
+  The autopilot reaches the goal at step 723 (13.1 s), no fall, one kick; the
+  tool's limit, 25 s.
+- **PREDICTED (the host model, `glide_run` with the heavy rule)**: every
+  feature of the three legs by about frame 730 on the CGA and 660 on the
+  Hercules - THREE BOXES (ball, shadow, the lift's box) on both cards from
+  the route, at about 601 / 510 - and the scripted camera's eight directions
+  three times each by frame 60. MartyPC's first phase-3 run measures them.
+
+#### 130.54.5 TPLY, "physics and replays" (MEASURED, 2026-11-20)
+
+**TPLY** (`apps/bonanza/courses/tply.bbc`, "Play Test", rubber; the plan's
+TPLAY, a NAME being five characters) is the home of the bonanzaphys,
+bonanzareplay and bonanzaring ground scenarios that ran on the PROTOTYPES
+(FIRST, TRIAL, MOON, PEAK, PLAYGROUND); the plan's per-leg table names each
+scenario's cell. Its parts:
+
+- the PLAYGROUND's APRON at TRIAL's start height - the start, four RUNGS
+  along its back row (tops 2, 1.5, 1 and 0.5 units up, adjacent: a 64-wide
+  course has no width for apron between them, every floor corner standing
+  within `wx - wy` of -10 .. 10), and the BRAKE STRIP off its front edge into
+  a VOID over a well 16 units down, so that fall is as long as the
+  PLAYGROUND's;
+- TRIAL turned a quarter: H's lip the apron's front edge, F, the gap, G, the
+  steep ramp, the mat, the ice between bumper rails, the sand and the SPLIT
+  GOAL (exits 0 and 1) - the autopilot's route, TRIAL's;
+- a YARD at the goal's height: FIRST's plateau with its back rail and its
+  ramp's 2-unit lip, the three PADS, two SPRINGS (one throws rubber onto the
+  plateau), a plain east wall, and a hole beside FLAG 0; a level STRIP
+  (`box`) fourteen cells long for the drag's one-arrow run;
+- two FLAGS on the route (rubber and glass) and `limit 20`.
+
+Two features are on other test courses BY RULE, not by choice: a CUP (a
+course finishes at goal cells or in a cup, 130.14.4.1: TCUP's), and the
+respawn on bz_safe - a course with a flag or a cup sets GF_CKPT and respawns
+at its last flag (130.14.4.5), so the SAFE respawn is BENCH's, which has
+neither. The families (130.25) are on no test course yet.
+
+As built: course 11 of the test build, one part of 32,068 bytes in RAM, 91
+masks (95 undithered: under the 256, so `nodither`'s undithered compile of
+every course succeeds where PLAYGROUND's 292 refuse), compiled in about 8 s;
+the autopilot reaches exit 1 in 529 steps (9.7 s), no fall, both flags
+touched; NO TRAP holds from every flag and pad. The shipped build is byte
+for byte what it was (`BONANZA.O88` 149,693 bytes, the four images); the
+test build's `BONANZA.O88` is 166,214 bytes, its image 52,465 -> 52,501 (+36,
+a row of every per-course table).
+
+#### 130.54.6 THE TEST MAP: the test build's pathway (BUILT 2026-11-20)
+
+bonanzapath walked the SHIPPED map (130.22: option A, redrawn as real courses
+ship) across PROTOTYPE pads to find a diagonal, a page and an icon, found no
+climb on it at all (its 10b SKIPPED), and built its secret route by patching
+`path.bbc` and `roll.bbc` and recompiling every course into a private tree. The
+TEST MAP is a pathway built for the rows instead, in the build the rows
+already run:
+
+- **`test` on a pathway** marks it a TEST MAP (the course statement, 130.54.1,
+  on the pathway: it writes nothing into the part). Its pads may play any
+  course of the build, TEST courses included (130.22.2's pad rule lifted for
+  it alone); every other pathway rule binds it as it binds the shipped map.
+  `bbcourse.py -o` REFUSES a test map without `--dev` (the same gate as a test
+  course's, before the compile, no stamp left), so none ships.
+- **The Makefile**: `BZ_PATHDEV` is `apps/bonanza/courses/pathdev.bbc`, and
+  `BZDEV=1`'s block makes it `BZ_PATH` when `BZ_PATH` is still the shipped
+  `path.bbc` - a pad-0 knob's map (`BZ_PATHTEST` + its sed, 130.28 ...) wins,
+  so a knob with `BZDEV=1` keeps its course on pad 0. **The shipped build is
+  byte for byte what it was**: the test map is not one of its inputs.
+  `bbcourse.test_rule` (the selfcheck's `courses` section) holds `BZ_PATHDEV`
+  to saying `test` and `BZ_PATH`'s first line to not.
+- **One map, one boot, every leg.** Pads 0 and 1 are the shipped map's cell
+  for cell (ROLL at (21, 28), HOP at (24, 25), their icons, ROLL's exit 0 the
+  route across: Right, Left back), so what a row does on a new game's first
+  two pads it does unchanged - Enter on pad 0 plays ROLL in either build. The
+  rest are test courses, one route a feature:
+
+  | pad | course | cell | page | |
+  |---|---|---|---|---|
+  | 0 | ROLL | (21, 28) | 0 | the shipped map's; a new game rests here |
+  | 1 | HOP | (24, 25) | 0 | the shipped map's |
+  | 2 | TQUIK | (19, 20) | 0 | the goal course (130.54.2) |
+  | 3 | TCUP | (14, 20) | 0 | |
+  | 4 | TPLY | (9, 15) | 1 | its ICON (`playground32x24`) |
+  | 5 | TMIL | (9, 11), 1 unit up | 1 | a dead end |
+  | 6 | BENCH | (23, 16) | 0 | HIDDEN: only the secret route reaches it |
+
+  | route | key | shape | the feature |
+  |---|---|---|---|
+  | 0 -> 1 | ROLL's exit 0 | across (Right; Left back) | STRAIGHT, the gate |
+  | 1 -> 2 | HOP's exit 0 | up | straight |
+  | 2 -> 3 | TQUIK's exit 0 | up-left, along -x | the DIAGONAL: pad 2's Up and Left both take it, pad 3's Down and Right bring it back |
+  | 3 -> 4 | TCUP's exit 0 | up | ACROSS THE PAGES (page 0 -> 1): the paged camera; its far pad the icon's |
+  | 4 -> 5 | TPLY's exit 0 | up-right, a one-cell RAMP of 1 unit | the CLIMB (the follower's gz, 10b) |
+  | 2 -> 6 | TQUIK's exit 1, **hidden** | right | the SECRET route, a SIDE (130.22.2's verdict): reveal groups, a hidden pad |
+
+  **TQUIK carries the hidden exit** (its goal column split: (14, 4 - 7) exit
+  0, the front cell (14, 7) exit 1 `hidden`, beside C's floor so a row pokes
+  the ball into it): the autopilot still reaches exit 0 in 165 steps, no
+  fall. BENCH sits on the hidden pad because a pad plays a course and the
+  build has no other left; it is never played from there.
+- **The selfcheck** (`path`): the test map compiled against the test build's
+  courses, its features each present (`bbcourse.testmap_features`: straight,
+  diagonal, paged, icon, climb, secret) and every pad past 1 a test course;
+  its secret route opened by a HIDDEN exit, its verdict SIDE; REFUSED, a
+  test course on a pad of the shipped map, and the same map compiles once it
+  says `test`; REFUSED, the test map written without `--dev`.
+- **As built (MEASURED, host)**: the test map 20,338 bytes in RAM, LZ4 6,532
+  (`BZPATH.BIN` stored 21,183 against the shipped map's 23,631); the test
+  build's package image 52,537 -> 52,535 (-2), `BONANZA.O88` 170,872 -> 169,910, `bonanza360.img` 174 of 354
+  clusters. The shipped `BONANZA.O88` (149,693 bytes) and the four
+  `bonanza*.img` `cmp` identical before and after. `bonanza_path.py --check`
+  walks it on the host: the diagonal pad 2 (route 2), the page route pad 3 ->
+  pad 4, bz_follow under unicorn equal to `bbcourse.Follow` on all six routes
+  both ways, the ramp's included.
+- **Not yet** (phase 3 of docs/plans/BOUNCE-BONANZA-SOAK.md): bonanzapath's
+  legs still carry the shipped map's wording, and its SECRET leg still builds
+  its private tree; the plan maps each leg onto the route above.

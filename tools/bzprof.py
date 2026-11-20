@@ -120,9 +120,8 @@ def main():
             m = g.m
             ui.settle()
             if a.demo:
-                R.CRS_K["bench"]
                 kd = R.CRS_K[a.demo]
-                demo = open(os.path.join(art, "BZD%d.BIN" % kd), "rb").read()
+                demo = open(os.path.join(art, R.demo_name(kd)), "rb").read()
                 m.pause()
                 g.putb("bz_vk", kd - 1)
                 m.run()

@@ -1210,10 +1210,13 @@ class Source:
         self.palette = None         # wave 6 (SPEC.md 130.16.6): (the 3D9h byte, line); never in the part
         self.music = None           # wave 7 (SPEC.md 130.18.6): (the song's number, line); never in the part
         self.medals = None          # wave 8c (SPEC.md 130.19.8.3): (G, S, line), whole seconds
+        self.version = None         # SPEC.md 130.22.5.1: `version <n>`, (n, line): the save key's (a course's) or
+                                    # the slots' (the pathway's); in no part and no identity
         self.noocc = []             # SPEC.md 130.53: [(frozenset of cells, line)] - `noocclude`'s
         self.mbands = None          # SPEC.md 130.52: `masks banded`'s line - a mask table a band (opted into)
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
+        self.test = None            # SPEC.md 130.54: `test`'s line - a TEST course, the BZDEV=1 build's alone
         self.traphop = None         # wave 11: `trap hop`'s line - NO TRAP presses the Hop too (SPEC.md 130.14.4.1.1)
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
         self.stopd = None           # SPEC.md 130.45.4: `stop down`'s line - the BOTTOM STOP at the finish
@@ -3396,6 +3399,11 @@ def _parse_text(text, fname="<course>"):
                     or not LIMIT_MIN <= int(toks[1][1]) <= LIMIT_MAX:
                 raise CourseError("%s: limit takes whole seconds, %d - %d" % (where, LIMIT_MIN, LIMIT_MAX))
             src.limit = (int(toks[1][1]), ln)
+        elif st == "version":                       # SPEC.md 130.22.5.1: the save's version, 1 - 255
+            if src.version is not None or len(toks) != 2 or toks[1][0] != 'w' or not _INT.match(toks[1][1]) \
+                    or not 1 <= int(toks[1][1]) <= 255:
+                raise CourseError("%s: version takes <n>, 1 - 255, once (SPEC.md 130.22.5.1)" % where)
+            src.version = (int(toks[1][1]), ln)
         elif st == "medals":                        # wave 8c (SPEC.md 130.19.8.3): medals G S
             if src.medals is not None or len(toks) != 3:
                 raise CourseError("%s: medals takes <G> <S> (whole seconds), once" % where)
@@ -3435,6 +3443,11 @@ def _parse_text(text, fname="<course>"):
                 raise CourseError("%s: guide takes nothing, once (a real course held to the course guide, "
                                   "docs/plans/bonanza-courses/README.md)" % where)   # guide_run_checks)
             src.guide = ln
+        elif st == "test":                          # SPEC.md 130.54: a TEST course (BZ_TESTCRS, BZDEV=1 alone)
+            if src.test is not None or len(toks) != 1:
+                raise CourseError("%s: test takes nothing, once (a test course, the BZDEV=1 build's alone, SPEC.md "
+                                  "130.54)" % where)
+            src.test = ln
         elif st == "trap":                          # wave 11 (SPEC.md 130.14.4.1.1): a course built on the Hop,
             if src.traphop is not None or len(toks) != 2 or toks[1] != ("w", "hop"):   # its NO TRAP: Space too
                 raise CourseError("%s: trap takes `hop`, once (SPEC.md 130.14.4.1.1)" % where)
@@ -5251,6 +5264,7 @@ def page_windows(view, npages, x0, y0, fname):
 
 PATH_STMTS = ("pages", "icon", "route", "lives", "rail", "titles")
 PATH_PADS = 32                # pads 0 - 31 (the save's dwords, 130.22.5)
+PATH_PAD_MAX = 23             # BZ_PAD_MAX: the pads a pathway may have, BONANZA.DAT's word-a-pad tables (130.22.5.1)
 PATH_ROUTES = 32              # routes (the save's opened / taken dwords)
 PATH_PAGES = 8
 PAD_POSES = 4                 # a pad's sign: 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (130.22.2)
@@ -5501,7 +5515,8 @@ def path_prepare(src, fname, crsinfo):
     picture's tiles: the reveal lanes draw them (path_signs).  -> the
     pathway's dict for path_signs, path_tables and path_proofs"""
     f = fname
-    crsnames = [n for n, _t in crsinfo]
+    crsnames = [e[0] for e in crsinfo]             # (NAME, title[, test]): SPEC.md 130.54, a test course has no pad
+    tests = {e[0] for e in crsinfo if len(e) > 2 and e[2]}
     if src.view is None:
         raise CourseError("%s:%d: the pathway has no `view` (its page 0 window, SPEC.md 130.22.2)"
                           % (f, src.pathway))
@@ -5516,10 +5531,16 @@ def path_prepare(src, fname, crsinfo):
     if not pads or nums != list(range(len(nums))):
         raise CourseError("%s:%d: the pads are numbered %s, not 0 - %d with pad 0 the start" % (
             f, src.pathway, nums, max(len(nums) - 1, 0)))
+    if len(pads) > PATH_PAD_MAX:
+        raise CourseError("%s:%d: %d pads: BZ_PAD_MAX is %d, the width of a BONANZA.DAT slot's word-a-pad "
+                          "tables (SPEC.md 130.22.5.1)" % (f, src.pathway, len(pads), PATH_PAD_MAX))
+    if src.test is not None:                       # SPEC.md 130.54.6: a TEST MAP's pads may play a test course
+        tests = set()
     for q in pads:
-        if q["crs"] not in crsnames or q["crs"] == "BENCH":
-            raise CourseError("%s:%d: pad %d plays %r, which is not a course of BZ_COURSES (BENCH is none): %s"
-                              % (f, q["line"], q["num"], q["crs"], ", ".join(n for n in crsnames if n != "BENCH")))
+        if q["crs"] not in crsnames or q["crs"] in tests:
+            raise CourseError("%s:%d: pad %d plays %r, which is not a course of BZ_COURSES (a test course is none, "
+                              "SPEC.md 130.54, but on a test map, 130.54.6): %s" % (
+                                  f, q["line"], q["num"], q["crs"], ", ".join(n for n in crsnames if n not in tests)))
         q["K"] = crsnames.index(q["crs"])
         q["title"] = crsinfo[q["K"]][1]
     pad_at = {q["at"]: q for q in pads}
@@ -9764,6 +9785,7 @@ class Course:
     .wcga, .wstored and .wherc its world part's: SPEC.md 130.30)"""
     split = False
     wcga = wstored = wherc = None
+    test = False                    # SPEC.md 130.54: `test`, a TEST course (the BZDEV=1 build's alone)
 
 
 def _blocks(pic, cols, brows):
@@ -12429,6 +12451,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.pth, c.vinfo = pth, vinfo                     # wave 8R (SPEC.md 130.22): the pathway's, None on a course
     c.paged = pth is not None
     c.ident = ident
+    c.version = src.version[0] if src.version else 1   # SPEC.md 130.22.5.1: never in the identity above
     c.gflags, c.padmask = gflags, padmask
     c.par = 0                                       # (wave 7: refused; kept for the cross-commit item 1)
     c.pal = src.palette[0] if src.palette else PAL_DEFAULT     # wave 6: not in the part (130.16.6)
@@ -12512,6 +12535,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.lockx = lock_across(c, src.lockx) if src.lockx else None   # SPEC.md 130.45: (CGA c0, Hercules c0) or None
     c.lockb = lock_bottom(c) if src.stopd else None # SPEC.md 130.45.4: the BOTTOM LINE (`stop down`), or None
     c.guide = src.guide                             # wave 11: the course guide's static half, at every compile
+    c.test = src.test is not None                   # SPEC.md 130.54: a TEST course (no pad, demo or target owed)
+    if c.test and c.guide:
+        raise CourseError("%s:%d: a test course is held to no course guide: `test` and `guide` both (SPEC.md "
+                          "130.54)" % (fname, src.test))
     c.guide_static = guide_static_rule(c, hack) if c.guide else None
     return c
 
@@ -19472,6 +19499,32 @@ def _raised_tops(course):
 # the outputs
 # =============================================================================
 
+def save_key(c):
+    """SPEC.md 130.22.5.1: a course's SAVE KEY, BONANZA.DAT's best entries' +0 - CRC-16/CCITT of its NAME's
+    bytes then its `version` byte.  Moves when the name or the version does, never with the art or the K"""
+    return crc16_ccitt(c.name.encode("ascii") + bytes([getattr(c, "version", 1)]))
+
+
+def check_keys(courses):
+    """SPEC.md 130.22.5.1: no two courses share a save key, and none is 0 (an empty entry's)"""
+    keys = [save_key(c) for c in courses]
+    for k, c in enumerate(courses):
+        if keys[k] == 0:
+            raise CourseError("%s: its save key (CRC-16/CCITT of %r and version %d) is 0, an empty entry's: "
+                              "raise its version (SPEC.md 130.22.5.1)" % (c.fname, c.name, c.version))
+        if keys[k] in keys[:k]:
+            o = courses[keys.index(keys[k])]
+            raise CourseError("%s and %s share the save key %04Xh: raise one's version (SPEC.md 130.22.5.1)"
+                              % (o.fname, c.fname, keys[k]))
+    return keys
+
+
+def demo_ks(courses):
+    """the courses with a shipped demo, K in course order (build_demos' keys): every one but a test course
+    (SPEC.md 130.54)"""
+    return [k for k, c in enumerate(courses) if not c.test]
+
+
 def emit_inc(courses, path=None, title=None):
     allc = courses + ([path] if path is not None else [])   # wave 8b (130.19.5): the pathway's entry LAST
     if title is not None:                           # SPEC.md 130.23.1: the TITLE's after the pathway's
@@ -19528,6 +19581,11 @@ def emit_inc(courses, path=None, title=None):
               "BZ_SECSTEPS     equ %d       ; wave 7: the clock's second, steps (130.18.1)" % SEC_STEPS,
               "%macro BZ_CRS_IDS 0",
               "    dw " + ", ".join("%05Xh" % c.ident for c in allc),
+              "%endmacro",
+              "; SPEC.md 130.22.5.1: each course's SAVE KEY (CRC-16/CCITT of its NAME, then its `version`), a",
+              "; word a course - BONANZA.DAT's best entries are found by it, never by K",
+              "%macro BZ_CRS_KEYS 0",
+              "    dw " + ", ".join("%05Xh" % k for k in check_keys(courses)),
               "%endmacro",
               "; each course's FLAGS (checkpoints), a byte a course: the face's `flags <n>/<m>`",
               "%macro BZ_CRS_NCKS 0",
@@ -19927,11 +19985,14 @@ def emit_inc(courses, path=None, title=None):
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN, then BZ<K>W.BIN",
               " %endrep",
               "%endmacro", ""] + emit_wrows(courses) + [
-              "; wave 4's shipped demos (SPEC.md 130.14.7.4): one a course but BENCH, K 1 - BZ_NCRS - 1,",
-              "; BZD<K>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
-              "; rows follow the courses' and the WORLD parts': demo K at BZ_P_DEMO + K - 1 (no sound",
-              "; rows since SPEC.md 130.50)",
-              "BZ_NDEMO        equ %d" % (len(courses) - 1),
+              "; wave 4's shipped demos (SPEC.md 130.14.7.4): one a course but the benchmark's (by NAME),",
+              "; BZD<NAME>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
+              "; rows follow the courses' and the WORLD parts', in course order: demo row i at BZ_P_DEMO + i",
+              "; plays course BZ_DEMO_CRS[i] (no sound rows since SPEC.md 130.50)",
+              "BZ_NDEMO        equ %d" % len(demo_ks(courses)),
+              "%macro BZ_DEMO_CRS 0",
+              "    db " + ", ".join(str(k) for k in demo_ks(courses)),
+              "%endmacro",
               "%macro BZ_DEMO_PARTS 0",
               " %rep BZ_NDEMO",
               "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZD<K>.BIN",
@@ -20036,14 +20097,25 @@ def emit_path(path, courses, title=None):
            "%macro BZ_CRS_ARENA 0",
            "    dw " + ", ".join(str(crs_arena(c, k, len(courses))) for k, c in enumerate(_allc(courses, path, title))),
            "%endmacro"]
+    out += ["BZ_PAD_MAX      equ %d       ; the most pads (SPEC.md 130.22.5.1): a BONANZA.DAT slot's "
+            "word-a-pad tables" % PATH_PAD_MAX]
     if path is None:
-        return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 130.22)", "BZ_PATH_CLAIM   equ 0", ""]
+        return out + ["BZ_PATH_NPAD    equ 0        ; no pathway (SPEC.md 130.22)", "BZ_PATH_CLAIM   equ 0",
+                      "BZ_PATH_VER     equ 1", "BZ_CRS_DEFAULT  equ %d" % demo_ks(courses)[0], ""]
     pth = path.pth
     return out + [
         "; wave 8R (SPEC.md 130.22): THE PATHWAY - course BZ_CRS_PATH (= BZ_NCRS: its entry",
         "; last in every BZ_CRS_ table), part BZPATH.BIN; its tables are the part's (PTHOFF)",
         "BZ_CRS_PATH     equ %d" % len(courses),
-        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PADS),
+        "BZ_PATH_VER     equ %d        ; its `version` (SPEC.md 130.22.5.1): a slot's +20" % path.version,
+        "BZ_CRS_DEFAULT  equ %d        ; the course on pad 0 (%s): Enter's and F's first course, by the map, "
+        "never by K" % (pth["pads"][0]["K"], courses[pth["pads"][0]["K"]].name),
+        "; SPEC.md 130.22.5.1: each pad's EXITS, a bit an exit of the course it plays - a slot's exits",
+        "; found are masked to them on load (a word a pad)",
+        "%macro BZ_PAD_EXITS 0",
+        "    dw " + ", ".join("%05Xh" % sum(1 << e for e in course_exits(courses[q["K"]])) for q in pth["pads"]),
+        "%endmacro",
+        "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PAD_MAX),
         "BZ_PATH_CLAIM   equ %d      ; paragraphs: the pathway part's RAM form" % ((len(path.cga) + 15) // 16),
         ""]
 
@@ -20108,7 +20180,7 @@ def crs_arena(c, k, ncrs):
 
 
 def _pad_courses(path, courses):
-    return sorted({q["K"] for q in path.pth["pads"]}) if path is not None else range(1, len(courses))
+    return sorted({q["K"] for q in path.pth["pads"]}) if path is not None else demo_ks(courses)
 
 
 def crs_maxclaim(path, courses):
@@ -20218,18 +20290,18 @@ def packed_len(data, fmt="lz4"):
     return len(_PACKED[key])
 
 
-def check_budget(c, k):
-    """130.15.8: a course's `target` (every course but course 0), and its part
+def check_budget(c, k=None):
+    """130.15.8: a course's `target` (every course but a test course, SPEC.md 130.54), and its part
     packed as LZ4 - whatever the parts' format is - against its budget.  The part read
     is the RECB 4 stored form, the shipped form since 130.15.5.4's verdict shipped D.  SPEC.md 130.27.5 (the owner,
     2026-11-16): the budget and its 1.5 times are REPORTED, never refused -
     "that limit is the thing wrong; we'll end up with less courses, or two
     disks".  What protects correctness stays refused where it always was (one
     part's 65,024 bytes, the occluder bounds).  -> the packed bytes, or None
-    for a course 0 with no target"""
+    for a test course with no target"""
     if c.target is None:
-        if k:
-            raise CourseError("%s: no `target` statement: every course but course 0 (the benchmark's) gives its "
+        if not c.test:
+            raise CourseError("%s: no `target` statement: every course but a test course (SPEC.md 130.54) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 130.15.8)" % c.fname)
         return None
     return packed_len(c.stored, "lz4") + (packed_len(c.wstored, "lz4") if c.split else 0)   # (both parts, 130.30)
@@ -20723,7 +20795,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     check_physv()                              # wave 6 (SPEC.md 130.16.9): no earlier physics' value
     if len(paths) > CRS_MAX:
         raise CourseError("%d courses: BZ_CRS_MAX is %d, the width of every per-course table and of "
-                          "BONANZA.DAT's BZS4 (SPEC.md 130.22.5)" % (len(paths), CRS_MAX))
+                          "BONANZA.DAT's BZS5 (SPEC.md 130.22.5.1)" % (len(paths), CRS_MAX))
     # (the courses and the title, a core each: no compile reads another's; the first refusal in the
     # sequential order is the one raised, and the title's where the sequential run compiled it)
     got = par_map(compile_course, list(paths) + ([title] if title else []))
@@ -20736,6 +20808,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     names = [c.name for c in courses]
     if len(set(names)) != len(names):
         raise CourseError("two courses share a NAME: %s" % names)
+    check_keys(courses)                            # SPEC.md 130.22.5.1: the save keys
     for c_ in courses:
         finish_reach_rule(c_)
     compile_all.clocks = [finish_clock_rule(c) for c in courses]   # wave 8R (SPEC.md 130.22.6): every finish
@@ -20744,7 +20817,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         with open(path, encoding="ascii") as f_:
             if not re.search(r"^\s*pathway\b", f_.read(), re.M):
                 raise CourseError("%s: --path names a course with no `pathway` statement" % path)
-        pc = compile_course(path, crsinfo=[(c.name, c.title) for c in courses])
+        pc = compile_course(path, crsinfo=[(c.name, c.title, c.test) for c in courses])
         compile_all.proofs = path_proofs(pc, courses)
     if title and got[-1][1] is not None:             # SPEC.md 130.23: THE TITLE, beside them
         raise got[-1][1]
@@ -20766,7 +20839,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
             files["BZ%dW.BIN" % k] = c.wstored
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
-        files["BZD%d.BIN" % k] = d["log"]
+        files[demo_file(courses[k])] = d["log"]
     compile_all.demos = demos
     if pc is not None:
         files["BZPATH.BIN"] = pc.stored
@@ -20780,7 +20853,8 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     # SPEC.md 130.30.4.4: the world parts' file names in row order, which the Makefile passes as --part after
     # the courses' (empty: none)
     texts = {"bzcourse.inc": emit_inc(courses, pc, tc),
-             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split)}
+             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split),
+             "bzdemo.lst": "".join(demo_file(courses[k]) + "\n" for k in sorted(demos))}
     return courses, files, texts
 
 
@@ -22180,13 +22254,20 @@ def author_demo(c, K, script):
     return encode_log(keys, K, c.ball, bool(p.goal), c.ident), p
 
 
+def demo_file(c):
+    """SPEC.md 130.14.7.4: a shipped demo's part file, named by its course's NAME (never by K)"""
+    return "BZD%s.BIN" % c.name
+
+
 def build_demos(courses, paths, demo_dir=None):
-    """every course's demo (K 1 .., not BENCH): its .bzd when there is one, else a
-    route demo; each checked by the model.  -> {K: {log kind where warn p}}"""
+    """every course's demo but a test course's (SPEC.md 130.54): its .bzd when there is one, else a
+    route demo; each checked by the model.  -> {K: {log kind where warn p}}, in course order (the demo
+    rows' order, BZ_DEMO_CRS)"""
     idents = [c.ident for c in courses]
     out = {}
-    for K in range(1, len(courses)):
-        c = courses[K]
+    for K, c in enumerate(courses):
+        if c.test:
+            continue
         dp = demo_path(paths[K], demo_dir)
         if os.path.exists(dp):
             rel = os.path.relpath(dp, ROOT) if dp.startswith(ROOT + os.sep) else dp
@@ -23177,12 +23258,20 @@ def main_camcheck(paths):
     print("bbcourse --camcheck: %s" % ("ok" if ok else "FAILED"))
     return 0 if ok else 1
 
-def write_out(out, paths, path=None, title=None):
+def write_out(out, paths, path=None, title=None, dev=False):
     """compile every course IN MEMORY first: a refused course removes the
-    stamp and writes nothing, so make cannot take a stale part for current"""
+    stamp and writes nothing, so make cannot take a stale part for current.
+    DEV: the BZDEV=1 build's (`--dev`) - without it a TEST course is refused,
+    so none ships (SPEC.md 130.54)"""
     os.makedirs(out, exist_ok=True)
     st = os.path.join(out, ".bz-crs")
     try:
+        tests = [n for n, _t, tst in _course_info(paths) if tst]   # (before the compile: it decides nothing)
+        if path and _course_info([path])[0][2]:     # SPEC.md 130.54.6: a TEST MAP (`test` on the pathway)
+            tests.append("the test map %s" % os.path.basename(path))
+        if tests and not dev:
+            raise CourseError("%s: a TEST course (`test`), the BZDEV=1 build's alone: this build is not `--dev`, so "
+                              "it would ship (SPEC.md 130.54)" % ", ".join(tests))
         courses, files, texts = compile_all(paths, path=path, title=title)
     except CourseError:
         if os.path.exists(st):
@@ -23732,7 +23821,7 @@ def visibility(c, k=None, demo=None):
     head = "    visibility %s: %d of %d marks BELOW, %d hidden stretch%s over 0.5 s%s; ghost %s%s" % (
         c.name, nb, len(marks), len(allst), "" if len(allst) == 1 else "es",
         ", the longest %.2f s from %s step %d" % (longest[1]["secs"], longest[0], longest[1]["a"]) if longest else "",
-        "on" if ghost_on else "OFF", " (course 0: exempt)" if k == 0 else "")
+        "on" if ghost_on else "OFF", " (a test course's: exempt)" if c.test else "")
     return [head] + lines, {"below": nb, "marks": len(marks), "stretches": len(allst), "ghost": ghost_on,
                             "longest": longest and longest[1]["secs"], "detail": marks}
 
@@ -26928,17 +27017,35 @@ def _w4_route(c, res):
         p.step_auto()
         if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
             air_occ += 1
+    how = ""
+    if not p.goal and getattr(c, "traphop", None):
+        # wave 11 (SPEC.md 130.14.4.1.1, 130.14.7.4.1): a course BUILT ON THE HOP (`trap hop`, LITTLE HOP) is
+        # one the arrows alone cannot finish by design, and its route is the HOPPING autopilot's (route_plan:
+        # the limit's and the route demo's).  So for such a course - and only such a course: one without
+        # `trap hop` is still held to the arrows alone - the item replays that plan's keys and holds it to the
+        # same goal, no fall and every flag, inside DEMO_STEPS
+        plan = route_plan(c)
+        p = Physics(c, play=True)
+        air_occ = 0
+        for k_ in (plan or ())[:DEMO_STEPS]:
+            if p.goal:
+                break
+            p.step(k_)
+            if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
+                air_occ += 1
+        how = " (`trap hop`: the HOPPING autopilot's route, 130.14.7.4.1, %s)" % (
+            "%d steps" % len(plan) if plan else "NONE found")
     kinds = {}
     for e in p.events:
         if e[0] in ("flag", "pad", "spring", "capture", "lip", "cup"):
             kinds[e[0]] = kinds.get(e[0], 0) + 1
     want = {"flag": sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)}
     res.append(("8 %s: the autopilot reaches the %s at step %s (%.1f s) with no fall in %d steps, touching every "
-                "flag (%s), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
-                "cells (priced in the demo legs, 130.14.6)" % (
+                "flag (%s of %d), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
+                "cells (priced in the demo legs, 130.14.6)%s" % (
                     c.name, "cup" if c.gflags & GF_CUP else "goal", p.nstep if p.goal else "-",
-                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), p.npad, p.nspr,
-                    kinds.get("capture", 0), air_occ),
+                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), want["flag"], p.npad,
+                    p.nspr, kinds.get("capture", 0), air_occ, how),
                 p.goal == 1 and p.nfall == 0 and kinds.get("flag", 0) == want["flag"]))
     return p
 
@@ -27176,7 +27283,7 @@ def _w4_demos(courses, paths, res):
                 "DEMOTED" in why))
     # `stalebzd` (SPEC.md 130.16.14): moon.bzd's own text with its `physics` line left at A0h, built as the
     # build builds it - refused at item 9
-    mk = next((k for k in range(1, len(courses)) if courses[k].name == "MOON"), None)
+    mk = next((k for k, c_ in enumerate(courses) if c_.name == "MOON"), None)
     if mk is not None and os.path.exists(demo_path(paths[mk])):
         with open(demo_path(paths[mk]), encoding="ascii") as f:
             txt = f.read()
@@ -27205,7 +27312,7 @@ def _w4_demos(courses, paths, res):
                 "the reader and this item's identity test fails it", acc is None and log_ident(wrong) != c.ident))
     # wave 6 (SPEC.md 130.16.8): the PLAYGROUND's authored demo is the only one that boosts - its model replay
     # boosts and ends at its goal; its control is the same log with the boost's Space press removed
-    pk = next((k for k in range(1, len(courses)) if courses[k].name == "PLAY"), None)
+    pk = next((k for k, c_ in enumerate(courses) if c_.name == "PLAY"), None)
     if pk is not None and pk in demos:
         ok, why = play_demo_verdict(courses[pk], demos[pk]["log"])
         res.append(("9 BZD%d (PLAY): %s" % (pk, why), ok))
@@ -27741,10 +27848,11 @@ def _w5_budget(courses, res):
         got, fired = "accepted", False
     except CourseError as e:
         got, fired = str(e), "no `target`" in str(e)
-    res.append(("12 refused: a course (not course 0) with no target%s" % ("" if fired else " -- got: " + got), fired))
+    res.append(("12 refused: a course (not the benchmark's) with no target%s" % ("" if fired else " -- got: " + got), fired))
     for k, c in enumerate(courses):
         if c.target is None:
-            res.append(("12 %s (course %d): no target, the benchmark's: no budget" % (c.name, k), k == 0))
+            res.append(("12 %s (course %d): no target, a test course's: no budget" % (c.name, k),
+                        c.test))
             continue
         n, z = packed_len(c.stored, "lz4"), packed_len(c.stored, "lzb")
         bg = budget(c.target)
@@ -27829,6 +27937,126 @@ def _path_refused(text, courses, want, what, extra=(), proofs=False):
         return want in str(e), str(e)
 
 
+PATH_DEV = os.path.join(COURSE_DIR, "pathdev.bbc")    # SPEC.md 130.54.6: THE TEST MAP, the BZDEV=1 build's pathway
+
+
+def testmap_features(pth):
+    """SPEC.md 130.54.6: the features the test map carries, off its compiled pathway -> {feature: (route, pad,
+    ...) or None}: `straight` pad 0's route to pad 1 and the arrows each end gives it; `diagonal` the first
+    route a pad's key map gives TWO arrows (pad, route); `paged` the first route between two pages; `icon` the
+    paged route's far pad when it has an icon; `climb` a route on from that pad ending higher than it starts;
+    `secret` the secret route, its hidden pad"""
+    pads, routes = pth["pads"], pth["routes"]
+
+    def arrows(p, ri, rev):
+        return [KEY_ARROWS[k] for k, v in enumerate(pads[p]["keys"]) if v == (ri, rev)]
+    out = dict.fromkeys(("straight", "diagonal", "paged", "icon", "climb", "secret"))
+    r01 = next((r for r in routes if r["a"] == 0 and r["b"] == 1 and not r["secret"]), None)
+    if r01 is not None:
+        out["straight"] = (r01["i"], arrows(0, r01["i"], False), arrows(1, r01["i"], True))
+    for q in pads:
+        for r in routes:
+            if r["secret"] or q["num"] not in (r["a"], r["b"]):
+                continue
+            if out["diagonal"] is None and len(arrows(q["num"], r["i"], q["num"] == r["b"])) >= 2:
+                out["diagonal"] = (q["num"], r["i"])
+    pr = next((r for r in routes if not r["secret"] and pads[r["a"]]["page"] != pads[r["b"]]["page"]), None)
+    if pr is not None:
+        out["paged"] = (pr["i"], pads[pr["a"]]["page"], pads[pr["b"]]["page"])
+        far = pr["b"]
+        if pads[far]["isign"] is not None:
+            out["icon"] = far
+        for r in routes:
+            if r["secret"] or r["i"] == pr["i"] or far not in (r["a"], r["b"]):
+                continue
+            g = r["gpts"] if r["a"] == far else r["gpts"][::-1]
+            if g[-1][2] > g[0][2]:
+                out["climb"] = (r["i"], g[-1][2])
+                break
+    sr = next((r for r in routes if r["secret"]), None)
+    if sr is not None and pads[sr["b"]]["hidden"]:
+        out["secret"] = (sr["i"], sr["a"], sr["b"], sr["exit"])
+    return out
+
+
+def _testmap_checks(courses, res):
+    """SPEC.md 130.54.6: THE TEST MAP - compiled against the test build's courses, its features each present,
+    every pad past the shipped map's first two playing a TEST course; and the two refusals that keep it out of
+    a shipped build"""
+    info = [(c.name, c.title, c.test) for c in courses]
+    shipped_pc = compile_course(os.path.join(COURSE_DIR, "path.bbc"), crsinfo=info)
+    try:
+        pc = compile_course(PATH_DEV, crsinfo=info)
+        proofs = path_proofs(pc, courses)
+        why = None
+    except CourseError as e:
+        pc, proofs, why = None, [], str(e)
+    if pc is None:
+        res.append(("130.54.6 the test map compiles -- got: %s" % why[:200], False))
+        return
+    pth = pc.pth
+    ft = testmap_features(pth)
+    byk = {c.name: c for c in courses}
+    sp = shipped_pc.pth["pads"]
+    same01 = all(pth["pads"][i]["crs"] == sp[i]["crs"] and pth["pads"][i]["at"] == sp[i]["at"] for i in (0, 1))
+    rest = [q["crs"] for q in pth["pads"][2:]]
+    print("    the test map: %d pads (%s), %d routes, %d pages; part %d bytes in RAM, LZ4 %d; %s" % (
+        len(pth["pads"]), " ".join(q["crs"] for q in pth["pads"]), len(pth["routes"]), pth["npages"], len(pc.cga),
+        packed_len(pc.stored, "lz4"), "; ".join("%s %s" % kv for kv in ft.items())))
+    for line in proofs:
+        print("      route %s" % line)
+    ok = (same01 and all(byk[n].test for n in rest) and all(v is not None for v in ft.values())
+          and ft["straight"][1] == ["Right"] and ft["straight"][2] == ["Left"] and len(pc.cga) <= PARTMAX
+          and pc.src.test is not None)
+    res.append(("130.54.6 the test map compiles against the test build's courses (%d pads, %d routes, %d bytes): "
+                "pads 0 and 1 the shipped map's (%s, %s, their cells), the rest TEST courses (%s); a STRAIGHT route "
+                "0 -> 1 (Right, Left back: %s), a DIAGONAL (pad, route %s), a route across the PAGES %s, an ICON on "
+                "its far pad (%s), a CLIMB on from it (route, end gz %s), a SECRET route (route, pad, its hidden "
+                "pad, exit %s)" % (len(pth["pads"]), len(pth["routes"]), len(pc.cga), sp[0]["crs"], sp[1]["crs"],
+                                   ", ".join(rest), ft["straight"], ft["diagonal"], ft["paged"], ft["icon"],
+                                   ft["climb"], ft["secret"]), ok))
+    # the secret route's key a HIDDEN exit of its course, its verdict a SIDE or a SHORTCUT (path_proofs)
+    sr = pth["routes"][ft["secret"][0]] if ft["secret"] else None
+    ex = course_exits(courses[pth["pads"][sr["a"]]["K"]]) if sr else {}
+    res.append(("130.54.6 the test map's secret route: opened by %s's exit %s, HIDDEN (%s), %s" % (
+        pth["pads"][sr["a"]]["crs"] if sr else "-", sr["exit"] if sr else "-", ex.get(sr["exit"]) if sr else "-",
+        sr.get("verdict") if sr else "-"), bool(sr) and ex.get(sr["exit"]) is True and bool(sr.get("verdict"))))
+    # refused: a test course on a pad of the SHIPPED map (130.22.2) - and accepted once the map says `test`
+    with open(os.path.join(COURSE_DIR, "path.bbc"), encoding="ascii") as f:
+        ptext = f.read()
+    tq = next((c.name for c in courses if c.test), None)
+    bad = _path_sub(ptext, ("pad 1 HOP ", "pad 1 %-4s" % tq)) if tq else _PATH_NOANCHOR + "a test course"
+    for what, text, want in (("a test course on a pad of the shipped map", bad, "a test course is none"),):
+        if text.startswith(_PATH_NOANCHOR):
+            fired, got = False, "its edit's anchor is gone"
+        else:
+            try:
+                compile_course(text, fname="<%s>" % what, crsinfo=info)
+                fired, got = False, "compiled"
+            except CourseError as e:
+                fired, got = want in str(e), str(e)
+        okm = False
+        if not text.startswith(_PATH_NOANCHOR):
+            try:
+                compile_course("test\n" + text, fname="<the same, `test`>", crsinfo=info)
+                okm = True
+            except CourseError as e:
+                got += " / with `test`: " + str(e)
+        res.append(("130.54.6 refused: %s (%s); the same map saying `test` compiles%s" % (
+            what, tq, "" if fired and okm else " -- got: " + got[:200]), fired and okm))
+    # refused: the test map written without --dev (it would ship), no stamp left
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            write_out(td, [], path=PATH_DEV)
+            got, fired = "accepted", False
+        except CourseError as e:
+            got, fired = str(e), "not `--dev`" in str(e)
+        caught = fired and not os.path.exists(os.path.join(td, ".bz-crs"))
+    res.append(("130.54.6 refused: the test map written without --dev (it would ship)%s" % (
+        "" if caught else " -- got: " + got[:200]), caught))
+
+
 def _path_checks(courses, res):
     t0 = time.time()
     shipped = os.path.join(COURSE_DIR, "path.bbc")
@@ -27889,6 +28117,7 @@ def _path_checks(courses, res):
                 pth["pads"][0]["crs"] == "ROLL" and pth["pads"][1]["crs"] == "HOP" and keyed.get((0, 0)) == 1
                 and keyed.get((1, 0)) == 2 and sorted(r["exit"] for r in pth["routes"] if r["a"] == 2) == [0, 1]
                 and keyed[(2, 0)] != keyed[(2, 1)] and cross))
+    _testmap_checks(courses, res)
     # the refusals, each provoked on the shipped text or the private map
     hid = compile_course(PATH_TEST_HID, fname="<HID>", occluders=False, _hack={"no_bounds": 1})
     hid.title = "Hidden Exit"
@@ -29459,7 +29688,19 @@ def _course_items(c, k, res, t):
                 A = composite(c, px, py, rc.s, z, air, "records", cell=mcell(gx, gy))
                 Bp = composite(c, px, py, rc.s, z, air, "pixels", cell=mcell(gx, gy), cut=c.occpix)
                 if A != Bp:
-                    mism += 1
+                    # (wave 11, ROLL's chute: a merged record keeps its FIRST member's s and top (merge_records),
+                    # so a member with a higher s and a lower top - ROLL's block (74, 21): (66, 96) merged into
+                    # (65, 105) - has its tops raised here while its s is not lowered, and the raised buffer
+                    # then hides a pixel at s_b 65, z_b + m 96 - 104 that NEITHER the member nor the merged
+                    # record lays: the reference's artefact, not the guest's.  So a pixel of A differs only when
+                    # it is neither the raised buffer's nor the plain per-pixel rule's - the unmerged tops)
+                    rz, c._raised = c._raised, {}
+                    try:
+                        Bq = composite(c, px, py, rc.s, z, air, "pixels", cell=mcell(gx, gy), cut=c.occpix)
+                    finally:
+                        c._raised = rz
+                    if any(v != Bp.get(p) and v != Bq.get(p) for p, v in A.items()):
+                        mism += 1
                 if first_laid is None and not ag5.runs(*mcell(gx, gy)):
                     for r in laid_at(c, px, py, rc.s, z, air):
                         if any(p in r["pix"] and Bp[p] != v for p, v in ball_pixels(px, py).items() if p in Bp):
@@ -29597,7 +29838,21 @@ def _sc_crosscommit(X, res):
     # (wave D5, SPEC.md 130.24: a course with a SPLIT cell - MOON's coast - is written in `box`, which that
     # commit's grammar lacks, and its part holds halves no tool of that tree lays: excluded by its geometry,
     # as the PLAYGROUND is by name; the rest still carry the chain)
-    w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())]
+    # (wave 11: FIRST ROLL and LITTLE HOP, the real courses, are written in geometry that commit's grammar
+    # cannot say at all - ROLL's `chute`, HOP's quarter heights - and like the PLAYGROUND neither is in that
+    # tree: the chain is the courses whose FILE is in 503031d4's tree, which it compiled then.  It still has
+    # to cover the five it was written for - BENCH, FIRST, TRIAL, MILL and PEAK (summit.bbc) - or the item fails)
+    import subprocess
+
+    def _in_w5(c):
+        return subprocess.run(["git", "cat-file", "-e", "%s:apps/bonanza/courses/%s" % (
+            W5_COMMIT, os.path.basename(c.fname))], cwd=ROOT, capture_output=True).returncode == 0
+    w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())
+          and _in_w5(c)]
+    W5_CHAIN = ("BENCH", "FIRST", "TRIAL", "MILL", "PEAK")
+    if [c.name for c in w5] != [n for n in (c.name for c in courses) if n in W5_CHAIN]:
+        res.append(("1 the cross-commit chain covers %s's courses %s (it covers %s)" % (
+            W5_COMMIT, ", ".join(W5_CHAIN), ", ".join(c.name for c in w5) or "none"), False))
     import tempfile
     w5dir = tempfile.mkdtemp(prefix="bbw5")
     w5txt = []
@@ -30552,6 +30807,33 @@ def _sc_courses(X, res):
     courses, t = X.courses, X.t
     for k, c in enumerate(courses):
         _course_items(c, k, res, t)
+    # SPEC.md 130.54: THE TEST COURSES - the Makefile's BZ_TESTCRS each say `test`, no shipped course does; a
+    # test course compiled into a build that is not --dev is refused (none ships); its exemptions are its own
+    bad = test_rule()
+    tests = [c.name for c in courses if c.test]
+    res.append(("130.54 the test courses (%s): every file of BZ_TESTCRS says `test`, none of the shipped BZ_COURSES "
+                "does%s" % (", ".join(tests) or "none", "" if not bad else " -- " + "; ".join(
+                    "%s %s" % (os.path.basename(f), w) for f, w in bad)), not bad))
+    tc = next((c for c in courses if c.test), None)
+    if tc is not None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            try:
+                write_out(td, [p_ for p_, c_ in zip(X.paths, courses) if c_ is tc])
+                got, fired = "accepted", False
+            except CourseError as e:
+                got, fired = str(e), "not `--dev`" in str(e)
+            caught = fired and not os.path.exists(os.path.join(td, ".bz-crs"))
+        res.append(("130.54 refused: %s, a test course, written without --dev (it would ship)%s" % (
+            tc.name, "" if caught else " -- got: " + got), caught))
+        try:
+            compile_course("test\nguide\n" + open(X.paths[courses.index(tc)], encoding="ascii").read().replace(
+                "\ntest ", "\n# ", 1), "<%s, test and guide>" % tc.name)
+            got, fired = "accepted", False
+        except CourseError as e:
+            got, fired = str(e), "`test` and `guide`" in str(e)
+        res.append(("130.54 refused: a course saying `test` and `guide`%s" % ("" if fired else " -- got: " + got),
+                    fired))
 
 
 def _sc_split(X, res):
@@ -31187,7 +31469,8 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
                 flags_ok))
     if not c.av or flags_only:
         return
-    rcs = av_positions(c.reach, g, c.slabcells)
+    rcs = [q for q in av_positions(c.reach, g, c.slabcells)
+           if (q.wx, q.wy) not in getattr(c, "noocc", ())]      # (SPEC.md 130.53: the proofs pass them over)
     tried, miss = av_proof(c, g, rcs)
     res.append(("15 %s: COMPLETENESS - at %d VOID positions' every height, %d (pixel, cell) cases the rule lays are "
                 "each hidden by the model read from the PART or laid by a shipped record%s" % (
@@ -32801,7 +33084,7 @@ def _o88_arms(courses, demo_files):
                     f.write(c.wstored)
                 parts.append(p)
         parts += [need[3]] + [os.path.join(art, n) for n in songs]
-        for name in sorted(demo_files, key=lambda n: int(n[3:-4])):
+        for name in demo_files:                  # (the rows' order: named by course, SPEC.md 130.14.7.4)
             p = os.path.join(td, name)
             with open(p, "wb") as f:
                 f.write(demo_files[name])
@@ -33068,16 +33351,44 @@ def ghost_previews(c, base, Image, at=None):
     return at
 
 
-def default_paths():
-    """BZ_COURSES, read out of the Makefile - the one authority on the courses
-    and their order (K) - so a course added there is compiled and selfchecked
-    by a bare `bbcourse.py --selfcheck` (the bonanzacourse row) too, never a
-    hand copy of the list that can drift from it"""
+def _mk_list(mk, var):
+    """the files of the Makefile's first `VAR := ...` line (its continuation lines joined), or None"""
+    m = re.search(r"^%s\s*:=\s*((?:.*\\\n)*.+)$" % var, mk, re.M)
+    return m.group(1).replace("\\", " ").split() if m else None
+
+
+def _makefile():
     with open(os.path.join(ROOT, "Makefile"), encoding="utf-8", errors="replace") as f:
-        m = re.search(r"^BZ_COURSES\s*:=\s*((?:.*\\\n)*.+)$", f.read(), re.M)
-    if not m:
+        return f.read()
+
+
+def default_paths():
+    """the BZDEV=1 build's courses, read out of the Makefile - the one authority on the courses
+    and their order (K): BZ_COURSES (its first line: the shipped courses) and then BZ_TESTCRS (the
+    TEST courses, which only that build carries, AFTER every other: SPEC.md 130.54), as BZDEV's
+    block puts them - so a course added to either is compiled and selfchecked by a bare
+    `bbcourse.py --selfcheck` (the bonanzacourse row) too, the test courses included, never a hand
+    copy of the list that can drift from it"""
+    mk = _makefile()
+    shipped = _mk_list(mk, "BZ_COURSES")
+    if not shipped:
         raise SystemExit("bbcourse: the Makefile has no BZ_COURSES line")
-    return [os.path.join(ROOT, p) for p in m.group(1).replace("\\", " ").split()]
+    return [os.path.join(ROOT, p) for p in shipped + (_mk_list(mk, "BZ_TESTCRS") or [])]
+
+
+def test_rule():
+    """SPEC.md 130.54: -> the Makefile's files whose `test` statement is wrong - every file of BZ_TESTCRS says
+    `test`, no file of the shipped BZ_COURSES (its first line) does; and the maps (130.54.6) likewise, the test
+    map BZ_PATHDEV saying it and the shipped pathway BZ_PATH (its first line) not: [(file, why)]"""
+    mk = _makefile()
+    bad = []
+    for var, want in (("BZ_COURSES", False), ("BZ_TESTCRS", True), ("BZ_PATH", False), ("BZ_PATHDEV", True)):
+        for p in _mk_list(mk, var) or []:
+            with open(os.path.join(ROOT, p), encoding="ascii") as f:
+                has = bool(re.search(r"^\s*test\s*(#.*)?$", f.read(), re.M))
+            if has != want:
+                bad.append((p, "%s %s" % (var, "but no `test`" if want else "with `test`")))
+    return bad
 
 
 def _course_list(paths):
@@ -33095,14 +33406,16 @@ def _course_info_t(paths):
     out = []
     for p in paths:
         with open(p, encoding="ascii") as f:
-            m = re.search(r'^\s*course\s+([A-Z0-9]{1,5})\s+"([^"]*)"', f.read(), re.M)
-        out.append((m.group(1), m.group(2)) if m else (None, None))
+            t = f.read()
+        m = re.search(r'^\s*course\s+([A-Z0-9]{1,5})\s+"([^"]*)"', t, re.M)
+        tst = bool(re.search(r"^\s*test\s*(#.*)?$", t, re.M))     # SPEC.md 130.54: a test course has no pad
+        out.append((m.group(1), m.group(2), tst) if m else (None, None, False))
     return out
 
 
 def _course_info(paths):
-    """[(NAME, title)] of every course in BZ_COURSES's order, from the `course` lines alone (the
-    pathway's pads' courses, SPEC.md 130.22.2)"""
+    """[(NAME, title, test)] of every course in BZ_COURSES's order, from the `course` and `test` lines alone
+    (the pathway's pads' courses, SPEC.md 130.22.2; a test course plays on no pad, 130.54)"""
     return _course_info_t(tuple(paths))
 
 
@@ -33190,7 +33503,7 @@ def main_tune(assigns, paths):
         if c is not None and (any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches):
             _w4_route(c, res)
     for k, c in enumerate(courses):
-        if c is None or k == 0:
+        if c is None or c.test:
             continue
         if c.name in AUTHOR:
             try:
@@ -33686,6 +33999,9 @@ def main():
     ap.add_argument("--title", metavar="BBC", help="THE TITLE's source (SPEC.md 130.23): compiled beside the "
                     "courses as BZTITLE.BIN, its entry after the pathway's in every BZ_CRS_ table")
     ap.add_argument("--selfcheck", action="store_true")
+    ap.add_argument("--dev", action="store_true",
+                    help="-o: the BZDEV=1 build's (make passes it): its TEST courses are written; without it a "
+                         "`test` course is refused, so none ships (SPEC.md 130.54)")
     ap.add_argument("--only", metavar="SECTIONS",
                     help="--selfcheck: only these sections, comma-separated (`--only list` names them); the "
                          "courses are compiled whatever is named (docs/TESTING.md, *BONANZA's host checks*)")
@@ -33777,7 +34093,7 @@ def main():
         if a.selfcheck:
             rc |= selfcheck(paths, only=only)
         if a.out:
-            write_out(a.out, paths, a.path, a.title)
+            write_out(a.out, paths, a.path, a.title, dev=a.dev)
         if a.sizes:
             rc |= sizes(paths)
         if a.png:

@@ -1,0 +1,71 @@
+# Wheel and Ring - TMIL (the plan's TMILL: a NAME is five characters), a TEST course (SPEC.md 130.54): the
+# BZDEV=1 build's alone, after the shipped courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped
+# demo.  "The wheel and the ring" (docs/plans/BOUNCE-BONANZA-SOAK.md, whose per-leg table is this course's
+# map): it carries what bonanzawheel's and bonanzaring's MILL, TRIAL and BENCH legs need, on ONE route the
+# autopilot rolls in 723 steps (13.1 s, no fall, one kick) -
+#  - the TOP is MILL's cell for cell (A at 16, the house, both WINDMILLS on KEEP tubes - seeds 16 and the
+#    derived 36 - B at 20, C at 18), so bonanzaphys's gate logs and every poke there carry over by name:
+#    3-word rotor lanes, a contact rotor at the doorway, a transit, a tube exit;
+#  - B's ramp down along +y onto W (12), which the route crosses along +x past three BUMPERS (2-word,
+#    lighting posts): post (17, 16) kicked on the route; post (7, 13) on A CROSSES THE RING'S END on the CGA
+#    (lines 192 - 208, card row 102) and post (20, 16) on W on the Hercules (lines 352 - 368, row 90) - a
+#    card row's offset is (rb R + 2 x) mod 8192, absolute, so the spot is the world's (bbcourse.ring_cross);
+#  - the ball's own 3- and 4-word boxes cross the ring's end ON THE ROUTE: the Hercules at (21, 15) on W
+#    (box word 45, row 90), the CGA at (19, 20) on F (box word 30, row 204);
+#  - a DROP from W's east end onto F (8): its bounces give the shadow a box of its own, and with the LIFT's
+#    box beside them a frame of THREE boxes on both cards;
+#  - the LIFT (18, 22), L 6: F its high dock, the low floor L (2) its low one, low in the picture (a lift's
+#    track and a rotor never share a CGA window);
+#  - the CANNON from F along -x over L onto G (4), the goal: scrolling up and left after the descent's down
+#    and right; occluder records laid over the ball on the route (W, from about frame 326); two clocks.
+# width 64 with origin 272: the reach's footprints fill the picture's 512 px, left (G) and right (B, W's end).
+course TMIL "Wheel and Ring"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music windmill   # SPEC.md 130.50.3: every course names its song
+width 64
+origin 272
+ball rubber
+uses rotor tube
+
+floor rect  6  9 11 14  flat 16           # A, the start tier (MILL's)
+wall  rect  6  5 12  9  flat 22           # the windmills' house
+floor rect 12  5 15  9  flat 20           # B, east of the house (MILL's, a column narrower)
+floor rect  3  5  6  9  flat 18           # C, west of it
+floor rect 13  9 15 13  ramp y 9 13 20 12 # B's descent along +y
+floor rect 12 13 23 17  flat 12           # W, the posts' strip
+wall  tile 22 17        flat 13           # the drop's chute wall
+floor rect 18 18 26 22  flat 8            # F, the drop's floor and the cannon's
+floor rect 14 20 18 23  flat 2            # L, the low floor: the lift's low dock, under the cannon's flight
+floor rect 14 18 16 20  flat 2
+wall  tile 17 19        flat 8.5          # the cannon's body
+floor tile 16 19        flat 8            # its mouth
+floor rect 11 18 14 22  flat 4            # G, the goal ledge
+goal  rect 11 18 13 21  flat 4
+
+tube keep   9 9  12 6  via 9 6            # the route's windmill: A to B
+prop windmill 9 9  seed 16
+tube keep   7 9   5 7  via 7 7            # the other: A to C
+prop windmill 7 9
+prop bumper  7 13                         # crosses the ring's end on the CGA
+prop bumper 20 16                         # crosses it on the Hercules
+prop bumper 17 16                         # kicked on the route
+tube drop  22 16  22 18  out +y  height 2 # W to F
+tube launch 18 19  16 19  speed -288 0 480   # F over L to G
+prop platform 18 22 6                     # the lift: F (8) high, L (2) low
+
+start 9 12
+way  9 12
+way  9  9
+way 12  6
+way 13  7
+way 14 13
+way 14 14
+way 21 14
+way 22 16
+way 22 18
+way 18 19
+way 16 19
+way 12 19
+
+clock  6 13                               # MILL's place: off the route, out of both doorways' 3 x 3
+clock 11 21                               # the finish clock (SPEC.md 130.22.6), G's front-left

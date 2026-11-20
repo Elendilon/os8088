@@ -298,6 +298,7 @@ its course's identity, SPEC.md 130.12.8), `build_tree` and the course cache.
 """
 import argparse
 import collections
+import hashlib
 import os
 import re
 import shutil
@@ -438,8 +439,8 @@ def prefetch(names):
     course() would compile one at a time later (a refusal is left for course() to raise where it did)"""
     todo = [n for n in names if os.path.join(ROOT, COURSES[n]) not in _COURSE]
     for n, (c, e) in zip(todo, BB.par_map(lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n])), todo)):
-        if e is None:
-            _COURSE[os.path.join(ROOT, COURSES[n])] = c
+        if e is None:                   # (with its song, as course() attaches it: a songless compile here was
+            _COURSE[os.path.join(ROOT, COURSES[n])] = _songed(c, n)    # every later course()'s, 130.50.3)
 
 
 def course(name, src=None, art=None):
@@ -448,25 +449,72 @@ def course(name, src=None, art=None):
     SRC: a course file other than the shipped one (a red tree's)."""
     path = src or os.path.join(ROOT, COURSES[name])
     if path not in _COURSE:
-        c = BB.compile_course(path)
-        songs = BB._music()[1]          # SPEC.md 130.50.3: the part carries its course's song, as the build's
-        try:                            # (K: the song rule's input - a red tree's patched file is the same
-            k = CRS_K[name]             # course, and its tree's build gives it the same song)
-        except KeyError:
-            k = None
-        if songs and k is not None:
-            BB.attach_song(c, songs[BB.course_song(c, k)])
-        _COURSE[path] = c
+        _COURSE[path] = _songed(BB.compile_course(path), name)
     return _COURSE[path]
+
+
+def _songed(c, name):
+    """compile C of course NAME with its song attached, as the build's (SPEC.md 130.50.3: the part carries its
+    course's song).  K is the song rule's input - a red tree's patched file is the same course, and its
+    tree's build gives it the same song"""
+    songs = BB._music()[1]
+    try:
+        k = CRS_K[name]
+    except KeyError:
+        k = None
+    if songs and k is not None:
+        BB.attach_song(c, songs[BB.course_song(c, k)])
+    return c
+
+
+def crs_fill():
+    """both course tables (COURSES, CRS_K) filled from the build's bzcourse.inc - never by asking for one
+    course's name, which a build may not carry (BENCH is the BZDEV=1 build's alone, SPEC.md 130.10.11.1)"""
+    for t in (COURSES, CRS_K):
+        if not dict.__len__(t):
+            try:
+                t[""]                            # (fills the table: no course is named "")
+            except KeyError:
+                pass
+
+
+def crs_all():
+    """{name: K} of every course of the build (CRS_K, filled): BZ_COURSES's order is the K, never a
+    literal"""
+    crs_fill()
+    return dict(dict.items(CRS_K))
+
+
+def crs_default():
+    """BZ_CRS_DEFAULT: the course F starts on (the BZDEV build's bz_crsel), pathway pad 0's - by the map,
+    never a literal K (SPEC.md 130.14.7.4)"""
+    t = open(os.path.join(ROOT, at("build/bonanza-art"), "bzcourse.inc")).read()
+    return int(re.search(r"^BZ_CRS_DEFAULT\s+equ\s+(\d+)", t, re.M).group(1))
+
+
+def crs_name(k):
+    """course K's NAME, upper case as its `course` statement spells it"""
+    return [n for n, v in crs_all().items() if v == k][0].upper()
+
+
+def demo_name(k):
+    """course K's SHIPPED DEMO's part file (SPEC.md 130.14.7.4): BZD<NAME>.BIN, named by the course, never
+    by K"""
+    return "BZD%s.BIN" % crs_name(k)
+
+
+def demo_ks(art=None):
+    """the courses with a shipped demo, K in the demo rows' order: bbcourse's bzdemo.lst (V's cycle, the
+    title's draw)"""
+    with open(os.path.join(art or at("build/bonanza-art"), "bzdemo.lst")) as f:
+        names = f.read().split()
+    kt = crs_all()
+    return [kt[n[3:-4].lower()] for n in names]
 
 
 def course_k(k):
     """course K's compile (BZ_COURSES's order)"""
-    name = [n for n in CRS_K if CRS_K[n] == k] if dict.__len__(CRS_K) else None
-    if not name:
-        CRS_K["bench"]                           # (fills the table)
-        name = [n for n in CRS_K if CRS_K[n] == k]
-    return course(name[0])
+    return course(crs_name(k).lower())
 
 
 def ball_part(mat, tag, art=None):
@@ -494,18 +542,65 @@ def _has_local(text, proc, local):
     m = re.search(r"^%s:" % re.escape(proc), text, re.M)
     if not m:
         return False
-    nxt = re.search(r"^bz_\w+:", text[m.end():], re.M)
+    nxt = re.search(r"^bzs?_\w+:", text[m.end():], re.M)     # (the next proc: a bz_ or a bzs_ one)
     body = text[m.end():m.end() + nxt.start()] if nxt else text[m.end():]
     return re.search(r"^\.%s:" % re.escape(local), body, re.M) is not None
+
+
+_SYMS = {}
+
+
+def _tree_key(*dirs, deep=()):
+    """an honest key for an assembly over DIRS (the art, the SDK's includes: their top-level files) and DEEP
+    (the package's source, whose fam/ it includes: every file under it) - each file's path and content
+    digest, so a red arm's tree, a patched copy, another art tree or a file edited since the last call is
+    a different key, never the shipped tree's answer"""
+    h = hashlib.sha1()
+
+    def one(p):
+        h.update(p.encode() + b"\0")
+        with open(p, "rb") as f:
+            h.update(hashlib.sha1(f.read()).digest())
+    for d in dirs:
+        d = os.path.abspath(d)
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            if os.path.isfile(os.path.join(d, n)):
+                one(os.path.join(d, n))
+    for d in deep:
+        for base, subs, files in os.walk(os.path.abspath(d)):
+            subs.sort()
+            for n in sorted(files):
+                one(os.path.join(base, n))
+    return h.hexdigest()
 
 
 def symbols(src=None, art=None):
     """Every bz_ label and VAR of the package (and EXTRA_SYMS, and LOCAL_SYMS as
     'proc.local'), by assembling it with a table of `dw label` on the end (the
     guest's own offsets, no listing parsing).  A file of FILES a source does not
-    have is skipped: an earlier wave's package (bonanza_perf's A/B leg)."""
-    d = src or os.path.join(ROOT, "apps", "bonanza")
-    art = art or at("build/bonanza-art")
+    have is skipped: an earlier wave's package (bonanza_perf's A/B leg).
+
+    ONCE A PROCESS for a given tree (BOUNCE-BONANZA-SOAK principle 5): keyed on
+    the source dir, the art dir, the SDK include dir and NASM's command (its
+    -DBZDEV), each dir by its files' CONTENT (_tree_key), so a red tree or a
+    different art never gets the shipped tree's map.  A fresh dict each call."""
+    d = os.path.abspath(src or os.path.join(ROOT, "apps", "bonanza"))
+    art = os.path.abspath(art or at("build/bonanza-art"))
+    apps = os.path.join(os.path.dirname(d), "") if os.path.exists(
+        os.path.join(os.path.dirname(d), "os88api.inc")) else os.path.join(ROOT, "apps") + "/"
+    key = (d, art, apps, tuple(NASM),           # (drivers/sound: bonanza.asm's sndpkg.inc, from the root)
+           _tree_key(art, apps, os.path.join(ROOT, "drivers", "sound"), deep=(d,)))
+    if key not in _SYMS:
+        _SYMS[key] = _symbols(d, art, apps)
+    return dict(_SYMS[key])
+
+
+def _symbols(d, art, apps):
+    """symbols()'s assembly, uncached"""
     names = []
     for f in FILES:
         p = os.path.join(d, f)
@@ -522,8 +617,6 @@ def symbols(src=None, art=None):
     names += [n for n in EXTRA_SYMS if re.search(r"^%s:" % n, open(inc).read(), re.M)]
     names += [n for n in EXTRA_EQUS if re.search(r"^%s\s+equ\b" % n, open(inc).read(), re.M)]
     names = sorted(set(names))
-    apps = os.path.join(os.path.dirname(d), "") if os.path.exists(
-        os.path.join(os.path.dirname(d), "os88api.inc")) else os.path.join(ROOT, "apps") + "/"
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "probe.asm")
         b = os.path.join(td, "probe.bin")
@@ -1263,6 +1356,9 @@ def pic_now(g, ref, st=None):
 def glass(g, ref):
     """Part 1: the card's own rasterisation of a resting ball's frame (FIRST)."""
     m, tag = g.m, g.tag
+    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: FIRST poked)
+    g.putb("bz_crsel", CRS_K["first"])
+    m.run()
     g.key("KeyF")                   # (F: a free play - Enter is the game since wave 8b)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 20, "play mode runs", guest=60)
     m.pause()
@@ -3203,7 +3299,18 @@ CAM_SLACK = 1.25            # ...and the span assertion's 25% (SPEC.md 130.16.14
 MODES = ((0, "GLIDE"),)         # (TRICKLE, mode 1, deleted with the camera mode: SPEC.md 130.11.11.1)
 
 
+_GROUND = {}
+
+
 def ground_scenarios():
+    """ground_scenarios_() once a process (they read only the SHIPPED courses and the host's model, never a
+    red tree's: course() with no SRC): -> fresh copies of the dicts"""
+    if "scen" not in _GROUND:
+        _GROUND["scen"] = ground_scenarios_()
+    return [dict(s) for s in _GROUND["scen"]]
+
+
+def ground_scenarios_():
     """the GROUND leg's replays, each a log on its course and a poke, PROVED on
     the model: -> [dict(name, crs, mat, poke, keys, fall, stretch)].  The
     PLAYGROUND's bounce chain onto the 1.5-unit ledge and its `boostdrop` are
@@ -3261,6 +3368,16 @@ def ground_glide(s, herc, kind=None):
 
 
 def ground_check():
+    """ground_check_() once a process - ground_part runs it per card, and it is the scenarios, GLIDE three
+    times and play_fall six times over the SHIPPED courses and the host's model (nothing a red tree's
+    package can move): -> (fails, lines), fresh lists"""
+    if "check" not in _GROUND:
+        _GROUND["check"] = ground_check_()
+    bad, say = _GROUND["check"]
+    return list(bad), list(say)
+
+
+def ground_check_():
     """the host half of the GROUND leg (SPEC.md 130.16.14, 130.17.10): each
     scenario proved, and each arm's model PARTING where its check is - `camz`
     on the PLAYGROUND's bounce chain, `nosafe` and `nolatch` on the void fall
@@ -3547,7 +3664,7 @@ def _dither_scen():
     """camhyst's scenario (DITHER_SCEN): PLAY's demo to the fork, then the
     dither map's branch, as a TILT log -> the scenario"""
     crs, nfork, t = DITHER_SCEN
-    log = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % CRS_K[crs]), "rb").read()
+    log = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(CRS_K[crs])), "rb").read()
     _k, mat, kt, _fl = BB.decode_log_t(log)
     p = BB.Physics(course(crs), play=True, mat=mat)
     for k, tt in kt[:nfork]:
@@ -3562,7 +3679,7 @@ def _dither_scen():
 
 
 def _demo_scen(name, crs):
-    log = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % CRS_K[crs]), "rb").read()
+    log = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(CRS_K[crs])), "rb").read()
     _k, mat, kt, _fl = BB.decode_log_t(log)
     return {"name": name, "crs": crs, "mat": mat, "poke": None, "keys": [k for k, _t in kt],
             "tilts": [t for _k, t in kt], "log": log}
@@ -4102,7 +4219,7 @@ def vga_cam(g, art=None):
     m, fails, t = g.m, [], {}
     for crs in VGA_DEMOS:
         kd = CRS_K[crs]
-        demo = open(os.path.join(art or at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+        demo = open(os.path.join(art or at("build/bonanza-art"), demo_name(kd)), "rb").read()
         m.pause()
         g.putb("bz_vk", 0)
         m.run()
@@ -4360,7 +4477,7 @@ class Loop:
 def load_demo(g, kd):
     """V with [bz_vk] poked to KD - 1: the shipped demo BZD<KD>.BIN in the log (130.14.22 item 7)"""
     m = g.m
-    demo = open(os.path.join(ROOT, at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+    demo = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(kd)), "rb").read()
     m.pause()
     g.putb("bz_vk", kd - 1)
     m.run()
@@ -4759,8 +4876,10 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))      # course part; the sound part's row until 130.50.2's bundle)
         files += (["BZSND.BIN"] if "BZ_P_SND: BZSND.BIN" in asm else []) + ["BZM%d.BIN" % i for i in range(ns)]
-    if "BZ_NDEMO" in asm:                       # wave 4: one shipped demo a course but BENCH, after the
-        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (SPEC.md 130.14.7.4, 130.14.22 item 7)
+    if os.path.exists(os.path.join(art, "bzdemo.lst")):     # the shipped demos named by course (SPEC.md
+        files += open(os.path.join(art, "bzdemo.lst")).read().split()   # 130.14.7.4), bbcourse's row order
+    elif "BZ_NDEMO" in asm:                     # wave 4: one shipped demo a course but BENCH, after the
+        files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (an older tree's: by K, 130.14.22 item 7)
     out = []
     for p in files:
         out += ["--part", os.path.join(art, p)]
@@ -4780,6 +4899,21 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
             out += ["--part", fams[i] if fams else at("build/bzf-%s.bin" % f["name"])]
     if "BZ_P_VGA" in asm:                       # SPEC.md 130.46.6: the VGA's part, the last row
         out += ["--part", vga or at("build/bzvga.bin")]
+    return out + data_parts(out, art)
+
+
+def data_parts(parts, art):
+    """the --part-data marks the Makefile gives (os88pkg, SPEC.md 20.3.3): every part out of the ART tree -
+    the courses, their world parts, the demos, the pathway, the title and the kit - is DATA, whose bytes can
+    spell a far call into the kernel by chance (ROLL's did); the shell, the families, the bundle and the VGA
+    part are code, and the gate keeps them.  [] for an os88pkg without the flag"""
+    if "--part-data" not in open(os.path.join(ROOT, "tools", "os88pkg.py")).read():
+        return []
+    art = os.path.realpath(art)
+    out = []
+    for i in range(0, len(parts), 2):
+        if parts[i] == "--part" and os.path.dirname(os.path.realpath(parts[i + 1])) == art:
+            out += ["--part-data", parts[i + 1]]
     return out
 
 
@@ -4898,7 +5032,12 @@ REDS = {
     # inside, and the old stays on the card outside it
     "defer": [("bzwheel.inc", "    jnc .wheel\n    inc byte [bz_ccnt]\n",
                "    jnc .wheel\n    push ax                     ; RED defer: every contact candidate synced\n"
-               "    mov al, [bz_ltru + bx]\n    call bz_lsync\n    pop ax\n    inc byte [bz_ccnt]\n")],
+               "    mov al, [bz_ltru + bx]\n    call bz_lsync\n    pop ax\n    inc byte [bz_ccnt]\n"),
+              # (its 9 bytes put a `jmp short .next` above it past the short reach - the red tree refused
+              # to assemble; that jump made near in the red tree only, which changes no logic)
+              ("bzwheel.inc", "    inc byte [bz_wcn]\n    jmp short .next\n.aged1:\n",
+               "    inc byte [bz_wcn]\n    jmp near .next              ; (RED defer: its insertion's reach)\n"
+               ".aged1:\n")],
     # wave 3b (SPEC.md 130.13.12).  The RIDE BOX composed without the slab's layer under the ball (bz_pblit
     # skipped when the platform's box merged into the ball's group): the card loses the slab under the ball
     "ridebox": [("bzvideo.inc", "    cmp byte [bz_pov], 0\n    jne .shadow\n    call bz_pblit\n",
@@ -5014,8 +5153,7 @@ def nodither_art(td):
     ones.  -> the copy's directory"""
     art = os.path.join(td, "art-nodither")
     shutil.copytree(at("build/bonanza-art"), art)
-    CRS_K["bench"]                              # (fills the table)
-    order = sorted(CRS_K.items(), key=lambda kv: kv[1])
+    order = sorted(crs_all().items(), key=lambda kv: kv[1])
     # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
     und = dict(zip([n for n, _k in order], BB.par_map(
         lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}),
@@ -5135,7 +5273,7 @@ def main():
     a = ap.parse_args()
     dev()                               # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check_reds:
-        COURSES["bench"]                        # (fills the table)
+        crs_fill()                              # (fills the table)
         prefetch(sorted(COURSES))               # (the host half reads every shipped course)
         for line in check_reds(REDS, "bonanza_ring"):
             print(line)

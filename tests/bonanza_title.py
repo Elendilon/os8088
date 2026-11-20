@@ -66,7 +66,7 @@ RED_WANT = {"view": "2. ", "chain": "8. "}
 
 
 def title_k():
-    R.CRS_K["bench"]
+    R.crs_fill()
     return dict.__len__(R.CRS_K) + 1            # BZ_CRS_TITLE = BZ_CRS_PATH + 1 = BZ_NCRS + 1
 
 
@@ -109,9 +109,23 @@ def model_end(c, n):
     return p
 
 
+_TC = {}
+
+
+def title_course(src=None):
+    """title.bbc compiled once a process for its PATH AND CONTENT (the shipped tree's, or a red tree's copy:
+    a patched or edited title is compiled again) - run() is called once a card"""
+    path = os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "courses", "title.bbc")
+    with open(path, "rb") as f:
+        key = (os.path.abspath(path), f.read())
+    if key not in _TC:
+        _TC[key] = BB.compile_course(path)
+    return _TC[key]
+
+
 def run(tag, apps=None, src=None):
     fails = []
-    tc = BB.compile_course(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "courses", "title.bbc"))
+    tc = title_course(src)
     with os88ui.boot(R.at("build/os8088-360.img"), apps=apps or R.at("build/bonanza360.img"),
                      machine=R.MACHINE[tag]) as ui:
         ui.open_drive("B")
