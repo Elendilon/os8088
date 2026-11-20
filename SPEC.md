@@ -281709,7 +281709,6 @@ uses (`rail` is the pathway's route material, 130.22.8). Refused at the line:
 - a guard touching (at an edge or a corner) a cell that is not a whole FLAT
   FLOOR or GOAL - a ramp, a split or a FIELD cell - other than a WALL or
   another guard: a guard rail stands on the edge of a flat floor;
-- a guard touching floors at two heights: it guards ONE height;
 - a floor at a guard's CORNER with no rail edge through that corner: the
   ball would meet a wall corner nobody can see;
 - a height under 1.5 or over 3 units, and any other clause (`side` is not
@@ -281718,8 +281717,10 @@ uses (`rail` is the pathway's route material, 130.22.8). Refused at the line:
 Every edge of a guard cell that is not a rail edge is drawn OPEN, so only
 the void, a WALL or another guard may be across it - which is what the
 refusals amount to. A guard strip's end therefore needs nothing (the void)
-or a corner (two rail edges on one cell, the cell beside two floors at one
-height). A guard is never a prop's cell.
+or a corner (two rail edges on one cell). A guard is never a prop's cell.
+**Floors at two heights** beside one guard were refused here ("a guard rail
+guards ONE height") until 130.35.9 made them legal: the guard guards the
+HIGHER one, and the lower one's edge is railed from that floor up.
 
 #### 130.35.2 The height
 
@@ -281822,8 +281823,9 @@ reaches 4 in two blocks, where C's right-edge rail meets the faces under it
 
 #### 130.35.6 `--selfcheck` item 16 and the red arms
 
-Item 2 carries the eight refusals of 130.35.1 (`_guard_cases`, each a string
-in the tool). The section `guard` (`--only guard`) compiles a course of its
+Item 2 carries the seven refusals of 130.35.1 (`_guard_cases`, each a string
+in the tool; the eighth, two heights, went with 130.35.9, and 130.35.10's
+three are WATER's cases). The section `guard` (`--only guard`) compiles a course of its
 own - a walkway at 4 units with a rail on its back edge and one on its front,
 the gap and a lower path at 0 behind the back one - and asserts:
 
@@ -281882,12 +281884,118 @@ MEASURED (the tool): RAM 24,538, LZ4 4,456, 549 records, 32 guard cells.
 | R1 | the rail's look: white posts and bars with a black shade, posts 8 px apart, two bars | as built; a cyan crystal tint was tried and vanished (130.35.3) |
 | R2 | the default height | 2 units (16 px): over the jump pickup's Hop; the jump with the boost rises about 2 px past the bar and is stopped |
 | R3 | the shipped courses' block rails (TRIAL's bumper rails, FIRST's back rail) | unchanged: restyling them moves their parts and identities, the owner's call |
-| R4 | a guard over a ramp or beside a sloped floor | refused (one flat height): a sloped rail is a later decision if a course wants one |
+| R4 | a guard over a ramp or beside a sloped floor | refused (flat floors only): a sloped rail is a later decision if a course wants one. Two FLAT heights are legal since 130.35.9 |
 
 **The rows** (the final pass's; none run here): `bonanzacourse` (the
 selfcheck: its `guard` section and the grammar's cases). No guest code moves,
 so no MartyPC row can see a change on the shipped disks; the knob build is
 LOOKED AT by hand.
+
+#### 130.35.9 TWO HEIGHTS: a guard beside a step (the owner, 2026-11-20)
+
+The owner, of DOWN: *"guardrail the 2 height tiles; both on one side, and
+around two sides"* - the cells where a walkway's guard meets a LOWER floor
+(DOWN's steel leg: the front strip's last cell, beside the spikes' floor and
+the lower path T; the water's right-hand strip's last cell, beside the water
+and T) had fallen back to BLOCK walls, which hid what was behind them.
+**Status: BUILT, the tool alone** (0 resident bytes; the guest reads the
+cell as the WALL it is).
+
+- **What it guards**: the HIGHEST floor it touches. Its top is that floor's
+  height plus the rail's (`height`, 130.35.2), so the 130.35.2 table holds
+  against the floor a ball can stand on beside it.
+- **Physics**: unchanged - a WALL, a column at every height. From the lower
+  floor it is a wall of the step's height plus the rail's, and a ball there
+  meets it at the cell's edge as at any wall.
+- **Rail edges**: EVERY edge it shares with a floor, whatever its height; an
+  edge's rail stands on ITS floor - from that floor's line up to the guard's
+  one top. On a lower floor's edge the posts are that much taller and there is
+  a middle bar each half rail height down to the floor (a ladder): the wall a
+  ball on the lower floor meets is drawn, never open. The corner rule holds
+  at every height (a floor at a corner needs a rail edge through it).
+- **Corners and one owner a column**: a guard whose edges stand on two
+  heights draws each edge from its left corner's column up to, not
+  including, its right corner's; the column where it meets a neighbouring
+  rail is that rail's. Every other guard draws as 130.35.3 says, byte for
+  byte (no shipped guard changes). The reason is 130.11.4.2's bound of 4
+  records a block: DOWN's two cells stand in front of its spikes, whose art
+  is three records in those blocks, and a duplicated corner post was a fifth
+  in four of them (MEASURED, the tool, before the rule).
+- **Refused**: everything 130.35.1 refuses but the two heights.
+
+#### 130.35.10 THE WATER SEAL: a guarded arch (the owner, 2026-11-20)
+
+The owner: *"guardrail off the water column (which was the original intent
+of guardrails) ... preventing rubber/glass from just being able to go over
+the edge on the front ... while still leaving the lower water exit open for
+steel."* A water column's FRONT face with an ARCH (130.36.1) borders the
+arch's EXIT, a floor at the bed - so a guard cell cannot stand there, and
+rubber and glass floating on the column rolled off its front edge onto the
+lower path (DOWN: a double bounce over the spikes onto the water, then off
+its front onto T). The rail goes ON THAT EDGE instead:
+
+    arch <wx> <wy> +x|+y [guard [height <units>]]
+
+- **Physics** (the WATER family's CELL, 130.36.2; guest and
+  `bbcourse.WaterFamily`): with the window's CENTRE a water cell whose arch
+  is guarded and the ball NOT steel, the window's copy of the arch's exit is
+  a WALL (its kind nibble 2, the rest of its bytes kept); otherwise the
+  FLOOR it is (kind 1). Written both ways from the record, so a window cell
+  `bz_win9i` kept is right whichever centre wrote it. Steel's window never
+  walls it: steel sinks under the rail to the bed and rolls out of the arch
+  as before. A ball not on the column (on the exit, on the lower path) meets
+  no wall there.
+- **The record**: water's +20 gains **bit 2 `WR_GUARDX`** (its +x arch
+  guarded) and **bit 3 `WR_GUARDY`** (+y); the ripple bits (0 - 1) and the
+  lane rule are unchanged, and `read_part` refuses any other bit. A part
+  without the bits runs exactly as before, so the family's `rev` and FAMV
+  are unmoved (the courses that name water - PLAY, SPIKE, WATER, DOWN - keep
+  their identities but for DOWN, whose part changed).
+- **The picture**: a guard rail (130.35.3's posts and bars) along the
+  face's TOP edge, from the water's top up the rail's height (default 2
+  units), drawn after the arch's opening as a post op keyed the EXIT's `s`
+  (the water's art's `s + 1`), its top the rail's: a ball floating behind it
+  is laid over by it, steel out on the exit is not. It is drawn from its
+  left corner's column (130.35.9's one owner a column).
+- **Refused**, naming the line (WATER's cases, item 2): a guarded arch whose
+  exit is a prop's cell (it would be walled with the prop); a rail outside
+  1.5 - 3 units; any clause on `arch` but `guard [height <h>]`.
+- **The checks understand it**: NO TRAP, the demos and every proof run
+  `Physics`, whose WATER CELL is the guest's; the BED form of the reach
+  (130.36.4) is a superset and unchanged; the seal at the bed is 130.36.4's.
+- **Cost** (MEASURED, `bzf-water.bin`): see 130.35.11.
+
+#### 130.35.11 What 130.35.9 - 130.35.10 cost, and their checks
+
+- **Resident**: the WATER part only (`wa_guard`, 57 bytes, and its call,
+  3): `bzf-water.bin` **843 -> 904 bytes (+61)**, its `paras` ceiling 54 ->
+  57 (MEASURED, `make BUILD=build/down BZDOWN=1 bonanzadisk` against the
+  tree before). Out of line on purpose: inside `wa_cell`'s loop the body
+  pushed three short jumps long (+9 more). No engine byte, no `BZ_PHYSV`
+  move; every other course's part and demo is byte for byte what it was
+  (MEASURED: every `bonanza-art/*.BIN` `md5sum`-identical but DOWN's
+  `BZ8.BIN`, `BZ8W.BIN` and `BZDDOWN.BIN`; every `demo` line identical).
+- **`--selfcheck` `guard`** (`_G2CRS`: a walkway at 4 units over ground at
+  1, a two-height guard strip along its front, two corner cells, a water
+  column beside it with its +y arch guarded): the two-height cells (a WALL 2
+  units over the higher floor, the rail edges and their floors); the
+  picture (every rail pixel, a lower edge reaching its floor's line); no
+  ball (rubber, glass, steel, the jump) across the two-height strip, any Hop
+  and second press; the water record's `WR_GUARDY`; the arch rail's pixels
+  keyed the exit's `s`; THE WATER SEAL - rubber and glass driven at the
+  guarded face never reach the exit, steel sinks and rolls out onto the
+  ground. **Red arms**, each MEASURED red: two heights refused again
+  (`_GUARD_ONEZ`: the course does not compile); the lower edges drawn from
+  the higher floor (`_GUARD_FLAT`: the span check); the exit left open
+  (`_WG_NOWALL`: rubber crosses); the exit walled for steel too
+  (`_WG_ALLMAT`: steel never leaves). Item 2 gains WATER's three refusals.
+- **DOWN**: the front strip's last cell and the water's right strip's last
+  cell are two-height guards (were BLOCKS), its arch `guard`. MEASURED (the
+  knob build): the picture part 51,224 -> 52,134 bytes in RAM, LZ4 15,432
+  -> 15,854, records 976 -> 1,009, most in a block 4 (bound 4); `demo 8
+  DOWN ... 1360 steps (24.90 s), rubber, COMPLETE` as before (the route is
+  steel's, which the seal never walls); the knob build's `BONANZA.O88`
+  162,646 -> 163,030 bytes.
 ### 130.36 WATER, a family (the owner's design P1, 2026-11-17)
 
 The owner's sketch (`docs/plans/bounce-bonanza/water-sketch.png`) and answers
@@ -281916,16 +282024,19 @@ steel sinks down the column and rolls out of the front. A family by
   animate all the time (W7; the owner: "animate only as something is on it,
   or, with an option, animate always if we use one column only"), 130.36.9.
 - **`arch`** names a water cell and the FRONT face (`+x` the se face, `+y`
-  the sw face; W3: the ball leaves out of the front) its opening is cut in. It
-  is the TOOL's alone: no element, no record, no grid byte (the plan made it
+  the sw face; W3: the ball leaves out of the front) its opening is cut in,
+  and with `guard [height <h>]` a guard rail along that face's top that keeps
+  a floating ball on the column (130.35.10: the record's +20 bit 2 or 3). It
+  is otherwise the TOOL's alone: no element, no record, no grid byte (the plan made it
   an element whose cell was a WALL for rubber and glass; nothing needs it -
   from the exit at B the column is a floor at H for them, a wall). Its exit,
   the cell across that face, is the lower path.
 - **The record** (130.25.6.4's): +16 FSB (no state bits: 0), +17 the class
   (`ATTEMPT`: nothing to reset), **+18 the bed `B`, +19 the top `H`** (signed
   half units), **+20 its ripple** (bit 0 `WR_RIPPLE`: it has a lane; bit 1
-  `WR_ALWAYS`), +21 - +31 zero. `read_part` refuses any other (a lane exactly
-  when +20 is not 0, of 2 poses), and a water cell whose grid cell is not a
+  `WR_ALWAYS`) and its GUARDED arches (bit 2 `WR_GUARDX`, bit 3 `WR_GUARDY`:
+  130.35.10), +21 - +31 zero. `read_part` refuses any other (a lane exactly
+  when +20's bits 0 - 1 are not 0, of 2 poses), and a water cell whose grid cell is not a
   sand flat FLOOR at +19 with OBS and not SAFE.
 
 #### 130.36.2 The family (BUILT)

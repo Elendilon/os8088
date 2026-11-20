@@ -43,7 +43,13 @@ What the tool and the autopilot found, *measured* each time:
 - spikes never touch water (a plain row between them);
 - the momentum hump is 8 px (at 11 the slow steel ball out of the water
   stopped);
-- the glass finish's clock is beside its goal (each finish needs one in view). Distances are tiles, heights units; numbers marked PREDICTED come from
+- the glass finish's clock is beside its goal (each finish needs one in view);
+- rev 8 (2026-11-20, the owner: rubber double-bounced over the spikes onto the
+  water and off its front onto T): the water's front edge is GUARDED (`arch
+  ... guard`, SPEC.md 130.35.10 - rubber and glass stay on the water, steel
+  sinks under the rail and out of the arch), and the two cells beside a
+  floor at each height - the front strip's last, the water's right strip's
+  last - are two-height guards instead of blocks (130.35.9). Distances are tiles, heights units; numbers marked PREDICTED come from
 the tool's ladders and the rules quoted, not from a run. `down/sketch.py` draws
 the pictures.*
 
