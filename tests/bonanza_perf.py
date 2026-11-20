@@ -124,7 +124,8 @@ WAVE 4 (SPEC.md 130.14.14, 130.14.16, 130.14.17 item 7).  --ab's default is now
 order: the balls, the courses, the sound, the songs): BENCH OFF with bz_hvoff 1
 on both, and THIS build's mean busy at most +0.5k over 3b's ASSERTED ON BOTH
 CARDS (PREDICTED +0.15 - 0.3k on the CGA, 130.14.12).  THE DEMO LEGS (`demo`): every
-shipped demo (V with bz_vk poked, BZD1 - BZD6) through D on both cards, sound
+shipped demo (V with bz_vk poked, BZD1 - BZD<n>: every BZD<n>.BIN the art
+holds, eight since ROLL and HOP shipped with route demos) through D on both cards, sound
 OFF and ON: ASSERTED the replay's end the model's (bonanza_demo.model_end),
 bz_wover and bz_wlate 0; REPORTED busy mean and p95, the misses with their
 parts, pads, springs and lip-outs.  D's OVERHEAD (`dover`): MILL's route demo
@@ -161,8 +162,8 @@ part table's byte, R.part_fmt), not os88pkg's default (130.15.9).
 
 WAVE 6 (SPEC.md 130.16.10, 130.16.14).  The physics moves every demo's path
 and BENCH's course, so NOTHING end to end is asserted against an earlier
-build: the final pass REPORTS, both cards, speaker ON (the `demo` leg, all
-six shipped demos BZD1 - BZD6 through D):
+build: the final pass REPORTS, both cards, speaker ON (the `demo` leg, every
+shipped demo through D - six then, BZD1 - BZD6; eight since ROLL and HOP):
   - per demo: misses, MISSED REFRESHES A SECOND off each frame's flip (a
     frame held k refreshes misses k - 1; a second is the frames' own clocks),
     runs of two or more misses (the stutter half of the owner's smoothness
@@ -546,7 +547,6 @@ def vga_run(apps=None, src=None, art=None):
         out.append(("VGA BENCH", bad, summ))
         bad = []
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
-        R.CRS_K["bench"]
         for n in range(3):                      # (the first key after a bracket can land before the face takes
             try:                                # keys: V again)
                 load_demo(g, R.CRS_K["play"], art)
@@ -668,7 +668,7 @@ def load_demo(g, kd, art=None):
     """V with bz_vk poked to KD - 1: the shipped demo BZD<KD>.BIN in the log
     (ART: another build's art directory, --ab's)"""
     m = g.m
-    demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+    demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
     m.pause()
     g.putb("bz_vk", kd - 1)
     m.run()
@@ -1163,13 +1163,19 @@ def ab_tree(td, commit=AB_COMMIT):
     crs = sorted(os.listdir(os.path.join(w, "apps", "bonanza", "courses"))) \
         if os.path.isdir(os.path.join(w, "apps", "bonanza", "courses")) else []
     mk = git("show", "%s:Makefile" % commit).stdout
-    order = []
+    order, bench, tests = [], [], []
     for line in mk.replace("\\\n", " ").splitlines():      # (its continuation lines joined: wave 3's
-        if line.startswith("BZ_COURSES :="):                # list runs over two)
+        if line.startswith("BZ_COURSES :=") and not order:  # list runs over two)
             order = line.split(":=", 1)[1].split()
+        elif line.startswith("BZ_BENCH :="):            # since BENCH left the shipped build (SPEC.md 130.10.11.1):
+            bench = line.split(":=", 1)[1].split()      # the BZDEV build's course 0, as R.NASM's -DBZDEV wants
+        elif line.startswith("BZ_TESTCRS :="):          # since SPEC.md 130.54: the test courses, BENCH among
+            tests = line.split(":=", 1)[1].split()      # them, AFTER the shipped ones (and bbcourse's --dev)
+    order = bench + order + tests
     if order and "tools/bbcourse.py" in tools:
         subprocess.run([sys.executable, os.path.join(w, "tools", "bbcourse.py"), "-o", art] +
-                       [os.path.join(w, c) for c in order], cwd=w, check=True, stdout=subprocess.DEVNULL)
+                       (["--dev"] if tests else []) + [os.path.join(w, c) for c in order], cwd=w, check=True,
+                       stdout=subprocess.DEVNULL)
     if "BZ_SNDPARTS" in mk and "tools/bbmusic.py" in tools:     # 3b's sound (SPEC.md 130.20): its own songs
         subprocess.run([sys.executable, os.path.join(w, "tools", "bbmusic.py"), "-o", art], cwd=w, check=True,
                        stdout=subprocess.DEVNULL)
@@ -1187,14 +1193,16 @@ def ab_tree(td, commit=AB_COMMIT):
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
                            re.M).group(1))      # under 130.50.2, neither since 130.50.3
         plist += (["BZSND.BIN"] if "BZ_PARTS2 := $(BZ_SNDPARTS)" in mk else []) + ["BZM%d.BIN" % i for i in range(ns)]
-    if "BZ_DEMOPARTS" in mk:                    # wave 4's: a shipped demo a course but BENCH, after the songs
+    if "bzdemo.lst" in mk:                      # the shipped demos named by course, bbcourse's row order
+        plist += open(os.path.join(art, "bzdemo.lst")).read().split()       # (SPEC.md 130.14.7.4)
+    elif "BZ_DEMOPARTS" in mk:                  # wave 4's: a shipped demo a course but BENCH, after the songs
         plist += ["BZD%d.BIN" % k for k in range(1, nc)]
     parts = []
     for p in plist:
         parts += ["--part", os.path.join(art, p)]
     # packed in the SHIPPED build's parts format (SPEC.md 130.15.9), never os88pkg's default
     subprocess.run([sys.executable, "tools/os88pkg.py", "--compress-if=lz4", binp, "-o", o88] + parts
-                   + ["--part-compress", R.part_fmt()], cwd=R.ROOT, check=True, stdout=subprocess.DEVNULL)
+                   + ["--part-compress", R.part_fmt()] + R.data_parts(parts, art), cwd=R.ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", img, "--size", "360", o88], cwd=R.ROOT,
                    check=True, stdout=subprocess.DEVNULL)
     return img, src, art
@@ -1494,7 +1502,7 @@ def avfall_leg(g, tag, art=None, runs=("mill", "peak")):
         if run_.endswith("demo"):               # (a course's shipped demo: peakdemo, playdemo ...)
             c = R.course(run_[:-4])
             k = R.CRS_K[run_[:-4]]
-            demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "BZD%d.BIN" % k), "rb").read()
+            demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), R.demo_name(k)), "rb").read()
             _K, mat, kt, _fl = BB.decode_log_t(demo)
             keys = [k_ for k_, _t in kt]
             log = demo
@@ -1558,8 +1566,7 @@ def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
     with its spread, keyed to its log; written to a new dated report.  -> its path"""
     import datetime
     rows, plays = [], []
-    R.CRS_K["bench"]
-    names = {v: n for n, v in dict.items(R.CRS_K)}
+    names = {v: n for n, v in R.crs_all().items()}
     for tag in tags:
         sym = R.symbols()
         for snd in sounds:
@@ -1570,7 +1577,7 @@ def baseline(tags, only=None, nruns=None, sounds=SOUNDS):
                 g = R.Bz(ui, tag, sym)
                 ui.settle()
                 set_snd(g, snd == "on")
-                for kd in [None] + list(range(1, len(R.CRS_K))):
+                for kd in [None] + R.demo_ks():     # B's BENCH, then every shipped demo's course (by NAME)
                     name = "bench" if kd is None else names[kd]
                     if only and name not in only:
                         continue
@@ -1719,9 +1726,8 @@ def main():
     if a.check:
         for line in R.check_reds(REDS, "bonanza_perf"):
             print(line)
-        R.CRS_K["bench"]                        # wave 6: the pans' prediction for every shipped demo, both cards
-        for kd in range(1, len(R.CRS_K)):
-            demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % kd), "rb").read()
+        for kd in R.demo_ks():                  # wave 6: the pans' prediction for every shipped demo, both cards
+            demo = open(os.path.join(R.ROOT, R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
             held = [k for k, _t in BB.decode_log_t(demo)[2] if k & (BB.K_HOP | BB.K_GRIP)]
             for herc in (0, 1):
                 c, rw, two, sec = pans_pred(demo, herc)

@@ -157,7 +157,7 @@ def start(binp, sym, c, mat):
     fam_load(g, p)
     g.w("bz_mode", 0)
     g.w("bz_mat", mat)
-    g.w("bz_crs", 0)
+    g.w("bz_crs", R.CRS_K["bench"])        # (BENCH by NAME: the course with no time limit, SPEC.md 130.54)
     g.call("bz_pinit")
     g.w("bz_tsec", 0, 2)
     g.w("bz_rtr", 1)                            # (the recorder off: nothing physics reads)

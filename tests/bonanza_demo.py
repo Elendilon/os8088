@@ -100,7 +100,7 @@ def wave4_log():
     A0h), so the authored demo's runs are the same and only `ident` changed
     (SPEC.md 130.15.7)."""
     k = R.CRS_K["moon"]
-    with open(os.path.join(ROOT, R.at("build/bonanza-art"), "BZD%d.BIN" % k), "rb") as f:
+    with open(os.path.join(ROOT, R.at("build/bonanza-art"), R.demo_name(k)), "rb") as f:
         b = bytearray(f.read())
     struct.pack_into("<H", b, 14, W4_IDENT["moon"])
     return bytes(b)
@@ -239,7 +239,7 @@ def leg_save(g, ui):
     fails = []
     m = g.m
     k = R.CRS_K["mill"]
-    GM.free_play(g, k, R.course_k(k).ball, "MILL by the autopilot")
+    GM.free_play(g, k, "MILL by the autopilot")
     want = mill_log()
     got = bytes(g.read_log(len(want)))
     if got != want:
@@ -257,7 +257,7 @@ def leg_save(g, ui):
     if f is not None and f != got:
         fails.append("save: the file read back off the floppy (%d bytes) is not bz_rlog's %d" % (len(f), len(got)))
     try:
-        GM.free_play(g, k, R.course_k(k).ball, "MILL after W (the fetch from home)")
+        GM.free_play(g, k, "MILL after W (the fetch from home)")
         ok = bool(g.b("bz_goal"))
     except (AssertionError, M.MartyError) as e:  # (a refused launch: no bracket ever comes up -
         ok = False                               # until's own error, the `nohome` red's case)
@@ -306,8 +306,8 @@ def leg_ship(g):
     g.putb("bz_vk", 0)
     m.run()
     rep = []
-    for kd in range(1, GM.ncrs()):
-        demo = open(os.path.join(ROOT, art, "BZD%d.BIN" % kd), "rb").read()
+    for kd in R.demo_ks(art):                   # (V's cycle: the demo rows' order)
+        demo = open(os.path.join(ROOT, art, R.demo_name(kd)), "rb").read()
         GM.guard(g)
         g.key("KeyV")
         M.until(m, lambda _: bytes(g.read_log(len(demo))) == demo,
@@ -324,8 +324,8 @@ def leg_ship(g):
         if BB.log_ident(demo) != R.course_k(kd).ident or BB.log_ident(demo) in W4_IDENT.values():
             fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (wave 5b's new ones, "
                          "SPEC.md 130.15.10.5)" % (kd, BB.log_ident(demo), R.course_k(kd).ident))
-    if "bz_nboost" in g.sym and not any(model_end(open(os.path.join(ROOT, art, "BZD%d.BIN" % kd), "rb").read())[8]
-                                        for kd in range(1, GM.ncrs())):
+    if "bz_nboost" in g.sym and not any(model_end(open(os.path.join(ROOT, art, R.demo_name(kd)), "rb").read())[8]
+                                        for kd in R.demo_ks(art)):
         fails.append("ship: no shipped demo BOOSTS in the model (BZD%d, the PLAYGROUND's, must: SPEC.md 130.16.8)"
                      % R.CRS_K["play"])
     print("%s ship: %s, each D'd to the model's end: %s" % (g.tag, ", ".join(rep), "yes" if not fails else "NO"),

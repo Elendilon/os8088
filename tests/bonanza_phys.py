@@ -602,6 +602,9 @@ def scenario(g, crs, name):
     (wx, wy), gvx, gvy, nmax = SCEN[name]
     rd = Reader(g)
     fails = []
+    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: FIRST poked)
+    g.putb("bz_crsel", R.CRS_K["first"])
+    m.run()
     g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on FIRST runs", guest=60)
     m.pause()
@@ -869,7 +872,30 @@ def ev_of(crs, mat, poke, keys):
     return p, [e[0] for e in p.events]
 
 
+_ONCE = {}
+
+
+def _once_list(fn):
+    """FN (a no-argument scenario list over the SHIPPED courses and the host's model) computed once a
+    process: each call -> fresh copies of its dicts"""
+    def wrap():
+        if fn.__name__ not in _ONCE:
+            _ONCE[fn.__name__] = fn()
+        return [dict(s) for s in _ONCE[fn.__name__]]
+    wrap.__name__, wrap.__doc__ = fn.__name__, fn.__doc__
+    return wrap
+
+
 def replays():
+    """replays_() ONCE A PROCESS (BOUNCE-BONANZA-SOAK principle 5): the scenarios read only the SHIPPED
+    courses (R.course with no SRC) and the host's model, never a red tree's package, so a red arm's run
+    gets the same list honestly.  -> fresh copies of the dicts (prove() writes `parts_at` into its own)"""
+    if "replays" not in _ONCE:
+        _ONCE["replays"] = replays_()
+    return [dict(s) for s in _ONCE["replays"]]
+
+
+def replays_():
     """-> [scenario dicts]: name, course, material, poke (None: the start), the
     key bytes, the proof on the model (a description and a bool), and the red
     arm the scenario is the check of (the model's switch, when it has one)"""
@@ -2355,7 +2381,7 @@ def mg_host(binp, lst, sym):
     for name, mat, at, n, ret, what in MG_SCENES:
         poke, keys = mg_poke(mat, at), mg_keys(n, ret)
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "mags", mat, keys, fam, poke=poke, src=MG_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "mags", mat, keys, fam, poke=poke, src=MG_SRC, k=R.CRS_K["bench"])
         ok, saw = mg_verdict(name, mat, poke, keys)
         out.append("magnet %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
         fails += ["magnet %s: %s" % (name, b) for b in bad] + ([] if ok else ["magnet %s is not what it is "
@@ -2383,7 +2409,7 @@ def mg_host(binp, lst, sym):
         hit = None
         for name, mat, poke, keys in sc:
             if name in scs and hit is None:
-                _p, bad = urun(binp, lst, sym, "mags", mat, keys, ff, poke=poke, src=MG_SRC, k=0)
+                _p, bad = urun(binp, lst, sym, "mags", mat, keys, ff, poke=poke, src=MG_SRC, k=R.CRS_K["bench"])
                 hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -2517,7 +2543,7 @@ def gt_host(binp, lst, sym, scenes=None):
             at = BB.GT_SC[name][0]
             poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(at[0], at[1], 0, 0))
             sc[(name, mat)] = (poke, r[0])
-            _p, bad = urun(binp, lst, sym, "gate", mat, r[0], fam, poke=poke, src=GT_SRC, k=0)
+            _p, bad = urun(binp, lst, sym, "gate", mat, r[0], fam, poke=poke, src=GT_SRC, k=R.CRS_K["bench"])
             ok = BB.gt_verdict(name, mat, r)
             out.append("gate %s, %s (%s): %s; fell %s, ended on %s, channels %d" % (
                 name, BB.MAT_NAMES[mat], BB.GT_WANT[name] if mat == BB.MAT_RUBBER else "as rubber's",
@@ -2544,7 +2570,7 @@ def gt_host(binp, lst, sym, scenes=None):
         assert gsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]
         _p, bad = urun(binp, lst, sym, "gate", mat, keys, gt_parts(gsrc.replace(a_, b_)), poke=poke, src=GT_SRC,
-                       k=0)
+                       k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -2585,7 +2611,7 @@ def bp_host(binp, lst, sym):
             keys = bp_play(bp_course(), mat, at, keyf, n)[0]
             poke = poke_of(BB.Physics(bp_course(), play=True, mat=mat).poke(*at))
             sc[(name, mat)] = (poke, keys)
-            _p, bad = urun(binp, lst, sym, "boos", mat, keys, fam, poke=poke, src=BP_SRC, k=0)
+            _p, bad = urun(binp, lst, sym, "boos", mat, keys, fam, poke=poke, src=BP_SRC, k=R.CRS_K["bench"])
             ok, saw = bp_verdict(name, mat)
             out.append("boost %s, %s (%s): %s; %s" % (name, BB.MAT_NAMES[mat], what if mat == BB.MAT_RUBBER else
                                                       "as rubber's", "; ".join(bad)[:200] or "equal at every step",
@@ -2608,7 +2634,7 @@ def bp_host(binp, lst, sym):
     for arm, a_, b_, want, (name, mat) in arms:
         assert bsrc.count(a_) == 1, "red %s: its patch does not apply" % arm
         poke, keys = sc[(name, mat)]
-        _p, bad = urun(binp, lst, sym, "boos", mat, keys, bp_parts(bsrc.replace(a_, b_)), poke=poke, src=BP_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "boos", mat, keys, bp_parts(bsrc.replace(a_, b_)), poke=poke, src=BP_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s: %s" % (arm, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -2685,8 +2711,7 @@ WATER_STEPS = 160
 
 
 def _water_course():
-    R.COURSES["bench"]                          # (fills both tables)
-    R.CRS_K["bench"]
+    R.crs_fill()                                # (fills both tables)
     if "water" not in dict.keys(R.COURSES):
         dict.__setitem__(R.COURSES, "water", "apps/bonanza/courses/water.bbc")
         dict.__setitem__(R.CRS_K, "water", R.CRS_K["play"])
@@ -2833,8 +2858,7 @@ def water_host(binp, lst, sym, fam):
 # BZARCH=1 knob's course), compiled here from the tree whatever the build, as WATER's are: the family's part is
 # in every build's resident bundle
 def _arch_course():
-    R.COURSES["bench"]                          # (fills both tables)
-    R.CRS_K["bench"]
+    R.crs_fill()                                # (fills both tables)
     if "arch" not in dict.keys(R.COURSES):
         dict.__setitem__(R.COURSES, "arch", "apps/bonanza/courses/arches.bbc")
         dict.__setitem__(R.CRS_K, "arch", R.CRS_K["play"])
@@ -3026,7 +3050,7 @@ def spike_host(binp, lst, sym):
     for name, mat, at, keys, what in sp_scenes():
         poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "spike", mat, keys, fam, poke=poke, src=SP_SRC, k=R.CRS_K["bench"])
         q = model("spike", mat, poke, src=SP_SRC)
         zs = []
         mems = [pr for pr in q.props if pr["kind"] == BB.SP_KM]
@@ -3050,7 +3074,7 @@ def spike_host(binp, lst, sym):
                            cwd=ROOT, check=True)
             ff = fam_parts({"spike": open(o, "rb").read()})
         name, mat, poke, keys = next(s for s in sc if s[0] == scn)
-        _p, bad = urun(binp, lst, sym, "spike", mat, keys, ff, poke=poke, src=SP_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "spike", mat, keys, ff, poke=poke, src=SP_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3166,7 +3190,7 @@ def tilt_host(binp, lst, sym):
     for name, mat, at, keys, what in tl_scenes():
         poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
         q = model("tilt", mat, poke, src=TL_SRC)
         pl = [r for r in q.props if r["kind"] == BB.FK_TILT]
         zs = []
@@ -3190,7 +3214,7 @@ def tilt_host(binp, lst, sym):
                            cwd=ROOT, check=True)
             ff = fam_parts({"seesaw": open(o, "rb").read()})
         name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
-        _p, bad = urun(binp, lst, sym, "tilt", mat, keys, ff, poke=poke, src=TL_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "tilt", mat, keys, ff, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3269,7 +3293,7 @@ def tt_host(binp, lst, sym):
     for name, mat, at, keys, what in tt_scenes():
         poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
         sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, poke=poke, src=TT_SRC, k=0)
+        p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, poke=poke, src=TT_SRC, k=R.CRS_K["bench"])
         q = model("turn", mat, poke, src=TT_SRC)
         zs = []
         for k_ in keys:
@@ -3295,7 +3319,7 @@ def tt_host(binp, lst, sym):
                            cwd=ROOT, check=True)
             ff = fam_parts({"turntable": open(o, "rb").read()})
         name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
-        _p, bad = urun(binp, lst, sym, "turn", mat, keys, ff, poke=poke, src=TT_SRC, k=0)
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, ff, poke=poke, src=TT_SRC, k=R.CRS_K["bench"])
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
@@ -3304,7 +3328,7 @@ def tt_host(binp, lst, sym):
     # woken (every lane off it); red ttslice, bz_fmark's slice test gone (its lane marked though off it)
     name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == "tt-rest")
     for arm, pp in (("ttslice-green", ()), ("ttslice", (("bz_fm1", b"\x90" * 12),))):
-        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=0, slice=(0, 0))
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=R.CRS_K["bench"], slice=(0, 0))
         hit = next((b for b in bad if "off the slice" in b), None)
         if arm == "ttslice-green":
             out.append("turntable tt-rest, the slice empty: %s" % ("; ".join(bad)[:200] or "nothing marked"))
@@ -3317,7 +3341,7 @@ def tt_host(binp, lst, sym):
     # marked; red ttband, bz_fm1's band test gone (its 7 bytes after the slice's 12)
     alln = list(range(len(R.course("turn", src=TT_SRC).props)))     # (every record's lane byte: OUT)
     for arm, pp in (("ttband-green", ()), ("ttband", (("bz_fm1", b"\x90" * 19),))):
-        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=0, out=alln)
+        _p, bad = urun(binp, lst, sym, "turn", mat, keys, fam, patch=pp, poke=poke, src=TT_SRC, k=R.CRS_K["bench"], out=alln)
         hit = next((b for b in bad if "OUT of the band" in b), None)
         if arm == "ttband-green":
             out.append("turntable tt-rest, every lane OUT of the band: %s" % ("; ".join(bad)[:200] or "nothing marked"))
@@ -3373,6 +3397,7 @@ def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0):
     return d
 
 
+@_once_list
 def mill_replays():
     """SPEC.md 130.12.13.2's thirteen MILL scenarios (fifteen replays: drop
     with each ball), each found and PROVED on the model - the idle steps that
@@ -3566,6 +3591,7 @@ def w4_poke(crs, wx, wy, mat, gvx=0, gvy=0, lift=0, extra=None, recpoke=None):
     return d
 
 
+@_once_list
 def w4_replays():
     """wave 4's replays, each FOUND and PROVED on the model on the shipped
     MOON and PEAK (SUMMIT) - the approaches searched, so a re-laid course re-finds
@@ -4454,23 +4480,50 @@ def drag_span(g, s):
     return fails, out
 
 
+_PROVED = {}
+
+
+def _scen_key(s):
+    """a scenario's whole input to prove(): what it plays and what its red arms switch (not its name alone -
+    two scenario lists, replays()'s and mill_replays()'s, may carry the same name)"""
+    return repr((s["name"], s["crs"], s["mat"], s["poke"], list(s["keys"]), s.get("tilts"), s["ok"], s["what"],
+                 s["red"]))
+
+
 def prove(S):
-    """the host's proof of each scenario: -> failure lines (empty: all proved)"""
+    """the host's proof of each scenario: -> failure lines (empty: all proved).  Each scenario proved once
+    a process (_PROVED, keyed on everything it plays: _scen_key); its `parts_at` written into S's dict"""
     bad = []
     for s in S:
-        if not s["ok"]:
-            bad.append("replay %s: the model does not show what the scenario is for (%s)" % (s["name"], s["what"]))
-        for red in (s["red"] if isinstance(s["red"], list) else [s["red"]] if s["red"] else []):
-            at = parts(s["crs"], s["mat"], s["poke"], s["keys"], s.get("tilts"), **red)
-            if at is None:
-                bad.append("replay %s: the broken model %s never parts from the model over its %d steps: the "
-                           "scenario cannot catch its red arm" % (s["name"], red, len(s["keys"])))
-            else:
-                s["parts_at"] = min(at, s.get("parts_at") or at)
+        k = _scen_key(s)
+        if k not in _PROVED:
+            sb, pat = [], None
+            if not s["ok"]:
+                sb.append("replay %s: the model does not show what the scenario is for (%s)" % (s["name"], s["what"]))
+            for red in (s["red"] if isinstance(s["red"], list) else [s["red"]] if s["red"] else []):
+                at = parts(s["crs"], s["mat"], s["poke"], s["keys"], s.get("tilts"), **red)
+                if at is None:
+                    sb.append("replay %s: the broken model %s never parts from the model over its %d steps: the "
+                              "scenario cannot catch its red arm" % (s["name"], red, len(s["keys"])))
+                else:
+                    pat = min(at, pat or at)
+            _PROVED[k] = (sb, pat)
+        sb, pat = _PROVED[k]
+        bad += sb
+        if pat is not None:
+            s["parts_at"] = min(pat, s.get("parts_at") or pat)
     return bad
 
 
 def prove_wave1():
+    """prove_wave1_() once a process (the shipped FIRST and BENCH and the host's model only): -> fresh lists"""
+    if "wave1" not in _ONCE:
+        _ONCE["wave1"] = prove_wave1_()
+    bad, say = _ONCE["wave1"]
+    return list(bad), list(say)
+
+
+def prove_wave1_():
     """the host's proof of wave 1's scenarios and red arms on the wave-2 model:
     the pit reaches its SAFE cell's respawn, the lip and the bench part from
     their broken models.  -> (failure lines, report lines)"""

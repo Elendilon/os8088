@@ -22483,26 +22483,38 @@ apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront
 # floppy or live media; `bonanzadisk` is its own floppy in all four geometries.
 BZ_ART := $(BUILD)/bonanza-art
 # THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 130.10.3): course K is the K-th
-# of this list - 0 the benchmark's, 1 the one Enter plays, 2 the rubber ball's
-# trial, 3 the obstacles' (SPEC.md 130.12.9), 4 and 5 wave 4's (MOON, Moonlit
-# Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 6 wave 6's PLAYGROUND (PLAY,
-# SPEC.md 130.16.8); 1 - 6 are the tour - and
-# everything under apps/bonanza/courses/ ships.  ONE bbcourse.py
+# of this list, its part row K - and NOTHING ELSE keys by K (SPEC.md 130.22.5.1,
+# 130.14.7.4: the save keys courses by name, the game starts on pathway pad 0's,
+# the demos and BENCH's exemptions go by NAME).  As listed: 0 FIRST, 1 the rubber ball's
+# trial, 2 the obstacles' (SPEC.md 130.12.9), 3 and 4 wave 4's (MOON, Moonlit
+# Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 5 wave 6's PLAYGROUND (PLAY,
+# SPEC.md 130.16.8) - the same K in the BZDEV=1 build, whose TEST courses
+# (BZ_TESTCRS, below: BENCH, the benchmark's, among them) come AFTER every
+# other course and nowhere else (SPEC.md 130.54: the shipped game carries no
+# test course).  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
 # rows' order and the file's order cannot drift.
-BZ_COURSES := apps/bonanza/courses/bench.bbc apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
+# THE TEST COURSES (SPEC.md 130.54): the courses the rows play, each with a `test` statement, the BZDEV=1
+# build's alone - BZDEV's block below puts them AFTER every other course, so none shifts a shipped course's K.
+# BENCH (Proving Ground), the benchmark's; TQUIK (the plan's TQUICK) and TCUP, the exits' and the save's (a goal, a cup).
+# TPLY (the plan's TPLAY), the physics and replay rows' (the prototypes' features on one course).
+# bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
+BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc apps/bonanza/courses/tply.bbc
+BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
               apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
-# (7 FIRST ROLL and 8 LITTLE HOP, the real courses 1 and 2 (wave 11; the pathway's pads 0 and 1 since
-# 2026-11-19): appended, so every course before them keeps its K; the BZROLL knob that carried them is gone)
+# (6 FIRST ROLL and 7 LITTLE HOP, the real courses 1 and 2 (wave 11; the pathway's pads 0 and 1 since
+# 2026-11-19): appended when K still mattered; the BZROLL knob that carried them is gone)
 # wave 8b (SPEC.md 130.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
 # the PAD-0 TEST KNOBS' map (2026-11-19): the prototype pathway the shipped one replaced, which each knob's
 # path<knob>.sed edits to put its course on pad 0 (their seds name its pads and cells)
 BZ_PATHTEST := apps/bonanza/courses/pathtest.bbc
+# THE TEST MAP (SPEC.md 130.54.6): the BZDEV=1 build's pathway (its block below), never shipped (`test`)
+BZ_PATHDEV := apps/bonanza/courses/pathdev.bbc
 #> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 130.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
 # BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
 # can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
@@ -22916,12 +22928,25 @@ $(BZSHADOWSTAMP): | $(BUILD)
 # assembles BONANZA.O88 with -DBZDEV: bz_dev and every key and page it opens (B R D F G V W L N M T S, the tour,
 # the results page, the benchmark), the instruments (the measured marks, bz_presented's period, the beam
 # check, the results copy), the autopilot and bz_apilot, the scripted camera, bz_hold, bz_hvoff, bz_phforce,
-# and the shell part's instruments' face. Off, the package is the player's alone. STAMPED: the package, its
-# link map and its shell part are rebuilt when it turns on or off; the courses are not (no part changes).
+# and the shell part's instruments' face - and the TEST COURSES (BZ_TESTCRS: BENCH, the benchmark's, TQUIK,
+# TCUP), AFTER the shipped courses and any knob's (SPEC.md 130.54; 2026-11-19: "then bench can come out of the
+# shipping build"), and THE TEST MAP (pathdev.bbc, 130.54.6) as the pathway unless a knob gives its own,
+# compiled with bbcourse's --dev (without it a `test` course or map is refused). Off, the package
+# is the player's alone. STAMPED: the package, its link map, its shell part and the courses (the test courses
+# are courses of the one build and not the other) are rebuilt when it turns on or off.
 BZDEV ?=
 ifeq ($(filter $(BZDEV),1),)
 ifneq ($(BZDEV),)
 $(error BZDEV=$(BZDEV) is 1 or empty)
+endif
+endif
+ifeq ($(BZDEV),1)
+BZ_COURSES := $(BZ_COURSES) $(BZ_TESTCRS)
+# ...and THE TEST MAP (SPEC.md 130.54.6) in place of the shipped pathway: pads 0 and 1 the shipped map's (ROLL,
+# HOP), the rest the test courses', one route a feature the rows walk (straight, diagonal, across the pages,
+# an icon, a climb, a secret route by TQUIK's hidden exit). A pad-0 knob's map (BZ_PATHTEST + its sed) wins.
+ifeq ($(BZ_PATH),apps/bonanza/courses/path.bbc)
+BZ_PATH := $(BZ_PATHDEV)
 endif
 endif
 BZDEVDEF := $(if $(BZDEV),-DBZDEV)
@@ -22934,19 +22959,19 @@ $(BZDEVSTAMP): | $(BUILD)
 BZ_TITLE := apps/bonanza/courses/title.bbc
 BZ_TITLESRC := $(BZ_TITLE) apps/bonanza/courses/title.bba $(wildcard apps/bonanza/demos/*.bzt)
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
-# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a tour course, BZD<K>.BIN for K
-# 1 - 6, written by the same run - a course's apps/bonanza/demos/<file>.bzd
-# when it has one (text, checked by the model), else the ROUTE DEMO the tool
-# makes from the course's route.  Their part rows follow the songs'
-# (BZ_P_DEMO = BZ_P_SONG + BZS_NSONG, bzcourse.inc's BZ_DEMO_PARTS).
+# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a course but a TEST course's (its `test`
+# statement, SPEC.md 130.54, never by K), each BZD<NAME>.BIN, written by the same
+# run - a course's apps/bonanza/demos/<file>.bzd when it has one (text, checked by the
+# model), else the ROUTE DEMO the tool makes from the course's route.  The tool lists
+# them in row order in bzdemo.lst (as bzcrs2.lst the world parts); their rows follow the
+# courses' and the world parts' (BZ_P_DEMO, bzcourse.inc's BZ_DEMO_PARTS and BZ_DEMO_CRS).
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
-BZ_DEMOPARTS := $(foreach k,$(shell seq 1 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZD$(k).BIN)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw turntable
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
-BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst
+BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst $(BZ_ART)/bzdemo.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 130.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -22982,8 +23007,8 @@ $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py to
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
                    $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZDOWNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
-                   $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+                   $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
@@ -22995,7 +23020,7 @@ bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
 #> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 130.10.4.6, 130.15.12.3); the title art is tools/bbtitle.py's (130.23.2)
 bonanza-course-check:
-	python3 tools/bbcourse.py --selfcheck $(BZ_COURSES)
+	python3 tools/bbcourse.py --selfcheck $(filter-out $(BZ_TESTCRS),$(BZ_COURSES)) $(BZ_TESTCRS)
 	python3 tools/bbtitle.py --check
 #> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 130.15.12.2); minutes
 bonanza-sizes: $(BUILD)/bonanza.o88
@@ -23028,7 +23053,7 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
 # since SPEC.md 130.25.5.2), then the sound part and one part a song (SPEC.md 130.20.3), then
-# one shipped demo a tour course, BZD1 - BZD6 (SPEC.md 130.14.7.4, 130.16.2).
+# one shipped demo a course but the benchmark's, bzdemo.lst's BZD<NAME>.BIN (SPEC.md 130.14.7.4, 130.16.2).
 # SPEC.md 130.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
 # apps/bonanza/courses/kit.bzk), the row after the title's demos, before the family rows.
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 130.25.6.9): a home-`fetch`
@@ -23038,14 +23063,14 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
 # halves, so a build with none packs exactly the arguments it always did.
 BZ_PARTS1 := $(BZ_CRSPARTS)
-BZ_PARTS2 := $(BZ_DEMOPARTS) $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
+BZ_PARTS2 := $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 # the parts that are DATA, no code (os88pkg --part-data, SPEC.md 20.3.3): a
 # course's bytes can spell a far call into the kernel by chance, and did
 # (ROLL, `9A 04 02 60 00`), so the far-call gate passes these over. The
 # shell, the families and the VGA part are code, and the gate keeps them.
-BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_DEMOPARTS) $(BZ_ART)/BZPATH.BIN \
+BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN \
                 $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 
 # THE SHELL PART (SPEC.md 130.19.2, wave 8a): the desktop face, out of the
@@ -23080,12 +23105,13 @@ $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) ap
 # paragraph, its header's +11 its paragraphs - a row in every build
 $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) $(BZ_MUSSRC) tools/bbmusic.py tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_ART)/bzdemo.lst $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
 	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
-		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
+		$$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst) $(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
 		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF) \
-		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) $$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst)
+		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) $$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
+		$$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)
 bonanza: $(BUILD)/bonanza.o88
@@ -23113,14 +23139,14 @@ $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
 # SPEC.md 130.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
-# diagonal lane run on until one part refuses it) as course 7, a package and floppy of their own in a private
+# diagonal lane run on until one part refuses it) as the last course, a package and floppy of their own in a private
 # tree, on no shipped disk and not in the tour.  On demand; nothing in `all` builds it.
 BZ_TWOSEG := $(BUILD)/bztwoseg
 $(BZ_TWOSEG)/twoseg.bbc: tools/bbcourse.py apps/bonanza/courses/playground.bbc
 	@mkdir -p $(BZ_TWOSEG)
 	python3 tools/bbcourse.py twoseg -o $@
 .PHONY: bonanzatwoseg
-#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as course 7, in $(BUILD)/bztwoseg/ (SPEC.md 130.30.7); not shipped
+#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as the last course, in $(BUILD)/bztwoseg/ (SPEC.md 130.30.7); not shipped
 bonanzatwoseg: $(BZ_TWOSEG)/twoseg.bbc
 	$(MAKE) --no-print-directory BUILD=$(BZ_TWOSEG) BZ_COURSES="$(BZ_COURSES) $(BZ_TWOSEG)/twoseg.bbc" bonanzadisk
 #> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 130.1, 130.14.3.3)
