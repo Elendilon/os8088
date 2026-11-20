@@ -709,12 +709,14 @@ def run(tag, apps=None, src=None, art=None, trial=True, legs=LEGS, ab_steps=None
 
 
 def load_demo(g, kd, art=None):
-    """V with bz_vk poked to KD - 1: the shipped demo BZD<KD>.BIN in the log
+    """V with bz_vk poked to KD's demo row: the shipped demo BZD<KD>.BIN in the log
     (ART: another build's art directory, --ab's)"""
     m = g.m
     demo = open(os.path.join(R.ROOT, art or R.at("build/bonanza-art"), R.demo_name(kd)), "rb").read()
     m.pause()
-    g.putb("bz_vk", kd - 1)
+    lst = os.path.join(R.ROOT, art or R.at("build/bonanza-art"), "bzdemo.lst")
+    g.putb("bz_vk", R.demo_ks(os.path.dirname(lst)).index(kd) if os.path.exists(lst) else kd - 1)
+                                                # (V's next row: bzdemo.lst's order; an older art's by K)
     m.run()
     M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
     g.key("KeyV")
