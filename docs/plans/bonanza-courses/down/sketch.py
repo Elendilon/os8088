@@ -121,7 +121,7 @@ floor("A", 4, 4, 5, 5, Z)                                    # the start: ONE ti
 rail(4, 4, 5, 4, "guard"); rail(4, 4, 4, 5); rail(5, 4, 5, 5)   # (rev 4: the start tile keeps all three - a start must be SAFE)
 ramp("R", "y", 4, 5, 5, 10, Z, Z - 10)                       # a STEEP ramp, 2 units a tile (the most), railed
 floor("R", 4, 10, 5, 11, Z - 10)                             # its foot, flat, into the corner chute
-rail(5, 5, 5, 9)                                             # (rev 4: the left rail gone; the right one's last two blocks gone, to try)
+rail(4, 5, 4, 11)                                            # (rev 5: the LEFT rail kept, the right one gone - it hid the ball at the spawn and down the ramp)
 chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
 floor("H", 8, 11, 18, 14, Z - 11)                            # the HUMP RUN, now 3 wide (rev 2), unguarded, along +x
 for hx in (12, 16):                                          # two humps, 2 long x 3 wide (clear of the corner)
