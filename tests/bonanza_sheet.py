@@ -134,6 +134,30 @@ def walk_check(binp, sym, c):
     tops += tops[::-1]
     serve = [((x["tlo"] >> LSH), (x["thi"] >> LSH)) for x in pl["sheets"]]
     switches = 0
+    # every block row's map words as the model and the DRAWN poses have them, per sheet (its blocks' offset
+    # and its lanes' pose words): computed once, compared a row at a time below
+    lane_at = {}
+    for i, d in enumerate(lanes):
+        L = d["lane"]
+        for br in range(L["brow"], L["brow"] + L["h"]):
+            for col in range(L["col"], L["col"] + L["w"]):
+                lane_at.setdefault((br, col), i)
+    wrow = []
+    for q in pics:
+        blkoff = struct.unpack_from("<H", q, 12)[0]
+        rows_ = []
+        for br in range(B):
+            row = []
+            for col in range(cols):
+                lane = lane_at.get((br, col))
+                if lane is None:
+                    row.append(blkoff + 16 * c.model["idx"][cols * br + col])
+                else:
+                    L = lanes[lane]["lane"]
+                    k = drawn[lane] * L["w"] * L["h"] + (br - L["brow"]) * L["w"] + col - L["col"]
+                    row.append(struct.unpack_from("<H", q, L["off"] + 2 * k)[0])
+            rows_.append(tuple(row))
+        wrow.append(rows_)
     for r0 in tops:
         g.w("bz_R0n", r0, 2)
         g.call("bz_shchk")
@@ -160,18 +184,13 @@ def walk_check(binp, sym, c):
             break
         tb = (r0 << LSH) >> 3
         for br in range(max(0, tb - BB.SH_WLO), min(B, tb + BB.SH_WHI + 1)):
+            got_ = struct.unpack_from("<%dH" % cols, mem, mrow[br])
+            want_ = wrow[cur][br]
+            if got_ == want_:
+                continue
             for col in range(cols):
-                w = struct.unpack_from("<H", mem, mrow[br] + 2 * col)[0]
-                lane = next((i for i, d in enumerate(lanes) if d["lane"]["brow"] <= br < d["lane"]["brow"]
-                             + d["lane"]["h"] and d["lane"]["col"] <= col < d["lane"]["col"] + d["lane"]["w"]),
-                            None)
-                blkoff = struct.unpack_from("<H", pics[cur], 12)[0]
-                if lane is None:
-                    want = blkoff + 16 * c.model["idx"][cols * br + col]
-                else:
-                    L = lanes[lane]["lane"]
-                    k = drawn[lane] * L["w"] * L["h"] + (br - L["brow"]) * L["w"] + col - L["col"]
-                    want = struct.unpack_from("<H", pics[cur], L["off"] + 2 * k)[0]
+                w, want = got_[col], want_[col]
+                lane = lane_at.get((br, col))
                 if w != want:
                     worst.append("top %d (block row %d): sheet %d's map word at row %d column %d %04Xh, not %04Xh%s"
                                  % (r0, tb, cur, br, col, w, want, " (lane %d)" % lane if lane is not None else ""))
