@@ -30,21 +30,29 @@ floor rect  56  25  59  29  flat 11   # M
 floor rect  55  29  60  33  flat 11   # G
 floor rect  49  21  50  26  flat 14   # K
 floor rect  47  26  51  29  flat 14   # P
-floor rect  40  25  46  31  flat 18   # Q
-floor rect  35  27  40  28  flat 18   # K
-floor rect  32  26  35  29  flat 18   # P
-floor rect  33  23  34  26  flat 18   # K
-floor rect  32  21  35  23  flat 18   # P
-floor rect  30  27  32  28  flat 18   # K
-floor rect  24  26  29  29  flat 18   # W
-floor rect  24  29  29  30  flat 18   # Y
-floor rect  29  26  30  30  flat 18   # Y
-floor rect  21  26  24  29  flat 18   # Y
-floor rect  21  31  25  34  flat 16   # Z
-floor rect  25  31  27  33  flat 13   # Z
-floor rect  23  34  25  36  flat 14   # Z
-floor rect  25  33  27  37  flat 12   # Z
-floor rect  27  31  35  37  flat 10   # V
+floor rect  46  27  47  28  flat 14   # K
+floor rect  40  27  41  28  flat 14   # K
+floor rect  38  25  39  26  flat 14   # K
+floor rect  36  27  37  28  flat 14   # K
+floor rect  36  23  37  24  flat 14   # K
+floor rect  32  27  33  28  flat 14   # K
+floor rect  41  24  46  31  flat 14   # Q
+floor rect  37  26  40  29  flat 14   # Q
+floor rect  37  22  40  25  flat 14   # Q
+floor rect  33  26  36  29  flat 14   # Q
+floor rect  33  22  36  25  flat 14   # Q
+floor rect  24  26  29  29  flat 14   # W
+floor rect  24  29  29  30  flat 14   # Y
+floor rect  29  26  32  30  flat 14   # Y
+floor rect  21  26  24  29  flat 14   # Y
+floor rect  21  31  25  34  flat 13   # Z
+floor rect  25  31  27  34  flat 12   # Z
+floor rect  27  31  29  33  flat 9   # Z
+floor rect  29  31  31  33  flat 8   # Z
+floor rect  25  34  27  36  flat 10   # Z
+floor rect  27  34  29  37  flat 9   # Z
+floor rect  31  31  37  33  flat 7   # V
+floor rect  29  33  37  37  flat 7   # V
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
 chute 3 round depth 8 way 8 13 30 way 8 16 30 way 11 16 29
@@ -115,24 +123,26 @@ water rect 56 17 57 20 top 14 bed 11
 arch 56 19 +y
 # glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)
 prop membrane 49 21 50 26
-prop platform 46 27 4
-# glass's maze (rev 9): its strands membrane, the FLOAT pool (water, no arch), the far bank's BOOST
-prop membrane 35 27 40 28
-prop membrane 33 23 34 26
-prop membrane 30 27 32 28
-water rect 24 26 29 29 top 18 bed 15
+# glass's maze (rev 10): one-cell membrane LINKS, the FLOAT pool (water, no arch), the far bank's BOOST
+prop membrane 46 27 47 28
+prop membrane 40 27 41 28
+prop membrane 38 25 39 26
+prop membrane 36 27 37 28
+prop membrane 36 23 37 24
+prop membrane 32 27 33 28
+water rect 24 26 29 29 top 14 bed 11
 prop boost 22 28 face +y strength 40
 # steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)
 hump 56 27 11 along x 3 open height 8
 
 goal  rect 55 31 60 33  flat 11   # the steel finish
-goal  rect 33 31 35 37  flat 10 exit 1   # the glass finish
+goal  rect 35 31 37 37  flat 7 exit 1   # the glass finish
 start 8 7
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
 checkpoint 48 27 ball glass   # flag 2
-checkpoint 42 27 ball glass   # flag 3
-checkpoint 33 27 ball glass   # flag 4
+checkpoint 43 27 ball glass   # flag 3
+checkpoint 34 27 ball glass   # flag 4
 checkpoint 22 27 ball glass   # flag 5
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
@@ -142,8 +152,8 @@ floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block i
 clock 50 11
 floor tile 60 30  flat 12.5   # the steel finish clock's tile (on top of the rail block it replaces)
 clock 60 30
-floor tile 35 34  flat 11.5   # the glass finish clock's tile (on top of the rail block it replaces)
-clock 35 34
+floor tile 37 34  flat 8.5   # the glass finish clock's tile (on top of the rail block it replaces)
+clock 37 34
 
 # the autopilot's route
 way 8 7
