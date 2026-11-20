@@ -20,13 +20,34 @@ model is stepped to the guest's nstep and every value compared EXACTLY - no
 tolerance: a rounding that differs is a defect, and the first one is where
 the guest and the model part.
 
-  1  THE BENCHMARK (B: BENCH, the autopilot through the ramp, 1,200 frames),
-     on both cards: at every frame's bz_presented the guest's state equals
-     the model's after that many steps of its own autopilot (step_auto) - so
-     the CGA's and the Hercules' trajectories are one, though their frames
-     hold different numbers of steps.  A benchmark that falls is a route
-     that is wrong (130.11.17.1 item 8).
-  2  WAVE 1'S FOUR on FIRST, POKED in play mode with no key held (the ball's
+THE COURSES (BOUNCE-BONANZA-SOAK phase 3, docs/plans/BOUNCE-BONANZA-SOAK.md's
+TPLAY table): every scenario below now runs on a TEST course of the BZDEV=1
+build (SPEC.md 130.54) - TPLY (its apron and rungs the PLAYGROUND's, its H, F,
+gap and G TRIAL's turned a quarter, a yard with FIRST's plateau, the pads, two
+springs, two flags and a hole), TMIL (MILL's top cell for cell, a lift, a
+cannon, a drop, three posts), TCUP (the cup), TQUIK (the timeout) and BENCH
+(the benchmark, the SAFE respawn).  Where the text below names FIRST, TRIAL,
+MILL, MOON, PEAK or the PLAYGROUND it names the feature's ORIGIN; the cells are
+the test course's (SCEN_T, TP_*, MILL_POSTS, the searches).  The families'
+replays (wave 9, PLAYGROUND's) are `--families`' alone: no test course carries
+a family yet.
+
+THE SPLIT (principle 3, the host before the guest): `--check` (bonanzaphyshost)
+runs EVERY replay below under unicorn, the guest's own bz_step against the
+model at EVERY STEP and the whole state this row compares a frame (urun's
+FULL); so this MartyPC half replays MARTY's representative few a card (one of
+each mechanism, the drag's span among them) - `--every` runs them all, `--only`
+and `--red` name any.  One boot a card, every leg in it.
+
+  1  THE BENCHMARK (B: BENCH, the autopilot through the ramp), on both cards:
+     at every frame's bz_presented the guest's state equals the model's after
+     that many steps of its own autopilot (step_auto) - so the CGA's and the
+     Hercules' trajectories are one, though their frames hold different
+     numbers of steps - to bench_stop()'s step (BENCH_PAST past where the
+     slope red's model parts, at least BENCH_MIN), then Esc: not BZ_BENCH's
+     1,200 frames.  A benchmark that falls is a route that is wrong
+     (130.11.17.1 item 8): the model's whole route is proved not to (--check).
+  2  WAVE 1'S FOUR (SCEN_T: pit on BENCH, lip / rail / goal on TPLY), POKED in play mode with no key held (the ball's
      position and velocities written at bz_t0 with bz_pokd = 1; the model
      poked the same way at the guest's nstep and its SAFE cell), every
      frame compared:
@@ -283,15 +304,29 @@ import os88ui                  # noqa: E402
 import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
-BENCH = 1200                   # bzgame.inc BZ_BENCH
+BENCH = 1200                   # bzgame.inc BZ_BENCH: the benchmark's frames at most
+BENCH_PAST = 120               # steps the guest leg runs past the step the slope red's model parts at, and
+BENCH_MIN = 300                # ...at least this many: the benchmark leg STOPS there (Esc), not at BZ_BENCH -
+                               # the model's whole run (BENCH_STEPS) is proved not to fall on the host
+BENCH_STEPS = 1400             # (prove_wave1_: more steps than BZ_BENCH frames hold on either card)
 FIELDS = ("nstep", "gx", "gy", "gz", "gvx", "gvy", "gvz", "air")
 FIELDS2 = ("lvl", "hopw", "kprev", "mst", "mct", "sqf", "lvz")
 SCEN = {
-    # name: (tile, gvx, gvy, frames at most) - poked in play, no key held
+    # name: (tile, gvx, gvy, frames at most) - poked in play, no key held.  FIRST's: no longer this row's
+    # (SCEN_T, below), kept for bonanzaexit's goal until it moves to TQUIK
     "pit": ((5, 5), 364, 0, 260),
     "lip": ((9, 6), 100, 0, 120),       # 8R: row 6 - row 4 meets the clock at (11, 4) (SPEC.md 130.22.6)
     "rail": ((5, 4), -150, -250, 90),
     "goal": ((12, 6), 250, 0, 60),
+}
+SCEN_T = {
+    # wave 1's four on the TEST courses (docs/plans/BOUNCE-BONANZA-SOAK.md's TPLAY table):
+    # name: (course, tile, gvx, gvy, frames at most) - poked in play, no key held
+    "pit": ("bench", (16, 18), 364, 0, 260),    # off the 27.5 flat's east edge: respawned on the SAFE (19, 18)
+                                                # (BENCH: no flag, no cup - a respawn is bz_safe's)
+    "lip": ("tply", (33, 32), 100, 0, 120),     # the plateau ramp's 2-unit lip: a take-off, a rubber bounce
+    "rail": ("tply", (29, 31), -150, -250, 90),     # into the plateau's back rail (wy 30): gvy REBOUNDS
+    "goal": ("tply", (25, 19), 0, -250, 90),    # from the sand along -wy into the split goal's exit 0
 }
 K = BB
 CHORD_X = K.K_R | K.K_D        # +wx: Right (+F, -F) and Down (+F, +F)
@@ -524,17 +559,27 @@ def compare_tables(name, frames, tb, p):
     return None
 
 
+def bench_stop():
+    """the step the benchmark leg stops at: BENCH_PAST past where the slope red's model parts from the
+    benchmark's (prove_wave1's), at least BENCH_MIN - the last step a check of this leg needs"""
+    prove_wave1()
+    return max(BENCH_MIN, (_ONCE.get("slope_at") or BENCH_MIN) + BENCH_PAST)
+
+
 def bench(g, crs):
-    """Part 1: the benchmark, the guest against the model at every bz_presented."""
+    """Part 1: the benchmark, the guest against the model at every bz_presented, to bench_stop()'s step
+    (then Esc: the rest of BZ_BENCH's frames would only repeat the comparison; the model's whole route is
+    proved not to fall on the host, prove_wave1_)."""
     m, tag = g.m, g.tag
     rd = Reader(g)
     p = BB.Physics(crs)
     fails = []
+    stop = bench_stop()
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyB")
     frames, ev = 0, []
     first = True
-    while frames < BENCH:
+    while frames < BENCH and p.nstep < stop:
         m.run()
         assert m.wait_stop(60) == "breakpoint", "the benchmark stopped presenting (frame %d)" % frames
         if first:
@@ -555,13 +600,15 @@ def bench(g, crs):
     m.bp_exec()
     m.run()
     if not fails:
+        if g.b("bz_fs"):
+            g.key("Escape")                     # (stopped at its last needed step: Esc ends it, as any launch)
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark ends", guest=120)
         dropped(g, "the benchmark")
     kinds = {}
     for e in ev:
         kinds[e[0]] = kinds.get(e[0], 0) + 1
-    print("%s benchmark: %d frames, %d steps, the guest equal to bbcourse.Physics at every bz_presented: %s; "
-          "the run's events %s" % (tag, frames, p.nstep, "yes" if not fails else "NO",
+    print("%s benchmark: %d frames, %d steps (stopped at step %d), the guest equal to bbcourse.Physics at every "
+          "bz_presented: %s; the run's events %s" % (tag, frames, p.nstep, stop, "yes" if not fails else "NO",
                                    ", ".join("%s %d" % kv for kv in sorted(kinds.items())) or "none"),
           flush=True)
     if not fails and p.nfall:
@@ -596,20 +643,22 @@ def cut_check(g, name, frames, ev, win, Wc, rl, cuts, fails):
                          "cut" if want else "no cut", px, py, win[0], win[1]))
 
 
-def scenario(g, crs, name):
-    """Part 2: one of wave 1's poked scenarios on FIRST in play mode."""
+def scenario(g, name):
+    """Part 2: one of wave 1's poked scenarios (SCEN_T: on BENCH or TPLY) in play mode."""
     m, tag = g.m, g.tag
-    (wx, wy), gvx, gvy, nmax = SCEN[name]
+    cname, (wx, wy), gvx, gvy, nmax = SCEN_T[name]
+    crs = R.course(cname)
     rd = Reader(g)
     fails = []
-    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: FIRST poked)
-    g.putb("bz_crsel", R.CRS_K["first"])
+    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: the scenario's poked)
+    g.putb("bz_crsel", R.CRS_K[cname])
     m.run()
     g.key("KeyF")
-    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on FIRST runs", guest=60)
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "play mode on %s runs" % cname.upper(),
+            guest=60)
     m.pause()
     g.check_base()
-    assert g.b("bz_mode") == 0 and g.b("bz_crs") == R.CRS_K["first"], "Enter did not play FIRST"
+    assert g.b("bz_mode") == 0 and g.b("bz_crs") == R.CRS_K[cname], "F did not play %s" % cname.upper()
     wk = R.Walker(g, t0=True)
     m.bp_exec(wk.t0, wk.pr)
     while wk.next() != "t0":
@@ -701,8 +750,8 @@ def scenario(g, crs, name):
     _say(tag, name, out, fails)
     if name == "pit" and not fails:
         r = [e for e in p.events if e[0] == "respawn"]
-        if not r or r[0][2] != (6, 5):
-            fails.append("pit: the model's respawn was %s, not on the SAFE cell (6, 5)" % r)
+        if not r or r[0][2] == BB.Grid(crs.cga, crs.wcga).start:
+            fails.append("pit: the model's respawn was %s, not on a SAFE cell (the start is the respawn red's)" % r)
     if name == "lip" and not fails and (contact is None or not [e for e in p.events if e[0] == "takeoff"]):
         fails.append("lip: no take-off and contact in %d frames (%s)" % (frames, p.events[:4]))
     if name == "rail" and not fails and not p._reb:
@@ -771,15 +820,23 @@ def _say(tag, name, out, fails):
 
 class MarkPhysics(BB.Physics):
     """the model, noting the rail's REBOUND: a step that turns gvy from
-    negative to positive while gvx stays non-zero, on the ground"""
-    _reb = False
+    negative to positive while gvx stays non-zero, on the ground.  (The step is
+    wrapped on the INSTANCE: on a course with families - TPLY's springs - the
+    model's constructor makes the instance a _FamPhysics, whose MRO no longer
+    holds this class's methods)"""
 
-    def step(self, keys=0):
-        g0 = (self.gvx, self.gvy)
-        r = BB.Physics.step(self, keys)
-        if g0[1] < 0 < self.gvy and self.gvx and not self.air:
-            self._reb = True
-        return r
+    def __init__(self, *a, **kw):
+        BB.Physics.__init__(self, *a, **kw)
+        self._reb = False
+        inner = self.step
+
+        def step(keys=0, *more):
+            g0 = (self.gvx, self.gvy)
+            r = inner(keys, *more)
+            if g0[1] < 0 < self.gvy and self.gvx and not self.air:
+                self._reb = True
+            return r
+        self.step = step
 
 
 # ---- the replays (SPEC.md 130.11.17.2) -----------------------------------------
@@ -855,16 +912,41 @@ def tile(crs, mat, wx, wy, gvx=0, gvy=0, lvl=(0, 0, 0, 0), lift=0):
     return poke_of(p)
 
 
-def shot(mat, v=BB.VMAXG, off=0):
-    """bbcourse._trial_shot's poke: on H 20 gu before its lip at gvx V, the chord's levels full"""
-    p = BB.Physics(R.course("trial"), play=True, mat=mat).poke(BB.TRIAL_H[0][1] - 1, 11)
-    lip = BB.TRIAL_H[0][1] * BB.TILE
-    p.gx = (lip << 8) - (20 << 8)
-    p.gy = ((11 * BB.TILE + 8) << 8) + (off << 8)
-    p.gvx = v
-    p.lvl = [0, BB.LVL_MAX, 0, BB.LVL_MAX]
+# ---- THE TEST COURSES (SPEC.md 130.54; docs/plans/BOUNCE-BONANZA-SOAK.md's TPLAY table) ---------------
+# Every replay below runs on a TEST course of the BZDEV=1 build - TPLY (physics and replays), TMIL (the
+# wheel and the ring, MILL's top cell for cell), TCUP (the cup), TQUIK (the timeout), BENCH (the SAFE
+# respawn and the benchmark) - never on a prototype (FIRST, TRIAL, MILL, MOON, PEAK, PLAYGROUND), so the
+# prototypes can leave the build without this row noticing.  TPLY's cells, as its file lays them:
+TP = "tply"
+TP_RUNGS = ((1.5, (10, 9, 13, 12)), (1, (13, 9, 16, 12)), (0.5, (16, 9, 19, 12)), (2, (7, 9, 10, 12)))
+TP_FRONT = 17                   # the apron's front row: each rung approached along -wy from it, at the cap
+TP_LANE, TP_STRIP = 12, (18, 21)    # the brake strip: its lane's wx and its three tiles' wy (then the void)
+TP_GAPROW = 11                  # the rungs' front row: the lane's run starts on the apron's back row, wy 12
+TP_LIP = 18                     # H's lip (the apron's front edge, wy 18): TRIAL's turned a quarter
+TP_MAT = (23, 29)               # the mat beside the steep ramp's foot
+TP_G = (19, 26)                 # G, the gap's far floor (flag 1 on it)
+TP_F = (19, 19)                 # F, 6 units under H
+# TRIAL turned a quarter (cell (Tx, Ty) -> (Ty + 8, Tx + 9)): its +wx is +wy here, so its chord along +wx
+# (Right + Down) is Left + Down along +wy, and the axes of every velocity swap
+CHORD_Y = K.K_L | K.K_D         # +wy
+CHORD_MY = K.K_R | K.K_U        # -wy
+
+
+def tp_shot(mat, v=BB.VMAXG, off=0):
+    """bbcourse._trial_shot's poke turned onto TPLY: on H 20 gu before its lip (wy 18) at gvy V, the chord's
+    (Left + Down) levels full"""
+    p = BB.Physics(R.course(TP), play=True, mat=mat).poke(TP_F[0], TP_LIP - 1)
+    p.gy = ((TP_LIP * BB.TILE) << 8) - (20 << 8)
+    p.gx = ((TP_F[0] * BB.TILE + 8) << 8) + (off << 8)
+    p.gvx, p.gvy = 0, v
+    p.lvl = [BB.LVL_MAX, 0, 0, BB.LVL_MAX]
     p._derive(True)
     return poke_of(p)
+
+
+def tp_rect(H):
+    r = dict(TP_RUNGS)[H]
+    return BB._rect(r), r
 
 
 def ev_of(crs, mat, poke, keys):
@@ -876,19 +958,20 @@ _ONCE = {}
 
 
 def _once_list(fn):
-    """FN (a no-argument scenario list over the SHIPPED courses and the host's model) computed once a
-    process: each call -> fresh copies of its dicts"""
-    def wrap():
-        if fn.__name__ not in _ONCE:
-            _ONCE[fn.__name__] = fn()
-        return [dict(s) for s in _ONCE[fn.__name__]]
+    """FN (a scenario list over the compiled courses and the host's model, its arguments hashable) computed
+    once a process for each set of arguments: each call -> fresh copies of its dicts"""
+    def wrap(*a):
+        key = (fn.__name__,) + a
+        if key not in _ONCE:
+            _ONCE[key] = fn(*a)
+        return [dict(s) for s in _ONCE[key]]
     wrap.__name__, wrap.__doc__ = fn.__name__, fn.__doc__
     return wrap
 
 
 def replays():
-    """replays_() ONCE A PROCESS (BOUNCE-BONANZA-SOAK principle 5): the scenarios read only the SHIPPED
-    courses (R.course with no SRC) and the host's model, never a red tree's package, so a red arm's run
+    """replays_() ONCE A PROCESS (BOUNCE-BONANZA-SOAK principle 5): the scenarios read only the compiled
+    TEST courses (R.course with no SRC) and the host's model, never a red tree's package, so a red arm's run
     gets the same list honestly.  -> fresh copies of the dicts (prove() writes `parts_at` into its own)"""
     if "replays" not in _ONCE:
         _ONCE["replays"] = replays_()
@@ -898,104 +981,108 @@ def replays():
 def replays_():
     """-> [scenario dicts]: name, course, material, poke (None: the start), the
     key bytes, the proof on the model (a description and a bool), and the red
-    arm the scenario is the check of (the model's switch, when it has one)"""
+    arm the scenario is the check of (the model's switch, when it has one).
+    Every one on a TEST course (above); the families' (w9_replays: PLAYGROUND's
+    GLASS, PROBE and PICKUPS) are NOT among them - no test course carries a
+    family yet (the plan's OPEN item), so they are `--families`' alone"""
     S = []
 
     def add(name, crs, mat, poke, keys, what, ok, red=None):
         S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
                   "ok": bool(ok), "red": red})
-    for mat in range(3):                          # the ramp and the coast, from TRIAL's start
-        keys = [K.K_R] * 12 + [0] * 2 + [K.K_R] * 10 + [CHORD_X] * 24 + [0] * 30
-        p, ev = ev_of("trial", mat, None, keys)
-        moved = model("trial", mat, None)
+    for mat in range(3):                          # the ramp and the coast, from TPLY's start (TRIAL's turned)
+        keys = [K.K_L] * 12 + [0] * 2 + [K.K_L] * 10 + [CHORD_Y] * 24 + [0] * 30
+        p, ev = ev_of(TP, mat, None, keys)
+        moved = model(TP, mat, None)
         mv = []
         for k in keys:
             moved.step(k)
-            mv.append(moved.gvx)
-        add("ramp-%s" % BB.MAT_NAMES[mat], "trial", mat, None, keys, "it moves and coasts (gvx peak %d)" % max(mv),
+            mv.append(moved.gvy)
+        add("ramp-%s" % BB.MAT_NAMES[mat], TP, mat, None, keys, "it moves and coasts (gvy peak %d)" % max(mv),
             max(mv) > 0 and not p.nfall)
     keys = [0] * 5 + [K.K_HOP] * 3 + [0] * 40
-    p, ev = ev_of("trial", 0, None, keys)
-    add("hop", "trial", 0, None, keys, "a Hop from the ground", "hop" in ev)
+    p, ev = ev_of(TP, 0, None, keys)
+    add("hop", TP, 0, None, keys, "a Hop from the ground", "hop" in ev)
     base = [0] * 5 + [K.K_HOP] * 2 + [0] * 60       # (glass: rubber's is a BOOST since wave 6, the
-    p, ev = ev_of("trial", BB.MAT_GLASS, None, base)  # `boost` replay's; SPEC.md 130.11.7.2 as amended)
+    p, ev = ev_of(TP, BB.MAT_GLASS, None, base)     # `boost` replay's; SPEC.md 130.11.7.2 as amended)
     c1 = [e[1] for e in p.events if e[0] in ("bounce", "land")]
     t = c1[0] if c1 else 30
     keys = [0] * 5 + [K.K_HOP] * 2 + [0] * (t - 9) + [K.K_HOP] * 2 + [0] * 40
-    p, ev = ev_of("trial", BB.MAT_GLASS, None, keys)
-    add("hopagain", "trial", BB.MAT_GLASS, None, keys, "glass: Space at the Hop's own landing (step %d) hops at "
+    p, ev = ev_of(TP, BB.MAT_GLASS, None, keys)
+    add("hopagain", TP, BB.MAT_GLASS, None, keys, "glass: Space at the Hop's own landing (step %d) hops at "
         "the contact" % t, ev.count("hop") == 1 and "hopc" in ev and not p.nboost)
-    pk = tile("first", 0, 8, 4, -200, 0, (BB.LVL_MAX, 0, BB.LVL_MAX, 0))
+    pk = tile(TP, 0, 33, 32, -200, 0, (BB.LVL_MAX, 0, BB.LVL_MAX, 0))     # the plateau's ramp, its lip
     keys = [CHORD_MX] * 2 + [CHORD_MX | K.K_HOP] + [CHORD_MX] * 47
-    p, ev = ev_of("first", 0, pk, keys)
-    add("stepup", "first", 0, pk, keys, "a Hop up B's ramp the airborne margin decides", "hop" in ev,
+    p, ev = ev_of(TP, 0, pk, keys)
+    add("stepup", TP, 0, pk, keys, "a Hop up the plateau's ramp the airborne margin decides", "hop" in ev,
         red={"_no_airclimb": True})
-    pk = tile("trial", 0, 5, 11, 300, 0)
+    pk = tile(TP, 0, 19, 14, 0, 300)
     keys = [K.K_GRIP] * 45 + [0] * 10
-    p, ev = ev_of("trial", 0, pk, keys)
-    add("grip", "trial", 0, pk, keys, "Grip from 300 stops it on H", p.gvx == 0 and "takeoff" not in ev)
-    pk = tile("trial", 0, 10, 11, lift=48)
+    p, ev = ev_of(TP, 0, pk, keys)
+    add("grip", TP, 0, pk, keys, "Grip from 300 stops it on H", p.gvy == 0 and p.gvx == 0
+        and "takeoff" not in ev)
+    pk = tile(TP, 0, TP_F[0], TP_F[1], lift=48)
     keys = [K.K_GRIP] * 80
-    p, ev = ev_of("trial", 0, pk, keys)
-    add("catch", "trial", 0, pk, keys, "a 6-unit drop caught at the first contact", "land" in ev
-        and "bounce" not in ev and ev_of("trial", 0, pk, [0] * 80)[1].count("bounce") > 0)
-    pk = tile("trial", 0, 17, 11, 300, 0, (0, BB.LVL_MAX, 0, BB.LVL_MAX))
+    p, ev = ev_of(TP, 0, pk, keys)
+    add("catch", TP, 0, pk, keys, "a 6-unit drop caught at the first contact", "land" in ev
+        and "bounce" not in ev and ev_of(TP, 0, pk, [0] * 80)[1].count("bounce") > 0)
+    pk = tile(TP, 0, 35, 28, 300, 0, (0, BB.LVL_MAX, 0, BB.LVL_MAX))     # the yard's plain east wall
     keys = [CHORD_X] * 120
-    add("eastwall", "trial", 0, pk, keys, "held into G's east rail", True, red={"_east_w1": True})
-    pk = tile("trial", 1, 13, 17, 0, -200)
+    add("eastwall", TP, 0, pk, keys, "held into the yard's east wall", True, red={"_east_w1": True})
+    pk = tile(TP, 1, 25, 22, -200, 0)                                      # into the ice's back bumper rail
     keys = [0] * 40
-    p, ev = ev_of("trial", 1, pk, keys)
-    q = model("trial", 1, pk)
+    p, ev = ev_of(TP, 1, pk, keys)
+    q = model(TP, 1, pk)
     back = None
     for k in keys:
-        g0 = q.gvy
+        g0 = q.gvx
         q.step(k)
-        if g0 < 0 < q.gvy:
-            back = (g0, q.gvy)
+        if g0 < 0 < q.gvx:
+            back = (g0, q.gvx)
             break
-    add("bumper", "trial", 1, pk, keys, "steel off the bumper rail: %s" % (back,),
+    add("bumper", TP, 1, pk, keys, "steel off the bumper rail: %s" % (back,),
         back is not None and back[1] == (BB.E_BUMPER * -back[0]) >> 8)
-    pk = tile("trial", 0, 15, 17, -300, 0)
+    pk = tile(TP, 0, 25, 24, 0, -300)
     keys = [0] * 20
-    p, ev = ev_of("trial", 0, pk, keys)
-    add("ice", "trial", 0, pk, keys, "a coast over ice keeps -300", p.gvx == -300)
-    pk = tile("trial", 0, 12, 18, -300, 0)
+    p, ev = ev_of(TP, 0, pk, keys)
+    add("ice", TP, 0, pk, keys, "a coast over ice keeps -300", p.gvy == -300)
+    pk = tile(TP, 0, 26, 21, 0, -300)
     keys = [0] * 60
-    p, ev = ev_of("trial", 0, pk, keys)
-    q = model("trial", 0, pk)
+    p, ev = ev_of(TP, 0, pk, keys)
+    q = model(TP, 0, pk)
     on = 0
     for k in keys:
         q.step(k)
         on += q.cell(q.gx >> 12, q.gy >> 12)[5] == BB.SURF_SAND
         if q.goal:
             break
-    add("sand", "trial", 0, pk, keys, "a coast onto the sand (%d steps on it)" % on, on > 0)
-    pk = tile("trial", 1, BB.TRIAL_MAT[0], BB.TRIAL_MAT[1], lift=48)
+    add("sand", TP, 0, pk, keys, "a coast onto the sand (%d steps on it)" % on, on > 0)
+    pk = tile(TP, 1, TP_MAT[0], TP_MAT[1], lift=48)
     keys = [0] * 150
-    p, ev = ev_of("trial", 1, pk, keys)
-    add("mat", "trial", 1, pk, keys, "steel dropped onto the mat bounces, unhurt",
+    p, ev = ev_of(TP, 1, pk, keys)
+    add("mat", TP, 1, pk, keys, "steel dropped onto the mat bounces, unhurt",
         "bounce" in ev and "stun" not in ev)
-    pk = shot(0)
-    keys = [CHORD_X] * 150
-    p, ev = ev_of("trial", 0, pk, keys)
-    add("bounce", "trial", 0, pk, keys, "rubber off H's lip bounces on F, over the gap",
+    pk = tp_shot(0)
+    keys = [CHORD_Y] * 150
+    p, ev = ev_of(TP, 0, pk, keys)
+    add("bounce", TP, 0, pk, keys, "rubber off H's lip bounces on F, over the gap",
         "bounce" in ev and not p.nfall and p.m["EF"] != p.m["EW"])
-    pk = shot(1)
-    keys = [CHORD_X] * 120
-    p, ev = ev_of("trial", 1, pk, keys)
-    add("stun", "trial", 1, pk, keys, "steel stunned on F", "stun" in ev, red={"_no_stun": True})
-    pk = shot(2)
-    keys = [CHORD_X] * 120
-    p, ev = ev_of("trial", 2, pk, keys)
-    add("shatter", "trial", 2, pk, keys, "glass shattered on F and respawned 24 steps later",
+    pk = tp_shot(1)
+    keys = [CHORD_Y] * 120
+    p, ev = ev_of(TP, 1, pk, keys)
+    add("stun", TP, 1, pk, keys, "steel stunned on F", "stun" in ev, red={"_no_stun": True})
+    pk = tp_shot(2)
+    keys = [CHORD_Y] * 120
+    p, ev = ev_of(TP, 2, pk, keys)
+    add("shatter", TP, 2, pk, keys, "glass shattered on F and respawned 24 steps later",
         "shatter" in ev and "respawn" in ev)
-    for mat in (1, 2):
-        pk = tile("trial", mat, 17, 11, 0, BB.VMAXG, (BB.LVL_MAX, 0, 0, BB.LVL_MAX))
-        keys = [K.K_L | K.K_D] * 20 + [K.K_L | K.K_D | K.K_HOP] + [K.K_L | K.K_D] * 49
-        p, ev = ev_of("trial", mat, pk, keys)
-        add("ramphop-%s" % BB.MAT_NAMES[mat], "trial", mat, pk, keys, "a Hop down the steep ramp, unhurt",
+    for mat in (1, 2):                            # G along +wx at the cap, a Hop down the steep ramp
+        pk = tile(TP, mat, TP_G[0], TP_G[1], BB.VMAXG, 0, (0, BB.LVL_MAX, 0, BB.LVL_MAX))
+        keys = [CHORD_X] * 20 + [CHORD_X | K.K_HOP] + [CHORD_X] * 49
+        p, ev = ev_of(TP, mat, pk, keys)
+        add("ramphop-%s" % BB.MAT_NAMES[mat], TP, mat, pk, keys, "a Hop down the steep ramp, unhurt",
             "hop" in ev and "stun" not in ev and "shatter" not in ev, red={"_abs_impact": True})
-    return S + mill_replays() + w4_replays() + w6_replays() + w9_replays()
+    return S + mill_replays("tmil") + w4_replays() + w6_replays()
 
 
 # ---- wave 9 (SPEC.md 130.25.6, 130.25.7, 130.25.15): the families -----------------
@@ -1011,11 +1098,12 @@ def probe_bit(p):
     return p.fst[b >> 3] >> (b & 7) & 1
 
 
-def mill_demo_keys():
-    """story 9.8: MILL's shipped demo (its ROUTE DEMO, the build's BZD3: the
-    model's autopilot from the start) -> (material, keys)"""
-    c = R.course("mill")
-    _K, mat, kt, _fl = BB.decode_log_t(BB.route_demo(c, R.CRS_K["mill"]))
+def route_keys(crs):
+    """story 9.8: course CRS's ROUTE DEMO (bbcourse.route_demo: the model's autopilot from the start, as the
+    build makes a shipped course's demo) -> (material, keys).  The test courses own no shipped demo, so this
+    is THEIR route's log, made from the model"""
+    c = R.course(crs)
+    _K, mat, kt, _fl = BB.decode_log_t(BB.route_demo(c, R.CRS_K[crs]))
     assert all(tt == BB.TILT_KEYS for _k, tt in kt)
     return mat, [k for k, _tt in kt]
 
@@ -1830,7 +1918,25 @@ def _cellb(c):
     return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
 
 
-def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None, slice=None, out=()):
+class _UView:
+    """a UGuest seen as Reader (and compare_tables) see a MartyPC guest: its bss through .m.read at .base +
+    an offset, .b, .a - so the FULL state the glass row compares a frame is compared here a STEP"""
+
+    def __init__(self, ug):
+        self.ug, self.sym, self.base, self.m = ug, ug.sym, UCS * 16, self
+
+    def read(self, at, n):
+        return bytes(self.ug.mu.mem_read(at, n))
+
+    def b(self, n):
+        return self.ug.r(n, 1, False)
+
+    def a(self, n):
+        return self.base + self.sym[n]
+
+
+def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None, slice=None, out=(),
+         full=False, tilts=None, tables=False):
     """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
     bz_step under unicorn, the model stepped beside it and compared after
     every step: the ball (Physics.state), and on a course with families
@@ -1844,6 +1950,12 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     change there must leave its lane UNmarked, and one inside it marked.
     OUT: lanes poked OUT of the column band (bz_lout 1, as a walk leaves a
     lane of the slice outside it): unmarked too (130.19.10 item 12).
+    FULL: after every step also everything compare() holds a MartyPC frame to
+    (Physics.state2, 3, 4, 6, 7, the exit, the counters; TABLES: a pad's
+    record and force tables too) - bonanzaphys's replays proved STEP FOR STEP
+    here, so the glass row replays only a representative few (BOUNCE-BONANZA-
+    SOAK principle 3); TILTS: a TILT log's tilt byte a step.  A replay's goal
+    or timeout ends the run there, as the guest's replay ends.
     -> (model, failures)"""
     c = R.course(crs, src=src)
     g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
@@ -1895,9 +2007,11 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     for j in out:                                       # (130.19.10 item 12: held OUT of the column band)
         g.w("bz_lout", 1, 1, j)
     alll = [pr["i"] for pr in p.props if pr.get("lane")]    # SPEC.md 130.19.10 item 10: EVERY lane's KICK and
-    for i, k in enumerate(keys):                            # HOLD too (bz_pkick, bz_lhold: a post's)
+    rd = Reader(_UView(g)) if full else None                # HOLD too (bz_pkick, bz_lhold: a post's)
+    for i, k in enumerate(keys):
+        t_ = tilts[i] if tilts and i < len(tilts) else BB.TILT_KEYS
         g.w("bz_keys", k, 1)
-        g.w("bz_tilt", BB.TILT_KEYS, 1)
+        g.w("bz_tilt", t_, 1)
         if lanes:                               # (the display's: every element lane unmarked, the walk
             pose0 = [p.fpose(pr) for pr in lanes]   # QUIET, as after a walk that skipped every lane)
         if alll:
@@ -1906,7 +2020,17 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
             g.w("bz_lqt", 1, 1)
             kh0 = [(g.r("bz_pkick", 2, False, 2 * j), g.r("bz_lhold", 1, False, j)) for j in alll]
         g.call("bz_step")
-        p.step(k)
+        p.step(k, t_)
+        if rd is not None:                      # (FULL: the glass row's whole comparison, a step)
+            st_, s2_, ext_ = rd.read()
+            d_ = compare("step", i + 1, st_, s2_, ext_, p)
+            if not d_ and tables:
+                d_ = compare_tables("step", i + 1, rd.tables(), p)
+            if d_:
+                bad.append(d_.replace("step frame ", "step ", 1))
+                break
+            if p.goal or p.tout:                # (the replay's end: the guest's bz_t0 leaves the bracket here)
+                break
         if lanes:                               # SPEC.md 130.25.6.3: a step that moves an element's
             for pr, q0 in zip(lanes, pose0):    # pose MARKS its lane and makes the next walk (bz_lqt 0,
                 q1 = p.fpose(pr)                # bz_nset's rule: the quiet walk reads no mark)
@@ -2001,15 +2125,11 @@ def fam_host():
     out.append("the probe scenario (entered at %d, a RETURN at %d): %s (slot %s)" % (
         ent + 1, ent + 31, "; ".join(bad) or "equal at every step", bytes(p.fsl[0]).hex()))
     fails += bad
-    for crs, f in (("mill", None), ("moon", "moon.bzd"), ("peak", "summit.bzd")):
-        if f:
-            d = BB.parse_bzd(open(os.path.join(ROOT, "apps", "bonanza", "demos", f)).read())
-            mat, kk = d["ball"], [k for k, n, _t in d["runs"] for _ in range(n)]
-        else:                                   # (MILL's: its route demo, the build's BZD3)
-            mat, kk = mill_demo_keys()
+    for crs in ("tmil", "tply", "tquik", "tcup"):   # the TEST courses' routes (no prototype's demo: the plan's
+        mat, kk = route_keys(crs)                   # phase 3), each the model's autopilot to its goal or cup
         p, bad = urun(binp, lst, sym, crs, mat, kk, fam)
         names = [BB.FAM_BY_ID[fid]["name"] for fid, _v in p.grid.fams]
-        out.append("%s's demo, %d steps, families %s (%d tube rides, %d knocks, %d springs): %s" % (
+        out.append("%s's route, %d steps, families %s (%d tube rides, %d knocks, %d springs): %s" % (
             crs.upper(), len(kk), "+".join(names) or "none", p.ntube, p.nknock, p.nspr, "; ".join(bad) or "equal"))
         fails += bad
     # GLASS (SPEC.md 130.25.8, 130.25.18): its scenarios, every step
@@ -2039,20 +2159,23 @@ def fam_host():
     out.append("red grpcomb: %s" % ("red at %s" % bad[0] if ok else "STAYED GREEN"))
     if not ok:
         fails.append("red grpcomb stayed green on the unicorn: %s" % bad[:1])
-    # story 9.8 (SPEC.md 130.25.20): every MILL, MOON and PEAK scenario of the replays (the windmills'
-    # knocks and doorways, the tubes' KEEP, DROP and LAUNCH - the cannon - the bumpers, the springs), the
-    # guest's bz_step under unicorn with the three families' parts against the model at every step
+    # story 9.8 (SPEC.md 130.25.20), and BOUNCE-BONANZA-SOAK phase 3: EVERY scenario of the replays - all on
+    # the TEST courses (TPLY, TMIL, TCUP, TQUIK: the windmills' knocks and doorways, the tubes' KEEP, DROP and
+    # LAUNCH - the cannon - the bumpers, the lift, the springs, the flags, the pads, the cup, the boost and its
+    # grace, the drag, the timeout, the exits) - the guest's bz_step under unicorn with the families' parts
+    # against the model at EVERY STEP, the whole state the glass row compares a frame (urun's FULL): the
+    # physics proved step for step on the host, so the MartyPC half replays a representative few a card
     nsc, nst = 0, 0
     for s in replays():
-        if s["crs"] not in ("mill", "moon", "peak") or s.get("tilts"):
-            continue
-        p, bad = urun(binp, lst, sym, s["crs"], s["mat"], s["keys"], fam, poke=s["poke"])
-        nsc, nst = nsc + 1, nst + len(s["keys"])
+        p, bad = urun(binp, lst, sym, s["crs"], s["mat"], s["keys"], fam, poke=s["poke"], full=True,
+                      tilts=s.get("tilts"), tables=bool(s.get("tables")))
+        nsc, nst = nsc + 1, nst + p.nstep
         if bad:
             fails += ["scenario %s: %s" % (s["name"], b) for b in bad]
             out.append("scenario %s (%s): %s" % (s["name"], s["crs"], "; ".join(bad)[:300]))
-    out.append("%d MILL / MOON / PEAK scenarios, %d steps, with the ROTOR, SPRING and TUBE parts: %s" % (
-        nsc, nst, "equal at every step" if not [f for f in fails if f.startswith("scenario")] else "FAILED"))
+    out.append("%d replay scenarios on the test courses, %d steps, the whole state compared every step, with the "
+               "ROTOR, SPRING and TUBE parts: %s" % (
+                   nsc, nst, "equal at every step" if not [f for f in fails if f.startswith("scenario")] else "FAILED"))
     # red kickquiet (SPEC.md 130.19.10 item 10): the KICK's write of bz_pkick without its bz_lqt clear - the
     # post marked but the walk left quiet, so a lit post is never drawn (MILL's `kick` scenario must go red
     # with "never drawn"; the 39 above are its control)
@@ -2158,8 +2281,9 @@ def fam_host():
     if not ok:
         fails.append("red glspart stayed green on the unicorn: %s" % bad[:1])
     # the RESIDENT BUNDLE (SPEC.md 130.25.6.9): the demos above found rotor, spring and tube by walking its
-    # headers (bz_fbfind); red `bunwalk` - the first header's +11 one paragraph long - and PEAK, which names
-    # all three, is refused by bz_ffetch (the next header is not where the step lands)
+    # headers (bz_fbfind); red `bunwalk` - the first header's +11 one paragraph long - and TMIL, which names
+    # two (rotor and tube: a test course; PEAK, which named all three, is a prototype), is refused by
+    # bz_ffetch (the next header is not where the step lands)
     if BB.FAM_RES:
         ff = dict(fam)
         row = max(ff)
@@ -2169,16 +2293,16 @@ def fam_host():
         ff[row] = bytes(b)
         cf = []
         for parts in (fam, ff):                 # (the control first: the same leg, the build's bundle)
-            g = UGuest(binp, lst, sym, R.course("peak").cga, parts)
+            g = UGuest(binp, lst, sym, R.course("tmil").cga, parts)
             g.w("bz_cseg", UPS, 2)
             if "bz_mseg" in sym:                # (one part: in both words, SPEC.md 130.30.5)
                 g.w("bz_mseg", UPS, 2)
-            g.w("bz_crs", R.CRS_K["peak"], 1)
+            g.w("bz_crs", R.CRS_K["tmil"], 1)
             g.w("bz_fs", 1, 1)                  # (OP_SAYGATE: the refusal quiet, as inside a bracket)
             g.call("bz_crshdr")
             cf.append(g.call("bz_ffetch")[1])
         red = cf == [0, 1]
-        out.append("red bunwalk: %s" % ("red: bz_ffetch refused PEAK (its control fetched all three)" if red
+        out.append("red bunwalk: %s" % ("red: bz_ffetch refused TMIL (its control fetched both)" if red
                                         else "STAYED GREEN (CF %s)" % cf))
         if not red:
             fails.append("red bunwalk stayed green: a bundle header's step one paragraph off went unnoticed")
@@ -2267,18 +2391,18 @@ MG_SCENES = (
 
 
 def every_family(binp, lst, sym, fam, patch=()):
-    """SPEC.md 130.25.6.5: PEAK's part with its family list replaced by EVERY family of the build (ID order,
-    each its FAMV), through bz_crshdr and bz_ffetch under unicorn -> (ok, what): bz_fnf and bz_fhk, each
+    """SPEC.md 130.25.6.5: TPLY's part (a test course; PEAK's was, a prototype) with its family list replaced
+    by EVERY family of the build (ID order, each its FAMV), through bz_crshdr and bz_ffetch under unicorn -> (ok, what): bz_fnf and bz_fhk, each
     slot record's ID and FAMV, and each hook's list (bz_fhs, bz_fhl) against what the parts' heads say -
     hook by hook, every slot in order whose mask has it and whose entry is not 0, packed"""
-    part = bytearray(R.course("peak").cga)
+    part = bytearray(R.course("tply").cga)
     struct.pack_into("<BH", part, 45, len(BB.FAMILIES), len(part))
     part += bytes(x for f in BB.FAMILIES for x in (f["id"], BB.famv(f))) + b"\0"     # (NFST 0: no mask)
     g = UGuest(binp, lst, sym, part, fam, patch)
     g.w("bz_cseg", UPS, 2)
     if "bz_mseg" in sym:
         g.w("bz_mseg", UPS, 2)
-    g.w("bz_crs", R.CRS_K["peak"], 1)
+    g.w("bz_crs", R.CRS_K["tply"], 1)
     g.w("bz_fs", 1, 1)
     g.call("bz_crshdr")
     cf = g.call("bz_ffetch")[1]
@@ -3362,14 +3486,14 @@ def _noentry(part, h):
 
 
 # ---- MILL (SPEC.md 130.12.6, 130.12.13.2): every obstacle, as replays ------------
-def mill_rec(kind, at=None):
-    return next(r for r in R.course("mill").part["props"] if r["kind"] == kind and (at is None or r["at"] == at))
+def mill_rec(kind, at=None, crs="mill"):
+    return next(r for r in R.course(crs).part["props"] if r["kind"] == kind and (at is None or r["at"] == at))
 
 
-def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0):
-    """a MILL poke: tile (wx, wy)'s centre (DGX gu along x, or GY in 24.8), at
-    a ground velocity, LIFT px up"""
-    p = BB.Physics(R.course("mill"), play=True, mat=mat).poke(wx, wy, gvx, gvy)
+def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0, crs="mill"):
+    """a MILL poke (CRS: TMIL, MILL's top cell for cell, as bonanzaphys's own): tile (wx, wy)'s centre (DGX
+    gu along x, or GY in 24.8), at a ground velocity, LIFT px up"""
+    p = BB.Physics(R.course(crs), play=True, mat=mat).poke(wx, wy, gvx, gvy)
     p.gx += dgx << 8
     if gy is not None:
         p.gy = gy
@@ -3380,11 +3504,11 @@ def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0):
     return poke_of(p)
 
 
-def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0):
+def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0, crs="mill"):
     """the ball on (or over, or under) the LIFT's slab, in its shaft, as it
-    stands at step N0"""
-    P = mill_rec(BB.PK_PLATFORM)
-    p = BB.Physics(R.course("mill"), play=True, mat=mat)
+    stands at step N0 (CRS's lift: TMIL's for bonanzaphys's own)"""
+    P = mill_rec(BB.PK_PLATFORM, crs=crs)
+    p = BB.Physics(R.course(crs), play=True, mat=mat)
     A, I = P["at"], BB.plat_pos(P, n0 & 0xFFFF)
     p.gx, p.gy = (16 * A[0] + off[0]) << 8, (16 * A[1] + off[1]) << 8
     p.gz = (P["hP"] << 8) + I + ((zoff + lift) << 8)
@@ -3397,18 +3521,47 @@ def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0):
     return d
 
 
+# the posts each MILL scenario aims at, by course: (kick's post, cluster's ball tile and its two posts, the
+# post dropped onto).  TMIL's three bumpers stand on W in a row, (17, 16) and (20, 16) three apart: the
+# cluster's ricochet is between those two
+# The clock: MILL's (6, 13), rolled into from the right; TMIL's (6, 13) has a bumper beside it on that
+# side, (7, 13), so its scenario takes the FINISH clock (11, 21) on G's front-left corner from the right.
+# The chute's glass: MILL's 3-unit drop shatters it, TMIL's (W 12 onto F 8) does not - it bounces; and
+# TMIL's cannon lands on its GOAL ledge, so the launch ends at the goal there (a finish, not a fall).  And
+# TMIL's lift carries a rider that keeps rolling off its far side once the slab is high: the `fall`
+# scenario stops 80 steps in (its first contact at 33, any respawn after 100)
+MILL_POSTS = {"mill": ((14, 19), ((16, 19), 0, 64), (16, 18)),
+              "tmil": ((17, 16), ((19, 16), 128, 0), (17, 16))}
+MILL_CLOCK = {"mill": None, "tmil": (11, 21)}
+MILL_DROPS = {"mill": "shatter", "tmil": "bounce"}
+MILL_FALLN = {"mill": 160, "tmil": 80}
+
+
 @_once_list
-def mill_replays():
+def mill_replays(crs="mill"):
     """SPEC.md 130.12.13.2's thirteen MILL scenarios (fifteen replays: drop
     with each ball), each found and PROVED on the model - the idle steps that
     put the windmill's gate where the scenario needs it are SEARCHED, so a
     re-seeded course re-finds them - and each red arm's broken model shown to
-    part from it.  -> [scenario dicts], replays()'s shape"""
+    part from it.  CRS: "mill" (the default: bonanzawheel's and bonanzamega's
+    calls, until they move) or "tmil", the TEST course whose top is MILL's
+    cell for cell (bonanzaphys's own, replays()).  -> [scenario dicts],
+    replays()'s shape"""
     S = []
-    c = R.course("mill")
+    c = R.course(crs)
+    kick_at, (cl_at, cl_gvx, cl_gvy), post_at = MILL_POSTS[crs]
+
+    def mill_rec(kind, at=None):
+        return globals()["mill_rec"](kind, at, crs=crs)
+
+    def mill_poke(*a, **kw):
+        return globals()["mill_poke"](*a, crs=crs, **kw)
+
+    def slab_poke(*a, **kw):
+        return globals()["slab_poke"](*a, crs=crs, **kw)
 
     def add(name, mat, poke, keys, what, ok, red=None):
-        S.append({"name": name, "crs": "mill", "mat": mat, "poke": poke, "keys": keys, "what": what,
+        S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
                   "ok": bool(ok), "red": red})
 
     def evs(p, *kinds):
@@ -3421,7 +3574,7 @@ def mill_replays():
         pk = mill_poke(W["at"][0], W["at"][1] + 2)
         for d in range(W["mask"] + 1):
             keys = [0] * d + [UPR] * 200
-            p, _ = ev_of("mill", 0, pk, keys)
+            p, _ = ev_of(crs, 0, pk, keys)
             g = evs(p, "knock", "capture")
             if g and g[0][0] == want and g[0][2] == W["i"] and evs(p, "exit"):
                 return pk, keys[:evs(p, "exit")[0][1] + 20], p
@@ -3436,7 +3589,7 @@ def mill_replays():
     pk = mill_poke(W1["at"][0] - 1, W1["at"][1], gy=(16 * W1["at"][1] + BB.RAD) << 8)
     for d in range(W1["mask"] + 1):
         keys = [0] * d + [K.K_R] * 80
-        p, _ = ev_of("mill", 0, pk, keys)
+        p, _ = ev_of(crs, 0, pk, keys)
         g = evs(p, "knock", "capture")
         if g and g[0][0] == "capture":
             break
@@ -3446,34 +3599,34 @@ def mill_replays():
     pk, keys, p = gate(W0, "capture")
     add("keep", 0, pk, keys, "the KEEP tunnel of %s: out along its mouth at max(s_in, 64) (%s)" % (
         W0["at"], [e for e in evs(p, "exit")] if p else None), p and evs(p, "exit"), red={"_exit_vel": True})
-    B2 = mill_rec(BB.PK_BUMPER, (14, 19))
+    B2 = mill_rec(BB.PK_BUMPER, kick_at)
     pk = mill_poke(B2["at"][0] - 2, B2["at"][1] - 2, BB.VMAXG, BB.VMAXG)     # diagonal: past K, the rail's
     keys = [0] * 60                                                          # floor shows (K 384, O23)
-    p, _ = ev_of("mill", 0, pk, keys)
+    p, _ = ev_of(crs, 0, pk, keys)
     add("kick", 0, pk, keys, "diagonally at the cap into the post at %s: kicked (%s)" % (
         B2["at"], [(e[1], e[2], e[4]) for e in evs(p, "kick")]), evs(p, "kick") and not p.nfall,
         red={"_kick_k": True})
-    CK = mill_rec(BB.PK_CLOCK)                  # wave 7 (SPEC.md 130.18.5.3): a clock is a post with no kick
+    CK = mill_rec(BB.PK_CLOCK, MILL_CLOCK[crs])  # wave 7 (SPEC.md 130.18.5.3): a clock is a post with no kick
     # (from the RIGHT, rolling -x: since SPEC.md 130.18.5.4 MILL's clock stands at the floor's front-left corner,
     # (6, 13), with no floor to its left)
     pk = mill_poke(CK["at"][0] + 2, CK["at"][1], -BB.VMAXG, 0)
     keys = [0] * 60
-    p, _ = ev_of("mill", 0, pk, keys)
+    p, _ = ev_of(crs, 0, pk, keys)
     hit = evs(p, "kick")
-    add("clock", 0, pk, keys, "rolled at the cap into MILL's clock at %s: stopped by its ball's post, back at "
+    add("clock", 0, pk, keys, "rolled at the cap into the clock at %s: stopped by its ball's post, back at "
         "%s of %d (no kick: K 0), never past its centre" % (CK["at"], [e[4] for e in hit[:1]], BB.VMAXG),
         hit and hit[0][2] == CK["i"] and 0 < hit[0][4] < BB.VMAXG and p.gvx > 0 and not p.nfall
         and p.gx >> 8 > CK["cx"])
-    pk = mill_poke(16, 19, 0, 64)
+    pk = mill_poke(cl_at[0], cl_at[1], cl_gvx, cl_gvy)
     keys = [0] * 60
-    p, _ = ev_of("mill", 0, pk, keys)
+    p, _ = ev_of(crs, 0, pk, keys)
     who = [e[2] for e in evs(p, "kick")]
-    add("cluster", 0, pk, keys, "between the posts at (16, 18) and (16, 20): a ricochet (%s)" % who,
+    add("cluster", 0, pk, keys, "between two posts from %s: a ricochet (%s)" % (cl_at, who),
         len(set(who)) >= 2 and not p.nfall)
-    B3 = mill_rec(BB.PK_BUMPER, (16, 18))
+    B3 = mill_rec(BB.PK_BUMPER, post_at)
     pk = mill_poke(B3["at"][0], B3["at"][1], lift=B3["ph"] + 16)
     keys = [0] * 120
-    p, _ = ev_of("mill", 0, pk, keys)
+    p, _ = ev_of(crs, 0, pk, keys)
     top = (BB.Physics.h4(c and p.cell(*B3["at"]), 8, 8) >> 2) + B3["ph"]
     add("post", 0, pk, keys, "dropped onto the post at %s: it rests on the top (z %d, the top %d), unkicked "
         "(a Hop's apex, 4 px for rubber, is under a post's 8)" % (B3["at"], p.gz >> 8, top),
@@ -3487,8 +3640,8 @@ def mill_replays():
               K.K_L | K.K_D: K.K_R | K.K_U, K.K_R | K.K_U: K.K_L | K.K_D}[hi_in]
     pk = slab_poke(0)
     keys = [0] * (n_arr + 8) + [hi_out] * 60
-    p = run_keys("mill", 0, pk, keys)
-    q = model("mill", 0, pk)
+    p = run_keys(crs, 0, pk, keys)
+    q = model(crs, 0, pk)
     turn = lambda r: BB.sprite(r, 0)    # (the roll's phases, the CGA's: the Hercules' vertical one follows the
                                         # LINE's parity too, SPEC.md 130.11.9.2, which a rising lift moves)
     f0, spin = turn(q), 0
@@ -3501,14 +3654,14 @@ def mill_replays():
         carried == (0, 0, P["pmax"]) and not spin and not p.nfall and not p.air, red={"_carry_s": True})
     pk = slab_poke(0)
     keys = [0] * (n_dep + 20) + [K.K_HOP] + [0] * 70
-    p = run_keys("mill", 0, pk, keys)
+    p = run_keys(crs, 0, pk, keys)
     add("hop", 0, pk, keys, "a Hop on the RISING slab at step %d lands back on it (%s)" % (
         n_dep + 21, [(e[0], e[1]) for e in evs(p, "hop", "bounce", "land")][:4]),
         evs(p, "hop") and not p.nfall and p.onp == P["i"] + 1 and not p.air, red={"_stick": True})
     for lift in range(40, 4, -4):
         pk = slab_poke(0, off=(10, 6), lift=lift, onp=False)
         keys = [0] * 200
-        p = run_keys("mill", 0, pk, keys)
+        p = run_keys(crs, 0, pk, keys)
         b = evs(p, "bounce", "land")
         if b and b[0][1] < n_dep and not p.nfall and p.onp == P["i"] + 1 and not p.air:
             break
@@ -3519,9 +3672,9 @@ def mill_replays():
     pk = mill_poke(hi_rim[0], hi_rim[1], 32 * ux, 32 * uy, dgx=9 * ux)       # its centre just over the shaft
     if uy:
         pk["gy"] += (9 * uy) << 8
-    keys = [0] * 160
-    p = run_keys("mill", 0, pk, keys)
-    q = model("mill", 0, pk)
+    keys = [0] * MILL_FALLN[crs]
+    p = run_keys(crs, 0, pk, keys)
+    q = model(crs, 0, pk)
     first = None
     for k in keys:
         q.step(k)
@@ -3534,8 +3687,8 @@ def mill_replays():
         first and first[1] and first[2] and not p.nfall)
     pk = mill_poke(*hi_rim)
     keys = [0] * (n_arr + 4) + [hi_in] * 60
-    p = run_keys("mill", 0, pk, keys)
-    q = model("mill", 0, pk)
+    p = run_keys(crs, 0, pk, keys)
+    q = model(crs, 0, pk)
     boarded = False
     for k in keys:
         q.step(k)
@@ -3544,7 +3697,7 @@ def mill_replays():
         hi_rim,), boarded and not p.nfall)
     pk = slab_poke(n_dep + 4, zoff=-10, onp=False)
     keys = [0] * 80
-    p = model("mill", 0, pk)
+    p = model(crs, 0, pk)
     lifted = False
     for k in keys:
         p.step(k)
@@ -3555,14 +3708,14 @@ def mill_replays():
     TD = next(r for r in c.part["props"] if r["kind"] == BB.PK_TUBE and r["sub"] == BB.TK_DROP)
     pk = mill_poke(*TL["at"])
     keys = [0] * 160
-    p, _ = ev_of("mill", 0, pk, keys)
+    p, _ = ev_of(crs, 0, pk, keys)
     add("launch", 0, pk, keys, "the cannon at %s: swallowed, fired, landed (%s)" % (
-        TL["at"], [(e[0], e[1]) for e in evs(p, "capture", "exit", "bounce", "land")][:4]),
-        evs(p, "capture") and evs(p, "exit") and evs(p, "bounce", "land") and not p.nfall)
-    for mat, out in ((0, "bounce"), (1, "stun"), (2, "shatter")):
+        TL["at"], [(e[0], e[1]) for e in evs(p, "capture", "exit", "bounce", "land", "goal")][:4]),
+        evs(p, "capture") and evs(p, "exit") and (evs(p, "bounce", "land") or p.goal) and not p.nfall)
+    for mat, out in ((0, "bounce"), (1, "stun"), (2, MILL_DROPS[crs])):
         pk = mill_poke(*TD["at"], mat=mat)
         keys = [0] * 100
-        p, _ = ev_of("mill", mat, pk, keys)
+        p, _ = ev_of(crs, mat, pk, keys)
         add("drop-%s" % BB.MAT_NAMES[mat], mat, pk, keys, "the chute at %s, %s: %s (%s)" % (
             TD["at"], BB.MAT_NAMES[mat], out, [(e[0], e[1]) for e in evs(p, "capture", "exit", out)][:3]),
             evs(p, "capture") and evs(p, "exit") and evs(p, out))
@@ -3593,9 +3746,11 @@ def w4_poke(crs, wx, wy, mat, gvx=0, gvy=0, lift=0, extra=None, recpoke=None):
 
 @_once_list
 def w4_replays():
-    """wave 4's replays, each FOUND and PROVED on the model on the shipped
-    MOON and PEAK (SUMMIT) - the approaches searched, so a re-laid course re-finds
-    them - with the red arm's broken model shown to part where it has one"""
+    """wave 4's replays, each FOUND and PROVED on the model on the TEST courses
+    - TPLY's two flags (flag 0 rubber on the turn with the hole beside it, flag
+    1 glass on G), its three pads and its two springs; TCUP's cup - the
+    approaches searched, so a re-laid course re-finds them - with the red arm's
+    broken model shown to part where it has one"""
     S = []
 
     def add(name, crs, mat, poke, keys, what, ok, red=None, tilts=None, tables=False):
@@ -3604,96 +3759,98 @@ def w4_replays():
 
     def evs(p, *kinds):
         return [e for e in p.events if e[0] in kinds]
-    # flag: a pit past flag 0 respawns ON it (MOON)
-    F0 = w4_rec("moon", BB.PK_CHECKPOINT, num=0)[0]
+    # flag: rolled off flag 0 into the hole beside it: respawned ON it (TPLY)
+    F0 = w4_rec(TP, BB.PK_CHECKPOINT, num=0)[0]
     found = None
     for d in DIR8:
         for v in (0, 192, BB.VMAXG):
             ux = (1 if d & K.K_R else -1 if d & K.K_L else 0)
             uy = (1 if d & K.K_D else -1 if d & K.K_U else 0)
-            pk = w4_poke("moon", *F0["at"], mat=0, gvx=ux * v, gvy=uy * v)
+            pk = w4_poke(TP, *F0["at"], mat=0, gvx=ux * v, gvy=uy * v)
             keys = [d] * 240
-            p = run_keys("moon", 0, pk, keys)
+            p = run_keys(TP, 0, pk, keys)
             r = evs(p, "respawn")
             if evs(p, "flag") and r and r[0][2] == tuple(F0["at"]) and p.nfall >= 1:
                 found = (pk, keys[:r[0][1] + 30], r[0][1])
                 break
         if found:
             break
-    pk, keys, at = found if found else (w4_poke("moon", *F0["at"], mat=0), [0], None)
-    add("flag", "moon", 0, pk, keys, "rolled off flag 0 %s into a pit: respawned ON it at step %s" % (F0["at"], at),
+    pk, keys, at = found if found else (w4_poke(TP, *F0["at"], mat=0), [0], None)
+    add("flag", TP, 0, pk, keys, "rolled off flag 0 %s into a pit: respawned ON it at step %s" % (F0["at"], at),
         found, red={"_ckpt_safe": True})
-    # flagmat: a glass ball touching a flag in the air and shattering below it respawns there as the FLAG's ball
-    for crs, num in (("peak", 3), ("moon", 2)):
-        F = w4_rec(crs, BB.PK_CHECKPOINT, num=num)[0]
-        pk = w4_poke(crs, *F["at"], mat=BB.MAT_GLASS, lift=64)
+    # flagmat: a glass ball touching a flag in the air and shattering below it respawns there as the FLAG's ball:
+    # flag 1's glass (the same ball) and flag 0's rubber (another: the `ckmat` red's case)
+    for num, tag in ((1, "glass"), (0, "rubber")):
+        F = w4_rec(TP, BB.PK_CHECKPOINT, num=num)[0]
+        pk = w4_poke(TP, *F["at"], mat=BB.MAT_GLASS, lift=64)
         keys = [0] * 90
-        p = run_keys(crs, BB.MAT_GLASS, pk, keys)
+        p = run_keys(TP, BB.MAT_GLASS, pk, keys)
         r = evs(p, "respawn")
-        add("flagmat-%s" % crs, crs, BB.MAT_GLASS, pk, keys,
+        add("flagmat-%s" % tag, TP, BB.MAT_GLASS, pk, keys,
             "glass dropped 64 px onto flag %d %s (its ball %s): touched, shattered, respawned there as %s" % (
                 num, F["at"], BB.MAT_NAMES[F["ball"]], BB.MAT_NAMES[p.mat]),
-            evs(p, "flag") and evs(p, "shatter") and r and r[0][2] == tuple(F["at"]) and p.mat == F["ball"],
+            evs(p, "flag") and evs(p, "shatter") and r and r[0][2] == tuple(F["at"]) and p.mat == F["ball"]
+            and BB.MAT_NAMES[F["ball"]] == tag,
             red={"_ckmat_touch": True} if F["ball"] != BB.MAT_GLASS else None)
-    # padswap: every pad of MOON and PEAK, a ball of another material rolled on it with an arrow held
-    for crs in ("moon", "peak"):
-        for pd in w4_rec(crs, BB.PK_PAD):
-            mat = (pd["mat"] + 1) % 3
-            best = None
-            for d in DIR8:
-                pk = w4_poke(crs, *pd["at"], mat=mat)
-                keys = [0] * 3 + [d] * 24 + [0] * 12
-                p = run_keys(crs, mat, pk, keys)
-                if p.npad == 1 and not p.nfall and not p.nshat and not p.nstun and p.mat == pd["mat"]:
-                    best = (pk, keys)
-                    break
-            pk, keys = best if best else (w4_poke(crs, *pd["at"], mat=mat), [0] * 10)
-            add("padswap-%s-%d" % (crs, pd["i"]), crs, mat, pk, keys,
-                "%s rolled on %s's %s pad %s: swapped once, its record and tables" % (
-                    BB.MAT_NAMES[mat], crs.upper(), BB.MAT_NAMES[pd["mat"]], pd["at"]), best, tables=True)
-    # the cup (PEAK's): 128 holes out from a neighbour; the fastest approach under VMAXG that LIPS OUT;
+    # padswap: every pad of TPLY, a ball of another material rolled on it with an arrow held
+    for pd in w4_rec(TP, BB.PK_PAD):
+        mat = (pd["mat"] + 1) % 3
+        best = None
+        for d in DIR8:
+            pk = w4_poke(TP, *pd["at"], mat=mat)
+            keys = [0] * 3 + [d] * 24 + [0] * 12
+            p = run_keys(TP, mat, pk, keys)
+            if p.npad == 1 and not p.nfall and not p.nshat and not p.nstun and p.mat == pd["mat"]:
+                best = (pk, keys)
+                break
+        pk, keys = best if best else (w4_poke(TP, *pd["at"], mat=mat), [0] * 10)
+        add("padswap-%s" % BB.MAT_NAMES[pd["mat"]], TP, mat, pk, keys,
+            "%s rolled on TPLY's %s pad %s: swapped once, its record and tables" % (
+                BB.MAT_NAMES[mat], BB.MAT_NAMES[pd["mat"]], pd["at"]), best, tables=True)
+    # the cup (TCUP's): 128 holes out from a neighbour; the fastest approach under VMAXG that LIPS OUT;
     # a stunned steel ball in the mouth holes out after its stun; a shattering glass one does not
-    CU = w4_rec("peak", BB.PK_CUP)[0]
+    CU = w4_rec("tcup", BB.PK_CUP)[0]
     cx, cy = CU["at"]
     cap, lip = None, None
+    c0 = R.course("tcup")
     for ux, uy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         for dist in (1, 2):
-            c0 = R.course("peak")
             if BB.Grid(c0.cga, c0.wcga).cell(cx - ux * dist, cy - uy * dist)[3] != BB.KIND_FLOOR:
                 continue
             if cap is None:
-                pk = w4_poke("peak", cx - ux * dist, cy - uy * dist, mat=0, gvx=128 * ux, gvy=128 * uy)
-                p = run_keys("peak", 0, pk, [0] * 80)
+                pk = w4_poke("tcup", cx - ux * dist, cy - uy * dist, mat=0, gvx=128 * ux, gvy=128 * uy)
+                p = run_keys("tcup", 0, pk, [0] * 80)
                 if evs(p, "cup") and not p.nlip:
                     cap = (pk, [0] * (evs(p, "cup")[0][1] + 4), evs(p, "cup")[0][1])
             if lip is None:
                 for v in (256, 240, 224, 208, 192):
-                    pk = w4_poke("peak", cx - ux * dist, cy - uy * dist, mat=0, gvx=v * ux, gvy=v * uy)
-                    p = run_keys("peak", 0, pk, [0] * 60)
+                    pk = w4_poke("tcup", cx - ux * dist, cy - uy * dist, mat=0, gvx=v * ux, gvy=v * uy)
+                    p = run_keys("tcup", 0, pk, [0] * 60)
                     lp = evs(p, "lip")
                     if lp and not evs(p, "cup") and p.events[p.events.index(lp[0])][2] > CU["capture"]:
                         lip = (pk, [0] * 60, lp[0][1], v)
                         break
-    pk, keys, at = cap if cap else (w4_poke("peak", cx, cy, 0), [0], None)
-    add("cup-128", "peak", 0, pk, keys, "rolled into PEAK's cup %s at 128: holed out at step %s, the play over" % (
+    pk, keys, at = cap if cap else (w4_poke("tcup", cx, cy, 0), [0], None)
+    add("cup-128", "tcup", 0, pk, keys, "rolled into TCUP's cup %s at 128: holed out at step %s, the play over" % (
         CU["at"], at), cap)
-    pk, keys, at, v = lip if lip else (w4_poke("peak", cx, cy, 0), [0], None, None)
-    add("cup-lip", "peak", 0, pk, keys, "rolled across the mouth at %s: LIPPED OUT at step %s (a pop of %d) and "
+    pk, keys, at, v = lip if lip else (w4_poke("tcup", cx, cy, 0), [0], None, None)
+    add("cup-lip", "tcup", 0, pk, keys, "rolled across the mouth at %s: LIPPED OUT at step %s (a pop of %d) and "
         "rolled on" % (v, at, BB.LIPZ), lip, red={"_cup_nov": True})
-    pk = w4_poke("peak", cx, cy, mat=BB.MAT_STEEL, extra={"mst": BB.ST_STUN, "mct": 10})
-    p = run_keys("peak", BB.MAT_STEEL, pk, [0] * 20)
-    add("cup-stun", "peak", BB.MAT_STEEL, pk, [0] * 20, "a STUNNED steel ball in the mouth holes out as its stun "
+    pk = w4_poke("tcup", cx, cy, mat=BB.MAT_STEEL, extra={"mst": BB.ST_STUN, "mct": 10})
+    p = run_keys("tcup", BB.MAT_STEEL, pk, [0] * 20)
+    add("cup-stun", "tcup", BB.MAT_STEEL, pk, [0] * 20, "a STUNNED steel ball in the mouth holes out as its stun "
         "ends (step %s)" % (evs(p, "cup")[0][1] if evs(p, "cup") else None),
         evs(p, "cup") and evs(p, "cup")[0][1] == 10)
-    pk = w4_poke("peak", cx, cy, mat=BB.MAT_GLASS, extra={"mst": BB.ST_SHATTER, "mct": BB.SHA_STEPS})
-    p = run_keys("peak", BB.MAT_GLASS, pk, [0] * (BB.SHA_STEPS + 6))
-    add("cup-shatter", "peak", BB.MAT_GLASS, pk, [0] * (BB.SHA_STEPS + 6), "a SHATTERING glass ball in the mouth "
+    pk = w4_poke("tcup", cx, cy, mat=BB.MAT_GLASS, extra={"mst": BB.ST_SHATTER, "mct": BB.SHA_STEPS})
+    p = run_keys("tcup", BB.MAT_GLASS, pk, [0] * (BB.SHA_STEPS + 6))
+    add("cup-shatter", "tcup", BB.MAT_GLASS, pk, [0] * (BB.SHA_STEPS + 6), "a SHATTERING glass ball in the mouth "
         "does not hole out: respawned", not evs(p, "cup") and evs(p, "respawn"))
-    # springs (PEAK): rubber up spring 1 onto the upper tier; a rubber BOUNCE on spring 2 with its launch
+    # springs (TPLY): rubber up spring 1 onto the plateau; a rubber BOUNCE on spring 2 with its launch
     # lowered to 360 leaves at the max, not the sum; glass shattering on a spring is not launched
-    SP = w4_rec("peak", BB.PK_SPRING)
-    s1, s2 = SP[0], SP[-1]
-    grid = BB.Grid(R.course("peak").cga, R.course("peak").wcga)
+    SP = w4_rec(TP, BB.PK_SPRING)
+    s1 = next(s_ for s_ in SP if tuple(s_["at"]) == (29, 35))
+    s2 = next(s_ for s_ in SP if tuple(s_["at"]) == (37, 30))
+    grid = BB.Grid(R.course(TP).cga, R.course(TP).wcga)
     h0 = grid.cell(*s1["at"])[0]
     tier = None
     for d in DIR8:
@@ -3704,9 +3861,9 @@ def w4_replays():
             if grid.cell(ax, ay)[3] != BB.KIND_FLOOR:
                 continue
             for v in (128, 192, 256, 320):
-                pk = w4_poke("peak", ax, ay, mat=0, gvx=v * ux, gvy=v * uy)
+                pk = w4_poke(TP, ax, ay, mat=0, gvx=v * ux, gvy=v * uy)
                 keys = [d] * 40 + [0] * 80
-                p = run_keys("peak", 0, pk, keys)
+                p = run_keys(TP, 0, pk, keys)
                 if p.nspr and not p.nfall and not p.air and grid.cell(p.gx >> 12, p.gy >> 12)[0] >= h0 + 3:
                     tier = (pk, keys, v, (p.gx >> 12, p.gy >> 12))
                     break
@@ -3714,50 +3871,53 @@ def w4_replays():
                 break
         if tier:
             break
-    pk, keys, v, end = tier if tier else (w4_poke("peak", *s1["at"], 0), [0], None, None)
-    add("spring-tier", "peak", 0, pk, keys, "rubber at %s up spring 1 %s onto the upper tier (ends on %s)" % (
+    pk, keys, v, end = tier if tier else (w4_poke(TP, *s1["at"], 0), [0], None, None)
+    add("spring-tier", TP, 0, pk, keys, "rubber at %s up spring 1 %s onto the plateau (ends on %s)" % (
         v, s1["at"], end), tier)
-    pk = w4_poke("peak", *s2["at"], mat=0, lift=30, recpoke=(s2["i"], "gvz", 360))
+    pk = w4_poke(TP, *s2["at"], mat=0, lift=30, recpoke=(s2["i"], "gvz", 360))
     pk["gvz"] = -400
-    p = run_keys("peak", 0, pk, [0] * 60)
+    p = run_keys(TP, 0, pk, [0] * 60)
     sp = evs(p, "spring")
-    add("spring-max", "peak", 0, pk, [0] * 60, "rubber bouncing on spring 2 %s, its launch poked to 360: leaves at "
+    add("spring-max", TP, 0, pk, [0] * 60, "rubber bouncing on spring 2 %s, its launch poked to 360: leaves at "
         "max(360, the rebound) = %s, not the sum" % (s2["at"], sp[0][2] if sp else None),
         sp and evs(p, "bounce") and sp[0][2] == max(360, evs(p, "bounce")[0][3]),
         red={"_spring_sum": True})
-    pk = w4_poke("peak", *s2["at"], mat=BB.MAT_GLASS, lift=64)
-    p = run_keys("peak", BB.MAT_GLASS, pk, [0] * 50)
-    add("spring-shatter", "peak", BB.MAT_GLASS, pk, [0] * 50, "glass dropped 64 px onto spring 2: shattered, never "
+    pk = w4_poke(TP, *s2["at"], mat=BB.MAT_GLASS, lift=64)
+    p = run_keys(TP, BB.MAT_GLASS, pk, [0] * 50)
+    add("spring-shatter", TP, BB.MAT_GLASS, pk, [0] * 50, "glass dropped 64 px onto spring 2: shattered, never "
         "launched", evs(p, "shatter") and not p.nspr)
-    # RETURN mid-roll: back to the flag, bz_nret 1, bz_nfall unchanged (MOON's flag 1)
-    F1 = w4_rec("moon", BB.PK_CHECKPOINT, num=1)[0]
+    # RETURN mid-roll: back to the flag, bz_nret 1, bz_nfall unchanged (TPLY's flag 1 on G, or flag 0)
     ret = None
-    for d in DIR8:
-        pk = w4_poke("moon", *F1["at"], mat=0)
-        keys = [d] * 14 + [d | BB.K_RET] + [0] * 24
-        p = run_keys("moon", 0, pk, keys)
-        rr = evs(p, "return")
-        if rr and rr[0][2] == tuple(F1["at"]) and p.nret == 1 and not p.nfall and evs(p, "flag"):
-            ret = (pk, keys)
+    for num in (1, 0):
+        F1 = w4_rec(TP, BB.PK_CHECKPOINT, num=num)[0]
+        for d in DIR8:
+            pk = w4_poke(TP, *F1["at"], mat=0)
+            keys = [d] * 14 + [d | BB.K_RET] + [0] * 24
+            p = run_keys(TP, 0, pk, keys)
+            rr = evs(p, "return")
+            if rr and rr[0][2] == tuple(F1["at"]) and p.nret == 1 and not p.nfall and evs(p, "flag"):
+                ret = (pk, keys)
+                break
+        if ret:
             break
-    pk, keys = ret if ret else (w4_poke("moon", *F1["at"], 0), [0])
-    add("return", "moon", 0, pk, keys, "RETURN mid-roll from flag 1 %s: back on it, bz_nret 1, no fall" % (
-        F1["at"],), ret)
-    # tilt: a TILT log on FIRST - every cap 0 - 8 on both axes, then a held Right at cap 8 dropped to 2
+    pk, keys = ret if ret else (w4_poke(TP, *F1["at"], 0), [0])
+    add("return", TP, 0, pk, keys, "RETURN mid-roll from flag %d %s: back on it, bz_nret 1, no fall" % (
+        F1["num"], F1["at"]), ret)
+    # tilt: a TILT log on TPLY's start - every cap 0 - 8 on both axes, then a held Right at cap 8 dropped to 2
     keys, tilts = [], []
     for c_ in range(9):
         keys += [K.K_R | K.K_D] * 4 + [K.K_L | K.K_U] * 4
         tilts += [(c_ << 4) | (8 - c_)] * 8
     keys += [0] * 10 + [K.K_R] * 9 + [K.K_R] * 4 + [0] * 10
     tilts += [0x88] * 19 + [0x28] * 4 + [0x88] * 10
-    p = run_keys("first", 0, None, keys, tilts)
-    q = model("first", 0, None)
+    p = run_keys(TP, 0, None, keys, tilts)
+    q = model(TP, 0, None)
     lv = []
     for i, (k_, t_) in enumerate(zip(keys, tilts)):
         q.step(k_, t_)
         if 72 + 10 + 8 <= i < 72 + 10 + 13:
             lv.append(q.lvl[1])
-    add("tilt", "first", 0, None, keys, "a TILT log: caps 0 - 8 on both axes, then Right held at cap 8 and 2: "
+    add("tilt", TP, 0, None, keys, "a TILT log: caps 0 - 8 on both axes, then Right held at cap 8 and 2: "
         "levels %s" % lv, lv == [8, 6, 4, 2, 2] and not p.nfall, red={"_tilt_min": True}, tilts=tilts)
     return S
 
@@ -3806,11 +3966,6 @@ def first_after(cs, i0, kinds=CONTACT):
     return next((i for i, kind in cs if i > i0 and kind in kinds), None)
 
 
-def play_rect(H):
-    r = dict(BB.PLAY_RUNGS)[H]
-    return BB._rect(r), r
-
-
 def hop_off(crs, mat, start, d, want_off, space, n=90):
     """a Hop off a top along d, searched over its take-off step: the first whose
     FIRST contact is on a cell of WANT_OFF, Space SPACE steps before that contact
@@ -3846,25 +4001,25 @@ def w6_replays():
     def add(name, crs, mat, poke, keys, what, ok, red=None, span=False, nboost=None):
         S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
                   "ok": bool(ok), "red": red, "span": span, "nboost": nboost})
-    pc = R.course("play")
+    pc = R.course(TP)
     start = BB.Grid(pc.cga, pc.wcga).start
-    rest = pl_poke("play", start, R_)
+    rest = pl_poke(TP, start, R_)
     # boost: a Hop from rest on the apron, Space 2 steps before its first contact
     base = [0] * 3 + [K.K_HOP] + [0] * 80
-    _p, cs = run_ix("play", R_, rest, base)
+    _p, cs = run_ix(TP, R_, rest, base)
     c = first_after(cs, 3)
     keys = with_space(base, c - 2 if c else None)
-    p, cs2 = run_ix("play", R_, rest, keys)
-    q = model("play", R_, rest)
+    p, cs2 = run_ix(TP, R_, rest, keys)
+    q = model(TP, R_, rest)
     for i in range((c or 0) + 1):
         q.step(keys[i])
     ev = [e for e in p.events if e[0] == "boost"]
-    add("boost", "play", R_, rest, keys, "a Hop on the apron, Space before its contact (step %s): nboost %d, gvz %s "
+    add("boost", TP, R_, rest, keys, "a Hop on the apron, Space before its contact (step %s): nboost %d, gvz %s "
         "(BOOST %d), stf %d (BZ_STRS %d)" % (c, p.nboost, ev[0][3] if ev else None, BOOST, q.stf, BB.BZ_STRS),
         c and p.nboost == 1 and ev and ev[0][3] == BOOST and q.stf == BB.BZ_STRS and not p.nfall)
     # boostclimb: onto the 1.5-unit ledge, a Hop and its boost at the cap from the apron's front row
-    top, r = play_rect(1.5)
-    st_ = ((r[0] + r[2] - 1) // 2, BB.PLAY_FRONT)
+    top, r = tp_rect(1.5)
+    st_ = ((r[0] + r[2] - 1) // 2, TP_FRONT)
     found = None
     for a in range(BB.LAD_PTS):
         land = BB._play_contact(pc, R_, st_, (0, -1), a)
@@ -3876,41 +4031,41 @@ def w6_replays():
             break
     if found:
         a, land = found
-        pk = pl_poke("play", st_, R_, (0, -1))
+        pk = pl_poke(TP, st_, R_, (0, -1))
         keys = with_space([BB._PLAY_DIRK[(0, -1)]] * (land + 30), a, land - 2) + [K.K_GRIP] * 40
-        p = model("play", R_, pk)
+        p = model(TP, R_, pk)
         on = None
         for i, k_ in enumerate(keys):
             p.step(k_)
             if on is None and not p.air and (p.gx >> 12, p.gy >> 12) in top:
                 on = i
-    add("boostclimb", "play", R_, pk if found else rest, keys if found else [0],
+    add("boostclimb", TP, R_, pk if found else rest, keys if found else [0],
         "onto the 1.5-unit ledge %s: Hop at %s, boost at %s, on the ledge at step %s" % (
             r, found and found[0], found and found[1], on if found else None),
         found and on is not None and p.nboost == 1 and not p.nfall)
     # boostdrop: a Hop off the 1-unit top onto the apron, Space at its contact: a boost though its impact passes 384
-    t1, r1 = play_rect(1)
-    apron = {(x, y) for x in range(r1[0] - 2, r1[2] + 2) for y in range(r1[3], BB.PLAY_FRONT + 1)}
-    hd = hop_off("play", R_, ((r1[0] + r1[2] - 1) // 2, r1[1]), (0, 1), apron, 2)
+    t1, r1 = tp_rect(1)
+    apron = {(x, y) for x in range(r1[0] - 2, r1[2] + 2) for y in range(r1[3], TP_FRONT + 1)}
+    hd = hop_off(TP, R_, ((r1[0] + r1[2] - 1) // 2, r1[1]), (0, 1), apron, 2)
     if hd:
         pk, keys, c = hd
-        q = model("play", R_, pk)
+        q = model(TP, R_, pk)
         for i in range(c + 1):
             q.step(keys[i])
         bev = [e for e in q.events if e[0] == "boost"]
-    add("boostdrop", "play", R_, hd[0] if hd else rest, hd[1] if hd else [0],
+    add("boostdrop", TP, R_, hd[0] if hd else rest, hd[1] if hd else [0],
         "a Hop off the 1-unit top onto the apron, Space at the contact (step %s): %s at impact %s, sqf %s, stf %s" % (
             hd and hd[2], "boost" if hd and bev else "NO boost", bev[0][2] if hd and bev else None,
             q.sqf if hd else None, q.stf if hd else None),
         hd and bev and bev[0][2] >= BB.SQTHR and q.sqf == 0 and q.stf == BB.BZ_STRS and q.nboost == 1)
     # boostfall: a Hop off the 2-unit top, Space at its contact: round 3b (SPEC.md 130.17.17) a BOOST at the
     # bounce plus BADD (round 3: a contact Hop, rule 5); `noadd` gives the contact Hop
-    t2, r2 = play_rect(2)
-    apron2 = {(x, y) for x in range(r2[0] - 2, r2[2] + 2) for y in range(r2[3], BB.PLAY_FRONT + 1)}
-    hf = hop_off("play", R_, ((r2[0] + r2[2] - 1) // 2, r2[1]), (0, 1), apron2, 2)
+    t2, r2 = tp_rect(2)
+    apron2 = {(x, y) for x in range(r2[0] - 2, r2[2] + 2) for y in range(r2[3], TP_FRONT + 1)}
+    hf = hop_off(TP, R_, ((r2[0] + r2[2] - 1) // 2, r2[1]), (0, 1), apron2, 2)
     if hf:
-        p, cs = run_ix("play", R_, hf[0], hf[1])
-    add("boostfall", "play", R_, hf[0] if hf else rest, hf[1] if hf else [0],
+        p, cs = run_ix(TP, R_, hf[0], hf[1])
+    add("boostfall", TP, R_, hf[0] if hf else rest, hf[1] if hf else [0],
         "a Hop off the 2-unit top onto the apron, Space at the contact (step %s): %s" % (
             hf and hf[2], [k_ for _i, k_ in cs][:2] if hf else None),
         hf and [k_ for _i, k_ in cs][:1] == ["boost"] and p.nboost == 1
@@ -3918,25 +4073,26 @@ def w6_replays():
         red={"_noadd": True}, nboost=1)
     # pumpchk: Space at every contact of the chain: one boost, then contact Hops
     keys = [0] * 3 + [K.K_HOP if i % 2 == 0 else 0 for i in range(300)]
-    p, cs = run_ix("play", R_, rest, keys)
+    p, cs = run_ix(TP, R_, rest, keys)
     kinds = [k_ for _i, k_ in cs if k_ in ("boost", "hopc")]
-    add("pumpchk", "play", R_, rest, keys, "Space at every contact: %d boost(s), then %d contact Hops" % (
+    add("pumpchk", TP, R_, rest, keys, "Space at every contact: %d boost(s), then %d contact Hops" % (
         p.nboost, kinds.count("hopc")), p.nboost == 1 and kinds[:1] == ["boost"] and kinds.count("hopc") >= 3,
         red={"_pump": True})
     # bouncefirst: a Hop, no Space at its first contact (a bounce), Space at its second: a contact Hop
     base = [0] * 3 + [K.K_HOP] + [0] * 120
-    _p, cs = run_ix("play", R_, rest, base)
+    _p, cs = run_ix(TP, R_, rest, base)
     c1 = first_after(cs, 3)
     c2 = first_after(cs, c1) if c1 is not None else None
     keys = with_space(base, c2 - 2 if c2 else None)
-    p, cs = run_ix("play", R_, rest, keys)
-    add("bouncefirst", "play", R_, rest, keys, "a Hop, a bounce at %s, Space before the second contact %s: %s" % (
+    p, cs = run_ix(TP, R_, rest, keys)
+    add("bouncefirst", TP, R_, rest, keys, "a Hop, a bounce at %s, Space before the second contact %s: %s" % (
         c1, c2, [k_ for _i, k_ in cs][:2]), c2 and [k_ for _i, k_ in cs][:2] == ["bounce", "hopc"]
         and p.nboost == 0, red={"_no_clear": True})
     # (gripchain: wave 6b's, re-keyed with mid-flight taps - w6b_replays)
-    # rampnot: a Hop whose first contact is on a RAMP (TRIAL's or FIRST's), Space before it: no boost
+    # rampnot: a Hop whose first contact is on a RAMP (TPLY's steep ramp or its plateau's), Space before it:
+    # no boost
     found = None
-    for crs in ("trial", "first"):
+    for crs in (TP,):
         gr = BB.Grid(R.course(crs).cga, R.course(crs).wcga)
         for y in range(64):
             for x in range(64):
@@ -3964,10 +4120,10 @@ def w6_replays():
                 break
         if found:
             break
-    crs, pk, keys, at, c = found if found else ("trial", rest, [0], None, None)
+    crs, pk, keys, at, c = found if found else (TP, rest, [0], None, None)
     add("rampnot", crs, R_, pk, keys, "a Hop from %s's ramp cell %s, its first contact (step %s) on a ramp, Space "
         "before it: a contact Hop, no boost" % (crs.upper(), at, c), found, red={"_boost_rise": True})
-    # sandnot, matnot: a Hop from rest on the PLAYGROUND's sand lane and on its mat, Space before the contact
+    # sandnot, matnot: a Hop from rest on TPLY's sand and on its mat, Space before the contact
     gr = BB.Grid(pc.cga, pc.wcga)
     for name, test in (("sandnot", lambda cl: cl[5] == BB.SURF_SAND),
                        ("matnot", lambda cl: cl[5] == BB.SURF_BOUNCE)):
@@ -3975,34 +4131,34 @@ def w6_replays():
                  and test(gr.cell(x, y)) and not gr.cell(x, y)[1] and not gr.cell(x, y)[2]]
         res = None
         for at in cells:
-            pk = pl_poke("play", at, R_)
+            pk = pl_poke(TP, at, R_)
             base = [0] * 3 + [K.K_HOP] + [0] * 60
-            _p, cs = run_ix("play", R_, pk, base)
+            _p, cs = run_ix(TP, R_, pk, base)
             c = first_after(cs, 3)
             if c is None:
                 continue
             keys = with_space(base, c - 2)[:c + 20]
-            p, cs = run_ix("play", R_, pk, keys)
+            p, cs = run_ix(TP, R_, pk, keys)
             if [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost:
                 res = (at, pk, keys, c)
                 break
         at, pk, keys, c = res if res else (None, rest, [0], None)
-        add(name, "play", R_, pk, keys, "a Hop from rest on the PLAYGROUND's %s %s, Space before its contact (step "
+        add(name, TP, R_, pk, keys, "a Hop from rest on TPLY's %s %s, Space before its contact (step "
             "%s): a contact Hop, no boost" % ("sand" if name == "sandnot" else "mat", at, c), res)
-    # liftnot: a Hop on MILL's lift slab, Space before its contact on the slab: no boost
-    pk = slab_poke(0)
+    # liftnot: a Hop on TMIL's lift slab, Space before its contact on the slab: no boost
+    pk = slab_poke(0, crs="tmil")
     base = [K.K_HOP] + [0] * 80
-    _p, cs = run_ix("mill", R_, pk, base)
+    _p, cs = run_ix("tmil", R_, pk, base)
     c = first_after(cs, 0)
     keys = with_space(base, c - 2 if c else None)[:(c or 0) + 20]
-    p, cs = run_ix("mill", R_, pk, keys)
-    add("liftnot", "mill", R_, pk, keys, "a Hop on MILL's lift slab, Space before its contact (step %s) on it: %s, "
+    p, cs = run_ix("tmil", R_, pk, keys)
+    add("liftnot", "tmil", R_, pk, keys, "a Hop on TMIL's lift slab, Space before its contact (step %s) on it: %s, "
         "onp %d" % (c, [k_ for _i, k_ in cs][:1], p.onp), c and [k_ for _i, k_ in cs][:1] == ["hopc"]
         and not p.nboost and p.onp, red={"_slab_boost": True})
     # flagboost (SPEC.md 130.16.4.1.1): a Hop from rest on a checkpoint FLAG's cell, Space before its contact
     # there: a boost - the flag's OBS no longer refuses rule 4 (the `noflat` arm: as before, a contact Hop)
     res = None
-    for crs in ("trial", "peak", "mill", "moon"):
+    for crs in (TP,):                           # (flag 1 on G, flag 0 on the turn)
         for fl in [r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_CHECKPOINT]:
             pk = pl_poke(crs, fl["at"], R_)
             base = [0] * 3 + [K.K_HOP] + [0] * 80
@@ -4022,24 +4178,24 @@ def w6_replays():
                 break
         if res:
             break
-    crs, at, pk, keys, c = res if res else ("trial", None, rest, [0], None)
+    crs, at, pk, keys, c = res if res else (TP, None, rest, [0], None)
     add("flagboost", crs, R_, pk, keys, "a Hop from rest on %s's checkpoint flag %s, Space before its contact "
         "(step %s) on it: a boost" % (crs.upper(), at, c), res, red={"_noflat": True}, nboost=1)
-    # springarm (round 3b, SPEC.md 130.17.17; wave 6's springnot): a Hop taken on PEAK's spring rides the
+    # springarm (round 3b, SPEC.md 130.17.17; wave 6's springnot): a Hop taken on TPLY's spring rides the
     # spring's launch, which now TAKES the token, so Space before that flight's first contact boosts there
     # (`springoff`, round 3's spring that spent it: a contact Hop)
     found = None
-    for spr in [r for r in R.course("peak").part["props"] if r["kind"] == BB.PK_SPRING]:
+    for spr in [r for r in R.course(TP).part["props"] if r["kind"] == BB.PK_SPRING]:
         for gv in ((160, 0), (-160, 0), (0, 160), (0, -160), (200, 0), (0, 0)):
-            pk = pl_poke("peak", spr["at"], R_, gv=gv)
+            pk = pl_poke(TP, spr["at"], R_, gv=gv)
             base = [K.K_HOP] + [0] * 120
-            _p, cs = run_ix("peak", R_, pk, base)
+            _p, cs = run_ix(TP, R_, pk, base)
             c = first_after(cs, 0)
             if c is None or c < 3 or not _p.nspr:
                 continue
             keys = with_space(base, c - 2)[:c + 20]
-            p, cs = run_ix("peak", R_, pk, keys)
-            pr, cs_ = run_ix("peak", R_, pk, keys, _springoff=True)
+            p, cs = run_ix(TP, R_, pk, keys)
+            pr, cs_ = run_ix(TP, R_, pk, keys, _springoff=True)
             if p.nspr and [k_ for _i, k_ in cs][:1] == ["boost"] and p.nboost == 1 and not pr.nboost \
                     and [k_ for _i, k_ in cs_][:1] == ["hopc"]:
                 found = (pk, keys, spr["at"], gv, c)
@@ -4047,98 +4203,95 @@ def w6_replays():
         if found:
             break
     pk, keys, at, gv, c = found if found else (rest, [0], None, None, None)
-    add("springarm", "peak" if found else "play", R_, pk, keys, "a Hop on PEAK's spring %s at %s, the spring's "
+    add("springarm", TP, R_, pk, keys, "a Hop on TPLY's spring %s at %s, the spring's "
         "launch, Space before its flight's first contact (step %s): a boost" % (at, gv, c), found,
         red={"_springoff": True}, nboost=1)
-    # spentspring (round 3b): rubber rolled toward PEAK's spring at (27, 33), a Hop, Space every 2 steps after:
+    # spentspring (round 3b): rubber rolled toward TPLY's spring 1 (29, 35), a Hop, Space every 2 steps after:
     # ONE boost, whose bounce carries the ball onto the spring - a launch out of the air while the boost is
     # spent, so no token and no second boost (`nospent`: the spring's launch arms, a second boost)
     found = None
-    for d, at, v in (((1, 0), (24, 33), 160),):
+    for d, at, v in (((1, 0), (26, 35), 160), ((1, 0), (25, 35), 160), ((1, 0), (26, 35), 224)):
         dk = BB._PLAY_DIRK[d]
-        pk = pl_poke("peak", at, R_, d, v)
+        pk = pl_poke(TP, at, R_, d, v)
         for a in range(0, 10):
             keys = [dk | (K.K_HOP if (i == a or (i > a + 4 and (i - a) % 2 == 0)) else 0) for i in range(120)]
-            p, cs = run_ix("peak", R_, pk, keys)
+            p, cs = run_ix(TP, R_, pk, keys)
             ev = [e[0] for e in p.events]
             if p.nboost != 1 or p.nfall or "boost" not in ev:
                 continue
             if "spring" not in ev[ev.index("boost"):]:
                 continue
-            q, _c = run_ix("peak", R_, pk, keys, _nospent=True)
+            q, _c = run_ix(TP, R_, pk, keys, _nospent=True)
             if q.nboost >= 2 and not q.nfall:
                 found = (pk, keys, at, a)
                 break
+        if found:
+            break
     pk, keys, at, a = found if found else (rest, [0], None, None)
-    add("spentspring", "peak" if found else "play", R_, pk, keys, "rubber from %s toward PEAK's spring, a Hop at %s "
+    add("spentspring", TP, R_, pk, keys, "rubber from %s toward TPLY's spring, a Hop at %s "
         "and Space every 2 steps: one boost, its bounce onto the spring, no second boost" % (at, a), found,
         red={"_nospent": True}, nboost=1)
     # steelglass: steel and glass Hop on the apron, Space before the contact: contact Hops, never a boost
     for mat in (ST, GL):
-        pk = pl_poke("play", start, mat)
+        pk = pl_poke(TP, start, mat)
         base = [0] * 3 + [K.K_HOP] + [0] * 60
-        _p, cs = run_ix("play", mat, pk, base)
+        _p, cs = run_ix(TP, mat, pk, base)
         c = first_after(cs, 3)
         keys = with_space(base, c - 2 if c else None)[:(c or 0) + 20]
-        p, cs = run_ix("play", mat, pk, keys)
-        add("steelglass-%s" % BB.MAT_NAMES[mat], "play", mat, pk, keys, "%s: Space before the Hop's contact (step "
+        p, cs = run_ix(TP, mat, pk, keys)
+        add("steelglass-%s" % BB.MAT_NAMES[mat], TP, mat, pk, keys, "%s: Space before the Hop's contact (step "
             "%s): %s" % (BB.MAT_NAMES[mat], c, [k_ for _i, k_ in cs][:1]),
             c and [k_ for _i, k_ in cs][:1] == ["hopc"] and not p.nboost)
     # drag: one arrow from rest settles at the model's top; from the cap it falls back to it (the remainders
-    # compared every frame); the longest level run on the PLAYGROUND, searched
+    # compared every frame); the longest level run on TPLY with ONE ARROW, DOWN (+wx and +wy: TPLY's level
+    # strip runs diagonally, and Right's run would need 26 cells of width), searched - and the search stops on
+    # ANY event, a corner's too (a ball pinned in a corner is no level run)
     feel = BB.axis_feel(R_)
     top = feel[2]
-    best = None
-    for y in range(8, 40):
-        for x in range(4, 40):
-            cl = gr.cell(x, y)
-            if cl[3] != BB.KIND_FLOOR or cl[1] or cl[2] or cl[5] != BB.SURF_NORMAL or cl[4] & BB.FL_OBS:
-                continue
-            q = BB.Physics(pc, play=True, mat=R_).poke(x, y, 0, 0)
-            n = 0
-            for i in range(400):
-                n0 = len(q.events)
-                q.step(K.K_R)
-                cl2 = q.cell(q.gx >> 12, q.gy >> 12)
-                if q.nfall or q.air or q.goal or any(e[0] != "corner" for e in q.events[n0:]) or cl2[1] \
-                        or cl2[2] or cl2[5] != BB.SURF_NORMAL or cl2[3] != BB.KIND_FLOOR:   # (a FIELD cell,
-                    break                       # SPEC.md 130.28: its +1 is a shape, not slopes - not level)
-                n = i + 1
-            if best is None or n > best[0]:
-                best = (n, (x, y))
-    n, at = best
-    pk = pl_poke("play", at, R_)
-    keys = [K.K_R] * n
-    p = model("play", R_, pk)
-    mx = 0
-    for k_ in keys:
-        p.step(k_)
-        mx = max(mx, abs(p.gvx))
-    add("drag-rest", "play", R_, pk, keys, "one arrow (Right) from rest at %s, %d steps on level ground: |gvx| %d, "
+    DK = K.K_D
+
+    def level_run(gv):
+        best = None
+        for y in range(8, 48):
+            for x in range(4, 48):
+                cl = gr.cell(x, y)
+                if cl[3] != BB.KIND_FLOOR or cl[1] or cl[2] or cl[5] != BB.SURF_NORMAL or cl[4] & BB.FL_OBS:
+                    continue
+                q = model(TP, R_, pl_poke(TP, (x, y), R_, gv=gv))
+                n, seq = 0, []
+                for i in range(400):
+                    n0 = len(q.events)
+                    q.step(DK)
+                    cl2 = q.cell(q.gx >> 12, q.gy >> 12)
+                    if q.nfall or q.air or q.goal or q.events[n0:] or cl2[1] or cl2[2] \
+                            or cl2[5] != BB.SURF_NORMAL or cl2[3] != BB.KIND_FLOOR:   # (a FIELD cell,
+                        break                   # SPEC.md 130.28: its +1 is a shape, not slopes - not level)
+                    n = i + 1
+                    seq.append(abs(q.gvx))
+                if best is None or n > best[0]:
+                    best = (n, (x, y), seq)
+        return best
+    n, at, seq = level_run((0, 0))
+    pk = pl_poke(TP, at, R_)
+    keys = [DK] * n
+    mx = max(seq) if seq else 0
+    p = run_keys(TP, R_, pk, keys)
+    add("drag-rest", TP, R_, pk, keys, "one arrow (Down) from rest at %s, %d steps on level ground: |gvx| %d, "
         "the axis model's top %d" % (at, n, mx, top), mx >= top - 3 and mx <= top and not p.nfall,
         red={"_ceil_drag": True}, span=True)
-    pk = pl_poke("play", at, R_, gv=(BB.VMAXG, -BB.VMAXG))
-    p = model("play", R_, pk)
-    seq = []
-    for i in range(400):
-        n0 = len(p.events)
-        p.step(K.K_R)
-        cl2 = p.cell(p.gx >> 12, p.gy >> 12)
-        if p.nfall or p.air or any(e[0] != "corner" for e in p.events[n0:]) or cl2[1] or cl2[2] \
-                or cl2[5] != BB.SURF_NORMAL or cl2[3] != BB.KIND_FLOOR:
-            break
-        seq.append(abs(p.gvx))
-    keys = [K.K_R] * len(seq)
-    add("drag-cap", "play", R_, pk, keys, "one arrow from the cap at %s, %d steps: |gvx| 384 -> %s, the axis "
+    n, at, seq = level_run((BB.VMAXG, BB.VMAXG))
+    pk = pl_poke(TP, at, R_, gv=(BB.VMAXG, BB.VMAXG))
+    keys = [DK] * n
+    add("drag-cap", TP, R_, pk, keys, "one arrow (Down) from the cap at %s, %d steps: |gvx| 384 -> %s, the axis "
         "model's settled top %d" % (at, len(seq), seq[-1] if seq else None, feel[3]),
         seq and top <= seq[-1] <= top + 8, red={"_ceil_drag": True})
     # gripglass: glass at the cap along the apron, Grip held: stopped in the axis model's steps
     gfeel = BB.axis_feel(GL)
     found = None
-    for y in range(14, 20):
-        for x in range(4, 20):
-            pk = pl_poke("play", (x, y), GL, gv=(BB.VMAXG, 0))
-            p = model("play", GL, pk)
+    for y in range(12, 18):                     # (TPLY's apron, from its back row)
+        for x in range(7, 22):
+            pk = pl_poke(TP, (x, y), GL, gv=(BB.VMAXG, 0))
+            p = model(TP, GL, pk)
             for i in range(gfeel[6] + 5):
                 p.step(K.K_GRIP)
                 if not p.gvx:
@@ -4150,20 +4303,20 @@ def w6_replays():
         if found:
             break
     pk, at, n = found if found else (rest, None, None)
-    add("gripglass", "play", GL, pk, [K.K_GRIP] * (gfeel[6] + 20), "glass at the cap at %s, Grip held: stopped "
+    add("gripglass", TP, GL, pk, [K.K_GRIP] * (gfeel[6] + 20), "glass at the cap at %s, Grip held: stopped "
         "in %s steps, the axis model's %d" % (at, n, gfeel[6]), found)
     return S + w6b_replays()
 
 
-def grip_stop(mat, ys=range(8, 40), xs=range(4, 40)):
-    """a PLAYGROUND tile from which `mat` at the cap along +wx, Grip held, stops
+def grip_stop(mat, ys=range(12, 18), xs=range(7, 22)):
+    """a TPLY apron tile from which `mat` at the cap along +wx, Grip held, stops
     in exactly the axis model's Grip steps with no event on the way (a level
     normal run long enough): -> (poke, tile, steps) or None"""
     feel = BB.axis_feel(mat)
     for y in ys:
         for x in xs:
-            pk = pl_poke("play", (x, y), mat, gv=(BB.VMAXG, 0))
-            p = model("play", mat, pk)
+            pk = pl_poke(TP, (x, y), mat, gv=(BB.VMAXG, 0))
+            p = model(TP, mat, pk)
             i = 0
             for i in range(feel[6] + 5):
                 p.step(K.K_GRIP)
@@ -4189,12 +4342,12 @@ def w6b_replays():
     def add(name, crs, mat, poke, keys, what, ok, red=None, nboost=None):
         S.append({"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what,
                   "ok": bool(ok), "red": red, "nboost": nboost})
-    pc = R.course("play")
+    pc = R.course(TP)
     start = BB.Grid(pc.cga, pc.wcga).start
-    rest = pl_poke("play", start, R_)
+    rest = pl_poke(TP, start, R_)
     HOP = 3                                     # the Hop's one-step press, from rest on the apron
     base = [0] * HOP + [K.K_HOP] + [0] * 90
-    _p, cs = run_ix("play", R_, rest, base)
+    _p, cs = run_ix(TP, R_, rest, base)
     c = first_after(cs, HOP)                    # its first contact's key index (a bounce: no second press)
 
     def boosts(p):
@@ -4203,8 +4356,8 @@ def w6b_replays():
     # armearly: the second press 14 steps before the first contact, which wave 6's window (6 steps,
     # closing on the contact) refused: a boost
     keys = with_space(base, c - 14 if c else None)[:(c or 0) + 30]
-    p, cs2 = run_ix("play", R_, rest, keys)
-    add("armearly", "play", R_, rest, keys, "a Hop on the apron, the second press 14 steps before its first "
+    p, cs2 = run_ix(TP, R_, rest, keys)
+    add("armearly", TP, R_, rest, keys, "a Hop on the apron, the second press 14 steps before its first "
         "contact (step %s): %s, nboost %d" % (c, [k_ for _i, k_ in cs2][:1], p.nboost),
         c and c - 14 > HOP + 1 and [k_ for _i, k_ in cs2][:1] == ["boost"] and p.nboost == 1,
         red={"_armwin": True}, nboost=1)
@@ -4214,18 +4367,18 @@ def w6b_replays():
     for d in ((1, 0), (-1, 0), (0, -1), (0, 1)):
         dk = BB._PLAY_DIRK[d]
         for at in ((start[0] + i * d[1], start[1] + i * d[0]) for i in (0, -2, 2, -4, 4)):
-            pk = pl_poke("play", at, R_, d)
+            pk = pl_poke(TP, at, R_, d)
             for a in range(0, 12):
                 kb = with_space([dk] * 90, a)
-                _q, csr = run_ix("play", R_, pk, kb)
+                _q, csr = run_ix(TP, R_, pk, kb)
                 cr = first_after(csr, a)
                 if cr is None or cr - a < 12:
                     continue
                 mid = (a + cr) // 2
                 keys = with_space(kb, mid)[:cr + 30]
-                p, cs2 = run_ix("play", R_, pk, keys)
+                p, cs2 = run_ix(TP, R_, pk, keys)
                 if [k_ for _i, k_ in cs2][:1] == ["boost"] and p.nboost == 1 and not p.nfall \
-                        and parts("play", R_, pk, keys, _armwin=True):
+                        and parts(TP, R_, pk, keys, _armwin=True):
                     found = (pk, keys, at, d, a, cr, mid)
                     break
             if found:
@@ -4233,63 +4386,63 @@ def w6b_replays():
         if found:
             break
     pk, keys, at, d, a, cr, mid = found if found else (rest, [0], None, None, None, None, None)
-    add("armroll", "play", R_, pk, keys, "rubber at the cap from %s along %s with the chord, a Hop at step %s, "
+    add("armroll", TP, R_, pk, keys, "rubber at the cap from %s along %s with the chord, a Hop at step %s, "
         "the second press mid-flight at %s, the first contact at %s: a boost" % (at, d, a, mid, cr), found,
         red={"_armwin": True}, nboost=1)
     # armlate: the press 2 steps AFTER the unarmed first contact (a bounce that opened the grace): the grace
     # CONVERTS the rebound - the boost at k = 2, the lift bgd x 1 that `graceoff` leaves out
     keys = with_space(base, c + 2 if c else None)[:(c or 0) + 40]
-    p, cs2 = run_ix("play", R_, rest, keys)
+    p, cs2 = run_ix(TP, R_, rest, keys)
     bg = [e for e in p.events if e[0] == "boostg"]
-    add("armlate", "play", R_, rest, keys, "a Hop, a bounce at its first contact (step %s), Space 2 steps later: "
+    add("armlate", TP, R_, rest, keys, "a Hop, a bounce at its first contact (step %s), Space 2 steps later: "
         "%s" % (c, bg[:1]), c and [k_ for _i, k_ in cs2][:1] == ["bounce"] and len(bg) == 1 and bg[0][2] == 2
         and p.nboost == 1, red=[{"_nograce": True}, {"_graceoff": True}], nboost=1)
     # armlate5: the press BGRACE + 1 steps after it: past the grace, nothing (a grace one longer, `grace5`,
     # converts).  (armlate4 until round 3's BGRACE 4, SPEC.md 130.17.16)
     late = BB.BGRACE + 1
     keys = with_space(base, c + late if c else None)[:(c or 0) + 40]
-    p, cs2 = run_ix("play", R_, rest, keys)
-    add("armlate5", "play", R_, rest, keys, "the press %d steps after the first contact (step %s): nboost %d" % (
+    p, cs2 = run_ix(TP, R_, rest, keys)
+    add("armlate5", TP, R_, rest, keys, "the press %d steps after the first contact (step %s): nboost %d" % (
         late, c, p.nboost), c and not boosts(p) and p.nboost == 0, red={"_grace5": True}, nboost=0)
     # hoponly: one tap and nothing else: no boost (the grace opens, unused)
     keys = base[:(c or 0) + 40]
-    p, cs2 = run_ix("play", R_, rest, keys)
-    add("hoponly", "play", R_, rest, keys, "a single tap, no second press: %s, nboost %d" % (
+    p, cs2 = run_ix(TP, R_, rest, keys)
+    add("hoponly", TP, R_, rest, keys, "a single tap, no second press: %s, nboost %d" % (
         [k_ for _i, k_ in cs2][:1], p.nboost), c and p.nboost == 0 and [k_ for _i, k_ in cs2][:1] == ["bounce"],
         red={"_hopedge": True}, nboost=0)
     # armheld: Space HELD from the Hop through the contact and 3 steps past it: round 3 (SPEC.md 130.17.16)
     # BOOSTS at the contact, the floor level with the take-off (`noheld`: none).  Round 2's was nboost 0
     keys = [k_ | (K.K_HOP if HOP <= i <= (c or 0) + 3 else 0) for i, k_ in enumerate(base)][:(c or 0) + 40]
-    p, cs2 = run_ix("play", R_, rest, keys)
-    add("armheld", "play", R_, rest, keys, "Space held from the Hop (step %d) through the contact (%s) and 3 "
+    p, cs2 = run_ix(TP, R_, rest, keys)
+    add("armheld", TP, R_, rest, keys, "Space held from the Hop (step %d) through the contact (%s) and 3 "
         "steps past: %s, nboost %d" % (HOP, c, [k_ for _i, k_ in cs2][:1], p.nboost),
         c and p.nboost == 1 and [k_ for _i, k_ in cs2][:1] == ["boost"], red={"_noheld": True}, nboost=1)
     # ledgehold: a Hop at the LIP of the PLAYGROUND's half-unit rung at the cap, Space held 4 steps, its first
     # contact on the ledge 1 - 4 steps later: no boost there (`heldarm` boosts on the ledge, 130.17.4.4)
-    top, rr = play_rect(0.5)
-    st_ = ((rr[0] + rr[2] - 1) // 2, BB.PLAY_FRONT)
+    top, rr = tp_rect(0.5)
+    st_ = ((rr[0] + rr[2] - 1) // 2, TP_FRONT)
     dk = BB._PLAY_DIRK[(0, -1)]
-    pk = pl_poke("play", st_, R_, (0, -1))
+    pk = pl_poke(TP, st_, R_, (0, -1))
     found = None
     for a in range(BB.LAD_PTS):
         land = BB._play_contact(pc, R_, st_, (0, -1), a)
         if land is None or not 1 <= land - a <= 4:
             continue
         keys = [dk | (K.K_HOP if a <= i <= max(a + 3, land) else 0) for i in range(land + 40)]
-        p, cs2 = run_ix("play", R_, pk, keys)
-        q = model("play", R_, pk)
+        p, cs2 = run_ix(TP, R_, pk, keys)
+        q = model(TP, R_, pk)
         for i in range(land + 1):
             q.step(keys[i])
         if (q.gx >> 12, q.gy >> 12) not in top or p.nboost or p.nfall:
             continue
-        ph, _c = run_ix("play", R_, pk, keys, _heldarm=True)
+        ph, _c = run_ix(TP, R_, pk, keys, _heldarm=True)
         if ph.nboost:
             found = (keys, a, land)
             break
     keys, a, land = found if found else ([0], None, None)
-    if found and not parts("play", R_, pk, keys, _nogate=True):
+    if found and not parts(TP, R_, pk, keys, _nogate=True):
         found = None                            # (round 3: `nogate`, held without the take-off gate, must boost)
-    add("ledgehold", "play", R_, pk if found else rest, keys, "a Hop at the half-unit lip %s (take-off point %s), "
+    add("ledgehold", TP, R_, pk if found else rest, keys, "a Hop at the half-unit lip %s (take-off point %s), "
         "Space held through its first contact on the ledge at %s: no boost (the ledge is above the "
         "take-off, round 3's gate)" % (rr, a, land), found,
         red=[{"_heldarm": True}, {"_nogate": True}], nboost=0)
@@ -4298,21 +4451,21 @@ def w6b_replays():
     # With no Space the contact opens the grace and nothing else
     found3 = None
     for H in (1, 0.5, 1.5):
-        top3, r3 = play_rect(H)
+        top3, r3 = tp_rect(H)
         for x in range(r3[0], r3[2]):
             for y in range(r3[1], r3[3]):
                 for v in (BB.VMAXG, 224, 160):
-                    pk3 = pl_poke("play", (x, y), R_, (0, 1), v)
+                    pk3 = pl_poke(TP, (x, y), R_, (0, 1), v)
                     kb = [BB._PLAY_DIRK[(0, 1)]] * 80
-                    q, _cs = run_ix("play", R_, pk3, kb)
+                    q, _cs = run_ix(TP, R_, pk3, kb)
                     off = next((e[1] - 1 for e in q.events if e[0] == "takeoff"), None)
                     if off is None or q.nhop or q.nfall or q.nboost:
                         continue
                     keys = with_space(kb, off + 2)
-                    p, cs3 = run_ix("play", R_, pk3, keys)
+                    p, cs3 = run_ix(TP, R_, pk3, keys)
                     if p.nhop or p.nfall or [k_ for _i, k_ in cs3][:1] != ["boost"] or p.nboost != 1:
                         continue
-                    if not parts("play", R_, pk3, keys, _nofall=True):
+                    if not parts(TP, R_, pk3, keys, _nofall=True):
                         continue
                     cf = first_after(cs3, off)
                     found3 = (pk3, keys, kb, (x, y), H, v, off, cf)
@@ -4324,11 +4477,11 @@ def w6b_replays():
         if found3:
             break
     pk3, keys, kb, at3, H3, v3, off3, cf3 = found3 if found3 else (rest, [0], [0], None, None, None, None, None)
-    add("fallarm", "play", R_, pk3, keys[:(cf3 or 0) + 30], "rubber rolled off the %s-unit top at %s at %s, no "
+    add("fallarm", TP, R_, pk3, keys[:(cf3 or 0) + 30], "rubber rolled off the %s-unit top at %s at %s, no "
         "Hop; the take-off at step %s, a tap 2 steps later, the first contact at %s: a boost" % (
             H3, at3, v3, off3, cf3), found3, red={"_nofall": True}, nboost=1)
-    q, cs3 = run_ix("play", R_, pk3, kb[:(cf3 or 0) + 30])
-    add("fallnone", "play", R_, pk3, kb[:(cf3 or 0) + 30], "the same roll with no Space: %s, nboost %d" % (
+    q, cs3 = run_ix(TP, R_, pk3, kb[:(cf3 or 0) + 30])
+    add("fallnone", TP, R_, pk3, kb[:(cf3 or 0) + 30], "the same roll with no Space: %s, nboost %d" % (
         [k_ for _i, k_ in cs3][:1], q.nboost), found3 and q.nboost == 0 and not q.nhop, nboost=0)
     # mashchain: rubber at the cap with a chord (armroll's), Space tapped every 2 steps from its Hop through the
     # chain's first three contacts: ONE boost (the token one a chain; `pump` re-arms it at every contact Hop)
@@ -4336,17 +4489,17 @@ def w6b_replays():
     for d in ((1, 0), (-1, 0), (0, -1), (0, 1)):
         dk = BB._PLAY_DIRK[d]
         for at in ((start[0] + i * d[1], start[1] + i * d[0]) for i in (0, -2, 2, -4, 4)):
-            pk = pl_poke("play", at, R_, d)
+            pk = pl_poke(TP, at, R_, d)
             for a in range(0, 12):
                 kb = [dk | (K.K_HOP if i >= a and (i - a) % 2 == 0 else 0) for i in range(160)]
-                p, cs2 = run_ix("play", R_, pk, kb)
+                p, cs2 = run_ix(TP, R_, pk, kb)
                 if len(cs2) < 3 or p.nfall:
                     continue
                 n3 = cs2[2][0]
                 keys = [k_ & ~K.K_HOP if i > n3 else k_ for i, k_ in enumerate(kb)][:n3 + 40]
-                p, cs2 = run_ix("play", R_, pk, keys)
+                p, cs2 = run_ix(TP, R_, pk, keys)
                 if p.nboost == 1 and not p.nfall and [k_ for _i, k_ in cs2][:1] == ["boost"] \
-                        and parts("play", R_, pk, keys, _pump=True):
+                        and parts(TP, R_, pk, keys, _pump=True):
                     found2 = (pk, keys, at, d, a, [k_ for _i, k_ in cs2][:4])
                     break
             if found2:
@@ -4354,26 +4507,26 @@ def w6b_replays():
         if found2:
             break
     pk, keys, at, d, a, kinds = found2 if found2 else (rest, [0], None, None, None, None)
-    add("mashchain", "play", R_, pk, keys, "rubber at the cap from %s along %s, Space tapped every 2 steps from "
+    add("mashchain", TP, R_, pk, keys, "rubber at the cap from %s along %s, Space tapped every 2 steps from "
         "the Hop (step %s) through three contacts %s: one boost" % (at, d, a, kinds), found2,
         red={"_pump": True}, nboost=1)
     # gripchain (re-keyed for 6b, SPEC.md 130.17.4.4): a Hop and a MID-FLIGHT tap - the boost; Grip held through
     # the boost's landing; a Hop off it and a mid-flight tap - the second boost, about 52 steps on
     base2 = [0] * HOP + [K.K_HOP] + [0] * 220
     keys = with_space(base2, (HOP + c) // 2 if c else None)
-    _p, cs2 = run_ix("play", R_, rest, keys)
+    _p, cs2 = run_ix(TP, R_, rest, keys)
     L1 = first_after(cs2, HOP)
-    _p, cs2 = run_ix("play", R_, rest, [k_ | (K.K_GRIP if i > L1 else 0) for i, k_ in enumerate(keys)])
+    _p, cs2 = run_ix(TP, R_, rest, [k_ | (K.K_GRIP if i > L1 else 0) for i, k_ in enumerate(keys)])
     L2 = first_after(cs2, L1)
     keys = [k_ | (K.K_GRIP if L1 < i <= L2 else 0) for i, k_ in enumerate(keys)]
     keys = with_space(keys, L2 + 1)
-    _p, cs2 = run_ix("play", R_, rest, keys)
+    _p, cs2 = run_ix(TP, R_, rest, keys)
     L3 = first_after(cs2, L2 + 1)
     keys = with_space(keys, (L2 + 1 + L3) // 2 if L3 else None)[:(L3 or 0) + 30]
-    p, cs2 = run_ix("play", R_, rest, keys)
+    p, cs2 = run_ix(TP, R_, rest, keys)
     ev = [e[0] for e in p.events if e[0] in ("hop", "boost", "land", "bounce", "hopc")]
     bst = [e[1] for e in p.events if e[0] == "boost"]
-    add("gripchain", "play", R_, rest, keys, "Hop, a mid-flight tap, boost (%s), Grip through its landing (%s), Hop "
+    add("gripchain", TP, R_, rest, keys, "Hop, a mid-flight tap, boost (%s), Grip through its landing (%s), Hop "
         "(%s), a mid-flight tap, boost (%s): %s; the cycle %s steps" % (
             L1, L2, L2 + 1, L3, ev[:6], bst[1] - bst[0] if len(bst) == 2 else None),
         p.nboost == 2 and ev[:5] == ["hop", "boost", "land", "hop", "boost"], nboost=2)
@@ -4381,28 +4534,29 @@ def w6b_replays():
     gs = grip_stop(ST)
     pk, at, n = gs if gs else (rest, None, None)
     sf = BB.axis_feel(ST)
-    add("gripsteel", "play", ST, pk, [K.K_GRIP] * (sf[6] + 20), "steel at the cap at %s, Grip held: stopped in %s "
+    add("gripsteel", TP, ST, pk, [K.K_GRIP] * (sf[6] + 20), "steel at the cap at %s, Grip held: stopped in %s "
         "steps (%.1f tiles), the axis model's %d" % (at, n, sf[7], sf[6]), gs)
-    # wave 7 (SPEC.md 130.18.4): TIMEOUT - rubber left at rest on FIRST's start past its limit: the clock counts
-    # down 55 steps a second, and the limit's last step times the replay out (the guest's run ends there;
-    # `toutoff` runs on, and its state differs at that frame)
-    fc = R.course("first")
+    # wave 7 (SPEC.md 130.18.4): TIMEOUT - rubber left at rest on TQUIK's start past its limit (8 s, the test
+    # courses' shortest): the clock counts down 55 steps a second, and the limit's last step times the replay
+    # out (the guest's run ends there; `toutoff` runs on, and its state differs at that frame)
+    fc = R.course("tquik")
     lim = fc.limit * BB.SEC_STEPS
     keys = [0] * (lim + 40)
-    p, _cs = run_ix("first", R_, None, keys)
-    q = model("first", R_, None)
+    p, _cs = run_ix("tquik", R_, None, keys)
+    q = model("tquik", R_, None)
     for k_ in keys[:lim - 1]:
         q.step(k_)
-    add("timeout", "first", R_, None, keys, "rubber at rest on FIRST, limit %d s (%d steps): the timeout at step %s, "
+    add("timeout", "tquik", R_, None, keys, "rubber at rest on TQUIK, limit %d s (%d steps): the timeout at step %s, "
         "the clock %s then" % (fc.limit, lim, p.nstep if p.tout else None, p.tsec), fc.limit and p.tout
         and p.nstep == lim and p.tsec == 0 and not q.tout and q.tsec == 1, red={"_toutoff": True}, nboost=0)
-    # wave 8b (SPEC.md 130.19.4): SEVERAL FINISHES - TRIAL's goal column split, (8, 17) exit 0 and (8, 18)
-    # exit 1: rolled into each from the sand, the guest's bz_exit the model's every frame and at the end
-    for nm, at, want in (("exit1", (9, 18), 1), ("exit0", (9, 17), 0)):
-        pk = pl_poke("trial", at, R_, d=(-1, 0), v=BB.VMAXG // 2)
-        keys = [CHORD_MX] * 40
-        p, _cs = run_ix("trial", R_, pk, keys)
-        add(nm, "trial", R_, pk, keys, "rubber rolled from %s into TRIAL's goal column: finished at step %s through "
+    # wave 8b (SPEC.md 130.19.4): SEVERAL FINISHES - TPLY's split goal, (25, 17) exit 0 and (26, 17) exit 1
+    # (TRIAL's turned): rolled into each from the sand along -wy, the guest's bz_exit the model's every frame
+    # and at the end
+    for nm, at, want in (("exit1", (26, 19), 1), ("exit0", (25, 19), 0)):
+        pk = pl_poke(TP, at, R_, d=(0, -1), v=BB.VMAXG // 2)
+        keys = [CHORD_MY] * 40
+        p, _cs = run_ix(TP, R_, pk, keys)
+        add(nm, TP, R_, pk, keys, "rubber rolled from %s into TPLY's split goal: finished at step %s through "
             "exit %d (want %d)" % (at, p.nstep if p.goal else None, p.exit, want), p.goal and p.exit == want
             and not p.nfall, nboost=0)
     return S
@@ -4516,7 +4670,8 @@ def prove(S):
 
 
 def prove_wave1():
-    """prove_wave1_() once a process (the shipped FIRST and BENCH and the host's model only): -> fresh lists"""
+    """prove_wave1_() once a process (the test courses BENCH and TPLY and the host's model only): -> fresh
+    lists"""
     if "wave1" not in _ONCE:
         _ONCE["wave1"] = prove_wave1_()
     bad, say = _ONCE["wave1"]
@@ -4524,28 +4679,31 @@ def prove_wave1():
 
 
 def prove_wave1_():
-    """the host's proof of wave 1's scenarios and red arms on the wave-2 model:
-    the pit reaches its SAFE cell's respawn, the lip and the bench part from
-    their broken models.  -> (failure lines, report lines)"""
+    """the host's proof of wave 1's scenarios (SCEN_T) and red arms on the
+    model: the pit reaches a SAFE cell's respawn (not the start: the respawn
+    red's), the lip and the bench part from their broken models; and the
+    benchmark's FULL run (BZ_BENCH frames' steps, which the guest leg no longer
+    plays to the end) does not fall.  -> (failure lines, report lines)"""
     bad, say = [], []
-    first = R.course("first")
     for name in ("pit", "lip", "rail", "goal"):
-        (wx, wy), gvx, gvy, n = SCEN[name]
-        p = MarkPhysics(first, play=True).poke(wx, wy, gvx, gvy)
+        cname, (wx, wy), gvx, gvy, n = SCEN_T[name]
+        c = R.course(cname)
+        p = MarkPhysics(c, play=True).poke(wx, wy, gvx, gvy)
         for _ in range(2 * n):
             p.step(0)
             if p.goal or (name == "pit" and p.nfall):
                 break
         kinds = [e[0] for e in p.events if e[0] != "corner"]
-        ok = {"pit": [e[2] for e in p.events if e[0] == "respawn"][:1] == [(6, 5)] and
-              (6, 5) != BB.Grid(first.cga, first.wcga).start, "lip": "takeoff" in kinds and "bounce" in kinds,
-              "rail": p._reb, "goal": p.goal}[name]
-        say.append("wave 1's %s on the model: %s" % (name, ", ".join(kinds) or "none"))
+        rs = [e[2] for e in p.events if e[0] == "respawn"][:1]
+        ok = {"pit": bool(rs) and rs[0] != BB.Grid(c.cga, c.wcga).start,
+              "lip": "takeoff" in kinds and "bounce" in kinds, "rail": p._reb, "goal": p.goal and p.exit == 0}[name]
+        say.append("wave 1's %s on %s's model: %s%s" % (name, cname.upper(), ", ".join(kinds) or "none",
+                                                         " (respawned on %s)" % (rs[0],) if rs else ""))
         if not ok:
             bad.append("scenario %s: the model does not show it (%s)" % (name, kinds))
-    (wx, wy), gvx, gvy, n = SCEN["lip"]
-    a = BB.Physics(first, play=True).poke(wx, wy, gvx, gvy)
-    b = BB.Physics(first, play=True, _takeoff_zero=True).poke(wx, wy, gvx, gvy)
+    cname, (wx, wy), gvx, gvy, n = SCEN_T["lip"]
+    a = BB.Physics(R.course(cname), play=True).poke(wx, wy, gvx, gvy)
+    b = BB.Physics(R.course(cname), play=True, _takeoff_zero=True).poke(wx, wy, gvx, gvy)
     at = None
     for i in range(2 * n):
         a.step(0)
@@ -4568,6 +4726,14 @@ def prove_wave1_():
     say.append("the slope red's model parts from the benchmark's at step %s" % at)
     if at is None:
         bad.append("the benchmark cannot catch the slope red: its broken model never parts")
+    _ONCE["slope_at"] = at
+    q = BB.Physics(bench)                       # the benchmark's WHOLE route on the model (the guest leg stops
+    for _ in range(BENCH_STEPS):                # early): a benchmark that falls is a route that is wrong
+        q.step_auto()                           # (SPEC.md 130.11.17.1 item 8)
+    say.append("the benchmark's whole route on the model, %d steps: %d fall(s)" % (BENCH_STEPS, q.nfall))
+    if q.nfall:
+        bad.append("the benchmark FELL %d times under the model in %d steps: its route is wrong (SPEC.md "
+                   "130.11.17.1 8)" % (q.nfall, BENCH_STEPS))
     return bad, say
 
 
@@ -4665,12 +4831,27 @@ def replay(g, s):
     return fails
 
 
-def run(tag, legs, apps=None, src=None, only=None):
+# THE GLASS ROW'S REPLAYS (BOUNCE-BONANZA-SOAK principle 3): every scenario of replays() is proved STEP FOR
+# STEP under unicorn by --check (bonanzaphyshost: urun's FULL, the whole state the glass compares a frame), so
+# the MartyPC half replays a REPRESENTATIVE FEW a card - what only it can see is the guest in the machine:
+# frames of one, two or no steps, the respawn's cut against the window, the drag's span in real cycles.  One
+# of each mechanism: the arrows and the coast, a rubber bounce over the gap, a shatter's respawn (the cut), a
+# windmill's knock (wave 3's state), the lift's ride, the cannon, a flag's respawn and a pad's swap (wave 4's
+# state and the tables), the cup's lip, a spring's launch (a poked prop record), a TILT log, the boost and the
+# late grace (wave 6 / 6b), the drag (its span), a split goal's exit.  --every runs them all; --only and
+# --red name any (a red arm's scenario need not be one of these)
+MARTY = ("ramp-rubber", "bounce", "shatter", "knock", "ride", "launch", "flag", "padswap-steel", "cup-lip",
+         "spring-max", "tilt", "boostclimb", "armlate", "drag-rest", "exit1")
+
+
+def run(tag, legs, apps=None, src=None, only=None, every=False, families=False):
     sym = R.symbols(src)
     fails, outs = [], {}
-    S = replays() if "replay" in legs else []
+    S = (w9_replays() if families else replays()) if "replay" in legs else []
     if only:
         S = [s for s in S if s["name"] in only or s["name"].split("-")[0] in only]
+    elif not every and not families:
+        S = [s for s in S if s["name"] in MARTY]
     pre = prove(S) + (prove_wave1()[0] if "scen" in legs or "bench" in legs else [])
     if pre:
         return pre, outs
@@ -4685,11 +4866,10 @@ def run(tag, legs, apps=None, src=None, only=None):
             fails += f
             outs["bench"] = n
         if "scen" in legs and not fails:         # (a benchmark that parted is still running)
-            first = R.course("first")
-            for name in SCEN:
+            for name in SCEN_T:
                 if only and name not in only:
                     continue
-                f, out = scenario(g, first, name)
+                f, out = scenario(g, name)
                 fails += f
                 outs[name] = out
         if "replay" in legs and not [f for f in fails if "benchmark" in f]:
@@ -4791,6 +4971,7 @@ REDS = {
 REDS["famrsp"] = [("bzphys.inc", "    call bz_frst                ; the place, whose refill runs the CELL hook\n",
                    "    nop                         ; RED famrsp: the RESPAWN class ignored\n    nop\n    nop\n")]
 RED_LEGS = {"slope": ("bench",), "respawn": ("scen",), "takeoff": ("scen",)}
+RED_FAM = {"famrsp"}            # (its scenario, `probe`, is PLAYGROUND's: w9_replays, no test course has a family)
 RED_ONLY = {"respawn": ("pit",), "takeoff": ("lip",), "bounce": ("bounce",), "edge": ("eastwall",),
             "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",),
             "gate": ("knock",), "kick": ("kick",), "carry": ("hop",), "carrys": ("ride",), "stick": ("hop",),
@@ -4800,7 +4981,7 @@ RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", 
             "edge": "eastwall frame", "stun": "stun frame", "shatter": "shatter frame",
             "absimpact": "ramphop-", "airwall": "stepup frame", "gate": "knock frame", "kick": "kick frame",
             "carry": "hop frame", "carrys": "ride frame", "stick": "hop frame", "exit": "keep frame",
-            "ckpt": "flag frame", "ckmat": "flagmat-moon frame", "padftg": "padswap-",
+            "ckpt": "flag frame", "ckmat": "flagmat-rubber frame", "padftg": "padswap-",
             "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame",
             "famrsp": "probe frame"}
 
@@ -4937,11 +5118,43 @@ RED_WANT.update({"pump": "pumpchk frame", "rampboost": "rampnot frame", "tokbst"
                  "slabcell": "liftnot frame", "ceildrag": "drag-rest frame", "slowdrag": "the drag's span"})
 
 
+def red_aims(S):
+    """every red arm AIMED at a leg that exists: its RED_ONLY names each a scenario of the glass row's lists
+    (replays(), SCEN_T's wave 1 four, w9_replays for RED_FAM's), its leg one this row runs, its RED_WANT text
+    one the row's failure lines can carry -> failure lines (printed as they are found)"""
+    bad = []
+    names = {s["name"] for s in S} | set(SCEN_T)
+    fam = {s["name"] for s in w9_replays()} if RED_FAM else set()
+    for arm in sorted(REDS):
+        legs = RED_LEGS.get(arm, ("replay",))
+        if not set(legs) <= {"bench", "scen", "replay"}:
+            bad.append("red %s: aimed at a leg %s the row has not got" % (arm, legs))
+        if arm not in RED_WANT:
+            bad.append("red %s: no RED_WANT (the check it must go red at)" % arm)
+        if "bench" in legs:
+            continue
+        pool = fam if arm in RED_FAM else names
+        for o in RED_ONLY.get(arm, ()):
+            if not [n for n in pool if n == o or n.split("-")[0] == o]:
+                bad.append("red %s: aimed at %r, which is no scenario of the row's (SPEC.md 130.11.17.2)" % (arm, o))
+    for b in bad:
+        print("FAIL %s" % b)
+    print("bonanza_phys: %d red arms, each aimed at a scenario that exists: %s" % (
+        len(REDS), "yes" if not bad else "NO"))
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", choices=("cga", "herc", "both"), default="both")
     ap.add_argument("--leg", choices=("bench", "scen", "replay", "all"), default="all")
     ap.add_argument("--only", action="append", help="only these scenarios (and replays) by name")
+    ap.add_argument("--every", action="store_true",
+                    help="every replay on the glass, not MARTY's representative few (by hand: --check proves "
+                         "them all step for step under unicorn)")
+    ap.add_argument("--families", action="store_true",
+                    help="wave 9's family replays (PLAYGROUND's GLASS, PROBE and PICKUPS: no test course carries "
+                         "a family yet) on the glass, by hand")
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true",
                     help="the host half only: the replays proved on the model, every red arm assembled")
@@ -4992,6 +5205,7 @@ def main():
                 print("FAIL %s" % b)
             for line in R.check_reds(REDS, "bonanza_phys"):
                 print(line)
+            bad += red_aims(S)
             # SPEC.md 130.24 (wave D3): the SPLIT leg's host half - the guest's split cells under unicorn
             # against the model, every step (tests/bonanza_dsplit.py; its red arms by hand, `--reds`), until
             # D5's PLAYGROUND gives this row a split course to replay on the glass
@@ -5021,7 +5235,7 @@ def main():
             for tag in tags:
                 try:
                     bad, _ = run(tag, RED_LEGS.get(a.red, ("replay",)), apps=img, src=src,
-                                 only=RED_ONLY.get(a.red))
+                                 only=RED_ONLY.get(a.red), families=a.red in RED_FAM)
                 except AssertionError as e:
                     bad = ["assertion: %s" % e]
                 for b in bad:
@@ -5035,7 +5249,7 @@ def main():
         return
     allbad, steps = [], {}
     for tag in tags:
-        bad, outs = run(tag, legs, only=a.only)
+        bad, outs = run(tag, legs, only=a.only, every=a.every, families=a.families)
         for b in bad:
             print("FAIL %s: %s" % (tag, b))
         allbad += bad

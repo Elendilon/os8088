@@ -11,12 +11,21 @@ every step's key byte into bz_rlog (BZR1, run-length pairs), and R on the
 desktop REPLAYS it.  This row holds the recorder, the player and
 bbcourse.Physics.run_log to one another:
 
-  1  RECORD (the CGA): TRIAL chosen for F's free play ([bz_crsel] POKED:
+  Every leg runs on a TEST course of the BZDEV=1 build (SPEC.md 130.54;
+  docs/plans/BOUNCE-BONANZA-SOAK.md's TPLAY table) - TPLY for the record,
+  inject, mouse and play legs (its H, F, the gap and G are TRIAL's turned a
+  quarter: TRIAL's +wx is TPLY's +wy, so Left and Right swap in every key
+  script and the chord off H's lip is Left + Down; its apron, rungs and brake
+  strip are the PLAYGROUND's), TMIL for the MILL leg (MILL's top cell for
+  cell) - never a prototype course, so the prototypes can leave the build
+  without this row noticing.
+
+  1  RECORD (the CGA): TPLY chosen for F's free play ([bz_crsel] POKED:
      there is no course key since 2026-11-19, SPEC.md 130.11.5.4; the play
-     rolls TRIAL's own ball), F, then REAL keys held and released through MartyPC's debug server
+     rolls TPLY's own ball), F, then REAL keys held and released through MartyPC's debug server
      at chosen frames for about 600 frames - every arrow, Space (a Hop),
-     Left Shift (Grip), the chord off H's lip and the bounce over the gap -
-     and Esc.  At every frame's bz_presented the guest's state is read (the
+     Left Shift (Grip), the chord off H's lip (3.5 tiles along +wy from the
+     start) and the bounce over the gap - and Esc.  At every frame's bz_presented the guest's state is read (the
      eight values and 130.11.8.1's).  Then bz_rlog is read out: its runs,
      decoded, run through bbcourse.Physics from the course's start must
      equal the guest's state at EVERY one of those frames and at the play's
@@ -36,8 +45,8 @@ bbcourse.Physics.run_log to one another:
      (those events, at those steps), poked into bz_rlog and replayed with R,
      every frame against the model.
 
-  4  MILL (SPEC.md 130.12.8, 130.12.13.2): every log carries its course's
-     IDENTITY at +14 (R.make_log).  RECORD on the CGA: Enter on MILL, no key
+  4  MILL (SPEC.md 130.12.8, 130.12.13.2), on TMIL: every log carries its course's
+     IDENTITY at +14 (R.make_log).  RECORD on the CGA: Enter on TMIL, no key
      for the steps that make the autopilot's first approach to its windmill
      a KNOCK-BACK (found on the model), then REAL keys - the arrows the
      autopilot would press, decided at each bz_presented off the guest's own
@@ -64,7 +73,7 @@ and PASSES only if its leg FAILS - at its own check:
   noident    the identity check taken out (the MILL leg): the log with
              another identity PLAYS - refuse: fails
 
-WAVE 4 (SPEC.md 130.14.8, 130.14.14): a MOUSE play on MOON, on the CGA - T to
+WAVE 4 (SPEC.md 130.14.8, 130.14.14): a MOUSE play on TPLY, on the CGA - T to
 MOUSE, the pointer driven by the row (tools/os88mouse.py's absolute `to`, closed
 on the kernel's own mouse_x) through MOUSE_SCRIPT's offsets round the anchor on
 both axes, each at the MIDDLE of a cap's band so the hysteresis cannot decide
@@ -78,15 +87,15 @@ keyboard play of the same route is bonanzaperf's to report, not this row's.
   tiltmap    the dead zone left out of the mapping (bz_tinit's DZ 0): the caps
              the row expects differ - `tilt map`
 
-WAVE 6 (SPEC.md 130.16.14): THE PLAYGROUND, a real-key play RECORDED on the
-CGA and REPLAYED on the Hercules (leg `play`).  The PLAYGROUND selected, F,
+WAVE 6 (SPEC.md 130.16.14): THE PLAYGROUND'S APRON (TPLY's), a real-key play RECORDED on the
+CGA and REPLAYED on the Hercules (leg `play`).  TPLY selected, F,
 then keys decided at each bz_presented off the guest's own state (a model
 poked from it predicts what the next steps do - the keys are still the
 debug server's real presses, and the log is what the guest recorded):
 Space (a Hop from rest on the apron); Space again when the model says the
 Hop's first contact is 1 - 4 steps off, inside the window (its BOOST);
-once the ball rests, Right + Down (+wx) along the apron until a Grip from
-there would stop it on the brake strip's lane, Left Shift to that stop;
+once the ball rests, Left + Up (-wx) along the apron until a Grip from
+there would stop it on the brake strip's lane (wx 12), Left Shift to that stop;
 Left + Down (+wy) down the lane until the centre is on the strip, then
 Left Shift held to rest; Esc.  The model run off the log equals the play
 at every frame and at its end; the model's run of it BOOSTS (nboost >= 1)
@@ -95,10 +104,10 @@ the model's at every frame, its end the play's.  The INJECT leg's rubber
 log now boosts at its Hop's contact (rubber's Space there since wave 6,
 SPEC.md 130.11.7.2 as amended).  No new red arm: `hopbit` covers Space's bit.
 
-WAVE 6B (SPEC.md 130.17.4, 130.17.10): the PLAYGROUND play's boost is taken
+WAVE 6B (SPEC.md 130.17.4, 130.17.10): the apron play's boost is taken
 by a MID-FLIGHT second press (Space again when the model poked from the
 guest says the first contact is BOOST_AHEAD, 12, steps off or nearer: it
-arms the flight), and the `mouse` leg adds a MOUSE play on the PLAYGROUND
+arms the flight), and the `mouse` leg adds a MOUSE play on TPLY's apron
 (record_mouse_boost): under T MOUSE the left button is the key byte's Space
 bit, so a click is the Hop and a mid-flight second click arms the boost; the
 model's run of its TILT log equals the play's end and boosts at the first
@@ -121,13 +130,17 @@ import bonanza_ring as R       # noqa: E402
 import bonanza_phys as P       # noqa: E402
 
 K = BB
-CX = K.K_R | K.K_D                  # the chord along +wx: off H's lip, over the gap
+CX = P.CHORD_Y                      # the chord along +wy on TPLY (TRIAL's +wx turned): off H's lip, over the gap
+CRS = P.TP                          # the record, inject, mouse and play legs' course (TPLY, a test course)
+MILL = "tmil"                       # the MILL leg's (TMIL: MILL's top cell for cell, a test course)
 PLAY_FRAMES = 600
 # the record leg's script: frame -> keys pressed (+) and released (-) at that
 # frame's bz_presented.  Space at 12 (a Hop), every arrow, Left Shift, the
 # chord off H's lip at 60 (the bounce on F and over the gap), Grip over G,
-# Space in the air and on the ground again, and everything up before Esc
-SCRIPT = {
+# Space in the air and on the ground again, and everything up before Esc.
+# TRIAL's script TURNED onto TPLY (its +wx is TPLY's +wy): Left and Right swap
+_TURN = {"ArrowLeft": "ArrowRight", "ArrowRight": "ArrowLeft"}
+SCRIPT = dict((f, [a[0] + _TURN.get(a[1:], a[1:]) for a in acts]) for f, acts in {
     12: ["+Space"], 15: ["-Space"],
     25: ["+ArrowLeft"], 31: ["-ArrowLeft", "+ArrowUp"], 37: ["-ArrowUp", "+ArrowRight"],
     43: ["-ArrowRight", "+ArrowDown"], 49: ["-ArrowDown"],
@@ -137,7 +150,7 @@ SCRIPT = {
     360: ["-ArrowRight", "-ArrowDown", "+ArrowLeft"], 400: ["-ArrowLeft", "+ArrowUp"],
     430: ["+ShiftLeft"], 460: ["-ArrowUp", "-ShiftLeft", "+ArrowDown"], 500: ["-ArrowDown", "+ArrowRight"],
     520: ["+Space"], 524: ["-Space"], 560: ["-ArrowRight"],
-}
+}.items())
 
 
 def lenient(log):
@@ -174,12 +187,12 @@ def select(g, k):
 
 
 def record(g):
-    """Part 1: TRIAL selected, F, the script's real keys, Esc.  -> (failures,
+    """Part 1: TPLY selected, F, the script's real keys, Esc.  -> (failures,
     the log, the frames' states {nstep: (state, state2)}, the end state)"""
     m = g.m
     rd = P.Reader(g)
     fails = []
-    crs, mat = R.CRS_K["trial"], R.course("trial").ball
+    crs, mat = R.CRS_K[CRS], R.course(CRS).ball
     select(g, crs)
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyF")
@@ -189,7 +202,7 @@ def record(g):
         if not frames:
             g.check_base()
             if g.b("bz_mode") != 0 or g.b("bz_crs") != crs or g.b("bz_mat") != mat:
-                fails.append("record: F launched mode %d on course %d with ball %d, not a play of TRIAL with its "
+                fails.append("record: F launched mode %d on course %d with ball %d, not a play of TPLY with its "
                              "own ball %d (SPEC.md 130.11.5.4)" % (g.b("bz_mode"), g.b("bz_crs"), g.b("bz_mat"), mat))
                 break
         frames += 1
@@ -325,8 +338,8 @@ def replay(g, log, model_of, end=None, what="replay"):
 def injects():
     """the inject leg's logs, built and PROVED on the model: -> [(name, course K,
     material, keys, proof line, ok)]"""
-    trial = R.course("trial")
-    k_trial = R.CRS_K["trial"]
+    trial = R.course(CRS)                   # (TPLY: TRIAL's H, F, the gap and G turned a quarter)
+    k_trial = R.CRS_K[CRS]
 
     def run(keys, mat=0):
         p = BB.Physics(trial, play=True, mat=mat)
@@ -367,7 +380,7 @@ def injects():
     return out
 
 
-# ---- the PLAYGROUND (SPEC.md 130.16.14 bonanzareplay) ----------------------------
+# ---- the apron (TPLY's, the PLAYGROUND's; SPEC.md 130.16.14 bonanzareplay) -------------
 PLAY_MAX = 900                      # frames, at most: the Hop, its boost, the run to the lane and the strip
 BOOST_AHEAD = 12                    # wave 6b (SPEC.md 130.17.10): the boost's second press about this many steps
                                     # before the model's first contact - mid-flight, where it ARMS the flight
@@ -410,19 +423,19 @@ def grip_stop(p):
 
 
 def record_play(g):
-    """the PLAYGROUND's real-key play on the CGA: -> (failures, the log, the frames'
+    """TPLY's real-key play (the apron, the PLAYGROUND's) on the CGA: -> (failures, the log, the frames'
     states, the end state)"""
     m = g.m
     rd = P.Reader(g)
     fails = []
-    k_play = R.CRS_K["play"]
-    c = R.course("play")
+    k_play = R.CRS_K[CRS]
+    c = R.course(CRS)
     crs, mat = k_play, c.ball
     select(g, crs)
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyF")
     held, seen, frames = set(), {}, 0
-    lane_x = (BB.PLAY_LANE * 16 + 8) << 8
+    lane_x = (P.TP_LANE * 16 + 8) << 8
     phase, t_ph, rest = "settle", 0, 0
 
     def press(bits):
@@ -434,11 +447,11 @@ def record_play(g):
         held.clear()
         held.update(want)
     while frames < PLAY_MAX and phase != "done":
-        assert m.wait_stop(60) == "breakpoint", "the PLAYGROUND's play stopped presenting (frame %d)" % frames
+        assert m.wait_stop(60) == "breakpoint", "TPLY's play stopped presenting (frame %d)" % frames
         if not frames:
             g.check_base()
             if g.b("bz_mode") != 0 or g.b("bz_crs") != k_play:
-                fails.append("record PLAY: Enter launched mode %d on course %d, not a play of the PLAYGROUND" % (
+                fails.append("record PLAY: Enter launched mode %d on course %d, not a play of TPLY" % (
                     g.b("bz_mode"), g.b("bz_crs")))
                 break
         frames += 1
@@ -455,7 +468,7 @@ def record_play(g):
             if st[7]:
                 phase, t_ph = "fly", 0
         elif phase == "fly":
-            n = to_contact(ghost(g, "play", mat, st, s2))
+            n = to_contact(ghost(g, CRS, mat, st, s2))
             if n is not None and n <= BOOST_AHEAD:
                 press(K.K_HOP)                      # Space again MID-FLIGHT: it arms the BOOST (wave 6b)
                 phase, t_ph = "boost", 0
@@ -466,21 +479,21 @@ def record_play(g):
             press(0)
             phase, t_ph = "land", 0
         elif phase == "land" and rest >= 6:
-            press(K.K_R | K.K_D)                    # +wx along the apron, toward the lane
-            phase, t_ph = "east", 0
-        elif phase == "east":
-            stop = grip_stop(ghost(g, "play", mat, st, s2))
-            if stop is not None and stop[0] >= lane_x - (2 << 8):
+            press(K.K_L | K.K_U)                    # -wx along the apron, toward the lane (TPLY's is west of
+            phase, t_ph = "west", 0                 # the start)
+        elif phase == "west":
+            stop = grip_stop(ghost(g, CRS, mat, st, s2))
+            if stop is not None and stop[0] <= lane_x + (2 << 8):
                 press(K.K_GRIP)                     # a Grip from here stops on the lane
                 phase, t_ph = "stop1", 0
             elif t_ph > 300:
-                fails.append("record PLAY: the run east along the apron never reached the lane's Grip point")
+                fails.append("record PLAY: the run west along the apron never reached the lane's Grip point")
                 break
         elif phase == "stop1" and rest >= 4:
             press(K.K_L | K.K_D)                    # +wy down the lane
             phase, t_ph = "south", 0
         elif phase == "south":
-            if (st[2] >> 12) >= BB.PLAY_STRIP[0] or t_ph > 300:
+            if (st[2] >> 12) >= P.TP_STRIP[0] or t_ph > 300:
                 press(K.K_GRIP)                     # on the strip: Grip to rest
                 phase, t_ph = "brake", 0
         elif phase == "brake" and (rest >= 6 or t_ph > 200 or ext["nfall"]):
@@ -491,8 +504,8 @@ def record_play(g):
     m.run()
     press(0)
     g.key("Escape")
-    M.until(m, lambda _: g.b("bz_fs") == 0, "the PLAYGROUND's play ends on Esc", guest=60)
-    P.dropped(g, "the PLAYGROUND's recorded play")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "TPLY's play ends on Esc", guest=60)
+    P.dropped(g, "TPLY's recorded play")
     m.pause()
     end = rd.read()
     log = g.read_log()
@@ -502,18 +515,78 @@ def record_play(g):
     return fails, log, seen, end
 
 
+def play_plan():
+    """--check: the play leg's script run on the MODEL, one step a frame (the glass has 0 - 2): its Hop, the
+    mid-flight press, the run west to the lane's Grip point, down the lane onto the strip and the Grip to rest
+    - judged as judge_play judges the guest's log.  -> (ok, what)"""
+    c = R.course(CRS)
+    p = BB.Physics(c, play=True, mat=c.ball)
+    lane_x = (P.TP_LANE * 16 + 8) << 8
+    keys, phase, t_ph, rest, k = [], "settle", 0, 0, 0
+
+    def ghost_(q):                          # (ghost()'s poke, off the model's state rather than the guest's)
+        h = BB.Physics(c, play=True, mat=q.mat)
+        h.nstep, h.gx, h.gy, h.gz, h.gvx, h.gvy, h.gvz, h.air = q.state()
+        h.ztop = q.ztop
+        h.lvl, h.hopw, h.kprev, h.mst, h.mct, h.sqf = list(q.lvl), q.hopw, q.kprev, q.mst, q.mct, q.sqf
+        h._fill(h.gx >> 12, h.gy >> 12)
+        h._ps()
+        h._derive(True)
+        return h
+    while len(keys) < PLAY_MAX and phase != "done":
+        still = not p.air and not p.gvx and not p.gvy and not p.mst
+        rest = rest + 1 if still else 0
+        t_ph += 1
+        if phase == "settle" and len(keys) >= 8:
+            k, phase, t_ph = K.K_HOP, "hop", 0
+        elif phase == "hop" and t_ph >= 2:
+            k = 0
+            if p.air:
+                phase, t_ph = "fly", 0
+        elif phase == "fly":
+            n = to_contact(ghost_(p))
+            if n is not None and n <= BOOST_AHEAD:
+                k, phase, t_ph = K.K_HOP, "boost", 0
+            elif not p.air and t_ph > 4:
+                return False, "the Hop landed before the boost's press"
+        elif phase == "boost" and t_ph >= 2:
+            k, phase, t_ph = 0, "land", 0
+        elif phase == "land" and rest >= 6:
+            k, phase, t_ph = K.K_L | K.K_U, "west", 0
+        elif phase == "west":
+            stop = grip_stop(ghost_(p))
+            if stop is not None and stop[0] <= lane_x + (2 << 8):
+                k, phase, t_ph = K.K_GRIP, "stop1", 0
+            elif t_ph > 300:
+                return False, "the run west never reached the lane's Grip point"
+        elif phase == "stop1" and rest >= 4:
+            k, phase, t_ph = K.K_L | K.K_D, "south", 0
+        elif phase == "south":
+            if (p.gy >> 12) >= P.TP_STRIP[0] or t_ph > 300:
+                k, phase, t_ph = K.K_GRIP, "brake", 0
+        elif phase == "brake" and (rest >= 6 or t_ph > 200 or p.nfall):
+            k, phase = 0, "done"
+        keys.append(k)
+        p.step(k)
+    if phase != "done":
+        return False, "the script stopped in its %s phase" % phase
+    f, facts = judge_play(R.make_log(keys, R.CRS_K[CRS], c.ball))
+    return not f and not facts[3], "%d steps, Hops %d, boosts %d, Grip on the strip at step %s, falls %d%s" % (
+        len(keys), facts[0], facts[1], facts[2], facts[3], "; " + "; ".join(f) if f else "")
+
+
 def judge_play(log):
-    """the model's run of the PLAYGROUND's log: it boosts, and holds Grip
+    """the model's run of TPLY's apron log: it boosts, and holds Grip
     grounded on a brake-strip cell: -> (failures, the facts)"""
     fails = []
     keys = lenient(log)
-    p = BB.Physics(R.course("play"), play=True, mat=log[5])
+    p = BB.Physics(R.course(CRS), play=True, mat=log[5])
     grip = None
     for k in keys:
         p.step(k)
         cell = (p.gx >> 12, p.gy >> 12)
-        if grip is None and k & K.K_GRIP and not p.air and cell[0] == BB.PLAY_LANE \
-                and BB.PLAY_STRIP[0] <= cell[1] < BB.PLAY_STRIP[1]:
+        if grip is None and k & K.K_GRIP and not p.air and cell[0] == P.TP_LANE \
+                and P.TP_STRIP[0] <= cell[1] < P.TP_STRIP[1]:
             grip = p.nstep
     if not p.nboost:
         fails.append("record PLAY: the model's run of the log never BOOSTS (Space at the Hop's contact)")
@@ -546,7 +619,7 @@ def mill_delay():
     """the steps of no key that make the autopilot's first approach to the route's
     windmill find its gate CLOSED (a knock-back, then the capture as it pushes on)
     - the middle of the run of such delays, found on the model"""
-    c = R.course("mill")
+    c = R.course(MILL)
     ok = []
     for d in range(0, 64):
         p = BB.Physics(c, play=True)
@@ -561,7 +634,7 @@ def mill_delay():
 
 
 def record_mill(g, delay):
-    """MILL's record (the CGA): Enter on MILL ([bz_crs] poked at bz_launch), no key
+    """MILL's record on TMIL (the CGA): Enter on TMIL ([bz_crs] poked at bz_launch), no key
     for DELAY steps, then REAL keys - the arrows the autopilot would press, its
     decision made at every bz_presented off the guest's own screen state (a pilot
     beside the play, not the play) - for MILL_FRAMES frames, and Esc.  -> (failures,
@@ -569,14 +642,14 @@ def record_mill(g, delay):
     m = g.m
     rd = P.Reader(g)
     fails = []
-    pilot = BB.Physics(R.course("mill"), play=True)
+    pilot = BB.Physics(R.course(MILL), play=True)
     m.bp_exec(g.a("bz_launch"))
     g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "Enter did not reach bz_launch"
-    g.putb("bz_crs", R.CRS_K["mill"])
+    g.putb("bz_crs", R.CRS_K[MILL])
     m.bp_exec(g.a("bz_presented"))
     m.run()
-    recs = {r["i"]: r for r in R.course("mill").part["props"]}
+    recs = {r["i"]: r for r in R.course(MILL).part["props"]}
     held, seen, frames, tubed, tdone = set(), {}, 0, False, False
     still, last, rescues = 0, None, 0
     wp0, wpf = pilot.wp, 0
@@ -584,8 +657,8 @@ def record_mill(g, delay):
         assert m.wait_stop(60) == "breakpoint", "the MILL play stopped presenting (frame %d)" % frames
         if not frames:
             g.check_base()
-            if g.b("bz_mode") != 0 or g.b("bz_crs") != R.CRS_K["mill"]:
-                fails.append("record MILL: Enter launched mode %d on course %d, not a play of MILL" % (
+            if g.b("bz_mode") != 0 or g.b("bz_crs") != R.CRS_K[MILL]:
+                fails.append("record MILL: Enter launched mode %d on course %d, not a play of TMIL" % (
                     g.b("bz_mode"), g.b("bz_crs")))
                 break
         frames += 1
@@ -673,10 +746,10 @@ def refused(g, log):
     M.until(m, lambda _: g.b("bz_fs") == 0 and g.w("bz_cseg") == 0, "R's refusal to settle", guest=30)
     fails = []
     if played or g.b("bz_err") != 3 or g.d("bz_nstep") != n0 or not found:
-        fails.append("refuse: a log whose identity is not MILL's PLAYED, or was not refused as another course's "
+        fails.append("refuse: a log whose identity is not TMIL's PLAYED, or was not refused as another course's "
                      "log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's line %r; SPEC.md "
                      "130.12.8)" % (played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
-    print("%s refuse: the MILL log with its identity %04Xh changed to %04Xh: %s" % (
+    print("%s refuse: the TMIL log with its identity %04Xh changed to %04Xh: %s" % (
         g.tag, BB.log_ident(log), BB.log_ident(bytes(bad)), "refused, the face says %r" % found if not fails
         else "PLAYED or not refused"), flush=True)
     return fails
@@ -687,7 +760,7 @@ def judge_mill(log, seen, end):
     capture at a windmill (the pass), a kick and a tube's capture.  -> (failures, events)"""
     k, mat = log[4], log[5]
     f, p = judge_record(log, seen, end, k, mat)
-    recs = {r["i"]: r for r in R.course("mill").part["props"]}
+    recs = {r["i"]: r for r in R.course(MILL).part["props"]}
     ev = [e for e in p.events if e[0] in ("knock", "capture", "kick", "exit")]
     has = {"a knock-back": any(e[0] == "knock" for e in ev),
            "a windmill's capture": any(e[0] == "capture" and recs[e[2]]["kind"] == BB.PK_WINDMILL for e in ev),
@@ -699,7 +772,7 @@ def judge_mill(log, seen, end):
     return f, ev
 
 
-# ---- WAVE 4 (SPEC.md 130.14.8, 130.14.14): a MOUSE play on MOON ------------------
+# ---- WAVE 4 (SPEC.md 130.14.8, 130.14.14): a MOUSE play on TPLY ------------------
 BZT = {"anc": 0, "lo": 2, "hi": 4, "h": 6, "cap": 8, "neg": 9}     # bzgame.inc BZT_*
 # the stick's targets, (x cap, y cap, x sign, y sign): every cap at a MIDPOINT
 # between its boundaries, so no hysteresis band can decide it
@@ -740,7 +813,8 @@ def offset_for(c, E):
 
 
 def record_mouse(g, ui):
-    """T MOUSE, MOON selected, the pointer at the window's centre, Enter; the row
+    """T MOUSE, TPLY selected (free play: the gap or the strip's void respawns it), the pointer at the
+    window's centre, Enter; the row
     moves the pointer through MOUSE_SCRIPT round the anchor; Esc.  -> (failures,
     the log, the end state)"""
     m = g.m
@@ -749,7 +823,7 @@ def record_mouse(g, ui):
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         g.key("KeyT")
         M.until(m, lambda _: g.b("bz_ctl") == 1, "T to choose MOUSE", guest=5)
-    select(g, R.CRS_K["moon"])
+    select(g, R.CRS_K[CRS])
     ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
     g.key("KeyF")
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 3, "the mouse play's bracket", guest=60)
@@ -820,7 +894,7 @@ def record_mouse(g, ui):
             fails.append("the mouse play's end %s is not the model's run off its TILT log %s" % (
                 P.show(end[0]), P.show(p.state())))
     caps = sorted(set(t_ for _k, t_ in BB.decode_log_t(log)[2])) if log[6] & BB.RL_TILT else []
-    print("%s mouse play on MOON: %d frames checked against 130.14.8.1's mapping, a TILT log of %d runs and %d steps "
+    print("%s mouse play on TPLY: %d frames checked against 130.14.8.1's mapping, a TILT log of %d runs and %d steps "
           "(%d distinct tilt bytes); the model run off it equals the play's end: %s; the anchor at %s" % (
               g.tag, seen, struct.unpack_from("<H", log, 12)[0], struct.unpack_from("<I", log, 8)[0], len(caps),
               "yes" if not fails else "NO", (axis(g, "bz_tax")["anc"], axis(g, "bz_tay")["anc"])), flush=True)
@@ -830,7 +904,7 @@ def record_mouse(g, ui):
 def record_mouse_boost(g, ui):
     """WAVE 6B (SPEC.md 130.17.4.3, 130.17.10): the left button under T MOUSE
     is the key byte's Space bit, so a mid-flight second CLICK arms the boost.
-    T MOUSE, the PLAYGROUND selected, the pointer at the window's centre (the
+    T MOUSE, TPLY selected, the pointer at the window's centre (the
     anchor: caps 0, the ball rests on the apron), Enter; at bz_presented the
     row clicks (the Hop), releases, clicks again when a model poked from the
     guest says the first contact is BOOST_AHEAD steps off or nearer, releases,
@@ -847,15 +921,15 @@ def record_mouse_boost(g, ui):
         M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         g.key("KeyT")
         M.until(m, lambda _: g.b("bz_ctl") == 1, "T to choose MOUSE", guest=5)
-    k_play = R.CRS_K["play"]
+    k_play = R.CRS_K[CRS]
     select(g, k_play)
-    mat = R.course("play").ball
+    mat = R.course(CRS).ball
     ui.mo.to(320 if g.tag == "cga" else 360, 100 if g.tag == "cga" else 174)
     m.bp_exec(g.a("bz_presented"))
     g.key("KeyF")
     want, phase, frames, t_ph, rest = False, "settle", 0, 0, 0
     while frames < PLAY_MAX and phase != "done":
-        assert m.wait_stop(60) == "breakpoint", "the mouse PLAYGROUND play stopped presenting (frame %d)" % frames
+        assert m.wait_stop(60) == "breakpoint", "the mouse TPLY play stopped presenting (frame %d)" % frames
         frames += 1
         st, s2, ext = rd.read()
         still = not st[7] and not st[4] and not st[5] and not s2[3]
@@ -869,7 +943,7 @@ def record_mouse_boost(g, ui):
             fails.append("mouse PLAY: the click made no Hop in 60 frames")
             break
         elif phase == "fly" and not ui.mo.where()[2] & 1:
-            n = to_contact(ghost(g, "play", mat, st, s2))
+            n = to_contact(ghost(g, CRS, mat, st, s2))
             if n is not None and n <= BOOST_AHEAD:
                 want, phase, t_ph = True, "boost", 0    # the second click, MID-FLIGHT: it arms the boost
             elif not st[7] and t_ph > 4:
@@ -887,8 +961,8 @@ def record_mouse_boost(g, ui):
     if ui.mo.where()[2] & 1:
         ui.mo._edge(False)
     g.key("Escape")
-    M.until(m, lambda _: g.b("bz_fs") == 0, "the mouse PLAYGROUND play to end", guest=60)
-    P.dropped(g, "the mouse PLAYGROUND play")
+    M.until(m, lambda _: g.b("bz_fs") == 0, "the mouse TPLY play to end", guest=60)
+    P.dropped(g, "the mouse TPLY play")
     m.pause()
     end = rd.read()
     log = bytes(g.read_log())
@@ -899,7 +973,7 @@ def record_mouse_boost(g, ui):
     log = log[:16 + 3 * n_] if log[6] & BB.RL_TILT else log[:16 + 2 * n_]
     ev, presses = [], []
     if not log[6] & BB.RL_TILT:
-        fails.append("the mouse PLAYGROUND play's log is not a TILT log (+6 %02Xh)" % log[6])
+        fails.append("the mouse TPLY play's log is not a TILT log (+6 %02Xh)" % log[6])
     elif not fails:
         _k, mat_, kt, _f = BB.decode_log_t(log)
         p = BB.Physics(R.course_k(log[4]), play=True, mat=mat_)
@@ -911,14 +985,14 @@ def record_mouse_boost(g, ui):
             p.step(k_, t_)
         ev = [(e[0], e[1]) for e in p.events if e[0] in ("hop", "boost", "boostg", "bounce", "land", "hopc")]
         if p.state() != end[0]:
-            fails.append("the mouse PLAYGROUND play's end %s is not the model's run off its TILT log %s" % (
+            fails.append("the mouse TPLY play's end %s is not the model's run off its TILT log %s" % (
                 P.show(end[0]), P.show(p.state())))
         elif not p.nboost or not [e for e in ev if e[0] == "boost"]:
-            fails.append("the mouse PLAYGROUND play: the model's run of its log does not BOOST from a click armed "
+            fails.append("the mouse TPLY play: the model's run of its log does not BOOST from a click armed "
                          "in flight (events %s; the clicks' edges at steps %s)" % (ev[:6], presses))
         elif len(presses) < 2:
-            fails.append("the mouse PLAYGROUND play's log holds %d Space edge(s), not the two clicks" % len(presses))
-    print("%s mouse play on the PLAYGROUND (wave 6b): %d frames, the clicks' edges at steps %s, the model's run off "
+            fails.append("the mouse TPLY play's log holds %d Space edge(s), not the two clicks" % len(presses))
+    print("%s mouse play on TPLY's apron (wave 6b): %d frames, the clicks' edges at steps %s, the model's run off "
           "the TILT log %s; boosts from a mid-flight click: %s" % (
               g.tag, frames, presses, ", ".join("%s@%d" % e for e in ev[:6]) or "-",
               "yes" if not fails else "NO"), flush=True)
@@ -952,7 +1026,7 @@ def run_all(legs, apps=None, src=None):
                     k, mat = log[4], log[5]
                     f2, p = judge_record(log, seen, end, k, mat)
                     fails += f2
-                    print("cga record: %d frames of TRIAL, %d steps, %d runs; the model run off the log equals the "
+                    print("cga record: %d frames of TPLY, %d steps, %d runs; the model run off the log equals the "
                           "play at every frame and at its end: %s; events %s" % (
                               len(seen), end[0][0], struct.unpack_from("<H", log, 12)[0], "yes" if not f2 else "NO",
                               ", ".join(sorted(set(e[0] for e in p.events if e[0] != "corner")))), flush=True)
@@ -982,7 +1056,7 @@ def run_all(legs, apps=None, src=None):
                 log = logs["playg"]
                 k, mat = log[4], log[5]
                 f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["playg"],
-                              "replay of the CGA's PLAYGROUND play")
+                              "replay of the CGA's TPLY apron play")
                 fails += f
             if "mill" in legs and tag == "cga":
                 f, log, seen, end = record_mill(g, delay)
@@ -1000,7 +1074,7 @@ def run_all(legs, apps=None, src=None):
                 log = logs["mill"]
                 k, mat = log[4], log[5]
                 f, _ = replay(g, log, lambda: BB.Physics(R.course_k(k), play=True, mat=mat), ends["mill"],
-                              "replay of the CGA's MILL play")
+                              "replay of the CGA's TMIL play")
                 fails += f
                 if not f:
                     fails += refused(g, log)
@@ -1089,6 +1163,14 @@ def main():
         for name, k, mat, keys, what, ok in injects():
             print("bonanza_replay inject %s: %d steps, %s: %s" % (name, len(keys), what, "proved" if ok else "NOT"))
             bad += not ok
+        delay, dels = mill_delay()          # the MILL leg's knock-back delay, found on TMIL's model
+        print("bonanza_replay MILL leg on TMIL: the autopilot's first approach knocked back after %s idle steps "
+              "(of %d delays that do)" % (delay, len(dels)))
+        bad += delay is None
+        ok, what = play_plan()
+        print("bonanza_replay play leg on TPLY's apron (the model, a step a frame): %s: %s" % (
+            what, "proved" if ok else "NOT"))
+        bad += not ok
         for line in R.check_reds(REDS, "bonanza_replay"):
             print(line)
         assert not bad, "%d inject log(s) not proved on the model" % bad
