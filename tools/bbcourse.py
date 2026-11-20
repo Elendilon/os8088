@@ -31167,6 +31167,17 @@ def _sc_width(X, res):
                 "eastmost c0 %d of cmax %d (CGA), %d of %d (Hercules)" % (n, p.nfall, cm[0][0], cm[0][1],
                                                                        cm[1][0], cm[1][1]),
                 bool(p.goal) and not p.nfall and all(a == b for a, b in cm.values())))
+    # 6. the AV-off compile (the `av` section's price of AV) inside 130.11.4.2's 128 a block row: a straight
+    # east-west edge across 140 word columns puts a record in nearly every one of them in one row once the
+    # model is off - the first TWIDE's 140 - which a 128-column course cannot reach and a 160-column one can
+    try:
+        off = compile_course(tw.fname if os.path.isabs(tw.fname) else os.path.join(ROOT, tw.fname),
+                             _hack={"occ": "off"})
+        n6, msg6 = max(off.per_row.values()), ""
+    except CourseError as e:
+        n6, msg6 = None, " -- " + str(e)
+    res.append(("W6 TWIDE compiled with the AV model off (the av section's) holds at most %d records a block row "
+                "(%s)%s" % (REC_ROW_MAX, n6, msg6), n6 is not None and n6 <= REC_ROW_MAX))
     # 5. the guest's half, off the source: the table built, every writer reading it
     for what, good in width_guest_src():
         res.append(("W5 " + what, good))
