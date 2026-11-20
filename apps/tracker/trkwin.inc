@@ -2668,6 +2668,7 @@ tw_paint:
     push si
     or byte [tw_dirty], TWI_BODY
     call tw_update
+    call tw_promise                 ; the whole face is the present: say so
     cmp byte [trk_abon], 0
     je .out
     mov bx, [trk_win]
@@ -2751,16 +2752,35 @@ tw_tick:
 ; -----------------------------------------------------------------------------
 TW_IDLEF    equ 2
 tw_want:
+    call tw_moving
+    jc .busy
+    cmp byte [tw_idlef], TW_IDLEF
+    jae .skip
+    inc byte [tw_idlef]
+    stc
+    ret
+.busy:
+    mov byte [tw_idlef], 0          ; (a mov keeps CF = 1)
+    ret
+.skip:
+    clc
+    ret
+
+; tw_moving - CF = 1 while something on the face moves ON ITS OWN: an open
+; stream, the speaker's play, a start or stop the transport has not drawn, a
+; visualiser still falling. tw_want's question without its idle count, and
+; tw_promise's. Preserves all but flags.
+tw_moving:
     push ax
     push bx
     push si
     cmp byte [trk_sopen], 0
-    jne .busy
+    jne .yes
     cmp byte [tsp_run], 0           ; ...or the speaker's (SPEC.md 45.25),
-    jne .busy                       ; which opens no stream
+    jne .yes                        ; which opens no stream
     mov al, [mp_playing]
     cmp al, [tui_lplay]
-    jne .busy
+    jne .yes
     mov si, tui_vu                  ; the needles, or the bands: whichever
     mov bx, 4                       ; the pane is showing is the one falling
     cmp byte [tw_vizm], TWV_SPEC
@@ -2769,25 +2789,63 @@ tw_want:
     mov bx, 2 * TW_NBAND            ; which fall after the bars have gone
 .scan:
     cmp byte [si], 0                ; (no lodsb: a worker assumes no DF)
-    jne .busy
+    jne .yes
     inc si
     dec bx
     jnz .scan
-    cmp byte [tw_idlef], TW_IDLEF
-    jae .skip
-    inc byte [tw_idlef]
-    jmp short .draw
-.busy:
-    mov byte [tw_idlef], 0
-.draw:
-    stc
-    jmp short .out
-.skip:
     clc
+    jmp short .out
+.yes:
+    stc
 .out:
     pop si
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tw_promise - WF_SAVEU as the face stands (SPEC.md 45.21.12): PROMISED while
+; nothing on it moves by itself and the last still frame has been run, so a
+; raise puts the face back from the kernel's cache instead of re-lettering
+; it; WITHDRAWN the moment anything moves, which drops whatever was banked.
+; tw_unpromise is the withdrawal alone. Lock held (SPEC.md 20.6 rule 7: the
+; clear frees the cache). The kernel is asked only when the answer CHANGES -
+; [tw_prom] is what it was last told, and the class is born without the flag,
+; as bss is born zero. Preserves all, flags included.
+; -----------------------------------------------------------------------------
+tw_promise:
+    pushf
+    push ax
+    xor al, al
+    cmp byte [trk_fs], 0            ; fullscreen: the window is not the face
+    jne tw_unpromise.say
+    cmp byte [tui_inited], 0
+    je tw_unpromise.say
+    cmp byte [tw_idlef], TW_IDLEF   ; the last fall and the scope's flat line
+    jb tw_unpromise.say                         ; are still owed (tw_want)
+    call tw_moving
+    jc tw_unpromise.say
+    inc ax
+    jmp short tw_unpromise.say
+tw_unpromise:
+    pushf
+    push ax
+    xor al, al
+.say:
+    cmp al, [tw_prom]
+    je .out
+    push bx
+    mov bx, [trk_win]
+    or bx, bx                       ; before wm_create: nothing to say it to
+    jz .pop
+    mov [tw_prom], al
+    mov ah, WFB_SAVEU
+    call OSAPI_WM_FLAG              ; BX is [trk_win], never a stray register
+.pop:                               ; (SPEC.md 11.96.11.4)
+    pop bx
+.out:
+    pop ax
+    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2816,11 +2874,14 @@ tw_refresh:
     push dx
     mov bx, [trk_win]
     call OSAPI_WM_CLIP_SET          ; CF = 1: hidden or wholly covered (the
-    jc .pop                         ; region asks W_FLAGS itself, SPEC.md
+    jc .skip                        ; region asks W_FLAGS itself, SPEC.md
                                     ; 11.3.1, so no WM_GEOM is asked first)
     call tw_update
     call OSAPI_WM_CLIP_CLEAR
-.pop:
+    jmp short .pop
+.skip:                              ; a change NOT drawn - the PlayList drives
+    call tw_unpromise               ; us from in front: what the kernel banked
+.pop:                               ; is now the past (SPEC.md 45.21.12)
     pop dx
     pop cx
     pop bx
@@ -3697,3 +3758,4 @@ tw_line     equ tui_rbuf            ; one composed LCD, status or list line:
     TRKW tw_el_hi
     TRKW tw_lplay                   ; [tui_play] as the last frame saw it
     TRKB tw_idlef                   ; still frames run since all went still
+    TRKB tw_prom                    ; WF_SAVEU as the kernel was last told

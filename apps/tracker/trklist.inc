@@ -1111,7 +1111,10 @@ tpl_onkey:
 tpl_tpl:
     dw 0, 0, TPL_W + 2, TPL_H + 20
     dw tpl_ttl, tpl_cls
-    OS88_CLASS tpl_cls, 0, PAINT, tpl_paint, ONKEY, tpl_onkey, \
+; WF_OWNBG for the face's reason (SPEC.md 45.21.13): tiles, frame, every row
+; (a row's key is never the forgotten 0) and every button, each pixel once.
+; No WF_SAVEU: the playing row's marker moves under it from Tracker's side
+    OS88_CLASS tpl_cls, WF_OWNBG, PAINT, tpl_paint, ONKEY, tpl_onkey, \
                ONCLICK, tpl_clickw, ONMOUSEUP, tpl_onup, ONDRAG, tpl_ondrag
     OS88UI_BTNREC tpl_btns, tpl_rects_b, tpl_labels, tpl_flags_b, TPL_NB
 tpl_labels: dw tpl_s_add, tpl_s_rem, tpl_s_clr, tpl_s_shuf, tpl_s_sort

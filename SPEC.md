@@ -23718,8 +23718,8 @@ window record, the take reads it at the moment it takes (`wm_su_take` through
 `wm_dc_ok`, and `wm_su_precover`'s scan), and the clear drops the claim on the
 spot. So an application whose content stands still *sometimes* may say so
 sometimes — `apps/paint` already does, re-answering from `pt_onresize` when
-the adapter moves under it (§11.98), and the Browser does it per fetch
-(§71.11).
+the adapter moves under it (§11.98), the Browser does it per fetch
+(§71.11), and Tracker while a song is paused or stopped (§45.21.12).
 
 The two directions are not symmetric and only one of them is urgent.
 **Entering** a live mode must reach the kernel before the content moves, or
@@ -98121,6 +98121,77 @@ defect. `tests/trkspk.py --leg scrub` (`soak -k trkscrub`) pauses, clicks
 three quarters along and reads the thumb two seconds later, then plays on:
 position 1 -> 62 and resumed at 62, on the speaker and on the Sound Blaster
 5150. The build before it reads 1.
+
+#### 45.21.12 A still face is promised to the raise cache
+
+**Tracker never opted in to §11.96, so raising it over a PAUSED song
+re-lettered the whole face** - the LCD, the transport, the sliders, the
+visualiser - when nothing on it had changed since it was covered. §11.96.1
+is a mode and not a classification, and Tracker has both modes: while a
+stream (or the speaker's play) is open, the worker's frame BOOKS the
+position, the decay and the clock even when the window is wholly covered
+(§45.21.9), so a cache taken then is a picture of the past and question 1
+disqualifies it. Once the music is paused or stopped and the visualiser has
+fallen, nothing moves by itself and the promise holds.
+
+`tw_promise` says it, `tw_unpromise` withdraws it, and `[tw_prom]` is what
+the kernel was last told, so `OSAPI_WM_FLAG` is called on a CHANGE and not
+on every frame. The class is still born without `WF_SAVEU` (bss is zero, so
+the byte agrees). The sites, each under the gfx lock (§20.6 rule 7):
+
+| site | what it says |
+|---|---|
+| `trk_render`, after every worker frame | the face as it stands: promised when `tw_moving` is clear and the `TW_IDLEF` still frames have run (`tw_want`'s own test, without its count), withdrawn otherwise |
+| `tw_paint`, after the whole face | the same: a full paint is the present |
+| `trk_transport`, entering PLAY | withdrawn BEFORE anything moves - §11.96.1's urgent direction. The worker's next frame would notice within a tick, and that tick is harmless here (a restored face matches the shadows the next frame draws its differences from), but the transition is where the rule says it goes |
+| `tw_refresh`, when its change is SKIPPED | withdrawn: the window was hidden or wholly covered, so a change the UI made - a load or a seek driven from the PlayList in front of it (§45.22) - was not drawn, and what was banked is now the past. The next `W_PAINT` promises again |
+| `trk_fs_enter` | withdrawn: fullscreen takes the face off the glass |
+
+**Not from `trk_frame`**, although that is where the frame is. Its other
+caller is the speaker's windowed bracket (`tsp_frame`, §45.25), and §53.7
+lists no `wm_*` setter among a bracket's legal calls. `trk_render` cannot be
+inside one: the bracket holds the lock it takes first.
+
+**The promise is §11.96.1's and nothing stronger.** No band is claimed and
+`WF_1BPP` is not set - the face is in colour on a VGA - so on a VGA the
+whole-content cache may be past `wm_su_kb` and is then simply not taken,
+which is the old path.
+
+#### 45.21.13 The face paints every pixel, so the kernel's white fill goes
+
+**Reported as "it fills in all the bars, then redraws them blanked", on a
+paused player.** It was not the visualiser drawing twice. `wm_draw_win` fills
+a window's whole content white before `W_PAINT` unless the window declares
+`WF_OWNBG` (§11.90.1), and Tracker did not, although its face had been built
+to need nothing under it: the body is a table of tiles covering exactly the
+pixels no element owns, and `tools/trkface.py` proves on every `make` that
+tiles and elements cover both layouts once. So the pane went white, then the
+spectrum's ground blacked the margins and the gaps between the bands first,
+leaving every band's column standing white at full height, which reads as
+every bar lit, and each column was blacked by its own run a frame or two
+later. On a 4.77 MHz machine that is the better part of a second.
+
+Both windows now declare `WF_OWNBG`. What keeps the promise:
+
+- **the face**: the tiles, the LCD, every transport and option button
+  (`tw_lastf` is forgotten to FFFFh), both sliders, the status row, and
+  the pane's well. Each of the four pane modes grounds its whole interior when
+  `[tw_vfull]`: the needles' slots and strips, the spectrum's margins, gaps
+  and full-height runs, Scope's band and its surround, Off's line and its
+  four sides.
+- **the PlayList**: its tiles, the list's frame, every row (a row's key is
+  ORed with 8000h, so the forgotten 0 never matches and a full paint letters
+  all of them) and every button.
+
+Measured on MartyPC, raising a paused face from under a Disk window, with
+pixels counted that match neither the covered picture nor the final face:
+**33,108 such pixels at worst on `os8088_xt_vga_sb` before, and none after.
+The window settled at frame 31 either way**: the work is the same and only
+the double write went. With §45.21.12's promise the same raise is put back
+from the cache instead, and is settled by frame 15 (VGA) and 11 against 34
+(`os8088_5150_herc_sb_gla`). On VGA the four-plane restore is visible for
+about four frames as a plane-by-plane sweep. That is §11.96's restore and
+the same for every window cached on VGA, not something this section adds.
 
 ### 45.22 The PlayList (`trklist.inc`)
 
