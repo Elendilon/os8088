@@ -195,7 +195,24 @@ model's (`spy`).
      the check it names.  At the end the ramp bottom's reversals from the
      green (bbcourse.cam_reversals: none), and bz_camera's worst CLEAN span
      (entry to its return, no sch_isr inside) at most LAT_PRICE + 25%.
-
+ 12  PHASE 3 (docs/plans/BOUNCE-BONANZA-SOAK.md): every part above runs on a
+     TEST course (SPEC.md 130.54), found by name, and no prototype course or
+     shipped prototype demo is named.  GLASS: F's own course, pad 0's (ROLL),
+     nothing poked.  BENCH: TMIL under the scripted camera.  TRIAL and MILL:
+     ONE run of TMIL's route (its drop's bounces - the shadow's own box, inside
+     the ball's, THREE boxes with the lift's beside them, from the route on both
+     cards, no poke - and its props, the ring's end on the route); both
+     benchmarks STOP (bench_end) at the first frame by which every check their
+     verdict needs is made, or two steps short of the route's goal (past it
+     the route shows nothing new: B's autopilot is the model's play=False,
+     whose goal ends nothing).  PLAY and PROBE: on TMIL (the lift (18, 22),
+     its posts, its top).  TPLY (new): a stopped run of TPLY laying records
+     over the ball - `nodither`'s leg, its art TPLY's undithered compile alone
+     (PLAYGROUND's 292 masks are over the tool's 256).  W4: w4_scenarios(),
+     made from the model on TPLY and TCUP.  GROUND: on TPLY
+     (tply_geom).  CAMERA: on TMIL and TPLY; GROUND's `trialdrop` is replayed
+     by the CAMERA leg alone - the two legs are ONE replay list.  The VGA's
+     vcam: TPLY's and TMIL's autopilot routes as logs.
 
 --red NAME is the row's red arm (docs/WRITING-TESTS.md 1): it copies
 apps/bonanza/ to a temporary directory, breaks one thing there, builds that
@@ -512,6 +529,14 @@ def demo_ks(art=None):
     return [kt[n[3:-4].lower()] for n in names]
 
 
+def crs_name_of(k):
+    """course K's name, upper case - or "course K" for a K the build does not name"""
+    try:
+        return crs_name(k)
+    except IndexError:
+        return "course %d" % k
+
+
 def course_k(k):
     """course K's compile (BZ_COURSES's order)"""
     return course(crs_name(k).lower())
@@ -759,6 +784,86 @@ def make_log(keys, k, mat, ident=None):
     IDENTITY at +14 (SPEC.md 130.12.8: a replay REFUSES a log whose identity is
     not its course part's), unless IDENT is given (a row's refusal case)"""
     return BB.encode_log(keys, course=k, mat=mat, ident=course_k(k).ident if ident is None else ident)
+
+
+# ---- the TEST COURSES (SPEC.md 130.54; docs/plans/BOUNCE-BONANZA-SOAK.md phase 3) ------------------------
+# The rows' legs run on courses built for them, in the BZDEV=1 tree, found by NAME (CRS_K): TMIL (the wheel and
+# the ring), TPLY (physics and replays), TQUIK and TCUP (exits and the save), BENCH (the A/B benchmark).  A
+# scenario's log is MADE from the model (make_log of autopilot_keys or of a searched key script), never a
+# shipped demo, so when the prototype courses leave the build no row notices.
+TEST_CRS = ("bench", "tquik", "tcup", "tmil", "tply")
+SHIPPED_CRS = ("roll", "hop")       # the shipped courses (the pathway's pads 0 and 1): their shipped demos are
+                                    # the only shipped demos a row about shipped content plays
+BZ_BENCH = 1200                     # bzgame.inc: the benchmark's frames
+_AUTO = {}
+
+
+def autopilot_keys(name, steps=6000, lead=0):
+    """course NAME's autopilot, run on the model IN PLAY (bbcourse.Physics.auto, play=True: B's play=False
+    model's goal ends nothing) to its goal or STEPS: -> (its key bytes, a step, and the step the goal came at or
+    None) - once a process.  LEAD: that many idle steps first (no key), the autopilot from there - the same
+    route at another phase of the course's clocked props (a windmill's gate, a lift).  make_log() of the keys is a log
+    the guest's R replays to the same goal (the autopilot's own keys, as _peak_cannon recorded PEAK's)"""
+    if (name, lead) not in _AUTO:
+        c = course(name)
+        p = BB.Physics(c, play=True, mat=c.ball)
+        keys, goal = [], None
+        for _ in range(lead):
+            p.step(0)
+            keys.append(0)
+        for _ in range(steps):
+            k = p.auto()
+            p.step(k)
+            keys.append(k)
+            if p.goal:
+                goal = len(keys)
+                break
+            if p.nfall:
+                break
+        _AUTO[(name, lead)] = (keys, goal)
+    keys, goal = _AUTO[(name, lead)]
+    return list(keys), goal
+
+
+def auto_log(name, lead=0):
+    """course NAME's autopilot route as a log (make_log, the course's identity stamped); LEAD: autopilot_keys'"""
+    keys, _goal = autopilot_keys(name, lead=lead)
+    return make_log(keys, CRS_K[name], course(name).ball)
+
+
+def bench_end(g):
+    """at a STOP on bz_presented of a benchmark (B): end it after this frame or within three more, WITH its
+    results (bz_rcopy), by poking bz_frames to BZ_BENCH - 1 less what keeps its low two bits (bzphys reads
+    them: `every 4th frame`).  A leg that has checked everything it needs stops here rather than at frame
+    1,200 - a test course's route reaches its GOAL before 1,200 (TMIL's at ~795 CGA frames) and shows nothing
+    new past it (B's autopilot runs on: the model's play=False, whose goal ends nothing).  -> the frames the run will have presented (bz_rframes then reads 1,200:
+    a stopped run's frame count is this, not that)"""
+    k = g.w("bz_frames")
+    v = BZ_BENCH - 1 - ((BZ_BENCH - 1 - k) % 4)
+    g.put("bz_frames", v)
+    return k + 1 + (BZ_BENCH - 1 - v)
+
+
+# TPLY's PLAYGROUND elements (tply.bbc's header): bbcourse's PLAY_* name the PLAYGROUND's cells; the plan's
+# homes for the GROUND scenarios were PROVED on the model with these given TPLY's (BOUNCE-BONANZA-SOAK.md,
+# TPLAY's table: the void fall's CGA kill 213, Hercules 181) - tply_geom() puts them in for a search and back
+TPLY_GEOM = {"PLAY_RUNGS": ((1.5, (10, 9, 13, 12)), (1, (13, 9, 16, 12)), (0.5, (16, 9, 19, 12)), (2, (7, 9, 10, 12))),
+             "PLAY_FRONT": 17, "PLAY_GAPROW": 12, "PLAY_LANE": 12, "PLAY_STRIP": (18, 21)}
+
+
+class tply_geom(object):
+    """`with tply_geom():` bbcourse's PLAY_* constants TPLY's for the block (host searches only)"""
+
+    def __enter__(self):
+        self.old = {k: getattr(BB, k) for k in TPLY_GEOM}
+        for k, v in TPLY_GEOM.items():
+            setattr(BB, k, v)
+        return self
+
+    def __exit__(self, *a):
+        for k, v in self.old.items():
+            setattr(BB, k, v)
+        return False
 
 
 def lane_rects(crs):
@@ -1353,18 +1458,21 @@ def pic_now(g, ref, st=None):
     return ref.picture(st[1], st[2], lk)
 
 
-def glass(g, ref):
-    """Part 1: the card's own rasterisation of a resting ball's frame (FIRST)."""
+def glass(g, ref, crs_name="first"):
+    """Part 1: the card's own rasterisation of a resting ball's frame (FIRST; phase 3: CRS_NAME None, F's own
+    course BZ_CRS_DEFAULT - pad 0's, ROLL - with nothing poked)."""
     m, tag = g.m, g.tag
-    m.pause()                       # (F plays [bz_crsel], pad 0's course at the entry: FIRST poked)
-    g.putb("bz_crsel", CRS_K["first"])
-    m.run()
+    kc = CRS_K[crs_name] if crs_name else crs_default()
+    if crs_name:
+        m.pause()                   # (F plays [bz_crsel], pad 0's course at the entry: CRS_NAME poked)
+        g.putb("bz_crsel", kc)
+        m.run()
     g.key("KeyF")                   # (F: a free play - Enter is the game since wave 8b)
     M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 20, "play mode runs", guest=60)
     m.pause()
     g.check_base()
     assert g.b("bz_mode") == 0, "Enter started the benchmark, not play"
-    assert g.b("bz_crs") == CRS_K["first"], "F played course %d, not FIRST" % g.b("bz_crs")
+    assert g.b("bz_crs") == kc, "F played course %d, not %s" % (g.b("bz_crs"), crs_name_of(kc))
     m.bp_exec(g.a("bz_presented"))
     seen, same, ball = None, 0, None
     for _ in range(200):                # four presents with nothing moving: every refresh since
@@ -1396,8 +1504,8 @@ def glass(g, ref):
     fw, fh, fd = m.fbuf(0)
     wrong = ref.picture(R0, c0 + 1, lk, view)
     res = glass_cga(fw, fh, fd, exp, wrong) if tag == "cga" else glass_herc(fw, fh, fd, exp, wrong)
-    print("%s glass (FIRST, the %s ball at rest at %d,%d): framebuffer %dx%d; %s" % (
-        tag, A.MAT_NAMES[lk.mat], px, py, fw, fh, res), flush=True)
+    print("%s glass (%s, the %s ball at rest at %d,%d): framebuffer %dx%d; %s" % (
+        tag, crs_name_of(kc), A.MAT_NAMES[lk.mat], px, py, fw, fh, res), flush=True)
     m.run()
     g.key("Escape")
     M.until(m, lambda _: g.b("bz_fs") == 0, "play mode ends on Esc", guest=60)
@@ -1494,7 +1602,7 @@ def glass_herc(fw, fh, fd, exp, wrong):
                 gy0, gy0 + 199, top, bot, len(xs), gx0, nwrong))
 
 
-def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
+def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None, crs=None, stop=False, tpokes=True):
     """Parts 2 and 3: a benchmark (BENCH, or TRIAL or MILL poked into [bz_crs]
     at bz_launch's entry), stopped at bz_tf and bz_presented on chosen frames;
     on TRIAL and MILL also at bz_col, bz_boxw and bz_occ.gate on every frame
@@ -1505,20 +1613,29 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
     (wave 6b, SPEC.md 130.17.6.7: BENCH's leg 1, the SCRIPTED camera, so the
     eight directions are the scroll engine's under a fixed cycle; LATTICE's
     own directions on BENCH are REPORTED by bbcourse's item 8; the other legs
-    0)."""
+    0).
+    Phase 3 (BOUNCE-BONANZA-SOAK.md): CRS names the course poked into [bz_crs]
+    (default: BENCH's own, or TRIAL / MILL for those legs), so TRIAL and MILL
+    together are ONE run of a test course (TMIL); STOP ends the run (bench_end,
+    with its results) at the first bz_presented by which every frame the leg's
+    verdict needs is checked - or two steps short of the route's goal (the
+    route's last feature, B's autopilot running on past it); TPOKES False leaves the TRIAL leg's three-box
+    poke out (a route that makes its own three-box frames: TMIL's)."""
     m, tag = g.m, g.tag
-    leg = "MILL" if mill else "TRIAL" if trial else "BENCH"
+    leg = crs.upper() if crs else "MILL" if mill else "TRIAL" if trial else "BENCH"
+    kcrs = CRS_K[crs] if crs else CRS_K["mill" if mill else "trial"] if (trial or mill) else None
+    goal = autopilot_keys(crs)[1] if crs and stop else None
     order = trial or mill
     extra = ("bz_col", "bz_boxw", "bz_occ.gate") if order else ()
     if mill:
         extra += ("bz_wcommit", box_point(g))
     wk = Walker(g, t0=trial, extra=extra)
-    if order or hvoff is not None or camscr is not None:
+    if kcrs is not None or hvoff is not None or camscr is not None:
         m.bp_exec(g.a("bz_launch"))
         g.key("KeyB")
         assert m.wait_stop(60) == "breakpoint", "B did not reach bz_launch"
-        if order:                               # the benchmark on TRIAL / MILL, with its ball
-            g.putb("bz_crs", CRS_K["mill" if mill else "trial"])
+        if kcrs is not None:                    # the benchmark on its course, with its ball
+            g.putb("bz_crs", kcrs)
         if hvoff is not None and "bz_hvoff" in g.sym:
             g.putb("bz_hvoff", hvoff)
         if camscr is not None and "bz_camscr" in g.sym:
@@ -1557,7 +1674,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
             # TRIAL's route makes no frame of three boxes (its shadow jumps a
             # line only over OCC cells, where the gate drops a box of its own),
             # so the leg MAKES one: the ball poked airborne across the window
-            if trial and not b3_checked and fr >= tpoke_next and len(tpokes) < TPOKE_MAX \
+            if trial and tpokes and not b3_checked and fr >= tpoke_next and len(tpokes) < TPOKE_MAX \
                     and g.w("bz_subs") != g.w("bz_lsubs"):
                 tpoke_next = fr + TPOKE_EVERY
                 got = tpoke(g, ref.c)
@@ -1592,7 +1709,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
                 fails += wnear_check(g, ref.c, commits, "%s frame %d" % (leg, g.w("bz_frames") + 1))
             if g.b("bz_mode") != 1:
                 raise AssertionError("B did not start the benchmark")
-            if order and g.b("bz_crs") != CRS_K[leg.lower()]:
+            if kcrs is not None and g.b("bz_crs") != kcrs:
                 raise AssertionError("the %s leg runs course %d, not %s" % (leg, g.b("bz_crs"), leg))
             full = g.b("bz_full")
             dr, dc = g.s("bz_dr"), g.s("bz_dc")
@@ -1733,6 +1850,15 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
         prev = (st, lk, view)
         if fr >= 1199 or len(fails) >= 4:
             break
+        if stop and ((full_checked and laid_checked >= LAY_EACH) if stop == "laid" else
+                     bench_done(tag, trial, mill, done, full_checked, laid_checked, controls, shd_checked,
+                                b3_checked, shdin_checked, order_frames, feat, exits)
+                     or (goal is not None and g.d("bz_nstep") + 2 >= goal)):
+            nend = bench_end(g)                 # (its results, bz_rcopy, after this frame or three more)
+            print("%s %s: the leg STOPS at frame %d (%s), its run ends at %d" % (
+                tag, leg, fr, "every check it owes made" if not (goal and g.d("bz_nstep") + 2 >= goal)
+                else "two steps short of the goal", nend), flush=True)
+            break
     m.bp_exec()
     m.run()
     late = None
@@ -1740,7 +1866,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
         M.until(m, lambda _: g.b("bz_fs") == 0, "the benchmark ends", guest=120)
         assert g.b("bz_res") == 1, "the benchmark left no results"
         late = g.w("bz_rlate")
-        if late and not trial:
+        if late and not trial and stop != "laid":     # (the BENCH leg's: the scripted camera's row-0 boxes)
             fails.append("bz_rlate = %d: a box at window row 0 was not ahead of the beam" % late)
         dropped(g, "the %s benchmark" % leg)
     print("%s %s benchmark to frame %d: %d frames checked at bz_presented and %d at bz_tf (the old window "
@@ -1781,6 +1907,23 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None):
             "hid": hid_checked, "shd": shd_checked, "b3": b3_checked, "orders": order_frames,
             "shdin": shdin_checked, "feat": feat, "seen": seen, "exits": exits, "wraps": wraps,
             "wrapck": feat.get("wrapbox", 0)}
+
+
+def bench_done(tag, trial, mill, done, full, laid, controls, shd, b3, shdin, orders, feat, exits):
+    """has a STOPPING benchmark (bench(stop=True)) checked every frame its verdict needs?  BENCH's (no TRIAL or
+    MILL): every direction FIRST_EACH times, the full write, LAY_EACH frames laying a record, the negative
+    controls; TRIAL's: SHD_EACH own-box shadows, B3_EACH three-box frames, SHD_EACH shadows inside, an order
+    checked; MILL's: FEAT_EACH of every required feature (the LOW scenario's and the card's optional ones
+    are the MILL play's) and the route's three tube exits"""
+    if not (trial or mill):
+        return all(done[d] >= FIRST_EACH for d in DIRS) and full and laid >= LAY_EACH and controls is not None
+    ok = True
+    if trial:
+        ok = ok and shd >= SHD_EACH and b3 >= B3_EACH and shdin >= SHD_EACH and orders > 0
+    if mill:
+        need = [f for f in MILL_FEATS if f not in LOW_FEATS and f not in FEAT_OPTIONAL[tag]]
+        ok = ok and all(feat.get(f, 0) >= FEAT_EACH for f in need) and len(exits) >= 3
+    return ok
 
 
 def order_check(ev, H, rl, wtop, ccol, dc):
@@ -2380,7 +2523,7 @@ def lift_steps(P, n0, n1):
     return sum(1 for n in range(n0, n1) if BB.plat_pos(P, n + 1) != BB.plat_pos(P, n))
 
 
-def mill_play(g, ref):
+def mill_play(g, ref, crs_name="mill"):
     """the MILL leg's POKED play (SPEC.md 130.12.13.2, 130.13.12): Enter on MILL
     ([bz_crs] poked at bz_launch), the ball poked onto the platform's slab at
     the first bz_t0 (the frame's centred full write puts the window round it)
@@ -2392,16 +2535,18 @@ def mill_play(g, ref):
     THE LOW SCENARIO; then THE DEFER SCENE and THE PWAIT SCENE (above).  The
     card equals the oracle at bz_tf and bz_presented on every checked frame,
     and every frame's boxes pass the box-size check at its first bz_boxc.
+    CRS_NAME: the course (phase 3: TMIL's lift (18, 22), its posts and its
+    ring's-end spots - every scene's plan is searched on the course given).
     -> (failures, {feature: frames checked})"""
     m, tag, crs = g.m, g.tag, ref.c
     P = plat_rec(crs)
     fails, cnt = [], {f: 0 for f in PLAY_FEATS + ("wrapcommit",)}
     if P is None:
-        return ["MILL has no platform"], cnt
+        return ["%s has no platform" % crs_name.upper()], cnt
     m.bp_exec(g.a("bz_launch"))
     g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
-    g.putb("bz_crs", CRS_K["mill"])
+    g.putb("bz_crs", CRS_K[crs_name])
     g.putb("bz_hvoff", 0)
     wk = Walker(g, t0=True, extra=("bz_wcommit", box_point(g)))
     wk.arm()
@@ -3043,7 +3188,7 @@ def cycles(m):
     return int(m.status()["cycles"])
 
 
-def probe(g, ref):
+def probe(g, ref, crs_name="bench"):
     """Part 4: the POKED row-0 probe, play mode on BENCH in GLIDE, every frame a
     multi-box frame (the ball at window row 0, its shadow in a box below)."""
     m, tag = g.m, g.tag
@@ -3055,7 +3200,7 @@ def probe(g, ref):
     m.bp_exec(g.a("bz_launch"))
     g.key("KeyF")
     assert m.wait_stop(60) == "breakpoint", "F did not reach bz_launch"
-    g.putb("bz_crs", CRS_K["bench"])            # play mode, on the benchmark's course
+    g.putb("bz_crs", CRS_K[crs_name])           # play mode, on the probe's course (BENCH; phase 3 TMIL)
     if "bz_hvoff" in g.sym:                     # the shipped camera: a poked frame is HEAVY
         g.putb("bz_hvoff", 0)                   # (level 1, SPEC.md 130.12.7)
     g.putb("bz_tpoke", 1)                       # time play's boxes: only a benchmark's are
@@ -3310,37 +3455,95 @@ def ground_scenarios():
     return [dict(s) for s in _GROUND["scen"]]
 
 
+def tply_shot(mat):
+    """bonanzaphys's `shot()` TURNED onto TPLY (the plan's TPLAY table: TRIAL's cell (Tx, Ty) is TPLY's (Ty + 8,
+    Tx + 9)): on the apron 20 gu before H's lip (the apron's front edge, wy 18) in the column wx 19, along +wy at
+    the cap, the chord's levels full - rubber off the lip onto F, over the gap onto G.  -> the poke dict"""
+    import bonanza_phys as P
+    p = BB.Physics(course("tply"), play=True, mat=mat).poke(19, 17)
+    p.gx = ((19 * BB.TILE + 8) << 8)
+    p.gy = ((18 * BB.TILE) << 8) - (20 << 8)
+    p.gvx, p.gvy = 0, BB.VMAXG
+    p.lvl = [BB.LVL_MAX, 0, 0, BB.LVL_MAX]       # (+wy is Left and Down, _PLAY_DIRK)
+    p._derive(True)
+    return P.poke_of(p)
+
+
 def ground_scenarios_():
     """the GROUND leg's replays, each a log on its course and a poke, PROVED on
-    the model: -> [dict(name, crs, mat, poke, keys, fall, stretch)].  The
-    PLAYGROUND's bounce chain onto the 1.5-unit ledge and its `boostdrop` are
-    bonanzaphys's (a Hop and its boost: the stretch drawn); TRIAL's 6-unit drop
-    is bonanzaphys's `bounce` (rubber off H's lip onto F); the brake strip's
-    fall into the void is bbcourse.play_fall's run (the chord down the lane
-    from the apron's back row, no Grip) to its respawn"""
+    the model: -> [dict(name, crs, mat, poke, keys, fall, stretch)].  Phase 3
+    (BOUNCE-BONANZA-SOAK.md): every one on TPLY, found here by bonanzaphys's own
+    recipes pointed at TPLY's cells (tply_geom) - the bounce chain onto the
+    1.5-unit rung (`boostclimb`: a Hop and its boost at the cap from the apron's
+    front row, the stretch drawn) and the Hop off the 1-unit rung onto the apron
+    (`boostdrop`, a boost at an impact past SQTHR), the 6-unit drop off H's lip
+    (`trialdrop`, tply_shot: rubber onto F, over the gap) and the brake strip's
+    fall into the void over the well (bbcourse.play_fall's run, the chord down
+    the lane wx 12 from the apron's back row, no Grip) to its respawn"""
     import bonanza_phys as P
-    sc = {s["name"]: s for s in P.replays() if s["name"] in ("boostclimb", "boostdrop", "bounce")}
     out = []
-    for name in ("boostclimb", "boostdrop", "bounce"):
-        s = sc.get(name)
-        if s and s["ok"]:
-            out.append({"name": {"bounce": "trialdrop"}.get(name, name), "crs": s["crs"], "mat": s["mat"],
-                        "poke": s["poke"], "keys": s["keys"], "fall": False, "stretch": name != "bounce"})
-    c = course("play")
-    pk = P.pl_poke("play", (BB.PLAY_LANE, BB.PLAY_GAPROW + 1), c.ball)
-    dk = BB._PLAY_DIRK[(0, 1)]
-    q = P.model("play", c.ball, pk)
-    n = None
-    for i in range(1200):
-        q.step(dk)
-        if q.nfall:
-            n = i + 1
-            break
-    if n:
-        # (to the step BEFORE the kill: the respawn's cut re-centres the window on the ball, which
-        # bbcourse.Glide does not model - the fallback's case is the fall, not the respawn)
-        out.append({"name": "voidfall", "crs": "play", "mat": c.ball, "poke": pk, "keys": [dk] * (n - 1),
-                    "fall": True, "stretch": False})
+    R_ = BB.MAT_RUBBER
+    with tply_geom():
+        pc = course("tply")
+        top, r = P.play_rect(1.5)              # boostclimb (bonanzaphys's w6_replays recipe)
+        st_ = ((r[0] + r[2] - 1) // 2, BB.PLAY_FRONT)
+        found = None
+        for a in range(BB.LAD_PTS):
+            land = BB._play_contact(pc, R_, st_, (0, -1), a)
+            if land is None or land - 2 <= a:
+                continue
+            ok, _q = BB._play_run(pc, R_, st_, (0, -1), top, a, land - 2)
+            if ok:
+                found = (a, land)
+                break
+        if found:
+            a, land = found
+            pk = P.pl_poke("tply", st_, R_, (0, -1))
+            keys = P.with_space([BB._PLAY_DIRK[(0, -1)]] * (land + 30), a, land - 2) + [BB.K_GRIP] * 40
+            p = P.model("tply", R_, pk)
+            on = None
+            for i, k_ in enumerate(keys):
+                p.step(k_)
+                if on is None and not p.air and (p.gx >> 12, p.gy >> 12) in top:
+                    on = i
+            if on is not None and p.nboost == 1 and not p.nfall:
+                out.append({"name": "boostclimb", "crs": "tply", "mat": R_, "poke": pk, "keys": keys, "fall": False,
+                            "stretch": True})
+        t1, r1 = P.play_rect(1)                 # boostdrop
+        apron = {(x, y) for x in range(r1[0] - 2, r1[2] + 2) for y in range(r1[3], BB.PLAY_FRONT + 1)}
+        hd = P.hop_off("tply", R_, ((r1[0] + r1[2] - 1) // 2, r1[1]), (0, 1), apron, 2)
+        if hd:
+            pk, keys, c_ = hd
+            q = P.model("tply", R_, pk)
+            for i in range(c_ + 1):
+                q.step(keys[i])
+            bev = [e for e in q.events if e[0] == "boost"]
+            if bev and bev[0][2] >= BB.SQTHR and q.sqf == 0 and q.stf == BB.BZ_STRS and q.nboost == 1:
+                out.append({"name": "boostdrop", "crs": "tply", "mat": R_, "poke": pk, "keys": keys, "fall": False,
+                            "stretch": True})
+        pk = tply_shot(R_)                      # trialdrop: the 6-unit drop
+        keys = [BB._PLAY_DIRK[(0, 1)]] * 150
+        p = P.model("tply", R_, pk)
+        for k_ in keys:
+            p.step(k_)
+        if "bounce" in [e[0] for e in p.events] and not p.nfall:
+            out.append({"name": "trialdrop", "crs": "tply", "mat": R_, "poke": pk, "keys": keys, "fall": False,
+                        "stretch": False})
+        c = pc                                  # voidfall: the brake strip into the void
+        pk = P.pl_poke("tply", (BB.PLAY_LANE, BB.PLAY_GAPROW + 1), c.ball)
+        dk = BB._PLAY_DIRK[(0, 1)]
+        q = P.model("tply", c.ball, pk)
+        n = None
+        for i in range(1200):
+            q.step(dk)
+            if q.nfall:
+                n = i + 1
+                break
+        if n:
+            # (to the step BEFORE the kill: the respawn's cut re-centres the window on the ball, which
+            # bbcourse.Glide does not model - the fallback's case is the fall, not the respawn)
+            out.append({"name": "voidfall", "crs": "tply", "mat": c.ball, "poke": pk, "keys": [dk] * (n - 1),
+                        "fall": True, "stretch": False})
     return out
 
 
@@ -3402,10 +3605,11 @@ def ground_check_():
             if at is None:
                 bad.append("GROUND %s: the `%s` arm's model never parts from GLIDE on the %s" % (
                     name, kind, ("CGA", "Hercules")[herc]))
-    c = course("play")
+    c = course("tply")
     for herc in (0, 1):
-        on, off, nol = BB.play_fall(c, herc), BB.play_fall(c, herc, _nosafe=True), BB.play_fall(c, herc,
-                                                                                               _nolatch=True)
+        with tply_geom():                       # (play_fall reads PLAY_LANE / PLAY_GAPROW: TPLY's lane wx 12)
+            on, off, nol = BB.play_fall(c, herc), BB.play_fall(c, herc, _nosafe=True), BB.play_fall(c, herc,
+                                                                                                   _nolatch=True)
         say.append("GROUND voidfall on the %s: the kill at frame %s; `nosafe` loses the footprint at %s; `nolatch` "
                    "halts the row pan at %s (its kill at %s)" % (("CGA", "Hercules")[herc], on["kill"], off["lost"],
                                                                  nol["halt"], nol["kill"]))
@@ -3578,6 +3782,8 @@ def ground_part(g, art=None, only=None, modes=(0,)):
     for s in ground_scenarios():
         if only and s["name"] not in only:
             continue
+        if not only and s["name"] in CAM_SCEN:  # (ONE replay list: the camera leg replays it, once)
+            continue
         for mode, mn in MODES:
             if mode not in modes:
                 continue
@@ -3629,14 +3835,20 @@ class GuestHeavy(BB.Heavy):
         pass
 
 
-def _ramp_keys(pname):
-    """MILL's ramp bottom (130.17.6.5 item 4): rubber poked at RAMP_POKE, down B's
-    ramp to the green, then RAMP_PATTERNS' pattern -> (poke, keys, the pattern's first step)"""
+# TMIL's ramp bottom (the plan's TMIL table: RAMP_POKE / RAMP_GREEN re-found - MILL's B ends at wx 15, TMIL's at
+# wx 14, and B's descent along +y ends on W at wy 13, where MILL's ended on F at wy 18)
+T_RAMP_POKE, T_RAMP_GREEN = (14, 7), 13
+
+
+def _ramp_keys(pname, crs="tmil"):
+    """TMIL's ramp bottom (130.17.6.5 item 4; MILL's, re-found): rubber poked at T_RAMP_POKE, down B's
+    ramp to the green (T_RAMP_GREEN, W), then RAMP_PATTERNS' pattern -> (poke, keys, the pattern's first step)"""
     import bonanza_phys as P
-    q = BB.Physics(course("mill"), play=True).poke(*BB.RAMP_POKE)
+    poke, green = T_RAMP_POKE, T_RAMP_GREEN
+    q = BB.Physics(course(crs), play=True).poke(*poke)
     pk = P.poke_of(q)
     keys = []
-    while (q.gy >> 12) < BB.RAMP_GREEN:
+    while (q.gy >> 12) < green:
         q.step(BB._RDN)
         keys.append(BB._RDN)
     n0 = len(keys)
@@ -3657,15 +3869,25 @@ def _ramp_keys(pname):
 # Hercules 2, 2, 3, 3, 3 at 0.8, 0.9, 1.0, 1.1, 1.25), and forks 1010 - 1042 all reverse on both cards at the
 # nominal rate, so the arm does not ride on one frame's timing.  bbcourse's `nohyst` control reads the same
 # map (taps of 60, both cards).
-DITHER_SCEN = ("play", 1028, 60)
+# Phase 3 (BOUNCE-BONANZA-SOAK.md): the fork is SEARCHED on a TEST course's autopilot route (no shipped demo),
+# every 8 steps and taps of 60 and 40, TPLY, TMIL, TCUP and TQUIK: on TPLY no fork's branch reverses under Hr 0
+# with the shipped camera clean; on TMIL the forks 648 - 672 do at both tap lengths, on both cards, the shipped
+# model never (a band of eight, so the arm does not ride on one fork; TQUIK's 128 and 136 at taps of 60 alone).
+# DITHER_SCEN is that band's middle - what --check-reds' camera_check proves
+DITHER_SCEN = ("tmil", 656, 60)
 
 
-def _dither_scen():
-    """camhyst's scenario (DITHER_SCEN): PLAY's demo to the fork, then the
+def _dither_scen(scen=None):
+    """camhyst's scenario (DITHER_SCEN): PLAY's demo to the fork - phase 3: a
+    TEST course's AUTOPILOT route (autopilot_keys), no shipped demo - then the
     dither map's branch, as a TILT log -> the scenario"""
-    crs, nfork, t = DITHER_SCEN
-    log = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(CRS_K[crs])), "rb").read()
-    _k, mat, kt, _fl = BB.decode_log_t(log)
+    crs, nfork, t = scen or DITHER_SCEN
+    if crs in TEST_CRS:
+        akeys, _goal = autopilot_keys(crs)
+        mat, kt = course(crs).ball, [(k, BB.TILT_KEYS) for k in akeys]
+    else:
+        log = open(os.path.join(ROOT, at("build/bonanza-art"), demo_name(CRS_K[crs])), "rb").read()
+        _k, mat, kt, _fl = BB.decode_log_t(log)
     p = BB.Physics(course(crs), play=True, mat=mat)
     for k, tt in kt[:nfork]:
         p.step(k, tt)
@@ -3676,6 +3898,22 @@ def _dither_scen():
     return {"name": "dither", "crs": crs, "mat": mat, "poke": None, "keys": keys, "tilts": tilts,
             "log": BB.encode_log(keys, course=CRS_K[crs], mat=mat, ident=course(crs).ident, tilts=tilts),
             "ramp": nfork}
+
+
+def _route_scen(name, crs, lead=0):
+    """course CRS's AUTOPILOT route (autopilot_keys, LEAD idle steps first) as a camera scenario: a log made
+    from the model, the phase-3 replacement for a shipped demo's"""
+    keys, _goal = autopilot_keys(crs, lead=lead)
+    return {"name": name, "crs": crs, "mat": course(crs).ball, "poke": None, "keys": keys, "tilts": None,
+            "log": auto_log(crs, lead=lead)}
+
+
+# TMIL's route for the CAMERA leg: the autopilot after ROUTE_LEAD idle steps - the phase of the windmills'
+# gates and the lift at which, at the nominal step rate (camera_check, both cards searched over leads 0 -
+# 40): `camprex`'s model breaks guarantee 5 at a tube exit on the CGA (4 failures; none at leads 0 - 4),
+# `campreaim`'s leaves more pan after the exits on the Hercules (48 steps against 42) and `camcap`'s holds an
+# axis 5 steps on the Hercules (the cap 3) - one replay for the three arms (PEAK's demo and cannon run)
+ROUTE_LEAD = 12
 
 
 def _demo_scen(name, crs):
@@ -3722,28 +3960,7 @@ def _held_max(rows):
     return max([f[ax]["held"] for f in rows for ax in ("x", "y") if f[ax] is not None] or [0])
 
 
-def _peak_cannon():
-    """PEAK's autopilot to its cannon's exit and CAM_EXIT frames past it, as a
-    log of key bytes (the autopilot's own, recorded): `campreaim`'s scenario on
-    the Hercules (SPEC.md 130.17.10: the exit beside the lift)"""
-    c = course("peak")
-    p = BB.Physics(c, play=False, mat=c.ball)
-    keys, ex = [], None
-    spf = (BB.PIT_HZ / BB.CARD_HZ[1]) / BB.STEP_PIT
-    for _ in range(4000):
-        k = p.auto()
-        n0 = len(p.events)
-        p.step(k)
-        keys.append(k)
-        if ex is None and any(e[0] == "exit" and e[3] == "launch" for e in p.events[n0:]):
-            ex = len(keys)
-        if ex is not None and len(keys) >= ex + int((BB.CAM_EXIT + 10) * spf) + 1:
-            break
-        if p.goal or p.nfall:
-            break
-    return {"name": "peak-cannon", "crs": "peak", "mat": c.ball, "poke": None, "keys": keys, "exit_step": ex}
-
-
+CAM_SCEN = ("ramp-ease", "ramp-climb", "dither", "tmil-route", "trialdrop", "side")
 _CAM = {}                   # camera_scenarios() and camera_check(), once a process (both cards' parts read them)
 
 
@@ -3754,35 +3971,44 @@ def camera_scenarios():
     return _CAM["scen"]
 
 
+# THE SIDE scenario on TMIL (bbcourse.SIDE_SCEN is MILL's (21, 17), which is no floor on TMIL): a poke, a
+# held key and its steps, searched where level 1 decides a side on both cards and `camside`'s model
+# (Glide _side0) breaks the side check on both - proved by camera_check
+T_SIDE = {"at": (18, 14), "keys": BB.K_L, "steps": 240}     # (W, back toward B's ramp past the posts: level 1
+                                                            # decides a side on 13 / 8 frames; (17, 14) and (19, 13)
+                                                            # do too - the search's neighbours)
+
+
 def _camera_scenarios():
     """the CAMERA leg's replays (SPEC.md 130.17.10 bonanzaring), each a log on its
-    course, FOUND on the model: MILL's ramp bottom (brake and ease; the climb
-    tries; and the dither map's branch off PLAY's demo, camhyst's), MILL's route demo (its keeps, chute and cannon; the lift stretch,
-    CGA frames 580 - 700 on the model), PEAK's demo (the lift stretch, CGA frames
-    1723 - 1780), PEAK's autopilot to its cannon's exit (beside the lift), TRIAL's
-    6-unit drop (bonanzaphys's `bounce`) and the constructed SIDE scenario
-    (bbcourse.SIDE_SCEN).  -> [dict(name, crs, mat, poke, keys, tilts, log, checks)]"""
+    course, FOUND on the model - phase 3 (BOUNCE-BONANZA-SOAK.md), every one on a
+    TEST course: TMIL's ramp bottom (B's descent onto W: brake and ease; the
+    climb tries), the dither map's branch off TPLY's autopilot route (camhyst's,
+    DITHER_SCEN), TMIL's autopilot ROUTE as a log (`tmil-route`: its two keeps,
+    the drop, the lift beside F and the cannon's exit - MILL's route demo's,
+    PEAK's demo's and PEAK's cannon run's subjects, one replay), TPLY's 6-unit
+    drop (the GROUND leg's `trialdrop`: replayed HERE only - the ground and
+    camera legs are ONE replay list, a scenario replayed once) and the SIDE
+    scenario (T_SIDE).  -> [dict(name, crs, mat, poke, keys, tilts, log, checks)]"""
     import bonanza_phys as P
     out = []
     for name, pname in (("ramp-ease", "brake and ease 8"), ("ramp-climb", "climb tries")):
-        pk, keys, n0 = _ramp_keys(pname)
-        out.append({"name": name, "crs": "mill", "mat": course("mill").ball, "poke": pk, "keys": keys,
+        pk, keys, n0 = _ramp_keys(pname, "tmil")
+        out.append({"name": name, "crs": "tmil", "mat": course("tmil").ball, "poke": pk, "keys": keys,
                     "ramp": n0})
     out.append(_dither_scen())
-    out.append(_demo_scen("mill-demo", "mill"))
-    out.append(_demo_scen("peak-demo", "peak"))
-    out.append(_peak_cannon())
-    sc = {s["name"]: s for s in P.replays() if s["name"] == "bounce"}
-    if sc.get("bounce", {}).get("ok"):
-        s = sc["bounce"]
-        out.append({"name": "trialdrop", "crs": s["crs"], "mat": s["mat"], "poke": s["poke"], "keys": s["keys"],
+    out.append(_route_scen("tmil-route", "tmil", ROUTE_LEAD))
+    sc = {s_["name"]: s_ for s_ in ground_scenarios()}
+    if "trialdrop" in sc:
+        s_ = sc["trialdrop"]
+        out.append({"name": "trialdrop", "crs": s_["crs"], "mat": s_["mat"], "poke": s_["poke"], "keys": s_["keys"],
                     "drop": True})
-    q = BB.Physics(course("mill"), play=True).poke(*BB.SIDE_SCEN["at"])
-    out.append({"name": "side", "crs": "mill", "mat": q.mat, "poke": P.poke_of(q),
-                "keys": [BB.SIDE_SCEN["keys"]] * BB.SIDE_SCEN["steps"], "side": True})
-    for s in out:
-        s.setdefault("tilts", None)
-        s.setdefault("log", None)
+    q = BB.Physics(course("tmil"), play=True).poke(*T_SIDE["at"])
+    out.append({"name": "side", "crs": "tmil", "mat": q.mat, "poke": P.poke_of(q),
+                "keys": [T_SIDE["keys"]] * T_SIDE["steps"], "side": True})
+    for s_ in out:
+        s_.setdefault("tilts", None)
+        s_.setdefault("log", None)
     return out
 
 
@@ -3790,10 +4016,11 @@ CAM_RED = {"camhyst": {"only": ("dither",)},     # 8R.13: both cards (the climb 
            # (wave 6b's final pass: on the guest's own pacing MILL's CGA demo has 26 heavy frames and holds an
            # axis at most 1 step - the model's lock at frame 591 is the nominal rate's - so the uncapped arm
            # stayed green there; PEAK's CGA demo holds at the cap, 3, on the glass, and its model uncapped 12)
-           "camcap": {"only": ("peak-demo",), "tags": ("cga",)},
-           "campreaim": {"only": ("peak-cannon",), "tags": ("herc",)},
-           # (SPEC.md 130.25.3: the Y0 search put a heavy frame on the cannon run's exit on the CGA, frame 1350)
-           "camprex": {"only": ("peak-cannon",), "tags": ("cga",)},
+           # (phase 3: PEAK's demo and cannon run -> TMIL's route, the lift beside F and the cannon's exit; the
+           # cards each arm's MODEL goes red on, camera_check's - the guest's first run is the lead's soak)
+           "camcap": {"only": ("tmil-route",), "tags": ("herc",)},
+           "campreaim": {"only": ("tmil-route",), "tags": ("herc",)},
+           "camprex": {"only": ("tmil-route",), "tags": ("cga",)},
            "camring": {"only": ("trialdrop",)},
            "camside": {"only": ("side",)},
            "latpad": {"only": ("trialdrop",)}}
@@ -3810,21 +4037,22 @@ def _camera_check():
     """the host half of the CAMERA leg (SPEC.md 130.17.10): every scenario found,
     the SHIPPED model holding each check its replay makes, and each arm's model
     going red AT ITS CHECK on its card: `camhyst` (Hr 0) reverses on the
-    dither map's branch (DITHER_SCEN, 8R.13) on both cards, `camcap` (no cap) holds a step past
-    LAT_H2 on MILL's CGA demo, `campreaim` (no pre-aim) leaves more pan after
-    PEAK's cannon run's exits on the Hercules, `camprex` (a pre-aimed pan
+    dither map's branch (DITHER_SCEN) on both cards, `camcap` (no cap) holds a step past
+    LAT_H2 on TMIL's route on the Hercules, `campreaim` (no pre-aim) leaves more pan after
+    the route's tube exits on the Hercules, `camprex` (a pre-aimed pan
     withheld) breaks guarantee 5 on its CGA run, `camring` (rows read the ring) takes two
-    rows on TRIAL's drop where the model takes one, `camside` (level 1
-    side-blind) withholds against its bit on the SIDE scenario.  -> (fails, lines)"""
+    rows on TPLY's drop where the model takes one, `camside` (level 1
+    side-blind) withholds against its bit on the SIDE scenario.  (Phase 3: every
+    scenario on a test course - BOUNCE-BONANZA-SOAK.md.)  -> (fails, lines)"""
     bad, say = [], []
     S = {s["name"]: s for s in camera_scenarios()}
-    for name in ("ramp-ease", "ramp-climb", "dither", "mill-demo", "peak-demo", "peak-cannon", "trialdrop", "side"):
+    for name in CAM_SCEN:
         if name not in S:
             bad.append("CAMERA: the model finds no `%s` scenario" % name)
     if bad:
         return bad, say
-    if S["peak-cannon"]["exit_step"] is None:
-        bad.append("CAMERA peak-cannon: PEAK's autopilot reaches no cannon exit")
+    if not any(e[0] == "exit" and e[3] == "launch" for e in cam_model(S["tmil-route"], 1).p.events):
+        bad.append("CAMERA tmil-route: TMIL's autopilot route makes no cannon exit")
     cn = ("CGA", "Hercules")
     for herc in (0, 1):
         spf = (BB.PIT_HZ / BB.CARD_HZ[herc]) / BB.STEP_PIT
@@ -3854,37 +4082,36 @@ def _camera_check():
                    "time(s)" % (DITHER_SCEN, cn[herc], rv))
         if not rv:
             bad.append("CAMERA: `camhyst`'s model does not reverse on the dither map's branch on the %s" % cn[herc])
-    rows = [f for f in cam_model(S["peak-demo"], 0, _nocap=True).rows if f["x"] is not None]
+    rows = [f for f in cam_model(S["tmil-route"], 1, _nocap=True).rows if f["x"] is not None]
     hm = _held_max(rows)
-    hmm = _held_max([f for f in cam_model(S["mill-demo"], 0, _nocap=True).rows if f["x"] is not None])
-    say.append("CAMERA `camcap` (no cap): PEAK's CGA demo holds an axis %d step(s) running (cap %d; MILL's %d at "
-               "the nominal rate, which the guest's pacing does not reach)" % (hm, BB.LAT_H2, hmm))
+    say.append("CAMERA `camcap` (no cap): TMIL's route on the Hercules holds an axis %d step(s) running (cap %d)" % (
+        hm, BB.LAT_H2))
     if hm <= BB.LAT_H2:
-        bad.append("CAMERA: `camcap`'s model never holds an axis past LAT_H2 on PEAK's CGA demo")
+        bad.append("CAMERA: `camcap`'s model never holds an axis past LAT_H2 on TMIL's route on the Hercules")
     # campreaim (SPEC.md 130.25.3): since a pre-aimed pan is never withheld, no pre-aim no longer breaks
     # guarantee 5; what it breaks is the pre-aim's own work - the pan left for after the exits rises - and the
     # guest's arm goes red at the window's parity with the shipped model
-    w0 = BB.cam_exit_work([f for f in cam_model(S["peak-cannon"], 1).rows if f["x"] is not None])
-    w1 = BB.cam_exit_work([f for f in cam_model(S["peak-cannon"], 1, _nopreaim=True).rows if f["x"] is not None])
-    say.append("CAMERA `campreaim` (no pre-aim): PEAK's cannon run on the Hercules leaves %d step(s) after its "
+    w0 = BB.cam_exit_work([f for f in cam_model(S["tmil-route"], 1).rows if f["x"] is not None])
+    w1 = BB.cam_exit_work([f for f in cam_model(S["tmil-route"], 1, _nopreaim=True).rows if f["x"] is not None])
+    say.append("CAMERA `campreaim` (no pre-aim): TMIL's route on the Hercules leaves %d step(s) after its "
                "exits, against the shipped camera's %d" % (w1, w0))
     if w1 <= w0:
-        bad.append("CAMERA: `campreaim`'s model leaves no more pan after PEAK's exits on the Hercules")
+        bad.append("CAMERA: `campreaim`'s model leaves no more pan after TMIL's exits on the Hercules")
     for herc in (0, 1):                         # camprex: the exemption removed (130.25.3)
-        rows = [f for f in cam_model(S["peak-cannon"], herc, _noprex=True).rows if f["x"] is not None]
-        _n, ge = BB.cam_exits(rows, "peak-cannon %s (noprex)" % cn[herc])
+        rows = [f for f in cam_model(S["tmil-route"], herc, _noprex=True).rows if f["x"] is not None]
+        _n, ge = BB.cam_exits(rows, "tmil-route %s (noprex)" % cn[herc])
         say.append("CAMERA `camprex` (a pre-aimed pan withheld): %s" % (ge[:1] or "guarantee 5 holds"))
         if ge:
             break
     else:
-        bad.append("CAMERA: `camprex`'s model keeps guarantee 5 on PEAK's cannon run on both cards")
+        bad.append("CAMERA: `camprex`'s model keeps guarantee 5 on TMIL's route on both cards")
     for herc in (0, 1):
         a, b = cam_model(S["trialdrop"], herc).rows, cam_model(S["trialdrop"], herc, _ringy=True).rows
         at = next((f["fr"] for f, h in zip(a, b) if abs(h["dr"]) >= 2 and abs(f["dr"]) < 2), None)
-        say.append("CAMERA `camring` (rows read the ring): TRIAL's drop on the %s, the first frame taking two rows "
+        say.append("CAMERA `camring` (rows read the ring): TPLY's drop on the %s, the first frame taking two rows "
                    "where the model takes one: %s" % (cn[herc], at))
         if at is None:
-            bad.append("CAMERA: `camring`'s model takes no extra two-row frame on TRIAL's drop on the %s" % cn[herc])
+            bad.append("CAMERA: `camring`'s model takes no extra two-row frame on TPLY's drop on the %s" % cn[herc])
         rows = [f for f in cam_model(S["side"], herc, _side0=True).rows if f["x"] is not None]
         _n, gs = BB.side_check(rows, "side %s (side0)" % cn[herc])
         say.append("CAMERA `camside` (side-blind): %s" % (gs[:1] or "the side check holds"))
@@ -4096,22 +4323,28 @@ def camera_verdict(tag, out):
     bad = []
     if out and not any(t["spans"] for t in out.values()):
         bad.append("CAMERA: bz_camera's span was never measured clean")
-    for name in ("mill-demo", "peak-cannon"):
-        if name in out and not out[name]["exits"]:
-            bad.append("CAMERA %s: no tube exit replayed (guarantee 5 never checked)" % name)
-    if "peak-demo" in out and not out["peak-demo"]["heavy"]:
-        bad.append("CAMERA peak-demo: no heavy frame beside the lift (the held check never ran)")
+    if "tmil-route" in out and not out["tmil-route"]["exits"]:
+        bad.append("CAMERA tmil-route: no tube exit replayed (guarantee 5 never checked)")
+    if "tmil-route" in out and not out["tmil-route"]["heavy"]:
+        bad.append("CAMERA tmil-route: no heavy frame (the held check never ran)")
     return bad
 
 
-PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "w4", "ground", "camera", "vbench", "vcam")
+PARTS = ("glass", "bench", "trial", "mill", "play", "probe", "tply", "w4", "ground", "camera", "vbench", "vcam")
+# PHASE 3 (docs/plans/BOUNCE-BONANZA-SOAK.md): every part on a TEST course, one boot a card - glass on F's own
+# course (ROLL, nothing poked); bench on TMIL under the scripted camera, STOPPED at its last needed frame;
+# trial and mill ONE stopped run of TMIL's route (its drop's bounces and three boxes, its props); play and
+# probe on TMIL; tply a stopped run of TPLY (records laid over the ball: `nodither`'s leg, its 95 undithered
+# masks under the tool's 256); w4, ground and camera off scenarios made from the model on TPLY, TCUP, TMIL
+TEST_ROUTE = "tmil"                     # the wheel and the ring's course (SPEC.md 130.54)
 
 
 # ---- the VGA's card (SPEC.md 130.46; plan V3) ----------------------------------------------------------
 VGA_PARTS = ("vbench", "vcam")
 VGA_BENCH_FRAMES = 400                  # BENCH under the scripted camera: every direction, columns both ways
 VGA_GLASS_EVERY = 20                    # ...the rendered frame compared one present in this many
-VGA_DEMOS = ("trial", "mill")           # the camera's motion over shipped demos (130.46.14)
+VGA_DEMOS = ("tply", "tmil")           # the camera's motion over the test courses' autopilot routes, logs made
+                                        # from the model (130.46.14; phase 3 - TRIAL's and MILL's shipped demos)
 VGA_MINMOVE = 5                         # no move of the display shorter than this (the inching, 130.46.14)
 
 
@@ -4218,19 +4451,11 @@ def vga_cam(g, art=None):
     every demo to its end -> (fails, tallies)"""
     m, fails, t = g.m, [], {}
     for crs in VGA_DEMOS:
-        kd = CRS_K[crs]
-        demo = open(os.path.join(art or at("build/bonanza-art"), demo_name(kd)), "rb").read()
+        demo = auto_log(crs)                    # (phase 3: written into bz_rlog, no V)
         m.pause()
-        g.putb("bz_vk", 0)
+        g.write_log(demo)
         m.run()
-        for _ in range(12):
-            g.key("KeyV")
-            M.until(m, lambda _: g.b("bz_dkk") == 0, "V's key up", guest=5)
-            if bytes(g.read_log(len(demo))) == demo:
-                break
-        if bytes(g.read_log(len(demo))) != demo:
-            fails.append("%s: V never loaded BZD%d.BIN" % (crs, kd))
-            continue
+        M.until(m, lambda _: g.b("bz_dkk") == 0, "the held-key guard", guest=5)
         g.key("KeyD")
         M.until(m, lambda _: g.b("bz_fs") == 1, "%s's demo runs" % crs, guest=60)
         m.pause()
@@ -4329,30 +4554,35 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
                 f, out["vcam"] = vga_cam(g, art)
                 out["fails"] += f
             return out
-        if "glass" in parts:
-            glass(g, Ref(tag, course("first", art=art), art))
-        scr = "bz_camscr" in sym                # wave 6b: BENCH's eight directions under the scripted camera
+        tc = TEST_ROUTE
+        if "glass" in parts:                    # (F's own course, pad 0's: ROLL - nothing poked)
+            glass(g, Ref(tag, course(crs_name_of(crs_default()).lower()), art), crs_name=None)
+        scr = "bz_camscr" in sym                # wave 6b: the eight directions under the scripted camera
         if "bench" in parts:                    # [bz_hvoff] 1 (no heavy rule), [bz_camscr] 1 (SPEC.md 130.17.6.7)
-            out["bench"] = bench(g, Ref(tag, course("bench", art=art), art), hvoff=1 if "bz_hvoff" in sym else None,
-                                 camscr=1 if scr else None)
+            out["bench"] = bench(g, Ref(tag, course(tc), art), hvoff=1 if "bz_hvoff" in sym else None,
+                                 camscr=1 if scr else None, crs=tc, stop=True)
             out["fails"] += out["bench"]["fails"]
             if scr:                             # (the harness byte back to play's 0: its clearing is a cut)
                 g.m.pause()
                 g.putb("bz_camscr", 0)
                 g.m.run()
-        if "trial" in parts and not out["fails"]:
-            out["trial"] = bench(g, Ref(tag, course("trial", art=art), art), trial=True,
-                                 hvoff=0 if "bz_hvoff" in sym else None, camscr=0 if scr else None)
-            out["fails"] += out["trial"]["fails"]
-        if "mill" in parts and not out["fails"]:
-            out["mill"] = bench(g, Ref(tag, course("mill", art=art), art), mill=True, hvoff=0,
-                                camscr=0 if scr else None)
-            out["fails"] += out["mill"]["fails"]
+        if ("trial" in parts or "mill" in parts) and not out["fails"]:
+            # ONE run of TMIL's route for both legs (phase 3): its drop's bounces are TRIAL's (the shadow's
+            # own box, inside the ball's, THREE boxes - the lift's beside them, on both cards from the route,
+            # no poke), its props MILL's; stopped when both legs' frames are checked
+            r = bench(g, Ref(tag, course(tc), art), trial=True, mill=True, hvoff=0,
+                      camscr=0 if scr else None, crs=tc, stop=True, tpokes=False)
+            out["trial"] = out["mill"] = r
+            out["fails"] += r["fails"]
         if "play" in parts and not out["fails"]:
-            f, out["play"] = mill_play(g, Ref(tag, course("mill", art=art), art))
+            f, out["play"] = mill_play(g, Ref(tag, course(tc), art), tc)
             out["fails"] += f
         if "probe" in parts and not out["fails"]:
-            out["fails"] += probe(g, Ref(tag, course("bench", art=art), art))
+            out["fails"] += probe(g, Ref(tag, course(tc), art), tc)
+        if "tply" in parts and not out["fails"]:     # `nodither`'s leg: records laid over the ball, on TPLY
+            out["tply"] = bench(g, Ref(tag, course("tply"), art), hvoff=0 if "bz_hvoff" in sym else None,
+                                camscr=0 if scr else None, crs="tply", stop="laid")
+            out["fails"] += out["tply"]["fails"]
         if "w4" in parts and not out["fails"]:  # wave 4 (SPEC.md 130.14.14): the props, the blank
             f, out["w4"] = w4_part(g, art)
             out["fails"] += f
@@ -4381,6 +4611,10 @@ def verdict(tag, r):
             bad.append("no diagonal frame for the negative controls")
         if not b["hid"] and not b["fails"]:
             bad.append("no checked frame hid any of the ball behind an occluder record (SPEC.md 130.10.11.3)")
+    if "tply" in r and not r["tply"]["fails"]:
+        if not r["tply"]["hid"]:
+            bad.append("TPLY: no checked frame hid any of the ball behind an occluder record (the `nodither` "
+                       "arm's leg, SPEC.md 130.15.13)")
     if "trial" in r and not r["trial"]["fails"]:
         t = r["trial"]
         if not t["shd"]:
@@ -4414,6 +4648,7 @@ def verdict(tag, r):
     # - on BENCH, TRIAL or MILL's benchmarks, or the MILL play's ring's-end scene (whose spot is the
     # world's: no route passes one, the final pass of wave 3b)
     legs = [r[x] for x in ("bench", "trial", "mill") if x in r]
+    legs = [x for i, x in enumerate(legs) if all(x is not y for y in legs[:i])]    # (trial IS mill: one run)
     if (legs or "play" in r) and not r["fails"] and ("bench" in r or "play" in r) and \
             not sum(x.get("wrapck", 0) for x in legs) + (r.get("play") or {}).get("wrapbox", 0):
         bad.append("the ring's end: no checked frame wrote a 3- or 4-word box's whole rows across it "
@@ -4632,68 +4867,167 @@ def w4_replay(g, ref, label, log=None, poke=None, windows=()):
     return fails, tal
 
 
-def w4_part(g, art=None):
-    """MOON's shipped demo (a fall into the pit by flag 0, a RETURN, its three
-    pads, the flags raised, the cup), then bonanzaphys's model-proved `cup-128`
-    and `cup-lip` (PEAK: a capture from a neighbour, a lip-out's pop), each
-    through w4_replay; then wave 5b's (SPEC.md 130.15.13): PEAK's shipped demo
-    with EVERY frame of its hidden stretches checked (bbcourse's audit of the
-    demo, vis_run + vis_stretches: the moat corridor's among them), the ghosts
-    drawn there.  -> (fails, tallies by replay)"""
+_W4 = {}
+
+
+def w4_scenarios():
+    """THE W4 PART's replays (phase 3, BOUNCE-BONANZA-SOAK.md: no shipped demo and no prototype course), each
+    FOUND on the model by bonanzaphys's own wave-4 recipes pointed at a TEST course, once a process:
+      tply-route  TPLY's autopilot route as a log (auto_log): both FLAGS raised on the route (MOON's demo's
+                  flags), the first full write and its blank, every frame of its w4_windows checked;
+      tply-flag   off flag 0 (26, 26) into the hole beside it (26, 30): a fall, the RESPAWN on the flag - a
+                  respawn's full write, blanked (MOON's demo's pit);
+      tply-pad-N  a ball of another material rolled onto each of TPLY's three pads: the PAD swap;
+      cup-128     TCUP's cup from a neighbour at 128: the CAPTURE (PEAK's cup's);
+      cup-lip     across TCUP's mouth at the fastest speed under VMAXG that LIPS OUT: the pop;
+      (and on tply-route every frame of its w4_windows - no test course hides the ball over a stretch
+      past VIS_STEPS, so its runs laying records over the ball, 51 steps: the GHOST's frames.)
+    -> {name: dict(name, crs, mat, poke, keys, log, windows, ok, what)}"""
+    if _W4:
+        return _W4
     import bonanza_phys as P
+
+    def evs(p, *kinds):
+        return [e for e in p.events if e[0] in kinds]
+    out = {}
+
+    def add(name, crs, mat, poke, keys, what, ok, windows=()):
+        out[name] = {"name": name, "crs": crs, "mat": mat, "poke": poke, "keys": keys, "what": what, "ok": bool(ok),
+                     "windows": list(windows), "log": make_log(keys, CRS_K[crs], mat) if poke is not None else
+                     auto_log(crs)}
+    keys, goal = autopilot_keys("tply")
+    win, what = w4_windows("tply", keys)
+    nwin = sum(b_ - a_ + 1 for a_, b_ in win)
+    add("tply-route", "tply", course("tply").ball, None, keys, "TPLY's route, goal at step %s; its %s %s (%d steps)"
+        % (goal, what, win, nwin), goal and nwin >= W4_STRETCH, windows=win)
+    F0 = P.w4_rec("tply", BB.PK_CHECKPOINT, num=0)[0]
+    found = None
+    for d in P.DIR8:
+        for v in (0, 192, BB.VMAXG):
+            ux = (1 if d & BB.K_R else -1 if d & BB.K_L else 0)
+            uy = (1 if d & BB.K_D else -1 if d & BB.K_U else 0)
+            pk = P.w4_poke("tply", *F0["at"], mat=0, gvx=ux * v, gvy=uy * v)
+            ks = [d] * 240
+            p = P.run_keys("tply", 0, pk, ks)
+            r = evs(p, "respawn")
+            if evs(p, "flag") and r and r[0][2] == tuple(F0["at"]) and p.nfall >= 1:
+                found = (pk, ks[:r[0][1] + 30], r[0][1])
+                break
+        if found:
+            break
+    add("tply-flag", "tply", 0, found[0] if found else {}, found[1] if found else [0],
+        "off flag 0 %s: a fall, respawned ON it at step %s" % (F0["at"], found and found[2]), found)
+    for pd in P.w4_rec("tply", BB.PK_PAD):
+        mat = (pd["mat"] + 1) % 3
+        best = None
+        for d in P.DIR8:
+            pk = P.w4_poke("tply", *pd["at"], mat=mat)
+            ks = [0] * 3 + [d] * 24 + [0] * 12
+            p = P.run_keys("tply", mat, pk, ks)
+            if p.npad == 1 and not p.nfall and not p.nshat and not p.nstun and p.mat == pd["mat"]:
+                best = (pk, ks)
+                break
+        add("tply-pad-%d" % pd["i"], "tply", mat, best[0] if best else {}, best[1] if best else [0],
+            "%s onto the %s pad %s: swapped once" % (BB.MAT_NAMES[mat], BB.MAT_NAMES[pd["mat"]], pd["at"]), best)
+    CU = P.w4_rec("tcup", BB.PK_CUP)[0]
+    cx, cy = CU["at"]
+    c0 = course("tcup")
+    cap, lip = None, None
+    for ux, uy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        for dist in (1, 2):
+            if BB.Grid(c0.cga, c0.wcga).cell(cx - ux * dist, cy - uy * dist)[3] != BB.KIND_FLOOR:
+                continue
+            if cap is None:
+                pk = P.w4_poke("tcup", cx - ux * dist, cy - uy * dist, mat=0, gvx=128 * ux, gvy=128 * uy)
+                p = P.run_keys("tcup", 0, pk, [0] * 80)
+                if evs(p, "cup") and not p.nlip:
+                    cap = (pk, [0] * (evs(p, "cup")[0][1] + 4), evs(p, "cup")[0][1])
+            if lip is None:
+                for v in (256, 240, 224, 208, 192):
+                    pk = P.w4_poke("tcup", cx - ux * dist, cy - uy * dist, mat=0, gvx=v * ux, gvy=v * uy)
+                    p = P.run_keys("tcup", 0, pk, [0] * 60)
+                    lp = evs(p, "lip")
+                    if lp and not evs(p, "cup") and p.events[p.events.index(lp[0])][2] > CU["capture"]:
+                        lip = (pk, [0] * 60, lp[0][1], v)
+                        break
+    add("cup-128", "tcup", 0, cap[0] if cap else {}, cap[1] if cap else [0],
+        "into TCUP's cup %s at 128: holed out at step %s" % (CU["at"], cap and cap[2]), cap)
+    add("cup-lip", "tcup", 0, lip[0] if lip else {}, lip[1] if lip else [0],
+        "across TCUP's mouth: LIPPED OUT at step %s (at %s)" % (lip and lip[2], lip and lip[3]), lip)
+    _W4.update(out)
+    return _W4
+
+
+def w4_windows(crs, keys):
+    """the W4 part's every-frame windows on course CRS's run of KEYS: bbcourse's HIDDEN stretches (vis_run +
+    vis_stretches, PEAK's demo's moat corridor's subject) - or, on a course that hides the ball over no
+    stretch past VIS_STEPS (no test course does), its runs of steps laying records over the ball (vis_run's
+    laid pixels): where a ghost can be drawn.  -> ([(first step, last step)], what they are)"""
+    c = course(crs)
+    vr = BB.vis_run(c, [(k, BB.TILT_KEYS) for k in keys], c.ball)
+    win = [(h["a"], h["b"]) for h in BB.vis_stretches(vr)]
+    if win:
+        return win, "hidden stretches"
+    for n_, kind, _op, laid, *_r in vr:
+        if laid and kind in ("ground", "air"):
+            if win and win[-1][1] == n_ - 1:
+                win[-1] = (win[-1][0], n_)
+            else:
+                win.append((n_, n_))
+    return win, "runs of steps laying records over the ball"
+
+
+def w4_check():
+    """the W4 part's host half (--check-reds): every replay found on the model -> (fails, lines)"""
+    S = w4_scenarios()
+    bad = ["W4 %s: not found on the model (%s)" % (n, s_["what"]) for n, s_ in sorted(S.items()) if not s_["ok"]]
+    return bad, ["W4 %s: %s, %s, %d steps: %s" % (n, s_["crs"], BB.MAT_NAMES[s_["mat"]], len(s_["keys"]), s_["what"])
+                 for n, s_ in sorted(S.items())]
+
+
+def w4_part(g, art=None):
+    """THE W4 PART (phase 3: w4_scenarios' replays, every one on a TEST course, a log made from the model -
+    MOON's and PEAK's shipped demos and PEAK's cup are gone), each through w4_replay: TPLY's route (the
+    flags raised), off flag 0 into the hole (the respawn's blanked full write), TPLY's pads (the swaps),
+    TCUP's capture and lip-out; TPLY's route with every frame of its w4_windows checked (the ghosts)
+    -> (fails, tallies by replay)"""
     fails, out = [], {}
-    load_demo(g, CRS_K["moon"])
-    f, out["moon"] = w4_replay(g, Ref(g.tag, course("moon", art=art), art), "%s W4 MOON's demo" % g.tag)
-    fails += f
-    scen = {s["name"]: s for s in P.w4_replays() if s["name"] in ("cup-128", "cup-lip")}
-    for name in ("cup-128", "cup-lip"):
-        s = scen.get(name)
-        if not s or not s["ok"]:
-            fails.append("W4 %s: the model found no such approach on PEAK's cup (bonanza_phys --check)" % name)
-            continue
+    for name, s_ in sorted(w4_scenarios().items()):
         if fails:
             break
-        log = make_log(s["keys"], CRS_K[s["crs"]], s["mat"])
-        f, out[name] = w4_replay(g, Ref(g.tag, course(s["crs"]), art), "%s W4 %s" % (g.tag, name), log=log,
-                                 poke=s["poke"])
+        if not s_["ok"]:
+            fails.append("W4 %s: the model found no such replay (bonanza_ring --check-reds)" % name)
+            continue
+        f, out[name] = w4_replay(g, Ref(g.tag, course(s_["crs"]), art), "%s W4 %s" % (g.tag, name), log=s_["log"],
+                                 poke=s_["poke"] or None, windows=s_["windows"])
         fails += f
-    if not fails:
-        peak = course("peak", art=art)
-        demo = load_demo(g, CRS_K["peak"])
-        _k, mat, kt, _fl = BB.decode_log_t(demo)
-        windows = [(h["a"], h["b"]) for h in BB.vis_stretches(BB.vis_run(peak, kt, mat))]
-        if not windows:
-            fails.append("W4 PEAK's demo: the model's audit finds no hidden stretch over 0.5 s in it (SPEC.md "
-                         "130.15.10.5 reads five), so the ghost frames cannot be checked")
-        else:
-            print("%s W4 PEAK's demo: %d hidden stretch(es) checked frame by frame: %s" % (
-                g.tag, len(windows), ", ".join("steps %d - %d" % w for w in windows)), flush=True)
-            f, out["peak"] = w4_replay(g, Ref(g.tag, peak, art), "%s W4 PEAK's demo" % g.tag, windows=windows)
-            fails += f
     return fails, out
 
 
 def w4_verdict(tag, out):
-    """the W4 part's coverage: every kind it exists to see, seen and checked"""
+    """the W4 part's coverage: every kind it exists to see, seen and checked (phase 3: summed over its
+    replays - the route's flags, the hole's respawn, the pads, the cup's capture and lip-out, TMIL's
+    stretches and a ghost in them)"""
     bad = []
-    t = out.get("moon") or {}
-    for k, need in (("capture", 1), ("flag", 1), ("pad", 1), ("full", 1)):
-        if t and t.get(k, 0) < need:
-            bad.append("W4 MOON's demo: %d %s frame(s) checked, at least %d (SPEC.md 130.14.14 bonanzaring)" % (
-                t.get(k, 0), k, need))
-    if t and t.get("blank", 0) < t.get("full", 0):
-        bad.append("W4 MOON's demo: %d of %d full writes blanked" % (t.get("blank", 0), t.get("full", 0)))
-    for name, k in (("cup-128", "capture"), ("cup-lip", "lip")):
-        x = out.get(name)
-        if x is not None and not x.get(k):
-            bad.append("W4 %s: no %s frame checked" % (name, k))
-    p = out.get("peak")                         # wave 5b: the stretches, and a ghost drawn in them
+    if not out:
+        return bad
+    tot = {}
+    for t in out.values():
+        for k, v in t.items():
+            tot[k] = tot.get(k, 0) + v
+    for k, need in (("capture", 1), ("lip", 1), ("flag", 1), ("pad", 1), ("full", 1), ("respawn", 1)):
+        if tot.get(k, 0) < need:
+            bad.append("W4: %d %s frame(s) checked over its replays, at least %d (SPEC.md 130.14.14 bonanzaring)" % (
+                tot.get(k, 0), k, need))
+    if tot.get("blank", 0) < tot.get("full", 0):
+        bad.append("W4: %d of %d full writes blanked" % (tot.get("blank", 0), tot.get("full", 0)))
+    p = out.get("tply-route")                   # wave 5b: the windows, and a ghost drawn in them
     if p is not None:
         if p.get("stretch", 0) < W4_STRETCH:
-            bad.append("W4 PEAK's demo: %d frame(s) checked inside its hidden stretches, at least %d (SPEC.md "
+            bad.append("W4 TPLY's route: %d frame(s) checked inside its windows, at least %d (SPEC.md "
                        "130.15.13 bonanzaring)" % (p.get("stretch", 0), W4_STRETCH))
         if not p.get("ghost"):
-            bad.append("W4 PEAK's demo: no checked frame in its hidden stretches drew a GHOST (the ball's pixels "
+            bad.append("W4 TPLY's route: no checked frame in its windows drew a GHOST (the ball's pixels "
                        "kept through a laid record by the checker, SPEC.md 130.15.10.1)")
     return bad
 
@@ -5139,7 +5473,7 @@ RED_CAM_WANT = {"camhyst": "the reversal check", "camcap": "the lift stretch's h
                 "camring": "two-row check", "camside": "the side check", "latpad": "the camera's span"}
 
 
-def nodither_art(td):
+def nodither_art(td, names=None):
     """`nodither`'s data (SPEC.md 130.15.13): build/bonanza-art copied into TD
     with every BZ<K>.BIN replaced by the TOOL'S UNDITHERED compile of the same
     course (`_hack no_dither`), its identity word
@@ -5150,10 +5484,12 @@ def nodither_art(td):
     the shipped masks with the checker ANDed out: that also clears lattice
     bits a record's own mask kept, laying geometry BEHIND the ball over it
     (the review's P2), and one dithered mask can stand for several undithered
-    ones.  -> the copy's directory"""
+    ones.  NAMES: only those courses undithered (phase 3: TPLY's 95 masks - a
+    course over the tool's 256 undithered, PLAYGROUND's 292, cannot be).
+    -> the copy's directory"""
     art = os.path.join(td, "art-nodither")
     shutil.copytree(at("build/bonanza-art"), art)
-    order = sorted(crs_all().items(), key=lambda kv: kv[1])
+    order = sorted([kv for kv in crs_all().items() if names is None or kv[0] in names], key=lambda kv: kv[1])
     # (the undithered compiles, independent of each other: a core each, BB.par_map; a refusal raised below)
     und = dict(zip([n for n, _k in order], BB.par_map(
         lambda n: BB.compile_course(os.path.join(ROOT, COURSES[n]), _hack={"no_dither": True}),
@@ -5199,14 +5535,15 @@ def nodither_art(td):
     return art
 
 
-RED_DATA = {"nodither": nodither_art}       # red arms made at the data, not the source
+RED_DATA = {"nodither": lambda td: nodither_art(td, ("tply",))}   # red arms made at the data, not the source
+                                    # (phase 3: TPLY's undithered compile alone - the tply leg's course)
 RED_PARTS = {"colright": ("bench",), "colfirst": ("bench",), "late": ("bench",), "row0": ("probe",),
              "occ": ("bench",), "shadow": ("trial",), "boxfirst": ("trial",), "htab": ("glass",),
              "late2": ("probe",), "pass2": ("trial",), "contact": ("mill", "play"), "defer": ("play",),
              "ridebox": ("play",), "pwait2": ("play",), "fastwrap": ("play",), "mapskip": ("mill",),
              "wrapmask": ("mill", "play"),
              "padfront": ("play",), "hidden": ("mill",),
-             "noblank": ("w4",), "nodither": ("bench",), "recstep": ("w4",)}
+             "noblank": ("w4",), "nodither": ("tply",), "recstep": ("w4",)}
 RED_PARTS.update({k: ("ground",) for k in GROUND_RED})
 RED_PARTS.update({k: ("camera",) for k in CAM_RED})
 # ...the cards each CAN go red on: the Hercules has 16 + 82 lines of sync and
@@ -5274,7 +5611,7 @@ def main():
     dev()                               # the BZDEV=1 build (SPEC.md 130.26.6.1)
     if a.check_reds:
         crs_fill()                              # (fills the table)
-        prefetch(sorted(COURSES))               # (the host half reads every shipped course)
+        prefetch([n for n in TEST_CRS if n in COURSES])     # (the host half reads the test courses alone)
         for line in check_reds(REDS, "bonanza_ring"):
             print(line)
         gbad, gsay = ground_check()             # wave 6: the GROUND leg's host half
@@ -5289,11 +5626,17 @@ def main():
         for line in cbad:
             print("FAIL bonanza_ring %s" % line)
         assert not cbad, "%d CAMERA check(s) not proved on the model" % len(cbad)
+        wbad, wsay = w4_check()                 # phase 3: the W4 part's replays, found on the test courses
+        for line in wsay:
+            print("bonanza_ring %s" % line)
+        for line in wbad:
+            print("FAIL bonanza_ring %s" % line)
+        assert not wbad, "%d W4 replay(s) not found on the model" % len(wbad)
         for name, mk in sorted(RED_DATA.items()):
             with tempfile.TemporaryDirectory() as td:
                 art = mk(td)
                 assemble(os.path.join(ROOT, "apps", "bonanza"), art, os.path.join(td, "bonanza.bin"))
-                print("bonanza_ring --red %s: the data copy made (every course the tool's undithered compile, the "
+                print("bonanza_ring --red %s: the data copy made (TPLY the tool's undithered compile, the "
                       "shipped identity stamped in) and the package assembles over it (%d bytes)" % (
                           name, os.path.getsize(os.path.join(td, "bonanza.bin"))))
         return
