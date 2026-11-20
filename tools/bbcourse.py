@@ -6778,9 +6778,9 @@ def build_props(src, tiles, fname):
         if (t is None or t.kind != KIND_FLOOR or t.sx or t.sy) and "flat" not in _CHECKS_OFF:
             raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, what, at[0], at[1]))
         if not all(edge_rec(tiles.get((at[0] + dx, at[1] + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()) \
-                and not (kind == PK_SPRING and src.title_ln is not None):   # (130.23.2: a title's spring
-            # may stand at a pit's edge - the title is never played, and its demos choose their respawns)
-            raise CourseError("%s:%d: a %s on (%d, %d) with VOID beside it (a flag, a pad, the cup and a spring "
+                and kind != PK_SPRING:              # (SPEC.md 130.14.4.1: a SPRING may stand at a pit's edge -
+            # it launches and never places a ball; once the title's waiver alone, 130.23.2)
+            raise CourseError("%s:%d: a %s on (%d, %d) with VOID beside it (a flag, a pad and the cup "
                               "stand where a SAFE cell could)" % (f, ln, what, at[0], at[1]))
         if kind in (PK_CHECKPOINT, PK_CUP) and t.surf != SURF_NORMAL:
             raise CourseError("%s:%d: a %s on (%d, %d): it stands on NORMAL ground, not %s"
@@ -30679,7 +30679,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 1
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -30731,6 +30731,14 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    if mine():                                      # SPEC.md 130.14.4.1: a SPRING may stand at a pit's edge
+        try:                                        # (VOID west of (4, 6)); a pad there is refused (above)
+            compile_course(_W4C.replace("origin 224\n", "origin 224\nuses spring\n") + "spring 4 6 300\n",
+                           fname="<a spring at a pit's edge>")
+            ok_, msg = True, "compiled"
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (130.14.4.1): a spring at a pit's edge%s" % ("" if ok_ else " -- got: " + msg), ok_))
 
 
 def _sc_w9(X, res):
