@@ -1,0 +1,33 @@
+# Quick Test - TQUIK (the plan's TQUICK: a NAME is five characters), a TEST course (SPEC.md 130.54.2): the
+# BZDEV=1 build's alone, after the shipped courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped
+# demo.  "Exits and the save" (docs/plans/BOUNCE-BONANZA-SOAK.md): the GOAL course the rows' launches end on,
+# as small as a course can be and still carry what their legs need -
+#  - A, the start plate, B a ramp down along +x, C the foot whose last column is the GOAL: the autopilot's
+#    play reaches it in 165 steps (3.0 s), no fall (a goal, a replay's end, a best, a saved play);
+#  - a CHECKPOINT flag on C, on the route, and a HOLE beside it (a ball poked into it respawns at the flag);
+#  - a plain KEEP tube under a block on A, off the route: its IN cell (6, 7) a DRAIN a row pokes
+#    the ball into (it is HIDDEN until the OUT cell (3, 7) gives it back: 16 steps, as MILL's drop);
+#  - `palette 0` (10h, not the BIOS's 30h: the CGA's colour select is seen) and a short `limit` (a TIMEOUT is
+#    waited out in 8 s); the finish clock beside C.
+course TQUIK "Quick Test"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 130.50.3: every course names its song
+width 64
+ball rubber
+uses tube
+palette 0
+floor rect   3 4  7 9  flat 4             # A, the start plate (a row deeper than B: the tube's body
+                                          # stands inside it, no face of it over the void)
+wall  rect   3 3  7 4  flat 6             # its back rail
+floor rect   7 4 11 8  ramp x 7 11 4 2    # B, down along +x
+floor rect  11 4 15 8  flat 2             # C, the foot
+goal  rect  14 4 15 8  flat 2             # C's last column is the goal
+hole  tile  12 7                          # a pit in C, off the route
+checkpoint 12 5                           # flag 0, on the route
+wall  rect   4 7  6 8  flat 6             # the tube's body, a block on A's second row from the front
+tube keep 6 7  3 7  out -y                # IN (6, 7), the drain; OUT (3, 7), onto A
+start 4 5
+way 4 5
+way 14 5
+limit 8
+clock 11 7                                # the finish clock (SPEC.md 130.22.6)

@@ -1163,16 +1163,19 @@ def ab_tree(td, commit=AB_COMMIT):
     crs = sorted(os.listdir(os.path.join(w, "apps", "bonanza", "courses"))) \
         if os.path.isdir(os.path.join(w, "apps", "bonanza", "courses")) else []
     mk = git("show", "%s:Makefile" % commit).stdout
-    order, bench = [], []
+    order, bench, tests = [], [], []
     for line in mk.replace("\\\n", " ").splitlines():      # (its continuation lines joined: wave 3's
         if line.startswith("BZ_COURSES :=") and not order:  # list runs over two)
             order = line.split(":=", 1)[1].split()
         elif line.startswith("BZ_BENCH :="):            # since BENCH left the shipped build (SPEC.md 130.10.11.1):
             bench = line.split(":=", 1)[1].split()      # the BZDEV build's course 0, as R.NASM's -DBZDEV wants
-    order = bench + order
+        elif line.startswith("BZ_TESTCRS :="):          # since SPEC.md 130.54: the test courses, BENCH among
+            tests = line.split(":=", 1)[1].split()      # them, AFTER the shipped ones (and bbcourse's --dev)
+    order = bench + order + tests
     if order and "tools/bbcourse.py" in tools:
         subprocess.run([sys.executable, os.path.join(w, "tools", "bbcourse.py"), "-o", art] +
-                       [os.path.join(w, c) for c in order], cwd=w, check=True, stdout=subprocess.DEVNULL)
+                       (["--dev"] if tests else []) + [os.path.join(w, c) for c in order], cwd=w, check=True,
+                       stdout=subprocess.DEVNULL)
     if "BZ_SNDPARTS" in mk and "tools/bbmusic.py" in tools:     # 3b's sound (SPEC.md 130.20): its own songs
         subprocess.run([sys.executable, os.path.join(w, "tools", "bbmusic.py"), "-o", art], cwd=w, check=True,
                        stdout=subprocess.DEVNULL)

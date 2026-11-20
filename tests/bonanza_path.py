@@ -917,8 +917,9 @@ def secret_art(td):
     with open(pp, "w") as f:
         f.write(text)
     files = [os.path.join(crs, os.path.basename(p)) for p in course_files()]
-    subprocess.run(["python3", "tools/bbcourse.py", "-o", art, "--path", pp,
-                    "--title", os.path.join(crs, "title.bbc")] + files, cwd=ROOT, check=True,
+    subprocess.run(["python3", "tools/bbcourse.py", "-o", art] + (["--dev"] if R.DEV else []) + ["--path", pp,
+                    "--title", os.path.join(crs, "title.bbc")] + files, cwd=ROOT, check=True,   # (--dev: the BZDEV
+                                                    # build's TEST courses are in its list, SPEC.md 130.54)
                    stdout=subprocess.DEVNULL)
     return art, crs
 
