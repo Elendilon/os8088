@@ -159,13 +159,13 @@ N = SHAPE_N
 floor("A", 4, 4 - N, 5, 5 - N, Z)                                    # the start: ONE tile, guard rails round it
 rail(4, 4 - N, 5, 4 - N, "guard"); rail(4, 4 - N, 4, 5 - N); rail(5, 4 - N, 5, 5 - N)   # (rev 4: the start tile keeps all three - a start must be SAFE)
 # rev 6 (the owner, ON TRIAL): the line from the ramp through the corner chute into the hump run 3 wide all the
-# way (docs/plans/bonanza-courses/CHUTE3.md).  CHUTE_W = 2 restores rev 5's 2-wide line, byte for byte
-CHUTE_W = 3
+# way (docs/plans/bonanza-courses/CHUTE3.md).  CHUTE_W = 2 is rev 5's 2-wide line, with rev 7's SHAPE_N rows north
+CHUTE_W = 2                                  # (rev 8: the owner chose 2 - "the visual symmetry works a little better")
 if CHUTE_W == 2:
-    ramp("R", "y", 4, 5, 5, 10, Z, Z - 10)                   # a STEEP ramp, 2 units a tile (the most), railed
-    floor("R", 4, 10, 5, 11, Z - 10)                         # its foot, flat, into the corner chute
-    rail(4, 5, 4, 11)                                        # (rev 5: the LEFT rail kept, the right one gone - it hid the ball at the spawn and down the ramp)
-    chute("C", [(4, 11, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
+    ramp("R", "y", 4, 5 - N, 5, 10 - N, Z, Z - 10)           # a STEEP ramp, 2 units a tile (the most), railed
+    floor("R", 4, 10 - N, 5, 11 - N, Z - 10)                 # its foot, flat, into the corner chute
+    rail(4, 5 - N, 4, 11 - N)                                # (rev 5: the LEFT rail kept, the right one gone - it hid the ball at the spawn and down the ramp)
+    chute("C", [(4, 11 - N, Z - 10), (4, 13, Z - 10), (8, 13, Z - 11)], 1.0)   # the CORNER: a banked shape turns it +x
 else:
     ramp("R", "y", 3, 5 - N, 6, 10 - N, Z, Z - 10)           # the STEEP ramp, 3 wide (no flat foot: the chute's
     rail(3, 5 - N, 3, 10 - N)                                #   end taper is the foot); its LEFT rail, the right open (rev 5)
