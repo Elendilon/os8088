@@ -310,6 +310,8 @@ Z_OPEN = -128                 # an OPEN cell's z0
 # stacked (18.0 px); none of them crosses it, a WALL being a column at every height
 GUARD_H2, GUARD_H2MIN, GUARD_H2MAX = 4, 3, 6
 GUARD_POSTS = (0, 8, 16)      # px along the edge from its left corner: a post at each end and the middle
+_GUARD_ONEZ = False           # (--selfcheck's red arm: a guard beside two heights refused again, 130.35.9)
+_GUARD_FLAT = False           # (...and its lower edges drawn from the higher floor, as one height's)
 
 # --- the world (SPEC.md 130.10.2) ---------------------------------------------
 TILE = 16                     # ground units a tile
@@ -560,7 +562,7 @@ FAMILIES = (
     # `resident` (the owner's default, 2026-11-17); kind 26.  CONSTS fold WA_SINK, WA_HTHR and WA_ESH
     {"name": "water", "id": 7, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "WA",
      "kinds": ({"name": "water", "kind": FAM_K0 + 10, "bits": 0, "cls": CL_ATTEMPT, "art": None,
-                "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 54,
+                "forms": ("own", "bed"), "states": (0,), "pickup": False, "water": True},), "paras": 57,
      "home": HOME_RESIDENT},
     # MAGNETS (SPEC.md 130.33): a magnet on a post pulls STEEL along its FIELD (`range` cells out from the post
     # along `face`) toward the post, S >> (k - 1) at the k-th cell; a magnet `face down` hangs over its field
@@ -722,6 +724,10 @@ WA_RSH = 3                    # a RIPPLE's phase: its pose flips every 2^WA_RSH 
 # back up, grounded throughout (E, the hover, was built and set aside: 130.36.10)
 WA_FBSH = 4                   # the bob's half period, 2^WA_FBSH steps (0: no bob, the float line always)
 WR_RIPPLE, WR_ALWAYS = 1, 2   # a water record's +20: a ripple lane, and ANIMATED ALWAYS (else while the ball is in it)
+WR_GUARDX, WR_GUARDY = 4, 8   # ...and its arch's face GUARDED (SPEC.md 130.35.10): +x's, +y's - the exit a WALL to a
+                              # ball on the water (any ball but steel, the window's centre this cell)
+_WG_NOWALL = False            # (--selfcheck's red arm: the guarded arch's exit left open in the model, 130.35.10)
+_WG_ALLMAT = False            # (...and walled for steel too)
 # MAGNETS' constants (SPEC.md 130.33): every one in its FAMV (famv's "MG")
 K_MAGNET = FAM_K0 + 16        # its kind
 MG_WIG = 8                    # the WIGGLE: steps a pose (1, then 2), while the magnet pulls
@@ -1238,6 +1244,7 @@ class Source:
         self.uses = []              # wave 9 (SPEC.md 130.25.6.4): [(family row, line)], the families named
         self.fields = []            # SPEC.md 130.28.3: [dict] chutes and pits, in file order
         self.guards = []            # SPEC.md 130.35: [dict tiles side h2 line], the see-through GUARD RAILS
+        self.wguards = {}           # SPEC.md 130.35.10: {(water cell, side): the rail's height} (water_checks')
         self.archways = []          # SPEC.md 130.39: [dict cells along under line], the ARCHWAYS (lay_arches fills
                                     # in z0, clr, top, legs, xs, ys)
         self.waters = []            # SPEC.md 130.36: [dict] `water` statements, in file order
@@ -3310,16 +3317,25 @@ def _parse_text(text, fname="<course>"):
             src.fields.append(_parse_hump(toks, where, ln))
         elif st == "water":                         # SPEC.md 130.36: water rect X0 Y0 X1 Y1 top H bed B [ripple ..]
             src.waters.append(_parse_water(toks, where, ln))
-        elif st == "arch":                          # ...and its exit: arch X Y +x|+y (the column's front face)
-            if len(toks) != 4 or toks[3][1] not in ("+x", "+y", "-x", "-y"):
-                raise CourseError("%s: arch takes <wx> <wy> +x|+y (a water column's cell and the front face its "
-                                  "arch opens in)" % where)
+        elif st == "arch":                          # ...and its exit: arch X Y +x|+y [guard [height H]] (the
+            rest = [t_[1] for t_ in toks[4:]]       # column's front face; 130.35.10: its surface GUARDED)
+            if len(toks) < 4 or toks[3][1] not in ("+x", "+y", "-x", "-y") or rest not in (
+                    [], ["guard"]) and not (len(rest) == 3 and rest[:2] == ["guard", "height"]):
+                raise CourseError("%s: arch takes <wx> <wy> +x|+y [guard [height <units>]] (a water column's cell, "
+                                  "the front face its arch opens in, and a guard rail along that face's top: "
+                                  "SPEC.md 130.36.1, 130.35.10)" % where)
+            gh2 = None
+            if rest:
+                gh2 = _height2(toks[6], where, rel=True) if len(rest) == 3 else GUARD_H2
+                if not GUARD_H2MIN <= gh2 <= GUARD_H2MAX:
+                    raise CourseError("%s: a guard rail is %s - %s units over the floor it guards, not %s (SPEC.md "
+                                      "130.35.2)" % (where, GUARD_H2MIN / 2, GUARD_H2MAX / 2, gh2 / 2))
             if toks[3][1][0] == "-":
                 raise CourseError("%s: arch %s: the %s face is a BACK face, never drawn - an arch opens in a FRONT "
                                   "face, +x or +y (SPEC.md 130.36; the owner's W3: the ball leaves out the front)"
                                   % (where, toks[3][1], toks[3][1]))
             src.arches.append({"at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
-                               "side": DIR_NAMES.index(toks[3][1]), "line": ln})
+                               "side": DIR_NAMES.index(toks[3][1]), "line": ln, "guard": gh2})
         elif st == "float":                         # SPEC.md 130.27.2: cells whose faces over the void hang
             if len(toks) > 1 and toks[1] in (('w', "half"), ('w', "quarter")):   # 3 units, not to the ground
                 raise CourseError("%s: float takes whole cells, never a half or a quarter: a cell's faces "
@@ -4241,7 +4257,7 @@ def lay_guards(src, tiles):
                                   "beside the floor it guards (SPEC.md 130.35.1)" % (f, ln, wx, wy))
             laid[(wx, wy)] = (ln, g["h2"])
     for (wx, wy), (ln, h2) in sorted(laid.items()):
-        zs, edges = set(), []
+        zs, edges, bases = set(), [], {}
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
                 n = tiles.get((wx + dx, wy + dy))
@@ -4255,8 +4271,10 @@ def lay_guards(src, tiles):
                                       % (f, ln, wx, wy, wx + dx, wy + dy))
                 zs.add(n.z0)
                 if dx == 0 or dy == 0:
-                    edges.append(next(e for e, d in EDGE_D.items() if d == (dx, dy)))
-        if len(zs) > 1:
+                    e = next(e for e, d in EDGE_D.items() if d == (dx, dy))
+                    edges.append(e)
+                    bases[e] = n.z0
+        if len(zs) > 1 and _GUARD_ONEZ:             # (a red arm's switch: 130.35.9's two heights refused again)
             raise CourseError("%s:%d: guard (%d, %d) touches floors at %s units: a guard rail guards ONE height "
                               "(SPEC.md 130.35.1)" % (f, ln, wx, wy, " and ".join(str(z / 2) for z in sorted(zs))))
         if not edges:
@@ -4272,9 +4290,10 @@ def lay_guards(src, tiles):
                     raise CourseError("%s:%d: guard (%d, %d) touches the floor (%d, %d) at a corner with no rail "
                                       "through it - a wall nobody can see (SPEC.md 130.35.1)"
                                       % (f, ln, wx, wy, wx + dx, wy + dy))
-        zb = zs.pop()
-        t = Tile(KIND_WALL, zb + h2, 0, 0, ln)
-        t.guard = (tuple(e for e in ("N", "W", "E", "S") if e in edges), zb)
+        zb = max(zs)                                # SPEC.md 130.35.9: it guards the HIGHEST floor it touches; a
+        t = Tile(KIND_WALL, zb + h2, 0, 0, ln)      # lower one's edge is railed from that floor up to the same top
+        es = tuple(e for e in ("N", "W", "E", "S") if e in edges)
+        t.guard = (es, zb, tuple(bases[e] for e in es))
         tiles[(wx, wy)] = t
 
 
@@ -4351,25 +4370,33 @@ def guard_pix(t, wx, wy, x0):
     floor's height up the rail's, a 2 px POST at each end and the middle (WHITE left, BLACK right) and two BARS - the
     top one 2 lines (WHITE over BLACK), the middle one 1 line (WHITE).  The back edges first, so a front edge's
     rail is drawn over a back one's at a corner; everything else in the cell is not the rail's"""
-    edges, zb2 = t.guard
-    H = 4 * (t.z0 - zb2)
+    edges, zg = t.guard[:2]
+    HG = 4 * (t.z0 - zg)                            # (the rail's own height over the floor it guards, px)
+    two = len(t.guard) > 2 and len(set(t.guard[2])) > 1
     out = {}
-    for e in edges:
+    for e, zb2 in zip(edges, t.guard[2] if len(t.guard) > 2 and not _GUARD_FLAT else (zg,) * len(edges)):
+        H = 4 * (t.z0 - zb2)                        # SPEC.md 130.35.9: this edge's floor up to the rail's top
         (ax, ay), (bx, by) = [(wx + c[0], wy + c[1]) for c in EDGE_CORNERS[e]]
         (Xa, Ya), (Xb, Yb) = sorted(((16 * (ax - ay) + x0, 8 * (ax + ay) - 4 * zb2),
                                      (16 * (bx - by) + x0, 8 * (bx + by) - 4 * zb2)))
 
         def yb(x, Xa=Xa, Ya=Ya, Yb=Yb):             # the edge at column x: the guarded floor's line there
             return Ya + ((Yb - Ya) * (2 * (x - Xa) + 1)) // 32
+        # SPEC.md 130.35.9 - 130.35.10: a guard beside TWO heights draws each edge from its left corner's column
+        # up to its right corner's, not including it, and an arch's rail (guard[3]) from its left corner's: where
+        # rails meet, one owner a column (the bound of 4 records a block, 130.11.4.2)
+        lo, hi = (Xa, Xb - 1) if two else (Xa if t.guard[3:] == (True,) else Xa - 1, Xb)
         for d in GUARD_POSTS:
             for k, x in enumerate((Xa + d - 1, Xa + d)):
-                for y in range(yb(x) - H + 2, yb(x)):
-                    out[(x, y)] = WHT if k == 0 else BLK
-        for x in range(Xa - 1, Xb + 1):
+                if lo <= x <= hi:
+                    for y in range(yb(x) - H + 2, yb(x)):
+                        out[(x, y)] = WHT if k == 0 else BLK
+        for x in range(lo, hi + 1):
             y = yb(x)
             out[(x, y - H)] = WHT
             out[(x, y - H + 1)] = BLK
-            out[(x, y - H // 2)] = WHT
+            for m in range(HG // 2, H, HG // 2):    # (the middle bar, and on a lower floor's edge one each half
+                out[(x, y - H + m)] = WHT           # rail height down to that floor)
     return out
 
 
@@ -7253,6 +7280,16 @@ def water_checks(src, tiles, props, fname):
                               "130.36)" % (fname, ln, at[0], at[1], DIR_NAMES[side], ex[0], ex[1],
                                               wat[at]["bed"] / 2.0))
         arch.setdefault(at, []).append(side)
+        if a.get("guard") is not None:              # SPEC.md 130.35.10: a GUARDED arch - its exit a WALL to a ball
+            if side not in (0, 2):                  # on the water (the CELL hook's), so nothing on the exit but
+                raise CourseError("%s:%d: a guarded arch opens in +x or +y" % (fname, ln))     # the floor it is
+            if any(q.get("at") == ex for q in props) or ex in prop_cells(props):
+                raise CourseError("%s:%d: arch on (%d, %d) %s guard: its exit (%d, %d) is a prop's cell - a guarded "
+                                  "arch's exit is rewritten a WALL to a ball on the water, and a prop there would "
+                                  "be walled with it (SPEC.md 130.35.10)" % (fname, ln, at[0], at[1],
+                                                                             DIR_NAMES[side], ex[0], ex[1]))
+            wat[at]["wg"] = wat[at].get("wg", 0) | (WR_GUARDX if side == 0 else WR_GUARDY)
+            src.wguards[(at, side)] = a["guard"]
     for at, p in sorted(wat.items()):
         for e, (dx, dy) in sorted(EDGE_D.items()):
             nb = (at[0] + dx, at[1] + dy)
@@ -8029,11 +8066,21 @@ def water_top_ink(t, wx, wy, x0, y0, rings=WATER_RINGS):
 WATER_ARCH = (18, 7)                # an ARCH's rows and half width (14 px: a 16 px ball drawn whole through it)
 
 
-def water_ops(tiles, ops, arch, x0):
+def arch_guard_tile(t, at, side, h2):
+    """SPEC.md 130.35.10: a GUARDED arch's rail as a guard rail's Tile on its EXIT cell - a WALL at the water's
+    top plus the rail's height, its one rail edge the face's (the exit's N or W edge), on the water's top"""
+    g = Tile(KIND_WALL, t.z0 + h2, 0, 0, t.line)
+    g.guard = (("W",) if side == 0 else ("N",), t.z0, (t.z0,), True)     # (True: its left corner's column on)
+    return g
+
+
+def water_ops(tiles, ops, arch, x0, guards=None):
     """SPEC.md 130.36: each ARCH (water_checks' {cell: [sides]}) as GEOMETRY after its face's op - the
     opening black, keyed the cell's TRUE row s (the face's s + 1 less one), its tops the face's: a ball inside
     the column passing it is drawn whole, steel rolling out of the front.  Rows: WATER_ARCH's, or the face's
-    height less 4 when that is less.  -> ops, and {cell, side: the opening's pixels}"""
+    height less 4 when that is less.  A GUARDED arch (guards: {(cell, side): h2}, SPEC.md 130.35.10) has its
+    rail drawn after it: guard_pix's along the face's top, a post op keyed the exit's s (the water's art's s + 1)
+    with the rail's top.  -> ops, and {cell, side: the opening's pixels}"""
     out, pix_ = list(ops), {}
     for at in sorted(arch):
         t = tiles[at]
@@ -8050,6 +8097,13 @@ def water_ops(tiles, ops, arch, x0):
             mk2 = (lambda m: lambda y0: (lambda x, y: BLK, m(y0)))(mk)
             out.insert(k + 1, (_spans_of(pix), "post", s1 - (0 if _WATER_S0 else 1), mk2, False, t, own))
             pix_[(at, side)] = pix
+            if guards and (at, side) in guards:     # SPEC.md 130.35.10: the rail along the face's top
+                ex = (at[0] + DIR_VEC[side][0], at[1] + DIR_VEC[side][1])
+                g = arch_guard_tile(t, at, side, guards[(at, side)])
+                gp = guard_pix(g, ex[0], ex[1], x0)
+                mk3 = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(gp, 4 * g.z0)
+                j = max(i for i, o in enumerate(out) if o[6] == at)     # (after ALL of the column's art: its
+                out.insert(j + 1, (_spans_of(gp), "post", ex[0] + ex[1], mk3, False, g, ex))  # top's rings too)
     return out, pix_
 
 
@@ -11352,7 +11406,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if src.archways:                            # SPEC.md 130.39.5: each archway's LINTEL (arkey: a red arm, keyed
             o_ = arch_ops(src.archways, o_, x0, 0 if hack.get("arkey") else 1)   # at its own row)
         if warch:                                   # SPEC.md 130.36: each water column's arches
-            o_, _wpix = water_ops(tl_, o_, warch, x0)
+            o_, _wpix = water_ops(tl_, o_, warch, x0, src.wguards)
         if src.seesaws and not hack.get("notiltpost"):  # SPEC.md 130.42.5: each see-saw's fulcrum
             o_ = tilt_ops(src.seesaws, o_, x0)
         return o_
@@ -12295,7 +12349,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             p["fsb"] = fsbs[i]
             if p["kind"] == FK_WATER:               # (+18, +19: WATER's bed and top, half units, 130.36)
                 rec += struct.pack("<BBbbB11x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], zq(p["bed"]),
-                                   zq(p["top"]), p["rip"])  # (130.48.4: bed and top in quarter units)               # (+20: WR_RIPPLE, WR_ALWAYS)
+                                   zq(p["top"]), p["rip"] | p.get("wg", 0))   # (130.35.10: +20 WR_GUARDX, Y)  # (130.48.4: bed and top in quarter units)               # (+20: WR_RIPPLE, WR_ALWAYS)
             elif p["kind"] in (SP_K, SP_KP):        # SPIKES (130.38): +18 LOW, +19 TIP; a popspike's +20 ON,
                 rec += struct.pack("<BBbbBBB9x", p["fsb"] if p["fsb"] < 256 else 0, p["cls"], zq(p["low"]),
                                    zq(p["tip"]), p.get("on", 0), p.get("smask", 0), p.get("sseed", 0))   # +21 MASK, +22 SEED
@@ -15032,13 +15086,14 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 130.25.19)
             if d["kind"] == FK_WATER:               # (WATER's +18 bed, +19 top, signed half units: 130.36)
                 bed_, top_ = struct.unpack_from("<bb", p, r + 18)
-                rip_ = p[r + 20]
+                rip_, wg_ = p[r + 20] & 3, p[r + 20] & ~3
                 if cls != CL_ATTEMPT or p[r + 21:r + 32] != bytes(11) or 4 * (top_ - bed_) <= CLIMB \
+                        or wg_ & ~(WR_GUARDX | WR_GUARDY) \
                         or rip_ not in (0, WR_RIPPLE, WR_RIPPLE | WR_ALWAYS) or bool(d["lane"]) != bool(rip_) \
                         or (d["lane"] and d["lane"]["poses"] != 2):
                     bad("prop %d" % d["i"], "a water cell's record (bed %d, top %d, +20 %02Xh)" % (bed_, top_, rip_))
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art="ripple" if rip_ else None, dur=0, ow=0,
-                         bed=bed_, top=top_, rip=rip_, always=bool(rip_ & WR_ALWAYS))
+                         bed=bed_, top=top_, rip=rip_, always=bool(rip_ & WR_ALWAYS), wg=wg_)
                 continue
             if kr["kind"] in (SP_K, SP_KP, SP_KM):  # SPIKES (SPEC.md 130.38): LOW, TIP, a popspike's timer;
                 low_, tip_, on_, sm_, ss_ = struct.unpack_from("<bbBBB", p, r + 18)    # a membrane's z0
@@ -15970,6 +16025,16 @@ class WaterFamily(Family):
                 if pr["at"] == (cx, cy):
                     cen = pr
         sb[1] = (sb[1] & 1) | anyw                  # (bit 1: a water cell in the window)
+        for pr in p.props:                          # SPEC.md 130.35.10: a GUARDED arch's exit - a WALL to a ball
+            wg = pr.get("wg", 0) if pr["kind"] == FK_WATER else 0   # on the water (its cell the window's centre,
+            if not wg or pr["at"] not in win:                       # the ball not steel), else the FLOOR it is
+                continue
+            k = KIND_WALL if pr["at"] == (cx, cy) and (p.mat != MAT_STEEL or _WG_ALLMAT) and not _WG_NOWALL \
+                else KIND_FLOOR
+            for bit, (dx, dy) in ((WR_GUARDX, (1, 0)), (WR_GUARDY, (0, 1))):
+                ex = (pr["at"][0] + dx, pr["at"][1] + dy)
+                if wg & bit and ex in win:
+                    win[ex][3] = k
         if cen is not None:
             sb[4] = (cen["top"] - 2) & 255
             if not sb[1] & 1:
@@ -19958,7 +20023,12 @@ def emit_inc(courses, path=None, title=None):
               "BZ_WA_RSH       equ %d        ; a ripple's pose flips every 2^WA_RSH steps" % WA_RSH,
               "BZ_WA_FBSH      equ %d        ; the surface bob's half period, 2^WA_FBSH steps" % WA_FBSH,
               "BZ_WR_RIPPLE    equ %d        ; a water record's +20: a ripple lane" % WR_RIPPLE,
-              "BZ_WR_ALWAYS    equ %d        ; ...animated always (else while the ball is in it)" % WR_ALWAYS] + [
+              "BZ_WR_ALWAYS    equ %d        ; ...animated always (else while the ball is in it)" % WR_ALWAYS,
+              "BZ_WR_GUARDX    equ %d        ; ...its +x arch GUARDED: the exit a WALL to a ball on it (130.35.10)"
+              % WR_GUARDX,
+              "BZ_WR_GUARDY    equ %d        ; ...its +y arch's" % WR_GUARDY,
+              "BZ_WA_KFLOOR    equ %d        ; the exit's kind nibble, open and walled" % KIND_FLOOR,
+              "BZ_WA_KWALL     equ %d" % KIND_WALL] + [
               "; the family part rows, after every other row: a `fetch` family's own, ID order, then the",
               "; RESIDENT BUNDLE's (SPEC.md 130.25.6.9)",
               "%macro BZ_FAM_PARTS 0"] + ["    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_ARENA ; bzf-%s.bin (ID %d, FAMV %02Xh)"
@@ -30367,7 +30437,13 @@ def _water_cases():
              .replace("4 7 10 10", "3 7 20 10") + "water rect 5 6 19 7 top 3 bed 0 always 5 6 7 6 9 6 11 6 13 6 15 6 "
              "17 6\n" + "".join("arch %d 6 +y\n" % x for x in range(5, 19)), "FAST lanes"),
             ("water with no `uses water`", _WAT.replace("uses water\n", "") + "water tile 6 6 top 3 bed 0\n"
-             "arch 6 6 +y\n", "does not name"))
+             "arch 6 6 +y\n", "does not name"),
+            ("a guarded arch whose exit is a prop's cell (130.35.10)", _WAT + "water tile 6 6 top 3 bed 0\n"
+             "arch 6 6 +y guard\npad steel 6 7\n", "is a prop's cell"),
+            ("a guarded arch's rail 1 unit high (130.35.10)", _WAT + "water tile 6 6 top 3 bed 0\n"
+             "arch 6 6 +y guard height 1\n", "a guard rail is 1.5 - 3.0 units"),
+            ("an arch with a clause that is not `guard`", _WAT + "water tile 6 6 top 3 bed 0\narch 6 6 +y rail\n",
+             "arch takes"))
 
 
 def _water_checks(res):
@@ -31761,7 +31837,6 @@ def _guard_cases():
         ("a guard that guards nothing", G + "guard tile 20 20\n", "shares no edge with a floor"),
         ("a guard beside a ramp", G + "floor rect 4 5 14 7 ramp y 5 7 2 4\nguard rect 4 7 14 8\n",
          "not a whole FLAT floor"),
-        ("a guard between two heights", G + "floor rect 4 6 14 7 flat 2\nguard rect 4 7 14 8\n", "touches floors at"),
         ("a floor at a guard's corner with no rail through it", G + "floor tile 15 7 flat 4\nguard tile 14 8\n",
          "at a corner with no rail"),
         ("a guard rail 1 unit high (under rubber's boost)", G + "guard rect 4 7 14 8 height 1\n",
@@ -31881,8 +31956,109 @@ def _guard_checks(res, _hack=None):
     return c
 
 
+# SPEC.md 130.35.9 - 130.35.10: TWO HEIGHTS and the WATER SEAL - a walkway W (x 4 - 12, wy 8 - 10) at 4 units, the
+# lower ground L (1 unit) in front of it and round the water; a strip of two-height guards along W's front (wy 11:
+# W behind, L in front), its last cell (12, 11) round a CORNER (W behind, L in front and to its right); a water
+# column (13, 8 - 10, top 4, bed 1) beside W, its arch +y onto (13, 11) GUARDED; one-height guards behind W and
+# the water, and down the water's right side (14, 8 - 9), its last cell (14, 10) round a corner onto L
+_G2CRS = ('course G "g"\nwidth 64\norigin 288\nuses water\nfloor rect 4 8 13 11 flat 4\n'
+          'floor rect 4 12 13 14 flat 1\nfloor rect 13 11 17 15 flat 1\nwater rect 13 8 14 11 top 4 bed 1\n'
+          'arch 13 10 +y guard\nguard rect 4 7 14 8\nguard rect 14 8 15 11\nguard rect 4 11 13 12\nstart 5 9\n')
+
+
+def _guard2_checks(res):
+    """SPEC.md 130.35.9 - 130.35.10's items on _G2CRS (each red under its arm, _sc_guard)"""
+    c = compile_course(_G2CRS, fname="<guard rails: two heights>", _hack={"no_finish": True})
+    gc = guard_cells(c.tiles)
+    two = {k: t for k, t in gc.items() if len(set(t.guard[2])) > 1}
+    want = dict([((x, 11), (("N", "S"), (8, 2))) for x in range(4, 12)]
+                + [((12, 11), (("N", "E", "S"), (8, 2, 2))), ((14, 10), (("W", "S"), (8, 2)))])
+    ok = sorted(two) == sorted(want) and all(two[k].guard[0] == e and two[k].guard[2] == b and two[k].z0 == 12
+                                              and two[k].guard[1] == 8 and c.cells[k][2] & 15 == KIND_WALL
+                                              and c.cells[k][3] & FL_FLOAT for k, (e, b) in want.items())
+    res.append(("16 guard (130.35.9): TWO HEIGHTS - %d guard cells beside a floor at 4 units and one at 1, along one "
+                "side (wy 11) and round two corners ((12, 11), (14, 10)): each a WALL 2 units over the HIGHER floor, "
+                "its rail edges every edge it shares with a floor, each from that floor" % len(two), ok))
+    # the picture: every rail pixel drawn, and a lower edge's rail reaching down to the lower floor's line
+    rail = {}
+    for (wx, wy), t in gc.items():
+        rail.update({(x, y + c.y0): k for (x, y), k in guard_pix(t, wx, wy, c.x0).items()})
+    drawn = all(c.pic[y][x] == k for (x, y), k in rail.items())
+    t6 = gc[(6, 11)]
+    ys = [y for (x, y) in guard_pix(t6, 6, 11, c.x0)]
+    span = max(ys) - min(ys) + 1
+    tall = 4 * (t6.z0 - 2) - 1                      # (the S edge's posts: from the lower floor's line up the rail)
+    res.append(("16 guard (130.35.9): the picture holds every rail pixel (%d); a two-height cell's rail spans %d "
+                "lines - its lower edge's posts and bars down to the lower floor's line (at least %d)"
+                % (len(rail), span, tall), drawn and span >= tall))
+    # the physics: no ball crosses the two-height strip from the walkway
+    fl = []
+    for nm, mat, hop in (("rubber", MAT_RUBBER, None), ("glass", MAT_GLASS, None), ("steel", MAT_STEEL, None),
+                         ("the jump pickup (rubber)", MAT_RUBBER, PU_JHOP)):
+        top, crossed, nb = guard_flights(c, (8, 9), K_D | K_L, 11, mat, hop, firsts=range(0, 24, 4),
+                                         gaps=range(2, 34, 2))
+        fl.append((nm, top, crossed, nb))
+    res.append(("16 guard (130.35.9): no ball crosses the two-height strip from the walkway, any Hop and second "
+                "press - %s" % "; ".join("%s: apex %d px, %d crossed" % (f[0], f[1], f[2]) for f in fl),
+                not any(f[2] for f in fl)))
+    # THE WATER SEAL: the record, the rail's picture, and rubber and glass held on the water while steel sinks
+    # under the rail and rolls out of the arch onto L
+    wr = [r for r in c.part["props"] if r["kind"] == FK_WATER]
+    rec = {r["at"]: r.get("wg", 0) for r in wr}
+    res.append(("16 guard (130.35.10): the guarded arch's water record carries +20 WR_GUARDY (%s) and no other "
+                "column a guard bit" % sorted(rec.items()),
+                rec == {(13, 8): 0, (13, 9): 0, (13, 10): WR_GUARDY}))
+    t = c.tiles[(13, 10)]
+    ap = guard_pix(arch_guard_tile(t, (13, 10), 2, GUARD_H2), 13, 11, c.x0)
+    ok_p = all(c.pic[y + c.y0][x] == k and c.sbuf[y + c.y0][x] == 24 for (x, y), k in ap.items()
+               if (x, y + c.y0) not in rail)            # (a corner column a guard cell's rail draws is that rail's)
+    res.append(("16 guard (130.35.10): the picture holds the rail along the column's front top (%d px), keyed the "
+                "exit's s (24, the water's art's s + 1)" % len(ap), ok_p and len(ap) > 40))
+    held = []
+    for nm, mat in (("rubber", MAT_RUBBER), ("glass", MAT_GLASS)):
+        for kn, keys in (("+y", K_D), ("+y, -x", K_D | K_L), ("+y, +x", K_D | K_R)):
+            top, crossed, nb = guard_flights(c, (13, 10), keys, 11, mat, firsts=range(0, 24, 4),
+                                             gaps=range(2, 34, 4))
+            held.append((nm, kn, crossed))
+    out = []
+    for nm, mat in (("steel", MAT_STEEL),):
+        p = Physics(c, mat=mat).poke(13, 9)
+        n = 0
+        for n in range(400):
+            p.step(K_D)
+            if p.nfall or (p.gy >> 12) >= 12:
+                break
+        out.append((nm, (p.gx >> 12, p.gy >> 12), p.nfall, n))
+    sok = all(cl == (13, 12) or cl[1] >= 12 for _n, cl, nf, _k in out) and not any(nf for _n, _c, nf, _k in out)
+    res.append(("16 guard (130.35.10): THE WATER SEAL - rubber and glass on the water, driven at the guarded face "
+                "with every Hop and second press, never reach the exit (%s); steel sinks under the rail and rolls "
+                "out of the arch onto L (%s)" % ("; ".join("%s %s: %d crossed" % h for h in held),
+                                                  "; ".join("%s at %s, %d falls, step %d" % o for o in out)),
+                not any(h[2] for h in held) and sok))
+    return c
+
+
 def _sc_guard(X, res):
-    """--selfcheck's section `guard`: item 16 (SPEC.md 130.35.6), the GUARD RAIL, and its red arms"""
+    """--selfcheck's section `guard`: item 16 (SPEC.md 130.35.6), the GUARD RAIL, and its red arms; 130.35.9 -
+    130.35.10's TWO HEIGHTS and the WATER SEAL, and theirs"""
+    global _GUARD_ONEZ, _GUARD_FLAT, _WG_NOWALL, _WG_ALLMAT
+    _guard2_checks(res)
+    for what, sw, want in (("a guard beside two heights refused again (one height)", "_GUARD_ONEZ", "compile"),
+                           ("the lower edges drawn from the higher floor", "_GUARD_FLAT", "down to the lower floor"),
+                           ("the guarded arch's exit left OPEN (no wall for a ball on the water)", "_WG_NOWALL",
+                            "THE WATER SEAL"),
+                           ("the guarded arch walled for STEEL too", "_WG_ALLMAT", "THE WATER SEAL")):
+        r_ = []
+        globals()[sw] = True
+        try:
+            _guard2_checks(r_)
+        except CourseError as e:
+            r_.append(("compile: %s" % e, False))
+        finally:
+            _GUARD_ONEZ = _GUARD_FLAT = _WG_NOWALL = _WG_ALLMAT = False
+        caught = [w for w, g in r_ if not g]
+        res.append(("16 guard negative control (130.35.9 - 130.35.10): %s - caught (%s)" % (
+            what, "; ".join(w[:70] for w in caught) or "NOT CAUGHT"), any(want in w for w in caught)))
     _guard_checks(res)
     for what, hack, want in (
             ("the guard drawn as the solid wall it is", {"guardsolid": True}, "SEEN through its gaps"),
