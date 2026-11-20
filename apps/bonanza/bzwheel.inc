@@ -424,13 +424,13 @@ bz_pread:
     add ax, dx
     dec ax
     mov [bz_ltrc + bx + 2], ax
-    mov ax, [es:si + BZP_LROW]  ; its map words: brow x ROWB + 2 lcl
-    mov cl, [bz_mapsh]
-    add cl, 3
-    shl ax, cl
+    mov cx, bx                  ; its map words: bz_mrow[brow] + 2 lcl
+    mov bx, [es:si + BZP_LROW]
+    shl bx, 1
+    mov ax, [bz_mrow + bx]
+    mov bx, cx
     add ax, [bz_ltrc + bx]
     add ax, [bz_ltrc + bx]
-    add ax, BZC_MAP
     mov [bz_ltmo + di], ax
     pop dx
     pop cx
@@ -958,12 +958,10 @@ bz_lmap:
     push ds
     push es
     mov di, [bz_lbr]
-    mov cl, [bz_mapsh]
-    add cl, 3
-    shl di, cl                  ; brow x ROWB
+    shl di, 1
+    mov di, [bz_mrow + di]      ; MAP + brow x ROWB
     add di, [bz_lcl]
     add di, [bz_lcl]
-    add di, BZC_MAP
     mov si, [bz_lsrc]
     mov ax, [bz_lw]
     mov bx, [bz_lsst]
@@ -1233,15 +1231,13 @@ bz_wprect:
     add ax, di
     and ah, 1fh
     push ax                     ; [+6] (rb r0 + 2 x0) mod 8192
-    mov ax, bx
-    and al, 0f8h
-    mov cl, [bz_mapsh]
-    shl ax, cl
-    add ax, di
-    add ax, BZC_MAP
-    push ax                     ; [+4]
     mov cl, 3
-    shr bx, cl
+    shr bx, cl                  ; BX = the first block's row
+    shl bx, 1
+    mov ax, [bz_mrow + bx]      ; MAP + its row x ROWB
+    shr bx, 1
+    add ax, di
+    push ax                     ; [+4]
     sub bx, [bz_lbr]            ; BX = the first block's row in the lane
     sub di, [bz_lcl]
     sub di, [bz_lcl]
@@ -2420,13 +2416,11 @@ bz_wcalib:
 ; counts.  Clobbers BX, CX, DX,
 ; SI.  (bz_wnow inside a span spends DX: BX, CX hold the opening sample.)
 bz_wspan:
-    mov ax, [bz_lbr]
-    mov cl, [bz_mapsh]
-    add cl, 3
-    shl ax, cl
+    mov bx, [bz_lbr]
+    shl bx, 1
+    mov ax, [bz_mrow + bx]
     add ax, [bz_lcl]
     add ax, [bz_lcl]
-    add ax, BZC_MAP
     mov [bz_lsrc], ax
     call bz_lq
     call bz_lclip
