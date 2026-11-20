@@ -38,7 +38,7 @@ floor rect  40  25  41  26  flat 14   # K
 floor rect  38  27  39  28  flat 14   # K
 floor rect  34  27  35  28  flat 14   # K
 floor rect  44  29  45  30  flat 14   # K
-floor rect  36  25  37  26  flat 14   # K
+floor rect  38  23  39  24  flat 14   # K
 floor rect  43  26  46  29  flat 14   # Q
 floor rect  43  22  46  25  flat 14   # Q
 floor rect  39  22  42  25  flat 14   # Q
@@ -47,17 +47,16 @@ floor rect  35  26  38  29  flat 14   # Q
 floor rect  43  30  46  33  flat 14   # Q
 floor rect  35  22  38  25  flat 14   # Q
 floor rect  24  26  29  29  flat 14   # W
-floor rect  24  29  29  30  flat 12   # Y
 floor rect  29  26  34  30  flat 14   # Y
-floor rect  21  26  24  29  flat 14   # Y
-floor rect  21  32  25  35  flat 13   # Z
-floor rect  25  32  27  35  flat 12   # Z
-floor rect  27  32  29  34  flat 9   # Z
-floor rect  29  32  31  34  flat 8   # Z
-floor rect  25  35  27  37  flat 10   # Z
-floor rect  27  35  29  38  flat 9   # Z
-floor rect  31  32  37  34  flat 7   # V
-floor rect  29  34  37  38  flat 7   # V
+floor rect  21  25  24  29  flat 14   # Y
+floor rect  21  31  25  34  flat 12   # Z
+floor rect  25  31  27  34  flat 11   # Z
+floor rect  27  31  29  33  flat 8   # Z
+floor rect  29  31  31  33  flat 7   # Z
+floor rect  25  34  27  36  flat 9   # Z
+floor rect  27  34  29  37  flat 8   # Z
+floor rect  31  31  37  33  flat 6   # V
+floor rect  29  33  37  37  flat 6   # V
 
 # the chute (SPEC.md 130.28): unfenced, its shape guides
 chute 3 round depth 8 way 8 13 30 way 8 16 30 way 11 16 29
@@ -136,23 +135,23 @@ prop membrane 40 25 41 26
 prop membrane 38 27 39 28
 prop membrane 34 27 35 28
 prop membrane 44 29 45 30
-prop membrane 36 25 37 26
-water rect 24 26 29 29 top 14 bed 11
-prop boost 22 28 face +y strength 40
+prop membrane 38 23 39 24
+water rect 24 26 29 29 top 14 bed 11 open
+prop boost 22 27 face +y strength 40
 # steel (rev 11): the SPIKE CARPET north, the LIFT up 4, a ridge hump across the top, 8 px
 prop spikes 60 12 64 17
 prop platform 61 10 4
 hump 52 7 15 along y 3 open height 8
 
 goal  rect 28 6 30 11  flat 15   # the steel finish
-goal  rect 35 32 37 38  flat 7 exit 1   # the glass finish
+goal  rect 35 31 37 37  flat 6 exit 1   # the glass finish
 start 8 7
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
 checkpoint 48 27 ball glass   # flag 2
 checkpoint 44 27 ball glass   # flag 3
 checkpoint 36 27 ball glass   # flag 4
-checkpoint 22 27 ball glass   # flag 5
+checkpoint 22 26 ball glass   # flag 5
 checkpoint 59 8 ball steel   # flag 6
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
@@ -162,8 +161,8 @@ floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block i
 clock 50 11
 floor tile 27 8  flat 16.5   # the steel finish clock's tile (on top of the rail block it replaces)
 clock 27 8
-floor tile 37 35  flat 8.5   # the glass finish clock's tile (on top of the rail block it replaces)
-clock 37 35
+floor tile 37 34  flat 7.5   # the glass finish clock's tile (on top of the rail block it replaces)
+clock 37 34
 
 # the autopilot's route
 way 8 7
