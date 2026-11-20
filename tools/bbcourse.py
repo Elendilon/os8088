@@ -3851,6 +3851,9 @@ def _sgn(v):
     return (v > 0) - (v < 0)
 
 
+_C3RED = None       # --selfcheck's red arms on a 3-wide chute: "r0" (a corner's radial centre at 16) or "taper"
+
+
 def chute_cells(f, where):
     """SPEC.md 130.28.3 - 130.28.4: a parsed `chute` -> ({(wx, wy): (piece name, world height function
     (gx, gy) -> quarter px)}).  f: {"wide", "prof", "depth", "ways": [((x, y), z2 or None, line)], "line"}"""
@@ -3891,16 +3894,24 @@ def chute_cells(f, where):
         d = dirs[i]
         L = abs(bx - ax) + abs(by - ay)             # cells (1-wide) or crease units (2-wide)
         za, zb = 16 * z2[i], 16 * z2[i + 1]         # the lips, quarter px
-        # a 3-wide chute (CHUTE3.md's prototype): its crease runs through cell CENTRES as a 1-wide one's, its
-        # corners are the 3 x 3 cells round their way (one cell into each leg), its ends the way's row of 3
+        # a 3-wide chute (SPEC.md 130.28.4, on trial): its crease runs through cell CENTRES as a 1-wide one's,
+        # its corners are the 3 x 3 cells round their way (one cell into each leg), its ends the way's row of 3
         c3a = 1 if wide == 3 and 0 < i else 0       # way i is a corner: its block takes the leg's first cell
         c3b = 1 if wide == 3 and i + 1 < n else 0   # way i + 1 is a corner
         nstr = L - 1 - c3a - c3b if wide in (1, 3) else L - 2
         if nstr < 0:
+            if wide == 3:                           # the leg-length rule: end-end 1, end-corner 2, corner-corner 3
+                kind = ("corner" if c3a else "end") + " to " + ("corner" if c3b else "end")
+                raise CourseError("%s: chute leg %d, (%d, %d) to (%d, %d), is too short: %d %s, and a 3-wide leg "
+                                  "from %s takes at least %d - %s (SPEC.md 130.28.4's leg-length rule)"
+                                  % (where, i + 1, ax, ay, bx, by, L, "cell" if L == 1 else "cells", kind,
+                                     1 + c3a + c3b, "a corner's 3 x 3 block reaches one cell into each leg, an "
+                                     "end's taper is the way's own row" if c3a or c3b else "each end's taper is "
+                                     "its way's own row"))
             raise CourseError("%s: chute leg %d, (%d, %d) to (%d, %d), is too short: %d %s, under the %d its "
                               "corners and ends take (SPEC.md 130.28.4)" % (where, i + 1, ax, ay, bx, by, L,
                                                                           "cells" if wide != 2 else "units",
-                                                                          1 + c3a + c3b if wide != 2 else 2))
+                                                                          1 if wide == 1 else 2))
         if za != zb:
             if nstr == 0 or (zb - za) % (16 * nstr):
                 raise CourseError("%s: chute leg %d rises %s units over %d straight cells: not a whole number "
@@ -3948,6 +3959,8 @@ def chute_cells(f, where):
         elif wide == 3:
             ox, oy = 16 * px_ + 8, 16 * py_ + 8
             e0 = (ox - 8 * dd[0], oy - 8 * dd[1])
+            if _C3RED == "taper":                   # (--selfcheck's red arm: the taper's run laid a row in)
+                e0 = (e0[0] + 16 * dd[0], e0[1] + 16 * dd[1])
             cells = [(px_ + (s_ if dd[0] == 0 else 0), py_ + (s_ if dd[1] == 0 else 0)) for s_ in (-1, 0, 1)]
         else:
             ox, oy = 16 * px_, 16 * py_
@@ -3971,7 +3984,7 @@ def chute_cells(f, where):
             cells, R0 = [(px_, py_)], 8
         elif wide == 3:
             cx, cy = 16 * px_ + 8 - 24 * di[0] + 24 * do[0], 16 * py_ + 8 - 24 * di[1] + 24 * do[1]
-            cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0, 1) for b in (-1, 0, 1)], 24
+            cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0, 1) for b in (-1, 0, 1)], 16 if _C3RED == "r0" else 24
         else:
             cx, cy = 16 * px_ - 16 * di[0] + 16 * do[0], 16 * py_ - 16 * di[1] + 16 * do[1]
             cells, R0 = [(px_ + a, py_ + b) for a in (-1, 0) for b in (-1, 0)], 16
@@ -28899,6 +28912,18 @@ start 7 7
 goal tile 24 28 flat 2
 """
 
+# SPEC.md 130.28.4's 3-WIDE chute (on trial, the owner's playtest): two mirrored 3-wide `round` chutes of
+# four corners each - all eight corner orientations - with end-corner and corner-corner legs; 10 tables
+_FCHUTE3 = """course CHUT3 "Chutes 3"
+width 128
+origin 400
+floor rect 4 4 38 22 flat 2
+chute 3 round depth 8 way 8 6 2 way 8 16 way 16 16 way 16 8 way 12 8 way 12 12
+chute 3 round depth 8 way 32 6 2 way 32 16 way 24 16 way 24 8 way 28 8 way 28 12
+start 5 20
+goal tile 36 20 flat 2
+"""
+
 # SPEC.md 130.28.2: MORE THAN 16 TABLES - two 2-wide chutes and a pit, 17 tables, so the pit's last is
 # shape 16 and its cells' +1 carry bit 7 (the shape's fifth bit)
 _FMANY = """course MANY "Many"
@@ -29013,6 +29038,86 @@ def _field_auto_checks(res):
                         not q.goal))
 
 
+def _chute_lay(text, fname):
+    """a course's chutes alone, by the compiler's own steps (chute_cells, field_tile, the SEAM rule,
+    build_fields) and nothing else of it -> (FIELD tiles, tables); refusals as compile_course's"""
+    src = _parse_text(text, fname)
+    tiles = {}
+    for fd in src.fields:
+        where = "%s:%d" % (fname, fd["line"])
+        for cell, (piece, fn) in sorted(chute_cells(fd, where).items()):
+            if cell in tiles:
+                raise CourseError("%s: cell (%d, %d) is laid twice" % (where, cell[0], cell[1]))
+            tiles[cell] = field_tile(cell, piece, fn, fd["line"], where)
+    field_seams(tiles, fname)
+    return tiles, build_fields(tiles)
+
+
+def _chute3_cases():
+    """SPEC.md 130.28.4's 3-wide leg-length rule: (what, the chute, a substring of the refusal or None for the
+    shortest leg that is accepted)"""
+    return [
+        ("an end-to-corner leg of 1 cell", "way 8 6 2 way 8 7 way 12 7", "from end to corner takes at least 2"),
+        ("...of 2 cells", "way 8 6 2 way 8 8 way 12 8", None),
+        ("a corner-to-end leg of 1 cell", "way 8 6 2 way 8 10 way 9 10", "from corner to end takes at least 2"),
+        ("...of 2 cells", "way 8 6 2 way 8 10 way 10 10", None),
+        ("a corner-to-corner leg of 2 cells", "way 8 6 2 way 8 10 way 10 10 way 10 14",
+         "from corner to corner takes at least 3"),
+        ("...of 3 cells", "way 8 6 2 way 8 10 way 11 10 way 11 14", None),
+        ("an end-to-end leg of 1 cell", "way 8 6 2 way 8 7", None),
+    ]
+
+
+def _chute3_checks(c3, res):
+    """SPEC.md 130.28.4's 3-wide chute (on trial): the leg-length rule's refusals and the shortest legs it
+    accepts; CHUT3's 10 tables over all eight corner orientations; the deepest depths every orientation
+    takes (15 px `round`, 13 px `bank`) and the next px refused by the slope bound; red arms - a corner's
+    radial centre at 16 (the 2-wide's) and a taper's run laid a row in - each broken by the SEAM rule"""
+    head = ("course LEG3 \"Legs\"\nwidth 128\norigin 400\nfloor rect 4 4 20 20 flat 2\nstart 5 18\n"
+            "goal tile 18 18 flat 2\n")
+    for what, ways, want in _chute3_cases():
+        try:
+            _chute_lay(head + "chute 3 round depth 8 %s\n" % ways, "<%s>" % what)
+            ok, msg = want is None, "laid"
+        except CourseError as e:
+            ok, msg = want is not None and want in str(e), str(e)
+        res.append(("2 %s (130.28.4, 3-wide): %s%s" % ("refused" if want else "accepted", what,
+                                                       "" if ok else " -- got: " + msg), ok))
+    pieces = {}
+    for t in c3.tiles.values():
+        if isinstance(t, FieldTile):
+            pieces[t.piece] = pieces.get(t.piece, 0) + 1
+    res.append(("2 CHUT3 (130.28.4, 3-wide): two `round` 8 px chutes, all eight corner orientations (%s cells), "
+                "share 10 tables (%d)" % (", ".join("%s %d" % kv for kv in sorted(pieces.items())), len(c3.ftabs)),
+                len(c3.ftabs) == 10 and pieces.get("corner") == 72))
+    ring = []
+    for prof, deep in (("round", 15), ("bank", 13)):
+        got = []
+        for dep in (deep, deep + 1):
+            try:
+                _chute_lay(_FCHUTE3.replace("round depth 8", "%s depth %d" % (prof, dep)), "<CHUT3 %d>" % dep)
+                got.append(True)
+            except CourseError as e:
+                got.append(False if "the bound |sx| + |sy|" in str(e) else str(e))
+        ring.append((prof, deep, got))
+    res.append(("2 CHUT3's deepest (130.28.4): every corner orientation takes %s; one more px is refused by the "
+                "slope bound" % ", ".join("%s %d px" % (p_, d_) for p_, d_, _g in ring),
+                all(g == [True, False] for _p, _d, g in ring)))
+    global _C3RED
+    for arm, what in (("r0", "a corner's radial centre at 16, the 2-wide's"), ("taper", "a taper's run laid a "
+                                                                                       "row in")):
+        was, _C3RED = _C3RED, arm
+        try:
+            _chute_lay(_FCHUTE3, "<CHUT3 red %s>" % arm)
+            fired, msg = False, "laid"
+        except CourseError as e:
+            fired, msg = "SEAM rule" in str(e), str(e)
+        finally:
+            _C3RED = was
+        res.append(("2 CHUT3 red (130.28.4, 3-wide): %s is refused by the SEAM rule%s" % (
+            what, "" if fired else " -- got: " + msg), fired))
+
+
 def _field_checks(res):
     """SPEC.md 130.28's `bonanzacourse` items (stories C1 - C2): the refusals; the tables against every FIELD
     cell's world heights through the grid (and a symmetry flipped, red); the slope bound and the SEAM rule (a
@@ -29025,7 +29130,8 @@ def _field_checks(res):
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (130.28.3): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     cs = {k: compile_course(t, "<%s>" % k, _hack={"no_finish": True})
-          for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE), ("MANY", _FMANY))}
+          for k, t in (("CHUTE", _FCHUTE), ("PIT", _FPIT), ("BRIDGE", _FBRIDGE), ("MANY", _FMANY),
+                       ("CHUT3", _FCHUTE3))}
     for k, c in cs.items():
         g = Grid(c.cga)
         ft = {cell: t for cell, t in c.tiles.items() if isinstance(t, FieldTile)}
@@ -29054,6 +29160,7 @@ def _field_checks(res):
                 "tables (SPEC.md 130.28.2: up to %d); red: the fifth bit dropped misreads %d of them" % (
                     len(c.ftabs), len(hi), FSHAPE_MAX, drop),
                 len(c.ftabs) > 16 and hi and all(c.cells[cl][1] & 0x80 for cl, _t in hi) and drop == len(hi)))
+    _chute3_checks(cs["CHUT3"], res)
     _field_occ_checks(cs, res)
     _field_join_checks(res)
     _field_auto_checks(res)
@@ -29311,6 +29418,13 @@ def _field_steer(turn_x, before, after, n):
     return keys
 
 
+def _field_steer_y(turn_y, before, after, n):
+    def keys(p):
+        for _ in range(n):
+            yield after if (p.gy >> 8) >= turn_y else before
+    return keys
+
+
 def _field_runs():
     """SPEC.md 130.28.5's scripted runs (story C2.3): (what, course, material, poke, keys, the outcome, a red
     arm that must break it or None)"""
@@ -29340,6 +29454,14 @@ def _field_runs():
          noev("wall", "corner", "undo"), "_ffblock"),
         ("a chute on a bridge left over its lip into the void", "BRIDGE", rub, (16, 15, 8 << 8, 8 << 8, 0, -384),
          [U | Rt] * 80, lambda p: p.nfall == 1, None),
+        ("a 3-wide corner carried round at 250, the turn held", "CHUT3", rub, (8, 12, 8 << 8, 8 << 8, 0, 250),
+         _field_steer_y(240, 0, Rt | D, 160),
+         lambda p: p.nfall == 0 and p.gx >> 8 >= 176 and 240 <= p.gy >> 8 < 288 and p.gvx > 0, None),
+        ("...and at 384, steel", "CHUT3", stl, (8, 12, 8 << 8, 8 << 8, 0, 384), _field_steer_y(240, 0, Rt | D, 160),
+         lambda p: p.nfall == 0 and p.gx >> 8 >= 176 and 240 <= p.gy >> 8 < 288 and p.gvx > 0, None),
+        ("a ball rests at a 3-wide chute's bottom, no dither, from a cross speed of 300", "CHUT3", rub,
+         (8, 11, 3 << 8, 8 << 8, 300, 0), [0] * 400,
+         lambda p: p.gvx == 0 and p.gvy == 0 and abs((p.gx >> 8) - 136) <= 7, None),
     ]
 
 
