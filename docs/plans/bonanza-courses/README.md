@@ -14,6 +14,8 @@ designer's and the owner's judgment.*
 
 *What 3-wide chutes would cost (a deferred study for DOWN, 2026-11-20) is [CHUTE3.md](CHUTE3.md).*
 
+*What two lifts in a course would cost, and where DOWN could put steel's (a study, 2026-11-20), is [LIFT2.md](LIFT2.md).*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
