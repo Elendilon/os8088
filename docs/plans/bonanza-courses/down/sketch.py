@@ -160,7 +160,7 @@ floor("A", 4, 4 - N, 5, 5 - N, Z)                                    # the start
 rail(4, 4 - N, 5, 4 - N, "guard"); rail(4, 4 - N, 4, 5 - N); rail(5, 4 - N, 5, 5 - N)   # (rev 4: the start tile keeps all three - a start must be SAFE)
 # rev 6 (the owner, ON TRIAL): the line from the ramp through the corner chute into the hump run 3 wide all the
 # way (docs/plans/bonanza-courses/CHUTE3.md).  CHUTE_W = 2 is rev 5's 2-wide line, with rev 7's SHAPE_N rows north
-CHUTE_W = 2                                  # (rev 8: the owner chose 2 - "the visual symmetry works a little better")
+CHUTE_W = 3                                  # (rev 8: 3 wide, SHAPE_N 1 - the owner's pick of the two rev 7 variants)
 if CHUTE_W == 2:
     ramp("R", "y", 4, 5 - N, 5, 10 - N, Z, Z - 10)           # a STEEP ramp, 2 units a tile (the most), railed
     floor("R", 4, 10 - N, 5, 11 - N, Z - 10)                 # its foot, flat, into the corner chute
