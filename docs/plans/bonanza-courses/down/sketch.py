@@ -209,30 +209,33 @@ for y in range(13, 16):
 # water's EAST arch, north over a SPIKE CARPET (steel rolls over what kills the others), UP the lift 4, then west
 # along the top, a momentum hump and a ramp down to the finish in the north-west.  Width 160 (1,280 px)
 rail(53, 13, 53, 16, "guard")                                # the water's east face a guard (its front, +y, the arch)
-floor("T", 52, 16, 56, 17, Z - 29)                           # the ARCH's exit (+y, as before) at the bed, a pier east: the slow BEAM
-# rev 15 (the owner): no second spikes (steel knows them) - the run north 3 wide with the MOMENTUM hump across
-# it; the LIFT on the run's WEST side, its shaft seen beside the path; then a CHOICE west - a straight 1-wide
-# path with two SPRING jumps over 2-tile gaps, or a safer 2-wide SNAKE - to a landing whose last step is a WATER
-# column 6 deep, steel sinking down it and out of its front arch onto the finish
-floor("T", 56, 3, 59, 17, Z - 29)                            # the run NORTH, 3 wide
-mark(57.5, 10.5, "hump", "hump")                             #   the momentum hump across it (EXTRA)
-mark(55.5, 4.5, "lift", "LIFT up 4")                         # the LIFT, on the run's west side
-floor("H", 51, 2, 55, 7, Z - 25)                             # its top: the choice's start (a flag)
-floor("K", 48, 6, 51, 7, Z - 25)                             # STRAIGHT, 1 wide: a spring at its lip (48, 6),
-floor("K", 42, 6, 46, 7, Z - 25)                             #   a 2-tile gap, on beside the hub's rail, a spring at
-floor("K", 37, 6, 40, 7, Z - 25)                             #   the next lip (42, 6), a 2-tile gap, on to the landing
-for sx, sy in ((48, 6), (42, 6)):
+floor("T", 52, 16, 55, 17, Z - 29)                           # the ARCH's exit (+y, as before) at the bed, a pier east: the slow BEAM
+# rev 16 (the owner, after playing rev 15): the end of steel's leg moved to the picture's empty BOTTOM-RIGHT, in
+# front of everything, so all of it shows: the beam longer, the run SOUTH with the momentum hump; the LIFT at its
+# foot, its front and side open (the shaft reads as a hole), up 4 onto a platform to the west (a flag by the
+# lift); then the CHOICE south - a 1-wide straight from the flag, a spring at the lip of each of two 1-tile gaps
+# (384: no stun), or a safer 2-wide snake west - to a landing; its front step the WATER column 6 deep, steel
+# sinking down it and out of its front arch onto the finish below, the lowest thing on the screen
+floor("T", 55, 16, 59, 17, Z - 29)                           # (the beam, on east)
+floor("T", 59, 16, 62, 25, Z - 29)                           # the run SOUTH, 3 wide
+mark(60.5, 19.5, "hump", "hump")                             #   the momentum hump across it (EXTRA)
+mark(58.5, 23.5, "lift", "LIFT up 4")                        # the LIFT, off the run's foot to the west, ridden straight;
+                                                             #   its front open (the shaft reads as a hole)
+floor("H", 55, 21, 58, 25, Z - 25)                           # its top (a flag by the lift)
+floor("K", 56, 25, 57, 27, Z - 25)                           # STRAIGHT, 1 wide, from the flag: a spring at its lip (56, 26),
+floor("K", 56, 28, 57, 30, Z - 25)                           #   a 1-tile gap, on, a spring at the next lip (56, 29),
+for sx, sy in ((56, 26), (56, 29)):                          #   a 1-tile gap, on to the landing
     mark(sx + 0.5, sy + 0.5, "spring", "spring")
-floor("N", 46, 2, 51, 4, Z - 25)                             # the SNAKE, 2 wide: west,
-floor("N", 42, 0, 48, 2, Z - 25)                             #   up and west,
-floor("N", 37, 2, 44, 4, Z - 25)                             #   down and west, to the landing
-floor("C", 33, 2, 37, 7, Z - 25)                             # the LANDING both reach
-floor("C", 32, 2, 33, 4, Z - 25)                             #   and its step west to the column
-rail(33, 4, 33, 7)                                           # (its west edge railed: no roll off onto the finish)
-floor("W", 31, 3, 32, 4, Z - 25)                             # the WATER column, 6 deep
-mark(31.5, 3.5, "water", "")
-rail(31, 3, 32, 3, "guard"); rail(31, 3, 31, 4, "guard")    # sealed north and west, its arch +y
-floor("G", 24, 4, 32, 9, Z - 31)                             # FINISH 1, steel (exit 0), at the column's bed
+floor("N", 53, 21, 55, 26, Z - 25)                           # the SNAKE, 2 wide: south,
+floor("N", 50, 24, 53, 26, Z - 25)                           #   west,
+floor("N", 50, 26, 52, 30, Z - 25)                           #   south,
+floor("N", 50, 30, 55, 32, Z - 25)                           #   and east to the landing
+floor("C", 55, 31, 60, 34, Z - 25)                           # the LANDING both reach
+floor("W", 57, 34, 58, 35, Z - 25)                           # the WATER column, 6 deep, at its front
+mark(57.5, 34.5, "water", "")
+rail(55, 34, 57, 34, "guard"); rail(58, 34, 60, 34, "guard")    # the landing's front a guard rail but the column's
+rail(57, 34, 57, 35, "guard"); rail(58, 34, 58, 35, "guard")    #   way in; the column sealed either side, its arch +y
+floor("G", 53, 35, 62, 39, Z - 31)                           # FINISH 1, steel (exit 0), at the column's bed
 # 3b. GLASS (south, +y): a WEB BRIDGE, then (rev 10, the owner) WEST at the bridge's height - no lift (it goes to
 # steel, which climbs): a WEB MAZE of solid islands joined by ONE-cell membrane links (glass-only, easy to
 # steer), the old plateau its first island; a FLOAT pool (water, no arch) as one crossing; a BOOST off the far
@@ -274,7 +277,7 @@ floor("Z", 21, 30, 23, 32, Z - 31)                           # the way ROUND: 2,
 floor("Z", 23, 30, 25, 33, Z - 32)                           #   1, then 2 onto the finish
 floor("V", 27, 27, 33, 29, Z - 34)                           # FINISH 2, glass (exit 1): an L round the two ways
 floor("V", 25, 29, 33, 33, Z - 34)
-GOAL = {(x, y) for x in range(24, 26) for y in range(4, 9)} | {(x, y) for x in range(31, 33) for y in range(27, 33)}
+GOAL = {(x, y) for x in range(53, 62) for y in range(37, 39)} | {(x, y) for x in range(31, 33) for y in range(27, 33)}
 
 # the PROPS the sketch does not model, as the engine's statements (world cells: sketch + OFF)
 def _w(x):
@@ -303,36 +306,36 @@ EXTRA = [
 ] + ["prop membrane %d %d %d %d" % (_w(lx), _w(ly), _w(lx + 1), _w(ly + 1)) for lx, ly in LINKS] + [
     "water rect %d %d %d %d top %g bed %g open" % (_w(20), _w(22), _w(25), _w(25), Z - 26, Z - 29),
     "prop boost %d %d face +y strength 40" % (_w(18), _w(23)),   # (rev 13: a row back from the edge - the Hop is pressed on plain floor)
-    "# steel (rev 15): the momentum hump across the run north, the LIFT up 4 on its west side, the column",
-    "hump %d %d %g along x 3 open height 8" % (_w(56), _w(10), Z - 29),
-    "prop platform %d %d 4" % (_w(55), _w(4)),
-    "water rect %d %d %d %d top %g bed %g" % (_w(31), _w(3), _w(32), _w(4), Z - 25, Z - 31),
-    "arch %d %d +y" % (_w(31), _w(3)),
-] + ["spring %d %d 640" % (_w(sx), _w(sy)) for sx, sy in ((48, 6), (42, 6))] + [   # (SPEC.md 130.14: 640 clears 2 tiles from a steel roll)
+    "# steel (rev 16): the momentum hump across the run south, the LIFT up 4 in line at its end, the column",
+    "hump %d %d %g along x 3 open height 8" % (_w(59), _w(19), Z - 29),
+    "prop platform %d %d 4" % (_w(58), _w(23)),
+    "water rect %d %d %d %d top %g bed %g" % (_w(57), _w(34), _w(58), _w(35), Z - 25, Z - 31),
+    "arch %d %d +y" % (_w(57), _w(34)),
+] + ["spring %d %d 384" % (_w(sx), _w(sy)) for sx, sy in ((56, 26), (56, 29))] + [   # (SPEC.md 130.14: 384 clears 1 tile, no stun)
 ]
-GOAL_RECTS = [(24, 4, 26, 9, Z - 31, 0, "steel"), (31, 27, 33, 33, Z - 34, 1, "glass")]
+GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 0, "steel"), (31, 27, 33, 33, Z - 34, 1, "glass")]
 
 START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
          (40.5, 23.5, "flag 3", "glass"), (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"), (18.5, 28.5, "flag 7", "glass"),
-         (52.5, 4.5, "flag 6", "steel")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
-CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (23.5, 4.5, Z - 29.5, "steel finish", "block"),
+         (56.5, 23.5, "flag 6", "steel")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
+CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (57.5, 39.5, Z - 29.5, "steel finish", "block"),
           (33.5, 30.5, Z - 32.5, "glass finish", "block")]
 FRAMES = {}
 PLACED = {}
 SIGNS = []
 ROUTE = [(4.5, 4.5 - N), (4.5, 8.5 - N), (8.5, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
-         (45, 12.5), (46, 14.5), (48, 14.5), (52.5, 14.5), (52.5, 16.5), (57.5, 16.5), (57.5, 8), (57.5, 5), (56.5, 4.5),
-         (53.5, 4.5), (48, 2.5), (46.5, 1), (43, 1), (42.5, 2.5), (38, 2.5), (34.5, 3), (32.5, 2.5),
-         (31.5, 3.5), (31.5, 4.5), (27, 6), (24.5, 6.5)]
+         (45, 12.5), (46, 14.5), (48, 14.5), (52.5, 14.5), (52.5, 16.5), (59.5, 16.5), (60.5, 18), (60.5, 21), (60.5, 23.5), (59.5, 23.5),
+         (56.5, 23.5), (54, 23), (53.5, 25), (51, 25), (51, 28), (51, 31), (54, 31.5), (57.5, 32), (57.5, 34.5),
+         (57.5, 35.5), (57.5, 37.5)]
 ROUTE2 = [(45.5, 12.5), (45.5, 17), (45.5, 22), (44.5, 23.5), (40.5, 23.5), (40.5, 19.5), (36.5, 19.5), (36.5, 23.5),
           (32.5, 23.5), (27, 23.5),
           (22, 23.5), (18.5, 23.5), (18.5, 28.5), (22, 28.5), (22, 31), (24, 31.5), (27, 31), (32, 30)]
 LABELS = [(4.5, 4.5, "start (1 tile)"), (4.5, 7, "STEEP ramp"), (5, 12, "shape corner"), (12, 12.5, "hump run"),
           (21, 12.5, "3 inclines"), (26, 12, "funnel+flag"), (29, 12.5, "BOOSTER chute"), (33, 12.5, "wide gap+drop"),
           (36, 12.5, "landing (no flag)"), (40, 12.5, "bounce gap"), (45, 11, "HUB"), (47.5, 14, "steel pad"),
-          (50, 14.5, "spikes"), (52.5, 14, "water sink"), (57.5, 11, "hump"), (55.5, 5, "lift"), (45, 7, "straight+springs"), (44, 0, "snake"), (34, 4, "landing"), (31.5, 2.5, "column"), 
-          (25, 1.5, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (40, 22, "island 1"), (40, 18, "N1"), (36, 18, "W1"), (36, 22, "W2"), (32, 22, "junction"), (40, 26, "D1"), (32, 18, "D2"),
+          (50, 14.5, "spikes"), (52.5, 14, "water sink"), (60.5, 20, "hump"), (58.5, 22.5, "lift"), (57, 27, "straight+springs"), (51, 27, "snake"), (58, 32, "landing"), (58, 34.5, "column"), 
+          (57, 38, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (40, 22, "island 1"), (40, 18, "N1"), (36, 18, "W1"), (36, 22, "W2"), (32, 22, "junction"), (40, 26, "D1"), (32, 18, "D2"),
           (22, 22.5, "FLOAT pool"), (18, 22, "bank+boost"), (17, 28, "stairs"), (23, 27, "3"), (21, 32, "2"), (29, 31, "FINISH glass")]
 
 # --- drawing ----------------------------------------------------------------
