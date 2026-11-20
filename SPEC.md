@@ -271668,6 +271668,59 @@ not change) SEARCHES for the keys.
   leg the arrows alone take in more than `PLAN_SEG` steps counts as failed
   and is given Hops.
 
+###### 130.14.7.4.2 The HOLD: a thin ramp with an open side
+
+*(Wave 11, DOWN, 2026-11-20.)* 130.6's autopilot aims at the next `way`
+in a straight line, and a `way` may not sit on a FIELD cell, so where a
+route runs down a ramp one or two tiles wide into a chute that turns at
+its foot, the way past the chute lies off to the side and the arrows push
+the ball toward it the whole way down. On DOWN's start (a one-tile ramp
+running +y, railed on its -x side only, a round chute turning +x at the
+foot) the ball reaches the foot at full speed drifting +x, leaves the
+ramp over the void beside the chute's mouth and falls: the route demo was
+INPUTS ONLY with 1 fall, and Space does not help (a Hop over the open side
+falls the same way). The owner: later stages will have many such ramps
+with no guard, so the answer is the search's, not DOWN's.
+
+- **What a HOLD presses**: on a window of steps of a leg, 130.6's arrows
+  turned into the push on the ground's two axes (Right is +x -y, Down
+  +x +y, 130.11.8.2), the push on ONE axis replaced by a brake of the
+  ball's velocity on that axis (against it past `AUTO_ACC` / 2, else
+  none), the other axis's push kept: the ball keeps its line on that axis
+  while the autopilot rolls it along the other - down the ramp, square
+  into the chute, which then turns it. The keys are arrows only (a
+  combination of the four); outside the window the arrows are 130.6's.
+- **The tries** (`_plan_holds`): after a leg's Hops, a hold of each of
+  `PLAN_HOLD`'s lengths (16, 32, 64, 128 steps, shortest first), starting
+  on every `PLAN_HOLD_EVERY`'th (4th) step of the leg up to the step the
+  arrows failed on plus one, the x axis before the y at each; each try the
+  leg's `PLAN_SEG` steps, the same success and failure tests, at most
+  `PLAN_ALT` kept. No physics is predicted by hand: each try is the model,
+  stepped.
+- **A second pass**: `route_plan` searches first exactly as 130.14.7.4.1
+  says (Hops only), and only when that finds NO route searches again with
+  the holds added to every leg, its own `PLAN_BUDGET`. So every course the
+  first pass solves keeps its route, limit, medals and route demo byte for
+  byte (HOP's 1,397 steps, checked old tool against new; GATE, BENCH,
+  TILT and RAILS still find none, the second pass costing GATE about 44 s
+  more than its first pass's 20 and BENCH about 35 more than its 32 -
+  neither is on a shipped disk), and a course the arrows finish is still
+  never searched.
+- **MEASURED**: DOWN's route demo **1,315 steps**, COMPLETE, 0 falls, 0
+  returns, no Hop (the plan a fraction of a second); every other demo in
+  the `BZDOWN=1` build unchanged.
+- **`--selfcheck`'s `hopplan`** adds the case as a course of its own
+  (`_THINRAMP`: DOWN's start as it was laid, a goal past the chute, so a
+  re-laid DOWN cannot retire it): 130.6's arrows fall off the open side,
+  the search finds a route with no fall, no RETURN and no Hop; RED ARM:
+  `route_plan`'s `nohold` finds none. (Taking the hold's brake out, the
+  arrows passed through, turns the item red; `hopplan`'s own red arm is
+  now `nohop` and `nohold` together, the arrows alone.)
+- **Not handled**: a hold brakes one GROUND axis, so a thin ramp on a
+  diagonal (130.24) is not held along its own line; one hold a leg (no
+  two windows, no hold with a Hop in the same try); and the ball is held
+  to its velocity, not steered back to a line it has already left.
+
 ##### 130.14.7.5 The association, and the double-click's path
 
 The header gains `OS88_ASSOC16` with `OS88_ASSOC_EXT 'BZR'` and a document
