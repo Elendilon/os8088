@@ -542,6 +542,10 @@ zf_onkey:
     cmp ah, KEY_PGDN
     je .pgdn
 
+    call zf_unpromise               ; a key is an answer owed - its echo,
+                                    ; the reply - so the raise cache goes
+                                    ; BEFORE the worker can draw it (zio.inc,
+                                    ; SPEC.md 61.16)
     call zi_putkey                  ; into the ring; the worker consumes it
     call zi_service                 ; a posted @save/@restore, if any
     cmp al, 13                      ; and on RETURN - once a command, not once

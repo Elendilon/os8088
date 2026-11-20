@@ -89,9 +89,18 @@
 /* THE WINDOW'S CLASS (SPEC.md 11.104): cell columns on byte boundaries (the
  * default - blit1, scroll and font_run's single-store path all want it); we
  * paint every pixel, so a repaint is not a white flash followed by 25 bands
- * (OWNBG); the wake is the slice driver's entry (74.1). */
+ * (OWNBG); the wake is the slice driver's entry (74.1). TWO COLOURS (1BPP,
+ * SPEC.md 11.96.17), from birth and on every adapter: the terminal is white
+ * fills, blit1 bands and font_run cells in OS88_BLACK/OS88_WHITE either way
+ * round, and the About panel is the same three - there is no grey and no
+ * colour anywhere in it. It only means something once WF_SAVEU is promised
+ * (rc_promise, SPEC.md 74.7), and then it is what makes the cache FIT on a
+ * VGA: the framed 640x200 content is 64,000 bytes at four planes before the
+ * header and the edge columns, which put it past wm_su_kb's 64,512, and
+ * ~16KB at one; the fullscreen 640x480 face is ~150KB at four and ~38KB at
+ * one. WF_SAVEU is NOT here: it is a mode. */
 static struct os88_class rc_cls = {
-    OS88_CLASS_LEN, OS88_WF_OWNBG,
+    OS88_CLASS_LEN, OS88_WF_OWNBG | OS88_WF_1BPP,
     os88_t_paint, os88_t_onkey, os88_t_onclick, os88_t_about, os88_t_onwake,
     0, 0, 0, 0, 0, 0, 0, 0
 };
@@ -863,6 +872,59 @@ static int rc_wants_wake(void)
 }
 
 /* ==========================================================================
+ * THE RAISE CACHE, AS A MODE (SPEC.md 74.7, 11.96.1)
+ *
+ * WF_SAVEU promises "my content does not change while I am not drawing". A
+ * terminal keeps that in one state: the machine STOPPED - the CP/M program
+ * blocked in a console read with an empty ring (RC_M_BLOCKED), or nothing
+ * loaded at all (RC_M_IDLE), no loader read pending - AND the glass caught
+ * up with the model (!rc_dirty_any). Then nothing moves a pixel: the cursor
+ * is an inverse cell folded into its row and does not blink, the bell is a
+ * tone, and a slice runs only once a wake is wanted. So a cover, a minimize
+ * or a raise (SPEC.md 11.96.4/11.96.5) puts the screen back from the
+ * kernel's copy - a full TE screen is 26 calls / 1,903 cells, ~1.9 s on the
+ * target, and the copy is a blit.
+ *
+ * THE DIRTY TEST IS NOT OPTIONAL. os88_onwake's flush arms the clip first,
+ * and a WHOLLY covered window answers CF=1 and draws nothing, leaving the
+ * model ahead of the glass - and wm_clip_set drops the cache only when it
+ * arms a visible region (SPEC.md 11.96.18), so a cache from before would put
+ * back a screen missing that output. Dirty, the promise is not made; the
+ * expose's paint flushes and then makes it.
+ *
+ * WITHDRAWN BEFORE ANY SLICE RUNS: the only ways out of a stopped machine
+ * are os88_onkey's (a key flips BLOCKED to RUN; Enter at the loader's
+ * prompt queues the read; Esc hands back a BLOCKED that a queued key makes
+ * RUN), and it answers this at its end with the lock still held. The top of
+ * os88_onwake says it again for any other kick, before the slice. The
+ * kernel is asked only when the answer CHANGES - rc_prom is what it was
+ * last told, and the class is born without the flag, as a static is born 0.
+ * ========================================================================*/
+static int rc_prom;
+
+static int rc_still(void)
+{
+    if (rc_mode != RC_M_BLOCKED && rc_mode != RC_M_IDLE)
+        return 0;                            /* running, measuring, leaving */
+    if (rc_ldmode == RC_LD_LOAD)
+        return 0;                            /* the loader's read is owed */
+    if (rc_dirty_any)
+        return 0;                            /* the glass is behind */
+    return 1;
+}
+
+/* rc_promise - tell the kernel what is true now, if it changed. LOCK HELD
+ * (SPEC.md 20.6 rule 7: the withdrawal frees the cache's claim) */
+static void rc_promise(void *win)
+{
+    int want = rc_still();
+    if (want == rc_prom)
+        return;
+    rc_prom = want;
+    os88_wm_flag(win, OS88_WFB_SAVEU, want);
+}
+
+/* ==========================================================================
  * THE CALLBACKS
  * ========================================================================*/
 
@@ -877,6 +939,15 @@ void os88_onwake(void *win)
                                               * machine is paused, the glass
                                               * is the panel's; its close
                                               * re-kicks (rcabout.c) */
+    if (rc_prom && !rc_still()) {           /* work, and still promised: the
+                                             * withdrawal goes BEFORE the
+                                             * slice can move the model
+                                             * (74.7). os88_onkey normally
+                                             * said it already */
+        os88_gfx_lock();
+        rc_promise(win);
+        os88_gfx_unlock();
+    }
     if (rc_ldmode == RC_LD_LOAD) {
         rc_ldmode = 0;
         ovl_load_go();                       /* the floppy, with no lock held.
@@ -939,6 +1010,15 @@ void os88_onwake(void *win)
         os88_gfx_lock();
         if (os88_wm_clip_set(win) == 0)     /* something of us shows */
             rc_flush(win);
+        rc_promise(win);                    /* stopped and caught up: the
+                                             * raise cache (74.7) */
+        os88_gfx_unlock();
+    } else if (rc_prom != rc_still()) {     /* nothing drawn, and the answer
+                                             * moved (a read that echoed
+                                             * nothing): once, under a lock
+                                             * taken only for it */
+        os88_gfx_lock();
+        rc_promise(win);
         os88_gfx_unlock();
     }
     rc_bell_service();
@@ -1024,6 +1104,8 @@ void os88_paint(void *win)
                                              * that (a menu dropped over the
                                              * window, a drag): drawn again
                                              * from the live geometry */
+    rc_promise(win);                        /* an expose that caught the
+                                             * glass up promises (74.7) */
     if (rc_wants_wake())
         os88_wm_wake(win);                  /* every callback kicks (71) */
 }
@@ -1156,6 +1238,9 @@ void os88_onkey(int ascii, int scan, void *win)
                                              * machine, or rc_ld_back hands
                                              * it back and retries then */
     }
+    rc_promise(win);                        /* a key that starts the machine
+                                             * WITHDRAWS, here, before the
+                                             * wake it posts (74.7) */
     if (rc_wants_wake())
         os88_wm_wake(win);
 }

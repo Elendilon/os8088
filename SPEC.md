@@ -118296,6 +118296,39 @@ total nor the fit, so the thumb's height is unchanged and only its top moves;
 the count changing is the case that cannot translate — a new line of output
 resizes the thumb — and that one still draws the bar whole.
 
+### 61.16 The raise cache, promised while the story waits for a key
+
+A covered Frotz window used to be re-lettered whole on every raise — `zw_paint`
+is 46 rows of 69 cells, **~2.9 s** on a 4.77 MHz 8088 (§61.5). It now promises
+`WF_SAVEU` (§11.96.1) **as a mode**: while the worker is blocked in `@read`,
+`@read_char`, the `[MORE]` prompt or a file request's prompt with the key ring
+empty, nothing moves the glass — there is no caret to blink, the timed forms
+of `@read` and `@read_char` are not implemented (§61.11), the v1–3 status line
+is drawn before the wait and not during it, and a sound effect draws nothing.
+`zi_promise` says so from inside the wait loop, under a lock taken only when
+the answer changes (`[zf_prom]` is what the kernel was last told).
+
+**The withdrawal is the half that matters**, because the v1–5 window's output
+is drawn with no clip armed and so never reaches §11.96.18's drop. It happens
+before any draw can: in `zf_onkey` as the key goes into the ring (the echo is
+the worker's, in the wait loop, a moment later); in `zi_ondlg`, the one callback
+that reaches the window while it is covered — by the dialog — and that may load
+a story or restore a game; and at the wait's own exit (`zx_relock`,
+`zw_morewait`'s re-lock), so no route out of a wait outruns it.
+
+**`WF_1BPP` is stated with every promise** (§11.96.17), as Telnet does
+(§70.8.5): a v1–5 window is colours 0 and 15 — the text in either polarity,
+the scroll bar's rules and dither, the About card — until the story asks for a
+colour (`[zw_tint]`, sticky until the next story is loaded) or it is v6, whose
+pictures and per-window colours are anything. On VGA that is the difference
+between a cache that exists and one that does not: the 558×377 content is
+~105KB at four planes, past `wm_su_kb`'s 64,512, and ~26KB at one.
+
+Two bytes of bss, the two helpers in `zio.inc` and a call in each of the four
+waits and the four withdrawal sites. Found on the way and left for its own
+change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
+gfx lock, although `zwin.inc` documents it as lock-held.
+
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
 **A LapLink cable between the parallel ports of an os8088 machine and a DOS
@@ -139886,6 +139919,38 @@ off the image's own FAT12 root (`package_row`), sorted the way the Disk
 window sorts; a stale constant would have double-clicked a folder, which
 opens a window and fails the gate on a missing banner rather than on
 anything true.
+
+### 74.7 The raise cache, promised while the machine is stopped
+
+RUNCPM promises `WF_SAVEU` (§11.96.1) **as a mode**, `rc_promise` in
+`runcpm.c`: while the CP/M program is blocked in a console read
+(`RC_M_BLOCKED`) or nothing is loaded (`RC_M_IDLE`), no loader read is pending,
+and **the glass has caught up with the model** (`!rc_dirty_any`). Then nothing
+moves a pixel — the cursor is an inverse cell folded into its row and does not
+blink, the bell is a tone, and no slice runs until a wake is wanted — so a
+cover, a minimize or a raise puts the terminal back from the kernel's copy
+rather than re-banding it (a full TE screen is 26 calls / 1,903 cells, ~1.9 s
+on the target, §74.2).
+
+**The dirty test is the one that is easy to miss.** `os88_onwake`'s flush arms
+the clip first, and a *wholly* covered window answers CF = 1 and draws nothing,
+leaving the model ahead of the glass; `wm_clip_set` drops a cache only when it
+arms a visible region (§11.96.18), so a cache taken before would come back
+missing that output. Dirty, nothing is promised, and the expose's `os88_paint`
+flushes and then promises.
+
+**The withdrawal comes before any slice.** The only exits from a stopped
+machine are `os88_onkey`'s — a key flips `BLOCKED` to `RUN`, Enter at the
+loader's prompt queues its read, Esc hands back a `BLOCKED` that a queued key
+makes `RUN` — and it answers at its end with the lock still held, before the
+wake it posts; the top of `os88_onwake` says it again for any other kick. The
+kernel hears only a change (`rc_prom`). `WF_1BPP` is in the class from birth:
+the content is white fills, `blit1` bands and `font_run` cells in black and
+white on every adapter, the About panel included, and on a VGA it is the
+difference between a cache and none — the 640×200 content is past `wm_su_kb`
+at four planes and ~16KB at one. `apps/runcpm/hosttest/rcuitest.c` asserts
+the three edges: promised at the prompt, withdrawn by the key inside
+`os88_onkey`, promised again once the echo's wake has flushed.
 
 ## 75. Closing — the negotiation, and the standard alert
 
