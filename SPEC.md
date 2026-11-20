@@ -286253,27 +286253,48 @@ course at the widest width a course may have, **160 word columns, 1,280 px**
 map row is 320 bytes - neither of the shift form's two - and whose `MAPSH`
 is 0:
 
-- one RIBBON across the picture (`band` a = -31 .. 34, four cells deep, its
-  back rail and an END WALL at a = 35 .. 36), at `origin 608` so the ball's
-  reach runs from px 8 to px 1,271;
+- one RIBBON along `+x` (wx 12 - 75, wy 40 - 44), so it runs DOWN the
+  picture as it goes east (a = -32 .. 35, cell centres px 96 - 1,168), its
+  back rail and an END WALL at wx 76, at `origin 608` so the ball's reach
+  runs from px 8 to px 1,271;
 - an EAST MARKER (`twide_east.bba`, art at px 1,244 - 1,279) so the map's
   last word columns, 155 - 159, carry ink and the column writer's last
   entering columns are not the black block;
-- the route from the west end to the GOAL at the east end (a = 32 .. 34) and
-  the finish clock beside it. The autopilot rides the whole width in 648
-  steps (11.8 s) with no fall, and under GLIDE the camera reaches its
-  eastmost window on both cards (CGA `c0` 120, Hercules 115: `cmax`).
+- the route from the west end to the GOAL, the ribbon's last column, by its
+  back corner (75, 40), and the finish clock beside it. The autopilot rides
+  the whole width in 735 steps (13.4 s) with no fall, and under GLIDE the
+  camera reaches its eastmost window on both cards (CGA `c0` 120, Hercules
+  115: `cmax`).
 
-As built: one part of 16,167 bytes in RAM (map 9,600: 30 block rows of 320
-bytes; KW 39 of 41), the test build's course after TPLY. `--selfcheck`'s
+**Why the ribbon is diagonal (2026-11-20, second cut).** The first TWIDE was
+a straight east-west ribbon across 140 word columns. Its shipped compile
+held at most 7 records in a block row, but the selfcheck's `av` section
+recompiles every course with the AV model off (`occ off`, to price AV), and
+there the VOID behind and below a long straight edge puts a record in
+nearly every word column the edge crosses: 140 in one block row, over
+130.11.4.2's 128, and the compile refuses. At 128 columns that count cannot
+pass 128; at 160 it can, so the bound is one a wide course meets for real.
+It is a TIMING bound and not a format one: the guest's lower-bound search
+on `OCCIDX` (`bz_occ`'s `.srch`) loops until its range is empty, with no
+fixed probe count, a row's count is a COUNTS byte (255, `ROWREC_MAX`), and
+`bz_osmake` and the row hint are words. A bound of 255 would cost **0 guest
+bytes** and **one more probe** (about 60 - 70 clk, PREDICTED) on a searched
+row whose hint misses - at most 3 rows a pass. 130.11.4.2 makes raising it
+the owner's call ("a second OCCIDX level, not a higher bound"), so it is not
+raised here: every shipped compile's rows are far under it (TWIDE's 15 with
+AV, 39 with AV off), and a wide course that meets it in its shipped compile
+is the cue for that conversation.
+
+As built: one part of 44,226 bytes in RAM (89 block rows of 320 map bytes;
+KW 39 of 41), the test build's course after TLFT. `--selfcheck`'s
 section `width` holds it and the width's rules: `width` 160 and 96 compile
 and 161, 168, 56 and 100 are refused; `read_part` refuses `COLS` 161 and 168,
 `MAPSH` 5 at 160 and `BROWS` 257; TWIDE's map word at `MAP + br ROWB + 2 c`
 is the model's block for every cell and its last column carries ink; its
-route and camera as above; and off the source, that no writer reads `MAPSH`,
-that eleven read `bz_mrow`, and that `bz_crshdr` builds the table - with two
-negative controls (the loop deleted, a writer back on the shift) that turn
-it red.
+route and camera as above; its AV-off compile inside the 128 a block row
+(W6); and off the source, that no writer reads `MAPSH`, that eleven read
+`bz_mrow`, and that `bz_crshdr` builds the table - with two negative
+controls (the loop deleted, a writer back on the shift) that turn it red.
 
 `tests/bonanza_wide.py` (the soak row `bonanzawide`, host only) is the
 guest's half under unicorn: the package's own `bz_crshdr` on TWIDE and HOP
