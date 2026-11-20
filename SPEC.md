@@ -271841,6 +271841,35 @@ with no guard, so the answer is the search's, not DOWN's.
   two windows, no hold with a Hop in the same try); and the ball is held
   to its velocity, not steered back to a line it has already left.
 
+###### 130.14.7.4.3 The WAIT: a lift ridden up
+
+A lift ridden UP from its low dock (130.12.6.4) is the case the arrows and
+the holds cannot take: 130.6's arrows roll straight on into the shaft, which
+is VOID whenever the slab is away, so the leg falls. A player stops at the
+foot and waits for the slab (course 3, DOWN's steel leg, rev 11).
+
+- **The WAIT**: the leg again with a STOP in it - from every
+  `PLAN_HOLD_EVERY`'th step up to the step the arrows failed on (+1), the
+  arrows brake the ball on BOTH ground axes (130.14.7.4.2's brake, on each
+  axis) for one of `PLAN_WAIT`'s lengths (32 - 256 steps in 32s, shortest
+  first), then the arrows go on. A lift's slab is down for a window of its
+  period (`dwell` and the run, about 80 of 260 steps at `L` 4), so the
+  lengths are finer than the period's half. While the stop lasts, and while
+  a lift carries the ball (`onp`), the ground point standing still is not
+  `PLAN_STALL`'s "stuck".
+- **The second pass's**, after the holds: `route_plan`'s first pass is
+  unchanged, so every course it solves keeps its route byte for byte.
+- **Measured**: DOWN (rev 11) goes from no route (inputs only: the steel
+  ball rolled into the empty shaft at the spike carpet's north end) to
+  COMPLETE, 0 falls, 0 returns.
+- **The selfcheck** (`hopplan`, item 5): `_LIFTUP`, a steel ball on a low
+  floor and a lift up 4 to the goal - 130.6's arrows roll into the empty
+  shaft; the search finds a route with no fall and no return; its RED ARM
+  (`_NOWAIT`, the waits off) finds none.
+- **Not handled**: a wait is one stop a leg, at the leg's own way; a lift
+  whose low dock the ball cannot stop on (a slope, a 1-cell dock reached at
+  speed) needs a way placed before it.
+
 ##### 130.14.7.5 The association, and the double-click's path
 
 The header gains `OS88_ASSOC16` with `OS88_ASSOC_EXT 'BZR'` and a document
