@@ -22499,7 +22499,7 @@ BZ_ART := $(BUILD)/bonanza-art
 # build's alone - BZDEV's block below puts them AFTER every other course, so none shifts a shipped course's K.
 # BENCH (Proving Ground), the benchmark's; TQUIK (the plan's TQUICK) and TCUP, the exits' and the save's (a goal, a cup).
 # bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
-BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc
+BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc
 BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
