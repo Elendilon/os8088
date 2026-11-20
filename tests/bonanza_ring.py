@@ -4578,7 +4578,10 @@ def run(tag, apps=None, src=None, art=None, parts=PARTS):
             f, out["play"] = mill_play(g, Ref(tag, course(tc), art), tc)
             out["fails"] += f
         if "probe" in parts and not out["fails"]:
-            out["fails"] += probe(g, Ref(tag, course(tc), art), tc)
+            # (on BENCH, a test course since SPEC.md 130.54: its start leaves the window 3 rows under the top
+            # clamp, which the lead-in's six frames climb; TMIL's leaves it 51 under, and its windmills' poses
+            # sit where the probe's frames are judged - the first soak of phase 3 failed every probe frame there)
+            out["fails"] += probe(g, Ref(tag, course("bench"), art), "bench")
         if "tply" in parts and not out["fails"]:     # `nodither`'s leg: records laid over the ball, on TPLY
             out["tply"] = bench(g, Ref(tag, course("tply"), art), hvoff=0 if "bz_hvoff" in sym else None,
                                 camscr=0 if scr else None, crs="tply", stop="laid")
