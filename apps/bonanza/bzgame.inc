@@ -314,7 +314,8 @@ VAR bz_r0p,1                    ; 1: a box starts at the new window's first line
 VAR bz_vedge,1                  ; 1: bz_vr saw the sync RISE (not already high)
 VAR bz_crs,1                    ; the course K: bz_crsel's to play, BZ_CRS_BENCH
                                 ; for BZDEV's benchmark (bzcourse.inc)
-VAR bz_mapsh,1                  ; the course's MAPSH (bz_crshdr): 4 or 5
+VAR bz_mrow,2 * BZ_MROWS        ; MAP + br ROWB, a word a block row (bz_crshdr;
+                                ; SPEC.md 130.10.4.2): the writers' map rows
 VAR bz_fixed,2                  ; SPEC.md 130.23.2: 1 the course's window is FIXED (+1 zero)
 VAR bz_fixr,2                   ; ...at R0 (this card's card rows) and c0 (words):
 VAR bz_fixc,2                   ; bz_crshdr's, from BZG1 +30 / +31

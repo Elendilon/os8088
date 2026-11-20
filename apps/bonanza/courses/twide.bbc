@@ -1,0 +1,27 @@
+# Wide Test - TWIDE, a TEST course (SPEC.md 130.54.7): the BZDEV=1 build's alone, after the shipped courses (the
+# Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  "The far east": the one course at the widest width
+# a course may have, 160 word columns (1,280 px, SPEC.md 130.10.4.2), so the rows that read the map walk a
+# part whose map row is neither 64 nor 128 words (bz_mrow, 130.10.4.2) -
+#  - one RIBBON across the whole picture, `band` a = -36 .. 36 (px 64 - 1,216 of the cell centres), four cells
+#    deep, its back rail one band behind it, and an END WALL at a = 37 .. 38 whose face reaches px 1,264: the
+#    picture's last drawn word columns are 154 - 157 and the ball's footprint reaches 1,240;
+#  - the route from the west end (a = -34) to the GOAL at the east end (a = 34 .. 36): the autopilot rides
+#    the whole width, so the camera scrolls to its eastmost window (CGA c0 120, Hercules 115) and the
+#    entering columns are the course's last;
+#  - the STEEL ball, the tool's limit, the finish clock beside the goal.
+course TWIDE "Wide Test"
+test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 130.50.3: every course names its song
+width 160
+origin 608        # x0: the reach from px 8 (a = -36) to 1,271 (a = 40)
+ball steel
+floor band -31 34 60 68  flat 4           # the ribbon, west to east
+wall  band -32 35 58 60  flat 12          # its back rail
+wall  band  35 36 58 68  flat 12          # the END WALL, the picture's far east
+goal  band  32 34 60 68  flat 4           # the goal, the ribbon's east end
+start 17 47
+way 17 47
+way 32 32
+way 49 15
+clock 48 18                               # the finish clock (SPEC.md 130.22.6)
+art twide_east.bba 1244 96               # the EAST MARKER: ink in word columns 155 - 159

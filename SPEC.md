@@ -254050,6 +254050,47 @@ step from one map row to the next by adding `ROWB` (130.10.6.4 says how). The
 Hercules part has the same map, records, masks and grid, and its blocks are
 the CGA blocks by `herc_bytes` (130.3).
 
+*(Amended 2026-11-20, WIDTH 160: docs/plans/bonanza-courses/WIDTH.md option
+A.)* **`COLS` is any multiple of 8 from 64 to 160** - the `width` statement
+takes 64, 72, ... 160 word columns, up to **1,280 px** - and **no writer
+shifts by `MAPSH` any more**. `bz_crshdr` builds **`bz_mrow`**, a word a
+block row, `bz_mrow[br] = MAP + br ROWB`, for all `BZ_MROWS` (256) rows the
+table holds, from the part's `ROWB`, once a course (256 x about 45 clk, about
+2.4 ms at the launch). Every writer that found a block row's map row by the
+shift - the CGA and Hercules row writer, column writer and box fill, the
+occluder pass's row preparation (`bz_oprep`), the wheel's pose-map tables,
+`bz_lmap`, `bz_wprect`'s first entry and `bz_wspan`, and the VGA part's row
+writer, column writer and pose writer: eleven sites - reads `bz_mrow[br]`
+instead (`(L >> 2) AND ~1` indexes it), and the VGA column writer's stride is
+`bz_rowb`, not `8 << MAPSH`. Each site is a few clocks CHEAPER than the shift
+it replaced (PREDICTED, 8088 timings with the fetch floor: `mov cl,
+[bz_mapsh]`, `shl ax, cl` by 4 or 5 and `add ax, imm`, about 56 - 60 clk,
+against two `shr`, an `and`, an `xchg` and an indexed word load, about 45 -
+51): 10 - 20 such calls a frame, 0 to -0.2k clk, nothing in a per-block
+loop. Every other reader of the map already strode by `ROWB`. The bounds that
+follow, each a refusal in the tool:
+
+- **`BROWS` at most `BZ_MROWS` = 256** (2,048 lines; `bbcourse.BROWS_MAX`,
+  emitted into `bzcourse.inc`, refused by the compile and by `read_part`).
+  The shift form's own bound was `L < 4,096` at width 64 and 2,048 at 128,
+  so no course loses rows a part could hold at 128.
+- **`KW` at most 41** (`bbcourse.KW_MAX`; CELLS' scratch stride `BZ_CXRW`
+  44, 130.15.6): a 160-column course's widest grid row.
+- **The occluder record's column is a byte, and a lane's `BZP_LCOL`**: 160
+  columns are inside both. `bz_olay`'s ONE-BOX column test `(c - x0) mod 256
+  < w` stays exact while `COLS + w <= 256`.
+- **`lock across`'s `c0` is a byte the guest sign-extends** (130.45.1): at
+  160 columns `cmax` is 120 on the CGA and 115 on the Hercules, under 128,
+  and the tool refuses a lock at `c0 >= 128` should a wider course come.
+
+`MAPSH` (+10) is still WRITTEN, 4 at 64 columns and 5 at 128 as before - so
+every part of those widths is byte for byte what it was, with the same
+identity and the same demos - and **0 at any other width**; the guest reads
+none of them, and `read_part` checks the value. TWIDE (130.54.7) is the test
+course at 160. A width past 160 is not designed: 1,536 and 2,048 px do not
+fit a DOWN-sized course in one part as a dense map (WIDTH.md sections 2 and
+5), and past 2,048 the byte columns above end.
+
 **One course fits ONE part**: header, map, blocks, occluders, masks and the
 grid at most 65,024 bytes (§20.12.11's `OP_PARTMAX`). That bounds a
 course's picture, not its design. The map is `2 COLS` bytes a block row and
@@ -254269,10 +254310,10 @@ records' stride is `RECB`, and a section directory ends the part.*
 | at | |
 |---|---|
 | +0 | `BZC1` |
-| +4 | `COLS`: 64 or 128 |
+| +4 | `COLS`: 64 or 128 (since 130.10.4.2's amendment, any multiple of 8 from 64 to 160) |
 | +6 | `BROWS`: block rows (picture lines / 8), at least 25 |
 | +8 | `N`: blocks |
-| +10 | `MAPSH`: 4 for 64 columns, 5 for 128 |
+| +10 | `MAPSH`: 4 for 64 columns, 5 for 128, 0 at any other width; not read by the guest since 130.10.4.2's amendment (`bz_mrow`) |
 | +12 | `BLKOFF`: block 0's offset |
 | +14 | `OCCIDX`: `BROWS + 1` words |
 | +16 | `OCCREC`: the first record |
@@ -254851,7 +254892,8 @@ frame that also writes them misses; `bz_miss` counts it, and
 behind an edge, a few frames before its respawn.
 
 The map stride and `MAPSH` are the writers' only changes: `mov cl,
-[bz_mapsh]` where `mov cl, 4` was (about +10 clk a call), `ROWB` above, and
+[bz_mapsh]` where `mov cl, 4` was (about +10 clk a call; since 130.10.4.2's
+amendment a `bz_mrow` load, a few clocks under either), `ROWB` above, and
 the absolute map entry drops an add of `BLKOFF` (about -4 clk a block). A
 metatile map, for comparison, would add a lookup per block word to the row
 writer: 40 words a CGA row at about 10 - 12 clk, 0.4 - 0.5k clk a row
@@ -284569,7 +284611,9 @@ the direction of travel, so a course that zigzags down the screen pans 16 -
   the CGA's `c0` then the Hercules', **FFh FFh for none**. It is not in the
   course's part, so no part, identity or demo moves. A course without the
   statement emits FFh FFh, and a build with no lock anywhere is the build
-  before it but for the table and the code below.
+  before it but for the table and the code below. A `c0` is under 128
+  (`bz_vinit` sign-extends the byte): `cmax` is at most 120 at the widest
+  width, 160 (130.10.4.2), and the tool refuses a lock at `c0 >= 128`.
 - **The model**: `Physics` carries the course's `lockx` (`(c, h)` or None),
   and `Glide` honours it exactly as the guest does (130.45.2). TRICKLE has no
   host model (130.16.14) and the scripted camera (130.17.6.7) is a harness's,
@@ -286069,3 +286113,40 @@ already run:
 - **Not yet** (phase 3 of docs/plans/BOUNCE-BONANZA-SOAK.md): bonanzapath's
   legs still carry the shipped map's wording, and its SECRET leg still builds
   its private tree; the plan maps each leg onto the route above.
+
+#### 130.54.7 TWIDE, "the far east" (BUILT 2026-11-20)
+
+**TWIDE** (`apps/bonanza/courses/twide.bbc`, "Wide Test", steel) is the
+course at the widest width a course may have, **160 word columns, 1,280 px**
+(130.10.4.2's amendment), so the rows that read the map walk a part whose
+map row is 320 bytes - neither of the shift form's two - and whose `MAPSH`
+is 0:
+
+- one RIBBON across the picture (`band` a = -31 .. 34, four cells deep, its
+  back rail and an END WALL at a = 35 .. 36), at `origin 608` so the ball's
+  reach runs from px 8 to px 1,271;
+- an EAST MARKER (`twide_east.bba`, art at px 1,244 - 1,279) so the map's
+  last word columns, 155 - 159, carry ink and the column writer's last
+  entering columns are not the black block;
+- the route from the west end to the GOAL at the east end (a = 32 .. 34) and
+  the finish clock beside it. The autopilot rides the whole width in 648
+  steps (11.8 s) with no fall, and under GLIDE the camera reaches its
+  eastmost window on both cards (CGA `c0` 120, Hercules 115: `cmax`).
+
+As built: one part of 16,167 bytes in RAM (map 9,600: 30 block rows of 320
+bytes; KW 39 of 41), the test build's course after TPLY. `--selfcheck`'s
+section `width` holds it and the width's rules: `width` 160 and 96 compile
+and 161, 168, 56 and 100 are refused; `read_part` refuses `COLS` 161 and 168,
+`MAPSH` 5 at 160 and `BROWS` 257; TWIDE's map word at `MAP + br ROWB + 2 c`
+is the model's block for every cell and its last column carries ink; its
+route and camera as above; and off the source, that no writer reads `MAPSH`,
+that eleven read `bz_mrow`, and that `bz_crshdr` builds the table - with two
+negative controls (the loop deleted, a writer back on the shift) that turn
+it red.
+
+`tests/bonanza_wide.py` (the soak row `bonanzawide`, host only) is the
+guest's half under unicorn: the package's own `bz_crshdr` on TWIDE and HOP
+builds `bz_mrow` exactly (`MAP + br ROWB`, all 256 words), and `bz_boxc`'s
+buffer is exactly the part's words on 59 boxes, word column 159 at every
+first-line offset among them. Its red arms (`--red mrow`, the table not built
+past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
