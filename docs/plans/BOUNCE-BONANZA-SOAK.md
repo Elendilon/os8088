@@ -78,6 +78,17 @@ declared.
 - [x] Stale text (song rows, three ball rows, BZD1 - BZD6) brought to the game.
 
 ### Phase 2 - the test courses
+
+**The mechanism (BUILT, SPEC.md 130.54):** a course says `test`; the
+Makefile lists it in `BZ_TESTCRS`, which only `BZDEV=1`'s block appends,
+AFTER every other course; `bbcourse.py -o` refuses a `test` course without
+`--dev` (make passes it under `BZDEV=1`), so none ships; a test course owes
+no pad, no shipped demo and no `target` (`c.test`, which replaced
+`BENCH_NAMES`); `default_paths()` is `BZ_COURSES` + `BZ_TESTCRS`, so the bare
+selfcheck compiles and checks them, and its `courses` section cross-checks
+the Makefile's lists against the `test` lines. BENCH is one of them now and
+moved from course 0 to after the shipped courses: the test build's K are
+the shipped build's.
 - [ ] **TPLAY** (physics and replays): ramps (one steep), a lip and gap, a void
       with a SAFE cell, rails and a bumper rail, ice, sand and mat strips, a
       split goal (two exits), an apron with rungs and 1 / 1.5 / 2-unit tops,
@@ -85,8 +96,41 @@ declared.
 - [ ] **TMILL** (the wheel and the ring): rotors and lighting posts (2- and
       3-word lanes, one crossing the ring's end), a lift with docks, a tube
       and a cannon, a clock, scrolling both ways, occluders.
-- [ ] **TQUICK** (exits and the save): a goal a few autopilot steps from the
-      start, a cup, a tube drain, a palette of its own; a two-part twin.
+- [x] **TQUICK** (exits and the save), BUILT as two courses because a course
+      finishes at a goal or in a cup, never both (130.14.4.1): **TQUIK**
+      (`tquik.bbc`; a NAME is five characters) - rubber, the goal 165
+      autopilot steps (3.0 s) from the start, flag 0 on the route and a hole
+      beside it, a plain KEEP tube drain off the route (16 steps hidden, as
+      MILL's drop), `palette 0` (10h), `limit 8`; **TCUP** (`tcup.bbc`) -
+      steel, the cup 291 steps (5.3 s) away, the default palette (30h), the
+      tool's limit (15 s). **No two-part twin**: a two-part course needs a
+      picture over 65,024 bytes, a course of PLAY's size; the only two-part
+      course is PLAY itself (`bzcrs2.lst`), so the world-part legs move with
+      the TPLAY/TMILL decision (TWOSEG, `make bonanzatwoseg`, is generated
+      from PLAYGROUND and goes with it).
+
+  Which leg runs on what, in phase 3 (the rows are NOT rewritten yet):
+
+  | row, leg | today | phase 3 | the feature it uses |
+  |---|---|---|---|
+  | exit, the six WAYS (Esc, F, Alt+Enter, the goal, a replay's end, Esc in a replay) | FIRST x 3 balls | TQUIK, once (the balls are held, 130.25.5.2) | the goal (`goal()` pokes the ball onto its GOAL cell), a log made by `make_log` on TQUIK |
+  | exit, the benchmark's end (B) | BENCH | BENCH (a test course now) | B's own course |
+  | exit, Esc while HIDDEN (`into_tube`) | MILL's drop | TQUIK | the KEEP tube's IN cell (6, 7) |
+  | exit, the cup's way out and the `padleak` red | MOON, PEAK, PLAY | TCUP | the cup (`goal()`'s cup arm) |
+  | exit, the claim leg | every K, FIRST's ways, MILL, MOON, PEAK, PLAY | every K, one cheap launch each (TQUIK and TCUP included) | `own_course` by material: TQUIK rubber, TCUP steel |
+  | exit, the palette leg and `nopal` / `hercpal` | PLAY (10h), FIRST (30h) | TQUIK (10h), TCUP (30h) | `palette 0` against the default |
+  | exit, `expoff1` / `rowtab1` (the first launch) | FIRST | TQUIK | any course |
+  | exit, `cellsafe` (a prop's cell made SAFE) | MILL | TQUIK | its tube (a prop) - CHECK: the red must fire on a KEEP tube's cells |
+  | exit, the world part's fetch and drop | PLAY (two parts) | open: no test course is two parts | - |
+  | exit, wave 4's V / D / W / L / double-click | FIRST's and MOON's shipped demos | ROLL's and HOP's shipped demos for V; a TQUIK log for D, W, L | the shipped demos are the shipped courses' alone |
+  | game, `pause` | FIRST free play | TQUIK free play | the goal in 165 steps (P pressed at step 40) |
+  | game, `hostile` and `physdat` (the next best) | FIRST by the autopilot, a boot a file | TQUIK by the autopilot, a reload a file | the goal in 3 s |
+  | game, `noapp` (two bests) | FIRST, TRIAL | TQUIK, TCUP | a goal and a cup |
+  | game, `posts` | V of FIRST's and MOON's shipped demos, R, D | V of ROLL's and HOP's; R and D of a TQUIK log | - |
+  | demo, `save` / `load` / `dclick` | MILL by the autopilot (five MILL runs a card) | TQUIK by the autopilot | 3 s a run, not MILL's |
+  | demo, `wave4` (another build's identity) | MOON's demo with EB84h | a TQUIK log with its +14 identity changed | the identity check alone |
+  | demo, `ship` | every shipped demo | ROLL's and HOP's (the shipped ones) | unchanged |
+  | demo, `hostile` | MOON's demo, this build's logs | TQUIK logs made from the model | - |
 - [ ] **A test pathway** for bonanzapath's secret and paging legs.
 - [ ] The B benchmark takes a course (no hard-wired BENCH).
 

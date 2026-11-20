@@ -294669,3 +294669,25 @@ TQUIK's, so the two courses roll two materials.
 **No two-part twin.** A two-part course is one whose picture is over
 65,024 bytes (130.30), which takes a course of ROLL's size; the rows' world
 part legs run on the shipped two-part course instead (the plan, per leg).
+
+#### 130.54.3 As built (MEASURED, 2026-11-20)
+
+- **The shipped build is byte for byte what it was**: `make bonanza
+  bonanzadisk` before and after, `cmp` - `BONANZA.O88` (149,693 bytes) and
+  all four `bonanza*.img` identical; only the course stage's stamp moved.
+- **The test build** (`make BUILD=build/bzdev BZDEV=1 bonanza bonanzadisk`):
+  eleven courses, FIRST 0 ... HOP 7 as in the shipped build, BENCH 8, TQUIK
+  9, TCUP 10; the package's image **52,393 -> 52,465 (+72**, two more rows of
+  every per-course table), its bss 8,917 unchanged; `BONANZA.O88` 160,085
+  bytes; `bonanza360.img` 165 of 354 clusters. The parts, stored and LZB:
+  TQUIK 10,679 -> 2,135, TCUP 9,575 -> 1,773 (BENCH 30,031 -> 4,165, as
+  before). Each compiles in under a second.
+- **The model**: TQUIK's autopilot reaches its goal in 165 steps (3.0 s),
+  passing flag 0, no fall (its limit 8 s, explicit); a ball poked onto the
+  tube's IN cell is hidden for 16 steps (MILL's drop: 16); a ball poked into
+  the hole after the flag respawns. TCUP's autopilot holes out in 291 steps
+  (5.3 s), no fall (the tool's limit, 15 s).
+- **The selfcheck** (`--only inc,tables,path,demos4,budget,courses`): the
+  three 130.54 items pass (the Makefile cross-check; BENCH written without
+  `--dev` REFUSED, no stamp left; `test` with `guide` REFUSED); every item
+  of TQUIK and TCUP passes; the reds are PLAY's items 3 and 4, as before.
