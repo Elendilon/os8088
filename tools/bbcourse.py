@@ -1056,6 +1056,15 @@ CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
                 "frogb", "orbr", "orbh", "orbs", "orbg")   # a clock's `frame`s (SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
+# SPEC.md 130.18.5.5: THE DIGITS' ANCHOR - where a frame's digits sit, px right and down of their natural spot
+# (the place clock_face_geom derives from the tile, above).  A frame declares its own here (none of the shipped
+# frames does: (0, 0)), a `clock ... digits DX DY` adds a per-use one, and the art drawn round the digits (the
+# frame's fx, fy) follows them; what a frame draws off the tile (cx, cy: the stand, the shadow) stays.  The
+# digits are LANES on the block grid, so the sum splits into whole blocks (8 px each way) and a NUDGE inside the
+# block - the 5 x 7 glyph has 3 px of slack across and 1 down - so an offset is legal when (dx + 1) mod 8 <= 3
+# and dy mod 8 <= 1: half the columns and a quarter of the lines
+CLOCK_DIGITS = {}             # {frame: (dx, dy) px}
+CLOCK_NUDGE_X, CLOCK_NUDGE_Y = (-1, 2), (0, 1)   # the glyph's nudge inside its block, px (left, right / up, down)
 # wave 7 (SPEC.md 130.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
 CLOCK_FONT = ((14, 17, 19, 21, 25, 17, 14), (4, 12, 4, 4, 4, 4, 14), (14, 17, 1, 2, 4, 8, 31),
@@ -3587,10 +3596,16 @@ def _parse_text(text, fname="<course>"):
                                   "printable glyphs, ink 0 - 3" % (where, NODE_MAX - 1, LANE_PMAX - 1))
             src.labels.append({"num": n, "col": col, "row": row, "glyphs": text, "ink": ink, "line": ln})
         elif st == "clock":                         # wave 7 (SPEC.md 130.18.5)
-            if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] not in CLOCK_STYLES)):
-                raise CourseError("%s: clock takes <wx> <wy> [frame %s]" % (where, "|".join(CLOCK_STYLES)))
+            rest, frame, digs = toks[3:], "crystal", (0, 0)     # (130.18.5.5: `digits DX DY`, px, after `frame`)
+            if len(rest) >= 2 and rest[0][1] == "frame" and rest[1][1] in CLOCK_STYLES:
+                frame, rest = rest[1][1], rest[2:]
+            if len(rest) == 3 and rest[0][1] == "digits":
+                digs, rest = (_int(rest[1], where, "the digits' DX"), _int(rest[2], where, "the digits' DY")), ()
+            if len(toks) < 3 or rest:
+                raise CourseError("%s: clock takes <wx> <wy> [frame %s] [digits <dx> <dy>]" % (
+                    where, "|".join(CLOCK_STYLES)))
             src.clocks.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
-                               "frame": toks[4][1] if len(toks) == 5 else "crystal"})
+                               "frame": frame, "digits": digs})
         elif st == "pad":
             if len(toks) != 4 or toks[1][1] not in MAT_NAMES:
                 raise CourseError("%s: pad takes rubber|steel|glass <wx> <wy>" % where)
@@ -6953,9 +6968,18 @@ def build_props(src, tiles, fname):
         if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
             raise CourseError("%s:%d: a clock on (%d, %d), not a FLAT FLOOR" % (f, ln, at[0], at[1]))
         claim(at, ln, "clock")
+        if sp["frame"] != "lives" and clock_anchor(sp) is None:
+            ddx, ddy = clock_digits_px(sp)
+            raise CourseError("%s:%d: the clock's digits at %+d, %+d px (its frame's %s and the statement's) are "
+                              "between the block grid's places: an offset is whole blocks of 8 px and a nudge of "
+                              "%d to %+d px across and %d to %+d down (SPEC.md 130.18.5.5) - the nearest %s" % (
+                                  f, ln, ddx, ddy, "%+d, %+d" % CLOCK_DIGITS.get(sp["frame"], (0, 0)),
+                                  CLOCK_NUDGE_X[0], CLOCK_NUDGE_X[1], CLOCK_NUDGE_Y[0], CLOCK_NUDGE_Y[1],
+                                  clock_digits_near(ddx, ddy)))
         for place in range(ndig):                   # (130.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0, "frame": sp["frame"],
+                          "digits": sp.get("digits", (0, 0)),
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH,
                           "small57": sp.get("small57", False)})     # (a lives counter's LIVES face)
     for lb in src.labels:                           # SPEC.md 130.23.2: a LABEL - a SIGN (wave 8R, 130.22.4.1,
@@ -8808,19 +8832,54 @@ def _staff_pix(p, x0):
     return out
 
 
+def clock_digits_px(p):
+    """SPEC.md 130.18.5.5: the clock's digits' offset from their natural spot, px (right, down) - its frame's
+    declared anchor (CLOCK_DIGITS) plus the statement's `digits DX DY`"""
+    fdx, fdy = CLOCK_DIGITS.get(p.get("frame") or "crystal", (0, 0))
+    sdx, sdy = p.get("digits") or (0, 0)
+    return fdx + sdx, fdy + sdy
+
+
+def _clock_split(dx, dy):
+    """an offset in px -> (whole blocks across, down, the glyph's nudge across, down), or None between places"""
+    nx, ny = (dx + 1) % 8 - 1, dy % 8
+    if not (CLOCK_NUDGE_X[0] <= nx <= CLOCK_NUDGE_X[1] and CLOCK_NUDGE_Y[0] <= ny <= CLOCK_NUDGE_Y[1]):
+        return None
+    return (dx - nx) // 8, (dy - ny) // 8, nx, ny
+
+
+def clock_anchor(p):
+    """SPEC.md 130.18.5.5: the digits' offset split onto the block grid -> (blocks across, blocks down, nudge
+    across px, nudge down px); None when the offset lies between the places the lanes can take"""
+    return _clock_split(*clock_digits_px(p))
+
+
+def clock_digits_near(dx, dy):
+    """the nearest legal digits' offsets to (DX, DY) px, as text (a refusal's hint)"""
+    xs = [x for x in range(dx - 4, dx + 5) if _clock_split(x, 0)]
+    ys = [y for y in range(dy - 7, dy + 8) if _clock_split(0, y)]
+    bx = sorted(xs, key=lambda x: (abs(x - dx), x))[0]
+    by = sorted(ys, key=lambda y: (abs(y - dy), y))[0]
+    return "%+d, %+d" % (bx, by)
+
+
 def clock_face_geom(p, x0, y0):
     """wave 7 (SPEC.md 130.18.5): a clock's crystal ball on the CANVAS - its
     digits' block row starts CLOCK_UP px above the tile's floor at its centre,
     rounded down to a block (the canvas's), the digits' blocks centred on the
-    stick; the ball an ellipse round them.  -> (the tile centre's x and floor
-    line, the ball's centre x, centre y, x radius, y radius)"""
+    stick; the ball an ellipse round them.  130.18.5.5: the digits' ANCHOR moves
+    them whole blocks and nudges the glyph inside its block, and the face's
+    centre (fx, fy) moves with them, so the art drawn round it follows.
+    -> (the tile centre's x and floor line, the ball's centre x, centre y,
+    x radius, y radius)"""
     wx, wy = p["at"]
     cx = 16 * (wx - wy) + x0
     cy = 8 * (wx + wy) + 8 - p["z4"] + y0
     n = p["ndig"]
-    bx0 = (cx - 4 * n + 4) >> 3
-    by = (cy - CLOCK_UP) >> 3
-    return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 7, 10
+    bdx, bdy, nx, ny = clock_anchor(p) or (0, 0, 0, 0)
+    bx0 = ((cx - 4 * n + 4) >> 3) + bdx
+    by = ((cy - CLOCK_UP) >> 3) + bdy
+    return cx, cy, 8 * bx0 + 4 * n + nx, 8 * by + 4 + ny, 4 * n + 7, 10
 
 
 def clock_digit_block(p, x0, y0):
@@ -8830,7 +8889,10 @@ def clock_digit_block(p, x0, y0):
         return (cx >> 3) + 1, (cy - LIVES_DUP) >> 3
     _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
-    return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
+    bdx, bdy, nx, ny = clock_anchor(p) or (0, 0, 0, 0)
+    if _CLOCK_ANCHOR_LANES == "blocks":             # (the red arm: the lanes where they were)
+        return ((fx - nx - 4 * n) >> 3) + n - 1 - p["place"] - bdx, ((fy - ny - 4) >> 3) - bdy
+    return ((fx - nx - 4 * n) >> 3) + n - 1 - p["place"], (fy - ny - 4) >> 3
 
 
 # the pathway's LIVES counter (the owner, 2026-11-17: option C of four - "LIVES" in the map's own label face
@@ -8903,6 +8965,7 @@ def lives_face_pix(p, x0, y0):
 
 
 _CLOCK_PLINTH_OWN = False   # (an experiment's switch: the plinth at its own top, a second record a block)
+_CLOCK_ANCHOR_LANES = True  # (130.18.5.5's red arms: "blocks" leaves the lanes at the natural spot, "nudge" the glyph)
 
 
 def clock_face_pix(p, x0, y0, style="crystal", tops=None):
@@ -9669,14 +9732,15 @@ def clock_pose(tsec, place):
     return 1 + (tsec // 10 ** place) % 10
 
 
-def clock_glyph(d, bx, by):
+def clock_glyph(d, bx, by, nx=0, ny=0):
     """digit D's ink in block (bx, by), canvas pixels: the 5 x 7 glyph a pixel in
-    from the block's left and top"""
+    from the block's left, at its top - NX, NY px further right and down (the
+    anchor's nudge, SPEC.md 130.18.5.5: -1 to 2 across, 0 to 1 down, inside the block)"""
     out = {}
     for r, bits in enumerate(CLOCK_FONT[d]):
         for k in range(5):
             if bits & (16 >> k):
-                out[(8 * bx + 1 + k, 8 * by + r)] = BLK
+                out[(8 * bx + 1 + nx + k, 8 * by + ny + r)] = BLK
     return out
 
 
@@ -12136,10 +12200,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     if keyed and (x, y) in ftops:
                         cv.sbuf[y][x], cv.tbuf[y][x] = sC, ftops[(x, y)]
                 p["face_pix"] = shown_
+                p["face_art"] = clock_art = set(face)
                 clock_seen = set(shown_)
             else:
-                clock_seen = next(q["face_pix"] for q in props if q["kind"] == PK_CLOCK and q["num"] == p["num"]
-                                  and q["place"] == 0)
+                q0 = next(q for q in props if q["kind"] == PK_CLOCK and q["num"] == p["num"] and q["place"] == 0)
+                clock_seen, clock_art = q0["face_pix"], q0["face_art"]
             bx, by = clock_digit_block(p, x0, y0)
             poses = {0: {}}
             if p.get("frame") == "lives":           # the map's label face, WHITE, on the sky beside the "x"
@@ -12147,8 +12212,19 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     poses[1 + d] = {k: v for k, v in label_glyph(str(d), bx, by, WHT).items()
                                     if cv.sbuf[k[1]][k[0]] <= sC}
             else:
+                _bdx, _bdy, gnx, gny = clock_anchor(p) or (0, 0, 0, 0)
+                if _CLOCK_ANCHOR_LANES == "nudge":  # (the red arm: the glyph at its block's place)
+                    gnx = gny = 0
+                gl = [clock_glyph(d, bx, by, gnx, gny) for d in range(10)]
+                off = sorted({k for g in gl for k in g if k not in clock_art})   # SPEC.md 130.18.5.5: the
+                if off:                             # frame's art HOLDS its digits (hidden or not: the picture's)
+                    raise CourseError("%s:%d: the clock at (%d, %d)'s digits (offset %+d, %+d px) leave its "
+                                      "frame's art at %d pixel(s), the first (%d, %d): a frame draws the face its "
+                                      "digits sit on (SPEC.md 130.18.5.5)" % (
+                                          fname, p["line"], p["at"][0], p["at"][1], clock_digits_px(p)[0],
+                                          clock_digits_px(p)[1], len(off), off[0][0], off[0][1]))
                 for d in range(10):
-                    poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+                    poses[1 + d] = {k: v for k, v in gl[d].items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_CLOCK, "line": p["line"]})
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 130.22.4.1): a sign, path_signs's lane
@@ -32080,6 +32156,112 @@ def _sc_clockocc(X, res):
                     any(want in w for w in caught)))
 
 
+CLOCKDIG_AT = (10, -7)          # the selfcheck's anchor: a block right and a nudge of 2, a block up and a nudge of 1
+
+
+def _clockdig_lanes(c, num):
+    """{place: (lane rect, {pose: glyph pixels})} of clock NUM of a compiled course"""
+    return {c.props[L["prop"]]["place"]: (L["rect"], L["poses"]) for L in c.lanes
+            if c.props[L["prop"]]["kind"] == PK_CLOCK and c.props[L["prop"]]["num"] == num}
+
+
+def _sc_clockdig(X, res):
+    """--selfcheck's section `clockdig` (SPEC.md 130.18.5.5): THE DIGITS' ANCHOR - a clock's digits placed relative
+    to its frame's art, by the frame's CLOCK_DIGITS or the statement's `digits DX DY`.  FIRST's start clock (3, 6)
+    moved CLOCKDIG_AT: its digit lanes land where declared (whole blocks), each digit's ink the natural ink moved
+    the offset (the nudge inside the block), the face round them moved with them and the plinth on its tile not;
+    the frame's declaration and the statement's are one; offset 0 byte-identical; the grammar's refusals; and the
+    red arms (the lanes left at the natural spot; digits moved off the frame's art)"""
+    global _CLOCK_ANCHOR_LANES, CLOCK_STYLES
+    fn = next(c.fname for c in X.courses if c.name == "FIRST")
+    fn = fn if os.path.isabs(fn) else os.path.join(ROOT, fn)
+    text = open(fn).read()
+    assert text.count("\nclock 3 6\n") == 1
+    dx, dy = CLOCKDIG_AT
+
+    def comp(stmt):
+        return compile_course(text.replace("\nclock 3 6\n", "\n%s\n" % stmt), fname=fn)
+    base = comp("clock 3 6")                     # (a plain compile: compile_all re-stamps a demo's identity)
+    zero = comp("clock 3 6 frame crystal digits 0 0")
+    res.append(("17d FIRST with `clock 3 6 frame crystal digits 0 0` byte-identical to `clock 3 6` (offset 0 is "
+                "today's clock; frames declaring an anchor: %s)" % (", ".join(sorted(CLOCK_DIGITS)) or "none"),
+                zero.cga == base.cga and zero.stored == base.stored and not any(
+                    CLOCK_DIGITS.get(f_, (0, 0)) != (0, 0) for f_ in CLOCK_STYLES)))
+
+    def landed(c, what):
+        """the moved clock's lanes and ink against FIRST's -> [(what, ok)]"""
+        num = next(p["num"] for p in c.props if p["kind"] == PK_CLOCK and tuple(p["at"]) == (3, 6))
+        a, b = _clockdig_lanes(base, num), _clockdig_lanes(c, num)
+        bdx, bdy = (dx + 1) // 8, dy // 8
+        rects = sorted(a) == sorted(b) and all(b[k][0] == (a[k][0][0] + bdx, a[k][0][1] + bdy, 1, 1) for k in a)
+        ink = sorted(a) == sorted(b) and all(
+            set(b[k][1][1 + d]) == {(x + dx, y + dy) for (x, y) in clock_glyph(d, *a[k][0][:2])}
+            for k in a for d in range(10))
+        p0 = next(p for p in base.props if p["kind"] == PK_CLOCK and tuple(p["at"]) == (3, 6) and p["place"] == 0)
+        q0 = next(p for p in c.props if p["kind"] == PK_CLOCK and tuple(p["at"]) == (3, 6) and p["place"] == 0)
+        f0 = clock_face_pix(p0, base.x0, base.y0)
+        f1 = clock_face_pix(q0, c.x0, c.y0)
+        cx, cy, fx, fy, _rx, _ry = clock_face_geom(p0, base.x0, base.y0)
+        n = p0["ndig"]
+        win0 = [(x, y) for x in range(fx - 4 * n - 1, fx + 4 * n + 1) for y in range(fy - 5, fy + 5)]
+        moved = all(f1.get((x + dx, y + dy)) == f0[(x, y)] for (x, y) in win0)
+        plinth = all(f1.get((x, y)) == f0.get((x, y)) for x in range(cx - 8, cx + 9) for y in (cy - 3, cy - 2))
+        return [("17d %s: the digit lanes land %+d block across, %+d block row from the natural spot (%s)" % (
+                    what, bdx, bdy, ", ".join("place %d at %s" % (k, b[k][0][:2]) for k in sorted(b))), rects),
+                ("17d %s: every digit's ink (0 - 9, each place) is the natural glyph moved %+d, %+d px - the "
+                 "nudge %+d, %+d inside its block - and inked whole (shown on the face)" % (
+                     what, dx, dy, (dx + 1) % 8 - 1, dy % 8), ink),
+                ("17d %s: the face round the digits (the ball's window) moved with them; the plinth on the tile "
+                 "did not" % what, moved and plinth)]
+    st = comp("clock 3 6 digits %d %d" % CLOCKDIG_AT)
+    res.extend(landed(st, "`clock 3 6 digits %d %d`" % CLOCKDIG_AT))
+    # a FRAME declaring the anchor: `crysdig`, the crystal's art, its CLOCK_DIGITS entry CLOCKDIG_AT
+    styles = CLOCK_STYLES
+    CLOCK_STYLES, CLOCK_DIGITS["crysdig"] = styles + ("crysdig",), CLOCKDIG_AT
+    _CLOCK_DRAW["crysdig"] = lambda p, x0, y0, tops: clock_face_pix(
+        dict(p, frame="crystal", digits=clock_digits_px(p)), x0, y0, tops=tops)
+    try:
+        fr = comp("clock 3 6 frame crysdig")
+    finally:
+        CLOCK_STYLES = styles
+        del CLOCK_DIGITS["crysdig"], _CLOCK_DRAW["crysdig"]
+    res.append(("17d a frame declaring the anchor (CLOCK_DIGITS crysdig %+d, %+d) compiles FIRST byte-identical to "
+                "the statement's" % CLOCKDIG_AT, fr.cga == st.cga and fr.stored == st.stored and fr.cga != base.cga))
+    for stmt, want in (("clock 3 6 digits 3 0", "between the block grid's places"),
+                       ("clock 3 6 digits 0 -6", "between the block grid's places"),
+                       ("clock 3 6 digits 4", "clock takes"),
+                       ("clock 3 6 digits 0 0 frame crystal", "clock takes")):
+        try:
+            comp(stmt)
+            msg = "compiled"
+        except CourseError as e:
+            msg = str(e)
+        res.append(("17d `%s` refused (...%s)" % (stmt, msg[-90:]), want in msg))
+    # red arms: (a) the lanes left at the natural spot while the art moves - refused (the digits off the
+    # moved art) or the landing red; (b) the nudge dropped, the lanes moved - the ink red; (c) a frog's digits
+    # moved below its body (art drawn off the tile, not round the digits) - refused
+    for arm, want in (("blocks", ("lanes land", "compile")), ("nudge", ("natural glyph moved",))):
+        _CLOCK_ANCHOR_LANES = arm
+        try:
+            try:
+                r_ = landed(comp("clock 3 6 digits %d %d" % CLOCKDIG_AT), "red arm")
+            except CourseError as e:
+                r_ = [("compile: %s" % e, False)]
+        finally:
+            _CLOCK_ANCHOR_LANES = True
+        caught = [w for w, g in r_ if not g]
+        res.append(("17d clockdig negative control: %s - caught (%s)" % (
+            {"blocks": "the lanes ignore the anchor's blocks", "nudge": "the glyph ignores the anchor's nudge"}[arm],
+            "; ".join(w[-100:] for w in caught) or "NOT CAUGHT"), any(k in w for w in caught for k in want)))
+    try:
+        comp("clock 3 6 frame frog digits 0 48")
+        msg = "compiled"
+    except CourseError as e:
+        msg = str(e)
+    res.append(("17d clockdig negative control: a frog's digits moved 6 block rows down, below its body - refused "
+                "(...%s)" % msg[-80:], "leave its frame's art" in msg))
+
+
 def _sc_palette(X, res):
     """--selfcheck's section `palette` (selfcheck(): a fork of its state after the compile)"""
     courses = X.courses
@@ -33401,7 +33583,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30,
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
            "lift2": 10, "width": 8, "sheets": 120}
 
 
@@ -35003,7 +35185,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc", "_sc_lift2", "_sc_width", "_sc_sheets")
+             "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets")
 
 
 def _selfcheck(paths, res, skipped, S):

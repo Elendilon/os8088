@@ -280644,7 +280644,8 @@ out: a stale pose enters with the column).
 
 #### 130.18.5 The course clock (story 7.2)
 
-- **The statement**: `clock WX WY [frame STYLE]` (`crystal`, the default, or 130.18.5.2's others) - a prop on a FLOOR
+- **The statement**: `clock WX WY [frame STYLE] [digits DX DY]` (`crystal`, the default, or 130.18.5.2's
+  others; `digits` the anchor, 130.18.5.5) - a prop on a FLOOR
   tile, at most `CLOCK_MAX` 4 a course. Its FRAME is static picture art the
   tool paints (the crystal ball, 24 x 16 px on a 2-px stick an occluder post
   like the flag's staff, 130.14.4.7); its DIGITS are LANES on the ball's
@@ -280718,7 +280719,8 @@ the course's blocks are:
 **The other styles** (First Roll's options, 2026-11-18, the owner to pick):
 `clock WX WY frame STYLE` takes `crystal` (the default) or one of four more,
 drawn by `tools/bbcourse.py`'s `_CLOCK_DRAW`. Each is static art round the
-SAME digits' window (`clock_face_geom`'s place and size, plain inside), so
+SAME digits' window (`clock_face_geom`'s place and size, plain inside;
+since 130.18.5.5 a frame may declare where that window sits), so
 the digits' lanes, the record, the occluder key (130.18.5.4, one crown top,
 the shadow paint) and the post's physics (130.18.5.3) are the crystal's; a
 style moves only the picture's blocks. `pin` is FIRST ROLL's (the owner,
@@ -280993,6 +280995,98 @@ clock at its new cell from the right (268 of 384 back, as before). No guest
 byte moves, so the rows that read a
 clock's lanes (`bonanzawheel`'s CLOCK leg, `bonanzaring`'s glass on FIRST)
 see only the parts' new records, as on any course edit.
+
+##### 130.18.5.5 The digits' ANCHOR: the digits placed relative to the art (the owner, 2026-11-21)
+
+*"For clocks; we are missing something I think that would make clock design
+easier ... The ability to position the clock text relative to the art."*
+Until now a clock's digits stood where 130.18.5.2 derived them from the
+tile - centred on the stick, their block row at least `CLOCK_UP` over the
+floor - and every frame was drawn round that one spot. A frame now says
+where its digits sit, and the art drawn round them follows.
+
+**What fixes the digits' place** (why an offset has a grain):
+- **The lanes are blocks.** A digit is a lane of 1 word x 1 block row
+  (130.18.5), so its block moves in whole blocks: **8 px across** (a word,
+  one CGA byte pair; the Hercules translation, 130.11.3, maps a block's
+  bytes in place, so a block is a block on both cards) and **8 lines down**.
+  The canvas origin `x0` and the floor lines are on blocks, so the natural
+  spot is a block too: its column `(cx - 4n + 4) >> 3`, its row
+  `(cy - CLOCK_UP) >> 3`.
+- **The glyph has slack inside its block.** The 5 x 7 glyph sits a pixel in
+  from the block's left, at its top (`clock_glyph`), so it can move **-1 to
+  +2 px across** and **0 to +1 down** without leaving its block: a NUDGE. It
+  is free - the same lane, the same 11 poses, the same block count; only
+  which pixels a pose inks moves.
+- So an offset `(dx, dy)` px is legal when `(dx + 1) mod 8 <= 3` and
+  `dy mod 8 <= 1`: **half of the columns and a quarter of the lines**.
+  Anything between is refused, naming the nearest legal offset.
+- **Finer is not in the format.** A glyph across a block boundary (a
+  half-word, 4 px) puts two digits in the block they share, so that block's
+  poses are the PRODUCT of two digits' - up to 121, against `LANE_PMAX` 16
+  and a group lane's `GRP_PMAX` 64 (130.32.1). It would take a new lane kind
+  whose pose is two digits (the guest about 30 - 50 bytes, a pose index of
+  `10 a + b`; PREDICTED) and a lane past `LANE_PMAX`'s 16 poses, a change to
+  the lane format; and blocks: the shared block's poses (up to 121 x 16
+  bytes, fewer as deduplicated) - **about 1.6 - 1.9 KB a clock** of CGA
+  blocks against today's 176 bytes (PREDICTED). Priced, not built: the
+  nudge covers the pixel-level fit a frame needs inside its window.
+- **Nothing else moves.** The clock's POST (130.18.5.3) stays the tile's -
+  its circle at the cell's centre - and so do its record, its occluder key
+  (130.18.5.4: the whole face, the digits' blocks with it, keyed at the
+  clock's cell), the visibility rule and the lane bounds, which read the
+  lanes where they now are. A digit's block must still lie in the picture
+  and share no block with another lane (or be grouped, 130.32), as every
+  lane's.
+
+**The rule** (binding: `tools/bbcourse.py`, `clock_anchor`,
+`clock_face_geom`, `clock_digit_block`, `clock_glyph`):
+
+1. **A frame declares its anchor**: `CLOCK_DIGITS[frame] = (dx, dy)`, px
+   right and down of the natural spot. None of the shipped frames declares
+   one (`crystal`, `pin` ... `orbg` are all at (0, 0)), so **every shipped
+   course is byte-identical**.
+2. **A course may add a per-use one**:
+   `clock WX WY [frame STYLE] [digits DX DY]` (px; after `frame`). The
+   digits' offset is the frame's plus the statement's, and the SUM must be
+   legal.
+3. **The art follows the digits.** `clock_face_geom` returns the face's
+   centre `(fx, fy)` moved by the whole offset - blocks and nudge - so the
+   digits' window (`_ClockArt.win`) and everything a frame draws from
+   `fx, fy` move with them; what it draws from the tile's `cx, cy` (a stand,
+   a cup, a shadow, a plinth) stays. A frame author draws the art, says
+   where the digits sit in it, and anchors each part to the one it belongs
+   to.
+4. **The art holds its digits.** Every pixel of every digit's ink, at every
+   place, must be a pixel of the frame's face (hidden in the picture or not):
+   a clock whose digits leave its art is REFUSED, naming the first pixel.
+
+**What it costs**: **no guest byte** (the lanes are the format's; the
+guest reads a lane's block from its record). The tool (MEASURED,
+`tools/bbcourse.py`): +12,071 bytes of source - the anchor's split and
+refusals, the statement's clause and the art-holds check about 5.3 KB
+(about 90 lines with their comments), the selfcheck's section 6.8 KB.
+
+**The example** (a scratch picture, no shipped course changed):
+FIRST ROLL's `pin` puts its digits on a plate clamped to the pole, because
+that is where the digits were. Re-drawn as `pinflag` with `CLOCK_DIGITS`
+`(+15, -16)` - two blocks right with a nudge of -1, two block rows up - the
+digits ride ON THE PENNANT, a swallow-tailed flag flying from the pin's
+head, the pole and cup still on the tile. It compiles in FIRST's start clock
+(its lanes two columns right and two block rows up, every check holding).
+
+**Proved by**: `--selfcheck`'s section `clockdig`, item 17d, on FIRST's
+start clock (3, 6): `digits 0 0` byte-identical to the plain statement;
+`digits 10 -7` (a block right with a nudge of +2, a block up with a nudge
+of +1): the digit lanes land +1 column and -1 block row, every digit's ink
+(0 - 9, both places) is the natural glyph moved (+10, -7) px, the ball's
+window moved with them and the plinth on its tile did not; a frame
+declaring the same anchor compiles byte-identical to the statement; the
+grammar's refusals (`digits 3 0` and `digits 0 -6` between places, a
+missing DY, `digits` before `frame`). Red arms: the lanes left at the
+natural spot (`_CLOCK_ANCHOR_LANES` "blocks": refused, the digits off the
+moved art), the glyph's nudge dropped ("nudge": the ink item red), and a
+frog's digits moved 48 px down, below its body: refused.
 
 #### 130.18.6 `music` and the sound events (stories 7.5, 7.6)
 
