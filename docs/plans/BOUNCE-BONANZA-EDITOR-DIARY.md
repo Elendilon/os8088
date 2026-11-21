@@ -366,3 +366,44 @@ and how each ball rides them (plan wave 4).
 compiled; ridden), red on a corner dragged alone; scripted sessions on SHAPE and on a new plate with one of
 each made from nothing. **Not yet:** played by hand; diagonal blocks in Iso (4.2).
 
+
+## Add to the game (2026-11-21)
+
+**Intended:** a course builder that puts a course in the game without an assembler and still produces what
+nasm would (plan wave 8).
+
+**Observed:**
+- **The answer is prebuilt variants plus a patched table.** `make bbgamebin` builds the shipped package's
+  pieces and four variants with 1 to 4 spare course slots, each with a map of where its per-course tables
+  sit. Composing compiles the course list, holds its `bzcourse.inc` to the variant's line by line (a list
+  that would move anything but the tables is refused, with the reason), and writes the tables in.
+- **Composing the shipped list gives back the shipped package and its 360 KB floppy byte for byte.** Adding
+  one course, or putting it on pad 0, gives exactly the package `make` builds for that list. With the
+  table-writing step skipped on purpose, the row catches it in four places.
+- **A cache key had never hit across processes.** The compiler's GROUND_AUTO sentinel was keyed by its
+  repr, an address, so every process compiled from scratch. Fixing that made composing about a minute.
+- **The cost:** about 730 KB of prebuilt pieces in a zip that grows to 1.3 MB; a spare slot is 51 bytes
+  in the package; one added course of FIRST's size adds 1,918 bytes.
+
+**Tested here:** the `bbgame` row and the bundle row (the shipped list composed inside the zip). **Not
+yet:** a game with an added course booted and played on MartyPC.
+
+## The blend check (2026-11-21)
+
+**Intended:** warn when two separate floors read as one checker, and point at it in the editor (plan 3.3,
+3.4).
+
+**Observed:**
+- **A floor 4 units lower and one row back lands on the same screen lattice with the same colours.** The
+  seam vanishes; on the constructed course the check finds 190 px of it. A 2-unit drop turns the checker
+  over, so the edge stays visible (17 px, under the bound).
+- **The check predicts the far side's colours from the near floor's checker** and calls a run of pixel
+  pairs a blend when that prediction holds; a pair warns past 40 px of seam and half of where the two
+  floors' tops meet. Cyan and magenta are one ink on the Hercules, so both cards are checked.
+- **Two shipped places blend:** PLAYGROUND (101 px, the floor at -8 seen past the floor at 0) and the
+  title (59 px). Neither has been accepted: that is the owner's call.
+- **It costs under a second a course** and changes no compiled byte.
+
+**Tested here:** the `bbblend` row, red on the check disabled and on a colour-blind comparison; the
+editor's stripes on a constructed course. **Not yet:** VGA (the compiler renders no VGA picture), a
+screenshot of the Hercules view.
