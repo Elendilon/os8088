@@ -261789,7 +261789,10 @@ props. Each refusal names the line:
   the runs start at eight phases 32 steps apart (`TRAP_LIFT_PHASES`; two
   phases 32 apart could both miss a slab down a third of its ~260-step
   period). The grammar section's "a flag at a lift's foot", red arm
-  `_TRAPNOLIFT`;
+  `_TRAPNOLIFT`. **A flag or a pad that cannot reach a finish with no
+  pickup still passes by a RESPAWNING one** (130.14.4.1.2, 2026-11-21):
+  taking only pickups marked `respawn`, as often as they come back, and
+  stranding no ball that has taken one;
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (130.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left
@@ -261844,6 +261847,72 @@ Nothing else changes: the same states, the same cache, the same verdict
 and refusal. The cost is the runs - nine times as many a cell (ISLAND HOP:
 about 25 s against under 1 s), which is why it is a course's choice rather
 than every course's. A course without the line compiles exactly as before.
+
+###### 130.14.4.1.2 NO TRAP by a RESPAWNING pickup
+
+*(2026-11-21, WINDMILL LANE's glass route.)* Until this, NO TRAP proved
+every finish with NO pickup taken (130.25.7.3, Q-92: "a pickup only shortens
+a route"), so MILL's glass way - a jump only the JUMP pickup's Hop makes -
+needed a one-way drop back to the fork before its glass pad and flag would
+pass. The owner: *"This is an alternate path, so we may need to modify that
+rule. There should either be an alternate route to A finish (with no
+pickup), OR the pickup should respawn (allowing them retries without needing
+to kill themselves to get it back). That said, a 'way back' (as long as that
+way is longer) is good; it keeps from softlocking someone who can't make the
+jump."*
+
+**The rule.** A flag (with its ball) or a pad (with its) passes NO TRAP if
+EITHER
+
+- (a) a finish is reachable with no pickup taken - the rule as it was, run
+  first and unchanged (`trap_reach`); OR
+- (b) a finish is reachable taking only RESPAWNING pickups - a `speed` or a
+  `jump` marked `respawn` (130.55), which comes back when its effect ends -
+  AND no ball that has taken one can be stranded (`trap_reach_resp`).
+
+A pickup that does not respawn - and an hourglass or a life, which never do -
+is still "not available": it may already be used up. Only a course placing a
+respawning pickup ever runs (b), and only for a flag or pad (a) refused, so
+every course that compiled before compiles to the same bytes and the same
+verdicts: NO TRAP is a check, never part of a part.
+
+**How (b) is modelled.** The search's states grow a third member, the
+EFFECT the ball holds (`trap_eff`): none, or the speed's and the jump's
+steps left and which respawning elements are COLLECTED. A run is the model's
+own (`trap_succ` with `Physics.pickrs`): under `nopick` a pickup kind's
+ENTER and CONTACT still never fire, except a respawning one's, so the ball
+takes it as the guest does, carries its effect through the run, and the
+model's own `_rearm` puts the element back when the effect ends - a ball may
+take it again as many times as it comes back. A run's resting state records
+the effect it still holds, each count rounded DOWN to `TRAP_EFFQ` (64)
+steps; under 64 it is taken as ended and its kind's elements as back (the
+ball waits out the rest at rest), and the next run starts from rest with
+that effect put back (`trap_eff_put`: the bits, the timers, and the working
+values the CONTACT sets - the jump's Hop, the speed's force and cap). Every
+direction is run from every state (no early exit at a finish), because the
+guard reads the whole set.
+
+**The guard** (the owner's softlock). Every state reached ONCE a pickup has
+been taken - a state holding an effect, and every state reachable from one -
+must be GOOD: a run from it reaches a finish, or FALLS (a fall respawns at a
+flag, which RESETs the effect and brings a respawning element back,
+130.55), or it reaches a good state. A state that is none of these - a
+failed jump come to rest in a pocket nothing climbs out of - is refused,
+naming its cell: *"... cannot reach the cup without stranding it: by its
+respawning pickup it reaches the cup, but once it has taken one it can come
+to rest at (x, y) with no way on to a finish or a fall"*. RETURN is not an
+escape here: the owner's point is retries without having to kill the ball.
+A way back that is LONGER (MILL's back door) is a good state like any other
+and is still welcome; it is no longer required.
+
+The cost is (b)'s alone: the effect multiplies the states (`_TRAPJ` below,
+a 3 s jump: 50 states, about 4 s), and the guard needs the whole set.
+`--selfcheck` section `grammar` (`_sc_trapresp`): a glass flag before a 3-tile gap only the jump
+crosses, the cup beyond (`_TRAPJ`) - the jump `respawn` compiles, passed by
+(b) (`c.trapr`); the same jump without `respawn` is refused; a walled
+POCKET in the gap 2 units down (`_TRAPJPIT`), where a failed jump comes to
+rest, is refused by the guard, naming the cell; and the RED ARM
+`_TRAPNORESP` (the arm off) refuses the first.
 
 ##### 130.14.4.2 Records, the grid and the header
 
@@ -277271,7 +277340,10 @@ and the course's table keep the layout above when a course first needs it.
   finish reachable. A course where an `ATTEMPT` element is needed is refused,
   naming it.
 - **Every finish reachable with NO pickup** (Q-92): a pickup only shortens a
-  route.
+  route - **or, from 2026-11-21, with only RESPAWNING pickups**
+  (130.14.4.1.2): a `respawn` speed or jump comes back, so a course may
+  build a way on with one, as long as no ball that took it is stranded. A
+  pickup that does not respawn still only shortens a route.
 
 **How each proof is built.** Every family kind declares in its `FAMILIES`
 row the CELL FORMS its element can take (`forms`) and the STATES its bits can
@@ -277297,7 +277369,11 @@ be left in (`states`).
   marked `pickup` in its row. The reach takes no family's effect at all, and
   NO TRAP's model runs with `Physics.nopick` set, under which a pickup
   kind's ENTER and CONTACT never fire, so every finish they prove is proved
-  with no pickup taken. No pickup kind exists until 9.6.
+  with no pickup taken. No pickup kind exists until 9.6. *Amended
+  2026-11-21 (130.14.4.1.2): a flag or pad that fails that is run again with
+  `Physics.pickrs` set as well, under which a RESPAWNING pickup's ENTER and
+  CONTACT do fire, with the effect in the search's state and the
+  stranding guard; a pickup that does not respawn still never fires.*
 
 #### 130.25.8 GLASS, the first family (story 9.5) (BUILT: 130.25.18 is the as-built record)
 
