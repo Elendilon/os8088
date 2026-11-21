@@ -6760,3 +6760,13 @@ moving-cell set and their retry over `BLK_MAX`. *Observed*: with the moving-cell
 crack or bridge compiles, which the mock-up could not do on PLAYGROUND. PLAYGROUND itself lands 14 blocks over
 the limit and falls back to no band. The package grows 1,952 bytes and the courses 1,900 bytes LZB (2.4%);
 [EDGES.md](bonanza-courses/EDGES.md) 5a has the table. *Not yet known*: how it reads in play.
+
+## 2026-11-21 (the gap band made manual: `gap`, SPEC.md 130.57)
+
+The owner played G4 everywhere: *"in the places that this works, it completely works. And then, its spread
+all over a ton of places that don't need it ... I kept trying to figure out a set of rules that would make it
+work, and could not. So lets make it manual."* The knob went. In its place is the course statement
+`gap <shape> [sw|se]` and a detector that lists every candidate face with its pixel box, for the course
+builder's overlay to show (the builder's session does the overlay). *Observed*: HOP has 88 candidate faces,
+many of them one-pixel slivers, so the detector reports `feet` for an overlay to filter on. Marking four `se`
+faces on HOP bands exactly those four. A `gap` that bands nothing is refused, as `float`'s is.
