@@ -128,7 +128,15 @@ breaks), but G2 is closest to one. The way to tell is to play it, which is the n
 step if the owner picks it: a knob build of the chosen pair (as `BZSHADOW`
 was), with the dynamic-cell rule above, on FIRST, MILL and ROLL.
 
-## 5a. G4 as a build: `BZEDGE=1` (the owner, 2026-11-21)
+## 5b. Manual, not automatic (the owner, 2026-11-21): SPEC.md 130.57
+
+*"In the places that this works, it completely works. And then, its spread all over a ton of places that
+don't need it and it just looks weird ... So lets make it manual."* The `BZEDGE=1` knob below is DELETED. G4 is now
+the course statement `gap <shape> [sw|se]`, and the detector (`c.gap_faces`, `bbcourse.py --gaps`) lists the
+candidates for the course builder's overlay to show, so the owner can click through them. SPEC.md 130.57 is the
+contract. The sizes in 5a were for G4 on EVERY candidate face; a hand-marked course pays for its own marks only.
+
+## 5a. G4 as a build: `BZEDGE=1` (the owner, 2026-11-21; the knob since deleted, 5b)
 
 *"Can you put the G4 band+fringe only into a build, and see how it affects sizes?"* G4 is now a knob, off by
 default: `make BUILD=build/edge BZDOWN=1 BZEDGE=1 bonanzadisk` (BZDOWN puts DOWNHILL DECISION in TRIAL's

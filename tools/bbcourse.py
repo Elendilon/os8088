@@ -1264,6 +1264,7 @@ class Source:
         self.ways = []              # [((wx, wy), line)]
         self.surfaces = []          # [(surface, frozenset of tiles, line)], after every room
         self.floats = []            # SPEC.md 130.27.2: [(frozenset of cells, line)], the FLOATING cells
+        self.gaps = []              # SPEC.md 130.57: [(frozenset of cells, sides, line)], the GAP bands
         self.ball = None            # (material, line); rubber when there is none
         self.tubes = []             # wave 3: [dict], in file order (SPEC.md 130.12.3.3)
         self.props = []             # [dict]: windmill, bumper, platform
@@ -3453,6 +3454,19 @@ def _parse_text(text, fname="<course>"):
             if i != len(toks):
                 raise CourseError("%s: float takes a shape and nothing else (but `thick <units>`)" % where)
             src.floats.append((tiles, ln, depth))
+        elif st == "gap":                           # SPEC.md 130.57: gap <shape> [sw|se] - the GAP band on those
+            if len(toks) > 1 and toks[1] in (('w', "half"), ('w', "quarter")):   # cells' faces
+                raise CourseError("%s: gap takes whole cells, never a half or a quarter (SPEC.md 130.57)" % where)
+            if len(toks) < 2:
+                raise CourseError("%s: gap takes a shape and an optional side, sw or se (SPEC.md 130.57)" % where)
+            tiles, _half, i = _shape_h(toks, 1, where, halves=False)
+            sides = ("sw", "se")
+            if i + 1 == len(toks) and toks[i] in (('w', "sw"), ('w', "se")):
+                sides, i = (toks[i][1],), i + 1
+            if i != len(toks):
+                raise CourseError("%s: gap takes a shape and an optional side, sw or se, and nothing else "
+                                  "(SPEC.md 130.57)" % where)
+            src.gaps.append((tiles, sides, ln))
         elif st == "seesaw":                        # SPEC.md 130.42: seesaw X0 Y0 X1 Y1 along x|y pivot H [rest -|+]
             src.seesaws.append(_parse_seesaw(toks, where, ln))
         elif st == "archway":                       # SPEC.md 130.39: archway <shape> along x|y [under <units>]
@@ -7554,7 +7568,7 @@ class Canvas:
         # SPEC.md 130.47.5: with CAST SHADOWS, the geometry each pixel shows: lk 0 none, 1 a top (a plane), 2 a
         # face (vertical); lz its height there, whole px (a face's own, not its top edge's); lo its cell
         self.lwhich = None
-        if SHADOW or EDGE:                          # (and the EDGE pass's, docs/plans/bonanza-courses/EDGES.md G4)
+        if SHADOW or _GAP["marks"] or _GAP["collect"] is not None:   # (and the GAP band's, SPEC.md 130.57)
             self.lk = [bytearray(w) for _ in range(h)]
             self.lz = [array("h", [0]) * w for _ in range(h)]
             self.lo = [array("i", [-1]) * w for _ in range(h)]
@@ -7596,7 +7610,7 @@ class Canvas:
             kr, zr, orow, tr = self.lk[y], self.lz[y], self.lo[y], self.tbuf[y]
             for a, b in runs:
                 for x in range(a, b):
-                    kr[x] = (_LK_FACE.get(self.lwhich, 2) if face else 1)   # (EDGE: 2 sw, 3 se, 4 other)
+                    kr[x] = (_LK_FACE.get(self.lwhich, 2) if face else 1)   # (130.57: 2 sw, 3 se, 4 other)
                     zr[x] = tr[x] - (y - ymin[x]) if face else tr[x]
                     orow[x] = owner
 
@@ -8298,8 +8312,8 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                 cv.fill(sp, WHT if (wx + wy + (0 if _NOLOOK else int((t.z0 + _LOOKB) // 4))) & 1 else CYN, s, top, own)
                                                     # (130.47.2: by height too)
             cv.outline(sp, also=_shift(left, y0) if left else None)
-    if EDGE and _SHADOW_OK:
-        look_edge(cv)
+    if _GAP["marks"] or _GAP["collect"] is not None:
+        look_gap(cv, _GAP["marks"], _GAP["collect"])
     if SHADOW and _SHADOW_OK:
         look_shadow(cv, tiles, x0, y0)
     return cv
@@ -8309,13 +8323,42 @@ _LK_FACE = {"sw": 2, "se": 3}   # lk's face codes; anything else that is vertica
 _LK_FACE.update({"front": 4, "post": 4})
 
 
-def look_edge(cv):
-    """the G4 GAP band (docs/plans/bonanza-courses/EDGES.md, a KNOB: make's BZEDGE=1, the run's --edge): a
-    face's FOOT is a pixel of an sw or se face with a top of another cell directly under it.  When that top is
-    not the cell across the face's own edge - the face hangs over the void, or something nearer that it does not
-    touch cuts it off - the face's last 2 px there go black and the 2 above them 50% ((x + y) odd black), so a
-    gap shows as void.  Never on, or because of, a cell that moves or vanishes (_SHADOW_DYN, as the shadows)"""
+GAP_SIDES = {"sw": 2, "se": 3}   # SPEC.md 130.57: a `gap` side -> lk's face code
+
+
+def gap_list(found, marks):
+    """SPEC.md 130.57: the detector's answer, a list in the order of the cells (wy, then wx, then sw before se):
+    {"cell": [wx, wy], "side": "sw" | "se", "feet": n, "box": [x0, y0, x1, y1] (the band's picture pixels,
+    inclusive, in the compile's picture), "marked": whether a `gap` names it}"""
+    return [{"cell": [c_[0], c_[1]], "side": sd, "feet": r[0], "box": r[1:5], "marked": (c_, sd) in marks}
+            for (c_, sd), r in sorted(found.items(), key=lambda kv: (kv[0][0][1], kv[0][0][0], kv[0][1]))]
+
+
+def main_gaps(paths):
+    """--gaps (SPEC.md 130.57): every face with a gap foot, one JSON line each, a course at a time.  The picture
+    is the occluder-free compile's, the one the course builder draws (y0 as that compile's)"""
+    global GAP_DETECT
+    import json
+    if not paths:
+        raise CourseError("--gaps takes the courses to look at")
+    GAP_DETECT = True
+    for path in paths:
+        c = compile_course(path, occluders=False)
+        for g in c.gap_faces:
+            print(json.dumps(dict(g, course=c.name, x0=c.x0, y0=c.y0), sort_keys=True))
+    return 0
+
+
+def look_gap(cv, marks, collect=None):
+    """SPEC.md 130.57: the GAP band.  A face's FOOT is a pixel of a cell's sw or se face with a top of ANOTHER
+    cell directly under it; it is a GAP foot when that top is not the cell across the face's own edge (the face
+    hangs over the void, or something nearer that it does not touch cuts it off).  marks: {(cell, side)} - at
+    each of their gap feet the face's last 2 px go black and the 2 above them 50% ((x + y) odd black).
+    collect: a dict to fill with every face that HAS a gap foot, the detector - {(cell, side): [feet, x0, y0,
+    x1, y1]}, the band's pixel box (inclusive).  Never a face on, or because of, a cell that moves or vanishes
+    (_SHADOW_DYN, as the shadows, 130.47.5)"""
     dyn = _SHADOW_DYN
+    side = {2: "sw", 3: "se"}
     lk, lo, rows = cv.lk, cv.lo, cv.rows
     for y in range(cv.h - 1):
         kr, orow, kb, ob = lk[y], lo[y], lk[y + 1], lo[y + 1]
@@ -8332,13 +8375,25 @@ def look_edge(cv):
                 continue                            # JOINED: the floor under it is its own neighbour
             if (wx, wy) in dyn or (b >> 8, b & 255) in dyn or n in dyn:
                 continue
-            yy = y
+            key = ((wx, wy), side[k])
+            on = key in marks
+            if collect is None and not on:
+                continue
+            yy, top = y, y
             for i in range(4):
                 if yy < 0 or lk[yy][x] != k or lo[yy][x] != o:
                     break
-                if i < 2 or (x + yy) & 1:
+                if on and (i < 2 or (x + yy) & 1):
                     rows[yy][x] = BLK
+                top = yy
                 yy -= 1
+            if collect is not None:
+                r = collect.get(key)
+                if r is None:
+                    collect[key] = [1, x, top, x, y]
+                else:
+                    r[0] += 1
+                    r[1], r[2], r[3], r[4] = min(r[1], x), min(r[2], top), max(r[3], x), max(r[4], y)
 
 
 _NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_hack "nolook"): the ink before
@@ -10251,7 +10306,8 @@ FSHOW = 8                     # SPEC.md 130.28.6, the SHOW rule: the most lit ba
 # "good art, not good info", kept for a disk that can afford it.  Light from -x+y, a shadow 1 gu long for each
 # px of height
 SHADOW = False
-EDGE = False                  # the G4 GAP band (make's BZEDGE=1, the run's --edge): a knob, off by default
+GAP_DETECT = False            # SPEC.md 130.57: compile_course fills c.gap_faces (the builder's overlay, --gaps)
+_GAP = {"marks": frozenset(), "collect": None}   # (this compile's: the faces `gap` names, and the detector's dict)
 _SHADOW_DYN = frozenset()     # this compile's cells that MOVE or vanish: no shadow on or from them (130.47.5)
 _SHADOW_OK = True             # off for a course over BLK_MAX with shadows (compile_course's retry, 130.47.5)
 _SHADOW_IN = False
@@ -11398,7 +11454,7 @@ def _compile_shadow(source, fname=None, occluders=True, _hack=None, crsinfo=None
     """(SPEC.md 130.47.5: with CAST SHADOWS a course over BLK_MAX with them is compiled again without them, and
     the run says so - PLAYGROUND, the stress test, is the one)"""
     global _SHADOW_IN, _SHADOW_OK
-    if not (SHADOW or EDGE) or _SHADOW_IN:
+    if not SHADOW or _SHADOW_IN:
         return _compile_cached(source, fname, occluders, _hack, crsinfo)
     _SHADOW_IN = True
     try:
@@ -11408,7 +11464,7 @@ def _compile_shadow(source, fname=None, occluders=True, _hack=None, crsinfo=None
         except CourseError as e:
             if "over the %d a map word" % BLK_MAX not in str(e):
                 raise
-            sys.stderr.write("bbcourse --shadow/--edge: %s; compiled again WITHOUT them (SPEC.md 130.47.5)\n" % e)
+            sys.stderr.write("bbcourse --shadow: %s; compiled again WITHOUT the shadows (SPEC.md 130.47.5)\n" % e)
             _SHADOW_OK = False
             _VANISH_MEMO.clear()
             return _compile_cached(source, fname, occluders, _hack, crsinfo)
@@ -11708,7 +11764,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     global _SHADOW_DYN                              # SPEC.md 130.47.5: no shadow on or from what moves or vanishes
     _SHADOW_DYN = frozenset(set(gcells) | set(rails) | ttcells | bridges | {c_ for sw in src.seesaws for c_ in sw["cells"]}
                           | {c_ for (t_, _z) in tt_tabs.values() for c_ in [t_["at"]]}
-                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if SHADOW or EDGE else frozenset()
+                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if SHADOW or src.gaps or GAP_DETECT \
+        else frozenset()
     ops = _ops_of(tiles)
     # a vanishing crack's and a bridge walkway's RE-RENDER (the tiles less one tile) is drawn by the same ops:
     # guard cells as their rails, the lintels, the arches - a re-render that left them out differed from the
@@ -11773,7 +11830,18 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     lines = max(MINLINES, (lines + 7) // 8 * 8)
     cols, brows = src.width, lines // 8
     owners = any(p["kind"] == PK_WINDMILL for p in props)
-    cv = render(tiles, ops, x0, y0, width, lines, owners)
+    gmarks = frozenset((c_, sd) for gcs, gsd, _gl in src.gaps for c_ in gcs for sd in gsd)
+    gfound = {} if (src.gaps or GAP_DETECT) else None
+    _GAP["marks"], _GAP["collect"] = gmarks, gfound
+    try:
+        cv = render(tiles, ops, x0, y0, width, lines, owners)
+    finally:
+        _GAP["collect"] = None                      # (the re-renders - a crack's, a bridge's - lay the marks alone)
+    for gcs, gsd, gln in src.gaps:                  # SPEC.md 130.57: a `gap` that bands nothing is a mistake
+        if not any((c_, sd) in gfound for c_ in gcs for sd in gsd):
+            raise CourseError("%s:%d: gap bands nothing: no %s face of its shape stands over a gap a floor cuts "
+                              "(a cell that moves or vanishes takes no band; SPEC.md 130.57)"
+                              % (fname, gln, " or ".join(gsd)))
     for afile, ax, ay, aln in src.arts:              # SPEC.md 130.23.2: ART, the topmost layer, no depth
         for (x, y), ink in read_bba(os.path.join(COURSE_DIR, afile), fname, aln).items():
             if view is not None:                    # (the title's: the CGA window's pixels, 130.23.2)
@@ -12800,6 +12868,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
     c.ground, c.floats = ground, floats             # SPEC.md 130.27: the ground plane (px), the FLOATING cells
+    c.gap_faces = gap_list(gfound, gmarks) if gfound is not None else None   # SPEC.md 130.57: the detector's
     c.rails = frozenset(rails)                      # SPEC.md 130.35: the GUARD RAIL cells
     c.pairs = pairs                                # SPEC.md 130.24.5.2: {split cell: (half A's bytes, B's)}
     c.ftabs = ftabs                                 # SPEC.md 130.28.2: section F's tables
@@ -21377,7 +21446,7 @@ def _dump(obj, f, gids=None):
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
 _FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
-                      "_SHADOW_DYN", "_SHADOW_IN"))   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
+                      "_SHADOW_DYN", "_SHADOW_IN", "_GAP"))   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
 
 
@@ -22191,7 +22260,7 @@ def check_demo(c, K, log, idents, where):
                                                                   idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
-    if bad and bad[0] == 4 and (SHADOW or EDGE):
+    if bad and bad[0] == 4 and SHADOW:
         # SPEC.md 130.47.5: the shadows move the picture's ink and nothing the replay meets, so a BZSHADOW build
         # re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
         restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: the shadows moved the picture "
@@ -36083,7 +36152,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT, EDGE
+    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -36137,9 +36206,9 @@ def main():
     ap.add_argument("--shadow", action="store_true",
                     help="SPEC.md 130.47.5's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
                          "of height, a 50%% dither on the tops they fall on; off by default")
-    ap.add_argument("--edge", action="store_true",
-                    help="the G4 GAP band (make's BZEDGE=1; docs/plans/bonanza-courses/EDGES.md): a column face over "
-                         "a gap ends in 2 px of black and 2 of 50%% dither where a floor cuts it; off by default")
+    ap.add_argument("--gaps", action="store_true",
+                    help="SPEC.md 130.57's detector: every column face with a GAP foot, one JSON line each (cell, "
+                         "side, feet, the band's picture box, whether a `gap` marks it); writes nothing")
     ap.add_argument("--guide", action="store_true",
                     help="the course guide's checks (wave 11: G1, G3, G9 - G12) on each `guide` course, over its "
                          "route and any --log demos; writes nothing")
@@ -36152,13 +36221,13 @@ def main():
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 130.15.12.2); about a minute a course")
     a = ap.parse_args()
-    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.only == "list"):
-        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
+    if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.gaps
+            or a.only == "list"):
+        ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide, --gaps or --png DIR")
     OCC_MODE = a.occ
     STRICT = a.strict or a.selfcheck              # SPEC.md 130.56.10: the refusal controls are the strict tier's
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
-    EDGE = a.edge
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
     only = None
@@ -36171,6 +36240,14 @@ def main():
         if bad or not a.selfcheck:
             ap.error("--only takes --selfcheck's sections (%s)%s" % (", ".join(selfcheck_sections()),
                                                                      ": not %s" % ", ".join(bad) if bad else ""))
+    if a.gaps:
+        if a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide:
+            ap.error("--gaps writes nothing and runs alone")
+        try:
+            return main_gaps(a.courses)
+        except CourseError as e:
+            print("bbcourse: %s" % e, file=sys.stderr)
+            return 1
     if a.camcheck:
         if a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans:
             ap.error("--camcheck writes nothing and runs alone")
