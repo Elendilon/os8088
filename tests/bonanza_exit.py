@@ -27,8 +27,8 @@ them.  This row takes every way out, on every card:
     the benchmark's end  B, BENCH (B's own course), its end path reached a few frames in: [bz_frames]
                          poked to BZ_BENCH less BENCH_TAIL once the bracket is up (the end is the same
                          compare at frame 1,200; nothing here needs the 1,200 frames before it)
-    the world part       every TWO-PART course of the build (bzcrs2.lst), F then Esc: its picture part
-                         and world part fetched and dropped (130.30.5).  NO TEST COURSE IS TWO PARTS yet
+    the world part       every TWO-PART course of the build (the tool's compile), F then Esc: its ONE
+                         part fetched, its world part a segment of it, and dropped (130.30.5).  NO TEST COURSE IS TWO PARTS yet
                          (a two-part picture is over 65,024 bytes), so this is the PLAYGROUND today - by
                          the build's list, never by name: when it leaves, the leg says it ran on none
 
@@ -219,17 +219,6 @@ def bsegs(g):
     return list(struct.unpack("<3H", bytes(g.m.read(g.a("bz_bsegs"), 6))))
 
 
-def ncrs2():
-    """the two-part courses' WORLD part rows (SPEC.md 130.30.4.4): one a line of
-    the build's bzcrs2.lst, in row order after the courses' own - 0 for a tree
-    with none (empty) or older than 130.30 (no file).  A SHEETED course has no
-    row past its own (its ONE part, SPEC.md 130.30.12.5)"""
-    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
-    if not os.path.exists(p):
-        return 0
-    return sum(1 for ln in open(p) if ln.strip())
-
-
 def link_row(name):
     """a BZ_P_* row constant as the package assembled it (bzlink.inc, the shell
     part's link, which lists the package's BZ constants), or None"""
@@ -239,23 +228,12 @@ def link_row(name):
     return int(m_.group(1), 0) if m_ else None
 
 
-def world_row(k):
-    """course K's WORLD part's row (SPEC.md 130.30.4.4): the j-th line of the
-    build's bzcrs2.lst is row BZ_P_CRS + BZ_NCRS + j - or None, K one part"""
-    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
-    names = open(p).read().split() if os.path.exists(p) else []
-    if "BZ%dW.BIN" % k not in names:
-        return None
-    R.crs_fill()
-    return CRS_ROW0 + dict.__len__(R.CRS_K) + names.index("BZ%dW.BIN" % k)
-
-
 def snd_row():
-    """the row after the courses' and the two-part courses' WORLD rows (130.30.4.4): the DEMOS' first since
-    SPEC.md 130.50 (the sound part went into the RESIDENT BUNDLE, each song into its course part - no
-    sound rows)"""
+    """the row after the courses': the DEMOS' first since SPEC.md 130.50 (the sound part went into the
+    RESIDENT BUNDLE, each song into its course part - no sound rows), and no WORLD rows since SPEC.md
+    130.30.5 (a two-part course's world part is in its ONE part, as a sheeted course's)"""
     R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
-    return CRS_ROW0 + dict.__len__(R.CRS_K) + ncrs2()
+    return CRS_ROW0 + dict.__len__(R.CRS_K)
 
 
 def crs_row(name):
@@ -271,25 +249,27 @@ def bench_frames():
 
 
 def two_part():
-    """the build's TWO-PART courses, by name, in row order (bzcrs2.lst's BZ<K>W.BIN): the world part's leg.
-    A SHEETED course (SPEC.md 130.30.12) is not among them: its world part is a segment of its ONE part
-    (130.30.12.5), no row of its own"""
-    p = os.path.join(ROOT, R.at("build/bonanza-art"), "bzcrs2.lst")
-    names = open(p).read().split() if os.path.exists(p) else []
-    return [R.crs_name(int(n[2:-5])).lower() for n in names if n.endswith("W.BIN")]
+    """the build's TWO-PART courses, by name, in K order (the tool's compile: a world part and no sheets): the
+    world part's leg.  Since SPEC.md 130.30.5 a two-part course is ONE part on the disk, its world part a
+    segment of its one claim, so there is no list of world rows to read; a SHEETED course (SPEC.md 130.30.12)
+    is not among them"""
+    R.crs_fill()
+    names = sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__)
+    return [n for n in names if R.course_k(R.CRS_K[n]).split and not R.course_k(R.CRS_K[n]).sstored]
 
 
-def sheeted(k):
-    """course K's ONE part's plan when it is SHEETED (SPEC.md 130.30.12.5: its sheets and its world part, each
-    from a paragraph of the one claim - plan["paras"]), else None"""
-    c = R.course_k(k)
-    return c.plan if getattr(c, "bstored", None) else None
+def one_plan(k):
+    """course K's ONE part's layout when it has a world part (SPEC.md 130.30.5, 130.30.12.5: a two-part
+    course's picture part, or a sheeted course's sheets, and its world part, each from a paragraph of the one
+    claim - plan["k"] the picture pieces, plan["paras"] their paragraphs and the world part's last), else
+    None"""
+    return getattr(R.course_k(k), "oplan", None)
 
 
 def shell_row():
     """the SHELL PART's row (SPEC.md 130.19.2): after the demos - held on the
     desktop, never inside a bracket.  Counted from the build's own lists (the
-    courses, bzcrs2.lst's world parts, the sound, the songs, the demos) and
+    courses, the sound, the songs, the demos) and
     held to the package's BZ_P_SHELL, so a row the table gains that this count
     does not know of is a refusal here rather than a wrong row read quietly"""
     k = snd_row() + ndemo()             # (no sound rows since SPEC.md 130.50)
@@ -355,7 +335,7 @@ def ram_forms(k, tag, art=None):
     (bbcourse's cga), or its htab() translation
     (herc_translate_course) -> (the part, None) - or for a TWO-PART course
     (SPEC.md 130.30) (the picture part, the world part), herc_translate_parts'
-    on the Hercules.  The art's BZ<K>.BIN (and BZ<K>W.BIN) must be the same
+    on the Hercules.  The art's BZ<K>.BIN (a two-part course's ONE part, SPEC.md 130.30.5) must be the same
     compile's STORED forms, or the comparison would be with another tree's
     courses.  A SHEETED course (SPEC.md 130.30.12): the picture part is its
     sheet 0 (its ONE part's first piece, what bz_crshdr shows), its other
@@ -366,12 +346,8 @@ def ram_forms(k, tag, art=None):
     if key not in _RAM:
         c = R.course_k(k)
         ram, stored = c.cga, (c.bstored or c.stored)
-        wram, wstored = (c.wcga, c.wstored) if c.split else (None, None)
-        if c.bstored:                       # (SPEC.md 130.30.12.5: the world part is in the one part)
-            wstored = None
-        for f_, want in [("BZ%d.BIN" % k, stored), ("BZ%dW.BIN" % k, wstored)]:
-            if want is None:
-                continue
+        wram = c.wcga if c.split else None  # (SPEC.md 130.30.5, 130.30.12.5: the world part is in the one part)
+        for f_, want in [("BZ%d.BIN" % k, stored)]:
             with open(os.path.join(ROOT, art, f_), "rb") as f:
                 if f.read() != want:
                     raise SystemExit("%s/%s is not this tree's course %s as stored: the art is "
@@ -430,7 +406,8 @@ def claim_check(g, what):
     pic, world = ram_forms(k, g.tag)
     cpic, cworld = ram_forms(k, "cga")
     mp = heapmap.Map(Q(m), {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live", "mem_tab")})
-    # a TWO-PART course (SPEC.md 130.30.5): the picture part in [bz_mseg], the world part in [bz_cseg]
+    # a TWO-PART course (SPEC.md 130.30.5): the picture part in [bz_mseg], the world part in [bz_cseg] - ONE
+    # claim, the picture part at its base and the world part a SEGMENT inside it at the plan's paragraphs
     legs = [("bz_cseg", pic, cpic, "")] if world is None else [("bz_mseg", pic, cpic, "picture "),
                                                                ("bz_cseg", world, cworld, "world ")]
     # a SHEETED course (SPEC.md 130.30.12.5): ONE claim - sheet 0 at its base ([bz_shseg], the picture part's
@@ -438,7 +415,7 @@ def claim_check(g, what):
     # plan's paragraphs, each its RAM form (on the Hercules its blocks translated, bz_hxshs) - and at fsx_run
     # the SHOWN sheet, [bz_mseg], is sheet 0 (bz_crshdr's)
     shs = sheet_forms(k, g.tag)
-    spl = sheeted(k)
+    spl = one_plan(k)
     inner = {}                                  # (a word's segment -> its paragraphs past the claim's base)
     if spl:
         inner = {"bz_cseg": spl["paras"][-1]}
@@ -459,8 +436,8 @@ def claim_check(g, what):
         key = word
         if isinstance(word, str) and word.startswith("bz_shseg + "):
             key = ("bz_shseg", int(word.split()[-1]) // 2)
-        if key in inner:                        # (a segment of the sheeted course's one claim, 130.30.12.5)
-            base = g.w("bz_shseg")
+        if key in inner:                        # (a segment of the course's one claim, 130.30.5, 130.30.12.5:
+            base = g.w("bz_mseg")               # its base the picture part's, or sheet 0's, checked above)
             cl = [c for c in mp.claims if c.seg == base]
             if not cl or seg - base != inner[key] or (cl[0].para - inner[key]) * 16 < len(want):
                 out.append("%s: claim leg, %s: [%s] %04X is not the one claim's (at %04X) paragraph %d with "
@@ -598,9 +575,8 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     # SPEC.md 130.25.5.2: the balls have no rows - all three are HELD in the resident bundle (its row is
     # fetched since the open), so the control is the course's row and the bundle's FETCHED, the three
     # ball segments (bz_bsegs) set, and the sprite's (bz_bseg) the material's
-    wrow = world_row(g.b("bz_crs"))            # SPEC.md 130.30.5: a two-part course's WORLD part, a row and a
-    shd = sheeted(g.b("bz_crs")) is not None    # claim of its own beside the picture's (a SHEETED course's: a
-    for i in [pc, fbun_row()] + ([wrow] if wrow is not None else []):     # segment of its one part, 130.30.12.5)
+    shd = one_plan(g.b("bz_crs")) is not None   # SPEC.md 130.30.5, 130.30.12.5: a course's WORLD part is a
+    for i in [pc, fbun_row()]:                  # segment of its ONE part, no row of its own
         f, z = r_in[i]
         if not f & OP_FETCHED or not z:
             fails.append("%s: inside the bracket row %d is not fetched (flags %02X zkb %04X): the control cannot "
@@ -618,8 +594,8 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     # so a play holds the course and the arena - the shell gone, the desktop title's arena (if it had one)
     # become the play's: two claims however many balls, and no fanfare term
     ar_in = 1 if g.w("op_arena") else 0
-    np = 1 if wrow is None else 2               # (130.30.5: the picture part and the world part, a claim each;
-                                                # 130.30.12.5: a SHEETED course's sheets and world part ONE)
+    np = 1                                      # (130.30.5: a two-part course's picture and world parts ONE
+                                                # claim; 130.30.12.5: a SHEETED course's sheets and world part)
     if g.tag == "vga":                          # (130.46.6: the VGA's code part and the balls' converted
         np += 2                                 # copies, both held through the bracket)
     if len(c_in) != len(base_claims) - 1 + np - g.ar0 + ar_in or not ar_in:
@@ -628,7 +604,7 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
                          way, len(c_in), len(base_claims), np, g.ar0, ar_in, c_in))
     if "bz_mseg" in g.sym:                      # the two words: one part's both the course's, two parts' apart
         cs, ms = g.w("bz_cseg"), g.w("bz_mseg")
-        if not cs or (ms != cs) != (wrow is not None or shd):
+        if not cs or (ms != cs) != shd:
             fails.append("%s: inside the bracket [bz_cseg] %04X and [bz_mseg] %04X - a %d-part course's (SPEC.md "
                          "130.30.5)" % (way, cs, ms, np))
     if way == "bench":                          # (the guest paused with the bracket up: BENCH_TAIL frames
@@ -1040,10 +1016,10 @@ def run(tag, ways=WAYS, apps=None, src=None, tube=True, cup=True, bench=True, wo
                          % sorted(title))
         R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
         if len(base_rows) != shell_row() + 1 + R.after_shell():
-            fails.append("the package has %d part rows, not %d courses, %d world parts, %d shipped demos, the "
-                         "shell, the pathway, the title's two, the families' and the VGA's - no sound rows "
-                         "(SPEC.md 130.11.3.1, 130.30.4.4, 130.50, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.46.6)" % (
-                             len(base_rows), dict.__len__(R.CRS_K), ncrs2(), ndemo()))
+            fails.append("the package has %d part rows, not %d courses, %d shipped demos, the shell, the "
+                         "pathway, the title's two, the families' and the VGA's - no sound rows, no world rows "
+                         "(SPEC.md 130.11.3.1, 130.30.5, 130.50, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.46.6)" % (
+                             len(base_rows), dict.__len__(R.CRS_K), ndemo()))
         plan = [(w, "tquik") for w in ways]     # the six ways out, ONCE, on TQUIK (130.25.5.2: the balls held)
         if tube:
             plan.append(("tubeesc", "tquik"))   # Esc with the ball HIDDEN in TQUIK's KEEP tube
