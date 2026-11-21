@@ -9,6 +9,7 @@ origin 304                # 1,280 px (SPEC.md 130.10.4.2): steel's north-west le
 uses boost spike water spring
 ball rubber
 music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
+limit 75                  # the owner (2026-11-21, after playing the steel leg): 75 s
 target 60
 
 # rooms (the sketch's sections)
@@ -22,7 +23,8 @@ floor rect  29  15  31  18  flat 21.5   # F
 floor rect  31  16  32  17  flat 21.5   # F
 floor rect  32  16  36  17  flat 21.5   # B
 floor rect  38  14  43  19  flat 17   # L
-floor rect  46  12  52  21  flat 14   # X
+float rect  38  14  43  19
+floor rect  46  14  52  21  flat 14   # X
 floor rect  52  17  56  20  flat 14   # S
 floor rect  56  17  57  20  flat 14   # W
 floor rect  56  20  59  21  flat 11   # T
@@ -40,6 +42,7 @@ floor rect  61  38  62  39  flat 15   # W
 floor rect  57  39  66  43  flat 9   # G
 floor rect  49  21  50  26  flat 14   # K
 floor rect  47  26  51  29  flat 14   # P
+float rect  47  26  51  29
 floor rect  46  27  47  28  flat 14   # K
 floor rect  44  25  45  26  flat 14   # K
 floor rect  42  23  43  24  flat 14   # K
@@ -49,12 +52,19 @@ floor rect  34  27  35  28  flat 14   # K
 floor rect  44  29  45  30  flat 14   # K
 floor rect  38  23  39  24  flat 14   # K
 floor rect  43  26  46  29  flat 14   # Q
+float rect  43  26  46  29
 floor rect  43  22  46  25  flat 14   # Q
+float rect  43  22  46  25
 floor rect  39  22  42  25  flat 14   # Q
+float rect  39  22  42  25
 floor rect  39  26  42  29  flat 14   # Q
+float rect  39  26  42  29
 floor rect  35  26  38  29  flat 14   # Q
+float rect  35  26  38  29
 floor rect  43  30  46  33  flat 14   # Q
+float rect  43  30  46  33
 floor rect  35  22  38  25  flat 14   # Q
+float rect  35  22  38  25
 floor rect  24  26  29  29  flat 14   # W
 floor rect  29  26  34  29  flat 14   # Y
 floor rect  21  25  24  29  flat 14   # Y
@@ -92,13 +102,11 @@ wall  tile  34  15  flat 23.5
 guard tile  34  17                # see-through
 wall  tile  35  15  flat 23.5
 guard tile  35  17                # see-through
-wall  tile  46  11  flat 16
-wall  tile  47  11  flat 16
-wall  tile  48  11  flat 16
-wall  tile  49  11  flat 16
-wall  tile  51  11  flat 16
-wall  tile  52  12  flat 16
-wall  tile  52  13  flat 16
+wall  tile  46  13  flat 16
+wall  tile  47  13  flat 16
+wall  tile  48  13  flat 16
+wall  tile  49  13  flat 16
+wall  tile  51  13  flat 16
 wall  tile  52  14  flat 16
 wall  tile  52  15  flat 16
 wall  tile  52  16  flat 16
@@ -113,11 +121,23 @@ guard tile  56  16                # see-through
 guard tile  57  17                # see-through
 guard tile  57  18                # see-through
 guard tile  57  19                # see-through
+guard tile  58  19                # see-through
+guard tile  59  19                # see-through
 guard tile  59  38                # see-through
+guard tile  60  19                # see-through
 guard tile  60  38                # see-through
+guard tile  61  19                # see-through
+guard tile  62  19                # see-through
 guard tile  62  38                # see-through
 guard tile  63  38                # see-through
+guard tile  66  20                # see-through
+guard tile  66  21                # see-through
 
+hole  half up tile 38 14          # a diagonal corner
+hole  half right tile 42 14          # a diagonal corner
+hole  half left tile 38 18          # a diagonal corner
+hole  half down tile 42 18          # a diagonal corner
+hole  half left tile 46 20          # a diagonal corner
 
 # the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)
 floor half left tile 31 15  flat 21.5
@@ -152,7 +172,7 @@ prop membrane 38 23 39 24
 water rect 24 26 29 29 top 14 bed 11 open
 prop boost 22 27 face +y strength 40
 # steel (rev 16): the momentum hump across the run south, the LIFT up 4 in line at its end, the column
-hump 63 23 11 along x 3 open height 8
+hump 63 25 11 along x 3 open height 8
 prop platform 62 27 4
 water rect 61 38 62 39 top 15 bed 9
 arch 61 38 +y
@@ -173,13 +193,13 @@ checkpoint 60 27 ball steel   # flag 6
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
-clock 10 7
-floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
-clock 50 11
+clock 10 7 frame orbr
+floor tile 50 13  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
+clock 50 13 frame orbh
 floor tile 61 43  flat 10.5   # the steel finish clock's tile (on top of the rail block it replaces)
-clock 61 43
+clock 61 43 frame orbs
 floor tile 37 34  flat 7.5   # the glass finish clock's tile (on top of the rail block it replaces)
-clock 37 34
+clock 37 34 frame orbg
 
 # the autopilot's route
 way 8 7
@@ -210,3 +230,7 @@ way 61 36
 way 61 38
 way 61 39
 way 61 41
+# ---- ART (generated by docs/plans/bonanza-courses/down/art.py) ----
+art down_sign.bba 720 724
+art down_boost.bba 196 579
+# ---- end ART ----

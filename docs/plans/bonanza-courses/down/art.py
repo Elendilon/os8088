@@ -37,6 +37,10 @@ INTEREST DECALS (`--extras`, comma-separated):
     python3 docs/plans/bonanza-courses/down/art.py --signs fork --extras stairs,sink --out DIR
         writes DIR/down.bbc (a SCRATCH copy of apps/bonanza/courses/down.bbc with this ART block) and its .bba
         files beside it; the lead adds the chosen block to the course once the owner picks
+    python3 docs/plans/bonanza-courses/down/art.py apply
+        THE OWNER'S PICKS (`wall` + `boost`, PICK_SIGNS / PICK_EXTRAS) into the shipped course: draws them off
+        down.bbc as sketch.py wrote it, writes apps/bonanza/courses/down_sign.bba and down_boost.bba and the ART
+        block, and refuses if sketch.py's ART anchors (which the sketch emits on every re-emit) disagree
     python3 docs/plans/bonanza-courses/down/art.py sheet DIR
         every option into DIR/<variant>/, each compiled and measured (the picture part per SHEET, SPEC.md
         130.30.12, and the parts packed) and drawn into DIR/signs.png, DIR/decals-*.png, CGA and Hercules"""
@@ -747,7 +751,31 @@ def preview(out):
     pictures(c, Image)[0].save(os.path.join(out, "base-cga.png"))
 
 
+# THE OWNER'S PICKS (2026-11-21): the wall signs and the boost decal (not the signposts or the balls - a ball
+# could roll over them and art occlusion was never built - nor the flags, which need it too)
+PICK_SIGNS, PICK_EXTRAS = "wall", ("boost",)
+
+
+def apply():
+    """the PICKS into the shipped course's folder: apps/bonanza/courses/down_*.bba and the ART block at the end of
+    down.bbc, drawn off the course as sketch.py wrote it; refuses when sketch.py's ART anchors disagree (it is the
+    sketch that writes the block on every re-emit)"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("down_sketch", os.path.join(HERE, "sketch.py"))
+    S = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(S)
+    path = build(PICK_SIGNS, PICK_EXTRAS, os.path.dirname(COURSE))
+    with open(path, encoding="ascii") as f:
+        got = re.findall(r"^art (\S+) (\d+) (\d+)$", f.read(), re.M)
+    want = [(fn, str(ax), str(ay)) for fn, ax, ay, _n in S.ART]
+    print("art: %s -> %s" % (", ".join("%s %s %s" % g for g in got), os.path.relpath(path, ROOT)))
+    if got != want:
+        raise SystemExit("art.py: sketch.py's ART says %s; set it to what was drawn (above) and re-emit" % want)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "apply":
+        return apply()
     if len(sys.argv) > 1 and sys.argv[1] == "preview":
         return preview(sys.argv[2])
     if len(sys.argv) > 1 and sys.argv[1] == "sheet":
