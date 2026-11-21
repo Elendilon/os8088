@@ -196,7 +196,8 @@ BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 130.25.6.2): the family part
                                 ; rows, after every other row: a `fetch` family's own (ID order),
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (130.25.6.9); bz_ftab maps an ID
 BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.46.6): the last row
-BZ_LIVES    equ 5               ; a new game's lives (8b.5)
+BZ_LIVES    equ 5               ; a new game's lives (8b.5); a LIFE pickup raises
+                                ; them to BZ_LVMAX (bzcourse.inc, SPEC.md 130.55)
 ; --- BONANZA.DAT (SPEC.md 130.14.3.3, 130.22.5.1): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
 ; `BZS5`: 488 bytes, keyed by what stays put - a best by its course's SAVE KEY, progress by PAD
 BZD_ENT     equ 8               ; 23 best entries IN NO ORDER: +0 the course's
@@ -205,7 +206,7 @@ BZD_NENT    equ BZ_CRS_MAX      ; STEPS (0 none), +4 that best's falls
 BZD_SLOT    equ BZD_ENT + BZD_NENT * BZD_ENTB ; three game SLOTS after the bests: +0 lives,
 BZD_SLOTB   equ 22 + 4 * BZ_PAD_MAX ; +1 the MODE (bit 0), +2 the PAD, +3 zero,
 BZD_NSLOT   equ 3               ; +4 the OPEN pads and +8 the DONE ones
-BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; (a dword each, a bit a pad), +12 the routes
+                                ; (a dword each, a bit a pad), +12 the routes
 BZD_SPAD    equ 2               ; OPENED and +16 TAKEN (a dword each), +20 the
 BZD_SOPEN   equ 4               ; pathway's VERSION (BZ_PATH_VER), +22 the exits
 BZD_SDONE   equ 8               ; found (a word a PAD, 23 pads, +22 - +67), +68
@@ -214,6 +215,12 @@ BZD_SRTAK   equ 16              ; +113): 114 bytes a slot.
 BZD_SVER    equ 20
 BZD_SEXIT   equ 22
 BZD_SBEST   equ BZD_SEXIT + 2 * BZ_PAD_MAX
+; SPEC.md 130.55: THE LIVES GIVEN after the three slots, a dword a slot - a bit
+; a PAD whose course's `once` LIFE was taken in that slot's game (bz_nlife).  A
+; file written before it (BZD_FILE0 bytes) reads with the table zero
+BZD_FILE0   equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB
+BZD_LIFE    equ BZD_FILE0
+BZD_FILE    equ BZD_LIFE + 4 * BZD_NSLOT
 ; UNDER one sector, never a WHOLE one: od_write takes its in-place arm (one
 ; sector, no FAT, no entry) only for a count that is not a multiple of 512
 ; (os88data.inc), and the slot is written at a course's ENTRY inside the
@@ -947,9 +954,26 @@ bz_gstorl:
     mov si, bz_nopen
     mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep movsw
+    call bz_dlife               ; ...and the lives given (130.55)
+    mov si, bz_nlife
+    movsw
+    movsw
     pop es
     pop di
     pop cx
+    ret
+
+; bz_dlife - DI = the slot played's dword in THE LIVES GIVEN (BZD_LIFE, SPEC.md
+; 130.55).  Preserves all else.
+bz_dlife:
+    push ax
+    mov al, [bz_slot]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    add ax, bz_dat + BZD_LIFE
+    xchg ax, di
+    pop ax
     ret
 
 ; bz_gload - the slot's pad and its 16 bytes of pads and routes into
@@ -968,6 +992,11 @@ bz_gload:
     mov di, bz_nopen
     mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep movsw
+    call bz_dlife               ; ...and the lives given (130.55)
+    mov si, di
+    mov di, bz_nlife
+    movsw
+    movsw
     pop es
     pop di
     pop si
@@ -991,6 +1020,9 @@ bz_gnew:
     mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep stosw
     mov byte [si + BZD_SOPEN], 1
+    call bz_dlife               ; (no life given: 130.55)
+    stosw
+    stosw
     pop es
     pop di
     pop cx
@@ -2122,6 +2154,10 @@ bz_grounds:
     call bz_gcrs                ; (no INTRO card any more, 130.22.6)
     jc .out
 .crs:
+    cmp byte [bz_rsm], 0        ; THE LIFE PICKUP's (SPEC.md 130.55): bz_lfx for
+    jne .lfk                    ; the course (a RESUMED play keeps its own)
+    call bz_lfset
+.lfk:
     call bz_vinit
     call bzs_open
     xor al, al                  ; (a RETRY's life: its sound in its own play)
@@ -2138,6 +2174,13 @@ bz_grounds:
     mov byte [bz_susp], BZ_SU_CRS ; its log (SPEC.md 130.26.4)
     ret
 .ntw:
+    test byte [bz_lfx], 2       ; a `once` LIFE given (130.55): its pad's bit,
+    jz .ntl                     ; kept with the game (a finish or not)
+    mov al, [bz_ppad]
+    mov si, bz_nlife
+    call bz_dwset
+.ntl:
+    mov byte [bz_lfx], 0        ; (no other play takes a life)
     cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 130.22.6)
     je .life
     call bz_dslot               ; the exit FOUND (130.19.6), a word a PAD
@@ -2201,6 +2244,23 @@ bz_grounds:
     call bzs_gdrop0
     cmp byte [bz_crs], BZ_CRS_PATH
     je bz_phrel                 ; ...which stays only if a course fits beside it
+    ret
+
+; bz_lfset - bz_lfx for a game's course about to play (SPEC.md 130.55): 0 in
+; EXPLORE (it costs no life, so it gives none); else bit 0, and bit 1 when the
+; pad's course has given its `once` life this game (bz_nlife).  Clobbers AX, SI.
+bz_lfset:
+    xor ah, ah
+    cmp byte [bz_xmode], 0
+    jne .w
+    mov al, [bz_ppad]
+    mov si, bz_nlife
+    call bz_dwtst               ; (ZF = 0: given)
+    mov ah, 1
+    jz .w
+    mov ah, 3
+.w:
+    mov [bz_lfx], ah
     ret
 
 ; bz_phrel - before a course is fetched, the pathway's balls, song and sound
@@ -4262,7 +4322,18 @@ bz_dload:
     or dx, dx
     jnz bz_dnorm
     cmp ax, BZD_FILE            ; BZS5 (130.22.5.1): exactly BZD_FILE bytes; any
-    jne bz_dnorm                ; other length (an older layout too) is unrecognised
+    je .len                     ; other length (an older layout too) is unrecognised
+    cmp ax, BZD_FILE0           ; - but BZD_FILE0, the file before THE LIVES
+    jne bz_dnorm                ; GIVEN (130.55): its table zero
+    push es
+    push ds
+    pop es
+    mov di, bz_dat + BZD_LIFE
+    mov cx, (BZD_FILE - BZD_LIFE) / 2
+    xor ax, ax
+    rep stosw                   ; (CL 0, as on every refusal below)
+    pop es
+.len:
     cmp word [bz_dat + 2], 'S5'
     jne bz_dnorm
     call bz_dchk
@@ -4415,6 +4486,10 @@ bz_dsave:
     add si, bz_dmine - bz_dat
     mov cx, BZD_SLOTB / 2
     rep movsw
+    call bz_dlife               ; ...and its LIVES GIVEN (130.55)
+    lea si, [di + bz_dmine - bz_dat]
+    movsw
+    movsw
     mov bx, bz_dmine + BZD_ENT  ; per course: each of our entries (bz_dnorm
     mov cx, BZD_NENT            ; made both images: this build's keys, each
 .m:                             ; once, a best 1 - 65,534) against the disk's
@@ -4487,8 +4562,8 @@ bz_dslz:
     push es
     push ds
     pop es
-    mov di, bz_dat + BZD_SLOT
-    mov cx, BZD_NSLOT * BZD_SLOTB / 2
+    mov di, bz_dat + BZD_SLOT   ; (and THE LIVES GIVEN after them, 130.55)
+    mov cx, (BZD_FILE - BZD_SLOT) / 2
     xor ax, ax
     rep stosw
     pop es
@@ -4498,7 +4573,7 @@ bz_dslz:
     ret
 
 ; bz_dslots - each SLOT judged alone (BZS5, SPEC.md 130.22.5.1): EMPTIED when
-; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
+; its lives are over BZ_LVMAX (130.55), +1 has a bit but the mode's, +3 is not zero,
 ; a route TAKEN is not one OPENED, its exits found or its bests past the
 ; pathway's PADS (at or past BZ_PATH_NPAD) are not zero, +20 is not this
 ; build's pathway VERSION, or - it having lives - pad 0 is not open, its pad
@@ -4516,8 +4591,8 @@ bz_dslots:
     mov si, bz_dat + BZD_SLOT
     mov bl, BZD_NSLOT
 .s:
-    mov al, [si]                ; lives
-    cmp al, BZ_LIVES
+    mov al, [si]                ; lives (a LIFE pickup's: up to BZ_LVMAX, 130.55)
+    cmp al, BZ_LVMAX
     ja .bad
     test byte [si + 1], 0feh    ; (+1: bit 0 the MODE, 8c)
     jnz .bad
@@ -4563,6 +4638,15 @@ bz_dslots:
     mov cx, BZD_SLOTB / 2
     xor ax, ax
     rep stosw
+    mov al, BZD_NSLOT           ; ...and its LIVES GIVEN (130.55): slot
+    sub al, bl                  ; NSLOT - BL's dword
+    shl ax, 1
+    shl ax, 1
+    add ax, bz_dat + BZD_LIFE
+    xchg ax, di
+    xor ax, ax
+    stosw
+    stosw
     pop es
 .n:
     push si                     ; each pad's exits found masked to its
@@ -5404,7 +5488,10 @@ VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the 
 %ifdef BZDEV
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (130.22.7); never set by the package
 %endif
-VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
+VAR bz_lives,1                  ; lives left (5 at a new game, a LIFE pickup's up to BZ_LVMAX; 0 the game is over)
+VAR bz_lfx,1                    ; SPEC.md 130.55: the LIFE pickup's - bit 0 a game's course plays (a life may be
+                                ; taken), bit 1 its pad's `once` life given this game (the part sets it)
+VAR bz_nlife,4                  ; ...a bit a PAD whose `once` life the game has given (the slot's, BZD_LIFE)
 VAR bz_pwck,1                   ; wave 8R (130.22.4.4): the course Enter at a pad plays
 VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 130.22.4.1), even
 VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)

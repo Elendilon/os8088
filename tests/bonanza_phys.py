@@ -1462,7 +1462,7 @@ def w9_replays():
     p = run_keys("play", BB.MAT_RUBBER, None, keys)
     S.append({"name": "pickups", "crs": "play", "mat": BB.MAT_RUBBER, "poke": None, "keys": keys, "red": None,
               "what": "PLAYGROUND's PICKUPS (SPEC.md 130.25.19): %s" % ", ".join("%s at %d" % (n, i) for n, i in marks),
-              "ok": pickup_ok(p, marks)})
+              "ok": pickup_ok(p, marks, life=False)})      # (a replay: no game's course, the life hidden)
     return S
 
 
@@ -1520,9 +1520,13 @@ def pickup_keys():
     STACKED on its contact onto the 2-unit RIDGE, off it and both worn off, the HOURGLASS (+10 s), a RETURN
     (the ATTEMPT hourglass stays taken, the RESPAWN two come back), back into the hourglass's cell (not taken
     again: once an attempt), the speed again and the jump while it
-    runs (both at once), a RETURN while both run, the jump a third time, worn off.  -> (keys, [(mark, step)])"""
+    runs (both at once), a RETURN while both run, the jump a third time, worn off; then (SPEC.md 130.55) the
+    LIFE `once` taken (a game's course: PU_LIFE's bz_lfx and lives), its RISE cue, a RETURN, and back into its
+    cell, held - not taken again.  The speed is `respawn`: back each time it wears off.
+    -> (keys, [(mark, step)])"""
     c = R.course("play")
     p = BB.Physics(c, play=True, mat=BB.MAT_RUBBER)
+    p.lfx, p.lives = PU_LIFE
     keys, marks = [], []
     # (the yard left of the mat, SPEC.md 130.25.19: in by the row above the mat, wy 14; the sprint east
     # along it over the apron; back by the yard's column 6, clear of the mat)
@@ -1586,8 +1590,24 @@ def pickup_keys():
         keys.append(0)
         p.step(0)
     marks.append(("worn off", len(keys)))
+    lf = next(pr for pr in p.props if pr["kind"] == BB.K_LIFE)
+    _pu_goto(p, keys, *lf["at"], until=lambda q: q.lives != PU_LIFE[1])
+    if not p.cue & 4 or p.lfx != 3:
+        raise AssertionError("the life taken without its RISE or its `once` bit (cue %d, lfx %d)" % (p.cue, p.lfx))
+    marks.append(("life (lives %d)" % p.lives, len(keys)))
+    keys.append(BB.K_RET)
+    p.step(BB.K_RET)
+    marks.append(("RETURN", len(keys)))
+    _pu_goto(p, keys, *lf["at"])
+    for _ in range(30):
+        keys.append(0)
+        p.step(0)
+    marks.append(("life again, kept", len(keys)))
     assert vmax0 >= 0
     return keys, marks
+
+
+PU_LIFE = (1, 5)                                # the scenario's bz_lfx and bz_lives: a game's course, 5 lives
 
 
 RIDGE = (4, 16, 48)                             # PLAYGROUND's yard cell, the RIDGE's floor (px: z 6)
@@ -1612,18 +1632,24 @@ def ridge_apex(hop=None):
     return best
 
 
-def pickup_ok(p, marks):
-    """what the scenario is for, at its end: every pickup taken (the hourglass kept through two RETURNs,
-    the timed two cleared by the last and the jump taken again), no effect left, two RETURNs, no fall"""
+def pickup_ok(p, marks, life=True):
+    """what the scenario is for, at its end: every pickup taken (the hourglass kept through three RETURNs,
+    the timed two cleared by each - the jump, taken a third time, by the life's), no effect left, three
+    RETURNs, no fall;
+    LIFE (SPEC.md 130.55): the life taken ONCE (6 lives, bz_lfx 3, its bit kept through the RETURN) - else
+    (a replay: bz_lfx 0) never shown and never taken"""
     hg = next(pr for pr in p.props if pr["kind"] == BB.K_HOURGLASS)
     jp = next(pr for pr in p.props if pr["kind"] == BB.K_JUMP)
     sp = next(pr for pr in p.props if pr["kind"] == BB.K_SPEED)
 
     def bit(pr):
         return p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7) & 1
-    return (len(marks) == 13 and p.nret == 2 and not p.nfall and bit(hg) and bit(jp) and not bit(sp)
+    lf = next(pr for pr in p.props if pr["kind"] == BB.K_LIFE)
+    lv = (bit(lf) and p.lives == PU_LIFE[1] + 1 and p.lfx == 3 and p.nfev == 7) if life else \
+        (not bit(lf) and p.lives == 0 and p.nfev == 6)
+    return (len(marks) == 16 and p.nret == 3 and not p.nfall and bit(hg) and not bit(jp) and not bit(sp)
             and _pu_t(p) == (0, 0) and p.hop == BB.MATERIALS[BB.MAT_RUBBER]["HOP"] and not p.wacc and not p.vup
-            and p.nfev == 6 and p.nboost >= 1)
+            and lv and p.nboost >= 1 and not p.cue)
 
 
 # WIND (SPEC.md 130.34): the knob build's test course, compiled here from its source WITHOUT its cracks (the
@@ -1944,7 +1970,7 @@ class _UView:
 
 
 def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None, k=None, slice=None, out=(),
-         full=False, tilts=None, tables=False):
+         full=False, tilts=None, tables=False, life=None):
     """KEYS played on course CRS through bz_crshdr, bz_ffetch, bz_pinit and
     bz_step under unicorn, the model stepped beside it and compared after
     every step: the ball (Physics.state), and on a course with families
@@ -1963,10 +1989,14 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     record and force tables too) - bonanzaphys's replays proved STEP FOR STEP
     here, so the glass row replays only a representative few (BOUNCE-BONANZA-
     SOAK principle 3); TILTS: a TILT log's tilt byte a step.  A replay's goal
-    or timeout ends the run there, as the guest's replay ends.
+    or timeout ends the run there, as the guest's replay ends.  LIFE: (bz_lfx, bz_lives) written before
+    bz_pinit, as a game's course has them (SPEC.md 130.55), the model's too.
     -> (model, failures)"""
     c = R.course(crs, src=src)
     g = UGuest(binp, lst, sym, c.wcga if c.split else c.cga, fam, patch)
+    if life is not None:
+        g.w("bz_lfx", life[0], 1)
+        g.w("bz_lives", life[1], 1)
     g.w("bz_cseg", UPS, 2)
     if c.split:                                 # (a TWO-PART course, SPEC.md 130.30.5: the world part in
         g.mu.mem_write(UMS * 16, bytes(c.cga))  # [bz_cseg], the picture part in [bz_mseg]; one part is in
@@ -1980,6 +2010,8 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
     assert not cf, "bz_ffetch refused the family part"
     g.call("bz_pinit")
     p = BB.Physics(c, play=True, mat=mat) if poke is None else model(crs, mat, poke, src=src)
+    if life is not None:
+        p.lfx, p.lives = life
     if src:                                     # (the borrowed K's limit replaced by the course's own)
         g.w("bz_tsec", p.tsec, 2)
         g.w("bz_t55", p.t55, 1)
@@ -2099,11 +2131,11 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
                                % (i, gv, mv))
             if any(fm.row["name"] == "pickups" for fm, _v in p.fam):     # wave 9: the WORKING values
                 gv = (g.r("bz_wacc", 1, False), g.r("bz_vup", 2), g.r("bz_mrec", 2, False, 6), g.r("bz_cue", 1, False), g.r("bz_nfev", 2, False), g.rb("bz_fta", 9),
-                      g.r("bz_tsec", 2, False))
-                mv = (p.wacc, p.vup, p.hop, p.cue, p.nfev, bytes(p.fta), p.tsec)
+                      g.r("bz_tsec", 2, False), g.r("bz_lfx", 1, False), g.r("bz_lives", 1, False))
+                mv = (p.wacc, p.vup, p.hop, p.cue, p.nfev, bytes(p.fta), p.tsec, p.lfx, p.lives)
                 if gv != mv:
-                    bad.append("step %d: the working values (wacc, vup, Hop, cue, nfev, fta, tsec) %s, the "
-                               "model's %s" % (i, gv, mv))
+                    bad.append("step %d: the working values (wacc, vup, Hop, cue, nfev, fta, tsec, lfx, lives) %s, "
+                               "the model's %s" % (i, gv, mv))
             for pr in elem + [pr for pr in lanes if pr["kind"] == BB.PK_GROUP]:
                 if not pr.get("lane"):          # (a group MEMBER has no lane: its group lanes are checked)
                     continue
@@ -2341,7 +2373,7 @@ def fam_host():
     if not rok:
         fails.append("the ridge is not the jump's alone (apex %d with no jump, %d with it)" % (ap, aj))
     pk, marks = pickup_keys()
-    p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, fam)
+    p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, fam, life=PU_LIFE)
     out.append("the pickups scenario, %d steps (%s): %s (slot %s, bz_fst %s)" % (
         len(pk), ", ".join("%s %d" % m_ for m_ in marks), "; ".join(bad) or "equal at every step",
         bytes(p.fsl[_pu_slot(p)]).hex(), bytes(p.fst).hex()))
@@ -2362,7 +2394,7 @@ def fam_host():
                                   ("puretake", fam_parts({"pickups": bytes(retake)}), (), "the working values"),
                                   ("purst", fam_parts({"pickups": _noentry(pick, BB.H_RESET)}), (), "slots"),
                                   ("puvup", fam, ((vup + 3, b"\x90" * 4),), "the ball")):
-        p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, ff, patch)
+        p, bad = urun(binp, lst, sym, "play", BB.MAT_RUBBER, pk, ff, patch, life=PU_LIFE)
         ok = any(want in b for b in bad)
         out.append("red %s: %s" % (name, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
