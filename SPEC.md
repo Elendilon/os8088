@@ -296010,3 +296010,149 @@ builds `bz_mrow` exactly (`MAP + br ROWB`, all 256 words), and `bz_boxc`'s
 buffer is exactly the part's words on 59 boxes, word column 159 at every
 first-line offset among them. Its red arms (`--red mrow`, the table not built
 past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
+
+### 130.55 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; NOT BUILT, planned on `bb-editor`)
+
+The owner: a GUI course builder *"focused on ease of use"*, supporting every
+tile and prop the course format has, with the shape editor in a tab of its
+own; a Python window *"similar to the video battle builder"*, because the
+compiler that checks a course takes minutes on a modern machine. The plan and
+its stories are `docs/plans/BOUNCE-BONANZA-EDITOR.md`; the mockups the owner
+reviewed are linked from there. This section is the contract and binds the
+plan; nothing in it is built yet.
+
+#### 130.55.1 The decisions, in one table
+
+| # | decision | why |
+|---|---|---|
+| E1 | A HOST program, `tools/bbedit.py` (the window) over `tools/bbedproj.py` (the model), not an os8088 package | the checks are the compiler's physics runs: 3.5 s for MILL and 181 s for PLAY on a 4-core host at `abe0713d0`, with tables far past 640 KB - an XT would take tens of minutes to hours an edit (PREDICTED, not measured) |
+| E2 | The battle builder's layers (docs/plans/completed/VBATTLE-BUILDER-PLAN.md 2): model, analysis, window; everything slow a PROCESS with JSON progress that Cancel kills | the encoder window's lesson (98.2.11.1), and nothing the window does is out of a script's or a test's reach |
+| E3 | The `.bbc` text is the document. The model edits it LINE BY LINE: a changed statement rewrites its own line, a new one is inserted beside its kind, every other byte - comments, blank lines, order - is kept | the courses are mostly comment; `parse()` keeps line numbers and drops the rest, and there is no writer today |
+| E4 | `tools/bbcourse.py` stays the only judge of a course. The window never decides what is legal and never draws a course picture of its own except the top-down PLAN | one compiler, so the builder cannot drift from the game - and the game's visual changes (the VGA arm 130.46, the look 130.47, the column and floor distinctions coming) reach the builder by merging, not by porting |
+| E5 | Two views of one selection: PLAN (top-down, a height map that toggles) and ISO (the compiler's own `render()`), switched by one key | the owner: authors and agents both fail to SEE that one thing obstructs another, or that two surfaces blend |
+| E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.55.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
+| E7 | `--strict` makes warnings refusals, for agents' command-line runs; an element marked `hidden` is exempt from its visibility warning there too (130.55.5) | the owner: hiding a checkpoint is a real design (secret routes) and needs a *"they asked for it"* opt-out |
+| E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.55.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
+| E9 | A full check that an edit makes stale is CANCELLED, and restarted 2 s after the last edit; never more than one of each job alive | edits must not pile up processes |
+| E10 | Runs where the other Python windows run: macOS (Tk, Pillow), Windows (Pillow if wanted), Linux with the dependencies installed; shipped as a zip, `make bbeditbundle`, `vbtbundle`'s shape | the owner's machines |
+| E11 | ADD TO THE GAME is in scope, a wave of its own at the end: the builder writes a playable BONANZA with the author's courses, from what the zip ships (130.55.9) | RealDMG's precompiler window is the precedent: it writes a game, not a source file |
+| E12 | The PATHWAY (`path.bbc`) is edited too, a wave of its own; the title course and the knob `.sed` variants are read-only in the first waves | different statements (130.22.2); the window says so when one is opened |
+
+#### 130.55.2 The layers
+
+| layer | file | what it is | needs Tk |
+|---|---|---|---|
+| model | `tools/bbedproj.py` | a course document: the text, its statements (each with its line span), edit methods, undo, the file's stamp on disk | no |
+| checks | `tools/bbcourse.py` | the compiler, unchanged in role: `parse`, the compile, `render`, `owners_canvas`, `visibility`, `Physics` - plus the warning tier (130.55.4) and the blend check (130.55.6) | no |
+| jobs | `tools/bbedjob.py` | runs a check as a process; JSON lines on stdout (`{stage, done, of, what}`, then `done` with the result) | no |
+| window | `tools/bbedit.py` | a view of the model; calls only model methods and jobs | yes |
+| player | `tools/bbplay.py` | Test Roll's frame loop (130.55.7) | yes (the window it draws in) |
+
+`bbedproj` is also a command line (`python3 tools/bbedproj.py check|set|add|remove …`) so an agent edits a course through the same methods as the window.
+
+#### 130.55.3 The document
+
+- **Statements** are read by `bbcourse.parse` (one parser) and carry their
+  line span. An edit is a method (`move`, `resize`, `set_height`,
+  `set_surface`, `add`, `remove`, `set_clause`) that produces a new line or
+  lines for that statement only; the rest of the file is byte-for-byte what
+  was read.
+- **Round trip** is the first gate: opening and saving every course under
+  `apps/bonanza/courses/` without an edit writes identical bytes, and an edit
+  then its undo writes identical bytes.
+- **The file on disk**: the model keeps the file's size, time and hash at
+  load and at save. A save whose file has changed since asks before writing;
+  the window notices a change when it regains focus and offers to reload.
+  (Cheap, so kept, though the owner and agents never share a container.)
+- **What an edit makes stale**: an edit changes the course's identity
+  (130.15.7), so its AUTHOR demo and any shipped `BZD<NAME>.BIN` stop
+  replaying. The Course tab says which, and offers to re-record (Test Roll
+  can record, 130.55.7). The kit (130.37), `uses` (130.25.6.4) and the course
+  budget (130.15.8) are the compiler's to report.
+
+#### 130.55.4 Errors and warnings
+
+A check is an ERROR when the course cannot be built or played: the grammar,
+the start reaching the goal, NO TRAP, the part's size and block limits, the
+occluder record limits, anything drawn off the picture, a secret route's
+structure (130.22). It is a WARNING when it is about what the player SEES:
+
+- every `HIDDEN` refusal the compiler makes today becomes a warning: the
+  flag (130.14.25 item 1), the blower's fan and squiggles, the magnet, a
+  turntable cell, the boost pad, a lane's pose, the clock, a ball wholly
+  hidden behind an archway (130.39) or a hump (130.44) for too long;
+- the visibility audit (130.15.10.4) - marks and tube mouths under their
+  share, the ball hidden over 0.5 s on the route - which only reports today;
+- the BLEND check (130.55.6), new.
+
+Warnings never block a save, a Test Roll, a build or an add-to-the-game.
+`bbcourse.py --strict` (and the window's "Treat warnings as errors") makes
+each one a refusal again, naming the element and its line; the shipped build
+keeps today's behaviour by passing `--strict` from the Makefile until the
+owner says otherwise.
+
+#### 130.55.5 `hidden`: the author asked for it
+
+`checkpoint <wx> <wy> [ball …] hidden` - and the same trailing word on every
+element a visibility warning names (`spring`, `pad`, `clock`, the
+`prop` families with a pose) - marks the element hidden ON PURPOSE. It
+writes nothing into the part (no identity moves). Its visibility warning is
+not raised, under `--strict` too; the Course tab lists it as "hidden on
+purpose". `cup … hidden` (130.22) already exists and keeps its meaning.
+
+#### 130.55.6 The blend check
+
+The owner: floor tiles whose PATTERNS MATCH, *"so visually there is no
+distinction between them, when they are not actually adjoined"*. Two floor
+regions A and B BLEND when (1) they are not adjoined - not grid neighbours
+the ball can roll between at the same height - and (2) in the picture a run
+of pixels where A's top face meets B's continues the checker with no edge
+line. It is found from `owners_canvas` (130.15.10.4): every screen-adjacent
+pixel pair owned by two cells that are not adjoined, whose colours continue
+the pattern, counts toward that pair of regions; a pair over a threshold
+(set in its wave from the shipped courses) is a warning. It is checked per
+picture the course has: the CGA in its palette (130.16.6), the Hercules, and
+the VGA arm's when the compiler renders one. The window draws a blending
+pair with a stripe over both regions, in Iso and in Plan, from the warning's
+"Show".
+
+#### 130.55.7 Test Roll
+
+- **The model is the game's**: `Physics.step(keys, tilt)`, the families'
+  `pose()`, `sprite()` and `shadow()`, the `Glide` camera, at 54.6 steps a
+  second (`STEP_HZ`). 100 s of play steps in 0.03 s (MILL) and 0.14 s (PLAY)
+  on the host (MEASURED at `abe0713d0`).
+- **The picture** is the compiler's render; the frame adds the poses, the
+  ball and its shadow, masked by the course's occluders. The compositor is
+  the one place the builder copies the guest's drawing, so it is checked
+  against MartyPC's frames of the same demo (the plan's wave 6).
+- **The course it plays**: `Physics` reads the compiled part, and the
+  compile without occluders is NOT always valid (PLAY's makes 1,123 blocks,
+  over the 1,024 of 130.15.4.4, MEASURED). A play-only compile - the part's
+  grid and props without its picture blocks, or the picture held as an image
+  - is the plan's wave 0 question, answered before wave 6 is designed.
+- **Start anywhere**: the course start, a flag, or a cell clicked on the plan
+  (`Physics.poke`). Pause, step a frame, ¼ and ½ speed, rewind (states kept
+  every 0.5 s), a ghost of the AUTHOR demo or the best run.
+- **A run is a demo**: Save writes the steps as a `.BZR` (130.14.7), so a
+  host run replays on the real game step for step.
+
+#### 130.55.8 Jobs
+
+One PICTURE job (render and owners, under a second on a small course) and
+one FULL job (the compile with occluders, NO TRAP, the visibility audit, the
+blend check). An edit kills a running FULL job's process group and starts a
+new one 2 s after the last edit; the PICTURE job runs on every edit and a
+newer one replaces an older. The status bar shows each job's stage and
+Cancel. Results are the compiler's cache's (`cache_put`) where it has them.
+
+#### 130.55.9 Add to the game (the last wave)
+
+The builder writes a BONANZA the author can play: the shipped courses (or
+none) plus the author's, as `BONANZA.O88` and optionally a floppy image. The
+course list is ASSEMBLED into the package today (`bzcourse.inc`'s rows,
+130.10.6), so the wave decides between a prebuilt package whose course table
+is data the builder fills in - the precompiler's shape (`gbaotbundle`,
+REALDMG-SPEC 20.12), nasm only where the zip is made - and a package that
+reads its course list off the disk. The pathway entry for a new course
+(pad, route, icon) is made with the pathway editor's wave.
