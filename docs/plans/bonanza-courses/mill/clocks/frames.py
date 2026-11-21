@@ -416,10 +416,13 @@ CONCEPTS = {
 }
 POSITIONS = ("start", "turntable", "finish")
 _DRAW = {"mill": _clock_mill, "vase": _clock_vase, "flag": _clock_flag, "wheel": _clock_wheel}
+import frames2 as _R2                               # noqa: E402  round 2: four more round mill and wheel
+CONCEPTS.update(_R2.CONCEPTS)
+_DRAW.update(_R2.DRAW)
 
 
 def install(B):
-    """add the twelve frames to bbcourse's styles, in this process only"""
+    """add the frames (round 1's twelve, round 2's twelve) to bbcourse's styles, in this process only"""
     _bind(B)
     names = []
     for concept, vs in CONCEPTS.items():
