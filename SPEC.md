@@ -270768,7 +270768,14 @@ props. Each refusal names the line:
 - **NO TRAP** (`--selfcheck` item 7): from every flag's cell with the
   flag's ball, and from every pad's cell with the pad's ball, the reachable
   set - pads, springs and tubes included - must contain the goal or the
-  cup; a flag or a pad that fails is refused, naming it and the ball;
+  cup; a flag or a pad that fails is refused, naming it and the ball.
+  **It rides a lift UP** (2026-11-21, DOWN rev 18's steel flag at a lift's
+  foot): a run continues while a lift's slab carries the ball (`onp`) and
+  never records the shaft as a resting cell, and on a course with a lift
+  the runs start at eight phases 32 steps apart (`TRAP_LIFT_PHASES`; two
+  phases 32 apart could both miss a slab down a third of its ~260-step
+  period). The grammar section's "a flag at a lift's foot", red arm
+  `_TRAPNOLIFT`;
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (130.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left

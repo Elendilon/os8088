@@ -12838,9 +12838,12 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
             p.poke(*cell)
             p.nstep = ph
             p.ckmat = mat
-            for st_ in range(TRAP_RUN + 64):
-                if st_ >= TRAP_RUN and not p.air and not p.tube:
-                    break                       # (a run ends grounded)
+            for st_ in range(TRAP_RUN + 320):
+                if st_ >= TRAP_RUN and not p.air and not p.tube and not (p.onp and not _TRAPNOLIFT):
+                    break                       # (a run ends grounded - not on a lift's slab, which carries
+                                                # it on: SPEC.md 130.14.4.1, a lift ridden up)
+                if st_ >= TRAP_RUN + 64 and not p.onp:
+                    break
                 n0 = len(p.events)
                 p.step(k | (K_HOP if st_ in hops else 0))
                 if p.nfall or p.nret:
@@ -12849,7 +12852,7 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
                 if p.goal or here in cup:
                     hit = True
                     break
-                if here != cell and not p.tube and (not p.air or any(
+                if here != cell and not p.tube and not p.onp and (not p.air or any(
                         e[0] in ("land", "bounce", "hopc", "stun") for e in p.events[n0:])):
                     out.add((here, p.mat))      # grounded there, or a contact there (a rubber ball bounces on)
             if hit:
@@ -12860,6 +12863,10 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
     return cache[key]
 
 
+_TRAPNOLIFT = False           # the red arm of `grammar`'s "a flag at a lift's foot" (the carry not followed)
+TRAP_LIFT_PHASES = tuple(range(0, 256, 32))   # NO TRAP's starting steps on a course with a lift (8, 32 apart)
+
+
 def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
     """from (cell, mat), is the goal or the cup reachable?  -> (bool, states explored)"""
     cache = {} if cache is None else cache
@@ -12868,6 +12875,9 @@ def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
     phases = (0,)                       # a windmill's gate or the lift's slab: two phases half a
     if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
         phases = (0, 32)                # gate period apart (64 steps), so one of them finds it open
+    if any(r["kind"] == PK_PLATFORM for r in c.part["props"]):
+        phases = TRAP_LIFT_PHASES       # a LIFT ridden UP (SPEC.md 130.14.4.1): its slab is down for about a
+                                        # third of its ~260-step period, which two phases 32 apart can both miss
     seen = {(cell, mat)}
     todo = [(cell, mat)]
     while todo:
@@ -30899,7 +30909,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 1
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 2
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -30959,6 +30969,24 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             ok_, msg = False, str(e)
         res.append(("2 accepted (130.14.4.1): a spring at a pit's edge%s" % ("" if ok_ else " -- got: " + msg), ok_))
+    if mine():                                      # SPEC.md 130.14.4.1: NO TRAP rides a LIFT up - a flag at its
+        global _TRAPNOLIFT                          # foot (the run followed while the slab carries the ball);
+        txt = _LIFTUP + "checkpoint 9 9\n"           # RED ARM _TRAPNOLIFT: the run cut at TRAP_RUN on the slab
+        try:
+            compile_course(txt, fname="<a flag at a lift's foot>")
+            ok_, msg = True, "compiled"
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        _TRAPNOLIFT = True
+        try:
+            compile_course(txt + "# red arm\n", fname="<a flag at a lift's foot, red arm>")
+            red = "compiled"
+        except CourseError as e:
+            red = str(e)
+        finally:
+            _TRAPNOLIFT = False
+        res.append(("2 accepted (130.14.4.1): a flag at a lift's foot, NO TRAP riding it up%s; RED ARM (the carry not "
+                    "followed): %s" % ("" if ok_ else " -- got: " + msg, red[:90]), ok_ and "NO TRAP" in red))
 
 
 def _sc_w9(X, res):

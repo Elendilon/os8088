@@ -194,7 +194,7 @@ rail(42, 10, 48, 10); rail(48, 10, 48, 14); rail(48, 15, 48, 17)  # (rev 4: the 
 # rev 17 (the owner's pick of STRUCT.md's D): CHAMFERED corners, half holes (SPEC.md 130.24.4) cut on the diagonal
 # on L's four corners (an octagonal floating island, with A) and the hub's free front-left corner - corners no
 # route and no way goes near (the demo lands mid-L and leaves along y 12.5; the hub's cut is 3 tiles from the pad)
-HALVES += [(34, 10, "up"), (38, 10, "right"), (34, 14, "left"), (38, 14, "down"), (42, 16, "left")]
+HALVES += [(34, 10, "up"), (38, 10, "right"), (34, 14, "left"), (38, 14, "down")]   # (rev 18: the hub stays square)
 # 2. THE SPLIT: two exits out of the hub - EAST a STEEL pad, SOUTH a GLASS pad (rev 2: swapped, so the glass
 #    leg's lift climbs up the screen in view; rev 3: no archways - a rubber ball that hops a pad dies on the
 #    spikes or the membrane, which introduces both)
@@ -328,10 +328,10 @@ GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 0, "steel"), (31, 27, 33, 33, Z - 34, 1, 
 
 START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
-         (40.5, 23.5, "flag 3", "glass"), (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"), (18.5, 28.5, "flag 7", "glass"),
-         (56.5, 23.5, "flag 6", "steel")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
-# rev 17 asked for a 9th, a steel flag on the run 2 tiles past the hump, (60.5, 23.5) "flag 8" - REFUSED by the tool
-# ("a 9th checkpoint, over the 8 a course holds"); left out until the owner says which flag gives way
+         (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"), (18.5, 28.5, "flag 7", "glass"),
+         (56.5, 23.5, "flag 6", "steel"), (60.5, 23.5, "flag 8", "steel")]   # (rev 4: no flag at steel's entrance; one
+# on the lift's top too.  rev 18, the owner: island 1's flag goes - one small island past the bridge landing's - for
+# a steel flag on the run 2 tiles past the hump, so a ball the hump throws off the edge respawns there)
 CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 9.5, Z - 24.5, "hub", "block"), (57.5, 39.5, Z - 29.5, "steel finish", "block"),
           (33.5, 30.5, Z - 32.5, "glass finish", "block")]
 FRAMES = {"start": "orbr", "hub": "orbh", "steel finish": "orbs", "glass finish": "orbg"}   # rev 17 (the owner's

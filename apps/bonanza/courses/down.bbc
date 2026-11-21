@@ -137,7 +137,6 @@ hole  half up tile 38 14          # a diagonal corner
 hole  half right tile 42 14          # a diagonal corner
 hole  half left tile 38 18          # a diagonal corner
 hole  half down tile 42 18          # a diagonal corner
-hole  half left tile 46 20          # a diagonal corner
 
 # the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)
 floor half left tile 31 15  flat 21.5
@@ -185,11 +184,11 @@ start 8 7
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
 checkpoint 48 27 ball glass   # flag 2
-checkpoint 44 27 ball glass   # flag 3
 checkpoint 36 27 ball glass   # flag 4
 checkpoint 22 26 ball glass   # flag 5
 checkpoint 22 32 ball glass   # flag 7
 checkpoint 60 27 ball steel   # flag 6
+checkpoint 64 27 ball steel   # flag 8
 
 # clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
 floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
