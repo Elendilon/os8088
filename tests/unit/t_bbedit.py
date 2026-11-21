@@ -19,10 +19,16 @@
  6. REJOIN: the ramp made floor again rejoins into the one rectangle (tidy), as one undo step (group),
     and a route point is the last thing a click at its cell reaches;
  7. DIAGONALS: PLAY's split cells report their pieces and a click picks the piece under it; a boost pad,
-    magnet or membrane wholly behind a wall builds, with a warning.
+    magnet or membrane wholly behind a wall builds, with a warning;
+ 8. GAP BANDS (130.56.21): a ledge's faces over the lower floor are the detector's candidates; marking two
+    neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
+    (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
+    `marked` agrees after every step.
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
-(item 2 goes red on DOWN), or make bbcourse._visual raise again (item 3).
+(item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
+make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
+nothing").
 """
 
 import glob
@@ -157,6 +163,47 @@ def main():
                 bad.append("%s wholly hidden: built with no warning" % nm)
         except B.CourseError as e:
             bad.append("%s wholly hidden: refused (%s)" % (nm, str(e)[:100]))
+    # 8. GAP BANDS (SPEC.md 130.56.21, 130.57): mark, fold, split, unmark, as the compiler sees each step
+    gt = ('course GAPT "Gap test"\nwidth 64\nball rubber\nfloor rect 3 3 9 9 flat 4\nfloor rect 3 10 9 14 flat 0\n'
+          'floor rect 10 3 14 9 flat 0\nstart 4 4\ngoal rect 12 4 13 5 flat 0\ntarget 30\nway 4 4\nway 12 4\n')
+    d = E.Document(gt)
+
+    def marked():
+        B.GAP_DETECT = True
+        try:
+            gf = B.compile_course(d.text(), "gapt.bbc", occluders=False).gap_faces
+        except B.CourseError as e:
+            return str(e)[:100], []
+        finally:
+            B.GAP_DETECT = False
+        return {(tuple(g["cell"]), g["side"]) for g in gf if g["marked"]}, gf
+    _, gf = marked()
+    F = [(g["cell"], g["side"]) for g in gf]
+    gaps = lambda: [l_ for l_ in d.lines if l_.startswith("gap")]   # noqa: E731
+    steps = ((((8, 3), "se"), "marked", ["gap tile 8 3 se"]),
+             (((8, 4), "se"), "marked", ["gap rect 8 3 9 5 se"]),
+             (((3, 8), "sw"), "marked", ["gap rect 8 3 9 5 se", "gap tile 3 8 sw"]),
+             (((8, 3), "se"), "unmarked", ["gap tile 8 4 se", "gap tile 3 8 sw"]),
+             (((8, 4), "se"), "unmarked", ["gap tile 3 8 sw"]))
+    want = set()
+    if len(F) != 10:
+        bad.append("gap: the ledge has %d candidate faces, wanted 10" % len(F))
+    for face, r_want, lines in steps:
+        r = d.toggle_gap(face[0], face[1], F)
+        want ^= {face}
+        got, _ = marked()
+        if r != r_want or gaps() != lines or got != want:
+            bad.append("gap %r %s: %s, lines %r, compiler %r" % (face, r_want, r, gaps(), got))
+    d = E.Document(gt.replace("start 4 4", "gap rect 3 8 9 9\nstart 4 4"))    # both sides named, sw only real
+    d.toggle_gap((3, 8), "sw", F)
+    d.toggle_gap((4, 8), "sw", F)                # (4, 8)'s se, a face of nothing, is dropped with it
+    got, _ = marked()
+    if gaps() != ["gap rect 5 8 9 9"] or got != {((x, 8), "sw") for x in range(5, 8)}:
+        bad.append("gap: a both-sides rect unmarked at its ends is %r (compiler %r)" % (gaps(), got))
+    for f_ in [(x, 8) for x in range(5, 8)]:
+        d.toggle_gap(f_, "sw", F)
+    if gaps() or len(d.undo_stack) != 5:
+        bad.append("gap: every mark taken off leaves %r, %d undo steps" % (gaps(), len(d.undo_stack)))
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

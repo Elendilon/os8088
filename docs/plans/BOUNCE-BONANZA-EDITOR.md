@@ -28,6 +28,10 @@ the host; visual checks warn rather than refuse.
   - Iso, X-ray, and the Course and Source tabs;
 - the zip (`make bbeditbundle`).
 
+**The gap band's overlay is built (3.5, SPEC.md 130.56.21)**, the builder's half of the `bb-visuals`
+session's band (SPEC.md 130.57): the Iso view shows every face the band could go on, and a click marks or
+unmarks it.
+
 **Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6), the pathway (7) and
 add-to-the-game (8.1, 8.2). `[~]` below marks a story built in part, with what is missing.
 
@@ -127,6 +131,7 @@ union runs once at the end of a phase, in the background.
 | 3.2 [x] | X-ray and "Hard to see": the visibility audit's covered marks drawn seen / hidden / what hides it; the game's see-through toggle | MILL's tube mouth at 17, 20 (50%, under 18, 20 and 18, 21) shown as on the mockup |
 | 3.3 [ ] | the blend check in `bbcourse.py` (130.56.6): the definition, the threshold set from the shipped courses, per adapter | a constructed blending pair warns; the shipped courses' result recorded |
 | 3.4 [ ] | blending pairs drawn striped in Iso and Plan, from the warning's Show | a screenshot |
+| 3.5 [x] | the gap band's overlay (130.56.21): every candidate face boxed on Iso, filtered by width, a click marks or unmarks it as `gap` lines | the `bbedit` row's item 8; a scripted click on HOP marked `gap tile 28 15 se` and the next picture showed the band |
 
 ### Wave 4 - the Shapes tab
 

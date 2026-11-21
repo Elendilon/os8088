@@ -301,3 +301,25 @@ The `bbedit` row adds the rejoin, the one-step group and the route point's place
 - the selfcheck sections;
 - a scripted run: two corners cut and a strip, both compiled;
 - PLAY's diagonals drawn in the plan.
+
+## The gap band's overlay (2026-11-21)
+
+**The ask came from another session.** `bb-visuals` worked on telling a column that touches a floor from one
+that stands over a gap. Its band (the face's last 2 px black, 2 px of dither above) looked right in some
+places and wrong in others, and no rule separated them, so the owner chose to mark them by hand. That
+session built the statement (`gap`), the refusal and the detector (SPEC.md 130.57); the builder's part was
+to show the candidates and let a click choose.
+
+**Observed:**
+- **The detector costs nothing measurable.** HOP's picture compile ran 6 to 8.5 s with and without it.
+- **Marking is easy; unmarking is the interesting half.** A face can be named by a rect, by a both-sides
+  line, or by two lines at once. The builder rewrites every line naming the face as the fewest lines for
+  what is left. It must drop any piece no candidate face is in, or the compiler refuses the course ("gap
+  bands nothing"). The row's red arm is exactly that.
+- **A filled box hid the band it marked**, so a marked face is now an outline with the real band showing
+  inside it.
+- **The Iso toolbar overflowed** with the new controls, so the band has a row of its own.
+
+**Tested here:** the `bbedit` row (item 8, red when a band-less piece is kept); a scripted session on HOP
+that ticked the box, clicked a 7 px face and saw the next picture confirm the mark.
+

@@ -103,6 +103,9 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
               (CGA or Hercules); X-ray dims everything but the selection,
               shows a part's hidden pixels in red and what hides them in
               orange; hover names what drew each pixel.
+              Gap bands: boxes every face a gap band could go on (a
+              black-and-dither foot where a column hangs over a gap);
+              click a dashed box to mark it, a pink one to unmark it.
               The list under the course is every problem; click one to go
               to it.
   Course tab  the title, size, ball, music, colours, times; "Ready to play?"
