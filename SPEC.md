@@ -287564,6 +287564,39 @@ there to protect against."
   course's parts, demos and `bzcourse.inc` byte-identical before and after; the `--selfcheck` sections
   of every family touched pass. The game has not yet been run with a wholly hidden element.
 
+#### 130.56.21 The gap band's overlay (the owner, 2026-11-21)
+
+130.57 is the contract of the band and its detector; this is the builder's half of it. The owner: the band
+"looks right in some places and wrong in others", so the builder shows every place it COULD go and the owner
+clicks the ones that get it.
+
+- **The Iso view's own row**, under its toolbar: *Gap bands* (off by default), *show places at least N px
+  wide* (default 4: Little Hop has 88 candidates and many are 1-px slivers), and a count - shown, of all,
+  marked. The detector runs in the picture job only while the box is ticked (`bbedjob.py picture ...
+  --gaps` sets `GAP_DETECT` and writes `c.gap_faces` into `meta.json` as `gaps`); ticking it with a picture
+  that has none draws the picture again. MEASURED: on HOP the detector's cost is inside the picture
+  compile's run-to-run spread (6 to 8.5 s either way, one core); predicted to stay a small share on any
+  course, as it reads the canvas the picture already renders.
+- **Drawn over the picture**: an unmarked candidate a dashed cyan box round its band's `box`; a marked one
+  a solid pink outline with the band itself visible inside it (the picture is the compile of the course
+  as marked). Every marked face is shown whatever the width filter says. Hovering a box names the face
+  (side, cell, width, marked or not).
+- **A click toggles the face** (it is checked before the click selects what drew the pixel: the smallest
+  box within 4 screen px wins, so a sliver can be hit). `Document.toggle_gap(cell, side, faces)`, one undo
+  step:
+  - **marking** adds `gap tile X Y sw|se`, or folds the cell into a one-side statement it squares off
+    (two neighbours become one `gap rect`);
+  - **unmarking** rewrites EVERY statement naming the face as the fewest lines that name the rest - cells
+    still named on both sides as one side-less `gap rect`/`tile`, the others per side - drops a piece no
+    candidate face is in (it would be refused, "gap bands nothing"), and deletes the line when nothing is
+    left. Comments on a rewritten line stay with its first piece.
+  - The mark shows at once; the picture drawn again confirms it from the compiler's `marked`.
+- `gap` is a SHAPED statement for moving (coord_slots); the ground's cutting, rejoining and moving
+  (130.56.13, 130.56.14) do not touch it - a mark left over a face that is gone is refused by the
+  compiler, and the banner explains both of `gap`'s refusals in plain words.
+- The `bbedit` row (item 8) marks, folds, splits and unmarks on a constructed ledge and checks the
+  compiler's `marked` after every step; it goes red when a piece that bands nothing is kept.
+
 ### 130.57 THE GAP BAND: `gap`, marked by hand (the owner, 2026-11-21; on `bb-visuals`)
 
 *The owner, having played G4 everywhere (docs/plans/bonanza-courses/EDGES.md 5a): "in the places that this

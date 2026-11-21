@@ -3,7 +3,7 @@
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
-    python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH]   # the Iso view's picture
+    python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH] [--gaps]   # the Iso view's picture
     python3 tools/bbedjob.py check   COURSE.bbc [--strict] [--name PATH] # the full check
 
 Each line is a JSON object: {"stage": ..., "what": ...} while it works, then
@@ -15,7 +15,7 @@ still gets a picture to look at, and the CHECK says what is over. It writes
 OUTDIR/cga.png, OUTDIR/herc.png, OUTDIR/owners.bin (the cell that drew each
 pixel, 256 wx + wy or -1, int32 rows) and OUTDIR/meta.json (the size, the
 origin, every mark the visibility audit weighs with its seen and hidden
-pixels).
+pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
 the warnings that do not (SPEC.md 130.56.4).
@@ -50,13 +50,14 @@ def palette(src):
     return [(0, 0, 0)] + cols
 
 
-def picture(path, out, name=None):
+def picture(path, out, name=None, gaps=False):
     from PIL import Image
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
     B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.56.8)
+    B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (130.56.21)
     emit(stage="compile", what="laying the course")
     try:
         c = B.compile_course(text, path, occluders=False)
@@ -100,7 +101,7 @@ def picture(path, out, name=None):
         emit(stage="log", what="no visibility marks: %s" % e)
     meta = {"width": c.width, "lines": c.lines, "x0": c.x0, "y0": c.y0, "name": c.name, "marks": marks,
             "warnings": [{k: w[k] for k in ("kind", "msg", "line", "cell", "accepted")} for w in c.warnings],
-            "secs": round(time.time() - t0, 2)}
+            "gaps": c.gap_faces if gaps else None, "secs": round(time.time() - t0, 2)}
     with open(os.path.join(out, "meta.json"), "w") as f:
         json.dump(meta, f)
     emit(stage="done", ok=True, out=out, secs=meta["secs"])
@@ -130,7 +131,7 @@ def main(argv):
         name = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
     if len(argv) >= 3 and argv[0] == "picture":
-        return picture(argv[1], argv[2], name)
+        return picture(argv[1], argv[2], name, "--gaps" in argv[3:])
     if len(argv) >= 2 and argv[0] == "check":
         return check(argv[1], "--strict" in argv[2:], name)
     sys.stderr.write(__doc__)

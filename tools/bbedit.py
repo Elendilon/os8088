@@ -229,6 +229,8 @@ class App(object):
         self.show_route = tk.BooleanVar(value=True)
         self.show_hard = tk.BooleanVar(value=True)
         self.xray = tk.BooleanVar(value=True)
+        self.show_gaps = tk.BooleanVar(value=False)   # the gap band's candidates on the Iso view (130.56.21)
+        self.gap_min = tk.IntVar(value=4)             # ... with at least this many feet (or marked)
         self.adapter = tk.StringVar(value="cga")
         self.strict = tk.BooleanVar(value=False)
         self.part = None                # the palette entry chosen: (name, mode, template, hint)
@@ -390,6 +392,17 @@ class App(object):
                             command=self._redraw).pack(side="left")
         ttk.Checkbutton(self.iso_opts, text="X-ray the selection", variable=self.xray,
                         command=self._redraw).pack(side="left", padx=6)
+        # the gap band's row (SPEC.md 130.56.21): the Iso view's alone, under the toolbar
+        self.gap_row = ttk.Frame(mid, padding=(4, 0, 4, 4))
+        ttk.Checkbutton(self.gap_row, text="Gap bands", variable=self.show_gaps,
+                        command=self._gaps_toggled).pack(side="left")
+        ttk.Label(self.gap_row, text="  show places at least").pack(side="left")
+        ttk.Spinbox(self.gap_row, from_=1, to=60, width=3, textvariable=self.gap_min,
+                    command=self._redraw).pack(side="left")
+        ttk.Label(self.gap_row, text="px wide").pack(side="left")
+        self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80")
+        self.gap_l.pack(side="left", padx=10)
+        self.gap_row_after = vb
         self.banner = tk.Frame(mid, background="#fde2df", padx=8, pady=6)
         self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
                                  justify="left", anchor="w", wraplength=700)
@@ -2027,7 +2040,8 @@ class App(object):
                     self._msg("No picture: %s" % e.get("error"))
             elif e["stage"] not in ("exit", "log"):
                 self.job_l.config(text="Picture: %s" % e.get("what", e["stage"]))
-        self.pic_job = Job(["picture", p, out, "--name", self._name()], ev).start()
+        self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []),
+                           ev).start()
 
     def run_check(self):
         self.check_after = None
@@ -2091,6 +2105,8 @@ class App(object):
         drawn = [i for i in range(0, len(ow), 7) if ow[i] >= 0]
         meta["centre"] = ((sum(i % W for i in drawn) / float(len(drawn)), sum(i // W for i in drawn) / float(len(drawn)))
                           if drawn else (W / 2.0, meta["lines"] / 2.0))
+        if self.show_gaps.get() and meta.get("gaps") is None and not self.pic_after:
+            self.root.after(10, self.run_picture)   # (drawn before the overlay was turned on: again, with them)
         first = self.pic is None
         self.pic = {"meta": meta, "cga": cga, "herc": herc, "owners": ow, "text": text}
         if first and self.view.get() == "iso":
@@ -2140,11 +2156,14 @@ class App(object):
     def _redraw(self):
         if self.view.get() == "plan":
             self.iso_opts.pack_forget()
+            self.gap_row.pack_forget()
             self.plan_opts.pack(side="right")
             self._draw_plan()
         else:
             self.plan_opts.pack_forget()
             self.iso_opts.pack(side="right")
+            if not self.gap_row.winfo_ismapped():
+                self.gap_row.pack(side="top", fill="x", after=self.gap_row_after)
             self._draw_iso()
 
     def _cpx(self, x, y):
@@ -2375,6 +2394,69 @@ class App(object):
                     continue
                 for (x, y) in m["hidden"]:
                     c.create_rectangle(x * kx, y * ky, (x + 1) * kx, (y + 1) * ky, fill="#ff2828", width=0)
+        if self.show_gaps.get():
+            self._draw_gaps()
+        else:
+            self.gap_l.config(text="")
+
+    # -- the gap band (SPEC.md 130.56.21, 130.57) --------------------------------
+    def _gaps_toggled(self):
+        """the detector costs every picture compile time, so it runs only while the overlay shows: turned on
+        with a picture that has no candidates, the picture is drawn again with them"""
+        if self.show_gaps.get() and (self.pic_job and self.pic_job.running or self.pic
+                                     and self.pic["meta"].get("gaps") is None):
+            self.run_picture()                  # (one already drawing has no candidates either: started again)
+            self._msg("Finding where a gap band could go...")
+        self._redraw()
+
+    def _gaps_shown(self):
+        """the candidates the overlay draws: every marked face, and the unmarked ones at least gap_min wide"""
+        if not (self.show_gaps.get() and self.pic and self.pic["meta"].get("gaps") is not None):
+            return []
+        try:
+            n = int(self.gap_min.get())
+        except (tk.TclError, ValueError):
+            n = 1
+        return [g for g in self.pic["meta"]["gaps"] if g["marked"] or g["feet"] >= n]
+
+    def _draw_gaps(self):
+        c = self.cv
+        kx, ky = self.iso_scale
+        shown = self._gaps_shown()
+        for g in shown:
+            x0, y0, x1, y1 = g["box"]
+            r = (x0 * kx - 1, y0 * ky - 1, (x1 + 1) * kx + 1, (y1 + 1) * ky + 1)
+            if g["marked"]:
+                c.create_rectangle(*r, outline="#ff3df5", width=2)      # (the band itself shows inside)
+            else:
+                c.create_rectangle(*r, outline="#29e6ff", width=1, dash=(3, 2))
+        allg = self.pic["meta"].get("gaps") or []
+        m = sum(1 for g in allg if g["marked"])
+        self.gap_l.config(text=("%d of %d shown, %d marked (pink): click a box to mark or unmark it"
+                                % (len(shown), len(allg), m))
+                          if self.pic["meta"].get("gaps") is not None else "finding them...")
+
+    def _gap_at(self, e):
+        """the shown candidate under the pointer (the smallest box, within a few screen px of a sliver)"""
+        if self.view.get() != "iso" or not getattr(self, "iso_scale", None):
+            return None
+        x, y = self.cv.canvasx(e.x), self.cv.canvasy(e.y)
+        kx, ky = self.iso_scale
+        hit = []
+        for g in self._gaps_shown():
+            x0, y0, x1, y1 = g["box"]
+            if x0 * kx - 4 <= x <= (x1 + 1) * kx + 4 and y0 * ky - 4 <= y <= (y1 + 1) * ky + 4:
+                hit.append(((x1 - x0 + 1) * (y1 - y0 + 1), g))
+        return min(hit, key=lambda h: h[0])[1] if hit else None
+
+    def toggle_gap(self, g):
+        faces = [(f["cell"], f["side"]) for f in self.pic["meta"]["gaps"]]
+        r = self._edit(self.doc.toggle_gap, g["cell"], g["side"], faces)
+        if r:
+            g["marked"] = r == "marked"          # (shown at once; the picture drawn again confirms it)
+            self._redraw()
+            self._msg("%s the gap band on the %s face of x %d, y %d (%d px wide)" % (
+                "Marked" if g["marked"] else "Unmarked", g["side"].upper(), g["cell"][0], g["cell"][1], g["feet"]))
 
     def _xray(self, img, herc):
         """the picture dimmed but for the pixels the selection's cells drew, and what drew over them"""
@@ -2434,6 +2516,10 @@ class App(object):
 
     def _press(self, e):
         self.cv.focus_set()
+        g = self._gap_at(e) if self.show_gaps.get() else None
+        if g:                                            # the gap overlay: a click marks or unmarks that face
+            self.toggle_gap(g)
+            return
         cell = self._cell_at(e)
         self.hilite = None
         if cell is None:
@@ -2498,6 +2584,12 @@ class App(object):
         self._redraw()
 
     def _hover(self, e):
+        g = self._gap_at(e) if self.show_gaps.get() else None
+        if g:
+            self.readout.config(text="gap band: the %s face of x %d, y %d, %d px wide - %s" % (
+                g["side"].upper(), g["cell"][0], g["cell"][1], g["feet"],
+                "marked (click to unmark)" if g["marked"] else "click to mark it"))
+            return
         cell = self._cell_at(e)
         if cell is None:
             self.readout.config(text="")
@@ -2559,6 +2651,11 @@ EXPLAIN = [
      "Connect that part to the rest of the course, or remove it."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
+    (r"gap bands nothing", "that `gap` line names no face that stands over a gap, so it would change no pixel. "
+     "Turn on Gap bands in the Iso view and click the places you want instead; a line left with no mark is "
+     "deleted."),
+    (r"gap takes whole cells", "a gap band goes on whole cells' faces, never a half or a quarter: name the "
+     "whole cell (`gap tile X Y sw`)."),
     (r"too near the edge of the course's picture", "the course would reach past the edge of the game's picture "
      "(the dashed red lines), even at its widest (160 columns). Build toward the bottom-right or top-left of the "
      "plan instead: that is down or up the screen, which has no limit."),
@@ -2637,7 +2734,7 @@ def _plain_kind(st):
              "guard": "Guard rail", "water": "Water", "arch": "Waterfall face", "hump": "Hump", "archway": "Archway",
              "chute": "Chute", "pit": "Pit", "seesaw": "Seesaw", "spring": "Spring", "start": "Start",
              "way": "Route point", "checkpoint": "Flag", "cup": "Cup", "clock": "Clock", "course": "Course name",
-             "uses": "Extras loaded", "accept": "Accepted warning"}
+             "uses": "Extras loaded", "accept": "Accepted warning", "gap": "Gap band"}
     return names.get(k, k.capitalize())
 
 

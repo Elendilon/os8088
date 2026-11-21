@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)
 import bbcourse as B  # noqa: E402
 
 # The statements whose first operand is a SHAPE (SPEC.md 130.10.3, 130.24.4).
-SHAPED = ("floor", "wall", "goal", "hole", "surface", "float", "guard", "water", "noocclude", "archway")
+SHAPED = ("floor", "wall", "goal", "hole", "surface", "float", "guard", "water", "noocclude", "archway", "gap")
 MATERIALS = ("rubber", "steel", "glass")
 # prop kinds that take a rectangle, not a cell (SPEC.md 130.38, 130.41)
 RECT_PROPS = ("spikes", "membrane", "bridge")
@@ -641,6 +641,52 @@ class Document(object):
                 out.extend(l_.split("\n"))
         self._commit(label or "rejoin the floor", out)
         return True
+
+    def toggle_gap(self, cell, side, faces):
+        """SPEC.md 130.56.21, 130.57: mark or unmark ONE face (cell, side 'sw'|'se') for the gap band, as one undo
+        step. FACES is every face the detector found (c.gap_faces as {((wx, wy), side)}): a statement naming the
+        face loses it - rewritten as the fewest `gap rect` / `gap tile` lines that still name what it marked
+        and that a face of FACES is in (a piece that would band nothing is dropped), deleted when nothing is
+        left - and an unmarked face gains a `gap tile X Y side`, folded into a same-side statement it squares
+        off. -> 'marked' or 'unmarked'"""
+        cell = tuple(cell)
+        src = self.analysis()["src"]
+        if src is None:
+            raise EditError("the course does not lay out, so no gap can be marked")
+        faces = {(tuple(c), sd) for c, sd in faces}
+        naming = [(tiles, sides, ln) for tiles, sides, ln in src.gaps if cell in tiles and side in sides]
+
+        def codes(marks):
+            """{(cell, side)} -> the fewest gap lines: cells marked on both sides with no side, the rest per side"""
+            both = {c for c, sd in marks if sd == "sw" and (c, "se") in marks}
+            out = []
+            for sd, cs in ((None, both), ("sw", {c for c, s_ in marks if s_ == "sw"} - both),
+                           ("se", {c for c, s_ in marks if s_ == "se"} - both)):
+                for x0, y0, x1, y1 in _rects(cs):
+                    if not any(((x, y), s_) in faces for x in range(x0, x1) for y in range(y0, y1)
+                               for s_ in ((sd,) if sd else ("sw", "se"))):
+                        continue
+                    shp = ("tile %d %d" % (x0, y0) if (x1 - x0, y1 - y0) == (1, 1)
+                           else "rect %d %d %d %d" % (x0, y0, x1, y1))
+                    out.append("gap %s%s" % (shp, " " + sd if sd else ""))
+            return out
+        with self.group("unmark a gap band" if naming else "mark a gap band"):
+            if naming:
+                for tiles, sides, ln in sorted(naming, key=lambda g: -g[2]):     # (bottom first: lines stay put)
+                    rest = codes({(c, sd) for c in tiles for sd in sides} - {(cell, side)})
+                    if not rest:
+                        self.remove(ln)
+                        continue
+                    self.set_statement(ln, rest[0])
+                    for k, code in enumerate(rest[1:]):
+                        self.insert(code, after=ln + k)
+                return "unmarked"
+            for tiles, sides, ln in src.gaps:            # folded into a same-side statement it squares off
+                if sides == (side,) and len(_rects(set(tiles) | {cell})) == 1:
+                    self.set_statement(ln, codes({(c, side) for c in set(tiles) | {cell}})[0])
+                    return "marked"
+            self.insert("gap tile %d %d %s" % (cell[0], cell[1], side))
+            return "marked"
 
     def remove(self, line, label=None):
         self.statement(line)
