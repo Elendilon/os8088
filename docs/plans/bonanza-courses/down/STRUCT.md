@@ -1,5 +1,10 @@
 # DOWNHILL DECISION: structural visual-interest options (a study, 2026-11-21)
 
+**THE OWNER PICKED A, C and D (2026-11-21)** - the landing floats, the maze's islands and the bridge's landing
+float (the links do not), and the chamfers on L's corners and the hub's front-left. They are `sketch.py`'s own
+geometry now (rev 17: `float_=True` on those floors, the cuts in `HALVES`), so the sketch alone writes them;
+`struct/variants.py` still writes the study's options over it. What follows is the study as it was written.
+
 *Options for the owner to pick from, none of them applied: `apps/bonanza/courses/down.bbc` and
 `down/sketch.py` are unchanged (the lead owns them). Each option is a few lines added to the sketch's output by
 [struct/variants.py](struct/variants.py), which imports `sketch.py` as it stands and writes a scratch course

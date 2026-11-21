@@ -270768,7 +270768,14 @@ props. Each refusal names the line:
 - **NO TRAP** (`--selfcheck` item 7): from every flag's cell with the
   flag's ball, and from every pad's cell with the pad's ball, the reachable
   set - pads, springs and tubes included - must contain the goal or the
-  cup; a flag or a pad that fails is refused, naming it and the ball;
+  cup; a flag or a pad that fails is refused, naming it and the ball.
+  **It rides a lift UP** (2026-11-21, DOWN rev 18's steel flag at a lift's
+  foot): a run continues while a lift's slab carries the ball (`onp`) and
+  never records the shaft as a resting cell, and on a course with a lift
+  the runs start at eight phases 32 steps apart (`TRAP_LIFT_PHASES`; two
+  phases 32 apart could both miss a slab down a third of its ~260-step
+  period). The grammar section's "a flag at a lift's foot", red arm
+  `_TRAPNOLIFT`;
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (130.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left
@@ -280774,6 +280781,31 @@ the top's front corner - all of it on the top's diamond:
   behind it; the slimmer pose keeps a ball behind it within 130.18.5.4's
   one ball length).
 
+**DOWNHILL DECISION's `orb`** (the owner, 2026-11-21, of four concepts,
+`docs/plans/bonanza-courses/down/CLOCKS.md`; the penguin and the stopwatch
+are saved there for a later course). The owner's rule for it, now the
+course guide's under G23: *"something on the clock represents where this is
+in the course."* The course's subject is the ball you become, so the clock
+is the course's BALLS: a big sphere on a short lit stem and a cup standing
+on its block's top (a dithered shadow on the top's diamond, as the frogs'),
+the digits on a white band bowed round its middle (no window), in palette
+1's inks with every form carried by white and black for the Hercules. Four
+frames, one a position, `_clock_orb`'s material:
+- **`orbr`**, the start: RUBBER - magenta, lit white, a black dither in its
+  shade (every run starts as rubber);
+- **`orbh`**, the hub: the SPLIT - its left half steel and its right half
+  glass, a zigzag seam down its face, each half on the side of the screen
+  its way out leaves by (steel south, screen left; glass east, screen right);
+- **`orbs`**, the steel finish: STEEL chrome - a white sky over a hard
+  horizon, black ground under it, a bright rim, a glint;
+- **`orbg`**, the glass finish: GLASS - cyan, a window glint, a caustic low
+  on its right, and its own stem seen through it.
+
+The two finish orbs are SLIMMER (a radius of `4n + 6.5` px against the
+start's and hub's `4n + 10`, and a thinner band): at the full size the
+compile refused them under 130.18.5.4's one ball length, a ball behind
+either finish clock being wholly hidden for 18 ground units.
+
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
 re-authored).
@@ -282077,14 +282109,16 @@ game-over card, and the lanes at scale (130.19.10), which the pathway needs.
 `docs/plans/bonanza-courses/pathway/` (the owner's concept sketch, page 0 as
 the owner marked it up; page 1 a PROTOTYPE): pad 0 is **FIRST ROLL** (`ROLL`,
 course 1, where a new game rests), pad 1 **LITTLE HOP** (`HOP`, course 2), pad 2
-DOWNHILL DECISION's place (TRIAL standing in with its two exits: the split, Up
-to 4 and Left to 6), and pads 3 - 7 the old test courses standing in. ROLL
+**DOWNHILL DECISION** (`DOWN`, course 3, since 2026-11-21: its two exits the
+split, exit 0 Up to 4 and exit 1 Left to 6; TRIAL stood in there until then,
+130.54.9), and pads 3 - 7 the old test courses standing in. ROLL
 and HOP are in `BZ_COURSES` by default, appended as courses 7 and 8 so every
 course before them keeps its K, and the `BZROLL` knob that carried them is
 retired. The map the shipped one replaced is `pathtest.bbc`, the base the
 pad-0 test-course knobs' `path<knob>.sed` edit (they name its pads and cells);
-the first two courses have no pad there. **Every course of the default build
-has a pad but BENCH** (the benchmark, never played): the owner's rule,
+the first two courses have no pad there (its pad 1, TRIAL's, is DOWN's since
+130.54.9). **Every course of the default build has a pad** (BENCH and the
+other TEST courses, 130.54, are not in it): the owner's rule,
 2026-11-19, *"I just don't want test courses no one can get to in the
 non-knob build"*. Pad 7 is the OLD First Roll (`FIRST`, course 1) standing
 in, its map title "Bounce Trial" so no two pads read FIRST ROLL; in a game
@@ -286322,7 +286356,7 @@ drawn after the ball (130.25.19, the owner's pick of four options, "OVER").
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
 | `hourglass` | +10 s on the limit (`bz_tsec`), the clocks' next second shows it | once per attempt | `ATTEMPT` | **hidden** (its lane's pose 0 and no CONTACT) |
-| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s | `RESPAWN` | shown |
+| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s (**10 s since 130.55**) | `RESPAWN` | shown |
 | `jump` | rubber's Hop for any ball, or rubber's raised; **stacks with the boost**; bounded only by `VZMAX` (130.25.1) | the element's own, as speed's | `RESPAWN` | shown |
 
 **Speed and jump together** (the owner, Q1): each keeps its own timer, so a
@@ -286936,7 +286970,7 @@ every kind `pickup`. Its constants are in its `FAMV`:
 | `PU_SVUP` | 64 | speed: added to the cap (`bz_vup`): 384 to 448, 1.75 px a step |
 | `PU_JHOP` | 400 | jump: the Hop for any ball - apex 13.8 px alone, 18.0 with rubber's boost stacked on its contact |
 | `PU_WARN` | 55 | the FLASH's steps (`SEC_STEPS`, about 1 s) |
-| `PU_DUR` | 69 | the default duration, steps / 4 (5 s) |
+| `PU_DUR` | 69 | the default duration, steps / 4 (5 s; **138, 10 s, since 130.55**) |
 
 **The elements.** `prop hourglass <wx> <wy>`; `prop speed|jump <wx> <wy>
 [for <seconds>] [overwrite]`: +18 the duration (steps / 4, 1 - 255, 0.07 -
@@ -289390,10 +289424,10 @@ from the estimate - and it does NOT take the split 130.15.8 sketched
 | which courses | only a course whose ONE-part form is refused today (its D RAM form, or its C form, over 65,024: 130.15.8). Every course that builds today builds as one part: **the same part, byte for byte, the same identity, the same package and 0 clk** (130.30.6). The first shipped one is `PLAYGROUND` with its shaped-floor section (130.30.11) |
 | the split | **the PICTURE part** (`M B I R K O`, and `L`: the lanes' pose maps) and **the WORLD part** (`G C D F T W P`; `F`, the FIELD tables, 130.28.2): everything the frame writers and the occluder pass read in one, everything physics, the families and the wheel's records read in the other (130.30.2) |
 | what it costs a frame or a step | **0 clk, on a two-part course and on a one-part one**: no routine reads both parts at once, and each site loads one segment word where it loads `bz_cseg` today (130.30.5) |
-| what it costs a launch | one more fetch and claim, one more directory walk, and the world part's 48-byte header and its directory (130.30.8) |
+| what it costs a launch | one more directory walk and the world part's 48-byte header and its directory - and, since 130.30.13, NO more fetch or claim: the two parts are ONE part on the disk and one claim (130.30.8) |
 | the guest's code | assembled only into a build that HAS a two-part course (`BZ_NCRS2` > 0): a build with none is today's package, byte for byte |
 | the pathway, the title | always ONE part (refused otherwise): the held pathway (130.22.7) and the title keep one row |
-| kern_mega | each part its own claim and LDT selector from `op_seg`; nothing computed between them (130.15.11) |
+| kern_mega | the one part's claim and LDT selector from `op_seg`, the world part a `SEG_SUB` selector inside it (130.30.13); nothing computed on a selector (130.15.11) |
 | kern_small | refuses on the desktop, as for every course (130.1) |
 
 #### 130.30.2 The reader map (this tree)
@@ -289517,17 +289551,23 @@ identity is 130.15.7's, unchanged. The guest compares the word at `GRIDOFF
 
 ##### 130.30.4.4 The rows and the files
 
-- The picture part is course K's row, as today: `BZ_P_CRS + K`.
-- The world parts follow the courses' rows, in course order:
-  `BZ_P_CRS + BZ_NCRS + j` for the j-th two-part course, each `OP_ASSET,
-  OP_LAZY | OP_COMP`. The sound part's row and every later one move up by
-  `BZ_NCRS2`. A SHEETED course has no world row: its world part is a
-  piece of its ONE part (130.30.12.5), and `BZ_NCRS2` counts the rows.
-- `bzcourse.inc` defines `BZ_NCRS2` (the two-part courses, 0 for none) and,
-  only when it is not 0, `BZ_CRS_WROW`: a byte a course, its world part's
-  row (0: one part).
-- The tool writes `bzcrs2.lst`, the world parts' `--part` arguments in row
-  order (empty for none), and the Makefile passes them after the courses'.
+**Superseded by 130.30.13 (2026-11-21): a two-part course is ONE part on
+the disk**, as a sheeted course is (130.30.12.5). What stands:
+- The course's row is course K's, as for any course: `BZ_P_CRS + K`, its
+  file `BZ<K>.BIN` - the picture part's stored form and then the world
+  part's from a paragraph, `OS88_PART OP_ASSET, OP_LAZY | OP_COMP |
+  OP_BIG`. **No world rows**: every later row is where it would be without
+  two parts (`BZ_P_DEMO` = `BZ_P_CRS + BZ_NCRS`), no `BZ<K>W.BIN`, no
+  `bzcrs2.lst`.
+- `bzcourse.inc` defines `BZ_NCRS2` (the two-part courses that are not
+  sheeted, 0 for none) and, with any course that has a world part
+  (`BZ_NCRS2 + BZ_NSHC` > 0), `BZ_CRS_WPARA`: a word a course, its world
+  part's PARAGRAPHS in its one part (0: one BZC2 part).
+- *(Was: the world parts followed the courses' rows, `BZ_P_CRS + BZ_NCRS +
+  j` for the j-th two-part course, each its own `OP_ASSET, OP_LAZY |
+  OP_COMP` row and file `BZ<K>W.BIN`, named by `BZ_CRS_WROW`, a byte a
+  course; the tool listed them in `bzcrs2.lst`, which the Makefile passed
+  after the courses'.)*
 
 #### 130.30.5 The guest
 
@@ -289545,26 +289585,35 @@ bz_cseg`, so every one of those sites assembles to today's bytes, and
 nothing below is assembled.
 
 **With one**:
-- `bz_cload` stores the first fetch's segment in both words and expands it
-  (`bz_cexp`, through `bz_cseg` as today); then `bz_cload2` fetches the
-  course's world part when `BZ_CRS_WROW` names one, stores its segment in
-  `bz_cseg` and expands it, before the balls, `bz_crshdr` and the families,
-  which read the world. A refusal is CF = 1, as any fetch's.
+- `bz_cload` fetches the course's ONE part (130.30.13), stores its segment
+  in both words and expands the picture part at its base (`bz_cexp`,
+  through `bz_cseg` as today); then `bz_cload2` takes the world part at
+  `BZ_CRS_WPARA`'s paragraphs as `OSAPI_SEG` `SEG_SUB` of `[bz_mseg]` (a
+  real-mode kernel's DX + AX), stores it in `bz_cseg` and expands it, before
+  the balls, `bz_crshdr` and the families, which read the world. The same
+  code is a SHEETED course's (130.30.12.5): its sheets past 0 first, then
+  the world part - a two-part course is its one-sheet case. A refused
+  fetch, or a refused selector, is CF = 1.
 - `bz_cexp` runs once on each part, each after the fetch that decoded it
   (130.15.4.5's rule, per part); the world part's last, so `bz_dfind`'s
   bounds are the world part's when `bz_dval` reads them.
-- `bz_cdrop` drops every world row (a row not here is a no-op) beside the
-  course's own, and zeroes `bz_mseg`.
+- `bz_cdrop` drops the course's row, as any course's, and zeroes
+  `bz_mseg`: the world part is a segment of that claim (kern_mega: its SUB
+  selector goes with it). *(Was: it dropped every world row beside the
+  course's own.)*
 - `bz_hxlat` translates the picture's blocks through `bz_mseg` and the
   lifts' sprites through `bz_cseg`.
-- **The heap**: one more claim while a two-part course is held - the
-  region, the two parts, the arena and a held pathway, five of
+- **The heap**: ONE claim for the course (130.30.13), as a one-part
+  course's - the region, the course, the arena and a held pathway, four of
   `MEM_OWNER_MAX`'s eight (§20.12.16). `BZ_CRS_MAXCLAIM` (130.22.7) counts
-  both parts, each its RAM form's granule-rounded claim with
-  `CLAIM_SLACK`, so `bz_phrel` keeps the pathway only beside room for both.
-- **kern_mega**: both parts are the package's claims and LDT selectors from
-  `op_seg`; nothing adds to a segment and nothing is written through CS, so
-  no `PKG_MEGA` arm (130.15.11 holds for each part).
+  the one claim, its RAM forms' paragraphs from the paragraph layout and
+  `CLAIM_SLACK`, granule-rounded, so `bz_phrel` keeps the pathway only
+  beside ONE free run that takes it. *(Was: two claims, both counted.)*
+- **kern_mega**: the one part is the package's claim and LDT selector from
+  `op_seg` (a conventional claim: §20.12.15), the world part a `SEG_SUB`
+  selector inside it, tied to the claim and freed with it; nothing adds to
+  a segment and nothing is written through CS, so no `PKG_MEGA` arm
+  (130.15.11).
 - **kern_small**: `bz_launch` refuses every course there (130.1).
 
 #### 130.30.6 What stays exactly as it is
@@ -289617,14 +289666,16 @@ every build, every frame's and step's instructions. The proof is a
 
 - **A frame, a step: 0 clk** on every course (130.30.5: the same
   instructions).
-- **A two-part launch** (PREDICTED): one more `op_fetch` - a claim and the
-  world part's packed bytes read, bytes the one part would have held
-  anyway, so about one more `int 13h` run, under 0.4 s - and the world
-  part's forms, already priced in 130.15.4.6.
+- **A two-part launch** (PREDICTED): since 130.30.13 ONE `op_fetch`, as a
+  one-part course's - one claim and one run of `int 13h` for both parts'
+  packed bytes - then a `SEG_SUB` (a far call) and the world part's forms,
+  already priced in 130.15.4.6. *(Was: one more `op_fetch`, a claim and
+  about one more `int 13h` run, under 0.4 s - MEASURED in 130.30.11 as the
+  same count of FDC READ commands, which was not traced.)*
 - **Bytes**: the shipped package 0. A build with a two-part course: the
-  guest's code above (MEASURED, 130.30.9), and per two-part course the
-  world part's header (48), its directory (8 a section) and `L`'s entry
-  (8).
+  guest's code above (MEASURED, 130.30.9; 130.30.13 for the one part and
+  the standard's `OP_BIG` arms), and per two-part course the world part's
+  header (48), its directory (8 a section) and `L`'s entry (8).
 
 #### 130.30.9 As built (2026-11-17)
 
@@ -289930,6 +289981,10 @@ part's `GRIDOFF + 18`, as ever.
 
 ##### 130.30.12.5 The one part, the launch and the drop
 
+*(Since 130.30.13 a TWO-PART course is one part too, by the same code:
+the world part's paragraphs are `BZ_CRS_WPARA`'s for both kinds, and
+`BZ_SHTAB`'s first word is each sheet's own paragraphs - sheet 0's 0.)*
+
 - **The part**: `BZ<K>.BIN`, course K's own row, is the sheets' stored
   forms in order and then the world part's, each from a PARAGRAPH (zeros
   to the next): sheet 0 at 0, sheet i at paragraph `P_i`, the world part at
@@ -289943,21 +289998,22 @@ part's `GRIDOFF + 18`, as ever.
   is assembled); with any, `BZ_SHMAX`, `BZ_SHENT`, `BZ_CRS_SHN` (a byte a
   course: its sheets, 0 none), `BZ_CRS_SHI` (a word a course: its first
   entry in `bz_shtab`) and `BZ_SHTAB` (an entry a sheet: a word of
-  PARAGRAPHS - sheet i's `P_i`, and in entry 0, sheet 0 being the part's
-  base, the world part's `P_W` - then `m0`, `hic`, `tlo` and `thi`, the
-  served tops in LINES, 7FFFh for the last). `BZ_NCRS2` counts the WORLD
-  ROWS (the two-part courses that are not sheeted); the two-segment code
-  of 130.30.5 is assembled for `BZ_NCRS2 + BZ_NSHC`.
+  PARAGRAPHS - sheet i's `P_i`, sheet 0's 0, the part's base - then `m0`,
+  `hic`, `tlo` and `thi`, the served tops in LINES, 7FFFh for the last);
+  the world part's `P_W` is `BZ_CRS_WPARA`'s (130.30.13; until it, entry
+  0's word). `BZ_NCRS2` counts the two-part courses that are not sheeted;
+  the two-segment code of 130.30.5 is assembled for `BZ_NCRS2 + BZ_NSHC`.
 - **The launch**: `bz_cload` fetches the row - ONE `op_fetch`: a claim, the
   packed bytes read in one run, the one LZ stream decoded in place (an
   `OP_BIG` lazy row's) - stores its segment in `bz_cseg`, `bz_mseg` and
   `bz_shseg` and expands sheet 0 (`bz_cexp`), as it expands any picture
   part. `bz_cload2` then takes each segment past sheet 0 - sheets 1 .. k - 1
-  and then the world part - as `OSAPI_SEG` `SEG_SUB` of the part's base and
-  its paragraphs (a real-mode kernel's DX + AX; kern_mega's a selector over
-  the claim, tied to it), stores it in `bz_shseg + 2i` (the world part's
-  after the sheets') and in `bz_cseg`, and expands it in place: the world
-  part's last, so `bz_dfind`'s bounds are the world part's. Nothing is
+  and then the world part - as `OSAPI_SEG` `SEG_SUB` of the part's base
+  (`[bz_mseg]`) and its paragraphs (a real-mode kernel's DX + AX;
+  kern_mega's a selector over the claim, tied to it), stores it in `bz_cseg`
+  (a sheet's in `bz_shseg + 2i` too; the world part's in `bz_cseg` alone
+  since 130.30.13), and expands it in place: the world part's last, so
+  `bz_dfind`'s bounds are the world part's. Nothing is
   copied and nothing more is read. `bz_cxmap` (ROWPLANES) counts the
   section's RAM length / ROWB. The Hercules translates each sheet's blocks
   (`bz_hxshs`, the lifts' once); the VGA converts each sheet's blocks and
@@ -290004,8 +290060,8 @@ part's `GRIDOFF + 18`, as ever.
   every sheet's segment, so two sheets cannot share their bytes).
 - **Claims**: ONE for the course, sheets and world part together (the
   region, the arena, the course, the kit; on the VGA its part and its
-  balls' copies) - fewer than a two-part course's, so a sheeted course
-  keeps a held pathway as any course does (`bz_phrel`'s test, whose
+  balls' copies) - as many as a two-part course's since 130.30.13, so a
+  sheeted course keeps a held pathway as any course does (`bz_phrel`'s test, whose
   `BZ_CRS_MAXCLAIM` counts the one claim: `course_claims`).
 - **Bytes**: MEASURED in 130.30.12.10.
 
@@ -290044,7 +290100,8 @@ part's `GRIDOFF + 18`, as ever.
   first line's red arm, PLAYGROUND (two parts, fitting) forced into
   sheets, which the rule CATCHES. **The ONE part** (130.30.12.5): TTALL's
   `BZ<K>.BIN` is the one part, over 65,024, its pieces at the paragraphs
-  `bz_shtab` names (entry 0's word the world part's), each read back to
+  `bz_shtab` names (sheet 0's 0) and the world part's at `BZ_CRS_WPARA`'s
+  (130.30.13; until it, entry 0's word), each read back to
   its stored form, and its LZB smaller than the pieces' apart; its
   controls, each REFUSED by `split_one_part`: the world part a paragraph
   late, the table a paragraph off, a sheet missing, a byte cut off the
@@ -290055,7 +290112,9 @@ part's `GRIDOFF + 18`, as ever.
   package's own `bz_cload2` (`OSAPI_SEG` answered as a real-mode kernel
   does) - every sheet's and the world part's segment the table's
   paragraphs and its RAM form (red arm `world`: the world part's paragraphs
-  read from the wrong entry); the package's own `bz_cexp` on each sheet's
+  read from the last sheet's entry, not `BZ_CRS_WPARA`; `wpara`: a
+  paragraph late - each also red on item 4, the two-part course's one part,
+  130.30.13); the package's own `bz_cexp` on each sheet's
   and the world part's stored forms; `bz_crshdr` and `bz_pread` on TTALL; then every lane given
   a drawn pose its map does not hold, the window's top stepped down the
   picture two card rows a frame and back with `bz_shchk` at each: the sheet
@@ -290206,6 +290265,132 @@ MEASURED unless it says otherwise.
   counts one claim; read, not run), `bonanzamega` (a sheeted course's
   world part a `SEG_SUB` selector inside its one claim: read, not run),
   `bonanzaphyshost`, `bonanzaring` and `bonanzaperf`.
+
+#### 130.30.13 A two-part course is ONE part on the disk (2026-11-21)
+
+**The brief** (the owner, 2026-11-21): *"check on the prior courses; are
+they reading out as a single part on disk, or two? If two, we can do the
+same thing we did here so they also have faster load times (just with an
+unsplit graphics segment)."* They were two: `PLAYGROUND`, the build's one
+two-part course (130.30.11), was `BZ5.BIN` (the picture part, 58,562
+bytes) and `BZ5W.BIN` (the world part, 18,543) - two rows, two
+`op_fetch`es, two claims, two runs of `int 13h`.
+
+**The format.** `BZ<K>.BIN` is the picture part's STORED form and then the
+world part's from the next PARAGRAPH (zeros between), one row `OS88_PART
+OP_ASSET, OP_LAZY | OP_COMP | OP_BIG` (§20.12.15: 77,119 bytes, past
+65,024) - 130.30.12.5's one part with one picture piece. `split_one_part`
+cuts it back exactly as for a sheeted course (each piece's magic, `BZP2`
+then `BZW2`; its directory's end before the next piece; the padding zero;
+the part's end the world part's). No world row, no `BZ<K>W.BIN`, no
+`bzcrs2.lst` (130.30.4.4). The stored form is as long as the RAM form
+(130.15.4.3), so each RAM form expands inside its own piece's paragraphs.
+
+**The guest: one code path.** `bz_cload` fetches the row (one `op_fetch`)
+and expands the picture part at the claim's base, as before. `bz_cload2`
+is now the sheeted course's code with the sheets as an optional prefix:
+sheets 1 .. k - 1 (none unless `BZ_NSHC`), then the world part at
+`BZ_CRS_WPARA`'s paragraphs - a word a course, 0 for one BZC2 part - each
+an `OSAPI_SEG` `SEG_SUB` of `[bz_mseg]`, stored in `bz_cseg`, expanded in
+place. A two-part course is the one-sheet case. `BZ_CRS_WPARA` replaces
+`BZ_CRS_WROW`, and is a sheeted course's world paragraphs too: `BZ_SHTAB`'s
+first word is now each sheet's own paragraphs (sheet 0's 0), where entry 0
+held the world part's. `bz_cdrop`'s world-row loop is gone; `bz_shseg`
+loses its world slot (2 bytes of bss in a sheeted build).
+
+**What does not move.** Every frame's and step's routine is the same
+source (`bz_mseg` and `bz_cseg` hold the same two segments at the same
+offsets in each piece, so 130.30.5's 0 clk stands); the part's two RAM
+forms are byte for byte what they were; the identity, the demos and
+`BZ_PHYSV` are unchanged.
+
+**kern_mega** (by reading `kernel/mega.inc`, not run): `op_seg` of the
+`OP_BIG` lazy row is a selector over the conventional claim's first 64KB
+(§20.12.15); `SEG_SUB` (`mega_segf`'s `.sub`) bases a selector at the
+claim's linear base + 16 AX and clips it to the claim's end
+(`mega_bclip`), the same selector for the same ask; `mega_mpfreef` frees
+every allocator descriptor based in a claim when the claim goes, so the
+world part's selector leaves with `bz_cdrop`'s drop. A refused `SEG_SUB`
+(no LDT entry) is CF = 1 with no toast of its own, as for a sheet. No
+`PKG_MEGA` arm.
+
+##### 130.30.13.1 As built (MEASURED unless it says otherwise)
+
+Two builds of one private tree at one build number (2178), before (b2b41674a)
+and after, `make BUILD=<tree> bonanzadisk`.
+
+| | before | after |
+|---|---|---|
+| `PLAYGROUND`'s parts | `BZ5.BIN` 58,562 + `BZ5W.BIN` 18,543 | `BZ5.BIN` 77,119 (world part at paragraph 3,661) |
+| packed, LZB (the format `BONANZA.O88` ships) | 15,427 + 3,129 = 18,556 | **18,523** (-33) |
+| packed, LZ4 (the course budget's) | 18,617 + 3,896 = 22,513 | 22,439 |
+| `op_fetch` calls, claims, disk runs at the launch | 2, 2, 2 | **1, 1, 1** |
+| `BZ_CRS_MAXCLAIM` (the largest pad course's claim, paragraphs) | 5,184 (two claims) | **4,992** (one) |
+| `bonanza.bin` (the image) | 51,111 | 51,317 (**+206**) |
+| `BONANZA.O88` | 149,969 | 150,045 (+76) |
+
+- **The image's +206 is the standard's, not BONANZA's.** The first `OP_BIG`
+  row in the shipped table turns on `os88parts.inc`'s 32-bit arms
+  (`OP_HAS_BIG`, §20.12.15): `op_bmove` +87 and the chunked copies and
+  32-bit lengths through `op_carvemv`, `op_lazymv`, `op_decl`, `op_pin`,
+  `op_movable`, `op_zrpara`, `op_gr`, `op_fetch`, `op_lazyp` - +208 by
+  routine span. BONANZA's own bytes: `bz_cload2` +8, `bz_cdrop` -10,
+  `bz_cwpar` 16 where `bz_cwrow` was 8, one part row fewer (-8): **-2**.
+  The arms are what any package with a part past 64KB carries, and a
+  sheeted build (`BZDOWN=1`, `BZDEV=1`) carried them already.
+- **Every one-part course is the bytes it was**: every other `BZ<K>.BIN`,
+  every demo, ball and kit part, `BZPATH.BIN`, `BZTITLE.BIN` and
+  `BZTDEMO.BIN` md5-equal. What changes, and why: `BZ5.BIN` (the one
+  part), `BZ5W.BIN` and `bzcrs2.lst` (gone - the tool now removes an older
+  run's), `bzcourse.inc` (the row lines, `BZ_CRS_WPARA`,
+  `BZ_CRS_MAXCLAIM`), `bonanza.bin` and `BONANZA.O88`; `bzlink.inc` and so
+  `bzshell.bin`, `bzvga.bin`, every `bzf-*.bin` and `bzfbun.bin`, which link
+  against the package's moved bss and constants (pxlink, 130.19.2); and the
+  four `bonanza*.img` floppies that carry the package. No system or apps
+  disk carries BONANZA.
+- **The launch** (PREDICTED, PERFORMANCE.md's ~0.4 s an `int 13h` call on
+  the XT): one claim and one directory of fetching fewer, one disk run
+  where there were two - so one fewer seek-and-read, about 0.4 s, on top of
+  33 fewer bytes read. Not measured on MartyPC.
+- **RAM.** The same RAM forms; the claim is one run of 4,992 paragraphs
+  (78KB, granule and `CLAIM_SLACK` in) where it was runs of 3,840 and 1,344
+  (5,184 together): 192 paragraphs less heap, but **one contiguous run 15KB
+  longer than the larger of the two**. kern_small refuses every course
+  (130.1), so the 128KB machine is not touched. On a 256KB 5150 (about
+  156KB of heap, 130.14.11) the play of `PLAYGROUND` was already past
+  what that machine holds beside the region and the held balls (130.30.11:
+  1,024 paragraphs more than one part had); the one claim needs no more
+  heap, only a longer run, and a claim compacts the movable claims on its
+  way to a refusal, so only a PINNED claim (the bundle, the kit, a held
+  pathway) can split the run - which `bz_phrel` now tests exactly, its
+  `BZ_CRS_MAXCLAIM` being the one claim. The refusal is `op_fetch`'s
+  toast, as for any course. *The fallback, not built*: if a field machine
+  shows the run refused where two claims fitted, keep the old two-row form
+  for that course only (the tool can emit either per course; the guest's
+  old fetch leg is about 25 bytes beside this one).
+- **The checks run here**: `--selfcheck --only twoseg,sheets` passes
+  (item 15's new ONE PART line for `TWOSG` and for `PLAY` with five refused
+  controls each - the world part a paragraph late, the table a paragraph
+  off, the world part missing, a byte cut off the end, a picture part that
+  is not `BZP2`; item 16's table check on `BZ_CRS_WPARA`; item 1's no
+  `BZ<K>W.BIN`); `tests/bonanza_sheet.py` on the `BZDEV=1` art passes, its
+  new item 4 (`PLAY`'s one part through the package's own `bz_cexp` and
+  `bz_cload2` under unicorn: the picture part at the base, the world part
+  at paragraph 3,661, both RAM forms) among them, and its red arms `world`
+  (the world part's paragraphs from the last sheet's entry) and `wpara` (a
+  paragraph late) are each caught on items 0 and 4. `make` passes. Not run
+  (the lead's final pass): `bonanzacourse` whole and `bonanzasheet` as a
+  row; `bonanzaexit`, the one emulator row that LAUNCHES `PLAYGROUND` (its
+  world part's leg and its claim leg: one claim, the world part inside it
+  at the plan's paragraphs; read, not run); `bonanzamega` (course_claims'
+  arm for a course with a world part - a `SEG_SUB` selector inside the one
+  claim, linear bases compared - and every course one claim inside; it
+  plays TPLY, one part, so the arm is read, not run); `bonanzaphys` and
+  `bonanzaphyshost`, which play `PLAYGROUND` from the tool's RAM forms
+  rather than its part file (unchanged forms). `bonanzareplay`,
+  `bonanzademo`, `bonanzaring` and `bonanzaperf` play test courses (TPLY,
+  TQUIK, TMIL, BENCH) and boot the package whose bytes changed, so they
+  reach the change only through the standard's `OP_BIG` arms.
 
 ### 130.31 The pathway carries no occluders (the owner, 2026-11-17)
 
@@ -295834,3 +296019,500 @@ builds `bz_mrow` exactly (`MAP + br ROWB`, all 256 words), and `bz_boxc`'s
 buffer is exactly the part's words on 59 boxes, word column 159 at every
 first-line offset among them. Its red arms (`--red mrow`, the table not built
 past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
+
+#### 130.54.9 TRIAL a test course; DOWNHILL DECISION ships (the owner, 2026-11-21)
+
+The owner: *"all of the courses we're working on - their existing form was
+also just a test or prototype, so we can replace them as we develop. That
+way our work is in when other sessions make builds."* DOWNHILL DECISION
+(`down.bbc`, `DOWN`) shipped until today only under the `BZDOWN=1` knob,
+which sedded the shipped pathway's pad 2 from TRIAL (the wave-2 prototype
+standing in) to DOWN. Now:
+
+- **DOWN takes TRIAL's slot**: `BZ_COURSES` is FIRST 0, **DOWN 1**, MILL 2,
+  MOON 3, PEAK 4, PLAY 5, ROLL 6, HOP 7, so no other course's K moved (and
+  nothing may care, 130.14.7.4). `path.bbc`'s pad 2 plays `DOWN` (its icon
+  and its title were already DOWN's); DOWN's ROUTE DEMO (`BZDDOWN.BIN`, 688
+  bytes) ships in `bzdemo.lst`'s second row in `BZDTRIAL.BIN`'s place, so
+  the title's draw and V's cycle carry it.
+- **TRIAL is a TEST course** (`test`, 130.54.1), the LAST of `BZ_TESTCRS`
+  so no other test course's K moved: the rows' rubber-bounce legs (the
+  ring's and perf's TRIAL legs, the physics sweep, the split's) still play it
+  in the test build, by name. The shipped build carries no TRIAL, no
+  `BZDTRIAL.BIN`. Its song `trial` stays: DOWN plays it.
+- **The `BZDOWN` knob is GONE** (not an alias: `BZROLL`'s precedent), and
+  `pathdown.sed` with it. `pathtest.bbc` (the pad-0 test knobs' base, 2026-
+  11-19) puts DOWN on its pad 1 in TRIAL's place, since a knob build is a
+  shipped-shape build and may not put a test course on a pad.
+- **As built (MEASURED, `make bonanza bonanzadisk` before and after)**:
+  `BONANZA.O88` **150,873 -> 165,712 bytes (+14,839)**; the package image
+  `bonanza.bin` 51,616 -> 52,110 (+494: the sheeted-course code a shipped
+  sheeted course assembles, 130.30.12); course 1's part 16,364 -> 134,404
+  bytes stored (DOWN is sheeted). The disks: `bonanza360.img` **156 -> 170
+  of 354 clusters**, `bonanza720.img` 156 -> 170 of 713, `bonanza.img` and
+  `bonanza120.img` 307 -> 336 of 2,847 and 2,371 - BONANZA.O88 is on no
+  other disk (`local`, apps/RETIRED.txt). `BZ_CRS_MAXCLAIM` 4,992 -> 8,576
+  paragraphs (DOWN's own claim: the pathway is held beside a course only
+  when the heap still takes that, 130.25.4.2), `BZ_CRS_ARMAX` 192
+  unchanged.
+- **The test build** (`BZDEV=1`): seventeen courses, the shipped eight at
+  their K, then BENCH 8 ... TTALL 15 and **TRIAL 16**; `BONANZA.O88` 197,951
+  bytes, `bonanza360.img` 202 of 354 clusters. A pad-0 knob build
+  (`BZSHAPES=1`, `pathtest.bbc` with DOWN on pad 1) compiles.
+
+### 130.55 THE LIFE, `respawn` and the 10-second default (the owner, 2026-11-21; on `bb-lives`)
+
+The owner's brief: *"a heart/life powerup, with some special rules of its
+own. It should have the option, once collected, not spawn again in the same
+course ... the life powerup would only spawn once, ever, if its option is set
+to avoid being farmable. A later course may purposely add a farmable life
+powerup though; spawning once per entry to the course."* Its look: *"similar
+to today's sparkles, but flowing upwards - and only lasting 1s or so, with no
+blink (this is something you gain, not something you have as a powerup)."*
+And for the pickups already there: the default duration **10 s** (5 s *"is
+much too little for a default; unless the powerup is intended to be used
+directly in the path of whatever it is in front of"*), and an option for a
+pickup to **respawn after it expires on the ball** - *"let them try again"* -
+so a pickup can be part of a course's main design and not only a shortcut.
+
+#### 130.55.1 The decisions
+
+| | decision | why |
+|---|---|---|
+| where the life lives | **a family of its own, LIFE** (ID 16, kind 27 = `FAM_K0 + 11`, home `resident`, `apps/bonanza/fam/life.asm`, `bbcourse.LifeFamily`) - not PICKUPS' fourth kind | a family part's kinds are ONE RUN (130.25.6.2's +9, +10). PICKUPS' run is 19 - 21 and 22 is the windmill's, so a fourth kind means moving the run - and the run's kinds are in `BZ_BOKT` (130.16.4.1.1, the boost's flat props), which `BZ_PHYSV` hashes: every demo re-recorded and **every player's bests and saved replays thrown away** for a renumbering. Measured: moving the run to 27 - 30 moved `BZ_PHYSV` from EDh to FAh |
+| a boost floor? | **no** - a ball landing on a heart's cell does not boost | adding `life` to `BOOST_FLOOR_NAMES` moves `BZ_PHYSV` the same way. The heart is taken on that contact anyway, so the cell is a floor the ball is leaving |
+| "once, ever" | **once a GAME** (`once`): taken, the heart is never shown again on that pad's course for the rest of that slot's game; a NEW game (5 lives, pad 0) has it again | the save is a game per slot (130.22.5); "ever" across new games would leave a second player with no heart at all. One bit a PAD, kept in the slot's game |
+| farmable | **the default**: no `once`, the heart is ATTEMPT class - back at every ENTRY to the course (and at a RETRY), as the hourglass is | the owner's "a later course may purposely add a farmable life" |
+| where it shows | **only in a game's course** (`bz_lfx` bit 0): hidden (pose 0, no take) in EXPLORE, a free play, a replay, a demo, the benchmark | EXPLORE costs no life, so it gives none; a replay or a demo must never change a game's lives. Hidden is the hourglass's rule with no limit (130.25.19) |
+| the cap | **`BZ_LVMAX` = 9** lives (the face's one digit, `bz_l1`); a heart at 9 is still taken (its cue plays) and gives nothing | the slot's check (`bz_dslots`) now refuses lives over 9, not over `BZ_LIVES` |
+| its cue | **the sparkles RISING** for `LF_RISE` = 55 steps (about 1 s), no flash: `bz_cue` bit 2 | the owner's look. Bits 0 and 1 stay PICKUPS' (sparkles, flash); each family writes only its own |
+| `respawn` | +19 bit 1 of a `speed` or `jump`: when the effect ENDS - worn off, ended by an `overwrite`, or by a RESET - **every element of that kind marked `respawn` comes back** (COLLECTED cleared, lane marked) | no slot byte names the element taken, so "its kind's `respawn` ones" is the rule. A ball still in the cell when it comes back takes it again, which is the point |
+| the 10 s default | `PU_DUR` 138 (steps / 4) | in PICKUPS' `FAMV`, with REV 2 for `respawn`: PLAYGROUND's and RAILS's identities moved, and PLAYGROUND's authored demo was written again (`bbcourse.py author`: the same 1,504 steps, only its `ident` changed). `BZ_PHYSV` did not move |
+
+#### 130.55.2 The course statements
+
+    uses life
+    prop life <wx> <wy> [once]
+    prop speed|jump <wx> <wy> [for <seconds>] [overwrite] [respawn]
+
+The life's record: +18 zero, +19 `PU_ONCE` (4) or zero, the class ATTEMPT;
+the timed two's +19 may now carry `PU_RESPAWN` (2) beside `PU_OVERWRITE` (1).
+Refused (`--selfcheck` item 2): `respawn` on an hourglass, `for` on a life,
+`once` on a speed, and **a second `once` life on one course** (the game keeps
+one bit a pad). The heart's icon is pose 1 of an `icon` lane like the other
+pickups', a 7 x 8 magenta heart with a white glint, black outlined
+(`PU_ICONS`). A course naming `life` and placing none is refused, as for
+every family.
+
+#### 130.55.3 The engine and the save
+
+- **`bz_lfx`** (a byte): bit 0 a game's course is playing, bit 1 its pad's
+  `once` heart has been given this game. `bz_grounds` sets it at `.crs`
+  before every game course's play (`bz_lfset`: 0 in EXPLORE; else 1, and 3
+  when the pad's bit is in `bz_nlife`) - a resumed course (`bz_rsm`) keeps
+  its own - and at the play's end (`.ntw`) folds bit 1 into `bz_nlife` for
+  `bz_ppad` and clears it, so no other play ever sees it set; giving up a
+  suspended course (`bz_unsusp`) clears it too.
+- **`bz_nlife`** (a dword, a bit a pad) travels with the slot's game like
+  `bz_nopen` - `bz_gload` and `bz_gstorl` copy it, `bz_gnew` zeroes it.
+- **BONANZA.DAT** (130.22.5.1) grows by **THE LIVES GIVEN**, a dword a slot
+  after the three slots: `BZD_FILE` 500 bytes (still under one sector, so
+  `od_write`'s in-place arm still holds). A file of the old 488 bytes
+  (`BZD_FILE0`) is read with the table zero, so nobody's saves or bests are
+  lost; an emptied slot (`bz_dslots`' `.bad`, `bz_dslz`) empties its dword,
+  and `bz_dsave`'s merge carries the slot played's dword with its slot.
+  The lives check is `BZ_LVMAX`.
+- **The life's taking** is the part's: COLLECTED set, lane marked, `bz_nfev`
+  counted (the PICKUP sound - no new sound event: the 16-bit counter mask is
+  full, 130.25.19), `bz_lives` raised to `BZ_LVMAX` at most, a `once` one's
+  `bz_lfx` bit 1, and the rise (its slot's byte +0) begun. A life gained in a
+  course that then times out is still the game's: the timeout's life is taken
+  from the raised count. The disk's copy is the entry's (130.19.6), so a
+  machine switched off mid-course loses the life it gained, as it loses the
+  one the entry spent.
+
+#### 130.55.4 The rising sparkles
+
+`bz_cuef` (bzphys.inc): under `bz_cue` bit 2 the look is `BZ_CL_SP` +
+`BZ_CL_RI` (10h, new) + the rise's step count mod 16, a step every 4 frames,
+and the three sparkles CLIMB - each its own column, foot to top, the three
+a step apart (frames + 0, 8, 4, then >> 2), back to the foot after the top:
+
+| sparkle | its steps (dx, dy of the pair's top-left from the sprite's) |
+|---|---|
+| 0, the left | (-1, 12) (-1, 7) (-1, 2) (0, 0) |
+| 1, the right | (15, 12) (15, 7) (15, 2) (14, 0) |
+| 2, the face | (4, 10) (7, 7) (9, 4) (7, 0) - on the face, the CGA's glint |
+
+Eight of the twelve places are the sparkles' own; four are new (the two
+sides' middles, the face's centre and top), in all three cards' resolved
+tables: `bzvideo.inc`'s `BZ_SPRS` (CGA and Hercules, 12 bytes a place each)
+and `bzvga.asm`'s `bzv_spv` (the VGA's, 40 bytes a place, in the VGA part).
+The blit is unchanged: it draws whatever `bz_spq` points at. The two modes
+share one place loop: a mode is its shift (3 or 2), its clocks (`bz_spo` 5, 2;
+`bz_spor` 8, 4) and its steps (`bz_sps`, `bz_spsr`). A rise draws no flash of
+its own; a timed pickup's FLASH frame still blinks the ball while both run.
+PREDICTED cost: while the rise runs the places are recomputed every 4th
+frame (130.25.19's 0.53k a hop frame) and a resting ball recomposed on those
+frames; 0 otherwise. Not measured on MartyPC yet.
+
+#### 130.55.5 What it costs (MEASURED, the shipped build)
+
+- the image **51,410 bytes, +299** on 51,111 (the tables 108: four places x
+  4 shifts x 3 bytes x 2 cards, `bz_spsr` 12; `bz_cuef`'s rise and its
+  shared place loop; the save's table, `bz_dlife`, `bz_lfset` and the rounds'
+  fold; the family row); the bss **9,426, +74** (`bz_lfx` 1, `bz_nlife` 4,
+  `bz_dat` +12, the hook lists' and slots' share of a sixteenth family).
+- the parts: PICKUPS **608 bytes, +76** (`pu_rearm` and the cue's kept bit;
+  its 40-paragraph ceiling holds); LIFE **285 bytes** (18 paragraphs); the
+  resident bundle 36,112 (+352); the VGA part 5,406 (+160).
+
+#### 130.55.6 PLAYGROUND, and the proofs
+
+PLAYGROUND (pad 6) names `life`; its pickups yard has `prop speed 5 14 for 3
+respawn` and `prop life 3 15 once`. `bonanzaphys`'s PICKUPS scenario
+(`tests/bonanza_phys.py`, the unicorn half) plays it with `bz_lfx` 1 and 5
+lives written before `bz_pinit`: after the old marks, the life taken (6 lives,
+`bz_lfx` 3, the rise's cue bit 2), a RETURN, and the ball back in its cell and
+held 30 steps - not taken again; the speed wears off and comes back each time.
+`bz_lfx` and `bz_lives` join the working values compared every step. Its
+MartyPC replay plays the same keys as a REPLAY, where the heart is hidden
+(`pickup_ok(life=False)`). `bonanzagame`'s second reading of the save
+(`tests/bonanza_game.py`) has the 500-byte file, the 488-byte one read with
+its table zero, an emptied slot's dword and the cap of 9.
+
+### 130.56 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; BUILT IN PART on `bb-editor`, 130.56.10)
+
+The owner: a GUI course builder *"focused on ease of use"*, supporting every
+tile and prop the course format has, with the shape editor in a tab of its
+own; a Python window *"similar to the video battle builder"*, because the
+compiler that checks a course takes minutes on a modern machine. The plan and
+its stories are `docs/plans/BOUNCE-BONANZA-EDITOR.md`; the mockups the owner
+reviewed are linked from there. This section is the contract and binds the
+plan; 130.56.10 says what is built.
+
+#### 130.56.1 The decisions, in one table
+
+| # | decision | why |
+|---|---|---|
+| E1 | A HOST program, `tools/bbedit.py` (the window) over `tools/bbedproj.py` (the model), not an os8088 package | the checks are the compiler's physics runs: 3.5 s for MILL and 181 s for PLAY on a 4-core host at `abe0713d0`, with tables far past 640 KB - an XT would take tens of minutes to hours an edit (PREDICTED, not measured) |
+| E2 | The battle builder's layers (docs/plans/completed/VBATTLE-BUILDER-PLAN.md 2): model, analysis, window; everything slow a PROCESS with JSON progress that Cancel kills | the encoder window's lesson (98.2.11.1), and nothing the window does is out of a script's or a test's reach |
+| E3 | The `.bbc` text is the document. The model edits it LINE BY LINE: a changed statement rewrites its own line, a new one is inserted beside its kind, every other byte - comments, blank lines, order - is kept | the courses are mostly comment; `parse()` keeps line numbers and drops the rest, and there is no writer today |
+| E4 | `tools/bbcourse.py` stays the only judge of a course. The window never decides what is legal and never draws a course picture of its own except the top-down PLAN | one compiler, so the builder cannot drift from the game - and the game's visual changes (the VGA arm 130.46, the look 130.47, the column and floor distinctions coming) reach the builder by merging, not by porting |
+| E5 | Two views of one selection: PLAN (top-down, a height map that toggles) and ISO (the compiler's own `render()`), switched by one key | the owner: authors and agents both fail to SEE that one thing obstructs another, or that two surfaces blend |
+| E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.56.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
+| E7 | The shipped build never runs `--strict`. `--strict` makes warnings refusals for agents' runs and for a course that asks for it (`strict`); exceptions are COURSE BY COURSE, written in the course (`hidden` on an element, `accept` for a warning, 130.56.5) | the owner: *"we're probably going to ship courses that don't pass strict ... exceptions can be course by course; the goal in the end is to have good courses"*, and hiding a checkpoint is a real design (secret routes) |
+| E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.56.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
+| E9 | A full check that an edit makes stale is CANCELLED, and restarted 2 s after the last edit; never more than one of each job alive | edits must not pile up processes |
+| E10 | Runs where the other Python windows run: macOS (Tk, Pillow), Windows (Pillow if wanted), Linux with the dependencies installed; shipped as a zip, `make bbeditbundle`, `vbtbundle`'s shape | the owner's machines |
+| E11 | ADD TO THE GAME is in scope, a wave of its own at the end: the builder writes a playable BONANZA with the author's courses, from what the zip ships (130.56.9) | RealDMG's precompiler window is the precedent: it writes a game, not a source file |
+| E12 | The PATHWAY (`path.bbc`) is edited too, a wave of its own; the title course and the knob `.sed` variants are read-only in the first waves | different statements (130.22.2); the window says so when one is opened |
+
+#### 130.56.2 The layers
+
+| layer | file | what it is | needs Tk |
+|---|---|---|---|
+| model | `tools/bbedproj.py` | a course document: the text, its statements (each with its line span), edit methods, undo, the file's stamp on disk | no |
+| checks | `tools/bbcourse.py` | the compiler, unchanged in role: `parse`, the compile, `render`, `owners_canvas`, `visibility`, `Physics` - plus the warning tier (130.56.4) and the blend check (130.56.6) | no |
+| jobs | `tools/bbedjob.py` | runs a check as a process; JSON lines on stdout (`{stage, done, of, what}`, then `done` with the result) | no |
+| window | `tools/bbedit.py` | a view of the model; calls only model methods and jobs | yes |
+| player | `tools/bbplay.py` | Test Roll's frame loop (130.56.7) | yes (the window it draws in) |
+
+`bbedproj` is also a command line (`python3 tools/bbedproj.py check|set|add|remove …`) so an agent edits a course through the same methods as the window.
+
+#### 130.56.3 The document
+
+- **Statements** are read by `bbcourse.parse` (one parser) and carry their
+  line span. An edit is a method (`move`, `resize`, `set_height`,
+  `set_surface`, `add`, `remove`, `set_clause`) that produces a new line or
+  lines for that statement only; the rest of the file is byte-for-byte what
+  was read.
+- **Round trip** is the first gate: opening and saving every course under
+  `apps/bonanza/courses/` without an edit writes identical bytes, and an edit
+  then its undo writes identical bytes.
+- **The file on disk**: the model keeps the file's size, time and hash at
+  load and at save. A save whose file has changed since asks before writing;
+  the window notices a change when it regains focus and offers to reload.
+  (Cheap, so kept, though the owner and agents never share a container.)
+- **What an edit makes stale**: an edit changes the course's identity
+  (130.15.7), so its AUTHOR demo and any shipped `BZD<NAME>.BIN` stop
+  replaying. The Course tab says which, and offers to re-record (Test Roll
+  can record, 130.56.7). The kit (130.37), `uses` (130.25.6.4) and the course
+  budget (130.15.8) are the compiler's to report.
+
+#### 130.56.4 Errors and warnings
+
+A check is an ERROR when the course cannot be built or played: the grammar,
+the start reaching the goal, NO TRAP, the part's size and block limits, the
+occluder record limits, anything drawn off the picture, a secret route's
+structure (130.22). It is a WARNING when it is about what the player SEES:
+
+- every `HIDDEN` refusal the compiler makes today becomes a warning: the
+  flag (130.14.25 item 1), the blower's fan and squiggles, the magnet, a
+  turntable cell, the boost pad, a lane's pose, the clock, a ball wholly
+  hidden behind an archway (130.39) or a hump (130.44) for too long;
+- the visibility audit (130.15.10.4) - marks and tube mouths under their
+  share, the ball hidden over 0.5 s on the route - which only reports today;
+- the BLEND check (130.56.6), new.
+
+Warnings never block a save, a Test Roll, a build or an add-to-the-game,
+and the Makefile never passes `--strict`: the game ships courses with
+warnings. `bbcourse.py --strict` (and the window's "Treat warnings as
+errors") makes each warning a refusal, naming the element and its line. It
+is what an agent's course run uses, and it binds a course in every build
+once the course says `strict` (130.56.5) - the way a finished course is held
+to it.
+
+#### 130.56.5 Exceptions, course by course: `hidden`, `accept` and `strict`
+
+Three statements, none of which writes into the part (no identity moves):
+
+- **`hidden`**, a trailing word: `checkpoint <wx> <wy> [ball …] hidden`, and
+  the same on every element a visibility warning names (`spring`, `pad`,
+  `clock`, the `prop` families with a pose). The element is hidden ON
+  PURPOSE - a secret route's flag, a late-game surprise. Its visibility
+  warning is not raised, under `--strict` too, and the Course tab lists it as
+  "hidden on purpose". `cup … hidden` (130.22) already exists and keeps its
+  meaning.
+- **`accept <warning> [<wx> <wy>]`**: one warning this course keeps, by the
+  name the warning prints (`blend`, `ball-hidden`, `mark`, ...), at one cell
+  or course-wide. Under `--strict` an accepted warning is reported as
+  accepted and refuses nothing. The comment above the line is where its
+  reason goes; the builder writes one when the author accepts from the
+  warning's menu.
+- **`strict`** (no arguments, once): this course is held to `--strict` in
+  every build, the shipped one included. A course says it when it is
+  finished, so the ship can carry strict and unfinished courses side by side
+  and the strict ones cannot slip back.
+
+#### 130.56.6 The blend check
+
+The owner: floor tiles whose PATTERNS MATCH, *"so visually there is no
+distinction between them, when they are not actually adjoined"*. Two floor
+regions A and B BLEND when (1) they are not adjoined - not grid neighbours
+the ball can roll between at the same height - and (2) in the picture a run
+of pixels where A's top face meets B's continues the checker with no edge
+line. It is found from `owners_canvas` (130.15.10.4): every screen-adjacent
+pixel pair owned by two cells that are not adjoined, whose colours continue
+the pattern, counts toward that pair of regions; a pair over a threshold
+(set in its wave from the shipped courses) is a warning. It is checked per
+picture the course has: the CGA in its palette (130.16.6), the Hercules, and
+the VGA arm's when the compiler renders one. The window draws a blending
+pair with a stripe over both regions, in Iso and in Plan, from the warning's
+"Show".
+
+#### 130.56.7 Test Roll
+
+- **The model is the game's**: `Physics.step(keys, tilt)`, the families'
+  `pose()`, `sprite()` and `shadow()`, the `Glide` camera, at 54.6 steps a
+  second (`STEP_HZ`). 100 s of play steps in 0.03 s (MILL) and 0.14 s (PLAY)
+  on the host (MEASURED at `abe0713d0`).
+- **The picture** is the compiler's render; the frame adds the poses, the
+  ball and its shadow, masked by the course's occluders. The compositor is
+  the one place the builder copies the guest's drawing, so it is checked
+  against MartyPC's frames of the same demo (the plan's wave 6).
+- **The course it plays**: `Physics` reads the compiled part, and the
+  compile without occluders is NOT always valid (PLAY's makes 1,123 blocks,
+  over the 1,024 of 130.15.4.4, MEASURED). A play-only compile - the part's
+  grid and props without its picture blocks, or the picture held as an image
+  - is the plan's wave 0 question, answered before wave 6 is designed.
+- **Start anywhere**: the course start, a flag, or a cell clicked on the plan
+  (`Physics.poke`). Pause, step a frame, ¼ and ½ speed, rewind (states kept
+  every 0.5 s), a ghost of the AUTHOR demo or the best run.
+- **A run is a demo**: Save writes the steps as a `.BZR` (130.14.7), so a
+  host run replays on the real game step for step.
+
+#### 130.56.8 Jobs
+
+One PICTURE job (render and owners, under a second on a small course) and
+one FULL job (the compile with occluders, NO TRAP, the visibility audit, the
+blend check). An edit kills a running FULL job's process group and starts a
+new one 2 s after the last edit; the PICTURE job runs on every edit and a
+newer one replaces an older. The status bar shows each job's stage and
+Cancel. Results are the compiler's cache's (`cache_put`) where it has them.
+
+#### 130.56.9 Add to the game (the last wave)
+
+The builder writes a BONANZA the author can play: the shipped courses (or
+none) plus the author's, as `BONANZA.O88` and optionally a floppy image. The
+course list is ASSEMBLED into the package today (`bzcourse.inc`'s rows,
+130.10.6), so the wave decides between a prebuilt package whose course table
+is data the builder fills in - the precompiler's shape (`gbaotbundle`,
+REALDMG-SPEC 20.12), nasm only where the zip is made - and a package that
+reads its course list off the disk. The pathway entry for a new course
+(pad, route, icon) is made with the pathway editor's wave.
+
+#### 130.56.10 Built so far (2026-11-21)
+
+- **The model**, `tools/bbedproj.py`: a `Document` of lines; every edit (`set_statement`, `insert`,
+  `remove`, `move`, `set_word`, `set_clause`, `set_flag`) rewrites only its statement's line, keeping
+  the indentation and the trailing comment at its column; undo and redo hold whole line lists. The
+  file's size and SHA-1 at load and save are its stamp (130.56.3). `coord_slots` names every world
+  position a statement has - a shape's (`tile`, `rect`, the screen axes of `band` and `box`, after a
+  `half`/`quarter` prefix), a ramp's span, water's ripple cell, a prop's cell or rectangle and its
+  `region`, a tube's mouths and `via`, a chute's points - which is what a move shifts. `analyse()`
+  reads the course through `bbcourse.parse`, `build_tiles` and `build_props` (milliseconds) for the plan:
+  each cell's kind, height in units as written (`zbase` added back; a FIELD cell's heights are quarter
+  px, 32 a unit), slope, surface and line. `auto_uses()` adds the family a refusal names (130.25.6.4)
+  to the `uses` line, folded into the edit that needed it. Its command line is the agents' way in.
+- **The warning tier** in `tools/bbcourse.py`: `_visual(msg, kind)` replaces the eleven visual
+  refusals of 130.56.4 (`hidden`: the flag, the blower's squiggles, the magnet, the turntable cell, the
+  boost pad, a gate or plate's pose, a gate's art, the clock; `ball-hidden`: the archway, a clock or
+  gate art, a hump). While a compile runs, `_compile_cached` collects them on `c.vwarn` (cached with
+  the course: the cache key is unchanged); `compile_course` then makes `c.warnings` (`vis_settle`:
+  `hidden` lines dropped, `accept`s marked) and refuses under `strict=`, `--strict` or the course's
+  `strict`. Outside a compile `_visual` still refuses. `compile_all` prints each warning.
+  `--selfcheck` runs under `--strict`: its negative controls (a flag, a boost pad or a gate behind a
+  wall; a ball wholly hidden behind a clock or a hump) are the strict tier's refusals, and the plain
+  tier's warnings are the `bbedit` row's to hold. MEASURED: the sections flags, boost, gate, hump,
+  clockocc, clockvis, wind, magnet, turn, arch, tilt and spike pass (428 s). **What stays an
+  ERROR**: an element with NO pixel left to lay (the blower's fan, a membrane's tear, a boost pad, a pose
+  or a gate) - its lane cannot be built - except the FLAG, whose lane, wholly hidden, spans its pennant
+  as drawn with empty poses. The guest has not yet been run on a wholly hidden flag. MEASURED: every
+  shipped course's parts, demos and `bzcourse.inc` byte-identical before and after (`-o` over
+  BZ_COURSES, the pathway and the title, at `be9862a1c`); no shipped course raises a warning.
+- **The jobs**, `tools/bbedjob.py`: `picture` (the compile without occluders and with BLK_MAX lifted -
+  the picture's alone, never a part - then `cga.png`, `herc.png`, `owners.bin` and `meta.json` with
+  every mark the visibility audit weighs, its seen and hidden pixels and the cells in front) and
+  `check` (`compile_course`, its errors and warnings). MEASURED: the picture 0.7 s for MILL, 7.8 s for
+  PLAY; the check 3.2 s for MILL.
+- **The window**, `tools/bbedit.py`: the Build tab (the palette, Plan and Iso on Tab, the inspector,
+  the problems list), the Course tab (settings and "Ready to play?") and a Source tab. Plan draws
+  `analyse()`'s cells; Iso shows the picture, names the statements under the pointer from the owner
+  map, selects by click, and X-rays the selection: everything dimmed but its pixels, a mark's hidden
+  pixels red, the cells in front of it dithered orange. Tk 8.6 reads the pictures as PNG itself, so
+  `PIL.ImageTk` is not needed.
+- **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
+  `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
+- **Not built**: the blend check (130.56.6), the Shapes tab, Test Roll (130.56.7), the pathway, add to
+  the game (130.56.9). The plan's story list carries what each built story still lacks.
+
+#### 130.56.11 The zip: `make bbeditbundle`
+
+`tools/bbeditbundle.py` writes `build/os8088-course-builder.zip`, one folder `os8088-course-builder/`
+(the owner: the GUI at the root, the working files in a subdirectory):
+
+- at the TOP, the window `bbedit.py`, the model and command line `bbedproj.py`, the job `bbedjob.py`,
+  and every `tools/` module they import - os88vbundle's closure over their imports, so a module the
+  builder starts to need is in the next zip unasked; an unexpected third-party import stops the build
+  (Pillow is the one expected; numpy, pyopl and unicorn are imported only inside functions the builder
+  never calls);
+- under `data/`, the compiler's working files at their places in the tree - `apps/bonanza/courses/`
+  (every course and the art they name), `demos/`, `music/`, `fonts/tallx.f8` - and `data/Makefile`,
+  the tree Makefile's BZ_COURSES and BZ_TESTCRS lines and nothing else (bbcourse.default_paths reads
+  the course list there);
+- `README.TXT`.
+
+`bbcourse.py`, `bonanza_assets.py`, `bbmusic.py` and `bbicons.py` take the `data/` folder beside them
+as ROOT when it holds `apps/`, else the checkout - so the same files run in both, and `LABEL_FONT` is
+ROOT's `fonts/tallx.f8`. The compile cache is then `data/build/bbcache/`. The zip is deterministic
+(sorted entries, 1980-01-01 timestamps): 119 files, about 870 KB.
+Row `bbeditbundle` (soak) unpacks it outside the tree and uses it there.
+
+#### 130.56.12 Select first, then act (the owner's first test, 2026-11-21)
+
+The owner, on the first build: clicking a palette part made the next click PLACE it, so selecting
+something added things; a placement the compiler refused (an archway mid-floor) left the course unable
+to lay out, the plan empty, the picture stale and nothing selectable to delete; a ramp could not be
+reached; *"If I'm selecting something that already exists, I want to select it, THEN change or edit
+it ... If I'm adding something, then I want to select it and have it add on top of the area"*, a wall
+*"1 higher than the floor beside it, even if that floor is multiple different levels"*. So:
+
+- **Selection is the only thing a click does.** A click selects the topmost part at the cell (Shift-click
+  the next one under it); a drag that starts on the selected part MOVES it, any other drag selects an
+  AREA, which stays selected. Iso: a click selects what drew the pixel.
+- **Adding is the palette's Add button** (or a double-click on the part), onto the area (else the selected
+  part's footprint): rectangle parts cover it, cell parts go at its corner. HEIGHTS come from what is
+  there (`_heights`): the highest floor, goal or shaped floor IN the area, else touching it, else the
+  toolbar's "New floor height"; a Wall is the highest floor in or around the area plus one unit; a Ramp
+  rises half a unit a tile (the gentlest the grammar allows) across the area; an Archway spans the
+  selected path's width, one cell deep (130.39.2: at most two cells each way).
+- **No edit leaves the course refused.** `_edit` runs every change, adds its `uses`, and when the course
+  is refused where it was not before, undoes it at once (redo dropped) and says why: `explain()` maps the
+  compiler's refusals to plain words and what to do (an archway's legs, a guard rail's open edge, a tube's
+  wall, a ramp's half-unit rate, one part a cell, ...), the compiler's own message beside them, with "Keep
+  it anyway" for the deliberate case. A course already refused (a file opened so) keeps its last good
+  layout drawn, marked as such.
+- **Slope**: a floor, wall or goal laid by `tile` or `rect` has Flat / Ramp, which side it rises toward
+  and its low and high ends; the high end snaps to a whole number of half units a tile, and a changed
+  corner keeps the ramp's steepness (its span follows the shape). **Surface**: the `surface` statement
+  over exactly that shape, made, changed or removed from the floor's inspector; it travels with its floor
+  when the floor is moved or reshaped, in the same edit (`Document.set_many`, `move_many`: one undo step).
+- Plan arrows point UPHILL; a region's label is its whole height range.
+
+#### 130.56.13 The ground is one layer (the owner's second test, 2026-11-21)
+
+The owner: *"We have one 'layer' only ... From the user's perspective they start with either a floor, or
+empty space, and then add something to that"*: a ramp made in the middle of a floor without cutting the
+floor by hand, a pad on a cell bringing its ground, an archway going OVER what it is put on. And a floor
+built off to the side stopped the course with "footprint past the 512 px width", which the edit's check
+did not see.
+
+- **An area is changed, not stacked on.** `Document.replace_area(areas, ground, then, kinds, surfaces)`
+  cuts the area out of every `tile`/`rect` statement of the ground kinds (floor, wall, goal, hole; and the
+  surfaces, for a wall, a hole or a paint) - each piece keeps that statement's own clauses word for word,
+  which is exact because a ramp's plane is absolute (a piece's `ramp x P0 P1 H0 H1` names the same plane
+  over a narrower span: MEASURED, compiled) - then adds the new ground after the last ground statement and
+  the other statements after the last of their kind: one edit, one undo. A band, box, half or quarter is
+  never cut; the new ground, coming later, overrides it (a later room overrides an earlier one cell for
+  cell: MEASURED).
+- **The area panel's Make it** (Floor, Ramp, Wall, Hole, Goal) and **Paint** (Ice, Sand, Bounce, Normal)
+  are those edits. A Ramp rises from the area's floor height along its longer side, half a unit a tile.
+- **A part that stands on the ground**, added on an empty cell, brings `floor tile X Y flat H` (H the
+  floor beside it) in the same edit. **An archway** goes over the area (at most two cells each way, along
+  its shorter side), and each leg cell that is floor or goal becomes `wall tile` at that floor's height -
+  130.39.2 lets a leg replace a wall; its `under` clearance is in the inspector.
+- **The picture's band.** A cell is drawn when 16 (wx - wy) + X0 - 24 >= 0 and 16 (wx - wy) + X0 + 23 <
+  8 width (bbcourse `foot_x`), X0 the `origin` (default 4 width), `width` the picture's WORD COLUMNS - any
+  multiple of 8 from 64 to 160 (130.10.4.2's amendment: up to 1,280 px), NOT the two-part course
+  (130.30), which is about one part's bytes. The compiler holds every cell the ball can REACH to it, and a
+  flight reaches 4 to 6 diagonals past a floor's edge (MEASURED on the shipped courses), so `analyse()`
+  refuses a floor, goal or shaped floor closer than `FLY` = 4 to the band's edge (no shipped course trips
+  it), and the edit check sees it. `Document.auto_band()`, run on every edit, moves the `origin` (a
+  multiple of 16) to centre the course; failing that it takes the SMALLEST wider `width` that holds it,
+  centred, and says so; past 160 it leaves the course refused, with what to do (build down or up the
+  screen, which has no limit). MEASURED: a 10 x 8 floor beside another at the same rows asks 80 columns,
+  origin 224 - the compiler builds that and refuses 72 at every origin and 64 at origin 160. The plan shades
+  where no floor may go and labels the edge with the width.
+- The full check's refusals are put in plain words in the problems list (`explain`, the compiler's own
+  details kept: "a ball could get stuck: from the steel pad at (3, 14) it cannot get to the goal").
+
+#### 130.56.14 Moving ground, joining ramps, rejoining, many at once (the owner's third test, 2026-11-21)
+
+The owner, building a course of ramps: drag the finish into the middle of a higher floor and it should
+cut in at that floor's height; a ramp between two floors should take their heights and direction; floors
+should rejoin into their fewest blocks; Ctrl-click to change several at once; a direction from the
+selected shape (an archway selected one wide and three high is vertical); an easy STAIRCASE wall beside a
+ramp, as rails; and floors and walls that FLOAT a chosen depth ("Overhang" had refused empty space).
+
+- **Moving ground** (`move_sel`): a floor, wall, goal or hole laid by tile or rect leaves its old cells
+  empty, cuts its way into the cells it lands on (`replace_area`), takes the height of the floor it lands
+  on when it is a flat floor or goal, carries its own surface and hang, and the floor round both places is
+  rejoined - one undo step (`Document.group`).
+- **Joining ramps** (`_ramp_fit`): Make it Ramp on an area with floor on two opposite sides runs along
+  that axis (the one whose two floors differ most), its low end at the lower floor's edge height (each
+  cell's `edges`, from its corners), rising toward the higher as nearly as whole half units a tile allow.
+  Otherwise half a unit a tile along the longer side, as before. A steep join can meet the renderer's
+  occluder limit (130.15.5: at most 4 records a block; MEASURED: 4 to 8 over 4 tiles beside an 8-unit
+  cliff is 5) - the full check refuses it and the problems list says to make the ramp gentler.
+- **Rejoining** (`Document.tidy`): after an area or move edit, statements of one kind with the same
+  clauses (a ramp's included: its plane is absolute) and no comment of their own, touching the edit, are
+  replaced by the fewest rectangles a greedy cover finds (rows or columns first), in the first member's
+  place - unless a statement between the members in the file covers a cell a LATER member laid, which the
+  reordering would hand over. Make it Floor takes the FLAT floor's height in or round the area (not a
+  ramp's top), so a ramp made floor again rejoins whole.
+- **Many at once**: Ctrl-click (Command-click on a Mac) adds or removes a part; the inspector then sets a
+  height, raises or lowers every height (a ramp's two ends), paints a surface or sets the hang on every
+  selected floor, wall and goal, and Delete removes them all - each one undo step.
+- **Directions from the area**: an archway over an area one or two wide and three or more long is LEG,
+  PASSAGE, LEG along its length (the ball passing across it); a gate, seesaw, boost pad, blower or magnet
+  on a tall area runs along y or faces +y; a tube runs from the area's first cell to its last.
+- **Rails** (the ramp's inspector): walls on both long sides of a ramp, 1.5 units over it - STEPPED, a
+  wall a tile at the ramp's higher edge there plus 1.5, up to the half unit, equal neighbours joined; or
+  SMOOTH, one wall each side carrying the ramp's plane raised (walls take `ramp`).
+- **Hangs down** (a floor's, wall's or goal's inspector; the palette's Overhang is gone): to the ground,
+  or 3 units (`float <shape>`) down to 0.25 (`float <shape> thick N`, 130.27.2.1: 0.25 to 3 in quarters) -
+  a companion statement over the same shape that moves with it. A float marks cells of a floor, which is
+  why one placed on empty space was refused.
+- **A route point** is never drawn in the game, so a click reaches the ground under it first (Shift-click
+  reaches it).

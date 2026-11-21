@@ -1,8 +1,8 @@
 # BZSHAPES=1 (Makefile; SPEC.md 130.28): the pathway with the FIELD-cell test courses - applied to path.bbc
 # at build time, so the knob's pathway is the shipped one with these lines changed and nothing else.
-# Pad 0 becomes SHAPE (a new game rests on it: title, Play Game, Enter); its exit 0 still goes to TRIAL.
+# Pad 0 becomes SHAPE (a new game rests on it: title, Play Game, Enter); its exit 0 still goes to DOWN (pad 1, TRIAL's until 2026-11-21).
 # SHAPE's exit 1 goes straight right to PITS (pad 6), its exit 2 straight left to FIRST (pad 7) - both
-# dead ends, as PEAK is (FIRST's own finish has no route: TRIAL is SHAPE's exit 0, and a route into TRIAL
+# dead ends, as PEAK is (FIRST's own finish has no route: DOWN is SHAPE's exit 0, and a route into DOWN
 # from the left would share its Left arrow) - so every shipped course stays on the map.  FIRST's icon
 # moves with it to pad 7; pad 0 shows none.
 s/^pad 0 FIRST  22 26$/pad 0 SHAPE  22 26\
