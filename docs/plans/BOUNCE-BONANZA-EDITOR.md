@@ -33,7 +33,9 @@ the host; visual checks warn rather than refuse.
 session's band (SPEC.md 130.57): the Iso view shows every face the band could go on, and a click marks or
 unmarks it.
 
-**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), the rest of Test Roll (6), the pathway (7) and
+**The Shapes tab is built (4.1, 4.3; 4.2 in part; SPEC.md 130.56.19).**
+
+**Next phases**: the blend check (3.3, 3.4), the rest of the Shapes tab (4.2's Iso blocks), the rest of Test Roll (6), the pathway (7) and
 add-to-the-game (8.1, 8.2). `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
@@ -138,9 +140,9 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 4.1 [ ] | chutes: path points, width, round or banked, depth, the height graph | SHAPE's three chutes round-trip and edit |
-| 4.2 [ ] | pits, ramps, humps; diagonal blocks and chamfers edited in Iso by default | each kind made from nothing compiles |
-| 4.3 [ ] | how each ball rides a shape: scripted `Physics` runs as a job, read out in words | the readout on SHAPE's chute 1 |
+| 4.1 [x] | chutes: path points, width, round or banked, depth, the height graph | SHAPE's three chutes round-trip and edit - DONE (130.56.19): the `bbedit` row's item 9, and a scripted session on SHAPE's chute 1 (an end dragged, a leg added) |
+| 4.2 [~] | pits, ramps, humps; diagonal blocks and chamfers edited in Iso by default | each kind made from nothing compiles - BUILT: pits and humps (made from nothing, compiled, in the row); ramps are the Build tab's (130.56.13); MISSING: diagonal blocks and chamfers in Iso (the Build tab cuts corners, 130.56.15) |
+| 4.3 [x] | how each ball rides a shape: scripted `Physics` runs as a job, read out in words | the readout on SHAPE's chute 1 - DONE: every ball steered through in 5.7 - 7.2 s; let go, each comes to rest on the first leg |
 
 ### Wave 5 - the Course tab
 
@@ -155,7 +157,7 @@ union runs once at the end of a phase, in the background.
 | # | story | verified by |
 |---|---|---|
 | 6.1 [x] | the play-only compile of wave 0.3, as a job | PLAY's time to first step, measured - DONE as a `bbplay.py --job` process beside the full compile: PLAY 8.6 s to the first frame (130.56.16.1) |
-| 6.2 [~] | `tools/bbplay.py`: the frame loop at `STEP_HZ`, keys, the compositor of wave 0.4, CGA and Hercules, Glide and Trickle | MILL played by hand; a screenshot - BUILT: the loop, keys, compositor, CGA and Hercules, Glide; MISSING: Trickle; MILL driven by the autopilot under Xvfb, not yet played by hand |
+| 6.2 [~] | `tools/bbplay.py`: the frame loop at `STEP_HZ`, keys, the compositor of wave 0.4, CGA and Hercules, Glide and Trickle | MILL played by hand; a screenshot - BUILT: the loop, keys, compositor, CGA and Hercules, Glide; MISSING: Trickle; MILL driven by the autopilot under Xvfb, and played by hand by the owner (2026-11-21: "test roll works well") |
 | 6.3 [~] | start from the course start, a flag or a clicked cell; pause, step, ¼ and ½ speed, rewind, the run's timeline | each used once on MILL - BUILT: the start, a clicked cell (the builder's selection), pause, step, 1/2 and 1/4, rewind 5 s; MISSING: a flag as the start, the timeline |
 | 6.4 [~] | ghost of the AUTHOR demo or the best run; save a run as a `.BZR`; make it the AUTHOR demo | a host-recorded run replayed on MartyPC ends where it ended on the host - BUILT: save as `.BZR` and `.bzd`, replayed through `run_log` to the same end; MISSING: the ghost, making it the AUTHOR demo, the MartyPC replay |
 | 6.5 [ ] | the fidelity check: the same demo's frames, host against MartyPC, at chosen steps | a row; the box on the Test Roll window says only what it shows |

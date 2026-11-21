@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bbedproj as E  # noqa: E402
 import bbcourse as B  # noqa: E402
+import bbedshape  # noqa: E402
 
 TITLE = "Bounce Bonanza course builder"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "os8088", "bbedit.json")
@@ -52,7 +53,7 @@ PALETTE = [
         ("Guard rail", "rect", "guard rect {x0} {y0} {x1} {y1}", "A rail on the open edge beside a floor"),
         ("Water", "cell", "water tile {x} {y} top {h} bed 0", "A pool: a surface and a bed"),
         ("Waterfall face", "cell", "arch {x} {y} +x", "The face a water column spills from"),
-        ("Hump", "cell", "hump {x} {y} 2", "A rounded bump (Shapes tab for more)"),
+        ("Hump", "cell", "hump {x} {y} {h}", "A rounded bump (the Shapes tab edits it)"),
         ("Archway", "rect", "archway tile {x} {y} along x", "A ceiling over a path: select the path (1 or 2 "
          "cells wide, with empty space on both sides for its legs)"),
         ("Chute", "cell", "chute 1 round depth 5 way {x} {y} {h} way {x4} {y}", "A curved channel"),
@@ -336,6 +337,7 @@ class App(object):
         self._build_build_tab()
         self._build_course_tab()
         self._build_source_tab()
+        self.shapes = bbedshape.ShapesTab(self, self.nb, self.tk, self.ttk, Job, hcolour)   # SPEC.md 130.56.19
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
     def _build_build_tab(self):
@@ -698,6 +700,8 @@ class App(object):
         self._fill_course()
         self._fill_source()
         self._fill_problems()
+        if getattr(self, "shapes", None) and self.shapes.shown():
+            self.shapes.refresh()
         self._schedule_jobs()
         if a["error"]:
             self._msg(a["error"])
@@ -1913,7 +1917,13 @@ class App(object):
             self.nb.select(0)
 
     def _tab_changed(self):
-        pass
+        if getattr(self, "shapes", None) and self.shapes.shown():
+            try:
+                if self.sel and self.doc.statement(self.sel).kind in ("chute", "pit", "hump"):
+                    self.shapes.line = self.sel         # (the shape selected on the Build tab, shown)
+            except E.EditError:
+                pass
+            self.shapes.refresh()
 
     # -- problems -----------------------------------------------------------------
     def _problems(self):
@@ -2095,6 +2105,7 @@ class App(object):
             if j:
                 j.poll()
                 busy = busy or j.running
+        self.shapes.poll()
         if busy:
             self.pbar.start(12) if not getattr(self, "_spin", False) else None
             self._spin = True

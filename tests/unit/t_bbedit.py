@@ -20,6 +20,11 @@
     and a route point is the last thing a click at its cell reaches;
  7. DIAGONALS: PLAY's split cells report their pieces and a click picks the piece under it; a boost pad,
     magnet or membrane wholly behind a wall builds, with a warning;
+ 9. SHAPES (130.56.19): every chute, pit and hump of the shipped courses reads and writes back as it was
+    (bbedshape.parse / code); on a constructed plate a chute made from nothing, dragged by an end and a
+    corner, given a left turn and run the other way still compiles, a pit and a ridge too - and the ride
+    readout (bbedjob.rides, the game's Physics) takes each ball through the steered chute and over the
+    ridge at full speed.
  8. GAP BANDS (130.56.21): a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
     (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
@@ -39,6 +44,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import bbcourse as B  # noqa: E402
 import bbedproj as E  # noqa: E402
+import bbedshape as S  # noqa: E402
+import bbedjob as J  # noqa: E402
 
 FLAG = """course HFLAG "Hidden flag"
 width 64
@@ -204,6 +211,51 @@ def main():
         d.toggle_gap(f_, "sw", F)
     if gaps() or len(d.undo_stack) != 5:
         bad.append("gap: every mark taken off leaves %r, %d undo steps" % (gaps(), len(d.undo_stack)))
+    # 9. SHAPES (SPEC.md 130.56.19)
+    for f in courses:
+        for st in E.Document.load(f).statements():
+            if st.kind in ("chute", "pit", "hump"):
+                sh = S.parse(st.toks)
+                if not sh or S.parse(E.tokens(S.code(sh))) != sh:
+                    bad.append("shapes: %s:%d reads back as %r" % (os.path.basename(f), st.line,
+                                                                  sh and S.code(sh)))
+    plate = ('course SHP "Shapes"\nwidth 96\nball rubber\nfloor rect 4 4 24 20 flat 2\nstart 5 5\n'
+             'goal rect 22 18 24 20 flat 2\ntarget 60\nway 5 5\nway 23 19\n')
+    d = E.Document(plate)
+    d.auto_band()                                   # (the window's own fix: the picture's width and origin)
+    plate = d.text()
+    ch = S.new_shape("chute", 8, 15, 2.0)
+    steps = [("made", ch)]
+    ch = dict(ch, ways=S.drag_way(ch["ways"], 1, 16, 15))
+    steps.append(("an end dragged", ch))
+    ch = dict(ch, ways=S.add_leg(ch["ways"], "left"))
+    steps.append(("a left turn added", ch))
+    ch = dict(ch, ways=S.drag_way(ch["ways"], 1, 17, 14))
+    steps.append(("a corner dragged", ch))
+    steps.append(("run the other way", dict(ch, ways=S.reverse(ch["ways"]))))
+    if ch["ways"] != [[8, 14, 2.0], [17, 14, None], [17, 11, None]]:
+        bad.append("shapes: the dragged chute's ways are %r" % ch["ways"])
+    hump = dict(S.new_shape("hump", 16, 6, 2.0), along="x", n=3)
+    steps += [("a pit", S.new_shape("pit", 6, 6, 2.0)), ("a ridge", hump)]
+    held = B.BLK_MAX
+    B.BLK_MAX = 1 << 30
+    try:
+        for what, sh in steps:
+            try:
+                c = B.compile_course(plate + S.code(sh) + "\n", "shp.bbc", occluders=False)
+            except B.CourseError as e:
+                bad.append("shapes: %s (%s) refused: %s" % (what, S.code(sh), str(e)[:120]))
+                continue
+            if what == "a left turn added":
+                r = J.rides(c, S.code(sh).split())
+                if not r or not all(x["result"] == "through" for x in r if x["test"] == "steered along it"):
+                    bad.append("shapes: the steered chute: %r" % [x["words"] for x in r])
+            if what == "a ridge":
+                r = J.rides(c, S.code(sh).split())
+                if not all(x["result"] == "through" for x in r if x["test"] == "at full speed"):
+                    bad.append("shapes: the ridge at full speed: %r" % [x["words"] for x in r])
+    finally:
+        B.BLK_MAX = held
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
