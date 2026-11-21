@@ -1,6 +1,6 @@
 # BOUNCE BONANZA: the course builder
 
-*The contract is SPEC.md 130.56; where this plan and it disagree, it wins.
+*The contract is SPEC.md 130.58; where this plan and it disagree, it wins.
 The diary is [BOUNCE-BONANZA-EDITOR-DIARY.md](BOUNCE-BONANZA-EDITOR-DIARY.md).
 The mockups the owner reviewed are the design canvas
 https://claude.ai/artifact/NPuHumAXAJiMoWR6cLAQBq (private to the owner).*
@@ -15,7 +15,7 @@ the host; visual checks warn rather than refuse.
 ## Where it stands
 
 **The editing phase is done (2026-11-21), shaped by four rounds of the owner's testing** (SPEC.md
-130.56.10 - 130.56.15). Built so far:
+130.58.10 - 130.58.15). Built so far:
 
 - the model (`tools/bbedproj.py`) and the compiler's warning tier;
 - the jobs (`tools/bbedjob.py`);
@@ -29,23 +29,23 @@ the host; visual checks warn rather than refuse.
 - the zip (`make bbeditbundle`).
 
 **Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6) and the pathway (7);
-add-to-the-game (8.1, 8.2) is built (SPEC.md 130.56.17) but for its MartyPC boot. `[~]` below marks a story built in part, with what is missing.
+add-to-the-game (8.1, 8.2) is built (SPEC.md 130.58.17) but for its MartyPC boot. `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
-`python3 bbedit.py` in its folder (SPEC.md 130.56.11), or from a checkout of `bb-editor`,
+`python3 bbedit.py` in its folder (SPEC.md 130.58.11), or from a checkout of `bb-editor`,
 `python3 tools/bbedit.py apps/bonanza/courses/mill.bbc` - Python 3.11 or newer with Tk and Pillow (macOS: python.org's
 Python and `pip3 install pillow`; Windows: `pip install pillow`; Linux: `python3-tk`, `python3-pil`).
-The contract (SPEC.md 130.56) and this plan were written first.
+The contract (SPEC.md 130.58) and this plan were written first.
 Branch `bb-editor`, cut from `bounce-bonanza` at `abe0713d0`, and merged from
 `bounce-bonanza` often: the game is changing under it (the VGA arm, the look,
-the column and floor distinctions on their way), and E4 of 130.56.1 is what
+the column and floor distinctions on their way), and E4 of 130.58.1 is what
 keeps those changes free - the builder draws nothing the compiler draws.
 
 ## The owner's answers (2026-11-21)
 
 1. Line-by-line saving that keeps comments: *"Sounds good."*
 2. A changed-on-disk check: *"not super important ... But if it's not
-   expensive to add this check, do."* It is cheap; 130.56.3 has it.
+   expensive to add this check, do."* It is cheap; 130.58.3 has it.
 3. Re-recording demos an edit makes stale: *"good."*
 4. Add to the game: *"does need to be in scope; we can ship the bits needed
    ... with the builder zip release. Check RealDMG ... This can be its own
@@ -56,9 +56,9 @@ keeps those changes free - the builder draws nothing the compiler draws.
 7. Blending: *"Pattern on floor tiles matching, so visually there is no
    distinction between them, when they are not actually adjoined. Warning
    for this one and visually a way to point it out in the editor."*
-   130.56.6.
+   130.58.6.
 8. A stale full check: *"Probably canceled ... and they can't pile up."*
-   130.56.8.
+   130.58.8.
 9. Platforms: where the other Python windows run - macOS (Tk, Pillow),
    Windows, Linux with the dependencies.
 10. Branch `bb-editor`, with frequent pulls of `bounce-bonanza`.
@@ -69,7 +69,7 @@ keeps those changes free - the builder draws nothing the compiler draws.
     don't pass strict ... But exceptions can be course by course; the goal
     in the end is to have good courses."* The Makefile never passes
     `--strict`; agents' runs do; a finished course opts in with `strict`,
-    and a course keeps a warning with `accept` (130.56.5).
+    and a course keeps a warning with `accept` (130.58.5).
 13. No pull requests: this fork's cycles have none (fork rule 11). Each wave
     is commits on `bb-editor`.
 
@@ -95,9 +95,9 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 0.1 [x] | SPEC.md 130.56, this plan, the diary | `tools/checkdocs.py` |
+| 0.1 [x] | SPEC.md 130.58, this plan, the diary | `tools/checkdocs.py` |
 | 0.2 [x] | ROUND TRIP: a line-span reader over `parse()`; every course under `apps/bonanza/courses/` read and written unchanged; one edit of each statement kind and its undo byte-identical | a host script, its table in the diary |
-| 0.3 [ ] | PLAY-ONLY COMPILE: what `Physics` needs from a part (the grid, the props, the material) and whether a part can be made without the picture's block limit; PLAY's time to first step | the measurement, in the diary; the choice written into 130.56.7 |
+| 0.3 [ ] | PLAY-ONLY COMPILE: what `Physics` needs from a part (the grid, the props, the material) and whether a part can be made without the picture's block limit; PLAY's time to first step | the measurement, in the diary; the choice written into 130.58.7 |
 | 0.4 [ ] | THE COMPOSITOR: which guest drawing the frame copies (lanes, ball, shadow, occluder masks, camera window) and whether it can be a function the compiler already has | a frame of MILL drawn on the host beside MartyPC's at the same step |
 
 ### Wave 1 - the model and the warning tier (no window)
@@ -106,9 +106,9 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 1.1 [x] | `tools/bbedproj.py`: load, save, statements with spans, edit methods for every statement kind, undo/redo, the file stamp | unit rows under `tests/unit/`, round trip on every course |
 | 1.2 [x] | its command line (`check`, `set`, `add`, `remove`), JSON out, for agents | the same rows through the CLI |
-| 1.3 [x] | `bbcourse.py`: the visual refusals of 130.56.4 become warnings; `--strict` restores them; the Makefile does not pass it | every shipped course's part byte-identical before and after; the warnings each shipped course now prints recorded in the diary; a course with a hidden flag refuses under `--strict`, warns without |
-| 1.4 [x] | 130.56.5's statements: `hidden` on `checkpoint` and every element a visibility warning names, `accept <warning> [<wx> <wy>]`, `strict`; no identity moves | `--selfcheck`; identities before and after; a `strict` course with an unaccepted warning refuses in the plain build |
-| 1.5 [x] | `tools/bbedjob.py`: a check as a process, JSON progress, cancel by process group (Windows too), the restart rule of 130.56.8 | a scripted burst of edits leaves one process alive |
+| 1.3 [x] | `bbcourse.py`: the visual refusals of 130.58.4 become warnings; `--strict` restores them; the Makefile does not pass it | every shipped course's part byte-identical before and after; the warnings each shipped course now prints recorded in the diary; a course with a hidden flag refuses under `--strict`, warns without |
+| 1.4 [x] | 130.58.5's statements: `hidden` on `checkpoint` and every element a visibility warning names, `accept <warning> [<wx> <wy>]`, `strict`; no identity moves | `--selfcheck`; identities before and after; a `strict` course with an unaccepted warning refuses in the plain build |
+| 1.5 [x] | `tools/bbedjob.py`: a check as a process, JSON progress, cancel by process group (Windows too), the restart rule of 130.58.8 | a scripted burst of edits leaves one process alive |
 
 ### Wave 2 - the window and the Build tab, plan view
 
@@ -116,7 +116,7 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 2.1 [x] | the shell: menus, toolbar, the three tabs, status bar with jobs and Cancel, recent files, settings in `~/.config/os8088/bbedit.json` | opened on Linux; a screenshot |
 | 2.2 [~] | the palette: seven groups, search, every part of the catalogue board, plain names with the `.bbc` word. BUILT: groups, search, every part, a template each, `uses` added for you. MISSING: the row checking the list against `parse()`; the `.bbc` word shows in the inspector, not the palette | every statement kind placeable; the catalogue's list checked against `parse()`'s statements by a row |
-| 2.3 [x] | the plan view: grid, height map toggle and legend, walls, surfaces, route, tubes, props; select, paint, rectangle, erase, pick height, pan, zoom; brushes tile, rect, band, half, quarter. BUILT: all of it, the brushes as Make it, Cut a corner and Diagonal strip (130.56.13 - 130.56.15); pick height is the area's heights | edits through the model only; undo across them |
+| 2.3 [x] | the plan view: grid, height map toggle and legend, walls, surfaces, route, tubes, props; select, paint, rectangle, erase, pick height, pan, zoom; brushes tile, rect, band, half, quarter. BUILT: all of it, the brushes as Make it, Cut a corner and Diagonal strip (130.58.13 - 130.58.15); pick height is the area's heights | edits through the model only; undo across them |
 | 2.4 [~] | inspectors for every part (the inspectors board): segmented choices, sliders with plain readouts, one timeline control, the arrow pad, "More ›" for raw numbers | each statement's clauses reachable. BUILT: one inspector for every statement - position, the numeric clauses, the choices (face, along, channel, style, surface, ball), `hidden`, and the statement box for the rest. MISSING: the timeline control, the arrow pad and per-part layouts |
 
 ### Wave 3 - the Iso view, X-ray and the blend check
@@ -125,7 +125,7 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 3.1 [x] | Iso: the compiler's picture per adapter (CGA, Hercules, and VGA once rendered), pointer readout from `owners_canvas`, select and place in Iso, one selection across both views | a screenshot on MILL; selecting the wall at 18, 20 in Iso selects it in Plan |
 | 3.2 [x] | X-ray and "Hard to see": the visibility audit's covered marks drawn seen / hidden / what hides it; the game's see-through toggle | MILL's tube mouth at 17, 20 (50%, under 18, 20 and 18, 21) shown as on the mockup |
-| 3.3 [ ] | the blend check in `bbcourse.py` (130.56.6): the definition, the threshold set from the shipped courses, per adapter | a constructed blending pair warns; the shipped courses' result recorded |
+| 3.3 [ ] | the blend check in `bbcourse.py` (130.58.6): the definition, the threshold set from the shipped courses, per adapter | a constructed blending pair warns; the shipped courses' result recorded |
 | 3.4 [ ] | blending pairs drawn striped in Iso and Plan, from the warning's Show | a screenshot |
 
 ### Wave 4 - the Shapes tab
@@ -142,7 +142,7 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 5.1 [~] | settings: title, name, width, ball, palette, music (listen through `bbmusic.py`), gate style, target, limit, medals, `uses` shown as derived | each writes its statement. MISSING: Listen |
 | 5.2 [x] | "Ready to play?": errors and warnings in two lists, Show links, "hidden on purpose", Treat warnings as errors | a course with one of each |
-| 5.3 [ ] | stale demos named and re-record offered (130.56.3) | editing MILL names its demo |
+| 5.3 [ ] | stale demos named and re-record offered (130.58.3) | editing MILL names its demo |
 
 ### Wave 6 - Test Roll
 
@@ -166,7 +166,7 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 8.1 [x] | the decision of 130.56.9: a prebuilt package with a data course table, or a course list read off the disk | written into 130.56.17 with its cost in bytes: the prebuilt pieces (`make bbgamebin`), the shipped package 0 bytes changed, an added course 51 resident bytes |
+| 8.1 [x] | the decision of 130.58.9: a prebuilt package with a data course table, or a course list read off the disk | written into 130.58.17 with its cost in bytes: the prebuilt pieces (`make bbgamebin`), the shipped package 0 bytes changed, an added course 51 resident bytes |
 | 8.2 [~] | the builder writes `BONANZA.O88` with the author's courses, and optionally a floppy image (`os88disk.py`) | `tools/bbgame.py`, the Course tab's "Put this course in the game...", `--pad0` for a pad to play it from; row `bbgame`: the shipped list composed is `build/bonanza.o88`, shipped + XTRA and `--pad0 XTRA` are byte for byte the nasm builds of those lists. **Missing**: the package booted in MartyPC playing the new course |
 | 8.3 [x] | `make bbeditbundle`: the window, the compiler, its assets and the prebuilt parts in a zip for a machine with no os8088 tree | the zip run on a clean Linux; the macOS and Windows steps written for the owner |
 

@@ -65,7 +65,7 @@ import os
 import struct
 import sys
 
-# The data ROOT (SPEC.md 130.56.11): the checkout, or the `data/` folder beside this file in the
+# The data ROOT (SPEC.md 130.58.11): the checkout, or the `data/` folder beside this file in the
 # course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
 ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
         if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
