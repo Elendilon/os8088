@@ -6,6 +6,45 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## U1's sign says HOLD JUMP (2026-11-21)
+
+A player, via the owner: *"The 'Jump Twice!' sign is apparently confusing,
+because they thought it meant 'jump over both steps' - so it didn't guide
+them to learning about the double bounce."* The owner: **HOLD JUMP**, with
+no exclamation mark (players could not read the "!" in the floor paint).
+It is also the truer instruction: the "and again" fires when the Hop's
+press is HELD through the landing (SPEC.md 130.17.16.4: *"a Hop press held
+through its landing now does, on purpose"*); a second tap in the flight is
+the other way to it.
+
+`sketch.SIGNS` carries the words and `art.py`'s floor paint now reads them
+(it had its own copy). Same picks, same command (`art.py --signs
+banner,floor --extras chev,gap-arc,goal-bunting,flowers-poppy,col-spring3
+--into-course`, after `sketch.py --bbc --force`). Measured: the course part
+is **38,789 bytes stored (-112), LZ4 12,121 (-37), LZB 9,376 (-18)**; 663
+blocks (-7). Of `bonanza-art`'s parts only `BZ7.BIN` (HOP) and `BZDHOP.BIN`
+moved; the route demo's moves only because it carries the course's
+identity (582 bytes, 1,397 steps, 9 Hops, 1 boost, as before).
+
+`art.py options DIR` draws the alternatives, each the shipped course with
+only U1's paint changed (cost in LZB against HOLD JUMP). U1's floor holds
+about five letters a line at the shipped size (scale 10); longer words go
+to scale 13, smaller letters:
+
+| option | LZB | view |
+|---|---|---|
+| **HOLD JUMP** (in the course) | 9,376 | big letters, the action and the key in two words |
+| HOLD JUMP + two arcs (a small Hop, then the taller "and again") | +104 | says WHY to hold, but the arcs are thin on the floor's squash |
+| KEEP HOLDING | +26 | names the hold, not the key; reads as one long line |
+| HOLD JUMP TO BOUNCE | +97 | the full sentence, at the smaller size |
+| HOLD FOR A BIG BOUNCE | +113 | four lines at the smaller size: cramped, hard to read |
+| JUMP TWICE! (before) | +18 | the confusing one |
+
+"JUMP!" on T1's banner keeps its "!" for now; the owner's note may apply
+there too: it is a separate decision, not taken here.
+
+![U1's wording options](hop/art4-wording.png)
+
 ## Art, round 3 (2026-11-19): a more readable spring
 
 The owner, on `col-spring`: *"I love the spring idea; its not reading bad,

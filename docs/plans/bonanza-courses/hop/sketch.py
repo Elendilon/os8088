@@ -123,7 +123,7 @@ THICKS = "" if THICK == 3 else " thick %g" % THICK
 # do not connect stand at least three void tiles apart.  GROUNDED: every island a column to the ground.
 # LEG 1, -x (revision 7, the owner, with QUARTER heights, SPEC.md 130.48): the start FLIPPED to the east, and the
 # two void gaps replaced by 3/4-UNIT STEPS UP ("lips"), which no ball rolls up and every ball's Hop climbs.  Climbed
-# moving -x, each riser faces the player.  The spawn's view is far east of "JUMP TWICE!"
+# moving -x, each riser faces the player.  The spawn's view is far east of U1's sign ("HOLD JUMP")
 floor("A", 28, 6, 31, 10, Z + 0.5)                           # the start island, three tiles (the owner: roll room)
 rail(28, 6, 31, 6); rail(31, 6, 31, 10); rail(29, 10, 31, 10, "guard")
 floor("T", 25, 6, 28, 10, Z + 1.25)                          # T1: 3/4 up (the first Hop)
@@ -189,7 +189,10 @@ CLOCKS = [(30.5, 5.5, Z + 2, "start", "block"), (5.5, 19.5, Z + 5.25, "middle", 
 # over the drop on its right, looking back over its shoulder at the goal
 FRAMES = {"start": "frogl", "middle": "frogr", "finish": "frogb"}
 PLACED = {}
-SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "JUMP\nTWICE!")]   # "JUMP!" on T1's north rail, "JUMP TWICE!" on U1's
+# "JUMP!" on T1's north rail, "HOLD JUMP" on U1's (was "JUMP TWICE!", read by a player as "jump over both
+# steps"; the owner, 2026-11-21: HOLD JUMP, no exclamation mark - the Hop's press held through its landing is
+# the "and again", SPEC.md 130.17.16.4)
+SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "HOLD\nJUMP")]
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
 ROUTE = [(29.5, 7.5), (26.5, 8), (23.5, 8), (23.5, 11), (23.5, 14), (20, 14), (18, 14), (15.5, 14), (15.5, 17),
