@@ -14,7 +14,17 @@ the host; visual checks warn rather than refuse.
 
 ## Where it stands
 
-**Nothing built.** The contract (SPEC.md 130.55) and this plan are written.
+**The first GUI build is ready for the owner to test (2026-11-21).** Built: the model
+(`tools/bbedproj.py`), the warning tier in the compiler, the jobs (`tools/bbedjob.py`) and the
+window (`tools/bbedit.py`) with its Build tab (Plan and Iso views, X-ray, placing, moving, the
+inspector), Course tab and Source tab. Not built yet: the blend check, the Shapes tab, Test Roll,
+the pathway editor and add-to-the-game. `[~]` below marks a story built in part, with what is
+missing.
+
+**How to run it**: from a checkout of `bb-editor`, `python3 tools/bbedit.py
+apps/bonanza/courses/mill.bbc` - Python 3.11 or newer with Tk and Pillow (macOS: python.org's
+Python and `pip3 install pillow`; Windows: `pip install pillow`; Linux: `python3-tk`, `python3-pil`).
+The contract (SPEC.md 130.55) and this plan were written first.
 Branch `bb-editor`, cut from `bounce-bonanza` at `abe0713d0`, and merged from
 `bounce-bonanza` often: the game is changing under it (the VGA arm, the look,
 the column and floor distinctions on their way), and E4 of 130.55.1 is what
@@ -75,7 +85,7 @@ union runs once at the end of a phase, in the background.
 | # | story | verified by |
 |---|---|---|
 | 0.1 [x] | SPEC.md 130.55, this plan, the diary | `tools/checkdocs.py` |
-| 0.2 [ ] | ROUND TRIP: a line-span reader over `parse()`; every course under `apps/bonanza/courses/` read and written unchanged; one edit of each statement kind and its undo byte-identical | a host script, its table in the diary |
+| 0.2 [x] | ROUND TRIP: a line-span reader over `parse()`; every course under `apps/bonanza/courses/` read and written unchanged; one edit of each statement kind and its undo byte-identical | a host script, its table in the diary |
 | 0.3 [ ] | PLAY-ONLY COMPILE: what `Physics` needs from a part (the grid, the props, the material) and whether a part can be made without the picture's block limit; PLAY's time to first step | the measurement, in the diary; the choice written into 130.55.7 |
 | 0.4 [ ] | THE COMPOSITOR: which guest drawing the frame copies (lanes, ball, shadow, occluder masks, camera window) and whether it can be a function the compiler already has | a frame of MILL drawn on the host beside MartyPC's at the same step |
 
@@ -83,27 +93,27 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 1.1 [ ] | `tools/bbedproj.py`: load, save, statements with spans, edit methods for every statement kind, undo/redo, the file stamp | unit rows under `tests/unit/`, round trip on every course |
-| 1.2 [ ] | its command line (`check`, `set`, `add`, `remove`), JSON out, for agents | the same rows through the CLI |
-| 1.3 [ ] | `bbcourse.py`: the visual refusals of 130.55.4 become warnings; `--strict` restores them; the Makefile does not pass it | every shipped course's part byte-identical before and after; the warnings each shipped course now prints recorded in the diary; a course with a hidden flag refuses under `--strict`, warns without |
-| 1.4 [ ] | 130.55.5's statements: `hidden` on `checkpoint` and every element a visibility warning names, `accept <warning> [<wx> <wy>]`, `strict`; no identity moves | `--selfcheck`; identities before and after; a `strict` course with an unaccepted warning refuses in the plain build |
-| 1.5 [ ] | `tools/bbedjob.py`: a check as a process, JSON progress, cancel by process group (Windows too), the restart rule of 130.55.8 | a scripted burst of edits leaves one process alive |
+| 1.1 [x] | `tools/bbedproj.py`: load, save, statements with spans, edit methods for every statement kind, undo/redo, the file stamp | unit rows under `tests/unit/`, round trip on every course |
+| 1.2 [x] | its command line (`check`, `set`, `add`, `remove`), JSON out, for agents | the same rows through the CLI |
+| 1.3 [x] | `bbcourse.py`: the visual refusals of 130.55.4 become warnings; `--strict` restores them; the Makefile does not pass it | every shipped course's part byte-identical before and after; the warnings each shipped course now prints recorded in the diary; a course with a hidden flag refuses under `--strict`, warns without |
+| 1.4 [x] | 130.55.5's statements: `hidden` on `checkpoint` and every element a visibility warning names, `accept <warning> [<wx> <wy>]`, `strict`; no identity moves | `--selfcheck`; identities before and after; a `strict` course with an unaccepted warning refuses in the plain build |
+| 1.5 [x] | `tools/bbedjob.py`: a check as a process, JSON progress, cancel by process group (Windows too), the restart rule of 130.55.8 | a scripted burst of edits leaves one process alive |
 
 ### Wave 2 - the window and the Build tab, plan view
 
 | # | story | verified by |
 |---|---|---|
-| 2.1 [ ] | the shell: menus, toolbar, the three tabs, status bar with jobs and Cancel, recent files, settings in `~/.config/os8088/bbedit.json` | opened on Linux; a screenshot |
-| 2.2 [ ] | the palette: seven groups, search, every part of the catalogue board, plain names with the `.bbc` word | every statement kind placeable; the catalogue's list checked against `parse()`'s statements by a row |
-| 2.3 [ ] | the plan view: grid, height map toggle and legend, walls, surfaces, route, tubes, props; select, paint, rectangle, erase, pick height, pan, zoom; brushes tile, rect, band, half, quarter | edits through the model only; undo across them |
-| 2.4 [ ] | inspectors for every part (the inspectors board): segmented choices, sliders with plain readouts, one timeline control, the arrow pad, "More ›" for raw numbers | each statement's clauses reachable |
+| 2.1 [x] | the shell: menus, toolbar, the three tabs, status bar with jobs and Cancel, recent files, settings in `~/.config/os8088/bbedit.json` | opened on Linux; a screenshot |
+| 2.2 [~] | the palette: seven groups, search, every part of the catalogue board, plain names with the `.bbc` word. BUILT: groups, search, every part, a template each, `uses` added for you. MISSING: the row checking the list against `parse()`; the `.bbc` word shows in the inspector, not the palette | every statement kind placeable; the catalogue's list checked against `parse()`'s statements by a row |
+| 2.3 [~] | the plan view: grid, height map toggle and legend, walls, surfaces, route, tubes, props; select, paint, rectangle, erase, pick height, pan, zoom; brushes tile, rect, band, half, quarter. BUILT: all but the legend, pick height and the band, half and quarter brushes (those are typed in the statement box for now) | edits through the model only; undo across them |
+| 2.4 [~] | inspectors for every part (the inspectors board): segmented choices, sliders with plain readouts, one timeline control, the arrow pad, "More ›" for raw numbers | each statement's clauses reachable. BUILT: one inspector for every statement - position, the numeric clauses, the choices (face, along, channel, style, surface, ball), `hidden`, and the statement box for the rest. MISSING: the timeline control, the arrow pad and per-part layouts |
 
 ### Wave 3 - the Iso view, X-ray and the blend check
 
 | # | story | verified by |
 |---|---|---|
-| 3.1 [ ] | Iso: the compiler's picture per adapter (CGA, Hercules, and VGA once rendered), pointer readout from `owners_canvas`, select and place in Iso, one selection across both views | a screenshot on MILL; selecting the wall at 18, 20 in Iso selects it in Plan |
-| 3.2 [ ] | X-ray and "Hard to see": the visibility audit's covered marks drawn seen / hidden / what hides it; the game's see-through toggle | MILL's tube mouth at 17, 20 (50%, under 18, 20 and 18, 21) shown as on the mockup |
+| 3.1 [x] | Iso: the compiler's picture per adapter (CGA, Hercules, and VGA once rendered), pointer readout from `owners_canvas`, select and place in Iso, one selection across both views | a screenshot on MILL; selecting the wall at 18, 20 in Iso selects it in Plan |
+| 3.2 [x] | X-ray and "Hard to see": the visibility audit's covered marks drawn seen / hidden / what hides it; the game's see-through toggle | MILL's tube mouth at 17, 20 (50%, under 18, 20 and 18, 21) shown as on the mockup |
 | 3.3 [ ] | the blend check in `bbcourse.py` (130.55.6): the definition, the threshold set from the shipped courses, per adapter | a constructed blending pair warns; the shipped courses' result recorded |
 | 3.4 [ ] | blending pairs drawn striped in Iso and Plan, from the warning's Show | a screenshot |
 
@@ -119,8 +129,8 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 5.1 [ ] | settings: title, name, width, ball, palette, music (listen through `bbmusic.py`), gate style, target, limit, medals, `uses` shown as derived | each writes its statement |
-| 5.2 [ ] | "Ready to play?": errors and warnings in two lists, Show links, "hidden on purpose", Treat warnings as errors | a course with one of each |
+| 5.1 [~] | settings: title, name, width, ball, palette, music (listen through `bbmusic.py`), gate style, target, limit, medals, `uses` shown as derived | each writes its statement. MISSING: Listen |
+| 5.2 [x] | "Ready to play?": errors and warnings in two lists, Show links, "hidden on purpose", Treat warnings as errors | a course with one of each |
 | 5.3 [ ] | stale demos named and re-record offered (130.55.3) | editing MILL names its demo |
 
 ### Wave 6 - Test Roll

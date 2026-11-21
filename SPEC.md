@@ -296011,7 +296011,7 @@ buffer is exactly the part's words on 59 boxes, word column 159 at every
 first-line offset among them. Its red arms (`--red mrow`, the table not built
 past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
 
-### 130.55 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; NOT BUILT, planned on `bb-editor`)
+### 130.55 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; BUILT IN PART on `bb-editor`, 130.55.10)
 
 The owner: a GUI course builder *"focused on ease of use"*, supporting every
 tile and prop the course format has, with the shape editor in a tab of its
@@ -296019,7 +296019,7 @@ own; a Python window *"similar to the video battle builder"*, because the
 compiler that checks a course takes minutes on a modern machine. The plan and
 its stories are `docs/plans/BOUNCE-BONANZA-EDITOR.md`; the mockups the owner
 reviewed are linked from there. This section is the contract and binds the
-plan; nothing in it is built yet.
+plan; 130.55.10 says what is built.
 
 #### 130.55.1 The decisions, in one table
 
@@ -296171,3 +296171,45 @@ is data the builder fills in - the precompiler's shape (`gbaotbundle`,
 REALDMG-SPEC 20.12), nasm only where the zip is made - and a package that
 reads its course list off the disk. The pathway entry for a new course
 (pad, route, icon) is made with the pathway editor's wave.
+
+#### 130.55.10 Built so far (2026-11-21)
+
+- **The model**, `tools/bbedproj.py`: a `Document` of lines; every edit (`set_statement`, `insert`,
+  `remove`, `move`, `set_word`, `set_clause`, `set_flag`) rewrites only its statement's line, keeping
+  the indentation and the trailing comment at its column; undo and redo hold whole line lists. The
+  file's size and SHA-1 at load and save are its stamp (130.55.3). `coord_slots` names every world
+  position a statement has - a shape's (`tile`, `rect`, the screen axes of `band` and `box`, after a
+  `half`/`quarter` prefix), a ramp's span, water's ripple cell, a prop's cell or rectangle and its
+  `region`, a tube's mouths and `via`, a chute's points - which is what a move shifts. `analyse()`
+  reads the course through `bbcourse.parse`, `build_tiles` and `build_props` (milliseconds) for the plan:
+  each cell's kind, height in units as written (`zbase` added back; a FIELD cell's heights are quarter
+  px, 32 a unit), slope, surface and line. `auto_uses()` adds the family a refusal names (130.25.6.4)
+  to the `uses` line, folded into the edit that needed it. Its command line is the agents' way in.
+- **The warning tier** in `tools/bbcourse.py`: `_visual(msg, kind)` replaces the eleven visual
+  refusals of 130.55.4 (`hidden`: the flag, the blower's squiggles, the magnet, the turntable cell, the
+  boost pad, a gate or plate's pose, a gate's art, the clock; `ball-hidden`: the archway, a clock or
+  gate art, a hump). While a compile runs, `_compile_cached` collects them on `c.vwarn` (cached with
+  the course: the cache key is unchanged); `compile_course` then makes `c.warnings` (`vis_settle`:
+  `hidden` lines dropped, `accept`s marked) and refuses under `strict=`, `--strict` or the course's
+  `strict`. Outside a compile `_visual` still refuses. `compile_all` prints each warning. **What stays an
+  ERROR**: an element with NO pixel left to lay (the blower's fan, a membrane's tear, a boost pad, a pose
+  or a gate) - its lane cannot be built - except the FLAG, whose lane, wholly hidden, spans its pennant
+  as drawn with empty poses. The guest has not yet been run on a wholly hidden flag. MEASURED: every
+  shipped course's parts, demos and `bzcourse.inc` byte-identical before and after (`-o` over
+  BZ_COURSES, the pathway and the title, at `be9862a1c`); no shipped course raises a warning.
+- **The jobs**, `tools/bbedjob.py`: `picture` (the compile without occluders and with BLK_MAX lifted -
+  the picture's alone, never a part - then `cga.png`, `herc.png`, `owners.bin` and `meta.json` with
+  every mark the visibility audit weighs, its seen and hidden pixels and the cells in front) and
+  `check` (`compile_course`, its errors and warnings). MEASURED: the picture 0.7 s for MILL, 7.8 s for
+  PLAY; the check 3.2 s for MILL.
+- **The window**, `tools/bbedit.py`: the Build tab (the palette, Plan and Iso on Tab, the inspector,
+  the problems list), the Course tab (settings and "Ready to play?") and a Source tab. Plan draws
+  `analyse()`'s cells; Iso shows the picture, names the statements under the pointer from the owner
+  map, selects by click, and X-rays the selection: everything dimmed but its pixels, a mark's hidden
+  pixels red, the cells in front of it dithered orange. Tk 8.6 reads the pictures as PNG itself, so
+  `PIL.ImageTk` is not needed.
+- **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
+  `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
+- **Not built**: the blend check (130.55.6), the Shapes tab, Test Roll (130.55.7), the pathway, add to
+  the game (130.55.9), the zip. The plan's story list carries what each built story still lacks.
+
