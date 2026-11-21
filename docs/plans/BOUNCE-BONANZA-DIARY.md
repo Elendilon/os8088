@@ -6727,3 +6727,27 @@ VARs odd: `bz_nst`'s size, `(BZ_NSIGN + 1) & ~1`, expands inside the VAR macro
 to `(BZ_BSS + BZ_NSIGN + 1) & ~1`, so it EVENS the running total, and only the
 bytes after it decide the parity. `bz_crsel` now sits where `bz_tour` was.
 
+
+## 2026-11-21 (does a column touch its floor? options, not built)
+
+The owner: *"columns have no visual distinction when they are far away, or
+adjoined to a floor. It is impossible to tell if there is a gap, or not."*
+The cause is 130.27's grounded faces and the projection together: a face
+visibly ends at whatever floor's back edge covers it, and a floor one cell
+further out and one unit higher draws exactly the line its neighbour would.
+A twelve-line test course (`bonanza-courses/edges/edgedemo.bbc`) shows it:
+two halves, one joined and one over a hidden gap, drawn the same.
+
+*Observed*: hooking the course tool's `render()` to note, for every face
+pixel, its cell and which face it is classifies each face's visible FOOT
+as JOINED (the top under it is the record across that face's own edge) or a
+GAP. Nine styles were mocked on the test scene, ROLL and MILL, CGA and
+Hercules ([EDGES.md](bonanza-courses/EDGES.md)). The block-count proxy puts
+the recommended pair, a seamless join plus a 3 px void band, at +3 - 6% blocks on a
+busy course. The first classification called a wall JOINED wherever its
+foot met any top, which drew a contact under a free-standing pillar that
+does not touch it. The neighbour test replaced it. Also *observed*: every style
+breaks PLAYGROUND's vanishing crack, because a cue that depends on a
+neighbour changes when the neighbour vanishes, so a real build needs
+shadows' rule of no cue on or from a cell that moves. *Intended*, not done: a knob build
+of whichever pair the owner picks, to play.
