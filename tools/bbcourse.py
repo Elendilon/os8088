@@ -1192,22 +1192,24 @@ class CourseError(Exception):
 # (STRICT) or a course's own `strict` (130.58.5).  Called outside a compile, _visual() refuses as before.
 _VWARN = None
 STRICT = False
+STRICT_SKIP = ()            # SPEC.md 130.58.18: the kinds --selfcheck's STRICT reports rather than refuses
 VIS_KINDS = ("hidden", "ball-hidden", "blend")           # the warnings' names (`accept <kind>`)
 VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
 _VW_AT = re.compile(r"^(.*?):(\d+): ")
 _VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
 
 
-def _visual(msg, kind="hidden", empty=False):
-    """EMPTY: nothing of the element is left to draw, so its lane cannot be built - an error still"""
+def _visual(msg, kind="hidden", empty=False, extra=None):
+    """EMPTY: nothing of the element is left to draw, so its lane cannot be built - an error still.
+    EXTRA: more keys for the warning (the blend check's cells and seam, 130.58.18)"""
     if empty:
         raise CourseError(msg + " (nothing of it is drawn, so it cannot be built)")
     if _VWARN is None:
         raise CourseError(msg)
     m = _VW_AT.match(msg)
     cm = _VW_CELL.search(msg)
-    _VWARN.append({"kind": kind, "msg": msg, "line": int(m.group(2)) if m else None,
-                   "cell": (int(cm.group(1)), int(cm.group(2))) if cm else None})
+    _VWARN.append(dict(extra or {}, kind=kind, msg=msg, line=int(m.group(2)) if m else None,
+                       cell=(int(cm.group(1)), int(cm.group(2))) if cm else None))
 
 
 # =============================================================================
@@ -11466,11 +11468,11 @@ def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None,
     [{kind, msg, line, cell, accepted}], those the source marks `hidden` left out.  strict (default: STRICT,
     --strict) or the course's own `strict` statement refuses on the first warning it does not `accept`"""
     c = _compile_course_cut(source, fname, occluders, _hack, crsinfo)
-    vis_settle(c, STRICT if strict is None else strict)
+    vis_settle(c, STRICT if strict is None else strict, STRICT_SKIP if strict is None else ())
     return c
 
 
-def vis_settle(c, strict):
+def vis_settle(c, strict, skip=()):
     """SPEC.md 130.58.5: c.warnings from c.vwarn - a `hidden` element's dropped, an `accept`ed one marked - and
     the refusal under strict (or the course's `strict`)"""
     src = c.src
@@ -11480,13 +11482,14 @@ def vis_settle(c, strict):
     for w in getattr(c, "vwarn", None) or []:
         if w["kind"] == "hidden" and w["line"] in hid:
             continue
-        w = dict(w, accepted=any(a["kind"] == w["kind"] and (a["cell"] is None or a["cell"] == w["cell"])
-                                 for a in acc))
+        w = dict(w, accepted=any(a["kind"] == w["kind"] and (a["cell"] is None or a["cell"] == w["cell"] or
+                                                             tuple(a["cell"]) in w.get("cells", ()))
+                                 for a in acc))     # (a blend: a cell of either floor, 130.58.18)
         out.append(w)
     c.warnings = out
     if strict or getattr(src, "strict", None):
         for w in out:
-            if not w["accepted"]:
+            if not w["accepted"] and not (w["kind"] in skip and not getattr(src, "strict", None)):
                 raise CourseError("%s (a %s warning, refused under %s: mark it `hidden` or `accept %s`, SPEC.md "
                                   "130.58.5)" % (w["msg"], w["kind"], "--strict" if strict else "the course's `strict`",
                                                  w["kind"]))
@@ -11557,6 +11560,7 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
         held, _VWARN = _VWARN, []
         try:
             c = _compile_y0(source, fname, occluders, _hack, crsinfo)
+            blend_check(c)                          # SPEC.md 130.58.18: floors whose checkers run together
             c.vwarn = _VWARN                        # SPEC.md 130.58.4: the visual warnings, cached with it
         finally:
             _VWARN = held
@@ -25417,6 +25421,260 @@ def visibility(c, k=None, demo=None):
                             "longest": longest and longest[1]["secs"], "detail": marks}
 
 
+# =============================================================================
+# the blend check (SPEC.md 130.58.6, 130.58.18): two floors that do not adjoin
+# but whose checkers run on into each other in the picture - a WARNING
+# =============================================================================
+
+BLEND_PX = 40               # seam pixels (both sides, either card) over which a pair of floors BLENDS
+BLEND_SHARE = 50            # ...and that are at least this % of all the pixels where the two meet
+BLEND_LINE = 8              # ...counting only seam pixels in 8-connected runs at least this long
+BLEND_RUN = 4               # pixels into the other floor that must continue the checker, from the seam
+BLEND_MIN = 2               # ...and the fewest that are checked (a run of B's pixels shorter: no verdict)
+
+
+def _bl_flat(t):
+    """a top whose ink is one colour of the cell checker (render's last arm): a whole, flat, plain floor"""
+    return (isinstance(t, Tile) and t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and t.surf == SURF_NORMAL
+            and t.wbed is None and not t.rail)
+
+
+def bl_adjoined(tiles, a, b):
+    """grid neighbours across an edge whose two corners stand at the same heights on both sides (the ball rolls
+    across it: a ramp meeting a floor at its edge's height adjoins it).  A shaped (FIELD) record either side:
+    adjoined, the conservative answer"""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    if abs(dx) + abs(dy) != 1:
+        return False
+    e = {(1, 0): "E", (-1, 0): "W", (0, 1): "S", (0, -1): "N"}[(dx, dy)]
+    ra, rb = edge_rec(tiles.get(a), e), edge_rec(tiles.get(b), OPP[e])
+    if ra is None or rb is None:
+        return False
+    if not (isinstance(ra, Tile) and isinstance(rb, Tile)):
+        return True
+    return all(ra.corner(cx, cy) == rb.corner(cx - dx, cy - dy) for cx, cy in EDGE_CORNERS[e])
+
+
+def _bl_what(t, zbase):
+    """a record named for a message: its kind and height in units as written"""
+    rec = t if isinstance(t, Tile) else next((r for r in tile_recs(t) if isinstance(r, Tile)), None) \
+        if isinstance(t, Split) else None
+    if rec is None:
+        return "shaped floor"
+    kind = "goal" if rec.kind == KIND_GOAL else "wall top" if rec.kind == KIND_WALL else \
+        "ramp" if (rec.sx or rec.sy) else "floor"
+    return "%s (height %g)" % (kind, rec.z0 / 2.0 + zbase)
+
+
+def blend_pairs(c, obuf=None):
+    """SPEC.md 130.58.18: -> [{a, b (region ids), cells: (A's, B's), seam: {(x, y)}, meet, touch, cards}], the
+    pairs of REGIONS whose pixels meet in the picture with the checker running on across the seam, most seam
+    first.  A region is a connected area of flat plain floor (_bl_flat, joined by bl_adjoined), or the cells of
+    one statement for any other top.  A seam pixel pair (4-neighbours owned by two cells of different regions,
+    not adjoined, both last drawn by a TOP) BLENDS when one side's cell A is a flat floor and, extending A's own
+    checker as if its plane went on (each cell its colour by parity from A's, black where a cell's top outline
+    runs), the pixel on A's side and the BLEND_RUN pixels into B from the seam (BLEND_MIN at least, owned by B,
+    tops, one of them a colour rather than the outline) are exactly that extension: on the CGA picture, or on
+    the Hercules one, where cyan and magenta are one ink.  SEAM keeps the blending pixels in 8-connected runs of
+    BLEND_LINE or more; MEET counts every pixel where the two regions' tops meet (the share's denominator)"""
+    ob = obuf if obuf is not None else owners_canvas(c)
+    pic, tiles = c.pic, c.tiles
+    W, H, x0, y0 = c.width, c.lines, c.x0, c.y0
+    top = [bytearray(W) for _ in range(H)]      # 1: the pixel's last geometry was a TOP (render's op order)
+    for sp0, which, _s, _mk, _l, _t, _o in c.ops:
+        if which in ("paint", "tline"):
+            continue
+        v = 1 if which in ("top", "facet") else 0
+        for yy, runs in sp0.items():
+            row = top[yy + y0] if 0 <= yy + y0 < H else None
+            if row is not None:
+                for a_, b_ in runs:
+                    row[max(0, a_):min(W, b_)] = bytes([v]) * max(0, min(W, b_) - max(0, a_))
+    elig = {256 * k[0] + k[1]: t for k, t in tiles.items() if _bl_flat(t)}
+    if not elig:
+        return []
+    col = {}                                        # each flat cell's ink, read off the picture (the majority)
+    for y in range(H):
+        r, o = pic[y], ob[y]
+        for x in range(W):
+            k = o[x]
+            if k in elig and r[x] in (WHT, CYN):
+                d = col.setdefault(k, [0, 0])
+                d[r[x] == WHT] += 1
+    col = {k: (WHT if d[1] > d[0] else CYN) for k, d in col.items()}
+    reg = {}
+    n = 0
+    for k in sorted(elig):
+        if k in reg:
+            continue
+        n += 1
+        reg[k] = n
+        st = [k]
+        while st:
+            u = st.pop()
+            ux, uy = u >> 8, u & 255
+            for vx, vy in ((ux + 1, uy), (ux - 1, uy), (ux, uy + 1), (ux, uy - 1)):
+                v = 256 * vx + vy
+                if v in elig and v not in reg and bl_adjoined(tiles, (ux, uy), (vx, vy)):
+                    reg[v] = n
+                    st.append(v)
+
+    def rid(k):
+        return reg[k] if k in reg else -1 - (getattr(tiles.get((k >> 8, k & 255)), "line", 0) or 0)  # (its statement)
+    spm = {}
+
+    def pat(k, x, y):
+        """A's checker extended to pixel (x, y): BLK, WHT or CYN, None off any cell (cannot be)"""
+        t = elig[k]
+        z = 4 * t.z0
+        yr = y - y0
+        u = (4 * x + 2 - 4 * x0) / 32.0             # (cx2 - cy2, cx2 + cy2: _scr inverted at the centre)
+        v = (4 * yr + 2 + 4 * z) / 16.0
+        bx, by = int((u + v) // 4), int((v - u) // 4)
+        for vx, vy in ((bx, by), (bx + 1, by), (bx - 1, by), (bx, by + 1), (bx, by - 1)):
+            key = (vx, vy, z)
+            s = spm.get(key)
+            if s is None:
+                s = spm[key] = spans([_scr(2 * vx, 2 * vy, z, x0), _scr(2 * vx + 2, 2 * vy, z, x0),
+                                      _scr(2 * vx + 2, 2 * vy + 2, z, x0), _scr(2 * vx, 2 * vy + 2, z, x0)])
+            if _inside(s.get(yr), x):
+                if not _inside(s.get(yr - 1), x):
+                    return BLK                      # (render's outline: nothing of the cell above)
+                c0 = col.get(k, CYN)
+                return c0 if (vx + vy + (k >> 8) + (k & 255)) & 1 == 0 else (WHT if c0 == CYN else CYN)
+        return None
+
+    cards = (("CGA", lambda v: v), ("Hercules", lambda v: CYN if v == MAG else v))
+    adj = {}
+    out = {}
+    for y in range(H):
+        orow = ob[y]
+        for x in range(W):
+            a = orow[x]
+            if a < 0:
+                continue
+            for x2, y2 in ((x + 1, y), (x, y + 1)):
+                if x2 >= W or y2 >= H:
+                    continue
+                b = ob[y2][x2]
+                if b < 0 or b == a or (a not in elig and b not in elig):
+                    continue
+                ra, rb = rid(a), rid(b)
+                if ra == rb:
+                    continue
+                key = (a, b) if a < b else (b, a)
+                j = adj.get(key)
+                if j is None:
+                    j = adj[key] = bl_adjoined(tiles, (a >> 8, a & 255), (b >> 8, b & 255))
+                if j:
+                    continue
+                hit = []
+                for name, m in cards:
+                    for (px_, py_), (qx, qy), A, Bo in (((x, y), (x2, y2), a, b), ((x2, y2), (x, y), b, a)):
+                        if A not in elig or not top[py_][px_] or m(pic[py_][px_]) != m(pat(A, px_, py_)):
+                            continue
+                        dx, dy = qx - px_, qy - py_
+                        got, ink = 0, False
+                        for i in range(BLEND_RUN):
+                            sx, sy = qx + i * dx, qy + i * dy
+                            if not (0 <= sx < W and 0 <= sy < H) or ob[sy][sx] != Bo:
+                                break
+                            if not top[sy][sx]:         # (a face is not the checker going on, whatever its ink)
+                                got = -1
+                                break
+                            pp = pat(A, sx, sy)
+                            if pp is None or m(pic[sy][sx]) != m(pp):
+                                got = -1
+                                break
+                            got += 1
+                            ink = ink or pp != BLK
+                        if got >= BLEND_MIN and ink:    # (a colour, not only the outline every top has)
+                            hit.append(name)
+                            break
+                rk = (ra, rb) if repr(ra) < repr(rb) else (rb, ra)
+                e = out.setdefault(rk, {"seam": set(), "touch": set(), "cards": set(), "meet": set()})
+                if top[y][x] and top[y2][x2]:      # (the share counts where two TOPS meet: a face never blends)
+                    e["meet"].update(((x, y), (x2, y2)))
+                if hit:
+                    e["seam"].update(((x, y), (x2, y2)))
+                    e["touch"].update((a, b))
+                    e["cards"].update(hit)
+
+    def members(r):
+        if isinstance(r, int) and r > 0:
+            return sorted((k >> 8, k & 255) for k, v in reg.items() if v == r)
+        return sorted(k for k, t in tiles.items() if t is not None and getattr(t, "line", None) == -1 - r)
+    res = []
+    for (ra, rb), e in out.items():
+        e["seam"] = _bl_runs(e["seam"])
+        if not e["seam"]:
+            continue
+        res.append({"a": ra, "b": rb, "cells": (members(ra), members(rb)), "seam": e["seam"], "meet": len(e["meet"]),
+                    "touch": sorted((k >> 8, k & 255) for k in e["touch"]),
+                    "cards": [n_ for n_, _m in cards if n_ in e["cards"]]})
+    res.sort(key=lambda r: (-len(r["seam"]), r["cells"]))
+    return res
+
+
+def _bl_runs(pix):
+    """the seam pixels in 8-connected runs of BLEND_LINE or more: a seam is a line, and the checker's outline
+    vertices that two tops share by geometry alone are scattered dots"""
+    left, keep = set(pix), set()
+    while left:
+        st = [left.pop()]
+        comp = []
+        while st:
+            x, y = st.pop()
+            comp.append((x, y))
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    q = (x + dx, y + dy)
+                    if q in left:
+                        left.discard(q)
+                        st.append(q)
+        if len(comp) >= BLEND_LINE:
+            keep.update(comp)
+    return keep
+
+
+def blend_check(c):
+    """SPEC.md 130.58.18: a WARNING (kind `blend`) for each pair of regions whose blended seam is over BLEND_PX
+    pixels and BLEND_SHARE % of where their tops meet, inside a compile (its _VWARN); the warning carries both
+    regions' cells (`cells`, `regions`), their lines, the seam's pixels and the picture origin they were found at"""
+    if _VWARN is None or not getattr(c, "pic", None) or not getattr(c, "ops", None):
+        return []
+    had = getattr(c, "_obuf", None)
+    try:
+        pairs = blend_pairs(c)
+    finally:
+        if had is None:
+            c._obuf = None                          # (not pickled into the compile cache with the course)
+    out = []
+    zb = getattr(c.src, "zbase", 0) or 0
+    for pr in pairs:
+        n = len(pr["seam"])
+        if n <= BLEND_PX or 100 * n < BLEND_SHARE * pr["meet"]:
+            continue
+        ends = []
+        for cells in pr["cells"]:
+            touch = [k for k in pr["touch"] if k in set(cells)] or cells
+            k = touch[len(touch) // 2]
+            t = c.tiles.get(k)
+            ends.append((k, getattr(t, "line", 0) or 0, _bl_what(t, zb)))
+        (ka, la, wa), (kb, lb, wb) = sorted(ends, key=lambda e: e[1])
+        msg = ("%s:%d: the %s at (%d, %d) and the %s at (%d, %d) on line %d BLEND: in the %s picture their "
+               "checker runs on across %d px of seam with no edge between them, though they do not adjoin there "
+               "(SPEC.md 130.58.18)" % (c.fname, la, wa, ka[0], ka[1], wb, kb[0], kb[1], lb,
+                                        " and ".join(pr["cards"]), n))
+        w = {"cells": [tuple(k) for k in pr["cells"][0] + pr["cells"][1]],
+             "regions": [[list(k) for k in pr["cells"][0]], [list(k) for k in pr["cells"][1]]],
+             "lines": [la, lb], "seam": sorted([x, y] for (x, y) in pr["seam"]), "px": n,
+             "cards": pr["cards"], "x0": c.x0, "y0": c.y0}
+        _visual(msg, "blend", extra=w)
+        out.append(w)
+    return out
+
+
 def _ev(p, *kinds):
     return [e for e in p.events if e[0] in kinds]
 
@@ -36969,7 +37227,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT
+    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT, STRICT_SKIP
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -37043,6 +37301,8 @@ def main():
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide, --gaps or --png DIR")
     OCC_MODE = a.occ
     STRICT = a.strict or a.selfcheck              # SPEC.md 130.58.10: the refusal controls are the strict tier's
+    if a.selfcheck and not a.strict:              # SPEC.md 130.58.18: --selfcheck REPORTS a blend (the shipped
+        STRICT_SKIP = ("blend",)                  # PLAYGROUND and title do; --strict refuses it)
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
     JOBS[0] = a.jobs

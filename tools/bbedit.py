@@ -2436,6 +2436,7 @@ class App(object):
             c.create_text(20, 20, anchor="nw", fill="#e6e6e6", text=self.doc.analysis()["error"] or
                           "An empty course: drag across the grid to choose an area, then choose Floor on the "
                           "left and press Add.", width=600)
+        self._draw_blends(c, "plan")
 
     def _draw_iso(self):
         c = self.cv
@@ -2474,6 +2475,7 @@ class App(object):
             self._draw_gaps()
         else:
             self.gap_l.config(text="")
+        self._draw_blends(c, "iso")
 
     # -- the gap band (SPEC.md 130.58.21, 130.57) --------------------------------
     def _gaps_toggled(self):
@@ -2533,6 +2535,38 @@ class App(object):
             self._redraw()
             self._msg("%s the gap band on the %s face of x %d, y %d (%d px wide)" % (
                 "Marked" if g["marked"] else "Unmarked", g["side"].upper(), g["cell"][0], g["cell"][1], g["feet"]))
+
+    def _draw_blends(self, c, view):
+        """SPEC.md 130.58.18: the last full check's BLEND warnings, while "Hard to see" is on - in Plan both
+        floors hatched (one green, one magenta), in Iso the seam's pixels where the checker runs on.  A check
+        refused (under strict) carries none, so the picture job's warnings stand in for it"""
+        if not self.show_hard.get():
+            return
+        ws = []
+        for got in (self.check, self.pic):
+            if got and got.get("text") == self.doc.text():
+                ws = (got.get("result") or got.get("meta") or {}).get("warnings") or []
+                if ws:
+                    break
+        blends = [w for w in ws if w.get("kind") == "blend" and w.get("regions")]
+        for w in blends:
+            if view == "plan":
+                s = CELL * self.zoom
+                for reg, ink in zip(w["regions"], ("#39ff7a", "#ff4fd8")):
+                    for (x, y) in reg:
+                        px, py = self._cpx(x, y)
+                        for f in (.5, 1.0, 1.5):
+                            c.create_line(px + max(0, f - 1) * s, py + min(f, 1) * s, px + min(f, 1) * s,
+                                          py + max(0, f - 1) * s, fill=ink, width=max(1, s / 12))
+            elif self.pic:
+                meta = self.pic["meta"]
+                dx, dy = meta["x0"] - w.get("x0", meta["x0"]), meta["y0"] - w.get("y0", meta["y0"])
+                kx, ky = self.iso_scale
+                ink = "#39ff7a" if not w.get("accepted") else "#7fa88c"
+                for (x, y) in w.get("seam", ()):    # (each pixel a pixel wider all round: a seam is thin)
+                    x, y = x + dx, y + dy
+                    c.create_rectangle((x - .5) * kx, (y - .5) * ky, (x + 1.5) * kx, (y + 1.5) * ky, fill=ink,
+                                       width=0)
 
     def _xray(self, img, herc):
         """the picture dimmed but for the pixels the selection's cells drew, and what drew over them"""

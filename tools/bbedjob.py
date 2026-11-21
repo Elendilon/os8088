@@ -19,7 +19,8 @@ origin, every mark the visibility audit weighs with its seen and hidden
 pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
-the warnings that do not (SPEC.md 130.58.4).
+the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
+regions' cells and the seam's pixels (130.58.18).
 
 RIDE (SPEC.md 130.58.19) rolls each ball over the shape on line LINE - a
 chute, a pit or a hump - on the play-only compile, and answers in words.
@@ -52,6 +53,17 @@ def palette(src):
         cols = [(85, 255, 85), (255, 85, 85), (255, 255, 85)] if bright else \
                [(0, 170, 0), (170, 0, 0), (170, 85, 0)]
     return [(0, 0, 0)] + cols
+
+
+BLEND_KEYS = ("regions", "lines", "seam", "px", "cards", "x0", "y0")
+
+
+def warning(w):
+    """a warning as JSON: its kind, message, line, cell and whether accepted - and a blend's two regions' cells,
+    lines and seam pixels with the picture's origin they were measured at (SPEC.md 130.58.18), for the window"""
+    out = {k: w[k] for k in ("kind", "msg", "line", "cell", "accepted")}
+    out.update({k: w[k] for k in BLEND_KEYS if k in w})
+    return out
 
 
 def picture(path, out, name=None, gaps=False):
@@ -104,7 +116,7 @@ def picture(path, out, name=None, gaps=False):
     except Exception as e:                      # (the audit wants more than a picture compile holds)
         emit(stage="log", what="no visibility marks: %s" % e)
     meta = {"width": c.width, "lines": c.lines, "x0": c.x0, "y0": c.y0, "name": c.name, "marks": marks,
-            "warnings": [{k: w[k] for k in ("kind", "msg", "line", "cell", "accepted")} for w in c.warnings],
+            "warnings": [warning(w) for w in c.warnings],
             "gaps": c.gap_faces if gaps else None, "secs": round(time.time() - t0, 2)}
     with open(os.path.join(out, "meta.json"), "w") as f:
         json.dump(meta, f)
@@ -123,7 +135,7 @@ def check(path, strict, name=None):
     except B.CourseError as e:
         emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
         return 1
-    warns = [{k: w[k] for k in ("kind", "msg", "line", "cell", "accepted")} for w in c.warnings]
+    warns = [warning(w) for w in c.warnings]
     emit(stage="done", ok=True, warnings=warns, secs=round(time.time() - t0, 1))
     return 0
 
