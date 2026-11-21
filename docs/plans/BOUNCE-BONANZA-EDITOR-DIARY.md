@@ -74,3 +74,45 @@ The goal, in the owner's words, is good courses in the end, not a gate today.
 
 **Process.** This fork makes no pull requests; the plan carries what a PR body
 would have (fork rule 11, added to CLAUDE.md and AGENTS.md).
+
+## 2026-11-21 - waves 0 to 3, the first build to try
+
+**Built**: the model (`tools/bbedproj.py`), the warning tier in the compiler, the jobs
+(`tools/bbedjob.py`), the window (`tools/bbedit.py`) and a host row (`bbedit`). SPEC.md 130.55.10
+says what each does and what is missing.
+
+**Observed, and tested here:**
+- **The round trip is free.** The model keeps the text and rewrites only the lines an edit is about.
+  All 35 courses read and written are byte-identical, and so is every statement moved and undone.
+- **Moving a whole course one cell over exposed four position rules** the model had to learn:
+  - `half right tile ...` puts its shape after a prefix;
+  - an `archway` takes a shape, not a cell;
+  - water's `always` and `ripple` clauses name cells too;
+  - a FIELD cell's heights are quarter pixels, 32 to a unit, not eighths.
+
+  The row now holds all 35 courses to that move.
+- **Families are mandatory.** A magnet without `uses magnet` is refused, and the refusal names the
+  family. So the model adds the family itself, as part of the edit that needed it.
+- **The warning tier changed no shipped byte.** `bbcourse.py -o` over the shipped courses, the pathway
+  and the title wrote identical parts, demos and `bzcourse.inc` before and after. Only the tool's own
+  stamp file differs. No shipped course raises a warning.
+- **A wholly hidden flag now builds.** Its lane spans the pennant as drawn, with empty poses. Elements
+  with nothing left to draw (a blower's fan, a boost pad's flash, a gate's pose) stay errors, because
+  their lanes cannot be built. The game has not yet been run with a wholly hidden flag.
+- **The picture job takes 0.7 s on MILL and 7.8 s on PLAY.** The job lifts the part's block limit
+  (PLAY is over it), because it keeps only the picture.
+- **The X-ray shows exactly what the audit reported.** For MILL's tube mouth at (17, 20) it draws the
+  seen half white, the hidden half red, and the bounce wall at (18, 20) and (18, 21) dithered orange.
+- **The full check found a mark below its share on PLAY**: the pad at (24, 42) is 50% visible against
+  75%. The visibility audit only reports today, so it does not block the shipped build, and it is now a
+  warning in the window.
+- **Debian's Pillow has no `ImageTk`.** The window hands Tk PNG bytes instead, which Tk 8.6 reads
+  itself, so the window needs no ImageTk anywhere.
+
+**Tested here**:
+- `make` (the fast tier passed);
+- the `bbedit` row, red by hand on both halves;
+- the window under Xvfb on MILL, SHAPE and PLAY, driven by a script and looked at in screenshots:
+  Plan, Iso, X-ray, picking a problem, placing a bumper and a magnet, the Course and Source tabs.
+
+**Not tested**: macOS and Windows, by hand, by the owner. That is what this build is for.

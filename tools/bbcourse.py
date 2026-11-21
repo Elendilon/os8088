@@ -1148,6 +1148,30 @@ class CourseError(Exception):
     pass
 
 
+# SPEC.md 130.55.4: a VISUAL check's finding is a WARNING.  While a compile runs, _VWARN is a list and
+# _visual() appends to it; compile_course() attaches the list to the course (it rides the compile cache with
+# it), drops what the source marks `hidden` and reports what it `accept`s, and refuses only under --strict
+# (STRICT) or a course's own `strict` (130.55.5).  Called outside a compile, _visual() refuses as before.
+_VWARN = None
+STRICT = False
+VIS_KINDS = ("hidden", "ball-hidden", "blend")           # the warnings' names (`accept <kind>`)
+VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
+_VW_AT = re.compile(r"^(.*?):(\d+): ")
+_VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
+
+
+def _visual(msg, kind="hidden", empty=False):
+    """EMPTY: nothing of the element is left to draw, so its lane cannot be built - an error still"""
+    if empty:
+        raise CourseError(msg + " (nothing of it is drawn, so it cannot be built)")
+    if _VWARN is None:
+        raise CourseError(msg)
+    m = _VW_AT.match(msg)
+    cm = _VW_CELL.search(msg)
+    _VWARN.append({"kind": kind, "msg": msg, "line": int(m.group(2)) if m else None,
+                   "cell": (int(cm.group(1)), int(cm.group(2))) if cm else None})
+
+
 # =============================================================================
 # the text course (SPEC.md 130.10.3)
 # =============================================================================
@@ -1235,6 +1259,9 @@ class Source:
         self.mbands = None          # SPEC.md 130.52: `masks banded`'s line - a mask table a band (opted into)
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
+        self.hidden_lines = set()   # SPEC.md 130.55.5: the lines whose element is `hidden` on purpose
+        self.accepts = []           # SPEC.md 130.55.5: [{kind, cell, line}], the warnings this course keeps
+        self.strict = None          # SPEC.md 130.55.5: `strict`'s line - held to --strict in every build
         self.test = None            # SPEC.md 130.54: `test`'s line - a TEST course, the BZDEV=1 build's alone
         self.traphop = None         # wave 11: `trap hop`'s line - NO TRAP presses the Hop too (SPEC.md 130.14.4.1.1)
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
@@ -3225,6 +3252,21 @@ def _parse_text(text, fname="<course>"):
         if toks[0][0] != 'w':
             raise CourseError("%s: a statement cannot start with a string" % where)
         st = toks[0][1]
+        if st in VIS_HIDEABLE and len(toks) > 1 and toks[-1] == ('w', "hidden"):
+            src.hidden_lines.add(ln)                # SPEC.md 130.55.5: hidden ON PURPOSE (no part byte)
+            toks = toks[:-1]
+        if st == "accept":                          # SPEC.md 130.55.5: a warning this course keeps
+            if len(toks) not in (2, 4) or toks[1][0] != 'w' or toks[1][1] not in VIS_KINDS:
+                raise CourseError("%s: accept takes a warning (%s) and optionally <wx> <wy> (SPEC.md 130.55.5)"
+                                  % (where, ", ".join(VIS_KINDS)))
+            cell = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")) if len(toks) == 4 else None
+            src.accepts.append({"kind": toks[1][1], "cell": cell, "line": ln})
+            continue
+        if st == "strict":
+            if len(toks) != 1 or src.strict is not None:
+                raise CourseError("%s: strict takes nothing, once (SPEC.md 130.55.5)" % where)
+            src.strict = ln
+            continue
         if st in RESERVED:
             raise CourseError("%s: '%s' is reserved for a later wave" % (where, st))
         if st == "course":
@@ -4510,8 +4552,8 @@ def arch_vis(c, bound=AR_HIDE):
                     run = run + 1 if all(p in hid for p in lit) else 0
                     worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled through the archway is WHOLLY hidden for %d ground units in a row, "
-                              "past one ball length (%d: SPEC.md 130.39.1 A10)" % (c.fname, a["line"], worst, bound))
+            _visual("%s:%d: a ball rolled through the archway is WHOLLY hidden for %d ground units in a row, "
+                              "past one ball length (%d: SPEC.md 130.39.1 A10)" % (c.fname, a["line"], worst, bound), "ball-hidden")
         pads = []
         for p in c.props:
             if p["kind"] == PK_PAD and p["at"] in a["cells"]:
@@ -4583,10 +4625,10 @@ def clock_vis(c, bound=CLOCK_HIDE, arts=False):
                         run = run + 1 if all(q in hid for q in lit) and not all(q in hid - mine for q in lit) else 0
                         worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled behind the %s at (%d, %d) is WHOLLY hidden for %d ground units "
+            _visual("%s:%d: a ball rolled behind the %s at (%d, %d) is WHOLLY hidden for %d ground units "
                               "in a row, past one ball length (%d: SPEC.md %s)" % (
                                   c.fname, p["line"], "gate art" if arts else "clock", cx_, cy_, worst, bound,
-                                  "130.41.12 A8" if arts else "130.18.5.4"))
+                                  "130.41.12 A8" if arts else "130.18.5.4"), "ball-hidden")
         out.append((p.get("num"), p["at"], met, over, worst))
     return out
 
@@ -4708,8 +4750,8 @@ def hump_vis(c, bound=HUMP_HIDE, see=HUMP_SEE, attr=True):
                         run += 1
                         worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled behind the hump is WHOLLY hidden for %d ground units in a row, past "
-                              "one ball length (%d: SPEC.md 130.44.4)" % (c.fname, fd["line"], worst, bound))
+            _visual("%s:%d: a ball rolled behind the hump is WHOLLY hidden for %d ground units in a row, past "
+                              "one ball length (%d: SPEC.md 130.44.4)" % (c.fname, fd["line"], worst, bound), "ball-hidden")
         cells = {p["at"] for p in c.props if isinstance(p.get("at"), tuple)}
         cells |= {cl for cl, t in c.tiles.items() if type(t) is Tile and t.kind == KIND_GOAL}
         low = None
@@ -4872,9 +4914,9 @@ def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
         shown = {xy for xy, i in cell.items() if cv.sbuf[xy[1]][xy[0]] <= wx + wy + i}
         f0 = frames[0]
         if 2 * sum(1 for xy in f0 if xy in shown) < len(f0):
-            raise CourseError("%s is HIDDEN: %d of its shut frame's %d pixels drawn over by geometry in front of it "
+            _visual("%s is HIDDEN: %d of its shut frame's %d pixels drawn over by geometry in front of it "
                               "(SPEC.md 130.41.12: the player must see the gate)" % (
-                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)))
+                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)), "hidden", empty=not any(xy in shown for xy in f0))
         ink = {xy: [fr.get(xy, cv.rows[xy[1]][xy[0]]) for fr in frames] for xy in shown}
         key = {xy: (wx + wy + cell[xy], tops[cell[xy]]) for xy in shown if xy in f0}
         if hack.get("ganokey"):
@@ -11218,7 +11260,39 @@ def _course_limit(c, src, fname):
 REALSUBS = (8, 16)             # SPEC.md 130.49.5: the squares a course over the 256 masks is cut again at, in turn
 
 
-def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
+def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None, strict=None):
+    """the course compiled (_compile_course_cut), with its visual WARNINGS (SPEC.md 130.55.4) as c.warnings:
+    [{kind, msg, line, cell, accepted}], those the source marks `hidden` left out.  strict (default: STRICT,
+    --strict) or the course's own `strict` statement refuses on the first warning it does not `accept`"""
+    c = _compile_course_cut(source, fname, occluders, _hack, crsinfo)
+    vis_settle(c, STRICT if strict is None else strict)
+    return c
+
+
+def vis_settle(c, strict):
+    """SPEC.md 130.55.5: c.warnings from c.vwarn - a `hidden` element's dropped, an `accept`ed one marked - and
+    the refusal under strict (or the course's `strict`)"""
+    src = c.src
+    hid = getattr(src, "hidden_lines", set())
+    acc = getattr(src, "accepts", [])
+    out = []
+    for w in getattr(c, "vwarn", None) or []:
+        if w["kind"] == "hidden" and w["line"] in hid:
+            continue
+        w = dict(w, accepted=any(a["kind"] == w["kind"] and (a["cell"] is None or a["cell"] == w["cell"])
+                                 for a in acc))
+        out.append(w)
+    c.warnings = out
+    if strict or getattr(src, "strict", None):
+        for w in out:
+            if not w["accepted"]:
+                raise CourseError("%s (a %s warning, refused under %s: mark it `hidden` or `accept %s`, SPEC.md "
+                                  "130.55.5)" % (w["msg"], w["kind"], "--strict" if strict else "the course's `strict`",
+                                                 w["kind"]))
+    return out
+
+
+def _compile_course_cut(source, fname=None, occluders=True, _hack=None, crsinfo=None):
     """(SPEC.md 130.49.5: a course whose real-pose cut names more than the 256 masks a record's byte holds is cut
     again in larger squares - 8, then 16 ground units - and then as before 130.49, and the run says so)"""
     try:
@@ -11277,8 +11351,14 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
     key = cache_key(source, fname, occluders, _hack, crsinfo)
     c = cache_get(key)
     if c is None:
+        global _VWARN
         t0 = time.time()
-        c = _compile_y0(source, fname, occluders, _hack, crsinfo)
+        held, _VWARN = _VWARN, []
+        try:
+            c = _compile_y0(source, fname, occluders, _hack, crsinfo)
+            c.vwarn = _VWARN                        # SPEC.md 130.55.4: the visual warnings, cached with it
+        finally:
+            _VWARN = held
         if fname is None or time.time() - t0 >= 1.0:
             cache_put(key, c)
     return c
@@ -11754,9 +11834,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 poses[q] = {(x, y + y0): c for (x, y), c in pix.items()
                             if 0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF}
             if p["kind"] == WD_K2 and 2 * len(poses[1]) < len(raw[1]):
-                raise CourseError("%s:%d: the blower's squiggles over (%d, %d) are HIDDEN: %d of %d pixels drawn over by "
+                _visual("%s:%d: the blower's squiggles over (%d, %d) are HIDDEN: %d of %d pixels drawn over by "
                                   "geometry in front of them" % (fname, p["line"], p["at"][0], p["at"][1],
-                                                                 len(raw[1]) - len(poses[1]), len(raw[1])))
+                                                                 len(raw[1]) - len(poses[1]), len(raw[1])), "hidden", empty=not poses[1])
             xs = [x for q in poses for x, _ in poses[q]]
             ys = [y for q in poses for _, y in poses[q]]
             if not xs:
@@ -11777,14 +11857,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             q0, q1 = seen(p["furl"]), seen(p["fly"])
             if 2 * len(q1) < len(p["fly"]) or (not q0 and p.get("art") != "icon"):   # (a pickup's pose 0 is empty)
                 hid = sorted({cv.sbuf[y + y0][x] for (x, y) in p["fly"] if (x, y + y0) not in q1})
-                raise CourseError("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
+                _visual("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
                                   "(and %d of its furled roll's %d) are drawn over by geometry in front of it "
                                   "(row s = %s against the flag's %d)"
                                   % (fname, p["line"], p["at"][0], p["at"][1], len(p["fly"]) - len(q1),
                                      len(p["fly"]), len(p["furl"]) - len(q0), len(p["furl"]),
-                                     ", ".join(map(str, hid[:4])), sF))
+                                     ", ".join(map(str, hid[:4])), sF), "hidden")
             xs = [x for x, _ in list(q0) + list(q1)]
             ys = [y for _, y in list(q0) + list(q1)]
+            if not xs:                              # SPEC.md 130.55.5: a WHOLLY hidden flag (a `hidden` one, a
+                xs = [x for x, _ in p["fly"]]       # secret's): its lane spans the pennant as drawn, and every
+                ys = [y + y0 for _, y in p["fly"]]  # pose is empty
             c0, r0 = min(xs) >> 3, min(ys) >> 3
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
@@ -11797,9 +11880,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 poses[q] = {(x, y + y0): c for (x, y), c in pix.items()
                             if 0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF}
                 if 2 * len(poses[q]) < len(pix):
-                    raise CourseError("%s:%d: the magnet at (%d, %d) is HIDDEN: %d of its wiggle's %d pixels are "
+                    _visual("%s:%d: the magnet at (%d, %d) is HIDDEN: %d of its wiggle's %d pixels are "
                                       "drawn over by geometry in front of it" % (
-                                          fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)))
+                                          fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)), "hidden", empty=not poses[q])
             xs = [x for q in poses.values() for x, _ in q]
             ys = [y for q in poses.values() for _, y in q]
             c0, r0 = min(xs) >> 3, min(ys) >> 3
@@ -11887,10 +11970,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 poses[q] = {(x, y): c for (x, y), c in want.items()
                             if 0 <= y < lines and cv.sbuf[y][x] <= sF and cv.rows[y][x] != c}
                 if 2 * len(poses[q]) < len(want):
-                    raise CourseError("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
+                    _visual("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
                                       "over by geometry in front of it (SPEC.md 130.43: a mechanic seen when the "
                                       "ball is not on it)" % (fname, p["line"], wx, wy, "warning" if seam else "hole",
-                                                              len(want) - len(poses[q]), len(want)))
+                                                              len(want) - len(poses[q]), len(want)), "hidden", empty=not poses[q])
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
@@ -11910,9 +11993,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                          if inr(x, y + y0) and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF} for q in (0, 1)}
             whole = sum(1 for (x, y) in p["bp_pix"][1] if inr(x, y + y0))
             if not poses[1] or 2 * len(poses[1]) < whole:
-                raise CourseError("%s:%d: the boost pad at (%d, %d) is HIDDEN: %d of its flash's %d pixels are drawn "
+                _visual("%s:%d: the boost pad at (%d, %d) is HIDDEN: %d of its flash's %d pixels are drawn "
                                   "over by geometry in front of it (the player must see where the ball goes)"
-                                  % (fname, p["line"], wx, wy, whole - len(poses[1]), whole))
+                                  % (fname, p["line"], wx, wy, whole - len(poses[1]), whole), "hidden", empty=not poses[1])
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
         elif p.get("gart") is not None:             # SPEC.md 130.41.12: an ART element has no lane of its own
             pass
@@ -11945,10 +12028,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                   if inr(x, y + y0) and 0 <= y + y0 < lines and 0 <= x < width and cv.sbuf[y + y0][x] <= sF}
             whole = sum(1 for (x, y) in raw if inr(x, y + y0))
             if not q1 or 2 * len(q1) < whole:
-                raise CourseError("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its %s pose's %d pixels are drawn over "
+                _visual("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its %s pose's %d pixels are drawn over "
                                   "by geometry in front of it (the player must see where the ball goes)"
                                   % (fname, p["line"], nm, wx, wy, whole - len(q1), {GT_KP: "pressed", GT_KG: "shut",
-                                                                                     GT_KB: "up"}[p["kind"]], whole))
+                                                                                     GT_KB: "up"}[p["kind"]], whole), "hidden", empty=not q1)
             q0 = {(x, y + y0): c for (x, y), c in p["gt_pix"].items() if inr(x, y + y0) and 0 <= y + y0 < lines
                   and cv.sbuf[y + y0][x] <= sF}
             p["fpix"] = poses = {0: q0, 1: q1}
@@ -12087,9 +12170,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 shown_ = {(x, y): c for (x, y), c in face.items()
                           if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sC}
                 if 2 * len(shown_) < len(face):
-                    raise CourseError("%s:%d: the clock at (%d, %d) is HIDDEN or off the picture: %d of its %d "
+                    _visual("%s:%d: the clock at (%d, %d) is HIDDEN or off the picture: %d of its %d "
                                       "pixels are drawn over by geometry in front of it or lie outside the picture"
-                                      % (fname, p["line"], p["at"][0], p["at"][1], len(face) - len(shown_), len(face)))
+                                      % (fname, p["line"], p["at"][0], p["at"][1], len(face) - len(shown_), len(face)), "hidden", empty=not shown_)
                 # SPEC.md 130.18.5.4: the plinth, the post, the dish and the crystal ball are GEOMETRY keyed at the
                 # clock's cell (a post's, 130.12.6.3), so the occluder cut lays them over a ball behind and below
                 # them, as it does a flag's staff; the shadow stays paint on the tile.  (The lives counter's
@@ -21473,6 +21556,9 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         if e is not None:
             raise e
     courses = [c_ for c_, _e in got[:len(paths)]]
+    for c_ in courses:                              # SPEC.md 130.55.4: a warning is reported, never refused here
+        for w in getattr(c_, "warnings", ()):
+            sys.stderr.write("bbcourse: WARNING %s%s\n" % (w["msg"], " (accepted)" if w["accepted"] else ""))
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
@@ -35814,7 +35900,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, SHADOW
+    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -35873,6 +35959,9 @@ def main():
                          "route and any --log demos; writes nothing")
     ap.add_argument("--log", action="append", default=[], metavar="BZD",
                     help="with --guide: a demo log (.bzd) to check as a run; may repeat")
+    ap.add_argument("--strict", action="store_true",
+                    help="every visual WARNING a refusal, but those a course marks `hidden` or `accept`s (SPEC.md "
+                         "130.55.4, 130.55.5; what an agent's course run uses)")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 130.15.12.2); about a minute a course")
@@ -35880,6 +35969,7 @@ def main():
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
+    STRICT = a.strict
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
     JOBS[0] = a.jobs
