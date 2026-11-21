@@ -22096,7 +22096,7 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 # courses' and the world parts' (BZ_P_DEMO, bzcourse.inc's BZ_DEMO_PARTS and BZ_DEMO_CRS).
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
-BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw turntable
+BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw turntable life
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \

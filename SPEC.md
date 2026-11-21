@@ -277336,7 +277336,7 @@ drawn after the ball (130.25.19, the owner's pick of four options, "OVER").
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
 | `hourglass` | +10 s on the limit (`bz_tsec`), the clocks' next second shows it | once per attempt | `ATTEMPT` | **hidden** (its lane's pose 0 and no CONTACT) |
-| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s | `RESPAWN` | shown |
+| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s (**10 s since 130.55**) | `RESPAWN` | shown |
 | `jump` | rubber's Hop for any ball, or rubber's raised; **stacks with the boost**; bounded only by `VZMAX` (130.25.1) | the element's own, as speed's | `RESPAWN` | shown |
 
 **Speed and jump together** (the owner, Q1): each keeps its own timer, so a
@@ -277950,7 +277950,7 @@ every kind `pickup`. Its constants are in its `FAMV`:
 | `PU_SVUP` | 64 | speed: added to the cap (`bz_vup`): 384 to 448, 1.75 px a step |
 | `PU_JHOP` | 400 | jump: the Hop for any ball - apex 13.8 px alone, 18.0 with rubber's boost stacked on its contact |
 | `PU_WARN` | 55 | the FLASH's steps (`SEC_STEPS`, about 1 s) |
-| `PU_DUR` | 69 | the default duration, steps / 4 (5 s) |
+| `PU_DUR` | 69 | the default duration, steps / 4 (5 s; **138, 10 s, since 130.55**) |
 
 **The elements.** `prop hourglass <wx> <wy>`; `prop speed|jump <wx> <wy>
 [for <seconds>] [overwrite]`: +18 the duration (steps / 4, 1 - 255, 0.07 -
@@ -286848,3 +286848,124 @@ builds `bz_mrow` exactly (`MAP + br ROWB`, all 256 words), and `bz_boxc`'s
 buffer is exactly the part's words on 59 boxes, word column 159 at every
 first-line offset among them. Its red arms (`--red mrow`, the table not built
 past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
+
+### 130.55 THE LIFE, `respawn` and the 10-second default (the owner, 2026-11-21; on `bb-lives`)
+
+The owner's brief: *"a heart/life powerup, with some special rules of its
+own. It should have the option, once collected, not spawn again in the same
+course ... the life powerup would only spawn once, ever, if its option is set
+to avoid being farmable. A later course may purposely add a farmable life
+powerup though; spawning once per entry to the course."* Its look: *"similar
+to today's sparkles, but flowing upwards - and only lasting 1s or so, with no
+blink (this is something you gain, not something you have as a powerup)."*
+And for the pickups already there: the default duration **10 s** (5 s *"is
+much too little for a default; unless the powerup is intended to be used
+directly in the path of whatever it is in front of"*), and an option for a
+pickup to **respawn after it expires on the ball** - *"let them try again"* -
+so a pickup can be part of a course's main design and not only a shortcut.
+
+#### 130.55.1 The decisions
+
+| | decision | why |
+|---|---|---|
+| where the life lives | **a family of its own, LIFE** (ID 16, kind 27 = `FAM_K0 + 11`, home `resident`, `apps/bonanza/fam/life.asm`, `bbcourse.LifeFamily`) - not PICKUPS' fourth kind | a family part's kinds are ONE RUN (130.25.6.2's +9, +10). PICKUPS' run is 19 - 21 and 22 is the windmill's, so a fourth kind means moving the run - and the run's kinds are in `BZ_BOKT` (130.16.4.1.1, the boost's flat props), which `BZ_PHYSV` hashes: every demo re-recorded and **every player's bests and saved replays thrown away** for a renumbering. Measured: moving the run to 27 - 30 moved `BZ_PHYSV` from EDh to FAh |
+| a boost floor? | **no** - a ball landing on a heart's cell does not boost | adding `life` to `BOOST_FLOOR_NAMES` moves `BZ_PHYSV` the same way. The heart is taken on that contact anyway, so the cell is a floor the ball is leaving |
+| "once, ever" | **once a GAME** (`once`): taken, the heart is never shown again on that pad's course for the rest of that slot's game; a NEW game (5 lives, pad 0) has it again | the save is a game per slot (130.22.5); "ever" across new games would leave a second player with no heart at all. One bit a PAD, kept in the slot's game |
+| farmable | **the default**: no `once`, the heart is ATTEMPT class - back at every ENTRY to the course (and at a RETRY), as the hourglass is | the owner's "a later course may purposely add a farmable life" |
+| where it shows | **only in a game's course** (`bz_lfx` bit 0): hidden (pose 0, no take) in EXPLORE, a free play, a replay, a demo, the benchmark | EXPLORE costs no life, so it gives none; a replay or a demo must never change a game's lives. Hidden is the hourglass's rule with no limit (130.25.19) |
+| the cap | **`BZ_LVMAX` = 9** lives (the face's one digit, `bz_l1`); a heart at 9 is still taken (its cue plays) and gives nothing | the slot's check (`bz_dslots`) now refuses lives over 9, not over `BZ_LIVES` |
+| its cue | **the sparkles RISING** for `LF_RISE` = 55 steps (about 1 s), no flash: `bz_cue` bit 2 | the owner's look. Bits 0 and 1 stay PICKUPS' (sparkles, flash); each family writes only its own |
+| `respawn` | +19 bit 1 of a `speed` or `jump`: when the effect ENDS - worn off, ended by an `overwrite`, or by a RESET - **every element of that kind marked `respawn` comes back** (COLLECTED cleared, lane marked) | no slot byte names the element taken, so "its kind's `respawn` ones" is the rule. A ball still in the cell when it comes back takes it again, which is the point |
+| the 10 s default | `PU_DUR` 138 (steps / 4) | in PICKUPS' `FAMV`, with REV 2 for `respawn`: PLAYGROUND's and RAILS's identities moved, and PLAYGROUND's authored demo was written again (`bbcourse.py author`: the same 1,504 steps, only its `ident` changed). `BZ_PHYSV` did not move |
+
+#### 130.55.2 The course statements
+
+    uses life
+    prop life <wx> <wy> [once]
+    prop speed|jump <wx> <wy> [for <seconds>] [overwrite] [respawn]
+
+The life's record: +18 zero, +19 `PU_ONCE` (4) or zero, the class ATTEMPT;
+the timed two's +19 may now carry `PU_RESPAWN` (2) beside `PU_OVERWRITE` (1).
+Refused (`--selfcheck` item 2): `respawn` on an hourglass, `for` on a life,
+`once` on a speed, and **a second `once` life on one course** (the game keeps
+one bit a pad). The heart's icon is pose 1 of an `icon` lane like the other
+pickups', a 7 x 8 magenta heart with a white glint, black outlined
+(`PU_ICONS`). A course naming `life` and placing none is refused, as for
+every family.
+
+#### 130.55.3 The engine and the save
+
+- **`bz_lfx`** (a byte): bit 0 a game's course is playing, bit 1 its pad's
+  `once` heart has been given this game. `bz_grounds` sets it at `.crs`
+  before every game course's play (`bz_lfset`: 0 in EXPLORE; else 1, and 3
+  when the pad's bit is in `bz_nlife`) - a resumed course (`bz_rsm`) keeps
+  its own - and at the play's end (`.ntw`) folds bit 1 into `bz_nlife` for
+  `bz_ppad` and clears it, so no other play ever sees it set; giving up a
+  suspended course (`bz_unsusp`) clears it too.
+- **`bz_nlife`** (a dword, a bit a pad) travels with the slot's game like
+  `bz_nopen` - `bz_gload` and `bz_gstorl` copy it, `bz_gnew` zeroes it.
+- **BONANZA.DAT** (130.22.5.1) grows by **THE LIVES GIVEN**, a dword a slot
+  after the three slots: `BZD_FILE` 500 bytes (still under one sector, so
+  `od_write`'s in-place arm still holds). A file of the old 488 bytes
+  (`BZD_FILE0`) is read with the table zero, so nobody's saves or bests are
+  lost; an emptied slot (`bz_dslots`' `.bad`, `bz_dslz`) empties its dword,
+  and `bz_dsave`'s merge carries the slot played's dword with its slot.
+  The lives check is `BZ_LVMAX`.
+- **The life's taking** is the part's: COLLECTED set, lane marked, `bz_nfev`
+  counted (the PICKUP sound - no new sound event: the 16-bit counter mask is
+  full, 130.25.19), `bz_lives` raised to `BZ_LVMAX` at most, a `once` one's
+  `bz_lfx` bit 1, and the rise (its slot's byte +0) begun. A life gained in a
+  course that then times out is still the game's: the timeout's life is taken
+  from the raised count. The disk's copy is the entry's (130.19.6), so a
+  machine switched off mid-course loses the life it gained, as it loses the
+  one the entry spent.
+
+#### 130.55.4 The rising sparkles
+
+`bz_cuef` (bzphys.inc): under `bz_cue` bit 2 the look is `BZ_CL_SP` +
+`BZ_CL_RI` (10h, new) + the rise's step count mod 16, a step every 4 frames,
+and the three sparkles CLIMB - each its own column, foot to top, the three
+a step apart (frames + 0, 8, 4, then >> 2), back to the foot after the top:
+
+| sparkle | its steps (dx, dy of the pair's top-left from the sprite's) |
+|---|---|
+| 0, the left | (-1, 12) (-1, 7) (-1, 2) (0, 0) |
+| 1, the right | (15, 12) (15, 7) (15, 2) (14, 0) |
+| 2, the face | (4, 10) (7, 7) (9, 4) (7, 0) - on the face, the CGA's glint |
+
+Eight of the twelve places are the sparkles' own; four are new (the two
+sides' middles, the face's centre and top), in all three cards' resolved
+tables: `bzvideo.inc`'s `BZ_SPRS` (CGA and Hercules, 12 bytes a place each)
+and `bzvga.asm`'s `bzv_spv` (the VGA's, 40 bytes a place, in the VGA part).
+The blit is unchanged: it draws whatever `bz_spq` points at. The two modes
+share one place loop: a mode is its shift (3 or 2), its clocks (`bz_spo` 5, 2;
+`bz_spor` 8, 4) and its steps (`bz_sps`, `bz_spsr`). A rise draws no flash of
+its own; a timed pickup's FLASH frame still blinks the ball while both run.
+PREDICTED cost: while the rise runs the places are recomputed every 4th
+frame (130.25.19's 0.53k a hop frame) and a resting ball recomposed on those
+frames; 0 otherwise. Not measured on MartyPC yet.
+
+#### 130.55.5 What it costs (MEASURED, the shipped build)
+
+- the image **51,410 bytes, +299** on 51,111 (the tables 108: four places x
+  4 shifts x 3 bytes x 2 cards, `bz_spsr` 12; `bz_cuef`'s rise and its
+  shared place loop; the save's table, `bz_dlife`, `bz_lfset` and the rounds'
+  fold; the family row); the bss **9,426, +74** (`bz_lfx` 1, `bz_nlife` 4,
+  `bz_dat` +12, the hook lists' and slots' share of a sixteenth family).
+- the parts: PICKUPS **608 bytes, +76** (`pu_rearm` and the cue's kept bit;
+  its 40-paragraph ceiling holds); LIFE **285 bytes** (18 paragraphs); the
+  resident bundle 36,112 (+352); the VGA part 5,406 (+160).
+
+#### 130.55.6 PLAYGROUND, and the proofs
+
+PLAYGROUND (pad 6) names `life`; its pickups yard has `prop speed 5 14 for 3
+respawn` and `prop life 3 15 once`. `bonanzaphys`'s PICKUPS scenario
+(`tests/bonanza_phys.py`, the unicorn half) plays it with `bz_lfx` 1 and 5
+lives written before `bz_pinit`: after the old marks, the life taken (6 lives,
+`bz_lfx` 3, the rise's cue bit 2), a RETURN, and the ball back in its cell and
+held 30 steps - not taken again; the speed wears off and comes back each time.
+`bz_lfx` and `bz_lives` join the working values compared every step. Its
+MartyPC replay plays the same keys as a REPLAY, where the heart is hidden
+(`pickup_ok(life=False)`). `bonanzagame`'s second reading of the save
+(`tests/bonanza_game.py`) has the 500-byte file, the 488-byte one read with
+its table zero, an emptied slot's dword and the cap of 9.
