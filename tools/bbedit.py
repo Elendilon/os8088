@@ -2231,9 +2231,12 @@ class App(object):
         c = self.cv
         c.delete("all")
         if not self.pic:
-            c.create_text(20, 20, anchor="nw", fill="#e6e6e6", text="Drawing the game's picture..." if
-                          self.pic_job and self.pic_job.running else "No picture yet: the course has to lay "
-                          "out first (see the problems below).", width=600)
+            busy = bool(self.pic_after) or bool(self.pic_job and self.pic_job.running)
+            c.create_text(20, 20, anchor="nw", fill="#e6e6e6", text="Drawing the game's picture (a few seconds "
+                          "on a big course)..." if busy else "No picture yet: the course has to lay out first "
+                          "(see the problems below).", width=600)
+            if busy:
+                self.root.after(500, lambda: self.view.get() == "iso" and not self.pic and self._redraw())
             return
         from PIL import Image
         meta = self.pic["meta"]
