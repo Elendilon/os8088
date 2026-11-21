@@ -1,0 +1,10 @@
+peng: pengs, pengh, pengf, pengg
+blocks 814 (the picture's pool); occluder masks 249 (of 256), records 1766
+sheets 2 of 89 block rows from rows [0, 55]; each sheet 53960 bytes in RAM
+sheet 0 stored 53960, LZB 11715
+sheet 1 stored 53960, LZB 12765
+world part 20290 in RAM, stored 20290, LZB 3034
+clock at (10, 7), frame pengs: its tile's centre at canvas (352, 116), its digits in block row 10
+clock at (50, 11), frame pengh: its tile's centre at canvas (928, 664), its digits in block row 79
+clock at (61, 43), frame pengf: its tile's centre at canvas (592, 1048), its digits in block row 127
+clock at (37, 34), frame pengg: its tile's centre at canvas (352, 808), its digits in block row 97
