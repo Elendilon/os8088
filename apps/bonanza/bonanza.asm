@@ -3115,11 +3115,16 @@ bz_cxtab:
     dw bz_cxcnt                 ; 2 COUNTS
     dw bz_cxdif                 ; 3 WDIFF
     dw bz_cxmtb                 ; 4 MASKTAB (the 4-byte record's, D)
-BZ_CXFORMS  equ 1FFh
     dw bz_cxrtb                 ; 5 ROWTAB
     dw bz_cxway                 ; 6 WAYS
     dw bz_cxcel                 ; 7 CELLS
     dw bz_cxkit                 ; 8 KITREF (SPEC.md 130.37.4)
+%if BZ_FORMS & (1 << 9)
+BZ_CXFORMS  equ 3FFh
+    dw bz_cxnib                 ; 9 ROWNIBS (SPEC.md 130.56): a course past
+%else                           ; 1,024 blocks, in a build that has one
+BZ_CXFORMS  equ 1FFh
+%endif
 %if BZ_FORMS & ~BZ_CXFORMS
  %error "bz_cexp: a course part uses a stored form its dispatch table does not hold"
 %endif
@@ -3249,6 +3254,60 @@ bz_cxmap:
     jnz .row
 bz_cxret:
     ret
+
+%if BZ_FORMS & (1 << 9)
+; 9 ROWNIBS (SPEC.md 130.56): ROWPLANES with a NIBBLE a cell - block row r
+; stored as C/2 high bytes (cell j's four high bits at bits 4 (j AND 1) of
+; byte j >> 1) and then C low bytes; map word j = BLKOFF + 16 (low + 256
+; high), so a course may pass 1,024 blocks (the part bounds it first).  The
+; row's high bytes go to scratch (bz_boxbuf, at most 80) first, as ROWPLANES'.
+; Assembled only in a build with such a course (BZ_FORMS' bit 9).
+bz_cxnib:
+    mov bp, [es:BZC_BLKOFF]
+ %if BZ_NSHC
+    xchg ax, cx                 ; (a SHEET's map: its RAM length / ROWB rows)
+    xor dx, dx
+    div word [es:BZC_ROWB]
+    xchg ax, dx
+ %else
+    mov dx, [es:BZC_BROWS]
+ %endif
+.row:
+    push dx                     ; (the rows left)
+    mov cx, [es:BZC_COLS]
+    shr cx, 1
+    mov dx, cx                  ; DL = C/2: the row's high bytes
+    mov bx, bz_boxbuf
+.hi:
+    es lodsb                    ; ...to scratch, before the words overrun them
+    mov [bx], al
+    inc bx
+    loop .hi
+    mov ch, dl                  ; CH = the high bytes left
+    mov cl, 4
+    mov bx, bz_boxbuf
+.grp:
+    mov dl, [bx]                ; DL = two cells' high nibbles
+    inc bx
+    es lodsb                    ; the even cell: the low nibble
+    mov ah, dl
+    and ah, 0fh
+    shl ax, cl
+    add ax, bp
+    stosw                       ; BLKOFF + 16 (low + 256 high)
+    es lodsb                    ; the odd cell: the high nibble
+    mov ah, dl
+    shr ah, cl
+    shl ax, cl
+    add ax, bp
+    stosw
+    dec ch
+    jnz .grp
+    pop dx
+    dec dx
+    jnz .row
+    ret
+%endif
 
 ; 2 COUNTS: a count byte a block row; OCCIDX[br] = OCCREC + RECB x (the
 ; records before row br), br = 0 .. BROWS.  BROWS counts.

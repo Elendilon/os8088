@@ -1629,7 +1629,7 @@ def bench(g, ref, trial=False, mill=False, hvoff=None, camscr=None, crs=None, st
     poke out (a route that makes its own three-box frames: TMIL's)."""
     m, tag = g.m, g.tag
     leg = crs.upper() if crs else "MILL" if mill else "TRIAL" if trial else "BENCH"
-    kcrs = CRS_K[crs] if crs else CRS_K["mill" if mill else "trial"] if (trial or mill) else None
+    kcrs = CRS_K[crs] if crs else CRS_K["tmil" if mill else "trial"] if (trial or mill) else None
     goal = autopilot_keys(crs)[1] if crs and stop else None
     order = trial or mill
     extra = ("bz_col", "bz_boxw", "bz_occ.gate") if order else ()
@@ -2574,7 +2574,7 @@ def lift_steps(P, n0, n1):
     return sum(1 for n in range(n0, n1) if BB.plat_pos(P, n + 1) != BB.plat_pos(P, n))
 
 
-def mill_play(g, ref, crs_name="mill"):
+def mill_play(g, ref, crs_name="tmil"):
     """the MILL leg's POKED play (SPEC.md 130.12.13.2, 130.13.12): Enter on MILL
     ([bz_crs] poked at bz_launch), the ball poked onto the platform's slab at
     the first bz_t0 (the frame's centred full write puts the window round it)
