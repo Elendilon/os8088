@@ -173,8 +173,8 @@ REC = 4                       # RECB, the occluder record's RAM size: 4 (SPEC.md
                               # identity_form()
 DIRENT = 8                    # a directory entry (130.15.4.2)
 NSEC_MAX = 16
-F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F_KITREF = range(9)
-FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF")
+F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F_KITREF, F_ROWNIBS = range(10)
+FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF", "ROWNIBS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
             "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
             "L": F_PLAIN, "Y": F_PLAIN,   # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
@@ -275,7 +275,9 @@ def mapsh_of(cols):
     """BZC2 +10 MAPSH (SPEC.md 130.10.5.1): 4 at 64 columns and 5 at 128, as they always were (so every part of
     those widths is byte for byte the same), 0 at any other - the guest reads none of them (bz_mrow, 130.10.4.2)"""
     return {64: 4, 128: 5}.get(cols, 0)
-BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
+BLK_ROWP = 1024               # SPEC.md 130.56: the blocks form 1 ROWPLANES's 10-bit index reaches (8 low bits and
+                              # 2 high); a course past it stores its map as form 9 ROWNIBS (8 low and a nibble)
+BLK_MAX = 4096                # ROWNIBS's 12-bit index - the part (PARTMAX, 16 bytes a block) refuses first
 ROWREC_MAX = 255              # COUNTS: a block row's records in a byte
 CRS_MAX = 23                  # BZ_CRS_MAX: the courses a build may have, the width of every per-course
                               # table and of BONANZA.DAT's BZS4 (SPEC.md 130.22.5: 80 + 18 x 23 = 494 bytes,
@@ -1060,6 +1062,15 @@ CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
                 "frogb", "orbr", "orbh", "orbs", "orbg")   # a clock's `frame`s (SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
+# SPEC.md 130.18.5.5: THE DIGITS' ANCHOR - where a frame's digits sit, px right and down of their natural spot
+# (the place clock_face_geom derives from the tile, above).  A frame declares its own here (none of the shipped
+# frames does: (0, 0)), a `clock ... digits DX DY` adds a per-use one, and the art drawn round the digits (the
+# frame's fx, fy) follows them; what a frame draws off the tile (cx, cy: the stand, the shadow) stays.  The
+# digits are LANES on the block grid, so the sum splits into whole blocks (8 px each way) and a NUDGE inside the
+# block - the 5 x 7 glyph has 3 px of slack across and 1 down - so an offset is legal when (dx + 1) mod 8 <= 3
+# and dy mod 8 <= 1: half the columns and a quarter of the lines
+CLOCK_DIGITS = {}             # {frame: (dx, dy) px}
+CLOCK_NUDGE_X, CLOCK_NUDGE_Y = (-1, 2), (0, 1)   # the glyph's nudge inside its block, px (left, right / up, down)
 # wave 7 (SPEC.md 130.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
 CLOCK_FONT = ((14, 17, 19, 21, 25, 17, 14), (4, 12, 4, 4, 4, 4, 14), (14, 17, 1, 2, 4, 8, 31),
@@ -3647,10 +3658,16 @@ def _parse_text(text, fname="<course>"):
                                   "printable glyphs, ink 0 - 3" % (where, NODE_MAX - 1, LANE_PMAX - 1))
             src.labels.append({"num": n, "col": col, "row": row, "glyphs": text, "ink": ink, "line": ln})
         elif st == "clock":                         # wave 7 (SPEC.md 130.18.5)
-            if len(toks) not in (3, 5) or (len(toks) == 5 and (toks[3][1] != "frame" or toks[4][1] not in CLOCK_STYLES)):
-                raise CourseError("%s: clock takes <wx> <wy> [frame %s]" % (where, "|".join(CLOCK_STYLES)))
+            rest, frame, digs = toks[3:], "crystal", (0, 0)     # (130.18.5.5: `digits DX DY`, px, after `frame`)
+            if len(rest) >= 2 and rest[0][1] == "frame" and rest[1][1] in CLOCK_STYLES:
+                frame, rest = rest[1][1], rest[2:]
+            if len(rest) == 3 and rest[0][1] == "digits":
+                digs, rest = (_int(rest[1], where, "the digits' DX"), _int(rest[2], where, "the digits' DY")), ()
+            if len(toks) < 3 or rest:
+                raise CourseError("%s: clock takes <wx> <wy> [frame %s] [digits <dx> <dy>]" % (
+                    where, "|".join(CLOCK_STYLES)))
             src.clocks.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
-                               "frame": toks[4][1] if len(toks) == 5 else "crystal"})
+                               "frame": frame, "digits": digs})
         elif st == "pad":
             if len(toks) != 4 or toks[1][1] not in MAT_NAMES:
                 raise CourseError("%s: pad takes rubber|steel|glass <wx> <wy>" % where)
@@ -7013,9 +7030,18 @@ def build_props(src, tiles, fname):
         if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
             raise CourseError("%s:%d: a clock on (%d, %d), not a FLAT FLOOR" % (f, ln, at[0], at[1]))
         claim(at, ln, "clock")
+        if sp["frame"] != "lives" and clock_anchor(sp) is None:
+            ddx, ddy = clock_digits_px(sp)
+            raise CourseError("%s:%d: the clock's digits at %+d, %+d px (its frame's %s and the statement's) are "
+                              "between the block grid's places: an offset is whole blocks of 8 px and a nudge of "
+                              "%d to %+d px across and %d to %+d down (SPEC.md 130.18.5.5) - the nearest %s" % (
+                                  f, ln, ddx, ddy, "%+d, %+d" % CLOCK_DIGITS.get(sp["frame"], (0, 0)),
+                                  CLOCK_NUDGE_X[0], CLOCK_NUDGE_X[1], CLOCK_NUDGE_Y[0], CLOCK_NUDGE_Y[1],
+                                  clock_digits_near(ddx, ddy)))
         for place in range(ndig):                   # (130.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0, "frame": sp["frame"],
+                          "digits": sp.get("digits", (0, 0)),
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH,
                           "small57": sp.get("small57", False)})     # (a lives counter's LIVES face)
     for lb in src.labels:                           # SPEC.md 130.23.2: a LABEL - a SIGN (wave 8R, 130.22.4.1,
@@ -8947,19 +8973,54 @@ def _staff_pix(p, x0):
     return out
 
 
+def clock_digits_px(p):
+    """SPEC.md 130.18.5.5: the clock's digits' offset from their natural spot, px (right, down) - its frame's
+    declared anchor (CLOCK_DIGITS) plus the statement's `digits DX DY`"""
+    fdx, fdy = CLOCK_DIGITS.get(p.get("frame") or "crystal", (0, 0))
+    sdx, sdy = p.get("digits") or (0, 0)
+    return fdx + sdx, fdy + sdy
+
+
+def _clock_split(dx, dy):
+    """an offset in px -> (whole blocks across, down, the glyph's nudge across, down), or None between places"""
+    nx, ny = (dx + 1) % 8 - 1, dy % 8
+    if not (CLOCK_NUDGE_X[0] <= nx <= CLOCK_NUDGE_X[1] and CLOCK_NUDGE_Y[0] <= ny <= CLOCK_NUDGE_Y[1]):
+        return None
+    return (dx - nx) // 8, (dy - ny) // 8, nx, ny
+
+
+def clock_anchor(p):
+    """SPEC.md 130.18.5.5: the digits' offset split onto the block grid -> (blocks across, blocks down, nudge
+    across px, nudge down px); None when the offset lies between the places the lanes can take"""
+    return _clock_split(*clock_digits_px(p))
+
+
+def clock_digits_near(dx, dy):
+    """the nearest legal digits' offsets to (DX, DY) px, as text (a refusal's hint)"""
+    xs = [x for x in range(dx - 4, dx + 5) if _clock_split(x, 0)]
+    ys = [y for y in range(dy - 7, dy + 8) if _clock_split(0, y)]
+    bx = sorted(xs, key=lambda x: (abs(x - dx), x))[0]
+    by = sorted(ys, key=lambda y: (abs(y - dy), y))[0]
+    return "%+d, %+d" % (bx, by)
+
+
 def clock_face_geom(p, x0, y0):
     """wave 7 (SPEC.md 130.18.5): a clock's crystal ball on the CANVAS - its
     digits' block row starts CLOCK_UP px above the tile's floor at its centre,
     rounded down to a block (the canvas's), the digits' blocks centred on the
-    stick; the ball an ellipse round them.  -> (the tile centre's x and floor
-    line, the ball's centre x, centre y, x radius, y radius)"""
+    stick; the ball an ellipse round them.  130.18.5.5: the digits' ANCHOR moves
+    them whole blocks and nudges the glyph inside its block, and the face's
+    centre (fx, fy) moves with them, so the art drawn round it follows.
+    -> (the tile centre's x and floor line, the ball's centre x, centre y,
+    x radius, y radius)"""
     wx, wy = p["at"]
     cx = 16 * (wx - wy) + x0
     cy = 8 * (wx + wy) + 8 - p["z4"] + y0
     n = p["ndig"]
-    bx0 = (cx - 4 * n + 4) >> 3
-    by = (cy - CLOCK_UP) >> 3
-    return cx, cy, 8 * bx0 + 4 * n, 8 * by + 4, 4 * n + 7, 10
+    bdx, bdy, nx, ny = clock_anchor(p) or (0, 0, 0, 0)
+    bx0 = ((cx - 4 * n + 4) >> 3) + bdx
+    by = ((cy - CLOCK_UP) >> 3) + bdy
+    return cx, cy, 8 * bx0 + 4 * n + nx, 8 * by + 4 + ny, 4 * n + 7, 10
 
 
 def clock_digit_block(p, x0, y0):
@@ -8969,7 +9030,10 @@ def clock_digit_block(p, x0, y0):
         return (cx >> 3) + 1, (cy - LIVES_DUP) >> 3
     _cx, _cy, fx, fy, rx, ry = clock_face_geom(p, x0, y0)
     n = p["ndig"]
-    return ((fx - 4 * n) >> 3) + n - 1 - p["place"], (fy - 4) >> 3
+    bdx, bdy, nx, ny = clock_anchor(p) or (0, 0, 0, 0)
+    if _CLOCK_ANCHOR_LANES == "blocks":             # (the red arm: the lanes where they were)
+        return ((fx - nx - 4 * n) >> 3) + n - 1 - p["place"] - bdx, ((fy - ny - 4) >> 3) - bdy
+    return ((fx - nx - 4 * n) >> 3) + n - 1 - p["place"], (fy - ny - 4) >> 3
 
 
 # the pathway's LIVES counter (the owner, 2026-11-17: option C of four - "LIVES" in the map's own label face
@@ -9042,6 +9106,7 @@ def lives_face_pix(p, x0, y0):
 
 
 _CLOCK_PLINTH_OWN = False   # (an experiment's switch: the plinth at its own top, a second record a block)
+_CLOCK_ANCHOR_LANES = True  # (130.18.5.5's red arms: "blocks" leaves the lanes at the natural spot, "nudge" the glyph)
 
 
 def clock_face_pix(p, x0, y0, style="crystal", tops=None):
@@ -9808,14 +9873,15 @@ def clock_pose(tsec, place):
     return 1 + (tsec // 10 ** place) % 10
 
 
-def clock_glyph(d, bx, by):
+def clock_glyph(d, bx, by, nx=0, ny=0):
     """digit D's ink in block (bx, by), canvas pixels: the 5 x 7 glyph a pixel in
-    from the block's left and top"""
+    from the block's left, at its top - NX, NY px further right and down (the
+    anchor's nudge, SPEC.md 130.18.5.5: -1 to 2 across, 0 to 1 down, inside the block)"""
     out = {}
     for r, bits in enumerate(CLOCK_FONT[d]):
         for k in range(5):
             if bits & (16 >> k):
-                out[(8 * bx + 1 + k, 8 * by + r)] = BLK
+                out[(8 * bx + 1 + nx + k, 8 * by + ny + r)] = BLK
     return out
 
 
@@ -12341,10 +12407,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     if keyed and (x, y) in ftops:
                         cv.sbuf[y][x], cv.tbuf[y][x] = sC, ftops[(x, y)]
                 p["face_pix"] = shown_
+                p["face_art"] = clock_art = set(face)
                 clock_seen = set(shown_)
             else:
-                clock_seen = next(q["face_pix"] for q in props if q["kind"] == PK_CLOCK and q["num"] == p["num"]
-                                  and q["place"] == 0)
+                q0 = next(q for q in props if q["kind"] == PK_CLOCK and q["num"] == p["num"] and q["place"] == 0)
+                clock_seen, clock_art = q0["face_pix"], q0["face_art"]
             bx, by = clock_digit_block(p, x0, y0)
             poses = {0: {}}
             if p.get("frame") == "lives":           # the map's label face, WHITE, on the sky beside the "x"
@@ -12352,8 +12419,19 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     poses[1 + d] = {k: v for k, v in label_glyph(str(d), bx, by, WHT).items()
                                     if cv.sbuf[k[1]][k[0]] <= sC}
             else:
+                _bdx, _bdy, gnx, gny = clock_anchor(p) or (0, 0, 0, 0)
+                if _CLOCK_ANCHOR_LANES == "nudge":  # (the red arm: the glyph at its block's place)
+                    gnx = gny = 0
+                gl = [clock_glyph(d, bx, by, gnx, gny) for d in range(10)]
+                off = sorted({k for g in gl for k in g if k not in clock_art})   # SPEC.md 130.18.5.5: the
+                if off:                             # frame's art HOLDS its digits (hidden or not: the picture's)
+                    raise CourseError("%s:%d: the clock at (%d, %d)'s digits (offset %+d, %+d px) leave its "
+                                      "frame's art at %d pixel(s), the first (%d, %d): a frame draws the face its "
+                                      "digits sit on (SPEC.md 130.18.5.5)" % (
+                                          fname, p["line"], p["at"][0], p["at"][1], clock_digits_px(p)[0],
+                                          clock_digits_px(p)[1], len(off), off[0][0], off[0][1]))
                 for d in range(10):
-                    poses[1 + d] = {k: v for k, v in clock_glyph(d, bx, by).items() if k in clock_seen}
+                    poses[1 + d] = {k: v for k, v in gl[d].items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
                           "kind": PK_CLOCK, "line": p["line"]})
         elif p["kind"] == PK_SIGN:                  # wave 8R (SPEC.md 130.22.4.1): a sign, path_signs's lane
@@ -12531,7 +12609,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         for r in records:
             by_block.setdefault((r["brow"], r["col"]), []).append(r)
     for key in sorted(per_block):
-        if per_block[key] > REC_BLOCK_MAX:
+        if per_block[key] > hack.get("recmax", REC_BLOCK_MAX):     # (recmax: item 15's --occ off comparison alone)
             raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
                               "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
                                              8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
@@ -12817,7 +12895,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
              "kit": {t: kr for t in KIT_TAGS for kr in [kit_ref(t, kidx.get(t), len(kit[t]) if kit else 0)]
                      if kr is not None}}
     if len(blocks) > BLK_MAX:
-        raise CourseError("%s: %d blocks, over the %d a map word's 10-bit index reaches (ROWPLANES, 130.15.4.4)"
+        raise CourseError("%s: %d blocks, over the %d a map word's 12-bit index reaches (ROWNIBS, 130.56)"
                           % (fname, len(blocks), BLK_MAX))
     if kw > KW_MAX or cols > COLS_MAX:
         raise CourseError("%s: KW %d and COLS %d, over %d and %d (the expanders' scratch, 130.15.4.2)"
@@ -13001,9 +13079,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     if occluders and not hack.get("no_trap") and any(p["kind"] in (PK_CHECKPOINT, PK_PAD) for p in props):
         bad = trap_check(c)
         if bad:
-            raise CourseError("%s:%d: NO TRAP: from the %s at (%d, %d) a %s ball cannot reach the %s"
+            raise CourseError("%s:%d: NO TRAP: from the %s at (%d, %d) a %s ball cannot reach the %s%s"
                               % (fname, bad[0], bad[1], bad[2][0], bad[2][1], MAT_NAMES[bad[3]],
-                                 "cup" if cups else "goal"))
+                                 "cup" if cups else "goal", bad[4]))
     c.limit, c.lroute = _course_limit(c, src, fname)   # wave 7 (SPEC.md 130.18.3): needs the part
     c.medals = _course_medals(c, src, fname)        # wave 8c (SPEC.md 130.19.8.3)
     c.lockx = lock_across(c, src.lockx) if src.lockx else None   # SPEC.md 130.45: (CGA c0, Hercules c0) or None
@@ -13055,16 +13133,61 @@ def trap_presets(c):
     return out
 
 
-def trap_succ(c, cell, mat, cache, phases, preset=b""):
+TRAP_EFFQ = 64                            # NO TRAP's respawning arm (130.14.4.1.2): an effect's steps left, rounded
+                                          # DOWN to this; under it the effect is taken as ended (its elements back)
+
+
+def trap_eff(p):
+    """NO TRAP's respawning arm (SPEC.md 130.14.4.1.2): the pickup effect the
+    ball holds now -> None, or (speed's steps left, jump's steps left, the
+    RESPAWNING elements taken), each count rounded down to TRAP_EFFQ - under
+    it the effect is taken as ended and its kind's elements as back (the ball
+    waits out the rest at rest)"""
+    j = p._fk.get(K_JUMP, p._fk.get(K_SPEED)) if p.fam else None
+    if j is None:
+        return None
+    sb = p.fsl[j]
+    ts = (sb[0] | sb[1] << 8) // TRAP_EFFQ * TRAP_EFFQ
+    tj = (sb[2] | sb[3] << 8) // TRAP_EFFQ * TRAP_EFFQ
+    if not ts | tj:
+        return None
+    taken = frozenset(i for i, pr in enumerate(p.props) if p._picks(pr) and p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7)
+                      & 1 and (ts if pr["kind"] == K_SPEED else tj))
+    return ts, tj, taken
+
+
+def trap_eff_put(p, eff):
+    """trap_eff's state put on a ball at rest: the elements COLLECTED, the
+    timers, and each effect's working values as its CONTACT sets them"""
+    ts, tj, taken = eff
+    sb = p.fsl[p._fk.get(K_JUMP, p._fk.get(K_SPEED))]
+    for i in taken:
+        b = p.props[i]["fsb"]
+        p.fst[b >> 3] |= 1 << (b & 7)
+    if ts:
+        sb[0], sb[1] = ts & 255, ts >> 8
+        p.wacc, p.vup = PU_SACC, PU_SVUP
+        PickupFamily._tables(p)
+    if tj:
+        sb[4], sb[5] = p.hop & 255, p.hop >> 8
+        p.hop = PU_JHOP
+        sb[2], sb[3] = tj & 255, tj >> 8
+
+
+def trap_succ(c, cell, mat, cache, phases, preset=b"", eff=None, resp=False):
     """the (cell, material) states a ball put at rest on `cell`'s centre with
     `mat` reaches GROUNDED, holding each of the eight directions for TRAP_RUN
     steps (tubes, pads, springs, the lift and the windmills by the model; a
-    fall ends the run), and whether a run reached the goal or the cup"""
-    key = (cell, mat)
+    fall ends the run), and whether a run reached the goal or the cup.
+    RESP (the respawning arm, 130.14.4.1.2): the states are (cell, material,
+    trap_eff), the ball may take a RESPAWNING pickup, `eff` is the effect it
+    starts with, every direction is run whatever another reached, and the
+    answer is (states, hit, whether a run FELL)"""
+    key = (cell, mat, eff) if resp else (cell, mat)
     if key in cache:
         return cache[key]
     out = set()
-    hit = False
+    hit = fell = False
     cup = [r["at"] for r in c.part["props"] if r["kind"] == PK_CUP]
     runs = [(k, ()) for k in TRAP_DIRS]
     if getattr(c, "traphop", None):            # `trap hop` (130.14.4.1.1): a Hop and its "and again" at every
@@ -13079,7 +13202,10 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
             if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
                 p.fst[:] = preset
                 p._fhook(H_RESET, 1)
+            p.pickrs = resp                     # (...or only RESPAWNING ones, 130.14.4.1.2)
             p.poke(*cell)
+            if eff:
+                trap_eff_put(p, eff)
             p.nstep = ph
             p.ckmat = mat
             for st_ in range(TRAP_RUN + 320):
@@ -13094,18 +13220,24 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
                 if p.onp or here in shafts:
                     touched = True
                 if p.nfall or p.nret:
+                    fell = fell or bool(p.nfall)
                     break
                 if p.goal or here in cup:
                     hit = True
                     break
-                if here != cell and not p.tube and not p.onp and (not p.air or any(
+                if (here != cell or resp) and not p.tube and not p.onp and (not p.air or any(
                         e[0] in ("land", "bounce", "hopc", "stun") for e in p.events[n0:])):
-                    out.add((here, p.mat))      # grounded there, or a contact there (a rubber ball bounces on)
-            if hit or not (touched or any(r["kind"] == PK_WINDMILL for r in c.part["props"])):
+                    if not resp:
+                        out.add((here, p.mat))  # grounded there, or a contact there (a rubber ball bounces on)
+                    else:
+                        st = (here, p.mat, trap_eff(p))
+                        if st != (cell, mat, eff):     # (the arm's: another cell, or this one with an
+                            out.add(st)                # effect taken here or worn down)
+            if (hit and not resp) or not (touched or any(r["kind"] == PK_WINDMILL for r in c.part["props"])):
                 break
-        if hit:
+        if hit and not resp:
             break
-    cache[key] = (out, hit)
+    cache[key] = (out, hit, fell) if resp else (out, hit)
     return cache[key]
 
 
@@ -13142,12 +13274,59 @@ def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
     return False, len(seen)
 
 
+_TRAPNORESP = False           # the red arm of `grammar`'s "the way on by a respawning jump" (the arm off)
+
+
+def trap_reach_resp(c, cell, mat, cache=None, preset=b""):
+    """NO TRAP's RESPAWNING arm (SPEC.md 130.14.4.1.2): from (cell, mat) with
+    no effect, taking only RESPAWNING pickups, is a finish reachable - and can
+    every state reached after a pickup was taken still reach a finish or fall
+    (a respawn at a flag)?  -> (ok, states explored, a stranded state or None)"""
+    cache = {} if cache is None else cache
+    cache = cache.setdefault(("resp", preset), {})
+    phases = (0,)                       # (trap_reach's phases, for the same reasons)
+    if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
+        phases = (0, 32)
+    if any(r["kind"] == PK_PLATFORM for r in c.part["props"]):
+        phases = TRAP_LIFT_PHASES
+    graph, todo = {}, [(cell, mat, None)]
+    while todo:                         # the WHOLE reachable set: the guard below reads every state
+        st = todo.pop()
+        if st not in graph:
+            graph[st] = trap_succ(c, st[0], st[1], cache, phases, preset, eff=st[2], resp=True)
+            todo.extend(s for s in graph[st][0] if s not in graph)
+    if not any(h for _o, h, _f in graph.values()):
+        return False, len(graph), None
+    good = {st for st, (_o, h, f) in graph.items() if h or f}   # a finish, or a fall (a respawn at a flag)
+    back = {}
+    for st, (o, _h, _f) in graph.items():
+        for s in o:
+            back.setdefault(s, []).append(st)
+    todo = list(good)
+    while todo:                         # ...or a state that reaches one
+        for s in back.get(todo.pop(), ()):
+            if s not in good:
+                good.add(s)
+                todo.append(s)
+    post, todo = set(), [st for st in graph if st[2] is not None]
+    while todo:                         # every state reached once a pickup was taken
+        st = todo.pop()
+        if st not in post:
+            post.add(st)
+            todo.extend(graph[st][0])
+    bad = sorted((st for st in post if st not in good), key=lambda s: (s[0], s[1], s[2] is not None))
+    return not bad, len(graph), bad[0] if bad else None
+
+
 def trap_check(c, cache=None):
     """NO TRAP (item 7): from every flag's cell with the flag's ball and every
-    pad's cell with the pad's ball, the goal or the cup.  -> None or (line,
-    what, cell, ball) of the first that cannot"""
+    pad's cell with the pad's ball, the goal or the cup - with no pickup, or
+    (130.14.4.1.2) taking only RESPAWNING ones and stranding no ball that took
+    one.  -> None or (line, what, cell, ball, note) of the first that cannot"""
     cache = {} if cache is None else cache
-    c.trap = []
+    c.trap, c.trapr = [], []
+    rsp = not _TRAPNORESP and any(pr["kind"] in (K_SPEED, K_JUMP) and pr["ow"] & PU_RESPAWN for pr in c.props)
+    fin = "cup" if any(q["kind"] == PK_CUP for q in c.part["props"]) else "goal"
     for r in c.part["props"]:
         if r["kind"] not in (PK_CHECKPOINT, PK_PAD):
             continue
@@ -13155,10 +13334,19 @@ def trap_check(c, cache=None):
         m = r["ball"] if r["kind"] == PK_CHECKPOINT else r["mat"]
         for preset in trap_presets(c):          # wave 9 (130.25.7.3): under the reset classes
             ok, n = trap_reach(c, r["at"], m, cache, preset=preset)
+            note = ""
+            if not ok and rsp:                  # 130.14.4.1.2: the way on by a RESPAWNING pickup
+                ok, n, strand = trap_reach_resp(c, r["at"], m, cache, preset=preset)
+                if ok:
+                    c.trapr.append((PK_NAMES[r["kind"]], r["at"], m, n))
+                elif strand:
+                    note = (" without stranding it: by its respawning pickup it reaches the %s, but once it has "
+                            "taken one it can come to rest at (%d, %d) with no way on to a finish or a fall "
+                            "(130.14.4.1.2)" % (fin, strand[0][0], strand[0][1]))
             c.trap.append((PK_NAMES[r["kind"]], r["at"], m, ok, n))
             if not ok:
                 return (pr["line"], ("flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m])
-                        + (" with the ATTEMPT family state %s" % preset.hex() if preset else ""), r["at"], m)
+                        + (" with the ATTEMPT family state %s" % preset.hex() if preset else ""), r["at"], m, note)
     return None
 
 
@@ -13879,7 +14067,15 @@ def sec_form(tag, m):
     """a section's FORM in this model: KITREF where the kit supplies it (SPEC.md 130.37.4), else SEC_FORM's"""
     if tag == "O" and m.get("mband"):              # SPEC.md 130.52: the bands' slices are STORED
         return F_PLAIN
+    if tag == "M":
+        return map_form(m["nblk"] if "nblk" in m else len(m["blocks"]) // 16)
     return F_KITREF if tag in (m.get("kit") or {}) else SEC_FORM[tag]
+
+
+def map_form(nblk):
+    """SPEC.md 130.56: the map's stored form by the course's block count - 1 ROWPLANES to BLK_ROWP blocks (every
+    course of that size, byte for byte as before), 9 ROWNIBS past it.  No statement: the need decides"""
+    return F_ROWNIBS if nblk > BLK_ROWP else F_ROWPLANES
 
 
 def stored_len(tag, m, ram_len):
@@ -13887,9 +14083,11 @@ def stored_len(tag, m, ram_len):
     kr = (m.get("kit") or {}).get(tag)
     if kr is not None:                              # SPEC.md 130.37.4: the bitmap, then its own pieces
         return kit_bmlen(kr["n"]) + ram_len - KIT_SIZE[tag] * len(kr["idx"])
-    f = F_PLAIN if tag == "O" and m.get("mband") else SEC_FORM[tag]
+    f = F_PLAIN if tag == "O" and m.get("mband") else sec_form(tag, m) if tag == "M" else SEC_FORM[tag]
     if f == F_ROWPLANES:                            # (a SHEET's map is fewer rows than BROWS: SPEC.md 130.30.12)
         return 5 * ram_len // 8
+    if f == F_ROWNIBS:                              # SPEC.md 130.56: C/2 + C bytes a row of 2 C
+        return 3 * ram_len // 4
     if f == F_COUNTS:
         return m["brows"]
     if f in (F_MASKTAB, F_ROWTAB):
@@ -14791,6 +14989,24 @@ def _rowplanes(m, _low_first=False, mrows=None):
     return bytes(out)
 
 
+def _rownibs(m, _low_first=False, mrows=None, _hi_swap=False):
+    """9 ROWNIBS (SPEC.md 130.56): a block row's C/2 high bytes (cell j's four high bits at bits 4 (j AND 1) of
+    byte j >> 1), then its C low bytes.  _low_first: the order that does NOT expand in place (the red arm of
+    the in-place simulation); _hi_swap: the two cells' nibbles exchanged (the red arm of expand == RAM)"""
+    C = m["cols"]
+    out = bytearray()
+    for r in (range(m["brows"]) if mrows is None else range(mrows[0], mrows[0] + mrows[1])):  # (a SHEET's rows)
+        row = m["idx"][C * r:C * (r + 1)]
+        hi = bytearray(C // 2)
+        for j, v in enumerate(row):
+            if v >> 12:
+                raise CourseError("block %d: past the %d a ROWNIBS map word's 12-bit index reaches" % (v, BLK_MAX))
+            hi[j >> 1] |= (v >> 8) << (4 * ((j & 1) ^ (1 if _hi_swap else 0)))
+        lo = bytes(v & 255 for v in row)
+        out += (lo + hi) if _low_first else (hi + lo)
+    return bytes(out)
+
+
 def _wdiff(ram, stride):
     """3 WDIFF: the first record as it is, then each word as its difference
     from the same word of the record before, mod 2^16"""
@@ -14933,6 +15149,8 @@ def stored_form(m, recb, ram=None, fname="<course>", _hack=None, mrows=None):
             data = ram[off:off + ln]
         elif form == F_ROWPLANES:
             data = _rowplanes(m, hack.get("low_first", False), mrows)
+        elif form == F_ROWNIBS:                     # SPEC.md 130.56
+            data = _rownibs(m, hack.get("nib_low_first", False), mrows, hack.get("nib_swap", False))
         elif form == F_COUNTS:
             cnt = [0] * m["brows"]
             for r in m["recs"]:
@@ -15023,6 +15241,16 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
                     lo = rd(lo_at + c)
                     hi = (scratch[c >> 2] >> (2 * (c & 3))) & 3
                     wrw(S + 2 * (cols * r + c), blkoff + 16 * (lo + 256 * hi))
+        elif form == F_ROWNIBS:                     # SPEC.md 130.56: bz_cxnib's
+            q = cols // 2
+            for r in range(ln // (2 * cols)):
+                src = S + H + r * (q + cols)
+                hi_at, lo_at = (src + cols, src) if hack.get("nib_low_first") else (src, src + q)
+                scratch = [rd(hi_at + k) for k in range(q)]           # bz_boxbuf
+                for c in range(cols):
+                    lo = rd(lo_at + c)
+                    hi = (scratch[c >> 1] >> (4 * (c & 1))) & (3 if hack.get("nib_mask2") else 15)
+                    wrw(S + 2 * (cols * r + c), (blkoff + 16 * (lo + 256 * hi)) & 0xFFFF)
         elif form == F_COUNTS:
             x = 0
             for br in range(brows + 1):
@@ -15218,7 +15446,8 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
     if not 25 <= brows <= BROWS_MAX:
         bad("BROWS", str(brows))
     if nblk > BLK_MAX:
-        bad("N", "%d blocks, over the %d a map word's 10-bit index reaches" % (nblk, BLK_MAX))
+        bad("N", "%d blocks, over the %d a map word's 12-bit index reaches (ROWNIBS, SPEC.md 130.56)"
+            % (nblk, BLK_MAX))
     if recb not in (4, 8):
         bad("RECB", str(recb))
     if recb == 8 and (SB or yoff or mtab):          # (YOFF: TB under _ONETB)
@@ -15338,15 +15567,16 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
             if (off, ln) != wantd[t]:
                 bad(where, "(%d, %d), where its header fields put %s at (%d, %d)" % (off, ln, SEC_NAMES[t],
                                                                                   wantd[t][0], wantd[t][1]))
-            if form != SEC_FORM[t] and not (form == F_KITREF and t in KIT_SIZE) and not (t == "O" and form == F_PLAIN):
-                bad(where, "form %d, not %d (%s)" % (form, SEC_FORM[t], FORM_NAMES[SEC_FORM[t]]))
+            wf = map_form(nblk) if t == "M" else SEC_FORM[t]   # (SPEC.md 130.56: the map's by its block count)
+            if form != wf and not (form == F_KITREF and t in KIT_SIZE) and not (t == "O" and form == F_PLAIN):
+                bad(where, "form %d, not %d (%s)" % (form, wf, FORM_NAMES[wf]))
             at = off + ln
         if at != do:
             bad("directory", "%sthe entries end at %d, DIROFF is %d" % ("the world part's: " if k else "", at, do))
     for t, o, ln in want:
         if ln and t not in seen:
             bad("directory", "no entry for %s (%s, %d bytes at %d)" % (t, SEC_NAMES[t], ln, o))
-    m_ = {"cols": cols, "brows": brows, "route": [None] * nway, "mband": banded,
+    m_ = {"cols": cols, "brows": brows, "route": [None] * nway, "mband": banded, "nblk": nblk,
           "kit": kit_decode([q for q, _do, _ns in dirs])}
     kit = kit_load()
     for e in ents:                                  # SPEC.md 130.37.4: a KITREF section's head is kit pieces,
@@ -17433,6 +17663,7 @@ class Physics:
         self.fhk = 0
         self.nopick = False                         # NO TRAP's runs: a PICKUP kind's ENTER and CONTACT
                                                     # never fire (every finish proved with no pickup)
+        self.pickrs = False                         # ...but with it, a RESPAWNING one's do (130.14.4.1.2)
         if self.fam:
             self.__class__ = _FamPhysics
             self.fst = bytearray(self.grid.nfst)
@@ -17847,6 +18078,11 @@ class Physics:
     def over_slab(self, pr, n=None):
         """the centre over the lift's slab: in its shaft (any n)"""
         return (self.gx >> 12, self.gy >> 12) == tuple(pr["at"])
+
+    def _picks(self, pr):
+        """NO TRAP's second arm (SPEC.md 130.14.4.1.2): under `nopick`, may this pickup still be taken?  Only
+        with `pickrs` set, and only a RESPAWNING timed one (a speed or a jump marked `respawn`)"""
+        return self.pickrs and pr["kind"] in (K_SPEED, K_JUMP) and pr["ow"] & PU_RESPAWN
 
     def poke(self, wx, wy, gvx=0, gvy=0):
         """a scenario's start: the centre of tile (wx, wy) on its floor,
@@ -18388,7 +18624,7 @@ class Physics:
                 elif is_fam(k_):                    # wave 9: CONTACT (bz_prule's dispatch)
                     j = self._fk.get(k_)
                     if j is not None and self.fam[j][0].row["hooks"] & H_CONTACT \
-                            and not (self.nopick and pr["frow"]["pickup"]):
+                            and not (self.nopick and pr["frow"]["pickup"] and not self._picks(pr)):
                         self.fam[j][0].contact(self, j, pr["i"])
                 elif k_ == PK_CHECKPOINT:
                     if self.mst != ST_SHATTER:
@@ -18693,7 +18929,8 @@ class _FamPhysics(Physics):
         if self.fhk & H_ENTER:                      # ENTER: its last, once bz_wolf has the new centre
             new = next((i for c, i in self.wol if c == 4), None)
             if new is not None and new != old and is_fam(self.props[new]["kind"]) \
-                    and not (self.nopick and self.props[new]["frow"]["pickup"]):
+                    and not (self.nopick and self.props[new]["frow"]["pickup"]
+                             and not self._picks(self.props[new])):
                 j = self._fk.get(self.props[new]["kind"])
                 if j is not None and self.fam[j][0].row["hooks"] & H_ENTER:
                     self.fam[j][0].enter(self, j, new, self.air & 1)
@@ -21244,8 +21481,9 @@ def budget(t):
 # NAMED exceptions to the cap, bytes (the lead's decision for the owner, 2026-11-16, story 9.8): MILL - an
 # OLD course the owner plans to drop as the new courses land - packed 9,406 against its 9,412 cap, and naming
 # the families its props now belong to (`uses rotor tube`, SPEC.md 130.25.20) adds 12 packed bytes.  It is
-# waived for MILL ALONE by exactly what that costs; no other course's cap moves.
-CAP_WAIVE = {"MILL": 6}
+# waived for MILL ALONE by exactly what that costs; no other course's cap moves.  (2026-11-21: that MILL is
+# gone - WINDMILL LANE's attempt 1 ships under its name, docs/plans/bonanza-courses/MILL.md - and so is its waiver.)
+CAP_WAIVE = {}
 
 
 def course_cap(c):
@@ -21994,6 +22232,8 @@ _NOWAIT = False               # the WAITS' red arm (the selfcheck's `hopplan` it
 PLAN_FLAG_NEAR = 3            # an AIM's flags (SPEC.md 130.14.7.4.4): within this many cells of a leg's arrows' path
 _NOFLAG = False               # the AIMS' red arm (the selfcheck's `hopplan` item 6): no flag pass, flags not required
 PLAN_HOLD_EVERY = 4           # ...from every 4th step of the leg up to the step the arrows failed on
+PLAN_TT_EVERY = 8             # a STAND's waits (SPEC.md 130.14.7.4.5): 0, 8, 16 ... steps at rest, up to a table's period
+_NOSTAND = False              # the STANDS' red arm (the selfcheck's `hopplan` item 7)
 # a world push (sign x, sign y) as held arrows (SPEC.md 130.11.8.2's _forces: Right pushes +x -y, Down +x +y)
 PLAN_W2K = {(1, 0): K_R | K_D, (-1, 0): K_L | K_U, (0, 1): K_L | K_D, (0, -1): K_R | K_U,
             (1, 1): K_D, (1, -1): K_R, (-1, 1): K_L, (-1, -1): K_U, (0, 0): 0}
@@ -22054,22 +22294,26 @@ def _plan_leg(p, hops, n, hold=None, aim=None, trail=None):
     return False, keys, n
 
 
-def _plan_tries(p, spent, nohop=False, hold=False, flags=None):
+def _plan_tries(p, spent, nohop=False, hold=False, flags=None, tt=None):
     """a leg's tries from state p, in order, the ones that take the next way: the arrows alone; then a Hop
     pressed on each step t from the leg's first up to the step the arrows failed or took the way on (+1),
     then a Hop with its "and again" (Space again TRAP_AGAIN steps later, `trap hop`'s pair) on each; at most
     PLAN_ALT Hops; and with HOLD (the second pass, SPEC.md 130.14.7.4.2) then the HOLDS, at most PLAN_ALT.
     FLAGS (the flag pass, SPEC.md 130.14.7.4.4): the course's [(number, cell, way point)] - the AIMS first.
+    TT (_plan_tt, a course with a TURNTABLE): the STANDS after the arrows and before the Hops, on a leg whose
+    arrows meet a table (SPEC.md 130.14.7.4.5).
     Lazy: a Hop is tried only when the search comes back for one.  spent: [steps stepped], the budget's count
     -> yields (keys, the Physics after them)"""
     q = _clone(p)
-    trail = [] if flags else None
+    trail = [] if flags or tt else None
     ok, keys, fail = _plan_leg(q, (), PLAN_SEG, trail=trail)
     spent[0] += len(keys)
     if flags:
         yield from _plan_aims(p, spent, flags, trail)
     if ok:                                          # (and the Hops before the step it takes the way on, for
         yield keys, q                               # the backtrack: a way taken in the air can strand the ball)
+    if tt:                                          # (before the Hops: a player waits for a turntable, he does
+        yield from _plan_stands(p, spent, tt, trail)    # not jump it - 130.14.7.4.5)
     if not nohop:                                   # (nohop: the selfcheck's red arm, the arrows alone)
         yield from _plan_hops(p, spent, fail)
     if hold:
@@ -22121,6 +22365,97 @@ def _plan_waits(p, spent, fail):
                     return
 
 
+def _plan_tt(c):
+    """the course's TURNTABLES for the search's STANDS (SPEC.md 130.14.7.4.5) -> (c, {each table cell: its
+    table's PIVOT, or None on a 2 x 2}, the longest table's period 4Q), or None (no table, or _NOSTAND)"""
+    if _NOSTAND:
+        return None
+    cells, per = {}, 0
+    for q in c.props:
+        if q["kind"] == TT_K and "ttab" in q:
+            t = q["ttab"]
+            N, (ax, ay) = t["N"], t["at"]
+            for i in range(N):
+                for j in range(N):
+                    cells[(ax + i, ay + j)] = (ax + 1, ay + 1) if N == 3 else None
+            per = max(per, 4 * t["Q"])
+    return (c, cells, per) if cells else None
+
+
+def _plan_stands(p, spent, tt, trail):
+    """_plan_tries' STANDS (SPEC.md 130.14.7.4.5): the cells a player stops on to wait for a TURNTABLE - on
+    the leg's arrows' path (TRAIL, their ground cells), each time it enters a table, the cell it came from
+    when that is not the table's (the APPROACH) and the table's PIVOT (a 3 x 3's centre, never a gap), in the
+    order the path meets them; for each, _plan_stand's tries"""
+    c, cells, per = tt
+    stands, prev = [], None
+    for at in trail:
+        if at in cells:
+            for s in (prev if prev is not None and prev not in cells else None, cells[at]):
+                if s is not None and s not in stands:
+                    stands.append(s)
+        prev = at
+    for s in stands:
+        if spent[0] > PLAN_BUDGET:
+            return
+        yield from _plan_stand(p, spent, s, _way_point(c, s), per)
+
+
+def _plan_stand(p, spent, s, pt, per):
+    """one STAND (SPEC.md 130.14.7.4.5): 130.6's arrows aimed at cell S's way point PT (the route cut to end
+    there, the AIM's way: they slow the ball onto its centre) until the ball is on S, grounded, at rest on both
+    axes (under 2 AUTO_ACC); then held there 0, PLAN_TT_EVERY, ... up to PER steps (shortest first), and from
+    each the leg again with the arrows as they are (_plan_leg, PLAN_SEG steps).  The approach and the hold are
+    stepped once and shared by every length; a fall, a RETURN or a timeout before the ball goes ends the
+    stand.  At most PLAN_ALT -> yields (keys, the Physics after them)"""
+    q = _clone(p)
+    w, pre = q.wp, []
+
+    def aimed():                                    # (the arrows at S, the route put back: the AIM's way)
+        base = q.route
+        q.route = list(base[:w]) + [pt]
+        k = q.auto()
+        q.route, q.wp = base, w
+        q.step(k)
+        pre.append(k)
+        return q.nfall != p.nfall or q.nret or q.tout or q.mst == ST_SHATTER
+
+    for _i in range(PLAN_SEG + per):
+        if aimed():
+            spent[0] += len(pre)
+            return
+        if q.goal:
+            spent[0] += len(pre)
+            yield list(pre), q
+            return
+        if (q.gx >> 12, q.gy >> 12) == s and not q.air and abs(q.gvx) < 2 * AUTO_ACC and abs(q.gvy) < 2 * AUTO_ACC:
+            break
+    else:
+        spent[0] += len(pre)
+        return
+    spent[0] += len(pre)
+    found = 0
+    for n in range(0, per + 1, PLAN_TT_EVERY):
+        if n:
+            for _i in range(PLAN_TT_EVERY):
+                if aimed():
+                    spent[0] += PLAN_TT_EVERY
+                    return
+            spent[0] += PLAN_TT_EVERY
+            if q.goal:
+                return
+        if spent[0] > PLAN_BUDGET:
+            return
+        g = _clone(q)
+        ok, keys, _f = _plan_leg(g, (), PLAN_SEG)
+        spent[0] += len(keys)
+        if ok:
+            yield pre + keys, g
+            found += 1
+            if found >= PLAN_ALT:
+                return
+
+
 def _plan_hops(p, spent, fail):
     """_plan_tries' Hops (SPEC.md 130.14.7.4.1)"""
     found = 0
@@ -22168,28 +22503,99 @@ def route_plan(c, nohop=False, nohold=False):
     pass, or PLAN_STEPS long).  Deterministic: the model and a fixed order.  Kept on the course (one search for
     the limit and the demo).  When the route found skips a FLAG, the FLAG PASS (SPEC.md 130.14.7.4.4) searches
     again, the AIMS first in each leg and the goal taken only with every flag touched; its route, when it finds
-    one, is the route.  nohop, nohold: the selfcheck's red arms (and _NOFLAG, the flag pass's)"""
+    one, is the route - when a flag it skips is one its ball passes near (_route_near).  A course with a
+    TURNTABLE (SPEC.md 130.14.7.4.5) is searched in ONE pass with every try from the start, and its legs that
+    meet a table try the STANDS before the Hops.  nohop, nohold: the selfcheck's red arms (and _NOFLAG, the
+    flag pass's, and _NOSTAND, the stands')"""
     memo = c.__dict__.setdefault("_hplan", {})     # (kept with the course, the compile cache's copy too;
-    key = (c.ident, c.ball, nohop, nohold, _NOFLAG)     # by its identity and ball: a course edited is another)
-    if key in memo:
+    key = (c.ident, c.ball, nohop, nohold, _NOFLAG, _NOSTAND)   # by its identity and ball: a course edited is
+    if key in memo:                                 # another)
         return memo[key]
-    out = _plan_search(c, nohop, False)
+    one = not nohold and any(q["kind"] == TT_K for q in c.props)    # (a TURNTABLE's course: ONE pass, every
+    out = None if one else _plan_search(c, nohop, False)            # try from the start - 130.14.7.4.5)
     if out is None and not nohold:
         out = _plan_search(c, nohop, True)
     flags = _plan_flags(c)
-    if out is not None and flags and not _NOFLAG and _route_nflags(c, out) < len(flags):
-        f = _plan_search(c, nohop, False, flags)    # (only a route that skips a flag: a course with no route,
-        if f is None and not nohold:                # or one whose route touches every flag, is not searched
-            f = _plan_search(c, nohop, True, flags)     # again, so it keeps its route byte for byte)
-        out = f if f is not None else out
+    if out is not None and flags and not _NOFLAG and _route_nflags(c, out) < len(flags) \
+            and _route_near(c, out, flags):
+        f = None if one else _plan_search(c, nohop, False, flags)  # (only a route that skips a flag it passes
+        if f is None and not nohold:                # near: a course with no route, or one whose route touches
+            f = _plan_search(c, nohop, True, flags)     # every flag, is not searched again, so it keeps its
+        out = f if f is not None else out           # route byte for byte)
     memo[key] = out
     return out
+
+
+def _route_near(c, keys, flags):
+    """the flags a route's keys skip that its ball passes within PLAN_FLAG_NEAR cells of (its ground cell on
+    any step, replayed as _route_nflags does): the only flags the flag pass's AIMS can steer to (SPEC.md
+    130.14.7.4.4, as 130.14.7.4.5 amends it: a flag on another route - MILL's glass flag - is not searched for)"""
+    p = Physics(c, play=True)
+    p.tsec = 0
+    seen = set()
+    for k in keys:
+        p.step(k)
+        seen.add((p.gx >> 12, p.gy >> 12))
+    return [num for num, at, _pt in flags if not p.cksn >> num & 1
+            and any(max(abs(x - at[0]), abs(y - at[1])) <= PLAN_FLAG_NEAR for x, y in seen)]
 
 
 def _plan_flags(c):
     """the course's flags for the flag pass (SPEC.md 130.14.7.4.4): [(number, cell, its way point)]"""
     return [(q["num"], tuple(q["at"]), _way_point(c, tuple(q["at"]))) for q in c.props
             if q["kind"] == PK_CHECKPOINT]
+
+
+def branch_route(c, name):
+    """a `branch`'s whole route (SPEC.md 130.14.4.1, item 8): the main route's ways up to the one nearest the
+    branch's first point, the branch's points, and - when its last point is a main way (the branch rejoins)
+    - the main route on from there; a branch that ends anywhere else is a LEG to a finish of its own (a SPLIT
+    course's other exit, DOWN's GLASS) -> [way tiles]"""
+    main = [t for t, _ln in c.src.ways]
+    pts = [t for t, _ln in c.branches[name]]
+    i0 = min(range(len(main)), key=lambda i: abs(main[i][0] - pts[0][0]) + abs(main[i][1] - pts[0][1]))
+    out = main[:i0 + 1] + (pts[1:] if pts[0] == main[i0] else pts)
+    if pts[-1] in main[i0 + 1:]:
+        out += main[main.index(pts[-1], i0 + 1) + 1:]
+    return out
+
+
+def branch_plan(c, name, want=()):
+    """item 8's keys for a `branch` (branch_route): 130.6's arrows along it, or - when they do not finish -
+    route_plan's search over it (its Hops, then its holds and waits); and when that route skips a flag of
+    WANT (the flag numbers no other checked route touched), the FLAG PASS over it (SPEC.md 130.14.7.4.4) with
+    those flags alone as its AIMS and its goal test -> the keys or None.  Kept with the course, as
+    route_plan's"""
+    memo = c.__dict__.setdefault("_bplan", {})
+    key = (c.ident, c.ball, name, tuple(sorted(want)), _NOFLAG)
+    if key in memo:
+        return memo[key]
+    pts = [_way_point(c, t) for t in branch_route(c, name)]
+    p = Physics(c, play=True)
+    p.tsec = 0
+    p.route = list(pts)
+    keys = []
+    while len(keys) < DEMO_STEPS and not p.goal and not p.nfall:
+        keys.append(p.auto())
+        p.step(keys[-1])
+    out = keys if p.goal and not p.nfall else None
+    if out is None:
+        out = _plan_search(c, False, False, route=pts)
+        if out is None:
+            out = _plan_search(c, False, True, route=pts)
+    flags = [f for f in _plan_flags(c) if f[0] in want]
+    if out is not None and flags and not _NOFLAG:
+        q = Physics(c, play=True)
+        q.tsec = 0
+        for k in out:
+            q.step(k)
+        if not all(q.cksn >> f[0] & 1 for f in flags):
+            f = _plan_search(c, False, False, flags, route=pts)
+            if f is None:
+                f = _plan_search(c, False, True, flags, route=pts)
+            out = f if f is not None else out
+    memo[key] = out
+    return out
 
 
 def _route_nflags(c, keys):
@@ -22201,13 +22607,17 @@ def _route_nflags(c, keys):
     return p.nckpt
 
 
-def _plan_search(c, nohop, hold, flags=None):
+def _plan_search(c, nohop, hold, flags=None, route=None):
     """route_plan's depth-first search, one pass -> the keys or None.  FLAGS: the flag pass's (SPEC.md
-    130.14.7.4.4), _plan_flags': the AIMS in every leg, and the goal taken only with every flag touched"""
+    130.14.7.4.4), _plan_flags': the AIMS in every leg, and the goal taken only with every flag touched.
+    ROUTE: way points steered in place of the course's own (branch_route's, a `branch` leg: item 8)"""
     p0 = Physics(c, play=True)
     p0.tsec = 0                                     # (the route's own time: the limit is made from it)
+    if route is not None:
+        p0.route = list(route)
     spent = [0]
-    stack = [([], _plan_tries(p0, spent, nohop, hold, flags))]
+    tt = _plan_tt(c)                                # (a TURNTABLE's STANDS, SPEC.md 130.14.7.4.5)
+    stack = [([], _plan_tries(p0, spent, nohop, hold, flags, tt))]
     out = None
     try:
         while stack and spent[0] <= PLAN_BUDGET:
@@ -22221,11 +22631,11 @@ def _plan_search(c, nohop, hold, flags=None):
             if len(ks) > PLAN_STEPS:
                 continue
             if q.goal:
-                if flags and q.nckpt < len(flags):  # (the flag pass: a goal that skipped a flag is a dead end)
-                    continue
+                if flags and not all(q.cksn >> f_[0] & 1 for f_ in flags):     # (the flag pass: a goal that
+                    continue                                                    # skipped a flag is a dead end)
                 out = ks
                 break
-            stack.append((ks, _plan_tries(q, spent, nohop, hold, flags)))
+            stack.append((ks, _plan_tries(q, spent, nohop, hold, flags, tt)))
     except IndexError:                              # (the route ran out before the goal, as _course_limit's)
         out = None
     return out
@@ -23920,19 +24330,24 @@ def _cam_fork(base):
 
 def _cam_play(r, pat):
     """step R through PAT, [(key byte, steps)] -> True when the branch stayed
-    clean (no fall or RETURN, no goal, no frame in a tube)"""
+    clean (no fall or RETURN, no goal, no frame in a tube, no step on a LIFT's
+    slab: a ball a prop carries is followed as a tube's is, and the map asks
+    about the taps - DOWN's steel lift, 2026-11-21: a tap back off its top
+    dropped the ball down the shaft onto the slab, which carried it up again)"""
     p = r.p
     seq = iter([k for k, n in pat for _ in range(n)])
     n0 = p.nfall + p.nret
+    ride = [0]
 
     def st():
         k = next(seq, None)
         if k is None:
             return False
         p.step(k)
+        ride[0] |= p.onp
     while r.frame(st):
         pass
-    return p.nfall + p.nret == n0 and not p.goal and not any(f["tube"] for f in r.rows)
+    return p.nfall + p.nret == n0 and not p.goal and not any(f["tube"] for f in r.rows) and not ride[0]
 
 
 def _cam_revs(rows, herc):
@@ -24050,7 +24465,9 @@ def ramp_reversals(c, herc, **gkw):
 # Right held: the lift's slab near the window's BOTTOM while a column pan runs to the right, so a side-blind
 # level 1 withholds columns the side-aware rule takes (found on 6b's model by a search of the tiles round
 # the lift, every chord; bonanzaring's CAMERA leg replays it)
-SIDE_SCEN = {"crs": "MILL", "at": (21, 17), "keys": K_R, "steps": 240}
+# (2026-11-21: the prototype MILL is gone; the scenario is TMIL's, its test copy - bonanzaring's T_SIDE, searched
+# there the same way: W, Left held back toward B's ramp past the posts)
+SIDE_SCEN = {"crs": "TMIL", "at": (18, 14), "keys": K_L, "steps": 240}
 
 
 def side_run(c, herc, **gkw):
@@ -24363,7 +24780,7 @@ def _cam_controls(courses, demos, by, res):
     # side0: the side check
     b = []
     for herc in (0, 1):
-        b += side_check(side_run(mill, herc, _side0=True).rows, "SIDE %s" % ("CGA", "Hercules")[herc])[1]
+        b += side_check(side_run(by[SIDE_SCEN["crs"]], herc, _side0=True).rows, "SIDE %s" % ("CGA", "Hercules")[herc])[1]
     res.append(("8 control `side0` (level 1 side-blind): red at the side check on its scenario (%d frames; the "
                 "first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
     # noscr: item 8's eight directions
@@ -25729,7 +26146,7 @@ def _launch_checks(byname, res):
     stop-bouncing rule over MILL's and PEAK's routes with Space held and
     mashed, each with its control"""
     rows, bad, spent = [], [], []
-    for name in ("MILL", "PEAK"):
+    for name in ("TMIL", "PEAK"):
         c = byname[name]
         p0 = Physics(c, play=True)
         auto = []
@@ -25743,14 +26160,14 @@ def _launch_checks(byname, res):
         nl = launch_tokens(c, auto, _nolaunch=True)
         spent.append((name, len(lt), sum(1 for _e, _n, t, _b in nl if t)))
     print("    round 3b's launches on the autopilot routes (SPEC.md 130.17.17): %s" % "; ".join(rows))
-    res.append(("7 every launch arms: on MILL's and PEAK's routes each spring launch and each DROP or LAUNCH exit "
+    res.append(("7 every launch arms: on TMIL's and PEAK's routes each spring launch and each DROP or LAUNCH exit "
                 "leaves the token 1 unless a boost is spent (%d launches, %d wrong)" % (
                     sum(x[1] for x in spent), len(bad)), sum(x[1] for x in spent) >= 2 and not bad))
     res.append(("7 negative control `nolaunch` (no token out of a launch): none of those launches arms (%d armed)"
                 % sum(x[2] for x in spent), not sum(x[2] for x in spent)))
-    sp = fall_spent(byname["PEAK"], extra=byname["MILL"])
+    sp = fall_spent(byname["PEAK"], extra=byname["TMIL"])
     res.append(("7 one boost, then stop bouncing, through springs and tubes: Space held and mashed over PEAK's and "
-                "MILL's routes (%d steps, %d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])),
+                "TMIL's routes (%d steps, %d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])),
                 sp[1] >= 2 and not sp[2]))
     pk = byname["PEAK"]
     q = Physics(pk, play=True).poke(24, 33, 160, 0)
@@ -27172,7 +27589,9 @@ def _props_physics(c, res):
         while p.tube:
             p.step(0)
             hidden += 1
-            if abs(p.bx - bx) > 768 or abs(p.by - by) > 768:
+            if (abs(p.bx - bx) > 768 or abs(p.by - by) > 768) and (p.tube or rec["sub"] != TK_LAUNCH):
+                # (a LAUNCH's last step releases the ball at its speed: TMIL's -288/480 moves it 2.9 px and 3.3
+                # lines - a flight, not the ghost; the prototype MILL's slower cannon never met it, 130.54.10)
                 tr_ok = False
             bx, by = p.bx, p.by
             left -= 1
@@ -27301,14 +27720,17 @@ def _mill_route(c, res):
     seen_d = any(kinds[i] == (PK_TUBE, TK_DROP) for i in caps)
     seen_l = any(kinds[i] == (PK_TUBE, TK_LAUNCH) for i in caps)
     goal = _ev(p, "goal")
-    res.append(("8 MILL: the autopilot rolls the rubber ball into the windmill (step %s), over the green (%d kicks), "
+    # (the flights' OCC-free LAYOUT was the prototype MILL's (130.12.9), asserted while it lived; on TMIL, its
+    # test copy since 2026-11-21 (130.54.10), whose cannon flies over L, the count is PRINTED as MOON's and PEAK's)
+    noocc = c.name != "TMIL"
+    res.append(("8 %s: the autopilot rolls the rubber ball into the windmill (step %s), over the green (%d kicks), "
                 "down the chute and through the cannon to the goal (step %s) with no fall in the CGA's %d steps or "
-                "the Hercules's %d; the LAUNCH's flight and the DROP's fall cross no OCC cell (%d airborne OCC "
+                "the Hercules's %d; the LAUNCH's flight and the DROP's fall %s (%d airborne OCC "
                 "steps from an exit to its first contact; %d later, bouncing on)" % (
-                    _ev(p, "capture")[0][1] if caps else "-", len(_ev(p, "kick")), goal[0][1] if goal else "-",
-                    CGA_STEPS, HERC_STEPS, len(fl), after),
+                    c.name, _ev(p, "capture")[0][1] if caps else "-", len(_ev(p, "kick")), goal[0][1] if goal else "-",
+                    CGA_STEPS, HERC_STEPS, "cross no OCC cell" if noocc else "over OCC cells PRINTED", len(fl), after),
                 seen_w and seen_d and seen_l and bool(goal) and p.nfall == 0 and out[1][0].nfall == 0
-                and not fl and bool(_ev(p, "kick"))))
+                and (not fl or not noocc) and bool(_ev(p, "kick"))))
     # GLIDE on MILL: the transit pans, and the lanes shown and their commits
     for herc in (0, 1):
         stats = {"tf": 0, "tbad": 0, "shown": 0, "frames": 0, "chg": 0}
@@ -27710,8 +28132,9 @@ class _famtest:
 
 
 def _mill_text():
-    """MILL's text (story 9.8's cases: its windmills and tubes name ROTOR and TUBE)"""
-    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).read()
+    """the prototype MILL's props' text (story 9.8's cases: its windmills and tubes name ROTOR and TUBE) - TMIL's,
+    its test copy, since the prototype left (2026-11-21)"""
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "tmil.bbc")).read()
 
 
 def _w9_cases():
@@ -28189,10 +28612,13 @@ def _w4_course_report(c, res):
                                                                  i0, i1, msteps, "; ".join(land)))
 
 
-def _w4_route(c, res):
+def _w4_route(c, res, _nobranch=False):
     """item 8 (wave 4): the autopilot on the course's route reaches the goal or
-    the cup without a fall within DEMO_STEPS; prints the airborne steps over OCC
-    and what the route met"""
+    the cup without a fall within DEMO_STEPS, and every flag is touched on SOME
+    checked route - the main route's, or (a SPLIT course: one route touches the
+    flags of its own leg only) a `branch`'s to a finish, branch_plan's; prints
+    the airborne steps over OCC and what the route met.  _nobranch: the red arm
+    (the main route alone answers for every flag) -> the main route's Physics"""
     p = Physics(c, play=True)
     air_occ = 0
     while p.nstep < DEMO_STEPS and not p.goal:
@@ -28201,10 +28627,15 @@ def _w4_route(c, res):
             air_occ += 1
     how = ""
     nfl = sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)
-    if p.goal and p.nckpt < nfl and not _NOFLAG:
+    if p.goal and p.nckpt < nfl and not _NOFLAG or not p.goal:
         # SPEC.md 130.14.7.4.4: the arrows reach the goal past a flag without touching it - the route is the
         # FLAG PASS's (route_plan: the route demo's), which steers through the flag's cell; the course is not
-        # changed to suit the autopilot.  The item replays that plan's keys to the same tests
+        # changed to suit the autopilot.  SPEC.md 130.14.7.4.1 - 130.14.7.4.3: the arrows alone do not finish -
+        # a course BUILT ON THE HOP (`trap hop`, LITTLE HOP), or one whose arrows stall where the search's Hops,
+        # holds or waits carry it (DOWN's chute corner) - and the route is again route_plan's, the one the build
+        # ships as the course's route demo (route_demo) and makes its limit from (_course_limit).  The item
+        # replays that plan's keys to the same tests: the goal, no fall, every flag, inside DEMO_STEPS
+        skip = bool(p.goal)
         plan = route_plan(c)
         p = Physics(c, play=True)
         air_occ = 0
@@ -28214,37 +28645,49 @@ def _w4_route(c, res):
             p.step(k_)
             if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
                 air_occ += 1
-        how = " (the arrows skip a flag: the FLAG PASS's route, 130.14.7.4.4, %s)" % (
-            "%d steps" % len(plan) if plan else "NONE found")
-    elif not p.goal and getattr(c, "traphop", None):
-        # wave 11 (SPEC.md 130.14.4.1.1, 130.14.7.4.1): a course BUILT ON THE HOP (`trap hop`, LITTLE HOP) is
-        # one the arrows alone cannot finish by design, and its route is the HOPPING autopilot's (route_plan:
-        # the limit's and the route demo's).  So for such a course - and only such a course: one without
-        # `trap hop` is still held to the arrows alone - the item replays that plan's keys and holds it to the
-        # same goal, no fall and every flag, inside DEMO_STEPS
-        plan = route_plan(c)
-        p = Physics(c, play=True)
-        air_occ = 0
-        for k_ in (plan or ())[:DEMO_STEPS]:
-            if p.goal:
-                break
-            p.step(k_)
-            if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
-                air_occ += 1
-        how = " (`trap hop`: the HOPPING autopilot's route, 130.14.7.4.1, %s)" % (
+        how = " (%s: route_plan's route, the route demo's, %s)" % (
+            "the arrows skip a flag - the FLAG PASS, 130.14.7.4.4" if skip else
+            "`trap hop` - the HOPPING autopilot, 130.14.7.4.1" if getattr(c, "traphop", None) else
+            "the arrows alone do not finish - the route search, 130.14.7.4.1 - 130.14.7.4.3",
             "%d steps" % len(plan) if plan else "NONE found")
     kinds = {}
     for e in p.events:
         if e[0] in ("flag", "pad", "spring", "capture", "lip", "cup"):
             kinds[e[0]] = kinds.get(e[0], 0) + 1
-    want = {"flag": sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)}
+    nums = {q["num"] for q in c.props if q["kind"] == PK_CHECKPOINT}
+    got = {n for n in nums if p.cksn >> n & 1} if p.goal and not p.nfall else set()
+    legs = []
+    if got != nums and not _nobranch:
+        # a SPLIT course (DOWN, SPEC.md 130.54.9): the main route is one leg, and the flags of the other leg
+        # are a `branch`'s - each branch's route (branch_route) planned and replayed, and counted only when it
+        # reaches a finish with no fall
+        for name in sorted(c.branches):
+            bk = branch_plan(c, name, nums - got)
+            q = Physics(c, play=True)
+            for k_ in (bk or ())[:DEMO_STEPS]:
+                if q.goal:
+                    break
+                q.step(k_)
+            mine = {n for n in nums if q.cksn >> n & 1} if q.goal and not q.nfall else set()
+            legs.append("branch %s %s, flags %s" % (
+                name, "NO route" if bk is None else "at the %s (exit %d) at step %d, %d falls" % (
+                    "cup" if c.gflags & GF_CUP else "goal", q.exit, q.nstep, q.nfall) if q.goal else
+                "%d steps, never at a finish" % len(bk), " ".join(str(n) for n in sorted(mine)) or "none"))
+            got |= mine
+    want = {"flag": len(nums)}
+    left = sorted(nums - got)
     res.append(("8 %s: the autopilot reaches the %s at step %s (%.1f s) with no fall in %d steps, touching every "
-                "flag (%s of %d), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
-                "cells (priced in the demo legs, 130.14.6)%s" % (
+                "flag (%s of %d%s), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps "
+                "over OCC cells (priced in the demo legs, 130.14.6)%s" % (
                     c.name, "cup" if c.gflags & GF_CUP else "goal", p.nstep if p.goal else "-",
-                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), want["flag"], p.npad,
-                    p.nspr, kinds.get("capture", 0), air_occ, how),
-                p.goal == 1 and p.nfall == 0 and kinds.get("flag", 0) == want["flag"]))
+                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), want["flag"],
+                    "" if not legs else "; every route: %d of %d (main %s; %s)%s" % (
+                        len(got), len(nums), " ".join(str(n) for n in sorted(n for n in nums if p.cksn >> n & 1))
+                        or "none", "; ".join(legs), "" if not left else ", flag%s %s on no route" % (
+                            "s" * (len(left) > 1), " ".join(str(n) for n in left))),
+                    p.npad, p.nspr, kinds.get("capture", 0), air_occ, how),
+                p.goal == 1 and p.nfall == 0 and got == nums))
+    c.__dict__["_w4_legs"] = bool(legs)
     return p
 
 
@@ -31129,24 +31572,24 @@ def _course_items(c, k, res, t):
 def _sc_seeds(X, res):
     """--selfcheck's section `seeds` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if "MILL" in byname:                    # the negative control: two windmills' seeds exchanged
-        src = open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
-                   else os.path.join(ROOT, byname["MILL"].fname)).read()
+    if "TMIL" in byname:                    # the negative control: two windmills' seeds exchanged (TMIL: the
+        src = open(byname["TMIL"].fname if os.path.isabs(byname["TMIL"].fname)   # prototype MILL's top, 2026-11-21)
+                   else os.path.join(ROOT, byname["TMIL"].fname)).read()
         swp = src.replace("prop windmill 9 9  seed 16", "prop windmill 9 9  seed 36").replace(
             "prop windmill 7 9\n", "prop windmill 7 9  seed 16\n")
         try:
-            cs = [compile_course(t, "<MILL, %s>" % n, occluders=False) for t, n in ((src, "as is"), (swp, "seeds swapped"))]
+            cs = [compile_course(t, "<TMIL, %s>" % n, occluders=False) for t, n in ((src, "as is"), (swp, "seeds swapped"))]
             def _plain(c):
                 b = bytearray(c.cga)
                 b[c.part["gridoff"] + 18:c.part["gridoff"] + 20] = b"\0\0"
                 return sum(struct.unpack_from("<%dH" % (len(b) // 2), b, 0)) & 0xFFFF
             sums = [_plain(c) for c in cs]
-            res.append(("1 negative control: MILL with its two windmills' seeds exchanged has another identity "
+            res.append(("1 negative control: TMIL with its two windmills' seeds exchanged has another identity "
                         "(%04Xh against %04Xh; a plain sum of the words would %s)" % (
                             cs[1].ident, cs[0].ident, "not" if sums[0] == sums[1] else "too"),
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
-            res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
+            res.append(("1 negative control: TMIL with its seeds exchanged compiles (%s)" % e, False))
 
 
 def _sc_crosscommit(X, res):
@@ -31168,12 +31611,16 @@ def _sc_crosscommit(X, res):
     # to cover the five it was written for - BENCH, FIRST, TRIAL, MILL and PEAK (summit.bbc) - or the item fails)
     import subprocess
 
+    # (2026-11-21: mill.bbc is WINDMILL LANE now, in statements that commit's grammar lacks - the prototype it
+    # held there is TMIL's top cell for cell, so TMIL carries the chain in MILL's place)
     def _in_w5(c):
+        if c.name in ("MILL", "TMIL"):
+            return c.name == "TMIL"
         return subprocess.run(["git", "cat-file", "-e", "%s:apps/bonanza/courses/%s" % (
             W5_COMMIT, os.path.basename(c.fname))], cwd=ROOT, capture_output=True).returncode == 0
     w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())
           and _in_w5(c)]
-    W5_CHAIN = ("BENCH", "FIRST", "TRIAL", "MILL", "PEAK")
+    W5_CHAIN = ("BENCH", "FIRST", "TRIAL", "TMIL", "PEAK")
     if [c.name for c in w5] != [n for n in (c.name for c in courses) if n in W5_CHAIN]:
         res.append(("1 the cross-commit chain covers %s's courses %s (it covers %s)" % (
             W5_COMMIT, ", ".join(W5_CHAIN), ", ".join(c.name for c in w5) or "none"), False))
@@ -31195,6 +31642,9 @@ def _sc_crosscommit(X, res):
             # clauses, and every exit 0 then, so the cells and the cup records are that commit's)
             kept = [re.sub(r"\s+exit\s+\d+|\s+hidden\b", "", ln.split("#")[0]) if ln.split()[:1] in (["goal"], ["cup"])
                     else ln for ln in kept]
+        if c.name == "TMIL" and not any(ln.split()[:1] == ["target"] for ln in kept):
+            kept.append("target 30")            # (130.54.10: that tool asks every course but course 0 for a
+            # design time; a test course gives none, and a target writes no part byte)
         dst = os.path.join(w5dir, os.path.basename(src_path))
         with open(dst, "w") as fh:
             fh.write("\n".join(kept))
@@ -31230,7 +31680,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 2
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 3
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -31308,6 +31758,43 @@ def _sc_grammar(X, res, part=(0, 1)):
             _TRAPNOLIFT = False
         res.append(("2 accepted (130.14.4.1): a flag at a lift's foot, NO TRAP riding it up%s; RED ARM (the carry not "
                     "followed): %s" % ("" if ok_ else " -- got: " + msg, red[:90]), ok_ and "NO TRAP" in red))
+    if mine():                                      # SPEC.md 130.14.4.1.2: the way on by a RESPAWNING pickup
+        _sc_trapresp(res)
+
+
+# SPEC.md 130.14.4.1.2: a glass flag before a 3-tile gap (x 9 - 11) that only the jump's Hop crosses, the cup beyond
+_TRAPJ = ('course J "j"\nwidth 64\norigin 224\nuses pickups\ntrap hop\n'
+          'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 12 5 15 8 flat 4\nwall rect 12 4 15 5 flat 5\n'
+          'start 5 6\ncup 13 6\ncheckpoint 5 7 ball glass\nprop jump 7 6 for 3%s\n')
+# ...and a walled POCKET in the gap, 2 units down: a failed jump comes to rest there, and nothing climbs out
+_TRAPJPIT = 'floor rect 9 5 12 8 flat 2\nwall rect 9 4 12 5 flat 5\nwall rect 9 8 12 9 flat 5\n'
+
+
+def _sc_trapresp(res):
+    """--selfcheck section `grammar`: NO TRAP's respawning arm (SPEC.md 130.14.4.1.2) - the only way on needs a
+    RESPAWNING jump (compiles, the flag passed by the arm), the same jump not respawning (refused), a failed jump
+    stranded in a pocket (refused, naming the cell), and the RED ARM _TRAPNORESP (the arm off: the first refused)"""
+    global _TRAPNORESP
+
+    def go(text, what):
+        try:
+            c_ = compile_course(text, fname="<%s>" % what)
+            return True, "compiled, the flag by the arm: %s" % (c_.trapr,), c_
+        except CourseError as e:
+            return False, str(e), None
+    ok1, m1, c1 = go(_TRAPJ % " respawn", "the way on by a respawning jump")
+    ok2, m2, _ = go(_TRAPJ % "", "the way on by a jump that does not respawn")
+    ok3, m3, _ = go(_TRAPJ % " respawn" + _TRAPJPIT, "a respawning jump over a pocket")
+    _TRAPNORESP = True
+    try:
+        ok4, m4, _ = go(_TRAPJ % " respawn" + "# red arm\n", "the way on by a respawning jump, red arm")
+    finally:
+        _TRAPNORESP = False
+    res.append(("2 NO TRAP's respawning arm (130.14.4.1.2): the only way on needs a respawning jump: %s; the jump not "
+                "respawning: %s; a failed jump's pocket: %s; RED ARM (_TRAPNORESP, the arm off): %s"
+                % (m1, m2[-70:], m3[-150:], m4[-70:]),
+                ok1 and bool(c1.trapr) and not ok2 and "NO TRAP" in m2 and "stranding" not in m2
+                and not ok3 and "stranding" in m3 and not ok4 and "NO TRAP" in m4))
 
 
 def _sc_w9(X, res):
@@ -32069,6 +32556,37 @@ WIDE_TEXT = ('course W "w"\nwidth %s\nfloor rect 10 10 15 14 flat 4\nwall rect 1
              'start 11 11\n')
 
 
+def tblk_text():
+    """SPEC.md 130.56: TBLK, the scratch course PAST 1,024 blocks (the selfcheck's `blocks` section and
+    tests/bonanza_blocks.py): a diagonal band 130 tiles long, 33 wide, at width 96, each tile a seeded random
+    height, flat or a one-tile ramp, and a random surface - 1,386 distinct blocks, so its map is form 9 ROWNIBS
+    and its picture part is a TWO-PART course's.  Text, generated here (not a course file, not in any build)"""
+    import random
+    r = random.Random(1)
+    lines = ['course TBLK "Blocks"', "width 96"]
+    tiles = [((s_ + a) // 2, (s_ - a) // 2) for s_ in range(36, 166) for a in range(-16, 17) if not (s_ + a) & 1]
+    st = tiles[len(tiles) // 2]
+    for x, y in tiles:
+        h, k = r.randrange(40) / 2.0, r.randrange(3)
+        if k == 0 or (x, y) == st:
+            lines.append("floor tile %d %d flat %g" % (x, y, h))
+        else:
+            ax, a0 = ("x", x) if k == 1 else ("y", y)
+            lines.append("floor tile %d %d ramp %s %d %d %g %g" % (x, y, ax, a0, a0 + 1, h,
+                                                                   h + r.randrange(1, 5) / 2.0))
+    for x, y in tiles:
+        sf = r.choice(SURFACES)
+        if sf != "normal" and (x, y) != st:
+            lines.append("surface %s tile %d %d" % (sf, x, y))
+    lines.append("start %d %d" % st)
+    return "\n".join(lines) + "\n"
+
+
+def tblk_course():
+    """TBLK compiled (no occluders: the map and the blocks are its subject)"""
+    return compile_course(tblk_text(), fname="<TBLK>", occluders=False)
+
+
 def width_guest_src():
     """SPEC.md 130.10.4.2's guest half, read off the source (the selfcheck's `width` section): -> [(what, ok)].
     The map row is bz_mrow's word in every writer - no MAPSH shift is left in the package or the VGA part - and
@@ -32207,6 +32725,112 @@ def _sc_clockocc(X, res):
         res.append(("17 clock negative control: %s - caught (%s)" % (what, "; ".join(w[:90] for w in caught)
                                                                      or "NOT CAUGHT"),
                     any(want in w for w in caught)))
+
+
+CLOCKDIG_AT = (10, -7)          # the selfcheck's anchor: a block right and a nudge of 2, a block up and a nudge of 1
+
+
+def _clockdig_lanes(c, num):
+    """{place: (lane rect, {pose: glyph pixels})} of clock NUM of a compiled course"""
+    return {c.props[L["prop"]]["place"]: (L["rect"], L["poses"]) for L in c.lanes
+            if c.props[L["prop"]]["kind"] == PK_CLOCK and c.props[L["prop"]]["num"] == num}
+
+
+def _sc_clockdig(X, res):
+    """--selfcheck's section `clockdig` (SPEC.md 130.18.5.5): THE DIGITS' ANCHOR - a clock's digits placed relative
+    to its frame's art, by the frame's CLOCK_DIGITS or the statement's `digits DX DY`.  FIRST's start clock (3, 6)
+    moved CLOCKDIG_AT: its digit lanes land where declared (whole blocks), each digit's ink the natural ink moved
+    the offset (the nudge inside the block), the face round them moved with them and the plinth on its tile not;
+    the frame's declaration and the statement's are one; offset 0 byte-identical; the grammar's refusals; and the
+    red arms (the lanes left at the natural spot; digits moved off the frame's art)"""
+    global _CLOCK_ANCHOR_LANES, CLOCK_STYLES
+    fn = next(c.fname for c in X.courses if c.name == "FIRST")
+    fn = fn if os.path.isabs(fn) else os.path.join(ROOT, fn)
+    text = open(fn).read()
+    assert text.count("\nclock 3 6\n") == 1
+    dx, dy = CLOCKDIG_AT
+
+    def comp(stmt):
+        return compile_course(text.replace("\nclock 3 6\n", "\n%s\n" % stmt), fname=fn)
+    base = comp("clock 3 6")                     # (a plain compile: compile_all re-stamps a demo's identity)
+    zero = comp("clock 3 6 frame crystal digits 0 0")
+    res.append(("17d FIRST with `clock 3 6 frame crystal digits 0 0` byte-identical to `clock 3 6` (offset 0 is "
+                "today's clock; frames declaring an anchor: %s)" % (", ".join(sorted(CLOCK_DIGITS)) or "none"),
+                zero.cga == base.cga and zero.stored == base.stored and not any(
+                    CLOCK_DIGITS.get(f_, (0, 0)) != (0, 0) for f_ in CLOCK_STYLES)))
+
+    def landed(c, what):
+        """the moved clock's lanes and ink against FIRST's -> [(what, ok)]"""
+        num = next(p["num"] for p in c.props if p["kind"] == PK_CLOCK and tuple(p["at"]) == (3, 6))
+        a, b = _clockdig_lanes(base, num), _clockdig_lanes(c, num)
+        bdx, bdy = (dx + 1) // 8, dy // 8
+        rects = sorted(a) == sorted(b) and all(b[k][0] == (a[k][0][0] + bdx, a[k][0][1] + bdy, 1, 1) for k in a)
+        ink = sorted(a) == sorted(b) and all(
+            set(b[k][1][1 + d]) == {(x + dx, y + dy) for (x, y) in clock_glyph(d, *a[k][0][:2])}
+            for k in a for d in range(10))
+        p0 = next(p for p in base.props if p["kind"] == PK_CLOCK and tuple(p["at"]) == (3, 6) and p["place"] == 0)
+        q0 = next(p for p in c.props if p["kind"] == PK_CLOCK and tuple(p["at"]) == (3, 6) and p["place"] == 0)
+        f0 = clock_face_pix(p0, base.x0, base.y0)
+        f1 = clock_face_pix(q0, c.x0, c.y0)
+        cx, cy, fx, fy, _rx, _ry = clock_face_geom(p0, base.x0, base.y0)
+        n = p0["ndig"]
+        win0 = [(x, y) for x in range(fx - 4 * n - 1, fx + 4 * n + 1) for y in range(fy - 5, fy + 5)]
+        moved = all(f1.get((x + dx, y + dy)) == f0[(x, y)] for (x, y) in win0)
+        plinth = all(f1.get((x, y)) == f0.get((x, y)) for x in range(cx - 8, cx + 9) for y in (cy - 3, cy - 2))
+        return [("17d %s: the digit lanes land %+d block across, %+d block row from the natural spot (%s)" % (
+                    what, bdx, bdy, ", ".join("place %d at %s" % (k, b[k][0][:2]) for k in sorted(b))), rects),
+                ("17d %s: every digit's ink (0 - 9, each place) is the natural glyph moved %+d, %+d px - the "
+                 "nudge %+d, %+d inside its block - and inked whole (shown on the face)" % (
+                     what, dx, dy, (dx + 1) % 8 - 1, dy % 8), ink),
+                ("17d %s: the face round the digits (the ball's window) moved with them; the plinth on the tile "
+                 "did not" % what, moved and plinth)]
+    st = comp("clock 3 6 digits %d %d" % CLOCKDIG_AT)
+    res.extend(landed(st, "`clock 3 6 digits %d %d`" % CLOCKDIG_AT))
+    # a FRAME declaring the anchor: `crysdig`, the crystal's art, its CLOCK_DIGITS entry CLOCKDIG_AT
+    styles = CLOCK_STYLES
+    CLOCK_STYLES, CLOCK_DIGITS["crysdig"] = styles + ("crysdig",), CLOCKDIG_AT
+    _CLOCK_DRAW["crysdig"] = lambda p, x0, y0, tops: clock_face_pix(
+        dict(p, frame="crystal", digits=clock_digits_px(p)), x0, y0, tops=tops)
+    try:
+        fr = comp("clock 3 6 frame crysdig")
+    finally:
+        CLOCK_STYLES = styles
+        del CLOCK_DIGITS["crysdig"], _CLOCK_DRAW["crysdig"]
+    res.append(("17d a frame declaring the anchor (CLOCK_DIGITS crysdig %+d, %+d) compiles FIRST byte-identical to "
+                "the statement's" % CLOCKDIG_AT, fr.cga == st.cga and fr.stored == st.stored and fr.cga != base.cga))
+    for stmt, want in (("clock 3 6 digits 3 0", "between the block grid's places"),
+                       ("clock 3 6 digits 0 -6", "between the block grid's places"),
+                       ("clock 3 6 digits 4", "clock takes"),
+                       ("clock 3 6 digits 0 0 frame crystal", "clock takes")):
+        try:
+            comp(stmt)
+            msg = "compiled"
+        except CourseError as e:
+            msg = str(e)
+        res.append(("17d `%s` refused (...%s)" % (stmt, msg[-90:]), want in msg))
+    # red arms: (a) the lanes left at the natural spot while the art moves - refused (the digits off the
+    # moved art) or the landing red; (b) the nudge dropped, the lanes moved - the ink red; (c) a frog's digits
+    # moved below its body (art drawn off the tile, not round the digits) - refused
+    for arm, want in (("blocks", ("lanes land", "compile")), ("nudge", ("natural glyph moved",))):
+        _CLOCK_ANCHOR_LANES = arm
+        try:
+            try:
+                r_ = landed(comp("clock 3 6 digits %d %d" % CLOCKDIG_AT), "red arm")
+            except CourseError as e:
+                r_ = [("compile: %s" % e, False)]
+        finally:
+            _CLOCK_ANCHOR_LANES = True
+        caught = [w for w, g in r_ if not g]
+        res.append(("17d clockdig negative control: %s - caught (%s)" % (
+            {"blocks": "the lanes ignore the anchor's blocks", "nudge": "the glyph ignores the anchor's nudge"}[arm],
+            "; ".join(w[-100:] for w in caught) or "NOT CAUGHT"), any(k in w for w in caught for k in want)))
+    try:
+        comp("clock 3 6 frame frog digits 0 48")
+        msg = "compiled"
+    except CourseError as e:
+        msg = str(e)
+    res.append(("17d clockdig negative control: a frog's digits moved 6 block rows down, below its body - refused "
+                "(...%s)" % msg[-80:], "leave its frame's art" in msg))
 
 
 def _sc_palette(X, res):
@@ -32377,7 +33001,7 @@ def _sc_physics(X, res):
     """--selfcheck's section `physics` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
     if "FIRST" in byname:
-        _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("MILL"))
+        _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("TMIL"))   # (TMIL: the prototype MILL's lift)
 
 
 def _lift2_shared(c):
@@ -32522,8 +33146,8 @@ def _sc_lift2(X, res):
 def _sc_props(X, res):
     """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if "MILL" in byname:
-        _props_physics(byname["MILL"], res)
+    if "TMIL" in byname:                        # (the prototype MILL's props: TMIL's since 2026-11-21)
+        _props_physics(byname["TMIL"], res)
 
 
 def _sc_routes(X, res):
@@ -32536,8 +33160,8 @@ def _sc_routes(X, res):
 def _sc_millroute(X, res):
     """--selfcheck's section `millroute` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if "MILL" in byname:
-        _mill_route(byname["MILL"], res)
+    if "TMIL" in byname:                        # (the prototype MILL's route features: TMIL's since 2026-11-21)
+        _mill_route(byname["TMIL"], res)
 
 
 def _sc_camcheck(X, res):
@@ -32558,7 +33182,7 @@ def _sc_play(X, res):
 def _sc_launch(X, res):
     """--selfcheck's section `launch` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if {"MILL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 130.17.17)
+    if {"TMIL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 130.17.17); TMIL: the prototype MILL's drop and cannon
         _launch_checks(byname, res)
 
 
@@ -32595,6 +33219,32 @@ def _sc_w4(X, res):
         if any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches:
             _w4_course_report(c, res)
             _w4_route(c, res)
+    # item 8's red arms: a SPLIT course's main route alone (its branches left out) misses the other leg's
+    # flags; and a route that skips a flag on its own leg - _FLAGSIDE with the flag pass off (_NOFLAG), the
+    # arrows past its flag to the goal - fails however many routes are checked (the same course, the flag
+    # pass on, passes)
+    global _NOFLAG
+    red = []
+    for c in courses:
+        if c.__dict__.get("_w4_legs"):
+            r_ = []
+            _w4_route(c, r_, _nobranch=True)
+            red.append("%s's main route alone %s" % (c.name, "FAILS" if not r_[-1][1] else "PASSES"))
+    fs = compile_course(_FLAGSIDE, "<a flag two cells off the arrows' line>")
+    on_, off_ = [], []
+    _w4_route(fs, on_)
+    _NOFLAG = True
+    try:
+        fs.__dict__.pop("_hplan", None)
+        _w4_route(fs, off_)
+    finally:
+        _NOFLAG = False
+        fs.__dict__.pop("_hplan", None)
+    res.append(("8 RED ARMS of every flag on SOME checked route: %s; a route skipping the flag on its own leg "
+                "(_FLAGSIDE, the flag pass off) %s, the flag pass on %s" % (
+                    "; ".join(red) or "(no course needs a branch)", "FAILS" if not off_[-1][1] else "PASSES",
+                    "passes" if on_[-1][1] else "FAILS"),
+                bool(red) and all(x.endswith("FAILS") for x in red) and not off_[-1][1] and on_[-1][1]))
 
 
 def _sc_flags(X, res):
@@ -32773,6 +33423,16 @@ _FLAGSIDE = ('course N "n"\nwidth 64\norigin 256\nball rubber\nfloor rect 6 6 17
              'checkpoint 12 10 ball rubber\ngoal rect 15 6 17 12 flat 10\nstart 8 8\nway 8 8\nway 16 8\n')
 
 
+# SPEC.md 130.14.7.4.5's case: a 3 x 3 QUARTER-TURN TURNTABLE on the way, its middle column's back cell a floor
+# only in the quarter its front cell is a gap and the front only two quarters later (`ooo/.o./o..`), so a
+# rolling ball cannot cross it: it stops ON the PIVOT and waits there.  130.6's arrows roll into a hole; a Hop
+# off the pivot over the front clears it, which is the route the search found before the stands
+_TTSTAND = ('course N "n"\nwidth 64\norigin 256\nball rubber\nuses turntable\n'
+            'floor rect 6 4 9 8 flat 10\nfloor rect 6 8 9 11 flat 10\nfloor rect 6 11 9 14 flat 10\n'
+            'prop turntable 6 8 size 3 fill ooo/.o./o.. seed 0\ngoal rect 6 12 9 14 flat 10\nstart 7 5\n'
+            'way 7 5\nway 7 9\nway 7 12\n')
+
+
 def _sc_hopplan(X, res):
     """--selfcheck's section `hopplan` (SPEC.md 130.14.7.4.1): the HOPPING autopilot finishes HOP (course 2,
     built on the Hop) with no fall and no RETURN, its route is the limit's and the route demo's, and its red
@@ -32877,6 +33537,42 @@ def _sc_hopplan(X, res):
                 "returns; RED ARM: the flag pass off (_NOFLAG), the route demo touches %d of 1" % (
                     "reach the goal touching %d of 1 flags" % plain.nckpt if plain.goal else "do not finish",
                     first, q.nckpt, q.nfall, q.nret, r.nckpt), bool(ok)))
+    # SPEC.md 130.14.7.4.5: the STAND - a turntable crossed by stopping on its pivot, not by a Hop off it
+    global _NOSTAND
+    c = compile_course(_TTSTAND, "<a turntable a rolling ball cannot cross>")
+    plain = Physics(c, play=True)
+    for _i in range(PLAN_STEPS):
+        if plain.goal or plain.nfall:
+            break
+        plain.step(plain.auto())
+    runs = []
+    for off in (False, True):
+        _NOSTAND = off
+        try:
+            c.__dict__.pop("_hplan", None)
+            plan = route_plan(c)
+        finally:
+            _NOSTAND = False
+            c.__dict__.pop("_hplan", None)
+        q = Physics(c, play=True)
+        q.tsec = 0
+        rest = 0
+        for k in plan or ():
+            q.step(k)
+            rest += (q.gx >> 12, q.gy >> 12) == (7, 9) and not q.air and abs(q.gvx) < 2 * AUTO_ACC \
+                and abs(q.gvy) < 2 * AUTO_ACC
+        runs.append((plan, q, rest))
+    (plan, q, rest), (red, r, _rr) = runs
+    ok = plain.nfall and not plain.goal and plan is not None and q.goal and not q.nfall and not q.nret \
+        and not q.nhop and rest >= PLAN_TT_EVERY and (red is None or r.nhop)
+    res.append(("7 the STAND (130.14.7.4.5): a 3 x 3 turntable whose middle column is never open end to end - "
+                "130.6's arrows %s; the search with its stands finds a route (%s steps), its replay at the goal "
+                "with %d falls, %d returns and %d Hops, at rest ON the pivot %d steps; RED ARM: the stands off "
+                "(_NOSTAND) the search finds %s" % (
+                    "ROLL INTO A HOLE" if plain.nfall else "do not fall (the case is gone)",
+                    len(plan) if plan else "NO", q.nfall, q.nret, q.nhop, rest,
+                    "none" if red is None else "a route with %d Hop(s) and %d falls" % (r.nhop, r.nfall)),
+                bool(ok)))
     # every compiled course the arrows alone finish touching every flag: its route demo is the plain
     # autopilot's, key for key
     same, n = True, 0
@@ -32976,8 +33672,8 @@ def _sc_inc(X, res):
     res.append(("4 negative controls: one bit of BZ_SURFTAB, of the corner table and of OCTANT each moves BZ_PHYSV",
                 all(moved)))
     try:                                      # item 5's negative control: a blade in front of the doorway
-        compile_course(open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
-                            else os.path.join(ROOT, byname["MILL"].fname)).read(), "<MILL, rotor in front>",
+        compile_course(open(byname["TMIL"].fname if os.path.isabs(byname["TMIL"].fname)
+                            else os.path.join(ROOT, byname["TMIL"].fname)).read(), "<TMIL, rotor in front>",
                        _hack={"rotor_front": True})
         caught = False
     except CourseError as e:
@@ -33167,6 +33863,102 @@ def _one_part_checks(c, res):
 def _sc_sheets(X, res):
     """--selfcheck's section `sheets`: item 16, SHEETS (SPEC.md 130.30.12.7)"""
     _sheets_checks(X.courses, res, X.paths)
+
+
+def rownibs_synth():
+    """SPEC.md 130.56 item B4: a MAP-ONLY part (BZC2's header, one M entry of form 9, nothing else) whose map
+    names every high nibble 0 - 15 in both cells of a byte - what no course can reach (the part bounds a course
+    near 3,600 blocks).  -> (RAM part, stored part, the map's block indices); BLKOFF + 16 index stays under 64K"""
+    import random
+    r = random.Random(9)
+    cols, brows = 64, 4
+    blkoff = HDR + 2 * cols * brows
+    idx = []
+    for k in range(cols * brows):
+        hi = (k >> 1) & 15 if k < 64 else r.randrange(16)
+        idx.append(min(hi * 256 + r.randrange(256), (0xFFF0 - blkoff) // 16))
+    m = {"cols": cols, "brows": brows, "idx": idx}
+    diroff = blkoff
+    ram = bytearray(diroff + DIRENT)
+    ram[0:4] = b"BZC2"
+    struct.pack_into("<6H", ram, 4, cols, brows, 0, 0, blkoff, 0)
+    struct.pack_into("<H", ram, 24, 2 * cols)
+    struct.pack_into("<HH", ram, 38, diroff, 1)
+    struct.pack_into("<%dH" % len(idx), ram, HDR, *[blkoff + 16 * i for i in idx])
+    ln = 2 * cols * brows
+    struct.pack_into("<BBHHH", ram, diroff, ord("M"), F_ROWNIBS, HDR, ln, 3 * ln // 4)
+    st = bytearray(ram)
+    st[HDR:HDR + ln] = bytes(ln - 3 * ln // 4) + _rownibs(m)
+    return bytes(ram), bytes(st), idx
+
+
+def _sc_blocks(X, res):
+    """--selfcheck's section `blocks` (SPEC.md 130.56): PAST 1,024 BLOCKS - TBLK's map as form 9 ROWNIBS, each
+    part expanding in place, every course at most 1,024 keeping form 1 byte for byte, the synthetic map's every
+    nibble, the part reader's form rule; and the red arms, each in front of its check"""
+    c = tblk_course()
+    n = len(c.model["blocks"]) // 16
+    mform = next(e["form"] for e in c.part["dir"] if e["tag"] == "M")
+    why = []
+    try:
+        if expand(c.stored, c.name, sim=True) != c.cga or (c.split and expand(c.wstored, c.name, sim=True) != c.wcga):
+            why.append("expand(stored) != RAM")
+        read_parts(c.cga, c.wcga, c.name) if c.split else read_part(c.cga, c.name)
+    except CourseError as e:
+        why.append(str(e))
+    res.append(("B1 TBLK: %d blocks (past %d), its map form %d (%s), %s; each part's expand(stored) == RAM, the "
+                "IN-PLACE simulation clean, the part reader takes it%s" % (
+                    n, BLK_ROWP, mform, FORM_NAMES[mform], "two parts" if c.split else "one part",
+                    "" if not why else " -- " + "; ".join(why)),
+                n > BLK_ROWP and mform == F_ROWNIBS and max(c.model["idx"]) >= BLK_ROWP and not why))
+    # B2: every course of the build at most 1,024 keeps form 1 - the map as it was stored before 130.56
+    own = [(k.name, len(k.model["blocks"]) // 16, [e["form"] for e in k.part["dir"] if e["tag"] == "M"])
+           for k in X.courses]
+    res.append(("B2 every course of the build at %d blocks or fewer stores its map as form 1 ROWPLANES, as before "
+                "130.56 (%s)" % (BLK_ROWP, ", ".join("%s %d" % (nm, nb) for nm, nb, _f in own)),
+                all(f == [map_form(nb)] for _nm, nb, f in own)
+                and all(f == [F_ROWPLANES] for _nm, nb, f in own if nb <= BLK_ROWP)))
+    # B3: the red arms
+    try:
+        expand(stored_form(c.model, REC, c.cga, c.name, _hack={"nib_low_first": True}), c.name, sim=True,
+               _hack={"nib_low_first": True})
+        r1 = False
+    except CourseError as e:
+        r1 = "section M" in str(e)
+    res.append(("B3 red: ROWNIBS stored and read with the low bytes first fails the in-place simulation, naming the "
+                "map (the last row's last half)", r1))
+    r2 = expand(c.stored, c.name, _hack={"nib_mask2": True}) != c.cga
+    res.append(("B3 red: the expander keeping two high bits (ROWPLANES' mask) fails expand == RAM", r2))
+    r3 = expand(stored_form(c.model, REC, c.cga, c.name, _hack={"nib_swap": True}), c.name) != c.cga
+    res.append(("B3 red: a byte's two nibbles exchanged in the stored form fails expand == RAM", r3))
+    q = bytearray(c.cga)
+    do, ns = struct.unpack_from("<HH", q, 38)
+    j = next(j for j in range(ns) if q[do + DIRENT * j] == ord("M"))
+    q[do + DIRENT * j + 1] = F_ROWPLANES
+    try:
+        read_parts(bytes(q), c.wcga, c.name) if c.split else read_part(bytes(q), c.name)
+        r4 = False
+    except CourseError as e:
+        r4 = "form 1, not 9" in str(e)
+    small = X.courses[0]
+    q = bytearray(small.cga)
+    do, ns = struct.unpack_from("<HH", q, 38)
+    j = next(j for j in range(ns) if q[do + DIRENT * j] == ord("M"))
+    q[do + DIRENT * j + 1] = F_ROWNIBS
+    try:
+        read_parts(bytes(q), small.wcga, small.name) if small.split else read_part(bytes(q), small.name)
+        r5 = False
+    except CourseError as e:
+        r5 = "form 9, not 1" in str(e)
+    res.append(("B3 red: the part reader refuses TBLK's map entry made form 1, and %s's made form 9 (the form is "
+                "the block count's, never a choice)" % small.name, r4 and r5))
+    # B4: every nibble, both cells of a byte
+    ram, st, idx = rownibs_synth()
+    got = expand(st, "<synthetic>", sim=True)
+    his = set(i >> 8 for i in idx)
+    res.append(("B4 the synthetic map-only part (%d cells, high nibbles %s): expand(stored) == RAM, in place"
+                % (len(idx), "0 - 15" if his == set(range(16)) else sorted(his)),
+                got == ram and his == set(range(16)) and expand(st, "<synthetic>", _hack={"nib_mask2": True}) != ram))
 
 
 def _sheet_earned(c):
@@ -33504,8 +34296,8 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30,
-           "lift2": 10, "width": 8, "sheets": 120}
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
+           "lift2": 10, "width": 8, "sheets": 120, "blocks": 8}
 
 
 def _av_floats_want(c):
@@ -33836,10 +34628,23 @@ def _sc_av(X, res):
     except CourseError as e:
         res.append(("15 the pathway and the title compile (%s)" % e, False))
     for c in every:                             # (sheetmax: a SHEETED course's picture under --occ off is
-        off = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),   # larger
-                             _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)},   # still - TTALL's 94,592
-                             crsinfo=[(q.name, q.title) for q in courses]       # bytes, past 2 sheets: 130.30.12)
-                             if c.pth is not None else None)
+        cpath = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)   # larger
+        info = [(q.name, q.title) for q in courses] if c.pth is not None else None    # still - TTALL's 94,592
+        try:                                                                          # bytes, past 2 sheets: 130.30.12)
+            off = compile_course(cpath, _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
+        except CourseError as e:                # (the comparison compile alone: under --occ off a course may name
+            if "occluder masks, over the 256" in str(e):       # more masks than the record's byte - DOWN's 323 -
+                with open(cpath, encoding="ascii") as f_:      # so it takes SPEC.md 130.52's `masks banded`, which
+                    src_ = f_.read()                           # the comparison reads the same way; the shipped
+                off = compile_course(src_ + "\nmasks banded\n", fname=cpath,   # compile is not touched)
+                                     _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
+            elif "occluder records, over %d" % REC_BLOCK_MAX in str(e):
+                # (or lay more records in a block than the guest's 4 - WINDMILL LANE's 5 at (82, 50), SPEC.md
+                # 130.54.10: the comparison reads the grid and the picture alone, so the bound is lifted for it)
+                off = compile_course(cpath, _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS), "recmax": 255},
+                                     crsinfo=info)
+            else:
+                raise
         _av_checks(c, res, c.name, off)
     byname = {c.name: c for c in courses}
     # the negative controls, each red where item 15 says
@@ -35099,7 +35904,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc", "_sc_lift2", "_sc_width", "_sc_sheets")
+             "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks")
 
 
 def _selfcheck(paths, res, skipped, S):
@@ -35681,8 +36486,8 @@ def main_tune(assigns, paths):
     res = []
     if "BENCH" in byname:
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
-    if "MILL" in byname:
-        _mill_route(byname["MILL"], res)
+    if "TMIL" in byname:                        # (the prototype MILL's route features: TMIL's since 2026-11-21)
+        _mill_route(byname["TMIL"], res)
     for c in courses:
         if c is not None and (any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches):
             _w4_route(c, res)

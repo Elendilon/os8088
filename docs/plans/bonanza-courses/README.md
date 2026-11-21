@@ -20,6 +20,9 @@ designer's and the owner's judgment.*
 
 *Options for showing whether a column touches its floor or stands over a gap (a proposal, 2026-11-21) are [EDGES.md](EDGES.md).*
 
+*Course 4 WINDMILL LANE's pen-in (attempt 1, 2026-11-21) is [MILL.md](MILL.md); it ships as `mill.bbc`
+in the prototype's place, whose features the rows now play on TMIL (SPEC.md 130.54.10).*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped

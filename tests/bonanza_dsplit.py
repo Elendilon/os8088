@@ -75,18 +75,21 @@ EDGE = ('course EDGE "Edge"\nwidth 64\nfloor rect 3 3 9 9 flat 0\nfloor half up 
         'hole half left tile 3 6\nwall quarter n tile 6 3 flat 1\nwall quarter w tile 3 7 flat 1\n'
         'floor half down tile 8 8 flat 0.5\nhole quarter e tile 8 5\nfloor half right tile 8 3 flat 0.5\n'
         'hole half up tile 5 8\nstart 5 5\n')
-# THE MILLS (verify-dguest): MILL's props (both windmills, three bumpers, the tubes, the lift) with split cells
-# beside them and GOAL pieces inside the windmills' 3 x 3 (the doorway with a split cell in the window)
+# THE MILLS (verify-dguest): the prototype MILL's props (both windmills, three bumpers, the tubes, the lift) with
+# split cells beside them and GOAL pieces inside the windmills' 3 x 3 (the doorway with a split cell in the
+# window) - on TMIL since 2026-11-21 (the prototype's top cell for cell; WINDMILL LANE took MILL's name): the
+# windmills' cells as they were, the bumpers' and the lift's neighbours moved to TMIL's posts on W (12) and its
+# lift's low dock L (2), off the route's row 14, and F's two onto TMIL's F (8)
 MILLS_EXTRA = ("goal half right tile 8 10 flat 16\ngoal quarter e tile 10 10 flat 16\n"
-               "wall half left tile 13 20 flat 9\nfloor half down tile 15 21 flat 8.5\n"
-               "floor half up tile 17 19 flat 8.5\nfloor quarter n tile 15 18 flat 8.5\n"
-               "floor half right tile 28 19 flat -3.5\nhole half up tile 21 21\n"
+               "wall half left tile 12 16 flat 13\nfloor half down tile 16 16 flat 12.5\n"
+               "floor half up tile 18 15 flat 12.5\nfloor quarter n tile 19 16 flat 12.5\n"
+               "floor half right tile 15 21 flat 2.5\nhole half up tile 24 21\n"
                "floor half right tile 11 10 flat 15.5\nfloor quarter e tile 10 12 flat 15.5\n"
-               "floor half down tile 22 21 flat 2.5\n")
+               "floor half down tile 25 20 flat 8.5\n")
 
 
 def mills():
-    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).read().replace(
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "tmil.bbc")).read().replace(
         "\nstart 9 12", "\n" + MILLS_EXTRA + "start 9 12")
 
 
@@ -708,7 +711,7 @@ def price_report(n, seed):
         blst = listing(blst_td, patches=True)
         # 1. a course with no split cell: TRIAL's and FIRST's play, this package against BASE's, step for step
         res = {}
-        for crs in ("trial", "mill", "first"):
+        for crs in ("trial", "tmil", "first"):    # (TMIL: the prototype MILL's, 2026-11-21)
             c = R.course(crs)
             rnd = random.Random(seed)
             keys = []
