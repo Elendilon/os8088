@@ -3526,11 +3526,11 @@ def _noentry(part, h):
 
 
 # ---- MILL (SPEC.md 130.12.6, 130.12.13.2): every obstacle, as replays ------------
-def mill_rec(kind, at=None, crs="mill"):
+def mill_rec(kind, at=None, crs="tmil"):
     return next(r for r in R.course(crs).part["props"] if r["kind"] == kind and (at is None or r["at"] == at))
 
 
-def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0, crs="mill"):
+def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0, crs="tmil"):
     """a MILL poke (CRS: TMIL, MILL's top cell for cell, as bonanzaphys's own): tile (wx, wy)'s centre (DGX
     gu along x, or GY in 24.8), at a ground velocity, LIFT px up"""
     p = BB.Physics(R.course(crs), play=True, mat=mat).poke(wx, wy, gvx, gvy)
@@ -3544,7 +3544,7 @@ def mill_poke(wx, wy, gvx=0, gvy=0, mat=0, dgx=0, gy=None, lift=0, crs="mill"):
     return poke_of(p)
 
 
-def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0, crs="mill"):
+def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0, crs="tmil"):
     """the ball on (or over, or under) the LIFT's slab, in its shaft, as it
     stands at step N0 (CRS's lift: TMIL's for bonanzaphys's own)"""
     P = mill_rec(BB.PK_PLATFORM, crs=crs)
@@ -3570,22 +3570,23 @@ def slab_poke(n0, off=(8, 8), lift=0, zoff=0, onp=True, mat=0, crs="mill"):
 # TMIL's cannon lands on its GOAL ledge, so the launch ends at the goal there (a finish, not a fall).  And
 # TMIL's lift carries a rider that keeps rolling off its far side once the slab is high: the `fall`
 # scenario stops 80 steps in (its first contact at 33, any respawn after 100)
-MILL_POSTS = {"mill": ((14, 19), ((16, 19), 0, 64), (16, 18)),
-              "tmil": ((17, 16), ((19, 16), 128, 0), (17, 16))}
-MILL_CLOCK = {"mill": None, "tmil": (11, 21)}
-MILL_DROPS = {"mill": "shatter", "tmil": "bounce"}
-MILL_FALLN = {"mill": 160, "tmil": 80}
+# (2026-11-21: the prototype MILL these scenarios were written on is gone - WINDMILL LANE ships under its name,
+# without its lift, cannon or second windmill - so TMIL is the one course they name)
+MILL_POSTS = {"tmil": ((17, 16), ((19, 16), 128, 0), (17, 16))}
+MILL_CLOCK = {"tmil": (11, 21)}
+MILL_DROPS = {"tmil": "bounce"}
+MILL_FALLN = {"tmil": 80}
 
 
 @_once_list
-def mill_replays(crs="mill"):
+def mill_replays(crs="tmil"):
     """SPEC.md 130.12.13.2's thirteen MILL scenarios (fifteen replays: drop
     with each ball), each found and PROVED on the model - the idle steps that
     put the windmill's gate where the scenario needs it are SEARCHED, so a
     re-seeded course re-finds them - and each red arm's broken model shown to
-    part from it.  CRS: "mill" (the default: bonanzawheel's and bonanzamega's
-    calls, until they move) or "tmil", the TEST course whose top is MILL's
-    cell for cell (bonanzaphys's own, replays()).  -> [scenario dicts],
+    part from it.  CRS: "tmil", the TEST course whose top is the prototype
+    MILL's cell for cell (bonanzaphys's own, replays()); the prototype itself
+    left on 2026-11-21.  -> [scenario dicts],
     replays()'s shape"""
     S = []
     c = R.course(crs)

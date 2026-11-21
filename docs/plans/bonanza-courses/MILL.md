@@ -1,12 +1,15 @@
 # COURSE 4, "Windmill Lane" (MILL): design sheet
 
-*Status: **ATTEMPT 1, A DESIGN FOR THE OWNER'S REVIEW** (2026-11-21). The pen-in
-step of the guide's pipeline ([README.md](README.md) section 3). The shipped
-`apps/bonanza/courses/mill.bbc` is still the PROTOTYPE, and the tests use it.
-`mill/sketch.py` draws the pictures and writes this design as an engine course
-(`--bbc`). That course, `mill/mill-draft.bbc`, is a SCRATCH draft. It compiles with
-`tools/bbcourse.py`, and its numbers below are MEASURED on it. Distances are
-tiles and heights are units. The cells are the engine's own, with no offset.*
+*Status: **ATTEMPT 1, SHIPPED FOR THE OWNER TO PLAY** (2026-11-21). The pen-in
+step of the guide's pipeline ([README.md](README.md) section 3). `mill/sketch.py`
+draws the pictures and writes this design as an engine course (`--bbc`), and since
+the owner's word that the prototypes are replaced as the work develops, that course
+IS `apps/bonanza/courses/mill.bbc` (course K 2, pathway pad 3; SPEC.md 130.54.10).
+The prototype it replaced is TMIL's top cell for cell, and the rows that needed its
+features play TMIL. It compiles with `tools/bbcourse.py`, and its numbers below are
+MEASURED on it (they were taken on the scratch draft `mill/mill-draft.bbc`, the same
+text, which is gone). Distances are tiles and heights are units. The cells are the
+engine's own, with no offset.*
 
 The owner's brief (2026-11-21): *"a windmill minigolf course, with windmills and
 tubes"*, mid length with a target of about 60 s, *"more dense screens ... spending more
@@ -67,7 +70,7 @@ and fit the theme."*
 | U, W2 | **U and windmill 2** | a 4 x 5 apron. The door is on the second house's +x face (entered -x), and the tube comes out of the house's FRONT (+y) onto the rejoin | the second windmill: the easy route's timing obstacle |
 | Q, H | **the glass route: the arch and the ledge** | under the arch the ball rolls over the glass pad (the arch's ceiling stops a hop over it, 130.39). The tube runs -x then +y up onto LEDGE H, 2 units over the plaza. Flag 2 (glass) is on the exit line, with the JUMP pickup a tile on (`prop jump 19 36 for 10 respawn`) | the owner's forced glass choice. The jump RESPAWNS both when it wears off (`respawn`) and on a respawn (its class) |
 | GAP | **the jump** | a 2-tile gap over the void to V, at the same height | the make-or-break. MEASURED (section 5): with the jump it is made, and without it glass falls every time |
-| L | **the back door** | H's west edge drops 2 units onto a lane back to the plaza. Glass may step down it, and nothing climbs it | NEEDED by the tool (section 3.1): every flag and pad must reach the cup with NO pickup. Glass that will not jump walks back and takes the rubber route as glass |
+| L | **the back door** | H's west edge drops 2 units onto a lane back to the plaza. Glass may step down it, and nothing climbs it | KEPT AS THE WAY BACK (no longer required): the tool once needed it (section 3.1), but since SPEC.md 130.14.4.1.2 a flag or pad also passes when it reaches a finish taking only RESPAWNING pickups. The owner keeps it as a softlock-proof way back: glass that will not jump walks back and takes the rubber route as glass |
 | V | **V** | the landing, then a 2-wide neck with TWO RUBBER pads, and a ramp down to the rejoin | ends the glass stretch on rubber (G13, G14) |
 | J, Z | **the rejoin and the finish** | the rejoin green, a 3-wide walk in, and a 5 x 5 SANDPIT with the cup in its middle (the cup's cell NORMAL). The finish clock is on its front-left corner | the owner's KEEP. Sand stops every ball under the cup's capture within a tile (130.14.4.3) |
 
@@ -118,11 +121,11 @@ saves the most when the waits are long.
 | windmill 1's doorway "in the shade" (OCCG in IN's 3 x 3) | the tee widened under B, and its east edge before the ramp left open: a two-height guard, then a block rail there, shaded the door |
 | windmill 2's doorway in the shade | U 5 deep with the door a row up, so U's south rail is two rows in front of the door's 3 x 3 |
 | the arch's pad under a third seen (A10) | the glass tube runs -x first (a +y body in front of the arch hid the pad), with no rail beside its mouth |
-| over 1,024 BLOCKS, three times | the sand BUNKER on F (about 48 blocks, `MILL_BUNKER=1`), the finish's magenta bumper rails (`MILL_FINRAILS=1`; guard rails now) and the ramp's side rails are all gone, and heights are whole units where half units bought nothing |
+| over 1,024 BLOCKS, three times (a limit since lifted: SPEC.md 130.56's map form 9, ROWNIBS, chosen automatically past 1,024 blocks; the bound is now the part's 65,024 bytes) | the sand BUNKER on F (about 48 blocks, `MILL_BUNKER=1`), the finish's magenta bumper rails (`MILL_FINRAILS=1`; guard rails now) and the ramp's side rails are all gone, and heights are whole units where half units bought nothing |
 | a 4-long see-saw: its picture changes over 10 lanes, over the 6 a plate may have (130.42.5) | 2 x 2 |
 | the see-saw's lanes in a flag's lane block | flag 0 moved a tile back, onto the drop's exit line |
 | the see-saw and a clock in one window, 7 pose changes (130.19.10) | no fork clock, and the turntable clock on a low pillar |
-| the jump unreachable with no pickup (130.25.7.3, Q-92: every finish reachable with no pickup, so a pickup only shortens a route) | the BACK DOOR. Without it the glass pad and flag 2 would be refused |
+| the jump unreachable with no pickup (130.25.7.3, Q-92: every finish reachable with no pickup, so a pickup only shortens a route) | the BACK DOOR. Without it the glass pad and flag 2 were refused (no longer: SPEC.md 130.14.4.1.2 counts the respawning jump; the door is kept as the way back) |
 
 Also found: rubber drifted off the see-saw's open side and respawned at the START (the
 autopilot did, from F). The see-saw's west side is now block-railed. Its east side is
@@ -133,8 +136,9 @@ open, because a block rail there is in front of the plate and hid the ball on it
 
 - **It compiles.** The route demo is COMPLETE: 1,495 steps, **27.37 s**, rubber, 0 falls,
   4 Hops. NO TRAP passes from every flag and pad.
-- Budgets: **980 of 1,024 blocks**, the binding limit. Any growth needs block
-  savings first. The picture part is 55,610 bytes (9,414 under 65,024). It is **19,083
+- Budgets: **980 blocks**, which was the binding limit (1,024) when measured; since SPEC.md
+  130.56 (map form 9, ROWNIBS) the block count is no longer a bound, only the part's
+  65,024 bytes. The picture part is 55,610 bytes (9,414 under 65,024). It is **19,083
   bytes LZ4, over the 60 s target's 1.5x budget (18,825) by 258**. That is reported,
   not refused (130.27.5).
 - Visibility (reported): windmill 1's drop IN 50%. The ARCH'S GLASS PAD is 50% against
@@ -154,9 +158,10 @@ open, because a block rail there is in front of the plate and hid the ball on it
 The autopilot does the rubber route in 27.4 s and the glass route in 27.0 s. It never
 waits. A player adds windmill 1's gate (up to 1.2 s), ricochets in the bumper box, the
 see-saw's tip, a wait on the pivot (up to 2 quarters, 2.1 s) and windmill 2's gate.
-PREDICTED for a human: about 40 - 45 s, not 60. The course is already at 980 of 1,024
-blocks, so reaching 60 s means making room first: fewer distinct heights, or no second
-house. See questions 1 and 2.
+PREDICTED for a human: about 40 - 45 s, not 60. The course was at 980 of 1,024
+blocks when this was written; since SPEC.md 130.56 blocks no longer bound it (the part's
+65,024 bytes do: the picture part has 9,414 bytes spare), so reaching 60 s no longer means
+making block room first. See questions 1 and 2.
 
 ## 5. The jump (MEASURED on the model)
 
@@ -172,17 +177,17 @@ house. See questions 1 and 2.
 ## 6. Open questions for the owner
 
 1. **Length.** The course is about 27 s for the autopilot and about 40 - 45 s PREDICTED
-   for a human, against the 60 s target, and it is at 980 of 1,024 blocks. Should the
+   for a human, against the 60 s target, and it has 980 blocks (no longer a bound, SPEC.md 130.56). Should the
    target be 45 s? Or should room be made for a third dense screen: a second bumper box
    without rails (G21) on the rubber route, or MOON's tube fan?
-2. **What the block budget took.** The sand bunker on F, the finish's magenta bumper
+2. **What the block budget took** (the 1,024-block limit, lifted by SPEC.md 130.56). The sand bunker on F, the finish's magenta bumper
    rails and the ramp's side rails are all gone (each is a knob in the sketch). Which do
    you want back, and at what cost elsewhere?
 3. **The turntable's G3.** The autopilot hops it. Options: accept a playtest demo as the
    G3 run; make the crossing slower to need (`quarter 64` is the slow default already);
    or move the turntable to where a pan cannot happen (a straight +y run with no turn
    after it).
-4. **The back door.** The tool needs it: every finish must be reachable with no pickup.
+4. **The back door.** Kept as the way back (no longer required by the tool, SPEC.md 130.14.4.1.2; the owner keeps it as a softlock-proof way back).
    It reads as a blind alley from the plaza. Keep it, or make it a visible "chicken run"
    (a sign, a step)?
 5. **The see-saw's open east side** (a block rail there hides the ball), and its fall
@@ -197,12 +202,12 @@ house. See questions 1 and 2.
    backtracking, and a water pond (130.36). A pond that rubber floats over reads oddly
    as a minigolf hazard, and it would be a fetched family.
 
-## 7. How the pictures and the draft are made
+## 7. How the pictures and the course are made
 
 ```
 python3 docs/plans/bonanza-courses/mill/sketch.py                    # plan.png, iso.png, the clocks' spacing
-python3 docs/plans/bonanza-courses/mill/sketch.py --bbc docs/plans/bonanza-courses/mill/mill-draft.bbc --force
+python3 docs/plans/bonanza-courses/mill/sketch.py --bbc apps/bonanza/courses/mill.bbc --force   # the SHIPPED course
 python3 docs/plans/bonanza-courses/mill/sketch.py --bbc OUT.bbc --force --glass   # the glass route's ways
-python3 tools/bbcourse.py -o DIR docs/plans/bonanza-courses/mill/mill-draft.bbc  # about 2.5 minutes
+python3 tools/bbcourse.py -o DIR apps/bonanza/courses/mill.bbc   # alone: about 2.5 minutes
 MILL_PIT=1 / MILL_BUNKER=1 / MILL_FINRAILS=1                         # the parts the budgets took out
 ```

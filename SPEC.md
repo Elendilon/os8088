@@ -273125,7 +273125,9 @@ the owner marked it up; page 1 a PROTOTYPE): pad 0 is **FIRST ROLL** (`ROLL`,
 course 1, where a new game rests), pad 1 **LITTLE HOP** (`HOP`, course 2), pad 2
 **DOWNHILL DECISION** (`DOWN`, course 3, since 2026-11-21: its two exits the
 split, exit 0 Up to 4 and exit 1 Left to 6; TRIAL stood in there until then,
-130.54.9), and pads 3 - 7 the old test courses standing in. ROLL
+130.54.9), pad 3 **WINDMILL LANE** (`MILL`, course 4: attempt 1 since 2026-11-21,
+in the prototype's place, 130.54.10), and pads 4 - 7 the old test courses
+standing in. ROLL
 and HOP are in `BZ_COURSES` by default, appended as courses 7 and 8 so every
 course before them keeps its K, and the `BZROLL` knob that carried them is
 retired. The map the shipped one replaced is `pathtest.bbc`, the base the
@@ -287113,6 +287115,56 @@ neither was a fault in the course or the camera:
   beside no frame in a tube: 0 of 1,214, 1,208 and 1,166 samples at 8, 15
   and 25 steps (1,220, 1,213 and 1,174 before), and `nohyst` still red on
   both cards.
+
+#### 130.54.10 WINDMILL LANE ships in the prototype MILL's place (the owner, 2026-11-21)
+
+130.54.9's rule again (*"all of the courses we're working on - their
+existing form was also just a test or prototype, so we can replace them as
+we develop"*), for course 4. WINDMILL LANE's attempt 1
+(`docs/plans/bonanza-courses/MILL.md`) is written by
+`docs/plans/bonanza-courses/mill/sketch.py --bbc apps/bonanza/courses/mill.bbc
+--force`, and that output IS the shipped `mill.bbc` now: course `MILL`,
+"Windmill Lane", `music windmill`, `guide`, `target 60`, families `rotor tube
+archway turntable pickups seesaw`. The scratch draft `mill/mill-draft.bbc`
+(the same text) is gone. The geometry is the design's, untouched.
+
+- **The slot and the pad are the prototype's**: `BZ_COURSES` K 2,
+  `path.bbc`'s pad 3, so no K and no pad moved. MILL has no authored demo:
+  its ROUTE DEMO (`BZDMILL.BIN`) is the new course's, so the title's draw
+  and V's cycle carry it.
+- **The prototype is not kept as a test course** (unlike TRIAL, 130.54.9):
+  the new course has its name, and TMIL (130.54.4) is its top cell for
+  cell - both windmills on their KEEP tubes, the three posts, the drop, the
+  cannon, the lift, a goal. Everything that needed those features plays
+  TMIL. The rows were already there (BOUNCE-BONANZA-SOAK phase 3:
+  bonanzaphys, bonanzaphyshost, bonanzawheel, bonanzaring, bonanzaperf,
+  bonanzareplay, bonanzamega name `tmil`); their last defaults that still
+  said `mill` (`bonanza_phys.mill_rec`/`mill_poke`/`slab_poke`/`mill_replays`
+  and the `MILL_POSTS` family, `bonanza_ring.bench`/`mill_play`) now say
+  `tmil`, and `bonanza_dsplit`'s THE MILLS is built on `tmil.bbc` (its split
+  cells moved beside TMIL's posts, low dock and F; its PRICE pass plays TMIL).
+- **`--selfcheck`'s prototype items move to TMIL**: `seeds` (two windmills'
+  seeds exchanged), `crosscommit` (TMIL carries the 503031d4 chain in MILL's
+  place: that tree's `mill.bbc` is the prototype, and WINDMILL LANE is in
+  statements that grammar lacks), `physics` (the boost's lift cases),
+  `props` (item 7's gate, transit, exits, kick and lift), `millroute`
+  (item 8's windmill, chute and cannon route, and GLIDE on it), `launch`
+  (round 3b's launches), `inc` (item 5's rotor-in-front control), `w9`'s
+  `uses rotor tube` cases (`_mill_text`) and `camcheck`'s SIDE scenario
+  (`SIDE_SCEN`, bonanzaring's `T_SIDE` on TMIL: (18, 14), Left, 240 steps).
+  `camcheck`'s ramp bottom stays on MILL: WINDMILL LANE keeps the
+  prototype's B, ramp and bumper box at the same cells (12 units higher).
+  `CAP_WAIVE`'s MILL waiver (the old course's 6 bytes) is removed.
+- **As built (MEASURED, `make bonanzadisk`)**: MILL is a TWO-PART course
+  (130.30), part `BZ2.BIN` 66,658 bytes stored (picture 55,610, world
+  11,042), 15,951 packed (LZB) where the prototype's was 27,706 and 6,900;
+  its route demo 778 bytes (27.37 s, rubber, COMPLETE, 4 Hops) where the
+  prototype's was 302. `BONANZA.O88` **175,056 bytes** (about +9,300);
+  `bonanza360.img` **179 of 354 clusters**, `bonanza720.img` 179 of 713,
+  `bonanza.img` and `bonanza120.img` 355 of 2,847 and 2,371 - BONANZA.O88 is
+  on no other disk. `BZ_CRS_MAXCLAIM` 8,576 paragraphs (DOWN's, unchanged),
+  `BZ_CRS_ARMAX` 192. The test build (`BZDEV=1`): `BONANZA.O88` 207,279
+  bytes, `bonanza360.img` 211 of 354 clusters.
 
 ### 130.55 THE LIFE, `respawn` and the 10-second default (the owner, 2026-11-21; on `bb-lives`)
 

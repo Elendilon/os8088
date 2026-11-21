@@ -441,8 +441,9 @@ HEAD_TXT = """
 # Course 4 (MILL; docs/plans/bonanza-courses/MILL.md): WINDMILL LANE, a windmill MINIGOLF course - the
 # prototype's first windmill and bumper box, a FORK into two tubes (an open one to the RUBBER way: a turntable
 # and a second windmill; one behind an ARCHWAY over a glass pad to the GLASS way: a respawning jump and a gap
-# it must make), a rejoin, and a CUP in a sandpit.  ATTEMPT 1, A DRAFT: written by
-# docs/plans/bonanza-courses/mill/sketch.py --bbc; the shipped apps/bonanza/courses/mill.bbc is the prototype.
+# it must make), a rejoin, and a CUP in a sandpit.  ATTEMPT 1, SHIPPED (2026-11-21; the prototype's features
+# are TMIL's, the test copy): written by docs/plans/bonanza-courses/mill/sketch.py --bbc --force while the
+# layout moves.
 course MILL "Windmill Lane"
 guide                     # a REAL course: held to the course guide's checkable rules
 music windmill

@@ -21038,8 +21038,9 @@ def budget(t):
 # NAMED exceptions to the cap, bytes (the lead's decision for the owner, 2026-11-16, story 9.8): MILL - an
 # OLD course the owner plans to drop as the new courses land - packed 9,406 against its 9,412 cap, and naming
 # the families its props now belong to (`uses rotor tube`, SPEC.md 130.25.20) adds 12 packed bytes.  It is
-# waived for MILL ALONE by exactly what that costs; no other course's cap moves.
-CAP_WAIVE = {"MILL": 6}
+# waived for MILL ALONE by exactly what that costs; no other course's cap moves.  (2026-11-21: that MILL is
+# gone - WINDMILL LANE's attempt 1 ships under its name, docs/plans/bonanza-courses/MILL.md - and so is its waiver.)
+CAP_WAIVE = {}
 
 
 def course_cap(c):
@@ -23901,7 +23902,9 @@ def ramp_reversals(c, herc, **gkw):
 # Right held: the lift's slab near the window's BOTTOM while a column pan runs to the right, so a side-blind
 # level 1 withholds columns the side-aware rule takes (found on 6b's model by a search of the tiles round
 # the lift, every chord; bonanzaring's CAMERA leg replays it)
-SIDE_SCEN = {"crs": "MILL", "at": (21, 17), "keys": K_R, "steps": 240}
+# (2026-11-21: the prototype MILL is gone; the scenario is TMIL's, its test copy - bonanzaring's T_SIDE, searched
+# there the same way: W, Left held back toward B's ramp past the posts)
+SIDE_SCEN = {"crs": "TMIL", "at": (18, 14), "keys": K_L, "steps": 240}
 
 
 def side_run(c, herc, **gkw):
@@ -25580,7 +25583,7 @@ def _launch_checks(byname, res):
     stop-bouncing rule over MILL's and PEAK's routes with Space held and
     mashed, each with its control"""
     rows, bad, spent = [], [], []
-    for name in ("MILL", "PEAK"):
+    for name in ("TMIL", "PEAK"):
         c = byname[name]
         p0 = Physics(c, play=True)
         auto = []
@@ -25594,14 +25597,14 @@ def _launch_checks(byname, res):
         nl = launch_tokens(c, auto, _nolaunch=True)
         spent.append((name, len(lt), sum(1 for _e, _n, t, _b in nl if t)))
     print("    round 3b's launches on the autopilot routes (SPEC.md 130.17.17): %s" % "; ".join(rows))
-    res.append(("7 every launch arms: on MILL's and PEAK's routes each spring launch and each DROP or LAUNCH exit "
+    res.append(("7 every launch arms: on TMIL's and PEAK's routes each spring launch and each DROP or LAUNCH exit "
                 "leaves the token 1 unless a boost is spent (%d launches, %d wrong)" % (
                     sum(x[1] for x in spent), len(bad)), sum(x[1] for x in spent) >= 2 and not bad))
     res.append(("7 negative control `nolaunch` (no token out of a launch): none of those launches arms (%d armed)"
                 % sum(x[2] for x in spent), not sum(x[2] for x in spent)))
-    sp = fall_spent(byname["PEAK"], extra=byname["MILL"])
+    sp = fall_spent(byname["PEAK"], extra=byname["TMIL"])
     res.append(("7 one boost, then stop bouncing, through springs and tubes: Space held and mashed over PEAK's and "
-                "MILL's routes (%d steps, %d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])),
+                "TMIL's routes (%d steps, %d boosts, %d violations)" % (sp[0], sp[1], len(sp[2])),
                 sp[1] >= 2 and not sp[2]))
     pk = byname["PEAK"]
     q = Physics(pk, play=True).poke(24, 33, 160, 0)
@@ -27561,8 +27564,9 @@ class _famtest:
 
 
 def _mill_text():
-    """MILL's text (story 9.8's cases: its windmills and tubes name ROTOR and TUBE)"""
-    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).read()
+    """the prototype MILL's props' text (story 9.8's cases: its windmills and tubes name ROTOR and TUBE) - TMIL's,
+    its test copy, since the prototype left (2026-11-21)"""
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", "tmil.bbc")).read()
 
 
 def _w9_cases():
@@ -31000,24 +31004,24 @@ def _course_items(c, k, res, t):
 def _sc_seeds(X, res):
     """--selfcheck's section `seeds` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if "MILL" in byname:                    # the negative control: two windmills' seeds exchanged
-        src = open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
-                   else os.path.join(ROOT, byname["MILL"].fname)).read()
+    if "TMIL" in byname:                    # the negative control: two windmills' seeds exchanged (TMIL: the
+        src = open(byname["TMIL"].fname if os.path.isabs(byname["TMIL"].fname)   # prototype MILL's top, 2026-11-21)
+                   else os.path.join(ROOT, byname["TMIL"].fname)).read()
         swp = src.replace("prop windmill 9 9  seed 16", "prop windmill 9 9  seed 36").replace(
             "prop windmill 7 9\n", "prop windmill 7 9  seed 16\n")
         try:
-            cs = [compile_course(t, "<MILL, %s>" % n, occluders=False) for t, n in ((src, "as is"), (swp, "seeds swapped"))]
+            cs = [compile_course(t, "<TMIL, %s>" % n, occluders=False) for t, n in ((src, "as is"), (swp, "seeds swapped"))]
             def _plain(c):
                 b = bytearray(c.cga)
                 b[c.part["gridoff"] + 18:c.part["gridoff"] + 20] = b"\0\0"
                 return sum(struct.unpack_from("<%dH" % (len(b) // 2), b, 0)) & 0xFFFF
             sums = [_plain(c) for c in cs]
-            res.append(("1 negative control: MILL with its two windmills' seeds exchanged has another identity "
+            res.append(("1 negative control: TMIL with its two windmills' seeds exchanged has another identity "
                         "(%04Xh against %04Xh; a plain sum of the words would %s)" % (
                             cs[1].ident, cs[0].ident, "not" if sums[0] == sums[1] else "too"),
                         swp != src and cs[0].ident != cs[1].ident))
         except CourseError as e:
-            res.append(("1 negative control: MILL with its seeds exchanged compiles (%s)" % e, False))
+            res.append(("1 negative control: TMIL with its seeds exchanged compiles (%s)" % e, False))
 
 
 def _sc_crosscommit(X, res):
@@ -31039,12 +31043,16 @@ def _sc_crosscommit(X, res):
     # to cover the five it was written for - BENCH, FIRST, TRIAL, MILL and PEAK (summit.bbc) - or the item fails)
     import subprocess
 
+    # (2026-11-21: mill.bbc is WINDMILL LANE now, in statements that commit's grammar lacks - the prototype it
+    # held there is TMIL's top cell for cell, so TMIL carries the chain in MILL's place)
     def _in_w5(c):
+        if c.name in ("MILL", "TMIL"):
+            return c.name == "TMIL"
         return subprocess.run(["git", "cat-file", "-e", "%s:apps/bonanza/courses/%s" % (
             W5_COMMIT, os.path.basename(c.fname))], cwd=ROOT, capture_output=True).returncode == 0
     w5 = [c for c in courses if c.name != "PLAY" and not any(isinstance(t_, Split) for t_ in c.tiles.values())
           and _in_w5(c)]
-    W5_CHAIN = ("BENCH", "FIRST", "TRIAL", "MILL", "PEAK")
+    W5_CHAIN = ("BENCH", "FIRST", "TRIAL", "TMIL", "PEAK")
     if [c.name for c in w5] != [n for n in (c.name for c in courses) if n in W5_CHAIN]:
         res.append(("1 the cross-commit chain covers %s's courses %s (it covers %s)" % (
             W5_COMMIT, ", ".join(W5_CHAIN), ", ".join(c.name for c in w5) or "none"), False))
@@ -32248,7 +32256,7 @@ def _sc_physics(X, res):
     """--selfcheck's section `physics` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
     if "FIRST" in byname:
-        _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("MILL"))
+        _physics_checks(byname["FIRST"], res, byname.get("TRIAL"), byname.get("TMIL"))   # (TMIL: the prototype MILL's lift)
 
 
 def _lift2_shared(c):
@@ -32393,8 +32401,8 @@ def _sc_lift2(X, res):
 def _sc_props(X, res):
     """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if "MILL" in byname:
-        _props_physics(byname["MILL"], res)
+    if "TMIL" in byname:                        # (the prototype MILL's props: TMIL's since 2026-11-21)
+        _props_physics(byname["TMIL"], res)
 
 
 def _sc_routes(X, res):
@@ -32407,8 +32415,8 @@ def _sc_routes(X, res):
 def _sc_millroute(X, res):
     """--selfcheck's section `millroute` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if "MILL" in byname:
-        _mill_route(byname["MILL"], res)
+    if "TMIL" in byname:                        # (the prototype MILL's route features: TMIL's since 2026-11-21)
+        _mill_route(byname["TMIL"], res)
 
 
 def _sc_camcheck(X, res):
@@ -32429,7 +32437,7 @@ def _sc_play(X, res):
 def _sc_launch(X, res):
     """--selfcheck's section `launch` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
-    if {"MILL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 130.17.17)
+    if {"TMIL", "PEAK"} <= set(byname):         # round 3b (SPEC.md 130.17.17); TMIL: the prototype MILL's drop and cannon
         _launch_checks(byname, res)
 
 
@@ -32873,8 +32881,8 @@ def _sc_inc(X, res):
     res.append(("4 negative controls: one bit of BZ_SURFTAB, of the corner table and of OCTANT each moves BZ_PHYSV",
                 all(moved)))
     try:                                      # item 5's negative control: a blade in front of the doorway
-        compile_course(open(byname["MILL"].fname if os.path.isabs(byname["MILL"].fname)
-                            else os.path.join(ROOT, byname["MILL"].fname)).read(), "<MILL, rotor in front>",
+        compile_course(open(byname["TMIL"].fname if os.path.isabs(byname["TMIL"].fname)
+                            else os.path.join(ROOT, byname["TMIL"].fname)).read(), "<TMIL, rotor in front>",
                        _hack={"rotor_front": True})
         caught = False
     except CourseError as e:
@@ -35585,8 +35593,8 @@ def main_tune(assigns, paths):
     res = []
     if "BENCH" in byname:
         _route_checks(byname["BENCH"], res, byname.get("TRIAL"), byname.get("FIRST"))
-    if "MILL" in byname:
-        _mill_route(byname["MILL"], res)
+    if "TMIL" in byname:                        # (the prototype MILL's route features: TMIL's since 2026-11-21)
+        _mill_route(byname["TMIL"], res)
     for c in courses:
         if c is not None and (any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches):
             _w4_route(c, res)
