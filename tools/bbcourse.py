@@ -1033,7 +1033,7 @@ CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 
 CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
-                "frogb")   # a clock's `frame`s (SPEC.md 130.18.5.2)
+                "frogb", "orbr", "orbh", "orbs", "orbg")   # a clock's `frame`s (SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # wave 7 (SPEC.md 130.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
@@ -9519,6 +9519,110 @@ _CLOCK_DRAW = {"pin": _clock_pin, "tee": _clock_tee, "board": _clock_board, "lam
 _FROG_POSES = {"frogl": (-1, (-2, 1), False), "frogr": (1, (1, 1), False), "frogb": (-1, (-2, -2), True)}
 for _k, (_e, _g, _u) in _FROG_POSES.items():
     _CLOCK_DRAW[_k] = (lambda e, g, u: lambda p, x0, y0, tops: _clock_frog(p, x0, y0, tops, e, g, u))(_e, _g, _u)
+
+
+def _clock_ontop(a, x, y, m=0.92):
+    """is (x, y) on the clock block's top diamond (the frame's _ClockArt a)"""
+    return abs(x + 0.5 - a.cx) / 16.0 + abs(y + 0.5 - a.cy) / 8.0 <= m
+
+
+def _clock_top_shadow(a, dx=3, rx=11.0, ry=4.0, dy=2.0):
+    """the dithered shadow on the BLOCK's top (the frogs'): every other pixel black, on the diamond only"""
+    for (x, y) in _ellipse(a.cx + dx, a.cy + dy, rx, ry, a.cx - 16, a.cx + 17, a.cy - 6, a.cy + 8):
+        if _clock_ontop(a, x, y) and (x + y) & 1:
+            a.put(x, y, BLK, "shadow")
+
+
+def _clock_orb(p, x0, y0, tops, mat):
+    """`orb` (DOWNHILL DECISION's, SPEC.md 130.18.5.2; docs/plans/bonanza-courses/down/CLOCKS.md): the course's
+    three BALLS, one object in its materials.  A big sphere on a short lit stem and a cup on the block's top, the
+    digits on a white band round its middle (bowed to the sphere, as LITTLE HOP's `ball`); the material says
+    where on the course it stands (the owner: "something on the clock represents where this is in the course"):
+      orbr (start)    RUBBER: magenta, lit white, a black dither in its shade
+      orbh (hub)      the SPLIT: its left half steel, its right half glass, a zigzag seam down its face
+                      (steel south = screen left, glass east = screen right)
+      orbs (steel)    STEEL: chrome - a white sky over a hard horizon, black ground under it, a bright rim
+      orbg (glass)    GLASS: cyan, a window glint, a caustic low on its right, and its own STEM SEEN THROUGH IT
+    The finishes' are slimmer (130.18.5.4's one ball length: at the start's size a ball behind them is wholly
+    hidden for 18 ground units).  Palette 1's inks: on the Hercules cyan and magenta are one grey checker, so
+    every form is carried by white and black as well"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx0, wx1 = a.win[0], a.win[1]
+    slim = mat in ("steel", "glass")                # the finishes' are slimmer (130.18.5.4's one ball length)
+    r = 4 * n + (6.5 if slim else 10.0)
+    bh, bow = (5.5, 2.0) if slim else (6.5, 3.0)    # the band's half height (the digits' rows), its bow
+    bcx, bcy = fx, fy
+    _clock_top_shadow(a, 4, 10.0, 3.6)
+    bot = int(bcy + r)
+    for (x, y) in _ellipse(cx - 0.5, cy - 1.5, 6.0, 2.5, cx - 7, cx + 7, cy - 5, cy + 2):   # the foot
+        a.put(x, y, BLK if y >= cy or x in (cx - 6, cx + 5) else (WHT if x < cx - 2 else MAG))
+    a.column(cx - 2, bot - 2, cy - 3)
+    for (x, y) in _ellipse(bcx - 0.5, bot - 1.0, 8.0, 2.6, bcx - 9, bcx + 9, bot - 4, bot + 2):  # the cup
+        a.put(x, y, BLK if y >= bot or abs(x + 0.5 - bcx) > 6.5 else (WHT if x < bcx - 2 else MAG))
+    ball = _ellipse(bcx, bcy, r, r, int(bcx - r) - 1, int(bcx + r) + 1, int(bcy - r) - 1, int(bcy + r) + 1)
+
+    def seam(y):                                    # the split's zigzag, x of it on row y
+        return bcx - 1 + (1 if (y // 3) & 1 else -1)
+
+    def ink(x, y):
+        ux, uy = (x + 0.5 - bcx) / r, (y + 0.5 - bcy) / r
+        uz = math.sqrt(max(0.0, 1.0 - ux * ux - uy * uy))
+        lit = -0.5 * ux - 0.6 * uy + 0.62 * uz
+        mid = bcy - 0.5 + bow * (1.0 - math.sqrt(max(0.0, 1.0 - ux * ux)))
+        off = y + 0.5 - mid
+        if abs(off) <= bh:                          # the band: white, shaded only off the digits
+            if wx0 <= x <= wx1:
+                return WHT
+            return (MAG if (x + y) & 1 else WHT) if lit < 0.05 else WHT
+        if abs(off) < bh + 1:
+            return BLK
+        m = mat
+        if mat == "split":
+            if x == seam(y):
+                return BLK
+            m = "steel" if x < seam(y) else "glass"
+        if m == "rubber":
+            if lit > 0.9:
+                return WHT
+            if lit < -0.1 or (lit < 0.2 and (x + y) & 1):
+                return BLK if (x + y) & 1 else MAG
+            return MAG
+        if m == "steel":
+            if off < 0:                             # the sky: white, greying to the horizon
+                if lit > 0.95 or uy < -0.8:
+                    return WHT
+                return (WHT if (x + y) & 1 else MAG) if lit > 0.45 else (MAG if (x + y) & 1 else BLK)
+            if uy > 0.78 and ux < 0.35:
+                return WHT                          # the bright rim the ground throws back
+            return BLK if (lit < 0.1 or (x + y) & 1) else MAG
+        # glass
+        if lit > 0.98:
+            return WHT
+        if uy > 0.55 and ux > 0.05 and (ux * ux + uy * uy) > 0.55:
+            return WHT if (x + y) & 1 or uy > 0.7 else CYN     # the caustic
+        if lit < -0.15 and (x + y) & 1:
+            return MAG
+        return CYN
+    a.blob(ball, ink)
+    if mat in ("glass", "split"):                   # the STEM seen through the glass, dimmed
+        for y in range(int(bcy + 8.5), bot - 1):
+            for k, c_ in ((-1, MAG), (0, CYN)):
+                if (cx + k, y) in ball and (mat == "glass" or cx + k > seam(y)) and a.out.get((cx + k, y)) == CYN:
+                    a.put(cx + k, y, c_ if (y & 1) else CYN)
+    gx, gy = int(bcx - 0.5 * r), int(bcy - 0.62 * r)    # the glint (a little window on glass)
+    if mat == "glass" or mat == "split":
+        gx = int(bcx + 0.2 * r) if mat == "split" else gx
+        a.pattern(("WW.W", "WW.W", "....", "WW.W"), gx - 1, gy - 1)
+    else:
+        a.pattern(("WW", "WW"), gx, gy)
+    return a.done(tops)
+
+
+# DOWNHILL DECISION's orbs (the owner, 2026-11-21): one a position, its material where it stands
+_ORB_MATS = {"orbr": "rubber", "orbh": "split", "orbs": "steel", "orbg": "glass"}
+for _k, _m in _ORB_MATS.items():
+    _CLOCK_DRAW[_k] = (lambda m: lambda p, x0, y0, tops: _clock_orb(p, x0, y0, tops, m))(_m)
 
 
 def clock_pose(tsec, place):

@@ -1,5 +1,18 @@
 # DOWNHILL DECISION: art options (signs and interest decals)
 
+**THE OWNER PICKED the sign `wall` and the decal `boost` (2026-11-21)** - not `fork`/`balls` (a ball could roll
+over them and art occlusion was never built), not `flags` (they need it too), not lift, sink, stairs or crack.
+`art.py apply` draws them off the course as `sketch.py` wrote it into `apps/bonanza/courses/down_sign.bba` and
+`down_boost.bba`; `sketch.py`'s `ART` pins their anchors and emits the ART block on every re-emit. What follows
+is the study as it was written.
+
+**OPEN (rev 17): the picks collide at the hub.** STRUCT.md's D cuts the hub's free front-left corner (course
+cell (46, 20), a `hole half left`), and that cell's +y face is the first of the three "GLASS >" is painted on.
+The face that is left (cells 47 - 48, 32 px) is narrower than the word and its arrow (43 px), so the sign as
+drawn reads "ASS >": the art is clipped to its host cells, as it must be. Neither pick was dropped; the owner
+chooses - the hub's chamfer goes (L's four stay), or "GLASS >" moves (the bridge's landing, the hub's face east
+of the bridge), or the word loses its arrow and shrinks.
+
 *Status: OPTIONS for the owner to pick from (2026-11-21). Nothing here is in
 `apps/bonanza/courses/down.bbc`: the lead adds the chosen pieces once picked
 (`art.py --signs S --extras E,... --out DIR` writes the `art` lines and the

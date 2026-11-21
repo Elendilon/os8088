@@ -280774,6 +280774,31 @@ the top's front corner - all of it on the top's diamond:
   behind it; the slimmer pose keeps a ball behind it within 130.18.5.4's
   one ball length).
 
+**DOWNHILL DECISION's `orb`** (the owner, 2026-11-21, of four concepts,
+`docs/plans/bonanza-courses/down/CLOCKS.md`; the penguin and the stopwatch
+are saved there for a later course). The owner's rule for it, now the
+course guide's under G23: *"something on the clock represents where this is
+in the course."* The course's subject is the ball you become, so the clock
+is the course's BALLS: a big sphere on a short lit stem and a cup standing
+on its block's top (a dithered shadow on the top's diamond, as the frogs'),
+the digits on a white band bowed round its middle (no window), in palette
+1's inks with every form carried by white and black for the Hercules. Four
+frames, one a position, `_clock_orb`'s material:
+- **`orbr`**, the start: RUBBER - magenta, lit white, a black dither in its
+  shade (every run starts as rubber);
+- **`orbh`**, the hub: the SPLIT - its left half steel and its right half
+  glass, a zigzag seam down its face, each half on the side of the screen
+  its way out leaves by (steel south, screen left; glass east, screen right);
+- **`orbs`**, the steel finish: STEEL chrome - a white sky over a hard
+  horizon, black ground under it, a bright rim, a glint;
+- **`orbg`**, the glass finish: GLASS - cyan, a window glint, a caustic low
+  on its right, and its own stem seen through it.
+
+The two finish orbs are SLIMMER (a radius of `4n + 6.5` px against the
+start's and hub's `4n + 10`, and a thinner band): at the full size the
+compile refused them under 130.18.5.4's one ball length, a ball behind
+either finish clock being wholly hidden for 18 ground units.
+
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
 re-authored).

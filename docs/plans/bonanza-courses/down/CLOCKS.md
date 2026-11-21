@@ -1,5 +1,12 @@
 # DOWNHILL DECISION: clock options (2026-11-21, the owner to pick)
 
+**THE OWNER PICKED `orb` (2026-11-21):** *"something on the clock represents where this is in the course"* -
+the hub's split orb, the finishes' materials. `_clock_orb` is in `tools/bbcourse.py` now (frames `orbr`, `orbh`,
+`orbs`, `orbg`, SPEC.md 130.18.5.2) and `sketch.py`'s `FRAMES` sets one a position; `frames.py`'s orb draws
+through the tool's. **The PENGUIN and the WATCH are SAVED FOR A LATER COURSE** where they are, in
+`clocks/frames.py` (`_clock_peng`, `_clock_watch`); the watch may need work - the owner was unsure what its
+antennae are. What follows is the study as it was written, before the pick.
+
 *Course 3's clocks are all the default `crystal` frame today (sketch.py's `CLOCKS`: start (10, 7), hub
 (50, 11), steel finish (61, 43), glass finish (37, 34), each on top of the rail block it replaces). Four
 concepts follow. Each one is a single object with a variant for each position. The brief is the course
