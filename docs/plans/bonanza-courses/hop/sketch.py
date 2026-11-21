@@ -191,8 +191,9 @@ FRAMES = {"start": "frogl", "middle": "frogr", "finish": "frogb"}
 PLACED = {}
 # "JUMP!" on T1's north rail, "HOLD JUMP" on U1's (was "JUMP TWICE!", read by a player as "jump over both
 # steps"; the owner, 2026-11-21: HOLD JUMP, no exclamation mark - the Hop's press held through its landing is
-# the "and again", SPEC.md 130.17.16.4)
-SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "HOLD\nJUMP")]
+# the "and again", SPEC.md 130.17.16.4).  Then HOLD JUMP TO BOUNCE (the owner, 2026-11-21: "it tells them both
+# what, and why, and it stays above the fence line"), at the floor paint's smaller size (art.py u1_scale)
+SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "HOLD\nJUMP TO\nBOUNCE")]
 
 # the route, as the player rolls it (the sketch's centre line, not a demo)
 ROUTE = [(29.5, 7.5), (26.5, 8), (23.5, 8), (23.5, 11), (23.5, 14), (20, 14), (18, 14), (15.5, 14), (15.5, 17),
