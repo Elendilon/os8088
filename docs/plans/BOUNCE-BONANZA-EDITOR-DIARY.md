@@ -343,3 +343,26 @@ shipped compile's identity. The frame is drawn from the compiler's own pieces: t
 block limit left lifted; the bundle plays MILL for 120 frames from the zip. **Not yet:** a frame compared
 with MartyPC, a saved demo replayed on the game, and anyone playing it by hand. The frame's known
 approximations are listed in SPEC.md 130.56.16.2.
+
+## The Shapes tab (2026-11-21)
+
+**Intended:** chutes, pits and humps edited as shapes rather than as numbers, with the height along them
+and how each ball rides them (plan wave 4).
+
+**Observed:**
+- **A chute's line is an orthogonal path, and dragging must keep it one.** An end now slides along its
+  own leg. A corner takes its two neighbours' shared coordinate with it. Because corners alternate axes,
+  that keeps every leg straight, and the row's red arm (a corner dragged alone) is refused by the
+  compiler with "not along one axis".
+- **The ride readout needed no new physics.** The game's own autopilot already steers onto FIELD ways
+  (130.28.10), so the job sets its route to points a quarter and three quarters along each leg, never on a
+  corner, the way the shipped SHAPE route does by hand.
+- **Recompiling per chute was the trap.** A first prototype rewrote the course's route and recompiled:
+  93 s for SHAPE. Setting `Physics.route` directly on one cached compile makes the job about half a second.
+- **The test plate was too wide for its picture**, exactly the owner's earlier "width" trap. The window's
+  own band fix-up made the GUI run fit, and the row now uses it too.
+
+**Tested here:** the `bbedit` row (item 9: shipped shapes round-trip; made, dragged, turned, reversed,
+compiled; ridden), red on a corner dragged alone; scripted sessions on SHAPE and on a new plate with one of
+each made from nothing. **Not yet:** played by hand; diagonal blocks in Iso (4.2).
+

@@ -287660,6 +287660,55 @@ occluder among 54,616), the Hercules translation, a saved log through `check_log
 rewind driven again to the same end. Red by hand: the ball drawn at `px + 1`, the RETURN left out of the
 log, BLK_MAX left lifted. The bundle row `bbeditbundle` plays MILL 120 frames in the zip.
 
+#### 130.56.19 The Shapes tab (2026-11-21)
+
+The plan's wave 4: the shaped floors of 130.28 (chutes, pits) and 130.44 (humps) edited as what they are
+rather than as a line of numbers. `tools/bbedshape.py` is the tab and its model; its helpers import no Tk,
+so the row calls them as the window does.
+
+- **The tab** (between Build and Course): the course's shapes listed by line; *New chute*, *New pit*, *New
+  hump*, each the smallest the compiler lays (a 1-wide `round` chute 6 cells long, a radius-3 pit 16 px
+  deep with its 2x2 hole, a dome), on the area selected on the Build tab (else beside the start) at the
+  floor's height there; a plan of the shape's neighbourhood, heights coloured as the Build tab's, the
+  shape's own cells outlined; the form; the height graph; how each ball rides it. A shape selected on the
+  Build tab is the one shown when the tab opens.
+- **Handles**: a chute's ways are numbered handles on its crease (cell centres for 1 and 3 wide, cell
+  corners for 2 wide, 130.28.3). An END slides along its own leg (longer or shorter); an inner CORNER moves
+  freely and its two neighbours take its shared coordinate, so every leg stays on its axis
+  (`drag_way`). A pit's and a hump's handle is its corner. The edit lands on release.
+- **The form**: a chute's width (1, 2, 3), cross-section, depth, its ways with each lip height (blank:
+  level with the way before; a lip on a later way makes the leg before it a slope), *Add a leg at the
+  end* (turn left, straight on, turn right: four cells), *Remove the last leg*, *Run it the other way*
+  (each lip kept where it was). A pit's lip, radius, depth and hole; a hump's dome or ridge (along x or
+  y, its length, open ends), base and height.
+- **Every change goes through the window's checked edit** (130.56.12): a shape the compiler refuses is
+  undone with the reason in plain words. Rewriting a statement writes its words in the grammar's order
+  (`bbedshape.code`); the line's comment stays.
+- **The height graph**: a chute's lip (green) and bottom (blue, the lip less `depth / 8` units) along its
+  length, a mark at each way; a pit's or a hump's cross-section through its centre (a sketch).
+- **How each ball rides it** (`bbedjob.py ride COURSE LINE`, a job like the picture's, run 0.9 s after the
+  shape changes, remembered per statement text): on the PLAY-ONLY compile (130.56.16.1), each of rubber,
+  steel and glass -
+  - a chute: *steered along it* (the game's autopilot, `Physics.auto`, routed a quarter and three
+    quarters along each leg and to the last way, never onto a corner, entered at half speed along the
+    first leg) and *let go at the top* (no keys, the same entry): reaches the far end, falls off, comes to
+    rest, or is still rolling after 20 s, with the time and the top speed;
+  - a pit: poked on the lip at half and full speed round it: drops into the hole, settles, or still
+    circling after 10 s;
+  - a hump: rolled across it from a cell before it at a quarter, half and full speed: gets over, stops,
+    falls off.
+  MEASURED: SHAPE's chute 1 (line 26) - every ball steered through in 5.7 to 7.2 s, and let go each comes
+  to rest on its first leg; PITS' first pit drops every ball into the hole; the job 0.4 to 0.5 s when the
+  compile is cached, a SHAPE compile of its own 93 s (its chute tables). It is a readout of the model,
+  not a verdict: nothing is refused by it.
+- The `bbedit` row's item 9: every shipped chute, pit and hump reads and writes back to the same
+  meaning; on a constructed plate a chute made, dragged by an end and a corner, given a turn and run the
+  other way, a pit and a ridge all compile, the steered chute takes every ball through and the ridge
+  every ball over at full speed. Red by hand: a corner dragged without its neighbours (the compiler
+  refuses the leg off its axis).
+- **Not built** (the plan's 4.2): diagonal blocks and chamfers in Iso; the Build tab's own tools cut
+  corners (130.56.15).
+
 #### 130.56.21 The gap band's overlay (the owner, 2026-11-21)
 
 130.57 is the contract of the band and its detector; this is the builder's half of it. The owner: the band

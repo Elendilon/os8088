@@ -118,6 +118,11 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
               click a dashed box to mark it, a pink one to unmark it.
               The list under the course is every problem; click one to go
               to it.
+  Shapes tab  chutes, pits and humps: New chute / pit / hump, drag the
+              numbered handles (an end slides along its leg, a corner
+              takes its legs with it), add or remove legs, lips and depth;
+              the height along it, and how each ball rides it (the game's
+              own physics, in words).
   Course tab  the title, size, ball, music, colours, times; "Ready to play?"
               runs the full check (by itself, 2 s after you stop editing).
   Source tab  the file itself; double-click a line to select it.
