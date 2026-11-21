@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/pickups.asm - BONANZA's PICKUPS FAMILY (SPEC.md 130.25.9,
-; 130.25.19): three kinds, each taken when the ball's centre is in its cell
+; 130.25.19, 130.55): three kinds, each taken when the ball's centre is in its cell
 ; (CONTACT) and its one state bit, COLLECTED, clear -
 ;   hourglass (19)  +BZ_PU_HGSEC on the limit (bz_tsec; the clocks' next second
 ;                   shows it), once an attempt (ATTEMPT), and HIDDEN while
@@ -12,12 +12,16 @@
 ;   jump (21)       bz_mrec's HOP = BZ_PU_JHOP for any ball (it stacks with
 ;                   rubber's boost: the boost's rule reads the bounce), for its
 ;                   own duration, RESPAWN
-; Record +19 bit 0, OVERWRITE: taking it ENDS the other timed effect.  The two
+; Record +19 bit 0, OVERWRITE: taking it ENDS the other timed effect; bit 1,
+; RESPAWN (SPEC.md 130.55, "let them try again"): an effect ENDING - worn off,
+; an OVERWRITE, a RESET - puts back every element of its kind so marked
+; (pu_rearm), its bit cleared and its lane marked.  The two
 ; timers are this family's SLOT (bz_fsl + BZF_SLOT AL): +0 speed's steps left,
 ; +2 jump's, +4 the Hop the jump replaced.  STEP counts them down (and puts
 ; the jump's Hop back over a pad's swap, which copies the material's own),
 ; ends an effect at 0 and writes bz_cue, the resident sprite path's CUE
-; (SPARKLES while an effect lasts, the FLASH in its last BZ_PU_WARN steps);
+; (SPARKLES while an effect lasts, the FLASH in its last BZ_PU_WARN steps -
+; bits 0 and 1: bit 2 is THE LIFE's, fam/life.asm, and kept here);
 ; RESET (a respawn: a play's start finds everything zero) ends both.  Every
 ; change of bz_wacc rebuilds BOTH force tables here - bz_ramp's arithmetic,
 ; written again because a part cannot call the package.
@@ -63,7 +67,7 @@ pu_reset:
     je .m
     call pu_joff
 .m:
-    mov byte [bz_cue], 0
+    and byte [bz_cue], 4        ; (bit 2 THE LIFE's, 130.55)
     mov cl, [bz_nprop]
     xor ch, ch
     jcxz .out
@@ -197,7 +201,10 @@ pu_step:
     ja .c
     or dl, 2
 .c:
-    mov [bz_cue], dl
+    mov al, [bz_cue]            ; (bit 2 THE LIFE's, 130.55)
+    and al, 4
+    or al, dl
+    mov [bz_cue], al
     xor ax, ax                  ; (130.25.6.11: an effect running, every
     mov cx, [di]                ; step; none, none until CONTACT starts one)
     or cx, [di + 2]
@@ -229,12 +236,15 @@ pu_pose:
     retf
 
 ; the speed's effect ended (DI the slot): its timer, bz_wacc and bz_vup 0, the
-; tables rebuilt.  Clobbers AX, BX, CX, DX.
+; tables rebuilt, its RESPAWN elements back (130.55).  Clobbers AX, BX, CX,
+; DX, SI, ES.
 pu_soff:
     mov word [di], 0
     mov byte [bz_wacc], 0
     mov word [bz_vup], 0
-    ; (falls into pu_tab)
+    call pu_tab
+    mov dl, BZ_K_SPEED
+    jmp short pu_rearm
 
 ; both force tables rebuilt for bz_wacc: the air's from the material's ACC
 ; (>> 4), the ground's from the window centre's surface's force (bz_se, >> 3)
@@ -269,13 +279,53 @@ pu_ramp:
     jnz .l
     ret
 
-; the jump's effect ended (DI the slot): its timer 0, the Hop it replaced back
+; the jump's effect ended (DI the slot): its timer 0, the Hop it replaced
+; back, its RESPAWN elements back (130.55).  Preserves AX, DX, DI; clobbers
+; BX, CX, SI, ES.
 pu_joff:
     mov word [di + 2], 0
     push ax
+    push dx
     mov ax, [di + 4]
     mov [bz_mrec + BZM_HOP], ax
+    mov dl, BZ_K_JUMP
+    call pu_rearm
+    pop dx
     pop ax
+    ret
+
+; DL = a timed kind whose effect ENDED (SPEC.md 130.55, "let them try
+; again"): every element of it marked BZ_PU_RESP and COLLECTED is put back -
+; its bit cleared, its lane marked (bz_fmark).  Preserves DX, DI.  Clobbers
+; AX, BX, CX, SI, ES.
+pu_rearm:
+    mov cl, [bz_nprop]
+    xor ch, ch
+    jcxz .out
+    mov es, [bz_cseg]
+    mov si, [bz_poff]
+    xor bx, bx
+.l:
+    cmp [es:si], dl
+    jne .n
+    test byte [es:si + 19], BZ_PU_RESP
+    jz .n
+    push si
+    push cx
+    call pu_bit                 ; SI its byte, AL its bit
+    test [si], al
+    jz .k
+    not al
+    and [si], al
+    call far [bz_fmkp]          ; its lane MARKED (bz_fmark; BX the element)
+.k:
+    pop cx
+    pop si
+.n:
+    add si, 32
+    inc bx
+    loop .l
+.out:
     ret
 
 ; AL = the slot -> DI = its bytes, bz_fsl + BZF_SLOT AL.  Preserves all else.

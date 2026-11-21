@@ -553,8 +553,10 @@ FAMILIES = (
     # hidden with no limit), speed (ACC + PU_SACC on every surface and the cap + PU_SVUP) and jump (the Hop
     # PU_JHOP for any ball, stacking with the boost), the timed two each for its ELEMENT's duration (record
     # +18, steps / 4) and +19 bit 0 OVERWRITE; one bit an element, COLLECTED.  ID 6 (merge order: probe 1, glass 2,
-    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `resident`; kinds 19 - 21
-    {"name": "pickups", "id": 6, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
+    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `resident`; kinds 19 - 21.
+    # REV 2 (SPEC.md 130.55, `bb-lives`): the timed two's `respawn` (+19 bit 1: back when the effect ends), and
+    # the default duration 10 s (PU_DUR, in its CONSTS)
+    {"name": "pickups", "id": 6, "rev": 2, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
      "consts": "PU",
      "kinds": ({"name": "hourglass", "kind": FAM_K0 + 3, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
                 "forms": ("own",), "states": (0, 1), "pickup": True},
@@ -704,6 +706,18 @@ FAMILIES = (
      "kinds": ({"name": "turntable", "kind": FAM_K0 + 72, "bits": 0, "cls": CL_ATTEMPT, "art": "turn",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 29,
      "home": HOME_RESIDENT},
+    # THE LIFE (SPEC.md 130.55, `bb-lives`): a HEART - +1 on the game's lives (bz_lives, never past LF_MAX), once
+    # an attempt, or with `once` (+19 bit 2, PU_ONCE) once a GAME: the rounds keep a bit a pad (bz_nlife), bz_lfx
+    # bit 1 its own pad's.  HIDDEN outside a game's course (bz_lfx bit 0: exploration, a free play, a replay, a
+    # demo).  Its cue the sparkles RISING for LF_RISE steps (bz_cue bit 2), no flash.  A family of its own, not
+    # PICKUPS' fourth kind: PICKUPS' run (19 - 21) is closed by the windmill's 22, and moving the run moves
+    # BZ_BOKT and so BZ_PHYSV (every best and every demo); not a BOOST floor for that reason (BOOST_FLOOR_NAMES).
+    # ID 16; kind FAM_K0 + 11; home `resident`; CONSTS LF_RISE, LF_MAX
+    {"name": "life", "id": 16, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 1,
+     "consts": "LF",
+     "kinds": ({"name": "life", "kind": FAM_K0 + 11, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True},), "paras": 18,
+     "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6     # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
@@ -718,6 +732,11 @@ PU_JHOP = 400                 # jump: the Hop for ANY ball (rubber's 252 raised;
                               # rubber's boost stacked on its contact)
 K_HOURGLASS, K_SPEED, K_JUMP = FAM_K0 + 3, FAM_K0 + 4, FAM_K0 + 5
 PU_OVERWRITE = 1              # record +19 bit 0: taking it ENDS the other timed effect (SPEC.md 130.25.9)
+PU_RESPAWN = 2                # ...bit 1, a timed kind's: back (COLLECTED clear) when its effect ENDS (SPEC.md 130.55)
+PU_ONCE = 4                   # ...bit 2, a LIFE's: ONCE A GAME - taken, the pad's course never shows it again
+# THE LIFE's (SPEC.md 130.55): its own family
+K_LIFE = FAM_K0 + 11
+LF_MAX = 9                    # the game's lives are never raised past this (the face's one digit)
 # WATER's constants (SPEC.md 130.36): every one in its FAMV (famv's "consts" "WA")
 FK_WATER = FAM_K0 + 10        # its kind (22 - 25 are story 9.8's keys)
 WA_SINK = 160                 # a fall below a water cell's top: gvz capped at -WA_SINK (1/256 px a step) by STEP;
@@ -975,6 +994,8 @@ def famv(f):
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (130.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
+    elif f.get("consts") == "LF":               # THE LIFE's (130.55)
+        b += struct.pack("<HH", LF_RISE, LF_MAX)
     elif f.get("consts") == "MG":               # MAGNETS' (130.33)
         b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX, MG_BOB, MG_BOBP))
     elif f.get("consts") == "SP":               # SPIKES' (130.38): the kill's HSTEPS and state, the near void's
@@ -1129,7 +1150,9 @@ SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 130.18.1): the clock's second, steps (1.0070 s)
 PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball FLASHED (BLINK4; about 1 s)
-PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
+PU_DUR = (10 * SEC_STEPS + 2) // 4  # ...a timed element's default duration, steps / 4 (10 s: 138, 552 steps;
+                                    # 5 s until SPEC.md 130.55)
+LF_RISE = SEC_STEPS           # THE LIFE's cue, the sparkles RISING: its steps (about 1 s, no flash)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
 LIMIT_FLOOR = 1.3             # ...never under the route times this; an explicit limit neither
@@ -2056,11 +2079,12 @@ def _pennant(p):
 # outlined; '#' the outline, 'o' the kind's ink
 PU_ICON_UP = 3
 PU_ICONS = {
-    FAM_K0 + 3: ("#######", "#ooooo#", " #ooo# ", "  #o#  ", "  #o#  ", " #ooo# ", "#ooooo#", "#######"),
-    FAM_K0 + 4: ("##  ## ", "#o# #o#", " #o# #o#"[:7], "  #o# #", "  #o# #", " #o# #o", "#o# #o#", "##  ## "),
-    FAM_K0 + 5: ("   #   ", "  #o#  ", " #ooo# ", "#ooooo#", "##ooo##", " #ooo# ", " #ooo# ", " ##### "),
-}
-PU_INK = {FAM_K0 + 3: WHT, FAM_K0 + 4: CYN, FAM_K0 + 5: MAG}
+    K_HOURGLASS: ("#######", "#ooooo#", " #ooo# ", "  #o#  ", "  #o#  ", " #ooo# ", "#ooooo#", "#######"),
+    K_SPEED: ("##  ## ", "#o# #o#", " #o# #o#"[:7], "  #o# #", "  #o# #", " #o# #o", "#o# #o#", "##  ## "),
+    K_JUMP: ("   #   ", "  #o#  ", " #ooo# ", "#ooooo#", "##ooo##", " #ooo# ", " #ooo# ", " ##### "),
+    K_LIFE: ("       ", " ## ## ", "#oo#oo#", "#woooo#", "#ooooo#", " #ooo# ", "  #o#  ", "   #   "),  # a HEART
+}                                               # (SPEC.md 130.55; 'w' its white glint)
+PU_INK = {K_HOURGLASS: WHT, K_SPEED: CYN, K_JUMP: MAG, K_LIFE: MAG}
 
 
 def _icon_pix(p, x0):
@@ -2075,7 +2099,8 @@ def _icon_pix(p, x0):
     for j, row in enumerate(rows):
         for i, ch in enumerate(row):
             if ch != " ":
-                out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else PU_INK[p["kind"]]
+                out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else WHT if ch == "w" \
+                    else PU_INK[p["kind"]]
     return out
 
 
@@ -2242,7 +2267,7 @@ def _parse_fprop(toks, where, ln):
     [reset attempt|respawn|flag] - the class only where the kind's row has
     none, and `flag` written but not built"""
     fam, kr = FKIND_BY_NAME[toks[1][1]]
-    if fam.get("consts") == "PU":
+    if fam.get("consts") in ("PU", "LF"):           # (THE LIFE's syntax is a pickup's: SPEC.md 130.55)
         return _parse_pickup(toks, where, ln, fam, kr)
     if len(toks) >= 5 and toks[4] == ('w', "hole") and kr["kind"] != FK_CRACK:
         raise CourseError("%s: `hole` is a crack's (SPEC.md 130.25.18.1), not a %s's" % (where, kr["name"]))
@@ -2724,17 +2749,22 @@ def _tt_check(f, props, tiles):
 
 
 def _parse_pickup(toks, where, ln, fam, kr):
-    """a PICKUP (SPEC.md 130.25.9, 130.25.19): prop hourglass <wx> <wy>; prop speed|jump <wx> <wy> [for <S>]
-    [overwrite] - S seconds (a multiple of 0.25 is not needed: rounded to the byte's steps / 4), 5 by
-    default, 1 - 255 of the byte; `overwrite` ends the OTHER timed effect when this one is taken.  The
-    class is the kind's (ATTEMPT the hourglass, RESPAWN the timed two): no `reset`"""
+    """a PICKUP (SPEC.md 130.25.9, 130.25.19, 130.55): prop hourglass <wx> <wy>; prop speed|jump <wx> <wy>
+    [for <S>] [overwrite] [respawn] - S seconds (a multiple of 0.25 is not needed: rounded to the byte's
+    steps / 4), 10 by default (5 until 130.55), 1 - 255 of the byte; `overwrite` ends the OTHER timed effect
+    when this one is taken; `respawn` puts the element back when its effect ENDS (worn off, or ended by an
+    `overwrite` or a respawn: "let them try again"); and THE LIFE's, prop life <wx> <wy> [once] - +1 on the
+    game's lives, once an attempt, or with `once` once a GAME.  The class is the kind's (ATTEMPT the
+    hourglass and the life, RESPAWN the timed two): no `reset`"""
+    k = kr["kind"]
+    timed = k in (K_SPEED, K_JUMP)
+    syn = " [for <seconds>] [overwrite] [respawn]" if timed else " [once]" if k == K_LIFE else ""
     if len(toks) < 4:
-        raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], "" if kr["kind"] == K_HOURGLASS
-                                                              else " [for <seconds>] [overwrite]"))
+        raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], syn))
     dur, ow, i = PU_DUR, 0, 4
     while i < len(toks):
         t = toks[i][1] if toks[i][0] == 'w' else None
-        if kr["kind"] != K_HOURGLASS and t == "for" and i + 1 < len(toks) and dur == PU_DUR:
+        if timed and t == "for" and i + 1 < len(toks) and dur == PU_DUR:
             try:
                 sec = float(toks[i + 1][1])
             except ValueError:
@@ -2744,17 +2774,19 @@ def _parse_pickup(toks, where, ln, fam, kr):
                 raise CourseError("%s: a %s for %s s: the duration is a byte of steps / 4, 1 - 255 (0.07 - "
                                   "18.5 s)" % (where, kr["name"], toks[i + 1][1]))
             i += 2
-        elif kr["kind"] != K_HOURGLASS and t == "overwrite" and not ow:
-            ow, i = PU_OVERWRITE, i + 1
+        elif timed and t == "overwrite" and not ow & PU_OVERWRITE:
+            ow, i = ow | PU_OVERWRITE, i + 1
+        elif timed and t == "respawn" and not ow & PU_RESPAWN:
+            ow, i = ow | PU_RESPAWN, i + 1
+        elif k == K_LIFE and t == "once" and not ow:
+            ow, i = PU_ONCE, i + 1
         elif t == "reset":
             raise CourseError("%s: a %s's reset class is its family's (%s): it takes no `reset`"
                               % (where, kr["name"], CLASS_NAMES[kr["cls"]]))
         else:
-            raise CourseError("%s: prop %s takes <wx> <wy>%s, not %r" % (
-                where, kr["name"], "" if kr["kind"] == K_HOURGLASS else " [for <seconds>] [overwrite]",
-                toks[i][1]))
-    return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
-            "cls": kr["cls"], "seed": None, "dur": 0 if kr["kind"] == K_HOURGLASS else dur, "ow": ow}
+            raise CourseError("%s: prop %s takes <wx> <wy>%s, not %r" % (where, kr["name"], syn, toks[i][1]))
+    return {"line": ln, "kind": k, "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
+            "cls": kr["cls"], "seed": None, "dur": dur if timed else 0, "ow": ow}
 
 
 MG_SYNTAX = "<wx> <wy> face +x|-x|+y|-y|down <+x|-x|+y|-y> [range <1-%d>] [strength <1-%d>]" % (MG_RMAX, MG_SMAX)
@@ -6900,6 +6932,10 @@ def build_props(src, tiles, fname):
                 raise CourseError("%s:%d: a %s needs the %s family, which the course does not name (`uses %s`, "
                                   "SPEC.md 130.25.20)" % (f, p_.get("wline", p_["line"]), PK_NAMES[p_["kind"]],
                                                           fm["name"], fm["name"]))
+    once = [p_ for p_ in props if p_["kind"] == K_LIFE and p_.get("ow", 0) & PU_ONCE]
+    if len(once) > 1:                               # SPEC.md 130.55: the game keeps ONE bit a pad for it
+        raise CourseError("%s:%d: a second `once` life: a course holds one (the game keeps a bit a pad, SPEC.md "
+                          "130.55)" % (f, once[1]["line"]))
     for fm, ln in src.uses:                         # (a windmill is the TUBE family's element too)
         if not any(prop_fam(p_) is fm or (p_["kind"] == PK_WINDMILL and fm is OWN_FAM[PK_TUBE]) for p_ in props):
             raise CourseError("%s:%d: uses %s, and no element of it is placed: a family a course names costs "
@@ -15453,7 +15489,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             fam, kr = FKIND[d["kind"]]
             fsb_, cls = p[r + 16], p[r + 17]
             dur_, ow_ = p[r + 18], p[r + 19]
-            pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 130.25.19)
+            pu = fam.get("consts") in ("PU", "LF")  # (PICKUPS' +18 duration, +19 OVERWRITE: 130.25.19; the LIFE's
+                                                    # +19 ONCE, 130.55)
             if d["kind"] == FK_WATER:               # (WATER's +18 bed, +19 top, signed half units: 130.36)
                 bed_, top_ = struct.unpack_from("<bb", p, r + 18)
                 rip_, wg_ = p[r + 20] & 3, p[r + 20] & ~3
@@ -15598,7 +15635,9 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     or (not pu and not mg and (dur_ or ow_) and not (kr["kind"] == FK_CRACK and 1 <= dur_ <= nprop
                                                                      and ow_ in (0, 1))) \
                     or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
-                    or (pu and kr["kind"] != K_HOURGLASS and (not dur_ or ow_ & ~PU_OVERWRITE)) \
+                    or (pu and kr["kind"] == K_LIFE and (dur_ or ow_ & ~PU_ONCE)) \
+                    or (pu and kr["kind"] in (K_SPEED, K_JUMP)
+                        and (not dur_ or ow_ & ~(PU_OVERWRITE | PU_RESPAWN))) \
                     or (pu and cls != kr["cls"]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
             d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"], dur=dur_, ow=ow_)
@@ -16063,26 +16102,38 @@ class GlassFamily(Family):
                     c[5] = 0
 
 class PickupFamily(Family):
-    """PICKUPS (SPEC.md 130.25.9, 130.25.19).  Slot: +0 SPEED's steps left (word), +2 JUMP's (word), +4 the
-    Hop the jump replaced (word: bz_mrec's when it was taken, or after a pad's swap under it).  An element's
+    """PICKUPS (SPEC.md 130.25.9, 130.25.19, 130.55).  Slot: +0 SPEED's steps left (word), +2 JUMP's (word), +4
+    the Hop the jump replaced (word: bz_mrec's when it was taken, or after a pad's swap under it).  An element's
     one bit is COLLECTED.  CONTACT takes an element whose bit is clear (an hourglass only while there is a
     limit, bz_tsec not 0: hidden otherwise); STEP counts the timers down, puts the jump's Hop back over a
-    pad's swap, ends an effect at 0 and writes the cue byte; RESET (a respawn; a play's start finds all
-    zero) ends both effects.  Every change of bz_wacc rebuilds BOTH force tables, as the part does"""
+    pad's swap, ends an effect at 0 and writes the cue byte's bits 0 and 1 (bit 2 is THE LIFE's); RESET (a
+    respawn; a play's start finds all zero) ends both effects.  An effect ENDING (worn off, an `overwrite`, a
+    RESET) puts back every element of its kind marked `respawn` (SPEC.md 130.55).  Every change of bz_wacc
+    rebuilds BOTH force tables, as the part does"""
     row = FAM_BY_NAME["pickups"]
 
     @staticmethod
     def _tables(p):
         p.fta = fta_table(p.m["ACC"] + p.wacc)      # (the ground's: the model's per step, from wacc)
 
+    @staticmethod
+    def _rearm(p, k):
+        """SPEC.md 130.55: an effect of kind K ended - every element of K marked `respawn` COLLECTED no more"""
+        for pr in p.props:
+            if pr["kind"] == k and pr["ow"] & PU_RESPAWN:
+                b = pr["fsb"]
+                p.fst[b >> 3] &= ~(1 << (b & 7)) & 255
+
     def _speed_off(self, p, sb):
         sb[0] = sb[1] = 0
         p.wacc = p.vup = 0
         self._tables(p)
+        self._rearm(p, K_SPEED)
 
     def _jump_off(self, p, sb):
         sb[2] = sb[3] = 0
         p.hop = sb[4] | sb[5] << 8
+        self._rearm(p, K_JUMP)
 
     def reset(self, p, slot, cls):
         sb = p.fsl[slot]
@@ -16090,7 +16141,7 @@ class PickupFamily(Family):
             self._speed_off(p, sb)
         if sb[2] | sb[3]:
             self._jump_off(p, sb)
-        p.cue = 0
+        p.cue &= 4
 
     def contact(self, p, slot, i):
         pr = p.props[i]
@@ -16135,7 +16186,7 @@ class PickupFamily(Family):
             sb[2], sb[3] = tj & 255, tj >> 8
             if not tj:
                 self._jump_off(p, sb)
-        p.cue = (1 if ts or tj else 0) | (2 if 0 < ts <= PU_WARN or 0 < tj <= PU_WARN else 0)
+        p.cue = (p.cue & 4) | (1 if ts or tj else 0) | (2 if 0 < ts <= PU_WARN or 0 < tj <= PU_WARN else 0)
 
     def pose(self, p, slot, i):
         pr = p.props[i]
@@ -16143,6 +16194,47 @@ class PickupFamily(Family):
         if p.fst[b >> 3] >> (b & 7) & 1 or (pr["kind"] == K_HOURGLASS and not p.tsec):
             return 0
         return 1
+
+
+class LifeFamily(Family):
+    """THE LIFE (SPEC.md 130.55).  Slot: +0 the RISE, its cue's steps left.  An element's one bit is COLLECTED.
+    CONTACT takes one whose bit is clear and that is not HIDDEN - outside a game's course (bz_lfx bit 0
+    clear), or a `once` one its pad's course has given this game (bit 1) - raising bz_lives to LF_MAX at most,
+    setting bz_lfx bit 1 for a `once` one and starting the rise; STEP counts the rise down and writes the cue
+    byte's bit 2; RESET ends it"""
+    row = FAM_BY_NAME["life"]
+
+    @staticmethod
+    def hidden(p, pr):
+        return not p.lfx & 1 or bool(pr["ow"] & PU_ONCE and p.lfx & 2)
+
+    def reset(self, p, slot, cls):
+        p.fsl[slot][0] = 0
+        p.cue &= ~4 & 255
+
+    def contact(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        if p.fst[b >> 3] >> (b & 7) & 1 or self.hidden(p, pr):
+            return
+        p.fst[b >> 3] |= 1 << (b & 7)
+        p.nfev = p.nfev + 1 & 0xFFFF
+        if pr["ow"] & PU_ONCE:
+            p.lfx |= 2
+        if p.lives < LF_MAX:
+            p.lives += 1
+        p.fsl[slot][0] = LF_RISE
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        if sb[0]:
+            sb[0] -= 1
+        p.cue = (p.cue & 3) | (4 if sb[0] else 0)
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        return 0 if p.fst[b >> 3] >> (b & 7) & 1 or self.hidden(p, pr) else 1
 
 
 def _s8(v):
@@ -16845,7 +16937,7 @@ FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily(
              "tube": OwnFamily("tube"),
              "pickups": PickupFamily(), "water": WaterFamily(), "magnet": MagnetFamily(), "wind": WindFamily(),
              "boost": BoostFamily(), "spike": SpikeFamily(), "archway": ArchFamily(), "gate": GateFamily(), "seesaw": TiltFamily(),
-             "turntable": TurnFamily()}
+             "turntable": TurnFamily(), "life": LifeFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -16913,6 +17005,9 @@ class Physics:
         # material's copy the step reads) - and PICKUPS' sound counter and cue byte (bz_nfev, bz_cue)
         self.wacc = self.vup = self.nfev = self.cue = 0
         self.hop = self.m["HOP"]
+        # SPEC.md 130.55: THE LIFE's - bz_lfx (bit 0 a game's course: a life may be taken; bit 1 its pad's `once`
+        # life given this game) and the game's lives, bz_lives (the package's, which the part raises)
+        self.lfx = self.lives = 0
         # WATER (SPEC.md 130.36): bz_mrec's HTHR as the step reads it (the family raises it while the centre is
         # a water cell), and the floor restitution its CELL hook wrote into bz_se (None: the surface's own)
         self.hthr, self.wef = self.m["HTHR"], None
@@ -20415,6 +20510,12 @@ def emit_inc(courses, path=None, title=None):
               "BZ_PU_WARN      equ %d" % PU_WARN, "BZ_PU_OVER      equ %d" % PU_OVERWRITE,
               "BZ_K_HOURGLASS  equ %d" % K_HOURGLASS, "BZ_K_SPEED      equ %d" % K_SPEED,
               "BZ_K_JUMP       equ %d" % K_JUMP,
+              "BZ_PU_RESP      equ %d        ; +19: back when the effect ends (SPEC.md 130.55)" % PU_RESPAWN,
+              "; THE LIFE's constants (SPEC.md 130.55; bbcourse LF_*)",
+              "BZ_K_LIFE       equ %d" % K_LIFE,
+              "BZ_PU_ONCE      equ %d        ; +19: a life once a GAME" % PU_ONCE,
+              "BZ_LF_RISE      equ %d       ; its RISING sparkles, steps" % LF_RISE,
+              "BZ_LVMAX        equ %d        ; the game's most lives (a life raises them to it)" % LF_MAX,
               "; MAGNETS' constants (SPEC.md 130.33; bbcourse MG_*): the wiggle's steps a pose",
               "BZ_MG_WIG       equ %d" % MG_WIG,
               "BZ_MG_BOB       equ %d        ; the hover's bobble: its kick, and its period (a power of 2)" % MG_BOB,
@@ -27316,6 +27417,11 @@ def _w9_cases():
         ("a pickup with a reset class", C + "uses pickups\nprop jump 6 6 reset respawn\n", "takes no `reset`"),
         ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
         ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
+        # SPEC.md 130.55: `respawn` a timed kind's, `once` a life's, one `once` life a course
+        ("an hourglass that respawns", C + "uses pickups\nprop hourglass 6 6 respawn\n", "not 'respawn'"),
+        ("a life with a duration", C + "uses life\nprop life 6 6 for 3\n", "not 'for'"),
+        ("a speed `once`", C + "uses pickups\nprop speed 6 6 once\n", "not 'once'"),
+        ("two `once` lives", C + "uses life\nprop life 6 6 once\nprop life 8 6 once\n", "a second `once` life"),
         # SPEC.md 130.25.18.1: a crack's hole size; vanishing (floating) cracks edge to edge (their two lanes never
         # group); a vanishing crack whose grounded neighbours' faces would show past its two lanes
         ("a crack's hole of no size", _W9B + "uses glass\nprop crack 10 5 hole huge\n", "hole takes small|band|wide"),
@@ -27536,11 +27642,13 @@ def _pickup_checks(res):
     """PICKUPS (SPEC.md 130.25.9, 130.25.19): the records, FAMV over the constants, and the reach with the
     raised values where a pickup is reachable - its red arm `nopickreach`, the pair taken together unless
     every one is marked `overwrite`, and a bound's refusal naming the pair"""
-    t = _W4C + "uses pickups\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite\nprop jump 8 6\n"
+    t = _W4C + ("uses pickups life\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite respawn\nprop jump 8 6\n"
+                "prop life 10 6 once\nprop life 11 6\n")
     c = compile_course(t, fname="<pickups>", occluders=False)
     recs = sorted((r["kind"], r["cls"], r["dur"], r["ow"]) for r in c.part["props"] if is_fam(r["kind"]))
-    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0), (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE),
-            (K_JUMP, CL_RESPAWN, PU_DUR, 0)]
+    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0),
+            (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE | PU_RESPAWN),
+            (K_JUMP, CL_RESPAWN, PU_DUR, 0), (K_LIFE, CL_ATTEMPT, 0, 0), (K_LIFE, CL_ATTEMPT, 0, PU_ONCE)]
     j0 = globals()["PU_JHOP"]
     f0 = famv(FAM_BY_NAME["pickups"])
     globals()["PU_JHOP"] = j0 + 4

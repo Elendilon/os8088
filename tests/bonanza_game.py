@@ -174,9 +174,12 @@ def pad_exits():
 PAD_MAX = 23                    # BZ_PAD_MAX (SPEC.md 130.22.5.1): a slot's word-a-pad tables
 SLOTB = 22 + 4 * PAD_MAX        # BZS5 (SPEC.md 130.22.5.1): 23 best entries, three 114-byte slots
 SLOT_OFF = 8 + 6 * NENT         # BZD_SLOT: the first slot, +146 (no reserved bytes since BZS5)
-DAT_FILE = SLOT_OFF + 3 * SLOTB
-BB_LIVES = 5                    # bonanza.asm BZ_LIVES, a slot's most lives
-assert DAT_FILE == 488, "BZS5 is 488 bytes: under one sector, never a whole one (od_write's in-place arm)"
+DAT_FILE0 = SLOT_OFF + 3 * SLOTB  # BZD_FILE0: BZS5 before THE LIVES GIVEN (SPEC.md 130.55), still read
+LIFE_OFF = DAT_FILE0            # BZD_LIFE: a dword a slot, a bit a pad whose `once` life the game took
+DAT_FILE = LIFE_OFF + 4 * 3
+BB_LIVES = 5                    # bonanza.asm BZ_LIVES, a new game's lives
+BB_LVMAX = 9                    # bzcourse.inc BZ_LVMAX, a slot's most lives (a LIFE pickup's, 130.55)
+assert DAT_FILE == 500, "BZS5 is 500 bytes: under one sector, never a whole one (od_write's in-place arm)"
 
 
 def crs_max():
@@ -214,15 +217,16 @@ def entries(best):
     return out
 
 
-def dat_image(best=None, count=None, pv=None, slots=None, old=0, magic=b"BZS5"):
+def dat_image(best=None, count=None, pv=None, slots=None, old=0, magic=b"BZS5", given=None):
     """the bytes bz_dat holds and a save writes (SPEC.md 130.14.3.3, 130.22.5.1): `BZS5`, 488 bytes, 23 best
     entries in NO ORDER (BEST, entries()'s forms: each +0 the course's SAVE KEY, +2 the steps, +4 the falls),
     +5 PV (this build's BZ_PHYSV by default) and three 114-byte SLOTS (bytes, or empty).  OLD = 64 / 304 /
     494: an older layout's LENGTH (`BZT1` / `BZS3` / `BZS4`, no longer read: the bytes only have to be of
-    that length)"""
+    that length); 488 BZS5 before THE LIVES GIVEN (SPEC.md 130.55: still read, the table zero).  GIVEN: the
+    three slots' lives-given dwords"""
     kt = keys()
     if old:
-        magic = {64: b"BZT1", 304: b"BZS3", 494: b"BZS4"}[old]
+        magic = {64: b"BZT1", 304: b"BZS3", 494: b"BZS4", DAT_FILE0: b"BZS5"}[old]
     b = bytearray(magic + bytes([ncrs() if count is None else count, physv() if pv is None else pv, 0, 0]))
     for e in entries(best or {}):
         if e is None:
@@ -231,6 +235,7 @@ def dat_image(best=None, count=None, pv=None, slots=None, old=0, magic=b"BZS5"):
             k, t, f = e
             b += struct.pack("<HHH", kt[k], t, f)
     b += slots if slots is not None else bytes(3 * SLOTB)
+    b += struct.pack("<3I", *(given or (0, 0, 0)))
     assert len(b) == DAT_FILE
     if old:
         b = (b + bytes(max(0, old - len(b))))[:old]
@@ -256,8 +261,9 @@ def model_load(raw):
     kt = keys()
     ks = set(kt.values())
     np_, vx = npad(), pad_exits()
-    ok = len(raw) == DAT_FILE and raw[:4] == b"BZS5" and 1 <= raw[4] <= NENT and raw[6:8] == b"\0\0"
-    b = bytearray(raw) if ok else bytearray(DAT_FILE)
+    ok = len(raw) in (DAT_FILE, DAT_FILE0) and raw[:4] == b"BZS5" and 1 <= raw[4] <= NENT \
+        and raw[6:8] == b"\0\0"
+    b = bytearray(raw) + bytes(DAT_FILE - len(raw)) if ok else bytearray(DAT_FILE)
     if ok:
         for i in range(NENT):
             key, t, f = struct.unpack_from("<HHH", b, 8 + 6 * i)
@@ -269,10 +275,11 @@ def model_load(raw):
         o = SLOT_OFF + s_ * SLOTB
         lv, md, pd, z3, op, dn, ro, rt, ver = struct.unpack_from("<BBBBIIIIH", b, o)
         wd = struct.unpack_from("<%dH" % (2 * PAD_MAX), b, o + 22)
-        bad = lv > BB_LIVES or md & 0xFE or z3 or rt & ~ro or any(wd[np_:PAD_MAX]) or any(wd[PAD_MAX + np_:]) \
+        bad = lv > BB_LVMAX or md & 0xFE or z3 or rt & ~ro or any(wd[np_:PAD_MAX]) or any(wd[PAD_MAX + np_:]) \
             or ver != path_ver() or (lv and (not op & 1 or pd >= np_ or (not md & 1 and not op >> pd & 1)))
         if bad:
             b[o:o + SLOTB] = bytes(SLOTB)
+            b[LIFE_OFF + 4 * s_:LIFE_OFF + 4 * s_ + 4] = bytes(4)
         for p_ in range(np_):
             w = struct.unpack_from("<H", b, o + 22 + 2 * p_)[0]
             struct.pack_into("<H", b, o + 22 + 2 * p_, w & vx[p_])
@@ -336,6 +343,16 @@ def hostile_set():
     out.append(("old1", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=64), fresh, {F: (t1, 0)}))
     out.append(("old3", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=304), fresh, {F: (t1, 0)}))
     out.append(("old4", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=494), fresh, {F: (t1, 0)}))
+    # SPEC.md 130.55: BZS5 before THE LIVES GIVEN (488 bytes) IS read, its table zero; a slot at BZ_LVMAX's 9
+    # lives kept with its dword, one at 10 emptied with its dword
+    out.append(("bzs5old", dat_image({F: (t1 + 99, 2), T: (499, 0)}, slots=slot(3) + bytes(2 * SLOTB),
+                                     given=(5, 6, 7), old=DAT_FILE0),
+                dat_image({F: (t1 + 99, 2), T: (499, 0)}, slots=slot(3) + bytes(2 * SLOTB)),
+                posted({F: (t1 + 99, 2), T: (499, 0)}, F, t1)))
+    out.append(("lvmax", dat_image({T: (499, 0)}, slots=slot(BB_LVMAX) + slot(BB_LVMAX + 1) + bytes(SLOTB),
+                                   given=(1 << 6, 0xFF, 0)),
+                dat_image({T: (499, 0)}, slots=slot(BB_LVMAX) + bytes(2 * SLOTB), given=(1 << 6, 0, 0)),
+                posted({T: (499, 0)}, F, t1)))
     # ...and a SLOT judged alone: one of another pathway VERSION emptied, one of this pathway's kept
     np_ = npad()
     keep = slot(3, 1, 1, 0b11, 0b1, 0b101, 0b001, exits={1: 1, 2: 3}, best={1: 300})
@@ -790,8 +807,8 @@ def run(tag, legs=LEGS, src=None, appdata=True, o88=None):
 REDS = {
     # the length check removed: a short file's bytes are checked as a whole one
     "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; BZS5 (130.22.5.1): exactly BZD_FILE bytes; any\n"
-                "    jne bz_dnorm                ; other length (an older layout too) is unrecognised\n",
-                "    nop                         ; RED datlen: no length check\n")],
+                "    je .len                     ; other length (an older layout too) is unrecognised\n",
+                "    jmp short .len              ; RED datlen: no length check\n")],
     # a replay posts a best
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],

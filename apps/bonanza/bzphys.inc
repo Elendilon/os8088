@@ -2050,7 +2050,10 @@ bz_fdis:
 ; start, not at a flash turning on or off.  (The first build flipped
 ; a toggle XORed into bz_spr - the dissolve's trick - and a cue that began
 ; with the toggle left set by the last one changed nothing the idle test
-; saw.)  Clobbers AX, CX, DX.
+; saw.)  SPEC.md 130.55: under bit 2 (the LIFE's RISE, about 1 s, no flash
+; of its own) the look is BZ_CL_SP + BZ_CL_RI + the rise's steps mod 16, one
+; every 4 frames, and each sparkle CLIMBS (bz_spsr: a side or the face, foot to
+; top), the three a step apart.  Clobbers AX, CX, DX.
 ; -----------------------------------------------------------------------------
 bz_cuef:
     mov ah, [bz_cue]
@@ -2061,6 +2064,16 @@ bz_cuef:
     jnz .sp
     mov dl, BZ_CL_BL
 .sp:
+    test ah, 4                  ; SPEC.md 130.55: the LIFE's RISE, over the
+    jz .sp1                     ; sparkles while it lasts - its count the
+    mov ax, [bz_frames]         ; steps, one every 4 frames, all three at once
+    mov cl, 2
+    shr ax, cl
+    and al, 0Fh
+    or al, BZ_CL_SP | BZ_CL_RI
+    or dl, al
+    jmp short .lk
+.sp1:
     test ah, 1
     jz .lk
     mov ax, [bz_frames]
@@ -2083,31 +2096,41 @@ bz_cuef:
     test dl, BZ_CL_SP
     jz .r
     xor al, dl                  ; the places only at a HOP (or the sparkles'
-    test al, BZ_CL_SP | 0Fh     ; start): a flash on or off moves none
-    jz .r
+    test al, BZ_CL_SP | BZ_CL_RI | 0Fh ; start, or the rise's): a flash on or
+    jz .r                       ; off moves none
     push bx                     ; each sparkle's place, a pointer into the
-    mov dx, bz_spr0             ; card's table, off the epochs
-    cmp byte [bz_herc], 0       ; (frames + 0, 5, 2) / 8 (a byte's wrap is
-    je .pc                      ; 32 epochs: 0 mod 4) - all three: at a hop
-    add dx, BZ_SPRC             ; one moves, but picking it costs the bytes
-.pc:                            ; it saves (MEASURED: 50 - 90 clk a hop
-    mov al, [bz_frames]         ; frame for 41 bytes)
-    mov cl, 3
+    push si                     ; card's table, off the epochs
+    push di                     ; (frames + 0, 5, 2) / 8 (a byte's wrap is
+    mov si, bz_spo              ; 32 epochs: 0 mod 4) - all three: at a hop
+    mov di, bz_sps              ; one moves, but picking it costs the bytes
+    mov cl, 3                   ; it saves (MEASURED: 50 - 90 clk a hop
+    test dl, BZ_CL_RI           ; frame for 41 bytes); the RISE's (frames +
+    jz .pm                      ; 0, 8, 4) / 4, its own steps (bz_spsr)
+    mov si, bz_spor
+    mov di, bz_spsr
+    dec cx
+.pm:
+    mov dx, bz_spr0
+    cmp byte [bz_herc], 0
+    je .pc
+    add dx, BZ_SPRC
+.pc:
+    mov al, [bz_frames]
 %assign BZ_SPK 0
 %rep 3
     mov bl, al
- %if BZ_SPK == 1
-    add bl, 5
- %elif BZ_SPK == 2
-    add bl, 2
+ %if BZ_SPK
+    add bl, [si + BZ_SPK - 1]
  %endif
     shr bl, cl
     and bx, 3                   ; e_k mod 4, the step...
-    mov bl, [bx + bz_sps + 4 * BZ_SPK]  ; ...its place (a b c b)
+    mov bl, [bx + di + 4 * BZ_SPK]  ; ...its place
     add bx, dx
     mov [bz_spq + 2 * BZ_SPK], bx
  %assign BZ_SPK BZ_SPK + 1
 %endrep
+    pop di
+    pop si
     pop bx
 .r:
     ret
