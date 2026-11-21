@@ -299,6 +299,23 @@ class Document(object):
         self._notify(label)
         return True
 
+    def group(self, label):
+        """`with doc.group("label"):` - every edit inside is ONE undo step"""
+        doc = self
+
+        class _G(object):
+            def __enter__(self_):
+                self_.n = len(doc.undo_stack)
+                return doc
+
+            def __exit__(self_, et, ev, tb):
+                if len(doc.undo_stack) > self_.n + 1:
+                    first = doc.undo_stack[self_.n]
+                    del doc.undo_stack[self_.n:]
+                    doc.undo_stack.append((label, first[1]))
+                return False
+        return _G()
+
     def undo(self):
         if not self.undo_stack:
             return None
@@ -557,6 +574,74 @@ class Document(object):
             return " and ".join(done) or None
         return None
 
+    def tidy(self, near=None, label=None):
+        """SPEC.md 130.56.14: rejoin ground statements of ONE kind and the SAME clauses (a ramp's are its
+        plane, so its pieces rejoin too) into the fewest rectangles. Only statements with no comment of their
+        own, laid by `tile` or `rect`, touching NEAR (cells x0, y0, x1, y1 inclusive, grown by one) when given,
+        and whose cells no other ground statement covers. -> True when something was rejoined"""
+        groups = {}
+        sts = [st for st in self.statements() if st.kind in ("floor", "wall", "goal", "hole", "surface", "float")]
+        cover = {}
+        for st in sts:
+            sh = self._ground_shape(st)
+            if not sh:
+                continue
+            k, (x0, y0, x1, y1), n = sh
+            for x in range(x0, x1):
+                for y in range(y0, y1):
+                    cover.setdefault((st.kind == "surface" or st.kind == "float", x, y), []).append(st.line)
+        for st in sts:
+            sh = self._ground_shape(st)
+            if not sh or st.comment.strip():
+                continue
+            k, (x0, y0, x1, y1), n = sh
+            key = (st.kind, tuple(st.toks[:k]), tuple(st.toks[k + n:]), st.indent)
+            groups.setdefault(key, []).append((st, (x0, y0, x1, y1)))
+        new = list(self.lines)
+        drop = set()
+        changed = False
+        for key, members in groups.items():
+            if len(members) < 2:
+                continue
+            if near:
+                nx0, ny0, nx1, ny1 = near[0] - 1, near[1] - 1, near[2] + 2, near[3] + 2
+                if not any(r[0] < nx1 and r[2] > nx0 and r[1] < ny1 and r[3] > ny0 for _s, r in members):
+                    continue
+            mine = {m[0].line for m in members}
+            lo_l, hi_l = min(mine), max(mine)
+            cells = set()
+            clash = False
+            lay = key[0] in ("surface", "float")
+            for st, (x0, y0, x1, y1) in members:
+                for x in range(x0, x1):
+                    for y in range(y0, y1):
+                        cells.add((x, y))
+                        # the rejoined statement takes the FIRST member's place: a statement over this cell
+                        # that a LATER member overrode would then win the cell - a different course
+                        if any(l_ not in mine and lo_l < l_ < st.line for l_ in cover.get((lay, x, y), [])):
+                            clash = True
+            if clash:
+                continue
+            rects = _rects(cells)
+            if len(rects) >= len(members):
+                continue
+            st0, _r = members[0]
+            k = self._ground_shape(st0)[0]
+            head, tail = list(key[1]), list(key[2])
+            codes = [join_tokens(head + (["tile", str(a), str(b)] if (c - a, d - b) == (1, 1) else
+                                         ["rect", str(a), str(b), str(c), str(d)]) + tail) for a, b, c, d in rects]
+            new[st0.line - 1] = "\n".join(key[3] + cd for cd in codes)
+            drop |= {m[0].line for m in members[1:]}
+            changed = True
+        if not changed:
+            return False
+        out = []
+        for i, l_ in enumerate(new, 1):
+            if i not in drop:
+                out.extend(l_.split("\n"))
+        self._commit(label or "rejoin the floor", out)
+        return True
+
     def remove(self, line, label=None):
         self.statement(line)
         new = list(self.lines)
@@ -671,16 +756,20 @@ def analyse(text, fname="<course>"):
             hmin, hmax = top.hmin / 32.0 + zb, top.hmax / 32.0 + zb   # quarter px: 32 a unit
             h = (hmin + hmax) / 2.0
             slope = (0, 0)
+            edges = {k: hmax for k in ("+x", "-x", "+y", "-y")}
         else:
             h = _rec_height(top) / 2.0 + zb
             hs = [top.corner(dx, dy) / 2.0 + zb for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1))]
             hmin, hmax = min(hs), max(hs)
             slope = (getattr(top, "sx", 0), getattr(top, "sy", 0))
+            edges = {k: top.corner(dx, dy) / 2.0 + zb for k, (dx, dy) in
+                     (("+x", (1, .5)), ("-x", (0, .5)), ("+y", (.5, 1)), ("-y", (.5, 0)))}
         out["cells"][cell] = {
             "kind": KIND_NAMES.get(top.kind, "floor"), "h": h, "hmin": hmin, "hmax": hmax, "slope": slope,
             "surf": B.SURFACES[t.surf] if 0 <= t.surf < len(B.SURFACES) else "normal",
             "line": getattr(top, "line", None) or t.line, "split": isinstance(t, B.Split),
-            "water": getattr(top, "wbed", None) is not None, "guard": getattr(top, "guard", None) is not None}
+            "water": getattr(top, "wbed", None) is not None, "guard": getattr(top, "guard", None) is not None,
+            "edges": edges}
     # the picture's band (SPEC.md 130.56.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
     # 16 (wx - wy) + x0 + 23 < 8 width (bbcourse.foot_x); the floors must lie inside it
     width = src.width or 64
@@ -739,6 +828,29 @@ def analyse(text, fname="<course>"):
     return out
 
 
+def _rects(cells):
+    """CELLS as few rectangles (x0, y0, x1, y1 end-exclusive) as a greedy cover finds, rows first or columns
+    first, whichever is fewer"""
+    def cover(cs, swap):
+        cs = {(y, x) for x, y in cs} if swap else set(cs)
+        out = []
+        while cs:
+            x0, y0 = min(cs, key=lambda c: (c[1], c[0]))
+            x1 = x0
+            while (x1 + 1, y0) in cs:
+                x1 += 1
+            y1 = y0
+            while all((x, y1 + 1) in cs for x in range(x0, x1 + 1)):
+                y1 += 1
+            for x in range(x0, x1 + 1):
+                for y in range(y0, y1 + 1):
+                    cs.discard((x, y))
+            out.append((y0, x0, y1 + 1, x1 + 1) if swap else (x0, y0, x1 + 1, y1 + 1))
+        return out
+    a, b = cover(cells, False), cover(cells, True)
+    return sorted(a if len(a) <= len(b) else b, key=lambda r: (r[1], r[0]))
+
+
 def _plain(fam):
     return {"platform": "Lift", "windmill": "Windmill", "bumper": "Bumper", "popspikes": "Pop-up spikes",
             "crack": "Cracked floor", "glass": "Glass path", "plate": "Pressure plate", "blower": "Blower",
@@ -754,10 +866,13 @@ def _line_of(msg):
 def at_cell(analysis, cell):
     """-> the line numbers whose element covers CELL, the topmost first: items
     (props, flags, ...) before the tile's own statement"""
-    lines = [it["line"] for it in analysis["items"] if cell in it["cells"]]
+    lines = [it["line"] for it in analysis["items"] if cell in it["cells"] and it["kind"] != "way"]
     c = analysis["cells"].get(cell)
     if c and c["line"] and c["line"] not in lines:
         lines.append(c["line"])
+    # a route point is never drawn in the game: it is last, under the ground it marks (Shift-click reaches it)
+    lines += [it["line"] for it in analysis["items"] if cell in it["cells"] and it["kind"] == "way"
+              and it["line"] not in lines]
     return lines
 
 

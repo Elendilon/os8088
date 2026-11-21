@@ -296476,3 +296476,43 @@ did not see.
   where no floor may go and labels the edge with the width.
 - The full check's refusals are put in plain words in the problems list (`explain`, the compiler's own
   details kept: "a ball could get stuck: from the steel pad at (3, 14) it cannot get to the goal").
+
+#### 130.56.14 Moving ground, joining ramps, rejoining, many at once (the owner's third test, 2026-11-21)
+
+The owner, building a course of ramps: drag the finish into the middle of a higher floor and it should
+cut in at that floor's height; a ramp between two floors should take their heights and direction; floors
+should rejoin into their fewest blocks; Ctrl-click to change several at once; a direction from the
+selected shape (an archway selected one wide and three high is vertical); an easy STAIRCASE wall beside a
+ramp, as rails; and floors and walls that FLOAT a chosen depth ("Overhang" had refused empty space).
+
+- **Moving ground** (`move_sel`): a floor, wall, goal or hole laid by tile or rect leaves its old cells
+  empty, cuts its way into the cells it lands on (`replace_area`), takes the height of the floor it lands
+  on when it is a flat floor or goal, carries its own surface and hang, and the floor round both places is
+  rejoined - one undo step (`Document.group`).
+- **Joining ramps** (`_ramp_fit`): Make it Ramp on an area with floor on two opposite sides runs along
+  that axis (the one whose two floors differ most), its low end at the lower floor's edge height (each
+  cell's `edges`, from its corners), rising toward the higher as nearly as whole half units a tile allow.
+  Otherwise half a unit a tile along the longer side, as before. A steep join can meet the renderer's
+  occluder limit (130.15.5: at most 4 records a block; MEASURED: 4 to 8 over 4 tiles beside an 8-unit
+  cliff is 5) - the full check refuses it and the problems list says to make the ramp gentler.
+- **Rejoining** (`Document.tidy`): after an area or move edit, statements of one kind with the same
+  clauses (a ramp's included: its plane is absolute) and no comment of their own, touching the edit, are
+  replaced by the fewest rectangles a greedy cover finds (rows or columns first), in the first member's
+  place - unless a statement between the members in the file covers a cell a LATER member laid, which the
+  reordering would hand over. Make it Floor takes the FLAT floor's height in or round the area (not a
+  ramp's top), so a ramp made floor again rejoins whole.
+- **Many at once**: Ctrl-click (Command-click on a Mac) adds or removes a part; the inspector then sets a
+  height, raises or lowers every height (a ramp's two ends), paints a surface or sets the hang on every
+  selected floor, wall and goal, and Delete removes them all - each one undo step.
+- **Directions from the area**: an archway over an area one or two wide and three or more long is LEG,
+  PASSAGE, LEG along its length (the ball passing across it); a gate, seesaw, boost pad, blower or magnet
+  on a tall area runs along y or faces +y; a tube runs from the area's first cell to its last.
+- **Rails** (the ramp's inspector): walls on both long sides of a ramp, 1.5 units over it - STEPPED, a
+  wall a tile at the ramp's higher edge there plus 1.5, up to the half unit, equal neighbours joined; or
+  SMOOTH, one wall each side carrying the ramp's plane raised (walls take `ramp`).
+- **Hangs down** (a floor's, wall's or goal's inspector; the palette's Overhang is gone): to the ground,
+  or 3 units (`float <shape>`) down to 0.25 (`float <shape> thick N`, 130.27.2.1: 0.25 to 3 in quarters) -
+  a companion statement over the same shape that moves with it. A float marks cells of a floor, which is
+  why one placed on empty space was refused.
+- **A route point** is never drawn in the game, so a click reaches the ground under it first (Shift-click
+  reaches it).

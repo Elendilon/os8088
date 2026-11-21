@@ -234,3 +234,38 @@ double segment option?"
 SPEC.md 130.55, which this branch had used, so the builder is now 130.56. Only this branch's own lines
 were renumbered: the compiler's LIFE references stay 130.55. The palette has the heart, with `once`,
 `respawn` and `overwrite` as tick boxes.
+
+## 2026-11-21 - the owner's third test: a course of ramps
+
+**What the owner found:** the owner built a course of ramps, then asked for six things:
+- dragging the goal into a higher floor should cut it in, at that floor's height;
+- a ramp between floors should join them;
+- floors should rejoin into their fewest blocks;
+- Ctrl-click should select several parts to change at once;
+- a part should take its direction from the selected shape;
+- there should be an easy staircase wall as rails beside a ramp.
+
+Floating slabs were also wanted: Overhang had only ever refused.
+
+**Observed while building it:**
+- **The occluder limit.** A ramp that joins a floor at 4 to one at 8 over four tiles makes a block of the
+  picture with 5 occluder records, over the renderer's 4. Making the high floor 6 builds. So joining two
+  floors can be legal for the floors and refused by the picture. The problems list now says "make the ramp
+  gentler" in plain words.
+- **Make it Floor on a ramp took the ramp's top height** (5.5 over a floor of 4), so nothing rejoined. It
+  now takes the flat floor's height.
+- **A route point stole the goal's click** and moved instead of the goal. Route points now come last.
+- **Rejoining has one trap.** A statement between the pieces in the file (the goal over the floor) can
+  hold cells that a later piece overrode. The rejoin refuses only that case, and otherwise rejoins.
+
+**Tested here:** a script drove the real bindings through every step:
+- a high floor;
+- a ramp between it and the main floor: `ramp y 12 16 4 8`;
+- the goal dragged onto the high floor: height 8, cut in;
+- a ramp made in the floor, then made floor again: one rectangle;
+- Ctrl-click of two floors, raised;
+- stepped rails at 6.5 to 9.5;
+- an archway from a 1 x 3 selection: legs at its ends, vertical;
+- a one-unit hang.
+
+The `bbedit` row adds the rejoin, the one-step group and the route point's place.

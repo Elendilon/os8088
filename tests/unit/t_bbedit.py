@@ -15,7 +15,9 @@
  4. USES: placing a family's element (a magnet) adds its `uses` line;
  5. ONE LAYER: a ramp cut into a floor moves no other cell and undoes in one step; a floor past the
     picture gets the narrowest `width` and `origin` that hold it (80 and 224, the compiler's own
-    minimum), and one past 160 columns is left refused (auto_band).
+    minimum), and one past 160 columns is left refused (auto_band);
+ 6. REJOIN: the ramp made floor again rejoins into the one rectangle (tidy), as one undo step (group),
+    and a route point is the last thing a click at its cell reaches.
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), or make bbcourse._visual raise again (item 3).
@@ -120,6 +122,19 @@ def main():
     did = d.auto_band()
     if did is not None or not d.analysis()["error"]:
         bad.append("auto_band: a course past 160 columns was 'fixed': %r" % did)
+    # 6. REJOIN (SPEC.md 130.56.14): a ramp cut into the floor and made floor again rejoins into the one
+    # rectangle it was, every cell as it was; a group of edits is one undo; a route point is under the ground
+    d = E.Document(base)
+    with d.group("ramp and back"):
+        d.replace_area((7, 6, 9, 8), ["floor rect 7 6 10 9 ramp x 7 10 4 5.5"])
+        d.replace_area((7, 6, 9, 8), ["floor rect 7 6 10 9 flat 4"])
+        d.tidy((7, 6, 9, 8))
+    floors = [l_ for l_ in d.lines if l_.startswith("floor")]
+    if floors != ["floor rect 4 4 14 12 flat 4"] or len(d.undo_stack) != 1:
+        bad.append("tidy: %r, %d undo steps" % (floors, len(d.undo_stack)))
+    an = d.analysis()
+    if E.at_cell(an, (5, 5))[-1] != [st.line for st in d.statements() if st.code == "way 5 5"][0]:
+        bad.append("at_cell: the route point is not last at (5, 5): %r" % E.at_cell(an, (5, 5)))
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

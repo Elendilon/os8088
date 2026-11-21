@@ -76,6 +76,16 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
        and the builder moves the picture across, or widens it by the
        smallest step that fits, and says so. Down and up the screen (the
        plan's bottom-right and top-left) have no limit.
+     - Drag a floor, wall or goal onto other floor and it cuts its way in
+       (a floor or goal at the height of the floor it lands on). A Ramp
+       made between two floors joins them. Floors of the same height
+       rejoin into the fewest blocks by themselves.
+     - Ctrl-click (Command-click on a Mac) selects several parts: set or
+       raise their heights, surface or hang together, or Delete them.
+     - A selected floor, wall or goal has "Hangs down": to the ground, or a
+       few units (a floating slab). A selected ramp has "Add stepped rails".
+     - An area's shape gives a part its direction: an archway selected one
+       cell wide and three long runs that way (its legs at the two ends).
   3. Nothing breaks the course: a change the course compiler refuses is
      undone at once, and the red bar says why in plain words and what to
      do instead ("Keep it anyway" if you want it regardless).
