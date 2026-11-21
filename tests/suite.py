@@ -20094,6 +20094,15 @@ SOAK = [
         "ImportError, where the owner would otherwise meet it",
         needs=("pil",), wants=("build/os8088-battle-builder.zip", "build/vbattle.o88",
                                "build/vbattled.o88")),
+    Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 8.0,
+        "`make bbeditbundle` (SPEC.md 130.55.11): the Bounce Bonanza course builder's zip for someone with no "
+        "os8088 tree. Unpacked in a temporary folder and run there with python -I under an audit hook that "
+        "fails on any file opened under the tree: the compiler's ROOT is the bundle's data/, MILL is read and "
+        "written byte for byte, laid out, drawn and fully checked, the pathway lays out from data/Makefile's "
+        "course list, the window's module imports, and the zip is the same bytes made twice. Red: the data/ "
+        "ROOT taken out of bbcourse.py (four failures: the course list, the ROOT, the pathway, the tree read). "
+        "secs measured (8 s)",
+        needs=("pil",), wants=("build/os8088-course-builder.zip",)),
     Row("vbtgui", "soak", py("tests/vbtguitest.py"), 38.0,
         "VBATTLE-BUILDER-PLAN wave 2: the builder's WINDOW without a window "
         "(tools/os88vbtgui.py). The palette's parts must be cga4_colours' own "

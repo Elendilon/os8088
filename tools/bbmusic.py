@@ -29,7 +29,11 @@ import re
 import struct
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The data ROOT (SPEC.md 130.55.11): the checkout, or the `data/` folder beside this file in the
+# course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
+ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
+        else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MUSDIR = os.path.join(ROOT, "apps", "bonanza", "music")
 BANK = os.path.join(MUSDIR, "bank.bmb")
 # THE MANIFEST: song S is SONGS[S]. Every course NAMES its song with `music`
