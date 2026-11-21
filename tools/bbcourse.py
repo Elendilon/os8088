@@ -12864,8 +12864,10 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
     if getattr(c, "traphop", None):            # `trap hop` (130.14.4.1.1): a Hop and its "and again" at every
         runs += [(k, (t, t + TRAP_AGAIN))       # TRAP_HOP_AT take-off step of every direction's run (the pair
                  for k in TRAP_DIRS for t in TRAP_HOP_AT]   # reaches what a lone Hop does; an over-Hop is railed)
-    for ph in phases:
-        for k, hops in runs:
+    shafts = {r["at"] for r in c.part["props"] if r["kind"] == PK_PLATFORM}
+    for k, hops in runs:
+        for ph in phases:                       # (every phase only for a run that meets a LIFT: the others are the
+            touched = False                     # same run whatever the phase - SPEC.md 130.14.4.1)
             p = Physics(c, play=True, mat=mat)
             p.nopick = True                     # (wave 9: every finish with no pickup, 130.25.7.3)
             if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
@@ -12882,16 +12884,18 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
                     break
                 n0 = len(p.events)
                 p.step(k | (K_HOP if st_ in hops else 0))
+                here = (p.gx >> 12, p.gy >> 12)
+                if p.onp or here in shafts:
+                    touched = True
                 if p.nfall or p.nret:
                     break
-                here = (p.gx >> 12, p.gy >> 12)
                 if p.goal or here in cup:
                     hit = True
                     break
                 if here != cell and not p.tube and not p.onp and (not p.air or any(
                         e[0] in ("land", "bounce", "hopc", "stun") for e in p.events[n0:])):
                     out.add((here, p.mat))      # grounded there, or a contact there (a rubber ball bounces on)
-            if hit:
+            if hit or not (touched or any(r["kind"] == PK_WINDMILL for r in c.part["props"])):
                 break
         if hit:
             break
