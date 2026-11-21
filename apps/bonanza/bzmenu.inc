@@ -346,6 +346,7 @@ bz_unsusp:
     call bz_phfree
     mov byte [bz_tgame], 0      ; (the slot on the disk is the game)
     mov byte [bz_xmode], 0
+    mov byte [bz_lfx], 0        ; (a life the play gave is the disk's no more, 130.55)
 .p:
     mov byte [bz_susp], 0
     pop es
