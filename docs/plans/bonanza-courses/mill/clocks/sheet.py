@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """WINDMILL LANE's clock OPTIONS, compiled and drawn (host only, nothing in `make` runs it).  DOWNHILL DECISION's
-sheet (../../down/clocks/sheet.py) is the precedent; this one reads the DRAFT, ../mill-draft.bbc.
+sheet (../../down/clocks/sheet.py) is the precedent; this one reads the course, apps/bonanza/courses/mill.bbc
+(the scratch draft ../mill-draft.bbc until it shipped, 2026-11-21: SPEC.md 130.54.10).
 
     python3 docs/plans/bonanza-courses/mill/clocks/sheet.py [CONCEPT ...]
         for each concept (frames.py's CONCEPTS; `crystal` is the draft's default frame, the baseline): writes a
-        SCRATCH copy of ../mill-draft.bbc with its three `frame`s (clocks/mill-<concept>.bbc), compiles it with
+        SCRATCH copy of the course with its three `frame`s (clocks/mill-<concept>.bbc), compiles it with
         frames.py's styles installed IN THIS PROCESS (the tool on disk is not changed), and writes
         clocks/<concept>.png - each clock's crop of the course's real picture, CGA beside Hercules - and
         clocks/<concept>.txt, the part's sizes (RAM, stored, LZ4 and LZB packed, the block pool, the occluder
@@ -23,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, HERE)
-COURSE = os.path.join(HERE, "..", "mill-draft.bbc")
+COURSE = os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")
 CACHE = os.path.join(HERE, "cache")              # (the compiles' pictures: not committed)
 CW, CH, Z = 200, 130, 3                         # a crop round each clock, game px, and its zoom
 POSITIONS = ("start", "turntable", "finish")

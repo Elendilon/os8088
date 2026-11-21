@@ -296278,7 +296278,8 @@ we develop"*), for course 4. WINDMILL LANE's attempt 1
 --force`, and that output IS the shipped `mill.bbc` now: course `MILL`,
 "Windmill Lane", `music windmill`, `guide`, `target 60`, families `rotor tube
 archway turntable pickups seesaw`. The scratch draft `mill/mill-draft.bbc`
-(the same text) is gone. The geometry is the design's, untouched.
+(the same text) is gone, and `mill/clocks/sheet.py` reads the shipped
+course. The geometry is the design's, untouched.
 
 - **The slot and the pad are the prototype's**: `BZ_COURSES` K 2,
   `path.bbc`'s pad 3, so no K and no pad moved. MILL has no authored demo:
@@ -296306,14 +296307,33 @@ archway turntable pickups seesaw`. The scratch draft `mill/mill-draft.bbc`
   (`SIDE_SCEN`, bonanzaring's `T_SIDE` on TMIL: (18, 14), Left, 240 steps).
   `camcheck`'s ramp bottom stays on MILL: WINDMILL LANE keeps the
   prototype's B, ramp and bumper box at the same cells (12 units higher).
-  `CAP_WAIVE`'s MILL waiver (the old course's 6 bytes) is removed.
+  `CAP_WAIVE`'s MILL waiver (the old course's 6 bytes) is removed. Three of
+  the prototype's LAYOUT facts are not TMIL's, and the items say so rather
+  than fail: item 8's "the LAUNCH's flight and the DROP's fall cross no
+  `OCC` cell" (130.12.9) is PRINTED on TMIL (its cannon flies over L: 40
+  airborne `OCC` steps), as MOON's and PEAK's are; item 7's transit bound
+  (3 px and 3 lines a step) leaves out a LAUNCH's release step, a flight at
+  the cannon's speed (TMIL's -288/480: 2.9 px, 3.3 lines); and the
+  crosscommit chain hands that commit's tool TMIL's text with `target 30`
+  (that tool asks a design time of every course but course 0; a target
+  writes no part byte). `camcheck`'s `side0` control now runs on
+  `SIDE_SCEN`'s own course (it ran on MILL by name). Item 15's `--occ off`
+  comparison compile lifts the 4-records-a-block bound (`recmax`) when a
+  course needs it - WINDMILL LANE lays 5 at block (82, 50) with the
+  occluders off - since the comparison reads only the grid and the picture.
+- **Two `--selfcheck` items are RED on WINDMILL LANE itself** (item 3,
+  section `courses`), left for the design: the ROUND OPENINGS find windmill
+  2's doorway (`prop windmill 30 41`) not on the glass, and the exit MOUTHS'
+  negative control finds no body wall of the course that bites without the
+  deep rule (7 columns, 0 bitten), so it has nothing to show there.
 - **As built (MEASURED, `make bonanzadisk`)**: MILL is a TWO-PART course
   (130.30), part `BZ2.BIN` 66,658 bytes stored (picture 55,610, world
   11,042), 15,951 packed (LZB) where the prototype's was 27,706 and 6,900;
-  its route demo 778 bytes (27.37 s, rubber, COMPLETE, 4 Hops) where the
-  prototype's was 302. `BONANZA.O88` **175,056 bytes** (about +9,300);
-  `bonanza360.img` **179 of 354 clusters**, `bonanza720.img` 179 of 713,
-  `bonanza.img` and `bonanza120.img` 355 of 2,847 and 2,371 - BONANZA.O88 is
+  its route demo 996 bytes (1,695 steps, 31.03 s, rubber, COMPLETE, no Hop:
+  the STAND waits on the turntable's pivot, 130.14.7.4.5) where the
+  prototype's was 302. `BONANZA.O88` **175,120 bytes** (about +9,400);
+  `bonanza360.img` **180 of 354 clusters**, `bonanza720.img` 180 of 713,
+  `bonanza.img` and `bonanza120.img` 356 of 2,847 and 2,371 - BONANZA.O88 is
   on no other disk. `BZ_CRS_MAXCLAIM` 8,576 paragraphs (DOWN's, unchanged),
   `BZ_CRS_ARMAX` 192. The test build (`BZDEV=1`): `BONANZA.O88` 207,279
   bytes, `bonanza360.img` 211 of 354 clusters.

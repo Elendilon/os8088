@@ -1,6 +1,6 @@
 # WINDMILL LANE: clock options (2026-11-21, for the owner to pick)
 
-*Course 4's DRAFT ([MILL.md](../MILL.md), [mill-draft.bbc](mill-draft.bbc)) has three clocks, all in the
+*Course 4's DRAFT ([MILL.md](../MILL.md), [mill.bbc](../../../../apps/bonanza/courses/mill.bbc), the scratch `mill-draft.bbc` until it shipped, SPEC.md 130.54.10) has three clocks, all in the
 default `crystal` frame: the START on the tee's front-left corner (7, 13), the TURNTABLE on a low pillar east of S
 (34, 36), and the FINISH on the sandpit's front-left corner (22, 55), by the cup. Four concepts follow. Each is
 one object with a variant for each position. The brief is the course guide's G23 ([README.md](../README.md)
