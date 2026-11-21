@@ -28,7 +28,8 @@ TREE = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import os88vbundle as VB    # noqa: E402
 
-ROOTS = ("bbedit.py", "bbedjob.py", "bbedproj.py", "bbplay.py")
+# bbgame.py (ADD TO THE GAME, SPEC.md 130.58.17) runs os88pkg, os88disk and os88lz as processes: roots too
+ROOTS = ("bbedit.py", "bbedjob.py", "bbedproj.py", "bbplay.py", "bbgame.py", "os88pkg.py", "os88disk.py", "os88lz.py")
 THIRD_PARTY = {"PIL"}
 # imported only inside functions the builder never calls: the music's WAV
 # render (numpy, pyopl) and the compiler's guest checks (unicorn)
@@ -130,6 +131,18 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
   Saving changes only the lines you edited: comments and order are kept.
   A family a part needs (`uses magnet`, ...) is added for you.
 
+PUTTING YOUR COURSE IN THE GAME
+  Course tab: "Put this course in the game..." asks where to save, then
+  writes BONANZA.O88 - the game with every shipped course and yours, your
+  course on the pathway's first pad (Play Game, Enter plays it; the first
+  pad's own course moves off the map in that copy) - and, if you choose an
+  .img name, a floppy with the game on it. No assembler is needed: the
+  game's code is in bbgame-bin/, already built, and only its course tables
+  are written. A course with more props, lanes or signs than the shipped
+  game holds, or a course past one part, is refused with the reason.
+    python3 bbgame.py BONANZA.O88 [--disk B.IMG --size 360|720|1200|1440]
+                      [--pad0 NAME] MYCOURSE.bbc ...     (up to 4 courses)
+
 THE COMMAND LINE (what agents use; the same edits as the window)
     python3 bbedproj.py check COURSE.bbc [--strict] [--json]
     python3 bbedproj.py show  COURSE.bbc
@@ -164,7 +177,11 @@ def course_lists():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("out")
+    ap.add_argument("--bin", default=os.path.join(TREE, "build", "bbgame-bin"),
+                    help="bbgame.py's prebuilt pieces (make bbgamebin), shipped as bbgame-bin/")
     a = ap.parse_args()
+    if not os.path.isfile(os.path.join(a.bin, "v0", "map.json")):
+        sys.exit("bbeditbundle: no prebuilt game in %s - make bbgamebin" % a.bin)
     mods, other = VB.closure(ROOTS)
     stray = other - THIRD_PARTY - LAZY
     if stray:
@@ -181,6 +198,13 @@ def main():
     for f in DATA_FILES:
         files.append(("data/" + f, open(os.path.join(TREE, f), "rb").read(), 0o644))
     files.append(("data/Makefile", course_lists().encode("ascii"), 0o644))
+    for base, dirs, names in os.walk(a.bin):      # ADD TO THE GAME's pieces (bbgame.py finds them beside it)
+        dirs.sort()
+        for n in sorted(names):
+            if n.startswith("."):
+                continue
+            p = os.path.join(base, n)
+            files.append(("bbgame-bin/" + os.path.relpath(p, a.bin).replace(os.sep, "/"), open(p, "rb").read(), 0o644))
     files.append(("README.TXT", README.replace("\n", "\r\n").encode(), 0o644))
     tmp = a.out + ".part"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:

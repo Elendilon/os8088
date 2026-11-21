@@ -9,7 +9,9 @@ audit hook that fails on any file opened under the tree: the compiler's ROOT
 must be the bundle's data/; bbedproj must read and write a shipped course
 byte for byte and `check` it; bbedjob must draw MILL's picture and run its
 full check; the pathway (which reads the course list out of data/Makefile)
-must lay out; Test Roll's player must play MILL on its play-only compile; the window's module must import; and two zips from the same
+must lay out; Test Roll's player must play MILL on its play-only compile; the window's module must import; bbgame.py must compose
+BONANZA.O88 from the zip's bbgame-bin/ with the shipped courses, byte for
+byte build/bonanza.o88 (SPEC.md 130.58.17); and two zips from the same
 tree must be the same bytes. Red: take the data/ ROOT out of bbcourse.py and
 the hook catches the tree's files being read.
 """
@@ -52,6 +54,10 @@ r = bbplay.Roll(c)
 for _ in range(120):
     r.frame(bbcourse.K_D)
 print("ROLL", r.p.nstep, bbplay.Art(c).window(r)[0].size)
+import bbgame
+o = os.path.join(B, "game.o88")
+print("GAME", bbgame.main([o]))
+print("GAMEBIN", bbgame.BIN)
 print("TREE_OPENED", sorted(seen))
 '''
 
@@ -75,7 +81,7 @@ with tempfile.TemporaryDirectory() as t:
     with open(os.path.join(b, "probe.py"), "w") as f:
         f.write(PROBE)
     r = subprocess.run([sys.executable, "-I", os.path.join(b, "probe.py"), TREE], cwd=t, capture_output=True,
-                       text=True, timeout=600)
+                       text=True, timeout=3600)
     out = r.stdout
     vals = {}
     for ln in out.splitlines():
@@ -92,6 +98,11 @@ with tempfile.TemporaryDirectory() as t:
     ok(vals.get("PATHWAY") == "0", "the pathway lays out from data/Makefile's course list")
     ok(vals.get("ROLL") == "110 (320, 200)", "Test Roll plays MILL 120 frames (110 steps) and draws a frame (%s)"
        % vals.get("ROLL"))
+    ok(vals.get("GAME") == "0" and vals.get("GAMEBIN") == os.path.join(b, "bbgame-bin"),
+       "bbgame.py composed BONANZA.O88 from the zip's bbgame-bin/ (%s)" % vals.get("GAME"))
+    g = os.path.join(b, "game.o88")
+    ok(os.path.isfile(g) and open(g, "rb").read() == open(os.path.join(TREE, "build", "bonanza.o88"), "rb").read(),
+       "the shipped list composed in the zip is build/bonanza.o88 byte for byte")
     ok(vals.get("TREE_OPENED") == "[]", "nothing read from the tree (%s)" % vals.get("TREE_OPENED", "")[:200])
 with tempfile.TemporaryDirectory() as t:
     z2 = os.path.join(t, "again.zip")
