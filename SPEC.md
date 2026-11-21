@@ -272033,6 +272033,91 @@ happening to pass over each flag's cell.
   and a flag the ball can reach only from a leg it is not near is left to
   the course's ways.
 
+###### 130.14.7.4.5 The STAND: a turntable waited for, not jumped
+
+*(2026-11-21, the owner: "Set an agent on teaching autopilot how to use
+this.")* WINDMILL LANE's draft (docs/plans/bonanza-courses/MILL.md) puts a
+3 x 3 QUARTER-TURN TURNTABLE (130.43, `fill ooo/.o./.o.`) on its rubber
+route: its middle column is open every other quarter turn and its PIVOT is
+always floor, so a player stops, waits for the column, and rolls on. The
+search instead found a Hop off the pivot over the table's front, and the
+course guide's G3 refused the route demo for it (that flight pans 15
+columns on the CGA, 6 on the Hercules, turning toward the second
+windmill's door).
+
+- **Why a stopped ball fell** (MEASURED on the model): nothing on a table
+  is carried (130.43 D7), so a ball at rest on a SWITCHING cell falls the
+  moment that cell turns to a gap - and the arrows bring MILL's ball onto
+  the table's back middle cell (`32 37`) while it is a gap: the leg into
+  the pivot's `way` is taken by 130.6's reach test with the ball already
+  over that hole, so a Grip or 130.14.7.4.3's brake from there stops a
+  ball that is falling. A ball whose centre is at rest INSIDE the pivot's
+  cell never falls (it held 168 steps there and rolled on). So the stop
+  has to be ON the pivot, or off the table before it, and the ball has to
+  reach it rolling over cells that are floors - which a brake started at
+  some step of the leg cannot aim for.
+- **The STAND** (`_plan_stand`): 130.6's arrows aimed at one cell's way
+  point, the route cut to end there (130.14.7.4.4's AIM: they slow the ball
+  onto its centre), until the ball is on that cell, grounded, under
+  2 `AUTO_ACC` on both axes; then held there 0, 8, 16 ... steps
+  (`PLAN_TT_EVERY`) up to the longest table's period 4Q, shortest first,
+  and from each the leg again with 130.6's arrows. The approach and the
+  hold are stepped once and shared by every length; a fall, a RETURN or a
+  timeout before the ball goes ends the stand; at most `PLAN_ALT` kept.
+  While held the ball is not `PLAN_STALL`'s "stuck". The keys are 130.6's
+  arrows throughout.
+- **The STAND CELLS** (`_plan_stands`): on the leg's arrows' path (their
+  ground cells, as the AIM's), each time it enters a table, the cell it
+  came from when that is not the table's (the APPROACH: a 2 x 2's only
+  stand) and the table's PIVOT, in the order the path meets them. A leg
+  whose arrows meet no table has none.
+- **The order**: in a leg with stand cells the stands come after the
+  arrows alone and BEFORE the Hops - a player waits for a turntable, he
+  does not jump it - so the Hop over the table is tried only when no stand
+  takes the leg, and the backtrack into such a leg tries the stands first.
+- **One pass**: a course with a turntable is searched ONCE with every try
+  from the start (the holds and waits too, 130.14.7.4.2 and .3): it is a
+  course with a clock on its route, and a first pass without the holds
+  fails where a later leg needs one (MILL's second windmill) only after
+  spending its `PLAN_BUDGET`. MEASURED, MILL's search: the stands in both
+  passes and the flag pass as it was, 283 s; one pass, the flag pass as it
+  was, 111 s (that pass reaching `PLAN_BUDGET`); one pass and the flag pass
+  amended (below), 1.5 s. A course with no turntable is searched exactly as
+  before.
+- **The flag pass, amended** (130.14.7.4.4): it runs only when a flag the
+  route skips is one the route's ball passes within `PLAN_FLAG_NEAR` cells
+  of (`_route_near`) - the only flags its AIMS can steer to. MILL's rubber
+  route skips the glass route's flag 2 and passes nowhere near it, so the
+  flag pass could only exhaust its budget (with the holds in its one pass,
+  about 3,000,000 steps) and find nothing. No shipped route skips a flag.
+- **What does not move**: every shipped course, demo, title and pathway
+  file, MEASURED: `make bonanza-art` built into private trees with the tool
+  before and after, every file in `bonanza-art/` byte-identical (the route
+  demos' md5s among them). TURN (130.43.7, `BZTURN=1`) is not searched: its
+  arrows finish and it has no flag.
+- **MEASURED on MILL's draft** (`bbcourse.py -o DIR mill-draft.bbc`, then
+  `--guide mill-draft.bbc --log DIR/BZDMILL.BIN`): before, the route demo
+  was 1,495 steps (27.37 s), COMPLETE, 0 falls, 0 returns, 4 Hops, and G3
+  refused it; now it is **1,695 steps (31.03 s), COMPLETE, 0 falls, 0
+  returns, no Hop**: the ball stops on S at the table's back edge (27
+  steps at rest), rolls on with the column, stops ON the pivot (37 steps)
+  and rolls off onto U. `--guide`: G1, G3 (2 flights, 0 panned, on both
+  cards), G9 - G12 pass. The search is about 1.5 s of the compile.
+- **`--selfcheck`'s `hopplan`, item 7**: `_TTSTAND`, a start floor, a
+  3 x 3 table (`fill ooo/.o./o..`: the middle column's back cell a floor
+  only in the quarter its front is a gap, the front only two quarters
+  later, so no ball rolls across it) and a goal past it - 130.6's arrows
+  roll into a hole; the search finds a route with no fall, no return and
+  no Hop, the ball at rest on the pivot (36 steps); RED ARM: `_NOSTAND`
+  (the stands off) finds the Hop off the pivot over the front, the route
+  the search found before.
+- **Not handled**: one stand a try (a leg that needs the approach AND the
+  pivot gets them from two legs, which MILL's `way` on its pivot gives it);
+  a stand on a table cell other than the pivot, or on a cell the arrows'
+  path does not cross; a ball that cannot come to rest on its stand cell
+  (a slope, ice) is not stood there; and the flag pass's reach test is the
+  found route's path, not each leg's.
+
 ##### 130.14.7.5 The association, and the double-click's path
 
 The header gains `OS88_ASSOC16` with `OS88_ASSOC_EXT 'BZR'` and a document
