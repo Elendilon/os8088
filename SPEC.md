@@ -287205,7 +287205,11 @@ reads its course list off the disk. The pathway entry for a new course
   gate art, a hump). While a compile runs, `_compile_cached` collects them on `c.vwarn` (cached with
   the course: the cache key is unchanged); `compile_course` then makes `c.warnings` (`vis_settle`:
   `hidden` lines dropped, `accept`s marked) and refuses under `strict=`, `--strict` or the course's
-  `strict`. Outside a compile `_visual` still refuses. `compile_all` prints each warning. **What stays an
+  `strict`. Outside a compile `_visual` still refuses. `compile_all` prints each warning.
+  `--selfcheck` runs under `--strict`: its negative controls (a flag, a boost pad or a gate behind a
+  wall; a ball wholly hidden behind a clock or a hump) are the strict tier's refusals, and the plain
+  tier's warnings are the `bbedit` row's to hold. MEASURED: the sections flags, boost, gate, hump,
+  clockocc, clockvis, wind, magnet, turn, arch, tilt and spike pass (428 s). **What stays an
   ERROR**: an element with NO pixel left to lay (the blower's fan, a membrane's tear, a boost pad, a pose
   or a gate) - its lane cannot be built - except the FLAG, whose lane, wholly hidden, spans its pennant
   as drawn with empty poses. The guest has not yet been run on a wholly hidden flag. MEASURED: every
