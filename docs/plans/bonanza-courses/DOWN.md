@@ -2,7 +2,8 @@
 
 *Status: **IN ENGINE, first build** (2026-11-19): `apps/bonanza/courses/down.bbc`,
 written by `down/sketch.py --bbc --force`, on the `BZDOWN=1` playtest knob's pad 2
-(TRIAL's place). Every check passes and the route demo finishes (22.0 s, steel,
+(TRIAL's place). **SHIPPED since 2026-11-21** (SPEC.md 130.54.9): course 1 of `BZ_COURSES` in TRIAL's
+slot, the shipped pathway's pad 2, no knob - `BZDOWN` and `pathdown.sed` are gone, TRIAL is a test course. Every check passes and the route demo finishes (22.0 s, steel,
 no falls). Attempt 1's sections below are the pen-in, kept for its reasoning.*
 
 *Rev 6 (2026-11-20), **ON TRIAL**: the line from the ramp through the corner chute into the hump run is 3
