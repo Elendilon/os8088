@@ -296876,7 +296876,9 @@ course list is ASSEMBLED into the package today (`bzcourse.inc`'s rows,
 is data the builder fills in - the precompiler's shape (`gbaotbundle`,
 REALDMG-SPEC 20.12), nasm only where the zip is made - and a package that
 reads its course list off the disk. The pathway entry for a new course
-(pad, route, icon) is made with the pathway editor's wave.
+(pad, route, icon) is made with the pathway editor's wave. **Decided and built:
+130.58.17** - the prebuilt pieces, the tables written in, the shipped package
+unchanged.
 
 #### 130.58.10 Built so far (2026-11-21)
 
@@ -296920,9 +296922,9 @@ reads its course list off the disk. The pathway entry for a new course
   `PIL.ImageTk` is not needed.
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
-- **Not built**: the blend check (130.58.6), the Shapes tab, Test Roll (130.58.7; since built in part,
-  130.58.16), the pathway, add to
-  the game (130.58.9). The plan's story list carries what each built story still lacks.
+- **Not built**: the blend check (130.58.6), the pathway. Since built: Test Roll in part (130.58.7,
+  130.58.16), add to the game (130.58.9, 130.58.17), the Shapes tab (130.58.19). The plan's story list
+  carries what each built story still lacks.
 
 #### 130.58.11 The zip: `make bbeditbundle`
 
@@ -296943,7 +296945,8 @@ reads its course list off the disk. The pathway entry for a new course
 `bbcourse.py`, `bonanza_assets.py`, `bbmusic.py` and `bbicons.py` take the `data/` folder beside them
 as ROOT when it holds `apps/`, else the checkout - so the same files run in both, and `LABEL_FONT` is
 ROOT's `fonts/tallx.f8`. The compile cache is then `data/build/bbcache/`. The zip is deterministic
-(sorted entries, 1980-01-01 timestamps): 119 files, about 870 KB.
+(sorted entries, 1980-01-01 timestamps): 119 files, about 870 KB. Since 130.58.17 it also ships
+`bbgame-bin/` and bbgame.py with what it runs (157 files, 1.3 MB), and the rule depends on `bbgamebin`.
 Row `bbeditbundle` (soak) unpacks it outside the tree and uses it there.
 
 #### 130.58.12 Select first, then act (the owner's first test, 2026-11-21)
@@ -297180,6 +297183,98 @@ frame's ball pixels against `sprite()` and `laid_at` over the autopilot's run (4
 occluder among 54,616), the Hercules translation, a saved log through `check_log` and `run_log`, and a
 rewind driven again to the same end. Red by hand: the ball drawn at `px + 1`, the RETURN left out of the
 log, BLK_MAX left lifted. The bundle row `bbeditbundle` plays MILL 120 frames in the zip.
+
+#### 130.58.17 Add to the game: the decision, and how it is made (wave 8, 2026-11-21)
+
+The owner: *"'Add to the game' does need to be in scope; we can ship the bits needed to make this work with
+the builder zip release. Check RealDMG for example - its static builder outputs a 'game', in a similar way."*
+This settles 130.58.9.
+
+**What a course moves in the assembled game.** `bzcourse.inc` (130.10.6) is not only a table a course owns a
+row of. Its COUNT is `BZ_NCRS`, an immediate in eight places and the parts table's length, and every
+per-course table (`bz_cnames` and the other thirteen) is as long as the list, so one more course moves every
+label after the tables - the bss, and with it `bzlink.inc` and so the shell part, the VGA part and every
+family part. Its CONTENT sets build-wide maxima the bss is sized by: `BZ_PROPMAX` (50 lanes, the
+PLAYGROUND's), `BZ_PROPALL` (68), `BZ_NSIGN` (23), `BZ_FSTB` (22), `BZ_FORMS`, `BZ_CRS_MAXCLAIM`
+(8,576 paragraphs, the largest PAD course's) and `BZ_NCRS2` / `BZ_NSHC`, which switch code in.
+
+**The two answers, priced.**
+
+| | (a) prebuilt pieces, the tables written in (BUILT) | (b) the course list read off the disk |
+|---|---|---|
+| apps/bonanza | **unchanged: 0 bytes** - the shipped `BONANZA.O88` is byte for byte what it was | a loader for a course table and its course parts from files beside the package (`os88data.inc`'s reads, a second fetch path beside `op_fetch`, the LZB unpack at a claim's base); `BZ_NCRS` and every per-course table a run-time count over `BZ_CRS_MAX` (23) rows; every content-derived maximum fixed at its format's ceiling - PREDICTED about 0.5 - 1 KB of code and 1 - 2 KB more bss, never measured |
+| the course builder's zip | **+ the pieces of 5 builds** (`bbgame-bin/`, MEASURED below) | the package once |
+| a game with one added course | the package grows by the course's part, its demo and **51 resident bytes** (MEASURED: `bonanza.bin` 52,110 -> 52,161, the shell part 10,469 -> 10,476) | the package unchanged; the course a file of its own |
+| what it is | **what nasm makes for that list, byte for byte** - refused where it would not be | a second loader, with its own refusals, that no shipped build exercises |
+
+(a) changes the shipped game least - not at all - so it is built.
+
+**How (a) works** (`tools/bbgame.py`, the precompiler's shape: `tools/gbaotbundle.py` ships RealDMG's
+prebuilt binaries and `gbaot.py` composes the package in Python, REALDMG-SPEC 20.12):
+
+1. `make bbgamebin` (in the tree, where nasm is) writes `build/bbgame-bin/v<m>/` for m = 0 .. 4:
+   v0 is the shipped build's own pieces (`bonanza.bin`, `bzshell.bin`, `bzvga.bin`, `bzfbun.bin`,
+   `bzf-probe.bin`); v1 .. v4 are the same build for the shipped list and m SPARE courses
+   (`SPAR1` ... - a flat plate, never played: `bbgame.SPARE`), each `make BUILD=$(BUILD)/bbgame/v<m>
+   BZ_COURSES="<shipped> <spares>"` in a private tree, the bonanzatwoseg build's way. Each carries its
+   `bzcourse.inc` and `map.json`: the place of every per-course table in every piece, found by a PROBE -
+   the pieces assembled again from an inc whose every table byte is XOR its table's own mask
+   (80h + its index) - and held: the bytes that moved must be exactly those tables (none feeds code or
+   an expression), and the family parts and the VGA part hold none. `inert` lists the inc's `equ`s no
+   source names (`BZ_CRS_TITLEW`, each course's `BZ_CRS_<NAME>`).
+2. `bbgame.py OUT.o88 [COURSE.bbc ...]` compiles the shipped courses and the author's (up to 4) with
+   `bbcourse._compile_all` through the compile cache (the build's `compile_all` compiles fresh), the
+   parts, demos, pathway and title being Python's anyway, and holds the new `bzcourse.inc` to v<m>'s
+   LINE BY LINE, comments dropped. Outside the PATCH tables, the inert lines and the course-name `equ`s
+   it must be the same text; else the game is REFUSED naming the line and, for the usual ones, why (more
+   lanes, props, signs or state than the game holds; a course past one part - `OP_BIG`, `BZ_NCRS2`,
+   `BZ_NSHC`; a TEST course; a NAME that makes one of the game's own symbols, `TITLE`). Where it is the
+   same, nasm's input differs from v<m>'s in the tables' bytes alone, which are written at the map's
+   places - so **the result is byte for byte what nasm would have made from that list**. os88pkg then
+   packs it with the Makefile's arguments; `--disk IMG --size N` writes the bonanzadisk rule's floppy
+   (the package, the LZ4-wrapped README, an empty `SYSTEM/APPDATA`) and verifies it.
+3. **The shipped game has no course cycle** (130.26.8: N is `BZDEV`'s), so a course off the map cannot
+   be played. `--pad0 NAME` puts it on pad 0, where a new game rests (Play Game, Enter), in place of pad
+   0's course - BZSHAPES's precedent: NAME takes that course's K (ROLL's, 6), the displaced course goes
+   last and off the map, and the pathway's `pad 0` line names NAME, so `BZ_CRS_DEFAULT` keeps its value.
+   A pad of its own, a route and an icon are the pathway editor's (wave 7.2).
+4. The window: the Course tab's **Put this course in the game...** saves `BONANZA.O88` (or a 1.44 MB
+   `.img`) with the open course on pad 0, running bbgame.py as a process.
+5. The zip: `make bbeditbundle` depends on `bbgamebin` and ships `bbgame-bin/` and bbgame.py, os88pkg.py,
+   os88disk.py and os88lz.py with their imports (os88vbundle's closure); in the zip bbgame.py finds
+   `bbgame-bin/` beside itself and the course list in `data/Makefile`.
+
+**The compile cache** (130.58.8) had never hit across processes: `GROUND_AUTO`, a sentinel `object()`,
+was rendered into `_state_fp` by its address. It is in `_FP_SKIP` now, and two processes agree on every
+key (MEASURED: two fresh processes, `_state_fp` equal; the variants' compiles after the first, a minute
+where the first took six).
+
+**MEASURED** (a 4-core host shared with other sessions' compiles, so every time is loaded):
+
+- the shipped list composed is `build/bonanza.o88` byte for byte (165,712 bytes): in the tree
+  (`tests/unit/t_bbgame.py`) and from the unpacked zip with nothing read from the tree
+  (`tests/bbeditbundle.py`);
+- shipped + XTRA (FIRST's text renamed) composed is byte for byte the package `make BUILD=...
+  BZ_COURSES="<shipped> XTRA"` assembles; so is `--pad0 XTRA` against `make` with that list and that
+  pathway; the 360 KB floppy verifies; with no added course, `--disk ... --size 360` is
+  `build/bonanza360.img` byte for byte (the bonanzadisk rule's);
+- an added course is 1,918 bytes more package (XTRA, FIRST's size: 165,712 -> 167,630) - its part, its demo
+  and the 51 resident bytes; each spare course 51 bytes of `bonanza.bin` and 7 of the shell part;
+- the zip: 157 files, 1,303,029 bytes, against 118 files and 891,509 bytes from the same tree before - 36 of
+  them `bbgame-bin/` (729,357 bytes, 360,490 packed), the rest bbgame.py and os88pkg, os88disk, os88lz and
+  what they import;
+- `make bbgamebin` 20 min from cold (6 of them the shipped package's own recompile, the variants 1 - 6
+  min each); composing in the tree, the cache warm, 56 s a game with one added course (4.6 min once
+  under heavy load: the compile's demos, proofs and clocks are not cached); in a fresh zip the first composition compiles every shipped course (minutes),
+  as the builder's first check does.
+- the red arm: the patch loop skipped, `t_bbgame` fails four checks (both nasm comparisons, both table
+  reads); the shipped list still composes.
+
+**NOT DONE**: the composed package has not been BOOTED - no MartyPC run has played an added course (story
+8.2's acceptance). Byte equality with the nasm build of the same list is the claim made here, and a nasm
+build with an added course has not been booted either. The `--pad0` game leaves pad 0's own course (ROLL)
+off the map. More than four added courses, a course past one part, and a course larger in lanes, props,
+signs or state than the shipped maxima are refused rather than built.
 
 #### 130.58.19 The Shapes tab (2026-11-21)
 
