@@ -1,0 +1,211 @@
+# Course 3 (DOWN; docs/plans/bonanza-courses/DOWN.md): DOWNHILL DECISION, the tutorial's reward - SPEED, then a
+# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 0, GLASS south (a membrane bridge,
+# a lift, a choice of stairs) to exit 1.  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
+# while the layout moves.
+course DOWN "Downhill Decision"
+guide                     # a REAL course: held to the course guide's checkable rules
+width 160
+origin 304                # 1,280 px (SPEC.md 130.10.4.2): steel's north-west leg
+uses boost spike water spring
+ball rubber
+music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
+target 60
+
+# rooms (the sketch's sections)
+floor rect   8   7   9   8  flat 40   # A
+floor rect   7   8  10  13  ramp y 8 13 40 30   # R
+floor rect  12  15  22  18  flat 29   # H
+floor rect  22  15  24  18  ramp x 22 24 29 27   # D
+floor rect  24  15  27  18  ramp x 24 27 27 25.5   # D
+floor rect  27  15  29  18  ramp x 27 29 25.5 21.5   # D
+floor rect  29  15  31  18  flat 21.5   # F
+floor rect  31  16  32  17  flat 21.5   # F
+floor rect  32  16  36  17  flat 21.5   # B
+floor rect  38  14  43  19  flat 17   # L
+floor rect  46  12  52  21  flat 14   # X
+floor rect  52  17  56  20  flat 14   # S
+floor rect  56  17  57  20  flat 14   # W
+floor rect  56  20  59  21  flat 11   # T
+floor rect  59  20  63  21  flat 11   # T
+floor rect  63  20  66  29  flat 11   # T
+floor rect  59  25  62  29  flat 15   # H
+floor rect  60  29  61  31  flat 15   # K
+floor rect  60  32  61  34  flat 15   # K
+floor rect  57  25  59  30  flat 15   # N
+floor rect  54  28  57  30  flat 15   # N
+floor rect  54  30  56  34  flat 15   # N
+floor rect  54  34  59  36  flat 15   # N
+floor rect  59  35  64  38  flat 15   # C
+floor rect  61  38  62  39  flat 15   # W
+floor rect  57  39  66  43  flat 9   # G
+floor rect  49  21  50  26  flat 14   # K
+floor rect  47  26  51  29  flat 14   # P
+floor rect  46  27  47  28  flat 14   # K
+floor rect  44  25  45  26  flat 14   # K
+floor rect  42  23  43  24  flat 14   # K
+floor rect  40  25  41  26  flat 14   # K
+floor rect  38  27  39  28  flat 14   # K
+floor rect  34  27  35  28  flat 14   # K
+floor rect  44  29  45  30  flat 14   # K
+floor rect  38  23  39  24  flat 14   # K
+floor rect  43  26  46  29  flat 14   # Q
+floor rect  43  22  46  25  flat 14   # Q
+floor rect  39  22  42  25  flat 14   # Q
+floor rect  39  26  42  29  flat 14   # Q
+floor rect  35  26  38  29  flat 14   # Q
+floor rect  43  30  46  33  flat 14   # Q
+floor rect  35  22  38  25  flat 14   # Q
+floor rect  24  26  29  29  flat 14   # W
+floor rect  29  26  34  29  flat 14   # Y
+floor rect  21  25  24  29  flat 14   # Y
+floor rect  21  31  25  34  flat 12   # Z
+floor rect  25  31  27  34  flat 11   # Z
+floor rect  27  31  29  33  flat 8   # Z
+floor rect  29  31  31  33  flat 7   # Z
+floor rect  25  34  27  36  flat 9   # Z
+floor rect  27  34  29  37  flat 8   # Z
+floor rect  31  31  37  33  flat 6   # V
+floor rect  29  33  37  37  flat 6   # V
+
+# the chute (SPEC.md 130.28): unfenced, its shape guides
+chute 3 round depth 8 way 8 13 30 way 8 16 30 way 11 16 29
+
+# rails: block rails (wall tiles) on the void side of each railed edge
+wall  tile   6   8  flat 42
+wall  tile   6   9  flat 40
+wall  tile   6  10  flat 38
+wall  tile   6  11  flat 36
+wall  tile   6  12  flat 34
+wall  tile   7   7  flat 42
+guard tile   8   6                # see-through
+wall  tile   9   7  flat 42
+guard tile  24  25                # see-through
+guard tile  25  25                # see-through
+guard tile  26  25                # see-through
+guard tile  27  25                # see-through
+guard tile  28  25                # see-through
+wall  tile  32  15  flat 23.5
+wall  tile  32  17  flat 23.5
+wall  tile  33  15  flat 23.5
+guard tile  33  17                # see-through
+wall  tile  34  15  flat 23.5
+guard tile  34  17                # see-through
+wall  tile  35  15  flat 23.5
+guard tile  35  17                # see-through
+wall  tile  46  11  flat 16
+wall  tile  47  11  flat 16
+wall  tile  48  11  flat 16
+wall  tile  49  11  flat 16
+wall  tile  51  11  flat 16
+wall  tile  52  12  flat 16
+wall  tile  52  13  flat 16
+wall  tile  52  14  flat 16
+wall  tile  52  15  flat 16
+wall  tile  52  16  flat 16
+guard tile  52  20                # see-through
+wall  tile  53  16  flat 16
+guard tile  53  20                # see-through
+wall  tile  54  16  flat 16
+guard tile  54  20                # see-through
+wall  tile  55  16  flat 16
+guard tile  55  20                # see-through
+guard tile  56  16                # see-through
+guard tile  57  17                # see-through
+guard tile  57  18                # see-through
+guard tile  57  19                # see-through
+guard tile  59  38                # see-through
+guard tile  60  38                # see-through
+guard tile  62  38                # see-through
+guard tile  63  38                # see-through
+
+
+# the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)
+floor half left tile 31 15  flat 21.5
+wall  half right tile 31 15  flat 23.5
+floor half up tile 31 17  flat 21.5
+wall  half down tile 31 17  flat 23.5
+# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 130.44)
+hump 15 15 29 along y 3 open height 8
+hump 21 15 29 along y 3 open height 8
+# the BOOSTER chute's pads (SPEC.md 130.40)
+prop boost 33 16 face +x strength 40
+prop boost 34 16 face +x strength 40
+prop boost 35 16 face +x strength 40
+# the split: a pad at each exit (no archways: a rubber ball that hops one dies on what follows)
+pad steel 51 18
+pad glass 49 19
+# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH
+prop spikes 53 17 55 20
+water rect 56 17 57 20 top 14 bed 11
+arch 56 19 +y guard
+# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)
+prop membrane 49 21 50 26
+# glass's maze (rev 10): one-cell membrane LINKS, the FLOAT pool (water, no arch), the far bank's BOOST
+prop membrane 46 27 47 28
+prop membrane 44 25 45 26
+prop membrane 42 23 43 24
+prop membrane 40 25 41 26
+prop membrane 38 27 39 28
+prop membrane 34 27 35 28
+prop membrane 44 29 45 30
+prop membrane 38 23 39 24
+water rect 24 26 29 29 top 14 bed 11 open
+prop boost 22 27 face +y strength 40
+# steel (rev 16): the momentum hump across the run south, the LIFT up 4 in line at its end, the column
+hump 63 23 11 along x 3 open height 8
+prop platform 62 27 4
+water rect 61 38 62 39 top 15 bed 9
+arch 61 38 +y
+spring 60 30 384
+spring 60 33 384
+
+goal  rect 57 41 66 43  flat 9   # the steel finish
+goal  rect 35 31 37 37  flat 6 exit 1   # the glass finish
+start 8 7
+checkpoint 30 16 ball rubber   # flag 0
+checkpoint 49 16 ball rubber   # flag 1
+checkpoint 48 27 ball glass   # flag 2
+checkpoint 44 27 ball glass   # flag 3
+checkpoint 36 27 ball glass   # flag 4
+checkpoint 22 26 ball glass   # flag 5
+checkpoint 22 32 ball glass   # flag 7
+checkpoint 60 27 ball steel   # flag 6
+
+# clocks (the owner's mark-ups): a tile level with the path one block out, or on top of a block
+floor tile 10 7  flat 40   # the start clock's tile (on top of the rail block it replaces)
+clock 10 7 frame pengs
+floor tile 50 11  flat 15.5   # the hub clock's tile (on top of the rail block it replaces)
+clock 50 11 frame pengh
+floor tile 61 43  flat 10.5   # the steel finish clock's tile (on top of the rail block it replaces)
+clock 61 43 frame pengf
+floor tile 37 34  flat 7.5   # the glass finish clock's tile (on top of the rail block it replaces)
+clock 37 34 frame pengg
+# the autopilot's route
+way 8 7
+way 8 11
+way 12 16
+way 22 16
+way 29 16
+way 32 16
+way 41 16
+way 49 16
+way 50 18
+way 52 18
+way 56 18
+way 56 20
+way 63 20
+way 64 22
+way 64 25
+way 64 27
+way 63 27
+way 60 27
+way 58 27
+way 57 29
+way 55 29
+way 55 32
+way 55 35
+way 58 35
+way 61 36
+way 61 38
+way 61 39
+way 61 41
