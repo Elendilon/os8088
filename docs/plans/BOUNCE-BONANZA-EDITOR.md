@@ -21,8 +21,9 @@ inspector), Course tab and Source tab. Not built yet: the blend check, the Shape
 the pathway editor and add-to-the-game. `[~]` below marks a story built in part, with what is
 missing.
 
-**How to run it**: from a checkout of `bb-editor`, `python3 tools/bbedit.py
-apps/bonanza/courses/mill.bbc` - Python 3.11 or newer with Tk and Pillow (macOS: python.org's
+**How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
+`python3 bbedit.py` in its folder (SPEC.md 130.55.11), or from a checkout of `bb-editor`,
+`python3 tools/bbedit.py apps/bonanza/courses/mill.bbc` - Python 3.11 or newer with Tk and Pillow (macOS: python.org's
 Python and `pip3 install pillow`; Windows: `pip install pillow`; Linux: `python3-tk`, `python3-pil`).
 The contract (SPEC.md 130.55) and this plan were written first.
 Branch `bb-editor`, cut from `bounce-bonanza` at `abe0713d0`, and merged from
@@ -157,7 +158,7 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 8.1 [ ] | the decision of 130.55.9: a prebuilt package with a data course table, or a course list read off the disk | written into 130.55.9 with its cost in bytes |
 | 8.2 [ ] | the builder writes `BONANZA.O88` with the author's courses, and optionally a floppy image (`os88disk.py`) | the package boots in MartyPC and plays the new course |
-| 8.3 [ ] | `make bbeditbundle`: the window, the compiler, its assets and the prebuilt parts in a zip for a machine with no os8088 tree | the zip run on a clean Linux; the macOS and Windows steps written for the owner |
+| 8.3 [x] | `make bbeditbundle`: the window, the compiler, its assets and the prebuilt parts in a zip for a machine with no os8088 tree | the zip run on a clean Linux; the macOS and Windows steps written for the owner |
 
 ### The final pass
 

@@ -287229,5 +287229,27 @@ reads its course list off the disk. The pathway entry for a new course
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
 - **Not built**: the blend check (130.55.6), the Shapes tab, Test Roll (130.55.7), the pathway, add to
-  the game (130.55.9), the zip. The plan's story list carries what each built story still lacks.
+  the game (130.55.9). The plan's story list carries what each built story still lacks.
+
+#### 130.55.11 The zip: `make bbeditbundle`
+
+`tools/bbeditbundle.py` writes `build/os8088-course-builder.zip`, one folder `os8088-course-builder/`
+(the owner: the GUI at the root, the working files in a subdirectory):
+
+- at the TOP, the window `bbedit.py`, the model and command line `bbedproj.py`, the job `bbedjob.py`,
+  and every `tools/` module they import - os88vbundle's closure over their imports, so a module the
+  builder starts to need is in the next zip unasked; an unexpected third-party import stops the build
+  (Pillow is the one expected; numpy, pyopl and unicorn are imported only inside functions the builder
+  never calls);
+- under `data/`, the compiler's working files at their places in the tree - `apps/bonanza/courses/`
+  (every course and the art they name), `demos/`, `music/`, `fonts/tallx.f8` - and `data/Makefile`,
+  the tree Makefile's BZ_COURSES and BZ_TESTCRS lines and nothing else (bbcourse.default_paths reads
+  the course list there);
+- `README.TXT`.
+
+`bbcourse.py`, `bonanza_assets.py`, `bbmusic.py` and `bbicons.py` take the `data/` folder beside them
+as ROOT when it holds `apps/`, else the checkout - so the same files run in both, and `LABEL_FONT` is
+ROOT's `fonts/tallx.f8`. The compile cache is then `data/build/bbcache/`. The zip is deterministic
+(sorted entries, 1980-01-01 timestamps): 119 files, 866,616 bytes at `0121c2aa9` plus this change.
+Row `bbeditbundle` (soak) unpacks it outside the tree and uses it there.
 

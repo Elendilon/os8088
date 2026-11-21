@@ -156,7 +156,11 @@ import bonanza_assets as BA                      # noqa: E402
 import os88lz                                    # noqa: E402  (the course budget packs as os88pkg packs a part)
 from bonanza_assets import BLK, CYN, MAG, WHT, CGA1, cga_bytes, herc_pair, herc_bytes   # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The data ROOT (SPEC.md 130.55.11): the checkout, or the `data/` folder beside this file in the
+# course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
+ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
+        else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOL = os.path.abspath(__file__)
 COURSE_DIR = os.path.join(ROOT, "apps", "bonanza", "courses")
 
@@ -1025,7 +1029,7 @@ def fam_fetched(fams):
     return [f for f in fams if f.get("home", HOME_FETCH) == HOME_FETCH]
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (130.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 130.19.5): the pathway's nodes - an exit's 4 bits
-LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
+LABEL_FONT = os.path.join(ROOT, "fonts", "tallx.f8")
 GF_VIEW = 4                   # BZG1 +28: a FIXED window (SPEC.md 130.23.2), +30 its top / 4 and the CGA's c0
 VIEW_DROP = 32                # lines of picture above the windows: the DROP margin (130.23.2)
 HERC_LEFT, HERC_RIGHT = 2, 3  # the Hercules window's words left and right of the CGA's (45 = 40 + 2 + 3)

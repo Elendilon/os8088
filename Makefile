@@ -14935,6 +14935,23 @@ $(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py
 	$(wildcard docs/encoder-guide/GUIDE.HTML docs/encoder-guide/guide/*)
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
+# THE BOUNCE BONANZA COURSE BUILDER FOR PEOPLE WITH NO os8088 TREE (SPEC.md
+# 130.55.11): the window, the model and its job at the TOP of one folder, every
+# tools/ module they import beside them (tools/bbeditbundle.py computes the list
+# with os88vbundle's closure), and the compiler's working files under data/ -
+# the courses, demos, music, the label font and the course lists - in one
+# deterministic zip. On demand. `soak -k bbeditbundle` unpacks it outside the
+# tree and compiles and draws courses there.
+#> [Applications] bbeditbundle :: zip the Bounce Bonanza course builder for someone with no os8088 tree
+.PHONY: bbeditbundle
+bbeditbundle: $(BUILD)/os8088-course-builder.zip
+$(BUILD)/os8088-course-builder.zip: tools/bbeditbundle.py tools/os88vbundle.py \
+	$(wildcard tools/bb*.py tools/bonanza_assets.py tools/bzballchk.py tools/os88*.py) \
+	$(shell find apps/bonanza/courses apps/bonanza/demos apps/bonanza/music -type f 2>/dev/null) \
+	fonts/tallx.f8 Makefile
+	@mkdir -p $(dir $@)
+	python3 tools/bbeditbundle.py $@
+
 # THE VIDEO BATTLE BUILDER FOR PEOPLE WITH NO os8088 TREE
 # (docs/plans/completed/VBATTLE-BUILDER-PLAN.md): the builder's window, every tools/
 # module it imports or runs (tools/os88vbtbundle.py computes the list with
