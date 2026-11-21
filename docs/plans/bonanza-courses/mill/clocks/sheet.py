@@ -157,17 +157,23 @@ def overview(concepts, card):
             col.append(_crop(pic, d, cx - cw // 2, cy - 24 - ch // 2, cw, ch, card).resize((cw * z, ch * z),
                                                                                           Image.NEAREST))
         cols.append(col)
-    W, H = cw * z, ch * z
-    img = Image.new("RGB", (len(cols) * (W + 8), len(POSITIONS) * (H + 8)), (70, 70, 70))
+    from PIL import ImageDraw
+    W, H, T = cw * z, ch * z, 22                    # T: a caption strip, each column's concept
+    img = Image.new("RGB", (len(cols) * (W + 8), T + len(POSITIONS) * (H + 8)), (70, 70, 70))
+    dr = ImageDraw.Draw(img)
     for i, col in enumerate(cols):
+        dr.text((i * (W + 8) + 6, 5), concepts[i], fill=(255, 255, 255))
         for j, im in enumerate(col):
-            img.paste(im, (i * (W + 8), j * (H + 8)))
+            img.paste(im, (i * (W + 8), T + j * (H + 8)))
     img.save(os.path.join(HERE, "overview-%s.png" % card))
+
+
+ORDER = ("crystal", "mill", "body", "side", "wheel", "hub", "post", "vase", "flag")     # round 2's beside its parent
 
 
 def _all():
     import frames as F
-    return ["crystal"] + list(F.CONCEPTS)
+    return [c for c in ORDER if c == "crystal" or c in F.CONCEPTS] + [c for c in F.CONCEPTS if c not in ORDER]
 
 
 if __name__ == "__main__":

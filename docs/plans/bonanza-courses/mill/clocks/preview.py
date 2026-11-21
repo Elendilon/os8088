@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""a FAST look at the twelve frames (no compile): each drawn on a plain block top, CGA over Hercules, zoomed.
-    python3 docs/plans/bonanza-courses/mill/clocks/preview.py docs/plans/bonanza-courses/mill/clocks/frames.png"""
+"""a FAST look at the frames (no compile): each drawn on a plain block top, CGA over Hercules, zoomed.
+    python3 docs/plans/bonanza-courses/mill/clocks/preview.py OUT.png [CONCEPT ...]   (default: every concept)
+    frames.png is round 1's (mill vase flag wheel), frames2.png round 2's (body side hub post)"""
 import os
 import sys
 
@@ -51,9 +52,11 @@ def cell(name):
     return cga.resize((W * Z, H * Z), Image.NEAREST), herc.resize((W * Z, H * Z), Image.NEAREST)
 
 
-def main(out):
-    names = [n for vs in F.CONCEPTS.values() for n, _a in vs]
-    sheet = Image.new("RGB", (3 * W * Z + 2 * 8, 8 * H * Z + 7 * 4), (60, 60, 60))
+def main(out, concepts=None):
+    concepts = concepts or list(F.CONCEPTS)
+    names = [n for c in concepts for n, _a in F.CONCEPTS[c]]
+    rows = 2 * len(concepts)
+    sheet = Image.new("RGB", (3 * W * Z + 2 * 8, rows * H * Z + (rows - 1) * 4), (60, 60, 60))
     for i, n in enumerate(names):
         c, h = cell(n)
         r, k = divmod(i, 3)
@@ -64,4 +67,4 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2:])
