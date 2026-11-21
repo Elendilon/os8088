@@ -9,7 +9,7 @@ audit hook that fails on any file opened under the tree: the compiler's ROOT
 must be the bundle's data/; bbedproj must read and write a shipped course
 byte for byte and `check` it; bbedjob must draw MILL's picture and run its
 full check; the pathway (which reads the course list out of data/Makefile)
-must lay out; the window's module must import; and two zips from the same
+must lay out; Test Roll's player must play MILL on its play-only compile; the window's module must import; and two zips from the same
 tree must be the same bytes. Red: take the data/ ROOT out of bbcourse.py and
 the hook catches the tree's files being read.
 """
@@ -37,7 +37,7 @@ def hook(ev, a):
             seen.add(p)
 sys.addaudithook(hook)
 sys.path.insert(0, B)
-import bbcourse, bbedproj, bbedjob, bbedit
+import bbcourse, bbedproj, bbedjob, bbedit, bbplay
 print("ROOT", bbcourse.ROOT)
 p = os.path.join(B, "data", "apps", "bonanza", "courses", "mill.bbc")
 d = bbedproj.Document.load(p)
@@ -47,6 +47,11 @@ print("PICTURE", bbedjob.picture(p, os.path.join(B, "pic")))
 print("CHECK", bbedjob.check(p, False))
 pa = os.path.join(B, "data", "apps", "bonanza", "courses", "path.bbc")
 print("PATHWAY", bbedjob.picture(pa, os.path.join(B, "pic-path")))
+c = bbplay.compile_play(open(p, newline="").read(), p)
+r = bbplay.Roll(c)
+for _ in range(120):
+    r.frame(bbcourse.K_D)
+print("ROLL", r.p.nstep, bbplay.Art(c).window(r)[0].size)
 print("TREE_OPENED", sorted(seen))
 '''
 
@@ -64,7 +69,7 @@ with tempfile.TemporaryDirectory() as t:
         names = z.namelist()
         z.extractall(t)
     b = os.path.join(t, "os8088-course-builder")
-    for f in ("bbedit.py", "bbedproj.py", "bbedjob.py", "bbcourse.py", "README.TXT", "data/Makefile",
+    for f in ("bbedit.py", "bbedproj.py", "bbedjob.py", "bbplay.py", "bbcourse.py", "README.TXT", "data/Makefile",
               "data/fonts/tallx.f8", "data/apps/bonanza/courses/kit.bzk", "data/apps/bonanza/courses/mill.bbc"):
         ok(os.path.isfile(os.path.join(b, f)), "the zip holds %s" % f)
     with open(os.path.join(b, "probe.py"), "w") as f:
@@ -85,6 +90,8 @@ with tempfile.TemporaryDirectory() as t:
     ok(vals.get("PICTURE") == "0" and os.path.isfile(os.path.join(b, "pic", "owners.bin")), "MILL's picture drawn")
     ok(vals.get("CHECK") == "0", "MILL's full check passes")
     ok(vals.get("PATHWAY") == "0", "the pathway lays out from data/Makefile's course list")
+    ok(vals.get("ROLL") == "110 (320, 200)", "Test Roll plays MILL 120 frames (110 steps) and draws a frame (%s)"
+       % vals.get("ROLL"))
     ok(vals.get("TREE_OPENED") == "[]", "nothing read from the tree (%s)" % vals.get("TREE_OPENED", "")[:200])
 with tempfile.TemporaryDirectory() as t:
     z2 = os.path.join(t, "again.zip")

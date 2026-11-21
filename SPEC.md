@@ -296315,7 +296315,8 @@ pair with a stripe over both regions, in Iso and in Plan, from the warning's
   compile without occluders is NOT always valid (PLAY's makes 1,123 blocks,
   over the 1,024 of 130.15.4.4, MEASURED). A play-only compile - the part's
   grid and props without its picture blocks, or the picture held as an image
-  - is the plan's wave 0 question, answered before wave 6 is designed.
+  - is the plan's wave 0 question, answered before wave 6 is designed. Answered: the compile without
+  occluders and with the block limit lifted is exact in everything `Physics` reads (130.56.16.1).
 - **Start anywhere**: the course start, a flag, or a cell clicked on the plan
   (`Physics.poke`). Pause, step a frame, ¼ and ½ speed, rewind (states kept
   every 0.5 s), a ghost of the AUTHOR demo or the best run.
@@ -296384,7 +296385,8 @@ reads its course list off the disk. The pathway entry for a new course
   `PIL.ImageTk` is not needed.
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
-- **Not built**: the blend check (130.56.6), the Shapes tab, Test Roll (130.56.7), the pathway, add to
+- **Not built**: the blend check (130.56.6), the Shapes tab, Test Roll (130.56.7; since built in part,
+  130.56.16), the pathway, add to
   the game (130.56.9). The plan's story list carries what each built story still lacks.
 
 #### 130.56.11 The zip: `make bbeditbundle`
@@ -296549,3 +296551,97 @@ there to protect against."
   `--strict` each is refused as before, `hidden` and `accept` as 130.56.5. MEASURED: every shipped
   course's parts, demos and `bzcourse.inc` byte-identical before and after; the `--selfcheck` sections
   of every family touched pass. The game has not yet been run with a wholly hidden element.
+
+#### 130.56.16 Test Roll, built (2026-11-21)
+
+The owner: host-side play *"would be a huge benefit. Not needing to build a disk, transfer it to an
+emulator or machine, boot, load the game, get to the course; that is a huge time savings."*
+`tools/bbplay.py` is the player of 130.56.2's table and 130.56.7's contract; the builder's toolbar has
+**Test Roll** beside Redo, which writes the text as it stands to a file of its own and runs
+`bbplay.py FILE --name COURSE` as a separate process, with `--start X Y` when an area (its centre cell) or
+a one-cell part is selected. `bbplay.py` is in the zip (130.56.11's ROOTS) and its README.
+
+##### 130.56.16.1 The play-only compile (the plan's story 0.3)
+
+`bbplay.compile_play` is `compile_course(..., occluders=False)` with `BLK_MAX` lifted for that call alone
+(restored after it, so nothing else in the process sees the lifted bound). What `Physics` reads of it is
+the full compile's; what is not is the part's picture side:
+
+| | the same | different |
+|---|---|---|
+| read by `Physics` | every cell's kind, z0, slopes, surface and its SAFE, OBS and exit bits; split cells' pairs; FIELD tables; the start; the props' world fields; GF_SPLIT, GF_CKPT | - |
+| picture only | - | Y0 (the kit's alignment, 130.37.6, is applied only with occluders: MILL 160 against 164, PLAY 106 against 108), so the route, `py` and the lanes' block rows shift by that much; FL_OCC, FL_OCCG and FL_FLOAT (no occluder pass: 200 cells on MILL, 914 on PLAY); GF_ANA; the prop records' ORDER and PLAY's group lanes (68 records against 67); the identity (MILL B78Ah against A7FBh) |
+
+`Physics` reads none of the right-hand column (grep of the class: FL_OBS, FL_SAFE, the exit bits, GF_SPLIT,
+GF_CKPT, and `y0` only as the picture offset of `by`). MEASURED (host, `bb-editor` at `76a2c1538`): on
+MILL and on PLAY, the autopilot and five scripts of random held keys (Hop and Grip among them), 4,000
+steps each, step for step the same `state()` and `state2()` on both compiles, `px` equal and `py` off by
+the Y0 difference. The guarantee in use is stronger than the measurement: when the full compile lands the
+window REPLAYS the run on it and compares the end states (`wstate`: `state()`, `state2()`, falls,
+returns, the goal, the flags touched, the clock, the material), and says MISMATCH in red if they differ.
+MEASURED in the window: MILL 159 - 246 steps and PLAY 5,994 steps replayed, the same end state.
+
+Time to the first step, MEASURED on a 4-core host: MILL's play-only compile 0.48 s in-process, its first
+frame 0.8 - 1.2 s after the window opens (process start and the pickle included); PLAY's first frame
+8.6 s (its play-only compile 12.4 s in-process while another compile ran; the 11 renders of its lanes'
+poses are 14 of its 22 profiled seconds, so a faster first step would mean a compile without the picture,
+which no part can be today). The FULL compile runs beside it from the start: in the window MILL's lands at
+4.0 - 6.0 s and PLAY's at 119.5 s (126.7 s alone, in-process). The full compile writes the compiler's cache
+(`build/bbcache/`), so a second Test Roll of unchanged text has it at once.
+
+##### 130.56.16.2 The frame (the plan's story 0.4)
+
+The frame is drawn on the host from the compiler's own pieces, at the card's refresh (`CARD_HZ`, the steps
+of each frame from the accumulator as `glide_run` counts them, at most 8, the first frame's discarded),
+then `Glide.camera()` with `Heavy` - the game's camera and its props' drawn poses. The window
+(`Art.window`): the picture `c.pic` cropped to the camera's window (320 x 200, Hercules 360 x 200 game
+pixels); each lane pasted at Heavy's DRAWN pose (a group lane at its true pose, `fpose`); the tracked
+lift's slab at its drawn line; the shadow where `shadow()` gives one (its checker pixels black); the ball's
+`sprite()` frame (`bonanza_assets.material_frame`, `squash_frame`, `stretch_frame`; glass's
+`shatter_frame`, rubber's `pop_frame`) at `(px, py)`, glass's see-through pixels left; then, where the
+ball's cell carries the OCC gate (FL_OCC airborne, FL_OCCG grounded), the pixels `laid_at(..., card=True)`
+names laid back from the picture - the card's records with the checker, the AV model's included. On the
+play-only compile there are no records: the window says so until the full compile lands. Hercules: the
+CGA window through `herc_pair` (equal pixel for pixel, the row's item 4), shown 1 x 2; CGA in the course's
+palette at 3 x 3.
+
+What the compositor does NOT copy (each an APPROXIMATION, said here and in the window's line): the guest's
+box layout (130.11.10.1) - a shadow is drawn whenever `shadow()` gives one and is never laid over by a
+record; the slab is never occluded; the shatter and pop frames' index mapping is the host's guess (glass
+frame `k`, rubber's pop `k + 1`); the Hercules ball is the picture's translation, not `bz_hxlat`'s table;
+the whole window is drawn every frame (no damage model); the VGA arm (130.46) is not drawn; the camera is
+Glide only (no Trickle). The fidelity check against MartyPC's frames (story 6.5) is NOT done, so the
+frame is a model of the guest's, not a measurement of it. MEASURED costs: a frame's window 0.15 ms, its
+RGB 0.15 ms, its PNG 2.4 ms, the Hercules translation 0.6 ms; 600 frames' steps and cameras 0.03 s (MILL).
+
+##### 130.56.16.3 The window
+
+`python3 tools/bbplay.py COURSE.bbc [--start X Y] [--ball rubber|steel|glass] [--herc] [--name PATH]`.
+Arrows roll, Space hops, Left Shift grips (X11's auto-repeat is settled over 30 ms), Backspace is the
+game's RETURN (one step's `K_RET`, so it is in the log), P pauses, N steps a frame (one with a step in it) while paused, 1 / 2 / 4
+set 1, 1/2 and 1/4 speed, Z rewinds 5 s, R restarts, Esc closes. The readout: the time (steps /
+`STEP_HZ`), falls, returns, flags touched of the course's flags, the clock where the course has a limit,
+FINISHED or TIME UP (which pause the run once), the speed, the ball and its cell. When the host falls
+behind it plays slower (at most 4 frames a tick), never skipping steps.
+
+- **Rewind**: a snapshot (`copy.deepcopy` of the Physics, the Glide and its Heavy, the course and its grid
+  shared) every 27 steps; MEASURED 0.43 ms a snapshot, 0.56 ms a rewind. A rewind goes back to the last
+  snapshot at least 5 s back (5 - 5.5 s) and truncates the run's keys there.
+- **Start**: the course start, or `--start X Y` (`Physics.poke`: the cell's centre, grounded, at rest).
+  A flag as the start, the run's timeline and a ghost are not built.
+- **Save demo**: the run's step keys as the game's log (`encode_log`: BZR1, the course's K in
+  BZ_COURSES, the run's ball, COMPLETE when the goal was reached, the FULL compile's identity, this
+  build's BZ_PHYSV), and its `.bzd` beside it (`demo_text`). Refused, with the reason, from a `--start`
+  run (a demo replays from the start) and before the full compile lands (the identity is the shipped
+  part's). After writing, the log is replayed through `Physics.run_log` from the start and the window says
+  whether it ends where the run ended. A course outside BZ_COURSES gets K 0 and the warning that the game
+  will not take it until it is added (130.56.9). MEASURED: a 1,650-step MILL run saved from the window
+  replays to its own end; the guest's checks 1 - 8 (`check_log`) pass on the row's. NOT MEASURED: a saved
+  run replayed on MartyPC (story 6.4).
+
+The row `bbplay` (soak, `tests/unit/t_bbplay.py`, 3.2 s): the play-only compile against the full one on
+MILL (the autopilot to the goal, a scripted run from the start and from a poked cell, every frame), the
+frame's ball pixels against `sprite()` and `laid_at` over the autopilot's run (473 ball pixels behind an
+occluder among 54,616), the Hercules translation, a saved log through `check_log` and `run_log`, and a
+rewind driven again to the same end. Red by hand: the ball drawn at `px + 1`, the RETURN left out of the
+log, BLK_MAX left lifted. The bundle row `bbeditbundle` plays MILL 120 frames in the zip.
