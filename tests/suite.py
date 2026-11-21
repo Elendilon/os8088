@@ -5673,20 +5673,20 @@ SOAK = [
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
     Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 10.0,
-        "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.56.3 - 130.56.5), host only: every "
+        "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.58.3 - 130.58.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
         "names every position: `half`, a ramp's span, water's ripple cell); a flag wholly behind a wall WARNS, "
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
-        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.56.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.56.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.56.15). secs re-measured (10 s). Red by hand: coord_slots without "
+        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.58.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.58.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.58.15). secs re-measured (10 s). Red by hand: coord_slots without "
         "its `half` skip (DOWN's split cells), _visual raising again (three cases). secs measured (6.9 s)"),
     Row("bbblend", "soak", py("tests/unit/t_bbblend.py"), 330.0,
-        "THE BLEND CHECK (SPEC.md 130.56.6, 130.56.18), host only: a floor 4 units behind and below another, its "
+        "THE BLEND CHECK (SPEC.md 130.58.6, 130.58.18), host only: a floor 4 units behind and below another, its "
         "checker running on above the higher floor's back edge, WARNS (kind blend, both floors' cells and lines, "
         "the seam's pixels over BLEND_PX); the same two floors adjoined, and with a 2-unit drop (the height phase "
         "turns the checker over), do not; --strict and a course's `strict` refuse it; `accept blend` and `accept "
         "blend X Y` (a cell of either floor) let it build, a cell of neither does not; every BZ_COURSES course, "
-        "the pathway and the title raise exactly 130.56.18's list (PLAYGROUND and the title one each). Red by "
+        "the pathway and the title raise exactly 130.58.18's list (PLAYGROUND and the title one each). Red by "
         "hand (--quick): blend_check returning at once (items 1, 3, 4), the check blind to the cells' colours "
         "(item 2, the 2-unit drop warns). secs "
         "measured cold (259 s, the compile cache off, the shipped courses forked a core each, 4-core host) x 1.25; "
@@ -20106,7 +20106,7 @@ SOAK = [
         needs=("pil",), wants=("build/os8088-battle-builder.zip", "build/vbattle.o88",
                                "build/vbattled.o88")),
     Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 8.0,
-        "`make bbeditbundle` (SPEC.md 130.56.11): the Bounce Bonanza course builder's zip for someone with no "
+        "`make bbeditbundle` (SPEC.md 130.58.11): the Bounce Bonanza course builder's zip for someone with no "
         "os8088 tree. Unpacked in a temporary folder and run there with python -I under an audit hook that "
         "fails on any file opened under the tree: the compiler's ROOT is the bundle's data/, MILL is read and "
         "written byte for byte, laid out, drawn and fully checked, the pathway lays out from data/Makefile's "

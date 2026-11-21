@@ -15506,7 +15506,7 @@ $(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
 # THE BOUNCE BONANZA COURSE BUILDER FOR PEOPLE WITH NO os8088 TREE (SPEC.md
-# 130.56.11): the window, the model and its job at the TOP of one folder, every
+# 130.58.11): the window, the model and its job at the TOP of one folder, every
 # tools/ module they import beside them (tools/bbeditbundle.py computes the list
 # with os88vbundle's closure), and the compiler's working files under data/ -
 # the courses, demos, music, the label font and the course lists - in one

@@ -296181,7 +296181,7 @@ MartyPC replay plays the same keys as a REPLAY, where the heart is hidden
 (`tests/bonanza_game.py`) has the 500-byte file, the 488-byte one read with
 its table zero, an emptied slot's dword and the cap of 9.
 
-### 130.56 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; BUILT IN PART on `bb-editor`, 130.56.10)
+### 130.58 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; BUILT IN PART on `bb-editor`, 130.58.10)
 
 The owner: a GUI course builder *"focused on ease of use"*, supporting every
 tile and prop the course format has, with the shape editor in a tab of its
@@ -296189,9 +296189,9 @@ own; a Python window *"similar to the video battle builder"*, because the
 compiler that checks a course takes minutes on a modern machine. The plan and
 its stories are `docs/plans/BOUNCE-BONANZA-EDITOR.md`; the mockups the owner
 reviewed are linked from there. This section is the contract and binds the
-plan; 130.56.10 says what is built.
+plan; 130.58.10 says what is built.
 
-#### 130.56.1 The decisions, in one table
+#### 130.58.1 The decisions, in one table
 
 | # | decision | why |
 |---|---|---|
@@ -296200,27 +296200,27 @@ plan; 130.56.10 says what is built.
 | E3 | The `.bbc` text is the document. The model edits it LINE BY LINE: a changed statement rewrites its own line, a new one is inserted beside its kind, every other byte - comments, blank lines, order - is kept | the courses are mostly comment; `parse()` keeps line numbers and drops the rest, and there is no writer today |
 | E4 | `tools/bbcourse.py` stays the only judge of a course. The window never decides what is legal and never draws a course picture of its own except the top-down PLAN | one compiler, so the builder cannot drift from the game - and the game's visual changes (the VGA arm 130.46, the look 130.47, the column and floor distinctions coming) reach the builder by merging, not by porting |
 | E5 | Two views of one selection: PLAN (top-down, a height map that toggles) and ISO (the compiler's own `render()`), switched by one key | the owner: authors and agents both fail to SEE that one thing obstructs another, or that two surfaces blend |
-| E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.56.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
-| E7 | The shipped build never runs `--strict`. `--strict` makes warnings refusals for agents' runs and for a course that asks for it (`strict`); exceptions are COURSE BY COURSE, written in the course (`hidden` on an element, `accept` for a warning, 130.56.5) | the owner: *"we're probably going to ship courses that don't pass strict ... exceptions can be course by course; the goal in the end is to have good courses"*, and hiding a checkpoint is a real design (secret routes) |
-| E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.56.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
+| E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.58.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
+| E7 | The shipped build never runs `--strict`. `--strict` makes warnings refusals for agents' runs and for a course that asks for it (`strict`); exceptions are COURSE BY COURSE, written in the course (`hidden` on an element, `accept` for a warning, 130.58.5) | the owner: *"we're probably going to ship courses that don't pass strict ... exceptions can be course by course; the goal in the end is to have good courses"*, and hiding a checkpoint is a real design (secret routes) |
+| E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.58.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
 | E9 | A full check that an edit makes stale is CANCELLED, and restarted 2 s after the last edit; never more than one of each job alive | edits must not pile up processes |
 | E10 | Runs where the other Python windows run: macOS (Tk, Pillow), Windows (Pillow if wanted), Linux with the dependencies installed; shipped as a zip, `make bbeditbundle`, `vbtbundle`'s shape | the owner's machines |
-| E11 | ADD TO THE GAME is in scope, a wave of its own at the end: the builder writes a playable BONANZA with the author's courses, from what the zip ships (130.56.9) | RealDMG's precompiler window is the precedent: it writes a game, not a source file |
+| E11 | ADD TO THE GAME is in scope, a wave of its own at the end: the builder writes a playable BONANZA with the author's courses, from what the zip ships (130.58.9) | RealDMG's precompiler window is the precedent: it writes a game, not a source file |
 | E12 | The PATHWAY (`path.bbc`) is edited too, a wave of its own; the title course and the knob `.sed` variants are read-only in the first waves | different statements (130.22.2); the window says so when one is opened |
 
-#### 130.56.2 The layers
+#### 130.58.2 The layers
 
 | layer | file | what it is | needs Tk |
 |---|---|---|---|
 | model | `tools/bbedproj.py` | a course document: the text, its statements (each with its line span), edit methods, undo, the file's stamp on disk | no |
-| checks | `tools/bbcourse.py` | the compiler, unchanged in role: `parse`, the compile, `render`, `owners_canvas`, `visibility`, `Physics` - plus the warning tier (130.56.4) and the blend check (130.56.6) | no |
+| checks | `tools/bbcourse.py` | the compiler, unchanged in role: `parse`, the compile, `render`, `owners_canvas`, `visibility`, `Physics` - plus the warning tier (130.58.4) and the blend check (130.58.6) | no |
 | jobs | `tools/bbedjob.py` | runs a check as a process; JSON lines on stdout (`{stage, done, of, what}`, then `done` with the result) | no |
 | window | `tools/bbedit.py` | a view of the model; calls only model methods and jobs | yes |
-| player | `tools/bbplay.py` | Test Roll's frame loop (130.56.7) | yes (the window it draws in) |
+| player | `tools/bbplay.py` | Test Roll's frame loop (130.58.7) | yes (the window it draws in) |
 
 `bbedproj` is also a command line (`python3 tools/bbedproj.py check|set|add|remove …`) so an agent edits a course through the same methods as the window.
 
-#### 130.56.3 The document
+#### 130.58.3 The document
 
 - **Statements** are read by `bbcourse.parse` (one parser) and carry their
   line span. An edit is a method (`move`, `resize`, `set_height`,
@@ -296237,10 +296237,10 @@ plan; 130.56.10 says what is built.
 - **What an edit makes stale**: an edit changes the course's identity
   (130.15.7), so its AUTHOR demo and any shipped `BZD<NAME>.BIN` stop
   replaying. The Course tab says which, and offers to re-record (Test Roll
-  can record, 130.56.7). The kit (130.37), `uses` (130.25.6.4) and the course
+  can record, 130.58.7). The kit (130.37), `uses` (130.25.6.4) and the course
   budget (130.15.8) are the compiler's to report.
 
-#### 130.56.4 Errors and warnings
+#### 130.58.4 Errors and warnings
 
 A check is an ERROR when the course cannot be built or played: the grammar,
 the start reaching the goal, NO TRAP, the part's size and block limits, the
@@ -296253,17 +296253,17 @@ structure (130.22). It is a WARNING when it is about what the player SEES:
   hidden behind an archway (130.39) or a hump (130.44) for too long;
 - the visibility audit (130.15.10.4) - marks and tube mouths under their
   share, the ball hidden over 0.5 s on the route - which only reports today;
-- the BLEND check (130.56.6), new.
+- the BLEND check (130.58.6), new.
 
 Warnings never block a save, a Test Roll, a build or an add-to-the-game,
 and the Makefile never passes `--strict`: the game ships courses with
 warnings. `bbcourse.py --strict` (and the window's "Treat warnings as
 errors") makes each warning a refusal, naming the element and its line. It
 is what an agent's course run uses, and it binds a course in every build
-once the course says `strict` (130.56.5) - the way a finished course is held
+once the course says `strict` (130.58.5) - the way a finished course is held
 to it.
 
-#### 130.56.5 Exceptions, course by course: `hidden`, `accept` and `strict`
+#### 130.58.5 Exceptions, course by course: `hidden`, `accept` and `strict`
 
 Three statements, none of which writes into the part (no identity moves):
 
@@ -296285,7 +296285,7 @@ Three statements, none of which writes into the part (no identity moves):
   finished, so the ship can carry strict and unfinished courses side by side
   and the strict ones cannot slip back.
 
-#### 130.56.6 The blend check
+#### 130.58.6 The blend check
 
 The owner: floor tiles whose PATTERNS MATCH, *"so visually there is no
 distinction between them, when they are not actually adjoined"*. Two floor
@@ -296301,7 +296301,7 @@ the VGA arm's when the compiler renders one. The window draws a blending
 pair with a stripe over both regions, in Iso and in Plan, from the warning's
 "Show".
 
-#### 130.56.7 Test Roll
+#### 130.58.7 Test Roll
 
 - **The model is the game's**: `Physics.step(keys, tilt)`, the families'
   `pose()`, `sprite()` and `shadow()`, the `Glide` camera, at 54.6 steps a
@@ -296322,7 +296322,7 @@ pair with a stripe over both regions, in Iso and in Plan, from the warning's
 - **A run is a demo**: Save writes the steps as a `.BZR` (130.14.7), so a
   host run replays on the real game step for step.
 
-#### 130.56.8 Jobs
+#### 130.58.8 Jobs
 
 One PICTURE job (render and owners, under a second on a small course) and
 one FULL job (the compile with occluders, NO TRAP, the visibility audit, the
@@ -296331,7 +296331,7 @@ new one 2 s after the last edit; the PICTURE job runs on every edit and a
 newer one replaces an older. The status bar shows each job's stage and
 Cancel. Results are the compiler's cache's (`cache_put`) where it has them.
 
-#### 130.56.9 Add to the game (the last wave)
+#### 130.58.9 Add to the game (the last wave)
 
 The builder writes a BONANZA the author can play: the shipped courses (or
 none) plus the author's, as `BONANZA.O88` and optionally a floppy image. The
@@ -296342,12 +296342,12 @@ REALDMG-SPEC 20.12), nasm only where the zip is made - and a package that
 reads its course list off the disk. The pathway entry for a new course
 (pad, route, icon) is made with the pathway editor's wave.
 
-#### 130.56.10 Built so far (2026-11-21)
+#### 130.58.10 Built so far (2026-11-21)
 
 - **The model**, `tools/bbedproj.py`: a `Document` of lines; every edit (`set_statement`, `insert`,
   `remove`, `move`, `set_word`, `set_clause`, `set_flag`) rewrites only its statement's line, keeping
   the indentation and the trailing comment at its column; undo and redo hold whole line lists. The
-  file's size and SHA-1 at load and save are its stamp (130.56.3). `coord_slots` names every world
+  file's size and SHA-1 at load and save are its stamp (130.58.3). `coord_slots` names every world
   position a statement has - a shape's (`tile`, `rect`, the screen axes of `band` and `box`, after a
   `half`/`quarter` prefix), a ramp's span, water's ripple cell, a prop's cell or rectangle and its
   `region`, a tube's mouths and `via`, a chute's points - which is what a move shifts. `analyse()`
@@ -296356,7 +296356,7 @@ reads its course list off the disk. The pathway entry for a new course
   px, 32 a unit), slope, surface and line. `auto_uses()` adds the family a refusal names (130.25.6.4)
   to the `uses` line, folded into the edit that needed it. Its command line is the agents' way in.
 - **The warning tier** in `tools/bbcourse.py`: `_visual(msg, kind)` replaces the eleven visual
-  refusals of 130.56.4 (`hidden`: the flag, the blower's squiggles, the magnet, the turntable cell, the
+  refusals of 130.58.4 (`hidden`: the flag, the blower's squiggles, the magnet, the turntable cell, the
   boost pad, a gate or plate's pose, a gate's art, the clock; `ball-hidden`: the archway, a clock or
   gate art, a hump). While a compile runs, `_compile_cached` collects them on `c.vwarn` (cached with
   the course: the cache key is unchanged); `compile_course` then makes `c.warnings` (`vis_settle`:
@@ -296384,11 +296384,11 @@ reads its course list off the disk. The pathway entry for a new course
   `PIL.ImageTk` is not needed.
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
-- **Not built**: the Shapes tab, Test Roll (130.56.7), the pathway, add to
-  the game (130.56.9). The plan's story list carries what each built story still lacks. (The blend check
-  is built since: 130.56.18.)
+- **Not built**: the Shapes tab, Test Roll (130.58.7), the pathway, add to
+  the game (130.58.9). The plan's story list carries what each built story still lacks. (The blend check
+  is built since: 130.58.18.)
 
-#### 130.56.11 The zip: `make bbeditbundle`
+#### 130.58.11 The zip: `make bbeditbundle`
 
 `tools/bbeditbundle.py` writes `build/os8088-course-builder.zip`, one folder `os8088-course-builder/`
 (the owner: the GUI at the root, the working files in a subdirectory):
@@ -296410,7 +296410,7 @@ ROOT's `fonts/tallx.f8`. The compile cache is then `data/build/bbcache/`. The zi
 (sorted entries, 1980-01-01 timestamps): 119 files, about 870 KB.
 Row `bbeditbundle` (soak) unpacks it outside the tree and uses it there.
 
-#### 130.56.12 Select first, then act (the owner's first test, 2026-11-21)
+#### 130.58.12 Select first, then act (the owner's first test, 2026-11-21)
 
 The owner, on the first build: clicking a palette part made the next click PLACE it, so selecting
 something added things; a placement the compiler refused (an archway mid-floor) left the course unable
@@ -296441,7 +296441,7 @@ it ... If I'm adding something, then I want to select it and have it add on top 
   when the floor is moved or reshaped, in the same edit (`Document.set_many`, `move_many`: one undo step).
 - Plan arrows point UPHILL; a region's label is its whole height range.
 
-#### 130.56.13 The ground is one layer (the owner's second test, 2026-11-21)
+#### 130.58.13 The ground is one layer (the owner's second test, 2026-11-21)
 
 The owner: *"We have one 'layer' only ... From the user's perspective they start with either a floor, or
 empty space, and then add something to that"*: a ramp made in the middle of a floor without cutting the
@@ -296478,7 +296478,7 @@ did not see.
 - The full check's refusals are put in plain words in the problems list (`explain`, the compiler's own
   details kept: "a ball could get stuck: from the steel pad at (3, 14) it cannot get to the goal").
 
-#### 130.56.14 Moving ground, joining ramps, rejoining, many at once (the owner's third test, 2026-11-21)
+#### 130.58.14 Moving ground, joining ramps, rejoining, many at once (the owner's third test, 2026-11-21)
 
 The owner, building a course of ramps: drag the finish into the middle of a higher floor and it should
 cut in at that floor's height; a ramp between two floors should take their heights and direction; floors
@@ -296518,7 +296518,7 @@ ramp, as rails; and floors and walls that FLOAT a chosen depth ("Overhang" had r
 - **A route point** is never drawn in the game, so a click reaches the ground under it first (Shift-click
   reaches it).
 
-#### 130.56.15 Diagonals, and a wholly hidden element warns (the owner, 2026-11-21)
+#### 130.58.15 Diagonals, and a wholly hidden element warns (the owner, 2026-11-21)
 
 The owner: "We need a way to set diagonals, and visualize them in the topdown view"; and "placing something
 obscured should warn, not error (aka a speed boost behind the diagonal in downhill decision). We'll need
@@ -296542,20 +296542,20 @@ there to protect against."
 - **The edit check now holds the start and the route to the ground** (the compiler's own rules: the start
   a flat floor, a route point on no wall or void), so cutting a corner through the start is undone with
   the reason rather than refused at the full check.
-- **A wholly hidden element is a WARNING** (amends 130.56.10's "what stays an ERROR"): a boost pad, a
+- **A wholly hidden element is a WARNING** (amends 130.58.10's "what stays an ERROR"): a boost pad, a
   gate, plate or bridge pose, a gate's art and a turntable cell keep the lane rect they had before any
   clipping, their poses empty; a magnet, a blower and a membrane, whose rect came from their visible
   pixels, span their art as drawn, as the flag does. Only a clock wholly hidden or off the picture still
   refuses (a finish's clock is for seeing). A pickup's warning names the pickup, not "the flag". Under
-  `--strict` each is refused as before, `hidden` and `accept` as 130.56.5. MEASURED: every shipped
+  `--strict` each is refused as before, `hidden` and `accept` as 130.58.5. MEASURED: every shipped
   course's parts, demos and `bzcourse.inc` byte-identical before and after; the `--selfcheck` sections
   of every family touched pass. The game has not yet been run with a wholly hidden element.
 
-#### 130.56.18 The blend check, as built (the owner, 2026-11-21)
+#### 130.58.18 The blend check, as built (the owner, 2026-11-21)
 
 The owner: *"Pattern on floor tiles matching, so visually there is no distinction between them, when they are
 not actually adjoined. Warning for this one and visually a way to point it out in the editor."* This is
-130.56.6 as built (story 3.3, 3.4), in `tools/bbcourse.py` (`blend_pairs`, `blend_check`), run inside every
+130.58.6 as built (story 3.3, 3.4), in `tools/bbcourse.py` (`blend_pairs`, `blend_check`), run inside every
 compile - after `_compile_y0`, so the build, the window's check and an agent's `--strict` run all get it.
 
 - **Why floors blend at all.** A flat floor's top is one ink a cell, cyan or white by the parity of

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""t_bbblend - THE BLEND CHECK (SPEC.md 130.56.6, 130.56.18), on the host, no emulator:
+"""t_bbblend - THE BLEND CHECK (SPEC.md 130.58.6, 130.58.18), on the host, no emulator:
 
  1. BLEND: a lower floor behind a higher one, four units down, so that its
     cell checker runs on above the higher floor's back edge, WARNS (kind
@@ -13,7 +13,7 @@
     let it build under --strict, the warning reported as accepted; a cell of
     neither does not;
  5. SHIPPED: every course in BZ_COURSES, the pathway and the title raises the
-    blend warnings 130.56.18 records (SHIPPED below: PLAYGROUND's and the
+    blend warnings 130.58.18 records (SHIPPED below: PLAYGROUND's and the
     title's) - each compile the compile cache's when it has one, else a
     core each.
 
@@ -38,7 +38,7 @@ goal  rect 12 10 13 14 flat 4
 start 5 12
 %s"""
 
-# SPEC.md 130.56.18: what the shipped courses raise (the record; a change here is a finding to report)
+# SPEC.md 130.58.18: what the shipped courses raise (the record; a change here is a finding to report)
 SHIPPED = {"playground.bbc": [((26, 31), 101)],        # floor -8 (line 77) seen on past floor 0 (line 313)
            "title.bbc": [((10, 13), 59)]}               # floor 3 (line 60) behind the half-unit step to 3.5
 
@@ -123,7 +123,7 @@ def main():
         want = SHIPPED.get(os.path.basename(p), [])
         print("  5. %s: %s" % (os.path.basename(p), got or "no blend"))
         if [g[0] for g in got] != [tuple(x[0]) for x in want]:
-            bad.append("5: %s raises %s, SPEC.md 130.56.18 records %s" % (p, got, want))
+            bad.append("5: %s raises %s, SPEC.md 130.58.18 records %s" % (p, got, want))
     for b in bad:
         print("FAIL", b)
     print("t_bbblend: %s" % ("FAIL" if bad else "ok"))

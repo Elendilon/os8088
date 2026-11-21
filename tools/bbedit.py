@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedit - THE BOUNCE BONANZA COURSE BUILDER (SPEC.md 130.56).
+"""bbedit - THE BOUNCE BONANZA COURSE BUILDER (SPEC.md 130.58).
 
     python3 tools/bbedit.py [COURSE.bbc]
 
@@ -7,7 +7,7 @@ A window over tools/bbedproj.py's Document: the course is its .bbc text, and
 every edit rewrites only the lines it is about (comments and order are kept).
 Two views of one selection - PLAN, top-down with a height map, and ISO, the
 game's own picture out of tools/bbcourse.py - and the compiler as the only
-judge: its refusals are ERRORS, its visual checks WARNINGS (SPEC.md 130.56.4).
+judge: its refusals are ERRORS, its visual checks WARNINGS (SPEC.md 130.58.4).
 Slow work (the picture, the full check) runs as a process (tools/bbedjob.py)
 that the next edit cancels.
 
@@ -542,7 +542,7 @@ class App(object):
         self.checks.tag_configure("acc", foreground="#666")
         self.checks.bind("<<TreeviewSelect>>", lambda e: self._pick_check())
         ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` (its inspector) or "
-                  "`accept` a warning to keep it under --strict (SPEC.md 130.56.5).", wraplength=520,
+                  "`accept` a warning to keep it under --strict (SPEC.md 130.58.5).", wraplength=520,
                   foreground="#444").pack(anchor="w", pady=(6, 0))
 
     def _build_source_tab(self):
@@ -967,7 +967,7 @@ class App(object):
         return best[1:] if best else None
 
     def cut_corner(self, corner):
-        """SPEC.md 130.56.15: cut the area's CORNER off along a diagonal - the cells before the line dropped,
+        """SPEC.md 130.58.15: cut the area's CORNER off along a diagonal - the cells before the line dropped,
         the cells ON it halved (the half away from the corner kept), every piece keeping its own statement's
         kind, height and ramp. The cut is as deep as the area's shorter side"""
         if not self.area:
@@ -1022,7 +1022,7 @@ class App(object):
                 "; %d already diagonal or shaped, left alone" % skipped) if skipped else ""))
 
     def diagonal_strip(self, how):
-        """SPEC.md 130.56.15: a STRAIGHT strip of the screen (`floor box`), one diamond (32 px) wide, from the
+        """SPEC.md 130.58.15: a STRAIGHT strip of the screen (`floor box`), one diamond (32 px) wide, from the
         area's first cell to its last - down the screen along the plan's x = y diagonal, or across it along
         x + y - at the height of the floor there. Laid over what is there (a box is never cut)"""
         if not self.area:
@@ -1088,7 +1088,7 @@ class App(object):
                  "Gate", "Pressure plate", "Key", "Pit", "Chute", "Hump", "Life"}
 
     def add_part(self, name=None):
-        """the chosen part on the selected area (SPEC.md 130.56.12, 130.56.13): the GROUND is one layer of
+        """the chosen part on the selected area (SPEC.md 130.58.12, 130.58.13): the GROUND is one layer of
         cells, so Floor, Ramp, Wall, Hole and Goal REPLACE the area's cells (the statements round it are cut,
         keeping their own heights and ramps), the surfaces repaint it, a part that stands on the ground brings
         a floor tile to an empty cell, and an archway goes OVER the area with its legs made for it"""
@@ -1771,7 +1771,7 @@ class App(object):
         """move the selection. GROUND (a floor, wall, goal or hole laid by tile or rect) moves as one layer:
         its old cells are left empty, it cuts its way into the cells it lands on, a flat floor or goal takes
         the height of the floor it lands on, its own surface and hang go with it, and the floor round it is
-        rejoined (SPEC.md 130.56.14)"""
+        rejoined (SPEC.md 130.58.14)"""
         st = self.doc.statement(self.sel)
         sh = self._shape(st) if st.kind in ("floor", "wall", "goal", "hole") else None
         if not sh:
@@ -1993,7 +1993,7 @@ class App(object):
             if getattr(self, attr):
                 self.root.after_cancel(getattr(self, attr))
                 setattr(self, attr, None)
-        if self.check_job:                  # an edit makes a running check stale: cancelled (130.56.8)
+        if self.check_job:                  # an edit makes a running check stale: cancelled (130.58.8)
             self.check_job.kill()
             self.check_job = None
         a = self.doc.analysis()
@@ -2379,7 +2379,7 @@ class App(object):
         self._draw_blends(c, "iso")
 
     def _draw_blends(self, c, view):
-        """SPEC.md 130.56.18: the last full check's BLEND warnings, while "Hard to see" is on - in Plan both
+        """SPEC.md 130.58.18: the last full check's BLEND warnings, while "Hard to see" is on - in Plan both
         floors hatched (one green, one magenta), in Iso the seam's pixels where the checker runs on.  A check
         refused (under strict) carries none, so the picture job's warnings stand in for it"""
         if not self.show_hard.get():
