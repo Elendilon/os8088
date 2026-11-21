@@ -9,6 +9,10 @@ THE METHOD is bonanza_wide's (bonanza_dsplit's Guest): the package image assembl
 BZDEV=1 art (TTALL is a TEST course, SPEC.md 130.54) and loaded at one segment of an emulated 8086; TTALL's
 two sheets and its world part at three others, as bz_cload leaves them; its routines CALLED:
 
+  0  THE ONE PART (130.30.12.5): BZ<K>.BIN - every sheet's stored form and the world part's, each from a
+     paragraph - laid at one segment as op_fetch leaves it; bz_cexp on its base (bz_cload's) and then bz_cload2,
+     OSAPI_SEG's SEG_SUB answered as every real-mode kernel answers it (DX + AX): each sheet past 0 and the
+     world part at the table's paragraphs (bz_shseg, bz_cseg), each expanded in place to its RAM form.
   1  THE EXPANSION: bz_cexp on each sheet's STORED form (BZ<K>.BIN, BZ<K>S1.BIN) and the world part's -> the
      tool's RAM forms, byte for byte (a sheet's map is n block rows, not BROWS: bz_cxmap counts its length).
   2  THE LAUNCH: bz_crshdr shows sheet 0 - bz_mrow its rows clamped to [m0, hic], its bounds EMPTY (the first
@@ -20,6 +24,8 @@ two sheets and its world part at three others, as bz_cload leaves them; its rout
      bz_ltmo are the sheet's; every map word a frame may read - block rows [tb - 2, tb + 28] - is the model's
      (a lane's cell its DRAWN pose's); and no byte of any sheet past its map has moved.
 
+--red world: bz_cload2 reading the world part's paragraphs from the entry past the last sheet's, not entry 0's -
+            item 0 fails.
 --red clamp: bz_shmrow's tail not clamped (the rows past hic run on past the map) - item 3's table fails.
 --red lanes: bz_shset without its bz_lsync - item 3's lanes' cells fail in the second sheet.
 --red rowplanes: bz_cxmap counting BROWS, as before sheets - item 1 fails (the map overruns the blocks).
@@ -43,6 +49,7 @@ WS = 0x9000
 LSH = 1                         # the CGA's card row: two lines (bz_lsh)
 
 REDS = {
+    "world": [("bonanza.asm", "    mov ax, [si]                ; ... and the world part's, the last\n", "")],
     "clamp": [("bzgame.inc", "    sub ax, dx                  ; (hic, BZ_MROWS): the hic-th's\n",
                "                                ; (red: not clamped)\n")],
     "lanes": [("bzgame.inc", "    je .n\n    call bz_lsync\n.n:\n    inc bx\n", "    je .n\n.n:\n    inc bx\n")],
@@ -69,6 +76,43 @@ def guest(binp, sym, c):
         g.mu.mem_write(s * 16, bytes(q))
     g.mu.mem_write(WS * 16, bytes(c.wcga))
     return g
+
+
+BASE = D.PS                     # item 0: the one part's claim, as op_fetch leaves it
+KSEG, KSEGOFF = 0x0060, 0x022C  # OSAPI_SEG (os88api.inc): answered here as a real-mode kernel does
+
+
+def load_check(binp, sym, c):
+    """item 0: the ONE part at BASE; bz_cexp on it, then bz_cload2 -> every sheet's and the world part's RAM form
+    at the table's paragraphs"""
+    blob, pl = bytes(c.bstored), c.plan
+    if BASE * 16 + len(blob) > D.KS * 16:
+        raise SystemExit("bonanza_sheet: TTALL's one part (%d bytes) runs into the kit's segment" % len(blob))
+    g = D.Guest(binp, sym, b"")
+    g.mu.mem_write(BASE * 16, blob)
+    g.mu.mem_write(KSEG * 16 + KSEGOFF, b"\x01\xc2\xf8\xcb")     # add dx, ax; clc; retf: SEG_SUB's real-mode sum
+    g.w("bz_crs", R.CRS_K["ttall"])
+    g.w("bz_cseg", BASE, 2)
+    g.w("bz_shseg", BASE, 2)
+    g.call("bz_cexp")
+    g.call("bz_cload2")
+    bad = []
+    if g.mu.reg_read(g.X.UC_X86_REG_EFLAGS) & 1:
+        bad.append("bz_cload2 refused (CF = 1)")
+    want = [(BASE + pl["paras"][i], q) for i, q in enumerate(c.cga.sheets)] + [(BASE + pl["paras"][-1], c.wcga)]
+    segs = [BASE] + [g.r("bz_shseg", 2, k=2 * i) for i in range(1, pl["k"])] + [g.r("bz_cseg", 2)]
+    for i, ((s_, ram), got_s) in enumerate(zip(want, segs)):
+        what = "the world part" if i == pl["k"] else "sheet %d" % i
+        if got_s != s_:
+            bad.append("%s's segment %04Xh, the table's %04Xh" % (what, got_s, s_))
+            continue
+        got = bytes(g.mu.mem_read(s_ * 16, len(ram)))
+        if got != bytes(ram):
+            at_ = next(j for j in range(len(ram)) if got[j] != ram[j])
+            bad.append("%s first differs from its RAM form at %d" % (what, at_))
+    return not bad, ("TTALL: its ONE part (%d bytes, %d sheets and the world part at paragraphs %s) at one "
+                     "segment; bz_cexp and bz_cload2 lay each out at the table's paragraphs, each its RAM form%s" % (
+                         len(blob), pl["k"], pl["paras"], "" if not bad else " -- " + "; ".join(bad)))
 
 
 def expand_check(binp, sym, c):
@@ -223,9 +267,13 @@ def check(art=None, red=None, verbose=True):
         binp, sym = D.build(td, REDS[red] if red else ())
         c = course()
         try:
-            res = [expand_check(binp, sym, c)]
+            res = [load_check(binp, sym, c)]
+        except Exception as e:                  # (a red arm's loader can run off: that is its failure)
+            res = [(False, "TTALL: the one part's load stopped: %s" % e)]
+        try:
+            res.append(expand_check(binp, sym, c))
         except Exception as e:                  # (a red arm's expander can run off: that is its failure)
-            res = [(False, "TTALL: bz_cexp stopped: %s" % e)]
+            res.append((False, "TTALL: bz_cexp stopped: %s" % e))
         try:
             res += walk_check(binp, sym, c)
         except Exception as e:                  # (a red arm's guest can run off: that is its failure)
@@ -245,8 +293,8 @@ def main():
     a = ap.parse_args()
     ok, res = check(a.art, a.red)
     if a.red:
-        want = {"clamp": lambda r: not r[2][0], "lanes": lambda r: not r[2][0],
-                "rowplanes": lambda r: not r[0][0], "serve": lambda r: not r[2][0]}[a.red]
+        want = {"clamp": lambda r: not r[3][0], "lanes": lambda r: not r[3][0], "world": lambda r: not r[0][0],
+                "rowplanes": lambda r: not r[1][0], "serve": lambda r: not r[3][0]}[a.red]
         good = want(res)
         print("bonanza_sheet --red %s: %s" % (a.red, "caught (red, as it must be)" if good else "NOT CAUGHT"))
         return 0 if good else 1
