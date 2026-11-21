@@ -1,4 +1,4 @@
-# Bounce Trial - BONANZA's course 2 (SPEC.md 130.11.13): the course D4 is judged
+# Bounce Trial - BONANZA's course 2 until 2026-11-21, a TEST course now (SPEC.md 130.11.13, 130.54): the course D4 is judged
 # on, built for the RUBBER ball.  Everything wave 2 adds is on it, each where
 # the route passes it:
 #  - a 6-unit drop off the start tier H onto a floor F four tiles deep, and
@@ -21,6 +21,7 @@
 # cross.  This layout's airborne steps over OCC cells are counted instead
 # (`bbcourse.py --selfcheck` item 8).
 course TRIAL "Bounce Trial"
+test             # SPEC.md 130.54: a TEST course since 2026-11-21 (DOWN took its shipped slot) - no pad, no shipped demo
 music trial      # SPEC.md 130.50.3: every course names its song (the song it had by position)
 width  64
 ball   rubber

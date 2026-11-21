@@ -273123,14 +273123,16 @@ game-over card, and the lanes at scale (130.19.10), which the pathway needs.
 `docs/plans/bonanza-courses/pathway/` (the owner's concept sketch, page 0 as
 the owner marked it up; page 1 a PROTOTYPE): pad 0 is **FIRST ROLL** (`ROLL`,
 course 1, where a new game rests), pad 1 **LITTLE HOP** (`HOP`, course 2), pad 2
-DOWNHILL DECISION's place (TRIAL standing in with its two exits: the split, Up
-to 4 and Left to 6), and pads 3 - 7 the old test courses standing in. ROLL
+**DOWNHILL DECISION** (`DOWN`, course 3, since 2026-11-21: its two exits the
+split, exit 0 Up to 4 and exit 1 Left to 6; TRIAL stood in there until then,
+130.54.9), and pads 3 - 7 the old test courses standing in. ROLL
 and HOP are in `BZ_COURSES` by default, appended as courses 7 and 8 so every
 course before them keeps its K, and the `BZROLL` knob that carried them is
 retired. The map the shipped one replaced is `pathtest.bbc`, the base the
 pad-0 test-course knobs' `path<knob>.sed` edit (they name its pads and cells);
-the first two courses have no pad there. **Every course of the default build
-has a pad but BENCH** (the benchmark, never played): the owner's rule,
+the first two courses have no pad there (its pad 1, TRIAL's, is DOWN's since
+130.54.9). **Every course of the default build has a pad** (BENCH and the
+other TEST courses, 130.54, are not in it): the owner's rule,
 2026-11-19, *"I just don't want test courses no one can get to in the
 non-knob build"*. Pad 7 is the OLD First Roll (`FIRST`, course 1) standing
 in, its map title "Bounce Trial" so no two pads read FIRST ROLL; in a game
@@ -287031,6 +287033,46 @@ builds `bz_mrow` exactly (`MAP + br ROWB`, all 256 words), and `bz_boxc`'s
 buffer is exactly the part's words on 59 boxes, word column 159 at every
 first-line offset among them. Its red arms (`--red mrow`, the table not built
 past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
+
+#### 130.54.9 TRIAL a test course; DOWNHILL DECISION ships (the owner, 2026-11-21)
+
+The owner: *"all of the courses we're working on - their existing form was
+also just a test or prototype, so we can replace them as we develop. That
+way our work is in when other sessions make builds."* DOWNHILL DECISION
+(`down.bbc`, `DOWN`) shipped until today only under the `BZDOWN=1` knob,
+which sedded the shipped pathway's pad 2 from TRIAL (the wave-2 prototype
+standing in) to DOWN. Now:
+
+- **DOWN takes TRIAL's slot**: `BZ_COURSES` is FIRST 0, **DOWN 1**, MILL 2,
+  MOON 3, PEAK 4, PLAY 5, ROLL 6, HOP 7, so no other course's K moved (and
+  nothing may care, 130.14.7.4). `path.bbc`'s pad 2 plays `DOWN` (its icon
+  and its title were already DOWN's); DOWN's ROUTE DEMO (`BZDDOWN.BIN`, 688
+  bytes) ships in `bzdemo.lst`'s second row in `BZDTRIAL.BIN`'s place, so
+  the title's draw and V's cycle carry it.
+- **TRIAL is a TEST course** (`test`, 130.54.1), the LAST of `BZ_TESTCRS`
+  so no other test course's K moved: the rows' rubber-bounce legs (the
+  ring's and perf's TRIAL legs, the physics sweep, the split's) still play it
+  in the test build, by name. The shipped build carries no TRIAL, no
+  `BZDTRIAL.BIN`. Its song `trial` stays: DOWN plays it.
+- **The `BZDOWN` knob is GONE** (not an alias: `BZROLL`'s precedent), and
+  `pathdown.sed` with it. `pathtest.bbc` (the pad-0 test knobs' base, 2026-
+  11-19) puts DOWN on its pad 1 in TRIAL's place, since a knob build is a
+  shipped-shape build and may not put a test course on a pad.
+- **As built (MEASURED, `make bonanza bonanzadisk` before and after)**:
+  `BONANZA.O88` **150,873 -> 165,712 bytes (+14,839)**; the package image
+  `bonanza.bin` 51,616 -> 52,110 (+494: the sheeted-course code a shipped
+  sheeted course assembles, 130.30.12); course 1's part 16,364 -> 134,404
+  bytes stored (DOWN is sheeted). The disks: `bonanza360.img` **156 -> 170
+  of 354 clusters**, `bonanza720.img` 156 -> 170 of 713, `bonanza.img` and
+  `bonanza120.img` 307 -> 336 of 2,847 and 2,371 - BONANZA.O88 is on no
+  other disk (`local`, apps/RETIRED.txt). `BZ_CRS_MAXCLAIM` 4,992 -> 8,576
+  paragraphs (DOWN's own claim: the pathway is held beside a course only
+  when the heap still takes that, 130.25.4.2), `BZ_CRS_ARMAX` 192
+  unchanged.
+- **The test build** (`BZDEV=1`): seventeen courses, the shipped eight at
+  their K, then BENCH 8 ... TTALL 15 and **TRIAL 16**; `BONANZA.O88` 197,951
+  bytes, `bonanza360.img` 202 of 354 clusters. A pad-0 knob build
+  (`BZSHAPES=1`, `pathtest.bbc` with DOWN on pad 1) compiles.
 
 ### 130.55 THE LIFE, `respawn` and the 10-second default (the owner, 2026-11-21; on `bb-lives`)
 

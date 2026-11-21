@@ -21612,8 +21612,9 @@ BZ_ART := $(BUILD)/bonanza-art
 # THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 130.10.3): course K is the K-th
 # of this list, its part row K - and NOTHING ELSE keys by K (SPEC.md 130.22.5.1,
 # 130.14.7.4: the save keys courses by name, the game starts on pathway pad 0's,
-# the demos and BENCH's exemptions go by NAME).  As listed: 0 FIRST, 1 the rubber ball's
-# trial, 2 the obstacles' (SPEC.md 130.12.9), 3 and 4 wave 4's (MOON, Moonlit
+# the demos and BENCH's exemptions go by NAME).  As listed: 0 FIRST, 1 DOWN (Downhill
+# Decision, the real course 3: since 2026-11-21 in the slot the rubber ball's trial held, TRIAL a TEST
+# course now, in BZ_TESTCRS), 2 the obstacles' (SPEC.md 130.12.9), 3 and 4 wave 4's (MOON, Moonlit
 # Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 5 wave 6's PLAYGROUND (PLAY,
 # SPEC.md 130.16.8) - the same K in the BZDEV=1 build, whose TEST courses
 # (BZ_TESTCRS, below: BENCH, the benchmark's, among them) come AFTER every
@@ -21628,9 +21629,11 @@ BZ_ART := $(BUILD)/bonanza-art
 # TPLY (the plan's TPLAY), the physics and replay rows' (the prototypes' features on one course).
 # TLFT (Two Lifts), SPEC.md 130.12.4.7's: two lifts, the tracked one handed over on its route.
 # TTALL (Tall Test), SPEC.md 130.30.12.8's: the course past one picture part, played in two SHEETS.
+# TRIAL (Bounce Trial), the wave-2 prototype whose rubber-bounce legs the rows still play: DOWN took its shipped
+# slot and its pathway pad (2026-11-21), so it is a test course, listed LAST so no other test course's K moved.
 # bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
-BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc apps/bonanza/courses/tply.bbc apps/bonanza/courses/tlft.bbc apps/bonanza/courses/twide.bbc apps/bonanza/courses/ttall.bbc
-BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/trial.bbc \
+BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps/bonanza/courses/tcup.bbc apps/bonanza/courses/tmil.bbc apps/bonanza/courses/tply.bbc apps/bonanza/courses/tlft.bbc apps/bonanza/courses/twide.bbc apps/bonanza/courses/ttall.bbc apps/bonanza/courses/trial.bbc
+BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/down.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
               apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
@@ -22015,30 +22018,6 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
-#> [Knobs] BZDOWN=1 :: Bounce Bonanza with DOWNHILL DECISION, course 3 in the making (docs/plans/bonanza-courses/DOWN.md), on the shipped pathway's pad 2 in TRIAL's place - a knob build, into a private tree (make BUILD=build/down BZDOWN=1 bonanzadisk)
-# BZDOWN=1 (wave 11; the retired BZROLL's precedent) adds apps/bonanza/courses/down.bbc to BZ_COURSES (after the
-# shipped ones, so every shipped course keeps its K) and compiles the pathway from the SHIPPED path.bbc with
-# apps/bonanza/courses/pathdown.sed applied: pad 2 plays DOWN instead of TRIAL (DOWN has TRIAL's two exits).  The
-# playtest build of the pen-in-then-iterate loop.  STAMPED; without it the build is byte for byte the knob-less
-# one.  When the course ships it moves into BZ_COURSES, the map names it, and the knob goes.
-BZDOWN ?=
-ifeq ($(filter $(BZDOWN),1),)
-ifneq ($(BZDOWN),)
-$(error BZDOWN=$(BZDOWN) is 1 or empty)
-endif
-endif
-ifeq ($(BZDOWN),1)
-BZ_COURSES += apps/bonanza/courses/down.bbc
-BZ_PATHSRC := $(BZ_PATH) apps/bonanza/courses/pathdown.sed
-BZ_PATH := $(BUILD)/bonanza-art/pathdown.bbc
-$(BZ_PATH): $(BZ_PATHSRC) | $(BUILD)
-	@mkdir -p $(dir $@)
-	sed -f apps/bonanza/courses/pathdown.sed apps/bonanza/courses/path.bbc > $@
-endif
-BZDOWNSTAMP := $(BUILD)/.bzdown-$(or $(BZDOWN),0)
-$(BZDOWNSTAMP): | $(BUILD)
-	@rm -f $(BUILD)/.bzdown-*
-	@touch $@
 #> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
@@ -22135,7 +22114,7 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZDOWNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
                    $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs

@@ -5577,7 +5577,7 @@ SOAK = [
         "drop, L, W and the double-click, each with the claims as before. Red arm `--red padleak` (MOON's "
         "course part kept at the cup). WAVE 5B (SPEC.md 130.15.4.5, "
         "130.15.13): THE CLAIM LEG - every launch (FIRST, MILL, MOON, PEAK, PLAY, BENCH by B, D's FIRST "
-        "demo, and one launch, F then Esc, of every course of BZ_COURSES no other leg launched - TRIAL, ROLL, "
+        "demo, and one launch, F then Esc, of every course of BZ_COURSES no other leg launched - DOWN (course 1 since SPEC.md 130.54.9), TRIAL (a test course since), ROLL, "
         "HOP) stops at the "
         "kernel's fsx_run (after bz_cexp and bz_hxlat, before the lanes' writer) and the course claim "
         "(bz_cseg, found in the heap map) equals the tool's RAM form on the CGA, its "
