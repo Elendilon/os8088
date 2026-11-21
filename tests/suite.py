@@ -5492,6 +5492,15 @@ SOAK = [
         "shift: TWIDE red, HOP green); each went red when registered. secs MEASURED 2026-11-20: 40 s wall on a "
         "loaded 4-core box, the tree already built (x 1.25).",
         needs=("unicorn", "nasm")),
+    Row("bonanzablocks", "soak", py("tests/bonanza_blocks.py"), 27.0,
+        "BONANZA PAST 1,024 BLOCKS in the guest (SPEC.md 130.56), host only: TBLK (bbcourse.tblk_text, 1,386 "
+        "blocks, two parts, its map form 9 ROWNIBS) under unicorn on the package assembled with BZ_FORMS bit 9 - "
+        "bz_cexp (bz_cxnib) on both stored parts and a synthetic map naming every high nibble, byte for byte; "
+        "bz_crshdr and bz_boxc over every block row naming a block past 1,023 (the CGA); bz_hgen and bz_hxlat "
+        "then the same boxes (the Hercules); the build's VGA part's BZV_CONV on every block (the VGA). Red arms "
+        "by hand, `--red mask2`, `--red swap`, `--red noform`: each went red when registered. secs MEASURED "
+        "2026-11-21: 21 s wall, the tree already built (x 1.25).",
+        needs=("unicorn", "nasm")),
     Row("bonanzasheet", "soak", py("tests/bonanza_sheet.py"), 34.0,
         "TWO-PART ONE PART (SPEC.md 130.30.13, 2026-11-21): item 4, each two-part course of the build (PLAYGROUND) - its ONE part at one segment, bz_cexp and the package's bz_cload2: the picture part at the base, the world part at BZ_CRS_WPARA's paragraphs, both RAM forms; red arm `world` re-aimed (the last sheet's entry, not BZ_CRS_WPARA) and `wpara` added (a paragraph late), each red on items 0 and 4. "
         "BONANZA's SHEETS in the guest (SPEC.md 130.30.12), host only: the BZDEV=1 build's package (its sheets' "
