@@ -21946,6 +21946,8 @@ _NOWAIT = False               # the WAITS' red arm (the selfcheck's `hopplan` it
 PLAN_FLAG_NEAR = 3            # an AIM's flags (SPEC.md 130.14.7.4.4): within this many cells of a leg's arrows' path
 _NOFLAG = False               # the AIMS' red arm (the selfcheck's `hopplan` item 6): no flag pass, flags not required
 PLAN_HOLD_EVERY = 4           # ...from every 4th step of the leg up to the step the arrows failed on
+PLAN_TT_EVERY = 8             # a STAND's waits (SPEC.md 130.14.7.4.5): 0, 8, 16 ... steps at rest, up to a table's period
+_NOSTAND = False              # the STANDS' red arm (the selfcheck's `hopplan` item 7)
 # a world push (sign x, sign y) as held arrows (SPEC.md 130.11.8.2's _forces: Right pushes +x -y, Down +x +y)
 PLAN_W2K = {(1, 0): K_R | K_D, (-1, 0): K_L | K_U, (0, 1): K_L | K_D, (0, -1): K_R | K_U,
             (1, 1): K_D, (1, -1): K_R, (-1, 1): K_L, (-1, -1): K_U, (0, 0): 0}
@@ -22006,22 +22008,26 @@ def _plan_leg(p, hops, n, hold=None, aim=None, trail=None):
     return False, keys, n
 
 
-def _plan_tries(p, spent, nohop=False, hold=False, flags=None):
+def _plan_tries(p, spent, nohop=False, hold=False, flags=None, tt=None):
     """a leg's tries from state p, in order, the ones that take the next way: the arrows alone; then a Hop
     pressed on each step t from the leg's first up to the step the arrows failed or took the way on (+1),
     then a Hop with its "and again" (Space again TRAP_AGAIN steps later, `trap hop`'s pair) on each; at most
     PLAN_ALT Hops; and with HOLD (the second pass, SPEC.md 130.14.7.4.2) then the HOLDS, at most PLAN_ALT.
     FLAGS (the flag pass, SPEC.md 130.14.7.4.4): the course's [(number, cell, way point)] - the AIMS first.
+    TT (_plan_tt, a course with a TURNTABLE): the STANDS after the arrows and before the Hops, on a leg whose
+    arrows meet a table (SPEC.md 130.14.7.4.5).
     Lazy: a Hop is tried only when the search comes back for one.  spent: [steps stepped], the budget's count
     -> yields (keys, the Physics after them)"""
     q = _clone(p)
-    trail = [] if flags else None
+    trail = [] if flags or tt else None
     ok, keys, fail = _plan_leg(q, (), PLAN_SEG, trail=trail)
     spent[0] += len(keys)
     if flags:
         yield from _plan_aims(p, spent, flags, trail)
     if ok:                                          # (and the Hops before the step it takes the way on, for
         yield keys, q                               # the backtrack: a way taken in the air can strand the ball)
+    if tt:                                          # (before the Hops: a player waits for a turntable, he does
+        yield from _plan_stands(p, spent, tt, trail)    # not jump it - 130.14.7.4.5)
     if not nohop:                                   # (nohop: the selfcheck's red arm, the arrows alone)
         yield from _plan_hops(p, spent, fail)
     if hold:
@@ -22073,6 +22079,97 @@ def _plan_waits(p, spent, fail):
                     return
 
 
+def _plan_tt(c):
+    """the course's TURNTABLES for the search's STANDS (SPEC.md 130.14.7.4.5) -> (c, {each table cell: its
+    table's PIVOT, or None on a 2 x 2}, the longest table's period 4Q), or None (no table, or _NOSTAND)"""
+    if _NOSTAND:
+        return None
+    cells, per = {}, 0
+    for q in c.props:
+        if q["kind"] == TT_K and "ttab" in q:
+            t = q["ttab"]
+            N, (ax, ay) = t["N"], t["at"]
+            for i in range(N):
+                for j in range(N):
+                    cells[(ax + i, ay + j)] = (ax + 1, ay + 1) if N == 3 else None
+            per = max(per, 4 * t["Q"])
+    return (c, cells, per) if cells else None
+
+
+def _plan_stands(p, spent, tt, trail):
+    """_plan_tries' STANDS (SPEC.md 130.14.7.4.5): the cells a player stops on to wait for a TURNTABLE - on
+    the leg's arrows' path (TRAIL, their ground cells), each time it enters a table, the cell it came from
+    when that is not the table's (the APPROACH) and the table's PIVOT (a 3 x 3's centre, never a gap), in the
+    order the path meets them; for each, _plan_stand's tries"""
+    c, cells, per = tt
+    stands, prev = [], None
+    for at in trail:
+        if at in cells:
+            for s in (prev if prev is not None and prev not in cells else None, cells[at]):
+                if s is not None and s not in stands:
+                    stands.append(s)
+        prev = at
+    for s in stands:
+        if spent[0] > PLAN_BUDGET:
+            return
+        yield from _plan_stand(p, spent, s, _way_point(c, s), per)
+
+
+def _plan_stand(p, spent, s, pt, per):
+    """one STAND (SPEC.md 130.14.7.4.5): 130.6's arrows aimed at cell S's way point PT (the route cut to end
+    there, the AIM's way: they slow the ball onto its centre) until the ball is on S, grounded, at rest on both
+    axes (under 2 AUTO_ACC); then held there 0, PLAN_TT_EVERY, ... up to PER steps (shortest first), and from
+    each the leg again with the arrows as they are (_plan_leg, PLAN_SEG steps).  The approach and the hold are
+    stepped once and shared by every length; a fall, a RETURN or a timeout before the ball goes ends the
+    stand.  At most PLAN_ALT -> yields (keys, the Physics after them)"""
+    q = _clone(p)
+    w, pre = q.wp, []
+
+    def aimed():                                    # (the arrows at S, the route put back: the AIM's way)
+        base = q.route
+        q.route = list(base[:w]) + [pt]
+        k = q.auto()
+        q.route, q.wp = base, w
+        q.step(k)
+        pre.append(k)
+        return q.nfall != p.nfall or q.nret or q.tout or q.mst == ST_SHATTER
+
+    for _i in range(PLAN_SEG + per):
+        if aimed():
+            spent[0] += len(pre)
+            return
+        if q.goal:
+            spent[0] += len(pre)
+            yield list(pre), q
+            return
+        if (q.gx >> 12, q.gy >> 12) == s and not q.air and abs(q.gvx) < 2 * AUTO_ACC and abs(q.gvy) < 2 * AUTO_ACC:
+            break
+    else:
+        spent[0] += len(pre)
+        return
+    spent[0] += len(pre)
+    found = 0
+    for n in range(0, per + 1, PLAN_TT_EVERY):
+        if n:
+            for _i in range(PLAN_TT_EVERY):
+                if aimed():
+                    spent[0] += PLAN_TT_EVERY
+                    return
+            spent[0] += PLAN_TT_EVERY
+            if q.goal:
+                return
+        if spent[0] > PLAN_BUDGET:
+            return
+        g = _clone(q)
+        ok, keys, _f = _plan_leg(g, (), PLAN_SEG)
+        spent[0] += len(keys)
+        if ok:
+            yield pre + keys, g
+            found += 1
+            if found >= PLAN_ALT:
+                return
+
+
 def _plan_hops(p, spent, fail):
     """_plan_tries' Hops (SPEC.md 130.14.7.4.1)"""
     found = 0
@@ -22120,22 +22217,41 @@ def route_plan(c, nohop=False, nohold=False):
     pass, or PLAN_STEPS long).  Deterministic: the model and a fixed order.  Kept on the course (one search for
     the limit and the demo).  When the route found skips a FLAG, the FLAG PASS (SPEC.md 130.14.7.4.4) searches
     again, the AIMS first in each leg and the goal taken only with every flag touched; its route, when it finds
-    one, is the route.  nohop, nohold: the selfcheck's red arms (and _NOFLAG, the flag pass's)"""
+    one, is the route - when a flag it skips is one its ball passes near (_route_near).  A course with a
+    TURNTABLE (SPEC.md 130.14.7.4.5) is searched in ONE pass with every try from the start, and its legs that
+    meet a table try the STANDS before the Hops.  nohop, nohold: the selfcheck's red arms (and _NOFLAG, the
+    flag pass's, and _NOSTAND, the stands')"""
     memo = c.__dict__.setdefault("_hplan", {})     # (kept with the course, the compile cache's copy too;
-    key = (c.ident, c.ball, nohop, nohold, _NOFLAG)     # by its identity and ball: a course edited is another)
-    if key in memo:
+    key = (c.ident, c.ball, nohop, nohold, _NOFLAG, _NOSTAND)   # by its identity and ball: a course edited is
+    if key in memo:                                 # another)
         return memo[key]
-    out = _plan_search(c, nohop, False)
+    one = not nohold and any(q["kind"] == TT_K for q in c.props)    # (a TURNTABLE's course: ONE pass, every
+    out = None if one else _plan_search(c, nohop, False)            # try from the start - 130.14.7.4.5)
     if out is None and not nohold:
         out = _plan_search(c, nohop, True)
     flags = _plan_flags(c)
-    if out is not None and flags and not _NOFLAG and _route_nflags(c, out) < len(flags):
-        f = _plan_search(c, nohop, False, flags)    # (only a route that skips a flag: a course with no route,
-        if f is None and not nohold:                # or one whose route touches every flag, is not searched
-            f = _plan_search(c, nohop, True, flags)     # again, so it keeps its route byte for byte)
-        out = f if f is not None else out
+    if out is not None and flags and not _NOFLAG and _route_nflags(c, out) < len(flags) \
+            and _route_near(c, out, flags):
+        f = None if one else _plan_search(c, nohop, False, flags)  # (only a route that skips a flag it passes
+        if f is None and not nohold:                # near: a course with no route, or one whose route touches
+            f = _plan_search(c, nohop, True, flags)     # every flag, is not searched again, so it keeps its
+        out = f if f is not None else out           # route byte for byte)
     memo[key] = out
     return out
+
+
+def _route_near(c, keys, flags):
+    """the flags a route's keys skip that its ball passes within PLAN_FLAG_NEAR cells of (its ground cell on
+    any step, replayed as _route_nflags does): the only flags the flag pass's AIMS can steer to (SPEC.md
+    130.14.7.4.4, as 130.14.7.4.5 amends it: a flag on another route - MILL's glass flag - is not searched for)"""
+    p = Physics(c, play=True)
+    p.tsec = 0
+    seen = set()
+    for k in keys:
+        p.step(k)
+        seen.add((p.gx >> 12, p.gy >> 12))
+    return [num for num, at, _pt in flags if not p.cksn >> num & 1
+            and any(max(abs(x - at[0]), abs(y - at[1])) <= PLAN_FLAG_NEAR for x, y in seen)]
 
 
 def _plan_flags(c):
@@ -22214,7 +22330,8 @@ def _plan_search(c, nohop, hold, flags=None, route=None):
     if route is not None:
         p0.route = list(route)
     spent = [0]
-    stack = [([], _plan_tries(p0, spent, nohop, hold, flags))]
+    tt = _plan_tt(c)                                # (a TURNTABLE's STANDS, SPEC.md 130.14.7.4.5)
+    stack = [([], _plan_tries(p0, spent, nohop, hold, flags, tt))]
     out = None
     try:
         while stack and spent[0] <= PLAN_BUDGET:
@@ -22232,7 +22349,7 @@ def _plan_search(c, nohop, hold, flags=None, route=None):
                     continue                                                    # skipped a flag is a dead end)
                 out = ks
                 break
-            stack.append((ks, _plan_tries(q, spent, nohop, hold, flags)))
+            stack.append((ks, _plan_tries(q, spent, nohop, hold, flags, tt)))
     except IndexError:                              # (the route ran out before the goal, as _course_limit's)
         out = None
     return out
@@ -32899,6 +33016,16 @@ _FLAGSIDE = ('course N "n"\nwidth 64\norigin 256\nball rubber\nfloor rect 6 6 17
              'checkpoint 12 10 ball rubber\ngoal rect 15 6 17 12 flat 10\nstart 8 8\nway 8 8\nway 16 8\n')
 
 
+# SPEC.md 130.14.7.4.5's case: a 3 x 3 QUARTER-TURN TURNTABLE on the way, its middle column's back cell a floor
+# only in the quarter its front cell is a gap and the front only two quarters later (`ooo/.o./o..`), so a
+# rolling ball cannot cross it: it stops ON the PIVOT and waits there.  130.6's arrows roll into a hole; a Hop
+# off the pivot over the front clears it, which is the route the search found before the stands
+_TTSTAND = ('course N "n"\nwidth 64\norigin 256\nball rubber\nuses turntable\n'
+            'floor rect 6 4 9 8 flat 10\nfloor rect 6 8 9 11 flat 10\nfloor rect 6 11 9 14 flat 10\n'
+            'prop turntable 6 8 size 3 fill ooo/.o./o.. seed 0\ngoal rect 6 12 9 14 flat 10\nstart 7 5\n'
+            'way 7 5\nway 7 9\nway 7 12\n')
+
+
 def _sc_hopplan(X, res):
     """--selfcheck's section `hopplan` (SPEC.md 130.14.7.4.1): the HOPPING autopilot finishes HOP (course 2,
     built on the Hop) with no fall and no RETURN, its route is the limit's and the route demo's, and its red
@@ -33003,6 +33130,42 @@ def _sc_hopplan(X, res):
                 "returns; RED ARM: the flag pass off (_NOFLAG), the route demo touches %d of 1" % (
                     "reach the goal touching %d of 1 flags" % plain.nckpt if plain.goal else "do not finish",
                     first, q.nckpt, q.nfall, q.nret, r.nckpt), bool(ok)))
+    # SPEC.md 130.14.7.4.5: the STAND - a turntable crossed by stopping on its pivot, not by a Hop off it
+    global _NOSTAND
+    c = compile_course(_TTSTAND, "<a turntable a rolling ball cannot cross>")
+    plain = Physics(c, play=True)
+    for _i in range(PLAN_STEPS):
+        if plain.goal or plain.nfall:
+            break
+        plain.step(plain.auto())
+    runs = []
+    for off in (False, True):
+        _NOSTAND = off
+        try:
+            c.__dict__.pop("_hplan", None)
+            plan = route_plan(c)
+        finally:
+            _NOSTAND = False
+            c.__dict__.pop("_hplan", None)
+        q = Physics(c, play=True)
+        q.tsec = 0
+        rest = 0
+        for k in plan or ():
+            q.step(k)
+            rest += (q.gx >> 12, q.gy >> 12) == (7, 9) and not q.air and abs(q.gvx) < 2 * AUTO_ACC \
+                and abs(q.gvy) < 2 * AUTO_ACC
+        runs.append((plan, q, rest))
+    (plan, q, rest), (red, r, _rr) = runs
+    ok = plain.nfall and not plain.goal and plan is not None and q.goal and not q.nfall and not q.nret \
+        and not q.nhop and rest >= PLAN_TT_EVERY and (red is None or r.nhop)
+    res.append(("7 the STAND (130.14.7.4.5): a 3 x 3 turntable whose middle column is never open end to end - "
+                "130.6's arrows %s; the search with its stands finds a route (%s steps), its replay at the goal "
+                "with %d falls, %d returns and %d Hops, at rest ON the pivot %d steps; RED ARM: the stands off "
+                "(_NOSTAND) the search finds %s" % (
+                    "ROLL INTO A HOLE" if plain.nfall else "do not fall (the case is gone)",
+                    len(plan) if plan else "NO", q.nfall, q.nret, q.nhop, rest,
+                    "none" if red is None else "a route with %d Hop(s) and %d falls" % (r.nhop, r.nfall)),
+                bool(ok)))
     # every compiled course the arrows alone finish touching every flag: its route demo is the plain
     # autopilot's, key for key
     same, n = True, 0
