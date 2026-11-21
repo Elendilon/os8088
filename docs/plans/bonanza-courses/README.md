@@ -18,6 +18,8 @@ designer's and the owner's judgment.*
 
 *What raising the 1,024 px course width would cost (a study, 2026-11-20) is [WIDTH.md](WIDTH.md).*
 
+*Course 4 WINDMILL LANE's pen-in (attempt 1, 2026-11-21) is [MILL.md](MILL.md).*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
