@@ -261789,7 +261789,10 @@ props. Each refusal names the line:
   the runs start at eight phases 32 steps apart (`TRAP_LIFT_PHASES`; two
   phases 32 apart could both miss a slab down a third of its ~260-step
   period). The grammar section's "a flag at a lift's foot", red arm
-  `_TRAPNOLIFT`;
+  `_TRAPNOLIFT`. **A flag or a pad that cannot reach a finish with no
+  pickup still passes by a RESPAWNING one** (130.14.4.1.2, 2026-11-21):
+  taking only pickups marked `respawn`, as often as they come back, and
+  stranding no ball that has taken one;
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (130.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left
@@ -261844,6 +261847,72 @@ Nothing else changes: the same states, the same cache, the same verdict
 and refusal. The cost is the runs - nine times as many a cell (ISLAND HOP:
 about 25 s against under 1 s), which is why it is a course's choice rather
 than every course's. A course without the line compiles exactly as before.
+
+###### 130.14.4.1.2 NO TRAP by a RESPAWNING pickup
+
+*(2026-11-21, WINDMILL LANE's glass route.)* Until this, NO TRAP proved
+every finish with NO pickup taken (130.25.7.3, Q-92: "a pickup only shortens
+a route"), so MILL's glass way - a jump only the JUMP pickup's Hop makes -
+needed a one-way drop back to the fork before its glass pad and flag would
+pass. The owner: *"This is an alternate path, so we may need to modify that
+rule. There should either be an alternate route to A finish (with no
+pickup), OR the pickup should respawn (allowing them retries without needing
+to kill themselves to get it back). That said, a 'way back' (as long as that
+way is longer) is good; it keeps from softlocking someone who can't make the
+jump."*
+
+**The rule.** A flag (with its ball) or a pad (with its) passes NO TRAP if
+EITHER
+
+- (a) a finish is reachable with no pickup taken - the rule as it was, run
+  first and unchanged (`trap_reach`); OR
+- (b) a finish is reachable taking only RESPAWNING pickups - a `speed` or a
+  `jump` marked `respawn` (130.55), which comes back when its effect ends -
+  AND no ball that has taken one can be stranded (`trap_reach_resp`).
+
+A pickup that does not respawn - and an hourglass or a life, which never do -
+is still "not available": it may already be used up. Only a course placing a
+respawning pickup ever runs (b), and only for a flag or pad (a) refused, so
+every course that compiled before compiles to the same bytes and the same
+verdicts: NO TRAP is a check, never part of a part.
+
+**How (b) is modelled.** The search's states grow a third member, the
+EFFECT the ball holds (`trap_eff`): none, or the speed's and the jump's
+steps left and which respawning elements are COLLECTED. A run is the model's
+own (`trap_succ` with `Physics.pickrs`): under `nopick` a pickup kind's
+ENTER and CONTACT still never fire, except a respawning one's, so the ball
+takes it as the guest does, carries its effect through the run, and the
+model's own `_rearm` puts the element back when the effect ends - a ball may
+take it again as many times as it comes back. A run's resting state records
+the effect it still holds, each count rounded DOWN to `TRAP_EFFQ` (64)
+steps; under 64 it is taken as ended and its kind's elements as back (the
+ball waits out the rest at rest), and the next run starts from rest with
+that effect put back (`trap_eff_put`: the bits, the timers, and the working
+values the CONTACT sets - the jump's Hop, the speed's force and cap). Every
+direction is run from every state (no early exit at a finish), because the
+guard reads the whole set.
+
+**The guard** (the owner's softlock). Every state reached ONCE a pickup has
+been taken - a state holding an effect, and every state reachable from one -
+must be GOOD: a run from it reaches a finish, or FALLS (a fall respawns at a
+flag, which RESETs the effect and brings a respawning element back,
+130.55), or it reaches a good state. A state that is none of these - a
+failed jump come to rest in a pocket nothing climbs out of - is refused,
+naming its cell: *"... cannot reach the cup without stranding it: by its
+respawning pickup it reaches the cup, but once it has taken one it can come
+to rest at (x, y) with no way on to a finish or a fall"*. RETURN is not an
+escape here: the owner's point is retries without having to kill the ball.
+A way back that is LONGER (MILL's back door) is a good state like any other
+and is still welcome; it is no longer required.
+
+The cost is (b)'s alone: the effect multiplies the states (`_TRAPJ` below,
+a 3 s jump: 50 states, about 4 s), and the guard needs the whole set.
+`--selfcheck` section `grammar` (`_sc_trapresp`): a glass flag before a 3-tile gap only the jump
+crosses, the cup beyond (`_TRAPJ`) - the jump `respawn` compiles, passed by
+(b) (`c.trapr`); the same jump without `respawn` is refused; a walled
+POCKET in the gap 2 units down (`_TRAPJPIT`), where a failed jump comes to
+rest, is refused by the guard, naming the cell; and the RED ARM
+`_TRAPNORESP` (the arm off) refuses the first.
 
 ##### 130.14.4.2 Records, the grid and the header
 
@@ -262977,6 +263046,91 @@ happening to pass over each flag's cell.
   more than `PLAN_FLAG_NEAR` cells from every leg's arrows is not aimed at;
   and a flag the ball can reach only from a leg it is not near is left to
   the course's ways.
+
+###### 130.14.7.4.5 The STAND: a turntable waited for, not jumped
+
+*(2026-11-21, the owner: "Set an agent on teaching autopilot how to use
+this.")* WINDMILL LANE's draft (docs/plans/bonanza-courses/MILL.md) puts a
+3 x 3 QUARTER-TURN TURNTABLE (130.43, `fill ooo/.o./.o.`) on its rubber
+route: its middle column is open every other quarter turn and its PIVOT is
+always floor, so a player stops, waits for the column, and rolls on. The
+search instead found a Hop off the pivot over the table's front, and the
+course guide's G3 refused the route demo for it (that flight pans 15
+columns on the CGA, 6 on the Hercules, turning toward the second
+windmill's door).
+
+- **Why a stopped ball fell** (MEASURED on the model): nothing on a table
+  is carried (130.43 D7), so a ball at rest on a SWITCHING cell falls the
+  moment that cell turns to a gap - and the arrows bring MILL's ball onto
+  the table's back middle cell (`32 37`) while it is a gap: the leg into
+  the pivot's `way` is taken by 130.6's reach test with the ball already
+  over that hole, so a Grip or 130.14.7.4.3's brake from there stops a
+  ball that is falling. A ball whose centre is at rest INSIDE the pivot's
+  cell never falls (it held 168 steps there and rolled on). So the stop
+  has to be ON the pivot, or off the table before it, and the ball has to
+  reach it rolling over cells that are floors - which a brake started at
+  some step of the leg cannot aim for.
+- **The STAND** (`_plan_stand`): 130.6's arrows aimed at one cell's way
+  point, the route cut to end there (130.14.7.4.4's AIM: they slow the ball
+  onto its centre), until the ball is on that cell, grounded, under
+  2 `AUTO_ACC` on both axes; then held there 0, 8, 16 ... steps
+  (`PLAN_TT_EVERY`) up to the longest table's period 4Q, shortest first,
+  and from each the leg again with 130.6's arrows. The approach and the
+  hold are stepped once and shared by every length; a fall, a RETURN or a
+  timeout before the ball goes ends the stand; at most `PLAN_ALT` kept.
+  While held the ball is not `PLAN_STALL`'s "stuck". The keys are 130.6's
+  arrows throughout.
+- **The STAND CELLS** (`_plan_stands`): on the leg's arrows' path (their
+  ground cells, as the AIM's), each time it enters a table, the cell it
+  came from when that is not the table's (the APPROACH: a 2 x 2's only
+  stand) and the table's PIVOT, in the order the path meets them. A leg
+  whose arrows meet no table has none.
+- **The order**: in a leg with stand cells the stands come after the
+  arrows alone and BEFORE the Hops - a player waits for a turntable, he
+  does not jump it - so the Hop over the table is tried only when no stand
+  takes the leg, and the backtrack into such a leg tries the stands first.
+- **One pass**: a course with a turntable is searched ONCE with every try
+  from the start (the holds and waits too, 130.14.7.4.2 and .3): it is a
+  course with a clock on its route, and a first pass without the holds
+  fails where a later leg needs one (MILL's second windmill) only after
+  spending its `PLAN_BUDGET`. MEASURED, MILL's search: the stands in both
+  passes and the flag pass as it was, 283 s; one pass, the flag pass as it
+  was, 111 s (that pass reaching `PLAN_BUDGET`); one pass and the flag pass
+  amended (below), 1.5 s. A course with no turntable is searched exactly as
+  before.
+- **The flag pass, amended** (130.14.7.4.4): it runs only when a flag the
+  route skips is one the route's ball passes within `PLAN_FLAG_NEAR` cells
+  of (`_route_near`) - the only flags its AIMS can steer to. MILL's rubber
+  route skips the glass route's flag 2 and passes nowhere near it, so the
+  flag pass could only exhaust its budget (with the holds in its one pass,
+  about 3,000,000 steps) and find nothing. No shipped route skips a flag.
+- **What does not move**: every shipped course, demo, title and pathway
+  file, MEASURED: `make bonanza-art` built into private trees with the tool
+  before and after, every file in `bonanza-art/` byte-identical (the route
+  demos' md5s among them). TURN (130.43.7, `BZTURN=1`) is not searched: its
+  arrows finish and it has no flag.
+- **MEASURED on MILL's draft** (`bbcourse.py -o DIR mill-draft.bbc`, then
+  `--guide mill-draft.bbc --log DIR/BZDMILL.BIN`): before, the route demo
+  was 1,495 steps (27.37 s), COMPLETE, 0 falls, 0 returns, 4 Hops, and G3
+  refused it; now it is **1,695 steps (31.03 s), COMPLETE, 0 falls, 0
+  returns, no Hop**: the ball stops on S at the table's back edge (27
+  steps at rest), rolls on with the column, stops ON the pivot (37 steps)
+  and rolls off onto U. `--guide`: G1, G3 (2 flights, 0 panned, on both
+  cards), G9 - G12 pass. The search is about 1.5 s of the compile.
+- **`--selfcheck`'s `hopplan`, item 7**: `_TTSTAND`, a start floor, a
+  3 x 3 table (`fill ooo/.o./o..`: the middle column's back cell a floor
+  only in the quarter its front is a gap, the front only two quarters
+  later, so no ball rolls across it) and a goal past it - 130.6's arrows
+  roll into a hole; the search finds a route with no fall, no return and
+  no Hop, the ball at rest on the pivot (36 steps); RED ARM: `_NOSTAND`
+  (the stands off) finds the Hop off the pivot over the front, the route
+  the search found before.
+- **Not handled**: one stand a try (a leg that needs the approach AND the
+  pivot gets them from two legs, which MILL's `way` on its pivot gives it);
+  a stand on a table cell other than the pivot, or on a cell the arrows'
+  path does not cross; a ball that cannot come to rest on its stand cell
+  (a slope, ice) is not stood there; and the flag pass's reach test is the
+  found route's path, not each leg's.
 
 ##### 130.14.7.5 The association, and the double-click's path
 
@@ -264803,7 +264957,7 @@ section, in RAM order:
 
 | tag | section | RAM length | form | stored length |
 |---|---|---|---|---|
-| `M` | the map | `2 COLS BROWS` | 1 ROWPLANES | `5 COLS BROWS / 4` |
+| `M` | the map | `2 COLS BROWS` | 1 ROWPLANES (9 ROWNIBS past 1,024 blocks, 130.56) | `5 COLS BROWS / 4` (ROWNIBS: `3 COLS BROWS / 2`) |
 | `B` | the blocks | `16 N` | 0 PLAIN | the same |
 | `I` | `OCCIDX` | `2 (BROWS + 1)` | 2 COUNTS | `BROWS` |
 | `R` | the records | `RECB NOCC` | 3 WDIFF | the same |
@@ -264841,7 +264995,8 @@ section, in RAM order:
 - each entry's stored length is its form's (the table above), and at most
   its RAM length;
 - the bounds the forms need: `COLS` at most 128 (ROWPLANES' scratch, 32
-  bytes), at most 1,024 blocks, at most 255 records in one block row (a
+  bytes), at most 1,024 blocks (*amended by 130.56: past 1,024 the map
+  is form 9 ROWNIBS, and the part bounds the blocks*), at most 255 records in one block row (a
   count is a byte), every way's tile `wx` and `wy` in 0 - 255, `KW` at most
   33 (the follow-up's scratch, 130.15.6), and 130.15.5.1's record bounds;
 - *as built, with the follow-up*: every cell that is not VOID has every
@@ -264922,7 +265077,9 @@ the hole, `n = COLS BROWS` the cells and `C = COLS`.
   at most 1,024 blocks (refused past; `MILL` has 469). For each row, the
   expander first copies the row's `C/4` high bytes to scratch
   (`bz_boxbuf`, at most 32 bytes, free at the fetch), and then turns its
-  low bytes into words.
+  low bytes into words. *(Amended by 130.56: a course past 1,024 blocks
+  stores its map as form 9 ROWNIBS, a nibble a cell; every course at most
+  1,024 keeps this form, byte for byte.)*
   - **The proof.** Word `c` of row `r` ends at `S + 2 (C r + c + 1)`. The
     next unread byte is low byte `c + 1` of that row, at
     `S + 0.75 n + 1.25 C r + C/4 + c + 1`. So the writer stays behind when
@@ -277273,7 +277430,10 @@ and the course's table keep the layout above when a course first needs it.
   finish reachable. A course where an `ATTEMPT` element is needed is refused,
   naming it.
 - **Every finish reachable with NO pickup** (Q-92): a pickup only shortens a
-  route.
+  route - **or, from 2026-11-21, with only RESPAWNING pickups**
+  (130.14.4.1.2): a `respawn` speed or jump comes back, so a course may
+  build a way on with one, as long as no ball that took it is stranded. A
+  pickup that does not respawn still only shortens a route.
 
 **How each proof is built.** Every family kind declares in its `FAMILIES`
 row the CELL FORMS its element can take (`forms`) and the STATES its bits can
@@ -277299,7 +277459,11 @@ be left in (`states`).
   marked `pickup` in its row. The reach takes no family's effect at all, and
   NO TRAP's model runs with `Physics.nopick` set, under which a pickup
   kind's ENTER and CONTACT never fire, so every finish they prove is proved
-  with no pickup taken. No pickup kind exists until 9.6.
+  with no pickup taken. No pickup kind exists until 9.6. *Amended
+  2026-11-21 (130.14.4.1.2): a flag or pad that fails that is run again with
+  `Physics.pickrs` set as well, under which a RESPAWNING pickup's ENTER and
+  CONTACT do fire, with the effect in the search's state and the
+  stranding guard; a pickup that does not respawn still never fires.*
 
 #### 130.25.8 GLASS, the first family (story 9.5) (BUILT: 130.25.18 is the as-built record)
 
@@ -282482,7 +282646,9 @@ a 4-byte occluder record names its MASK in one byte, so a course has at most
 **256 masks**, and the turntable (in the basin's exit or on the spine) took
 the course to 266 - 267, the see-saw to 266; and a map word indexes at most
 **1,024 blocks** - the see-saw cost 57 blocks (4 cells; 41 at 2), the
-turntable 39. The course with both was 1,102 blocks. Each could be placed in
+turntable 39. The course with both was 1,102 blocks. *(Amended by 130.56:
+the 1,024 was the stored map's, not the format's; a course past it now
+compiles, its map as form 9 ROWNIBS, and the part is the bound.)* Each could be placed in
 place of other pieces, which is the owner's choice; the tool now REFUSES the
 257th mask by name (it was a `ValueError` inside the encoder).
 
@@ -287286,3 +287452,115 @@ MartyPC replay plays the same keys as a REPLAY, where the heart is hidden
 (`pickup_ok(life=False)`). `bonanzagame`'s second reading of the save
 (`tests/bonanza_game.py`) has the 500-byte file, the 488-byte one read with
 its table zero, an emptied slot's dword and the cap of 9.
+
+### 130.56 Past 1,024 blocks: the map's form 9 ROWNIBS, by need (the owner, 2026-11-21)
+
+The owner, 2026-11-21: *"For the 1024: We keep hitting random limits we put
+in. Set an agent on figuring out the best path to increase this one."* A
+course's picture was refused past 1,024 distinct 8 x 8 blocks (130.34's
+see-saw and turntable; a WINDMILL LANE draft at 980).
+
+#### 130.56.1 Where the 1,024 came from
+
+**Not from the map word.** In RAM a map word is the block's absolute BYTE
+offset in its part, `BLKOFF + 16 i` (130.10.4.2), and every reader of it -
+`bz_row`, `bz_col`, `bz_boxc`, a lane's commit and pose maps (130.12.4), the
+VGA part's writers (130.46), a sheet's map (130.30.12) - adds it to nothing
+and indexes nothing with it. `bz_hxlat` (130.11.3), `bz_hxshs` and the VGA's
+`BZV_CONV` (130.46.5) walk `8 N` words from `BLKOFF`, `N` the header's word
+(+8). No table in the package or its bss is a block wide. The occluder
+records name MASKS (130.52), never blocks.
+
+**It was the STORED form's.** Form 1 ROWPLANES (130.15.4.4) keeps two high
+bits a cell beside the low byte: `BLKOFF + 16 (low + 256 high)`, high 0 - 3,
+so 1,024 indices - and `bbcourse.py`'s `BLK_MAX` refused the course past it.
+Nothing after `bz_cexp` knows the form existed.
+
+#### 130.56.2 The options, priced
+
+Clocks are the 8088's with the fetch floor (`max(clk, 4.34 bytes)`,
+PERFORMANCE.md Part 2); none of the options below the line changes a frame.
+
+| option | guest bytes | per frame | at the launch | courses at most 1,024 |
+|---|---|---|---|---|
+| **form 9 ROWNIBS, chosen by the block count** (CHOSEN) | **+78**, only in a build with such a course (`BZ_FORMS` bit 9) | **0** | about 135 clk a cell (ROWPLANES about 150), PREDICTED | unchanged, byte for byte |
+| ROWPLANES widened to a nibble for every course | +0 to +10 (one expander) | 0 | as above | every map's stored bytes +`COLS/4` a row; LZ4 MEASURED: PLAYGROUND +114, ROLL +46, MILL +27, FIRST +1; every part and the package change |
+| a block BASE a band (130.52's shape) in the stored form | about +20, and a band table in `Y` | 0 | about +30 clk a block row | unchanged; a band still refused past 1,024 of its own - a limit moved, not removed |
+| a second block table a sheet or band, selected by the writers | every writer | +1 load a cell row or more, every writer | 0 | refuse: the RAM word is already absolute, so this buys nothing ROWNIBS does not |
+| flipped and mirrored blocks shared (the tool's dedup) | every writer | a flip test a cell | 0 | refuse: the writers copy words and cannot flip (a map word's low 4 bits are spare in RAM, but each writer would branch on them every cell) |
+
+**The bound after it is the PART**: `PARTMAX` (65,024) holds the header,
+the map, `16 N` of blocks and the rest of the picture part (130.30.4: the
+picture part of a two-part course; a SHEET carries every block, 130.30.12.5).
+ROWNIBS's index is 12 bits (4,096); the part refuses first, near 3,600 at
+the smallest maps. Each course's room at its map and records as they stand,
+MEASURED: FIRST 3,619; MILL 2,936; HOP 2,385; MOON 2,175; ROLL 1,953; PEAK
+1,926; DOWN (sheets) 1,406; PLAYGROUND (two parts, 997 today) 1,395; TBLK
+2,007. A one-part course's figure is a floor: grown past `PARTMAX` it splits
+into two parts (130.30.4.1) and gains the world part's bytes.
+
+#### 130.56.3 Form 9 ROWNIBS
+
+- **Stored**: block row `r` as `C/2` high bytes - cell `j`'s high nibble at
+  bits `4 (j AND 1)` of byte `j >> 1` - then `C` low bytes. Map word `j` is
+  `BLKOFF + 16 (low + 256 high)`, high 0 - 15. Stored length `3 C BROWS / 2`
+  (a sheet's: its own rows, 130.30.12.1), the hole `C BROWS / 2`.
+- **In place**: word `c` of row `r` ends at `S + 2 (C r + c + 1)`; low byte
+  `c + 1` of the row is at `S + 0.5 n + 1.5 C r + C/2 + c + 1`. The writer
+  stays behind when `0.5 C r + c + 1 <= 0.5 n + C/2`, equality at the last
+  word of the last row; the row's high bytes (`S + 0.5 n + 1.5 C r`) are
+  copied to scratch before the writer reaches them, `2 C r <= 0.5 n + 1.5 C
+  r`. Stored low bytes first, the condition is `0.5 C r + c + 1 <= 0.5 n`,
+  which fails for `c >= C/2` in the last row: the red arm of B3.
+- **The rule**: the map's form is the BLOCK COUNT's (`bbcourse.map_form`):
+  1 to 1,024 blocks, 9 past. No statement - a course past 1,024 has no other
+  form - and no cost to the courses at or under it. `read_part` refuses a
+  map entry whose form is not its count's, either way.
+- **The guest**: `bz_cxnib` (`bonanza.asm`), entry 9 of `bz_cxtab`, both
+  assembled only when `BZ_FORMS` (the forms the build's parts use,
+  130.15.4.5) has bit 9: ROWPLANES' shape, the high bytes to `bz_boxbuf` (at
+  most 80) first, two cells a byte unrolled - the even cell `AND 0Fh`, the
+  odd `SHR 4` - and the same row count (`BROWS`, or a sheet's RAM length /
+  `ROWB`). It reads the part through ES and writes nothing through CS
+  (kern_mega: the part's selector, as `bz_cxmap`).
+- **kern_mega, kern_small, the Hercules, the VGA**: nothing of their own.
+  The expansion runs before `bz_hgen` and `bz_hxlat` (130.15.4.5) and before
+  `BZV_CONV`; each walks `N`.
+
+**MEASURED**: the package assembled with `BZ_FORMS` bit 9 is **+78 bytes**
+(`bz_cxnib` 76, its table entry 2); the shipped build has no course past
+1,024, so its `BONANZA.O88` and every course part are byte-identical to
+before (md5). **PRICED** (130.56.2's method): a pair of cells 220 clk, a row's
+high byte about 49 - about 135 clk a cell against ROWPLANES' about 150; TBLK's
+16,224 cells about 2.2M clk (0.46 s) at the launch, once. A frame: 0.
+
+#### 130.56.4 TBLK and the proofs
+
+**TBLK** is a scratch course, text generated by `bbcourse.tblk_text()` - no
+course file, in no build: a diagonal band 130 tiles long and 33 wide at
+width 96, each tile a seeded random height, flat or a one-tile ramp, and a
+random surface. 1,386 blocks (362 past 1,023), its map form 9, two parts
+(130.30.4).
+
+- **`--selfcheck`'s section `blocks`** (`bbcourse.py`):
+  - B1: TBLK past 1,024, its map form 9, each part's `expand(stored)` equal
+    to its RAM form under the in-place simulation, `read_parts` taking it;
+  - B2: every course of the build at or under 1,024 stores form 1;
+  - B3, the red arms, each in front of its check: ROWNIBS stored and read low
+    bytes first fails the simulation naming the map; the expander keeping two
+    high bits fails `expand == RAM`; a byte's two nibbles exchanged fails it;
+    the reader refuses TBLK's map entry made form 1 and a small course's made
+    form 9;
+  - B4: a synthetic MAP-ONLY part (`rownibs_synth`) naming every high nibble
+    0 - 15 in both cells of a byte expands in place.
+- **`tests/bonanza_blocks.py`** (unicorn): the package assembled against a
+  copy of the build's art with `BZ_FORMS` bit 9. Item 1: `bz_cexp` on TBLK's
+  two stored parts and the synthetic part gives the RAM forms byte for byte.
+  Item 2: `bz_crshdr` and `bz_boxc` on boxes over every block row naming a
+  block past 1,023 - the buffer exactly the part's words (the CGA). Item 3:
+  `bz_hgen` and `bz_hxlat` give `herc_translate_course`'s bytes, then the same
+  boxes on the translated part (the Hercules). Item 4: the build's VGA part's
+  `BZV_CONV` turns every block into its planar pairs (`bzvga.asm`'s tables,
+  modelled), the rest unmoved (the VGA). Red arms `mask2` (`AND 3`), `swap`
+  (the cells' nibbles exchanged), `noform` (entry 9 `bz_cxret`): each turns
+  item 1 red. MEASURED green, each red arm red.
