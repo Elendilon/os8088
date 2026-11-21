@@ -44,6 +44,13 @@ keeps those changes free - the builder draws nothing the compiler draws.
 11. The `hidden` opt-out in the course format: *"fine to put in the
     format."* A hidden checkpoint WARNS in the builder (secret routes, a
     late-game feature) and is exempt under `--strict` when marked.
+12. `--strict` and the ship: *"We're probably going to ship courses that
+    don't pass strict ... But exceptions can be course by course; the goal
+    in the end is to have good courses."* The Makefile never passes
+    `--strict`; agents' runs do; a finished course opts in with `strict`,
+    and a course keeps a warning with `accept` (130.55.5).
+13. No pull requests: this fork's cycles have none (fork rule 11). Each wave
+    is commits on `bb-editor`.
 
 ## Measured before planning (host, 4 cores, `abe0713d0`)
 
@@ -59,7 +66,7 @@ Test Roll needs a part; that is wave 0's question.
 
 ## The waves
 
-Each wave is reviewable on its own and lands on `bb-editor`. Per CLAUDE.md
+Each wave is reviewable on its own and lands on `bb-editor` as commits (no pull requests on this fork). Per CLAUDE.md
 and fork rule 9: a wave verifies on the host and names its rows; the soak
 union runs once at the end of a phase, in the background.
 
@@ -78,8 +85,8 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 1.1 [ ] | `tools/bbedproj.py`: load, save, statements with spans, edit methods for every statement kind, undo/redo, the file stamp | unit rows under `tests/unit/`, round trip on every course |
 | 1.2 [ ] | its command line (`check`, `set`, `add`, `remove`), JSON out, for agents | the same rows through the CLI |
-| 1.3 [ ] | `bbcourse.py`: the visual refusals of 130.55.4 become warnings; `--strict` restores them; the Makefile passes `--strict` | every shipped course compiles byte-identically with `--strict`; a course with a hidden flag refuses under `--strict`, warns without |
-| 1.4 [ ] | the `hidden` word of 130.55.5 on `checkpoint` and every element a visibility warning names; no identity moves | `--selfcheck`; identities before and after |
+| 1.3 [ ] | `bbcourse.py`: the visual refusals of 130.55.4 become warnings; `--strict` restores them; the Makefile does not pass it | every shipped course's part byte-identical before and after; the warnings each shipped course now prints recorded in the diary; a course with a hidden flag refuses under `--strict`, warns without |
+| 1.4 [ ] | 130.55.5's statements: `hidden` on `checkpoint` and every element a visibility warning names, `accept <warning> [<wx> <wy>]`, `strict`; no identity moves | `--selfcheck`; identities before and after; a `strict` course with an unaccepted warning refuses in the plain build |
 | 1.5 [ ] | `tools/bbedjob.py`: a check as a process, JSON progress, cancel by process group (Windows too), the restart rule of 130.55.8 | a scripted burst of edits leaves one process alive |
 
 ### Wave 2 - the window and the Build tab, plan view

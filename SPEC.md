@@ -287045,7 +287045,7 @@ plan; nothing in it is built yet.
 | E4 | `tools/bbcourse.py` stays the only judge of a course. The window never decides what is legal and never draws a course picture of its own except the top-down PLAN | one compiler, so the builder cannot drift from the game - and the game's visual changes (the VGA arm 130.46, the look 130.47, the column and floor distinctions coming) reach the builder by merging, not by porting |
 | E5 | Two views of one selection: PLAN (top-down, a height map that toggles) and ISO (the compiler's own `render()`), switched by one key | the owner: authors and agents both fail to SEE that one thing obstructs another, or that two surfaces blend |
 | E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.55.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
-| E7 | `--strict` makes warnings refusals, for agents' command-line runs; an element marked `hidden` is exempt from its visibility warning there too (130.55.5) | the owner: hiding a checkpoint is a real design (secret routes) and needs a *"they asked for it"* opt-out |
+| E7 | The shipped build never runs `--strict`. `--strict` makes warnings refusals for agents' runs and for a course that asks for it (`strict`); exceptions are COURSE BY COURSE, written in the course (`hidden` on an element, `accept` for a warning, 130.55.5) | the owner: *"we're probably going to ship courses that don't pass strict ... exceptions can be course by course; the goal in the end is to have good courses"*, and hiding a checkpoint is a real design (secret routes) |
 | E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.55.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
 | E9 | A full check that an edit makes stale is CANCELLED, and restarted 2 s after the last edit; never more than one of each job alive | edits must not pile up processes |
 | E10 | Runs where the other Python windows run: macOS (Tk, Pillow), Windows (Pillow if wanted), Linux with the dependencies installed; shipped as a zip, `make bbeditbundle`, `vbtbundle`'s shape | the owner's machines |
@@ -287099,20 +287099,35 @@ structure (130.22). It is a WARNING when it is about what the player SEES:
   share, the ball hidden over 0.5 s on the route - which only reports today;
 - the BLEND check (130.55.6), new.
 
-Warnings never block a save, a Test Roll, a build or an add-to-the-game.
-`bbcourse.py --strict` (and the window's "Treat warnings as errors") makes
-each one a refusal again, naming the element and its line; the shipped build
-keeps today's behaviour by passing `--strict` from the Makefile until the
-owner says otherwise.
+Warnings never block a save, a Test Roll, a build or an add-to-the-game,
+and the Makefile never passes `--strict`: the game ships courses with
+warnings. `bbcourse.py --strict` (and the window's "Treat warnings as
+errors") makes each warning a refusal, naming the element and its line. It
+is what an agent's course run uses, and it binds a course in every build
+once the course says `strict` (130.55.5) - the way a finished course is held
+to it.
 
-#### 130.55.5 `hidden`: the author asked for it
+#### 130.55.5 Exceptions, course by course: `hidden`, `accept` and `strict`
 
-`checkpoint <wx> <wy> [ball …] hidden` - and the same trailing word on every
-element a visibility warning names (`spring`, `pad`, `clock`, the
-`prop` families with a pose) - marks the element hidden ON PURPOSE. It
-writes nothing into the part (no identity moves). Its visibility warning is
-not raised, under `--strict` too; the Course tab lists it as "hidden on
-purpose". `cup … hidden` (130.22) already exists and keeps its meaning.
+Three statements, none of which writes into the part (no identity moves):
+
+- **`hidden`**, a trailing word: `checkpoint <wx> <wy> [ball …] hidden`, and
+  the same on every element a visibility warning names (`spring`, `pad`,
+  `clock`, the `prop` families with a pose). The element is hidden ON
+  PURPOSE - a secret route's flag, a late-game surprise. Its visibility
+  warning is not raised, under `--strict` too, and the Course tab lists it as
+  "hidden on purpose". `cup … hidden` (130.22) already exists and keeps its
+  meaning.
+- **`accept <warning> [<wx> <wy>]`**: one warning this course keeps, by the
+  name the warning prints (`blend`, `ball-hidden`, `mark`, ...), at one cell
+  or course-wide. Under `--strict` an accepted warning is reported as
+  accepted and refuses nothing. The comment above the line is where its
+  reason goes; the builder writes one when the author accepts from the
+  warning's menu.
+- **`strict`** (no arguments, once): this course is held to `--strict` in
+  every build, the shipped one included. A course says it when it is
+  finished, so the ship can carry strict and unfinished courses side by side
+  and the strict ones cannot slip back.
 
 #### 130.55.6 The blend check
 
