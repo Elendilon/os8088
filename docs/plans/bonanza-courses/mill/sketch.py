@@ -8,7 +8,8 @@ every open edge of a section is guarded unless the design says it is open
 moved up 12 units.
 
     python3 sketch.py [outdir]               plan.png and iso.png
-    python3 sketch.py --bbc OUT [--force]     the engine course (the rubber route's ways)
+    python3 sketch.py --bbc OUT [--force]     the engine course (the rubber route's ways, and the glass
+                                              route's as `branch GLASS` ways: the tool's alone)
     python3 sketch.py --bbc OUT --glass ...   the same with the GLASS route's ways (timing only)
 """
 import os
@@ -489,6 +490,15 @@ def bbc(out, glass=False):
         c = (int(x), int(y))
         if c in CELLS and c not in GAP and SECTION.get(c) != "W":
             L.append("way %d %d" % c)
+    if not glass:
+        # the GLASS way (ROUTE2) as a `branch` (SPEC.md 130.14.4.1), DOWN's shape: the tool's alone - no byte
+        # of the part, nor its identity - so bbcourse's item 8 plans it and holds flag 2 (glass) to it; the
+        # main route, rubber, touches only its own way's flags
+        L.append("# the glass way: a branch from the plaza, rejoining at the finish (the tool's alone)")
+        for x, y in ROUTE2:
+            c = (int(x), int(y))
+            if c in CELLS and c not in GAP and SECTION.get(c) != "W":
+                L.append("way %d %d branch GLASS" % c)
     open(out, "w").write("\n".join(L) + "\n")
 
 
