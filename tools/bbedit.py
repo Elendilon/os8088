@@ -48,7 +48,7 @@ PALETTE = [
          "unit above the highest floor in or beside the area"),
         ("Hole", "rect", "hole rect {x0} {y0} {x1} {y1}", "Open void: the ball falls"),
         ("Goal", "rect", "goal rect {x0} {y0} {x1} {y1} flat {h}", "Finish floor"),
-        ("Overhang", "rect", "float rect {x0} {y0} {x1} {y1}", "Floor that hangs over the void"),
+
         ("Guard rail", "rect", "guard rect {x0} {y0} {x1} {y1}", "A rail on the open edge beside a floor"),
         ("Water", "cell", "water tile {x} {y} top {h} bed 0", "A pool: a surface and a bed"),
         ("Waterfall face", "cell", "arch {x} {y} +x", "The face a water column spills from"),
@@ -233,6 +233,7 @@ class App(object):
         self.strict = tk.BooleanVar(value=False)
         self.part = None                # the palette entry chosen: (name, mode, template, hint)
         self.area = None                # the selected AREA, cells (x0, y0, x1, y1) inclusive
+        self.sels = []                  # Ctrl-click's MULTI-selection: lines (self.sel the last one)
         self.drag = None
         self.good = None                # the last analysis that laid out (shown while one does not)
         self.keep = None                # the edit "Keep it anyway" re-does
@@ -750,10 +751,17 @@ class App(object):
             self.doc.auto_uses()
 
     def delete(self):
-        if self.sel:
-            line = self.sel
-            self.sel = None
-            self._edit(self.doc.remove, line)
+        lines = sorted(set(self.sels) | ({self.sel} if self.sel else set()), reverse=True)
+        if not lines:
+            return
+        self.sel, self.sels = None, []
+
+        def rm():
+            with self.doc.group("delete"):
+                for ln in lines:
+                    self.doc.remove(ln)
+            return True
+        self._edit(rm)
 
     def duplicate(self):
         if not self.sel:
@@ -916,6 +924,62 @@ class App(object):
             self.add_btn.state(["disabled"])
             self.add_where.config(text="First drag across the course to choose where (or click a cell).")
 
+    def _covers(self, st, cell):
+        sh = self._shape(st)
+        if not sh:
+            return False
+        x0, y0, x1, y1 = sh[2]
+        return x0 <= cell[0] < x1 and y0 <= cell[1] < y1
+
+    def _ramp_fit(self, area):
+        """a ramp that JOINS the floors on two opposite sides of the area: (axis, p0, p1, h0, h1), its low end
+        at the lower floor's edge, rising toward the higher one as nearly as half units a tile allow; the axis
+        whose two floors differ most. None when no two opposite sides have floor"""
+        a = self.doc.analysis()["cells"]
+        x0, y0, x1, y1 = area
+        best = None
+        for ax in ("x", "y"):
+            if ax == "x":
+                lo_cells = [(x0 - 1, y) for y in range(y0, y1 + 1)]
+                hi_cells = [(x1 + 1, y) for y in range(y0, y1 + 1)]
+                e_lo, e_hi, n, p0, p1 = "+x", "-x", x1 - x0 + 1, x0, x1 + 1
+            else:
+                lo_cells = [(x, y0 - 1) for x in range(x0, x1 + 1)]
+                hi_cells = [(x, y1 + 1) for x in range(x0, x1 + 1)]
+                e_lo, e_hi, n, p0, p1 = "+y", "-y", y1 - y0 + 1, y0, y1 + 1
+            A = [a[c]["edges"][e_lo] for c in lo_cells if c in a and a[c]["kind"] in ("floor", "goal")]
+            Bv = [a[c]["edges"][e_hi] for c in hi_cells if c in a and a[c]["kind"] in ("floor", "goal")]
+            if not A or not Bv:
+                continue
+            ha, hb = max(A), max(Bv)
+            if ha == hb:
+                continue
+            rate = (hb - ha) / float(n)
+            k = round(abs(rate) * 2) / 2.0 or 0.5
+            k = k if hb > ha else -k
+            if ha <= hb:                         # anchored at the lower floor
+                h0, h1 = ha, ha + k * n
+            else:
+                h1, h0 = hb, hb - k * n
+            cand = (abs(hb - ha), ax, p0, p1, h0, h1)
+            if best is None or cand[0] > best[0]:
+                best = cand
+        return best[1:] if best else None
+
+    def _flat_heights(self, t):
+        """(the highest FLAT floor in the area, the highest flat floor touching it from outside), or None"""
+        a = self.doc.analysis()
+        x0, y0, x1, y1 = t
+        fin, fout = [], []
+        for (x, y), d in a["cells"].items():
+            if d["kind"] not in ("floor", "goal") or d["slope"] != (0, 0) or d["hmin"] != d["hmax"]:
+                continue
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                fin.append(d["h"])
+            elif x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1:
+                fout.append(d["h"])
+        return (max(fin) if fin else None), (max(fout) if fout else None)
+
     def _heights(self, t):
         """(the highest floor IN the area, the highest floor in it or touching it), units, or None"""
         a = self.doc.analysis()
@@ -952,6 +1016,9 @@ class App(object):
         except ValueError:
             typed = 4.0
         base = inside if inside is not None else around if around is not None else typed
+        if name in ("Floor", "Goal"):           # level with the FLAT floor here, or round it (not a ramp's top)
+            flat_in, flat_out = self._flat_heights(t)
+            base = flat_in if flat_in is not None else flat_out if flat_out is not None else base
         h = {"Wall": (around if around is not None else typed) + 1}.get(name, base)
         h = round(h * 4) / 4.0
 
@@ -960,12 +1027,17 @@ class App(object):
         a = self.doc.analysis()
         area = (x0, y0, x1, y1)
         if name in self.GROUND or name in self.PAINT:
-            if name == "Ramp":                  # along the area's longer side, half a unit a tile
-                ax = "y" if (y1 - y0) > (x1 - x0) else "x"
-                n = (y1 - y0 + 1) if ax == "y" else (x1 - x0 + 1)
-                p0, p1 = (y0, y1 + 1) if ax == "y" else (x0, x1 + 1)
-                code = "floor rect %d %d %d %d ramp %s %d %d %s %s" % (x0, y0, x1 + 1, y1 + 1, ax, p0, p1, f(h),
-                                                                     f(h + 0.5 * n))
+            if name == "Ramp":                  # between two floors it joins them; else half a unit a tile
+                fit = self._ramp_fit(area)
+                if fit:
+                    ax, p0, p1, ha, hb = fit
+                else:
+                    ax = "y" if (y1 - y0) > (x1 - x0) else "x"
+                    n = (y1 - y0 + 1) if ax == "y" else (x1 - x0 + 1)
+                    p0, p1 = (y0, y1 + 1) if ax == "y" else (x0, x1 + 1)
+                    ha, hb = h, h + 0.5 * n
+                code = "floor rect %d %d %d %d ramp %s %d %d %s %s" % (x0, y0, x1 + 1, y1 + 1, ax, p0, p1, f(ha),
+                                                                     f(hb))
             elif name in self.PAINT:
                 code = None if name == "Normal" else "surface %s rect %d %d %d %d" % (self.PAINT[name], x0, y0,
                                                                                       x1 + 1, y1 + 1)
@@ -975,9 +1047,19 @@ class App(object):
                     x0, y0, x1 + 1, y1 + 1)
                 code = "%s %s%s" % (kind, shape, "" if kind == "hole" else " flat %s" % f(h))
             paint = name in self.PAINT
-            n_ = self._edit(self.doc.replace_area, area, ground=[code] if code else [],
-                            kinds=() if paint else ("floor", "wall", "goal", "hole"),
-                            surfaces=paint or name in ("Wall", "Hole"), label="make the area %s" % name.lower())
+
+            def go():
+                with self.doc.group("make the area %s" % name.lower()):
+                    n0 = self.doc.replace_area(area, ground=[code] if code else [],
+                                               kinds=() if paint else ("floor", "wall", "goal", "hole"),
+                                               surfaces=paint or name in ("Wall", "Hole"))
+                    self.doc.tidy(area)
+                return n0 or True
+            n_ = self._edit(go)
+            if n_ and code:
+                n_ = next((s_.line for s_ in self.doc.statements() if s_.code == code),
+                          next((s_.line for s_ in self.doc.statements() if s_.kind == code.split()[0] and
+                                self._covers(s_, (x0, y0))), None))
             if n_:
                 self.area = area
                 self.select(n_ if code else None)
@@ -985,7 +1067,15 @@ class App(object):
             return
         if name == "Archway":                   # OVER the area, its legs the cells beside it, made walls
             w, hh = x1 - x0 + 1, y1 - y0 + 1
-            if w <= 2 and hh <= 2:
+            if min(w, hh) <= 2 and max(w, hh) >= 3:
+                # leg, passage, leg: the area IS the arch, its legs its two ends, the ball passing across it
+                if hh > w:
+                    along = "x"
+                    y0, y1 = y0 + 1, min(y1 - 1, y0 + 2)
+                else:
+                    along = "y"
+                    x0, x1 = x0 + 1, min(x1 - 1, x0 + 2)
+            elif w <= 2 and hh <= 2:
                 along = "y" if w > hh else "x"
             else:
                 along = "x" if w >= hh else "y"
@@ -1017,6 +1107,18 @@ class App(object):
             return
         code = tpl.format(x=x0, y=y0, x0=x0, y0=y0, x1=x1 + 1, y1=y1 + 1, h=f(h), x3=x0 + 3, x4=x0 + 4,
                           y1b=y0 + 1, y3=y0 + 3)
+        tall = (y1 - y0) > (x1 - x0)            # a part with a direction takes it from the area's shape
+        if tall:
+            code = (code.replace(" along x", " along y").replace(" face +x", " face +y")
+                    .replace(" face -x", " face -y"))
+            if code.startswith("tube "):        # a tube from the area's top to its bottom
+                t_ = code.split()
+                t_[4], t_[5] = str(x0), str(y1 if y1 > y0 else y0 + 3)
+                code = " ".join(t_).replace(" out +x", " out +y")
+        elif code.startswith("tube ") and x1 > x0:
+            t_ = code.split()
+            t_[4] = str(x1)
+            code = " ".join(t_)
         kind = code.split()[0]
         ground = []
         if name in self.ON_GROUND and (x0, y0) not in a["cells"]:
@@ -1041,7 +1143,15 @@ class App(object):
                 name.lower(), " with floor under it" if ground else "", ln))
 
     # -- selection and the inspector ---------------------------------------------
-    def select(self, line, scroll=False):
+    def select(self, line, scroll=False, add=False):
+        if add and line:                        # Ctrl-click: toggle it in the multi-selection
+            if line in self.sels:
+                self.sels.remove(line)
+                line = self.sels[-1] if self.sels else None
+            else:
+                self.sels.append(line)
+        else:
+            self.sels = [line] if line else []
         self.sel = line
         self._redraw()
         self._fill_inspector()
@@ -1050,11 +1160,12 @@ class App(object):
         if scroll:
             self.root.after(10, self._scroll_to_sel)
 
-    def _sel_cells(self):
+    def _sel_cells(self, lines=None):
         a = self.doc.analysis()
-        cells = {c for c, d in a["cells"].items() if d["line"] == self.sel}
+        want = set(lines) if lines is not None else ({self.sel} | set(self.sels))
+        cells = {c for c, d in a["cells"].items() if d["line"] in want}
         for it in a["items"]:
-            if it["line"] == self.sel:
+            if it["line"] in want:
                 cells.update(it["cells"])
         return cells
 
@@ -1130,6 +1241,8 @@ class App(object):
                                      "choose an area to add to. You can also type a whole statement below and "
                                      "press Apply.")
             return
+        if len(self.sels) > 1:
+            return self._fill_multi()
         try:
             st = self.doc.statement(self.sel)
         except E.EditError:
@@ -1210,6 +1323,20 @@ class App(object):
             cb.bind("<<ComboboxSelected>>", lambda e, v=v: self._set_word(1, v.get()))
             row += 1
         if st.kind in ("floor", "wall", "goal") and self._shape(st):
+            fl = self._float_of(st)
+            hv = tk.StringVar(value="to the ground" if not fl else "3 units" if fl[0] == 3 else "%g units" % fl[0])
+            ttk.Label(body, text="Hangs down").grid(row=row, column=0, sticky="w")
+            hc = ttk.Combobox(body, values=HANGS, textvariable=hv, width=13, state="readonly")
+            hc.grid(row=row, column=1, sticky="w")
+            hc.bind("<<ComboboxSelected>>", lambda e, v=hv: self.set_hang(v.get()))
+            row += 1
+            if "ramp" in st.toks:
+                rf = ttk.Frame(body)
+                rf.grid(row=row, column=0, columnspan=2, sticky="w", pady=(4, 0))
+                ttk.Button(rf, text="Add stepped rails", command=lambda: self.add_rails("steps")).pack(side="left")
+                ttk.Button(rf, text="Smooth rails", command=lambda: self.add_rails("smooth")).pack(side="left",
+                                                                                                  padx=4)
+                row += 1
             cur = self._surface_of(st)
             v = tk.StringVar(value=cur[0] if cur else "normal")
             ttk.Label(body, text="Surface").grid(row=row, column=0, sticky="w")
@@ -1238,6 +1365,141 @@ class App(object):
         self.ins_help.config(text=hint)
         err = a["error"] if a["error_line"] == st.line else ""
         self.ins_err.config(text=err)
+
+    def _fill_multi(self):
+        """several parts (Ctrl-click): what they can share - a height, a surface, a hang - and Delete"""
+        ttk, tk = self.ttk, self.tk
+        body = self.ins_body
+        sts = [self.doc.statement(l_) for l_ in self.sels]
+        ground = [st for st in sts if st.kind in ("floor", "wall", "goal") and self._shape(st)]
+        self.ins_title.config(text="%d parts selected" % len(sts))
+        self.ins_line.config(text=", ".join(sorted({_plain_kind(st) for st in sts})))
+        self.raw.set("")
+        self.ins_err.config(text="")
+        self.ins_help.config(text="Ctrl-click (Command-click on a Mac) adds or removes a part. Changes here "
+                             "apply to every selected floor, wall or goal; Delete removes them all.")
+        row = 0
+        if ground:
+            flats = [float(st.toks[st.toks.index("flat") + 1]) for st in ground if "flat" in st.toks]
+            hv = tk.StringVar(value="%g" % flats[0] if flats else "")
+            ttk.Label(body, text="Height").grid(row=row, column=0, sticky="w")
+            fr = ttk.Frame(body)
+            fr.grid(row=row, column=1, sticky="w")
+            sp = ttk.Spinbox(fr, from_=-60, to=60, increment=0.5, width=6, textvariable=hv)
+            sp.pack(side="left")
+            ttk.Button(fr, text="Set", width=4, command=lambda: self.multi_height(set_to=hv.get())).pack(side="left")
+            row += 1
+            ttk.Label(body, text="Raise").grid(row=row, column=0, sticky="w")
+            fr2 = ttk.Frame(body)
+            fr2.grid(row=row, column=1, sticky="w")
+            for d_ in (-1, -0.5, 0.5, 1):
+                ttk.Button(fr2, text="%+g" % d_, width=4, command=lambda d_=d_: self.multi_height(by=d_)).pack(
+                    side="left")
+            row += 1
+            sv = tk.StringVar(value="")
+            ttk.Label(body, text="Surface").grid(row=row, column=0, sticky="w")
+            cb = ttk.Combobox(body, values=B.SURFACES, textvariable=sv, width=8, state="readonly")
+            cb.grid(row=row, column=1, sticky="w")
+            cb.bind("<<ComboboxSelected>>", lambda e: self.multi_surface(sv.get()))
+            row += 1
+            hv2 = tk.StringVar(value="")
+            ttk.Label(body, text="Hangs down").grid(row=row, column=0, sticky="w")
+            hc = ttk.Combobox(body, values=HANGS, textvariable=hv2, width=13, state="readonly")
+            hc.grid(row=row, column=1, sticky="w")
+            hc.bind("<<ComboboxSelected>>", lambda e: self.set_hang(hv2.get()))
+            row += 1
+
+    def multi_height(self, set_to=None, by=None):
+        """every selected floor, wall and goal: a flat one to SET_TO, or every height (a ramp's two ends) BY"""
+        lines = list(self.sels)
+
+        def f(v):
+            return ("%d" % v) if v == int(v) else ("%g" % v)
+
+        def go():
+            with self.doc.group("heights"):
+                for ln in lines:
+                    st = self.doc.statement(ln)
+                    t = list(st.toks)
+                    if "flat" in t:
+                        i = t.index("flat") + 1
+                        t[i] = f(float(set_to)) if set_to not in (None, "") else f(float(t[i]) + (by or 0))
+                    elif "ramp" in t and by:
+                        j = t.index("ramp")
+                        t[j + 4], t[j + 5] = f(float(t[j + 4]) + by), f(float(t[j + 5]) + by)
+                    else:
+                        continue
+                    self.doc.set_tokens(ln, t)
+            return True
+        self._edit(go)
+        self._fill_inspector()
+
+    def multi_surface(self, surf):
+        lines = list(self.sels)
+
+        def go():
+            with self.doc.group("surfaces"):
+                for ln in lines:
+                    st = self.doc.statement(ln)
+                    sh = self._shape(st)
+                    if not sh:
+                        continue
+                    x0, y0, x1, y1 = sh[2]
+                    self.doc.replace_area((x0, y0, x1 - 1, y1 - 1), kinds=(), surfaces=True,
+                                          ground=[] if surf == "normal" else ["surface %s %s" % (surf, " ".join(
+                                              sh[1]))])
+            return True
+        self._edit(go)
+        self._fill_inspector()
+
+    def add_rails(self, style):
+        """RAILS beside the selected ramp, on both its long sides: walls 1.5 units over the ramp beside them,
+        STEPPED (a wall a tile, each at the ramp's height there, joined where equal) or SMOOTH (one ramped wall,
+        the ramp's plane raised). The cells they take are cut out of whatever was there"""
+        st = self.doc.statement(self.sel)
+        sh = self._shape(st)
+        if not sh or "ramp" not in st.toks:
+            return
+        x0, y0, x1, y1 = sh[2]
+        j = st.toks.index("ramp")
+        ax, p0, p1, h0, h1 = st.toks[j + 1], int(st.toks[j + 2]), int(st.toks[j + 3]), float(st.toks[j + 4]), \
+            float(st.toks[j + 5])
+        if ax not in ("x", "y"):
+            return
+        RAIL = 1.5
+
+        def hat(p):                             # the ramp's height at position p along its axis
+            return h0 + (h1 - h0) * (p - p0) / float(p1 - p0)
+
+        def f(v):
+            return ("%d" % v) if v == int(v) else ("%g" % v)
+        sides = [(x0, y0 - 1, x1, y0), (x0, y1, x1, y1 + 1)] if ax == "x" else [(x0 - 1, y0, x0, y1), (x1, y0, x1 + 1, y1)]
+        walls, cuts = [], []
+        for (a0, b0, a1, b1) in sides:
+            cuts.append((a0, b0, a1 - 1, b1 - 1))
+            if style == "smooth":
+                walls.append("wall rect %d %d %d %d ramp %s %d %d %s %s" % (a0, b0, a1, b1, ax, p0, p1, f(h0 + RAIL),
+                                                                          f(h1 + RAIL)))
+                continue
+            lo, hi = (a0, a1) if ax == "x" else (b0, b1)
+            run = []
+            for p in range(lo, hi):
+                h = max(hat(p), hat(p + 1)) + RAIL
+                h = -(-h * 2 // 1) / 2.0                 # up to the half unit
+                if run and run[-1][2] == h:
+                    run[-1][1] = p + 1
+                else:
+                    run.append([p, p + 1, h])
+            for q0, q1, h in run:
+                walls.append(("wall rect %d %d %d %d flat %s" % (q0, b0, q1, b1, f(h))) if ax == "x" else
+                             ("wall rect %d %d %d %d flat %s" % (a0, q0, a1, q1, f(h))))
+
+        def go():
+            with self.doc.group("rails"):
+                self.doc.replace_area(cuts, ground=walls, surfaces=True)
+            return True
+        if self._edit(go):
+            self._msg("Added %d rail walls beside the ramp, %g units over it" % (len(walls), RAIL))
 
     def _shape(self, st):
         """(index of the shape word, the shape's tokens, (x0, y0, x1, y1) end-exclusive) of a floor, wall or
@@ -1365,11 +1627,81 @@ class App(object):
         except E.EditError:
             return []
         cur = self._surface_of(st) if st.kind in ("floor", "wall", "goal") else None
-        return [cur[1]] if cur else []
+        fl = self._float_of(st) if st.kind in ("floor", "wall", "goal") else None
+        return ([cur[1]] if cur else []) + ([fl[1]] if fl else [])
+
+    def _float_of(self, st):
+        """the `float` statement over exactly this shape: (its thickness in units, its line), or None"""
+        sh = self._shape(st)
+        if not sh:
+            return None
+        for s_ in self.doc.statements():
+            if s_.kind == "float" and s_.toks[1:1 + len(sh[1])] == list(sh[1]):
+                rest = s_.toks[1 + len(sh[1]):]
+                return (float(rest[1]) if rest[:1] == ["thick"] else 3.0), s_.line
+        return None
+
+    def set_hang(self, how):
+        """`Hangs down`: to the ground (no float), or so many units (`float <shape> [thick N]`)"""
+        lines = [l_ for l_ in (self.sels or [self.sel]) if l_]
+
+        def go():
+            with self.doc.group("hangs down"):
+                for ln in sorted(lines, reverse=True):
+                    st = self.doc.statement(ln)
+                    sh = self._shape(st)
+                    if not sh or st.kind not in ("floor", "wall", "goal"):
+                        continue
+                    cur = self._float_of(st)
+                    code = None if how == "to the ground" else "float %s%s" % (
+                        " ".join(sh[1]), "" if how == "3 units" else " thick %s" % how.split()[0])
+                    if cur and code:
+                        self.doc.set_statement(cur[1], code)
+                    elif cur:
+                        self.doc.remove(cur[1])
+                    elif code:
+                        self.doc.replace_area(None, ground=[code])
+            return True
+        self._edit(go)
 
     def move_sel(self, dx, dy):
-        lines = [self.sel] + self._companions(self.sel)
-        self._edit(self.doc.move_many, lines, dx, dy, label="move")
+        """move the selection. GROUND (a floor, wall, goal or hole laid by tile or rect) moves as one layer:
+        its old cells are left empty, it cuts its way into the cells it lands on, a flat floor or goal takes
+        the height of the floor it lands on, its own surface and hang go with it, and the floor round it is
+        rejoined (SPEC.md 130.56.14)"""
+        st = self.doc.statement(self.sel)
+        sh = self._shape(st) if st.kind in ("floor", "wall", "goal", "hole") else None
+        if not sh:
+            lines = [self.sel] + self._companions(self.sel)
+            self._edit(self.doc.move_many, lines, dx, dy, label="move")
+            return
+        x0, y0, x1, y1 = sh[2]
+        dest = (x0 + dx, y0 + dy, x1 - 1 + dx, y1 - 1 + dy)
+        a = self.doc.analysis()
+        under = [d["hmax"] for (x, y), d in a["cells"].items() if dest[0] <= x <= dest[2] and dest[1] <= y <= dest[3]
+                 and d["line"] != self.sel and d["kind"] in ("floor", "goal", "field")]
+        toks = self.doc.moved_code(self.sel, dx, dy).split()
+        if under and st.kind in ("floor", "goal") and "flat" in toks:
+            h = max(under)
+            toks[toks.index("flat") + 1] = ("%d" % h) if h == int(h) else ("%g" % h)
+        code = E.join_tokens(toks)
+        comp = [(ln, self.doc.moved_code(ln, dx, dy)) for ln in self._companions(self.sel)]
+
+        def mv():
+            with self.doc.group("move %s" % st.kind):
+                for ln in sorted([self.sel] + [c for c, _ in comp], reverse=True):
+                    self.doc.remove(ln)
+                self.doc.replace_area(dest, ground=[code], surfaces=st.kind in ("wall", "hole"))
+                for _ln, cc in comp:
+                    self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
+                self.doc.tidy((min(x0, dest[0]), min(y0, dest[1]), max(x1 - 1, dest[2]), max(y1 - 1, dest[3])))
+            return True
+        if self._edit(mv):
+            ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
+            self.area = dest
+            self.select(ln)
+            if under and st.kind in ("floor", "goal"):
+                self._msg("Moved: it took the height of the floor it landed on (%g)" % max(under))
 
     def _set_word(self, i, value):
         if not self.sel:
@@ -1801,7 +2133,7 @@ class App(object):
                 n = (ax * ax + ay * ay) ** 0.5 or 1
                 c.create_line(cx_ - ax / n * L, cy_ - ay / n * L, cx_ + ax / n * L, cy_ + ay / n * L,
                               arrow="last", fill="#1b1d22", width=max(1, s / 14))     # (uphill)
-            if d["line"] == self.sel:
+            if d["line"] == self.sel or d["line"] in self.sels:
                 selcells.add((x, y))
         # a label for each statement's region: its height
         if s >= 10 and self.show_heights.get():
@@ -1838,7 +2170,7 @@ class App(object):
                 continue
             if it["kind"] == "way" and not self.show_route.get():
                 continue
-            sel = it["line"] == self.sel
+            sel = it["line"] == self.sel or it["line"] in self.sels
             if len(it["cells"]) > 1 and it["kind"] == "prop":
                 for (x, y) in it["cells"]:
                     px, py = self._cpx(x, y)
@@ -1930,9 +2262,9 @@ class App(object):
         """the picture dimmed but for the pixels the selection's cells drew, and what drew over them"""
         from PIL import Image
         a = self.doc.analysis()
-        mine = {256 * x + y for (x, y), d in a["cells"].items() if d["line"] == self.sel}
+        mine = {256 * x + y for (x, y), d in a["cells"].items() if d["line"] == self.sel or d["line"] in self.sels}
         for it in a["items"]:
-            if it["line"] == self.sel:
+            if it["line"] == self.sel or it["line"] in self.sels:
                 mine |= {256 * x + y for (x, y) in it["cells"]}
         if not mine:
             return img
@@ -2000,7 +2332,9 @@ class App(object):
             self._fill_add()
             return
         movable = self.sel and cell in self._sel_cells() and E.coord_slots(self.doc.statement(self.sel).toks)
-        self.drag = {"from": cell, "to": cell, "move": bool(movable), "shift": bool(e.state & 0x0001)}
+        ctrl = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
+        self.drag = {"from": cell, "to": cell, "move": bool(movable) and not ctrl, "shift": bool(e.state & 0x0001),
+                     "ctrl": ctrl}
 
     def _motion(self, e):
         d = self.drag
@@ -2033,7 +2367,9 @@ class App(object):
             cell = d["from"]
             lines = E.at_cell(self.doc.analysis(), cell)
             self.area = (cell[0], cell[1], cell[0], cell[1])
-            if lines and self.sel in lines and d["shift"]:
+            if lines and d.get("ctrl"):
+                self.select(lines[0], add=True)
+            elif lines and self.sel in lines and d["shift"]:
                 self.select(lines[(lines.index(self.sel) + 1) % len(lines)])
             elif lines and self.sel in lines:
                 self.select(self.sel)
@@ -2076,6 +2412,8 @@ class App(object):
         self.root.mainloop()
 
 
+HANGS = ("to the ground", "3 units", "2 units", "1.5 units", "1 units", "0.5 units", "0.25 units")
+
 EXPLAIN = [
     (r"solid outside 3 \.\. 252|outside 3 \.\.", "it reaches the edge of the course's grid. Keep it at least "
      "3 cells from the edge."),
@@ -2095,6 +2433,9 @@ EXPLAIN = [
      "on one flat floor."),
     (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
     (r"is empty", "the area is empty (zero cells across)."),
+    (r"has \d+ occluder records, over \d+", "too many things stand in front of each other at one spot of the "
+     "game's picture - usually a steep ramp or a tall cliff beside other tall parts. Make the ramp gentler "
+     "(longer, or a smaller rise) or the drop beside it lower."),
     (r"NO TRAP: from (.*) cannot reach the goal", "a ball could get stuck: from {0} it cannot get to the goal. "
      "Connect that part to the rest of the course, or remove it."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
