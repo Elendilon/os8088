@@ -19454,15 +19454,27 @@ SOAK = [
         "ImportError, where the owner would otherwise meet it",
         needs=("pil",), wants=("build/os8088-battle-builder.zip", "build/vbattle.o88",
                                "build/vbattled.o88")),
-    Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 8.0,
+    Row("bbgame", "soak", py("tests/unit/t_bbgame.py"), 250.0,
+        "ADD TO THE GAME (SPEC.md 130.56.17): tools/bbgame.py composes BONANZA.O88 from `make bbgamebin`'s "
+        "prebuilt pieces with no assembler. The shipped list composed is build/bonanza.o88 byte for byte; "
+        "shipped + XTRA (FIRST's text renamed) names XTRA in the course table and is byte for byte the package "
+        "`make BUILD=... BZ_COURSES=...` assembles with nasm for that list; --pad0 XTRA (XTRA in ROLL's K on "
+        "pad 0, ROLL last) likewise against nasm with that pathway, and its 360 KB floppy verifies; a larger "
+        "BZ_PROPMAX, a course NAMEd TITLE and a TEST course are refused. Red by hand: the patch loop skipped "
+        "(MEASURED: four failures - both nasm comparisons and both table reads), a table out of PATCH (the added "
+        "course refused). secs measured (199 s on a loaded 4-core host) x 1.25",
+        wants=("build/bonanza.o88", "build/bbgame-bin/.stamp")),
+    Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 340.0,
         "`make bbeditbundle` (SPEC.md 130.56.11): the Bounce Bonanza course builder's zip for someone with no "
         "os8088 tree. Unpacked in a temporary folder and run there with python -I under an audit hook that "
         "fails on any file opened under the tree: the compiler's ROOT is the bundle's data/, MILL is read and "
         "written byte for byte, laid out, drawn and fully checked, the pathway lays out from data/Makefile's "
         "course list, the window's module imports, and the zip is the same bytes made twice. Red: the data/ "
         "ROOT taken out of bbcourse.py (four failures: the course list, the ROOT, the pathway, the tree read). "
-        "secs measured (8 s)",
-        needs=("pil",), wants=("build/os8088-course-builder.zip",)),
+        "secs measured (8 s). ADD TO THE GAME (SPEC.md 130.56.17): bbgame.py composes BONANZA.O88 in the zip "
+        "from its bbgame-bin/ and it is build/bonanza.o88 byte for byte - the fresh zip's first composition "
+        "compiles every shipped course, so secs re-measured (270 s on a loaded 4-core host) x 1.25",
+        needs=("pil",), wants=("build/os8088-course-builder.zip", "build/bonanza.o88")),
     Row("vbtgui", "soak", py("tests/vbtguitest.py"), 38.0,
         "VBATTLE-BUILDER-PLAN wave 2: the builder's WINDOW without a window "
         "(tools/os88vbtgui.py). The palette's parts must be cga4_colours' own "
