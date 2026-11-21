@@ -22092,15 +22092,15 @@ BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(B
 # statement, SPEC.md 130.54, never by K), each BZD<NAME>.BIN, written by the same
 # run - a course's apps/bonanza/demos/<file>.bzd when it has one (text, checked by the
 # model), else the ROUTE DEMO the tool makes from the course's route.  The tool lists
-# them in row order in bzdemo.lst (as bzcrs2.lst the world parts); their rows follow the
-# courses' and the world parts' (BZ_P_DEMO, bzcourse.inc's BZ_DEMO_PARTS and BZ_DEMO_CRS).
+# them in row order in bzdemo.lst; their rows follow the courses' (BZ_P_DEMO, bzcourse.inc's
+# BZ_DEMO_PARTS and BZ_DEMO_CRS).
 BZ_DEMOSRC := $(wildcard apps/bonanza/demos/*.bzd)
 BZ_BALLS := $(addprefix $(BZ_ART)/,BZBALR.BIN BZBALS.BIN BZBALG.BIN)
 BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike archway gate seesaw turntable
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzcrs2.lst $(BZ_ART)/bzdemo.lst
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzdemo.lst
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 130.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -22188,9 +22188,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
 # The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 130.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-# SPEC.md 130.30.4.4: a TWO-PART course's WORLD part, BZ<K>W.BIN, follows the courses' rows in course order:
-# bbcourse.py lists them in bzcrs2.lst (empty when every course is one part), passed between BZ_PARTS's two
-# halves, so a build with none packs exactly the arguments it always did.
+# SPEC.md 130.30.5: a TWO-PART course's world part is in its course's ONE part, BZ<K>.BIN (OP_BIG), as a
+# SHEETED course's is (130.30.12.5): no world rows, no BZ<K>W.BIN.
 BZ_PARTS1 := $(BZ_CRSPARTS)
 BZ_PARTS2 := $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
@@ -22236,10 +22235,10 @@ $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) $(BZ_MUSSRC) tools/bbmusic.py to
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
 $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_ART)/bzdemo.lst $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
-	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
+	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) \
 		$$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst) $(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
 		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF) \
-		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) $$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzcrs2.lst) \
+		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) \
 		$$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)

@@ -280404,10 +280404,10 @@ from the estimate - and it does NOT take the split 130.15.8 sketched
 | which courses | only a course whose ONE-part form is refused today (its D RAM form, or its C form, over 65,024: 130.15.8). Every course that builds today builds as one part: **the same part, byte for byte, the same identity, the same package and 0 clk** (130.30.6). The first shipped one is `PLAYGROUND` with its shaped-floor section (130.30.11) |
 | the split | **the PICTURE part** (`M B I R K O`, and `L`: the lanes' pose maps) and **the WORLD part** (`G C D F T W P`; `F`, the FIELD tables, 130.28.2): everything the frame writers and the occluder pass read in one, everything physics, the families and the wheel's records read in the other (130.30.2) |
 | what it costs a frame or a step | **0 clk, on a two-part course and on a one-part one**: no routine reads both parts at once, and each site loads one segment word where it loads `bz_cseg` today (130.30.5) |
-| what it costs a launch | one more fetch and claim, one more directory walk, and the world part's 48-byte header and its directory (130.30.8) |
+| what it costs a launch | one more directory walk and the world part's 48-byte header and its directory - and, since 130.30.13, NO more fetch or claim: the two parts are ONE part on the disk and one claim (130.30.8) |
 | the guest's code | assembled only into a build that HAS a two-part course (`BZ_NCRS2` > 0): a build with none is today's package, byte for byte |
 | the pathway, the title | always ONE part (refused otherwise): the held pathway (130.22.7) and the title keep one row |
-| kern_mega | each part its own claim and LDT selector from `op_seg`; nothing computed between them (130.15.11) |
+| kern_mega | the one part's claim and LDT selector from `op_seg`, the world part a `SEG_SUB` selector inside it (130.30.13); nothing computed on a selector (130.15.11) |
 | kern_small | refuses on the desktop, as for every course (130.1) |
 
 #### 130.30.2 The reader map (this tree)
@@ -280531,17 +280531,23 @@ identity is 130.15.7's, unchanged. The guest compares the word at `GRIDOFF
 
 ##### 130.30.4.4 The rows and the files
 
-- The picture part is course K's row, as today: `BZ_P_CRS + K`.
-- The world parts follow the courses' rows, in course order:
-  `BZ_P_CRS + BZ_NCRS + j` for the j-th two-part course, each `OP_ASSET,
-  OP_LAZY | OP_COMP`. The sound part's row and every later one move up by
-  `BZ_NCRS2`. A SHEETED course has no world row: its world part is a
-  piece of its ONE part (130.30.12.5), and `BZ_NCRS2` counts the rows.
-- `bzcourse.inc` defines `BZ_NCRS2` (the two-part courses, 0 for none) and,
-  only when it is not 0, `BZ_CRS_WROW`: a byte a course, its world part's
-  row (0: one part).
-- The tool writes `bzcrs2.lst`, the world parts' `--part` arguments in row
-  order (empty for none), and the Makefile passes them after the courses'.
+**Superseded by 130.30.13 (2026-11-21): a two-part course is ONE part on
+the disk**, as a sheeted course is (130.30.12.5). What stands:
+- The course's row is course K's, as for any course: `BZ_P_CRS + K`, its
+  file `BZ<K>.BIN` - the picture part's stored form and then the world
+  part's from a paragraph, `OS88_PART OP_ASSET, OP_LAZY | OP_COMP |
+  OP_BIG`. **No world rows**: every later row is where it would be without
+  two parts (`BZ_P_DEMO` = `BZ_P_CRS + BZ_NCRS`), no `BZ<K>W.BIN`, no
+  `bzcrs2.lst`.
+- `bzcourse.inc` defines `BZ_NCRS2` (the two-part courses that are not
+  sheeted, 0 for none) and, with any course that has a world part
+  (`BZ_NCRS2 + BZ_NSHC` > 0), `BZ_CRS_WPARA`: a word a course, its world
+  part's PARAGRAPHS in its one part (0: one BZC2 part).
+- *(Was: the world parts followed the courses' rows, `BZ_P_CRS + BZ_NCRS +
+  j` for the j-th two-part course, each its own `OP_ASSET, OP_LAZY |
+  OP_COMP` row and file `BZ<K>W.BIN`, named by `BZ_CRS_WROW`, a byte a
+  course; the tool listed them in `bzcrs2.lst`, which the Makefile passed
+  after the courses'.)*
 
 #### 130.30.5 The guest
 
@@ -280559,26 +280565,35 @@ bz_cseg`, so every one of those sites assembles to today's bytes, and
 nothing below is assembled.
 
 **With one**:
-- `bz_cload` stores the first fetch's segment in both words and expands it
-  (`bz_cexp`, through `bz_cseg` as today); then `bz_cload2` fetches the
-  course's world part when `BZ_CRS_WROW` names one, stores its segment in
-  `bz_cseg` and expands it, before the balls, `bz_crshdr` and the families,
-  which read the world. A refusal is CF = 1, as any fetch's.
+- `bz_cload` fetches the course's ONE part (130.30.13), stores its segment
+  in both words and expands the picture part at its base (`bz_cexp`,
+  through `bz_cseg` as today); then `bz_cload2` takes the world part at
+  `BZ_CRS_WPARA`'s paragraphs as `OSAPI_SEG` `SEG_SUB` of `[bz_mseg]` (a
+  real-mode kernel's DX + AX), stores it in `bz_cseg` and expands it, before
+  the balls, `bz_crshdr` and the families, which read the world. The same
+  code is a SHEETED course's (130.30.12.5): its sheets past 0 first, then
+  the world part - a two-part course is its one-sheet case. A refused
+  fetch, or a refused selector, is CF = 1.
 - `bz_cexp` runs once on each part, each after the fetch that decoded it
   (130.15.4.5's rule, per part); the world part's last, so `bz_dfind`'s
   bounds are the world part's when `bz_dval` reads them.
-- `bz_cdrop` drops every world row (a row not here is a no-op) beside the
-  course's own, and zeroes `bz_mseg`.
+- `bz_cdrop` drops the course's row, as any course's, and zeroes
+  `bz_mseg`: the world part is a segment of that claim (kern_mega: its SUB
+  selector goes with it). *(Was: it dropped every world row beside the
+  course's own.)*
 - `bz_hxlat` translates the picture's blocks through `bz_mseg` and the
   lifts' sprites through `bz_cseg`.
-- **The heap**: one more claim while a two-part course is held - the
-  region, the two parts, the arena and a held pathway, five of
+- **The heap**: ONE claim for the course (130.30.13), as a one-part
+  course's - the region, the course, the arena and a held pathway, four of
   `MEM_OWNER_MAX`'s eight (§20.12.16). `BZ_CRS_MAXCLAIM` (130.22.7) counts
-  both parts, each its RAM form's granule-rounded claim with
-  `CLAIM_SLACK`, so `bz_phrel` keeps the pathway only beside room for both.
-- **kern_mega**: both parts are the package's claims and LDT selectors from
-  `op_seg`; nothing adds to a segment and nothing is written through CS, so
-  no `PKG_MEGA` arm (130.15.11 holds for each part).
+  the one claim, its RAM forms' paragraphs from the paragraph layout and
+  `CLAIM_SLACK`, granule-rounded, so `bz_phrel` keeps the pathway only
+  beside ONE free run that takes it. *(Was: two claims, both counted.)*
+- **kern_mega**: the one part is the package's claim and LDT selector from
+  `op_seg` (a conventional claim: §20.12.15), the world part a `SEG_SUB`
+  selector inside it, tied to the claim and freed with it; nothing adds to
+  a segment and nothing is written through CS, so no `PKG_MEGA` arm
+  (130.15.11).
 - **kern_small**: `bz_launch` refuses every course there (130.1).
 
 #### 130.30.6 What stays exactly as it is
@@ -280631,14 +280646,16 @@ every build, every frame's and step's instructions. The proof is a
 
 - **A frame, a step: 0 clk** on every course (130.30.5: the same
   instructions).
-- **A two-part launch** (PREDICTED): one more `op_fetch` - a claim and the
-  world part's packed bytes read, bytes the one part would have held
-  anyway, so about one more `int 13h` run, under 0.4 s - and the world
-  part's forms, already priced in 130.15.4.6.
+- **A two-part launch** (PREDICTED): since 130.30.13 ONE `op_fetch`, as a
+  one-part course's - one claim and one run of `int 13h` for both parts'
+  packed bytes - then a `SEG_SUB` (a far call) and the world part's forms,
+  already priced in 130.15.4.6. *(Was: one more `op_fetch`, a claim and
+  about one more `int 13h` run, under 0.4 s - MEASURED in 130.30.11 as the
+  same count of FDC READ commands, which was not traced.)*
 - **Bytes**: the shipped package 0. A build with a two-part course: the
-  guest's code above (MEASURED, 130.30.9), and per two-part course the
-  world part's header (48), its directory (8 a section) and `L`'s entry
-  (8).
+  guest's code above (MEASURED, 130.30.9; 130.30.13 for the one part and
+  the standard's `OP_BIG` arms), and per two-part course the world part's
+  header (48), its directory (8 a section) and `L`'s entry (8).
 
 #### 130.30.9 As built (2026-11-17)
 
@@ -280944,6 +280961,10 @@ part's `GRIDOFF + 18`, as ever.
 
 ##### 130.30.12.5 The one part, the launch and the drop
 
+*(Since 130.30.13 a TWO-PART course is one part too, by the same code:
+the world part's paragraphs are `BZ_CRS_WPARA`'s for both kinds, and
+`BZ_SHTAB`'s first word is each sheet's own paragraphs - sheet 0's 0.)*
+
 - **The part**: `BZ<K>.BIN`, course K's own row, is the sheets' stored
   forms in order and then the world part's, each from a PARAGRAPH (zeros
   to the next): sheet 0 at 0, sheet i at paragraph `P_i`, the world part at
@@ -280957,21 +280978,22 @@ part's `GRIDOFF + 18`, as ever.
   is assembled); with any, `BZ_SHMAX`, `BZ_SHENT`, `BZ_CRS_SHN` (a byte a
   course: its sheets, 0 none), `BZ_CRS_SHI` (a word a course: its first
   entry in `bz_shtab`) and `BZ_SHTAB` (an entry a sheet: a word of
-  PARAGRAPHS - sheet i's `P_i`, and in entry 0, sheet 0 being the part's
-  base, the world part's `P_W` - then `m0`, `hic`, `tlo` and `thi`, the
-  served tops in LINES, 7FFFh for the last). `BZ_NCRS2` counts the WORLD
-  ROWS (the two-part courses that are not sheeted); the two-segment code
-  of 130.30.5 is assembled for `BZ_NCRS2 + BZ_NSHC`.
+  PARAGRAPHS - sheet i's `P_i`, sheet 0's 0, the part's base - then `m0`,
+  `hic`, `tlo` and `thi`, the served tops in LINES, 7FFFh for the last);
+  the world part's `P_W` is `BZ_CRS_WPARA`'s (130.30.13; until it, entry
+  0's word). `BZ_NCRS2` counts the two-part courses that are not sheeted;
+  the two-segment code of 130.30.5 is assembled for `BZ_NCRS2 + BZ_NSHC`.
 - **The launch**: `bz_cload` fetches the row - ONE `op_fetch`: a claim, the
   packed bytes read in one run, the one LZ stream decoded in place (an
   `OP_BIG` lazy row's) - stores its segment in `bz_cseg`, `bz_mseg` and
   `bz_shseg` and expands sheet 0 (`bz_cexp`), as it expands any picture
   part. `bz_cload2` then takes each segment past sheet 0 - sheets 1 .. k - 1
-  and then the world part - as `OSAPI_SEG` `SEG_SUB` of the part's base and
-  its paragraphs (a real-mode kernel's DX + AX; kern_mega's a selector over
-  the claim, tied to it), stores it in `bz_shseg + 2i` (the world part's
-  after the sheets') and in `bz_cseg`, and expands it in place: the world
-  part's last, so `bz_dfind`'s bounds are the world part's. Nothing is
+  and then the world part - as `OSAPI_SEG` `SEG_SUB` of the part's base
+  (`[bz_mseg]`) and its paragraphs (a real-mode kernel's DX + AX;
+  kern_mega's a selector over the claim, tied to it), stores it in `bz_cseg`
+  (a sheet's in `bz_shseg + 2i` too; the world part's in `bz_cseg` alone
+  since 130.30.13), and expands it in place: the world part's last, so
+  `bz_dfind`'s bounds are the world part's. Nothing is
   copied and nothing more is read. `bz_cxmap` (ROWPLANES) counts the
   section's RAM length / ROWB. The Hercules translates each sheet's blocks
   (`bz_hxshs`, the lifts' once); the VGA converts each sheet's blocks and
@@ -281018,8 +281040,8 @@ part's `GRIDOFF + 18`, as ever.
   every sheet's segment, so two sheets cannot share their bytes).
 - **Claims**: ONE for the course, sheets and world part together (the
   region, the arena, the course, the kit; on the VGA its part and its
-  balls' copies) - fewer than a two-part course's, so a sheeted course
-  keeps a held pathway as any course does (`bz_phrel`'s test, whose
+  balls' copies) - as many as a two-part course's since 130.30.13, so a
+  sheeted course keeps a held pathway as any course does (`bz_phrel`'s test, whose
   `BZ_CRS_MAXCLAIM` counts the one claim: `course_claims`).
 - **Bytes**: MEASURED in 130.30.12.10.
 
@@ -281058,7 +281080,8 @@ part's `GRIDOFF + 18`, as ever.
   first line's red arm, PLAYGROUND (two parts, fitting) forced into
   sheets, which the rule CATCHES. **The ONE part** (130.30.12.5): TTALL's
   `BZ<K>.BIN` is the one part, over 65,024, its pieces at the paragraphs
-  `bz_shtab` names (entry 0's word the world part's), each read back to
+  `bz_shtab` names (sheet 0's 0) and the world part's at `BZ_CRS_WPARA`'s
+  (130.30.13; until it, entry 0's word), each read back to
   its stored form, and its LZB smaller than the pieces' apart; its
   controls, each REFUSED by `split_one_part`: the world part a paragraph
   late, the table a paragraph off, a sheet missing, a byte cut off the
@@ -281069,7 +281092,9 @@ part's `GRIDOFF + 18`, as ever.
   package's own `bz_cload2` (`OSAPI_SEG` answered as a real-mode kernel
   does) - every sheet's and the world part's segment the table's
   paragraphs and its RAM form (red arm `world`: the world part's paragraphs
-  read from the wrong entry); the package's own `bz_cexp` on each sheet's
+  read from the last sheet's entry, not `BZ_CRS_WPARA`; `wpara`: a
+  paragraph late - each also red on item 4, the two-part course's one part,
+  130.30.13); the package's own `bz_cexp` on each sheet's
   and the world part's stored forms; `bz_crshdr` and `bz_pread` on TTALL; then every lane given
   a drawn pose its map does not hold, the window's top stepped down the
   picture two card rows a frame and back with `bz_shchk` at each: the sheet
@@ -281220,6 +281245,132 @@ MEASURED unless it says otherwise.
   counts one claim; read, not run), `bonanzamega` (a sheeted course's
   world part a `SEG_SUB` selector inside its one claim: read, not run),
   `bonanzaphyshost`, `bonanzaring` and `bonanzaperf`.
+
+#### 130.30.13 A two-part course is ONE part on the disk (2026-11-21)
+
+**The brief** (the owner, 2026-11-21): *"check on the prior courses; are
+they reading out as a single part on disk, or two? If two, we can do the
+same thing we did here so they also have faster load times (just with an
+unsplit graphics segment)."* They were two: `PLAYGROUND`, the build's one
+two-part course (130.30.11), was `BZ5.BIN` (the picture part, 58,562
+bytes) and `BZ5W.BIN` (the world part, 18,543) - two rows, two
+`op_fetch`es, two claims, two runs of `int 13h`.
+
+**The format.** `BZ<K>.BIN` is the picture part's STORED form and then the
+world part's from the next PARAGRAPH (zeros between), one row `OS88_PART
+OP_ASSET, OP_LAZY | OP_COMP | OP_BIG` (§20.12.15: 77,119 bytes, past
+65,024) - 130.30.12.5's one part with one picture piece. `split_one_part`
+cuts it back exactly as for a sheeted course (each piece's magic, `BZP2`
+then `BZW2`; its directory's end before the next piece; the padding zero;
+the part's end the world part's). No world row, no `BZ<K>W.BIN`, no
+`bzcrs2.lst` (130.30.4.4). The stored form is as long as the RAM form
+(130.15.4.3), so each RAM form expands inside its own piece's paragraphs.
+
+**The guest: one code path.** `bz_cload` fetches the row (one `op_fetch`)
+and expands the picture part at the claim's base, as before. `bz_cload2`
+is now the sheeted course's code with the sheets as an optional prefix:
+sheets 1 .. k - 1 (none unless `BZ_NSHC`), then the world part at
+`BZ_CRS_WPARA`'s paragraphs - a word a course, 0 for one BZC2 part - each
+an `OSAPI_SEG` `SEG_SUB` of `[bz_mseg]`, stored in `bz_cseg`, expanded in
+place. A two-part course is the one-sheet case. `BZ_CRS_WPARA` replaces
+`BZ_CRS_WROW`, and is a sheeted course's world paragraphs too: `BZ_SHTAB`'s
+first word is now each sheet's own paragraphs (sheet 0's 0), where entry 0
+held the world part's. `bz_cdrop`'s world-row loop is gone; `bz_shseg`
+loses its world slot (2 bytes of bss in a sheeted build).
+
+**What does not move.** Every frame's and step's routine is the same
+source (`bz_mseg` and `bz_cseg` hold the same two segments at the same
+offsets in each piece, so 130.30.5's 0 clk stands); the part's two RAM
+forms are byte for byte what they were; the identity, the demos and
+`BZ_PHYSV` are unchanged.
+
+**kern_mega** (by reading `kernel/mega.inc`, not run): `op_seg` of the
+`OP_BIG` lazy row is a selector over the conventional claim's first 64KB
+(§20.12.15); `SEG_SUB` (`mega_segf`'s `.sub`) bases a selector at the
+claim's linear base + 16 AX and clips it to the claim's end
+(`mega_bclip`), the same selector for the same ask; `mega_mpfreef` frees
+every allocator descriptor based in a claim when the claim goes, so the
+world part's selector leaves with `bz_cdrop`'s drop. A refused `SEG_SUB`
+(no LDT entry) is CF = 1 with no toast of its own, as for a sheet. No
+`PKG_MEGA` arm.
+
+##### 130.30.13.1 As built (MEASURED unless it says otherwise)
+
+Two builds of one private tree at one build number (2178), before (b2b41674a)
+and after, `make BUILD=<tree> bonanzadisk`.
+
+| | before | after |
+|---|---|---|
+| `PLAYGROUND`'s parts | `BZ5.BIN` 58,562 + `BZ5W.BIN` 18,543 | `BZ5.BIN` 77,119 (world part at paragraph 3,661) |
+| packed, LZB (the format `BONANZA.O88` ships) | 15,427 + 3,129 = 18,556 | **18,523** (-33) |
+| packed, LZ4 (the course budget's) | 18,617 + 3,896 = 22,513 | 22,439 |
+| `op_fetch` calls, claims, disk runs at the launch | 2, 2, 2 | **1, 1, 1** |
+| `BZ_CRS_MAXCLAIM` (the largest pad course's claim, paragraphs) | 5,184 (two claims) | **4,992** (one) |
+| `bonanza.bin` (the image) | 51,111 | 51,317 (**+206**) |
+| `BONANZA.O88` | 149,969 | 150,045 (+76) |
+
+- **The image's +206 is the standard's, not BONANZA's.** The first `OP_BIG`
+  row in the shipped table turns on `os88parts.inc`'s 32-bit arms
+  (`OP_HAS_BIG`, §20.12.15): `op_bmove` +87 and the chunked copies and
+  32-bit lengths through `op_carvemv`, `op_lazymv`, `op_decl`, `op_pin`,
+  `op_movable`, `op_zrpara`, `op_gr`, `op_fetch`, `op_lazyp` - +208 by
+  routine span. BONANZA's own bytes: `bz_cload2` +8, `bz_cdrop` -10,
+  `bz_cwpar` 16 where `bz_cwrow` was 8, one part row fewer (-8): **-2**.
+  The arms are what any package with a part past 64KB carries, and a
+  sheeted build (`BZDOWN=1`, `BZDEV=1`) carried them already.
+- **Every one-part course is the bytes it was**: every other `BZ<K>.BIN`,
+  every demo, ball and kit part, `BZPATH.BIN`, `BZTITLE.BIN` and
+  `BZTDEMO.BIN` md5-equal. What changes, and why: `BZ5.BIN` (the one
+  part), `BZ5W.BIN` and `bzcrs2.lst` (gone - the tool now removes an older
+  run's), `bzcourse.inc` (the row lines, `BZ_CRS_WPARA`,
+  `BZ_CRS_MAXCLAIM`), `bonanza.bin` and `BONANZA.O88`; `bzlink.inc` and so
+  `bzshell.bin`, `bzvga.bin`, every `bzf-*.bin` and `bzfbun.bin`, which link
+  against the package's moved bss and constants (pxlink, 130.19.2); and the
+  four `bonanza*.img` floppies that carry the package. No system or apps
+  disk carries BONANZA.
+- **The launch** (PREDICTED, PERFORMANCE.md's ~0.4 s an `int 13h` call on
+  the XT): one claim and one directory of fetching fewer, one disk run
+  where there were two - so one fewer seek-and-read, about 0.4 s, on top of
+  33 fewer bytes read. Not measured on MartyPC.
+- **RAM.** The same RAM forms; the claim is one run of 4,992 paragraphs
+  (78KB, granule and `CLAIM_SLACK` in) where it was runs of 3,840 and 1,344
+  (5,184 together): 192 paragraphs less heap, but **one contiguous run 15KB
+  longer than the larger of the two**. kern_small refuses every course
+  (130.1), so the 128KB machine is not touched. On a 256KB 5150 (about
+  156KB of heap, 130.14.11) the play of `PLAYGROUND` was already past
+  what that machine holds beside the region and the held balls (130.30.11:
+  1,024 paragraphs more than one part had); the one claim needs no more
+  heap, only a longer run, and a claim compacts the movable claims on its
+  way to a refusal, so only a PINNED claim (the bundle, the kit, a held
+  pathway) can split the run - which `bz_phrel` now tests exactly, its
+  `BZ_CRS_MAXCLAIM` being the one claim. The refusal is `op_fetch`'s
+  toast, as for any course. *The fallback, not built*: if a field machine
+  shows the run refused where two claims fitted, keep the old two-row form
+  for that course only (the tool can emit either per course; the guest's
+  old fetch leg is about 25 bytes beside this one).
+- **The checks run here**: `--selfcheck --only twoseg,sheets` passes
+  (item 15's new ONE PART line for `TWOSG` and for `PLAY` with five refused
+  controls each - the world part a paragraph late, the table a paragraph
+  off, the world part missing, a byte cut off the end, a picture part that
+  is not `BZP2`; item 16's table check on `BZ_CRS_WPARA`; item 1's no
+  `BZ<K>W.BIN`); `tests/bonanza_sheet.py` on the `BZDEV=1` art passes, its
+  new item 4 (`PLAY`'s one part through the package's own `bz_cexp` and
+  `bz_cload2` under unicorn: the picture part at the base, the world part
+  at paragraph 3,661, both RAM forms) among them, and its red arms `world`
+  (the world part's paragraphs from the last sheet's entry) and `wpara` (a
+  paragraph late) are each caught on items 0 and 4. `make` passes. Not run
+  (the lead's final pass): `bonanzacourse` whole and `bonanzasheet` as a
+  row; `bonanzaexit`, the one emulator row that LAUNCHES `PLAYGROUND` (its
+  world part's leg and its claim leg: one claim, the world part inside it
+  at the plan's paragraphs; read, not run); `bonanzamega` (course_claims'
+  arm for a course with a world part - a `SEG_SUB` selector inside the one
+  claim, linear bases compared - and every course one claim inside; it
+  plays TPLY, one part, so the arm is read, not run); `bonanzaphys` and
+  `bonanzaphyshost`, which play `PLAYGROUND` from the tool's RAM forms
+  rather than its part file (unchanged forms). `bonanzareplay`,
+  `bonanzademo`, `bonanzaring` and `bonanzaperf` play test courses (TPLY,
+  TQUIK, TMIL, BENCH) and boot the package whose bytes changed, so they
+  reach the change only through the standard's `OP_BIG` arms.
 
 ### 130.31 The pathway carries no occluders (the owner, 2026-11-17)
 

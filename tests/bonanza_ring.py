@@ -5297,8 +5297,8 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
     asm = open(os.path.join(src or os.path.join(ROOT, "apps", "bonanza"), "bonanza.asm")).read()
     files = ([] if "BZ_BALB" in asm else list(A.BALL_FILES)) + ["BZ%d.BIN" % k for k in range(n)]  # (the balls
                                                 # ride the bundle since SPEC.md 130.25.5.2)
-    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 130.30.4.4: the two-part courses' WORLD parts
-    if os.path.exists(lst):
+    lst = os.path.join(art, "bzcrs2.lst")       # SPEC.md 130.30.4.4: the two-part courses' WORLD parts (an
+    if os.path.exists(lst):                     # older art's: none since 130.30.5's one part, no file)
         files += open(lst).read().split()
     if "%rep BZS_NSONG" in asm:                 # (the song rows, until SPEC.md 130.50.3 put each song in its
         ns = int(re.search(r"^BZS_NSONG\s+equ\s+(\d+)", open(os.path.join(art, "bzsnd.inc")).read(),
@@ -5591,7 +5591,7 @@ def nodither_art(td, names=None):
     for name, k in order:
         f = os.path.join(art, "BZ%d.BIN" % k)
         c = course(name)
-        if open(f, "rb").read() != c.stored:
+        if open(f, "rb").read() != (c.bstored or c.stored):
             raise AssertionError("nodither: %s is not this tree's %s as stored (`make bonanzadisk`)" % (f, name))
         u, e = und[name]
         if e is not None:
@@ -5600,18 +5600,13 @@ def nodither_art(td, names=None):
             raise AssertionError("nodither: %s is %s undithered and %s shipped" % (
                 name, "two parts" if u.split else "one part", "two" if c.split else "one"))
         # (a TWO-PART course, SPEC.md 130.30: the masks are its picture part's, the identity word its world
-        # part's, and both parts are written, BZ<K>.BIN and BZ<K>W.BIN)
+        # part's, and both parts are written into its ONE part, BZ<K>.BIN, each from a paragraph: 130.30.5)
         ram = bytearray(u.cga)
         wram = bytearray(u.wcga) if u.split else None
         idp = wram if u.split else ram
         g = struct.unpack_from("<H", idp, 26)[0]
         struct.pack_into("<H", idp, g + 18, c.ident)
-        out = [(f, ram)]
-        if u.split:
-            fw = os.path.join(art, "BZ%dW.BIN" % k)
-            if open(fw, "rb").read() != c.wstored:
-                raise AssertionError("nodither: %s is not this tree's %s as stored (`make bonanzadisk`)" % (fw, name))
-            out.append((fw, wram))
+        out = [(f, ram)] + ([(f, wram)] if u.split else [])
         sts = []
         for fn, r in out:
             st = BB.stored_form(u.model, BB.REC, bytes(r), u.fname)
@@ -5623,6 +5618,11 @@ def nodither_art(td, names=None):
         shp_m = BB.decode_parts(c.cga, c.wcga) if c.split else BB.decode_part(c.cga)
         if c.masks and und_m["masks"] == shp_m["masks"]:
             raise AssertionError("nodither: %s's undithered masks are the shipped ones" % name)
+        if u.split:                             # (one file: BB.one_part's layout, as the tool's - at the
+            if BB.one_part_layout([st for _fn, st in sts])[0] != c.oplan["paras"]:    # package's BZ_CRS_WPARA)
+                raise AssertionError("nodither: %s's undithered world part is not at the shipped paragraphs (the "
+                                     "package's BZ_CRS_WPARA, SPEC.md 130.30.5)" % name)
+            sts = [(f, BB.one_part([st for _fn, st in sts]))]
         for fn, st in sts:
             with open(fn, "wb") as fo:
                 fo.write(st)
