@@ -11,7 +11,7 @@ the course's four colours; Little Hop is `palette 0` on black, so 1 is GREEN,
 checker - the black line is what carries a shape there.
 
 SIGN STYLES (`--signs`), each drawn for "JUMP!" (T1's north rail) and
-"JUMP TWICE!" (U1's), where signs.py stands them today:
+"HOLD JUMP TO BOUNCE" (U1's; "JUMP TWICE!", then "HOLD JUMP", until 2026-11-21), where signs.py stands them:
   board   signs.py's board on a banded post (the baseline)
   hang    a plate HANGING by two chains from a gallows arm: the pin clock's kind
   banner  a cloth between two posts IN THE RAIL'S PLANE, the words sheared with it
@@ -34,6 +34,9 @@ INTEREST PIECES (`--extras`, comma-separated):
     python3 docs/plans/bonanza-courses/hop/art.py --signs hang --extras tee,goal --into-course
         the same into apps/bonanza/courses/ (what the lead runs once the owner chooses;
         it replaces signs.py's block)
+    python3 docs/plans/bonanza-courses/hop/art.py options DIR
+        U1's floor paint in each WORDING (HOLD JUMP and its alternatives, 2026-11-21)
+        into DIR/wording-sheet.png, CGA and Hercules, each part measured
     python3 docs/plans/bonanza-courses/hop/art.py sheet DIR
         every option into DIR/<variant>/, each compiled, measured (the course
         part's stored and packed bytes) and drawn into DIR/signs-sheet.png,
@@ -94,11 +97,14 @@ def _glyph_cols(ch):
     return g, min(xs), max(xs) + 1
 
 
-def text_px(lines, ink=K, prop=False):
+def text_px(lines, ink=K, prop=False, glyph=None):
     """the words in the tree's 8 x 8 face, each line centred: -> ({(x, y): ink}, width, height); the glyphs'
     blank top row and bottom row are trimmed, so a line is 6 px and lines are 8 apart.  prop: PROPORTIONAL,
     each glyph its own inked width and one blank column between (a space 3 wide), for a cloth that must fit
-    between posts"""
+    between posts.  glyph: ch -> its pixels {(gx, gy): _} in an 8 x 8 cell, in place of the tree's face (the
+    floor paint's PAINT face, paint_glyph)"""
+    face = glyph or (lambda ch: B.label_glyph(ch, 0, 0, ink))
+
     def advance(t):
         if not prop:
             return [(8 * i, 0) for i in range(len(t))], 8 * len(t) - 1
@@ -119,9 +125,40 @@ def text_px(lines, ink=K, prop=False):
         pos, lw = advance(t)
         x0 = (tw - lw) // 2
         for (px_, a), ch in zip(pos, t):
-            for (gx, gy), _ in B.label_glyph(ch, 0, 0, ink).items():
+            for (gx, gy) in face(ch):
                 out[(x0 + px_ + gx - a, 8 * r + gy - 1)] = ink
     return out, tw, 8 * len(lines) - 2
+
+
+# ---- the PAINT face (the floor paint's letters, 2026-11-21) -----------------------------------------------------
+# A floor squashes a glyph's rows, so the floor paint THICKENS every stroke a row down: the tree's face
+# (fonts/tallx.f8, bbcourse.label_glyph) with each set pixel also set under itself.  That is right for every letter
+# but one whose counter is ONE ROW tall: the stroke above fills the row and the counter closes.  In the tree's face
+# that is B's upper bowl (row 2, between a full-width top bar and waist), so "BOUNCE" painted a B with no empty
+# pixel in its top half (the owner: "there isn't a pixel set 'empty' to show the top of the B").  PAINT_FACE is the
+# paint's own glyph for such a letter, drawn AS PAINTED (already thickened, rows 1 - 7): B keeps the thickened
+# face's double top and bottom bars and gives EACH bowl one open row, the waist a single row between them.
+# fonts/tallx.f8 itself is not touched: it is the system font knob's face and every course's label face, and its
+# B is right one pixel a pixel.  Every other letter is the thickened face, as before (O and D keep three open rows,
+# P one; U and N have no closed counter in this face).  The rule for a new letter: every counter keeps an open row.
+PAINT_FACE = {"B": ("........",
+                    "#####...",
+                    "######..",
+                    "##..##..",
+                    "#####...",
+                    "##..##..",
+                    "######..",
+                    "#####...")}
+
+
+def paint_glyph(ch):
+    """the PAINT face's glyph CH, as painted: PAINT_FACE's, or the tree's face thickened a row down"""
+    if ch in PAINT_FACE:
+        return {(x, y): K for y, row in enumerate(PAINT_FACE[ch]) for x, v in enumerate(row) if v == "#"}
+    g = B.label_glyph(ch, 0, 0, K)
+    out = dict(g)
+    out.update({(x, y + 1): K for (x, y) in g})
+    return out
 
 
 def shape(px, inside, w, h, fill):
@@ -310,18 +347,48 @@ def icon(twice):
 
 
 # ---- the floor paint ------------------------------------------------------------------------------
-def floor_words(c, flr, words, scale, axis):
+def hop_arcs(w):
+    """a FLOOR-PAINT picture of the double bounce, in glyph pixels, w wide: the ball (a ring) at the right, a
+    small Hop arc leftward onto a tick, then the "and again", a taller arc (the boost is the HIGHER bounce,
+    SPEC.md 130.16.4.1) -> ({(x, y): K}, w, h).  The ball travels -x on U1, which is right to left in the words'
+    reading direction"""
+    h = 9
+    ink = {}
+    gy = h - 1
+    bx = w - 3
+    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)):
+        ink[(bx + dx, gy - 1 + dy)] = K                # the ball, a 3 x 3 ring sat on the ground line
+
+    def arc(xa, xb, peak):
+        n = 4 * abs(xa - xb)
+        for i in range(n + 1):
+            t = i / float(n)
+            ink[(int(round(xa + (xb - xa) * t)), int(round(gy - peak * 4 * t * (1 - t))))] = K
+    mid = (bx - 2) * 5 // 12                           # the first contact: the small Hop is the shorter arc
+    arc(bx - 2, mid + (bx - 2 - mid) // 3, 3)
+    hop_end = mid + (bx - 2 - mid) // 3
+    arc(hop_end, 0, gy)
+    for d in (-1, 1):                                  # the contact's tick
+        ink[(hop_end + d, gy)] = K
+    return ink, w, h
+
+
+def floor_words(c, flr, words, scale, axis, icon=False):
     """the words PAINTED on a floor (x0 y0 x1 y1 z) as a road marking: a red panel, black-lined, the letters
     yellow in it, centred.  axis "x": reading along +x (down the screen to the right), the letters' tops toward
     -y; axis "y": reading along -y (up to the right), the tops toward -x.  A glyph pixel is 1/scale of a tile;
-    the strokes are thickened a row down so they survive the floor's squash"""
+    the strokes are thickened a row down so they survive the floor's squash (the PAINT face, paint_glyph).  icon: hop_arcs() under the words
+    (the option sheet's, 2026-11-21)"""
     x0, y0, x1, y1, z = flr
     a = D.Art(host={(x, y) for x in range(x0, x1) for y in range(y0, y1)})
-    ink, tw, th = text_px(words.split("\n"))
-    fat = set()
-    for (x, y) in ink:
-        fat.add((x, y))
-        fat.add((x, y + 1))
+    ink, tw, th = text_px(words.split("\n"), glyph=paint_glyph)      # the PAINT face: thickened already
+    fat = set(ink)
+    if icon:
+        pic, pw, ph = hop_arcs(tw)
+        for (x, y) in pic:
+            fat.add((x, th + 2 + y))
+            fat.add((x, th + 3 + y))
+        th += 2 + ph
     th += 1
     m = 3                                          # the panel's margin round the words, glyph pixels
     cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
@@ -973,11 +1040,20 @@ def owners(text, path):
     return c
 
 
-def build(signs, extras, outdir, prefix="hop_"):
+def u1_scale(words):
+    """U1's floor paint size for WORDS (glyph pixels a tile): 10, the big letters, for two lines of at most six
+    (HOLD JUMP, JUMP TWICE!); 13, the smaller letters, for anything longer (HOLD JUMP TO BOUNCE, the course's
+    since 2026-11-21) - U1 is 5 x 4 tiles"""
+    lines = words.split("\n")
+    return 10 if len(lines) <= 2 and max(len(t) for t in lines) <= 6 else 13
+
+
+def build(signs, extras, outdir, prefix="hop_", sign1=None):
     """write outdir/hop.bbc and its .bba files (named PREFIX...): the course with THIS ART block; -> the course's
     path.  The compiler finds a `.bba` in apps/bonanza/courses/ only, whatever the course's own folder, so a
     scratch variant takes a prefix of its own (measure() points the compiler at its folder; sheet() copies its
-    files in for the tool's run and takes them out again)"""
+    files in for the tool's run and takes them out again).  sign1: (words, scale, icon) for U1's FLOOR paint in
+    place of sketch.SIGNS' words at u1_scale (the option sheet's, options())"""
     with open(COURSE, encoding="ascii") as f:
         src = f.read()
     src = OLD.sub("", src).rstrip("\n") + "\n"
@@ -1002,8 +1078,9 @@ def build(signs, extras, outdir, prefix="hop_"):
         elif signs == "icon":
             art = hang_sign(c, sx, sy, icon=icon(i == 1))
         elif signs == "floor":
-            art = (floor_words(c, T1, "JUMP!", 10, "y") if i == 0
-                   else floor_words(c, U1, "JUMP\nTWICE!", 10, "x"))
+            art = (floor_words(c, T1, words, 10, "y") if i == 0
+                   else floor_words(c, U1, (sign1 or (words,))[0], (sign1 or (0, u1_scale(words)))[1], "x",
+                                    icon=bool(sign1 and sign1[2])))
         else:
             continue
         pieces.append((prefix + "sign%d" % i, art, "a SIGN (%s): %s" % (signs, one)))
@@ -1275,7 +1352,48 @@ def sheet2(out):
     print("sheet2: %s" % out)
 
 
+# ==== U1's WORDS (a player, via the owner, 2026-11-21: "JUMP TWICE!" read as "jump over both steps", so it did
+# not teach the double bounce; the owner: HOLD JUMP, no exclamation mark).  Each option is the shipped picks
+# with only U1's floor paint changed; (words, scale, icon): scale is glyph pixels a tile (10 ships: larger
+# scale, smaller letters, to fit U1's 5 x 4 tiles), icon hop_arcs() under the words.
+# The owner then picked HOLD JUMP TO BOUNCE (2026-11-21: "it tells them both what, and why, and it stays above the
+# fence line"), in the PAINT face's B (paint_glyph); the sheet still measures against HOLD JUMP.
+WORDING = [("hold-jump", ("HOLD\nJUMP", 10, False), "HOLD JUMP (the course's until the owner's next pick)"),
+           ("hold-jump-arcs", ("HOLD\nJUMP", 10, True), "HOLD JUMP + the double bounce's two arcs"),
+           ("keep-holding", ("KEEP\nHOLDING", 13, False), "KEEP HOLDING"),
+           ("hold-to-bounce", ("HOLD\nJUMP TO\nBOUNCE", 13, False), "HOLD JUMP TO BOUNCE (the owner's pick, in the course)"),
+           ("big-bounce", ("HOLD\nFOR A\nBIG\nBOUNCE", 13, False), "HOLD FOR A BIG BOUNCE"),
+           ("jump-twice", ("JUMP\nTWICE!", 10, False), "JUMP TWICE! (before: the confusing one)")]
+PICKS = ("banner,floor", ("chev", "gap-arc", "goal-bunting", "flowers-poppy", "col-spring3"))
+
+
+def options(out):
+    """every WORDING into DIR/<name>/, measured, and the sheet DIR/wording-sheet.png: U1 cropped, CGA and
+    Hercules, x ZOOM, each with its course part's bytes against HOLD JUMP's"""
+    from PIL import Image, ImageDraw
+    os.makedirs(out, exist_ok=True)
+    res = []
+    for name, sign1, note in WORDING:
+        d = os.path.join(out, name)
+        os.makedirs(d, exist_ok=True)
+        pre = "hw_" + re.sub(r"[^a-z0-9]", "", name) + "_"
+        p = build(PICKS[0], PICKS[1], d, pre, sign1=sign1)
+        c, m = measure(p)
+        res.append((name, note, c, m))
+        print("%-16s stored %6d  LZB %5d  LZ4 %5d  blocks %4d" % (name, m["stored"], m["lzb"], m["lz4"], m["blocks"]))
+    ref = res[0][3]
+    rows = []
+    for name, note, c, m in res:
+        cga, herc = pictures(c, Image)
+        ims = list(crop_pair(cga, herc, CROPS["JUMP TWICE!"], Image))
+        rows.append(("%s   (course part LZB %d, %+d against HOLD JUMP)" % (note, m["lzb"], m["lzb"] - ref["lzb"]), ims))
+    grid(rows, Image, ImageDraw, "LITTLE HOP - U1's floor paint, wording options; palette 0, x%d" % ZOOM,
+         ["CGA", "Hercules"]).save(os.path.join(out, "wording-sheet.png"))
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "options":
+        return options(sys.argv[2] if len(sys.argv) > 2 else "hop-wording")
     if len(sys.argv) > 1 and sys.argv[1] == "sheet3":
         return sheet3(sys.argv[2] if len(sys.argv) > 2 else "hop-art3")
     if len(sys.argv) > 1 and sys.argv[1] == "sheet2":

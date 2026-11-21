@@ -156,8 +156,12 @@ bzv_spv:    BZV_SPR 0, 0, 0
             BZV_SPR 9, 4, 1
             BZV_SPR -1, 2, 0, 0, 2
             BZV_SPR 15, 12, 0
-%if $ - bzv_spv != 8 * 8 * BZV_SPE
- %error "eight places, eight shifts"
+            BZV_SPR -1, 7, 0, 0, 7      ; the LIFE's RISE's own (SPEC.md 130.55)
+            BZV_SPR 15, 7, 0
+            BZV_SPR 7, 7, 1
+            BZV_SPR 7, 0, 1
+%if $ - bzv_spv != 12 * 8 * BZV_SPE
+ %error "twelve places, eight shifts"
 %endif
 
 ; =============================================================================

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedit - THE BOUNCE BONANZA COURSE BUILDER (SPEC.md 130.55).
+"""bbedit - THE BOUNCE BONANZA COURSE BUILDER (SPEC.md 130.56).
 
     python3 tools/bbedit.py [COURSE.bbc]
 
@@ -7,7 +7,7 @@ A window over tools/bbedproj.py's Document: the course is its .bbc text, and
 every edit rewrites only the lines it is about (comments and order are kept).
 Two views of one selection - PLAN, top-down with a height map, and ISO, the
 game's own picture out of tools/bbcourse.py - and the compiler as the only
-judge: its refusals are ERRORS, its visual checks WARNINGS (SPEC.md 130.55.4).
+judge: its refusals are ERRORS, its visual checks WARNINGS (SPEC.md 130.56.4).
 Slow work (the picture, the full check) runs as a process (tools/bbedjob.py)
 that the next edit cancels.
 
@@ -92,6 +92,8 @@ PALETTE = [
         ("Hourglass", "cell", "prop hourglass {x} {y}", "+10 seconds, once a try"),
         ("Speed", "cell", "prop speed {x} {y} for 3", "Faster for a few seconds"),
         ("Jump", "cell", "prop jump {x} {y} for 3", "A higher hop for a few seconds"),
+        ("Life", "cell", "prop life {x} {y}", "A heart: one more life for the game. `Once` keeps it taken for good "
+         "(one a course)"),
     ]),
     ("Game", [
         ("Start", "cell", "start {x} {y}", "Where the ball appears (one a course)"),
@@ -112,7 +114,7 @@ PALETTE = [
 GLYPH = {"Windmill": "W", "Bumper": "B", "Lift": "L", "Turntable": "T", "Start": "S", "Route point": "·",
          "Flag": "F", "Ball pad": "P", "Cup": "U", "Clock": "C", "Tube": "", "Spring": "Sp", "Boost": "»",
          "Blower": "~", "Magnet": "M", "Spikes": "^", "Pop-up spikes": "^", "Membrane": "=", "Cracked floor": "x",
-         "Glass path": "g", "Hourglass": "H", "Speed": ">", "Jump": "J", "Gate": "G", "Pressure plate": "_",
+         "Glass path": "g", "Hourglass": "H", "Speed": ">", "Jump": "J", "Life": "♥", "Gate": "G", "Pressure plate": "_",
          "Key": "K", "Bridge": "#", "Seesaw": "/", "Probe": "?"}
 
 # a height (units) to a colour: dark blue low, through green and yellow, to pale high
@@ -491,8 +493,9 @@ class App(object):
         rows = [
             ("Title", ttk.Entry(g, textvariable=self.cv_title, width=26), "1 - 24 characters, no quote marks"),
             ("Short name", ttk.Entry(g, textvariable=self.cv_name, width=8), "1 - 5 of A-Z 0-9"),
-            ("Size", ttk.Combobox(g, textvariable=self.cv_width, values=("64", "128"), width=6, state="readonly"),
-             "128 fits longer courses and costs memory"),
+            ("Picture width", ttk.Combobox(g, textvariable=self.cv_width, values=[str(w) for w in range(64, 161, 8)],
+                                           width=6, state="readonly"),
+             "columns of 8 px (64 - 160); wider leaves less room for the course's length"),
             ("Course's ball", ttk.Combobox(g, textvariable=self.cv_ball, values=E.MATERIALS, width=8,
                                            state="readonly"), "best times count only with this ball"),
             ("Music", ttk.Combobox(g, textvariable=self.cv_music, values=["(default)"] + list(_songs()),
@@ -538,7 +541,7 @@ class App(object):
         self.checks.tag_configure("acc", foreground="#666")
         self.checks.bind("<<TreeviewSelect>>", lambda e: self._pick_check())
         ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` (its inspector) or "
-                  "`accept` a warning to keep it under --strict (SPEC.md 130.55.5).", wraplength=520,
+                  "`accept` a warning to keep it under --strict (SPEC.md 130.56.5).", wraplength=520,
                   foreground="#444").pack(anchor="w", pady=(6, 0))
 
     def _build_source_tab(self):
@@ -929,10 +932,10 @@ class App(object):
     ON_GROUND = {"Windmill", "Bumper", "Turntable", "Spring", "Boost pad", "Blower", "Magnet",
                  "Pop-up spikes", "Cracked floor", "Glass path", "Hourglass", "Speed", "Jump", "Start",
                  "Route point", "Flag", "Ball pad: rubber", "Ball pad: steel", "Ball pad: glass", "Cup", "Clock",
-                 "Gate", "Pressure plate", "Key", "Pit", "Chute", "Hump"}
+                 "Gate", "Pressure plate", "Key", "Pit", "Chute", "Hump", "Life"}
 
     def add_part(self, name=None):
-        """the chosen part on the selected area (SPEC.md 130.55.12, 130.55.13): the GROUND is one layer of
+        """the chosen part on the selected area (SPEC.md 130.56.12, 130.56.13): the GROUND is one layer of
         cells, so Floor, Ramp, Wall, Hole and Goal REPLACE the area's cells (the statements round it are cut,
         keeping their own heights and ramps), the surfaces repaint it, a part that stands on the ground brings
         a floor tile to an empty cell, and an archway goes OVER the area with its legs made for it"""
@@ -1214,6 +1217,16 @@ class App(object):
             cb.grid(row=row, column=1, sticky="w")
             cb.bind("<<ComboboxSelected>>", lambda e, v=v: self.set_surface(v.get()))
             row += 1
+        if st.kind == "prop" and len(st.toks) > 1 and st.toks[1] in ("life", "speed", "jump"):
+            for word, label in (("once", "Once: taken for good (one a course)"), ("respawn", "Comes back when its "
+                                                                                  "effect ends"),
+                                ("overwrite", "Ends the other timed effect")):
+                if (word == "once") != (st.toks[1] == "life"):
+                    continue
+                v = tk.BooleanVar(value=word in st.toks)
+                ttk.Checkbutton(body, text=label, variable=v, command=lambda w=word, v=v: self._edit(
+                    self.doc.set_flag, self.sel, w, v.get())).grid(row=row, column=0, columnspan=2, sticky="w")
+                row += 1
         if st.kind in B.VIS_HIDEABLE:
             v = tk.BooleanVar(value=st.toks[-1] == "hidden")
             ttk.Checkbutton(body, text="Hidden on purpose (a secret: no warning)", variable=v,
@@ -1545,7 +1558,7 @@ class App(object):
             if getattr(self, attr):
                 self.root.after_cancel(getattr(self, attr))
                 setattr(self, attr, None)
-        if self.check_job:                  # an edit makes a running check stale: cancelled (130.55.8)
+        if self.check_job:                  # an edit makes a running check stale: cancelled (130.56.8)
             self.check_job.kill()
             self.check_job = None
         a = self.doc.analysis()
@@ -1679,7 +1692,7 @@ class App(object):
             return 0, 0, 20, 16
         xs = [c[0] for c in cells]
         ys = [c[1] for c in cells]
-        return min(xs) - 2, min(ys) - 2, max(xs) + 3, max(ys) + 3
+        return min(xs) - 6, min(ys) - 6, max(xs) + 7, max(ys) + 7
 
     def _fit(self):
         if self.view.get() == "plan":
@@ -1715,6 +1728,22 @@ class App(object):
         self.origin = (bx0, by0)
         s = CELL * self.zoom
         c.configure(scrollregion=(0, 0, (bx1 - bx0) * s, (by1 - by0) * s))
+        band = a.get("band")
+        if band:                    # where no floor may go: past the picture's edge, less a ball's flight
+            box = [(bx0, by0), (bx1, by0), (bx1, by1), (bx0, by1)]
+            for k, side in ((band["amin"] + E.FLY - 0.5, -1), (band["amax"] - E.FLY + 1.5, 1)):
+                poly = _clip(box, k, side)          # cells x - y beyond k (continuous: centre at +0.5)
+                if len(poly) >= 3:
+                    pts = [v for p in poly for v in self._cpx(*p)]
+                    c.create_polygon(*pts, fill="#3d2a2e", outline="")
+                    ends = sorted(poly, key=lambda p: p[1])
+                    q = [p for p in poly if abs((p[0] - p[1]) - k) < 1e-6]
+                    if len(q) >= 2:
+                        c.create_line(*self._cpx(*q[0]), *self._cpx(*q[-1]), fill="#ff6b5e", width=2, dash=(8, 4))
+                        lx, ly = self._cpx(*max(q, key=lambda p: p[1]))
+                        c.create_text(lx + (6 if side > 0 else -6), ly - 6, anchor="se" if side < 0 else "sw",
+                                      fill="#ff8a80", font=("TkDefaultFont", 9),
+                                      text="edge of the picture (%d columns)" % band["width"])
         for gx in range(bx0, bx1 + 1):          # the grid, every 4 cells marked
             x, _ = self._cpx(gx, 0)
             c.create_line(x, 0, x, (by1 - by0) * s, fill="#3a3f48" if gx % 4 else "#4a505b")
@@ -1845,16 +1874,6 @@ class App(object):
         if hl:
             px, py = self._cpx(*hl)
             c.create_oval(px - s * .4, py - s * .4, px + s * 1.4, py + s * 1.4, outline="#ff5a4e", width=3)
-        band = a.get("band")
-        if band:                                 # the picture's edge: x - y from amin to amax is drawn
-            for k, edge in ((band["amin"] - 0.5, "left"), (band["amax"] + 0.5, "right")):
-                # the line x - y = k + 0.5 (cell centres at +0.5), across the plan's bounds
-                ya, yb = by0, by1
-                pa = self._cpx(k + ya, ya)           # (continuous plan coordinates: a cell's centre is +0.5)
-                pb = self._cpx(k + yb, yb)
-                c.create_line(*pa, *pb, fill="#ff6b5e", width=2, dash=(8, 4))
-                c.create_text(pb[0] + 4, pb[1] - 4, anchor="sw", fill="#ff6b5e", font=("TkDefaultFont", 9),
-                              text="picture's %s edge" % edge)
         if self.area:                            # the selected AREA: it stays until another is chosen
             x0, y0, x1, y1 = self.area
             ax, ay = self._cpx(x0, y0)
@@ -2080,8 +2099,9 @@ EXPLAIN = [
      "Connect that part to the rest of the course, or remove it."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
-    (r"outside the course's picture", "the course would reach past the edge of the game's picture (the dashed "
-     "red lines). Keep it between them, or make the course wide (Size 128 on the Course tab)."),
+    (r"too near the edge of the course's picture", "the course would reach past the edge of the game's picture "
+     "(the dashed red lines), even at its widest (160 columns). Build toward the bottom-right or top-left of the "
+     "plan instead: that is down or up the screen, which has no limit."),
     (r"ramp rate", "a ramp must rise by a whole number of half units on each tile it crosses. Set the high end "
      "to the low end plus 0.5, 1, 1.5 ... times its length."),
     (r"already belongs to the prop", "only one part can stand on a cell. Choose another cell."),
@@ -2103,6 +2123,27 @@ def explain(err):
             words = words.format(*m.groups())
             return "%s\n(The compiler said: %s)" % (words[:1].upper() + words[1:], err)
     return err
+
+
+def _clip(poly, k, side):
+    """the part of polygon POLY where side * (x - y - k) > 0 (one half-plane, Sutherland-Hodgman)"""
+    def inside(p):
+        return side * (p[0] - p[1] - k) > 0
+
+    def cut(p, q):
+        fp, fq = p[0] - p[1] - k, q[0] - q[1] - k
+        t = fp / (fp - fq)
+        return (p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]))
+    out = []
+    for i, p in enumerate(poly):
+        q = poly[(i + 1) % len(poly)]
+        if inside(p):
+            out.append(p)
+            if not inside(q):
+                out.append(cut(p, q))
+        elif inside(q):
+            out.append(cut(p, q))
+    return out
 
 
 def _photo(tk, img):

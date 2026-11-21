@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The Bounce Bonanza course builder's zip, used where there is no os8088 tree
-(`make bbeditbundle`, tools/bbeditbundle.py, SPEC.md 130.55.11).
+(`make bbeditbundle`, tools/bbeditbundle.py, SPEC.md 130.56.11).
 
     make bbeditbundle && python3 tests/bbeditbundle.py
 

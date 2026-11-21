@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.55.8), each run as a process
+"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.56.8), each run as a process
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
@@ -18,7 +18,7 @@ origin, every mark the visibility audit weighs with its seen and hidden
 pixels).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
-the warnings that do not (SPEC.md 130.55.4).
+the warnings that do not (SPEC.md 130.56.4).
 """
 
 import json
@@ -56,7 +56,7 @@ def picture(path, out, name=None):
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
-    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.55.8)
+    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.56.8)
     emit(stage="compile", what="laying the course")
     try:
         c = B.compile_course(text, path, occluders=False)

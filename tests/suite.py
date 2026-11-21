@@ -5673,12 +5673,12 @@ SOAK = [
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
     Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 7.0,
-        "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.55.3 - 130.55.5), host only: every "
+        "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.56.3 - 130.56.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
         "names every position: `half`, a ramp's span, water's ripple cell); a flag wholly behind a wall WARNS, "
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
-        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.55.13) and a floor past the picture gets an origin or width 128. Red by hand: coord_slots without "
+        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.56.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160. Red by hand: coord_slots without "
         "its `half` skip (DOWN's split cells), _visual raising again (three cases). secs measured (6.9 s)"),
     Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 1312.0,
         "TWO-PART ONE PART (SPEC.md 130.30.13, 2026-11-21): item 15 gains, for TWOSEG and each shipped two-part course (PLAYGROUND), the ONE PART line (BZ<K>.BIN the picture part's stored form and the world part's at BZ_CRS_WPARA's paragraph, read back by split_one_part, each RAM form inside its room, OP_BIG) and five refused controls; item 1 holds every two-part course's BZ<K>.BIN to its one part and refuses any BZ<K>W.BIN; item 16's table check reads sheet 0's word 0 and the world part's BZ_CRS_WPARA. Sections twoseg and sheets run, the whole row not re-run, secs not re-measured. "
@@ -6065,7 +6065,7 @@ SOAK = [
         "drop, L, W and the double-click, each with the claims as before. Red arm `--red padleak` (MOON's "
         "course part kept at the cup). WAVE 5B (SPEC.md 130.15.4.5, "
         "130.15.13): THE CLAIM LEG - every launch (FIRST, MILL, MOON, PEAK, PLAY, BENCH by B, D's FIRST "
-        "demo, and one launch, F then Esc, of every course of BZ_COURSES no other leg launched - TRIAL, ROLL, "
+        "demo, and one launch, F then Esc, of every course of BZ_COURSES no other leg launched - DOWN (course 1 since SPEC.md 130.54.9), TRIAL (a test course since), ROLL, "
         "HOP) stops at the "
         "kernel's fsx_run (after bz_cexp and bz_hxlat, before the lanes' writer) and the course claim "
         "(bz_cseg, found in the heap map) equals the tool's RAM form on the CGA, its "
@@ -6073,7 +6073,7 @@ SOAK = [
         "expoff1|rowtab1|cellsafe` (WDIFF a record short, ROWTAB NROWS - 1 words: red at FIRST, the first "
         "launch; the guest's SAFE rule without OBS: red at MILL), each at the claim leg. secs MEASURED in "
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
+        needs=("marty", "nasm"), timeout=4800 + BZDEV_TREE_CPU,    # (2026-11-21: 900 -> 4800, the added launches; CGA alone passed)
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 1223.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
@@ -20095,7 +20095,7 @@ SOAK = [
         needs=("pil",), wants=("build/os8088-battle-builder.zip", "build/vbattle.o88",
                                "build/vbattled.o88")),
     Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 8.0,
-        "`make bbeditbundle` (SPEC.md 130.55.11): the Bounce Bonanza course builder's zip for someone with no "
+        "`make bbeditbundle` (SPEC.md 130.56.11): the Bounce Bonanza course builder's zip for someone with no "
         "os8088 tree. Unpacked in a temporary folder and run there with python -I under an audit hook that "
         "fails on any file opened under the tree: the compiler's ROOT is the bundle's data/, MILL is read and "
         "written byte for byte, laid out, drawn and fully checked, the pathway lays out from data/Makefile's "

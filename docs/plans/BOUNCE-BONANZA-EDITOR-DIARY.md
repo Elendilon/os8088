@@ -1,7 +1,7 @@
 # How It Was Built: the Bounce Bonanza course builder
 
 *The plan is [BOUNCE-BONANZA-EDITOR.md](BOUNCE-BONANZA-EDITOR.md); the
-contract SPEC.md 130.55. Entries are dated, newest last. Each separates what
+contract SPEC.md 130.56. Entries are dated, newest last. Each separates what
 was OBSERVED from what was INTENDED, and names what was actually tested.*
 
 ## 2026-11-21 - mockups, three rounds, and the contract
@@ -78,7 +78,7 @@ would have (fork rule 11, added to CLAUDE.md and AGENTS.md).
 ## 2026-11-21 - waves 0 to 3, the first build to try
 
 **Built**: the model (`tools/bbedproj.py`), the warning tier in the compiler, the jobs
-(`tools/bbedjob.py`), the window (`tools/bbedit.py`) and a host row (`bbedit`). SPEC.md 130.55.10
+(`tools/bbedjob.py`), the window (`tools/bbedit.py`) and a host row (`bbedit`). SPEC.md 130.56.10
 says what each does and what is missing.
 
 **Observed, and tested here:**
@@ -142,7 +142,7 @@ says what each does and what is missing.
 - **Ramps exist, but only as text.** The only way in was typing `ramp x ...` into the statement box. The
   compiler also wants a ramp to rise a whole number of half units on each tile, which nothing said.
 
-**What changed (SPEC.md 130.55.12):**
+**What changed (SPEC.md 130.56.12):**
 - **Select first, then act.** A drag selects an area, and the area stays. Adding is a button in the
   palette's Add panel.
 - **Heights come from the surroundings.** A wall stands one above the highest floor in or around the
@@ -188,7 +188,7 @@ The `bbedit` row and the MILL drive still pass. Not tested: the owner's machine,
 - **An archway's legs may stand on walls**, so making the leg cells wall tiles at the floor's height
   compiles.
 
-**What changed (SPEC.md 130.55.13):**
+**What changed (SPEC.md 130.56.13):**
 - **`replace_area` cuts the area out of the statements around it** and adds the new ground, in one edit.
 - **The area panel has Make it and Paint buttons.**
 - **A part on an empty cell brings a floor tile.** An archway brings its wall legs.
@@ -208,3 +208,29 @@ The `bbedit` row and the MILL drive still pass. Not tested: the owner's machine,
 
 **Shown in the Iso view, centred on the course:** the ramp, the walls, the archway's legs, the ice and the
 second floor. No shipped course trips the new band check, and the `bbedit` row passes.
+
+## 2026-11-21 - the picture's width, and upstream's merge
+
+**The owner**: "adding a small floor next to another small floor shouldn't trip us into needing the
+double segment option?"
+
+**It does not, and the builder was wrong on two counts:**
+- **It confused the picture's width with the two-part course.** `width` is the picture's word columns, any
+  multiple of 8 from 64 to 160. The two-part course is about one part's bytes, and only PLAY uses it.
+  Eighteen shipped courses are wider than 64 and one part each. The builder jumped straight to 128 when a
+  few columns would do.
+- **Its edge check was too lenient.** The compiler holds every cell the ball can REACH to the picture, and
+  a flight carries it 4 to 6 diagonals past a floor's edge (MEASURED on seven shipped courses). The builder
+  checked the floors alone, so a fix it called good was one the compiler refused.
+
+**Now:**
+- Floors keep 4 diagonals inside the edge.
+- The builder centres the picture first, then widens by the smallest step that fits.
+- MEASURED against the compiler: two 10 x 8 floors side by side ask 80 columns with origin 224, which
+  builds. The compiler refuses 72 at every origin.
+- The plan shades where no floor may go.
+
+**Merged `bounce-bonanza`**, which brings the LIFE pickup and course edits. Upstream wrote the LIFE as
+SPEC.md 130.55, which this branch had used, so the builder is now 130.56. Only this branch's own lines
+were renumbered: the compiler's LIFE references stay 130.55. The palette has the heart, with `once`,
+`respawn` and `overwrite` as tick boxes.
