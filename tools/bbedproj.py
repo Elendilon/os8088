@@ -413,6 +413,146 @@ class Document(object):
             self._notify("uses " + " ".join(added))
         return added
 
+    # -- the ground as ONE LAYER of cells (SPEC.md 130.55.13) ---------------------
+    def _ground_shape(self, st):
+        """(index, (x0, y0, x1, y1) end-exclusive) of a statement's `tile` or `rect` shape - one a piece can be
+        cut out of - or None (a band, a box, a half or a quarter: never split)"""
+        t = st.toks
+        i = 2 if st.kind == "surface" else 1
+        if i < len(t) and t[i] in ("half", "quarter"):
+            return None
+        try:
+            if i < len(t) and t[i] == "tile":
+                x, y = int(t[i + 1]), int(t[i + 2])
+                return i, (x, y, x + 1, y + 1), 3
+            if i < len(t) and t[i] == "rect":
+                return i, tuple(int(t[i + k]) for k in range(1, 5)), 5
+        except (ValueError, IndexError):
+            return None
+        return None
+
+    def replace_area(self, area, ground=(), then=(), kinds=("floor", "wall", "goal", "hole"),
+                     surfaces=False, label=None):
+        """ONE edit: cut the AREA (x0, y0, x1, y1, cells inclusive) out of every `tile`/`rect` statement of
+        KINDS (and of `surface`s when SURFACES) - each keeps its own clauses, so a ramp's pieces keep its
+        plane - then add the GROUND statements after the course's last ground statement and the THEN
+        statements after the last of their own kind. A shape that cannot be cut (band, box, half,
+        quarter) is left, and the new ground, coming later, lies over it. -> the line of the first added"""
+        areas = list(area) if area and isinstance(area[0], (tuple, list)) else ([area] if area else [])
+        cut_kinds = tuple(kinds) + (("surface",) if surfaces else ())
+        lines = list(self.lines)
+        for ar in areas:
+            lines, last_ground = self._cut(lines, ar, cut_kinds)
+        if not areas:
+            last_ground = max([j + 1 for j, raw in enumerate(lines) if Statement(j + 1, raw).kind in
+                               ("floor", "wall", "goal", "hole", "surface", "float")] or [len(lines)])
+        new = lines
+        for code in ground:
+            new.insert(last_ground, code)
+            last_ground += 1
+        first = last_ground - len(ground) + 1 if ground else None
+        for code in then:
+            kind = code.split()[0]
+            same = [j for j, raw in enumerate(new) if Statement(j + 1, raw).kind == kind]
+            at = same[-1] + 1 if same else len(new)
+            while at > 0 and at == len(new) and not new[at - 1].strip():
+                at -= 1
+            new.insert(at, code)
+            if first is None:
+                first = at + 1
+        self._commit(label or "change the area", new)
+        return first
+
+    def _cut(self, lines, area, cut_kinds):
+        """LINES with AREA cut out of every statement of CUT_KINDS; -> (lines, the index after the last
+        ground statement)"""
+        ax0, ay0, ax1, ay1 = area[0], area[1], area[2] + 1, area[3] + 1
+        new = []
+        last_ground = 0
+        for i, raw in enumerate(lines, 1):
+            st = Statement(i, raw)
+            if st.kind not in cut_kinds:
+                new.append(raw)
+                if st.kind in ("floor", "wall", "goal", "hole", "surface", "float"):
+                    last_ground = len(new)
+                continue
+            sh = self._ground_shape(st)
+            if not sh:
+                new.append(raw)
+                last_ground = len(new)
+                continue
+            k, (x0, y0, x1, y1), n = sh
+            ix0, iy0, ix1, iy1 = max(x0, ax0), max(y0, ay0), min(x1, ax1), min(y1, ay1)
+            if ix0 >= ix1 or iy0 >= iy1:            # untouched
+                new.append(raw)
+                last_ground = len(new)
+                continue
+            pieces = []
+            if iy0 > y0:
+                pieces.append((x0, y0, x1, iy0))
+            if iy1 < y1:
+                pieces.append((x0, iy1, x1, y1))
+            if ix0 > x0:
+                pieces.append((x0, iy0, ix0, iy1))
+            if ix1 < x1:
+                pieces.append((ix1, iy0, x1, iy1))
+            for j, (p0, q0, p1, q1) in enumerate(pieces):
+                shape = ["tile", str(p0), str(q0)] if (p1 - p0, q1 - q0) == (1, 1) else \
+                    ["rect", str(p0), str(q0), str(p1), str(q1)]
+                code = join_tokens(st.toks[:k] + shape + st.toks[k + n:])
+                new.append(st.indent + code + (st.comment if j == 0 else ""))
+                last_ground = len(new)
+        return new, last_ground
+
+    def auto_band(self):
+        """SPEC.md 130.55.13: a course whose floors leave its picture - the diagonal band a `width` and an
+        `origin` draw - gets the origin that centres them, else `width 128` and that origin, folded into the
+        edit that needed it. -> what was done, in words, or None"""
+        a = analyse(self.text(), self.path or "<course>")
+        b = a.get("band")
+        if not b or not b["out"]:
+            return None
+        lo, hi = b["span"]
+        sts = {st.kind: st for st in self.statements()}
+        for width in ([b["width"]] if b["width"] == 128 else [64, 128]):
+            W = width * 8
+            # need 16 lo + x0 - 24 >= 0 and 16 hi + x0 + 23 < W
+            xmin, xmax = 24 - 16 * lo, W - 24 - 16 * hi - 1
+            if xmin > xmax:
+                continue
+            x0 = 16 * int(round(((xmin + xmax) / 2.0) / 16))
+            while x0 < xmin:
+                x0 += 16
+            while x0 > xmax:
+                x0 -= 16
+            if not xmin <= x0 <= xmax:
+                continue
+            new = list(self.lines)
+            done = []
+            if width != b["width"] and "width" in sts:
+                st = sts["width"]
+                new[st.line - 1] = st.indent + "width %d" % width + st.comment
+                done.append("made the course wide (width 128)")
+            org = None if x0 == width * 4 else "origin %d" % x0
+            if "origin" in sts:
+                st = sts["origin"]
+                if org:
+                    new[st.line - 1] = st.indent + org + st.comment
+                else:
+                    del new[st.line - 1]
+            elif org:
+                at = (sts["width"].line if "width" in sts else 1)
+                new.insert(at, org)
+            if org:
+                done.append("moved the picture (origin %d)" % x0)
+            self.lines = new
+            self._analysis = None
+            if analyse(self.text(), self.path or "<course>").get("band", {}).get("out"):
+                continue
+            self._notify("band")
+            return " and ".join(done) or None
+        return None
+
     def remove(self, line, label=None):
         self.statement(line)
         new = list(self.lines)
@@ -536,6 +676,21 @@ def analyse(text, fname="<course>"):
             "surf": B.SURFACES[t.surf] if 0 <= t.surf < len(B.SURFACES) else "normal",
             "line": getattr(top, "line", None) or t.line, "split": isinstance(t, B.Split),
             "water": getattr(top, "wbed", None) is not None, "guard": getattr(top, "guard", None) is not None}
+    # the picture's band (SPEC.md 130.55.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
+    # 16 (wx - wy) + x0 + 23 < 8 width (bbcourse.foot_x); the floors must lie inside it
+    width = src.width or 64
+    x0 = src.origin[0] if src.origin else width * 4
+    amin = -((x0 - 24) // 16)
+    amax = (8 * width - 24 - x0 - 1) // 16
+    fl = [x - y for (x, y), d in out["cells"].items() if d["kind"] in ("floor", "goal", "field")]
+    outs = sorted(c for c, d in out["cells"].items() if d["kind"] in ("floor", "goal", "field")
+                  and not amin <= c[0] - c[1] <= amax)
+    out["band"] = {"width": width, "x0": x0, "amin": amin, "amax": amax,
+                   "span": (min(fl), max(fl)) if fl else (0, 0), "out": outs}
+    if outs and not out["error"]:
+        out["error"] = ("%s: cell (%d, %d) is outside the course's picture: a %d-wide course draws the cells "
+                        "whose x - y runs from %d to %d" % (fname, outs[0][0], outs[0][1], width, amin, amax))
+        out["error_kind"] = "band"
     items = out["items"]
 
     def item(what, kind, at, line, cells=None, **kw):

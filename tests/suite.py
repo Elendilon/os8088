@@ -5198,7 +5198,7 @@ SOAK = [
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
         "names every position: `half`, a ramp's span, water's ripple cell); a flag wholly behind a wall WARNS, "
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
-        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`. Red by hand: coord_slots without "
+        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.55.13) and a floor past the picture gets an origin or width 128. Red by hand: coord_slots without "
         "its `half` skip (DOWN's split cells), _visual raising again (three cases). secs measured (6.9 s)"),
     Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 1312.0,
         "TWO-PART ONE PART (SPEC.md 130.30.13, 2026-11-21): item 15 gains, for TWOSEG and each shipped two-part course (PLAYGROUND), the ONE PART line (BZ<K>.BIN the picture part's stored form and the world part's at BZ_CRS_WPARA's paragraph, read back by split_one_part, each RAM form inside its room, OP_BIG) and five refused controls; item 1 holds every two-part course's BZ<K>.BIN to its one part and refuses any BZ<K>W.BIN; item 16's table check reads sheet 0's word 0 and the world part's BZ_CRS_WPARA. Sections twoseg and sheets run, the whole row not re-run, secs not re-measured. "

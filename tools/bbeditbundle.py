@@ -61,12 +61,18 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
        Slope (Flat or Ramp, which way it rises, its low and high ends),
        Surface (normal, ice, sand, bounce) - or drag it, move it with the
        arrow keys, Delete it, Ctrl+D to duplicate.
-     - A selected area: choose a part in the list on the left and press
-       its Add button (or double-click the part). Heights come from what is
-       there: a floor joins the floor around it (the toolbar's "New floor
-       height" in empty space), a wall stands one unit above the highest
-       floor in or beside the area, a goal sits at the floor's height.
+     - A selected area: "Make it" Floor, Ramp, Wall, Hole or Goal (on the
+       right) turns just those cells into that - the floor around keeps its
+       own height, and a ramp rises from the floor's height. "Paint" makes
+       them ice, sand, bounce or normal. Or choose any part in the list on
+       the left and press its Add button (or double-click the part): a part
+       that stands on the ground, added on an empty cell, brings a floor
+       tile with it; an archway goes OVER the area, its legs made from the
+       cells beside it. Heights come from what is there: a wall stands one
+       unit above the highest floor in or beside the area.
        Delete with an area selected removes every part wholly inside it.
+     - The dashed red lines are the edges of the game's picture. Build past
+       one and the builder moves the picture, or makes the course wide.
   3. Nothing breaks the course: a change the course compiler refuses is
      undone at once, and the red bar says why in plain words and what to
      do instead ("Keep it anyway" if you want it regardless).
