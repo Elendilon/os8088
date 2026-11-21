@@ -6,8 +6,8 @@
     python3 tools/bbeditbundle.py OUT.zip
 
 One folder, `os8088-course-builder/`: the window (bbedit.py), the model and
-its command line (bbedproj.py), the job it runs (bbedjob.py) and every
-tools/ module they import, at the TOP; under `data/`, the working files the
+its command line (bbedproj.py), the job it runs (bbedjob.py), Test Roll's
+player (bbplay.py) and every tools/ module they import, at the TOP; under `data/`, the working files the
 compiler reads, at their places in the tree - apps/bonanza/courses/ (every
 course and the art they name), demos/, music/, fonts/tallx.f8 - and
 data/Makefile, the course lists (BZ_COURSES, BZ_TESTCRS) and nothing else.
@@ -28,7 +28,7 @@ TREE = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import os88vbundle as VB    # noqa: E402
 
-ROOTS = ("bbedit.py", "bbedjob.py", "bbedproj.py")
+ROOTS = ("bbedit.py", "bbedjob.py", "bbedproj.py", "bbplay.py")
 THIRD_PARTY = {"PIL"}
 # imported only inside functions the builder never calls: the music's WAV
 # render (numpy, pyopl) and the compiler's guest checks (unicorn)
@@ -95,6 +95,16 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
   3. Nothing breaks the course: a change the course compiler refuses is
      undone at once, and the red bar says why in plain words and what to
      do instead ("Keep it anyway" if you want it regardless).
+  TEST ROLL (the toolbar): plays the course as it stands, in a window of
+  its own, on the game's own physics and camera - no disk, no emulator.
+  It starts from the course's start, or from the selected cell. Arrows
+  roll, Space hops, Left Shift grips, Backspace goes back to the last
+  flag, P pauses, N steps a frame, 1 / 2 / 4 set the speed, Z rewinds
+  5 s, R restarts, Esc closes. It plays at once on a quick compile; when
+  the full one lands (seconds, or minutes on a big course) the walls in
+  front of the ball hide it as the game does, and "Save demo" writes the
+  run as a .BZR the game replays (and a .bzd beside it).
+      python3 bbplay.py COURSE.bbc [--start X Y] [--ball steel] [--herc]
   Ctrl+Z / Ctrl+Y undo and redo. Esc clears the selection.
   Mouse wheel zooms; right- or middle-drag pans. Tab switches Plan and Iso.
 
