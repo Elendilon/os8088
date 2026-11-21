@@ -278,3 +278,19 @@ way 27 47
 way 25 49
 way 24 50
 way 24 53
+# the glass way: a branch from the plaza, rejoining at the finish (the tool's alone)
+way 24 27 branch GLASS
+way 21 28 branch GLASS
+way 21 30 branch GLASS
+way 21 31 branch GLASS
+way 19 34 branch GLASS
+way 19 35 branch GLASS
+way 19 36 branch GLASS
+way 19 38 branch GLASS
+way 19 41 branch GLASS
+way 21 42 branch GLASS
+way 21 43 branch GLASS
+way 21 46 branch GLASS
+way 22 48 branch GLASS
+way 24 50 branch GLASS
+way 24 53 branch GLASS
