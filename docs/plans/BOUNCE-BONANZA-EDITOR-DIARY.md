@@ -165,3 +165,46 @@ says what each does and what is missing.
 - a magnet added: `uses magnet` came with it.
 
 The `bbedit` row and the MILL drive still pass. Not tested: the owner's machine, again.
+
+## 2026-11-21 - the owner's second test, and the ground as one layer
+
+**What the owner found (Windows):**
+- **A second floor went in, but the course could no longer be drawn**: "cell (17, 2)'s footprint ... is
+  past the 512 px width".
+- **The builder made the owner assemble statements.** The owner's model is one layer of ground: a floor
+  or empty space, which you change. A ramp in the middle of a floor should not mean cutting the floor up
+  by hand. A pad on a cell should bring its ground. An archway should go over what it is put on.
+
+**Why (observed):**
+- **A 64-wide course draws a diagonal band.** Only cells whose `x - y` runs from -14 to 14 are drawn,
+  with the picture centred.
+- **Only the full check tested the width.** The width is part of the full compile's checks, so the edit
+  check (which lays tiles only) never saw it, and the refused edit was not undone.
+
+**Found by measurement first:**
+- **A later statement overrides an earlier one, cell for cell.**
+- **A ramp's plane is absolute**: a piece of a ramped rectangle can keep `ramp x P0 P1 H0 H1` word for
+  word.
+- **An archway's legs may stand on walls**, so making the leg cells wall tiles at the floor's height
+  compiles.
+
+**What changed (SPEC.md 130.55.13):**
+- **`replace_area` cuts the area out of the statements around it** and adds the new ground, in one edit.
+- **The area panel has Make it and Paint buttons.**
+- **A part on an empty cell brings a floor tile.** An archway brings its wall legs.
+- **The band is checked on every edit.** It is drawn on the plan, and fixed by moving the `origin` or
+  making the course wide.
+- **The full check's refusals read in plain words.**
+
+**Tested here:** a script repeated the owner's steps through the real bindings:
+- a floor beside the course, past the picture: the origin moved to 160, and the message said so;
+- a ramp in the middle of the floor: the floor split into four pieces round it;
+- a steel pad on an empty cell: it brought a floor tile. The full check then rightly reported a trap,
+  in plain words;
+- a pad on floor;
+- an archway mid-floor: two wall legs, compiled;
+- a one-cell wall at 5;
+- an ice strip.
+
+**Shown in the Iso view, centred on the course:** the ramp, the walls, the archway's legs, the ice and the
+second floor. No shipped course trips the new band check, and the `bbedit` row passes.

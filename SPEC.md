@@ -296269,3 +296269,33 @@ it ... If I'm adding something, then I want to select it and have it add on top 
   over exactly that shape, made, changed or removed from the floor's inspector; it travels with its floor
   when the floor is moved or reshaped, in the same edit (`Document.set_many`, `move_many`: one undo step).
 - Plan arrows point UPHILL; a region's label is its whole height range.
+
+#### 130.55.13 The ground is one layer (the owner's second test, 2026-11-21)
+
+The owner: *"We have one 'layer' only ... From the user's perspective they start with either a floor, or
+empty space, and then add something to that"*: a ramp made in the middle of a floor without cutting the
+floor by hand, a pad on a cell bringing its ground, an archway going OVER what it is put on. And a floor
+built off to the side stopped the course with "footprint past the 512 px width", which the edit's check
+did not see.
+
+- **An area is changed, not stacked on.** `Document.replace_area(areas, ground, then, kinds, surfaces)`
+  cuts the area out of every `tile`/`rect` statement of the ground kinds (floor, wall, goal, hole; and the
+  surfaces, for a wall, a hole or a paint) - each piece keeps that statement's own clauses word for word,
+  which is exact because a ramp's plane is absolute (a piece's `ramp x P0 P1 H0 H1` names the same plane
+  over a narrower span: MEASURED, compiled) - then adds the new ground after the last ground statement and
+  the other statements after the last of their kind: one edit, one undo. A band, box, half or quarter is
+  never cut; the new ground, coming later, overrides it (a later room overrides an earlier one cell for
+  cell: MEASURED).
+- **The area panel's Make it** (Floor, Ramp, Wall, Hole, Goal) and **Paint** (Ice, Sand, Bounce, Normal)
+  are those edits. A Ramp rises from the area's floor height along its longer side, half a unit a tile.
+- **A part that stands on the ground**, added on an empty cell, brings `floor tile X Y flat H` (H the
+  floor beside it) in the same edit. **An archway** goes over the area (at most two cells each way, along
+  its shorter side), and each leg cell that is floor or goal becomes `wall tile` at that floor's height -
+  130.39.2 lets a leg replace a wall; its `under` clearance is in the inspector.
+- **The picture's band.** A cell is drawn when 16 (wx - wy) + X0 - 24 >= 0 and 16 (wx - wy) + X0 + 23 <
+  8 width (bbcourse `foot_x`), X0 the `origin` (default 4 width). `analyse()` now refuses a floor, goal or
+  shaped floor outside it (no shipped course trips it), so the edit check sees it; `Document.auto_band()`,
+  run on every edit, then moves the `origin` (a multiple of 16) to centre the course, else makes it `width
+  128` and centres it, and says so. The plan draws the band's edges as dashed red lines.
+- The full check's refusals are put in plain words in the problems list (`explain`, the compiler's own
+  details kept: "a ball could get stuck: from the steel pad at (3, 14) it cannot get to the goal").

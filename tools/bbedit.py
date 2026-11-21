@@ -43,7 +43,7 @@ PALETTE = [
         ("Floor", "rect", "floor rect {x0} {y0} {x1} {y1} flat {h}", "Solid flat ground, at the height of the "
          "floor already there or beside it (the toolbar's height in empty space). Make it a ramp on the right"),
         ("Ramp", "rect", "floor rect {x0} {y0} {x1} {y1} ramp x {x0} {x1} {h} {h1}", "A floor that rises one unit "
-         "across the area, left to right; change its direction and heights on the right"),
+         "across the area's longer side, half a unit a tile; change its direction and heights on the right"),
         ("Wall", "rect", "wall rect {x0} {y0} {x1} {y1} flat {h}", "A raised block the ball bounces off: one "
          "unit above the highest floor in or beside the area"),
         ("Hole", "rect", "hole rect {x0} {y0} {x1} {y1}", "Open void: the ball falls"),
@@ -704,6 +704,8 @@ class App(object):
             self._msg(str(e))
             return None
         added = self.doc.auto_uses()
+        band = self.doc.auto_band()
+        self._note = ("The course grew past the game's picture, so the builder %s. " % band) if band else ""
         after = self.doc.analysis()["error"]
         if after and after != before and len(self.doc.undo_stack) > n0:
             while len(self.doc.undo_stack) > n0:
@@ -921,9 +923,20 @@ class App(object):
                   and d["kind"] in ("floor", "goal", "field")]
         return (max(inside) if inside else None), (max(around) if around else None)
 
-    def add_part(self):
-        """the chosen part on the selected area, its heights taken from what is there (SPEC.md 130.55.12)"""
-        it = self.part
+    GROUND = {"Floor": "floor", "Ramp": "floor", "Wall": "wall", "Hole": "hole", "Goal": "goal"}
+    PAINT = {"Ice": "ice", "Sand": "sand", "Bounce mat": "bounce", "Normal": "normal"}
+    # the parts that stand ON the ground: added on an empty cell, they bring a floor tile with them
+    ON_GROUND = {"Windmill", "Bumper", "Turntable", "Spring", "Boost pad", "Blower", "Magnet",
+                 "Pop-up spikes", "Cracked floor", "Glass path", "Hourglass", "Speed", "Jump", "Start",
+                 "Route point", "Flag", "Ball pad: rubber", "Ball pad: steel", "Ball pad: glass", "Cup", "Clock",
+                 "Gate", "Pressure plate", "Key", "Pit", "Chute", "Hump"}
+
+    def add_part(self, name=None):
+        """the chosen part on the selected area (SPEC.md 130.55.12, 130.55.13): the GROUND is one layer of
+        cells, so Floor, Ramp, Wall, Hole and Goal REPLACE the area's cells (the statements round it are cut,
+        keeping their own heights and ramps), the surfaces repaint it, a part that stands on the ground brings
+        a floor tile to an empty cell, and an archway goes OVER the area with its legs made for it"""
+        it = self.part if name is None else next((i for _g, its in PALETTE for i in its if i[0] == name), None)
         t = self._target()
         if not it or not t:
             self._fill_add()
@@ -938,32 +951,91 @@ class App(object):
         base = inside if inside is not None else around if around is not None else typed
         h = {"Wall": (around if around is not None else typed) + 1}.get(name, base)
         h = round(h * 4) / 4.0
-        hs = ("%d" % h) if h == int(h) else ("%g" % h)
-        h1 = h + 0.5 * (x1 - x0 + 1)            # a ramp: half a unit a tile, the gentlest the course allows
-        h1s = ("%d" % h1) if h1 == int(h1) else ("%g" % h1)
-        along = "x" if (x1 - x0) >= (y1 - y0) else "y"
-        if name == "Archway":                   # across the path, one cell deep, at most two wide
-            if along == "x":
-                mx = (x0 + x1) // 2
-                x0, x1, y1 = mx, mx, min(y1, y0 + 1)
+
+        def f(v):
+            return ("%d" % v) if v == int(v) else ("%g" % v)
+        a = self.doc.analysis()
+        area = (x0, y0, x1, y1)
+        if name in self.GROUND or name in self.PAINT:
+            if name == "Ramp":                  # along the area's longer side, half a unit a tile
+                ax = "y" if (y1 - y0) > (x1 - x0) else "x"
+                n = (y1 - y0 + 1) if ax == "y" else (x1 - x0 + 1)
+                p0, p1 = (y0, y1 + 1) if ax == "y" else (x0, x1 + 1)
+                code = "floor rect %d %d %d %d ramp %s %d %d %s %s" % (x0, y0, x1 + 1, y1 + 1, ax, p0, p1, f(h),
+                                                                     f(h + 0.5 * n))
+            elif name in self.PAINT:
+                code = None if name == "Normal" else "surface %s rect %d %d %d %d" % (self.PAINT[name], x0, y0,
+                                                                                      x1 + 1, y1 + 1)
             else:
-                my = (y0 + y1) // 2
-                y0, y1, x1 = my, my, min(x1, x0 + 1)
-            tpl = ("archway tile {x} {y} along %s" if (x0, y0) == (x1, y1) else
-                   "archway rect {x0} {y0} {x1} {y1} along %s") % along
-        code = tpl.format(x=x0, y=y0, x0=x0, y0=y0, x1=x1 + 1, y1=y1 + 1, h=hs, h1=h1s, x3=x0 + 3, x4=x0 + 4,
+                kind = self.GROUND[name]
+                shape = "tile %d %d" % (x0, y0) if (x0, y0) == (x1, y1) else "rect %d %d %d %d" % (
+                    x0, y0, x1 + 1, y1 + 1)
+                code = "%s %s%s" % (kind, shape, "" if kind == "hole" else " flat %s" % f(h))
+            paint = name in self.PAINT
+            n_ = self._edit(self.doc.replace_area, area, ground=[code] if code else [],
+                            kinds=() if paint else ("floor", "wall", "goal", "hole"),
+                            surfaces=paint or name in ("Wall", "Hole"), label="make the area %s" % name.lower())
+            if n_:
+                self.area = area
+                self.select(n_ if code else None)
+                self._msg("The area is now %s. Its settings are on the right; Ctrl+Z takes it back." % name.lower())
+            return
+        if name == "Archway":                   # OVER the area, its legs the cells beside it, made walls
+            w, hh = x1 - x0 + 1, y1 - y0 + 1
+            if w <= 2 and hh <= 2:
+                along = "y" if w > hh else "x"
+            else:
+                along = "x" if w >= hh else "y"
+                if along == "x":
+                    mx = (x0 + x1) // 2
+                    x0, x1, y1 = mx, mx, min(y1, y0 + 1)
+                else:
+                    my = (y0 + y1) // 2
+                    y0, y1, x1 = my, my, min(x1, x0 + 1)
+            legs = ([(x, y0 - 1) for x in range(x0, x1 + 1)] + [(x, y1 + 1) for x in range(x0, x1 + 1)]
+                    if along == "x" else
+                    [(x0 - 1, y) for y in range(y0, y1 + 1)] + [(x1 + 1, y) for y in range(y0, y1 + 1)])
+            walls = []
+            cuts = []
+            for c in legs:
+                d = a["cells"].get(c)
+                if d and d["kind"] in ("floor", "goal"):
+                    cuts.append((c[0], c[1], c[0], c[1]))
+                    walls.append("wall tile %d %d flat %s" % (c[0], c[1], f(d["hmax"])))
+            code = ("archway tile %d %d along %s" % (x0, y0, along) if (x0, y0) == (x1, y1) else
+                    "archway rect %d %d %d %d along %s" % (x0, y0, x1 + 1, y1 + 1, along))
+            n_ = self._edit(self.doc.replace_area, cuts, ground=walls, then=[code], kinds=("floor", "goal"),
+                            label="add an archway")
+            if n_:
+                ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
+                self.select(ln)
+                self._msg("Added an archway over (%d, %d)%s. Change its clearance on the right." % (
+                    x0, y0, "; its legs stand on %d cells made walls" % len(walls) if walls else ""))
+            return
+        code = tpl.format(x=x0, y=y0, x0=x0, y0=y0, x1=x1 + 1, y1=y1 + 1, h=f(h), x3=x0 + 3, x4=x0 + 4,
                           y1b=y0 + 1, y3=y0 + 3)
         kind = code.split()[0]
+        ground = []
+        if name in self.ON_GROUND and (x0, y0) not in a["cells"]:
+            ground = ["floor tile %d %d flat %s" % (x0, y0, f(base))]
         if kind == "start":                 # one start: move it
             st = [s_ for s_ in self.doc.statements() if s_.kind == "start"]
             if st:
-                if self._edit(self.doc.set_statement, st[0].line, code, label="move the start") is not None:
-                    self.select(st[0].line)
+                def mv():
+                    self.doc.set_statement(st[0].line, code, label="move the start")
+                    if ground:
+                        self.doc.replace_area(None, ground=ground, label="move the start")
+                    return True
+                if self._edit(mv):
+                    self.select(next(s_.line for s_ in self.doc.statements() if s_.kind == "start"))
                 return
-        n = self._edit(self.doc.insert, code, label="add %s" % name.lower())
-        if n:
-            self.select(n)
-            self._msg("Added %s: %s (line %d). Edit it on the right; Ctrl+Z takes it back." % (name.lower(), code, n))
+        n_ = self._edit(self.doc.replace_area, None, ground=ground, then=[code], kinds=(),
+                        label="add %s" % name.lower())
+        if n_:
+            ln = next((s_.line for s_ in reversed(self.doc.statements()) if s_.code == code), n_)
+            self.select(ln)
+            self._msg("Added %s%s (line %d). Edit it on the right; Ctrl+Z takes it back." % (
+                name.lower(), " with floor under it" if ground else "", ln))
 
     # -- selection and the inspector ---------------------------------------------
     def select(self, line, scroll=False):
@@ -986,9 +1058,16 @@ class App(object):
     def _scroll_to_sel(self):
         """bring the selection into view, in either view"""
         cells = self._sel_cells() or ({self.hilite} if getattr(self, "hilite", None) else set())
-        if not cells:
-            return
         c = self.cv
+        if not cells:                            # nothing selected: the middle of the course
+            if self.view.get() == "iso" and self.pic and getattr(self, "iso_scale", None):
+                kx, ky = self.iso_scale
+                cx, cy = self.pic["meta"]["centre"]
+                cx, cy = cx * kx, cy * ky
+                sr = [float(v) for v in str(c.cget("scrollregion")).split()] or [0, 0, 1, 1]
+                c.xview_moveto(max(0.0, (cx - c.winfo_width() / 2.0) / max(1.0, sr[2])))
+                c.yview_moveto(max(0.0, (cy - c.winfo_height() / 2.0) / max(1.0, sr[3])))
+            return
         if self.view.get() == "plan":
             xs, ys = zip(*[self._cpx(x + .5, y + .5) for (x, y) in cells])
             cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
@@ -1020,11 +1099,24 @@ class App(object):
             if self.area:
                 x0, y0, x1, y1 = self.area
                 inside, around = self._heights(self.area)
+                ttk, tk = self.ttk, self.tk
+                ttk.Label(self.ins_body, text="Make it:").grid(row=0, column=0, sticky="w")
+                bf = ttk.Frame(self.ins_body)
+                bf.grid(row=0, column=1, sticky="w")
+                for k, nm in enumerate(("Floor", "Ramp", "Wall", "Hole", "Goal")):
+                    ttk.Button(bf, text=nm, width=6, command=lambda nm=nm: self.add_part(nm)).grid(
+                        row=k // 3, column=k % 3, padx=1, pady=1)
+                ttk.Label(self.ins_body, text="Paint:").grid(row=1, column=0, sticky="w")
+                pf_ = ttk.Frame(self.ins_body)
+                pf_.grid(row=1, column=1, sticky="w")
+                for k, nm in enumerate(("Ice", "Sand", "Bounce mat", "Normal")):
+                    ttk.Button(pf_, text=nm.split()[0], width=6, command=lambda nm=nm: self.add_part(nm)).grid(
+                        row=0, column=k, padx=1)
                 self.ins_title.config(text="An area, %d x %d" % (x1 - x0 + 1, y1 - y0 + 1))
                 self.ins_line.config(text="from (%d, %d) to (%d, %d)" % (x0, y0, x1, y1))
-                self.ins_help.config(text="%s\n\nChoose a part on the left and press Add to put it here. Delete "
-                                     "removes every part lying wholly inside the area. Click a part to edit it "
-                                     "instead." % ("Floor here: up to %g units high." % inside if inside is not None
+                self.ins_help.config(text="%s\n\nMake it replaces just these cells (the floor around keeps "
+                                     "its height). Or choose any part on the left and press Add. Delete removes "
+                                     "every part lying wholly inside the area." % ("Floor here: up to %g units high." % inside if inside is not None
                                                    else "Empty space%s." % (
                                                        ", next to floor %g units high" % around
                                                        if around is not None else "")))
@@ -1076,7 +1168,7 @@ class App(object):
                                ("seed", 1, "Starts at"), ("strength", 1, "Strength"), ("range", 1, "Range"),
                                ("for", 1, "Seconds"), ("depth", 1, "Depth (px)"), ("radius", 1, "Radius"),
                                ("pivot", 1, "Pivot height"), ("height", 1, "Height"), ("kick", 1, "Kick"),
-                               ("dwell", 1, "Wait at each end")):
+                               ("dwell", 1, "Wait at each end"), ("under", 1, "Clearance (units)")):
             if word in st.toks[1:]:
                 i = st.toks.index(word, 1) + n
                 if i < len(st.toks):
@@ -1393,6 +1485,9 @@ class App(object):
         nerr = sum(1 for p in probs if p[0] == "err")
         nwarn = sum(1 for p in probs if p[0] == "warn")
         for tag, text, line, cell in probs:
+            if tag == "err":
+                ex = explain(text)
+                text = ex.split("\n")[0] if ex != text else text
             iid = self.probs.insert("", "end", text=("ERROR   " if tag == "err" else "warning  " if tag == "warn"
                                                      else "note     ") + text, tags=(tag,))
             self.prob_rows[iid] = (line, cell)
@@ -1544,7 +1639,14 @@ class App(object):
         except (OSError, ValueError) as e:
             self._msg("The picture could not be read: %s" % e)
             return
+        W = meta["width"]
+        drawn = [i for i in range(0, len(ow), 7) if ow[i] >= 0]
+        meta["centre"] = ((sum(i % W for i in drawn) / float(len(drawn)), sum(i // W for i in drawn) / float(len(drawn)))
+                          if drawn else (W / 2.0, meta["lines"] / 2.0))
+        first = self.pic is None
         self.pic = {"meta": meta, "cga": cga, "herc": herc, "owners": ow, "text": text}
+        if first and self.view.get() == "iso":
+            self.root.after(20, self._scroll_to_sel)
         self._fill_problems()
         if self.view.get() == "iso":
             self._redraw()
@@ -1566,8 +1668,7 @@ class App(object):
 
     def _view_changed(self):
         self._redraw()
-        if self.sel:
-            self.root.after(10, self._scroll_to_sel)
+        self.root.after(10, self._scroll_to_sel)
 
     def _bounds(self):
         a = self.doc.analysis()
@@ -1744,6 +1845,16 @@ class App(object):
         if hl:
             px, py = self._cpx(*hl)
             c.create_oval(px - s * .4, py - s * .4, px + s * 1.4, py + s * 1.4, outline="#ff5a4e", width=3)
+        band = a.get("band")
+        if band:                                 # the picture's edge: x - y from amin to amax is drawn
+            for k, edge in ((band["amin"] - 0.5, "left"), (band["amax"] + 0.5, "right")):
+                # the line x - y = k + 0.5 (cell centres at +0.5), across the plan's bounds
+                ya, yb = by0, by1
+                pa = self._cpx(k + ya, ya)           # (continuous plan coordinates: a cell's centre is +0.5)
+                pb = self._cpx(k + yb, yb)
+                c.create_line(*pa, *pb, fill="#ff6b5e", width=2, dash=(8, 4))
+                c.create_text(pb[0] + 4, pb[1] - 4, anchor="sw", fill="#ff6b5e", font=("TkDefaultFont", 9),
+                              text="picture's %s edge" % edge)
         if self.area:                            # the selected AREA: it stays until another is chosen
             x0, y0, x1, y1 = self.area
             ax, ay = self._cpx(x0, y0)
@@ -1939,7 +2050,8 @@ class App(object):
         self.readout.config(text="    ".join(parts))
 
     def _msg(self, text):
-        self.status.config(text=text)
+        note, self._note = getattr(self, "_note", ""), ""
+        self.status.config(text=note + text)
 
     def run(self):
         self.root.mainloop()
@@ -1964,6 +2076,12 @@ EXPLAIN = [
      "on one flat floor."),
     (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
     (r"is empty", "the area is empty (zero cells across)."),
+    (r"NO TRAP: from (.*) cannot reach the goal", "a ball could get stuck: from {0} it cannot get to the goal. "
+     "Connect that part to the rest of the course, or remove it."),
+    (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
+    (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
+    (r"outside the course's picture", "the course would reach past the edge of the game's picture (the dashed "
+     "red lines). Keep it between them, or make the course wide (Size 128 on the Course tab)."),
     (r"ramp rate", "a ramp must rise by a whole number of half units on each tile it crosses. Set the high end "
      "to the low end plus 0.5, 1, 1.5 ... times its length."),
     (r"already belongs to the prop", "only one part can stand on a cell. Choose another cell."),
@@ -1980,7 +2098,9 @@ def explain(err):
     """the compiler's refusal, with what to do about it in plain words where we know it"""
     import re
     for pat, words in EXPLAIN:
-        if re.search(pat, err):
+        m = re.search(pat, err)
+        if m:
+            words = words.format(*m.groups())
             return "%s\n(The compiler said: %s)" % (words[:1].upper() + words[1:], err)
     return err
 
