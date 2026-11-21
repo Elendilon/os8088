@@ -128,7 +128,7 @@ wall  box 17 19 59 69 flat 4.5
 # with NO physics - its element changes no cell physics reads and no rule, so the demo replays as
 # without it.  On the apron where the demo rolls (grounded), so every hook fires in its replay; its
 # flag-like lane flies once the ball has entered its cell, and a fall furls it again (RESPAWN)
-uses probe glass pickups wind water spike magnet archway boost gate
+uses probe glass pickups wind water spike magnet archway boost gate life
 prop probe 16 16 reset respawn
 
 # wave 9 (SPEC.md 130.25.8, 130.25.18): the GLASS SECTION, off FF's left edge, off every route: a FAR
@@ -167,15 +167,18 @@ prop glass 4 26
 # the jump's own Hop (13.8 px) climbs it, and a jump with rubber's boost STACKED on its contact (18.0
 # px) clears it with room.  Nothing is up there but the view, and it is no trap: its front edge is open,
 # so a ball rolls off it back into the yard.  Every timed pickup is short (3 s each), so their reach
-# regions stay off the 2-unit rung (wx 31).  The ridge is 3 tiles wide with FOUR of void between it
+# regions stay off the 2-unit rung (wx 31).  SPEC.md 130.55: the speed `respawn`s (back when it wears
+# off), and a LIFE `once`: +1 life the first time a GAME rolls through it (the pathway's pad 6), never again in
+# that game; hidden in EXPLORE, a free play, a replay or a demo.  The ridge is 3 tiles wide with FOUR of void between it
 # and the 1.5-unit rung (wx 6 - 9), so no ball reaches it from that ledge
 floor rect   3 13  7 19  flat 4
 floor rect   7 14 10 15  flat 4
 floor rect   7 18 10 19  flat 4
 floor rect   3  8  6 13  flat 6
 prop hourglass 3 18
-prop speed     5 14 for 3
+prop speed     5 14 for 3 respawn
 prop jump      6 17 for 3
+prop life      3 15 once
 
 # SPEC.md 130.25.18.1 (the owner 2026-11-17: a bigger hole; floating cracks that vanish): the
 # CRACK LAB, off the apron's right edge in the start's rows - roll +x (right and down the screen) from the

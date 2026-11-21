@@ -86,9 +86,10 @@ BONANZA plays on a CGA or a Hercules only - and then:
      nearer (wave 6b, SPEC.md 130.17.4.2, 130.17.10: an edge anywhere in the
      flight arms it; three tries) - so the stretch is DRAWN there; left by Esc: [bz_nboost] at least 1, the model's run of the log
      the play's end and boosting too; then its REPLAY by R to the same end;
-     no fault, no leak.  (TPLY is ONE part: the PLAYGROUND's two-part claim
-     check - picture and world parts two claims, SPEC.md 130.30.5 - has no
-     test course to run on; course_claims keeps its arm for when one does);
+     no fault, no leak.  (TPLY is ONE part: the PLAYGROUND's two-part check -
+     its picture part the one claim and its world part a SEG_SUB selector
+     inside it, SPEC.md 130.30.5 - has no test course to run on;
+     course_claims keeps its arm for when one does);
 
 The B: window lists SYSTEM\\APPDATA's folder first since wave 4 (SPEC.md
 19.4: folders first, then by name), so every row's point is computed from
@@ -354,21 +355,18 @@ def claims(b, pkg, hs, equ, sels=False):
 
 
 def crs_parts(k):
-    """course K's parts (SPEC.md 130.30.4): 2 when the build's bzcrs2.lst lists
-    its WORLD part (BZ<K>W.BIN), 3 for a SHEETED course (130.30.12.5: ONE part
-    and claim, its other sheets and its world part segments inside it), else 1"""
-    p = os.path.join(R.at("build/bonanza-art"), "bzcrs2.lst")
-    if not os.path.exists(p):
-        return 1
-    if "BZ%dW.BIN" % k in open(p).read().split():
-        return 2
+    """course K's parts (SPEC.md 130.30.4): 3 for a course with a WORLD part - a two-part course (130.30.5) or
+    a SHEETED one (130.30.12.5): ONE part and claim, its world part (and a sheeted course's other sheets) a
+    SEG_SUB segment inside it - else 1.  (2, a world part's claim of its own beside the picture part's, is
+    gone since 130.30.5's one part.)"""
     return 3 if getattr(R.course_k(k), "bstored", None) else 1
 
 
 def course_claims(what, b, pkg, hs, eq, k):
     """inside a play of course K: its parts' claims are the package's - for a
-    two-part course (SPEC.md 130.30.5) the picture part's [bz_mseg] and the
-    world part's [bz_cseg] two distinct claims of the instance, for one part
+    course with a world part (SPEC.md 130.30.5, 130.30.12.5) the ONE part's
+    [bz_mseg] a claim of the instance and the world part's [bz_cseg] a
+    SEG_SUB selector inside it (its linear base no claim's), for one part
     [bz_cseg] alone (bz_mseg its alias or the same word's value).  Matched
     by LINEAR base: the words hold op_seg's LDT selectors (b.lin reads their
     descriptors), the claims are mem_tab's and the pool's"""
@@ -378,14 +376,10 @@ def course_claims(what, b, pkg, hs, eq, k):
     lc, lm = (b.lin(cs) if cs else None), (b.lin(ms) if ms else None)
     have = " ".join("%X" % x for x in bases)
     if crs_parts(k) == 3:                       # (the world part's selector a SEG_SUB inside the one claim)
-        want(cs and ms and lc != lm and lm in bases and lc not in bases,
-             "%s: the sheeted course's one part ([bz_mseg] %04Xh, at %s) a claim of the instance and its world "
-             "part ([bz_cseg] %04Xh, at %s) inside it (SPEC.md 130.30.12.5; its claims at %s)" % (
-                 what, ms, "%X" % lm if lm is not None else "-", cs, "%X" % lc if lc is not None else "-", have))
-    elif crs_parts(k) == 2:
-        want(cs and ms and lc != lm and lc in bases and lm in bases,
-             "%s: the two-part course's picture part ([bz_mseg] %04Xh, at %s) and world part ([bz_cseg] %04Xh, "
-             "at %s) are two claims of the instance (SPEC.md 130.30.5; its claims at %s)" % (
+        want(cs and ms and lc != lm and lm in bases and lc not in bases
+             and lc - lm == 16 * R.course_k(k).oplan["paras"][-1],       # (at the world part's paragraphs)
+             "%s: the course's one part ([bz_mseg] %04Xh, at %s) a claim of the instance and its world "
+             "part ([bz_cseg] %04Xh, at %s) inside it (SPEC.md 130.30.5, 130.30.12.5; its claims at %s)" % (
                  what, ms, "%X" % lm if lm is not None else "-", cs, "%X" % lc if lc is not None else "-", have))
     else:
         want(cs and ms == cs and lc in bases, "%s: the course's one part ([bz_cseg] %04Xh, [bz_mseg] %04Xh, at "
@@ -527,7 +521,8 @@ def demo_run(b, pkg, key, what, demo, crs, inside=None, base_claims=None, hs=Non
         ar_in = 1 if pkg.word("op_arena") else 0   # wave 9 (SPEC.md 130.25.4): the balls (and the song) are
                                                     # ONE claim, the arena - the desktop title's (pkg.ar0)
                                                     # becomes the demo's, as play_case counts it
-        np = crs_parts(R.CRS_K[crs])            # SPEC.md 130.30.5: a two-part course holds a claim a part
+        np = 1                                  # SPEC.md 130.30.5, 130.30.12.5: every course ONE claim (a world
+                                                # part a segment inside it: course_claims)
         want(len(got) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "%s: inside, the course "
              "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, "
              "the arena %d on the desktop)" % (what, np, inside, len(got), len(base_claims), pkg.ar0))
@@ -705,7 +700,8 @@ def play_case(b, pkg, base_rows, base_claims, hs, eq):
                                                 # the resident bundle (the balls, the sound part, VICTORY and
                                                 # TIME'S UP: 130.25.5.2, 130.50.2), the song in the course part
                                                 # (130.50.3) - the desktop title's (pkg.ar0) become the play's
-    np = crs_parts(k)                           # SPEC.md 130.30.11: a two-part course a claim a part (TPLY: one)
+    np = 1                                      # SPEC.md 130.30.5: every course ONE claim (TPLY's one part; a
+                                                # two-part or sheeted course's world part a segment inside it)
     want(len(inside) == len(base_claims) + SHELL_IN + np - pkg.ar0 + ar_in and ar_in, "10. inside: the course "
          "(%d part(s)) and the arena (its %d ball rows in it) claimed, the shell gone (%d claims against %d, the "
          "arena %d on the desktop)" % (np, nballs, len(inside), len(base_claims), pkg.ar0))

@@ -156,7 +156,11 @@ import bonanza_assets as BA                      # noqa: E402
 import os88lz                                    # noqa: E402  (the course budget packs as os88pkg packs a part)
 from bonanza_assets import BLK, CYN, MAG, WHT, CGA1, cga_bytes, herc_pair, herc_bytes   # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The data ROOT (SPEC.md 130.56.11): the checkout, or the `data/` folder beside this file in the
+# course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
+ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
+        else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOL = os.path.abspath(__file__)
 COURSE_DIR = os.path.join(ROOT, "apps", "bonanza", "courses")
 
@@ -553,8 +557,10 @@ FAMILIES = (
     # hidden with no limit), speed (ACC + PU_SACC on every surface and the cap + PU_SVUP) and jump (the Hop
     # PU_JHOP for any ball, stacking with the boost), the timed two each for its ELEMENT's duration (record
     # +18, steps / 4) and +19 bit 0 OVERWRITE; one bit an element, COLLECTED.  ID 6 (merge order: probe 1, glass 2,
-    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `resident`; kinds 19 - 21
-    {"name": "pickups", "id": 6, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
+    # rotor 3, spring 4, tube 5; the part takes its ID from BZ_FID_PICKUPS); home `resident`; kinds 19 - 21.
+    # REV 2 (SPEC.md 130.55, `bb-lives`): the timed two's `respawn` (+19 bit 1: back when the effect ends), and
+    # the default duration 10 s (PU_DUR, in its CONSTS)
+    {"name": "pickups", "id": 6, "rev": 2, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 6,
      "consts": "PU",
      "kinds": ({"name": "hourglass", "kind": FAM_K0 + 3, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
                 "forms": ("own",), "states": (0, 1), "pickup": True},
@@ -704,6 +710,18 @@ FAMILIES = (
      "kinds": ({"name": "turntable", "kind": FAM_K0 + 72, "bits": 0, "cls": CL_ATTEMPT, "art": "turn",
                 "forms": ("own", "void"), "states": (0,), "pickup": False},), "paras": 29,
      "home": HOME_RESIDENT},
+    # THE LIFE (SPEC.md 130.55, `bb-lives`): a HEART - +1 on the game's lives (bz_lives, never past LF_MAX), once
+    # an attempt, or with `once` (+19 bit 2, PU_ONCE) once a GAME: the rounds keep a bit a pad (bz_nlife), bz_lfx
+    # bit 1 its own pad's.  HIDDEN outside a game's course (bz_lfx bit 0: exploration, a free play, a replay, a
+    # demo).  Its cue the sparkles RISING for LF_RISE steps (bz_cue bit 2), no flash.  A family of its own, not
+    # PICKUPS' fourth kind: PICKUPS' run (19 - 21) is closed by the windmill's 22, and moving the run moves
+    # BZ_BOKT and so BZ_PHYSV (every best and every demo); not a BOOST floor for that reason (BOOST_FLOOR_NAMES).
+    # ID 16; kind FAM_K0 + 11; home `resident`; CONSTS LF_RISE, LF_MAX
+    {"name": "life", "id": 16, "rev": 1, "hooks": H_RESET | H_CONTACT | H_STEP | H_POSE, "slot": 1,
+     "consts": "LF",
+     "kinds": ({"name": "life", "kind": FAM_K0 + 11, "bits": 1, "cls": CL_ATTEMPT, "art": "icon",
+                "forms": ("own",), "states": (0, 1), "pickup": True},), "paras": 18,
+     "home": HOME_RESIDENT},
 )
 CRACK_TS, CRACK_TR, CRACK_LATE = 14, 28, 6     # GLASS's constants (its row's CONSTS, the part's equates):
                                                 # steel's and rubber's steps to the break, the last poses'
@@ -718,6 +736,11 @@ PU_JHOP = 400                 # jump: the Hop for ANY ball (rubber's 252 raised;
                               # rubber's boost stacked on its contact)
 K_HOURGLASS, K_SPEED, K_JUMP = FAM_K0 + 3, FAM_K0 + 4, FAM_K0 + 5
 PU_OVERWRITE = 1              # record +19 bit 0: taking it ENDS the other timed effect (SPEC.md 130.25.9)
+PU_RESPAWN = 2                # ...bit 1, a timed kind's: back (COLLECTED clear) when its effect ENDS (SPEC.md 130.55)
+PU_ONCE = 4                   # ...bit 2, a LIFE's: ONCE A GAME - taken, the pad's course never shows it again
+# THE LIFE's (SPEC.md 130.55): its own family
+K_LIFE = FAM_K0 + 11
+LF_MAX = 9                    # the game's lives are never raised past this (the face's one digit)
 # WATER's constants (SPEC.md 130.36): every one in its FAMV (famv's "consts" "WA")
 FK_WATER = FAM_K0 + 10        # its kind (22 - 25 are story 9.8's keys)
 WA_SINK = 160                 # a fall below a water cell's top: gvz capped at -WA_SINK (1/256 px a step) by STEP;
@@ -975,6 +998,8 @@ def famv(f):
         b += ",".join(k["forms"]).encode()
     if f.get("consts") == "PU":                 # PICKUPS' constants (130.25.19)
         b += struct.pack("<HHHHHH", PU_HGSEC, PU_SACC, PU_SVUP, PU_JHOP, PU_WARN, PU_DUR)
+    elif f.get("consts") == "LF":               # THE LIFE's (130.55)
+        b += struct.pack("<HH", LF_RISE, LF_MAX)
     elif f.get("consts") == "MG":               # MAGNETS' (130.33)
         b += bytes((MG_WIG, MG_CEIL, MG_SH, MG_SV, MG_RMAX, MG_BOB, MG_BOBP))
     elif f.get("consts") == "SP":               # SPIKES' (130.38): the kill's HSTEPS and state, the near void's
@@ -1025,7 +1050,7 @@ def fam_fetched(fams):
     return [f for f in fams if f.get("home", HOME_FETCH) == HOME_FETCH]
 CLOCK_MAX = 255               # wave 7: clocks a course - a byte's (130.19.10: no cap of its own)
 NODE_MAX = 16                 # wave 8b (SPEC.md 130.19.5): the pathway's nodes - an exit's 4 bits
-LABEL_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "tallx.f8")
+LABEL_FONT = os.path.join(ROOT, "fonts", "tallx.f8")
 GF_VIEW = 4                   # BZG1 +28: a FIXED window (SPEC.md 130.23.2), +30 its top / 4 and the CGA's c0
 VIEW_DROP = 32                # lines of picture above the windows: the DROP margin (130.23.2)
 HERC_LEFT, HERC_RIGHT = 2, 3  # the Hercules window's words left and right of the CGA's (45 = 40 + 2 + 3)
@@ -1033,7 +1058,7 @@ CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 
 CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
-                "frogb")   # a clock's `frame`s (SPEC.md 130.18.5.2)
+                "frogb", "orbr", "orbh", "orbs", "orbg")   # a clock's `frame`s (SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # wave 7 (SPEC.md 130.18.5): the clock's digits, a 5 x 7 font of its own (rows top to bottom, bit 4 the
 # leftmost column), drawn black on the crystal ball's face
@@ -1129,7 +1154,9 @@ SPRING_LO = 256               # a spring's launch: 256 - BZ_VZMAX
 PAR_MAX = 999                 # par: 1 - 999 whole seconds (refused since wave 7: `limit`)
 SEC_STEPS = 55                # wave 7 (SPEC.md 130.18.1): the clock's second, steps (1.0070 s)
 PU_WARN = SEC_STEPS           # PICKUPS: a timed effect's last steps, the ball FLASHED (BLINK4; about 1 s)
-PU_DUR = (5 * SEC_STEPS + 2) // 4   # ...a timed element's default duration, steps / 4 (5 s: 69, 276 steps)
+PU_DUR = (10 * SEC_STEPS + 2) // 4  # ...a timed element's default duration, steps / 4 (10 s: 138, 552 steps;
+                                    # 5 s until SPEC.md 130.55)
+LF_RISE = SEC_STEPS           # THE LIFE's cue, the sparkles RISING: its steps (about 1 s, no flash)
 LIMIT_MIN, LIMIT_MAX = 5, 999 # `limit`: whole seconds
 LIMIT_K, LIMIT_KT = 1.25, 1.5 # the tool's limit: the route's time times this (the tutorial's)
 LIMIT_FLOOR = 1.3             # ...never under the route times this; an explicit limit neither
@@ -1146,6 +1173,30 @@ FLAG_H = 8                    # a flag's pole and the cup's pin: one unit, px
 
 class CourseError(Exception):
     pass
+
+
+# SPEC.md 130.56.4: a VISUAL check's finding is a WARNING.  While a compile runs, _VWARN is a list and
+# _visual() appends to it; compile_course() attaches the list to the course (it rides the compile cache with
+# it), drops what the source marks `hidden` and reports what it `accept`s, and refuses only under --strict
+# (STRICT) or a course's own `strict` (130.56.5).  Called outside a compile, _visual() refuses as before.
+_VWARN = None
+STRICT = False
+VIS_KINDS = ("hidden", "ball-hidden", "blend")           # the warnings' names (`accept <kind>`)
+VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
+_VW_AT = re.compile(r"^(.*?):(\d+): ")
+_VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
+
+
+def _visual(msg, kind="hidden", empty=False):
+    """EMPTY: nothing of the element is left to draw, so its lane cannot be built - an error still"""
+    if empty:
+        raise CourseError(msg + " (nothing of it is drawn, so it cannot be built)")
+    if _VWARN is None:
+        raise CourseError(msg)
+    m = _VW_AT.match(msg)
+    cm = _VW_CELL.search(msg)
+    _VWARN.append({"kind": kind, "msg": msg, "line": int(m.group(2)) if m else None,
+                   "cell": (int(cm.group(1)), int(cm.group(2))) if cm else None})
 
 
 # =============================================================================
@@ -1235,6 +1286,9 @@ class Source:
         self.mbands = None          # SPEC.md 130.52: `masks banded`'s line - a mask table a band (opted into)
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
+        self.hidden_lines = set()   # SPEC.md 130.56.5: the lines whose element is `hidden` on purpose
+        self.accepts = []           # SPEC.md 130.56.5: [{kind, cell, line}], the warnings this course keeps
+        self.strict = None          # SPEC.md 130.56.5: `strict`'s line - held to --strict in every build
         self.test = None            # SPEC.md 130.54: `test`'s line - a TEST course, the BZDEV=1 build's alone
         self.traphop = None         # wave 11: `trap hop`'s line - NO TRAP presses the Hop too (SPEC.md 130.14.4.1.1)
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
@@ -2056,11 +2110,12 @@ def _pennant(p):
 # outlined; '#' the outline, 'o' the kind's ink
 PU_ICON_UP = 3
 PU_ICONS = {
-    FAM_K0 + 3: ("#######", "#ooooo#", " #ooo# ", "  #o#  ", "  #o#  ", " #ooo# ", "#ooooo#", "#######"),
-    FAM_K0 + 4: ("##  ## ", "#o# #o#", " #o# #o#"[:7], "  #o# #", "  #o# #", " #o# #o", "#o# #o#", "##  ## "),
-    FAM_K0 + 5: ("   #   ", "  #o#  ", " #ooo# ", "#ooooo#", "##ooo##", " #ooo# ", " #ooo# ", " ##### "),
-}
-PU_INK = {FAM_K0 + 3: WHT, FAM_K0 + 4: CYN, FAM_K0 + 5: MAG}
+    K_HOURGLASS: ("#######", "#ooooo#", " #ooo# ", "  #o#  ", "  #o#  ", " #ooo# ", "#ooooo#", "#######"),
+    K_SPEED: ("##  ## ", "#o# #o#", " #o# #o#"[:7], "  #o# #", "  #o# #", " #o# #o", "#o# #o#", "##  ## "),
+    K_JUMP: ("   #   ", "  #o#  ", " #ooo# ", "#ooooo#", "##ooo##", " #ooo# ", " #ooo# ", " ##### "),
+    K_LIFE: ("       ", " ## ## ", "#oo#oo#", "#woooo#", "#ooooo#", " #ooo# ", "  #o#  ", "   #   "),  # a HEART
+}                                               # (SPEC.md 130.55; 'w' its white glint)
+PU_INK = {K_HOURGLASS: WHT, K_SPEED: CYN, K_JUMP: MAG, K_LIFE: MAG}
 
 
 def _icon_pix(p, x0):
@@ -2075,7 +2130,8 @@ def _icon_pix(p, x0):
     for j, row in enumerate(rows):
         for i, ch in enumerate(row):
             if ch != " ":
-                out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else PU_INK[p["kind"]]
+                out[(cx - 3 + i, cy - PU_ICON_UP - len(rows) + j)] = BLK if ch == "#" else WHT if ch == "w" \
+                    else PU_INK[p["kind"]]
     return out
 
 
@@ -2242,7 +2298,7 @@ def _parse_fprop(toks, where, ln):
     [reset attempt|respawn|flag] - the class only where the kind's row has
     none, and `flag` written but not built"""
     fam, kr = FKIND_BY_NAME[toks[1][1]]
-    if fam.get("consts") == "PU":
+    if fam.get("consts") in ("PU", "LF"):           # (THE LIFE's syntax is a pickup's: SPEC.md 130.55)
         return _parse_pickup(toks, where, ln, fam, kr)
     if len(toks) >= 5 and toks[4] == ('w', "hole") and kr["kind"] != FK_CRACK:
         raise CourseError("%s: `hole` is a crack's (SPEC.md 130.25.18.1), not a %s's" % (where, kr["name"]))
@@ -2724,17 +2780,22 @@ def _tt_check(f, props, tiles):
 
 
 def _parse_pickup(toks, where, ln, fam, kr):
-    """a PICKUP (SPEC.md 130.25.9, 130.25.19): prop hourglass <wx> <wy>; prop speed|jump <wx> <wy> [for <S>]
-    [overwrite] - S seconds (a multiple of 0.25 is not needed: rounded to the byte's steps / 4), 5 by
-    default, 1 - 255 of the byte; `overwrite` ends the OTHER timed effect when this one is taken.  The
-    class is the kind's (ATTEMPT the hourglass, RESPAWN the timed two): no `reset`"""
+    """a PICKUP (SPEC.md 130.25.9, 130.25.19, 130.55): prop hourglass <wx> <wy>; prop speed|jump <wx> <wy>
+    [for <S>] [overwrite] [respawn] - S seconds (a multiple of 0.25 is not needed: rounded to the byte's
+    steps / 4), 10 by default (5 until 130.55), 1 - 255 of the byte; `overwrite` ends the OTHER timed effect
+    when this one is taken; `respawn` puts the element back when its effect ENDS (worn off, or ended by an
+    `overwrite` or a respawn: "let them try again"); and THE LIFE's, prop life <wx> <wy> [once] - +1 on the
+    game's lives, once an attempt, or with `once` once a GAME.  The class is the kind's (ATTEMPT the
+    hourglass and the life, RESPAWN the timed two): no `reset`"""
+    k = kr["kind"]
+    timed = k in (K_SPEED, K_JUMP)
+    syn = " [for <seconds>] [overwrite] [respawn]" if timed else " [once]" if k == K_LIFE else ""
     if len(toks) < 4:
-        raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], "" if kr["kind"] == K_HOURGLASS
-                                                              else " [for <seconds>] [overwrite]"))
+        raise CourseError("%s: prop %s takes <wx> <wy>%s" % (where, kr["name"], syn))
     dur, ow, i = PU_DUR, 0, 4
     while i < len(toks):
         t = toks[i][1] if toks[i][0] == 'w' else None
-        if kr["kind"] != K_HOURGLASS and t == "for" and i + 1 < len(toks) and dur == PU_DUR:
+        if timed and t == "for" and i + 1 < len(toks) and dur == PU_DUR:
             try:
                 sec = float(toks[i + 1][1])
             except ValueError:
@@ -2744,17 +2805,19 @@ def _parse_pickup(toks, where, ln, fam, kr):
                 raise CourseError("%s: a %s for %s s: the duration is a byte of steps / 4, 1 - 255 (0.07 - "
                                   "18.5 s)" % (where, kr["name"], toks[i + 1][1]))
             i += 2
-        elif kr["kind"] != K_HOURGLASS and t == "overwrite" and not ow:
-            ow, i = PU_OVERWRITE, i + 1
+        elif timed and t == "overwrite" and not ow & PU_OVERWRITE:
+            ow, i = ow | PU_OVERWRITE, i + 1
+        elif timed and t == "respawn" and not ow & PU_RESPAWN:
+            ow, i = ow | PU_RESPAWN, i + 1
+        elif k == K_LIFE and t == "once" and not ow:
+            ow, i = PU_ONCE, i + 1
         elif t == "reset":
             raise CourseError("%s: a %s's reset class is its family's (%s): it takes no `reset`"
                               % (where, kr["name"], CLASS_NAMES[kr["cls"]]))
         else:
-            raise CourseError("%s: prop %s takes <wx> <wy>%s, not %r" % (
-                where, kr["name"], "" if kr["kind"] == K_HOURGLASS else " [for <seconds>] [overwrite]",
-                toks[i][1]))
-    return {"line": ln, "kind": kr["kind"], "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
-            "cls": kr["cls"], "seed": None, "dur": 0 if kr["kind"] == K_HOURGLASS else dur, "ow": ow}
+            raise CourseError("%s: prop %s takes <wx> <wy>%s, not %r" % (where, kr["name"], syn, toks[i][1]))
+    return {"line": ln, "kind": k, "fam": fam, "at": (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")),
+            "cls": kr["cls"], "seed": None, "dur": dur if timed else 0, "ow": ow}
 
 
 MG_SYNTAX = "<wx> <wy> face +x|-x|+y|-y|down <+x|-x|+y|-y> [range <1-%d>] [strength <1-%d>]" % (MG_RMAX, MG_SMAX)
@@ -3225,6 +3288,21 @@ def _parse_text(text, fname="<course>"):
         if toks[0][0] != 'w':
             raise CourseError("%s: a statement cannot start with a string" % where)
         st = toks[0][1]
+        if st in VIS_HIDEABLE and len(toks) > 1 and toks[-1] == ('w', "hidden"):
+            src.hidden_lines.add(ln)                # SPEC.md 130.56.5: hidden ON PURPOSE (no part byte)
+            toks = toks[:-1]
+        if st == "accept":                          # SPEC.md 130.56.5: a warning this course keeps
+            if len(toks) not in (2, 4) or toks[1][0] != 'w' or toks[1][1] not in VIS_KINDS:
+                raise CourseError("%s: accept takes a warning (%s) and optionally <wx> <wy> (SPEC.md 130.56.5)"
+                                  % (where, ", ".join(VIS_KINDS)))
+            cell = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")) if len(toks) == 4 else None
+            src.accepts.append({"kind": toks[1][1], "cell": cell, "line": ln})
+            continue
+        if st == "strict":
+            if len(toks) != 1 or src.strict is not None:
+                raise CourseError("%s: strict takes nothing, once (SPEC.md 130.56.5)" % where)
+            src.strict = ln
+            continue
         if st in RESERVED:
             raise CourseError("%s: '%s' is reserved for a later wave" % (where, st))
         if st == "course":
@@ -4510,8 +4588,8 @@ def arch_vis(c, bound=AR_HIDE):
                     run = run + 1 if all(p in hid for p in lit) else 0
                     worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled through the archway is WHOLLY hidden for %d ground units in a row, "
-                              "past one ball length (%d: SPEC.md 130.39.1 A10)" % (c.fname, a["line"], worst, bound))
+            _visual("%s:%d: a ball rolled through the archway is WHOLLY hidden for %d ground units in a row, "
+                              "past one ball length (%d: SPEC.md 130.39.1 A10)" % (c.fname, a["line"], worst, bound), "ball-hidden")
         pads = []
         for p in c.props:
             if p["kind"] == PK_PAD and p["at"] in a["cells"]:
@@ -4583,10 +4661,10 @@ def clock_vis(c, bound=CLOCK_HIDE, arts=False):
                         run = run + 1 if all(q in hid for q in lit) and not all(q in hid - mine for q in lit) else 0
                         worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled behind the %s at (%d, %d) is WHOLLY hidden for %d ground units "
+            _visual("%s:%d: a ball rolled behind the %s at (%d, %d) is WHOLLY hidden for %d ground units "
                               "in a row, past one ball length (%d: SPEC.md %s)" % (
                                   c.fname, p["line"], "gate art" if arts else "clock", cx_, cy_, worst, bound,
-                                  "130.41.12 A8" if arts else "130.18.5.4"))
+                                  "130.41.12 A8" if arts else "130.18.5.4"), "ball-hidden")
         out.append((p.get("num"), p["at"], met, over, worst))
     return out
 
@@ -4708,8 +4786,8 @@ def hump_vis(c, bound=HUMP_HIDE, see=HUMP_SEE, attr=True):
                         run += 1
                         worst = max(worst, run)
         if worst > bound:
-            raise CourseError("%s:%d: a ball rolled behind the hump is WHOLLY hidden for %d ground units in a row, past "
-                              "one ball length (%d: SPEC.md 130.44.4)" % (c.fname, fd["line"], worst, bound))
+            _visual("%s:%d: a ball rolled behind the hump is WHOLLY hidden for %d ground units in a row, past "
+                              "one ball length (%d: SPEC.md 130.44.4)" % (c.fname, fd["line"], worst, bound), "ball-hidden")
         cells = {p["at"] for p in c.props if isinstance(p.get("at"), tuple)}
         cells |= {cl for cl, t in c.tiles.items() if type(t) is Tile and t.kind == KIND_GOAL}
         low = None
@@ -4872,9 +4950,9 @@ def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
         shown = {xy for xy, i in cell.items() if cv.sbuf[xy[1]][xy[0]] <= wx + wy + i}
         f0 = frames[0]
         if 2 * sum(1 for xy in f0 if xy in shown) < len(f0):
-            raise CourseError("%s is HIDDEN: %d of its shut frame's %d pixels drawn over by geometry in front of it "
+            _visual("%s is HIDDEN: %d of its shut frame's %d pixels drawn over by geometry in front of it "
                               "(SPEC.md 130.41.12: the player must see the gate)" % (
-                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)))
+                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)), "hidden", empty=not any(xy in shown for xy in f0))
         ink = {xy: [fr.get(xy, cv.rows[xy[1]][xy[0]]) for fr in frames] for xy in shown}
         key = {xy: (wx + wy + cell[xy], tops[cell[xy]]) for xy in shown if xy in f0}
         if hack.get("ganokey"):
@@ -6900,6 +6978,10 @@ def build_props(src, tiles, fname):
                 raise CourseError("%s:%d: a %s needs the %s family, which the course does not name (`uses %s`, "
                                   "SPEC.md 130.25.20)" % (f, p_.get("wline", p_["line"]), PK_NAMES[p_["kind"]],
                                                           fm["name"], fm["name"]))
+    once = [p_ for p_ in props if p_["kind"] == K_LIFE and p_.get("ow", 0) & PU_ONCE]
+    if len(once) > 1:                               # SPEC.md 130.55: the game keeps ONE bit a pad for it
+        raise CourseError("%s:%d: a second `once` life: a course holds one (the game keeps a bit a pad, SPEC.md "
+                          "130.55)" % (f, once[1]["line"]))
     for fm, ln in src.uses:                         # (a windmill is the TUBE family's element too)
         if not any(prop_fam(p_) is fm or (p_["kind"] == PK_WINDMILL and fm is OWN_FAM[PK_TUBE]) for p_ in props):
             raise CourseError("%s:%d: uses %s, and no element of it is placed: a family a course names costs "
@@ -9559,6 +9641,110 @@ for _k, (_e, _g, _u) in _FROG_POSES.items():
     _CLOCK_DRAW[_k] = (lambda e, g, u: lambda p, x0, y0, tops: _clock_frog(p, x0, y0, tops, e, g, u))(_e, _g, _u)
 
 
+def _clock_ontop(a, x, y, m=0.92):
+    """is (x, y) on the clock block's top diamond (the frame's _ClockArt a)"""
+    return abs(x + 0.5 - a.cx) / 16.0 + abs(y + 0.5 - a.cy) / 8.0 <= m
+
+
+def _clock_top_shadow(a, dx=3, rx=11.0, ry=4.0, dy=2.0):
+    """the dithered shadow on the BLOCK's top (the frogs'): every other pixel black, on the diamond only"""
+    for (x, y) in _ellipse(a.cx + dx, a.cy + dy, rx, ry, a.cx - 16, a.cx + 17, a.cy - 6, a.cy + 8):
+        if _clock_ontop(a, x, y) and (x + y) & 1:
+            a.put(x, y, BLK, "shadow")
+
+
+def _clock_orb(p, x0, y0, tops, mat):
+    """`orb` (DOWNHILL DECISION's, SPEC.md 130.18.5.2; docs/plans/bonanza-courses/down/CLOCKS.md): the course's
+    three BALLS, one object in its materials.  A big sphere on a short lit stem and a cup on the block's top, the
+    digits on a white band round its middle (bowed to the sphere, as LITTLE HOP's `ball`); the material says
+    where on the course it stands (the owner: "something on the clock represents where this is in the course"):
+      orbr (start)    RUBBER: magenta, lit white, a black dither in its shade
+      orbh (hub)      the SPLIT: its left half steel, its right half glass, a zigzag seam down its face
+                      (steel south = screen left, glass east = screen right)
+      orbs (steel)    STEEL: chrome - a white sky over a hard horizon, black ground under it, a bright rim
+      orbg (glass)    GLASS: cyan, a window glint, a caustic low on its right, and its own STEM SEEN THROUGH IT
+    The finishes' are slimmer (130.18.5.4's one ball length: at the start's size a ball behind them is wholly
+    hidden for 18 ground units).  Palette 1's inks: on the Hercules cyan and magenta are one grey checker, so
+    every form is carried by white and black as well"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx0, wx1 = a.win[0], a.win[1]
+    slim = mat in ("steel", "glass")                # the finishes' are slimmer (130.18.5.4's one ball length)
+    r = 4 * n + (6.5 if slim else 10.0)
+    bh, bow = (5.5, 2.0) if slim else (6.5, 3.0)    # the band's half height (the digits' rows), its bow
+    bcx, bcy = fx, fy
+    _clock_top_shadow(a, 4, 10.0, 3.6)
+    bot = int(bcy + r)
+    for (x, y) in _ellipse(cx - 0.5, cy - 1.5, 6.0, 2.5, cx - 7, cx + 7, cy - 5, cy + 2):   # the foot
+        a.put(x, y, BLK if y >= cy or x in (cx - 6, cx + 5) else (WHT if x < cx - 2 else MAG))
+    a.column(cx - 2, bot - 2, cy - 3)
+    for (x, y) in _ellipse(bcx - 0.5, bot - 1.0, 8.0, 2.6, bcx - 9, bcx + 9, bot - 4, bot + 2):  # the cup
+        a.put(x, y, BLK if y >= bot or abs(x + 0.5 - bcx) > 6.5 else (WHT if x < bcx - 2 else MAG))
+    ball = _ellipse(bcx, bcy, r, r, int(bcx - r) - 1, int(bcx + r) + 1, int(bcy - r) - 1, int(bcy + r) + 1)
+
+    def seam(y):                                    # the split's zigzag, x of it on row y
+        return bcx - 1 + (1 if (y // 3) & 1 else -1)
+
+    def ink(x, y):
+        ux, uy = (x + 0.5 - bcx) / r, (y + 0.5 - bcy) / r
+        uz = math.sqrt(max(0.0, 1.0 - ux * ux - uy * uy))
+        lit = -0.5 * ux - 0.6 * uy + 0.62 * uz
+        mid = bcy - 0.5 + bow * (1.0 - math.sqrt(max(0.0, 1.0 - ux * ux)))
+        off = y + 0.5 - mid
+        if abs(off) <= bh:                          # the band: white, shaded only off the digits
+            if wx0 <= x <= wx1:
+                return WHT
+            return (MAG if (x + y) & 1 else WHT) if lit < 0.05 else WHT
+        if abs(off) < bh + 1:
+            return BLK
+        m = mat
+        if mat == "split":
+            if x == seam(y):
+                return BLK
+            m = "steel" if x < seam(y) else "glass"
+        if m == "rubber":
+            if lit > 0.9:
+                return WHT
+            if lit < -0.1 or (lit < 0.2 and (x + y) & 1):
+                return BLK if (x + y) & 1 else MAG
+            return MAG
+        if m == "steel":
+            if off < 0:                             # the sky: white, greying to the horizon
+                if lit > 0.95 or uy < -0.8:
+                    return WHT
+                return (WHT if (x + y) & 1 else MAG) if lit > 0.45 else (MAG if (x + y) & 1 else BLK)
+            if uy > 0.78 and ux < 0.35:
+                return WHT                          # the bright rim the ground throws back
+            return BLK if (lit < 0.1 or (x + y) & 1) else MAG
+        # glass
+        if lit > 0.98:
+            return WHT
+        if uy > 0.55 and ux > 0.05 and (ux * ux + uy * uy) > 0.55:
+            return WHT if (x + y) & 1 or uy > 0.7 else CYN     # the caustic
+        if lit < -0.15 and (x + y) & 1:
+            return MAG
+        return CYN
+    a.blob(ball, ink)
+    if mat in ("glass", "split"):                   # the STEM seen through the glass, dimmed
+        for y in range(int(bcy + 8.5), bot - 1):
+            for k, c_ in ((-1, MAG), (0, CYN)):
+                if (cx + k, y) in ball and (mat == "glass" or cx + k > seam(y)) and a.out.get((cx + k, y)) == CYN:
+                    a.put(cx + k, y, c_ if (y & 1) else CYN)
+    gx, gy = int(bcx - 0.5 * r), int(bcy - 0.62 * r)    # the glint (a little window on glass)
+    if mat == "glass" or mat == "split":
+        gx = int(bcx + 0.2 * r) if mat == "split" else gx
+        a.pattern(("WW.W", "WW.W", "....", "WW.W"), gx - 1, gy - 1)
+    else:
+        a.pattern(("WW", "WW"), gx, gy)
+    return a.done(tops)
+
+
+# DOWNHILL DECISION's orbs (the owner, 2026-11-21): one a position, its material where it stands
+_ORB_MATS = {"orbr": "rubber", "orbh": "split", "orbs": "steel", "orbg": "glass"}
+for _k, _m in _ORB_MATS.items():
+    _CLOCK_DRAW[_k] = (lambda m: lambda p, x0, y0, tops: _clock_orb(p, x0, y0, tops, m))(_m)
+
+
 def clock_pose(tsec, place):
     """wave 7 (SPEC.md 130.18.5): digit PLACE's pose for TSEC seconds left - 0
     blank (a leading zero), 1 + d the digit d; the units never blank"""
@@ -9926,7 +10112,8 @@ class Course:
     split = False
     wcga = wstored = wherc = None
     plan = sstored = bstored = None     # SPEC.md 130.30.12: a SHEETED course's plan, its sheets' stored forms and
-                                        # its ONE part (130.30.12.5)
+    oplan = None                        # the ONE part of a course with a world part and its layout (130.30.5,
+                                        # 130.30.12.5)
     test = False                    # SPEC.md 130.54: `test`, a TEST course (the BZDEV=1 build's alone)
 
 
@@ -11152,7 +11339,39 @@ def _course_limit(c, src, fname):
 REALSUBS = (8, 16)             # SPEC.md 130.49.5: the squares a course over the 256 masks is cut again at, in turn
 
 
-def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None):
+def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None, strict=None):
+    """the course compiled (_compile_course_cut), with its visual WARNINGS (SPEC.md 130.56.4) as c.warnings:
+    [{kind, msg, line, cell, accepted}], those the source marks `hidden` left out.  strict (default: STRICT,
+    --strict) or the course's own `strict` statement refuses on the first warning it does not `accept`"""
+    c = _compile_course_cut(source, fname, occluders, _hack, crsinfo)
+    vis_settle(c, STRICT if strict is None else strict)
+    return c
+
+
+def vis_settle(c, strict):
+    """SPEC.md 130.56.5: c.warnings from c.vwarn - a `hidden` element's dropped, an `accept`ed one marked - and
+    the refusal under strict (or the course's `strict`)"""
+    src = c.src
+    hid = getattr(src, "hidden_lines", set())
+    acc = getattr(src, "accepts", [])
+    out = []
+    for w in getattr(c, "vwarn", None) or []:
+        if w["kind"] == "hidden" and w["line"] in hid:
+            continue
+        w = dict(w, accepted=any(a["kind"] == w["kind"] and (a["cell"] is None or a["cell"] == w["cell"])
+                                 for a in acc))
+        out.append(w)
+    c.warnings = out
+    if strict or getattr(src, "strict", None):
+        for w in out:
+            if not w["accepted"]:
+                raise CourseError("%s (a %s warning, refused under %s: mark it `hidden` or `accept %s`, SPEC.md "
+                                  "130.56.5)" % (w["msg"], w["kind"], "--strict" if strict else "the course's `strict`",
+                                                 w["kind"]))
+    return out
+
+
+def _compile_course_cut(source, fname=None, occluders=True, _hack=None, crsinfo=None):
     """(SPEC.md 130.49.5: a course whose real-pose cut names more than the 256 masks a record's byte holds is cut
     again in larger squares - 8, then 16 ground units - and then as before 130.49, and the run says so)"""
     try:
@@ -11211,8 +11430,14 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
     key = cache_key(source, fname, occluders, _hack, crsinfo)
     c = cache_get(key)
     if c is None:
+        global _VWARN
         t0 = time.time()
-        c = _compile_y0(source, fname, occluders, _hack, crsinfo)
+        held, _VWARN = _VWARN, []
+        try:
+            c = _compile_y0(source, fname, occluders, _hack, crsinfo)
+            c.vwarn = _VWARN                        # SPEC.md 130.56.4: the visual warnings, cached with it
+        finally:
+            _VWARN = held
         if fname is None or time.time() - t0 >= 1.0:
             cache_put(key, c)
     return c
@@ -11688,9 +11913,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 poses[q] = {(x, y + y0): c for (x, y), c in pix.items()
                             if 0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF}
             if p["kind"] == WD_K2 and 2 * len(poses[1]) < len(raw[1]):
-                raise CourseError("%s:%d: the blower's squiggles over (%d, %d) are HIDDEN: %d of %d pixels drawn over by "
+                _visual("%s:%d: the blower's squiggles over (%d, %d) are HIDDEN: %d of %d pixels drawn over by "
                                   "geometry in front of them" % (fname, p["line"], p["at"][0], p["at"][1],
-                                                                 len(raw[1]) - len(poses[1]), len(raw[1])))
+                                                                 len(raw[1]) - len(poses[1]), len(raw[1])), "hidden", empty=not poses[1])
             xs = [x for q in poses for x, _ in poses[q]]
             ys = [y for q in poses for _, y in poses[q]]
             if not xs:
@@ -11711,14 +11936,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             q0, q1 = seen(p["furl"]), seen(p["fly"])
             if 2 * len(q1) < len(p["fly"]) or (not q0 and p.get("art") != "icon"):   # (a pickup's pose 0 is empty)
                 hid = sorted({cv.sbuf[y + y0][x] for (x, y) in p["fly"] if (x, y + y0) not in q1})
-                raise CourseError("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
+                _visual("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
                                   "(and %d of its furled roll's %d) are drawn over by geometry in front of it "
                                   "(row s = %s against the flag's %d)"
                                   % (fname, p["line"], p["at"][0], p["at"][1], len(p["fly"]) - len(q1),
                                      len(p["fly"]), len(p["furl"]) - len(q0), len(p["furl"]),
-                                     ", ".join(map(str, hid[:4])), sF))
+                                     ", ".join(map(str, hid[:4])), sF), "hidden")
             xs = [x for x, _ in list(q0) + list(q1)]
             ys = [y for _, y in list(q0) + list(q1)]
+            if not xs:                              # SPEC.md 130.56.5: a WHOLLY hidden flag (a `hidden` one, a
+                xs = [x for x, _ in p["fly"]]       # secret's): its lane spans the pennant as drawn, and every
+                ys = [y + y0 for _, y in p["fly"]]  # pose is empty
             c0, r0 = min(xs) >> 3, min(ys) >> 3
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": {0: q0, 1: q1}, "st": {},
@@ -11731,9 +11959,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 poses[q] = {(x, y + y0): c for (x, y), c in pix.items()
                             if 0 <= x < width and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF}
                 if 2 * len(poses[q]) < len(pix):
-                    raise CourseError("%s:%d: the magnet at (%d, %d) is HIDDEN: %d of its wiggle's %d pixels are "
+                    _visual("%s:%d: the magnet at (%d, %d) is HIDDEN: %d of its wiggle's %d pixels are "
                                       "drawn over by geometry in front of it" % (
-                                          fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)))
+                                          fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)), "hidden", empty=not poses[q])
             xs = [x for q in poses.values() for x, _ in q]
             ys = [y for q in poses.values() for _, y in q]
             c0, r0 = min(xs) >> 3, min(ys) >> 3
@@ -11821,10 +12049,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 poses[q] = {(x, y): c for (x, y), c in want.items()
                             if 0 <= y < lines and cv.sbuf[y][x] <= sF and cv.rows[y][x] != c}
                 if 2 * len(poses[q]) < len(want):
-                    raise CourseError("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
+                    _visual("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
                                       "over by geometry in front of it (SPEC.md 130.43: a mechanic seen when the "
                                       "ball is not on it)" % (fname, p["line"], wx, wy, "warning" if seam else "hole",
-                                                              len(want) - len(poses[q]), len(want)))
+                                                              len(want) - len(poses[q]), len(want)), "hidden", empty=not poses[q])
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
@@ -11844,9 +12072,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                          if inr(x, y + y0) and 0 <= y + y0 < lines and cv.sbuf[y + y0][x] <= sF} for q in (0, 1)}
             whole = sum(1 for (x, y) in p["bp_pix"][1] if inr(x, y + y0))
             if not poses[1] or 2 * len(poses[1]) < whole:
-                raise CourseError("%s:%d: the boost pad at (%d, %d) is HIDDEN: %d of its flash's %d pixels are drawn "
+                _visual("%s:%d: the boost pad at (%d, %d) is HIDDEN: %d of its flash's %d pixels are drawn "
                                   "over by geometry in front of it (the player must see where the ball goes)"
-                                  % (fname, p["line"], wx, wy, whole - len(poses[1]), whole))
+                                  % (fname, p["line"], wx, wy, whole - len(poses[1]), whole), "hidden", empty=not poses[1])
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
         elif p.get("gart") is not None:             # SPEC.md 130.41.12: an ART element has no lane of its own
             pass
@@ -11879,10 +12107,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                   if inr(x, y + y0) and 0 <= y + y0 < lines and 0 <= x < width and cv.sbuf[y + y0][x] <= sF}
             whole = sum(1 for (x, y) in raw if inr(x, y + y0))
             if not q1 or 2 * len(q1) < whole:
-                raise CourseError("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its %s pose's %d pixels are drawn over "
+                _visual("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its %s pose's %d pixels are drawn over "
                                   "by geometry in front of it (the player must see where the ball goes)"
                                   % (fname, p["line"], nm, wx, wy, whole - len(q1), {GT_KP: "pressed", GT_KG: "shut",
-                                                                                     GT_KB: "up"}[p["kind"]], whole))
+                                                                                     GT_KB: "up"}[p["kind"]], whole), "hidden", empty=not q1)
             q0 = {(x, y + y0): c for (x, y), c in p["gt_pix"].items() if inr(x, y + y0) and 0 <= y + y0 < lines
                   and cv.sbuf[y + y0][x] <= sF}
             p["fpix"] = poses = {0: q0, 1: q1}
@@ -12021,9 +12249,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 shown_ = {(x, y): c for (x, y), c in face.items()
                           if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= sC}
                 if 2 * len(shown_) < len(face):
-                    raise CourseError("%s:%d: the clock at (%d, %d) is HIDDEN or off the picture: %d of its %d "
+                    _visual("%s:%d: the clock at (%d, %d) is HIDDEN or off the picture: %d of its %d "
                                       "pixels are drawn over by geometry in front of it or lie outside the picture"
-                                      % (fname, p["line"], p["at"][0], p["at"][1], len(face) - len(shown_), len(face)))
+                                      % (fname, p["line"], p["at"][0], p["at"][1], len(face) - len(shown_), len(face)), "hidden", empty=not shown_)
                 # SPEC.md 130.18.5.4: the plinth, the post, the dish and the crystal ball are GEOMETRY keyed at the
                 # clock's cell (a post's, 130.12.6.3), so the occluder cut lays them over a ball behind and below
                 # them, as it does a flag's staff; the shadow stays paint on the tile.  (The lives counter's
@@ -12762,8 +12990,10 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
     if getattr(c, "traphop", None):            # `trap hop` (130.14.4.1.1): a Hop and its "and again" at every
         runs += [(k, (t, t + TRAP_AGAIN))       # TRAP_HOP_AT take-off step of every direction's run (the pair
                  for k in TRAP_DIRS for t in TRAP_HOP_AT]   # reaches what a lone Hop does; an over-Hop is railed)
-    for ph in phases:
-        for k, hops in runs:
+    shafts = {r["at"] for r in c.part["props"] if r["kind"] == PK_PLATFORM}
+    for k, hops in runs:
+        for ph in phases:                       # (every phase only for a run that meets a LIFT: the others are the
+            touched = False                     # same run whatever the phase - SPEC.md 130.14.4.1)
             p = Physics(c, play=True, mat=mat)
             p.nopick = True                     # (wave 9: every finish with no pickup, 130.25.7.3)
             if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
@@ -12772,26 +13002,35 @@ def trap_succ(c, cell, mat, cache, phases, preset=b""):
             p.poke(*cell)
             p.nstep = ph
             p.ckmat = mat
-            for st_ in range(TRAP_RUN + 64):
-                if st_ >= TRAP_RUN and not p.air and not p.tube:
-                    break                       # (a run ends grounded)
+            for st_ in range(TRAP_RUN + 320):
+                if st_ >= TRAP_RUN and not p.air and not p.tube and not (p.onp and not _TRAPNOLIFT):
+                    break                       # (a run ends grounded - not on a lift's slab, which carries
+                                                # it on: SPEC.md 130.14.4.1, a lift ridden up)
+                if st_ >= TRAP_RUN + 64 and not p.onp:
+                    break
                 n0 = len(p.events)
                 p.step(k | (K_HOP if st_ in hops else 0))
+                here = (p.gx >> 12, p.gy >> 12)
+                if p.onp or here in shafts:
+                    touched = True
                 if p.nfall or p.nret:
                     break
-                here = (p.gx >> 12, p.gy >> 12)
                 if p.goal or here in cup:
                     hit = True
                     break
-                if here != cell and not p.tube and (not p.air or any(
+                if here != cell and not p.tube and not p.onp and (not p.air or any(
                         e[0] in ("land", "bounce", "hopc", "stun") for e in p.events[n0:])):
                     out.add((here, p.mat))      # grounded there, or a contact there (a rubber ball bounces on)
-            if hit:
+            if hit or not (touched or any(r["kind"] == PK_WINDMILL for r in c.part["props"])):
                 break
         if hit:
             break
     cache[key] = (out, hit)
     return cache[key]
+
+
+_TRAPNOLIFT = False           # the red arm of `grammar`'s "a flag at a lift's foot" (the carry not followed)
+TRAP_LIFT_PHASES = tuple(range(0, 256, 32))   # NO TRAP's starting steps on a course with a lift (8, 32 apart)
 
 
 def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
@@ -12802,6 +13041,9 @@ def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
     phases = (0,)                       # a windmill's gate or the lift's slab: two phases half a
     if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
         phases = (0, 32)                # gate period apart (64 steps), so one of them finds it open
+    if any(r["kind"] == PK_PLATFORM for r in c.part["props"]):
+        phases = TRAP_LIFT_PHASES       # a LIFT ridden UP (SPEC.md 130.14.4.1): its slab is down for about a
+                                        # third of its ~260-step period, which two phases 32 apart can both miss
     seen = {(cell, mat)}
     todo = [(cell, mat)]
     while todo:
@@ -14380,13 +14622,14 @@ def one_part(stores):
 
 
 def split_one_part(blob, plan, fname="<course>"):
-    """SPEC.md 130.30.12.5: a SHEETED course's ONE part (BZ<K>.BIN) -> [each sheet's form, the world part's],
-    cut at the paragraphs the guest's table names (the plan's "paras", one_part_layout's) - the cut the guest
-    makes, with what it relies on checked: each piece's magic in order, its own length (its directory's end)
-    inside the part and before the next, the padding zero, the part's length the last piece's end.  Refused
-    otherwise"""
+    """SPEC.md 130.30.12.5, 130.30.5: a course's ONE part (BZ<K>.BIN) of a picture and a world part - a SHEETED
+    course's sheets and its world part, a TWO-PART course's picture part and its world part (its plan "k" 1 and
+    "two") -> [each piece's stored form], cut at the paragraphs the guest's tables name (the plan's "paras",
+    one_part_layout's) - the cut the guest makes, with what it relies on checked: each piece's magic in order,
+    its own length (its directory's end) inside the part and before the next, the padding zero, the part's
+    length the last piece's end.  Refused otherwise"""
     k = plan["k"]
-    magics = list(MAGIC_SHEETS[:k]) + [MAGIC_WORLD]
+    magics = ([MAGIC_PIC] if plan.get("two") else list(MAGIC_SHEETS[:k])) + [MAGIC_WORLD]
     offs, out = plan.get("paras"), []
     if offs is None or len(offs) != k + 1 or offs[0] != 0:
         raise CourseError("%s: the plan names no ONE part's paragraphs (SPEC.md 130.30.12.5)" % fname)
@@ -14405,24 +14648,40 @@ def split_one_part(blob, plan, fname="<course>"):
     return out
 
 
+def one_part_stores(c):
+    """the pieces of course C's ONE part, in order: a SHEETED course's sheets' stored forms, else its picture
+    part's, then the world part's - or None for a course of one BZC2 part"""
+    if not c.split:
+        return None
+    return (list(c.sstored) if getattr(c, "sstored", None) else [c.stored]) + [c.wstored]
+
+
 def set_one_part(c):
-    """SPEC.md 130.30.12.5: a SHEETED course ships ONE part, BZ<K>.BIN - every sheet's STORED form and then the
-    world part's, each from a paragraph (.bstored), the paragraphs in its plan (.plan["paras"]: sheet 0's 0, the
-    world part's last), checked to read back; .bstored None for every other course"""
-    c.bstored = None
-    if not getattr(c, "sstored", None):
+    """SPEC.md 130.30.12.5, 130.30.5: a course with a WORLD part ships ONE part, BZ<K>.BIN - a SHEETED course's
+    every sheet's STORED form, a TWO-PART course's picture part's, and then the world part's, each from a
+    paragraph (.bstored); .oplan its layout ({"k": the picture pieces, "paras": each piece's paragraphs, the
+    world part's last; "two" for a two-part course} - a sheeted course's is its .plan, "paras" set there),
+    checked to read back; .bstored and .oplan None for a course of one BZC2 part"""
+    c.bstored = c.oplan = None
+    stores = one_part_stores(c)
+    if stores is None:
         return
-    stores = list(c.sstored) + [c.wstored]
-    c.plan["paras"] = one_part_layout(stores)[0]
+    paras = one_part_layout(stores)[0]
+    if getattr(c, "sstored", None):
+        c.plan["paras"] = paras
+        c.oplan = c.plan
+    else:
+        c.oplan = {"k": 1, "paras": paras, "two": True}
     c.bstored = one_part(stores)
-    if split_one_part(c.bstored, c.plan, c.fname) != [bytes(q) for q in stores]:
-        raise CourseError("%s: the one part does not read back as its sheets and its world part" % c.fname)
+    if split_one_part(c.bstored, c.oplan, c.fname) != [bytes(q) for q in stores]:
+        raise CourseError("%s: the one part does not read back as its pieces and its world part" % c.fname)
 
 
 def course_claims(c):
-    """the RAM forms of each CLAIM a course's play makes: one part's, a two-part course's two, a SHEETED course's
-    ONE (its sheets and its world part in one claim, each from a paragraph: SPEC.md 130.30.12.5)"""
-    if sheets_of(c.cga):
+    """the RAM forms of each CLAIM a course's play makes: one part's, or a course with a world part's ONE - a
+    two-part course's picture and world parts, a SHEETED course's sheets and world part, in one claim, each
+    from a paragraph (SPEC.md 130.30.5, 130.30.12.5)"""
+    if c.split:
         return [one_part(sheet_rams(c))]
     return sheet_rams(c)
 
@@ -15492,7 +15751,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             fam, kr = FKIND[d["kind"]]
             fsb_, cls = p[r + 16], p[r + 17]
             dur_, ow_ = p[r + 18], p[r + 19]
-            pu = fam.get("consts") == "PU"          # (PICKUPS' +18 duration, +19 OVERWRITE: 130.25.19)
+            pu = fam.get("consts") in ("PU", "LF")  # (PICKUPS' +18 duration, +19 OVERWRITE: 130.25.19; the LIFE's
+                                                    # +19 ONCE, 130.55)
             if d["kind"] == FK_WATER:               # (WATER's +18 bed, +19 top, signed half units: 130.36)
                 bed_, top_ = struct.unpack_from("<bb", p, r + 18)
                 rip_, wg_ = p[r + 20] & 3, p[r + 20] & ~3
@@ -15637,7 +15897,9 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                     or (not pu and not mg and (dur_ or ow_) and not (kr["kind"] == FK_CRACK and 1 <= dur_ <= nprop
                                                                      and ow_ in (0, 1))) \
                     or (pu and kr["kind"] == K_HOURGLASS and (dur_ or ow_)) \
-                    or (pu and kr["kind"] != K_HOURGLASS and (not dur_ or ow_ & ~PU_OVERWRITE)) \
+                    or (pu and kr["kind"] == K_LIFE and (dur_ or ow_ & ~PU_ONCE)) \
+                    or (pu and kr["kind"] in (K_SPEED, K_JUMP)
+                        and (not dur_ or ow_ & ~(PU_OVERWRITE | PU_RESPAWN))) \
                     or (pu and cls != kr["cls"]):
                 bad("prop %d" % d["i"], "a %s's record (FSB %d, class %d)" % (kr["name"], fsb_, cls))
             d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=kr["bits"], art=kr["art"], dur=dur_, ow=ow_)
@@ -16102,26 +16364,38 @@ class GlassFamily(Family):
                     c[5] = 0
 
 class PickupFamily(Family):
-    """PICKUPS (SPEC.md 130.25.9, 130.25.19).  Slot: +0 SPEED's steps left (word), +2 JUMP's (word), +4 the
-    Hop the jump replaced (word: bz_mrec's when it was taken, or after a pad's swap under it).  An element's
+    """PICKUPS (SPEC.md 130.25.9, 130.25.19, 130.55).  Slot: +0 SPEED's steps left (word), +2 JUMP's (word), +4
+    the Hop the jump replaced (word: bz_mrec's when it was taken, or after a pad's swap under it).  An element's
     one bit is COLLECTED.  CONTACT takes an element whose bit is clear (an hourglass only while there is a
     limit, bz_tsec not 0: hidden otherwise); STEP counts the timers down, puts the jump's Hop back over a
-    pad's swap, ends an effect at 0 and writes the cue byte; RESET (a respawn; a play's start finds all
-    zero) ends both effects.  Every change of bz_wacc rebuilds BOTH force tables, as the part does"""
+    pad's swap, ends an effect at 0 and writes the cue byte's bits 0 and 1 (bit 2 is THE LIFE's); RESET (a
+    respawn; a play's start finds all zero) ends both effects.  An effect ENDING (worn off, an `overwrite`, a
+    RESET) puts back every element of its kind marked `respawn` (SPEC.md 130.55).  Every change of bz_wacc
+    rebuilds BOTH force tables, as the part does"""
     row = FAM_BY_NAME["pickups"]
 
     @staticmethod
     def _tables(p):
         p.fta = fta_table(p.m["ACC"] + p.wacc)      # (the ground's: the model's per step, from wacc)
 
+    @staticmethod
+    def _rearm(p, k):
+        """SPEC.md 130.55: an effect of kind K ended - every element of K marked `respawn` COLLECTED no more"""
+        for pr in p.props:
+            if pr["kind"] == k and pr["ow"] & PU_RESPAWN:
+                b = pr["fsb"]
+                p.fst[b >> 3] &= ~(1 << (b & 7)) & 255
+
     def _speed_off(self, p, sb):
         sb[0] = sb[1] = 0
         p.wacc = p.vup = 0
         self._tables(p)
+        self._rearm(p, K_SPEED)
 
     def _jump_off(self, p, sb):
         sb[2] = sb[3] = 0
         p.hop = sb[4] | sb[5] << 8
+        self._rearm(p, K_JUMP)
 
     def reset(self, p, slot, cls):
         sb = p.fsl[slot]
@@ -16129,7 +16403,7 @@ class PickupFamily(Family):
             self._speed_off(p, sb)
         if sb[2] | sb[3]:
             self._jump_off(p, sb)
-        p.cue = 0
+        p.cue &= 4
 
     def contact(self, p, slot, i):
         pr = p.props[i]
@@ -16174,7 +16448,7 @@ class PickupFamily(Family):
             sb[2], sb[3] = tj & 255, tj >> 8
             if not tj:
                 self._jump_off(p, sb)
-        p.cue = (1 if ts or tj else 0) | (2 if 0 < ts <= PU_WARN or 0 < tj <= PU_WARN else 0)
+        p.cue = (p.cue & 4) | (1 if ts or tj else 0) | (2 if 0 < ts <= PU_WARN or 0 < tj <= PU_WARN else 0)
 
     def pose(self, p, slot, i):
         pr = p.props[i]
@@ -16182,6 +16456,47 @@ class PickupFamily(Family):
         if p.fst[b >> 3] >> (b & 7) & 1 or (pr["kind"] == K_HOURGLASS and not p.tsec):
             return 0
         return 1
+
+
+class LifeFamily(Family):
+    """THE LIFE (SPEC.md 130.55).  Slot: +0 the RISE, its cue's steps left.  An element's one bit is COLLECTED.
+    CONTACT takes one whose bit is clear and that is not HIDDEN - outside a game's course (bz_lfx bit 0
+    clear), or a `once` one its pad's course has given this game (bit 1) - raising bz_lives to LF_MAX at most,
+    setting bz_lfx bit 1 for a `once` one and starting the rise; STEP counts the rise down and writes the cue
+    byte's bit 2; RESET ends it"""
+    row = FAM_BY_NAME["life"]
+
+    @staticmethod
+    def hidden(p, pr):
+        return not p.lfx & 1 or bool(pr["ow"] & PU_ONCE and p.lfx & 2)
+
+    def reset(self, p, slot, cls):
+        p.fsl[slot][0] = 0
+        p.cue &= ~4 & 255
+
+    def contact(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        if p.fst[b >> 3] >> (b & 7) & 1 or self.hidden(p, pr):
+            return
+        p.fst[b >> 3] |= 1 << (b & 7)
+        p.nfev = p.nfev + 1 & 0xFFFF
+        if pr["ow"] & PU_ONCE:
+            p.lfx |= 2
+        if p.lives < LF_MAX:
+            p.lives += 1
+        p.fsl[slot][0] = LF_RISE
+
+    def step(self, p, slot):
+        sb = p.fsl[slot]
+        if sb[0]:
+            sb[0] -= 1
+        p.cue = (p.cue & 3) | (4 if sb[0] else 0)
+
+    def pose(self, p, slot, i):
+        pr = p.props[i]
+        b = pr["fsb"]
+        return 0 if p.fst[b >> 3] >> (b & 7) & 1 or self.hidden(p, pr) else 1
 
 
 def _s8(v):
@@ -16884,7 +17199,7 @@ FAM_MODEL = {"probe": ProbeFamily(), "glass": GlassFamily(), "rotor": OwnFamily(
              "tube": OwnFamily("tube"),
              "pickups": PickupFamily(), "water": WaterFamily(), "magnet": MagnetFamily(), "wind": WindFamily(),
              "boost": BoostFamily(), "spike": SpikeFamily(), "archway": ArchFamily(), "gate": GateFamily(), "seesaw": TiltFamily(),
-             "turntable": TurnFamily()}
+             "turntable": TurnFamily(), "life": LifeFamily()}
 assert sorted(FAM_MODEL) == sorted(FAM_BY_NAME) and all(FAM_MODEL[n].row is FAM_BY_NAME[n] for n in FAM_MODEL)
 
 
@@ -16952,6 +17267,9 @@ class Physics:
         # material's copy the step reads) - and PICKUPS' sound counter and cue byte (bz_nfev, bz_cue)
         self.wacc = self.vup = self.nfev = self.cue = 0
         self.hop = self.m["HOP"]
+        # SPEC.md 130.55: THE LIFE's - bz_lfx (bit 0 a game's course: a life may be taken; bit 1 its pad's `once`
+        # life given this game) and the game's lives, bz_lives (the package's, which the part raises)
+        self.lfx = self.lives = 0
         # WATER (SPEC.md 130.36): bz_mrec's HTHR as the step reads it (the family raises it while the centre is
         # a water cell), and the floor restitution its CELL hook wrote into bz_se (None: the surface's own)
         self.hthr, self.wef = self.m["HTHR"], None
@@ -20454,6 +20772,12 @@ def emit_inc(courses, path=None, title=None):
               "BZ_PU_WARN      equ %d" % PU_WARN, "BZ_PU_OVER      equ %d" % PU_OVERWRITE,
               "BZ_K_HOURGLASS  equ %d" % K_HOURGLASS, "BZ_K_SPEED      equ %d" % K_SPEED,
               "BZ_K_JUMP       equ %d" % K_JUMP,
+              "BZ_PU_RESP      equ %d        ; +19: back when the effect ends (SPEC.md 130.55)" % PU_RESPAWN,
+              "; THE LIFE's constants (SPEC.md 130.55; bbcourse LF_*)",
+              "BZ_K_LIFE       equ %d" % K_LIFE,
+              "BZ_PU_ONCE      equ %d        ; +19: a life once a GAME" % PU_ONCE,
+              "BZ_LF_RISE      equ %d       ; its RISING sparkles, steps" % LF_RISE,
+              "BZ_LVMAX        equ %d        ; the game's most lives (a life raises them to it)" % LF_MAX,
               "; MAGNETS' constants (SPEC.md 130.33; bbcourse MG_*): the wiggle's steps a pose",
               "BZ_MG_WIG       equ %d" % MG_WIG,
               "BZ_MG_BOB       equ %d        ; the hover's bobble: its kick, and its period (a power of 2)" % MG_BOB,
@@ -20521,9 +20845,9 @@ def emit_inc(courses, path=None, title=None):
         lines.append("    db " + ", ".join("%d,%d,%d" % OCTANT[k0 + b] for b in range(a + 1)) + "   ; a = %d" % a)
     lines += ["%endmacro", "",
               "; the course part rows: BZ_NCRS, one a course, every one",
-              "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 130.11.3.1) - and after them each TWO-PART course's",
-              "; WORLD part (SPEC.md 130.30.4.4), BZ<K>W.BIN, in course order; a SHEETED course's ONE part",
-              "; (its sheets and its world part, SPEC.md 130.30.12.5) is OP_BIG: past 65,024 bytes",
+              "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 130.11.3.1) - the ONE part of a course with a WORLD",
+              "; part (a two-part course's picture and world parts, SPEC.md 130.30.5; a SHEETED course's",
+              "; sheets and world part, 130.30.12.5) OP_BIG: past 65,024 bytes.  No world rows",
               "%macro BZ_CRS_PARTS 0"] + emit_crs_parts(courses) + [
               "%endmacro", ""] + emit_wrows(courses) + emit_sheets(courses) + [
               "; wave 4's shipped demos (SPEC.md 130.14.7.4): one a course but the benchmark's (by NAME),",
@@ -20547,40 +20871,37 @@ def emit_inc(courses, path=None, title=None):
 BZ_P_CRS = 0                  # course 0's part row (bzcourse.inc's; no ball rows since SPEC.md 130.25.5.2)
 
 
-def wrows(courses):
-    """SPEC.md 130.30.4.4: each course's WORLD part's row - BZ_P_CRS + BZ_NCRS + j for the j-th two-part
-    course, in course order - or 0 for a course of one part and for a SHEETED one (its world part is a segment
-    of its one part, SPEC.md 130.30.12.5)"""
-    out, j = [], 0
-    for c in courses:
-        w = c.split and not getattr(c, "bstored", None)     # (a SHEETED course's is in its one part, 130.30.12.5)
-        out.append(BZ_P_CRS + len(courses) + j if w else 0)
-        j += 1 if w else 0
-    return out
+def wparas(courses):
+    """SPEC.md 130.30.5: each course's WORLD part's paragraphs in its ONE part (a two-part course's and a
+    SHEETED one's, the last of its .oplan's "paras"), 0 for a course of one BZC2 part"""
+    return [c.oplan["paras"][-1] if getattr(c, "oplan", None) else 0 for c in courses]
 
 
 def emit_crs_parts(courses):
-    """the course rows' OS88_PART lines: one %rep while no course is SHEETED (the text every build had before
-    130.30.12.5's one part), else a line a course - a sheeted course's row OP_BIG (SPEC.md 20.12.15) - and the
-    world parts' %rep after"""
+    """the course rows' OS88_PART lines: one %rep while no course has a world part (the text every build had
+    before 130.30's two parts), else a line a course - the ONE part of a course with a world part (a two-part
+    or a SHEETED course's) OP_BIG (SPEC.md 20.12.15, 130.30.5, 130.30.12.5).  No course has a row past its
+    own"""
     one = "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP"
     if not any(getattr(c, "bstored", None) for c in courses):
-        return [" %rep BZ_NCRS + BZ_NCRS2", one + "   ; BZ<K>.BIN, then BZ<K>W.BIN", " %endrep"]
-    return [one + (" | OP_BIG   ; BZ%d.BIN: SHEETED, one part (SPEC.md 130.30.12.5)" % k
-                   if getattr(c, "bstored", None) else "   ; BZ%d.BIN" % k) for k, c in enumerate(courses)] + [
-        " %rep BZ_NCRS2", one + "   ; BZ<K>W.BIN", " %endrep"]
+        return [" %rep BZ_NCRS", one + "   ; BZ<K>.BIN", " %endrep"]
+    return [one + (" | OP_BIG   ; BZ%d.BIN: %s, ONE part (SPEC.md %s)" % (
+        k, "SHEETED" if c.sstored else "a picture and a world part",
+        "130.30.12.5" if c.sstored else "130.30.5") if getattr(c, "bstored", None) else "   ; BZ%d.BIN" % k)
+        for k, c in enumerate(courses)]
 
 
 def emit_wrows(courses):
-    """SPEC.md 130.30.4.4: BZ_NCRS2 and, with any two-part course, BZ_CRS_WROW"""
-    w = wrows(courses)
-    n2 = sum(1 for x in w if x)
-    out = ["; SPEC.md 130.30.4.4: the TWO-PART courses' WORLD parts (0: none, and the package is assembled as",
-           "; it was before two parts existed: bz_mseg is bz_cseg's word); with any, BZ_CRS_WROW is a byte a",
-           "; course, its world part's row (0: one part)",
+    """SPEC.md 130.30.5: BZ_NCRS2 (the TWO-PART courses, a SHEETED one not counted) and, with any course with
+    a world part (two-part or sheeted), BZ_CRS_WPARA"""
+    n2 = sum(1 for c in courses if c.split and not c.sstored)
+    out = ["; SPEC.md 130.30.5: the TWO-PART courses (0: none, and the package is assembled as it was before",
+           "; two parts existed: bz_mseg is bz_cseg's word); with any course with a WORLD part (two-part, or",
+           "; sheeted: BZ_NSHC), BZ_CRS_WPARA is a word a course, its world part's PARAGRAPHS in its ONE part",
+           "; (0: one BZC2 part) - bz_cload2's OSAPI_SEG SEG_SUB",
            "BZ_NCRS2        equ %d" % n2]
-    if n2:
-        out += ["%macro BZ_CRS_WROW 0", "    db " + ", ".join(str(x) for x in w), "%endmacro"]
+    if any(c.split for c in courses):
+        out += ["%macro BZ_CRS_WPARA 0", "    dw " + ", ".join(str(x) for x in wparas(courses)), "%endmacro"]
     return out + [""]
 
 
@@ -20588,8 +20909,8 @@ def emit_sheets(courses):
     """SPEC.md 130.30.12.5: BZ_NSHC (the build's SHEETED courses: 0, and the package is assembled as it was before
     sheets existed) and, with any, BZ_SHMAX, BZ_SHENT, BZ_CRS_SHN (a byte a course: its sheets, 0 none),
     BZ_CRS_SHI (a word a course: its first entry's offset in BZ_SHTAB) and BZ_SHTAB (an entry a sheet: the word
-    its paragraphs in the course's ONE part - entry 0's the WORLD part's, sheet 0 being the part's base - then
-    the words m0, hic, tlo and thi)"""
+    its paragraphs in the course's ONE part - sheet 0's 0, the part's base; the world part's are BZ_CRS_WPARA's
+    - then the words m0, hic, tlo and thi)"""
     sh = [(k, c.plan) for k, c in enumerate(courses) if sheets_of(c.cga)]
     out = ["; SPEC.md 130.30.12.5: the SHEETED courses (0: none, and the package is assembled as it was before",
            "; sheets existed); with any, each course's sheets and their table",
@@ -20600,9 +20921,9 @@ def emit_sheets(courses):
     for k, pl in sh:
         shn[k], shi[k] = pl["k"], SHENT * len(tab)
         for i, x in enumerate(pl["sheets"]):
-            tab.append((pl["paras"][-1] if not i else pl["paras"][i], x))
+            tab.append((pl["paras"][i], x))
     out += ["BZ_SHMAX        equ %d" % max(pl["k"] for _k, pl in sh),
-            "BZ_SHENT        equ %d       ; a sheet's entry: its paragraphs (entry 0: the world's), m0, hic, tlo, thi"
+            "BZ_SHENT        equ %d       ; a sheet's entry: its paragraphs (sheet 0's 0), m0, hic, tlo, thi"
             % SHENT,
             "%macro BZ_CRS_SHN 0", "    db " + ", ".join(str(x) for x in shn), "%endmacro",
             "%macro BZ_CRS_SHI 0", "    dw " + ", ".join(str(x) for x in shi), "%endmacro",
@@ -21393,6 +21714,9 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         if e is not None:
             raise e
     courses = [c_ for c_, _e in got[:len(paths)]]
+    for c_ in courses:                              # SPEC.md 130.56.4: a warning is reported, never refused here
+        for w in getattr(c_, "warnings", ()):
+            sys.stderr.write("bbcourse: WARNING %s%s\n" % (w["msg"], " (accepted)" if w["accepted"] else ""))
     if any(c.src.pathway is not None for c in courses):
         raise CourseError("the pathway is --path's, never a course of BZ_COURSES")
     names = [c.name for c in courses]
@@ -21425,10 +21749,9 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     files = {}
     for k, c in enumerate(courses):
         files["BZ%d.BIN" % k] = c.stored       # the STORED form (SPEC.md 130.15.12.1); os88pkg packs it
-        if c.bstored:                           # SPEC.md 130.30.12.5: a SHEETED course's ONE part - its sheets
-            files["BZ%d.BIN" % k] = c.bstored   # and its world part, each from a paragraph
-        elif c.split:                           # SPEC.md 130.30.4.4: a two-part course's WORLD part
-            files["BZ%dW.BIN" % k] = c.wstored
+        if c.bstored:                           # SPEC.md 130.30.5, 130.30.12.5: the ONE part of a course with
+            files["BZ%d.BIN" % k] = c.bstored   # a world part - its picture part (or sheets) and its world
+                                                # part, each from a paragraph
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
         files[demo_file(courses[k])] = d["log"]
@@ -21442,11 +21765,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         BZ_TITLE_K[0] = len(courses) + 1            # (BZ_CRS_TITLE: the demos' logs name it)
         files["BZTDEMO.BIN"] = build_title_demos(tc, demo_dir)
     compile_all.title = tc
-    # SPEC.md 130.30.4.4: the world parts' file names in row order, which the Makefile passes as --part after
-    # the courses' (empty: none)
-    texts = {"bzcourse.inc": emit_inc(courses, pc, tc),
-             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses)    # (a SHEETED course's
-                                   if c.split and not c.bstored),                    # world part is in its one)
+    texts = {"bzcourse.inc": emit_inc(courses, pc, tc),       # (no bzcrs2.lst since SPEC.md 130.30.5's one part)
              "bzdemo.lst": "".join(demo_file(courses[k]) + "\n" for k in sorted(demos))}
     return courses, files, texts
 
@@ -24040,6 +24359,9 @@ def write_out(out, paths, path=None, title=None, dev=False):
     for name in sorted(texts):
         with open(os.path.join(out, name), "w", newline="\n") as f:
             f.write(texts[name])
+    for name in os.listdir(out):            # SPEC.md 130.30.13: a WORLD part is in its course's ONE part - an
+        if name == "bzcrs2.lst" or re.match(r"BZ\d+W\.BIN$", name):  # older run's world files are stale, and a
+            os.remove(os.path.join(out, name))                      # reader that finds one takes it for a row
     for k, c in enumerate(courses):
         report(c, k)
     for k, c in enumerate(courses):         # the visibility audit, REPORT mode (SPEC.md 130.15.10.4)
@@ -27355,6 +27677,11 @@ def _w9_cases():
         ("a pickup with a reset class", C + "uses pickups\nprop jump 6 6 reset respawn\n", "takes no `reset`"),
         ("a pickup with a word of no meaning", C + "uses pickups\nprop speed 6 6 fast\n", "not 'fast'"),
         ("a pickup on a ramp", C + "uses pickups\nprop speed 14 6\n", "not a FLAT FLOOR"),
+        # SPEC.md 130.55: `respawn` a timed kind's, `once` a life's, one `once` life a course
+        ("an hourglass that respawns", C + "uses pickups\nprop hourglass 6 6 respawn\n", "not 'respawn'"),
+        ("a life with a duration", C + "uses life\nprop life 6 6 for 3\n", "not 'for'"),
+        ("a speed `once`", C + "uses pickups\nprop speed 6 6 once\n", "not 'once'"),
+        ("two `once` lives", C + "uses life\nprop life 6 6 once\nprop life 8 6 once\n", "a second `once` life"),
         # SPEC.md 130.25.18.1: a crack's hole size; vanishing (floating) cracks edge to edge (their two lanes never
         # group); a vanishing crack whose grounded neighbours' faces would show past its two lanes
         ("a crack's hole of no size", _W9B + "uses glass\nprop crack 10 5 hole huge\n", "hole takes small|band|wide"),
@@ -27575,11 +27902,13 @@ def _pickup_checks(res):
     """PICKUPS (SPEC.md 130.25.9, 130.25.19): the records, FAMV over the constants, and the reach with the
     raised values where a pickup is reachable - its red arm `nopickreach`, the pair taken together unless
     every one is marked `overwrite`, and a bound's refusal naming the pair"""
-    t = _W4C + "uses pickups\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite\nprop jump 8 6\n"
+    t = _W4C + ("uses pickups life\nprop hourglass 5 5\nprop speed 6 6 for 2 overwrite respawn\nprop jump 8 6\n"
+                "prop life 10 6 once\nprop life 11 6\n")
     c = compile_course(t, fname="<pickups>", occluders=False)
     recs = sorted((r["kind"], r["cls"], r["dur"], r["ow"]) for r in c.part["props"] if is_fam(r["kind"]))
-    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0), (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE),
-            (K_JUMP, CL_RESPAWN, PU_DUR, 0)]
+    want = [(K_HOURGLASS, CL_ATTEMPT, 0, 0),
+            (K_SPEED, CL_RESPAWN, int(2 * SEC_STEPS / 4 + 0.5), PU_OVERWRITE | PU_RESPAWN),
+            (K_JUMP, CL_RESPAWN, PU_DUR, 0), (K_LIFE, CL_ATTEMPT, 0, 0), (K_LIFE, CL_ATTEMPT, 0, PU_ONCE)]
     j0 = globals()["PU_JHOP"]
     f0 = famv(FAM_BY_NAME["pickups"])
     globals()["PU_JHOP"] = j0 + 4
@@ -30821,7 +31150,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 1
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 2
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -30881,6 +31210,24 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             ok_, msg = False, str(e)
         res.append(("2 accepted (130.14.4.1): a spring at a pit's edge%s" % ("" if ok_ else " -- got: " + msg), ok_))
+    if mine():                                      # SPEC.md 130.14.4.1: NO TRAP rides a LIFT up - a flag at its
+        global _TRAPNOLIFT                          # foot (the run followed while the slab carries the ball);
+        txt = _LIFTUP + "checkpoint 9 9\n"           # RED ARM _TRAPNOLIFT: the run cut at TRAP_RUN on the slab
+        try:
+            compile_course(txt, fname="<a flag at a lift's foot>")
+            ok_, msg = True, "compiled"
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        _TRAPNOLIFT = True
+        try:
+            compile_course(txt + "# red arm\n", fname="<a flag at a lift's foot, red arm>")
+            red = "compiled"
+        except CourseError as e:
+            red = str(e)
+        finally:
+            _TRAPNOLIFT = False
+        res.append(("2 accepted (130.14.4.1): a flag at a lift's foot, NO TRAP riding it up%s; RED ARM (the carry not "
+                    "followed): %s" % ("" if ok_ else " -- got: " + msg, red[:90]), ok_ and "NO TRAP" in red))
 
 
 def _sc_w9(X, res):
@@ -32687,6 +33034,54 @@ def _twoseg_checks(courses, res, paths):
         out.append(("%s (one part) forced into two" % small.name, False))
     res.append(("15 TWO PARTS negative controls REFUSED: %s" % ", ".join("%s %s" % (w, "yes" if g else "NO")
                                                                      for w, g in out), all(g for _w, g in out)))
+    for x in [c] + [y for y in two if not y.sstored]:   # SPEC.md 130.30.5: ONE part on the disk
+        _one_part_checks(x, res)
+
+
+def _one_part_checks(c, res):
+    """SPEC.md 130.30.5, item 15's ONE PART: a TWO-PART course's BZ<K>.BIN is its picture part's stored form and
+    then its world part's from a paragraph - BZ_CRS_WPARA's - read back to both by split_one_part; each RAM
+    form fits its piece's room (the expansion in place stays inside it); its LZB beside the two apart.  And
+    its controls, each REFUSED by split_one_part: the world part a paragraph late, the table a paragraph off,
+    the world part missing, a byte cut off the end, a picture part that is not BZP2"""
+    nm = c.name
+    stores = one_part_stores(c)
+    offs, blen = one_part_layout(stores)
+    try:
+        back = split_one_part(c.bstored, c.oplan, "<%s>" % nm)
+    except CourseError:
+        back = None
+    fits = len(c.cga) <= 16 * offs[1] and len(c.wcga) == len(c.bstored) - 16 * offs[1]
+    sep = sum(packed_len(q, "lzb") for q in stores)
+    one = packed_len(c.bstored, "lzb")
+    res.append(("15 %s ships ONE part: BZ<K>.BIN %d bytes (OP_BIG, over %d: %s), its picture part (%d) and its "
+                "world part (%d) at paragraphs %s - BZ_CRS_WPARA's - each read back to its stored form, each RAM "
+                "form inside its room; LZB %d against %d as two parts" % (
+                    nm, len(c.bstored or b""), PARTMAX, "yes" if blen > PARTMAX else "NO", len(stores[0]),
+                    len(stores[1]), offs, one, sep),
+                back == [bytes(q) for q in stores] and len(c.bstored) == blen and c.oplan["paras"] == offs
+                and wparas([c]) == [offs[1]] and fits and one <= sep
+                and any("OP_BIG" in ln for ln in emit_crs_parts([c]))))
+    pl = c.oplan
+    bctl = []
+    q = bytearray(c.bstored)
+    q[16 * offs[1]:16 * offs[1]] = bytes(16)
+    bctl.append(("the world part a paragraph late", bytes(q), pl))
+    bctl.append(("the table a paragraph off", c.bstored, dict(pl, paras=[0, offs[1] + 1])))
+    bctl.append(("the world part missing", bytes(stores[0]), pl))
+    bctl.append(("a byte cut off its end", c.bstored[:-1], pl))
+    q = bytearray(c.bstored)
+    q[:4] = MAGIC_SHEETS[0]
+    bctl.append(("a picture part that is not BZP2", bytes(q), pl))
+    bout = []
+    for what, b_, p_ in bctl:
+        try:
+            split_one_part(b_, p_, "<%s, %s>" % (nm, what))
+            bout.append((what, False))
+        except (CourseError, struct.error):
+            bout.append((what, True))
+    res.append(("15 %s ONE PART negative controls REFUSED: %s" % (nm, ", ".join(
+        "%s %s" % (w, "yes" if g else "NO") for w, g in bout)), all(g for _w, g in bout)))
 
 
 def _sc_sheets(X, res):
@@ -32759,11 +33154,11 @@ def _sheets_checks(courses, res, paths):
     sep = sum(packed_len(q, "lzb") for q in stores)
     one = packed_len(c.bstored, "lzb")
     res.append(("16 TTALL ships ONE part: BZ<K>.BIN %d bytes (OP_BIG, over %d), its %d sheets and its world part "
-                "at paragraphs %s - the table's (entry 0's word the world part's) - each read back to its stored "
-                "form; LZB %d against %d as %d parts" % (len(c.bstored or b""), PARTMAX, pl["k"], offs, one, sep,
-                                                          len(stores)),
+                "at paragraphs %s - the tables' (bz_shtab's sheets, sheet 0's word 0; BZ_CRS_WPARA the world "
+                "part's) - each read back to its stored form; LZB %d against %d as %d parts" % (
+                    len(c.bstored or b""), PARTMAX, pl["k"], offs, one, sep, len(stores)),
                 back == [bytes(q) for q in stores] and len(c.bstored) == blen > PARTMAX and pl["paras"] == offs
-                and tabw == [offs[-1]] + offs[1:-1] and one < sep))
+                and tabw == offs[:-1] and wparas([c]) == [offs[-1]] and one < sep))
     bctl = []
     q = bytearray(c.bstored)                        # the world part a paragraph late
     q[16 * offs[-1]:16 * offs[-1]] = bytes(16)
@@ -34652,12 +35047,12 @@ def _selfcheck(paths, res, skipped, S):
                 idok))
     st1 = all(expand(c.stored, c.name) == c.cga and (not c.split or expand(c.wstored, c.name) == c.wcga)
               for c in courses) and all(
-        (a[1]["BZ%d.BIN" % k] == c.bstored and "BZ%dW.BIN" % k not in a[1]) if c.bstored else
-        (a[1]["BZ%d.BIN" % k] == c.stored and (not c.split or a[1]["BZ%dW.BIN" % k] == c.wstored))
-        for k, c in enumerate(courses))
-    res.append(("1 every BZ<K>.BIN (and a two-part course's BZ<K>W.BIN) is the course's STORED form and expands to "
-                "its RAM form - a SHEETED course's its ONE part, no BZ<K>W.BIN (both compiles' files compared "
-                "above)", st1))
+        (a[1]["BZ%d.BIN" % k] == (c.bstored if c.split else c.stored) and "BZ%dW.BIN" % k not in a[1]
+         and (not c.split or split_one_part(c.bstored, c.oplan, c.name) == [bytes(q) for q in one_part_stores(c)]))
+        for k, c in enumerate(courses)) and not any(n.endswith("W.BIN") for n in a[1])
+    res.append(("1 every BZ<K>.BIN is the course's STORED form and expands to its RAM form - a course with a world "
+                "part's (a two-part course's, SPEC.md 130.30.5; a SHEETED one's, 130.30.12.5) its ONE part, cut "
+                "back to its pieces at its paragraphs; no BZ<K>W.BIN (both compiles' files compared above)", st1))
     import types
     X = types.SimpleNamespace(paths=paths, a=a, courses=courses, byname=byname, t=htab())
     for fn in _SC_ORDER:
@@ -34772,12 +35167,6 @@ def _o88_arms(courses, demo_files):
             with open(p, "wb") as f:
                 f.write(c.bstored or c.stored)
             parts.append(p)
-        for k, c in enumerate(courses):             # SPEC.md 130.30.4.4: the WORLD parts after the courses'
-            if c.split and not c.bstored:
-                p = os.path.join(td, "BZ%dW.BIN" % k)
-                with open(p, "wb") as f:
-                    f.write(c.wstored)
-                parts.append(p)
         parts += [need[3]] + [os.path.join(art, n) for n in songs]
         for name in demo_files:                  # (the rows' order: named by course, SPEC.md 130.14.7.4)
             p = os.path.join(td, name)
@@ -34848,12 +35237,14 @@ def sizes(paths):
         more = list(c.sstored[1:]) if c.sstored else []   # (a SHEETED course's other sheets, 130.30.12)
         ps = [{f: packed_len(st, f) for f, _ in fmts} for st in more]
         whole = {f: sum(q[f] for q in pw + ps) for f, _ in fmts}
-        if c.bstored:                                   # SPEC.md 130.30.12.5: ONE part on the disk, the sheets
-            sep = dict(whole)                           # and the world part each from a paragraph
-            whole = {f: packed_len(c.bstored, f) for f, _ in fmts}
-            print("    ONE PART (SPEC.md 130.30.12.5): BZ%d.BIN %d bytes (OP_BIG), the sheets and the world part at "
+        if c.bstored:                                   # SPEC.md 130.30.5, 130.30.12.5: ONE part on the disk, the
+            sep = dict(whole)                           # picture part (or sheets) and the world part each from a
+            whole = {f: packed_len(c.bstored, f) for f, _ in fmts}      # paragraph
+            print("    ONE PART (SPEC.md %s): BZ%d.BIN %d bytes (OP_BIG), the %s and the world part at "
                   "paragraphs %s: LZ4 %d, LZB %d - as separate parts they would pack to LZ4 %d, LZB %d" % (
-                      k, len(c.bstored), c.plan["paras"], whole["lz4"], whole["lzb"], sep["lz4"], sep["lzb"]))
+                      "130.30.12.5" if c.sstored else "130.30.5", k, len(c.bstored),
+                      "sheets" if c.sstored else "picture part", c.oplan["paras"], whole["lz4"], whole["lzb"],
+                      sep["lz4"], sep["lzb"]))
         print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
             k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores + more),
             sum(len(st) for st in stores + more), sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))
@@ -35692,7 +36083,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, SHADOW, EDGE
+    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT, EDGE
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -35754,6 +36145,9 @@ def main():
                          "route and any --log demos; writes nothing")
     ap.add_argument("--log", action="append", default=[], metavar="BZD",
                     help="with --guide: a demo log (.bzd) to check as a run; may repeat")
+    ap.add_argument("--strict", action="store_true",
+                    help="every visual WARNING a refusal, but those a course marks `hidden` or `accept`s (SPEC.md "
+                         "130.56.4, 130.56.5; what an agent's course run uses)")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 130.15.12.2); about a minute a course")
@@ -35761,6 +36155,7 @@ def main():
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
+    STRICT = a.strict or a.selfcheck              # SPEC.md 130.56.10: the refusal controls are the strict tier's
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
     EDGE = a.edge

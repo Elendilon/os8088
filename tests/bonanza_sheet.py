@@ -3,7 +3,7 @@
 and bz_shchk under unicorn on TTALL, the test course whose picture part does not fit one part - the host half of
 what a MartyPC play of TTALL sees on the glass.
 
-    make BZDEV=1 bonanza && python3 tests/bonanza_sheet.py [--art DIR] [--red clamp|lanes|rowplanes|serve]
+    make BZDEV=1 bonanza && python3 tests/bonanza_sheet.py [--art DIR] [--red clamp|lanes|rowplanes|serve|world|wpara]
 
 THE METHOD is bonanza_wide's (bonanza_dsplit's Guest): the package image assembled from the tree against a
 BZDEV=1 art (TTALL is a TEST course, SPEC.md 130.54) and loaded at one segment of an emulated 8086; TTALL's
@@ -24,8 +24,14 @@ two sheets and its world part at three others, as bz_cload leaves them; its rout
      bz_ltmo are the sheet's; every map word a frame may read - block rows [tb - 2, tb + 28] - is the model's
      (a lane's cell its DRAWN pose's); and no byte of any sheet past its map has moved.
 
---red world: bz_cload2 reading the world part's paragraphs from the entry past the last sheet's, not entry 0's -
-            item 0 fails.
+  4  THE TWO-PART COURSE'S ONE PART (130.30.5): each two-part course of the build (BZ_CRS_WPARA's, no sheets:
+     the PLAYGROUND) - its BZ<K>.BIN, the picture part's stored form and the world part's from a paragraph -
+     laid at one segment; bz_cexp on its base and bz_cload2: the world part at BZ_CRS_WPARA's paragraphs
+     (bz_cseg; bz_mseg the base, the picture part), both RAM forms - the one-sheet case of item 0.
+
+--red world: bz_cload2 reading the world part's paragraphs from the last sheet's BZ_SHTAB entry, not
+            BZ_CRS_WPARA - items 0 and 4 fail.
+--red wpara: bz_cload2 taking the world part a paragraph past BZ_CRS_WPARA's - items 0 and 4 fail.
 --red clamp: bz_shmrow's tail not clamped (the rows past hic run on past the map) - item 3's table fails.
 --red lanes: bz_shset without its bz_lsync - item 3's lanes' cells fail in the second sheet.
 --red rowplanes: bz_cxmap counting BROWS, as before sheets - item 1 fails (the map overruns the blocks).
@@ -33,6 +39,7 @@ two sheets and its world part at three others, as bz_cload leaves them; its rout
 """
 import argparse
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -49,7 +56,11 @@ WS = 0x9000
 LSH = 1                         # the CGA's card row: two lines (bz_lsh)
 
 REDS = {
-    "world": [("bonanza.asm", "    mov ax, [si]                ; ... and the world part's, the last\n", "")],
+    "world": [("bonanza.asm", "    mov ax, [bz_cwpar + bx]     ; the world part's paragraphs (0: one part)\n",
+               "    mov ax, [si]                ; (red: the last sheet's entry's)\n")],
+    "wpara": [("bonanza.asm", "    mov ax, [bz_cwpar + bx]     ; the world part's paragraphs (0: one part)\n",
+               "    mov ax, [bz_cwpar + bx]     ; the world part's paragraphs (0: one part)\n"
+               "    inc ax                      ; (red: a paragraph late)\n")],
     "clamp": [("bzgame.inc", "    sub ax, dx                  ; (hic, BZ_MROWS): the hic-th's\n",
                "                                ; (red: not clamped)\n")],
     "lanes": [("bzgame.inc", "    je .n\n    call bz_lsync\n.n:\n    inc bx\n", "    je .n\n.n:\n    inc bx\n")],
@@ -93,6 +104,7 @@ def load_check(binp, sym, c):
     g.mu.mem_write(KSEG * 16 + KSEGOFF, b"\x01\xc2\xf8\xcb")     # add dx, ax; clc; retf: SEG_SUB's real-mode sum
     g.w("bz_crs", R.CRS_K["ttall"])
     g.w("bz_cseg", BASE, 2)
+    g.w("bz_mseg", BASE, 2)                     # (bz_cload's: the one part's base in all three)
     g.w("bz_shseg", BASE, 2)
     g.call("bz_cexp")
     g.call("bz_cload2")
@@ -113,6 +125,47 @@ def load_check(binp, sym, c):
     return not bad, ("TTALL: its ONE part (%d bytes, %d sheets and the world part at paragraphs %s) at one "
                      "segment; bz_cexp and bz_cload2 lay each out at the table's paragraphs, each its RAM form%s" % (
                          len(blob), pl["k"], pl["paras"], "" if not bad else " -- " + "; ".join(bad)))
+
+
+def two_parts(art):
+    """the build's TWO-PART courses' K (bzcourse.inc: BZ_CRS_WPARA not 0, BZ_CRS_SHN 0)"""
+    t = open(os.path.join(art, "bzcourse.inc")).read()
+    wp = [int(x) for x in re.search(r"%macro BZ_CRS_WPARA 0\s+dw ([^\n]+)", t).group(1).split(",")]
+    m_ = re.search(r"%macro BZ_CRS_SHN 0\s+db ([^\n]+)", t)
+    shn = [int(x) for x in m_.group(1).split(",")] if m_ else [0] * len(wp)
+    return [k for k, (w, n) in enumerate(zip(wp, shn)) if w and not n]
+
+
+def two_check(binp, sym, k):
+    """item 4: a TWO-PART course's ONE part at BASE; bz_cexp on it, then bz_cload2 -> its picture part's RAM
+    form at the base ([bz_mseg]) and its world part's at BZ_CRS_WPARA's paragraphs ([bz_cseg])"""
+    c = R.course_k(k)
+    blob, pw = bytes(c.bstored), c.oplan["paras"][-1]
+    g = D.Guest(binp, sym, b"")
+    g.mu.mem_write(BASE * 16, blob)
+    g.mu.mem_write(KSEG * 16 + KSEGOFF, b"\x01\xc2\xf8\xcb")     # add dx, ax; clc; retf: SEG_SUB's real-mode sum
+    g.w("bz_crs", k)
+    g.w("bz_cseg", BASE, 2)
+    g.w("bz_mseg", BASE, 2)
+    g.call("bz_cexp")
+    g.call("bz_cload2")
+    bad = []
+    if g.mu.reg_read(g.X.UC_X86_REG_EFLAGS) & 1:
+        bad.append("bz_cload2 refused (CF = 1)")
+    for what, word, s_, ram in (("the picture part", "bz_mseg", BASE, c.cga), ("the world part", "bz_cseg",
+                                                                                BASE + pw, c.wcga)):
+        got_s = g.r(word, 2)
+        if got_s != s_:
+            bad.append("%s's segment [%s] %04Xh, want %04Xh" % (what, word, got_s, s_))
+            continue
+        got = bytes(g.mu.mem_read(s_ * 16, len(ram)))
+        if got != bytes(ram):
+            at_ = next(j for j in range(len(ram)) if got[j] != ram[j])
+            bad.append("%s first differs from its RAM form at %d" % (what, at_))
+    return not bad, ("%s (two parts): its ONE part (%d bytes, the world part at paragraph %d) at one segment; "
+                     "bz_cexp and bz_cload2 lay out its picture part at the base and its world part at "
+                     "BZ_CRS_WPARA's paragraphs, each its RAM form%s" % (
+                         c.name, len(blob), pw, "" if not bad else " -- " + "; ".join(bad)))
 
 
 def expand_check(binp, sym, c):
@@ -278,6 +331,14 @@ def check(art=None, red=None, verbose=True):
             res += walk_check(binp, sym, c)
         except Exception as e:                  # (a red arm's guest can run off: that is its failure)
             res.append((False, "TTALL: the walk stopped: %s" % e))
+        ks = two_parts(R.at("build/bonanza-art"))
+        if not ks:
+            res.append((False, "no two-part course in the build: item 4 has none to run on"))
+        for k in ks:
+            try:
+                res.append(two_check(binp, sym, k))
+            except Exception as e:              # (a red arm's loader can run off: that is its failure)
+                res.append((False, "course %d (two parts): the one part's load stopped: %s" % (k, e)))
     ok = True
     for good, what in res:
         if verbose:
@@ -293,7 +354,8 @@ def main():
     a = ap.parse_args()
     ok, res = check(a.art, a.red)
     if a.red:
-        want = {"clamp": lambda r: not r[3][0], "lanes": lambda r: not r[3][0], "world": lambda r: not r[0][0],
+        want = {"clamp": lambda r: not r[3][0], "lanes": lambda r: not r[3][0],
+                "world": lambda r: not r[0][0] and not r[-1][0], "wpara": lambda r: not r[0][0] and not r[-1][0],
                 "rowplanes": lambda r: not r[1][0], "serve": lambda r: not r[3][0]}[a.red]
         good = want(res)
         print("bonanza_sheet --red %s: %s" % (a.red, "caught (red, as it must be)" if good else "NOT CAUGHT"))

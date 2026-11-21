@@ -149,6 +149,14 @@ course.
     `pin`, `tee`, `board` and `lamp` only `pin` *"kind of works because it
     is a sign hanging from a pole, which somewhat fits the art"*, and
     `lamp` maybe.
+  - **Something on the clock represents where this is in the course** (the
+    owner, 2026-11-21, choosing DOWNHILL DECISION's `orb`). One object, and
+    what changes between its uses says where the player stands: DOWN's orb
+    is the course's balls - RUBBER at the start, a SPLIT orb at the hub (its
+    steel half toward the steel way, its glass half toward the glass way),
+    and STEEL or GLASS at each finish, the material that finish is reached
+    in (SPEC.md 130.18.5.2). LITTLE HOP's frogs turning to look down the path
+    are the same idea in pose rather than material.
 
 ### 1.6 Balls
 

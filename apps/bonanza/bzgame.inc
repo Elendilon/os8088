@@ -471,8 +471,8 @@ VAR bz_mseg,2                  ; a one-part course's both the same segment)
 bz_mseg     equ bz_cseg         ; (no two-part course in this build: one word, today's bytes)
 %endif
 %if BZ_NSHC                   ; SPEC.md 130.30.12: a SHEETED course's sheets (none in this build: no bss)
-VAR bz_shseg,2 * BZ_SHMAX + 2   ; ...each sheet's segment (kern_mega: its selector), sheet 0's first
-                                ; (its one part's base), then the world part's (bz_cload2)
+VAR bz_shseg,2 * BZ_SHMAX       ; ...each sheet's segment (kern_mega: its selector), sheet 0's first
+                                ; (its one part's base; the world part's is bz_cseg, bz_cload2)
 VAR bz_shent,2                  ; ...the course's first BZ_SHTAB entry (bz_shtab + BZ_CRS_SHI[K])
 VAR bz_shlo,2                   ; ...the window tops (bz_R0n, this card's rows) the shown sheet serves,
 VAR bz_shhi,2                   ; signed: 8000h and 7FFFh on every other course (bz_shchk never switches)

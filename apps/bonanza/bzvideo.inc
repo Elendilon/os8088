@@ -813,6 +813,7 @@ BZ_BOXD     equ 20
 ; wave 9 (SPEC.md 130.25.19): the pickup cue's LOOK, bz_clook (bz_cuef):
 ; bits 0-3 the sparkles' hop count mod 16 (it moves at each hop and at no
 ; other frame; the sprite's shift is not in it), and
+BZ_CL_RI    equ 10h             ; the LIFE's RISE (SPEC.md 130.55): the places climb
 BZ_CL_SP    equ 20h             ; the SPARKLES
 BZ_CL_BL    equ 80h             ; a FLASH frame (BLINK4, every 4th): no ball
 
@@ -1056,6 +1057,10 @@ BZ_SPRP     equ 4 * BZ_SPRE     ; a place's (its four shifts)
             BZ_SPR 9, 4, %1, 1          ; upper right
             BZ_SPR -1, 2, %1, 0, 0, 2   ; 6-7 sparkle 2's: the left's top,
             BZ_SPR 15, 12, %1           ; the right's foot (none shared)
+            BZ_SPR -1, 7, %1, 0, 0, 7   ; 8-11 the RISE's own (SPEC.md 130.55):
+            BZ_SPR 15, 7, %1            ; the left's and the right's middle,
+            BZ_SPR 7, 7, %1, 1          ; the face's centre and its top
+            BZ_SPR 7, 0, %1, 1
 %endmacro
 bz_spr0:    BZ_SPRS 0
 BZ_SPRC     equ $ - bz_spr0     ; a card's table
@@ -1065,7 +1070,21 @@ BZ_SPRC     equ $ - bz_spr0     ; a card's table
 bz_sps:     BZ_SPS(0, 1, 2)
             BZ_SPS(3, 4, 5)
             BZ_SPS(6, 7, 6)
-%if BZ_SPRC != 8 * BZ_SPRP || 7 * BZ_SPRP > 255
+; SPEC.md 130.55: the LIFE's RISE - each sparkle CLIMBS a side or the face,
+; foot to top (steps a b c d, then the foot again), a step every 4 frames, the
+; three a step apart (bz_spo's clocks): the left (-1, 12) (-1, 7) (-1, 2)
+; (0, 0), the right (15, 12) (15, 7) (15, 2) (14, 0), the face (4, 10) (7, 7)
+; (9, 4) (7, 0) - eight of its twelve places the sparkles' own
+%define BZ_SPSR(a, b, c, d) db (a) * BZ_SPRP, (b) * BZ_SPRP, (c) * BZ_SPRP, (d) * BZ_SPRP
+bz_spsr:    BZ_SPSR(4, 8, 6, 0)
+            BZ_SPSR(7, 9, 1, 3)
+            BZ_SPSR(2, 10, 5, 11)
+; each mode's clocks for sparkles 1 and 2 (sparkle 0's is 0): the frames
+; added before the shift - the sparkles' 5 and 2 of 8, the rise's two steps
+; and one of 4
+bz_spo:     db 5, 2
+bz_spor:    db 8, 4
+%if BZ_SPRC != 12 * BZ_SPRP || 11 * BZ_SPRP > 255
  %error "bz_sps holds a place's offset in a byte"
 %endif
 

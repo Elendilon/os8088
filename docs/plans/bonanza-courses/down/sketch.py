@@ -186,11 +186,15 @@ floor("B", 28, 12, 32, 13, Z - 18.5)                         # the BOOSTER CHUTE
 rail(28, 12, 32, 12); rail(28, 13, 29, 13); rail(29, 13, 32, 13, "guard")   # (its FRONT see-through: a block hid the pads)
 for x in range(29, 32):
     mark(x + 0.5, 12.5, "boost", "")
-floor("L", 34, 10, 39, 15, Z - 23)                           # a WIDE GAP (x 32 - 33) and a DROP onto L: easy,
+floor("L", 34, 10, 39, 15, Z - 23, float_=True)              # (rev 17, STRUCT A: it FLOATS) a WIDE GAP (x 32 - 33) and a DROP onto L: easy,
                                                              # unguarded, NO FLAG (a respawn there could never
                                                              # cross on); rubber BOUNCES on over a second gap
-floor("X", 42, 8, 48, 17, Z - 26)                            # the HUB, large and safe (x 39 - 41 the gap; 6 wide: the width)
-rail(42, 8, 48, 8); rail(48, 8, 48, 14); rail(48, 15, 48, 17)    # (rev 4: the front rails gone, to see it)
+floor("X", 42, 10, 48, 17, Z - 26)                           # (rev 17: its 2 north rows gone) the HUB, large and safe (x 39 - 41 the gap; 6 wide: the width)
+rail(42, 10, 48, 10); rail(48, 10, 48, 14); rail(48, 15, 48, 17)  # (rev 4: the front rails gone, to see it)
+# rev 17 (the owner's pick of STRUCT.md's D): CHAMFERED corners, half holes (SPEC.md 130.24.4) cut on the diagonal
+# on L's four corners (an octagonal floating island, with A) and the hub's free front-left corner - corners no
+# route and no way goes near (the demo lands mid-L and leaves along y 12.5; the hub's cut is 3 tiles from the pad)
+HALVES += [(34, 10, "up"), (38, 10, "right"), (34, 14, "left"), (38, 14, "down")]   # (rev 18: the hub stays square)
 # 2. THE SPLIT: two exits out of the hub - EAST a STEEL pad, SOUTH a GLASS pad (rev 2: swapped, so the glass
 #    leg's lift climbs up the screen in view; rev 3: no archways - a rubber ball that hops a pad dies on the
 #    spikes or the membrane, which introduces both)
@@ -217,8 +221,13 @@ floor("T", 52, 16, 55, 17, Z - 29)                           # the ARCH's exit (
 # (384: no stun), or a safer 2-wide snake west - to a landing; its front step the WATER column 6 deep, steel
 # sinking down it and out of its front arch onto the finish below, the lowest thing on the screen
 floor("T", 55, 16, 59, 17, Z - 29)                           # (the beam, on east)
+# rev 17 (the owner, after playing the steel leg): easier for a human - a GUARD rail along the beam's north (back)
+# edge (not (52, 16)'s: that is the water column's arch exit), guards on the run's first two EAST edges where a ball
+# overshooting the turn off the beam goes, the hump 2 tiles further south and a steel flag 2 tiles past it
+rail(54, 16, 59, 16, "guard")
 floor("T", 59, 16, 62, 25, Z - 29)                           # the run SOUTH, 3 wide
-mark(60.5, 19.5, "hump", "hump")                             #   the momentum hump across it (EXTRA)
+rail(62, 16, 62, 18, "guard")                                #   (rev 17) its first two east edges guarded
+mark(60.5, 21.5, "hump", "hump")                             #   the momentum hump across it (EXTRA; rev 17: 2 south)
 mark(58.5, 23.5, "lift", "LIFT up 4")                        # the LIFT, off the run's foot to the west, ridden straight;
                                                              #   its front open (the shaft reads as a hole)
 floor("H", 55, 21, 58, 25, Z - 25)                           # its top (a flag by the lift)
@@ -244,20 +253,22 @@ floor("G", 53, 35, 62, 39, Z - 31)                           # FINISH 1, steel (
 floor("K", 45, 17, 46, 22, Z - 26)                           # the WEB BRIDGE: 1 wide, a glass-only MEMBRANE over the void
 for y in range(17, 22):
     mark(45.5, y + 0.5, "crack", "")
-floor("P", 43, 22, 47, 25, Z - 26)                           # the bridge's landing (a flag)
+floor("P", 43, 22, 47, 25, Z - 26, float_=True)              # the bridge's landing (a flag; rev 17, STRUCT C: it floats)
 LINKS = [(42, 23), (40, 21), (38, 19), (36, 21), (34, 23), (30, 23), (40, 25), (34, 19)]
 for lx, ly in LINKS:                                         # the maze's LINKS: one membrane cell each
     floor("K", lx, ly, lx + 1, ly + 1, Z - 26)
     mark(lx + 0.5, ly + 0.5, "crack", "")
+# rev 17 (the owner's pick of STRUCT.md's C): the islands and the bridge's landing FLOAT, the one-cell membrane
+# links do not (a `thick` on a crack would re-lane it, SPEC.md 130.27.2.1), so each link reads as a bridge
 # rev 12 (the owner): every island 3 x 3, and the way through WINDS - north off island 1, west, south, west to
 # the junction - with two islands that lead nowhere
-floor("Q", 39, 22, 42, 25, Z - 26)                           # island 1 (a flag): north to N1, south to D1
-floor("Q", 39, 18, 42, 21, Z - 26)                           # N1: west to W1
-floor("Q", 35, 18, 38, 21, Z - 26)                           # W1: south to W2, west to D2 (rev 13: the wrong turn)
-floor("Q", 35, 22, 38, 25, Z - 26)                           # W2: west to the junction
-floor("Q", 31, 22, 34, 25, Z - 26)                           # the JUNCTION (a flag): west to the pool
-floor("Q", 39, 26, 42, 29, Z - 26)                           # D1, a DEAD END
-floor("Q", 31, 18, 34, 21, Z - 26)                           # D2, a DEAD END
+floor("Q", 39, 22, 42, 25, Z - 26, float_=True)              # island 1 (a flag): north to N1, south to D1
+floor("Q", 39, 18, 42, 21, Z - 26, float_=True)              # N1: west to W1
+floor("Q", 35, 18, 38, 21, Z - 26, float_=True)              # W1: south to W2, west to D2 (rev 13: the wrong turn)
+floor("Q", 35, 22, 38, 25, Z - 26, float_=True)              # W2: west to the junction
+floor("Q", 31, 22, 34, 25, Z - 26, float_=True)              # the JUNCTION (a flag): west to the pool
+floor("Q", 39, 26, 42, 29, Z - 26, float_=True)              # D1, a DEAD END
+floor("Q", 31, 18, 34, 21, Z - 26, float_=True)              # D2, a DEAD END
 floor("W", 20, 22, 25, 25, Z - 26)                           # the FLOAT pool, 3 deep, no arch: glass rides across
 rail(20, 22, 25, 22, "guard")                                # a guard rail north; SOUTH open (rev 13: no steel ball
                                                              #   reaches past the membrane, so the pool is `open` -
@@ -307,23 +318,36 @@ EXTRA = [
     "water rect %d %d %d %d top %g bed %g open" % (_w(20), _w(22), _w(25), _w(25), Z - 26, Z - 29),
     "prop boost %d %d face +y strength 40" % (_w(18), _w(23)),   # (rev 13: a row back from the edge - the Hop is pressed on plain floor)
     "# steel (rev 16): the momentum hump across the run south, the LIFT up 4 in line at its end, the column",
-    "hump %d %d %g along x 3 open height 8" % (_w(59), _w(19), Z - 29),
+    "hump %d %d %g along x 3 open height 8" % (_w(59), _w(21), Z - 29),     # (rev 17: 2 tiles south)
     "prop platform %d %d 4" % (_w(58), _w(23)),
     "water rect %d %d %d %d top %g bed %g" % (_w(57), _w(34), _w(58), _w(35), Z - 25, Z - 31),
     "arch %d %d +y" % (_w(57), _w(34)),
 ] + ["spring %d %d 384" % (_w(sx), _w(sy)) for sx, sy in ((56, 26), (56, 29))] + [   # (SPEC.md 130.14: 384 clears 1 tile, no stun)
 ]
-GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 0, "steel"), (31, 27, 33, 33, Z - 34, 1, "glass")]
+GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 1, "steel"), (31, 27, 33, 33, Z - 34, 0, "glass")]   # (rev 19: glass, the easier, exit 0 to WINDMILL LANE; steel exit 1)
 
 START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
-         (40.5, 23.5, "flag 3", "glass"), (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"), (18.5, 28.5, "flag 7", "glass"),
-         (56.5, 23.5, "flag 6", "steel")]       # (rev 4: no flag at steel's entrance; one on the lift's top too)
-CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 7.5, Z - 24.5, "hub", "block"), (57.5, 39.5, Z - 29.5, "steel finish", "block"),
+         (32.5, 23.5, "flag 4", "glass"), (18.5, 22.5, "flag 5", "glass"), (18.5, 28.5, "flag 7", "glass"),
+         (56.5, 23.5, "flag 6", "steel"), (60.5, 23.5, "flag 8", "steel")]   # (rev 4: no flag at steel's entrance; one
+# on the lift's top too.  rev 18, the owner: island 1's flag goes - one small island past the bridge landing's - for
+# a steel flag on the run 2 tiles past the hump, so a ball the hump throws off the edge respawns there)
+CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 9.5, Z - 24.5, "hub", "block"), (57.5, 39.5, Z - 29.5, "steel finish", "block"),
           (33.5, 30.5, Z - 32.5, "glass finish", "block")]
-FRAMES = {}
+FRAMES = {"start": "orbr", "hub": "orbh", "steel finish": "orbs", "glass finish": "orbg"}   # rev 17 (the owner's
+# pick of CLOCKS.md's concepts): the ORB, the course's balls - RUBBER at the start, the hub's SPLIT orb (steel
+# left, glass right: the two ways out), STEEL and GLASS at their finishes ("something on the clock represents
+# where this is in the course"); SPEC.md 130.18.5.2
 PLACED = {}
 SIGNS = []
+# rev 17 (the owner's picks of ART.md's options): the SIGN `wall` ("STEEL >" painted on the steel corridor's north
+# rail, "GLASS >" on the hub's south face) and the DECAL `boost` (the cyan speed arrow from the far bank's boost pad
+# to the gap).  The pictures are art.py's (`art.py apply` draws them off this course's own compile and writes
+# apps/bonanza/courses/down_*.bba); their anchors are pinned here so the sketch alone writes the whole course, and
+# `art.py apply` refuses when what it drew no longer stands where these say
+ART = [("down_sign.bba", 705, 720, "the SPLIT's words painted on the walls"),
+       ("down_boost.bba", 196, 579, "the far bank's speed arrow")]
+ART_BEGIN, ART_END = "# ---- ART (generated by docs/plans/bonanza-courses/down/art.py) ----", "# ---- end ART ----"
 ROUTE = [(4.5, 4.5 - N), (4.5, 8.5 - N), (8.5, 12.5), (18, 12.5), (25, 12.5), (28, 12.5), (32, 12.5), (37, 12.5),
          (45, 12.5), (46, 14.5), (48, 14.5), (52.5, 14.5), (52.5, 16.5), (59.5, 16.5), (60.5, 18), (60.5, 21), (60.5, 23.5), (59.5, 23.5),
          (56.5, 23.5), (54, 23), (53.5, 25), (51, 25), (51, 28), (51, 31), (54, 31.5), (57.5, 32), (57.5, 34.5),
@@ -334,7 +358,7 @@ ROUTE2 = [(45.5, 12.5), (45.5, 17), (45.5, 22), (44.5, 23.5), (40.5, 23.5), (40.
 LABELS = [(4.5, 4.5, "start (1 tile)"), (4.5, 7, "STEEP ramp"), (5, 12, "shape corner"), (12, 12.5, "hump run"),
           (21, 12.5, "3 inclines"), (26, 12, "funnel+flag"), (29, 12.5, "BOOSTER chute"), (33, 12.5, "wide gap+drop"),
           (36, 12.5, "landing (no flag)"), (40, 12.5, "bounce gap"), (45, 11, "HUB"), (47.5, 14, "steel pad"),
-          (50, 14.5, "spikes"), (52.5, 14, "water sink"), (60.5, 20, "hump"), (58.5, 22.5, "lift"), (57, 27, "straight+springs"), (51, 27, "snake"), (58, 32, "landing"), (58, 34.5, "column"), 
+          (50, 14.5, "spikes"), (52.5, 14, "water sink"), (60.5, 22, "hump"), (58.5, 22.5, "lift"), (57, 27, "straight+springs"), (51, 27, "snake"), (58, 32, "landing"), (58, 34.5, "column"), 
           (57, 38, "FINISH steel"), (45.5, 16, "glass pad"), (45.5, 19, "web bridge"), (40, 22, "island 1"), (40, 18, "N1"), (36, 18, "W1"), (36, 22, "W2"), (32, 22, "junction"), (40, 26, "D1"), (32, 18, "D2"),
           (22, 22.5, "FLOAT pool"), (18, 22, "bank+boost"), (17, 28, "stairs"), (23, 27, "3"), (21, 32, "2"), (29, 31, "FINISH glass")]
 
@@ -551,8 +575,8 @@ def route_len():
 
 HEAD_TXT = """
 # Course 3 (DOWN; docs/plans/bonanza-courses/DOWN.md): DOWNHILL DECISION, the tutorial's reward - SPEED, then a
-# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 0, GLASS south (a membrane bridge,
-# a lift, a choice of stairs) to exit 1.  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
+# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 1, GLASS south (a membrane bridge,
+# a maze, a choice of stairs) to exit 0 (WINDMILL LANE).  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
 # while the layout moves.
 course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules
@@ -561,6 +585,7 @@ origin 304                # 1,280 px (SPEC.md 130.10.4.2): steel's north-west le
 uses boost spike water spring
 ball rubber
 music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
+limit 75                  # the owner (2026-11-21, after playing the steel leg): 75 s
 target 60
 """
 
@@ -655,6 +680,10 @@ def bbc(out):
     for x, y in ROUTE:
         if (int(x), int(y)) not in CHUTE and (int(x), int(y)) in CELLS:   # (none on a chute or over a gap)
             L.append("way %d %d" % (int(x) + OFF, int(y) + OFF))
+    if ART and "--no-art" not in sys.argv:
+        L.append(ART_BEGIN)
+        L += ["art %s %d %d" % (fn, ax, ay) for fn, ax, ay, _note in ART]
+        L.append(ART_END)
     open(out, "w").write("\n".join(L) + "\n")
 
 

@@ -184,8 +184,9 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo row i: BZ_P_DEMO + i, course
-                                ; bz_dcrs[i] (130.14.7.4) - after the world parts (a SHEETED course has none: 130.30.12.5)
+BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS ; shipped demo row i: BZ_P_DEMO + i, course
+                                ; bz_dcrs[i] (130.14.7.4) - after the courses' (no world rows: a world
+                                ; part is in its course's ONE part, SPEC.md 130.30.5, 130.30.12.5)
 BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
@@ -195,7 +196,8 @@ BZ_P_FAM    equ BZ_P_KIT + 1    ; wave 9 (SPEC.md 130.25.6.2): the family part
                                 ; rows, after every other row: a `fetch` family's own (ID order),
 BZ_P_FBUN   equ BZ_P_FAM + BZ_NFFETCH ; then the RESIDENT BUNDLE's (130.25.6.9); bz_ftab maps an ID
 BZ_P_VGA    equ BZ_P_FBUN + 1   ; THE VGA's code part, BZVGA.BIN (SPEC.md 130.46.6): the last row
-BZ_LIVES    equ 5               ; a new game's lives (8b.5)
+BZ_LIVES    equ 5               ; a new game's lives (8b.5); a LIFE pickup raises
+                                ; them to BZ_LVMAX (bzcourse.inc, SPEC.md 130.55)
 ; --- BONANZA.DAT (SPEC.md 130.14.3.3, 130.22.5.1): SYSTEM\APPDATA, ONE sector, in [bz_dat] -
 ; `BZS5`: 488 bytes, keyed by what stays put - a best by its course's SAVE KEY, progress by PAD
 BZD_ENT     equ 8               ; 23 best entries IN NO ORDER: +0 the course's
@@ -204,7 +206,7 @@ BZD_NENT    equ BZ_CRS_MAX      ; STEPS (0 none), +4 that best's falls
 BZD_SLOT    equ BZD_ENT + BZD_NENT * BZD_ENTB ; three game SLOTS after the bests: +0 lives,
 BZD_SLOTB   equ 22 + 4 * BZ_PAD_MAX ; +1 the MODE (bit 0), +2 the PAD, +3 zero,
 BZD_NSLOT   equ 3               ; +4 the OPEN pads and +8 the DONE ones
-BZD_FILE    equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB ; (a dword each, a bit a pad), +12 the routes
+                                ; (a dword each, a bit a pad), +12 the routes
 BZD_SPAD    equ 2               ; OPENED and +16 TAKEN (a dword each), +20 the
 BZD_SOPEN   equ 4               ; pathway's VERSION (BZ_PATH_VER), +22 the exits
 BZD_SDONE   equ 8               ; found (a word a PAD, 23 pads, +22 - +67), +68
@@ -213,6 +215,12 @@ BZD_SRTAK   equ 16              ; +113): 114 bytes a slot.
 BZD_SVER    equ 20
 BZD_SEXIT   equ 22
 BZD_SBEST   equ BZD_SEXIT + 2 * BZ_PAD_MAX
+; SPEC.md 130.55: THE LIVES GIVEN after the three slots, a dword a slot - a bit
+; a PAD whose course's `once` LIFE was taken in that slot's game (bz_nlife).  A
+; file written before it (BZD_FILE0 bytes) reads with the table zero
+BZD_FILE0   equ BZD_SLOT + BZD_NSLOT * BZD_SLOTB
+BZD_LIFE    equ BZD_FILE0
+BZD_FILE    equ BZD_LIFE + 4 * BZD_NSLOT
 ; UNDER one sector, never a WHOLE one: od_write takes its in-place arm (one
 ; sector, no FAT, no entry) only for a count that is not a multiple of 512
 ; (os88data.inc), and the slot is written at a course's ENTRY inside the
@@ -681,7 +689,7 @@ bz_cload:
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
 %if BZ_NCRS2 + BZ_NSHC
-    mov [bz_mseg], ax           ; (the PICTURE part: SPEC.md 130.30.5)
+    mov [bz_mseg], ax           ; (the PICTURE part, the one part's base: SPEC.md 130.30.5)
 %endif
 %if BZ_NSHC
     mov [bz_shseg], ax          ; (a SHEETED course's ONE part: sheet 0, its base - SPEC.md 130.30.12.5)
@@ -705,8 +713,8 @@ bz_cload:
 .exd:
 %endif
 %if BZ_NCRS2 + BZ_NSHC
-    call bz_cload2              ; a two-part course's WORLD part (130.30.5),
-    jc .drop                    ; before anything reads the world
+    call bz_cload2              ; a course's WORLD part, a segment of its one
+    jc .drop                    ; part (130.30.5), before anything reads the world
 %endif
     call bz_bget                ; THE BALLS (SPEC.md 130.25.5.2): HELD, all three,
     jc .drop                    ; since the open - fetched and generated here only
@@ -760,20 +768,19 @@ bz_cload:
 
 %if BZ_NCRS2 + BZ_NSHC
 ; -----------------------------------------------------------------------------
-; bz_cload2 - a TWO-PART course's WORLD part (SPEC.md 130.30.5): when
-; BZ_CRS_WROW names one for course [bz_crs], fetched (the picture part's
-; segment stays in bz_mseg), its segment stored in bz_cseg and expanded in
-; place ONCE (bz_cexp, 130.15.4.5) - after the picture part's, so bz_dfind's
-; bounds are the world part's.  A SHEETED course (130.30.12.5) has no world
-; row: its sheets past 0 and its world part are SEGMENTS of the ONE part
-; bz_cload fetched - each at its BZ_SHTAB entry's paragraphs from the part's
-; base (the world part's in entry 0's word, sheet 0's being 0), taken with
-; OSAPI_SEG's SEG_SUB (kern_mega: a selector tied to the claim, going with
-; it; every real-mode kernel: the sum), stored and expanded in place in
-; order, the world part's last.  No fetch, no disk.  The pathway and the
-; title are one part.  CF = 1 a fetch, or a selector, was refused (op_fetch
-; said why): bz_cdrop gives back what was fetched (it drops every world
-; row).  At home.  Preserves nothing.
+; bz_cload2 - a course's WORLD part and a SHEETED course's other sheets (SPEC.md
+; 130.30.5, 130.30.12.5): SEGMENTS of the ONE part bz_cload fetched - a
+; two-part course's picture part and world part, a sheeted course's sheets and
+; world part, each from a paragraph of the one claim.  A two-part course is
+; the one-sheet case: no sheet past 0, then the world part.  Sheets 1 .. k - 1
+; first (each at its BZ_SHTAB entry's paragraphs, into bz_shseg + 2i), then the
+; world part at BZ_CRS_WPARA's (0: one BZC2 part, nothing to do): each taken
+; with OSAPI_SEG's SEG_SUB of the part's base, [bz_mseg] (kern_mega: a
+; selector tied to the claim, going with it; every real-mode kernel: the sum),
+; stored in bz_cseg and expanded in place ONCE (bz_cexp, 130.15.4.5) - the
+; world part's last, so bz_dfind's bounds are the world part's.  No fetch, no
+; disk.  The pathway and the title are one part.  CF = 1 a selector was
+; refused: bz_cdrop gives back the one claim.  At home.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_cload2:
     mov bl, [bz_crs]
@@ -781,59 +788,50 @@ bz_cload2:
     jae .one                    ; (CF = 0: the pathway, the title)
     xor bh, bh
 %if BZ_NSHC
-    mov cl, [bz_cshn + bx]      ; k sheets: k segments past sheet 0 - its
-    or cl, cl                   ; sheets' and then the world part's
-    jz .nsh
-    xor ch, ch
-    mov bp, cx                  ; (BP: bz_cexp keeps it)
+    mov cl, [bz_cshn + bx]      ; k sheets (0: not sheeted): sheets 1 .. k - 1
     shl bx, 1
+    push bx
     mov si, [bz_cshi + bx]
     add si, bz_shtab            ; SI = entry 0
-    mov bx, si
     mov di, bz_shseg
+    xor ch, ch
+    mov bp, cx                  ; (BP: bz_cexp and OSAPI_SEG keep it)
 .sh:
-    add bx, BZ_SHENT            ; sheet j's paragraphs ...
-    inc di
-    inc di
-    mov ax, [bx]
     dec bp
-    jnz .sub
-    mov ax, [si]                ; ... and the world part's, the last
-.sub:
-    push bx
-    mov dx, [bz_shseg]          ; the part's base + AX paragraphs (a real-mode
-    xor cx, cx                  ; kernel's DX + AX; CX 0: 64KB, or to the
-    mov bl, SEG_SUB             ; part's end)
-    call OSAPI_SEG
-    pop bx
-    jc .one                     ; (CF = 1: no selector)
-    mov [di], dx
-    mov [bz_cseg], dx
+    jle .shd                    ; (k 0 or 1: no sheet past 0)
+    add si, BZ_SHENT            ; sheet j's paragraphs
+    inc di
+    inc di
+    mov ax, [si]
     push si
     push di
-    push bx
-    call bz_cexp                ; the STORED form expanded in place, once
-    pop bx
+    call .sub
     pop di
     pop si
-    or bp, bp                   ; (CF = 0)
-    jnz .sh
+    jc .shx                     ; (CF = 1: no selector)
+    mov ax, [bz_cseg]
+    mov [di], ax
+    jmp short .sh
+.shx:
+    pop bx
     ret
-.nsh:
+.shd:
+    pop bx
+%else
+    shl bx, 1
 %endif
-%if BZ_NCRS2
-    mov al, [bz_cwrow + bx]
-    or al, al                   ; (CF = 0)
+    mov ax, [bz_cwpar + bx]     ; the world part's paragraphs (0: one part)
+    or ax, ax                   ; (CF = 0)
     jz .one
-    push ax
-    call op_fetch               ; claim, read, decode - or a toast said why
-    pop ax
+.sub:                           ; AX paragraphs into the one part: a segment
+    mov dx, [bz_mseg]           ; of it (a real-mode kernel's DX + AX; CX 0:
+    xor cx, cx                  ; 64KB, or to the part's end), in bz_cseg,
+    mov bl, SEG_SUB             ; its STORED form expanded in place, once
+    call OSAPI_SEG
     jc .one
-    call op_seg
-    mov [bz_cseg], ax
-    call bz_cexp                ; the STORED form expanded in place, once
+    mov [bz_cseg], dx
+    call bz_cexp
     clc
-%endif
 .one:
     ret
 %endif
@@ -956,9 +954,26 @@ bz_gstorl:
     mov si, bz_nopen
     mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep movsw
+    call bz_dlife               ; ...and the lives given (130.55)
+    mov si, bz_nlife
+    movsw
+    movsw
     pop es
     pop di
     pop cx
+    ret
+
+; bz_dlife - DI = the slot played's dword in THE LIVES GIVEN (BZD_LIFE, SPEC.md
+; 130.55).  Preserves all else.
+bz_dlife:
+    push ax
+    mov al, [bz_slot]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    add ax, bz_dat + BZD_LIFE
+    xchg ax, di
+    pop ax
     ret
 
 ; bz_gload - the slot's pad and its 16 bytes of pads and routes into
@@ -977,6 +992,11 @@ bz_gload:
     mov di, bz_nopen
     mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep movsw
+    call bz_dlife               ; ...and the lives given (130.55)
+    mov si, di
+    mov di, bz_nlife
+    movsw
+    movsw
     pop es
     pop di
     pop si
@@ -1000,6 +1020,9 @@ bz_gnew:
     mov cx, (BZD_SVER - BZD_SOPEN) / 2
     rep stosw
     mov byte [si + BZD_SOPEN], 1
+    call bz_dlife               ; (no life given: 130.55)
+    stosw
+    stosw
     pop es
     pop di
     pop cx
@@ -2131,6 +2154,10 @@ bz_grounds:
     call bz_gcrs                ; (no INTRO card any more, 130.22.6)
     jc .out
 .crs:
+    cmp byte [bz_rsm], 0        ; THE LIFE PICKUP's (SPEC.md 130.55): bz_lfx for
+    jne .lfk                    ; the course (a RESUMED play keeps its own)
+    call bz_lfset
+.lfk:
     call bz_vinit
     call bzs_open
     xor al, al                  ; (a RETRY's life: its sound in its own play)
@@ -2147,6 +2174,13 @@ bz_grounds:
     mov byte [bz_susp], BZ_SU_CRS ; its log (SPEC.md 130.26.4)
     ret
 .ntw:
+    test byte [bz_lfx], 2       ; a `once` LIFE given (130.55): its pad's bit,
+    jz .ntl                     ; kept with the game (a finish or not)
+    mov al, [bz_ppad]
+    mov si, bz_nlife
+    call bz_dwset
+.ntl:
+    mov byte [bz_lfx], 0        ; (no other play takes a life)
     cmp byte [bz_goal], 0       ; A COURSE: a finish ... (no RESULT card, 130.22.6)
     je .life
     call bz_dslot               ; the exit FOUND (130.19.6), a word a PAD
@@ -2210,6 +2244,23 @@ bz_grounds:
     call bzs_gdrop0
     cmp byte [bz_crs], BZ_CRS_PATH
     je bz_phrel                 ; ...which stays only if a course fits beside it
+    ret
+
+; bz_lfset - bz_lfx for a game's course about to play (SPEC.md 130.55): 0 in
+; EXPLORE (it costs no life, so it gives none); else bit 0, and bit 1 when the
+; pad's course has given its `once` life this game (bz_nlife).  Clobbers AX, SI.
+bz_lfset:
+    xor ah, ah
+    cmp byte [bz_xmode], 0
+    jne .w
+    mov al, [bz_ppad]
+    mov si, bz_nlife
+    call bz_dwtst               ; (ZF = 0: given)
+    mov ah, 1
+    jz .w
+    mov ah, 3
+.w:
+    mov [bz_lfx], ah
     ret
 
 ; bz_phrel - before a course is fetched, the pathway's balls, song and sound
@@ -2557,24 +2608,17 @@ bz_cdrop:
 %if BZ_PATH_NPAD
 .held:
 %endif
-%if BZ_NCRS2
-    mov al, BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; every two-part course's WORLD part
-.dw:                            ; (SPEC.md 130.30.5): a row not here is a
-    dec ax                      ; no-op (op_drop preserves AX)
-    call op_drop
-    cmp al, BZ_P_CRS + BZ_NCRS
-    ja .dw
-%endif
     xor ax, ax                  ; (bz_bsegs kept: the balls are)
     mov [bz_cseg], ax
 %if BZ_NCRS2 + BZ_NSHC
     mov [bz_mseg], ax
 %endif
 %if BZ_NSHC
-    mov [bz_shn], al            ; (and its sheets with it - segments of its one
-                                ; part, their selectors going with its claim:
-                                ; SPEC.md 130.30.12.5)
-%endif
+    mov [bz_shn], al            ; (and its sheets with it)
+%endif                          ; (a world part, and a sheet past 0, are
+                                ; segments of the course's one part, their
+                                ; selectors going with its claim: SPEC.md
+                                ; 130.30.5, 130.30.12.5)
     mov [bz_bseg], ax
     ret
 
@@ -4278,7 +4322,18 @@ bz_dload:
     or dx, dx
     jnz bz_dnorm
     cmp ax, BZD_FILE            ; BZS5 (130.22.5.1): exactly BZD_FILE bytes; any
-    jne bz_dnorm                ; other length (an older layout too) is unrecognised
+    je .len                     ; other length (an older layout too) is unrecognised
+    cmp ax, BZD_FILE0           ; - but BZD_FILE0, the file before THE LIVES
+    jne bz_dnorm                ; GIVEN (130.55): its table zero
+    push es
+    push ds
+    pop es
+    mov di, bz_dat + BZD_LIFE
+    mov cx, (BZD_FILE - BZD_LIFE) / 2
+    xor ax, ax
+    rep stosw                   ; (CL 0, as on every refusal below)
+    pop es
+.len:
     cmp word [bz_dat + 2], 'S5'
     jne bz_dnorm
     call bz_dchk
@@ -4431,6 +4486,10 @@ bz_dsave:
     add si, bz_dmine - bz_dat
     mov cx, BZD_SLOTB / 2
     rep movsw
+    call bz_dlife               ; ...and its LIVES GIVEN (130.55)
+    lea si, [di + bz_dmine - bz_dat]
+    movsw
+    movsw
     mov bx, bz_dmine + BZD_ENT  ; per course: each of our entries (bz_dnorm
     mov cx, BZD_NENT            ; made both images: this build's keys, each
 .m:                             ; once, a best 1 - 65,534) against the disk's
@@ -4503,8 +4562,8 @@ bz_dslz:
     push es
     push ds
     pop es
-    mov di, bz_dat + BZD_SLOT
-    mov cx, BZD_NSLOT * BZD_SLOTB / 2
+    mov di, bz_dat + BZD_SLOT   ; (and THE LIVES GIVEN after them, 130.55)
+    mov cx, (BZD_FILE - BZD_SLOT) / 2
     xor ax, ax
     rep stosw
     pop es
@@ -4514,7 +4573,7 @@ bz_dslz:
     ret
 
 ; bz_dslots - each SLOT judged alone (BZS5, SPEC.md 130.22.5.1): EMPTIED when
-; its lives are over BZ_LIVES, +1 has a bit but the mode's, +3 is not zero,
+; its lives are over BZ_LVMAX (130.55), +1 has a bit but the mode's, +3 is not zero,
 ; a route TAKEN is not one OPENED, its exits found or its bests past the
 ; pathway's PADS (at or past BZ_PATH_NPAD) are not zero, +20 is not this
 ; build's pathway VERSION, or - it having lives - pad 0 is not open, its pad
@@ -4532,8 +4591,8 @@ bz_dslots:
     mov si, bz_dat + BZD_SLOT
     mov bl, BZD_NSLOT
 .s:
-    mov al, [si]                ; lives
-    cmp al, BZ_LIVES
+    mov al, [si]                ; lives (a LIFE pickup's: up to BZ_LVMAX, 130.55)
+    cmp al, BZ_LVMAX
     ja .bad
     test byte [si + 1], 0feh    ; (+1: bit 0 the MODE, 8c)
     jnz .bad
@@ -4579,6 +4638,15 @@ bz_dslots:
     mov cx, BZD_SLOTB / 2
     xor ax, ax
     rep stosw
+    mov al, BZD_NSLOT           ; ...and its LIVES GIVEN (130.55): slot
+    sub al, bl                  ; NSLOT - BL's dword
+    shl ax, 1
+    shl ax, 1
+    add ax, bz_dat + BZD_LIFE
+    xchg ax, di
+    xor ax, ax
+    stosw
+    stosw
     pop es
 .n:
     push si                     ; each pad's exits found masked to its
@@ -5297,14 +5365,14 @@ bz_cids:    BZ_CRS_IDS          ; ...their identities, a word each
 bz_ckeys:   BZ_CRS_KEYS         ; ...their SAVE KEYS, a word each (130.22.5.1)
 ; (their songs: each course part's own section S since SPEC.md 130.50.3 - no table)
 bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word each
-%if BZ_NCRS2
-bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 130.30.4.4: each course's WORLD part's row (0: one part)
+%if BZ_NCRS2 + BZ_NSHC
+bz_cwpar:   BZ_CRS_WPARA        ; SPEC.md 130.30.5: each course's WORLD part's paragraphs in its ONE part (0: none)
 %endif
 %if BZ_NSHC
 bz_cshn:    BZ_CRS_SHN          ; SPEC.md 130.30.12.5: each course's SHEETS (0: one picture part),
 bz_cshi:    BZ_CRS_SHI          ; its first entry's offset in bz_shtab,
-bz_shtab:   BZ_SHTAB            ; and an entry a sheet: its paragraphs in the part (entry 0: the
-                                ; world part's), m0, hic, tlo, thi
+bz_shtab:   BZ_SHTAB            ; and an entry a sheet: its paragraphs in the part (sheet 0's 0),
+                                ; m0, hic, tlo, thi
 %endif
                                 ; (the tool's, SPEC.md 130.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
@@ -5346,8 +5414,8 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a course (every one but BENCH).  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
-    BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2), then the WORLD parts
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
+    BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2; a world part in its ONE part, 130.30.5)
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (130.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (130.19.2)
     OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ_P_PATH: BZPATH.BIN, the pathway (130.19.5)
@@ -5359,7 +5427,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
+%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
  %error "the demo rows follow the courses', at most one a course (SPEC.md 130.14.7.4)"
 %endif
 
@@ -5420,7 +5488,10 @@ VAR bz_phre,1                   ; ...1 while the pathway is re-entered from the 
 %ifdef BZDEV
 VAR bz_phforce,1                ; HARNESS: nonzero never holds it (130.22.7); never set by the package
 %endif
-VAR bz_lives,1                  ; lives left (5 at a new game; 0 the game is over)
+VAR bz_lives,1                  ; lives left (5 at a new game, a LIFE pickup's up to BZ_LVMAX; 0 the game is over)
+VAR bz_lfx,1                    ; SPEC.md 130.55: the LIFE pickup's - bit 0 a game's course plays (a life may be
+                                ; taken), bit 1 its pad's `once` life given this game (the part sets it)
+VAR bz_nlife,4                  ; ...a bit a PAD whose `once` life the game has given (the slot's, BZD_LIFE)
 VAR bz_pwck,1                   ; wave 8R (130.22.4.4): the course Enter at a pad plays
 VAR bz_nst,(BZ_NSIGN + 1) & ~1  ; each SIGN's pose (bz_ltrue's SIGN case, bz_nset; 130.22.4.1), even
 VAR bz_ingame,1                 ; 1: inside the game's bracket (bz_fullscreen's rounds)
