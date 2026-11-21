@@ -35969,7 +35969,7 @@ def main():
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
-    STRICT = a.strict
+    STRICT = a.strict or a.selfcheck              # SPEC.md 130.55.10: the refusal controls are the strict tier's
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
     JOBS[0] = a.jobs
