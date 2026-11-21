@@ -692,7 +692,8 @@ def leg_hostile(g, cases=None):
                 name, got.hex(), want.hex()))
         free_play(g, first(), "hostile %s: TQUIK" % name)
         d = read_dat(g, "SYSTEM/APPDATA/" + fn)
-        exp = dat_image(nxt, slots=want[SLOT_OFF:])     # (the slots as the reader kept them)
+        exp = dat_image(nxt, slots=want[SLOT_OFF:LIFE_OFF],        # (the slots as the reader kept them,
+                        given=struct.unpack_from("<3I", want, LIFE_OFF))  # and their lives given, 130.55)
         if d != exp:
             fails.append("hostile %s: the next best did not rewrite the file whole: %s, want %s" % (
                 name, d.hex() if d else "ABSENT", exp.hex()))
