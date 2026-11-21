@@ -1,0 +1,9 @@
+post: posts, postt, postf
+blocks 1002 of 1,024 (the picture's pool); occluder masks 214 (of 256), records 1764
+one part, 56604 bytes in RAM (8420 under 65,024)
+part 0 stored 56604, LZ4 17237, LZB 14466
+world part 10131 in RAM, stored 10131, LZ4 2142, LZB 1714
+on disk, every part: LZ4 19379, LZB 16180
+clock at (7, 13), frame posts: its tile's centre at canvas (576, 188), its digits in block row 19
+clock at (34, 36), frame postt: its tile's centre at canvas (640, 764), its digits in block row 91
+clock at (22, 55), frame postf: its tile's centre at canvas (144, 788), its digits in block row 94
