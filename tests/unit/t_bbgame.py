@@ -3,7 +3,8 @@
 pieces (`make bbgamebin`) with no assembler, on the host:
 
  1. THE SHIPPED LIST: composed with no added course, the package is build/bonanza.o88 byte for byte
-    (the course compile through the cache, the pieces v0's, os88pkg as the Makefile runs it);
+    (the course compile through the cache, the pieces v0's, os88pkg as the Makefile runs it), and its
+    --disk --size 360 is build/bonanza360.img byte for byte when `make bonanzadisk` has made that;
  2. ONE ADDED COURSE: XTRA (FIRST's text under another NAME and title) composed after the shipped ones -
     os88pkg validated it, its course table names XTRA in row 8, and it is byte for byte the package
     `make BUILD=... BZ_COURSES="<shipped> XTRA"` assembles with nasm (the tables written at the map's
@@ -72,10 +73,15 @@ ship = G.shipped_paths()
 with tempfile.TemporaryDirectory() as t:
     log = lambda s: None  # noqa: E731
     # 1. the shipped list
-    o0 = os.path.join(t, "ship.o88")
-    G.compose(o0, [], log=log)
+    o0, d0 = os.path.join(t, "ship.o88"), os.path.join(t, "ship.img")
+    G.compose(o0, [], disk=d0, size=360, log=log)
     ok(rb(o0) == rb(os.path.join(ROOT, "build", "bonanza.o88")),
        "the shipped list composed is build/bonanza.o88 byte for byte (%d bytes)" % os.path.getsize(o0))
+    ref360 = os.path.join(ROOT, "build", "bonanza360.img")
+    if os.path.isfile(ref360):   # bonanzadisk is on demand, not in `all`
+        ok(rb(d0) == rb(ref360), "its --disk --size 360 is build/bonanza360.img byte for byte")
+    else:
+        print("skip its --disk is build/bonanza360.img (no image: make bonanzadisk)")
 
     # 2. one added course
     xt = os.path.join(t, "xtra.bbc")

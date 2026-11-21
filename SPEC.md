@@ -287639,15 +287639,16 @@ where the first took six).
   (`tests/bbeditbundle.py`);
 - shipped + XTRA (FIRST's text renamed) composed is byte for byte the package `make BUILD=...
   BZ_COURSES="<shipped> XTRA"` assembles; so is `--pad0 XTRA` against `make` with that list and that
-  pathway; the 360 KB floppy verifies;
+  pathway; the 360 KB floppy verifies; with no added course, `--disk ... --size 360` is
+  `build/bonanza360.img` byte for byte (the bonanzadisk rule's);
 - an added course is 1,918 bytes more package (XTRA, FIRST's size: 165,712 -> 167,630) - its part, its demo
   and the 51 resident bytes; each spare course 51 bytes of `bonanza.bin` and 7 of the shell part;
 - the zip: 157 files, 1,303,029 bytes, against 118 files and 891,509 bytes from the same tree before - 36 of
   them `bbgame-bin/` (729,357 bytes, 360,490 packed), the rest bbgame.py and os88pkg, os88disk, os88lz and
   what they import;
 - `make bbgamebin` 20 min from cold (6 of them the shipped package's own recompile, the variants 1 - 6
-  min each); composing in the tree, the cache warm, 1 - 2 min a game (the compile's demos, proofs and
-  clocks are not cached); in a fresh zip the first composition compiles every shipped course (minutes),
+  min each); composing in the tree, the cache warm, 56 s a game with one added course (4.6 min once
+  under heavy load: the compile's demos, proofs and clocks are not cached); in a fresh zip the first composition compiles every shipped course (minutes),
   as the builder's first check does.
 - the red arm: the patch loop skipped, `t_bbgame` fails four checks (both nasm comparisons, both table
   reads); the shipped list still composes.
