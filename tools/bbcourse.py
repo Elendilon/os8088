@@ -12328,7 +12328,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         for r in records:
             by_block.setdefault((r["brow"], r["col"]), []).append(r)
     for key in sorted(per_block):
-        if per_block[key] > REC_BLOCK_MAX:
+        if per_block[key] > hack.get("recmax", REC_BLOCK_MAX):     # (recmax: item 15's --occ off comparison alone)
             raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
                               "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
                                              8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
@@ -24495,7 +24495,7 @@ def _cam_controls(courses, demos, by, res):
     # side0: the side check
     b = []
     for herc in (0, 1):
-        b += side_check(side_run(mill, herc, _side0=True).rows, "SIDE %s" % ("CGA", "Hercules")[herc])[1]
+        b += side_check(side_run(by[SIDE_SCEN["crs"]], herc, _side0=True).rows, "SIDE %s" % ("CGA", "Hercules")[herc])[1]
     res.append(("8 control `side0` (level 1 side-blind): red at the side check on its scenario (%d frames; the "
                 "first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
     # noscr: item 8's eight directions
@@ -27304,7 +27304,9 @@ def _props_physics(c, res):
         while p.tube:
             p.step(0)
             hidden += 1
-            if abs(p.bx - bx) > 768 or abs(p.by - by) > 768:
+            if (abs(p.bx - bx) > 768 or abs(p.by - by) > 768) and (p.tube or rec["sub"] != TK_LAUNCH):
+                # (a LAUNCH's last step releases the ball at its speed: TMIL's -288/480 moves it 2.9 px and 3.3
+                # lines - a flight, not the ghost; the prototype MILL's slower cannon never met it, 130.54.10)
                 tr_ok = False
             bx, by = p.bx, p.by
             left -= 1
@@ -27433,14 +27435,17 @@ def _mill_route(c, res):
     seen_d = any(kinds[i] == (PK_TUBE, TK_DROP) for i in caps)
     seen_l = any(kinds[i] == (PK_TUBE, TK_LAUNCH) for i in caps)
     goal = _ev(p, "goal")
-    res.append(("8 MILL: the autopilot rolls the rubber ball into the windmill (step %s), over the green (%d kicks), "
+    # (the flights' OCC-free LAYOUT was the prototype MILL's (130.12.9), asserted while it lived; on TMIL, its
+    # test copy since 2026-11-21 (130.54.10), whose cannon flies over L, the count is PRINTED as MOON's and PEAK's)
+    noocc = c.name != "TMIL"
+    res.append(("8 %s: the autopilot rolls the rubber ball into the windmill (step %s), over the green (%d kicks), "
                 "down the chute and through the cannon to the goal (step %s) with no fall in the CGA's %d steps or "
-                "the Hercules's %d; the LAUNCH's flight and the DROP's fall cross no OCC cell (%d airborne OCC "
+                "the Hercules's %d; the LAUNCH's flight and the DROP's fall %s (%d airborne OCC "
                 "steps from an exit to its first contact; %d later, bouncing on)" % (
-                    _ev(p, "capture")[0][1] if caps else "-", len(_ev(p, "kick")), goal[0][1] if goal else "-",
-                    CGA_STEPS, HERC_STEPS, len(fl), after),
+                    c.name, _ev(p, "capture")[0][1] if caps else "-", len(_ev(p, "kick")), goal[0][1] if goal else "-",
+                    CGA_STEPS, HERC_STEPS, "cross no OCC cell" if noocc else "over OCC cells PRINTED", len(fl), after),
                 seen_w and seen_d and seen_l and bool(goal) and p.nfall == 0 and out[1][0].nfall == 0
-                and not fl and bool(_ev(p, "kick"))))
+                and (not fl or not noocc) and bool(_ev(p, "kick"))))
     # GLIDE on MILL: the transit pans, and the lanes shown and their commits
     for herc in (0, 1):
         stats = {"tf": 0, "tbad": 0, "shown": 0, "frames": 0, "chg": 0}
@@ -31352,6 +31357,9 @@ def _sc_crosscommit(X, res):
             # clauses, and every exit 0 then, so the cells and the cup records are that commit's)
             kept = [re.sub(r"\s+exit\s+\d+|\s+hidden\b", "", ln.split("#")[0]) if ln.split()[:1] in (["goal"], ["cup"])
                     else ln for ln in kept]
+        if c.name == "TMIL" and not any(ln.split()[:1] == ["target"] for ln in kept):
+            kept.append("target 30")            # (130.54.10: that tool asks every course but course 0 for a
+            # design time; a test course gives none, and a target writes no part byte)
         dst = os.path.join(w5dir, os.path.basename(src_path))
         with open(dst, "w") as fh:
             fh.write("\n".join(kept))
@@ -34234,12 +34242,18 @@ def _sc_av(X, res):
         try:                                                                          # bytes, past 2 sheets: 130.30.12)
             off = compile_course(cpath, _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
         except CourseError as e:                # (the comparison compile alone: under --occ off a course may name
-            if "occluder masks, over the 256" not in str(e):   # more masks than the record's byte - DOWN's 323 -
-                raise                           # so it takes SPEC.md 130.52's `masks banded`, which the comparison
-            with open(cpath, encoding="ascii") as f_:          # reads the same way; the shipped compile is not
-                src_ = f_.read()                               # touched)
-            off = compile_course(src_ + "\nmasks banded\n", fname=cpath,
-                                 _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
+            if "occluder masks, over the 256" in str(e):       # more masks than the record's byte - DOWN's 323 -
+                with open(cpath, encoding="ascii") as f_:      # so it takes SPEC.md 130.52's `masks banded`, which
+                    src_ = f_.read()                           # the comparison reads the same way; the shipped
+                off = compile_course(src_ + "\nmasks banded\n", fname=cpath,   # compile is not touched)
+                                     _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
+            elif "occluder records, over %d" % REC_BLOCK_MAX in str(e):
+                # (or lay more records in a block than the guest's 4 - WINDMILL LANE's 5 at (82, 50), SPEC.md
+                # 130.54.10: the comparison reads the grid and the picture alone, so the bound is lifted for it)
+                off = compile_course(cpath, _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS), "recmax": 255},
+                                     crsinfo=info)
+            else:
+                raise
         _av_checks(c, res, c.name, off)
     byname = {c.name: c for c in courses}
     # the negative controls, each red where item 15 says

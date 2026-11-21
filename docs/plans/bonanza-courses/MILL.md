@@ -81,10 +81,11 @@ and fit the theme."*
 | from the plaza | the open tube, S, the turntable (wait on the pivot), U, windmill 2 (time the gate) | the arch and pad, the tube, the jump pickup, the 2-tile jump, the rubber pads, the ramp |
 | what can kill | the turntable's ports (back to flag 1, a tile away) and U's east edge by the table | the gap (back to flag 2 on the ledge, the jump back with it) |
 | distance from the plaza | 76.5 tiles of route in all (the sketch) | 32 tiles |
-| MEASURED, start to cup | **27.4 s** (the route demo, autopilot) | **27.0 s** (the autopilot to the ledge, a scripted Hop at the lip, then on) |
+| MEASURED, start to cup | **27.4 s** (the route demo, autopilot, hopping the turntable; **31.0 s** since it waits on the pivot, SPEC.md 130.14.7.4.5) | **27.0 s** (the autopilot to the ledge, a scripted Hop at the lip, then on) |
 
-The glass route is not faster for the autopilot. The autopilot never waits, and it
-hops over the turntable (section 4). A human who waits on the pivot and times windmill 2 pays
+The glass route is not faster for the autopilot. The autopilot never waited, and it
+hopped over the turntable (section 4); since SPEC.md 130.14.7.4.5 it waits on the pivot
+(the rubber route 31.0 s). A human who waits on the pivot and times windmill 2 pays
 that on the rubber route, and the glass route pays only the jump. The glass route
 saves the most when the waits are long.
 
@@ -105,8 +106,8 @@ saves the most when the waits are long.
     numerals, the plate's 4 lanes and the flag's event lane make 7 pose changes on one
     step, over the 6 a window may take (SPEC.md 130.19.10).
 - **The camera** follows the course down the screen. Horizontal moves come at the
-  plaza (the fork), at the turntable and at the rejoin, all on the ground. G3 is
-  REFUSED for the autopilot's run (section 4).
+  plaza (the fork), at the turntable and at the rejoin, all on the ground. G3 was
+  REFUSED for the autopilot's run (section 4); it passes since the STAND (SPEC.md 130.14.7.4.5).
 
 ## 3. What the tool refused, and what changed for it
 
@@ -135,7 +136,9 @@ open, because a block rail there is in front of the plate and hid the ball on it
 ### 3.2 The draft's verdict (MEASURED, `bbcourse.py -o DIR mill-draft.bbc`)
 
 - **It compiles.** The route demo is COMPLETE: 1,495 steps, **27.37 s**, rubber, 0 falls,
-  4 Hops. NO TRAP passes from every flag and pad.
+  4 Hops. NO TRAP passes from every flag and pad. *(Since the route search's STAND,
+  SPEC.md 130.14.7.4.5, the shipped course's route demo is 1,695 steps, **31.03 s**,
+  COMPLETE, 0 falls, NO Hop: the ball waits on the turntable's pivot.)*
 - Budgets: **980 blocks**, which was the binding limit (1,024) when measured; since SPEC.md
   130.56 (map form 9, ROWNIBS) the block count is no longer a bound, only the part's
   65,024 bytes. The picture part is 55,610 bytes (9,414 under 65,024). It is **19,083
@@ -146,7 +149,9 @@ open, because a block rail there is in front of the plate and hid the ball on it
   an archway along y. The second rubber pad is 74% against 75%. No hidden stretch is
   over 0.5 s.
 - `--guide` with the route demo: G1 27.2 s (the floor is 25), G9, G10, G11 and G12 pass.
-  **G3 is REFUSED**: the autopilot reaches the turntable while its front is closing and
+  **G3 was REFUSED** (it PASSES now, on the CGA and the Hercules: since SPEC.md
+  130.14.7.4.5 the route demo waits on the pivot, 2 flights, 0 panned): the autopilot
+  reached the turntable while its front was closing and
   hops off the pivot over it onto U. That flight pans 15 columns on the CGA and 6 on the
   Hercules as it turns toward windmill 2's door. A human who waits on the pivot makes no
   such flight. An authored "wait on the pivot" demo was tried and not finished: a ball
@@ -183,7 +188,9 @@ making block room first. See questions 1 and 2.
 2. **What the block budget took** (the 1,024-block limit, lifted by SPEC.md 130.56). The sand bunker on F, the finish's magenta bumper
    rails and the ramp's side rails are all gone (each is a knob in the sketch). Which do
    you want back, and at what cost elsewhere?
-3. **The turntable's G3.** The autopilot hops it. Options: accept a playtest demo as the
+3. **The turntable's G3.** ANSWERED (2026-11-21): the route search's STAND (SPEC.md
+   130.14.7.4.5) waits on the pivot instead of hopping, and G3 passes on both cards. The
+   question as it stood: the autopilot hopped it. Options: accept a playtest demo as the
    G3 run; make the crossing slower to need (`quarter 64` is the slow default already);
    or move the turntable to where a pan cannot happen (a straight +y run with no turn
    after it).
