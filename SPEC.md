@@ -273858,7 +273858,7 @@ section, in RAM order:
 
 | tag | section | RAM length | form | stored length |
 |---|---|---|---|---|
-| `M` | the map | `2 COLS BROWS` | 1 ROWPLANES | `5 COLS BROWS / 4` |
+| `M` | the map | `2 COLS BROWS` | 1 ROWPLANES (9 ROWNIBS past 1,024 blocks, 130.56) | `5 COLS BROWS / 4` (ROWNIBS: `3 COLS BROWS / 2`) |
 | `B` | the blocks | `16 N` | 0 PLAIN | the same |
 | `I` | `OCCIDX` | `2 (BROWS + 1)` | 2 COUNTS | `BROWS` |
 | `R` | the records | `RECB NOCC` | 3 WDIFF | the same |
@@ -273896,7 +273896,8 @@ section, in RAM order:
 - each entry's stored length is its form's (the table above), and at most
   its RAM length;
 - the bounds the forms need: `COLS` at most 128 (ROWPLANES' scratch, 32
-  bytes), at most 1,024 blocks, at most 255 records in one block row (a
+  bytes), at most 1,024 blocks (*amended by 130.56: past 1,024 the map
+  is form 9 ROWNIBS, and the part bounds the blocks*), at most 255 records in one block row (a
   count is a byte), every way's tile `wx` and `wy` in 0 - 255, `KW` at most
   33 (the follow-up's scratch, 130.15.6), and 130.15.5.1's record bounds;
 - *as built, with the follow-up*: every cell that is not VOID has every
@@ -273977,7 +273978,9 @@ the hole, `n = COLS BROWS` the cells and `C = COLS`.
   at most 1,024 blocks (refused past; `MILL` has 469). For each row, the
   expander first copies the row's `C/4` high bytes to scratch
   (`bz_boxbuf`, at most 32 bytes, free at the fetch), and then turns its
-  low bytes into words.
+  low bytes into words. *(Amended by 130.56: a course past 1,024 blocks
+  stores its map as form 9 ROWNIBS, a nibble a cell; every course at most
+  1,024 keeps this form, byte for byte.)*
   - **The proof.** Word `c` of row `r` ends at `S + 2 (C r + c + 1)`. The
     next unread byte is low byte `c + 1` of that row, at
     `S + 0.75 n + 1.25 C r + C/4 + c + 1`. So the writer stays behind when
@@ -291542,7 +291545,9 @@ a 4-byte occluder record names its MASK in one byte, so a course has at most
 **256 masks**, and the turntable (in the basin's exit or on the spine) took
 the course to 266 - 267, the see-saw to 266; and a map word indexes at most
 **1,024 blocks** - the see-saw cost 57 blocks (4 cells; 41 at 2), the
-turntable 39. The course with both was 1,102 blocks. Each could be placed in
+turntable 39. The course with both was 1,102 blocks. *(Amended by 130.56:
+the 1,024 was the stored map's, not the format's; a course past it now
+compiles, its map as form 9 ROWNIBS, and the part is the bound.)* Each could be placed in
 place of other pieces, which is the owner's choice; the tool now REFUSES the
 257th mask by name (it was a `ValueError` inside the encoder).
 
@@ -296296,3 +296301,115 @@ MartyPC replay plays the same keys as a REPLAY, where the heart is hidden
 (`pickup_ok(life=False)`). `bonanzagame`'s second reading of the save
 (`tests/bonanza_game.py`) has the 500-byte file, the 488-byte one read with
 its table zero, an emptied slot's dword and the cap of 9.
+
+### 130.56 Past 1,024 blocks: the map's form 9 ROWNIBS, by need (the owner, 2026-11-21)
+
+The owner, 2026-11-21: *"For the 1024: We keep hitting random limits we put
+in. Set an agent on figuring out the best path to increase this one."* A
+course's picture was refused past 1,024 distinct 8 x 8 blocks (130.34's
+see-saw and turntable; a WINDMILL LANE draft at 980).
+
+#### 130.56.1 Where the 1,024 came from
+
+**Not from the map word.** In RAM a map word is the block's absolute BYTE
+offset in its part, `BLKOFF + 16 i` (130.10.4.2), and every reader of it -
+`bz_row`, `bz_col`, `bz_boxc`, a lane's commit and pose maps (130.12.4), the
+VGA part's writers (130.46), a sheet's map (130.30.12) - adds it to nothing
+and indexes nothing with it. `bz_hxlat` (130.11.3), `bz_hxshs` and the VGA's
+`BZV_CONV` (130.46.5) walk `8 N` words from `BLKOFF`, `N` the header's word
+(+8). No table in the package or its bss is a block wide. The occluder
+records name MASKS (130.52), never blocks.
+
+**It was the STORED form's.** Form 1 ROWPLANES (130.15.4.4) keeps two high
+bits a cell beside the low byte: `BLKOFF + 16 (low + 256 high)`, high 0 - 3,
+so 1,024 indices - and `bbcourse.py`'s `BLK_MAX` refused the course past it.
+Nothing after `bz_cexp` knows the form existed.
+
+#### 130.56.2 The options, priced
+
+Clocks are the 8088's with the fetch floor (`max(clk, 4.34 bytes)`,
+PERFORMANCE.md Part 2); none of the options below the line changes a frame.
+
+| option | guest bytes | per frame | at the launch | courses at most 1,024 |
+|---|---|---|---|---|
+| **form 9 ROWNIBS, chosen by the block count** (CHOSEN) | **+78**, only in a build with such a course (`BZ_FORMS` bit 9) | **0** | about 135 clk a cell (ROWPLANES about 150), PREDICTED | unchanged, byte for byte |
+| ROWPLANES widened to a nibble for every course | +0 to +10 (one expander) | 0 | as above | every map's stored bytes +`COLS/4` a row; LZ4 MEASURED: PLAYGROUND +114, ROLL +46, MILL +27, FIRST +1; every part and the package change |
+| a block BASE a band (130.52's shape) in the stored form | about +20, and a band table in `Y` | 0 | about +30 clk a block row | unchanged; a band still refused past 1,024 of its own - a limit moved, not removed |
+| a second block table a sheet or band, selected by the writers | every writer | +1 load a cell row or more, every writer | 0 | refuse: the RAM word is already absolute, so this buys nothing ROWNIBS does not |
+| flipped and mirrored blocks shared (the tool's dedup) | every writer | a flip test a cell | 0 | refuse: the writers copy words and cannot flip (a map word's low 4 bits are spare in RAM, but each writer would branch on them every cell) |
+
+**The bound after it is the PART**: `PARTMAX` (65,024) holds the header,
+the map, `16 N` of blocks and the rest of the picture part (130.30.4: the
+picture part of a two-part course; a SHEET carries every block, 130.30.12.5).
+ROWNIBS's index is 12 bits (4,096); the part refuses first, near 3,600 at
+the smallest maps. Each course's room at its map and records as they stand,
+MEASURED: FIRST 3,619; MILL 2,936; HOP 2,385; MOON 2,175; ROLL 1,953; PEAK
+1,926; DOWN (sheets) 1,406; PLAYGROUND (two parts, 997 today) 1,395; TBLK
+2,007. A one-part course's figure is a floor: grown past `PARTMAX` it splits
+into two parts (130.30.4.1) and gains the world part's bytes.
+
+#### 130.56.3 Form 9 ROWNIBS
+
+- **Stored**: block row `r` as `C/2` high bytes - cell `j`'s high nibble at
+  bits `4 (j AND 1)` of byte `j >> 1` - then `C` low bytes. Map word `j` is
+  `BLKOFF + 16 (low + 256 high)`, high 0 - 15. Stored length `3 C BROWS / 2`
+  (a sheet's: its own rows, 130.30.12.1), the hole `C BROWS / 2`.
+- **In place**: word `c` of row `r` ends at `S + 2 (C r + c + 1)`; low byte
+  `c + 1` of the row is at `S + 0.5 n + 1.5 C r + C/2 + c + 1`. The writer
+  stays behind when `0.5 C r + c + 1 <= 0.5 n + C/2`, equality at the last
+  word of the last row; the row's high bytes (`S + 0.5 n + 1.5 C r`) are
+  copied to scratch before the writer reaches them, `2 C r <= 0.5 n + 1.5 C
+  r`. Stored low bytes first, the condition is `0.5 C r + c + 1 <= 0.5 n`,
+  which fails for `c >= C/2` in the last row: the red arm of B3.
+- **The rule**: the map's form is the BLOCK COUNT's (`bbcourse.map_form`):
+  1 to 1,024 blocks, 9 past. No statement - a course past 1,024 has no other
+  form - and no cost to the courses at or under it. `read_part` refuses a
+  map entry whose form is not its count's, either way.
+- **The guest**: `bz_cxnib` (`bonanza.asm`), entry 9 of `bz_cxtab`, both
+  assembled only when `BZ_FORMS` (the forms the build's parts use,
+  130.15.4.5) has bit 9: ROWPLANES' shape, the high bytes to `bz_boxbuf` (at
+  most 80) first, two cells a byte unrolled - the even cell `AND 0Fh`, the
+  odd `SHR 4` - and the same row count (`BROWS`, or a sheet's RAM length /
+  `ROWB`). It reads the part through ES and writes nothing through CS
+  (kern_mega: the part's selector, as `bz_cxmap`).
+- **kern_mega, kern_small, the Hercules, the VGA**: nothing of their own.
+  The expansion runs before `bz_hgen` and `bz_hxlat` (130.15.4.5) and before
+  `BZV_CONV`; each walks `N`.
+
+**MEASURED**: the package assembled with `BZ_FORMS` bit 9 is **+78 bytes**
+(`bz_cxnib` 76, its table entry 2); the shipped build has no course past
+1,024, so its `BONANZA.O88` and every course part are byte-identical to
+before (md5). **PRICED** (130.56.2's method): a pair of cells 220 clk, a row's
+high byte about 49 - about 135 clk a cell against ROWPLANES' about 150; TBLK's
+16,224 cells about 2.2M clk (0.46 s) at the launch, once. A frame: 0.
+
+#### 130.56.4 TBLK and the proofs
+
+**TBLK** is a scratch course, text generated by `bbcourse.tblk_text()` - no
+course file, in no build: a diagonal band 130 tiles long and 33 wide at
+width 96, each tile a seeded random height, flat or a one-tile ramp, and a
+random surface. 1,386 blocks (362 past 1,023), its map form 9, two parts
+(130.30.4).
+
+- **`--selfcheck`'s section `blocks`** (`bbcourse.py`):
+  - B1: TBLK past 1,024, its map form 9, each part's `expand(stored)` equal
+    to its RAM form under the in-place simulation, `read_parts` taking it;
+  - B2: every course of the build at or under 1,024 stores form 1;
+  - B3, the red arms, each in front of its check: ROWNIBS stored and read low
+    bytes first fails the simulation naming the map; the expander keeping two
+    high bits fails `expand == RAM`; a byte's two nibbles exchanged fails it;
+    the reader refuses TBLK's map entry made form 1 and a small course's made
+    form 9;
+  - B4: a synthetic MAP-ONLY part (`rownibs_synth`) naming every high nibble
+    0 - 15 in both cells of a byte expands in place.
+- **`tests/bonanza_blocks.py`** (unicorn): the package assembled against a
+  copy of the build's art with `BZ_FORMS` bit 9. Item 1: `bz_cexp` on TBLK's
+  two stored parts and the synthetic part gives the RAM forms byte for byte.
+  Item 2: `bz_crshdr` and `bz_boxc` on boxes over every block row naming a
+  block past 1,023 - the buffer exactly the part's words (the CGA). Item 3:
+  `bz_hgen` and `bz_hxlat` give `herc_translate_course`'s bytes, then the same
+  boxes on the translated part (the Hercules). Item 4: the build's VGA part's
+  `BZV_CONV` turns every block into its planar pairs (`bzvga.asm`'s tables,
+  modelled), the rest unmoved (the VGA). Red arms `mask2` (`AND 3`), `swap`
+  (the cells' nibbles exchanged), `noform` (entry 9 `bz_cxret`): each turns
+  item 1 red. MEASURED green, each red arm red.
