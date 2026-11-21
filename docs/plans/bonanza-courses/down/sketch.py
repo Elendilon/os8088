@@ -324,7 +324,7 @@ EXTRA = [
     "arch %d %d +y" % (_w(57), _w(34)),
 ] + ["spring %d %d 384" % (_w(sx), _w(sy)) for sx, sy in ((56, 26), (56, 29))] + [   # (SPEC.md 130.14: 384 clears 1 tile, no stun)
 ]
-GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 0, "steel"), (31, 27, 33, 33, Z - 34, 1, "glass")]
+GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 1, "steel"), (31, 27, 33, 33, Z - 34, 0, "glass")]   # (rev 19: glass, the easier, exit 0 to WINDMILL LANE; steel exit 1)
 
 START = (4.5, 4.5 - N)
 FLAGS = [(26.5, 12.5, "flag 0", "rubber"), (45.5, 12.5, "flag 1", "rubber"), (44.5, 23.5, "flag 2", "glass"),
@@ -575,8 +575,8 @@ def route_len():
 
 HEAD_TXT = """
 # Course 3 (DOWN; docs/plans/bonanza-courses/DOWN.md): DOWNHILL DECISION, the tutorial's reward - SPEED, then a
-# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 0, GLASS south (a membrane bridge,
-# a lift, a choice of stairs) to exit 1.  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
+# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 1, GLASS south (a membrane bridge,
+# a maze, a choice of stairs) to exit 0 (WINDMILL LANE).  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
 # while the layout moves.
 course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules

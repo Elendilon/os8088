@@ -1,6 +1,6 @@
 # Course 3 (DOWN; docs/plans/bonanza-courses/DOWN.md): DOWNHILL DECISION, the tutorial's reward - SPEED, then a
-# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 0, GLASS south (a membrane bridge,
-# a lift, a choice of stairs) to exit 1.  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
+# SPLIT where a pad converts the ball: STEEL east (spikes, a water sink) to exit 1, GLASS south (a membrane bridge,
+# a maze, a choice of stairs) to exit 0 (WINDMILL LANE).  Written by docs/plans/bonanza-courses/down/sketch.py --bbc --force
 # while the layout moves.
 course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules
@@ -178,8 +178,8 @@ arch 61 38 +y
 spring 60 30 384
 spring 60 33 384
 
-goal  rect 57 41 66 43  flat 9   # the steel finish
-goal  rect 35 31 37 37  flat 6 exit 1   # the glass finish
+goal  rect 57 41 66 43  flat 9 exit 1   # the steel finish
+goal  rect 35 31 37 37  flat 6   # the glass finish
 start 8 7
 checkpoint 30 16 ball rubber   # flag 0
 checkpoint 49 16 ball rubber   # flag 1
