@@ -169,8 +169,8 @@ REC = 4                       # RECB, the occluder record's RAM size: 4 (SPEC.md
                               # identity_form()
 DIRENT = 8                    # a directory entry (130.15.4.2)
 NSEC_MAX = 16
-F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F_KITREF = range(9)
-FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF")
+F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F_KITREF, F_ROWNIBS = range(10)
+FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF", "ROWNIBS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
             "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
             "L": F_PLAIN, "Y": F_PLAIN,   # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
@@ -271,7 +271,9 @@ def mapsh_of(cols):
     """BZC2 +10 MAPSH (SPEC.md 130.10.5.1): 4 at 64 columns and 5 at 128, as they always were (so every part of
     those widths is byte for byte the same), 0 at any other - the guest reads none of them (bz_mrow, 130.10.4.2)"""
     return {64: 4, 128: 5}.get(cols, 0)
-BLK_MAX = 1024                # a map word's index: 8 low bits and 2 high
+BLK_ROWP = 1024               # SPEC.md 130.56: the blocks form 1 ROWPLANES's 10-bit index reaches (8 low bits and
+                              # 2 high); a course past it stores its map as form 9 ROWNIBS (8 low and a nibble)
+BLK_MAX = 4096                # ROWNIBS's 12-bit index - the part (PARTMAX, 16 bytes a block) refuses first
 ROWREC_MAX = 255              # COUNTS: a block row's records in a byte
 CRS_MAX = 23                  # BZ_CRS_MAX: the courses a build may have, the width of every per-course
                               # table and of BONANZA.DAT's BZS4 (SPEC.md 130.22.5: 80 + 18 x 23 = 494 bytes,
@@ -12612,7 +12614,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
              "kit": {t: kr for t in KIT_TAGS for kr in [kit_ref(t, kidx.get(t), len(kit[t]) if kit else 0)]
                      if kr is not None}}
     if len(blocks) > BLK_MAX:
-        raise CourseError("%s: %d blocks, over the %d a map word's 10-bit index reaches (ROWPLANES, 130.15.4.4)"
+        raise CourseError("%s: %d blocks, over the %d a map word's 12-bit index reaches (ROWNIBS, 130.56)"
                           % (fname, len(blocks), BLK_MAX))
     if kw > KW_MAX or cols > COLS_MAX:
         raise CourseError("%s: KW %d and COLS %d, over %d and %d (the expanders' scratch, 130.15.4.2)"
@@ -13673,7 +13675,15 @@ def sec_form(tag, m):
     """a section's FORM in this model: KITREF where the kit supplies it (SPEC.md 130.37.4), else SEC_FORM's"""
     if tag == "O" and m.get("mband"):              # SPEC.md 130.52: the bands' slices are STORED
         return F_PLAIN
+    if tag == "M":
+        return map_form(m["nblk"] if "nblk" in m else len(m["blocks"]) // 16)
     return F_KITREF if tag in (m.get("kit") or {}) else SEC_FORM[tag]
+
+
+def map_form(nblk):
+    """SPEC.md 130.56: the map's stored form by the course's block count - 1 ROWPLANES to BLK_ROWP blocks (every
+    course of that size, byte for byte as before), 9 ROWNIBS past it.  No statement: the need decides"""
+    return F_ROWNIBS if nblk > BLK_ROWP else F_ROWPLANES
 
 
 def stored_len(tag, m, ram_len):
@@ -13681,9 +13691,11 @@ def stored_len(tag, m, ram_len):
     kr = (m.get("kit") or {}).get(tag)
     if kr is not None:                              # SPEC.md 130.37.4: the bitmap, then its own pieces
         return kit_bmlen(kr["n"]) + ram_len - KIT_SIZE[tag] * len(kr["idx"])
-    f = F_PLAIN if tag == "O" and m.get("mband") else SEC_FORM[tag]
+    f = F_PLAIN if tag == "O" and m.get("mband") else sec_form(tag, m) if tag == "M" else SEC_FORM[tag]
     if f == F_ROWPLANES:                            # (a SHEET's map is fewer rows than BROWS: SPEC.md 130.30.12)
         return 5 * ram_len // 8
+    if f == F_ROWNIBS:                              # SPEC.md 130.56: C/2 + C bytes a row of 2 C
+        return 3 * ram_len // 4
     if f == F_COUNTS:
         return m["brows"]
     if f in (F_MASKTAB, F_ROWTAB):
@@ -14585,6 +14597,24 @@ def _rowplanes(m, _low_first=False, mrows=None):
     return bytes(out)
 
 
+def _rownibs(m, _low_first=False, mrows=None, _hi_swap=False):
+    """9 ROWNIBS (SPEC.md 130.56): a block row's C/2 high bytes (cell j's four high bits at bits 4 (j AND 1) of
+    byte j >> 1), then its C low bytes.  _low_first: the order that does NOT expand in place (the red arm of
+    the in-place simulation); _hi_swap: the two cells' nibbles exchanged (the red arm of expand == RAM)"""
+    C = m["cols"]
+    out = bytearray()
+    for r in (range(m["brows"]) if mrows is None else range(mrows[0], mrows[0] + mrows[1])):  # (a SHEET's rows)
+        row = m["idx"][C * r:C * (r + 1)]
+        hi = bytearray(C // 2)
+        for j, v in enumerate(row):
+            if v >> 12:
+                raise CourseError("block %d: past the %d a ROWNIBS map word's 12-bit index reaches" % (v, BLK_MAX))
+            hi[j >> 1] |= (v >> 8) << (4 * ((j & 1) ^ (1 if _hi_swap else 0)))
+        lo = bytes(v & 255 for v in row)
+        out += (lo + hi) if _low_first else (hi + lo)
+    return bytes(out)
+
+
 def _wdiff(ram, stride):
     """3 WDIFF: the first record as it is, then each word as its difference
     from the same word of the record before, mod 2^16"""
@@ -14727,6 +14757,8 @@ def stored_form(m, recb, ram=None, fname="<course>", _hack=None, mrows=None):
             data = ram[off:off + ln]
         elif form == F_ROWPLANES:
             data = _rowplanes(m, hack.get("low_first", False), mrows)
+        elif form == F_ROWNIBS:                     # SPEC.md 130.56
+            data = _rownibs(m, hack.get("nib_low_first", False), mrows, hack.get("nib_swap", False))
         elif form == F_COUNTS:
             cnt = [0] * m["brows"]
             for r in m["recs"]:
@@ -14817,6 +14849,16 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
                     lo = rd(lo_at + c)
                     hi = (scratch[c >> 2] >> (2 * (c & 3))) & 3
                     wrw(S + 2 * (cols * r + c), blkoff + 16 * (lo + 256 * hi))
+        elif form == F_ROWNIBS:                     # SPEC.md 130.56: bz_cxnib's
+            q = cols // 2
+            for r in range(ln // (2 * cols)):
+                src = S + H + r * (q + cols)
+                hi_at, lo_at = (src + cols, src) if hack.get("nib_low_first") else (src, src + q)
+                scratch = [rd(hi_at + k) for k in range(q)]           # bz_boxbuf
+                for c in range(cols):
+                    lo = rd(lo_at + c)
+                    hi = (scratch[c >> 1] >> (4 * (c & 1))) & (3 if hack.get("nib_mask2") else 15)
+                    wrw(S + 2 * (cols * r + c), (blkoff + 16 * (lo + 256 * hi)) & 0xFFFF)
         elif form == F_COUNTS:
             x = 0
             for br in range(brows + 1):
@@ -15012,7 +15054,8 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
     if not 25 <= brows <= BROWS_MAX:
         bad("BROWS", str(brows))
     if nblk > BLK_MAX:
-        bad("N", "%d blocks, over the %d a map word's 10-bit index reaches" % (nblk, BLK_MAX))
+        bad("N", "%d blocks, over the %d a map word's 12-bit index reaches (ROWNIBS, SPEC.md 130.56)"
+            % (nblk, BLK_MAX))
     if recb not in (4, 8):
         bad("RECB", str(recb))
     if recb == 8 and (SB or yoff or mtab):          # (YOFF: TB under _ONETB)
@@ -15132,15 +15175,16 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
             if (off, ln) != wantd[t]:
                 bad(where, "(%d, %d), where its header fields put %s at (%d, %d)" % (off, ln, SEC_NAMES[t],
                                                                                   wantd[t][0], wantd[t][1]))
-            if form != SEC_FORM[t] and not (form == F_KITREF and t in KIT_SIZE) and not (t == "O" and form == F_PLAIN):
-                bad(where, "form %d, not %d (%s)" % (form, SEC_FORM[t], FORM_NAMES[SEC_FORM[t]]))
+            wf = map_form(nblk) if t == "M" else SEC_FORM[t]   # (SPEC.md 130.56: the map's by its block count)
+            if form != wf and not (form == F_KITREF and t in KIT_SIZE) and not (t == "O" and form == F_PLAIN):
+                bad(where, "form %d, not %d (%s)" % (form, wf, FORM_NAMES[wf]))
             at = off + ln
         if at != do:
             bad("directory", "%sthe entries end at %d, DIROFF is %d" % ("the world part's: " if k else "", at, do))
     for t, o, ln in want:
         if ln and t not in seen:
             bad("directory", "no entry for %s (%s, %d bytes at %d)" % (t, SEC_NAMES[t], ln, o))
-    m_ = {"cols": cols, "brows": brows, "route": [None] * nway, "mband": banded,
+    m_ = {"cols": cols, "brows": brows, "route": [None] * nway, "mband": banded, "nblk": nblk,
           "kit": kit_decode([q for q, _do, _ns in dirs])}
     kit = kit_load()
     for e in ents:                                  # SPEC.md 130.37.4: a KITREF section's head is kit pieces,
@@ -31940,6 +31984,37 @@ WIDE_TEXT = ('course W "w"\nwidth %s\nfloor rect 10 10 15 14 flat 4\nwall rect 1
              'start 11 11\n')
 
 
+def tblk_text():
+    """SPEC.md 130.56: TBLK, the scratch course PAST 1,024 blocks (the selfcheck's `blocks` section and
+    tests/bonanza_blocks.py): a diagonal band 130 tiles long, 33 wide, at width 96, each tile a seeded random
+    height, flat or a one-tile ramp, and a random surface - 1,386 distinct blocks, so its map is form 9 ROWNIBS
+    and its picture part is a TWO-PART course's.  Text, generated here (not a course file, not in any build)"""
+    import random
+    r = random.Random(1)
+    lines = ['course TBLK "Blocks"', "width 96"]
+    tiles = [((s_ + a) // 2, (s_ - a) // 2) for s_ in range(36, 166) for a in range(-16, 17) if not (s_ + a) & 1]
+    st = tiles[len(tiles) // 2]
+    for x, y in tiles:
+        h, k = r.randrange(40) / 2.0, r.randrange(3)
+        if k == 0 or (x, y) == st:
+            lines.append("floor tile %d %d flat %g" % (x, y, h))
+        else:
+            ax, a0 = ("x", x) if k == 1 else ("y", y)
+            lines.append("floor tile %d %d ramp %s %d %d %g %g" % (x, y, ax, a0, a0 + 1, h,
+                                                                   h + r.randrange(1, 5) / 2.0))
+    for x, y in tiles:
+        sf = r.choice(SURFACES)
+        if sf != "normal" and (x, y) != st:
+            lines.append("surface %s tile %d %d" % (sf, x, y))
+    lines.append("start %d %d" % st)
+    return "\n".join(lines) + "\n"
+
+
+def tblk_course():
+    """TBLK compiled (no occluders: the map and the blocks are its subject)"""
+    return compile_course(tblk_text(), fname="<TBLK>", occluders=False)
+
+
 def width_guest_src():
     """SPEC.md 130.10.4.2's guest half, read off the source (the selfcheck's `width` section): -> [(what, ok)].
     The map row is bz_mrow's word in every writer - no MAPSH shift is left in the package or the VGA part - and
@@ -33066,6 +33141,102 @@ def _sc_sheets(X, res):
     _sheets_checks(X.courses, res, X.paths)
 
 
+def rownibs_synth():
+    """SPEC.md 130.56 item B4: a MAP-ONLY part (BZC2's header, one M entry of form 9, nothing else) whose map
+    names every high nibble 0 - 15 in both cells of a byte - what no course can reach (the part bounds a course
+    near 3,600 blocks).  -> (RAM part, stored part, the map's block indices); BLKOFF + 16 index stays under 64K"""
+    import random
+    r = random.Random(9)
+    cols, brows = 64, 4
+    blkoff = HDR + 2 * cols * brows
+    idx = []
+    for k in range(cols * brows):
+        hi = (k >> 1) & 15 if k < 64 else r.randrange(16)
+        idx.append(min(hi * 256 + r.randrange(256), (0xFFF0 - blkoff) // 16))
+    m = {"cols": cols, "brows": brows, "idx": idx}
+    diroff = blkoff
+    ram = bytearray(diroff + DIRENT)
+    ram[0:4] = b"BZC2"
+    struct.pack_into("<6H", ram, 4, cols, brows, 0, 0, blkoff, 0)
+    struct.pack_into("<H", ram, 24, 2 * cols)
+    struct.pack_into("<HH", ram, 38, diroff, 1)
+    struct.pack_into("<%dH" % len(idx), ram, HDR, *[blkoff + 16 * i for i in idx])
+    ln = 2 * cols * brows
+    struct.pack_into("<BBHHH", ram, diroff, ord("M"), F_ROWNIBS, HDR, ln, 3 * ln // 4)
+    st = bytearray(ram)
+    st[HDR:HDR + ln] = bytes(ln - 3 * ln // 4) + _rownibs(m)
+    return bytes(ram), bytes(st), idx
+
+
+def _sc_blocks(X, res):
+    """--selfcheck's section `blocks` (SPEC.md 130.56): PAST 1,024 BLOCKS - TBLK's map as form 9 ROWNIBS, each
+    part expanding in place, every course at most 1,024 keeping form 1 byte for byte, the synthetic map's every
+    nibble, the part reader's form rule; and the red arms, each in front of its check"""
+    c = tblk_course()
+    n = len(c.model["blocks"]) // 16
+    mform = next(e["form"] for e in c.part["dir"] if e["tag"] == "M")
+    why = []
+    try:
+        if expand(c.stored, c.name, sim=True) != c.cga or (c.split and expand(c.wstored, c.name, sim=True) != c.wcga):
+            why.append("expand(stored) != RAM")
+        read_parts(c.cga, c.wcga, c.name) if c.split else read_part(c.cga, c.name)
+    except CourseError as e:
+        why.append(str(e))
+    res.append(("B1 TBLK: %d blocks (past %d), its map form %d (%s), %s; each part's expand(stored) == RAM, the "
+                "IN-PLACE simulation clean, the part reader takes it%s" % (
+                    n, BLK_ROWP, mform, FORM_NAMES[mform], "two parts" if c.split else "one part",
+                    "" if not why else " -- " + "; ".join(why)),
+                n > BLK_ROWP and mform == F_ROWNIBS and max(c.model["idx"]) >= BLK_ROWP and not why))
+    # B2: every course of the build at most 1,024 keeps form 1 - the map as it was stored before 130.56
+    own = [(k.name, len(k.model["blocks"]) // 16, [e["form"] for e in k.part["dir"] if e["tag"] == "M"])
+           for k in X.courses]
+    res.append(("B2 every course of the build at %d blocks or fewer stores its map as form 1 ROWPLANES, as before "
+                "130.56 (%s)" % (BLK_ROWP, ", ".join("%s %d" % (nm, nb) for nm, nb, _f in own)),
+                all(f == [map_form(nb)] for _nm, nb, f in own)
+                and all(f == [F_ROWPLANES] for _nm, nb, f in own if nb <= BLK_ROWP)))
+    # B3: the red arms
+    try:
+        expand(stored_form(c.model, REC, c.cga, c.name, _hack={"nib_low_first": True}), c.name, sim=True,
+               _hack={"nib_low_first": True})
+        r1 = False
+    except CourseError as e:
+        r1 = "section M" in str(e)
+    res.append(("B3 red: ROWNIBS stored and read with the low bytes first fails the in-place simulation, naming the "
+                "map (the last row's last half)", r1))
+    r2 = expand(c.stored, c.name, _hack={"nib_mask2": True}) != c.cga
+    res.append(("B3 red: the expander keeping two high bits (ROWPLANES' mask) fails expand == RAM", r2))
+    r3 = expand(stored_form(c.model, REC, c.cga, c.name, _hack={"nib_swap": True}), c.name) != c.cga
+    res.append(("B3 red: a byte's two nibbles exchanged in the stored form fails expand == RAM", r3))
+    q = bytearray(c.cga)
+    do, ns = struct.unpack_from("<HH", q, 38)
+    j = next(j for j in range(ns) if q[do + DIRENT * j] == ord("M"))
+    q[do + DIRENT * j + 1] = F_ROWPLANES
+    try:
+        read_parts(bytes(q), c.wcga, c.name) if c.split else read_part(bytes(q), c.name)
+        r4 = False
+    except CourseError as e:
+        r4 = "form 1, not 9" in str(e)
+    small = X.courses[0]
+    q = bytearray(small.cga)
+    do, ns = struct.unpack_from("<HH", q, 38)
+    j = next(j for j in range(ns) if q[do + DIRENT * j] == ord("M"))
+    q[do + DIRENT * j + 1] = F_ROWNIBS
+    try:
+        read_parts(bytes(q), small.wcga, small.name) if small.split else read_part(bytes(q), small.name)
+        r5 = False
+    except CourseError as e:
+        r5 = "form 9, not 1" in str(e)
+    res.append(("B3 red: the part reader refuses TBLK's map entry made form 1, and %s's made form 9 (the form is "
+                "the block count's, never a choice)" % small.name, r4 and r5))
+    # B4: every nibble, both cells of a byte
+    ram, st, idx = rownibs_synth()
+    got = expand(st, "<synthetic>", sim=True)
+    his = set(i >> 8 for i in idx)
+    res.append(("B4 the synthetic map-only part (%d cells, high nibbles %s): expand(stored) == RAM, in place"
+                % (len(idx), "0 - 15" if his == set(range(16)) else sorted(his)),
+                got == ram and his == set(range(16)) and expand(st, "<synthetic>", _hack={"nib_mask2": True}) != ram))
+
+
 def _sheet_earned(c):
     """SPEC.md 130.30.12.1: a course is SHEETED only when its two-part PICTURE part is refused (over PARTMAX).
     -> True for every other course and for a sheeted one that earned it"""
@@ -33402,7 +33573,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
            "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "hopplan": 30,
-           "lift2": 10, "width": 8, "sheets": 120}
+           "lift2": 10, "width": 8, "sheets": 120, "blocks": 8}
 
 
 def _av_floats_want(c):
@@ -35003,7 +35174,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc", "_sc_lift2", "_sc_width", "_sc_sheets")
+             "_sc_clockocc", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks")
 
 
 def _selfcheck(paths, res, skipped, S):
