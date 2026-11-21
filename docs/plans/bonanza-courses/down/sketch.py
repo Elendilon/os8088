@@ -680,6 +680,13 @@ def bbc(out):
     for x, y in ROUTE:
         if (int(x), int(y)) not in CHUTE and (int(x), int(y)) in CELLS:   # (none on a chute or over a gap)
             L.append("way %d %d" % (int(x) + OFF, int(y) + OFF))
+    # the GLASS leg (ROUTE2) as a `branch` (SPEC.md 130.14.4.1): the tool's alone - no byte of the part, nor
+    # its identity - so bbcourse's item 8 plans it and holds the glass flags to it (the main route, steel, can
+    # touch only its own leg's)
+    L.append("# the glass leg: a branch from the hub to the glass finish (the tool's alone)")
+    for x, y in ROUTE2:
+        if (int(x), int(y)) not in CHUTE and (int(x), int(y)) in CELLS:
+            L.append("way %d %d branch GLASS" % (int(x) + OFF, int(y) + OFF))
     if ART and "--no-art" not in sys.argv:
         L.append(ART_BEGIN)
         L += ["art %s %d %d" % (fn, ax, ay) for fn, ax, ay, _note in ART]
