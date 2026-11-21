@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbplay - TEST ROLL, the course builder's player (SPEC.md 130.56.7, 130.56.16).
+"""bbplay - TEST ROLL, the course builder's player (SPEC.md 130.58.7, 130.58.16).
 
     python3 tools/bbplay.py COURSE.bbc [--start X Y] [--ball rubber|steel|glass] [--herc] [--name PATH]
 
@@ -45,7 +45,7 @@ sys.path.insert(0, HERE)
 import bbcourse as B  # noqa: E402
 import bonanza_assets as BA  # noqa: E402
 
-SNAP_STEPS = 27                 # a rewind point every 27 steps (0.49 s); a snapshot is ~0.5 ms (130.56.16)
+SNAP_STEPS = 27                 # a rewind point every 27 steps (0.49 s); a snapshot is ~0.5 ms (130.58.16)
 REWIND_S = 5.0
 SPEEDS = (1.0, 0.5, 0.25)
 
@@ -65,12 +65,12 @@ def palette(src):
 
 
 # ----------------------------------------------------------------------------
-# the compiles (SPEC.md 130.56.16.1)
+# the compiles (SPEC.md 130.58.16.1)
 # ----------------------------------------------------------------------------
 
 def compile_play(text, name):
     """the PLAY-ONLY compile: no occluders, the block limit lifted for this call alone. What Physics reads
-    is the full compile's (130.56.16.1: every cell's kind, heights, slopes, surface and the SAFE, OBS and
+    is the full compile's (130.58.16.1: every cell's kind, heights, slopes, surface and the SAFE, OBS and
     exit flags, the start, the route, the props' world fields); what it is not is a part that ships - its
     picture's Y0, the occluder flags and records, the prop records' order and its identity differ"""
     held = B.BLK_MAX
@@ -246,7 +246,7 @@ def check_saved(log, course, end):
 
 
 # ----------------------------------------------------------------------------
-# the frame (no Tk): the compositor, SPEC.md 130.56.16.2
+# the frame (no Tk): the compositor, SPEC.md 130.58.16.2
 # ----------------------------------------------------------------------------
 
 def _rows_dict(rows):
@@ -593,7 +593,7 @@ class Player(object):
             f.write(log)
         bzd = os.path.splitext(out)[0] + ".bzd"
         with open(bzd, "w", newline="\n") as f:
-            f.write(B.demo_text(log, self.roll.c.name, "%s, a Test Roll run (tools/bbplay.py, SPEC.md 130.56.16)"
+            f.write(B.demo_text(log, self.roll.c.name, "%s, a Test Roll run (tools/bbplay.py, SPEC.md 130.58.16)"
                                 % self.roll.c.name))
         bad = check_saved(log, self.full, wstate(self.roll.p))
         msg = "Saved %s (%d steps) and %s.\n\n%s" % (
@@ -602,7 +602,7 @@ class Player(object):
             "WARNING: " + bad)
         if K is None:
             msg += ("\n\nThis course is not in the game's course list (BZ_COURSES), so the log's course number is "
-                    "0 and the game will not take it until the course is added (SPEC.md 130.56.9).")
+                    "0 and the game will not take it until the course is added (SPEC.md 130.58.9).")
         messagebox.showinfo("Save demo", msg)
 
     # -- the loop
@@ -632,7 +632,7 @@ class Player(object):
                         r = self.roll.replay_on(self.full)
                         if wstate(r.p) != wstate(self.roll.p):
                             self.mismatch = "MISMATCH: the run replayed on the full compile ends in another state " \
-                                "(%r against %r) - a fault in the play-only compile (SPEC.md 130.56.16.1)" % (
+                                "(%r against %r) - a fault in the play-only compile (SPEC.md 130.58.16.1)" % (
                                     wstate(r.p)[:8], wstate(self.roll.p)[:8])
                         self.roll, self.art = r, Art(self.full)
                         self.full_note = "on the full compile since %.1f s (%d steps replayed: %s)" % (
@@ -694,7 +694,7 @@ class Player(object):
         if self.full_note:
             notes.append(self.full_note)
         notes.append("camera: Glide (the game's), props: Heavy's drawn poses; the compositor's approximations: "
-                     "SPEC.md 130.56.16.2")
+                     "SPEC.md 130.58.16.2")
         self.note.config(text="\n".join(notes), foreground="#ff6060" if self.mismatch else "#f0c040")
 
     def run(self):

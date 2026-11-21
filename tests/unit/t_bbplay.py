@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""t_bbplay - TEST ROLL's model and frame (SPEC.md 130.56.16), on the host, no Tk, no emulator:
+"""t_bbplay - TEST ROLL's model and frame (SPEC.md 130.58.16), on the host, no Tk, no emulator:
 
  1. THE PLAY-ONLY COMPILE: MILL compiled with no occluders and the block limit lifted
     (bbplay.compile_play) leaves bbcourse.BLK_MAX as it found it, and the AUTOPILOT from the start

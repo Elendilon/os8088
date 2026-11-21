@@ -5673,15 +5673,15 @@ SOAK = [
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
     Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 11.0,
-        "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.56.3 - 130.56.5), host only: every "
+        "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.58.3 - 130.58.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
         "names every position: `half`, a ramp's span, water's ripple cell); a flag wholly behind a wall WARNS, "
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
-        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.56.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.56.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.56.15); gap bands marked, folded, split and unmarked on a constructed ledge with the compiler's `marked` agreeing each step (130.56.21); every shipped chute, pit and hump read and written back, and a chute made, dragged, turned and reversed, a pit and a ridge compiled, the steered chute and the ridge ridden through by every ball (130.56.19). secs re-measured (11 s). Red by hand: coord_slots without "
+        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.58.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.58.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.58.15); gap bands marked, folded, split and unmarked on a constructed ledge with the compiler's `marked` agreeing each step (130.58.21); every shipped chute, pit and hump read and written back, and a chute made, dragged, turned and reversed, a pit and a ridge compiled, the steered chute and the ridge ridden through by every ball (130.58.19). secs re-measured (11 s). Red by hand: coord_slots without "
         "its `half` skip (DOWN's split cells), _visual raising again (three cases), toggle_gap keeping a piece that bands nothing, a chute corner dragged without its neighbours. secs measured (6.9 s)"),
     Row("bbplay", "soak", py("tests/unit/t_bbplay.py"), 4.0,
-        "TEST ROLL (SPEC.md 130.56.16), host only, no Tk: the course builder's player plays MILL on "
+        "TEST ROLL (SPEC.md 130.58.16), host only, no Tk: the course builder's player plays MILL on "
         "bbcourse's own Physics, Glide and Heavy. If it goes red the builder's Test Roll is lying to the "
         "author: the PLAY-ONLY compile (no occluders, BLK_MAX lifted for that call alone) no longer steps "
         "the ball as the shipped compile does (the autopilot to the goal, a scripted run with a Hop, a Grip "
@@ -20107,7 +20107,7 @@ SOAK = [
         needs=("pil",), wants=("build/os8088-battle-builder.zip", "build/vbattle.o88",
                                "build/vbattled.o88")),
     Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 8.0,
-        "`make bbeditbundle` (SPEC.md 130.56.11): the Bounce Bonanza course builder's zip for someone with no "
+        "`make bbeditbundle` (SPEC.md 130.58.11): the Bounce Bonanza course builder's zip for someone with no "
         "os8088 tree. Unpacked in a temporary folder and run there with python -I under an audit hook that "
         "fails on any file opened under the tree: the compiler's ROOT is the bundle's data/, MILL is read and "
         "written byte for byte, laid out, drawn and fully checked, the pathway lays out from data/Makefile's "

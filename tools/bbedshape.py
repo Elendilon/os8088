@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedshape - THE COURSE BUILDER'S SHAPES TAB (SPEC.md 130.56.19): chutes, pits and humps
+"""bbedshape - THE COURSE BUILDER'S SHAPES TAB (SPEC.md 130.58.19): chutes, pits and humps
 (130.28, 130.44) edited as what they are - a crease drawn with handles, a bowl, a ridge - with the
 height graph and how each ball rides the shape (bbedjob.py `ride`, the game's own Physics).
 
