@@ -128,6 +128,43 @@ breaks), but G2 is closest to one. The way to tell is to play it, which is the n
 step if the owner picks it: a knob build of the chosen pair (as `BZSHADOW`
 was), with the dynamic-cell rule above, on FIRST, MILL and ROLL.
 
+## 5a. G4 as a build: `BZEDGE=1` (the owner, 2026-11-21)
+
+*"Can you put the G4 band+fringe only into a build, and see how it affects sizes?"* G4 is now a knob, off by
+default: `make BUILD=build/edge BZDOWN=1 BZEDGE=1 bonanzadisk` (BZDOWN puts DOWNHILL DECISION in TRIAL's
+place on the pathway). `bbcourse.py --edge` runs `look_edge()` after the picture is drawn. It uses the same
+per-pixel geometry buffers as cast shadows, and its rule is the mock-up's: a foot is JOINED only when the top under it
+is the cell across that face's own edge, and otherwise the face's last 2 px go black and the 2 above them 50%.
+It follows the shadows' two rules (130.47.5):
+
+- **no band on, or because of, a cell that moves or vanishes** (`_SHADOW_DYN`: the face's cell, the top's
+  cell and the cell across the face's edge). So every crack, bridge, see-saw and turntable compiles.
+- **a course over `BLK_MAX` with it is compiled again without it**, and the run says so. PLAYGROUND is
+  1,038 blocks with the band (14 over), so it plays today's picture.
+
+MOON's and PEAK's demos are re-stamped with the build's identity, as a shadows build does. The band changes
+ink only, and the replay check after the re-stamp still passes.
+
+**Sizes, MEASURED** at this commit, `BZDOWN=1` both sides. Raw is the part as stored, so it is also the
+RAM the part takes once loaded. LZB is each part packed whole by `os88lz.lzb_compress`:
+
+| course | raw | +G4 | | LZB | +G4 | |
+|---|---|---|---|---|---|---|
+| FIRST | 10,199 | 10,215 | +16 | 1,830 | 1,863 | +33 |
+| TRIAL | 16,364 | 16,396 | +32 | 3,545 | 3,590 | +45 |
+| MILL | 27,706 | 27,978 | +272 | 6,900 | 7,143 | +243 |
+| MOON | 37,788 | 38,156 | +368 | 7,239 | 7,506 | +267 |
+| PEAK | 42,478 | 42,830 | +352 | 8,973 | 9,298 | +325 |
+| PLAY | 58,562 | 58,562 | +0 (fell back) | 15,427 | 15,427 | +0 |
+| ROLL | 43,506 | 43,922 | +416 | 9,506 | 9,893 | +387 |
+| HOP | 38,901 | 39,157 | +256 | 10,039 | 10,240 | +201 |
+| DOWN | 127,684 | 128,484 | +800 | 16,269 | 16,668 | +399 |
+| **total** | 403,188 | 405,700 | **+2,512** | 79,728 | 81,628 | **+1,900** (+2.4%) |
+
+The title's part grows 128 bytes raw. `BONANZA.O88` as shipped goes from 167,385 to 169,337 bytes
+(**+1,952**). A raw delta is 16 bytes a block, so DOWN gains 50 blocks, ROLL 26 and HOP 16. On
+`bonanza360.img` the free space goes from 186,368 to 184,320 bytes.
+
 ## 6. Reproducing
 
 From the repository root, after `make deps`:

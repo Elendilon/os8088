@@ -6751,3 +6751,12 @@ breaks PLAYGROUND's vanishing crack, because a cue that depends on a
 neighbour changes when the neighbour vanishes, so a real build needs
 shadows' rule of no cue on or from a cell that moves. *Intended*, not done: a knob build
 of whichever pair the owner picks, to play.
+
+## 2026-11-21 (G4 as a build: BZEDGE=1)
+
+The owner asked for G4, the band and fringe alone, as a build to play on ROLL, HOP and DOWN.
+It is a knob beside `BZSHADOW` and borrows the shadows' per-pixel geometry, their
+moving-cell set and their retry over `BLK_MAX`. *Observed*: with the moving-cell rule every course with a
+crack or bridge compiles, which the mock-up could not do on PLAYGROUND. PLAYGROUND itself lands 14 blocks over
+the limit and falls back to no band. The package grows 1,952 bytes and the courses 1,900 bytes LZB (2.4%);
+[EDGES.md](bonanza-courses/EDGES.md) 5a has the table. *Not yet known*: how it reads in play.
