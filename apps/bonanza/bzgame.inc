@@ -465,13 +465,14 @@ VAR bz_nway,2                   ; the route: NWAY waypoints at bz_wayoff in the
 VAR bz_wayoff,2                 ; course part (the autopilot's, 130.10.11.1)
 ; the parts' segments and the card
 VAR bz_cseg,2
-%if BZ_NCRS2                   ; SPEC.md 130.30.5: a two-part course's PICTURE part (bz_cseg the WORLD part's;
+%if BZ_NCRS2 + BZ_NSHC          ; SPEC.md 130.30.5: a two-part course's PICTURE part (bz_cseg the WORLD part's;
 VAR bz_mseg,2                  ; a one-part course's both the same segment)
 %else
 bz_mseg     equ bz_cseg         ; (no two-part course in this build: one word, today's bytes)
 %endif
-%if BZ_NSHEET                   ; SPEC.md 130.30.12: a SHEETED course's sheets (none in this build: no bss)
-VAR bz_shseg,2 * BZ_SHMAX       ; ...each sheet's segment (kern_mega: its selector), sheet 0's first
+%if BZ_NSHC                   ; SPEC.md 130.30.12: a SHEETED course's sheets (none in this build: no bss)
+VAR bz_shseg,2 * BZ_SHMAX + 2   ; ...each sheet's segment (kern_mega: its selector), sheet 0's first
+                                ; (its one part's base), then the world part's (bz_cload2)
 VAR bz_shent,2                  ; ...the course's first BZ_SHTAB entry (bz_shtab + BZ_CRS_SHI[K])
 VAR bz_shlo,2                   ; ...the window tops (bz_R0n, this card's rows) the shown sheet serves,
 VAR bz_shhi,2                   ; signed: 8000h and 7FFFh on every other course (bz_shchk never switches)
@@ -2383,7 +2384,7 @@ bz_camera:
     dec bx
     dec bx
     jns .tf
-%if BZ_NSHEET
+%if BZ_NSHC
     call bz_shfind              ; SPEC.md 130.30.12.3: the cut's window in its SHEET
 %endif
     jmp .decided
@@ -2509,7 +2510,7 @@ bz_camera:
     mov ax, [bz_R0n]
     sub ax, [bz_R0]
     mov [bz_dr], ax
-%if BZ_NSHEET
+%if BZ_NSHC
     jnz .shk                    ; SPEC.md 130.30.12.3: a window that moved down or up -
 .shkr:                          ; is it still in the shown SHEET? (bz_shchk)
 %endif
@@ -2529,7 +2530,7 @@ bz_camera:
     mov [bz_meas], al
 %endif
     ret
-%if BZ_NSHEET
+%if BZ_NSHC
 .shk:
     call bz_shchk
     jmp short .shkr
@@ -3329,7 +3330,7 @@ bz_outwin:
 .out:
     ret
 
-%if BZ_NSHEET
+%if BZ_NSHC
 ; -----------------------------------------------------------------------------
 ; bz_shchk - SPEC.md 130.30.12.3: the camera's new window [bz_R0n] inside the
 ; SHEET bz_mseg is (its top in [bz_shlo, bz_shhi], this card's rows: a frame's
