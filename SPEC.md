@@ -287530,3 +287530,36 @@ ramp, as rails; and floors and walls that FLOAT a chosen depth ("Overhang" had r
   why one placed on empty space was refused.
 - **A route point** is never drawn in the game, so a click reaches the ground under it first (Shift-click
   reaches it).
+
+#### 130.56.15 Diagonals, and a wholly hidden element warns (the owner, 2026-11-21)
+
+The owner: "We need a way to set diagonals, and visualize them in the topdown view"; and "placing something
+obscured should warn, not error (aka a speed boost behind the diagonal in downhill decision). We'll need
+that soon for a few hidden routes, and something like a chute obscuring one pad isn't what that rule was
+there to protect against."
+
+- **The plan draws split cells as their pieces** (130.24.3): `analyse()` gives a `Split` cell `pieces`,
+  each a triangle in the cell (u right, v down, T at the top-left) - TB halves along T-B (A left, B right),
+  LR halves along L-R (A up, B down), quarters N, E, S, W round the centre - with its own record's kind,
+  height and line; a void piece is not drawn. `at_cell(analysis, cell, frac)` puts the piece under the
+  point first, so a click selects the half (or quarter) it lands on.
+- **Cut a corner** (the area panel, the four plan corners): the cells before the area's diagonal are
+  dropped and the cells ON it halved - `<kind> half <side> tile X Y` with the cell's own statement's
+  clauses, the half away from the corner kept (north-west keeps `down`, north-east `left`, south-west
+  `right`, south-east `up`) - as deep as the area's shorter side; a cell already split, shaped or laid by a
+  band or box is left; the floor round is rejoined. One undo step.
+- **Diagonal strip** (the area panel): `floor box A0 A1 S0 S1 flat H`, one diamond (32 px) wide, from the
+  area's first cell to its last - DOWN the screen along the plan's `x = y` diagonal (cells `x - y = a`,
+  `A0 = a - 1`, `A1 = a + 1`) or ACROSS it along `x + y`, at the floor's height there, laid over what is
+  there (a box is never cut).
+- **The edit check now holds the start and the route to the ground** (the compiler's own rules: the start
+  a flat floor, a route point on no wall or void), so cutting a corner through the start is undone with
+  the reason rather than refused at the full check.
+- **A wholly hidden element is a WARNING** (amends 130.56.10's "what stays an ERROR"): a boost pad, a
+  gate, plate or bridge pose, a gate's art and a turntable cell keep the lane rect they had before any
+  clipping, their poses empty; a magnet, a blower and a membrane, whose rect came from their visible
+  pixels, span their art as drawn, as the flag does. Only a clock wholly hidden or off the picture still
+  refuses (a finish's clock is for seeing). A pickup's warning names the pickup, not "the flag". Under
+  `--strict` each is refused as before, `hidden` and `accept` as 130.56.5. MEASURED: every shipped
+  course's parts, demos and `bzcourse.inc` byte-identical before and after; the `--selfcheck` sections
+  of every family touched pass. The game has not yet been run with a wholly hidden element.

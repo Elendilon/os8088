@@ -966,6 +966,95 @@ class App(object):
                 best = cand
         return best[1:] if best else None
 
+    def cut_corner(self, corner):
+        """SPEC.md 130.56.15: cut the area's CORNER off along a diagonal - the cells before the line dropped,
+        the cells ON it halved (the half away from the corner kept), every piece keeping its own statement's
+        kind, height and ramp. The cut is as deep as the area's shorter side"""
+        if not self.area:
+            return
+        x0, y0, x1, y1 = self.area
+        n = min(x1 - x0, y1 - y0) + 1
+        keep, depth = {"nw": ("down", lambda x, y: (x - x0) + (y - y0)), "ne": ("left", lambda x, y: (x1 - x) + (y - y0)),
+                       "sw": ("right", lambda x, y: (x - x0) + (y1 - y)),
+                       "se": ("up", lambda x, y: (x1 - x) + (y1 - y))}[corner]
+        a = self.doc.analysis()
+        drop, halves, skipped = [], [], 0
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                k = depth(x, y)
+                d = a["cells"].get((x, y))
+                if not d or k > n - 1:
+                    continue
+                if d.get("pieces") or d["kind"] == "field":
+                    skipped += 1
+                    continue
+                st = self.doc.statement(d["line"])
+                sh = self.doc._ground_shape(st)
+                if not sh:
+                    skipped += 1
+                    continue
+                if k < n - 1:
+                    drop.append((x, y, x, y))
+                else:
+                    i, _r, w = sh
+                    halves.append(E.join_tokens(st.toks[:i] + ["half", keep, "tile", str(x), str(y)] +
+                                                st.toks[i + w:]))
+        if not drop and not halves:
+            self._msg("Nothing to cut there: the corner's cells are empty%s" % (
+                " or already diagonal" if skipped else ""))
+            return
+
+        def go():
+            with self.doc.group("cut a corner"):
+                if drop:
+                    self.doc.replace_area(drop, surfaces=True)
+                hc = []
+                for h in halves:
+                    t_ = h.split()
+                    j = t_.index("tile")
+                    hc.append((int(t_[j + 1]), int(t_[j + 2]), int(t_[j + 1]), int(t_[j + 2])))
+                if halves:
+                    self.doc.replace_area(hc, ground=halves)
+                self.doc.tidy(self.area)
+            return True
+        if self._edit(go):
+            self._msg("Cut the corner: %d cells dropped, %d halved%s" % (len(drop), len(halves), (
+                "; %d already diagonal or shaped, left alone" % skipped) if skipped else ""))
+
+    def diagonal_strip(self, how):
+        """SPEC.md 130.56.15: a STRAIGHT strip of the screen (`floor box`), one diamond (32 px) wide, from the
+        area's first cell to its last - down the screen along the plan's x = y diagonal, or across it along
+        x + y - at the height of the floor there. Laid over what is there (a box is never cut)"""
+        if not self.area:
+            return
+        x0, y0, x1, y1 = self.area
+        inside, around = self._heights(self.area)
+        try:
+            typed = float(self.height.get())
+        except ValueError:
+            typed = 4.0
+        h = inside if inside is not None else around if around is not None else typed
+        h = round(h * 4) / 4.0
+        hs = ("%d" % h) if h == int(h) else ("%g" % h)
+        if how == "down":                       # cells x - y = a, from (x0, y0) toward (x1, y1)
+            a = x0 - y0
+            n = max(x1 - x0, y1 - y0)
+            a0, a1, s0, s1 = a - 1, a + 1, x0 + y0, x0 + y0 + 2 * n + 2
+        else:                                   # cells x + y = k, from (x0, y1) toward (x1, y0)
+            k = x0 + y1
+            n = max(x1 - x0, y1 - y0)
+            a0, a1, s0, s1 = x0 - y1 - 1, x0 - y1 + 2 * n + 1, k, k + 2
+        code = "floor box %d %d %d %d flat %s" % (a0, a1, s0, s1, hs)
+
+        def go():
+            self.doc.replace_area(None, ground=[code], label="a diagonal strip")
+            return True
+        if self._edit(go):
+            ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
+            self.select(ln)
+            self._msg("Added a diagonal strip %s the screen at height %s: %s" % (
+                "down" if how == "down" else "across", hs, code))
+
     def _flat_heights(self, t):
         """(the highest FLAT floor in the area, the highest flat floor touching it from outside), or None"""
         a = self.doc.analysis()
@@ -1220,6 +1309,20 @@ class App(object):
                 for k, nm in enumerate(("Floor", "Ramp", "Wall", "Hole", "Goal")):
                     ttk.Button(bf, text=nm, width=6, command=lambda nm=nm: self.add_part(nm)).grid(
                         row=k // 3, column=k % 3, padx=1, pady=1)
+                ttk.Label(self.ins_body, text="Cut a corner:").grid(row=2, column=0, sticky="w")
+                cf_ = ttk.Frame(self.ins_body)
+                cf_.grid(row=2, column=1, sticky="w")
+                for k, (lab, corner) in enumerate((("\u2196", "nw"), ("\u2197", "ne"), ("\u2199", "sw"),
+                                                   ("\u2198", "se"))):
+                    ttk.Button(cf_, text=lab, width=3, command=lambda c_=corner: self.cut_corner(c_)).grid(
+                        row=0, column=k, padx=1)
+                ttk.Label(self.ins_body, text="Diagonal strip:").grid(row=3, column=0, sticky="w")
+                df_ = ttk.Frame(self.ins_body)
+                df_.grid(row=3, column=1, sticky="w")
+                ttk.Button(df_, text="\u2198 down the screen", command=lambda: self.diagonal_strip("down")).grid(
+                    row=0, column=0, padx=1)
+                ttk.Button(df_, text="\u2197 across", command=lambda: self.diagonal_strip("across")).grid(
+                    row=0, column=1, padx=1)
                 ttk.Label(self.ins_body, text="Paint:").grid(row=1, column=0, sticky="w")
                 pf_ = ttk.Frame(self.ins_body)
                 pf_.grid(row=1, column=1, sticky="w")
@@ -2100,6 +2203,18 @@ class App(object):
                 fill = "#9aa0a6" if d["kind"] != "wall" else "#6f747a"
             if d["kind"] == "goal":
                 fill = "#ffffff"
+            if d.get("pieces"):                    # a split cell: its pieces, each its own colour
+                for pc in d["pieces"]:
+                    pf = hcolour(pc["h"]) if self.show_heights.get() else ("#9aa0a6" if pc["kind"] != "wall"
+                                                                            else "#6f747a")
+                    if pc["kind"] == "goal":
+                        pf = "#ffffff"
+                    pts = [v for (u, w) in pc["poly"] for v in (px + u * s, py + w * s)]
+                    c.create_polygon(*pts, fill=pf, outline="#1b1d22",
+                                     width=2 if pc["kind"] == "wall" else 1)
+                    if pc["line"] == self.sel or pc["line"] in self.sels:
+                        selcells.add((x, y))
+                continue
             c.create_rectangle(px, py, px + s, py + s, fill=fill, outline="#1b1d22")
             if d["kind"] == "goal":
                 q = s / 2
@@ -2304,6 +2419,7 @@ class App(object):
         x, y = self.cv.canvasx(e.x), self.cv.canvasy(e.y)
         if self.view.get() == "plan":
             s = CELL * self.zoom
+            self.frac = ((x % s) / s, (y % s) / s)
             return int(x // s) + self.origin[0], int(y // s) + self.origin[1]
         if not self.pic:
             return None
@@ -2368,7 +2484,7 @@ class App(object):
                       "clear what is in it." % (x1 - x0 + 1, y1 - y0 + 1))
         else:                                     # a click: select what is there
             cell = d["from"]
-            lines = E.at_cell(self.doc.analysis(), cell)
+            lines = E.at_cell(self.doc.analysis(), cell, getattr(self, "frac", None))
             self.area = (cell[0], cell[1], cell[0], cell[1])
             if lines and d.get("ctrl"):
                 self.select(lines[0], add=True)

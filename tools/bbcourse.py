@@ -4952,7 +4952,7 @@ def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
         if 2 * sum(1 for xy in f0 if xy in shown) < len(f0):
             _visual("%s is HIDDEN: %d of its shut frame's %d pixels drawn over by geometry in front of it "
                               "(SPEC.md 130.41.12: the player must see the gate)" % (
-                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)), "hidden", empty=not any(xy in shown for xy in f0))
+                                  where, sum(1 for xy in f0 if xy not in shown), len(f0)), "hidden")
         ink = {xy: [fr.get(xy, cv.rows[xy[1]][xy[0]]) for fr in frames] for xy in shown}
         key = {xy: (wx + wy + cell[xy], tops[cell[xy]]) for xy in shown if xy in f0}
         if hack.get("ganokey"):
@@ -11876,11 +11876,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             if p["kind"] == WD_K2 and 2 * len(poses[1]) < len(raw[1]):
                 _visual("%s:%d: the blower's squiggles over (%d, %d) are HIDDEN: %d of %d pixels drawn over by "
                                   "geometry in front of them" % (fname, p["line"], p["at"][0], p["at"][1],
-                                                                 len(raw[1]) - len(poses[1]), len(raw[1])), "hidden", empty=not poses[1])
+                                                                 len(raw[1]) - len(poses[1]), len(raw[1])), "hidden")
             xs = [x for q in poses for x, _ in poses[q]]
             ys = [y for q in poses for _, y in poses[q]]
-            if not xs:
-                raise CourseError("%s:%d: the blower at (%d, %d): its fan is not seen" % (fname, p["line"], *p["at"]))
+            if not xs:                              # SPEC.md 130.56.15: wholly hidden - spans the fan as drawn
+                _visual("%s:%d: the blower at (%d, %d): its fan is not seen" % (fname, p["line"], *p["at"]), "hidden")
+                xs = [x for pix in raw.values() for x, _ in pix]
+                ys = [y + y0 for pix in raw.values() for _, y in pix]
             c0, r0 = min(xs) >> 3, min(ys) >> 3
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
@@ -11897,10 +11899,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             q0, q1 = seen(p["furl"]), seen(p["fly"])
             if 2 * len(q1) < len(p["fly"]) or (not q0 and p.get("art") != "icon"):   # (a pickup's pose 0 is empty)
                 hid = sorted({cv.sbuf[y + y0][x] for (x, y) in p["fly"] if (x, y + y0) not in q1})
-                _visual("%s:%d: the flag at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
+                _visual("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its flying pennant's %d pixels "
                                   "(and %d of its furled roll's %d) are drawn over by geometry in front of it "
                                   "(row s = %s against the flag's %d)"
-                                  % (fname, p["line"], p["at"][0], p["at"][1], len(p["fly"]) - len(q1),
+                                  % (fname, p["line"], "flag" if p.get("art") != "icon" else "%s pickup" % PK_NAMES.get(
+                                         p["kind"], next((k["name"] for k in (p.get("fam") or {}).get("kinds", ())
+                                                          if k["kind"] == p["kind"]), "a")), p["at"][0], p["at"][1],
+                                     len(p["fly"]) - len(q1),
                                      len(p["fly"]), len(p["furl"]) - len(q0), len(p["furl"]),
                                      ", ".join(map(str, hid[:4])), sF), "hidden")
             xs = [x for x, _ in list(q0) + list(q1)]
@@ -11922,9 +11927,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 if 2 * len(poses[q]) < len(pix):
                     _visual("%s:%d: the magnet at (%d, %d) is HIDDEN: %d of its wiggle's %d pixels are "
                                       "drawn over by geometry in front of it" % (
-                                          fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)), "hidden", empty=not poses[q])
+                                          fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)), "hidden")
             xs = [x for q in poses.values() for x, _ in q]
             ys = [y for q in poses.values() for _, y in q]
+            if not xs:                              # SPEC.md 130.56.15: wholly hidden - the lane spans the wiggle
+                xs = [x for pix in raw.values() for x, _ in pix]            # as drawn, every pose empty
+                ys = [y + y0 for pix in raw.values() for _, y in pix]
             c0, r0 = min(xs) >> 3, min(ys) >> 3
             rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
@@ -11964,13 +11972,16 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                         if 0 <= x < width and 0 <= y < lines and cv.sbuf[y][x] <= w_[0] + w_[1]:
                             web[(x, y)] = ink
                 q1 = {}
-                for (x, y), ink in membrane_tear(cx, cy, *mem_art[1][p["at"]], web=web).items():
+                tear_ = membrane_tear(cx, cy, *mem_art[1][p["at"]], web=web)
+                for (x, y), ink in tear_.items():
                     if 0 <= x < width and 0 <= y < lines and (ink is None or cv.sbuf[y][x] <= sF):
                         q1[(x, y)] = cv_rows0[y][x] if ink is None else ink
-                if not q1:
-                    raise CourseError("%s:%d: the membrane at (%d, %d) is HIDDEN: geometry in front of it covers "
-                                      "the whole of its tear" % (fname, p["line"], wx, wy))
                 xs, ys = [x for x, _ in q1], [y for _, y in q1]
+                if not q1:                          # SPEC.md 130.56.15: a warning; the lane spans the tear as drawn
+                    _visual("%s:%d: the membrane at (%d, %d) is HIDDEN: geometry in front of it covers "
+                            "the whole of its tear" % (fname, p["line"], wx, wy), "hidden")
+                    inpic = [(x, y) for (x, y) in tear_ if 0 <= x < width and 0 <= y < lines]
+                    xs, ys = [x for x, _ in inpic] or [cx], [y for _, y in inpic] or [cy]
                 c0, r0 = min(xs) >> 3, min(ys) >> 3
                 rect = (c0, r0, (max(xs) >> 3) - c0 + 1, (max(ys) >> 3) - r0 + 1)
                 p["fpix"] = poses = {0: {}, 1: q1}
@@ -12013,7 +12024,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     _visual("%s:%d: the turntable cell (%d, %d)'s %s is HIDDEN: %d of its %d pixels drawn "
                                       "over by geometry in front of it (SPEC.md 130.43: a mechanic seen when the "
                                       "ball is not on it)" % (fname, p["line"], wx, wy, "warning" if seam else "hole",
-                                                              len(want) - len(poses[q]), len(want)), "hidden", empty=not poses[q])
+                                                              len(want) - len(poses[q]), len(want)), "hidden")
             p["fpix"] = poses
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"],
                           "line": p["line"]})
@@ -12035,7 +12046,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             if not poses[1] or 2 * len(poses[1]) < whole:
                 _visual("%s:%d: the boost pad at (%d, %d) is HIDDEN: %d of its flash's %d pixels are drawn "
                                   "over by geometry in front of it (the player must see where the ball goes)"
-                                  % (fname, p["line"], wx, wy, whole - len(poses[1]), whole), "hidden", empty=not poses[1])
+                                  % (fname, p["line"], wx, wy, whole - len(poses[1]), whole), "hidden")
             lanes.append({"prop": i, "rect": rect, "poses": poses, "st": {}, "kind": p["kind"], "line": p["line"]})
         elif p.get("gart") is not None:             # SPEC.md 130.41.12: an ART element has no lane of its own
             pass
@@ -12071,7 +12082,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 _visual("%s:%d: the %s at (%d, %d) is HIDDEN: %d of its %s pose's %d pixels are drawn over "
                                   "by geometry in front of it (the player must see where the ball goes)"
                                   % (fname, p["line"], nm, wx, wy, whole - len(q1), {GT_KP: "pressed", GT_KG: "shut",
-                                                                                     GT_KB: "up"}[p["kind"]], whole), "hidden", empty=not q1)
+                                                                                     GT_KB: "up"}[p["kind"]], whole), "hidden")
             q0 = {(x, y + y0): c for (x, y), c in p["gt_pix"].items() if inr(x, y + y0) and 0 <= y + y0 < lines
                   and cv.sbuf[y + y0][x] <= sF}
             p["fpix"] = poses = {0: q0, 1: q1}
