@@ -22487,7 +22487,8 @@ BZ_ART := $(BUILD)/bonanza-art
 # 130.14.7.4: the save keys courses by name, the game starts on pathway pad 0's,
 # the demos and BENCH's exemptions go by NAME).  As listed: 0 FIRST, 1 DOWN (Downhill
 # Decision, the real course 3: since 2026-11-21 in the slot the rubber ball's trial held, TRIAL a TEST
-# course now, in BZ_TESTCRS), 2 the obstacles' (SPEC.md 130.12.9), 3 and 4 wave 4's (MOON, Moonlit
+# course now, in BZ_TESTCRS), 2 MILL (Windmill Lane: the real course 4's attempt 1 since 2026-11-21, in the
+# obstacles' prototype's place - its features TMIL's, SPEC.md 130.54.10), 3 and 4 wave 4's (MOON, Moonlit
 # Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 5 wave 6's PLAYGROUND (PLAY,
 # SPEC.md 130.16.8) - the same K in the BZDEV=1 build, whose TEST courses
 # (BZ_TESTCRS, below: BENCH, the benchmark's, among them) come AFTER every

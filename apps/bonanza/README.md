@@ -11,7 +11,9 @@ else is read at build time or at run time. See SPEC.md 130 and
 
 **Status: wave 6, feel.** Eight courses - two called "First Roll" (FIRST
 and ROLL), "Little Hop", "Downhill Decision" (which took "Bounce Trial"'s
-place on 2026-11-21; TRIAL is a test course now), "Windmill Lane", "Moonlit Green",
+place on 2026-11-21; TRIAL is a test course now), "Windmill Lane" (its new
+design, a fork, a turntable and a see-saw, in the prototype's place since the
+same day), "Moonlit Green",
 "Summit Rush" and the "Playground" - with flags, ball-swap pads, springs, tubes,
 windmills, bumper posts, a lift and the cup; three balls (rubber, steel,
 glass), each with its own Hop and Grip, and rubber's one BOOST (Space again
