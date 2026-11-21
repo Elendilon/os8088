@@ -287074,6 +287074,46 @@ standing in) to DOWN. Now:
   bytes, `bonanza360.img` 202 of 354 clusters. A pad-0 knob build
   (`BZSHAPES=1`, `pathtest.bbc` with DOWN on pad 1) compiles.
 
+##### 130.54.9.1 Item 8 on a SPLIT course, and the dither map's lift (2026-11-21)
+
+Shipping DOWN turned two `--selfcheck` items red (`bonanzacourse`), and
+neither was a fault in the course or the camera:
+
+- **Item 8 (130.14.18 item 9) held one route to every flag.** DOWN's
+  arrows stall at the chute corner, so its route demo is `route_plan`'s
+  (130.14.7.4.1 - 130.14.7.4.3), and item 8 replayed that plan only for a
+  `trap hop` course. It now replays `route_plan`'s route - the route
+  demo's, the limit's - for ANY course the arrows do not finish. And a
+  SPLIT course's route can touch only its own leg's flags (DOWN's main
+  route is the steel leg: flags 0, 1, 6, 7). So item 8 now asks that
+  **every flag be on SOME checked route**: the main route's, or a
+  `branch`'s (130.14.4.1) whose route reaches a finish with no fall. A
+  branch's route (`branch_route`) is the main route's ways up to the one
+  nearest the branch's first point, then the branch's points - and, when
+  its last point is a main way, the main route on from there; a branch
+  that ends elsewhere is a LEG to a finish of its own. It is planned by
+  `branch_plan`: the arrows along it, else `route_plan`'s search over it,
+  and - when that skips a flag no other route touched - the FLAG PASS
+  (130.14.7.4.4) over it with those flags alone as its aims and its goal
+  test. Branches are consulted only when the main route leaves a flag
+  untouched, so every other course's item is the one it was. DOWN's glass
+  leg is `branch GLASS` (`sketch.py` emits ROUTE2 as it), which like every
+  branch is the tool's alone: DOWN's part and identity (1F60h) are byte
+  for byte what they were. As built: main 0 1 6 7, GLASS (exit 0, step
+  2,233, no fall) 0 1 2 3 4 5 - 8 of 8. **Red arms**: DOWN's main route
+  alone fails; `_FLAGSIDE` with the flag pass off (a route skipping the
+  flag on its own leg) fails, and passes with it on.
+- **The dither map (130.17.6.5 item 4) sampled a ball a LIFT carries.**
+  One CGA sample of DOWN's demo at 25 steps, frame 1822, (62, 27): the
+  steel ball rolling off the top of the steel lift; the taps back rolled
+  it into the shaft, onto the slab at its foot, and the slab carried it up
+  again - a pan down after the pan up that followed the lift's ride, the
+  camera following a ball a prop moved, as it does out of a tube. The
+  map's branch is clean now only with no step on a lift's slab (`bz_onp`),
+  beside no frame in a tube: 0 of 1,214, 1,208 and 1,166 samples at 8, 15
+  and 25 steps (1,220, 1,213 and 1,174 before), and `nohyst` still red on
+  both cards.
+
 ### 130.55 THE LIFE, `respawn` and the 10-second default (the owner, 2026-11-21; on `bb-lives`)
 
 The owner's brief: *"a heart/life powerup, with some special rules of its

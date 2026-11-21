@@ -21983,6 +21983,58 @@ def _plan_flags(c):
             if q["kind"] == PK_CHECKPOINT]
 
 
+def branch_route(c, name):
+    """a `branch`'s whole route (SPEC.md 130.14.4.1, item 8): the main route's ways up to the one nearest the
+    branch's first point, the branch's points, and - when its last point is a main way (the branch rejoins)
+    - the main route on from there; a branch that ends anywhere else is a LEG to a finish of its own (a SPLIT
+    course's other exit, DOWN's GLASS) -> [way tiles]"""
+    main = [t for t, _ln in c.src.ways]
+    pts = [t for t, _ln in c.branches[name]]
+    i0 = min(range(len(main)), key=lambda i: abs(main[i][0] - pts[0][0]) + abs(main[i][1] - pts[0][1]))
+    out = main[:i0 + 1] + (pts[1:] if pts[0] == main[i0] else pts)
+    if pts[-1] in main[i0 + 1:]:
+        out += main[main.index(pts[-1], i0 + 1) + 1:]
+    return out
+
+
+def branch_plan(c, name, want=()):
+    """item 8's keys for a `branch` (branch_route): 130.6's arrows along it, or - when they do not finish -
+    route_plan's search over it (its Hops, then its holds and waits); and when that route skips a flag of
+    WANT (the flag numbers no other checked route touched), the FLAG PASS over it (SPEC.md 130.14.7.4.4) with
+    those flags alone as its AIMS and its goal test -> the keys or None.  Kept with the course, as
+    route_plan's"""
+    memo = c.__dict__.setdefault("_bplan", {})
+    key = (c.ident, c.ball, name, tuple(sorted(want)), _NOFLAG)
+    if key in memo:
+        return memo[key]
+    pts = [_way_point(c, t) for t in branch_route(c, name)]
+    p = Physics(c, play=True)
+    p.tsec = 0
+    p.route = list(pts)
+    keys = []
+    while len(keys) < DEMO_STEPS and not p.goal and not p.nfall:
+        keys.append(p.auto())
+        p.step(keys[-1])
+    out = keys if p.goal and not p.nfall else None
+    if out is None:
+        out = _plan_search(c, False, False, route=pts)
+        if out is None:
+            out = _plan_search(c, False, True, route=pts)
+    flags = [f for f in _plan_flags(c) if f[0] in want]
+    if out is not None and flags and not _NOFLAG:
+        q = Physics(c, play=True)
+        q.tsec = 0
+        for k in out:
+            q.step(k)
+        if not all(q.cksn >> f[0] & 1 for f in flags):
+            f = _plan_search(c, False, False, flags, route=pts)
+            if f is None:
+                f = _plan_search(c, False, True, flags, route=pts)
+            out = f if f is not None else out
+    memo[key] = out
+    return out
+
+
 def _route_nflags(c, keys):
     """the flags a route's keys touch, replayed from the start as route_plan steps it (no limit)"""
     p = Physics(c, play=True)
@@ -21992,11 +22044,14 @@ def _route_nflags(c, keys):
     return p.nckpt
 
 
-def _plan_search(c, nohop, hold, flags=None):
+def _plan_search(c, nohop, hold, flags=None, route=None):
     """route_plan's depth-first search, one pass -> the keys or None.  FLAGS: the flag pass's (SPEC.md
-    130.14.7.4.4), _plan_flags': the AIMS in every leg, and the goal taken only with every flag touched"""
+    130.14.7.4.4), _plan_flags': the AIMS in every leg, and the goal taken only with every flag touched.
+    ROUTE: way points steered in place of the course's own (branch_route's, a `branch` leg: item 8)"""
     p0 = Physics(c, play=True)
     p0.tsec = 0                                     # (the route's own time: the limit is made from it)
+    if route is not None:
+        p0.route = list(route)
     spent = [0]
     stack = [([], _plan_tries(p0, spent, nohop, hold, flags))]
     out = None
@@ -22012,8 +22067,8 @@ def _plan_search(c, nohop, hold, flags=None):
             if len(ks) > PLAN_STEPS:
                 continue
             if q.goal:
-                if flags and q.nckpt < len(flags):  # (the flag pass: a goal that skipped a flag is a dead end)
-                    continue
+                if flags and not all(q.cksn >> f_[0] & 1 for f_ in flags):     # (the flag pass: a goal that
+                    continue                                                    # skipped a flag is a dead end)
                 out = ks
                 break
             stack.append((ks, _plan_tries(q, spent, nohop, hold, flags)))
@@ -23711,19 +23766,24 @@ def _cam_fork(base):
 
 def _cam_play(r, pat):
     """step R through PAT, [(key byte, steps)] -> True when the branch stayed
-    clean (no fall or RETURN, no goal, no frame in a tube)"""
+    clean (no fall or RETURN, no goal, no frame in a tube, no step on a LIFT's
+    slab: a ball a prop carries is followed as a tube's is, and the map asks
+    about the taps - DOWN's steel lift, 2026-11-21: a tap back off its top
+    dropped the ball down the shaft onto the slab, which carried it up again)"""
     p = r.p
     seq = iter([k for k, n in pat for _ in range(n)])
     n0 = p.nfall + p.nret
+    ride = [0]
 
     def st():
         k = next(seq, None)
         if k is None:
             return False
         p.step(k)
+        ride[0] |= p.onp
     while r.frame(st):
         pass
-    return p.nfall + p.nret == n0 and not p.goal and not any(f["tube"] for f in r.rows)
+    return p.nfall + p.nret == n0 and not p.goal and not any(f["tube"] for f in r.rows) and not ride[0]
 
 
 def _cam_revs(rows, herc):
@@ -27980,10 +28040,13 @@ def _w4_course_report(c, res):
                                                                  i0, i1, msteps, "; ".join(land)))
 
 
-def _w4_route(c, res):
+def _w4_route(c, res, _nobranch=False):
     """item 8 (wave 4): the autopilot on the course's route reaches the goal or
-    the cup without a fall within DEMO_STEPS; prints the airborne steps over OCC
-    and what the route met"""
+    the cup without a fall within DEMO_STEPS, and every flag is touched on SOME
+    checked route - the main route's, or (a SPLIT course: one route touches the
+    flags of its own leg only) a `branch`'s to a finish, branch_plan's; prints
+    the airborne steps over OCC and what the route met.  _nobranch: the red arm
+    (the main route alone answers for every flag) -> the main route's Physics"""
     p = Physics(c, play=True)
     air_occ = 0
     while p.nstep < DEMO_STEPS and not p.goal:
@@ -27992,10 +28055,15 @@ def _w4_route(c, res):
             air_occ += 1
     how = ""
     nfl = sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)
-    if p.goal and p.nckpt < nfl and not _NOFLAG:
+    if p.goal and p.nckpt < nfl and not _NOFLAG or not p.goal:
         # SPEC.md 130.14.7.4.4: the arrows reach the goal past a flag without touching it - the route is the
         # FLAG PASS's (route_plan: the route demo's), which steers through the flag's cell; the course is not
-        # changed to suit the autopilot.  The item replays that plan's keys to the same tests
+        # changed to suit the autopilot.  SPEC.md 130.14.7.4.1 - 130.14.7.4.3: the arrows alone do not finish -
+        # a course BUILT ON THE HOP (`trap hop`, LITTLE HOP), or one whose arrows stall where the search's Hops,
+        # holds or waits carry it (DOWN's chute corner) - and the route is again route_plan's, the one the build
+        # ships as the course's route demo (route_demo) and makes its limit from (_course_limit).  The item
+        # replays that plan's keys to the same tests: the goal, no fall, every flag, inside DEMO_STEPS
+        skip = bool(p.goal)
         plan = route_plan(c)
         p = Physics(c, play=True)
         air_occ = 0
@@ -28005,37 +28073,49 @@ def _w4_route(c, res):
             p.step(k_)
             if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
                 air_occ += 1
-        how = " (the arrows skip a flag: the FLAG PASS's route, 130.14.7.4.4, %s)" % (
-            "%d steps" % len(plan) if plan else "NONE found")
-    elif not p.goal and getattr(c, "traphop", None):
-        # wave 11 (SPEC.md 130.14.4.1.1, 130.14.7.4.1): a course BUILT ON THE HOP (`trap hop`, LITTLE HOP) is
-        # one the arrows alone cannot finish by design, and its route is the HOPPING autopilot's (route_plan:
-        # the limit's and the route demo's).  So for such a course - and only such a course: one without
-        # `trap hop` is still held to the arrows alone - the item replays that plan's keys and holds it to the
-        # same goal, no fall and every flag, inside DEMO_STEPS
-        plan = route_plan(c)
-        p = Physics(c, play=True)
-        air_occ = 0
-        for k_ in (plan or ())[:DEMO_STEPS]:
-            if p.goal:
-                break
-            p.step(k_)
-            if p.air and not p.tube and p.cell(p.gx >> 12, p.gy >> 12)[4] & FL_OCC:
-                air_occ += 1
-        how = " (`trap hop`: the HOPPING autopilot's route, 130.14.7.4.1, %s)" % (
+        how = " (%s: route_plan's route, the route demo's, %s)" % (
+            "the arrows skip a flag - the FLAG PASS, 130.14.7.4.4" if skip else
+            "`trap hop` - the HOPPING autopilot, 130.14.7.4.1" if getattr(c, "traphop", None) else
+            "the arrows alone do not finish - the route search, 130.14.7.4.1 - 130.14.7.4.3",
             "%d steps" % len(plan) if plan else "NONE found")
     kinds = {}
     for e in p.events:
         if e[0] in ("flag", "pad", "spring", "capture", "lip", "cup"):
             kinds[e[0]] = kinds.get(e[0], 0) + 1
-    want = {"flag": sum(1 for q in c.props if q["kind"] == PK_CHECKPOINT)}
+    nums = {q["num"] for q in c.props if q["kind"] == PK_CHECKPOINT}
+    got = {n for n in nums if p.cksn >> n & 1} if p.goal and not p.nfall else set()
+    legs = []
+    if got != nums and not _nobranch:
+        # a SPLIT course (DOWN, SPEC.md 130.54.9): the main route is one leg, and the flags of the other leg
+        # are a `branch`'s - each branch's route (branch_route) planned and replayed, and counted only when it
+        # reaches a finish with no fall
+        for name in sorted(c.branches):
+            bk = branch_plan(c, name, nums - got)
+            q = Physics(c, play=True)
+            for k_ in (bk or ())[:DEMO_STEPS]:
+                if q.goal:
+                    break
+                q.step(k_)
+            mine = {n for n in nums if q.cksn >> n & 1} if q.goal and not q.nfall else set()
+            legs.append("branch %s %s, flags %s" % (
+                name, "NO route" if bk is None else "at the %s (exit %d) at step %d, %d falls" % (
+                    "cup" if c.gflags & GF_CUP else "goal", q.exit, q.nstep, q.nfall) if q.goal else
+                "%d steps, never at a finish" % len(bk), " ".join(str(n) for n in sorted(mine)) or "none"))
+            got |= mine
+    want = {"flag": len(nums)}
+    left = sorted(nums - got)
     res.append(("8 %s: the autopilot reaches the %s at step %s (%.1f s) with no fall in %d steps, touching every "
-                "flag (%s of %d), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps over OCC "
-                "cells (priced in the demo legs, 130.14.6)%s" % (
+                "flag (%s of %d%s), over %d pad swaps, %d spring launches and %d tube captures; %d airborne steps "
+                "over OCC cells (priced in the demo legs, 130.14.6)%s" % (
                     c.name, "cup" if c.gflags & GF_CUP else "goal", p.nstep if p.goal else "-",
-                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), want["flag"], p.npad,
-                    p.nspr, kinds.get("capture", 0), air_occ, how),
-                p.goal == 1 and p.nfall == 0 and kinds.get("flag", 0) == want["flag"]))
+                    p.nstep * STEP_PIT / float(PIT_HZ), DEMO_STEPS, kinds.get("flag", 0), want["flag"],
+                    "" if not legs else "; every route: %d of %d (main %s; %s)%s" % (
+                        len(got), len(nums), " ".join(str(n) for n in sorted(n for n in nums if p.cksn >> n & 1))
+                        or "none", "; ".join(legs), "" if not left else ", flag%s %s on no route" % (
+                            "s" * (len(left) > 1), " ".join(str(n) for n in left))),
+                    p.npad, p.nspr, kinds.get("capture", 0), air_occ, how),
+                p.goal == 1 and p.nfall == 0 and got == nums))
+    c.__dict__["_w4_legs"] = bool(legs)
     return p
 
 
@@ -32386,6 +32466,32 @@ def _sc_w4(X, res):
         if any(p["kind"] >= PK_CHECKPOINT for p in c.props) or c.branches:
             _w4_course_report(c, res)
             _w4_route(c, res)
+    # item 8's red arms: a SPLIT course's main route alone (its branches left out) misses the other leg's
+    # flags; and a route that skips a flag on its own leg - _FLAGSIDE with the flag pass off (_NOFLAG), the
+    # arrows past its flag to the goal - fails however many routes are checked (the same course, the flag
+    # pass on, passes)
+    global _NOFLAG
+    red = []
+    for c in courses:
+        if c.__dict__.get("_w4_legs"):
+            r_ = []
+            _w4_route(c, r_, _nobranch=True)
+            red.append("%s's main route alone %s" % (c.name, "FAILS" if not r_[-1][1] else "PASSES"))
+    fs = compile_course(_FLAGSIDE, "<a flag two cells off the arrows' line>")
+    on_, off_ = [], []
+    _w4_route(fs, on_)
+    _NOFLAG = True
+    try:
+        fs.__dict__.pop("_hplan", None)
+        _w4_route(fs, off_)
+    finally:
+        _NOFLAG = False
+        fs.__dict__.pop("_hplan", None)
+    res.append(("8 RED ARMS of every flag on SOME checked route: %s; a route skipping the flag on its own leg "
+                "(_FLAGSIDE, the flag pass off) %s, the flag pass on %s" % (
+                    "; ".join(red) or "(no course needs a branch)", "FAILS" if not off_[-1][1] else "PASSES",
+                    "passes" if on_[-1][1] else "FAILS"),
+                bool(red) and all(x.endswith("FAILS") for x in red) and not off_[-1][1] and on_[-1][1]))
 
 
 def _sc_flags(X, res):
