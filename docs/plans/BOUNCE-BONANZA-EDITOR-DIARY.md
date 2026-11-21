@@ -323,3 +323,23 @@ to show the candidates and let a click choose.
 **Tested here:** the `bbedit` row (item 8, red when a band-less piece is kept); a scripted session on HOP
 that ticked the box, clicked a 7 px face and saw the next picture confirm the mark.
 
+
+## Test Roll (2026-11-21)
+
+**The question for wave 0.3: does Physics need the slow part of a compile?** It does not. A compile with
+the occluders off and the block limit lifted gives exactly the cells, the start and the props Physics
+reads. Only the picture side differs: Y0 moves by 2 to 4 lines, there are no occluder flags or records, the
+prop records come in another order, and the identity changes. On MILL and PLAY, six 4,000-step runs each
+matched step for step.
+
+**The window builds on that.** It rolls the ball on the quick compile (about 1 s to the first frame on
+MILL, 8.6 s on PLAY) and runs the full compile beside it. When the full compile lands, it replays the run
+onto it and compares the end states: MILL matched within about 5 s, PLAY at 119.5 s after 5,994 steps. Only
+then do walls hide the ball and the run become saveable as a `.BZR`, because a demo has to carry the
+shipped compile's identity. The frame is drawn from the compiler's own pieces: the picture, Heavy's poses,
+`sprite()`, `shadow()` and `laid_at`.
+
+**Tested here:** the `bbplay` row, red on the ball drawn one pixel off, a log without its RETURN, and the
+block limit left lifted; the bundle plays MILL for 120 frames from the zip. **Not yet:** a frame compared
+with MartyPC, a saved demo replayed on the game, and anyone playing it by hand. The frame's known
+approximations are listed in SPEC.md 130.56.16.2.
