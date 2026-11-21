@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """t_bbedit - the course builder's model and the compiler's warning tier
-(SPEC.md 130.56.3 - 130.56.5), on the host, no emulator:
+(SPEC.md 130.58.3 - 130.58.5), on the host, no emulator:
 
  1. ROUND TRIP: every course under apps/bonanza/courses/ read and written by
     tools/bbedproj.py is byte-identical, and moving every statement that has
@@ -95,7 +95,7 @@ def main():
     d.insert("prop magnet 4 7 face +x range 4 strength 48")
     if d.auto_uses() != ["magnet"] or not any(s.kind == "uses" and "magnet" in s.toks for s in d.statements()):
         bad.append("placing a magnet did not add `uses magnet`")
-    # 5. THE GROUND AS ONE LAYER (SPEC.md 130.56.13): a ramp cut into the middle of a floor leaves every
+    # 5. THE GROUND AS ONE LAYER (SPEC.md 130.58.13): a ramp cut into the middle of a floor leaves every
     # other cell where it was, the ramp's cells on its plane, and one undo; and the picture's band fixed
     base = ('course NEW "New course"\nwidth 64\nball rubber\n\nfloor rect 4 4 14 12 flat 4\nstart 5 5\n'
             'goal rect 12 10 14 12 flat 4\ntarget 30\nway 5 5\nway 13 11\n')
@@ -115,7 +115,7 @@ def main():
     d.insert("floor rect 15 4 24 12 flat 4")
     did = d.auto_band()
     # the narrowest picture that holds it: 80 columns, origin 224 - and the compiler agrees, refusing 72
-    # (MEASURED: SPEC.md 130.56.13)
+    # (MEASURED: SPEC.md 130.58.13)
     if did is None or d.analysis()["error"] or "width 80" not in d.lines or "origin 224" not in d.lines:
         bad.append("auto_band: %r, %r, %r" % (did, d.analysis()["error"], [l for l in d.lines if l[:5] in
                                                                          ("width", "origi")]))
@@ -124,7 +124,7 @@ def main():
     did = d.auto_band()
     if did is not None or not d.analysis()["error"]:
         bad.append("auto_band: a course past 160 columns was 'fixed': %r" % did)
-    # 6. REJOIN (SPEC.md 130.56.14): a ramp cut into the floor and made floor again rejoins into the one
+    # 6. REJOIN (SPEC.md 130.58.14): a ramp cut into the floor and made floor again rejoins into the one
     # rectangle it was, every cell as it was; a group of edits is one undo; a route point is under the ground
     d = E.Document(base)
     with d.group("ramp and back"):
@@ -137,7 +137,7 @@ def main():
     an = d.analysis()
     if E.at_cell(an, (5, 5))[-1] != [st.line for st in d.statements() if st.code == "way 5 5"][0]:
         bad.append("at_cell: the route point is not last at (5, 5): %r" % E.at_cell(an, (5, 5)))
-    # 7. DIAGONALS (SPEC.md 130.56.15): a split cell's pieces are reported and picked by the point; a WHOLLY
+    # 7. DIAGONALS (SPEC.md 130.58.15): a split cell's pieces are reported and picked by the point; a WHOLLY
     # hidden boost pad, magnet and membrane build with a warning (refused only under --strict)
     an = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "playground.bbc")).analysis()
     sp = [c for c, d in an["cells"].items() if d.get("pieces")]

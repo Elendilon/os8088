@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ADD TO THE GAME: a playable BONANZA.O88 with the author's courses, made with no assembler
-(SPEC.md 130.56.17, the course builder's wave 8).
+(SPEC.md 130.58.17, the course builder's wave 8).
 
     python3 tools/bbgame.py OUT.o88 [--disk OUT.img --size 360|720|1200|1440] [--pad0 NAME] [COURSE.bbc ...]
     python3 tools/bbgame.py prebuild [DIR]       (in the tree, with nasm: the prebuilt pieces)
@@ -77,7 +77,7 @@ WHY = {
     "BZ_CRS_DEFAULT": "pad 0's course moved",
 }
 SPARE = """course SPAR{n} "Spare {n}"
-# SPEC.md 130.56.17: a SPARE course, the slot an added course takes in a prebuilt BONANZA (tools/bbgame.py).
+# SPEC.md 130.58.17: a SPARE course, the slot an added course takes in a prebuilt BONANZA (tools/bbgame.py).
 # Never played and never shipped: bbgame writes the added course's rows over this one's.
 music fairway
 width 64
@@ -254,7 +254,7 @@ def compare(old, new, inert=()):
 def compile_into(art, paths, path, title):
     """bbcourse.py -o ART's files (write_out's: the stamp, the parts, bzcourse.inc, bzdemo.lst), compiled
     THROUGH the compile cache: the build's compile_all compiles fresh and only writes it, which for the
-    shipped list is minutes (PLAY alone 181 s); the cache's key names every input (SPEC.md 130.56.8), and v0
+    shipped list is minutes (PLAY alone 181 s); the cache's key names every input (SPEC.md 130.58.8), and v0
     composed this way is held to the build's own package byte for byte (tests/unit/t_bbgame.py)"""
     tests = [n for n, _t, tst in B._course_info(paths) if tst]
     if tests:

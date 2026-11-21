@@ -15506,7 +15506,7 @@ $(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
 # THE BOUNCE BONANZA COURSE BUILDER FOR PEOPLE WITH NO os8088 TREE (SPEC.md
-# 130.56.11): the window, the model and its job at the TOP of one folder, every
+# 130.58.11): the window, the model and its job at the TOP of one folder, every
 # tools/ module they import beside them (tools/bbeditbundle.py computes the list
 # with os88vbundle's closure), and the compiler's working files under data/ -
 # the courses, demos, music, the label font and the course lists - in one
@@ -15522,14 +15522,14 @@ $(BUILD)/os8088-course-builder.zip: tools/bbeditbundle.py tools/os88vbundle.py \
 	fonts/tallx.f8 Makefile $(BBGAME_BIN)/.stamp
 	@mkdir -p $(dir $@)
 	python3 tools/bbeditbundle.py $@ --bin $(BBGAME_BIN)
-# ADD TO THE GAME (SPEC.md 130.56.17): the pieces nasm makes, made here so that tools/bbgame.py can compose
+# ADD TO THE GAME (SPEC.md 130.58.17): the pieces nasm makes, made here so that tools/bbgame.py can compose
 # a BONANZA.O88 with the author's courses where there is no assembler - v0 the shipped package's own
 # pieces, v1 .. v4 the shipped courses and 1 - 4 SPARE courses, each in a private tree
 # ($(BUILD)/bbgame/v<m>, `make BUILD=... BZ_COURSES=...`, bonanzatwoseg's way), each with its
 # bzcourse.inc and the map of where its per-course tables sit (a probe assembly). Shipped in the
 # course builder's zip as bbgame-bin/. On demand; minutes the first time (four more course lists).
 .PHONY: bbgamebin
-#> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 130.56.17): the shipped package's and four spare-slot variants, with their table maps
+#> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 130.58.17): the shipped package's and four spare-slot variants, with their table maps
 bbgamebin: $(BBGAME_BIN)/.stamp
 # (on the package alone, which moves with every input of the game's: an edit to bbgame.py's COMPOSING half must
 # not cost the twenty minutes this takes - one to its prebuild half, PATCH or SPARE wants `make -B bbgamebin`)
