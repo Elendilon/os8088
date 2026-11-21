@@ -26,13 +26,14 @@ the host; visual checks warn rather than refuse.
   - diagonals;
   - the picture's band;
   - Iso, X-ray, and the Course and Source tabs;
-- the zip (`make bbeditbundle`).
+- the zip (`make bbeditbundle`);
+- Test Roll in part (`tools/bbplay.py`, the toolbar's Test Roll; SPEC.md 130.56.16): 0.3, and 0.4, 6.1 - 6.4 in part.
 
 **The gap band's overlay is built (3.5, SPEC.md 130.56.21)**, the builder's half of the `bb-visuals`
 session's band (SPEC.md 130.57): the Iso view shows every face the band could go on, and a click marks or
 unmarks it.
 
-**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6), the pathway (7) and
+**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), the rest of Test Roll (6), the pathway (7) and
 add-to-the-game (8.1, 8.2). `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
@@ -101,8 +102,8 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 0.1 [x] | SPEC.md 130.56, this plan, the diary | `tools/checkdocs.py` |
 | 0.2 [x] | ROUND TRIP: a line-span reader over `parse()`; every course under `apps/bonanza/courses/` read and written unchanged; one edit of each statement kind and its undo byte-identical | a host script, its table in the diary |
-| 0.3 [ ] | PLAY-ONLY COMPILE: what `Physics` needs from a part (the grid, the props, the material) and whether a part can be made without the picture's block limit; PLAY's time to first step | the measurement, in the diary; the choice written into 130.56.7 |
-| 0.4 [ ] | THE COMPOSITOR: which guest drawing the frame copies (lanes, ball, shadow, occluder masks, camera window) and whether it can be a function the compiler already has | a frame of MILL drawn on the host beside MartyPC's at the same step |
+| 0.3 [x] | PLAY-ONLY COMPILE: what `Physics` needs from a part (the grid, the props, the material) and whether a part can be made without the picture's block limit; PLAY's time to first step | the measurement, in the diary; the choice written into 130.56.7 - DONE: occluders off and BLK_MAX lifted is exact in all `Physics` reads (130.56.16.1); PLAY's first frame 8.6 s, MILL's about 1 s |
+| 0.4 [~] | THE COMPOSITOR: which guest drawing the frame copies (lanes, ball, shadow, occluder masks, camera window) and whether it can be a function the compiler already has | a frame of MILL drawn on the host beside MartyPC's at the same step - BUILT from the compiler's pieces (130.56.16.2); NOT yet compared with MartyPC |
 
 ### Wave 1 - the model and the warning tier (no window)
 
@@ -153,10 +154,10 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 6.1 [ ] | the play-only compile of wave 0.3, as a job | PLAY's time to first step, measured |
-| 6.2 [ ] | `tools/bbplay.py`: the frame loop at `STEP_HZ`, keys, the compositor of wave 0.4, CGA and Hercules, Glide and Trickle | MILL played by hand; a screenshot |
-| 6.3 [ ] | start from the course start, a flag or a clicked cell; pause, step, ¼ and ½ speed, rewind, the run's timeline | each used once on MILL |
-| 6.4 [ ] | ghost of the AUTHOR demo or the best run; save a run as a `.BZR`; make it the AUTHOR demo | a host-recorded run replayed on MartyPC ends where it ended on the host |
+| 6.1 [x] | the play-only compile of wave 0.3, as a job | PLAY's time to first step, measured - DONE as a `bbplay.py --job` process beside the full compile: PLAY 8.6 s to the first frame (130.56.16.1) |
+| 6.2 [~] | `tools/bbplay.py`: the frame loop at `STEP_HZ`, keys, the compositor of wave 0.4, CGA and Hercules, Glide and Trickle | MILL played by hand; a screenshot - BUILT: the loop, keys, compositor, CGA and Hercules, Glide; MISSING: Trickle; MILL driven by the autopilot under Xvfb, not yet played by hand |
+| 6.3 [~] | start from the course start, a flag or a clicked cell; pause, step, ¼ and ½ speed, rewind, the run's timeline | each used once on MILL - BUILT: the start, a clicked cell (the builder's selection), pause, step, 1/2 and 1/4, rewind 5 s; MISSING: a flag as the start, the timeline |
+| 6.4 [~] | ghost of the AUTHOR demo or the best run; save a run as a `.BZR`; make it the AUTHOR demo | a host-recorded run replayed on MartyPC ends where it ended on the host - BUILT: save as `.BZR` and `.bzd`, replayed through `run_log` to the same end; MISSING: the ghost, making it the AUTHOR demo, the MartyPC replay |
 | 6.5 [ ] | the fidelity check: the same demo's frames, host against MartyPC, at chosen steps | a row; the box on the Test Roll window says only what it shows |
 | 6.6 [ ] | Run on the real game: build the disk and launch MartyPC on it from the window | MILL launched |
 

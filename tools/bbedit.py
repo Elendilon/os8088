@@ -313,6 +313,7 @@ class App(object):
         ttk.Button(tb, text="Save", command=self.save).pack(side="left", padx=(2, 8))
         ttk.Button(tb, text="Undo", command=self.undo).pack(side="left")
         ttk.Button(tb, text="Redo", command=self.redo).pack(side="left", padx=(2, 8))
+        ttk.Button(tb, text="Test Roll", command=self.test_roll).pack(side="left", padx=(0, 8))
         self.badge_err = ttk.Label(tb, text="", foreground="#b3261e")
         self.badge_err.pack(side="right", padx=4)
         self.badge_warn = ttk.Label(tb, text="", foreground="#8a6d00")
@@ -2063,6 +2064,24 @@ class App(object):
                 self.job_l.config(text="Check: %s" % e.get("what", e["stage"]))
         self.check_job = Job(["check", p, "--name", self._name()] + (["--strict"] if strict else []), ev).start()
         self._fill_checks(self._problems())
+
+    def test_roll(self):
+        """TEST ROLL (SPEC.md 130.56.16): tools/bbplay.py on the text as it stands, as a process of its own;
+        from the selected area's centre cell, or a selected one-cell part's, when there is one"""
+        p = os.path.join(self.tmp, "roll-%d.bbc" % int(time.time() * 1000))
+        with open(p, "w", encoding="ascii", newline="") as f:
+            f.write(self.doc.text())
+        argv = [sys.executable, os.path.join(HERE, "bbplay.py"), p, "--name", self._name()]
+        cells = None
+        if self.area:
+            x0, y0, x1, y1 = self.area
+            cells = {((x0 + x1) // 2, (y0 + y1) // 2)}
+        elif self.sel:
+            cells = self._sel_cells()
+        if cells and len(cells) == 1:
+            argv += ["--start"] + [str(v) for v in next(iter(cells))]
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL)
+        self._msg("Test Roll: %s" % ("from cell %s, %s" % tuple(argv[-2:]) if "--start" in argv else "from the start"))
 
     def cancel_jobs(self):
         for j in (self.pic_job, self.check_job):
