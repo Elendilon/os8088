@@ -287563,3 +287563,54 @@ there to protect against."
   `--strict` each is refused as before, `hidden` and `accept` as 130.56.5. MEASURED: every shipped
   course's parts, demos and `bzcourse.inc` byte-identical before and after; the `--selfcheck` sections
   of every family touched pass. The game has not yet been run with a wholly hidden element.
+
+### 130.57 THE GAP BAND: `gap`, marked by hand (the owner, 2026-11-21; on `bb-visuals`)
+
+*The owner, having played G4 everywhere (docs/plans/bonanza-courses/EDGES.md 5a): "in the places that this
+works, it completely works. And then, its spread all over a ton of places that don't need it and it just looks
+weird. I kept trying to figure out a set of rules that would make it work, and could not. So lets make it
+manual."* The automatic knob (`BZEDGE=1`) is deleted; the course builder (130.56) shows the candidates and the
+owner marks the ones wanted. Like `float` (130.27.2) it is the PICTURE's alone: no grid byte, no physics, no
+route, no guest code.
+
+#### 130.57.1 What a gap foot is
+
+A face's **foot** is a pixel of a cell's `sw` or `se` face with a top of ANOTHER cell directly under it: where
+the face visibly ends. It is a **GAP foot** when that top is not the cell across the face's own edge
+(`(wx, wy + 1)` for `sw`, `(wx + 1, wy)` for `se`): the face hangs over the void, or something nearer that it
+does not touch cuts it off. A foot whose top IS that neighbour is JOINED and never takes the band. Front faces
+of split cells and posts take none.
+
+**Never on, or because of, a cell that moves or vanishes** - the shadows' set (130.47.5: guard cells, rails,
+turntables, bridges, see-saws, any prop's cell): not when the face's cell, the top's cell or the cell across the
+face's edge is in it. A band beside a crack would differ between its poses and widen its lanes.
+
+#### 130.57.2 The band
+
+At each gap foot of a marked face, in that pixel column, the face's last **2 px are black** and the **2 above
+them are 50%** (`(x + y)` odd black) - G4 of the options (EDGES.md 3), as far as the face reaches. Only the
+face's own pixels change.
+
+#### 130.57.3 The statement
+
+    gap  <shape> [sw|se]          the GAP band on those cells' faces (both, or the one named)
+
+- **The shape** is any whole-cell shape of 130.10.3 and 130.24.4; a `half` or `quarter` clause is refused
+  (`gap takes whole cells`). Anything after the side is refused.
+- **Refused when it bands nothing**: a `gap` none of whose named faces has a gap foot (`gap bands nothing`) - a
+  statement that changes no pixel is a mistake, as `float`'s (130.27.2).
+- Cells named by two statements are simply named; the band has no parameters.
+- **Its cost is blocks**: a band adds the 8x8 blocks it touches (16 bytes a block raw). A course pushed over
+  `BLK_MAX` by its bands is refused like any other over it - unlike the shadows, a mark is the author's and is
+  not silently dropped.
+
+#### 130.57.4 The detector
+
+`compile_course` with the module's **`GAP_DETECT`** true fills **`c.gap_faces`**: every face with a gap foot
+(marked or not), in order of `wy`, `wx`, then `sw` before `se`, each
+`{"cell": [wx, wy], "side": "sw"|"se", "feet": n, "box": [x0, y0, x1, y1], "marked": bool}` - `feet` the pixel
+columns where the band would go, `box` the band's pixels (inclusive) in that compile's picture. With
+`GAP_DETECT` false it is None unless the course has a `gap`. `bbcourse.py --gaps COURSE...` prints the same,
+a JSON line a face, each with the course's `course`, `x0` and `y0`, from the occluder-free compile the builder
+draws. The builder's overlay (130.56, its session's work) reads it: draw each box, filter by `feet` (a 1-foot
+face is a sliver), and click to add or remove the cell and side from a `gap` statement.

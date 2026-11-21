@@ -6727,3 +6727,46 @@ VARs odd: `bz_nst`'s size, `(BZ_NSIGN + 1) & ~1`, expands inside the VAR macro
 to `(BZ_BSS + BZ_NSIGN + 1) & ~1`, so it EVENS the running total, and only the
 bytes after it decide the parity. `bz_crsel` now sits where `bz_tour` was.
 
+
+## 2026-11-21 (does a column touch its floor? options, not built)
+
+The owner: *"columns have no visual distinction when they are far away, or
+adjoined to a floor. It is impossible to tell if there is a gap, or not."*
+The cause is 130.27's grounded faces and the projection together: a face
+visibly ends at whatever floor's back edge covers it, and a floor one cell
+further out and one unit higher draws exactly the line its neighbour would.
+A twelve-line test course (`bonanza-courses/edges/edgedemo.bbc`) shows it:
+two halves, one joined and one over a hidden gap, drawn the same.
+
+*Observed*: hooking the course tool's `render()` to note, for every face
+pixel, its cell and which face it is classifies each face's visible FOOT
+as JOINED (the top under it is the record across that face's own edge) or a
+GAP. Nine styles were mocked on the test scene, ROLL and MILL, CGA and
+Hercules ([EDGES.md](bonanza-courses/EDGES.md)). The block-count proxy puts
+the recommended pair, a seamless join plus a 3 px void band, at +3 - 6% blocks on a
+busy course. The first classification called a wall JOINED wherever its
+foot met any top, which drew a contact under a free-standing pillar that
+does not touch it. The neighbour test replaced it. Also *observed*: every style
+breaks PLAYGROUND's vanishing crack, because a cue that depends on a
+neighbour changes when the neighbour vanishes, so a real build needs
+shadows' rule of no cue on or from a cell that moves. *Intended*, not done: a knob build
+of whichever pair the owner picks, to play.
+
+## 2026-11-21 (G4 as a build: BZEDGE=1)
+
+The owner asked for G4, the band and fringe alone, as a build to play on ROLL, HOP and DOWN.
+It is a knob beside `BZSHADOW` and borrows the shadows' per-pixel geometry, their
+moving-cell set and their retry over `BLK_MAX`. *Observed*: with the moving-cell rule every course with a
+crack or bridge compiles, which the mock-up could not do on PLAYGROUND. PLAYGROUND itself lands 14 blocks over
+the limit and falls back to no band. The package grows 1,952 bytes and the courses 1,900 bytes LZB (2.4%);
+[EDGES.md](bonanza-courses/EDGES.md) 5a has the table. *Not yet known*: how it reads in play.
+
+## 2026-11-21 (the gap band made manual: `gap`, SPEC.md 130.57)
+
+The owner played G4 everywhere: *"in the places that this works, it completely works. And then, its spread
+all over a ton of places that don't need it ... I kept trying to figure out a set of rules that would make it
+work, and could not. So lets make it manual."* The knob went. In its place is the course statement
+`gap <shape> [sw|se]` and a detector that lists every candidate face with its pixel box, for the course
+builder's overlay to show (the builder's session does the overlay). *Observed*: HOP has 88 candidate faces,
+many of them one-pixel slivers, so the detector reports `feet` for an overlay to filter on. Marking four `se`
+faces on HOP bands exactly those four. A `gap` that bands nothing is refused, as `float`'s is.
