@@ -705,6 +705,12 @@ class Document(object):
 # analysis: what the window draws (no compile: milliseconds)
 # ----------------------------------------------------------------------------
 
+# a split cell's pieces in the plan (u right, v down, the cell's corner T at (0, 0)): SPEC.md 130.24.3's halves -
+# TB along T-B (A left, B right), LR along L-R (A up, B down) - and quarters N, E, S, W round the centre
+PIECE_POLY = {(B.KIND_TB, 0): ((0, 0), (0, 1), (1, 1)), (B.KIND_TB, 1): ((0, 0), (1, 0), (1, 1)),
+              (B.KIND_LR, 0): ((0, 0), (1, 0), (0, 1)), (B.KIND_LR, 1): ((1, 0), (1, 1), (0, 1)),
+              (B.KIND_Q, 0): ((0, 0), (1, 0), (.5, .5)), (B.KIND_Q, 1): ((1, 0), (1, 1), (.5, .5)),
+              (B.KIND_Q, 2): ((1, 1), (0, 1), (.5, .5)), (B.KIND_Q, 3): ((0, 1), (0, 0), (.5, .5))}
 FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 130.56.13)
 KIND_NAMES = {B.KIND_FLOOR: "floor", B.KIND_WALL: "wall", B.KIND_GOAL: "goal", B.KIND_FIELD: "field"}
 
@@ -770,6 +776,29 @@ def analyse(text, fname="<course>"):
             "line": getattr(top, "line", None) or t.line, "split": isinstance(t, B.Split),
             "water": getattr(top, "wbed", None) is not None, "guard": getattr(top, "guard", None) is not None,
             "edges": edges}
+        if isinstance(t, B.Split):              # its pieces, drawn and picked as triangles
+            ps = []
+            for i, r in enumerate(t.halves):
+                poly = PIECE_POLY.get((t.diag, i))
+                if poly is None or r is None:
+                    continue
+                ps.append({"poly": poly, "kind": KIND_NAMES.get(r.kind, "floor"), "h": _rec_height(r) / 2.0 + zb,
+                           "line": getattr(r, "line", None) or t.line})
+            out["cells"][cell]["pieces"] = ps
+    # the start and the route on the ground (the compiler's own rules, cheap enough for every edit)
+    if out["cells"] and not out["error"] and src.start and src.pathway is None:
+        (sx, sy), sln = src.start
+        d = out["cells"].get((sx, sy))
+        if d is None or d["kind"] != "floor" or d["slope"] != (0, 0) or d.get("pieces"):
+            out["error"] = "%s:%d: start (%d, %d) is not a flat FLOOR" % (fname, sln, sx, sy)
+            out["error_line"] = sln
+    if out["cells"] and not out["error"]:
+        for (wx, wy), ln in src.ways:
+            d = out["cells"].get((wx, wy))
+            if d is None or d["kind"] == "wall":
+                out["error"] = "%s:%d: way (%d, %d) is on a %s tile" % (fname, ln, wx, wy, "WALL" if d else "VOID")
+                out["error_line"] = ln
+                break
     # the picture's band (SPEC.md 130.56.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
     # 16 (wx - wy) + x0 + 23 < 8 width (bbcourse.foot_x); the floors must lie inside it
     width = src.width or 64
@@ -863,11 +892,32 @@ def _line_of(msg):
     return int(m.group(1)) if m else None
 
 
-def at_cell(analysis, cell):
+def _inside(pt, poly):
+    x, y = pt
+    n = len(poly)
+    sgn = None
+    for i in range(n):
+        (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]
+        c = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+        if abs(c) < 1e-9:
+            continue
+        if sgn is None:
+            sgn = c > 0
+        elif (c > 0) != sgn:
+            return False
+    return True
+
+
+def at_cell(analysis, cell, frac=None):
     """-> the line numbers whose element covers CELL, the topmost first: items
-    (props, flags, ...) before the tile's own statement"""
+    (props, flags, ...) before the tile's own statement; in a SPLIT cell, the piece under FRAC (the point in
+    the cell, 0 - 1 each way) first"""
     lines = [it["line"] for it in analysis["items"] if cell in it["cells"] and it["kind"] != "way"]
     c = analysis["cells"].get(cell)
+    if c and c.get("pieces") and frac is not None:
+        for p in c["pieces"]:
+            if _inside(frac, p["poly"]) and p["line"] not in lines:
+                lines.append(p["line"])
     if c and c["line"] and c["line"] not in lines:
         lines.append(c["line"])
     # a route point is never drawn in the game: it is last, under the ground it marks (Shift-click reaches it)

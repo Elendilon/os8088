@@ -84,6 +84,12 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
        raise their heights, surface or hang together, or Delete them.
      - A selected floor, wall or goal has "Hangs down": to the ground, or a
        few units (a floating slab). A selected ramp has "Add stepped rails".
+     - Diagonals: the plan draws half and quarter cells as triangles, and a
+       click picks the half under it. With an area selected, "Cut a
+       corner" (four arrows) cuts the area's corner off along a diagonal,
+       and "Diagonal strip" lays a straight strip down or across the screen.
+     - Anything hidden behind something taller is a warning, never an
+       error: a secret is allowed (tick "Hidden on purpose" to quiet it).
      - An area's shape gives a part its direction: an archway selected one
        cell wide and three long runs that way (its legs at the two ends).
   3. Nothing breaks the course: a change the course compiler refuses is

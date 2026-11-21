@@ -14,12 +14,22 @@ the host; visual checks warn rather than refuse.
 
 ## Where it stands
 
-**The first GUI build is ready for the owner to test (2026-11-21).** Built: the model
-(`tools/bbedproj.py`), the warning tier in the compiler, the jobs (`tools/bbedjob.py`) and the
-window (`tools/bbedit.py`) with its Build tab (Plan and Iso views, X-ray, placing, moving, the
-inspector), Course tab and Source tab. Not built yet: the blend check, the Shapes tab, Test Roll,
-the pathway editor and add-to-the-game. `[~]` below marks a story built in part, with what is
-missing.
+**The editing phase is done (2026-11-21), shaped by four rounds of the owner's testing** (SPEC.md
+130.56.10 - 130.56.15). Built so far:
+
+- the model (`tools/bbedproj.py`) and the compiler's warning tier;
+- the jobs (`tools/bbedjob.py`);
+- the window (`tools/bbedit.py`):
+  - select first, then act;
+  - the ground as one layer: Make it, Paint, moving ground, joining ramps and rejoining;
+  - multi-select, rails and hangs;
+  - diagonals;
+  - the picture's band;
+  - Iso, X-ray, and the Course and Source tabs;
+- the zip (`make bbeditbundle`).
+
+**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6), the pathway (7) and
+add-to-the-game (8.1, 8.2). `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
 `python3 bbedit.py` in its folder (SPEC.md 130.56.11), or from a checkout of `bb-editor`,
@@ -106,7 +116,7 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 2.1 [x] | the shell: menus, toolbar, the three tabs, status bar with jobs and Cancel, recent files, settings in `~/.config/os8088/bbedit.json` | opened on Linux; a screenshot |
 | 2.2 [~] | the palette: seven groups, search, every part of the catalogue board, plain names with the `.bbc` word. BUILT: groups, search, every part, a template each, `uses` added for you. MISSING: the row checking the list against `parse()`; the `.bbc` word shows in the inspector, not the palette | every statement kind placeable; the catalogue's list checked against `parse()`'s statements by a row |
-| 2.3 [~] | the plan view: grid, height map toggle and legend, walls, surfaces, route, tubes, props; select, paint, rectangle, erase, pick height, pan, zoom; brushes tile, rect, band, half, quarter. BUILT: all but the legend, pick height and the band, half and quarter brushes (those are typed in the statement box for now) | edits through the model only; undo across them |
+| 2.3 [x] | the plan view: grid, height map toggle and legend, walls, surfaces, route, tubes, props; select, paint, rectangle, erase, pick height, pan, zoom; brushes tile, rect, band, half, quarter. BUILT: all of it, the brushes as Make it, Cut a corner and Diagonal strip (130.56.13 - 130.56.15); pick height is the area's heights | edits through the model only; undo across them |
 | 2.4 [~] | inspectors for every part (the inspectors board): segmented choices, sliders with plain readouts, one timeline control, the arrow pad, "More ›" for raw numbers | each statement's clauses reachable. BUILT: one inspector for every statement - position, the numeric clauses, the choices (face, along, channel, style, surface, ball), `hidden`, and the statement box for the rest. MISSING: the timeline control, the arrow pad and per-part layouts |
 
 ### Wave 3 - the Iso view, X-ray and the blend check

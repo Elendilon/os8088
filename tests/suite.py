@@ -5672,13 +5672,13 @@ SOAK = [
         "flipped (the table and the translated part both fail), glass's "
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
-    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 7.0,
+    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 10.0,
         "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.56.3 - 130.56.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
         "names every position: `half`, a ramp's span, water's ripple cell); a flag wholly behind a wall WARNS, "
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
-        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.56.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.56.14). Red by hand: coord_slots without "
+        "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.56.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.56.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.56.15). secs re-measured (10 s). Red by hand: coord_slots without "
         "its `half` skip (DOWN's split cells), _visual raising again (three cases). secs measured (6.9 s)"),
     Row("bonanzacourse", "soak", ["python3", "tools/bbcourse.py", "--selfcheck"], 1312.0,
         "TWO-PART ONE PART (SPEC.md 130.30.13, 2026-11-21): item 15 gains, for TWOSEG and each shipped two-part course (PLAYGROUND), the ONE PART line (BZ<K>.BIN the picture part's stored form and the world part's at BZ_CRS_WPARA's paragraph, read back by split_one_part, each RAM form inside its room, OP_BIG) and five refused controls; item 1 holds every two-part course's BZ<K>.BIN to its one part and refuses any BZ<K>W.BIN; item 16's table check reads sheet 0's word 0 and the world part's BZ_CRS_WPARA. Sections twoseg and sheets run, the whole row not re-run, secs not re-measured. "

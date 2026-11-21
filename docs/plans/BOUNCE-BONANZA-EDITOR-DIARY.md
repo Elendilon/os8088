@@ -269,3 +269,35 @@ Floating slabs were also wanted: Overhang had only ever refused.
 - a one-unit hang.
 
 The `bbedit` row adds the rejoin, the one-step group and the route point's place.
+
+## 2026-11-21 - diagonals, and a hidden element warns
+
+**The owner asked for two things:**
+- **Diagonals, set and seen in the plan.**
+- **An obscured element should warn rather than error.** The example was a speed boost behind DOWNHILL
+  DECISION's diagonal. Hidden routes are coming, and the rule was never meant to stop a chute hiding a
+  pad.
+
+**Observed:**
+- **What still refused was the wholly hidden case.** The half-hidden cases were warnings already. When
+  nothing of an element was left to draw, its lane could not be built, so 130.56.10 had kept that an
+  error.
+- **The fix depends on how the lane's rect is made.** For a boost pad, gate, plate, bridge, gate art and
+  turntable cell, the rect is computed before any clipping, so it stands with empty poses. For a magnet,
+  blower and membrane it came from the visible pixels, so it now spans their art as drawn, as the flag's
+  does.
+- **No shipped byte moved, and the touched selfcheck sections pass.**
+- **The plan's diagonals are exact.** A `Split` is one record per half or quarter, so the plan draws
+  each one as its own triangle (SPEC.md 130.24.3's corners). On PLAY's diagonal section, a click at a
+  cell's two corners picks its two different halves.
+- **Cut a corner** keeps whole halves of each cell's own statement, and the rest rejoins.
+- **Diagonal strip** lays a `floor box`, which the compiler builds straight down the screen.
+- **My first test cut the corner holding the start**, and only the full check noticed. The edit check
+  now holds the start and the route to the ground, so that edit is undone with its reason.
+
+**Tested here:**
+- the `bbedit` row, with the pieces and picking and the three wholly hidden builds, red on the boost
+  pad's old refusal;
+- the selfcheck sections;
+- a scripted run: two corners cut and a strip, both compiled;
+- PLAY's diagonals drawn in the plan.

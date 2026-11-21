@@ -17,7 +17,9 @@
     picture gets the narrowest `width` and `origin` that hold it (80 and 224, the compiler's own
     minimum), and one past 160 columns is left refused (auto_band);
  6. REJOIN: the ramp made floor again rejoins into the one rectangle (tidy), as one undo step (group),
-    and a route point is the last thing a click at its cell reaches.
+    and a route point is the last thing a click at its cell reaches;
+ 7. DIAGONALS: PLAY's split cells report their pieces and a click picks the piece under it; a boost pad,
+    magnet or membrane wholly behind a wall builds, with a warning.
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), or make bbcourse._visual raise again (item 3).
@@ -135,6 +137,26 @@ def main():
     an = d.analysis()
     if E.at_cell(an, (5, 5))[-1] != [st.line for st in d.statements() if st.code == "way 5 5"][0]:
         bad.append("at_cell: the route point is not last at (5, 5): %r" % E.at_cell(an, (5, 5)))
+    # 7. DIAGONALS (SPEC.md 130.56.15): a split cell's pieces are reported and picked by the point; a WHOLLY
+    # hidden boost pad, magnet and membrane build with a warning (refused only under --strict)
+    an = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "playground.bbc")).analysis()
+    sp = [c for c, d in an["cells"].items() if d.get("pieces")]
+    if not sp:
+        bad.append("diagonals: PLAY's split cells report no pieces")
+    else:
+        lanes = {E.at_cell(an, c, (0.15, 0.85))[0] != E.at_cell(an, c, (0.85, 0.15))[0] for c in sp}
+        if True not in lanes:
+            bad.append("diagonals: no split cell of PLAY picks a different piece at its two corners")
+    for nm, (use, part) in (("boost pad", ("uses boost", "prop boost 6 5 face +x")),
+                            ("magnet", ("uses magnet", "prop magnet 6 5 face -x range 4 strength 48")),
+                            ("membrane", ("uses spike", "prop membrane 6 5 7 6"))):
+        t = (FLAG % ("", "")).replace("checkpoint 6 5\n", "").replace("ball rubber", "ball rubber\n" + use) + part + "\n"
+        try:
+            c = B.compile_course(t, "hid.bbc")
+            if not any(w["kind"] == "hidden" for w in c.warnings):
+                bad.append("%s wholly hidden: built with no warning" % nm)
+        except B.CourseError as e:
+            bad.append("%s wholly hidden: refused (%s)" % (nm, str(e)[:100]))
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
