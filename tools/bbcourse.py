@@ -33627,10 +33627,17 @@ def _sc_av(X, res):
     except CourseError as e:
         res.append(("15 the pathway and the title compile (%s)" % e, False))
     for c in every:                             # (sheetmax: a SHEETED course's picture under --occ off is
-        off = compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),   # larger
-                             _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)},   # still - TTALL's 94,592
-                             crsinfo=[(q.name, q.title) for q in courses]       # bytes, past 2 sheets: 130.30.12)
-                             if c.pth is not None else None)
+        cpath = c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname)   # larger
+        info = [(q.name, q.title) for q in courses] if c.pth is not None else None    # still - TTALL's 94,592
+        try:                                                                          # bytes, past 2 sheets: 130.30.12)
+            off = compile_course(cpath, _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
+        except CourseError as e:                # (the comparison compile alone: under --occ off a course may name
+            if "occluder masks, over the 256" not in str(e):   # more masks than the record's byte - DOWN's 323 -
+                raise                           # so it takes SPEC.md 130.52's `masks banded`, which the comparison
+            with open(cpath, encoding="ascii") as f_:          # reads the same way; the shipped compile is not
+                src_ = f_.read()                               # touched)
+            off = compile_course(src_ + "\nmasks banded\n", fname=cpath,
+                                 _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
         _av_checks(c, res, c.name, off)
     byname = {c.name: c for c in courses}
     # the negative controls, each red where item 15 says
