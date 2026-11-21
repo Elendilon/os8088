@@ -6,6 +6,58 @@ BZROLL=1 playtest build carries it on pad 1. The owner's verdict on the gaps
 is the next step; revision 2 below supersedes attempt 1's layout, which
 sections 1 - 4 still describe.*
 
+## U1's sign says HOLD JUMP TO BOUNCE (2026-11-21, later)
+
+The owner, off the option sheet below: **HOLD JUMP TO BOUNCE** - *"it tells
+them both what, and why, and it stays above the fence line"* - but *"the 'B'
+is a little hard to read; we can take it from inference, but there isn't a
+pixel set 'empty' to show the top of the B."*
+
+**Why the B closed.** The floor paint's letters are the tree's 8 x 8 face
+(`fonts/tallx.f8`, read through `tools/bbcourse.py`'s `label_glyph`), and the
+paint THICKENS every stroke a row down so a one-pixel row survives the floor's
+squash. A counter one row tall is filled by the stroke above it. In this face
+that is B's upper bowl (row 2, between a full-width top bar and waist): it
+painted solid. The checker (every closed counter of the face, mapped through
+U1's projection onto the compiled picture) found exactly that one: B's top
+bowl 0 open pixels of 2; its lower bowl 3, O 8 - 10, D 9, P 2. U and N have no
+closed counter in this face.
+
+**The fix is in the paint's face, not the renderer.** `art.py` now has the
+floor paint's own face: `paint_glyph` is the tree's face thickened (byte for
+byte what the paint drew before - HOLD JUMP rebuilt identical), and
+`PAINT_FACE` holds a letter drawn AS PAINTED where the thickening would close
+a counter. Its one entry is **B**: the thickened double top and bottom bars,
+one open row in EACH bowl, a single-row waist between them (rows 1 - 7):
+
+    #####...
+    ######..
+    ##..##..      upper bowl: open
+    #####...      waist
+    ##..##..      lower bowl: open
+    ######..
+    #####...
+
+`fonts/tallx.f8` itself is untouched: it is the system font knob's face and
+every course's label face, and its B is right one pixel a pixel; changing it
+would move every course's art and not only HOP's. After the change each bowl
+has **3 open pixels** on the CGA (red inside yellow) and so 3 Hercules pixel
+pairs with a card bit off (the grey checker inside white).
+
+`sketch.SIGNS` carries the words; `art.py`'s new `u1_scale` picks the paint's
+size from them (10 for two lines of at most six letters, else 13, the smaller
+letters). Same command as before (`sketch.py --bbc --force`, then `art.py
+--signs banner,floor --extras chev,gap-arc,goal-bunting,flowers-poppy,col-spring3
+--into-course`). Measured (stored and LZ4 the compiler's, LZB `art.py`'s
+`measure`): the course part is **38,901 bytes stored (+112 against HOLD JUMP), LZ4 12,236 (+115), LZB
+9,476 (+100)**; 670 blocks (+7). The B alone costs 3 LZB bytes (9,473 in the
+tree face, closed). Of `bonanza-art`'s parts only `BZ7.BIN` (HOP) and
+`BZDHOP.BIN` moved (md5 over all 23), the route demo because it carries the
+course's identity: 582 bytes, 1,397 steps, 9 Hops, 1 boost, as before, and
+every course check reports as before.
+
+![U1, HOLD JUMP TO BOUNCE before and after the B](hop/art5-hold-bounce.png)
+
 ## U1's sign says HOLD JUMP (2026-11-21)
 
 A player, via the owner: *"The 'Jump Twice!' sign is apparently confusing,
@@ -33,7 +85,7 @@ to scale 13, smaller letters:
 
 | option | LZB | view |
 |---|---|---|
-| **HOLD JUMP** (in the course) | 9,376 | big letters, the action and the key in two words |
+| **HOLD JUMP** (in the course until HOLD JUMP TO BOUNCE, above) | 9,376 | big letters, the action and the key in two words |
 | HOLD JUMP + two arcs (a small Hop, then the taller "and again") | +104 | says WHY to hold, but the arcs are thin on the floor's squash |
 | KEEP HOLDING | +26 | names the hold, not the key; reads as one long line |
 | HOLD JUMP TO BOUNCE | +97 | the full sentence, at the smaller size |
