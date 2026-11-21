@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.56.8), each run as a process
+"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.58.8), each run as a process
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
@@ -18,8 +18,8 @@ origin, every mark the visibility audit weighs with its seen and hidden
 pixels).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
-the warnings that do not (SPEC.md 130.56.4); a blend warning carries its two
-regions' cells and the seam's pixels (130.56.18).
+the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
+regions' cells and the seam's pixels (130.58.18).
 """
 
 import json
@@ -56,7 +56,7 @@ BLEND_KEYS = ("regions", "lines", "seam", "px", "cards", "x0", "y0")
 
 def warning(w):
     """a warning as JSON: its kind, message, line, cell and whether accepted - and a blend's two regions' cells,
-    lines and seam pixels with the picture's origin they were measured at (SPEC.md 130.56.18), for the window"""
+    lines and seam pixels with the picture's origin they were measured at (SPEC.md 130.58.18), for the window"""
     out = {k: w[k] for k in ("kind", "msg", "line", "cell", "accepted")}
     out.update({k: w[k] for k in BLEND_KEYS if k in w})
     return out
@@ -68,7 +68,7 @@ def picture(path, out, name=None):
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
-    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.56.8)
+    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.58.8)
     emit(stage="compile", what="laying the course")
     try:
         c = B.compile_course(text, path, occluders=False)

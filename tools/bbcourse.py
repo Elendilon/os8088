@@ -156,7 +156,7 @@ import bonanza_assets as BA                      # noqa: E402
 import os88lz                                    # noqa: E402  (the course budget packs as os88pkg packs a part)
 from bonanza_assets import BLK, CYN, MAG, WHT, CGA1, cga_bytes, herc_pair, herc_bytes   # noqa: E402
 
-# The data ROOT (SPEC.md 130.56.11): the checkout, or the `data/` folder beside this file in the
+# The data ROOT (SPEC.md 130.58.11): the checkout, or the `data/` folder beside this file in the
 # course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
 ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
         if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
@@ -1175,13 +1175,13 @@ class CourseError(Exception):
     pass
 
 
-# SPEC.md 130.56.4: a VISUAL check's finding is a WARNING.  While a compile runs, _VWARN is a list and
+# SPEC.md 130.58.4: a VISUAL check's finding is a WARNING.  While a compile runs, _VWARN is a list and
 # _visual() appends to it; compile_course() attaches the list to the course (it rides the compile cache with
 # it), drops what the source marks `hidden` and reports what it `accept`s, and refuses only under --strict
-# (STRICT) or a course's own `strict` (130.56.5).  Called outside a compile, _visual() refuses as before.
+# (STRICT) or a course's own `strict` (130.58.5).  Called outside a compile, _visual() refuses as before.
 _VWARN = None
 STRICT = False
-STRICT_SKIP = ()            # SPEC.md 130.56.18: the kinds --selfcheck's STRICT reports rather than refuses
+STRICT_SKIP = ()            # SPEC.md 130.58.18: the kinds --selfcheck's STRICT reports rather than refuses
 VIS_KINDS = ("hidden", "ball-hidden", "blend")           # the warnings' names (`accept <kind>`)
 VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
 _VW_AT = re.compile(r"^(.*?):(\d+): ")
@@ -1190,7 +1190,7 @@ _VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
 
 def _visual(msg, kind="hidden", empty=False, extra=None):
     """EMPTY: nothing of the element is left to draw, so its lane cannot be built - an error still.
-    EXTRA: more keys for the warning (the blend check's cells and seam, 130.56.18)"""
+    EXTRA: more keys for the warning (the blend check's cells and seam, 130.58.18)"""
     if empty:
         raise CourseError(msg + " (nothing of it is drawn, so it cannot be built)")
     if _VWARN is None:
@@ -1288,9 +1288,9 @@ class Source:
         self.mbands = None          # SPEC.md 130.52: `masks banded`'s line - a mask table a band (opted into)
         self.fshow = None           # SPEC.md 130.28.6: `fshow`'s line - the SHOW rule on this course (the toggle)
         self.guide = None           # wave 11 (story 11.13): `guide`'s line - a real course, held to the course guide
-        self.hidden_lines = set()   # SPEC.md 130.56.5: the lines whose element is `hidden` on purpose
-        self.accepts = []           # SPEC.md 130.56.5: [{kind, cell, line}], the warnings this course keeps
-        self.strict = None          # SPEC.md 130.56.5: `strict`'s line - held to --strict in every build
+        self.hidden_lines = set()   # SPEC.md 130.58.5: the lines whose element is `hidden` on purpose
+        self.accepts = []           # SPEC.md 130.58.5: [{kind, cell, line}], the warnings this course keeps
+        self.strict = None          # SPEC.md 130.58.5: `strict`'s line - held to --strict in every build
         self.test = None            # SPEC.md 130.54: `test`'s line - a TEST course, the BZDEV=1 build's alone
         self.traphop = None         # wave 11: `trap hop`'s line - NO TRAP presses the Hop too (SPEC.md 130.14.4.1.1)
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
@@ -3291,18 +3291,18 @@ def _parse_text(text, fname="<course>"):
             raise CourseError("%s: a statement cannot start with a string" % where)
         st = toks[0][1]
         if st in VIS_HIDEABLE and len(toks) > 1 and toks[-1] == ('w', "hidden"):
-            src.hidden_lines.add(ln)                # SPEC.md 130.56.5: hidden ON PURPOSE (no part byte)
+            src.hidden_lines.add(ln)                # SPEC.md 130.58.5: hidden ON PURPOSE (no part byte)
             toks = toks[:-1]
-        if st == "accept":                          # SPEC.md 130.56.5: a warning this course keeps
+        if st == "accept":                          # SPEC.md 130.58.5: a warning this course keeps
             if len(toks) not in (2, 4) or toks[1][0] != 'w' or toks[1][1] not in VIS_KINDS:
-                raise CourseError("%s: accept takes a warning (%s) and optionally <wx> <wy> (SPEC.md 130.56.5)"
+                raise CourseError("%s: accept takes a warning (%s) and optionally <wx> <wy> (SPEC.md 130.58.5)"
                                   % (where, ", ".join(VIS_KINDS)))
             cell = (_int(toks[2], where, "wx"), _int(toks[3], where, "wy")) if len(toks) == 4 else None
             src.accepts.append({"kind": toks[1][1], "cell": cell, "line": ln})
             continue
         if st == "strict":
             if len(toks) != 1 or src.strict is not None:
-                raise CourseError("%s: strict takes nothing, once (SPEC.md 130.56.5)" % where)
+                raise CourseError("%s: strict takes nothing, once (SPEC.md 130.58.5)" % where)
             src.strict = ln
             continue
         if st in RESERVED:
@@ -11303,7 +11303,7 @@ REALSUBS = (8, 16)             # SPEC.md 130.49.5: the squares a course over the
 
 
 def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None, strict=None):
-    """the course compiled (_compile_course_cut), with its visual WARNINGS (SPEC.md 130.56.4) as c.warnings:
+    """the course compiled (_compile_course_cut), with its visual WARNINGS (SPEC.md 130.58.4) as c.warnings:
     [{kind, msg, line, cell, accepted}], those the source marks `hidden` left out.  strict (default: STRICT,
     --strict) or the course's own `strict` statement refuses on the first warning it does not `accept`"""
     c = _compile_course_cut(source, fname, occluders, _hack, crsinfo)
@@ -11312,7 +11312,7 @@ def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None,
 
 
 def vis_settle(c, strict, skip=()):
-    """SPEC.md 130.56.5: c.warnings from c.vwarn - a `hidden` element's dropped, an `accept`ed one marked - and
+    """SPEC.md 130.58.5: c.warnings from c.vwarn - a `hidden` element's dropped, an `accept`ed one marked - and
     the refusal under strict (or the course's `strict`)"""
     src = c.src
     hid = getattr(src, "hidden_lines", set())
@@ -11323,14 +11323,14 @@ def vis_settle(c, strict, skip=()):
             continue
         w = dict(w, accepted=any(a["kind"] == w["kind"] and (a["cell"] is None or a["cell"] == w["cell"] or
                                                              tuple(a["cell"]) in w.get("cells", ()))
-                                 for a in acc))     # (a blend: a cell of either floor, 130.56.18)
+                                 for a in acc))     # (a blend: a cell of either floor, 130.58.18)
         out.append(w)
     c.warnings = out
     if strict or getattr(src, "strict", None):
         for w in out:
             if not w["accepted"] and not (w["kind"] in skip and not getattr(src, "strict", None)):
                 raise CourseError("%s (a %s warning, refused under %s: mark it `hidden` or `accept %s`, SPEC.md "
-                                  "130.56.5)" % (w["msg"], w["kind"], "--strict" if strict else "the course's `strict`",
+                                  "130.58.5)" % (w["msg"], w["kind"], "--strict" if strict else "the course's `strict`",
                                                  w["kind"]))
     return out
 
@@ -11399,8 +11399,8 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
         held, _VWARN = _VWARN, []
         try:
             c = _compile_y0(source, fname, occluders, _hack, crsinfo)
-            blend_check(c)                          # SPEC.md 130.56.18: floors whose checkers run together
-            c.vwarn = _VWARN                        # SPEC.md 130.56.4: the visual warnings, cached with it
+            blend_check(c)                          # SPEC.md 130.58.18: floors whose checkers run together
+            c.vwarn = _VWARN                        # SPEC.md 130.58.4: the visual warnings, cached with it
         finally:
             _VWARN = held
         if fname is None or time.time() - t0 >= 1.0:
@@ -11883,7 +11883,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                                                  len(raw[1]) - len(poses[1]), len(raw[1])), "hidden")
             xs = [x for q in poses for x, _ in poses[q]]
             ys = [y for q in poses for _, y in poses[q]]
-            if not xs:                              # SPEC.md 130.56.15: wholly hidden - spans the fan as drawn
+            if not xs:                              # SPEC.md 130.58.15: wholly hidden - spans the fan as drawn
                 _visual("%s:%d: the blower at (%d, %d): its fan is not seen" % (fname, p["line"], *p["at"]), "hidden")
                 xs = [x for pix in raw.values() for x, _ in pix]
                 ys = [y + y0 for pix in raw.values() for _, y in pix]
@@ -11914,7 +11914,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                      ", ".join(map(str, hid[:4])), sF), "hidden")
             xs = [x for x, _ in list(q0) + list(q1)]
             ys = [y for _, y in list(q0) + list(q1)]
-            if not xs:                              # SPEC.md 130.56.5: a WHOLLY hidden flag (a `hidden` one, a
+            if not xs:                              # SPEC.md 130.58.5: a WHOLLY hidden flag (a `hidden` one, a
                 xs = [x for x, _ in p["fly"]]       # secret's): its lane spans the pennant as drawn, and every
                 ys = [y + y0 for _, y in p["fly"]]  # pose is empty
             c0, r0 = min(xs) >> 3, min(ys) >> 3
@@ -11934,7 +11934,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                           fname, p["line"], p["at"][0], p["at"][1], len(pix) - len(poses[q]), len(pix)), "hidden")
             xs = [x for q in poses.values() for x, _ in q]
             ys = [y for q in poses.values() for _, y in q]
-            if not xs:                              # SPEC.md 130.56.15: wholly hidden - the lane spans the wiggle
+            if not xs:                              # SPEC.md 130.58.15: wholly hidden - the lane spans the wiggle
                 xs = [x for pix in raw.values() for x, _ in pix]            # as drawn, every pose empty
                 ys = [y + y0 for pix in raw.values() for _, y in pix]
             c0, r0 = min(xs) >> 3, min(ys) >> 3
@@ -11981,7 +11981,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     if 0 <= x < width and 0 <= y < lines and (ink is None or cv.sbuf[y][x] <= sF):
                         q1[(x, y)] = cv_rows0[y][x] if ink is None else ink
                 xs, ys = [x for x, _ in q1], [y for _, y in q1]
-                if not q1:                          # SPEC.md 130.56.15: a warning; the lane spans the tear as drawn
+                if not q1:                          # SPEC.md 130.58.15: a warning; the lane spans the tear as drawn
                     _visual("%s:%d: the membrane at (%d, %d) is HIDDEN: geometry in front of it covers "
                             "the whole of its tear" % (fname, p["line"], wx, wy), "hidden")
                     inpic = [(x, y) for (x, y) in tear_ if 0 <= x < width and 0 <= y < lines]
@@ -21690,7 +21690,7 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
         if e is not None:
             raise e
     courses = [c_ for c_, _e in got[:len(paths)]]
-    for c_ in courses:                              # SPEC.md 130.56.4: a warning is reported, never refused here
+    for c_ in courses:                              # SPEC.md 130.58.4: a warning is reported, never refused here
         for w in getattr(c_, "warnings", ()):
             sys.stderr.write("bbcourse: WARNING %s%s\n" % (w["msg"], " (accepted)" if w["accepted"] else ""))
     if any(c.src.pathway is not None for c in courses):
@@ -24896,7 +24896,7 @@ def visibility(c, k=None, demo=None):
 
 
 # =============================================================================
-# the blend check (SPEC.md 130.56.6, 130.56.18): two floors that do not adjoin
+# the blend check (SPEC.md 130.58.6, 130.58.18): two floors that do not adjoin
 # but whose checkers run on into each other in the picture - a WARNING
 # =============================================================================
 
@@ -24941,7 +24941,7 @@ def _bl_what(t, zbase):
 
 
 def blend_pairs(c, obuf=None):
-    """SPEC.md 130.56.18: -> [{a, b (region ids), cells: (A's, B's), seam: {(x, y)}, meet, touch, cards}], the
+    """SPEC.md 130.58.18: -> [{a, b (region ids), cells: (A's, B's), seam: {(x, y)}, meet, touch, cards}], the
     pairs of REGIONS whose pixels meet in the picture with the checker running on across the seam, most seam
     first.  A region is a connected area of flat plain floor (_bl_flat, joined by bl_adjoined), or the cells of
     one statement for any other top.  A seam pixel pair (4-neighbours owned by two cells of different regions,
@@ -25112,7 +25112,7 @@ def _bl_runs(pix):
 
 
 def blend_check(c):
-    """SPEC.md 130.56.18: a WARNING (kind `blend`) for each pair of regions whose blended seam is over BLEND_PX
+    """SPEC.md 130.58.18: a WARNING (kind `blend`) for each pair of regions whose blended seam is over BLEND_PX
     pixels and BLEND_SHARE % of where their tops meet, inside a compile (its _VWARN); the warning carries both
     regions' cells (`cells`, `regions`), their lines, the seam's pixels and the picture origin they were found at"""
     if _VWARN is None or not getattr(c, "pic", None) or not getattr(c, "ops", None):
@@ -25138,7 +25138,7 @@ def blend_check(c):
         (ka, la, wa), (kb, lb, wb) = sorted(ends, key=lambda e: e[1])
         msg = ("%s:%d: the %s at (%d, %d) and the %s at (%d, %d) on line %d BLEND: in the %s picture their "
                "checker runs on across %d px of seam with no edge between them, though they do not adjoin there "
-               "(SPEC.md 130.56.18)" % (c.fname, la, wa, ka[0], ka[1], wb, kb[0], kb[1], lb,
+               "(SPEC.md 130.58.18)" % (c.fname, la, wa, ka[0], ka[1], wb, kb[0], kb[1], lb,
                                         " and ".join(pr["cards"]), n))
         w = {"cells": [tuple(k) for k in pr["cells"][0] + pr["cells"][1]],
              "regions": [[list(k) for k in pr["cells"][0]], [list(k) for k in pr["cells"][1]]],
@@ -36374,7 +36374,7 @@ def main():
                     help="with --guide: a demo log (.bzd) to check as a run; may repeat")
     ap.add_argument("--strict", action="store_true",
                     help="every visual WARNING a refusal, but those a course marks `hidden` or `accept`s (SPEC.md "
-                         "130.56.4, 130.56.5; what an agent's course run uses)")
+                         "130.58.4, 130.58.5; what an agent's course run uses)")
     ap.add_argument("--sizes", action="store_true",
                     help="every course's sections, stored and packed both ways, its decode time, RAM and budget, "
                          "then the package's (SPEC.md 130.15.12.2); about a minute a course")
@@ -36382,8 +36382,8 @@ def main():
     if not (a.out or a.selfcheck or a.png or a.sizes or a.tune or a.pans or a.camcheck or a.guide or a.only == "list"):
         ap.error("need -o OUT, --selfcheck, --sizes, --tune, --pans, --camcheck, --guide or --png DIR")
     OCC_MODE = a.occ
-    STRICT = a.strict or a.selfcheck              # SPEC.md 130.56.10: the refusal controls are the strict tier's
-    if a.selfcheck and not a.strict:              # SPEC.md 130.56.18: --selfcheck REPORTS a blend (the shipped
+    STRICT = a.strict or a.selfcheck              # SPEC.md 130.58.10: the refusal controls are the strict tier's
+    if a.selfcheck and not a.strict:              # SPEC.md 130.58.18: --selfcheck REPORTS a blend (the shipped
         STRICT_SKIP = ("blend",)                  # PLAYGROUND and title do; --strict refuses it)
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
