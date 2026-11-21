@@ -39,7 +39,7 @@ This file is a map. Each document below is the authority on its subject and
 nothing here duplicates it — a second copy is a copy that goes stale.
 
 **"Working in this fork" at the end is BRANCH-SPECIFIC — read it before your
-first commit and before any `git` question about ancestry.** Eleven rules that
+first commit and before any `git` question about ancestry.** Twelve rules that
 are this fork's rather than the project's, kept in one section at the bottom
 so that a PR going upstream deletes them rather than hunting for them. Two
 of them fire in the first minute of a session: rule 9 (`tools/session-sync.sh`)
@@ -1495,3 +1495,14 @@ the end of a development PHASE, the run goes in the background, and it is
 never the reason a disk or a commit waits. It changes nothing about WHAT a
 soak runs: still scoped with `-k` by what the build says moved, and the
 whole tier still only when the owner asks in as many words.
+
+### 11. No pull requests on this fork
+
+The owner (2026-11-21): *"We don't make PRs at all on elendilon development
+cycles (there is no one to PR to; this repo is only looked at by me)."* Work
+lands as commits pushed to its branch and merged into the integration branch.
+This overrides the project's "Keep one review thread" step under *Building an
+app or game in waves* and any skill or workflow that opens, updates or
+describes a pull request on this fork: write what the PR body would have
+held (the checklist, the evidence) into the plan in `docs/plans/` instead.
+Reviewing a PR somebody ELSE opened is unaffected.

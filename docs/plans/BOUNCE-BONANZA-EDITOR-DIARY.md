@@ -58,3 +58,19 @@ most:
 
 **Tested today:** the timings above, the renders and the audit on MILL, and
 `tools/checkdocs.py` on the new SPEC section. No builder code exists.
+
+## 2026-11-21 - strict is opt-in, course by course
+
+**Decided.** The owner expects to ship courses that do not pass `--strict`.
+The shipped build therefore never runs it. Agents' course runs do. A course
+records its own exceptions:
+- `hidden` on an element;
+- `accept <warning>` for a warning it keeps, with the reason in the comment
+  above;
+- `strict`, once the course is finished, so it is held to `--strict` even in
+  the plain build.
+
+The goal, in the owner's words, is good courses in the end, not a gate today.
+
+**Process.** This fork makes no pull requests; the plan carries what a PR body
+would have (fork rule 11, added to CLAUDE.md and AGENTS.md).
