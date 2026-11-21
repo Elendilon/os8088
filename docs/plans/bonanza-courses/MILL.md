@@ -214,6 +214,7 @@ making block room first. See questions 1 and 2.
 ```
 python3 docs/plans/bonanza-courses/mill/sketch.py                    # plan.png, iso.png, the clocks' spacing
 python3 docs/plans/bonanza-courses/mill/sketch.py --bbc apps/bonanza/courses/mill.bbc --force   # the SHIPPED course
+                                                                     # (the glass route rides it as `branch GLASS` ways)
 python3 docs/plans/bonanza-courses/mill/sketch.py --bbc OUT.bbc --force --glass   # the glass route's ways
 python3 tools/bbcourse.py -o DIR apps/bonanza/courses/mill.bbc   # alone: about 2.5 minutes
 MILL_PIT=1 / MILL_BUNKER=1 / MILL_FINRAILS=1                         # the parts the budgets took out
