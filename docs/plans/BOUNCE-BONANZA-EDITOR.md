@@ -28,8 +28,8 @@ the host; visual checks warn rather than refuse.
   - Iso, X-ray, and the Course and Source tabs;
 - the zip (`make bbeditbundle`).
 
-**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6), the pathway (7) and
-add-to-the-game (8.1, 8.2). `[~]` below marks a story built in part, with what is missing.
+**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6) and the pathway (7);
+add-to-the-game (8.1, 8.2) is built (SPEC.md 130.56.17) but for its MartyPC boot. `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
 `python3 bbedit.py` in its folder (SPEC.md 130.56.11), or from a checkout of `bb-editor`,
@@ -166,8 +166,8 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 8.1 [ ] | the decision of 130.56.9: a prebuilt package with a data course table, or a course list read off the disk | written into 130.56.9 with its cost in bytes |
-| 8.2 [ ] | the builder writes `BONANZA.O88` with the author's courses, and optionally a floppy image (`os88disk.py`) | the package boots in MartyPC and plays the new course |
+| 8.1 [x] | the decision of 130.56.9: a prebuilt package with a data course table, or a course list read off the disk | written into 130.56.17 with its cost in bytes: the prebuilt pieces (`make bbgamebin`), the shipped package 0 bytes changed, an added course 51 resident bytes |
+| 8.2 [~] | the builder writes `BONANZA.O88` with the author's courses, and optionally a floppy image (`os88disk.py`) | `tools/bbgame.py`, the Course tab's "Put this course in the game...", `--pad0` for a pad to play it from; row `bbgame`: the shipped list composed is `build/bonanza.o88`, shipped + XTRA and `--pad0 XTRA` are byte for byte the nasm builds of those lists. **Missing**: the package booted in MartyPC playing the new course |
 | 8.3 [x] | `make bbeditbundle`: the window, the compiler, its assets and the prebuilt parts in a zip for a machine with no os8088 tree | the zip run on a clean Linux; the macOS and Windows steps written for the owner |
 
 ### The final pass

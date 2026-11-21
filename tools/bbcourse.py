@@ -21349,7 +21349,8 @@ def _dump(obj, f, gids=None):
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
 _FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
-                      "_SHADOW_DYN", "_SHADOW_IN"))   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
+                      "_SHADOW_DYN", "_SHADOW_IN",   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
+                      "GROUND_AUTO"))   # (a sentinel object(): its repr is an ADDRESS, so every process keyed apart)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
 
 

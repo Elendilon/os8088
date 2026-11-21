@@ -529,6 +529,7 @@ class App(object):
         top = ttk.Frame(c)
         top.pack(fill="x")
         ttk.Button(top, text="Check now", command=self.run_check).pack(side="left")
+        ttk.Button(top, text="Put this course in the game...", command=self.put_in_game).pack(side="right")
         ttk.Checkbutton(top, text="Treat warnings as errors (--strict, what agents' runs use)",
                         variable=self.strict, command=self.run_check).pack(side="left", padx=8)
         self.check_l = ttk.Label(c, text="", wraplength=520)
@@ -544,6 +545,51 @@ class App(object):
         ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` (its inspector) or "
                   "`accept` a warning to keep it under --strict (SPEC.md 130.56.5).", wraplength=520,
                   foreground="#444").pack(anchor="w", pady=(6, 0))
+
+    def put_in_game(self):
+        """ADD TO THE GAME (SPEC.md 130.56.17): tools/bbgame.py as a process - BONANZA.O88 with the shipped
+        courses and this one on the pathway's pad 0, or a floppy holding it (an .img name)"""
+        import shutil
+        from tkinter import filedialog, messagebox
+        if not self.doc.path or self.doc.dirty:
+            messagebox.showinfo(TITLE, "Save the course first: the game is made from the file on disk.")
+            return
+        out = filedialog.asksaveasfilename(
+            title="Put this course in the game: save the game as", initialfile="BONANZA.O88",
+            defaultextension=".o88", initialdir=self.cfg.get("dir"),
+            filetypes=[("The game (BONANZA.O88)", "*.o88"), ("A floppy with the game (1.44 MB)", "*.img")])
+        if not out:
+            return
+        name = B.parse(self.doc.text(), self.doc.path).name
+        work = tempfile.mkdtemp(prefix="bbgame-")
+        img = out.lower().endswith(".img")
+        pk = os.path.join(work, "BONANZA.O88") if img else out
+        argv = [sys.executable, "-u", os.path.join(HERE, "bbgame.py"), pk, self.doc.path, "--pad0", name]
+        argv += ["--disk", out, "--size", "1440"] if img else []
+        self._msg("Putting the course in the game: compiling every course (minutes the first time)...")
+        res = {}
+
+        def go():
+            r = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+            res["r"] = r
+
+        def wait():
+            if "r" not in res:
+                self.root.after(500, wait)
+                return
+            r = res["r"]
+            shutil.rmtree(work, ignore_errors=True)
+            if r.returncode == 0:
+                self._msg("Wrote %s" % out)
+                messagebox.showinfo(TITLE, "Wrote %s.\n\nYour course is on the pathway's first pad: Play Game, "
+                                    "then Enter plays it." % out)
+            else:
+                self._msg("The game was not made")
+                messagebox.showerror(TITLE, (r.stderr or r.stdout).strip()[-1500:] or "bbgame.py failed")
+
+        threading.Thread(target=go, daemon=True).start()
+        self.root.after(500, wait)
 
     def _build_source_tab(self):
         tk, ttk = self.tk, self.ttk
