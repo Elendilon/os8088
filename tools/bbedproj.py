@@ -339,6 +339,34 @@ class Document(object):
         new[line - 1] = s.indent + code + comment
         return self._commit(label or "edit line %d" % line, new)
 
+    def set_many(self, codes, label=None):
+        """replace several statements in ONE edit (one undo step): {line: code}"""
+        new = list(self.lines)
+        for line, code in codes.items():
+            st = self.statement(line)
+            comment = st.comment
+            if comment.strip():
+                col = len(st.indent) + len(st.code) + (len(comment) - len(comment.lstrip(" \t")))
+                comment = " " * max(1, col - len(st.indent) - len(code)) + comment.lstrip(" \t")
+            new[line - 1] = st.indent + code.strip() + comment
+        return self._commit(label or "edit %d lines" % len(codes), new)
+
+    def moved_code(self, line, dx, dy):
+        """line LINE's statement moved by (DX, DY), as code (no edit)"""
+        st = self.statement(line)
+        slots = coord_slots(st.toks)
+        if not slots:
+            raise EditError("line %d (%s) has no position to move" % (line, st.kind))
+        toks = list(st.toks)
+        d = {"x": dx, "y": dy, "a": dx - dy, "s": dx + dy}
+        for i, ax in slots:
+            toks[i] = _shift(toks[i], d[ax])
+        return join_tokens(toks)
+
+    def move_many(self, lines, dx, dy, label=None):
+        """move several statements in ONE edit"""
+        return self.set_many({ln: self.moved_code(ln, dx, dy) for ln in lines}, label or "move")
+
     def set_tokens(self, line, toks, label=None):
         return self.set_statement(line, join_tokens(toks), label)
 

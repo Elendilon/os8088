@@ -53,18 +53,31 @@ The courses that ship with the game are in data/apps/bonanza/courses/;
 open one to start, or File > New course. Your own courses can live
 anywhere.
 
-IN THE WINDOW
-  Build tab   the palette on the left (search it), the course in the middle,
-              the selected part's settings on the right.
-              Click a part, then click the course (or drag a rectangle for
-              floors, walls, holes and surfaces). Esc goes back to Select.
-              Click to select, drag or use the arrow keys to move, Delete to
-              remove, Ctrl+D to duplicate, Ctrl+Z / Ctrl+Y to undo and redo.
-              Mouse wheel zooms; right- or middle-drag pans.
-              Plan: Height map, Route and Hard to see switch overlays.
-              Iso: CGA or Hercules; X-ray dims everything but the selection,
+IN THE WINDOW: SELECT FIRST, THEN ACT
+  1. Select. Click a part on the course to select it, or DRAG across the
+     grid to select an area (it stays selected: a yellow box).
+  2. Edit or add.
+     - A selected part: change it on the right - its corners, its height,
+       Slope (Flat or Ramp, which way it rises, its low and high ends),
+       Surface (normal, ice, sand, bounce) - or drag it, move it with the
+       arrow keys, Delete it, Ctrl+D to duplicate.
+     - A selected area: choose a part in the list on the left and press
+       its Add button (or double-click the part). Heights come from what is
+       there: a floor joins the floor around it (the toolbar's "New floor
+       height" in empty space), a wall stands one unit above the highest
+       floor in or beside the area, a goal sits at the floor's height.
+       Delete with an area selected removes every part wholly inside it.
+  3. Nothing breaks the course: a change the course compiler refuses is
+     undone at once, and the red bar says why in plain words and what to
+     do instead ("Keep it anyway" if you want it regardless).
+  Ctrl+Z / Ctrl+Y undo and redo. Esc clears the selection.
+  Mouse wheel zooms; right- or middle-drag pans. Tab switches Plan and Iso.
+
+  Build tab   Plan: the height map (colour = height, arrows point UPHILL),
+              Route and Hard to see overlays. Iso: the game's own picture
+              (CGA or Hercules); X-ray dims everything but the selection,
               shows a part's hidden pixels in red and what hides them in
-              orange. Hover names what drew each pixel.
+              orange; hover names what drew each pixel.
               The list under the course is every problem; click one to go
               to it.
   Course tab  the title, size, ball, music, colours, times; "Ready to play?"

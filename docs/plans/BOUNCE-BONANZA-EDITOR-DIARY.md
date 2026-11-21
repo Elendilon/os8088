@@ -116,3 +116,52 @@ says what each does and what is missing.
   Plan, Iso, X-ray, picking a problem, placing a bumper and a magnet, the Course and Source tabs.
 
 **Not tested**: macOS and Windows, by hand, by the owner. That is what this build is for.
+
+## 2026-11-21 - the owner's first test, and select-then-act
+
+**What the owner found (macOS):**
+- **What worked:** the window opened, a new course started, the mouse wheel zoomed and the right and
+  middle buttons panned.
+- **The inspector's last `y` was cut off.**
+- **A drag's box did not stay.**
+- **Ten minutes went on trying to add one archway.** It errored with nothing to say how to fix it.
+- **A floor dragged into empty space never appeared.**
+- **The plan vanished after a click, with no way back.** Delete did nothing. The Iso view never
+  updated.
+- **The palette's order was backwards.** Choosing a part made the next click place it, so selecting
+  something added things.
+- **No way to make a ramp could be found.**
+
+**Why (observed):**
+- **One refusal broke everything.** When an edit was refused, `analyse()` laid no cells. With no cells,
+  the plan drew nothing, clicks hit nothing, and the picture job (which waits for a course that lays
+  out) never ran. A single refused placement therefore looked like the whole editor breaking.
+- **The archway had two separate problems.** A drag along a path made an arch three cells DEEP, but an
+  arch is at most two cells each way. And over open floor, its legs stand on floor, which the compiler
+  refuses.
+- **Ramps exist, but only as text.** The only way in was typing `ramp x ...` into the statement box. The
+  compiler also wants a ramp to rise a whole number of half units on each tile, which nothing said.
+
+**What changed (SPEC.md 130.55.12):**
+- **Select first, then act.** A drag selects an area, and the area stays. Adding is a button in the
+  palette's Add panel.
+- **Heights come from the surroundings.** A wall stands one above the highest floor in or around the
+  area.
+- **Every edit the compiler refuses is undone at once**, with a plain-words reason and "Keep it anyway".
+- **Floors, walls and goals have Flat/Ramp, a direction and their ends**, snapped to legal rates.
+- **A floor's surface is a box on the floor and travels with it.**
+- **Arrows point uphill.**
+
+**Tested here:** a script drove the real mouse bindings through the owner's steps:
+- a new course;
+- a floor dragged into empty space: it joined at the neighbours' height of 4;
+- a wall on a row of floor: height 5;
+- an archway mid-floor: undone, the plan still drawn, the reason given;
+- a floor made a ramp, its high end snapped from 5 to 6;
+- the ramp painted ice;
+- a corner widened: the ramp kept its rate and the ice followed;
+- a move: the ice followed, and one undo put both back;
+- a wall deleted;
+- a magnet added: `uses magnet` came with it.
+
+The `bbedit` row and the MILL drive still pass. Not tested: the owner's machine, again.
