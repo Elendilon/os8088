@@ -10,7 +10,8 @@ else is read at build time or at run time. See SPEC.md 130 and
 `docs/plans/BOUNCE-BONANZA-PLAN.md`.
 
 **Status: wave 6, feel.** Eight courses - two called "First Roll" (FIRST
-and ROLL), "Little Hop", "Bounce Trial", "Windmill Lane", "Moonlit Green",
+and ROLL), "Little Hop", "Downhill Decision" (which took "Bounce Trial"'s
+place on 2026-11-21; TRIAL is a test course now), "Windmill Lane", "Moonlit Green",
 "Summit Rush" and the "Playground" - with flags, ball-swap pads, springs, tubes,
 windmills, bumper posts, a lift and the cup; three balls (rubber, steel,
 glass), each with its own Hop and Grip, and rubber's one BOOST (Space again
@@ -57,6 +58,14 @@ three tiles cut into the apron's front edge; a BRAKE STRIP ending at a deep
 pit, with ice and sand lanes beside its run-up; a bounce mat; a pad for each
 ball; and a goal at the end of a rolling route. Its demo (the sixth V) shows
 the Hop, the boost onto the ledge, Grip on the strip and a pad.
+
+**Pickups** (SPEC.md 130.25.9, 130.55): an hourglass (+10 s on the clock,
+once an attempt), a SPEED and a JUMP that last 10 s by default (a course may
+set its own `for`), the ball sparkling while one runs and blinking in its last
+second; a course can mark one `respawn`, so it comes back when it wears off.
+A HEART gives a life (up to 9) in the game, the ball's sparkles rising for a
+second; a course's heart is back at each entry, or with `once` given once a
+game. It is hidden in EXPLORE, free plays, replays and demos.
 
 **Demos** (SPEC.md 130.14.7): **W saves** the last play (or the demo held) as
 a `.BZR` file through the Save dialog, and **L loads** one through the Open

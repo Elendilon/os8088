@@ -261782,7 +261782,14 @@ props. Each refusal names the line:
 - **NO TRAP** (`--selfcheck` item 7): from every flag's cell with the
   flag's ball, and from every pad's cell with the pad's ball, the reachable
   set - pads, springs and tubes included - must contain the goal or the
-  cup; a flag or a pad that fails is refused, naming it and the ball;
+  cup; a flag or a pad that fails is refused, naming it and the ball.
+  **It rides a lift UP** (2026-11-21, DOWN rev 18's steel flag at a lift's
+  foot): a run continues while a lift's slab carries the ball (`onp`) and
+  never records the shaft as a resting cell, and on a course with a lift
+  the runs start at eight phases 32 steps apart (`TRAP_LIFT_PHASES`; two
+  phases 32 apart could both miss a slab down a third of its ~260-step
+  period). The grammar section's "a flag at a lift's foot", red arm
+  `_TRAPNOLIFT`;
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (130.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left
@@ -273116,14 +273123,16 @@ game-over card, and the lanes at scale (130.19.10), which the pathway needs.
 `docs/plans/bonanza-courses/pathway/` (the owner's concept sketch, page 0 as
 the owner marked it up; page 1 a PROTOTYPE): pad 0 is **FIRST ROLL** (`ROLL`,
 course 1, where a new game rests), pad 1 **LITTLE HOP** (`HOP`, course 2), pad 2
-DOWNHILL DECISION's place (TRIAL standing in with its two exits: the split, Up
-to 4 and Left to 6), and pads 3 - 7 the old test courses standing in. ROLL
+**DOWNHILL DECISION** (`DOWN`, course 3, since 2026-11-21: its two exits the
+split, exit 0 Up to 4 and exit 1 Left to 6; TRIAL stood in there until then,
+130.54.9), and pads 3 - 7 the old test courses standing in. ROLL
 and HOP are in `BZ_COURSES` by default, appended as courses 7 and 8 so every
 course before them keeps its K, and the `BZROLL` knob that carried them is
 retired. The map the shipped one replaced is `pathtest.bbc`, the base the
 pad-0 test-course knobs' `path<knob>.sed` edit (they name its pads and cells);
-the first two courses have no pad there. **Every course of the default build
-has a pad but BENCH** (the benchmark, never played): the owner's rule,
+the first two courses have no pad there (its pad 1, TRIAL's, is DOWN's since
+130.54.9). **Every course of the default build has a pad** (BENCH and the
+other TEST courses, 130.54, are not in it): the owner's rule,
 2026-11-19, *"I just don't want test courses no one can get to in the
 non-knob build"*. Pad 7 is the OLD First Roll (`FIRST`, course 1) standing
 in, its map title "Bounce Trial" so no two pads read FIRST ROLL; in a game
@@ -277361,7 +277370,7 @@ drawn after the ball (130.25.19, the owner's pick of four options, "OVER").
 | kind | effect | duration | reset | exploration |
 |---|---|---|---|---|
 | `hourglass` | +10 s on the limit (`bz_tsec`), the clocks' next second shows it | once per attempt | `ATTEMPT` | **hidden** (its lane's pose 0 and no CONTACT) |
-| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s | `RESPAWN` | shown |
+| `speed` | the material's `ACC` raised and its top speed raised, both by a bounded amount the tool prices (so the ball is never read as broken at its cap) | the ELEMENT's own: a duration field on each placement (`pickup speed at X Y for S`), default 5 s (**10 s since 130.55**) | `RESPAWN` | shown |
 | `jump` | rubber's Hop for any ball, or rubber's raised; **stacks with the boost**; bounded only by `VZMAX` (130.25.1) | the element's own, as speed's | `RESPAWN` | shown |
 
 **Speed and jump together** (the owner, Q1): each keeps its own timer, so a
@@ -277975,7 +277984,7 @@ every kind `pickup`. Its constants are in its `FAMV`:
 | `PU_SVUP` | 64 | speed: added to the cap (`bz_vup`): 384 to 448, 1.75 px a step |
 | `PU_JHOP` | 400 | jump: the Hop for any ball - apex 13.8 px alone, 18.0 with rubber's boost stacked on its contact |
 | `PU_WARN` | 55 | the FLASH's steps (`SEC_STEPS`, about 1 s) |
-| `PU_DUR` | 69 | the default duration, steps / 4 (5 s) |
+| `PU_DUR` | 69 | the default duration, steps / 4 (5 s; **138, 10 s, since 130.55**) |
 
 **The elements.** `prop hourglass <wx> <wy>`; `prop speed|jump <wx> <wy>
 [for <seconds>] [overwrite]`: +18 the duration (steps / 4, 1 - 255, 0.07 -
@@ -287025,7 +287034,168 @@ buffer is exactly the part's words on 59 boxes, word column 159 at every
 first-line offset among them. Its red arms (`--red mrow`, the table not built
 past row 0; `--red shift`, the fill back on a 128-column shift) each go red.
 
-### 130.55 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; BUILT IN PART on `bb-editor`, 130.55.10)
+#### 130.54.9 TRIAL a test course; DOWNHILL DECISION ships (the owner, 2026-11-21)
+
+The owner: *"all of the courses we're working on - their existing form was
+also just a test or prototype, so we can replace them as we develop. That
+way our work is in when other sessions make builds."* DOWNHILL DECISION
+(`down.bbc`, `DOWN`) shipped until today only under the `BZDOWN=1` knob,
+which sedded the shipped pathway's pad 2 from TRIAL (the wave-2 prototype
+standing in) to DOWN. Now:
+
+- **DOWN takes TRIAL's slot**: `BZ_COURSES` is FIRST 0, **DOWN 1**, MILL 2,
+  MOON 3, PEAK 4, PLAY 5, ROLL 6, HOP 7, so no other course's K moved (and
+  nothing may care, 130.14.7.4). `path.bbc`'s pad 2 plays `DOWN` (its icon
+  and its title were already DOWN's); DOWN's ROUTE DEMO (`BZDDOWN.BIN`, 688
+  bytes) ships in `bzdemo.lst`'s second row in `BZDTRIAL.BIN`'s place, so
+  the title's draw and V's cycle carry it.
+- **TRIAL is a TEST course** (`test`, 130.54.1), the LAST of `BZ_TESTCRS`
+  so no other test course's K moved: the rows' rubber-bounce legs (the
+  ring's and perf's TRIAL legs, the physics sweep, the split's) still play it
+  in the test build, by name. The shipped build carries no TRIAL, no
+  `BZDTRIAL.BIN`. Its song `trial` stays: DOWN plays it.
+- **The `BZDOWN` knob is GONE** (not an alias: `BZROLL`'s precedent), and
+  `pathdown.sed` with it. `pathtest.bbc` (the pad-0 test knobs' base, 2026-
+  11-19) puts DOWN on its pad 1 in TRIAL's place, since a knob build is a
+  shipped-shape build and may not put a test course on a pad.
+- **As built (MEASURED, `make bonanza bonanzadisk` before and after)**:
+  `BONANZA.O88` **150,873 -> 165,712 bytes (+14,839)**; the package image
+  `bonanza.bin` 51,616 -> 52,110 (+494: the sheeted-course code a shipped
+  sheeted course assembles, 130.30.12); course 1's part 16,364 -> 134,404
+  bytes stored (DOWN is sheeted). The disks: `bonanza360.img` **156 -> 170
+  of 354 clusters**, `bonanza720.img` 156 -> 170 of 713, `bonanza.img` and
+  `bonanza120.img` 307 -> 336 of 2,847 and 2,371 - BONANZA.O88 is on no
+  other disk (`local`, apps/RETIRED.txt). `BZ_CRS_MAXCLAIM` 4,992 -> 8,576
+  paragraphs (DOWN's own claim: the pathway is held beside a course only
+  when the heap still takes that, 130.25.4.2), `BZ_CRS_ARMAX` 192
+  unchanged.
+- **The test build** (`BZDEV=1`): seventeen courses, the shipped eight at
+  their K, then BENCH 8 ... TTALL 15 and **TRIAL 16**; `BONANZA.O88` 197,951
+  bytes, `bonanza360.img` 202 of 354 clusters. A pad-0 knob build
+  (`BZSHAPES=1`, `pathtest.bbc` with DOWN on pad 1) compiles.
+
+### 130.55 THE LIFE, `respawn` and the 10-second default (the owner, 2026-11-21; on `bb-lives`)
+
+The owner's brief: *"a heart/life powerup, with some special rules of its
+own. It should have the option, once collected, not spawn again in the same
+course ... the life powerup would only spawn once, ever, if its option is set
+to avoid being farmable. A later course may purposely add a farmable life
+powerup though; spawning once per entry to the course."* Its look: *"similar
+to today's sparkles, but flowing upwards - and only lasting 1s or so, with no
+blink (this is something you gain, not something you have as a powerup)."*
+And for the pickups already there: the default duration **10 s** (5 s *"is
+much too little for a default; unless the powerup is intended to be used
+directly in the path of whatever it is in front of"*), and an option for a
+pickup to **respawn after it expires on the ball** - *"let them try again"* -
+so a pickup can be part of a course's main design and not only a shortcut.
+
+#### 130.55.1 The decisions
+
+| | decision | why |
+|---|---|---|
+| where the life lives | **a family of its own, LIFE** (ID 16, kind 27 = `FAM_K0 + 11`, home `resident`, `apps/bonanza/fam/life.asm`, `bbcourse.LifeFamily`) - not PICKUPS' fourth kind | a family part's kinds are ONE RUN (130.25.6.2's +9, +10). PICKUPS' run is 19 - 21 and 22 is the windmill's, so a fourth kind means moving the run - and the run's kinds are in `BZ_BOKT` (130.16.4.1.1, the boost's flat props), which `BZ_PHYSV` hashes: every demo re-recorded and **every player's bests and saved replays thrown away** for a renumbering. Measured: moving the run to 27 - 30 moved `BZ_PHYSV` from EDh to FAh |
+| a boost floor? | **no** - a ball landing on a heart's cell does not boost | adding `life` to `BOOST_FLOOR_NAMES` moves `BZ_PHYSV` the same way. The heart is taken on that contact anyway, so the cell is a floor the ball is leaving |
+| "once, ever" | **once a GAME** (`once`): taken, the heart is never shown again on that pad's course for the rest of that slot's game; a NEW game (5 lives, pad 0) has it again | the save is a game per slot (130.22.5); "ever" across new games would leave a second player with no heart at all. One bit a PAD, kept in the slot's game |
+| farmable | **the default**: no `once`, the heart is ATTEMPT class - back at every ENTRY to the course (and at a RETRY), as the hourglass is | the owner's "a later course may purposely add a farmable life" |
+| where it shows | **only in a game's course** (`bz_lfx` bit 0): hidden (pose 0, no take) in EXPLORE, a free play, a replay, a demo, the benchmark | EXPLORE costs no life, so it gives none; a replay or a demo must never change a game's lives. Hidden is the hourglass's rule with no limit (130.25.19) |
+| the cap | **`BZ_LVMAX` = 9** lives (the face's one digit, `bz_l1`); a heart at 9 is still taken (its cue plays) and gives nothing | the slot's check (`bz_dslots`) now refuses lives over 9, not over `BZ_LIVES` |
+| its cue | **the sparkles RISING** for `LF_RISE` = 55 steps (about 1 s), no flash: `bz_cue` bit 2 | the owner's look. Bits 0 and 1 stay PICKUPS' (sparkles, flash); each family writes only its own |
+| `respawn` | +19 bit 1 of a `speed` or `jump`: when the effect ENDS - worn off, ended by an `overwrite`, or by a RESET - **every element of that kind marked `respawn` comes back** (COLLECTED cleared, lane marked) | no slot byte names the element taken, so "its kind's `respawn` ones" is the rule. A ball still in the cell when it comes back takes it again, which is the point |
+| the 10 s default | `PU_DUR` 138 (steps / 4) | in PICKUPS' `FAMV`, with REV 2 for `respawn`: PLAYGROUND's and RAILS's identities moved, and PLAYGROUND's authored demo was written again (`bbcourse.py author`: the same 1,504 steps, only its `ident` changed). `BZ_PHYSV` did not move |
+
+#### 130.55.2 The course statements
+
+    uses life
+    prop life <wx> <wy> [once]
+    prop speed|jump <wx> <wy> [for <seconds>] [overwrite] [respawn]
+
+The life's record: +18 zero, +19 `PU_ONCE` (4) or zero, the class ATTEMPT;
+the timed two's +19 may now carry `PU_RESPAWN` (2) beside `PU_OVERWRITE` (1).
+Refused (`--selfcheck` item 2): `respawn` on an hourglass, `for` on a life,
+`once` on a speed, and **a second `once` life on one course** (the game keeps
+one bit a pad). The heart's icon is pose 1 of an `icon` lane like the other
+pickups', a 7 x 8 magenta heart with a white glint, black outlined
+(`PU_ICONS`). A course naming `life` and placing none is refused, as for
+every family.
+
+#### 130.55.3 The engine and the save
+
+- **`bz_lfx`** (a byte): bit 0 a game's course is playing, bit 1 its pad's
+  `once` heart has been given this game. `bz_grounds` sets it at `.crs`
+  before every game course's play (`bz_lfset`: 0 in EXPLORE; else 1, and 3
+  when the pad's bit is in `bz_nlife`) - a resumed course (`bz_rsm`) keeps
+  its own - and at the play's end (`.ntw`) folds bit 1 into `bz_nlife` for
+  `bz_ppad` and clears it, so no other play ever sees it set; giving up a
+  suspended course (`bz_unsusp`) clears it too.
+- **`bz_nlife`** (a dword, a bit a pad) travels with the slot's game like
+  `bz_nopen` - `bz_gload` and `bz_gstorl` copy it, `bz_gnew` zeroes it.
+- **BONANZA.DAT** (130.22.5.1) grows by **THE LIVES GIVEN**, a dword a slot
+  after the three slots: `BZD_FILE` 500 bytes (still under one sector, so
+  `od_write`'s in-place arm still holds). A file of the old 488 bytes
+  (`BZD_FILE0`) is read with the table zero, so nobody's saves or bests are
+  lost; an emptied slot (`bz_dslots`' `.bad`, `bz_dslz`) empties its dword,
+  and `bz_dsave`'s merge carries the slot played's dword with its slot.
+  The lives check is `BZ_LVMAX`.
+- **The life's taking** is the part's: COLLECTED set, lane marked, `bz_nfev`
+  counted (the PICKUP sound - no new sound event: the 16-bit counter mask is
+  full, 130.25.19), `bz_lives` raised to `BZ_LVMAX` at most, a `once` one's
+  `bz_lfx` bit 1, and the rise (its slot's byte +0) begun. A life gained in a
+  course that then times out is still the game's: the timeout's life is taken
+  from the raised count. The disk's copy is the entry's (130.19.6), so a
+  machine switched off mid-course loses the life it gained, as it loses the
+  one the entry spent.
+
+#### 130.55.4 The rising sparkles
+
+`bz_cuef` (bzphys.inc): under `bz_cue` bit 2 the look is `BZ_CL_SP` +
+`BZ_CL_RI` (10h, new) + the rise's step count mod 16, a step every 4 frames,
+and the three sparkles CLIMB - each its own column, foot to top, the three
+a step apart (frames + 0, 8, 4, then >> 2), back to the foot after the top:
+
+| sparkle | its steps (dx, dy of the pair's top-left from the sprite's) |
+|---|---|
+| 0, the left | (-1, 12) (-1, 7) (-1, 2) (0, 0) |
+| 1, the right | (15, 12) (15, 7) (15, 2) (14, 0) |
+| 2, the face | (4, 10) (7, 7) (9, 4) (7, 0) - on the face, the CGA's glint |
+
+Eight of the twelve places are the sparkles' own; four are new (the two
+sides' middles, the face's centre and top), in all three cards' resolved
+tables: `bzvideo.inc`'s `BZ_SPRS` (CGA and Hercules, 12 bytes a place each)
+and `bzvga.asm`'s `bzv_spv` (the VGA's, 40 bytes a place, in the VGA part).
+The blit is unchanged: it draws whatever `bz_spq` points at. The two modes
+share one place loop: a mode is its shift (3 or 2), its clocks (`bz_spo` 5, 2;
+`bz_spor` 8, 4) and its steps (`bz_sps`, `bz_spsr`). A rise draws no flash of
+its own; a timed pickup's FLASH frame still blinks the ball while both run.
+PREDICTED cost: while the rise runs the places are recomputed every 4th
+frame (130.25.19's 0.53k a hop frame) and a resting ball recomposed on those
+frames; 0 otherwise. Not measured on MartyPC yet.
+
+#### 130.55.5 What it costs (MEASURED, the shipped build)
+
+- the image **51,410 bytes, +299** on 51,111 (the tables 108: four places x
+  4 shifts x 3 bytes x 2 cards, `bz_spsr` 12; `bz_cuef`'s rise and its
+  shared place loop; the save's table, `bz_dlife`, `bz_lfset` and the rounds'
+  fold; the family row); the bss **9,426, +74** (`bz_lfx` 1, `bz_nlife` 4,
+  `bz_dat` +12, the hook lists' and slots' share of a sixteenth family).
+- the parts: PICKUPS **608 bytes, +76** (`pu_rearm` and the cue's kept bit;
+  its 40-paragraph ceiling holds); LIFE **285 bytes** (18 paragraphs); the
+  resident bundle 36,112 (+352); the VGA part 5,406 (+160).
+
+#### 130.55.6 PLAYGROUND, and the proofs
+
+PLAYGROUND (pad 6) names `life`; its pickups yard has `prop speed 5 14 for 3
+respawn` and `prop life 3 15 once`. `bonanzaphys`'s PICKUPS scenario
+(`tests/bonanza_phys.py`, the unicorn half) plays it with `bz_lfx` 1 and 5
+lives written before `bz_pinit`: after the old marks, the life taken (6 lives,
+`bz_lfx` 3, the rise's cue bit 2), a RETURN, and the ball back in its cell and
+held 30 steps - not taken again; the speed wears off and comes back each time.
+`bz_lfx` and `bz_lives` join the working values compared every step. Its
+MartyPC replay plays the same keys as a REPLAY, where the heart is hidden
+(`pickup_ok(life=False)`). `bonanzagame`'s second reading of the save
+(`tests/bonanza_game.py`) has the 500-byte file, the 488-byte one read with
+its table zero, an emptied slot's dword and the cap of 9.
+
+### 130.56 THE COURSE BUILDER: a window for making courses (the owner, 2026-11-21; BUILT IN PART on `bb-editor`, 130.56.10)
 
 The owner: a GUI course builder *"focused on ease of use"*, supporting every
 tile and prop the course format has, with the shape editor in a tab of its
@@ -287033,9 +287203,9 @@ own; a Python window *"similar to the video battle builder"*, because the
 compiler that checks a course takes minutes on a modern machine. The plan and
 its stories are `docs/plans/BOUNCE-BONANZA-EDITOR.md`; the mockups the owner
 reviewed are linked from there. This section is the contract and binds the
-plan; 130.55.10 says what is built.
+plan; 130.56.10 says what is built.
 
-#### 130.55.1 The decisions, in one table
+#### 130.56.1 The decisions, in one table
 
 | # | decision | why |
 |---|---|---|
@@ -287044,27 +287214,27 @@ plan; 130.55.10 says what is built.
 | E3 | The `.bbc` text is the document. The model edits it LINE BY LINE: a changed statement rewrites its own line, a new one is inserted beside its kind, every other byte - comments, blank lines, order - is kept | the courses are mostly comment; `parse()` keeps line numbers and drops the rest, and there is no writer today |
 | E4 | `tools/bbcourse.py` stays the only judge of a course. The window never decides what is legal and never draws a course picture of its own except the top-down PLAN | one compiler, so the builder cannot drift from the game - and the game's visual changes (the VGA arm 130.46, the look 130.47, the column and floor distinctions coming) reach the builder by merging, not by porting |
 | E5 | Two views of one selection: PLAN (top-down, a height map that toggles) and ISO (the compiler's own `render()`), switched by one key | the owner: authors and agents both fail to SEE that one thing obstructs another, or that two surfaces blend |
-| E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.55.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
-| E7 | The shipped build never runs `--strict`. `--strict` makes warnings refusals for agents' runs and for a course that asks for it (`strict`); exceptions are COURSE BY COURSE, written in the course (`hidden` on an element, `accept` for a warning, 130.55.5) | the owner: *"we're probably going to ship courses that don't pass strict ... exceptions can be course by course; the goal in the end is to have good courses"*, and hiding a checkpoint is a real design (secret routes) |
-| E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.55.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
+| E6 | Only what makes a course UNPLAYABLE stops a build; every VISUAL check WARNS (130.56.4) | the owner: *"very little visual should block a build"*; the refusals were for agents building courses |
+| E7 | The shipped build never runs `--strict`. `--strict` makes warnings refusals for agents' runs and for a course that asks for it (`strict`); exceptions are COURSE BY COURSE, written in the course (`hidden` on an element, `accept` for a warning, 130.56.5) | the owner: *"we're probably going to ship courses that don't pass strict ... exceptions can be course by course; the goal in the end is to have good courses"*, and hiding a checkpoint is a real design (secret routes) |
+| E8 | TEST ROLL plays the course in the window on the compiler's own `Physics` (130.56.7) | no disk, no emulator, no boot, no menu: the owner's largest saving |
 | E9 | A full check that an edit makes stale is CANCELLED, and restarted 2 s after the last edit; never more than one of each job alive | edits must not pile up processes |
 | E10 | Runs where the other Python windows run: macOS (Tk, Pillow), Windows (Pillow if wanted), Linux with the dependencies installed; shipped as a zip, `make bbeditbundle`, `vbtbundle`'s shape | the owner's machines |
-| E11 | ADD TO THE GAME is in scope, a wave of its own at the end: the builder writes a playable BONANZA with the author's courses, from what the zip ships (130.55.9) | RealDMG's precompiler window is the precedent: it writes a game, not a source file |
+| E11 | ADD TO THE GAME is in scope, a wave of its own at the end: the builder writes a playable BONANZA with the author's courses, from what the zip ships (130.56.9) | RealDMG's precompiler window is the precedent: it writes a game, not a source file |
 | E12 | The PATHWAY (`path.bbc`) is edited too, a wave of its own; the title course and the knob `.sed` variants are read-only in the first waves | different statements (130.22.2); the window says so when one is opened |
 
-#### 130.55.2 The layers
+#### 130.56.2 The layers
 
 | layer | file | what it is | needs Tk |
 |---|---|---|---|
 | model | `tools/bbedproj.py` | a course document: the text, its statements (each with its line span), edit methods, undo, the file's stamp on disk | no |
-| checks | `tools/bbcourse.py` | the compiler, unchanged in role: `parse`, the compile, `render`, `owners_canvas`, `visibility`, `Physics` - plus the warning tier (130.55.4) and the blend check (130.55.6) | no |
+| checks | `tools/bbcourse.py` | the compiler, unchanged in role: `parse`, the compile, `render`, `owners_canvas`, `visibility`, `Physics` - plus the warning tier (130.56.4) and the blend check (130.56.6) | no |
 | jobs | `tools/bbedjob.py` | runs a check as a process; JSON lines on stdout (`{stage, done, of, what}`, then `done` with the result) | no |
 | window | `tools/bbedit.py` | a view of the model; calls only model methods and jobs | yes |
-| player | `tools/bbplay.py` | Test Roll's frame loop (130.55.7) | yes (the window it draws in) |
+| player | `tools/bbplay.py` | Test Roll's frame loop (130.56.7) | yes (the window it draws in) |
 
 `bbedproj` is also a command line (`python3 tools/bbedproj.py check|set|add|remove …`) so an agent edits a course through the same methods as the window.
 
-#### 130.55.3 The document
+#### 130.56.3 The document
 
 - **Statements** are read by `bbcourse.parse` (one parser) and carry their
   line span. An edit is a method (`move`, `resize`, `set_height`,
@@ -287081,10 +287251,10 @@ plan; 130.55.10 says what is built.
 - **What an edit makes stale**: an edit changes the course's identity
   (130.15.7), so its AUTHOR demo and any shipped `BZD<NAME>.BIN` stop
   replaying. The Course tab says which, and offers to re-record (Test Roll
-  can record, 130.55.7). The kit (130.37), `uses` (130.25.6.4) and the course
+  can record, 130.56.7). The kit (130.37), `uses` (130.25.6.4) and the course
   budget (130.15.8) are the compiler's to report.
 
-#### 130.55.4 Errors and warnings
+#### 130.56.4 Errors and warnings
 
 A check is an ERROR when the course cannot be built or played: the grammar,
 the start reaching the goal, NO TRAP, the part's size and block limits, the
@@ -287097,17 +287267,17 @@ structure (130.22). It is a WARNING when it is about what the player SEES:
   hidden behind an archway (130.39) or a hump (130.44) for too long;
 - the visibility audit (130.15.10.4) - marks and tube mouths under their
   share, the ball hidden over 0.5 s on the route - which only reports today;
-- the BLEND check (130.55.6), new.
+- the BLEND check (130.56.6), new.
 
 Warnings never block a save, a Test Roll, a build or an add-to-the-game,
 and the Makefile never passes `--strict`: the game ships courses with
 warnings. `bbcourse.py --strict` (and the window's "Treat warnings as
 errors") makes each warning a refusal, naming the element and its line. It
 is what an agent's course run uses, and it binds a course in every build
-once the course says `strict` (130.55.5) - the way a finished course is held
+once the course says `strict` (130.56.5) - the way a finished course is held
 to it.
 
-#### 130.55.5 Exceptions, course by course: `hidden`, `accept` and `strict`
+#### 130.56.5 Exceptions, course by course: `hidden`, `accept` and `strict`
 
 Three statements, none of which writes into the part (no identity moves):
 
@@ -287129,7 +287299,7 @@ Three statements, none of which writes into the part (no identity moves):
   finished, so the ship can carry strict and unfinished courses side by side
   and the strict ones cannot slip back.
 
-#### 130.55.6 The blend check
+#### 130.56.6 The blend check
 
 The owner: floor tiles whose PATTERNS MATCH, *"so visually there is no
 distinction between them, when they are not actually adjoined"*. Two floor
@@ -287145,7 +287315,7 @@ the VGA arm's when the compiler renders one. The window draws a blending
 pair with a stripe over both regions, in Iso and in Plan, from the warning's
 "Show".
 
-#### 130.55.7 Test Roll
+#### 130.56.7 Test Roll
 
 - **The model is the game's**: `Physics.step(keys, tilt)`, the families'
   `pose()`, `sprite()` and `shadow()`, the `Glide` camera, at 54.6 steps a
@@ -287166,7 +287336,7 @@ pair with a stripe over both regions, in Iso and in Plan, from the warning's
 - **A run is a demo**: Save writes the steps as a `.BZR` (130.14.7), so a
   host run replays on the real game step for step.
 
-#### 130.55.8 Jobs
+#### 130.56.8 Jobs
 
 One PICTURE job (render and owners, under a second on a small course) and
 one FULL job (the compile with occluders, NO TRAP, the visibility audit, the
@@ -287175,7 +287345,7 @@ new one 2 s after the last edit; the PICTURE job runs on every edit and a
 newer one replaces an older. The status bar shows each job's stage and
 Cancel. Results are the compiler's cache's (`cache_put`) where it has them.
 
-#### 130.55.9 Add to the game (the last wave)
+#### 130.56.9 Add to the game (the last wave)
 
 The builder writes a BONANZA the author can play: the shipped courses (or
 none) plus the author's, as `BONANZA.O88` and optionally a floppy image. The
@@ -287186,12 +287356,12 @@ REALDMG-SPEC 20.12), nasm only where the zip is made - and a package that
 reads its course list off the disk. The pathway entry for a new course
 (pad, route, icon) is made with the pathway editor's wave.
 
-#### 130.55.10 Built so far (2026-11-21)
+#### 130.56.10 Built so far (2026-11-21)
 
 - **The model**, `tools/bbedproj.py`: a `Document` of lines; every edit (`set_statement`, `insert`,
   `remove`, `move`, `set_word`, `set_clause`, `set_flag`) rewrites only its statement's line, keeping
   the indentation and the trailing comment at its column; undo and redo hold whole line lists. The
-  file's size and SHA-1 at load and save are its stamp (130.55.3). `coord_slots` names every world
+  file's size and SHA-1 at load and save are its stamp (130.56.3). `coord_slots` names every world
   position a statement has - a shape's (`tile`, `rect`, the screen axes of `band` and `box`, after a
   `half`/`quarter` prefix), a ramp's span, water's ripple cell, a prop's cell or rectangle and its
   `region`, a tube's mouths and `via`, a chute's points - which is what a move shifts. `analyse()`
@@ -287200,7 +287370,7 @@ reads its course list off the disk. The pathway entry for a new course
   px, 32 a unit), slope, surface and line. `auto_uses()` adds the family a refusal names (130.25.6.4)
   to the `uses` line, folded into the edit that needed it. Its command line is the agents' way in.
 - **The warning tier** in `tools/bbcourse.py`: `_visual(msg, kind)` replaces the eleven visual
-  refusals of 130.55.4 (`hidden`: the flag, the blower's squiggles, the magnet, the turntable cell, the
+  refusals of 130.56.4 (`hidden`: the flag, the blower's squiggles, the magnet, the turntable cell, the
   boost pad, a gate or plate's pose, a gate's art, the clock; `ball-hidden`: the archway, a clock or
   gate art, a hump). While a compile runs, `_compile_cached` collects them on `c.vwarn` (cached with
   the course: the cache key is unchanged); `compile_course` then makes `c.warnings` (`vis_settle`:
@@ -287228,10 +287398,10 @@ reads its course list off the disk. The pathway entry for a new course
   `PIL.ImageTk` is not needed.
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
-- **Not built**: the blend check (130.55.6), the Shapes tab, Test Roll (130.55.7), the pathway, add to
-  the game (130.55.9). The plan's story list carries what each built story still lacks.
+- **Not built**: the blend check (130.56.6), the Shapes tab, Test Roll (130.56.7), the pathway, add to
+  the game (130.56.9). The plan's story list carries what each built story still lacks.
 
-#### 130.55.11 The zip: `make bbeditbundle`
+#### 130.56.11 The zip: `make bbeditbundle`
 
 `tools/bbeditbundle.py` writes `build/os8088-course-builder.zip`, one folder `os8088-course-builder/`
 (the owner: the GUI at the root, the working files in a subdirectory):
@@ -287253,7 +287423,7 @@ ROOT's `fonts/tallx.f8`. The compile cache is then `data/build/bbcache/`. The zi
 (sorted entries, 1980-01-01 timestamps): 119 files, about 870 KB.
 Row `bbeditbundle` (soak) unpacks it outside the tree and uses it there.
 
-#### 130.55.12 Select first, then act (the owner's first test, 2026-11-21)
+#### 130.56.12 Select first, then act (the owner's first test, 2026-11-21)
 
 The owner, on the first build: clicking a palette part made the next click PLACE it, so selecting
 something added things; a placement the compiler refused (an archway mid-floor) left the course unable
@@ -287284,7 +287454,7 @@ it ... If I'm adding something, then I want to select it and have it add on top 
   when the floor is moved or reshaped, in the same edit (`Document.set_many`, `move_many`: one undo step).
 - Plan arrows point UPHILL; a region's label is its whole height range.
 
-#### 130.55.13 The ground is one layer (the owner's second test, 2026-11-21)
+#### 130.56.13 The ground is one layer (the owner's second test, 2026-11-21)
 
 The owner: *"We have one 'layer' only ... From the user's perspective they start with either a floor, or
 empty space, and then add something to that"*: a ramp made in the middle of a floor without cutting the
@@ -287307,9 +287477,16 @@ did not see.
   its shorter side), and each leg cell that is floor or goal becomes `wall tile` at that floor's height -
   130.39.2 lets a leg replace a wall; its `under` clearance is in the inspector.
 - **The picture's band.** A cell is drawn when 16 (wx - wy) + X0 - 24 >= 0 and 16 (wx - wy) + X0 + 23 <
-  8 width (bbcourse `foot_x`), X0 the `origin` (default 4 width). `analyse()` now refuses a floor, goal or
-  shaped floor outside it (no shipped course trips it), so the edit check sees it; `Document.auto_band()`,
-  run on every edit, then moves the `origin` (a multiple of 16) to centre the course, else makes it `width
-  128` and centres it, and says so. The plan draws the band's edges as dashed red lines.
+  8 width (bbcourse `foot_x`), X0 the `origin` (default 4 width), `width` the picture's WORD COLUMNS - any
+  multiple of 8 from 64 to 160 (130.10.4.2's amendment: up to 1,280 px), NOT the two-part course
+  (130.30), which is about one part's bytes. The compiler holds every cell the ball can REACH to it, and a
+  flight reaches 4 to 6 diagonals past a floor's edge (MEASURED on the shipped courses), so `analyse()`
+  refuses a floor, goal or shaped floor closer than `FLY` = 4 to the band's edge (no shipped course trips
+  it), and the edit check sees it. `Document.auto_band()`, run on every edit, moves the `origin` (a
+  multiple of 16) to centre the course; failing that it takes the SMALLEST wider `width` that holds it,
+  centred, and says so; past 160 it leaves the course refused, with what to do (build down or up the
+  screen, which has no limit). MEASURED: a 10 x 8 floor beside another at the same rows asks 80 columns,
+  origin 224 - the compiler builds that and refuses 72 at every origin and 64 at origin 160. The plan shades
+  where no floor may go and labels the edge with the width.
 - The full check's refusals are put in plain words in the problems list (`explain`, the compiler's own
   details kept: "a ball could get stuck: from the steel pad at (3, 14) it cannot get to the goal").

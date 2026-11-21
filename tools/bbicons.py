@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bonanza_assets as BA                                   # noqa: E402
 
 ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")       # (the course builder's bundle:
-        if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))  # SPEC.md 130.55.11)
+        if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))  # SPEC.md 130.56.11)
         else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ICON_DIR = os.path.join(ROOT, "apps", "bonanza", "courses", "icons")
 PAD_DIR = os.path.join(ROOT, "apps", "bonanza", "courses", "pads")

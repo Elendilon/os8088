@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """t_bbedit - the course builder's model and the compiler's warning tier
-(SPEC.md 130.55.3 - 130.55.5), on the host, no emulator:
+(SPEC.md 130.56.3 - 130.56.5), on the host, no emulator:
 
  1. ROUND TRIP: every course under apps/bonanza/courses/ read and written by
     tools/bbedproj.py is byte-identical, and moving every statement that has
@@ -14,7 +14,8 @@
     says `strict`;
  4. USES: placing a family's element (a magnet) adds its `uses` line;
  5. ONE LAYER: a ramp cut into a floor moves no other cell and undoes in one step; a floor past the
-    picture gets an `origin`, one far past it `width 128` (auto_band).
+    picture gets the narrowest `width` and `origin` that hold it (80 and 224, the compiler's own
+    minimum), and one past 160 columns is left refused (auto_band).
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), or make bbcourse._visual raise again (item 3).
@@ -90,7 +91,7 @@ def main():
     d.insert("prop magnet 4 7 face +x range 4 strength 48")
     if d.auto_uses() != ["magnet"] or not any(s.kind == "uses" and "magnet" in s.toks for s in d.statements()):
         bad.append("placing a magnet did not add `uses magnet`")
-    # 5. THE GROUND AS ONE LAYER (SPEC.md 130.55.13): a ramp cut into the middle of a floor leaves every
+    # 5. THE GROUND AS ONE LAYER (SPEC.md 130.56.13): a ramp cut into the middle of a floor leaves every
     # other cell where it was, the ramp's cells on its plane, and one undo; and the picture's band fixed
     base = ('course NEW "New course"\nwidth 64\nball rubber\n\nfloor rect 4 4 14 12 flat 4\nstart 5 5\n'
             'goal rect 12 10 14 12 flat 4\ntarget 30\nway 5 5\nway 13 11\n')
@@ -109,13 +110,16 @@ def main():
     d = E.Document(base)
     d.insert("floor rect 15 4 24 12 flat 4")
     did = d.auto_band()
-    if not did or d.analysis()["error"] or not any(l.startswith("origin ") for l in d.lines):
-        bad.append("auto_band: %r, %r" % (did, d.analysis()["error"]))
+    # the narrowest picture that holds it: 80 columns, origin 224 - and the compiler agrees, refusing 72
+    # (MEASURED: SPEC.md 130.56.13)
+    if did is None or d.analysis()["error"] or "width 80" not in d.lines or "origin 224" not in d.lines:
+        bad.append("auto_band: %r, %r, %r" % (did, d.analysis()["error"], [l for l in d.lines if l[:5] in
+                                                                         ("width", "origi")]))
     d = E.Document(base)
-    d.insert("floor rect 15 4 40 12 flat 4")
+    d.insert("floor rect 15 4 80 12 flat 4")
     did = d.auto_band()
-    if not did or "width 128" not in d.lines or d.analysis()["error"]:
-        bad.append("auto_band wide: %r, %r" % (did, d.analysis()["error"]))
+    if did is not None or not d.analysis()["error"]:
+        bad.append("auto_band: a course past 160 columns was 'fixed': %r" % did)
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

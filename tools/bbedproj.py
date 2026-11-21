@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedproj - THE COURSE BUILDER'S MODEL (SPEC.md 130.55.2, 130.55.3).
+"""bbedproj - THE COURSE BUILDER'S MODEL (SPEC.md 130.56.2, 130.56.3).
 
     python3 tools/bbedproj.py check COURSE.bbc [--strict] [--json]
     python3 tools/bbedproj.py show  COURSE.bbc [--json]          # the statements, their lines and kinds
@@ -244,7 +244,7 @@ class Document(object):
         return t + self.eol if self.final_eol else t
 
     def changed_on_disk(self):
-        """True when the file is not what was loaded or last saved (SPEC.md 130.55.3)"""
+        """True when the file is not what was loaded or last saved (SPEC.md 130.56.3)"""
         return self.path is not None and self.stamp is not None and file_stamp(self.path) != self.stamp
 
     def save(self, path=None, force=False):
@@ -413,7 +413,7 @@ class Document(object):
             self._notify("uses " + " ".join(added))
         return added
 
-    # -- the ground as ONE LAYER of cells (SPEC.md 130.55.13) ---------------------
+    # -- the ground as ONE LAYER of cells (SPEC.md 130.56.13) ---------------------
     def _ground_shape(self, st):
         """(index, (x0, y0, x1, y1) end-exclusive) of a statement's `tile` or `rect` shape - one a piece can be
         cut out of - or None (a band, a box, a half or a quarter: never split)"""
@@ -505,19 +505,20 @@ class Document(object):
         return new, last_ground
 
     def auto_band(self):
-        """SPEC.md 130.55.13: a course whose floors leave its picture - the diagonal band a `width` and an
-        `origin` draw - gets the origin that centres them, else `width 128` and that origin, folded into the
-        edit that needed it. -> what was done, in words, or None"""
+        """SPEC.md 130.56.13: a course whose floors (and the flight past their edges) leave its picture - the
+        diagonal band its `width` (word columns, 64 - 160 in 8s) and `origin` draw - gets the `origin` that
+        centres them; failing that the SMALLEST wider `width` that holds them, centred. Never past 160 (1,280
+        px): then it is left refused, for the author. Folded into the edit that needed it. -> what was done,
+        in words, or None"""
         a = analyse(self.text(), self.path or "<course>")
         b = a.get("band")
         if not b or not b["out"]:
             return None
         lo, hi = b["span"]
         sts = {st.kind: st for st in self.statements()}
-        for width in ([b["width"]] if b["width"] == 128 else [64, 128]):
+        for width in range(b["width"], B.COLS_MAX + 1, 8):
             W = width * 8
-            # need 16 lo + x0 - 24 >= 0 and 16 hi + x0 + 23 < W
-            xmin, xmax = 24 - 16 * lo, W - 24 - 16 * hi - 1
+            xmin, xmax = 24 - 16 * lo, W - 24 - 16 * hi - 1       # 16 lo + x0 - 24 >= 0, 16 hi + x0 + 23 < W
             if xmin > xmax:
                 continue
             x0 = 16 * int(round(((xmin + xmax) / 2.0) / 16))
@@ -527,12 +528,14 @@ class Document(object):
                 x0 -= 16
             if not xmin <= x0 <= xmax:
                 continue
+            saved = list(self.lines)
             new = list(self.lines)
             done = []
-            if width != b["width"] and "width" in sts:
-                st = sts["width"]
-                new[st.line - 1] = st.indent + "width %d" % width + st.comment
-                done.append("made the course wide (width 128)")
+            if width != b["width"]:
+                if "width" in sts:
+                    st = sts["width"]
+                    new[st.line - 1] = st.indent + "width %d" % width + st.comment
+                done.append("widened the picture to %d columns (%d px)" % (width, 8 * width))
             org = None if x0 == width * 4 else "origin %d" % x0
             if "origin" in sts:
                 st = sts["origin"]
@@ -541,13 +544,14 @@ class Document(object):
                 else:
                     del new[st.line - 1]
             elif org:
-                at = (sts["width"].line if "width" in sts else 1)
-                new.insert(at, org)
-            if org:
-                done.append("moved the picture (origin %d)" % x0)
+                new.insert(sts["width"].line if "width" in sts else 1, org)
+            if org and width == b["width"]:
+                done.append("moved the picture across (origin %d)" % x0)
             self.lines = new
             self._analysis = None
             if analyse(self.text(), self.path or "<course>").get("band", {}).get("out"):
+                self.lines = saved
+                self._analysis = None
                 continue
             self._notify("band")
             return " and ".join(done) or None
@@ -616,6 +620,7 @@ class Document(object):
 # analysis: what the window draws (no compile: milliseconds)
 # ----------------------------------------------------------------------------
 
+FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 130.56.13)
 KIND_NAMES = {B.KIND_FLOOR: "floor", B.KIND_WALL: "wall", B.KIND_GOAL: "goal", B.KIND_FIELD: "field"}
 
 
@@ -676,20 +681,24 @@ def analyse(text, fname="<course>"):
             "surf": B.SURFACES[t.surf] if 0 <= t.surf < len(B.SURFACES) else "normal",
             "line": getattr(top, "line", None) or t.line, "split": isinstance(t, B.Split),
             "water": getattr(top, "wbed", None) is not None, "guard": getattr(top, "guard", None) is not None}
-    # the picture's band (SPEC.md 130.55.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
+    # the picture's band (SPEC.md 130.56.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
     # 16 (wx - wy) + x0 + 23 < 8 width (bbcourse.foot_x); the floors must lie inside it
     width = src.width or 64
     x0 = src.origin[0] if src.origin else width * 4
     amin = -((x0 - 24) // 16)
     amax = (8 * width - 24 - x0 - 1) // 16
+    # the compiler holds every cell the ball can REACH to it - a flight carries it about 4 diagonals past an
+    # edge (MEASURED on the shipped courses: 4 to 6, the extra clipped by the band), so a floor needs FLY
+    # diagonals of room on either side
     fl = [x - y for (x, y), d in out["cells"].items() if d["kind"] in ("floor", "goal", "field")]
     outs = sorted(c for c, d in out["cells"].items() if d["kind"] in ("floor", "goal", "field")
-                  and not amin <= c[0] - c[1] <= amax)
+                  and not amin + FLY <= c[0] - c[1] <= amax - FLY)
     out["band"] = {"width": width, "x0": x0, "amin": amin, "amax": amax,
-                   "span": (min(fl), max(fl)) if fl else (0, 0), "out": outs}
+                   "span": (min(fl) - FLY, max(fl) + FLY) if fl else (0, 0), "out": outs}
     if outs and not out["error"]:
-        out["error"] = ("%s: cell (%d, %d) is outside the course's picture: a %d-wide course draws the cells "
-                        "whose x - y runs from %d to %d" % (fname, outs[0][0], outs[0][1], width, amin, amax))
+        out["error"] = ("%s: the floor at (%d, %d) is too near the edge of the course's picture: %d columns "
+                        "(%d px) draw the cells whose x - y runs from %d to %d, and a ball flies about %d past a "
+                        "floor's edge" % (fname, outs[0][0], outs[0][1], width, 8 * width, amin, amax, FLY))
         out["error_kind"] = "band"
     items = out["items"]
 
