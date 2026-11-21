@@ -7472,7 +7472,7 @@ class Canvas:
         # SPEC.md 130.47.5: with CAST SHADOWS, the geometry each pixel shows: lk 0 none, 1 a top (a plane), 2 a
         # face (vertical); lz its height there, whole px (a face's own, not its top edge's); lo its cell
         self.lwhich = None
-        if SHADOW:
+        if SHADOW or EDGE:                          # (and the EDGE pass's, docs/plans/bonanza-courses/EDGES.md G4)
             self.lk = [bytearray(w) for _ in range(h)]
             self.lz = [array("h", [0]) * w for _ in range(h)]
             self.lo = [array("i", [-1]) * w for _ in range(h)]
@@ -7514,7 +7514,7 @@ class Canvas:
             kr, zr, orow, tr = self.lk[y], self.lz[y], self.lo[y], self.tbuf[y]
             for a, b in runs:
                 for x in range(a, b):
-                    kr[x] = 2 if face else 1
+                    kr[x] = (_LK_FACE.get(self.lwhich, 2) if face else 1)   # (EDGE: 2 sw, 3 se, 4 other)
                     zr[x] = tr[x] - (y - ymin[x]) if face else tr[x]
                     orow[x] = owner
 
@@ -8216,9 +8216,47 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
                 cv.fill(sp, WHT if (wx + wy + (0 if _NOLOOK else int((t.z0 + _LOOKB) // 4))) & 1 else CYN, s, top, own)
                                                     # (130.47.2: by height too)
             cv.outline(sp, also=_shift(left, y0) if left else None)
+    if EDGE and _SHADOW_OK:
+        look_edge(cv)
     if SHADOW and _SHADOW_OK:
         look_shadow(cv, tiles, x0, y0)
     return cv
+
+
+_LK_FACE = {"sw": 2, "se": 3}   # lk's face codes; anything else that is vertical (a front face, a post) is 4
+_LK_FACE.update({"front": 4, "post": 4})
+
+
+def look_edge(cv):
+    """the G4 GAP band (docs/plans/bonanza-courses/EDGES.md, a KNOB: make's BZEDGE=1, the run's --edge): a
+    face's FOOT is a pixel of an sw or se face with a top of another cell directly under it.  When that top is
+    not the cell across the face's own edge - the face hangs over the void, or something nearer that it does not
+    touch cuts it off - the face's last 2 px there go black and the 2 above them 50% ((x + y) odd black), so a
+    gap shows as void.  Never on, or because of, a cell that moves or vanishes (_SHADOW_DYN, as the shadows)"""
+    dyn = _SHADOW_DYN
+    lk, lo, rows = cv.lk, cv.lo, cv.rows
+    for y in range(cv.h - 1):
+        kr, orow, kb, ob = lk[y], lo[y], lk[y + 1], lo[y + 1]
+        for x in range(cv.w):
+            k = kr[x]
+            if k not in (2, 3) or kb[x] != 1:
+                continue
+            o, b = orow[x], ob[x]
+            if o < 0 or b < 0 or b == o:
+                continue
+            wx, wy = o >> 8, o & 255
+            n = (wx, wy + 1) if k == 2 else (wx + 1, wy)
+            if b == 256 * n[0] + n[1]:
+                continue                            # JOINED: the floor under it is its own neighbour
+            if (wx, wy) in dyn or (b >> 8, b & 255) in dyn or n in dyn:
+                continue
+            yy = y
+            for i in range(4):
+                if yy < 0 or lk[yy][x] != k or lo[yy][x] != o:
+                    break
+                if i < 2 or (x + yy) & 1:
+                    rows[yy][x] = BLK
+                yy -= 1
 
 
 _NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_hack "nolook"): the ink before
@@ -10026,6 +10064,7 @@ FSHOW = 8                     # SPEC.md 130.28.6, the SHOW rule: the most lit ba
 # "good art, not good info", kept for a disk that can afford it.  Light from -x+y, a shadow 1 gu long for each
 # px of height
 SHADOW = False
+EDGE = False                  # the G4 GAP band (make's BZEDGE=1, the run's --edge): a knob, off by default
 _SHADOW_DYN = frozenset()     # this compile's cells that MOVE or vanish: no shadow on or from them (130.47.5)
 _SHADOW_OK = True             # off for a course over BLK_MAX with shadows (compile_course's retry, 130.47.5)
 _SHADOW_IN = False
@@ -11140,7 +11179,7 @@ def _compile_shadow(source, fname=None, occluders=True, _hack=None, crsinfo=None
     """(SPEC.md 130.47.5: with CAST SHADOWS a course over BLK_MAX with them is compiled again without them, and
     the run says so - PLAYGROUND, the stress test, is the one)"""
     global _SHADOW_IN, _SHADOW_OK
-    if not SHADOW or _SHADOW_IN:
+    if not (SHADOW or EDGE) or _SHADOW_IN:
         return _compile_cached(source, fname, occluders, _hack, crsinfo)
     _SHADOW_IN = True
     try:
@@ -11150,7 +11189,7 @@ def _compile_shadow(source, fname=None, occluders=True, _hack=None, crsinfo=None
         except CourseError as e:
             if "over the %d a map word" % BLK_MAX not in str(e):
                 raise
-            sys.stderr.write("bbcourse --shadow: %s; compiled again WITHOUT the shadows (SPEC.md 130.47.5)\n" % e)
+            sys.stderr.write("bbcourse --shadow/--edge: %s; compiled again WITHOUT them (SPEC.md 130.47.5)\n" % e)
             _SHADOW_OK = False
             _VANISH_MEMO.clear()
             return _compile_cached(source, fname, occluders, _hack, crsinfo)
@@ -11444,7 +11483,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     global _SHADOW_DYN                              # SPEC.md 130.47.5: no shadow on or from what moves or vanishes
     _SHADOW_DYN = frozenset(set(gcells) | set(rails) | ttcells | bridges | {c_ for sw in src.seesaws for c_ in sw["cells"]}
                           | {c_ for (t_, _z) in tt_tabs.values() for c_ in [t_["at"]]}
-                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if SHADOW else frozenset()
+                          | {p["at"] for p in props if isinstance(p.get("at"), tuple)}) if SHADOW or EDGE else frozenset()
     ops = _ops_of(tiles)
     # a vanishing crack's and a bridge walkway's RE-RENDER (the tiles less one tile) is drawn by the same ops:
     # guard cells as their rails, the lintels, the arches - a re-render that left them out differed from the
@@ -21833,7 +21872,7 @@ def check_demo(c, K, log, idents, where):
                                                                   idents[K]))
         struct.pack_into("<H", log, 14, idents[K])
         bad = check_log(bytes(log), len(idents), idents, physv=log[7])
-    if bad and bad[0] == 4 and SHADOW:
+    if bad and bad[0] == 4 and (SHADOW or EDGE):
         # SPEC.md 130.47.5: the shadows move the picture's ink and nothing the replay meets, so a BZSHADOW build
         # re-stamps a demo with its identity, as 130.22.6 does for the clocks; the replay below still proves it
         restamp.append("%s: identity %04Xh re-stamped %04Xh by the build: the shadows moved the picture "
@@ -35653,7 +35692,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, SHADOW
+    global OCC_MODE, FSHOW_ALL, SHADOW, EDGE
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -35707,6 +35746,9 @@ def main():
     ap.add_argument("--shadow", action="store_true",
                     help="SPEC.md 130.47.5's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
                          "of height, a 50%% dither on the tops they fall on; off by default")
+    ap.add_argument("--edge", action="store_true",
+                    help="the G4 GAP band (make's BZEDGE=1; docs/plans/bonanza-courses/EDGES.md): a column face over "
+                         "a gap ends in 2 px of black and 2 of 50%% dither where a floor cuts it; off by default")
     ap.add_argument("--guide", action="store_true",
                     help="the course guide's checks (wave 11: G1, G3, G9 - G12) on each `guide` course, over its "
                          "route and any --log demos; writes nothing")
@@ -35721,6 +35763,7 @@ def main():
     OCC_MODE = a.occ
     FSHOW_ALL = a.fshow
     SHADOW = a.shadow
+    EDGE = a.edge
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()
     only = None

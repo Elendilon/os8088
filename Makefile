@@ -22052,6 +22052,19 @@ BZSHADOWSTAMP := $(BUILD)/.bzshadow-$(or $(BZSHADOW),0)
 $(BZSHADOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshadow-*
 	@touch $@
+#> [Knobs] BZEDGE=1 :: Bounce Bonanza's G4 GAP BAND (docs/plans/bonanza-courses/EDGES.md): a column face over a gap ends in 2 px of black and 2 of 50% dither where a floor cuts it - off by default, a trial for the owner to play (make BUILD=build/edge BZEDGE=1 bonanzadisk)
+# BZEDGE=1 (the owner, 2026-11-21: "put the G4 band+fringe only into a build") passes --edge to bbcourse.py.
+# STAMPED, so a change recompiles the courses.
+BZEDGE ?=
+ifeq ($(filter $(BZEDGE),1),)
+ifneq ($(BZEDGE),)
+$(error BZEDGE=$(BZEDGE) is 1 or empty)
+endif
+endif
+BZEDGESTAMP := $(BUILD)/.bzedge-$(or $(BZEDGE),0)
+$(BZEDGESTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzedge-*
+	@touch $@
 #> [Knobs] BZDEV=1 :: Bounce Bonanza's TEST BUILD (SPEC.md 130.26.6.1): the harness bytes, the instruments' keys and face, the benchmark, the autopilot, the measured marks and the scripted camera the bonanza rows drive - none of it shipped; a knob build, into a private tree (make BUILD=build/bzdev BZDEV=1 bonanzadisk)
 # BZDEV=1 (the owner, 2026-11-19: "anything that is a test only needs to be on a knob. We don't ship tests")
 # assembles BONANZA.O88 with -DBZDEV: bz_dev and every key and page it opens (B R D F G V W L N M T S, the tour,
@@ -22135,9 +22148,9 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZDOWNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZDOWNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) $(BZEDGESTAMP) \
                    $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) $(if $(BZEDGE),--edge) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
