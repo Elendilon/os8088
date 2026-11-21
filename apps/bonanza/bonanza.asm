@@ -184,8 +184,8 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + BZ_NSHEET ; shipped demo row i: BZ_P_DEMO + i, course
-                                ; bz_dcrs[i] (130.14.7.4) - after the world parts and the sheets (130.30.12.5)
+BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; shipped demo row i: BZ_P_DEMO + i, course
+                                ; bz_dcrs[i] (130.14.7.4) - after the world parts (a SHEETED course has none: 130.30.12.5)
 BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
@@ -645,20 +645,6 @@ bz_launch:
 ; Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_cload:
-%if BZ_NSHEET
- %if BZ_PATH_NPAD
-    mov bl, [bz_crs]            ; SPEC.md 130.30.12.6: a SHEETED course's claims
-    cmp bl, BZ_NCRS             ; leave no room for the held pathway's (a VGA
-    jae .nsh                    ; play's eight): it is let go, and read again
-    xor bh, bh                  ; after (bz_phfetch, as bz_phrel's drop)
-    cmp byte [bz_cshn + bx], 0
-    je .nsh
-    cmp byte [bz_phold], 0
-    je .nsh
-    call bz_phfree
-.nsh:
- %endif
-%endif
     mov al, [bz_crs]            ; course K's row: BZ_P_CRS + K (bzcourse.inc)
     add al, BZ_P_CRS
 %if BZ_PATH_NPAD
@@ -694,11 +680,11 @@ bz_cload:
     mov al, [bz_pc]             ; (each fetch's segment stored before the next
     call op_seg                 ; fetch, so tests/pins.txt keys each claim by
     mov [bz_cseg], ax           ; its own word: bz_cseg, bz_bsegs)
-%if BZ_NCRS2
+%if BZ_NCRS2 + BZ_NSHC
     mov [bz_mseg], ax           ; (the PICTURE part: SPEC.md 130.30.5)
 %endif
-%if BZ_NSHEET
-    mov [bz_shseg], ax          ; (a SHEETED course's sheet 0: SPEC.md 130.30.12.5)
+%if BZ_NSHC
+    mov [bz_shseg], ax          ; (a SHEETED course's ONE part: sheet 0, its base - SPEC.md 130.30.12.5)
 %endif
 %if BZ_PATH_NPAD
     cmp byte [bz_phre], 0
@@ -718,7 +704,7 @@ bz_cload:
 %if BZ_PATH_NPAD
 .exd:
 %endif
-%if BZ_NCRS2
+%if BZ_NCRS2 + BZ_NSHC
     call bz_cload2              ; a two-part course's WORLD part (130.30.5),
     jc .drop                    ; before anything reads the world
 %endif
@@ -748,7 +734,7 @@ bz_cload:
     push es                     ; (ES as the bracket call found it before:
     call bz_hgen                ; bz_hxlat leaves the ball's there)
     call bz_hxlat
-%if BZ_NSHEET
+%if BZ_NSHC
     call bz_hxshs               ; (a SHEETED course's other sheets' blocks)
 %endif
     pop es
@@ -757,7 +743,7 @@ bz_cload:
     je .ok                      ; pairs (SPEC.md 130.46.5) by BZVGA.BIN
     push es
     call bz_vprep
-%if BZ_NSHEET
+%if BZ_NSHC
     jc .vpd
     call bz_vshs                ; (a SHEETED course's other sheets: blocks, masks)
 .vpd:
@@ -772,64 +758,70 @@ bz_cload:
     stc
     ret
 
-%if BZ_NCRS2
+%if BZ_NCRS2 + BZ_NSHC
 ; -----------------------------------------------------------------------------
 ; bz_cload2 - a TWO-PART course's WORLD part (SPEC.md 130.30.5): when
 ; BZ_CRS_WROW names one for course [bz_crs], fetched (the picture part's
 ; segment stays in bz_mseg), its segment stored in bz_cseg and expanded in
 ; place ONCE (bz_cexp, 130.15.4.5) - after the picture part's, so bz_dfind's
-; bounds are the world part's.  The pathway and the title are one part.  CF = 1
-; the fetch was refused (op_fetch said why): bz_cdrop gives back what was
-; fetched (it drops every world row).  At home.  Preserves nothing.
+; bounds are the world part's.  A SHEETED course (130.30.12.5) has no world
+; row: its sheets past 0 and its world part are SEGMENTS of the ONE part
+; bz_cload fetched - each at its BZ_SHTAB entry's paragraphs from the part's
+; base (the world part's in entry 0's word, sheet 0's being 0), taken with
+; OSAPI_SEG's SEG_SUB (kern_mega: a selector tied to the claim, going with
+; it; every real-mode kernel: the sum), stored and expanded in place in
+; order, the world part's last.  No fetch, no disk.  The pathway and the
+; title are one part.  CF = 1 a fetch, or a selector, was refused (op_fetch
+; said why): bz_cdrop gives back what was fetched (it drops every world
+; row).  At home.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_cload2:
     mov bl, [bz_crs]
     cmp bl, BZ_NCRS
     jae .one                    ; (CF = 0: the pathway, the title)
     xor bh, bh
-%if BZ_NSHEET
-    mov cl, [bz_cshn + bx]      ; SPEC.md 130.30.12.5: a SHEETED course's sheets
-    or cl, cl                   ; past 0 first, each fetched and expanded (bz_cexp
-    jz .nsh                     ; through bz_cseg, which the world part's takes
-    push bx                     ; next), in its own claim
+%if BZ_NSHC
+    mov cl, [bz_cshn + bx]      ; k sheets: k segments past sheet 0 - its
+    or cl, cl                   ; sheets' and then the world part's
+    jz .nsh
+    xor ch, ch
+    mov bp, cx                  ; (BP: bz_cexp keeps it)
     shl bx, 1
     mov si, [bz_cshi + bx]
-    add si, bz_shtab + BZ_SHENT
-    mov di, bz_shseg + 2
-    dec cl
+    add si, bz_shtab            ; SI = entry 0
+    mov bx, si
+    mov di, bz_shseg
 .sh:
-    push cx
+    add bx, BZ_SHENT            ; sheet j's paragraphs ...
+    inc di
+    inc di
+    mov ax, [bx]
+    dec bp
+    jnz .sub
+    mov ax, [si]                ; ... and the world part's, the last
+.sub:
+    push bx
+    mov dx, [bz_shseg]          ; the part's base + AX paragraphs (a real-mode
+    xor cx, cx                  ; kernel's DX + AX; CX 0: 64KB, or to the
+    mov bl, SEG_SUB             ; part's end)
+    call OSAPI_SEG
+    pop bx
+    jc .one                     ; (CF = 1: no selector)
+    mov [di], dx
+    mov [bz_cseg], dx
     push si
     push di
-    mov al, [si]
-    push ax
-    call op_fetch
-    pop ax
-    jc .shx
-    call op_seg
-    pop di
-    mov [di], ax
-    push di
-    mov [bz_cseg], ax
-    call bz_cexp
-    clc
-.shx:
+    push bx
+    call bz_cexp                ; the STORED form expanded in place, once
+    pop bx
     pop di
     pop si
-    pop cx
-    jc .shr
-    add si, BZ_SHENT
-    inc di
-    inc di
-    dec cl
+    or bp, bp                   ; (CF = 0)
     jnz .sh
-    pop bx
-    jmp short .nsh
-.shr:
-    pop bx
-    ret                         ; (CF = 1: bz_cdrop gives back what came)
+    ret
 .nsh:
 %endif
+%if BZ_NCRS2
     mov al, [bz_cwrow + bx]
     or al, al                   ; (CF = 0)
     jz .one
@@ -841,6 +833,7 @@ bz_cload2:
     mov [bz_cseg], ax
     call bz_cexp                ; the STORED form expanded in place, once
     clc
+%endif
 .one:
     ret
 %endif
@@ -2565,7 +2558,7 @@ bz_cdrop:
 .held:
 %endif
 %if BZ_NCRS2
-    mov al, BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + BZ_NSHEET ; every two-part course's WORLD part
+    mov al, BZ_P_CRS + BZ_NCRS + BZ_NCRS2 ; every two-part course's WORLD part
 .dw:                            ; (SPEC.md 130.30.5): a row not here is a
     dec ax                      ; no-op (op_drop preserves AX)
     call op_drop
@@ -2574,11 +2567,13 @@ bz_cdrop:
 %endif
     xor ax, ax                  ; (bz_bsegs kept: the balls are)
     mov [bz_cseg], ax
-%if BZ_NCRS2
+%if BZ_NCRS2 + BZ_NSHC
     mov [bz_mseg], ax
 %endif
-%if BZ_NSHEET
-    mov [bz_shn], al            ; (and its sheets with it: SPEC.md 130.30.12.5)
+%if BZ_NSHC
+    mov [bz_shn], al            ; (and its sheets with it - segments of its one
+                                ; part, their selectors going with its claim:
+                                ; SPEC.md 130.30.12.5)
 %endif
     mov [bz_bseg], ax
     ret
@@ -2698,7 +2693,7 @@ bz_crshdr:
     inc bx
     cmp bx, bz_mrow + 2 * BZ_MROWS
     jne .mrow
-%if BZ_NSHEET
+%if BZ_NSHC
     mov word [bz_shlo], 8000h   ; SPEC.md 130.30.12.3: one picture part - no
     mov word [bz_shhi], 7fffh   ; window leaves it
     mov byte [bz_shn], 0
@@ -2772,7 +2767,7 @@ bz_crshdr:
     mov [bz_otb], ax
     mov ax, [es:BZC_MTAB]
     mov [bz_mtab], ax
-%if BZ_NCRS2
+%if BZ_NCRS2 + BZ_NSHC
     mov es, [bz_mseg]           ; (the occluders: the PICTURE part, 130.30.5)
 %endif
     call bz_osmake              ; ...and its rows' summary (bzvideo.inc bz_occ)
@@ -3165,7 +3160,7 @@ bz_cxkit:
 ; count.
 bz_cxmap:
     mov bp, [es:BZC_BLKOFF]
-%if BZ_NSHEET
+%if BZ_NSHC
     xchg ax, cx                 ; SPEC.md 130.30.12.1: its RAM length / ROWB
     xor dx, dx                  ; counts (a SHEET's map is n rows, every other
     div word [es:BZC_ROWB]      ; part's BROWS)
@@ -3758,7 +3753,7 @@ bz_hxlat:
     shl cx, 1
     mov dl, 2
     call bz_hxrows
-%if BZ_NCRS2
+%if BZ_NCRS2 + BZ_NSHC
     mov es, [bz_cseg]           ; (the sprites: the WORLD part, 130.30.5)
 %endif
     mov cx, [es:BZC_NPROP]      ; the PLATFORMS' sprites (SPEC.md 130.12.6.4):
@@ -3837,7 +3832,7 @@ bz_hxents:
 .out:
     ret
 
-%if BZ_NSHEET
+%if BZ_NSHC
 ; -----------------------------------------------------------------------------
 ; bz_hxshs - SPEC.md 130.30.12.5: a SHEETED course's sheets past 0, each one's
 ; blocks through BZ_HTAB as bz_hxlat translates sheet 0's (the lifts' sprites
@@ -5305,10 +5300,11 @@ bz_carena:  BZ_CRS_ARENA        ; ...their arena reserves, paragraphs, a word ea
 %if BZ_NCRS2
 bz_cwrow:   BZ_CRS_WROW         ; SPEC.md 130.30.4.4: each course's WORLD part's row (0: one part)
 %endif
-%if BZ_NSHEET
+%if BZ_NSHC
 bz_cshn:    BZ_CRS_SHN          ; SPEC.md 130.30.12.5: each course's SHEETS (0: one picture part),
 bz_cshi:    BZ_CRS_SHI          ; its first entry's offset in bz_shtab,
-bz_shtab:   BZ_SHTAB            ; and an entry a sheet: row, 0, m0, hic, tlo, thi
+bz_shtab:   BZ_SHTAB            ; and an entry a sheet: its paragraphs in the part (entry 0: the
+                                ; world part's), m0, hic, tlo, thi
 %endif
                                 ; (the tool's, SPEC.md 130.25.4.2: bz_cload)
 bz_cpals:   BZ_CRS_PALS         ; ...their CGA colour selects, a byte each (3D9h,
@@ -5350,7 +5346,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a course (every one but BENCH).  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NSHEET + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
+OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2), then the WORLD parts
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (130.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (130.19.2)
@@ -5363,7 +5359,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NCRS2 + BZ_NSHEET + BZ_NDEMO + 3 + 2 * BZ_TITLE + 
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 + BZ_NSHEET || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
+%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS + BZ_NCRS2 || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
  %error "the demo rows follow the courses', at most one a course (SPEC.md 130.14.7.4)"
 %endif
 

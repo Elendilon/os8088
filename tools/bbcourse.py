@@ -9887,7 +9887,8 @@ class Course:
     .wcga, .wstored and .wherc its world part's: SPEC.md 130.30)"""
     split = False
     wcga = wstored = wherc = None
-    plan = sstored = None               # SPEC.md 130.30.12: a SHEETED course's plan and its sheets' stored forms
+    plan = sstored = bstored = None     # SPEC.md 130.30.12: a SHEETED course's plan, its sheets' stored forms and
+                                        # its ONE part (130.30.12.5)
     test = False                    # SPEC.md 130.54: `test`, a TEST course (the BZDEV=1 build's alone)
 
 
@@ -11028,6 +11029,7 @@ def attach_song(c, song):
         c.herc, c.wherc = herc_translate_parts(c.cga, c.wcga)
     else:
         c.herc = herc_translate_course(c.cga)
+    set_one_part(c)
     c.part_bytes = c.stored
     c.part = read_parts(c.cga, c.wcga, fname) if c.split else read_part(c.cga, fname)
     if c.part["ident"] != c.ident:
@@ -12605,6 +12607,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.wstored = stored_form(model, REC, c.wcga, fname) if split else None
     if split and expand(c.wstored, fname) != c.wcga:
         raise CourseError("%s: the world part's stored form does not expand to its RAM form" % fname)
+    set_one_part(c)
     c.part_bytes = c.stored             # the ONE part, BZ<K>.BIN (SPEC.md 130.11.3), as STORED (130.15.4.3)
     if split:                           # what the guest makes of it on the Hercules
         c.herc, c.wherc = herc_translate_parts(c.cga, c.wcga)
@@ -14308,8 +14311,8 @@ def decode_sheets(sheets, b, plan):
 
 
 def set_sheet_forms(c, m, fname):
-    """a SHEETED course's per-sheet forms (SPEC.md 130.30.12): .sstored each sheet's STORED form (BZ<K>.BIN,
-    BZ<K>S1.BIN, ...), each checked to expand in place to its RAM form; .sstored None for every other course"""
+    """a SHEETED course's per-sheet forms (SPEC.md 130.30.12): .sstored each sheet's STORED form (the pieces
+    of its ONE part BZ<K>.BIN, SPEC.md 130.30.12.5), each checked to expand in place to its RAM form; .sstored None for every other course"""
     sh = sheets_of(c.cga)
     c.sstored = None
     if sh is None:
@@ -14320,6 +14323,69 @@ def set_sheet_forms(c, m, fname):
         if expand(st_, fname) != q:
             raise CourseError("%s: sheet %d's stored form does not expand to its RAM form" % (fname, i))
         c.sstored.append(st_)
+
+
+def one_part_layout(stores):
+    """SPEC.md 130.30.12.5: a SHEETED course's ONE part - its sheets' forms and then its world part's, each from
+    a paragraph -> ([each one's paragraph offset], the part's length)"""
+    out, off = [], 0
+    for q in stores:
+        out.append(off // 16)
+        off += len(q) + (-len(q) & 15)
+    return out, off - (-len(stores[-1]) & 15)
+
+
+def one_part(stores):
+    """the ONE part's bytes: STORES (the sheets' forms, then the world part's) each from a paragraph, zeros between"""
+    return b"".join(bytes(q) + bytes(-len(q) & 15) for q in stores[:-1]) + bytes(stores[-1])
+
+
+def split_one_part(blob, plan, fname="<course>"):
+    """SPEC.md 130.30.12.5: a SHEETED course's ONE part (BZ<K>.BIN) -> [each sheet's form, the world part's],
+    cut at the paragraphs the guest's table names (the plan's "paras", one_part_layout's) - the cut the guest
+    makes, with what it relies on checked: each piece's magic in order, its own length (its directory's end)
+    inside the part and before the next, the padding zero, the part's length the last piece's end.  Refused
+    otherwise"""
+    k = plan["k"]
+    magics = list(MAGIC_SHEETS[:k]) + [MAGIC_WORLD]
+    offs, out = plan.get("paras"), []
+    if offs is None or len(offs) != k + 1 or offs[0] != 0:
+        raise CourseError("%s: the plan names no ONE part's paragraphs (SPEC.md 130.30.12.5)" % fname)
+    for i, (o, mg) in enumerate(zip(offs, magics)):
+        a_ = 16 * o
+        if bytes(blob[a_:a_ + 4]) != mg:
+            raise CourseError("%s: the one part's piece %d at paragraph %d is not %r (SPEC.md 130.30.12.5)"
+                              % (fname, i, o, mg))
+        diroff, nsec = struct.unpack_from("<HH", blob, a_ + 38)
+        ln = diroff + DIRENT * nsec
+        end = 16 * offs[i + 1] if i < k else len(blob)
+        if a_ + ln > end or (i < k and any(blob[a_ + ln:end])) or (i == k and a_ + ln != len(blob)):
+            raise CourseError("%s: the one part's piece %d (%d bytes at paragraph %d) does not end where the next "
+                              "begins (SPEC.md 130.30.12.5)" % (fname, i, ln, o))
+        out.append(bytes(blob[a_:a_ + ln]))
+    return out
+
+
+def set_one_part(c):
+    """SPEC.md 130.30.12.5: a SHEETED course ships ONE part, BZ<K>.BIN - every sheet's STORED form and then the
+    world part's, each from a paragraph (.bstored), the paragraphs in its plan (.plan["paras"]: sheet 0's 0, the
+    world part's last), checked to read back; .bstored None for every other course"""
+    c.bstored = None
+    if not getattr(c, "sstored", None):
+        return
+    stores = list(c.sstored) + [c.wstored]
+    c.plan["paras"] = one_part_layout(stores)[0]
+    c.bstored = one_part(stores)
+    if split_one_part(c.bstored, c.plan, c.fname) != [bytes(q) for q in stores]:
+        raise CourseError("%s: the one part does not read back as its sheets and its world part" % c.fname)
+
+
+def course_claims(c):
+    """the RAM forms of each CLAIM a course's play makes: one part's, a two-part course's two, a SHEETED course's
+    ONE (its sheets and its world part in one claim, each from a paragraph: SPEC.md 130.30.12.5)"""
+    if sheets_of(c.cga):
+        return [one_part(sheet_rams(c))]
+    return sheet_rams(c)
 
 
 def sheet_rams(c):
@@ -20417,12 +20483,9 @@ def emit_inc(courses, path=None, title=None):
     lines += ["%endmacro", "",
               "; the course part rows: BZ_NCRS, one a course, every one",
               "; OP_ASSET | OP_LAZY | OP_COMP (SPEC.md 130.11.3.1) - and after them each TWO-PART course's",
-              "; WORLD part (SPEC.md 130.30.4.4), BZ<K>W.BIN, in course order, then each SHEETED course's",
-              "; sheets past its first (SPEC.md 130.30.12.5), BZ<K>S<i>.BIN, in course order",
-              "%macro BZ_CRS_PARTS 0",
-              " %rep BZ_NCRS + BZ_NCRS2 + BZ_NSHEET",
-              "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP   ; BZ<K>.BIN, then BZ<K>W.BIN, then BZ<K>S<i>.BIN",
-              " %endrep",
+              "; WORLD part (SPEC.md 130.30.4.4), BZ<K>W.BIN, in course order; a SHEETED course's ONE part",
+              "; (its sheets and its world part, SPEC.md 130.30.12.5) is OP_BIG: past 65,024 bytes",
+              "%macro BZ_CRS_PARTS 0"] + emit_crs_parts(courses) + [
               "%endmacro", ""] + emit_wrows(courses) + emit_sheets(courses) + [
               "; wave 4's shipped demos (SPEC.md 130.14.7.4): one a course but the benchmark's (by NAME),",
               "; BZD<NAME>.BIN, a log's bytes exactly, checked by the model at build time.  Their",
@@ -20447,12 +20510,26 @@ BZ_P_CRS = 0                  # course 0's part row (bzcourse.inc's; no ball row
 
 def wrows(courses):
     """SPEC.md 130.30.4.4: each course's WORLD part's row - BZ_P_CRS + BZ_NCRS + j for the j-th two-part
-    course, in course order - or 0 for a course of one part"""
+    course, in course order - or 0 for a course of one part and for a SHEETED one (its world part is a segment
+    of its one part, SPEC.md 130.30.12.5)"""
     out, j = [], 0
     for c in courses:
-        out.append(BZ_P_CRS + len(courses) + j if c.split else 0)
-        j += 1 if c.split else 0
+        w = c.split and not getattr(c, "bstored", None)     # (a SHEETED course's is in its one part, 130.30.12.5)
+        out.append(BZ_P_CRS + len(courses) + j if w else 0)
+        j += 1 if w else 0
     return out
+
+
+def emit_crs_parts(courses):
+    """the course rows' OS88_PART lines: one %rep while no course is SHEETED (the text every build had before
+    130.30.12.5's one part), else a line a course - a sheeted course's row OP_BIG (SPEC.md 20.12.15) - and the
+    world parts' %rep after"""
+    one = "    OS88_PART OP_ASSET, OP_LAZY | OP_COMP"
+    if not any(getattr(c, "bstored", None) for c in courses):
+        return [" %rep BZ_NCRS + BZ_NCRS2", one + "   ; BZ<K>.BIN, then BZ<K>W.BIN", " %endrep"]
+    return [one + (" | OP_BIG   ; BZ%d.BIN: SHEETED, one part (SPEC.md 130.30.12.5)" % k
+                   if getattr(c, "bstored", None) else "   ; BZ%d.BIN" % k) for k, c in enumerate(courses)] + [
+        " %rep BZ_NCRS2", one + "   ; BZ<K>W.BIN", " %endrep"]
 
 
 def emit_wrows(courses):
@@ -20469,31 +20546,30 @@ def emit_wrows(courses):
 
 
 def emit_sheets(courses):
-    """SPEC.md 130.30.12.5: BZ_NSHEET (the build's sheet parts past each course's first: 0, and the package is
-    assembled as it was before sheets existed) and, with any, BZ_SHMAX, BZ_SHENT, BZ_CRS_SHN (a byte a course:
-    its sheets, 0 none), BZ_CRS_SHI (a word a course: its first entry's offset in BZ_SHTAB) and BZ_SHTAB (an
-    entry a sheet: its part row and a byte 0, then the words m0, hic, tlo and thi)"""
+    """SPEC.md 130.30.12.5: BZ_NSHC (the build's SHEETED courses: 0, and the package is assembled as it was before
+    sheets existed) and, with any, BZ_SHMAX, BZ_SHENT, BZ_CRS_SHN (a byte a course: its sheets, 0 none),
+    BZ_CRS_SHI (a word a course: its first entry's offset in BZ_SHTAB) and BZ_SHTAB (an entry a sheet: the word
+    its paragraphs in the course's ONE part - entry 0's the WORLD part's, sheet 0 being the part's base - then
+    the words m0, hic, tlo and thi)"""
     sh = [(k, c.plan) for k, c in enumerate(courses) if sheets_of(c.cga)]
-    n = sum(pl["k"] - 1 for _k, pl in sh)
-    out = ["; SPEC.md 130.30.12.5: the SHEETED courses' extra sheets (0: none, and the package is assembled as it",
-           "; was before sheets existed); with any, each course's sheets and their table",
-           "BZ_NSHEET       equ %d" % n]
-    if not n:
+    out = ["; SPEC.md 130.30.12.5: the SHEETED courses (0: none, and the package is assembled as it was before",
+           "; sheets existed); with any, each course's sheets and their table",
+           "BZ_NSHC         equ %d" % len(sh)]
+    if not sh:
         return out + [""]
-    row = BZ_P_CRS + len(courses) + sum(1 for c in courses if c.split)
     shn, shi, tab = [0] * len(courses), [0] * len(courses), []
     for k, pl in sh:
         shn[k], shi[k] = pl["k"], SHENT * len(tab)
         for i, x in enumerate(pl["sheets"]):
-            tab.append((BZ_P_CRS + k if not i else row, x))
-            row += 1 if i else 0
+            tab.append((pl["paras"][-1] if not i else pl["paras"][i], x))
     out += ["BZ_SHMAX        equ %d" % max(pl["k"] for _k, pl in sh),
-            "BZ_SHENT        equ %d       ; a sheet's entry: its row, 0, m0, hic, tlo, thi" % SHENT,
+            "BZ_SHENT        equ %d       ; a sheet's entry: its paragraphs (entry 0: the world's), m0, hic, tlo, thi"
+            % SHENT,
             "%macro BZ_CRS_SHN 0", "    db " + ", ".join(str(x) for x in shn), "%endmacro",
             "%macro BZ_CRS_SHI 0", "    dw " + ", ".join(str(x) for x in shi), "%endmacro",
             "%macro BZ_SHTAB 0"]
     for r, x in tab:
-        out.append("    db %d, 0\n    dw %d, %d, %d, %d   ; rows %d - %d, served tops %d - %s" % (
+        out.append("    dw %d, %d, %d, %d, %d   ; rows %d - %d, served tops %d - %s" % (
             r, x["m0"], x["hic"], x["tlo"], x["thi"], x["m0"], x["hic"], x["slo"],
             "end" if x["shi"] is None else x["shi"]))
     return out + ["%endmacro", ""]
@@ -20664,7 +20740,7 @@ def crs_maxclaim(path, courses):
     part, and not the victory fanfare, a defect - compared against the
     largest free run; the small parts are the ARENA's now (crs_armax).  A
     TWO-PART course's is both its parts' claims, each so (SPEC.md 130.30.5)"""
-    return max([sum(_granule(_para(len(q)) + CLAIM_SLACK) for q in sheet_rams(courses[k]))
+    return max([sum(_granule(_para(len(q)) + CLAIM_SLACK) for q in course_claims(courses[k]))
                 for k in _pad_courses(path, courses)] + [0])
 
 
@@ -20777,6 +20853,8 @@ def check_budget(c, k=None):
             raise CourseError("%s: no `target` statement: every course but a test course (SPEC.md 130.54) gives its "
                               "design time, target 30, 60 or 90 (SPEC.md 130.15.8)" % c.fname)
         return None
+    if c.bstored:                                   # (a SHEETED course's ONE part, 130.30.12.5)
+        return packed_len(c.bstored, "lz4")
     return packed_len(c.stored, "lz4") + (packed_len(c.wstored, "lz4") if c.split else 0)   # (both parts, 130.30)
 
 
@@ -21308,11 +21386,10 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     files = {}
     for k, c in enumerate(courses):
         files["BZ%d.BIN" % k] = c.stored       # the STORED form (SPEC.md 130.15.12.1); os88pkg packs it
-        if c.split:                             # SPEC.md 130.30.4.4: a two-part course's WORLD part
+        if c.bstored:                           # SPEC.md 130.30.12.5: a SHEETED course's ONE part - its sheets
+            files["BZ%d.BIN" % k] = c.bstored   # and its world part, each from a paragraph
+        elif c.split:                           # SPEC.md 130.30.4.4: a two-part course's WORLD part
             files["BZ%dW.BIN" % k] = c.wstored
-        for i, st_ in enumerate(getattr(c, "sstored", None) or ()):
-            if i:                               # SPEC.md 130.30.12.5: a SHEETED course's sheets past sheet 0
-                files["BZ%dS%d.BIN" % (k, i)] = st_
     demos = build_demos(courses, paths, demo_dir)
     for k, d in sorted(demos.items()):
         files[demo_file(courses[k])] = d["log"]
@@ -21329,9 +21406,8 @@ def _compile_all(paths, demo_dir=None, path=None, title=None):
     # SPEC.md 130.30.4.4: the world parts' file names in row order, which the Makefile passes as --part after
     # the courses' (empty: none)
     texts = {"bzcourse.inc": emit_inc(courses, pc, tc),
-             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses) if c.split)
-             + "".join("BZ%dS%d.BIN\n" % (k, i) for k, c in enumerate(courses)   # (SPEC.md 130.30.12.5: then the
-                       for i in range(1, len(sheets_of(c.cga) or ()))),             # sheets, in row order)
+             "bzcrs2.lst": "".join("BZ%dW.BIN\n" % k for k, c in enumerate(courses)    # (a SHEETED course's
+                                   if c.split and not c.bstored),                    # world part is in its one)
              "bzdemo.lst": "".join(demo_file(courses[k]) + "\n" for k in sorted(demos))}
     return courses, files, texts
 
@@ -32631,6 +32707,40 @@ def _sheets_checks(courses, res, paths):
             ok_exp = False
     res.append(("16 TTALL: each sheet's STORED form and the world part's expand IN PLACE to their RAM forms (the "
                 "simulation of 130.15.4.4; ROWPLANES counts a sheet's map by its own length)", ok_exp))
+    # SPEC.md 130.30.12.5: ONE part on the disk - every sheet's stored form and the world part's, each from a
+    # paragraph, at the paragraphs the guest's table names
+    stores = list(c.sstored) + [c.wstored]
+    offs, blen = one_part_layout(stores)
+    try:
+        back = split_one_part(c.bstored, pl, "<TTALL>")
+    except CourseError:
+        back = None
+    tabw = [w for ln in emit_sheets([c]) if ln.startswith("    dw ") and ";" in ln
+            for w in [int(ln.split()[1].rstrip(","))]]
+    sep = sum(packed_len(q, "lzb") for q in stores)
+    one = packed_len(c.bstored, "lzb")
+    res.append(("16 TTALL ships ONE part: BZ<K>.BIN %d bytes (OP_BIG, over %d), its %d sheets and its world part "
+                "at paragraphs %s - the table's (entry 0's word the world part's) - each read back to its stored "
+                "form; LZB %d against %d as %d parts" % (len(c.bstored or b""), PARTMAX, pl["k"], offs, one, sep,
+                                                          len(stores)),
+                back == [bytes(q) for q in stores] and len(c.bstored) == blen > PARTMAX and pl["paras"] == offs
+                and tabw == [offs[-1]] + offs[1:-1] and one < sep))
+    bctl = []
+    q = bytearray(c.bstored)                        # the world part a paragraph late
+    q[16 * offs[-1]:16 * offs[-1]] = bytes(16)
+    bctl.append(("its world part a paragraph late", bytes(q), pl))
+    bctl.append(("the table a paragraph off", c.bstored, dict(pl, paras=offs[:-1] + [offs[-1] + 1])))
+    bctl.append(("a sheet missing", one_part([stores[0], stores[-1]]), pl))
+    bctl.append(("a byte cut off its end", c.bstored[:-1], pl))
+    bout = []
+    for what, b_, p_ in bctl:
+        try:
+            split_one_part(b_, p_, "<TTALL, %s>" % what)
+            bout.append((what, False))
+        except (CourseError, struct.error):
+            bout.append((what, True))
+    res.append(("16 ONE PART negative controls REFUSED: %s" % ", ".join("%s %s" % (w, "yes" if g else "NO")
+                                                                      for w, g in bout), all(g for _w, g in bout)))
     mlen = 2 * cols * pl["n"]
     same = all(q[4:] == sh[0][4:HDR] + q[HDR:HDR + mlen] + sh[0][HDR + mlen:] for q in sh)
     try:
@@ -34503,10 +34613,12 @@ def _selfcheck(paths, res, skipped, S):
                 idok))
     st1 = all(expand(c.stored, c.name) == c.cga and (not c.split or expand(c.wstored, c.name) == c.wcga)
               for c in courses) and all(
-        a[1]["BZ%d.BIN" % k] == c.stored and (not c.split or a[1]["BZ%dW.BIN" % k] == c.wstored)
+        (a[1]["BZ%d.BIN" % k] == c.bstored and "BZ%dW.BIN" % k not in a[1]) if c.bstored else
+        (a[1]["BZ%d.BIN" % k] == c.stored and (not c.split or a[1]["BZ%dW.BIN" % k] == c.wstored))
         for k, c in enumerate(courses))
     res.append(("1 every BZ<K>.BIN (and a two-part course's BZ<K>W.BIN) is the course's STORED form and expands to "
-                "its RAM form (both compiles' files compared above)", st1))
+                "its RAM form - a SHEETED course's its ONE part, no BZ<K>W.BIN (both compiles' files compared "
+                "above)", st1))
     import types
     X = types.SimpleNamespace(paths=paths, a=a, courses=courses, byname=byname, t=htab())
     for fn in _SC_ORDER:
@@ -34619,10 +34731,10 @@ def _o88_arms(courses, demo_files):
         for k, c in enumerate(courses):
             p = os.path.join(td, "BZ%d.BIN" % k)
             with open(p, "wb") as f:
-                f.write(c.stored)
+                f.write(c.bstored or c.stored)
             parts.append(p)
         for k, c in enumerate(courses):             # SPEC.md 130.30.4.4: the WORLD parts after the courses'
-            if c.split:
+            if c.split and not c.bstored:
                 p = os.path.join(td, "BZ%dW.BIN" % k)
                 with open(p, "wb") as f:
                     f.write(c.wstored)
@@ -34697,6 +34809,12 @@ def sizes(paths):
         more = list(c.sstored[1:]) if c.sstored else []   # (a SHEETED course's other sheets, 130.30.12)
         ps = [{f: packed_len(st, f) for f, _ in fmts} for st in more]
         whole = {f: sum(q[f] for q in pw + ps) for f, _ in fmts}
+        if c.bstored:                                   # SPEC.md 130.30.12.5: ONE part on the disk, the sheets
+            sep = dict(whole)                           # and the world part each from a paragraph
+            whole = {f: packed_len(c.bstored, f) for f, _ in fmts}
+            print("    ONE PART (SPEC.md 130.30.12.5): BZ%d.BIN %d bytes (OP_BIG), the sheets and the world part at "
+                  "paragraphs %s: LZ4 %d, LZB %d - as separate parts they would pack to LZ4 %d, LZB %d" % (
+                      k, len(c.bstored), c.plan["paras"], whole["lz4"], whole["lzb"], sep["lz4"], sep["lzb"]))
         print("\n  course %d %s (%s): RAM %d bytes, stored %d (%d of them holes), %d sections" % (
             k, c.name, os.path.basename(c.fname), sum(len(st) for st in stores + more),
             sum(len(st) for st in stores + more), sum(e["len"] - e["dlen"] for e in pt["dir"]), len(pt["dir"])))

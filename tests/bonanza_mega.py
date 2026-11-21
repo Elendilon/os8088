@@ -355,11 +355,14 @@ def claims(b, pkg, hs, equ, sels=False):
 
 def crs_parts(k):
     """course K's parts (SPEC.md 130.30.4): 2 when the build's bzcrs2.lst lists
-    its WORLD part (BZ<K>W.BIN), else 1"""
+    its WORLD part (BZ<K>W.BIN), 3 for a SHEETED course (130.30.12.5: ONE part
+    and claim, its other sheets and its world part segments inside it), else 1"""
     p = os.path.join(R.at("build/bonanza-art"), "bzcrs2.lst")
     if not os.path.exists(p):
         return 1
-    return 2 if "BZ%dW.BIN" % k in open(p).read().split() else 1
+    if "BZ%dW.BIN" % k in open(p).read().split():
+        return 2
+    return 3 if getattr(R.course_k(k), "bstored", None) else 1
 
 
 def course_claims(what, b, pkg, hs, eq, k):
@@ -374,7 +377,12 @@ def course_claims(what, b, pkg, hs, eq, k):
     ms = pkg.word("bz_mseg") if "bz_mseg" in pkg.sym else cs
     lc, lm = (b.lin(cs) if cs else None), (b.lin(ms) if ms else None)
     have = " ".join("%X" % x for x in bases)
-    if crs_parts(k) == 2:
+    if crs_parts(k) == 3:                       # (the world part's selector a SEG_SUB inside the one claim)
+        want(cs and ms and lc != lm and lm in bases and lc not in bases,
+             "%s: the sheeted course's one part ([bz_mseg] %04Xh, at %s) a claim of the instance and its world "
+             "part ([bz_cseg] %04Xh, at %s) inside it (SPEC.md 130.30.12.5; its claims at %s)" % (
+                 what, ms, "%X" % lm if lm is not None else "-", cs, "%X" % lc if lc is not None else "-", have))
+    elif crs_parts(k) == 2:
         want(cs and ms and lc != lm and lc in bases and lm in bases,
              "%s: the two-part course's picture part ([bz_mseg] %04Xh, at %s) and world part ([bz_cseg] %04Xh, "
              "at %s) are two claims of the instance (SPEC.md 130.30.5; its claims at %s)" % (
