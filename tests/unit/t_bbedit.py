@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """t_bbedit - the course builder's model and the compiler's warning tier
-(SPEC.md 130.56.3 - 130.56.5), on the host, no emulator:
+(SPEC.md 130.58.3 - 130.58.5), on the host, no emulator:
 
  1. ROUND TRIP: every course under apps/bonanza/courses/ read and written by
     tools/bbedproj.py is byte-identical, and moving every statement that has
@@ -20,12 +20,12 @@
     and a route point is the last thing a click at its cell reaches;
  7. DIAGONALS: PLAY's split cells report their pieces and a click picks the piece under it; a boost pad,
     magnet or membrane wholly behind a wall builds, with a warning;
- 9. SHAPES (130.56.19): every chute, pit and hump of the shipped courses reads and writes back as it was
+ 9. SHAPES (130.58.19): every chute, pit and hump of the shipped courses reads and writes back as it was
     (bbedshape.parse / code); on a constructed plate a chute made from nothing, dragged by an end and a
     corner, given a left turn and run the other way still compiles, a pit and a ridge too - and the ride
     readout (bbedjob.rides, the game's Physics) takes each ball through the steered chute and over the
     ridge at full speed.
- 8. GAP BANDS (130.56.21): a ledge's faces over the lower floor are the detector's candidates; marking two
+ 8. GAP BANDS (130.58.21): a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
     (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
     `marked` agrees after every step.
@@ -108,7 +108,7 @@ def main():
     d.insert("prop magnet 4 7 face +x range 4 strength 48")
     if d.auto_uses() != ["magnet"] or not any(s.kind == "uses" and "magnet" in s.toks for s in d.statements()):
         bad.append("placing a magnet did not add `uses magnet`")
-    # 5. THE GROUND AS ONE LAYER (SPEC.md 130.56.13): a ramp cut into the middle of a floor leaves every
+    # 5. THE GROUND AS ONE LAYER (SPEC.md 130.58.13): a ramp cut into the middle of a floor leaves every
     # other cell where it was, the ramp's cells on its plane, and one undo; and the picture's band fixed
     base = ('course NEW "New course"\nwidth 64\nball rubber\n\nfloor rect 4 4 14 12 flat 4\nstart 5 5\n'
             'goal rect 12 10 14 12 flat 4\ntarget 30\nway 5 5\nway 13 11\n')
@@ -128,7 +128,7 @@ def main():
     d.insert("floor rect 15 4 24 12 flat 4")
     did = d.auto_band()
     # the narrowest picture that holds it: 80 columns, origin 224 - and the compiler agrees, refusing 72
-    # (MEASURED: SPEC.md 130.56.13)
+    # (MEASURED: SPEC.md 130.58.13)
     if did is None or d.analysis()["error"] or "width 80" not in d.lines or "origin 224" not in d.lines:
         bad.append("auto_band: %r, %r, %r" % (did, d.analysis()["error"], [l for l in d.lines if l[:5] in
                                                                          ("width", "origi")]))
@@ -137,7 +137,7 @@ def main():
     did = d.auto_band()
     if did is not None or not d.analysis()["error"]:
         bad.append("auto_band: a course past 160 columns was 'fixed': %r" % did)
-    # 6. REJOIN (SPEC.md 130.56.14): a ramp cut into the floor and made floor again rejoins into the one
+    # 6. REJOIN (SPEC.md 130.58.14): a ramp cut into the floor and made floor again rejoins into the one
     # rectangle it was, every cell as it was; a group of edits is one undo; a route point is under the ground
     d = E.Document(base)
     with d.group("ramp and back"):
@@ -150,7 +150,7 @@ def main():
     an = d.analysis()
     if E.at_cell(an, (5, 5))[-1] != [st.line for st in d.statements() if st.code == "way 5 5"][0]:
         bad.append("at_cell: the route point is not last at (5, 5): %r" % E.at_cell(an, (5, 5)))
-    # 7. DIAGONALS (SPEC.md 130.56.15): a split cell's pieces are reported and picked by the point; a WHOLLY
+    # 7. DIAGONALS (SPEC.md 130.58.15): a split cell's pieces are reported and picked by the point; a WHOLLY
     # hidden boost pad, magnet and membrane build with a warning (refused only under --strict)
     an = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "playground.bbc")).analysis()
     sp = [c for c, d in an["cells"].items() if d.get("pieces")]
@@ -170,7 +170,7 @@ def main():
                 bad.append("%s wholly hidden: built with no warning" % nm)
         except B.CourseError as e:
             bad.append("%s wholly hidden: refused (%s)" % (nm, str(e)[:100]))
-    # 8. GAP BANDS (SPEC.md 130.56.21, 130.57): mark, fold, split, unmark, as the compiler sees each step
+    # 8. GAP BANDS (SPEC.md 130.58.21, 130.57): mark, fold, split, unmark, as the compiler sees each step
     gt = ('course GAPT "Gap test"\nwidth 64\nball rubber\nfloor rect 3 3 9 9 flat 4\nfloor rect 3 10 9 14 flat 0\n'
           'floor rect 10 3 14 9 flat 0\nstart 4 4\ngoal rect 12 4 13 5 flat 0\ntarget 30\nway 4 4\nway 12 4\n')
     d = E.Document(gt)
@@ -211,7 +211,7 @@ def main():
         d.toggle_gap(f_, "sw", F)
     if gaps() or len(d.undo_stack) != 5:
         bad.append("gap: every mark taken off leaves %r, %d undo steps" % (gaps(), len(d.undo_stack)))
-    # 9. SHAPES (SPEC.md 130.56.19)
+    # 9. SHAPES (SPEC.md 130.58.19)
     for f in courses:
         for st in E.Document.load(f).statements():
             if st.kind in ("chute", "pit", "hump"):

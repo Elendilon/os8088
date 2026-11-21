@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.56.8), each run as a process
+"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.58.8), each run as a process
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
@@ -19,9 +19,9 @@ origin, every mark the visibility audit weighs with its seen and hidden
 pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
-the warnings that do not (SPEC.md 130.56.4).
+the warnings that do not (SPEC.md 130.58.4).
 
-RIDE (SPEC.md 130.56.19) rolls each ball over the shape on line LINE - a
+RIDE (SPEC.md 130.58.19) rolls each ball over the shape on line LINE - a
 chute, a pit or a hump - on the play-only compile, and answers in words.
 """
 
@@ -60,8 +60,8 @@ def picture(path, out, name=None, gaps=False):
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
-    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.56.8)
-    B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (130.56.21)
+    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.58.8)
+    B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (130.58.21)
     emit(stage="compile", what="laying the course")
     try:
         c = B.compile_course(text, path, occluders=False)
@@ -211,7 +211,7 @@ def _roll(c, mat, at, v, route=None, secs=20.0, done=None):
 
 
 def rides(c, toks):
-    """SPEC.md 130.56.19: each ball over one shape, in words -> [{"ball", "test", "result", "words"}]"""
+    """SPEC.md 130.58.19: each ball over one shape, in words -> [{"ball", "test", "result", "words"}]"""
     sh = shape_of(toks)
     if not sh:
         return []

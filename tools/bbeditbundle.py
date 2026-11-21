@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """THE BOUNCE BONANZA COURSE BUILDER, PACKED FOR PEOPLE WITH NO os8088 TREE
-(SPEC.md 130.56.11), the battle builder's shape (tools/os88vbtbundle.py).
+(SPEC.md 130.58.11), the battle builder's shape (tools/os88vbtbundle.py).
 
     make bbeditbundle       # -> build/os8088-course-builder.zip
     python3 tools/bbeditbundle.py OUT.zip
@@ -153,7 +153,7 @@ def course_lists():
     import bbcourse as B
     mk = B._makefile()
     out = ["# The course lists of os8088's Makefile (BZ_COURSES, BZ_TESTCRS), for the course builder's",
-           "# bundle: tools/bbcourse.py reads the courses and their order from here (SPEC.md 130.56.11).", ""]
+           "# bundle: tools/bbcourse.py reads the courses and their order from here (SPEC.md 130.58.11).", ""]
     for var in ("BZ_COURSES", "BZ_TESTCRS"):
         files = B._mk_list(mk, var)
         if files:

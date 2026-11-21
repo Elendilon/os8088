@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedproj - THE COURSE BUILDER'S MODEL (SPEC.md 130.56.2, 130.56.3).
+"""bbedproj - THE COURSE BUILDER'S MODEL (SPEC.md 130.58.2, 130.58.3).
 
     python3 tools/bbedproj.py check COURSE.bbc [--strict] [--json]
     python3 tools/bbedproj.py show  COURSE.bbc [--json]          # the statements, their lines and kinds
@@ -244,7 +244,7 @@ class Document(object):
         return t + self.eol if self.final_eol else t
 
     def changed_on_disk(self):
-        """True when the file is not what was loaded or last saved (SPEC.md 130.56.3)"""
+        """True when the file is not what was loaded or last saved (SPEC.md 130.58.3)"""
         return self.path is not None and self.stamp is not None and file_stamp(self.path) != self.stamp
 
     def save(self, path=None, force=False):
@@ -430,7 +430,7 @@ class Document(object):
             self._notify("uses " + " ".join(added))
         return added
 
-    # -- the ground as ONE LAYER of cells (SPEC.md 130.56.13) ---------------------
+    # -- the ground as ONE LAYER of cells (SPEC.md 130.58.13) ---------------------
     def _ground_shape(self, st):
         """(index, (x0, y0, x1, y1) end-exclusive) of a statement's `tile` or `rect` shape - one a piece can be
         cut out of - or None (a band, a box, a half or a quarter: never split)"""
@@ -522,7 +522,7 @@ class Document(object):
         return new, last_ground
 
     def auto_band(self):
-        """SPEC.md 130.56.13: a course whose floors (and the flight past their edges) leave its picture - the
+        """SPEC.md 130.58.13: a course whose floors (and the flight past their edges) leave its picture - the
         diagonal band its `width` (word columns, 64 - 160 in 8s) and `origin` draw - gets the `origin` that
         centres them; failing that the SMALLEST wider `width` that holds them, centred. Never past 160 (1,280
         px): then it is left refused, for the author. Folded into the edit that needed it. -> what was done,
@@ -575,7 +575,7 @@ class Document(object):
         return None
 
     def tidy(self, near=None, label=None):
-        """SPEC.md 130.56.14: rejoin ground statements of ONE kind and the SAME clauses (a ramp's are its
+        """SPEC.md 130.58.14: rejoin ground statements of ONE kind and the SAME clauses (a ramp's are its
         plane, so its pieces rejoin too) into the fewest rectangles. Only statements with no comment of their
         own, laid by `tile` or `rect`, touching NEAR (cells x0, y0, x1, y1 inclusive, grown by one) when given,
         and whose cells no other ground statement covers. -> True when something was rejoined"""
@@ -643,7 +643,7 @@ class Document(object):
         return True
 
     def toggle_gap(self, cell, side, faces):
-        """SPEC.md 130.56.21, 130.57: mark or unmark ONE face (cell, side 'sw'|'se') for the gap band, as one undo
+        """SPEC.md 130.58.21, 130.57: mark or unmark ONE face (cell, side 'sw'|'se') for the gap band, as one undo
         step. FACES is every face the detector found (c.gap_faces as {((wx, wy), side)}): a statement naming the
         face loses it - rewritten as the fewest `gap rect` / `gap tile` lines that still name what it marked
         and that a face of FACES is in (a piece that would band nothing is dropped), deleted when nothing is
@@ -757,7 +757,7 @@ PIECE_POLY = {(B.KIND_TB, 0): ((0, 0), (0, 1), (1, 1)), (B.KIND_TB, 1): ((0, 0),
               (B.KIND_LR, 0): ((0, 0), (1, 0), (0, 1)), (B.KIND_LR, 1): ((1, 0), (1, 1), (0, 1)),
               (B.KIND_Q, 0): ((0, 0), (1, 0), (.5, .5)), (B.KIND_Q, 1): ((1, 0), (1, 1), (.5, .5)),
               (B.KIND_Q, 2): ((1, 1), (0, 1), (.5, .5)), (B.KIND_Q, 3): ((0, 1), (0, 0), (.5, .5))}
-FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 130.56.13)
+FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 130.58.13)
 KIND_NAMES = {B.KIND_FLOOR: "floor", B.KIND_WALL: "wall", B.KIND_GOAL: "goal", B.KIND_FIELD: "field"}
 
 
@@ -845,7 +845,7 @@ def analyse(text, fname="<course>"):
                 out["error"] = "%s:%d: way (%d, %d) is on a %s tile" % (fname, ln, wx, wy, "WALL" if d else "VOID")
                 out["error_line"] = ln
                 break
-    # the picture's band (SPEC.md 130.56.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
+    # the picture's band (SPEC.md 130.58.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
     # 16 (wx - wy) + x0 + 23 < 8 width (bbcourse.foot_x); the floors must lie inside it
     width = src.width or 64
     x0 = src.origin[0] if src.origin else width * 4
