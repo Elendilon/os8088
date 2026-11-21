@@ -40,8 +40,12 @@ CELL = 24                       # a plan cell at zoom 1, screen px
 
 PALETTE = [
     ("Ground", [
-        ("Floor", "rect", "floor rect {x0} {y0} {x1} {y1} flat {h}", "Solid ground at a height; flat or a ramp"),
-        ("Wall", "rect", "wall rect {x0} {y0} {x1} {y1} flat {h}", "A raised block the ball bounces off"),
+        ("Floor", "rect", "floor rect {x0} {y0} {x1} {y1} flat {h}", "Solid flat ground, at the height of the "
+         "floor already there or beside it (the toolbar's height in empty space). Make it a ramp on the right"),
+        ("Ramp", "rect", "floor rect {x0} {y0} {x1} {y1} ramp x {x0} {x1} {h} {h1}", "A floor that rises one unit "
+         "across the area, left to right; change its direction and heights on the right"),
+        ("Wall", "rect", "wall rect {x0} {y0} {x1} {y1} flat {h}", "A raised block the ball bounces off: one "
+         "unit above the highest floor in or beside the area"),
         ("Hole", "rect", "hole rect {x0} {y0} {x1} {y1}", "Open void: the ball falls"),
         ("Goal", "rect", "goal rect {x0} {y0} {x1} {y1} flat {h}", "Finish floor"),
         ("Overhang", "rect", "float rect {x0} {y0} {x1} {y1}", "Floor that hangs over the void"),
@@ -49,7 +53,8 @@ PALETTE = [
         ("Water", "cell", "water tile {x} {y} top {h} bed 0", "A pool: a surface and a bed"),
         ("Waterfall face", "cell", "arch {x} {y} +x", "The face a water column spills from"),
         ("Hump", "cell", "hump {x} {y} 2", "A rounded bump (Shapes tab for more)"),
-        ("Archway", "cell", "archway tile {x} {y} along x", "A ceiling the ball rolls under"),
+        ("Archway", "rect", "archway tile {x} {y} along x", "A ceiling over a path: select the path (1 or 2 "
+         "cells wide, with empty space on both sides for its legs)"),
         ("Chute", "cell", "chute 1 round depth 5 way {x} {y} {h} way {x4} {y}", "A curved channel"),
         ("Pit", "cell", "pit {x} {y} {h} radius 3 depth 16", "A bowl to ride round at speed"),
     ]),
@@ -224,8 +229,11 @@ class App(object):
         self.xray = tk.BooleanVar(value=True)
         self.adapter = tk.StringVar(value="cga")
         self.strict = tk.BooleanVar(value=False)
-        self.part = None                # the palette entry being placed: (name, mode, template)
+        self.part = None                # the palette entry chosen: (name, mode, template, hint)
+        self.area = None                # the selected AREA, cells (x0, y0, x1, y1) inclusive
         self.drag = None
+        self.good = None                # the last analysis that laid out (shown while one does not)
+        self.keep = None                # the edit "Keep it anyway" re-does
         self.tmp = tempfile.mkdtemp(prefix="bbedit-")
         self.pic = None                 # the Iso picture: {meta, img_cga, img_herc, owners}
         self.pic_job = self.check_job = None
@@ -342,9 +350,17 @@ class App(object):
         self.pal = ttk.Treeview(left, show="tree", selectmode="browse", height=10)
         self.pal.pack(fill="both", expand=True, pady=4)
         self.pal.bind("<<TreeviewSelect>>", lambda e: self._pick_part())
-        self.pal_hint = ttk.Label(left, text="Click a part, then click (or drag across) the course. Esc goes "
-                                  "back to Select.", wraplength=220, foreground="#444")
-        self.pal_hint.pack(fill="x")
+        self.pal.bind("<Double-Button-1>", lambda e: self.add_part())
+        addf = ttk.LabelFrame(left, text="Add", padding=6)
+        addf.pack(fill="x")
+        self.add_name = ttk.Label(addf, text="Choose a part above", font=("TkDefaultFont", 11, "bold"))
+        self.add_name.pack(anchor="w")
+        self.add_desc = ttk.Label(addf, text="", wraplength=220, foreground="#444")
+        self.add_desc.pack(anchor="w")
+        self.add_btn = ttk.Button(addf, text="Add to the selection", command=self.add_part)
+        self.add_btn.pack(fill="x", pady=(6, 2))
+        self.add_where = ttk.Label(addf, text="", wraplength=220, foreground="#666")
+        self.add_where.pack(anchor="w")
         pw.add(left, weight=0)
 
         # view
@@ -359,7 +375,7 @@ class App(object):
                         command=self._tool_changed).pack(side="left")
         ttk.Radiobutton(vb, text="Erase", variable=self.tool, value="erase",
                         command=self._tool_changed).pack(side="left")
-        ttk.Label(vb, text="   Height").pack(side="left")
+        ttk.Label(vb, text="   New floor height").pack(side="left")
         ttk.Spinbox(vb, from_=-20, to=60, increment=0.5, width=5, textvariable=self.height).pack(side="left")
         self.plan_opts = ttk.Frame(vb)
         self.plan_opts.pack(side="right")
@@ -371,8 +387,18 @@ class App(object):
                             command=self._redraw).pack(side="left")
         ttk.Checkbutton(self.iso_opts, text="X-ray the selection", variable=self.xray,
                         command=self._redraw).pack(side="left", padx=6)
+        self.banner = tk.Frame(mid, background="#fde2df", padx=8, pady=6)
+        self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
+                                 justify="left", anchor="w", wraplength=700)
+        self.banner_l.pack(side="left", fill="x", expand=True)
+        tk.Button(self.banner, text="Dismiss", command=lambda: self._banner(None)).pack(side="right")
+        self.banner_keep = tk.Button(self.banner, text="Keep it anyway", command=self._keep_anyway)
+        self.banner_keep.pack(side="right", padx=6)
+        self.banner_shown = False
+        self.banner_after = mid
         cf = ttk.Frame(mid)
         cf.pack(fill="both", expand=True)
+        self.cf = cf
         self.cv = tk.Canvas(cf, background="#2b2f36", highlightthickness=0)
         xs = ttk.Scrollbar(cf, orient="horizontal", command=self.cv.xview)
         ys = ttk.Scrollbar(cf, orient="vertical", command=self.cv.yview)
@@ -419,10 +445,10 @@ class App(object):
         r.bind("<minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
         # inspector
-        right = ttk.Frame(pw, padding=8, width=300)
+        right = ttk.Frame(pw, padding=8, width=330)
         self.ins_title = ttk.Label(right, text="Nothing selected", font=("TkDefaultFont", 13, "bold"))
         self.ins_title.pack(anchor="w")
-        self.ins_line = ttk.Label(right, text="", foreground="#555", wraplength=280)
+        self.ins_line = ttk.Label(right, text="", foreground="#555", wraplength=310)
         self.ins_line.pack(anchor="w", pady=(0, 6))
         self.ins_body = ttk.Frame(right)
         self.ins_body.pack(fill="x")
@@ -436,12 +462,13 @@ class App(object):
         ttk.Button(bf, text="Apply", command=self.apply_raw).pack(side="left")
         ttk.Button(bf, text="Duplicate", command=self.duplicate).pack(side="left", padx=4)
         ttk.Button(bf, text="Delete", command=self.delete).pack(side="left")
-        self.ins_help = ttk.Label(right, text="", wraplength=280, foreground="#444")
+        self.ins_help = ttk.Label(right, text="", wraplength=310, foreground="#444")
         self.ins_help.pack(anchor="w", pady=(8, 0))
-        self.ins_err = ttk.Label(right, text="", wraplength=280, foreground="#b3261e")
+        self.ins_err = ttk.Label(right, text="", wraplength=310, foreground="#b3261e")
         self.ins_err.pack(anchor="w", pady=(8, 0))
         pw.add(right, weight=0)
         self._fill_palette()
+        self._fill_add()
 
     def _build_course_tab(self):
         tk, ttk = self.tk, self.ttk
@@ -565,8 +592,11 @@ class App(object):
         self.doc = d
         d.listeners.append(self._changed)
         self.sel = None
+        self.area = None
+        self.good = None
         self.pic = None
         self.check = None
+        self._banner(None)
         self._fill_recent()
         self._changed("open")
         self.root.after(50, self._fit)
@@ -640,6 +670,8 @@ class App(object):
     def _changed(self, what):
         self._title()
         a = self.doc.analysis()
+        if a["cells"] and not a["error"]:
+            self.good = a
         if self.sel is not None and (self.sel > len(self.doc.lines) or not self.doc.lines[self.sel - 1].strip()
                                      or self.doc.lines[self.sel - 1].lstrip().startswith("#")):
             self.sel = None
@@ -661,15 +693,56 @@ class App(object):
         self._msg("Redid: %s" % lab if lab else "Nothing to redo")
 
     def _edit(self, fn, *a, **kw):
+        """every edit the window makes: done, `uses` added for it, and UNDONE AGAIN when it leaves the course
+        refused where it was not before - the course never ends up broken by a click; the banner says why
+        in plain words and offers to keep it anyway"""
+        before = self.doc.analysis()["error"]
+        n0 = len(self.doc.undo_stack)
         try:
             r = fn(*a, **kw)
         except E.EditError as e:
             self._msg(str(e))
             return None
         added = self.doc.auto_uses()
+        after = self.doc.analysis()["error"]
+        if after and after != before and len(self.doc.undo_stack) > n0:
+            while len(self.doc.undo_stack) > n0:
+                self.doc.undo()
+                if self.doc.redo_stack:
+                    self.doc.redo_stack.pop()
+            self.keep = (fn, a, kw)
+            self._banner("That change was undone: %s" % explain(after), keep=True)
+            return None
+        self._banner(None)
         if added:
-            self._msg("Added `uses %s` for the part you placed" % " ".join(added))
+            self._msg("Added `uses %s`: the course needs it for the part you added" % " ".join(added))
         return r
+
+    def _banner(self, text, keep=False):
+        if not text:
+            if self.banner_shown:
+                self.banner.pack_forget()
+                self.banner_shown = False
+            return
+        self.banner_l.config(text=text)
+        if keep:
+            self.banner_keep.pack(side="right", padx=6)
+        else:
+            self.banner_keep.pack_forget()
+        if not self.banner_shown:
+            self.banner.pack(side="top", fill="x", before=self.cf)
+            self.banner_shown = True
+
+    def _keep_anyway(self):
+        k, self.keep = self.keep, None
+        self._banner(None)
+        if k:
+            fn, a, kw = k
+            try:
+                fn(*a, **kw)
+            except E.EditError as e:
+                self._msg(str(e))
+            self.doc.auto_uses()
 
     def delete(self):
         if self.sel:
@@ -700,17 +773,43 @@ class App(object):
     def _key_delete(self, e):
         if isinstance(e.widget, (self.tk.Entry, self.ttk.Entry, self.tk.Text, self.ttk.Spinbox)):
             return
-        self.delete()
+        if self.sel:
+            self.delete()
+        elif self.area:
+            self.clear_area()
+
+    def clear_area(self):
+        """remove every part whose whole footprint is inside the selected area (one undo step)"""
+        x0, y0, x1, y1 = self.area
+        a = self.doc.analysis()
+        foot = {}
+        for c, d in a["cells"].items():
+            foot.setdefault(d["line"], set()).add(c)
+        for it in a["items"]:
+            foot.setdefault(it["line"], set()).update(it["cells"])
+        gone = sorted((ln for ln, cs in foot.items() if ln and cs and all(x0 <= x <= x1 and y0 <= y <= y1
+                                                                          for x, y in cs)), reverse=True)
+        if not gone:
+            self._msg("Nothing lies wholly inside the area; click a part to delete it")
+            return
+
+        def rm():
+            new = [l_ for i, l_ in enumerate(self.doc.lines, 1) if i not in set(gone)]
+            self.doc._commit("clear the area", new)
+        self._edit(rm)
 
     def _nudge(self, e, dx, dy):
         if isinstance(e.widget, (self.tk.Entry, self.ttk.Entry, self.tk.Text, self.ttk.Spinbox,
                                  self.ttk.Treeview)) or not self.sel:
             return
         if E.coord_slots(self.doc.statement(self.sel).toks):
-            self._edit(self.doc.move, self.sel, dx, dy)
+            self.move_sel(dx, dy)
         return "break"
 
     def apply_course(self):
+        self._edit(self._apply_course)
+
+    def _apply_course(self):
         d = self.doc
         sts = {s.kind: s for s in d.statements()}
 
@@ -746,6 +845,7 @@ class App(object):
             put("strict", "strict" if self.cv_cstrict.get() else None)
         except E.EditError as e:
             self._msg(str(e))
+        return True
 
     # -- the palette --------------------------------------------------------
     def _fill_palette(self):
@@ -758,50 +858,112 @@ class App(object):
                 continue
             gid = self.pal.insert("", "end", text=grp, open=bool(q) or grp in ("Ground", "Game"))
             for it in shown:
-                iid = self.pal.insert(gid, "end", text="%s   %s" % (it[0], "(drag)" if it[1] == "rect" else ""))
+                iid = self.pal.insert(gid, "end", text=it[0])
                 self.pal_items[iid] = it
 
     def _pick_part(self):
         sel = self.pal.selection()
         it = self.pal_items.get(sel[0]) if sel else None
-        if it:
-            self.part = it
-            self.tool.set("place")
-            self._msg("%s: %s. %s on the course to place it; Esc to stop." % (
-                it[0], it[3], "Drag a rectangle" if it[1] == "rect" else "Click a cell"))
+        self.part = it
+        self._fill_add()
 
     def _tool_changed(self):
-        if self.tool.get() != "place":
-            self.part = None
-            self.pal.selection_remove(*self.pal.selection())
+        self._msg("Erase: click something to remove it" if self.tool.get() == "erase" else
+                  "Select: click a part to edit it, or drag across the course to choose an area")
 
     def _escape(self):
         self.tool.set("select")
-        self._tool_changed()
-        self._msg("Select")
+        self.area = None
+        self.select(None)
+        self._fill_add()
+        self._msg("Nothing selected")
 
-    def place(self, x0, y0, x1=None, y1=None):
-        name, mode, tpl, _hint = self.part
-        if x1 is None:
-            x1, y1 = x0, y0
-        xa, xb, ya, yb = min(x0, x1), max(x0, x1) + 1, min(y0, y1), max(y0, y1) + 1
+    def _target(self):
+        """the cells an Add goes to: the selected area, else the selected part's footprint"""
+        if self.area:
+            return self.area
+        cells = self._sel_cells() if self.sel else set()
+        if cells:
+            xs = [c[0] for c in cells]
+            ys = [c[1] for c in cells]
+            return min(xs), min(ys), max(xs), max(ys)
+        return None
+
+    def _fill_add(self):
+        it = self.part
+        t = self._target()
+        if not it:
+            self.add_name.config(text="Choose a part above")
+            self.add_desc.config(text="Then press Add to put it on the selected area. Drag across the course "
+                                 "to select an area; click a part to select it.")
+            self.add_btn.state(["disabled"])
+            self.add_where.config(text="")
+            return
+        self.add_name.config(text=it[0])
+        self.add_desc.config(text=it[3])
+        self.add_btn.config(text="Add %s" % it[0].lower())
+        if t:
+            self.add_btn.state(["!disabled"])
+            w, h = t[2] - t[0] + 1, t[3] - t[1] + 1
+            self.add_where.config(text=("on the %d x %d area at (%d, %d)" % (w, h, t[0], t[1])) if it[1] == "rect"
+                                  else "at (%d, %d)%s" % (t[0], t[1], "" if w == h == 1 else ", the area's corner"))
+        else:
+            self.add_btn.state(["disabled"])
+            self.add_where.config(text="First drag across the course to choose where (or click a cell).")
+
+    def _heights(self, t):
+        """(the highest floor IN the area, the highest floor in it or touching it), units, or None"""
+        a = self.doc.analysis()
+        x0, y0, x1, y1 = t
+        inside = [d["hmax"] for (x, y), d in a["cells"].items() if x0 <= x <= x1 and y0 <= y <= y1
+                  and d["kind"] in ("floor", "goal", "field")]
+        around = [d["hmax"] for (x, y), d in a["cells"].items() if x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1
+                  and d["kind"] in ("floor", "goal", "field")]
+        return (max(inside) if inside else None), (max(around) if around else None)
+
+    def add_part(self):
+        """the chosen part on the selected area, its heights taken from what is there (SPEC.md 130.55.12)"""
+        it = self.part
+        t = self._target()
+        if not it or not t:
+            self._fill_add()
+            return
+        name, mode, tpl, _hint = it
+        x0, y0, x1, y1 = t
+        inside, around = self._heights(t)
         try:
-            h = float(self.height.get())
+            typed = float(self.height.get())
         except ValueError:
-            h = 4.0
+            typed = 4.0
+        base = inside if inside is not None else around if around is not None else typed
+        h = {"Wall": (around if around is not None else typed) + 1}.get(name, base)
+        h = round(h * 4) / 4.0
         hs = ("%d" % h) if h == int(h) else ("%g" % h)
-        code = tpl.format(x=x0, y=y0, x0=xa, y0=ya, x1=xb, y1=yb, h=hs, x3=x0 + 3, x4=x0 + 4, y1b=y0 + 1,
-                          y3=y0 + 3)
+        h1 = h + 0.5 * (x1 - x0 + 1)            # a ramp: half a unit a tile, the gentlest the course allows
+        h1s = ("%d" % h1) if h1 == int(h1) else ("%g" % h1)
+        along = "x" if (x1 - x0) >= (y1 - y0) else "y"
+        if name == "Archway":                   # across the path, one cell deep, at most two wide
+            if along == "x":
+                mx = (x0 + x1) // 2
+                x0, x1, y1 = mx, mx, min(y1, y0 + 1)
+            else:
+                my = (y0 + y1) // 2
+                y0, y1, x1 = my, my, min(x1, x0 + 1)
+            tpl = ("archway tile {x} {y} along %s" if (x0, y0) == (x1, y1) else
+                   "archway rect {x0} {y0} {x1} {y1} along %s") % along
+        code = tpl.format(x=x0, y=y0, x0=x0, y0=y0, x1=x1 + 1, y1=y1 + 1, h=hs, h1=h1s, x3=x0 + 3, x4=x0 + 4,
+                          y1b=y0 + 1, y3=y0 + 3)
         kind = code.split()[0]
         if kind == "start":                 # one start: move it
-            st = [s for s in self.doc.statements() if s.kind == "start"]
+            st = [s_ for s_ in self.doc.statements() if s_.kind == "start"]
             if st:
-                self._edit(self.doc.set_statement, st[0].line, code, label="move the start")
-                self.select(st[0].line)
+                if self._edit(self.doc.set_statement, st[0].line, code, label="move the start") is not None:
+                    self.select(st[0].line)
                 return
-        n = self._edit(self.doc.insert, code, label="place %s" % name.lower())
+        n = self._edit(self.doc.insert, code, label="add %s" % name.lower())
         if n:
             self.select(n)
+            self._msg("Added %s: %s (line %d). Edit it on the right; Ctrl+Z takes it back." % (name.lower(), code, n))
 
     # -- selection and the inspector ---------------------------------------------
     def select(self, line, scroll=False):
@@ -809,6 +971,7 @@ class App(object):
         self._redraw()
         self._fill_inspector()
         self._fill_source()
+        self._fill_add()
         if scroll:
             self.root.after(10, self._scroll_to_sel)
 
@@ -852,12 +1015,25 @@ class App(object):
             w.destroy()
         a = self.doc.analysis()
         if not self.sel:
-            self.ins_title.config(text="Nothing selected")
-            self.ins_line.config(text="Click something on the course, or type a statement below and Apply "
-                                 "to add it.")
             self.raw.set("")
-            self.ins_help.config(text="")
             self.ins_err.config(text="")
+            if self.area:
+                x0, y0, x1, y1 = self.area
+                inside, around = self._heights(self.area)
+                self.ins_title.config(text="An area, %d x %d" % (x1 - x0 + 1, y1 - y0 + 1))
+                self.ins_line.config(text="from (%d, %d) to (%d, %d)" % (x0, y0, x1, y1))
+                self.ins_help.config(text="%s\n\nChoose a part on the left and press Add to put it here. Delete "
+                                     "removes every part lying wholly inside the area. Click a part to edit it "
+                                     "instead." % ("Floor here: up to %g units high." % inside if inside is not None
+                                                   else "Empty space%s." % (
+                                                       ", next to floor %g units high" % around
+                                                       if around is not None else "")))
+            else:
+                self.ins_title.config(text="Nothing selected")
+                self.ins_line.config(text="")
+                self.ins_help.config(text="Click a part on the course to edit it, or drag across the course to "
+                                     "choose an area to add to. You can also type a whole statement below and "
+                                     "press Apply.")
             return
         try:
             st = self.doc.statement(self.sel)
@@ -871,21 +1047,30 @@ class App(object):
         body = self.ins_body
         slots = E.coord_slots(st.toks)
         row = 0
+        if st.kind in E.SHAPED:                 # the ramp's span is the Slope's to keep in step, not a point
+            cut = min([st.toks.index(w) for w in ("ramp", "flat") if w in st.toks] or [len(st.toks)])
+            slots = [q for q in slots if q[0] < cut]
         if slots:
-            ttk.Label(body, text="Position").grid(row=row, column=0, sticky="w")
-            fr = ttk.Frame(body)
-            fr.grid(row=row, column=1, sticky="w")
-            for i, ax in slots:
-                v = tk.StringVar(value=st.toks[i])
-                ttk.Label(fr, text=ax).pack(side="left")
-                sp = ttk.Spinbox(fr, from_=-999, to=999, width=4, textvariable=v,
-                                 command=lambda i=i, v=v: self._set_word(i, v.get()))
-                sp.pack(side="left", padx=(1, 4))
-                sp.bind("<Return>", lambda e, i=i, v=v: self._set_word(i, v.get()))
-            row += 1
-            ttk.Label(body, text="Arrow keys move it a cell; drag it on the plan.", foreground="#666").grid(
+            pairs = [slots[k:k + 2] for k in range(0, len(slots), 2)]
+            names = {1: ["At"], 2: ["From", "To"]}.get(len(pairs), ["Point %d" % (k + 1) for k in range(len(pairs))])
+            if st.kind == "tube":
+                names = ["In", "Out"] + ["Via"] * 4
+            for k, pr in enumerate(pairs[:6]):
+                ttk.Label(body, text=names[k] if k < len(names) else "Point").grid(row=row, column=0, sticky="w")
+                fr = ttk.Frame(body)
+                fr.grid(row=row, column=1, sticky="w")
+                for i, ax in pr:
+                    v = tk.StringVar(value=st.toks[i])
+                    ttk.Label(fr, text=ax).pack(side="left")
+                    sp = ttk.Spinbox(fr, from_=-999, to=999, width=4, textvariable=v,
+                                     command=lambda i=i, v=v: self._set_word(i, v.get()))
+                    sp.pack(side="left", padx=(1, 6))
+                    sp.bind("<Return>", lambda e, i=i, v=v: self._set_word(i, v.get()))
+                row += 1
+            ttk.Label(body, text="Drag it on the plan, or use the arrow keys.", foreground="#666").grid(
                 row=row, column=0, columnspan=2, sticky="w")
             row += 1
+        row = self._slope_rows(st, body, row)
         for word, n, label in (("flat", 1, "Height"), ("top", 1, "Water top"), ("bed", 1, "Water bed"),
                                ("period", 1, "Period (steps)"), ("on", 1, "On for (steps)"),
                                ("seed", 1, "Starts at"), ("strength", 1, "Strength"), ("range", 1, "Range"),
@@ -929,6 +1114,14 @@ class App(object):
             cb.grid(row=row, column=1, sticky="w")
             cb.bind("<<ComboboxSelected>>", lambda e, v=v: self._set_word(1, v.get()))
             row += 1
+        if st.kind in ("floor", "wall", "goal") and self._shape(st):
+            cur = self._surface_of(st)
+            v = tk.StringVar(value=cur[0] if cur else "normal")
+            ttk.Label(body, text="Surface").grid(row=row, column=0, sticky="w")
+            cb = ttk.Combobox(body, values=B.SURFACES, textvariable=v, width=8, state="readonly")
+            cb.grid(row=row, column=1, sticky="w")
+            cb.bind("<<ComboboxSelected>>", lambda e, v=v: self.set_surface(v.get()))
+            row += 1
         if st.kind in B.VIS_HIDEABLE:
             v = tk.BooleanVar(value=st.toks[-1] == "hidden")
             ttk.Checkbutton(body, text="Hidden on purpose (a secret: no warning)", variable=v,
@@ -941,9 +1134,185 @@ class App(object):
         err = a["error"] if a["error_line"] == st.line else ""
         self.ins_err.config(text=err)
 
+    def _shape(self, st):
+        """(index of the shape word, the shape's tokens, (x0, y0, x1, y1) end-exclusive) of a floor, wall or
+        goal laid by `tile` or `rect`, or None"""
+        t = st.toks
+        i = 1
+        if i + 1 < len(t) and t[i] in ("half", "quarter"):
+            i += 2
+        if i < len(t) and t[i] == "tile" and i + 2 < len(t):
+            x, y = int(t[i + 1]), int(t[i + 2])
+            return i, t[i:i + 3], (x, y, x + 1, y + 1)
+        if i < len(t) and t[i] == "rect" and i + 4 < len(t):
+            x0, y0, x1, y1 = (int(t[i + k]) for k in range(1, 5))
+            return i, t[i:i + 5], (x0, y0, x1, y1)
+        return None
+
+    def _slope_rows(self, st, body, row):
+        """Flat or Ramp, for a floor, wall or goal: a ramp rises toward one side, from Low to High"""
+        tk, ttk = self.tk, self.ttk
+        sh = self._shape(st) if st.kind in ("floor", "wall", "goal") else None
+        t = st.toks
+        if not sh or not ("flat" in t or "ramp" in t):
+            return row
+        ttk.Label(body, text="Slope").grid(row=row, column=0, sticky="w")
+        mode = tk.StringVar(value="Ramp" if "ramp" in t else "Flat")
+        cb = ttk.Combobox(body, values=("Flat", "Ramp"), textvariable=mode, width=8, state="readonly")
+        cb.grid(row=row, column=1, sticky="w")
+        row += 1
+        if "ramp" in t:
+            i = t.index("ramp")
+            ax, p0, p1, h0, h1 = t[i + 1:i + 6]
+            lo, hi = sorted((float(h0), float(h1)))
+            rises = {("x", True): "the right (+x)", ("x", False): "the left (-x)", ("y", True): "the bottom (+y)",
+                     ("y", False): "the top (-y)"}.get((ax, float(h1) >= float(h0)), "")
+        else:
+            i = t.index("flat")
+            lo = float(t[i + 1])
+            hi = lo + 1
+            rises = "the right (+x)"
+        if "ramp" in t:
+            dv = tk.StringVar(value=rises)
+            lv, hv = tk.StringVar(value="%g" % lo), tk.StringVar(value="%g" % hi)
+            ttk.Label(body, text="Rises toward").grid(row=row, column=0, sticky="w")
+            dcb = ttk.Combobox(body, values=("the right (+x)", "the left (-x)", "the bottom (+y)", "the top (-y)"),
+                               textvariable=dv, width=14, state="readonly")
+            dcb.grid(row=row, column=1, sticky="w")
+            row += 1
+            for lab, var in (("Low end", lv), ("High end", hv)):
+                ttk.Label(body, text=lab).grid(row=row, column=0, sticky="w")
+                sp = ttk.Spinbox(body, from_=-60, to=60, increment=0.5, width=6, textvariable=var,
+                                 command=lambda: self.set_slope("Ramp", dv.get(), lv.get(), hv.get()))
+                sp.grid(row=row, column=1, sticky="w")
+                sp.bind("<Return>", lambda e: self.set_slope("Ramp", dv.get(), lv.get(), hv.get()))
+                row += 1
+            dcb.bind("<<ComboboxSelected>>", lambda e: self.set_slope("Ramp", dv.get(), lv.get(), hv.get()))
+        cb.bind("<<ComboboxSelected>>", lambda e: self.set_slope(mode.get(), rises, "%g" % lo, "%g" % hi))
+        return row
+
+    def set_slope(self, mode, rises, low, high):
+        """rewrite the selected floor's height clause: `flat LOW`, or `ramp AXIS P0 P1 H0 H1` across its shape"""
+        st = self.doc.statement(self.sel)
+        sh = self._shape(st)
+        if not sh:
+            return
+        x0, y0, x1, y1 = sh[2]
+        t = list(st.toks)
+        for w, n in (("flat", 2), ("ramp", 6)):
+            if w in t:
+                i = t.index(w)
+                del t[i:i + n]
+                break
+        else:
+            i = len(t)
+        try:
+            lo, hi = float(low), float(high)
+        except ValueError:
+            return
+        if mode != "Flat":                      # a ramp rises a whole number of half units a tile
+            ax_ = "y" if "bottom" in rises or "top" in rises else "x"
+            n = (y1 - y0) if ax_ == "y" else (x1 - x0)
+            rate = max(0.5, round((hi - lo) / float(n) * 2) / 2.0) if n else 0.5
+            if lo + rate * n != hi:
+                self._msg("High end set to %g: a ramp rises a whole number of half units on each of its %d "
+                          "tiles" % (lo + rate * n, n))
+            hi = lo + rate * n
+
+        def f(v):
+            return ("%d" % v) if v == int(v) else ("%g" % v)
+        if mode == "Flat":
+            t[i:i] = ["flat", f(lo)]
+        else:
+            ax = "y" if "bottom" in rises or "top" in rises else "x"
+            p0, p1 = (y0, y1) if ax == "y" else (x0, x1)
+            up = "right" in rises or "bottom" in rises
+            t[i:i] = ["ramp", ax, str(p0), str(p1), f(lo if up else hi), f(hi if up else lo)]
+        self._edit(self.doc.set_tokens, self.sel, t, label="the slope")
+
+    def _surface_of(self, st):
+        """the `surface` statement painted over exactly this floor's shape: (surface, its line), or None"""
+        sh = self._shape(st)
+        if not sh:
+            return None
+        for s_ in self.doc.statements():
+            if s_.kind == "surface" and len(s_.toks) > 2 and s_.toks[2:] == list(sh[1]):
+                return s_.toks[1], s_.line
+        return None
+
+    def set_surface(self, surf):
+        st = self.doc.statement(self.sel)
+        sh = self._shape(st)
+        cur = self._surface_of(st)
+        line = self.sel
+        if cur and surf == "normal":
+            self._edit(self.doc.remove, cur[1], label="the surface")
+        elif cur:
+            self._edit(self.doc.set_word, cur[1], 1, surf, label="the surface")
+        elif surf != "normal":
+            self._edit(self.doc.insert, "surface %s %s" % (surf, " ".join(sh[1])), label="the surface")
+        self.select(line if line <= len(self.doc.lines) else None)
+
+    def _companions(self, line):
+        """the lines that travel with LINE: a floor's, wall's or goal's own `surface` (the same shape)"""
+        try:
+            st = self.doc.statement(line)
+        except E.EditError:
+            return []
+        cur = self._surface_of(st) if st.kind in ("floor", "wall", "goal") else None
+        return [cur[1]] if cur else []
+
+    def move_sel(self, dx, dy):
+        lines = [self.sel] + self._companions(self.sel)
+        self._edit(self.doc.move_many, lines, dx, dy, label="move")
+
     def _set_word(self, i, value):
-        if self.sel:
-            self._edit(self.doc.set_word, self.sel, i, value.strip())
+        if not self.sel:
+            return
+        st = self.doc.statement(self.sel)
+        comp = self._companions(self.sel)
+        if comp and self._shape(st) and i < self._shape(st)[0] + len(self._shape(st)[1]):
+            # a corner of a floor with its own surface: the surface's shape follows, in the same edit
+            t = list(st.toks)
+            t[i] = value.strip()
+            sh0 = self._shape(st)
+            new_shape = t[sh0[0]:sh0[0] + len(sh0[1])]
+            sf = self.doc.statement(comp[0])
+            codes = {comp[0]: E.join_tokens(sf.toks[:2] + new_shape)}
+            if "ramp" in t:
+                j = t.index("ramp")
+                ax = t[j + 1]
+                sh = self._shape(E.Statement(0, " ".join(t)))
+                if sh and ax in ("x", "y"):
+                    x0, y0, x1, y1 = sh[2]
+                    on = int(t[j + 3]) - int(t[j + 2])
+                    nn = (y1 - y0) if ax == "y" else (x1 - x0)
+                    rate = (float(t[j + 5]) - float(t[j + 4])) / on if on else 0
+                    t[j + 2:j + 4] = [str(y0), str(y1)] if ax == "y" else [str(x0), str(x1)]
+                    e = float(t[j + 4]) + rate * nn
+                    t[j + 5] = ("%d" % e) if e == int(e) else ("%g" % e)
+            codes[self.sel] = E.join_tokens(t)
+            self._edit(self.doc.set_many, codes, label="the corners")
+            return
+        if "ramp" in st.toks and self._shape(st) and i < st.toks.index("ramp"):
+            # a corner of a ramped floor: the ramp's span follows it, in the same edit
+            t = list(st.toks)
+            t[i] = value.strip()
+            j = t.index("ramp")
+            ax, h0, h1 = t[j + 1], t[j + 4], t[j + 5]
+            sh = self._shape(E.Statement(0, " ".join(t)))
+            if sh and ax in ("x", "y"):
+                x0, y0, x1, y1 = sh[2]
+                on = int(t[j + 3]) - int(t[j + 2])
+                nn = (y1 - y0) if ax == "y" else (x1 - x0)
+                t[j + 2:j + 4] = [str(y0), str(y1)] if ax == "y" else [str(x0), str(x1)]
+                if on and nn:                   # the same steepness over the new length
+                    rate = (float(h1) - float(h0)) / on
+                    e = float(h0) + rate * nn
+                    t[j + 5] = ("%d" % e) if e == int(e) else ("%g" % e)
+            self._edit(self.doc.set_tokens, self.sel, t, label="the corners")
+            return
+        self._edit(self.doc.set_word, self.sel, i, value.strip())
 
     # -- the course tab and the source --------------------------------------------
     def _fill_course(self):
@@ -1202,6 +1571,8 @@ class App(object):
 
     def _bounds(self):
         a = self.doc.analysis()
+        if not a["cells"] and self.good:
+            a = self.good
         cells = list(a["cells"]) + [c for it in a["items"] for c in it["cells"]]
         if not cells:
             return 0, 0, 20, 16
@@ -1236,6 +1607,9 @@ class App(object):
         c = self.cv
         c.delete("all")
         a = self.doc.analysis()
+        stale = False
+        if a["error"] and not a["cells"] and self.good:     # refused: draw the last that laid out
+            a, stale = self.good, True
         bx0, by0, bx1, by1 = self._bounds()
         self.origin = (bx0, by0)
         s = CELL * self.zoom
@@ -1295,8 +1669,8 @@ class App(object):
                 cx_, cy_ = px + s / 2, py + s / 2
                 L = s * .3
                 n = (ax * ax + ay * ay) ** 0.5 or 1
-                c.create_line(cx_ + ax / n * L, cy_ + ay / n * L, cx_ - ax / n * L, cy_ - ay / n * L,
-                              arrow="last", fill="#1b1d22", width=max(1, s / 14))
+                c.create_line(cx_ - ax / n * L, cy_ - ay / n * L, cx_ + ax / n * L, cy_ + ay / n * L,
+                              arrow="last", fill="#1b1d22", width=max(1, s / 14))     # (uphill)
             if d["line"] == self.sel:
                 selcells.add((x, y))
         # a label for each statement's region: its height
@@ -1306,10 +1680,10 @@ class App(object):
                     continue
                 xs = [p[0] for p in cl]
                 ys = [p[1] for p in cl]
-                d = a["cells"][cl[0]]
+                ds = [a["cells"][q] for q in cl]
+                lo, hi = min(q["hmin"] for q in ds), max(q["hmax"] for q in ds)
                 cx_, cy_ = self._cpx((min(xs) + max(xs) + 1) / 2.0, (min(ys) + max(ys) + 1) / 2.0)
-                txt = ("%g" % d["h"]) if d["slope"] == (0, 0) and d["kind"] != "field" else \
-                    "%g-%g" % (d["hmin"], d["hmax"])
+                txt = ("%g" % lo) if lo == hi else "%g-%g" % (lo, hi)
                 c.create_text(cx_, cy_, text=txt, fill="#111", font=("TkDefaultFont", max(7, min(11, int(s / 2.4))),
                                                                    "bold"))
         # tubes and the route
@@ -1370,19 +1744,26 @@ class App(object):
         if hl:
             px, py = self._cpx(*hl)
             c.create_oval(px - s * .4, py - s * .4, px + s * 1.4, py + s * 1.4, outline="#ff5a4e", width=3)
-        if self.drag and self.drag.get("rect"):
-            x0, y0, x1, y1 = self.drag["rect"]
-            ax, ay = self._cpx(min(x0, x1), min(y0, y1))
-            bx, by = self._cpx(max(x0, x1) + 1, max(y0, y1) + 1)
-            c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=2, dash=(5, 3))
-        if self.drag and self.drag.get("move"):
-            dx, dy = self.drag["move"]
-            for (x, y) in self.drag["cells"]:
+        if self.area:                            # the selected AREA: it stays until another is chosen
+            x0, y0, x1, y1 = self.area
+            ax, ay = self._cpx(x0, y0)
+            bx, by = self._cpx(x1 + 1, y1 + 1)
+            c.create_rectangle(ax - 1, ay - 1, bx + 1, by + 1, outline="#111", width=4)
+            c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=2, dash=(6, 3))
+        if self.drag and self.drag["move"] and self.drag["to"] != self.drag["from"]:
+            dx = self.drag["to"][0] - self.drag["from"][0]
+            dy = self.drag["to"][1] - self.drag["from"][1]
+            for (x, y) in self._sel_cells():
                 px, py = self._cpx(x + dx, y + dy)
                 c.create_rectangle(px, py, px + s, py + s, outline="#ffd54f", width=2)
+        if stale:
+            c.create_text(10, 10, anchor="nw", fill="#ffd54f", width=700, font=("TkDefaultFont", 11, "bold"),
+                          text="Showing the last version that laid out: the course as it stands is refused "
+                               "(see the problems below). Undo, or fix that line.")
         if not a["cells"] and not a["items"]:
-            c.create_text(20, 20, anchor="nw", fill="#e6e6e6", text=a["error"] or "An empty course: choose "
-                          "Floor in the palette and drag a rectangle.", width=600)
+            c.create_text(20, 20, anchor="nw", fill="#e6e6e6", text=self.doc.analysis()["error"] or
+                          "An empty course: drag across the grid to choose an area, then choose Floor on the "
+                          "left and press Add.", width=600)
 
     def _draw_iso(self):
         c = self.cv
@@ -1476,57 +1857,60 @@ class App(object):
         self.hilite = None
         if cell is None:
             return
-        tool = self.tool.get()
         a = self.doc.analysis()
-        if tool == "place" and self.part:
-            if self.part[1] == "rect":
-                self.drag = {"rect": (cell[0], cell[1], cell[0], cell[1])}
-            else:
-                self.place(*cell)
-            return
-        lines = E.at_cell(a, cell)
-        if tool == "erase":
+        if self.tool.get() == "erase":
+            lines = E.at_cell(a, cell)
             if lines:
                 self._edit(self.doc.remove, lines[0], label="erase")
             return
-        if not lines:
-            self.select(None)
+        if self.view.get() != "plan":                    # Iso: a click selects what drew that pixel
+            lines = E.at_cell(a, cell)
+            self.area = (cell[0], cell[1], cell[0], cell[1])
+            self.select(lines[0] if lines else None)
+            self._fill_add()
             return
-        if self.sel in lines and (e.state & 0x0001):          # Shift-click: what is under it
-            i = (lines.index(self.sel) + 1) % len(lines)
-            self.select(lines[i])
-        elif self.sel not in lines:
-            self.select(lines[0])
-        st = self.doc.statement(self.sel)
-        if E.coord_slots(st.toks) and self.view.get() == "plan":
-            cells = [c_ for c_, d in a["cells"].items() if d["line"] == self.sel]
-            cells += [c_ for it in a["items"] if it["line"] == self.sel for c_ in it["cells"]]
-            self.drag = {"from": cell, "move": (0, 0), "cells": cells}
+        movable = self.sel and cell in self._sel_cells() and E.coord_slots(self.doc.statement(self.sel).toks)
+        self.drag = {"from": cell, "to": cell, "move": bool(movable), "shift": bool(e.state & 0x0001)}
 
     def _motion(self, e):
-        if not self.drag:
+        d = self.drag
+        if not d:
             return
         cell = self._cell_at(e)
-        if cell is None:
+        if cell is None or cell == d["to"]:
             return
-        if "rect" in self.drag:
-            x0, y0, _x1, _y1 = self.drag["rect"]
-            self.drag["rect"] = (x0, y0, cell[0], cell[1])
-        elif "from" in self.drag:
-            self.drag["move"] = (cell[0] - self.drag["from"][0], cell[1] - self.drag["from"][1])
+        d["to"] = cell
+        if not d["move"]:                        # dragging out an AREA
+            fx, fy = d["from"]
+            self.area = (min(fx, cell[0]), min(fy, cell[1]), max(fx, cell[0]), max(fy, cell[1]))
+            if self.sel:
+                self.sel = None
+                self._fill_inspector()
         self._draw_plan()
 
     def _release(self, e):
         d, self.drag = self.drag, None
         if not d:
             return
-        if "rect" in d:
-            x0, y0, x1, y1 = d["rect"]
-            self.place(x0, y0, x1, y1)
-        elif d.get("move") and d["move"] != (0, 0):
-            self._edit(self.doc.move, self.sel, *d["move"])
-        else:
-            self._redraw()
+        if d["move"] and d["to"] != d["from"]:
+            self.move_sel(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
+        elif not d["move"] and d["to"] != d["from"]:
+            self._fill_inspector()                # an area: it stays selected
+            x0, y0, x1, y1 = self.area
+            self._msg("Selected %d x %d cells. Choose a part on the left and press Add, or press Delete to "
+                      "clear what is in it." % (x1 - x0 + 1, y1 - y0 + 1))
+        else:                                     # a click: select what is there
+            cell = d["from"]
+            lines = E.at_cell(self.doc.analysis(), cell)
+            self.area = (cell[0], cell[1], cell[0], cell[1])
+            if lines and self.sel in lines and d["shift"]:
+                self.select(lines[(lines.index(self.sel) + 1) % len(lines)])
+            elif lines and self.sel in lines:
+                self.select(self.sel)
+            else:
+                self.select(lines[0] if lines else None)
+        self._fill_add()
+        self._redraw()
 
     def _hover(self, e):
         cell = self._cell_at(e)
@@ -1536,6 +1920,9 @@ class App(object):
         a = self.doc.analysis()
         d = a["cells"].get(cell)
         parts = ["x %d, y %d" % cell]
+        if d and d["slope"] != (0, 0):
+            sx_, sy_ = d["slope"]
+            parts.append("rises toward %s" % ("+x" if sx_ > 0 else "-x" if sx_ < 0 else "+y" if sy_ > 0 else "-y"))
         if d:
             parts.append("%s, height %s%s" % ({"field": "shaped floor"}.get(d["kind"], d["kind"]),
                                               ("%g" % d["h"]) if d["slope"] == (0, 0) and d["kind"] != "field" else
@@ -1556,6 +1943,46 @@ class App(object):
 
     def run(self):
         self.root.mainloop()
+
+
+EXPLAIN = [
+    (r"solid outside 3 \.\. 252|outside 3 \.\.", "it reaches the edge of the course's grid. Keep it at least "
+     "3 cells from the edge."),
+    (r"past the \d+ px width|footprint", "the course would be wider than its picture. Keep it nearer the rest "
+     "of the course, or choose Size 128 on the Course tab."),
+    (r"archway's leg", "an archway stands ACROSS a path, and its legs need empty space on both sides of it. "
+     "Select a path one or two cells wide with nothing beside it."),
+    (r"guard .* stands on a solid cell", "a guard rail goes on the EMPTY cells along a floor's edge, not on the "
+     "floor. Select the empty strip beside the floor."),
+    (r"tube's body cell .* not a WALL", "a tube runs through a wall: its two ends sit on floor and every cell "
+     "between them must be wall. Add the wall first."),
+    (r"without a KEEP tube", "a windmill sits on the mouth of a Tube (keep): add the tube first, then the "
+     "windmill on its in-end."),
+    (r"lift's shaft .* not VOID", "a lift rises out of an empty shaft: put it on an empty cell (or a Hole)."),
+    (r"laid already: a plate lays its own cells", "a seesaw makes its own floor: select empty space for it."),
+    (r"hump's .* meets the floor .* off its base", "a hump's rim must be level with the floor around it. Put it "
+     "on one flat floor."),
+    (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
+    (r"is empty", "the area is empty (zero cells across)."),
+    (r"ramp rate", "a ramp must rise by a whole number of half units on each tile it crosses. Set the high end "
+     "to the low end plus 0.5, 1, 1.5 ... times its length."),
+    (r"already belongs to the prop", "only one part can stand on a cell. Choose another cell."),
+    (r"an archway .* at most 2 cells", "an archway is at most 2 cells each way: select the path's width, "
+     "not its length."),
+    (r"does not name|`uses ", "it needs an extra the course does not load."),
+    (r"no '(course|width|start)' statement", "a course needs a name, a width and a start."),
+    (r"HIDDEN", "the player could not see it (it is behind something taller)."),
+    (r"unknown statement", "that is not a statement the course language has."),
+]
+
+
+def explain(err):
+    """the compiler's refusal, with what to do about it in plain words where we know it"""
+    import re
+    for pat, words in EXPLAIN:
+        if re.search(pat, err):
+            return "%s\n(The compiler said: %s)" % (words[:1].upper() + words[1:], err)
+    return err
 
 
 def _photo(tk, img):

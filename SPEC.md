@@ -296236,6 +296236,36 @@ reads its course list off the disk. The pathway entry for a new course
 `bbcourse.py`, `bonanza_assets.py`, `bbmusic.py` and `bbicons.py` take the `data/` folder beside them
 as ROOT when it holds `apps/`, else the checkout - so the same files run in both, and `LABEL_FONT` is
 ROOT's `fonts/tallx.f8`. The compile cache is then `data/build/bbcache/`. The zip is deterministic
-(sorted entries, 1980-01-01 timestamps): 119 files, 866,616 bytes at `0121c2aa9` plus this change.
+(sorted entries, 1980-01-01 timestamps): 119 files, about 870 KB.
 Row `bbeditbundle` (soak) unpacks it outside the tree and uses it there.
 
+#### 130.55.12 Select first, then act (the owner's first test, 2026-11-21)
+
+The owner, on the first build: clicking a palette part made the next click PLACE it, so selecting
+something added things; a placement the compiler refused (an archway mid-floor) left the course unable
+to lay out, the plan empty, the picture stale and nothing selectable to delete; a ramp could not be
+reached; *"If I'm selecting something that already exists, I want to select it, THEN change or edit
+it ... If I'm adding something, then I want to select it and have it add on top of the area"*, a wall
+*"1 higher than the floor beside it, even if that floor is multiple different levels"*. So:
+
+- **Selection is the only thing a click does.** A click selects the topmost part at the cell (Shift-click
+  the next one under it); a drag that starts on the selected part MOVES it, any other drag selects an
+  AREA, which stays selected. Iso: a click selects what drew the pixel.
+- **Adding is the palette's Add button** (or a double-click on the part), onto the area (else the selected
+  part's footprint): rectangle parts cover it, cell parts go at its corner. HEIGHTS come from what is
+  there (`_heights`): the highest floor, goal or shaped floor IN the area, else touching it, else the
+  toolbar's "New floor height"; a Wall is the highest floor in or around the area plus one unit; a Ramp
+  rises half a unit a tile (the gentlest the grammar allows) across the area; an Archway spans the
+  selected path's width, one cell deep (130.39.2: at most two cells each way).
+- **No edit leaves the course refused.** `_edit` runs every change, adds its `uses`, and when the course
+  is refused where it was not before, undoes it at once (redo dropped) and says why: `explain()` maps the
+  compiler's refusals to plain words and what to do (an archway's legs, a guard rail's open edge, a tube's
+  wall, a ramp's half-unit rate, one part a cell, ...), the compiler's own message beside them, with "Keep
+  it anyway" for the deliberate case. A course already refused (a file opened so) keeps its last good
+  layout drawn, marked as such.
+- **Slope**: a floor, wall or goal laid by `tile` or `rect` has Flat / Ramp, which side it rises toward
+  and its low and high ends; the high end snaps to a whole number of half units a tile, and a changed
+  corner keeps the ramp's steepness (its span follows the shape). **Surface**: the `surface` statement
+  over exactly that shape, made, changed or removed from the floor's inspector; it travels with its floor
+  when the floor is moved or reshaped, in the same edit (`Document.set_many`, `move_many`: one undo step).
+- Plan arrows point UPHILL; a region's label is its whole height range.
