@@ -296384,8 +296384,9 @@ reads its course list off the disk. The pathway entry for a new course
   `PIL.ImageTk` is not needed.
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
-- **Not built**: the blend check (130.56.6), the Shapes tab, Test Roll (130.56.7), the pathway, add to
-  the game (130.56.9). The plan's story list carries what each built story still lacks.
+- **Not built**: the Shapes tab, Test Roll (130.56.7), the pathway, add to
+  the game (130.56.9). The plan's story list carries what each built story still lacks. (The blend check
+  is built since: 130.56.18.)
 
 #### 130.56.11 The zip: `make bbeditbundle`
 
@@ -296549,3 +296550,73 @@ there to protect against."
   `--strict` each is refused as before, `hidden` and `accept` as 130.56.5. MEASURED: every shipped
   course's parts, demos and `bzcourse.inc` byte-identical before and after; the `--selfcheck` sections
   of every family touched pass. The game has not yet been run with a wholly hidden element.
+
+#### 130.56.18 The blend check, as built (the owner, 2026-11-21)
+
+The owner: *"Pattern on floor tiles matching, so visually there is no distinction between them, when they are
+not actually adjoined. Warning for this one and visually a way to point it out in the editor."* This is
+130.56.6 as built (story 3.3, 3.4), in `tools/bbcourse.py` (`blend_pairs`, `blend_check`), run inside every
+compile - after `_compile_y0`, so the build, the window's check and an agent's `--strict` run all get it.
+
+- **Why floors blend at all.** A flat floor's top is one ink a cell, cyan or white by the parity of
+  `wx + wy` and of its height in 2-unit steps (130.47.2), with a black line along each cell's two upper edges
+  (render's outline). A floor 2 units lower and one cell further back lands on the same screen lattice, but the
+  height term turns its checker over, so two cells of one colour meet along the seam: visible. A floor **4
+  units** (or 8, ...) lower, or a quarter- or half-unit step up AWAY from the viewer whose face the front floor
+  hides, continues the lattice AND the colours: no edge at all.
+- **Regions.** A region is a connected area of flat plain floor (a whole `Tile`, floor, level, `SURF_NORMAL`,
+  not water or the rail), cells joined when they ADJOIN; any other top (a ramp, a wall top, the goal, a split
+  or shaped cell) is grouped by its statement's line. Two cells ADJOIN (`bl_adjoined`) when they are grid
+  neighbours whose shared edge's two corners stand at the same heights on both sides - so a ramp meeting a
+  floor at its edge's height adjoins it; a shaped (FIELD) record either side counts as adjoined.
+- **A blended pixel pair.** `owners_canvas` gives each pixel's cell; a second pass over the same ops marks
+  which pixels a TOP drew last (a face, a post or a prop is not a top). Every pair of 4-neighbour pixels owned
+  by cells of two different regions that do not adjoin, both tops, is a place where they MEET. It BLENDS when
+  one side's cell A is a flat floor and extending A's checker as if its plane went on (each virtual cell's
+  colour by parity from A's own ink, black where its top outline runs - the same `spans` the renderer uses)
+  predicts A's pixel and the `BLEND_RUN` = 4 pixels into B from the seam (at least `BLEND_MIN` = 2 owned by B,
+  all tops, one of them a colour and not the outline): on the CGA picture, or on the Hercules one, where cyan
+  and magenta are one ink (`herc_pair`). The VGA arm's picture is not checked: the compiler renders none.
+- **A seam, not dots.** The blended pixels are kept only in 8-connected runs of `BLEND_LINE` = 8 or more:
+  two tops share outline vertices by geometry alone (a pit's rim against the floor round it), which is a
+  scatter of single pixels, never a line.
+- **The threshold.** A pair of regions WARNS (kind `blend`) when its seam is over `BLEND_PX` = **40** pixels
+  (both sides counted) AND at least `BLEND_SHARE` = **50%** of the pixels where their tops meet. A one-cell
+  seam is about 32; the false matches met on the shipped courses (a ramp's finer checker touching a floor at
+  its V points, BENCH 72 of 257; a magenta wall face read as cyan on the Hercules, MILL, before the tops-only
+  rule) are under either bound.
+- **The warning.** `path:line: the floor (height H) at (x, y) and the floor (height H') at (x', y') on line
+  L' BLEND: in the CGA and Hercules picture their checker runs on across N px of seam with no edge between
+  them, though they do not adjoin there`. Its `line` and `cell` are the first floor's (the problems list
+  selects it); it carries `cells` (both regions), `regions` (each region's cells), `lines`, `seam` (the
+  pixels), `px`, `cards` and the `x0`, `y0` of the picture it was measured on. `accept blend` takes it
+  course-wide, `accept blend X Y` with X Y a cell of EITHER floor (`vis_settle` reads `cells`).
+- **`--selfcheck` REPORTS a blend and does not refuse it** (`STRICT_SKIP`): two shipped courses blend (below)
+  and are not given an `accept` here - that is the owner's call. `--strict` and a course's own `strict`
+  refuse it as any warning.
+- **The window** (`tools/bbedit.py`, `_draw_blends`): with "Hard to see" on, the last full check's blend
+  warnings are drawn at the end of both views - in Plan both regions hatched, one green and one magenta; in
+  Iso the seam's pixels in bright green, a pixel wider all round (an accepted one dimmed), shifted by the
+  picture job's origin against the check's; a check refused under strict carries no warnings, so the
+  picture job's (never strict) stand in. `tools/bbedjob.py`'s `check` and `picture` carry the extra keys.
+- **What the courses raise** (MEASURED on the host at the commit that made this, every
+  `apps/bonanza/courses/*.bbc` compiled with occluders):
+  - BZ_COURSES: **PLAYGROUND** one - the floor at -8 (line 77, `floor rect 24 24 34 34 flat -8`) seen on past
+    the floor at 0 (line 313, `floor rect 31 34 33 41 flat 0`), 101 px, both cards; FIRST, DOWN, MILL, MOON,
+    SUMMIT, ROLL and HOP none.
+  - The title (`title.bbc`): one - the floor at 3 (line 60) behind the half-unit step up to 3.5 (line 62),
+    59 px. The pathway: none.
+  - Test courses: QSTP six (each quarter step up away from the viewer: 96 px, one 71), TPLY one (2 behind 6,
+    95 px), WATER one (3 behind 7, 62 px); the other 24 none.
+  - The two shipped findings are REPORTED to the owner, not accepted.
+- **Cost.** The check renders the owners map (the audit's, not kept on the course, so the compile cache's
+  pickle does not grow) and a tops map, then walks the picture once. MEASURED on a 4-core host, owners map
+  plus walk: the pathway 0.03 s, FIRST 0.09, MILL 0.31, DOWN 0.66, PLAYGROUND 0.77 (the most) -
+  under a second a course against compiles of 10 s (MILL) to 230 - 350 s (PLAYGROUND); BENCH's big test
+  picture about 2 s. It writes nothing into the part: `-o` over BZ_COURSES, the pathway and the title, cache
+  off, base `76a2c1538` against this, every `BZ*.BIN`, `bzcourse.inc` and `bzdemo.lst` byte-identical (only
+  `.bz-crs`, the tool's own hash, differs); the whole `-o` run's wall clock (287 - 353 s before, 243 - 295 s
+  after, two runs each on a host doing other work) is noise beside the seconds the check adds.
+- **The row** `bbblend` (soak, `tests/unit/t_bbblend.py`): a floor 4 units behind and below another warns; the
+  same adjoined, and with a 2-unit drop, does not; `--strict` and `strict` refuse it; `accept blend` (and a
+  cell of either floor) lets it build; the shipped courses raise exactly the list above.

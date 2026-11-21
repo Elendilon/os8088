@@ -28,7 +28,7 @@ the host; visual checks warn rather than refuse.
   - Iso, X-ray, and the Course and Source tabs;
 - the zip (`make bbeditbundle`).
 
-**Next phases**: the blend check (3.3, 3.4), the Shapes tab (4), Test Roll (6), the pathway (7) and
+**Next phases**: the Shapes tab (4), Test Roll (6), the pathway (7) and
 add-to-the-game (8.1, 8.2). `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
@@ -125,8 +125,8 @@ union runs once at the end of a phase, in the background.
 |---|---|---|
 | 3.1 [x] | Iso: the compiler's picture per adapter (CGA, Hercules, and VGA once rendered), pointer readout from `owners_canvas`, select and place in Iso, one selection across both views | a screenshot on MILL; selecting the wall at 18, 20 in Iso selects it in Plan |
 | 3.2 [x] | X-ray and "Hard to see": the visibility audit's covered marks drawn seen / hidden / what hides it; the game's see-through toggle | MILL's tube mouth at 17, 20 (50%, under 18, 20 and 18, 21) shown as on the mockup |
-| 3.3 [ ] | the blend check in `bbcourse.py` (130.56.6): the definition, the threshold set from the shipped courses, per adapter | a constructed blending pair warns; the shipped courses' result recorded |
-| 3.4 [ ] | blending pairs drawn striped in Iso and Plan, from the warning's Show | a screenshot |
+| 3.3 [x] | the blend check in `bbcourse.py` (130.56.6): the definition, the threshold set from the shipped courses, per adapter | a constructed blending pair warns; the shipped courses' result recorded. BUILT (130.56.18): CGA and Hercules, 40 px and 50%; PLAYGROUND and the title blend (reported, not accepted); the row `bbblend`. The VGA arm has no compiler picture to check |
+| 3.4 [x] | blending pairs drawn striped in Iso and Plan, from the warning's Show | a screenshot. BUILT: drawn while "Hard to see" is on (both floors hatched in Plan, the seam in Iso); clicking the problem selects the first floor. No per-warning "Show" button yet |
 
 ### Wave 4 - the Shapes tab
 
