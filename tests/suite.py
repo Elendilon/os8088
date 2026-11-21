@@ -5585,7 +5585,7 @@ SOAK = [
         "expoff1|rowtab1|cellsafe` (WDIFF a record short, ROWTAB NROWS - 1 words: red at FIRST, the first "
         "launch; the guest's SAFE rule without OBS: red at MILL), each at the claim leg. secs MEASURED in "
         "5b's re-take on the shipped D build (207.0 s, TRIAL's launch and the claim leg in; SPEC.md 130.15.13). secs MEASURED in 6b's final pass (484.3 s in the soak's lane; SPEC.md 130.17.14).",
-        needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
+        needs=("marty", "nasm"), timeout=4800 + BZDEV_TREE_CPU,    # (2026-11-21: 900 -> 4800, the added launches; CGA alone passed)
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzapath", "soak", py("tests/bonanza_path.py"), 1223.0,
         "WAVE 4 OF THE SPACE PLAN (SPEC.md 130.26.6.1): the row runs the BZDEV=1 build - bonanza_ring.dev() builds and applies that private tree (os88build.tree; its first build is minutes, not in secs, which stand until the final pass re-measures them) and assembles every symbol map and red tree with -DBZDEV - since the shipped BONANZA.O88 has no instruments, keys or harness bytes. "
