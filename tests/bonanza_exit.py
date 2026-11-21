@@ -682,8 +682,7 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
                      % (way, g.w("bz_mseg")))
     line = "%s %s (%s): rows %s fetched inside; %d floppy reads to the bracket; after it every row as before " \
            "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat],
-                                             ",".join(str(i) for i in [pc] + ([wrow] if wrow is not None else [])
-                                                      + [fbun_row()]), reads, "yes" if not fails else "NO")
+                                             ",".join(str(i) for i in [pc, fbun_row()]), reads, "yes" if not fails else "NO")
     return fails, line
 
 
