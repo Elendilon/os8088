@@ -288721,3 +288721,20 @@ try (a jump pickup, until its own rework).
 - The search itself is being reworked (to press the Hop where it matters and count a respawning pickup);
   when that lands it still runs only when asked in the builder.
 
+#### 130.58.25 Test Roll starts at the start; *Roll from here* is its own button (the owner, 2026-11-22)
+
+The owner: *"After first loading a course ... then clicking test roll the ball will spawn high in the air and
+fall into the void. When I go to the start point ... and click 'apply' then test roll again, it spawns in the
+right spot."* Test Roll (130.58.16) started the ball on the SELECTED cell whenever one was selected - and a
+click anywhere on the plan selects the cell under it as an area, so after an ordinary click on a wall the ball
+was poked onto the wall's top and fell off it. Selecting the start made the selection the start's own cell,
+which is why that seemed to fix it.
+
+- **Test Roll** always starts from the course's `start` (the model's own start, as the game does).
+- **Roll from here**, a button of its own beside it, starts on the selected one-cell part's cell or the
+  selected area's centre - only a floor, goal or shaped floor; any other cell (a wall, empty space) is
+  refused in the status line with what it is, and nothing is launched.
+- MEASURED: the model starts MILL (the shipped and the owner's copy) at (9, 12) at rest, with and without a
+  `--start`; a scripted session: a wall cell selected and Test Roll starts at the start; Roll from here on
+  the wall is refused; on a floor cell it passes `--start`.
+

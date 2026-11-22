@@ -317,7 +317,8 @@ class App(object):
         ttk.Button(tb, text="Save", command=self.save).pack(side="left", padx=(2, 8))
         ttk.Button(tb, text="Undo", command=self.undo).pack(side="left")
         ttk.Button(tb, text="Redo", command=self.redo).pack(side="left", padx=(2, 8))
-        ttk.Button(tb, text="Test Roll", command=self.test_roll).pack(side="left", padx=(0, 8))
+        ttk.Button(tb, text="Test Roll", command=self.test_roll).pack(side="left")
+        ttk.Button(tb, text="Roll from here", command=lambda: self.test_roll(here=True)).pack(side="left", padx=(0, 8))
         self.badge_err = ttk.Label(tb, text="", foreground="#b3261e")
         self.badge_err.pack(side="right", padx=4)
         self.badge_warn = ttk.Label(tb, text="", foreground="#8a6d00")
@@ -2361,21 +2362,32 @@ class App(object):
                              (["--trap"] if trap else []), ev).start()
         self._fill_checks(self._problems())
 
-    def test_roll(self):
-        """TEST ROLL (SPEC.md 130.58.16): tools/bbplay.py on the text as it stands, as a process of its own;
-        from the selected area's centre cell, or a selected one-cell part's, when there is one"""
+    def test_roll(self, here=False):
+        """TEST ROLL (SPEC.md 130.58.16): tools/bbplay.py on the text as it stands, as a process of its own -
+        from the course's start; HERE (*Roll from here*): from the selected one-cell part's cell, or the selected
+        area's centre, when that is a floor the ball can rest on (SPEC.md 130.58.25: a click anywhere selects
+        a cell, so the plain button never reads the selection)"""
+        cell = None
+        if here:
+            cells = self._sel_cells() if self.sel else None
+            if not (cells and len(cells) == 1) and self.area:
+                x0, y0, x1, y1 = self.area
+                cells = {((x0 + x1) // 2, (y0 + y1) // 2)}
+            if not cells or len(cells) != 1:
+                self._msg("Roll from here: select one cell (click it, or a one-cell part) first")
+                return
+            cell = next(iter(cells))
+            d = self.doc.analysis()["cells"].get(cell)
+            if not d or d["kind"] not in ("floor", "goal", "field"):
+                self._msg("Roll from here: (%d, %d) is %s, not a floor the ball can start on" % (
+                    cell[0], cell[1], "a %s" % d["kind"] if d else "empty space"))
+                return
         p = os.path.join(self.tmp, "roll-%d.bbc" % int(time.time() * 1000))
         with open(p, "w", encoding="ascii", newline="") as f:
             f.write(self.doc.text())
         argv = [sys.executable, os.path.join(HERE, "bbplay.py"), p, "--name", self._name()]
-        cells = None
-        if self.area:
-            x0, y0, x1, y1 = self.area
-            cells = {((x0 + x1) // 2, (y0 + y1) // 2)}
-        elif self.sel:
-            cells = self._sel_cells()
-        if cells and len(cells) == 1:
-            argv += ["--start"] + [str(v) for v in next(iter(cells))]
+        if cell:
+            argv += ["--start", str(cell[0]), str(cell[1])]
         subprocess.Popen(argv, stdin=subprocess.DEVNULL)
         self._msg("Test Roll: %s" % ("from cell %s, %s" % tuple(argv[-2:]) if "--start" in argv else "from the start"))
 
