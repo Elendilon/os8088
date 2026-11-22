@@ -4358,13 +4358,15 @@ def _normal(q, ln):
     return Split(KIND_Q, [n, e, s_, w], ln)
 
 
-def _wall_above(f, t, n, wx, wy, nx, ny, mine, theirs, what):
-    """a WALL record t above a FLOOR or GOAL record n along their shared line (corner pairs)"""
+def _wall_shows(t, n, mine, theirs, seen, at):
+    """SPEC.md 130.10.3: a WALL record t beside a FLOOR or GOAL record n along their shared line (corner pairs):
+    note in SEEN that t touches a floor, and whether its top is above n's at either end of the line - where it is,
+    its face shows over that floor and the ball meets a wall it can see"""
     if t is None or n is None or t.kind != KIND_WALL or n.kind == KIND_WALL:
         return
-    if not all(t.corner(*m) > n.corner(*o) for m, o in zip(mine, theirs)):
-        raise CourseError("%s:%d: wall (%d, %d)%s is not above the floor (%d, %d) beside it"
-                          % (f, t.line, wx, wy, what, nx, ny))
+    k = seen.setdefault(id(t), [t, False, at])
+    if any(t.corner(*m) > n.corner(*o) for m, o in zip(mine, theirs)):
+        k[1] = True
 
 
 def lay_guards(src, tiles):
@@ -5179,8 +5181,11 @@ def build_tiles(src):
                                   "cell has ONE surface for its floors (SPEC.md 130.24.4)"
                                   % (f, t.line, wx, wy, " and ".join(SURFACES[s] for s in sorted(fl))))
             t.surf = fl.pop() if fl else SURF_NORMAL
-    # a wall must look like one: above every floor that shares an edge with it - and, a split's, the
-    # floor across each line inside it (SPEC.md 130.24.4)
+    # SPEC.md 130.10.3 (the owner, 2026-11-22): a wall may be LOWER than some of what it touches - it walls off
+    # what is below it, and beside a higher floor it is still a column at every height.  What is refused is a wall
+    # above NONE of the floors it shares a line with (an edge, or a split's line inside the cell): sunk under all
+    # of them, nothing would show the ball where it stops
+    seen = {}
     for (wx, wy) in sorted(tiles):
         t = tiles[(wx, wy)]
         for e in ("E", "W", "S", "N"):
@@ -5190,15 +5195,19 @@ def build_tiles(src):
                 continue
             mine = EDGE_CORNERS[e]
             theirs = tuple((m[0] - dx, m[1] - dy) for m in mine)
-            _wall_above(f, edge_rec(t, e), edge_rec(n, OPP[e]), wx, wy, wx + dx, wy + dy, mine, theirs, "")
+            _wall_shows(edge_rec(t, e), edge_rec(n, OPP[e]), mine, theirs, seen, (wx, wy))
         if isinstance(t, Split):
             for i, j, p0, p1, _k in INNER[t.diag]:
                 for w_, o_ in ((t.halves[i], t.halves[j]), (t.halves[j], t.halves[i])):
-                    if w_ is not None and o_ is not None and w_.kind == KIND_WALL and o_.kind != KIND_WALL \
-                            and not (_z2(w_, p0) > _z2(o_, p0) and _z2(w_, p1) > _z2(o_, p1)):
-                        raise CourseError("%s:%d: wall (%d, %d) (a %s, across the line inside it) is not above "
-                                          "the floor beside it" % (f, w_.line, wx, wy, "quarter" if t.diag == KIND_Q
-                                                                    else "half"))
+                    if w_ is not None and o_ is not None and w_.kind == KIND_WALL and o_.kind != KIND_WALL:
+                        k = seen.setdefault(id(w_), [w_, False, (wx, wy)])
+                        if _z2(w_, p0) > _z2(o_, p0) or _z2(w_, p1) > _z2(o_, p1):
+                            k[1] = True
+    for k in sorted(seen.values(), key=lambda k: (k[0].line or 0, k[2])):
+        if not k[1]:
+            raise CourseError("%s:%d: wall (%d, %d) is not above any floor beside it: sunk under every floor it "
+                              "touches, nothing shows the ball where it stops - raise it above the floor it walls "
+                              "off, or ramp it with a ramp it rails (SPEC.md 130.10.3)" % ((f, k[0].line) + k[2]))
     return tiles
 
 
@@ -25801,8 +25810,8 @@ def _grammar_cases():
         ("a RELATIVE height (a rail's) in quarter units", F + "guard tile 3 2 height 1.25\n",
          "is not a whole number of half units (this height is RELATIVE"),
         ("a solid tile at wx = 2", F + "floor tile 2 5 flat 4\n", "solid outside 3 .. 252"),
-        ("a wall no higher than a neighbouring floor", _swap(F, "wall  rect   3 3  7 4  flat 6", "wall rect 3 3 7 4 flat 4"),
-         "is not above the floor"),
+        ("a wall above none of the floors beside it (130.10.3 as amended 2026-11-22)",
+         _swap(F, "wall  rect   3 3  7 4  flat 6", "wall rect 3 3 7 4 flat 4"), "is not above any floor beside it"),
         ("a start on a ramp", _swap(F, "start 4 5", "start 8 5"), "is not a flat FLOOR"),
         ("a start on a WALL", _swap(F, "start 4 5", "start 4 3"), "is not a flat FLOOR"),
         ("a way on a VOID tile", F + "way 12 5\n", "is on a VOID tile"),
@@ -31247,6 +31256,17 @@ _SPLIT = ('course SPLIT "Split"\nwidth 64\n'
           'start 12 12\n')
 
 
+def _wall_low_cases():
+    """SPEC.md 130.10.3 as amended (the owner, 2026-11-22): a wall LOWER than a floor beside it, above another -
+    each COMPILES (until then refused, "is not above the floor beside it"): (what, text)"""
+    return [
+        ("FIRST's back rail (6 units) beside a floor at 8 past its east end, still 2 over the plateau it rails",
+         _first_text() + "floor rect 7 3 8 4 flat 8\n"),
+        ("a wall quarter under the floor across its line (1 unit) and over the floor beside its edges (0)",
+         _SPLIT + "floor quarter e tile 13 13 flat 1\nwall quarter n tile 13 13 flat 0.5\n"),
+    ]
+
+
 def _split_cases():
     """SPEC.md 130.24.4's refusals, each a line written to trip it: (what, text, a substring of the refusal)"""
     S = _SPLIT
@@ -31257,9 +31277,9 @@ def _split_cases():
         ("a chamfer whose cuts overlap", S + "floor box 4 8 26 30 chamfer 3 flat 0\n", "overlap"),
         ("half takes a side", S + "floor half middle tile 12 12 flat 0\n", "half takes up, down, left or right"),
         ("quarter takes an edge", S + "floor quarter up tile 12 12 flat 0\n", "quarter takes n, e, s or w"),
-        ("a wall quarter not above the floor across its line", S + "floor quarter e tile 12 12 flat 1\n"
-         "wall quarter n tile 12 12 flat 0.5\n",
-         "across the line inside it"),
+        ("a wall quarter above none of its floors (the one across its line included)",
+         S + "floor quarter e tile 12 12 flat 1\nwall quarter n tile 12 12 flat 0\n",
+         "is not above any floor beside it"),
         ("the start on a split cell", _swap(S, "start 12 12", "start 11 12"), "the start on cell (11, 12)"),
         ("a way on a split cell", S + "way 11 12\n", "a way on cell (11, 12)"),
         ("a pad on a split cell", S + "pad steel 11 12\n", "a pad on cell (11, 12)"),
@@ -31270,8 +31290,9 @@ def _split_cases():
         ("a bumper on a split cell", S + "prop bumper 11 12\n", "a bumper on cell (11, 12)"),
         ("a tube's cell on a split cell", S + "tube keep 11 12 12 12\n", "a tube's cell on cell (11, 12)"),
         ("two floor surfaces in one split cell", S + "surface ice box 5 7 15 23\n", "two surfaces"),
-        ("a wall half not above the floor across its diagonal", S + "wall half left tile 12 6 flat 0.5\n",
-         "across its diagonal"),
+        ("a wall half above none of its floors (the one across its diagonal included)",
+         S + "wall half left tile 12 6 flat 0.5\n",
+         "is not above any floor beside it"),
     ]
 
 
@@ -32766,7 +32787,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 3
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 3 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -32809,6 +32830,15 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             ok_, msg = False, str(e)
         res.append(("2 accepted (130.19.10): %s (%s)" % (what, msg), ok_))
+    for what, text in _wall_low_cases():          # SPEC.md 130.10.3 as amended 2026-11-22: LOWER than some
+        if not mine():                              # of what it touches, a wall compiles
+            continue
+        try:
+            compile_course(text, fname="<%s>" % what)
+            ok_, msg = True, "compiled"
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (130.10.3, 2026-11-22): %s%s" % (what, "" if ok_ else " -- got: " + msg), ok_))
     for what, text, want in _w4_cases():
         if not mine():
             continue
