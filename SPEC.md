@@ -289448,5 +289448,6 @@ A see-saw's inspector picks its size from what 130.42.2 allows - **Length along*
 or 2, **Tilts along** x or y (the extents follow it) - rather than stepping a corner one cell at a time into a
 size the compiler refuses; one added over an area takes the largest legal plate in it, along its longer side.
 Deleting the last element of a family takes its name off the `uses` line in the same undo step (130.25.6.4's
-refusal of a family named and none placed), as adding the first puts it there.
-
+refusal of a family named and none placed), as adding the first puts it there. **Tipped by** the ball's weight
+or a timer switches 130.42.11's TIMED form on and off (`period 64` to start); a timed plate's inspector sets its
+period (32 - 256 steps), how long it is level (`flat`, blank the default 4) and its starting step (`seed`).
