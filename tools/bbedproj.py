@@ -23,6 +23,7 @@ anything the window can.
 import hashlib
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -688,6 +689,59 @@ class Document(object):
             self.insert("gap tile %d %d %s" % (cell[0], cell[1], side))
             return "marked"
 
+    WAY_ERR = re.compile(r"way \((-?\d+), (-?\d+)\) is on a (WALL|VOID) tile")
+
+    def relocate_ways(self, reach=4, tries=40):
+        """SPEC.md 130.58.22: every route point an edit left on a WALL or on VOID moved to the nearest cell it may
+        stand on (a floor, goal or shaped floor, the nearest first, then the one nearest the route's next point),
+        each a commit of its own - the caller folds them into its edit's undo step (merge_since). -> [(line,
+        (x, y), (nx, ny))] moved; a point with no such cell within REACH cells is left (its edit is refused)"""
+        moved = []
+        for _ in range(tries):
+            a = self.analysis()
+            m = self.WAY_ERR.search(a["error"] or "")
+            if not m or not a.get("error_line"):
+                break
+            ln, wx, wy = a["error_line"], int(m.group(1)), int(m.group(2))
+            ok = {c for c, d in a["cells"].items() if d["kind"] in ("floor", "goal", "field") and not d.get("pieces")}
+            ways = [w for w, _l in a["src"].ways] if a["src"] else []
+            nxt = next((ways[i + 1] for i, (w, l_) in enumerate(a["src"].ways) if l_ == ln and i + 1 < len(ways)),
+                       None)
+            best = None
+            for r in range(1, reach + 1):
+                ring = [(wx + dx, wy + dy) for dx in range(-r, r + 1) for dy in range(-r, r + 1)
+                        if max(abs(dx), abs(dy)) == r and (wx + dx, wy + dy) in ok]
+                if ring:
+                    best = min(ring, key=lambda c: ((c[0] - wx) ** 2 + (c[1] - wy) ** 2,
+                                                    (abs(c[0] - nxt[0]) + abs(c[1] - nxt[1])) if nxt else 0))
+                    break
+            if best is None:
+                break
+            self.set_statement(ln, self.moved_code(ln, best[0] - wx, best[1] - wy), label="move a route point")
+            moved.append((ln, (wx, wy), best))
+        return moved
+
+    def merge_since(self, n, label=None):
+        """the undo steps from N on folded into one (the first's label, or LABEL)"""
+        if len(self.undo_stack) > n + 1:
+            first = self.undo_stack[n]
+            del self.undo_stack[n:]
+            self.undo_stack.append((label or first[0], first[1]))
+
+    def ways_in(self, rect, kinds=("way",)):
+        """the KINDS statements (a cell first: `way`, `start`, `checkpoint`) standing in RECT (x0, y0, x1, y1
+        end-exclusive): [(line, code)]"""
+        out = []
+        for st in self.statements():
+            if st.kind in kinds and len(st.toks) >= 3:
+                try:
+                    x, y = int(st.toks[1]), int(st.toks[2])
+                except ValueError:
+                    continue
+                if rect[0] <= x < rect[2] and rect[1] <= y < rect[3]:
+                    out.append((st.line, st.code))
+        return out
+
     def remove(self, line, label=None):
         self.statement(line)
         new = list(self.lines)
@@ -759,6 +813,24 @@ PIECE_POLY = {(B.KIND_TB, 0): ((0, 0), (0, 1), (1, 1)), (B.KIND_TB, 1): ((0, 0),
               (B.KIND_Q, 2): ((1, 1), (0, 1), (.5, .5)), (B.KIND_Q, 3): ((0, 1), (0, 0), (.5, .5))}
 FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 130.58.13)
 KIND_NAMES = {B.KIND_FLOOR: "floor", B.KIND_WALL: "wall", B.KIND_GOAL: "goal", B.KIND_FIELD: "field"}
+
+
+def reshape(toks, si, n, rect):
+    """SPEC.md 130.58.22: a statement's shape (its tokens SI .. SI + N) laid over RECT (x0, y0, x1, y1 end-exclusive)
+    instead - `tile` for one cell - and a ramp along x or y keeping its SLOPE: its span is the new extent along its
+    run and its end heights follow at the same rate. -> the code"""
+    x0, y0, x1, y1 = rect
+    shape = ["tile", str(x0), str(y0)] if (x1 - x0, y1 - y0) == (1, 1) else ["rect"] + [str(v) for v in rect]
+    t = list(toks[:si]) + shape + list(toks[si + n:])
+    if "ramp" in t:
+        j = t.index("ramp")
+        if j + 5 < len(t) + 1 and t[j + 1] in ("x", "y"):
+            a0, a1, h0, h1 = int(t[j + 2]), int(t[j + 3]), float(t[j + 4]), float(t[j + 5])
+            rate = (h1 - h0) / float(a1 - a0) if a1 != a0 else 0.0
+            n0, n1 = (x0, x1) if t[j + 1] == "x" else (y0, y1)
+            t[j + 2], t[j + 3] = str(n0), str(n1)
+            t[j + 4], t[j + 5] = "%g" % (h0 + rate * (n0 - a0)), "%g" % (h0 + rate * (n1 - a0))
+    return join_tokens(t)
 
 
 def _rec_height(r):

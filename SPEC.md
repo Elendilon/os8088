@@ -297566,3 +297566,36 @@ clicks the ones that get it.
   compiler, and the banner explains both of `gap`'s refusals in plain words.
 - The `bbedit` row (item 8) marks, folds, splits and unmarks on a constructed ledge and checks the
   compiler's `marked` after every step; it goes red when a piece that bands nothing is kept.
+
+#### 130.58.22 Resizing by dragging, and edits that keep the route (the owner, 2026-11-22)
+
+The owner, after testing: *"Drag resizing"*; *"some way to edit waypoints; right now, I have a course that I
+can't seem to do anything with because most things I try to change break a waypoint, and there isn't a
+waypoints interface"*; *"if the waypoint would be valid in the new space an element was dragged to, just set
+it there"*.
+
+- **Drag resizing**: the one selected floor, wall, goal or hole laid by `tile` or `rect` shows eight handles
+  on the plan (corners and edge middles); dragging one moves that edge to the nearest grid line (never under
+  one cell). On release it is laid over the new rectangle as a move lays it (130.58.14: it cuts its way into
+  what is there, its own surface and hang follow the shape, the floor round it is rejoined), one undo step.
+  A ramp along x or y keeps its SLOPE (`reshape`): its span is the new extent along its run and its end
+  heights follow at the same rate, so a ramp made longer rises further.
+- **The route on the plan** (Route on): every route point numbered in its route's order (a `branch` route
+  counted on its own); a point is picked straight off the plan (before the floor under it) and dragged. A
+  selected point's panel lists the start and every point (a click selects one), with *Insert one after*
+  (halfway to the next point, or one step on past the last), *Earlier* and *Later* (the two lines swap their
+  text) and *Delete*.
+- **An edit keeps the route**: an edit that leaves a route point on a WALL or on VOID is no longer undone.
+  Each such point moves to the nearest cell it may stand on (a floor, goal or shaped floor, unsplit; the
+  nearest ring first, then the cell nearest the route's next point; at most 4 cells away), folded into the
+  edit's own undo step, and the status line names each one moved (`relocate_ways`, `merge_since`). A point
+  with no floor within 4 cells still refuses the edit, with the reason.
+- **What stands on moved ground rides along**: a floor or goal moved (dragged or the arrow keys) carries the
+  route points, the start and a flag standing on it by the same offset (`ways_in`), in the same undo step.
+- **The guard rail's refusal explained**: a guard cell is a wall at every height, drawn as a rail only on its
+  flat floor's edges (130.35.1), so it is refused next to a ramp, a split or a shaped cell; the banner now
+  says so, and that a one-cell gap between a floor and a ramp has no room for a rail.
+- The `bbedit` row's item 11: a floor cut back from under two route points leaves them on the floor in one
+  undo step; a ramp reshaped longer keeps its slope; the start, the flag and the route points on a floor are
+  found to ride with it. Red by hand: `relocate_ways` with no reach (the point stays on the void).
+

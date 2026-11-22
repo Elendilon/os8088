@@ -83,6 +83,14 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
        rejoin into the fewest blocks by themselves.
      - Ctrl-click (Command-click on a Mac) selects several parts: set or
        raise their heights, surface or hang together, or Delete them.
+     - A selected floor, wall, goal or hole has yellow handles on its edges
+       and corners: drag one to make it bigger or smaller (a ramp keeps its
+       slope).
+     - The route: tick Route. Its points are numbered; drag one, or click
+       it for the list of every point (Insert one after, Earlier, Later,
+       Delete). An edit that would leave a route point off the floor moves
+       it to the nearest floor instead, and says so; moving a floor takes
+       the start, a flag and the route points on it along.
      - A selected floor, wall or goal has "Hangs down": to the ground, or a
        few units (a floating slab). A selected ramp has "Add stepped rails".
      - Diagonals: the plan draws half and quarter cells as triangles, and a

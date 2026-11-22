@@ -786,6 +786,14 @@ class App(object):
         band = self.doc.auto_band()
         self._note = ("The course grew past the game's picture, so the builder %s. " % band) if band else ""
         after = self.doc.analysis()["error"]
+        if after and after != before and E.Document.WAY_ERR.search(after) and len(self.doc.undo_stack) > n0:
+            moved = self.doc.relocate_ways()        # SPEC.md 130.58.22: a route point the edit stranded moves
+            if moved:                               # to the nearest floor, in the same undo step
+                self.doc.merge_since(n0)
+                self._note += "Route point%s moved to stay on the floor: %s. " % (
+                    "s" if len(moved) > 1 else "", "; ".join("line %d to %d, %d" % (ln, n[0], n[1])
+                                                             for ln, _o, n in moved))
+                after = self.doc.analysis()["error"]
         if after and after != before and len(self.doc.undo_stack) > n0:
             while len(self.doc.undo_stack) > n0:
                 self.doc.undo()
@@ -1457,6 +1465,8 @@ class App(object):
                 row=row, column=0, columnspan=2, sticky="w")
             row += 1
         row = self._slope_rows(st, body, row)
+        if st.kind == "way":
+            row = self._route_rows(st, body, row)
         for word, n, label in (("flat", 1, "Height"), ("top", 1, "Water top"), ("bed", 1, "Water bed"),
                                ("period", 1, "Period (steps)"), ("on", 1, "On for (steps)"),
                                ("seed", 1, "Starts at"), ("strength", 1, "Strength"), ("range", 1, "Range"),
@@ -1808,6 +1818,184 @@ class App(object):
         fl = self._float_of(st) if st.kind in ("floor", "wall", "goal") else None
         return ([cur[1]] if cur else []) + ([fl[1]] if fl else [])
 
+    # -- the route (SPEC.md 130.58.22) ---------------------------------------------
+    def _ways(self):
+        """every `way` statement in file order: [(line, x, y, branch or None)]"""
+        out = []
+        for st in self.doc.statements():
+            if st.kind == "way" and len(st.toks) >= 3:
+                try:
+                    br = st.toks[st.toks.index("branch") + 1] if "branch" in st.toks else None
+                    out.append((st.line, int(st.toks[1]), int(st.toks[2]), br))
+                except (ValueError, IndexError):
+                    pass
+        return out
+
+    def _route_rows(self, st, body, row):
+        """a route point's panel: the whole route listed (a click selects a point), and its edits"""
+        tk, ttk = self.tk, self.ttk
+        ways = self._ways()
+        mine = next((w for w in ways if w[0] == st.line), None)
+        same = [w for w in ways if mine and w[3] == mine[3]]
+        k = same.index(mine) if mine in same else 0
+        ttk.Label(body, text="Route point %d of %d%s" % (k + 1, len(same), (" (branch %s)" % mine[3]) if mine and
+                                                          mine[3] else ""), font=("TkDefaultFont", 9, "bold")).grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        row += 1
+        lb = tk.Listbox(body, height=min(10, max(3, len(ways))), width=34, exportselection=False)
+        start = next((s_ for s_ in self.doc.statements() if s_.kind == "start"), None)
+        lb.insert("end", "start  %s" % " ".join(start.toks[1:3]) if start else "start  (none)")
+        n = {}
+        for i, (ln, x, y, br) in enumerate(ways):
+            n[br] = n.get(br, 0) + 1
+            lb.insert("end", "%2d.  %d, %d%s   (line %d)" % (n[br], x, y, ("   branch %s" % br) if br else "", ln))
+            if ln == st.line:
+                lb.selection_set(i + 1)
+                lb.see(i + 1)
+        lb.grid(row=row, column=0, columnspan=2, sticky="we")
+        lb.bind("<<ListboxSelect>>", lambda e: lb.curselection() and lb.curselection()[0] > 0 and self.select(
+            ways[lb.curselection()[0] - 1][0], scroll=True))
+        row += 1
+        fr = ttk.Frame(body)
+        fr.grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
+        ttk.Button(fr, text="Insert one after", command=lambda: self.route_insert(st.line)).pack(side="left")
+        ttk.Button(fr, text="Earlier", width=7, command=lambda: self.route_shift(st.line, -1)).pack(side="left")
+        ttk.Button(fr, text="Later", width=6, command=lambda: self.route_shift(st.line, 1)).pack(side="left")
+        ttk.Button(fr, text="Delete", width=7, command=self.delete).pack(side="left")
+        row += 1
+        ttk.Label(body, text="With Route on, drag a point on the plan. An edit that leaves a point off the floor "
+                            "moves it to the nearest floor by itself.", foreground="#666", wraplength=300).grid(
+            row=row, column=0, columnspan=2, sticky="w")
+        return row + 1
+
+    def route_insert(self, line):
+        """a route point after LINE's: halfway to the next point of its route (or one cell on past it), on floor"""
+        ways = self._ways()
+        me = next(w for w in ways if w[0] == line)
+        same = [w for w in ways if w[3] == me[3]]
+        i = same.index(me)
+        if i + 1 < len(same):
+            nx, ny = (me[1] + same[i + 1][1]) // 2, (me[2] + same[i + 1][2]) // 2
+        elif i > 0:
+            nx, ny = 2 * me[1] - same[i - 1][1], 2 * me[2] - same[i - 1][2]
+        else:
+            nx, ny = me[1] + 1, me[2]
+        code = "way %d %d%s" % (nx, ny, (" branch %s" % me[3]) if me[3] else "")
+        ln = self._edit(self.doc.insert, code, after=line, label="insert a route point")
+        if ln:
+            self.select(ln)
+
+    def route_shift(self, line, d):
+        """a route point one place earlier (D -1) or later (+1) in its route: two lines swap their text"""
+        ways = self._ways()
+        me = next(w for w in ways if w[0] == line)
+        same = [w for w in ways if w[3] == me[3]]
+        j = same.index(me) + d
+        if not 0 <= j < len(same):
+            return
+        other = same[j][0]
+        a_, b_ = self.doc.statement(line).code, self.doc.statement(other).code
+        if self._edit(self.doc.set_many, {line: b_, other: a_}, label="reorder the route"):
+            self.select(other)
+
+    # -- drag resizing (SPEC.md 130.58.22) -----------------------------------------
+    def _resizable(self):
+        """the one selected floor, wall, goal or hole laid by `tile` or `rect`: (statement, shape, rect), or None"""
+        if not self.sel or len(self.sels) > 1 or self.view.get() != "plan":
+            return None
+        try:
+            st = self.doc.statement(self.sel)
+        except E.EditError:
+            return None
+        sh = self._shape(st) if st.kind in ("floor", "wall", "goal", "hole") else None
+        return (st, sh, sh[2]) if sh else None
+
+    def _handles(self, rect):
+        """the eight resize handles of RECT (end-exclusive cells): [(name, canvas x, canvas y)]"""
+        x0, y0, x1, y1 = rect
+        ax, ay = self._cpx(x0, y0)
+        bx, by = self._cpx(x1, y1)
+        mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
+        return [("nw", ax, ay), ("n", mx, ay), ("ne", bx, ay), ("e", bx, my), ("se", bx, by), ("s", mx, by),
+                ("sw", ax, by), ("w", ax, my)]
+
+    def _handle_at(self, e):
+        rz = self._resizable()
+        if not rz:
+            return None
+        x, y = self.cv.canvasx(e.x), self.cv.canvasy(e.y)
+        for h, hx, hy in self._handles(rz[2]):
+            if abs(hx - x) <= 7 and abs(hy - y) <= 7:
+                return h
+        return None
+
+    def _resize_motion(self, e):
+        d = self.drag
+        s = CELL * self.zoom
+        gx = int(round(self.cv.canvasx(e.x) / s)) + self.origin[0]      # (the nearest grid LINE)
+        gy = int(round(self.cv.canvasy(e.y) / s)) + self.origin[1]
+        x0, y0, x1, y1 = d["orig"]
+        h = d["resize"]
+        if "w" in h:
+            x0 = min(gx, x1 - 1)
+        if "e" in h:
+            x1 = max(gx, x0 + 1)
+        if "n" in h:
+            y0 = min(gy, y1 - 1)
+        if "s" in h:
+            y1 = max(gy, y0 + 1)
+        if (x0, y0, x1, y1) != d["rect"]:
+            d["rect"] = (x0, y0, x1, y1)
+            self._draw_plan()
+
+    def resize_sel(self, rect):
+        """the selected floor, wall, goal or hole laid over RECT (end-exclusive) instead: it cuts its way into
+        what is there (as a move does), a ramp keeps its slope along its run (its span and end heights follow the
+        new extent), its own surface and hang go with it, and the floor round it is rejoined"""
+        st, sh, old = self._resizable()
+        x0, y0, x1, y1 = rect
+        shape = ["tile", str(x0), str(y0)] if (x1 - x0, y1 - y0) == (1, 1) else ["rect"] + [str(v) for v in rect]
+
+        def reshaped(t, si, n):
+            return E.reshape(t, si, n, rect)
+        code = reshaped(st.toks, sh[0], len(sh[1]))
+        comp = []
+        for ln in self._companions(self.sel):
+            cs = self.doc.statement(ln)
+            csh = None if cs.kind == "surface" else self._shape(cs)
+            if cs.kind == "surface":
+                comp.append(E.join_tokens(cs.toks[:2] + shape))
+            elif csh:
+                comp.append(reshaped(cs.toks, csh[0], len(csh[1])))
+        dest = (x0, y0, x1 - 1, y1 - 1)
+
+        def go():
+            with self.doc.group("resize %s" % st.kind):
+                for ln in sorted([self.sel] + self._companions(self.sel), reverse=True):
+                    self.doc.remove(ln)
+                self.doc.replace_area(dest, ground=[code], surfaces=st.kind in ("wall", "hole"))
+                for cc in comp:
+                    self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
+                self.doc.tidy((min(old[0], x0), min(old[1], y0), max(old[2], x1) - 1, max(old[3], y1) - 1))
+            return True
+        if self._edit(go):
+            ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
+            self.area = dest
+            self.select(ln)
+            self._msg("Resized to %d x %d" % (x1 - x0, y1 - y0))
+
+    def _way_at(self, e):
+        """the route point under the pointer on the plan (Route on), or None"""
+        if self.view.get() != "plan" or not self.show_route.get():
+            return None
+        x, y = self.cv.canvasx(e.x), self.cv.canvasy(e.y)
+        s = CELL * self.zoom
+        for ln, wx, wy, _br in self._ways():
+            px, py = self._cpx(wx + .5, wy + .5)
+            if (px - x) ** 2 + (py - y) ** 2 <= max(6.0, s * .3) ** 2:
+                return ln
+        return None
+
     def _float_of(self, st):
         """the `float` statement over exactly this shape: (its thickness in units, its line), or None"""
         sh = self._shape(st)
@@ -1864,6 +2052,8 @@ class App(object):
             toks[toks.index("flat") + 1] = ("%d" % h) if h == int(h) else ("%g" % h)
         code = E.join_tokens(toks)
         comp = [(ln, self.doc.moved_code(ln, dx, dy)) for ln in self._companions(self.sel)]
+        ways = self.doc.ways_in(sh[2], ("way", "start", "checkpoint")) if st.kind in ("floor", "goal") else []
+        # (what stands on it rides along: its route points, the start, a flag - SPEC.md 130.58.22)
 
         def mv():
             with self.doc.group("move %s" % st.kind):
@@ -1873,13 +2063,22 @@ class App(object):
                 for _ln, cc in comp:
                     self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
                 self.doc.tidy((min(x0, dest[0]), min(y0, dest[1]), max(x1 - 1, dest[2]), max(y1 - 1, dest[3])))
+                done = set()
+                for _ln, wc in ways:                # (found again by their text: the lines above moved)
+                    w = next((s_ for s_ in self.doc.statements() if s_.code == wc and s_.line not in done), None)
+                    if w:
+                        done.add(w.line)
+                        self.doc.set_statement(w.line, self.doc.moved_code(w.line, dx, dy))
             return True
         if self._edit(mv):
             ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
             self.area = dest
             self.select(ln)
-            if under and st.kind in ("floor", "goal"):
-                self._msg("Moved: it took the height of the floor it landed on (%g)" % max(under))
+            rode = sorted({wc.split()[0] for _l, wc in ways})
+            names = {"way": "its route points", "start": "the start", "checkpoint": "its flag"}
+            self._msg("Moved%s%s" % ((", with " + " and ".join(names[k] for k in rode)) if rode else "",
+                                    ("; it took the height of the floor it landed on (%g)" % max(under))
+                                    if under and st.kind in ("floor", "goal") else ""))
 
     def _set_word(self, i, value):
         if not self.sel:
@@ -2390,6 +2589,10 @@ class App(object):
             if len(pts) >= 4:
                 c.create_line(*pts, fill="#ffffff", width=2, dash=(6, 5))
         # items
+        wnum, wc = {}, {}
+        for ln_, _x, _y, br_ in self._ways():
+            wc[br_] = wc.get(br_, 0) + 1
+            wnum[ln_] = wc[br_]
         for it in a["items"]:
             if it["kind"] == "tube" or not it["cells"]:
                 continue
@@ -2412,6 +2615,9 @@ class App(object):
                           outline="#111", width=2)
             if it["kind"] != "way" and s >= 14:
                 c.create_text(px + s / 2, py + s / 2, text=g, font=("TkDefaultFont", max(7, int(s / 2.6)), "bold"))
+            elif it["kind"] == "way" and s >= 12:
+                c.create_text(px + s / 2 + r_ + 2, py + s / 2 - r_ - 2, anchor="sw", fill="#ffffff",
+                              text=str(wnum.get(it["line"], "")), font=("TkDefaultFont", max(7, int(s / 3.2)), "bold"))
             if sel:
                 selcells.update(it["cells"])
         # the hard-to-see marks: the mark, and the cells in front of it
@@ -2437,6 +2643,17 @@ class App(object):
             bx, by = self._cpx(x1 + 1, y1 + 1)
             c.create_rectangle(ax - 1, ay - 1, bx + 1, by + 1, outline="#111", width=4)
             c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=2, dash=(6, 3))
+        rz = self._resizable()
+        if rz and not (self.drag and self.drag.get("resize")):
+            for _h, hx, hy in self._handles(rz[2]):
+                c.create_rectangle(hx - 5, hy - 5, hx + 5, hy + 5, fill="#ffd54f", outline="#111", width=1)
+        if self.drag and self.drag.get("resize"):
+            x0_, y0_, x1_, y1_ = self.drag["rect"]
+            ax, ay = self._cpx(x0_, y0_)
+            bx, by = self._cpx(x1_, y1_)
+            c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=3)
+            c.create_text(bx + 4, by + 4, anchor="nw", fill="#ffd54f", font=("TkDefaultFont", 10, "bold"),
+                          text="%d x %d" % (x1_ - x0_, y1_ - y0_))
         if self.drag and self.drag["move"] and self.drag["to"] != self.drag["from"]:
             dx = self.drag["to"][0] - self.drag["from"][0]
             dy = self.drag["to"][1] - self.drag["from"][1]
@@ -2661,6 +2878,17 @@ class App(object):
             self.select(lines[0] if lines else None)
             self._fill_add()
             return
+        h = self._handle_at(e)                           # a resize handle of the selected floor, wall, goal or hole
+        if h:
+            rz = self._resizable()
+            self.drag = {"from": cell, "to": cell, "move": False, "shift": False, "ctrl": False, "resize": h,
+                         "orig": rz[2], "rect": rz[2]}
+            return
+        w = self._way_at(e)                              # a route point, picked and dragged straight off the plan
+        if w:
+            self.select(w)
+            self.drag = {"from": cell, "to": cell, "move": True, "shift": False, "ctrl": False}
+            return
         movable = self.sel and cell in self._sel_cells() and E.coord_slots(self.doc.statement(self.sel).toks)
         ctrl = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
         self.drag = {"from": cell, "to": cell, "move": bool(movable) and not ctrl, "shift": bool(e.state & 0x0001),
@@ -2670,6 +2898,8 @@ class App(object):
         d = self.drag
         if not d:
             return
+        if d.get("resize"):
+            return self._resize_motion(e)
         cell = self._cell_at(e)
         if cell is None or cell == d["to"]:
             return
@@ -2685,6 +2915,12 @@ class App(object):
     def _release(self, e):
         d, self.drag = self.drag, None
         if not d:
+            return
+        if d.get("resize"):
+            if d["rect"] != d["orig"]:
+                self.resize_sel(d["rect"])
+            else:
+                self._redraw()
             return
         if d["move"] and d["to"] != d["from"]:
             self.move_sel(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
@@ -2776,6 +3012,13 @@ EXPLAIN = [
      "Connect that part to the rest of the course, or remove it."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
+    (r"guard \(\d+, \d+\) touches \(\d+, \d+\), which is not a whole FLAT floor", "a guard rail's cell is a wall at "
+     "every height, drawn only as a rail on its flat floor's edge, so it may not touch a ramp, a split or a shaped "
+     "cell anywhere round it (it would be an invisible wall on that side). Where one empty cell separates a floor "
+     "from a ramp, no rail fits there: widen the gap to two cells, put the rail on the ramp's far side, or use a "
+     "low wall."),
+    (r"guard \(\d+, \d+\) stands on a solid cell", "a guard rail goes in the EMPTY cell beside a floor, not on "
+     "the floor: select the empty cells along the edge."),
     (r"gap bands nothing", "that `gap` line names no face that stands over a gap, so it would change no pixel. "
      "Turn on Gap bands in the Iso view and click the places you want instead; a line left with no mark is "
      "deleted."),

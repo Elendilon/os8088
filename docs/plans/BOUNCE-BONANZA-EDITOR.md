@@ -41,6 +41,8 @@ unmarks it.
 
 **The Map tab is built (7.1; 7.2 but for playing the map; SPEC.md 130.58.20).**
 
+**The owner's round of 2026-11-22 is built (SPEC.md 130.58.22)**: drag resizing, the route on the plan (numbered, dragged, a panel to insert, reorder and delete), edits that move a stranded route point to the nearest floor rather than refusing, and the start, flag and route points riding with moved ground.
+
 **Next phases**: the rest of the Shapes tab (4.2's Iso blocks), the rest of Test Roll (6), the pathway played (7.2) and
 the MartyPC boot of a game with an added course (8.2). `[~]` below marks a story built in part, with what is missing.
 
