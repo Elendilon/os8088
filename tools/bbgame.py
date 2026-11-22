@@ -10,8 +10,10 @@ The game's course list is ASSEMBLED in (bzcourse.inc, SPEC.md 130.10.6), and a c
 changes more than a table: its count moves every label after the tables. So the pieces
 nasm makes are made where nasm is - `prebuild`, run by `make bbgamebin` and shipped in the
 course builder's zip as bbgame-bin/ - once for the shipped list (v0, the shipped package's
-own pieces) and once for each count of added courses, 1 to SPARE_MAX (v<m>: the shipped list
-and m SPARE courses, `make BUILD=... BZ_COURSES=...`, the twoseg build's way). Each variant
+own pieces) and once for each count of added courses, 0 to SPARE_MAX (v0r, v<m>: the shipped
+list and m SPARE courses, `make BUILD=... BZHEADROOM=1 BZ_COURSES=...`, the twoseg build's way;
+SPEC.md 130.58.17.1: HEADROOM raises two capacities, signs and the pads' exits table, so an
+author's pathway may have more pads and signs than the shipped map). Each variant
 carries its bzcourse.inc and a MAP: where, in which piece, each per-course table's bytes are
 (found by assembling a PROBE whose every table byte differs, a mask a table, and holding
 that the bytes that moved are those tables and nothing else).
@@ -23,8 +25,10 @@ unreferenced lines it must be the same text, or the game is REFUSED, naming the 
 course with more lanes, props, signs or state than the game was assembled for, a course past
 one part. Where it is the same, the tables' bytes are written at the map's places, and the
 result is byte for byte what nasm would have made from that inc - so with no added course
-the package IS build/bonanza.o88. os88pkg.py then packs it as the Makefile does, and
-os88disk.py makes the floppy the bonanzadisk rule makes.
+and the shipped map the package IS build/bonanza.o88. The pad count (BZ_PATH_NPAD) is the save
+file's guard, not a capacity, so a headroom variant carries its bytes at EVERY count 1 -
+BZ_PAD_MAX (a probe assembly a count) and the composition writes the map's. os88pkg.py then
+packs it as the Makefile does, and os88disk.py makes the floppy the bonanzadisk rule makes.
 
 THE SHIPPED GAME HAS NO COURSE CYCLE (SPEC.md 130.26.8: N is BZDEV's): a course is played
 from its pathway pad. --pad0 NAME puts course NAME on pad 0 - where a new game rests, so
@@ -215,18 +219,28 @@ def read_inc(text):
     return lines, tables, crs
 
 
-def compare(old, new, inert=()):
-    """hold the composed list's bzcourse.inc (NEW) to the variant's (OLD): -> {table: new bytes} for every
-    table that differs; Refused naming the first other line that does"""
+def compare(old, new, inert=(), npads=()):
+    """hold the composed list's bzcourse.inc (NEW) to the variant's (OLD): -> ({table: new bytes} for every
+    table that differs, the pad count when BZ_PATH_NPAD differs and is one of NPADS - a headroom variant's,
+    SPEC.md 130.58.17.1 - else None); Refused naming the first other line that does"""
     lo, to, co = read_inc(old)
     ln, tn, cn = read_inc(new)
     if len(lo) != len(ln):
         raise Refused("bzcourse.inc has %d lines where the prebuilt game's has %d" % (len(ln), len(lo)))
+    npad = None
     for a, b in zip(lo, ln):
         if a == b:
             continue
         if a[0] == "equ" and b[0] == "equ" and a[1] == b[1] and a[1] in inert:
             continue
+        if a[0] == "equ" and b[0] == "equ" and a[1] == b[1] == "BZ_PATH_NPAD":
+            n = int(NPAD_RE.search(b[2]).group(2))
+            if n in npads:
+                npad = n
+                continue
+            raise Refused("the pathway has %d pads: the game holds 1 - %d (BZ_PAD_MAX, a save slot's word-a-pad "
+                          "tables)%s" % (n, B.PATH_PAD_MAX, "" if npads else " and this prebuilt game the "
+                                         "shipped map's count alone"))
         key = a[1] or b[1] or ""
         if a[0] == "line" and b[0] == "line" and "OS88_PART" in a[2]:
             key = "BZ_CRS_PARTS"
@@ -248,11 +262,11 @@ def compare(old, new, inert=()):
             raise Refused("the table %s is %d bytes where the prebuilt game's is %d" % (t, len(en), len(eo)))
         if eo != en:
             out[t] = en
-    return out
+    return out, npad
 
 
 # ---- the course compile ---------------------------------------------------------------------------------
-def compile_into(art, paths, path, title):
+def compile_into(art, paths, path, title, headroom=False):
     """bbcourse.py -o ART's files (write_out's: the stamp, the parts, bzcourse.inc, bzdemo.lst), compiled
     THROUGH the compile cache: the build's compile_all compiles fresh and only writes it, which for the
     shipped list is minutes (PLAY alone 181 s); the cache's key names every input (SPEC.md 130.58.8), and v0
@@ -260,10 +274,14 @@ def compile_into(art, paths, path, title):
     tests = [n for n, _t, tst in B._course_info(paths) if tst]
     if tests:
         raise Refused("%s: a TEST course (`test`) never ships - take the statement out" % ", ".join(tests))
+    held, B.HEADROOM = B.HEADROOM, headroom          # (bbcourse.py's --headroom, make's BZHEADROOM=1)
     try:
-        _courses, files, texts = B._compile_all(paths, path=path, title=title)
+        courses, files, texts = B._compile_all(paths, path=path, title=title)
     except B.CourseError as e:
         raise Refused("the course compiler refused the list: %s" % e)
+    finally:
+        B.HEADROOM = held
+    pc, tc = B.compile_all.path, B.compile_all.title
     os.makedirs(art, exist_ok=True)
     with open(os.path.join(art, ".bz-crs"), "w") as f:
         f.write(B.stamp(paths + [path, title, B.KIT_FILE]) + "\n")
@@ -273,6 +291,18 @@ def compile_into(art, paths, path, title):
     for name in sorted(texts):
         with open(os.path.join(art, name), "w", newline="\n") as f:
             f.write(texts[name])
+
+    def inc(room):
+        """the list's bzcourse.inc with HEADROOM ROOM, written into ART -> its text"""
+        held, B.HEADROOM = B.HEADROOM, room
+        try:
+            txt = B.emit_inc(courses, pc, tc)
+        finally:
+            B.HEADROOM = held
+        with open(os.path.join(art, "bzcourse.inc"), "w", newline="\n") as f:
+            f.write(txt)
+        return txt
+    return inc
 
 
 # ---- the prebuilt pieces (the tree, with nasm) -------------------------------------------------------------
@@ -293,6 +323,84 @@ def shipped_paths():
     if not lst:
         raise Refused("no BZ_COURSES line in %s" % os.path.join(B.ROOT, "Makefile"))
     return [os.path.join(B.ROOT, p) for p in lst]
+
+
+def _srcs():
+    """every piece bonanza.asm links, and its source"""
+    srcs = {"bonanza.bin": "apps/bonanza/bonanza.asm", "bzshell.bin": "apps/bonanza/bzshell.asm",
+            "bzvga.bin": "apps/bonanza/bzvga.asm"}
+    for f in B.FAM_FETCH + B.FAM_RES:
+        srcs["bzf-%s.bin" % f["name"]] = "apps/bonanza/fam/%s.asm" % f["name"]
+    return srcs
+
+
+def _assemble(art, inc_text, tmp):
+    """every piece of _srcs() assembled with ART's includes and INC_TEXT as its bzcourse.inc, in a directory of
+    its own under TMP -> {piece: bytes}: bonanza.bin first, and bzlink.inc (the constants and bss the linked
+    parts assemble against, SPEC.md 106.20) made again from it, as the Makefile makes it"""
+    pa = os.path.join(tempfile.mkdtemp(dir=tmp), "art")
+    shutil.copytree(art, pa, ignore=shutil.ignore_patterns("*.png"))
+    with open(os.path.join(pa, "bzcourse.inc"), "w") as f:
+        f.write(inc_text)
+    inc = ["-I", "apps/", "-I", "apps/bonanza/", "-I", pa + "/"]
+    out = {}
+    srcs = _srcs()
+    for piece in ["bonanza.bin"] + sorted(set(srcs) - {"bonanza.bin"}):
+        o = os.path.join(pa, piece)
+        _run(["nasm", "-f", "bin", "-w+error"] + inc + ["-o", o, srcs[piece]])
+        with open(o, "rb") as f:
+            out[piece] = f.read()
+        if piece == "bonanza.bin":
+            _run([sys.executable, os.path.join(HERE, "pxlink.py"), o, "--src", "apps/bonanza/bonanza.asm"] + inc
+                 + ["--prefix", "BZL", "--consts", "BZ", "-o", os.path.join(pa, "bzlink.inc")])
+    return out
+
+
+NPAD_RE = re.compile(r"^(BZ_PATH_NPAD\s+equ\s+)(\d+)", re.M)
+
+
+def npad_map(build, art, inc_text, pieces, taken):
+    """SPEC.md 130.58.17.1: BZ_PATH_NPAD is not a capacity but the save file's guard (BZD_NPAD), so a headroom
+    variant keeps the map's count and the composition writes the bytes it assembles into: the pieces assembled
+    again at EVERY count 1 .. BZ_PAD_MAX -> {"base": n, "runs": [[piece, off, len], ...], "bytes": {count: [hex a
+    run, ...]}}, the runs every byte that differs from the variant's own at any count - so a count's bytes
+    written there ARE that count's assembly.  Exits unless every count assembles to the same sizes, no run
+    touches a table's bytes (TAKEN: {piece: set of offsets}) and only the package's pieces move"""
+    import concurrent.futures as cf
+    base = int(NPAD_RE.search(inc_text).group(2))
+    ref = {}
+    for p in _srcs():
+        with open(os.path.join(build, p), "rb") as f:
+            ref[p] = f.read()
+    counts = [n for n in range(1, B.PATH_PAD_MAX + 1) if n != base]
+
+    def one(n, t):
+        return _assemble(art, NPAD_RE.sub(lambda m: m.group(1) + str(n), inc_text, 1), t)
+    with tempfile.TemporaryDirectory() as t:
+        with cf.ThreadPoolExecutor(max(1, min(8, os.cpu_count() or 1))) as ex:
+            got = dict(zip(counts, ex.map(lambda n: one(n, t), counts)))
+    got[base] = ref
+    diff = {}
+    for n in sorted(got):
+        for p, b in sorted(got[n].items()):
+            if len(b) != len(ref[p]):
+                sys.exit("bbgame: BZ_PATH_NPAD %d moves %s's size (%d -> %d): a count feeds a layout"
+                         % (n, p, len(ref[p]), len(b)))
+            d = set(i for i in range(len(b)) if b[i] != ref[p][i])
+            if d and p not in pieces:
+                sys.exit("bbgame: BZ_PATH_NPAD moves %s, which is not a piece the package carries" % p)
+            if d & taken.get(p, set()):
+                sys.exit("bbgame: BZ_PATH_NPAD %d moves a table's bytes in %s" % (n, p))
+            diff.setdefault(p, set()).update(d)
+    runs = []
+    for p in sorted(diff):
+        for i in sorted(diff[p]):
+            if runs and runs[-1][0] == p and runs[-1][1] + runs[-1][2] == i:
+                runs[-1][2] += 1
+            else:
+                runs.append([p, i, 1])
+    return {"base": base, "runs": runs,
+            "bytes": {str(n): [got[n][p][o:o + ln].hex() for p, o, ln in runs] for n in sorted(got)}}
 
 
 def probe_map(build, art, inc_text, pieces):
@@ -319,21 +427,11 @@ def probe_map(build, art, inc_text, pieces):
         probe.append(raw)
     _, tables, _ = read_inc(inc_text)
     with tempfile.TemporaryDirectory() as t:
-        pa = os.path.join(t, "art")
-        shutil.copytree(art, pa, ignore=shutil.ignore_patterns("*.png"))
-        with open(os.path.join(pa, "bzcourse.inc"), "w") as f:
-            f.write("\n".join(probe) + "\n")
-        inc = ["-I", "apps/", "-I", "apps/bonanza/", "-I", pa + "/"]
-        srcs = {"bonanza.bin": "apps/bonanza/bonanza.asm", "bzshell.bin": "apps/bonanza/bzshell.asm",
-                "bzvga.bin": "apps/bonanza/bzvga.asm"}
-        for f in B.FAM_FETCH + B.FAM_RES:
-            srcs["bzf-%s.bin" % f["name"]] = "apps/bonanza/fam/%s.asm" % f["name"]
+        got = _assemble(art, "\n".join(probe) + "\n", t)
         out = {}
-        for piece, src in sorted(srcs.items()):
-            o = os.path.join(t, piece)
-            _run(["nasm", "-f", "bin", "-w+error"] + inc + ["-o", o, src])
+        for piece in sorted(got):
             a = open(os.path.join(build, piece), "rb").read()
-            b = open(o, "rb").read()
+            b = got[piece]
             if len(a) != len(b):
                 sys.exit("bbgame: the probe moved %s's size (%d -> %d): a table feeds an assembly-time "
                          "expression" % (piece, len(a), len(b)))
@@ -376,18 +474,25 @@ def _inert(inc_text):
     return sorted(s for s in set(syms) if s not in words and rest.count(s) == 1)
 
 
+def variants():
+    """-> [(name, spare courses, HEADROOM)]: v0 the shipped build's own pieces, v0r the shipped list with
+    HEADROOM (SPEC.md 130.58.17.1: a pathway of the author's with no added course), v1 .. vSPARE_MAX with it"""
+    return [("v0", 0, False), ("v0r", 0, True)] + [("v%d" % m, m, True) for m in range(1, SPARE_MAX + 1)]
+
+
 def prebuild(out, top="build"):
-    """the variants v0 (the shipped list, the tree's TOP, build/) and v1 .. vSPARE_MAX (the shipped list and m
-    spare courses, each a private tree TOP/bbgame/v<m>) -> OUT/v<m>/: the pieces, bzcourse.inc, map.json"""
+    """the variants() - v0 the shipped list (the tree's TOP, build/), the rest the shipped list and m spare
+    courses, each a private tree TOP/bbgame/<name>, made with BZHEADROOM=1 - -> OUT/<name>/: the pieces,
+    bzcourse.inc, map.json"""
     make = os.environ.get("MAKE", "make")
     top = os.path.join(TREE, top)
     ship = B._mk_list(B._makefile(), "BZ_COURSES")
     os.makedirs(out, exist_ok=True)
-    for m in range(SPARE_MAX + 1):
-        if m == 0:
+    for vname, m, room in variants():
+        if not room:
             build = top
         else:
-            build = os.path.join(top, "bbgame", "v%d" % m)
+            build = os.path.join(top, "bbgame", vname)
             os.makedirs(build, exist_ok=True)
             spares = []
             for n in range(1, m + 1):
@@ -399,12 +504,12 @@ def prebuild(out, top="build"):
                 spares.append(os.path.relpath(p, TREE))
             art = os.path.join(build, "bonanza-art")      # (seeded through the cache; make takes it as made)
             compile_into(art, [os.path.join(TREE, p) for p in ship + spares],
-                         os.path.join(B.COURSE_DIR, "path.bbc"), os.path.join(B.COURSE_DIR, "title.bbc"))
-            _run([make, "--no-print-directory", "BUILD=%s" % os.path.relpath(build, TREE),
+                         os.path.join(B.COURSE_DIR, "path.bbc"), os.path.join(B.COURSE_DIR, "title.bbc"), True)
+            _run([make, "--no-print-directory", "BUILD=%s" % os.path.relpath(build, TREE), "BZHEADROOM=1",
                   "BZ_COURSES=%s" % " ".join(ship + spares), "-o", os.path.relpath(art, TREE) + "/.bz-crs",
                   os.path.relpath(build, TREE) + "/bonanza.o88"])
         art = os.path.join(build, "bonanza-art")
-        v = os.path.join(out, "v%d" % m)
+        v = os.path.join(out, vname)
         os.makedirs(v, exist_ok=True)
         inc = open(os.path.join(art, "bzcourse.inc")).read()
         pieces = _pieces()
@@ -412,12 +517,22 @@ def prebuild(out, top="build"):
             shutil.copyfile(os.path.join(build, p), os.path.join(v, p))
         shutil.copyfile(os.path.join(art, "bzcourse.inc"), os.path.join(v, "bzcourse.inc"))
         mp = {"courses": ship, "spares": m, "map": probe_map(build, art, inc, pieces), "inert": _inert(inc),
-              "o88": hashlib.sha1(open(os.path.join(build, "bonanza.o88"), "rb").read()).hexdigest()}
+              "o88": hashlib.sha1(open(os.path.join(build, "bonanza.o88"), "rb").read()).hexdigest(),
+              "headroom": room}
+        if room:
+            _, tables, _ = read_inc(inc)
+            taken = {}
+            for t, places in mp["map"].items():
+                for piece, off in places:
+                    taken.setdefault(piece, set()).update(range(off, off + len(encode(tables[t]))))
+            mp["npad"] = npad_map(build, art, inc, pieces, taken)
         with open(os.path.join(v, "map.json"), "w") as f:
             json.dump(mp, f, indent=1, sort_keys=True)
             f.write("\n")
-        print("bbgame: v%d - %s, %d tables placed" % (m, ", ".join("%s %d" % (p, os.path.getsize(os.path.join(v, p)))
-                                                                    for p in pieces[:3]), sum(map(len, mp["map"].values()))))
+        print("bbgame: %s - %s, %d tables placed%s" % (
+            vname, ", ".join("%s %d" % (p, os.path.getsize(os.path.join(v, p))) for p in pieces[:3]),
+            sum(map(len, mp["map"].values())), ", BZ_PATH_NPAD's %d bytes at every count" % sum(
+                r[2] for r in mp["npad"]["runs"]) if room else ""))
     shutil.copyfile(os.path.join(TREE, "apps", "bonanza", "README.md"), os.path.join(out, "README.md"))
     return 0
 
@@ -448,7 +563,7 @@ def _pathway(work, pad0, displaced):
     return p
 
 
-def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print, pathway=None):
+def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print, pathway=None, _npad=None):
     """-> 0 after writing OUT (and DISK); Refused with the reason. PATHWAY: a pathway of the author's (the course
     builder's Map tab, SPEC.md 130.58.20) in place of the shipped one - its pads may play the added courses, and
     with no courses given they are the ones its `# builder-course:` lines name"""
@@ -464,10 +579,13 @@ def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print,
     m = len(authors)
     if m > SPARE_MAX:
         raise Refused("at most %d added courses (the prebuilt game's spare slots); %d given" % (SPARE_MAX, m))
-    v = os.path.join(BIN, "v%d" % m)
-    if not os.path.isfile(os.path.join(v, "map.json")):
-        raise Refused("no prebuilt game in %s (in the tree: make bbgamebin)" % v)
-    mp = json.load(open(os.path.join(v, "map.json")))
+    # SPEC.md 130.58.17.1: with no added course v0 (the shipped build's own pieces) first, and v0r (HEADROOM) if
+    # the list needs more pads or signs than the shipped map; an added course's variant has HEADROOM
+    cands = [os.path.join(BIN, n) for n in (("v0", "v0r") if m == 0 else ("v%d" % m,))]
+    if not os.path.isfile(os.path.join(cands[0], "map.json")):
+        raise Refused("no prebuilt game in %s (in the tree: make bbgamebin)" % cands[0])
+    cands = [c for c in cands if os.path.isfile(os.path.join(c, "map.json"))]
+    mp = json.load(open(os.path.join(cands[0], "map.json")))
     names = [_course_name(p) for p in ship]
     if [os.path.basename(p) for p in ship] != [os.path.basename(p) for p in mp["courses"]]:
         raise Refused("the shipped course list (%s) is not the one the prebuilt game was made with (%s)"
@@ -494,20 +612,35 @@ def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print,
         art = os.path.join(work, "art")
         path = pathway or _pathway(work, pad0, displaced)
         log("bbgame: compiling %d courses (%s)" % (len(courses), " ".join(_course_name(c) for c in courses)))
-        compile_into(art, courses, path, os.path.join(B.COURSE_DIR, "title.bbc"))
-        patches = compare(open(os.path.join(v, "bzcourse.inc")).read(),
-                          open(os.path.join(art, "bzcourse.inc")).read(), mp["inert"])
+        inc = compile_into(art, courses, path, os.path.join(B.COURSE_DIR, "title.bbc"), mp.get("headroom", False))
+        for i, v in enumerate(cands):
+            mp = json.load(open(os.path.join(v, "map.json")))
+            room = mp.get("headroom", False)
+            try:
+                patches, npad = compare(open(os.path.join(v, "bzcourse.inc")).read(), inc(room), mp["inert"],
+                                        [int(n) for n in mp["npad"]["bytes"]] if room else ())
+                break
+            except Refused as e:
+                if i + 1 == len(cands):
+                    raise
+                log("bbgame: not the shipped build's own pieces (%s) - the headroom build's" % e)
         bins = os.path.join(work, "bin")
         os.makedirs(bins, exist_ok=True)
         for p in _pieces():
             shutil.copyfile(os.path.join(v, p), os.path.join(bins, p))
-        for t, data in sorted(patches.items()):
-            for piece, off in mp["map"][t]:
-                fp = os.path.join(bins, piece)
-                b = bytearray(open(fp, "rb").read())
-                b[off:off + len(data)] = data
-                open(fp, "wb").write(bytes(b))
-        log("bbgame: %d tables written (%s)" % (len(patches), " ".join(sorted(patches)) or "none"))
+        writes = [(piece, off, data) for t, data in sorted(patches.items()) for piece, off in mp["map"][t]]
+        if room:                                # SPEC.md 130.58.17.1: the pad count's bytes, the save's guard
+            n = npad if npad is not None else mp["npad"]["base"]
+            n = _npad if _npad is not None else n        # (t_bbgame's red arm: another count's bytes)
+            writes += [(piece, off, bytes.fromhex(h)) for (piece, off, _ln), h in
+                       zip(mp["npad"]["runs"], mp["npad"]["bytes"][str(n)])]
+        for piece, off, data in writes:
+            fp = os.path.join(bins, piece)
+            b = bytearray(open(fp, "rb").read())
+            b[off:off + len(data)] = data
+            open(fp, "wb").write(bytes(b))
+        log("bbgame: %s, %d tables written (%s)%s" % (os.path.basename(v), len(patches), " ".join(sorted(patches))
+                                                      or "none", ", %d pads" % npad if npad is not None else ""))
         demos = [os.path.join(art, ln.strip()) for ln in open(os.path.join(art, "bzdemo.lst")) if ln.strip()]
         crs = [os.path.join(art, "BZ%d.BIN" % k) for k in range(len(courses))]
         tail = [os.path.join(art, n) for n in ("BZPATH.BIN", "BZTITLE.BIN", "BZTDEMO.BIN", "BZKIT.BIN")]

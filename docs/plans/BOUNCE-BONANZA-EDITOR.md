@@ -174,14 +174,14 @@ union runs once at the end of a phase, in the background.
 | # | story | verified by |
 |---|---|---|
 | 7.1 [x] | a Map mode for `path.bbc`: pads, routes (gate, secret, path), icons, lives, pages, view, rail (130.22.2) | the shipped pathway round-trips and one route edits - DONE (130.58.20): the Map tab; the `bbedit` row's item 10; a scripted session dragged pad 1 (its routes followed) and had a pad dropped on pad 0 undone with the reason |
-| 7.2 [~] | placing a course on the map: its pad, its route, its icon | a new course reachable on the map in Test Roll's pathway - BUILT: *Put a course on the map* (pad, route on a free exit, icon), `# builder-course:` for a course not in the game, `bbgame.py --path`; the full check proves it reachable; MISSING: the pathway played on the host (Test Roll plays courses), and on MartyPC |
+| 7.2 [~] | placing a course on the map: its pad, its route, its icon | a new course reachable on the map in Test Roll's pathway - BUILT: *Put a course on the map* (pad, route on a free exit, icon), `# builder-course:` for a course not in the game, `bbgame.py --path` - and a map with more pads and signs than the shipped one composes (the headroom variants, SPEC.md 130.58.17.1: XTRA on a ninth pad is byte for byte nasm's `BZHEADROOM=1` build of that list and map, the save's pad guard at 9); the full check proves it reachable; MISSING: the pathway played on the host (Test Roll plays courses), and on MartyPC |
 
 ### Wave 8 - add to the game, and the zip
 
 | # | story | verified by |
 |---|---|---|
 | 8.1 [x] | the decision of 130.58.9: a prebuilt package with a data course table, or a course list read off the disk | written into 130.58.17 with its cost in bytes: the prebuilt pieces (`make bbgamebin`), the shipped package 0 bytes changed, an added course 51 resident bytes |
-| 8.2 [~] | the builder writes `BONANZA.O88` with the author's courses, and optionally a floppy image (`os88disk.py`) | `tools/bbgame.py`, the Course tab's "Put this course in the game...", `--pad0` for a pad to play it from; row `bbgame`: the shipped list composed is `build/bonanza.o88`, shipped + XTRA and `--pad0 XTRA` are byte for byte the nasm builds of those lists. **Missing**: the package booted in MartyPC playing the new course |
+| 8.2 [~] | the builder writes `BONANZA.O88` with the author's courses, and optionally a floppy image (`os88disk.py`) | `tools/bbgame.py`, the Course tab's "Put this course in the game...", `--pad0` for a pad to play it from; row `bbgame`: the shipped list composed is `build/bonanza.o88`, shipped + XTRA and `--pad0 XTRA` are byte for byte the nasm builds of those lists; a pathway with more pads and signs than the shipped map (`--path`, XTRA on a ninth pad) is byte for byte nasm's `BZHEADROOM=1` build, BZ_PATH_NPAD's bytes written from a probe at every count (SPEC.md 130.58.17.1). **Missing**: the package booted in MartyPC playing the new course |
 | 8.3 [x] | `make bbeditbundle`: the window, the compiler, its assets and the prebuilt parts in a zip for a machine with no os8088 tree | the zip run on a clean Linux; the macOS and Windows steps written for the owner |
 
 ### The final pass

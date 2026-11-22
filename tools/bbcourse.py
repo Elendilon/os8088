@@ -10381,6 +10381,13 @@ _SHADOW_OK = True             # off for a course over BLK_MAX with shadows (comp
 _SHADOW_IN = False
 SHADOW_DIR = (-1.0, 1.0)      # toward the light, world gu (normalised where it is used)
 SHADOW_R = 1.0                # the light's rise, px of height a gu
+# SPEC.md 130.58.17.1: HEADROOM (the run's --headroom, make's BZHEADROOM=1), OFF in the shipped build - the build ADD TO THE
+# GAME's prebuilt variants are made with (tools/bbgame.py), so that a composed game's pathway may have more pads and
+# signs than the shipped map: BZ_NSIGN floored at HEADROOM_NSIGN (bz_nst, bss: a capacity) and BZ_PAD_EXITS written
+# for PATH_PAD_MAX pads, the ones past the map's 0 (bz_pexits: a capacity - bz_dslots reads BZ_PATH_NPAD words of
+# it).  BZ_PATH_NPAD itself stays the map's real count: it is the save file's guard (BZD_NPAD, 130.22.5.1)
+HEADROOM = False
+HEADROOM_NSIGN = 255         # a pathway part's header keeps its sign count in a byte (130.22.3)
 FSHOW_ALL = False             # SPEC.md 130.28.6: the SHOW rule on every course (the run's --fshow, make's BZFSHOW=1); OFF
 #                               by default - the owner, 2026-11-17, kept it as a TOGGLE; a course's `fshow` turns it on
 
@@ -20990,7 +20997,7 @@ def emit_inc(courses, path=None, title=None):
               "BZ_GRP_LMAX     equ %d        ; ...group lanes a MEMBER's +8 - +15 lists (0FFh after the last)" % GRP_LMAX,
               "BZ_NSIGN        equ %d        ; the most signs any course of the build has (bz_nst's bytes, at least 1)"
               % max([c.pth["nsign"] for c in allc if getattr(c, "pth", None)]
-                    + [lb["num"] + 1 for c in allc for lb in c.src.labels] + [1]),
+                    + [lb["num"] + 1 for c in allc for lb in c.src.labels] + [HEADROOM_NSIGN if HEADROOM else 1]),
               "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
               "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
               "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
@@ -21343,7 +21350,8 @@ def emit_path(path, courses, title=None):
         "; SPEC.md 130.22.5.1: each pad's EXITS, a bit an exit of the course it plays - a slot's exits",
         "; found are masked to them on load (a word a pad)",
         "%macro BZ_PAD_EXITS 0",
-        "    dw " + ", ".join("%05Xh" % sum(1 << e for e in course_exits(courses[q["K"]])) for q in pth["pads"]),
+        "    dw " + ", ".join(["%05Xh" % sum(1 << e for e in course_exits(courses[q["K"]])) for q in pth["pads"]]
+                          + ["00000h"] * ((PATH_PAD_MAX - len(pth["pads"])) if HEADROOM else 0)),
         "%endmacro",
         "BZ_PATH_NPAD    equ %d        ; pads, 1 - %d" % (len(pth["pads"]), PATH_PAD_MAX),
         "BZ_PATH_CLAIM   equ %d      ; paragraphs: the pathway part's RAM form" % ((len(path.cga) + 15) // 16),
@@ -37227,7 +37235,7 @@ def main_guide(paths, logs):
 
 
 def main():
-    global OCC_MODE, FSHOW_ALL, SHADOW, STRICT, STRICT_SKIP
+    global OCC_MODE, FSHOW_ALL, HEADROOM, SHADOW, STRICT, STRICT_SKIP
     if len(sys.argv) > 1 and sys.argv[1] in ("fbundle", "famparts"):
         try:
             return main_fbundle(sys.argv[1:])
@@ -37278,6 +37286,10 @@ def main():
     ap.add_argument("--fshow", action="store_true",
                     help="SPEC.md 130.28.6's SHOW rule on every course (make's BZFSHOW=1): a ball ON a shape drawn "
                          "whole - off by default, the owner's toggle; a course's own `fshow` turns it on for it")
+    ap.add_argument("--headroom", action="store_true",
+                    help="SPEC.md 130.58.17.1's HEADROOM (make's BZHEADROOM=1): BZ_NSIGN floored at %d and BZ_PAD_EXITS for "
+                         "BZ_PAD_MAX pads - the build tools/bbgame.py's variants are made with; off by default"
+                         % HEADROOM_NSIGN)
     ap.add_argument("--shadow", action="store_true",
                     help="SPEC.md 130.47.5's CAST SHADOWS (make's BZSHADOW=1): light from -x+y, 1 gu of shadow a px "
                          "of height, a 50%% dither on the tops they fall on; off by default")
@@ -37304,6 +37316,7 @@ def main():
     if a.selfcheck and not a.strict:              # SPEC.md 130.58.18: --selfcheck REPORTS a blend (the shipped
         STRICT_SKIP = ("blend",)                  # PLAYGROUND and title do; --strict refuses it)
     FSHOW_ALL = a.fshow
+    HEADROOM = a.headroom
     SHADOW = a.shadow
     JOBS[0] = a.jobs
     paths = a.courses or default_paths()

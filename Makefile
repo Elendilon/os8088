@@ -22051,6 +22051,21 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
+#> [Knobs] BZHEADROOM=1 :: Bounce Bonanza with room for a bigger pathway - BZ_NSIGN floored at 255, BZ_PAD_EXITS for BZ_PAD_MAX pads (SPEC.md 130.58.17.1): the build ADD TO THE GAME's prebuilt variants are made with (make bbgamebin), off by default and never shipped
+# BZHEADROOM=1 passes --headroom to bbcourse.py, which writes bzcourse.inc with two CAPACITIES raised: bz_nst
+# (BZ_NSIGN, bss) for 255 signs and bz_pexits (BZ_PAD_EXITS) for BZ_PAD_MAX pads, those past the map's 0.
+# BZ_PATH_NPAD stays the map's own count - it is the save file's guard (BZD_NPAD) - so tools/bbgame.py PATCHES
+# the bytes it assembles into (a probe at every count, 130.58.17.1).  STAMPED, so a change recompiles the courses.
+BZHEADROOM ?=
+ifeq ($(filter $(BZHEADROOM),1),)
+ifneq ($(BZHEADROOM),)
+$(error BZHEADROOM=$(BZHEADROOM) is 1 or empty)
+endif
+endif
+BZHEADROOMSTAMP := $(BUILD)/.bzheadroom-$(or $(BZHEADROOM),0)
+$(BZHEADROOMSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.bzheadroom-*
+	@touch $@
 #> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
@@ -22147,9 +22162,9 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) $(BZHEADROOMSTAMP) \
                    $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) $(if $(BZHEADROOM),--headroom) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
