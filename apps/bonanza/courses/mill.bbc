@@ -55,160 +55,66 @@ floor rect  23  50  26  51  flat 10   # J
 floor rect  22  51  27  56  flat 10   # Z
 
 # guard rails: every open edge but the design's (the jump's gap, the back door's step, the arch's legs)
-guard tile   6   9
-guard tile   6  10
-guard tile   6  11
-guard tile   6  12
-guard tile   6  13
-guard tile   7   8
-guard tile   7  14
-guard tile   8  14
-guard tile   9  14
-guard tile  10  14
-guard tile  11  14
-guard tile  12   4
-guard tile  12  14
-guard tile  13   4
-guard tile  14   4
-guard tile  15   4
-guard tile  15  26
-guard tile  15  27
-guard tile  15  28
-guard tile  15  29
-guard tile  15  30
-guard tile  15  31
-guard tile  15  32
-guard tile  15  33
-guard tile  15  34
-guard tile  15  35
-guard tile  16   5
-guard tile  16   6
-guard tile  16   7
-wall  tile  16   8  flat 34   # a block rail beside a ramp
-guard tile  16  25
-guard tile  16  36
-guard tile  17  25
-guard tile  17  36
-guard tile  17  37
-guard tile  17  38
-guard tile  17  41
-guard tile  17  42
-guard tile  18  25
-guard tile  18  30
-guard tile  18  31
-guard tile  18  32
-guard tile  18  33
-guard tile  18  43
-guard tile  18  47
-guard tile  18  48
-guard tile  18  49
-guard tile  19  15
-guard tile  19  16
-guard tile  19  17
-guard tile  19  18
-guard tile  19  19
-guard tile  19  21
-guard tile  19  25
-guard tile  19  30
-guard tile  19  43
-guard tile  19  46
-guard tile  19  50
-guard tile  20  14
-guard tile  20  22
-guard tile  20  25
-guard tile  20  33
-guard tile  20  43
-guard tile  20  50
-guard tile  21  14
-wall  tile  21  22  flat 17   # a block rail beside a ramp
-wall  tile  21  23  flat 17   # a block rail beside a ramp
-wall  tile  21  24  flat 17   # a block rail beside a ramp
-guard tile  21  25
-guard tile  21  32
-guard tile  21  33
-wall  tile  21  50  flat 12   # a block rail beside a ramp
-guard tile  21  51
-guard tile  21  52
-guard tile  21  53
-guard tile  21  54
-guard tile  21  55
-guard tile  22  14
-guard tile  22  33
-guard tile  22  50
-guard tile  22  56
-guard tile  23  14
-guard tile  23  30
-guard tile  23  33
-guard tile  23  43
-guard tile  23  56
-guard tile  24  14
-guard tile  24  25
-guard tile  24  30
-guard tile  24  33
-guard tile  24  43
-guard tile  24  46
-guard tile  24  56
-guard tile  25  14
-guard tile  25  22
-guard tile  25  25
-guard tile  25  30
-guard tile  25  34
-guard tile  25  35
-guard tile  25  36
-guard tile  25  37
-guard tile  25  38
-guard tile  25  41
-guard tile  25  42
-guard tile  25  45
-guard tile  25  46
-guard tile  25  56
-guard tile  26  15
-guard tile  26  16
-guard tile  26  17
-guard tile  26  18
-guard tile  26  19
-guard tile  26  20
-guard tile  26  21
-guard tile  26  25
-guard tile  26  50
-guard tile  26  56
-guard tile  27  25
-wall  tile  27  50  flat 12   # a block rail beside a ramp
-guard tile  27  51
-guard tile  27  52
-guard tile  27  53
-guard tile  27  54
-guard tile  27  55
-guard tile  28  25
-guard tile  28  30
-guard tile  28  50
-guard tile  29  26
-guard tile  29  27
-guard tile  29  28
-guard tile  29  29
-guard tile  29  50
-guard tile  30  33
-guard tile  30  34
-guard tile  30  35
-guard tile  30  36
-guard tile  30  45
-guard tile  30  46
-guard tile  30  50
-guard tile  31  45
-guard tile  31  46
-guard tile  31  50
-guard tile  32  45
-guard tile  32  47
-guard tile  32  48
-guard tile  32  49
-guard tile  33  32
-guard tile  33  45
-guard tile  34  33
-guard tile  34  34
-guard tile  34  35
-guard tile  34  42
-guard tile  34  43
-guard tile  34  44
+# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+guard rect   7   9  13  14 side +x   # A's east edge, over the one-cell gap to R: no jump across (the owner, 2026-11-22)
+guard rect  15   5  16   9 side +x
+guard rect  17  30  18  34 side +x
+guard tile  22  43 side +x
+guard tile  23  25 side +x
+guard rect  24  34  25  39 side +x
+guard rect  24  41  25  43 side +x
+guard rect  25  15  26  22 side +x
+guard tile  25  50 side +x
+guard rect  26  51  27  56 side +x
+guard rect  28  26  29  30 side +x
+guard rect  29  45  30  47 side +x
+guard rect  31  47  32  50 side +x
+guard rect  33  33  34  36 side +x
+guard rect  33  42  34  45 side +x
+guard rect  12   5  16   6 side -y
+guard tile   7   9 side -y
+guard rect  20  15  26  16 side -y
+guard rect  16  26  22  27 side -y
+guard rect  24  26  29  27 side -y
+guard tile  33  33 side -y
+guard tile  18  34 side -y
+guard rect  20  34  25  35 side -y
+guard tile  34  36 side -y
+guard tile  19  47 side -y
+guard rect  24  47  26  48 side -y
+guard rect  30  47  32  48 side -y
+guard tile  22  51 side -y
+guard tile  26  51 side -y
+guard rect   7  13  13  14 side +y
+guard tile  20  21 side +y
+guard tile  25  21 side +y
+guard rect  18  29  20  30 side +y
+guard rect  23  29  26  30 side +y
+guard tile  28  29 side +y
+guard tile  21  31 side +y
+guard rect  16  35  18  36 side +y
+guard rect  18  42  21  43 side +y
+guard rect  23  42  25  43 side +y
+guard rect  30  44  34  45 side +y
+guard rect  19  49  23  50 side +y
+guard rect  26  49  32  50 side +y
+guard rect  22  55  27  56 side +y
+guard rect   7   9   8  14 side -x
+guard rect  16  26  17  36 side -x
+guard rect  18  36  19  39 side -x
+guard rect  18  41  19  43 side -x
+guard rect  19  47  20  50 side -x
+guard rect  20  15  21  20 side -x
+guard tile  20  21 side -x
+guard tile  21  43 side -x
+guard rect  22  24  23  26 side -x
+guard rect  22  51  23  56 side -x
+guard tile  23  50 side -x
+guard tile  26  30 side -x
+guard rect  26  45  27  47 side -x
+guard rect  31  33  32  37 side -x
+wall  tile  21  22  flat 17   # a block beside the see-saw's plate: a rail never stands on a moving floor (SPEC.md 130.35.1)
+wall  tile  21  23  flat 17   # a block beside the see-saw's plate: a rail never stands on a moving floor (SPEC.md 130.35.1)
 
 # the first windmill (the prototype's right one): a KEEP tube through its house, entered -y from the tee
 tube keep   9 9  12 6  via 9 6
