@@ -3067,9 +3067,9 @@ EXPLAIN = [
      "on one flat floor."),
     (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
     (r"is empty", "the area is empty (zero cells across)."),
-    (r"has \d+ occluder records, over \d+", "too many things stand in front of each other at one spot of the "
-     "game's picture - usually a steep ramp or a tall cliff beside other tall parts. Make the ramp gentler "
-     "(longer, or a smaller rise) or the drop beside it lower."),
+    (r"the occluder pass at cell .* over the \d+ a frame's pass may cost", "too many things stand in front of "
+     "each other at one spot of the game's picture - usually tall parts close together at different heights. "
+     "Move them apart or make the drops between them lower."),
     (r"NO TRAP: from (.*?) an? (\w+) ball cannot reach the (goal|cup) without stranding it.*come to rest at "
      r"\((\d+), (\d+)\)", "a {1} ball that takes a pickup could get stuck: from {0} it gets to the {2} with the "
      "pickup, but if it misses it can stop at cell ({3}, {4}) with no way on and no edge to fall from. Give that "

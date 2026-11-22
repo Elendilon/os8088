@@ -1455,7 +1455,10 @@ bz_blit:
 ; the walk stops at the first right of the last.  The records of one block word are a GROUP:
 ; their laid masks are ANDed (bz_oand) and the word is laid ONCE a box
 ; (bz_olay), so a frame lays at most 3 x 3 words a box whatever the record
-; counts (130.10.9).  Outside the footprint a box holds the course and the
+; counts (130.10.9).  A mask is CUMULATIVE (SPEC.md 130.11.4.2): the AND of
+; every record of its block at or over it in both s' and t', and a group runs
+; in (s', t') order, so only a laid record UNDER the group's least laid t' so
+; far is ANDed (AH) - a ramp's rows lay one mask, not one AND a row.  Outside the footprint a box holds the course and the
 ; shadow already, and with OCCG clear (the shadow's condition) no record lays
 ; over the shadow alone, so laying a record's whole word is laying its
 ; footprint pixels.
@@ -1728,10 +1731,15 @@ bz_occ:
     xor bh, bh
     shl bx, 1
     mov bx, [bx + di]
+.tmin:
+    mov ah, [si + 2]            ; AH = the least t' the group has laid
     jmp short .skip
-.and:
-    call bz_oand                ; a second or later: ANDed into bz_omsk
-    jmp short .skip
+.and:                           ; a second or later.  SPEC.md 130.11.4.2: a
+    cmp [si + 2], ah            ; record's mask is CUMULATIVE - the AND of
+    jae .skip                   ; every record of its block at or over it in
+    call bz_oand                ; both s' and t' - and the group runs in (s',
+    jmp short .tmin             ; t') order, so a laid record at or over the
+                                ; least t' laid is under a laid mask already
 
 ; bz_otbk - SPEC.md 130.51, 130.52: the block row bz_obr's BAND, b = line >>
 ; 7, from entry b of the bands' table (YOFF, bz_otb; 4 bytes an entry) in the

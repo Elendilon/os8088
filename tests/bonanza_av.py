@@ -35,6 +35,7 @@ top line or its left word inside it).
 SPEC.md 130.29.5: the FALLS above are what reach it) must fail.
 SPEC.md 130.49's: --red lowfl (the low flight's margin left out), --red apick (a split V's pick ignored), --red
 acent (a centre half-edge a line low) and --red aflat (a flat word laid from the first laid line) must fail;
+SPEC.md 130.11.4.2's: --red acum (a group's later laid records never ANDed, the least-t' test gone) must fail;
 --course BBC (more than once) runs those course files alone (ROLL, HOP: the BZROLL=1 build's).
 """
 import argparse
@@ -85,6 +86,10 @@ REDS = {
     # SPEC.md 130.49.7: the flat word's lay from the first laid line, not from its edge
     "aflat": [("bzvideo.inc", "    add [es:bz_of], ax\n    sub [es:bz_on], ax\n",
                "    nop                         ; RED aflat\n    nop\n")],
+    # SPEC.md 130.11.4.2: a group's later laid records passed over whatever their t' (the least-t' test gone), so
+    # a record UNDER the least laid t' - an antichain's, not under any laid cumulative mask - is never ANDed
+    "acum": [("bzvideo.inc", "    jae .skip                   ; every record of its block at or over it in",
+              "    jmp .skip                   ; RED acum")],
 }
 
 
