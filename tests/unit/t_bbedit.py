@@ -52,12 +52,21 @@
     bbedjob.occ_data (owner, the cells it hides, its cells flagged); set_noocclude over every cell it hides
     and the compiler cuts it no more; taken out, the course is the text it was; the start is refused.
 
+ 17. EVERY OPTION HAS A CONTROL (130.58.37): every clause of tools/bbedopts.py's GRAMMAR list (the audit,
+    docs/plans/BONANZA-BUILDER-OPTIONS.md) has its row in OPTIONS and every row is in GRAMMAR; on a statement
+    with every clause written (FULL) each row reads its value, and cleared then set back to it the statement
+    is legal again with the same value - so a clause the grammar wants in one place goes back there (the
+    see-saw's `rest` after its pivot, a clock's `frame` before `digits`, water's `open` before `ripple`); on
+    the bare statement each row's default writes a legal clause and clearing it gives the bare statement back.
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
 nothing"), make occ_data add no cell to a record's `needs` (item 16: "no record
 of the wall hides a cell behind it"), or cut with `rcut = reach` in
-compile_course (item 16: "noocclude ... left record(s)").
+compile_course (item 16: "noocclude ... left record(s)"); delete crack's `hole` row from bbedopts.OPTIONS
+(item 17: "no row for prop crack's hole"), or give the see-saw's `rest` row `at=None` (item 17: "rest ...
+not legal again").
 """
 
 import glob
@@ -71,6 +80,7 @@ import bbedproj as E  # noqa: E402
 import bbedshape as S  # noqa: E402
 import bbedjob as J  # noqa: E402
 import bbedmap as M  # noqa: E402
+import bbedopts as OPT  # noqa: E402
 import tempfile  # noqa: E402
 
 FLAG = """course HFLAG "Hidden flag"
@@ -87,9 +97,107 @@ way 4 4
 way 12 4
 %s"""
 
+# item 17: each statement kind bbedopts answers for, bare and with every clause it may take written (one form)
+OPT_BARE = {
+    ("goal", None): "goal rect 4 4 6 6 flat 2", ("water", None): "water rect 4 4 6 6 top 4 bed 0",
+    ("arch", None): "arch 4 4 +x", ("float", None): "float rect 4 4 6 6", ("gap", None): "gap rect 4 4 6 6",
+    ("guard", None): "guard rect 4 4 8 8", ("seesaw", None): "seesaw 4 4 6 5 along x pivot 3",
+    ("archway", None): "archway rect 4 4 6 5 along x", ("cup", None): "cup 4 4",
+    ("checkpoint", None): "checkpoint 4 4", ("clock", None): "clock 4 4", ("spring", None): "spring 4 4 768",
+    ("pad", None): "pad rubber 4 4", ("label", None): 'label 1 2 3 glyphs "HI"', ("way", None): "way 4 4",
+    ("prop", "windmill"): "prop windmill 4 4", ("prop", "bumper"): "prop bumper 4 4",
+    ("prop", "platform"): "prop platform 4 4 4", ("prop", "turntable"): "prop turntable 4 4 size 2 fill oo/..",
+    ("prop", "bridge"): "prop bridge 4 4 6 6 channel ring", ("prop", "boost"): "prop boost 4 4 face +x",
+    ("prop", "magnet"): "prop magnet 4 4 face -x", ("prop", "blower"): "prop blower 4 4 face +y region 4 5 6 7",
+    ("prop", "popspikes"): "prop popspikes 4 4 period 128 on 64", ("prop", "crack"): "prop crack 4 4",
+    ("prop", "gate"): "prop gate 4 4 channel ring", ("prop", "plate"): "prop plate 4 4 channel ring",
+    ("prop", "key"): "prop key 4 4 channel ring", ("prop", "speed"): "prop speed 4 4",
+    ("prop", "jump"): "prop jump 4 4", ("prop", "life"): "prop life 4 4"}
+OPT_FULL = {
+    ("goal", None): "goal rect 4 4 6 6 flat 2 exit 1 hidden",
+    ("water", None): "water rect 4 4 6 6 top 4 bed 0 open ripple 4 4",
+    ("arch", None): "arch 4 4 +y guard height 2.5", ("float", None): "float rect 4 4 6 6 thick 1",
+    ("gap", None): "gap rect 4 4 6 6 sw", ("guard", None): "guard rect 4 4 8 8 side +x -y height 2.5",
+    ("seesaw", None): "seesaw 4 4 6 5 along x pivot 3 rest + period 64 flat 6 seed 3",
+    ("archway", None): "archway rect 4 4 6 5 along y under 3",
+    ("cup", None): "cup 4 4 capture 200 exit 1 hidden", ("checkpoint", None): "checkpoint 4 4 ball steel",
+    ("clock", None): "clock 4 4 frame pin digits 1 2", ("spring", None): "spring 4 4 500",
+    ("pad", None): "pad steel 4 4", ("label", None): 'label 1 2 3 glyphs "HI" ink 2',
+    ("way", None): "way 4 4 branch AB",
+    ("prop", "windmill"): "prop windmill 4 4 period 32 closed 12 20 seed 5",
+    ("prop", "bumper"): "prop bumper 4 4 kick 200",
+    ("prop", "platform"): "prop platform 4 4 3 period 64 dwell 4 seed 3",
+    ("prop", "turntable"): "prop turntable 4 4 size 3 fill oo./.o./.oo quarter 32 turn ccw seed 9 warn 8",
+    ("prop", "bridge"): ("prop bridge 4 4 6 6 period 64 on 20 seed 3 style picket",
+                         "prop bridge 4 4 6 6 channel cross style grille"),
+    ("prop", "boost"): "prop boost 4 4 face +y strength 30 flat",
+    ("prop", "magnet"): ("prop magnet 4 4 face -x range 4 strength 48", "prop magnet 4 4 face down -x strength 9"),
+    ("prop", "blower"): "prop blower 4 4 face up region 4 4 6 6 strength 9 top 4 lift gust 16 16 seed 3 flag",
+    ("prop", "popspikes"): "prop popspikes 4 4 period 64 on 20 seed 3", ("prop", "crack"): "prop crack 4 4 hole wide",
+    ("prop", "gate"): ("prop gate 4 4 channel plus along y style picket", "prop gate 4 4 channel plus art door"),
+    ("prop", "plate"): "prop plate 4 4 channel box",
+    ("prop", "key"): "prop key 4 4 channel box", ("prop", "speed"): "prop speed 4 4 for 4 overwrite respawn",
+    ("prop", "jump"): "prop jump 4 4 for 4 overwrite respawn", ("prop", "life"): "prop life 4 4 once"}
+
+
+def options_check():
+    """item 17 (SPEC.md 130.58.37): every option the grammar has, a row; each row round-trips -> [problems]"""
+    bad = []
+    for key, ids in OPT.GRAMMAR.items():
+        have = [OPT.option_id(o) for o in OPT.OPTIONS.get(key, [])]
+        bad += ["options: no row for %s's %s" % (" ".join(k for k in key if k), w) for w in ids if w not in have]
+    for key, rows in OPT.OPTIONS.items():
+        bad += ["options: %s's row %s is not in GRAMMAR" % (key, OPT.option_id(o)) for o in rows
+                if OPT.option_id(o) not in OPT.GRAMMAR.get(key, ())]
+        if key not in OPT_FULL or key not in OPT_BARE:
+            bad.append("options: no sample statement for %r" % (key,))
+            continue
+        fulls = OPT_FULL[key] if isinstance(OPT_FULL[key], tuple) else (OPT_FULL[key],)
+        bare = E.tokens(OPT_BARE[key])
+        for t in [E.tokens(f_) for f_ in fulls] + [bare]:
+            if OPT.statement_error(E.join_tokens(t)):
+                bad.append("options: the sample %r is refused: %s" % (E.join_tokens(t),
+                                                                     OPT.statement_error(E.join_tokens(t))))
+        read = set()
+        for full in [E.tokens(f_) for f_ in fulls]:
+            for o in OPT.options_for(full):
+                oid, v = OPT.option_id(o), OPT.value(full, o)
+                if v in (None, False, set()) and o["t"] != "mode":
+                    continue
+                read.add(oid)
+                if o["req"] or o["t"] == "mode" or o["w"] is None and o["t"] != "bare":
+                    continue
+                blank = {"flag": False, "sides": set()}.get(o["t"], "")
+                back = OPT.apply(OPT.apply(full, o, blank), o, v)
+                err = OPT.statement_error(E.join_tokens(back))
+                if err or OPT.value(back, o) != v:
+                    bad.append("options: %s's %s cleared and set back to %r: %r, not legal again (%s)" % (
+                        key, oid, v, E.join_tokens(back), err))
+        bad += ["options: %s's %s reads no value from any of %r" % (key, OPT.option_id(o), fulls) for o in rows
+                if OPT.option_id(o) not in read and not (o["t"] == "choice" and not o["vals"])]
+        for o in OPT.options_for(bare):
+            oid = OPT.option_id(o)
+            if o["t"] == "mode":
+                vals = [m[0] for m in o["modes"]]
+            elif o["req"]:
+                continue
+            else:
+                vals = [True if o["t"] == "flag" else {"+x", "-y"} if o["t"] == "sides" else o["vals"][0]
+                        if o["t"] == "bare" else o["vals"][-1] if o["t"] == "choice" else o["d"]]
+            for v in vals:
+                t2 = OPT.apply(bare, o, v)
+                err = OPT.statement_error(E.join_tokens(t2))
+                if err:
+                    bad.append("options: %s's %s set to %r: %r refused (%s)" % (key, oid, v, E.join_tokens(t2),
+                                                                               err[:120]))
+                elif o["t"] != "mode" and OPT.apply(t2, o, {"flag": False, "sides": set()}.get(o["t"], "")) != bare:
+                    bad.append("options: %s's %s set and cleared is not the bare %r" % (key, oid, OPT_BARE[key]))
+    return bad
+
 
 def main():
     bad = []
+    bad += options_check()
     courses = sorted(glob.glob(os.path.join(ROOT, "apps", "bonanza", "courses", "*.bbc")))
     if not courses:
         bad.append("no courses found")

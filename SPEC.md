@@ -289607,3 +289607,20 @@ naming the part rows and K - `bonanzaexit`, `bonanzapath`, `bonanzatitle`, `bona
 the ring's `part_args` - were updated to read `bzparts.lst`, `BZ_CRS_PATH` and `BZ_CRS_TITLE`, by reading).
 An added SHEETED course, a bigger pathway picture (`BZ_PATH_CLAIM`) and a pad course past `BZ_CRS_MAXCLAIM`
 are still refused.
+
+#### 130.58.37 Every option has a control (the owner, 2026-11-22)
+
+*"Want to do a check if any other props are missing options they have available?"* The inspector shows a
+control for **every** clause a statement may take, written or not - not only for the words already typed.
+`tools/bbedopts.py` is the table, one row per clause of a statement kind: its word (or a positional value), the
+kind of value (a number with its range, a choice of only the legal values, a flag, a pair, a name, a set of
+edges, or a form such as a bridge's channel / timer), the default it is written with, its label and a one-line
+hint. Setting a row writes its clause where the grammar wants it (a see-saw's `rest` after its pivot, a cup's
+`capture` after its cell, a clock's `frame` before `digits`); clearing it - a blank box, an unticked flag, the
+choice that means "as it is without the clause" - takes the clause out. An edit that makes a neighbouring clause
+illegal puts that right in the same step (an updraft gets its `top`, a hanging magnet loses its `range`, a
+shorter period drops a seed it no longer holds, a new turntable size starts a legal `fill`). The see-saw's size
+and timer, a floor's slope, the route list and the shape editor keep their own sections. What is left without
+a control - pieces (`half`, `quarter`, `box`), water's ripple cells - needs a picture interaction;
+docs/plans/BONANZA-BUILDER-OPTIONS.md is the audit, and t_bbedit item 17 holds the table to it. A gate, plate or
+key added alone is refused until its other half is placed; the banner says so (*Keep it anyway*, then add it).
