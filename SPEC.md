@@ -289349,3 +289349,74 @@ move (130.58.14) cut the cells' ground but kept their paint; and no click reache
   click (again) reaches it and the inspector changes or deletes it.
 - The same move put the windmill's doorway "in the shade"; that refusal is a warning now (130.12.4.6).
 
+#### 130.58.32 The occluders shown; why a doorway is "in the shade" (the owner, 2026-11-22)
+
+The owner, after moving MILL's ramp R one cell toward the start floor A (`floor rect 13 9 15 17 ramp y 9 17 32 20`)
+and getting 130.12.4.6's `shade` warning: *"can you highlight what it is drawing/where it is conflicting? ... a
+toggle so we can visualize it"*, and *"a view mode for iso that shows the occlusion masks ... Part of the final
+course work (similar to adding the G4 gaps) will be to delete the ones no human can realistically reach."*
+
+**The MILL answer.** It is not the windmill: the shade rule is about the BALL. A cell of the doorway's 3 x 3 is
+in the shade when a ball in it can be under an occluder record (its OCC or OCCG flag, 130.11.4.3), and a ball's
+box anywhere in a cell is 48 px wide (the cell's area and the sprite either side, `foot_x`). The records that
+flag (10, 9) and (10, 10) - OCCG, a ball resting there - are five of the GUARD RAIL `guard rect 7 9 13 14 side +x`
+on A's east edge (the rule's records 350, 391 drawn with cell (13, 10); 390, 392 and 426 with (13, 11)). A rail
+stands on the HIGHER floor of its edge and rises 16 px over it (130.35.3), and is drawn with the cell across the
+edge (`rail_key`: with floors on both sides, the FRONT one). Before the move the cell across was VOID and the rail
+stood on A (half units 18, its top 22); after it the cell across is the ramp, 2.5 and 1 units over A at rows 10
+and 11, so the rail stands on the ramp (the (12, 10) edge's base 23 to 20, its top 27; the (12, 11) edge's 20 to 18,
+its top 24) and its west end - under the screen
+column of (11, 9)'s east corner, because (11, 9) and (13, 11) share a column - is lifted 8 to 20 lines into the
+lower right corner of the ball's box over (10, 9). It is drawn with (13, 10) and (13, 11), rows 23 and 24, in
+front of row 19, and its top is 36 px over the floor a ball rests on there. So a few of its pixels are laid back
+over a ball at (10, 9)'s east corner, and while the rotor turns (no occluder pass) the ball there would be drawn
+over them. Removing the rail clears it; so does the old one-cell gap. A `noocclude` over the doorway's cells does
+NOT: the cells beside the rail, where a ball really rolls, still need those records, and the flags count every
+record the rule cuts (130.53: the gate's flags keep the whole reach). The overlap is a corner of a box, where a
+round ball's sprite is mostly clear - `accept shade` is a fair answer too.
+
+**The job** (130.58.8): `bbedjob.py picture COURSE OUTDIR --occ` draws the picture as before and then compiles
+WITH the occluders (the part's block limit lifted, as the picture's), writing `occ.json` and meta's `occ`
+(`error` when the full rules refuse the course, the seconds, its `shade` warnings). `occ_data` writes, in the
+picture's pixels:
+
+- every record the RULE cuts (`c.rule_records`, the records the flags are counted on: with AV, 130.29, the part
+  ships the residual of these over the VOID positions, so the view shows what DECIDES the flags) - its pixels as
+  runs, `s`, `top`, the cells that drew them (`owners_canvas`), the guard rail's line when they are a rail's, the
+  cells whose ball NEEDS it (`needs`: the cutter's own test, pixel by pixel over `feet_real`'s poses - a
+  `noocclude` over all of them and it is not cut) and the cells whose flags it sets (`flags`: `_laid`'s block test
+  to the line, so it can name a record a line from the edge that the compiler's count leaves out; the flag is the
+  compiler's);
+- every cell with OCC or OCCG, and the `noocclude` cells;
+- for each windmill whose doorway is in the shade: the IN 3 x 3, its flagged cells, the box a ball anywhere in
+  each covers, the records that flag them and one plain sentence (`_shade_why`).
+
+Without `--occ` the picture job is unchanged and as fast. MEASURED (one core of a loaded four-core container,
+`BB_CACHE=0`): the moved-ramp MILL's picture 3.0 s alone, 28.1 s with `--occ` (the occluder compile 24.9 s,
+`occ_data` 0.4 s; 3,683 records, 615 flagged cells, `occ.json` 1.0 MB); PLAY (`playground.bbc`) 4.3 s and
+82.7 s (78.6 s, 3,871 records). A course compiled before comes from the compile cache: 1.4 s.
+
+**The window** (the Iso view's options row, beside *Gap bands*; tools/bbedocc.py):
+
+- **Occluders**: every record over the picture as a checker of a tint chosen by the cell that drew it; the cells
+  a ball can be hidden in dithered faintly (white OCCG, grey OCC alone); `noocclude` cells hatched blue. Hovering
+  names a record (its owner cell and rail, row and top, the cells whose ball it hides, the cells it flags), and a
+  flagged or noocclude cell. A click selects a record (filled and ringed) and the inspector offers **Don't hide
+  the ball here (noocclude N cells)** for the cells it hides - the start's and the route points' left out, as
+  130.53 refuses them - written by `Document.set_noocclude` through the window's checked edit: every `noocclude`
+  rewritten as the fewest `noocclude rect`/`tile` lines at the first one's place, one undo step. A click on a
+  noocclude cell offers **Hide the ball here again** and **Remove every noocclude**. The picture is cut again.
+- **Shade: why** (also turned on, in Iso, by clicking a `shade` warning in the problems or checks list): the IN
+  3 x 3 dithered yellow, the flagged cells red, each one's ball box dashed, the responsible records outlined red,
+  and the sentence over the picture.
+- The occluders cost the full rules' compile, so the picture job cuts them only while an overlay is on (turned on
+  with a picture without them, it is drawn again).
+- MEASURED (a scripted session under Xvfb on the moved-ramp MILL): the overlay drawn, record 390 selected and
+  named (rail line 58, hiding (10, 9) ... (13, 10)); *Don't hide the ball here* wrote `noocclude rect 10 9 13 10`,
+  `noocclude rect 11 10 14 11` and `noocclude tile 12 11`, the picture cut again with 3,611 records and 613
+  flagged cells, and Undo took the three lines out; the shade warning clicked in the problems list switched to
+  Iso with the explanation.
+- The `bbedit` row's item 16: on a constructed floor with a wall in front, a record the wall cuts hides a floor cell
+  behind it and the job names it; `set_noocclude` over every cell it hides and the compiler cuts it no more; taken
+  out again the course is its old text; the start is refused. Red by hand: `occ_data` with no `needs`, or the
+  cutter given the whole reach (`rcut = reach`).

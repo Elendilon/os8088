@@ -689,6 +689,49 @@ class Document(object):
             self.insert("gap tile %d %d %s" % (cell[0], cell[1], side))
             return "marked"
 
+    def in_play(self):
+        """the cells `noocclude` may not name (SPEC.md 130.53): the start's and every route point's"""
+        src = self.analysis()["src"]
+        if src is None:
+            return set()
+        return ({tuple(src.start[0])} if src.start else set()) | {tuple(w) for w, _l in src.ways}
+
+    def set_noocclude(self, add=(), remove=()):
+        """SPEC.md 130.58.32, 130.53: the `noocclude` cells changed as one undo step - ADD cells put in (the start's
+        and the route points' left out: refused there), REMOVE cells taken out - and every `noocclude` statement
+        rewritten as the fewest `noocclude rect` / `noocclude tile` lines over what is left, at the first one's
+        place (its comment kept); none left, the lines go. -> (cells added, cells removed, cells refused)"""
+        src = self.analysis()["src"]
+        if src is None:
+            raise EditError("the course does not lay out, so no noocclude can be changed")
+        have = set()
+        for cs, _ln in src.noocc:
+            have |= set(cs)
+        play = self.in_play()
+        add = {tuple(c) for c in add}
+        refused = add & play
+        add = add - play - have
+        remove = {tuple(c) for c in remove} & have
+        if not add and not remove:
+            return set(), set(), refused
+        cells = (have | add) - remove
+        codes = ["noocclude %s" % ("tile %d %d" % (x0, y0) if (x1 - x0, y1 - y0) == (1, 1)
+                                   else "rect %d %d %d %d" % (x0, y0, x1, y1)) for x0, y0, x1, y1 in _rects(cells)]
+        lines = sorted(ln for _cs, ln in src.noocc)
+        with self.group("noocclude: %s" % ("don't hide the ball" if add else "hide the ball again")):
+            for ln in reversed(lines[1:]):
+                self.remove(ln)
+            if lines and codes:
+                self.set_statement(lines[0], codes[0])
+                for k, code in enumerate(codes[1:]):
+                    self.insert(code, after=lines[0] + k)
+            elif lines:
+                self.remove(lines[0])
+            else:
+                for code in codes:
+                    self.insert(code)
+        return add, remove, refused
+
     WAY_ERR = re.compile(r"way \((-?\d+), (-?\d+)\) is on a (WALL|VOID) tile")
 
     def relocate_ways(self, reach=4, tries=40):

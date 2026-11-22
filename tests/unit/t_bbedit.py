@@ -48,10 +48,16 @@
     (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
     `marked` agrees after every step.
 
+ 16. THE OCCLUDER VIEW (130.58.32): on FLAG's floor a record the wall cuts hides a floor cell behind it, named by
+    bbedjob.occ_data (owner, the cells it hides, its cells flagged); set_noocclude over every cell it hides
+    and the compiler cuts it no more; taken out, the course is the text it was; the start is refused.
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
-nothing").
+nothing"), make occ_data add no cell to a record's `needs` (item 16: "no record
+of the wall hides a cell behind it"), or cut with `rcut = reach` in
+compile_course (item 16: "noocclude ... left record(s)").
 """
 
 import glob
@@ -437,6 +443,46 @@ def main():
     if not gl or gl[0] not in E.at_cell(an, (12, 12)):
         bad.append("at_cell: MILL's start-floor rail (line %r) is not offered at (12, 12): %r" % (
             gl, E.at_cell(an, (12, 12))))
+    # 16. THE OCCLUDER VIEW (SPEC.md 130.58.32): a wall in front of a floor cuts a record over the floor behind it,
+    # which the job names (its owner the wall, the cells whose ball it hides, the flags it sets); a noocclude over
+    # every cell it hides (set_noocclude) and it is not cut; taken out again, it is
+    occ_course = (FLAG % ("", "")).replace("checkpoint 6 5\n", "")
+    try:
+        B.BLK_MAX, held = 1 << 30, B.BLK_MAX
+        try:
+            c = B.compile_course(occ_course, "occ.bbc", occluders=True)
+            od = J.occ_data(c)
+            wall = [r for r in od["records"] if r["own"] and 7 <= r["own"][0][0] <= 9 and 6 <= r["own"][0][1] <= 7
+                    and r["needs"]]
+            behind = [r for r in wall if any(3 <= x <= 12 and 3 <= y <= 7 and x + y < 7 + 6 for x, y in r["needs"])
+                      and not {tuple(n) for n in r["needs"]} & {(4, 4), (12, 4)}]   # (a FLOOR cell behind it)
+            if not behind:
+                bad.append("occ view: no record of the wall hides a cell behind it (%d records)" % len(od["records"]))
+            else:
+                r0 = behind[0]
+                if not set(map(tuple, r0["needs"])) <= {(x, y) for x, y, _f in od["cells"]}:
+                    bad.append("occ view: a cell record %d hides is not flagged: %r" % (r0["id"], r0["needs"]))
+                pix0 = {(x, y_) for y_, x0_, x1_ in r0["runs"] for x in range(x0_, x1_ + 1)}
+                do = E.Document(occ_course)
+                added, _rm, refused = do.set_noocclude(add=r0["needs"])
+                if not added or refused or "noocclude" not in do.text():
+                    bad.append("occ view: set_noocclude wrote nothing: %r" % do.text()[-120:])
+                c2 = B.compile_course(do.text(), "occ.bbc", occluders=True)
+                still = [r for r in J.occ_data(c2)["records"]
+                         if pix0 & {(x, y_) for y_, x0_, x1_ in r["runs"] for x in range(x0_, x1_ + 1)}
+                         and set(map(tuple, r["needs"])) & set(map(tuple, r0["needs"]))]
+                if still:
+                    bad.append("occ view: noocclude over %r left record(s) %r over its pixels" % (
+                        r0["needs"], [r["id"] for r in still]))
+                do.set_noocclude(remove=r0["needs"])
+                if "noocclude" in do.text() or do.text() != occ_course:
+                    bad.append("occ view: noocclude taken out leaves %r" % do.text()[-120:])
+                if (4, 4) not in do.set_noocclude(add=[(4, 4)])[2]:
+                    bad.append("occ view: noocclude on the start was not refused")
+        finally:
+            B.BLK_MAX = held
+    except B.CourseError as e:
+        bad.append("occ view: refused: %s" % str(e)[:150])
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
