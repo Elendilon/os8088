@@ -288578,6 +288578,12 @@ clicks the ones that get it.
 - `gap` is a SHAPED statement for moving (coord_slots); the ground's cutting, rejoining and moving
   (130.58.13, 130.58.14) do not touch it - a mark left over a face that is gone is refused by the
   compiler, and the banner explains both of `gap`'s refusals in plain words.
+- **A mark an edit leaves with nothing to band** (its face moved, shrank or went: the owner, 2026-11-22, "If I
+  edit something that had previously set a gap band, instead of removing the gap band it is failing to
+  render") is dropped: the picture job, refused with `gap bands nothing` at a `gap` line, comments that line
+  out and compiles again, drawing the picture, and reports the lines (`dropped_gaps`); the window then
+  removes them from the course (one undo step, the status line naming them) if the course is still the
+  text the job drew.
 - The `bbedit` row (item 8) marks, folds, splits and unmarks on a constructed ledge and checks the
   compiler's `marked` after every step; it goes red when a piece that bands nothing is kept.
 

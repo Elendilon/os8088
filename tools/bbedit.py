@@ -2393,6 +2393,8 @@ class App(object):
         drawn = [i for i in range(0, len(ow), 7) if ow[i] >= 0]
         meta["centre"] = ((sum(i % W for i in drawn) / float(len(drawn)), sum(i // W for i in drawn) / float(len(drawn)))
                           if drawn else (W / 2.0, meta["lines"] / 2.0))
+        if meta.get("dropped_gaps") and self.doc.text() == text:   # SPEC.md 130.58.21: marks that no longer fit
+            self.root.after(10, lambda: self._drop_gaps(meta["dropped_gaps"], text))
         if self.show_gaps.get() and meta.get("gaps") is None and not self.pic_after:
             self.root.after(10, self.run_picture)   # (drawn before the overlay was turned on: again, with them)
         first = self.pic is None
@@ -2718,6 +2720,24 @@ class App(object):
             self.run_picture()                  # (one already drawing has no candidates either: started again)
             self._msg("Finding where a gap band could go...")
         self._redraw()
+
+    def _drop_gaps(self, lines, text):
+        """the `gap` lines the picture found banding nothing after an edit, removed - one undo step"""
+        if self.doc.text() != text:
+            return
+        lines = [ln for ln in lines if ln <= len(self.doc.lines) and self.doc.lines[ln - 1].split()[:1] == ["gap"]]
+        if not lines:
+            return
+
+        def go():
+            with self.doc.group("gap bands that no longer fit removed"):
+                for ln in sorted(lines, reverse=True):
+                    self.doc.remove(ln)
+            return True
+        if self._edit(go):
+            self._msg("Removed %d gap band mark%s the edit left with nothing to band (line%s %s)" % (
+                len(lines), "" if len(lines) == 1 else "s", "" if len(lines) == 1 else "s",
+                ", ".join(map(str, sorted(lines)))))
 
     def _gaps_shown(self):
         """the candidates the overlay draws: every marked face, and the unmarked ones at least gap_min wide"""

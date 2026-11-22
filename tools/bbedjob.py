@@ -28,6 +28,7 @@ chute, a pit or a hump - on the play-only compile, and answers in words.
 
 import json
 import os
+import re
 import sys
 import time
 from array import array
@@ -76,14 +77,25 @@ def picture(path, out, name=None, gaps=False):
     B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.58.8)
     B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (130.58.21)
     emit(stage="compile", what="laying the course")
-    try:
-        if M.is_map(text):                      # a pathway: its pads' courses with the extra ones (130.58.20)
-            c = M.compile_map(text, path)
-        else:
-            c = B.compile_course(text, path, occluders=False)
-    except B.CourseError as e:
-        emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 2))
-        return 1
+    dropped = []                                # SPEC.md 130.58.21: a `gap` an edit left banding nothing is
+    while True:                                 # dropped (the window removes it from the course) - never a
+        try:                                    # picture refused for a mark that no longer fits
+            if M.is_map(text):                  # a pathway: its pads' courses with the extra ones (130.58.20)
+                c = M.compile_map(text, path)
+            else:
+                c = B.compile_course(text, path, occluders=False)
+            break
+        except B.CourseError as e:
+            m = re.search(r":(\d+): gap bands nothing", str(e))
+            lines = text.split("\n")
+            if m and len(dropped) < 64 and 0 < int(m.group(1)) <= len(lines) and \
+                    lines[int(m.group(1)) - 1].split()[:1] == ["gap"]:
+                dropped.append(int(m.group(1)))
+                lines[int(m.group(1)) - 1] = "#" + lines[int(m.group(1)) - 1]     # (the line numbers kept)
+                text = "\n".join(lines)
+                continue
+            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 2))
+            return 1
     emit(stage="render", what="drawing the picture")
     os.makedirs(out, exist_ok=True)
     pal = palette(c.src)
@@ -121,7 +133,7 @@ def picture(path, out, name=None, gaps=False):
         emit(stage="log", what="no visibility marks: %s" % e)
     meta = {"width": c.width, "lines": c.lines, "x0": c.x0, "y0": c.y0, "name": c.name, "marks": marks,
             "warnings": [warning(w) for w in c.warnings],
-            "gaps": c.gap_faces if gaps else None, "secs": round(time.time() - t0, 2)}
+            "gaps": c.gap_faces if gaps else None, "dropped_gaps": dropped, "secs": round(time.time() - t0, 2)}
     with open(os.path.join(out, "meta.json"), "w") as f:
         json.dump(meta, f)
     emit(stage="done", ok=True, out=out, secs=meta["secs"])
