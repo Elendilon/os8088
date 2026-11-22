@@ -262884,12 +262884,69 @@ exactly planar: its slopes are `(r, 0)` for `x`, `(0, r)` for `y` and
 |---|---|---|
 | `floor` flat | FLOOR at height `h` | the 2-colour checker by tile parity |
 | `floor` ramp | FLOOR, a plane | the finer 2 x 2 checker that reads as a slope |
-| `wall` | WALL: impassable from every side and at every height - the ball's circle never enters it, so it is never landed on or rolled along (a mini-golf rail). Its top must be above every floor that shares an edge with it, or the line is refused: a wall must look like one | white top |
+| `wall` | WALL: impassable from every side and at every height - the ball's circle never enters it, so it is never landed on or rolled along (a mini-golf rail). Its top may be LOWER than some of the floors it touches (it walls off what is below it, 2026-11-22, below); it must be above AT LEAST ONE floor it shares an edge with, at one end of that edge at least, or the line is refused: a wall nobody can see | white top |
 | `goal` | GOAL: a floor whose every grounded step, at any speed, ends the run - a FINISH LINE. Plan 8's cup, which captures only a slow ball, is wave 4's | the black and white finish checker |
 | (no room, or `hole`) | VOID: no floor; the ball falls. A VOID cell within two tiles of a solid cell is NEAR and kills below a height; farther it is OPEN (130.10.4.3) | nothing; the neighbours' faces hang into it - 3 units (24 px) until 130.27, down to the course's GROUND plane since (a `float` cell's still 3 units) |
 
 `start` is not a kind of cell but a point: the centre of its tile. `way` is
 only meaningful in the benchmark's course.
+
+**A wall LOWER than a floor beside it** (the owner, 2026-11-22; amends the
+rule above, which until then read *"Its top must be above every floor that
+shares an edge with it, or the line is refused: a wall must look like
+one"*). The owner, trying a wall between MILL's start floor A (28 units)
+and the ramp R beside it (32 units at its top end, 20 at its foot): *"this
+refuses because 'is not above the floor beside it'. Aka, a wall has to be
+higher than EVERY point it touches, which isn't a valid refusal - a wall
+should be able to be lower than things around it, because it might be
+walling off only something lower like in this case. At best, as a
+convenience, we should be able to set what side it intends to sit beside,
+if any. This seems to be what is preventing 'secure' platforms in a lot of
+cases, or forcing those platforms to be completely spaced out from each
+other."*
+
+- **What the old rule protected.** Not the physics: a WALL blocks the
+  circle at every height whatever its top (130.10.7.3, 130.11.8.2 step 5's
+  `blocks`, the guest's the same), so neither the model nor the guest ever
+  read a wall's height against a neighbour's, and nothing here changes
+  them (`BZ_PHYSV` stays, every demo stands). Not the picture or the
+  occluders either: a wall is drawn and occluded as any solid cell, a
+  column from its top down to its neighbours, and a floor higher than a
+  wall beside it is drawn as a floor higher than a floor - its face hangs
+  onto the wall's top where that face is a front one, and the wall's own
+  face is hidden under the floor where the floor is higher (the courses'
+  `--png` and the `courses` composite check say so). It protected one
+  thing: that the ball never meets a wall it cannot see. Beside a HIGHER
+  floor the wall's column stands above its drawn top, so a ball rolling
+  off that floor's edge toward it is stopped at the lip by a column the
+  picture does not show. The old rule ruled that out everywhere, and so
+  ruled out the wall the owner wanted.
+- **The rule now, per edge.** A wall is a column at every height from
+  every side, as before. Where it is above the floor beside it, it walls
+  that floor off and looks it. Where a floor beside it is higher, the ball
+  on that floor is stopped at the floor's lip - the wall "secures" both
+  sides, which is what a platform beside it wants - and the picture shows
+  the floor's edge over the lower wall top. **Refused**: a wall (a whole
+  cell, or a split cell's WALL piece across the line inside it, 130.24.4)
+  that touches floors and is above NONE of them at any end of any line
+  they share - sunk under everything it touches, it walls nothing off and
+  nothing shows the ball where it stops. The refusal says to raise it
+  above the floor it walls off, or ramp it with a ramp it rails (a `wall
+  ... ramp` follows a ramp exactly). A wall that touches no floor at all
+  (the inside of a block, a wall over the void) is not checked.
+- **No `side` clause.** The owner's suggested convenience, a side the wall
+  stands beside, would only say which edges the rule checks, and the rule
+  per edge needs no help: the edges where the wall is above are the sides
+  it guards, the others are the floors it secures from. A wall whose top
+  should FOLLOW the floor it guards is the guard rail's `height` (130.35).
+- **Weighed and not taken**: letting a ball on the HIGHER floor roll or
+  land onto the lower wall top (a wall a floor from above). It would make a
+  WALL the centre's cell, which nothing in the model or the guest allows
+  (the SAFE cell, the respawn, the kill heights, the shadow), would carry
+  the ball over the wall and down into what it walls off - MILL's R onto
+  A, through the wall meant to part them - and would put the ball on a top
+  130.47.3 dithers to say it is not meant to be rolled on. A physics change
+  costing `BZ_PHYSV`, the demos and guest bytes to buy that was not wanted.
 
 **A worked example, and the course Enter plays**
 (`apps/bonanza/courses/first.bbc`, `K = 1`, shipped):
@@ -284263,10 +284320,14 @@ Three additions to 130.10.3's grammar:
 - **A split cell has one SURFACE** for its floors: two FLOOR or GOAL halves
   of different surfaces are refused; a WALL half takes normal or bounce, as a
   whole wall does (130.11.6.1).
-- **A wall is above its floors**, the rule of 130.10.3, now across every
-  line inside a split cell too: a WALL half's (or quarter's) top is above the
-  floor beside it at both ends of the line they share (a quarter's lines end
-  at the centre, where a plane's height is `z0 + (sx + sy) / 2`).
+- **A wall is above one of its floors**, the rule of 130.10.3 (as amended
+  2026-11-22: a wall may be lower than SOME of what it touches), counting
+  every line inside a split cell too: a WALL half (or quarter) is refused
+  only when it is above none of the floors it shares a line with - an edge,
+  or the line inside the cell - at either end of any of them (a quarter's
+  lines end at the centre, where a plane's height is `z0 + (sx + sy) / 2`).
+  Until 2026-11-22 the piece had to be above the floor across the inner
+  line at both its ends.
 - **`surface` takes a `box` too** (BUILT, D1): it sets the surface of the
   half each box cell lays and no other, so a box whose edge halves are
   floors beside a floor of another surface is the two-surfaces refusal
@@ -284879,7 +284940,7 @@ crosses its middle; no GOAL half is needed for it.
 
 - **`bonanzacourse`** (`--selfcheck`): a new item for halves - the grammar's
   refusals (a half or a quarter on a centre-anchored statement, two floor
-  surfaces, a wall not above the floor across a line inside its cell,
+  surfaces, a wall piece above none of its floors (130.10.3 as amended),
   `half` or `quarter` on a `box`); the normalisation (equal pieces stored
   whole, or halved); the grid
   against the geometry at all 256 integer points of every split cell (the
