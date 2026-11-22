@@ -6938,7 +6938,8 @@ def lay_tube_bodies(src, tiles):
     """SPEC.md 130.12.3.3 (2026-11-22): a tube LAYS its own body. Every body cell that is not already a WALL (a
     windmill's house, a wall the author laid) and is empty or a plain floor becomes a WALL one unit over the
     highest of the tube's IN and OUT floors and the floors it replaces (a DROP's: the lowest its mouth stands
-    on, its exit floor and `height` and 1.5 units; `body <units>` the author's own) - so a tube is drawn and moved as one
+    on, its exit floor and `height` and 1.5 units; automatic, never under the lowest floor beside a body cell, so
+    a pipe laid through a floor is not sunk in it; `body <units>` the author's own) - so a tube is drawn and moved as one
     thing, its pipe on top. A split or shaped cell is left (build_props refuses it, naming the cell)"""
     for tb in getattr(src, "tubes", ()):
         body = tube_body(tb)
@@ -6953,6 +6954,14 @@ def lay_tube_bodies(src, tiles):
             z = zo + tb["height"] + 3               # (1.5 units: a wall's top is a whole half unit)
         if tb.get("body") is not None:          # `body <units>`: the author's height (2026-11-22), a whole half
             z = -int(-tb["body"] // 1)          # unit (a quarter rounded up)
+        else:                                   # automatic, never SUNK (130.10.3): each body cell over the lowest
+            bs = set(body)                      # floor beside it, so a pipe laid through a floor stands on it
+            for c in body:
+                near = [t.z0 for d in ((1, 0), (-1, 0), (0, 1), (0, -1)) for n in [(c[0] + d[0], c[1] + d[1])]
+                        if n not in bs for t in [tiles.get(n)]
+                        if type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL) and not t.sx and not t.sy]
+                if near:
+                    z = max(z, min(near) + 1)
         for c in body:
             t = tiles.get(c)
             if t is None or (type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL, KIND_VOID)):
