@@ -14952,20 +14952,15 @@ $(BUILD)/os8088-course-builder.zip: tools/bbeditbundle.py tools/os88vbundle.py \
 	fonts/tallx.f8 Makefile $(BBGAME_BIN)/.stamp
 	@mkdir -p $(dir $@)
 	python3 tools/bbeditbundle.py $@ --bin $(BBGAME_BIN)
-# ADD TO THE GAME (SPEC.md 130.58.17): the pieces nasm makes, made here so that tools/bbgame.py can compose
-# a BONANZA.O88 with the author's courses where there is no assembler - v0 the shipped package's own
-# pieces, v1 .. v4 the shipped courses and 1 - 4 SPARE courses, each in a private tree
-# ($(BUILD)/bbgame/v<m>, `make BUILD=... BZ_COURSES=...`, bonanzatwoseg's way), each with its
-# bzcourse.inc and the map of where its per-course tables sit (a probe assembly). Shipped in the
-# course builder's zip as bbgame-bin/. On demand; minutes the first time (four more course lists).
+# ADD TO THE GAME (SPEC.md 130.58.17, 130.58.36): the shipped build's own pieces, copied here so that
+# tools/bbgame.py can compose a BONANZA.O88 with the author's courses where there is no assembler - one build
+# holds up to BZ_CRS_MAX courses, its counts data, so the pieces are the shipped package's for every list -
+# with the shipped bzcourse.inc and the map of where its per-course tables sit (ONE probe assembly, seconds).
+# Shipped in the course builder's zip as bbgame-bin/. On demand.
 .PHONY: bbgamebin
-#> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 130.58.17): the shipped package's and four spare-slot variants, with their table maps
+#> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 130.58.36): the shipped package's own, with their table map
 bbgamebin: $(BBGAME_BIN)/.stamp
-# (on the package alone, which moves with every input of the game's: an edit to bbgame.py's COMPOSING half must
-# not cost the minutes this takes. The prebuild itself does nothing when the CONTENT of what it is made from -
-# the package, the game's sources, bbgame.py, this Makefile - is what it last made them from (a compiler edit
-# mostly moves no shipped byte); `make -B bbgamebin BBGAME_FORCE=1` forces)
-$(BBGAME_BIN)/.stamp: $(BUILD)/bonanza.o88
+$(BBGAME_BIN)/.stamp: $(BUILD)/bonanza.o88 tools/bbgame.py
 	python3 tools/bbgame.py prebuild $(BBGAME_BIN) --build $(BUILD)
 	@touch $@
 
@@ -22053,21 +22048,8 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
-#> [Knobs] BZHEADROOM=1 :: Bounce Bonanza with room for a bigger pathway - BZ_NSIGN floored at 255, BZ_PAD_EXITS for BZ_PAD_MAX pads (SPEC.md 130.58.17.1): the build ADD TO THE GAME's prebuilt variants are made with (make bbgamebin), off by default and never shipped
-# BZHEADROOM=1 passes --headroom to bbcourse.py, which writes bzcourse.inc with two CAPACITIES raised: bz_nst
-# (BZ_NSIGN, bss) for 255 signs and bz_pexits (BZ_PAD_EXITS) for BZ_PAD_MAX pads, those past the map's 0.
-# BZ_PATH_NPAD stays the map's own count - it is the save file's guard (BZD_NPAD) - so tools/bbgame.py PATCHES
-# the bytes it assembles into (a probe at every count, 130.58.17.1).  STAMPED, so a change recompiles the courses.
-BZHEADROOM ?=
-ifeq ($(filter $(BZHEADROOM),1),)
-ifneq ($(BZHEADROOM),)
-$(error BZHEADROOM=$(BZHEADROOM) is 1 or empty)
-endif
-endif
-BZHEADROOMSTAMP := $(BUILD)/.bzheadroom-$(or $(BZHEADROOM),0)
-$(BZHEADROOMSTAMP): | $(BUILD)
-	@rm -f $(BUILD)/.bzheadroom-*
-	@touch $@
+# (BZHEADROOM=1, SPEC.md 130.58.17.1's knob, is gone: since 130.58.36 its two capacities - BZ_NSIGN 255 and
+# BZ_PAD_EXITS for BZ_PAD_MAX pads - are the shipped build's, and the pad count is a byte of data)
 #> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
@@ -22129,7 +22111,7 @@ BZ_FAMS := probe glass rotor spring tube pickups water magnet wind boost spike a
 BZ_FAMPARTS := $(addprefix $(BUILD)/bzf-,$(addsuffix .bin,$(BZ_FAMS)))
 BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
-           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzdemo.lst
+           $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzdemo.lst $(BZ_ART)/bzparts.lst $(BZ_ART)/BZRES.BIN
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
 # The course part's RAM record is D's, 4 bytes (SPEC.md 130.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
@@ -22164,9 +22146,9 @@ $(BZ_GEN): $(BZ_ART)/.bz-art
 $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py tools/os88lz.py tools/os88font.py \
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
-                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) $(BZHEADROOMSTAMP) \
+                   $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
                    $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
-	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) $(if $(BZHEADROOM),--headroom) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
+	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
 #> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
@@ -22207,6 +22189,8 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZDEVSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(BZDEVDEF) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
+# SPEC.md 130.58.36: the course and demo rows are bbcourse.py's bzparts.lst, BZ_CRS_MAX of each, the rows past the
+# list's RESERVED (BZRES.BIN, never fetched), so a list of another length renumbers no row after them.
 # THE ART FILES ARE PARTS OF IT (SPEC.md 130.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
@@ -22262,13 +22246,13 @@ $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) ap
 # paragraph, its header's +11 its paragraphs - a row in every build
 $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) $(BZ_MUSSRC) tools/bbmusic.py tools/bbcourse.py
 	python3 tools/bbcourse.py fbundle $(BUILD) $(BZ_ART)
-$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_ART)/bzdemo.lst $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
+$(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_ART)/bzdemo.lst $(BZ_ART)/bzparts.lst $(BZ_ART)/BZRES.BIN $(BZ_FAMPARTS) $(BUILD)/bzfbun.bin $(BUILD)/bzvga.bin tools/os88pkg.py \
                       $(PKGZSTAMP) $(BZPARTZSTAMP)
-	$(OS88PKG) $< -o $@ $(foreach p,$(BZ_PARTS1),--part $(p)) \
-		$$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst) $(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
+	$(OS88PKG) $< -o $@ $$(sed 's|^|--part $(BZ_ART)/|' $(BZ_ART)/bzparts.lst) \
+		$(foreach p,$(BZ_PARTS2),--part $(p)) $$(python3 tools/bbcourse.py famparts $(BUILD)) \
 		--part $(BUILD)/bzvga.bin --part-compress $(BZPARTZF) \
 		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) \
-		$$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzdemo.lst)
+		$$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzparts.lst)
 
 #> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)
 bonanza: $(BUILD)/bonanza.o88

@@ -171,6 +171,8 @@ def ndemo():
     """the shipped demos, one part each after the courses' (bzcourse.inc's BZ_NDEMO, SPEC.md 130.14.7.4)"""
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
+    if "%macro BZ_CRS_COUNTS" in inc:   # SPEC.md 130.58.36: BZ_CRS_MAX demo rows, the list's first
+        return R.crs_rows()
     m_ = re.search(r"^BZ_NDEMO\s+equ\s+(\d+)", inc, re.M)
     return int(m_.group(1)) if m_ else 0
 
@@ -233,7 +235,7 @@ def snd_row():
     RESIDENT BUNDLE, each song into its course part - no sound rows), and no WORLD rows since SPEC.md
     130.30.5 (a two-part course's world part is in its ONE part, as a sheeted course's)"""
     R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
-    return CRS_ROW0 + dict.__len__(R.CRS_K)
+    return CRS_ROW0 + R.crs_rows()      # (BZ_CRS_MAX rows since SPEC.md 130.58.36, the list's first)
 
 
 def crs_row(name):

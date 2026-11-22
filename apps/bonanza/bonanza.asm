@@ -184,10 +184,13 @@ BZR_TILT    equ 4               ; (bzcourse.inc's BZ_RL_TILT, the tool's)
 %if BZR_TILT != BZ_RL_TILT || (BZR_SIZE - BZR_RUNS) % 6
  %error "the log's TILT flag is +6 bit 2, and both run widths fill bz_rlog exactly"
 %endif
-BZ_P_DEMO   equ BZ_P_CRS + BZ_NCRS ; shipped demo row i: BZ_P_DEMO + i, course
+BZ_P_DEMO   equ BZ_P_CRS + BZ_CRS_MAX ; shipped demo row i: BZ_P_DEMO + i, course
                                 ; bz_dcrs[i] (130.14.7.4) - after the courses' (no world rows: a world
                                 ; part is in its course's ONE part, SPEC.md 130.30.5, 130.30.12.5)
-BZ_P_SHELL  equ BZ_P_DEMO + BZ_NDEMO ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
+                                ; - BZ_CRS_MAX rows of each, the list's first and the rest RESERVED
+                                ; (BZRES.BIN, never fetched), so a course added renumbers nothing
+                                ; (SPEC.md 130.58.36)
+BZ_P_SHELL  equ BZ_P_DEMO + BZ_CRS_MAX ; the SHELL PART, BZSHELL.BIN (SPEC.md 130.19.2)
 BZ_P_PATH   equ BZ_P_SHELL + 1  ; THE PATHWAY, BZPATH.BIN (130.19.5)
 BZ_P_TITLE  equ BZ_P_PATH + 1   ; THE TITLE, BZTITLE.BIN, and its demos, BZTDEMO.BIN,
 BZ_P_TDEMO  equ BZ_P_PATH + 2   ; the last two rows (SPEC.md 130.23)
@@ -225,13 +228,11 @@ BZD_FILE    equ BZD_LIFE + 4 * BZD_NSLOT
 ; sector, no FAT, no entry) only for a count that is not a multiple of 512
 ; (os88data.inc), and the slot is written at a course's ENTRY inside the
 ; bracket (130.19.6) - at 512 bytes every save would be a full replace
-%if BZD_FILE >= 512 || BZD_SBEST + 2 * BZ_PAD_MAX != BZD_SLOTB || BZD_SVER - BZD_SOPEN != 16 || BZ_NCRS > BZ_CRS_MAX || BZ_PATH_NPAD > BZ_PAD_MAX
+%if BZD_FILE >= 512 || BZD_SBEST + 2 * BZ_PAD_MAX != BZD_SLOTB || BZD_SVER - BZD_SOPEN != 16 || BZ_PAD_MAX > 32
  %error "BZS5 is under ONE sector, a word a pad in both tables (SPEC.md 130.22.5.1)"
 %endif
-BZD_NPAD    equ BZ_PATH_NPAD    ; the pads a slot's +2 may name (130.22.3)
-%if BZD_NPAD > 32
- %error "the save keeps a bit a pad in a dword (SPEC.md 130.22.5)"
-%endif
+; (the pads a slot's +2 may name are [bz_pcount], the map's count - DATA since
+; SPEC.md 130.58.36, so a game composed with another map needs no assembler)
 
 bz_entry:
     push es                     ; op_load spends ES, which arrives KERNEL_SEG
@@ -668,7 +669,7 @@ bz_cload:
 .rowt:
 %endif
     mov [bz_pc], al
-    cmp byte [bz_crs], BZ_NCRS  ; a PLAY course names the KIT's pieces (130.37.5):
+    cmp byte [bz_crs], BZ_CRS_MAX ; a PLAY course names the KIT's pieces (130.37.5):
     jae .nokit                  ; the kit first, if the open's fetch was refused
     call bz_kget                ; (op_fetch said why: no course without it)
     jc .out
@@ -784,8 +785,9 @@ bz_cload:
 ; -----------------------------------------------------------------------------
 bz_cload2:
     mov bl, [bz_crs]
-    cmp bl, BZ_NCRS
-    jae .one                    ; (CF = 0: the pathway, the title)
+    cmp bl, BZ_CRS_MAX          ; (a course K is under the list's count, the
+    jae .one                    ; pathway and title at and past BZ_CRS_MAX;
+                                ; CF = 0: the pathway, the title)
     xor bh, bh
 %if BZ_NSHC
     mov cl, [bz_cshn + bx]      ; k sheets (0: not sheeted): sheets 1 .. k - 1
@@ -2428,7 +2430,7 @@ bz_tround:
     mov byte [bz_tmode], 2      ; ITS END: a random course's demo (BZD<K>)
     call bz_trand
     xor ah, ah
-    mov bl, BZ_NDEMO
+    mov bl, [bz_ndemo]          ; (the list's, data: SPEC.md 130.58.36)
     div bl
     mov al, ah
     add al, BZ_P_DEMO
@@ -2564,7 +2566,7 @@ bz_cmedals:     BZ_CRS_MEDALS   ; each course's G and S, steps (8c.3)
 bz_cnex:        BZ_CRS_NEXITS
 bz_dcrs:        BZ_DEMO_CRS     ; each shipped demo row's course K (130.14.7.4)
 bz_pexits:      BZ_PAD_EXITS    ; each pad's course's exits, a bit each (130.22.5.1)
- %if BZ_PATH_NPAD > 32
+ %if BZ_PAD_MAX > 32
   %error "the save keeps a bit a pad in a dword (SPEC.md 130.22.5)"
  %endif
 %endif
@@ -2742,7 +2744,7 @@ bz_crshdr:
     mov word [bz_shhi], 7fffh   ; window leaves it
     mov byte [bz_shn], 0
     mov bl, [bz_crs]
-    cmp bl, BZ_NCRS
+    cmp bl, BZ_CRS_MAX
     jae .nsh
     xor bh, bh
     mov al, [bz_cshn + bx]
@@ -4416,15 +4418,17 @@ bz_dnorm:
 .phys:
     mov word [bz_dat], 'BZ'     ; `BZS5`, the count and BZ_PHYSV, two zero bytes
     mov word [bz_dat + 2], 'S5'
-    mov word [bz_dat + 4], BZ_NCRS | (BZ_PHYSV << 8)
+    mov al, [bz_ncrs]           ; (the list's count, data: SPEC.md 130.58.36)
+    mov ah, BZ_PHYSV
+    mov [bz_dat + 4], ax
     mov word [bz_dat + 6], 0
     mov di, bz_dat + BZD_ENT    ; THE BESTS (130.22.5.1), in the file's order:
 .e:                             ; an entry is kept under one of this build's
     mov ax, [di]                ; SAVE KEYS (never 0), with a best 1 - 65,534,
     or cl, cl                   ; and only the FIRST entry with that key; any
     jz .clr                     ; other is emptied
-    mov si, bz_ckeys
-    mov bx, BZ_NCRS
+    mov si, bz_ckeys            ; (every row: one past the list's is key 0,
+    mov bx, BZ_CRS_MAX          ; and an entry keyed 0 is cleared either way)
 .k:
     cmp ax, [si]
     je .kk
@@ -4665,12 +4669,20 @@ bz_dslots:
     not ax
     test ax, [si + BZD_SRTAK + 2]
     jnz .bad
-    lea di, [si + BZD_SEXIT + 2 * BZ_PATH_NPAD] ; the exits found and the bests
-    mov cx, BZ_NPADPAST         ; of pads that are not here are zero
+    mov al, [bz_pcount]         ; the exits found and the bests of pads that
+    cbw                         ; are not here are zero (the map's count,
+    shl ax, 1                   ; DATA: SPEC.md 130.58.36)
+    lea di, [si + BZD_SEXIT]
+    add di, ax
+    mov cx, BZ_PAD_MAX * 2
+    sub cx, ax
+    shr cx, 1                   ; (the words past the pads)
+    push cx
     call bz_dzero
+    pop cx
     jnz .bad
-    lea di, [si + BZD_SBEST + 2 * BZ_PATH_NPAD]
-    mov cx, BZ_NPADPAST
+    lea di, [si + BZD_SBEST]
+    add di, ax
     call bz_dzero
     jnz .bad
     cmp word [si + BZD_SVER], BZ_PATH_VER ; this build's pathway VERSION (an
@@ -4680,7 +4692,7 @@ bz_dslots:
     test byte [si + BZD_SOPEN], 1 ; a game with lives has pad 0 open ...
     jz .bad
     mov al, [si + BZD_SPAD]     ; ...its pad one of the pathway's (the
-    cmp al, BZD_NPAD            ; loop indexes the part's tables by it) ...
+    cmp al, [bz_pcount]         ; loop indexes the part's tables by it) ...
     jae .bad
     test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays
     jnz .n                      ; any pad, 130.19.8: none of them in the set)
@@ -4717,8 +4729,8 @@ bz_dslots:
     inc si
     inc di
     inc di
-    cmp di, bz_pexits + 2 * BZ_PATH_NPAD
-    jb .x
+    cmp di, bz_pexits + 2 * BZ_PAD_MAX ; (every pad's word: past the map's they
+    jb .x                       ; are 0, and those words are already zero)
     pop si
     add si, BZD_SLOTB
     dec bl
@@ -4732,7 +4744,6 @@ bz_dslots:
 
 ; bz_dzero - ZF = 1 when the CX words at DS:DI are all zero (CX 0: they are).
 ; Preserves all but CX, DI.
-BZ_NPADPAST equ BZ_PAD_MAX - BZ_PATH_NPAD ; the words a slot's tables hold past the pads
 bz_dzero:
     push ax
     xor ax, ax                  ; (ZF = 1 for CX = 0)
@@ -5198,7 +5209,7 @@ bz_lchk:
     cmp word [es:2], 'R1'
     jne .out
     mov bl, [es:BZR_CRS]        ; 3: the course, the material, the flags
-    cmp bl, BZ_NCRS
+    cmp bl, [bz_ncrs]           ; (the list's count, data: SPEC.md 130.58.36)
     jae .out
     cmp byte [es:BZR_MAT], BZ_NMAT
     jae .out
@@ -5340,7 +5351,8 @@ bz_vkey:
     jc .back                    ; ours (bz_tcopy: kern_mega's lesson in V)
     mov byte [bz_lsv], 3
     inc byte [bz_vk]
-    cmp byte [bz_vk], BZ_NDEMO
+    mov al, [bz_vk]
+    cmp al, [bz_ndemo]
     jb .shown
     mov byte [bz_vk], 0
 .shown:
@@ -5416,6 +5428,9 @@ bz_ck6:     db 'F5 save replay',0
 bz_ck7:     db 'F or Alt+Enter: window',0
 bz_ck8:     db 'Esc: map, or quit',0
 
+bz_ncrs:    BZ_CRS_COUNTS       ; SPEC.md 130.58.36: THE COUNTS, data - the list's
+bz_ndemo    equ bz_ncrs + 1         ; courses, its shipped demos, the map's pads; every
+bz_pcount   equ bz_ncrs + 2         ; table below BZ_CRS_MAX rows wide (+ the pathway, title)
 bz_cnames:  BZ_CRS_NAMES        ; ...their NAMEs, BZ_CRS_NAMEB bytes each
 bz_cballs:  BZ_CRS_BALLS        ; ...their balls, a byte each
 bz_clims:   BZ_CRS_LIMS         ; ...their time limits, whole seconds of BZ_SECSTEPS
@@ -5464,7 +5479,8 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %endif
 
 ; --- the part table (SPEC.md 130.11.3.1, 20.12) --------------------------------
-; BZ_NCRS + BZ_NCRS2 + BZ_NDEMO + ... rows (no sound rows since SPEC.md 130.50), in the Makefile's BZ_PARTS
+; BZ_CRS_MAX course rows + BZ_CRS_MAX demo rows (SPEC.md 130.58.36: those past the list's RESERVED,
+; bzparts.lst's BZRES.BIN) + ... (no sound rows since SPEC.md 130.50), in the Makefile's
 ; order, every one OP_LAZY | OP_COMP - and a play's SMALL ones, the balls, the
 ; sound part, the songs (the fanfare is one) and the families' code parts
 ; (wave 9, SPEC.md 130.25.6.2), OP_ARENA: ONE claim between
@@ -5473,7 +5489,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 ; (BZ_COURSES's order, bzcourse.inc's rows, every one the CGA's), the sound
 ; and its songs, and a shipped demo a course (every one but BENCH).  Fetched by bz_launch on the desktop (op_fetch,
 ; 1942's pattern) and dropped when the bracket returns.
-OS88_PARTS_BEGIN BZ_NCRS + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
+OS88_PARTS_BEGIN 2 * BZ_CRS_MAX + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_CRS_PARTS                            ; K: BZ<K>.BIN (the balls: the bundle's, 130.25.5.2; a world part in its ONE part, 130.30.5)
     BZ_DEMO_PARTS                           ; BZ_P_DEMO + K - 1: BZD<K>.BIN (130.14.7.4)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_SHELL: BZSHELL.BIN, far-called (130.19.2)
@@ -5486,7 +5502,7 @@ OS88_PARTS_BEGIN BZ_NCRS + BZ_NDEMO + 3 + 2 * BZ_TITLE + BZ_NFROW + 1
     BZ_FAM_PARTS                            ; BZ_P_FAM on: the fetch families', then the BUNDLE (130.25.6.9)
     OS88_PART OP_SEG, OP_LAZY | OP_COMP     ; BZ_P_VGA: BZVGA.BIN, the VGA's writers, far-called (130.46.6)
 OS88_PARTS_END
-%if BZ_P_DEMO != BZ_P_CRS + BZ_NCRS || BZ_NDEMO > BZ_NCRS || BZ_P_CRS != 0
+%if BZ_P_DEMO != BZ_P_CRS + BZ_CRS_MAX || BZ_P_CRS != 0 || BZ_CRS_PATH != BZ_CRS_MAX
  %error "the demo rows follow the courses', at most one a course (SPEC.md 130.14.7.4)"
 %endif
 
