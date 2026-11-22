@@ -9146,6 +9146,118 @@ def mouth_of(p, x0):
     return None
 
 
+PIPE_R = (3.0, 4.5)                 # a tube's pipe: cyan to this many gu off its line, black to the next
+
+
+def tube_steps(tiles, p):
+    """a plain tube's STEPS the camera sees (SPEC.md 130.12.3.3, the riser):
+    each pair of cells next along IN, its body, OUT that meet at different
+    heights - or a DROP's last wall and OUT, at its mouth - whose face between
+    them is the HIGHER cell's +x (se) or +y (sw) face.
+    -> [(a, b, higher, lower, "se" | "sw", at the mouth)]"""
+    chain = [p["inn"]] + list(p["body"]) + [p["out"]]
+    out = []
+    for a, b in zip(chain, chain[1:]):
+        ta, tb = tiles.get(a), tiles.get(b)
+        if type(ta) is not Tile or type(tb) is not Tile:
+            continue
+        mouth = p["sub"] == TK_DROP and (a, b) == (chain[-2], chain[-1])
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        # the shared edge in each cell's (u, v): its midpoint's height, quarter px
+        ea, eb = {(1, 0): ((16, 8), (0, 8)), (-1, 0): ((0, 8), (16, 8)),
+                  (0, 1): ((8, 16), (8, 0)), (0, -1): ((8, 0), (8, 16))}[(dx, dy)]
+        za, zb = _h4t(ta, *ea), _h4t(tb, *eb)
+        if mouth:
+            hi, lo = a, b
+        elif za == zb:
+            continue
+        else:
+            hi, lo = (a, b) if za > zb else (b, a)
+        face = {(1, 0): "se", (0, 1): "sw"}.get((lo[0] - hi[0], lo[1] - hi[1]))
+        if face is not None:                        # (the lower cell behind: the riser is out of sight)
+            out.append((a, b, hi, lo, face, mouth))
+    return out
+
+
+def tube_riser_pix(tiles, ops, p, x0):
+    """SPEC.md 130.12.3.3, the RISER (the owner's, 2026-11-22): where a plain
+    tube's path steps between two cells of different height - IN, its body,
+    OUT, in order - and the face between them is one the camera sees (the
+    HIGHER cell's +x or +y face, the lower cell in front of it), the pipe goes
+    down that face, the width it has on a top, from the higher top's edge to
+    the lower top; and where either cell is IN or OUT, the pipe crosses that
+    top too, from the hole (the rim) to the edge, so the hole and the riser
+    join. A DROP's last wall and OUT meet at its MOUTH: the pipe goes down the
+    last wall's face from its top to the mouth's, the mouth and its rim left.
+    A face the camera does not see (the lower cell behind) draws nothing.
+    Static art and nothing else: paint ops on the cells' own faces and tops.
+    -> [(owner cell, "se" | "sw" | "top", {(x, y at Y0 = 0): ink})]"""
+    out = []
+    ends = {p["inn"]: TUBE_HOLE_R, p["out"]: TUBE_RIM_R[1]}
+    if p["sub"] == TK_DROP:
+        del ends[p["out"]]
+
+    def ink(d):
+        return CYN if d <= PIPE_R[0] else BLK if d <= PIPE_R[1] else None
+    for a, b, hi, lo, face, mouth in tube_steps(tiles, p):
+        tl = tiles[lo]
+        sp0 = _op_spans(ops, hi, face)
+        if sp0 is None:
+            continue
+        if mouth:
+            stop = set(p.get("mouth_pix", {})) | set(p.get("mouth_rim", {}))
+            zmin = p["zexit"] + p["mouth"][3]       # the mouth's top: its sill and its rows, px
+        pix = {}
+        for y, runs in sp0.items():
+            for r0, r1 in runs:
+                for x in range(r0, r1):
+                    if face == "se":                # the face's world point at the pixel's centre
+                        gx = 16 * (hi[0] + 1)
+                        gy = gx + x0 - (x + 0.5)
+                        d, el = abs(gy - (16 * hi[1] + 8)), (0, gy - 16 * lo[1])
+                    else:
+                        gy = 16 * (hi[1] + 1)
+                        gx = (x + 0.5) - x0 + gy
+                        d, el = abs(gx - (16 * hi[0] + 8)), (gx - 16 * lo[0], 0)
+                    c = ink(d)
+                    if c is None:
+                        continue
+                    z = (gx + gy) / 2.0 - (y + 0.5)
+                    if mouth:
+                        if (x, y) in stop or z <= zmin:
+                            continue
+                    elif z <= _h4t(tl, *el) / 4.0:  # (under the lower top: that cell's, in front)
+                        continue
+                    pix[(x, y)] = c
+        if not pix:
+            continue
+        out.append((hi, face, pix))
+        for cell in (a, b):                         # an end's top: from its hole (rim) to the edge
+            if cell not in ends:
+                continue
+            other = b if cell == a else a
+            t = tiles[cell]
+            sp = _op_spans(ops, cell, "top")
+            if sp is None:
+                continue
+            wf = _top_world(t, cell[0], cell[1], x0)
+            c0 = (16 * cell[0] + 8, 16 * cell[1] + 8)
+            c1 = (c0[0] + 8 * (other[0] - cell[0]), c0[1] + 8 * (other[1] - cell[1]))
+            tp = {}
+            for y, runs in sp.items():
+                for r0, r1 in runs:
+                    for x in range(r0, r1):
+                        gx, gy = wf(x, y)
+                        if math.hypot(gx - c0[0], gy - c0[1]) <= ends[cell]:
+                            continue
+                        c = ink(_seg_dist(gx, gy, c0, c1))
+                        if c is not None:
+                            tp[(x, y)] = c
+            if tp:
+                out.append((cell, "top", tp))
+    return out
+
+
 def prop_ops(tiles, ops, props, x0):
     """the props' static art as ops, each inserted after the op it is drawn
     on (so whatever is in front still covers it): a plain tube's IN hole and
@@ -9204,9 +9316,9 @@ def prop_ops(tiles, ops, props, x0):
                             for x in range(a, b):
                                 gx, gy = wf(x, y)
                                 d = min(_seg_dist(gx, gy, a_, b_) for a_, b_ in zip(p["gpts"], p["gpts"][1:]))
-                                if d <= 3.0:
+                                if d <= PIPE_R[0]:
                                     pix[(x, y)] = CYN
-                                elif d <= 4.5:
+                                elif d <= PIPE_R[1]:
                                     pix[(x, y)] = BLK
                     add(cell, "top", _paint_op(pix, cell[0] + cell[1], t, cell))
             mo = mouth_of(p, x0)
@@ -9226,6 +9338,10 @@ def prop_ops(tiles, ops, props, x0):
                 p["mouth"] = (w, face, xm, rows, half, sill)
                 p["mouth_pix"] = pix
                 p["mouth_rim"] = ring
+            if p["kind"] == PK_TUBE:                # the pipe DOWN a column's face where its path steps
+                p["riser"] = tube_riser_pix(tiles, ops, p, x0)                  # (SPEC.md 130.12.3.3)
+                for owner, which, pix in p["riser"]:
+                    add(owner, which, _paint_op(pix, owner[0] + owner[1], tiles[owner], owner))
             if p["kind"] == PK_WINDMILL:            # the windmill's doorway on the house face
                 ix, iy = p["inn"]
                 if p["door"] == 1:
@@ -34978,6 +35094,81 @@ def _sc_lift2(X, res):
                 m5 is not None and "at most %d" % LIFT_MAX in m5))
 
 
+def riser_verdict(c, ops, p, riser):
+    """SPEC.md 130.12.3.3's RISER, checked: for each step of plain tube P the
+    camera sees (tube_steps), the pipe's centre column on the higher cell's
+    face - the screen column the path's line crosses it at - must be CYAN in
+    RISER ([(owner, which, pix)], tube_riser_pix's) on every face line from
+    the face's top down to the lower top (a DROP's mouth: to the mouth's top),
+    and must be at least 2 lines long.  -> [what is wrong] (empty: right)"""
+    bad = []
+    got = {(o, w): px for o, w, px in riser}
+    for _a, _b, hi, lo, face, mouth in tube_steps(c.tiles, p):
+        sp0 = _op_spans(ops, hi, face)
+        if sp0 is None:
+            continue
+        if face == "se":                            # the line's column: the pixel whose centre is 0.5 gu off it
+            gx, gyc = 16 * (hi[0] + 1), 16 * hi[1] + 8
+            xc = gx - gyc + c.x0 - 1
+            el = (0, gyc + 0.5 - 16 * lo[1])
+            zrow = lambda y, gx=gx, gyc=gyc: (gx + gyc + 0.5) / 2.0 - (y + 0.5)
+        else:
+            gy, gxc = 16 * (hi[1] + 1), 16 * hi[0] + 8
+            xc = gxc - gy + c.x0 - 1
+            el = (gxc - 0.5 - 16 * lo[0], 0)
+            zrow = lambda y, gy=gy, gxc=gxc: (gxc - 0.5 + gy) / 2.0 - (y + 0.5)
+        zlo = (p["zexit"] + p["mouth"][3]) if mouth else _h4t(c.tiles[lo], *el) / 4.0
+        stop = set(p.get("mouth_pix", {})) | set(p.get("mouth_rim", {})) if mouth else set()
+        rows = [y for y in sorted(sp0) if _inside(sp0[y], xc) and zrow(y) > zlo and (xc, y) not in stop]
+        px = got.get((hi, face), {})
+        miss = [y for y in rows if px.get((xc, y)) != CYN]
+        if len(rows) < 2 or miss:
+            bad.append("the tube on line %d: its riser down (%d, %d)'s %s face: %d of %d lines of its centre "
+                       "column not the pipe's" % (p["line"], hi[0], hi[1], face, len(miss), len(rows)))
+    return bad
+
+
+def _sc_riser(X, res):
+    """--selfcheck's section `riser` (SPEC.md 130.12.3.3, 2026-11-22): every shipped course's plain tubes carry
+    the pipe down each face their path steps down that the camera sees, and MILL has such steps; its red arms
+    (no riser at all - the art before 2026-11-22 - and one stopped half way down) are caught"""
+    nstep = bad = 0
+    msgs = []
+    ctl = {"none": [0, 0], "half": [0, 0]}
+    for c in X.courses:
+        tubes = [p for p in c.props if p["kind"] == PK_TUBE and "riser" in p]
+        if not tubes:
+            continue
+        deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
+        ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
+        for p in tubes:
+            n = len(tube_steps(c.tiles, p))
+            if c.name == "MILL":
+                nstep += n
+            v = riser_verdict(c, ops, p, p["riser"])
+            bad += len(v)
+            msgs += ["%s: %s" % (c.name, w) for w in v]
+            if not n:
+                continue
+            half = []
+            for o, w, px in p["riser"]:
+                if w == "top":
+                    half.append((o, w, px))
+                    continue
+                ys = sorted({y for _x, y in px})
+                cut = ys[len(ys) // 2] if ys else 0
+                half.append((o, w, {q: k for q, k in px.items() if q[1] <= cut}))
+            for k, alt in (("none", []), ("half", half)):
+                ctl[k][0] += 1
+                ctl[k][1] += bool(riser_verdict(c, ops, p, alt))
+    res.append(("2 tube RISERS (130.12.3.3): every visible step of a plain tube's path carries the pipe down its "
+                "face on every shipped course, MILL's %d among them%s" % (nstep, "; " + "; ".join(msgs[:3])
+                                                                         if msgs else ""), not bad and nstep > 0))
+    for k, what in (("none", "no riser (the art before 2026-11-22)"), ("half", "a riser stopped half way down")):
+        res.append(("2 riser negative control: %s - caught on %d of %d steps' tubes" % (what, ctl[k][1], ctl[k][0]),
+                    ctl[k][0] > 0 and ctl[k][1] == ctl[k][0]))
+
+
 def _sc_props(X, res):
     """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
@@ -36125,7 +36316,7 @@ class _Sections:
 SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, "play": 34, "clockrule": 18,
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
-           "compact": 2, "hud": 2, "props": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
+           "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
            "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
            "lift2": 10, "width": 8, "sheets": 120, "blocks": 8}
@@ -37851,7 +38042,7 @@ def selfcheck_sections():
 
 
 _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind", "_sc_palette", "_sc_tables", "_sc_courses",
-             "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_routes", "_sc_millroute",
+             "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_riser", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",

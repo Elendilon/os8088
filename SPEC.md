@@ -266746,7 +266746,18 @@ unit); without it a DROP's body is the LOWEST that holds its mouth - the EXIT's 
 the higher end's floor. A body too low for a DROP's mouth is refused (`a taller wall, or a lower exit`). A split or shaped body cell is still refused. A
 course whose bodies were walled by hand compiles byte for byte as before. Each body cell is a WALL, whose top the renderer draws as a PIPE (a
 black-outlined band along the path), except a windmill's, whose house is its
-body and is drawn as walls. `out` is the exit direction, defaulting to the
+body and is drawn as walls. **The pipe goes DOWN a face where its path steps** (2026-11-22, the owner: *"a
+pipe is only drawn on TOP of a block. So if the pipe goes down, then that connection down the column is not
+shown"*): wherever two cells next along the path - IN, the body in order, OUT - meet at different heights and
+the face between them is one the camera sees (the HIGHER cell's `+x` or `+y` face, the lower cell in front of
+it), the pipe runs down that face at its top's width (cyan within 3 gu of the path's line, black to 4.5) from
+the higher top's edge to the lower top; where either of the two is IN or OUT, the pipe also crosses that top
+from the hole (the rim) to the edge, so hole and riser join. A DROP's last wall meets OUT at its MOUTH, so
+there the pipe goes down the last wall's face from its top to the mouth's top, the mouth and its rim left
+whole. A step whose face is out of sight (the lower cell behind) draws nothing. This is the RISER
+(`tube_riser_pix`): STATIC ART alone, paint ops on those cells' own faces and tops baked into the picture
+both cards' parts are built from - no record, no lane, no guest code - so a course's compiled parts change in
+their picture blocks and nowhere else, and only where a visible step exists (`--selfcheck`'s section `riser`: every visible step of every shipped course's plain tubes carries the pipe's colour down its centre column, MILL has four, and no riser at all or one stopped half way down is caught). On the 2026-11-22 tree it moved MILL's picture part by 5 blocks (80 bytes), MOON's and PEAK's by 3 (48) and the title's by 96 bytes, records, masks and occluders unchanged; the authored demos `moon.bzd` and `summit.bzd` were written again by `bbcourse.py author` (their `ident` lines alone, 130.29.8's precedent). `out` is the exit direction, defaulting to the
 last leg's. **A DROP's `out` must be `+x` or `+y`**: its exit mouth is on the
 face of the body's last wall, and a wall shows only those two faces (`+x` and
 `+y` go down the screen, 130.10.2). **The exits are checked by the model,
