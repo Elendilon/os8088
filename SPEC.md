@@ -289451,3 +289451,20 @@ Deleting the last element of a family takes its name off the `uses` line in the 
 refusal of a family named and none placed), as adding the first puts it there. **Tipped by** the ball's weight
 or a timer switches 130.42.11's TIMED form on and off (`period 64` to start); a timed plate's inspector sets its
 period (32 - 256 steps), how long it is level (`flat`, blank the default 4) and its starting step (`seed`).
+
+#### 130.58.36 Every option has a control (the owner, 2026-11-22)
+
+*"Want to do a check if any other props are missing options they have available?"* The inspector shows a
+control for **every** clause a statement may take, written or not - not only for the words already typed.
+`tools/bbedopts.py` is the table, one row per clause of a statement kind: its word (or a positional value), the
+kind of value (a number with its range, a choice of only the legal values, a flag, a pair, a name, a set of
+edges, or a form such as a bridge's channel / timer), the default it is written with, its label and a one-line
+hint. Setting a row writes its clause where the grammar wants it (a see-saw's `rest` after its pivot, a cup's
+`capture` after its cell, a clock's `frame` before `digits`); clearing it - a blank box, an unticked flag, the
+choice that means "as it is without the clause" - takes the clause out. An edit that makes a neighbouring clause
+illegal puts that right in the same step (an updraft gets its `top`, a hanging magnet loses its `range`, a
+shorter period drops a seed it no longer holds, a new turntable size starts a legal `fill`). The see-saw's size
+and timer, a floor's slope, the route list and the shape editor keep their own sections. What is left without
+a control - pieces (`half`, `quarter`, `box`), water's ripple cells - needs a picture interaction;
+docs/plans/BONANZA-BUILDER-OPTIONS.md is the audit, and t_bbedit item 17 holds the table to it. A gate, plate or
+key added alone is refused until its other half is placed; the banner says so (*Keep it anyway*, then add it).
