@@ -34,7 +34,8 @@
     nearest floor (relocate_ways), folded into the edit's one undo step (merge_since), and the course lays out;
     a ramp reshaped longer keeps its slope (reshape: 4 to 9 over 10 cells at half a unit a cell); ways_in
     finds the start, the flag and the route points on a floor.
- 8. GAP BANDS (130.58.21): a ledge's faces over the lower floor are the detector's candidates; marking two
+ 8. GAP BANDS (130.58.21): (and a mark an edit left with nothing to band is dropped by the picture job,
+    which draws the picture rather than refusing it) a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
     (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
     `marked` agrees after every step.
@@ -222,6 +223,19 @@ def main():
         d.toggle_gap(f_, "sw", F)
     if gaps() or len(d.undo_stack) != 5:
         bad.append("gap: every mark taken off leaves %r, %d undo steps" % (gaps(), len(d.undo_stack)))
+    # ... and a mark an edit left banding nothing is dropped by the picture job, not a refused picture
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "g.bbc")
+        with open(src, "w", encoding="ascii") as f:
+            f.write(gt.replace("floor rect 3 3 9 9 flat 4", "floor rect 3 3 8 9 flat 4") + "gap tile 8 3 se\n")
+        import io
+        import contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = J.picture(src, os.path.join(td, "pic"))
+        import json as _json
+        meta = _json.load(open(os.path.join(td, "pic", "meta.json"))) if rc == 0 else {}
+        if rc != 0 or meta.get("dropped_gaps") != [len(gt.split("\n"))]:
+            bad.append("gap: a stale mark: picture rc %r, dropped %r" % (rc, meta.get("dropped_gaps")))
     # 9. SHAPES (SPEC.md 130.58.19)
     for f in courses:
         for st in E.Document.load(f).statements():
