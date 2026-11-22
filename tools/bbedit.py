@@ -2262,8 +2262,12 @@ class App(object):
             toks[toks.index("flat") + 1] = ("%d" % h) if h == int(h) else ("%g" % h)
         code = E.join_tokens(toks)
         comp = [(ln, self.doc.moved_code(ln, dx, dy)) for ln in self._companions(self.sel)]
-        ways = self.doc.ways_in(sh[2], ("way", "start", "checkpoint")) if st.kind in ("floor", "goal") else []
-        # (what stands on it rides along: its route points, the start, a flag - SPEC.md 130.58.22)
+        whole, split = self.doc.riders(sh[2], skip=[self.sel] + [c for c, _ in comp]) \
+            if st.kind != "hole" else ([], [])
+        # (what stands on it rides along: its rails, route points, the start, flags, props, pads, clocks -
+        # SPEC.md 130.58.22, 130.58.34; a rail reaching past it is split, its part on the ground going along)
+
+        old_code = {ln0: self.doc.statement(ln0).code for ln0, _i, _o in split}
 
         def mv():
             with self.doc.group("move %s" % st.kind):
@@ -2274,19 +2278,30 @@ class App(object):
                     self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
                 self.doc.tidy((min(x0, dest[0]), min(y0, dest[1]), max(x1 - 1, dest[2]), max(y1 - 1, dest[3])))
                 done = set()
-                for _ln, wc in ways:                # (found again by their text: the lines above moved)
+                for _ln, wc in whole:               # (found again by their text: the lines above moved)
                     w = next((s_ for s_ in self.doc.statements() if s_.code == wc and s_.line not in done), None)
                     if w:
                         done.add(w.line)
                         self.doc.set_statement(w.line, self.doc.moved_code(w.line, dx, dy))
+                for ln0, inside, outs in split:
+                    w = next((s_ for s_ in self.doc.statements() if s_.line not in done and s_.kind == "guard"
+                              and s_.code == old_code[ln0]), None)
+                    if w:
+                        done.add(w.line)
+                        self.doc.set_statement(w.line, inside)
+                        self.doc.set_statement(w.line, self.doc.moved_code(w.line, dx, dy))
+                        for o in reversed(outs):
+                            self.doc.insert(o, after=w.line)
             return True
         if self._edit(mv):
             ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
             self.area = dest
             self.select(ln)
-            rode = sorted({wc.split()[0] for _l, wc in ways})
-            names = {"way": "its route points", "start": "the start", "checkpoint": "its flag"}
-            self._msg("Moved%s%s" % ((", with " + " and ".join(names[k] for k in rode)) if rode else "",
+            rode = sorted({wc.split()[0] for _l, wc in whole} | ({"guard"} if split else set()))
+            names = {"way": "its route points", "start": "the start", "checkpoint": "its flags",
+                     "guard": "its guard rails", "prop": "its props", "pad": "its pads", "clock": "its clocks",
+                     "tube": "its tubes", "cup": "the cup"}
+            self._msg("Moved%s%s" % ((", with " + ", ".join(names.get(k, "its " + k) for k in rode)) if rode else "",
                                     ("; it took the height of the floor it landed on (%g)" % max(under))
                                     if under and st.kind in ("floor", "goal") else ""))
 

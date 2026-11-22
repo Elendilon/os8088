@@ -289432,3 +289432,13 @@ The builder's tube form (130.58.29) has **Pipe height** (`body <units>`, 130.12.
 clause removed). A DROP's automatic pipe is now the lowest its mouth stands on, so a drop moved below a higher
 entry no longer sits far above its exit. The mouth's refusal is explained: raise the pipe, or lower the mouth.
 
+#### 130.58.34 What stands on ground moves with it (the owner, 2026-11-22)
+
+*"Trying to move ground with guardrails on it always refuses (a guard rail stands ON a floor's edge). The guard
+rails should just move with the selected ground. Same thing with flags, or other props attached to that ground."*
+A move of a floor, wall or goal (130.58.14) carries every statement that stands wholly on it - its guard rails,
+route points, the start, flags, props, pads, clocks, a tube with both ends on it - not only 130.58.22's route
+points (`Document.riders`). A `guard rect` that reaches past the ground is split: the part on it goes along and
+the rest stays where it was. A statement with only some of its cells on the ground (a tube with one end on it)
+stays, and the check names it if it no longer fits.
+
