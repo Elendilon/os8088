@@ -477,6 +477,8 @@ class App(object):
         self.ins_title.pack(anchor="w")
         self.ins_line = ttk.Label(right, text="", foreground="#555", wraplength=310)
         self.ins_line.pack(anchor="w", pady=(0, 6))
+        self.ins_also = ttk.Frame(right)        # every other part on the clicked cell (SPEC.md 130.58.28)
+        self.ins_also.pack(fill="x", pady=(0, 6))
         self.ins_body = ttk.Frame(right)
         self.ins_body.pack(fill="x")
         ttk.Label(right, text="The statement").pack(anchor="w", pady=(10, 0))
@@ -1463,8 +1465,12 @@ class App(object):
         else:
             self.sels = [line] if line else []
         self.sel = line
+        here = getattr(self, "here", None)
+        if here and line not in here[1]:        # (selected some other way: the 'Also here' row is stale)
+            self.here = None
         self._redraw()
         self._fill_inspector()
+        self._fill_also()
         self._fill_source()
         self._fill_add()
         if scroll:
@@ -1512,6 +1518,29 @@ class App(object):
         tw, th = max(1.0, sr[2] - sr[0]), max(1.0, sr[3] - sr[1])
         c.xview_moveto(max(0.0, (cx - c.winfo_width() / 2.0) / tw))
         c.yview_moveto(max(0.0, (cy - c.winfo_height() / 2.0) / th))
+
+    def _name_of(self, line):
+        try:
+            return "%s (line %d)" % (_plain_kind(self.doc.statement(line)), line)
+        except E.EditError:
+            return "line %d" % line
+
+    def _fill_also(self):
+        """the inspector's 'Also here' row: a button for every other part on the cell last clicked"""
+        for w in self.ins_also.winfo_children():
+            w.destroy()
+        cell, lines = getattr(self, "here", (None, []))
+        others = [ln for ln in lines if ln != self.sel and ln <= len(self.doc.lines)]
+        if not cell or not others:
+            return
+        self.ttk.Label(self.ins_also, text="Also here:", foreground="#555").pack(side="left")
+        for ln in others[:6]:
+            try:
+                nm = _plain_kind(self.doc.statement(ln))
+            except E.EditError:
+                continue
+            self.ttk.Button(self.ins_also, text=nm, command=lambda ln=ln: (self.select(ln), self._fill_also())).pack(
+                side="left", padx=1)
 
     def _fill_inspector(self):
         for w in self.ins_body.winfo_children():
@@ -3057,7 +3086,13 @@ class App(object):
         if self.view.get() != "plan":                    # Iso: a click selects what drew that pixel
             lines = E.at_cell(a, cell)
             self.area = (cell[0], cell[1], cell[0], cell[1])
-            self.select(lines[0] if lines else None)
+            if lines and self.sel in lines and cell == getattr(self, "last_click", None):
+                self.here = (cell, lines)               # (the same cell again: the next part there)
+                self.select(lines[(lines.index(self.sel) + 1) % len(lines)])
+            else:
+                self.here = (cell, lines)
+                self.select(lines[0] if lines else None)
+            self.last_click = cell
             self._fill_add()
             return
         ctrl_ = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
@@ -3070,8 +3105,8 @@ class App(object):
             self.drag = {"from": cell, "to": cell, "move": False, "shift": False, "ctrl": False, "resize": h,
                          "orig": rz[2], "rect": rz[2]}
             return
-        w = self._way_at(e)                              # a route point, picked and dragged straight off the plan
-        if w:
+        w = self._way_at(e) if cell != getattr(self, "last_click", None) else None   # (a route point picked off
+        if w:                                                                     # the plan; a repeat click steps)
             self.select(w)
             self.drag = {"from": cell, "to": cell, "move": True, "shift": False, "ctrl": False}
             return
@@ -3121,12 +3156,22 @@ class App(object):
             self.area = (cell[0], cell[1], cell[0], cell[1])
             if lines and d.get("ctrl"):
                 self.select(lines[0], add=True)
-            elif lines and self.sel in lines and d["shift"]:
-                self.select(lines[(lines.index(self.sel) + 1) % len(lines)])
+            elif lines and self.sel in lines and (d["shift"] or cell == getattr(self, "last_click", None)):
+                k = (lines.index(self.sel) + 1) % len(lines)     # the same cell again: the next part there
+                self.select(lines[k])
+                if len(lines) > 1:
+                    self._msg("%d of %d here: %s - click again for the next" % (
+                        k + 1, len(lines), self._name_of(lines[k])))
             elif lines and self.sel in lines:
                 self.select(self.sel)
             else:
                 self.select(lines[0] if lines else None)
+                if len(lines) > 1:
+                    self._msg("1 of %d here: %s - click again for the next, or pick one under its name"
+                              % (len(lines), self._name_of(lines[0])))
+            self.last_click = cell
+            self.here = (cell, lines)
+            self._fill_also()
         self._fill_add()
         self._redraw()
 

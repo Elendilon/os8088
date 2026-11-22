@@ -117,6 +117,8 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
   front of the ball hide it as the game does, and "Save demo" writes the
   run as a .BZR the game replays (and a .bzd beside it).
       python3 bbplay.py COURSE.bbc [--start X Y] [--ball steel] [--herc]
+  Several parts on one cell (a tube in a wall, a windmill, a route point):
+  click the cell again for the next one, or pick it under "Also here".
   Ctrl+Z / Ctrl+Y undo and redo. Esc clears the selection.
   Mouse wheel zooms; right- or middle-drag pans. Tab switches Plan and Iso.
 
