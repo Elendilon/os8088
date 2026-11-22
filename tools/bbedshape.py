@@ -9,6 +9,7 @@ which hands it the window (its document, `_edit`, the job runner and the height 
 """
 
 DIRS = ((1, 0), (0, 1), (-1, 0), (0, -1))
+PATHS = ("chute", "tube")      # the shapes drawn and dragged as a path of points (a chute's ways, a tube's IN/vias/OUT)
 
 
 def _num(t):
@@ -53,6 +54,28 @@ def parse(toks):
                 else:
                     return None
             return sh if len(sh["ways"]) >= 2 else None
+        if k == "tube":                         # SPEC.md 130.12.3.3: its IN, vias and OUT as the path's points
+            sh = {"kind": k, "sub": t[1], "width": 1, "ways": [[int(t[2]), int(t[3]), None]], "out": None,
+                  "speed": None, "height": None}
+            last = [int(t[4]), int(t[5]), None]
+            i = 6
+            while i < len(t):
+                if t[i] == "via":
+                    sh["ways"].append([int(t[i + 1]), int(t[i + 2]), None])
+                    i += 3
+                elif t[i] == "out":
+                    sh["out"] = t[i + 1]
+                    i += 2
+                elif t[i] == "speed":
+                    sh["speed"] = [int(t[i + 1]), int(t[i + 2]), int(t[i + 3])]
+                    i += 4
+                elif t[i] == "height":
+                    sh["height"] = float(t[i + 1])
+                    i += 2
+                else:
+                    return None
+            sh["ways"].append(last)
+            return sh
         if k == "pit":
             sh = {"kind": k, "x": int(t[1]), "y": int(t[2]), "z": float(t[3]), "radius": 3, "depth": 16, "hole": 1}
             i = 4
@@ -89,6 +112,17 @@ def code(sh):
         for i, (x, y, z) in enumerate(sh["ways"]):
             out += ["way", str(x), str(y)] + ([_g(z if z is not None or i else 0)] if z is not None or not i else [])
         return " ".join(out)
+    if sh["kind"] == "tube":
+        w = sh["ways"]
+        out = "tube %s %d %d %d %d" % (sh["sub"], w[0][0], w[0][1], w[-1][0], w[-1][1])
+        out += "".join(" via %d %d" % (x, y) for x, y, _z in w[1:-1])
+        if sh.get("out"):
+            out += " out %s" % sh["out"]
+        if sh["sub"] == "launch":
+            out += " speed %d %d %d" % tuple(sh.get("speed") or (0, 0, 0))
+        if sh["sub"] == "drop":
+            out += " height %s" % _g(sh.get("height") or 2)
+        return out
     if sh["kind"] == "pit":
         out = "pit %d %d %s radius %d depth %d" % (sh["x"], sh["y"], _g(sh["z"]), sh["radius"], sh["depth"])
         return out + (" hole %d" % sh["hole"] if sh["hole"] != 1 else "")
@@ -164,6 +198,9 @@ def new_shape(kind, x, y, z):
     """a shape made from nothing at cell (X, Y) on ground Z: each is the smallest the compiler lays"""
     if kind == "chute":
         return {"kind": kind, "width": 1, "prof": "round", "depth": 5, "ways": [[x, y, z], [x + 6, y, None]]}
+    if kind == "tube":                          # (a KEEP tube 4 cells along x: its body the tube lays itself)
+        return {"kind": kind, "sub": "keep", "width": 1, "ways": [[x, y, None], [x + 4, y, None]], "out": None,
+                "speed": None, "height": None}
     if kind == "pit":
         return {"kind": kind, "x": x + 3, "y": y + 3, "z": z, "radius": 3, "depth": 16, "hole": 1}
     return {"kind": kind, "x": x + 1, "y": y + 1, "z": z, "along": None, "n": 0, "open": False, "height": None}
@@ -173,6 +210,10 @@ def describe(sh):
     if sh["kind"] == "chute":
         n = len(sh["ways"]) - 1
         return "Chute: %d wide, %s, %d leg%s" % (sh["width"], sh["prof"], n, "" if n == 1 else "s")
+    if sh["kind"] == "tube":
+        n = len(sh["ways"]) - 1
+        return "Tube (%s): %d, %d to %d, %d, %d leg%s" % (sh["sub"], sh["ways"][0][0], sh["ways"][0][1],
+                                                          sh["ways"][-1][0], sh["ways"][-1][1], n, "" if n == 1 else "s")
     if sh["kind"] == "pit":
         return "Pit at %d, %d: radius %d" % (sh["x"], sh["y"], sh["radius"])
     return "Hump at %d, %d%s" % (sh["x"], sh["y"], (", a ridge along %s" % sh["along"]) if sh["along"] else "")
@@ -202,7 +243,7 @@ class ShapesTab(object):
         self.lb = tk.Listbox(left, width=32, height=14, exportselection=False)
         self.lb.pack(fill="y", expand=False, pady=4)
         self.lb.bind("<<ListboxSelect>>", lambda e: self._pick())
-        for kind, label in (("chute", "New chute"), ("pit", "New pit"), ("hump", "New hump")):
+        for kind, label in (("chute", "New chute"), ("pit", "New pit"), ("hump", "New hump"), ("tube", "New tube")):
             ttk.Button(left, text=label, command=lambda k=kind: self.new(k)).pack(fill="x", pady=1)
         ttk.Label(left, wraplength=220, foreground="#444", justify="left",
                   text="A new shape goes on the area selected on the Build tab (or beside the start), at "
@@ -240,7 +281,7 @@ class ShapesTab(object):
     def shapes(self):
         out = []
         for st in self.app.doc.statements():
-            if st.kind in ("chute", "pit", "hump"):
+            if st.kind in ("chute", "pit", "hump", "tube"):
                 sh = parse(st.toks)
                 if sh:
                     out.append((st.line, sh))
@@ -393,6 +434,66 @@ class ShapesTab(object):
             ttk.Button(fr, text="Run it the other way",
                        command=lambda: self.apply(dict(sh, ways=reverse(sh["ways"])), "reverse the chute")).pack(side="left")
             row[0] += 1
+        elif sh["kind"] == "tube":
+            kv = tk.StringVar(value=sh["sub"])
+
+            def setk():
+                k = kv.get()
+                if k == sh["sub"]:
+                    return
+                w = sh["ways"]
+                dx, dy = _sg(w[-1][0] - w[-2][0]), _sg(w[-1][1] - w[-2][1])
+                new = dict(sh, sub=k)
+                if k == "launch" and not sh.get("speed"):
+                    new["speed"] = [192 * dx, 192 * dy, 300]
+                if k == "drop" and not sh.get("height"):
+                    new["height"] = 2.0
+                self.apply(new, "tube kind")
+            choice("Kind", kv, ("keep", "launch", "drop"), setk)
+            ov = tk.StringVar(value=sh.get("out") or "along its last leg")
+            ttk.Label(self.form, text="Comes out").grid(row=row[0], column=0, sticky="w", pady=1)
+            cb = ttk.Combobox(self.form, values=("along its last leg", "+x", "-x", "+y", "-y"), textvariable=ov,
+                              state="readonly", width=16)
+            cb.grid(row=row[0], column=1, sticky="w")
+            cb.bind("<<ComboboxSelected>>", lambda e: self.apply(
+                dict(sh, out=None if ov.get().startswith("along") else ov.get()), "tube exit"))
+            row[0] += 1
+            if sh["sub"] == "drop":
+                hv = tk.StringVar(value=_g(sh.get("height") or 2))
+                field("Mouth's height over the floor (units)", hv, 1, 12, 0.5,
+                      lambda: self._fvar(hv) is not None and self._fvar(hv) != sh.get("height")
+                      and self.apply(dict(sh, height=self._fvar(hv)), "drop height"))
+            if sh["sub"] == "launch":
+                sp = sh.get("speed") or [0, 0, 0]
+                svs = [tk.StringVar(value=str(v)) for v in sp]
+
+                def sets():
+                    try:
+                        v = [int(float(x.get())) for x in svs]
+                    except ValueError:
+                        return
+                    if v != list(sp):
+                        self.apply(dict(sh, speed=v), "launch speed")
+                for k_, (lab, lo, hi) in enumerate((("Speed along x", -512, 512), ("Speed along y", -512, 512),
+                                                    ("Speed up", 0, 600))):
+                    field(lab, svs[k_], lo, hi, 16, sets)
+            ttk.Label(self.form, text="Points: 1 is where the ball goes in, %d where it comes out; drag them on "
+                                      "the plan (an end slides along its leg)." % len(sh["ways"]),
+                      wraplength=400, foreground="#555").grid(row=row[0], column=0, columnspan=2, sticky="w")
+            row[0] += 1
+            fr = ttk.Frame(self.form)
+            fr.grid(row=row[0], column=0, columnspan=2, sticky="w", pady=(6, 0))
+            ttk.Label(fr, text="Add a leg at the end:").pack(side="left")
+            row[0] += 1
+            fr = ttk.Frame(self.form)
+            fr.grid(row=row[0], column=0, columnspan=2, sticky="w")
+            for txt, t_ in (("Turn left", "left"), ("Straight on", "straight"), ("Turn right", "right")):
+                ttk.Button(fr, text=txt, command=lambda t_=t_: self.apply(dict(sh, ways=add_leg(sh["ways"], t_, 3)),
+                                                                           "add a leg")).pack(side="left")
+            row[0] += 1
+            ttk.Button(self.form, text="Remove the last leg", command=lambda: self.apply(
+                dict(sh, ways=remove_leg(sh["ways"])), "remove a leg")).grid(row=row[0], column=0, sticky="w")
+            row[0] += 1
         elif sh["kind"] == "pit":
             vs = {k: tk.StringVar(value=_g(sh[k]) if k == "z" else str(sh[k]))
                   for k in ("z", "radius", "depth", "hole")}
@@ -452,7 +553,7 @@ class ShapesTab(object):
 
     # -- the plan -----------------------------------------------------------
     def _bbox(self, sh):
-        if sh["kind"] == "chute":
+        if sh["kind"] in PATHS:
             xs = [w[0] for w in sh["ways"]]
             ys = [w[1] for w in sh["ways"]]
             m = sh["width"]
@@ -469,7 +570,7 @@ class ShapesTab(object):
 
     def _handles(self, sh):
         """[(index, x, y, centre)]: the draggable points"""
-        if sh["kind"] == "chute":
+        if sh["kind"] in PATHS:
             c = sh["width"] != 2
             return [(i, w[0], w[1], c) for i, w in enumerate(sh["ways"])]
         return [(0, sh["x"], sh["y"], False)]
@@ -518,7 +619,7 @@ class ShapesTab(object):
                               font=("TkDefaultFont", 7))
         sh = self.drag["sh"] if self.drag else sh
         hs = self._handles(sh)
-        if sh["kind"] == "chute":
+        if sh["kind"] in PATHS:
             pts = [self._pt(x, y, ctr) for _, x, y, ctr in hs]
             c.create_line(*[v for p in pts for v in p], fill="#29e6ff", width=3, capstyle="round", joinstyle="round")
         elif sh["kind"] == "pit":
@@ -535,7 +636,7 @@ class ShapesTab(object):
             c.create_line(cx_, cy_, cx_ + ex, cy_ + ey, fill="#29e6ff", width=4, capstyle="round")
         for i, x, y, ctr in hs:
             px, py = self._pt(x, y, ctr)
-            on = i == self.wsel and sh["kind"] == "chute"
+            on = i == self.wsel and sh["kind"] in PATHS
             c.create_oval(px - 9, py - 9, px + 9, py + 9, fill="#ffd54f" if on else "#29e6ff", outline="#111")
             c.create_text(px, py, text=str(i + 1), fill="#111", font=("TkDefaultFont", 8, "bold"))
         self._draw_graph(sh)
@@ -544,6 +645,14 @@ class ShapesTab(object):
         g = self.graph
         g.delete("all")
         Wg, Hg = 420, 130
+        if sh["kind"] == "tube":
+            g.create_text(10, 10, anchor="nw", fill="#ccc", width=Wg - 20, text=(
+                "A tube: the ball goes in at 1 and comes out at %d. The cells between are its body: the tube lays "
+                "them as walls by itself (one unit over the higher of its two ends' floors) wherever there is no "
+                "wall already, its pipe drawn on top. 1 and %d must be floor; a KEEP tube's exit rolls onto the "
+                "floor beyond %d; a DROP falls from its mouth; a LAUNCH throws the ball." % (
+                    len(sh["ways"]), len(sh["ways"]), len(sh["ways"]))))
+            return
         if sh["kind"] == "chute":
             ws = sh["ways"]
             zs = lip_heights(ws)
@@ -611,7 +720,7 @@ class ShapesTab(object):
         i = self._hit(e)
         if i is None:
             return
-        self.wsel = i if self.sh["kind"] == "chute" else None
+        self.wsel = i if self.sh["kind"] in PATHS else None
         self.drag = {"i": i, "sh": self.sh, "moved": False}
         self.draw()
 
@@ -620,9 +729,9 @@ class ShapesTab(object):
         if not d:
             return
         sh = self.sh
-        ctr = sh["kind"] == "chute" and sh["width"] != 2
-        nx, ny = self._cell(e, ctr if sh["kind"] == "chute" else False)
-        if sh["kind"] == "chute":
+        ctr = sh["kind"] in PATHS and sh["width"] != 2
+        nx, ny = self._cell(e, ctr if sh["kind"] in PATHS else False)
+        if sh["kind"] in PATHS:
             new = dict(sh, ways=drag_way(sh["ways"], d["i"], nx, ny))
         else:
             new = dict(sh, x=nx, y=ny)

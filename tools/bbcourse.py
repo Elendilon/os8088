@@ -5162,6 +5162,7 @@ def build_tiles(src):
                                           "(SPEC.md 130.28.3)" % (f, t.line, wx + dx, wy + dy, wx, wy))
         field_seams(tiles, f)
         hump_ends(src, tiles)
+    lay_tube_bodies(src, tiles)
     lay_guards(src, tiles)
     lay_arches(src, tiles)
     lay_seesaws(src, tiles)
@@ -6756,6 +6757,48 @@ def split_anchors(src, tiles, f):
             raise CourseError("%s:%d: %s on cell (%d, %d), which is a FIELD cell (a %s): it stands on a flat "
                               "cell's centre (SPEC.md 130.28.3)" % (f, ln, what, cell[0], cell[1],
                                                                    tiles[tuple(cell)].piece))
+
+
+def tube_body(tb):
+    """a tube's BODY: every cell strictly between IN and OUT along its path (SPEC.md 130.12.3.3), its via cells
+    included -> [cells], or None when a leg is not along an axis (build_props refuses it, naming the leg)"""
+    pts = [tb["inn"]] + tb["via"] + [tb["out"]]
+    body = []
+    for a, b in zip(pts, pts[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        if (dx != 0) == (dy != 0):
+            return None
+        ux, uy = (dx > 0) - (dx < 0), (dy > 0) - (dy < 0)
+        c = a
+        while True:
+            c = (c[0] + ux, c[1] + uy)
+            if c == b:
+                break
+            body.append(c)
+        if b != tb["out"]:
+            body.append(b)
+    return body
+
+
+def lay_tube_bodies(src, tiles):
+    """SPEC.md 130.12.3.3 (2026-11-22): a tube LAYS its own body. Every body cell that is not already a WALL (a
+    windmill's house, a wall the author laid) and is empty or a plain floor becomes a WALL one unit over the
+    highest of the tube's IN and OUT floors and the floors it replaces (a DROP's: its mouth's height and two
+    units over, so the mouth is on the last wall's face) - so a tube is drawn and moved as one
+    thing, its pipe on top. A split or shaped cell is left (build_props refuses it, naming the cell)"""
+    for tb in getattr(src, "tubes", ()):
+        body = tube_body(tb)
+        if not body:
+            continue
+        zs = [t.z0 for c in [tb["inn"], tb["out"]] + body for t in [tiles.get(c)]
+              if type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL) and not t.sx and not t.sy]
+        z = (max(zs) if zs else 0) + 2             # (half units: one unit over the higher end's floor -
+        if tb.get("sub") == TK_DROP and tb.get("height"):     # a DROP's mouth, `height` up and 9 px tall, on its
+            z = (max(zs) if zs else 0) + tb["height"] + 4   # last wall's face: two units more; half units)
+        for c in body:
+            t = tiles.get(c)
+            if t is None or (type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL, KIND_VOID)):
+                tiles[c] = Tile(KIND_WALL, z, 0, 0, tb["line"])
 
 
 def build_props(src, tiles, fname):
@@ -25933,7 +25976,7 @@ def _wave3_cases():
     seven = big + _posts([_sa(36, a) for a in (-8, -4, 0, 4, 8)] + [_sa(42, a) for a in (-6, 6)])
     nine = _W3F % (70, 20, 20) + _posts([_sa(s_, a) for s_ in (32, 46, 61) for a in (-6, 0, 6)])
     return [
-        ("a tube body cell not a WALL", W + "floor tile 10 6 flat 21\n", "is not a WALL"),
+        ("a tube body cell not a WALL", W + "floor half up tile 10 6 flat 21\n", "is not a WALL"),
         ("a tube leg off the axes", _swap(W, "tube keep 9 9 12 6 via 9 6", "tube keep 9 9 12 6"),
          "not along a tile axis"),
         ("a KEEP exit's next cell not a FLOOR", _swap(W, "via 9 6", "via 9 6 out -x"), "is not a FLOOR"),

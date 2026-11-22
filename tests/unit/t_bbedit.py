@@ -37,6 +37,8 @@
  12. THE GAME'S RULES IN THE FULL CHECK (130.58.23): a course with no `music` compiles and is refused by the
     check job naming the song; the builder's New course template passes it; with TRAP_CHECK off (the builder's
     default, 130.58.24) a 3-cell gap a jump pickup carries glass over compiles.
+ 13. TUBES (130.58.26, 130.12.3.3): a KEEP tube made from nothing on a plain floor, an end dragged, a right
+    turn added and made a DROP compiles, the tube laying its own body along both legs.
  8. GAP BANDS (130.58.21): (and a mark an edit left with nothing to band is dropped by the picture job,
     which draws the picture rather than refusing it) a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
@@ -383,6 +385,27 @@ def main():
     B.TRAP_CHECK = True
     if got[0] != "compiles" or got[1] not in ("NO TRAP", "compiles"):
         bad.append("NO TRAP off / on: %r" % got)
+    # 13. TUBES (SPEC.md 130.58.26): drawn over a plain floor, the tube lays its own body
+    tt = ('course TUB "Tubes"\nwidth 96\nball rubber\nmusic fairway\nuses tube\nfloor rect 4 4 24 20 flat 2\n'
+          'start 5 5\ngoal rect 22 18 24 20 flat 2\nclock 21 17\ntarget 60\nway 5 5\nway 23 19\n')
+    tb = S.new_shape("tube", 8, 8, 2.0)
+    tb = dict(tb, ways=S.drag_way(tb["ways"], 1, 14, 8))
+    tb = dict(tb, ways=S.add_leg(tb["ways"], "right", 3))
+    tb = dict(tb, sub="drop", height=2.0, out="+y")
+    if S.code(tb) != "tube drop 8 8 14 11 via 14 8 out +y height 2" or S.parse(S.code(tb).split()) != tb:
+        bad.append("tube: %r" % S.code(tb))
+    B.BLK_MAX, held = 1 << 30, B.BLK_MAX
+    try:
+        dt = E.Document(tt + S.code(tb) + "\n")
+        dt.auto_band()                          # (the window's own fix: the picture's width and origin)
+        c = B.compile_course(dt.text(), "tub.bbc", occluders=False)
+        body = sorted(k for k, v in c.tiles.items() if v.kind == B.KIND_WALL)
+        if body != [(9, 8), (10, 8), (11, 8), (12, 8), (13, 8), (14, 8), (14, 9), (14, 10)]:
+            bad.append("tube: its body is %r" % body)
+    except B.CourseError as e:
+        bad.append("tube: refused: %s" % str(e)[:150])
+    finally:
+        B.BLK_MAX = held
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

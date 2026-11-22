@@ -2203,7 +2203,7 @@ class App(object):
     def _tab_changed(self):
         if getattr(self, "shapes", None) and self.shapes.shown():
             try:
-                if self.sel and self.doc.statement(self.sel).kind in ("chute", "pit", "hump"):
+                if self.sel and self.doc.statement(self.sel).kind in ("chute", "pit", "hump", "tube"):
                     self.shapes.line = self.sel         # (the shape selected on the Build tab, shown)
             except E.EditError:
                 pass
