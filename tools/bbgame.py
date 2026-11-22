@@ -691,10 +691,14 @@ def main(argv=None):
     ap.add_argument("--disk", metavar="IMG", help="also a floppy: the package, its README and SYSTEM/APPDATA")
     ap.add_argument("--size", type=int, default=1440, choices=(360, 720, 1200, 1440))
     ap.add_argument("--pad0", metavar="NAME", help="put added course NAME on the pathway's pad 0")
+    ap.add_argument("--no-trap", action="store_true", help="skip NO TRAP, the softlock search (SPEC.md 130.58.24): "
+                    "the course builder asks the author whether to run it")
     ap.add_argument("--path", metavar="PATH.bbc", help="the author's pathway in place of the shipped one (its pads "
                     "may play the added courses; with no courses given, its `# builder-course:` lines name them)")
     ap.add_argument("--work", metavar="DIR", help="keep the compile's files here")
     a = ap.parse_args(argv)
+    if a.no_trap:
+        B.TRAP_CHECK = False
     try:
         return compose(a.out, a.courses, a.pad0, a.disk, a.size, a.work, pathway=a.path)
     except Refused as e:
