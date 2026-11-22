@@ -297688,3 +297688,22 @@ own:
 - The `bbedit` row's item 12: a course with no `music` passes `compile_course` and is refused by the full
   check naming the song; the New course template passes it.
 
+#### 130.58.24 NO TRAP is optional in the builder (the owner, 2026-11-22)
+
+The owner: *"make it optional to run for the builder. That one is another one that was there because agents
+kept building softlocks. Offer to run it when they go to insert a course into the game (the check is still
+useful even for a human built course sometimes)."* NO TRAP (130.14.4.1) is a search for a flag or pad from
+which a ball can never reach the goal; it refuses courses a player can finish with what the search does not
+try (a jump pickup, until its own rework).
+
+- **`TRAP_CHECK`** (tools/bbcourse.py, default on): off, `compile_course` passes the existing `no_trap` hack,
+  so the compile cache keys a compile without the search apart from one with it. The `make` build and
+  `--selfcheck` keep it on.
+- **The builder**: the full check (`bbedjob.py check`) runs without it unless given `--trap`; the Course
+  menu's *Check for softlocks (NO TRAP) now* runs the full check with it. *Put this course in the game...*
+  asks first ("Check for softlocks first?", No by default) and passes `bbgame.py --no-trap` unless the author
+  says Yes. The banner's explanation of a NO TRAP refusal says it is a helper, not a rule of the game.
+- The `bbedit` row's item 12: a 3-cell gap a jump pickup carries glass over compiles with `TRAP_CHECK` off.
+- The search itself is being reworked (to press the Hop where it matters and count a respawning pickup);
+  when that lands it still runs only when asked in the builder.
+

@@ -5377,6 +5377,7 @@ def plat_pos(pr, n):
 
 
 _CHECKS_OFF = set()            # --selfcheck's negative controls switch a refusal off here, and nothing else
+TRAP_CHECK = True              # SPEC.md 130.58.24: NO TRAP (130.14.4.1) runs; the course builder turns it off but on ask
 
 
 # =============================================================================
@@ -11766,6 +11767,8 @@ def compile_course(source, fname=None, occluders=True, _hack=None, crsinfo=None,
     """the course compiled (_compile_course_cut), with its visual WARNINGS (SPEC.md 130.58.4) as c.warnings:
     [{kind, msg, line, cell, accepted}], those the source marks `hidden` left out.  strict (default: STRICT,
     --strict) or the course's own `strict` statement refuses on the first warning it does not `accept`"""
+    if not TRAP_CHECK:                              # SPEC.md 130.58.24: NO TRAP off (the course builder's default),
+        _hack = dict(_hack or {}, no_trap=1)        # through the hack so the compile cache keys it apart
     c = _compile_course_cut(source, fname, occluders, _hack, crsinfo)
     vis_settle(c, STRICT if strict is None else strict, STRICT_SKIP if strict is None else ())
     return c

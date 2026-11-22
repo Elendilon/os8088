@@ -297,6 +297,7 @@ class App(object):
         mb.add_cascade(label="View", menu=vm)
         cm = tk.Menu(mb, tearoff=0)
         cm.add_command(label="Check now", command=self.run_check)
+        cm.add_command(label="Check for softlocks (NO TRAP) now", command=lambda: self.run_check(trap=True))
         cm.add_checkbutton(label="Treat warnings as errors (--strict)", variable=self.strict,
                            command=self.run_check)
         mb.add_cascade(label="Course", menu=cm)
@@ -579,6 +580,10 @@ class App(object):
             filetypes=[("The game (BONANZA.O88)", "*.o88"), ("A floppy with the game (1.44 MB)", "*.img")])
         if not out:
             return
+        trap = messagebox.askyesno(TITLE, "Check for softlocks first?\n\nNO TRAP searches every flag and pad for a "
+                                   "place the ball can reach but never leave (a way to the goal for each ball). "
+                                   "It refuses the game if it finds one. It can take minutes on a big course, "
+                                   "and it cannot see every trick a player can do.", default="no")
         work = tempfile.mkdtemp(prefix="bbgame-")
         img = out.lower().endswith(".img")
         pk = os.path.join(work, "BONANZA.O88") if img else out
@@ -589,6 +594,7 @@ class App(object):
             name = B.parse(self.doc.text(), self.doc.path).name
             argv = [sys.executable, "-u", os.path.join(HERE, "bbgame.py"), pk, self.doc.path, "--pad0", name]
         argv += ["--disk", out, "--size", "1440"] if img else []
+        argv += [] if trap else ["--no-trap"]
         self._msg("Putting the course in the game: compiling every course (minutes the first time)...")
         res = {}
 
@@ -2332,7 +2338,8 @@ class App(object):
         self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []),
                            ev).start()
 
-    def run_check(self):
+    def run_check(self, trap=False):
+        """the full check; TRAP: NO TRAP too (SPEC.md 130.58.24 - the softlock search, off unless asked)"""
         self.check_after = None
         if self.check_job:
             self.check_job.kill()
@@ -2350,7 +2357,8 @@ class App(object):
                 self._msg("Full check: %s in %.1f s" % ("builds" if e.get("ok") else "refused", time.time() - t0))
             elif e["stage"] not in ("exit", "log"):
                 self.job_l.config(text="Check: %s" % e.get("what", e["stage"]))
-        self.check_job = Job(["check", p, "--name", self._name()] + (["--strict"] if strict else []), ev).start()
+        self.check_job = Job(["check", p, "--name", self._name()] + (["--strict"] if strict else []) +
+                             (["--trap"] if trap else []), ev).start()
         self._fill_checks(self._problems())
 
     def test_roll(self):
@@ -3048,8 +3056,6 @@ EXPLAIN = [
     (r"has \d+ occluder records, over \d+", "too many things stand in front of each other at one spot of the "
      "game's picture - usually a steep ramp or a tall cliff beside other tall parts. Make the ramp gentler "
      "(longer, or a smaller rise) or the drop beside it lower."),
-    (r"NO TRAP: from (.*) cannot reach the goal", "a ball could get stuck: from {0} it cannot get to the goal. "
-     "Connect that part to the rest of the course, or remove it."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
     (r"guard \(\d+, \d+\) touches \(\d+, \d+\), which is not a whole FLAT floor", "a guard rail's cell is a wall at "
@@ -3059,6 +3065,10 @@ EXPLAIN = [
      "low wall."),
     (r"guard \(\d+, \d+\) stands on a solid cell", "a guard rail goes in the EMPTY cell beside a floor, not on "
      "the floor: select the empty cells along the edge."),
+    (r"NO TRAP: from the", "the softlock check (NO TRAP) found a flag or pad from which a ball, rolling and "
+     "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
+     "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
+     "of the game. Otherwise connect that part, or move the flag or pad."),
     (r"has no clock whose digits lie inside the CGA window", "every finish needs a clock the player can see from "
      "it (the finish flashes its time there): add a Clock (Game, on the left) on a floor tile near the goal."),
     (r"no `music` line", "every course names its song: choose one on the Course tab (Music)."),

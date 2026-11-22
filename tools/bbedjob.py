@@ -4,7 +4,7 @@ by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
     python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH] [--gaps]   # the Iso view's picture
-    python3 tools/bbedjob.py check   COURSE.bbc [--strict] [--name PATH] # the full check
+    python3 tools/bbedjob.py check   COURSE.bbc [--strict] [--trap] [--name PATH]   # the full check
     python3 tools/bbedjob.py ride    COURSE.bbc LINE [--name PATH]     # how each ball rides a shape
 
 Each line is a JSON object: {"stage": ..., "what": ...} while it works, then
@@ -140,7 +140,7 @@ def picture(path, out, name=None, gaps=False):
     return 0
 
 
-def check(path, strict, name=None):
+def check(path, strict, name=None, trap=False):
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
@@ -154,7 +154,8 @@ def check(path, strict, name=None):
             return 1
         emit(stage="done", ok=True, warnings=[], proofs=str(pr)[:400], secs=round(time.time() - t0, 1))
         return 0
-    emit(stage="compile", what="the full check (occluders, reach, traps)")
+    B.TRAP_CHECK = trap                         # SPEC.md 130.58.24: NO TRAP only when asked
+    emit(stage="compile", what="the full check (occluders, reach%s)" % (", softlocks" if trap else ""))
     try:
         c = B.compile_course(text, path, strict=strict)
     except B.CourseError as e:
@@ -337,7 +338,7 @@ def main(argv):
     if len(argv) >= 3 and argv[0] == "ride":
         return ride(argv[1], int(argv[2]), name)
     if len(argv) >= 2 and argv[0] == "check":
-        return check(argv[1], "--strict" in argv[2:], name)
+        return check(argv[1], "--strict" in argv[2:], name, "--trap" in argv[2:])
     sys.stderr.write(__doc__)
     return 2
 
