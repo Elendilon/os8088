@@ -289290,6 +289290,13 @@ them; nothing said so.)
   six); one click selects it. Selecting something any other way clears the row.
 - MEASURED (a scripted session on MILL's cell (9, 9): a route point, the windmill, its KEEP tube and floor A):
   four clicks select the four in turn, each with the other three offered.
+- **A guard rail is one of the parts on a cell** (2026-11-22, after 130.35's rework put rails on a floor's
+  EDGE): `at_cell` offers a `guard` whose rail runs along any of the cell's four edges, after the props and
+  before the floor. **A handle pressed and let go without moving is a click**: the selected shape's numbered
+  point or a selected floor's resize handle no longer swallows the click that steps to the cell's next part
+  (the owner: *"I can't get to the guard rails (or anything aside from the waypoint on the windmill spot)"*).
+  MEASURED: MILL's (9, 9) steps route point, windmill, tube, floor, route point; (12, 12) the start floor's
+  rail and the floor.
 
 #### 130.58.29 Shapes edited in place on the Build tab (the owner, 2026-11-22)
 

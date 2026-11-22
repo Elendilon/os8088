@@ -427,6 +427,13 @@ def main():
             B.BLK_MAX = held
     except B.CourseError as e:
         bad.append("a traced tube: %s" % str(e)[:150])
+    # 15. A GUARD RAIL is one of the parts on the cells along its edge (SPEC.md 130.58.28, 130.35): MILL's start floor
+    an = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).analysis()
+    gl = [st.line for st in E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).statements()
+          if st.kind == "guard" and st.toks[1:6] == ["rect", "7", "9", "13", "14"]]
+    if not gl or gl[0] not in E.at_cell(an, (12, 12)):
+        bad.append("at_cell: MILL's start-floor rail (line %r) is not offered at (12, 12): %r" % (
+            gl, E.at_cell(an, (12, 12))))
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

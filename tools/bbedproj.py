@@ -1036,6 +1036,19 @@ def at_cell(analysis, cell, frac=None):
         for p in c["pieces"]:
             if _inside(frac, p["poly"]) and p["line"] not in lines:
                 lines.append(p["line"])
+    src = analysis.get("src")                   # a GUARD RAIL on one of the cell's edges (SPEC.md 130.35: a rail
+    rails = getattr(src, "rails", None) if src is not None else None     # stands on a floor's edge)
+    if rails:
+        x, y = cell
+        for key in ((cell, "x"), (cell, "y"), ((x - 1, y), "x"), ((x, y - 1), "y")):
+            r = rails.get(key)
+            ln = r.get("line") if isinstance(r, dict) else None
+            if ln and ln not in lines:
+                lines.append(ln)
+    elif src is not None:
+        for g in getattr(src, "guards", ()):
+            if cell in g.get("tiles", ()) and g["line"] not in lines:
+                lines.append(g["line"])
     if c and c["line"] and c["line"] not in lines:
         lines.append(c["line"])
     # a route point is never drawn in the game: it is last, under the ground it marks (Shift-click reaches it)

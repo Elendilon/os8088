@@ -1563,7 +1563,7 @@ class App(object):
         """the inspector's 'Also here' row: a button for every other part on the cell last clicked"""
         for w in self.ins_also.winfo_children():
             w.destroy()
-        cell, lines = getattr(self, "here", (None, []))
+        cell, lines = getattr(self, "here", None) or (None, [])
         others = [ln for ln in lines if ln != self.sel and ln <= len(self.doc.lines)]
         if not cell or not others:
             return
@@ -3191,15 +3191,15 @@ class App(object):
         d, self.drag = self.drag, None
         if not d:
             return
-        if d.get("shape"):
-            self.shapes.release(e)
-            return
-        if d.get("resize"):
+        if d.get("shape"):                      # a shape's handle: dragged, an edit of the draft; pressed and
+            moved = bool(self.shapes.drag and self.shapes.drag.get("moved"))   # let go where it was, a CLICK
+            self.shapes.release(e)              # (so the same cell clicked again still steps to its next part)
+            if moved:
+                return
+        if d.get("resize"):                     # a resize handle: dragged, a resize; let go where it was, a CLICK
             if d["rect"] != d["orig"]:
                 self.resize_sel(d["rect"])
-            else:
-                self._redraw()
-            return
+                return
         if d["move"] and d["to"] != d["from"]:
             self.move_sel(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
         elif not d["move"] and d["to"] != d["from"]:
