@@ -272881,15 +272881,16 @@ the engine's tables held 16 lanes and 32 props a course. Amended so:
    second), and the EVENT lanes - a flag (when touched), a post's lit
    frames (when kicked), a node's sign (between plays). The window bounds
    become: **FAST lanes meeting any window at most 6** (the brief's 2 - 6,
-   unchanged for rotors); **the pose CHANGES that can land on one step
-   among the lanes meeting any window at most `WIN_CHG` = 6** - the
-   rotors' (at most 2, `ROTOR_CHG`, unchanged), every clock digit meeting
-   it (all clocks count the same second, so their digits change on the
-   same step) and 1 for the event lanes together (a ball touches one thing
-   at a time); and **FAST lanes in the walk's range at most 8**. SLOW lanes
-   are otherwise UNBOUNDED; the tool prints each course's most lanes in a
-   window and in a range. The wheel's candidate list holds `WIN_CHG`
-   (`bz_wcl`, already six; a seventh would wait a frame, never be lost).
+   unchanged for rotors); ~~the pose CHANGES that can land on one step
+   among the lanes meeting any window at most `WIN_CHG` = 6~~ **(retired
+   2026-11-22 by item 14: the changes landing on one step are REPORTED;
+   only the OWN-CLOCK lanes - rotor changes, fans, always-lanes and clock
+   digits - are held to `WIN_CHG` in a window with a clock)**; rotor
+   changes on a step at most 2 (`ROTOR_CHG`, unchanged); and **FAST lanes
+   in the walk's range at most 8**. SLOW lanes are otherwise UNBOUNDED; the
+   tool prints each course's most lanes in a window and in a range, and the
+   most changes on one step. The wheel's candidate list holds `WIN_CHG`
+   (`bz_wcl`, six; a seventh waits a frame, never lost - item 14).
 2. **The tables sized by the courses.** `BZ_PROPMAX` (lanes) and
    `BZ_PROPALL` (props) are the LARGEST any course of the build has (even,
    at least 2), written by the tool into `bzcourse.inc`; the guest's
@@ -273126,6 +273127,76 @@ the skip's kinds, three taken jumps) - item 6 below.
    56.1 -> 58.0 frames a second; the crack lab's panning stretch (233 - 280)
    38.7 -> **46.9**, its two-refresh frames 16 -> 11 of 33 - 40, sim+camera
    51.9k -> 39.1k clk a frame; the rest of the log 55.5 -> 57.1.
+
+14. **(the owner, 2026-11-22) The change bound is a REPORT, not a
+   refusal.** *"An 'invalid refusal generator'"* - the owner's words for
+   what the lane rules had become: refusals added one part at a time, *"the
+   path of least resistance at the time"*, instead of making the parts work
+   sensibly together. Item 1's `WIN_CHG` was a worst-case SUM over a window
+   (each clock 2, each event lane 1, each see-saw lane 1, each turntable
+   cell, each gate-art lane), and the audit of 2026-11-22 found it refusing
+   ordinary courses: a 4-long see-saw beside the course's clock, a
+   turntable beside any pickup, three pop-up spikes on one timer (and no
+   `seed` could make them "pop together"), every 6-long see-saw (its
+   `TL_LANES` 6, the same bound per plate), two gusting blowers in one
+   window (`_wind_turns`).
+
+   **What the guest really does with a seventh change.** Nothing new is
+   built: the WHEEL (130.12.5.3) already lists at most six due lanes a
+   frame (`bz_wcl`, `bz_wcn`, raster order) and commits only those the
+   retrace wait has room for; a due lane it does not list or does not
+   commit stays MARKED (item 6: drawn not true is PENDING) and is a
+   candidate on the next frame, its age (`bz_lage`) counting. So a burst of
+   N pose changes on one step reaches the glass over several frames - as
+   any burst already did, since a commit is about 7 - 9k clk on the CGA and
+   a frame's wait holds only a few - and every frame stays inside its
+   budget by construction: the wheel's deadline test is unchanged. The
+   "queue" the brief asked for is the lanes' own pending state, and costs
+   **0 bytes and 0 clk**. A lane due `BZ_WPRO` / `BZ_WPRF` frames is
+   promoted (130.13.3), and `bz_wlate` still counts one due `BZ_WLAG` (8).
+
+   **The one bound that is real** stays, narrowed to what it protects: in a
+   FINISH the clock's digits are committed as ONE group (`bz_wclk`,
+   130.22.6.1), and only when every due digit is in the list together.
+   Lanes that change on their OWN clocks - a rotor's changes on a step
+   (`ROTOR_CHG`), fans and always-lanes, and the clock digits - can be due
+   on every frame and so can hold the list; a window with a clock in which
+   those exceed `WIN_CHG` (6) is refused: *"N lanes on their own clocks
+   meet it ... move the clock, or a rotor or fan, out of this window"*. The
+   event lanes (flags, posts, signs, pickups, popspikes, gusts, see-saws,
+   turntables, gate art, groups) are no longer counted against anything:
+   they come in bursts and drain.
+
+   Gone with it: `_wind_turns` (130.34.11 R8, 130.38.4), `TL_LANES`
+   (130.42.5: a plate is as many lanes as its change needs) and
+   `GT_ALANES` (130.41.12 A7). `check_bounds` still computes the sum for
+   the report (`bounds[...]["chg"]`, printed with the window's lanes).
+   Every shipped course compiles to the same bytes (nothing they hold
+   moved: the refusal only ever stopped a compile).
+
+   **What the player sees** is the only cost: a burst wider than the wait
+   holds lands over two or more frames, so a 6-long plate's tip (7 - 9
+   lanes) can show torn for a frame or two (17 - 33 ms at 60 Hz) - exactly
+   what a 5-lane plate already did when the wait held fewer than five
+   commits. PREDICTED, not measured (no number here decides the
+   design: the guest is unchanged, so its bytes and its per-frame cycles
+   are unchanged by construction): from 130.13.5's MEASURED commit (about
+   7.2k clk on the CGA) and preparation (about 5.3k), a quiet frame's wait
+   (PLAYGROUND's quiet frame about 13.6k busy of 79.5k, item 10) holds
+   about four commits, so a 9-lane tip lands over about three frames and
+   a 5-lane one over two. The final pass measures it on a course that
+   carries such a burst (a `BZTILT=1` tree with a 6-long timed plate on
+   the start's screen: the frames from the step its lanes are marked to
+   the frame every one is drawn).
+
+   **Proved by** `--selfcheck`: `grammar` (four clocks' 8 digits in a
+   window still refused, by the new message), `tilt` item 2 (a 6-long
+   plate, along x and along y, two timed plates on one step and a timed
+   plate in a weight one's window ACCEPTED, the plates' lanes listed),
+   `turn` item 2 (seven tables turning on one step in one window
+   accepted, its reported change count), `spike` item 2 (two popspikes on
+   one step accepted), `wind` item 2 (two gusting blowers on one step
+   accepted; seven steady fans still refused as FAST lanes).
 
 The rows at item 6: `bonanzawheel`'s BEAM sweep and LOW leg went red on
 their first run - the sweep poked a kick and marked nothing, the row
@@ -281993,7 +282064,9 @@ next to each other"*). As merged:
 - **A floating crack that vanishes** (round 1's 3-unit `float`): NOT a
   member, refused if its lanes would share blocks (130.32.1). The thin
   bridge is the floating path that falls away tile by tile.
-- **Today's props**: none groups. A rotor, a post, a flag, a clock and a
+- **Today's props**: SPIKES' membranes and popspikes (130.38.5) and WIND's
+  blowers and wisps (130.34.15) group since 2026-11-22 - a statement whose
+  own lanes overlap. A rotor, a post, a flag, a clock and a
   sign keep their refusal; PICKUPS' icons and the probe's flag could be
   members once their parts walk every record (their RESET walks the
   lanes).
@@ -282648,7 +282721,7 @@ pennant an option.
 | R5 | a ground FAN spins: the blower's state is a BYTE (its kind's `bits` 8), its SPIN counter - `WD_SPIN` (160 steps, 2.9 s) while it blows with the ball in its region, one less a step after - and its lane is the fan, 4 poses (the blades at 0, 22.5, 45 and 67.5 degrees), the frame `(n >> 2) AND 3` while the counter is not 0, 0 at rest. STEP marks the lane where the frame moves | a lane that runs while it is active and costs nothing (no mark, no walk) at rest |
 | R6 | a spinning fan's lane is FAST (`lane_fan`): counted against the window's 6 FAST lanes (`WIN_LANES`) and as ONE pose change a step in its `WIN_CHG` (6), beside the rotors', the clock digits' and the event lanes' 1 | a fan turns every 4 steps on its own while active. So at most 6 fans spin in one window, fewer with a clock (2 digits each) or an event lane in it: with one clock and one event lane, 3 |
 | R7 | the PENNANT is an option, `flag`: the blower's lane is then the pennant (a gust shows on it), its fan does not spin, and it has no wisp | the owner's weather-on-a-bridge use; a flag and a fan in one lane would pass 4 x 3 blocks |
-| R8 | the window's TIMED event lanes - every wisp and every flagged gusting blower meeting one window - may not turn on the same step: the tool checks every step of the 1,024 every period divides and refuses two, naming them (`_wind_turns`; give one a `seed`) | the window's event lanes are one pose change a step (130.19.10); the gusts are the one kind of event lane whose steps are known ahead |
+| R8 | *(RETIRED 2026-11-22, 130.19.10 item 14: the wheel draws past its list on later frames)* the window's TIMED event lanes - every wisp and every flagged gusting blower meeting one window - may not turn on the same step: the tool checks every step of the 1,024 every period divides and refuses two, naming them (`_wind_turns`; give one a `seed`) | the window's event lanes are one pose change a step (130.19.10); the gusts are the one kind of event lane whose steps are known ahead |
 
 **The statement** grows two words: `[lift]` (an updraft's alone; refused on
 any other face) and `[flag]`. `prop wisp` is refused (the tool's). The 7 the
@@ -282850,6 +282923,22 @@ Every state byte and every mark `bz_fmark` keeps are the full step's, so
 `bbcourse.WindFamily` is unchanged and `tests/bonanza_phys.py --check`
 holds the guest to it. POSE is unchanged (a lane entering the slice reads
 its true pose there, 130.19.10 item 6).
+
+#### 130.34.15 A gusting blower's own lanes group (the owner's audit, 2026-11-22)
+
+The palette's blower with `gust 64 192` refused ITSELF: its fan's lane and
+its wisps' (130.34.11) share blocks, and the message named one line twice
+(*"two lanes share blocks (lines 14 and 14)"*). WIND is now `group`-able
+(130.32.1): its part already walks its RECORDS (`wd_reset` over `bz_nprop`),
+marks through `bz_fmark`, takes POSE by record and tests a member in `wd_vis`
+(130.34.14), so the blower and its wisps become GROUP MEMBERS and the shared
+blocks group lanes. Nothing changes in the part or the image; the tool's
+family row and its reader's lane tests (a member has no lane) do. Proved by
+`--selfcheck` section `wind` item 2: that blower compiles into group lanes,
+each group lane's pose its members' classes x MULT at every step of 260 on
+the model (more than one pose seen: the gust's turns), and the red arm (WIND
+not groupable) refuses it. And 130.34.11 R8 - two timed lanes in a window
+turning on one step refused - is retired by 130.19.10 item 14.
 
 ### 130.35 The see-through GUARD RAIL (the owner's design, 2026-11-17)
 
@@ -284093,9 +284182,10 @@ FLOOR or GOAL edge neighbour is LOWER than its base at their shared edge (a
 ball rolling on from it would meet LOW level, with no landing to kill it); a
 spiked cell beside water; a popspike period that is not 32, 64, 128 or 256,
 an `on` not under it, a seed past it; an empty rect; the family's kinds
-without `uses spike`; and, among the TIMED lanes meeting one window
-(popspikes and WIND's gusting pennants and wisps, `_wind_turns`), two that
-turn on the same step. **The reach** takes a spike cell's LOW (the `bed`
+without `uses spike`. (Two TIMED lanes meeting one window turning on the
+same step - popspikes, WIND's gusting pennants and wisps, `_wind_turns` - were
+refused until 2026-11-22; 130.19.10 item 14 retired it: popspikes on one
+timer now pop together.) **The reach** takes a spike cell's LOW (the `bed`
 form, read off `low`) and its TIP (a new `tip` form) unioned with the grid's
 base, and a membrane's near VOID (GLASS's `void` form); `_hack noforms` is the
 control (item 6).
@@ -284131,7 +284221,22 @@ control (item 6).
   (4) px and a black tip - a net snapped under a weight, still strung
   between the floors. The lane is the tear's pixels' blocks (2 x 2 or 2 x 3
   on SPIKE, disjoint along a run), so a course whose geometry hides a whole
-  tear is refused.
+  tear is refused. **A membrane wider than 2 cells both ways** (3 x 2, 2 x 3,
+  3 x 3, 6 x 2, 4 x 3 ...) has tears whose blocks overlap their neighbours':
+  until 2026-11-22 that refused the statement against ITSELF (*"two lanes
+  share blocks (lines 14 and 14)"*). The SPIKE family is now `group`-able
+  (130.32.1): its hooks walk the family's own RECORDS (`sp_walk`,
+  130.25.6.10), mark through `bz_fmark` (which marks a member's group
+  lanes) and take POSE by record, so a member needs nothing new in the part
+  - its cells are GROUP MEMBERS and the overlapping tears are group lanes,
+  each the combined state of up to 4 cells. The only change is the tool's
+  (`FAMILIES`' row and the reader's lane test, `lg_`); the part, the image
+  and every shipped course are byte for byte as they were. A popspike may be
+  a member the same way. Proved by `--selfcheck` section `spike` item 2: a
+  4 x 3 membrane compiles into group lanes, each group lane's pose equal to
+  its members' classes x MULT at every step of a rubber ball falling through
+  it on the model (and more than one pose seen), and the red arm (the family
+  not groupable) refuses it.
 - **Rubber's POP** (`bonanza_assets.pop_frame`): the ball part's shatter
   table is the one at `B2_SHAOFF`, where rubber's STRETCH is entry 0; the
   pop adds entries **1 - 3** after it - the BURST (the skin torn into eight
@@ -285130,7 +285235,7 @@ no art is byte for byte what it was); this is the feature.
 | A4 | a gate of N cells is N GATE ELEMENTS - `along x` the cells `(wx, wy + i)`, `along y` `(wx + i, wy)` - each a WALL while shut (130.41.4's CELL), the first carrying the art; `along y` draws the art MIRRORED (x -> 2 FX - x) | a door of two cells is a wall of two cells; nothing new in physics. The view's x and y axes are each other's mirror, so one drawing serves both ways |
 | A5 | the ANIMATION is the CHANNEL's: the slot's +2 - +5 hold each channel's FRAME (0 - 3). STEP on step `n` (`bz_nstep`'s low byte) with `n AND 7` = 2 c: channel c open and its frame under 3, the frame + 1, every art lane of channel c MARKED, and at 3 the refill (`bz_fref`). So frame 1 shows within 8 steps of the opening and each next 8 steps later: OPEN 16 - 24 steps (0.29 - 0.43 s) after the plate or key (MEASURED on the model: 23 and 19 steps for openings on steps 1 and 5) | a frame a channel, not an element: every art of a channel plays together (as every preset of it opens together) at 4 bytes of the slot and no `bz_fst` byte. The phase per channel means two channels NEVER change a frame on one step, so the window's change bound counts one channel's lanes, not four |
 | A6 | PHYSICS UNCHANGED: a gate is a WALL and a bridge the NEAR VOID until its channel's frame is **3**, and the FLOOR from the step that frame is shown (the step STEP sets 3, the refill CELL writes). The art must show the way clear in frame 3 | the passage opens when it is seen to; a wall still half standing in frame 2 stops the ball as it looks as if it would |
-| A7 | the PICTURE holds frame 0. The tool draws each frame over the bare picture at the element's depth (a pixel shown where nothing in front of its cell drew - the clock's rule, so the block in front of a crumbling wall hides the wall); a pixel EQUAL in all four frames (an arch, the blocks' stubs) is the picture's alone; the blocks where frames differ are cut into lanes of at most 4 x 3 blocks (`cover_blocks`), each a record of kind **76, `gatelane`** (+2, +3 its gate's first cell, +18 its gate's record, +19 the channel), its pose the channel's frame. At most `GT_ALANES` = 6 lanes an art | the see-saw's machinery (130.42.5): the change is exact by construction; a lane per box, a record each, the guest's POSE one table read |
+| A7 | the PICTURE holds frame 0. The tool draws each frame over the bare picture at the element's depth (a pixel shown where nothing in front of its cell drew - the clock's rule, so the block in front of a crumbling wall hides the wall); a pixel EQUAL in all four frames (an arch, the blocks' stubs) is the picture's alone; the blocks where frames differ are cut into lanes of at most 4 x 3 blocks (`cover_blocks`), each a record of kind **76, `gatelane`** (+2, +3 its gate's first cell, +18 its gate's record, +19 the channel), its pose the channel's frame. As many lanes as the change needs (`GT_ALANES` = 6 an art until 2026-11-22: 130.19.10 item 14) | the see-saw's machinery (130.42.5): the change is exact by construction; a lane per box, a record each, the guest's POSE one table read |
 | A8 | DEPTH: frame 0's pixels (and the static ones) are GEOMETRY keyed at the cell under them (an art of N cells cut by the nearest cell's column), one top a cell (its floor plus the rise to the art's highest pixel there) - the clock's occluder (130.18.5.4) - so a ball behind a shut gate is drawn behind it; the visibility rule (`clock_vis`'s, 16 gu wholly hidden) is applied to every art | the brief's precedent; the owner's visibility rule |
 | A9 | the CARDS: the art is in the CGA's inks and the Hercules gets it through `htab()` as every pixel (130.11.3) - no mono variant is drawn. Refused: two consecutive frames the SAME on the Hercules (cyan and magenta are one grey checker there), so the animation is seen on every card. Draw the structure black and white | one source for three cards; the refusal is the rule 130.41's D5 made by eye, made a check |
 
@@ -285165,9 +285270,10 @@ reverse); `art` and `style` on one element; `art` on a timed bridge, a
 plate or a key; `gateart` or `bridgeart` twice; an art pixel off the
 picture; an N-cell gate whose cells are not each a gate's (a flat floor, no
 other prop, not the start's); frame 0 more than half hidden by what stands
-in front; more than `GT_ALANES` lanes; an art lane on another prop's lane's
-block; two consecutive frames the same on the Hercules; the window's change
-bound (130.19.10) with the art's lanes counted.
+in front; an art lane on another prop's lane's
+block; two consecutive frames the same on the Hercules. (More than
+`GT_ALANES` lanes, and the window's change bound with the art's lanes
+counted, until 2026-11-22: 130.19.10 item 14 retired both.)
 
 **FAMV**: the gate row folds as it did before the art (`"famv": {"slot":
 2, "kinds": 4}` in its FAMILIES row): the art is an EXTENSION that every
@@ -285234,7 +285340,8 @@ weakest (a leaf swung back is still a leaf).
    no preview.
 3. An art's lanes are counted against the window's change bound by
    CHANNEL; a course with a big art and a clock in one window will meet
-   `WIN_CHG`. GT_ALANES (6) an art.
+   `WIN_CHG`. GT_ALANES (6) an art. (ANSWERED 2026-11-22, 130.19.10
+   item 14: neither is refused now.)
 4. The door: a better swing needs the leaf drawn as the reader expects
    (perhaps sliding into the wall); designer's art, not engine.
 
@@ -285260,7 +285367,7 @@ the DRAWBRIDGE, 130.41) is another branch's, so on this branch ID 13 is a GAP
 | D6 | only a GROUNDED, whole ball tips a plate (`bz_air` 0, not shattering); an airborne ball weighs nothing; a ball exactly on the pivot line tips nothing | so every pose change has the ball ON the plate, which is what makes D5's carry always defined |
 | D7 | a plate's state is a BYTE of `bz_fst` (its pose), class **RESPAWN**: a respawn (a fall, a shatter, a RETURN) puts every plate back at rest, and RESET marks every lane | a puzzle the player can always restart; and NO TRAP never meets a plate left tipped the wrong way |
 | D8 | **the lanes are the picture's CHANGE**: the tool renders the whole picture with the plate in each pose (every other plate at rest), takes the pixels that differ from the rest picture, and cuts their blocks into lanes (`cover_blocks`, none on another prop's lane block); each lane a record of kind 81 naming its plate, of 3 poses | a plate is 2 - 6 cells, far past one 32 x 24 lane; the change is exact by construction (the same renderer draws every pose), on both cards |
-| D9 | **a plate's lanes all turn on one step**: at most `TL_LANES` (6) a plate, and the window bound counts them all (`_tilt_chg`: the most of one plate's lanes meeting a window, in place of the 1 the event lanes count, 130.19.10) | the window's `WIN_CHG` 6; the test course's plates cut into 5, 6 and 4 lanes - so a course with clock digits in the same window refuses a 6-lane plate there (the TILT course carries no clock for that reason) |
+| D9 | **a plate's lanes all turn on one step** - *(2026-11-22, 130.19.10 item 14: as many lanes as its change needs, a 6-long plate's 7 - 9; the window's changes REPORTED, the wheel drawing a burst over the frames its wait needs - so a 6-long plate and a clock share a window. As first built:)* at most `TL_LANES` (6) a plate, and the window bound counts them all (`_tilt_chg`: the most of one plate's lanes meeting a window, in place of the 1 the event lanes count, 130.19.10) | the window's `WIN_CHG` 6; the test course's plates cut into 5, 6 and 4 lanes - so a course with clock digits in the same window refuses a 6-lane plate there (the TILT course carries no clock for that reason) |
 | D10 | **the art**: the plate a THIN slab (its faces 4 px over the void, `float`'s machinery), the floor's own tiles at their slopes; under its pivot's front end a FULCRUM, a white wedge outlined black, drawn just behind the plate's pivot cell so the plate in any pose lies over it | readable on both cards: the slab is the floor's tile inks (the course's own), the fulcrum white on black. LOOKED AT in the previews (`--png`, all three poses) and once on MartyPC, CGA and Hercules (the `BZTILT=1` tree: rubber up the LEDGE's plate, the plate tipping under it, and back over the pivot) |
 | D11 | **visibility** (the owner's rule): the plate is a floor, drawn whole in every pose; the fulcrum is the one part that never moves, so the mechanic is seen with the ball nowhere near | nothing new hides the ball |
 
@@ -285337,9 +285444,14 @@ drawn exactly as the rest is), and the picture's top and bottom take all
 three. `tl_lanes`, after every other lane is placed: for each plate the
 picture in poses 1 and 2 against the rest picture, the changed pixels, their
 blocks cut into lanes of at most 4 x 3 blocks (`cover_blocks`, the
-pathway's reveal cutter) refusing a block another prop's lane holds; more
-than `TL_LANES` lanes refused ("a shorter plate"). `check_bounds` counts a
-plate's lanes meeting a window as that many pose changes on one step.
+pathway's reveal cutter) refusing a block another prop's lane holds - as
+many as the change needs. **`TL_LANES` (6) is gone** (130.19.10 item 14,
+2026-11-22): it refused every 6-long plate (7 - 9 lanes: the audit's
+*"over 9 lanes, over the 6"*) though the grammar allows 2, 4 or 6, and cut
+MILL's 4-long plate to 2 x 2. A plate's lanes turn on one step and the
+wheel draws them over the frames its wait needs (a 6-long tip about three,
+PREDICTED there); `check_bounds` still counts a plate's lanes meeting a
+window as that many pose changes, for the report.
 
 The fulcrum (`tilt_post_pix`): a wedge 12 px tall, 3 px wide at the apex and
 11 at the foot, white outlined black, under the pivot line's FRONT end, its
@@ -285358,8 +285470,8 @@ the forms, 28 without).
 Refused, naming the line (`--selfcheck` section `tilt`, item 2): a length
 other than 2, 4 or 6; a width other than 1 - 2; a cell already laid; two
 plates on one cell; no `along`; a `rest` that is neither `-` nor `+`; a plate
-without `uses seesaw`; a plate whose change cuts into more than `TL_LANES`
-lanes. (Nothing else may be placed on a plate's cell: the one-prop-a-cell
+without `uses seesaw`. (A plate whose change cut into more than `TL_LANES`
+lanes, until 2026-11-22: 130.42.5.) (Nothing else may be placed on a plate's cell: the one-prop-a-cell
 claim.)
 
 #### 130.42.7 The test course: `BZTILT=1`, TILT
@@ -285390,8 +285502,8 @@ A start plate at 2 units with a pad for each ball; then
 - **THE ROCKER** (west): a 2 x 2 plate across a gap to a one-cell dead end,
   `rest +`: every ball rocks it, each way.
 
-No clock: a 6-lane plate and a clock's digits in one window are over
-`WIN_CHG` (D9). No shipped course, demo or identity moves (MEASURED, `cmp`).
+No clock: a 6-lane plate and a clock's digits in one window were over
+`WIN_CHG` (D9) until 130.19.10 item 14; they are not now. No shipped course, demo or identity moves (MEASURED, `cmp`).
 
 #### 130.42.8 The proofs (BUILT, MEASURED red)
 
@@ -285444,7 +285556,8 @@ a `BZTILT=1` tree) - not taken here (fork rule 9: sub-agents do not soak).
    force is under the slope's), so a see-saw it must cross wants a run-up -
    the GATE has one. A gentler slope is the tool's one constant if wanted.
 4. **The lanes**: a 4-cell plate is 5 - 6 lanes turning on one step, a whole
-   `WIN_CHG`; a clock's digits in the same window are refused with it. A
+   `WIN_CHG`; a clock's digits in the same window are refused with it
+   (ANSWERED 2026-11-22 by 130.19.10 item 14: no longer refused). A
    lighter picture (no faces on a tilting plate) would cut lanes.
 5. **A tilting plate and the occluders**: the occluder records are cut from
    the rest picture and the three poses' reach; a ball BEHIND a plate whose
