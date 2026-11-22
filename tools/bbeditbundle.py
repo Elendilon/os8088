@@ -124,6 +124,14 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
               takes its legs with it), add or remove legs, lips and depth;
               the height along it, and how each ball rides it (the game's
               own physics, in words).
+  Map tab     the PATHWAY (open data/apps/bonanza/courses/path.bbc): pads,
+              routes and their points, gates, icons, lives counters and
+              pages, dragged on the map's own picture; "Put a course on
+              the map..." adds a pad, its route and its icon - for a
+              course not in the game yet too (it names the file in a
+              `# builder-course:` comment). Course tab's "Put this course
+              in the game..." with the pathway open builds the game with
+              this map and the courses it names.
   Course tab  the title, size, ball, music, colours, times; "Ready to play?"
               runs the full check (by itself, 2 s after you stop editing).
   Source tab  the file itself; double-click a line to select it.

@@ -2,7 +2,8 @@
 """ADD TO THE GAME: a playable BONANZA.O88 with the author's courses, made with no assembler
 (SPEC.md 130.58.17, the course builder's wave 8).
 
-    python3 tools/bbgame.py OUT.o88 [--disk OUT.img --size 360|720|1200|1440] [--pad0 NAME] [COURSE.bbc ...]
+    python3 tools/bbgame.py OUT.o88 [--disk OUT.img --size 360|720|1200|1440] [--pad0 NAME | --path PATH.bbc]
+                            [COURSE.bbc ...]
     python3 tools/bbgame.py prebuild [DIR]       (in the tree, with nasm: the prebuilt pieces)
 
 The game's course list is ASSEMBLED in (bzcourse.inc, SPEC.md 130.10.6), and a course
@@ -447,8 +448,17 @@ def _pathway(work, pad0, displaced):
     return p
 
 
-def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print):
-    """-> 0 after writing OUT (and DISK); Refused with the reason"""
+def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print, pathway=None):
+    """-> 0 after writing OUT (and DISK); Refused with the reason. PATHWAY: a pathway of the author's (the course
+    builder's Map tab, SPEC.md 130.58.20) in place of the shipped one - its pads may play the added courses, and
+    with no courses given they are the ones its `# builder-course:` lines name"""
+    if pathway:
+        if pad0:
+            raise Refused("--path and --pad0 together: put the course on pad 0 in the pathway itself")
+        pathway = os.path.abspath(pathway)
+        if not authors:
+            import bbedmap
+            authors = bbedmap.extra_courses(open(pathway, encoding="ascii").read(), pathway)
     authors = [os.path.abspath(a) for a in authors]
     ship = shipped_paths()
     m = len(authors)
@@ -482,7 +492,7 @@ def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print)
     os.makedirs(work, exist_ok=True)
     try:
         art = os.path.join(work, "art")
-        path = _pathway(work, pad0, displaced)
+        path = pathway or _pathway(work, pad0, displaced)
         log("bbgame: compiling %d courses (%s)" % (len(courses), " ".join(_course_name(c) for c in courses)))
         compile_into(art, courses, path, os.path.join(B.COURSE_DIR, "title.bbc"))
         patches = compare(open(os.path.join(v, "bzcourse.inc")).read(),
@@ -548,10 +558,12 @@ def main(argv=None):
     ap.add_argument("--disk", metavar="IMG", help="also a floppy: the package, its README and SYSTEM/APPDATA")
     ap.add_argument("--size", type=int, default=1440, choices=(360, 720, 1200, 1440))
     ap.add_argument("--pad0", metavar="NAME", help="put added course NAME on the pathway's pad 0")
+    ap.add_argument("--path", metavar="PATH.bbc", help="the author's pathway in place of the shipped one (its pads "
+                    "may play the added courses; with no courses given, its `# builder-course:` lines name them)")
     ap.add_argument("--work", metavar="DIR", help="keep the compile's files here")
     a = ap.parse_args(argv)
     try:
-        return compose(a.out, a.courses, a.pad0, a.disk, a.size, a.work)
+        return compose(a.out, a.courses, a.pad0, a.disk, a.size, a.work, pathway=a.path)
     except Refused as e:
         print("bbgame: REFUSED: %s" % e, file=sys.stderr)
         return 2
