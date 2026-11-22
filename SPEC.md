@@ -257612,7 +257612,13 @@ admit a shape kind, a funnel's drain, since the capture reads only the cell's
 `OBS` and the record, never its kind); `(owx, owy)` a FLOOR cell (the OUT
 cell). The path runs IN's centre, each `via` tile's centre, OUT's centre,
 each leg along one tile axis; every cell strictly between IN and OUT along it
-must be a WALL (the BODY), whose top the renderer draws as a PIPE (a
+is the BODY. **The tube LAYS its body** (2026-11-22, the owner: *"I don't think I have a way to select and
+build out, or edit a tube's path that doesn't refuse"* - the body had to be walled by hand first, so every
+edit of the path refused): a body cell that is not already a WALL (a windmill's house, a wall the author
+laid) and is empty or a plain floor becomes a WALL one unit over the highest of IN's and OUT's floors and the
+floors it replaces - a DROP's, its mouth's `height` and two units over, so the mouth stands on its last
+wall's face (`lay_tube_bodies`, before the guard rails). A split or shaped body cell is still refused. A
+course whose bodies were walled by hand compiles byte for byte as before. Each body cell is a WALL, whose top the renderer draws as a PIPE (a
 black-outlined band along the path), except a windmill's, whose house is its
 body and is drawn as walls. `out` is the exit direction, defaulting to the
 last leg's. **A DROP's `out` must be `+x` or `+y`**: its exit mouth is on the
@@ -288738,3 +288744,23 @@ top and fell.
 - MEASURED: the model starts MILL (the shipped and the owner's copy) at (9, 12) at rest, with and without a
   `--start`; a scripted session: a wall cell selected - the roll starts at the start; a floor cell selected -
   `--start` that cell.
+
+#### 130.58.26 Tubes in the Shapes tab (the owner, 2026-11-22)
+
+The owner: *"I don't think I have a way to select and build out, or edit a tube's path that doesn't refuse."*
+Two halves:
+
+- **The engine**: a tube lays its own body (130.12.3.3, amended), so its path can be drawn anywhere over
+  floor or void and moved; the old rule (every body cell walled by hand) refused every edit of the path.
+- **The Shapes tab** edits a tube as a PATH, as it does a chute (130.58.19): *New tube* (a KEEP tube four
+  cells along x from the selected cell), the plan's numbered handles - 1 the IN cell, the last the OUT, the
+  rest its `via` corners - dragged with the chute's rule (an end slides along its leg, a corner takes its
+  neighbours with it, so every leg stays on an axis), *Add a leg at the end* (three cells, turn left,
+  straight on, turn right) and *Remove the last leg*; its kind (keep, launch, drop - a launch given a speed
+  along its last leg, a drop a 2-unit mouth), where it comes out (along its last leg, or +x, -x, +y, -y),
+  the drop's mouth height and the launch's speed. Every change goes through the window's checked edit; the
+  exit's own checks (a KEEP's next cell a floor, a DROP's and a LAUNCH's landing for each ball) still refuse
+  with the reason - those are the ball's, not the editor's.
+- The `bbedit` row's item 13: a KEEP tube made from nothing on a plain floor, an end dragged, a right turn
+  added and made a DROP compiles, its body laid along both legs.
+
