@@ -519,6 +519,13 @@ section's two items), and the built art and `BONANZA.O88` are byte-identical.
   are spliced back in at its place, so **the report is the sequential one,
   line for line** - diffed, not assumed. Under a soak's own parallel lanes,
   `BB_JOBS=1`.
+- **NO TRAP computes ahead on every core** (`_TrapPar`): the check asks for
+  its states in a fixed order and each is a pure function, so `BB_JOBS`
+  forked workers compute the ones the loop is about to ask for and the loop
+  reads them from its cache, unchanged. A course compiled on one core and on
+  four is the same object. Only a process that is not itself a child does
+  it (the builder's check, a one-course compile); `BB_TRAPPAR=0` turns it
+  off.
 - **The Y0 search's eight probes share one reach** (`_reach_once`): the
   reach is computed before Y0 exists, so each probe and the compile after
   them take a deep copy of the first one's instead of building it again.
