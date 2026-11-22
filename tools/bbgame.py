@@ -515,7 +515,8 @@ def prebuild(out, top="build", only=None, jobs=None, force=False):
         if os.path.exists(kfile):
             os.remove(kfile)
         os.makedirs(out, exist_ok=True)
-        jobs = max(1, min(len(variants()), jobs or os.cpu_count() or 1))
+        jobs = max(1, min(len(variants()), jobs or 1))     # (one: npad_map already fills every core - 585 s
+        #  serial against 592 s side by side, 2026-11-22)
         procs, fail = {}, []
         todo = [v for v, _m, _r in variants()]
         while todo or procs:
@@ -739,7 +740,7 @@ def main(argv=None):
         ap.add_argument("out", nargs="?", default=BIN)
         ap.add_argument("--build", default="build", help="the tree's build directory (make's BUILD)")
         ap.add_argument("--only", help="make one variant (the parallel prebuild's worker)")
-        ap.add_argument("-j", "--jobs", type=int, help="variants made at once (default: one a core)")
+        ap.add_argument("-j", "--jobs", type=int, help="variants made at once (default 1: each already fills the cores)")
         ap.add_argument("--force", action="store_true", help="make them even when the inputs have not moved")
         a = ap.parse_args(argv[1:])
         return prebuild(a.out, a.build, a.only, a.jobs, a.force)

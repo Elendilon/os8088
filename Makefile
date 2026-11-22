@@ -15534,7 +15534,7 @@ bbgamebin: $(BBGAME_BIN)/.stamp
 # (on the package alone, which moves with every input of the game's: an edit to bbgame.py's COMPOSING half must
 # not cost the minutes this takes. The prebuild itself does nothing when the CONTENT of what it is made from -
 # the package, the game's sources, bbgame.py, this Makefile - is what it last made them from (a compiler edit
-# mostly moves no shipped byte), and makes the variants side by side, one a core; `make -B bbgamebin BBGAME_FORCE=1` forces)
+# mostly moves no shipped byte); `make -B bbgamebin BBGAME_FORCE=1` forces)
 $(BBGAME_BIN)/.stamp: $(BUILD)/bonanza.o88
 	python3 tools/bbgame.py prebuild $(BBGAME_BIN) --build $(BUILD)
 	@touch $@
