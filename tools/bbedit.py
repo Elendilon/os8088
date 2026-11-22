@@ -3045,9 +3045,9 @@ EXPLAIN = [
      "on one flat floor."),
     (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
     (r"is empty", "the area is empty (zero cells across)."),
-    (r"has \d+ occluder records, over \d+", "too many things stand in front of each other at one spot of the "
-     "game's picture - usually a steep ramp or a tall cliff beside other tall parts. Make the ramp gentler "
-     "(longer, or a smaller rise) or the drop beside it lower."),
+    (r"the occluder pass at cell .* over the \d+ a frame's pass may cost", "too many things stand in front of "
+     "each other at one spot of the game's picture - usually tall parts close together at different heights. "
+     "Move them apart or make the drops between them lower."),
     (r"NO TRAP: from (.*) cannot reach the goal", "a ball could get stuck: from {0} it cannot get to the goal. "
      "Connect that part to the rest of the course, or remove it."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
