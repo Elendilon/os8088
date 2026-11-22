@@ -3288,6 +3288,11 @@ class App(object):
 HANGS = ("to the ground", "3 units", "2 units", "1.5 units", "1 units", "0.5 units", "0.25 units")
 
 EXPLAIN = [
+    (r"the (launch|drop) tube's exit, (\w+) ball[^:]*: (\w+) at \((-?\d+), (-?\d+)\), not a landing on a FLOOR",
+     "the tube itself is fine - it is where the ball LANDS. Shot out of the {0} tube's mouth, the {1} ball comes "
+     "down on the {2} at ({3}, {4}), and it must land on a floor. For a launch, change its speeds (along x and y "
+     "point it at a floor, 'up' sets how high it flies); for a drop, turn the mouth ('Comes out') or change its "
+     "mouth height; or move the tube so the floor is where it lands."),
     (r"solid outside 3 \.\. 252|outside 3 \.\.", "it reaches the edge of the course's grid. Keep it at least "
      "3 cells from the edge."),
     (r"past the \d+ px width|footprint", "the course would be wider than its picture. Keep it nearer the rest "
