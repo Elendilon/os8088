@@ -1051,6 +1051,11 @@ def at_cell(analysis, cell, frac=None):
                 lines.append(g["line"])
     if c and c["line"] and c["line"] not in lines:
         lines.append(c["line"])
+    if src is not None:                         # the PAINT on it (a `surface`, the last one laid wins), so a
+        for sent in reversed(getattr(src, "surfaces", ())):     # surface can be selected and changed or deleted
+            if cell in sent[1] and sent[2] not in lines:
+                lines.append(sent[2])
+                break
     # a route point is never drawn in the game: it is last, under the ground it marks (Shift-click reaches it)
     lines += [it["line"] for it in analysis["items"] if cell in it["cells"] and it["kind"] == "way"
               and it["line"] not in lines]

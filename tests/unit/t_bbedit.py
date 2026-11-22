@@ -431,6 +431,9 @@ def main():
     an = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).analysis()
     gl = [st.line for st in E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).statements()
           if st.kind == "guard" and st.toks[1:6] == ["rect", "7", "9", "13", "14"]]
+    md = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc"))
+    if not any(md.statement(l_).kind == "surface" for l_ in E.at_cell(an, (13, 16))):
+        bad.append("at_cell: MILL's bounce paint at (13, 16) is not offered: %r" % E.at_cell(an, (13, 16)))
     if not gl or gl[0] not in E.at_cell(an, (12, 12)):
         bad.append("at_cell: MILL's start-floor rail (line %r) is not offered at (12, 12): %r" % (
             gl, E.at_cell(an, (12, 12))))

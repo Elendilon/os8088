@@ -2179,7 +2179,7 @@ class App(object):
             with self.doc.group("resize %s" % st.kind):
                 for ln in sorted([self.sel] + self._companions(self.sel), reverse=True):
                     self.doc.remove(ln)
-                self.doc.replace_area(dest, ground=[code], surfaces=st.kind in ("wall", "hole"))
+                self.doc.replace_area(dest, ground=[code], surfaces=True)   # (the cells it takes keep no paint)
                 for cc in comp:
                     self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
                 self.doc.tidy((min(old[0], x0), min(old[1], y0), max(old[2], x1) - 1, max(old[3], y1) - 1))
@@ -2265,8 +2265,8 @@ class App(object):
             with self.doc.group("move %s" % st.kind):
                 for ln in sorted([self.sel] + [c for c, _ in comp], reverse=True):
                     self.doc.remove(ln)
-                self.doc.replace_area(dest, ground=[code], surfaces=st.kind in ("wall", "hole"))
-                for _ln, cc in comp:
+                self.doc.replace_area(dest, ground=[code], surfaces=True)   # (the paint of the cells it lands on
+                for _ln, cc in comp:                                      # was theirs: cut - its own goes with it)
                     self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
                 self.doc.tidy((min(x0, dest[0]), min(y0, dest[1]), max(x1 - 1, dest[2]), max(y1 - 1, dest[3])))
                 done = set()
