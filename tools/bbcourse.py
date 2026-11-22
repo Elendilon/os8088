@@ -1312,7 +1312,6 @@ class Source:
         self.accepts = []           # SPEC.md 130.58.5: [{kind, cell, line}], the warnings this course keeps
         self.strict = None          # SPEC.md 130.58.5: `strict`'s line - held to --strict in every build
         self.test = None            # SPEC.md 130.54: `test`'s line - a TEST course, the BZDEV=1 build's alone
-        self.traphop = None         # wave 11: `trap hop`'s line - NO TRAP presses the Hop too (SPEC.md 130.14.4.1.1)
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
         self.stopd = None           # SPEC.md 130.45.4: `stop down`'s line - the BOTTOM STOP at the finish
         self.pathway = None         # wave 8b (SPEC.md 130.19.5): the line of `pathway` - THE pathway
@@ -3594,10 +3593,9 @@ def _parse_text(text, fname="<course>"):
                 raise CourseError("%s: test takes nothing, once (a test course, the BZDEV=1 build's alone, SPEC.md "
                                   "130.54)" % where)
             src.test = ln
-        elif st == "trap":                          # wave 11 (SPEC.md 130.14.4.1.1): a course built on the Hop,
-            if src.traphop is not None or len(toks) != 2 or toks[1] != ("w", "hop"):   # its NO TRAP: Space too
-                raise CourseError("%s: trap takes `hop`, once (SPEC.md 130.14.4.1.1)" % where)
-            src.traphop = ln
+        elif st == "trap":                          # SPEC.md 130.14.4.1.1: `trap hop` is gone - NO TRAP presses
+            raise CourseError("%s: `trap hop` is gone: NO TRAP presses the Hop wherever a ball needs it, on every "
+                              "course (SPEC.md 130.14.4.1.1) - delete the line" % where)   # the Hop on every course
         elif st == "target":                        # wave 5b (SPEC.md 130.15.8): the design time, CD3
             if src.target is not None:
                 raise CourseError("%s: target given twice" % where)
@@ -13422,8 +13420,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             mk["IN"], mk["OUT"] = p["hole_pix"][0], p["rim_pix"][0]
         if mk:
             c.prop_pix[i] = {w: frozenset((x, y + y0) for (x, y) in pix) for w, pix in mk.items()}
-    c.traphop = src.traphop                         # (wave 11: NO TRAP with the Hop, 130.14.4.1.1)
-    if occluders and not hack.get("no_trap") and any(p["kind"] in (PK_CHECKPOINT, PK_PAD) for p in props):
+    if occluders and not hack.get("no_trap") and c.has_finish:     # (from the start too: 130.14.4.1.1)
         bad = trap_check(c)
         if bad:
             raise CourseError("%s:%d: NO TRAP: from the %s at (%d, %d) a %s ball cannot reach the %s%s"
@@ -13448,8 +13445,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
 
 TRAP_RUN = 128                            # steps a run holds its direction
 TRAP_DIRS = (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
-TRAP_HOP_AT = tuple(range(0, TRAP_RUN, 16))  # `trap hop` (130.14.4.1.1): the take-off steps a Hop is tried at
-TRAP_AGAIN = 2                            # ... and its "and again": a second press this many steps after it
+TRAP_HOP_MARKS = 2                        # the HOP RUNS (130.14.4.1.1): a plain run's first MARKS (where it leaves
+TRAP_HOP_BEFORE = (1, 4, 8, 16)           # the ground by itself or meets a wall), and the Hop pressed this many
+TRAP_AGAIN = 2                            # steps before each; its "and again" this many steps after the Hop
 
 
 def trap_presets(c):
@@ -13485,21 +13483,24 @@ TRAP_EFFQ = 64                            # NO TRAP's respawning arm (130.14.4.1
 
 
 def trap_eff(p):
-    """NO TRAP's respawning arm (SPEC.md 130.14.4.1.2): the pickup effect the
-    ball holds now -> None, or (speed's steps left, jump's steps left, the
-    RESPAWNING elements taken), each count rounded down to TRAP_EFFQ - under
-    it the effect is taken as ended and its kind's elements as back (the ball
-    waits out the rest at rest)"""
+    """NO TRAP's pickup arm (SPEC.md 130.14.4.1.2): the pickup state the ball
+    holds now -> None, or (speed's steps left, jump's steps left, the timed
+    elements COLLECTED), each count rounded down to TRAP_EFFQ - under it the
+    effect is taken as ended (the ball waits out the rest at rest).  A
+    `respawn` element is collected only while its kind's effect runs (it comes
+    back when the effect ends, 130.55); one without `respawn` stays collected
+    until a fall (its RESPAWN class, 130.25.7.1), so a ball that has used it
+    up is still a state of its own: one that has no pickup to take again"""
     j = p._fk.get(K_JUMP, p._fk.get(K_SPEED)) if p.fam else None
     if j is None:
         return None
     sb = p.fsl[j]
     ts = (sb[0] | sb[1] << 8) // TRAP_EFFQ * TRAP_EFFQ
     tj = (sb[2] | sb[3] << 8) // TRAP_EFFQ * TRAP_EFFQ
-    if not ts | tj:
-        return None
     taken = frozenset(i for i, pr in enumerate(p.props) if p._picks(pr) and p.fst[pr["fsb"] >> 3] >> (pr["fsb"] & 7)
-                      & 1 and (ts if pr["kind"] == K_SPEED else tj))
+                      & 1 and (not pr["ow"] & PU_RESPAWN or (ts if pr["kind"] == K_SPEED else tj)))
+    if not ts | tj and not taken:
+        return None
     return ts, tj, taken
 
 
@@ -13521,71 +13522,98 @@ def trap_eff_put(p, eff):
         sb[2], sb[3] = tj & 255, tj >> 8
 
 
-def trap_succ(c, cell, mat, cache, phases, preset=b"", eff=None, resp=False):
+def _trap_key(cell, mat, hop, eff=None, resp=False):
+    """trap_succ's cache key: the plain arm's (cell, material) - its eight plain runs, or its HOP RUNS - or the
+    pickup arm's (cell, material, effect, Hop)"""
+    return (cell, mat, eff, hop) if resp else (cell, mat, "hop") if hop else (cell, mat)
+
+
+def _trap_run(c, cell, mat, k, hops, ph, preset, eff, resp, cup, shafts, out):
+    """one of NO TRAP's runs: a ball at rest on `cell`'s centre holds direction K for TRAP_RUN steps, pressing
+    the Hop at the steps in HOPS, from step PH; the states it reaches grounded go into OUT.  -> (hit, fell,
+    touched a lift, MARKS: the steps at which it left the ground by itself, met a wall or began a fall, the first
+    TRAP_HOP_MARKS of them - where a Hop matters, 130.14.4.1.1)"""
+    hit = fell = touched = False
+    marks = []
+    last = None
+    p = Physics(c, play=True, mat=mat)
+    p.nopick = True                     # (wave 9: every finish with no pickup, 130.25.7.3)
+    if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
+        p.fst[:] = preset
+        p._fhook(H_RESET, 1)
+    p.pickrs = resp                     # (...or taking the timed ones, 130.14.4.1.2)
+    p.poke(*cell)
+    if eff:
+        trap_eff_put(p, eff)
+    p.nstep = ph
+    p.ckmat = mat
+    events = p.events                       # (the model's one list: only ever appended to)
+    for st_ in range(TRAP_RUN + 320):
+        if st_ >= TRAP_RUN and not p.air and not p.tube and not (p.onp and not _TRAPNOLIFT):
+            break                       # (a run ends grounded - not on a lift's slab, which carries
+                                        # it on: SPEC.md 130.14.4.1, a lift ridden up)
+        if st_ >= TRAP_RUN + 64 and not p.onp:
+            break
+        n0 = len(events)
+        p.step(k | (K_HOP if st_ in hops else 0))
+        here = (p.gx >> 12, p.gy >> 12)
+        if len(marks) < TRAP_HOP_MARKS and len(events) > n0 and any(e[0] in ("takeoff", "wall")
+                                                                    for e in events[n0:]):
+            marks.append(st_)
+        if p.onp or here in shafts:
+            touched = True
+        if p.nfall or p.nret:
+            fell = bool(p.nfall)
+            break
+        if p.goal or here in cup:
+            hit = True
+            break
+        if (here != cell or resp) and not p.tube and not p.onp and (not p.air or (len(events) > n0 and any(
+                e[0] in ("land", "bounce", "hopc", "stun") for e in events[n0:]))):
+            if not resp:                # grounded there, or a contact there (a rubber ball bounces on)
+                st = (here, p.mat)
+                if st != last:          # (the state the step before added: in the set already)
+                    out.add(st)
+                    last = st
+            else:
+                st = (here, p.mat, trap_eff(p))
+                if st != (cell, mat, eff):     # (the arm's: another cell, or this one with an
+                    out.add(st)                # effect taken here or worn down)
+    return hit, fell, touched, marks
+
+
+def trap_succ(c, cell, mat, cache, phases, preset=b"", eff=None, resp=False, hop=False):
     """the (cell, material) states a ball put at rest on `cell`'s centre with
     `mat` reaches GROUNDED, holding each of the eight directions for TRAP_RUN
     steps (tubes, pads, springs, the lift and the windmills by the model; a
     fall ends the run), and whether a run reached the goal or the cup.
-    RESP (the respawning arm, 130.14.4.1.2): the states are (cell, material,
-    trap_eff), the ball may take a RESPAWNING pickup, `eff` is the effect it
-    starts with, every direction is run whatever another reached, and the
-    answer is (states, hit, whether a run FELL)"""
-    key = (cell, mat, eff) if resp else (cell, mat)
+    HOP: the HOP RUNS as well (130.14.4.1.1) - each direction's plain run
+    MARKS where the ball leaves the ground by itself or meets a wall (its
+    first TRAP_HOP_MARKS such steps), and the direction is run again with a
+    Hop pressed TRAP_HOP_BEFORE steps before each mark and its "and again"
+    TRAP_AGAIN steps after the Hop.  RESP (the pickup arm, 130.14.4.1.2): the
+    states are (cell, material, trap_eff), the ball may take a timed pickup,
+    `eff` is what it starts with, every direction is run whatever another
+    reached, and the answer is (states, hit, whether a run FELL)"""
+    key = _trap_key(cell, mat, hop, eff, resp)
     if key in cache:
         return cache[key]
     out = set()
     hit = fell = False
     cup = [r["at"] for r in c.part["props"] if r["kind"] == PK_CUP]
-    runs = [(k, ()) for k in TRAP_DIRS]
-    if getattr(c, "traphop", None):            # `trap hop` (130.14.4.1.1): a Hop and its "and again" at every
-        runs += [(k, (t, t + TRAP_AGAIN))       # TRAP_HOP_AT take-off step of every direction's run (the pair
-                 for k in TRAP_DIRS for t in TRAP_HOP_AT]   # reaches what a lone Hop does; an over-Hop is railed)
     shafts = {r["at"] for r in c.part["props"] if r["kind"] == PK_PLATFORM}
     mills = any(r["kind"] == PK_WINDMILL for r in c.part["props"])      # (asked once, not after every run)
-    for k, hops in runs:
+    for k in TRAP_DIRS:
         for ph in phases:                       # (every phase only for a run that meets a LIFT: the others are the
-            touched = False                     # same run whatever the phase - SPEC.md 130.14.4.1)
-            last = None
-            p = Physics(c, play=True, mat=mat)
-            p.nopick = True                     # (wave 9: every finish with no pickup, 130.25.7.3)
-            if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
-                p.fst[:] = preset
-                p._fhook(H_RESET, 1)
-            p.pickrs = resp                     # (...or only RESPAWNING ones, 130.14.4.1.2)
-            p.poke(*cell)
-            if eff:
-                trap_eff_put(p, eff)
-            p.nstep = ph
-            p.ckmat = mat
-            events = p.events                       # (the model's one list: only ever appended to)
-            for st_ in range(TRAP_RUN + 320):
-                if st_ >= TRAP_RUN and not p.air and not p.tube and not (p.onp and not _TRAPNOLIFT):
-                    break                       # (a run ends grounded - not on a lift's slab, which carries
-                                                # it on: SPEC.md 130.14.4.1, a lift ridden up)
-                if st_ >= TRAP_RUN + 64 and not p.onp:
-                    break
-                n0 = len(events)
-                p.step(k | (K_HOP if st_ in hops else 0))
-                here = (p.gx >> 12, p.gy >> 12)
-                if p.onp or here in shafts:
-                    touched = True
-                if p.nfall or p.nret:
-                    fell = fell or bool(p.nfall)
-                    break
-                if p.goal or here in cup:
-                    hit = True
-                    break
-                if (here != cell or resp) and not p.tube and not p.onp and (not p.air or (len(events) > n0 and any(
-                        e[0] in ("land", "bounce", "hopc", "stun") for e in events[n0:]))):
-                    if not resp:                # grounded there, or a contact there (a rubber ball bounces on)
-                        st = (here, p.mat)
-                        if st != last:          # (the state the step before added: in the set already)
-                            out.add(st)
-                            last = st
-                    else:
-                        st = (here, p.mat, trap_eff(p))
-                        if st != (cell, mat, eff):     # (the arm's: another cell, or this one with an
-                            out.add(st)                # effect taken here or worn down)
+            h, f, touched, marks = _trap_run(c, cell, mat, k, (), ph, preset, eff, resp, cup, shafts, out)
+            hit, fell = hit or h, fell or f     # same run whatever the phase - SPEC.md 130.14.4.1)
+            if hop and not (h and not resp):    # (the Hop and its "and again" where the plain run left the ground
+                for t in sorted({m - d for m in marks for d in TRAP_HOP_BEFORE if m >= d}):    # or met a wall;
+                    h, f, tch, _m = _trap_run(c, cell, mat, k, (t, t + TRAP_AGAIN), ph, preset, eff, resp, cup,
+                                              shafts, out)      # an over-Hop is the course's rails' to catch)
+                    hit, fell, touched = hit or h, fell or f, touched or tch
+                    if hit and not resp:
+                        break
             if (hit and not resp) or not (touched or mills):
                 break
         if hit and not resp:
@@ -13595,43 +13623,71 @@ def trap_succ(c, cell, mat, cache, phases, preset=b"", eff=None, resp=False):
 
 
 _TRAPNOLIFT = False           # the red arm of `grammar`'s "a flag at a lift's foot" (the carry not followed)
+_TRAPNOHOP = False            # the red arm of `grammar`'s "the Hop where it matters" (no Hop run ever asked for)
 TRAP_LIFT_PHASES = tuple(range(0, 256, 32))   # NO TRAP's starting steps on a course with a lift (8, 32 apart)
 
 
+def _trap_phases(c):
+    """NO TRAP's starting steps: a windmill's gate or the lift's slab, two phases half a gate period apart (64
+    steps), so one of them finds it open; a LIFT ridden UP (SPEC.md 130.14.4.1), TRAP_LIFT_PHASES - its slab is
+    down for about a third of its ~260-step period, which two phases 32 apart can both miss"""
+    if any(r["kind"] == PK_PLATFORM for r in c.part["props"]):
+        return TRAP_LIFT_PHASES
+    if any(r["kind"] == PK_WINDMILL for r in c.part["props"]):
+        return (0, 32)
+    return (0,)
+
+
 def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
-    """from (cell, mat), is the goal or the cup reachable?  -> (bool, states explored)"""
+    """from (cell, mat), is the goal or the cup reachable?  The eight plain runs from every state first; only
+    when they are exhausted with no finish, the HOP RUNS (SPEC.md 130.14.4.1.1) - a state at a time, the one
+    found LAST first (where the plain search got stuck), and every state a Hop finds closed by its plain runs
+    before the next Hop.  -> (bool, states explored, states whose Hop runs were asked for)"""
     cache = {} if cache is None else cache
     if preset:
         cache = cache.setdefault(("preset", preset), {})
-    phases = (0,)                       # a windmill's gate or the lift's slab: two phases half a
-    if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
-        phases = (0, 32)                # gate period apart (64 steps), so one of them finds it open
-    if any(r["kind"] == PK_PLATFORM for r in c.part["props"]):
-        phases = TRAP_LIFT_PHASES       # a LIFT ridden UP (SPEC.md 130.14.4.1): its slab is down for about a
-                                        # third of its ~260-step period, which two phases 32 apart can both miss
+    phases = _trap_phases(c)
     seen = {(cell, mat)}
     todo = [(cell, mat)]
-    while todo:
-        nxt = []
-        for i_, (cl, m) in enumerate(todo):
-            if _TRAPPAR[0] is not None and (cl, m) not in cache:
-                _TRAPPAR[0].ahead(c, todo, i_, cache, phases, preset)
-            succ, hit = trap_succ(c, cl, m, cache, phases, preset)
-            if hit:
-                return True, len(seen)
-            for st in sorted(succ):
-                if st not in seen:
-                    seen.add(st)
-                    nxt.append(st)
-        todo = nxt
-        if limit and len(seen) > limit:
-            break
-    return False, len(seen)
+    unhop = [(cell, mat)]               # states whose Hop runs are not asked for yet, in the order found
+    nhop = 0
+    while True:
+        while todo:
+            nxt = []
+            for i_, (cl, m) in enumerate(todo):
+                if _TRAPPAR[0] is not None and (cl, m) not in cache:
+                    _TRAPPAR[0].ahead(c, todo, i_, cache, phases, preset)
+                succ, hit = trap_succ(c, cl, m, cache, phases, preset)
+                if hit:
+                    return True, len(seen), nhop
+                for st in sorted(succ):
+                    if st not in seen:
+                        seen.add(st)
+                        nxt.append(st)
+                        unhop.append(st)
+            todo = nxt
+            if limit and len(seen) > limit:
+                return False, len(seen), nhop
+        if _TRAPNOHOP or not unhop:
+            return False, len(seen), nhop
+        rev = unhop[::-1]                   # (the next Hops, in the order they are asked for)
+        if _TRAPPAR[0] is not None and _trap_key(rev[0][0], rev[0][1], True) not in cache:
+            _TRAPPAR[0].ahead(c, rev, 0, cache, phases, preset, hop=True)
+        cl, m = unhop.pop()
+        nhop += 1
+        succ, hit = trap_succ(c, cl, m, cache, phases, preset, hop=True)
+        if hit:
+            return True, len(seen), nhop
+        for st in sorted(succ):
+            if st not in seen:
+                seen.add(st)
+                todo.append(st)
+                unhop.append(st)
 
 
 class _TrapPar:
-    """NO TRAP ON EVERY CORE: trap_succ is a pure function of (course, cell, material, phases, preset) and the
-    module's switches, and trap_reach asks for a level's states in a fixed order - so the states it is ABOUT
+    """NO TRAP ON EVERY CORE: trap_succ is a pure function of (course, cell, material, phases, preset, Hop) and
+    the module's switches, and trap_reach asks for its states in a fixed order - so the states it is ABOUT
     to ask for are computed AHEAD, a share in each of `jobs` forked workers while this process computes the
     one asked for, and put in the
     cache trap_reach reads.  trap_reach's own loop is unchanged and reads them in its order: the answer, the
@@ -13676,25 +13732,28 @@ class _TrapPar:
                 job = pickle.load(fi)
             except EOFError:
                 return
-            keys, phases, preset = job
+            keys, phases, preset, hop, resp = job
             out = []
-            for cl, m in keys:
+            for st in keys:
                 try:
-                    out.append(trap_succ(_TrapPar.course, cl, m, cs.setdefault((phases, preset), {}), phases,
-                                         preset))
+                    out.append(trap_succ(_TrapPar.course, st[0], st[1], cs.setdefault((phases, preset, resp), {}),
+                                         phases, preset, eff=st[2] if resp else None, resp=resp, hop=hop))
                 except BaseException:
                     out.append(None)
             pickle.dump(out, fo, 2)
             fo.flush()
 
-    def ahead(self, c, todo, i, cache, phases, preset):
+    def ahead(self, c, todo, i, cache, phases, preset, hop=False, resp=False):
         import pickle
         if c is not _TrapPar.course:
             return
         n = len(self.kids)
         keys = []
+
+        def key(st):
+            return _trap_key(st[0], st[1], hop, st[2] if resp else None, resp)
         for st in todo[i + 1:]:                     # (todo[i] is the caller's own next call)
-            if st not in cache and st not in keys:
+            if key(st) not in cache and st not in keys:
                 keys.append(st)
                 if len(keys) >= n * self.WAVE:
                     break
@@ -13706,14 +13765,15 @@ class _TrapPar:
             if not ks:
                 continue
             try:
-                pickle.dump((ks, phases, preset), fo, 2)
+                pickle.dump((ks, phases, preset, hop, resp), fo, 2)
                 fo.flush()
                 sent.append((fi, ks))
             except OSError:
                 pass
         try:                                        # (this process computes only what the loop asked for -
-            trap_succ(c, todo[i][0], todo[i][1], cache, phases, preset)     # todo[i] - so the course's own
-        except Exception:                           # lazy tables hold exactly the sequential run's entries;
+            trap_succ(c, todo[i][0], todo[i][1], cache, phases, preset, eff=todo[i][2] if resp else None,
+                      resp=resp, hop=hop)           # todo[i] - so the course's own lazy tables hold exactly the
+        except Exception:                           # sequential run's entries;
             pass                                    # an exception is raised again by the loop's own call)
         for fi, ks in sent:
             try:
@@ -13722,7 +13782,7 @@ class _TrapPar:
                 continue
             for st, r in zip(ks, got):
                 if r is not None:
-                    cache[st] = r
+                    cache[key(st)] = r
 
     def close(self):
         for pid, fo, fi in self.kids:
@@ -13755,57 +13815,96 @@ def _trap_par(c):
     return _TrapPar(n)
 
 
-_TRAPNORESP = False           # the red arm of `grammar`'s "the way on by a respawning jump" (the arm off)
+_TRAPNORESP = False           # the red arm of `grammar`'s "the way on by a jump" (the pickup arm off)
 
 
 def trap_reach_resp(c, cell, mat, cache=None, preset=b""):
-    """NO TRAP's RESPAWNING arm (SPEC.md 130.14.4.1.2): from (cell, mat) with
-    no effect, taking only RESPAWNING pickups, is a finish reachable - and can
-    every state reached after a pickup was taken still reach a finish or fall
-    (a respawn at a flag)?  -> (ok, states explored, a stranded state or None)"""
+    """NO TRAP's PICKUP arm (SPEC.md 130.14.4.1.2): from (cell, mat) with no
+    pickup held, taking the timed pickups (a `respawn` one as often as it comes
+    back, any other once a life - a fall brings it back), is a finish reachable
+    - and can every state reached once a pickup was taken still reach a finish
+    or fall (a respawn, which brings every timed pickup back)?  The Hop as
+    trap_reach presses it, plus: a state HOLDING the jump has its Hop runs from
+    the start (the jump is nothing but a higher Hop), and a state the guard
+    would refuse has its Hop runs before it is refused.
+    -> (ok, states explored, a stranded state or None, states with Hop runs)"""
     cache = {} if cache is None else cache
     cache = cache.setdefault(("resp", preset), {})
-    phases = (0,)                       # (trap_reach's phases, for the same reasons)
-    if any(r["kind"] in (PK_WINDMILL, PK_PLATFORM) for r in c.part["props"]):
-        phases = (0, 32)
-    if any(r["kind"] == PK_PLATFORM for r in c.part["props"]):
-        phases = TRAP_LIFT_PHASES
-    graph, todo = {}, [(cell, mat, None)]
-    while todo:                         # the WHOLE reachable set: the guard below reads every state
-        st = todo.pop()
-        if st not in graph:
-            graph[st] = trap_succ(c, st[0], st[1], cache, phases, preset, eff=st[2], resp=True)
-            todo.extend(s for s in graph[st][0] if s not in graph)
-    if not any(h for _o, h, _f in graph.values()):
-        return False, len(graph), None
-    good = {st for st, (_o, h, f) in graph.items() if h or f}   # a finish, or a fall (a respawn at a flag)
-    back = {}
-    for st, (o, _h, _f) in graph.items():
-        for s in o:
-            back.setdefault(s, []).append(st)
-    todo = list(good)
-    while todo:                         # ...or a state that reaches one
-        for s in back.get(todo.pop(), ()):
-            if s not in good:
-                good.add(s)
-                todo.append(s)
-    post, todo = set(), [st for st in graph if st[2] is not None]
-    while todo:                         # every state reached once a pickup was taken
-        st = todo.pop()
-        if st not in post:
-            post.add(st)
-            todo.extend(graph[st][0])
-    bad = sorted((st for st in post if st not in good), key=lambda s: (s[0], s[1], s[2] is not None))
-    return not bad, len(graph), bad[0] if bad else None
+    phases = _trap_phases(c)
+    graph, hopped, unhop = {}, set(), []
+
+    def run(st, hop):
+        o, h, f = trap_succ(c, st[0], st[1], cache, phases, preset, eff=st[2], resp=True, hop=hop)
+        g = graph[st]
+        g[0] |= o
+        g[1] = g[1] or h
+        g[2] = g[2] or f
+        if hop:
+            hopped.add(st)
+        return o
+
+    def runs(sts, hop):                 # a wave of states' runs (_TrapPar: the next ones on the other cores)
+        new = []
+        for i_, st in enumerate(sts):
+            if _TRAPPAR[0] is not None and _trap_key(st[0], st[1], hop, st[2], True) not in cache:
+                _TRAPPAR[0].ahead(c, sts, i_, cache, phases, preset, hop=hop, resp=True)
+            new.extend(s for s in run(st, hop) if s not in graph)
+        return new
+
+    def close(sts):                     # every state these reach by the runs each is owed now, a wave at a time
+        todo = list(dict.fromkeys(s for s in sts if s not in graph))
+        while todo:
+            for st in todo:
+                graph[st] = [set(), False, False]
+                unhop.append(st)
+            new = runs(todo, False)
+            if not _TRAPNOHOP:          # (the jump HELD: its Hop runs too - the jump is nothing but a higher Hop)
+                new += runs([st for st in todo if st[2] is not None and st[2][1]], True)
+            todo = list(dict.fromkeys(s for s in new if s not in graph))
+
+    def hop(sts):
+        close(runs(sts, True))
+
+    close([(cell, mat, None)])
+    while not any(g[1] for g in graph.values()):
+        while unhop and unhop[-1] in hopped:
+            unhop.pop()
+        if _TRAPNOHOP or not unhop:
+            return False, len(graph), None, len(hopped)
+        hop([unhop.pop()])
+    while True:                         # the guard: the WHOLE set once a pickup has been taken
+        good = {st for st, g in graph.items() if g[1] or g[2]}      # a finish, or a fall (a respawn)
+        back = {}
+        for st, g in graph.items():
+            for s in g[0]:
+                back.setdefault(s, []).append(st)
+        todo = list(good)
+        while todo:                     # ...or a state that reaches one
+            for s in back.get(todo.pop(), ()):
+                if s not in good:
+                    good.add(s)
+                    todo.append(s)
+        post, todo = set(), [st for st in graph if st[2] is not None]
+        while todo:                     # every state reached once a pickup was taken
+            st = todo.pop()
+            if st not in post:
+                post.add(st)
+                todo.extend(graph[st][0])
+        bad = sorted((st for st in post if st not in good), key=lambda s: (s[0], s[1], s[2] is not None))
+        more = [st for st in bad if st not in hopped]
+        if not more or _TRAPNOHOP:
+            return not bad, len(graph), bad[0] if bad else None, len(hopped)
+        hop(more)                       # (a state the guard would refuse: its Hop runs first)
 
 
 def trap_check(c, cache=None):
-    """NO TRAP (item 7): from every flag's cell with the flag's ball and every
-    pad's cell with the pad's ball, the goal or the cup - with no pickup, or
-    (130.14.4.1.2) taking only RESPAWNING ones and stranding no ball that took
-    one.  -> None or (line, what, cell, ball, note) of the first that cannot"""
+    """NO TRAP (item 7): from the start with the start's ball, every flag's
+    cell with the flag's ball and every pad's cell with the pad's ball, the
+    goal or the cup - with the Hop, and with no pickup or (130.14.4.1.2)
+    taking the timed ones and stranding no ball that took one.  -> None or
+    (line, what, cell, ball, note) of the first that cannot"""
     cache = {} if cache is None else cache
-    c.trap, c.trapr = [], []
+    c.trap, c.trapr, c.traph = [], [], []
     if _TRAPPAR[0] is None:                     # (every core: _TrapPar; the answer is the sequential run's)
         _TRAPPAR[0] = _trap_par(c)
         if _TRAPPAR[0] is not None:
@@ -13818,28 +13917,39 @@ def trap_check(c, cache=None):
 
 
 def _trap_check(c, cache):
-    rsp = not _TRAPNORESP and any(pr["kind"] in (K_SPEED, K_JUMP) and pr["ow"] & PU_RESPAWN for pr in c.props)
+    rsp = not _TRAPNORESP and any(pr["kind"] in (K_SPEED, K_JUMP) and pr["cls"] == CL_RESPAWN for pr in c.props)
     fin = "cup" if any(q["kind"] == PK_CUP for q in c.part["props"]) else "goal"
+    srcs = []
+    if getattr(c, "start", None) is not None and c.src.start:   # the START (2026-11-22): a play's first respawn
+        srcs.append(("start", c.src.start[1], tuple(c.start), c.ball,
+                     trap_presets(c) if any(r["kind"] == PK_CHECKPOINT for r in c.part["props"]) else [b""]))
     for r in c.part["props"]:
         if r["kind"] not in (PK_CHECKPOINT, PK_PAD):
             continue
         pr = c.props[c.order[r["i"]]]
         m = r["ball"] if r["kind"] == PK_CHECKPOINT else r["mat"]
-        for preset in trap_presets(c):          # wave 9 (130.25.7.3): under the reset classes
-            ok, n = trap_reach(c, r["at"], m, cache, preset=preset)
+        srcs.append(("flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m], pr["line"],
+                     r["at"], m, None))
+    for what, line, at, m, presets in srcs:
+        kind = "start" if what == "start" else what.split()[-1] if what.endswith("pad") else "flag"
+        kind = {"pad": PK_NAMES[PK_PAD], "flag": PK_NAMES[PK_CHECKPOINT]}.get(kind, kind)
+        for preset in (presets if presets is not None else trap_presets(c)):   # wave 9 (130.25.7.3)
+            ok, n, nh = trap_reach(c, at, m, cache, preset=preset)
             note = ""
-            if not ok and rsp:                  # 130.14.4.1.2: the way on by a RESPAWNING pickup
-                ok, n, strand = trap_reach_resp(c, r["at"], m, cache, preset=preset)
+            if ok and nh:
+                c.traph.append((kind, at, m, nh))
+            if not ok and rsp:                  # 130.14.4.1.2: the way on by a timed pickup
+                ok, n, strand, nh = trap_reach_resp(c, at, m, cache, preset=preset)
                 if ok:
-                    c.trapr.append((PK_NAMES[r["kind"]], r["at"], m, n))
+                    c.trapr.append((kind, at, m, n))
                 elif strand:
-                    note = (" without stranding it: by its respawning pickup it reaches the %s, but once it has "
-                            "taken one it can come to rest at (%d, %d) with no way on to a finish or a fall "
-                            "(130.14.4.1.2)" % (fin, strand[0][0], strand[0][1]))
-            c.trap.append((PK_NAMES[r["kind"]], r["at"], m, ok, n))
+                    note = (" without stranding it: by a pickup it reaches the %s, but once it has taken one it "
+                            "can come to rest at (%d, %d) with no way on to a finish or a fall (130.14.4.1.2)"
+                            % (fin, strand[0][0], strand[0][1]))
+            c.trap.append((kind, at, m, ok, n))
             if not ok:
-                return (pr["line"], ("flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m])
-                        + (" with the ATTEMPT family state %s" % preset.hex() if preset else ""), r["at"], m, note)
+                return (line, what + (" with the ATTEMPT family state %s" % preset.hex() if preset else ""), at, m,
+                        note)
     return None
 
 
@@ -18418,7 +18528,7 @@ class Physics:
         self._fsteps = ()                           # the STEP hooks, in slot order: ((a family's step, its slot), ...)
         self.nopick = False                         # NO TRAP's runs: a PICKUP kind's ENTER and CONTACT
                                                     # never fire (every finish proved with no pickup)
-        self.pickrs = False                         # ...but with it, a RESPAWNING one's do (130.14.4.1.2)
+        self.pickrs = False                         # ...but with it, a timed one's do (130.14.4.1.2)
         if self.fam:
             self.__class__ = _FamPhysics
             self.fst = bytearray(self.grid.nfst)
@@ -18847,9 +18957,10 @@ class Physics:
         return (self.gx >> 12, self.gy >> 12) == tuple(pr["at"])
 
     def _picks(self, pr):
-        """NO TRAP's second arm (SPEC.md 130.14.4.1.2): under `nopick`, may this pickup still be taken?  Only
-        with `pickrs` set, and only a RESPAWNING timed one (a speed or a jump marked `respawn`)"""
-        return self.pickrs and pr["kind"] in (K_SPEED, K_JUMP) and pr["ow"] & PU_RESPAWN
+        """NO TRAP's pickup arm (SPEC.md 130.14.4.1.2): under `nopick`, may this pickup still be taken?  Only
+        with `pickrs` set, and only a timed one of the RESPAWN class (a speed or a jump: a fall brings it back,
+        130.25.7.1; `respawn` brings it back sooner, 130.55)"""
+        return self.pickrs and pr["kind"] in (K_SPEED, K_JUMP) and pr["cls"] == CL_RESPAWN
 
     def poke(self, wx, wy, gvx=0, gvy=0):
         """a scenario's start: the centre of tile (wx, wy) on its floor,
@@ -29771,7 +29882,7 @@ def _w4_route(c, res, _nobranch=False):
         # SPEC.md 130.14.7.4.4: the arrows reach the goal past a flag without touching it - the route is the
         # FLAG PASS's (route_plan: the route demo's), which steers through the flag's cell; the course is not
         # changed to suit the autopilot.  SPEC.md 130.14.7.4.1 - 130.14.7.4.3: the arrows alone do not finish -
-        # a course BUILT ON THE HOP (`trap hop`, LITTLE HOP), or one whose arrows stall where the search's Hops,
+        # a course BUILT ON THE HOP (LITTLE HOP), or one whose arrows stall where the search's Hops,
         # holds or waits carry it (DOWN's chute corner) - and the route is again route_plan's, the one the build
         # ships as the course's route demo (route_demo) and makes its limit from (_course_limit).  The item
         # replays that plan's keys to the same tests: the goal, no fall, every flag, inside DEMO_STEPS
@@ -29787,7 +29898,6 @@ def _w4_route(c, res, _nobranch=False):
                 air_occ += 1
         how = " (%s: route_plan's route, the route demo's, %s)" % (
             "the arrows skip a flag - the FLAG PASS, 130.14.7.4.4" if skip else
-            "`trap hop` - the HOPPING autopilot, 130.14.7.4.1" if getattr(c, "traphop", None) else
             "the arrows alone do not finish - the route search, 130.14.7.4.1 - 130.14.7.4.3",
             "%d steps" % len(plan) if plan else "NONE found")
     kinds = {}
@@ -31645,7 +31755,7 @@ def _split_physics(res):
         cp = compile_course(txt, "<RAIL, with props>")
         v = (finish_reach_rule(cp), finish_clock_rule(cp), [t[3] for t in getattr(cp, "trap", None) or ()],
              sum(1 for cl in cp.cells.values() if cl[3] & FL_OCCG))
-        ok = all(v[2]) and len(v[2]) == 2 and "reachable" in v[0]
+        ok = all(v[2]) and len(v[2]) == 3 and "reachable" in v[0]     # (the start, the pad, the flag)
     except CourseError as e:
         v, ok = (str(e),), False
     res.append(("7 RAIL with a pad, a flag and a clock (story D2.5): the course compiles with every check a shipped "
@@ -32832,7 +32942,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 3 + len(_wall_low_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 4 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -32902,29 +33012,38 @@ def _sc_grammar(X, res, part=(0, 1)):
             ok_, msg = False, str(e)
         res.append(("2 accepted (130.14.4.1): a spring at a pit's edge%s" % ("" if ok_ else " -- got: " + msg), ok_))
     if mine():                                      # SPEC.md 130.14.4.1: NO TRAP rides a LIFT up - a flag at its
-        global _TRAPNOLIFT                          # foot (the run followed while the slab carries the ball);
+        global _TRAPNOLIFT, _TRAPNOHOP              # foot (the run followed while the slab carries the ball);
         txt = _LIFTUP + "checkpoint 9 9\n"           # RED ARM _TRAPNOLIFT: the run cut at TRAP_RUN on the slab
+        # (and, from 2026-11-22, no Hop run: a Hop off the rising slab lands the ball on the top as well,
+        # 130.14.4.1.1, so the case is compiled with no Hop run too, and the red arm takes both away: the
+        # carry alone gets the ball up)
         try:
             compile_course(txt, fname="<a flag at a lift's foot>")
+            _TRAPNOHOP = True
+            compile_course(txt + "# no Hop\n", fname="<a flag at a lift's foot, no Hop run>")
             ok_, msg = True, "compiled"
         except CourseError as e:
             ok_, msg = False, str(e)
-        _TRAPNOLIFT = True
+        finally:
+            _TRAPNOHOP = False
+        _TRAPNOLIFT = _TRAPNOHOP = True
         try:
             compile_course(txt + "# red arm\n", fname="<a flag at a lift's foot, red arm>")
             red = "compiled"
         except CourseError as e:
             red = str(e)
         finally:
-            _TRAPNOLIFT = False
+            _TRAPNOLIFT = _TRAPNOHOP = False
         res.append(("2 accepted (130.14.4.1): a flag at a lift's foot, NO TRAP riding it up%s; RED ARM (the carry not "
-                    "followed): %s" % ("" if ok_ else " -- got: " + msg, red[:90]), ok_ and "NO TRAP" in red))
-    if mine():                                      # SPEC.md 130.14.4.1.2: the way on by a RESPAWNING pickup
+                    "followed, no Hop run): %s" % ("" if ok_ else " -- got: " + msg, red[:90]), ok_ and "NO TRAP" in red))
+    if mine():                                      # SPEC.md 130.14.4.1.2: the way on by a timed pickup
         _sc_trapresp(res)
+    if mine():                                      # SPEC.md 130.14.4.1.1: the Hop where it matters, the start
+        _sc_traphop(res)
 
 
 # SPEC.md 130.14.4.1.2: a glass flag before a 3-tile gap (x 9 - 11) that only the jump's Hop crosses, the cup beyond
-_TRAPJ = ('course J "j"\nwidth 64\norigin 224\nuses pickups\ntrap hop\n'
+_TRAPJ = ('course J "j"\nwidth 64\norigin 224\nuses pickups\n'
           'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 12 5 15 8 flat 4\nwall rect 12 4 15 5 flat 5\n'
           'start 5 6\ncup 13 6\ncheckpoint 5 7 ball glass\nprop jump 7 6 for 3%s\n')
 # ...and a walled POCKET in the gap, 2 units down: a failed jump comes to rest there, and nothing climbs out
@@ -32932,9 +33051,10 @@ _TRAPJPIT = 'floor rect 9 5 12 8 flat 2\nwall rect 9 4 12 5 flat 5\nwall rect 9 
 
 
 def _sc_trapresp(res):
-    """--selfcheck section `grammar`: NO TRAP's respawning arm (SPEC.md 130.14.4.1.2) - the only way on needs a
-    RESPAWNING jump (compiles, the flag passed by the arm), the same jump not respawning (refused), a failed jump
-    stranded in a pocket (refused, naming the cell), and the RED ARM _TRAPNORESP (the arm off: the first refused)"""
+    """--selfcheck section `grammar`: NO TRAP's pickup arm (SPEC.md 130.14.4.1.2) - the only way on needs a jump:
+    marked `respawn` (compiles, the flag passed by the arm) and, from 2026-11-22, the builder's way with no
+    `respawn` (compiles too: a fall brings it back); a failed jump stranded in a pocket, either way (refused,
+    naming the cell); and the RED ARM _TRAPNORESP (the arm off: the first refused)"""
     global _TRAPNORESP
 
     def go(text, what):
@@ -32944,18 +33064,57 @@ def _sc_trapresp(res):
         except CourseError as e:
             return False, str(e), None
     ok1, m1, c1 = go(_TRAPJ % " respawn", "the way on by a respawning jump")
-    ok2, m2, _ = go(_TRAPJ % "", "the way on by a jump that does not respawn")
+    ok2, m2, c2 = go(_TRAPJ % "", "the way on by a jump that does not respawn")
     ok3, m3, _ = go(_TRAPJ % " respawn" + _TRAPJPIT, "a respawning jump over a pocket")
+    ok5, m5, _ = go(_TRAPJ % "" + _TRAPJPIT, "a jump that does not respawn over a pocket")
     _TRAPNORESP = True
     try:
         ok4, m4, _ = go(_TRAPJ % " respawn" + "# red arm\n", "the way on by a respawning jump, red arm")
     finally:
         _TRAPNORESP = False
-    res.append(("2 NO TRAP's respawning arm (130.14.4.1.2): the only way on needs a respawning jump: %s; the jump not "
-                "respawning: %s; a failed jump's pocket: %s; RED ARM (_TRAPNORESP, the arm off): %s"
-                % (m1, m2[-70:], m3[-150:], m4[-70:]),
-                ok1 and bool(c1.trapr) and not ok2 and "NO TRAP" in m2 and "stranding" not in m2
-                and not ok3 and "stranding" in m3 and not ok4 and "NO TRAP" in m4))
+    res.append(("2 NO TRAP's pickup arm (130.14.4.1.2): the only way on needs a jump - respawning: %s; not "
+                "respawning (the builder's): %s; a failed jump's pocket, respawning: %s; not respawning: %s; RED ARM "
+                "(_TRAPNORESP, the arm off): %s" % (m1, m2, m3[-150:], m5[-110:], m4[-70:]),
+                ok1 and bool(c1.trapr) and ok2 and bool(c2.trapr) and not ok3 and "stranding" in m3
+                and not ok5 and "stranding" in m5 and not ok4 and "NO TRAP" in m4))
+
+
+# SPEC.md 130.14.4.1.1: a glass flag before a 2-tile gap (x 9 - 10) that a Hop crosses with no pickup
+_TRAPH = ('course H "h"\nwidth 64\norigin 224\n'
+          'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 11 5 15 8 flat 4\nwall rect 11 4 15 5 flat 5\n'
+          'start 5 6\ncup 13 6\ncheckpoint 5 7 ball glass\n')
+# ...and _TRAPJ's 3-tile gap with no jump, no flag and no pad: only the START can be refused
+_TRAPS = ('course S "s"\nwidth 64\norigin 224\n'
+          'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 12 5 15 8 flat 4\nwall rect 12 4 15 5 flat 5\n'
+          'start 5 6\ncup 13 6\n')
+
+
+def _sc_traphop(res):
+    """--selfcheck section `grammar`: NO TRAP presses the Hop where it matters and runs from the start (SPEC.md
+    130.14.4.1.1) - a 2-tile gap with no pickup compiles, passed by the Hop (c.traph), and its RED ARM _TRAPNOHOP
+    (no Hop run ever asked for) refuses it; a 3-tile gap with no pickup and no flag is refused from the START;
+    `trap hop` is refused, saying to delete it"""
+    global _TRAPNOHOP
+
+    def go(text, what):
+        try:
+            c_ = compile_course(text, fname="<%s>" % what)
+            return True, "compiled, by the Hop: %s" % (c_.traph,), c_
+        except CourseError as e:
+            return False, str(e), None
+    ok1, m1, c1 = go(_TRAPH, "a 2-tile gap, no pickup")
+    _TRAPNOHOP = True
+    try:
+        ok2, m2, _ = go(_TRAPH + "# red arm\n", "a 2-tile gap, no pickup, red arm")
+    finally:
+        _TRAPNOHOP = False
+    ok3, m3, _ = go(_TRAPS, "a 3-tile gap, no pickup, no flag")
+    ok4, m4, _ = go(_TRAPH.replace("origin 224\n", "origin 224\ntrap hop\n"), "`trap hop`")
+    res.append(("2 NO TRAP with the Hop and from the start (130.14.4.1.1): a 2-tile gap, no pickup: %s; RED ARM "
+                "(_TRAPNOHOP, no Hop run): %s; a 3-tile gap, no pickup, no flag: %s; `trap hop`: %s"
+                % (m1, m2[-80:], m3[-90:], m4[-60:]),
+                ok1 and any(k == "checkpoint" for k, _a, _m, _n in c1.traph) and not ok2 and "NO TRAP" in m2
+                and not ok3 and "NO TRAP: from the start" in m3 and not ok4 and "`trap hop` is gone" in m4))
 
 
 def _sc_w9(X, res):
@@ -34449,7 +34608,7 @@ def _sc_w4(X, res):
     _w4_physics(byname, res)
     for c in courses:
         if getattr(c, "trap", None):
-            res.append(("7 %s: NO TRAP - from every flag with its ball and every pad with its ball the %s is "
+            res.append(("7 %s: NO TRAP - from the start, every flag and every pad, each with its ball, the %s is "
                         "reachable (%s)" % (c.name, "cup" if c.gflags & GF_CUP else "goal", "; ".join(
                             "%s %s %s: %d states" % (k, at, MAT_NAMES[m], n) for k, at, m, ok_, n in c.trap)),
                         all(t[3] for t in c.trap)))
