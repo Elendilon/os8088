@@ -289523,3 +289523,29 @@ The save, BONANZA.DAT (`BZS5`), is unchanged: its layout was already `BZ_CRS_MAX
 words a slot, and the header's count is the list's, as it was. The shipped courses' parts and demos are the
 bytes they were; the title's demos (BZTDEMO.BIN) name the title's new K, 24. A course added to a composed game
 costs its part and its demo and no resident byte.
+
+**What it buys** (MEASURED, a 4-core host shared with other sessions): `bbgame.py prebuild` **7 s** (one probe
+assembly: nasm, pxlink and every linked part once), where the variants took 10 - 21 min; `make bbeditbundle`
+**44 s** from a built `bonanza.o88` (it was about 16 min with the variants); the zip **1,127,156 bytes, 133
+files**, against 130.58.17.1's 1,442,079 and 167 (`bbgame-bin/` is one set of pieces and one map). A game
+with two added courses (XTRA, XTRB: FIRST's and HOP's texts renamed) is **+12,384 bytes** of package - their
+parts and demos, and not one resident byte (`bonanza.bin` is the shipped one with its tables written).
+
+**Checked**: `tests/unit/t_bbgame.py` (the `bbgame` row) - the shipped list composed is `build/bonanza.o88`
+byte for byte with counts 8 / 8 / 8; shipped + XTRA + XTRB, `--pad0 XTRA`, XTRA on a ninth pad (`--path`) and
+FIRST on a ninth pad are each byte for byte the package nasm assembles from that list and pathway; RED: the
+two-course game with its NAMES table left unwritten, and the ninth-pad game with the shipped counts left in,
+are not; a 24-pad map, a larger `BZ_PROPMAX`, a course row of an unshipped form, a NAME `TITLE`, a TEST course
+and 16 added courses are refused. **RED for the probe**: `bz_lchk` built with `cmp bl, BZ_NCRS` again -
+`prebuild` exits, "1 bytes of bonanza.bin moved with the tables that are not a table's". The shipped
+courses' parts, the shipped demos, the pathway, the title and the kit compiled before and after: byte for
+byte, but BZTDEMO.BIN's four course bytes, 9 -> 24. **ONE BOOT** (MartyPC, `os8088_5150_cga_gla`, the
+composed 360 KB floppy): a pathway with XTRA on pad 0 and XTRB on a ninth pad - the map labels pad 0
+EXTRA ROLL, Space shows XTRA's card (BALL RUBBER, LIMIT 15, GOLD 4 SILVER 5, EXITS 0 OF 1), Enter plays it
+(course row 8, a row past the shipped list's, fetched).
+
+**NOT DONE**: XTRB (on page 1 of that map) was not played on the emulator, and no soak row ran (the rows
+naming the part rows and K - `bonanzaexit`, `bonanzapath`, `bonanzatitle`, `bonanzagame`, `bonanzademo` and
+the ring's `part_args` - were updated to read `bzparts.lst`, `BZ_CRS_PATH` and `BZ_CRS_TITLE`, by reading).
+An added SHEETED course, a bigger pathway picture (`BZ_PATH_CLAIM`) and a pad course past `BZ_CRS_MAXCLAIM`
+are still refused.
