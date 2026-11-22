@@ -6770,3 +6770,22 @@ work, and could not. So lets make it manual."* The knob went. In its place is th
 builder's overlay to show (the builder's session does the overlay). *Observed*: HOP has 88 candidate faces,
 many of them one-pixel slivers, so the detector reports `feet` for an overlay to filter on. Marking four `se`
 faces on HOP bands exactly those four. A `gap` that bands nothing is refused, as `float`'s is.
+
+## 2026-11-22 (the guard rail stands on the floor's edge, SPEC.md 130.35.1)
+
+The owner, on MILL: a player jumps from the start floor over a one-cell gap onto the ramp, and no guard rail
+could go on the floor's edge there, because a guard was an empty cell beside a flat floor made into a wall:
+*"this is meaning 'we built something in the engine wrong' ... a ton of refusals and workarounds got added."*
+The rail now stands ON the floor's edge. `guard` names the floor (its open edges by default, or `side +x` and
+the like), the grid carries the edge in the two flag bits SPEC.md had reserved for it since wave 3, and the
+window refill turns the cell across a railed edge into a wall in its own copy, which the step already
+treats as a wall. The step itself runs no new instruction. Alternatives weighed: a blocking test in the step
+was 50 - 100 clocks on every step of every course; a wall cell on the floor's side spends the floor; an
+invisible wall on the ramp's side would stop a ball in mid-air. *Observed*: every course's route demo,
+autopilot run and authored demo replays step for step as before. MILL's, DOWN's, ROLL's, HOP's and
+PLAYGROUND's guard cells convert to the same railed edges. MILL's two "block rail beside a ramp" walls by the see-saw stay walls, because a
+see-saw's plate tilts under a rail. A scoped unicorn run put the guest's step equal to the model's at
+every step on MILL, DOWN and the one-cell-gap test course. The table loop is 79 bytes against an unrolled
+113, and the package grows 123 bytes. *Not measured*: the refill's cycles on the 8088 (about 1.6k clocks
+on a cell change, predicted), and no MartyPC boot was made to look at the rail; the tool's CGA and Hercules
+previews were looked at.

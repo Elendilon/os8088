@@ -409,6 +409,13 @@ bz_pinit:
     or al, 2
 .wf2:
     mov [bz_wfl], al
+    mov al, [bz_fhk]            ; SPEC.md 130.35.1: bz_fhk bit 7 (no family's)
+    and al, 7fh                 ; the course's GUARD RAILS, GF_EDGE: every
+    test ah, BZ_GF_EDGE         ; refill walls the railed edges (bz_wedge)
+    jz .wf3                     ; and is a whole one (bz_win9i)
+    or al, BZ_FH_EDGE
+.wf3:
+    mov [bz_fhk], al
     mov al, [bz_mat]            ; respawn gets is the one the play STARTED
     mov [bz_ckmat], al          ; with (130.14.18 item 3), until a flag
     mov al, [es:di + BZG_WX]
@@ -1271,8 +1278,9 @@ bz_step:
     cmp word [bz_goal], 0       ; (a finish sequence rolling on over a second
     jne .end                    ; goal cell: the first one stands, 130.22.6)
     mov al, [si + 3]            ; wave 8b (130.19.4): the cell's EXIT, its
-    mov cl, 4                   ; flags' bits 4 - 7
-    shr al, cl
+    rol al, 1                   ; flags' bits 6 - 7 (4 - 5 its rails,
+    rol al, 1                   ; SPEC.md 130.35.1)
+    and al, 3
     mov [bz_exit], al
     mov byte [bz_goal], 1
     call bz_fstart              ; (a play's: the FINISH SEQUENCE, 130.22.6)
@@ -1347,7 +1355,7 @@ bz_step:
     mov [bz_inmo], al
     mov [bz_btok], ax           ; wave 6 (130.16.4.3): the token, the stretch
     mov [bz_drx], ax            ; and both remainders; not bz_nboost
-    cmp byte [bz_fhk], 0        ; wave 9 (130.25.6.3): the RESPAWN class cleared,
+    test byte [bz_fhk], 7fh     ; wave 9 (130.25.6.3): the RESPAWN class cleared,
     je .rnf                     ; the families' lanes marked, RESET 1 - before
     call bz_frst                ; the place, whose refill runs the CELL hook
 .rnf:
@@ -4355,7 +4363,14 @@ bz_smul:
 ; ES = the course.  -> AX = bz_nwin.  Preserves ES and nothing else (bz_step's
 ; three refills keep no register over it).
 ; -----------------------------------------------------------------------------
+%if BZ_FH_EDGE != 80h
+ %error "bz_win9i and bz_wtail test bz_fhk bit 7 as BZ_FH_EDGE (SPEC.md 130.35.1)"
+%endif
 bz_win9i:
+    test byte [bz_fhk], 80h     ; (BZ_FH_EDGE) SPEC.md 130.35.1: a course with
+    jz .i0                      ; GUARD RAILS refills WHOLE - a cell a refill
+    jmp bz_win9f                ; walled is never moved into the next window
+.i0:
     mov cl, 4
     mov si, [bz_gx + 1]
     and si, 0ff0h               ; SI = 16 wx, DI = 16 wy (bz_wgx, bz_wgy: wx
@@ -4628,8 +4643,8 @@ bz_fill:
 ; bz_tsx and bz_tsy, the centre's surface, bz_wol and bz_ps.  -> AX = bz_nwin.
 ; Clobbers BX, CX, DX, SI, DI.
 bz_wtail:
-    test byte [bz_fhk], BZ_FH_CELL | BZ_FH_ENTER ; wave 9 (130.25.6.3): CELL first,
-    jnz .fam                    ; ENTER last (out of line)
+    test byte [bz_fhk], BZ_FH_CELL | BZ_FH_ENTER | BZ_FH_EDGE ; wave 9 (130.25.6.3):
+    jnz .fam                    ; CELL first, the rails (130.35.1), ENTER last
 .go:
     xor ax, ax                  ; the centre's slopes, for step 2
     mov dx, ax
@@ -4680,6 +4695,10 @@ bz_wtail:
 .fam:                           ; a course with families: CELL (each family
     mov ax, BZ_HK_CELL          ; with an entry rewrites its elements' cells in
     call bz_fall                ; bz_nbr, never the grid, SPEC.md 130.25.7.2),
+    test byte [bz_fhk], 80h     ; (BZ_FH_EDGE) the GUARD RAILS (130.35.1) after
+    jz .fe                      ; them: a railed edge's cell a WALL,
+    call bz_wedge               ; whatever a family wrote there
+.fe:
     push word [bz_wcen]         ; the window's own work, then ENTER when the
     call .go                    ; centre's owner changed to a family element
     pop bx                      ; BL = the owner (index + 1) before
@@ -4698,6 +4717,40 @@ bz_wtail:
     call bz_fone
     pop ax
 .fx:
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_wedge - SPEC.md 130.35.1: every window cell across a RAILED edge made a
+; WALL of stone in bz_nbr (kind 2, surface 0; its other bytes as they were),
+; so step 5's edge tests, its corner and its fallback meet the rail exactly
+; as a wall's edge.  A cell's grid flags (+3) say which of ITS two edges carry
+; a rail: bit 4 (BZ_FL_EDX) its +x edge, bit 5 (BZ_FL_EDY) its +y.  An edge
+; neighbour is walled across the centre's own edge; a CORNER neighbour across
+; either rail that ENDS at the centre's corner (between it and one of the
+; centre's edge neighbours), so the corner's push meets the rail's end as a
+; point.  Only flags are read and only kinds written, so the order is free.
+; bbcourse.wall_rails (RAIL_WALL) is the model and BZ_RAIL_WIN its table.
+; Clobbers AX, BX, CX, DL, SI (bz_wtail's own clobbers).
+; -----------------------------------------------------------------------------
+bz_wedge:
+    mov si, bz_rwin             ; BZ_RAIL_WIN: 8 cells, 5 bytes each
+    mov cx, 8
+    xor bx, bx                  ; (BH stays 0)
+.c:
+    lodsw                       ; AL = the first cell's offset, AH its mask
+    mov bl, al
+    and ah, [bz_nbr + 3 + bx]
+    mov dl, ah
+    lodsw                       ; ...the second's (an edge neighbour's: the
+    mov bl, al                  ; first again)
+    and ah, [bz_nbr + 3 + bx]
+    or ah, dl
+    lodsb                       ; AL = the cell it walls (LODSB keeps ZF)
+    jz .n
+    mov bl, al
+    mov byte [bz_nbr + 2 + bx], BZ_KWALL
+.n:
+    loop .c
     ret
 
 ; (bz_wtail's, out of its line: a centre neither FLOOR nor GOAL - a FIELD
@@ -4987,6 +5040,8 @@ bz_swin:
     BZ_SPLIT_WIN
 bz_srays:
     BZ_SPLIT_RAYS
+bz_rwin:                        ; SPEC.md 130.35.1: bz_wedge's (bbcourse.RAIL_WALL)
+    BZ_RAIL_WIN
 ; the bumpers' octant table, the model's own (bzcourse.inc, 130.12.6.3)
 bz_otab:
     BZ_OCTANT_TABLE
