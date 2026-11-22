@@ -1696,7 +1696,7 @@ class App(object):
                                ("for", 1, "Seconds"), ("depth", 1, "Depth (px)"), ("radius", 1, "Radius"),
                                ("pivot", 1, "Pivot height"), ("height", 1, "Height"), ("kick", 1, "Kick"),
                                ("dwell", 1, "Wait at each end"), ("under", 1, "Clearance (units)")):
-            if word in st.toks[1:]:
+            if word in st.toks[1:] and not (st.kind == "seesaw" and word in ("period", "flat", "seed")):
                 i = st.toks.index(word, 1) + n
                 if i < len(st.toks):
                     v = tk.StringVar(value=st.toks[i])
@@ -2286,7 +2286,75 @@ class App(object):
             row += 1
         ttk.Label(body, text="A see-saw is 2, 4 or 6 cells long (its pivot on a cell edge) and 1 or 2 wide.",
                   foreground="#666", wraplength=280).grid(row=row, column=0, columnspan=2, sticky="w")
-        return row + 1
+        row += 1
+        # SPEC.md 130.42.11: tipped by the ball's WEIGHT, or TIMED (`period P [flat F] [seed S]`)
+        timed = "period" in t
+
+        def mode(m):
+            t_ = list(t)
+            if m == "timer" and "period" not in t_:
+                t_ += ["period", "64"]
+            elif m == "weight" and "period" in t_:
+                i = t_.index("period")
+                j = i + 2
+                while j + 1 < len(t_) and t_[j] in ("flat", "seed"):
+                    j += 2
+                del t_[i:j]
+            self._edit(self.doc.set_statement, self.sel, E.join_tokens(t_), label="seesaw mode")
+            self._fill_inspector()
+            self._redraw()
+        ttk.Label(body, text="Tipped by").grid(row=row, column=0, sticky="w")
+        fr = ttk.Frame(body)
+        fr.grid(row=row, column=1, sticky="w")
+        mv = tk.StringVar(value="timer" if timed else "weight")
+        for txt, m in (("the ball's weight", "weight"), ("a timer", "timer")):
+            ttk.Radiobutton(fr, text=txt, value=m, variable=mv, command=lambda m=m: mode(m)).pack(side="left")
+        fr._v = mv
+        row += 1
+        if timed:
+            i = t.index("period") + 1
+            pv = tk.StringVar(value=t[i] if i < len(t) else "64")
+            ttk.Label(body, text="Swings every").grid(row=row, column=0, sticky="w")
+            fr = ttk.Frame(body)
+            fr.grid(row=row, column=1, sticky="w")
+            cb = ttk.Combobox(fr, values=("32", "64", "128", "256"), textvariable=pv, width=5, state="readonly")
+            cb.pack(side="left")
+            cb.bind("<<ComboboxSelected>>", lambda e, i=i, v=pv: self._set_word(i, v.get()))
+            ttk.Label(fr, text="steps, there and back").pack(side="left", padx=4)
+            fr._v = pv
+            row += 1
+            for word, label, dflt, hint in (("flat", "Level for", "4", "steps a swing (blank 4)"),
+                                            ("seed", "Starts at", "0", "step (staggers two)")):
+                v = tk.StringVar(value=t[t.index(word) + 1] if word in t and t.index(word) + 1 < len(t) else "")
+                ttk.Label(body, text=label).grid(row=row, column=0, sticky="w")
+                fr = ttk.Frame(body)
+                fr.grid(row=row, column=1, sticky="w")
+                sp = ttk.Spinbox(fr, from_=0, to=255, width=5, textvariable=v)
+                sp.pack(side="left")
+                ttk.Label(fr, text=hint, foreground="#666").pack(side="left", padx=4)
+
+                def setw(word=word, v=v):
+                    t_ = list(self.doc.statement(self.sel).toks)
+                    val = v.get().strip()
+                    if word in t_:
+                        k = t_.index(word)
+                        if val:
+                            t_[k + 1] = val
+                        else:
+                            del t_[k:k + 2]
+                    elif val:
+                        k = t_.index("period") + 2
+                        if word == "seed" and "flat" in t_:
+                            k = t_.index("flat") + 2
+                        t_[k:k] = [word, val]
+                    self._edit(self.doc.set_statement, self.sel, E.join_tokens(t_), label="seesaw " + word)
+                    self._fill_inspector()
+                    self._redraw()
+                sp.configure(command=setw)
+                sp.bind("<Return>", lambda e, f=setw: f())
+                fr._v = v
+                row += 1
+        return row
 
     def move_sel(self, dx, dy):
         """move the selection. GROUND (a floor, wall, goal or hole laid by tile or rect) moves as one layer:
