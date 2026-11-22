@@ -130,11 +130,15 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
               click a dashed box to mark it, a pink one to unmark it.
               The list under the course is every problem; click one to go
               to it.
-  Shapes tab  chutes, pits and humps: New chute / pit / hump, drag the
-              numbered handles (an end slides along its leg, a corner
-              takes its legs with it), add or remove legs, lips and depth;
-              the height along it, and how each ball rides it (the game's
-              own physics, in words).
+  Shapes tab  chutes, pits, humps and tubes. Edits make a DRAFT (dashed
+              orange): drag the numbered points anywhere, Ctrl-click to add
+              one, right-click to remove one, change the fields - then
+              "Try it" (each leg made to run along an axis) puts it in the
+              course; refused, the draft stays with the reason. A tube or
+              chute can be TRACED on the Build tab: choose it in the parts
+              list, Ctrl-click its cells on the plan (its ends and turns),
+              Add. A tube lays its own body walls. Also: the height along a
+              chute, and how each ball rides a shape (the game's physics).
   Map tab     the PATHWAY (open data/apps/bonanza/courses/path.bbc): pads,
               routes and their points, gates, icons, lives counters and
               pages, dragged on the map's own picture; "Put a course on

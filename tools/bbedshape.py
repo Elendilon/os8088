@@ -8,6 +8,8 @@ The helpers at the top are the tab's model and import no Tk: the window and the 
 which hands it the window (its document, `_edit`, the job runner and the height colours).
 """
 
+import sys
+
 DIRS = ((1, 0), (0, 1), (-1, 0), (0, -1))
 PATHS = ("chute", "tube")      # the shapes drawn and dragged as a path of points (a chute's ways, a tube's IN/vias/OUT)
 
@@ -132,6 +134,53 @@ def code(sh):
     return out + (" height %d" % sh["height"] if sh["height"] else "")
 
 
+def axis_path(ways):
+    """SPEC.md 130.58.27: a drafted path made one an axis-legged shape can take - a corner added where two points
+    differ along both axes (along x first), a repeated point dropped, and a point in the middle of a straight run
+    dropped unless it carries a height of its own (a chute's lip). -> the new ways"""
+    out = [list(ways[0])]
+    for q in ways[1:]:
+        p = out[-1]
+        if p[0] != q[0] and p[1] != q[1]:
+            out.append([q[0], p[1], None])
+        if q[:2] != out[-1][:2]:
+            out.append(list(q))
+        elif q[2] is not None:
+            out[-1][2] = q[2]
+    i = 1
+    while i < len(out) - 1:
+        a, b, c = out[i - 1], out[i], out[i + 1]
+        if b[2] is None and ((a[0] == b[0] == c[0]) or (a[1] == b[1] == c[1])):
+            del out[i]
+        else:
+            i += 1
+    return out
+
+
+def insert_point(ways, cell):
+    """a point added at CELL where it is nearest the path: after the last point when past it, before the first
+    when before it, else between the two points of the nearest leg"""
+    best = None
+    for j, (p, q) in enumerate(zip(ways, ways[1:])):
+        dx, dy = q[0] - p[0], q[1] - p[1]
+        L2 = float(dx * dx + dy * dy) or 1.0
+        t = ((cell[0] - p[0]) * dx + (cell[1] - p[1]) * dy) / L2
+        tc = max(0.0, min(1.0, t))
+        d = (p[0] + tc * dx - cell[0]) ** 2 + (p[1] + tc * dy - cell[1]) ** 2
+        if best is None or d < best[0] - 1e-9:
+            best = (d, j, t)
+    w = [list(p) for p in ways]
+    _d, j, t = best
+    if j == len(ways) - 2 and t >= 1:           # (at or past the last point: a new last point)
+        w.append([cell[0], cell[1], None])
+    elif j == 0 and t <= 0:
+        w.insert(0, [cell[0], cell[1], w[0][2]])
+        w[1][2] = None if w[1][2] == w[0][2] else w[1][2]
+    else:
+        w.insert(j + 1, [cell[0], cell[1], None])
+    return w
+
+
 def lip_heights(ways):
     """each way's lip height: its own, else the way before's (130.28.3)"""
     out, z = [], 0.0
@@ -234,6 +283,7 @@ class ShapesTab(object):
         self.ride_after = None
         self.rides = {}                 # {statement text: the job's answer}
         self.wsel = None                # the selected way (a chute's)
+        self.draft = None               # the shape as edited, not yet tried (SPEC.md 130.58.27)
         f = ttk.Frame(nb)
         nb.insert(1, f, text="Shapes")
         self.frame = f
@@ -247,9 +297,11 @@ class ShapesTab(object):
             ttk.Button(left, text=label, command=lambda k=kind: self.new(k)).pack(fill="x", pady=1)
         ttk.Label(left, wraplength=220, foreground="#444", justify="left",
                   text="A new shape goes on the area selected on the Build tab (or beside the start), at "
-                       "the floor's height there.\n\nDrag the numbered handles: an end slides along its "
-                       "leg, a corner moves and its legs follow. Every change is checked; one the course "
-                       "compiler refuses is undone with the reason.").pack(anchor="w", pady=8)
+                       "the floor's height there. A tube or chute can also be traced on the Build tab: choose "
+                       "it, Ctrl-click its cells on the plan, then Add.\n\nEdits make a DRAFT (dashed orange): "
+                       "drag points anywhere, Ctrl-click to add one, right-click to remove one, change the "
+                       "fields - nothing is checked until Try it, which makes each leg run along an axis and "
+                       "puts it in the course. Refused, the draft stays with the reason.").pack(anchor="w", pady=8)
         right = ttk.Frame(f, padding=6, width=440)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
@@ -276,6 +328,11 @@ class ShapesTab(object):
         self.cv.bind("<ButtonPress-1>", self._press)
         self.cv.bind("<B1-Motion>", self._motion)
         self.cv.bind("<ButtonRelease-1>", self._release)
+        self.cv.bind("<ButtonPress-3>", self._remove_point)       # right-click a point: remove it (a draft)
+        self.cv.bind("<Control-ButtonPress-1>", self._add_point)  # Ctrl-click: add a point (a draft)
+        if sys.platform == "darwin":
+            self.cv.bind("<Command-ButtonPress-1>", self._add_point)
+            self.cv.bind("<ButtonPress-2>", self._remove_point)
 
     # -- the list -----------------------------------------------------------
     def shapes(self):
@@ -309,7 +366,12 @@ class ShapesTab(object):
         sel = self.lb.curselection()
         if not sel:
             return
-        self.line = self.shapes()[sel[0]][0]
+        line = self.shapes()[sel[0]][0]
+        if line != self.line and self.draft:
+            self.app._msg("The draft of line %d was dropped (it was never tried)" % self.line)
+        if line != self.line:
+            self.draft = None
+        self.line = line
         self.wsel = None
         self.refresh()
         self.app.select(self.line)
@@ -319,11 +381,43 @@ class ShapesTab(object):
 
     # -- edits --------------------------------------------------------------
     def apply(self, sh, label="edit a shape"):
-        """the statement rewritten from SH, through the window's checked edit (undone with the reason when
-        the compiler refuses it)"""
+        """SPEC.md 130.58.27: every edit of the shape goes into the DRAFT - drawn dashed, nothing written or
+        compiled - until Try it"""
         if self.line is None:
             return
-        self.app._edit(self.app.doc.set_statement, self.line, code(sh), label=label)
+        self.draft = sh
+        self._fill_form()
+        self.draw()
+
+    def cur(self):
+        return self.draft or self.sh
+
+    def try_draft(self):
+        """the draft written to the course through the window's checked edit (its path made axis-legged first);
+        refused, the draft stays, the banner saying why"""
+        d = self.draft
+        if not d or self.line is None:
+            return
+        if d["kind"] in PATHS:
+            d = dict(d, ways=axis_path(d["ways"]))
+        want = code(d)
+        self.app._edit(self.app.doc.set_statement, self.line, want, label="edit a %s" % d["kind"])
+        try:
+            now = self.app.doc.statement(self.line).code
+        except Exception:
+            now = None
+        if now == want:
+            self.draft = None
+            self.app._msg("The %s is changed (line %d)" % (d["kind"], self.line))
+        else:
+            self.draft = d
+            self.app._msg("Not changed: the %s was refused - see the bar above; the draft is kept, fix it and Try "
+                          "it again, or Discard" % d["kind"])
+        self.refresh()
+
+    def discard(self):
+        self.draft = None
+        self.refresh()
 
     def new(self, kind):
         app = self.app
@@ -356,14 +450,25 @@ class ShapesTab(object):
         tk, ttk = self.tk, self.ttk
         for w in self.form.winfo_children():
             w.destroy()
-        sh = self.sh
+        sh = self.cur()
         if not sh:
             self.title_l.config(text="No shape on this course yet")
             ttk.Label(self.form, wraplength=330, foreground="#444",
                       text="Press New chute, New pit or New hump on the left.").pack(anchor="w")
             return
-        self.title_l.config(text="%s (line %d)" % (describe(sh), self.line))
+        self.title_l.config(text="%s (line %d)%s" % (describe(sh), self.line, " - DRAFT" if self.draft else ""))
         row = [0]
+        bar = tk.Frame(self.form, background="#fff1cf" if self.draft else "#eef3f7", padx=6, pady=4)
+        bar.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 6))
+        row[0] = 1
+        if self.draft:
+            tk.Label(bar, text="Draft: not in the course yet.", background="#fff1cf").pack(side="left")
+            ttk.Button(bar, text="Try it", command=self.try_draft).pack(side="left", padx=4)
+            ttk.Button(bar, text="Discard", command=self.discard).pack(side="left")
+        else:
+            tk.Label(bar, text="Edits make a draft; Try it puts it in the course. Drag points; Ctrl-click adds one, "
+                               "right-click removes one.", background="#eef3f7", wraplength=400,
+                     justify="left").pack(side="left")
 
         def field(label, var, lo, hi, inc=1, cmd=None, width=6):
             ttk.Label(self.form, text=label).grid(row=row[0], column=0, sticky="w", pady=1)
@@ -537,7 +642,7 @@ class ShapesTab(object):
         self.draw()
 
     def _set_lip(self, zv):
-        sh, i = self.sh, self.wsel
+        sh, i = self.cur(), self.wsel
         if not sh or sh["kind"] != "chute" or i is None:
             self.app._msg("Select a way first (in the list, or click its handle)")
             return
@@ -578,7 +683,7 @@ class ShapesTab(object):
     def draw(self):
         c = self.cv
         c.delete("all")
-        sh = self.sh
+        sh = self.cur()
         W, H = max(50, c.winfo_width()), max(50, c.winfo_height())
         if not sh:
             c.create_text(20, 20, anchor="nw", fill="#e6e6e6", width=W - 40,
@@ -621,7 +726,12 @@ class ShapesTab(object):
         hs = self._handles(sh)
         if sh["kind"] in PATHS:
             pts = [self._pt(x, y, ctr) for _, x, y, ctr in hs]
-            c.create_line(*[v for p in pts for v in p], fill="#29e6ff", width=3, capstyle="round", joinstyle="round")
+            if self.draft and sh["kind"] in PATHS:     # the draft: its points, and the path Try it will lay (dashed)
+                fin = [self._pt(w[0], w[1], sh["width"] != 2) for w in axis_path(sh["ways"])]
+                c.create_line(*[v for p in fin for v in p], fill="#ff9f1c", width=3, dash=(6, 4))
+            else:
+                c.create_line(*[v for p in pts for v in p], fill="#29e6ff", width=3, capstyle="round",
+                              joinstyle="round")
         elif sh["kind"] == "pit":
             cx_, cy_ = self._pt(sh["x"], sh["y"], False)
             r = sh["radius"] * s
@@ -702,9 +812,10 @@ class ShapesTab(object):
                               ", the hole falls through" if hole else ""))
 
     def _hit(self, e):
-        if not self.sh or not self.view:
+        sh = self.cur()
+        if not sh or not self.view:
             return None
-        for i, x, y, ctr in self._handles(self.sh):
+        for i, x, y, ctr in self._handles(sh):
             px, py = self._pt(x, y, ctr)
             if abs(px - e.x) <= 11 and abs(py - e.y) <= 11:
                 return i
@@ -717,22 +828,28 @@ class ShapesTab(object):
         return (int(math.floor(fx)), int(math.floor(fy))) if centre else (int(round(fx)), int(round(fy)))
 
     def _press(self, e):
+        if e.state & 0x0004 or (sys.platform == "darwin" and e.state & 0x0008):
+            return                              # (Ctrl-click: _add_point)
         i = self._hit(e)
         if i is None:
             return
-        self.wsel = i if self.sh["kind"] in PATHS else None
-        self.drag = {"i": i, "sh": self.sh, "moved": False}
+        sh = self.cur()
+        self.wsel = i if sh["kind"] in PATHS else None
+        self.drag = {"i": i, "sh": sh, "moved": False}
         self.draw()
 
     def _motion(self, e):
+        """a point dragged FREELY (SPEC.md 130.58.27): the draft takes any cell; Try it makes the legs lie on axes"""
         d = self.drag
         if not d:
             return
-        sh = self.sh
+        sh = self.cur()
         ctr = sh["kind"] in PATHS and sh["width"] != 2
         nx, ny = self._cell(e, ctr if sh["kind"] in PATHS else False)
         if sh["kind"] in PATHS:
-            new = dict(sh, ways=drag_way(sh["ways"], d["i"], nx, ny))
+            w = [list(p) for p in sh["ways"]]
+            w[d["i"]][0], w[d["i"]][1] = nx, ny
+            new = dict(sh, ways=w)
         else:
             new = dict(sh, x=nx, y=ny)
         if code(new) != code(d["sh"]):
@@ -741,11 +858,39 @@ class ShapesTab(object):
 
     def _release(self, e):
         d, self.drag = self.drag, None
-        if d and d["moved"] and code(d["sh"]) != code(self.sh):
-            self.apply(d["sh"], "move a handle")
+        if d and d["moved"] and code(d["sh"]) != code(self.cur()):
+            self.apply(d["sh"], "move a point")
         else:
             self._fill_form()
             self.draw()
+
+    def _add_point(self, e):
+        """Ctrl-click: a point added to the draft's path where it is nearest (past an end, a new end)"""
+        sh = self.cur()
+        if not sh or sh["kind"] not in PATHS or not self.view:
+            return "break"
+        cell = self._cell(e, sh["width"] != 2)
+        if any(w[:2] == list(cell) for w in sh["ways"]):
+            return "break"
+        self.apply(dict(sh, ways=insert_point(sh["ways"], cell)), "add a point")
+        return "break"
+
+    def _remove_point(self, e):
+        """right-click a point: removed from the draft's path (a path keeps its two ends)"""
+        sh = self.cur()
+        if not sh or sh["kind"] not in PATHS:
+            return
+        i = self._hit(e)
+        if i is None:
+            return
+        if len(sh["ways"]) <= 2:
+            self.app._msg("A path keeps at least its two ends")
+            return
+        w = [list(p) for j, p in enumerate(sh["ways"]) if j != i]
+        if i == 0 and sh["ways"][0][2] is not None and w[0][2] is None:
+            w[0][2] = sh["ways"][0][2]          # (the first point always names the lip)
+        self.wsel = None
+        self.apply(dict(sh, ways=w), "remove a point")
 
     # -- how each ball rides it ---------------------------------------------------
     def _schedule_ride(self):
