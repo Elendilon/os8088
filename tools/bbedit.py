@@ -318,7 +318,8 @@ class App(object):
         ttk.Button(tb, text="Undo", command=self.undo).pack(side="left")
         ttk.Button(tb, text="Redo", command=self.redo).pack(side="left", padx=(2, 8))
         ttk.Button(tb, text="Test Roll", command=self.test_roll).pack(side="left")
-        ttk.Button(tb, text="Roll from here", command=lambda: self.test_roll(here=True)).pack(side="left", padx=(0, 8))
+        self.roll_l = ttk.Label(tb, text="from the start", foreground="#555")   # (where it will start: 130.58.25)
+        self.roll_l.pack(side="left", padx=(4, 8))
         self.badge_err = ttk.Label(tb, text="", foreground="#b3261e")
         self.badge_err.pack(side="right", padx=4)
         self.badge_warn = ttk.Label(tb, text="", foreground="#8a6d00")
@@ -2362,26 +2363,24 @@ class App(object):
                              (["--trap"] if trap else []), ev).start()
         self._fill_checks(self._problems())
 
-    def test_roll(self, here=False):
-        """TEST ROLL (SPEC.md 130.58.16): tools/bbplay.py on the text as it stands, as a process of its own -
-        from the course's start; HERE (*Roll from here*): from the selected one-cell part's cell, or the selected
-        area's centre, when that is a floor the ball can rest on (SPEC.md 130.58.25: a click anywhere selects
-        a cell, so the plain button never reads the selection)"""
-        cell = None
-        if here:
-            cells = self._sel_cells() if self.sel else None
-            if not (cells and len(cells) == 1) and self.area:
-                x0, y0, x1, y1 = self.area
-                cells = {((x0 + x1) // 2, (y0 + y1) // 2)}
-            if not cells or len(cells) != 1:
-                self._msg("Roll from here: select one cell (click it, or a one-cell part) first")
-                return
-            cell = next(iter(cells))
-            d = self.doc.analysis()["cells"].get(cell)
-            if not d or d["kind"] not in ("floor", "goal", "field"):
-                self._msg("Roll from here: (%d, %d) is %s, not a floor the ball can start on" % (
-                    cell[0], cell[1], "a %s" % d["kind"] if d else "empty space"))
-                return
+    def _roll_cell(self):
+        """where Test Roll starts (SPEC.md 130.58.25): the selected one-cell part's cell, or the selected area's
+        centre, when that is a floor the ball can rest on - else None, the course's start"""
+        cells = self._sel_cells() if self.sel else None
+        if not (cells and len(cells) == 1) and self.area:
+            x0, y0, x1, y1 = self.area
+            cells = {((x0 + x1) // 2, (y0 + y1) // 2)}
+        if not cells or len(cells) != 1:
+            return None
+        cell = next(iter(cells))
+        d = self.doc.analysis()["cells"].get(cell)
+        return cell if d and d["kind"] in ("floor", "goal", "field") else None
+
+    def test_roll(self):
+        """TEST ROLL (SPEC.md 130.58.16, 130.58.25): tools/bbplay.py on the text as it stands, as a process of
+        its own - from the selected floor cell when there is one (the note beside the button says which), else
+        from the course's start"""
+        cell = self._roll_cell()
         p = os.path.join(self.tmp, "roll-%d.bbc" % int(time.time() * 1000))
         with open(p, "w", encoding="ascii", newline="") as f:
             f.write(self.doc.text())
@@ -2486,6 +2485,9 @@ class App(object):
         self._redraw()
 
     def _redraw(self):
+        if getattr(self, "roll_l", None):
+            c_ = self._roll_cell()
+            self.roll_l.config(text=("from %d, %d (the selection)" % c_) if c_ else "from the start")
         if self.view.get() == "plan":
             self.iso_opts.pack_forget()
             self.gap_row.pack_forget()
