@@ -3,7 +3,7 @@
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
-    python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH] [--gaps]   # the Iso view's picture
+    python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH] [--gaps] [--occ]   # the Iso view's picture
     python3 tools/bbedjob.py check   COURSE.bbc [--strict] [--trap] [--name PATH]   # the full check
     python3 tools/bbedjob.py ride    COURSE.bbc LINE [--name PATH]     # how each ball rides a shape
 
@@ -16,7 +16,10 @@ still gets a picture to look at, and the CHECK says what is over. It writes
 OUTDIR/cga.png, OUTDIR/herc.png, OUTDIR/owners.bin (the cell that drew each
 pixel, 256 wx + wy or -1, int32 rows) and OUTDIR/meta.json (the size, the
 origin, every mark the visibility audit weighs with its seen and hidden
-pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4).
+pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4). With
+--occ it also compiles WITH the occluders and writes OUTDIR/occ.json: every
+record the rule cuts, the cells it hides, the OCC/OCCG cells and why a
+windmill's doorway is in the shade (SPEC.md 130.58.32).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
 the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
@@ -68,7 +71,7 @@ def warning(w):
     return out
 
 
-def picture(path, out, name=None, gaps=False):
+def picture(path, out, name=None, gaps=False, occ=False):
     from PIL import Image
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
@@ -131,13 +134,213 @@ def picture(path, out, name=None, gaps=False):
                           "hidden": [[x, y] for (x, y) in pts if ob[y][x] != own]})
     except Exception as e:                      # (the audit wants more than a picture compile holds)
         emit(stage="log", what="no visibility marks: %s" % e)
+    occm = None
+    if occ:                                     # SPEC.md 130.58.32: the occluders, only while the overlay shows
+        emit(stage="occluders", what="cutting the occluders (the full rules: a while on a big course)")
+        tmp = os.path.join(out, "occ.bbc")
+        with open(tmp, "w", encoding="ascii", newline="") as f:
+            f.write(text)                       # (the text the picture drew: dropped gap marks commented out)
+        t1 = time.time()
+        ws, err = occluders(tmp, out, path)
+        os.remove(tmp)
+        occm = {"error": err, "secs": round(time.time() - t1, 2),
+                "warnings": [w for w in ws if w["kind"] == "shade"] if ws else []}
     meta = {"width": c.width, "lines": c.lines, "x0": c.x0, "y0": c.y0, "name": c.name, "marks": marks,
-            "warnings": [warning(w) for w in c.warnings],
+            "warnings": [warning(w) for w in c.warnings] + (occm["warnings"] if occm else []), "occ": occm,
             "gaps": c.gap_faces if gaps else None, "dropped_gaps": dropped, "secs": round(time.time() - t0, 2)}
     with open(os.path.join(out, "meta.json"), "w") as f:
         json.dump(meta, f)
     emit(stage="done", ok=True, out=out, secs=meta["secs"])
     return 0
+
+
+def _runs(pix):
+    """a pixel set -> [[y, x0, x1], ...]: its horizontal runs, x1 inclusive"""
+    out = []
+    for (x, y) in sorted(pix, key=lambda p: (p[1], p[0])):
+        if out and out[-1][0] == y and out[-1][2] == x - 1:
+            out[-1][2] = x
+        else:
+            out.append([y, x, x])
+    return out
+
+
+def _flag_recs(c, rc, margin, lo, hi):
+    """the rule's records a ball in reach position RC at whole heights LO .. HI meets, margin MARGIN - what sets its
+    cell's OCC (margin 0, the reach's heights) or OCCG (BZ_CLIMB, its floor's): _laid's test, a record of a block
+    of the footprint's at height z when its s is over the cell's and its top over z + margin (to the line: a
+    whole height's fraction taken at every height, so a record a line from the edge may be listed that the
+    compiler's count leaves out - the flag is the compiler's)"""
+    out = set()
+    x0, y0 = c.x0, c.y0
+    xl, xh = B.foot_x(rc, x0)
+    k = 8 * rc.s - 13 + y0
+    for br in range((k - hi - 1) >> 3, ((k - lo + 30) >> 3) + 1):
+        zmin, zmax = max(lo, k - 8 * br - 8), min(hi, k + 30 - 8 * br)
+        if zmin > zmax:
+            continue
+        for bc in range(xl >> 3, (xh >> 3) + 1):
+            for r in c.rule_by_block.get((br, bc), ()):
+                if r["s"] > rc.s and r["top"] > zmin + margin:
+                    out.add(id(r))
+    return out
+
+
+def _floor_range(c, rc):
+    """a FLOOR or GOAL reach cell's grounded heights, px (as _occg takes them), or None"""
+    rs = [t for t in B.tile_recs(c.tiles.get((rc.wx, rc.wy))) if t.kind in (B.KIND_FLOOR, B.KIND_GOAL)]
+    if not rs or isinstance(c.tiles.get((rc.wx, rc.wy)), B.FieldTile):
+        return None
+    lo = 4 * min(min(t.wbed if getattr(t, "wbed", None) is not None else t.z0, min(t.corners())) for t in rs)
+    return lo, 4 * max(max(t.corners()) for t in rs)
+
+
+def occ_data(c):
+    """SPEC.md 130.58.32: the occluder view's data, in the picture's pixels - every record the RULE cuts (the
+    records the cells' OCC and OCCG flags are counted on: c.rule_records), its pixels as runs, s, top, the cells
+    that drew them, the cells whose ball positions NEED it (the cutter's test, pixel by pixel: a `noocclude` over
+    all of them and it is not cut) and the cells whose flags it sets; every flagged cell; and for each windmill
+    whose doorway is in the shade (130.12.4.6) its IN 3 x 3, the flagged cells and the records that flag them"""
+    ob = B.owners_canvas(c)
+    sb, tb, y0 = c.sbuf, c.tbuf, c.y0
+    recs = c.rule_records
+    rid = {id(r): i for i, r in enumerate(recs)}
+    rails = {}
+    if c.redges:                                # (each rail's pixels, as rail_pixels lays them, by its line)
+        bases = {}
+        for key in c.redges:
+            bases.setdefault(B.rail_key(key, c.tiles), set()).add(B.rail_base(key, c.tiles))
+        for key in c.redges:
+            two = len(bases[B.rail_key(key, c.tiles)]) > 1
+            for (x, y) in B.rail_pix(key, c.redges[key], c.tiles, c.x0, two):
+                rails[(x, y + y0)] = c.redges[key].get("line")
+    out = []
+    for i, r in enumerate(recs):
+        own = {}
+        rl = set()
+        for p in r["pix"]:
+            o = ob[p[1]][p[0]]
+            own[o] = own.get(o, 0) + 1
+            if p in rails:
+                rl.add(rails[p])
+        out.append({"id": i, "s": r["s"], "top": r["top"], "brow": r["brow"], "col": r["col"],
+                    "own": [[o >> 8, o & 255, n] for o, n in sorted(own.items(), key=lambda kv: -kv[1]) if o >= 0],
+                    "rails": sorted(l_ for l_ in rl if l_), "runs": _runs(r["pix"]), "needs": set(), "flags": set()})
+    # who NEEDS each record: _occluders' test over the reach (feet_real, the cutter's poses), pixel by pixel
+    for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in B.feet_real(c.reach, c.tiles, c.x0, getattr(c, "cutdyn", None)):
+        s = rc.s
+        ytop, ybot = yt0 - zhi + y0, yb0 - zlo + y0
+        cell = (rc.wx, rc.wy)
+        for br in range(max(ytop, 0) >> 3, (ybot >> 3) + 1):
+            for bc in range(max(xl, 0) >> 3, (xh >> 3) + 1):
+                for r in c.rule_by_block.get((br, bc), ()):
+                    o = out[rid[id(r)]]
+                    if r["s"] <= s or r["top"] <= zlo or cell in o["needs"]:
+                        continue
+                    for (x, y) in r["pix"]:
+                        if not (xl <= x <= xh and ytop <= y <= ybot):
+                            continue
+                        sp, tp = sb[y][x], tb[y][x]
+                        if sp <= s:
+                            continue
+                        zmax = zhi if tp > zhi else tp - 1
+                        if zmax < zlo or (flo and tp <= zlo + B.CLIMB):
+                            continue
+                        if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
+                            continue
+                        o["needs"].add(cell)
+                        break
+    # the flags, and which records set them
+    fl = {}
+    for rc in c.reach:
+        cell = (rc.wx, rc.wy)
+        f = c.cells.get(cell, (0, 0, 0, 0))[3] & (B.FL_OCC | B.FL_OCCG)
+        if not f:
+            continue
+        fl[cell] = f
+        ids = _flag_recs(c, rc, 0, rc.zlo, rc.zhi)
+        if f & B.FL_OCCG:
+            zr = _floor_range(c, rc)
+            ids |= _flag_recs(c, rc, B.CLIMB, *(zr or (rc.zlo, rc.zhi)))
+        for k in ids:
+            out[rid[k]]["flags"].add(cell)
+    by_cell = {}
+    for o in out:
+        for cl in o["flags"]:
+            by_cell.setdefault(cl, []).append(o["id"])
+    shade = []
+    for p in c.props:
+        if p["kind"] != B.PK_WINDMILL:
+            continue
+        ix, iy = p["inn"]
+        box = [(ix + dx, iy + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
+        hit = [cl for cl in box if cl in fl]
+        if not hit:
+            continue
+        ids = sorted({k for cl in hit for k in by_cell.get(cl, ())})
+        feet = {}
+        for cl in hit:
+            rc = next((q for q in c.reach if (q.wx, q.wy) == cl), None)
+            if rc is not None:
+                xl, xh = B.foot_x(rc, c.x0)
+                zr = _floor_range(c, rc) if fl[cl] & B.FL_OCCG else None
+                z = zr[0] if zr else rc.zlo
+                t0 = B.foot_top(rc, z) + y0
+                feet["%d,%d" % cl] = [xl, t0 - 1, xh, t0 + 30]   # the box a ball anywhere in the cell covers
+        shade.append({"line": p.get("wline") or p.get("line"), "inn": [ix, iy], "box": [list(b) for b in box],
+                      "flagged": [[cl[0], cl[1], "OCCG" if fl[cl] & B.FL_OCCG else "OCC"] for cl in hit],
+                      "records": ids, "feet": feet, "why": _shade_why(c, hit, fl, ids, out)})
+    for o in out:
+        o["needs"] = sorted(o["needs"])
+        o["flags"] = sorted(o["flags"])
+    return {"records": out, "cells": [[x, y, f] for (x, y), f in sorted(fl.items())], "shade": shade,
+            "noocc": sorted(getattr(c, "noocc", ()) or ())}
+
+
+def _shade_why(c, hit, fl, ids, out):
+    """one plain sentence: what flags the doorway's cells - the cells that drew the records, a guard rail's
+    line when its pixels are the record's, and how far over a resting ball they reach"""
+    cells = " and ".join("(%d, %d)" % cl for cl in hit)
+    if not ids:
+        return "%s of the doorway's 3 x 3 can be hidden (no record found to show)" % cells
+    owners, rails = {}, set()
+    for k in ids:
+        for x, y, n in out[k]["own"]:
+            owners[(x, y)] = owners.get((x, y), 0) + n
+        rails |= set(out[k]["rails"])
+    own = ", ".join("(%d, %d)" % o for o in sorted(owners, key=lambda o: -owners[o])[:4])
+    top = max(out[k]["top"] for k in ids)
+    many = len(owners) > 1
+    if rails:
+        what = ("the guard rail on line%s %s, drawn with cell%s %s (a rail stands on the HIGHER floor of its edge, "
+                "so a floor raised beside it lifts it)" % ("s" if len(rails) > 1 else "",
+                                                          ", ".join(map(str, sorted(rails))), "s" if many else "", own))
+    else:
+        what = "what cell%s %s draw%s" % ("s" if many else "", own, "" if many else "s")
+    rc = next((q for q in c.reach if (q.wx, q.wy) == hit[0]), None)
+    zr = _floor_range(c, rc) if rc is not None else None
+    over = (", %d px over the floor a ball rests on" % (top - zr[0])) if zr else ""
+    return ("Not the windmill: it is the BALL. A ball anywhere in %s (the doorway's 3 x 3) has its box (dashed) "
+            "reaching under %s; %s nearer the viewer, so it is drawn in front of the ball%s. While the rotor turns no "
+            "occluder is laid, so such a ball would be drawn over it." % (
+                cells, what, "those cells are" if many else "that cell is", over))
+
+
+def occluders(path, out, name=None):
+    """the --occ half of PICTURE: the course compiled WITH its occluders (the part's block limit lifted, as the
+    picture's), written to OUTDIR/occ.json; -> the compile's warnings, or an error string"""
+    t0 = time.time()
+    with open(path, "r", encoding="ascii", newline="") as f:
+        text = f.read()
+    try:
+        c = B.compile_course(text, name or path, occluders=True)
+    except B.CourseError as e:
+        return None, str(e)
+    d = occ_data(c)
+    d["secs"] = round(time.time() - t0, 2)
+    with open(os.path.join(out, "occ.json"), "w") as f:
+        json.dump(d, f, separators=(",", ":"))
+    return [warning(w) for w in c.warnings], None
 
 
 def check(path, strict, name=None, trap=False):
@@ -334,7 +537,7 @@ def main(argv):
         name = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
     if len(argv) >= 3 and argv[0] == "picture":
-        return picture(argv[1], argv[2], name, "--gaps" in argv[3:])
+        return picture(argv[1], argv[2], name, "--gaps" in argv[3:], "--occ" in argv[3:])
     if len(argv) >= 3 and argv[0] == "ride":
         return ride(argv[1], int(argv[2]), name)
     if len(argv) >= 2 and argv[0] == "check":
