@@ -66,8 +66,9 @@ RED_WANT = {"view": "2. ", "chain": "8. "}
 
 
 def title_k():
-    R.crs_fill()
-    return dict.__len__(R.CRS_K) + 1            # BZ_CRS_TITLE = BZ_CRS_PATH + 1 = BZ_NCRS + 1
+    R.crs_fill()                                # BZ_CRS_TITLE = BZ_CRS_PATH + 1 (= BZ_CRS_MAX + 1 since
+    k = R.inc_equ("BZ_CRS_TITLE")               # SPEC.md 130.58.34; BZ_NCRS + 1 before)
+    return dict.__len__(R.CRS_K) + 1 if k is None else k
 
 
 def on_title(g):

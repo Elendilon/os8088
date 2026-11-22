@@ -156,10 +156,11 @@ PUTTING YOUR COURSE IN THE GAME
   pad's own course moves off the map in that copy) - and, if you choose an
   .img name, a floppy with the game on it. No assembler is needed: the
   game's code is in bbgame-bin/, already built, and only its course tables
-  are written. A course with more props, lanes or signs than the shipped
-  game holds, or a course past one part, is refused with the reason.
+  are written. A course with more props or lanes than the shipped game
+  holds is refused with the reason.
     python3 bbgame.py BONANZA.O88 [--disk B.IMG --size 360|720|1200|1440]
-                      [--pad0 NAME] MYCOURSE.bbc ...     (up to 4 courses)
+                      [--pad0 NAME | --path MAP.bbc] MYCOURSE.bbc ...
+                      (up to 23 courses in all, the shipped ones counted)
 
 THE COMMAND LINE (what agents use; the same edits as the window)
     python3 bbedproj.py check COURSE.bbc [--strict] [--json]
@@ -198,7 +199,7 @@ def main():
     ap.add_argument("--bin", default=os.path.join(TREE, "build", "bbgame-bin"),
                     help="bbgame.py's prebuilt pieces (make bbgamebin), shipped as bbgame-bin/")
     a = ap.parse_args()
-    if not os.path.isfile(os.path.join(a.bin, "v0", "map.json")):
+    if not os.path.isfile(os.path.join(a.bin, "map.json")):
         sys.exit("bbeditbundle: no prebuilt game in %s - make bbgamebin" % a.bin)
     mods, other = VB.closure(ROOTS)
     stray = other - THIRD_PARTY - LAZY
