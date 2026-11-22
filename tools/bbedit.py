@@ -30,6 +30,7 @@ import bbedproj as E  # noqa: E402
 import bbcourse as B  # noqa: E402
 import bbedshape  # noqa: E402
 import bbedmap  # noqa: E402
+import bbedocc  # noqa: E402
 
 TITLE = "Bounce Bonanza course builder"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "os8088", "bbedit.json")
@@ -417,6 +418,7 @@ class App(object):
         ttk.Label(self.gap_row, text="px wide").pack(side="left")
         self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80")
         self.gap_l.pack(side="left", padx=10)
+        self.occ = bbedocc.OccView(self, self.gap_row)   # SPEC.md 130.58.32: the Occluders and Shade overlays
         self.gap_row_after = vb
         self.banner = tk.Frame(mid, background="#fde2df", padx=8, pady=6)
         self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
@@ -1579,6 +1581,8 @@ class App(object):
     def _fill_inspector(self):
         for w in self.ins_body.winfo_children():
             w.destroy()
+        if self.occ.fill_inspector():           # an occluder record or a noocclude cell (130.58.32)
+            return
         a = self.doc.analysis()
         if not self.sel:
             self.raw.set("")
@@ -2451,6 +2455,7 @@ class App(object):
         s = self.probs.selection()
         if s and s[0] in self.prob_rows:
             line, cell = self.prob_rows[s[0]]
+            self.occ.problem_picked(self.probs.item(s[0], "text"))
             if line:
                 self.hilite = cell
                 self.select(line, scroll=True)
@@ -2459,6 +2464,7 @@ class App(object):
         s = self.checks.selection()
         if s and s[0] in self.check_rows:
             line, cell = self.check_rows[s[0]]
+            self.occ.problem_picked(self.checks.item(s[0], "text"))
             if line:
                 self.nb.select(0)
                 self.hilite = cell
@@ -2511,8 +2517,8 @@ class App(object):
                     self._msg("No picture: %s" % e.get("error"))
             elif e["stage"] not in ("exit", "log"):
                 self.job_l.config(text="Picture: %s" % e.get("what", e["stage"]))
-        self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []),
-                           ev).start()
+        self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []) +
+                           (["--occ"] if self.occ.wanted() else []), ev).start()
 
     def run_check(self, trap=False):
         """the full check; TRAP: NO TRAP too (SPEC.md 130.58.24 - the softlock search, off unless asked)"""
@@ -2612,6 +2618,7 @@ class App(object):
             self.root.after(10, self.run_picture)   # (drawn before the overlay was turned on: again, with them)
         first = self.pic is None
         self.pic = {"meta": meta, "cga": cga, "herc": herc, "owners": ow, "text": text}
+        self.occ.loaded(out, meta)
         if getattr(self, "map", None) and self.map.shown():
             self.map.draw()
         if first and self.view.get() == "iso":
@@ -2924,6 +2931,7 @@ class App(object):
         W, H = meta["width"], meta["lines"]
         if self.xray.get() and self.sel:
             img = self._xray(img, herc)
+        img = self.occ.composite(img, herc)
         z = max(1, int(round(self.zoom * 2)))
         disp = img.resize((W * z, H * z), Image.NEAREST)     # (the Hercules image is 2 px a pixel across)
         self.iso_scale = (disp.width / float(W), disp.height / float(H))
@@ -2943,6 +2951,7 @@ class App(object):
             self._draw_gaps()
         else:
             self.gap_l.config(text="")
+        self.occ.draw(c)
         self._draw_blends(c, "iso")
 
     # -- the gap band (SPEC.md 130.58.21, 130.57) --------------------------------
@@ -3116,6 +3125,8 @@ class App(object):
         if g:                                            # the gap overlay: a click marks or unmarks that face
             self.toggle_gap(g)
             return
+        if self.view.get() == "iso" and self.occ.press(e):   # the occluder overlay's click (130.58.32)
+            return
         cell = self._cell_at(e)
         self.hilite = None
         if cell is None:
@@ -3238,6 +3249,8 @@ class App(object):
             self.readout.config(text="gap band: the %s face of x %d, y %d, %d px wide - %s" % (
                 g["side"].upper(), g["cell"][0], g["cell"][1], g["feet"],
                 "marked (click to unmark)" if g["marked"] else "click to mark it"))
+            return
+        if self.view.get() == "iso" and self.occ.hover(e):
             return
         cell = self._cell_at(e)
         if cell is None:

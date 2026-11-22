@@ -13600,6 +13600,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.rule_raw, c.rule_records, c.rule_occpix, c.rule_by_block = rule
     c.av, c.av_rcs = av_on, av_rcs
     c.noocc = noocc                                 # SPEC.md 130.53: the proofs pass these cells over
+    c.cutdyn = dyn if cutocc else None              # (the cutter's DYN: the builder's occluder view, 130.58.32)
     c.raw, c.queries = raw, q
     c.masks = masks                         # the K section's: DITHERED (130.15.10.1), deduplicated again
     c.raw_masks = len({r["mask"] for r in raw})
