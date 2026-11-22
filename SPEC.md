@@ -264529,32 +264529,161 @@ falls.
 
 ##### 130.11.4.2 The bounds
 
+*Amended 2026-11-22: the bound of 4 records a block is RETIRED and the
+WINDOW'S PRICE stands in its place, and the part's masks are CUMULATIVE.
+The wave-2 record of the old bound follows the new text.*
+
 | bound | value | what it bounds |
 |---|---|---|
-| records in one BLOCK | **at most 4** | the records a footprint's 3 x 3 blocks can test: 36, and the lays (grouped, 130.10.8 item 1): at most 9 |
+| the occluder pass at any reachable position | **at most 50,050 clocks** (`bbcourse.OCC_PASS_MAX`, priced as below) | what the frame actually pays: the block rows walked, every record of the footprint's at most 3 x 3 blocks tested, the groups laid and the masks ANDed |
 | records in one block ROW | **at most 128** | the binary search on `OCCIDX`: at most 7 probes a block row |
 
-The laid count at a position is at most 36 by the first bound and is
-REPORTED, not refused. The bounds are refused on the records the part SHIPS,
-after the merge. **`BENCH` and `FIRST` meet both bounds BEFORE the merge**,
-so the merge is not what closes wave 1's story 1.3 for them; it is what
-shrinks the disk and the heap. Measured (`bbcourse.py`, as built): `BENCH` 4
-in its fullest block and 69 in its fullest row before the merge, 4 and 67
-after; `FIRST` 3 and 27, then 3 and 19; **`TRIAL` 5 and 65, then 4 and 51** -
-its steep ramp's faces over the void put a fifth record in one block, and
-the merge is what lets it ship. **`BENCH` has NO headroom on the block bound**: a route or
-geometry change that puts a fifth record in one of its blocks refuses the
-course, naming the block. That refusal is the bound working - it is the
-author's cue to move the geometry, or the owner's to price a bound of 5
-(45 tests) - never a quiet raise. The provisional 96 / 32 of 130.10.4.4 go.
-A course that needs more in a row gets the second `OCCIDX` level, not a
-higher bound.
+**Why.** The owner (2026-11-22) said the engine had become "an 'invalid
+refusal generator'". Rules and refusals had been added one part at a time,
+"the path of least resistance at the time", instead of making the parts work
+sensibly together. The audit that day found the old bound refusing an
+ORDINARY ramp: a ramp climbing toward the viewer at 1 unit a tile (`floor rect
+14 14 18 18 ramp y 14 18 4 8` off a corridor at 4) has 7 records in its
+fullest block and 58 in a footprint's 3 x 3. The tool refused it with `block
+(row 28, column 50; ...) has 6 occluder records, over 4`. Ramps going down
+and ramps climbing away passed, and MILL had lost its shatter pit to the same
+bound. Nothing in the guest holds the 4. It stood for the frame's occluder
+work, 9 blocks x 4 = 36 records tested, and that work is now the bound.
 
-**Since the kit (130.37.6) the alignment is fixed** - every play course at
-`Y0` = 4 (mod 8) - so the tool no longer searches for an alignment that
-meets the 4-a-block bound: **respecting it is the author's** (the owner,
-2026-11-17). The bound stays as it is: it bounds the worst frame's occluder
-tests, 9 blocks x 4 = 36.
+**Why a ramp toward the viewer makes records.** Each line of its top face
+is one px higher than the line above it, so 130.10.4.4's 2 px bands of tops
+give each cell row 2 or 3 records in a block, and three cell rows cross each
+block. A ball behind the ramp, on the corridor at its foot, is under every
+one of those records. Measured on the old guest, the worst position of the
+same ramp along x (4 to 12 over 8 tiles) tests 63 records, lays 9 groups and
+ANDs 54 masks: **72,283 clocks** for the pass alone.
+
+**The cumulative mask (the part's K section, 130.15.5).** In the part, a
+record's mask is the AND of the masks of every record of its block that is
+at or over it in both `s` and `top` (`s2 >= s`, `top2 >= top`), its own
+included. The rule lays a record only when it also lays every such record
+(`s_b < s <= s2`, `z_b + m < top <= top2`). So the AND of any laid set's
+cumulative masks equals the AND of the records' own masks. The pixels laid at
+every position do not change, and neither do the record bytes, their order or
+their count. The records of a group already ran in (`s'`, `t'`) order (sorted
+by column, `s`, `top`). `bz_occ` now keeps the least `t'` the group has laid in
+AH, and ANDs a laid record only when its `t'` is under that value. A laid
+record at or over it is already under a laid mask and is passed over.
+**8 bytes** (`bz_occ`'s `.prd`, `.tmin` and `.and`). The only ANDs left are the
+laid set's minimal records. A chain lays ONE mask and no AND. A ramp toward
+the viewer is a chain, because its rows rise as they come forward. An old
+guest on a new part would AND every laid mask and lay the same pixels. A new
+guest on an old part would not. So the selfcheck's item 11 reads every part's
+masks back and checks that each mask is cumulative and that each block's
+records run in order. The tool's `nocum` hack is the red arm: it ships the
+masks as they were. This guest under unicorn on such a part laid wrong pixels
+at 42 of 2,208 positions of the ramp's course, and at none with cumulative
+masks. The course's identity moves with its mask bytes (130.15.7). The three
+committed route demos (MOON, PEAK, PLAY) were re-stamped with their courses'
+new identities, and the build's `check_demo` still replays each one to its
+goal.
+The cumulative masks are FEWER distinct masks on seven of the eight shipped
+courses, because a chain's ANDs often coincide. FIRST went from 33 to 30, DOWN
+250 to 224, MILL 185 to 165, MOON 74 to 78, PEAK 85 to 77, PLAY 252 to 221,
+ROLL 156 to 142 and HOP 133 to 119. The stored parts are 2,016 bytes smaller
+in all, from -558 (PLAY) to +72 (MOON). The kit (130.37) was not
+regenerated: its masks are matched by bytes, so a course carries any
+cumulative mask the kit does not hold. Its source was already stale before
+this change (226 blocks against the 252 a regeneration gives).
+
+**The price, MEASURED** on MartyPC's 4.77 MHz 8088 (`os8088_5150_cga_gla`,
+2026-11-22). The package image and a course's RAM part were written into a
+booted machine with every IRQ and the floppy's DMA masked. `bz_occ` was
+called through bonanza_av's `Pass`, and the cycles were counted from the call
+to its return. The run covered 200 positions (each reach cell's low, middle
+and high whole height, airborne) on each of five courses: BENCH, TRIAL, MILL
+and two of the audit's ramps toward the viewer. Each position ran under both
+guests: HEAD's on masks as they were, and this one on cumulative masks. That
+is 2,000 calls, and every buffer equalled the host's expectation. The prices
+come from least squares over each position's work (the records, groups, ANDs
+and their lines in the footprint, the block rows walked). The fixed part was
+then raised by the largest residual, so the model is over every one of the
+2,000 measurements (by 111 clocks at the closest, 1,865 on average):
+
+| part of the pass | clocks |
+|---|---|
+| fixed (the keys, the window's clip, the box) | 4,630 |
+| a block row its summary lets through (the search), and one that lays (its `bz_oprep`) | 790, +370 |
+| a record tested | 140 |
+| a laid record passed over (under a laid cumulative mask) | +150 |
+| a group laid (`bz_olay`) | 740 + 150 a line of the block row in the footprint |
+| an AND (`bz_oand`) | 480 + 70 a line |
+
+| course | most records a block / in a 3 x 3 | old guest, worst measured | this guest, worst measured | the tool's price, worst reachable |
+|---|---|---|---|---|
+| the audit's ramp along x (4 to 12 over 8 tiles) | 7 / 63 | 72,283 | **36,229** | 38,890 |
+| the audit's ramp along y (4 to 8 over 4 tiles, `d04_ramp_up4`) | 7 / 58 | 29,462 | 22,346 | 35,410 |
+| `BENCH` | 3 / 15 | 15,314 | 15,422 | 25,520 |
+| `TRIAL` | 3 / 13 | 24,508 | 20,374 | 23,810 |
+| `MILL` | 4 / 21 | 24,293 | 22,249 | 29,310 |
+
+The measurement samples 200 positions. The tool's price is the worst over
+EVERY reachable position. That means each cell of the reach at each whole
+height `zlo .. zhi`, with the key `z_b + m` at `m` 0 and `BZ_CLIMB`, every
+footprint top the cell's area and a fraction give, and each column phase
+(`occ_window`). A block row counts only when its summary lets the key through,
+as the guest's does.
+
+**The bound is the pass the old bound allowed at its worst, on these
+prices**: three rows walked and laying, 36 records tested, 9 groups and 27
+ANDs over a footprint's 3 columns of 16 lines. That is 4,630 + 3 x 1,160 + 36
+x 140 + 9 x 740 + 48 x 150 + 27 x 480 + 144 x 70 = **50,050**. The new bound
+lets through no frame dearer than the worst the old bound let through. It
+spends the same budget on what the frame actually pays. 130.13's worst-frame
+table priced that old-bound pass at 38k, at 0.6k an AND and nothing a line.
+MEASURED, it is 50k, so that table's `BENCH`-at-the-bounds row (80.4k on the
+CGA at 38k) is about 92k at 50k: 1.16 refreshes, a frame late and counted in
+`bz_miss`, as 130.13 already allows for a fall behind geometry. No course
+reaches it. Every course in the tree compiles, and the most expensive
+shipped pass is 29,950 (PLAY):
+
+| course | records a block (blocks with 1 / 2 / 3 / 4) | most in a 3 x 3 | the pass, worst reachable | the same records priced for the old guest |
+|---|---|---|---|---|
+| FIRST | 45 / 10 / 1 / 0 | 13 | 23,650 | 27,960 |
+| DOWN | 1,366 / 261 / 76 / 10 | 26 | 29,280 | 38,830 |
+| MILL | 1,046 / 282 / 29 / 9 | 21 | 29,310 | 35,570 |
+| MOON | 726 / 120 / 23 / 0 | 16 | 27,320 | 30,370 |
+| PEAK | 1,021 / 157 / 7 / 0 | 16 | 26,700 | 30,790 |
+| PLAY | 1,541 / 334 / 66 / 5 | 22 | 29,950 | 36,750 |
+| ROLL | 791 / 117 / 17 / 2 | 23 | 28,640 | 36,680 |
+| HOP | 674 / 105 / 5 / 0 | 17 | 27,880 | 31,550 |
+| `BENCH` | 146 / 68 / 3 / 0 | 15 | 25,520 | 28,630 |
+| `TRIAL` | 161 / 21 / 3 / 0 | 13 | 23,810 | 27,210 |
+
+The records are the same as before this amendment, block for block, because
+the merge and the rule did not change. Every shipped course met the old 4
+and still does, so its distribution is unchanged. What moved is the price,
+and the audit's ramps toward the viewer (`d04_ramp_up4`, `c09`, `c10`,
+`n_up_4_12`, `m_ramp2`: 7 records in the fullest block, 58 - 63 in a 3 x 3),
+which were refused and now compile at 35,410 - 38,890. The knob courses
+(SHAPE, PITS, MAGNETS, WIND, RAILS, WATER, ARCHES, SPIKE, BOOST, HUMPS,
+QSTEPS, GATE, TILT, TURN) and the other test courses compile at 23,230 -
+31,460.
+
+A course over the price is refused, naming the cell, the height and the
+work: `the occluder pass at cell (X, Y), Z px, tests T records, lays G groups
+and ANDs A masks: about N clocks, over the 50,050 a frame's pass may cost`.
+Making it compile is the author's job: fewer things stacked at different
+heights in front of one spot. The bounds are refused on the records the part
+SHIPS, after the merge and the dither. A course that needs more than 128 in a
+row gets the second `OCCIDX` level, not a higher bound. The laid count at a
+position is REPORTED, not refused. **Since the kit (130.37.6) the alignment is
+fixed**: every play course is at `Y0` = 4 (mod 8), and respecting the bound
+is the author's job (the owner, 2026-11-17).
+
+*The wave-2 record (the old bound).* `BENCH` and `FIRST` met both old bounds
+(4 a block, 128 a row) BEFORE the merge. So the merge was not what closed wave
+1's story 1.3 for them: it shrank the disk and the heap. Measured as built,
+`BENCH` had 4 in its fullest block and 69 in its fullest row before the
+merge, and 4 and 67 after. `FIRST` had 3 and 27, then 3 and 19. `TRIAL` had 5
+and 65, then 4 and 51: its steep ramp's faces over the void put a fifth record
+in one block, and the merge was what let it ship. The provisional 96 / 32 of
+130.10.4.4 went then.
 
 ##### 130.11.4.3 `OCCG`
 
@@ -265934,6 +266063,11 @@ Hercules's 94.0k; the mean frame above is 38.7k and 38.8k at its top.
 | a FALL over a cell with `OCC` set, the pass at its bound: the mean, the ball's taller box (+4k; on the Hercules a second ball box, +4 - 6k), the two entering rows a fall forces (`BZ_MAXR`, +3 - 6k), the pass ONCE (38k), its lays into a second box (Hercules, up to +5k), and a shadow only inside the ball's box (+1.0 - 1.4k) | 38.7 + 4 + 6 + 38 + 1.4 = **84.7 - 88.1k (1.06 - 1.11 refreshes)** | 38.8 + 6 + 6 + 38 + 5 + 1.4 = **84 - 95k (0.89 - 1.01)** |
 | a flight over cells with `OCC` clear (`TRIAL`'s, item 8): no pass, the taller ball box, the shadow in its own boxes (up to +20k), the entering rows | 38.7 + 4 + 20 + 6 = **68.7k (86%)** | 38.8 + 6 + 20 + 6 = **70.8k (75%)** |
 | *as first written*: the fall over `OCC` with a shadow box of its own AND the pass run once in each ball box | *38 + 4 + 20 + 6 + 38 = 106k (1.33)* | *38 + 5 + 20 + 57 + 5 = 125k (1.33)* |
+
+*Amended 2026-11-22 (130.11.4.2): the pass "at 130.11.4.2's bounds" is now the window's price, at most 50,050
+clocks MEASURED on MartyPC - the old bound's worst on measured prices, where the 38k above was 0.6k an AND and
+nothing a line - so the second row is about 88.7k (1.11 refreshes) on the CGA and the fall's about 97 - 100k; no
+course reaches the bound (the most expensive shipped pass is 29,950, PLAY's).*
 
 The last row is what the review found: four boxes and the pass on one frame,
 over a refresh on both cards. Two rules take it out - no shadow box of its
@@ -276555,9 +276689,10 @@ tests), so its bound is 428 x 1.25, about 535 clk.
 Q-61's default was rubber about 256, glass about 224, steel 160. A Hop is
 not only a feel: `HOPMAX`, the largest material Hop, is added to every
 floor's rate in the reach (130.11.4.4), and the reach places the occluder
-records, which are bounded at **4 records a block** (130.11.4.2). The
-records swing with `Y0`'s alignment to the blocks (130.11.4.4), so a few
-px more reach can tip ONE block over the bound.
+records, which were then bounded at **4 records a block** (130.11.4.2; since
+2026-11-22 the window's price, 50,050 clocks a pass). The records swing with
+`Y0`'s alignment to the blocks (130.11.4.4), so a few px more reach could tip
+ONE block over the bound.
 
 MEASURED on the host at `503031d4` (the scratch copy; glass 224 and steel
 160 throughout; "refused" names the first block over the bound):
@@ -292170,9 +292305,10 @@ reads it), and the rail's pixels are the RESIDUAL's records over the VOID
 positions behind it, as a prop's drawing is. `_av_floats_want` counts guard
 cells, so item 15's flags check holds the part to it.
 
-**The bounds** (130.11.4.2: 4 records a block, 128 a block row) are the
-tool's as ever: a rail adds one key to the blocks it crosses, and a course
-that crosses the block bound is refused there, naming it. RAIL (130.35.7)
+**The bounds** (130.11.4.2: 4 records a block, 128 a block row; since
+2026-11-22 the window's price in the place of the first) are the tool's as
+ever: a rail adds one key to the blocks it crosses, and a course over a bound
+is refused there, naming it. RAIL (130.35.7)
 reaches 4 in two blocks, where C's right-edge rail meets the faces under it
 (MEASURED; with its guards compiled as solid walls, 3).
 
@@ -292784,7 +292920,7 @@ The plan and its stories are `docs/plans/BOUNCE-BONANZA-KIT.md`.
 | the kit in RAM | **HELD for the session**, never dropped after the copy | the high-water mark (130.37.5); fetched once, before the first course |
 | append-only | **no**: every ship rebuilds every course, so the kit may change freely | only loadable external courses would need care, and they can simply not use the kit |
 | the alignment | **ONE**: `Y0` = 4 (mod 8) for every play course; the Y0 search (130.25.3) is removed | all of today's courses but BENCH already ship there (the report's section 4), and 0 and 4 make the fewest blocks |
-| the 4-records-a-block bound (130.11.4.2) | unchanged | it bounds the worst frame's occluder tests, 9 x 4 = 36; with a fixed alignment, respecting it is the author's |
+| the 4-records-a-block bound (130.11.4.2) | unchanged (RETIRED 2026-11-22 for the window's price, 130.11.4.2) | it bounds the worst frame's occluder tests, 9 x 4 = 36; with a fixed alignment, respecting it is the author's |
 | not now | relocatable occluder records, the LZ dictionary, kit-global numbering and map runs, in-place referencing | the report's sections 2, 1.4, 1.5 and 3.1 |
 
 #### 130.37.2 The kit: its source, its generator and its part
@@ -292952,8 +293088,8 @@ play course's `Y0` is the least that holds its footprints plus `(KIT_Y0 -
 Y0) mod 8`, `KIT_Y0` = 4, so every kit piece is drawn at the alignment the
 kit was cut at. A compile with no occluders keeps +0, as the search left it,
 and `_hack` `y0add` still pins an alignment for the refusals that need one.
-A course that meets the 4-a-block or 128-a-row bound at the kit's alignment
-is REFUSED, and edited (130.11.4.2). PREDICTED (the report's section 4):
+A course over the 4-a-block (since 2026-11-22 the window's price) or the
+128-a-row bound at the kit's alignment is REFUSED, and edited (130.11.4.2). PREDICTED (the report's section 4):
 every course but BENCH already ships at 4 (mod 8), so only BENCH changes.
 
 #### 130.37.7 The tool
@@ -297320,7 +297456,8 @@ ramp, as rails; and floors and walls that FLOAT a chosen depth ("Overhang" had r
   cell's `edges`, from its corners), rising toward the higher as nearly as whole half units a tile allow.
   Otherwise half a unit a tile along the longer side, as before. A steep join can meet the renderer's
   occluder limit (130.15.5: at most 4 records a block; MEASURED: 4 to 8 over 4 tiles beside an 8-unit
-  cliff is 5) - the full check refuses it and the problems list says to make the ramp gentler.
+  cliff is 5) - the full check refused it and the problems list said to make the ramp gentler.  *Since
+  2026-11-22 the limit is 130.11.4.2's window price.*
 - **Rejoining** (`Document.tidy`): after an area or move edit, statements of one kind with the same
   clauses (a ramp's included: its plane is absolute) and no comment of their own, touching the edit, are
   replaced by the fewest rectangles a greedy cover finds (rows or columns first), in the first member's

@@ -307,12 +307,23 @@ TARGETS = (30, 60, 90)
 PLAN_SET = ((30, 6), (60, 9), (90, 5))
 PARTMAX = 0xFE00              # 65,024: one part (SPEC.md 20.12.11's OP_PARTMAX)
 MINLINES = 200                # a picture is at least the CGA field
-# SPEC.md 130.11.4.2's bounds, on the records the part ships (after the
-# exact merge, 130.11.4.1): at most 4 records in one 8 x 8 BLOCK (a footprint's
-# 3 x 3 blocks test at most 36 and lay at most 9, grouped) and at most 128 in
-# one block ROW (the binary search on OCCIDX: at most 7 probes).  The laid
-# count at a position is REPORTED, not refused.
-REC_BLOCK_MAX = 4
+# SPEC.md 130.11.4.2's bounds, on the records the part ships (after the exact merge, 130.11.4.1).  THE WINDOW'S
+# PRICE (2026-11-22, in the place of the 4-records-a-block bound, which refused an ordinary ramp toward the viewer):
+# the occluder pass's clocks at every reachable position (occ_window) are at most OCC_PASS_MAX, and at most 128
+# records in one block ROW (the binary search on OCCIDX: at most 7 probes).  THE PRICES, MEASURED on MartyPC's
+# 4.77 MHz 8088 (os8088_5150_cga_gla: bz_occ called at 2,000 positions of five courses, both guests, the cycles
+# from the call to its return; least squares, then the fixed part raised by the largest residual so the model is
+# over every one measured): the fixed part; a block row its summary lets through (the search) and one that lays (its
+# bz_oprep); a record tested; a laid record under a laid mask (passed over: 130.11.4.2's CUMULATIVE masks); a group
+# laid and an AND, each a fixed part and a part a line of the block row in the footprint
+OCC_BASE, OCC_ROW, OCC_ROWLAY = 4630, 790, 370
+OCC_TEST, OCC_COV = 140, 150
+OCC_LAYF, OCC_LAYL, OCC_ANDF, OCC_ANDL = 740, 150, 480, 70
+# the bound: the pass the 4-a-block bound allowed at its worst on these prices - three rows searched and laying, 36
+# records tested, 9 groups and 27 ANDs over a footprint's 3 columns of 16 lines - so no frame the old bound let
+# through is made dearer by the new one
+OCC_PASS_MAX = (OCC_BASE + 3 * (OCC_ROW + OCC_ROWLAY) + 36 * OCC_TEST + 9 * OCC_LAYF + 3 * 16 * OCC_LAYL
+                + 27 * OCC_ANDF + 3 * 3 * 16 * OCC_ANDL)
 REC_ROW_MAX = 128
 BAND = 2                      # a record's tops span at most 2 px
 
@@ -11031,6 +11042,118 @@ def merge_records(records, q, _force=None):
     return out
 
 
+def cum_masks(records, _off=False):
+    """SPEC.md 130.11.4.2: each record's CUMULATIVE mask, r["cmask"] - the AND of the shipped masks (kmask) of
+    every record of its block the part keeps that is at or over it in both s and top: a record the rule lays
+    lays every such one too (s_b < s <= s2, z_b + m < top <= top2), so the guest, walking a group in (s, top)
+    order, ANDs only a laid record under the least top it has laid (bz_occ's AH) and the word is laid under
+    the AND of every laid record's mask, as before.  An all-keep record is left out (the part does not hold
+    it) and keeps its own.  _off: r["cmask"] = r["kmask"] (the red arm's part, never a shipped one)"""
+    byb = {}
+    for r in records:
+        if r["kmask"] != ALLKEEP:
+            byb.setdefault((r["brow"], r["col"]), []).append(r)
+        r["cmask"], r["ucmask"] = r["kmask"], r["mask"]
+    if _off:
+        return
+    for rs in byb.values():
+        for r in rs:
+            m = bytearray(r["kmask"])
+            for q in rs:
+                if q is not r and q["s"] >= r["s"] and q["top"] >= r["top"]:
+                    for i in range(16):
+                        m[i] &= q["kmask"][i]
+            r["cmask"] = bytes(m)
+    for rs in byb.values():                         # (the same over the UNDITHERED masks: the report's count)
+        for r in rs:
+            m = bytearray(r["mask"])
+            for q in rs:
+                if q is not r and q["s"] >= r["s"] and q["top"] >= r["top"]:
+                    for i in range(16):
+                        m[i] &= q["mask"][i]
+            r["ucmask"] = bytes(m)
+
+
+def occ_block_cost(rs, sb, zm, cum=True):
+    """one footprint block's share of the pass (SPEC.md 130.11.4.2) for a ball of row SB and key ZM: RS the
+    block's part records in (s, top) order -> (records tested, laid and passed over, groups laid 0 / 1, masks
+    ANDed).  The first laid record is the group's; a later one under the least top laid so far is ANDed
+    (bz_oand); a later one at or over it is under a laid mask already and passed over.  cum=False: the masks as
+    they were before 2026-11-22, every laid record past the group's first ANDed (the red arm's price)"""
+    tmin = None
+    ands = cov = 0
+    for r in rs:
+        if r["s"] > sb and r["top"] > zm:
+            if tmin is None:
+                tmin = r["top"]
+            elif r["top"] < tmin or not cum:
+                tmin = min(tmin, r["top"])
+                ands += 1
+            else:
+                cov += 1
+    return len(rs), cov, 0 if tmin is None else 1, ands
+
+
+def occ_window(reach, records, x0, y0, cum=True):
+    """SPEC.md 130.11.4.2's bound, as the frame pays it: the occluder pass's price at every reachable position over
+    the part's records - each cell of the reach, each whole height zlo .. zhi, its key z_b + m with m = 0 and
+    BZ_CLIMB (airborne, grounded or a low flight), every footprint top the cell's area and a fraction give (16
+    lines from t0 - 1 .. t0 + 15, _laid's) and every column phase (its 3 word columns) -> the worst (clocks, cell,
+    z, records tested, laid, ANDed, groups).  A block row is walked only when its SUMMARY (bz_osum: its records'
+    greatest s and top) lets the key through, as the guest's"""
+    byb, rmax = {}, {}
+    for r in records:
+        if r["kmask"] != ALLKEEP:
+            byb.setdefault((r["brow"], r["col"]), []).append(r)
+            ms, mt = rmax.get(r["brow"], (None, None))
+            rmax[r["brow"]] = (r["s"] if ms is None else max(ms, r["s"]), r["top"] if mt is None else max(mt, r["top"]))
+    memo = {}
+    worst = (0, None, None, 0, 0, 0, 0)
+    for rc in reach:
+        xl, xh = foot_x(rc, x0)
+        cspans = sorted({(p4 >> 3, (p4 + 19) >> 3) for p4 in range(16 * rc.a + x0 - 24, 16 * rc.a + x0 + 5, 4)})
+        b0 = (foot_top(rc, rc.zhi) + y0 - 1) >> 3
+        b1 = (foot_top(rc, rc.zlo) + y0 + 30) >> 3
+        if not any(br in rmax for br in range(b0, b1 + 1)):
+            continue
+        for h, z in [(h, h + m) for h in range(rc.zlo, rc.zhi + 1) for m in (0, CLIMB)]:
+            t0 = foot_top(rc, h) + y0
+            live = {br for br in range(b0, b1 + 1) if br in rmax and rc.s < rmax[br][0] and z < rmax[br][1]}
+            if not live:
+                continue
+            for c0, c1 in cspans:
+                rowc = {}
+                for br in live:
+                    S = t = g = a = 0
+                    for bc in range(c0, c1 + 1):
+                        rs = byb.get((br, bc))
+                        if not rs:
+                            continue
+                        k = (br, bc, rc.s, z)
+                        v = memo.get(k)
+                        if v is None:
+                            v = memo[k] = occ_block_cost(rs, rc.s, z, cum)
+                        S += OCC_TEST * v[0] + OCC_COV * v[1]
+                        t += v[0]
+                        g += v[2]
+                        a += v[3]
+                    rowc[br] = (OCC_ROW + S + (OCC_ROWLAY if g else 0) + g * OCC_LAYF + a * OCC_ANDF,
+                                g * OCC_LAYL + a * OCC_ANDL, t, g, a)
+                for py in range(t0 - 1, t0 + 16):
+                    n, t, g, a = OCC_BASE, 0, 0, 0
+                    for br in range(py >> 3, ((py + 15) >> 3) + 1):
+                        v = rowc.get(br)
+                        if v is None:
+                            continue
+                        n += v[0] + v[1] * (min(py + 16, 8 * br + 8) - max(py, 8 * br))
+                        t += v[2]
+                        g += v[3]
+                        a += v[4]
+                    if n > worst[0]:
+                        worst = (n, (rc.wx, rc.wy), h, t, g + a, a, g)
+    return worst
+
+
 def merge_exact(raw, merged, q):
     """the merge's own check (SPEC.md 130.11.17.1 item 5): for every block and
     every query of it, the merged records lay exactly the pixels the unmerged
@@ -12006,7 +12129,7 @@ def y0_order(counts):
     (130.11.4.2) by fewest records, then by k; if none does, [0], so the full
     compile refuses naming the block as it always has"""
     ok = sorted((c[0], k) for k, c in enumerate(counts)
-                if c is not None and c[1] <= REC_BLOCK_MAX and c[2] <= REC_ROW_MAX)
+                if c is not None and c[2] <= REC_ROW_MAX)      # (130.11.4.2: the block bound is retired)
     return [k for _n, k in ok] or [0]
 
 
@@ -12953,11 +13076,6 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         by_block = {}
         for r in records:
             by_block.setdefault((r["brow"], r["col"]), []).append(r)
-    for key in sorted(per_block):
-        if per_block[key] > hack.get("recmax", REC_BLOCK_MAX):     # (recmax: item 15's --occ off comparison alone)
-            raise CourseError("%s: block (row %d, column %d; lines %d - %d, px %d - %d) has %d occluder records, "
-                              "over %d%s" % (fname, key[0], key[1], 8 * key[0], 8 * key[0] + 7, 8 * key[1],
-                                             8 * key[1] + 7, per_block[key], REC_BLOCK_MAX, _pairnote(reach)))
     for br in sorted(per_row):
         if per_row[br] > REC_ROW_MAX:
             raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d%s"
@@ -13021,11 +13139,22 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     mindex = {}
     for r in records:
         r["kmask"] = r["mask"] if hack.get("no_dither") else dither(r["mask"])
+    cum_masks(records, _off=hack.get("nocum"))      # SPEC.md 130.11.4.2: r["cmask"], what the part ships
+    for r in records:
         if r["kmask"] == ALLKEEP:
             continue
-        if r["kmask"] not in mindex:
-            mindex[r["kmask"]] = len(masks)
-            masks.append(r["kmask"])
+        if r["cmask"] not in mindex:
+            mindex[r["cmask"]] = len(masks)
+            masks.append(r["cmask"])
+    if cutocc and not hack.get("recmax"):          # SPEC.md 130.11.4.2: THE WINDOW's price, on the part's records
+        wp = occ_window(reach, records, x0, y0, cum=not hack.get("nocum"))
+        if wp[0] > OCC_PASS_MAX:
+            n_, (wx_, wy_), z_, t_, l_, a_, g_ = wp
+            raise CourseError("%s: the occluder pass at cell (%d, %d), %d px, tests %d records, lays %d groups and "
+                              "ANDs %d masks: about %d clocks, over the %d a frame's pass may cost (SPEC.md "
+                              "130.11.4.2)%s" % (fname, wx_, wy_, z_, t_, g_, a_, n_, OCC_PASS_MAX, _pairnote(reach)))
+    else:
+        wp = (0, None, None, 0, 0, 0, 0)
     if kit is not None:                             # SPEC.md 130.37.3: the masks in kit order, then its own
         mo, kidx["K"] = kit_order(masks, kit["K"])
         masks = [masks[j] for j in mo]
@@ -13224,7 +13353,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     rmask[b_ >> 3] |= 1 << (b_ & 7)
         ftab = bytes(x for fm, _l in src.uses for x in (fm["id"], famv(fm))) + bytes((nfst,)) + bytes(rmask)
     model = {"cols": cols, "brows": brows, "idx": list(mp), "blocks": bytes(blkb),
-             "recs": [(r["brow"], r["col"], r["s"], r["top"], mindex[r["kmask"]]) for r in records
+             "recs": [(r["brow"], r["col"], r["s"], r["top"], mindex[r["cmask"]]) for r in records
                       if r["kmask"] != ALLKEEP],
              "masks": list(masks),
              "mband": src.mbands is not None,          # SPEC.md 130.52
@@ -13322,9 +13451,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.raw, c.queries = raw, q
     c.masks = masks                         # the K section's: DITHERED (130.15.10.1), deduplicated again
     c.raw_masks = len({r["mask"] for r in raw})
-    c.umasks = len({r["mask"] for r in records})     # the merged records' masks before the dither
+    c.umasks = len({r["ucmask"] for r in records if r["kmask"] != ALLKEEP})   # the part's masks before the
+    #                                               dither: CUMULATIVE (130.11.4.2), the dither ORed into them after
     c.dithered = not hack.get("no_dither")
     c.laid, c.worst, c.occg = laid, worst, occg
+    c.wprice = wp                                  # SPEC.md 130.11.4.2: the window's worst price
     c.fshow = fshow if cutocc else None             # SPEC.md 130.28.6: the SHOW rule's bound, None off
     c.per_row, c.per_block = per_row, per_block
     c.raw_row, c.raw_block = {}, {}
@@ -24892,12 +25023,14 @@ def report(c, k=None):
         print("    SHEETS (SPEC.md 130.30.12): %d of %d block rows each, from rows %s, every one %d bytes" % (
             c.plan["k"], c.plan["n"], ", ".join(str(x["m0"]) for x in c.plan["sheets"]), len(c.cga)))
     print("    records %d -> %d merged (masks %d -> %d, %d with the ghost dither; %d records laying nothing once "
-          "dithered left out of the part); most in a block %d -> %d (bound "
-          "%d), in a block row %d -> %d (bound %d); most laid at a position %d%s; %d OCC cells (%d OCCG) of %d "
-          "reachable" % (
+          "dithered left out of the part; the masks CUMULATIVE, 130.11.4.2); most in a block %d -> %d, the pass "
+          "at most %d clocks (bound %d)%s, in a block row %d -> %d (bound %d); most laid at a position %d%s; %d "
+          "OCC cells (%d OCCG) of %d reachable" % (
               len(c.raw), len(c.records), c.raw_masks, c.umasks, len(c.masks),
               len(c.records) - len(c.model["recs"]), most(c.raw_block), most(c.per_block),
-              REC_BLOCK_MAX, most(c.raw_row), most(c.per_row), REC_ROW_MAX, c.worst[0],
+              c.wprice[0], OCC_PASS_MAX, " (cell %s at %d px: %d records tested, %d groups, %d ANDs)" % (
+                  c.wprice[1], c.wprice[2], c.wprice[3], c.wprice[6], c.wprice[5]) if c.wprice[1] else "",
+              most(c.raw_row), most(c.per_row), REC_ROW_MAX, c.worst[0],
               " (cell %s at %d px)" % (c.worst[1], c.worst[2]) if c.worst[1] else "",
               sum(1 for v in c.cells.values() if v[3] & FL_OCC), sum(1 for v in c.cells.values() if v[3] & FL_OCCG),
               len(c.reach)))
@@ -25943,8 +26076,9 @@ def _swap(text, old, new):
 def _grammar_cases():
     F = _first_text()
     B_LINE = "floor rect   7 4 11 7  ramp x 7 11 4 2"
-    STEEP = ('course T "t"\nwidth 64\nfloor rect 10 10 14 13 flat 16\nfloor rect 10 13 14 17 ramp y 13 17 16 8\n'
-             'floor rect 10 17 14 19 flat 8\nstart 11 11\n')
+    RAMPUP = ('course T "t"\nwidth 128\nfloor rect 4 8 10 14 flat 4\nfloor rect 10 8 30 14 flat 4\n'
+              'start 5 10\ngoal rect 30 8 32 14 flat 4\nclock 4 8\ntarget 60\nway 5 10\nway 31 10\n'
+              'floor rect 14 14 18 18 ramp y 14 18 4 8\nfloor rect 14 18 18 20 flat 8\n')
     RIDGES = ('course T "t"\nwidth 128\nfloor band -24 24 40 64 flat 0\nfloor band -24 24 48 49 flat 3\n'
               'floor band -24 24 50 51 flat 6\nfloor band -24 24 52 53 flat 9\nstart 30 25\n')
     BIG = 'course BIG "Big"\nwidth 128\nfloor band -2 2 8 300 flat 0\nstart 5 5\n'
@@ -25994,12 +26128,12 @@ def _grammar_cases():
         ("a float with no shape", F + "float\n", "float takes a shape and nothing else"),
         ("a float on cells with no face over the void", F + "float tile 4 5\n", "float floats nothing"),
         ("a float on the void", F + "float rect 20 20 22 22\n", "float floats nothing"),
-        # (wave 6: this course trips the block bound under wave 5b's reach inputs, HOPMAX 224 and no BOOST
-        # launch, and its records swing under 252's with Y0's alignment, 130.11.4.4 - so the case pins them:
-        # it proves the REFUSAL, which the reach's inputs do not touch)
-        ("a block over %d records (a steep ramp's faces over the void)" % REC_BLOCK_MAX, STEEP,
-         "occluder records, over %d" % REC_BLOCK_MAX, {"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0,
-                                                       "occ": "off"}),
+        # (SPEC.md 130.11.4.2, 2026-11-22: the WINDOW'S PRICE replaced the 4-a-block bound, which refused this
+        # ordinary ramp toward the viewer - 7 records in its fullest block, 58 in a footprint.  With the masks
+        # CUMULATIVE its pass is inside the price; the red arm `nocum` ships the masks as they were and prices the
+        # ANDs the guest then ran, every laid record past a group's first - and the refusal is that price)
+        ("a ramp toward the viewer priced with the masks NOT cumulative (the red arm nocum)", RAMPUP,
+         "the occluder pass at cell", {"nocum": True}),
         # (both bound refusals PIN their alignment, SPEC.md 130.25.3: the Y0 search would otherwise look for
         # one that compiles, and these prove the refusal itself)
         ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX,
@@ -30493,6 +30627,34 @@ def _w5_dither(courses, res, demos=None):
     res.append(("11 no K mask is all-keep and no record points at one: the records whose pixels all lie on the kept "
                 "lattice are left out of the part and kept by the rule (%s)%s" % (
                     ", ".join(dfig), "" if not dbad else " -- %s" % dbad), not dbad))
+    # SPEC.md 130.11.4.2: the part's masks are CUMULATIVE - read out of the RAM part, each record's mask the AND
+    # of the masks of every record of its block at or over it in s and top (its own included); so the AND over
+    # any laid set's masks is the AND over its records' own (the guest ANDs only the laid records under the
+    # least top it has laid) - and laying them as the old guest did, every laid mask ANDed, lays the same
+    cbad, cfig = [], []
+    for c in courses:
+        m = decode_parts(c.cga, c.wcga) if c.split else decode_part(c.cga)
+        byb = {}
+        for q in m["recs"]:
+            byb.setdefault((q[0], q[1]), []).append(q)
+        own = {(r["brow"], r["col"], r["s"], r["top"]): r["kmask"] for r in c.records if r["kmask"] != ALLKEEP}
+        ncum = 0
+        for key_, qs in byb.items():
+            for q in qs:
+                want = bytearray(b"\xff" * 16)
+                for q2 in qs:
+                    if q2[2] >= q[2] and q2[3] >= q[3]:
+                        mk = own[q2[:4]]
+                        for i in range(16):
+                            want[i] &= mk[i]
+                ncum += 1 if bytes(want) != own[q[:4]] else 0
+                if m["masks"][q[4]] != bytes(want) or [r[2:4] for r in qs] != sorted(r[2:4] for r in qs):
+                    cbad.append(c.name)
+        cfig.append("%s %d of %d" % (c.name, ncum, len(m["recs"])))
+    res.append(("11 every record's mask in the part is CUMULATIVE (130.11.4.2: the AND of its block's records at or "
+                "over it in s and top) and a block's records run in (s, top) order; masks that differ from the "
+                "record's own: %s%s" % (", ".join(cfig), "" if not cbad else " -- %s" % sorted(set(cbad))),
+                not cbad))
     # what is not dithered: the balls' masks and the lift's slab, each its generator's bytes
     bbad = []
     for mat in range(len(MAT_NAMES)):
@@ -32812,7 +32974,7 @@ def _course_items(c, k, res, t):
                 % (tag, least, c.y0add, c.rounds, REACH_ROUNDS),
                 inside and least == c.y0add and c.rounds <= REACH_ROUNDS))
     if c.y0counts is not None:                  # SPEC.md 130.25.3: the eight alignments
-        ok = [k for k, n in enumerate(c.y0counts) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
+        ok = [k for k, n in enumerate(c.y0counts) if n and n[2] <= REC_ROW_MAX]
         print("    %s: Y0's alignments, records (most a block) at +0 - +7: %s; +%d chosen" % (
             tag, ", ".join("refused" if n is None else "%d (%d)" % (n[0], n[1]) for n in c.y0counts),
             c.y0add))
@@ -34758,21 +34920,17 @@ def _sc_onepath(res):
 def _sc_y0moon(X, res):
     """--selfcheck's section `y0moon` (selfcheck(): a fork of its state after the compile)"""
     # item 6's Y0 control (SPEC.md 130.25.3, docs/reports/BONANZA-APEX-2026-11-16.md): MOON with every Hop at
-    # 366 (a 12 px apex) at the alignment wave 6 met it at refuses on the block bound, and the search finds an
-    # alignment that compiles - the height was never the limit
+    # 366 (a 12 px apex) at the alignment wave 6 met it at refused on the 4-a-block bound, and the search found an
+    # alignment that compiled.  Since 130.11.4.2's window price (2026-11-22) the bound that refused it is retired:
+    # the control is now that the same course COMPILES at +0, inside the price - the height was never the limit
     mtxt = os.path.join(ROOT, "apps", "bonanza", "courses", "moon.bbc")
     try:
-        compile_course(mtxt, _hack={"hopmax": 366, "y0add": 0, "realcut": False, "noavsplit": True})
-        forced = "compiled"                         # (SPEC.md 130.49: on the whole-cell cut, the one it was taken on)
-    except CourseError as e:
-        forced = str(e)
-    mc = y0_search(mtxt, None, {"hopmax": 366, "realcut": False, "noavsplit": True}, None)
-    mok = [k for k, n in enumerate(mc or []) if n and n[1] <= REC_BLOCK_MAX and n[2] <= REC_ROW_MAX]
-    res.append(("6 negative control: MOON with every Hop at 366 refuses at +0 (%s) and the Y0 search finds %d "
-                "alignment(s) that meet the bounds (%s)" % (
-                    "the block bound" if "occluder records, over" in forced else "got: " + forced, len(mok),
-                    ", ".join("+%d" % k for k in mok)),
-                "occluder records, over" in forced and len(mok) > 0))
+        c = compile_course(mtxt, _hack={"hopmax": 366, "y0add": 0, "realcut": False, "noavsplit": True})
+        got, ok = "compiled, the pass at most %d clocks (bound %d)" % (c.wprice[0], OCC_PASS_MAX), True
+    except CourseError as e:                        # (SPEC.md 130.49: on the whole-cell cut, the one it was taken on)
+        got, ok = "got: " + str(e), False
+    res.append(("6 control: MOON with every Hop at 366, which the retired 4-a-block bound refused at +0, compiles "
+                "there under the window's price (%s)" % got, ok))
 
 
 def _sc_hud(X, res):
@@ -36034,9 +36192,9 @@ def _sc_av(X, res):
                     src_ = f_.read()                           # the comparison reads the same way; the shipped
                 off = compile_course(src_ + "\nmasks banded\n", fname=cpath,   # compile is not touched)
                                      _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS)}, crsinfo=info)
-            elif "occluder records, over %d" % REC_BLOCK_MAX in str(e):
-                # (or lay more records in a block than the guest's 4 - WINDMILL LANE's 5 at (82, 50), SPEC.md
-                # 130.54.10: the comparison reads the grid and the picture alone, so the bound is lifted for it)
+            elif "the occluder pass at cell" in str(e):
+                # (or price the pass over 130.11.4.2's bound - the comparison compile's records are today's over
+                # the whole reach; it reads the grid and the picture alone, so the bound is lifted for it)
                 off = compile_course(cpath, _hack={"occ": "off", "sheetmax": len(MAGIC_SHEETS), "recmax": 255},
                                      crsinfo=info)
             else:
