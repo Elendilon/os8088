@@ -266143,10 +266143,14 @@ combination, the report's section 4).
 
 **The guards.**
 - **On the host**, item 10's `expand == RAM` on every course. Item 10 also
-  prints each course's exceptions and requires them to be a SUBSET of the
-  lifts' shaft cells (none on today's courses). A host rule that has
-  drifted from the tool's shows up as more exceptions, never as a wrong
-  grid.
+  prints each course's exceptions and requires each to be a lift's shaft
+  cell or a RAILED SAFE: a flat FLOOR the tool makes SAFE because a guard
+  rail closes an edge the rule reads as open (130.35.1, 2026-11-22; the
+  rule reads no rail, so such a cell is a stored byte, as above - DOWN 10,
+  MILL 137, PLAY 1, ROLL 6, HOP 8 at the guard rails' landing). A host rule
+  that has drifted from the tool's shows up as more exceptions, never as a
+  wrong grid. Its negative control sorts the exceptions with the rails
+  forgotten, and every railed SAFE is then unexplained.
 - **On the guest**, `bonanzaexit`'s claim leg (130.15.13) compares the
   expanded part with the tool's RAM form. A guest rule that differs from
   the host's gives a wrong grid, which only that compare sees, so its red
@@ -267002,7 +267006,7 @@ these differences from the report are accounted for:
   - the identity rule three ways (130.15.7), the identity equal under
     `RECB` 4 and 8 among them;
   - after the follow-up, each course's exceptions printed, and every one
-    of them a lift's shaft cell (none on today's courses).
+    of them a lift's shaft cell or a railed SAFE (130.15.6, 130.35.1).
 
   Its negative controls, each required to fail at item 10:
   - ROWPLANES with the low bytes first (the simulation);
@@ -283323,7 +283327,9 @@ heights is two rails, each on its floor (130.35.9).
 
 **SAFE** (130.10.4.3, the automatic respawn): a flat FLOOR whose every edge
 is solid OR RAILED - a respawn there cannot roll off a railed edge, as one
-beside a guard cell could not (no prop's cell is SAFE). **WATER**
+beside a guard cell could not (no prop's cell is SAFE). 130.15.6's CELLS
+rule reads no rail, so a railed SAFE is one of its exceptions: a stored
+byte, never a wrong grid. **WATER**
 (130.36): a railed edge seals a column's side as a wall does.
 
 #### 130.35.2 The height
