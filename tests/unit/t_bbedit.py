@@ -429,6 +429,13 @@ def main():
         bad.append("tube body: refused: %s" % str(e)[:150])
     finally:
         B.BLK_MAX = held
+    # 13c. what stands on ground rides with it (SPEC.md 130.58.34): wholly-on statements, and a rail split
+    dr = E.Document('course T "t"\nwidth 64\nfloor rect 3 3 9 9 flat 4\nfloor rect 9 3 14 9 flat 4\n'
+                    'guard rect 3 3 14 4 side -y\nprop bumper 5 5\nstart 4 4\ntube keep 4 6 11 6\n')
+    whole, split = dr.riders((3, 3, 9, 9))
+    if [c for _l, c in whole] != ["prop bumper 5 5", "start 4 4"] or \
+            [(i, o) for _l, i, o in split] != [("guard rect 3 3 9 4 side -y", ["guard rect 9 3 14 4 side -y"])]:
+        bad.append("riders: %r %r" % (whole, split))
     # 14. DRAFTS AND TRACES (SPEC.md 130.58.27)
     ap = S.axis_path([[6, 6, None], [9, 6, None], [12, 6, None], [12, 12, None], [15, 14, None]])
     if ap != [[6, 6, None], [12, 6, None], [12, 12, None], [15, 12, None], [15, 14, None]]:

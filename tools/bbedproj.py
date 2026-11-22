@@ -785,6 +785,54 @@ class Document(object):
                     out.append((st.line, st.code))
         return out
 
+    GROUND = ("floor", "wall", "goal", "hole", "float", "surface")
+
+    def riders(self, rect, skip=()):
+        """SPEC.md 130.58.34: what stands on RECT (x0, y0, x1, y1 end-exclusive) and rides when the ground under it
+        moves - every statement but ground and paint whose every world cell is inside (a rail, a flag, a route
+        point, a prop, a pad, a clock, a tube with both ends on it), and the part inside of a `guard rect` that
+        reaches past it -> ([(line, code)] wholly inside, [(line, inside code, [outside codes])] split)"""
+        whole, split = [], []
+        for st in self.statements():
+            if st.line in skip or st.kind in self.GROUND:
+                continue
+            slots = coord_slots(st.toks)
+            if not slots or any(ax in "as" for _i, ax in slots):
+                continue
+            ok = True
+            for k in range(0, len(slots) - 1, 2):
+                i = slots[k][0]
+                excl = i >= 3 and st.toks[i - 3] == "rect"          # (a rect's far corner is end-exclusive)
+                try:
+                    x, y = int(st.toks[i]), int(st.toks[i + 1])
+                except ValueError:
+                    ok = False
+                    break
+                if excl:
+                    ok = rect[0] < x <= rect[2] and rect[1] < y <= rect[3]
+                else:
+                    ok = rect[0] <= x < rect[2] and rect[1] <= y < rect[3]
+                if not ok:
+                    break
+            if ok:
+                whole.append((st.line, st.code))
+                continue
+            t = st.toks
+            if st.kind == "guard" and len(t) >= 6 and t[1] == "rect" and all(_isnum(v) for v in t[2:6]):
+                gx0, gy0, gx1, gy1 = (int(v) for v in t[2:6])
+                ix0, iy0, ix1, iy1 = max(gx0, rect[0]), max(gy0, rect[1]), min(gx1, rect[2]), min(gy1, rect[3])
+                if ix0 < ix1 and iy0 < iy1:
+                    rest = t[6:]
+
+                    def g(x0_, y0_, x1_, y1_):
+                        sh = ["tile", str(x0_), str(y0_)] if (x1_ - x0_, y1_ - y0_) == (1, 1) else \
+                            ["rect", str(x0_), str(y0_), str(x1_), str(y1_)]
+                        return join_tokens(["guard"] + sh + rest)
+                    outs = [g(*r) for r in ((gx0, gy0, gx1, iy0), (gx0, iy1, gx1, gy1), (gx0, iy0, ix0, iy1),
+                                            (ix1, iy0, gx1, iy1)) if r[0] < r[2] and r[1] < r[3]]
+                    split.append((st.line, g(ix0, iy0, ix1, iy1), outs))
+        return whole, split
+
     def remove(self, line, label=None):
         self.statement(line)
         new = list(self.lines)
