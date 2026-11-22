@@ -407,11 +407,28 @@ class Document(object):
 
     def auto_uses(self):
         """add the family a refusal names (`uses NAME`, SPEC.md 130.25.6.4) to the course's `uses` line, as
-        often as the refusals name one; part of the edit that needed it (one undo step). -> names added"""
+        often as the refusals name one - and take out a family whose last element the edit removed; part of
+        the edit that needed it (one undo step). -> names added (a removed one as -NAME)"""
         import re
         added = []
         for _ in range(8):
             err = analyse(self.text(), self.path or "<course>")["error"] or ""
+            m = re.search(r"uses (\w+), and no element of it is placed", err)
+            if m and "-" + m.group(1) not in added:     # (the last of a family deleted: its name goes too)
+                fam = m.group(1)
+                us = [st for st in self.statements() if st.kind == "uses" and fam in st.toks[1:]]
+                if not us:
+                    break
+                st, new = us[0], list(self.lines)
+                rest = [t for t in st.toks[1:] if t != fam]
+                if rest:
+                    new[st.line - 1] = st.indent + join_tokens(["uses"] + rest) + st.comment
+                else:
+                    del new[st.line - 1]
+                self.lines = new
+                self._analysis = None
+                added.append("-" + fam)
+                continue
             m = re.search(r"`uses (\w+)`", err)
             if not m or m.group(1) in added:
                 break
@@ -428,7 +445,7 @@ class Document(object):
             self._analysis = None
             added.append(fam)
         if added:
-            self._notify("uses " + " ".join(added))
+            self._notify("uses " + " ".join(added).replace("-", "no more "))
         return added
 
     # -- the ground as ONE LAYER of cells (SPEC.md 130.58.13) ---------------------

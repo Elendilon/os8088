@@ -298428,3 +298428,11 @@ points (`Document.riders`). A `guard rect` that reaches past the ground is split
 the rest stays where it was. A statement with only some of its cells on the ground (a tube with one end on it)
 stays, and the check names it if it no longer fits.
 
+#### 130.58.35 A see-saw's size, and a family's last element deleted (the owner, 2026-11-22)
+
+A see-saw's inspector picks its size from what 130.42.2 allows - **Length along** 2, 4 or 6, **Width across** 1
+or 2, **Tilts along** x or y (the extents follow it) - rather than stepping a corner one cell at a time into a
+size the compiler refuses; one added over an area takes the largest legal plate in it, along its longer side.
+Deleting the last element of a family takes its name off the `uses` line in the same undo step (130.25.6.4's
+refusal of a family named and none placed), as adding the first puts it there.
+

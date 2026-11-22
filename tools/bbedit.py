@@ -821,8 +821,11 @@ class App(object):
             self._banner("That change was undone: %s" % explain(after), keep=True)
             return None
         self._banner(None)
-        if added:
-            self._msg("Added `uses %s`: the course needs it for the part you added" % " ".join(added))
+        plus, minus = [n for n in added if not n.startswith("-")], [n[1:] for n in added if n.startswith("-")]
+        if plus:
+            self._msg("Added `uses %s`: the course needs it for the part you added" % " ".join(plus))
+        if minus:
+            self._msg("Took `%s` off the `uses` line: nothing in the course uses it now" % " ".join(minus))
         return r
 
     def _banner(self, text, keep=False):
@@ -1433,7 +1436,15 @@ class App(object):
         fitted = code.split()[0] in ("hump", "pit", "chute") and (x1 > x0 or y1 > y0)
         if fitted:                              # fitted INSIDE the area (SPEC.md 130.58.30)
             code = self._fit_shape(code.split()[0], (x0, y0, x1, y1), base)
-        tall = (y1 - y0) > (x1 - x0) and not fitted   # a part with a direction takes it from the area's shape
+        if code.startswith("seesaw "):          # a plate is 2, 4 or 6 along and 1 or 2 across (130.42.2): the
+            t_ = code.split()                   # largest that fits the area, along its longer side
+            ax = "y" if (y1 - y0) > (x1 - x0) else "x"
+            n_along, n_across = (y1 - y0 + 1, x1 - x0 + 1) if ax == "y" else (x1 - x0 + 1, y1 - y0 + 1)
+            L, W = max([v for v in (2, 4, 6) if v <= n_along] or [2]), min(2, n_across)
+            t_[3:5] = [str(x0 + (W if ax == "y" else L)), str(y0 + (L if ax == "y" else W))]
+            t_[t_.index("along") + 1] = ax
+            code = E.join_tokens(t_)
+        tall = (y1 - y0) > (x1 - x0) and not fitted and not code.startswith("seesaw ")
         if tall:
             code = (code.replace(" along x", " along y").replace(" face +x", " face +y")
                     .replace(" face -x", " face -y"))
@@ -1675,6 +1686,8 @@ class App(object):
                 row=row, column=0, columnspan=2, sticky="w")
             row += 1
         row = self._slope_rows(st, body, row)
+        if st.kind == "seesaw":
+            row = self._seesaw_rows(st, body, row)
         if st.kind == "way":
             row = self._route_rows(st, body, row)
         for word, n, label in (("flat", 1, "Height"), ("top", 1, "Water top"), ("bed", 1, "Water bed"),
@@ -1697,7 +1710,7 @@ class App(object):
                                      ("along", ("x", "y"), "Runs along"),
                                      ("channel", B.GT_CHANNELS, "Channel"),
                                      ("style", B.GT_STYLES, "Style")):
-            if word in st.toks[1:]:
+            if word in st.toks[1:] and not (st.kind == "seesaw" and word == "along"):   # (its own rows)
                 i = st.toks.index(word, 1) + 1
                 if i < len(st.toks):
                     v = tk.StringVar(value=st.toks[i])
@@ -2239,6 +2252,41 @@ class App(object):
                         self.doc.replace_area(None, ground=[code])
             return True
         self._edit(go)
+
+    def _seesaw_rows(self, st, body, row):
+        """SPEC.md 130.42.2: a plate is 2, 4 or 6 cells along its axis and 1 or 2 across - its size picked from
+        those, never stepped a cell at a time into one the compiler refuses"""
+        t = st.toks
+        try:
+            x0, y0, x1, y1 = (int(v) for v in t[1:5])
+            ax = t[t.index("along") + 1]
+        except (ValueError, IndexError):
+            return row
+        L, W = (x1 - x0, y1 - y0) if ax == "x" else (y1 - y0, x1 - x0)
+        tk, ttk = self.tk, self.ttk
+
+        def size(L_, W_, ax_):
+            t_ = list(t)
+            t_[3:5] = [str(x0 + (L_ if ax_ == "x" else W_)), str(y0 + (W_ if ax_ == "x" else L_))]
+            t_[t_.index("along") + 1] = ax_
+            self._edit(self.doc.set_statement, self.sel, E.join_tokens(t_), label="seesaw size")
+            self._fill_inspector()
+            self._redraw()
+        for label, cur, vals, mk in (("Length along", L, (2, 4, 6), lambda v: size(v, W, ax)),
+                                     ("Width across", W, (1, 2), lambda v: size(L, v, ax)),
+                                     ("Tilts along", ax, ("x", "y"), lambda v: size(L, W, v))):
+            ttk.Label(body, text=label).grid(row=row, column=0, sticky="w")
+            fr = ttk.Frame(body)
+            fr.grid(row=row, column=1, sticky="w")
+            v = tk.StringVar(value=str(cur))
+            for c_ in vals:
+                ttk.Radiobutton(fr, text=str(c_), value=str(c_), variable=v,
+                                command=lambda v=v, mk=mk, c_=c_: mk(c_)).pack(side="left")
+            fr._v = v                       # (kept alive with its frame)
+            row += 1
+        ttk.Label(body, text="A see-saw is 2, 4 or 6 cells long (its pivot on a cell edge) and 1 or 2 wide.",
+                  foreground="#666", wraplength=280).grid(row=row, column=0, columnspan=2, sticky="w")
+        return row + 1
 
     def move_sel(self, dx, dy):
         """move the selection. GROUND (a floor, wall, goal or hole laid by tile or rect) moves as one layer:
@@ -3328,6 +3376,8 @@ EXPLAIN = [
     (r"without a KEEP tube", "a windmill sits on the mouth of a Tube (keep): add the tube first, then the "
      "windmill on its in-end."),
     (r"lift's shaft .* not VOID", "a lift rises out of an empty shaft: put it on an empty cell (or a Hole)."),
+    (r"a see-saw is \d+ cells (along|across)", "a see-saw is 2, 4 or 6 cells long along the way it tilts "
+     "(its pivot sits on a cell edge) and 1 or 2 cells wide. Use Length along and Width across on the right."),
     (r"laid already: a plate lays its own cells", "a seesaw makes its own floor: select empty space for it."),
     (r"hump's .* meets the floor .* off its base", "a hump's rim must be level with the floor around it. Put it "
      "on one flat floor."),
