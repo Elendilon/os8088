@@ -468,3 +468,28 @@ map, the map played.
 draw (two MILL items, the exit mouths and the round openings, fail the same way before the change);
 `t_bbedit`. **Not yet:** the whole selfcheck and the builder's rows, which run after this lands.
 
+
+## The owner's round of 2026-11-22: resizing, the route, two refusals
+
+**Asked:** drag resizing; a way to edit route points ("most things I try to change break a waypoint, and
+there isn't a waypoints interface"); a route point carried where its element was dragged; why a guard rail
+on top of the new MILL is refused; why a jump-pickup course glass can make will not compile.
+
+**Observed:**
+- **The route problem was the builder's own rule.** Every edit was checked for a route point left on a wall
+  or the void and UNDONE when it was - so on a course with a route, most edits failed. The edit now moves
+  each stranded point to the nearest floor (within 4 cells) in the same undo step and says where; moved
+  ground carries its route points, the start and a flag.
+- **The route had no handles at all.** Points were reachable only by Shift-clicking through the floor under
+  them; with Route on they are now numbered, picked first and dragged, with a panel to insert, reorder
+  and delete.
+- **The guard rail is the compiler's rule, not a bug.** A guard cell is a wall at every height drawn only as
+  a rail on its flat floor's edge (130.35.1), so it may not touch a ramp. On MILL the one empty column
+  between the start floor (A) and the ramp (R) touches both, so every rail cell there is refused. The banner
+  now says so in plain words; the fix is a course change (or a rule change on `bounce-bonanza`).
+- **The jump pickup's refusal could not be reproduced** without the course: the pickup raises the reach
+  every bound is taken over, so which bound refused depends on the course. Asked the owner for the message.
+
+**Tested here:** the `bbedit` row (item 11), red with no relocation; a scripted session (a point dragged,
+a floor shrunk under two points, a ramp stretched, a floor moved with its start and points, insert and
+reorder).

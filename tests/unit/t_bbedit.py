@@ -30,6 +30,10 @@
     takes its routes with it and the map compiles; a pad dropped on another's cell is refused; a course of
     the author's (`# builder-course:`) put on the map from pad 7, one of the two pads whose course has an exit free,
     at (8, 7) - pad, route, icon - compiles.
+ 11. EDITS KEEP THE ROUTE (130.58.22): a floor cut back from under two route points leaves them moved to the
+    nearest floor (relocate_ways), folded into the edit's one undo step (merge_since), and the course lays out;
+    a ramp reshaped longer keeps its slope (reshape: 4 to 9 over 10 cells at half a unit a cell); ways_in
+    finds the start, the flag and the route points on a floor.
  8. GAP BANDS (130.58.21): a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
     (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
@@ -311,6 +315,27 @@ def main():
             d.insert(code)
         if mapc(d.text(), tp) or 8 not in M.parse_map(d.statements())["pads"]:
             bad.append("map: XTRA put on the map at (8, 7) from pad 7 is refused: %s" % mapc(d.text(), tp))
+    # 11. EDITS KEEP THE ROUTE (SPEC.md 130.58.22)
+    wt = ('course WAYT "Way test"\nwidth 96\nball rubber\nfloor rect 4 4 12 10 flat 4\n'
+          'floor rect 12 4 20 7 ramp x 12 20 4 8\nstart 5 5\ncheckpoint 6 8\ngoal rect 18 4 20 7 flat 8\ntarget 30\n'
+          'way 5 5\nway 10 8\nway 11 5\nway 16 5\nway 19 5\n')
+    d = E.Document(wt)
+    n0 = len(d.undo_stack)
+    fl = [st.line for st in d.statements() if st.code.startswith("floor rect 4 4")][0]
+    d.set_statement(fl, "floor rect 4 4 10 10 flat 4")
+    moved = d.relocate_ways()
+    d.merge_since(n0)
+    ways = [l_ for l_ in d.lines if l_.startswith("way")]
+    if d.analysis()["error"] or len(moved) != 2 or len(d.undo_stack) != n0 + 1 or "way 10 8" in ways:
+        bad.append("route kept: error %r, moved %r, %d undo steps, %r" % (d.analysis()["error"], moved,
+                                                                         len(d.undo_stack) - n0, ways))
+    rp = [st for st in E.Document(wt).statements() if "ramp" in st.toks][0]
+    got = E.reshape(rp.toks, 1, 5, (12, 4, 22, 7))
+    if got != "floor rect 12 4 22 7 ramp x 12 22 4 9":
+        bad.append("reshape: a ramp made longer is %r" % got)
+    kinds = sorted(c.split()[0] for _l, c in E.Document(wt).ways_in((4, 4, 12, 10), ("way", "start", "checkpoint")))
+    if kinds != ["checkpoint", "start", "way", "way", "way"]:
+        bad.append("ways_in: %r on the first floor" % kinds)
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
