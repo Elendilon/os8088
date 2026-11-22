@@ -820,7 +820,7 @@ REDS = {
                     "    nop                         ; RED explorepad: EXPLORE's pad must be open\n")],
     # BZS5 (130.22.5.1): the bests of pads past the pathway's not held to zero - the slot keeps a best for
     # a pad that does not exist
-    "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST + 2 * BZ_PATH_NPAD]\n    mov cx, BZ_NPADPAST\n"
+    "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST]\n    add di, ax\n"
                   "    call bz_dzero\n    jnz .bad\n",
                   "    nop                         ; RED pastbest: the bests past the pads unchecked\n")],
     # BZS5: a second entry with a key kept - the dupkey file's second TQUIK entry survives

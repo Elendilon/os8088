@@ -234,7 +234,7 @@ bzs_gfetch:
     jc .r
     cmp byte [bz_mode], 0       ; ...and the FINISH'S TUNES held (8R.6, D2;
     jne .r                      ; 130.50.2: in the bundle, no read at all) -
-    cmp byte [bz_crs], BZ_NCRS  ; for a PLAY of a COURSE only, the one thing
+    cmp byte [bz_crs], BZ_CRS_MAX ; for a PLAY of a COURSE only, the one thing
     jae .r                      ; with a finish sequence (not a replay, a
     cmp byte [bzs_mode], BZS_M_FX ; benchmark, a demo, the pathway or the
     jae .r                      ; title), and with music

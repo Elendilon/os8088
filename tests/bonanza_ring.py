@@ -498,6 +498,20 @@ def crs_fill():
                 pass
 
 
+def inc_equ(name, art=None):
+    """bzcourse.inc's NAME equ, a number (None: not in this build's inc)"""
+    t = open(os.path.join(ROOT, art or at("build/bonanza-art"), "bzcourse.inc")).read()
+    m = re.search(r"^%s\s+equ\s+(\d+)" % name, t, re.M)
+    return int(m.group(1)) if m else None
+
+
+def crs_rows(art=None):
+    """the course part rows (and as many demo rows after them): BZ_CRS_MAX since SPEC.md 130.58.36, whatever
+    the list (an older build's: its BZ_NCRS)"""
+    t = open(os.path.join(ROOT, art or at("build/bonanza-art"), "bzcourse.inc")).read()
+    return inc_equ("BZ_CRS_MAX", art) if "%macro BZ_CRS_COUNTS" in t else inc_equ("BZ_NCRS", art)
+
+
 def crs_all():
     """{name: K} of every course of the build (CRS_K, filled): BZ_COURSES's order is the K, never a
     literal"""
@@ -5308,7 +5322,9 @@ def part_args(art, src=None, shell=None, fams=None, vga=None):
         files += open(os.path.join(art, "bzdemo.lst")).read().split()   # 130.14.7.4), bbcourse's row order
     elif "BZ_NDEMO" in asm:                     # wave 4: one shipped demo a course but BENCH, after the
         files += ["BZD%d.BIN" % k for k in range(1, n)]     # songs (an older tree's: by K, 130.14.22 item 7)
-    out = []
+    if os.path.exists(os.path.join(art, "bzparts.lst")):   # SPEC.md 130.58.36: BZ_CRS_MAX course rows and
+        files = open(os.path.join(art, "bzparts.lst")).read().split()   # BZ_CRS_MAX demo rows, RESERVED past
+    out = []                                                            # the list's (BZRES.BIN)
     for p in files:
         out += ["--part", os.path.join(art, p)]
     if "BZ_P_SHELL" in asm:                     # wave 8a (130.19.2): the shell part, the tree's own link
