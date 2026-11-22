@@ -57,11 +57,13 @@ PALETTE = [
          "the right to choose the edges)"),
         ("Water", "cell", "water tile {x} {y} top {h} bed 0", "A pool: a surface and a bed"),
         ("Waterfall face", "cell", "arch {x} {y} +x", "The face a water column spills from"),
-        ("Hump", "cell", "hump {x} {y} {h}", "A rounded bump (the Shapes tab edits it)"),
+        ("Hump", "cell", "hump {x} {y} {h}", "A rounded bump: a dome in a square area, a ridge along a long one. "
+         "Select it on the plan to edit it"),
         ("Archway", "rect", "archway tile {x} {y} along x", "A ceiling over a path: select the path (1 or 2 "
          "cells wide, with empty space on both sides for its legs)"),
-        ("Chute", "cell", "chute 1 round depth 5 way {x} {y} {h} way {x4} {y}", "A curved channel"),
-        ("Pit", "cell", "pit {x} {y} {h} radius 3 depth 16", "A bowl to ride round at speed"),
+        ("Chute", "cell", "chute 1 round depth 5 way {x} {y} {h} way {x4} {y}", "A curved channel, along the area's "
+         "longer side (or trace it: Ctrl-click its cells)"),
+        ("Pit", "cell", "pit {x} {y} {h} radius 3 depth 16", "A bowl to ride round at speed, centred in the area"),
     ]),
     ("Surface", [
         ("Ice", "rect", "surface ice rect {x0} {y0} {x1} {y1}", "Slippery: keeps speed, steers badly"),
@@ -1044,6 +1046,28 @@ class App(object):
             self._msg("Added a %s along the %d points you traced%s. Draft it further here; Try it puts a draft in."
                       % (kind.lower(), len(pts), " (with floor under an end)" if ground else ""))
 
+    def _fit_shape(self, kind, area, h):
+        """a hump, pit or chute fitted INSIDE the selected area (SPEC.md 130.58.30) - a hump's and a pit's position is
+        a cell CORNER (a dome lays the 2 x 2 cells round it, a pit the cells within its radius), so the area's
+        corner would put the shape half outside it: a hump a dome centred in a square area or a ridge the length
+        of a long one, a pit centred at the largest radius it holds (2 - 4), a chute along the area's longer
+        side through its middle"""
+        x0, y0, x1, y1 = area
+        w, ht = x1 - x0 + 1, y1 - y0 + 1
+        f = lambda v: ("%d" % v) if v == int(v) else ("%g" % v)      # noqa: E731
+        if kind == "hump":
+            if w >= 3 and w > ht:                       # a ridge along x: cells x - 1 .. x + n, y - 1 .. y
+                return "hump %d %d %s along x %d" % (x0 + 1, y0 + max(1, ht // 2), f(h), min(12, w - 2))
+            if ht >= 3 and ht > w:
+                return "hump %d %d %s along y %d" % (x0 + max(1, w // 2), y0 + 1, f(h), min(12, ht - 2))
+            return "hump %d %d %s" % (x0 + max(1, w // 2), y0 + max(1, ht // 2), f(h))
+        if kind == "pit":
+            r = max(2, min(4, min(w, ht) // 2))
+            return "pit %d %d %s radius %d depth 16" % (x0 + w // 2, y0 + ht // 2, f(h), r)
+        if w >= ht:                                     # a chute along x through the area's middle row
+            return "chute 1 round depth 5 way %d %d %s way %d %d" % (x0, y0 + ht // 2, f(h), x1, y0 + ht // 2)
+        return "chute 1 round depth 5 way %d %d %s way %d %d" % (x0 + w // 2, y0, f(h), x0 + w // 2, y1)
+
     def _show_shape(self, line):
         """the shape on LINE, selected for editing in place on the plan (SPEC.md 130.58.29)"""
         self.nb.select(0)
@@ -1404,7 +1428,10 @@ class App(object):
             return
         code = tpl.format(x=x0, y=y0, x0=x0, y0=y0, x1=x1 + 1, y1=y1 + 1, h=f(h), x3=x0 + 3, x4=x0 + 4,
                           y1b=y0 + 1, y3=y0 + 3)
-        tall = (y1 - y0) > (x1 - x0)            # a part with a direction takes it from the area's shape
+        fitted = code.split()[0] in ("hump", "pit", "chute") and (x1 > x0 or y1 > y0)
+        if fitted:                              # fitted INSIDE the area (SPEC.md 130.58.30)
+            code = self._fit_shape(code.split()[0], (x0, y0, x1, y1), base)
+        tall = (y1 - y0) > (x1 - x0) and not fitted   # a part with a direction takes it from the area's shape
         if tall:
             code = (code.replace(" along x", " along y").replace(" face +x", " face +y")
                     .replace(" face -x", " face -y"))

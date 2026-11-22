@@ -289313,3 +289313,20 @@ edit it 'in place' instead of having to switch back and forth."*
 - The hump the owner laid along x and saw refused "about guardrails not going on floors" met the OLD guard rule
   (a guard cell could not touch a shaped cell); 130.35's rework (rails on a floor's edge) removes it.
 
+#### 130.58.30 A hump, pit or chute fits INSIDE the selected area (the owner, 2026-11-22)
+
+The owner: *"I selected a 4x4 area and did add hump - and it puts it at the corner of the selection, instead of in
+the selection."* A hump's and a pit's position is a cell CORNER (a dome lays the 2 x 2 cells round its crest, a pit
+the cells within its radius of its centre), so the palette's `{x} {y}` - the area's top-left cell - put the shape
+half outside the area. Added on an area of more than one cell (`_fit_shape`):
+
+- **a hump**: a dome centred in a square area (a dome is always 2 x 2 cells - a 4 x 4 area gets its middle four),
+  a ridge the length of a longer one (along x when wider, along y when taller: `n` = the length less 2, at most
+  12);
+- **a pit**: centred, at the largest radius the area holds (2 - 4);
+- **a chute**: along the area's longer side, through its middle row or column (or traced, 130.58.27).
+
+MEASURED (a scripted session): a 4 x 4 area gets `hump 12 12` (cells 11 - 12), a 7 x 2 one `hump 11 11 2 along x
+5` (all 14 cells), a 2 x 7 one a ridge along y, a 6 x 6 one `pit 17 13 2 radius 3` (its 6 x 6 cells), a 9 x 3 one
+a chute through its middle row - every one inside its area.
+
