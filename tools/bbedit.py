@@ -3070,6 +3070,16 @@ EXPLAIN = [
     (r"has \d+ occluder records, over \d+", "too many things stand in front of each other at one spot of the "
      "game's picture - usually a steep ramp or a tall cliff beside other tall parts. Make the ramp gentler "
      "(longer, or a smaller rise) or the drop beside it lower."),
+    (r"NO TRAP: from (.*?) an? (\w+) ball cannot reach the (goal|cup) without stranding it.*come to rest at "
+     r"\((\d+), (\d+)\)", "a {1} ball that takes a pickup could get stuck: from {0} it gets to the {2} with the "
+     "pickup, but if it misses it can stop at cell ({3}, {4}) with no way on and no edge to fall from. Give that "
+     "spot a way out (a ramp up, or open floor to roll off), or fill it in."),
+    (r"NO TRAP: from (.*?) an? (\w+) ball cannot reach the (goal|cup)", "a {1} ball could get stuck: from {0} "
+     "there is no way to the {2}, even hopping with Space and taking the course's Speed and Jump pickups. Make the way on easier "
+     "there: a rubber or glass ball's hop clears a gap of two cells (a steel ball's, one) and a Jump pickup lets "
+     "any ball clear three, so narrow the gap, lower the step, add a ramp or put a Jump pickup before it - or "
+     "give that flag or pad a ball that can make it. If a player really can (a trick the check does not try), "
+     "the check is a helper, not a rule of the game: say No when asked to check for softlocks."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
     (r"guard \(\d+, \d+\) touches \(\d+, \d+\), which is not a whole FLAT floor", "a guard rail's cell is a wall at "

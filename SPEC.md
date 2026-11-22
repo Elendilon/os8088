@@ -270828,10 +270828,12 @@ props. Each refusal names the line:
 - `capture` 64 - 384 (default 160); `spring`'s `gvz` 256 - `BZ_VZMAX`
   (768);
 - `par` given twice, or out of range;
-- **NO TRAP** (`--selfcheck` item 7): from every flag's cell with the
-  flag's ball, and from every pad's cell with the pad's ball, the reachable
-  set - pads, springs and tubes included - must contain the goal or the
-  cup; a flag or a pad that fails is refused, naming it and the ball.
+- **NO TRAP** (`--selfcheck` item 7): from the START with the start's
+  ball (2026-11-22, 130.14.4.1.1), from every flag's cell with the flag's
+  ball, and from every pad's cell with the pad's ball, the reachable set -
+  pads, springs, tubes, the HOP and the timed pickups included
+  (130.14.4.1.1, 130.14.4.1.2) - must contain the goal or the cup; a start,
+  flag or pad that fails is refused, naming it and the ball.
   **It rides a lift UP** (2026-11-21, DOWN rev 18's steel flag at a lift's
   foot): a run continues while a lift's slab carries the ball (`onp`) and
   never records the shaft as a resting cell, and on a course with a lift
@@ -270839,9 +270841,10 @@ props. Each refusal names the line:
   phases 32 apart could both miss a slab down a third of its ~260-step
   period). The grammar section's "a flag at a lift's foot", red arm
   `_TRAPNOLIFT`. **A flag or a pad that cannot reach a finish with no
-  pickup still passes by a RESPAWNING one** (130.14.4.1.2, 2026-11-21):
-  taking only pickups marked `respawn`, as often as they come back, and
-  stranding no ball that has taken one;
+  pickup still passes by a TIMED one** (130.14.4.1.2, 2026-11-21, widened
+  2026-11-22): taking speed and jump pickups - a `respawn` one as often as
+  it comes back, any other again after a fall - and stranding no ball that
+  has taken one;
 - **NOTHING UNDER THE HUD** (item 8): no cup, flag, pad or spring cell and
   no `way` waypoint inside the HUD's shown rect (130.14.5.3) at any camera
   position the course CLAMPS to (the window against the course's left
@@ -270879,23 +270882,72 @@ FRONT of the flag's cell (a key over its row, painter's order), and a flag
 whose flying pennant is more than half hidden is refused (`HIDDEN`).
 Previews looked at on both cards before the course ships (story 4.3).
 
-###### 130.14.4.1.1 `trap hop`: NO TRAP with the Hop pressed
+###### 130.14.4.1.1 NO TRAP judges what a player can do: the Hop, the start
 
-*(Wave 11, ISLAND HOP, 2026-11-18.)* NO TRAP's runs hold one of the eight
-directions from a ball at rest on a cell's centre and never press Space
-(`trap_succ`), so a course BUILT on the Hop - a gap only a Hop crosses, a
-step only rubber's "and again" climbs - is refused at its first flag however
-playable it is: ISLAND HOP was, at its first 2-tile gap. A course that says
-`trap hop` (once; nothing else on the line) is proved with Space as well:
-beside the eight plain runs, each direction is run again with a Hop pressed
-at every take-off step of `TRAP_HOP_AT` (every 16th of the run's
-`TRAP_RUN`, 128) and its "and again" pressed `TRAP_AGAIN` (2) steps later,
-so a flight takes the stronger of the two presses; a lone Hop reaches what
-the pair does or less, an over-Hop being the course's rails' to catch.
-Nothing else changes: the same states, the same cache, the same verdict
-and refusal. The cost is the runs - nine times as many a cell (ISLAND HOP:
-about 25 s against under 1 s), which is why it is a course's choice rather
-than every course's. A course without the line compiles exactly as before.
+*(2026-11-22. Replaces wave 11's `trap hop`, which is gone.)* The owner:
+*"Originally when agents were designing courses they would generate a ton
+of unplayable things. So we kept adding rules to try to make things
+playable ... each component ... was added one at a time, and often seemed
+to take 'the path of least resistance at the time'"* - the check had become
+*"an 'invalid refusal generator'"*, and the case that showed it: *"With the
+jump powerup, glass easily makes the jump - but the course won't
+compile."* What was wrong, measured on a 2-tile gap, a 3-tile gap and a
+1.5-unit step up, each with a glass pad and a JUMP pickup before it (the
+builder's `prop jump X Y for 3`): every one was refused. The search never
+pressed Space unless the course said `trap hop`, which the course builder
+had no control for; a jump pickup only raises the Hop, so without
+`trap hop` it never helped; and the pickup arm (130.14.4.1.2) took only a
+pickup marked `respawn`, which the builder's palette does not write - though
+every timed pickup is of the RESPAWN class and a fall brings it back
+(130.25.7.1). The 3-tile gap and the step passed only with `trap hop` AND
+`respawn`. And the check ran only on a course with a flag or a pad: an
+impassable gap with neither compiled, the same course with a flag added was
+refused.
+
+**The rule.** NO TRAP is still the owner's softlock guard - a flag, a pad
+or the start from which no finish can be reached is refused, and so is a
+place a ball that took a pickup can come to rest with no way on (130.14.4.1.2)
+- but its moves are what a player has:
+
+- **the Hop, on every course, where it matters.** Each state's eight plain
+  runs come first, exactly as before. Only when they are exhausted with no
+  finish does the search ask for a state's HOP RUNS - one state at a time,
+  the state found LAST first (where the plain search got stuck), and every
+  state a Hop reaches closed by its plain runs before the next Hop
+  (`trap_reach`). A state's Hop runs are AUTOMATIC: each direction's plain
+  run MARKS the steps where the ball leaves the ground by itself (a
+  `takeoff`: an edge or a crest) or meets a wall - its first
+  `TRAP_HOP_MARKS` (2) - and the direction is run again with a Hop pressed
+  `TRAP_HOP_BEFORE` (1, 4, 8, 16) steps before each mark and its "and
+  again" `TRAP_AGAIN` (2) steps after it (`_trap_run`, `trap_succ`'s
+  `hop`). The Hop is pressed at the edge or the wall it is for, rather than
+  on a fixed grid of take-off steps (`trap hop` tried every 16th step, so a
+  take-off could be 15 steps short of the edge);
+- **from the START too**, with the start's ball - a play's first place and,
+  on a course with flags, its respawn before the first flag (`_respawn`),
+  so under the flags' ATTEMPT presets there (130.25.7.3) and with none on a
+  course without flags. Run on every course that has a finish;
+- **the timed pickups as they are** (130.14.4.1.2 as amended): any speed or
+  jump, not only one marked `respawn`.
+
+A course whose plain runs reach a finish from every start, flag and pad
+asks for no Hop run at all and compiles exactly as before - every shipped
+course but HOP, which compiles to the same bytes (NO TRAP is a check, never
+part of a part). `trap hop` is REFUSED now, with words saying to delete the
+line: it changed nothing a course carries, and HOP's line is deleted.
+
+**The cost, MEASURED** (2026-11-22): the table at the end of 130.14.4.1.2. A Hop state costs about 0.06 s on one
+core (about 40 runs: the eight plain ones that mark, and the Hop runs at
+the marks) against the old grid's 0.11 s (72 runs); the laziness is what
+keeps it off every course that does not need it - with every state's Hop
+runs always on, the audit measured about 15x the compile time.
+
+`--selfcheck` section `grammar` (`_sc_traphop`): a glass pad before a
+2-tile gap with no pickup compiles, passed by the Hop (`c.traph`), and is
+refused with the RED ARM `_TRAPNOHOP` (no Hop run ever asked for); a 3-tile
+gap with no pickup and no flag or pad is refused from the START; the same
+gap with a jump pickup the builder's way (`for 3`, no `respawn`) compiles,
+passed by the pickup arm (`c.trapr`).
 
 ###### 130.14.4.1.2 NO TRAP by a RESPAWNING pickup
 
@@ -270915,15 +270967,30 @@ EITHER
 
 - (a) a finish is reachable with no pickup taken - the rule as it was, run
   first and unchanged (`trap_reach`); OR
-- (b) a finish is reachable taking only RESPAWNING pickups - a `speed` or a
-  `jump` marked `respawn` (130.55), which comes back when its effect ends -
-  AND no ball that has taken one can be stranded (`trap_reach_resp`).
+- (b) a finish is reachable taking the TIMED pickups - a `speed` or a
+  `jump`; one marked `respawn` (130.55) as often as it comes back when its
+  effect ends, any other once until a FALL brings it back (its RESPAWN
+  class, 130.25.7.1) - AND no ball that has taken one can be stranded
+  (`trap_reach_resp`).
 
-A pickup that does not respawn - and an hourglass or a life, which never do -
-is still "not available": it may already be used up. Only a course placing a
-respawning pickup ever runs (b), and only for a flag or pad (a) refused, so
-every course that compiled before compiles to the same bytes and the same
-verdicts: NO TRAP is a check, never part of a part.
+*Amended 2026-11-22 (130.14.4.1.1).* Until then (b) took only a pickup
+marked `respawn`, and one without was "not available: it may already be
+used up". But a timed pickup is always of the RESPAWN class - every
+respawn, a fall's or RETURN's, puts it back - so a player who misses with it
+falls and has it again: what is used up is used up for that one try, never
+for the course. The builder's palette writes `prop jump X Y for 3`, no
+`respawn`, and the owner's glass jump was refused for exactly that. So (b)
+takes every speed and jump, and the state records a pickup taken WITHOUT
+`respawn` for as long as it stays taken - after its effect ends, until a
+fall - so a ball that has used it up is a state of its own, with no pickup
+to take again, and the guard holds it to a finish or a fall like any other.
+An hourglass or a life is still never taken. The Hop is pressed as
+130.14.4.1.1's search presses it, plus two rules of this arm's: a state
+HOLDING the jump has its Hop runs from the start (the jump is nothing but a
+higher Hop, and a failed jump is what the guard is for), and a state the
+guard would refuse has its Hop runs before it is refused. Only a course
+placing a timed pickup ever runs (b), and only for a start, flag or pad (a)
+refused.
 
 **How (b) is modelled.** The search's states grow a third member, the
 EFFECT the ball holds (`trap_eff`): none, or the speed's and the jump's
@@ -270955,13 +271022,47 @@ A way back that is LONGER (MILL's back door) is a good state like any other
 and is still welcome; it is no longer required.
 
 The cost is (b)'s alone: the effect multiplies the states (`_TRAPJ` below,
-a 3 s jump: 50 states, about 4 s), and the guard needs the whole set.
+a 3 s jump), and the guard needs the whole set; from 2026-11-22 its waves
+run on every core (`_TrapPar`, as the plain arm's do).
 `--selfcheck` section `grammar` (`_sc_trapresp`): a glass flag before a 3-tile gap only the jump
 crosses, the cup beyond (`_TRAPJ`) - the jump `respawn` compiles, passed by
-(b) (`c.trapr`); the same jump without `respawn` is refused; a walled
-POCKET in the gap 2 units down (`_TRAPJPIT`), where a failed jump comes to
-rest, is refused by the guard, naming the cell; and the RED ARM
-`_TRAPNORESP` (the arm off) refuses the first.
+(b) (`c.trapr`); the same jump without `respawn` (the builder's palette)
+compiles too, from 2026-11-22 (until then it was refused); a walled POCKET
+in the gap 2 units down (`_TRAPJPIT`), where a failed jump comes to rest, is
+refused by the guard, naming the cell, with the jump `respawn` or not; and
+the RED ARM `_TRAPNORESP` (the arm off) refuses the first.
+
+**What the 2026-11-22 rework measured.** The audit's jump matrix (a glass
+pad, then a gap or a step, a jump `for 3` before it; each with and without
+`respawn` and, before, with and without `trap hop`): before, the 2-tile
+gap passed only with `trap hop`, the 3-tile gap and the 1.5-unit step only
+with `trap hop` AND `respawn`; now all of them compile with neither, and
+the one case still refused is a real trap - a 3-tile gap with no pickup at
+all, refused FROM THE START (it compiled before, having no flag or pad). A
+gap matrix per ball (a pad of each ball before a 1 - 4 tile gap, with and
+without a jump): with no pickup a rubber or a glass ball's Hop clears 2
+tiles and a steel ball's 1; with the jump every ball clears 3; nothing
+clears 4 - each refusal is a ball that truly cannot get across. The
+shipped courses (`BZ_COURSES`, `BB_CACHE=0`, one core, `BB_TRAPPAR=0`),
+counting the model steps NO TRAP takes (the box was shared, so the step
+count is the measure and the seconds are only indicative):
+
+| course | steps before | steps after | NO TRAP CPU before / after |
+|---|---|---|---|
+| FIRST | 0 | 3,462 (the start: it has no flag) | 0.0 / 0.0 s |
+| DOWN | 345,724 | 416,144 | 4.0 / 5.1 s |
+| MILL | 650,831 | 827,341 | 7.4 / 9.4 s |
+| MOON | 506,276 | 506,276 | 4.9 / 5.1 s |
+| SUMMIT | 4,207,549 | 4,688,693 | 32.3 / 39.8 s |
+| PLAYGROUND | 2,882,568 | 2,907,838 | 50.3 / 56.1 s |
+| ROLL | 203,411 | 203,411 | 2.0 / 2.4 s |
+| HOP | 1,674,206 (`trap hop`) | 1,103,606 | 13.0 / 9.3 s |
+| all | 10,470,565 | 10,656,771 (+1.8%) | 113.9 / 127.3 s |
+
+The growth is the START's search (the others' states are mostly the
+cache's by then); HOP falls by a third, its Hops asked for at 4 states
+rather than pressed from all of them. No shipped course needs the pickup
+arm, and none asks for a Hop but HOP.
 
 ##### 130.14.4.2 Records, the grid and the header
 
@@ -271899,7 +272000,7 @@ not change) SEARCHES for the keys.
   (`Physics.auto`, so it still takes the ways in order by 130.6's reach
   test), plus Space on the steps the search picks. A Hop is one step of
   Space; its "and again" a second step of Space `TRAP_AGAIN` (2) steps
-  later, `trap hop`'s pair (130.14.4.1.1).
+  later, NO TRAP's Hop runs' pair (130.14.4.1.1).
 - **The search**: way by way (a LEG: from the step one way is taken to the
   step the next is). A leg's tries, in order: the arrows alone, for at most
   `PLAN_SEG` (330) steps; then a Hop on each step `t` from the leg's first
@@ -286650,8 +286751,10 @@ and the course's table keep the layout above when a course first needs it.
 - **Every finish reachable with NO pickup** (Q-92): a pickup only shortens a
   route - **or, from 2026-11-21, with only RESPAWNING pickups**
   (130.14.4.1.2): a `respawn` speed or jump comes back, so a course may
-  build a way on with one, as long as no ball that took it is stranded. A
-  pickup that does not respawn still only shortens a route.
+  build a way on with one, as long as no ball that took it is stranded.
+  *From 2026-11-22 any speed or jump (130.14.4.1.1, 130.14.4.1.2): every
+  one is of the RESPAWN class, so a fall brings it back; an hourglass or a
+  life still only shortens a route.*
 
 **How each proof is built.** Every family kind declares in its `FAMILIES`
 row the CELL FORMS its element can take (`forms`) and the STATES its bits can
@@ -286681,7 +286784,10 @@ be left in (`states`).
   2026-11-21 (130.14.4.1.2): a flag or pad that fails that is run again with
   `Physics.pickrs` set as well, under which a RESPAWNING pickup's ENTER and
   CONTACT do fire, with the effect in the search's state and the
-  stranding guard; a pickup that does not respawn still never fires.*
+  stranding guard; a pickup that does not respawn still never fires.
+  Amended again 2026-11-22: under `pickrs` every speed and jump fires
+  (the RESPAWN class, `Physics._picks`), one without `respawn` staying in
+  the state as taken until a fall.*
 
 #### 130.25.8 GLASS, the first family (story 9.5) (BUILT: 130.25.18 is the as-built record)
 
