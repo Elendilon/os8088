@@ -46,8 +46,9 @@ PALETTE = [
          "floor already there or beside it (the toolbar's height in empty space). Make it a ramp on the right"),
         ("Ramp", "rect", "floor rect {x0} {y0} {x1} {y1} ramp x {x0} {x1} {h} {h1}", "A floor that rises one unit "
          "across the area's longer side, half a unit a tile; change its direction and heights on the right"),
-        ("Wall", "rect", "wall rect {x0} {y0} {x1} {y1} flat {h}", "A raised block the ball bounces off: one "
-         "unit above the highest floor in or beside the area"),
+        ("Wall", "rect", "wall rect {x0} {y0} {x1} {y1} flat {h}", "A block the ball cannot cross: one unit "
+         "above the floor it stands on, or in an empty gap above the lowest floor beside it (a wall need only "
+         "stand above what it walls off; a higher floor beside it ends at its edge)"),
         ("Hole", "rect", "hole rect {x0} {y0} {x1} {y1}", "Open void: the ball falls"),
         ("Goal", "rect", "goal rect {x0} {y0} {x1} {y1} flat {h}", "Finish floor"),
 
@@ -1162,6 +1163,21 @@ class App(object):
                   and d["kind"] in ("floor", "goal", "field")]
         return (max(inside) if inside else None), (max(around) if around else None)
 
+    def _lowest_beside(self, t):
+        """the height a wall laid over the empty area T needs to wall off what is below it (SPEC.md 130.10.3: each
+        wall cell above at least one floor it shares an edge with): for every cell of T the lowest floor point on
+        its four sides, the highest of those - in units, or None when no cell of T touches a floor"""
+        a = self.doc.analysis()
+        x0, y0, x1, y1 = t
+        need = []
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                low = [a["cells"][q]["hmin"] for q in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+                       if q in a["cells"] and a["cells"][q]["kind"] in ("floor", "goal", "field")]
+                if low:
+                    need.append(min(low))
+        return max(need) if need else None
+
     GROUND = {"Floor": "floor", "Ramp": "floor", "Wall": "wall", "Hole": "hole", "Goal": "goal"}
     PAINT = {"Ice": "ice", "Sand": "sand", "Bounce mat": "bounce", "Normal": "normal"}
     # the parts that stand ON the ground: added on an empty cell, they bring a floor tile with them
@@ -1191,7 +1207,11 @@ class App(object):
         if name in ("Floor", "Goal"):           # level with the FLAT floor here, or round it (not a ramp's top)
             flat_in, flat_out = self._flat_heights(t)
             base = flat_in if flat_in is not None else flat_out if flat_out is not None else base
-        h = {"Wall": (around if around is not None else typed) + 1}.get(name, base)
+        if name == "Wall":                      # (SPEC.md 130.10.3: a wall need only stand above what it walls off)
+            h = (inside if inside is not None else self._lowest_beside(t) if self._lowest_beside(t) is not None
+                 else typed) + 1
+        else:
+            h = base
         h = round(h * 4) / 4.0
 
         def f(v):

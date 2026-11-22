@@ -70,7 +70,9 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
        that stands on the ground, added on an empty cell, brings a floor
        tile with it; an archway goes OVER the area, its legs made from the
        cells beside it. Heights come from what is there: a wall stands one
-       unit above the highest floor in or beside the area.
+       unit above the floor it is laid on, or in an empty gap one unit above
+       the lowest floor beside it (it walls that floor off; a higher floor
+       beside it simply ends at the wall's edge).
        Delete with an area selected removes every part wholly inside it.
      - The dashed red lines and the shading are the edges of the game's
        picture (its width is in columns of 8 px, 64 to 160). Build past one
