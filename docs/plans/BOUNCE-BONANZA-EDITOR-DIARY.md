@@ -407,3 +407,38 @@ yet:** a game with an added course booted and played on MartyPC.
 **Tested here:** the `bbblend` row, red on the check disabled and on a colour-blind comparison; the
 editor's stripes on a constructed course. **Not yet:** VGA (the compiler renders no VGA picture), a
 screenshot of the Hercules view.
+
+## The compiler made faster (2026-11-22)
+
+**Intended:** the same compile, faster: the builder's full check on PLAYGROUND was minutes.
+
+**Observed:**
+- **Where the time was.** On PLAYGROUND 72% of a compile was NO TRAP stepping the physics model 2.9 million
+  times, and each family's step hook walked every record of the course on every step. The bounds check
+  worked out the same turntable and gust answer for each of about 40,000 window positions.
+- **What changed.** The model reads its records through per-kind tables built once a grid; the bounds
+  check keeps its answer per set of lanes; the picture fills a run at a time; the laid and occluder passes
+  count per block; the route planner steps a leg's arrows-only head once. NO TRAP then computes the states
+  it is about to ask for on every core, in a process that is not itself one of the build's children.
+- **Measured on an idle four-core host, cache off:**
+
+  | what | before | after |
+  |---|---|---|
+  | the builder's check, PLAYGROUND | 157 s | 30 s |
+  | the builder's check, MILL | 36.5 s | 7.7 s |
+  | the builder's picture, PLAYGROUND | 9.6 s | 4.2 s |
+  | the builder's picture, MILL | 8.0 s | 3.6 s |
+  | the build's compile of every course | 224 s | 110 s |
+  | PLAYGROUND on one core | 166 s (loaded host) | 58 s |
+
+- **The same compile.** Every file the build's compile writes is the old one byte for byte but the stamp
+  that holds the tool's own hash, and its log is the old one line for line. Every attribute of every
+  compiled course, full and picture, hashes as before; the one difference is that the grid's height memo
+  is no longer in a course's pickle, where it recorded which cells happened to be stepped on.
+- **The first fingerprint lied.** `_fp` renders an object with `__slots__` by its repr, an address, so two
+  runs of one tree differed. The comparison was redone with a walk of `__dict__` and `__slots__`.
+
+**Tested here:** the comparison above on all nine courses; the selfcheck's sections that step the model or
+draw (two MILL items, the exit mouths and the round openings, fail the same way before the change);
+`t_bbedit`. **Not yet:** the whole selfcheck and the builder's rows, which run after this lands.
+
