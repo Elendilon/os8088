@@ -4,7 +4,7 @@
 # as built; replaced by the owner's recording the day one is committed.
 demo    MOON
 ident   0BF4
-physics ED
+physics 7B
 ball    rubber
 flags   complete
 steps   1983

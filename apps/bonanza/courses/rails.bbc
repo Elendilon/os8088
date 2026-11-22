@@ -32,16 +32,17 @@ start 5 10
 
 # A, the back walkway, and its rail on the far edge
 floor rect   8  8 22 10  flat 4
-guard rect   8  7 22  8
+# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+guard rect  25   9  26  13 side +x
+guard rect   8   8  22   9 side -y
+guard rect   8  13  22  14 side +y
 prop jump   10  9 for 3
 
 # B, the front walkway, and its rail on the near edge
 floor rect   8 12 22 14  flat 4
-guard rect   8 14 22 15
 
 # C, the platform on the right, its right edge guarded
 floor rect  22  8 26 14  flat 4
-guard rect  26  9 27 13
 
 # L, the lower path behind A's rail, down the ramp off C's back
 floor rect  23  4 26  8  ramp y 4 8 2 4
