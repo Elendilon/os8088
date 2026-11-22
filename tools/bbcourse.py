@@ -1219,7 +1219,7 @@ class CourseError(Exception):
 _VWARN = None
 STRICT = False
 STRICT_SKIP = ()            # SPEC.md 130.58.18: the kinds --selfcheck's STRICT reports rather than refuses
-VIS_KINDS = ("hidden", "ball-hidden", "blend")           # the warnings' names (`accept <kind>`)
+VIS_KINDS = ("hidden", "ball-hidden", "blend", "shade")           # the warnings' names (`accept <kind>`)
 VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
 _VW_AT = re.compile(r"^(.*?):(\d+): ")
 _VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
@@ -13232,13 +13232,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     for p in props:
         if p["kind"] == PK_WINDMILL:
             ix, iy = p["inn"]
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
+            shade = [(ix + dx, iy + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
+                     if cells.get((ix + dx, iy + dy)) and cells[(ix + dx, iy + dy)][3] & (FL_OCC | FL_OCCG)]
+            for dy, dx in ([(shade[0][1] - iy, shade[0][0] - ix)] if shade else []):   # (once a windmill)
+                if True:
                     cl = cells.get((ix + dx, iy + dy))
-                    if cl and cl[3] & (FL_OCC | FL_OCCG):
-                        raise CourseError("%s:%d: the windmill's doorway is in the shade: cell (%d, %d) of IN's "
-                                          "3 x 3 has OCC%s set" % (fname, p["wline"], ix + dx, iy + dy,
-                                                                   "G" if cl[3] & FL_OCCG else ""))
+                    if cl and cl[3] & (FL_OCC | FL_OCCG):   # SPEC.md 130.12.4.6 (2026-11-22): a WARNING now - a
+                        _visual("%s:%d: the windmill's doorway is in the shade: cell (%d, %d) of IN's 3 x 3 has "   # rotor
+                                "OCC%s set - while the rotor turns, a ball there is drawn over what stands in front "
+                                "of it rather than behind" % (fname, p["wline"], ix + dx, iy + dy,
+                                                              "G" if cl[3] & FL_OCCG else ""), "shade")
+                        # (the rotor's frame runs no occluder pass: a glitch, not a fault)
     slab = slab_pixels() if any(p["kind"] == PK_PLATFORM for p in props) else {}
     for p in props:
         if p["kind"] != PK_PLATFORM:

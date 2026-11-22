@@ -267067,7 +267067,7 @@ of it that rises above the slab's top there (130.12.6.4).
 | two lifts' TRACKS (the slab over its whole rise) in one window WIDENED by the walk's margins - the range's lines (two block rows above, three below) and `BZ_LCM` (2) word columns either side - on either card, at any position | **never** | the guest tracks ONE lift, the one whose track meets that widened window (130.12.4.7): so none is handed over while another is on the card, and the plain one-a-window bound (O24) follows from it |
 | a lane meeting the lift's sprite at any height of its rise | never | a commit would erase the platform |
 | a lift's `v` | at most 192 (0.75 lines a step), a multiple of 64 | its drawn and true footprints stay one box at `BZ_STEPS` (18 + 6 lines) |
-| a windmill's doorway | IN and every FLOOR cell of IN's 3 x 3 with `OCC` and `OCCG` clear | a must-draw rotor's frame never runs the occluder pass |
+| a windmill's doorway | IN and every FLOOR cell of IN's 3 x 3 with `OCC` and `OCCG` clear - **a WARNING since 2026-11-22** (kind `shade`, refused under `--strict`, `accept shade`): the owner, *"I don't think it is obscured/in shade/hidden at all here? And should this be a warning, not an error?"* | a must-draw rotor's frame never runs the occluder pass, so a ball in that 3 x 3 while the rotor turns is drawn over what stands in front of it rather than behind: a glitch of the picture, not a fault |
 | the start window, on both cards | holds a corner of 4 words x 3 block rows free of lanes, the lift's sprite over its whole rise and the ball's start footprint | the calibration's rectangle (130.12.5.4) |
 
 Several lanes meeting the ball's boxes on one frame is NOT refused (a bumper
@@ -298322,4 +298322,16 @@ half outside the area. Added on an area of more than one cell (`_fit_shape`):
 MEASURED (a scripted session): a 4 x 4 area gets `hump 12 12` (cells 11 - 12), a 7 x 2 one `hump 11 11 2 along x
 5` (all 14 cells), a 2 x 7 one a ridge along y, a 6 x 6 one `pit 17 13 2 radius 3` (its 6 x 6 cells), a 9 x 3 one
 a chute through its middle row - every one inside its area.
+
+#### 130.58.31 Moved ground leaves the old paint; paint is selectable (the owner, 2026-11-22)
+
+The owner, after moving MILL's ramp one cell toward the start floor: *"the ramp seemed to adopt a 'bounce'
+surface on one tile that I can't remove"* - the wall it landed on had `surface bounce` painted over it, and a
+move (130.58.14) cut the cells' ground but kept their paint; and no click reached a `surface` statement.
+
+- **A floor, wall, goal or hole moved or resized cuts the paint of the cells it lands on** (its own paint goes
+  with it, as before).
+- **A cell's paint is one of its parts** (`at_cell`: the last `surface` laid over it, after the floor), so a
+  click (again) reaches it and the inspector changes or deletes it.
+- The same move put the windmill's doorway "in the shade"; that refusal is a warning now (130.12.4.6).
 
