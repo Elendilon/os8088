@@ -257732,7 +257732,7 @@ state.
 
 ##### 130.12.3.3 The grammar
 
-    tube  keep|launch|drop  <iwx> <iwy>  <owx> <owy>  [via <wx> <wy>]...  [out +x|-x|+y|-y]
+    tube  keep|launch|drop  <iwx> <iwy>  <owx> <owy>  [via <wx> <wy>]...  [out +x|-x|+y|-y]  [body <units>]
           speed <gvx> <gvy> <gvz>        launch only, and required: its exit velocity (1/256 gu, px a step)
           height <h>                     drop only, and required: the exit's height above the OUT cell's floor, units
     prop  windmill <iwx> <iwy>  [period 32|64|128|256]  [closed <c0> <c1>]  [seed <n>]
@@ -257752,7 +257752,12 @@ build out, or edit a tube's path that doesn't refuse"* - the body had to be wall
 edit of the path refused): a body cell that is not already a WALL (a windmill's house, a wall the author
 laid) and is empty or a plain floor becomes a WALL one unit over the highest of IN's and OUT's floors and the
 floors it replaces - a DROP's, its mouth's `height` and two units over, so the mouth stands on its last
-wall's face (`lay_tube_bodies`, before the guard rails). A split or shaped body cell is still refused. A
+wall's face (`lay_tube_bodies`, before the guard rails). **`body <units>`** (2026-11-22, the owner: *"I still
+can't seem to edit tube run heights ... the pipe ... sits far above where I want it to"*) is the author's own
+height for it, the pipe's top (a quarter rounded up to the next half unit, a wall's top being a whole half
+unit); without it a DROP's body is the LOWEST that holds its mouth - the EXIT's floor, `height` and 1.5 units
+(it was two units over the HIGHER end's floor, often far above the exit) - and any other tube's one unit over
+the higher end's floor. A body too low for a DROP's mouth is refused (`a taller wall, or a lower exit`). A split or shaped body cell is still refused. A
 course whose bodies were walled by hand compiles byte for byte as before. Each body cell is a WALL, whose top the renderer draws as a PIPE (a
 black-outlined band along the path), except a windmill's, whose house is its
 body and is drawn as walls. `out` is the exit direction, defaulting to the
@@ -289348,4 +289353,10 @@ move (130.58.14) cut the cells' ground but kept their paint; and no click reache
 - **A cell's paint is one of its parts** (`at_cell`: the last `surface` laid over it, after the floor), so a
   click (again) reaches it and the inspector changes or deletes it.
 - The same move put the windmill's doorway "in the shade"; that refusal is a warning now (130.12.4.6).
+
+#### 130.58.33 A tube's pipe height (the owner, 2026-11-22)
+
+The builder's tube form (130.58.29) has **Pipe height** (`body <units>`, 130.12.3.3) and **Automatic** (the
+clause removed). A DROP's automatic pipe is now the lowest its mouth stands on, so a drop moved below a higher
+entry no longer sits far above its exit. The mouth's refusal is explained: raise the pipe, or lower the mouth.
 

@@ -1683,13 +1683,13 @@ def _word(toks, i, where):
 
 def _parse_tube(toks, where, ln):
     """tube keep|launch|drop <iwx> <iwy> <owx> <owy> [via <wx> <wy>]... [out D]
-    [speed <gvx> <gvy> <gvz>] [height <h>]  (SPEC.md 130.12.3.3)"""
+    [speed <gvx> <gvy> <gvz>] [height <h>] [body <units>]  (SPEC.md 130.12.3.3)"""
     if len(toks) < 6 or toks[1][1] not in TK_NAMES:
         raise CourseError("%s: tube takes keep|launch|drop <iwx> <iwy> <owx> <owy> ..." % where)
     t = {"line": ln, "sub": TK_NAMES.index(toks[1][1]),
          "inn": (_int(toks[2], where, "iwx"), _int(toks[3], where, "iwy")),
          "out": (_int(toks[4], where, "owx"), _int(toks[5], where, "owy")),
-         "via": [], "dir": None, "speed": None, "height": None}
+         "via": [], "dir": None, "speed": None, "height": None, "body": None}
     i = 6
     while i < len(toks):
         w = _word(toks, i, where)
@@ -1711,6 +1711,9 @@ def _parse_tube(toks, where, ln):
             if t["sub"] != TK_DROP:
                 raise CourseError("%s: height is a DROP tube's alone" % where)
             t["height"] = _height2(toks[i + 1], where, rel=True)
+            i += 2
+        elif w == "body" and i + 2 <= len(toks) and t["body"] is None:   # SPEC.md 130.12.3.3 (2026-11-22): the
+            t["body"] = _height2(toks[i + 1], where)    # height the tube LAYS its body at, units (its pipe's top)
             i += 2
         else:
             raise CourseError("%s: unknown or repeated tube clause %r" % (where, w))
@@ -6934,8 +6937,8 @@ def tube_body(tb):
 def lay_tube_bodies(src, tiles):
     """SPEC.md 130.12.3.3 (2026-11-22): a tube LAYS its own body. Every body cell that is not already a WALL (a
     windmill's house, a wall the author laid) and is empty or a plain floor becomes a WALL one unit over the
-    highest of the tube's IN and OUT floors and the floors it replaces (a DROP's: its mouth's height and two
-    units over, so the mouth is on the last wall's face) - so a tube is drawn and moved as one
+    highest of the tube's IN and OUT floors and the floors it replaces (a DROP's: the lowest its mouth stands
+    on, its exit floor and `height` and 1.5 units; `body <units>` the author's own) - so a tube is drawn and moved as one
     thing, its pipe on top. A split or shaped cell is left (build_props refuses it, naming the cell)"""
     for tb in getattr(src, "tubes", ()):
         body = tube_body(tb)
@@ -6944,8 +6947,12 @@ def lay_tube_bodies(src, tiles):
         zs = [t.z0 for c in [tb["inn"], tb["out"]] + body for t in [tiles.get(c)]
               if type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL) and not t.sx and not t.sy]
         z = (max(zs) if zs else 0) + 2             # (half units: one unit over the higher end's floor -
-        if tb.get("sub") == TK_DROP and tb.get("height"):     # a DROP's mouth, `height` up and 9 px tall, on its
-            z = (max(zs) if zs else 0) + tb["height"] + 4   # last wall's face: two units more; half units)
+        if tb.get("sub") == TK_DROP and tb.get("height"):     # a DROP: the lowest pipe its mouth (`height` over the
+            t_out = tiles.get(tb["out"])                     # EXIT's floor, 9 px tall) stands on - 1.25 units
+            zo = t_out.z0 if type(t_out) is Tile else (max(zs) if zs else 0)   # over its sill (half units)
+            z = zo + tb["height"] + 3               # (1.5 units: a wall's top is a whole half unit)
+        if tb.get("body") is not None:          # `body <units>`: the author's height (2026-11-22), a whole half
+            z = -int(-tb["body"] // 1)          # unit (a quarter rounded up)
         for c in body:
             t = tiles.get(c)
             if t is None or (type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL, KIND_VOID)):

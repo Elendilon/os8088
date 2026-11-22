@@ -409,6 +409,20 @@ def main():
         bad.append("tube: refused: %s" % str(e)[:150])
     finally:
         B.BLK_MAX = held
+    # 13b. a tube's pipe height (`body`, SPEC.md 130.58.33): the author's, and a drop's automatic one the lowest
+    B.BLK_MAX, held = 1 << 30, B.BLK_MAX
+    try:
+        for tl_, want in (("tube keep 8 8 14 8 body 6", 12), ("tube drop 8 8 14 8 out +x height 2", 4 + 4 + 3)):
+            dt = E.Document(tt + tl_ + "\n")
+            dt.auto_band()
+            c = B.compile_course(dt.text(), "tb.bbc", occluders=False)
+            zs = sorted({v.z0 for k, v in c.tiles.items() if v.kind == B.KIND_WALL})
+            if zs != [want]:
+                bad.append("tube body: %s laid at %r half units, wanted %d" % (tl_, zs, want))
+    except B.CourseError as e:
+        bad.append("tube body: refused: %s" % str(e)[:150])
+    finally:
+        B.BLK_MAX = held
     # 14. DRAFTS AND TRACES (SPEC.md 130.58.27)
     ap = S.axis_path([[6, 6, None], [9, 6, None], [12, 6, None], [12, 12, None], [15, 14, None]])
     if ap != [[6, 6, None], [12, 6, None], [12, 12, None], [15, 12, None], [15, 14, None]]:

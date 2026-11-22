@@ -3319,6 +3319,9 @@ EXPLAIN = [
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
      "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
      "of the game. Otherwise connect that part, or move the flag or pad."),
+    (r"its exit mouth .* is not wholly on the face of its last wall", "a DROP tube's mouth sits on the face of its "
+     "last wall (its height over the exit floor, and 9 px tall), and the pipe is too low to hold it: raise the "
+     "Pipe height (or set it to Automatic), or lower the Mouth height."),
     (r"a KEEP exit's next cell \((\d+), (\d+)\) along (\S+) is not a FLOOR", "a KEEP tube lets the ball roll "
      "out onto the floor beyond its end, and ({0}, {1}) - the next cell along {2} - is not floor. Put floor "
      "there, end the tube one cell sooner, or turn its last leg toward the floor."),
