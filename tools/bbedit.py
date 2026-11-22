@@ -344,7 +344,7 @@ class App(object):
         self._build_build_tab()
         self._build_course_tab()
         self._build_source_tab()
-        self.shapes = bbedshape.ShapesTab(self, self.nb, self.tk, self.ttk, Job, hcolour)   # SPEC.md 130.58.19
+        self.shapes = bbedshape.ShapeEditor(self, self.tk, self.ttk, Job, hcolour)   # SPEC.md 130.58.29: in place
         self.map = bbedmap.MapTab(self, self.nb, self.tk, self.ttk, _photo)                  # SPEC.md 130.58.20
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
@@ -458,7 +458,8 @@ class App(object):
         c.bind("<Button-5>", lambda e: self.set_zoom(self.zoom / 1.25))
         c.bind("<ButtonPress-2>", lambda e: c.scan_mark(e.x, e.y))
         c.bind("<B2-Motion>", lambda e: c.scan_dragto(e.x, e.y, gain=1))
-        c.bind("<ButtonPress-3>", lambda e: c.scan_mark(e.x, e.y))
+        c.bind("<ButtonPress-3>", lambda e: (c.scan_mark(e.x, e.y), setattr(self, "rpress", (e.x, e.y))))
+        c.bind("<ButtonRelease-3>", self._right_release)
         c.bind("<B3-Motion>", lambda e: c.scan_dragto(e.x, e.y, gain=1))
         r = self.root
         r.bind("<Tab>", self._toggle_view)
@@ -768,8 +769,6 @@ class App(object):
         self._fill_course()
         self._fill_source()
         self._fill_problems()
-        if getattr(self, "shapes", None) and self.shapes.shown():
-            self.shapes.refresh()
         if getattr(self, "map", None) and self.map.shown():
             self.map.refresh()
         self._schedule_jobs()
@@ -1044,15 +1043,21 @@ class App(object):
                       % (kind.lower(), len(pts), " (with floor under an end)" if ground else ""))
 
     def _show_shape(self, line):
-        """the Shapes tab, showing the shape on LINE"""
-        self.shapes.line = line
-        self.shapes.draft = None
-        self.nb.select(self.shapes.frame)
-        self.shapes.refresh()
+        """the shape on LINE, selected for editing in place on the plan (SPEC.md 130.58.29)"""
+        self.nb.select(0)
+        self.select(line)
 
     def _tool_changed(self):
         self._msg("Erase: click something to remove it" if self.tool.get() == "erase" else
                   "Select: click a part to edit it, or drag across the course to choose an area")
+
+    def _right_release(self, e):
+        """a right-click that did not pan: on the selected shape's point, removes it (SPEC.md 130.58.29)"""
+        rp = getattr(self, "rpress", None)
+        if not rp or abs(rp[0] - e.x) + abs(rp[1] - e.y) > 3:
+            return
+        if self.view.get() == "plan" and self.shapes.active():
+            self.shapes.remove_point(self.shapes.hit(e))
 
     def _escape(self):
         self.tool.set("select")
@@ -1606,6 +1611,11 @@ class App(object):
         self.raw.set(st.code)
         ttk, tk = self.ttk, self.tk
         body = self.ins_body
+        if st.kind in bbedshape.ShapeEditor.KINDS and self.shapes.load(st.line):   # edited in place (130.58.29)
+            self.shapes.fill(body)
+            self.ins_help.config(text="Drag its numbered points on the plan; Ctrl-click adds one, right-click "
+                                 "removes one - a draft (dashed orange) until Try it.")
+            return
         slots = E.coord_slots(st.toks)
         row = 0
         if st.kind in E.SHAPED:                 # the ramp's span is the Slope's to keep in step, not a point
@@ -2340,13 +2350,6 @@ class App(object):
             self.nb.select(0)
 
     def _tab_changed(self):
-        if getattr(self, "shapes", None) and self.shapes.shown():
-            try:
-                if self.sel and self.doc.statement(self.sel).kind in ("chute", "pit", "hump", "tube"):
-                    self.shapes.line = self.sel         # (the shape selected on the Build tab, shown)
-            except E.EditError:
-                pass
-            self.shapes.refresh()
         if getattr(self, "map", None) and self.map.shown():
             self.map.refresh()
 
@@ -2471,7 +2474,10 @@ class App(object):
         def ev(job, e):
             if e["stage"] == "done":
                 if e.get("ok"):
+                    self.shapes.picture_ok()
                     self._load_picture(out, text)
+                elif self.shapes.picture_refused(e.get("error"), text):   # a shape's Try it the full rules refuse
+                    pass
                 elif self.view.get() == "iso":
                     self._msg("No picture: %s" % e.get("error"))
             elif e["stage"] not in ("exit", "log"):
@@ -2826,6 +2832,8 @@ class App(object):
             bx, by = self._cpx(x1 + 1, y1 + 1)
             c.create_rectangle(ax - 1, ay - 1, bx + 1, by + 1, outline="#111", width=4)
             c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=2, dash=(6, 3))
+        if self.shapes.active():                 # the selected shape's handles (SPEC.md 130.58.29)
+            self.shapes.draw(c)
         if self.path_pick:                       # a path traced for a Tube or Chute (SPEC.md 130.58.27)
             fin = bbedshape.axis_path([[x, y, None] for (x, y) in self.path_pick])
             pts = [v for w in fin for v in self._cpx(w[0] + .5, w[1] + .5)]
@@ -3099,6 +3107,15 @@ class App(object):
         if ctrl_ and self._is_path_part(self.part):     # Ctrl-click with a Tube or Chute chosen: trace its path
             self._trace(cell)
             return
+        if self.shapes.active():                         # the selected shape, edited in place (130.58.29)
+            if ctrl_:
+                self.shapes.add_point(e)
+                return
+            i = self.shapes.hit(e)
+            if i is not None:
+                self.shapes.press(e, i)
+                self.drag = {"from": cell, "to": cell, "move": False, "shift": False, "ctrl": False, "shape": True}
+                return
         h = self._handle_at(e)                           # a resize handle of the selected floor, wall, goal or hole
         if h:
             rz = self._resizable()
@@ -3121,6 +3138,8 @@ class App(object):
             return
         if d.get("resize"):
             return self._resize_motion(e)
+        if d.get("shape"):
+            return self.shapes.motion(e)
         cell = self._cell_at(e)
         if cell is None or cell == d["to"]:
             return
@@ -3136,6 +3155,9 @@ class App(object):
     def _release(self, e):
         d, self.drag = self.drag, None
         if not d:
+            return
+        if d.get("shape"):
+            self.shapes.release(e)
             return
         if d.get("resize"):
             if d["rect"] != d["orig"]:
@@ -3262,6 +3284,9 @@ EXPLAIN = [
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
      "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
      "of the game. Otherwise connect that part, or move the flag or pad."),
+    (r"a KEEP exit's next cell \((\d+), (\d+)\) along (\S+) is not a FLOOR", "a KEEP tube lets the ball roll "
+     "out onto the floor beyond its end, and ({0}, {1}) - the next cell along {2} - is not floor. Put floor "
+     "there, end the tube one cell sooner, or turn its last leg toward the floor."),
     (r"the tube's (IN|OUT) cell \((\d+), (\d+)\) is not a FLOOR", "a tube goes in and comes out on floor: its {0} "
      "end, ({1}, {2}), is not on one. Select a strip from where the ball goes in to where it comes out, both on "
      "floor (the cells between become the tube's body by themselves), or drag that end onto floor on the "

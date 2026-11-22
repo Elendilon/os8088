@@ -337,7 +337,7 @@ class MapTab(object):
         self.place = None               # "put a course on the map": waiting for the click on its cell
         self.photo = None
         f = ttk.Frame(nb)
-        nb.insert(2, f, text="Map")
+        nb.insert(1, f, text="Map")
         self.frame = f
         left = ttk.Frame(f, padding=6)
         left.pack(side="left", fill="y")
