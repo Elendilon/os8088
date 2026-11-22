@@ -25,6 +25,11 @@
     corner, given a left turn and run the other way still compiles, a pit and a ridge too - and the ride
     readout (bbedjob.rides, the game's Physics) takes each ball through the steered chute and over the
     ridge at full speed.
+ 10. THE MAP (130.58.20): every pad, route, icon and lives statement of the shipped pathway reads and writes
+    back to the same meaning (bbedmap.parse_map / *_code); a route step bridged is legal; pad 1 dragged a cell
+    takes its routes with it and the map compiles; a pad dropped on another's cell is refused; a course of
+    the author's (`# builder-course:`) put on the map from pad 7, one of the two pads whose course has an exit free,
+    at (8, 7) - pad, route, icon - compiles.
  8. GAP BANDS (130.58.21): a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
     (and drops a piece that would band nothing), unmarking the last deletes the line - and the compiler's
@@ -46,6 +51,8 @@ import bbcourse as B  # noqa: E402
 import bbedproj as E  # noqa: E402
 import bbedshape as S  # noqa: E402
 import bbedjob as J  # noqa: E402
+import bbedmap as M  # noqa: E402
+import tempfile  # noqa: E402
 
 FLAG = """course HFLAG "Hidden flag"
 width 64
@@ -256,6 +263,54 @@ def main():
                     bad.append("shapes: the ridge at full speed: %r" % [x["words"] for x in r])
     finally:
         B.BLK_MAX = held
+    # 10. THE MAP (SPEC.md 130.58.20)
+    pp = os.path.join(ROOT, "apps", "bonanza", "courses", "path.bbc")
+    d = E.Document.load(pp)
+    m = M.parse_map(d.statements())
+    for st in d.statements():
+        code = {"pad": lambda: M.pad_code(m["pads"][int(st.toks[1])]),
+                "route": lambda: M.route_code([r for r in m["routes"] if r["line"] == st.line][0]),
+                "icon": lambda: M.icon_code(m["icons"][int(st.toks[1])]),
+                "lives": lambda: M.lives_code([v for v in m["lives"] if v["line"] == st.line][0])}.get(st.kind)
+        if code and M.parse_map([E.Statement(st.line, code())]) != M.parse_map([st]):
+            bad.append("map: line %d reads back as %r" % (st.line, code()))
+    if not all(M.legal(p, q) for p, q in zip(*(lambda t: (t, t[1:]))(M.tidy_points([[0, 0, 0], [5, 2, 0], [5, 9, 1]])))):
+        bad.append("map: tidy_points left an illegal step: %r" % M.tidy_points([[0, 0, 0], [5, 2, 0], [5, 9, 1]]))
+
+    def mapc(text, where):
+        try:
+            M.compile_map(text, where)
+            return None
+        except B.CourseError as e:
+            return str(e)
+    p1 = m["pads"][1]
+    codes = {p1["line"]: M.pad_code(dict(p1, at=(25, 24)))}
+    for r in m["routes"]:
+        if 1 in (r["a"], r["b"]):
+            pts = [list(q) for q in r["pts"]]
+            pts[0 if r["a"] == 1 else -1][:2] = (25, 24)
+            codes[r["line"]] = M.route_code(dict(r, pts=M.tidy_points(pts)))
+    d.set_many(codes)
+    if mapc(d.text(), pp):
+        bad.append("map: pad 1 moved with its routes is refused: %s" % mapc(d.text(), pp))
+    d.set_statement(p1["line"], M.pad_code(dict(p1, at=m["pads"][0]["at"])))
+    if "share a cell" not in (mapc(d.text(), pp) or ""):
+        bad.append("map: a pad on another's cell is not refused (%r)" % mapc(d.text(), pp))
+    with tempfile.TemporaryDirectory() as td:
+        xt = open(os.path.join(ROOT, "apps", "bonanza", "courses", "first.bbc"), encoding="ascii").read()
+        with open(os.path.join(td, "xtra.bbc"), "w", encoding="ascii") as f:
+            f.write(xt.replace('course FIRST "First Roll"', 'course XTRA "Extra Roll"'))
+        tp = os.path.join(td, "path.bbc")
+        d = E.Document(open(pp, encoding="ascii").read() + "# builder-course: xtra.bbc\n", tp)
+        m = M.parse_map(d.statements())
+        ends = [n for n in m["pads"] if M.free_exit(m, n, M.pad_exits(m, n, d.text(), tp)) is not None]
+        if ends != [4, 7]:                      # (the map's two ends: every other pad's exits open a route)
+            bad.append("map: the pads with an exit free are %r, not the two ends [4, 7]" % ends)
+        for code in M.place_course(m, "XTRA", (8, 7), 7, ("icons/first32x24.bba", os.path.join(
+                B.COURSE_DIR, "icons", "first32x24.bba")), exits=M.pad_exits(m, 7, d.text(), tp)):
+            d.insert(code)
+        if mapc(d.text(), tp) or 8 not in M.parse_map(d.statements())["pads"]:
+            bad.append("map: XTRA put on the map at (8, 7) from pad 7 is refused: %s" % mapc(d.text(), tp))
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

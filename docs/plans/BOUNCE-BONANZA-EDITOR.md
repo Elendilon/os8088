@@ -39,7 +39,9 @@ unmarks it.
 
 **The blend check is built (3.3, 3.4; SPEC.md 130.58.18).**
 
-**Next phases**: the rest of the Shapes tab (4.2's Iso blocks), the rest of Test Roll (6), the pathway (7) and
+**The Map tab is built (7.1; 7.2 but for playing the map; SPEC.md 130.58.20).**
+
+**Next phases**: the rest of the Shapes tab (4.2's Iso blocks), the rest of Test Roll (6), the pathway played (7.2) and
 the MartyPC boot of a game with an added course (8.2). `[~]` below marks a story built in part, with what is missing.
 
 **How to run it**: unzip `make bbeditbundle`'s `build/os8088-course-builder.zip` anywhere and run
@@ -171,8 +173,8 @@ union runs once at the end of a phase, in the background.
 
 | # | story | verified by |
 |---|---|---|
-| 7.1 [ ] | a Map mode for `path.bbc`: pads, routes (gate, secret, path), icons, lives, pages, view, rail (130.22.2) | the shipped pathway round-trips and one route edits |
-| 7.2 [ ] | placing a course on the map: its pad, its route, its icon | a new course reachable on the map in Test Roll's pathway |
+| 7.1 [x] | a Map mode for `path.bbc`: pads, routes (gate, secret, path), icons, lives, pages, view, rail (130.22.2) | the shipped pathway round-trips and one route edits - DONE (130.58.20): the Map tab; the `bbedit` row's item 10; a scripted session dragged pad 1 (its routes followed) and had a pad dropped on pad 0 undone with the reason |
+| 7.2 [~] | placing a course on the map: its pad, its route, its icon | a new course reachable on the map in Test Roll's pathway - BUILT: *Put a course on the map* (pad, route on a free exit, icon), `# builder-course:` for a course not in the game, `bbgame.py --path`; the full check proves it reachable; MISSING: the pathway played on the host (Test Roll plays courses), and on MartyPC |
 
 ### Wave 8 - add to the game, and the zip
 
