@@ -26428,7 +26428,8 @@ def _wave3_cases():
         ("a house that cannot hold the rotor", 'course P "p"\nwidth 64\nuses rotor tube\nfloor rect 6 9 11 14 flat 16\n'
          'wall rect 7 8 12 9 flat 17\nfloor rect 7 5 12 8 flat 16.5\ntube keep 9 9 9 7\nprop windmill 9 9\n'
          'start 9 12\n', "cannot hold its rotor"),
-        ("a doorway in the shade", W + "wall tile 11 10 flat 30\n", "is in the shade"),
+        ("a doorway in the shade (a warning since 2026-11-22, so the case needs a finish to reach the strict refusal)",
+         W + "wall tile 11 10 flat 30\ngoal tile 15 7 flat 20\n", "is in the shade"),
         ("a bumper off a FLOOR", W + "prop bumper 3 3\n", "not a FLOOR"),
         ("a bumper with a seed", W + "prop bumper 7 11 seed 3\n", "takes no seed"),
         ("a period not a power of two", _swap(W, "prop windmill 9 9", "prop windmill 9 9 period 48"),
