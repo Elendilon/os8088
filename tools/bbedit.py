@@ -52,7 +52,9 @@ PALETTE = [
         ("Hole", "rect", "hole rect {x0} {y0} {x1} {y1}", "Open void: the ball falls"),
         ("Goal", "rect", "goal rect {x0} {y0} {x1} {y1} flat {h}", "Finish floor"),
 
-        ("Guard rail", "rect", "guard rect {x0} {y0} {x1} {y1}", "A rail on the open edge beside a floor"),
+        ("Guard rail", "rect", "guard rect {x0} {y0} {x1} {y1}", "A see-through rail standing on the floor's "
+         "edges: select the floor, and it rails the edges open to the void or a drop (add `side +x` and the like on "
+         "the right to choose the edges)"),
         ("Water", "cell", "water tile {x} {y} top {h} bed 0", "A pool: a surface and a bed"),
         ("Waterfall face", "cell", "arch {x} {y} +x", "The face a water column spills from"),
         ("Hump", "cell", "hump {x} {y} {h}", "A rounded bump (the Shapes tab edits it)"),
@@ -2761,6 +2763,12 @@ class App(object):
                 txt = ("%g" % lo) if lo == hi else "%g-%g" % (lo, hi)
                 c.create_text(cx_, cy_, text=txt, fill="#111", font=("TkDefaultFont", max(7, min(11, int(s / 2.4))),
                                                                    "bold"))
+        # the guard rails, on the floors' edges (SPEC.md 130.35.1): a yellow line along each railed edge
+        for ((rx, ry), ax) in sorted(getattr(a["src"], "rails", {}) or {}) if a["src"] else ():
+            p0 = (rx + 1, ry) if ax == "x" else (rx, ry + 1)
+            p1 = (rx + 1, ry + 1)
+            c.create_line(*self._cpx(*p0), *self._cpx(*p1), fill="#111", width=max(4, s / 5), capstyle="round")
+            c.create_line(*self._cpx(*p0), *self._cpx(*p1), fill="#ffd400", width=max(2, s / 9), capstyle="round")
         # tubes and the route
         for it in a["items"]:
             if it["kind"] == "tube" and it.get("path"):
@@ -3246,8 +3254,15 @@ EXPLAIN = [
      "of the course, or choose Size 128 on the Course tab."),
     (r"archway's leg", "an archway stands ACROSS a path, and its legs need empty space on both sides of it. "
      "Select a path one or two cells wide with nothing beside it."),
-    (r"guard .* stands on a solid cell", "a guard rail goes on the EMPTY cells along a floor's edge, not on the "
-     "floor. Select the empty strip beside the floor."),
+    (r"guard: its shape holds no floor", "a guard rail stands ON a floor's edge: select the floor itself (the "
+     "rail goes on its outer edges), not the empty cells beside it."),
+    (r"guard: the floor in its shape has no open edge", "every edge of that floor is against a wall or more floor, "
+     "so there is nothing to rail. To rail an edge between two floors, name its side: add `side +x` (or -x, +y, "
+     "-y) to the line."),
+    (r"guard: the floor in its shape has no edge on its", "the sides you named are all against walls, which close "
+     "them already. Name another side, or leave the side off to rail the open edges."),
+    (r"beside a see-saw's plate", "a see-saw's plate tilts, so a rail cannot stand beside it: close that side with "
+     "a low wall, or leave it open."),
     (r"tube's body cell .* not a WALL", "a tube runs through a wall: its two ends sit on floor and every cell "
      "between them must be wall. Add the wall first."),
     (r"without a KEEP tube", "a windmill sits on the mouth of a Tube (keep): add the tube first, then the "
@@ -3273,13 +3288,6 @@ EXPLAIN = [
      "the check is a helper, not a rule of the game: say No when asked to check for softlocks."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
-    (r"guard \(\d+, \d+\) touches \(\d+, \d+\), which is not a whole FLAT floor", "a guard rail's cell is a wall at "
-     "every height, drawn only as a rail on its flat floor's edge, so it may not touch a ramp, a split or a shaped "
-     "cell anywhere round it (it would be an invisible wall on that side). Where one empty cell separates a floor "
-     "from a ramp, no rail fits there: widen the gap to two cells, put the rail on the ramp's far side, or use a "
-     "low wall."),
-    (r"guard \(\d+, \d+\) stands on a solid cell", "a guard rail goes in the EMPTY cell beside a floor, not on "
-     "the floor: select the empty cells along the edge."),
     (r"NO TRAP: from the", "the softlock check (NO TRAP) found a flag or pad from which a ball, rolling and "
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
      "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
