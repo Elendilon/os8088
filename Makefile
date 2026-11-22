@@ -15532,7 +15532,9 @@ $(BUILD)/os8088-course-builder.zip: tools/bbeditbundle.py tools/os88vbundle.py \
 #> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 130.58.17): the shipped package's and four spare-slot variants, with their table maps
 bbgamebin: $(BBGAME_BIN)/.stamp
 # (on the package alone, which moves with every input of the game's: an edit to bbgame.py's COMPOSING half must
-# not cost the twenty minutes this takes - one to its prebuild half, PATCH or SPARE wants `make -B bbgamebin`)
+# not cost the minutes this takes. The prebuild itself does nothing when the CONTENT of what it is made from -
+# the package, the game's sources, bbgame.py, this Makefile - is what it last made them from (a compiler edit
+# mostly moves no shipped byte), and makes the variants side by side, one a core; `make -B bbgamebin BBGAME_FORCE=1` forces)
 $(BBGAME_BIN)/.stamp: $(BUILD)/bonanza.o88
 	python3 tools/bbgame.py prebuild $(BBGAME_BIN) --build $(BUILD)
 	@touch $@
