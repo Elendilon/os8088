@@ -289148,3 +289148,18 @@ go to the shapes menu. This should also try to 'fit it', adding whatever walls a
   A tube whose end is not on floor is explained in plain words.
 - The `bbedit` row's item 14: `axis_path` and `insert_point` on a constructed path; a traced tube compiles.
 
+#### 130.58.28 More than one part on a cell (the owner, 2026-11-22)
+
+The owner: *"When there are two things present (aka a tube and a wall, or a tube and a windmill and a waypoint) I
+don't seem to have any way to select anything other than one of them."* (Shift-click already stepped through
+them; nothing said so.)
+
+- **Clicking the same cell again selects the next part there** (`at_cell`'s order, round again), in Plan and
+  in Iso; the status line says *2 of 4 here: Tube (keep) (line 214) - click again for the next*, and the first
+  click on a cell with several says so too. A repeat click on a route point steps on rather than picking the
+  point again (with Route on, a first click picks the point; dragging a selected point still moves it).
+- **"Also here:"** under the inspector's title: a button for every other part on the cell last clicked (up to
+  six); one click selects it. Selecting something any other way clears the row.
+- MEASURED (a scripted session on MILL's cell (9, 9): a route point, the windmill, its KEEP tube and floor A):
+  four clicks select the four in turn, each with the other three offered.
+
