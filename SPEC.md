@@ -283234,7 +283234,7 @@ struck through or marked *(until 2026-11-22)* where it stood.
 
 | | decision |
 |---|---|
-| where it stands | **ON A FLOOR'S EDGE** - between the floor and whatever is across: the void, a lower floor, a ramp, a split's other piece, a FIELD cell. Nothing is laid in the cell across; the edge is the rail. ~~A guard cell: an OPEN cell beside a flat floor, made a WALL~~ *(until 2026-11-22)* |
+| where it stands | **ON A FLOOR'S EDGE** - between the floor and whatever is across: the void, a lower floor, a ramp, a split's other piece, a FIELD cell, a LOWER wall (the picture's alone, below). Nothing is laid in the cell across; the edge is the rail. ~~A guard cell: an OPEN cell beside a flat floor, made a WALL~~ *(until 2026-11-22)* |
 | physics | the railed edge is a **WALL to the ball at every height**, crossed neither way - from the floor, and from across it (a ball flying at the rail from the void meets it too). The guarantee the owner asked for is today's: nothing - no Hop, boost, jump pickup or bounce - crosses it. A rail at its own height only (a blocking test against the rail's top) would need the step to read a height per edge, at every edge test: refused for its resident cost (below), and it would let a long bounce clear it |
 | the grid | **bits 4 and 5 of a cell's flags (+3): `FL_EDX`, a rail on the cell's +x edge; `FL_EDY`, on its +y edge** - 130.12.3.2's reservation, each edge ONE cell's (its -x / -y side's). A GOAL cell's exit moved to bits 6 - 7 for them (130.19.4: exits 0 - 3, `EXIT_MAX` 3); a goal's bit 6 is never read as `FL_FLOAT`, which AV's model and `bz_occ` read on FLOOR, WALL and split cells alone (130.29.4). BZG1 +28 bit 7 **`GF_EDGE`**: the course has a rail |
 | the engine | **the window refill walls a railed edge** - `bz_wedge` (bzphys.inc), at `bz_wtail` after the families' CELL hooks: the window's copy (`bz_nbr`, never the grid) of each cell ACROSS a railed edge from the centre becomes a WALL of stone (kind 2, surface 0, its other bytes kept). Step 5's edge tests, its corner and its fallback then meet the rail exactly as they meet a wall's edge, and **the step runs not one instruction more** (below). A CORNER neighbour is walled too when a rail ENDS at the centre's corner (it lies between that neighbour and one of the centre's edge neighbours), so the corner's push meets the rail's end as a POST: a point, pushed off radially (130.10.7.3's corner) |
@@ -283253,11 +283253,36 @@ struck through or marked *(until 2026-11-22)* where it stood.
 FLOOR the rail stands on; its rails go on the shape's OUTLINE (an edge
 between two of its floor cells is inside it, and a non-floor cell of the
 shape is no part of it). **Without `side`**, the outline's OPEN edges are
-railed: those to the void and those DOWN to a lower floor (lower at either
-end of the edge - a step, a drop, a ramp falling away). **With `side`**,
-the outline's edges on those sides (`all` the four), whatever is across - a
-void, a floor at any height. An edge to a WALL is closed already and is
-never railed. An edge railed twice (two statements, or a floor on each
+railed: those to the void and those DOWN to a lower floor or a LOWER WALL
+(lower at either end of the edge - a step, a drop, a ramp falling away, a
+curb). **With `side`**, the outline's edges on those sides (`all` the
+four), whatever is across - a void, a floor at any height, a lower wall.
+An edge to a WALL whose top is at or above the floor's at both ends is
+never railed: the wall's face is its rail.
+
+**A rail beside a LOWER wall is the picture's alone** (the owner,
+2026-11-22: *"A guardrail with a lower wall beside it is refused (because a
+'wall' is infinite height right now) but should be visually allowed."*). A
+wall is a wall to the ball at every height, so the edge is closed to the
+physics whatever is drawn on it - but where the wall's top is lower than
+the floor (MILL's walls beside its raised floors, a low curb) the edge LOOKS
+like a drop with no rail. Such a rail (`src.vrails`) is drawn and keyed
+exactly as any rail (130.35.3 - 130.35.4: on the floor's line, keyed at the
+wall cell across the edge) and goes into the grid as NOTHING: no `FL_EDX` /
+`FL_EDY`, no `GF_EDGE` (a course whose only rails are these keeps
+`bz_wedge` off), no SAFE change (a wall's edge is solid already), no water
+seal change (a wall seals already); only the occluder bits (`FL_OCC`,
+`FL_OCCG`) move, as for any drawn rail. An edge bit there would be WRONG,
+not merely redundant: the edge's owner (130.12.3.2) on a floor's -x / -y
+side is the WALL cell, which the grid's validator refuses an edge bit on;
+and `bz_wedge` rewrites the walled cell's KIND byte (a bumper wall's
+`surface bounce` gone) and walls a rail's END's corner neighbour, a post
+the floor running past the curb's end would meet - neither a wall's own
+edge does. So the guest is unchanged: not one byte of `BONANZA.O88`, and no
+shipped course's compiled bytes either (none had such an edge; checked
+2026-11-22 by compiling every `BZ_COURSES` course before and after).
+
+An edge railed twice (two statements, or a floor on each
 side) is one rail, the taller. `height` is a multiple of 0.5 units.
 `guard` is a word no other statement uses (`rail` is the pathway's route
 material, 130.22.8). The statement is laid AFTER every room, hole, FIELD
@@ -283268,8 +283293,9 @@ cell, arch and see-saw (`lay_rails`).
 - a shape that holds no floor ("a guard rail stands on a floor's edge: name
   the floor's own cells, and the rail goes on their outer edges");
 - a floor with nothing to rail - no open edge, or none on the named sides
-  but walls ("name the edges with `side +x|-x|+y|-y` to rail one between
-  floors");
+  but walls at or above it, the message counting those ("only N beside a
+  wall at or above it, none lower"; "name the edges with `side
+  +x|-x|+y|-y` to rail one between floors");
 - a rail beside a SEE-SAW's plate, which tilts under it (`side` names it;
   without `side` such an edge is left open): MILL closes its see-saw's side
   with a low wall;
@@ -283318,8 +283344,9 @@ it.
 
 On each railed edge, from the floor it stands on (the edge's line on that
 floor's top - the HIGHER of the two sides' lines at each column, so a rail on
-a ramp's edge, or beside one, follows the slope) up the rail's height `H`
-px, `rail_pix` draws:
+a ramp's edge, or beside one, follows the slope; a LOWER WALL's side is no
+floor's and is passed over, so a rail beside a curb stands on the floor's own
+line, 130.35.1) up the rail's height `H` px, `rail_pix` draws:
 
 - a 2 px **POST** at each end of the edge and at its middle (8 px apart on
   screen), WHITE then BLACK left to right, from 2 lines under the top to the
@@ -283438,9 +283465,10 @@ laid only where a ball is; none is a frame's cost on the route.
 #### 130.35.6 `--selfcheck` item 16 and the red arms
 
 Item 2 carries 130.35.1's refusals (`_guard_cases`, each a string in the
-tool: no floor, no open edge, a side on a wall, a see-saw's plate, the
-height, the grammar twice). The section `guard` (`--only guard`) compiles
-three courses of its own and asserts:
+tool: no floor, no open edge, a side on a TALLER wall and on a wall at the
+floor's own height - each message counting the walls at or above it -, a
+see-saw's plate, the height, the grammar twice). The section `guard`
+(`--only guard`) compiles four courses of its own and asserts:
 
 1. `_GCRS` - a walkway W (wy 8 - 10) at 4 units, a rail on its back edge
    for x 4 - 11 (so its END is the corner (12, 8), the walkway's back row
@@ -283472,14 +283500,25 @@ three courses of its own and asserts:
    wall on R's side); and the rail on R's own edge follows the slope (its
    foot falls 13 lines along the edge where a flat floor's falls 9);
 8. `_G2CRS`, the water seal (130.35.10) and a void strip railed on both
-   sides between a walkway and a lower path: no ball crosses the strip.
+   sides between a walkway and a lower path: no ball crosses the strip;
+9. `_GLW`, A LOWER WALL (2026-11-22): the walkway at 4 units with a 2-unit
+   curb along its back edge (the edge owned by the WALL cell) and down its
+   east end (owned by the walkway's own cells), a 0-unit path beyond: with
+   `side -y +x` its 13 rails are the picture's alone - no edge bit, `GF_EDGE`
+   clear, every grid byte that of the course without the guard but 6 cells'
+   occluder bits - and without `side` they join the 13 void edges' rails,
+   no wall cell given a bit; the picture holds their 1,315 pixels, keyed the
+   wall across the edge, at the rail's top.
 
 **Red arms** (each MEASURED red, the section's own negative controls): the
 rails undrawn (`norail`: items 2 and 3); the rail keyed 8 rows nearer
 (`guardfront`: items 2 and 4); the model's window never walling a railed
 edge (`_RAIL_NOWALL`: items 5, 6 and 7 - the ball rolls through); a rail's
 corner neighbours never walled (`_RAIL_NOCORNER`: item 6 - the end is no
-obstacle); the arch's two (130.35.10). The guest is held to the model by
+obstacle); the arch's two (130.35.10); for item 9, a rail beside a lower
+wall skipped as before 2026-11-22 (`_RAIL_LWSKIP`: the compile refuses),
+laid as the ball's on the floor's own edges (`_RAIL_LWBALL`: the edge bit
+caught) and undrawn (`norail`). The guest is held to the model by
 `bonanza_phys.py`'s unicorn `urun` (`bonanzaphyshost`), which on a course
 with families compares the window `bz_nbr` - walled cells and all - with the
 model's at every step; a scoped unicorn scene of the
