@@ -132,23 +132,16 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
               click a dashed box to mark it, a pink one to unmark it.
               The list under the course is every problem; click one to go
               to it.
-  Shapes tab  chutes, pits, humps and tubes. Edits make a DRAFT (dashed
-              orange): drag the numbered points anywhere, Ctrl-click to add
-              one, right-click to remove one, change the fields - then
-              "Try it" (each leg made to run along an axis) puts it in the
-              course; refused, the draft stays with the reason. A tube or
-              chute can be TRACED on the Build tab: choose it in the parts
-              list, Ctrl-click its cells on the plan (its ends and turns),
-              Add. A tube lays its own body walls. Also: the height along a
-              chute, and how each ball rides a shape (the game's physics).
-  Map tab     the PATHWAY (open data/apps/bonanza/courses/path.bbc): pads,
-              routes and their points, gates, icons, lives counters and
-              pages, dragged on the map's own picture; "Put a course on
-              the map..." adds a pad, its route and its icon - for a
-              course not in the game yet too (it names the file in a
-              `# builder-course:` comment). Course tab's "Put this course
-              in the game..." with the pathway open builds the game with
-              this map and the courses it names.
+  Shapes      chutes, pits, humps and tubes are edited ON THE PLAN: select
+              one and its numbered points appear; the form is on the right.
+              Edits make a DRAFT (dashed orange): drag points anywhere,
+              Ctrl-click to add one, right-click to remove one, change the
+              fields - then "Try it" (each leg made to run along an axis)
+              puts it in the course; refused, the draft stays and the red
+              bar says why. A tube or chute can be TRACED: choose it in the
+              parts list, Ctrl-click its cells on the plan, Add. A tube
+              lays its own body walls. "Roll each ball" shows how rubber,
+              steel and glass ride it.
   Course tab  the title, size, ball, music, colours, times; "Ready to play?"
               runs the full check (by itself, 2 s after you stop editing).
   Source tab  the file itself; double-click a line to select it.

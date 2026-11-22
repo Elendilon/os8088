@@ -298149,3 +298149,25 @@ them; nothing said so.)
 - MEASURED (a scripted session on MILL's cell (9, 9): a route point, the windmill, its KEEP tube and floor A):
   four clicks select the four in turn, each with the other three offered.
 
+#### 130.58.29 Shapes edited in place on the Build tab (the owner, 2026-11-22)
+
+The owner: *"For shapes, right now the flow seems to be: Select an area on the plan tab; Go to the shapes tab;
+Click add shape; Try to modify the shape; Have to go back to the plan tab to see an error ... Can we move the
+shapes editor concept into the plan tab? That way we can also see what is a wall, what is a floor, etc - and
+edit it 'in place' instead of having to switch back and forth."*
+
+- **The Shapes tab is gone**; its editor (`bbedshape.ShapeEditor`) works on the Build tab. Selecting a chute,
+  pit, hump or tube (a click on the plan, *Also here*, the source) draws its numbered handles on the plan over
+  the course's own floors and walls, and fills the inspector with its form, the draft bar (*Try it*,
+  *Discard*), the height graph and *Roll each ball* (the ride readout on a button, 130.58.19).
+- **Editing** is the draft of 130.58.27, in place: a handle dragged anywhere, Ctrl-click (Command-click) adds a
+  point, a right-click that does not pan removes one; *Try it* makes the path axis-legged and writes it.
+- **A refusal shows in the same tab's banner, explained**: one the model sees (130.58.12's checked edit) undoes
+  the edit at once and keeps the draft; one only the picture's compile sees (its full rules, seconds later) is
+  caught too - the edit Try it wrote is watched (`pending`), and a picture refused at that statement's line
+  while the course is still that text undoes it, puts the draft back and shows why (`picture_refused`).
+- New shapes come from the parts list (Chute, Pit, Hump, the three Tubes) or are traced (130.58.27); after Add
+  the new shape is selected for editing on the plan. The Map tab moves next to Build.
+- The hump the owner laid along x and saw refused "about guardrails not going on floors" met the OLD guard rule
+  (a guard cell could not touch a shaped cell); 130.35's rework (rails on a floor's edge) removes it.
+
