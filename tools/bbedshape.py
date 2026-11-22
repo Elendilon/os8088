@@ -59,7 +59,7 @@ def parse(toks):
             return sh if len(sh["ways"]) >= 2 else None
         if k == "tube":                         # SPEC.md 130.12.3.3: its IN, vias and OUT as the path's points
             sh = {"kind": k, "sub": t[1], "width": 1, "ways": [[int(t[2]), int(t[3]), None]], "out": None,
-                  "speed": None, "height": None}
+                  "speed": None, "height": None, "body": None}
             last = [int(t[4]), int(t[5]), None]
             i = 6
             while i < len(t):
@@ -74,6 +74,9 @@ def parse(toks):
                     i += 4
                 elif t[i] == "height":
                     sh["height"] = float(t[i + 1])
+                    i += 2
+                elif t[i] == "body":
+                    sh["body"] = float(t[i + 1])
                     i += 2
                 else:
                     return None
@@ -125,6 +128,8 @@ def code(sh):
             out += " speed %d %d %d" % tuple(sh.get("speed") or (0, 0, 0))
         if sh["sub"] == "drop":
             out += " height %s" % _g(sh.get("height") or 2)
+        if sh.get("body") is not None:
+            out += " body %s" % _g(sh["body"])
         return out
     if sh["kind"] == "pit":
         out = "pit %d %d %s radius %d depth %d" % (sh["x"], sh["y"], _g(sh["z"]), sh["radius"], sh["depth"])
@@ -250,7 +255,7 @@ def new_shape(kind, x, y, z):
         return {"kind": kind, "width": 1, "prof": "round", "depth": 5, "ways": [[x, y, z], [x + 6, y, None]]}
     if kind == "tube":                          # (a KEEP tube 4 cells along x: its body the tube lays itself)
         return {"kind": kind, "sub": "keep", "width": 1, "ways": [[x, y, None], [x + 4, y, None]], "out": None,
-                "speed": None, "height": None}
+                "speed": None, "height": None, "body": None}
     if kind == "pit":
         return {"kind": kind, "x": x + 3, "y": y + 3, "z": z, "radius": 3, "depth": 16, "hole": 1}
     return {"kind": kind, "x": x + 1, "y": y + 1, "z": z, "along": None, "n": 0, "open": False, "height": None}
@@ -570,6 +575,27 @@ class ShapeEditor(object):
                 for k_, (lab, lo, hi) in enumerate((("Speed along x", -512, 512), ("Speed along y", -512, 512),
                                                     ("Speed up", 0, 600))):
                     field(lab, svs[k_], lo, hi, 16, sets)
+            bv = tk.StringVar(value=_g(sh["body"]) if sh.get("body") is not None else "")
+            ttk.Label(self.form, text="Pipe height").grid(row=row[0], column=0, sticky="w", pady=1)
+            pf = ttk.Frame(self.form)
+            pf.grid(row=row[0], column=1, sticky="w")
+            sbp = ttk.Spinbox(pf, from_=-8, to=60, increment=0.5, width=6, textvariable=bv)
+            sbp.pack(side="left")
+
+            def setb():
+                v = self._fvar(bv)
+                if v is not None and v != sh.get("body"):
+                    self.apply(dict(sh, body=v), "pipe height")
+            sbp.configure(command=setb)
+            sbp.bind("<Return>", lambda e: setb())
+            ttk.Button(pf, text="Automatic", command=lambda: self.apply(dict(sh, body=None), "pipe height")).pack(
+                side="left", padx=2)
+            row[0] += 1
+            ttk.Label(self.form, text=("the pipe's top, in units (blank: automatic - one over the higher end, a "
+                                       "drop's just high enough for its mouth)" if sh.get("body") is None else
+                                       "the pipe's top, in units"), wraplength=290, foreground="#555").grid(
+                row=row[0], column=0, columnspan=2, sticky="w")
+            row[0] += 1
             ttk.Label(self.form, text="Points: 1 is where the ball goes in, %d where it comes out; drag them on "
                                       "the plan (an end slides along its leg)." % len(sh["ways"]),
                       wraplength=290, foreground="#555").grid(row=row[0], column=0, columnspan=2, sticky="w")
