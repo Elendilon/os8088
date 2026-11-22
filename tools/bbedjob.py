@@ -35,6 +35,7 @@ from array import array
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bbcourse as B  # noqa: E402
+import bbedmap as M  # noqa: E402
 
 
 def emit(**kw):
@@ -76,7 +77,10 @@ def picture(path, out, name=None, gaps=False):
     B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (130.58.21)
     emit(stage="compile", what="laying the course")
     try:
-        c = B.compile_course(text, path, occluders=False)
+        if M.is_map(text):                      # a pathway: its pads' courses with the extra ones (130.58.20)
+            c = M.compile_map(text, path)
+        else:
+            c = B.compile_course(text, path, occluders=False)
     except B.CourseError as e:
         emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 2))
         return 1
@@ -129,6 +133,15 @@ def check(path, strict, name=None):
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
+    if M.is_map(text):                          # the pathway: its own compile and the map's PROOFS (130.58.20)
+        emit(stage="compile", what="the map and every pad's course (its exits)")
+        try:
+            pr = M.proofs(text, path, log=lambda nm: emit(stage="compile", what="the map: %s's exits" % nm))
+        except B.CourseError as e:
+            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
+            return 1
+        emit(stage="done", ok=True, warnings=[], proofs=str(pr)[:400], secs=round(time.time() - t0, 1))
+        return 0
     emit(stage="compile", what="the full check (occluders, reach, traps)")
     try:
         c = B.compile_course(text, path, strict=strict)

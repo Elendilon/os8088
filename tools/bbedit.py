@@ -29,6 +29,7 @@ sys.path.insert(0, HERE)
 import bbedproj as E  # noqa: E402
 import bbcourse as B  # noqa: E402
 import bbedshape  # noqa: E402
+import bbedmap  # noqa: E402
 
 TITLE = "Bounce Bonanza course builder"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "os8088", "bbedit.json")
@@ -338,6 +339,7 @@ class App(object):
         self._build_course_tab()
         self._build_source_tab()
         self.shapes = bbedshape.ShapesTab(self, self.nb, self.tk, self.ttk, Job, hcolour)   # SPEC.md 130.58.19
+        self.map = bbedmap.MapTab(self, self.nb, self.tk, self.ttk, _photo)                  # SPEC.md 130.58.20
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
     def _build_build_tab(self):
@@ -576,11 +578,15 @@ class App(object):
             filetypes=[("The game (BONANZA.O88)", "*.o88"), ("A floppy with the game (1.44 MB)", "*.img")])
         if not out:
             return
-        name = B.parse(self.doc.text(), self.doc.path).name
         work = tempfile.mkdtemp(prefix="bbgame-")
         img = out.lower().endswith(".img")
         pk = os.path.join(work, "BONANZA.O88") if img else out
-        argv = [sys.executable, "-u", os.path.join(HERE, "bbgame.py"), pk, self.doc.path, "--pad0", name]
+        is_map = bbedmap.is_map(self.doc.text())
+        if is_map:                              # the pathway: the game with this map and the courses it names
+            argv = [sys.executable, "-u", os.path.join(HERE, "bbgame.py"), pk, "--path", self.doc.path]
+        else:
+            name = B.parse(self.doc.text(), self.doc.path).name
+            argv = [sys.executable, "-u", os.path.join(HERE, "bbgame.py"), pk, self.doc.path, "--pad0", name]
         argv += ["--disk", out, "--size", "1440"] if img else []
         self._msg("Putting the course in the game: compiling every course (minutes the first time)...")
         res = {}
@@ -598,8 +604,9 @@ class App(object):
             shutil.rmtree(work, ignore_errors=True)
             if r.returncode == 0:
                 self._msg("Wrote %s" % out)
-                messagebox.showinfo(TITLE, "Wrote %s.\n\nYour course is on the pathway's first pad: Play Game, "
-                                    "then Enter plays it." % out)
+                messagebox.showinfo(TITLE, ("Wrote %s.\n\nThe game has this map, and the courses it names." % out)
+                                    if is_map else ("Wrote %s.\n\nYour course is on the pathway's first pad: "
+                                                    "Play Game, then Enter plays it." % out))
             else:
                 self._msg("The game was not made")
                 messagebox.showerror(TITLE, (r.stderr or r.stdout).strip()[-1500:] or "bbgame.py failed")
@@ -666,6 +673,8 @@ class App(object):
         self._fill_recent()
         self._changed("open")
         self.root.after(50, self._fit)
+        if bbedmap.is_map(d.text()):            # a pathway opens on its Map tab (SPEC.md 130.58.20)
+            self.nb.select(self.map.frame)
 
     def save(self):
         if self.doc.path is None:
@@ -748,6 +757,8 @@ class App(object):
         self._fill_problems()
         if getattr(self, "shapes", None) and self.shapes.shown():
             self.shapes.refresh()
+        if getattr(self, "map", None) and self.map.shown():
+            self.map.refresh()
         self._schedule_jobs()
         if a["error"]:
             self._msg(a["error"])
@@ -1970,6 +1981,8 @@ class App(object):
             except E.EditError:
                 pass
             self.shapes.refresh()
+        if getattr(self, "map", None) and self.map.shown():
+            self.map.refresh()
 
     # -- problems -----------------------------------------------------------------
     def _problems(self):
@@ -2067,7 +2080,7 @@ class App(object):
             self.check_job.kill()
             self.check_job = None
         a = self.doc.analysis()
-        if a["src"] is None or not a["cells"]:
+        if a["src"] is None or not (a["cells"] or bbedmap.is_map(self.doc.text())):
             return
         self.pic_after = self.root.after(400, self.run_picture)
         self.check_after = self.root.after(2000, self.run_check)
@@ -2185,6 +2198,8 @@ class App(object):
             self.root.after(10, self.run_picture)   # (drawn before the overlay was turned on: again, with them)
         first = self.pic is None
         self.pic = {"meta": meta, "cga": cga, "herc": herc, "owners": ow, "text": text}
+        if getattr(self, "map", None) and self.map.shown():
+            self.map.draw()
         if first and self.view.get() == "iso":
             self.root.after(20, self._scroll_to_sel)
         self._fill_problems()

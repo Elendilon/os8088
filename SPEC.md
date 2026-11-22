@@ -296922,8 +296922,8 @@ unchanged.
   `PIL.ImageTk` is not needed.
 - **The row** `bbedit` (soak, `tests/unit/t_bbedit.py`): the round trip, the move, the five
   `hidden`/`accept`/`strict` cases and `uses`; red by hand on both halves.
-- **Not built**: the pathway. Since built: Test Roll in part (130.58.7, 130.58.16), add to the game
-  (130.58.9, 130.58.17), the blend check (130.58.6, 130.58.18), the Shapes tab (130.58.19). The plan's
+- **Since built**: Test Roll in part (130.58.7, 130.58.16), add to the game (130.58.9, 130.58.17), the
+  blend check (130.58.6, 130.58.18), the Shapes tab (130.58.19), the pathway's Map tab (130.58.20). The plan's
   story list carries what each built story still lacks.
 
 #### 130.58.11 The zip: `make bbeditbundle`
@@ -297394,6 +297394,61 @@ so the row calls them as the window does.
   refuses the leg off its axis).
 - **Not built** (the plan's 4.2): diagonal blocks and chamfers in Iso; the Build tab's own tools cut
   corners (130.58.15).
+
+#### 130.58.20 The Map tab: the pathway (the owner, 2026-11-22: "Go for the pathway editor")
+
+The plan's wave 7: the pathway (`path.bbc`, 130.22) edited on its own picture. `tools/bbedmap.py` is the
+tab and its model; its helpers import no Tk, so the jobs and the row call them as the window does.
+
+- **The tab** (after Shapes): the pathway's PICTURE (the picture job's, 130.58.8, at 1x - 3x) with every
+  page's CGA window dashed and named, and over it the map's own parts: each pad a ring with its number and
+  course, each route a line through its points (orange; the selected one yellow; a secret one dashed), a
+  gate's cell `G`, each lives counter, each icon's box. A list on the left (the map; pads; routes; icons;
+  lives counters) selects as a click on the picture does; the form on the right edits the selection. A file
+  whose statements include `pathway` OPENS on this tab; any other file's Map tab says to open the pathway.
+- **Where things are on the picture**: a cell's top at height H is `(16 (wx - wy) + X0, 8 (wx + wy) + 8 -
+  8 H + Y0)` (the route's floor), an icon's `SX SY` is `(SX + X0, SY + Y0)` and page k's window is `view`'s
+  centre less (160, 100), 200 k lines higher (130.22.2, 130.23.2). A drag maps back through the same
+  projection at the dragged thing's own height.
+- **Dragging**: a PAD moves to a cell and its routes' ends follow it; a ROUTE's inner point moves to a cell;
+  a LIVES counter moves; an ICON moves by 8 px (a block's corner, as 130.22.2 asks). A route's steps are
+  kept LEGAL by the builder (`tidy_points`): a step that is neither along one axis nor along both by equal
+  amounts gets a corner - along the longer axis first, at the far point's height (so a height change is a
+  ramp on that axis and the diagonal is level), then the diagonal; a point in the middle of a straight run at
+  one height is dropped. A double-click on a route adds a point there; the form removes one (not an end).
+- **The form**: the map's pages and page 0's window (`view`), the courses it names that are not in the game
+  yet, and *Check the whole map*; a pad's course (a list of the game's courses and the named ones), where it
+  is, which exits open which routes; a route's exit, secret (a secret route has no gate), its gate back to
+  automatic, its points with each one's height; an icon's picture (`icons/*.bba`), title (`|` breaks a
+  line) and title offset; a lives counter's cell. *New route between two pads* (from pad A on the first exit
+  its course HAS free, an L of legal steps), *Delete the selected item* (only the last pad can go - pads are
+  numbered 0 - N - and its routes and icon with it).
+- **Every edit is checked at once**: the map compiled in the window's process (`compile_map`, 0.03 - 0.3 s
+  MEASURED, the courses' titles off their `course` lines), and an edit it refuses undone with the reason in
+  the banner - two pads on a cell, a route crossing another or over a pad, a step that is not legal, a lives
+  counter on a route, a part off the picture. What a single compile cannot see - every pad reachable from
+  pad 0, every route's exit one its course has, a secret route a shortcut or a side - is **the full check**
+  (`bbedjob.py check` on a pathway: every pad's course compiled play-only through the cache and
+  `path_proofs`, 47 s MEASURED on the shipped map), run by the window 2 s after an edit like any course's.
+- **A course not in the game yet** is named by a comment line `# builder-course: FILE.bbc` (FILE relative to
+  the pathway's folder): the map's pads may then play it (its NAME and title off its `course` line, after
+  BZ_COURSES), the picture job and the check include it, and `tools/bbgame.py --path PATH.bbc` builds the
+  game with this pathway and those courses (130.58.17's composing, the pathway's part compiled from the
+  author's file). The compiler ignores the comment.
+- **Put a course on the map** (the plan's 7.2): choose the course (the game's, or *A course file...*, which
+  adds its `# builder-course:` line), its icon and the pad it is reached from - only pads whose course has
+  an exit no route uses yet are offered (`course_exits`: its goals' and cups' `exit`, off a parse) - then
+  click its cell. It writes the next pad, a route from that pad on that exit (at that pad's height), and an
+  icon centred above the new pad 24 lines up (`place_course`), one undo step, checked as any edit. On the
+  shipped map only pads 4 (PEAK) and 7 (FIRST), its two ends, have an exit free: every other course's exits
+  already open a route, which is the map being whole, not a fault.
+- The `bbedit` row's item 10: every pad, route, icon and lives line of the shipped map reads and writes back
+  to the same meaning; a bridged step is legal; pad 1 moved a cell with its routes compiles, and dropped on
+  pad 0's cell is refused; the pads with an exit free are the two ends; XTRA (FIRST's text renamed, a
+  `# builder-course:`) put on the map from pad 7 at (8, 7) compiles. Red by hand: `bridge` returning no
+  corner (the tidied step stays illegal, and the placement's route is refused).
+- **Not built**: playing the pathway on the host (Test Roll plays courses, 130.58.16); an icon drawn from
+  nothing (the tab picks one of `icons/`); a new page's art.
 
 #### 130.58.21 The gap band's overlay (the owner, 2026-11-21)
 
