@@ -13271,7 +13271,9 @@ def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
     todo = [(cell, mat)]
     while todo:
         nxt = []
-        for cl, m in todo:
+        for i_, (cl, m) in enumerate(todo):
+            if _TRAPPAR[0] is not None and (cl, m) not in cache:
+                _TRAPPAR[0].ahead(c, todo, i_, cache, phases, preset)
             succ, hit = trap_succ(c, cl, m, cache, phases, preset)
             if hit:
                 return True, len(seen)
@@ -13283,6 +13285,130 @@ def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
         if limit and len(seen) > limit:
             break
     return False, len(seen)
+
+
+class _TrapPar:
+    """NO TRAP ON EVERY CORE: trap_succ is a pure function of (course, cell, material, phases, preset) and the
+    module's switches, and trap_reach asks for a level's states in a fixed order - so the states it is ABOUT
+    to ask for are computed AHEAD, a share in each of jobs - 1 forked workers and one here, and put in the
+    cache trap_reach reads.  trap_reach's own loop is unchanged and reads them in its order: the answer, the
+    count of states and the first refusal are the sequential run's.  (A reach that ends on a hit has computed
+    at most one wave's states it would not have asked for: cache entries nothing reads.)  A worker that
+    raises, or dies, answers nothing: the loop computes that state itself and raises where it always did.
+    The workers are forked as trap_check starts and killed as it ends; no fork (Windows), one job, or a
+    process that is itself a child (the build's a-course-a-core) runs exactly the sequential code."""
+    WAVE = 4                                    # states a process a wave
+
+    def __init__(self, n):
+        self.kids = []
+        sys.stdout.flush()
+        sys.stderr.flush()
+        for _ in range(n - 1):
+            tr, tw = os.pipe()
+            rr, rw = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.close(tw)
+                    os.close(rr)
+                    for _p, w_, r_ in self.kids:        # (the earlier workers' ends are the parent's)
+                        os.close(w_.fileno())
+                        os.close(r_.fileno())
+                    self._serve(os.fdopen(tr, "rb"), os.fdopen(rw, "wb"))
+                finally:
+                    os._exit(0)
+            os.close(tr)
+            os.close(rw)
+            self.kids.append((pid, os.fdopen(tw, "wb"), os.fdopen(rr, "rb")))
+
+    @staticmethod
+    def _serve(fi, fo):
+        import pickle
+        dn = os.open(os.devnull, os.O_WRONLY)       # (a worker says nothing: the parent's run does)
+        os.dup2(dn, 1)
+        os.dup2(dn, 2)
+        cs = {}                                     # (the course: this process's own copy, as it was forked)
+        while True:
+            try:
+                job = pickle.load(fi)
+            except EOFError:
+                return
+            keys, phases, preset = job
+            out = []
+            for cl, m in keys:
+                try:
+                    out.append(trap_succ(_TrapPar.course, cl, m, cs.setdefault((phases, preset), {}), phases,
+                                         preset))
+                except BaseException:
+                    out.append(None)
+            pickle.dump(out, fo, 2)
+            fo.flush()
+
+    def ahead(self, c, todo, i, cache, phases, preset):
+        import pickle
+        if c is not _TrapPar.course:
+            return
+        n = len(self.kids) + 1
+        keys = []
+        for st in todo[i + 1:]:                     # (todo[i] is the caller's own next call)
+            if st not in cache and st not in keys:
+                keys.append(st)
+                if len(keys) >= n * self.WAVE - 1:
+                    break
+        if len(keys) < n:
+            return
+        share = [keys[k::n] for k in range(n)]
+        sent = []
+        for (pid, fo, fi), ks in zip(self.kids, share[1:]):
+            try:
+                pickle.dump((ks, phases, preset), fo, 2)
+                fo.flush()
+                sent.append((fi, ks))
+            except OSError:
+                pass
+        for cl, m in share[0]:
+            try:
+                trap_succ(c, cl, m, cache, phases, preset)
+            except Exception:                       # (raised again by the loop's own call, in its order)
+                pass
+        for fi, ks in sent:
+            try:
+                got = pickle.load(fi)
+            except Exception:
+                continue
+            for st, r in zip(ks, got):
+                if r is not None:
+                    cache[st] = r
+
+    def close(self):
+        for pid, fo, fi in self.kids:
+            try:
+                fo.close()
+                fi.close()
+            except OSError:
+                pass
+        for pid, fo, fi in self.kids:
+            try:
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+        self.kids = []
+
+
+_TrapPar.course = None
+_TRAPPAR = [None]             # trap_check's workers while it runs (None: the sequential code)
+_NESTED = [False]             # this process is a _Kid: it has one core, its parent has the others
+
+
+def _trap_par(c):
+    """trap_check's workers, or None (one job, no fork, a child process, BB_TRAPPAR=0)"""
+    if _NESTED[0] or not hasattr(os, "fork") or os.environ.get("BB_TRAPPAR", "1") == "0":
+        return None
+    n = _jobs()
+    if n <= 1:
+        return None
+    _TrapPar.course = c
+    return _TrapPar(n)
 
 
 _TRAPNORESP = False           # the red arm of `grammar`'s "the way on by a respawning jump" (the arm off)
@@ -13336,6 +13462,18 @@ def trap_check(c, cache=None):
     one.  -> None or (line, what, cell, ball, note) of the first that cannot"""
     cache = {} if cache is None else cache
     c.trap, c.trapr = [], []
+    if _TRAPPAR[0] is None:                     # (every core: _TrapPar; the answer is the sequential run's)
+        _TRAPPAR[0] = _trap_par(c)
+        if _TRAPPAR[0] is not None:
+            try:
+                return _trap_check(c, cache)
+            finally:
+                _TRAPPAR[0].close()
+                _TRAPPAR[0] = _TrapPar.course = None
+    return _trap_check(c, cache)
+
+
+def _trap_check(c, cache):
     rsp = not _TRAPNORESP and any(pr["kind"] in (K_SPEED, K_JUMP) and pr["ow"] & PU_RESPAWN for pr in c.props)
     fin = "cup" if any(q["kind"] == PK_CUP for q in c.part["props"]) else "goal"
     for r in c.part["props"]:
@@ -22023,7 +22161,7 @@ def _dump(obj, f, gids=None):
 
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
-_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
+_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS", "_TRAPPAR", "_NESTED",
                       "_SHADOW_DYN", "_SHADOW_IN", "_GAP",   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
                       "GROUND_AUTO"))   # (a sentinel object(): its repr is an ADDRESS, so every process keyed apart)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
@@ -22226,6 +22364,7 @@ class _Kid:
         self.pid = os.fork()
         if self.pid == 0:                               # the child
             try:
+                _NESTED[0], _TRAPPAR[0] = True, None    # (one core is this child's: NO TRAP's workers are not)
                 sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__     # (not a parent's capture)
                 o = os.open(self.out, os.O_WRONLY)
                 os.dup2(o, 1)
