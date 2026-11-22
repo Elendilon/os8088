@@ -31,6 +31,7 @@ import bbcourse as B  # noqa: E402
 import bbedshape  # noqa: E402
 import bbedmap  # noqa: E402
 import bbedocc  # noqa: E402
+import bbedopts as OPT  # noqa: E402
 
 TITLE = "Bounce Bonanza course builder"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "os8088", "bbedit.json")
@@ -54,8 +55,8 @@ PALETTE = [
         ("Goal", "rect", "goal rect {x0} {y0} {x1} {y1} flat {h}", "Finish floor"),
 
         ("Guard rail", "rect", "guard rect {x0} {y0} {x1} {y1}", "A see-through rail standing on the floor's "
-         "edges: select the floor, and it rails the edges open to the void or a drop (add `side +x` and the like on "
-         "the right to choose the edges)"),
+         "edges: select the floor, and it rails the edges open to the void or a drop (or tick the edges it stands "
+         "on, on the right)"),
         ("Water", "cell", "water tile {x} {y} top {h} bed 0", "A pool: a surface and a bed"),
         ("Waterfall face", "cell", "arch {x} {y} +x", "The face a water column spills from"),
         ("Hump", "cell", "hump {x} {y} {h}", "A rounded bump: a dome in a square area, a ridge along a long one. "
@@ -1670,6 +1671,8 @@ class App(object):
             names = {1: ["At"], 2: ["From", "To"]}.get(len(pairs), ["Point %d" % (k + 1) for k in range(len(pairs))])
             if st.kind == "tube":
                 names = ["In", "Out"] + ["Via"] * 4
+            if "region" in st.toks and len(pairs) == 3:
+                names = ["At", "Region from", "Region to"]
             for k, pr in enumerate(pairs[:6]):
                 ttk.Label(body, text=names[k] if k < len(names) else "Point").grid(row=row, column=0, sticky="w")
                 fr = ttk.Frame(body)
@@ -1690,13 +1693,16 @@ class App(object):
             row = self._seesaw_rows(st, body, row)
         if st.kind == "way":
             row = self._route_rows(st, body, row)
+        row = self._option_rows(st, body, row)      # every clause it may take, written or not (130.58.37)
+        covered = OPT.covered_words(st.toks)
         for word, n, label in (("flat", 1, "Height"), ("top", 1, "Water top"), ("bed", 1, "Water bed"),
                                ("period", 1, "Period (steps)"), ("on", 1, "On for (steps)"),
                                ("seed", 1, "Starts at"), ("strength", 1, "Strength"), ("range", 1, "Range"),
                                ("for", 1, "Seconds"), ("depth", 1, "Depth (px)"), ("radius", 1, "Radius"),
                                ("pivot", 1, "Pivot height"), ("height", 1, "Height"), ("kick", 1, "Kick"),
                                ("dwell", 1, "Wait at each end"), ("under", 1, "Clearance (units)")):
-            if word in st.toks[1:] and not (st.kind == "seesaw" and word in ("period", "flat", "seed")):
+            if word in st.toks[1:] and word not in covered and not (st.kind == "seesaw" and word in ("period",
+                                                                                                  "flat", "seed")):
                 i = st.toks.index(word, 1) + n
                 if i < len(st.toks):
                     v = tk.StringVar(value=st.toks[i])
@@ -1710,7 +1716,7 @@ class App(object):
                                      ("along", ("x", "y"), "Runs along"),
                                      ("channel", B.GT_CHANNELS, "Channel"),
                                      ("style", B.GT_STYLES, "Style")):
-            if word in st.toks[1:] and not (st.kind == "seesaw" and word == "along"):   # (its own rows)
+            if word in st.toks[1:] and word not in covered and not (st.kind == "seesaw" and word == "along"):
                 i = st.toks.index(word, 1) + 1
                 if i < len(st.toks):
                     v = tk.StringVar(value=st.toks[i])
@@ -1723,13 +1729,6 @@ class App(object):
             v = tk.StringVar(value=st.toks[1])
             ttk.Label(body, text="Surface").grid(row=row, column=0, sticky="w")
             cb = ttk.Combobox(body, values=B.SURFACES, textvariable=v, width=8, state="readonly")
-            cb.grid(row=row, column=1, sticky="w")
-            cb.bind("<<ComboboxSelected>>", lambda e, v=v: self._set_word(1, v.get()))
-            row += 1
-        if st.kind == "pad" and len(st.toks) > 1 and st.toks[1] in E.MATERIALS:
-            v = tk.StringVar(value=st.toks[1])
-            ttk.Label(body, text="Ball").grid(row=row, column=0, sticky="w")
-            cb = ttk.Combobox(body, values=E.MATERIALS, textvariable=v, width=8, state="readonly")
             cb.grid(row=row, column=1, sticky="w")
             cb.bind("<<ComboboxSelected>>", lambda e, v=v: self._set_word(1, v.get()))
             row += 1
@@ -1755,16 +1754,6 @@ class App(object):
             cb.grid(row=row, column=1, sticky="w")
             cb.bind("<<ComboboxSelected>>", lambda e, v=v: self.set_surface(v.get()))
             row += 1
-        if st.kind == "prop" and len(st.toks) > 1 and st.toks[1] in ("life", "speed", "jump"):
-            for word, label in (("once", "Once: taken for good (one a course)"), ("respawn", "Comes back when its "
-                                                                                  "effect ends"),
-                                ("overwrite", "Ends the other timed effect")):
-                if (word == "once") != (st.toks[1] == "life"):
-                    continue
-                v = tk.BooleanVar(value=word in st.toks)
-                ttk.Checkbutton(body, text=label, variable=v, command=lambda w=word, v=v: self._edit(
-                    self.doc.set_flag, self.sel, w, v.get())).grid(row=row, column=0, columnspan=2, sticky="w")
-                row += 1
         if st.kind in B.VIS_HIDEABLE:
             v = tk.BooleanVar(value=st.toks[-1] == "hidden")
             ttk.Checkbutton(body, text="Hidden on purpose (a secret: no warning)", variable=v,
@@ -2252,6 +2241,120 @@ class App(object):
                         self.doc.replace_area(None, ground=[code])
             return True
         self._edit(go)
+
+    def _option_rows(self, st, body, row):
+        """SPEC.md 130.58.37: a control for every clause the statement may take (tools/bbedopts.py's table),
+        written or not - setting one writes its clause, clearing it (blank, unticked, the "none" choice) takes it
+        out; a choice offers only its legal values"""
+        tk, ttk = self.tk, self.ttk
+        t, ln = list(st.toks), st.line
+        for o in OPT.options_for(t):
+            cur, k = OPT.value(t, o), o["t"]
+            if k == "flag":
+                v = tk.BooleanVar(value=bool(cur))
+                ttk.Checkbutton(body, text=o["label"], variable=v,
+                                command=lambda o=o, v=v: self.set_option(ln, o, v.get())).grid(
+                    row=row, column=0, columnspan=2, sticky="w")
+                row += 1
+                continue
+            ttk.Label(body, text=o["label"]).grid(row=row, column=0, sticky="nw")
+            fr = ttk.Frame(body)
+            fr.grid(row=row, column=1, sticky="w")
+            row += 1
+            if k in ("choice", "bare", "mode"):
+                dflt = None
+                if k == "mode":
+                    pairs = [(m[0], m[1]) for m in o["modes"]]
+                else:
+                    dflt = o["blank"] if o["blank"] in o["vals"] else None    # (that value: the clause out)
+                    pairs = ([] if o["req"] or dflt else [("", o["blank"] or "none")]) + [
+                        ("" if x == dflt else x, x) for x in o["vals"]]
+                v = tk.StringVar(value="" if cur == (dflt or "") else cur or "")
+                if 7 * sum(len(lab) for _x, lab in pairs) + 25 * len(pairs) <= 250:
+                    for x, lab in pairs:
+                        ttk.Radiobutton(fr, text=lab, value=x, variable=v,
+                                        command=lambda o=o, v=v: self.set_option(ln, o, v.get())).pack(side="left")
+                else:
+                    shown = {x: (("(%s)" % lab) if not x else lab) for x, lab in pairs}
+                    back = {lab: x for x, lab in shown.items()}
+                    cv = tk.StringVar(value=shown.get(cur or "", cur or ""))
+                    cb = ttk.Combobox(fr, values=[shown[x] for x, _l in pairs], textvariable=cv, width=11,
+                                      state="readonly")
+                    cb.pack(side="left")
+                    cb.bind("<<ComboboxSelected>>", lambda e, o=o, cv=cv, back=back: self.set_option(
+                        ln, o, back.get(cv.get(), "")))
+                    v = cv
+            elif k == "sides":
+                cur = cur or set()
+                vs = {}
+                for d in OPT.DIRS4:
+                    vs[d] = tk.BooleanVar(value=d in cur)
+                    ttk.Checkbutton(fr, text=d, variable=vs[d], command=lambda o=o, vs=vs: self.set_option(
+                        ln, o, {d_ for d_, b in vs.items() if b.get()})).pack(side="left")
+                v = vs
+            elif k == "pair":
+                a_, b_ = (cur.split() + ["", ""])[:2] if cur else ("", "")
+                va, vb = tk.StringVar(value=a_), tk.StringVar(value=b_)
+
+                def setp(o=o, va=va, vb=vb):
+                    x, y = va.get().strip(), vb.get().strip()
+                    if bool(x) == bool(y):
+                        self.set_option(ln, o, ("%s %s" % (x, y)) if x else "")
+                for var in (va, vb):
+                    sp = ttk.Spinbox(fr, from_=o["lo"], to=o["hi"], increment=o["inc"], width=5, textvariable=var,
+                                     command=setp)
+                    sp.pack(side="left", padx=(0, 2))
+                    sp.bind("<Return>", lambda e, f=setp: f())
+                v = (va, vb)
+            else:                                           # num, name
+                v = tk.StringVar(value=cur or "")
+                if k == "num":
+                    w = ttk.Spinbox(fr, from_=o["lo"], to=o["hi"], increment=o["inc"], width=6, textvariable=v,
+                                    command=lambda o=o, v=v: self.set_option(ln, o, v.get()))
+                    if cur is None:                         # (an arrow starts it at its default, not at the bottom)
+                        w.bind("<Button-1>", lambda e, v=v, o=o: self._spin_default(e, v, o), add="+")
+                else:
+                    w = ttk.Entry(fr, width=12, textvariable=v)
+                w.pack(side="left")
+                w.bind("<Return>", lambda e, o=o, v=v: self.set_option(ln, o, v.get()))
+                w.bind("<FocusOut>", lambda e, o=o, v=v, c=cur: v.get().strip() != (c or "") and self.set_option(
+                    ln, o, v.get()))
+            fr._v = v                                       # (kept alive with its frame)
+            if o["hint"] and k in ("num", "name"):          # (beside a narrow control; under a wide one)
+                ttk.Label(fr, text=o["hint"], foreground="#666", wraplength=150, justify="left").pack(
+                    side="left", padx=4)
+            elif o["hint"]:
+                ttk.Label(body, text=o["hint"], foreground="#666", wraplength=260, justify="left").grid(
+                    row=row, column=1, sticky="w")
+                row += 1
+        return row
+
+    def _spin_default(self, e, v, o):
+        """an arrow of an empty spinbox steps from the clause's default (the arrow's own step then lands on it),
+        not from the bottom of its range"""
+        if v.get().strip() or o["d"] is None or e.x < e.widget.winfo_width() - 18:
+            return
+        d = float(o["d"]) + (-o["inc"] if e.y < e.widget.winfo_height() // 2 else o["inc"])
+        v.set("%g" % d)
+
+    def set_option(self, line, o, val):
+        """one of _option_rows' controls (for the statement on LINE) changed: that statement with the clause
+        set, added or taken out"""
+        if not self.sel or self.sel != line:
+            return
+        st = self.doc.statement(self.sel)
+        if OPT.key_of(st.toks) not in OPT.OPTIONS or o not in OPT.OPTIONS[OPT.key_of(st.toks)]:
+            return
+        if o["t"] == "name" and val and o["pattern"]:
+            import re
+            if not re.match(o["pattern"], val.strip()):
+                self._msg("%s: %s" % (o["label"], o["hint"]))
+                return
+        if o["req"] and val in ("", None):
+            return self._fill_inspector()
+        t = OPT.apply(st.toks, o, val)
+        if t != list(st.toks):
+            self._edit(self.doc.set_tokens, self.sel, t, label=o["label"].lower())
 
     def _seesaw_rows(self, st, body, row):
         """SPEC.md 130.42.2: a plate is 2, 4 or 6 cells along its axis and 1 or 2 across - its size picked from
@@ -3424,6 +3527,10 @@ EXPLAIN = [
      "down on the {2} at ({3}, {4}), and it must land on a floor. For a launch, change its speeds (along x and y "
      "point it at a floor, 'up' sets how high it flies); for a drop, turn the mouth ('Comes out') or change its "
      "mouth height; or move the tube so the floor is where it lands."),
+    (r"channel (\w+) has a gate and nothing opens it|channel (\w+)'s (plate|key) opens nothing",
+     "a gate and what opens it are a pair: a gate needs a plate or key of its channel, and a plate or key needs "
+     "a gate or bridge of its channel. Press Keep it anyway, then add the other half on the same channel "
+     "(its inspector's Channel)."),
     (r"solid outside 3 \.\. 252|outside 3 \.\.", "it reaches the edge of the course's grid. Keep it at least "
      "3 cells from the edge."),
     (r"past the \d+ px width|footprint", "the course would be wider than its picture. Keep it nearer the rest "
