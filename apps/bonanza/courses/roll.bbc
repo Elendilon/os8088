@@ -46,14 +46,12 @@ floor rect  49  53  55  58  flat 3.5   # H
 chute 2 round depth 8 way 26 32 16 way 26 35 15 way 33 35 12.5
 
 # rails: block rails (wall tiles) on the void side of each railed edge
-guard tile  19  20                # see-through
-guard tile  20  20                # see-through
-guard tile  21  20                # see-through
-guard tile  22  20                # see-through
+# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+guard rect  19  21  24  22 side -y
+guard tile  24  20 side -x
 wall  tile  22  28  flat 18
 wall  tile  22  29  flat 18
 wall  tile  22  31  flat 18
-guard tile  23  20                # see-through
 wall  tile  23  23  flat 22
 wall  tile  23  24  flat 22
 wall  tile  23  25  flat 21.5

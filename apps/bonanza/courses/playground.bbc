@@ -253,7 +253,8 @@ float rect  12 34 14 37
 # (the end plate's FRONT guard, `guard rect 26 38 29 39`, is left off: with the clocks occluding
 # (SPEC.md 130.18.5.4) the course reached 257 occluder masks of the 256 a record's mask byte names;
 # the far guard below still stops a fast steel ball)
-guard rect  29 36 30 38
+# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+guard rect  28  36  29  38 side +x
 prop blower 17 29  face +x  region 17 30 17 32  strength 8  gust 64 192
 prop blower 22 36  face +y  region 22 36 25 36  strength 10
 prop blower 15 35  face up  region 14 34 15 36  strength 16  top 5  lift  flag

@@ -87,21 +87,30 @@ wall  tile   6  10  flat 38
 wall  tile   6  11  flat 36
 wall  tile   6  12  flat 34
 wall  tile   7   7  flat 42
-guard tile   8   6                # see-through
+# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+guard tile  23  25 side +x
+guard tile  51  20 side +x
+guard rect  56  17  57  20 side +x
+guard tile  61  38 side +x
+guard rect  65  20  66  22 side +x
+guard tile   8   7 side -y
+guard tile  56  17 side -y
+guard rect  57  20  63  21 side -y
+guard rect  24  26  29  27 side -y
+guard rect  59  39  61  40 side -y
+guard rect  62  39  64  40 side -y
+guard rect  33  16  36  17 side +y
+guard rect  52  19  56  20 side +y
+guard rect  59  37  61  38 side +y
+guard rect  62  37  64  38 side +y
+guard tile  56  20 side -x
+guard tile  61  38 side -x
 wall  tile   9   7  flat 42
-guard tile  24  25                # see-through
-guard tile  25  25                # see-through
-guard tile  26  25                # see-through
-guard tile  27  25                # see-through
-guard tile  28  25                # see-through
 wall  tile  32  15  flat 23.5
 wall  tile  32  17  flat 23.5
 wall  tile  33  15  flat 23.5
-guard tile  33  17                # see-through
 wall  tile  34  15  flat 23.5
-guard tile  34  17                # see-through
 wall  tile  35  15  flat 23.5
-guard tile  35  17                # see-through
 wall  tile  46  13  flat 16
 wall  tile  47  13  flat 16
 wall  tile  48  13  flat 16
@@ -110,28 +119,9 @@ wall  tile  51  13  flat 16
 wall  tile  52  14  flat 16
 wall  tile  52  15  flat 16
 wall  tile  52  16  flat 16
-guard tile  52  20                # see-through
 wall  tile  53  16  flat 16
-guard tile  53  20                # see-through
 wall  tile  54  16  flat 16
-guard tile  54  20                # see-through
 wall  tile  55  16  flat 16
-guard tile  55  20                # see-through
-guard tile  56  16                # see-through
-guard tile  57  17                # see-through
-guard tile  57  18                # see-through
-guard tile  57  19                # see-through
-guard tile  58  19                # see-through
-guard tile  59  19                # see-through
-guard tile  59  38                # see-through
-guard tile  60  19                # see-through
-guard tile  60  38                # see-through
-guard tile  61  19                # see-through
-guard tile  62  19                # see-through
-guard tile  62  38                # see-through
-guard tile  63  38                # see-through
-guard tile  66  20                # see-through
-guard tile  66  21                # see-through
 
 hole  half up tile 38 14          # a diagonal corner
 hole  half right tile 42 14          # a diagonal corner
