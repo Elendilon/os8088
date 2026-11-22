@@ -160,6 +160,16 @@ def check(path, strict, name=None):
     except B.CourseError as e:
         emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
         return 1
+    if not c.test and c.src.title_ln is None:   # SPEC.md 130.58.23: what the GAME BUILD asks of every course (its
+        emit(stage="compile", what="the game's rules: the finish clock, music, target")   # finishes' clocks, its
+        try:                                    # song, its target), checked here too, so "Put in the game" never
+            B.course_song(c)                    # refuses a course the full check passed
+            B.check_budget(c)
+            B.finish_reach_rule(c)
+            B.finish_clock_rule(c)
+        except B.CourseError as e:
+            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
+            return 1
     warns = [warning(w) for w in c.warnings]
     emit(stage="done", ok=True, warnings=warns, secs=round(time.time() - t0, 1))
     return 0

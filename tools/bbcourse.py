@@ -6710,6 +6710,28 @@ def way_xy(t, wx, wy, x0, y0):
     return (x, 8 * (wx + wy) + 8 - (4 * t.z0 + 2 * (t.sx + t.sy)) + y0 - 13)
 
 
+def flat_why(src, tiles, at):
+    """why cell AT is not a flat FLOOR, for a refusal's message (SPEC.md 130.58.23): what it is, and the `hole`
+    line that removed it when one did (a `hole` applies after every room, 130.10.3)"""
+    t = tiles.get(at)
+    hl = next((ln for cells, ln, _h in getattr(src, "holes", ()) if at in cells), None)
+    if t is None:
+        return (": a `hole` (line %d) removes it - a hole applies after every floor, so lay what stands over a "
+                "gap (a bridge, glass, a crack) on cells the hole leaves" % hl) if hl else ": nothing is laid there"
+    if isinstance(t, Split):
+        return ": it is a split cell"
+    kind = getattr(t, "kind", None)
+    if kind == KIND_GOAL:
+        return ": it is a GOAL cell - stand it on the floor beside the goal"
+    if kind == KIND_WALL:
+        return ": it is a WALL"
+    if kind == KIND_FIELD:
+        return ": it is a shaped floor (a chute, pit or hump)"
+    if getattr(t, "sx", 0) or getattr(t, "sy", 0):
+        return ": it is a RAMP"
+    return ""
+
+
 def split_anchors(src, tiles, f):
     """SPEC.md 130.24.4: every statement that stands on a cell's CENTRE - start, way, a material pad, a
     pathway pad, checkpoint, clock, cup, spring, a route's gate, a tube's cells, a windmill, a bumper, a
@@ -6897,7 +6919,8 @@ def build_props(src, tiles, fname):
         what = PK_NAMES[kind]
         t = tiles.get(at)
         if (t is None or t.kind != KIND_FLOOR or t.sx or t.sy) and "flat" not in _CHECKS_OFF:
-            raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, what, at[0], at[1]))
+            raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR%s" % (f, ln, what, at[0], at[1],
+                                                                              flat_why(src, tiles, at)))
         # (no rule about its neighbours: SPEC.md 130.14.4.1 - a flag, a pad, the cup and a spring may stand
         # on a one-tile path or at its end; a respawn is the cell's centre at rest, 130.14.4.5)
         if kind in (PK_CHECKPOINT, PK_CUP) and t.surf != SURF_NORMAL:
@@ -6938,7 +6961,8 @@ def build_props(src, tiles, fname):
             raise CourseError("%s:%d: a %s on (%d, %d), a SPLIT cell: a family element is refused on one, as "
                               "every prop is (SPEC.md 130.24.2)" % (f, ln, kr["name"], at[0], at[1]))
         if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
-            raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR" % (f, ln, kr["name"], at[0], at[1]))
+            raise CourseError("%s:%d: a %s on (%d, %d), not a FLAT FLOOR%s" % (f, ln, kr["name"], at[0], at[1],
+                                                                              flat_why(src, tiles, at)))
         claim(at, ln, kr["name"])
         props.append({"kind": sp["kind"], "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                       "frow": kr, "cls": sp["cls"], "art": kr["art"], "bits": kr["bits"], "z4": 4 * t.z0,
@@ -7041,7 +7065,8 @@ def build_props(src, tiles, fname):
         at, ln = sp["at"], sp["line"]
         t = tiles.get(at)
         if t is None or t.kind != KIND_FLOOR or t.sx or t.sy:
-            raise CourseError("%s:%d: a clock on (%d, %d), not a FLAT FLOOR" % (f, ln, at[0], at[1]))
+            raise CourseError("%s:%d: a clock on (%d, %d), not a FLAT FLOOR%s" % (f, ln, at[0], at[1],
+                                                                       flat_why(src, tiles, at)))
         claim(at, ln, "clock")
         if sp["frame"] != "lives" and clock_anchor(sp) is None:
             ddx, ddy = clock_digits_px(sp)

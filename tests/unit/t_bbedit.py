@@ -34,6 +34,8 @@
     nearest floor (relocate_ways), folded into the edit's one undo step (merge_since), and the course lays out;
     a ramp reshaped longer keeps its slope (reshape: 4 to 9 over 10 cells at half a unit a cell); ways_in
     finds the start, the flag and the route points on a floor.
+ 12. THE GAME'S RULES IN THE FULL CHECK (130.58.23): a course with no `music` compiles and is refused by the
+    check job naming the song; the builder's New course template passes it.
  8. GAP BANDS (130.58.21): (and a mark an edit left with nothing to band is dropped by the picture job,
     which draws the picture rather than refusing it) a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
@@ -350,6 +352,21 @@ def main():
     kinds = sorted(c.split()[0] for _l, c in E.Document(wt).ways_in((4, 4, 12, 10), ("way", "start", "checkpoint")))
     if kinds != ["checkpoint", "start", "way", "way", "way"]:
         bad.append("ways_in: %r on the first floor" % kinds)
+    # 12. THE GAME'S RULES IN THE FULL CHECK (SPEC.md 130.58.23)
+    import io
+    import contextlib
+    nm = ('course NEW "New course"\nwidth 64\nball rubber\nmusic fairway\n\nfloor rect 4 4 14 12 flat 4\n'
+          'start 5 5\ngoal rect 12 10 14 12 flat 4\nclock 13 9\ntarget 30\nway 5 5\nway 13 11\n')
+    with tempfile.TemporaryDirectory() as td:
+        for what, text, want in (("the template", nm, True), ("no music", nm.replace("music fairway\n", ""), False)):
+            p_ = os.path.join(td, "n.bbc")
+            with open(p_, "w", encoding="ascii") as f:
+                f.write(text)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = J.check(p_, False)
+            if (rc == 0) != want or (not want and "music" not in out.getvalue()):
+                bad.append("full check, %s: rc %d, %s" % (what, rc, out.getvalue().strip().splitlines()[-1][:150]))
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

@@ -516,3 +516,19 @@ be walling off only something lower".
 **Tested here:** the compiler's `grammar` and `split` sections (two new accepted cases, red under the old
 rule); MILL plus the owner's wall compiles and its route demo finishes (1,695 steps, no fall); the builder's
 Wall on the gap gives `flat 29`.
+
+## The refusal audit, and the builder's share of it (2026-11-22)
+
+**Asked:** the owner: the engine became "an 'invalid refusal generator'"; find the refusals a designer will
+hit and start fixing them.
+
+**Observed (the audit, 223 constructed courses compiled):** 636 refusal sites in the compiler. The ones a
+designer hits first: NO TRAP refusing any course that needs the Hop or a jump pickup (the owner's jump
+refusal - not a reach bound, as first thought); the occluder bound refusing an ordinary ramp toward the
+viewer; window and lane budgets refusing a see-saw beside a clock, synchronised spikes, a 6-long see-saw and
+a membrane bigger than 2 x 2; and two of the builder's own: a full check that passed what the game build
+refused (music, target, the finish clock), and "not a FLAT FLOOR" that never said why. NO TRAP, the
+occluder bound and the lane budgets went to three agents; the builder's two are fixed here (130.58.23).
+
+**Tested here:** the `bbedit` row's item 12; every shipped course passes the game's rules in the full check;
+the new messages on a constructed course (a goal cell, a holed cell, a ramp, nothing).
