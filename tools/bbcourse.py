@@ -13547,7 +13547,8 @@ def trap_reach(c, cell, mat, cache=None, limit=None, preset=b""):
 class _TrapPar:
     """NO TRAP ON EVERY CORE: trap_succ is a pure function of (course, cell, material, phases, preset) and the
     module's switches, and trap_reach asks for a level's states in a fixed order - so the states it is ABOUT
-    to ask for are computed AHEAD, a share in each of jobs - 1 forked workers and one here, and put in the
+    to ask for are computed AHEAD, a share in each of `jobs` forked workers while this process computes the
+    one asked for, and put in the
     cache trap_reach reads.  trap_reach's own loop is unchanged and reads them in its order: the answer, the
     count of states and the first refusal are the sequential run's.  (A reach that ends on a hit has computed
     at most one wave's states it would not have asked for: cache entries nothing reads.)  A worker that
@@ -13560,7 +13561,7 @@ class _TrapPar:
         self.kids = []
         sys.stdout.flush()
         sys.stderr.flush()
-        for _ in range(n - 1):
+        for _ in range(n):
             tr, tw = os.pipe()
             rr, rw = os.pipe()
             pid = os.fork()
@@ -13605,29 +13606,30 @@ class _TrapPar:
         import pickle
         if c is not _TrapPar.course:
             return
-        n = len(self.kids) + 1
+        n = len(self.kids)
         keys = []
         for st in todo[i + 1:]:                     # (todo[i] is the caller's own next call)
             if st not in cache and st not in keys:
                 keys.append(st)
-                if len(keys) >= n * self.WAVE - 1:
+                if len(keys) >= n * self.WAVE:
                     break
-        if len(keys) < n:
+        if len(keys) < 2:
             return
         share = [keys[k::n] for k in range(n)]
         sent = []
-        for (pid, fo, fi), ks in zip(self.kids, share[1:]):
+        for (pid, fo, fi), ks in zip(self.kids, share):
+            if not ks:
+                continue
             try:
                 pickle.dump((ks, phases, preset), fo, 2)
                 fo.flush()
                 sent.append((fi, ks))
             except OSError:
                 pass
-        for cl, m in share[0]:
-            try:
-                trap_succ(c, cl, m, cache, phases, preset)
-            except Exception:                       # (raised again by the loop's own call, in its order)
-                pass
+        try:                                        # (this process computes only what the loop asked for -
+            trap_succ(c, todo[i][0], todo[i][1], cache, phases, preset)     # todo[i] - so the course's own
+        except Exception:                           # lazy tables hold exactly the sequential run's entries;
+            pass                                    # an exception is raised again by the loop's own call)
         for fi, ks in sent:
             try:
                 got = pickle.load(fi)
@@ -16769,8 +16771,10 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
 
 class Grid:
     """the BZG1 grid as the guest reads it, from a part's bytes"""
-    __slots__ = ("_x", "__dict__", "__weakref__")   # _x: its models' indexes (_gridx) - a slot, so NOT in its
-                                                    # __dict__: never pickled, copied or compared with it
+    __slots__ = ("_x", "_fw", "__dict__", "__weakref__")    # _x: its models' indexes (_gridx) - a slot, so NOT
+    # in its __dict__: never pickled, copied or compared with it.  _fw: fworld's memo, a slot for the same
+    # reason - what it holds is WHICH cells were stepped on, so a course's pickle would differ between a
+    # NO TRAP run on one core and on four (_TrapPar) though no byte of the course does
 
     def __getstate__(self):
         return self.__dict__
@@ -16789,7 +16793,6 @@ class Grid:
         self.props = info["props"]
         self.fams, self.nfst, self.rmask = info["fams"], info["nfst"], info["rmask"]   # wave 9 (130.25.6.4)
         self.ftabs = g["ftabs"]                     # SPEC.md 130.28.2: section F
-        self._fw = {}                               # (shape, symmetry) -> its world table, relative
 
     def cell(self, wx, wy):
         """-> (z0, sx, sy, kind, flags, surface); OPEN outside the grid.  A SPLIT
@@ -16810,10 +16813,14 @@ class Grid:
         """a FIELD cell's world heights from its +0 and +1: 8 z0 (quarter units, SPEC.md 130.48) + its table
         through its symmetry"""
         key = (z0, sl)
-        w = self._fw.get(key)
+        try:
+            fw = self._fw                           # (shape, symmetry) -> its world table, relative
+        except AttributeError:                      # (a new grid, or one unpickled or copied)
+            fw = self._fw = {}
+        w = fw.get(key)
         if w is None:
             o = FTAB * fshape(sl)
-            w = self._fw[key] = [[8 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
+            w = fw[key] = [[8 * z0 + x for x in r] for r in fworld(self.ftabs[o:o + FTAB], sl >> 4 & 7)]
         return w
 
     def pair(self, wx, wy):
