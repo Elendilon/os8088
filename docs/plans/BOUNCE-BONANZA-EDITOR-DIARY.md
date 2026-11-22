@@ -408,6 +408,32 @@ yet:** a game with an added course booted and played on MartyPC.
 editor's stripes on a constructed course. **Not yet:** VGA (the compiler renders no VGA picture), a
 screenshot of the Hercules view.
 
+## The Map tab: the pathway (2026-11-22)
+
+**Intended:** the pathway edited on its own picture, and a course put on it - pad, route, icon (plan wave 7).
+
+**Observed:**
+- **The builder's plan view showed nothing for `path.bbc`.** Its floors are laid by the compiler out of the
+  routes, so the model's analysis has no cells. The map works on the picture instead: every pad, route
+  point, gate, icon and lives counter drawn where the picture has it, dragged and mapped back through the
+  same projection.
+- **A route has to stay legal while it is dragged.** The builder bridges any step that is neither along an
+  axis nor a true diagonal with one corner (the longer axis first, at the far point's height, so a height
+  change is a ramp and the diagonal is level). The row's red arm (no corner) is refused by the compiler.
+- **The map compiles in 0.03 - 0.3 s in the window's own process,** so every edit is checked at once and
+  undone with the reason; the proofs that need every course (reachable, real exits) are the 47 s full
+  check, in the background.
+- **Exits are the course's, not the map's.** The first end-to-end game build refused a route on ROLL's
+  exit 1, which ROLL has not; a placement now offers only pads whose course has an exit free - on the
+  shipped map just its two ends.
+- **A bigger map does not fit the prebuilt game.** The game is assembled with room for exactly the shipped
+  map's 23 signs and 8 pads, so XTRA's map (26 signs, 9 pads) is refused by `bbgame.py --path` with that
+  reason. The pad count also guards the save file, so it cannot just be raised; that is the next piece.
+
+**Tested here:** the `bbedit` row (item 10), red on a bridge that adds no corner; a scripted session on the
+shipped map (pad dragged, refusal undone, a course placed from pad 7). **Not yet:** a game with the bigger
+map, the map played.
+
 ## The compiler made faster (2026-11-22)
 
 **Intended:** the same compile, faster: the builder's full check on PLAYGROUND was minutes.
