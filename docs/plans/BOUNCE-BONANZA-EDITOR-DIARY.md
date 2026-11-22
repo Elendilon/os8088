@@ -493,3 +493,26 @@ on top of the new MILL is refused; why a jump-pickup course glass can make will 
 **Tested here:** the `bbedit` row (item 11), red with no relocation; a scripted session (a point dragged,
 a floor shrunk under two points, a ramp stretched, a floor moved with its start and points, insert and
 reorder).
+
+## Engine: a wall may be lower than what it touches (2026-11-22)
+
+**Asked:** the owner tried to wall MILL's start floor off from the ramp beside it and was refused, the wall
+being lower than the ramp's top: "a wall should be able to be lower than things around it, because it might
+be walling off only something lower".
+
+**Observed:**
+- **The refusal guarded less than it looked.** The physics never read a wall's height against its
+  neighbours (a WALL blocks at every height, in the model and the guest alike), and the renderer draws a wall
+  like any solid cell. The one thing it guarded was that the ball never hits a column it cannot see.
+- **So the rule became per edge** (SPEC.md 130.10.3): a wall walls off what is below it, and a higher floor
+  beside it simply ends at the wall's edge. Only a wall sunk under everything it touches is still refused.
+  No guest byte, physics version or demo moved; no shipped course needed changing.
+- **Letting the ball roll onto a lower wall top was rejected:** on MILL it would carry the ball from the ramp
+  over the wall and down into the start floor, through the very wall meant to stop it.
+- **The builder's default followed the old rule** (one unit over the highest floor beside the area: 33 in
+  the owner's gap). It is now, for every cell of the area, the lowest floor that cell shares an edge with,
+  the highest of those, plus one: the owner's gap gets 29, and it compiles.
+
+**Tested here:** the compiler's `grammar` and `split` sections (two new accepted cases, red under the old
+rule); MILL plus the owner's wall compiles and its route demo finishes (1,695 steps, no fall); the builder's
+Wall on the gap gives `flat 29`.
