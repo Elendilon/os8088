@@ -108,7 +108,8 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
      do instead ("Keep it anyway" if you want it regardless).
   TEST ROLL (the toolbar): plays the course as it stands, in a window of
   its own, on the game's own physics and camera - no disk, no emulator.
-  It starts from the course's start, or from the selected cell. Arrows
+  It starts from the course's start; "Roll from here" starts it on the
+  selected floor cell instead. Arrows
   roll, Space hops, Left Shift grips, Backspace goes back to the last
   flag, P pauses, N steps a frame, 1 / 2 / 4 set the speed, Z rewinds
   5 s, R restarts, Esc closes. It plays at once on a quick compile; when
