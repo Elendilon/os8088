@@ -145,6 +145,7 @@ import hashlib
 import math
 import os
 import re
+import bisect
 import struct
 import sys
 import time
@@ -7275,6 +7276,27 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     cross-commit check (130.16.13)."""
     hopmax = HOPMAX if _hopmax is None else _hopmax
     boost = BOOSTMAX if _boost is None else _boost
+    # THIS CALL'S flights, each speed's made once (the module's flight and IMP read G, VZMAX and VMAXG, which
+    # stand still inside one call - pickup_reach swaps the cap ROUND one, --selfcheck's arms between compiles)
+    fl_, im_ = {}, {}
+
+    def UP(U):
+        f = fl_.get(U)
+        if f is None:
+            f = fl_[U] = flight(U)
+        return -(-f[0] // 256)
+
+    def RADIUS(U):
+        f = fl_.get(U)
+        if f is None:
+            f = fl_[U] = flight(U)
+        return max(3, -(-(f[1] * VMAXG) // (256 * TILE)))
+
+    def IMP(d, _imp=globals()["IMP"]):
+        v = im_.get(d)
+        if v is None:
+            v = im_[d] = _imp(d)
+        return v
     # SPEC.md 130.24.2: a cell's floors are its RECORDS - a whole tile, or a split cell's FLOOR and GOAL halves,
     # each launching from its own top (the apex per half); a cell's hi and lo span them all
     sol = {}
@@ -7337,7 +7359,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     for c, (h0, h1) in bfl.items():
         lo[c], hi[c] = h0, h1
 
-    def spread(srclist):
+    def spread_in_order(srclist):
         best = {}
         for (k, h, r, why) in srclist:
             for dy in range(-r, r + 1):
@@ -7347,11 +7369,48 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
                         best[c] = (h, k, why)
         return best
 
+    # the same cells and values as spread_in_order's (a cell keeps the HIGHEST source that covers it, the first
+    # of them in the list), in another order of the dict: the sources highest first (a stable sort, so equal
+    # heights keep the list's order), each taking the cells of its square nobody took - a row's free cells one
+    # bit each.  Only the unsettled reach's refusal reads the dict's order, and it takes spread_in_order's
+    if cells:
+        minx, miny = min(c[0] for c in cells), min(c[1] for c in cells)
+        maxx, maxy = max(c[0] for c in cells), max(c[1] for c in cells)
+    else:
+        minx = miny = 0
+        maxx = maxy = -1
+    free0 = [0] * (maxy - miny + 1)
+    for (cx, cy) in cells:
+        free0[cy - miny] |= 1 << (cx - minx)
+
+    def spread(srclist):
+        best = {}
+        free = list(free0)
+        for i in sorted(range(len(srclist)), key=lambda i: srclist[i][1], reverse=True):
+            k, h, r, why = srclist[i]
+            kx, ky = k
+            xa, xb = max(kx - r, minx), min(kx + r, maxx)
+            if xa > xb:
+                continue
+            win = ((1 << (xb - xa + 1)) - 1) << (xa - minx)
+            ent = (h, k, why)
+            for cy in range(max(ky - r, miny), min(ky + r, maxy) + 1):
+                m = free[cy - miny] & win
+                if m:
+                    free[cy - miny] ^= m
+                    while m:
+                        low = m & -m
+                        best[(low.bit_length() - 1 + minx, cy)] = ent
+                        m ^= low
+        return best
+
+    last = srcs
     best = spread(srcs)
     rounds = 0
     while True:
         rounds += 1
         if rounds > REACH_ROUNDS:
+            best = spread_in_order(last)
             worst = max((c for c in best), key=lambda c: best[c][0])
             raise CourseError("%s: the reach has not settled in %d rounds (cell (%d, %d) still rising)"
                               % (fname, REACH_ROUNDS, worst[0], worst[1]))
@@ -7366,7 +7425,8 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             if k in bcells and badd_:           # round 3b (SPEC.md 130.17.17): the boost ADDS to that bounce
                 ub = min(VZMAX, max(boost, rh + badd_))
                 extra.append((k, hi[k] + UP(ub - G), RADIUS(min(VZMAX, max(boost, rl + badd_)) - G), "boost"))
-        nb = spread(srcs + extra)
+        last = srcs + extra
+        nb = spread(last)
         if nb == best:
             break
         best = nb
@@ -7544,9 +7604,28 @@ def _ceil_div(n, d):
     return -((-n) // d)
 
 
+_SPANS_MEMO = {}              # spans()' own: {a polygon's points: its runs} - a function of its key alone (in
+#                               _FP_SKIP); emptied when it is full, so a long run's memory stays bounded
+_SPANS_MAX = 16384
+
+
 def spans(poly):
     """Pixels whose centre is inside a simple polygon of quarter-pixel integer
-    vertices: {row: [(x0, x1), ...]} half-open runs, even-odd rule."""
+    vertices: {row: [(x0, x1), ...]} half-open runs, even-odd rule.  (A course's re-renders draw the same
+    polygons again and again: each one's runs are made once, and every caller gets its own dict and lists.)"""
+    try:
+        key = tuple([(len(p), type(p[0]), p[0], type(p[1]), p[1]) for p in poly])
+        got = _SPANS_MEMO.get(key)
+    except TypeError:                               # (a point that does not hash: made as ever)
+        return _spans(poly)
+    if got is None:
+        if len(_SPANS_MEMO) >= _SPANS_MAX:
+            _SPANS_MEMO.clear()
+        got = _SPANS_MEMO[key] = tuple((y, tuple(r)) for y, r in _spans(poly).items())
+    return {y: list(r) for y, r in got}
+
+
+def _spans(poly):
     ys = [p[1] for p in poly]
     out = {}
     n = len(poly)
@@ -7605,7 +7684,13 @@ class Canvas:
 
     def fill(self, sp, colour, s, top, owner=-1):
         """colour: an index or (x, y) -> index; top: (x, y) -> whole px"""
+        # a RUN at a time (the same pixels as one at a time: an ink and a top are functions of the pixel alone);
+        # an ink or a top that carries .run(a, b, y) gives its run's values in one call
         ob = self.obuf
+        ink = colour if callable(colour) else None
+        crun = getattr(colour, "run", None) if ink is not None else None
+        trun = getattr(top, "run", None)
+        c1 = s1 = o1 = None
         for y, runs in sp.items():
             if not 0 <= y < self.h:
                 raise CourseError("course pixel line %d outside the %d-line picture" % (y, self.h))
@@ -7614,12 +7699,29 @@ class Canvas:
             for a, b in runs:
                 if a < 0 or b > self.w:
                     raise CourseError("course pixels %d .. %d outside the %d px picture" % (a, b, self.w))
-                for x in range(a, b):
-                    row[x] = colour(x, y) if callable(colour) else colour
-                    sr[x] = s
-                    tr[x] = top(x, y)
-                    if orow is not None:
-                        orow[x] = owner
+                n = b - a
+                if n <= 0:
+                    continue
+                if s1 is None:
+                    s1 = array("h", [s])
+                    if ink is None:
+                        c1 = bytes((colour,))
+                    if ob is not None:
+                        o1 = array("i", [owner])
+                if ink is None:
+                    row[a:b] = c1 * n
+                elif crun is not None:
+                    row[a:b] = crun(a, b, y)
+                else:
+                    row[a:b] = bytes([ink(x, y) for x in range(a, b)])
+                sr[a:b] = s1 * n
+                if trun is None:
+                    tr[a:b] = array("h", [top(x, y) for x in range(a, b)])
+                else:
+                    v = trun(a, b, y)
+                    tr[a:b] = v if type(v) is array else array("h", v)
+                if orow is not None:
+                    orow[a:b] = o1 * n
         if self.lk is not None:
             self._look_fill(sp, owner)
 
@@ -7645,14 +7747,59 @@ class Canvas:
     def outline(self, sp, left=False, also=None):
         """black on each pixel with nothing of sp above it (left: and each run's first); also: spans whose
         pixels count as sp's (a quartered cell's equal partner, BACK_PARTNER)"""
+        blk = bytes((BLK,))
         for y, runs in sp.items():
             above = sp.get(y - 1)
             above2 = also.get(y - 1) if also else None
+            cover = (above or []) + (above2 or []) if above2 else above or ()
+            if len(cover) > 1:
+                cover = sorted(cover)
             row = self.rows[y]
-            for a, b in runs:
-                for x in range(a, b):
-                    if not (_inside(above, x) or _inside(above2, x)) or (left and x == a):
-                        row[x] = BLK
+            for a, b in runs:                       # (a run at a time: what of it no run above covers)
+                if b <= a:
+                    continue
+                if left:
+                    row[a] = BLK
+                x = a
+                for ca, cb in cover:
+                    if cb <= x:
+                        continue
+                    if ca >= b:
+                        break
+                    if ca > x:
+                        row[x:ca] = blk * (ca - x)
+                    x = cb
+                    if x >= b:
+                        break
+                if x < b:
+                    row[x:b] = blk * (b - x)
+
+
+def _const_top(tv):
+    """a top that is one height everywhere, and its run's (Canvas.fill)"""
+    def top(x, y):
+        return tv
+    top.run = lambda a, b, y: [tv] * (b - a)
+    return top
+
+
+def _xrun(top):
+    """a top that reads its pixel's COLUMN alone (a face's top edge): its .run, each column's height made once"""
+    seen, runs = {}, {}
+
+    def run(a, b, y):
+        out = runs.get((a, b))
+        if out is None:
+            out = array("h")                        # (a face's lines are mostly the same run: Canvas.fill's
+            for x in range(a, b):                   # own array, which it reads and never writes)
+                v = seen.get(x)
+                if v is None:
+                    v = seen[x] = top(x, y)
+                out.append(v)
+            runs[(a, b)] = out
+        return out
+    top.run = run
+    return top
 
 
 def _top_fn(t, wx, wy, x0, y0):
@@ -7660,11 +7807,25 @@ def _top_fn(t, wx, wy, x0, y0):
     tile t inverted through the projection (SPEC.md 130.10.2)"""
     zt = 4 * t.z0
     if t.sx == 0 and t.sy == 0:
-        return lambda x, y: zt
+        return _const_top(zt)
     S = t.sx + t.sy
     if S == 4:                                  # edge-on: it draws no pixel
         return lambda x, y: 4 * max(t.corners())
     sx, sy = t.sx, t.sy
+    if all(type(v) is int for v in (zt, sx, sy, wx, wy, x0, y0)):
+        # the same floor in whole numbers: b / 2 - B = (2 S B4 + 32 C + (sx - sy) A4) / (8 (4 - S)), A4 and B4
+        # the pixel centre's quarter px (4 x + 2 - 4 x0, 4 y + 2 - 4 y0), C = zt - 4 (sx wx + sy wy)
+        kx, ky, den = 4 * (sx - sy), 8 * S, 8 * (4 - S)
+        k0 = 32 * (zt - 4 * (sx * wx + sy * wy)) + (sx - sy) * (2 - 4 * x0) + 2 * S * (2 - 4 * y0)
+
+        def top(x, y):
+            return (kx * x + ky * y + k0) // den
+
+        def run(a, b, y):
+            k = ky * y + k0
+            return [(kx * x + k) // den for x in range(a, b)]
+        top.run = run
+        return top
 
     def top(x, y):
         A = Fraction(4 * x + 2 - 4 * x0, 4)
@@ -7685,7 +7846,7 @@ def _face_fn(xp4, zp, xq4, zq):
         if d < 0:
             num, d = -num, -d
         return num // d
-    return top
+    return _xrun(top)
 
 
 def _line_side(a, b, p0, p1):
@@ -7923,7 +8084,7 @@ def _poly_top_fn(pts):
                 return int(math.floor((ha + (hb - ha) * (X - xa) / float(xb - xa)) / 4.0))
         i = min(range(len(xs)), key=lambda k: abs(xs[k] - X))
         return pts[i][1] // 4
-    return top
+    return _xrun(top)
 
 
 def _field_ops(tiles, t, wx, wy, s, x0, ground=None, joined=None):
@@ -7987,7 +8148,7 @@ def _field_ops(tiles, t, wx, wy, s, x0, ground=None, joined=None):
                     topv = (lo // (4 * HTOPQ)) * HTOPQ      # facet's top - its lowest corner, whole px (130.44.4)
                 else:
                     topv = (lo // (4 * FTOPQ)) * FTOPQ      # (whole px, in steps of FTOPQ: fewer records)
-                mk = (lambda tv: lambda y0: lambda x, y: tv)(topv)
+                mk = (lambda tv: lambda y0: _const_top(tv))(topv)
                 ops.append((spans(P), "facet", key, mk, ink, t, (wx, wy)))
     return ops
 
@@ -8258,6 +8419,14 @@ def FRONT_INK(x, y):
     return BLK if (x & 1) == 0 and (y & 1) == 0 else MAG
 
 
+def _SE_INK(x, y):
+    """the se face's checker"""
+    return MAG if (x + y) & 1 == 0 else BLK
+
+
+_SE_INK.run = lambda a, b, y: (bytes((MAG, BLK) if (a + y) & 1 == 0 else (BLK, MAG)) * ((b - a + 1) >> 1))[:b - a]
+
+
 def render(tiles, ops, x0, y0, w, h, owners=False):
     cv = Canvas(w, h, owners)
     for sp0, which, s, mk, left, t, (wx, wy) in ops:
@@ -8314,7 +8483,7 @@ def render(tiles, ops, x0, y0, w, h, owners=False):
             cv.fill(sp, MAG, s, top, own)
             cv.outline(sp, left=True)
         elif which == "se":
-            cv.fill(sp, lambda x, y: MAG if (x + y) & 1 == 0 else BLK, s, top, own)
+            cv.fill(sp, _SE_INK, s, top, own)
             cv.outline(sp, left=True)
         elif which == "front":                      # SPEC.md 130.24.6.1: an LR up half's FRONT face, PROVISIONAL
             cv.fill(sp, FRONT_INK, s, top, own)     # (130.24.12 Q2): between sw's solid and se's checker
@@ -10413,6 +10582,15 @@ def _field_occ(cv, rc, t, x0, y0, occ, _raise=0, other=None, show=FSHOW, lift=CL
                         poses[k] = zl
     w, h, zhi = cv.w, cv.h, rc.zhi
     other = other or ()
+    if not poses:
+        return
+    # the lines any pose can reach, and each column's pixels in them that lay over this row at all (a later
+    # row's: sp > s), made once a column - the poses share them
+    sbuf, tbuf = cv.sbuf, cv.tbuf
+    ylo = max(min(k[1] for k in poses) - zhi - 1 + min(r[0] for r in cols), 0)
+    yhi = min(max(k[1] for k in poses) - (min(poses.values()) + (min(lift, 0) if show is not None else 0))
+              + max(r[1] for r in cols), h - 1)
+    colc = {}
     for (px, pyz), zl in poses.items():
         if show is not None:                        # the SHOW rule: a ball ON the shape is drawn whole
             zl += lift
@@ -10424,37 +10602,71 @@ def _field_occ(cv, rc, t, x0, y0, occ, _raise=0, other=None, show=FSHOW, lift=CL
             if not 0 <= x < w:
                 continue
             r0, r1 = cols[dx]
+            cl = colc.get(x)
+            if cl is None:
+                ys, es = [], []
+                for y in range(ylo, yhi + 1):
+                    sp = sbuf[y][x]
+                    if sp > s:
+                        ys.append(y)
+                        es.append((sp, tbuf[y][x]))
+                cl = colc[x] = (ys, es)
+            ys, es = cl
             # the pose at z has its top at pyz - z (pyz - z - 1 with a fraction): line y is lit at some z of
             # [pyz - y - 1 + r0, pyz - y + r1]
-            for y in range(max(pyz - zhi - 1 + r0, 0), min(pyz - zl + r1, h - 1) + 1):
-                sp = cv.sbuf[y][x]
-                if sp <= s:
-                    continue
-                tp = cv.tbuf[y][x]
-                zt = min(zhi, tp - 1)
-                a0, b0 = max(zl, pyz - y + r0), min(zt, pyz - y + r1)
-                a1, b1 = max(zl, pyz - y + r0 - 1), min(zt, pyz - y + r1 - 1)
+            yb = min(pyz - zl + r1, h - 1)
+            for i in range(bisect.bisect_left(ys, max(pyz - zhi - 1 + r0, 0)), len(ys)):
+                y = ys[i]
+                if y > yb:
+                    break
+                sp, tp = es[i]
+                zt = zhi if tp > zhi else tp - 1
+                d = pyz - y
+                a0, b0 = d + r0, d + r1
+                a1, b1 = a0 - 1, b0 - 1
+                if a0 < zl:
+                    a0 = zl
+                if a1 < zl:
+                    a1 = zl
+                if b0 > zt:
+                    b0 = zt
+                if b1 > zt:
+                    b1 = zt
                 if a0 <= b0 or a1 <= b1:
                     cand.append((x, y, sp, tp, a0, b0, a1, b1))
         if not cand:
             continue
         if show is None:
-            keep0 = keep1 = None
-        else:                                       # the SHOW rule: the poses past `show`, f 0 and f 1
-            n0, n1 = {}, {}
-            for x, y, _sp, _tp, a0, b0, a1, b1 in cand:
-                if (x, y) in other:
-                    continue
-                for z in range(a0, b0 + 1):
-                    n0[z] = n0.get(z, 0) + 1
-                for z in range(a1, b1 + 1):
-                    n1[z] = n1.get(z, 0) + 1
-            keep0 = {z for z, n in n0.items() if n > show}
-            keep1 = {z for z, n in n1.items() if n > show}
-            if not keep0 and not keep1:
+            for x, y, sp, tp, a0, b0, a1, b1 in cand:
+                occ[(x, y)] = (sp, tp)
+            continue
+        # the SHOW rule: the poses past `show`, f 0 and f 1 - each height's count of the pixels no other ball
+        # needs (the ranges' ends summed up the heights), then p0 and p1: the heights past `show` below each
+        nz = zhi - zl + 2
+        d0, d1 = [0] * nz, [0] * nz
+        for x, y, _sp, _tp, a0, b0, a1, b1 in cand:
+            if (x, y) in other:
                 continue
+            if a0 <= b0:
+                d0[a0 - zl] += 1
+                d0[b0 + 1 - zl] -= 1
+            if a1 <= b1:
+                d1[a1 - zl] += 1
+                d1[b1 + 1 - zl] -= 1
+        p0, p1, n0, n1, k0, k1 = [0], [0], 0, 0, 0, 0
+        for i in range(nz - 1):
+            n0 += d0[i]
+            n1 += d1[i]
+            if n0 > show:
+                k0 += 1
+            if n1 > show:
+                k1 += 1
+            p0.append(k0)
+            p1.append(k1)
+        if not k0 and not k1:
+            continue
         for x, y, sp, tp, a0, b0, a1, b1 in cand:
-            if keep0 is None or any(a0 <= z <= b0 for z in keep0) or any(a1 <= z <= b1 for z in keep1):
+            if (a0 <= b0 and p0[b0 + 1 - zl] > p0[a0 - zl]) or (a1 <= b1 and p1[b1 + 1 - zl] > p1[a1 - zl]):
                 occ[(x, y)] = (sp, tp)
 
 
@@ -10538,14 +10750,18 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, s
         xl, xh = max(xl, 0), min(xh, w - 1)
         ytop = yt0 - zhi + y0
         ybot = yb0 - zlo + y0
+        if xl > xh:
+            continue
         for y in range(max(ytop, 0), min(ybot, h - 1) + 1):
-            sr, tr = cv.sbuf[y], cv.tbuf[y]
-            for x in range(xl, xh + 1):
-                sp = sr[x]
+            sr = cv.sbuf[y][xl:xh + 1]
+            if max(sr) <= s:                     # (no pixel of the line is a later row's)
+                continue
+            x = xl - 1
+            for sp, tp in zip(sr, cv.tbuf[y][xl:xh + 1]):
+                x += 1
                 if sp <= s:
                     continue
-                tp = tr[x]
-                zmax = min(zhi, tp - 1)          # the highest ball the pixel still hides
+                zmax = zhi if tp > zhi else tp - 1   # the highest ball the pixel still hides
                 if zmax < zlo or (flo and tp <= zlo + CLIMB):   # (OVER A FLOOR: the low-flight margin, below)
                     continue
                 # above every footprint low enough - a ball at whole height zmax
@@ -10605,23 +10821,40 @@ def _laid(reach, recs_by_block, x0, y0, rc_list=None, zr=None, margin=0, frac=No
                         cand.append(r)
         n_best = 0
         if cand:
-            p4s = range(16 * rc.a + x0 - 24, 16 * rc.a + x0 + 5, 4)
+            # the count of the live records in each footprint's blocks, as before - by a count a block, the
+            # records leaving it as z passes their tops, and each DISTINCT span of block rows and columns once
+            # (the most over a height's positions is all n_best and worst read: worst[0] is never under n_best)
+            cnt = {}
+            for r in cand:
+                k = (r["brow"], r["col"])
+                cnt[k] = cnt.get(k, 0) + 1
+            bytop = sorted(cand, key=lambda r: r["top"])
+            gone, ncand = 0, len(cand)
+            cspans = sorted({(p4 >> 3, (p4 + 19) >> 3) for p4 in range(16 * rc.a + x0 - 24, 16 * rc.a + x0 + 5, 4)})
             for z in range(lo, hi + 1):
-                live = [r for r in cand if r["top"] > z + margin]
-                if not live:
+                zm = z + margin
+                while gone < ncand and bytop[gone]["top"] <= zm:
+                    r = bytop[gone]
+                    cnt[(r["brow"], r["col"])] -= 1
+                    gone += 1
+                if gone == ncand:
                     break
                 t0 = foot_top(rc, z) + y0
                 # (t0 - 1: whole height z with a fraction, below the apex)
                 f1 = frac(rc, z) if frac else z < hi
-                for py in range(t0 - (1 if f1 else 0), t0 + 16):
-                    rows = (py >> 3, (py + 15) >> 3)
-                    for p4 in p4s:
-                        c0, c1 = p4 >> 3, (p4 + 19) >> 3
-                        n = sum(1 for r in live if rows[0] <= r["brow"] <= rows[1] and c0 <= r["col"] <= c1)
-                        if n > n_best:
-                            n_best = n
-                            if n > worst[0]:
-                                worst = (n, (rc.wx, rc.wy), z)
+                n = 0
+                for r0, r1 in {(py >> 3, (py + 15) >> 3) for py in range(t0 - (1 if f1 else 0), t0 + 16)}:
+                    for c0, c1 in cspans:
+                        m = 0
+                        for br in range(r0, r1 + 1):
+                            for bc in range(c0, c1 + 1):
+                                m += cnt.get((br, bc), 0)
+                        if m > n:
+                            n = m
+                if n > n_best:
+                    n_best = n
+                    if n > worst[0]:
+                        worst = (n, (rc.wx, rc.wy), z)
         best[(rc.wx, rc.wy)] = n_best
     return best, worst
 
@@ -10639,16 +10872,24 @@ def block_queries(reach, x0, y0, width, ft=None):
     for rc, zlo, zhi, xl, xh, yt0, yb0 in ft:
         s = rc.s
         cols = range(max(xl, 0) >> 3, (min(xh, width - 1) >> 3) + 1)
+        rows = {}                               # a block row -> its heights' pairs (the rows in the order met)
         for z in range(zlo, zhi + 1):
             t0 = yt0 - z + y0 - 1
             t1 = yb0 - z + y0
-            pair = ((s, z), (s, z + CLIMB))
             for br in range(max(t0, 0) >> 3, (t1 >> 3) + 1):
-                for bc in cols:
-                    st = q.get((br, bc))
-                    if st is None:
-                        st = q[(br, bc)] = set()
-                    st.update(pair)
+                pr = rows.get(br)
+                if pr is None:
+                    pr = rows[br] = []
+                pr.append((s, z))
+                pr.append((s, z + CLIMB))
+        for br, pr in rows.items():
+            pr = set(pr)
+            for bc in cols:
+                st = q.get((br, bc))
+                if st is None:
+                    q[(br, bc)] = set(pr)
+                else:
+                    st |= pr
     return q
 
 
@@ -10671,12 +10912,23 @@ def merge_records(records, q, _force=None):
     for key in sorted(by_block):
         recs = by_block[key]
         Q = sorted(q.get(key, ()))
+        # _verdict's tuple, told by less: Q is sorted, so the queries of one row s_b lie together with their
+        # heights rising, and a record lays the first n of each row before its own - (n a row) names the tuple
+        rows_ = []
+        for sb, zm in Q:
+            if rows_ and rows_[-1][0] == sb:
+                rows_[-1][1].append(zm)
+            else:
+                rows_.append((sb, [zm]))
         classes = {}
         order = []
         for i, r in enumerate(recs):
-            v = _verdict(r, Q)
             if _force and _force[0] == key and i == _force[2]:
-                v = _verdict(recs[_force[1]], Q)
+                r_ = recs[_force[1]]
+            else:
+                r_ = r
+            s_, top_ = r_["s"], r_["top"]
+            v = tuple([bisect.bisect_left(zl, top_) if sb < s_ else 0 for sb, zl in rows_])
             if not any(v):
                 continue
             if v not in classes:
@@ -11051,13 +11303,18 @@ def av_residual(cv, rcs, grid, x0, y0, depth=None):
     for q in rcs:
         xl, xh = max(q.xl, 0), min(q.xh, w - 1)
         cols = amodel_cols(grid.front(q.wx, q.wy, depth), xl, xh)
+        if xl > xh:
+            continue
+        s = q.s
         for y, zlo_y, zhi_y in _av_lines(q, y0, h):
-            sr, tr = cv.sbuf[y], cv.tbuf[y]
-            for x in range(xl, xh + 1):
-                sp = sr[x]
-                if sp <= q.s:
+            sr = cv.sbuf[y][xl:xh + 1]
+            if max(sr) <= s:                        # (no pixel of the line is a later row's)
+                continue
+            x = xl - 1
+            for sp, tp in zip(sr, cv.tbuf[y][xl:xh + 1]):
+                x += 1
+                if sp <= s:
                     continue
-                tp = tr[x]
                 if max(zlo_y, amodel_z(cols, x, y)) <= min(zhi_y, tp - 1):
                     occ[(x, y)] = (sp, tp)
     return occ
@@ -13460,7 +13717,7 @@ def _events(meet):
     return max([1] + list(per.values()))
 
 
-def _tilt_chg(meet, recs):
+def _tilt_chg(meet, recs, memo=None):
     """SPEC.md 130.42.5: a see-saw's lanes all turn on ONE step - the most of one plate's lanes meeting the window,
     less the 1 _events already counts for the event lanes; and SPEC.md 130.42.11: a TIMED plate's lanes turn on its
     timer, so theirs are counted whole - the most, at the worst of the 256 steps the low byte times, of every timed
@@ -13473,8 +13730,16 @@ def _tilt_chg(meet, recs):
             d[q] = d.get(q, 0) + 1
     w = max(per.values()) - 1 if per else 0
     if tim:
-        w += max(sum(n for q, n in tim.items() if tl_tpose(recs[q], k) != tl_tpose(recs[q], k + 1))
-                 for k in range(256))
+        if memo is None:
+            memo = {}
+        ch = [0] * 256                              # (memo: check_bounds' own, one call's - each plate's steps)
+        for q, n in tim.items():
+            st = memo.get(("tl", q))
+            if st is None:
+                st = memo[("tl", q)] = [k for k in range(256) if tl_tpose(recs[q], k) != tl_tpose(recs[q], k + 1)]
+            for k in st:
+                ch[k] += n
+        w += max(ch)
     return w
 
 
@@ -13488,14 +13753,23 @@ def _ga_chg(meet):
     return max(per.values()) if per else 0
 
 
-def _tt_changes(meet):
+def _tt_changes(meet, memo=None):
     """THE TURNTABLE (SPEC.md 130.43): its cells' share of a window's pose changes on one step - every turntable
     lane meeting the window that changes on the same step, at the worst of the 256 steps the low byte times (a
     table's cells turn together: a half-filled 2 x 2 changes 2 or 4 of them at a turn, a 3 x 3's ring up to 8)"""
     tt = [L[4] for L in meet if L[4]["kind"] == TT_K]
     if not tt:
         return 0
-    return max(sum(1 for r in tt if tt_pose(r, n) != tt_pose(r, n + 1)) for n in range(256))
+    if memo is None:
+        memo = {}
+    ch = [0] * 256                                  # (memo: check_bounds' own, one call's - each cell's steps)
+    for r in tt:
+        st = memo.get(("tt", id(r)))
+        if st is None:
+            st = memo[("tt", id(r))] = [n for n in range(256) if tt_pose(r, n) != tt_pose(r, n + 1)]
+        for n in st:
+            ch[n] += 1
+    return max(ch)
 
 
 def _meet(r, x0, y0, x1, y1):
@@ -13525,34 +13799,47 @@ def ring_cross(r0, r1, x0, x1, herc):
     return ((rb * r0 + 2 * x0) & 0x1FFF) + (r1 - r0 - 1) * rb + 2 * (x1 - x0) >= 0x2000 + 2
 
 
-def _wind_turns(c, recs, where):
+def _wind_turns(c, recs, where, memo=None):
     """WIND (SPEC.md 130.34.11): the TIMED event lanes meeting one window - a wisp's squiggles and a flagged
     blower's pennant, each turning when its gust does - may not turn on the same step (the window's event
     lanes are one pose change a step, 130.19.10): over the 1,024 steps every period divides, refused when two
     do"""
-    by = dict((r["i"], r) for r in c.part["props"])
+    if memo is None:
+        memo = {}                                   # (memo: check_bounds' own, one call's - each record's steps)
+    by = memo.get("by")
+    if by is None:
+        by = memo["by"] = dict((r["i"], r) for r in c.part["props"])
     gust = []
     for r in recs:
-        b = by.get(r["wblower"]) if r["kind"] == WD_K2 else r if (r["kind"] == WD_K and r.get("wflags", 0) & WD_FFLAG
-                                                                  and r["won"]) else None
-        if b is not None:
-            gust.append((r, lambda n, b=b: wind_blowing(b, n)))
-        elif r["kind"] == SP_KP:                    # SPIKES (SPEC.md 130.38): a POPSPIKE's lane turns on its timer
-            gust.append((r, lambda n, r=r: sp_up(r, n)))
-        elif r["kind"] == GT_KB and r.get("gch") == GT_TIMED:     # SPEC.md 130.41.5: a TIMED BRIDGE's too
-            gust.append((r, lambda n, r=r: gt_down(r, n, 0)))
+        st = memo.get(("wd", id(r)), memo)
+        if st is memo:
+            b = by.get(r["wblower"]) if r["kind"] == WD_K2 else r if (r["kind"] == WD_K and r.get("wflags", 0)
+                                                                      & WD_FFLAG and r["won"]) else None
+            if b is not None:
+                up = lambda n, b=b: wind_blowing(b, n)
+            elif r["kind"] == SP_KP:                # SPIKES (SPEC.md 130.38): a POPSPIKE's lane turns on its timer
+                up = lambda n, r=r: sp_up(r, n)
+            elif r["kind"] == GT_KB and r.get("gch") == GT_TIMED:     # SPEC.md 130.41.5: a TIMED BRIDGE's too
+                up = lambda n, r=r: gt_down(r, n, 0)
+            else:
+                up = None
+            st = memo[("wd", id(r))] = None if up is None else [up, None]
+        if st is not None:
+            gust.append((r, st))
     if len(gust) < 2:
         return
     seen = {}
-    for r, up in gust:
-        for n in range(1024):
-            if up(n) != up((n + 1) & 0xFFFF):
-                if n in seen and seen[n] is not r:
-                    raise CourseError("%s: the %s: two timed lanes (gusting blowers', popspikes') turn on the same "
-                                      "step (%d of 1,024: the records %d and %d) - one pose change a step among a "
-                                      "window's event lanes; give one a `seed` (SPEC.md 130.34.11, 130.38)"
-                                      % (c.fname, where, n, seen[n]["i"], r["i"]))
-                seen[n] = r
+    for r, st in gust:
+        if st[1] is None:
+            up = st[0]
+            st[1] = [n for n in range(1024) if up(n) != up((n + 1) & 0xFFFF)]
+        for n in st[1]:
+            if n in seen and seen[n] is not r:
+                raise CourseError("%s: the %s: two timed lanes (gusting blowers', popspikes') turn on the same "
+                                  "step (%d of 1,024: the records %d and %d) - one pose change a step among a "
+                                  "window's event lanes; give one a `seed` (SPEC.md 130.34.11, 130.38)"
+                                  % (c.fname, where, n, seen[n]["i"], r["i"]))
+            seen[n] = r
 
 
 def check_bounds(c, hack=None):
@@ -13562,6 +13849,14 @@ def check_bounds(c, hack=None):
     hack = hack or {}
     lanes, slabs = _rects(c)
     info = {}
+    # ONE CALL'S memos (never kept: --selfcheck's arms flip the globals the verdicts read).  The records are read
+    # and never written here and `lanes` holds them, so id() names one.  win: the lanes meeting a window, in
+    # `lanes`' order -> what the window's checks made of them - they read nothing else of the window, and a set
+    # that is refused raises at its first window, so only a passing one is ever found again
+    memo, win = {}, {}
+    lanes_i = [L[:4] + (i,) for i, L in enumerate(lanes)]
+    fast_i = [lane_fast(L[4]) for L in lanes]
+    recs_ = c.part["props"]
     for herc in (0, 1):
         W, H, rl, lsh = CARDS[herc]
         rmax = c.brows * 8 // rl - H
@@ -13573,49 +13868,66 @@ def check_bounds(c, hack=None):
         for R in range(rmax + 1):
             ya, yb = R * rl, R * rl + WIN_LINES
             ra, rb = 8 * ((ya >> 3) - 2), 8 * (((yb - 1) >> 3) + 3)
-            inrange = [L for L in lanes if L[1] < rb and ra < L[3]]
+            inrange = [L for L in lanes_i if L[1] < rb and ra < L[3]]
             slr = [S for S in slabs if S[1] < rb and ra < S[3]]     # (the tracked lift's rows, 130.12.4.7)
-            nfr = sum(1 for L in inrange if lane_fast(L[4]))
+            nfr = sum(1 for L in inrange if fast_i[L[4]])
             most_r = max(most_r, nfr)
             most_rall = max(most_rall, len(inrange))
             if nfr > RANGE_LANES:
                 raise CourseError("%s: %d FAST lanes in the walk's range of the %s window at row %d, over %d "
                                   "(SPEC.md 130.19.10)" % (c.fname, nfr, "Hercules" if herc else "CGA", R,
                                                            RANGE_LANES))
+            inrow = [L for L in inrange if L[1] < yb and ya < L[3]]
             for C in cols_:            # (a PAGED camera's columns are page 0's, 130.22.4.3)
                 xa, xb = 8 * C, 8 * (C + W)
-                meet = [L for L in inrange if _meet(L, xa, ya, xb, yb)]
-                nf = sum(1 for L in meet if lane_fast(L[4]))
-                if nf > WIN_LANES:
-                    raise CourseError("%s: %d FAST lanes (rotors) meet the %s window at (row %d, column %d), over "
-                                      "%d (SPEC.md 130.19.10)" % (c.fname, nf, "Hercules" if herc else "CGA", R, C,
-                                                                  WIN_LANES))
-                most = max(most, nf)
-                most_all = max(most_all, len(meet))
-                rot = [L[4] for L in meet if L[4]["kind"] == PK_WINDMILL]
-                w1 = (len(rot), len(rot))
-                if len(rot) > 1:
-                    w1 = rotor_changes(rot)
-                    worst = max(worst, w1)
-                    if w1[0] > ROTOR_CHG or w1[1] > ROTOR_CHG:
-                        raise CourseError("%s: the %s window at (row %d, column %d): %d rotor pose changes on one "
-                                          "step, %d in two consecutive (at most %d)" % (
-                                              c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1], ROTOR_CHG))
-                chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
-                    + sum(1 for L in meet if L[4].get("always")) \
-                    + _events(meet) + _tilt_chg(meet, c.part["props"]) + _tt_changes(meet) + _ga_chg(meet)
-                _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
-                    "Hercules" if herc else "CGA", R, C))
-                most_chg = max(most_chg, chg)
-                if chg > WIN_CHG:
-                    raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
-                                      "(rotors %d, clock digits %d, events and turntables %d), over %d (SPEC.md 130.19.10)%s" % (
-                                          c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
-                                          sum(1 for L in meet if lane_digit(L[4])),
-                                          _events(meet) + _tt_changes(meet), WIN_CHG,
-                                          "; gate art lanes %d" % _ga_chg(meet) + "; see-saws' lanes %d more (a timed one's timer: give it a `seed`, or keep "
-                                          "it out of a weight one's windows, SPEC.md 130.42.11)"
-                                          % _tilt_chg(meet, c.part["props"]) if _tilt_chg(meet, c.part["props"]) else ""))
+                key = tuple([L[4] for L in inrow if L[0] < xb and xa < L[2]])
+                hit = win.get(key)
+                if hit is not None:
+                    nf, nrot, w1, chg = hit
+                    if nf > most:
+                        most = nf
+                    if len(key) > most_all:
+                        most_all = len(key)
+                    if nrot > 1:
+                        worst = max(worst, w1)
+                    if chg > most_chg:
+                        most_chg = chg
+                else:
+                    meet = [lanes[i] for i in key]
+                    nf = sum(1 for L in meet if lane_fast(L[4]))
+                    if nf > WIN_LANES:
+                        raise CourseError("%s: %d FAST lanes (rotors) meet the %s window at (row %d, column %d), "
+                                          "over %d (SPEC.md 130.19.10)" % (c.fname, nf, "Hercules" if herc else "CGA",
+                                                                           R, C, WIN_LANES))
+                    most = max(most, nf)
+                    most_all = max(most_all, len(meet))
+                    rot = [L[4] for L in meet if L[4]["kind"] == PK_WINDMILL]
+                    nrot = len(rot)
+                    w1 = (len(rot), len(rot))
+                    if len(rot) > 1:
+                        w1 = rotor_changes(rot)
+                        worst = max(worst, w1)
+                        if w1[0] > ROTOR_CHG or w1[1] > ROTOR_CHG:
+                            raise CourseError("%s: the %s window at (row %d, column %d): %d rotor pose changes on "
+                                              "one step, %d in two consecutive (at most %d)" % (
+                                                  c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1],
+                                                  ROTOR_CHG))
+                    chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
+                        + sum(1 for L in meet if L[4].get("always")) \
+                        + _events(meet) + _tilt_chg(meet, recs_, memo) + _tt_changes(meet, memo) + _ga_chg(meet)
+                    _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
+                        "Hercules" if herc else "CGA", R, C), memo)
+                    most_chg = max(most_chg, chg)
+                    if chg > WIN_CHG:
+                        raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
+                                          "(rotors %d, clock digits %d, events and turntables %d), over %d (SPEC.md 130.19.10)%s" % (
+                                              c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
+                                              sum(1 for L in meet if lane_digit(L[4])),
+                                              _events(meet) + _tt_changes(meet, memo), WIN_CHG,
+                                              "; gate art lanes %d" % _ga_chg(meet) + "; see-saws' lanes %d more (a timed one's timer: give it a `seed`, or keep "
+                                              "it out of a weight one's windows, SPEC.md 130.42.11)"
+                                              % _tilt_chg(meet, recs_, memo) if _tilt_chg(meet, recs_, memo) else ""))
+                    win[key] = (nf, nrot, w1, chg)
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
                 if len(slr) > 1 and not hack.get("lift2wide"):
                     wl, wr = 8 * (C - LIFT_LCM), 8 * (C + W + LIFT_LCM)
@@ -13630,7 +13942,7 @@ def check_bounds(c, hack=None):
                 if len(sl) > 1:
                     raise CourseError("%s: two platforms in one %s window (row %d, column %d)"
                                       % (c.fname, "Hercules" if herc else "CGA", R, C))
-                if sl and rot:
+                if sl and nrot:
                     raise CourseError("%s: a platform's track and a windmill's rotor in one %s window (row %d, "
                                       "column %d)" % (c.fname, "Hercules" if herc else "CGA", R, C))
         # the start window's calibration corner (130.12.5.4): a PAGED course's is page 0's window
@@ -21698,7 +22010,7 @@ def _dump(obj, f, gids=None):
 
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
-_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS",
+_FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS", "_SPANS_MEMO",
                       "_SHADOW_DYN", "_SHADOW_IN", "_GAP",   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
                       "GROUND_AUTO"))   # (a sentinel object(): its repr is an ADDRESS, so every process keyed apart)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
@@ -22256,16 +22568,19 @@ def _plan_hold(p, k, ax):
     return PLAN_W2K[tuple(s)] | (k & ~(K_L | K_R | K_U | K_D))
 
 
-def _plan_leg(p, hops, n, hold=None, aim=None, trail=None):
+def _plan_leg(p, hops, n, hold=None, aim=None, trail=None, st=None):
     """step p in place: 130.6's autopilot, Space added on the steps in HOPS (counted from 0), for at most n
     steps -> (ok, keys, the step it failed on): ok when the next way is taken (p.wp moves) or the goal reached
     with no fall, no RETURN and no timeout; a fall, a shatter or PLAN_STALL steps stuck fail it.  HOLD: (axis,
     t, length), the arrows _plan_hold's on steps t .. t + length - 1 (SPEC.md 130.14.7.4.2).  AIM: (flag
     number, its way point), the arrows aimed at the flag's cell until the flag is touched (SPEC.md 130.14.7.4.4)
-    and the leg ok only with it touched; TRAIL: a list the ball's ground cell is appended to each step"""
-    w, nf, keys = p.wp, p.nfall, []
-    last, still = None, 0
-    for i in range(n):
+    and the leg ok only with it touched; TRAIL: a list the ball's ground cell is appended to each step.
+    ST (_LegHead's): [the step to go on from, its keys so far, last, still] - a leg whose first steps another
+    has already stepped, P the Physics after them (its way and its falls are the leg's start's: a step that
+    moved either ended the leg); the list is left as the leg stands when its N steps run out"""
+    w, nf = p.wp, p.nfall
+    i0, keys, last, still = st if st is not None else (0, [], None, 0)
+    for i in range(i0, n):
         if aim is not None and not p.cksn >> aim[0] & 1:
             base = p.route                          # (the route cut to end at the flag: 130.6's reach test
             p.route = list(base[:w]) + [aim[1]]     # cannot pass a LAST way, so the arrows steer onto the
@@ -22296,7 +22611,34 @@ def _plan_leg(p, hops, n, hold=None, aim=None, trail=None):
         else:
             still = 0
         last = at
+    if st is not None:
+        st[:] = [max(i0, n), keys, last, still]
     return False, keys, n
+
+
+class _LegHead:
+    """a leg's FIRST STEPS, stepped once for the tries that share them: the arrows alone (130.6's) up to the
+    step a try's own key begins on - a Hop's press, a hold's window.  A try of _plan_leg(clone of p, hops, n,
+    hold) whose first T steps are the arrows' is at(T)'s clone gone on from step T: the same steps of the same
+    model in the same order, each of the head's made once instead of once a try.  WAIT: the head of a WAIT's
+    leg (hold[0] == 2), whose steps before the stop are never counted stuck (_plan_leg's `still`)"""
+
+    def __init__(self, p, wait=False):
+        self.p, self.st, self.done = _clone(p), [0, [], None, 0], None
+        self.hold = (2, 1 << 30, 0) if wait else None
+
+    def leg(self, t, hops, n, hold=None):
+        """-> _plan_leg's (ok, keys, fail) and the Physics after it, for a try whose own keys begin on step T"""
+        if self.done is None and self.st[0] < t:
+            r = _plan_leg(self.p, (), t, self.hold, st=self.st)
+            if self.st[0] < t:                      # (the arrows ended the leg before step T: every later
+                self.done = r                       # try is that leg)
+        if self.done is not None:
+            ok, keys, fail = self.done
+            return ok, list(keys), fail, _clone(self.p)
+        q = _clone(self.p)
+        ok, keys, fail = _plan_leg(q, hops, n, hold, st=[t, list(self.st[1]), self.st[2], self.st[3]])
+        return ok, keys, fail, q
 
 
 def _plan_tries(p, spent, nohop=False, hold=False, flags=None, tt=None):
@@ -22357,11 +22699,11 @@ def _plan_waits(p, spent, fail):
     byte; at most PLAN_ALT"""
     found = 0
     for n in () if _NOWAIT else PLAN_WAIT:         # (_NOWAIT: the selfcheck's red arm)
+        head = _LegHead(p, True)
         for t in range(0, min(fail + 2, PLAN_SEG), PLAN_HOLD_EVERY):
             if spent[0] > PLAN_BUDGET:
                 return
-            q = _clone(p)
-            ok, keys, _f = _plan_leg(q, (), PLAN_SEG + n, (2, t, n))
+            ok, keys, _f, q = head.leg(t, (), PLAN_SEG + n, (2, t, n))
             spent[0] += len(keys)
             if ok:
                 yield keys, q
@@ -22465,11 +22807,11 @@ def _plan_hops(p, spent, fail):
     """_plan_tries' Hops (SPEC.md 130.14.7.4.1)"""
     found = 0
     for again in (False, True):
+        head = _LegHead(p)
         for t in range(min(fail + 2, PLAN_SEG)):
             if spent[0] > PLAN_BUDGET:
                 return
-            q = _clone(p)
-            ok, keys, _f = _plan_leg(q, (t, t + TRAP_AGAIN) if again else (t,), t + PLAN_FLIGHT)
+            ok, keys, _f, q = head.leg(t, (t, t + TRAP_AGAIN) if again else (t,), t + PLAN_FLIGHT)
             spent[0] += len(keys)
             if ok:
                 yield keys, q
@@ -22484,12 +22826,12 @@ def _plan_holds(p, spent, fail):
     ground's x axis held before its y at each; at most PLAN_ALT"""
     found = 0
     for n in PLAN_HOLD:
+        head = _LegHead(p)
         for t in range(0, min(fail + 2, PLAN_SEG), PLAN_HOLD_EVERY):
             for ax in (0, 1):
                 if spent[0] > PLAN_BUDGET:
                     return
-                q = _clone(p)
-                ok, keys, _f = _plan_leg(q, (), PLAN_SEG, (ax, t, n))
+                ok, keys, _f, q = head.leg(t, (), PLAN_SEG, (ax, t, n))
                 spent[0] += len(keys)
                 if ok:
                     yield keys, q
@@ -25494,13 +25836,14 @@ def blend_pairs(c, obuf=None):
     if not elig:
         return []
     col = {}                                        # each flat cell's ink, read off the picture (the majority)
+    from collections import Counter
+    cnt = Counter()                                 # ((owner, ink): pixels, counted a line at a time)
     for y in range(H):
-        r, o = pic[y], ob[y]
-        for x in range(W):
-            k = o[x]
-            if k in elig and r[x] in (WHT, CYN):
-                d = col.setdefault(k, [0, 0])
-                d[r[x] == WHT] += 1
+        cnt.update(zip(ob[y][:W], pic[y][:W]))
+    for (k, v), n_ in cnt.items():
+        if k in elig and v in (WHT, CYN):
+            d = col.setdefault(k, [0, 0])
+            d[v == WHT] += n_
     col = {k: (WHT if d[1] > d[0] else CYN) for k, d in col.items()}
     reg = {}
     n = 0
@@ -25549,7 +25892,11 @@ def blend_pairs(c, obuf=None):
     out = {}
     for y in range(H):
         orow = ob[y]
-        for x in range(W):
+        # (only a pixel whose right or lower neighbour is another owner's has anything below to do)
+        edge = {x for x, (a, b) in enumerate(zip(orow[:W], orow[1:W])) if a != b}
+        if y + 1 < H:
+            edge.update([x for x, (a, b) in enumerate(zip(orow[:W], ob[y + 1][:W])) if a != b])
+        for x in sorted(edge):
             a = orow[x]
             if a < 0:
                 continue
