@@ -634,9 +634,9 @@ class App(object):
     def new(self):
         if not self._discard_ok():
             return
-        text = ('course NEW "New course"\nwidth 64\nball rubber\n\n'
-                "floor rect 4 4 14 12 flat 4\nstart 5 5\ngoal rect 12 10 14 12 flat 4\n"
-                "target 30\nway 5 5\nway 13 11\n")
+        text = ('course NEW "New course"\nwidth 64\nball rubber\nmusic fairway\n\n'
+                "floor rect 4 4 14 12 flat 4\nstart 5 5\ngoal rect 12 10 14 12 flat 4\nclock 13 9\n"
+                "target 30\nway 5 5\nway 13 11\n")     # (what the game build asks of every course: SPEC.md 130.58.23)
         self._set_doc(E.Document(text))
 
     def open_dialog(self):
@@ -3059,6 +3059,10 @@ EXPLAIN = [
      "low wall."),
     (r"guard \(\d+, \d+\) stands on a solid cell", "a guard rail goes in the EMPTY cell beside a floor, not on "
      "the floor: select the empty cells along the edge."),
+    (r"has no clock whose digits lie inside the CGA window", "every finish needs a clock the player can see from "
+     "it (the finish flashes its time there): add a Clock (Game, on the left) on a floor tile near the goal."),
+    (r"no `music` line", "every course names its song: choose one on the Course tab (Music)."),
+    (r"no `target` statement", "every course gives its design time: set Target (30, 60 or 90 s) on the Course tab."),
     (r"gap bands nothing", "that `gap` line names no face that stands over a gap, so it would change no pixel. "
      "Turn on Gap bands in the Iso view and click the places you want instead; a line left with no mark is "
      "deleted."),

@@ -288680,3 +288680,25 @@ it there"*.
   undo step; a ramp reshaped longer keeps its slope; the start, the flag and the route points on a floor are
   found to ride with it. Red by hand: `relocate_ways` with no reach (the point stays on the void).
 
+#### 130.58.23 The full check asks what the game build asks; "not a FLAT FLOOR" says why (2026-11-22)
+
+The refusal audit of 2026-11-22 (the owner: the engine became "an 'invalid refusal generator'"; its findings
+are worked through in 130.10.3, 130.35 and the sections the engine agents amend) found two of the builder's
+own:
+
+- **The builder's full check passed a course that "Put this course in the game..." then refused.** The game
+  build (`compile_all`) also asks every course but a test course for a `music` line (130.50.3), a `target`
+  (130.15.8), a reachable finish (`finish_reach_rule`) and a clock visible from every finish
+  (`finish_clock_rule`, 130.22.6); `compile_course`, which the full check ran, asks none of them. The check
+  job (`bbedjob.py check`) now runs all four after the compile (the title and test courses excepted) and
+  refuses as the game build would; the builder's banner explains each in plain words. The builder's *New
+  course* template carries `music fairway` and a clock beside its goal, so a new course passes from its
+  first edit. MEASURED: every shipped course passes them.
+- **"not a FLAT FLOOR" now says why** (`flat_why`): the cell is a GOAL ("stand it on the floor beside the
+  goal"), a RAMP, a WALL, a split or shaped cell, nothing at all - or a later `hole` (line N) removed it,
+  with why that bites (a hole applies after every floor, so a bridge, glass or crack over a gap goes on cells
+  the hole leaves). For flags, pads, the cup, springs, family elements and clocks. Wording only: no compiled
+  byte moves.
+- The `bbedit` row's item 12: a course with no `music` passes `compile_course` and is refused by the full
+  check naming the song; the New course template passes it.
+
