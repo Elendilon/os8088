@@ -83,7 +83,7 @@ PALETTE = [
     ("Launch", [
         ("Spring", "cell", "spring {x} {y} 768", "Fires the ball straight up"),
         ("Tube (keep)", "cell", "tube keep {x} {y} {x3} {y}", "In one mouth, out the other (body in a wall)"),
-        ("Tube (launch)", "cell", "tube launch {x} {y} {x3} {y} speed -192 192 480", "Fires the ball out"),
+        ("Tube (launch)", "cell", "tube launch {x} {y} {x3} {y} speed 192 0 300", "Fires the ball out"),
         ("Tube (drop)", "cell", "tube drop {x} {y} {x3} {y} out +x height 3", "Drops the ball out"),
         ("Boost pad", "cell", "prop boost {x} {y} face +x", "A shove the way its arrows point"),
         ("Blower", "cell", "prop blower {x} {y} face +y region {x} {y1b} {x4} {y3} strength 8", "A fan over a region"),
