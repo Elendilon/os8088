@@ -271,6 +271,7 @@ class App(object):
         fm.add_command(label="Open...", command=self.open_dialog, accelerator="Ctrl+O")
         self.recent_menu = tk.Menu(fm, tearoff=0)
         fm.add_cascade(label="Open recent", menu=self.recent_menu)
+        self._fill_recent()                     # (from the saved list at once, not only once a file is opened)
         fm.add_command(label="Save", command=self.save, accelerator="Ctrl+S")
         fm.add_command(label="Save as...", command=self.save_as)
         fm.add_command(label="Reload from disk", command=self.reload)
