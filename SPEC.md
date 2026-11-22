@@ -297216,7 +297216,8 @@ prebuilt binaries and `gbaot.py` composes the package in Python, REALDMG-SPEC 20
    v0 is the shipped build's own pieces (`bonanza.bin`, `bzshell.bin`, `bzvga.bin`, `bzfbun.bin`,
    `bzf-probe.bin`); v1 .. v4 are the same build for the shipped list and m SPARE courses
    (`SPAR1` ... - a flat plate, never played: `bbgame.SPARE`), each `make BUILD=$(BUILD)/bbgame/v<m>
-   BZ_COURSES="<shipped> <spares>"` in a private tree, the bonanzatwoseg build's way. Each carries its
+   BZ_COURSES="<shipped> <spares>"` in a private tree, the bonanzatwoseg build's way - since 130.58.17.1
+   with `BZHEADROOM=1`, and v0r beside them, the shipped list's own headroom build. Each carries its
    `bzcourse.inc` and `map.json`: the place of every per-course table in every piece, found by a PROBE -
    the pieces assembled again from an inc whose every table byte is XOR its table's own mask
    (80h + its index) - and held: the bytes that moved must be exactly those tables (none feeds code or
@@ -297255,7 +297256,7 @@ where the first took six).
   (`tests/unit/t_bbgame.py`) and from the unpacked zip with nothing read from the tree
   (`tests/bbeditbundle.py`);
 - shipped + XTRA (FIRST's text renamed) composed is byte for byte the package `make BUILD=...
-  BZ_COURSES="<shipped> XTRA"` assembles; so is `--pad0 XTRA` against `make` with that list and that
+  BZ_COURSES="<shipped> XTRA"` assembles (since 130.58.17.1, with `BZHEADROOM=1`); so is `--pad0 XTRA` against `make` with that list and that
   pathway; the 360 KB floppy verifies; with no added course, `--disk ... --size 360` is
   `build/bonanza360.img` byte for byte (the bonanzadisk rule's);
 - an added course is 1,918 bytes more package (XTRA, FIRST's size: 165,712 -> 167,630) - its part, its demo
@@ -297273,8 +297274,90 @@ where the first took six).
 **NOT DONE**: the composed package has not been BOOTED - no MartyPC run has played an added course (story
 8.2's acceptance). Byte equality with the nasm build of the same list is the claim made here, and a nasm
 build with an added course has not been booted either. The `--pad0` game leaves pad 0's own course (ROLL)
-off the map. More than four added courses, a course past one part, and a course larger in lanes, props,
-signs or state than the shipped maxima are refused rather than built.
+off the map. More than four added courses, a course past one part, and a course larger in lanes, props
+or state than the shipped maxima are refused rather than built (signs, and a pathway's pads, have headroom
+since 130.58.17.1).
+
+##### 130.58.17.1 A bigger map: headroom, and the pad count written in (2026-11-22)
+
+**The problem.** The Map tab's *Put a course on the map* (130.58.20) writes a pad, a route and an icon, and
+the map it makes did not compose: XTRA on a ninth pad (`pad 8 XTRA 8 7`, `route 7 8 exit 0  path 4,11 8,7`,
+`icon 8 icons/first32x24.bba 0 80`) was refused, the variant v1 having been assembled with `BZ_NSIGN equ 23`
+and `BZ_PATH_NPAD equ 8` where the list needs 26 and 9 (MEASURED: the only two lines of bzcourse.inc that
+differ; the table `BZ_PAD_EXITS`, a word a pad, is one word longer too, which moves every label after it).
+The three are not alike:
+
+- `BZ_NSIGN` sizes bss `bz_nst` and nothing else - a CAPACITY;
+- `BZ_PAD_EXITS` (`bz_pexits`) is read `BZ_PATH_NPAD` words at a time by `bz_dslots` - a capacity too, once
+  its length stops being the count;
+- `BZ_PATH_NPAD` is NOT a capacity: as `BZD_NPAD` it bounds the pad a save slot names (`bz_dslots`, `cmp al,
+  BZD_NPAD`) - and BONANZA.DAT off a disk is hostile (SPEC.md 19) - and it bounds the slot's zero checks past
+  the pads (`BZ_NPADPAST`) and the exits loop. Raised in the prebuilt game it would let a slot name a pad
+  the map does not have, so it stays the map's own count.
+
+**The decision.** Capacities get HEADROOM; the count gets WRITTEN IN.
+
+1. **A build knob, `BZHEADROOM=1`** (bbcourse.py `--headroom`, off by default and in no shipped build):
+   bzcourse.inc's `BZ_NSIGN` floored at 255 (a pathway part's header keeps its sign count in a byte,
+   130.22.3) and `BZ_PAD_EXITS` written for `BZ_PAD_MAX` (23) pads, those past the map's 0. Nothing under
+   `apps/bonanza/` changed: both are bzcourse.inc's lines, so the knob is the inc generator's alone, and a
+   headroom build is still exactly nasm's build of its list - of that inc. The variants v1 .. v4 are made
+   with it (`make BUILD=... BZHEADROOM=1 BZ_COURSES=...`), and so is a new **v0r**, the shipped list's own
+   headroom build: a map with more pads or signs and NO added course (a shipped course on a second pad, a
+   gate's or a secret route's signs) needs one too, and v0 - the shipped package's own pieces, which the
+   shipped list with the shipped map must still compose to byte for byte - cannot be it. `compose` tries v0
+   first and takes v0r when v0 refuses.
+2. **The pad count, by probe.** For each headroom variant, `prebuild` assembles every piece again at EVERY
+   count 1 .. 23 (bzlink.inc remade from each `bonanza.bin` with pxlink.py, as the Makefile makes it, since
+   the linked parts read `BZ_PATH_NPAD` through it) and keeps the bytes that differ from the variant's at any
+   count, with each count's value there (`map.json`'s `npad`). It exits unless every count assembles to the
+   same sizes, no such byte is a table's, and only the package's pieces move. MEASURED: six bytes, all in
+   `bonanza.bin`'s `bz_dslots` - the two `lea di, [si + BZD_SEXIT/SBEST + 2 * BZ_PATH_NPAD]` displacements,
+   the two `mov cx, BZ_NPADPAST` immediates' low bytes, `cmp al, BZD_NPAD` and `cmp di, bz_pexits + 2 *
+   BZ_PATH_NPAD`'s low byte; the linked parts move by none. `compare` lets `BZ_PATH_NPAD` differ when the
+   count is one the variant holds, and the composition writes that count's bytes: written over a variant
+   whose every other byte is the same at every count, they ARE that count's assembly - no inference from
+   two points, every count was assembled. A count past 23 is refused naming `BZ_PAD_MAX` (nasm's `%error`
+   in the knob-less build).
+
+**Why not the alternatives.** A variant per pad count (or a family of count variants per spare count) would
+multiply the zip by the counts; a pad capacity knob that raised `BZ_PATH_NPAD` itself would loosen the save
+guard past the map's pads; reading the count from a data byte at run time would change the shipped game's
+code. A floor knob for the signs, rather than probing them, because `BZ_NSIGN` only sizes the bss and its
+headroom costs no file byte.
+
+**What it costs** (MEASURED):
+
+- the shipped `BONANZA.O88`: **0 bytes** - `cmp` against the build before the change: identical (175,120
+  bytes), and its bzcourse.inc identical;
+- a composed game (any headroom variant): **30 bytes** more `bonanza.bin` (`bz_pexits`, 15 words past the
+  shipped map's 8) and **232 bytes** more bss (`bz_nst` 256 bytes against 24 - its VAR's arithmetic, not
+  measured); an added course still 51 resident bytes and 7 of the shell part (v1 52,191 bytes of
+  `bonanza.bin`, v4 52,344);
+- `map.json`: the `npad` table, about 2 KB a headroom variant (v1's map 4,251 bytes against v0's 2,158);
+- `make bbgamebin`: 21 min from a warm cache (1,277 s, a 4-core host shared with another session's build),
+  against 10 min (594 s) for the knob-less variants from the same cache; the counts' probe is about 1.6 min
+  a variant (96 s MEASURED alone: nasm 2.1 s for `bonanza.bin`, about 0.3 s for the rest, and pxlink, eight
+  counts at a time); composing XTRA on a ninth pad, the cache warm, 73 s;
+- the zip: **+74,391 bytes** (1,367,688 -> 1,442,079, both made by today's bbeditbundle.py from the same tree,
+  the knob-less variants against these) and 7 files more (160 -> 167): v0r's pieces are 71,717 bytes of it
+  packed, the `npad` tables about 430 packed bytes a headroom variant, the rest v1 - v4's 30 bytes each.
+
+**Checked** (the `bbgame` row, `tests/unit/t_bbgame.py`): the shipped list still composes to
+`build/bonanza.o88` byte for byte (from v0); shipped + XTRA and `--pad0 XTRA` are byte for byte nasm's
+`BZHEADROOM=1` builds of those lists; **XTRA on a ninth pad** (`--path`, the pathway with the three statements
+above and its `# builder-course: xtra.bbc`) composes from v1 with `BZ_PATH_NPAD equ 9`, os88pkg validates it,
+its course table names XTRA, and it is byte for byte the package `make BZHEADROOM=1 BZ_COURSES="<shipped>
+xtra.bbc" BZ_PATH=...` assembles with nasm; FIRST on a ninth pad as well, no added course, composes from v0r,
+byte for byte that build of the shipped list; the `BZHEADROOM=1` recipe runs `bbcourse.py --headroom`; a
+24-pad inc is refused naming `BZ_PAD_MAX`. **RED**: the ninth-pad game composed with the shipped map's count's
+bytes (`_npad=8`: the guard at 8 where the map has 9) is not nasm's build. The nasm builds seed their art from
+the composition's compile, as the row's other nasm builds do, so they check the assembly; the inc a
+`--headroom` run writes is the same `emit_inc` under the same switch.
+
+**NOT DONE**: no composed game with a ninth pad has been booted (MartyPC), as no game with an added course
+has (130.58.17's NOT DONE); `BZ_PATH_CLAIM`, `BZ_CRS_MAXCLAIM` and `BZ_CRS_ARMAX` - a bigger pathway picture,
+a bigger course on a pad - are still refused rather than given headroom.
 
 #### 130.58.18 The blend check, as built (the owner, 2026-11-21)
 
@@ -297434,7 +297517,8 @@ tab and its model; its helpers import no Tk, so the jobs and the row call them a
   the pathway's folder): the map's pads may then play it (its NAME and title off its `course` line, after
   BZ_COURSES), the picture job and the check include it, and `tools/bbgame.py --path PATH.bbc` builds the
   game with this pathway and those courses (130.58.17's composing, the pathway's part compiled from the
-  author's file). The compiler ignores the comment.
+  author's file; a map with more pads or signs than the shipped one, 130.58.17.1). The compiler ignores the
+  comment.
 - **Put a course on the map** (the plan's 7.2): choose the course (the game's, or *A course file...*, which
   adds its `# builder-course:` line), its icon and the pad it is reached from - only pads whose course has
   an exit no route uses yet are offered (`course_exits`: its goals' and cups' `exit`, off a parse) - then

@@ -20126,15 +20126,19 @@ SOAK = [
         "ImportError, where the owner would otherwise meet it",
         needs=("pil",), wants=("build/os8088-battle-builder.zip", "build/vbattle.o88",
                                "build/vbattled.o88")),
-    Row("bbgame", "soak", py("tests/unit/t_bbgame.py"), 250.0,
+    Row("bbgame", "soak", py("tests/unit/t_bbgame.py"), 860.0,
         "ADD TO THE GAME (SPEC.md 130.58.17): tools/bbgame.py composes BONANZA.O88 from `make bbgamebin`'s "
         "prebuilt pieces with no assembler. The shipped list composed is build/bonanza.o88 byte for byte; "
         "shipped + XTRA (FIRST's text renamed) names XTRA in the course table and is byte for byte the package "
-        "`make BUILD=... BZ_COURSES=...` assembles with nasm for that list; --pad0 XTRA (XTRA in ROLL's K on "
-        "pad 0, ROLL last) likewise against nasm with that pathway, and its 360 KB floppy verifies; a larger "
-        "BZ_PROPMAX, a course NAMEd TITLE and a TEST course are refused. Red by hand: the patch loop skipped "
-        "(MEASURED: four failures - both nasm comparisons and both table reads), a table out of PATCH (the added "
-        "course refused). secs measured (199 s on a loaded 4-core host) x 1.25",
+        "`make BUILD=... BZHEADROOM=1 BZ_COURSES=...` assembles with nasm for that list; --pad0 XTRA (XTRA in "
+        "ROLL's K on pad 0, ROLL last) likewise against nasm with that pathway, and its 360 KB floppy verifies; "
+        "A BIGGER MAP (SPEC.md 130.58.17.1): XTRA on a ninth pad of the author's pathway (--path, 9 pads, 26 "
+        "signs) composes, validates, names XTRA and is byte for byte nasm's BZHEADROOM=1 build of that list and "
+        "pathway, and FIRST on a ninth pad with no added course composes from v0r, byte for byte likewise; the "
+        "knob's recipe passes --headroom; RED in the row: the ninth-pad game with the shipped map's pad count's "
+        "bytes (the save's guard at 8) is not nasm's. A larger BZ_PROPMAX, a 24-pad pathway, a course NAMEd "
+        "TITLE and a TEST course are refused. Red by hand: the patch loop skipped, a table out of PATCH (the "
+        "added course refused). secs measured (688 s on a 4-core host, load 1 - 2) x 1.25",
         wants=("build/bonanza.o88", "build/bbgame-bin/.stamp")),
     Row("bbeditbundle", "soak", py("tests/bbeditbundle.py"), 340.0,
         "`make bbeditbundle` (SPEC.md 130.58.11): the Bounce Bonanza course builder's zip for someone with no "
