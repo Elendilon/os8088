@@ -3100,6 +3100,21 @@ EXPLAIN = [
     (r"already belongs to the prop", "only one part can stand on a cell. Choose another cell."),
     (r"an archway .* at most 2 cells", "an archway is at most 2 cells each way: select the path's width, "
      "not its length."),
+    # the LANE bounds that remain (SPEC.md 130.19.10 item 14, 130.32): what the game's drawing can really not do
+    (r"lanes on their own clocks meet", "too many things that keep changing by themselves (windmills, fans, "
+     "and the clock's digits) are on one screen together with a clock. At the finish the clock's digits are "
+     "drawn all at once, which needs room for all of them in one frame. Move the clock, or a windmill or fan, "
+     "further away (about a screen)."),
+    (r"two lanes share blocks", "two animated parts are drawn into the same 8 x 8 pixel squares of the picture, "
+     "and at least one of them (a windmill, a bumper, a flag, a clock, a sign, a pickup) cannot share its "
+     "squares. Move them at least a cell apart."),
+    (r"FAST lanes \(rotors\) meet the|FAST lanes in the walk's range", "too many constantly moving parts "
+     "(windmills, fans) are near each other: at most 6 on one screen and 8 a little beyond it. Spread them out."),
+    (r"rotor pose changes on one step", "windmills in one screen turn too often on the same moment. Give one of "
+     "them a different `seed` or `period` on the right."),
+    (r"a group lane of \d+ members|an element in \d+ group lanes|a group member of \d+ poses", "too many parts "
+     "that share their picture squares overlap in one spot (at most 4 in any 32 x 24 pixel patch). Split the "
+     "row or the area into smaller pieces with a cell between them."),
     (r"does not name|`uses ", "it needs an extra the course does not load."),
     (r"no '(course|width|start)' statement", "a course needs a name, a width and a start."),
     (r"HIDDEN", "the player could not see it (it is behind something taller)."),

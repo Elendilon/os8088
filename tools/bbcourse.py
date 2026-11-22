@@ -609,6 +609,7 @@ FAMILIES = (
     # the pennant is an option (`flag`); a gusting blower without one gets a WISP, a second element the tool
     # makes, whose lane is the region's squiggles - there while the gust blows.  CONSTS + WD_SPIN
     {"name": "wind", "id": 9, "rev": 2, "hooks": H_RESET | H_STEP | H_POSE, "slot": 8, "consts": (1, 2, 128, 160),
+     "group": True,
      "kinds": ({"name": "blower", "kind": FAM_K0 + 24, "bits": 8, "cls": CL_ATTEMPT, "art": "wind",
                 "forms": ("own",), "states": (0,), "pickup": False},
                {"name": "wisp", "kind": FAM_K0 + 25, "bits": 0, "cls": CL_ATTEMPT, "art": "wisp",
@@ -638,6 +639,7 @@ FAMILIES = (
     # +21 MASK, +22 SEED), an ordinary floor while down, its lane the spikes; a MEMBRANE floor for glass alone,
     # a NEAR VOID (a broken crack's) for the others.  STATELESS; home `resident`; CONSTS SP_*
     {"name": "spike", "id": 11, "rev": 3, "hooks": H_RESET | H_STEP | H_POSE | H_CELL, "slot": 8, "consts": "SP",
+     "group": True,
      "kinds": ({"name": "spikes", "kind": FAM_K0 + 40, "bits": 0, "cls": CL_ATTEMPT, "art": None,
                 "forms": ("own", "bed", "tip"), "states": (0,), "pickup": False},
                {"name": "popspikes", "kind": FAM_K0 + 41, "bits": 0, "cls": CL_ATTEMPT, "art": "spikes",
@@ -819,7 +821,8 @@ GT_KINDS = (GT_KP, GT_KK, GT_KG, GT_KB)
 GT_KA = FAM_K0 + 60           # SPEC.md 130.41.12: a gate ART's lane (76), +18 its gate's record, +19 the channel
 GT_AFR = 4                    # ...an art's FRAMES: 0 shut (a bridge up) .. 3 open (down); the cell opens AT frame 3
 GT_ASTEP = 8                  # ...steps between frames: channel c's frame steps on n AND 7 = 2 c (two channels never
-GT_ALANES = 6                 # ...on one step); lanes an art may cut into (they all turn on one step, WIN_CHG)
+                              # ...on one step).  An art cuts into as many lanes as its change needs: they turn on
+                              # one step and the wheel draws past its list on later frames (SPEC.md 130.19.10 item 14)
 GT_ACELLS = 3                 # ...cells a gate's art may span across its path
 GT_FART = 1                   # ...a gate's or switched bridge's +24: it has art (no lane of its own)
 GT_ADIR = os.path.join(COURSE_DIR, "gates")     # ...where `art <name>` finds <name>.bba
@@ -836,7 +839,8 @@ TL_TS = 4                     # ...and from FLAT on to the end, any ball (0.07 s
 TL_LMIN, TL_LMAX = 2, 6       # a plate's cells ALONG its axis (even: the pivot on a cell edge, FLAT at a half unit)
 TL_WMAX = 2                   # ...and ACROSS it
 TL_THICK = 4                  # px: the plate's faces over the void (a thin slab, `float ... thick 0.5`)
-TL_LANES = 6                  # lanes a plate (they all turn on one step: WIN_CHG, SPEC.md 130.19.10)
+                              # (a plate's lanes: as many as its change needs - they turn on one step, and the wheel
+                              # draws past its list on later frames, SPEC.md 130.19.10 item 14, 130.42.5)
 TL_POST = 3                   # half units: the fulcrum's post under the pivot, its height below the FLAT plate
 TL_PERIODS = SP_PERIODS       # a TIMED see-saw's period (SPEC.md 130.42.11): a popspike's, its MASK a byte
 TL_TFLAT = TL_TS              # ...and its steps FLAT each half period when `flat` is not written: the weight's transit
@@ -1121,9 +1125,11 @@ LANE_WMAX, LANE_HMAX = 4, 3   # a lane: BZ_BOXW words x BZ_BOXH / 8 block rows
 LANE_PMAX = 16
 WIN_LANES = 6                 # FAST lanes meeting any window (SPEC.md 130.12.4.6, as 130.19.10 amends it)
 RANGE_LANES = 8               # FAST lanes in the walk's range (130.19.10: SLOW ones unbounded)
-WIN_CHG = 6                   # pose changes that can land on one step among the lanes meeting a window
-                              # (130.19.10): the rotors', every clock digit, 1 for the event lanes - the
-                              # wheel's candidate list (bz_wcl) holds this many
+WIN_CHG = 6                   # the wheel's candidate list (bz_wcl): lanes listed a frame.  A due lane past it
+                              # stays marked and is drawn on a later frame (SPEC.md 130.19.10 item 14), so the
+                              # changes landing on one step are REPORTED; refused only the OWN-CLOCK lanes (rotor
+                              # changes, fans, always-lanes, clock digits) over it in a window with a clock: a
+                              # finish's clock group is committed only when every digit is listed
 
 
 _FAST_EXTRA = ()              # --selfcheck's controls: more kinds counted FAST (compile_course's _hack "fast")
@@ -4924,10 +4930,6 @@ def tl_lanes(src, props, lanes, tiles, tlpose, ops_of, x0, y0, width, lines, own
             raise CourseError("%s:%d: the see-saw's picture changes in block (column %d, row %d), another prop's lane: "
                               "keep the lanes apart (SPEC.md 130.42.5)" % (fname, sw["line"], hit[0][0], hit[0][1]))
         rects = cover_blocks(blocks, lambda b: (b[1], b[0]), busy, "%s:%d: the see-saw" % (fname, sw["line"]))
-        if len(rects) > TL_LANES:
-            raise CourseError("%s:%d: the see-saw's picture changes over %d lanes, over the %d a plate may have (its "
-                              "lanes all turn on one step, SPEC.md 130.42.5): a shorter plate" % (
-                                  fname, sw["line"], len(rects), TL_LANES))
         for rect in rects:
             busy |= _rect_blocks(rect)
             poses = {0: {}, 1: {}, 2: {}}
@@ -4965,7 +4967,7 @@ def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
     frame the PICTURE's, the rest's blocks cut into lanes (cover_blocks, none on another lane's block), each a
     record of kind GT_KA naming its gate, its pose the frame.  Frame 0's pixels (and the static ones) are GEOMETRY
     keyed at their cell (s, the cell's floor plus the rise to the slice's highest pixel: a clock's occluder,
-    130.18.5.4).  Refused: a pixel off the picture, frame 0 more than half hidden, more than GT_ALANES lanes"""
+    130.18.5.4).  Refused: a pixel off the picture, frame 0 more than half hidden"""
     busy = set()
     for L in lanes:
         busy |= _rect_blocks(L["rect"])
@@ -5007,10 +5009,6 @@ def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
             raise CourseError("%s: its frames change block (column %d, row %d), another prop's lane: keep the lanes "
                               "apart (SPEC.md 130.41.12)" % (where, hit[0][0], hit[0][1]))
         rects = cover_blocks(blocks, lambda b: (b[1], b[0]), busy, where)
-        if len(rects) > GT_ALANES:
-            raise CourseError("%s: its frames change over %d lanes, over the %d an art may have (they all turn on "
-                              "one step, SPEC.md 130.41.12 A7): a smaller change between frames" % (
-                                  where, len(rects), GT_ALANES))
         for rect in rects:
             busy |= _rect_blocks(rect)
 
@@ -14033,49 +14031,6 @@ def ring_cross(r0, r1, x0, x1, herc):
     return ((rb * r0 + 2 * x0) & 0x1FFF) + (r1 - r0 - 1) * rb + 2 * (x1 - x0) >= 0x2000 + 2
 
 
-def _wind_turns(c, recs, where, memo=None):
-    """WIND (SPEC.md 130.34.11): the TIMED event lanes meeting one window - a wisp's squiggles and a flagged
-    blower's pennant, each turning when its gust does - may not turn on the same step (the window's event
-    lanes are one pose change a step, 130.19.10): over the 1,024 steps every period divides, refused when two
-    do"""
-    if memo is None:
-        memo = {}                                   # (memo: check_bounds' own, one call's - each record's steps)
-    by = memo.get("by")
-    if by is None:
-        by = memo["by"] = dict((r["i"], r) for r in c.part["props"])
-    gust = []
-    for r in recs:
-        st = memo.get(("wd", id(r)), memo)
-        if st is memo:
-            b = by.get(r["wblower"]) if r["kind"] == WD_K2 else r if (r["kind"] == WD_K and r.get("wflags", 0)
-                                                                      & WD_FFLAG and r["won"]) else None
-            if b is not None:
-                up = lambda n, b=b: wind_blowing(b, n)
-            elif r["kind"] == SP_KP:                # SPIKES (SPEC.md 130.38): a POPSPIKE's lane turns on its timer
-                up = lambda n, r=r: sp_up(r, n)
-            elif r["kind"] == GT_KB and r.get("gch") == GT_TIMED:     # SPEC.md 130.41.5: a TIMED BRIDGE's too
-                up = lambda n, r=r: gt_down(r, n, 0)
-            else:
-                up = None
-            st = memo[("wd", id(r))] = None if up is None else [up, None]
-        if st is not None:
-            gust.append((r, st))
-    if len(gust) < 2:
-        return
-    seen = {}
-    for r, st in gust:
-        if st[1] is None:
-            up = st[0]
-            st[1] = [n for n in range(1024) if up(n) != up((n + 1) & 0xFFFF)]
-        for n in st[1]:
-            if n in seen and seen[n] is not r:
-                raise CourseError("%s: the %s: two timed lanes (gusting blowers', popspikes') turn on the same "
-                                  "step (%d of 1,024: the records %d and %d) - one pose change a step among a "
-                                  "window's event lanes; give one a `seed` (SPEC.md 130.34.11, 130.38)"
-                                  % (c.fname, where, n, seen[n]["i"], r["i"]))
-            seen[n] = r
-
-
 def check_bounds(c, hack=None):
     """SPEC.md 130.12.4.6's bounds over every window position on both cards,
     and the start window's calibration corner.  -> a dict for the report.  HACK: --selfcheck's red
@@ -14146,21 +14101,24 @@ def check_bounds(c, hack=None):
                                               "one step, %d in two consecutive (at most %d)" % (
                                                   c.fname, "Hercules" if herc else "CGA", R, C, w1[0], w1[1],
                                                   ROTOR_CHG))
-                    chg = w1[0] + sum(1 for L in meet if lane_digit(L[4])) + sum(1 for L in meet if lane_fan(L[4])) \
-                        + sum(1 for L in meet if L[4].get("always")) \
-                        + _events(meet) + _tilt_chg(meet, recs_, memo) + _tt_changes(meet, memo) + _ga_chg(meet)
-                    _wind_turns(c, [L[4] for L in meet], "%s window at (row %d, column %d)" % (
-                        "Hercules" if herc else "CGA", R, C), memo)
+                    # SPEC.md 130.19.10 item 14 (2026-11-22): the changes that can land on one step are REPORTED,
+                    # never refused - a due lane past the wheel's list (bz_wcl, WIN_CHG) stays marked and is drawn on
+                    # a later frame, as one the clock leaves no room for already is.  What is refused is the OWN-
+                    # CLOCK part (rotors, fans, always-lanes, clock digits: lanes that can be due on every frame),
+                    # over the list: a finish draws its clock digits as ONE group, only when every one is listed
+                    ndig = sum(1 for L in meet if lane_digit(L[4]))
+                    nfan = sum(1 for L in meet if lane_fan(L[4]) or L[4].get("always"))
+                    own = w1[0] + ndig + nfan
+                    chg = own + _events(meet) + _tilt_chg(meet, recs_, memo) + _tt_changes(meet, memo) + _ga_chg(meet)
                     most_chg = max(most_chg, chg)
-                    if chg > WIN_CHG:
-                        raise CourseError("%s: the %s window at (row %d, column %d): %d pose changes can land on one step "
-                                          "(rotors %d, clock digits %d, events and turntables %d), over %d (SPEC.md 130.19.10)%s" % (
-                                              c.fname, "Hercules" if herc else "CGA", R, C, chg, w1[0],
-                                              sum(1 for L in meet if lane_digit(L[4])),
-                                              _events(meet) + _tt_changes(meet, memo), WIN_CHG,
-                                              "; gate art lanes %d" % _ga_chg(meet) + "; see-saws' lanes %d more (a timed one's timer: give it a `seed`, or keep "
-                                              "it out of a weight one's windows, SPEC.md 130.42.11)"
-                                              % _tilt_chg(meet, recs_, memo) if _tilt_chg(meet, recs_, memo) else ""))
+                    if own > WIN_CHG and ndig:
+                        raise CourseError("%s: the %s window at (row %d, column %d): %d lanes on their own clocks meet "
+                                          "it (rotor changes on a step %d, fans %d, clock digits %d), over the %d the "
+                                          "wheel lists a frame - a finish draws the clock's digits together only when "
+                                          "all are listed: move the clock, or a rotor or fan, out of this window "
+                                          "(SPEC.md 130.19.10 item 14)" % (
+                                              c.fname, "Hercules" if herc else "CGA", R, C, own, w1[0], nfan, ndig,
+                                              WIN_CHG))
                     win[key] = (nf, nrot, w1, chg)
                 sl = [S for S in slabs if _meet(S, xa, ya, xb, yb)]
                 if len(slr) > 1 and not hack.get("lift2wide"):
@@ -14275,11 +14233,23 @@ def group_lanes(lanes, props, cv, fname, hack=None):
         if bad_:
             M = sorted(Ls, key=lambda L: L["prop"])
             van = [L for L in bad_ if props[L["prop"]].get("vanish") is True or props[L["prop"]].get("comp")]
-            raise CourseError("%s:%d: two lanes share blocks (lines %d and %d)%s"
-                              % (fname, M[1]["line"], M[0]["line"], M[1]["line"],
+            # (the two named: a member that may not group and one it shares a block with - never one line twice
+            # unless one statement made both, which is then said)
+            b0 = min(bad_, key=lambda L: L["prop"])
+            o0 = next((L for L in M if L is not b0 and _rect_blocks(L["rect"]) & _rect_blocks(b0["rect"])),
+                      next(L for L in M if L is not b0))
+            A_, B_ = sorted((b0, o0), key=lambda L: L["line"])
+            who = ("two lanes of the %s at line %d" % (_pkname(props[A_["prop"]]), A_["line"])
+                   if A_["line"] == B_["line"] else
+                   "the %s's lane (line %d) and the %s's (line %d)" % (_pkname(props[A_["prop"]]), A_["line"],
+                                                                     _pkname(props[B_["prop"]]), B_["line"]))
+            raise CourseError("%s:%d: two lanes share blocks: %s%s - %s"
+                              % (fname, B_["line"], who,
                                  ": a vanishing crack's two lanes never group (SPEC.md 130.25.18.1)" if van
-                                 else "" if len(bad_) == len(Ls) else ": a %s's lane is not a group's member "
-                                 "(SPEC.md 130.32.1)" % _pkname(props[bad_[0]["prop"]])))
+                                 else ": a %s's lane never joins a group (SPEC.md 130.32.1)"
+                                 % _pkname(props[b0["prop"]]),
+                                 "make the statement smaller" if A_["line"] == B_["line"]
+                                 else "move them at least a cell apart"))
         for L in Ls:
             if len(L["poses"]) > GRP_QMAX:
                 raise CourseError("%s:%d: a group member of %d poses, over %d (its class map is 2 bits a pose, "
@@ -16627,14 +16597,16 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             if kr["kind"] in (SP_K, SP_KP, SP_KM):  # SPIKES (SPEC.md 130.38): LOW, TIP, a popspike's timer;
                 low_, tip_, on_, sm_, ss_ = struct.unpack_from("<bbBBB", p, r + 18)    # a membrane's z0
                 pop = kr["kind"] == SP_KP           # (its grid cell: the caller's check, below)
+                lg_ = bool(d["lane"] or d.get("grp"))   # (a lane, or a GROUP's member: SPEC.md 130.32, 130.38.5)
                 if cls != CL_ATTEMPT or fsb_ \
-                        or (kr["kind"] == SP_KM and (p[r + 19:r + 32] != bytes(13) or not d["lane"]
-                                                     or d["lane"]["poses"] != 2)) \
+                        or (kr["kind"] == SP_KM and (p[r + 19:r + 32] != bytes(13) or not lg_
+                                                     or (d["lane"] and d["lane"]["poses"] != 2))) \
                         or (kr["kind"] != SP_KM and (tip_ != low_ + 4      # (quarter units, 130.48.4)
                                                      or p[r + (23 if pop else 20):r + 32] != bytes(9 if pop else 12)
-                                                     or bool(d["lane"]) != pop
+                                                     or lg_ != pop
                                                      or (pop and (sm_ + 1 not in SP_PERIODS or not 1 <= on_ <= sm_
-                                                                  or ss_ > sm_ or d["lane"]["poses"] != 2)))):
+                                                                  or ss_ > sm_
+                                                                  or (d["lane"] and d["lane"]["poses"] != 2))))):
                     bad("prop %d" % d["i"], "a %s's record or cell (+18 %d, +19 %d, timer %d / %d / %d)"
                         % (kr["name"], low_, tip_, on_, sm_, ss_))
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0)
@@ -16660,9 +16632,10 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 wf, wd = wd & (WD_FLIFT | WD_FFLAG), wd & 7
                 if cls != CL_ATTEMPT or wd >= len(WD_DIRS) or not 1 <= ws <= 127 or x0_ > x1_ or y0_ > y1_ \
                         or fsb_ & 7 or (won and (wmask + 1 not in WD_PERIODS or won > wmask or wseed > wmask)) \
-                        or (not won and (wmask or wseed)) or (wd == WD_UP) != (wtop != 0) or not d["lane"] \
+                        or (not won and (wmask or wseed)) or (wd == WD_UP) != (wtop != 0) \
+                        or not (d["lane"] or d.get("grp")) \
                         or p[r + 18] & 0xE0 or (wf & WD_FLIFT and wd != WD_UP) \
-                        or d["lane"]["poses"] != (2 if wf & WD_FFLAG else 4):
+                        or (d["lane"] and d["lane"]["poses"] != (2 if wf & WD_FFLAG else 4)):
                     bad("prop %d" % d["i"], "a blower's record (face %d, strength %d, gust %d / %d)"
                         % (wd, ws, won, wmask + 1))
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=8, art=kr["art"], dur=0, ow=0, wdir=wd, wstr=ws,
@@ -16706,7 +16679,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 q = out[wb] if wb < len(out) else None
                 qd = p[r + 18 + PROPREC * (wb - d["i"])] if q is not None else 0
                 if cls != CL_ATTEMPT or q is None or q["kind"] != WD_K or p[r + 19:r + 32] != bytes(13) \
-                        or not d["lane"] or d["lane"]["poses"] != 2 or qd & WD_FFLAG \
+                        or not (d["lane"] or d.get("grp")) or (d["lane"] and d["lane"]["poses"] != 2) \
+                        or qd & WD_FFLAG \
                         or not struct.unpack_from("<H", p, r + 24 + PROPREC * (wb - d["i"]))[0]:
                     bad("prop %d" % d["i"], "a wisp's record (its blower %d)" % wb)
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, wblower=wb)
@@ -26021,8 +25995,8 @@ def _wave3_cases():
          {"fast": (PK_BUMPER,)}),
         ("bound: a 9th FAST lane in the walk's range (posts counted FAST)", nine, "FAST lanes in the walk's range",
          {"fast": (PK_BUMPER,)}),
-        ("bound: four clocks' 8 digits changing on one step in a window", big + "".join(
-            "clock %d %d\n" % _sa(36, a) for a in (-9, -3, 3, 9)), "pose changes can land on one step"),
+        ("bound: four clocks' 8 digits in a window, over the wheel's list (the finish draws them as one group)", big + "".join(
+            "clock %d %d\n" % _sa(36, a) for a in (-9, -3, 3, 9)), "lanes on their own clocks meet"),
         ("bound: three rotor changes on one step", _W3H % (0, 0, 0), "rotor pose changes"),
         ("bound: three rotor changes in two consecutive steps", _W3H % (0, 0, 1), "rotor pose changes"),
         ("bound: a windmill and a track in one window", W + "floor tile 12 12 flat 13\nprop platform 11 12 3\n",
@@ -33052,21 +33026,23 @@ def _wind_checks(res):
                 "class, FSB & 7, poses) %s; the gusting blower's WISP (cell, its blower's, poses) %s; FAMV %02Xh, "
                 "%02Xh with WD_SPIN + 1 (the constants are in it)" % (recs, wisps, f0, f1),
                 recs == want and wisps == [((8, 6), (6, 6), 2)] and f0 != f1))
-    # two gusting blowers' lanes in one window turning on the same step are refused; seeded apart they are not
+    # SPEC.md 130.19.10 item 14: two gusting blowers' lanes in one window turning on the same step COMPILE (they
+    # were refused: the window's event lanes were one change a step), and so do they seeded apart
     two = _W4C + ("uses wind\nprop blower 5 5 face +x region 5 5 9 5 gust 32 32 flag\n"
                   "prop blower 5 8 face +x region 5 8 9 8 gust 32 32 flag%s\n")
-    try:
-        compile_course(two % "", fname="<two gusts>")
-        fired, msg = False, "compiled"
-    except CourseError as e:
-        fired, msg = "turn on the same step" in str(e), str(e)
-    try:
-        compile_course(two % " seed 7", fname="<two gusts, seeded>")
-        ok2, msg2 = True, "compiled"
-    except CourseError as e:
-        ok2, msg2 = False, str(e)
-    res.append(("2 WIND (130.34.11): two gusting blowers' lanes in one window turning on the same step - %s; one "
-                "seeded 7 steps on - %s" % (msg[:140], msg2[:140]), fired and ok2))
+    oks = []
+    for arm in ("", " seed 7"):
+        try:
+            compile_course(two % arm, fname="<two gusts%s>" % arm)
+            oks.append((True, "compiled"))
+        except CourseError as e:
+            oks.append((False, str(e)[:140]))
+    res.append(("2 WIND (130.19.10 item 14): two gusting blowers' lanes in one window turning on the same step - %s; "
+                "one seeded 7 steps on - %s" % (oks[0][1], oks[1][1]), oks[0][0] and oks[1][0]))
+    # SPEC.md 130.34.15: a GUSTING blower whose fan's and wisps' lanes share blocks (the statement's own lanes)
+    # compiles into GROUP lanes, and each group lane's pose follows its members' on the model over a gust's
+    # turns; the red arm `wind` not groupable refuses it ("two lanes share blocks")
+    res.append(_grp_proof("WIND (130.34.15)", _GRP_GUST, "wind", (WD_K, WD_K2), 260))
     # the pennant flies DOWNWIND: east of the pole for +x and -y, west for -x and +y, up off its top for an updraft
     seen, ok = [], True
     for face in WD_DIRS:
@@ -33304,9 +33280,55 @@ def _spike_cases():
             ("a popspike's seed past its period", _SPK + "prop popspikes 9 5 period 64 on 32 seed 64\n", "seed 64"),
             ("an empty spikes rect", _SPK + "prop spikes 9 5 9 6\n", "is empty"),
             ("a membrane on ice", _SPK + "surface ice rect 9 5 10 6\nprop membrane 9 5\n", "NORMAL ground"),
-            ("spikes with no `uses spike`", _SPK.replace("uses spike\n", "") + "prop spikes 9 5\n", "does not name"),
-            ("two popspikes in one window turning on one step", _SPK + "prop popspikes 9 5 period 64 on 32\n"
-             "prop popspikes 9 7 period 64 on 32\n", "turn on the same step"))
+            ("spikes with no `uses spike`", _SPK.replace("uses spike\n", "") + "prop spikes 9 5\n", "does not name"))
+
+
+# SPEC.md 130.38.5, 130.34.15: one statement whose own lanes share blocks - a membrane wider than 2 both ways, a
+# gusting blower's fan and wisps - compiled into GROUP lanes (130.32)
+_GRP_MEMB = ('course T1 "m"\nmusic fairway\nwidth 128\nball rubber\nuses spike\nfloor rect 4 8 30 14 flat 4\n'
+             'start 5 10\ngoal rect 30 8 32 14 flat 4\nprop membrane 15 9 19 12\n')
+_GRP_GUST = ('course T1 "g"\nmusic fairway\nwidth 128\nball rubber\nuses wind\nfloor rect 4 8 30 14 flat 4\n'
+             'start 5 10\ngoal rect 30 8 32 14 flat 4\nprop blower 16 9 face +y region 16 10 20 11 strength 8 '
+             'gust 64 192\n')
+
+
+def _grp_proof(what, text, fam, kinds, steps, drive=None):
+    """-> a --selfcheck result: TEXT compiles with its KINDS' elements GROUP members (no lane of their own) and
+    group lanes; on the model (rubber, DRIVE(p, n) before each step, else at rest at the start) every group lane's
+    pose is its members' classes x MULT at every step and takes more than one value; with FAM not groupable the
+    compile refuses ("two lanes share blocks")"""
+    c = compile_course(text, fname="<%s>" % what)
+    pr = c.part["props"]
+    mem = [r for r in pr if r["kind"] in kinds and r.get("grp")]     # (the members; an element whose lane meets
+    grp = [r for r in pr if r["kind"] == PK_GROUP]                      # no other keeps its own)
+    shape = mem and all(not r["lane"] for r in mem) and grp
+    p = Physics(c, play=True, mat=MAT_RUBBER)
+    seen, ok = {r["i"]: set() for r in grp}, True
+    for n in range(steps):
+        if drive:
+            drive(p, n)
+        p.step(0)
+        for r in grp:
+            q = p.fpose(r)
+            want = 0
+            for e in r["ents"]:
+                want += e["cmap"][p.fpose(pr[e["m"]])] * e["mult"]
+            ok = ok and q == want and 0 <= q < r["lane"]["poses"]
+            seen[r["i"]].add(q)
+    moved = sum(1 for v in seen.values() if len(v) > 1)
+    row = FAM_BY_NAME[fam]
+    try:
+        row["group"] = False
+        compile_course(text, fname="<%s, not groupable>" % what)
+        red = "compiled"
+    except CourseError as e:
+        red = str(e)
+    finally:
+        row["group"] = True
+    return ("2 %s: one statement's lanes sharing blocks compile into %d group lanes over %d members, each lane's pose "
+            "its members' classes x MULT over %d steps on the model (%d lanes take more than one pose); the red arm "
+            "(the family not groupable) - %s" % (what, len(grp), len(mem), steps, moved, red[:120]),
+            bool(shape) and ok and moved > 0 and "two lanes share blocks" in red)
 
 
 class _SpArm(SpikeFamily):
@@ -33367,6 +33389,19 @@ def _sc_spike(X, res):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (spikes, 130.38): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    try:                                            # SPEC.md 130.19.10 item 14: refused by the old change bound
+        compile_course(_SPK + "prop popspikes 9 5 period 64 on 32\nprop popspikes 9 7 period 64 on 32\n",
+                       fname="<two popspikes>", _hack={"no_finish": True})
+        ok_, msg = True, "compiled"
+    except CourseError as e:
+        ok_, msg = False, str(e)
+    res.append(("2 accepted (spikes, 130.19.10 item 14): two popspikes in one window turning on one step -- %s" % msg,
+                ok_))
+
+    def tear(p, n):                                 # (rubber poked over the membrane's middle row, falling in)
+        if n == 0:
+            p.poke(17, 10, 128, 128)
+    res.append(_grp_proof("spikes' MEMBRANE (130.38.5)", _GRP_MEMB, "spike", (SP_KM,), 40, tear))
     c = compile_course(SP_TEST)
     g = Grid(c.cga)
     recs = [r for r in c.part["props"] if r["kind"] in (SP_K, SP_KP, SP_KM)]
@@ -33431,8 +33466,6 @@ def _tilt_cases():
             ("a see-saw resting neither way", T + "seesaw 8 5 10 6 along x pivot 2 rest up\n", "seesaw takes"),
             ("a see-saw with no `uses seesaw`", T.replace("uses seesaw\n", "") + "seesaw 8 5 10 6 along x pivot 2\n",
              "does not name"),
-            ("a see-saw whose picture changes over more lanes than one step may turn",
-             T + "seesaw 8 4 14 6 along x pivot 2\n", "lanes, over the"),
             # SPEC.md 130.42.11: a TIMED one's
             ("a timed see-saw's period not a popspike's", T + "seesaw 8 5 10 6 along x pivot 2 period 100\n",
              "a timed see-saw's period"),
@@ -33443,13 +33476,21 @@ def _tilt_cases():
             ("a timed see-saw's seed past its period", T + "seesaw 8 5 10 6 along x pivot 2 period 64 seed 64\n",
              "is not under its period"),
             ("a `flat` with no `period`", T + "seesaw 8 5 10 6 along x pivot 2 flat 8\n", "give it a `period`"),
-            ("a `period` twice", T + "seesaw 8 5 10 6 along x pivot 2 period 64 period 64\n", "seesaw takes"),
+            ("a `period` twice", T + "seesaw 8 5 10 6 along x pivot 2 period 64 period 64\n", "seesaw takes"))
+
+
+def _tilt_ok():
+    """(what, text): SPEC.md 130.19.10 item 14 - what the change bound USED to refuse and now compiles: a plate's
+    lanes are as many as its change needs, and the window's changes on one step are reported (the wheel draws
+    past its list on later frames)"""
+    T = _TLK
+    return (("a 6-long see-saw (2 wide: its change over more lanes than the wheel lists a frame)",
+             T + "seesaw 8 4 14 6 along x pivot 2\n"),
+            ("a 6-long see-saw along y", T + "seesaw 8 3 10 9 along y pivot 2\n"),
             ("two timed see-saws in a window turning on one step",
-             T + "seesaw 8 4 10 5 along x pivot 2 period 64\nseesaw 8 7 10 8 along x pivot 2 period 64\n",
-             "pose changes can land on one step"),
+             T + "seesaw 8 4 10 5 along x pivot 2 period 64\nseesaw 8 7 10 8 along x pivot 2 period 64\n"),
             ("a timed see-saw in a weight one's window",
-             T + "seesaw 8 4 10 5 along x pivot 2 period 64\nseesaw 8 7 10 8 along x pivot 2\n",
-             "pose changes can land on one step"))
+             T + "seesaw 8 4 10 5 along x pivot 2 period 64\nseesaw 8 7 10 8 along x pivot 2\n"))
 
 
 TL_SC = (("ledge-glass", MAT_GLASS, (7, 10, 0, 0), K_R | K_D, 200), ("ledge-rubber", MAT_RUBBER, (7, 10, 0, 0),
@@ -33505,6 +33546,15 @@ def _sc_tilt(X, res):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (see-saw, 130.42): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    for what, text in _tilt_ok():
+        try:
+            c_ = compile_course(text, fname="<%s>" % what, occluders=True, _hack={"no_finish": True})
+            nl_ = sorted(sum(1 for q in c_.part["props"] if q["kind"] == FK_TILTL and q["tlp"] == r["i"])
+                         for r in c_.part["props"] if r["kind"] == FK_TILT)
+            ok_, msg = True, "compiled, the plates' lanes %s" % nl_
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (see-saw, 130.19.10 item 14): %s -- %s" % (what, msg), ok_))
     c = compile_course(TL_TEST)
     g = Grid(c.cga)
     pl = [r for r in c.part["props"] if r["kind"] == FK_TILT]
@@ -33513,7 +33563,7 @@ def _sc_tilt(X, res):
               for r in pl for q in [(r["at"][0] + i, r["at"][1] + j) for i in range(r["tlnx"]) for j in range(r["tlny"])])
     per = [sum(1 for q in ln if q["tlp"] == r["i"]) for r in pl]
     lok = all(q["lane"]["poses"] == 3 and c.part["props"][q["tlp"]]["kind"] == FK_TILT for q in ln) \
-        and all(1 <= n_ <= TL_LANES for n_ in per) and all(not r["lane"] and r["cls"] == CL_RESPAWN and r["bits"] == 8
+        and all(1 <= n_ for n_ in per) and all(not r["lane"] and r["cls"] == CL_RESPAWN and r["bits"] == 8
                                                          for r in pl)
     tm = [(r["tlmask"] + 1, r["tlflat"], r["tlseed"]) for r in pl if r["tlf"] & TL_FTIME]
     res.append(("3 see-saw (130.42): TILT's %d plates are their FLOORs at rest, slopes and all, no OBS, not SAFE, a "
@@ -36537,11 +36587,14 @@ def _turn_cases():
             ("a table on another prop's cell", T.replace("uses turntable", "uses turntable") + "pad steel 8 5\n"
              "prop turntable 8 5 size 2 fill oo/..\n", "already belongs"),
             ("a turntable with no `uses turntable`", T.replace("uses turntable\n", "") +
-             "prop turntable 8 5 size 2 fill oo/..\n", "does not name"),
-            ("seven tables turning on one step in one window", T.replace("4 4 12 9", "4 4 20 12").replace(
-                "width 64\norigin 224", "width 128\norigin 320") + "".join(
-                "prop turntable %d %d size 2 fill oo/..\n" % (8 + 3 * (k % 4), 4 + 3 * (k // 4)) for k in range(7)),
-             "pose changes can land on one step"))
+             "prop turntable 8 5 size 2 fill oo/..\n", "does not name"))
+
+
+def _turn_seven():
+    """SPEC.md 130.19.10 item 14: seven tables turning on one step in one window - refused by the old change bound,
+    compiled now (the window's changes reported; the wheel draws past its list on later frames)"""
+    return _TTB.replace("4 4 12 9", "4 4 20 12").replace("width 64\norigin 224", "width 128\norigin 320") + "".join(
+        "prop turntable %d %d size 2 fill oo/..\n" % (8 + 3 * (k % 4), 4 + 3 * (k // 4)) for k in range(7))
 
 
 TT_SC = (("A early", MAT_RUBBER, (9, 6), 40), ("A on time", MAT_RUBBER, (9, 6), 216),
@@ -36584,6 +36637,13 @@ def _sc_turn(X, res):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (turntable, 130.43): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    try:
+        c7 = compile_course(_turn_seven(), fname="<seven tables>", _hack={"no_finish": True})
+        ok7, msg = True, "compiled, at most %d changes on a step in a CGA window (reported)" % c7.bounds[0]["chg"]
+    except CourseError as e:
+        ok7, msg = False, str(e)
+    res.append(("2 accepted (turntable, 130.19.10 item 14): seven tables turning on one step in one window -- %s"
+                % msg, ok7))
     c = compile_course(TT_TEST)
     g = Grid(c.cga)
     recs = [r for r in c.part["props"] if r["kind"] == TT_K]
@@ -37021,7 +37081,7 @@ def _sc_gate(X, res):
                 "black and white in each, inside the grille's %d px; GATE's elements %s; GATE with no `style` is "
                 "GATE with `gatestyle grille` (%d bytes)" % (", ".join(GT_STYLES), 2 * GT_BARW + 1, gst, len(c0.cga)),
                 sok and c0.cga == c1.cga and c0.cga != c.cga and len(gst) == 4))
-    # SPEC.md 130.41.12: the designer's ART - GATE's three, their lanes (kind GT_KA, 4 poses, at most GT_ALANES an
+    # SPEC.md 130.41.12: the designer's ART - GATE's three, their lanes (kind GT_KA, 4 poses, any number an
     # art, +18 its gate, +19 its channel), its frames stepped and its cell opened at frame 3, and two red arms
     arts = [r for r in c.part["props"] if r.get("gart")]
     gal = [r for r in c.part["props"] if r["kind"] == GT_KA]
@@ -37034,7 +37094,7 @@ def _sc_gate(X, res):
                     ", ".join(names), len(arts), len(gal), "/".join(str(v) for v in per.values()),
                     ["%s %d" % (v[1], v[4]) for v in c.ga_vis]),
                 names == ["crumble", "door", "portcullis"] and len(arts) == 4 and 3 <= len(per)
-                and all(1 <= v <= GT_ALANES for v in per.values())
+                and all(1 <= v for v in per.values())
                 and all(r["lane"]["poses"] == GT_AFR and c.part["props"][r["gap"]]["gch"] == r["gch"] for r in gal)))
     ok_, fr_ = ga_frames_check(c)
     res.append(("7 GATE ART's frames on the model (130.41.12 A5, A6): the crumble's channel opened on steps 1 and 5, "
