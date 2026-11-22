@@ -8855,6 +8855,8 @@ def look_gap(cv, marks, collect=None):
 
 _NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_hack "nolook"): the ink before
                         # THE LOOK, for the cross-commit check against a tool that predates it
+_NORISER = False        # SPEC.md 130.12.3.3: --selfcheck item 1's switch alone (_hack "noriser"): no tube's RISER
+                        # painted, for the cross-commit check against a tool that predates it
 
 
 def WALL_INK(x, y):
@@ -9338,7 +9340,7 @@ def prop_ops(tiles, ops, props, x0):
                 p["mouth"] = (w, face, xm, rows, half, sill)
                 p["mouth_pix"] = pix
                 p["mouth_rim"] = ring
-            if p["kind"] == PK_TUBE:                # the pipe DOWN a column's face where its path steps
+            if p["kind"] == PK_TUBE and not _NORISER:   # the pipe DOWN a column's face where its path steps
                 p["riser"] = tube_riser_pix(tiles, ops, p, x0)                  # (SPEC.md 130.12.3.3)
                 for owner, which, pix in p["riser"]:
                     add(owner, which, _paint_op(pix, owner[0] + owner[1], tiles[owner], owner))
@@ -12321,13 +12323,14 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ, _NORISER
     hack = _hack or {}
     _HALFZ = bool(hack.get("halfz"))
     global _ONETB
     _ONETB = bool(hack.get("onetb"))                # (SPEC.md 130.51: item 1's check, the course-wide TB)                # (SPEC.md 130.48: item 1's cross-commit check, half units)
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
+    _NORISER = bool(hack.get("noriser"))            # (SPEC.md 130.12.3.3: item 1's cross-commit check, no riser)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     global _SHEETS_X
@@ -12345,6 +12348,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _DOWN_S0 = False
         _HM_FTOP = False
         _NOLOOK = False
+        _NORISER = False
         _LOOKB = 0
         _HALFZ = False
         _SHEETS_X = 0
@@ -30847,7 +30851,7 @@ def rec4_verdicts(c, sb_delta=0, wrap=False):
 
 def _w5_compact(courses, res):
     """item 10 (SPEC.md 130.15.12.3): the compact form, and its eight controls"""
-    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": []}
+    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "norail": []}
     for c in courses:
         if c.split:                                 # (a TWO-PART course, SPEC.md 130.30: _w5_compact2's checks;
             _w5_compact2(c, res)                    # the one-part form's controls run on the one-part courses)
@@ -30899,12 +30903,17 @@ def _w5_compact(courses, res):
         shaft = set(c.slabcells)
         nvoid = sum(1 for i in range(2, len(c.part["grid"]["cells_raw"]), 4)
                     if c.part["grid"]["cells_raw"][i] & 15 == KIND_VOID)
+        nshaft, nrail, stray = _cells_exc_split(c, exc)
         res.append(("10 %s: CELLS - %d VOID cells' z0 and every cell's SAFE stored as their difference from the "
-                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s)" % (
+                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s) or a railed SAFE "
+                    "(%d, 130.35.1)%s" % (
                         c.name, nvoid, len(exc), "" if len(exc) == 1 else "s",
                         "" if not exc else " (%s)" % ", ".join("(%d, %d) %s" % e for e in exc),
-                        len(shaft), "" if len(shaft) == 1 else "s"),
-                    all((wx, wy) in shaft for wx, wy, _ in exc)))
+                        len(shaft), "" if len(shaft) == 1 else "s", nrail,
+                        "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
+                    not stray))
+        if nrail:                                   # the control: the same exceptions read with no rails
+            ctl["norail"].append(len(_cells_exc_split(c, exc, _norails=True)[2]) == nrail)
         def _would_be_safe(cell):                   # a prop's cell SAFE but for its OBS (a clock's may not be)
             tl = c.tiles.get(cell)
             return (tl is not None and tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0
@@ -30945,6 +30954,8 @@ def _w5_compact(courses, res):
                       ("mtab", "MTAB one entry short fails expand == RAM"),
                       ("irmove", "the I and R entries' boundary moved by a word (still tiling the part) is refused "
                                  "by the place-and-size rule, naming I"),
+                      ("norail", "the CELLS exceptions sorted with the guard rails forgotten leave every railed "
+                                 "SAFE unexplained (the courses with one)"),
                       ("no_obs", "the CELLS rule with SAFE's OBS clause taken out (the red arm cellsafe's) has "
                                  "exceptions outside the shafts (the courses with a prop's cell that is SAFE but for it)")):
         v = ctl[key]
@@ -30978,9 +30989,35 @@ def _w5_compact2(c, res):
                 "RAM byte moves it, and the two parts give the shipped one%s" % (
                     c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
     exc = cells_exceptions(c.wcga)
+    nshaft, nrail, stray = _cells_exc_split(c, exc)
+    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d) or a railed "
+                "SAFE (%d, 130.35.1)%s" % (
+                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft, nrail,
+                    "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
+                not stray))
+
+
+def _cells_exc_split(c, exc, _norails=False):
+    """item 10's CELLS exceptions sorted (SPEC.md 130.15.6): a lift's shaft cell (the tool's own VOID rule,
+    130.12.3.2), or a RAILED SAFE - a flat FLOOR the tool makes SAFE because a guard rail closes an edge the
+    rule reads as open (130.35.1, rail_flags; the guest's rule reads no rail, so the cell is stored as its
+    difference, a byte and never a wrong grid) -> (shaft count, railed count, the rest).  _norails: item 10's
+    negative control, the rails forgotten"""
     shaft = set(c.slabcells)
-    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell" % (
-        c.name, len(exc), "" if len(exc) == 1 else "s"), all((wx, wy) in shaft for wx, wy, _ in exc)))
+    rails = {} if _norails else c.src.rails
+    g = Grid(c.cga, c.wcga) if c.split else Grid(c.cga)      # (RAM's flags: the SAFE the part holds)
+    ns = nr = 0
+    stray = []
+    for e in exc:
+        cell = e[:2]
+        if cell in shaft:
+            ns += 1
+        elif (e[2] == "SAFE" and g.cell(*cell)[4] & FL_SAFE
+              and any(_edge_owner(cell, d) in rails for d in EDGE_D)):
+            nr += 1
+        else:
+            stray.append(e)
+    return ns, nr, stray
 
 
 def _mask_pix(mask, br, bc):
@@ -33479,10 +33516,13 @@ def _sc_crosscommit(X, res):
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
                                                 "occ": "off", "nolook": True, "halfz": True,
-                                                "realcut": False, "noavsplit": True, "onetb": True})
+                                                "realcut": False, "noavsplit": True, "onetb": True,
+                                                "nocum": True, "noriser": True})
                 # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink; and
                 # 130.48's quarter units off: that tool's half-unit bytes, no rebase, the CELLS rule's 79h; and
-                # 130.49's real-pose cut off: the whole cells that tool cut)
+                # 130.49's real-pose cut off: the whole cells that tool cut; and 130.11.4.2's CUMULATIVE masks off
+                # (2026-11-22, `nocum`): each record's own mask, as that tool shipped it; and 130.12.3.3's RISER
+                # off (2026-11-22, `noriser`): no pipe down a column's face, a picture that tool never drew)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
