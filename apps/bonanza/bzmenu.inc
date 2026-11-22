@@ -573,7 +573,7 @@ bz_gfsave:
 ; shipped demo, into the session's log.  CF = 1 none (its card shown).
 bz_gfload:
     mov bl, [bz_pwck]
-    cmp bl, BZ_NCRS
+    cmp bl, BZ_CRS_MAX
     jae .none
     cmp al, 'v'
     jne .f6
@@ -582,8 +582,8 @@ bz_gfload:
 .dr:                            ; by K - 1)
     cmp al, [bz_dcrs + bx]
     je .dg
-    inc bx
-    cmp bl, BZ_NDEMO
+    inc bx                      ; (every row: one past the list's demos
+    cmp bl, BZ_CRS_MAX          ; names course 0FFh, no K)
     jb .dr
     jmp short .none
 .dg:

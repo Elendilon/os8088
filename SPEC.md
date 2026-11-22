@@ -283345,7 +283345,8 @@ course K below are what `BZS5` keyed by course and by pad instead.* The owner's 
 the game is 14 - 20 courses, and `BZS3` held eight: a course K of 8 or more
 read past the slot's tables. **`BZ_CRS_MAX` = 23** (a constant of `tools/bbcourse.py`,
 emitted into `bzcourse.inc`; the tool REFUSES a build of more courses) is the
-width of every per-course table, and the save is **`BZS4`**: still ONE sector -
+width of every per-course table (in the guest too since 130.58.34: the tables are
+23 rows wide whatever the list, the count a byte of data), and the save is **`BZS4`**: still ONE sector -
 **494 bytes**, one `od_write`, after the session's first save one `int 13h` -
 laid out for 23 courses and three slots:
 
@@ -297738,6 +297739,11 @@ log, BLK_MAX left lifted. The bundle row `bbeditbundle` plays MILL 120 frames in
 
 #### 130.58.17 Add to the game: the decision, and how it is made (wave 8, 2026-11-21)
 
+*AMENDED by 130.58.34 (2026-11-22): the course count is DATA and every per-course table `BZ_CRS_MAX` rows wide, so
+there are no variants - `make bbgamebin` copies the shipped build's own pieces and one probe's map, and bbgame.py
+writes the tables and the counts into them. The variants, SPARE courses and "at most four" below are this
+section's history; the decision (a), the byte-for-byte claim and the composing are as written.*
+
 The owner: *"'Add to the game' does need to be in scope; we can ship the bits needed to make this work with
 the builder zip release. Check RealDMG for example - its static builder outputs a 'game', in a similar way."*
 This settles 130.58.9.
@@ -297831,6 +297837,11 @@ or state than the shipped maxima are refused rather than built (signs, and a pat
 since 130.58.17.1).
 
 ##### 130.58.17.1 A bigger map: headroom, and the pad count written in (2026-11-22)
+
+*SUPERSEDED by 130.58.34 (2026-11-22): the headroom below is the shipped build's (`BZ_NSIGN` 255, `BZ_PAD_EXITS`
+`BZ_PAD_MAX` words), the knob `BZHEADROOM=1` is gone, and the pad count is a byte of data (`bz_pcount`) - its
+"reading the count from a data byte at run time would change the shipped game's code" is the change the owner
+then asked for. The probe at every count and v0r are history.*
 
 **The problem.** The Map tab's *Put a course on the map* (130.58.20) writes a pad, a route and an icon, and
 the map it makes did not compose: XTRA on a ninth pad (`pad 8 XTRA 8 7`, `route 7 8 exit 0  path 4,11 8,7`,
@@ -298418,3 +298429,83 @@ The builder's tube form (130.58.29) has **Pipe height** (`body <units>`, 130.12.
 clause removed). A DROP's automatic pipe is now the lowest its mouth stands on, so a drop moved below a higher
 entry no longer sits far above its exit. The mouth's refusal is explained: raise the pipe, or lower the mouth.
 
+
+#### 130.58.34 One build for every course list: the counts are data (the owner, 2026-11-22)
+
+The owner: make the course COUNT data, so that ADD TO THE GAME (130.58.17) needs no prebuilt variants - they
+were ten minutes of `make bbgamebin` and did not scale to the 14 - 21 shipped courses planned. **This
+supersedes 130.58.17's variants (v0, v1 .. v4, 130.58.17.1's v0r) and its pad-count probe, and removes the
+`BZHEADROOM=1` knob**: 130.58.17.1's two capacities are the shipped build's now.
+
+**The contract.**
+
+1. **Every per-course table is `BZ_CRS_MAX` (23) rows wide** - 23 stays: it is what fits BONANZA.DAT in one
+   sector (130.22.5.1). Course K's row is K for K < the list's count; the rows past it are ZERO (`BZ_DEMO_CRS`'s
+   0FFh: no course); an `allc` table's pathway row is at **`BZ_CRS_PATH` = `BZ_CRS_MAX`** and the title's at
+   **`BZ_CRS_TITLE` = `BZ_CRS_MAX` + 1**, whatever the list (they were the list's count and one more). The
+   tables are where they were: `bonanza.bin`'s (`bz_cnames` ... `bz_cbots`, `bz_cmedals`, `bz_cnex`,
+   `bz_dcrs`, `bz_pexits`) and the shell part's `bz_cnames` and `bz_cncks` - no extra disk read anywhere.
+   `BZ_PAD_EXITS` is `BZ_PAD_MAX` words (130.58.17.1's headroom), `BZ_NSIGN` 255 (likewise).
+2. **The counts are three bytes of DATA**, `bzcourse.inc`'s `BZ_CRS_COUNTS` at `bz_ncrs` in `bonanza.bin`:
+   +0 the list's courses (`bz_ncrs`), +1 its shipped demos (`bz_ndemo`), +2 the map's pads (`bz_pcount`). The
+   `equ`s `BZ_NCRS`, `BZ_NDEMO` and `BZ_PATH_NPAD` are still emitted with the list's values, for the host's
+   readers, and NO SOURCE READS THEM as a number (`%if BZ_PATH_NPAD`, "a pathway", is the one use, and the
+   probe below holds every one of them inert). The run-time bounds, one by one:
+   - a K that is a COURSE against the pathway's and title's (`bz_cload`'s kit, `bz_cload2`, the sheets, the
+     finish's tune, `bz_gfload`): `cmp ..., BZ_CRS_MAX` - a K under the count, or 23 / 24; no compare
+     changed its length;
+   - a K off a DISK, a `.BZR` replay (`bz_lchk`'s step 3): `cmp bl, [bz_ncrs]` (+1 byte);
+   - BONANZA.DAT's header count (`bz_dnorm`): `[bz_ncrs]` written; the keys' walk takes all 23 rows (a row
+     past the list's is key 0, and an entry keyed 0 is emptied either way: the same verdict);
+   - the title's random demo and BZDEV's V: `[bz_ndemo]`; V's search for a course's demo walks all 23 rows
+     (a reserved row names 0FFh);
+   - the save's pad guard (`bz_dslots`): `cmp al, [bz_pcount]`, and the zero checks past the pads count
+     `BZ_PAD_MAX` - `[bz_pcount]` words at run time; the exits mask walks all `BZ_PAD_MAX` words (those past
+     the map's are 0, and so are the slot's words they mask, checked just above).
+3. **The part table is laid out for `BZ_CRS_MAX` course rows, then `BZ_CRS_MAX` demo rows** (`BZ_P_DEMO` =
+   `BZ_P_CRS` + 23, `BZ_P_SHELL` = `BZ_P_DEMO` + 23; the shell, pathway, title, kit, family and VGA rows after
+   them, at fixed numbers), so a course added fills a row and renumbers nothing. A row past the list's is
+   **RESERVED**: `OS88_PART OP_ASSET, OP_LAZY | OP_COMP`, its payload `BZRES.BIN` - eight zero bytes, the
+   fewest LZB packs smaller (5), so os88pkg.py's strict `OP_COMP` holds - and never fetched (no K reaches it).
+   This is the cheapest legal form: os88pkg refuses an empty payload (`part N: the payload is empty`), an
+   `OP_ZERO` row is eager scratch the carve claims at every launch, and a plain `OP_LAZY` row would assemble
+   the standard's plain-lazy move-down arm (`OP_HAS_PLAZY`, 20.12.7.4.4) for nothing; a reserved row costs
+   the table its 8 bytes and the shadow its word (20.12.7.4.1) and the file one paragraph. `bbcourse.py`
+   writes `BZRES.BIN` and **`bzparts.lst`**, the 46 rows' files in row order, which the Makefile and
+   bbgame.py hand os88pkg; `bzdemo.lst` stays the shipped demos alone. A course row's FLAGS follow its
+   course (`OP_BIG` for one with a world part or sheets): data too, written by bbgame.py, from the forms the
+   shipped rows already use (18h, 98h), so no `OP_HAS_*` the table derives can change.
+4. **What stays assembly-time, case by case.** CAPACITIES the list cannot exceed, refused by bbgame.py with
+   the reason (its `WHY`): `BZ_PROPMAX`, `BZ_PROPALL`, `BZ_FSTB`, `BZ_FORMS`, `BZ_KWMAX`, `BZ_MROWS`,
+   `BZ_CRS_MAXCLAIM`, `BZ_CRS_ARMAX`, `BZ_PATH_CLAIM`, `BZ_SHMAX` and the sheet table `BZ_SHTAB` (an added
+   SHEETED course is refused; an added TWO-PART course is not - its `BZ_CRS_WPARA` row and `OP_BIG` row are
+   data, and the switch `BZ_NCRS2` is on in the shipped build). SWITCHES, `BZ_NCRS2` and `BZ_NSHC`, may take
+   another value but not another truth (zero against not). `BZ_CRS_NAMEW` is now the NAME's most, 5 (`_NAME`,
+   1 - 5 characters), whatever the list - the shipped value, so no byte moved and no NAME is refused for its
+   length. `BZ_CRS_DEFAULT` (pad 0's course) is BZDEV's alone and inert in the shipped build.
+
+**ADD TO THE GAME, rebuilt** (`tools/bbgame.py`). `make bbgamebin` (`prebuild`) COPIES the shipped build's
+own pieces (`bonanza.bin`, `bzshell.bin`, `bzvga.bin`, `bzfbun.bin`, `bzf-probe.bin`), its `bzcourse.inc` and
+README, and writes `map.json`: each PATCH table's places, found by ONE probe assembly - every table's bytes
+XOR its own mask, every course row's flags the other shipped form (`OP_BIG` toggled), every INFO equ one more
+(`BZ_NCRS`, `BZ_NDEMO`, `BZ_PATH_NPAD`, `BZ_CRS_DEFAULT`, `BZ_NCRS2`, `BZ_NSHC` and the inc's unreferenced
+ones) - held to: every piece the same size, and the bytes that moved exactly those tables and flag bytes.
+Composing compiles the list (the shipped courses, then the author's, at most `BZ_CRS_MAX` in all), holds its
+`bzcourse.inc` to the shipped one line by line (the tables, the rows' flags, the INFO equs and the course-name
+`equ`s aside), writes the tables - `BZ_CRS_COUNTS` among them - and the flags at the map's places, and packs
+with os88pkg off `bzparts.lst`: byte for byte what nasm makes of that list. `--pad0`, `--path` (the Map tab's
+pathway, 130.58.20), `--no-trap` and the builder's *Put this course in the game...* are unchanged.
+
+**What it costs** (MEASURED against `bb-editor`'s head, the shipped list):
+
+| | before | after | |
+|---|---|---|---|
+| `bonanza.bin` (the image) | 52,241 | 53,059 | **+818**: 15 empty rows of every table (about 32 bytes a row), 30 reserved part rows (8 bytes each and a shadow word: 300), `bz_pexits`' 15 words (30), the counts (3), the bounds' code (+5) |
+| bss | 9,439 | 9,671 | **+232**: `bz_nst` at 255 signs (130.58.17.1's figure) |
+| `bzshell.bin` | 10,469 | 10,574 | **+105**: `bz_cnames`' and `bz_cncks`' 15 empty rows (7 bytes a row) |
+| `BONANZA.O88` (packed) | 174,764 | 175,357 | **+593**: the image's growth, packed, and 30 reserved payloads of a paragraph each |
+
+The save, BONANZA.DAT (`BZS5`), is unchanged: its layout was already `BZ_CRS_MAX` entries and `BZ_PAD_MAX`
+words a slot, and the header's count is the list's, as it was. The shipped courses' parts and demos are the
+bytes they were; the title's demos (BZTDEMO.BIN) name the title's new K, 24. A course added to a composed game
+costs its part and its demo and no resident byte.
