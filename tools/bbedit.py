@@ -238,6 +238,7 @@ class App(object):
         self.strict = tk.BooleanVar(value=False)
         self.part = None                # the palette entry chosen: (name, mode, template, hint)
         self.area = None                # the selected AREA, cells (x0, y0, x1, y1) inclusive
+        self.path_pick = []             # the cells Ctrl-clicked for a Tube or Chute (SPEC.md 130.58.27)
         self.sels = []                  # Ctrl-click's MULTI-selection: lines (self.sel the last one)
         self.drag = None
         self.good = None                # the last analysis that laid out (shown while one does not)
@@ -970,8 +971,82 @@ class App(object):
     def _pick_part(self):
         sel = self.pal.selection()
         it = self.pal_items.get(sel[0]) if sel else None
+        if not self._is_path_part(it):
+            self.path_pick = []
         self.part = it
         self._fill_add()
+        self._redraw()
+
+    # -- a path traced on the plan (SPEC.md 130.58.27) -----------------------------
+    @staticmethod
+    def _is_path_part(it):
+        return bool(it) and it[0].split()[0] in ("Tube", "Chute")
+
+    def _trace(self, cell):
+        """Ctrl-click with a Tube or Chute chosen: CELL added to the path traced on the plan (clicked again: the
+        last cell taken off)"""
+        pp = self.path_pick
+        if pp and pp[-1] == cell:
+            pp.pop()
+        elif cell not in pp:
+            pp.append(cell)
+        self._fill_add()
+        self._redraw()
+
+    def _add_traced(self, it):
+        """the chosen Tube or Chute laid along the traced path: its turns found (each leg along an axis), the
+        tube's body its own (the compiler lays it), an end off the floor given a floor tile at the height of
+        the nearest floor - then shown on the Shapes tab to draft further"""
+        pts = bbedshape.axis_path([[x, y, None] for (x, y) in self.path_pick])
+        if len(pts) < 2:
+            self._msg("Trace at least two cells (Ctrl-click them on the plan)")
+            return
+        a = self.doc.analysis()
+
+        def floor_h(c):
+            d = a["cells"].get(c)
+            if d and d["kind"] in ("floor", "goal") and d["slope"] == (0, 0):
+                return d["h"], False
+            near = sorted((abs(q[0] - c[0]) + abs(q[1] - c[1]), dd["h"]) for q, dd in a["cells"].items()
+                          if dd["kind"] in ("floor", "goal"))
+            return (near[0][1] if near else 0.0), True
+        h0, need0 = floor_h(tuple(pts[0][:2]))
+        h1, need1 = floor_h(tuple(pts[-1][:2]))
+        f = lambda v: ("%d" % v) if v == int(v) else ("%g" % v)      # noqa: E731
+        ground = []
+        if need0:
+            ground.append("floor tile %d %d flat %s" % (pts[0][0], pts[0][1], f(h0)))
+        if need1 and pts[-1][:2] != pts[0][:2]:
+            ground.append("floor tile %d %d flat %s" % (pts[-1][0], pts[-1][1], f(h1)))
+        kind = it[0].split()[0]
+        if kind == "Tube":
+            sub = it[2].split()[1]
+            dx, dy = (pts[-1][0] > pts[-2][0]) - (pts[-1][0] < pts[-2][0]), (pts[-1][1] > pts[-2][1]) - (pts[-1][1] < pts[-2][1])
+            sh = {"kind": "tube", "sub": sub, "width": 1, "ways": pts, "out": None,
+                  "speed": [192 * dx, 192 * dy, 300] if sub == "launch" else None,
+                  "height": 3.0 if sub == "drop" else None}
+            if sub == "drop" and (dx, dy) not in ((1, 0), (0, 1)):
+                sh["out"] = "+x" if dx == 0 else "+y"
+        else:
+            pts[0][2] = h0
+            sh = {"kind": "chute", "width": 1, "prof": "round", "depth": 5, "ways": pts}
+        code = bbedshape.code(sh)
+        n_ = self._edit(self.doc.replace_area, None, ground=ground, then=[code], kinds=(),
+                        label="add a %s along a path" % kind.lower())
+        if n_:
+            self.path_pick = []
+            ln = next((s_.line for s_ in reversed(self.doc.statements()) if s_.code == code), n_)
+            self.select(ln)
+            self._show_shape(ln)
+            self._msg("Added a %s along the %d points you traced%s. Draft it further here; Try it puts a draft in."
+                      % (kind.lower(), len(pts), " (with floor under an end)" if ground else ""))
+
+    def _show_shape(self, line):
+        """the Shapes tab, showing the shape on LINE"""
+        self.shapes.line = line
+        self.shapes.draft = None
+        self.nb.select(self.shapes.frame)
+        self.shapes.refresh()
 
     def _tool_changed(self):
         self._msg("Erase: click something to remove it" if self.tool.get() == "erase" else
@@ -979,6 +1054,7 @@ class App(object):
 
     def _escape(self):
         self.tool.set("select")
+        self.path_pick = []
         self.area = None
         self.select(None)
         self._fill_add()
@@ -998,6 +1074,13 @@ class App(object):
     def _fill_add(self):
         it = self.part
         t = self._target()
+        if self._is_path_part(it) and len(self.path_pick) >= 2:
+            self.add_name.config(text=it[0])
+            self.add_desc.config(text=it[3])
+            self.add_btn.config(text="Add %s" % it[0].lower())
+            self.add_btn.state(["!disabled"])
+            self.add_where.config(text="along the %d cells you Ctrl-clicked (Esc clears them)" % len(self.path_pick))
+            return
         if not it:
             self.add_name.config(text="Choose a part above")
             self.add_desc.config(text="Then press Add to put it on the selected area. Drag across the course "
@@ -1006,7 +1089,9 @@ class App(object):
             self.add_where.config(text="")
             return
         self.add_name.config(text=it[0])
-        self.add_desc.config(text=it[3])
+        self.add_desc.config(text=it[3] + (". Or Ctrl-click cells on the plan to trace its path - its ends and any "
+                                           "turns - then Add; the turns between are found for you."
+                                           if self._is_path_part(it) else ""))
         self.add_btn.config(text="Add %s" % it[0].lower())
         if t:
             self.add_btn.state(["!disabled"])
@@ -1201,6 +1286,8 @@ class App(object):
         keeping their own heights and ramps), the surfaces repaint it, a part that stands on the ground brings
         a floor tile to an empty cell, and an archway goes OVER the area with its legs made for it"""
         it = self.part if name is None else next((i for _g, its in PALETTE for i in its if i[0] == name), None)
+        if self._is_path_part(it) and len(self.path_pick) >= 2:     # a path traced on the plan (130.58.27)
+            return self._add_traced(it)
         t = self._target()
         if not it or not t:
             self._fill_add()
@@ -1320,6 +1407,26 @@ class App(object):
             t_ = code.split()
             t_[4] = str(x1)
             code = " ".join(t_)
+        elif code.startswith("tube ") and (x0, y0) == (x1, y1):   # one cell: the exit on the nearest floor in a
+            t_ = code.split()                                   # straight line, 2 - 8 cells off (SPEC.md 130.58.27)
+            dirs = ((1, 0), (0, 1)) if t_[1] == "drop" else ((1, 0), (0, 1), (-1, 0), (0, -1))
+            best = None
+            for n in range(2, 9):
+                for dx, dy in dirs:
+                    d = a["cells"].get((x0 + n * dx, y0 + n * dy))
+                    if d and d["kind"] == "floor" and d["slope"] == (0, 0) and not d.get("pieces"):
+                        best = (x0 + n * dx, y0 + n * dy, dx, dy)
+                        break
+                if best:
+                    break
+            if not best:
+                self._msg("A tube needs a floor to come out on: select a strip from where the ball goes in to "
+                          "where it comes out (both on floor), or put floor 2 - 8 cells away in a straight line")
+                return
+            t_[4], t_[5] = str(best[0]), str(best[1])
+            code = " ".join(t_)
+            if " out +x" in code and best[2:] == (0, 1):
+                code = code.replace(" out +x", " out +y")
         kind = code.split()[0]
         ground = []
         if name in self.ON_GROUND and (x0, y0) not in a["cells"]:
@@ -1342,6 +1449,8 @@ class App(object):
             self.select(ln)
             self._msg("Added %s%s (line %d). Edit it on the right; Ctrl+Z takes it back." % (
                 name.lower(), " with floor under it" if ground else "", ln))
+            if self._is_path_part(it):         # a tube or a chute: drafted further on the Shapes tab
+                self._show_shape(ln)
 
     # -- selection and the inspector ---------------------------------------------
     def select(self, line, scroll=False, add=False):
@@ -2688,6 +2797,16 @@ class App(object):
             bx, by = self._cpx(x1 + 1, y1 + 1)
             c.create_rectangle(ax - 1, ay - 1, bx + 1, by + 1, outline="#111", width=4)
             c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=2, dash=(6, 3))
+        if self.path_pick:                       # a path traced for a Tube or Chute (SPEC.md 130.58.27)
+            fin = bbedshape.axis_path([[x, y, None] for (x, y) in self.path_pick])
+            pts = [v for w in fin for v in self._cpx(w[0] + .5, w[1] + .5)]
+            if len(pts) >= 4:
+                c.create_line(*pts, fill="#ff9f1c", width=3, dash=(6, 4))
+            for k, (x, y) in enumerate(self.path_pick):
+                px, py = self._cpx(x + .5, y + .5)
+                r_ = max(7, s * .3)
+                c.create_oval(px - r_, py - r_, px + r_, py + r_, fill="#ff9f1c", outline="#111", width=2)
+                c.create_text(px, py, text=str(k + 1), font=("TkDefaultFont", 8, "bold"))
         rz = self._resizable()
         if rz and not (self.drag and self.drag.get("resize")):
             for _h, hx, hy in self._handles(rz[2]):
@@ -2941,6 +3060,10 @@ class App(object):
             self.select(lines[0] if lines else None)
             self._fill_add()
             return
+        ctrl_ = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
+        if ctrl_ and self._is_path_part(self.part):     # Ctrl-click with a Tube or Chute chosen: trace its path
+            self._trace(cell)
+            return
         h = self._handle_at(e)                           # a resize handle of the selected floor, wall, goal or hole
         if h:
             rz = self._resizable()
@@ -3094,6 +3217,10 @@ EXPLAIN = [
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
      "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
      "of the game. Otherwise connect that part, or move the flag or pad."),
+    (r"the tube's (IN|OUT) cell \((\d+), (\d+)\) is not a FLOOR", "a tube goes in and comes out on floor: its {0} "
+     "end, ({1}, {2}), is not on one. Select a strip from where the ball goes in to where it comes out, both on "
+     "floor (the cells between become the tube's body by themselves), or drag that end onto floor on the "
+     "Shapes tab."),
     (r"has no clock whose digits lie inside the CGA window", "every finish needs a clock the player can see from "
      "it (the finish flashes its time there): add a Clock (Game, on the left) on a floor tile near the goal."),
     (r"no `music` line", "every course names its song: choose one on the Course tab (Music)."),

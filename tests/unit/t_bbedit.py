@@ -39,6 +39,9 @@
     default, 130.58.24) a 3-cell gap a jump pickup carries glass over compiles.
  13. TUBES (130.58.26, 130.12.3.3): a KEEP tube made from nothing on a plain floor, an end dragged, a right
     turn added and made a DROP compiles, the tube laying its own body along both legs.
+ 14. DRAFTS AND TRACES (130.58.27): a drafted path made axis-legged (a corner where two points differ along both
+    axes, a point mid-run dropped), a Ctrl-click past the end a new end, and a tube traced through three cells
+    compiles with its body laid.
  8. GAP BANDS (130.58.21): (and a mark an edit left with nothing to band is dropped by the picture job,
     which draws the picture rather than refusing it) a ledge's faces over the lower floor are the detector's candidates; marking two
     neighbours folds them into one `gap rect`, unmarking one of a statement's faces rewrites it to the rest
@@ -406,6 +409,24 @@ def main():
         bad.append("tube: refused: %s" % str(e)[:150])
     finally:
         B.BLK_MAX = held
+    # 14. DRAFTS AND TRACES (SPEC.md 130.58.27)
+    ap = S.axis_path([[6, 6, None], [9, 6, None], [12, 6, None], [12, 12, None], [15, 14, None]])
+    if ap != [[6, 6, None], [12, 6, None], [12, 12, None], [15, 12, None], [15, 14, None]]:
+        bad.append("axis_path: %r" % ap)
+    ip = S.insert_point([[8, 8, None], [15, 8, None]], (15, 12))
+    if ip != [[8, 8, None], [15, 8, None], [15, 12, None]]:
+        bad.append("insert_point past the end: %r" % ip)
+    tr = dict(S.new_shape("tube", 6, 6, 2.0), ways=S.axis_path([[6, 6, None], [12, 12, None]]))
+    try:
+        dt = E.Document(tt + S.code(tr) + "\n")
+        dt.auto_band()
+        B.BLK_MAX, held = 1 << 30, B.BLK_MAX
+        try:
+            B.compile_course(dt.text(), "tr.bbc", occluders=False)
+        finally:
+            B.BLK_MAX = held
+    except B.CourseError as e:
+        bad.append("a traced tube: %s" % str(e)[:150])
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

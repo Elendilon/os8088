@@ -289120,3 +289120,31 @@ Two halves:
 - The `bbedit` row's item 13: a KEEP tube made from nothing on a plain floor, an end dragged, a right turn
   added and made a DROP compiles, its body laid along both legs.
 
+#### 130.58.27 Shapes are drafted, then tried; a tube or chute traced on the plan (the owner, 2026-11-22)
+
+The owner: *"like any shapes I am not having much luck with it. Even just moving a point one over just snaps
+back to where it was before. I need some way to edit it - add points, remove points, etc without it
+'compiling' every single step, or just snapping back. Ctrl click to add points, drag them around, and then a
+button to have it try it at the end?"* And: *"For plan, there is no way to curve a tube - so we need to be able
+to either select a path (ctrl click individual tiles, autofind the turn point?) or be able to click add and then
+go to the shapes menu. This should also try to 'fit it', adding whatever walls are needed."*
+
+- **The DRAFT** (the Shapes tab): every edit of a shape - a point dragged (anywhere: the draft keeps no axis
+  rule), a point added by Ctrl-click (Command-click on a Mac: where it is nearest the path, past an end a new
+  end), a point removed by right-click (a path keeps its two ends), every field and button - changes a draft,
+  drawn dashed orange, the path it will lay shown; nothing is written or compiled. **Try it** makes the path
+  axis-legged (`axis_path`: a corner where two points differ along both axes, along x first; a repeated point
+  and a point in the middle of a straight run dropped, unless it carries a chute lip of its own) and writes it
+  through the window's checked edit: accepted, the draft is gone; refused, the course is untouched, the draft
+  stays and the banner says why. **Discard** drops it; choosing another shape drops it with a note.
+- **A tube or chute traced on the Build tab's plan**: with Tube (keep, launch or drop) or Chute chosen in the
+  parts list, Ctrl-click on the plan marks cells in order (numbered, the path to be laid drawn dashed; the last
+  clicked again comes off; Esc clears) - its ends and turns, or every cell; *Add* lays it along them (the turns
+  found by `axis_path`), gives an end that is not on floor a floor tile at the nearest floor's height, and the
+  tube's body is its own (130.12.3.3); a launch gets a speed along its last leg, a drop a 3-unit mouth facing
+  +x or +y. **Any tube or chute added** (traced or from the palette) then opens on the Shapes tab.
+- **The palette's tube on one cell** comes out on the nearest flat floor 2 - 8 cells away in a straight line
+  (a drop's only along +x or +y), not 3 cells along x whatever is there; with none, it says to select a strip.
+  A tube whose end is not on floor is explained in plain words.
+- The `bbedit` row's item 14: `axis_path` and `insert_point` on a constructed path; a traced tube compiles.
+
