@@ -47,6 +47,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -480,15 +481,70 @@ def variants():
     return [("v0", 0, False), ("v0r", 0, True)] + [("v%d" % m, m, True) for m in range(1, SPARE_MAX + 1)]
 
 
-def prebuild(out, top="build"):
+def _prebuild_key(top):
+    """what the prebuilt pieces are made from, by CONTENT (make's dates rebuild them for any edit to the
+    compiler, which mostly leaves every shipped course's bytes as they were): the shipped package itself, the
+    game's sources, this tool and the Makefile.  A compiler change that moves only a HEADROOM or spare build's
+    bytes and none of the shipped package's is the one this cannot see - `make -B bbgamebin BBGAME_FORCE=1` forces it"""
+    h = hashlib.sha1()
+    files = [os.path.join(top, "bonanza.o88"), os.path.abspath(__file__), os.path.join(TREE, "Makefile")]
+    for base, _, names in sorted(os.walk(os.path.join(TREE, "apps", "bonanza"))):
+        files += [os.path.join(base, n) for n in sorted(names) if n.endswith((".asm", ".inc", ".bbc"))]
+    for f in files:
+        h.update(os.path.relpath(f, TREE).encode() + b"\0")
+        with open(f, "rb") as fh:
+            h.update(hashlib.sha1(fh.read()).digest())
+    return h.hexdigest()
+
+
+def prebuild(out, top="build", only=None, jobs=None, force=False):
     """the variants() - v0 the shipped list (the tree's TOP, build/), the rest the shipped list and m spare
     courses, each a private tree TOP/bbgame/<name>, made with BZHEADROOM=1 - -> OUT/<name>/: the pieces,
-    bzcourse.inc, map.json"""
+    bzcourse.inc, map.json.  The variants are independent trees, so they are made side by side (JOBS, one
+    a core), each a `prebuild --only` process of its own; and none is made when _prebuild_key() says the
+    pieces in OUT were made from these very inputs"""
+    if only is None:
+        topd = os.path.join(TREE, top)
+        key = _prebuild_key(topd)
+        kfile = os.path.join(out, "key.txt")
+        have = all(os.path.exists(os.path.join(out, v, "map.json")) for v, _m, _r in variants())
+        force = force or os.environ.get("BBGAME_FORCE", "") not in ("", "0")
+        if not force and have and os.path.exists(kfile) and open(kfile).read().strip() == key:
+            print("bbgame: the prebuilt pieces in %s were made from these inputs - nothing to do" % out)
+            return 0
+        if os.path.exists(kfile):
+            os.remove(kfile)
+        os.makedirs(out, exist_ok=True)
+        jobs = max(1, min(len(variants()), jobs or os.cpu_count() or 1))
+        procs, fail = {}, []
+        todo = [v for v, _m, _r in variants()]
+        while todo or procs:
+            while todo and len(procs) < jobs:
+                v = todo.pop(0)
+                procs[v] = subprocess.Popen([sys.executable, os.path.abspath(__file__), "prebuild", out,
+                                             "--build", top, "--only", v], cwd=TREE, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT, text=True)
+            for v, pr in list(procs.items()):
+                if pr.poll() is not None:
+                    text = pr.stdout.read()
+                    sys.stdout.write(text)
+                    if pr.returncode:
+                        fail.append(v)
+                    del procs[v]
+            time.sleep(0.5)
+        if fail:
+            sys.exit("bbgame: prebuild failed for %s" % ", ".join(fail))
+        shutil.copyfile(os.path.join(TREE, "apps", "bonanza", "README.md"), os.path.join(out, "README.md"))
+        with open(kfile, "w") as f:
+            f.write(key + "\n")
+        return 0
     make = os.environ.get("MAKE", "make")
     top = os.path.join(TREE, top)
     ship = B._mk_list(B._makefile(), "BZ_COURSES")
     os.makedirs(out, exist_ok=True)
     for vname, m, room in variants():
+        if vname != only:
+            continue
         if not room:
             build = top
         else:
@@ -533,7 +589,6 @@ def prebuild(out, top="build"):
             vname, ", ".join("%s %d" % (p, os.path.getsize(os.path.join(v, p))) for p in pieces[:3]),
             sum(map(len, mp["map"].values())), ", BZ_PATH_NPAD's %d bytes at every count" % sum(
                 r[2] for r in mp["npad"]["runs"]) if room else ""))
-    shutil.copyfile(os.path.join(TREE, "apps", "bonanza", "README.md"), os.path.join(out, "README.md"))
     return 0
 
 
@@ -683,8 +738,11 @@ def main(argv=None):
         ap = argparse.ArgumentParser(prog="bbgame.py prebuild")
         ap.add_argument("out", nargs="?", default=BIN)
         ap.add_argument("--build", default="build", help="the tree's build directory (make's BUILD)")
+        ap.add_argument("--only", help="make one variant (the parallel prebuild's worker)")
+        ap.add_argument("-j", "--jobs", type=int, help="variants made at once (default: one a core)")
+        ap.add_argument("--force", action="store_true", help="make them even when the inputs have not moved")
         a = ap.parse_args(argv[1:])
-        return prebuild(a.out, a.build)
+        return prebuild(a.out, a.build, a.only, a.jobs, a.force)
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("out", help="the package to write, BONANZA.O88")
     ap.add_argument("courses", nargs="*", help="the courses to add after the shipped ones (at most %d)" % SPARE_MAX)
