@@ -95,3 +95,13 @@ pit whenever the ball dawdles on the plus half, and only a fast pass (under 8 gr
 reaches the ramp. That is the design question SEESAW.md's "What to try next" already named (the pivot or the
 rest pose so the tipped end meets the ramp), and it is what the owner's report most likely describes.
 Still open: the owner's machine (the 5150's Hercules or CGA, PCem, 86Box) - nothing in MartyPC draws it wrong.
+
+## RESOLVED, 2026-11-23 (late): a stale STEP wake
+
+The owner's `BZSSLOG=1` log (the diagnostic knob written for this) read the see-saw slot's (3) wake as
+**16384**; the tree's run read 0. Nothing cleared `bz_fwk` between plays, so a turntable's, gate's or
+spike's "nothing due" `n + 4000h` from a course played earlier in the same instance slept MILL's see-saw
+(which never writes its wake) until step 16,384. Every test here launched MILL fresh, so the table was clean.
+Fix: `bz_pinit` zeroes every wake (SPEC.md 130.25.6.11). Shown both ways on MartyPC with 4000h planted in
+slot 3 before `001MILL.BZR`'s replay: the pre-fix package never tips, the fixed one tips at 934 - 939.
+The "pit" heights above (a tipped plate 2 units under the ramp) still stand as a design question for MILL.

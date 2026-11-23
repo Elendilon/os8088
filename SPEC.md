@@ -287387,6 +287387,24 @@ turntable 371 -> 452, glass 751 -> 788, boost 192 -> 229, pickups 483 ->
 ceilings (`FAMILIES`' paras) spike 45, gate 50, turntable 29, glass 50,
 archway 21, magnet 32, water 54 (+31 paragraphs). No kernel byte.
 
+**Every wake is 0 at a play's start** (the owner's MILL see-saw, 2026-11-23).
+`bz_pinit` zeroes the whole `bz_fwk` table beside setting `bz_fwall`. A slot is
+a course's family by POSITION in its `uses` list, and the wakes live per
+LAUNCH, so a wake a family wrote on the course played before - a turntable's,
+a gate's or a spike's "nothing due" `n + 4000h` - was left in the slot that
+course's family held. On MILL slot 3 is the see-saw, which never writes its
+wake (it runs every step), so after a course whose slot 3 had slept to 4000h
+the see-saw's STEP was skipped until step 16,384 but for the steps `bz_fwall`
+forced: its weight never reached `BZ_TL_DW`, and the plate never tipped. It
+reproduced only after another course had run in the same instance (the owner's
+86Box, every time; never on a fresh launch straight into MILL, where every
+test played), and the model, which starts each play with no wakes, could not
+show it. Found with the `BZSSLOG=1` knob (`apps/bonanza/bzsslog.inc`,
+`tools/bzsslog.py`): the owner's log read slot 3's wake 16384, the tree's 0.
+MEASURED on MartyPC with `001MILL.BZR` and 4000h planted in slot 3's wake
+before the replay: the pre-fix package never tips the plate, the fixed one
+tips it at steps 934 - 939. Cost: +13 bytes of code (`bonanza.bin` 53,246 -> 53,259), run once a play's start.
+
 #### 130.25.7 Per-play state and resets (story 9.2)
 
 ##### 130.25.7.1 The reset classes
