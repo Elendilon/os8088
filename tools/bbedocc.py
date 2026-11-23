@@ -2,8 +2,9 @@
 """bbedocc - THE COURSE BUILDER'S OCCLUDER VIEW (SPEC.md 130.58.32): the Iso view's *Occluders* and *Shade*
 overlays over the picture job's occ.json (tools/bbedjob.py `picture ... --occ`).
 
-- **Occluders**: every record the occluder RULE cuts (the records the cells' OCC and OCCG flags are counted on,
-  130.11.4.3) drawn over the picture, tinted by the cell that drew it; the cells a ball CAN be hidden in (OCC /
+- **Occluders**: the records the PART ships (130.58.44: after AV, 130.29, and the merge) or, with *as cut*,
+  every record the occluder RULE cuts (the records the cells' OCC and OCCG flags are counted on, 130.11.4.3), drawn
+  over the picture, tinted by the cell that drew it; the cells a ball CAN be hidden in (OCC /
   OCCG) dithered faintly, `noocclude` cells hatched blue. Hovering names a record's owner cell (and its guard rail),
   the cells whose ball it hides and the cells it flags; a click selects it and the inspector offers *Don't hide the
   ball here (noocclude)* for the cells it hides, written through the window's checked edit; a click on a
@@ -36,15 +37,19 @@ class OccView(object):
         self.show = tk.BooleanVar(value=False)
         self.shade = tk.BooleanVar(value=False)
         self.data = None                # occ.json, as loaded with the picture it was cut for
-        self.sel = None                 # ("rec", id) or ("noocc", cell)
+        self.sel = None                 # ("rec", id) - an id of the list shown (recs()) - or ("noocc", cell)
         self.hot = None                 # the record under the pointer
+        self.which = tk.StringVar(value="shipped")     # 130.58.44: "shipped" (c.records) or "cut" (the rule's)
         self.cache = None               # (key, the composited overlay image)
         ttk.Label(row, text="  |").pack(side="left")
         ttk.Checkbutton(row, text="Occluders", variable=self.show, command=self.toggled).pack(side="left")
+        for v, t in (("shipped", "as shipped"), ("cut", "as cut")):
+            ttk.Radiobutton(row, text=t, value=v, variable=self.which, command=self.which_changed).pack(side="left")
         self.shade_b = ttk.Checkbutton(row, text="Shade: why", variable=self.shade, command=self.toggled)
         self.shade_b.pack(side="left", padx=4)
-        self.label = ttk.Label(row, text="", foreground="#6b3a0b")
-        self.label.pack(side="left", padx=8)
+        self.row = row
+        self.label = ttk.Label(row, text="", foreground="#6b3a0b")    # (its own line under the row while it
+        #                                                                says something: _say)
 
     # -- the job --------------------------------------------------------------
     def wanted(self):
@@ -56,15 +61,49 @@ class OccView(object):
         if self.wanted() and (a.pic_job and a.pic_job.running or a.pic and a.pic["meta"].get("occ") is None):
             a.run_picture()
             self._say("Cutting the occluders (the full rules: tens of seconds on a big course)...")
+        self.hot = None                 # (the list shown may be another now: 130.58.44)
+        if self.sel and self.sel[0] == "rec":
+            self.sel = None
         if not self.wanted():
             self.sel = None
-            self.label.config(text="")
+            self._say("")
         if self.shade.get() and self.app.view.get() != "iso":
             self.app.view.set("iso")
         self.cache = None
         a._redraw()
         if self.shade.get():
             self._shade_say()
+
+    def which_changed(self):
+        """130.58.44: as shipped / as cut - the other list drawn, hovered and selected"""
+        self.sel, self.hot, self.cache = None, None, None
+        self.app._fill_inspector()
+        self.app._redraw()
+        self._counts()
+
+    def shipped(self):
+        """-> True when the list shown is the part's (an occ.json from before 130.58.44 has only the rule's)"""
+        return bool(self.show.get() and self.which.get() == "shipped" and self.data is not None
+                    and "shipped" in self.data)
+
+    def recs(self):
+        """the records shown, hovered and selected: the part's or the rule's (Shade alone: the rule's, whose
+        records flag the doorway)"""
+        return self.data["shipped"] if self.shipped() else self.data["records"]
+
+    def _counts(self):
+        """the status: both counts, shipped and as cut (130.58.44)"""
+        if self.data is None or not self.wanted() or not self.show.get():
+            return
+        n, om = len(self.data["records"]), self.app.pic["meta"].get("occ") or {}
+        if "shipped" in self.data:
+            m = len(self.data["shipped"])
+            what = "%s records shipped (%s %s)" % (format(m, ","), format(n, ","), "before AV" if self.data["av"]
+                                                   else "as cut: AV is off")
+        else:
+            what = "%s occluder records as cut" % format(n, ",")
+        self._say("%s%s; cut in %.1f s; %d cells where a ball can be hidden" % (
+            what, " - showing the rule's" if self.which.get() == "cut" else "", om.get("secs", 0), len(self.flags)))
 
     def loaded(self, out, meta):
         """the picture job's OUTDIR read: its occ.json, when it cut one (meta's `occ`); a picture drawn before an
@@ -79,14 +118,16 @@ class OccView(object):
                 om["error"] = "occ.json could not be read: %s" % e
         if self.data is not None:
             W = meta["width"]
-            self.at = {}                # pixel index -> [record ids], the front-most (highest s) first
-            for r in sorted(self.data["records"], key=lambda r: -r["s"]):
-                for y, x0, x1 in r["runs"]:
-                    for x in range(x0, x1 + 1):
-                        self.at.setdefault(y * W + x, []).append(r["id"])
+            self.ats = {}               # per list: pixel index -> [record ids], the front-most (highest s) first
+            for k in ("records", "shipped"):
+                at = self.ats[k] = {}
+                for r in sorted(self.data.get(k, ()), key=lambda r: -r["s"]):
+                    for y, x0, x1 in r["runs"]:
+                        for x in range(x0, x1 + 1):
+                            at.setdefault(y * W + x, []).append(r["id"])
             self.flags = {(x, y): f for x, y, f in self.data["cells"]}
             self.noocc = {tuple(c) for c in self.data.get("noocc", ())}
-            if self.sel and self.sel[0] == "rec" and self.sel[1] >= len(self.data["records"]):
+            if self.sel and self.sel[0] == "rec" and self.sel[1] >= len(self.recs()):
                 self.sel = None
         if self.wanted() and om is None and not self.app.pic_after:
             self.app.root.after(10, self.app.run_picture)
@@ -94,14 +135,17 @@ class OccView(object):
             if om and om.get("error"):
                 self._say("No occluders: the full rules refuse the course - %s" % om["error"][:200])
             elif self.data is not None:
-                n = len(self.data["records"])
-                self._say("%d occluder records (cut in %.1f s); %d cells where a ball can be hidden" % (
-                    n, om.get("secs", 0), len(self.flags)))
+                self._counts()
                 if self.shade.get():
                     self._shade_say()
 
     def _say(self, text):
+        """the overlay's status, on a line of its own under the options row (the counts do not fit beside them)"""
         self.label.config(text=text)
+        if text and not self.label.winfo_manager():
+            self.label.pack(side="bottom", anchor="w", padx=8, before=self.row.winfo_children()[0])
+        elif not text:
+            self.label.pack_forget()
 
     def _shade_say(self):
         if self.data is None:
@@ -132,7 +176,7 @@ class OccView(object):
         if not self._ready():
             return img
         from PIL import Image
-        key = (id(self.app.pic), herc, self.show.get(), self.shade.get())
+        key = (id(self.app.pic), herc, self.show.get(), self.shade.get(), self.shipped())
         if self.cache and self.cache[0] == key:
             return self.cache[1]
         meta = self.app.pic["meta"]
@@ -154,7 +198,7 @@ class OccView(object):
                 elif cl in self.flags and (x + 2 * y) % 6 == 0:
                     px[x, y] = (255, 255, 255) if self.flags[cl] & 4 else (200, 200, 200)
                     mask[i] = 110
-            for r in self.data["records"]:
+            for r in self.recs():
                 own = r["own"][0] if r["own"] else None
                 ink = _tint(256 * own[0] + own[1]) if own else (255, 255, 255)
                 for y, x0, x1 in r["runs"]:
@@ -190,7 +234,7 @@ class OccView(object):
         if not self._ready():
             return
         kx, ky = self.app.iso_scale
-        recs = self.data["records"]
+        recs, rule = self.recs(), self.data["records"]
 
         def runs(r, ink, w=2):
             for y, x0, x1 in r["runs"]:
@@ -198,7 +242,7 @@ class OccView(object):
         if self.shade.get():
             for s in self.data.get("shade") or []:
                 for k in s["records"]:
-                    runs(recs[k], "#ff2020", 2)
+                    runs(rule[k], "#ff2020", 2)
                 for cl, (xl, yt, xh, yb) in s["feet"].items():
                     c.create_rectangle(xl * kx, yt * ky, (xh + 1) * kx, (yb + 1) * ky, outline="#ffe23c", width=2,
                                        dash=(5, 3))
@@ -240,7 +284,7 @@ class OccView(object):
             for dy in range(-r, r + 1):
                 for dx in range(-r, r + 1):
                     if 0 <= px + dx < W and 0 <= py + dy < H:
-                        ids = self.at.get((py + dy) * W + px + dx)
+                        ids = self.ats["shipped" if self.shipped() else "records"].get((py + dy) * W + px + dx)
                         if ids:
                             if self.shade.get() and not self.show.get():
                                 shade_ids = {k for s in self.data.get("shade") or [] for k in s["records"]}
@@ -251,11 +295,14 @@ class OccView(object):
         return None
 
     def describe(self, k):
-        r = self.data["records"][k]
+        r = self.recs()[k]
         own = ", ".join("%d, %d" % (o[0], o[1]) for o in r["own"][:3]) or "nothing"
         rail = (" (the guard rail on line%s %s)" % ("s" if len(r["rails"]) > 1 else "",
                                                     ", ".join(map(str, r["rails"])))) if r["rails"] else ""
         hides = _cells(r["needs"])
+        if self.shipped():
+            return ("shipped occluder %d (cut as the rule's %s): drawn by %s%s, row %d, top %d px - hides the ball "
+                    "in %s" % (k, _ids(r["rule"]), own, rail, r["s"], r["top"], hides or "no cell"))
         return ("occluder %d: drawn by %s%s, row %d, top %d px - hides the ball in %s%s" % (
             k, own, rail, r["s"], r["top"], hides or "no cell (it is the merge's)",
             ("; flags %s" % _cells(r["flags"])) if r["flags"] != r["needs"] else ""))
@@ -334,14 +381,15 @@ class OccView(object):
                               "front of whatever stands nearer the viewer. Take it out and the occluders are cut "
                               "for it again.")
             return True
-        r = self.data["records"][self.sel[1]]
-        a.ins_title.config(text="Occluder %d" % r["id"])
+        r = self.recs()[self.sel[1]]
+        a.ins_title.config(text="%s %d" % ("Shipped occluder" if self.shipped() else "Occluder", r["id"]))
         a.ins_line.config(text="drawn by %s" % (", ".join("%d, %d (%d px)" % tuple(o) for o in r["own"][:3])
                                                 or "nothing"))
         rows = [("Rail", ", ".join("line %d" % l_ for l_ in r["rails"]) if r["rails"] else "-"),
                 ("Row / top", "%d / %d px" % (r["s"], r["top"])),
-                ("Hides the ball in", _cells(r["needs"]) or "-"),
-                ("Flags OCC in", _cells(r["flags"]) or "-")]
+                ("Hides the ball in", _cells(r["needs"]) or "-")]
+        rows.append(("Cut as", "the rule's %s" % _ids(r["rule"])) if self.shipped() else
+                    ("Flags OCC in", _cells(r["flags"]) or "-"))
         for i, (k, v) in enumerate(rows):
             ttk.Label(body, text=k).grid(row=i, column=0, sticky="nw")
             ttk.Label(body, text=v, wraplength=220).grid(row=i, column=1, sticky="w")
@@ -374,6 +422,11 @@ class OccView(object):
             ("; " if added and removed else "") + (("noocclude taken out of %s" % _cells(sorted(removed)))
                                                    if removed else ""),
             ("; not on the start or a route point: %s" % _cells(sorted(refused))) if refused else ""))
+
+
+def _ids(ks):
+    s = ", ".join(map(str, ks[:6]))
+    return (s + (" and %d more" % (len(ks) - 6) if len(ks) > 6 else "")) if ks else "none (AV's residual alone)"
 
 
 def _cells(cs):
