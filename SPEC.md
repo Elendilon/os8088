@@ -264885,6 +264885,135 @@ and 130.10.5.1's `PROPOFF` / `NPROP` stay 0 and 0. What wave 2 calls
 cover, now including a WALL with a `bounce` surface (a bumper rail,
 130.11.6), which is drawn and keyed like any wall.
 
+##### 130.11.4.7 The flight's path: no rail, no wall, and the height the fall leaves (2026-11-23)
+
+The owner, on MILL's measured occluders: *"you can't hop a guardrail or
+somehow get behind the walls at the very top. That is probably something
+the occlusion search needs to learn"*; and *"Jumping off that ramp kills you
+long before you can fall out to where the guardrails would need
+occlusion."* 130.11.4.4's sources reach every cell of a Chebyshev square at
+the APEX: straight through a rail (130.35.1) or a WALL, and at the apex
+however far out the cell is. Both are sound and loose. Since 2026-11-23 the
+tool (`bbcourse.build_reach`, `ReachPaths`) keeps the square as the outer
+bound and, inside it, gives a source a cell only along a path a ball can
+fly, at the highest it can still be when it gets there.
+
+**The rule.** Each source is a CONE - the highest whole px its ball can be
+at `n` steps after it leaves, or later: a flight off `h0` leaving at `U`
+(the step's own discrete flight, 130.11.4.4), capped at the source's apex,
+`h0 + ceil(z_n / 256)` and the most of it from `n` on (a bounce's cone is its
+apex over the fastest rebound's flight off its highest floor - both bounds
+hold; an updraft's is its height for its hover and fall's steps). A cell's
+STEPS from a source are at least the larger of its two axes' least MOTION
+over `BZ_VMAXG`; the motion along x is at least, for each crossing of an
+x-line other than the last one crossed (a crossing back over the same line
+costs nothing), `16 gu - BZ_VMAXG - the push allowance` - and likewise y. The
+source cell's own first crossing is free (the ball starts anywhere in it).
+The search is a label-setting one over (cell, the side its column or row was
+entered by, the push allowance taken in it), one an axis, pruned by the
+cone: a cell is entered only while the cone at that many steps is at or
+above the lowest a live ball is over it - its `zlo` less `BZ_CLIMB` (a VOID
+cell's kill; a floor's lowest point). The cell gets the cone's height at its
+steps. **A VOID cell no source reaches alive is UNREACHED**: it stays in the
+reach (its `OCC` gate flags and the merge's queries, as `noocclude`'s cells,
+130.53) and no record is cut for it, nor do the proofs try it.
+
+**Why it is sound** - every position the model's ball can be in stays in it:
+
+- *A railed edge or a WALL is never crossed in the air.* Step 5 holds the
+  centre `BZ_RAD` (6 gu) off a walled edge of its cell and a step moves it at
+  most 1.75 gu (130.35.1's own argument, which is why `bz_wedge` needs no step
+  code); a rail's END walls the corner cell, met as a post. A WALL a MOVING
+  prop names (a windmill's door, an arch, a gate, a see-saw's or a
+  turntable's area, a tube's mouths, a lift's shaft: every prop but
+  `_STILL_KINDS`' posts, clocks, marks, pads, springs, pickups, blowers and
+  magnets) and every SPLIT cell are FREE: their walls are not trusted, a rail
+  on their edge is open, and a crossing out of one costs nothing.
+- *Motion is at most `BZ_VMAXG` an axis a step* (`gvx`, `gvy` clamped in both
+  air states, 130.11.8.2; a speed pickup's raised cap is `pickup_reach`'s
+  own build; a launch tube's faster exit is folded in as steps sooner). What
+  moves the centre further is a PUSH: against a wall or a rail it only
+  restores what the step took; the one that carries it on is a floor that
+  NEWLY blocks a descending ball deep in its margin, at most `BZ_RAD` on an
+  axis and only away from that floor - so the allowance is 6 gu (`REACH_TELE`)
+  for the run of a column (row) entered by the side such a floor (an edge or
+  a corner neighbour, not walled by a rail) stands on, and a free cell's whole
+  16. Between crossing one line and crossing a different one the run's
+  motion is then at least 16 less the allowance, less one step shared with
+  each crossing.
+- *The two axes are searched apart*: each search's cost is a lower bound for
+  every path, so their larger is one for the cell. Each prunes with the other
+  axis's Chebyshev least (one crossing a line between, less one for each line
+  whose run holds a free cell).
+- *The OPEN void*: a ball over an OPEN cell dies only under -512 px. The
+  search goes through the OPEN cells within `OPEN_BAND` (2) of a grid cell at
+  that kill; a path out past them is a FAR exit at `e`, and comes back to a
+  cell only at its cost into `e` on each axis plus a crossing of each line
+  between `e` and the cell.
+- *Outside the square*: unchanged - a source still reaches nothing past
+  130.11.4.4's `RADIUS`, as before.
+
+**What was measured and NOT built**: a rule that a flight moves STRAIGHT and
+turns an axis only at a face (a rail, a wall, a floor's side, a post) left 51
+of MILL's VOID cells unreachable. It is unsound: AIR CONTROL (130.11.7.3)
+turns an airborne ball round with no face at all, and a bounce off a floor's
+top is a new flight anywhere. Its sound half - the walls - is this rule's.
+
+*As built* (MEASURED, the shipped courses and the owner's MILL in progress,
+each part's records and its stored bytes, `REACH_PATHS` False against True):
+
+| course | records shipped (squares -> paths) | the rule's records | stored part bytes | VOID cells unreached |
+|---|---|---|---|---|
+| FIRST | 68 -> 68 (+0) | 312 -> 312 | 9,292 -> 9,292 (**+0**) | 0 of 77 |
+| DOWN | 2,164 -> 2,164 (+0) | 3,961 -> 3,961 | 75,820 -> 75,820 (**+0**) | 0 of 785 |
+| MILL | 1,978 -> 1,971 (-7) | 3,802 -> 3,796 | 66,323 -> 65,007 (**-1316**) | 40 of 487 |
+| MOON | 1,035 -> 988 (-47) | 2,402 -> 1,987 | 36,925 -> 35,863 (**-1062**) | 130 of 441 |
+| PEAK | 1,356 -> 1,321 (-35) | 2,966 -> 2,483 | 41,339 -> 40,329 (**-1010**) | 124 of 482 |
+| PLAY | 2,427 -> 2,427 (+0) | 3,871 -> 3,871 | 75,821 -> 75,821 (**+0**) | 0 of 735 |
+| ROLL | 1,092 -> 1,092 (+0) | 2,472 -> 2,465 | 42,085 -> 42,085 (**+0**) | 42 of 487 |
+| HOP | 899 -> 889 (-10) | 2,221 -> 2,170 | 37,321 -> 37,281 (**-40**) | 15 of 340 |
+| MILL (owner's mo.bbc) | 2,132 -> 2,068 (-64) | 4,284 -> 4,087 | 74,263 -> 72,635 (**-1628**) | 34 of 652 |
+
+The eight shipped courses (`BZ_COURSES`): **3,428 stored bytes** fewer; the owner's MILL in progress 1,628.
+
+`bz_occ` and the part's format are unchanged - the records are 130.10.4.4's,
+fewer - so not one byte of the guest moves. The RAM forms do, so the
+identities of MOON and PEAK move and their AUTHORED demos are written again
+by `bbcourse.py author` (130.29.8's precedent: only their `ident` lines);
+the route demos are every build's. A `build_reach` takes 3 - 4 s on MILL
+against well under one (four on a compile with its forms).
+
+**`--selfcheck` item 19** (section `reachpath`): every shipped demo's model
+replay stays inside its course's reach - no step in a cell the reach says no
+flight reaches, none above a cell's `zhi` (a ball in a tube, shattering or
+hidden is no flight's); the red arm (`_REACH_TIGHT` 16 gu a crossing and
+`_REACH_TIGHTZ` 4 px under every cone) is left by a demo; a floor with an
+open +x edge, 56 flights off it (Hops, boosts armed, falls) all inside the
+reach, its void entered; the same floor railed all round, its void never
+entered and every void cell of it UNREACHED; and the control, the squares
+(`REACH_PATHS` False), reaching every one of them. AV's completeness
+(130.29.7, item 15) is unchanged: it is taken over the cells the model runs
+at less the passed-over ones, as `noocclude`'s.
+
+**What else moves.** A cell's `zhi` can only fall, so `Y0` (130.11.4.4's
+highest footprint) can only fall: MILL's from 92 to 52, its picture 40
+lines (five block rows) shorter. Item 8's `noprex` control (130.25.3) was
+built on PEAK's autopilot, its heavy frames on a tube exit - a property of
+PEAK's `Y0`, which this moved - so the control takes PEAK as the squares lay
+it out as well, and keeps its case whatever the reach.
+
+**What the owner's two cases come to on MILL** (the owner's file, 2026-11-23):
+27 of the measured rule's 51 cells are unreached (34 VOID cells in all) - the
+space behind A's west rail (5 - 7, 7 - 15) and behind the windmill's wall at
+the top (6 - 9, 3 - 6). B's north rails'
+space, (10 - 15, 3 - 4), stays: the way round B's east rail (down to row 9,
+out past its east face, up the void to row 4 and back west) is about 92 gu
+of x a bounce-boost (130.17.17, up to `BZ_VZMAX`) can fly before it falls
+to the kill there, so the sound bound keeps it (149 px). The RAMP's jumps
+(13 - 14, 9 - 15) do not: the best of 5,920 on the model gets no nearer than
+4 cells and dies at 96 px. The sandpit's cells (19 - 22, 50 - 53) stay too,
+from the boosts beside them.
+
 #### 130.11.5 The three balls
 
 ##### 130.11.5.1 One record of constants a material
@@ -290443,6 +290572,32 @@ records are the 4-byte records the part ships):
 `BONANZA.O88` 123,198 -> **118,717 (-4,481)** with the model's code in it;
 `bonanza360.img` 129 -> **124 clusters**. PLAYGROUND's picture part gains
 4,926 bytes of headroom (14,954 -> 19,880 under 65,024).
+
+#### 130.29.12 What AV leaves on MILL, and what each would take (2026-11-23, OPEN: the owner's)
+
+The owner, on MILL's blue records (needed only by VOID positions): *"A lot of
+blue seems like it should be covered by AV (like most of the central area,
+the glass path's floating islands). Check why AV is not taking those."*
+MEASURED on the owner's MILL with 130.11.4.7's reach: every VOID cell of
+the reach is a model position (none is `OBS` or outside the part), and
+every RESIDUAL (position, pixel) pair - a pixel the rule lays at some height
+the model does not hide - was classified by what drew the pixel
+(`owners_canvas`, the rails' own pixels) and why that drawer is not a
+counting front cell. The blue records, by the classes of their residual
+pixels:
+
+| class | residual pairs | blue records it alone leaves | why the model cannot hide it | what covering it takes |
+|---|---|---|---|---|
+| **past the depth** - the drawer is a front cell at `i + j` 5 to 18 | 69,396 | 325 (+64 with another class) | MILL's faces are TALL (the central area's cliffs, the glass path seen past them): a wall ten cells in front still covers a ball falling behind, and the walk reads 4 deep | the GUEST: a deeper walk reads `(D + 1)(D + 2) / 2 - 1` cells (14 at 4, 44 at 8, 152 at 16), and entering a cell already costs +8.0k - 9.4k clk for 14 (130.29.9; the worst fall frame two thirds of a refresh) - roughly +25k at 8 and +90k at 16, PREDICTED: not affordable as a walk. The other form is a SKYLINE the tool stores (per grid row, per word column, the highest face at depth 5 and past, a byte), read once a cell: a byte a word column a grid row, on MILL more bytes than the records it would save (PREDICTED). Not built |
+| **floating** - the drawer is a `float` cell (`FL_FLOAT`, passed over) | 38,241 | 160 (+51 mixed) | a float's faces do not reach the ground plane, so "everything under its top edge is it or nearer" (130.29.2) is false under its slab: the islands of the glass path | the GUEST and one grid fact: count a float between `E(x)` and its slab's bottom, `E(x) + 8 thick` (its `thick`, 130.27.2.1, default 3 units) - one compare a column more. `thick` is not in the grid: a FLOAT side table (cell, thick: 3 bytes a float run) or a second flag meaning "the default 3 units". PREDICTED about 60 bytes of `bz_amodel`, no frame a fall's worst moves; WRONG-HIDE unchanged if exact |
+| **a rail's pixel** - posts and bars keyed at the cell across the edge (130.35.4) | 19,232 | 222 | no cell's top polygon holds a rail: it stands above the floor's line, see-through | the GUEST: read the front cells' `FL_EDX` / `FL_EDY` and lay the rail's posts-and-bars pattern (130.35.3) above the edge's line - its `height` is not in the grid either (a byte a rail run, or the 2-unit default). Hiding a rail as a solid band would WRONG-HIDE the ball through its gaps. PREDICTED about 200 bytes and a pattern lookup a counting column |
+| **a prop's cell** (`OBS`) | 13,910 | 49 (+20 mixed) | by design: a prop's drawing is the residual's (130.29.2) | nothing |
+| beside / behind (the drawer not in front) | 2,193 | 6 | a cell's face drawn over a column the walk does not look at | nothing worth it |
+
+So no class is the tool's alone: each needs the guest, and two of the three
+need a fact the grid does not carry. The float slab is the cheapest and
+answers the glass path's islands; the depth is most of the central area and
+is not affordable as built. Left for the owner.
 
 ### 130.30 Two-segment courses (the owner's brief, 2026-11-17)
 
