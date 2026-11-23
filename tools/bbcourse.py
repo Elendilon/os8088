@@ -1349,6 +1349,7 @@ class Source:
         self.test = None            # SPEC.md 130.54: `test`'s line - a TEST course, the BZDEV=1 build's alone
         self.lockx = None           # SPEC.md 130.45: `lock across`'s line - the camera held across
         self.stopd = None           # SPEC.md 130.45.4: `stop down`'s line - the BOTTOM STOP at the finish
+        self.stops = {}             # SPEC.md 130.45.5: `stop`'s edges -> its line (down, up, left, right)
         self.pathway = None         # wave 8b (SPEC.md 130.19.5): the line of `pathway` - THE pathway
         self.pages = None           # ...(N, line)
         self.ppads = []             # ...the pathway's pads: [dict num crs at line]
@@ -3758,11 +3759,15 @@ def _parse_text(text, fname="<course>"):
             if src.lockx is not None or len(toks) != 2 or toks[1] != ('w', "across"):
                 raise CourseError("%s: lock takes `across`, once (the camera held across, SPEC.md 130.45)" % where)
             src.lockx = ln
-        elif st == "stop":                          # SPEC.md 130.45.4: the BOTTOM STOP, a course's flag
-            if src.stopd is not None or len(toks) != 2 or toks[1] != ('w', "down"):
-                raise CourseError("%s: stop takes `down`, once (the camera stops once the finish is in view, "
-                                  "SPEC.md 130.45.4)" % where)
-            src.stopd = ln
+        elif st == "stop":                          # SPEC.md 130.45.4, 130.45.5: the camera's STOPS, a course's
+            eds = [t_[1] if t_[0] == 'w' else None for t_ in toks[1:]]   # flags: one statement, each edge once
+            if src.stops or not eds or any(e not in STOP_EDGES for e in eds) or len(set(eds)) != len(eds):
+                raise CourseError("%s: stop takes its edges - down, up, left, right - each at most once, in one "
+                                  "statement (the camera stops once the finish is in view that way, SPEC.md "
+                                  "130.45.5)" % where)
+            src.stops = {e: ln for e in eds}
+            if "down" in src.stops:
+                src.stopd = ln
         elif st == "guide":                         # wave 11 (stories 11.11, 11.13): a REAL course, held to the
             if src.guide is not None or len(toks) != 1:     # course guide's checkable rules (guide_static_rule,
                 raise CourseError("%s: guide takes nothing, once (a real course held to the course guide, "
@@ -14442,6 +14447,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.medals = _course_medals(c, src, fname)        # wave 8c (SPEC.md 130.19.8.3)
     c.lockx = lock_across(c, src.lockx) if src.lockx else None   # SPEC.md 130.45: (CGA c0, Hercules c0) or None
     c.lockb = lock_bottom(c) if src.stopd else None # SPEC.md 130.45.4: the BOTTOM LINE (`stop down`), or None
+    c.stoptab = stop_table(c, src)                  # SPEC.md 130.45.5: (top, left, right) BZ_CRS_STOPS, or None
     c.guide = src.guide                             # wave 11: the course guide's static half, at every compile
     c.test = src.test is not None                   # SPEC.md 130.54: a TEST course (no pad, demo or target owed)
     if c.test and c.guide:
@@ -19490,6 +19496,7 @@ class Physics:
             self.grid = course._grid
             self.lockx = getattr(course, "lockx", None)   # SPEC.md 130.45: read by Glide
             self.lockb = getattr(course, "lockb", None)   # SPEC.md 130.45.4: the bottom stop
+            self.stoptab = getattr(course, "stoptab", None)   # SPEC.md 130.45.5: the other three stops
         else:
             self.grid = Grid(part)
         gx = _gridx(self.grid)                      # (speed alone: the grid's cells read once, its records'
@@ -21456,10 +21463,10 @@ class LatAxis:
     the axis last stepped.  pid counts the pans begun, why the cause that set
     fast (None, 'ring', 'tube', 'urgent'), info the frame's record."""
 
-    def __init__(self, k, mx, cols):
+    def __init__(self, k, mx, cols, mn=0):
         self.u, self.Wp, self.A, self.Hr, self.T, self.S, self.Ef = (k[n] for n in ("u", "Wp", "A", "Hr", "T", "S",
                                                                                    "Ef"))
-        self.mx, self.cols = mx, cols
+        self.mx, self.cols, self.mn = mx, cols, mn  # (mn: SPEC.md 130.45.5's least, BZL_MN; 0 without a stop)
         self.pid = 0
         self.reset()
 
@@ -21477,7 +21484,7 @@ class LatAxis:
         else:
             t = b - (self.Wp - self.T)
             P = -(-t // us) * self.S if t > 0 else 0
-        return max(0, min(P, self.mx))
+        return max(self.mn, min(P, self.mx))         # (bz_lcand: the most, then the least, SPEC.md 130.45.5)
 
     def decide(self, b, P, ring, tube):
         """steps 1 - 7 for tracked point b at window position P -> the step
@@ -21565,7 +21572,7 @@ class Glide:
 
     def __init__(self, phys, herc, brows, cols, _w1=False, heavy=None, _camz=False, _nosafe=False,
                  _nolatch=False, scripted=False, _w6=False, _nohyst=False, _nocap=False, _ringy=False,
-                 _nopreaim=False, _side0=False, _noscr=False, _noprex=False):
+                 _nopreaim=False, _side0=False, _noscr=False, _noprex=False, _nostop=False):
         self.p, self.herc, self._w1, self._camz = phys, herc, _w1, _camz
         self._noprex = _noprex
         self._nosafe, self._nolatch = _nosafe, _nolatch   # the `nosafe` and `nolatch` arms' models
@@ -21579,11 +21586,11 @@ class Glide:
         self.want = (False, False)             # this frame: a row, a column outstanding (GLIDE's pans)
         self.want_r = self.want_c = False
         self.W, self.H, self.rl, self.lsh = CARDS[herc]
-        self.rmax = brows * 8 // self.rl - self.H
-        lb = getattr(phys, "lockb", None)          # SPEC.md 130.45.4: the BOTTOM STOP, before the DOWN axis
-        if lb:
-            self.rmax = min(self.rmax, max(0, -(-(lb - WIN_LINES) // self.rl)))
-        self.cmax = cols - self.W
+        # SPEC.md 130.45.4, 130.45.5: the window's range, the course's STOPS folded in (bz_vinit's bz_vstop) -
+        # _nostop, the red arm: the picture's whole range, as before the stops
+        self.cmin, self.cmax, self.rmin, self.rmax = cam_limits(
+            brows, cols, herc, *((None, None) if _nostop else (getattr(phys, "lockb", None),
+                                                                getattr(phys, "stoptab", None))))
         self.R0 = self.c0 = 0
         self.first = True
         self.lresp = phys.nfall + phys.nret
@@ -21595,8 +21602,8 @@ class Glide:
         kx, ky = lat_consts(herc)
         if _nohyst:
             kx["Hr"] = ky["Hr"] = 0
-        self.ax = LatAxis(kx, self.cmax, True)
-        self.ay = LatAxis(ky, self.rmax, False)
+        self.ax = LatAxis(kx, self.cmax, True, self.cmin)
+        self.ay = LatAxis(ky, self.rmax, False, self.rmin)
         lk = getattr(phys, "lockx", None)
         self.lockc = lk[herc] if lk else None      # SPEC.md 130.45: bz_lockc, the camera held across
         self.h1, self.h2 = (1 << 30, 1 << 30) if _nocap else (LAT_H1, LAT_H2)
@@ -21605,7 +21612,7 @@ class Glide:
         self.cut = False                       # this frame was a cut
 
     def _clamp(self, R, C):
-        return max(0, min(R, self.rmax)), max(0, min(C, self.cmax))
+        return max(self.rmin, min(R, self.rmax)), max(self.cmin, min(C, self.cmax))
 
     def outwin(self):
         """bz_outwin: the ball's footprint (130.4's, from px & ~3) not wholly inside the window"""
@@ -21835,7 +21842,7 @@ class Glide:
             else:
                 t = bc - 6 * W
                 ct = (t + 7) >> 3 if t > 0 else 0
-            ct = min(ct, self.cmax)
+            ct = max(self.cmin, min(ct, self.cmax))
             self.want_c = ct != c0
             if ct == c0:
                 self.gpx = 0
@@ -21861,7 +21868,7 @@ class Glide:
             else:
                 t = c - 2 * L // 3
                 rt = (t + rl - 1) >> lsh if t > 0 else 0
-            rt = min(rt, self.rmax)
+            rt = max(self.rmin, min(rt, self.rmax))
             self.want_r = rt != R0
             if rt == R0:
                 self.gpy = 0
@@ -22889,9 +22896,15 @@ def emit_inc(courses, path=None, title=None):
               "; SPEC.md 130.45: each course's horizontal LOCK, the CGA's c0 then the Hercules', a byte",
               "; each (`lock across`; FFh FFh none).  Not in the part: no identity moves",
               "; SPEC.md 130.45.4: each course's BOTTOM LINE, the lowest picture line a floor shows, a word",
-              "; each (0 none; a `lock across` course's)",
+              "; each (`stop down`; 0 none)",
               "%macro BZ_CRS_BOTS 0",
               "    dw " + ", ".join(W(lambda c: str(getattr(c, "lockb", None) or 0), "0")),
+              "%endmacro",
+              "; SPEC.md 130.45.5: each course's other STOPS, three bytes a course - `stop up`'s block row t",
+              "; (rmin = 8 t >> lsh), `stop left`'s column l (cmin), `stop right`'s columns r off the picture's",
+              "; right (cmax less r); 0 0 0 none.  Not in the part: no identity moves",
+              "%macro BZ_CRS_STOPS 0",
+              "    db " + ", ".join(W(lambda c: "%d, %d, %d" % (getattr(c, "stoptab", None) or (0, 0, 0)), "0, 0, 0")),
               "%endmacro",
               "%macro BZ_CRS_LOCKS 0",
               "    db " + ", ".join(W(lambda c: "%d, %d" % getattr(c, "lockx") if getattr(c, "lockx", None)
@@ -23699,14 +23712,21 @@ def finish_clock_rule(c, _hack=None):
         if p["kind"] == PK_CLOCK:
             clocks.setdefault(p["num"], []).append(L["rect"])
     seen = []
-    sw = stopped_window(c)                          # SPEC.md 130.45.4: a locked, stopped course's finish is seen
-    for what, x, y in finish_points(c):             # in the window the camera RESTS in, not one centred on it
-        xa, ya = x - VIEW_W // 2, y - VIEW_H // 2
-        if sw and sw[0] <= x - 16 and x + 16 <= sw[0] + VIEW_W and sw[1] <= y - 16 and y + 16 <= sw[1] + VIEW_H:
-            xa, ya = sw
+    for what, x, y in finish_points(c):             # SPEC.md 130.45.4, 130.45.5: a STOPPED course's finish is
+        wins = [(sx, sy) for sx, sy in stop_windows(c, x, y)    # seen in each window the camera may REST in at
+                if sx <= x - 16 and x + 16 <= sx + VIEW_W and sy <= y - 16 and y + 16 <= sy + VIEW_H]   # its stops
+        stopped = bool(wins)
+        wins = wins or [(x - VIEW_W // 2, y - VIEW_H // 2)]     # (else in one centred on it)
+        xa, ya = wins[0]
         ok = [n for n, rs in sorted(clocks.items())
-              if all(xa <= 8 * bx and 8 * (bx + w) <= xa + VIEW_W and ya <= 8 * by and 8 * (by + h) <= ya + VIEW_H
-                     for bx, by, w, h in rs)]
+              if all(xa_ <= 8 * bx and 8 * (bx + w) <= xa_ + VIEW_W and ya_ <= 8 * by and 8 * (by + h) <= ya_ + VIEW_H
+                     for bx, by, w, h in rs for xa_, ya_ in wins)]
+        if not ok and stopped and "clockrule" not in (_hack or ()) and "clockrule" not in _CHECKS_OFF:
+            raise CourseError("%s: %s has no clock whose digits lie inside every CGA window the camera may rest in at "
+                              "its `stop` (%s): SPEC.md 130.22.6's rule, 130.45.5's windows - add a `clock` within "
+                              "reach of them, or stop the camera on another edge" % (c.fname, what, "; ".join(
+                                  "px %d - %d, lines %d - %d" % (a, a + VIEW_W - 1, b, b + VIEW_H - 1)
+                                  for a, b in wins)))
         if not ok and "clockrule" not in (_hack or ()) and "clockrule" not in _CHECKS_OFF:
             raise CourseError("%s: %s has no clock whose digits lie inside the CGA window centred on it (px %d - %d, "
                               "lines %d - %d): SPEC.md 130.22.6's rule - add a `clock` within reach of it"
@@ -38030,6 +38050,143 @@ def _sc_title(X, res):
     _title_checks(res)                        # SPEC.md 130.23.6: the title's statements and demos
 
 
+def _camstop_walk(c, pts, herc, hold=150, **gkw):
+    """SPEC.md 130.45.5's scenarios: the ball carried along PTS (tiles, a world unit a frame, on the ground at
+    the first's height) under Glide, the camera once a frame, then HOLD frames at rest -> [(R0, c0)], the Glide"""
+    p = Physics(c)
+    p.poke(*pts[0])
+    g = Glide(p, herc, c.brows, c.cols, **gkw)
+    seq = []
+    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+        n = 16 * max(abs(bx - ax), abs(by - ay), 1)
+        seq += [((16 * ax + 8) * 256 + (bx - ax) * 4096 * i // n, (16 * ay + 8) * 256 + (by - ay) * 4096 * i // n)
+                for i in range(n)]
+    seq += [((16 * pts[-1][0] + 8) * 256, (16 * pts[-1][1] + 8) * 256)] * hold
+    out = []
+    for gx, gy in seq:
+        p.gx, p.gy = gx, gy
+        p._derive(False)
+        g.camera()
+        out.append((g.R0, g.c0))
+    return out, g
+
+
+def _sc_camstop(X, res):
+    """--selfcheck's section `camstop` (SPEC.md 130.45.5): the camera's STOPS on every edge - the grammar and
+    its refusals, BZ_CRS_STOPS against the model's limits, MILL past its cup (the owner's case) and every edge
+    swept, each with its red arm (Glide _nostop: the picture's whole range, as before the stops)"""
+    import copy
+    import types
+    # 1. the grammar, on a small cup course: every edge in one statement compiles to whole ranges; each
+    #    misuse is refused AT ITS LINE (the red arms of the grammar)
+    C = _W4C
+    try:
+        c = compile_course(C + "stop down up left right\n", fname="<stop all>", occluders=False)
+        lims = [cam_limits(c.brows, c.cols, k, c.lockb, c.stoptab) for k in range(len(CAM_CARDS))]
+        ok = c.lockb is not None and c.stoptab is not None and all(0 <= a <= b and 0 <= r0 <= r1
+                                                                   for a, b, r0, r1 in lims)
+        msg = "bottom line %d, t l r %s, (cmin, cmax, rmin, rmax) CGA %s Hercules %s VGA %s" % (
+            c.lockb, c.stoptab, lims[0], lims[1], lims[2])
+    except CourseError as e:
+        ok, msg = False, str(e)
+    res.append(("camstop 1 `stop down up left right` compiles, every card's range whole (%s)" % msg, ok))
+    for what, text, want in (("an edge twice", C + "stop down down\n", "each at most once"),
+                             ("an unknown edge", C + "stop sideways\n", "each at most once"),
+                             ("no edge", C + "stop\n", "each at most once"),
+                             ("a second statement", C + "stop down\nstop up\n", "each at most once"),
+                             ("left with the lock", C + "lock across\nstop left\n", "the lock already holds"),
+                             ("right with the lock", C + "lock across\nstop up right\n", "the lock already holds")):
+        try:
+            compile_course(text, fname="<stop>", occluders=False)
+            got = "compiled"
+        except CourseError as e:
+            got = str(e)
+        res.append(("camstop 1 refused at its line: %s (%s)" % (what, got[:110]), want in got and ":" in got))
+    # 2. the table: bzcourse.inc's BZ_CRS_STOPS is each course's (t, l, r) or 0 0 0 at the full width, and every
+    #    course's range on every card is whole - a course without a stop the picture's whole range
+    inc = emit_inc(X.courses)
+    ln = inc.split("%macro BZ_CRS_STOPS 0\n")[1].split("\n")[0].split("db ")[1]
+    got = [int(v) for v in ln.split(",")]
+    want = []
+    for cc in X.courses:
+        want += list(getattr(cc, "stoptab", None) or (0, 0, 0))
+    want += [0, 0, 0] * (CRS_MAX - len(X.courses))
+    bad = []
+    for cc in X.courses:
+        for k in range(len(CAM_CARDS)):
+            cn, cx, rn, rx = cam_limits(cc.brows, cc.cols, k, cc.lockb, cc.stoptab)
+            plain = cam_limits(cc.brows, cc.cols, k)
+            if not (0 <= cn <= cx and 0 <= rn <= rx) or (not cc.lockb and not cc.stoptab and
+                                                          (cn, cx, rn, rx) != plain):
+                bad.append("%s card %d" % (cc.name, k))
+    res.append(("camstop 2 BZ_CRS_STOPS is each course's t l r at the full width (%d bytes; stopped: %s), every "
+                "course's range whole on all three cards%s" % (
+                    len(got), ", ".join("%s %s%s" % (cc.name, "down " if cc.lockb else "", cc.stoptab or "")
+                                        for cc in X.courses if cc.lockb or cc.stoptab) or "none",
+                    " -- " + ", ".join(bad) if bad else ""), got == want and not bad))
+    # 3. MILL PAST ITS CUP (the owner, 2026-11-23): the ball brought down to the cup the way the route comes and
+    #    on past it; with `stop down` the window never passes the stop and the finish clock's digits and the cup
+    #    stay inside it from the cup on - red: _nostop, the next step down leaves the clock out
+    c = X.byname.get("MILL")
+    if c is not None and c.lockb:
+        cups = [p_["at"] for p_ in c.props if p_["kind"] == PK_CUP]
+        cx, cy = cups[0]
+        _w, fx, fy = finish_points(c)[0]
+        clk = _clock_rects(c)
+        num = [n for n, rs in sorted(clk.items())
+               if all(sx <= 8 * bx and 8 * (bx + w) <= sx + VIEW_W and sy <= 8 * by and 8 * (by + h) <= sy + VIEW_H
+                      for bx, by, w, h in rs for sx, sy in stop_windows(c, fx, fy))]
+        pts = [(cx - 3, cy - 11), (cx - 2, cy - 4), (cx, cy), (cx + 4, cy + 4)]
+        arrive = 16 * (11 + 7 + 4)                  # frames before the cup (the first two legs, 16 a tile)
+        for herc in (0, 1):
+            W, _H, rl, _lsh = CARDS[herc]
+            rects = clk[num[0]] + [(fx // 8 - 2, fy // 8 - 2, 4, 4)] if num else []
+
+            def seen(R0, c0):
+                return bool(rects) and all(8 * c0 <= 8 * bx and bx + w <= c0 + W and R0 * rl <= 8 * by and
+                                           8 * (by + h) <= R0 * rl + WIN_LINES for bx, by, w, h in rects)
+            rows, g = _camstop_walk(c, pts, herc)
+            arm, ga = _camstop_walk(c, pts, herc, _nostop=True)
+            green = max(r for r, _c in rows) <= g.rmax and all(seen(r, c0) for r, c0 in rows[arrive:])
+            red = not all(seen(r, c0) for r, c0 in arm[arrive:])
+            res.append(("camstop 3 MILL past its cup, %s: `stop down` holds the window at row %d (line %d; the "
+                        "picture's last %d) - from the cup on, finish clock %s's digits and the cup in view on "
+                        "every frame (at the cup row %d, at rest row %d); red: _nostop goes on to row %d, the clock "
+                        "%s" % (("CGA", "Hercules")[herc], g.rmax, g.rmax * rl, ga.rmax, num[0] if num else "NONE",
+                                rows[arrive][0], rows[-1][0], max(r for r, _c in arm),
+                                "out of view" if red else "STILL IN VIEW (the arm is not red)"), green and red))
+    else:
+        res.append(("camstop 3 MILL is in the list and says `stop down`", False))
+    # 4. EVERY EDGE in the model: MILL given each stop (its own `stop down` with `stop up left`, then with
+    #    `stop right`), the ball carried to the picture's four extremes and back to the cup: the window never
+    #    leaves the stopped range on either card - red: _nostop passes every stop it is given
+    if c is not None:
+        fl = [k for k, t in rec_map(c.tiles).items() if t.kind != KIND_VOID]
+        sx = lambda k: 16 * (k[0] - k[1])
+        sy = lambda k: 8 * (k[0] + k[1])
+        ext = [min(fl, key=sy), min(fl, key=sx), max(fl, key=sy), max(fl, key=sx)]
+        cup = tuple(cups[0])
+        for eds in (("up", "left"), ("right",)):
+            c2 = copy.copy(c)
+            c2.stoptab = stop_table(c2, types.SimpleNamespace(stops={e: 0 for e in eds}, lockx=None))
+            for herc in (0, 1):
+                pts = [cup] + [tuple(k[:2]) for k in ext] + [cup]
+                rows, g = _camstop_walk(c2, pts, herc, hold=40)
+                arm, _ga = _camstop_walk(c2, pts, herc, hold=40, _nostop=True)
+                green = all(g.rmin <= r <= g.rmax and g.cmin <= c0 <= g.cmax for r, c0 in rows)
+                lo_r, lo_c = min(r for r, _c in arm), min(c0 for _r, c0 in arm)
+                hi_c = max(c0 for _r, c0 in arm)
+                red = ((g.rmin and lo_r < g.rmin) or "up" not in eds) and \
+                      ((g.cmin and lo_c < g.cmin) or "left" not in eds) and \
+                      ((hi_c > g.cmax) or "right" not in eds)
+                res.append(("camstop 4 MILL stopped %s + down (t l r %s), %s, the ball to the picture's four "
+                            "extremes: the window inside rows %d - %d, columns %d - %d on every frame (it reached "
+                            "rows %d - %d, columns %d - %d); red: _nostop reaches rows %d -, columns %d - %d" % (
+                                " ".join(eds), c2.stoptab, ("CGA", "Hercules")[herc], g.rmin, g.rmax, g.cmin, g.cmax,
+                                min(r for r, _c in rows), max(r for r, _c in rows), min(c0 for _r, c0 in rows),
+                                max(c0 for _r, c0 in rows), lo_r, lo_c, hi_c), bool(green and red)))
+
+
 def _sc_clockrule(X, res):
     """--selfcheck's section `clockrule` (selfcheck(): a fork of its state after the compile)"""
     paths, courses = X.paths, X.courses
@@ -38148,7 +38305,7 @@ class _Sections:
 
 # --selfcheck's sections' seconds (BB_TIMES=1), measured 2026-11-16 on four cores: only the order the
 # parallel run starts them in, longest first - a section missing here is started as if 30 s
-SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, "play": 34, "clockrule": 18,
+SC_COST = {"camstop": 3, "determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, "play": 34, "clockrule": 18,
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
@@ -39884,7 +40041,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_tiltbase", "_sc_turn",
              "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder",
-             "_sc_pipeover", "_sc_rampplane")
+             "_sc_pipeover", "_sc_rampplane", "_sc_camstop")
 
 
 def _selfcheck(paths, res, skipped, S):
@@ -40718,14 +40875,87 @@ def lock_bottom(c):
     return out
 
 
-def stopped_window(c, herc=0):
-    """SPEC.md 130.45.4: the window a LOCKED and STOPPED course rests in at its finish - (x px, top line), its
-    across the lock and its down the bottom stop - or None for any other course"""
-    if not (getattr(c, "lockx", None) and getattr(c, "lockb", None)):
+STOP_EDGES = ("down", "up", "left", "right")  # SPEC.md 130.45.5: `stop`'s edges
+STOP_PAD = FACE8              # ...the margin kept in view past the finish's own extent on the three new edges
+CAM_CARDS = CARDS + ((42, 200, 1, 0),)     # ...and the VGA's ENGINE window (bzvga.asm BZV_W, BZV_H, a line a row)
+
+
+def cam_limits(brows, cols, card, lockb=None, stoptab=None):
+    """SPEC.md 130.45.4, 130.45.5: the window's range on CARD (0 the CGA, 1 the Hercules, 2 the VGA's engine
+    window) -> (cmin, cmax, rmin, rmax), exactly as bz_vinit leaves bz_cmin .. bz_rmax: the picture's whole
+    range, the BOTTOM STOP's cap (lockb, the bottom line) and BZ_CRS_STOPS' three bytes folded in -
+    rmin = 8 t >> lsh, cmin = l, cmax less r: 0 is each one's identity, so no stop is no change"""
+    W, H, rl, lsh = CAM_CARDS[card]
+    rmax = brows * 8 // rl - H
+    if lockb:
+        rmax = min(rmax, max(0, -(-(lockb - WIN_LINES) // rl)))
+    t, l, r = stoptab or (0, 0, 0)
+    return l, cols - W - r, (8 * t) >> lsh, rmax
+
+
+def _finish_cells(c):
+    """the course's FINISH cells (every goal cell or piece's, every cup's) -> [(wx, wy, tile)]"""
+    rm = rec_map(c.tiles)
+    cells = [k for k, t in rm.items() if t.kind == KIND_GOAL] + [tuple(p["at"]) for p in c.props
+                                                                  if p["kind"] == PK_CUP]
+    return [(k[0], k[1], rm[tuple(k[:2])]) for k in cells if rm.get(tuple(k[:2])) is not None]
+
+
+def stop_table(c, src):
+    """SPEC.md 130.45.5: `stop up`, `stop left`, `stop right` -> BZ_CRS_STOPS' three bytes (t, l, r), or None
+    for a course with none of them.  From the FINISH (every goal cell, every cup's cell) and STOP_PAD past it:
+    t the block row of the top line (the highest corner of any finish cell, less the pad), rounded down; l
+    the column of the left px (the leftmost finish cell's left edge, less the pad), rounded down; r the
+    columns between the right px (the rightmost's right edge, plus the pad), rounded up, and the picture's
+    right edge.  Each is then held where every card's range stays whole (t at most every card's rmax, the
+    bottom stop's included, in block rows; r at most every card's cmax; l at most every card's cmax less r),
+    so the guest folds them in with no clamp of its own"""
+    eds = [e for e in ("up", "left", "right") if e in src.stops]
+    if not eds:
         return None
+    if src.lockx and ("left" in eds or "right" in eds):
+        raise CourseError("%s:%d: stop left / right with `lock across`: the lock already holds the camera across "
+                          "(SPEC.md 130.45.5)" % (c.fname, src.stops.get("left", src.stops.get("right"))))
+    cells = _finish_cells(c)
+    if not cells:
+        raise CourseError("%s:%d: stop %s needs a finish (a goal or a cup) to stop at" % (
+            c.fname, src.stops[eds[0]], eds[0]))
+    xs = [16 * (wx - wy) + c.x0 for wx, wy, _t in cells]
+    t = l = r = 0
+    if "up" in eds:
+        top = min(8 * (wx + wy) + c.y0 - max(_h4t(tl, u, v) for u in (0, 16) for v in (0, 16)) // 4
+                  for wx, wy, tl in cells) - STOP_PAD
+        t = max(0, top // 8)
+    if "right" in eds:
+        r = max(0, c.cols - -(-(max(xs) + 16 + STOP_PAD) // 8))
+    if "left" in eds:
+        l = max(0, (min(xs) - 16 - STOP_PAD) // 8)
+    lims = [cam_limits(c.brows, c.cols, k, c.lockb) for k in range(len(CAM_CARDS))]
+    r = min([r] + [cmax for _cn, cmax, _rn, _rx in lims])
+    l = min([l] + [cmax - r for _cn, cmax, _rn, _rx in lims])
+    t = min([t] + [(rmax * CAM_CARDS[k][2]) >> 3 for k, (_cn, _cx, _rn, rmax) in enumerate(lims)])
+    if max(t, l, r) > 255:                          # (bytes: BZ_CRS_STOPS)
+        raise CourseError("%s:%d: stop: a stop past the 255 rows or columns BZ_CRS_STOPS' byte holds (SPEC.md "
+                          "130.45.5)" % (c.fname, src.stops[eds[0]]))
+    return t, l, r
+
+
+def stop_windows(c, x, y, herc=0):
+    """SPEC.md 130.45.4, 130.45.5: the windows - (x px, top line), the CGA's unless HERC - the camera may rest
+    in at a finish at (x, y) on a STOPPED course: for each stopped edge the window AT that stop, its other axis
+    centred on the finish within the course's range (a LOCKED course's across, the lock's).  [] for a course
+    with no stop.  (A locked course stopped down gives 130.45.4's one window, the lock's and the stop's)"""
+    lockb, st = getattr(c, "lockb", None), getattr(c, "stoptab", None)
+    if not (lockb or st):
+        return []
+    cmin, cmax, rmin, rmax = cam_limits(c.brows, c.cols, herc, lockb, st)
     W, H, rl, _lsh = CARDS[herc]
-    rmax = min(c.brows * 8 // rl - H, max(0, -(-(c.lockb - WIN_LINES) // rl)))
-    return 8 * c.lockx[herc], rmax * rl
+    lk = getattr(c, "lockx", None)
+    xc = 8 * lk[herc] if lk else 8 * max(cmin, min(cmax, (x - 4 * W) // 8))
+    yc = rl * max(rmin, min(rmax, (y - WIN_LINES // 2) // rl))
+    st = st or (0, 0, 0)
+    return ([(xc, rmax * rl)] if lockb else []) + ([(xc, rmin * rl)] if st[0] else []) + \
+        ([(8 * cmin, yc)] if st[1] else []) + ([(8 * cmax, yc)] if st[2] else [])
 
 
 # =============================================================================

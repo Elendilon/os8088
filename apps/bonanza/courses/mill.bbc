@@ -14,6 +14,7 @@ uses rotor tube turntable seesaw archway spring life
 medals 60 70
 limit 99
 target 90
+stop down                 # SPEC.md 130.45.4: past the cup the camera scrolls no further down (the finish clock stays in view)
 
 # rooms (the sketch's sections) and walls
 floor rect   7   9  13  14  flat 28   # A

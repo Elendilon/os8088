@@ -544,6 +544,8 @@ class App(object):
         self.cv_gstyle = tk.StringVar()
         self.cv_cstrict = tk.BooleanVar()
         self.cv_mbanded = tk.BooleanVar()
+        self.cv_lock = tk.BooleanVar()              # SPEC.md 130.45: `lock across`
+        self.cv_stops = {e: tk.BooleanVar() for e in B.STOP_EDGES}     # SPEC.md 130.45.4, 130.45.5: `stop`
         rows = [
             ("Title", ttk.Entry(g, textvariable=self.cv_title, width=26), "1 - 24 characters, no quote marks"),
             ("Short name", ttk.Entry(g, textvariable=self.cv_name, width=8), "1 - 5 of A-Z 0-9"),
@@ -574,9 +576,18 @@ class App(object):
         ttk.Checkbutton(g, text="Give each band its own mask table (`masks banded`): up to 256 occluder masks a band "
                         "of 16 block rows, not 256 in all", variable=self.cv_mbanded
                         ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w")      # SPEC.md 130.52, 130.58.45
-        ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 2, column=0, sticky="w", pady=4)
+        cam = ttk.Frame(g)                          # SPEC.md 130.58: the camera's course flags (130.45)
+        cam.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Checkbutton(cam, text="Hold the camera across (`lock across`)", variable=self.cv_lock
+                        ).grid(row=0, column=0, columnspan=5, sticky="w")
+        ttk.Label(cam, text="Once the finish is in view, stop scrolling:").grid(row=1, column=0, sticky="w")
+        for i, e in enumerate(B.STOP_EDGES):
+            ttk.Checkbutton(cam, text=e, variable=self.cv_stops[e]).grid(row=1, column=1 + i, sticky="w", padx=4)
+        ttk.Label(cam, text="(`stop`: for a finish at an edge of the course - it keeps the cup or goal and its clock "
+                  "in view past it)", foreground="#666").grid(row=2, column=0, columnspan=5, sticky="w")
+        ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 3, column=0, sticky="w", pady=4)
         ttk.Label(g, text="Extras the course loads (`uses`) are added for you as you place parts.",
-                  foreground="#666").grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+                  foreground="#666").grid(row=len(rows) + 4, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         c = ttk.LabelFrame(f, text="Ready to play?", padding=10)
         c.grid(row=0, column=1, sticky="nsew")
@@ -1072,7 +1083,8 @@ class App(object):
         sts = {s.kind: s for s in d.statements()}
         cv = {k: getattr(self, k).get() for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal",
                                                   "cv_gstyle", "cv_target", "cv_limit", "cv_gold", "cv_silver",
-                                                  "cv_cstrict", "cv_mbanded")}
+                                                  "cv_cstrict", "cv_mbanded", "cv_lock")}
+        stops = [e for e in B.STOP_EDGES if self.cv_stops[e].get()]
         # (read EVERY field first: an edit below refills the Course tab from the course, which wiped what was typed
         # into the fields not yet read - the medals vanished after a `limit` was written)
 
@@ -1107,6 +1119,8 @@ class App(object):
             put("medals", "medals %s %s" % (gd, sv) if gd and sv else None)
             put("strict", "strict" if cv["cv_cstrict"] else None)
             put("masks", "masks banded" if cv["cv_mbanded"] else None)
+            put("lock", "lock across" if cv["cv_lock"] else None)          # SPEC.md 130.45
+            put("stop", "stop " + " ".join(stops) if stops else None)      # SPEC.md 130.45.4, 130.45.5
         except E.EditError as e:
             self._msg(str(e))
         return True
@@ -2862,6 +2876,10 @@ class App(object):
         self.cv_silver.set(tok("medals", 2))
         self.cv_cstrict.set("strict" in sts)
         self.cv_mbanded.set("masks" in sts)
+        self.cv_lock.set("lock" in sts)
+        st = sts.get("stop")
+        for e in B.STOP_EDGES:
+            self.cv_stops[e].set(bool(st) and e in st.toks[1:])
 
     def _fill_source(self):
         t, g = self.src_t, self.src_g
