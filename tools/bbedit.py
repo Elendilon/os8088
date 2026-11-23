@@ -316,8 +316,10 @@ class App(object):
         mb.add_cascade(label="Course", menu=cm)
         r.config(menu=mb)
         for k, fn in (("<Control-n>", self.new), ("<Control-o>", self.open_dialog), ("<Control-s>", self.save),
-                      ("<Control-z>", self.undo), ("<Control-y>", self.redo), ("<Control-d>", self.duplicate),
-                      ("<Command-z>", self.undo), ("<Command-s>", self.save)):
+                      ("<Control-z>", self.undo), ("<Control-y>", self.redo), ("<Control-d>", self.duplicate)) + (
+                (("<Command-z>", self.undo), ("<Command-s>", self.save)) if sys.platform == "darwin" else ()):
+            # (the Command keys on a Mac ONLY: Tk elsewhere takes `Command` as no modifier at all, so on Windows a
+            #  plain s typed into a field opened Save and a plain z undid an edit)
             try:
                 r.bind_all(k, lambda e, fn=fn: (fn(), "break")[1])
             except tk.TclError:
