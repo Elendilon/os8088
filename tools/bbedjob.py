@@ -25,7 +25,9 @@ CHECK is bbcourse's compile_course: the errors that refuse the course and
 the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
 regions' cells and the seam's pixels (130.58.18); and the ROUTE's warnings
 (bbcourse.route_lint, SPEC.md 130.58.49), the builder's own, each naming the
-`way` line to move or add beside.
+`way` line to move or add beside.  Its `done` line carries the course's STATS
+(course_stats, SPEC.md 130.58.51): each figure against its bound, the bytes on
+the floppy, and every option the course uses to go past a usual bound.
 
 RIDE (SPEC.md 130.58.19) rolls each ball over the shape on line LINE - a
 chute, a pit or a hump - on the play-only compile, and answers in words.
@@ -459,8 +461,141 @@ def check(path, strict, name=None, trap=False):
     if c.src.ways:                              # SPEC.md 130.58.49: the route's warnings, the builder's own (never
         emit(stage="compile", what="the route's ways")    # the compiler's: no refusal, under --strict either)
         warns += [warning(w) for w in B.route_lint(c)]
-    emit(stage="done", ok=True, warnings=warns, secs=round(time.time() - t0, 1))
+    emit(stage="compile", what="the course's stats (its song, packed as the game packs it)")
+    st = course_stats(c)                        # SPEC.md 130.58.51: last - it re-encodes c with its song
+    emit(stage="done", ok=True, warnings=warns, stats=st, secs=round(time.time() - t0, 1))
     return 0
+
+
+NEAR = 0.9                      # SPEC.md 130.58.51: a figure at 90% of its bound or more is shown as near it
+
+
+def _row(key, label, text, n=None, bound=None):
+    """a stats row: N against BOUND (None: no bound) and TEXT, the words the window shows.  Its "state": "over"
+    past the bound (only the size budget can be: it is reported, never refused), "near" at NEAR of it or more,
+    else "ok" (and "near" True for either of the first two)"""
+    st = "ok" if not bound or n is None else "over" if n > bound else "near" if n >= NEAR * bound else "ok"
+    return {"key": key, "label": label, "text": text, "n": n, "max": bound, "state": st, "near": st != "ok"}
+
+
+def _fmt(n):
+    return format(n, ",")
+
+
+def course_stats(c):
+    """SPEC.md 130.58.51: course C's STATS, read off the compile the full check made (no second compile) ->
+    {"rows": [row], "above": [{"key", "name", "spec", "detail"}], "summary": one line}.  The song is attached
+    first (bbcourse.attach_song, as the game build does: its section S is in the part), so the part sizes and the
+    bytes on the floppy are the shipped ones; the floppy's are os88pkg's - the part LZB-packed (BZPARTZF) with the
+    near-call filter tried, bbcourse.packed_len"""
+    rows, above = [], []
+    song = None
+    if c.src.music is not None:
+        try:
+            songs = B._music()[1]
+            if songs:
+                B.attach_song(c, songs[B.course_song(c)])
+                song = True
+        except B.CourseError as e:
+            song = str(e)
+    # THE PICTURE
+    rows.append(_row("width", "Picture", "%s x %s px, %d x %d cells (COLS x BROWS)" % (
+        _fmt(c.width), _fmt(c.lines), c.cols, c.brows), c.width, 8 * B.COLS_MAX))
+    rows.append(_row("brows", "Block rows", "%d of %d" % (c.brows, B.BROWS_MAX), c.brows, B.BROWS_MAX))
+    if c.cols > 128:
+        above.append({"key": "wide", "name": "Wider than 1,024 px", "spec": "130.10.4.2",
+                      "detail": "%s px (COLS %d): WIDTH 160, any multiple of 8 word columns up to 1,280 px" % (
+                          _fmt(c.width), c.cols)})
+    # BLOCKS
+    nb = len(c.blocks)
+    if nb > B.BLK_ROWP:
+        rows.append(_row("blocks", "Blocks", "%s of %s (past 1,024: the map is form 9 ROWNIBS)" % (
+            _fmt(nb), _fmt(B.BLK_MAX)), nb, B.BLK_MAX))
+        above.append({"key": "rownibs", "name": "More than 1,024 blocks", "spec": "130.56",
+                      "detail": "%s blocks: the map is stored as form 9 ROWNIBS (a 12-bit block index)" % _fmt(nb)})
+    else:
+        rows.append(_row("blocks", "Blocks", "%s of %s (form 1 ROWPLANES)" % (_fmt(nb), _fmt(B.BLK_ROWP)),
+                         nb, B.BLK_ROWP))
+    # OCCLUDER RECORDS AND MASKS
+    ship = len(c.model["recs"])
+    rows.append(_row("records", "Occluder records", "%s shipped; %s merged from %s cut by AV; the rule's %s "
+                     "before AV (%s before its merge)" % (
+                         _fmt(ship), _fmt(len(c.records)), _fmt(len(c.raw)), _fmt(len(c.rule_records)),
+                         _fmt(len(c.rule_raw))), ship))
+    prow = max(c.per_row.values()) if c.per_row else 0
+    rows.append(_row("recrow", "Records a block row", "at most %d of %d" % (prow, B.REC_ROW_MAX), prow,
+                     B.REC_ROW_MAX))
+    rows.append(_row("pass", "Occluder pass", "at most %s of %s clocks" % (_fmt(c.wprice[0]), _fmt(B.OCC_PASS_MAX)),
+                     c.wprice[0], B.OCC_PASS_MAX))
+    nm = len(c.masks)
+    if c.model.get("mband"):
+        sl = B.band_slices(c.model)
+        most = max(len(x) for x in sl) if sl else 0
+        rows.append(_row("masks", "Masks", "%d in all; at most %d of 256 in a band (%d bands: %s)" % (
+            nm, most, len(sl), ", ".join(str(len(x)) for x in sl)), most, 256))
+        above.append({"key": "banded", "name": "masks banded", "spec": "130.52",
+                      "detail": "a mask table a band of 16 block rows: %d masks in all, at most %d in a band" % (
+                          nm, most)})
+    else:
+        rows.append(_row("masks", "Masks", "%d of 256 (%d as cut, %d merged, before the ghost dither)" % (
+            nm, c.raw_masks, c.umasks), nm, 256))
+    recut = getattr(c, "recut", None)
+    if recut:
+        above.append({"key": "recut", "name": "Real-pose re-cut", "spec": "130.49.5",
+                      "detail": "over 256 masks at 4 ground units: cut again %s" % (
+                          "at whole cells" if recut == "cell" else "in %d gu squares" % recut)})
+    if getattr(c, "noshadow", False):
+        above.append({"key": "noshadow", "name": "Shadows dropped", "spec": "130.47.5",
+                      "detail": "over %s blocks with cast shadows: compiled again without them" % _fmt(B.BLK_MAX)})
+    # THE PARTS
+    sheets = B.sheets_of(c.cga)
+    if sheets:
+        for i, q in enumerate(sheets):
+            rows.append(_row("sheet%d" % i, "Sheet %d" % i, "%s of %s bytes in RAM" % (
+                _fmt(len(q)), _fmt(B.PARTMAX)), len(q), B.PARTMAX))
+        above.append({"key": "sheets", "name": "Sheets", "spec": "130.30.12",
+                      "detail": "the picture part cut into %d sheets of %d block rows (from rows %s), and a world "
+                                "part" % (c.plan["k"], c.plan["n"], ", ".join(str(x["m0"]) for x in c.plan["sheets"]))})
+    else:
+        rows.append(_row("picture", "Picture part" if c.split else "The part", "%s of %s bytes in RAM" % (
+            _fmt(len(c.cga)), _fmt(B.PARTMAX)), len(c.cga), B.PARTMAX))
+    if c.split:
+        rows.append(_row("world", "World part", "%s of %s bytes in RAM" % (_fmt(len(c.wcga)), _fmt(B.PARTMAX)),
+                         len(c.wcga), B.PARTMAX))
+        if not sheets:
+            one = B.one_part_len(c.model, 4)
+            above.append({"key": "two", "name": "Two parts", "spec": "130.30",
+                          "detail": "a picture part and a world part, each its own segment (as one part it would be "
+                                    "%s bytes, over %s)" % (_fmt(one), _fmt(B.PARTMAX))})
+    stored = bytes(c.bstored or c.stored)
+    lzb = B.packed_len(stored, "lzb")
+    rows.append(_row("disk", "On the floppy", "%s bytes LZB (stored %s, %s in RAM)%s" % (
+        _fmt(lzb), _fmt(len(stored)), _fmt(len(c.cga) * len(sheets or [0]) + len(c.wcga or b"")),
+        "" if song is True else ", without its song (%s)" % (song if song else "no `music`")), lzb))
+    if c.target:
+        lz4 = B.check_budget(c)                 # (the game build's figure, after its song as there)
+        cap = B.course_cap(c)
+        rows.append(_row("budget", "Size budget", "LZ4 %s of %s for a %d s target (1.5x: %s; reported, never "
+                         "refused)" % (_fmt(lz4), _fmt(B.budget(c.target)), c.target, _fmt(cap)), lz4,
+                         B.budget(c.target)))
+    # TIME
+    if c.limit:
+        t = "limit %d s" % c.limit
+        if c.lroute:
+            t = "route %.1f s, %s" % (c.lroute / float(B.SEC_STEPS), t)
+        if c.target:
+            t = "target %d s, %s" % (c.target, t)
+        if c.medals and c.medals != (0, 0):
+            t += ", gold %d s, silver %d s" % c.medals
+        rows.append(_row("time", "Time", t))
+    elif c.target:
+        rows.append(_row("time", "Time", "target %d s" % c.target))
+    near = [r["label"] for r in rows if r["near"]]
+    summary = "%s records, %d masks, %s blocks; %s bytes in RAM, %s on the floppy%s%s" % (
+        _fmt(ship), nm, _fmt(nb), _fmt(len(c.cga) * len(sheets or [0]) + len(c.wcga or b"")), _fmt(lzb),
+        "; past: " + ", ".join(a["name"] for a in above) if above else "",
+        "; near or over a bound: " + ", ".join(near) if near else "")
+    return {"rows": rows, "above": above, "summary": summary}
 
 
 SIDES = {(1, 0): "+x", (-1, 0): "-x", (0, 1): "+y", (0, -1): "-y"}

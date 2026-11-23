@@ -12698,7 +12698,9 @@ def _compile_course_cut(source, fname=None, occluders=True, _hack=None, crsinfo=
     """(SPEC.md 130.49.5: a course whose real-pose cut names more than the 256 masks a record's byte holds is cut
     again in larger squares - 8, then 16 ground units - and then as before 130.49, and the run says so)"""
     try:
-        return _compile_shadow(source, fname, occluders, _hack, crsinfo)
+        c = _compile_shadow(source, fname, occluders, _hack, crsinfo)
+        c.recut = None                              # (SPEC.md 130.58.51: the course stats name a re-cut)
+        return c
     except CourseError as e:
         h = dict(_hack or {})
         if "occluder masks, over the 256" not in str(e) or "realsub" in h or h.get("realcut") is False:
@@ -12709,7 +12711,9 @@ def _compile_course_cut(source, fname=None, occluders=True, _hack=None, crsinfo=
         sys.stderr.write("bbcourse: %s; cut again %s (SPEC.md 130.49.5)\n" % (
             last, "in %d gu squares" % sub if sub else "at whole cells"))
         try:
-            return _compile_shadow(source, fname, occluders, h2, crsinfo)
+            c = _compile_shadow(source, fname, occluders, h2, crsinfo)
+            c.recut = sub or "cell"                 # (130.58.51: in SUB gu squares, or at whole cells)
+            return c
         except CourseError as e:
             if "occluder masks, over the 256" not in str(e):
                 raise
@@ -12734,7 +12738,9 @@ def _compile_shadow(source, fname=None, occluders=True, _hack=None, crsinfo=None
             sys.stderr.write("bbcourse --shadow: %s; compiled again WITHOUT the shadows (SPEC.md 130.47.5)\n" % e)
             _SHADOW_OK = False
             _VANISH_MEMO.clear()
-            return _compile_cached(source, fname, occluders, _hack, crsinfo)
+            c = _compile_cached(source, fname, occluders, _hack, crsinfo)
+            c.noshadow = True                       # (130.58.51: the course stats name it)
+            return c
     finally:
         _SHADOW_IN, _SHADOW_OK = False, True
 
