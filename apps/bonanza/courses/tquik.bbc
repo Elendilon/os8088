@@ -27,7 +27,8 @@ goal  rect  14 4 15 7  flat 2             # C's last column is the goal (exit 0)
 goal  rect  14 7 15 8  flat 2 exit 1 hidden   # ... but its front cell, a HIDDEN exit 1 (the test map's
                                           # secret route, SPEC.md 130.54.6; off the route, a row pokes it)
 hole  tile  12 7                          # a pit in C, off the route
-checkpoint 12 5                           # flag 0, on the route
+checkpoint 12 5 ball rubber               # flag 0, on the route (its ball NAMED: the record as before
+                                          # 2026-11-23, when a flag with no `ball` became AS TOUCHED)
 wall  rect   4 7  6 8  flat 6             # the tube's body, a block on A's second row from the front
 tube keep 6 7  3 7  out -y                # IN (6, 7), the drain; OUT (3, 7), onto A
 start 4 5

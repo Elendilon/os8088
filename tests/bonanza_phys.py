@@ -145,6 +145,9 @@ and PASSES only if the row FAILS - at its own check:
        flagmat-peak   glass dropped onto PEAK's flag 3 (touched in the air),
                       shattered, respawned there AS GLASS (the flag's ball)
        flagmat-moon   glass dropped onto MOON's flag 2: respawned AS RUBBER
+                      (a flag that NAMES its ball: on TPLY flagmat-rubber)
+       flagmat-touch  (2026-11-23) TPLY's flag 0 poked to AS TOUCHED (no
+                      `ball`), glass dropped onto it: respawned AS GLASS
        padswap-*      every pad of MOON and PEAK, another ball rolled on it with
                       an arrow held: bz_mat, bz_mrec, bz_fta and bz_ftg the
                       model's material's at EVERY frame
@@ -164,7 +167,10 @@ and PASSES only if the row FAILS - at its own check:
                       held at cap 8 and dropped to 2 - levels 8, 6, 4, 2
      and their red arms:
   ckpt       the respawn at bz_safe on a CKPT course: flag parts
-  ckmat      bz_ckmat from the touching ball, not the flag's: flagmat-moon parts
+  ckmat      bz_ckmat from the touching ball, not the ball a flag NAMES:
+             flagmat-moon (TPLY's flagmat-rubber) parts
+  cktouch    an AS TOUCHED flag gives the course's ball (rubber), not the
+             touching one - the rule until 2026-11-23: flagmat-touch parts
   padftg     ftg not rebuilt at a swap: padswap's tables (and its steps)
   cupv       the capture without the speed test: cup-lip holes out
   springsum  the spring ADDS to the rebound: spring-max's apex
@@ -877,6 +883,10 @@ def model(crs, mat, poke, src=None, **kw):
         p._derive(True)
         p._poked_at = p.nstep
     return p
+
+
+RECFLD = {"gvz": (16, "<H"),             # bzcourse.inc BZP_SGVZ: a SPRING's launch (word)
+          "ball": (17, "<B")}            # ...BZP_CBALL: a FLAG's ball, 0 - 2 or BB.CK_TOUCH (byte)
 
 
 def run_keys(crs, mat, poke, keys, tilts=None, **kw):
@@ -2031,8 +2041,8 @@ def urun(binp, lst, sym, crs, mat, keys, fam=None, patch=(), poke=None, src=None
             g.w("bz_" + k_, v, 1)
         if poke.get("recpoke"):
             i_, fld, v = poke["recpoke"]
-            g.mu.mem_write(UPS * 16 + g.r("bz_poff", 2, False) + BB.PROPREC * i_ + {"gvz": 16}[fld],
-                           struct.pack("<H", v))
+            g.mu.mem_write(UPS * 16 + g.r("bz_poff", 2, False) + BB.PROPREC * i_ + RECFLD[fld][0],
+                           struct.pack(RECFLD[fld][1], v))
         g.w("bz_pokd", 1, 1)
     bad = []
     if (g.r("bz_fhk", 1, False), g.r("bz_fnf", 1, False)) != (p.fhk, len(p.fam)):
@@ -3967,20 +3977,27 @@ def w4_replays():
     pk, keys, at = found if found else (w4_poke(TP, *F0["at"], mat=0), [0], None)
     add("flag", TP, 0, pk, keys, "rolled off flag 0 %s into a pit: respawned ON it at step %s" % (F0["at"], at),
         found, red={"_ckpt_safe": True})
-    # flagmat: a glass ball touching a flag in the air and shattering below it respawns there as the FLAG's ball:
-    # flag 1's glass (the same ball) and flag 0's rubber (another: the `ckmat` red's case)
-    for num, tag in ((1, "glass"), (0, "rubber")):
+    # flagmat: a glass ball touching a flag in the air and shattering below it respawns there as the FLAG's ball
+    # when the flag NAMES one: flag 1's glass (the same ball) and flag 0's rubber (another: the `ckmat` red's
+    # case) - and AS TOUCHED (SPEC.md 130.14.4.5, 2026-11-23: the owner's "go back to the state you were in
+    # when you crossed the flag") when it names none: flag 0's record +17 POKED to BB.CK_TOUCH in the part and
+    # the model, touched as glass on a RUBBER course, respawns as GLASS (the `cktouch` red's case: the course's
+    # ball, the rule until then)
+    for num, tag, cb in ((1, "glass", None), (0, "rubber", None), (0, "touch", BB.CK_TOUCH)):
         F = w4_rec(TP, BB.PK_CHECKPOINT, num=num)[0]
-        pk = w4_poke(TP, *F["at"], mat=BB.MAT_GLASS, lift=64)
+        pk = w4_poke(TP, *F["at"], mat=BB.MAT_GLASS, lift=64,
+                     recpoke=(F["i"], "ball", cb) if cb is not None else None)
         keys = [0] * 90
         p = run_keys(TP, BB.MAT_GLASS, pk, keys)
         r = evs(p, "respawn")
+        want = BB.MAT_GLASS if cb == BB.CK_TOUCH else F["ball"]
         add("flagmat-%s" % tag, TP, BB.MAT_GLASS, pk, keys,
             "glass dropped 64 px onto flag %d %s (its ball %s): touched, shattered, respawned there as %s" % (
-                num, F["at"], BB.MAT_NAMES[F["ball"]], BB.MAT_NAMES[p.mat]),
-            evs(p, "flag") and evs(p, "shatter") and r and r[0][2] == tuple(F["at"]) and p.mat == F["ball"]
-            and BB.MAT_NAMES[F["ball"]] == tag,
-            red={"_ckmat_touch": True} if F["ball"] != BB.MAT_GLASS else None)
+                num, F["at"], BB.ckball_name(F["ball"] if cb is None else cb), BB.MAT_NAMES[p.mat]),
+            evs(p, "flag") and evs(p, "shatter") and r and r[0][2] == tuple(F["at"]) and p.mat == want
+            and (cb == BB.CK_TOUCH or BB.MAT_NAMES[F["ball"]] == tag) and R.course(TP).ball != BB.MAT_GLASS,
+            red={"_ckmat_rec": True} if cb == BB.CK_TOUCH else
+            {"_ckmat_touch": True} if F["ball"] != BB.MAT_GLASS else None)
     # padswap: every pad of TPLY, a ball of another material rolled on it with an arrow held
     for pd in w4_rec(TP, BB.PK_PAD):
         mat = (pd["mat"] + 1) % 3
@@ -4962,9 +4979,9 @@ def replay(g, s):
             g.putb("bz_" + k_, v)
         if pk.get("recpoke"):                   # ...and a prop record's field, in the course part
             i, fld, v = pk["recpoke"]
-            off = {"gvz": 16}[fld]              # bzcourse.inc BZP_SGVZ
+            off, fmt = RECFLD[fld]
             at = (g.w("bz_cseg") << 4) + g.w("bz_poff") + BB.PROPREC * i + off
-            g.m.write(at, struct.pack("<H", v))
+            g.m.write(at, struct.pack(fmt, v))
     Wc, rl = g.w("bz_W"), R.RL[tag]
     win = (g.w("bz_R0"), g.w("bz_c0"))
     wk.arm()
@@ -5138,9 +5155,15 @@ REDS = {
     # wave 4 (SPEC.md 130.14.14): the respawn at bz_safe on a CKPT course
     "ckpt": [("bzphys.inc", "    test byte [bz_gfl], BZ_GF_CKPT\n    jnz .rflag\n",
               "    nop                         ; RED ckpt: bz_safe on every course\n")],
-    # the flag's ball taken from the ball that touched it
-    "ckmat": [("bzphys.inc", "    mov al, [es:si + BZP_CBALL] ; the FLAG's ball, not the one it was\n",
-               "    mov al, [bz_mat]            ; RED ckmat: the touching ball\n")],
+    # a flag that NAMES its ball gives the ball that touched it instead
+    "ckmat": [("bzphys.inc", "    mov al, [es:si + BZP_CBALL] ; the ball the FLAG names; BZ_CK_TOUCH (no\n",
+               "    mov al, [bz_mat]            ; RED ckmat: the touching ball, named or not\n"
+               "    jmp short .fb\n")],
+    # an AS TOUCHED flag (SPEC.md 130.14.4.5, 2026-11-23) gives the course's ball - TPLY's rubber, the rule
+    # until then - not the one that touched it
+    "cktouch": [("bzphys.inc", "    mov al, [bz_mat]\n.fb:\n    mov [bz_ckmat], al\n",
+                 "    mov al, 0                   ; RED cktouch: the course's ball (TPLY's rubber)\n.fb:\n"
+                 "    mov [bz_ckmat], al\n")],
     # ftg not rebuilt at a swap
     "padftg": [("bzphys.inc", "    mov al, [bz_surf]\n    call bz_surfset\n",
                 "    nop                         ; RED padftg: ftg kept\n")],
@@ -5164,13 +5187,14 @@ RED_FAM = {"famrsp"}            # (its scenario, `probe`, is PLAYGROUND's: w9_re
 RED_ONLY = {"respawn": ("pit",), "takeoff": ("lip",), "bounce": ("bounce",), "edge": ("eastwall",),
             "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",),
             "gate": ("knock",), "kick": ("kick",), "carry": ("hop",), "carrys": ("ride",), "stick": ("hop",),
-            "exit": ("keep",), "ckpt": ("flag",), "ckmat": ("flagmat",), "padftg": ("padswap",),
+            "exit": ("keep",), "ckpt": ("flag",), "ckmat": ("flagmat",), "cktouch": ("flagmat-touch",), "padftg": ("padswap",),
             "cupv": ("cup",), "springsum": ("spring",), "tiltcap": ("tilt",), "famrsp": ("probe",)}
 RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", "bounce": "bounce frame",
             "edge": "eastwall frame", "stun": "stun frame", "shatter": "shatter frame",
             "absimpact": "ramphop-", "airwall": "stepup frame", "gate": "knock frame", "kick": "kick frame",
             "carry": "hop frame", "carrys": "ride frame", "stick": "hop frame", "exit": "keep frame",
-            "ckpt": "flag frame", "ckmat": "flagmat-rubber frame", "padftg": "padswap-",
+            "ckpt": "flag frame", "ckmat": "flagmat-rubber frame", "cktouch": "flagmat-touch frame",
+            "padftg": "padswap-",
             "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame",
             "famrsp": "probe frame"}
 

@@ -385,6 +385,8 @@ K_HOP, K_GRIP = 0x10, 0x20         # Space, Left Shift (SPEC.md 130.11.7.2)
 # "and again" (decision 1, 130.16.4), 350: a CONTACT flight's apex of 9.3 px.
 MAT_RUBBER, MAT_STEEL, MAT_GLASS = 0, 1, 2
 MAT_NAMES = ("rubber", "steel", "glass")
+CK_TOUCH = 3                  # a flag's record +17 with no `ball`: AS TOUCHED - a respawn there gets the ball
+                              # that touched it (bz_mat at the touch, SPEC.md 130.14.4.5); 0 - 2 a ball named
 HARD_NONE, HARD_STUN, HARD_SHATTER = 0, 1, 2
 MATERIALS = (
     # ACC  K  EF   EW  BMIN HOP GRIP  hard          threshold steps   the boost
@@ -7417,7 +7419,6 @@ def build_props(src, tiles, fname):
     # wave 4 (SPEC.md 130.14.4.1): flags, pads, the cup and springs, each on a
     # FLAT FLOOR - whatever its neighbours, VOID beside it or not (2026-11-20) -
     # and no other prop; a flag or a cup on a NORMAL surface, a spring not on ice
-    start_ball = src.ball[0] if src.ball else MAT_RUBBER
     for what, lst, cap in (("checkpoint", src.ckpts, CKPT_MAX), ("pad", src.pads, PAD_MAX),
                            ("cup", src.cups, CUP_MAX), ("spring", src.springs, SPRING_MAX)):
         if len(lst) > cap and not (what == "cup" and "cupmax" in _CHECKS_OFF):
@@ -7443,8 +7444,8 @@ def build_props(src, tiles, fname):
             raise CourseError("%s:%d: a spring on (%d, %d), ice" % (f, ln, at[0], at[1]))
         claim(at, ln, what)
         d = {"kind": kind, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num}
-        if kind == PK_CHECKPOINT:
-            d["ball"] = start_ball if sp["ball"] is None else sp["ball"]
+        if kind == PK_CHECKPOINT:                   # (no `ball`: AS TOUCHED, SPEC.md 130.14.4.5, 2026-11-23)
+            d["ball"] = CK_TOUCH if sp["ball"] is None else sp["ball"]
         elif kind == PK_PAD:
             d["mat"] = sp["mat"]
         elif kind == PK_CUP:
@@ -14803,6 +14804,14 @@ def _trap_check(c, cache):
             continue
         pr = c.props[c.order[r["i"]]]
         m = r["ball"] if r["kind"] == PK_CHECKPOINT else r["mat"]
+        if r["kind"] == PK_CHECKPOINT and m == CK_TOUCH:
+            # AS TOUCHED (SPEC.md 130.14.4.5, 2026-11-23): a respawn there gets whatever ball touched it, so the
+            # proof is from it with EVERY ball the course can bring - its start's, its pads', its named flags'
+            for m_ in sorted(course_balls(c)):
+                srcs.append(("flag %d, which names no `ball` (a respawn there gets back the ball that touched it, "
+                             "and this course can bring it every ball it has)" % r["num"], pr["line"], r["at"], m_,
+                             None))
+            continue
         srcs.append(("flag %d" % r["num"] if r["kind"] == PK_CHECKPOINT else "%s pad" % MAT_NAMES[m], pr["line"],
                      r["at"], m, None))
     for what, line, at, m, presets in srcs:
@@ -17544,7 +17553,7 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
         r = propoff + PROPREC * d["i"]
         if d["kind"] == PK_CHECKPOINT:
             num, ball = struct.unpack_from("<BB", p, r + 16)
-            if num >= CKPT_MAX or ball >= len(MATERIALS) or p[r + 18:r + 32] != bytes(14) or num in nums:
+            if num >= CKPT_MAX or ball > CK_TOUCH or p[r + 18:r + 32] != bytes(14) or num in nums:
                 bad("prop %d" % d["i"], "a checkpoint's record (number %d, ball %d)" % (num, ball))
             nums.append(num)
             if d["lane"]["poses"] != 2:
@@ -19323,7 +19332,7 @@ class Physics:
     def __init__(self, course, play=False, mat=None, _slope_sign=1, _takeoff_zero=False, _ef_zero=False,
                  _east_w1=False, _no_stun=False, _abs_impact=False, _no_airclimb=False, _hop_add=False,
                  _gate_late=False, _kick_k=False, _no_carry=False, _stick=False, _exit_vel=False,
-                 _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _pad_noftg=False, _cup_nov=False,
+                 _carry_s=False, _ckpt_safe=False, _ckmat_touch=False, _ckmat_rec=False, _pad_noftg=False, _cup_nov=False,
                  _spring_sum=False, _tilt_min=False, _ceil_drag=False, _rem_wide=False, _slab_boost=False, _noflat=False,
                  _no_clear=False, _boost_rise=False, _pump=False, _springoff=False, _iceplain=False,
                  _heldarm=False, _hopedge=False, _armwin=False, _nograce=False, _grace5=False, _graceoff=False,
@@ -19407,6 +19416,8 @@ class Physics:
         self.ckmat = mat
         self.nckpt = self.npad = self.nlip = self.nspr = self.nret = 0
         self._ckpt_safe, self._ckmat_touch, self._pad_noftg = _ckpt_safe, _ckmat_touch, _pad_noftg
+        self._ckmat_rec = _ckmat_rec                # (red cktouch: an AS TOUCHED flag gives the COURSE's ball,
+        self.ball0 = course.ball if isinstance(course, Course) else MAT_RUBBER   # the rule until 2026-11-23)
         self._cup_nov, self._spring_sum, self._tilt_min = _cup_nov, _spring_sum, _tilt_min
         self._springoff = _springoff                # (the `springoff` arm: round 3's spring spends the token)
         # wave 6's state (SPEC.md 130.16.4.3): the boost's token, the stretch's
@@ -20501,7 +20512,11 @@ class Physics:
                 elif k_ == PK_CHECKPOINT:
                     if self.mst != ST_SHATTER:
                         self.ckpt = pr["num"] + 1
-                        self.ckmat = self.mat if self._ckmat_touch else pr["ball"]
+                        cb = pr["ball"]             # (130.14.4.5: AS TOUCHED takes bz_mat; a named ball its own)
+                        if self._ckmat_rec and cb == CK_TOUCH:
+                            self.ckmat = self.ball0             # (red cktouch: the course's ball, the old rule)
+                        else:
+                            self.ckmat = self.mat if self._ckmat_touch or cb == CK_TOUCH else cb
                         if not self.cksn & (1 << pr["num"]):
                             self.cksn |= 1 << pr["num"]
                             self.nckpt += 1
@@ -22930,7 +22945,8 @@ def emit_inc(courses, path=None, title=None):
               "BZ_NSIGN        equ %d        ; the most signs any course of the build has (bz_nst's bytes, at least 1)"
               % max([c.pth["nsign"] for c in allc if getattr(c, "pth", None)]
                     + [lb["num"] + 1 for c in allc for lb in c.src.labels] + [HEADROOM_NSIGN]),
-              "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2",
+              "BZP_CBALL       equ 17       ; ...the ball a respawn there gets, 0 - 2, or BZ_CK_TOUCH",
+              "BZ_CK_TOUCH     equ %d        ; ...AS TOUCHED: the ball that touched it (130.14.4.5)" % CK_TOUCH,
               "BZP_DMAT        equ 16       ; PAD: the material 0 - 2",
               "BZP_UCAP        equ 16       ; CUP: capture (word), max(|gvx|, |gvy|)",
               "BZP_UHW         equ 18       ; ...the mouth's half-width, gu",
@@ -23315,11 +23331,23 @@ def _para(n):
     return (n + 15) // 16
 
 
+def course_balls(c):
+    """every ball a play of the course can be (SPEC.md 130.14.4.5): its start's, every pad's and every flag's
+    NAMED ball - what an AS TOUCHED flag can be touched with, and so give back.  (Free play's `M`, which starts
+    a play with any ball, is not the course's: NO TRAP proves its START with the course's ball alone.)"""
+    return {c.ball} | {p["mat"] for p in c.props if p["kind"] == PK_PAD} \
+        | {p["ball"] for p in c.props if p["kind"] == PK_CHECKPOINT and p["ball"] != CK_TOUCH}
+
+
+def ckball_name(b):
+    """a flag record's +17 as words: a ball's name, or AS TOUCHED"""
+    return "as touched" if b == CK_TOUCH else MAT_NAMES[b]
+
+
 def crs_mats(c):
     """bz_cload's ball set: the course's own ball, every one its pad mask
     names and every flag's own ball (SPEC.md 130.14.4.4)"""
-    return {c.ball} | {m for m in range(3) if c.padmask & (1 << m)} \
-        | {p["ball"] for p in c.props if p["kind"] == PK_CHECKPOINT}
+    return course_balls(c)
 
 
 @functools.lru_cache(maxsize=None)
@@ -29328,7 +29356,7 @@ def _props_course_checks(c, res, tag):
             what += ": a LIFT, L %d, P %d, dwell %d, v %d, its top %d - %d px, seed %d" % (
                 rec["L"], rec["mask"] + 1, rec["W"], rec["v"], rec["hP"], rec["hT"], rec["seed"])
         elif rec["kind"] == PK_CHECKPOINT:
-            what += ": flag %d, its ball %s" % (rec["num"], MAT_NAMES[rec["ball"]])
+            what += ": flag %d, its ball %s" % (rec["num"], ckball_name(rec["ball"]))
         elif rec["kind"] == PK_PAD:
             what += ": %s" % MAT_NAMES[rec["mat"]]
         elif rec["kind"] == PK_CUP:
@@ -34066,7 +34094,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 4 + len(_wall_low_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 5 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -34183,6 +34211,8 @@ def _sc_grammar(X, res, part=(0, 1)):
         _sc_trapresp(res)
     if mine():                                      # SPEC.md 130.14.4.1.1: the Hop where it matters, the start
         _sc_traphop(res)
+    if mine():                                      # SPEC.md 130.14.4.5: a flag with no `ball` is AS TOUCHED
+        _sc_cktouch(res)
 
 
 # SPEC.md 130.14.4.1.2: a glass flag before a 3-tile gap (x 9 - 11) that only the jump's Hop crosses, the cup beyond
@@ -34230,6 +34260,44 @@ _TRAPH = ('course H "h"\nwidth 64\norigin 224\n'
 _TRAPS = ('course S "s"\nwidth 64\norigin 224\n'
           'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 12 5 15 8 flat 4\nwall rect 12 4 15 5 flat 5\n'
           'start 5 6\ncup 13 6\n')
+
+
+def _sc_cktouch(res):
+    """--selfcheck section `grammar`: a flag with no `ball` is AS TOUCHED (SPEC.md 130.14.4.5, the owner
+    2026-11-23) - _TRAPH's flag left blank compiles to +17 = CK_TOUCH (a named one keeps its ball); the model
+    respawns there with the ball that touched it (glass on a rubber course), a named flag with its own, and the
+    red arm _ckmat_rec (the course's ball, the rule until then) with rubber; and NO TRAP proves an AS TOUCHED
+    flag with EVERY ball the course can be - a steel pad past the 2-tile gap (steel's Hop clears 1) refuses the
+    blank flag naming it and steel, while `ball rubber` on the same flag compiles"""
+    blank = _TRAPH.replace("checkpoint 5 7 ball glass", "checkpoint 5 7")
+    steel = blank + "pad steel 13 7\n"
+
+    def go(text, what):
+        try:
+            return compile_course(text, fname="<%s>" % what), ""
+        except CourseError as e:
+            return None, str(e)
+
+    def flagb(c_):
+        return [r["ball"] for r in c_.part["props"] if r["kind"] == PK_CHECKPOINT] if c_ else None
+
+    def touched(c_, **red):
+        p_ = Physics(c_, play=True, mat=MAT_GLASS, **red).poke(5, 7)
+        p_.step(0, TILT_KEYS)
+        return MAT_NAMES[p_.ckmat] if p_.ckpt == 1 else "not touched"
+    c1, e1 = go(blank, "a flag with no ball")
+    c2, e2 = go(_TRAPH, "a glass flag")
+    c3, e3 = go(steel, "a flag with no ball, a steel pad past the gap")
+    c4, e4 = go(steel.replace("checkpoint 5 7", "checkpoint 5 7 ball rubber"), "a rubber flag, a steel pad")
+    m1, m2 = (touched(c1), touched(c4)) if c1 and c4 else ("-", "-")
+    mr = touched(c1, _ckmat_rec=True) if c1 else "-"
+    res.append(("2 a flag with no `ball` is AS TOUCHED (130.14.4.5): its record +17 %s (a named glass one's %s); "
+                "glass touching it respawns as %s (a `ball rubber` one: %s; RED ARM _ckmat_rec, the course's ball: %s); "
+                "a steel pad past the gap: %s; the same flag `ball rubber`: %s"
+                % (flagb(c1), flagb(c2), m1, m2, mr, e3[-150:] or "COMPILED", e4 or "compiles"),
+                flagb(c1) == [CK_TOUCH] and flagb(c2) == [MAT_GLASS] and m1 == "glass" and m2 == "rubber"
+                and mr == "rubber" and c3 is None and "flag 0, which names no `ball`" in e3
+                and "a steel ball cannot reach the cup" in e3 and c4 is not None))
 
 
 def _sc_traphop(res):
