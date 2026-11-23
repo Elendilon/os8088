@@ -21839,6 +21839,18 @@ class Heavy:
                 self.drawn[r["i"]] = self._true(r, n_last)
                 self.age[r["i"]] = 0
 
+    def pose_now(self, r):
+        """lane R's TRUE pose after the steps run so far - what the ball meets, not what the glass shows (the
+        Test Roll's default, SPEC.md 130.58.48). _true's reading with none of its bookkeeping: a post is lit
+        from a kick _true has not seen yet as well as for its held frames; a group lane is its members' sum"""
+        if r["kind"] == PK_GROUP:
+            return self.p.fpose(r)
+        if r["kind"] in (PK_WINDMILL, PK_CHECKPOINT, PK_CLOCK, PK_SIGN) or is_fam(r["kind"]):
+            return self._true(r, (self.p.nstep - 1) & 0xFFFF)
+        i = r["i"]
+        k = self.p.pkick[i]
+        return 1 if self.seen.get(i, k) != k or self.hold.get(i, 0) else 0
+
     def _true(self, r, n_last):
         if r["kind"] == PK_WINDMILL:
             return ((n_last + r["seed"]) & r["mask"]) >> r["shift"]

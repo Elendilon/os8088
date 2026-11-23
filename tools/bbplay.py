@@ -6,7 +6,9 @@
 Plays a course on the host, on the game's own model: bbcourse's Physics (the
 step the guest runs), Glide and Heavy (its camera and its props' drawn poses)
 and sprite() / shadow() (the ball's frame and its shadow). No disk, no
-emulator, no boot.
+emulator, no boot. The props are drawn in the pose the PHYSICS has (what the
+ball meets); a checkbox draws them in Heavy's drawn poses instead, the XT's
+(SPEC.md 130.58.48).
 
 Two compiles run as processes as soon as the window opens:
 
@@ -249,6 +251,20 @@ def check_saved(log, course, end):
 # the frame (no Tk): the compositor, SPEC.md 130.58.16.2
 # ----------------------------------------------------------------------------
 
+def pose(roll, r, lagged=False):
+    """the pose the Test Roll draws prop record R's lane in (SPEC.md 130.58.48): by default the one the
+    PHYSICS has after the frame's steps (Heavy.pose_now), so a turntable's port is open on the glass exactly
+    when the ball would drop through it; LAGGED, Heavy's DRAWN pose - the guest's lane wheel, which may draw a
+    lane a few frames late to spread a frame's drawing (the look on the XT). A group lane is its members' pose
+    either way (the guest draws the group with them)"""
+    p, hv = roll.p, roll.g.heavy
+    if r["kind"] == B.PK_GROUP:
+        return p.fpose(r)
+    if hv is None:
+        return 0
+    return hv.drawn.get(r["i"], 0) if lagged else hv.pose_now(r)
+
+
 def _rows_dict(rows):
     return {(x, y): v for y, r in enumerate(rows) for x, v in enumerate(r) if v is not None and v != BA.SEE}
 
@@ -298,18 +314,28 @@ class Art:
             self.frames[key] = d
         return d
 
-    def window(self, roll):
-        """-> (the window as a 'P' image of palette indices, its picture origin (x, y), notes)"""
+    def lane(self, r):
+        """the lane of Physics' prop record R. A record's index is the PART's (raster) order, a lane's "prop"
+        the course's SOURCE order, and c.order maps the one to the other (SPEC.md 130.58.48)"""
+        if not r.get("lane"):
+            return None
+        o = self.c.order
+        return self.lanes.get(o[r["i"]] if r["i"] < len(o) else None)
+
+    def window(self, roll, lagged=False):
+        """-> (the window as a 'P' image of palette indices, its picture origin (x, y)). Each lane in the pose
+        the PHYSICS has after the frame's steps (Heavy.pose_now: what the ball meets); LAGGED, in Heavy's drawn
+        pose instead (the guest's lane wheel, which can draw a lane a few frames late: the look on the XT)"""
         p, g = roll.p, roll.g
         W = g.W * 8
         ox, oy = 8 * g.c0, g.R0 * g.rl
         win = self.base.crop((ox, oy, ox + W, oy + B.WIN_LINES))
         hv = g.heavy
         for r in p.props:
-            L = self.lanes.get(r["i"]) if r.get("lane") else None
+            L = self.lane(r)
             if L is None:
                 continue
-            q = p.fpose(r) if r["kind"] == B.PK_GROUP else (hv.drawn.get(r["i"], 0) if hv else 0)
+            q = pose(roll, r, lagged)
             if not q:
                 continue
             bx, by, _w, _h = L["rect"]
@@ -483,6 +509,12 @@ class Player(object):
                           ("Rewind 5 s (Z)", self.rewind), ("Back to flag (Backspace)", self.back),
                           ("Restart (R)", self.restart), ("Save demo...", self.save_demo), ("Close", self.close)):
             tk.Button(bar, text=label, command=fn).pack(side="left", padx=2)
+        # SPEC.md 130.58.48: the props in the physics' pose (what the ball meets) unless this is ticked
+        self.lagged = tk.BooleanVar(r, value=False)
+        tk.Checkbutton(r, text="Draw the props as the XT would (lagged: the guest's lane wheel may draw a lane "
+                       "a few frames late)", variable=self.lagged, command=self._redraw, anchor="w",
+                       background="#202020", foreground="#e0e0e0", selectcolor="#404040",
+                       activebackground="#202020", activeforeground="#ffffff").pack(side="top", fill="x", padx=8)
         r.bind("<KeyPress>", self.kdown)
         r.bind("<KeyRelease>", self.kup)
         r.protocol("WM_DELETE_WINDOW", self.close)
@@ -670,9 +702,14 @@ class Player(object):
         finally:
             self.r.after(8, self.tick)
 
+    def _redraw(self):
+        if self.roll is not None:
+            self.draw()
+
     def draw(self):
         roll = self.roll
-        win, org = self.art.window(roll)
+        lagged = bool(self.lagged.get())
+        win, org = self.art.window(roll, lagged=lagged)
         if self.herc:
             im, z = to_herc(win, org), (1, 2)
         else:
@@ -693,8 +730,8 @@ class Player(object):
         notes.append(self.first)
         if self.full_note:
             notes.append(self.full_note)
-        notes.append("camera: Glide (the game's), props: Heavy's drawn poses; the compositor's approximations: "
-                     "SPEC.md 130.58.16.2")
+        notes.append("camera: Glide (the game's), props: %s; the compositor's approximations: SPEC.md 130.58.16.2"
+                     % ("Heavy's drawn poses (the XT's, lagged)" if lagged else "the physics' poses (what the ball meets)"))
         self.note.config(text="\n".join(notes), foreground="#ff6060" if self.mismatch else "#f0c040")
 
     def run(self):

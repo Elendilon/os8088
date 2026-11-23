@@ -20,6 +20,13 @@
  6. REWIND: a run rewound 5 s goes back 5 s to 5.5 s (a rewind point every 27 steps), and driven
     again with the same keys ends where it ended.
 
+ 7. THE PROPS' POSES (SPEC.md 130.58.48): TURN's turntable lanes drawn, each its own picture at its own
+    place, in tt_pose at the physics' step, Heavy's drawn poses made stale on purpose (LAGGED: the stale);
+ 8. EVERY LANE OF MILL (windmills, clocks, posts, flags, seesaw, the jump, turntable cells) drawn in
+    Heavy.pose_now at its own place, the ball poked beside each.
+
+Red by hand (2026-11-23): Art.lane looking a lane up by the record's index (items 7 and 8); the default
+pose Heavy's drawn one (item 7).
 Red by hand (2026-11-21): Art.window drawing the ball at px + 1 (item 4: 'the ball's pixel ... is
 not the frame's'); Roll.frame not appending the RETURN pulse to the run's keys (item 5: 'replays
 to ... the run ended at'); compile_play leaving BLK_MAX lifted (item 1).
@@ -59,6 +66,135 @@ def first_diff(a, b):
         if x != y:
             return i, x[:8], y[:8]
     return None if len(a) == len(b) else (min(len(a), len(b)), "length", "length")
+
+
+TURN = os.path.join("apps", "bonanza", "courses", "turntable.bbc")
+
+
+def item7(bad):
+    """TURN's tables from the start plate, frame by frame: in the default mode every turntable lane on the
+    window is drawn - its own picture, at its own place - in tt_pose at the step the physics is on, even
+    with Heavy's drawn poses made stale on purpose; LAGGED draws Heavy's (the stale) pose instead"""
+    with open(os.path.join(ROOT, TURN), "r", encoding="ascii", newline="") as f:
+        c = P.compile_play(f.read(), TURN)
+    art = P.Art(c)
+    roll = P.Roll(c, start=(9, 7))
+    tts = [r for r in roll.p.props if r["kind"] == B.FAM_BY_NAME["turntable"]["kinds"][0]["kind"]]
+    n = {"lanes": 0, "gaps": 0, "lagged": 0, "frames": 0}
+    for fr in range(300):
+        roll.frame(0)
+        p, hv = roll.p, roll.g.heavy
+        for r in tts:
+            if hv.pose_now(r) != B.tt_pose(r, p.nstep & 255):
+                bad.append("7: step %d: Heavy.pose_now(turntable %d) is %d, the physics' tt_pose %d"
+                           % (p.nstep, r["i"], hv.pose_now(r), B.tt_pose(r, p.nstep & 255)))
+                return
+        stale = {r["i"]: hv.drawn.get(r["i"], 0) for r in tts}
+        for r in tts:                           # (the guest's wheel a frame or more behind, on purpose)
+            hv.drawn[r["i"]] = (B.tt_pose(r, p.nstep & 255) + 1) % 3
+        for lagged in (False, True):
+            win, (ox, oy) = art.window(roll, lagged=lagged)
+            px = win.load()
+            W, H = win.size
+            near = lambda x, y: abs(x - p.px - 8) < 20 and abs(y - p.py - 8) < 28     # (the ball, its shadow)
+            for r in tts:
+                L = r["lane"]
+                x0, y0 = 8 * L["col"] - ox, 8 * L["brow"] - oy
+                if x0 < 0 or y0 < 0 or x0 + 8 * L["w"] > W or y0 + 8 * L["h"] > H:
+                    continue
+                q = hv.drawn[r["i"]] if lagged else B.tt_pose(r, p.nstep & 255)
+                own = [M for M in c.lanes if tuple(M["rect"][:2]) == (L["col"], L["brow"])][0]
+                want = art._pose(own, q) if q else None
+                for y in range(8 * L["h"]):
+                    for x in range(8 * L["w"]):
+                        if near(x + x0 + ox, y + y0 + oy):
+                            continue
+                        w = want.getpixel((x, y)) if want and x < want.size[0] and y < want.size[1] else \
+                            c.pic[y + y0 + oy][x + x0 + ox]
+                        if px[x0 + x, y0 + y] != w:
+                            bad.append("7: step %d (%s): turntable cell %s's lane is not drawn in pose %d at its "
+                                       "own place - pixel (%d, %d) is %d, not %d"
+                                       % (p.nstep, "lagged" if lagged else "default", tuple(r["at"]), q,
+                                          x0 + x + ox, y0 + y + oy, px[x0 + x, y0 + y], w))
+                            return
+                if lagged:
+                    n["lagged"] += 1
+                else:
+                    n["lanes"] += 1
+                    n["gaps"] += q == 2
+        for i, q in stale.items():
+            hv.drawn[i] = q
+        n["frames"] += 1
+    if n["lanes"] < 1000 or n["gaps"] < 200:
+        bad.append("7: only %d turntable lanes checked, %d of them open ports" % (n["lanes"], n["gaps"]))
+    print("7: %d frames on TURN: %d turntable lanes drawn in the physics' pose (%d open ports), %d in the stale "
+          "drawn pose when lagged" % (n["frames"], n["lanes"], n["gaps"], n["lagged"]))
+
+
+def item8(bad, mill):
+    """EVERY prop of MILL that has a lane, the ball poked beside it and rolled 60 frames on the autopilot:
+    each lane on the window is drawn - its own picture, at its own place - in the pose Heavy.pose_now gives
+    at that step (the physics'). The lane of a record is found through c.order (a record is in the part's
+    order, a lane in the source's): looked up by the record's own index, 2 of MILL's 3 windmills, its
+    seesaw, its life, every flag and clock and half its turntable cells drew ANOTHER prop's lane"""
+    art = P.Art(mill)
+    p0 = B.Physics(mill, play=True)
+    own = {}                                    # (the test's own reading: a record's lane is the one AT its place)
+    for r in p0.props:
+        if r.get("lane"):
+            own[r["i"]] = [L for L in mill.lanes if tuple(L["rect"][:2]) == (r["lane"]["col"], r["lane"]["brow"])
+                           and L["kind"] == r["kind"]][0]
+    want = {r["i"] for r in p0.props if r.get("lane") and r["kind"] != B.PK_GROUP}
+    seen, changed = set(), set()
+    for r0 in p0.props:
+        if r0["i"] not in want or r0["i"] in seen:
+            continue
+        roll = None
+        for dx, dy in ((0, 0), (-1, 0), (0, -1), (1, 0), (0, 1), (-2, 0), (0, -2)):
+            try:
+                roll = P.Roll(mill, start=(r0["at"][0] + dx, r0["at"][1] + dy))
+                break
+            except Exception:
+                roll = None
+        if roll is None:
+            continue
+        last = {}
+        for _ in range(60):
+            roll.frame(roll.p.auto())
+            p, hv = roll.p, roll.g.heavy
+            win, (ox, oy) = art.window(roll)
+            px = win.load()
+            W, H = win.size
+            for r in p.props:
+                if r["i"] not in want:
+                    continue
+                L = r["lane"]
+                q = hv.pose_now(r)
+                if last.setdefault(r["i"], q) != q:
+                    changed.add(r["i"])
+                x0, y0 = 8 * L["col"] - ox, 8 * L["brow"] - oy
+                if x0 < 0 or y0 < 0 or x0 + 8 * L["w"] > W or y0 + 8 * L["h"] > H:
+                    continue
+                im = art._pose(own[r["i"]], q) if q else None
+                for y in range(8 * L["h"]):
+                    for x in range(8 * L["w"]):
+                        gx, gy = x0 + x + ox, y0 + y + oy
+                        if abs(gx - p.px - 8) < 20 and abs(gy - p.py - 8) < 28:
+                            continue
+                        w = im.getpixel((x, y)) if im and x < im.size[0] and y < im.size[1] else mill.pic[gy][gx]
+                        if px[x0 + x, y0 + y] != w:
+                            bad.append("8: step %d: MILL's %s at %s is not drawn in its physics pose %d at its own "
+                                       "place - pixel (%d, %d) is %d, not %d" % (
+                                           p.nstep, B.PK_NAMES.get(r["kind"], r["kind"]), tuple(r["at"]), q, gx, gy,
+                                           px[x0 + x, y0 + y], w))
+                            return
+                seen.add(r["i"])
+    kinds = sorted({B.PK_NAMES.get(r["kind"], r["kind"]) for r in p0.props if r["i"] in want})
+    if want - seen:
+        bad.append("8: %d of MILL's %d lanes never on the window: %s" % (
+            len(want - seen), len(want), sorted(B.PK_NAMES.get(p0.props[i]["kind"]) for i in want - seen)))
+    print("8: MILL: all %d of %d lanes checked in their physics pose at their own place (%s); %d changed pose "
+          "while checked" % (len(seen & want), len(want), ", ".join(map(str, kinds)), len(changed)))
 
 
 def main():
@@ -116,6 +252,19 @@ def main():
     art = P.Art(full)
     seen = {"frames": 0, "hidden": 0, "checked": 0}
 
+    def under(roll, x, y):
+        # what an occluder lays back: the picture, or a posed lane's pixel there (its own lane, by place)
+        for r in roll.p.props:
+            L = r.get("lane")
+            if not L or not (8 * L["col"] <= x < 8 * (L["col"] + L["w"]) and 8 * L["brow"] <= y < 8 * (L["brow"] + L["h"])):
+                continue
+            q = P.pose(roll, r)
+            M = [M for M in full.lanes if tuple(M["rect"][:2]) == (L["col"], L["brow"]) and M["kind"] == r["kind"]]
+            im = art._pose(M[0], q) if q and M else None
+            if im is not None and x - 8 * L["col"] < im.size[0] and y - 8 * L["brow"] < im.size[1]:
+                return im.getpixel((x - 8 * L["col"], y - 8 * L["brow"]))
+        return full.pic[y][x]
+
     def look(roll):
         q = roll.p
         if q.tube:
@@ -136,7 +285,7 @@ def main():
             x, y = q.px + dx, q.py + dy
             got = pix[x - ox, y - oy]
             if (x, y) in hid:
-                want = full.pic[y][x]
+                want = under(roll, x, y)
                 seen["hidden"] += 1
             else:
                 want = v
@@ -203,6 +352,10 @@ def main():
         bad.append("6: the rewind went back %d steps, not %d - %d" % (n0 - back, lo, lo + P.SNAP_STEPS + 8))
     print("6: rewound %d steps (%.2f s) and driven again: %s" % (n0 - back, (n0 - back) / B.STEP_HZ,
                                                                   "the same end" if P.wstate(r1.p) == end else "DIFFERENT"))
+
+    # 7. the props' poses: what the ball meets (SPEC.md 130.58.48)
+    item7(bad)
+    item8(bad, full)
 
     for b in bad:
         print("FAIL " + b)

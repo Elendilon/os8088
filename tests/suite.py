@@ -5200,7 +5200,7 @@ SOAK = [
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
         "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.58.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.58.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.58.15); gap bands marked, folded, split and unmarked on a constructed ledge with the compiler's `marked` agreeing each step (130.58.21); every shipped chute, pit and hump read and written back, and a chute made, dragged, turned and reversed, a pit and a ridge compiled, the steered chute and the ridge ridden through by every ball (130.58.19); the shipped map's lines read back, a pad moved with its routes, a course put on the map (130.58.20); a stranded route point moved to the floor in the edit's undo step, a ramp reshaped keeping its slope (130.58.22). secs re-measured (8 s, with the compiler speed-ups). Red by hand: coord_slots without "
         "its `half` skip (DOWN's split cells), _visual raising again (three cases), toggle_gap keeping a piece that bands nothing, a chute corner dragged without its neighbours, a route bridge with no corner, relocate_ways with no reach. secs measured (6.9 s)"),
-    Row("bbplay", "soak", py("tests/unit/t_bbplay.py"), 4.0,
+    Row("bbplay", "soak", py("tests/unit/t_bbplay.py"), 16.0,
         "TEST ROLL (SPEC.md 130.58.16), host only, no Tk: the course builder's player plays MILL on "
         "bbcourse's own Physics, Glide and Heavy. If it goes red the builder's Test Roll is lying to the "
         "author: the PLAY-ONLY compile (no occluders, BLK_MAX lifted for that call alone) no longer steps "
@@ -5209,8 +5209,10 @@ SOAK = [
         "ball somewhere other than sprite()'s frame at (px, py) or shows it through an occluder the card "
         "lays (laid_at), the Hercules translation is not herc_pair's, a saved .BZR fails the guest's checks "
         "1 - 8 or does not replay to the run's end through run_log, or a 5 s rewind does not come back to "
-        "the same state. Red by hand: the ball drawn at px + 1 (item 4), the RETURN pulse left out of the "
-        "log (items 5, 6), BLK_MAX left lifted (item 1). secs measured (3.2 s)",
+        "the same state, or a prop's lane is drawn in another pose or another prop's picture than the physics "
+        "has at that step (items 7, 8: TURN's turntables, every lane of MILL, SPEC.md 130.58.48). Red by "
+        "hand: the ball drawn at px + 1 (item 4), the RETURN pulse left out of the log (items 5, 6), BLK_MAX "
+        "left lifted (item 1), a lane looked up by the record's index (items 7, 8). secs measured (15.2 s)",
         needs=("pil",)),
     Row("bbblend", "soak", py("tests/unit/t_bbblend.py"), 330.0,
         "THE BLEND CHECK (SPEC.md 130.58.6, 130.58.18), host only: a floor 4 units behind and below another, its "
