@@ -463,6 +463,33 @@ def route_check():
     return bad
 
 
+def course_tab_check():
+    """item 25: the Course tab's Apply writes every field typed, though each edit refills the tab from the course
+    (the medals vanished once `limit` was written first) -> [problems]"""
+    bad = []
+
+    class _C(_StubApp):
+        _apply_course, _fill_course = W.App._apply_course, W.App._fill_course
+
+        def __init__(self, text):
+            _StubApp.__init__(self, text)
+            for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal", "cv_gstyle", "cv_target",
+                      "cv_limit", "cv_gold", "cv_silver", "cv_cstrict", "cv_mbanded"):
+                setattr(self, k, _SetVar(""))
+            self._fill_course()
+            self.doc.listeners.append(lambda *a: self._fill_course())   # (the window's _changed refills the tab)
+    base = "course CT \"Course tab\"\nwidth 64\nfloor rect 0 0 4 4 flat 2\nstart 1 1\n"
+    a = _C(base)
+    a.cv_limit.set("120")
+    a.cv_gold.set("70")
+    a.cv_silver.set("90")
+    a._apply_course()
+    got = [l for l in a.doc.text().split("\n") if l.startswith(("limit", "medals"))]
+    if sorted(got) != ["limit 120", "medals 70 90"]:
+        bad.append("item 25: the Course tab's limit 120, medals 70 90 applied as %r" % got)
+    return bad
+
+
 def _refusal(text):
     """the picture job's `done` event for TEXT: {ok, error, mouth}"""
     held, B.BLK_MAX = B.BLK_MAX, 1 << 30
@@ -1378,6 +1405,7 @@ def main():
     bad += stranded_check()
     bad += mouth_check()
     bad += route_check()
+    bad += course_tab_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
