@@ -299537,3 +299537,137 @@ own place; item 8: MILL's jump at (19, 36) not in its pose); the default pose He
 Item 4's occluder pixels now expect what is under the ball - a posed lane's pixel where one is drawn,
 else the picture - where it expected the bare picture: at `816e61de9` the row was red there (frames 1098
 and 1101, a turntable cell's lane under MILL's occluder), which was this same fault seen from the side.
+
+#### 130.58.49 The route's warnings: what the autopilot does with a `way` (the owner, 2026-11-23)
+
+The owner's MILL copy had no route the planner (130.14.7.4.1 - 130.14.7.4.5) could find, and the reasons were
+in the `way` lines, not in the course: a way next to the see-saw, a launch tube's mouth the route passed one cell
+off, two straight legs across a corner of the void, and a windmill whose doorway the leg out of it never pressed
+into. Each was found by hand, leg by leg, over an afternoon. The owner asked for builder warnings, not refusals,
+for each.
+
+**Where they live: the builder's check, not the compiler.** `bbcourse.route_lint(c)` reads a COMPILED course
+(its source's ways and branches, its cells and props) and returns warnings in the shape `_visual` gives
+(`kind` "route", `what`, `msg`, `line`, `cell`, `accepted` false). The check job (`bbedjob.py check`, 130.58.8)
+appends them after the compile and the game's rules, so they reach the problems list with the rest. They are
+not 130.58.4's visual warnings: the compiler never makes them, `--strict` and a course's `strict` never refuse
+on them, no `accept` names them, and no byte of any part moves - the shipped courses compile byte-identical.
+`LINE` and `CELL` are the WAY's - the one to move, remove or add a point after - so picking the row selects
+that `way` on the plan (130.58.38), and its explanation shows under the list.
+
+The four, each about one way or one leg (a leg: the straight line between two consecutive ways, on the main
+route and on each `branch_route`, 130.14.4.1 item 8):
+
+1. **`seesaw`: a way on a see-saw's plate or next to it** (Chebyshev distance 0 or 1). 130.6's autopilot
+   counts a way taken within `AUTO_REACH` (12 px) of its centre and slows the ball as it comes to one, so the
+   ball creeps onto the plate, the plate tips, and the next leg may face the raised lip from a standstill.
+   The fix button removes the way.
+2. **`void`: a straight leg over a cell with no floor.** The cells within 3/16 of a cell of the leg's ground
+   line (`LINT_MARGIN`), up to the first tube mouth, spring, jump pickup or boost pad on it (they carry the
+   ball on), are looked at; one with no tile, or a VOID tile, that no prop or see-saw plate stands on, is a
+   candidate. It is named only when (a) a way could go ROUND it - the leg's end reached from its start over
+   floor, 4-connected, no wall, inside the leg's box widened by a cell (`_lint_detour`): a gap across the
+   whole box is the design's (a ledge to fly off, a Hop the course asks for), not a misplaced way - and (b)
+   130.6's arrows alone, the ball coming in as the leg before brings it (poked at rest on the way before and
+   driven through this one), fall before the next way (`_lint_falls`, `PLAN_SEG` steps a leg). No fix button:
+   where the extra way goes is the author's call.
+3. **`mouth`: a tube's IN cell (any tube, a windmill's too) no way sits on and no leg crosses** while some
+   leg passes within `LINT_NEAR` (3) cells of it. The warning names the way that starts the nearest leg; its
+   fix button lays `way X Y` on the mouth right after it, in that way's branch.
+4. **`door`: a windmill whose doorway the legs through its cell never leave by.** For each route whose legs
+   cross the windmill's IN cell (a leg ending there is skipped: the next one is the push), the leg's exit face
+   from that cell is found (`_lint_exit`); a route none of whose legs leaves by the doorway's face - the
+   direction the tube's first leg runs - or by a corner (a diagonal pushes into the doorway too: MILL's first
+   windmill) is named, with the first floor cell past the house along the way in. The fix button adds that
+   cell as a way after the named one.
+
+**A leg a real run took is not named** (`_lint_proven`), whatever its straight line looks like: for every
+route, 130.6's arrows from the course's start (up to their first fall, `DEMO_STEPS` at most) and the planner's
+route when the compile already holds one for it (route_plan's or branch_plan's memo - never a new search) are
+replayed, and every leg they finished counts as taken, by its two ways, on every route that has it. This is
+what keeps a shipped course that plays from carrying warnings for geometry its ball survives (MILL's way next
+to its see-saw, MOON's tube mouth two cells off the route, TMIL's second windmill). The runs are made only
+when a geometric candidate exists, so a clean course costs geometry alone.
+
+**MEASURED (2026-11-23).** The owner's MILL copy (`m4.bbc`): all four of the afternoon's findings - the way
+(23, 21) next to the see-saw, the GLASS branch's leg (20, 37) - (27, 36) over (25, 37), the main route's
+(28, 48) - (27, 44) over (28, 46), the launch tube's mouth (11, 35) one cell off GLASS's way (14, 34), and the
+windmill (27, 44) whose leg to (21, 41) leaves by its -x face - plus the main route's (27, 40) - (33, 41) over
+(30, 40), where the arrows from the way before also fall (the owner's fixed copy crosses it on the planner's
+route, so it is not named there). The fixed copy (`m4-fixed.bbc`): none. The 37 courses under
+`apps/bonanza/courses/`: warnings on three - RAILS, PIPEUNDER and TILT - and all three are courses the planner
+finds no route on (their memo is None), so each warning is about a route that does not play. The lint took at
+most 0.11 s a course (the owner's MILL copy, its runs and leg checks), the shipped ones under 0.05 s.
+
+**Rows.** `tests/unit/t_bbedit.py` item 25: on constructed courses, each warning named on the right way and
+not named on its negative control (the way two cells clear of the plate; a way in the L's corner; a gap across
+the whole leg; a way on the mouth; the doorway left -y or by a corner), the plate's way on a leg the arrows
+really take not named (the proof), the check job under `--strict` carrying them as warnings, each explained,
+and the fix buttons' edits. Red by hand: a corner exit counted as a miss, the detour test removed, the proof
+made empty - each turns its line red.
+
+#### 130.58.50 Autopilot: Test Roll replays the planner, and shows where it gets stuck (the owner, 2026-11-23)
+
+*"Run the autopilot and replay it in the Test Roll viewer, so I can watch it get stuck."* The search's verdict
+(130.14.7.4.1) is a key list or None, and None says nothing about WHERE.
+
+**What it plays: `bbcourse.autopilot_run(c, branch=None, watch=None)`.** For the main route (or a branch's
+whole route, `branch_route`) it asks the planner - `route_plan(c)`, or `branch_plan(c, name)` - and:
+
+- **a route found**: its keys, `how` "plan", from the course's start to the finish;
+- **no route**: the search's FURTHEST partial route - the first key list that took the most ways, recorded
+  while the search runs (`PLAN_WATCH["best"]`, below) - then 130.6's arrows on from its end until they fail as
+  a planner's leg fails (`_plan_leg`'s tests): a fall (the falling step is not played, so the run ends with
+  the ball at the edge, over the gap), a glass ball shattering, `PLAN_STALL` steps grounded with the ball's
+  ground point unmoved ("stalled"), `PLAN_SEG` steps on one leg without its way or `PLAN_STEPS` in all
+  ("timed out"). `how` "partial", or "arrows" when the search took no way at all.
+
+It returns the keys, `how`, the ways steered (`route`: cell and line), `goal`, `wp` (the way the ball was
+heading for when the run ended), the ball's `cell`, the `step` and the `reason`. A planner memo of NO route
+is searched again under the watch so its progress exists; a memo of a route is used as it is. The planner's
+own time: `tsec` 0, no course limit, as `route_plan` steps it.
+
+**The watch: `PLAN_WATCH`.** None by default; while a dict, `_plan_search` puts its `spent` counter in it,
+counts its passes and records `best` = (keys, way) each time a partial route takes a way further than any
+before. It reads the search and never steers it: with the watch on or off the search makes the same tries in
+the same order and returns the same keys (the selfcheck's `hopplan` and `routes` sections are unchanged).
+
+**The job: `bbplay.py --job plan COURSE OUT [--branch NAME]`** (`plan_job`), a process of Test Roll's own like
+its two compiles (130.58.16): the play-only compile with the watch already on - the compile's own limit may run
+the main route's search (130.18.3), and then that IS the search, made once - then `autopilot_run`; a JSON
+line every half second while it works (`stage` "compile", or "plan" with the pass, the steps searched of
+`PLAN_BUDGET` and the furthest way so far) and the run itself to OUT. MILL's copy plans for 25 s; a branch
+waits for the compile's main-route search and then searches its own.
+
+**The window.** `bbplay.py COURSE --autopilot [--branch NAME]`, the builder's toolbar button **Autopilot**
+beside Test Roll (the branch the plan's route picker shows, 130.58.43, else the main route), or Test Roll's
+own **Autopilot (A)** button and key. While the job plans, the course stands at its start, paused, and the note
+line reads the job's progress. When the run lands it plays as a normal roll - `Roll(c, script=keys,
+route=points)`: each frame's steps are the script's next keys at the card's refresh, so pause, step, the three
+speeds, rewind 5 s and restart all work (a rewound or restarted roll picks the script up where its own keys
+end); Backspace and the arrows do nothing to it. Each scripted step calls `Physics.auto()` first, which moves
+nothing but the way the ball heads for, so the roll knows its next way. When the script runs out short of the
+finish the roll pauses, and the note, in red, says where: *"AUTOPILOT STUCK, the main route: the planner found
+NO route: its furthest progress, then the arrows alone. Step 849 (15.5 s): heading for way 10 of 28 at (23,
+27), line 199; the ball at cell (22, 20); it stalls - no progress for 24 steps"* (`stuck_note`). A run that
+finishes says so and how long it took. The full compile, when it lands, replays the script to the same
+frame as any run (130.58.16.1).
+
+**The marks** (`route_marks`, the checkbox *Show the route the autopilot steers*, on in this mode): over the
+zoomed frame, each leg as a line - the legs already taken grey, the rest yellow, on a black under-stroke - a
+ring at each way, and the way the ball heads for ringed red and numbered; off the frame, a red arrow at the
+frame's edge points at it. The frame is now zoomed by Pillow before it reaches Tk (the same pixels as Tk's
+zoom), so the marks are drawn at the zoomed size.
+
+**MEASURED (2026-11-23, Xvfb).** The owner's MILL copy: no route; the furthest progress takes way 9, (23, 21),
+next to the see-saw, and the arrows then stall on the plate at (22, 20) at step 849 heading for way 10 (23, 27)
+- the stall 130.58.49's first warning names; the GLASS branch the same (its route shares that stretch). The
+fixed copy: the planner's route, 3,018 steps (55.3 s) to the cup.
+
+**Rows.** `tests/unit/t_bbplay.py` item 9: a course whose last leg crosses a gap no Hop clears - no plan, the
+partial route and the arrows, ending the step before the fall heading for way 2; the Roll's replay of those
+keys ends in the bare replay's world state, way and cell, again after a rewind and on the full compile; the
+note names the way, its cell, its line and the fall; the way is ringed red; bridged, the run is the planner's
+and finishes; `plan_job` reports a search line and writes the same keys. Red by hand: `Roll.frame` not calling
+`auto()` (the roll heading for way 1), `autopilot_run` playing the falling step ("timed out", six falls).
+`tests/unit/t_bbedit.py` item 25 holds the toolbar's command line (the picker's branch, else the main route).

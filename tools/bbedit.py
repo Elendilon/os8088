@@ -333,6 +333,7 @@ class App(object):
         ttk.Button(tb, text="Test Roll", command=self.test_roll).pack(side="left")
         self.roll_l = ttk.Label(tb, text="from the start", foreground="#555")   # (where it will start: 130.58.25)
         self.roll_l.pack(side="left", padx=(4, 8))
+        ttk.Button(tb, text="Autopilot", command=self.autopilot_roll).pack(side="left", padx=(0, 8))  # 130.58.50
         self.badge_err = ttk.Label(tb, text="", foreground="#b3261e")
         self.badge_err.pack(side="right", padx=4)
         self.badge_warn = ttk.Label(tb, text="", foreground="#8a6d00")
@@ -3126,6 +3127,27 @@ class App(object):
         subprocess.Popen(argv, stdin=subprocess.DEVNULL)
         self._msg("Test Roll: %s" % ("from cell %s, %s" % tuple(argv[-2:]) if "--start" in argv else "from the start"))
 
+    def autopilot_argv(self, path):
+        """SPEC.md 130.58.50: Test Roll's AUTOPILOT on the text in PATH - the route the plan's branch picker
+        chooses (a branch's whole route, branch_route), else the main route"""
+        argv = [sys.executable, os.path.join(HERE, "bbplay.py"), path, "--name", self._name(), "--autopilot"]
+        br = self.route_branch.get()
+        if br not in (ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH, "") and br in self._branches():
+            argv += ["--branch", br]
+        return argv
+
+    def autopilot_roll(self):
+        """AUTOPILOT (SPEC.md 130.58.50): Test Roll replaying the route the planner finds (route_plan, or
+        branch_plan for the branch the picker chooses) - or, when it finds none, its furthest progress and the
+        arrows on from there, ending where the ball gets stuck. The planning runs in Test Roll's own job"""
+        p = os.path.join(self.tmp, "auto-%d.bbc" % int(time.time() * 1000))
+        with open(p, "w", encoding="ascii", newline="") as f:
+            f.write(self.doc.text())
+        argv = self.autopilot_argv(p)
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL)
+        self._msg("Autopilot: %s - planning in Test Roll's window" % (
+            "branch %s" % argv[-1] if "--branch" in argv else "the main route"))
+
     def cancel_jobs(self):
         for j in (self.pic_job, self.check_job):
             if j:
@@ -3969,6 +3991,26 @@ EXPLAIN = [
      "give that flag or pad a ball that can make it. If a player really can (a trick the check does not try), "
      "the check is a helper, not a rule of the game: say No when asked to check for softlocks."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
+    # SPEC.md 130.58.49: the route's warnings (the builder's, never a refusal) - what the autopilot does with a way
+    (r"route: way \((-?\d+), (-?\d+)\) is (on|next to) the see-saw", "the autopilot (the route demo's and the "
+     "limit's driver) slows the ball as it comes to a route point and counts the point reached about a cell "
+     "before it, so a point {2} a see-saw leaves the ball creeping on the plate: the plate tips under it, and the "
+     "next stretch may have to climb the plate's raised lip from a standstill. Move the point two cells clear of "
+     "the plate (or remove it - the button beside this explanation) so the ball crosses the see-saw at speed."),
+    (r"route: the straight line from way \((-?\d+), (-?\d+)\) to way \((-?\d+), (-?\d+)\).* passes over "
+     r"\((-?\d+), (-?\d+)\)", "between two route points the autopilot steers straight, and the straight line from "
+     "({0}, {1}) to ({2}, {3}) cuts across ({4}, {5}), which has no floor - and rolled with the arrows alone the "
+     "ball falls off there. Add a route point on the floor round the gap (select ({0}, {1})'s point and use "
+     "Insert after, or Ctrl-click the floor), so each straight stretch stays on floor."),
+    (r"route: the (\S+(?: tube)?) of line (\d+) goes in at \((-?\d+), (-?\d+)\)", "a tube takes the ball only "
+     "when the ball rolls onto its mouth cell ({2}, {3}), and no route point is on it and no straight stretch "
+     "of the route crosses it: the autopilot rolls past it. Put a route point on ({2}, {3}) (the button beside "
+     "this explanation adds one after this point)."),
+    (r"route: the windmill of line (\d+) is entered through its (\S+) face", "a windmill's doorway is on its "
+     "{1} face only, and the ball goes in only when it is pushed into that face. The autopilot steers at the "
+     "NEXT route point as soon as it reaches one, and from here that point pulls the ball out of the cell "
+     "sideways, so it never presses into the doorway. A route point just past the doorway, straight through "
+     "the house (the button beside this explanation adds it), makes the push go in."),
     (r"start .* is not a flat FLOOR", "the start must be on flat floor with no other part on it."),
     (r"NO TRAP: from the", "the softlock check (NO TRAP) found a flag or pad from which a ball, rolling and "
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
@@ -4082,7 +4124,21 @@ FIXES = [
     # SPEC.md 130.58.41: a mouth the wall's face does not hold - the height the compiler names that it does
     (r"the tube on line \d+: its exit mouth .*: height (\S+) fits;", "Use height {0}",
      lambda d, ln, m: d.set_clause(ln, "height", [m.group(1)], label="lower a tube's mouth")),
+    # SPEC.md 130.58.49: the route's warnings - the way named, removed, or a way added after it (in its branch)
+    (r"route: way \(-?\d+, -?\d+\) is (on|next to) the see-saw", "Remove this route point",
+     lambda d, ln, m: d.remove(ln, label="remove a route point")),
+    (r"route: the .* never goes in - put a way on \((-?\d+), (-?\d+)\)", "Add a route point on ({0}, {1})",
+     lambda d, ln, m: way_after(d, ln, int(m.group(1)), int(m.group(2)))),
+    (r"route: the windmill .* add a way past the doorway at \((-?\d+), (-?\d+)\)", "Add a route point on ({0}, {1})",
+     lambda d, ln, m: way_after(d, ln, int(m.group(1)), int(m.group(2)))),
 ]
+
+
+def way_after(d, line, x, y):
+    """SPEC.md 130.58.49: `way X Y` right after the way on LINE, in that way's branch (a fix's edit)"""
+    st = next(s for s in d.statements() if s.line == line)
+    br = st.toks[st.toks.index("branch") + 1] if "branch" in st.toks[:-1] else None
+    return d.insert("way %d %d%s" % (x, y, " branch %s" % br if br else ""), after=line, label="add a route point")
 
 
 def masks_banded(d):

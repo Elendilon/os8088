@@ -23,7 +23,9 @@ windmill's doorway is in the shade (SPEC.md 130.58.32).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
 the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
-regions' cells and the seam's pixels (130.58.18).
+regions' cells and the seam's pixels (130.58.18); and the ROUTE's warnings
+(bbcourse.route_lint, SPEC.md 130.58.49), the builder's own, each naming the
+`way` line to move or add beside.
 
 RIDE (SPEC.md 130.58.19) rolls each ball over the shape on line LINE - a
 chute, a pit or a hump - on the play-only compile, and answers in words.
@@ -454,6 +456,9 @@ def check(path, strict, name=None, trap=False):
             emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1), **refusal(e))
             return 1
     warns = [warning(w) for w in c.warnings]
+    if c.src.ways:                              # SPEC.md 130.58.49: the route's warnings, the builder's own (never
+        emit(stage="compile", what="the route's ways")    # the compiler's: no refusal, under --strict either)
+        warns += [warning(w) for w in B.route_lint(c)]
     emit(stage="done", ok=True, warnings=warns, secs=round(time.time() - t0, 1))
     return 0
 
