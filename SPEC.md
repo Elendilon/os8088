@@ -296867,6 +296867,13 @@ rule hides off it; the red arm (`_hack rampplane False`) lays some and is
 caught; and on every shipped course, a pixel the cut keeps on a ramp
 position's plane is one another position needs.
 
+The rule moved 130.11.4.2's red arm `nocum`: its fixture, the 4-tile ramp
+toward the viewer (4 to 8), priced 65,440 clocks at its worst cell with
+the masks as they were and 47,300 under this rule - under the 50,050
+bound, so the arm compiled and proved nothing. Its fixture is now the
+audit's 8-tile ramp (4 to 12, `ramp y 14 22 4 12`): 67,930 clocks under
+`nocum` with or without this rule, 36,280 with the masks cumulative.
+
 ### 130.50 Songs in their courses, the sound in the bundle (the owner, 2026-11-19)
 
 The owner: *"Victory/death are sounds always loaded, and each course's song

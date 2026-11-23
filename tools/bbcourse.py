@@ -27019,7 +27019,7 @@ def _grammar_cases():
     B_LINE = "floor rect   7 4 11 7  ramp x 7 11 4 2"
     RAMPUP = ('course T "t"\nwidth 128\nfloor rect 4 8 10 14 flat 4\nfloor rect 10 8 30 14 flat 4\n'
               'start 5 10\ngoal rect 30 8 32 14 flat 4\nclock 4 8\ntarget 60\nway 5 10\nway 31 10\n'
-              'floor rect 14 14 18 18 ramp y 14 18 4 8\nfloor rect 14 18 18 20 flat 8\n')
+              'floor rect 14 14 18 22 ramp y 14 22 4 12\nfloor rect 14 22 18 24 flat 12\n')
     RIDGES = ('course T "t"\nwidth 128\nfloor band -24 24 40 64 flat 0\nfloor band -24 24 48 49 flat 3\n'
               'floor band -24 24 50 51 flat 6\nfloor band -24 24 52 53 flat 9\nstart 30 25\n')
     BIG = 'course BIG "Big"\nwidth 128\nfloor band -2 2 8 300 flat 0\nstart 5 5\n'
@@ -27072,7 +27072,11 @@ def _grammar_cases():
         # (SPEC.md 130.11.4.2, 2026-11-22: the WINDOW'S PRICE replaced the 4-a-block bound, which refused this
         # ordinary ramp toward the viewer - 7 records in its fullest block, 58 in a footprint.  With the masks
         # CUMULATIVE its pass is inside the price; the red arm `nocum` ships the masks as they were and prices the
-        # ANDs the guest then ran, every laid record past a group's first - and the refusal is that price)
+        # ANDs the guest then ran, every laid record past a group's first - and the refusal is that price.
+        # 2026-11-23: the ramp is 8 tiles, 4 to 12 (130.11.4.2's audit ramp), not 4 to 8 over 4: SPEC.md
+        # 130.49.9's ramp plane took the 4-tile ramp's worst nocum pass from 65,440 to 47,300 clocks, under
+        # the bound, so the arm compiled and proved nothing.  This one's worst cell, (11, 15), prices 67,930
+        # nocum with or without the plane rule and 36,280 with the masks cumulative)
         ("a ramp toward the viewer priced with the masks NOT cumulative (the red arm nocum)", RAMPUP,
          "the occluder pass at cell", {"nocum": True}),
         # (both bound refusals PIN their alignment, SPEC.md 130.25.3: the Y0 search would otherwise look for
@@ -32937,7 +32941,10 @@ def _split_physics(res):
         cp = compile_course(txt, "<RAIL, with props>")
         v = (finish_reach_rule(cp), finish_clock_rule(cp), [t[3] for t in getattr(cp, "trap", None) or ()],
              sum(1 for cl in cp.cells.values() if cl[3] & FL_OCCG))
-        ok = all(v[2]) and len(v[2]) == 3 and "reachable" in v[0]     # (the start, the pad, the flag)
+        # (the start, the pad, and the flag with each ball the course can bring it - the start's and the
+        # pad's: a flag with no `ball` is AS TOUCHED since 2026-11-23, SPEC.md 130.14.4.5, and NO TRAP proves
+        # it once a ball, so 4 proofs where the flag that gave the start's ball had 1)
+        ok = all(v[2]) and len(v[2]) == 4 and "reachable" in v[0]
     except CourseError as e:
         v, ok = (str(e),), False
     res.append(("7 RAIL with a pad, a flag and a clock (story D2.5): the course compiles with every check a shipped "
