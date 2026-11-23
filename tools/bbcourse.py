@@ -859,6 +859,8 @@ TL_THICK = 4                  # px: the plate's faces over the void (a thin slab
                               # (a plate's lanes: as many as its change needs - they turn on one step, and the wheel
                               # draws past its list on later frames, SPEC.md 130.19.10 item 14, 130.42.5)
 TL_POST = 3                   # half units: the fulcrum's post under the pivot, its height below the FLAT plate
+TL_BMARGIN = 4                # px: a `base` column's top under the plate's lowest underside in any pose (SPEC.md
+                              # 130.42.12: one half unit, the grid's height step - the plate seen to hang clear of it)
 TL_PERIODS = SP_PERIODS       # a TIMED see-saw's period (SPEC.md 130.42.11): a popspike's, its MASK a byte
 TL_TFLAT = TL_TS              # ...and its steps FLAT each half period when `flat` is not written: the weight's transit
 # THE TURNTABLE's constants (SPEC.md 130.43): TT_VOID, TT_QUARTERS and TT_SIZES in its FAMV (its row's "TT")
@@ -3171,7 +3173,7 @@ def _parse_seesaw(toks, where, ln):
     FLAT, the other end, FLAT on the step's low byte - FLAT for the last F steps of each half period (TL_TFLAT when
     not written), the seed a popspike's"""
     use = "seesaw takes <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] [period %s [flat <steps>] [seed " \
-        "<s>]] (SPEC.md 130.42.2)" % "|".join(map(str, TL_PERIODS))
+        "<s>]] [base ground|<units>] (SPEC.md 130.42.2)" % "|".join(map(str, TL_PERIODS))
     if len(toks) < 9 or toks[5] != ('w', "along") or toks[6][1] not in ("x", "y") or toks[7] != ('w', "pivot"):
         raise CourseError("%s: %s" % (where, use))
     tail, plus, i = {}, False, 9
@@ -3179,12 +3181,30 @@ def _parse_seesaw(toks, where, ln):
         if len(toks) < 11 or toks[10][1] not in ("-", "+"):
             raise CourseError("%s: %s" % (where, use))
         plus, i = toks[10][1] == "+", 11
+    base = None
     while i < len(toks):
         t = toks[i][1] if toks[i][0] == 'w' else None
+        if t == "base" and "base" not in tail and i + 1 < len(toks):    # SPEC.md 130.42.12: a COLUMN under it
+            tail["base"] = True
+            if toks[i + 1] == ('w', "ground"):
+                base = "ground"
+            else:
+                try:
+                    th = float(toks[i + 1][1])
+                except ValueError:
+                    th = -1
+                if th * 4 != int(th * 4) or not 0.25 <= th <= 3:
+                    raise CourseError("%s: a see-saw's base takes `ground` or units, a multiple of 0.25 from 0.25 "
+                                      "to 3 (how deep the column under its plate hangs, SPEC.md 130.42.12), not %r"
+                                      % (where, toks[i + 1][1]))
+                base = int(th * 8)
+            i += 2
+            continue
         if t not in ("period", "flat", "seed") or t in tail or i + 1 >= len(toks):
             raise CourseError("%s: %s" % (where, use))
         tail[t] = _int(toks[i + 1], where, t)
         i += 2
+    tail.pop("base", None)
     x0, y0, x1, y1 = (_int(toks[k], where, n) for k, n in ((1, "x0"), (2, "y0"), (3, "x1"), (4, "y1")))
     ay = toks[6][1] == "y"
     nx, ny = x1 - x0, y1 - y0
@@ -3211,8 +3231,73 @@ def _parse_seesaw(toks, where, ln):
             raise CourseError("%s: a timed see-saw's seed %d is not under its period %d (SPEC.md 130.42.11)"
                               % (where, seed, per))
     return {"at": (x0, y0), "nx": nx, "ny": ny, "ay": ay, "pz": pz, "plus": plus, "line": ln,
-            "per": per, "flat": flat if per else 0, "tseed": seed if per else 0,
+            "per": per, "flat": flat if per else 0, "tseed": seed if per else 0, "base": base,
             "cells": frozenset((x, y) for x in range(x0, x1) for y in range(y0, y1))}
+
+
+_TL_BASEHIGH = False          # (--selfcheck tiltbase's red arms: the column's top a half unit higher, margin 0;
+_TL_BASEAFTER = False         # ...the column drawn after its plate cell's ops;
+_TL_BASENOLANE = False        # ...the plate's lanes cut from the poses drawn without the column)
+
+
+def tl_base_z(sw):
+    """SPEC.md 130.42.12: a `base` column's top, half units - the plate's lowest underside in any pose (an end, L/2
+    half units under PZ, less TL_THICK) less TL_BMARGIN"""
+    L = sw["ny"] if sw["ay"] else sw["nx"]
+    return sw["pz"] - L // 2 - (TL_THICK + (0 if _TL_BASEHIGH else TL_BMARGIN)) // 4
+
+
+def tilt_base_ops(seesaws, ops, x0, ground, tiles):
+    """SPEC.md 130.42.12: each `base` see-saw's COLUMN - a block (a WALL's top: nothing the ball reaches) at
+    tl_base_z under every plate cell, its faces over the void to the GROUND plane (draw_ops' rule: never less than
+    FACE8) or `base`'s depth - each cell's ops put into the back-to-front order immediately before that plate cell's
+    own (so the plate is drawn over it).  First in each cell's group, the faces of the cells BEHIND it (TILES, the
+    picture's: its -x and -y neighbours, not the plate's) from their edge down to the column's top: draw_ops took
+    them down to the plate's floor only, and the plate floats over a gap"""
+    grp = {}
+    for sw in seesaws:
+        if sw.get("base") is None:
+            continue
+        z0 = tl_base_z(sw)
+        if sw["base"] == "ground":
+            dep = FACE8 if ground is None else max(FACE8, 4 * z0 - ground)
+        else:
+            dep = sw["base"]
+        bt = {c: Tile(KIND_WALL, z0, 0, 0, sw["line"]) for c in sw["cells"]}
+        bot = 4 * z0
+        for (wx, wy) in sorted(bt):
+            for n, edge, which, (p, cp), (q, cq) in (
+                    ((wx, wy - 1), "S", "sw", ((2 * wx, 2 * wy), (0, 1)), ((2 * wx + 2, 2 * wy), (1, 1))),
+                    ((wx - 1, wy), "E", "se", ((2 * wx, 2 * wy + 2), (1, 1)), ((2 * wx, 2 * wy), (1, 0)))):
+                nt = tiles.get(n)
+                if n in bt or nt is None or isinstance(nt, FieldTile):
+                    continue
+                r = edge_rec(nt, edge)
+                if r is None or isinstance(r, FieldTile):
+                    continue
+                zp, zq = 4 * r.corner(*cp), 4 * r.corner(*cq)
+                if zp <= bot and zq <= bot:
+                    continue
+                poly = [_scr(p[0], p[1], zp, x0), _scr(q[0], q[1], zq, x0), _scr(q[0], q[1], min(zq, bot), x0),
+                        _scr(p[0], p[1], min(zp, bot), x0)]
+                mk = (lambda xp4, zp_, xq4, zq_: lambda y0: _face_fn(xp4, zp_, xq4, zq_))(
+                    poly[0][0], zp, poly[1][0], zq)
+                grp.setdefault((wx, wy), []).append((spans(poly), which, n[0] + n[1], mk, True, r, n))
+        for op in draw_ops(bt, x0, (), ground, {c: dep for c in bt}):
+            grp.setdefault(op[6], []).append(op)
+    if not grp:
+        return ops
+    out = []
+    for op in ops:
+        g = grp.pop(op[6], None)
+        if g and _TL_BASEAFTER:
+            out.append(op)
+            out += g
+            continue
+        if g:
+            out += g
+        out.append(op)
+    return out
 
 
 def tl_geom(sw):
@@ -5276,12 +5361,13 @@ def ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack):
 
 def tilt_post_pix(sw, x0):
     """SPEC.md 130.42.5: a see-saw's FULCRUM (Y0 = 0) - a white wedge outlined black under the pivot's front end, its
-    apex at the FLAT plate's underside, TL_POST half units tall: the one part of it that never moves"""
+    apex at the FLAT plate's underside, TL_POST half units tall: the one part of it that never moves.  Over a `base`
+    column (130.42.12) it reaches the column's top"""
     L = (sw["ny"] if sw["ay"] else sw["nx"]) // 2
     gx, gy = (16 * (sw["at"][0] + sw["nx"]), 16 * (sw["at"][1] + L)) if sw["ay"] else \
         (16 * (sw["at"][0] + L), 16 * (sw["at"][1] + sw["ny"]))
     cx, ya = gx - gy + x0, (gx + gy) // 2 - (4 * sw["pz"] - TL_THICK)
-    H = 4 * TL_POST
+    H = 4 * TL_POST if sw.get("base") is None else int(4 * sw["pz"] - TL_THICK - 4 * tl_base_z(sw))
     out = {}
     for k in range(H):
         hw = 1 + (k * 5) // H                       # its half width, 1 px at the apex, 5 at the foot
@@ -5293,16 +5379,32 @@ def tilt_post_pix(sw, x0):
 
 def tilt_ops(seesaws, ops, x0):
     """SPEC.md 130.42.5: each see-saw's fulcrum as a 'post' op, put into the back-to-front order just before its
-    plate's pivot cell (so the plate, in any pose, is drawn over it)"""
-    rops = []
+    plate's pivot cell (so the plate, in any pose, is drawn over it).  Over a `base` column (130.42.12) the post
+    stands on the column's top, so it goes AFTER the column of the two cells beside it (the later's) and before
+    that cell's plate, its pixels less every pixel those two cells' plate draws in any of its three poses: the
+    plate is still drawn over it"""
+    rops, bposts = [], []
     for sw in seesaws:
         L = (sw["ny"] if sw["ay"] else sw["nx"]) // 2
         pc = (sw["at"][0] + sw["nx"] - 1, sw["at"][1] + L - 1) if sw["ay"] else \
             (sw["at"][0] + L - 1, sw["at"][1] + sw["ny"] - 1)
         pix = tilt_post_pix(sw, x0)
         top = 4 * sw["pz"] - TL_THICK
+        if sw.get("base") is not None:
+            pc2 = (pc[0], pc[1] + 1) if sw["ay"] else (pc[0] + 1, pc[1])
+            for pose in range(3):
+                for op in draw_ops(tl_tiles(sw, pose), x0, (), None, {c: TL_THICK for c in sw["cells"]}):
+                    if op[6] in (pc, pc2):
+                        for y, runs in op[0].items():
+                            for a, b in runs:
+                                for x in range(a, b):
+                                    pix.pop((x, y), None)
         mk = (lambda d, top: lambda y0: (lambda x, y: d[(x, y - y0)], lambda x, y: top))(pix, top)
-        rops.append(((pc[0] + pc[1], pc[0] - 1), (_spans_of(pix), "post", pc[0] + pc[1], mk, False, None, pc)))
+        op = (_spans_of(pix), "post", pc[0] + pc[1], mk, False, None, pc)
+        if sw.get("base") is not None:
+            bposts.append((pc2, 4 * tl_base_z(sw), op))
+        else:
+            rops.append(((pc[0] + pc[1], pc[0] - 1), op))
     rops.sort(key=lambda r: r[0])
     out, i = [], 0
     for op in ops:
@@ -5312,6 +5414,12 @@ def tilt_ops(seesaws, ops, x0):
             i += 1
         out.append(op)
     out += [r[1] for r in rops[i:]]
+    for pc2, bz, op in bposts:                      # (after pc2's column: its ops whose tile is the column's top)
+        j = max((k for k, o in enumerate(out) if o[6] == pc2 and isinstance(o[5], Tile) and 4 * o[5].z0 == bz),
+                default=None)
+        if j is None:
+            j = next((k - 1 for k, o in enumerate(out) if o[6] == pc2), len(out) - 1)
+        out.insert(j + 1, op)
     return out
 
 
@@ -12875,9 +12983,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         floats.update((c_, tb["column"]) for c_ in bcells)
     for sw in src.seesaws:                          # SPEC.md 130.42.5: a see-saw's plate is a THIN slab
         floats.update((c_, TL_THICK) for c_ in sw["cells"])
-    def _ops_of(tl_):                               # (SPEC.md 130.42.5: a see-saw's poses are drawn by the same ops)
+    def _ops_of(tl_, nobase=False):                 # (SPEC.md 130.42.5: a see-saw's poses are drawn by the same ops)
         o_ = draw_ops({k: v for k, v in tl_.items() if k not in undrawn} if undrawn else tl_, x0,
                       {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
+        if any(sw.get("base") is not None for sw in src.seesaws) and not nobase:   # SPEC.md 130.42.12: a COLUMN
+            o_ = tilt_base_ops(src.seesaws, o_, x0, ground, {k: v for k, v in tl_.items() if k not in undrawn})
         if props:
             o_ = prop_ops(tl_, o_, props, x0)
         if redges and not hack.get("norail"):       # SPEC.md 130.35.3 (red arms: norail, the rails undrawn;
@@ -13502,7 +13612,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             lanes.append({"prop": i, "rect": p["spec"]["rect"], "poses": p["spec"]["poses"], "st": {},
                           "kind": PK_SIGN, "line": p["line"]})
     if src.seesaws:                                 # SPEC.md 130.42.5: THE SEE-SAW's LANES - the picture's change
-        tl_lanes(src, props, lanes, tiles, tlpose, _ops_of, x0, y0, width, lines, owners, fname)   # between poses
+        tl_lanes(src, props, lanes, tiles, tlpose, (lambda t_: _ops_of(t_, True)) if _TL_BASENOLANE else _ops_of,
+                 x0, y0, width, lines, owners, fname)       # between poses (the red arm: the lanes cut without
+                                                            # a `base` column, SPEC.md 130.42.12)
     if any(p.get("gart") is not None for p in props):   # SPEC.md 130.41.12: the designer's gate ART, its frames
         ga_lanes(props, lanes, cv, x0, y0, width, lines, fname, hack)
     if len(lanes) > PROP_MAX or len(props) > PROP_ALL:  # (a vanishing crack's companion, 130.25.18.1)
@@ -34825,6 +34937,140 @@ def _sc_tilt(X, res):
                     bad[scn] != good[scn]))
 
 
+_TLB = ('course T "t"\nwidth 64\norigin 224\nuses seesaw\nfloor rect 4 4 8 8 flat 2\nstart 5 5\n')
+
+
+def _tiltbase_cases():
+    """(what, text, the refusal's words): SPEC.md 130.42.12's refusals"""
+    T = _TLB + "seesaw 8 5 10 6 along x pivot 2"
+    return (("a see-saw's `base` twice", T + " base ground base 1\n", "seesaw takes"),
+            ("a `base` with nothing after it", T + " base\n", "seesaw takes"),
+            ("a `base` off the quarter grid", T + " base 0.3\n", "multiple of 0.25"),
+            ("a `base` over 3 units", T + " base 3.25\n", "multiple of 0.25"),
+            ("a `base` of no depth", T + " base 0\n", "multiple of 0.25"),
+            ("a `base` that is neither", T + " base deep\n", "`ground` or units"))
+
+
+# one plate a course (its lanes alone in the picture): along, its cells, the pivot, the base
+_TLB_PLATES = (("L 2 along x, base ground", "seesaw 8 5 10 6 along x pivot 2 base ground"),
+               ("L 4 along y, base 1.5", "seesaw 5 8 7 12 along y pivot 3 base 1.5"),
+               ("L 6 along x, base ground, timed", "seesaw 8 6 14 7 along x pivot 3 period 64 base ground"))
+
+
+def _tiltbase_checks(res, arm=None):
+    """SPEC.md 130.42.12, items 2 - 4 on each of _TLB_PLATES (and the same plate with its `rest` flipped: its rest
+    picture is the first's pose 2, drawn from scratch).  ARM: a red arm's name, the items it must turn red"""
+    global _TL_BASEHIGH, _TL_BASEAFTER, _TL_BASENOLANE
+    _TL_BASEHIGH, _TL_BASEAFTER, _TL_BASENOLANE = arm == "tlbasehigh", arm == "tlbaseafter", arm == "tlbasenolane"
+    tag = " red %s" % arm if arm else ""
+    out = {}
+    try:
+        for what, st in _TLB_PLATES:
+            text = _TLB + st + "\n"
+            nob = text.replace(" base ground", "").replace(" base 1.5", "")
+            flip = re.sub(r"( pivot \S+)", r"\1 rest +", text)
+            cs = [compile_course(t_, fname="<%s%s>" % (what, k), occluders=False, _hack={"no_finish": True})
+                  for k, t_ in (("", text), (" no base", nob), (" rest +", flip))]
+            c, cn, cf = cs
+            sw = _parse_text(text).seesaws[0]
+            L = sw["ny"] if sw["ay"] else sw["nx"]
+            bz = tl_base_z(sw)
+            # 2: the column - its top at PZ - L/2 - 2 half units, a WALL's (nothing the ball reaches), drawn under
+            # every plate cell just before the plate's own ops, its faces to the ground (or the depth); the plate
+            # drawn over it in all three poses; the fulcrum's foot on its top
+            col, first = {}, {}
+            for i, op in enumerate(c.ops):
+                if op[6] in sw["cells"] and isinstance(op[5], Tile) and op[5].kind == KIND_WALL:
+                    col.setdefault(op[6], []).append((i, op))
+                elif op[6] in sw["cells"] and op[6] not in first and isinstance(op[5], Tile):
+                    first[op[6]] = i
+            tops = {cc: [o for _i, o in v if o[1] == "top"] for cc, v in col.items()}
+            okz = sorted(col) == sorted(sw["cells"]) and all(len(t_) == 1 and t_[0][5].z0 == bz for t_ in tops.values())
+            before = all(max(i for i, _o in v) < first[cc] for cc, v in col.items())
+            want = (max(FACE8, 4 * bz - c.ground) if sw["base"] == "ground" else sw["base"])
+            deep = [max(y for y in o[0]) for v in col.values() for _i, o in v if o[1] in ("sw", "se")]
+            # (a face's lowest row at Y0 = 0: its front corner's z - want, so the deepest is 8 (wx + wy + 2) - 4bz
+            # + want, rounding a row: 2 at the front corner)
+            fr = max(8 * (cc[0] + cc[1] + 2) for cc in sw["cells"]) - 4 * bz + want
+            okd = bool(deep) and abs(max(deep) - fr) <= 1
+            # the plate over its column: every pixel a plate cell draws (alone, in each pose) the same with the
+            # column and without it, on the picture of each pose (the rest picture and each lane's pose laid)
+            def pose_pic(cc_, q):
+                pic = [list(r) for r in cc_.pic]
+                for Ln in cc_.lanes:
+                    if Ln.get("kind") == FK_TILTL:
+                        for (x, y), ink in Ln["poses"][q].items():
+                            pic[y][x] = ink
+                return pic
+            over = []
+            for q in range(3):
+                pa, pb = pose_pic(c, q), pose_pic(cn, q)
+                n_ = d_ = 0
+                for op in draw_ops(tl_tiles(sw, q), c.x0, (), None, {cc: TL_THICK for cc in sw["cells"]}):
+                    for y, runs in op[0].items():
+                        for a, b in runs:
+                            for x in range(a, b):
+                                n_ += 1
+                                d_ += pa[y + c.y0][x] != pb[y + cn.y0][x]
+                over.append((n_, d_))
+            okover = c.y0 == cn.y0 and all(d_ == 0 for _n, d_ in over)
+            post = tilt_post_pix(sw, c.x0)
+            foot = max(y for _x, y in post)
+            gx = 16 * (sw["at"][0] + sw["nx"]) if sw["ay"] else 16 * (sw["at"][0] + L // 2)
+            gy = 16 * (sw["at"][1] + L // 2) if sw["ay"] else 16 * (sw["at"][1] + sw["ny"])
+            okpost = foot + 1 == (gx + gy) // 2 - 4 * bz and foot - min(y for _x, y in post) + 1 == 2 * L + 4
+            out[(what, 2)] = okz and before and okd and okover and okpost
+            res.append(("2%s see-saw base (130.42.12), %s: the column under all %d cells (top %s half units, a WALL's, "
+                        "%s), drawn just before each plate cell%s; its faces %d px deep (want %d, the deepest row %s "
+                        "against %d); the plate over it in poses 0 - 2 (its pixels %s, differing from the plate "
+                        "without a column at %s); the fulcrum %d px, its foot on the column's top%s"
+                        % (tag, what, len(col), bz, "ok" if okz else "WRONG", "" if before else " - NOT before", want,
+                           want, max(deep) if deep else None, fr, [n_ for n_, _d in over], [d_ for _n, d_ in over],
+                           foot - min(y for _x, y in post) + 1, "" if okpost else " - NOT"),
+                        out[(what, 2)] if arm in (None, "tlbaseafter") else True))
+            # 3: every pose's underside clear of the column's top by TL_BMARGIN
+            g = tl_geom(sw)
+            low = min(4 * min(Tile(KIND_FLOOR, *tl_cell(g, q, cc), 0).corners()) - TL_THICK
+                      for q in range(3) for cc in sw["cells"])
+            out[(what, 3)] = low - 4 * bz >= TL_BMARGIN
+            res.append(("3%s see-saw base (130.42.12), %s: the plate's lowest underside in any pose %d px, the "
+                        "column's top %d px - %d px clear (at least TL_BMARGIN %d)" % (tag, what, low, 4 * bz, low - 4 * bz,
+                                                                               TL_BMARGIN),
+                        out[(what, 3)] if arm in (None, "tlbasehigh") else True))
+            # 4: the lanes cover the change - the first's pose 2 (rest picture and lanes) is the flipped plate's
+            # rest picture, drawn from scratch
+            p2, pf = pose_pic(c, 2), [list(r) for r in cf.pic]
+            dy = cf.y0 - c.y0                       # (the two pictures' Y0 may differ: the world's rows compared)
+            nd = sum(1 for y in range(max(0, -dy), min(len(p2), len(pf) - dy)) for x in range(c.width)
+                     if p2[y][x] != pf[y + dy][x]) if c.width == cf.width and c.x0 == cf.x0 else -1
+            out[(what, 4)] = nd == 0
+            res.append(("4%s see-saw base (130.42.12), %s: %d lanes; pose 2 laid from them against `rest +`'s picture "
+                        "drawn whole: %s pixels differ" % (tag, what, sum(1 for Ln in c.lanes
+                                                                         if Ln.get("kind") == FK_TILTL), nd),
+                        out[(what, 4)] if arm in (None, "tlbasenolane") else True))
+    finally:
+        _TL_BASEHIGH = _TL_BASEAFTER = _TL_BASENOLANE = False
+    return out
+
+
+def _sc_tiltbase(X, res):
+    """--selfcheck's section `tiltbase` (SPEC.md 130.42.12): a see-saw's `base` column - the refusals, the column
+    in the picture under the plate in every pose, the margin, the lanes; and three red arms"""
+    for what, text, want in _tiltbase_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False, _hack={"no_finish": True})
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("1 refused (see-saw base, 130.42.12): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    _tiltbase_checks(res)
+    for arm, item in (("tlbasehigh", 3), ("tlbaseafter", 2), ("tlbasenolane", 4)):
+        bad = _tiltbase_checks([], arm)
+        red = [w for (w, k), ok in bad.items() if k == item and not ok]
+        res.append(("%d see-saw base red %s: item %d red on %s (it must go red on one at least)"
+                    % (item, arm, item, red or "NONE"), bool(red)))
+
+
 def _sc_water(X, res):
     """--selfcheck's section `water` (SPEC.md 130.36)"""
     _water_checks(res)
@@ -37202,7 +37448,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "airsafe": 90, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "tiltbase": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
            "lift2": 10, "width": 8, "sheets": 120, "blocks": 8, "pipeunder": 170, "pipeover": 200}
 
 
@@ -38931,7 +39177,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
-             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
+             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_tiltbase", "_sc_turn",
              "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder",
              "_sc_pipeover")
 

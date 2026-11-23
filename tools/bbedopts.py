@@ -79,6 +79,7 @@ def O(w, t, label, hint="", **kw):
 
 
 CHANNELS = tuple(B.GT_CHANNELS)
+BASE_DEPTHS = tuple("%g" % (q / 4.0) for q in range(1, 13))     # a see-saw's `base <units>`: 0.25 - 3 (130.42.12)
 DIRS4 = ("+x", "-x", "+y", "-y")
 
 OPTIONS = {
@@ -114,6 +115,9 @@ OPTIONS = {
     ("seesaw", None): [                             # (its size and timer are _seesaw_rows')
         O("rest", "choice", "At rest", "the end down while nothing tips it (- the -x / -y end)",
           vals=("-", "+"), blank="-", at=("pivot", 2)),
+        O("base", "choice", "Column under it", "a solid column under the plate, to the ground or that many "
+          "units deep; its top clear of the plate in every pose (SPEC.md 130.42.12)",
+          vals=("ground",) + BASE_DEPTHS, blank="none"),
     ],
     ("archway", None): [
         O("along", "choice", "Runs along", req=True, vals=("x", "y")),
@@ -252,7 +256,7 @@ OPTIONS[("prop", "jump")] = OPTIONS[("prop", "speed")]
 GRAMMAR = {
     ("goal", None): ("exit", "hidden"), ("water", None): ("top", "bed", "open"),
     ("arch", None): ("#3", "guard", "height"), ("float", None): ("thick",), ("gap", None): ("sw|se",),
-    ("guard", None): ("side", "height"), ("archway", None): ("along", "under", "top"), ("seesaw", None): ("rest",),
+    ("guard", None): ("side", "height"), ("archway", None): ("along", "under", "top"), ("seesaw", None): ("rest", "base"),
     ("cup", None): ("capture", "exit", "hidden"), ("checkpoint", None): ("ball",),
     ("clock", None): ("frame", "digits"), ("spring", None): ("#3",), ("pad", None): ("#1",),
     ("label", None): ("ink",), ("way", None): ("branch",),
