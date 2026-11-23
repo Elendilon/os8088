@@ -9,7 +9,7 @@ compared EXACTLY with the model's.
     make bonanza && python3 tests/bonanza_dfield.py [--runs N] [--seed S] [--reds]
 
   1  CELLS: bz_cexp on each field course's STORED form equals its RAM form
-     (bz_cxcel's V of a FIELD cell, bz_cxsafe's FIELD edge neighbour).
+     (bz_cxcel's V of a FIELD cell; bz_cxsafe's FIELD edge neighbour until 2026-11-23).
   2  HOSTILE: on MANY (17 tables), a FIELD cell whose shape is 31 and one whose
      +1's bit 7 (the shape's fifth bit, SPEC.md 130.28.2) takes it past
      section F are made OPEN, every good one - shape 16, bit 7 set, among
@@ -264,9 +264,11 @@ REDS = {
                  "    cmp bl, BZ_KFIELD\n    je .yes  ; RED ffblock\n.fpl:")],
     # 130.28.2: a symmetry's stride swapped (DU for DV)
     "symswap": [("bzphys.inc", "    add di, [bz_fsymt + bx + 2]\n", "    add di, [bz_fsymt + bx + 4]  ; RED symswap\n")],
-    # 130.28.2: CELLS reads a FIELD edge neighbour as VOID
-    "cellfield": [("bonanza.asm", "    cmp ah, BZ_KFIELD           ; SPEC.md 130.28.2: a FIELD neighbour is not VOID\n"
-                   "    jne .vs2\n", "    jmp .vs2  ; RED cellfield\n")],
+    # 130.28.2: CELLS reads a FIELD cell's V by records, as a split cell's (none: FFh) - its NEAR neighbours'
+    # z0 wrong (until 2026-11-23 the arm read a FIELD edge neighbour as VOID for SAFE, which reads no neighbour since)
+    "cellfield": [("bonanza.asm", "    cmp al, BZ_KFIELD           ; z0 + 73h (SPEC.md 130.28.2: its +1 is not\n"
+                   "    jne .ssq                    ; slopes)\n",
+                   "    jmp .ssq                    ; RED cellfield: a FIELD's V by records\n")],
     # 130.28.2: the shape's fifth bit (the +1's bit 7) not read - shape 16 reads table 0
     "nofifth": [("bzphys.inc", "    or al, ah                   ; AL = the shape, 0 - 31 (SPEC.md 130.28.2)\n",
                  "    ; RED nofifth\n")],

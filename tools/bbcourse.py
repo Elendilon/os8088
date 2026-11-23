@@ -4513,13 +4513,13 @@ _SIDE_OF = {v: k for k, v in RAIL_SIDES.items()}
 
 
 def rail_flags(cells, tiles, rails, pcell=()):
-    """SPEC.md 130.35.1: every railed edge's bit on the cell that owns it (FL_EDX its +x edge, FL_EDY its +y),
-    and SAFE (130.10.4.3) on a flat FLOOR whose every edge is solid OR RAILED - a respawn there cannot roll off a
-    railed edge (no prop's cell is SAFE)"""
+    """SPEC.md 130.35.1: every railed edge's bit on the cell that owns it (FL_EDX its +x edge, FL_EDY its +y).
+    (Until 2026-11-23 it also made SAFE a flat FLOOR whose every edge was solid OR RAILED; SAFE reads no
+    neighbour since, 130.10.4.3, so a rail changes no SAFE bit)"""
     for (o, ax) in rails:
         assert o in cells and cells[o][2] & 15 != KIND_WALL, "a rail's owner %r is not in the grid" % (o,)
         cells[o][3] |= FL_EDX if ax == "x" else FL_EDY
-    if not rails:
+    if not _EDGESAFE or not rails:              # (item 1's switch: the railed SAFE as it was)
         return
     for (wx, wy), t in tiles.items():
         if type(t) is not Tile or t.kind != KIND_FLOOR or t.sx or t.sy or (wx, wy) in pcell \
@@ -5432,9 +5432,9 @@ def build_cells(tiles):
             cells[(wx, wy)] = [t.z0, fsl(t.shape, t.sym), KIND_FIELD | (t.surf << 4), 0]
             continue
         flags = 0
-        if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
-                edge_rec(tiles.get((wx + dx, wy + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()):
-            flags |= FL_SAFE
+        if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and (not _EDGESAFE or all(   # SAFE (130.10.4.3.1,
+                edge_rec(tiles.get((wx + dx, wy + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items())):
+            flags |= FL_SAFE                    # 2026-11-23): a flat FLOOR, whatever its neighbours; no prop's (below)
         if t.kind == KIND_GOAL:
             flags |= t.exit << FL_EXITSH        # wave 8b (130.19.4): the finish's exit
         cells[(wx, wy)] = [t.z0, (t.sx & 15) | ((t.sy & 15) << 4), t.kind | (t.surf << 4), flags]
@@ -8870,6 +8870,9 @@ _NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_ha
                         # THE LOOK, for the cross-commit check against a tool that predates it
 _NORISER = False        # SPEC.md 130.12.3.3: --selfcheck item 1's switch alone (_hack "noriser"): no tube's RISER
                         # painted, for the cross-commit check against a tool that predates it
+_EDGESAFE = False       # SPEC.md 130.10.4.3.1: --selfcheck item 1's switch alone (_hack "edgesafe"): SAFE as it was
+                        # until 2026-11-23 - every edge solid (or railed) - in the grid and the CELLS rule, for the
+                        # cross-commit check against a tool that predates the change
 
 
 def WALL_INK(x, y):
@@ -12336,7 +12339,7 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ, _NORISER
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ, _NORISER, _EDGESAFE
     hack = _hack or {}
     _HALFZ = bool(hack.get("halfz"))
     global _ONETB
@@ -12344,6 +12347,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _NORISER = bool(hack.get("noriser"))            # (SPEC.md 130.12.3.3: item 1's cross-commit check, no riser)
+    _EDGESAFE = bool(hack.get("edgesafe"))          # (SPEC.md 130.10.4.3.1: item 1's cross-commit check, old SAFE)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     global _SHEETS_X
@@ -12362,6 +12366,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _HM_FTOP = False
         _NOLOOK = False
         _NORISER = False
+        _EDGESAFE = False
         _LOOKB = 0
         _HALFZ = False
         _SHEETS_X = 0
@@ -12505,7 +12510,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             for t in p["track"]:
                 cells[t] = [p["h2"] - 6, 0, KIND_VOID, 0]
                 slabcells[t] = (p["hP"], p["hT"])
-    rail_flags(cells, tiles, src.rails, pcell)      # SPEC.md 130.35.1: the GUARD RAILS' edge bits (and SAFE)
+    rail_flags(cells, tiles, src.rails, pcell)      # SPEC.md 130.35.1: the GUARD RAILS' edge bits
     def _reach():
         r_, n_, e_ = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
                                  _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
@@ -16099,7 +16104,7 @@ def _pair_reader(buf):
     return lambda off, n: tuple(bytes(buf[off + 4 * i:off + 4 * i + 4]) for i in range(n))
 
 
-def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
+def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False, _edges=False):
     """the follow-up's RULE (SPEC.md 130.15.6) over a grid's cells (4 KW NROWS
     bytes, row r's s = SMIN + r, cell k's a = AMIN + 2 k + (s AND 1)), exactly
     as bz_cxcel computes it -> (rz, rs), a list each: rz the rule's z0 for a
@@ -16115,16 +16120,20 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
           two tiles is solid (OPEN, FFh + 81h).  For corners -116 .. 127, the
           ones a NEAR cell can be built from, that is 130.10.4.3's rule (-116's
           NEAR z0 IS -128, OPEN's)
-      rs = 1 on a FLOOR cell with sx = sy = 0, OBS clear and none of its four
-          edge neighbours VOID or outside the grid
+      rs = 1 on a FLOOR cell with sx = sy = 0 and OBS clear, whatever its
+          neighbours (2026-11-23: a respawn is the cell's centre at rest, which
+          a one-tile path holds as well as a room)
     SPEC.md 130.24.5.3, a SPLIT cell (kind 4 or 5): its V is the least of its
     non-VOID HALVES' (each its own plane's lowest corner), its own rz and rs
-    none and 0 (its +0 - +1 are an offset, not a z0); a split EDGE neighbour
-    is VOID for SAFE when the half that owns the shared edge is.  pair(offset)
-    -> its two halves' bytes (the part's, through the cell's absolute word).
+    none and 0 (its +0 - +1 are an offset, not a z0).  pair(offset) -> its two
+    halves' bytes (the part's, through the cell's absolute word).
     _no_obs: --selfcheck item 10's negative control, the red arm cellsafe's
     rule (SAFE's OBS clause taken out); _no_halves: 130.24.11's, a rule that
-    reads a split cell as a whole one (its offset taken for a z0)"""
+    reads a split cell as a whole one (its offset taken for a z0); _edges:
+    item 10's control for the guest and the tool disagreeing - the rule as it
+    was until 2026-11-23, SAFE also requiring none of the four edge neighbours
+    VOID or outside the grid (a split neighbour by the half that owns the
+    shared edge)"""
     n = nrows * kw
 
     def at(r, k, dx, dy):
@@ -16160,19 +16169,21 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
                 b = min([V[j] for j in (at(r, k, dx, dy) for dx, dy in _CHEB2) if j is not None] + [0xFF])
                 rz[i] = _s8(b + 0x81)
             elif kd & 15 == KIND_FLOOR and not sl and (_no_obs or not fl & FL_OBS):
-                nb = [at(r, k, dx, dy) for dx, dy in _EDGE4]
-                rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID
-                                and (j not in H or H[j][OWNER[cells[4 * j + 2] & 15][e]][2] & 15 != KIND_VOID)
-                                for j, e in zip(nb, _EDGE4_OPP)))
+                rs[i] = 1
+                if _edges or _EDGESAFE:             # (the control: the edge clause put back; item 1's switch)
+                    nb = [at(r, k, dx, dy) for dx, dy in _EDGE4]
+                    rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID
+                                    and (j not in H or H[j][OWNER[cells[4 * j + 2] & 15][e]][2] & 15 != KIND_VOID)
+                                    for j, e in zip(nb, _EDGE4_OPP)))
     return rz, rs
 
 
-def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
+def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False, _edges=False):
     """7 CELLS: each cell as in RAM but two fields, each stored as its
     DIFFERENCE from the rule: a VOID cell's z0 as (z0 - rule_z0) mod 256, and
     every cell's flags bit 0 (SAFE) XOR rule_safe.  -> (stored bytes, the
     exceptions: [(r, k, what)] where the stored field is not 0)"""
-    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs, pair, _no_halves)
+    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs, pair, _no_halves, _edges)
     out = bytearray(ram_cells)
     exc = []
     for i in range(nrows * kw):
@@ -16186,13 +16197,13 @@ def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
     return bytes(out), exc
 
 
-def cells_exceptions(ram, _no_obs=False):
+def cells_exceptions(ram, _no_obs=False, _edges=False):
     """a RAM form's CELLS exceptions (SPEC.md 130.15.6): [(wx, wy, what)], the
     cells whose stored field is not 0 - the cells the rule does not reproduce"""
     g = struct.unpack_from("<H", ram, 26)[0]
     nrows, smin, amin, kw = struct.unpack_from("<HhhH", ram, g + 4)
     co = g + GHDR
-    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs, _pair_reader(ram))
+    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs, _pair_reader(ram), _edges=_edges)
     out = []
     for r, k, what in exc:
         s = smin + r
@@ -30880,7 +30891,7 @@ def rec4_verdicts(c, sb_delta=0, wrap=False):
 
 def _w5_compact(courses, res):
     """item 10 (SPEC.md 130.15.12.3): the compact form, and its eight controls"""
-    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "norail": []}
+    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "edges": []}
     for c in courses:
         if c.split:                                 # (a TWO-PART course, SPEC.md 130.30: _w5_compact2's checks;
             _w5_compact2(c, res)                    # the one-part form's controls run on the one-part courses)
@@ -30927,28 +30938,22 @@ def _w5_compact(courses, res):
                     "leave it, one changed RAM byte moves it, and the RAM form and its 8-byte identity form give the same one%s"
                     % (c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
         # CELLS (130.15.6): the exceptions, the cells whose stored difference from the rule is not 0, every
-        # one a lift's shaft cell; and the control, the rule without SAFE's OBS clause (red arm cellsafe's)
+        # one a lift's shaft cell (no SAFE exception is possible since 2026-11-23: SAFE reads no neighbour and no
+        # rail, 130.10.4.3); and the controls, the rule without SAFE's OBS clause (red arm cellsafe's) and the
+        # rule with the edge clause put back (a guest rule the tool's no longer is) - each must part from the tool
         exc = cells_exceptions(c.cga)
         shaft = set(c.slabcells)
         nvoid = sum(1 for i in range(2, len(c.part["grid"]["cells_raw"]), 4)
                     if c.part["grid"]["cells_raw"][i] & 15 == KIND_VOID)
-        nshaft, nrail, stray = _cells_exc_split(c, exc)
+        nshaft, stray = _cells_exc_split(c, exc)
         res.append(("10 %s: CELLS - %d VOID cells' z0 and every cell's SAFE stored as their difference from the "
-                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s) or a railed SAFE "
-                    "(%d, 130.35.1)%s" % (
+                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s)%s" % (
                         c.name, nvoid, len(exc), "" if len(exc) == 1 else "s",
                         "" if not exc else " (%s)" % ", ".join("(%d, %d) %s" % e for e in exc),
-                        len(shaft), "" if len(shaft) == 1 else "s", nrail,
+                        len(shaft), "" if len(shaft) == 1 else "s",
                         "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
                     not stray))
-        if nrail:                                   # the control: the same exceptions read with no rails
-            ctl["norail"].append(len(_cells_exc_split(c, exc, _norails=True)[2]) == nrail)
-        def _would_be_safe(cell):                   # a prop's cell SAFE but for its OBS (a clock's may not be)
-            tl = c.tiles.get(cell)
-            return (tl is not None and tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0
-                    and all((cell[0] + dx, cell[1] + dy) in c.tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))))
-        if any(_would_be_safe(cell) for cell in c.pcell):
-            ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(c.cga, _no_obs=True)))
+        _cells_ctl(c, c.cga, ctl)
         # the controls
         try:
             expand(stored_form(c.model, 4, c.cga, c.name, _hack={"low_first": True}), c.name, sim=True,
@@ -30983,8 +30988,9 @@ def _w5_compact(courses, res):
                       ("mtab", "MTAB one entry short fails expand == RAM"),
                       ("irmove", "the I and R entries' boundary moved by a word (still tiling the part) is refused "
                                  "by the place-and-size rule, naming I"),
-                      ("norail", "the CELLS exceptions sorted with the guard rails forgotten leave every railed "
-                                 "SAFE unexplained (the courses with one)"),
+                      ("edges", "the CELLS rule with SAFE's edge clause put back (the rule until 2026-11-23: a "
+                                "guest that still reads the four edge neighbours) has SAFE exceptions (the courses "
+                                "with a flat FLOOR beside a VOID)"),
                       ("no_obs", "the CELLS rule with SAFE's OBS clause taken out (the red arm cellsafe's) has "
                                  "exceptions outside the shafts (the courses with a prop's cell that is SAFE but for it)")):
         v = ctl[key]
@@ -31018,35 +31024,48 @@ def _w5_compact2(c, res):
                 "RAM byte moves it, and the two parts give the shipped one%s" % (
                     c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
     exc = cells_exceptions(c.wcga)
-    nshaft, nrail, stray = _cells_exc_split(c, exc)
-    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d) or a railed "
-                "SAFE (%d, 130.35.1)%s" % (
-                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft, nrail,
-                    "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
-                not stray))
+    nshaft, stray = _cells_exc_split(c, exc)
+    ctl = {"no_obs": [], "edges": []}
+    _cells_ctl(c, c.wcga, ctl)
+    cbad = [k for k, v in ctl.items() if v and not all(v)]
+    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d)%s; the rule "
+                "without SAFE's OBS clause%s and with its old edge clause%s part from the tool%s" % (
+                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft,
+                    "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray),
+                    "" if ctl["no_obs"] else " (no prop's cell to show it)",
+                    "" if ctl["edges"] else " (no floor beside a void to show it)",
+                    "" if not cbad else " -- NOT: %s" % ", ".join(cbad)),
+                not stray and not cbad))
 
 
-def _cells_exc_split(c, exc, _norails=False):
+def _cells_exc_split(c, exc):
     """item 10's CELLS exceptions sorted (SPEC.md 130.15.6): a lift's shaft cell (the tool's own VOID rule,
-    130.12.3.2), or a RAILED SAFE - a flat FLOOR the tool makes SAFE because a guard rail closes an edge the
-    rule reads as open (130.35.1, rail_flags; the guest's rule reads no rail, so the cell is stored as its
-    difference, a byte and never a wrong grid) -> (shaft count, railed count, the rest).  _norails: item 10's
-    negative control, the rails forgotten"""
+    130.12.3.2) -> (shaft count, the rest).  (Until 2026-11-23 a RAILED SAFE was a class of its own: SAFE read
+    the edge neighbours and the tool's rails, the guest's rule no rail; SAFE reads neither since, 130.10.4.3)"""
     shaft = set(c.slabcells)
-    rails = {} if _norails else c.src.rails
-    g = Grid(c.cga, c.wcga) if c.split else Grid(c.cga)      # (RAM's flags: the SAFE the part holds)
-    ns = nr = 0
+    ns = 0
     stray = []
     for e in exc:
-        cell = e[:2]
-        if cell in shaft:
+        if e[:2] in shaft:
             ns += 1
-        elif (e[2] == "SAFE" and g.cell(*cell)[4] & FL_SAFE
-              and any(_edge_owner(cell, d) in rails for d in EDGE_D)):
-            nr += 1
         else:
             stray.append(e)
-    return ns, nr, stray
+    return ns, stray
+
+
+def _cells_ctl(c, ram, ctl):
+    """item 10's two CELLS controls on one part's RAM form (SPEC.md 130.15.6): the rule without SAFE's OBS
+    clause (the red arm cellsafe's) where a prop's cell is SAFE but for its OBS, and the rule with SAFE's old
+    edge clause (130.10.4.3 until 2026-11-23) where a flat FLOOR the tool makes SAFE has a VOID edge neighbour -
+    each must give an exception outside the shafts (a guest rule that differs from the tool's is seen)"""
+    shaft = set(c.slabcells)
+    flat = lambda tl: type(tl) is Tile and tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0     # noqa: E731
+    if any(flat(c.tiles.get(cell)) for cell in c.pcell if cell not in shaft):
+        ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(ram, _no_obs=True)))
+    if any(flat(t) and cell not in c.pcell and any(edge_rec(c.tiles.get((cell[0] + dx, cell[1] + dy)), OPP[e])
+                                                   is None for e, (dx, dy) in EDGE_D.items())
+           for cell, t in c.tiles.items()):
+        ctl["edges"].append(any(w == "SAFE" for _x, _y, w in cells_exceptions(ram, _edges=True)))
 
 
 def _mask_pix(mask, br, bc):
@@ -33217,10 +33236,8 @@ def _course_items(c, k, res, t):
                     okp = False
         if cl[3] != tl.kind:
             okk = False
-        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell
-                and all(edge_rec(c.tiles.get((wx + dx, wy + dy)), OPP[e]) is not None
-                        or _edge_owner((wx, wy), e) in c.src.rails      # (SPEC.md 130.35.1: a railed edge)
-                        for e, (dx, dy) in EDGE_D.items()))
+        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell)  # (130.10.4.3:
+        # a flat FLOOR no prop owns, whatever its neighbours, since 2026-11-23)
         if bool(cl[4] & FL_SAFE) != safe:
             oks = False
     # the surfaces as the statements set them, read back independently
@@ -33546,12 +33563,13 @@ def _sc_crosscommit(X, res):
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
                                                 "occ": "off", "nolook": True, "halfz": True,
                                                 "realcut": False, "noavsplit": True, "onetb": True,
-                                                "nocum": True, "noriser": True})
+                                                "nocum": True, "noriser": True, "edgesafe": True})
                 # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink; and
                 # 130.48's quarter units off: that tool's half-unit bytes, no rebase, the CELLS rule's 79h; and
                 # 130.49's real-pose cut off: the whole cells that tool cut; and 130.11.4.2's CUMULATIVE masks off
                 # (2026-11-22, `nocum`): each record's own mask, as that tool shipped it; and 130.12.3.3's RISER
-                # off (2026-11-22, `noriser`): no pipe down a column's face, a picture that tool never drew)
+                # off (2026-11-22, `noriser`): no pipe down a column's face, a picture that tool never drew; and
+                # 130.10.4.3.1's SAFE off (2026-11-23, `edgesafe`): every edge solid, as that tool's grid and rule)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
@@ -36576,16 +36594,17 @@ def _guard_checks(res, _hack=None):
     hk = dict(_hack or {}, no_finish=True)
     c = compile_course(_GCRS, fname="<guard rails>", _hack=hk)
     H = 8 * GUARD_H2 // 2                           # the rail's height, px (16)
-    # the grid: each railed edge's bit on its owner, GF_EDGE, no wall laid, SAFE beside a railed edge
+    # the grid: each railed edge's bit on its owner, GF_EDGE, no wall laid, SAFE the walkway's whole flat floor
     want = {((x, 7), "y") for x in range(4, 12)} | {((x, 10), "y") for x in range(4, 14)}
     g = Grid(c.cga)
     bits = {(k, ax) for k in c.cells for ax, b in (("x", FL_EDX), ("y", FL_EDY))
             if g.cell(*k)[4] & b and g.cell(*k)[3] != KIND_GOAL}
     walls = [k for k in c.tiles if c.tiles[k].kind == KIND_WALL]
-    safe = all(g.cell(x, 8)[4] & FL_SAFE for x in range(5, 12)) and not g.cell(4, 8)[4] & FL_SAFE
+    safe = all(g.cell(x, 8)[4] & FL_SAFE for x in range(4, 12))    # (SPEC.md 130.10.4.3 since 2026-11-23: the
+    # open west end too - SAFE reads no neighbour and no rail)
     res.append(("16 guard: %d railed edges, each its owner's bit (FL_EDX / FL_EDY, SPEC.md 130.35.1) and no other "
-                "cell's, GF_EDGE set, no cell laid as a wall; SAFE on the walkway's railed back row and not past "
-                "the walkway's open west end" % len(bits), bits == want and set(c.redges) == want and bool(g.gflags & GF_EDGE)
+                "cell's, GF_EDGE set, no cell laid as a wall; SAFE on the walkway's back row, its open west end "
+                "included (a rail changes no SAFE bit, 130.10.4.3)" % len(bits), bits == want and set(c.redges) == want and bool(g.gflags & GF_EDGE)
                 and not walls and safe))
     # the picture: every rail pixel drawn, at the FRONT cell's key, the rail's top
     rail = rail_pixels(c)
