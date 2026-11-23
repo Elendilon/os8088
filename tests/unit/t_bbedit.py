@@ -45,6 +45,8 @@
     13e (130.12.3.6, 130.58.40): `body 5 column 1` over the floor a pipe the ball passes under - its cells the
     floor with the slab over it, each an archway element, `uses archway` added by the builder - and `body 4.5`
     (1.5 units of room) refused.
+    13f (130.12.3.7): a tube's `top` (the Walkable top) read and written by the shape editor, `uses archway` added
+    by the builder, its passable cells archway elements with a TOP and its walls walkable ones; none without it.
  14. DRAFTS AND TRACES (130.58.27): a drafted path made axis-legged (a corner where two points differ along both
     axes, a point mid-run dropped), a Ctrl-click past the end a new end, and a tube traced through three cells
     compiles with its body laid.
@@ -135,7 +137,7 @@ OPT_FULL = {
     ("arch", None): "arch 4 4 +y guard height 2.5", ("float", None): "float rect 4 4 6 6 thick 1",
     ("gap", None): "gap rect 4 4 6 6 sw", ("guard", None): "guard rect 4 4 8 8 side +x -y height 2.5",
     ("seesaw", None): "seesaw 4 4 6 5 along x pivot 3 rest + period 64 flat 6 seed 3",
-    ("archway", None): "archway rect 4 4 6 5 along y under 3",
+    ("archway", None): "archway rect 4 4 6 5 along y under 3 top",
     ("cup", None): "cup 4 4 capture 200 exit 1 hidden", ("checkpoint", None): "checkpoint 4 4 ball steel",
     ("clock", None): "clock 4 4 frame pin digits 1 2", ("spring", None): "spring 4 4 500",
     ("pad", None): "pad steel 4 4", ("label", None): 'label 1 2 3 glyphs "HI" ink 2',
@@ -740,6 +742,24 @@ def main():
         except B.CourseError as e:
             if "a ball needs 2 units" not in str(e):
                 bad.append("pipe 1.5 units over the floor: %s" % str(e)[:150])
+        # 13f (SPEC.md 130.12.3.7): the tube's Walkable top - `top` read and written back by the shape editor, the
+        # builder adding `uses archway` for it, every body cell an archway element with a TOP (the passable ones
+        # two-level, +20 the pipe's top; the walls walkable, clearance -32768); without it no TOP anywhere
+        tl_ = "tube keep 8 8 15 8 via 10 8 via 13 8 body 3 5 3 column 1 top"
+        sh = S.parse(E.tokens(tl_))
+        if sh is None or not sh.get("top") or S.code(sh) != tl_ or "top" in S.code(dict(sh, top=None)):
+            bad.append("walkable top: %r" % (sh and S.code(sh)))
+        dt = E.Document(tt + tl_ + "\n")
+        dt.auto_band()
+        added = dt.auto_uses()
+        c = B.compile_course(dt.text(), "tw.bbc", occluders=False)
+        tops = sorted((p["at"], p["clr"], p["top"]) for p in c.props if p["kind"] == B.FK_ARCH and "top" in p)
+        want = sorted([((x, 8), 16, 20) for x in (11, 12, 13)] + [((x, 8), -32768, 12) for x in (9, 10, 14)])
+        if "archway" not in added or tops != want:
+            bad.append("walkable top: %r %r" % (added, tops))
+        c = B.compile_course(dt.text().replace(" top\n", "\n"), "tn.bbc", occluders=False)
+        if any("top" in p for p in c.props):
+            bad.append("no walkable top: a TOP laid")
     except B.CourseError as e:
         bad.append("leg heights: refused: %s" % str(e)[:150])
     finally:

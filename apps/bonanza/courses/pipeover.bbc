@@ -1,0 +1,24 @@
+# OVER: the WALKABLE PIPE's test course (SPEC.md 130.12.3.7) - not shipped, on no disk, in no tour: compiled by
+# `bbcourse.py --selfcheck`'s section `pipeover` and by tests/bonanza_phys.py's crossing scenes (the guest's archway
+# part against the model).  A CROSSING: one KEEP tube along row 12 with `top`, its two end legs walls one unit over
+# the floor and its middle leg (x 10 - 16) a pipe hanging `column 1` deep, two units over the floor - so the ball
+# rolls UNDER it (the lower path, down column 13) and, with `top`, ALONG it (the upper path):
+#   the upper path: the start on the north tier (5 units, the pipe's top), south onto the pipe, east along its top
+#                   over column 13, south off it onto the south tier and down to the floor
+#   the lower path: down column 13 on the floor, under the pipe
+# Each end leg's top is a floor too (3 units): the ball rolls off the pipe's top onto it.
+course OVER "Pipe crossing"
+width 96
+origin 352
+ball rubber
+music fairway
+uses tube archway
+floor rect 4 4 24 20 flat 2
+floor rect 10 8 12 12 flat 5
+tube keep 6 12 20 12 via 9 12 via 16 12 body 3 5 3 column 1 top
+start 10 9
+goal rect 22 18 24 20 flat 2
+clock 19 17
+target 60
+way 10 9
+way 23 19

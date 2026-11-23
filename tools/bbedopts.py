@@ -118,6 +118,7 @@ OPTIONS = {
     ("archway", None): [
         O("along", "choice", "Runs along", req=True, vals=("x", "y")),
         O("under", "num", "Clearance", "units over the floor, 2 - 4 (blank 2)", lo=2, hi=4, inc=0.5, d="2.5"),
+        O("top", "flag", "Walkable top: the ball lands and rolls on the lintel and the legs (130.12.3.7)"),
     ],
     # -- game --------------------------------------------------------------------------------------------------
     ("cup", None): [
@@ -251,7 +252,7 @@ OPTIONS[("prop", "jump")] = OPTIONS[("prop", "speed")]
 GRAMMAR = {
     ("goal", None): ("exit", "hidden"), ("water", None): ("top", "bed", "open"),
     ("arch", None): ("#3", "guard", "height"), ("float", None): ("thick",), ("gap", None): ("sw|se",),
-    ("guard", None): ("side", "height"), ("archway", None): ("along", "under"), ("seesaw", None): ("rest",),
+    ("guard", None): ("side", "height"), ("archway", None): ("along", "under", "top"), ("seesaw", None): ("rest",),
     ("cup", None): ("capture", "exit", "hidden"), ("checkpoint", None): ("ball",),
     ("clock", None): ("frame", "digits"), ("spring", None): ("#3",), ("pad", None): ("#1",),
     ("label", None): ("ink",), ("way", None): ("branch",),

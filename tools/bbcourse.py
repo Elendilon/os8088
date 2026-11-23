@@ -674,7 +674,7 @@ FAMILIES = (
     # home `resident`; CONSTS AR_TOPB, AR_RSH
     {"name": "archway", "id": 12, "rev": 1, "hooks": H_STEP | H_CELL, "slot": 6, "consts": "AR",
      "kinds": ({"name": "archway", "kind": FAM_K0 + 48, "bits": 0, "cls": CL_ATTEMPT, "art": None,
-                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 21,
+                "forms": ("own",), "states": (0,), "pickup": False},), "paras": 22,
      "home": HOME_RESIDENT},
     # SWITCHES, KEYS, GATES and the DRAWBRIDGE (SPEC.md 130.41, the props round's P6 and P7, one family): a PLATE
     # (rolled over, grounded) or a KEY (touched, collected) OPENS its CHANNEL - one of GT_NCH, each its GLYPH
@@ -1686,8 +1686,8 @@ def _word(toks, i, where):
 
 def _parse_tube(toks, where, ln):
     """tube keep|launch|drop <iwx> <iwy> <owx> <owy> [via <wx> <wy>]... [out D]
-    [speed <gvx> <gvy> <gvz>] [height <h>] [body <units> [<units>]...] [column <units>]  (SPEC.md 130.12.3.3,
-    130.12.3.5)"""
+    [speed <gvx> <gvy> <gvz>] [height <h>] [body <units> [<units>]...] [column <units>] [top]  (SPEC.md 130.12.3.3,
+    130.12.3.5, 130.12.3.7)"""
     if len(toks) < 6 or toks[1][1] not in TK_NAMES:
         raise CourseError("%s: tube takes keep|launch|drop <iwx> <iwy> <owx> <owy> ..." % where)
     t = {"line": ln, "sub": TK_NAMES.index(toks[1][1]),
@@ -1736,6 +1736,9 @@ def _parse_tube(toks, where, ln):
                                   % (where, toks[i + 1][1]))
             t["column"] = int(th * 8)
             i += 2
+        elif w == "top" and not t.get("top"):       # SPEC.md 130.12.3.7: its body a floor the ball rolls on
+            t["top"] = True
+            i += 1
         else:
             raise CourseError("%s: unknown or repeated tube clause %r" % (where, w))
     if isinstance(t["body"], tuple) and len(t["body"]) != len(t["via"]) + 1:
@@ -3246,13 +3249,17 @@ def lay_seesaws(src, tiles):
 
 
 def _parse_archway(toks, where, ln):
-    """SPEC.md 130.39.2: archway <shape> along x|y [under <units>] - the cells UNDER an arch the ball rolls through
-    along an axis; `under` the underside's height over their floor (2 - 4 units in halves, 2 when not written)"""
-    use = "archway takes <shape> along x|y [under <units>] (SPEC.md 130.39.2)"
+    """SPEC.md 130.39.2: archway <shape> along x|y [under <units>] [top] - the cells UNDER an arch the ball rolls
+    through along an axis; `under` the underside's height over their floor (2 - 4 units in halves, 2 when not
+    written); `top` (130.12.3.7) the lintel and the legs a floor the ball lands and rolls on"""
+    use = "archway takes <shape> along x|y [under <units>] [top] (SPEC.md 130.39.2, 130.12.3.7)"
     if len(toks) < 2:
         raise CourseError("%s: %s" % (where, use))
     cells, i = _shape(toks, 1, where)
     rest = toks[i:]
+    top = rest.count(('w', "top")) == 1 and rest[:1] == [('w', "along")]     # (130.12.3.7: after the axis)
+    if top:
+        rest.remove(('w', "top"))
     if len(rest) not in (2, 4) or rest[0] != ('w', "along") or rest[1][1] not in ("x", "y") \
             or (len(rest) == 4 and rest[2] != ('w', "under")):
         raise CourseError("%s: %s" % (where, use))
@@ -3261,7 +3268,7 @@ def _parse_archway(toks, where, ln):
         raise CourseError("%s: an archway's underside is %s - %s units over its floor, not %s%s (SPEC.md 130.39.2)"
                           % (where, AR_UMIN / 2, AR_UMAX / 2, under / 2,
                              ": a grounded ball cannot roll under it" if under < AR_UMIN else ""))
-    return {"cells": frozenset(cells), "along": 0 if rest[1][1] == "x" else 1, "under": under, "line": ln}
+    return {"cells": frozenset(cells), "along": 0 if rest[1][1] == "x" else 1, "under": under, "line": ln, "walk": top}
 
 
 def _pow2(v):
@@ -7121,6 +7128,17 @@ def pipe_view(tiles):
     return {**tiles, **sl} if sl else tiles
 
 
+def _walk_rec(fam, kr, f, ln, c, t):
+    """SPEC.md 130.12.3.7: a WALKABLE WALL's archway element - anchored on the WALL C (tile T: flat, its top the
+    floor the window makes of it at every height), its clearance C = -32768"""
+    if type(t) is not Tile or t.kind != KIND_WALL or t.sx or t.sy:
+        raise CourseError("%s:%d: the cell (%d, %d) under a walkable top is not a flat WALL (SPEC.md 130.12.3.7)"
+                          % (f, ln, c[0], c[1]))
+    return {"kind": FK_ARCH, "line": ln, "at": c, "mask": 0, "shift": 0, "seed": 0, "fam": fam, "frow": kr,
+            "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": 4 * t.z0, "dur": 0, "ow": 0, "clr": -32768,
+            "noclaim": True, "arch": None, "top": 2 * t.z0, "walk": ln}
+
+
 def build_props(src, tiles, fname):
     """-> [prop dict], in the course file's order: the tubes (a windmill's is
     its tube's record) and the props.  Every check of 130.12.3.3 that the
@@ -7390,6 +7408,10 @@ def build_props(src, tiles, fname):
             props.append({"kind": FK_ARCH, "line": a["line"], "at": c, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                           "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": 4 * a["z0"], "dur": 0,
                           "ow": 0, "clr": a["clr"], "noclaim": True, "arch": a})
+            if a.get("walk"):                       # SPEC.md 130.12.3.7: `top` - the lintel's TOP a floor
+                props[-1].update(top=2 * a["top"])
+        for c in sorted(a["legs"]) if a.get("walk") else ():    # ...and the legs WALKABLE WALLs at the lintel's top
+            props.append(_walk_rec(fam, kr, f, a["line"], c, tiles[c]))
     for tb in src.tubes:                            # SPEC.md 130.12.3.6: a PASSABLE PIPE - each cell of it the
         for c, (w, U, F) in sorted(tb.get("slabs", {}).items()):    # ARCHWAY's element (130.39.3), its clearance the
             fam, kr = FKIND[FK_ARCH]                # pipe's underside less the ball's height
@@ -7401,6 +7423,18 @@ def build_props(src, tiles, fname):
             props.append({"kind": FK_ARCH, "line": tb["line"], "at": c, "mask": 0, "shift": 0, "seed": 0,
                           "fam": fam, "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": F, "dur": 0,
                           "ow": 0, "clr": U - AR_TOPB, "noclaim": True, "arch": None, "slab": tb["line"]})
+            if tb.get("top"):                       # SPEC.md 130.12.3.7: `top` - the pipe's TOP a floor
+                props[-1].update(top=2 * w.z0)
+        if not tb.get("top"):                       # SPEC.md 130.12.3.7: a WALKABLE tube (`top`): every WALL of its
+            continue                                # body a walkable wall
+        fam, kr = FKIND[FK_ARCH]
+        if not any(fm is fam for fm in named):
+            raise CourseError("%s:%d: the tube's `top` makes its body a floor the ball rolls on, which is the archway "
+                              "family's, and the course does not name it (`uses archway`, SPEC.md 130.12.3.7)"
+                              % (f, tb["line"]))
+        for c in tube_body(tb) or ():
+            if c not in tb.get("slabs", {}):
+                props.append(_walk_rec(fam, kr, f, tb["line"], c, tiles[c]))
     for sw in getattr(src, "seesaws", ()):         # SPEC.md 130.42.3: THE SEE-SAW - a PLATE's record, anchored on its
         fam, kr = FKIND[FK_TILT]                    # first cell, NO owner (no OBS); its lanes' records are cut with
         if not any(fm is fam for fm in named):      # its art (compile_course)
@@ -7512,7 +7546,8 @@ def build_props(src, tiles, fname):
         p["gpts"], p["zs"] = gpts, zs
         p["segs"] = _segments(gpts, zs)
         p["T"] = sum(s["m"] for s in p["segs"])
-    acell = {p["at"]: p for p in props if p["kind"] == FK_ARCH}     # SPEC.md 130.39.2: under an arch, a PAD alone
+    # SPEC.md 130.39.2: under an arch, a PAD alone (130.12.3.7: a walkable wall's element is under no arch)
+    acell = {p["at"]: p for p in props if p["kind"] == FK_ARCH and not p.get("walk")}
     for p in props:
         if p["kind"] == FK_ARCH:
             continue
@@ -7979,6 +8014,28 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
                 t2 = _tile_copy(tiles[p["at"]])
                 t2.z0 = zf
                 tiles2[p["at"]] = t2
+        r2, _r, _e = build_reach(tiles2, cells2, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                                 _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+        for rc in r2:
+            o = by.get((rc.wx, rc.wy))
+            if o is None:
+                by[(rc.wx, rc.wy)] = rc
+                continue
+            if rc.zhi > o.zhi:
+                o.zhi, o.src = rc.zhi, rc.src
+            o.zlo = min(o.zlo, rc.zlo)
+    tops = [p for p in props if p["kind"] == FK_ARCH and p.get("top") is not None]  # SPEC.md 130.12.3.7: every TOP -
+    if tops and not hack.get("noforms") and not hack.get("notopreach"):     # a passable pipe's, a lintel's, a walkable
+        took = True                                                         # wall's - a FLOOR at its top, unioned
+        cells2 = dict(cells)
+        tiles2 = dict(tiles)
+        for p in tops:
+            c = cells[p["at"]]
+            zf = p["top"] // 2                      # (the record's T, quarter units -> the tile's half units)
+            cells2[p["at"]] = [zf, 0, (c[2] & 0xF0) | KIND_FLOOR, c[3]]
+            t2 = _tile_copy(tiles[p["at"]])
+            t2.kind, t2.z0, t2.sx, t2.sy = KIND_FLOOR, zf, 0, 0
+            tiles2[p["at"]] = t2
         r2, _r, _e = build_reach(tiles2, cells2, fname, props, _no_spring=hack.get("no_spring_reach", False),
                                  _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
         for rc in r2:
@@ -8766,10 +8823,11 @@ def _slab_ops(tiles, wx, wy, s, x0, w, U, joins=frozenset()):
             continue
         lo = min(U, 4 * r.z0) if n in joins else U
         poly = [_scr(p[0], p[1], zt, x0), _scr(q[0], q[1], zt, x0), _scr(q[0], q[1], lo, x0), _scr(p[0], p[1], lo, x0)]
-        mk = (lambda xp4, xq4: lambda y0: _face_fn(xp4, zt, xq4, zt))(poly[0][0], poly[1][0])
+        mk = (lambda xp4, xq4, zk: lambda y0: _face_fn(xp4, zk, xq4, zk))(poly[0][0], poly[1][0], zt + _PU_HI)
         out.append((spans(poly), which, s + _PU_KEY, mk, True, w, (wx, wy)))
     quad = [_scr(T[0], T[1], zt, x0), _scr(R[0], R[1], zt, x0), _scr(B[0], B[1], zt, x0), _scr(L[0], L[1], zt, x0)]
-    mk = (lambda tt, a, b: lambda y0: _top_fn(tt, a, b, x0, y0))(w, wx, wy)
+    mk = (lambda tt, a, b: lambda y0: _top_fn(tt, a, b, x0, y0))(w, wx, wy) if not _PU_HI else \
+        (lambda y0: _const_top(zt + _PU_HI))       # (a red arm's: the top keyed over a ball ON it, 130.12.3.7)
     out.append((spans(quad), "top", s + _PU_KEY, mk, False, w, (wx, wy)))
     return out
 
@@ -13572,7 +13630,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             cells[(wx, wy)][3] |= FL_OCC
     # SPEC.md 130.11.4.3: a FIELD cell's OCCG too (at its real grounded poses) - unless the SHOW rule is on,
     # which draws a grounded ball on a shape whole; _hack noccgf: --selfcheck's red arm, never
-    occg = _occg(reach, by_block, x0, y0, tiles, slabcells,
+    topz = {p["at"]: ((2 * p["top"], 2 * p["top"]) if p.get("walk") else (p["z4"], 2 * p["top"]))
+            for p in props if p["kind"] == FK_ARCH and "top" in p}     # (SPEC.md 130.12.3.7: a TOP's grounded range,
+    occg = _occg(reach, by_block, x0, y0, tiles, {**slabcells, **topz} if topz else slabcells,    # its floor's to it)
                  field=fshow is None and not hack.get("noccgf")) if records else {}
     for (wx, wy), n in occg.items():
         if n:
@@ -13847,8 +13907,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 rec += struct.pack("<BBBB4BHHHH", p["fsb"] if p["fsb"] < 256 else 0, p["cls"],
                                    p["wdir"] | p["wflags"], p["wstr"],
                                    *(p["wreg"] + (p["won"], p["wmask"], p["wseed"], p["wtop"])))
-            elif p["kind"] == FK_ARCH:              # THE ARCHWAY (SPEC.md 130.39.3): +18 the CLEARANCE, whole px
-                rec += struct.pack("<BBh12x", 0, p["cls"], p["clr"])
+            elif p["kind"] == FK_ARCH:              # THE ARCHWAY (SPEC.md 130.39.3): +18 the CLEARANCE, whole px;
+                rec += struct.pack("<BBhbB10x", 0, p["cls"], p["clr"], p.get("top", 0),
+                                   int("top" in p))     # +20 T, +21 bit 0 a TOP (130.12.3.7; both 0: none)
             elif p["kind"] == FK_TILT:              # THE SEE-SAW (SPEC.md 130.42.3): +18 NX, +19 NY, +20 the flags,
                 rec += struct.pack("<BBBBBbBBB7x", p["fsb"], p["cls"], p["tlnx"], p["tlny"], p["tlf"], zq(p["tlpz"]),
                                    p["tlmask"], p["tlflat"], p["tlseed"])     # (+22 - +24 a TIMED one's, 130.42.11)
@@ -17167,9 +17228,16 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
                 if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
                 else (0, 0, 0, 0)
-            clr_ = struct.unpack_from("<h", p, propoff + PROPREC * d["i"] + 18)[0]
-            if kd & 15 != KIND_FLOOR or sl or clr_ < 2 * z0 + 4 * AR_UMIN - AR_TOPB:
-                bad("prop %d" % d["i"], "an archway's cell is not a flat FLOOR under its clearance")
+            clr_, top_, tf_ = struct.unpack_from("<hbB", p, propoff + PROPREC * d["i"] + 18)
+            if not tf_:                             # (130.39.3: no top)
+                if kd & 15 != KIND_FLOOR or sl or clr_ < 2 * z0 + 4 * AR_UMIN - AR_TOPB:
+                    bad("prop %d" % d["i"], "an archway's cell is not a flat FLOOR under its clearance")
+            elif clr_ == -32768:                      # SPEC.md 130.12.3.7: a WALKABLE WALL - a flat WALL at its top
+                if kd & 15 != KIND_WALL or sl or top_ != z0:
+                    bad("prop %d" % d["i"], "a walkable wall's cell is not a flat WALL at its top")
+            elif kd & 15 != KIND_FLOOR or sl or clr_ < 2 * z0 + 4 * AR_UMIN - AR_TOPB \
+                    or 2 * top_ < clr_ + AR_TOPB + 2:
+                bad("prop %d" % d["i"], "an archway's cell is not a flat FLOOR under its clearance and its top")
         elif d["kind"] == FK_TILT:                  # SPEC.md 130.42.3: every cell the plate's FLOOR at rest, no OBS,
             for c_ in [(d["at"][0] + i_, d["at"][1] + j_) for i_ in range(d["tlnx"]) for j_ in range(d["tlny"])]:
                 r_, k_ = c_[0] + c_[1] - smin, (c_[0] - c_[1] - amin) >> 1      # not SAFE
@@ -17438,10 +17506,13 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                          wreg=(x0_, y0_, x1_, y1_), won=won, wmask=wmask, wseed=wseed, wtop=wtop, wflags=wf)
                 continue
             if kr["kind"] == FK_ARCH:               # THE ARCHWAY (SPEC.md 130.39.3): +18 the clearance, else zero
-                clr_ = struct.unpack_from("<h", p, r + 18)[0]
-                if cls != CL_ATTEMPT or fsb_ or p[r + 20:r + 32] != bytes(12) or d["lane"]:
+                clr_, top_, tf_ = struct.unpack_from("<hbB", p, r + 18)  # (130.12.3.7: +20 T, +21 a TOP)
+                if cls != CL_ATTEMPT or fsb_ or p[r + 22:r + 32] != bytes(10) or tf_ > 1 \
+                        or (not tf_ and top_) or d["lane"]:
                     bad("prop %d" % d["i"], "an archway's record (clearance %d)" % clr_)
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=None, dur=0, ow=0, clr=clr_)
+                if tf_:
+                    d.update(top=top_)
                 continue
             if kr["kind"] == FK_TILT:               # THE SEE-SAW (SPEC.md 130.42.3): +18 NX, +19 NY, +20 the flags,
                 nx_, ny_, tf_, pz_, tm_, tfl_, ts_ = struct.unpack_from("<BBBbBBB", p, r + 18)  # +21 PZ; its byte,
@@ -18741,6 +18812,9 @@ class SpikeFamily(Family):
 
 _AR_NOWALL = False            # (--selfcheck's red arms: the CELL hook's wall left out, the STEP cap left out)
 _AR_NOCAP = False
+_AR_NOTOP = False             # (...130.12.3.7's: the TOP left out - 130.39's WALL above the clearance, as before - and
+_AR_SINK = False              # the centre never its top: a ball rolling onto the top meets a wall)
+_PU_HI = 0                    # (130.12.3.7's red arm: a slab's ops keyed this many px over its top - over a ball ON it)
 _PU_KEY = 1                   # (SPEC.md 130.12.3.6: a passable pipe's slab keyed s + _PU_KEY; 0 a red arm's)
 
 
@@ -18750,11 +18824,13 @@ def _sw(v):
 
 
 class ArchFamily(Family):
-    """THE ARCHWAY (SPEC.md 130.39.4).  An element is an archway cell (no owner), +18 its CLEARANCE C, whole px.
-    Slot (CELL's): +0 LO, +2 HI, +4 CC, signed words.  CELL (Z the ball's whole-px z): LO -32768, HI 32767, CC 32767;
-    each archway cell in the window: the centre's, CC = C; Z > C, the window's copy a WALL and LO = max(LO, C), else
-    HI = min(HI, C).  STEP: Z > CC, z = CC (fraction 0) and a rising gvz -(gvz >> AR_RSH), Z = CC; then Z <= LO or
-    Z > HI asks for the refill (bz_fref)"""
+    """THE ARCHWAY (SPEC.md 130.39.4, 130.12.3.7).  An element is an archway cell (no owner), +18 its CLEARANCE C;
+    with a TOP (+21 bit 0), +20 T, the top's height (the window's z0, 2 px a step); a WALKABLE WALL's (a walkable
+    tube's body, an arch's leg) has C = -32768.  Slot (CELL's): +0 LO, +2 HI, +4 CC, signed words.  CELL (Z the
+    ball's whole-px z): LO -32768, HI 32767, CC 32767; each archway cell in the window: Z > C, LO = max(LO, C) and
+    the window's copy a FLOOR at T (its surface and flags kept) - or with no top a WALL, and the centre's CC = C;
+    Z <= C, HI = min(HI, C) and the centre's CC = C.  STEP: Z > CC, z = CC (fraction 0) and a rising gvz
+    -(gvz >> AR_RSH), Z = CC; then Z <= LO or Z > HI asks for the refill (bz_fref)"""
     row = FAM_BY_NAME["archway"]
 
     def cell(self, p, slot, win):
@@ -18765,14 +18841,19 @@ class ArchFamily(Family):
         for k, c in (win.items() if at else ()):
             for pr in at.get(k, ()):
                 C = pr["clr"]
-                if k == cen:
-                    cc = C
                 if Z > C:
-                    if not _AR_NOWALL:
-                        c[3] = KIND_WALL
                     lo = max(lo, C)
+                    if "top" not in pr or _AR_NOTOP or (k == cen and _AR_SINK):
+                        if not _AR_NOWALL:          # 130.39.4: no TOP - a WALL above the clearance (_AR_NOTOP,
+                            c[3] = KIND_WALL        # _AR_SINK: 130.12.3.7's red arms)
+                        if k == cen:
+                            cc = C
+                    elif not _AR_NOWALL:
+                        c[0], c[3] = pr["top"], KIND_FLOOR
                 else:
                     hi = min(hi, C)
+                    if k == cen:
+                        cc = C
         struct.pack_into("<hhh", p.fsl[slot], 0, lo, hi, cc)
 
     def step(self, p, slot, _u=struct.Struct("<hhh").unpack_from):
@@ -22780,6 +22861,7 @@ def emit_inc(courses, path=None, title=None):
               "; THE ARCHWAY's (SPEC.md 130.39; bbcourse AR_*)",
               "BZ_AR_RSH       equ %d        ; the underside's rebound: a rising gvz becomes -(gvz >> this)" % AR_RSH,
               "BZ_AR_WALL      equ %d        ; the window's kind nibble the CELL hook writes (KIND_WALL)" % KIND_WALL,
+              "BZ_AR_FLOOR     equ %d        ; ...and a TOP's (KIND_FLOOR, SPEC.md 130.12.3.7)" % KIND_FLOOR,
               "; WIND's constants (SPEC.md 130.34; bbcourse WD_*)",
               "BZ_WD_GSH       equ %d        ; glass's push: S << this" % WD_GSH,
               "BZ_WD_SSH       equ %d        ; steel's: S >> this" % WD_SSH,
@@ -35014,6 +35096,209 @@ def _sc_pipeunder(X, res):
             what, "; ".join(w[:70] for w in caught) or "NOT CAUGHT"), any(want in w for w in caught)))
 
 
+_OBASE = 'course P "p"\nwidth 64\nuses tube archway\nfloor rect 4 4 14 12 flat 2\nstart 5 5\n'
+
+
+def _pipeover_cases():
+    """(what, text, the refusal's words): SPEC.md 130.12.3.7's refusals, each a string here"""
+    P = _OBASE
+    return (("a walkable tube without `uses archway`", P.replace("uses tube archway", "uses tube")
+             + "tube keep 6 8 12 8 body 3 top\n", "`uses archway`"),
+            ("`top` twice", P + "tube keep 6 8 12 8 body 3 top top\n", "repeated tube clause"),
+            ("an archway's `top` before its axis", P + "archway tile 9 8 top along x\n", "archway takes"))
+
+
+PIPEO_BBC = os.path.join(COURSE_DIR, "pipeover.bbc")
+_AR_TOPC = ('course A "a"\nwidth 64\nuses archway\nfloor rect 9 4 10 14 flat 2\nfloor rect 5 7 8 10 flat 5\n'
+            'floor rect 11 6 14 11 flat 2\narchway tile 9 8 along y%s\nstart 9 5\n')   # (an archway, its legs at
+#                                                     (8, 8) and (10, 8), a tier at the lintel's top, 5 units, west)
+PO_UP = K_D | K_L                                   # (+y)
+PO_EAST = K_D | K_R                                 # (+x)
+
+
+def po_key(k, turn):
+    """the OVER course's upper path's key at step K: +y onto the pipe's top, then from step TURN +x along it (its
+    first 12 steps Right alone, +x less y, to take out the roll's +y)"""
+    return PO_UP if k < turn else K_R if k < turn + 12 else PO_EAST
+
+
+def po_over(p, n=220, turn=40):
+    """the OVER course's upper path, on Physics P poked at the north tier (10, 9) -> [(cell, z px, air)] a step"""
+    tr = []
+    for k in range(n):
+        p.step(po_key(k, turn))
+        tr.append(((p.gx >> 12, p.gy >> 12), p.gz >> 8, p.air))
+    return tr
+
+
+def _top_sweep(c, at, keys, past, axis, mat=MAT_RUBBER, hop=None, n=140, firsts=range(0, 40, 2),
+               gaps=range(2, 34, 2), turn=None):
+    """every Hop (Space at step i) and a second press j steps later by a ball poked at the centre of AT, driven by
+    KEYS (a function of the step when TURN is a step: po_over's keys), against a WALKABLE pipe (SPEC.md 130.12.3.7):
+    -> (runs THROUGH its slab - a step ending inside a passable cell with z over its clearance and under its top,
+    one ending in it whose z went from one side of the slab to the other, or one entering it from a step that began
+    in the band under its top less BZ_CLIMB - runs that got past along AXIS to PAST, runs with a boost, runs that stood
+    on the top)"""
+    band = dict((p["at"], (p["clr"], 2 * p["top"])) for p in c.props if p["kind"] == FK_ARCH and "top" in p
+                and not p.get("walk"))
+    bad_ = crossed = boosts = ontop = 0
+    for i in firsts:
+        for d in gaps:
+            p = Physics(c, mat=mat).poke(*at)
+            if hop is not None:
+                p.hop = hop
+            bad = on = False
+            for k in range(n):
+                was, wz = (p.gx >> 12, p.gy >> 12), p.gz >> 8
+                kk = keys if turn is None else po_key(k, turn)
+                p.step(kk | (K_HOP if k in (i, i + d) else 0))
+                cell, z = (p.gx >> 12, p.gy >> 12), p.gz >> 8
+                b = band.get(cell)
+                if b is not None:
+                    C, T = b
+                    if C < z < T or wz <= C < T <= z or z <= C < T <= wz \
+                            or (cell != was and C < wz < T - CLIMB):
+                        bad = True
+                    on = on or (z == T and not p.air)
+                if cell[axis] >= past and not p.nfall:
+                    crossed += 1
+                    break
+            bad_ += bad
+            ontop += on
+            boosts += bool(p.nboost)
+    return bad_, crossed, boosts, ontop
+
+
+def _pipeover_checks(res, hack=None):
+    """SPEC.md 130.12.3.7: the OVER test course's records and cells; the upper path (the north tier onto the pipe's
+    TOP, along it over the lower path's column and off its end onto a walkable wall's top) and the lower path
+    (under it) on the model; every Hop and boost under the pipe and on its top never THROUGH the slab; a ball ON the
+    top not laid over by its slab, one under it laid over; the reach taking the tops; the visibility rule.  HACK: a
+    red arm's switches"""
+    global _AR_NOTOP, _AR_SINK, _AR_NOCAP, _PU_HI
+    hk = dict(hack or {})
+    _AR_NOTOP = hk.pop("artop", False)
+    _AR_SINK, _AR_NOCAP = hk.pop("arsink", False), hk.pop("arnocap", False)
+    _PU_HI = 16 if hk.get("puhi") else 0           # (kept in the hack: a compile is cached by it)
+    try:
+        c = compile_course(PIPEO_BBC, _hack=hk or None)
+        g = Grid(c.cga)
+        arc = [r for r in c.part["props"] if r["kind"] == FK_ARCH]
+        pas = [(x, 12) for x in range(10, 17)]
+        legs = [(x, 12) for x in (7, 8, 9, 17, 18, 19)]
+        ok = [r["at"] for r in arc] == pas + legs \
+            and [(r["clr"], r["top"]) for r in arc] == [(16, 20)] * 7 + [(-32768, 12)] * 6 \
+            and all(r["i"] > max(q["i"] for q in c.part["props"] if q["kind"] != FK_ARCH) for r in arc) \
+            and all(g.cell(*k)[3] == KIND_FLOOR and g.cell(*k)[0] == 8 and not g.cell(*k)[4] & FL_OBS for k in pas) \
+            and all(g.cell(*k)[3] == KIND_WALL and g.cell(*k)[0] == 12 for k in legs)
+        res.append(("3 pipeover (130.12.3.7): OVER's seven passable cells FLAT FLOORs, each an archway element with a "
+                    "TOP (+18 the clearance 16, +20 T 20: 40 px); its six leg cells WALLs at 3 units, each a "
+                    "WALKABLE wall's element (C -32768, T 12); the LAST records", ok))
+        tr = po_over(Physics(c).poke(10, 9))
+        topped = [k for k, (cell, z, a) in enumerate(tr) if cell in pas and z == 40 and not a]
+        over13 = any(cell == (13, 12) and z == 40 for cell, z, _a in tr)
+        leg = [z for cell, z, _a in tr if cell in legs]
+        sunk = [k for k, (cell, z, _a) in enumerate(tr) if cell in pas and 16 < z < 40]
+        res.append(("12 pipeover (130.12.3.7): the UPPER path - rubber rolled off the north tier lands ON the pipe's "
+                    "top (grounded at 40 px on %d steps), rolls along it over the lower path's column 13 (%s), off "
+                    "its east end and over the east leg, bouncing on its walkable top (%d steps over it, its z %s - "
+                    "%s px: the top 24), out at (%d, %d); never inside the slab (%s)"
+                    % (len(topped), over13, len(leg), min(leg or [0]), max(leg or [0]), tr[-1][0][0], tr[-1][0][1],
+                       sunk[:3]),
+                    len(topped) > 20 and over13 and leg and min(leg) == 24 and tr[-1][0][0] >= 20 and not sunk))
+        p = Physics(c).poke(13, 9)
+        under = False
+        for _k in range(90):
+            p.step(PO_UP)
+            under = under or ((p.gx >> 12, p.gy >> 12) == (13, 12) and p.gz >> 8 == 16)
+        res.append(("12 pipeover (130.12.3.7): the LOWER path - rubber rolled down column 13 passes UNDER the pipe "
+                    "(%s) and comes out at (%d, %d): a crossing" % (under, p.gx >> 12, p.gy >> 12),
+                    under and (p.gy >> 12) >= 14))
+        U = _top_sweep(c, (13, 11), PO_UP, 14, 1)
+        Uj = _top_sweep(c, (13, 11), PO_UP, 14, 1, hop=PU_JHOP)
+        O = _top_sweep(c, (10, 9), 0, 20, 0, turn=40, n=170, firsts=range(30, 110, 4), gaps=range(2, 30, 3))
+        rows = [("under, rubber", U), ("under, the jump pickup", Uj), ("on the top, rubber", O)]
+        res.append(("12 pipeover (130.12.3.7): every Hop and second press (a boost at its contact) under the pipe and "
+                    "along its top - %s - never THROUGH the slab (inside it, across it, or in from its band)" %
+                    "; ".join("%s: %d through, %d past, %d boosted, %d on the top" % ((w,) + r) for w, r in rows),
+                    all(r[0] == 0 for _w, r in rows) and U[1] > 0 and O[3] > 0))
+        slab = set()
+        for (sp_, which, s_, _mk, _l, t_, own) in c.ops:
+            if own == (13, 12) and type(t_) is Tile and t_.kind == KIND_WALL:     # (the cell's slab's ops)
+                slab |= {(x, y + c.y0) for y, runs in sp_.items() for ra, rb in runs for x in range(ra, rb)}
+        n, hid, _o = guard_seen(c, 13, 12, 16, False)
+        n2, hid2, _o2 = guard_seen(c, 13, 12, 40, False)
+        res.append(("13 pipeover (130.12.3.7): a ball UNDER the pipe at (13, 12) is laid over by its slab (%d of its "
+                    "%d px, %d of them the slab's), one ON its top by nothing (%d)" % (len(hid), n, len(hid & slab),
+                                                                                 len(hid2)),
+                    bool(hid & slab) and not hid2))
+        by = dict(((rc.wx, rc.wy), rc) for rc in c.reach)
+        rl = [by.get(k) for k in legs]
+        res.append(("13 pipeover (130.12.3.7): the reach takes the TOPS - the six walkable legs' cells in it (%s), "
+                    "the pipe's cell (13, 12) from its floor to over its top (%s - %s px)"
+                    % ([rc is not None for rc in rl].count(True), by[(13, 12)].zlo, by[(13, 12)].zhi),
+                    all(rc is not None and rc.zlo <= 24 for rc in rl) and by[(13, 12)].zlo <= 16
+                    and by[(13, 12)].zhi > 40))
+        res.append(("13 pipeover (130.39.1 A10's rule): the longest a ball rolled under the pipe is WHOLLY hidden - %s"
+                    % "; ".join("line %d: %d gu" % lw for lw in c.pipe_vis),
+                    bool(c.pipe_vis) and all(w <= AR_HIDE for _l, w in c.pipe_vis)))
+        for top in ((" top", "") if not hack else (" top",)):    # an ARCHWAY's `top`: a tier at the lintel's top
+            ca = compile_course(_AR_TOPC % top, "<an archway%s>" % top, occluders=False)    # beside a leg, the ball
+            pa = Physics(ca).poke(6, 8)             # rolled +x off it across the leg, the lintel and the other leg
+            on = []
+            for _k in range(120):
+                pa.step(K_D | K_R)
+                if (pa.gx >> 12, pa.gy >> 12) in ((8, 8), (9, 8), (10, 8)) and not pa.air:
+                    on.append(((pa.gx >> 12, pa.gy >> 12), pa.gz >> 8))
+            cells = sorted(set(k for k, _z in on))
+            res.append(("12 pipeover (130.12.3.7): an archway %s - rubber rolled off a tier at the lintel's top "
+                        "grounded on %s, its z %s px, out at (%d, %d)" % (
+                            "with `top`" if top else "WITHOUT `top` (the negative control)", cells,
+                            sorted(set(z for _k, z in on)), pa.gx >> 12, pa.gy >> 12),
+                        (cells == [(8, 8), (9, 8), (10, 8)] and {z for _k, z in on} == {40} and (pa.gx >> 12) >= 11)
+                        if top else (not on and (pa.gx >> 12) <= 7)))
+        if not hack:                                # (the control, once: `top` left out - 130.12.3.6's pipe)
+            text = open(PIPEO_BBC).read().replace("column 1 top", "column 1")
+            cw = compile_course(text, "<OVER, `top` left out>", occluders=False)
+            trw = po_over(Physics(cw).poke(10, 9))
+            res.append(("12 pipeover negative control: `top` left out - the pipe 130.12.3.6's, a WALL over its "
+                        "clearance - nothing stands on it (%d steps grounded on its top)"
+                        % len([1 for cell, z, a in trw if cell in pas and z == 40 and not a]),
+                        not any(cell in pas and z == 40 for cell, z, _a in trw)))
+    finally:
+        _AR_NOTOP = _AR_SINK = _AR_NOCAP = False
+        _PU_HI = 0
+    return c
+
+
+def _sc_pipeover(X, res):
+    """--selfcheck's section `pipeover` (SPEC.md 130.12.3.7): the refusals, the OVER course's checks and their red
+    arms"""
+    for what, text, want in _pipeover_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (pipeover, 130.12.3.7): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    _pipeover_checks(res)
+    for what, hack, want in (
+            ("the TOP left out (130.39's wall: nothing stands on the pipe)", {"artop": True}, "the UPPER path"),
+            ("the centre never its top (a ball rolling onto the top meets a wall)", {"arsink": True},
+             "the UPPER path"),
+            ("the STEP cap left out (a Hop under the pipe rises into the slab)", {"arnocap": True}, "never THROUGH"),
+            ("the slab keyed 16 px over its top (a ball ON it laid over)", {"puhi": True}, "one ON its top"),
+            ("the reach without the tops", {"notopreach": True}, "the reach takes the TOPS")):
+        r_ = []
+        try:
+            _pipeover_checks(r_, hack)
+        except CourseError as e:
+            r_.append(("compile: %s" % e, False))
+        caught = [w for w, g in r_ if not g]
+        res.append(("13 pipeover negative control: %s - caught (%s)" % (
+            what, "; ".join(w[:70] for w in caught) or "NOT CAUGHT"), any(want in w for w in caught)))
+
+
 def _clockocc_checks(res, courses, _hack=None):
     """item 17 (SPEC.md 130.18.5.4): on each course of COURSES with a clock (FIRST alone, recompiled with _HACK,
     when _hack is given - the red arms), the clock is an OCCLUDER: its face's pixels (the shadow apart) keyed at
@@ -36915,7 +37200,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "airsafe": 90, "guard": 30, "water": 20, "kit": 12, "arch": 30,
            "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
-           "lift2": 10, "width": 8, "sheets": 120, "blocks": 8, "pipeunder": 170}
+           "lift2": 10, "width": 8, "sheets": 120, "blocks": 8, "pipeunder": 170, "pipeover": 200}
 
 
 def _av_floats_want(c):
@@ -38644,7 +38929,8 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder")
+             "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder",
+             "_sc_pipeover")
 
 
 def _selfcheck(paths, res, skipped, S):
