@@ -713,8 +713,10 @@ class ShapeEditor(object):
             sc.bind("<Return>", lambda e: (cv.set("depth"), setc()))
             row[0] += 1
             ttk.Label(self.form, text="over the void, the column hangs that many units under the pipe (like "
-                                      "`float ... thick`); over a floor it always stands on it - the ball does not "
-                                      "pass under a pipe", wraplength=290, foreground="#555").grid(
+                                      "`float ... thick`). Over a floor it stands on it unless it stops at least 2 "
+                                      "units above it: then the ball passes UNDER the pipe (the course loads the "
+                                      "archway extra for it); stopping closer than 2 units is refused",
+                      wraplength=290, foreground="#555").grid(
                 row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1
             ttk.Label(self.form, text="Points: 1 is where the ball goes in, %d where it comes out; drag them on "
@@ -865,7 +867,8 @@ class ShapeEditor(object):
             g.create_text(4, Y(hi - 0.5), anchor="w", text="%g" % (hi - 0.5), fill="#ccc", font=("TkDefaultFont", 7))
             g.create_text(Wg - 4, 8, anchor="ne", fill="#ccc", font=("TkDefaultFont", 7),
                           text="pipe top (cyan)%s, units; %g cells" % (
-                              ", column's foot over the void (blue)" if col is not None else "; its column reaches "
+                              ", column's foot (blue): over a floor 2 units or more under it the ball passes "
+                              "under" if col is not None else "; its column reaches "
                               "the ground", L))
             return
         if sh["kind"] == "tube":

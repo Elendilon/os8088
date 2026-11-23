@@ -3816,7 +3816,7 @@ def _parse_text(text, fname="<course>"):
 # =============================================================================
 
 class Tile:
-    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail", "guard", "wbed")
+    __slots__ = ("kind", "z0", "sx", "sy", "line", "surf", "exit", "rail", "guard", "wbed", "slab")
 
     def __init__(self, kind, z0, sx, sy, line, exit=0):
         self.kind, self.z0, self.sx, self.sy, self.line = kind, z0, sx, sy, line
@@ -3825,6 +3825,8 @@ class Tile:
         self.exit = exit            # a GOAL tile's exit (130.19.4): its cell's flags bits 4 - 7
         self.guard = None           # SPEC.md 130.35: a GUARD RAIL's WALL cell - (its rail's edge, the base z0)
         self.wbed = None            # SPEC.md 130.36: a WATER cell's bed, half units (None: not water)
+        self.slab = None            # SPEC.md 130.12.3.6: a PASSABLE PIPE over this FLOOR - (the pipe's WALL tile, its
+                                    # underside px), the picture's alone (draw_ops); the grid and physics see the floor
 
     def corner(self, dx, dy):
         """corner (wx + dx, wy + dy), half units"""
@@ -4822,6 +4824,52 @@ def arch_vis(c, bound=AR_HIDE):
                                                                                 len(allp)))
                 pads.append((seen, len(allp)))
         out.append((a["line"], worst, tuple(pads)))
+    return out
+
+
+def pipe_vis(c, bound=AR_HIDE):
+    """SPEC.md 130.12.3.6: the archway's visibility rule (130.39.1 A10) for a PASSABLE PIPE - for each tube, along
+    each axis, each run of its passable cells next along that axis with a whole floor at both ends: a ball rolled
+    grounded along each lane of it (the lane's middle and 2 gu either side), from the middle of the cell before the
+    run to the middle of the cell after it, a ground unit at a time, composited by the records: the longest run of
+    positions with EVERY lit pixel laid over, which may not pass BOUND (one ball length).  So a pipe the ball
+    crosses under is seen, and one laid ALONG a path - a tunnel - is refused.  -> [(line, worst run)]"""
+    out = []
+    for tb in c.src.tubes:
+        sl = tb.get("slabs")
+        if not sl:
+            continue
+        worst = 0
+        for ax in (0, 1):
+            runs = []
+            for cell in sorted(sl, key=lambda k: (k[1 - ax], k[ax])):
+                if runs and runs[-1][-1][1 - ax] == cell[1 - ax] and runs[-1][-1][ax] + 1 == cell[ax]:
+                    runs[-1].append(cell)
+                else:
+                    runs.append([cell])
+            for run in runs:
+                a, b = run[0][ax] - 1, run[-1][ax] + 1
+                ln_ = run[0][1 - ax]
+                ends = [(a, ln_) if ax == 0 else (ln_, a), (b, ln_) if ax == 0 else (ln_, b)]
+                if any(type(c.tiles.get(e)) is not Tile or c.tiles[e].kind not in (KIND_FLOOR, KIND_GOAL)
+                       for e in ends):
+                    continue                        # (no passage along this axis: nothing rolls through)
+                for off in (6, 8, 10):
+                    n = 0
+                    for g in range(16 * a + 8, 16 * b + 9):
+                        gx, gy = (g, 16 * ln_ + off) if ax == 0 else (16 * ln_ + off, g)
+                        t = c.tiles.get((gx >> 4, gy >> 4))
+                        z = _h4t(t, gx & 15, gy & 15) // 4
+                        px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
+                        lit = ball_pixels(px, py)
+                        hid = _arch_laid(c, px, py, (gx >> 4) + (gy >> 4), z, False)
+                        n = n + 1 if all(q in hid for q in lit) else 0
+                        worst = max(worst, n)
+        if worst > bound:
+            _visual("%s:%d: a ball rolled under the tube's pipe is WHOLLY hidden for %d ground units in a row, past "
+                    "one ball length (%d: SPEC.md 130.12.3.6) - a higher pipe, or one that crosses the path rather "
+                    "than runs along it" % (c.fname, tb["line"], worst, bound), "ball-hidden")
+        out.append((tb["line"], worst))
     return out
 
 
@@ -7017,10 +7065,60 @@ def lay_tube_bodies(src, tiles):
                         if type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL) and not t.sx and not t.sy]
                 if near:
                     z = max(z, min(near) + 1)
+        col = tb.get("column")
         for c in body:
             t = tiles.get(c)
             if t is None or (type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL, KIND_VOID)):
-                tiles[c] = Tile(KIND_WALL, zc.get(c, z), 0, 0, tb["line"])
+                w = Tile(KIND_WALL, zc.get(c, z), 0, 0, tb["line"])
+                if col is not None and t is not None and t.kind != KIND_VOID and 4 * w.z0 - col > 4 * max(t.corners()):
+                    pipe_over(src, tb, c, t, w, col, tiles)     # SPEC.md 130.12.3.6: the column stops short over the
+                    continue                                    # floor - a pipe the ball passes UNDER
+                tiles[c] = w
+        if tb.get("slabs"):                     # (130.12.3.6: a slab's face toward a WALL next along the path
+            chain = [tb["inn"]] + body + [tb["out"]]    # hangs down to that wall's top - the riser joins them)
+            for k, c in enumerate(chain):
+                if c in tb["slabs"]:
+                    t = tiles[c]
+                    t.slab = t.slab[:2] + (frozenset(n for n in (chain[k - 1], chain[k + 1])
+                                                     if type(tiles.get(n)) is Tile and tiles[n].kind == KIND_WALL
+                                                     and tiles[n].slab is None),)
+
+
+def pipe_over(src, tb, c, t, w, col, tiles):
+    """SPEC.md 130.12.3.6 (the owner, 2026-11-23): a tube body cell laid on a FLOOR whose `column` stops short of it
+    is a PASSABLE PIPE - the cell stays the floor (the grid's and the physics'), the pipe's slab W hangs over it
+    COL px deep (its underside U = its top less COL), and the archway family's element (130.39.3) puts the ceiling
+    and the wall above it.  Refused unless the floor is a whole FLAT FLOOR and the gap under the pipe admits the
+    ball (2 units, an archway's least underside: AR_UMIN)"""
+    f = getattr(src, "fname", "<course>")
+    U = 4 * w.z0 - col
+    if type(t) is not Tile or t.kind != KIND_FLOOR or t.sx or t.sy or t.wbed is not None or t.guard is not None:
+        raise CourseError("%s:%d: the tube's column stops %d px over the cell (%d, %d), which is not a whole FLAT "
+                          "FLOOR: a pipe the ball passes under stands over one - a column that reaches it, or a "
+                          "flat floor under the pipe (SPEC.md 130.12.3.6)" % (f, tb["line"], U - 4 * max(t.corners()),
+                                                                             c[0], c[1]))
+    gap = U - 4 * t.z0
+    if gap < 4 * AR_UMIN:
+        raise CourseError("%s:%d: the tube's column stops %s units over the floor at (%d, %d): a ball needs %d units "
+                          "to pass under a pipe - a column of %s units reaches the floor, or raise the pipe %s units "
+                          "(SPEC.md 130.12.3.6)" % (f, tb["line"], _pxu(gap), c[0], c[1], AR_UMIN // 2,
+                                                    _pxu(4 * w.z0 - 4 * t.z0), _pxu(4 * AR_UMIN - gap)))
+    n = _tile_copy(t)
+    n.slab = (w, U, frozenset())
+    tiles[c] = n
+    tb.setdefault("slabs", {})[c] = (w, U, 4 * t.z0)
+
+
+def _pxu(px):
+    """px -> units, written as a course writes them (0.25 steps)"""
+    return ("%g" % (px / 8.0))
+
+
+def pipe_view(tiles):
+    """SPEC.md 130.12.3.6: the tiles as the PIPE sees them - every passable pipe's cell its slab's WALL (the tube's
+    art: the pipe on its top, the riser, the mouth)"""
+    sl = {k: t.slab[0] for k, t in tiles.items() if type(t) is Tile and t.slab is not None}
+    return {**tiles, **sl} if sl else tiles
 
 
 def build_props(src, tiles, fname):
@@ -7069,7 +7167,7 @@ def build_props(src, tiles, fname):
         if len(legs) > SEG_MAX:
             raise CourseError("%s:%d: %d legs, over %d segments" % (f, ln, len(legs), SEG_MAX))
         for c in body:
-            if kind(c) != KIND_WALL:
+            if kind(c) != KIND_WALL and c not in tb.get("slabs", {}):     # (130.12.3.6: a passable pipe's floor)
                 raise CourseError("%s:%d: the tube's body cell (%d, %d) is not a WALL" % (f, ln, c[0], c[1]))
         if len(set(body)) != len(body) or tb["inn"] in body or tb["out"] in body or tb["inn"] == tb["out"]:
             raise CourseError("%s:%d: the tube's path crosses itself" % (f, ln))
@@ -7292,6 +7390,17 @@ def build_props(src, tiles, fname):
             props.append({"kind": FK_ARCH, "line": a["line"], "at": c, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                           "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": 4 * a["z0"], "dur": 0,
                           "ow": 0, "clr": a["clr"], "noclaim": True, "arch": a})
+    for tb in src.tubes:                            # SPEC.md 130.12.3.6: a PASSABLE PIPE - each cell of it the
+        for c, (w, U, F) in sorted(tb.get("slabs", {}).items()):    # ARCHWAY's element (130.39.3), its clearance the
+            fam, kr = FKIND[FK_ARCH]                # pipe's underside less the ball's height
+            if not any(fm is fam for fm in named):
+                raise CourseError("%s:%d: the tube's pipe hangs over the floor at (%d, %d) with room for the ball "
+                                  "under it, and a pipe the ball passes under is the archway family's, which the "
+                                  "course does not name (`uses archway`, SPEC.md 130.12.3.6)"
+                                  % (f, tb["line"], c[0], c[1]))
+            props.append({"kind": FK_ARCH, "line": tb["line"], "at": c, "mask": 0, "shift": 0, "seed": 0,
+                          "fam": fam, "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": F, "dur": 0,
+                          "ow": 0, "clr": U - AR_TOPB, "noclaim": True, "arch": None, "slab": tb["line"]})
     for sw in getattr(src, "seesaws", ()):         # SPEC.md 130.42.3: THE SEE-SAW - a PLATE's record, anchored on its
         fam, kr = FKIND[FK_TILT]                    # first cell, NO owner (no OBS); its lanes' records are cut with
         if not any(fm is fam for fm in named):      # its art (compile_course)
@@ -7408,7 +7517,7 @@ def build_props(src, tiles, fname):
         if p["kind"] == FK_ARCH:
             continue
         on = [c for c in ([p["at"]] + list(p.get("track", ())) + [p.get("out")] + list(p.get("body", ())))
-              if c in acell]
+              if c in acell and not (c in p.get("body", ()) and acell[c].get("slab") == p["line"])]
         if on and p["kind"] != PK_PAD and p["kind"] != PK_SIGN:
             raise CourseError("%s:%d: a %s on the archway cell (%d, %d): the ceiling would meet it - only a PAD stands "
                               "under an arch (SPEC.md 130.39.2)" % (f, p["line"], PK_NAMES.get(p["kind"], "prop"),
@@ -8582,7 +8691,7 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
                     bots.append([min(zp - FACE8, ground), min(zq - FACE8, ground)])
             else:
                 bots.append([min(zp, nb[0]), min(zq, nb[1])])
-        if (wx, wy) in deep and h is None:          # B is the sw face's q and the se face's p
+        if (wx, wy) in deep and h is None and getattr(t, "slab", None) is None:   # B: the sw face's q, the se's p
             if faces[0][4] is None and faces[1][4] is not None and bots[1][0] < bots[0][1]:
                 d = bots[0][1] - bots[1][0]
                 bots[0] = [bots[0][0] - d, bots[0][1] - d]
@@ -8620,7 +8729,35 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
                         pix[(rb - 1 if h == i else ra, y)] = BLK
                 op = _paint_op(pix, s, t, (wx, wy))
                 ops.append((op[0], "tline") + op[2:])
+        if h is None and getattr(t, "slab", None) is not None:
+            ops += _slab_ops(tiles, wx, wy, s, x0, *t.slab)
     return ops
+
+
+def _slab_ops(tiles, wx, wy, s, x0, w, U, joins=frozenset()):
+    """SPEC.md 130.12.3.6: a PASSABLE PIPE's slab W over the floor of (wx, wy), drawn after that floor: its two
+    front faces from its top down to its underside U (px) - toward a WALL next along the tube's path (JOINS) down
+    to that wall's top, so the riser reaches it; none where the cell in front is a whole tile whose top along that
+    edge is no lower (the face is behind it) - then its top.  Every op KEYED s + 1 (the archway lintel's rule,
+    130.39.1 A9), so the occluders lay it over a ball UNDER it (the same row) and over one behind it; the ops'
+    tile is the slab's WALL, so a lookup for the pipe (_op_spans) finds these and not the floor's"""
+    out = []
+    zt = 4 * w.z0
+    T, R, B, L = (2 * wx, 2 * wy), (2 * wx + 2, 2 * wy), (2 * wx + 2, 2 * wy + 2), (2 * wx, 2 * wy + 2)
+    for (p, q), n, e, which in (((L, B), (wx, wy + 1), "N", "sw"), ((B, R), (wx + 1, wy), "W", "se")):
+        r = tiles.get(n)
+        r = r.slab[0] if type(r) is Tile and r.slab is not None else r
+        r = edge_rec(r, e) if r is not None and not isinstance(r, FieldTile) else None
+        if r is not None and min(r.corners()) * 4 >= zt:
+            continue
+        lo = min(U, 4 * r.z0) if n in joins else U
+        poly = [_scr(p[0], p[1], zt, x0), _scr(q[0], q[1], zt, x0), _scr(q[0], q[1], lo, x0), _scr(p[0], p[1], lo, x0)]
+        mk = (lambda xp4, xq4: lambda y0: _face_fn(xp4, zt, xq4, zt))(poly[0][0], poly[1][0])
+        out.append((spans(poly), which, s + _PU_KEY, mk, True, w, (wx, wy)))
+    quad = [_scr(T[0], T[1], zt, x0), _scr(R[0], R[1], zt, x0), _scr(B[0], B[1], zt, x0), _scr(L[0], L[1], zt, x0)]
+    mk = (lambda tt, a, b: lambda y0: _top_fn(tt, a, b, x0, y0))(w, wx, wy)
+    out.append((spans(quad), "top", s + _PU_KEY, mk, False, w, (wx, wy)))
+    return out
 
 
 def _span_and(a, b):
@@ -9020,9 +9157,12 @@ def _paint_op(pix, s, tile, owner):
     return (_spans_of(pix), "paint", s, mk, False, tile, owner)
 
 
-def _op_spans(ops, owner, which):
+def _op_spans(ops, owner, which, slab=False):
+    """the spans of OWNER's op WHICH (the first) - a passable pipe's cell (SPEC.md 130.12.3.6) has two of each, the
+    floor's and after it the pipe's SLAB's: with SLAB, the slab's (an op whose tile is the floor carrying it is
+    passed over)"""
     for sp0, w, s, mk, left, t, own in ops:
-        if own == owner and w == which:
+        if own == owner and w == which and not (slab and getattr(t, "slab", None) is not None):
             return sp0
     return None
 
@@ -9277,7 +9417,7 @@ def tube_riser_pix(tiles, ops, p, x0):
         return CYN if d <= PIPE_R[0] else BLK if d <= PIPE_R[1] else None
     for a, b, hi, lo, face, mouth in tube_steps(tiles, p):
         tl = tiles[lo]
-        sp0 = _op_spans(ops, hi, face)
+        sp0 = _op_spans(ops, hi, face, slab=True)
         if sp0 is None:
             continue
         if mouth:
@@ -9340,9 +9480,11 @@ def prop_ops(tiles, ops, props, x0):
     OUT rim with its chevron, the pipe on its body's tops, a DROP's mouth, a
     windmill's doorway, the posts (geometry: their own s and top)"""
     after = {}
+    tv = pipe_view(tiles)                           # (SPEC.md 130.12.3.6: a tube's art sees a passable pipe's slab,
+    slabs = {k for k, t in tiles.items() if t is not tv[k]}     # and is drawn after the slab's op, not the floor's)
 
-    def add(owner, which, op):
-        after.setdefault((owner, which), []).append(op)
+    def add(owner, which, op, pipe=False):
+        after.setdefault((owner, which, pipe and owner in slabs), []).append(op)
     for p in props:
         if p["kind"] in (PK_TUBE, PK_WINDMILL):
             if p["kind"] == PK_TUBE:
@@ -9383,8 +9525,8 @@ def prop_ops(tiles, ops, props, x0):
                     p["hole_pix" if hole else "rim_pix"] = (marks, pix)
                     add(cell, "top", _paint_op(pix, cell[0] + cell[1], t, cell))
                 for cell in p["body"]:              # the pipe on the body's tops
-                    t = tiles[cell]
-                    sp0 = _op_spans(ops, cell, "top")
+                    t = tv[cell]
+                    sp0 = _op_spans(ops, cell, "top", slab=True)
                     wf = _top_world(t, cell[0], cell[1], x0)
                     pix = {}
                     for y, runs in sp0.items():
@@ -9396,11 +9538,11 @@ def prop_ops(tiles, ops, props, x0):
                                     pix[(x, y)] = CYN
                                 elif d <= PIPE_R[1]:
                                     pix[(x, y)] = BLK
-                    add(cell, "top", _paint_op(pix, cell[0] + cell[1], t, cell))
+                    add(cell, "top", _paint_op(pix, cell[0] + cell[1], t, cell), True)
             mo = mouth_of(p, x0)
             if mo is not None:                      # the EXIT MOUTH: an arch on the face the ball leaves by,
                 w, face, xm, rows, half, sill = mo  # its sill at the exit's height (the owner's preview)
-                sp0 = _op_spans(ops, w, face)
+                sp0 = _op_spans(ops, w, face, slab=True)
                 if sp0 is None:
                     raise CourseError("the tube on line %d: its last wall (%d, %d) shows no %s face"
                                       % (p["line"], w[0], w[1], DIR_NAMES[p["dir"]]))
@@ -9410,14 +9552,14 @@ def prop_ops(tiles, ops, props, x0):
                                       "floor) is not wholly on the face of its last wall (%d, %d): a taller wall, "
                                       "or a lower exit" % (p["line"], 2 * half, rows, sill, w[0], w[1]))
                 ring = _rim(sp0, pix, True, MAG) if face == "se" else {}   # the checker's face: a solid rim
-                add(w, face, _paint_op(_merge(pix, ring), w[0] + w[1], tiles[w], w))
+                add(w, face, _paint_op(_merge(pix, ring), w[0] + w[1], tv[w], w), True)
                 p["mouth"] = (w, face, xm, rows, half, sill)
                 p["mouth_pix"] = pix
                 p["mouth_rim"] = ring
             if p["kind"] == PK_TUBE and not _NORISER:   # the pipe DOWN a column's face where its path steps
-                p["riser"] = tube_riser_pix(tiles, ops, p, x0)                  # (SPEC.md 130.12.3.3)
+                p["riser"] = tube_riser_pix(tv, ops, p, x0)                     # (SPEC.md 130.12.3.3)
                 for owner, which, pix in p["riser"]:
-                    add(owner, which, _paint_op(pix, owner[0] + owner[1], tiles[owner], owner))
+                    add(owner, which, _paint_op(pix, owner[0] + owner[1], tv[owner], owner), True)
             if p["kind"] == PK_WINDMILL:            # the windmill's doorway on the house face
                 ix, iy = p["inn"]
                 if p["door"] == 1:
@@ -9498,7 +9640,7 @@ def prop_ops(tiles, ops, props, x0):
     out = []
     for op in ops:
         out.append(op)
-        out += after.get((op[6], op[1]), [])
+        out += after.get((op[6], op[1], op[6] in slabs and getattr(op[5], "slab", None) is None), [])   # (130.12.3.6)
     return out
 
 
@@ -12644,8 +12786,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     for tb in src.tubes:                            # SPEC.md 130.12.3.5: a tube's `column <units>` - its body
         if tb.get("column") is None:                # FLOATS that deep, as `float ... thick` (the tube's own
             continue                                # clause, so it wins over a float statement on its cells)
-        bcells = set(tube_body(tb) or ())
-        if not bcells & drawn_void_faces(tiles, props, hack):
+        # (SPEC.md 130.12.3.6: a passable pipe's cells are its FLOORS, the slab drawn apart - not floated, and a
+        # pipe the ball passes under hangs something)
+        bcells = set(tube_body(tb) or ()) - set(tb.get("slabs", ()))
+        if not bcells & drawn_void_faces(tiles, props, hack) and not tb.get("slabs"):
             raise CourseError("%s:%d: the tube's column hangs nothing: no cell of its body has a face over the "
                               "void, so its column already stands on what is under it (SPEC.md 130.12.3.5)"
                               % (fname, tb["line"]))
@@ -13846,6 +13990,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
     if src.archways and occluders:                  # SPEC.md 130.39.1 A10: the visibility rule, measured
         c.arch_vis = arch_vis(c, 2 if hack.get("arvis") else AR_HIDE)
+    if occluders and any(tb.get("slabs") for tb in src.tubes):   # SPEC.md 130.12.3.6: a passable pipe's, the same
+        c.pipe_vis = pipe_vis(c, 2 if hack.get("puvis") else AR_HIDE)
     c.clock_vis = clock_vis(c, 1 if hack.get("clockvisb") else CLOCK_HIDE) if occluders and pth is None else []
     c.ga_vis = clock_vis(c, 1 if hack.get("gavisb") else CLOCK_HIDE, arts=True) if occluders and pth is None else []
     if occluders and any(fd["what"] == "hump" for fd in src.fields):   # SPEC.md 130.44.4: the visibility rule
@@ -18573,6 +18719,7 @@ class SpikeFamily(Family):
 
 _AR_NOWALL = False            # (--selfcheck's red arms: the CELL hook's wall left out, the STEP cap left out)
 _AR_NOCAP = False
+_PU_KEY = 1                   # (SPEC.md 130.12.3.6: a passable pipe's slab keyed s + _PU_KEY; 0 a red arm's)
 
 
 def _sw(v):
@@ -29011,7 +29158,7 @@ def _mouth_checks(c, res, tag):
             w, face, xm, rows, half, sill = mo
             ops = draw_ops(c.tiles, c.x0, {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]},
                            c.ground, c.floats)
-            low, _l, _w = _arch(_op_spans(ops, w, face), xm, rows, half, 0)
+            low, _l, _w = _arch(_op_spans(ops, w, face, slab=True), xm, rows, half, 0)
             if stands(low)[0]:
                 bad.append("negative control: the DROP's mouth on the floor line still passes (b)")
     # (c) the body walls' columns
@@ -29187,7 +29334,7 @@ def _opening_checks(c, res, tag):
             arches.append(("the tube on line %d's mouth" % p["line"], w, face, xm, rows, half, sill,
                            p["mouth_pix"], p["mouth_rim"]))
         for what, w, face, xc, rows, half, sill, hole, ring in arches:
-            sp0 = _op_spans(ops, w, face)
+            sp0 = _op_spans(ops, w, face, slab=True)
             last = _face_last(sp0)
             narch += 1
             v = arch_verdict(hole, last, xc, rows, half, sill)
@@ -34651,6 +34798,123 @@ def _sc_arch(X, res):
                     any(want in w for w in caught)))
 
 
+_PBASE = 'course P "p"\nwidth 64\nuses tube archway\nfloor rect 4 4 14 12 flat 2\nstart 5 5\n'
+
+
+def _pipe_cases():
+    """(what, text, the refusal's words): SPEC.md 130.12.3.6's refusals, each a string here"""
+    P = _PBASE
+    return (("a pipe 1.5 units over the floor", P + "tube keep 6 8 12 8 body 4.5 column 1\n", "a ball needs 2 units"),
+            ("a pipe over a ramp", P + "floor rect 9 8 10 9 ramp x 9 10 2 3\ntube keep 6 8 12 8 body 6 column 1\n",
+             "not a whole FLAT"),
+            ("a passable pipe without `uses archway`", P.replace("uses tube archway", "uses tube")
+             + "tube keep 6 8 12 8 body 5 column 1\n", "`uses archway`"),
+            ("a bumper under a pipe", P + "tube keep 6 8 12 8 body 5 column 1\nprop bumper 9 8\n",
+             "only a PAD stands under an arch"))
+
+
+PIPE_BBC = os.path.join(COURSE_DIR, "pipeunder.bbc")
+
+
+def _pipe_checks(res, hack=None):
+    """SPEC.md 130.12.3.6: the PIPE test course's records, cells and walls; the ceiling on the model (A's pipe two
+    units over the floor: rolled straight the ball goes under it, every Hop and boost into it is stopped at its
+    face or its underside; B's three: a Hop passes under, nothing above a clearance); the slab laid over a ball
+    under it and not over one in front; the visibility rule; and the same course with A's column left out (the
+    pipe a wall, as before 130.12.3.6) letting nothing under.  HACK: a red arm's switches"""
+    global _AR_NOWALL, _AR_NOCAP, _PU_KEY
+    hk = dict(hack or {})
+    _AR_NOWALL, _AR_NOCAP = hk.pop("arnowall", False), hk.pop("arnocap", False)
+    _PU_KEY = 0 if hk.get("pukey") else 1          # (kept in the hack: a compile is cached by it)
+    try:
+        c = compile_course(PIPE_BBC, _hack=hk or None)
+        g = Grid(c.cga)
+        arc = [r for r in c.part["props"] if r["kind"] == FK_ARCH]
+        sa = [(x, 8) for x in range(10, 14)]
+        sb = [(x, 14) for x in range(10, 14)]
+        walls = [(x, y) for y in (8, 14) for x in (7, 8, 9, 14, 15)]
+        ok = [r["at"] for r in arc] == sa + sb and [r["clr"] for r in arc] == [16] * 4 + [24] * 4 \
+            and all(r["i"] > max(q["i"] for q in c.part["props"] if q["kind"] != FK_ARCH) for r in arc) \
+            and all(g.cell(*k)[3] == KIND_FLOOR and g.cell(*k)[0] == 8 and not g.cell(*k)[4] & FL_OBS
+                    for k in sa + sb) \
+            and all(g.cell(*k)[3] == KIND_WALL and g.cell(*k)[0] == 12 for k in walls)
+        res.append(("3 pipeunder (130.12.3.6): PIPE's eight passable cells are FLAT FLOORs (no OBS), each an "
+                    "archway element, the LAST records, +18 the clearance (16 px under A, 24 under B); the end legs "
+                    "WALLs at 3 units", ok))
+        X = K_D | K_L
+        A = _arch_sweep(c, (11, 7), X, 9, 1, firsts=range(0, 40, 2))
+        Aj = _arch_sweep(c, (11, 7), X, 9, 1, hop=PU_JHOP, firsts=range(0, 40, 2))
+        Bs = _arch_sweep(c, (11, 12), X, 15, 1)
+        rows = [("A rubber", A, 320), ("A the jump pickup", Aj, 320), ("B rubber", Bs, 192)]
+        res.append(("12 pipeunder (130.12.3.6): every Hop and second press (a boost at its contact) into the pipes - "
+                    "%s - never above a clearance under one nor in from above it (nothing passes THROUGH a pipe)" %
+                    "; ".join("%s: %d above, %d of %d past, %d boosted" % (w, r[0], r[2], n, r[3]) for w, r, n in rows),
+                    all(r[0] == 0 for _w, r, _n in rows) and A[2] > 0 and A[3] > 0 and Bs[2] > 0))
+        p = Physics(c).poke(11, 5)
+        for _k in range(120):
+            p.step(X)
+        q = Physics(c).poke(11, 12)
+        hopped = False
+        for k in range(60):
+            q.step(X | (K_HOP if k == 12 else 0))
+            hopped = hopped or ((q.gy >> 12) == 14 and q.air and (q.gz >> 8) > 16)
+        res.append(("12 pipeunder (130.12.3.6): rubber rolled straight under A's pipe comes out at (%d, %d); a Hop "
+                    "passes under B's (%s)" % (p.gx >> 12, p.gy >> 12, hopped), (p.gy >> 12) >= 10 and hopped))
+        slab = set()
+        for (sp_, which, s_, _mk, _l, t_, own) in c.ops:
+            if own == (11, 8) and type(t_) is Tile and t_.kind == KIND_WALL:     # (the ball's own cell's slab)
+                slab |= {(x, y + c.y0) for y, runs in sp_.items() for ra, rb in runs for x in range(ra, rb)}
+        n, hid, _o = guard_seen(c, 11, 8, 16, False)
+        n2, hid2, _o2 = guard_seen(c, 11, 9, 16, False)
+        res.append(("13 pipeunder (130.12.3.6): a ball under A's pipe is laid over by its slab (%d of its %d px, %d "
+                    "of them its own cell's slab's) and one in front of it by nothing (%d)"
+                    % (len(hid), n, len(hid & slab), len(hid2)),
+                    bool(hid & slab) and len(hid) < n and not hid2))
+        res.append(("13 pipeunder (130.39.1 A10's rule): the longest a ball rolled under a pipe is WHOLLY hidden - %s"
+                    % "; ".join("line %d: %d gu" % lw for lw in c.pipe_vis),
+                    bool(c.pipe_vis) and all(w <= AR_HIDE for _l, w in c.pipe_vis)))
+        if not hack:                                # (the control, once: A's column left out, its pipe a wall)
+            text = open(PIPE_BBC).read().replace("body 3 5 3 column 1", "body 3 5 3")
+            cw = compile_course(text, "<PIPE, A's column left out>", occluders=False)
+            pw = Physics(cw).poke(11, 5)
+            for _k in range(120):
+                pw.step(X)
+            Aw = _arch_sweep(cw, (11, 7), X, 9, 1, firsts=range(0, 40, 2))
+            res.append(("12 pipeunder negative control: A's column left out - its pipe a WALL to the floor, as "
+                        "before 130.12.3.6 - lets nothing under it (rolled: (%d, %d); %d of 320 Hops and boosts "
+                        "past)" % (pw.gx >> 12, pw.gy >> 12, Aw[2]), (pw.gy >> 12) < 8 and Aw[2] == 0))
+    finally:
+        _AR_NOWALL = _AR_NOCAP = False
+        _PU_KEY = 1
+    return c
+
+
+def _sc_pipeunder(X, res):
+    """--selfcheck's section `pipeunder` (SPEC.md 130.12.3.6): the refusals, the PIPE course's checks and their red
+    arms"""
+    for what, text, want in _pipe_cases():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            fired, msg = False, "compiled"
+        except CourseError as e:
+            fired, msg = want in str(e), str(e)
+        res.append(("2 refused (pipeunder, 130.12.3.6): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    _pipe_checks(res)
+    for what, hack, want in (
+            ("the CELL hook's wall left out (the ball flies into the slab)", {"arnowall": True}, "never above"),
+            ("the STEP cap left out (a Hop rises through the underside)", {"arnocap": True}, "never above"),
+            ("the slab keyed at its own row (a ball under it drawn over it)", {"pukey": True}, "laid over by its"),
+            ("the visibility bound at 2 positions", {"puvis": True}, "compile")):
+        r_ = []
+        try:
+            _pipe_checks(r_, hack)
+        except CourseError as e:
+            r_.append(("compile: %s" % e, False))
+        caught = [w for w, g in r_ if not g]
+        res.append(("13 pipeunder negative control: %s - caught (%s)" % (
+            what, "; ".join(w[:70] for w in caught) or "NOT CAUGHT"), any(want in w for w in caught)))
+
+
 def _clockocc_checks(res, courses, _hack=None):
     """item 17 (SPEC.md 130.18.5.4): on each course of COURSES with a clock (FIRST alone, recompiled with _HACK,
     when _hack is given - the red arms), the clock is an OCCLUDER: its face's pixels (the shadow apart) keyed at
@@ -35283,7 +35547,7 @@ def riser_verdict(c, ops, p, riser):
     bad = []
     got = {(o, w): px for o, w, px in riser}
     for _a, _b, hi, lo, face, mouth in tube_steps(c.tiles, p):
-        sp0 = _op_spans(ops, hi, face)
+        sp0 = _op_spans(ops, hi, face, slab=True)
         if sp0 is None:
             continue
         if face == "se":                            # the line's column: the pixel whose centre is 0.5 gu off it
@@ -36552,7 +36816,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
            "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
-           "lift2": 10, "width": 8, "sheets": 120, "blocks": 8}
+           "lift2": 10, "width": 8, "sheets": 120, "blocks": 8, "pipeunder": 170}
 
 
 def _av_floats_want(c):
@@ -38281,7 +38545,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_turn",
-             "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks")
+             "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder")
 
 
 def _selfcheck(paths, res, skipped, S):
