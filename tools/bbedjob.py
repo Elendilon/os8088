@@ -136,7 +136,7 @@ def picture(path, out, name=None, gaps=False, occ=False):
             pts = pix.get(key) or []
             own = 256 * m["cell"][0] + m["cell"][1]
             marks.append({"what": m["what"], "cell": list(m["cell"]), "pct": round(m["pct"], 1), "need": m["need"],
-                          "below": m["below"], "line": c.props[m["prop"]].get("line"),
+                          "below": m["below"], "accepted": m["accepted"], "line": c.props[m["prop"]].get("line"),
                           "cover": [[o >> 8, o & 255, n] for o, n in m["cover"] if o >= 0],
                           "seen": [[x, y] for (x, y) in pts if ob[y][x] == own],
                           "hidden": [[x, y] for (x, y) in pts if ob[y][x] != own]})

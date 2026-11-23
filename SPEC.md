@@ -272675,6 +272675,37 @@ start's and hub's `4n + 10`, and a thinner band): at the full size the
 compile refused them under 130.18.5.4's one ball length, a ball behind
 either finish clock being wholly hidden for 18 ground units.
 
+**WINDMILL LANE's `vase`** (the owner, 2026-11-23, of four concepts and four
+more, `docs/plans/bonanza-courses/mill/CLOCKS.md`: *"Tulips currently works
+the best"*; lifted from `mill/clocks/frames.py`'s scratch `_clock_vase` into
+`_clock_vase`). A Delftware vase on a short lit pedestal standing on the
+tile - white glaze, a cyan (Delft blue) lip band, shoulder bands and flutes
+round its foot, its shade dithered cyan down the right - with the digits on
+its white belly in a fine cyan frame (no window: the belly is the field),
+and TULIPS on cyan stems out of its neck, black-edged magenta heads lit
+WHITE on their left so they still read on the Hercules' grey wall. The
+bulbs GROW down the course: one more flower at each clock, the newest a
+stage further on. MILL has FOUR clocks, so the concept's three grew a
+fourth frame and a fourth flower:
+- **`vases`**, the start: ONE closed bud with a leaf, and a tee'd ball on a
+  magenta peg at the pedestal's foot;
+- **`vasem`**, the second (by the arch): TWO, the bud and one OPENING;
+- **`vaset`**, the turntable's pillar: THREE, bud, opening and one in
+  BLOOM, the pedestal on a turntable disc (paint) with its quarter-turn
+  arrow;
+- **`vasef`**, the finish: FOUR, two in bloom and between them two of the
+  FOURTH flower, a FLAMED tulip (the Dutch "broken" tulip: white petals
+  streaked magenta), the left one the tallest; white, it reads on both cards.
+
+MILL's four clocks wear them (MEASURED, `bbcourse.py --strict`, the picture
+part; the world part 12,098 bytes does not move): **blocks 1,156 -> 1,173,
+masks 221 -> 223, records 1,858 -> 1,794, RAM 62,350 -> 62,402 bytes, LZ4
+22,775 -> 23,383** - the records FALL because MILL now marks the void cells
+behind its vase clocks `noocclude` (130.53: every record a vase cut hid a
+ball only in a void cell behind it, falling; the start's clock was already
+clear), so no vase clock carries an occluder record. Every clock passes
+130.18.5.4's one ball length (the longest wholly-hidden runs 0, 0, 0, 0).
+
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
 re-authored).
@@ -288118,7 +288149,14 @@ to, and seems simple."*
   play. The shape is whole cells (no `half` or `quarter`), any number of
   statements.
 - **The proofs** (item 5's composites, item 15's completeness and WRONG-HIDE)
-  pass the shape's cells over.
+  pass the shape's cells over - and so (2026-11-23) does 130.18.5.4's
+  `clock_vis`, the ball rolled behind a clock (and a gate art, 130.41.12
+  A8): a position in a `noocclude` cell is one the author says no ball is
+  at in play, so it is neither counted as drawn over the face nor toward a
+  wholly-hidden run. MILL's start clock was the first to need it: the
+  owner's `noocclude` round the tee's left edge takes (7, 11) and (7, 12)
+  out of the cut, and `clockocc`'s item 17 then counted 31 positions there
+  drawn over the clock's face.
 - **MEASURED**: ROLL with `noocclude rect 29 37 34 42` and `noocclude rect 49 41
   54 46` (the pillars' 5 x 5) **1,116 -> 1,084 records**. It is the author's to
   place, and ROLL carries exactly those two (2026-11-19: 1,110 -> 1,078 on the
@@ -289009,6 +289047,17 @@ Three statements, none of which writes into the part (no identity moves):
   accepted and refuses nothing. The comment above the line is where its
   reason goes; the builder writes one when the author accepts from the
   warning's menu.
+  **`accept mark [<wx> <wy>]`** (2026-11-23, MILL's glass pad under its
+  archway) keeps a VISIBILITY MARK under its share (130.15.10.4: a spring's,
+  a pad's or the cup's mark under 75%, a tube mouth under 50%). The audit
+  still only reports - it is not one of the compile's warnings and refuses
+  nothing under `--strict` either - so the word reaches the three places
+  that report it: `vis_marks` carries `accepted` (the cell, or course-wide;
+  a `hidden` element's mark too), the build's audit line prints the mark
+  `BELOW (accepted)` and its head `N of M marks BELOW (K accepted)`, the
+  picture job's `meta.json` carries it, and the window's problems list
+  shows the mark as a note ("accepted: ...") rather than a warning, so the
+  warning count drops by one.
 - **`strict`** (no arguments, once): this course is held to `--strict` in
   every build, the shipped one included. A course says it when it is
   finished, so the ship can carry strict and unfinished courses side by side
