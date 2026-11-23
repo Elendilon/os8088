@@ -286139,7 +286139,7 @@ the DRAWBRIDGE, 130.41) is another branch's, so on this branch ID 13 is a GAP
 #### 130.42.2 The statement
 
     uses seesaw
-    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] [period 32|64|128|256 [flat <F>] [seed <S>]]
+    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] [period 32|64|128|256 [flat <F>] [seed <S>]] [base ground|<units>]
 
 The plate covers `x0 <= wx < x1`, `y0 <= wy < y1` (a floor rect's
 convention), tilting ALONG its axis; its length along it is **2, 4 or 6**
@@ -286153,6 +286153,8 @@ it, and an end moves a unit between REST and FLAT and two between the ends.
 
 The statement LAYS its own cells (at rest, NORMAL surface): a cell another
 statement lays, or another plate's, is refused.
+
+`base` (130.42.12) stands a solid COLUMN under the plate, the picture's alone.
 
 #### 130.42.3 The records and the slot
 
@@ -286418,6 +286420,95 @@ asserted; red arms `tltpose` (the timer read on n: "never drawn" at step
 Open: a timed plate's period and flat on TILT (128 and 16, a swing every
 2.3 s) are the owner's to judge; a timed plate cannot share a window with a
 weight one, so a course mixing the two keeps them a screen apart.
+
+#### 130.42.12 The COLUMN under a plate: `base` (the owner, 2026-11-23)
+
+The owner: *"I have a seesaw attached to a floor platform. The floor platform is set 'to ground', but the
+seesaw floats. Is there any way to make the floor's columns not have that gap, while still floating at 0.5 the
+seesaw?"* A plate is a THIN slab over the void (D10), so a see-saw laid between two blocks that reach the
+ground is a hole down to black in an otherwise solid block. `base` fills it: the plate stays the same 0.5-unit
+slab tipping in its three poses, and under it stands a solid column, so the see-saw sits in a RECESS of the
+block.
+
+    seesaw <x0> <y0> <x1> <y1> along x|y pivot <units> [rest -|+] [period ...] base ground|<units>
+
+after `rest`, in any order with the timer's clauses. `base ground` hangs the column's faces to the course's
+GROUND plane (130.27.1) by the rule every face over the void keeps - down to the ground, never less than 3
+units (FACE8); `base <units>` hangs them that deep from the column's top, a multiple of 0.25 from 0.25 to 3
+(the tube's `column` and `float ... thick`'s range, 130.12.3.5, 130.27.2.1). Refused, naming the line
+(`--selfcheck` section `tiltbase`, item 1): `base` twice, a depth off the quarter grid or outside 0.25 - 3, a
+`base` with nothing after it.
+
+**Its top** is FLAT, every cell of the plate, at
+
+    TOP = PZ - L/2 - 2 half units  (4 PZ - 2 L - 8 px)
+
+- **what the plate's end travel needs**: a plate's cell k is at PZ + s (k - L/2) half units with |s| <= 1, so
+  its lowest point in ANY pose is an end in an end pose, L/2 half units under the pivot's PZ - 4 px for L = 2,
+  8 for L = 4, 12 for L = 6 - and its underside is TL_THICK (4 px, a half unit) under that: **4 PZ - 2 L - 4
+  px, the lowest underside of every pose** (rest, FLAT and the other end alike: a TIMED plate's three are the
+  weight plate's);
+- **the margin, `TL_BMARGIN` = 4 px (one half unit) under that**: the smallest height step the grid has (a
+  cell's z0 is in half units, so a column top on the grid is a whole number of them, and the margin is the
+  least that keeps it one), and enough that the plate's low end is SEEN to hang clear of the column's edge in
+  its lowest pose - the column's black top outline and the plate's black bottom outline never merge into one
+  line, so the plate reads as tipping, not as lying on the block. Margin 0 was the other choice: the plate's
+  low end would touch the column's edge in its end pose and read as resting there, and nothing would show it
+  free to tip back.
+
+So the gap between the plate's underside and the column's top is 2 L + 4 px at the pivot (8, 12, 16 px), and
+in an end pose 4 px at the low end and 4 L + 4 px at the high end (12, 20, 28 px). A FLAT top and not a
+ridge under the pivot: the high end's 4 L + 4 is the same either way (the column is static, so it clears the
+other end's lowest pose), and a flat top is one Tile a cell. Through that gap the eye meets the column's top
+within 16 W gu behind the plate's side, so a 1-wide plate 4 or 6 long can show a few pixels of what lies
+behind the column at the very top of its high end's gap (PREDICTED from the geometry; not seen on MILL's
+2-wide plate).
+
+**The fulcrum** (130.42.5) stands on the column: with `base`, its height is the gap at the pivot, 2 L + 4 px
+(its apex at the FLAT plate's underside, as before, its foot on the column's top edge), its half width still
+growing from 1 px at the apex to 5 at the foot. It is drawn AFTER the column of the later of the two cells
+beside it (it stands in front of the column's top) and before that cell's plate, its pixels less every pixel
+those two cells' plate draws in any of its three poses, so the plate is still drawn over it. Without `base` it
+is TL_POST (12 px), keyed as before, byte for byte.
+
+**The picture.** The column is STATIC and the picture's alone: no cell, no record, no physics (the plate's
+cells are the plate's; the ball is on the plate or falls past the column's faces, and the column's faces are
+in the picture as any block's, so the occluders cut from the picture lay them over a ball behind and below
+them, 130.10.4.4). Each plate cell's column is drawn by `draw_ops` - a block at TOP with a WALL's top (the
+dithered top 130.47.3 gives what the ball never stands on, so the recess's floor is not read as one), its
+faces over the void hanging as above - and put into the back-to-front order immediately before that plate
+cell's own ops (`tilt_base_ops`), so the plate in any pose is drawn over its column and anything in front of
+the plate over both. First in each cell's group go the faces of the cells BEHIND it (its -x and -y neighbours
+that are not the plate's) from their edge down to TOP: `draw_ops` stops a face at the plate's floor, and with
+the plate tipped up over a gap a neighbour's face must reach the column, or the gap shows the void (MILL's
+platform behind the plate's raised end, LOOKED AT). The plate's lanes (130.42.5, D8) are the change between
+the whole-picture renders of its poses, and every pose is drawn by the same ops (`_ops_of`), so the column's
+pixels a tipping plate covers or uncovers are in the change by construction: where the rest picture showed
+the void (black) under a raised end it now shows the column.
+
+**What it costs** (MEASURED, 2026-11-23): **no guest change** - `bonanza.bin` and every family part
+(`bzf-seesaw.bin` among them) and the resident bundle are byte for byte as before; FAMV, the records and the
+state are unmoved. Every shipped course, the pathway and the title compile byte for byte as before (`diff -r`
+of `bbcourse.py -o`'s output, the tool before and after: only `.bz-crs`, the tool's own hash, differs). On the
+owner's MILL with `base ground` on its 4 x 2 plate, against the same course without it: the picture part
+59,400 -> **59,444 bytes (+44)** (blocks 1,076 -> 1,078, occluder records 1,969 -> 1,981: the column hides a
+ball behind it), the plate's lanes **9 -> 9**, `check_bounds` unchanged (the worst window's changes 10, its
+lanes 18 / 21 on the two cards, the same numbers); the compile one `draw_ops` of the column a pose picture
+and three of the plate's two pivot cells for the fulcrum's trim.
+
+**The builder** (130.58.35): the see-saw's options row gains **Column under it** - none, `ground`, or a depth
+0.25 - 3 units (`bbedopts`, the `base` row; `tests/unit/t_bbedit.py` item 17 holds it to the grammar).
+
+**The proofs** (`--selfcheck --only tiltbase`, MEASURED red): item 1 the six refusals; on three one-plate
+courses (L 2 along x `base ground`, L 4 along y `base 1.5`, L 6 along x TIMED `base ground`) item 2 the
+column under every plate cell, its top at TOP with a WALL's top, its ops just before each plate cell's, its
+faces as deep as asked (24 px to the ground, 12 for 1.5 units), the plate's pixels in poses 0 - 2 the same
+as the same course's without a column (the plate drawn over it), the fulcrum 2 L + 4 px with its foot on
+TOP's edge; item 3 every pose's underside at least TL_BMARGIN clear of TOP (4 px on all three); item 4 the
+lanes cover the change - pose 2 laid from them on the rest picture equals the same plate's `rest +` picture
+drawn whole, pixel for pixel. Red arms, each red on all three plates: `tlbasehigh` (TOP a half unit higher,
+the margin 0) item 3; `tlbaseafter` (the column drawn after the plate cell's ops) item 2; `tlbasenolane` (the
+lanes cut from the poses drawn without the column) item 4.
 
 ### 130.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
 
@@ -289865,6 +289956,8 @@ Deleting the last element of a family takes its name off the `uses` line in the 
 refusal of a family named and none placed), as adding the first puts it there. **Tipped by** the ball's weight
 or a timer switches 130.42.11's TIMED form on and off (`period 64` to start); a timed plate's inspector sets its
 period (32 - 256 steps), how long it is level (`flat`, blank the default 4) and its starting step (`seed`).
+Its options row's **Column under it** (2026-11-23) writes 130.42.12's `base`: none, `ground`, or a depth of
+0.25 - 3 units.
 
 #### 130.58.36 One build for every course list: the counts are data (the owner, 2026-11-22)
 
