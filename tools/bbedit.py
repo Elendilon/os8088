@@ -3686,8 +3686,10 @@ EXPLAIN = [
     (r"the (launch|drop) tube's exit, (\w+) ball[^:]*: (\w+) at \((-?\d+), (-?\d+)\), not a landing on a FLOOR",
      "the tube itself is fine - it is where the ball LANDS. Shot out of the {0} tube's mouth, the {1} ball comes "
      "down on the {2} at ({3}, {4}), and it must land on a floor. For a launch, change its speeds (along x and y "
-     "point it at a floor, 'up' sets how high it flies); for a drop, turn the mouth ('Comes out') or change its "
-     "mouth height; or move the tube so the floor is where it lands."),
+     "point it at a floor, 'up' sets how high it flies), or raise its Mouth height so it fires from higher up - "
+     "over the face of a block it hits now (the Pipe height raises only the pipe, not where the ball comes out); "
+     "for a drop, turn the mouth ('Comes out') or change its mouth height; or move the tube so the floor is "
+     "where it lands."),
     (r"channel (\w+) has a gate and nothing opens it|channel (\w+)'s (plate|key) opens nothing",
      "a gate and what opens it are a pair: a gate needs a plate or key of its channel, and a plate or key needs "
      "a gate or bridge of its channel. Press Keep it anyway, then add the other half on the same channel "
@@ -3738,9 +3740,16 @@ EXPLAIN = [
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
      "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
      "of the game. Otherwise connect that part, or move the flag or pad."),
-    (r"its exit mouth .* is not wholly on the face of its last wall", "a DROP tube's mouth sits on the face of its "
-     "last wall (its height over the exit floor, and 9 px tall), and the pipe is too low to hold it: raise the "
-     "Pipe height (or set it to Automatic), or lower the Mouth height."),
+    (r"its exit mouth .* is not wholly on the face of its last wall", "a DROP tube's (or a raised LAUNCH's) mouth "
+     "sits on the face of its last wall (its height over the exit floor, and 9 px tall), and the pipe is too low "
+     "to hold it: raise the Pipe height (or set it to Automatic; where the pipe runs through a wall you laid, "
+     "raise that wall), or lower the Mouth height."),
+    (r"a raised LAUNCH's last wall \((-?\d+), (-?\d+)\) is too low for its mouth", "a raised LAUNCH's mouth sits "
+     "on its last wall ({0}, {1}), and the pipe there is lower than the mouth: raise the Pipe height (or set it to "
+     "Automatic), or lower the Mouth height."),
+    (r"a (DROP|raised LAUNCH)'s mouth must be on the face of the body's last wall", "a {0}'s mouth stands on the "
+     "face of the pipe's last block, so the exit cell must be right in front of it along 'Comes out': set Comes "
+     "out to the way the last leg runs (or leave it 'along its last leg')."),
     (r"the tube's column hangs nothing", "the tube's Column reaches a depth only over the void (SPEC.md 130.12.3.5): "
      "every cell of this tube's body stands on floor or beside it, so its column already stops there. Set Column "
      "reaches back to the ground, or run the tube out over a gap."),

@@ -141,6 +141,8 @@ def code(sh):
             out += " out %s" % sh["out"]
         if sh["sub"] == "launch":
             out += " speed %d %d %d" % tuple(sh.get("speed") or (0, 0, 0))
+            if sh.get("height"):                # SPEC.md 130.12.3.3 (2026-11-23): a RAISED launch's mouth
+                out += " height %s" % _g(sh["height"])
         if sh["sub"] == "drop":
             out += " height %s" % _g(sh.get("height") or 2)
         hs = leg_heights(sh)
@@ -599,6 +601,8 @@ class ShapeEditor(object):
                     new["speed"] = [192 * dx, 192 * dy, 300]
                 if k == "drop" and not sh.get("height"):
                     new["height"] = 2.0
+                if k == "keep":
+                    new["height"] = None
                 self.apply(new, "tube kind")
             choice("Kind", kv, ("keep", "launch", "drop"), setk)
             ov = tk.StringVar(value=sh.get("out") or "along its last leg")
@@ -628,6 +632,22 @@ class ShapeEditor(object):
                 for k_, (lab, lo, hi) in enumerate((("Speed along x", -512, 512), ("Speed along y", -512, 512),
                                                     ("Speed up", 0, 600))):
                     field(lab, svs[k_], lo, hi, 16, sets)
+                # SPEC.md 130.12.3.3 (2026-11-23): a RAISED launch - its mouth, where the flight starts, that many
+                # units over the exit floor, on the last wall's face as a drop's; blank fires from the floor
+                mv = tk.StringVar(value=_g(sh["height"]) if sh.get("height") else "")
+
+                def setm():
+                    v = self._fvar(mv) if mv.get().strip() else None
+                    if v is not None and v < 1:
+                        v = None
+                    if v != sh.get("height"):
+                        self.apply(dict(sh, height=v), "launch mouth height")
+                field("Mouth height", mv, 1, 12, 0.5, setm)
+                ttk.Label(self.form, text=("blank: fires from the exit floor; a height raises the mouth that many "
+                                           "units over it, on the face of the last wall (the pipe is laid tall "
+                                           "enough for it)"), wraplength=290, foreground="#555").grid(
+                    row=row[0], column=0, columnspan=2, sticky="w")
+                row[0] += 1
             bv = tk.StringVar(value=_g(sh["body"]) if sh.get("body") is not None else "")
             hs = leg_heights(sh)
             ttk.Label(self.form, text="Pipe height" if not hs or len(set(hs)) == 1 else "Every leg at").grid(
@@ -647,7 +667,9 @@ class ShapeEditor(object):
                 side="left", padx=2)
             row[0] += 1
             ttk.Label(self.form, text=("the pipe's top, in units (blank: automatic - one over the higher end, a "
-                                       "drop's just high enough for its mouth)" if sh.get("body") is None else
+                                       "drop's or a raised launch's just high enough for its mouth; it does not "
+                                       "move where the ball comes out - the Mouth height does)"
+                                       if sh.get("body") is None else
                                        "the pipe's top, in units; each leg can have its own"), wraplength=290,
                       foreground="#555").grid(row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1

@@ -661,10 +661,16 @@ def main():
         bad.append("tube: refused: %s" % str(e)[:150])
     finally:
         B.BLK_MAX = held
+    tl = dict(S.new_shape("tube", 8, 8, 2.0), sub="launch", speed=[192, 0, 300], height=2.5)    # a RAISED
+    if S.code(tl) != "tube launch 8 8 12 8 speed 192 0 300 height 2.5" or S.parse(S.code(tl).split()) != tl \
+            or S.code(dict(tl, height=None)) != "tube launch 8 8 12 8 speed 192 0 300":       # launch (130.12.3.3)
+        bad.append("launch tube: %r" % S.code(tl))
     # 13b. a tube's pipe height (`body`, SPEC.md 130.58.33): the author's, and a drop's automatic one the lowest
     B.BLK_MAX, held = 1 << 30, B.BLK_MAX
     try:
-        for tl_, want in (("tube keep 8 8 14 8 body 6", 12), ("tube drop 8 8 14 8 out +x height 2", 4 + 4 + 3)):
+        for tl_, want in (("tube keep 8 8 14 8 body 6", 12), ("tube drop 8 8 14 8 out +x height 2", 4 + 4 + 3),
+                          ("tube launch 8 8 14 8 speed 64 0 100 height 2", 4 + 4 + 3)):   # (a RAISED launch's, as a
+                                                                                       # drop's: 130.12.3.3)
             dt = E.Document(tt + tl_ + "\n")
             dt.auto_band()
             c = B.compile_course(dt.text(), "tb.bbc", occluders=False)
