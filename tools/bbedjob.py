@@ -309,7 +309,10 @@ def _needs(c, recs, out, by_block):
     hi = {id(r): (max(m["s"] for m in r.get("members") or (r,)), max(m["top"] for m in r.get("members") or (r,)))
           for r in recs}                        # (a merged record's s and top are its first member's: the test
     sb, tb, y0 = c.sbuf, c.tbuf, c.y0           # below skips on the highest of its members')
-    for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in B.feet_real(c.reach, c.tiles, c.x0, getattr(c, "cutdyn", None)):
+    dyn = getattr(c, "cutdyn", None)
+    plane = dyn is not None and (len(dyn) < 3 or dyn[2])     # (SPEC.md 130.49.9, as the cutter)
+    for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in B.feet_real(c.reach, c.tiles, c.x0, dyn):
+        pl = B.ball_plane(c.tiles, rc, c.x0, y0) if plane and flo else None
         s = rc.s
         ytop, ybot = yt0 - zhi + y0, yb0 - zlo + y0
         cell = (rc.wx, rc.wy)
@@ -327,7 +330,7 @@ def _needs(c, recs, out, by_block):
                         if sp <= s:
                             continue
                         zmax = zhi if tp > zhi else tp - 1
-                        if zmax < zlo or (flo and tp <= zlo + B.CLIMB):
+                        if zmax < zlo or (flo and tp <= zlo + B.CLIMB) or (pl is not None and tp <= pl(x, y)):
                             continue
                         if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
                             continue

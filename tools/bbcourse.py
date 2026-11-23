@@ -11490,7 +11490,7 @@ def feet_real(reach, tiles, x0, dyn=None):
     vanish) is feet()'s whole cell.  DYN is (those cells, SUB); None: feet()'s whole cells everywhere, no
     margin (the cut before 130.49, the A/B and the red arm)"""
     out = []
-    dyn, sub = dyn if dyn is not None else (None, 16)
+    dyn, sub = (dyn[0], dyn[1]) if dyn is not None else (None, 16)     # (dyn[2]: ball_plane's switch, 130.49.9)
     for rc in reach:
         t = tiles.get((rc.wx, rc.wy))
         xl, xh = foot_x(rc, x0)
@@ -11528,6 +11528,20 @@ def feet_real(reach, tiles, x0, dyn=None):
     return out
 
 
+def ball_plane(tiles, rc, x0, y0):
+    """SPEC.md 130.49.9: the plane a ball in reach cell RC rests on or flies over, as the picture's top function
+    (_top_fn: the plane's height, whole px, where a pixel's line of sight meets it) - a static sloped FLOOR whole
+    tile with its top in view (sx + sy < 4), not water (its bed is under its top) - or None.  A pixel whose
+    height is at or under it there is on or under that plane, and a ball over the plane is never behind it: a
+    step toward the viewer (+1 gu x, +1 gu y, +1 px z, the same pixel) climbs (sx + sy) / 4 px of the plane and
+    1 of the line, so the line stays over it"""
+    t = tiles.get((rc.wx, rc.wy))
+    if not isinstance(t, Tile) or t.kind != KIND_FLOOR or not (t.sx or t.sy) or t.sx + t.sy >= 4 \
+            or t.wbed is not None or t.slab is not None:
+        return None
+    return _top_fn(t, rc.wx, rc.wy, x0, y0)
+
+
 def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, show=FSHOW, lift=CLIMB, dyn=None,
                avsplit=()):
     """-> (records, occ pixel set): SPEC.md 130.10.4.4.  A pixel is an occluder
@@ -11543,6 +11557,8 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, s
     w, h = cv.w, cv.h
     tiles = tiles or {}
     fcells = []
+    plane = dyn is not None and (len(dyn) < 3 or dyn[2])   # (SPEC.md 130.49.9; _hack rampplane False: the red arm)
+    planes = {}
     for rc, zlo, zhi, xl, xh, yt0, yb0, flo, vd in feet_real(reach, tiles, x0, dyn):
         if vd and id(rc) in avsplit:            # (SPEC.md 130.49.4: a split cell's VOID square is the model's)
             continue
@@ -11556,6 +11572,11 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, s
         ybot = yb0 - zlo + y0
         if xl > xh:
             continue
+        pl = None
+        if plane and flo:                       # (SPEC.md 130.49.9: a ball on a ramp is never behind its plane)
+            pl = planes.get(id(rc), 0)
+            if pl == 0:
+                pl = planes[id(rc)] = ball_plane(tiles, rc, x0, y0)
         for y in range(max(ytop, 0), min(ybot, h - 1) + 1):
             sr = cv.sbuf[y][xl:xh + 1]
             if max(sr) <= s:                     # (no pixel of the line is a later row's)
@@ -11567,6 +11588,8 @@ def _occluders(cv, reach, x0, y0, cols, brows, tiles=None, sub=None, _raise=0, s
                     continue
                 zmax = zhi if tp > zhi else tp - 1   # the highest ball the pixel still hides
                 if zmax < zlo or (flo and tp <= zlo + CLIMB):   # (OVER A FLOOR: the low-flight margin, below)
+                    continue
+                if pl is not None and tp <= pl(x, y):           # (on or under the ball's own plane, 130.49.9)
                     continue
                 # above every footprint low enough - a ball at whole height zmax
                 # with a FRACTION (any zmax below the apex) has its top a line
@@ -13737,8 +13760,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         set(gcells) | set(rails) | ttcells | bridges | set(slabcells) | {c_ for sw in src.seesaws for c_ in sw["cells"]}
         | {c_ for (t_, _z) in tt_tabs.values() for c_ in [t_["at"]]}
         | {p["at"] for p in props if isinstance(p.get("at"), tuple)})
-    if dyn is not None:
-        dyn = (dyn, hack.get("realsub", FOCC))
+    if dyn is not None:                             # (SPEC.md 130.49.9: _hack rampplane False, the red arm)
+        dyn = (dyn, hack.get("realsub", FOCC), hack.get("rampplane", True))
     # SPEC.md 130.53: `noocclude` - the cells no ball needs occluding in: no record is cut for a position there
     # (the gate's flags and the merge's queries keep the whole reach); refused on the start and on a way
     noocc = frozenset(c_ for cs_, _l in src.noocc for c_ in cs_) if not hack.get("nonoocc") else frozenset()
@@ -35653,6 +35676,102 @@ def _sc_pipeover(X, res):
             what, "; ".join(w[:70] for w in caught) or "NOT CAUGHT"), any(want in w for w in caught)))
 
 
+# SPEC.md 130.49.9: the test course of the ball-plane rule - a 2-wide ramp down toward the viewer (MILL's first ramp's
+# shape, beside a wall behind it) and a ramp down along x with a wall in front of it, on no disk
+_RAMPPLANE = ('course P "p"\nwidth 96\norigin 384\nfloor rect 6 6 12 9 flat 12\nfloor rect 7 9 9 15 ramp y 9 15 12 3\n'
+              'floor rect 12 6 16 8 ramp x 12 16 12 4\nfloor rect 16 6 17 15 flat 4\nfloor rect 6 15 13 17 flat 3\n'
+              'goal rect 13 15 17 17 flat 3\nwall rect 6 9 7 15 flat 16\nwall rect 12 8 16 9 flat 16\n'
+              'wall rect 5 5 18 6 flat 40\nwall rect 5 6 6 18 flat 40\nstart 8 7\n')
+
+
+def _rampplane_poses(c):
+    """SPEC.md 130.49.9 on a compiled course: at the REAL poses on every cell with a ball plane (ball_plane: its
+    centre on a 2 gu lattice, every whole height from its floor to BZ_CLIMB + 2 over it, with and without a
+    fraction, both air states) -> (lit ball pixels the guest's records lay that are ON the ball's own plane,
+    lit pixels the rule hides off it, of those the ones no record lays, poses)"""
+    wrong = hid = miss = n = 0
+    for rc in c.reach:
+        pl = ball_plane(c.tiles, rc, c.x0, c.y0)
+        if pl is None or (rc.wx, rc.wy) in getattr(c, "noocc", ()):
+            continue
+        for v in range(0, 16, 2):
+            for u in range(0, 16, 2):
+                gx, gy = (16 * rc.wx + u) << 8, (16 * rc.wy + v) << 8
+                zl, f = pose_of(c, rc, gx, gy)
+                px = ((gx - gy) >> 8) + c.x0 - 8
+                for z in range(zl, min(zl + CLIMB + 2, rc.zhi) + 1):
+                    for fr in (0, 128):
+                        py = ((((gx + gy) >> 1) - (z << 8) - fr) >> 8) + c.y0 - 13
+                        for air in (0, 1):
+                            air = oair_at(air, z, f)
+                            m = 0 if air else CLIMB
+                            n += 1
+                            laid = set()
+                            for r in laid_at(c, px, py, rc.s, z, air):
+                                laid |= r["pix"]
+                            for (x, y) in ball_pixels(px, py):
+                                if c.tbuf[y][x] == pl(x, y):
+                                    wrong += (x, y) in laid
+                                elif c.sbuf[y][x] > rc.s and c.tbuf[y][x] > z + m:
+                                    hid += 1
+                                    miss += (x, y) not in laid
+    return wrong, hid, miss, n
+
+
+def _sc_rampplane(X, res):
+    """--selfcheck's section `rampplane` (SPEC.md 130.49.9): a ball on a ramp is never laid over by that ramp's own
+    plane, the rule still lays everything off it, the shipped courses cut nothing ON a ramp ball's plane for it -
+    and the red arm, the rule left out, caught"""
+    c = compile_course(_RAMPPLANE, "<rampplane>")
+    w, hid, miss, n = _rampplane_poses(c)
+    res.append(("5 rampplane (130.49.9): on its test course's two ramps, at %d real poses, the records lay %d lit ball "
+                "pixels ON the ball's own plane, and every one of the %d the rule hides off it (a wall in front, the "
+                "next floor) - %d missed" % (n, w, hid, miss), n > 0 and w == 0 and hid > 0 and miss == 0))
+    r = compile_course(_RAMPPLANE, "<rampplane>", _hack={"rampplane": False})
+    w2, _h2, miss2, _n2 = _rampplane_poses(r)
+    res.append(("5 rampplane negative control: the rule left out (rampplane False) lays %d lit pixels ON a ramp ball's "
+                "own plane, %d records against %d - caught" % (w2, len(r.records), len(c.records)),
+                w2 > 0 and len(r.records) > len(c.records) and miss2 == 0))
+    # the shipped courses: no CUT pixel is one a ball plane holds for that plane's own ball alone - each pixel
+    # the cut keeps ON a ramp position's plane is needed by another position (the rule's own test, pixel by pixel)
+    bad = []
+    for cc in X.courses:
+        dyn = getattr(cc, "cutdyn", None)
+        if not dyn:
+            continue
+        own = {}
+        for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in feet_real(cc.reach, cc.tiles, cc.x0, dyn):
+            pl = ball_plane(cc.tiles, rc, cc.x0, cc.y0) if flo else None
+            if pl is None or (rc.wx, rc.wy) in getattr(cc, "noocc", ()):
+                continue
+            for y in range(max(yt0 - zhi + cc.y0, 0), min(yb0 - zlo + cc.y0, cc.lines - 1) + 1):
+                for x in range(max(xl, 0), min(xh, cc.width - 1) + 1):
+                    if (x, y) in cc.occpix and cc.sbuf[y][x] > rc.s and cc.tbuf[y][x] == pl(x, y):
+                        own.setdefault((x, y), set()).add((rc.wx, rc.wy))
+        if own:                                 # (every position's test, the ball-plane rule its own: a FIELD
+            need, rows = {}, {}                 # cell and a VOID one at their whole cells, a superset of the cut's)
+            for (x, y) in own:
+                rows.setdefault(y, []).append(x)
+            for rc, zlo, zhi, xl, xh, yt0, yb0, flo, vd in feet_real(cc.reach, cc.tiles, cc.x0, dyn):
+                pl = ball_plane(cc.tiles, rc, cc.x0, cc.y0) if flo else None
+                for y in range(max(yt0 - zhi + cc.y0, 0), min(yb0 - zlo + cc.y0, cc.lines - 1) + 1):
+                    for x in rows.get(y, ()):
+                        if not xl <= x <= xh or (x, y) in need:
+                            continue
+                        sp, tp = cc.sbuf[y][x], cc.tbuf[y][x]
+                        zmax = zhi if tp > zhi else tp - 1
+                        if sp <= rc.s or zmax < zlo or (flo and tp <= zlo + CLIMB) or \
+                                (pl is not None and tp <= pl(x, y)) or y < yt0 - zmax + cc.y0 - (1 if zmax < zhi else 0):
+                            continue
+                        need[(x, y)] = True
+            lone = [p_ for p_ in own if p_ not in need]
+            if lone:
+                bad.append("%s %d px, %s" % (cc.name, len(lone), sorted(lone)[:2]))
+    res.append(("5 rampplane: every shipped course's cut keeps a pixel ON a ramp position's own plane only where "
+                "another position needs it (%s)" % ("; ".join(bad) or "none alone, %d courses" % len(X.courses)),
+                not bad))
+
+
 def _clockocc_checks(res, courses, _hack=None):
     """item 17 (SPEC.md 130.18.5.4): on each course of COURSES with a clock (FIRST alone, recompiled with _HACK,
     when _hack is given - the red arms), the clock is an OCCLUDER: its face's pixels (the shadow apart) keyed at
@@ -39284,7 +39403,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_tiltbase", "_sc_turn",
              "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder",
-             "_sc_pipeover")
+             "_sc_pipeover", "_sc_rampplane")
 
 
 def _selfcheck(paths, res, skipped, S):

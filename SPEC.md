@@ -296798,6 +296798,69 @@ other did not) are not quoted.
 `bonanzaperf` (the fall legs), `bonanzawheel`, `bonanzapath`, `bonanzatitle`,
 `bonanzaexit`, `bonanzamega`.
 
+#### 130.49.9 A ball is never behind its own ramp (the owner, 2026-11-23)
+
+The owner, on MILL's occluder map: *"The only big miss on green is the
+center areas of the first ramp. That ramp has a side wall along it, so you
+can't fall behind it at all ... at one point we had a bug that tried to
+obscure the ball as it was bouncing down while on top of a ramp; this could
+be similar."* It was. MILL's first ramp (`floor rect 13 9 15 16 ramp y ...`,
+two cells wide, 12 px down a cell) cut, for a ball resting on its LEFT column
+(13, y), the RIGHT column (14, y)'s top pixels at that cell's back: one cell
+row later (`s + 1`) and, up the slope, up to 12 px over the floor at the
+ball's front - past 130.49.6's `BZ_CLIMB` margin, which only covers 4. The
+rule (130.10.4.4: a later row, a higher top) is a painter's key, and on a
+slope it is wrong: those pixels are the very plane the ball rests on.
+
+**The rule.** For a position over a static sloped FLOOR whole tile (a
+`feet_real` square over floor alone; not water, whose bed is under its top,
+and not a tile whose top faces away, `sx + sy >= 4` quarter px a ground
+unit), the cutter (`_occluders`) lays no pixel whose top is AT OR UNDER that
+tile's plane where the pixel's line of sight meets it (`ball_plane`, the
+picture's own top function `_top_fn`). The proof: one step toward the viewer
+along a line of sight is +1 gu in x and y and +1 px in z; the plane climbs
+`(sx + sy) / 4` px on it, under 1, so a point over the plane stays over it
+nearer the viewer - and a ball over its plane has every pixel's point on
+or under the plane behind it, never in front. Physics never leaves a ball's
+centre under the floor of the record under it (130.49.5), so every real
+pose is over the plane. A face's or a rail's `tbuf` is its TOP EDGE's height,
+above its own pixel's point, so the test is conservative there; a pixel of
+the same ramp's next cell is exactly on the plane, the same function, and is
+the case this was written for. What a rail, a wall, a raised floor or a prop
+hides is untouched, and so is every other position's cut - a pixel another
+position needs is still laid, record by record, over the ramp ball too (the
+guest's test is the record's `s` and top, 130.11.4).
+
+Not taken (yet): a flat floor at the FOOT of a ramp rising toward the
+viewer is under that ramp's plane too, so the ramp cannot hide a ball on
+it either - but that needs the pixel's own plane (its owner's), not the
+ball's; the cutter keeps those records.
+
+**Measured** (the shipped and test courses, `_hack rampplane False` against
+this rule; every pixel removed is a ramp top's own, `tbuf` its owner's
+plane, and no kept pixel changed):
+
+| course | records | masks | stored bytes |
+|---|---|---|---|
+| DOWN | 2,164 -> 2,058 | 210 -> 198 | -640 |
+| MILL | 1,978 -> 1,916 | 175 -> 162 | -482 |
+| MOON | 1,035 -> 959 | 78 -> 65 | -538 |
+| SUMMIT | 1,356 -> 1,272 | 77 -> 65 | -552 |
+| ROLL | 1,092 -> 1,064 | 142 -> 139 | -166 |
+| HOP | 899 -> 851 | 119 -> 109 | -372 |
+| TRIAL | 212 -> 158 | 52 -> 43 | -378 |
+| TMIL | 288 -> 260 | 44 -> 37 | -238 |
+| TPLY | 596 -> 573 | 75 -> 71 | -164 |
+| FIRST, PLAYGROUND, BENCH, TQUIK, TCUP, TLFT, TWIDE, TTALL | unchanged | | |
+
+**The checks**: `--selfcheck` section `rampplane` - on its test course
+(`_RAMPPLANE`: a two-wide ramp down toward the viewer beside a wall, and one
+down along x with a wall in front), at every real pose on the ramps the
+records lay no lit ball pixel on the ball's own plane, and lay every one the
+rule hides off it; the red arm (`_hack rampplane False`) lays some and is
+caught; and on every shipped course, a pixel the cut keeps on a ramp
+position's plane is one another position needs.
+
 ### 130.50 Songs in their courses, the sound in the bundle (the owner, 2026-11-19)
 
 The owner: *"Victory/death are sounds always loaded, and each course's song
