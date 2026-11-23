@@ -290656,6 +290656,112 @@ the slab intervals that replace them (MILL, a position: the model 4.4k -> 9.6k c
 the record walk only -0.6k), so no trim of this guest reaches parity. Both bars fail; the row stays passed
 over. The built design is kept as `docs/plans/retired/bonanza-av-float-slab.patch` for its lesson.
 
+**A precomputed far list, and the cheap float, MEASURED in the model** (2026-11-23; the owner's two ideas:
+*"those blocks don't have 4 layers ... Is that something we could make a very simple, coarse mask for and build
+ahead of time? Would that save AV calculation time in general?"* and, on floats, *"Sometimes the issue is the
+implementation rather than the idea"*). Research only: neither is built; the model, the residual cut and the
+measurements are `docs/plans/bonanza-av-far/` (`avfar.py` patches `av_residual`; MEASURED is the tool's
+records, masks and the parts packed LZB as `os88pkg` packs them, this tree, the eight `BZ_COURSES`; clocks are
+PREDICTED, 130.15.5.2's method on the guest's own `bz_arange` / `bz_ahalf` lines and on a sketch,
+`sk_far.asm`, priced by `price.py`).
+
+*What the depth is worth* (MEASURED, the residual at depth 18 against 4, no other change): records 10,415 ->
+9,226, the parts -2,785 bytes LZB (MILL -882, HOP -353, DOWN -393, PLAY -325, PEAK -297, ROLL -246, MOON -184,
+FIRST -105), masks fewer on seven courses (PLAY 221 -> 224). Depth 12 takes MILL's -848 of its -882. That is the ceiling of every
+form of idea (1), and it is small beside 130.29.6's -5.7 KB: a coarse dataset has to cost well under it.
+
+*The forms of (1) priced*:
+
+| form | the dataset | does it pay | verdict |
+|---|---|---|---|
+| a SKYLINE per grid row and word column (130.29.12's row above) | a byte a word column a grid row: MILL 128 x 83 = 10,624 bytes raw | no: 12 x MILL's whole ceiling | not taken (PREDICTED) |
+| a flag "nothing past d = 4 matters here" | a bit a VOID cell | today's AV reads nothing past 4, so there is nothing to skip | nothing to buy |
+| a COVER threshold: under it the ball is wholly hidden, so skip the front walk | a byte a VOID cell | MEASURED on MILL: only **0.4%** of the (VOID cell, height) positions are wholly hidden (258 of 61,834; 3% of those with ten or more counting halves) - the ball deep in the void is under the ground plane, where nothing is drawn | no general speed-up: not taken |
+| **a FAR LIST per VOID cell** | the few whole front cells at `i + j` 5 - 18 that hide a residual pixel, picked by the tool | below | **the one that pays** |
+
+*The far list* (MEASURED in the model). The tool picks, for each VOID position, front cells past depth 4 -
+whole FLOOR / WALL / GOAL cells, not `OBS`, not `FL_FLOAT` - greedily by the residual pixels each hides, and
+the residual is cut with them in the model; nothing else moves. The greedy reaches the depth-18 ceiling exactly
+(MILL 1,453 records, 185 masks, the same LZB). The lists are SHORT, as the owner guessed: MILL **102 VOID
+cells** of 540 need one, 179 entries, at most 4 a cell (54 hold one, 23 two), depths 5 - 15; over the eight
+courses 9 - 121 cells a course, at most 4. Two filters make it safe against the bars:
+- **the worst frame** - each list is trimmed (last pick first) until no height of its cell prices over the
+  course's own WORST entering frame under today's model (`avproxy.py`: 14 front reads at 670 clk, each counting
+  half the parent shadow leaves 780 + 111 a footprint column, each far entry 1,360). Trimmed: MILL 1 entry, PEAK
+  6, MOON 3, PLAY 32, the rest none;
+- **WRONG-HIDE** - unfiltered, MILL's rose **0.0018% -> 0.1875%** of the ball's lit pixels (item 15's bound is
+  0.25%), its worst position a whole ball: a far cliff's face is "everything under its edge" only down to the
+  ground plane, and a ball falling 100 px into the void behind it is below that. So a candidate is refused
+  where it hides any pixel of its cell's footprint superset that the rule shows at a height of the cell's
+  range: 15 refused on MILL, none elsewhere, and WRONG-HIDE is then today's exactly (MILL 1,813 pixels, PEAK
+  30, DOWN 40, HOP 0; `avwrong.py`, `av_wrong` with the lists in the model).
+
+The dataset as stored (`avdata.py`, MEASURED): a VOID cell's byte +1 (its slopes byte, 0 on every VOID cell and
+read by no physics routine, which dispatches on the kind first: `bz_blocks`, `bz_tslope`, the floor function)
+holds 1 + its list's offset in a FAR LISTS blob of at most 255 bytes (a count, then a byte `i << 4 | j` an
+entry, lists shared); the blob in the world part. With both filters:
+
+| course | records | masks | parts LZB | the dataset LZB (blob + the grid bytes) | net |
+|---|---|---|---|---|---|
+| FIRST | 68 -> 58 | 30 -> 26 | 1,396 -> 1,291 | +16 (4 + 12) | **-89** |
+| DOWN | 2,058 -> 1,877 | 198 -> 187 | 14,799 -> 14,406 | +185 (46 + 139) | **-208** |
+| MILL (the owner's) | 1,808 -> 1,455 | 223 -> 187 | 19,225 -> 18,357 | +328 (146 + 182) | **-540** |
+| MOON | 912 -> 827 | 60 -> 55 | 6,449 -> 6,265 | +142 (61 + 81) | **-42** |
+| PEAK | 1,237 -> 1,086 | 60 -> 58 | 8,039 -> 7,742 | +233 (113 + 120) | **-64** |
+| PLAY | 2,427 -> 2,296 | 221 -> 229 | 18,055 -> 17,841 | +171 (38 + 133) | **-43** |
+| ROLL | 1,064 -> 985 | 139 -> 133 | 8,782 -> 8,536 | +117 (18 + 99) | **-129** |
+| HOP | 841 -> 684 | 109 -> 103 | 9,251 -> 8,898 | +107 (32 + 75) | **-246** |
+| **the eight** | **10,415 -> 9,268** | 1,040 -> 978 | **-2,660** | **+1,299** | **-1,361** |
+
+The grid bytes cost more than the blob (about 1.3 - 1.9 bytes LZB a listed cell: a non-zero byte in a run of
+zeros). Masks fall on seven courses; PLAY gains 8.
+
+*The guest* (PREDICTED, not built): at a NEW V, after the front table (`.listed`, a full read or the
+neighbour's), V's byte +1; each entry's two halves appended to the EXTRA slots (`bz_axl`, the split pieces'
+region, 130.49.3) as `bz_axcell` writes them, the count set's interval as `.cell`'s; `bz_arange` and the count
+loop already walk the extra slots, unchanged. The neighbour test reads a new end-of-pieces word instead of
+`bz_axe`, so a far list does not force the next V to read whole. About **280 - 300 bytes of code** (the sketch
+281), 2 of bss; the tool refuses pieces plus far halves past `BZ_AXMAX`. **`BONANZA.O88` about -1.1 KB net**
+(the parts' -1,361 MEASURED less the code). Clocks a frame:
+- a new V with no list: **+0.1k** (the byte read, PRICED 96 clk); with a list, **+1.36k an entry** (at most 4)
+  and each COUNTING far half 0.78k + 0.11k a footprint column (`bz_arange`'s extra-slot half and `bz_ahalf`'s
+  column, PRICED from the guest's lines);
+- a frame in the same cell: unchanged, but for about 40 clk a far half when the count set is re-read;
+- **the worst frame**: no cell's entering frame prices over its course's worst under today's model (the
+  trim above). Without the trim the proxy's worst rose MILL 24.6k -> 27.6k and PEAK 24.6k -> 31.3k;
+  over MILL's route demo (38 model frames) the mean 1.6k -> 1.7k, the worst 14.3k -> 18.3k, HOP's (64) 1.7k ->
+  2.0k and 11.7k -> 17.4k - within the courses' worst, slower in the mean. **It is not faster**: what makes the
+  worst frame is the near walk's many counting cells, and no far list touches those.
+
+*The cheap float* (idea 2, MEASURED in the model and NOT TAKEN): a float front cell counted as a WHOLE cell at
+the keys at which the ball's lowest line in V (`8 s + 17 + Y0 - z`) is above its slab's lowest bottom (the
+float row's `B(x)`, its least over the cell's columns - one key floor a slot, one compare; or, the upper
+bound, per column). Sound: there the float's top and slab are all the ball can be under. Against today:
+
+| | DOWN | MILL | PLAY | HOP |
+|---|---|---|---|---|
+| records, per cell | 2,058 -> 1,939 | 1,808 -> 1,807 | 2,427 -> 2,294 | 841 (none) |
+| masks, per cell | 198 -> **202** | 223 -> 222 | 221 -> **230** | 109 |
+| parts LZB, per cell | **+80** | -9 | **+79** | 0 |
+| parts LZB, per column | +83 | +55 | +3 | 0 |
+
+Fewer records and MORE bytes: the floats' keys cut the residual into more, smaller, differently shaped records
+and more masks - the float row's lesson again, without its intervals. HOP's floats are never in front of a VOID
+position at a height that counts. Its guest would be about 170 - 200 bytes (a key floor a slot in a parallel
+table the neighbour copies, the two-bound interval, a "something counts" flag the `aminc` shortcut loses) and
+the entering-frame proxy's worst rises MILL 24.6k -> 25.7k, DOWN 23.7k -> 26.0k and PLAY 17.8k -> 26.1k, the
+glass path's islands among them (MILL: 4,073 of 37,840 positions change, the worst +16.3k). It fails both
+bars before the code; HOP's route (22 model frames beside a float) moves +0.4k at worst, MILL's route demo has
+no model frame beside one.
+
+So, for the owner: **(1) as a far list is a net byte win (about -1.1 KB) that holds the worst frame and keeps
+WRONG-HIDE where it is, and is not a speed-up; (2) as the cheap float does not pay.** To build (1) next: the
+tool's pick and both filters as `avfar.py` has them, the list in byte +1 and the blob, item 15's completeness
+unchanged (the residual is cut from the same lists the guest reads) plus WRONG-HIDE compared with `--occ void`'s
+before it, red arms an entry dropped in the guest (completeness) and the WRONG-HIDE filter off (MILL's 0.19%);
+and the proxy's budget re-priced from `tests/bonanza_av.py --price` on the built guest before it is trusted
+as the worst frame's guard.
+
 ### 130.30 Two-segment courses (the owner's brief, 2026-11-17)
 
 **The brief.** A course must be able to pass ONE 64KB segment: the owner's
