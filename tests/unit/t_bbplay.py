@@ -24,6 +24,12 @@
     place, in tt_pose at the physics' step, Heavy's drawn poses made stale on purpose (LAGGED: the stale);
  8. EVERY LANE OF MILL (windmills, clocks, posts, flags, seesaw, the jump, turntable cells) drawn in
     Heavy.pose_now at its own place, the ball poked beside each.
+ 9. THE AUTOPILOT (SPEC.md 130.58.50): a course whose last leg crosses a gap no Hop clears - no plan, so the
+    search's furthest progress and the arrows on, ending the step before the fall, heading for way 2; Roll replays
+    the keys to the bare replay's world state, way and cell (rewound and again, and on the full compile), the note
+    names way 2, its cell, line and the fall, the way is ringed red; bridged, the planner's run finishes; plan_job
+    reports a search line and writes the same keys. Red by hand (2026-11-23): Roll.frame not calling auto() (the
+    Roll "heading for way 1"), autopilot_run playing the falling step ("timed out ... falls 6").
 
 Red by hand (2026-11-23): Art.lane looking a lane up by the record's index (items 7 and 8); the default
 pose Heavy's drawn one (item 7).
@@ -197,6 +203,93 @@ def item8(bad, mill):
           "while checked" % (len(seen & want), len(want), ", ".join(map(str, kinds)), len(changed)))
 
 
+GAP = ('course V "v"\nwidth 128\nfloor rect 12 4 20 7 flat 4\nfloor rect 12 12 20 16 flat 4\n'
+       'goal rect 17 14 19 16 flat 4\nstart 13 5\nway 13 5\nway 18 5\nway 18 14\n')
+BRIDGE = "floor rect 12 7 20 12 flat 4\n"
+
+
+def item9(bad):
+    """THE AUTOPILOT (SPEC.md 130.58.50): on a course whose last leg crosses a gap no Hop clears, autopilot_run
+    finds no plan and gives the search's furthest progress and the arrows on, ending the step before the fall,
+    heading for way 2; Roll replays its keys frame by frame to that end - the world state a bare Physics replay
+    has, the way it heads for, no fall - rewinds and replays again to it, and replays on the full compile; the
+    note names the way, its cell and why; the route is drawn with the way it heads for ringed. Bridged, the run is
+    the planner's and finishes. plan_job reports progress and writes the same run"""
+    import io
+    import contextlib
+    import json
+    import tempfile
+    c = P.compile_play(GAP, "gap.bbc")
+    w = {}
+    r = B.autopilot_run(c, None, w)
+    if (r["how"], r["reason"], r["goal"], r["wp"]) != ("partial", "fell", False, 2) or not w.get("pass"):
+        bad.append("9: the gap's run is %r (passes %r), not partial / fell / way 2"
+                   % ({k: v for k, v in r.items() if k != "keys"}, w.get("pass")))
+        return
+    pts = [B._way_point(c, (x, y)) for x, y, _ln in r["route"]]
+    q = B.Physics(c, play=True)
+    q.tsec = 0
+    q.route = list(pts)
+    for k in r["keys"]:
+        q.auto()
+        q.step(k)
+    ro = P.Roll(c, script=r["keys"], route=pts)
+    while not ro.script_over() and ro.nframe < 5000:
+        ro.frame(0)
+    end = P.wstate(ro.p)
+    if len(ro.keys) != len(r["keys"]) or end != P.wstate(q):
+        bad.append("9: the Roll's replay ends at %r after %d steps, a bare replay at %r after %d"
+                   % (end[:8], len(ro.keys), P.wstate(q)[:8], len(r["keys"])))
+    if ro.p.wp != r["wp"] or ro.p.nfall or [ro.p.gx >> 12, ro.p.gy >> 12] != r["cell"]:
+        bad.append("9: the Roll ends heading for way %d, %d falls, at %r - the run said way %d at %r"
+                   % (ro.p.wp, ro.p.nfall, [ro.p.gx >> 12, ro.p.gy >> 12], r["wp"], r["cell"]))
+    ro.rewind()
+    while not ro.script_over() and ro.nframe < 5000:
+        ro.frame(0)
+    if P.wstate(ro.p) != end:
+        bad.append("9: rewound and replayed, the autopilot's run ends elsewhere")
+    held, B.TRAP_CHECK = B.TRAP_CHECK, False        # (the builder's default: the goal no ball reaches is the point)
+    try:
+        full = P.compile_full(GAP, "gap.bbc")
+    finally:
+        B.TRAP_CHECK = held
+    if P.wstate(ro.replay_on(full).p) != end:
+        bad.append("9: the autopilot's run replayed on the full compile ends elsewhere")
+    note = P.stuck_note(dict(r, branch=None))
+    if "heading for way 2 of 2 at (18, 14), line 9" not in note or "falls off" not in note:
+        bad.append("9: the note is %r" % note)
+    art = P.Art(c)
+    win, org = art.window(ro)
+    im = P.to_rgb(win, P.palette(c.src))
+    im = im.resize((3 * im.size[0], 3 * im.size[1]))
+    nred = sum(1 for px in P.route_marks(im, ro, org, 3, 3).getdata() if px == (255, 40, 40))
+    if not nred:
+        bad.append("9: no red mark for the way the autopilot heads for")
+    cb = P.compile_play(GAP + BRIDGE, "gap.bbc")
+    rb = B.autopilot_run(cb)
+    rr = P.Roll(cb, script=rb["keys"], route=[B._way_point(cb, (x, y)) for x, y, _l in rb["route"]])
+    while not rr.script_over() and not rr.p.goal and rr.nframe < 5000:
+        rr.frame(0)
+    if (rb["how"], rb["goal"]) != ("plan", True) or not rr.p.goal or "it finishes" not in P.stuck_note(rb):
+        bad.append("9: bridged, the run is %r and its Roll %s" % ((rb["how"], rb["goal"]),
+                                                                  "finishes" if rr.p.goal else "does not finish"))
+    with tempfile.TemporaryDirectory() as td:
+        src, out = os.path.join(td, "gap.bbc"), os.path.join(td, "plan.json")
+        with open(src, "w") as f:
+            f.write(GAP)
+        so = io.StringIO()
+        with contextlib.redirect_stdout(so):
+            rc = P.plan_job(src, out, "gap.bbc", every=0.02)
+        lines = [json.loads(x) for x in so.getvalue().splitlines() if x.startswith("{")]
+        got = json.load(open(out)) if rc == 0 and os.path.exists(out) else {}
+        if rc or not any(x.get("stage") == "plan" for x in lines) or got.get("keys") != r["keys"]:
+            bad.append("9: plan_job rc %d, stages %r, keys %s" % (rc, sorted({x.get("stage") for x in lines}),
+                                                                   "the same" if got.get("keys") == r["keys"] else
+                                                                   "DIFFERENT"))
+    print("9: the gap's autopilot: %s, %d steps, %s heading for way %d; bridged: %s, %d steps, goal %s; red marks %d"
+          % (r["how"], len(r["keys"]), r["reason"], r["wp"], rb["how"], len(rb["keys"]), rb["goal"], nred))
+
+
 def main():
     bad = []
     with open(os.path.join(ROOT, MILL), "r", encoding="ascii", newline="") as f:
@@ -356,6 +449,7 @@ def main():
     # 7. the props' poses: what the ball meets (SPEC.md 130.58.48)
     item7(bad)
     item8(bad, full)
+    item9(bad)                                  # 9. the autopilot (SPEC.md 130.58.50)
 
     for b in bad:
         print("FAIL " + b)

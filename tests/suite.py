@@ -5192,15 +5192,19 @@ SOAK = [
         "flipped (the table and the translated part both fail), glass's "
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
-    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 10.0,
+    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 64.0,
         "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.58.3 - 130.58.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
         "names every position: `half`, a ramp's span, water's ripple cell); a flag wholly behind a wall WARNS, "
         "is REFUSED under --strict and under a course's own `strict`, raises nothing when `hidden` and is "
         "accepted by `accept hidden X Y`; a magnet placed adds `uses magnet`; a ramp cut into a floor moves no other cell (130.58.13) and a floor past the picture gets the narrowest width and origin that hold it (80 columns, origin 224: the compiler refuses 72), never past 160; a ramp made floor again rejoins into its one rectangle as one undo step, and a route point is the last thing a click at its cell reaches (130.58.14); PLAY's split cells report their pieces, picked by the point, and a boost pad, magnet or membrane wholly behind a wall builds with a warning (130.58.15); gap bands marked, folded, split and unmarked on a constructed ledge with the compiler's `marked` agreeing each step (130.58.21); every shipped chute, pit and hump read and written back, and a chute made, dragged, turned and reversed, a pit and a ridge compiled, the steered chute and the ridge ridden through by every ball (130.58.19); the shipped map's lines read back, a pad moved with its routes, a course put on the map (130.58.20); a stranded route point moved to the floor in the edit's undo step, a ramp reshaped keeping its slope (130.58.22). secs re-measured (8 s, with the compiler speed-ups). Red by hand: coord_slots without "
-        "its `half` skip (DOWN's split cells), _visual raising again (three cases), toggle_gap keeping a piece that bands nothing, a chute corner dragged without its neighbours, a route bridge with no corner, relocate_ways with no reach. secs measured (6.9 s)"),
-    Row("bbplay", "soak", py("tests/unit/t_bbplay.py"), 16.0,
+        "its `half` skip (DOWN's split cells), _visual raising again (three cases), toggle_gap keeping a piece that bands nothing, a chute corner dragged without its neighbours, a route bridge with no corner, relocate_ways with no reach. Item 25 (SPEC.md 130.58.49): the route's warnings - a way by a "
+        "see-saw, a leg over no floor, a tube mouth off the route, a windmill doorway left sideways - each named "
+        "on its way and not on its negative control, not named on a leg a run takes, carried by the check job "
+        "under --strict, explained, with their fix buttons; the toolbar's Autopilot command line. secs measured "
+        "(64 s for the whole row, 2026-11-23; item 25 1.3 s)"),
+    Row("bbplay", "soak", py("tests/unit/t_bbplay.py"), 28.0,
         "TEST ROLL (SPEC.md 130.58.16), host only, no Tk: the course builder's player plays MILL on "
         "bbcourse's own Physics, Glide and Heavy. If it goes red the builder's Test Roll is lying to the "
         "author: the PLAY-ONLY compile (no occluders, BLK_MAX lifted for that call alone) no longer steps "
@@ -5212,7 +5216,12 @@ SOAK = [
         "the same state, or a prop's lane is drawn in another pose or another prop's picture than the physics "
         "has at that step (items 7, 8: TURN's turntables, every lane of MILL, SPEC.md 130.58.48). Red by "
         "hand: the ball drawn at px + 1 (item 4), the RETURN pulse left out of the log (items 5, 6), BLK_MAX "
-        "left lifted (item 1), a lane looked up by the record's index (items 7, 8). secs measured (15.2 s)",
+        "left lifted (item 1), a lane looked up by the record's index (items 7, 8). Item 9 (SPEC.md "
+        "130.58.50): the AUTOPILOT's run on a course whose last leg no Hop clears - the planner's furthest "
+        "progress and the arrows on, ending before the fall heading for way 2 - replayed by Roll to the bare "
+        "replay's state and way (rewound, and on the full compile), its note and red mark; bridged, the "
+        "planner's run finishes; plan_job's progress and keys. Red by hand: Roll.frame without auto(), the "
+        "falling step played. secs measured (28.0 s, 2026-11-23)",
         needs=("pil",)),
     Row("bbblend", "soak", py("tests/unit/t_bbblend.py"), 330.0,
         "THE BLEND CHECK (SPEC.md 130.58.6, 130.58.18), host only: a floor 4 units behind and below another, its "

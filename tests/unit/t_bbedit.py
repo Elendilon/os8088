@@ -103,6 +103,16 @@
  24. SEVERAL AT ONCE (SPEC.md 130.58.47): a rectangle selects every shipped record, Ctrl-click in and out, the
     union of their cells made noocclude in ONE edit that one Undo takes back, several noocclude cells taken out in
     one. Red by hand: toggle only adding, or noocclude split into two edits.
+ 25. THE ROUTE'S WARNINGS (SPEC.md 130.58.49): on constructed courses, a way next to / on a see-saw's plate, a leg
+    across an L's inside corner the arrows fall off, a tube mouth the route passes two cells off and a windmill
+    doorway's cell left by its -x face are each named on the right way's line - and none is named for the way two
+    cells clear, a way in the L's corner, a gap across the whole leg, a way on the mouth, the doorway left -y or by
+    its corner; the plate's way on a leg the arrows really take is not named (the proof). The check job (strict)
+    carries them as warnings; each has its explanation; the mouth's and doorway's buttons add the way after the
+    named one in its branch, the plate's removes it, the gap's offers none. The toolbar's Autopilot names the
+    picker's branch (130.58.50). Red by hand (2026-11-23): _lint_exit's corner (None) counted as a miss ("left by
+    the corner ... got [('door' ..."), the detour test removed ("a gap across the whole leg"), _lint_proven made
+    empty ("its leg taken by the arrows (the proof)").
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
@@ -460,6 +470,122 @@ def route_check():
         f.route_add((10, 2))
         if [w[1:3] for w in f._ways() if w[3] == "GL"] != [(9, 1), (10, 2)]:
             bad.append("route: the forked branch's next Ctrl-click does not follow its fork point")
+    return bad
+
+
+def _lint(text, noproof=False):
+    """item 25: bbcourse.route_lint on TEXT's play-only compile -> [(what, line, cell)], or the refusal"""
+    held, B.BLK_MAX = B.BLK_MAX, 1 << 30
+    B._LINT_NOPROOF = noproof
+    try:
+        c = B.compile_course(text, "rl.bbc", occluders=False)
+        return [(w["what"], w["line"], tuple(w["cell"])) for w in B.route_lint(c)]
+    except B.CourseError as e:
+        return "REFUSED " + str(e)[:150]
+    finally:
+        B.BLK_MAX = held
+        B._LINT_NOPROOF = False
+
+
+class _AutoApp(_StubApp):
+    """the toolbar's Autopilot (SPEC.md 130.58.50): its command line, no Tk"""
+    autopilot_argv, _ways, _branches, _name = W.App.autopilot_argv, W.App._ways, W.App._branches, W.App._name
+
+    def __init__(self, text, br):
+        _StubApp.__init__(self, text)
+        self.route_branch = _SetVar(br)
+
+
+def route_lint_check():
+    """item 25 (SPEC.md 130.58.49): the route's warnings - each named on a constructed course, with its negative
+    control; the leg a real run takes is not named (the proof); the check job carries them; their explanations
+    and fix buttons. And the toolbar's Autopilot names the picker's branch (130.58.50)"""
+    bad = []
+
+    def want(what, got, exp):
+        if got != exp:
+            bad.append("item 25: %s: got %r, wanted %r" % (what, got, exp))
+
+    # 1. A WAY ON OR NEXT TO A SEE-SAW'S PLATE (the geometry alone; MILL's (23, 21) was next to its plate)
+    S_ = ('course S "s"\nwidth 64\nuses seesaw\nfloor rect 4 6 8 10 flat 4\nseesaw 8 7 10 9 along x pivot 4\n'
+          'floor rect 10 6 16 10 flat 4\nstart 5 7\nway 5 7\n')
+    want("a way next to the plate", _lint(S_ + "way 7 7\nway 14 7\n", True), [("seesaw", 9, (7, 7))])
+    want("a way on the plate", _lint(S_ + "way 9 7\nway 14 7\n", True), [("seesaw", 9, (9, 7))])
+    want("a way two cells clear (negative)", _lint(S_ + "way 6 7\nway 14 7\n", True), [])
+    want("next to the plate, its leg taken by the arrows (the proof)", _lint(S_ + "way 7 7\nway 14 7\n"), [])
+    # 2. A STRAIGHT LEG OVER NO FLOOR: an L of floor, the leg across its inside corner - the arrows fall there
+    L_ = 'course V "v"\nwidth 64\nfloor rect 4 4 12 7 flat 4\nfloor rect 9 7 12 16 flat 4\nstart 5 5\nway 5 5\n'
+    want("a leg across the L's corner", _lint(L_ + "way 10 14\n"), [("void", 6, (5, 5))])
+    want("a way in the L's corner (negative)", _lint(L_ + "way 10 5\nway 10 14\n"), [])
+    G_ = 'course V "v"\nwidth 64\nfloor rect 4 4 12 7 flat 4\nfloor rect 4 9 12 12 flat 4\nstart 5 5\nway 5 5\n'
+    want("a gap across the whole leg (the design's: no way goes round)", _lint(G_ + "way 5 10\n"), [])
+    # 3. A TUBE'S MOUTH THE ROUTE PASSES AND NEVER ENTERS, and 4. A WINDMILL'S DOORWAY THE LEG LEAVES SIDEWAYS
+    W_ = B._W3W                                     # (a KEEP tube in at (9, 9), its windmill's doorway the +y face)
+    want("the mouth passed two cells off", _lint(W_ + "way 9 12\nway 7 10\nway 6 12\n", True), [("mouth", 10, (9, 12))])
+    want("a way on the mouth (negative)", _lint(W_ + "way 9 12\nway 9 9\nway 12 5\n", True), [])
+    want("the doorway's cell left by its -x face", _lint(W_ + "way 9 12\nway 9 9\nway 6 10\n", True),
+         [("door", 11, (9, 9))])
+    want("...left through the doorway, -y (negative)", _lint(W_ + "way 9 12\nway 9 9\nway 12 5\n", True), [])
+    want("...left by the corner (MILL's first windmill: pressed in too)",
+         _lint(W_ + "way 9 12\nway 9 9\nway 12 6\n", True), [])
+    # the check job carries them, never as a refusal
+    import io
+    import contextlib
+    import json
+    with tempfile.TemporaryDirectory() as td:
+        p_ = os.path.join(td, "rl.bbc")
+        with open(p_, "w", encoding="ascii") as f:     # (a test course, and a finish: the full check owes one)
+            f.write(L_.replace("width 64\n", "test\nwidth 64\n").replace(
+                "9 7 12 16 flat 4\n", "9 7 12 14 flat 4\ngoal rect 9 14 12 16 flat 4\n") + "way 10 14\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = J.check(p_, True)
+        res = json.loads(out.getvalue().strip().splitlines()[-1])
+        rw = [w for w in res.get("warnings", []) if w["kind"] == "route"]
+        if rc or not res.get("ok") or [(w["line"], tuple(w["cell"])) for w in rw] != [(8, (5, 5))]:
+            bad.append("item 25: the check job (strict) gave rc %d, ok %r, route warnings %r" % (rc, res.get("ok"), rw))
+    # the window's words and buttons
+    msgs = {
+        "seesaw": "rl.bbc:9: route: way (7, 7) is next to the see-saw of line 5: the autopilot counts ...",
+        "void": "rl.bbc:6: route: the straight line from way (5, 5) to way (10, 14) (the main route) passes over "
+                "(7, 8), which has no floor, and ...",
+        "mouth": "rl.bbc:10: route: the keep tube of line 7 goes in at (9, 9), and no way sits on that cell and no "
+                 "leg crosses it: the autopilot passes 2 cells from it and never goes in - put a way on (9, 9)",
+        "door": "rl.bbc:11: route: the windmill of line 8 is entered through its +y face at (9, 9), and the leg from "
+                "way (9, 9) to way (6, 10) leaves that cell by its -x face: the ball is never pushed into the "
+                "doorway - add a way past the doorway at (9, 4), -y of it, after way (9, 9)"}
+    for what, m in msgs.items():
+        if W.explain(m) == m:
+            bad.append("item 25: the %s warning has no plain explanation" % what)
+    d = E.Document(W_ + "way 9 12\nway 7 10 branch B\nway 6 12 branch B\n")
+    fx = W.fix_for(msgs["mouth"], 11, d)                 # (line 11: B's first point)
+    if not fx or fx[0] != "Add a route point on (9, 9)":
+        bad.append("item 25: the mouth warning offers %r" % (fx,))
+    else:
+        fx[1](d)
+        if "way 7 10 branch B\nway 9 9 branch B\nway 6 12 branch B\n" not in d.text():
+            bad.append("item 25: the mouth's fix did not lay 'way 9 9 branch B' after line 10: %r" % d.text()[-60:])
+    d = E.Document(S_ + "way 7 7\nway 14 7\n")
+    fx = W.fix_for(msgs["seesaw"], 9, d)
+    if not fx or fx[0] != "Remove this route point":
+        bad.append("item 25: the see-saw warning offers %r" % (fx,))
+    else:
+        fx[1](d)
+        if "way 7 7" in d.text():
+            bad.append("item 25: the see-saw's fix left the way")
+    fx = W.fix_for(msgs["door"], 11, E.Document(W_ + "way 9 12\nway 9 9\nway 6 10\n"))
+    if not fx or fx[0] != "Add a route point on (9, 4)":
+        bad.append("item 25: the doorway warning offers %r" % (fx,))
+    if W.fix_for(msgs["void"], 6, E.Document(L_ + "way 10 14\n")):
+        bad.append("item 25: the void warning offers a fix (where the way goes is the author's)")
+    # the toolbar's Autopilot: the picker's branch, else the main route
+    base = ("course RT \"Route\"\nwidth 64\nfloor rect 0 0 12 4 flat 2\nstart 1 1\nway 2 1\nway 9 1\n"
+            "way 3 2 branch B\nway 8 2 branch B\n")
+    for br, tail in (("B", ["--autopilot", "--branch", "B"]), (W.ALL_BRANCHES, ["--autopilot"]),
+                     (W.MAIN_ROUTE, ["--autopilot"]), ("GONE", ["--autopilot"])):
+        av = _AutoApp(base, br).autopilot_argv("x.bbc")
+        if av[-len(tail):] != tail or (br != "B" and "--branch" in av):
+            bad.append("item 25: Autopilot with %r chosen runs %r" % (br, av[2:]))
     return bad
 
 
@@ -1378,6 +1504,7 @@ def main():
     bad += stranded_check()
     bad += mouth_check()
     bad += route_check()
+    bad += route_lint_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
