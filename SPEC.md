@@ -290660,7 +290660,7 @@ over. The built design is kept as `docs/plans/retired/bonanza-av-float-slab.patc
 *"those blocks don't have 4 layers ... Is that something we could make a very simple, coarse mask for and build
 ahead of time? Would that save AV calculation time in general?"* and, on floats, *"Sometimes the issue is the
 implementation rather than the idea"*). Research only: neither is built; the model, the residual cut and the
-measurements are `docs/plans/bonanza-av-far/` (`avfar.py` patches `av_residual`; MEASURED is the tool's
+measurements are `docs/plans/bounce-bonanza/handoff-2026-11-23/far-cliffs/` (`avfar.py` patches `av_residual`; MEASURED is the tool's
 records, masks and the parts packed LZB as `os88pkg` packs them, this tree, the eight `BZ_COURSES`; clocks are
 PREDICTED, 130.15.5.2's method on the guest's own `bz_arange` / `bz_ahalf` lines and on a sketch,
 `sk_far.asm`, priced by `price.py`).

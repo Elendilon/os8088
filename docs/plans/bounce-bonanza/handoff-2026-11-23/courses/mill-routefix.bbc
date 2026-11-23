@@ -1,0 +1,230 @@
+# Course 4 (MILL; docs/plans/bonanza-courses/MILL.md): WINDMILL LANE, a windmill MINIGOLF course - the
+# prototype's first windmill and bumper box, a FORK into two tubes (an open one to the RUBBER way: a turntable
+# and a second windmill; one behind an ARCHWAY over a glass pad to the GLASS way: a respawning jump and a gap
+# it must make), a rejoin, and a CUP in a sandpit.  ATTEMPT 1, SHIPPED (2026-11-21; the prototype's features
+# are TMIL's, the test copy): written by docs/plans/bonanza-courses/mill/sketch.py --bbc --force while the
+# layout moves.
+course MILL "Windmill Lane"
+guide                     # a REAL course: held to the course guide's checkable rules
+music windmill
+width 128
+origin 672                # 1,024 px: the reach runs from about px -620 (the finish) to +250 (over B)
+ball rubber
+uses rotor tube turntable seesaw archway spring life
+target 90
+
+# rooms (the sketch's sections) and walls
+floor rect   7   9  13  14  flat 28   # A
+wall  rect   8   5  12   9  flat 34
+floor rect  12   5  16   9  flat 32   # B
+surface bounce rect 18 17 19 22
+floor rect  18  41  25  43  flat 14   # V
+floor rect  21  43  23  45  flat 14   # V
+floor rect  21  45  23  47  ramp y 45 47 14 10   # V
+floor rect  19  47  32  50  flat 10   # J
+floor rect 23 50 26 51 ramp y 50 51 10 9    # J
+
+# guard rails: every open edge but the design's (the jump's gap, the back door's step, the arch's legs)
+# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+guard rect  15   5  16   9 side +x
+guard tile  22  43 side +x
+guard rect  12   5  16   6 side -y
+guard tile   7   9 side -y
+guard tile  19  47 side -y
+guard rect   7  13  13  14 side +y
+guard rect  18  42  21  43 side +y
+guard rect  19  49  23  50 side +y
+guard rect 26 49 32 50 side +y
+guard rect   7   9   8  14 side -x
+guard rect  18  41  19  43 side -x
+guard rect  19  47  20  50 side -x
+guard tile  21  43 side -x
+guard rect 25 44 26 46 side -x +y
+guard rect 12 8 13 9
+guard rect 15 8 16 9
+guard rect 12 9 13 14
+guard rect 12 13 13 14
+guard rect 13 9 14 10
+guard rect 24 14 25 17
+guard rect 20 14 24 15
+guard rect 20 16 22 17
+guard rect 23 50 24 54
+guard rect 25 50 26 54
+guard rect 24 53 25 54
+guard rect 21 28 28 29
+guard rect 27 26 28 28
+guard rect 26 20 30 21 side -y
+guard rect 35 20 36 22
+guard rect 12 13 13 14
+guard rect 12 13 13 14 side +y
+guard rect 27 27 28 29 side +x +y
+guard rect 18 38 25 39 side +y
+guard rect 34 29 36 30
+guard rect 29 44 30 46
+guard rect 29 47 32 48
+guard rect 26 47 27 50 side -x
+
+# the first windmill (the prototype's right one): a KEEP tube through its house, entered -y from the tee
+tube keep   9 9  12 6  via 9 6
+prop windmill 9 9  seed 16
+# the bumper box (the prototype's): three posts, the DROP tube out of its east rail onto the bunker
+prop bumper 12 18
+prop bumper 14 17
+prop bumper 14 19
+# the SEE-SAW: F's teeter down to the plaza (SPEC.md 130.42), resting with its near (minus) end down
+seesaw 22 17 24 21 along y pivot 17
+# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 130.39) before the
+# glass way's tube
+# the rubber way's TURNTABLE (SPEC.md 130.43): the middle column open on every other quarter turn
+prop turntable 26 35 size 3 fill ooo.o..o. seed 228
+# the second windmill: entered -x off U, out of its house's +y face onto the rejoin
+tube drop 15 18 20 15 via 17 18 via 17 15 height 2 body 20
+tube launch 11 35 15 37 via 11 37 speed 336 0 332 body 21.5 column 0.5
+tube keep 29 28 20 34 via 28 28 via 28 31 via 20 31
+tube keep 27 44 21 41 via 27 43 via 25 43 via 25 40 via 21 40
+# the glass way: a respawning JUMP (SPEC.md 130.25.9, 130.55) on the ledge, the rubber pads past the gap
+prop life 10 34 once
+prop windmill 29 28
+prop bumper 27 41
+prop windmill 27 44
+pad glass 20 27
+# the finish: the CUP in a sandpit (SPEC.md 130.14.4.3; MOON's ring)
+cup 24 52
+
+start 9 12
+checkpoint 20 37               # flag 1
+checkpoint 11 34 ball glass   # flag 2
+checkpoint 23 27
+checkpoint 22 15
+checkpoint 33 41
+checkpoint 28 48
+checkpoint 35 21
+
+# clocks: on a corner of a floor off the way, or on a tile one out from it
+clock 7 13   # start
+floor rect 13 9 15 16 ramp y 9 16 30.5 20
+wall tile 15 15 flat 22
+surface bounce tile 15 15
+wall rect 16 16 17 21 flat 21
+surface bounce rect 16 16 17 21
+surface bounce rect 12 14 13 16
+wall rect 12 14 13 16 ramp y 14 16 24 22
+surface bounce rect 10 16 11 21
+floor rect 11 16 16 21 flat 20
+surface bounce rect 11 21 16 22
+surface bounce tile 11 15
+surface sand rect 11 16 16 21
+floor rect 20 14 25 17 flat 16.0
+floor rect 22 21 24 26 ramp y 21 26 18 13
+float rect 22 21 24 26 thick 0.5
+float rect 14 27 16 28 thick 0.5
+float rect 14 28 15 30 thick 0.5
+float rect 14 32 15 35 thick 0.5
+floor tile 20 27 flat 13.0
+floor rect 17 27 20 28 flat 13
+wall tile 20 26 flat 13
+wall tile 20 28 flat 13
+floor rect 14 27 16 28 flat 18.0
+floor tile 14 28 ramp y 28 29 18 17
+floor tile 14 29 flat 17.0
+floor rect 14 32 15 35 flat 22.0
+floor rect 10 34 13 36 flat 21
+floor rect 23 51 24 54 flat 9
+surface sand rect 23 51 24 54
+floor tile 24 51 flat 9
+surface sand tile 24 51
+floor rect 25 51 26 54 flat 9
+surface sand rect 25 51 26 54
+floor tile 24 53 flat 9
+surface sand tile 24 53
+floor tile 24 52 flat 9
+floor tile 15 37 flat 21.0
+float tile 15 37 thick 0.5
+floor tile 13 34 ramp x 13 14 21 22
+float rect 10 34 13 36 thick 0.5
+float tile 13 34 thick 0.5
+floor rect 21 26 28 29 flat 13.0
+floor rect 26 22 28 26 ramp y 22 26 11 13
+floor rect 26 35 29 38 flat 19
+floor tile 25 36 ramp x 25 26 20 19
+floor rect 18 34 25 39 flat 20.0
+floor rect 26 20 29 22 flat 11.0
+floor rect 30 20 32 22 flat 4
+floor rect 34 20 36 24 flat 6
+floor rect 34 24 36 27 ramp y 24 27 6 3
+floor rect 29 27 30 30 flat 3.0
+floor rect 31 27 33 28 flat 3.0
+floor tile 32 28 flat 3.0
+floor rect 30 28 31 30 flat 3.0
+wall rect 28 27 29 30 flat 8.0
+wall rect 28 30 29 32 flat 5
+wall tile 20 33 flat 24
+wall tile 20 32 flat 5
+wall rect 20 31 28 32 flat 5
+wall rect 33 27 34 29 flat 4
+wall rect 31 28 32 30 flat 4
+floor tile 30 27 flat 3
+floor rect 32 29 34 30 flat 3.0
+floor rect 34 27 36 30 flat 3.0
+floor rect 27 38 28 40 ramp y 38 40 19 17
+floor rect 25 44 30 46 flat 11
+wall rect 25 43 30 44 flat 18
+wall rect 18 40 25 41 flat 16
+floor rect 26 40 30 43 flat 17
+wall rect 25 40 26 43 flat 18
+floor rect 30 41 32 42 ramp x 30 32 17 15
+floor tile 27 46 ramp y 46 47 11 10
+floor rect 32 39 35 44 flat 15
+floor rect 35 40 37 43 ramp x 35 37 15 11
+floor rect 37 40 40 43 flat 11
+floor rect 38 43 39 46 ramp y 43 46 11 8
+floor rect 36 46 40 49 flat 8
+floor rect 32 47 36 49 ramp x 32 36 10 8
+floor tile 24 46 flat 11
+floor tile 21 25 flat 13
+surface bounce tile 21 25
+clock 24 46   # finish
+
+# the autopilot's route: the RUBBER way
+way 9 12
+way 9 9
+way 12 6
+way 14 7
+way 13 13
+way 13 18
+way 15 18
+way 20 15
+way 23 15
+way 23 27
+way 24 27 branch GLASS
+way 17 27 branch GLASS
+way 14 27 branch GLASS
+way 14 29 branch GLASS
+way 14 34 branch GLASS
+way 11 34 branch GLASS
+way 11 35 branch GLASS
+way 20 37 branch GLASS
+way 26 28
+way 27 20
+way 35 21
+way 35 29
+way 32 29
+way 32 27
+way 29 28
+way 20 37
+way 24 36
+# the glass way: a branch from the plaza, rejoining at the finish (the tool's alone)
+way 27 36
+way 27 40
+way 33 41
+way 38 41
+way 38 47
+way 27 48
+way 27 44
+way 27 42
+way 21 41
+way 22 48
+way 24 52
+archway tile 20 27 along x
+spring 17 27 768
+spring 14 29 768
