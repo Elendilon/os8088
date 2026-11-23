@@ -1493,15 +1493,16 @@ def main():
             B.BLK_MAX = held
     except B.CourseError as e:
         bad.append("a traced tube: %s" % str(e)[:150])
-    # 15. A GUARD RAIL is one of the parts on the cells along its edge (SPEC.md 130.58.28, 130.35): MILL's start floor
+    # 15. A GUARD RAIL is one of the parts on the cells along its edge (SPEC.md 130.58.28, 130.35): MILL's start floor's east rail
+    # (`guard rect 12 9 13 14` since the owner's builder edit of MILL)
     an = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).analysis()
     gl = [st.line for st in E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")).statements()
-          if st.kind == "guard" and st.toks[1:6] == ["rect", "7", "9", "13", "14"]]
+          if st.kind == "guard" and st.toks[1:6] == ["rect", "12", "9", "13", "14"]]
     md = E.Document.load(os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc"))
     if not any(md.statement(l_).kind == "surface" for l_ in E.at_cell(an, (13, 16))):
         bad.append("at_cell: MILL's bounce paint at (13, 16) is not offered: %r" % E.at_cell(an, (13, 16)))
     if not gl or gl[0] not in E.at_cell(an, (12, 12)):
-        bad.append("at_cell: MILL's start-floor rail (line %r) is not offered at (12, 12): %r" % (
+        bad.append("at_cell: MILL's start-floor east rail (line %r) is not offered at (12, 12): %r" % (
             gl, E.at_cell(an, (12, 12))))
     # 16. THE OCCLUDER VIEW (SPEC.md 130.58.32): a wall in front of a floor cuts a record over the floor behind it,
     # which the job names (its owner the wall, the cells whose ball it hides, the flags it sets); a noocclude over
