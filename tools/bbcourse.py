@@ -32848,10 +32848,33 @@ def _face_bottoms(c, ops):
     return out
 
 
-def _face_verdict(c, ops, floats, ground):
+def _face_last_line(fp, zp, fq, zq, bp, bq):
+    """the last screen line (Y0 = 0) a face from corner fp (half units, top zp px) to fq (zq) hanging to bp / bq
+    px draws: the lowest row with a pixel CENTRE inside its quadrilateral (SPEC.md 130.27.6), worked here in
+    exact fractions rather than read off spans().  Not always the lower bottom corner's line less one: where
+    the face's bottom edge climbs a screen pixel or more per pixel (a ramp's face, its edge parallel to the
+    top's - a `float ... thick` bridge on a ramp, 130.27.2.1), the row above that corner holds no centre and the
+    face ends a line higher, its tip a point"""
+    pts = [(8 * (fp[0] - fp[1]), 4 * (fp[0] + fp[1]) - zp), (8 * (fq[0] - fq[1]), 4 * (fq[0] + fq[1]) - zq),
+           (8 * (fq[0] - fq[1]), 4 * (fq[0] + fq[1]) - bq), (8 * (fp[0] - fp[1]), 4 * (fp[0] + fp[1]) - bp)]
+    y = max(q_[1] for q_ in pts)
+    top = min(q_[1] for q_ in pts)
+    while y >= top:
+        y -= 1
+        yc = Fraction(2 * y + 1, 2)
+        xs = sorted(Fraction(xa) + Fraction(xb - xa) * (yc - ya) / (yb - ya)
+                    for (xa, ya), (xb, yb) in zip(pts, pts[1:] + pts[:1]) if (ya <= yc) != (yb <= yc))
+        if any(math.ceil(xs[i + 1] - Fraction(1, 2)) > math.ceil(xs[i] - Fraction(1, 2))
+               for i in range(0, len(xs) - 1, 2)):
+            return y
+    return None
+
+
+def _face_verdict(c, ops, floats, ground, _corner=False):
     """-> (faces checked, faces whose last line DECIDES grounded from floating, [what is wrong]): each face's
-    last line is the lower of its two bottom corners' - a FLOATING cell's 3 units under its top, any other's
-    the ground plane's or 3 units, whichever is lower (SPEC.md 130.27.1)"""
+    last line is the lower of its two bottom corners' - a FLOATING cell's 3 units (or its `thick`) under its
+    top, any other's the ground plane's or 3 units, whichever is lower (SPEC.md 130.27.1) - rasterised as the
+    picture is, pixel centres (_face_last_line; _CORNER, the red arm: the lower corner's line less one)"""
     n = dec = 0
     bad = []
     for cell, which, last, (fp, zp), (fq, zq) in _face_bottoms(c, ops):
@@ -32859,13 +32882,46 @@ def _face_verdict(c, ops, floats, ground):
         flo = cell in floats
         fd = floats.get(cell, FACE8) if isinstance(floats, dict) else FACE8
         bp, bq = (zp - fd, zq - fd) if flo else (min(zp - FACE8, ground), min(zq - FACE8, ground))
-        want = max(4 * (fp[0] + fp[1]) - bp, 4 * (fq[0] + fq[1]) - bq) - 1
+        if _corner:
+            want = max(4 * (fp[0] + fp[1]) - bp, 4 * (fq[0] + fq[1]) - bq) - 1
+        else:
+            want = _face_last_line(fp, zp, fq, zq, bp, bq)
         if min(zp, zq) - FACE8 > ground + 2:
             dec += 1
         if last != want:
             bad.append("%s %s face's last line %d, not %d (%s)" % (cell, which, last, want,
                                                                    "floating" if flo else "grounded"))
     return n, dec, bad
+
+
+# SPEC.md 130.27.6: a HALF-THICK bridge on a RAMP (MILL's shape, 130.27.2.1) - the ramp falls a unit a cell, so
+# each `se` face's bottom edge climbs a screen pixel a pixel and its tip is a point the picture does not draw
+GROUND_RAMP_TEST = ('course GRR "Ground ramp"\nwidth 64\nfloor rect 4 4 10 10 flat 0\n'
+                    'floor rect 12 4 14 9 ramp y 4 9 18 13\nfloat rect 12 4 14 9 thick 0.5\nstart 5 5\n')
+
+
+def _ground_ramp_float(res):
+    """item 14: a `float ... thick 0.5` over a ramp - every face over the void on its line, and the red arms:
+    the old reading (the lower corner's line less one) is red on it, and so is the thickness a pixel either way"""
+    try:
+        c = compile_course(GROUND_RAMP_TEST, "<GROUND, a thin bridge on a ramp>", _hack={"no_finish": True})
+    except CourseError as e:
+        res.append(("14 GROUND: the thin bridge on a ramp compiles (%s)" % e, False))
+        return
+    fl = c.floats if isinstance(c.floats, dict) else {}
+    th = sorted(set(fl.values()))
+    n, dec, bad = _face_verdict(c, c.ops, c.floats, c.ground)
+    _n, _d, bco = _face_verdict(c, c.ops, c.floats, c.ground, _corner=True)
+    arms = []
+    for dd in (-1, 1):
+        _n, _d, b_ = _face_verdict(c, c.ops, dict((k, v + dd) for k, v in fl.items()), c.ground)
+        arms.append(len(b_))
+    res.append(("14 GROUND: a thin bridge on a ramp (`float rect 12 4 14 9 thick 0.5` over `ramp y 4 9 18 13`, "
+                "faces %s px deep) - %d faces over the void, %s; red arms: read at its lower corner's line less "
+                "one, %d off (%s); its thickness a pixel less / more, %d / %d off" % (
+                    th, n, "every one on its line" if not bad else "%d off (%s)" % (len(bad), "; ".join(bad[:3])),
+                    len(bco), "; ".join(bco[:2]), arms[0], arms[1]),
+                th == [4] and n > 0 and not bad and bco and all(arms)))
 
 
 def _ground_checks(courses, res):
@@ -32906,6 +32962,7 @@ def _ground_checks(courses, res):
                     "FLOATING cells: %s" % (c.name, c.ground, c.ground / 8.0, n, dec, len(c.floats),
                                             "every one on its line" if not bad else
                                             "%d off: %s" % (len(bad), "; ".join(bad[:4]))), not bad))
+    _ground_ramp_float(res)
     play = next((c for c in courses if c.name == "PLAY"), None)
     if play is not None:
         res.append(("14 GROUND: PLAYGROUND uses `float` (%d floating cells), so the statement ships exercised"

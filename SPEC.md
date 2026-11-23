@@ -289034,6 +289034,18 @@ There is **no per-course opt-out** statement; instead:
   read as grounded, and the course with the rule off read as grounded, are
   both caught. Then every shipped course's faces over the void, floating
   and grounded, held to the rule, and the `PLAYGROUND` ships a `float`.
+  A face's expected last line is its quadrilateral (top corners, and the
+  bottom corners the rule decides) RASTERISED as the picture is - the
+  lowest row with a pixel centre inside, worked in exact fractions - and
+  not "the lower bottom corner's line less one": where the bottom edge
+  climbs a screen pixel or more per pixel (a ramp's face falling a unit a
+  cell, its bottom parallel to its top, as MILL's `float ... thick 0.5`
+  bridges over `ramp y`), the row above that corner holds no centre and
+  the face's tip is a point, so the face ends a line higher. That reading
+  failed MILL's 6 such faces while the picture was right.
+  `GROUND_RAMP_TEST` (a `thick 0.5` float over `ramp y 4 9 18 13`) holds
+  the case: every face on its line, and red with the old corner reading
+  (5 faces) and with the thickness a pixel less or more (7 each).
 - **Item 2**: `float`'s refusals - a half, a height after the shape, no
   shape, a field cell, the void.
 - **Item 1's cross-commit check** (130.16.13): wave 5b's tool has no
