@@ -1,0 +1,23 @@
+# PIPE: the PASSABLE PIPE's test course (SPEC.md 130.12.3.6) - not shipped, on no disk, in no tour: compiled by
+# `bbcourse.py --selfcheck`'s section `pipeunder` and by tests/bonanza_phys.py's pipe scenes (the guest's archway
+# part against the model).  Two KEEP tubes across the floor, each with its two end legs walls one unit over the
+# floor and its middle leg a pipe hanging `column 1` deep over the floor with room for the ball under it:
+#   A (row 8):  the middle at 5 units, its underside 4 - two units over the floor, the clearance 0: the ball ROLLS
+#               under it and a Hop or a boost into it is stopped at its face
+#   B (row 14): the middle at 6 units, its underside 5 - three units over the floor, the clearance 8 px: rubber's
+#               Hop (5.7 px) passes under it and its boost (9.3 px) hits the underside
+course PIPE "Pipe underpass"
+width 96
+origin 352
+ball rubber
+music fairway
+uses tube archway
+floor rect 4 4 24 20 flat 2
+tube keep 6 8 16 8 via 9 8 via 13 8 body 3 5 3 column 1
+tube keep 6 14 16 14 via 9 14 via 13 14 body 3 6 3 column 1
+start 5 5
+goal rect 22 18 24 20 flat 2
+clock 21 17
+target 60
+way 5 5
+way 23 19

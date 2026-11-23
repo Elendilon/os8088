@@ -266708,7 +266708,7 @@ format.
 | at | |
 |---|---|
 | +0 | kind: 1 TUBE, 2 WINDMILL, 3 BUMPER, 4 PLATFORM (a LIFT, 130.12.6.4); any other value refused by the tool (wave 4's checkpoints, pads and cup take 5 and up) |
-| +1 | flags: bit 0 UNDERSIDE (a ball passing UNDER the prop: reserved, refused in wave 3), bit 1 LANE (the record has a lane at +8), bits 2 - 7 zero |
+| +1 | flags: bit 0 UNDERSIDE (a ball passing UNDER the prop: reserved, refused in wave 3 - a pipe the ball passes under is the archway family's element instead, 130.12.3.6), bit 1 LANE (the record has a lane at +8), bits 2 - 7 zero |
 | +2 | the anchor cell `wx`, +3 `wy`: a tube's or windmill's IN cell, a bumper's post, a lift's SHAFT |
 | +4 | the clock's MASK, `P - 1` (`P` 16 - 256, a power of two; 0 for a tube and a bumper, which have no clock) |
 | +5 | the pose SHIFT: a rotor's pose is `phase >> shift` |
@@ -266916,16 +266916,10 @@ reaches the ground or how far down it extends, like walls/floors."*
   void face to its other face's depth at their shared corner. The cells are `FL_FLOAT` (130.29.4) like every
   floating WALL. A `column` none of whose body cells has a face over the void is refused (`the tube's column
   hangs nothing`), `float floats nothing`'s rule: a clause that changes no pixel is a mistake.
-- **What it is NOT: a pipe the ball rolls UNDER.** The column stops short only over the void, where nothing can
-  be under it. A body cell over a FLOOR is a WALL in the grid, one height a cell, so a ball on that floor meets
-  it as a wall at any height; to pass under, the cell would have to be a floor with a CEILING (the pipe's
-  underside) AND a top (the pipe's), solid only between the two. The ARCHWAY's hooks (130.39.4) have the ceiling
-  half but not the top - above its clearance an archway cell is a wall at every height, so a ball could not
-  fly over or land on a hanging pipe - and an archway is held to one or two cells, legs and the visibility rule
-  A10. So a passable pipe is a GUEST change: a family element of its own (a SLAB cell: wall between its underside
-  and its top, the floor beneath it below, the pipe's top above), sized on the archway's precedent at roughly a
-  233-byte family part and 240 bytes of a play's RAM (PREDICTED from 130.39.8, not measured), plus the tool's
-  underside picture, reach and visibility work. **Left to the owner** (2026-11-23); nothing of it is built.
+- **A pipe the ball rolls UNDER is 130.12.3.6** (the owner, 2026-11-23). Until then the column stopped short only
+  over the void: a body cell over a FLOOR was a WALL in the grid at every height. Since 130.12.3.6 a body cell laid on
+  a floor whose column stops 2 units or more over it is a PASSABLE PIPE, one that stops closer is refused, and one
+  that reaches the floor is a wall as before.
 - **Costs**: no guest byte, no physics constant (`BZ_PHYSV` unchanged), no record. A course using either clause
   changes its picture blocks (the walls laid at other heights, shorter faces) and, for `column`, the `FL_FLOAT`
   bits of its body cells; every shipped course compiles byte for byte as before (none uses them).
@@ -266935,6 +266929,63 @@ reaches the ground or how far down it extends, like walls/floors."*
   deep and its faces over the floors at each end unchanged, its negative control (the column ignored: faces to
   the ground) caught; item 2's string cases refuse a count that is not one or one a leg, a `column` out of
   range, and a column that hangs nothing.
+
+##### 130.12.3.6 A pipe the ball passes UNDER (the owner, 2026-11-23)
+
+*"being able to go under pipes ... would give a tiny amount of cross ability. It's worth the couple hundred
+bytes."* A tube's `column <units>` (130.12.3.5) over a FLOOR now does what it says: where the pipe's column stops
+short of the floor with room for the ball, the ball rolls under the pipe.
+
+| | decision | why |
+|---|---|---|
+| U1 | **no new statement**: a body cell the tube LAYS on a FLOOR (130.12.3.3) whose `column` stops `gap` over it - the pipe's top less the column, less the floor - is a **PASSABLE PIPE** cell when `gap` is 2 units (16 px) or more; refused when it is over 0 and under 2 units; a WALL as before when the column reaches the floor (`gap` 0 or less) | the clause already says how deep the pipe hangs; over the void it hangs that deep, so over a floor it should too. A gap the ball cannot use is a picture that lies, so it is refused rather than drawn |
+| U2 | **the ARCHWAY family's element, unchanged** (130.39.3): each passable cell is a FLAT FLOOR in the grid (the floor it was, no `OBS`) and an archway element anchored on it, +18 the CLEARANCE `U - AR_TOPB` (`U` the pipe's underside, whole px) | the archway's two hooks (130.39.4) are exactly a pipe's underside: the CELL hook makes the cell a WALL in the window while the ball's whole-px `z` is above the clearance, the STEP hook caps a ball inside at it. **No guest byte, no engine byte, no RAM byte, no `BZ_PHYSV` move**: the archway's part is already in every play's resident bundle (130.25.6.9), and its hooks run only on a course that names the family (130.25.6), so a course without a passable pipe or an archway pays nothing |
+| U3 | **`uses archway` is required**, refused naming it otherwise (the course builder adds it, 130.58.40) | 130.25.6.4's rule: a course names the families whose code it loads |
+| U4 | **the pipe's TOP is not a floor: above the clearance the cell is a WALL at every height**, so nothing lands on, rolls along or flies over a passable pipe - exactly what a pipe's body was before (a WALL at every height) | a top would be a hook of its own (a floor at the pipe's top while the ball is over it, the reach and the visibility of a ball ON a one-cell beam) - guest bytes and a second physics proof for a use no course has asked for. The owner's to widen (130.12.3.6's open question) |
+| U5 | **the floor under it must be a whole FLAT FLOOR** (no ramp, goal, water, split or FIELD cell, no guard rail), and only a PAD may share a passable cell (130.39.2's rule: the ceiling would meet anything else) | the archway's own cell rule, which its reader holds (130.39.3) |
+| U6 | **the picture**: the floor under the pipe drawn as the floor it is, then the pipe's SLAB - its top at the pipe's height with the pipe on it, its `+x` and `+y` faces from its top down to its underside (a face toward a WALL next along the tube's path down to that wall's top, so the RISER of 130.12.3.3 reaches it; none where the cell in front is no lower than the pipe's top) - every op of the slab KEYED `s + 1`, the archway lintel's rule (130.39.1 A9) | the occluders then lay the slab over a ball UNDER it (the same row) and over one behind it, never over one in front of it. The tube's art (the pipe on the top, the riser, a DROP's mouth) is drawn on the slab, not the floor |
+| U7 | **the visibility rule is the archway's** (130.39.1 A10): along each axis, each run of a tube's passable cells with a whole floor at both ends, a ball rolled grounded along each lane through it may be WHOLLY hidden for at most `AR_HIDE` (16) ground units in a row - refused (a warning in the builder, 130.58.18's `ball-hidden`) past that | a pipe laid ALONG a path two units over it is a tunnel; one across the path is a moment |
+| U8 | **the reach** takes a passable cell as the floor it is, as the archway's (130.39.6) | conservative for every use the reach has |
+
+**Refused**, naming the line (each a `--selfcheck` string case, section `pipeunder`): a column stopping over 0 and
+under 2 units over the floor (*a ball needs 2 units to pass under a pipe*, naming the column that reaches the floor
+and the rise that makes room); a column stopping short over a cell that is not a whole FLAT FLOOR; a passable pipe
+on a course without `uses archway`; any prop but a pad on a passable cell; the visibility rule.
+
+**As built** (`tools/bbcourse.py`): `lay_tube_bodies` -> `pipe_over` keeps the floor and hangs the slab on it
+(`Tile.slab`: the pipe's WALL, its underside, the path's walls its faces join); `build_props` lays the archway
+elements (the LAST records, 130.39.3) and lets a passable cell stand in the body; `draw_ops` draws the floor, then
+`_slab_ops`; `pipe_view` gives the tube's art the slab, `_op_spans(..., slab=True)` finds the slab's ops rather
+than the floor's (every other lookup, a pad's under the pipe among them, the floor's), and `prop_ops` lays the
+tube's art after the slab's ops and the rest after the floor's; `pipe_vis` is U7. The model's physics is `ArchFamily`'s, and the guest's the archway part's.
+
+**Costs** (2026-11-23): **no guest byte, no RAM byte**. No source of `bonanza.bin` moved (52,907 bytes on this
+tree's `make bonanzadisk`), and the course compiler's output for every shipped course, the pathway, the title
+and every demo - the 24 files of `bbcourse.py -o` - is byte for byte the same before and after (MEASURED: both
+tools run on the same courses, `diff -r` empty); no new family, part, record field, grid bit or constant. The
+archway's part (`build/bzf-archway.bin`, 323 bytes on this tree; 130.39.8's 233 was its first build) is home
+`resident` (130.25.6.9), so it is in the RESIDENT BUNDLE of EVERY play already - the 240 bytes 130.39.8 charged
+were paid when the archway landed, and the brief's prediction of a further ~233-byte part and ~240 bytes of RAM
+for a passable pipe does not arise: the pipe reuses that part. What a course that uses it pays: 32 bytes of its
+course part a passable cell (an archway record; PIPE's eight cells, 256 bytes) and the hooks' per-step time
+(130.39.8's PREDICTED ~0.35k clocks a step on a course that names the family, nothing on any other).
+
+**The checks**: `--selfcheck` section `pipeunder` on the test course `apps/bonanza/courses/pipeunder.bbc` (PIPE,
+on no disk): the four refusals; the records (eight FLAT FLOOR cells, no `OBS`, the last records, clearance 16 and
+24); every Hop and second press into A (two units, the clearance 0: rubber and the jump pickup's Hop) and B
+(three units) never above a clearance under a pipe nor in from above it; rubber rolled straight under A comes out
+the other side, a Hop passes under B; a ball under A laid over by the slab, one in front of it by nothing; the
+visibility; and the controls - A's column left out (its pipe a wall, as before) lets nothing under, and the red
+arms `arnowall` (the CELL hook's wall out: the ball flies into the slab), `arnocap` (the cap out: a boost rises
+through the underside), `pukey` (the slab keyed at its own row: a ball under it drawn over it) and `puvis` (the
+bound at 2) are each caught. `tests/bonanza_phys.py`'s `arch_host` replays PIPE's scenes `pipe-roll`, `pipe-hit`
+and `pipe-hop` on the guest's archway part against the model, every step, and its `arcap` arm on `pipe-hit`.
+`tests/unit/t_bbedit.py` 13e: `body 5 column 1` over a floor compiles to passable cells, the builder adding
+`uses archway`; `body 4.5` refused.
+
+**Open questions for the owner**: (PQ1) a pipe's TOP as a floor the ball lands and rolls on (U4) - a hook of its
+own; (PQ2) a gap the ball cannot use is refused rather than drawn as a wall to the floor - the alternative is a
+column that silently reaches the floor there; (PQ3) a shipped course that uses it - none yet.
 
 ##### 130.12.3.4 The prop clock, and the seeds
 
@@ -294026,7 +294077,9 @@ the CLEARANCE, a signed word, whole px** (`4 z0 + 8 under - AR_TOPB`), +20 -
 whose height leaves the clearance at least 2 px over it, and no lane. The
 elements are the LAST records of the table (after every prop that claims a
 cell), so the window refill's owner scan - the first record whose anchor is
-the cell - meets a pad before the arch on a cell they share.
+the cell - meets a pad before the arch on a cell they share. **A PASSABLE PIPE's cells (130.12.3.6, 2026-11-23) are this
+element too**, anchored on the floor under the pipe, +18 the pipe's underside less `AR_TOPB`: the same part, hooks
+and reader, no lintel and no legs (the tube draws the pipe).
 
 **The SLOT** (`BZF_SLOT`'s 8 bytes, written by CELL alone): +0 `LO`, +2
 `HI`, +4 `CC` (the centre's clearance, 32767 when the centre is no archway
@@ -298842,3 +298895,17 @@ reaches the ground or how far down it extends, like walls/floors."* The tube for
 back to the same fields, keeps both heights through `axis_path` and an added point, and compiles with each
 leg's walls at its height; Pipe height then writes one `body` again; a tube over a gap with `column 1` compiles
 and one over floor is refused.
+
+#### 130.58.40 A pipe the ball passes under, in the builder (the owner, 2026-11-23)
+
+130.12.3.6 needs no new control: **Column reaches** *depth* over a floor 2 units or more under the pipe makes
+that part of the pipe one the ball passes under. The form's hint under it says so - over the void the column
+hangs that deep, over a floor it stands on it unless it stops at least 2 units above it, when the ball passes
+UNDER (the course loads the archway extra for it), and that stopping closer is refused; **Height along it**
+labels the column's foot the same way. The builder adds `uses archway` itself the moment the compiler names it
+(`auto_uses`, 130.58.10, as for every family), and takes it out when the last passable pipe and archway
+go. The banner explains the two new refusals in plain words - a column stopping too close to the floor (raise
+the pipe or that leg, or make the column reach the floor) and one stopping over a ramp, goal or other cell that
+is not a flat floor - and the explanation of *the tube's column hangs nothing* now names the third way out,
+raising the pipe so the ball can pass under it. `tests/unit/t_bbedit.py` item 13e holds the compile and the
+added `uses`.

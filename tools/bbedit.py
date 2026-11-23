@@ -3752,7 +3752,17 @@ EXPLAIN = [
      "out to the way the last leg runs (or leave it 'along its last leg')."),
     (r"the tube's column hangs nothing", "the tube's Column reaches a depth only over the void (SPEC.md 130.12.3.5): "
      "every cell of this tube's body stands on floor or beside it, so its column already stops there. Set Column "
-     "reaches back to the ground, or run the tube out over a gap."),
+     "reaches back to the ground, run the tube out over a gap, or raise the Pipe height so the column stops 2 "
+     "units over the floor and the ball can pass under it (130.12.3.6)."),
+    (r"the tube's column stops (\S+) units over the floor at \((\d+), (\d+)\): a ball needs (\d+) units",
+     "the tube's column stops {0} units over the floor at ({1}, {2}): too low for the ball to pass under the pipe "
+     "(it needs {3}), and a gap it cannot use is not allowed (SPEC.md 130.12.3.6). Raise the Pipe height (or that "
+     "leg's) so the gap is {3} units, or make Column reaches deeper - to the floor, or the ground - so it stands "
+     "on it."),
+    (r"the tube's column stops (\d+) px over the cell \((\d+), (\d+)\), which is not a whole FLAT FLOOR",
+     "the tube's column stops short over ({1}, {2}), and the ball could only pass under the pipe there if the cell "
+     "were a plain flat floor - it is a ramp, a goal, water or a split cell (SPEC.md 130.12.3.6). Make Column "
+     "reaches deep enough to stand on it, or make the cell under the pipe a flat floor."),
     (r"a tube's body takes one height, or one a leg: (\d+) heights for (\d+) legs", "a tube's pipe height is one "
      "for the whole tube, or one for each leg - this one has {1} legs and {0} heights. Set them on the Shapes "
      "tab (Pipe height, and each Leg)."),

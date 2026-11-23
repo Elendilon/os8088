@@ -3028,6 +3028,45 @@ def _arch_course():
         dict.__setitem__(R.CRS_K, "arch", R.CRS_K["play"])
 
 
+def _pipe_course():
+    """THE PASSABLE PIPE (SPEC.md 130.12.3.6): its test course, PIPE (apps/bonanza/courses/pipeunder.bbc, on no
+    disk) - its passable cells the ARCHWAY family's elements, so the archway's part is the guest's code for it"""
+    R.crs_fill()
+    if "pipe" not in dict.keys(R.COURSES):
+        dict.__setitem__(R.COURSES, "pipe", "apps/bonanza/courses/pipeunder.bbc")
+        dict.__setitem__(R.CRS_K, "pipe", R.CRS_K["play"])
+
+
+def pipe_poke(wx, wy, mat, gvx=0, gvy=0):
+    _pipe_course()
+    return poke_of(BB.Physics(R.course("pipe"), play=True, mat=mat).poke(wx, wy, gvx, gvy))
+
+
+def pipe_scenarios():
+    """[(name, material, poke, keys)] on PIPE (each FOUND on the model, 2026-11-23): rubber rolled straight under
+    A's pipe (two units over the floor, the clearance 0); a Hop and a second press at A's face (the boost stopped
+    there - its no-cap model goes over the clearance at steps 29 - 31); a Hop UNDER B's (three units, the
+    clearance 8 px)"""
+    H, X = BB.K_HOP, BB.K_D | BB.K_L
+    return [("pipe-roll", BB.MAT_RUBBER, pipe_poke(11, 5, BB.MAT_RUBBER), [X] * 120),
+            ("pipe-hit", BB.MAT_RUBBER, pipe_poke(11, 7, BB.MAT_RUBBER), [X] * 28 + [X | H] + [X] + [X | H] + [X] * 69),
+            ("pipe-hop", BB.MAT_RUBBER, pipe_poke(11, 12, BB.MAT_RUBBER), [X] * 12 + [X | H] + [X] * 67)]
+
+
+def pipe_verdict(name, p, trace):
+    """what a pipe scenario is for, on the model's trace [(cell, z, air)] -> (ok, what)"""
+    clr = dict((pr["at"], pr["clr"]) for pr in p.props if pr["kind"] == BB.FK_ARCH)
+    above = [k for k, (cell, z, _a) in enumerate(trace) if cell in clr and z > clr[cell]]
+    if name == "pipe-hop":
+        under = [z for cell, z, air in trace if cell in clr and air and z > 16]
+        ok = not above and under and (p.gy >> 12) >= 15
+        return ok, "a Hop under B's pipe, its contact up to %s px under it (clearance 24), out at (%d, %d)" % (
+            max(under) if under else None, p.gx >> 12, p.gy >> 12)
+    ok = not above and (p.gy >> 12) >= 10 and (name == "pipe-roll" or p.nboost)
+    return ok, "under A's pipe: out at (%d, %d), %d boost(s), above a clearance at %s" % (
+        p.gx >> 12, p.gy >> 12, p.nboost, above[:3])
+
+
 def arch_poke(wx, wy, mat, gvx=0, gvy=0):
     _arch_course()
     return poke_of(BB.Physics(R.course("arch"), play=True, mat=mat).poke(wx, wy, gvx, gvy))
@@ -3117,6 +3156,25 @@ def arch_host(binp, lst, sym, fam):
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
         if not ok:
             fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
+        if arm == "arcap":                          # THE PASSABLE PIPE (SPEC.md 130.12.3.6): the same arm on its
+            ps = dict((n, (m, pk, k)) for n, m, pk, k in pipe_scenarios())    # face's boost
+            mat, pk, keys = ps["pipe-hit"]
+            _p, bad = urun(binp, lst, sym, "pipe", mat, keys, ff, poke=pk)
+            ok = any(want in b for b in bad)
+            out.append("red arcap (pipe-hit): %s" % ("red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
+            if not ok:
+                fails.append("red arcap stayed green on the unicorn on PIPE: %s" % (bad[:1],))
+    for name, mat, pk, keys in pipe_scenarios():    # THE PASSABLE PIPE (SPEC.md 130.12.3.6): the archway's part
+        p, bad = urun(binp, lst, sym, "pipe", mat, keys, fam, poke=pk)     # on PIPE's records
+        q = model("pipe", mat, pk)
+        trace = []
+        for k in keys:
+            q.step(k)
+            trace.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air))
+        ok, what = pipe_verdict(name, q, trace)
+        out.append("%s, %d steps: %s; %s" % (name, len(keys), "; ".join(bad) or "the guest is the model at every "
+                                             "step", what))
+        fails += bad + ([] if ok else ["%s: %s" % (name, what)])
     return out, fails
 
 

@@ -42,6 +42,9 @@
     13d (130.12.3.5, 130.58.39): a pipe's height a leg - set_leg_height writes `body 6 4`, read back the same,
     kept through a point added and a corner axis_path inserts, each leg's walls laid at its height - and a
     `column 1` over a gap floating the body one unit deep, one over floor refused (`column hangs nothing`).
+    13e (130.12.3.6, 130.58.40): `body 5 column 1` over the floor a pipe the ball passes under - its cells the
+    floor with the slab over it, each an archway element, `uses archway` added by the builder - and `body 4.5`
+    (1.5 units of room) refused.
  14. DRAFTS AND TRACES (130.58.27): a drafted path made axis-legged (a corner where two points differ along both
     axes, a point mid-run dropped), a Ctrl-click past the end a new end, and a tube traced through three cells
     compiles with its body laid.
@@ -719,6 +722,24 @@ def main():
                 got = "column hangs nothing" in str(e) and None
             if (got is True) != ok or (not ok and got is not None):
                 bad.append("column %s: %r" % (tl_, got))
+        # 13e (SPEC.md 130.12.3.6, 130.58.40): a column that stops two units or more over the floor is a pipe the
+        # ball passes UNDER - the builder adds `uses archway` for it; one that stops under two units is refused
+        dt = E.Document(tt + "tube keep 8 8 15 8 body 5 column 1\n")
+        dt.auto_band()
+        added = dt.auto_uses()
+        c = B.compile_course(dt.text(), "tp.bbc", occluders=False)
+        sl = c.tiles[(11, 8)]
+        arc = sorted(p["at"] for p in c.props if p["kind"] == B.FK_ARCH)
+        if "archway" not in added or sl.kind != B.KIND_FLOOR or sl.slab is None or sl.slab[0].z0 != 10 \
+                or sl.slab[1] != 32 or arc != [(x, 8) for x in range(9, 15)]:
+            bad.append("pipe under: %r %r %r" % (added, (sl.kind, sl.slab), arc))
+        try:
+            B.compile_course(tt.replace("uses tube", "uses tube archway") + "tube keep 8 8 15 8 body 4.5 column 1\n",
+                             "tl.bbc", occluders=False)
+            bad.append("pipe 1.5 units over the floor: compiled")
+        except B.CourseError as e:
+            if "a ball needs 2 units" not in str(e):
+                bad.append("pipe 1.5 units over the floor: %s" % str(e)[:150])
     except B.CourseError as e:
         bad.append("leg heights: refused: %s" % str(e)[:150])
     finally:
