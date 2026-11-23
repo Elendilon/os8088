@@ -82,7 +82,7 @@
     does, and no traced end writes a floor over a cell the course has (an empty one still gets one).
 
  20. A FLAG'S BLANK BALL IS THE BALL YOU HAD (SPEC.md 130.14.4.5, the owner 2026-11-23): the flag's "Ball here"
-    row names its blank "the ball you had" and its hint says a fall returns as the ball that touched the flag;
+    row names its blank "as when touched" and its hint says a fall returns as the ball that touched the flag;
     cleared it writes the bare `checkpoint`, which compiles AS TOUCHED (+17 = CK_TOUCH), while `ball glass`
     compiles glass; and a blank flag a steel pad can bring steel to, past a gap steel cannot hop, is refused
     with words naming the flag, its missing Ball here and the steel ball.
@@ -558,7 +558,7 @@ def flag_ball_check():
     """item 20 (SPEC.md 130.14.4.5): a flag's blank ball is the ball you had -> [problems]"""
     bad = []
     row = [o for o in OPT.OPTIONS[("checkpoint", None)] if o["w"] == "ball"]
-    if len(row) != 1 or row[0]["blank"] != "the ball you had" or "touched the flag" not in row[0]["hint"]:
+    if len(row) != 1 or row[0]["blank"] != "as when touched" or "touched this flag" not in row[0]["hint"]:
         bad.append("item 20: the flag's Ball here row does not say blank is the ball you had: %s" % (
             [(o["blank"], o["hint"]) for o in row],))
 

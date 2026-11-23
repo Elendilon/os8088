@@ -2491,8 +2491,8 @@ class App(object):
                     shown = {x: (("(%s)" % lab) if not x else lab) for x, lab in pairs}
                     back = {lab: x for x, lab in shown.items()}
                     cv = tk.StringVar(value=shown.get(cur or "", cur or ""))
-                    cb = ttk.Combobox(fr, values=[shown[x] for x, _l in pairs], textvariable=cv, width=11,
-                                      state="readonly")
+                    cb = ttk.Combobox(fr, values=[shown[x] for x, _l in pairs], textvariable=cv, state="readonly",
+                                      width=max(11, max(len(t_) for t_ in shown.values()) + 1))   # (none cut off)
                     cb.pack(side="left")
                     cb.bind("<<ComboboxSelected>>", lambda e, o=o, cv=cv, back=back: self.set_option(
                         ln, o, back.get(cv.get(), "")))
