@@ -2214,14 +2214,14 @@ bz_auto:
     pop ax
     ret
 
-%endif
-; DX -> |DX|
+; DX -> |DX| (the autopilot's alone: bz_camera tests a range unsigned)
 bz_abs:
     or dx, dx
     jns .out
     neg dx
 .out:
     ret
+%endif
 
 %ifdef BZDEV
 ; AX = a distance, px (|AX| < 4096) -> AX = 8 x it, clamped to +-BZ_VMAX
@@ -2411,6 +2411,8 @@ bz_camera:
 %if BZ_NSHC
     call bz_shfind              ; SPEC.md 130.30.12.3: the cut's window in its SHEET
 %endif
+    xor ax, ax                  ; (dr, dc 0: the window is where it was set)
+    cwd
     jmp .decided
 .modes:
 %if BZ_TITLE
@@ -2442,8 +2444,8 @@ bz_camera:
     mov dx, ax
     xchg ax, [bz_trx + bx]
     sub dx, ax
-    call bz_abs
-    cmp dx, BZ_GTRX + 1         ; fast across: more than BZ_GTRX
+    add dx, BZ_GTRX             ; fast across: more than BZ_GTRX either way
+    cmp dx, 2 * BZ_GTRX + 1     ; (unsigned: -BZ_GTRX - BZ_GTRX is 0 - 2 BZ_GTRX)
     sbb al, al
     inc ax
     mov [bz_gfast], al
@@ -2510,37 +2512,36 @@ bz_camera:
     call bz_lattice             ; THE camera: LATTICE (wave 6b, 130.17.6.2)
 .moved:
     call bz_clampmv             ; (SPEC.md 130.45.6: the pull, a frame's)
-    mov byte [bz_full], 0
-    mov ax, [bz_R0n]            ; a step past the ring's rules: a full write
-    sub ax, [bz_R0]
-    mov dx, ax
-    call bz_abs
-    cmp dx, BZ_MAXR
+    sub ax, [bz_R0]             ; AX = dr, DX = dc
+    mov dx, [bz_c0n]
+    sub dx, [bz_c0]
+    mov bx, ax                  ; a step past the ring's rules: a full write
+    add bx, BZ_MAXR             ; (|dr| <= BZ_MAXR: unsigned 0 - 2 BZ_MAXR)
+    cmp bx, 2 * BZ_MAXR
     jbe .rok
     cmp byte [bz_vga], 0        ; (the VGA's rows are lines: four, 130.46.12)
     je .full
-    cmp dx, BZV_MAXR
+    add bx, BZV_MAXR - BZ_MAXR
+    cmp bx, 2 * BZV_MAXR
     ja .full
 .rok:
-    mov ax, [bz_c0n]
-    sub ax, [bz_c0]
-    mov dx, ax
-    call bz_abs
-    cmp dx, BZ_MAXC
-    jbe .decided
+    mov bx, dx
+    add bx, BZ_MAXC
+    cmp bx, 2 * BZ_MAXC
+    mov bl, 0                   ; (a mov keeps the flags)
+    jbe .part
 .full:
-    mov byte [bz_full], 1
-.decided:
-    mov ax, [bz_R0n]
-    sub ax, [bz_R0]
+    mov bl, 1
+.part:
+    mov [bz_full], bl
+.decided:                       ; (the first frame: AX = DX = 0, bz_full 1)
+    mov [bz_dc], dx
     mov [bz_dr], ax
 %if BZ_NSHC
+    or ax, ax
     jnz .shk                    ; SPEC.md 130.30.12.3: a window that moved down or up -
 .shkr:                          ; is it still in the shown SHEET? (bz_shchk)
 %endif
-    mov ax, [bz_c0n]
-    sub ax, [bz_c0]
-    mov [bz_dc], ax
 %ifdef BZDEV
     mov al, [bz_full]           ; measured: a benchmark's frames but a full
     xor al, 1                   ; write; PLAY and a REPLAY measure nothing,
@@ -3480,17 +3481,20 @@ bz_shmrow:
 ; bz_clampwin - [bz_c0n], [bz_R0n] clamped to the course AT ONCE (the first
 ; frame and a cut), and bz_clampmv - every other frame's (bz_camera's .moved),
 ; whose window outside the rows' range comes back at most bz_kpull rows a frame
-; (SPEC.md 130.45.6).  The column first, to bz_cmin - bz_cmax; then the rows'
-; range THIS frame: the course's STOPPED one (bz_rsmn - bz_rsmx: SPEC.md
-; 130.45.4, 130.45.5) while that column holds the stops' SPAN (bz_sglo - bz_sghi:
-; every column without `over`), else the picture's (0 - bz_rfmx) - left in
-; bz_rmin, bz_rmax for LATTICE (BZL_MN, BZL_MX) and the VGA's camera.
-; Clobbers AX, BX, DX, SI, DI.
+; (SPEC.md 130.45.6).  The column first, to bz_cmin - bz_cmax; then the rows,
+; to bz_rmin - bz_rmax.  A course with no SPAN (bz_sghi 255: every course
+; but one) has one range, its STOPPED one, which bz_vstop left there once: no
+; choice and no pull, the clamp before 130.45.6.  A course with a span chooses
+; the range THIS frame first: the stopped one (bz_rsmn - bz_rsmx: SPEC.md
+; 130.45.4, 130.45.5) while the column holds the span (bz_sglo - bz_sghi),
+; else the picture's (0 - bz_rfmx), with the pull - left in bz_rmin, bz_rmax
+; for LATTICE (BZL_MN, BZL_MX) and the VGA's camera.  -> AX = [bz_R0n].
+; Clobbers BX, DX, SI, DI.
 bz_clampwin:
-    mov di, [bz_rsmn]           ; (a row inside every range: never pulled)
+    mov di, bz_rsmn             ; (a row inside every range: never pulled)
     jmp short bz_clampmv.go
 bz_clampmv:
-    mov di, [bz_R0]             ; DI = the row as it stands
+    mov di, bz_R0               ; DI -> the row as it stands
 .go:
     mov ax, [bz_c0n]
     cmp ax, [bz_cmin]
@@ -3502,6 +3506,22 @@ bz_clampmv:
     mov ax, [bz_cmax]
 .c2:
     mov [bz_c0n], ax
+    cmp byte [bz_sghi], 255     ; a SPAN (its a not 255): this frame's
+    jne .span                   ; range first
+.rows:
+    mov ax, [bz_R0n]
+    cmp ax, [bz_rmin]
+    jge .r
+    mov ax, [bz_rmin]
+.r:
+    cmp ax, [bz_rmax]
+    jle .r2
+    mov ax, [bz_rmax]
+.r2:
+    mov [bz_R0n], ax
+    ret
+.span:
+    mov di, [di]                ; DI = the row as it stands
     mov si, bz_rmin
     mov bx, [si + BZR_SMN]      ; BX - DX: the stopped range, while the
     mov dx, [si + BZR_SMX]      ; column holds the span ...
@@ -3530,17 +3550,7 @@ bz_clampmv:
 .r0:
     mov [si], bx                ; (bz_rmin, bz_rmax: BZL_MN, BZL_MX)
     mov [si + 2], dx
-    mov ax, [bz_R0n]
-    cmp ax, bx
-    jge .r
-    mov ax, bx
-.r:
-    cmp ax, dx
-    jle .r2
-    mov ax, dx
-.r2:
-    mov [bz_R0n], ax
-    ret
+    jmp short .rows
 
 ; -----------------------------------------------------------------------------
 ; bz_mkboxes - the frame's boxes (SPEC.md 130.4, 130.11.10.1).  The FOOTPRINTS,
