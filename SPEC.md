@@ -290374,3 +290374,24 @@ the course compiling with it, no button for a band's refusal, and the Course tab
 back to the course's text and writing it again. Red by hand: the WHOLE_FIXES row's pattern changed ("offers no
 fix: None"), or `_apply_course` without its `masks` row ("the Course tab's box cleared leaves").
 
+#### 130.58.46 The occluders shown when the full rules refuse (the owner, 2026-11-23)
+
+*"When it thinks I have too many, it won't render them so I can remove unneeded ones."* A course refused for a BOUND
+met after the occluder cut - the 256 masks, a band's 256, a block row's records (`REC_ROW_MAX`), the occluder pass's
+clocks, the part's bytes - left the overlay with *"No occluders: the full rules refuse the course"*, exactly when
+it was needed. Now the picture job's `--occ` half writes `occ.json` from the cut the refused compile made:
+`bbedjob.partial_course` walks the refusal's traceback to `bbcourse._compile_course`'s own frame and takes, from its
+locals, what `occ_data` reads - the picture's buffers and owners, the reach, the grid's flags, the rule's records,
+the part's records after AV and the merge, the rails, the `noocclude` cells. A refusal before the cut (no `rule`
+in the frame) writes nothing, as before. Nothing in the compiler changes, so nothing it writes can.
+
+`occ.json` carries `refused`, meta's `occ` the error and `partial`; the overlay draws the records as on a course
+that builds, with every hover, selection and `noocclude`, and its status opens with *"REFUSED, shown as cut before
+the refusal - noocclude cells no ball reaches to come under it: ..."* and the refusal without its file name. The
+counts after it are of the cut shown; a re-cut (130.49.5) shows its LAST cut, the one refused.
+
+`tests/unit/t_bbedit.py` item 23: item 16's floor with `REC_ROW_MAX` lowered to 1 is refused (`block row 1 ...
+occluder records, over 1`) and `occ.json` is still written - rule and shipped records, each shipped one with its
+`needs`, the flagged cells, the refusal - and `OccView.loaded` loads it and says REFUSED. Red by hand:
+`partial_course` returning None ("a refusal after the cut wrote no occ.json").
+
