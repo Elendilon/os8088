@@ -75,6 +75,12 @@
     see-saw's `rest` after its pivot, a clock's `frame` before `digits`, water's `open` before `ripple`); on
     the bare statement each row's default writes a legal clause and clearing it gives the bare statement back.
 
+ 19. A MOUTH HEIGHT THE BUILDER CHOSE (130.58.41): the compiler's MouthFit names the height that fits (2.5 on a
+    4-unit wall); the palette's drop's `height 3` and the kind switch's 2 are fitted on the picture's refusal, in
+    the placement's undo step; a height typed in the Mouth height field is never changed, its row's fix button
+    "Use height 2.5" builds; a drop traced onto a wall comes out on the floor past it, as one traced past it
+    does, and no traced end writes a floor over a cell the course has (an empty one still gets one).
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -83,7 +89,12 @@ of the wall hides a cell behind it"), or cut with `rcut = reach` in
 compile_course (item 16: "noocclude ... left record(s)"); delete crack's `hole` row from bbedopts.OPTIONS
 (item 17: "no row for prop crack's hole"), or give the see-saw's `rest` row `at=None` (item 17: "rest ...
 not legal again"); for item 18, drop the `text != tried` test from bbedshape.picture_refused ("undid the float's
-delete") or make bbedit.App._edit compare `after != before` again ("an edit above the float was refused").
+delete") or make bbedit.App._edit compare `after != before` again ("an edit above the float was refused");
+for item 19, keep `fit = None` in bbcourse's mouth refusal ("MouthFit line 12 fit None"), drop the palette's
+`auto_mouth.add` ("the palette's drop was not fitted"), set_kind's `mouth_auto` ("the kind switch's drop was
+not fitted"), _fit_mouth's is_auto_mouth test ("a typed height was changed"), the FIXES row's "Use height {0}"
+words, _add_traced's wall extension ("a drop traced onto the wall laid []") or its `d is None` ("wrote a floor
+over it").
 """
 
 import glob
@@ -335,6 +346,154 @@ def stranded_check():
     if app.doc.text() != t2 or len(app.doc.undo_stack) != 1:
         bad.append("source apply: %d undo steps, text %s" % (len(app.doc.undo_stack),
                                                              "as typed" if app.doc.text() == t2 else "changed"))
+    return bad
+
+
+# item 19 (SPEC.md 130.58.41): the owner's case on _W3W - a wall 4 units over the floor OUT is on, so the palette's
+# `height 3` mouth (its sill 24 px up, 9 px tall) does not fit its face; the compiler names the most that does
+MOUTH = B._W3W + "wall tile 7 13 flat 20\nfloor rect 6 14 9 17 flat 16\n"
+
+
+class _Var(object):
+    def __init__(self, v):
+        self.v = v
+
+    def get(self):
+        return self.v
+
+
+class _PaletteApp(_StubApp):
+    """add_part's own helpers, no Tk"""
+    add_part, _fit_mouth, _add_traced = W.App.add_part, W.App._fit_mouth, W.App._add_traced
+    _target, _heights, _flat_heights, _lowest_beside = (W.App._target, W.App._heights, W.App._flat_heights,
+                                                        W.App._lowest_beside)
+    _is_path_part = staticmethod(W.App._is_path_part)
+    GROUND, PAINT, ON_GROUND = W.App.GROUND, W.App.PAINT, W.App.ON_GROUND
+
+    def __init__(self, text):
+        _StubApp.__init__(self, text)
+        self.part, self.path_pick, self.area, self.height, self.shapes = None, [], None, _Var("4"), None
+
+    def _show_shape(self, ln):
+        self.sel = ln
+
+
+def _refusal(text):
+    """the picture job's `done` event for TEXT: {ok, error, mouth}"""
+    held, B.BLK_MAX = B.BLK_MAX, 1 << 30
+    try:
+        B.compile_course(text, "d.bbc", occluders=False)
+        return {"stage": "done", "ok": True}
+    except B.CourseError as e:
+        return dict({"stage": "done", "ok": False, "error": str(e)}, **J.refusal(e))
+    finally:
+        B.BLK_MAX = held
+
+
+def mouth_check():
+    """item 19 (SPEC.md 130.58.41) -> [problems]"""
+    bad = []
+    # (1) the compiler: the refusal names the height that fits, as a MouthFit carrying the line and h2
+    try:
+        B.compile_course(MOUTH + "tube drop 7 12 7 14 height 3\n", "d.bbc")
+        bad.append("mouth: a 3-unit mouth on a 4-unit face compiled")
+    except B.MouthFit as e:
+        if e.line != MOUTH.count("\n") + 1 or e.fit != 5 or "height 2.5 fits; a taller wall" not in str(e):
+            bad.append("mouth: MouthFit line %r fit %r: %s" % (e.line, e.fit, e))
+    except B.CourseError as e:
+        bad.append("mouth: refused, but not a MouthFit: %s" % e)
+    # (2) the palette's Tube (drop) on the strip (7, 12) - (7, 14): its `height 3` the builder's, fitted
+    app = _PaletteApp(MOUTH)
+    app.area = (7, 12, 7, 14)
+    app.add_part("Tube (drop)")
+    ln = next((st.line for st in app.doc.statements() if st.kind == "tube" and st.toks[1] == "drop"), None)
+    n1 = len(app.doc.undo_stack)
+    e = _refusal(app.doc.text())
+    if not ln or "height 3" not in app.doc.lines[ln - 1] or e.get("mouth") != [ln, 5]:
+        bad.append("mouth: the palette's drop at line %r: %r, its picture %r" % (
+            ln, ln and app.doc.lines[ln - 1], {k: e.get(k) for k in ("error", "mouth")}))
+    elif not app._fit_mouth(e, app.doc.text()):
+        bad.append("mouth: the palette's drop was not fitted (%s)" % app.msgs[-1:])
+    else:
+        if "height 2.5" not in app.doc.lines[ln - 1] or (_refusal(app.doc.text()).get("mouth")):
+            bad.append("mouth: the palette's drop fitted to %r" % app.doc.lines[ln - 1])
+        if len(app.doc.undo_stack) != n1 or not any("Mouth height set to 2.5" in m for m in app.msgs):
+            bad.append("mouth: the fit is not folded into the placement (%d undo steps), or not said: %r" % (
+                len(app.doc.undo_stack) - n1 + 1, app.msgs[-1:]))
+        app.doc.move(ln, 1, 0)                  # (still the builder's after a move, which keeps the height)
+        if not app.doc.is_auto_mouth(ln):
+            bad.append("mouth: the fitted height moved is no longer the builder's")
+        app.doc.set_clause(ln, "height", ["2"])  # (and not once it is changed)
+        if app.doc.is_auto_mouth(ln):
+            bad.append("mouth: a height written over the builder's is still the builder's")
+    # (3) the shape editor's kind switch: a KEEP tube made a DROP, Try it, the builder's 2 units refused on a
+    # 2.5-unit face (a wall 2.5 over the floor) - fitted to 1.5
+    low = B._W3W + "wall tile 7 13 flat 18.5\nfloor rect 6 14 9 17 flat 16\ntube keep 7 12 7 14\n"
+    app = _StubApp(low)
+    tl = low.count("\n")
+    se = S.ShapeEditor(app, None, None, None, None)
+    app.shapes = se
+    app._fit_mouth = lambda e, t: W.App._fit_mouth(app, e, t)
+    se.load(tl)
+    se.draft = S.set_kind(se.sh, "drop")
+    se.try_draft()
+    e = _refusal(app.doc.text())
+    if app.doc.statement(tl).code != "tube drop 7 12 7 14 height 2" or not e.get("mouth") or e["mouth"][0] != tl:
+        bad.append("mouth: the kind switch wrote %r, its picture %r" % (app.doc.statement(tl).code, e))
+    elif not app._fit_mouth(e, app.doc.text()):
+        bad.append("mouth: the kind switch's drop was not fitted")
+    elif _refusal(app.doc.text()).get("mouth") or se.pending[1] != app.doc.statement(tl).code:
+        bad.append("mouth: the kind switch's drop fitted to %r, still refused or not pending" %
+                   app.doc.statement(tl).code)
+    # (4) a height the author TYPED is never changed: the Mouth height field's draft, refused, fit refused too;
+    # the error row offers "Use height N", which makes it build
+    app = _StubApp(MOUTH + "tube drop 7 12 7 14 height 2\n")
+    se = S.ShapeEditor(app, None, None, None, None)
+    app.shapes = se
+    tl = MOUTH.count("\n") + 1
+    se.load(tl)
+    se.draft = dict(se.sh, height=3.0, mouth_auto=False)   # (what the field's setter writes)
+    se.try_draft()
+    text = app.doc.text()
+    e = _refusal(text)
+    if W.App._fit_mouth(app, e, text) or app.doc.text() != text:
+        bad.append("mouth: a typed height was changed: %r" % app.doc.statement(tl).code)
+    fx = W.fix_for(e.get("error") or "", E._line_of(e.get("error") or ""), app.doc)
+    if not fx or fx[0] != "Use height 2.5" or "2.5 is the most" not in W.explain(e.get("error") or ""):
+        bad.append("mouth: the typed height's error row offers %r, explained %r" % (
+            fx and fx[0], W.explain(e.get("error") or "")[:120]))
+    else:
+        app._edit(fx[1], app.doc)
+        if app.doc.statement(tl).code != "tube drop 7 12 7 14 height 2.5" or _refusal(app.doc.text()).get("mouth"):
+            bad.append("mouth: Use height 2.5 left %r" % app.doc.statement(tl).code)
+    # (5) a DROP TRACED (Ctrl-click) onto the wall (7, 13), the floor (7, 14) past it: OUT goes on that floor, the
+    # wall its last body cell - and no floor tile is written over the wall; traced on to the floor, the same tube
+    for trace, what in (([(7, 12), (7, 13)], "onto the wall"), ([(7, 12), (7, 13), (7, 14)], "past the wall")):
+        app = _PaletteApp(MOUTH)
+        app.path_pick = list(trace)
+        app.add_part("Tube (drop)")
+        tubes = [st.code for st in app.doc.statements() if st.kind == "tube" and st.toks[1] == "drop"]
+        if tubes != ["tube drop 7 12 7 14 height 3"] or "wall tile 7 13 flat 20" not in app.doc.lines or \
+                any(l_.startswith("floor tile") for l_ in app.doc.lines):
+            bad.append("mouth: a drop traced %s laid %r, the lines %r" % (what, tubes, app.doc.lines[-3:]))
+            continue
+        e = _refusal(app.doc.text())
+        if not app._fit_mouth(e, app.doc.text()) or "tube drop 7 12 7 14 height 2.5" not in app.doc.lines:
+            bad.append("mouth: a drop traced %s was not fitted: %r" % (what, e.get("error")))
+    # (6) a traced end on a wall with no floor past it (_W3W's wall at (7, 8), wall again at (7, 7)): the wall
+    # stays a wall - never a floor tile over a cell the course has; an EMPTY end still gets one
+    app = _PaletteApp(B._W3W)
+    app.path_pick = [(7, 10), (7, 8)]
+    app.add_part("Tube (keep)")
+    if any(l_.startswith("floor tile 7 8") for l_ in app.doc.lines) or "OUT cell (7, 8) is not a FLOOR" not in (
+            app.banner or ""):                  # (refused, saying why, rather than the wall quietly made floor)
+        bad.append("mouth: a tube traced onto a wall wrote a floor over it: %r" % app.doc.lines)
+    app = _PaletteApp(B._W3W)
+    app.path_pick = [(7, 12), (7, 18)]
+    app.add_part("Tube (launch)")
+    if "floor tile 7 18 flat 16" not in app.doc.lines:
+        bad.append("mouth: a tube traced to an empty cell got no floor under it: %r (%s)" % (app.doc.lines,
+                                                                                           app.banner))
     return bad
 
 
@@ -840,6 +999,7 @@ def main():
     except B.CourseError as e:
         bad.append("occ view: refused: %s" % str(e)[:150])
     bad += stranded_check()
+    bad += mouth_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
