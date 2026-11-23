@@ -8493,11 +8493,9 @@ def void_face_cells(tiles):
     return {cell for _k, cell, _t, _h, _s, _e, faces in _cell_faces(tiles) if any(f[4] is None for f in faces)}
 
 
-def float_stranded(src, tiles, props, hack=None):
-    """SPEC.md 130.27.2, 130.58.38: the `float` statements that float nothing - no cell of the shape hangs a face
-    over the void, the picture drawn as compile_course draws it (a glass tile's, a membrane's and a turntable's
-    cells undrawn) - as [(cells, line)] in file order. compile_course refuses the first; the course builder asks
-    after every edit, so that a float left with no floor edge over the void goes with the floor"""
+def drawn_void_faces(tiles, props, hack=None):
+    """the cells with a face over the void, the picture drawn as compile_course draws it (a glass tile's, a
+    membrane's and a turntable's cells undrawn): what a `float` or a tube's `column` must touch to hang anything"""
     hack = hack or {}
     undrawn = {p["at"] for p in props if p.get("art") == "glass" or p["kind"] == SP_KM}
     if not hack.get("nottart"):
@@ -8505,7 +8503,15 @@ def float_stranded(src, tiles, props, hack=None):
             if p["kind"] == TT_K:
                 t = p["ttab"]
                 undrawn |= {(t["at"][0] + i, t["at"][1] + j) for i in range(t["N"]) for j in range(t["N"])}
-    vface = void_face_cells({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles)
+    return void_face_cells({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles)
+
+
+def float_stranded(src, tiles, props, hack=None):
+    """SPEC.md 130.27.2, 130.58.38: the `float` statements that float nothing - no cell of the shape hangs a face
+    over the void, the picture drawn as compile_course draws it (a glass tile's, a membrane's and a turntable's
+    cells undrawn) - as [(cells, line)] in file order. compile_course refuses the first; the course builder asks
+    after every edit, so that a float left with no floor edge over the void goes with the floor"""
+    vface = drawn_void_faces(tiles, props, hack)
     return [(fcells, fln) for fcells, fln, _d in src.floats if not fcells & vface]
 
 
@@ -12621,7 +12627,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if tb.get("column") is None:                # FLOATS that deep, as `float ... thick` (the tube's own
             continue                                # clause, so it wins over a float statement on its cells)
         bcells = set(tube_body(tb) or ())
-        if not bcells & vface:
+        if not bcells & drawn_void_faces(tiles, props, hack):
             raise CourseError("%s:%d: the tube's column hangs nothing: no cell of its body has a face over the "
                               "void, so its column already stands on what is under it (SPEC.md 130.12.3.5)"
                               % (fname, tb["line"]))
