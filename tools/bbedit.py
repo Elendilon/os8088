@@ -251,6 +251,7 @@ class App(object):
         self.keep = None                # the edit "Keep it anyway" re-does
         self.tmp = tempfile.mkdtemp(prefix="bbedit-")
         self.pic = None                 # the Iso picture: {meta, img_cga, img_herc, owners}
+        self.pic_err = None             # (the text the last picture compiled, and its refusal or None)
         self.pic_job = self.check_job = None
         self.pic_after = self.check_after = None
         self.check = None               # the last full check's result
@@ -447,6 +448,11 @@ class App(object):
         # problems
         pf = ttk.Frame(mid)
         pf.pack(side="bottom", fill="x")
+        self.fixbar = ttk.Frame(pf, padding=(6, 3))     # (a picked error's whole explanation, and its fix)
+        self.fix_l = ttk.Label(self.fixbar, text="", wraplength=640, foreground="#7a1a14", justify="left")
+        self.fix_l.pack(side="left", fill="x", expand=True)
+        self.fix_b = ttk.Button(self.fixbar, text="", command=self.do_fix)
+        self.fix = None
         self.probs = ttk.Treeview(pf, show="tree", height=4, selectmode="browse")
         self.probs.column("#0", width=600, stretch=True)
         self.probs.pack(fill="x")
@@ -636,19 +642,86 @@ class App(object):
         self.root.after(500, wait)
 
     def _build_source_tab(self):
+        """SPEC.md 130.58.38: the course's text, EDITABLE - typing changes a working copy; Apply (Ctrl+Enter, or
+        leaving the tab) puts it in the course as ONE undo step through the checked edit (never refused: it is
+        the author's own text, and a refusal shows in the problems list), Revert throws it away. The gutter's
+        line numbers are read-only: a double-click there (or a Ctrl-double-click in the text) selects that
+        line's part"""
         tk, ttk = self.tk, self.ttk
         f = ttk.Frame(self.nb)
         self.nb.add(f, text="Source")
-        self.src_t = tk.Text(f, wrap="none", font=("TkFixedFont", 10), undo=False)
-        ys = ttk.Scrollbar(f, orient="vertical", command=self.src_t.yview)
-        self.src_t.configure(yscrollcommand=ys.set)
+        bar = ttk.Frame(f, padding=(4, 3))
+        bar.pack(side="top", fill="x")
+        ttk.Button(bar, text="Apply", command=self.src_apply).pack(side="left")
+        ttk.Button(bar, text="Revert", command=self.src_revert).pack(side="left", padx=4)
+        self.src_l = ttk.Label(bar, text="", foreground="#444")
+        self.src_l.pack(side="left", padx=8)
+        body = ttk.Frame(f)
+        body.pack(side="top", fill="both", expand=True)
+        self.src_g = tk.Text(body, wrap="none", font=("TkFixedFont", 10), width=6, takefocus=0, cursor="arrow",
+                             background="#eeeeee", foreground="#666", borderwidth=0)
+        self.src_t = tk.Text(body, wrap="none", font=("TkFixedFont", 10), undo=True, maxundo=-1)
+        ys = ttk.Scrollbar(body, orient="vertical", command=self._src_yview)
+
+        def ysync(lo, hi):
+            ys.set(lo, hi)
+            self.src_g.yview_moveto(lo)
+        self.src_t.configure(yscrollcommand=ysync)
+        self.src_g.configure(yscrollcommand=lambda lo, hi: None)
+        self.src_g.pack(side="left", fill="y")
         self.src_t.pack(side="left", fill="both", expand=True)
         ys.pack(side="right", fill="y")
-        self.src_t.tag_configure("sel_line", background="#fff3c4")
-        self.src_t.tag_configure("err_line", background="#fde2df")
-        self.src_t.tag_configure("cmt", foreground="#777")
-        self.src_t.bind("<Double-Button-1>", self._src_pick)
-        self.src_t.configure(state="disabled")
+        for w in (self.src_t, self.src_g):
+            w.tag_configure("sel_line", background="#fff3c4")
+            w.tag_configure("err_line", background="#fde2df")
+            w.tag_configure("cmt", foreground="#777")
+        self.src_g.bind("<Double-Button-1>", self._src_pick)
+        self.src_g.bind("<Button-1>", lambda e: "break")
+        self.src_t.bind("<Control-Double-Button-1>", self._src_pick)
+        t = self.src_t                  # (the window's own keys - Ctrl+Z the COURSE's undo, Ctrl+D duplicate -
+        t.bindtags((str(t), "Text", str(self.root)))     # are not the text's: it keeps its own)
+        t.bind("<Control-Return>", lambda e: (self.src_apply(), "break")[1])
+        t.bind("<Control-s>", lambda e: (self.src_apply(), self.save(), "break")[2])
+        t.bind("<<Modified>>", self._src_modified)
+        self.src_dirty = False
+        self.src_filling = False
+        self.src_g.configure(state="disabled")
+
+    def _src_yview(self, *a):
+        self.src_t.yview(*a)
+        self.src_g.yview(*a)
+
+    def _src_modified(self, e=None):
+        if self.src_filling or not self.src_t.edit_modified():
+            return
+        self.src_dirty = True
+        self.src_l.config(text="Edited - Apply (Ctrl+Enter) puts it in the course, Revert throws it away")
+
+    def _src_text(self):
+        """the working copy as the course's text (the Text widget's own final newline taken off)"""
+        txt = self.src_t.get("1.0", "end-1c")
+        return txt
+
+    def src_apply(self):
+        """the working copy into the course: one undo step, checked like any other edit but never undone"""
+        if not self.src_dirty:
+            return
+        text = self._src_text()
+        self.src_dirty = False
+        self.src_l.config(text="")
+        if text.split("\n") == self.doc.lines:
+            return
+        self.sel, self.sels = None, []
+        self._edit(self.doc.set_text, text, label="edit the source", _allow=True)
+        self._fill_source()
+        err = self.doc.analysis()["error"]
+        self._msg(("Applied the text. It does not build: %s" % explain(err).split("\n")[0]) if err
+                  else "Applied the text (one undo step)")
+
+    def src_revert(self):
+        self.src_dirty = False
+        self.src_l.config(text="")
+        self._fill_source()
 
     # -- files ------------------------------------------------------------
     def new(self):
@@ -790,11 +863,16 @@ class App(object):
         lab = self.doc.redo()
         self._msg("Redid: %s" % lab if lab else "Nothing to redo")
 
-    def _edit(self, fn, *a, **kw):
+    def _edit(self, fn, *a, _allow=False, **kw):
         """every edit the window makes: done, `uses` added for it, and UNDONE AGAIN when it leaves the course
         refused where it was not before - the course never ends up broken by a click; the banner says why
-        in plain words and offers to keep it anyway"""
+        in plain words and offers to keep it anyway. SPEC.md 130.58.38: "where it was not before" is by the
+        error's IDENTITY (its statement and words, not its line number) against every error the course was
+        already refused for - so a course opened broken, or broken by its text, still takes unrelated edits -
+        and what only made sense on ground the edit removed (a float floating nothing, its paint) goes with it"""
+        snap = self.doc.snapshot()
         before = self.doc.analysis()["error"]
+        known = self.doc.error_keys() if before else set()
         n0 = len(self.doc.undo_stack)
         try:
             r = fn(*a, **kw)
@@ -804,8 +882,17 @@ class App(object):
         added = self.doc.auto_uses()
         band = self.doc.auto_band()
         self._note = ("The course grew past the game's picture, so the builder %s. " % band) if band else ""
+        if len(self.doc.undo_stack) > n0:
+            gone = self.doc.drop_dependents(snap)
+            if gone:
+                self.doc.merge_since(n0)
+                self._note += "Taken with the ground under it (nothing left to hang or paint): %s. " % "; ".join(
+                    "`%s`" % code for _ln, code in gone)
         after = self.doc.analysis()["error"]
-        if after and after != before and E.Document.WAY_ERR.search(after) and len(self.doc.undo_stack) > n0:
+
+        def new(err):
+            return err and self.doc.err_key(err) not in known
+        if new(after) and E.Document.WAY_ERR.search(after) and len(self.doc.undo_stack) > n0:
             moved = self.doc.relocate_ways()        # SPEC.md 130.58.22: a route point the edit stranded moves
             if moved:                               # to the nearest floor, in the same undo step
                 self.doc.merge_since(n0)
@@ -813,7 +900,7 @@ class App(object):
                     "s" if len(moved) > 1 else "", "; ".join("line %d to %d, %d" % (ln, n[0], n[1])
                                                              for ln, _o, n in moved))
                 after = self.doc.analysis()["error"]
-        if after and after != before and len(self.doc.undo_stack) > n0:
+        if new(after) and not _allow and len(self.doc.undo_stack) > n0:
             while len(self.doc.undo_stack) > n0:
                 self.doc.undo()
                 if self.doc.redo_stack:
@@ -822,6 +909,12 @@ class App(object):
             self._banner("That change was undone: %s" % explain(after), keep=True)
             return None
         self._banner(None)
+        if after and len(self.doc.undo_stack) > n0:
+            self._msg("Done. The course was refused before this edit and still is, for the same reason - the "
+                      "red line in the list below says what, and clicking it shows the part: %s"
+                      % explain(after).split("\n")[0])
+        elif self._note and len(self.doc.undo_stack) > n0:
+            self._msg("Done.")
         plus, minus = [n for n in added if not n.startswith("-")], [n[1:] for n in added if n.startswith("-")]
         if plus:
             self._msg("Added `uses %s`: the course needs it for the part you added" % " ".join(plus))
@@ -866,7 +959,8 @@ class App(object):
                 for ln in lines:
                     self.doc.remove(ln)
             return True
-        self._edit(rm)
+        # SPEC.md 130.58.38: deleting the very part the course is refused for is never refused itself
+        self._edit(rm, _allow=self.doc.analysis()["error_line"] in lines)
 
     def duplicate(self):
         if not self.sel:
@@ -1531,6 +1625,11 @@ class App(object):
         for it in a["items"]:
             if it["line"] in want:
                 cells.update(it["cells"])
+        src = a["src"]                          # SPEC.md 130.58.38: a float's or paint's own shape, so an error
+        if src is not None:                     # naming one shows where it is even over the void
+            for cs, ln in [(f[0], f[1]) for f in src.floats] + [(s_[1], s_[2]) for s_ in src.surfaces]:
+                if ln in want:
+                    cells.update(cs)
         return cells
 
     def _scroll_to_sel(self):
@@ -2480,7 +2579,10 @@ class App(object):
             h = max(under)
             toks[toks.index("flat") + 1] = ("%d" % h) if h == int(h) else ("%g" % h)
         code = E.join_tokens(toks)
-        comp = [(ln, self.doc.moved_code(ln, dx, dy)) for ln in self._companions(self.sel)]
+        own = self._companions(self.sel)
+        if st.kind != "hole":           # (SPEC.md 130.58.38: its other paint and hang inside it go along too)
+            own += [ln for ln in self.doc.paint_in(sh[2], skip=[self.sel] + own)]
+        comp = [(ln, self.doc.moved_code(ln, dx, dy)) for ln in sorted(own)]
         whole, split = self.doc.riders(sh[2], skip=[self.sel] + [c for c, _ in comp]) \
             if st.kind != "hole" else ([], [])
         # (what stands on it rides along: its rails, route points, the start, flags, props, pads, clocks -
@@ -2493,8 +2595,8 @@ class App(object):
                 for ln in sorted([self.sel] + [c for c, _ in comp], reverse=True):
                     self.doc.remove(ln)
                 self.doc.replace_area(dest, ground=[code], surfaces=True)   # (the paint of the cells it lands on
-                for _ln, cc in comp:                                      # was theirs: cut - its own goes with it)
-                    self.doc.replace_area(dest, ground=[cc], kinds=(), surfaces=cc.startswith("surface"))
+                for _ln, cc in comp:                                      # was theirs: cut - its own goes with it,
+                    self.doc.replace_area(None, ground=[cc])              # in file order: a later paint wins)
                 self.doc.tidy((min(x0, dest[0]), min(y0, dest[1]), max(x1 - 1, dest[2]), max(y1 - 1, dest[3])))
                 done = set()
                 for _ln, wc in whole:               # (found again by their text: the lines above moved)
@@ -2594,31 +2696,54 @@ class App(object):
         self.cv_cstrict.set("strict" in sts)
 
     def _fill_source(self):
-        t = self.src_t
-        t.configure(state="normal")
+        t, g = self.src_t, self.src_g
+        if self.src_dirty:          # (an unapplied working copy is never thrown away under the author's hands)
+            self.src_l.config(text="Edited - not applied; the course has changed since (Revert shows it)")
+            return
+        self.src_filling = True
+        top = t.yview()[0]
         t.delete("1.0", "end")
+        g.configure(state="normal")
+        g.delete("1.0", "end")
+        t.insert("end", "\n".join(self.doc.lines))
+        g.insert("end", "\n".join("%5d" % i for i in range(1, len(self.doc.lines) + 1)))
         for i, ln in enumerate(self.doc.lines, 1):
-            t.insert("end", "%5d  %s\n" % (i, ln))
             if ln.lstrip().startswith("#"):
                 t.tag_add("cmt", "%d.0" % i, "%d.end" % i)
         a = self.doc.analysis()
-        if a["error_line"]:
-            t.tag_add("err_line", "%d.0" % a["error_line"], "%d.end" % a["error_line"])
+        for w in (t, g):
+            if a["error_line"]:
+                w.tag_add("err_line", "%d.0" % a["error_line"], "%d.end" % a["error_line"])
+            if self.sel:
+                w.tag_add("sel_line", "%d.0" % self.sel, "%d.end" % self.sel)
+        t.edit_reset()
+        t.edit_modified(False)
+        g.configure(state="disabled")
         if self.sel:
-            t.tag_add("sel_line", "%d.0" % self.sel, "%d.end" % self.sel)
             t.see("%d.0" % self.sel)
-        t.configure(state="disabled")
+        else:
+            t.yview_moveto(top)
+        self.src_filling = False
 
     def _src_pick(self, e):
-        line = int(self.src_t.index("@%d,%d" % (e.x, e.y)).split(".")[0])
+        line = int(e.widget.index("@%d,%d" % (e.x, e.y)).split(".")[0])
         if 1 <= line <= len(self.doc.lines) and self.doc.lines[line - 1].strip() \
                 and not self.doc.lines[line - 1].lstrip().startswith("#"):
+            self.src_apply()
             self.select(line)
             self.nb.select(0)
+        return "break"
 
     def _tab_changed(self):
+        cur = self.nb.index("current")
+        if getattr(self, "src_tab_was", None) == self._src_tab() and cur != self._src_tab():
+            self.src_apply()            # (leaving the Source tab applies its working copy, SPEC.md 130.58.38)
+        self.src_tab_was = cur
         if getattr(self, "map", None) and self.map.shown():
             self.map.refresh()
+
+    def _src_tab(self):
+        return self.nb.index(self.src_t.master.master)
 
     # -- problems -----------------------------------------------------------------
     def _problems(self):
@@ -2652,12 +2777,13 @@ class App(object):
         nerr = sum(1 for p in probs if p[0] == "err")
         nwarn = sum(1 for p in probs if p[0] == "warn")
         for tag, text, line, cell in probs:
+            raw = text
             if tag == "err":
                 ex = explain(text)
                 text = ex.split("\n")[0] if ex != text else text
             iid = self.probs.insert("", "end", text=("ERROR   " if tag == "err" else "warning  " if tag == "warn"
                                                      else "note     ") + text, tags=(tag,))
-            self.prob_rows[iid] = (line, cell)
+            self.prob_rows[iid] = (line, cell, raw)
         if not probs:
             self.probs.insert("", "end", text="No problems found" + ("" if self.check else
                                                                      " yet (the full check runs after you stop "
@@ -2681,28 +2807,58 @@ class App(object):
             self.check_l.config(text="Not checked since the last edit.")
         for tag, text, line, cell in probs:
             iid = t.insert("", "end", text=text, tags=(tag,))
-            self.check_rows[iid] = (line, cell)
+            self.check_rows[iid] = (line, cell, text)
         if not probs and self.check and self.check.get("text") == self.doc.text():
             t.insert("", "end", text="Everything passes.", tags=("ok",))
 
     def _pick_problem(self):
         s = self.probs.selection()
         if s and s[0] in self.prob_rows:
-            line, cell = self.prob_rows[s[0]]
+            line, cell, raw = self.prob_rows[s[0]]
             self.occ.problem_picked(self.probs.item(s[0], "text"))
-            if line:
+            if line:                            # SPEC.md 130.58.38: the part on the plan and in the inspector
+                self.nb.select(0)
                 self.hilite = cell
                 self.select(line, scroll=True)
+            self._show_fix(raw, line)
 
     def _pick_check(self):
         s = self.checks.selection()
         if s and s[0] in self.check_rows:
-            line, cell = self.check_rows[s[0]]
+            line, cell, raw = self.check_rows[s[0]]
             self.occ.problem_picked(self.checks.item(s[0], "text"))
             if line:
                 self.nb.select(0)
                 self.hilite = cell
                 self.select(line, scroll=True)
+            self._show_fix(raw, line)
+
+    def _show_fix(self, err, line):
+        """SPEC.md 130.58.38: under the problems list, a picked ERROR's explanation in full and - where FIXES knows
+        the obvious way out - a button that takes it, as one checked edit"""
+        fix = fix_for(err, line, self.doc) if err else None
+        if not err or not (fix or explain(err) != err):
+            self.fixbar.pack_forget()
+            self.fix = None
+            return
+        self.fix_l.config(text=explain(err).split("\n")[0])
+        self.fix = fix
+        if fix:
+            self.fix_b.config(text=fix[0])
+            self.fix_b.pack(side="right", padx=6, before=self.fix_l)
+        else:
+            self.fix_b.pack_forget()
+        self.fixbar.pack(side="top", fill="x", before=self.probs)
+
+    def do_fix(self):
+        f, self.fix = self.fix, None
+        self.fixbar.pack_forget()
+        if not f:
+            return
+        label, fn = f
+        self.sel, self.sels = None, []
+        if self._edit(fn, self.doc) is not None:
+            self._msg("%s: done (one undo step)" % label)
 
     def _show_cell(self, cell):
         self.hilite = cell
@@ -2749,6 +2905,7 @@ class App(object):
                     pass
                 elif self.view.get() == "iso":
                     self._msg("No picture: %s" % e.get("error"))
+                self.pic_err = (text, None if e.get("ok") else e.get("error"))   # (what the NEXT one compares with)
             elif e["stage"] not in ("exit", "log"):
                 self.job_l.config(text="Picture: %s" % e.get("what", e["stage"]))
         self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []) +
@@ -3095,6 +3252,10 @@ class App(object):
                 for cx_, cy_, _n in m["cover"]:
                     qx, qy = self._cpx(cx_, cy_)
                     c.create_rectangle(qx + 2, qy + 2, qx + s - 2, qy + s - 2, outline="#ffb020", width=3)
+        paint = [l_ for l_ in set(self.sels) | {self.sel} if l_ and l_ <= len(self.doc.lines)
+                 and E.Statement(l_, self.doc.lines[l_ - 1]).kind in ("float", "surface")]
+        if paint:                               # a float's or paint's own cells, over the void too (130.58.38)
+            selcells.update(self._sel_cells(paint))
         for (x, y) in selcells:
             px, py = self._cpx(x, y)
             c.create_rectangle(px, py, px + s, py + s, outline="#ffffff", width=2, dash=(4, 3))
@@ -3597,6 +3758,11 @@ EXPLAIN = [
      "it (the finish flashes its time there): add a Clock (Game, on the left) on a floor tile near the goal."),
     (r"no `music` line", "every course names its song: choose one on the Course tab (Music)."),
     (r"no `target` statement", "every course gives its design time: set Target (30, 60 or 90 s) on the Course tab."),
+    (r"float floats nothing", "an overhang (a `float` line) marks the cells of a floor whose edge hangs over "
+     "empty space, so that edge is drawn as a thin slab instead of a column down to the ground. This one covers "
+     "no floor edge over empty space any more - usually because the floor under it was deleted or moved - so it "
+     "changes nothing, and the game's build refuses it. Remove it (the button beside this explanation, or "
+     "select it and press Delete), or put a floor back under it."),
     (r"gap bands nothing", "that `gap` line names no face that stands over a gap, so it would change no pixel. "
      "Turn on Gap bands in the Iso view and click the places you want instead; a line left with no mark is "
      "deleted."),
@@ -3641,6 +3807,27 @@ def explain(err):
             words = words.format(*m.groups())
             return "%s\n(The compiler said: %s)" % (words[:1].upper() + words[1:], err)
     return err
+
+
+# SPEC.md 130.58.38: a refusal with an obvious way out - (pattern, the button's words, fix(doc, line, match)
+# making the edit, through the window's checked edit) - offered under the problems list when its row is picked
+FIXES = [
+    (r"float floats nothing", "Remove this overhang (the float)",
+     lambda d, ln, m: d.remove(ln, label="remove a float")),
+    (r"gap bands nothing", "Remove this gap line", lambda d, ln, m: d.remove(ln, label="remove a gap line")),
+]
+
+
+def fix_for(err, line, doc):
+    """the FIXES row for ERR on LINE -> (the button's words, fn(doc) making it) or None"""
+    import re
+    if not line:
+        return None
+    for pat, label, fn in FIXES:
+        m = re.search(pat, err)
+        if m:
+            return label, (lambda d, fn=fn, m=m: fn(d, line, m) or True)
+    return None
 
 
 def _clip(poly, k, side):
