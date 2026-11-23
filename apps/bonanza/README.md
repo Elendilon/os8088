@@ -51,6 +51,12 @@ times are kept in `SYSTEM\APPDATA\BONANZA.DAT` on the game's own disk.
 After any play or replay the face shows its time, how it ended, its falls
 and the flags it reached.
 
+**Palettes** (SPEC.md 130.16.6): a course picks the CGA's palette 1 (cyan,
+magenta, white; the default), palette 0 (green, red, brown) or palette 2
+(cyan, red, white, mode 5's), bright or dim, over any ground colour - the
+course builder's "CGA palette" on its course tab, or a `palette` line. The
+VGA shows the same colours; the Hercules draws by pattern and has none.
+
 **The Playground** (SPEC.md 130.16.8) is the balls' testing ground, in the
 CGA's other palette: behind its apron a
 STEP LADDER of four terraces - half a unit (every ball rolls up), one unit

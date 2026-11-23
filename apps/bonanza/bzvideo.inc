@@ -140,9 +140,13 @@ bz_fsxm:    db FSXM_CGA320, FSXM_HERC, FSXM_VGA0D ; bz_card's modes
 ; os88sym), since the mode set leaves the BIOS's 30h.  Never on the Hercules,
 ; whose picture is a function of the colour INDEX.  On an EGA or VGA that
 ; came up VID_CGA no register answers 3D9h and the BIOS's palette stays: a
-; cosmetic loss, no wrong pixel (130.16.6).  Preserves nothing.
+; cosmetic loss, no wrong pixel (130.16.6).  PALETTE 2 (bit 6) is mode 5's
+; cyan, red, white: the mode control register's B/W bit, which bz_cmode
+; carries into bz_blank and bz_unblank - the play's first frame is a full
+; write, so its bz_unblank lights the card in it.  Preserves nothing.
 ; -----------------------------------------------------------------------------
 bz_vinit:
+    mov byte [bz_cmode], 2ah    ; (mode 4's; the Hercules's and VGA's too)
     mov ax, [bz_fsi + FSI_SEG]
     mov [bz_vseg], ax
     mov word [bz_smask], 0fffh  ; (the 6845's ring; the VGA's part sets 0FFFFh)
@@ -172,6 +176,10 @@ bz_vinit:
     mov dx, 3d9h
 .vpal:
     out dx, al
+    test al, 40h                ; palette 2: mode 5's B/W bit (130.16.6)
+    jz .m4
+    or byte [bz_cmode], 4
+.m4:
     mov word [bz_W], BZ_WC
     mov word [bz_H], 100
     mov word [bz_rb], 80
