@@ -298001,8 +298001,16 @@ course. The geometry is the design's, untouched.
   (round 3b's launches), `inc` (item 5's rotor-in-front control), `w9`'s
   `uses rotor tube` cases (`_mill_text`) and `camcheck`'s SIDE scenario
   (`SIDE_SCEN`, bonanzaring's `T_SIDE` on TMIL: (18, 14), Left, 240 steps).
-  `camcheck`'s ramp bottom stays on MILL: WINDMILL LANE keeps the
+  `camcheck`'s ramp bottom stayed on MILL: WINDMILL LANE kept the
   prototype's B, ramp and bumper box at the same cells (12 units higher).
+  **It moved to TMIL on 2026-11-23** (`RAMP_CRS`): the owner's hand-edited
+  MILL no longer keeps B there - poked at (15, 7) its ball rests at (15, 8)
+  and never reaches the green, and the descent, which had no bound, recorded
+  a camera frame a step until `--selfcheck`'s `camcheck` child was killed at
+  about 9 GB. It takes bonanzaring's own `T_RAMP_POKE` / `T_RAMP_GREEN`,
+  (14, 7) to tile y 13, and the descent is bounded (`RAMP_DESCENT`, 2000
+  steps; TMIL's is 92): a course that moves B again refuses the scenario by
+  name.
   `CAP_WAIVE`'s MILL waiver (the old course's 6 bytes) is removed. Three of
   the prototype's LAYOUT facts are not TMIL's, and the items say so rather
   than fail: item 8's "the LAUNCH's flight and the DROP's fall cross no

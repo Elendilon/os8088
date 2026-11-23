@@ -27464,9 +27464,15 @@ def cam_dither(c, herc, log=None, taps=CAM_TAPS, every=0.5, secs=60, **gkw):
     return out
 
 
-# MILL's ramp bottom (SPEC.md 130.17.6.1, 130.17.6.5 item 4): rubber poked at (15, 7), rolled down B's ramp
-# (Down + Left) to the green (tile y 18), then each PATTERN, (key byte, steps)
-RAMP_POKE, RAMP_GREEN = (15, 7), 18
+# MILL's ramp bottom (SPEC.md 130.17.6.1, 130.17.6.5 item 4): rubber poked at RAMP_POKE, rolled down B's ramp
+# (Down + Left) to the green (tile y RAMP_GREEN), then each PATTERN, (key byte, steps).  On RAMP_CRS, TMIL, the
+# prototype MILL's test copy (2026-11-23): the owner's WINDMILL LANE no longer keeps the prototype's B at its
+# cells - poked at (15, 7) its ball rests at (15, 8) and never reaches the green, and the descent, unbounded,
+# recorded a frame a step until the selfcheck's child was killed at ~9 GB.  The values are bonanzaring's
+# T_RAMP_POKE / T_RAMP_GREEN, its CAMERA leg's own (B ends at wx 14 there and its descent on W at wy 13), and the
+# descent is bounded now (RAMP_DESCENT): a course that moves B again is refused at the scenario, by name
+RAMP_CRS, RAMP_POKE, RAMP_GREEN = "TMIL", (14, 7), 13
+RAMP_DESCENT = 2000             # steps the roll down B may take before the scenario is refused (TMIL's: 92)
 _RDN, _RUP = K_D | K_L, K_U | K_R
 RAMP_PATTERNS = (
     ("coast", [(0, 300)]),
@@ -27479,15 +27485,21 @@ RAMP_PATTERNS = (
 
 
 def ramp_bottom(c, herc, pat, **gkw):
-    """one ramp-bottom pattern on MILL -> (the CamRun, the frame the pattern began)"""
+    """one ramp-bottom pattern on RAMP_CRS -> (the CamRun, the frame the pattern began)"""
     p = Physics(c, play=True).poke(*RAMP_POKE)
     r = CamRun(c, herc, p, **gkw)
     seq = iter([k for k, n in pat for _ in range(n)])
-    st = {"start": None}
+    st = {"start": None, "down": 0}
 
     def step():
         if st["start"] is None:
             if (p.gy >> 12) < RAMP_GREEN:
+                st["down"] += 1
+                if st["down"] > RAMP_DESCENT:
+                    raise CourseError("%s: the ramp bottom's ball, poked at %s and rolled Down + Left %d steps, "
+                                      "never reached the green (tile y %d): it rests at %s - re-find RAMP_POKE / "
+                                      "RAMP_GREEN (SPEC.md 130.17.6.5 item 4)" % (
+                                          c.name, RAMP_POKE, RAMP_DESCENT, RAMP_GREEN, (p.gx >> 12, p.gy >> 12)))
                 p.step(_RDN)
                 return
             st["start"] = r.fr
@@ -27653,10 +27665,10 @@ def camcheck(courses, demos, res, controls=True):
                     SIDE_SCEN["crs"], SIDE_SCEN["at"], keys_text(SIDE_SCEN["keys"]), SIDE_SCEN["steps"], sd[0][0],
                     sd[1][0], "" if not (sd[0][1] or sd[1][1]) else ": %s" % (sd[0][1] + sd[1][1])[0]),
                 sd[0][0] > 0 and sd[1][0] > 0 and not sd[0][1] and not sd[1][1]))
-    # MILL's ramp bottom
-    rb = {herc: ramp_reversals(by["MILL"], herc) for herc in (0, 1)}
-    res.append(("8 MILL's ramp bottom, rolled down B's ramp to the green: %s - no reversal on either card" % "; ".join(
-        "%s %s" % (n, "/".join(str(x[1]) for x in (rb[0][i], rb[1][i]))) for i, (n, _p) in enumerate(RAMP_PATTERNS)),
+    # MILL's ramp bottom (on RAMP_CRS, the prototype's test copy)
+    rb = {herc: ramp_reversals(by[RAMP_CRS], herc) for herc in (0, 1)}
+    res.append(("8 MILL's ramp bottom (on %s), rolled down B's ramp to the green: %s - no reversal on either card" % (
+        RAMP_CRS, "; ".join("%s %s" % (n, "/".join(str(x[1]) for x in (rb[0][i], rb[1][i]))) for i, (n, _p) in enumerate(RAMP_PATTERNS))),
         all(x[1] == 0 for herc in (0, 1) for x in rb[herc])))
     # the dither map
     dm = {}
@@ -27729,8 +27741,8 @@ def camcheck(courses, demos, res, controls=True):
     print("    the dither map at the printed taps: %s" % "; ".join(
         "%d steps %d of %d (%s)" % (t, len(rev[t]), len(dm[t]), ", ".join("%s %s at %d" % (
             x[0], ("CGA", "Hercules")[x[1]], x[2]) for x in rev[t]) or "none") for t in CAM_TAPS_P))
-    r6 = [ramp_reversals(by["MILL"], herc, _w6=True) for herc in (0, 1)]
-    print("    MILL's ramp bottom under wave 6's policy (reversals CGA/Hercules): %s" % "; ".join(
+    r6 = [ramp_reversals(by[RAMP_CRS], herc, _w6=True) for herc in (0, 1)]
+    print("    MILL's ramp bottom (on " + RAMP_CRS + ") under wave 6's policy (reversals CGA/Hercules): %s" % "; ".join(
         "%s %d/%d" % (n, r6[0][i][1], r6[1][i][1]) for i, (n, _p) in enumerate(RAMP_PATTERNS)))
     H = cam_runs(courses, demos, slow=2.0, which=CAM_HALF, cards=(0,))
     H6 = cam_runs(courses, demos, slow=2.0, which=CAM_HALF, cards=(0,), _w6=True)
@@ -27783,9 +27795,8 @@ def _cam_total(S):
 
 def _cam_controls(courses, demos, by, res):
     """130.17.10's host controls, each its broken model (a Glide flag) red at its own check"""
-    mill = by["MILL"]
-    # nohyst: the ramp bottom and the dither map (the CGA's)
-    rb = [x for herc in (0, 1) for x in ramp_reversals(mill, herc, _nohyst=True) if x[1]]
+    # nohyst: the ramp bottom (on RAMP_CRS) and the dither map (the CGA's)
+    rb = [x for herc in (0, 1) for x in ramp_reversals(by[RAMP_CRS], herc, _nohyst=True) if x[1]]
     dn = {}                                     # tap -> ["COURSE card n", ...]; PLAY's tap 60 is the ring arm's scenario
     for herc in (0, 1):
         for K, c in enumerate(courses):
