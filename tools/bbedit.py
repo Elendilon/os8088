@@ -601,9 +601,9 @@ class App(object):
                         variable=self.strict, command=self.run_check).pack(side="left", padx=8)
         self.check_l = ttk.Label(c, text="", wraplength=520)
         self.check_l.pack(anchor="w", pady=6)
-        self.checks = ttk.Treeview(c, show="tree", height=12)
+        self.checks = ttk.Treeview(c, show="tree", height=7)
         self.checks.column("#0", width=600, stretch=True)
-        self.checks.pack(fill="both", expand=True)
+        self.checks.pack(fill="x")             # (fixed: the stats box below takes the rest, 130.58.51)
         self.checks.tag_configure("err", foreground="#b3261e")
         self.checks.tag_configure("warn", foreground="#8a6d00")
         self.checks.tag_configure("ok", foreground="#2e7d32")
@@ -612,6 +612,23 @@ class App(object):
         ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` (its inspector) or "
                   "`accept` a warning to keep it under --strict (SPEC.md 130.58.5).", wraplength=520,
                   foreground="#444").pack(anchor="w", pady=(6, 0))
+        # SPEC.md 130.58.51: the course's STATS, off the last full check's compile (bbedjob.course_stats)
+        sf = ttk.LabelFrame(c, text="Course stats", padding=6)
+        sf.pack(fill="both", expand=True, pady=(8, 0))
+        self.stats = tk.Text(sf, height=16, width=70, wrap="word", borderwidth=0, takefocus=0,
+                             background=self.root.cget("background"), font="TkDefaultFont", tabs=(170,),
+                             spacing1=1, spacing3=1)
+        sb = ttk.Scrollbar(sf, orient="vertical", command=self.stats.yview)
+        self.stats.config(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.stats.pack(side="left", fill="both", expand=True)
+        self.stats.tag_configure("row", lmargin1=0, lmargin2=170)     # (a wrapped figure hangs under its column)
+        self.stats.tag_configure("label", foreground="#444")
+        self.stats.tag_configure("near", foreground="#8a6d00")
+        self.stats.tag_configure("over", foreground="#b3261e")
+        self.stats.tag_configure("above", foreground="#1a4fa0")
+        self.stats.tag_configure("head", foreground="#222", font="TkHeadingFont", spacing1=6)
+        self.stats.config(state="disabled")
 
     def put_in_game(self):
         """ADD TO THE GAME (SPEC.md 130.58.17): tools/bbgame.py as a process - BONANZA.O88 with the shipped
@@ -2997,6 +3014,37 @@ class App(object):
             self.check_rows[iid] = (line, cell, text)
         if not probs and self.check and self.check.get("text") == self.doc.text():
             t.insert("", "end", text="Everything passes.", tags=("ok",))
+        self._fill_stats()
+
+    def _fill_stats(self):
+        """SPEC.md 130.58.51: the Course stats box - the last full check's stats while the text is the one it
+        checked: each figure against its bound (near one at 90%: amber and a warning sign; over the size
+        budget: red), then each option the course uses to go past a usual bound, named with its section"""
+        t = getattr(self, "stats", None)
+        if t is None:
+            return
+        t.config(state="normal")
+        t.delete("1.0", "end")
+        cur = self.check and self.check.get("text") == self.doc.text()
+        st = (self.check["result"].get("stats") if cur else None) or None
+        if not st:
+            t.insert("end", "Checking..." if self.check_job and self.check_job.running else
+                     "Known once the full check has built the course." if not cur else
+                     "The course did not build: no stats.", ("label",))
+            t.config(state="disabled")
+            return
+        t.insert("end", "Past the usual bounds" + ("" if st["above"] else ": none (one part, up to 1,024 px "
+                                                   "and 1,024 blocks, 256 masks)") + "\n", ("head",))
+        for a in st["above"]:
+            t.insert("end", a["name"] + "\t", ("row", "above"), "%s (SPEC.md %s)\n" % (a["detail"], a["spec"]),
+                     ("row",))
+        t.insert("end", "Against the bounds\n", ("head",))
+        for r in st["rows"]:
+            mark = {"near": "\u26a0 ", "over": "\u26a0 over: "}.get(r["state"], "")
+            t.insert("end", r["label"] + "\t", ("row", "label"), mark + r["text"] + "\n",
+                     ("row", r["state"]) if r["state"] != "ok" else ("row",))
+        t.delete("end-2c", "end-1c")              # (no blank line under the last)
+        t.config(state="disabled")
 
     def _pick_problem(self):
         s = self.probs.selection()
@@ -3119,8 +3167,12 @@ class App(object):
                     return
                 self.check = {"text": text, "strict": strict, "result": e}
                 self._fill_problems()
-                self._msg("Full check: %s in %.1f s" % ("builds" if e.get("ok") else "refused", time.time() - t0))
-            elif e["stage"] not in ("exit", "log"):
+                st = e.get("stats")             # (SPEC.md 130.58.51: its one line)
+                self._msg("Full check: %s in %.1f s%s" % ("builds" if e.get("ok") else "refused", time.time() - t0,
+                                                          " - " + st["summary"] if st else ""))
+            elif e["stage"] == "exit":            # (the process ends after its "done": the box's "Checking..."
+                self._fill_checks(self._problems())     # was filled while it still ran)
+            elif e["stage"] != "log":
                 self.job_l.config(text="Check: %s" % e.get("what", e["stage"]))
         self.check_job = Job(["check", p, "--name", self._name()] + (["--strict"] if strict else []) +
                              (["--trap"] if trap else []), ev).start()

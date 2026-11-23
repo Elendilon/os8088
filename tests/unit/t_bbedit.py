@@ -114,6 +114,12 @@
     the corner ... got [('door' ..."), the detour test removed ("a gap across the whole leg"), _lint_proven made
     empty ("its leg taken by the arrows (the proof)").
 
+ 26. COURSE STATS (SPEC.md 130.58.51): the check job's stats for FIRST - its records, masks, blocks, part and
+    picture the compile's own, each with its bound, the floppy's bytes os88pkg.compress_part's LZB of the part with
+    its song, nothing past a bound - and DOWN, past 1,024 px and in SHEETS (and nothing else), its width at its
+    bound. Red by hand (2026-11-23): course_stats's wide test made `c.cols > 160` ("DOWN goes past ['sheets'],
+    not ['wide', 'sheets']").
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -515,6 +521,52 @@ def course_tab_check():
     a._apply_course()
     if any(l.startswith(("stop", "lock")) for l in a.doc.text().split("\n")):
         bad.append("item 26: the Course tab's stops cleared leave %r" % a.doc.text()[-80:])
+    return bad
+
+
+def stats_check():
+    """26. COURSE STATS (SPEC.md 130.58.51): the check job's stats for FIRST (one part, nothing past a bound) and
+    DOWN (1,280 px and SHEETS) - each figure the compile's own, the floppy's bytes os88pkg's LZB of the part"""
+    import io
+    import contextlib
+    import json
+    import os88pkg
+    bad = []
+    got = {}
+    for nm in ("first", "down"):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = J.check(os.path.join(ROOT, "apps", "bonanza", "courses", nm + ".bbc"), False)
+        res = json.loads(out.getvalue().strip().splitlines()[-1])
+        st = res.get("stats")
+        if rc or not st:
+            bad.append("item 27: %s's check gave rc %d and no stats: %s" % (nm, rc, str(res)[:150]))
+            continue
+        got[nm] = st
+    if len(got) < 2:
+        return bad
+    rows = {r["key"]: r for r in got["first"]["rows"]}
+    c = B.compile_course(os.path.join(ROOT, "apps", "bonanza", "courses", "first.bbc"))
+    B.attach_song(c, B._music()[1][B.course_song(c)])
+    with contextlib.redirect_stdout(io.StringIO()):
+        lzb = os88pkg.compress_part(0, bytes(c.stored), "lzb")[1]
+    want = {"records": (len(c.model["recs"]), None), "masks": (len(c.masks), 256), "blocks": (len(c.blocks), 1024),
+            "picture": (len(c.cga), B.PARTMAX), "disk": (lzb, None), "width": (512, 1280)}
+    for k, (n, mx) in want.items():
+        if k not in rows or (rows[k]["n"], rows[k]["max"]) != (n, mx):
+            bad.append("item 27: FIRST's %s row is %r, not %r" % (k, rows.get(k) and (rows[k]["n"], rows[k]["max"]),
+                                                                   (n, mx)))
+    if "world" in rows or "sheet0" in rows or "time" not in rows or "limit 15 s" not in rows["time"]["text"]:
+        bad.append("item 27: FIRST's parts or time rows: %r" % sorted(rows))
+    for nm, keys in (("first", []), ("down", ["wide", "sheets"])):
+        ab = [a["key"] for a in got[nm]["above"]]
+        if ab != keys or any("130." not in a["spec"] for a in got[nm]["above"]):
+            bad.append("item 27: %s goes past %r, not %r" % (nm.upper(), ab, keys))
+    dr = {r["key"]: r for r in got["down"]["rows"]}
+    if not {"sheet0", "sheet1", "world"} <= set(dr) or "picture" in dr or dr["width"]["state"] != "near" \
+            or "Sheets" not in got["down"]["summary"]:
+        bad.append("item 27: DOWN's rows %r, width %r, summary %r" % (sorted(dr), dr.get("width"),
+                                                                      got["down"]["summary"]))
     return bad
 
 
@@ -1552,6 +1604,7 @@ def main():
     bad += route_check()
     bad += course_tab_check()
     bad += route_lint_check()
+    bad += stats_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
