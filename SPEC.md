@@ -290349,3 +290349,28 @@ it by default, the rule's under *as cut* and under *Shade* alone, its status *"N
 and a `noocclude` over a shipped record's cells leaves no shipped record over its pixels needed by them alone.
 Red by hand: make `occ_data`'s `shipped` the rule's rows (`_rec_rows(c, recs, ...)`: "304 records for the
 part's 215"), or make `OccView.shipped()` False ("does not show the shipped records by default").
+
+#### 130.58.45 Over 256 occluder masks, from the builder (the owner, 2026-11-23)
+
+*"We should have a way to go over 256 records (bands of occluders iirc?)"* The bound is 256 MASKS, the 8 x 8
+cut-outs a 4-byte record names in one byte (130.15.5); a course past it is refused (`N occluder masks, over the 256
+a 4-byte record's mask byte names`) after 130.49.5's re-cuts in larger squares have not brought it under. The way
+over it is the course's own: **`masks banded`** (130.52) gives each band of 16 block rows a mask table of its own, so
+the bound is 256 A BAND. The builder now offers it twice; the guest and the compiler are unchanged.
+
+- **The Course tab**: *Give each band its own mask table (`masks banded`)*, read from the course and written by
+  Apply as the one `masks banded` line after the course's settings, cleared by taking the tick out.
+- **The refusal's row** (130.58.38's fix bar): the explanation says how many masks and what a mask is, and the
+  button **Give each band its own mask table (masks banded)** writes the line as one checked edit. This is the
+  first fix for a refusal of the WHOLE course (no line of its own): `bbedit.WHOLE_FIXES`, tried before FIXES, needs
+  no line.
+- **A band over its 256** (`band N (block rows A - B) names M occluder masks, over the 256 ... in its band`) is
+  explained as past what the game goes to: *noocclude* cells no ball realistically reaches in that band (the
+  Occluders overlay shows which records they cost, 130.58.46 even while refused), or stand fewer things in front of
+  each other there. No button: there is no table smaller than a band.
+
+`tests/unit/t_bbedit.py` item 22: both refusals explained, the button writing `masks banded` once (pressed twice) and
+the course compiling with it, no button for a band's refusal, and the Course tab's box reading the line, clearing it
+back to the course's text and writing it again. Red by hand: the WHOLE_FIXES row's pattern changed ("offers no
+fix: None"), or `_apply_course` without its `masks` row ("the Course tab's box cleared leaves").
+

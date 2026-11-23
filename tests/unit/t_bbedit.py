@@ -94,6 +94,9 @@
     leaves no shipped record over its pixels needed by them alone. Red by hand: occ_data's `shipped` made the
     rule's rows ("304 records for the part's 215"), or OccView.shipped() False ("does not show the shipped records
     by default").
+ 22. OVER 256 MASKS (SPEC.md 130.58.45): the 256 masks' refusal explained and its fix button writing `masks banded`
+    once; a band over its 256 explained with no button; the Course tab's box reading and writing the line. Red by
+    hand: the WHOLE_FIXES row's pattern changed, or _apply_course without its `masks` row.
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
@@ -661,6 +664,67 @@ def occ_ship_check(c, od, text):
     return bad
 
 
+class _SVar(_Var):
+    def set(self, v):
+        self.v = v
+
+
+class _CourseApp(object):
+    """the Course tab's variables and its two methods, no Tk"""
+    _fill_course, _apply_course = W.App._fill_course, W.App._apply_course
+
+    def __init__(self, text):
+        self.doc = E.Document(text)
+        for n in ("title", "name", "width", "ball", "music", "pal", "target", "limit", "gold", "silver", "gstyle",
+                  "cstrict", "mbanded"):
+            setattr(self, "cv_" + n, _SVar(""))
+        self.msgs = []
+
+    def _msg(self, m):
+        self.msgs.append(m)
+
+
+def masks_check(text):
+    """item 22 (SPEC.md 130.58.45): over 256 masks - the refusal explained, its fix button writing `masks banded`
+    (once), the Course tab's box reading and writing it, and a band over its 256 explained as past what banding
+    does -> [problems]"""
+    bad = []
+    e256 = "occ.bbc: 301 occluder masks, over the 256 a 4-byte record's mask byte names (SPEC.md 130.15.5)"
+    eband = ("occ.bbc: band 1 (block rows 16 - 31) names 270 occluder masks, over the 256 a record's mask byte "
+             "names in its band (SPEC.md 130.52)")
+    if "masks banded" not in W.explain(e256) or "301" not in W.explain(e256):
+        bad.append("item 22: the 256 masks' refusal is not explained: %r" % W.explain(e256)[:160])
+    if "as far as the game goes" not in W.explain(eband) or "band 1" not in W.explain(eband):
+        bad.append("item 22: a band over its 256 is not explained as past masks banded: %r" % W.explain(eband)[:160])
+    fx = W.fix_for(e256, None, E.Document(text))
+    if not fx or fx[0] != "Give each band its own mask table (masks banded)":
+        return bad + ["item 22: the 256 masks' refusal offers no fix: %r" % (fx,)]
+    d = E.Document(text)
+    fx[1](d)
+    fx[1](d)
+    if d.text().count("masks banded\n") != 1:
+        bad.append("item 22: the fix wrote %d `masks banded` lines" % d.text().count("masks banded"))
+    try:
+        B.compile_course(d.text(), "mb.bbc", occluders=False)
+    except B.CourseError as e:
+        bad.append("item 22: the fixed course is refused: %s" % str(e)[:150])
+    if W.fix_for(eband, None, E.Document(text)):
+        bad.append("item 22: a band over its 256 offers a fix that cannot help")
+    ca = _CourseApp(d.text())
+    ca._fill_course()
+    if ca.cv_mbanded.get() is not True:
+        bad.append("item 22: the Course tab's box does not read `masks banded`")
+    ca.cv_mbanded.set(False)
+    ca._apply_course()
+    if "masks" in ca.doc.text() or ca.doc.text() != text:
+        bad.append("item 22: the Course tab's box cleared leaves %r" % ca.doc.text()[-80:])
+    ca.cv_mbanded.set(True)
+    ca._apply_course()
+    if ca.doc.text().count("masks banded\n") != 1:
+        bad.append("item 22: the Course tab's box set writes no `masks banded`")
+    return bad
+
+
 def main():
     bad = []
     bad += options_check()
@@ -1160,6 +1224,7 @@ def main():
                 if (4, 4) not in do.set_noocclude(add=[(4, 4)])[2]:
                     bad.append("occ view: noocclude on the start was not refused")
             bad += occ_ship_check(c, od, occ_course)     # 21. what ships (SPEC.md 130.58.44)
+            bad += masks_check(occ_course)               # 22. over 256 masks (130.58.45)
         finally:
             B.BLK_MAX = held
     except B.CourseError as e:

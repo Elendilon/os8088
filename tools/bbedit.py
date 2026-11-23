@@ -542,6 +542,7 @@ class App(object):
         self.cv_silver = tk.StringVar()
         self.cv_gstyle = tk.StringVar()
         self.cv_cstrict = tk.BooleanVar()
+        self.cv_mbanded = tk.BooleanVar()
         rows = [
             ("Title", ttk.Entry(g, textvariable=self.cv_title, width=26), "1 - 24 characters, no quote marks"),
             ("Short name", ttk.Entry(g, textvariable=self.cv_name, width=8), "1 - 5 of A-Z 0-9"),
@@ -569,9 +570,12 @@ class App(object):
             ttk.Label(g, text=hint, foreground="#666").grid(row=i, column=2, sticky="w")
         ttk.Checkbutton(g, text="This course is finished: hold it to --strict in every build (`strict`)",
                         variable=self.cv_cstrict).grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=6)
-        ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 1, column=0, sticky="w")
+        ttk.Checkbutton(g, text="Give each band its own mask table (`masks banded`): up to 256 occluder masks a band "
+                        "of 16 block rows, not 256 in all", variable=self.cv_mbanded
+                        ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w")      # SPEC.md 130.52, 130.58.45
+        ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 2, column=0, sticky="w", pady=4)
         ttk.Label(g, text="Extras the course loads (`uses`) are added for you as you place parts.",
-                  foreground="#666").grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+                  foreground="#666").grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         c = ttk.LabelFrame(f, text="Ready to play?", padding=10)
         c.grid(row=0, column=1, sticky="nsew")
@@ -1094,6 +1098,7 @@ class App(object):
             gd, sv = self.cv_gold.get().strip(), self.cv_silver.get().strip()
             put("medals", "medals %s %s" % (gd, sv) if gd and sv else None)
             put("strict", "strict" if self.cv_cstrict.get() else None)
+            put("masks", "masks banded" if self.cv_mbanded.get() else None)
         except E.EditError as e:
             self._msg(str(e))
         return True
@@ -2808,6 +2813,7 @@ class App(object):
         self.cv_gold.set(tok("medals", 1))
         self.cv_silver.set(tok("medals", 2))
         self.cv_cstrict.set("strict" in sts)
+        self.cv_mbanded.set("masks" in sts)
 
     def _fill_source(self):
         t, g = self.src_t, self.src_g
@@ -3883,6 +3889,17 @@ EXPLAIN = [
      "on one flat floor."),
     (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
     (r"is empty", "the area is empty (zero cells across)."),
+    # SPEC.md 130.58.45: the 256 masks - one table for the course, and then one a band (130.52)
+    (r"(\d+) occluder masks, over the 256 a 4-byte record's mask byte names", "the course's occluders need {0} "
+     "different masks (the 8 x 8 cut-outs that lay a ball behind what stands in front of it), and one table holds "
+     "256. Give each band of 16 block rows its own table (masks banded, the button below or the Course tab), or "
+     "mark cells no ball realistically reaches `noocclude` (the Iso view's Occluders overlay shows the records and "
+     "the cells that need them)."),
+    (r"band (\d+) \(block rows (\d+) - (\d+)\) names (\d+) occluder masks, over the 256",
+     "even with a mask table a band (masks banded), band {0} - block rows {1} to {2} of the picture - needs {3} "
+     "masks, over its 256, and a table a band is as far as the game goes. Mark cells no ball realistically reaches "
+     "in that band `noocclude` (the Occluders overlay shows which records they cost), or stand fewer things in "
+     "front of each other there."),
     (r"the occluder pass at cell .* over the \d+ a frame's pass may cost", "too many things stand in front of "
      "each other at one spot of the game's picture - usually tall parts close together at different heights. "
      "Move them apart or make the drops between them lower."),
@@ -4017,9 +4034,30 @@ FIXES = [
 ]
 
 
+def masks_banded(d):
+    """SPEC.md 130.58.45: `masks banded` written once, after the course's settings (as the Course tab writes it)"""
+    sts = d.statements()
+    if any(s.kind == "masks" for s in sts):
+        return False
+    anchor = [s.line for s in sts if s.kind in ("course", "width", "ball", "uses", "strict")]
+    d.insert("masks banded", after=anchor[-1] if anchor else 0, label="masks banded")
+    return True
+
+
+# SPEC.md 130.58.45: a refusal of the COURSE (no line of its own) with an obvious way out
+WHOLE_FIXES = [
+    (r"occluder masks, over the 256 a 4-byte record's mask byte names", "Give each band its own mask table "
+     "(masks banded)", lambda d, ln, m: masks_banded(d)),
+]
+
+
 def fix_for(err, line, doc):
     """the FIXES row for ERR on LINE -> (the button's words, fn(doc) making it) or None"""
     import re
+    for pat, label, fn in WHOLE_FIXES:
+        m = re.search(pat, err)
+        if m:
+            return label.format(*m.groups()), (lambda d, fn=fn, m=m: fn(d, line, m) or True)
     if not line:
         line = E._line_of(err)
     if not line:
