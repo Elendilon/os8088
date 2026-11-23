@@ -24272,6 +24272,7 @@ _NOFLAG = False               # the AIMS' red arm (the selfcheck's `hopplan` ite
 PLAN_HOLD_EVERY = 4           # ...from every 4th step of the leg up to the step the arrows failed on
 PLAN_TT_EVERY = 8             # a STAND's waits (SPEC.md 130.14.7.4.5): 0, 8, 16 ... steps at rest, up to a table's period
 _NOSTAND = False              # the STANDS' red arm (the selfcheck's `hopplan` item 7)
+PLAN_WATCH = None             # SPEC.md 130.58.50: a dict while autopilot_run watches a search (its steps, its best)
 # a world push (sign x, sign y) as held arrows (SPEC.md 130.11.8.2's _forces: Right pushes +x -y, Down +x +y)
 PLAN_W2K = {(1, 0): K_R | K_D, (-1, 0): K_L | K_U, (0, 1): K_L | K_D, (0, -1): K_R | K_U,
             (1, 1): K_D, (1, -1): K_R, (-1, 1): K_L, (-1, -1): K_U, (0, 0): 0}
@@ -24620,12 +24621,18 @@ def branch_route(c, name):
     branch's first point, the branch's points, and - when its last point is a main way (the branch rejoins)
     - the main route on from there; a branch that ends anywhere else is a LEG to a finish of its own (a SPLIT
     course's other exit, DOWN's GLASS) -> [way tiles]"""
-    main = [t for t, _ln in c.src.ways]
-    pts = [t for t, _ln in c.branches[name]]
-    i0 = min(range(len(main)), key=lambda i: abs(main[i][0] - pts[0][0]) + abs(main[i][1] - pts[0][1]))
-    out = main[:i0 + 1] + (pts[1:] if pts[0] == main[i0] else pts)
-    if pts[-1] in main[i0 + 1:]:
-        out += main[main.index(pts[-1], i0 + 1) + 1:]
+    return [t for t, _ln in _branch_ways(c, name)]
+
+
+def _branch_ways(c, name):
+    """branch_route's ways with each one's source line: [(way tile, line)] (SPEC.md 130.58.49)"""
+    main = list(c.src.ways)
+    pts = list(c.branches[name])
+    i0 = min(range(len(main)), key=lambda i: abs(main[i][0][0] - pts[0][0][0]) + abs(main[i][0][1] - pts[0][0][1]))
+    out = main[:i0 + 1] + (pts[1:] if pts[0][0] == main[i0][0] else pts)
+    mt = [t for t, _ln in main]
+    if pts[-1][0] in mt[i0 + 1:]:
+        out += main[mt.index(pts[-1][0], i0 + 1) + 1:]
     return out
 
 
@@ -24667,6 +24674,343 @@ def branch_plan(c, name, want=()):
     return out
 
 
+# =============================================================================
+# the ROUTE'S WARNINGS (SPEC.md 130.58.49): the builder's lint of the `way` lines against what 130.6's
+# autopilot does with them - read off the compiled course, never written into it; the model runs only to
+# confirm what the geometry names (the arrows on a leg, the runs that took it already)
+# =============================================================================
+
+LINT_MARGIN = 3               # a leg's ground line: the cells within 3/16 of a cell of the straight line
+LINT_NEAR = 3                 # a tube mouth off the route is named when the route passes this near (cells)
+_LINT_NOPROOF = False         # t_bbedit item 25: the geometry alone, no leg taken as proved by a run
+
+
+def route_lines(c):
+    """every route the autopilot is given: [(name or None for the main route, [(way tile, line)])]"""
+    out = [(None, list(c.src.ways))]
+    for name in sorted(getattr(c, "branches", None) or {}):
+        out.append((name, _branch_ways(c, name)))
+    return out
+
+
+def _lint_walk(a, b, m):
+    """the cells under the straight ground line from tile A's centre to B's, in order, each with the cells
+    within M sixteenths of a cell of it: [(centre cell, frozenset(cells in the margin))]"""
+    ax, ay, bx, by = 16 * a[0] + 8, 16 * a[1] + 8, 16 * b[0] + 8, 16 * b[1] + 8
+    n = max(abs(bx - ax), abs(by - ay), 1)
+    out = []
+    for i in range(n + 1):
+        x, y = ax + (bx - ax) * i // n, ay + (by - ay) * i // n
+        out.append(((x >> 4, y >> 4), frozenset(((x + dx) >> 4, (y + dy) >> 4) for dx in (-m, m) for dy in (-m, m))))
+    return out
+
+
+def _lint_exit(a, b, cell):
+    """the face the straight line from tile A's centre to B's leaves CELL by, as a DIR_VEC index, or None (it
+    does not cross the cell, ends inside it, or leaves through a corner)"""
+    ax, ay, bx, by = a[0] + .5, a[1] + .5, b[0] + .5, b[1] + .5
+    dx, dy = bx - ax, by - ay
+    t0, t1 = 0.0, 1.0
+    for p, d, lo in ((ax, dx, cell[0]), (ay, dy, cell[1])):
+        if d == 0:
+            if not lo <= p <= lo + 1:
+                return None
+            continue
+        u, v = (lo - p) / d, (lo + 1 - p) / d
+        t0, t1 = max(t0, min(u, v)), min(t1, max(u, v))
+    if t0 >= t1 or t1 >= 1.0:
+        return None
+    tx = ((cell[0] + (dx > 0)) - ax) / dx if dx else 2.0
+    ty = ((cell[1] + (dy > 0)) - ay) / dy if dy else 2.0
+    if abs(tx - ty) < 1e-9:
+        return None
+    if tx < ty:
+        return 0 if dx > 0 else 1
+    return 2 if dy > 0 else 3
+
+
+def _lint_detour(c, a, b, floorless):
+    """a leg's gap is one a way can go round: tile B reached from A over cells with floor (4-connected, any
+    height, no wall) inside the leg's box widened by a cell - a gap across the whole of it (a ledge to fly off,
+    a Hop the course asks for) is the design's, not a way put in the wrong place"""
+    x0, x1 = min(a[0], b[0]) - 1, max(a[0], b[0]) + 1
+    y0, y1 = min(a[1], b[1]) - 1, max(a[1], b[1]) + 1
+    seen, todo = {a}, [a]
+    while todo:
+        x, y = todo.pop()
+        if (x, y) == b:
+            return True
+        for dx, dy in DIR_VEC:
+            n = (x + dx, y + dy)
+            if x0 <= n[0] <= x1 and y0 <= n[1] <= y1 and n not in seen and not floorless(n):
+                tl = c.tiles.get(n)
+                if tl is None or tl.kind != KIND_WALL:
+                    seen.add(n)
+                    todo.append(n)
+    return False
+
+
+def _lint_proven(c, name, ways):
+    """the legs of a route a run already took without a fall -> {i: leg I, way I to way I + 1}: 130.6's arrows
+    from the start up to their first fall (DEMO_STEPS at most), and the planner's route when the compile has one
+    for it already (route_plan's or branch_plan's memo, never a new search).  A leg a real run crossed is not
+    the leg to warn about, whatever its straight line passes"""
+    pts = [_way_point(c, t) for t, _ln in ways]
+    runs = [None]
+    if name is None:
+        runs += [v for k, v in c.__dict__.get("_hplan", {}).items() if v is not None and k[:2] == (c.ident, c.ball)]
+    else:
+        runs += [v for k, v in c.__dict__.get("_bplan", {}).items() if v is not None and k[2] == name]
+    out = set()
+    for keys in runs:
+        p = Physics(c, play=True)
+        p.tsec = 0
+        p.route = list(pts)
+        n = len(keys) if keys is not None else DEMO_STEPS
+        for s in range(n):
+            w = p.wp
+            k = p.auto()
+            if keys is not None:
+                k = keys[s]
+            if p.wp != w:
+                out.update(range(w - 1, p.wp - 1))
+            nf = p.nfall
+            p.step(k)
+            if p.nfall != nf or p.goal or p.tout:
+                if p.goal and not p.nfall:
+                    out.update(range(p.wp - 1, len(ways) - 1))
+                break
+            if p.wp == len(ways) - 1 and (p.gx >> 12, p.gy >> 12) == ways[-1][0]:
+                out.add(p.wp - 1)                   # (the last way: never "taken", reached on its cell)
+                break
+    return out
+
+
+def _lint_falls(c, ways, i, mat):
+    """the leg from way I to way I + 1 rolled by 130.6's arrows alone with ball MAT, the ball coming in as the
+    leg before brings it (poked at rest on way I - 1, the arrows through way I; at rest on way I when that leg
+    falls or there is none) -> True when the ball falls before way I + 1 (the planner's first try of a leg,
+    PLAN_SEG steps each)"""
+    for j in ((i - 1, i) if i else (i,)):
+        p = Physics(c, play=True)
+        p.tsec = 0
+        p.route = [_way_point(c, t) for t, _ln in ways]
+        if p.mat != mat:
+            p._setmat(mat)
+        p.poke(*ways[j][0])
+        p.wp = j + 1
+        nf = p.nfall
+        for _n in range(PLAN_SEG * (i + 1 - j)):
+            p.step(p.auto())
+            if p.nfall != nf or p.mst == ST_SHATTER:
+                if p.wp > i or j == i:
+                    return True
+                break                               # (the leg before fell: from rest on way I instead)
+            if p.goal or p.wp > i + 1 or p.tout:
+                return False
+        else:
+            return False
+    return False
+
+
+def route_lint(c):
+    """SPEC.md 130.58.49's route warnings for a compiled course -> [{kind "route", msg, line, cell, accepted,
+    what}]: WHAT "seesaw" (a way on or next to a see-saw's plate), "void" (a straight leg between two ways over a
+    cell with no floor, that a way could go round and 130.6's arrows fall off), "mouth" (a tube's IN no way sits
+    on and no leg crosses, the route passing within LINT_NEAR cells) or "door" (a windmill's doorway the legs
+    through its cell never leave by).  LINE and CELL are the WAY's to move or add beside, so the window's
+    problems list selects it.  A finding on a leg a real run already took (_lint_proven: the arrows from the
+    start, or the compile's own planned route) is not one.  Cheap: geometry on the ways and the compiled cells;
+    the model runs only for a leg the geometry names (the arrows' run from the start, a leg or two of them)"""
+    f = c.src.fname
+    out, seen = [], set()
+
+    def warn(what, ln, cell, msg):
+        if (what, ln, cell) in seen:
+            return
+        seen.add((what, ln, cell))
+        out.append({"kind": "route", "what": what, "msg": "%s:%d: %s" % (f, ln, msg), "line": ln, "cell": cell,
+                    "accepted": False})
+
+    routes = route_lines(c)
+    plates = [(sw, frozenset(sw["cells"])) for sw in getattr(c.src, "seesaws", ())]
+    tubes = [q for q in c.props if q["kind"] in (PK_TUBE, PK_WINDMILL) and "inn" in q]
+    owned = {tuple(q["at"]) for q in c.props if "at" in q}.union(*[cl for _sw, cl in plates])
+    launchers = {tuple(q["inn"]) for q in tubes} | {tuple(q["at"]) for q in c.props
+                                                    if q["kind"] in (PK_SPRING, K_JUMP, BP_K)}
+    pads = {tuple(q["at"]): q["mat"] for q in c.props if q["kind"] == PK_PAD}
+    known = []
+
+    def crossed(a, b):                              # (every route's runs, once: a leg one run took is taken)
+        if _LINT_NOPROOF:
+            return False
+        if not known:
+            known.append({(w[j][0], w[j + 1][0]) for nm, w in routes for j in _lint_proven(c, nm, w)
+                          if 0 <= j < len(w) - 1})
+        return (a, b) in known[0]
+
+    def floorless(t):
+        tl = c.tiles.get(t)
+        return (tl is None or tl.kind == KIND_VOID) and t not in owned
+
+    cover = set()
+    for name, ways in routes:
+        rn = "the main route" if name is None else "branch %s" % name
+        mat = c.ball
+        for i, (t, ln) in enumerate(ways):
+            leg = (t, ways[i + 1][0]) if i + 1 < len(ways) else (ways[i - 1][0], t) if i else None
+            for sw, cells in plates:                # 1. a way on a see-saw's plate, or in reach of it
+                d = min(max(abs(x - t[0]), abs(y - t[1])) for x, y in cells)
+                if d <= 1 and leg and not crossed(*leg):
+                    warn("seesaw", ln, t, "route: way (%d, %d) is %s the see-saw of line %d: the autopilot counts a "
+                         "way taken within %d px of its centre and slows the ball as it nears one, so the ball comes "
+                         "to it slowly with the plate still under it, the plate tips, and the next leg may not climb "
+                         "the plate's lip - put the way two cells clear of the plate, or none there at all"
+                         % (t[0], t[1], "on" if not d else "next to", sw["line"], AUTO_REACH))
+            cover.add(t)
+            if i + 1 == len(ways):
+                break
+            b = ways[i + 1][0]
+            walk = _lint_walk(t, b, LINT_MARGIN)
+            cover.update(cc for cc, _m in walk)
+            hole = None
+            for cc, near in walk:                   # 2. a straight leg over no floor
+                if cc in launchers and cc != b:     # (a tube, a spring, a jump or a boost carries it on)
+                    break
+                hs = sorted(x for x in near if floorless(x))
+                if hs:
+                    hole = hs[0]
+                    break
+            if hole is not None and _lint_detour(c, t, b, floorless) and not crossed(t, b) \
+                    and _lint_falls(c, ways, i, mat):
+                warn("void", ln, t, "route: the straight line from way (%d, %d) to way (%d, %d) (%s) passes over "
+                     "(%d, %d), which has no floor, and the autopilot's arrows alone fall off there: it rolls "
+                     "straight at the next way - add a way on the floor round the gap"
+                     % (t[0], t[1], b[0], b[1], rn, hole[0], hole[1]))
+            for cc, _m in walk:                     # (the ball the leg rolls on: a pad on the way swaps it)
+                if cc in pads:
+                    mat = pads[cc]
+    for q in tubes:                                 # 3. a tube's mouth the route never enters
+        inn = tuple(q["inn"])
+        if inn in cover:
+            continue
+        best = None
+        for _name, ways in routes:
+            for i, (t, ln) in enumerate(ways[:-1]):
+                d = min(max(abs(x - inn[0]), abs(y - inn[1])) for (x, y), _m in _lint_walk(t, ways[i + 1][0], 0))
+                if best is None or d < best[0]:
+                    best = (d, ln, t, ways[i + 1][0])
+        if best is not None and best[0] <= LINT_NEAR and not crossed(best[2], best[3]):
+            nm = "windmill" if q["kind"] == PK_WINDMILL else "%s tube" % TK_NAMES[q["sub"]]
+            warn("mouth", best[1], best[2], "route: the %s of line %d goes in at (%d, %d), and no way sits on that "
+                 "cell and no leg crosses it: the autopilot passes %d cell%s from it and never goes in - put a "
+                 "way on (%d, %d)" % (nm, q["line"], inn[0], inn[1], best[0], "" if best[0] == 1 else "s",
+                                      inn[0], inn[1]))
+    for q in tubes:                                 # 4. a windmill's doorway the legs never press into
+        if q["kind"] != PK_WINDMILL or q.get("door") is None:
+            continue
+        D, door = tuple(q["inn"]), q["door"]
+        for name, ways in routes:
+            crossing = []
+            for i in range(len(ways) - 1):
+                a, b = ways[i][0], ways[i + 1][0]
+                if b == D:
+                    continue
+                if a == D or D in {cc for cc, _m in _lint_walk(a, b, 0)}:
+                    crossing.append((i, _lint_exit(a, b, D)))
+            if crossing and not any(e == door or e is None for _i, e in crossing) \
+                    and not crossed(ways[crossing[0][0]][0], ways[crossing[0][0] + 1][0]):     # (a corner: in too)
+                i, e = crossing[0]
+                t, ln = ways[i]
+                nx = ways[i + 1][0]
+                dv = DIR_VEC[door]                  # (past the house's wall: the first floor along the way in)
+                past = next((x for x in ((D[0] + k * dv[0], D[1] + k * dv[1]) for k in range(2, 6))
+                             if getattr(c.tiles.get(x), "kind", None) in (KIND_FLOOR, KIND_GOAL)), None)
+                warn("door", ln, t, "route: the windmill of line %d is entered through its %s face at (%d, %d), "
+                     "and the leg from way (%d, %d) to way (%d, %d) leaves that cell by its %s face: the ball is "
+                     "never pushed into the doorway - %s"
+                     % (q.get("wline", q["line"]), DIR_NAMES[door ^ 1], D[0], D[1], t[0], t[1],
+                        nx[0], nx[1], DIR_NAMES[e], "add a way past the doorway at (%d, %d), %s of it, after way "
+                        "(%d, %d)" % (past[0], past[1], DIR_NAMES[door], t[0], t[1]) if past else
+                        "add a way just behind the doorway, %s of it" % DIR_NAMES[door]))
+    return out
+
+
+# =============================================================================
+# the AUTOPILOT RUN (SPEC.md 130.58.50): what the planner would play, for Test Roll to replay and show where
+# it gets stuck - the planner's own route, else its furthest partial route and 130.6's arrows on from there
+# =============================================================================
+
+def autopilot_run(c, branch=None, watch=None):
+    """the autopilot's run on the main route (BRANCH None) or a `branch`'s whole route -> {"keys": every step's
+    key byte from the course's start, "how": "plan" (route_plan's or branch_plan's keys), "partial" (the
+    search's furthest partial route, then the arrows) or "arrows" (130.6's arrows alone from the start),
+    "route": [[x, y, line]] the ways steered, "goal": bool, "falls", "wp" the way it was heading for when the
+    run ended, "cell" the ball's cell then, "step", "reason": None (it finished), "fell", "stalled", "timed out"
+    (a leg PLAN_SEG steps without its way, or PLAN_STEPS in all), "shattered"}.  WATCH: a dict the search
+    reports into while it runs (PLAN_WATCH: "spent", [steps], "pass", "best") - for a progress line.  A
+    planner's memo of NO route is searched again under the watch, so its furthest progress is there to show"""
+    global PLAN_WATCH
+    ways = list(c.src.ways) if branch is None else _branch_ways(c, branch)
+    pts = [_way_point(c, t) for t, _ln in ways]
+    w = watch if watch is not None else {}
+    if branch is not None:
+        w["best"] = None                            # (a best of the main route's search is not this route's)
+    memo = c.__dict__.get("_hplan" if branch is None else "_bplan", {})
+    for k in [k for k, v in memo.items() if v is None and (branch is None or k[2] == branch)]:
+        if w.get("best") is None:                   # (NO route, remembered: searched again, watched)
+            del memo[k]
+    held, PLAN_WATCH = PLAN_WATCH, w
+    try:
+        plan = route_plan(c) if branch is None else branch_plan(c, branch)
+    finally:
+        PLAN_WATCH = held
+    p = Physics(c, play=True)
+    p.tsec = 0                                      # (the planner's own time: no course limit)
+    p.route = list(pts)
+    out = {"route": [[t[0], t[1], ln] for t, ln in ways], "reason": None}
+    if plan is not None:
+        keys, how = list(plan), "plan"
+        for k in keys:
+            p.auto()
+            p.step(k)
+    else:
+        best = w.get("best")
+        keys, how = (list(best[0]), "partial") if best else ([], "arrows")
+        for k in keys:
+            p.auto()
+            p.step(k)
+        if best:
+            p.wp = best[1]
+        wp, leg, nf, last, still = p.wp, len(keys), p.nfall, None, 0
+        while not p.goal:                           # 130.6's arrows on, to where they fail (_plan_leg's tests)
+            if len(keys) >= PLAN_STEPS or len(keys) - leg >= PLAN_SEG:
+                out["reason"] = "timed out"
+                break
+            k = p.auto()
+            if p.wp != wp:
+                wp, leg = p.wp, len(keys)
+            q = _clone(p)
+            q.step(k)
+            if q.nfall != nf:                       # (the step that falls is not played: the run ends at the edge)
+                out["reason"] = "fell"
+                break
+            p = q
+            keys.append(k)
+            if p.mst == ST_SHATTER:
+                out["reason"] = "shattered"
+                break
+            at = (p.gx >> 8, p.gy >> 8, p.gz >> 8)
+            still = still + 1 if at == last and not p.air else 0
+            last = at
+            if still >= PLAN_STALL:
+                out["reason"] = "stalled"
+                break
+    out.update(keys=keys, how=how, goal=bool(p.goal), falls=p.nfall, wp=min(p.wp, len(ways) - 1),
+               cell=[p.gx >> 12, p.gy >> 12], step=len(keys))
+    return out
+
+
 def _route_nflags(c, keys):
     """the flags a route's keys touch, replayed from the start as route_plan steps it (no limit)"""
     p = Physics(c, play=True)
@@ -24685,6 +25029,9 @@ def _plan_search(c, nohop, hold, flags=None, route=None):
     if route is not None:
         p0.route = list(route)
     spent = [0]
+    w = PLAN_WATCH                                  # (SPEC.md 130.58.50: the Autopilot's watch - it reads, never steers)
+    if w is not None:
+        w["spent"], w["pass"] = spent, w.get("pass", 0) + 1
     tt = _plan_tt(c)                                # (a TURNTABLE's STANDS, SPEC.md 130.14.7.4.5)
     stack = [([], _plan_tries(p0, spent, nohop, hold, flags, tt))]
     out = None
@@ -24697,6 +25044,8 @@ def _plan_search(c, nohop, hold, flags=None, route=None):
                 continue
             k2, q = nxt
             ks = keys + k2
+            if w is not None and (w.get("best") is None or q.wp > w["best"][1]):
+                w["best"] = (ks, q.wp)              # (the furthest way a partial route has taken, first found)
             if len(ks) > PLAN_STEPS:
                 continue
             if q.goal:
