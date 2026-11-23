@@ -538,6 +538,13 @@ def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print,
             authors = bbedmap.extra_courses(open(pathway, encoding="ascii").read(), pathway)
     authors = [os.path.abspath(a) for a in authors]
     ship = shipped_paths()
+    sn = [_course_name(p) for p in ship]        # SPEC.md 130.58.17: an author's course NAMED as a shipped one
+    replaces = {}                               # REPLACES it, in its own slot and on its own pad
+    for a_ in list(authors):
+        n_ = _course_name(a_)
+        if n_ in sn and n_ not in replaces:
+            replaces[n_] = a_
+            authors.remove(a_)
     if len(ship) + len(authors) > B.CRS_MAX:
         raise Refused("at most %d added courses (BZ_CRS_MAX %d less the %d shipped); %d given"
                       % (B.CRS_MAX - len(ship), B.CRS_MAX, len(ship), len(authors)))
@@ -552,7 +559,14 @@ def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print,
     for a in anames:
         if a in names or anames.count(a) > 1:
             raise Refused("two courses are named %s: a course's NAME is its key, give yours another" % a)
-    courses = ship + authors
+    courses = [replaces.get(n_, p_) for n_, p_ in zip(names, ship)] + authors
+    for n_ in replaces:
+        pm = re.search(r"^pad\s+(\d+)\s+%s\b" % re.escape(n_), open(os.path.join(B.COURSE_DIR, "path.bbc")).read(),
+                       re.M)
+        log("bbgame: your %s replaces the shipped %s%s" % (os.path.basename(replaces[n_]), n_,
+                                                           (" on its own pad (pad %s)" % pm.group(1)) if pm else ""))
+    if pad0 in replaces:                        # (it is already on the pathway, on its own pad)
+        pad0 = None
     displaced = None
     if pad0:
         if pad0 not in anames:
