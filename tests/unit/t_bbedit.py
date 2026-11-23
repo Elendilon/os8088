@@ -39,6 +39,9 @@
     default, 130.58.24) a 3-cell gap a jump pickup carries glass over compiles.
  13. TUBES (130.58.26, 130.12.3.3): a KEEP tube made from nothing on a plain floor, an end dragged, a right
     turn added and made a DROP compiles, the tube laying its own body along both legs.
+    13d (130.12.3.5, 130.58.39): a pipe's height a leg - set_leg_height writes `body 6 4`, read back the same,
+    kept through a point added and a corner axis_path inserts, each leg's walls laid at its height - and a
+    `column 1` over a gap floating the body one unit deep, one over floor refused (`column hangs nothing`).
  14. DRAFTS AND TRACES (130.58.27): a drafted path made axis-legged (a corner where two points differ along both
     axes, a point mid-run dropped), a Ctrl-click past the end a new end, and a tube traced through three cells
     compiles with its body laid.
@@ -535,6 +538,48 @@ def main():
                 bad.append("tube body: %s laid at %r half units, wanted %d" % (tl_, zs, want))
     except B.CourseError as e:
         bad.append("tube body: refused: %s" % str(e)[:150])
+    finally:
+        B.BLK_MAX = held
+    # 13d. a pipe's height a LEG and its column's depth (SPEC.md 130.12.3.5, 130.58.39)
+    tl = dict(S.new_shape("tube", 8, 8, 2.0), ways=[[8, 8, None], [14, 8, None], [14, 11, None]])
+    tl = S.set_leg_height(dict(tl, body=6.0), 1, 4.0)
+    want = "tube keep 8 8 14 11 via 14 8 body 6 4"
+    if S.code(tl) != want or S.parse(want.split()) != tl or S.leg_heights(tl) != [6.0, 4.0]:
+        bad.append("leg heights: %r %r" % (S.code(tl), S.leg_heights(tl)))
+    tl2 = dict(tl, ways=S.insert_point(tl["ways"], (11, 8)))        # (a point on leg 1: both its halves keep 6)
+    if S.leg_heights(tl2) != [6.0, 6.0, 4.0] or S.code(dict(tl2, ways=S.axis_path(tl2["ways"]))) != want:
+        bad.append("leg heights through a point added: %r" % S.code(tl2))
+    ta = dict(tl, ways=S.axis_path([[8, 8, None], [14, 11, 4.0]]))   # (a corner axis_path inserts: leg 2 inherits)
+    if S.leg_heights(dict(ta, body=6.0)) != [6.0, 6.0]:
+        bad.append("leg heights through axis_path: %r" % S.leg_heights(ta))
+    if S.code(dict(tl, body=5.0, ways=[[x, y, None] for x, y, _z in tl["ways"]])) != \
+            "tube keep 8 8 14 11 via 14 8 body 5":
+        bad.append("pipe height for every leg")
+    B.BLK_MAX, held = 1 << 30, B.BLK_MAX
+    try:
+        dt = E.Document(tt + S.code(tl) + "\n")
+        dt.auto_band()
+        c = B.compile_course(dt.text(), "tl.bbc", occluders=False)
+        zs = sorted((k, v.z0) for k, v in c.tiles.items() if v.kind == B.KIND_WALL)
+        if zs != [((x, 8), 12) for x in range(9, 15)] + [((14, 9), 8), ((14, 10), 8)]:
+            bad.append("leg heights laid: %r" % zs)
+        gap = tt.replace("floor rect 4 4 24 20 flat 2\n", "floor rect 4 4 10 20 flat 2\nfloor rect 14 4 24 20 flat 2\n"
+                         "floor rect 10 14 14 20 flat 2\n")
+        for tl_, ok in (("tube keep 8 8 15 8 column 1", True), ("tube keep 8 8 14 11 via 14 8 column 1", False)):
+            sh = S.parse(tl_.split())
+            if S.code(sh) != tl_ or sh.get("column") != 1.0:
+                bad.append("column: %r" % S.code(sh))
+            dt = E.Document((gap if ok else tt) + tl_ + "\n")
+            dt.auto_band()
+            try:
+                c = B.compile_course(dt.text(), "tc.bbc", occluders=False)
+                got = c.floats.get((11, 8)) == 8
+            except B.CourseError as e:
+                got = "column hangs nothing" in str(e) and None
+            if (got is True) != ok or (not ok and got is not None):
+                bad.append("column %s: %r" % (tl_, got))
+    except B.CourseError as e:
+        bad.append("leg heights: refused: %s" % str(e)[:150])
     finally:
         B.BLK_MAX = held
     # 13c. what stands on ground rides with it (SPEC.md 130.58.34): wholly-on statements, and a rail split

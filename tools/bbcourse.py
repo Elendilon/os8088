@@ -1686,7 +1686,8 @@ def _word(toks, i, where):
 
 def _parse_tube(toks, where, ln):
     """tube keep|launch|drop <iwx> <iwy> <owx> <owy> [via <wx> <wy>]... [out D]
-    [speed <gvx> <gvy> <gvz>] [height <h>] [body <units>]  (SPEC.md 130.12.3.3)"""
+    [speed <gvx> <gvy> <gvz>] [height <h>] [body <units> [<units>]...] [column <units>]  (SPEC.md 130.12.3.3,
+    130.12.3.5)"""
     if len(toks) < 6 or toks[1][1] not in TK_NAMES:
         raise CourseError("%s: tube takes keep|launch|drop <iwx> <iwy> <owx> <owy> ..." % where)
     t = {"line": ln, "sub": TK_NAMES.index(toks[1][1]),
@@ -1718,8 +1719,28 @@ def _parse_tube(toks, where, ln):
         elif w == "body" and i + 2 <= len(toks) and t["body"] is None:   # SPEC.md 130.12.3.3 (2026-11-22): the
             t["body"] = _height2(toks[i + 1], where)    # height the tube LAYS its body at, units (its pipe's top)
             i += 2
+            hs = [t["body"]]                        # SPEC.md 130.12.3.5 (2026-11-23): one height a LEG, in order
+            while i < len(toks) and toks[i][0] == 'w' and _HEIGHT.match(toks[i][1]):
+                hs.append(_height2(toks[i], where))
+                i += 1
+            if len(hs) > 1:
+                t["body"] = tuple(hs)
+        elif w == "column" and i + 2 <= len(toks) and t.get("column") is None:   # SPEC.md 130.12.3.5: how far
+            try:                                    # the body's faces over the void hang (`float ... thick`'s)
+                th = float(toks[i + 1][1])
+            except ValueError:
+                th = -1
+            if th * 4 != int(th * 4) or not 0.25 <= th <= 3:
+                raise CourseError("%s: a tube's column takes units, a multiple of 0.25 from 0.25 to 3 (its "
+                                  "faces over the void hang that deep; without it they reach the ground), not %r"
+                                  % (where, toks[i + 1][1]))
+            t["column"] = int(th * 8)
+            i += 2
         else:
             raise CourseError("%s: unknown or repeated tube clause %r" % (where, w))
+    if isinstance(t["body"], tuple) and len(t["body"]) != len(t["via"]) + 1:
+        raise CourseError("%s: a tube's body takes one height, or one a leg: %d heights for %d legs"
+                          % (where, len(t["body"]), len(t["via"]) + 1))
     if t["sub"] == TK_LAUNCH and t["speed"] is None:
         raise CourseError("%s: a LAUNCH tube needs its speed <gvx> <gvy> <gvz>" % where)
     if t["sub"] == TK_DROP and t["height"] is None:
@@ -6946,13 +6967,24 @@ def tube_body(tb):
     return body
 
 
+def tube_body_legs(tb):
+    """a tube's body cut by LEG (SPEC.md 130.12.3.5): [[cells of leg 1], ...] in order, tube_body's cells - a
+    leg's being those after its first point up to its last, that point included unless it is OUT (so a via, the
+    corner, is the leg's that arrives at it)"""
+    pts = [tb["inn"]] + tb["via"] + [tb["out"]]
+    legs = []
+    for a, b in zip(pts, pts[1:]):
+        legs.append(tube_body(dict(tb, inn=a, via=[], out=b)) + ([b] if b != tb["out"] else []))
+    return legs
+
+
 def lay_tube_bodies(src, tiles):
     """SPEC.md 130.12.3.3 (2026-11-22): a tube LAYS its own body. Every body cell that is not already a WALL (a
     windmill's house, a wall the author laid) and is empty or a plain floor becomes a WALL one unit over the
     highest of the tube's IN and OUT floors and the floors it replaces (a DROP's: the lowest its mouth stands
     on, its exit floor and `height` and 1.5 units; automatic, never under the lowest floor beside a body cell, so
-    a pipe laid through a floor is not sunk in it; `body <units>` the author's own) - so a tube is drawn and moved as one
-    thing, its pipe on top. A split or shaped cell is left (build_props refuses it, naming the cell)"""
+    a pipe laid through a floor is not sunk in it; `body <units>` the author's own, or one a leg, 130.12.3.5) - so a
+    tube is drawn and moved as one thing, its pipe on top. A split or shaped cell is left (build_props refuses it, naming the cell)"""
     for tb in getattr(src, "tubes", ()):
         body = tube_body(tb)
         if not body:
@@ -6964,7 +6996,11 @@ def lay_tube_bodies(src, tiles):
             t_out = tiles.get(tb["out"])                     # EXIT's floor, 9 px tall) stands on - 1.25 units
             zo = t_out.z0 if type(t_out) is Tile else (max(zs) if zs else 0)   # over its sill (half units)
             z = zo + tb["height"] + 3               # (1.5 units: a wall's top is a whole half unit)
-        if tb.get("body") is not None:          # `body <units>`: the author's height (2026-11-22), a whole half
+        zc = {}                                 # (a cell -> its leg's own height: `body` one a leg, 130.12.3.5)
+        if isinstance(tb.get("body"), tuple):
+            for h, cells in zip(tb["body"], tube_body_legs(tb)):
+                zc.update((c, -int(-h // 1)) for c in cells)
+        elif tb.get("body") is not None:        # `body <units>`: the author's height (2026-11-22), a whole half
             z = -int(-tb["body"] // 1)          # unit (a quarter rounded up)
         else:                                   # automatic, never SUNK (130.10.3): each body cell over the lowest
             bs = set(body)                      # floor beside it, so a pipe laid through a floor stands on it
@@ -6977,7 +7013,7 @@ def lay_tube_bodies(src, tiles):
         for c in body:
             t = tiles.get(c)
             if t is None or (type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL, KIND_VOID)):
-                tiles[c] = Tile(KIND_WALL, z, 0, 0, tb["line"])
+                tiles[c] = Tile(KIND_WALL, zc.get(c, z), 0, 0, tb["line"])
 
 
 def build_props(src, tiles, fname):
@@ -12565,6 +12601,15 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                               "(SPEC.md 130.27.2)" % (fname, fln))
         floats.update((c_, fdep) for c_ in fcells)     # (a later statement's depth wins)
         bridges = (bridges | fcells) if fdep != FACE8 else (bridges - fcells)
+    for tb in src.tubes:                            # SPEC.md 130.12.3.5: a tube's `column <units>` - its body
+        if tb.get("column") is None:                # FLOATS that deep, as `float ... thick` (the tube's own
+            continue                                # clause, so it wins over a float statement on its cells)
+        bcells = set(tube_body(tb) or ())
+        if not bcells & vface:
+            raise CourseError("%s:%d: the tube's column hangs nothing: no cell of its body has a face over the "
+                              "void, so its column already stands on what is under it (SPEC.md 130.12.3.5)"
+                              % (fname, tb["line"]))
+        floats.update((c_, tb["column"]) for c_ in bcells)
     for sw in src.seesaws:                          # SPEC.md 130.42.5: a see-saw's plate is a THIN slab
         floats.update((c_, TL_THICK) for c_ in sw["cells"])
     def _ops_of(tl_):                               # (SPEC.md 130.42.5: a see-saw's poses are drawn by the same ops)
@@ -26589,6 +26634,12 @@ def _wave3_cases():
     nine = _W3F % (70, 20, 20) + _posts([_sa(s_, a) for s_ in (32, 46, 61) for a in (-6, 0, 6)])
     return [
         ("a tube body cell not a WALL", W + "floor half up tile 10 6 flat 21\n", "is not a WALL"),
+        ("a tube body with three heights for two legs (SPEC.md 130.12.3.5)",
+         _swap(W, "via 9 6", "via 9 6 body 24 23 22"), "one height, or one a leg"),
+        ("a tube column of 4 units", _swap(W, "via 9 6", "via 9 6 column 4"), "a tube's column takes units"),
+        ("a tube column of 0.3 units", _swap(W, "via 9 6", "via 9 6 column 0.3"), "a tube's column takes units"),
+        ("a tube column whose body has no face over the void", _swap(W, "via 9 6", "via 9 6 column 1"),
+         "the tube's column hangs nothing"),
         ("a tube leg off the axes", _swap(W, "tube keep 9 9 12 6 via 9 6", "tube keep 9 9 12 6"),
          "not along a tile axis"),
         ("a KEEP exit's next cell not a FLOOR", _swap(W, "via 9 6", "via 9 6 out -x"), "is not a FLOOR"),
@@ -35207,6 +35258,60 @@ def _sc_riser(X, res):
     for k, what in (("none", "no riser (the art before 2026-11-22)"), ("half", "a riser stopped half way down")):
         res.append(("2 riser negative control: %s - caught on %d of %d steps' tubes" % (what, ctl[k][1], ctl[k][0]),
                     ctl[k][0] > 0 and ctl[k][1] == ctl[k][0]))
+    _tube_body_checks(res)
+
+
+_TUBE_LEGS = ('course TUB "Tubes"\nwidth 96\norigin 352\nball rubber\nmusic fairway\nuses tube\n%s'
+              'start 5 5\ngoal rect 22 18 24 20 flat 2\nclock 21 17\ntarget 60\nway 5 5\nway 23 19\n%s\n')
+_TL_FLOOR = "floor rect 4 4 24 20 flat 2\n"
+_TL_GAP = "floor rect 4 4 10 20 flat 2\nfloor rect 14 4 24 20 flat 2\nfloor rect 10 14 14 20 flat 2\n"
+
+
+def _tube_body_checks(res):
+    """SPEC.md 130.12.3.5 (2026-11-23), in section `riser`: a pipe's height a LEG - each leg's laid walls at its
+    own height, the riser down the corner where they meet - and `column <units>`'s body floating that deep over
+    the void; each with its negative controls (the per-leg heights read as one, the corner's riser left out;
+    the column ignored)"""
+    try:
+        c2 = compile_course(_TUBE_LEGS % (_TL_FLOOR, "tube keep 8 8 14 11 via 14 8 body 6 4"), "<TUBE LEGS>",
+                            occluders=False)
+        cg = compile_course(_TUBE_LEGS % (_TL_GAP, "tube keep 8 8 15 8"), "<TUBE OVER A GAP>", occluders=False)
+        cc = compile_course(_TUBE_LEGS % (_TL_GAP, "tube keep 8 8 15 8 column 1"), "<TUBE COLUMN>",
+                            occluders=False)
+        c1 = compile_course(_TUBE_LEGS % (_TL_FLOOR, "tube keep 8 8 14 11 via 14 8 body 6"), "<TUBE ONE HEIGHT>",
+                            occluders=False)
+    except CourseError as e:
+        res.append(("2 TUBE LEGS (130.12.3.5): the constructed courses compile (%s)" % e, False))
+        return
+    want = dict([((x, 8), 12) for x in range(9, 15)] + [((14, 9), 8), ((14, 10), 8)])
+    got = {k: v.z0 for k, v in c2.tiles.items() if v.kind == KIND_WALL}
+    one = {k: v.z0 for k, v in c1.tiles.items() if v.kind == KIND_WALL}   # (the negative control: `body 6`)
+    p = next(q for q in c2.props if q["kind"] == PK_TUBE)
+    deep = {cl for q in c2.props if q["kind"] == PK_TUBE for cl in q["body"]}
+    ops = draw_ops(c2.tiles, c2.x0, deep, c2.ground, c2.floats)
+    steps = [(hi, lo, face) for _a, _b, hi, lo, face, _m in tube_steps(c2.tiles, p)]
+    v = riser_verdict(c2, ops, p, p.get("riser", []))
+    vneg = riser_verdict(c2, ops, p, [r for r in p.get("riser", []) if r[0] != (14, 8)])
+    res.append(("2 TUBE LEGS (130.12.3.5): `body 6 4` lays leg 1's walls at 6 units and leg 2's at 4 (%s), the "
+                "pipe going down the corner (14, 8)'s sw face to leg 2 (steps %s, riser %s); negative controls: the "
+                "legs read as one height (`body 6`) %s, the corner's riser left out %s" % (
+                    "as wanted" if got == want else "got %r" % sorted(got.items()), steps,
+                    "whole" if not v else "; ".join(v), "caught" if one != got else "NOT caught",
+                    "caught" if vneg else "NOT caught"),
+                got == want and ((14, 8), (14, 9), "sw") in steps and not v and one != got and bool(vneg)))
+    fb = {(cl, w): last for cl, w, last, *_r in _face_bottoms(cc, cc.ops)}
+    fg = {(cl, w): last for cl, w, last, *_r in _face_bottoms(cg, cg.ops)}
+    ends = [k for k in fb if k[0] in ((9, 8), (14, 8))]
+    got_c, got_g = fb.get(((11, 8), "sw")), fg.get(((11, 8), "sw"))
+    res.append(("2 TUBE COLUMN (130.12.3.5): `column 1` over a gap ends (11, 8)'s sw face over the void on line "
+                "%s, 3 units (24 px) above the grounded tube's %s - one unit under the pipe, not at the ground - "
+                "its faces at each end as they were (%s), the six body cells FLOATING (%s); negative control, the "
+                "column ignored: the grounded tube's own line %s" % (
+                    got_c, got_g, "unchanged" if all(fb[k] == fg.get(k) for k in ends) else "CHANGED",
+                    sorted(cc.floats.items()), got_g),
+                got_c is not None and got_g is not None and got_g - got_c == 24
+                and all(fb[k] == fg.get(k) for k in ends)
+                and cc.floats == {(x, 8): 8 for x in range(9, 15)} and not cg.floats))
 
 
 def _sc_props(X, res):

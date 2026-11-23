@@ -75,12 +75,27 @@ def parse(toks):
                 elif t[i] == "height":
                     sh["height"] = float(t[i + 1])
                     i += 2
-                elif t[i] == "body":
-                    sh["body"] = float(t[i + 1])
+                elif t[i] == "body":            # (one height, or one a leg: SPEC.md 130.12.3.5)
+                    hs = [float(t[i + 1])]
+                    i += 2
+                    while i < len(t) and _num(t[i]):
+                        hs.append(float(t[i]))
+                        i += 1
+                    sh["body"] = hs[0]
+                    if len(hs) > 1:
+                        sh["legs"] = hs
+                elif t[i] == "column":
+                    sh["column"] = float(t[i + 1])
                     i += 2
                 else:
                     return None
             sh["ways"].append(last)
+            hs = sh.pop("legs", None)
+            if hs is not None:                  # each leg's height on the way it STARTS at, where it changes
+                if len(hs) != len(sh["ways"]) - 1:
+                    return None
+                for k in range(1, len(hs)):
+                    sh["ways"][k][2] = hs[k] if hs[k] != hs[k - 1] else None
             return sh
         if k == "pit":
             sh = {"kind": k, "x": int(t[1]), "y": int(t[2]), "z": float(t[3]), "radius": 3, "depth": 16, "hole": 1}
@@ -128,8 +143,11 @@ def code(sh):
             out += " speed %d %d %d" % tuple(sh.get("speed") or (0, 0, 0))
         if sh["sub"] == "drop":
             out += " height %s" % _g(sh.get("height") or 2)
-        if sh.get("body") is not None:
-            out += " body %s" % _g(sh["body"])
+        hs = leg_heights(sh)
+        if hs is not None:
+            out += " body " + (_g(hs[0]) if len(set(hs)) == 1 else " ".join(_g(h) for h in hs))
+        if sh.get("column") is not None:
+            out += " column %s" % _g(sh["column"])
         return out
     if sh["kind"] == "pit":
         out = "pit %d %d %s radius %d depth %d" % (sh["x"], sh["y"], _g(sh["z"]), sh["radius"], sh["depth"])
@@ -138,6 +156,30 @@ def code(sh):
     if sh["along"]:
         out += " along %s %d%s" % (sh["along"], sh["n"], " open" if sh["open"] else "")
     return out + (" height %d" % sh["height"] if sh["height"] else "")
+
+
+def leg_heights(sh):
+    """SPEC.md 130.58.39: a tube's pipe height a LEG, [h1 .. hn] (None: automatic) - its `body` the first leg's,
+    and a way's own height (ways[k][2], k >= 1) the leg that STARTS there and every one after it until the next"""
+    if sh.get("body") is None:
+        return None
+    z, out = sh["body"], []
+    for k in range(len(sh["ways"]) - 1):
+        if k and sh["ways"][k][2] is not None:
+            z = sh["ways"][k][2]
+        out.append(z)
+    return out
+
+
+def set_leg_height(sh, k, v):
+    """the tube SH with leg K's pipe at V and every other leg as it was (an automatic tube's legs all at V
+    first) -> the new fields"""
+    hs = leg_heights(sh) or [v] * (len(sh["ways"]) - 1)
+    hs[k] = v
+    w = [list(p) for p in sh["ways"]]
+    for j in range(1, len(w)):
+        w[j][2] = hs[j] if j < len(hs) and hs[j] != hs[j - 1] else None
+    return dict(sh, body=hs[0], ways=w)
 
 
 def axis_path(ways):
@@ -576,16 +618,18 @@ class ShapeEditor(object):
                                                     ("Speed up", 0, 600))):
                     field(lab, svs[k_], lo, hi, 16, sets)
             bv = tk.StringVar(value=_g(sh["body"]) if sh.get("body") is not None else "")
-            ttk.Label(self.form, text="Pipe height").grid(row=row[0], column=0, sticky="w", pady=1)
+            hs = leg_heights(sh)
+            ttk.Label(self.form, text="Pipe height" if not hs or len(set(hs)) == 1 else "Every leg at").grid(
+                row=row[0], column=0, sticky="w", pady=1)
             pf = ttk.Frame(self.form)
             pf.grid(row=row[0], column=1, sticky="w")
             sbp = ttk.Spinbox(pf, from_=-8, to=60, increment=0.5, width=6, textvariable=bv)
             sbp.pack(side="left")
 
-            def setb():
+            def setb():                         # (every leg at it: the legs' own heights cleared)
                 v = self._fvar(bv)
-                if v is not None and v != sh.get("body"):
-                    self.apply(dict(sh, body=v), "pipe height")
+                if v is not None and (v != sh.get("body") or len(set(hs or [v])) > 1):
+                    self.apply(dict(sh, body=v, ways=[[x, y, None] for x, y, _z in sh["ways"]]), "pipe height")
             sbp.configure(command=setb)
             sbp.bind("<Return>", lambda e: setb())
             ttk.Button(pf, text="Automatic", command=lambda: self.apply(dict(sh, body=None), "pipe height")).pack(
@@ -593,7 +637,51 @@ class ShapeEditor(object):
             row[0] += 1
             ttk.Label(self.form, text=("the pipe's top, in units (blank: automatic - one over the higher end, a "
                                        "drop's just high enough for its mouth)" if sh.get("body") is None else
-                                       "the pipe's top, in units"), wraplength=290, foreground="#555").grid(
+                                       "the pipe's top, in units; each leg can have its own"), wraplength=290,
+                      foreground="#555").grid(row=row[0], column=0, columnspan=2, sticky="w")
+            row[0] += 1
+            w_ = sh["ways"]                     # SPEC.md 130.58.39: a height a LEG (the riser joins a change)
+            for k in range(len(w_) - 1):
+                lv = tk.StringVar(value=_g(hs[k]) if hs else "")
+                ttk.Label(self.form, text="  Leg %d (%d, %d to %d, %d)" % (k + 1, w_[k][0], w_[k][1], w_[k + 1][0],
+                                                                         w_[k + 1][1])).grid(
+                    row=row[0], column=0, sticky="w", pady=1)
+                sl = ttk.Spinbox(self.form, from_=-8, to=60, increment=0.5, width=6, textvariable=lv)
+                sl.grid(row=row[0], column=1, sticky="w")
+
+                def setl(k=k, lv=lv):
+                    v = self._fvar(lv)
+                    if v is not None and (hs is None or v != hs[k]):
+                        self.apply(set_leg_height(sh, k, v), "leg %d's pipe height" % (k + 1))
+                sl.configure(command=setl)
+                sl.bind("<Return>", lambda e, f_=setl: f_())
+                row[0] += 1
+            cv = tk.StringVar(value="ground" if sh.get("column") is None else "depth")
+            dv = tk.StringVar(value=_g(sh.get("column") or 1.0))
+            ttk.Label(self.form, text="Column reaches").grid(row=row[0], column=0, sticky="w", pady=1)
+            cf = ttk.Frame(self.form)
+            cf.grid(row=row[0], column=1, sticky="w")
+
+            def setc():
+                if cv.get() == "ground":
+                    if sh.get("column") is not None:
+                        self.apply(dict(sh, column=None), "column")
+                    return
+                v = self._fvar(dv)
+                if v is not None:
+                    v = max(0.25, min(3.0, v))
+                    if v != sh.get("column"):
+                        self.apply(dict(sh, column=v), "column")
+            ttk.Radiobutton(cf, text="the ground", value="ground", variable=cv, command=setc).pack(side="left")
+            ttk.Radiobutton(cf, text="depth", value="depth", variable=cv, command=setc).pack(side="left")
+            sc = ttk.Spinbox(cf, from_=0.25, to=3, increment=0.25, width=5, textvariable=dv,
+                             command=lambda: (cv.set("depth"), setc()))
+            sc.pack(side="left")
+            sc.bind("<Return>", lambda e: (cv.set("depth"), setc()))
+            row[0] += 1
+            ttk.Label(self.form, text="over the void, the column hangs that many units under the pipe (like "
+                                      "`float ... thick`); over a floor it always stands on it - the ball does not "
+                                      "pass under a pipe", wraplength=290, foreground="#555").grid(
                 row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1
             ttk.Label(self.form, text="Points: 1 is where the ball goes in, %d where it comes out; drag them on "
@@ -722,6 +810,31 @@ class ShapeEditor(object):
         g = self.graph
         g.delete("all")
         Wg, Hg = 300, 110
+        if sh["kind"] == "tube" and leg_heights(sh):  # SPEC.md 130.58.39: the pipe's top leg by leg, its column
+            ws, hs = sh["ways"], leg_heights(sh)
+            dist = [0]
+            for p, q in zip(ws, ws[1:]):
+                dist.append(dist[-1] + abs(q[0] - p[0]) + abs(q[1] - p[1]))
+            col = sh.get("column")
+            lo, hi = min(hs) - (col if col is not None else 1.0) - 0.5, max(hs) + 0.5
+            L = float(dist[-1] or 1)
+            X = lambda d: 30 + d / L * (Wg - 45)                    # noqa: E731
+            Y = lambda z: Hg - 18 - (z - lo) / (hi - lo) * (Hg - 30)   # noqa: E731
+            top = []
+            for k, h in enumerate(hs):
+                top += [X(dist[k]), Y(h), X(dist[k + 1]), Y(h)]
+            g.create_line(*top, fill="#9fd3ff", width=2)
+            if col is not None:
+                g.create_line(*[v if j % 2 == 0 else v + (Y(0) - Y(col)) for j, v in enumerate(top)],
+                              fill="#7aa7ff", width=2, dash=(4, 2))
+            for i, d in enumerate(dist):
+                g.create_text(X(d), Hg - 8, text=str(i + 1), fill="#ccc", font=("TkDefaultFont", 7))
+            g.create_text(4, Y(hi - 0.5), anchor="w", text="%g" % (hi - 0.5), fill="#ccc", font=("TkDefaultFont", 7))
+            g.create_text(Wg - 4, 8, anchor="ne", fill="#ccc", font=("TkDefaultFont", 7),
+                          text="pipe top (cyan)%s, units; %g cells" % (
+                              ", column's foot over the void (blue)" if col is not None else "; its column reaches "
+                              "the ground", L))
+            return
         if sh["kind"] == "tube":
             g.create_text(8, 8, anchor="nw", fill="#ccc", width=Wg - 16, text=(
                 "In at 1, out at %d. The cells between are its body: the tube lays them as walls itself, its "
