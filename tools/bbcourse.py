@@ -24455,7 +24455,8 @@ def _plan_stands(p, spent, tt, trail):
     for at in trail:
         if at in cells:
             for s in (prev if prev is not None and prev not in cells else None, cells[at]):
-                if s is not None and s not in stands:
+                if s is not None and s not in stands and s in c.tiles:   # (an approach over the VOID - the
+                    #                                   arrows' diagonal across a gap - is no place to stand)
                     stands.append(s)
         prev = at
     for s in stands:

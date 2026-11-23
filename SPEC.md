@@ -272788,6 +272788,12 @@ windmill's door).
   (a slope, ice) is not stood there; and the flag pass's reach test is the
   found route's path, not each leg's.
 
+**An approach over the void is no stand** (2026-11-23, the owner's MILL): when the leg's arrows run
+diagonally across a gap beside a table, the cell they come from before entering it can be VOID, which has no
+way point; `_plan_stands` skips it rather than raising (the KeyError killed `compile_course` itself, through
+`_course_limit`'s `route_plan`). Every course that compiled before compiles to the same bytes: the skip is
+only reached where the old code raised.
+
 ##### 130.14.7.5 The association, and the double-click's path
 
 The header gains `OS88_ASSOC16` with `OS88_ASSOC_EXT 'BZR'` and a document
