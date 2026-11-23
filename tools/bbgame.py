@@ -58,8 +58,8 @@ BIN = os.path.join(HERE, "bbgame-bin") if BUNDLED else os.path.join(TREE, "build
 # places - and BZ_CRS_COUNTS, the three counts.  Every other line of bzcourse.inc must come out the same.
 PATCH = ("BZ_CRS_COUNTS", "BZ_CRS_NAMES", "BZ_CRS_TITLES", "BZ_CRS_BALLS", "BZ_CRS_LIMS", "BZ_CRS_IDS",
          "BZ_CRS_KEYS", "BZ_CRS_NCKS", "BZ_CRS_SONGS", "BZ_CRS_MEDALS", "BZ_CRS_PALS", "BZ_CRS_BOTS",
-         "BZ_CRS_STOPS", "BZ_CRS_LOCKS", "BZ_CRS_WPARA", "BZ_CRS_SHN", "BZ_CRS_SHI", "BZ_DEMO_CRS", "BZ_CRS_NEXITS",
-         "BZ_CRS_ARENA", "BZ_PAD_EXITS")
+         "BZ_CRS_STOPS", "BZ_CRS_SPANS", "BZ_CRS_LOCKS", "BZ_CRS_WPARA", "BZ_CRS_SHN", "BZ_CRS_SHI", "BZ_DEMO_CRS",
+         "BZ_CRS_NEXITS", "BZ_CRS_ARENA", "BZ_PAD_EXITS")
 ROWS = "BZ_CRS_PARTS"           # the course part rows: their FLAGS are written (OP_BIG), never their count
 # the equs another list may change (the probe proves each moves no byte) - besides the inc's unreferenced ones
 INFO = ("BZ_NCRS", "BZ_NDEMO", "BZ_PATH_NPAD", "BZ_CRS_DEFAULT", "BZ_NCRS2", "BZ_NSHC")

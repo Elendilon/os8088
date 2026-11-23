@@ -296169,13 +296169,124 @@ more (about +25 clocks a call, two at most). `bz_vstop` runs once a course, not 
    view AND the `_nostop` arm loses the clock (red, on purpose).
 4. Every edge in the model: MILL given `stop up left` and then `stop right` (beside its own `stop down`),
    the ball carried to the picture's four extremes and back, both cards: the window never leaves the
-   stopped range - and `_nostop` passes every stop it is given (red).
+   stopped range - and `_nostop` passes every stop it is given (red).  (MILL's own stop is course-wide for
+   this item: its span is 130.45.6's, checked by items 5 - 7.)
+
+#### 130.45.6 A stop over a SPAN: `stop down over` (the owner, 2026-11-23)
+
+*"This mostly worked; but there is one section to the east of the finish where it doesn't scroll a pathway
+into view now. Can we limit the scroll-lock to a segment of the view cheaply?"* MILL's `stop down` is
+course-wide, so the window's foot never passes line 820 ANYWHERE - and the glass way's pathway east of the
+finish runs below it: on the model 20 cells, (33, 47) - (39, 48) by way of the ramp (32 - 35, 47 - 48) and
+the landing (36 - 39, 46 - 48) and (38, 44) - (38, 45) on its way down, put the ball's foot at lines 821 - 887
+(the CGA's and the Hercules' alike: the stop is a line), so carried down that pathway the ball leaves the
+window's bottom and is not followed. A stop is for the FINISH; it should bind where the window shows the
+finish, and nowhere else.
+
+**The statement**: `stop`'s edges may be followed by `over`, which binds the DOWN and UP stops over a SPAN
+of the window's columns:
+
+    stop <edge> ... over                       the finish's span
+    stop <edge> ... over <wx0> <wy0> <wx1> <wy1>   the span of two named cells
+
+- **The span** is a run of picture columns `a .. b - 1`; the stops bind while the window HOLDS it across
+  (`c0 <= a` and `c0 + W >= b`), and outside it the window's rows range over the whole picture. Bare
+  `over`: from the left edge of the leftmost FINISH cell (130.45.5's cells) less `STOP_PAD` to the right
+  edge of the rightmost plus `STOP_PAD`, the same margin as the stops' own. Two cells: from the left edge of
+  the one further left to the right edge of the other (`16 (wx - wy) + x0 -+ 16`), no pad. `a = floor(left /
+  8)`, `b = ceil(right / 8)`.
+- **`BZ_CRS_SPANS`**, beside `BZ_CRS_STOPS`: two bytes a course, `a, b`, **255 0 none** - a span no
+  window can fail to hold (`c0 <= 255`, `c0 + W >= 0`), so a course without `over` binds its stops
+  everywhere, exactly as 130.45.4 and 130.45.5 do, with no branch for it. Not in the part. One of
+  `tools/bbgame.py`'s PATCH tables.
+- **Refused at the line**: `over` with a `left` or `right` edge, or with neither `down` nor `up` (a column
+  stop's span would be a range of ROWS: not built, see below); `over` with `lock across` (the window's
+  column never moves, so a span binds always or never); `over` with anything but nothing or four integers
+  after it; a span that no window of some card (the CGA's, the Hercules', the VGA's engine window) can hold
+  inside the course's columns.
+- **Why down and up alone**: the rows' range keyed on the window's COLUMN is one comparison pair in
+  `bz_clampwin`, which clamps the column first and then knows it. A left or right stop keyed on the window's
+  ROW would be a second pair and a second pull, clamped before the row it reads is known (last frame's, or
+  a second pass) - about the cost again for a case no course has: a finish at the picture's left or right
+  edge with a pathway above or below it. The grammar leaves room for it (`over` on a column stop is refused
+  today, not given a meaning).
+
+**The guest** (binding: `bz_vstop`, `bz_clampwin` / `bz_clampmv`, and `bbcourse.cam_span` / `Glide._clamp`
+do exactly this):
+
+1. **`bz_vstop`** keeps the course's two row ranges instead of folding the one into `bz_rmin`, `bz_rmax`:
+   the STOPPED one (`bz_rsmn`, `bz_rsmx`: 130.45.5's rmin and rmax) and the picture's (0, `bz_rfmx`: the
+   part's rmax before the bottom stop), and the span as the window's columns that hold it, `bz_sglo = b -
+   W`, `bz_sghi = a` (none: `-W`, 255). `bz_kpull = 4 >> lsh` (`CAM_PULL`, four lines: two CGA rows, one
+   Hercules row, four VGA lines). The columns' range is folded as before.
+2. **`bz_clampwin`** (the first frame and a cut) and **`bz_clampmv`** (every other frame, `bz_camera`'s
+   `.moved`): the column `bz_c0n` to `bz_cmin - bz_cmax` FIRST; then this frame's rows' range is the
+   STOPPED one when `bz_sglo <= c0n <= bz_sghi`, else the picture's; it is stored in `bz_rmin`, `bz_rmax`
+   (LATTICE's `BZL_MN`, `BZL_MX`, which `bz_lcand` reads next frame, and the VGA camera's `.ylim`), and
+   `bz_R0n` is clamped to it.
+3. **THE PULL, the transition back**: in `bz_clampmv`, a window whose row as it stands (`bz_R0`) is past
+   this frame's range - re-entering the span below a down stop, or above an up one - is not clamped to it
+   at once: the range is first widened to reach it less `bz_kpull` (`rmax = max(rmax, R0 - kpull)`, `rmin =
+   min(rmin, R0 + kpull)`), so the window comes back at most four lines a frame - a LATTICE step on every
+   card (the CGA's fast down step, the Hercules' slow one; within `BZ_MAXR` and `BZV_MAXR`), never a full
+   write - and LATTICE's target, clamped to the same range, never aims further from it. Leaving the span the
+   range simply grows: the window is inside it, and LATTICE's next pan follows the ball as anywhere. The
+   first frame and a cut clamp at once (`bz_clampwin`'s entry: the window is written whole there anyway).
+4. Nothing else in the camera changes; a course without `over` gets the same range every frame and the
+   pull never fires (its window is always inside it), so its play is the build before it.
+
+**The model**: `cam_span(spantab, card)` is `bz_vstop`'s `(bz_sglo, bz_sghi)`; `Glide` keeps the stopped
+range (`rmin`, `rmax`), the picture's (`rfree`), the span (`sglo`, `sghi`) and `kpull`, and `_clamp(R, C,
+prev)` is `bz_clampmv` (`prev` the row as it stands: LATTICE's frame, the scripted camera's) or
+`bz_clampwin` (`prev` None: `_first`), leaving LATTICE's down axis's `mn`, `mx` as the guest leaves `BZL_MN`,
+`BZL_MX`. `Glide(_nopull=True)` is the transition's red arm (the range clamped at once: the window jumps).
+So the route demos, the G-checks, `--camcheck` and the builder's Test Roll see the span as the game does.
+**The finish-clock rule** (130.22.6) takes the down and up stops' windows with their column inside the span
+(`stop_windows`): the window the camera rests in at the finish.
+
+**The builder** (130.58): the Course tab's stop row gains *only while the window shows the finish across
+(`over`)*, a tick, and a field for two cells (`wx0 wy0 wx1 wy1`, empty for the finish's span), written into
+the one `stop` statement and read back from it.
+
+**MILL** (`mill.bbc`) says `stop down over`: its finish is the cup alone, (24, 52), px 208 - 240, so the
+span is columns 23 - 32 (a = 23, b = 33) and the bottom stop binds while `c0 <= 23` (CGA `c0 >= -7`,
+Hercules `-12`, VGA `-9`: always on the left). Carried down the glass way's pathway the window follows the
+ball below line 820 again (to CGA row 380 / Hercules 190, the picture's foot, as before the stop); carried
+on to the cup it is pulled back to CGA row 310 / Hercules 155 at four lines a frame and holds there past the
+cup, the finish clock and the cup in view (130.45.5's item 3, unchanged).
+
+**Cost** (MEASURED: `make bonanza` here against the same build of `bd1be675e`, the commit before; every
+course part and demo - MILL's part and `BZDMILL.BIN` among them - the pathway and the title
+byte-identical, `bzcourse.inc` differing by the `BZ_CRS_SPANS` table alone): `bonanza.bin` **+147 bytes** -
+`BZ_CRS_SPANS` 50 (two bytes x 25 rows) and **+97 of code**: `bz_clampwin` with `bz_clampmv` 49 -> 110
+(+61: the hard entry 6, the span's choice 21, the pull 28, the range kept for LATTICE 5, the rows' clamp off
+registers -3, `SI` the block's base), `bz_vstop` 75 -> 111 (+36: the picture's most kept, the span's two
+words, the pull). `bzvga.bin` **+0** (its camera reads `bz_rmin`, `bz_rmax` as before). `BONANZA.O88` as
+packed **+100 bytes** (178,465 -> 178,565). Bss **+12** (`bz_rsmn`, `bz_rsmx`, `bz_rfmx`, `bz_sglo`,
+`bz_sghi`, `bz_kpull`, laid out after `bz_rmax` and read off it, `BZR_*`). **Per frame**, every course
+(`bz_clampmv`, the window inside its range, the common path): about **+160 clocks** on the 8088 (about 216
+-> 378 by the instruction table, and above the 4.34-clocks-a-byte fetch floor either way: some 34 us at
+4.77 MHz) - the span's two compares, the two range loads and stores, the pull's two compares; a frame that
+pulls, some 50 more. `bz_vstop` runs once a course.
+
+**`--selfcheck` section `camstop`**, items 5 - 7:
+
+5. `over`'s grammar: MILL's span is `(23, 33)`; `over 24 52 24 46` gives the two cells' span; each misuse
+   above is refused at its line (red arms).
+6. MILL's EAST PATHWAY, both cards: each of the cells a course-wide `stop down` hides (the ball's foot
+   below the stopped window's), the ball carried there from the rejoin (27, 48) and held: in view at the end
+   of the hold with the span - red: the course-wide stop (`spantab` None) leaves every one of them out.
+7. The TRANSITION, both cards: the ball carried down the pathway, back west and on to the cup and past it:
+   the window reaches the picture's foot on the pathway, every frame's step is within `BZ_MAXR` rows (no
+   full write) and the window comes to rest at the stop with the clock and the cup in view - red:
+   `_nopull` jumps more than `BZ_MAXR` rows on re-entering the span.
 
 #### 130.45.3 What uses it, and the rows
 
 - **FIRST ROLL** (`roll.bbc`) is its first course: `lock across` and
-  `stop down`. **WINDMILL LANE** (`mill.bbc`) says `stop down` (130.45.5),
-  unlocked: the first course to stop a camera that scrolls both ways.
+  `stop down`. **WINDMILL LANE** (`mill.bbc`) says `stop down over`
+  (130.45.5, 130.45.6), unlocked: the first course to stop a camera that
+  scrolls both ways, and the first whose stop binds over a span.
 - **The rows** that read the camera, named for the final pass and not run
   per change (fork rule 10):
   - `bonanzaring`: its camera leg compares the guest's window to `Glide`
@@ -296187,6 +296298,9 @@ more (about +25 clocks a call, two at most). `bz_vstop` runs once a course, not 
   - since 130.45.5 also `bonanzacourse --only camstop` (the stops' own section), `bbedit` (t_bbedit item
     26, the Course tab's camera flags), `bbgame` (BZ_CRS_STOPS a PATCH table), and `bonanzaring`'s VGA
     leg for `bz_vemin`.
+  - since 130.45.6 the same four (camstop items 5 - 7; t_bbedit item 26's `over`; `BZ_CRS_SPANS` a
+    PATCH table), `bonanzaring`'s camera leg (its LATTICE scenarios on MILL cross the span), and
+    `bonanzaexit` (MILL's route demo, which `Glide` now runs with the span).
   - The `--guide` run half (G3, G12) reads the lock through `Glide` at once.
 - **Red arm** (host): a `lock across` on a course wider than the window is
   refused at its line. The tool's `--selfcheck` gains it when the item list
@@ -296543,7 +296657,10 @@ so `bz_vinit`'s VGA arm folds the stops in after `BZV_INIT` through the same
 so `rmax` at most `max(0, bottom - BZ_LINES)` and `rmin` 8 t - and the
 camera's edge braking stops it there at rest: its least edge is
 `bz_vemin` (8 `cmin` across, `rmin` down) where it was 0, in the target's
-clamp and in the braking alike.
+clamp and in the braking alike. A stop over a SPAN (130.45.6) is the same
+`bz_clampmv` after the VGA's camera as after LATTICE: `.ylim` reads the
+rows' range the last frame's clamp left, and a window re-entering the span
+past its stop is let back four lines a frame (`bz_kpull`, `lsh` 0).
 
 **No A/B** (the owner, 2026-11-18: *"it basically always moves like
 lattice, except for one section in MILL where it smoothly followed the ball
