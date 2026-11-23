@@ -161,21 +161,8 @@ bz_vinit:
 .vl:
     mov [bz_lockc], ax
     BZ_VCALL BZV_INIT
-    mov bl, [bz_crs]            ; ...and the BOTTOM STOP (130.45.4) on the
-    xor bh, bh                  ; part's rmax: a VGA row is a line, so rmax
-    shl bx, 1                   ; at most max(0, bottom - BZ_LINES)
-    mov ax, [bz_cbots + bx]
-    or ax, ax
-    jz .vnb
-    sub ax, BZ_LINES
-    jns .vb
-    xor ax, ax
-.vb:
-    cmp ax, [bz_rmax]
-    jge .vnb
-    mov [bz_rmax], ax
-.vnb:
-    ret
+    jmp bz_vstop                ; ...and the STOPS (130.45.4, 130.45.5) on the
+                                ; part's limits (a VGA row a line: bz_rl 1)
 .nvga:
     cmp byte [bz_herc], 0
     jne .herc
@@ -245,23 +232,7 @@ bz_vinit:
     shr ax, cl
     sub ax, [bz_H]
     mov [bz_rmax], ax
-    mov bl, [bz_crs]            ; SPEC.md 130.45.4: the BOTTOM STOP - the
-    xor bh, bh                  ; window's foot never passes the course's
-    shl bx, 1                   ; bottom line: rmax at most
-    mov ax, [bz_cbots + bx]     ; ceil((bottom - BZ_LINES) / rl), at least 0
-    or ax, ax
-    jz .nbot
-    sub ax, BZ_LINES
-    jns .bpos
-    xor ax, ax
-.bpos:
-    add ax, [bz_rl]
-    dec ax
-    shr ax, cl                  ; (CL = bz_lsh still)
-    cmp ax, [bz_rmax]
-    jge .nbot
-    mov [bz_rmax], ax
-.nbot:
+    call bz_vstop               ; SPEC.md 130.45.4, 130.45.5: the STOPS
                                 ; W * dr for dr = -2 .. 2 (bz_tf's S)
     mov ax, [bz_W]
     mov [bz_wtab + 6], ax
@@ -272,6 +243,51 @@ bz_vinit:
     neg ax
     mov [bz_wtab + 8], ax
     mov word [bz_wtab + 4], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; bz_vstop - the course's camera STOPS folded into the limits bz_vinit has just
+; set from its size (SPEC.md 130.45.4, 130.45.5; bbcourse.cam_limits), on any
+; card (bz_rl, bz_lsh and bz_W the card's): the BOTTOM LINE B (BZ_CRS_BOTS, 0
+; none) caps rmax at ceil((B - BZ_LINES) / rl), at least 0; BZ_CRS_STOPS' t l r
+; set rmin = 8 t >> lsh, cmin = l and take r off cmax.  0 is each byte's
+; identity and the tool holds every range whole on every card, so neither the
+; three bytes nor a course without them needs a branch or a clamp.  Clobbers
+; AX, BX, CL, SI.
+; -----------------------------------------------------------------------------
+bz_vstop:
+    mov bl, [bz_crs]
+    xor bh, bh
+    mov si, bx
+    shl bx, 1
+    mov cl, [bz_lsh]
+    mov ax, [bz_cbots + bx]     ; the BOTTOM STOP: the window's foot never
+    or ax, ax                   ; passes the course's bottom line
+    jz .nbot
+    sub ax, BZ_LINES
+    jns .bpos
+    xor ax, ax
+.bpos:
+    add ax, [bz_rl]
+    dec ax
+    shr ax, cl
+    cmp ax, [bz_rmax]
+    jge .nbot
+    mov [bz_rmax], ax
+.nbot:
+    lea si, [bz_cstops + bx + si] ; (3 bytes a course)
+    lodsb                       ; t: the TOP stop, block rows
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    shr ax, cl
+    mov [bz_rmin], ax
+    lodsb                       ; l: the LEFT stop, a column
+    xor ah, ah
+    mov [bz_cmin], ax
+    lodsb                       ; r: the RIGHT stop, columns off cmax (AH 0)
+    sub [bz_cmax], ax
     ret
 
 ; -----------------------------------------------------------------------------

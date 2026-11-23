@@ -1489,8 +1489,7 @@ bzv_cam:
     mov si, .tx
     call .ax
 .dn:
-    mov ax, [bz_rmax]           ; down: the centre line
-    mov [bz_vemax], ax
+    call bzv_coast.ylim         ; down: the centre line
     mov ax, bp
     mov di, bz_vcy
     mov si, .ty
@@ -1566,7 +1565,7 @@ BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
 ; the position, +2 vb the ball's velocity, 1/16 px a tick, smoothed; +4 s the
 ; shown step; +5 the state, 0 REST, 1 PAN, 2 TRACK on, 3 TRACK back; +6 the
 ; pan's target; +8 the last ball), SI = its table (CS), [bz_vemax] = the
-; position's most
+; position's most ([bz_vemin] its least)
 .ax:
     mov [bz_vball], ax
     mov bx, [di + 8]
@@ -1811,9 +1810,9 @@ BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
 .sa2:
     add ax, [di]
 .clampt:
-    or ax, ax
-    jns .ct1
-    xor ax, ax
+    cmp ax, [bz_vemin]
+    jge .ct1
+    mov ax, [bz_vemin]
 .ct1:
     cmp ax, [bz_vemax]
     jle .ct2
@@ -1821,9 +1820,15 @@ BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
 .ct2:
     mov [di + 6], ax
     ret
-; [bz_vemax] = the display's most left px on this course (its least is 0):
-; the window's last column, cmax, and its 16 px of slack.  Clobbers AX
+; [bz_vemax] = the display's most left px on this course: the window's last
+; column, cmax, and its 16 px of slack; [bz_vemin] its least, the first, cmin
+; (0 but for a `stop left`, SPEC.md 130.45.5).  Clobbers AX
 .xmax:
+    mov ax, [bz_cmin]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov [bz_vemin], ax
     mov ax, [bz_cmax]
     shl ax, 1
     shl ax, 1
@@ -1835,14 +1840,15 @@ BZV_TLA     equ 14              ; the pan's look-ahead (its extension's)
 ; the edge it runs toward is nearer than its stopping distance s (s + 1) / 2,
 ; and never passes it, so the camera arrives at an edge at rest rather than
 ; being clamped there mid-pan.  DI as .ax, [bz_vemax] = the position's most
-; (its least 0).  Clobbers AX, CX.
+; ([bz_vemin] its least).  Clobbers AX, CX.
 .brake:
     mov al, [di + 4]
     or al, al
     jz .bk
     jns .bp
-    neg al                      ; toward 0: the distance is the position
-    mov cx, [di]
+    neg al                      ; toward the least: the distance is the
+    mov cx, [di]                ; position less it
+    sub cx, [bz_vemin]
     call .bdist
     neg al
     jmp short .bset
@@ -1989,10 +1995,17 @@ bzv_coast:
     call bzv_cam.xmax
     call .dec
     mov di, bz_vcy
-    mov ax, [bz_rmax]
-    mov [bz_vemax], ax
+    call .ylim
     call .dec
     jmp bzv_cam.win
+; [bz_vemin], [bz_vemax] = down's range: bz_rmin - bz_rmax, a line a row (the
+; STOPS folded in, SPEC.md 130.45.5).  Clobbers AX
+.ylim:
+    mov ax, [bz_rmin]
+    mov [bz_vemin], ax
+    mov ax, [bz_rmax]
+    mov [bz_vemax], ax
+    ret
 .dec:
     mov word [di + 2], 0
     mov al, [di + 4]
