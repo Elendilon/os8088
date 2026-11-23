@@ -312,6 +312,14 @@ bz_fstp:
     sub bx, dx
     jg .next                    ; (signed: the wake still ahead)
 .call:
+%ifdef BZSSLOG
+    cmp al, 8                   ; (the see-saw log: slots 0 - 7's dispatches)
+    jae .ssn
+    mov bl, al
+    xor bh, bh
+    inc byte [bz_ssc + bx]
+.ssn:
+%endif
     push cx
     push dx
     push si
