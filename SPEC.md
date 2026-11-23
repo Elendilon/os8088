@@ -287390,16 +287390,23 @@ archway 21, magnet 32, water 54 (+31 paragraphs). No kernel byte.
 **Every wake is 0 at a play's start** (the owner's MILL see-saw, 2026-11-23).
 `bz_pinit` zeroes the whole `bz_fwk` table beside setting `bz_fwall`. A slot is
 a course's family by POSITION in its `uses` list, and the wakes live per
-LAUNCH, so a wake a family wrote on the course played before - a turntable's,
-a gate's or a spike's "nothing due" `n + 4000h` - was left in the slot that
-course's family held. On MILL slot 3 is the see-saw, which never writes its
-wake (it runs every step), so after a course whose slot 3 had slept to 4000h
-the see-saw's STEP was skipped until step 16,384 but for the steps `bz_fwall`
-forced: its weight never reached `BZ_TL_DW`, and the plate never tipped. It
-reproduced only after another course had run in the same instance (the owner's
-86Box, every time; never on a fresh launch straight into MILL, where every
-test played), and the model, which starts each play with no wakes, could not
-show it. Found with the `BZSSLOG=1` knob (`apps/bonanza/bzsslog.inc`,
+LAUNCH, so a wake a family wrote on the course played before - its "nothing
+due" `n + 4000h` - was left in the slot that course's family held. The
+owner's way in (Explore, Enter, the TITLE's demo, Enter, the pathway, MILL)
+plays the title course first, whose slot 3 is GLASS (rotor, spring, tube,
+glass), and glass slept its slot to 4000h at the demo's step 9; the pathway
+has no families, so MILL's see-saw - slot 3, which never writes its wake (it
+runs every step) - inherited it: its STEP was skipped until step 16,384 but
+for the steps `bz_fwall` forced, its weight never reached `BZ_TL_DW`, and the
+plate never tipped. Every test here launched MILL with no title demo before
+it, and the model, which starts each play with no wakes, could not show it
+(MEASURED on MartyPC: the owner's steps on the pre-fix package, slot 3's wake
+0 -> 4000h in the title, kept through the pathway into MILL). **The guard**:
+every per-play family variable (the wakes, the slots, `bz_fst`, `bz_fwkk`,
+`bz_fwm`) POISONED before `bz_pinit` under unicorn, the course's play then
+equal to the model's at every step - the pre-fix package fails it at step 890
+of the owner's `001MILL.BZR`, the fixed one passes it on six courses' routes
+and that log. Found with the `BZSSLOG=1` knob (`apps/bonanza/bzsslog.inc`,
 `tools/bzsslog.py`): the owner's log read slot 3's wake 16384, the tree's 0.
 MEASURED on MartyPC with `001MILL.BZR` and 4000h planted in slot 3's wake
 before the replay: the pre-fix package never tips the plate, the fixed one

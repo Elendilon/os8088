@@ -104,4 +104,8 @@ spike's "nothing due" `n + 4000h` from a course played earlier in the same insta
 (which never writes its wake) until step 16,384. Every test here launched MILL fresh, so the table was clean.
 Fix: `bz_pinit` zeroes every wake (SPEC.md 130.25.6.11). Shown both ways on MartyPC with 4000h planted in
 slot 3 before `001MILL.BZR`'s replay: the pre-fix package never tips, the fixed one tips at 934 - 939.
-The "pit" heights above (a tipped plate 2 units under the ramp) still stand as a design question for MILL.
+Where the 4000h came from (MEASURED on MartyPC with the owner's steps): the TITLE's demo course, whose slot 3
+is GLASS; glass slept its slot at the demo's step 9 and the pathway (no families) kept it. The "pit" above (a
+tipped plate 2 units under the ramp) is INTENDED - the owner: you have to jump, at the right time, to make it
+over. NEXT: the occluders are cut from the rest picture, so a tipped plate's rest-pose edge and column are laid
+over a ball on its low end (SPEC.md 130.42.10 item 5) - a plan is with the owner.
