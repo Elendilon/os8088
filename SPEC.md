@@ -299296,6 +299296,13 @@ point is selected, so successive Ctrl-clicks lay a route in order. Otherwise Ctr
 adds to the selection, and with a Tube or Chute chosen it traces that part's path (130.58.27), which comes
 first. The edit is the window's checked edit like any other. `tests/unit/t_bbedit.py` item 20 holds it.
 
+**A branch forks from the main route** (the owner: *"Choosing new Branch hides all of the main points, so I
+can't fork from them"*). With a branch chosen, the main route stays on the plan FADED - its line and a small
+ring at each point - for reference: where to fork and where to rejoin; it is not picked or dragged. A main
+point's panel offers **Branch from here**: a new branch whose first point is that very cell, so
+`branch_route` forks exactly there, the picker set to it and the point selected, so Ctrl-clicks lay the rest;
+ending it on a main point rejoins the main route there. Item 20 holds the fork.
+
 #### 130.58.44 The Occluders overlay shows what ships (the owner, 2026-11-23)
 
 The owner, looking at MILL with Occluders on: *"Is this showing with AV, and the 'can it reach it'? There are a ton

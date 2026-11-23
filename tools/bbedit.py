@@ -2241,6 +2241,8 @@ class App(object):
         fr = ttk.Frame(body)
         fr.grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
         ttk.Button(fr, text="Insert one after", command=lambda: self.route_insert(st.line)).pack(side="left")
+        if mine and not mine[3]:                # 130.58.43: a main point - fork a new branch from it
+            ttk.Button(fr, text="Branch from here", command=lambda: self.route_fork(st.line)).pack(side="left")
         ttk.Button(fr, text="Earlier", width=7, command=lambda: self.route_shift(st.line, -1)).pack(side="left")
         ttk.Button(fr, text="Later", width=6, command=lambda: self.route_shift(st.line, 1)).pack(side="left")
         ttk.Button(fr, text="Delete", width=7, command=self.delete).pack(side="left")
@@ -2405,9 +2407,36 @@ class App(object):
                 self.route_branch.set(ALL_BRANCHES)
             else:
                 self.route_branch.set(name)
-                self._msg("Branch %s: Ctrl-click cells on the plan to lay its route points in order" % name)
+                self._msg("Branch %s: Ctrl-click the main point it forks from (a faded dot) first, then its cells "
+                          "in order; end on a main point to rejoin" % name)
         self.show_route.set(True)
         self._redraw()
+
+    def route_fork(self, line, name=None):
+        """SPEC.md 130.58.43: a NEW branch forking from main route point LINE - its first point on that very cell
+        (so branch_route forks exactly there), the picker set to it and the point selected, so Ctrl-clicks lay
+        the rest"""
+        me = next((w for w in self._ways() if w[0] == line), None)
+        if me is None:
+            return
+        if name is None:
+            from tkinter import simpledialog
+            name = simpledialog.askstring("Branch from here", "The new branch's name (1 - 5 of A-Z 0-9, e.g. "
+                                          "GLASS):", parent=self.root)
+        name = (name or "").strip().upper()
+        if not name:
+            return
+        if name in self._branches():
+            self._msg("There is already a branch %s: choose it above to add to it" % name)
+            return
+        ln = self._edit(self.doc.insert, "way %d %d branch %s" % (me[1], me[2], name),
+                        after=self._ways()[-1][0], label="branch from a route point")
+        if ln:
+            self.route_branch.set(name)
+            self.select(ln)
+            self._msg("Branch %s forks at %d, %d: Ctrl-click its cells in order; end on a main point (the "
+                      "faded dots) to rejoin" % (name, me[1], me[2]))
+            self._redraw()
 
     def route_add(self, cell):
         """SPEC.md 130.58.43: Ctrl-click lays a route point on CELL, in the chosen branch: after the selected
@@ -3370,12 +3399,19 @@ class App(object):
             pass
         if self.show_route.get() and a["src"]:
             src = a["src"]
+            pts = []
+            for (x, y), _l in ([src.start] if src.start else []) + list(src.ways):
+                pts += list(self._cpx(x + .5, y + .5))
             if self._br_shown(None):
-                pts = []
-                for (x, y), _l in ([src.start] if src.start else []) + list(src.ways):
-                    pts += list(self._cpx(x + .5, y + .5))
                 if len(pts) >= 4:
                     c.create_line(*pts, fill="#ffffff", width=2, dash=(6, 5))
+            else:                               # 130.58.43: a branch chosen - the main route FADED, for reference
+                if len(pts) >= 4:               # (where to fork from and rejoin at), not pickable
+                    c.create_line(*pts, fill="#6b7280", width=1, dash=(4, 6))
+                for (x, y), _l in src.ways:
+                    px, py = self._cpx(x + .5, y + .5)
+                    r0 = max(2.0, s * .12)
+                    c.create_oval(px - r0, py - r0, px + r0, py + r0, outline="#9aa3b2", width=1)
             for b in self._branches():          # each branch its own line, in file order (130.58.43)
                 if not self._br_shown(b):
                     continue

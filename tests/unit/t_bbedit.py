@@ -402,14 +402,21 @@ class _PaletteApp(_StubApp):
         self.sel = ln
 
 
+class _SetVar(_Var):
+    def set(self, v):
+        self.v = v
+
+
 class _RouteApp(_StubApp):
     """the route's branch picker and Ctrl-click (SPEC.md 130.58.43), no Tk"""
-    _ways, _br_shown, _br_target, _branches, route_add, _route_ctrl = (
-        W.App._ways, W.App._br_shown, W.App._br_target, W.App._branches, W.App.route_add, W.App._route_ctrl)
+    _ways, _br_shown, _br_target, _branches, route_add, _route_ctrl, route_fork = (
+        W.App._ways, W.App._br_shown, W.App._br_target, W.App._branches, W.App.route_add, W.App._route_ctrl,
+        W.App.route_fork)
+    root = None
 
     def __init__(self, text, br):
         _StubApp.__init__(self, text)
-        self.route_branch, self.show_route, self.view = _Var(br), _Var(True), _Var("plan")
+        self.route_branch, self.show_route, self.view = _SetVar(br), _Var(True), _Var("plan")
 
 
 def route_check():
@@ -444,6 +451,15 @@ def route_check():
     al.sel = al._ways()[3][0]
     if not al._route_ctrl() or al._br_target() != "B":
         bad.append("route: All branches with B's point selected does not lay into B")
+    if True:
+        f = _RouteApp(base, W.ALL_BRANCHES)
+        f.route_fork(f._ways()[1][0], "gl")    # main point (9, 1): a branch GL forking exactly there
+        g = [w[1:] for w in f._ways() if w[3] == "GL"]
+        if g != [(9, 1, "GL")] or f.route_branch.v != "GL":
+            bad.append("route: Branch from here on main (9, 1) gave %r, picker %r" % (g, f.route_branch.v))
+        f.route_add((10, 2))
+        if [w[1:3] for w in f._ways() if w[3] == "GL"] != [(9, 1), (10, 2)]:
+            bad.append("route: the forked branch's next Ctrl-click does not follow its fork point")
     return bad
 
 
