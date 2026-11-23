@@ -484,8 +484,9 @@ def course_tab_check():
         def __init__(self, text):
             _StubApp.__init__(self, text)
             for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal", "cv_gstyle", "cv_target",
-                      "cv_limit", "cv_gold", "cv_silver", "cv_cstrict", "cv_mbanded"):
+                      "cv_limit", "cv_gold", "cv_silver", "cv_cstrict", "cv_mbanded", "cv_lock"):
                 setattr(self, k, _SetVar(""))
+            self.cv_stops = {e: _SetVar("") for e in B.STOP_EDGES}
             self._fill_course()
             self.doc.listeners.append(lambda *a: self._fill_course())   # (the window's _changed refills the tab)
     base = "course CT \"Course tab\"\nwidth 64\nfloor rect 0 0 4 4 flat 2\nstart 1 1\n"
@@ -497,6 +498,23 @@ def course_tab_check():
     got = [l for l in a.doc.text().split("\n") if l.startswith(("limit", "medals"))]
     if sorted(got) != ["limit 120", "medals 70 90"]:
         bad.append("item 26: the Course tab's limit 120, medals 70 90 applied as %r" % got)
+    # SPEC.md 130.45.5: the camera's flags - the four stop ticks one `stop` statement, read back; none, taken out
+    a.cv_stops["down"].set(True)
+    a.cv_stops["left"].set(True)
+    a.cv_lock.set(True)
+    a._apply_course()
+    got = [l for l in a.doc.text().split("\n") if l.startswith(("stop", "lock"))]
+    if sorted(got) != ["lock across", "stop down left"]:
+        bad.append("item 26: the Course tab's lock and stops down, left applied as %r" % got)
+    b = _C(base + "stop up right\n")
+    if [e for e in B.STOP_EDGES if b.cv_stops[e].get()] != ["up", "right"] or b.cv_lock.get():
+        bad.append("item 26: the Course tab does not read `stop up right`")
+    for e in B.STOP_EDGES:
+        a.cv_stops[e].set(False)
+    a.cv_lock.set(False)
+    a._apply_course()
+    if any(l.startswith(("stop", "lock")) for l in a.doc.text().split("\n")):
+        bad.append("item 26: the Course tab's stops cleared leave %r" % a.doc.text()[-80:])
     return bad
 
 
@@ -851,8 +869,9 @@ class _CourseApp(object):
     def __init__(self, text):
         self.doc = E.Document(text)
         for n in ("title", "name", "width", "ball", "music", "pal", "target", "limit", "gold", "silver", "gstyle",
-                  "cstrict", "mbanded"):
+                  "cstrict", "mbanded", "lock"):
             setattr(self, "cv_" + n, _SVar(""))
+        self.cv_stops = {e: _SVar("") for e in B.STOP_EDGES}
         self.msgs = []
 
     def _msg(self, m):

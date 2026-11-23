@@ -194,14 +194,17 @@ BZL_SINCE   equ 3               ; byte: frames since the pan's last column (acro
 BZL_HELD    equ 4               ; byte: steps the heavy rule withheld since it stepped
 BZL_SH      equ 5               ; byte: log2 of the unit u (across 3, down bz_lsh)
 BZL_TGT     equ 6               ; word: the pan's target position
-BZL_MX      equ 8               ; word: the position's range's top (cmax, rmax)
-BZL_K       equ 10              ; word: its constants' row in bz_klat (the card's)
-BZL_BLO     equ 12              ; word: the BAND at the window's position, in the
-BZL_BHI     equ 14              ; tracked point's px or lines: P u + lo, P u + hi
+BZL_K       equ 8               ; word: its constants' row in bz_klat (the card's)
+BZL_BLO     equ 10              ; word: the BAND at the window's position, in the
+BZL_BHI     equ 12              ; tracked point's px or lines: P u + lo, P u + hi
                                 ; (bz_lband, after every move and at rest's reset)
-BZL_PRE     equ 16              ; byte: 1 the pan's fast latch was set in a TUBE: PRE-AIMED,
+BZL_PRE     equ 14              ; byte: 1 the pan's fast latch was set in a TUBE: PRE-AIMED,
                                 ; never withheld by the heavy rule (SPEC.md 130.25.3)
-BZL_SIZE    equ 18
+BZL_SIZE    equ 16
+BZL_MN      equ BZL_SIZE        ; word: the position's range, its least and most -
+BZL_MX      equ BZL_SIZE + 2    ; the two words AFTER the state, bz_vinit's own
+                                ; (bz_lax: bz_cmin, bz_cmax; bz_lay: bz_rmin,
+                                ; bz_rmax; SPEC.md 130.45.5): no copy to keep
 ; ... and its CONSTANTS (bz_klat: across on the CGA, on the Hercules, down;
 ; bbcourse.lat_consts), in the axis's px or lines
 BZK_A       equ 0               ; the band margin A: lo = A - Hr after a pan +
@@ -287,6 +290,7 @@ VAR bz_vcym,1
 VAR bz_vcyt,2
 VAR bz_vcyb,2
 VAR bz_vemax,2                  ; ...an axis's most position this frame (BZV_CAM's)
+VAR bz_vemin,2                  ; ...and its least (SPEC.md 130.45.5: 0 unstopped)
 VAR bz_vball,2                  ; ...the ball's coordinate this axis (BZV_CAM's)
 VAR bz_vsm,1                    ; ...1: BZV_CAM ran this frame (bz_vstart shows bz_vcx)
 VAR bz_vwr0,2                   ; BZV_WPRECT's and BZV_CONV's locals (the part
@@ -335,7 +339,14 @@ VAR bz_blk,1                    ; 1: the card's video is gated (bz_blank)
 VAR bz_trx,8                    ; the ring: the low word of bz_bx at the end of
                                 ; each of the last four frames
 VAR bz_lax,BZL_SIZE             ; LATTICE's axes (wave 6b, SPEC.md 130.17.6.2):
-VAR bz_lay,BZL_SIZE             ; across and down (BZL_*)
+VAR bz_cmin,2                   ; across and down (BZL_*), each followed by the
+VAR bz_cmax,2                   ; window's RANGE on its axis, the camera's limits
+VAR bz_lay,BZL_SIZE             ; (bz_vinit, bz_vstop: the course's size, its
+VAR bz_rmin,2                   ; STOPS folded in, SPEC.md 130.45.5) - read as
+VAR bz_rmax,2                   ; BZL_MN, BZL_MX
+%if bz_cmin != bz_lax + BZL_MN || bz_cmax != bz_lax + BZL_MX || bz_rmin != bz_lay + BZL_MN || bz_rmax != bz_lay + BZL_MX
+ %error "an axis's range is the two words after its state (BZL_MN, BZL_MX)"
+%endif
 VAR bz_cgz,2                    ; wave 6 (130.16.7): the GROUND height zg, whole
                                 ; px, the last frame's (held over no floor)
 VAR bz_clat,2                   ; ...the edge fallback's LATCH: +1 1 while
@@ -499,9 +510,7 @@ VAR bz_rb,2
 VAR bz_rl,2
 VAR bz_bend,2
 VAR bz_crtc,2
-VAR bz_cmax,2
 VAR bz_lockc,2                  ; SPEC.md 130.45: the course's locked c0 on this card, FFFFh none
-VAR bz_rmax,2
 VAR bz_vrport,2
 VAR bz_vrbits,2
 VAR bz_vrlim,2
@@ -3095,7 +3104,9 @@ bz_lat:
 ; T) going -, ceil(t / uS) S; 0 when t <= 0; at most the range's top - so the
 ; same place always gives the same framing, the point at least T inside the
 ; trailing side.  uS is a power of two (BZK_M + 1), so the rounding is a
-; mask and the units a shift.  SI, DI, BX = b as bz_lat's -> BX.  Clobbers CL.
+; mask and the units a shift.  At least the range's least (BZL_MN: 0, or the
+; course's STOP, SPEC.md 130.45.5).  SI, DI, BX = b as bz_lat's -> BX.
+; Clobbers CL.
 bz_lcand:
     or al, al
     js .neg
@@ -3115,9 +3126,11 @@ bz_lcand:
     jle .r
     mov bx, [si + BZL_MX]
 .r:
-    ret
+    cmp bx, [si + BZL_MN]
+    jge .r2
 .z:
-    xor bx, bx
+    mov bx, [si + BZL_MN]
+.r2:
     ret
 
 ; bz_lhv - THE HEAVY RULE as a bounded delay, step 8 (SPEC.md 130.17.6.3,
@@ -3268,13 +3281,11 @@ bz_latrst:
     mul ah
     add ax, bz_klat
     mov [si + BZL_K], ax
-    mov bx, [bz_cmax]
     mov dx, [bz_c0]
     mov ah, 3                   ; across: u = 8 px
     call .one
     mov si, bz_lay
     mov word [si + BZL_K], bz_klat + 2 * BZK_SIZE
-    mov bx, [bz_rmax]
     mov dx, [bz_R0]
     mov ah, [bz_lsh]            ; down: u = rl lines
 .one:
@@ -3282,9 +3293,8 @@ bz_latrst:
     mov word [si + BZL_FAST], 0900h ; fast, since 9
     mov byte [si + BZL_PRE], 0
     xor al, al
-    mov [si + BZL_HELD], ax     ; held, the unit's shift
-    mov [si + BZL_MX], bx
-    jmp bz_lband                ; (tgt: set at a pan's start)
+    mov [si + BZL_HELD], ax     ; held, the unit's shift (its range,
+    jmp bz_lband                ; BZL_MN - BZL_MX, is bz_vinit's; tgt: set at a pan's start)
 
 ; LATTICE's CONSTANTS (BZK_*; bbcourse.lat_consts, bzcourse.inc's BZ_LAX_*,
 ; BZ_LAY_*): across on the CGA, across on the Hercules, down
@@ -3452,12 +3462,13 @@ bz_shmrow:
     ret
 %endif
 
-; [bz_R0n], [bz_c0n] clamped to the course.  Clobbers AX.
+; [bz_R0n], [bz_c0n] clamped to the course: bz_rmin - bz_rmax, bz_cmin -
+; bz_cmax (its STOPS folded in, SPEC.md 130.45.5).  Clobbers AX.
 bz_clampwin:
     mov ax, [bz_R0n]
-    or ax, ax
+    cmp ax, [bz_rmin]
     jge .r
-    xor ax, ax
+    mov ax, [bz_rmin]
 .r:
     cmp ax, [bz_rmax]
     jle .r2
@@ -3465,9 +3476,9 @@ bz_clampwin:
 .r2:
     mov [bz_R0n], ax
     mov ax, [bz_c0n]
-    or ax, ax
+    cmp ax, [bz_cmin]
     jge .c
-    xor ax, ax
+    mov ax, [bz_cmin]
 .c:
     cmp ax, [bz_cmax]
     jle .c2

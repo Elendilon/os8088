@@ -286888,10 +286888,122 @@ course's columns, and a clock placed up by the goal fell out of view.
   in `bz_vinit` and **2 bytes a course** of table (20 with ten entries). Not
   a frame's clock.
 
+#### 130.45.5 STOPS on every edge: `stop up`, `stop left`, `stop right` (the owner, 2026-11-23)
+
+*"We added the ability to tell the game 'don't scroll down any more' for courses that were vertical only,
+but I'd like the same thing for ones that scroll in both directions. The case here is that the clock, and
+hole, are fully in view - but if you go PAST the hole then it scrolls down once more and the clock is then
+slightly out of view. We may also need 'no more left/no more right' for future finishes, if they are at the
+far left/right sides."*
+
+The case is WINDMILL LANE (`mill.bbc`): its cup at (24, 52), its finish clock's digits at lines 688 - 695.
+Carried down the route's last leg to the cup, LATTICE frames the cup and the clock at CGA row 320 (top line
+640); carried on past the cup it steps on to row 352 (top line 704) and the digits leave the window. **`stop
+down` was never a locked course's alone**: 130.45.4's flag is independent of `lock across` in the grammar,
+the guest and `Glide` alike - FIRST ROLL was only its first user - so MILL takes it as it stands, and the
+three other edges join it.
+
+**The statement**, one per course, its edges in any order, each at most once:
+
+    stop <edge> [<edge> ...]          edge: down | up | left | right
+
+- `stop down` is 130.45.4's, unchanged: its BOTTOM LINE in `BZ_CRS_BOTS`, at line precision.
+- **`stop up`**: the TOP LINE is the highest corner of any FINISH cell (every goal cell or piece, every cup's
+  cell; `8 (wx + wy) - h + y0`, `h` the cell's highest corner, px) less `STOP_PAD` (`FACE8`, 24); stored as
+  its BLOCK ROW `t = floor(top / 8)` - rounded the way that shows more.
+- **`stop left`**: the LEFT px is the leftmost finish cell's left edge (`16 (wx - wy) + x0 - 16`) less 24;
+  stored as its column `l = floor(left / 8)`.
+- **`stop right`**: the RIGHT px is the rightmost finish cell's right edge plus 24; stored as the columns the
+  window keeps off the picture's right, `r = cols - ceil(right / 8)` - card-independent, since every card's
+  `cmax` is `cols - W`.
+- **The tool holds every range whole on every card**, so the guest needs no clamp: `r` at most every card's
+  `cmax` (the widest window's: `cols - 45`), `l` at most every card's `cmax - r`, `t` at most every card's
+  `rmax` (after the bottom stop) in block rows - over the CGA, the Hercules and the VGA's engine window
+  (42 columns, a line a row). A byte holds each (`BROWS_MAX` 256); past 255 is refused.
+- **Refused at the line**: an edge twice, an unknown edge or none, a second `stop` statement; `stop left` or
+  `stop right` with `lock across` (the lock holds the across already); a stop on a course with no finish.
+
+**`BZ_CRS_STOPS`**, beside `BZ_CRS_BOTS` in `bzcourse.inc`: three bytes a course at the full width
+(130.58.36), `t, l, r`, **0 0 0 none**. Not in the part: no part, identity or demo moves, and a course
+without the statement is byte for byte what it was. It is one of `tools/bbgame.py`'s PATCH tables, so an
+added course's stops are written into a prebuilt game like its other rows.
+
+**The guest** (binding: `bz_vstop`, `bz_lcand`, `bz_clampwin`, the VGA's `bzv_cam`, and
+`bbcourse.cam_limits` / `Glide` / `LatAxis` do exactly this):
+
+1. **`bz_vstop`** (`bzvideo.inc`), called by `bz_vinit` once the card's limits are set from the part - on the
+   CGA and the Hercules after `rmax`, on the VGA after `BZV_INIT` - FOLDS the stops into the camera's own
+   limits: 130.45.4's bottom cap (moved here whole from the two halves of `bz_vinit`), then `rmin = 8 t >>
+   lsh`, `cmin = l`, `cmax -= r`. 0 is each byte's identity, so a course without a stop runs the same three
+   stores and changes nothing: no branch.
+2. **The range is the two words after each LATTICE axis's state**: `bz_lax` is followed by `bz_cmin`,
+   `bz_cmax`, `bz_lay` by `bz_rmin`, `bz_rmax` (`BZL_MN`, `BZL_MX` = `BZL_SIZE`, `+ 2`; `bzgame.inc` asserts
+   the layout). `BZL_MX` was a copy `bz_latrst` made at every reset; the copy and its two loads are gone.
+3. **`bz_lcand`** clamps a target to the most, then to the LEAST (`BZL_MN`, where it was 0), so a pan never
+   aims past a stop; at the stop, a ball beyond it starts no pan (the target is where the window is).
+4. **`bz_clampwin`** (every frame, and the first frame's and a cut's centring) clamps `R0n` to `bz_rmin -
+   bz_rmax` and `c0n` to `bz_cmin - bz_cmax`, where its least was 0.
+5. **The VGA's camera** (130.46.12): `bz_vemin` beside `bz_vemax` (8 `cmin` across in `.xmax`, `rmin` down
+   in `bzv_coast.ylim`), the least of its target clamp (`.clampt`) and of its braking toward that edge
+   (`.brake`), so it arrives at a stop at rest as at an edge.
+6. A LOCKED course's across is the lock's as before (left and right are refused with it); the FIXED and
+   PAGED windows (the title's, the pathway's) say no `stop`.
+
+**The model**: `bbcourse.cam_limits(brows, cols, card, lockb, stoptab)` is `bz_vinit`'s result on each of
+the three cards; `Physics` carries `stoptab` beside `lockb`; `Glide` takes its four limits from it (`rmin`,
+`cmin` into `_clamp` and into each `LatAxis`'s `mn`, which `cand` clamps to), and `Glide(_nostop=True)` is
+the red arm - the picture's whole range, as before any stop. So the route demos, the G-checks, `--camcheck`
+and the builder's Test Roll (`bbplay`, which builds a `Glide` off the course's `Physics`) all see the
+stops the game does.
+
+**The finish-clock rule** (130.22.6) on a STOPPED course, generalised from 130.45.4's locked-and-stopped
+case: for each stopped edge, the window AT that stop - its other axis centred on the finish within the
+course's range, or the lock's - is a window the camera may rest in at the finish; when the finish lies
+inside those windows, one clock's digits must lie inside every one of them (`bbcourse.stop_windows`). A
+`stop up` on MILL is refused by it, naming the window: the clock is above the cup. A locked course stopped
+down gives 130.45.4's one window, so FIRST ROLL's verdict is unchanged.
+
+**The builder** (130.58): the Course tab's *About this course* gains the camera's two flags - *Hold the
+camera across* (`lock across`) and *Once the finish is in view, stop scrolling: down up left right*, four
+ticks written as one `stop` statement (none: the statement taken out), filled from the course as the other
+fields are.
+
+**MILL** (`mill.bbc`) says `stop down`: its bottom line is 820 (the cup's front corner, 796, and the face's
+24), so the CGA's `rmax` is 310 (top line 620, where the picture allows 380) and the Hercules' 155 (of 190).
+On the model (`--selfcheck --only camstop`, item 3), carried down to the cup as the route comes and on past
+it, the window stops at row 310 / 155 and holds there; the finish clock's digits (688 - 695) and the cup
+stay inside it on every frame from the cup on, on both cards. Without the stop (`_nostop`) the CGA goes on
+to row 352 (top line 704) and the clock leaves.
+
+**Cost** (MEASURED: `make bonanza` here against the same build of `96475a06d`, the commit before; every
+course part, demo, the pathway and the title byte-identical, `bzcourse.inc` alone differing):
+`bonanza.bin` **+84 bytes** - `BZ_CRS_STOPS` 75 (three bytes x 25 rows) and **+9 of code**: `bz_vinit` with
+`bz_vstop` +9 (the bottom stop's two copies, 39 and 32 bytes, became one routine with the three new
+stops in it), `bz_latrst` -11 (no `BZL_MX` copy), `bz_lcand` +5, `bz_clampwin` +6. `bzvga.bin` **+26**
+(`bz_vemin`'s sets, clamp and brake). `BONANZA.O88` as packed **+48 bytes** (177,873 -> 177,921). Bss
++2 (`bz_cmin`, `bz_rmin` +4 and `bz_vemin` +2 against the axes' `BZL_MX` copies, -4). **Per frame**:
+a frame at rest runs no new instruction in LATTICE; `bz_clampwin` (every frame) compares against two
+words where it tested two registers (`cmp ax, mem` + a not-taken `jge` in place of `or ax, ax` + `jge`:
+about +20 clocks a frame on the 8088); `bz_lcand`, on the frames a pan is decided, one `cmp` and a branch
+more (about +25 clocks a call, two at most). `bz_vstop` runs once a course, not a frame.
+
+**`--selfcheck` section `camstop`** (`--only camstop`):
+
+1. `stop down up left right` compiles on a small cup course with every card's range whole; the six misuses
+   above are each refused at their line (the grammar's red arms).
+2. `BZ_CRS_STOPS` as `emit_inc` writes it is each course's `t l r` (0 0 0 none) at the full width, and every
+   compiled course's range is whole on all three cards, an unstopped course's the picture's whole range.
+3. MILL past its cup, both cards, as above - green only if the shipped model holds the clock and the cup in
+   view AND the `_nostop` arm loses the clock (red, on purpose).
+4. Every edge in the model: MILL given `stop up left` and then `stop right` (beside its own `stop down`),
+   the ball carried to the picture's four extremes and back, both cards: the window never leaves the
+   stopped range - and `_nostop` passes every stop it is given (red).
+
 #### 130.45.3 What uses it, and the rows
 
-- **FIRST ROLL** (`roll.bbc`, the `BZROLL=1` knob) is its first and, for
-  now, only course.
+- **FIRST ROLL** (`roll.bbc`) is its first course: `lock across` and
+  `stop down`. **WINDMILL LANE** (`mill.bbc`) says `stop down` (130.45.5),
+  unlocked: the first course to stop a camera that scrolls both ways.
 - **The rows** that read the camera, named for the final pass and not run
   per change (fork rule 10):
   - `bonanzaring`: its camera leg compares the guest's window to `Glide`
@@ -286899,7 +287011,10 @@ course's columns, and a clock placed up by the goal fell out of view.
     locked course added to its scenarios;
   - `bonanzacourse`;
   - `bonanzaexit`;
-  - `bonanzamega`.
+  - `bonanzamega`;
+  - since 130.45.5 also `bonanzacourse --only camstop` (the stops' own section), `bbedit` (t_bbedit item
+    26, the Course tab's camera flags), `bbgame` (BZ_CRS_STOPS a PATCH table), and `bonanzaring`'s VGA
+    leg for `bz_vemin`.
   - The `--guide` run half (G3, G12) reads the lock through `Glide` at once.
 - **Red arm** (host): a `lock across` on a course wider than the window is
   refused at its line. The tool's `--selfcheck` gains it when the item list
@@ -287250,10 +287365,13 @@ there), down follows as ever. (The lock arrived from `bounce-bonanza` while
 this arm was on its own branch: its `bz_vinit` code sat after the VGA's
 early return, so a VGA play read whatever `bz_lockc` held.)
 
-**A STOPPED course** (130.45.4): the VGA's `bz_rmax` is the part's, so
-`bz_vinit`'s VGA arm caps it after `BZV_INIT` the same way - a VGA row is
-a line, so at most `max(0, bottom - BZ_LINES)` - and the camera's edge
-braking stops it there at rest.
+**A STOPPED course** (130.45.4, 130.45.5): the VGA's limits are the part's,
+so `bz_vinit`'s VGA arm folds the stops in after `BZV_INIT` through the same
+`bz_vstop` as the other cards - a VGA row is a line (`bz_rl` 1, `bz_lsh` 0),
+so `rmax` at most `max(0, bottom - BZ_LINES)` and `rmin` 8 t - and the
+camera's edge braking stops it there at rest: its least edge is
+`bz_vemin` (8 `cmin` across, `rmin` down) where it was 0, in the target's
+clamp and in the braking alike.
 
 **No A/B** (the owner, 2026-11-18: *"it basically always moves like
 lattice, except for one section in MILL where it smoothly followed the ball
