@@ -378,6 +378,51 @@ class _PaletteApp(_StubApp):
         self.sel = ln
 
 
+class _RouteApp(_StubApp):
+    """the route's branch picker and Ctrl-click (SPEC.md 130.58.43), no Tk"""
+    _ways, _br_shown, _br_target, _branches, route_add, _route_ctrl = (
+        W.App._ways, W.App._br_shown, W.App._br_target, W.App._branches, W.App.route_add, W.App._route_ctrl)
+
+    def __init__(self, text, br):
+        _StubApp.__init__(self, text)
+        self.route_branch, self.show_route, self.view = _Var(br), _Var(True), _Var("plan")
+
+
+def route_check():
+    """item 20 (SPEC.md 130.58.43): a branch chosen shows and takes only its points; Ctrl-click lays a point in
+    it, after the selected one of its own; with All branches and nothing selected Ctrl-click still selects"""
+    bad = []
+    base = ("course RT \"Route\"\nwidth 64\nfloor rect 0 0 12 4 flat 2\nstart 1 1\nclock 0 0\nclock 11 3\n"
+            "way 2 1\nway 9 1\nway 3 2 branch B\nway 8 2 branch B\n")
+    a = _RouteApp(base, "B")
+    if [w[3] for w in a._ways() if a._br_shown(w[3])] != ["B", "B"]:
+        bad.append("route: branch B chosen does not show only B's points")
+    if a._br_shown(None):
+        bad.append("route: branch B chosen still shows the main route")
+    if not a._route_ctrl():
+        bad.append("route: with a branch chosen Ctrl-click does not lay a route point")
+    a.route_add((5, 2))
+    ws = a._ways()
+    if ws[-1][1:] != (5, 2, "B"):
+        bad.append("route: Ctrl-click in branch B laid %r, not 'way 5 2 branch B' after B's last" % (ws[-1],))
+    a.sel = ws[2][0]                    # B's first point selected: the next goes right after it
+    a.route_add((4, 3))
+    bw = [w[1:3] for w in a._ways() if w[3] == "B"]
+    if bw != [(3, 2), (4, 3), (8, 2), (5, 2)]:
+        bad.append("route: a point Ctrl-clicked with B's first selected is not after it: %r" % bw)
+    m = _RouteApp(base, W.MAIN_ROUTE)
+    m.route_add((6, 1))
+    if [w[1:] for w in m._ways() if w[3] is None] != [(2, 1, None), (9, 1, None), (6, 1, None)]:
+        bad.append("route: Main route chosen, Ctrl-click did not join the main route")
+    al = _RouteApp(base, W.ALL_BRANCHES)
+    if al._route_ctrl():
+        bad.append("route: All branches with nothing selected took Ctrl-click from the selection")
+    al.sel = al._ways()[3][0]
+    if not al._route_ctrl() or al._br_target() != "B":
+        bad.append("route: All branches with B's point selected does not lay into B")
+    return bad
+
+
 def _refusal(text):
     """the picture job's `done` event for TEXT: {ok, error, mouth}"""
     held, B.BLK_MAX = B.BLK_MAX, 1 << 30
@@ -1000,6 +1045,7 @@ def main():
         bad.append("occ view: refused: %s" % str(e)[:150])
     bad += stranded_check()
     bad += mouth_check()
+    bad += route_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

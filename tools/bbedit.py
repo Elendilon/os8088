@@ -161,6 +161,9 @@ def save_config(cfg):
 # jobs: a tools/bbedjob.py process, its JSON lines, a kill that takes the group
 # ----------------------------------------------------------------------------
 
+ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH = "All branches", "Main route", "New branch..."   # SPEC.md 130.58.43
+
+
 class Job(object):
     def __init__(self, argv, on_event):
         self.argv = [sys.executable, "-u", os.path.join(HERE, "bbedjob.py")] + list(argv)
@@ -236,6 +239,7 @@ class App(object):
         self.height = tk.StringVar(value="4")
         self.show_heights = tk.BooleanVar(value=True)
         self.show_route = tk.BooleanVar(value=True)
+        self.route_branch = tk.StringVar(value=ALL_BRANCHES)   # SPEC.md 130.58.43: the route shown and edited
         self.show_hard = tk.BooleanVar(value=True)
         self.xray = tk.BooleanVar(value=True)
         self.show_gaps = tk.BooleanVar(value=False)   # the gap band's candidates on the Iso view (130.58.21)
@@ -404,6 +408,11 @@ class App(object):
         self.plan_opts.pack(side="right")
         for txt, v in (("Height map", self.show_heights), ("Route", self.show_route), ("Hard to see", self.show_hard)):
             ttk.Checkbutton(self.plan_opts, text=txt, variable=v, command=self._redraw).pack(side="left")
+            if v is self.show_route:            # SPEC.md 130.58.43: which branch of the route to show and edit
+                self.br_cb = ttk.Combobox(self.plan_opts, textvariable=self.route_branch, state="readonly",
+                                          width=14, values=(ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH))
+                self.br_cb.pack(side="left", padx=(0, 6))
+                self.br_cb.bind("<<ComboboxSelected>>", self._branch_chosen)
         self.iso_opts = ttk.Frame(vb)
         for txt, v in (("CGA", "cga"), ("Hercules", "herc")):
             ttk.Radiobutton(self.iso_opts, text=txt, variable=self.adapter, value=v,
@@ -2191,7 +2200,7 @@ class App(object):
     def _route_rows(self, st, body, row):
         """a route point's panel: the whole route listed (a click selects a point), and its edits"""
         tk, ttk = self.tk, self.ttk
-        ways = self._ways()
+        ways = [w for w in self._ways() if self._br_shown(w[3]) or w[0] == st.line]   # 130.58.43: the branch shown
         mine = next((w for w in ways if w[0] == st.line), None)
         same = [w for w in ways if mine and w[3] == mine[3]]
         k = same.index(mine) if mine in same else 0
@@ -2341,13 +2350,72 @@ class App(object):
             self.select(ln)
             self._msg("Resized to %d x %d" % (x1 - x0, y1 - y0))
 
+    def _route_ctrl(self):
+        """does a Ctrl-click on the plan lay a route point (130.58.43)?  With Route on, when a branch is chosen
+        above the plan or a route point is selected - otherwise Ctrl-click still adds to the selection"""
+        if not self.show_route.get() or self.view.get() != "plan":
+            return False
+        if self.route_branch.get() not in (ALL_BRANCHES, NEW_BRANCH, ""):
+            return True
+        return any(w[0] == self.sel for w in self._ways())
+
+    def _br_shown(self, br):
+        """SPEC.md 130.58.43: is a route point of branch BR (None: the main route) shown and editable?"""
+        v = self.route_branch.get()
+        return v in (ALL_BRANCHES, NEW_BRANCH, "") or (br is None if v == MAIN_ROUTE else br == v)
+
+    def _br_target(self):
+        """the branch a Ctrl-clicked route point joins: the one chosen above the plan, else the selected point's
+        (None: the main route)"""
+        v = self.route_branch.get()
+        if v == MAIN_ROUTE:
+            return None
+        if v not in (ALL_BRANCHES, NEW_BRANCH, ""):
+            return v
+        me = next((w for w in self._ways() if w[0] == self.sel), None)
+        return me[3] if me else None
+
+    def _branches(self):
+        return sorted({w[3] for w in self._ways() if w[3]})
+
+    def _branch_chosen(self, e=None):
+        """the branch picker: NEW_BRANCH asks a name (the branch exists once its first point is Ctrl-clicked)"""
+        if self.route_branch.get() == NEW_BRANCH:
+            from tkinter import simpledialog
+            name = simpledialog.askstring("New branch", "The new branch's name (one word, e.g. GLASS):",
+                                          parent=self.root)
+            name = (name or "").strip().split()[0] if (name or "").strip() else ""
+            if not name:
+                self.route_branch.set(ALL_BRANCHES)
+            else:
+                self.route_branch.set(name)
+                self._msg("Branch %s: Ctrl-click cells on the plan to lay its route points in order" % name)
+        self.show_route.set(True)
+        self._redraw()
+
+    def route_add(self, cell):
+        """SPEC.md 130.58.43: Ctrl-click lays a route point on CELL, in the chosen branch: after the selected
+        point when it is that branch's, else after that branch's last point - then selects it, so the next
+        Ctrl-click follows it"""
+        br = self._br_target()
+        ways = self._ways()
+        same = [w for w in ways if w[3] == br]
+        me = next((w for w in same if w[0] == self.sel), None)
+        after = me[0] if me else (same[-1][0] if same else (ways[-1][0] if ways else None))
+        code = "way %d %d%s" % (cell[0], cell[1], (" branch %s" % br) if br else "")
+        ln = self._edit(self.doc.insert, code, after=after, label="add a route point")
+        if ln:
+            self.select(ln)
+            self._msg("Route point at %d, %d%s; Ctrl-click the next one" % (cell[0], cell[1],
+                                                                          (" (branch %s)" % br) if br else ""))
+
     def _way_at(self, e):
         """the route point under the pointer on the plan (Route on), or None"""
         if self.view.get() != "plan" or not self.show_route.get():
             return None
         x, y = self.cv.canvasx(e.x), self.cv.canvasy(e.y)
         s = CELL * self.zoom
-        for ln, wx, wy, _br in self._ways():
+        for ln, wx, wy, _br in [w for w in self._ways() if self._br_shown(w[3])]:
             px, py = self._cpx(wx + .5, wy + .5)
             if (px - x) ** 2 + (py - y) ** 2 <= max(6.0, s * .3) ** 2:
                 return ln
@@ -3278,22 +3346,38 @@ class App(object):
                 if len(pts) >= 4:
                     c.create_line(*pts, fill="#111", width=max(3, s / 3), capstyle="round", joinstyle="round")
                     c.create_line(*pts, fill="#9fd3ff", width=max(2, s / 5), capstyle="round", joinstyle="round")
+        ways_ = self._ways()
+        try:                                    # SPEC.md 130.58.43: the picker lists the course's branches
+            self.br_cb.configure(values=(ALL_BRANCHES, MAIN_ROUTE) + tuple(self._branches()) + (NEW_BRANCH,))
+        except Exception:
+            pass
         if self.show_route.get() and a["src"]:
             src = a["src"]
-            pts = []
-            for (x, y), _l in ([src.start] if src.start else []) + list(src.ways):
-                pts += list(self._cpx(x + .5, y + .5))
-            if len(pts) >= 4:
-                c.create_line(*pts, fill="#ffffff", width=2, dash=(6, 5))
+            if self._br_shown(None):
+                pts = []
+                for (x, y), _l in ([src.start] if src.start else []) + list(src.ways):
+                    pts += list(self._cpx(x + .5, y + .5))
+                if len(pts) >= 4:
+                    c.create_line(*pts, fill="#ffffff", width=2, dash=(6, 5))
+            for b in self._branches():          # each branch its own line, in file order (130.58.43)
+                if not self._br_shown(b):
+                    continue
+                pts = []
+                for _ln, x, y, br_ in ways_:
+                    if br_ == b:
+                        pts += list(self._cpx(x + .5, y + .5))
+                if len(pts) >= 4:
+                    c.create_line(*pts, fill="#9fd3ff", width=2, dash=(3, 4))
         # items
-        wnum, wc = {}, {}
-        for ln_, _x, _y, br_ in self._ways():
+        wnum, wc, wbr = {}, {}, {}
+        for ln_, _x, _y, br_ in ways_:
             wc[br_] = wc.get(br_, 0) + 1
             wnum[ln_] = wc[br_]
+            wbr[ln_] = br_
         for it in a["items"]:
             if it["kind"] == "tube" or not it["cells"]:
                 continue
-            if it["kind"] == "way" and not self.show_route.get():
+            if it["kind"] == "way" and (not self.show_route.get() or not self._br_shown(wbr.get(it["line"]))):
                 continue
             sel = it["line"] == self.sel or it["line"] in self.sels
             if len(it["cells"]) > 1 and it["kind"] == "prop":
@@ -3622,6 +3706,9 @@ class App(object):
         ctrl_ = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
         if ctrl_ and self._is_path_part(self.part):     # Ctrl-click with a Tube or Chute chosen: trace its path
             self._trace(cell)
+            return
+        if ctrl_ and self._route_ctrl():                 # SPEC.md 130.58.43: Ctrl-click lays a route point
+            self.route_add(cell)
             return
         if self.shapes.active():                         # the selected shape, edited in place (130.58.29)
             if ctrl_:

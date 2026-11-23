@@ -299121,3 +299121,19 @@ dark band and drawn above everything else on the plan. They are pinned to the VI
 scroll moves them back to the edge (`_pin_rulers`, run off both scrollbars' commands and once after every
 plan draw). They are drawn at EVERY zoom, where they used to stop below 14 px a cell: the step between
 numbers is the smallest of 1, 2, 4, 8, 16 and 32 cells that leaves 26 px for a number. The Iso view has none.
+
+#### 130.58.43 One branch of the route at a time, and Ctrl-click lays a route point (the owner, 2026-11-23)
+
+*"Can we add a way to select which branch we want to view, and then filter to and edit the points of that
+branch only? Can we add ctrl-click to add route points?"* A picker beside the plan's Route box chooses
+**All branches**, **Main route**, one of the course's branches (each `way ... branch NAME` name), or **New
+branch...** (asks a name; the branch exists once its first point is laid). With one route chosen, the plan
+draws only its points and line (each branch its own dotted line), only they can be picked or dragged, and a
+route point's panel lists only them.
+
+**Ctrl-click on the plan lays a route point** on the clicked cell when Route is on and either a branch is
+chosen in the picker or a route point is selected: into the chosen branch (with All branches, the selected
+point's), right after the selected point when it is that branch's, else after that branch's last point. The new
+point is selected, so successive Ctrl-clicks lay a route in order. Otherwise Ctrl-click is what it was: it
+adds to the selection, and with a Tube or Chute chosen it traces that part's path (130.58.27), which comes
+first. The edit is the window's checked edit like any other. `tests/unit/t_bbedit.py` item 20 holds it.
