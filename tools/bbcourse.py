@@ -3807,16 +3807,16 @@ def _parse_text(text, fname="<course>"):
             if src.palette is not None:
                 raise CourseError("%s: palette given twice" % where)
             words = [t[1] for t in toks[1:]]
-            if not words or words[0] not in ("0", "1"):
-                raise CourseError("%s: palette takes 0|1 [dim] [ground <0-15>]" % where)
-            pb, rest = int(words[0]) << 5, words[1:]
+            if not words or words[0] not in ("0", "1", "2"):
+                raise CourseError("%s: palette takes 0|1|2 [dim] [ground <0-15>]" % where)
+            pb, rest = (0x60 if words[0] == "2" else int(words[0]) << 5), words[1:]  # 2: mode 5's, bits 6 and 5
             if rest[:1] == ["dim"]:
                 rest = rest[1:]
             else:
                 pb |= 0x10
             if rest:
                 if len(rest) != 2 or rest[0] != "ground" or not _INT.match(rest[1]) or not 0 <= int(rest[1]) <= 15:
-                    raise CourseError("%s: palette takes 0|1 [dim] [ground <0-15>] (a ground outside 0 - 15, or "
+                    raise CourseError("%s: palette takes 0|1|2 [dim] [ground <0-15>] (a ground outside 0 - 15, or "
                                       "words out of order)" % where)
                 pb |= int(rest[1])
             src.palette = (pb, ln)
@@ -23326,7 +23326,7 @@ def emit_inc(courses, path=None, title=None):
               "    db " + ", ".join(W(lambda c: str(c.nflags), "0")),
               "%endmacro",
               "; wave 6 (SPEC.md 130.16.6): each course's CGA colour select, a byte a course, for",
-              "; port 3D9h after the mode set (bits 0 - 3 the ground, 4 bright, 5 the palette);",
+              "; port 3D9h after the mode set (bits 0 - 3 the ground, 4 bright, 5 the palette, 6 mode 5's);",
               "; 30h without a `palette` statement.  Not in the part: no identity moves",
               "; wave 7 (SPEC.md 130.18.6): each course's SONG, a byte a course (its `music`",
               "; statement's; without one course K plays song K, BENCH song 1, past the last",
@@ -37108,7 +37108,7 @@ def _sc_palette(X, res):
     # wave 6 (SPEC.md 130.16.6): the palette statement's refusals, and its byte
     ft = _first_text()
     for what, text, want in (("palette given twice", ft + "palette 1\npalette 0\n", "palette given twice"),
-                             ("palette 2", ft + "palette 2\n", "palette takes 0|1"),
+                             ("palette 3", ft + "palette 3\n", "palette takes 0|1|2"),
                              ("palette 1 ground 16", ft + "palette 1 ground 16\n", "ground outside 0 - 15"),
                              ("palette 0 ground", ft + "palette 0 ground\n", "ground outside 0 - 15")):
         try:
@@ -37119,7 +37119,8 @@ def _sc_palette(X, res):
         res.append(("2 refused (wave 6): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     pals = {}
     for txt, want in (("", 0x30), ("palette 0\n", 0x10), ("palette 1 dim ground 9\n", 0x29),
-                      ("palette 0 dim\n", 0x00)):
+                      ("palette 0 dim\n", 0x00),
+                      ("palette 2\n", 0x70), ("palette 2 dim ground 1\n", 0x61)):
         cp = compile_course(ft + txt, fname="<palette %r>" % txt.strip(), occluders=False)
         pals[txt.strip() or "none"] = (cp.pal, want)
     res.append(("2 the palette byte (130.16.6): %s; the part is the same with any palette (no identity moves)" % (

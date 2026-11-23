@@ -243,6 +243,14 @@ bzv_init:
     stosb
     add bl, 2
     loop .pc
+    test ah, 40h                ; palette 2 (mode 5's): index 2 red, 4 (+8),
+    jz .p2                      ; the base's 3 (+8) plus one
+    sub bl, 5
+    mov al, bl
+    mov bx, bzv_ega16
+    cs xlat
+    mov [bz_vpal0 + 2], al
+.p2:
     pushf
     cli
     mov dx, 3dah                ; the attribute flip-flop to its index

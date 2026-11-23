@@ -336,6 +336,10 @@ VAR bz_scnt,1                   ; bz_camscr's frame count: bits 0 - 5 the cycle'
                                 ; clearing is a cut, SPEC.md 130.17.6.7)
 %endif
 VAR bz_blk,1                    ; 1: the card's video is gated (bz_blank)
+VAR bz_cmode,1                  ; the mode control value bz_blank and
+                                ; bz_unblank write (video bit 3 lit): 2Ah,
+                                ; 2Eh for palette 2 (mode 5's B/W bit, the
+                                ; CGA's cyan, red, white; SPEC.md 130.16.6)
 VAR bz_trx,8                    ; the ring: the low word of bz_bx at the end of
                                 ; each of the last four frames
 VAR bz_lax,BZL_SIZE             ; LATTICE's axes (wave 6b, SPEC.md 130.17.6.2):
@@ -4386,18 +4390,20 @@ bz_fullw:
 ; less its video-enable bit (bit 3), then the value back - the kernel's own
 ; blank (vid_blank_kind) and on the Hercules its very bytes, 02h then 0Ah
 ; (graphics, page 0, video); on the CGA 22h then 2Ah, the IBM ROM's mode-4
-; value.  bz_unblank does nothing unless bz_blank ran.  Preserve all but
-; the flags.
+; value - or 26h then 2Eh, mode 5's, for a palette-2 course (bz_cmode, set
+; by bz_vinit; 2Ah on the Hercules and the VGA).  bz_unblank does nothing
+; unless bz_blank ran.  Preserve all but the flags.
 bz_blank:
     push ax
-    mov al, 22h
+    mov al, [bz_cmode]
+    and al, 0f7h
     mov byte [bz_blk], 1
     jmp short bz_unblank.out
 bz_unblank:
     cmp byte [bz_blk], 0
     je .x
     push ax
-    mov al, 2ah
+    mov al, [bz_cmode]
     mov byte [bz_blk], 0
 .out:
     push dx
