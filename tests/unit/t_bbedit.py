@@ -52,6 +52,14 @@
     bbedjob.occ_data (owner, the cells it hides, its cells flagged); set_noocclude over every cell it hides
     and the compiler cuts it no more; taken out, the course is the text it was; the start is refused.
 
+ 18. WHAT ONLY MADE SENSE ON THE GROUND, AND ERRORS BY IDENTITY (130.58.38): MILL's deadlock - a float left on
+    deleted ground and a launch tube landing off a floor, both already there - the float deletes even with the
+    shape editor's Try it on the tube pending (its picture killed), the picture then refusing on the tube's
+    landing; the tube deletes with the float still refused; an edit renumbering the float is kept, one adding
+    a NEW error is not; a floor deleted takes its exact float and paint in one undo step; paint_in finds a
+    floor's inner paint; FIXES offers "Remove this overhang" and it clears the refusal; the Source tab's Apply
+    is one undo step and is kept with an error.
+
  17. EVERY OPTION HAS A CONTROL (130.58.37): every clause of tools/bbedopts.py's GRAMMAR list (the audit,
     docs/plans/BONANZA-BUILDER-OPTIONS.md) has its row in OPTIONS and every row is in GRAMMAR; on a statement
     with every clause written (FULL) each row reads its value, and cleared then set back to it the statement
@@ -66,7 +74,8 @@ nothing"), make occ_data add no cell to a record's `needs` (item 16: "no record
 of the wall hides a cell behind it"), or cut with `rcut = reach` in
 compile_course (item 16: "noocclude ... left record(s)"); delete crack's `hole` row from bbedopts.OPTIONS
 (item 17: "no row for prop crack's hole"), or give the see-saw's `rest` row `at=None` (item 17: "rest ...
-not legal again").
+not legal again"); for item 18, drop the `text != tried` test from bbedshape.picture_refused ("undid the float's
+delete") or make bbedit.App._edit compare `after != before` again ("an edit above the float was refused").
 """
 
 import glob
@@ -81,6 +90,7 @@ import bbedshape as S  # noqa: E402
 import bbedjob as J  # noqa: E402
 import bbedmap as M  # noqa: E402
 import bbedopts as OPT  # noqa: E402
+import bbedit as W  # noqa: E402
 import tempfile  # noqa: E402
 
 FLAG = """course HFLAG "Hidden flag"
@@ -192,6 +202,131 @@ def options_check():
                                                                                err[:120]))
                 elif o["t"] != "mode" and OPT.apply(t2, o, {"flag": False, "sides": set()}.get(o["t"], "")) != bare:
                     bad.append("options: %s's %s set and cleared is not the bare %r" % (key, oid, OPT_BARE[key]))
+    return bad
+
+
+class _StubApp(object):
+    """the window's checked edit (bbedit.App._edit, delete, do_fix's FIXES) and what the shape editor calls, with
+    no Tk - for item 18"""
+    _edit = W.App._edit
+    delete = W.App.delete
+
+    def __init__(self, text):
+        self.doc = E.Document(text, "d.bbc")
+        self.sel, self.sels, self.keep, self._note, self.pic_err = None, [], None, "", None
+        self.banner, self.msgs = None, []
+
+    def _msg(self, t):
+        self.msgs.append(t)
+
+    def _banner(self, t, keep=False):
+        self.banner = t
+
+    def select(self, ln, **kw):
+        self.sel = ln
+
+    def _fill_inspector(self):
+        pass
+
+    def _redraw(self):
+        pass
+
+
+def _full_error(text):
+    held, B.BLK_MAX = B.BLK_MAX, 1 << 30
+    try:
+        B.compile_course(text, "d.bbc", occluders=False)
+        return None
+    except B.CourseError as e:
+        return str(e)
+    finally:
+        B.BLK_MAX = held
+
+
+def stranded_check():
+    """item 18 (SPEC.md 130.58.38)"""
+    bad = []
+    base = B._W3W
+    land = "wall tile 7 13 flat 17\nfloor tile 7 14 flat 16\ntube launch 7 12 7 14 speed 0 384 300\n"
+    flt = "float rect 30 30 32 31 thick 0.5\n"
+    two = base + land + flt                         # MILL's deadlock: a float on deleted ground, and a launch
+    nl = base.count("\n")                           # tube landing off a floor, both already there
+    tube_ln, float_ln = nl + 3, nl + 4
+    if "floats nothing" not in (E.analyse(two, "d.bbc")["error"] or ""):
+        bad.append("stranded: the cheap check does not see the float that floats nothing")
+    # (1) the shape editor's Try it on the tube, its picture killed by the next edit; then the float deleted;
+    # the picture of THAT text refuses on the tube's landing - which must not undo the delete
+    app = _StubApp(two)
+    app.pic_err = (two, _full_error(two))
+    se = S.ShapeEditor(app, None, None, None, None)
+    se.line = tube_ln
+    se.draft = S.parse("tube launch 7 12 7 14 speed 0 380 300".split())
+    se.try_draft()
+    app.sel = float_ln
+    app.delete()
+    if flt.strip() in app.doc.lines:
+        bad.append("stranded: deleting the stranded float was refused: %s" % app.banner)
+    err = _full_error(app.doc.text())
+    se.picture_refused(err, app.doc.text())
+    if flt.strip() in app.doc.lines:
+        bad.append("stranded: the tube's landing (%s) undid the float's delete" % (err or "")[:80])
+    # (2) the tube deleted while the float floats nothing: kept
+    app = _StubApp(two)
+    app.sel = tube_ln
+    app.delete()
+    if any(l_.startswith("tube launch") for l_ in app.doc.lines):
+        bad.append("stranded: deleting the tube was refused by the float: %s" % app.banner)
+    # (3) an unrelated edit that renumbers the float's line: kept (the error is the same error)
+    app = _StubApp(two)
+    fc = min(c for c, d_ in app.doc.analysis()["cells"].items() if d_["kind"] == "floor")
+    paint = "surface sand tile %d %d" % fc
+    app._edit(app.doc.insert, paint, after=nl)
+    if paint not in app.doc.lines:
+        bad.append("stranded: an edit above the float was refused: %s" % app.banner)
+    # (4) a NEW error is still refused: a statement the parser refuses
+    app = _StubApp(two)
+    app._edit(app.doc.insert, "floor rect 1 1", after=nl)
+    if "floor rect 1 1" in app.doc.lines:
+        bad.append("stranded: an edit adding a new error was kept")
+    # (5) a floor deleted takes its float and its paint (one undo step); undone, all three are back
+    own = "floor rect 30 30 32 32 flat 4\nfloat rect 30 30 32 32 thick 0.5\nsurface sand rect 30 30 32 32\n"
+    app = _StubApp(base + own)
+    if app.doc.analysis()["error"]:
+        bad.append("stranded: the floor with its float refused: %s" % app.doc.analysis()["error"])
+    n0 = len(app.doc.undo_stack)
+    app.sel = nl + 1
+    app.delete()
+    left = [l_ for l_ in app.doc.lines if "30 30 32" in l_]
+    if left or app.doc.analysis()["error"] or len(app.doc.undo_stack) != n0 + 1:
+        bad.append("stranded: a floor deleted left %r (%s), %d undo steps" % (
+            left, app.doc.analysis()["error"], len(app.doc.undo_stack) - n0))
+    app.doc.undo()
+    if app.doc.text() != base + own:
+        bad.append("stranded: the floor's delete undone is not the text it was")
+    # (6) a moved floor's paint inside it rides: paint_in finds the sub-rect paint, not the paint outside
+    d = E.Document(base + own + "surface ice tile 31 31\nsurface ice tile 40 40\n")
+    if [d.statement(l_).code for l_ in d.paint_in((30, 30, 32, 32))] != [
+            "float rect 30 30 32 32 thick 0.5", "surface sand rect 30 30 32 32", "surface ice tile 31 31"]:
+        bad.append("stranded: paint_in %r" % [d.statement(l_).code for l_ in d.paint_in((30, 30, 32, 32))])
+    # (7) the error row's fix: FIXES offers "Remove this overhang" and it clears the refusal
+    app = _StubApp(base + flt)
+    e0 = app.doc.analysis()["error"]
+    fx = W.fix_for(e0, app.doc.analysis()["error_line"], app.doc)
+    if not fx or "Remove" not in fx[0]:
+        bad.append("stranded: no fix offered for %r" % e0)
+    else:
+        app._edit(fx[1], app.doc)
+        if app.doc.analysis()["error"] or flt.strip() in app.doc.lines:
+            bad.append("stranded: the fix left %s" % app.doc.analysis()["error"])
+    if W.explain(e0) == e0 or "deleted" not in W.explain(e0):
+        bad.append("stranded: the float's refusal is not explained")
+    # (8) the Source tab's Apply: one undo step, never undone even when it adds an error
+    app = _StubApp(base)
+    t2 = base.replace("start ", "#start ", 1) if "start " in base else base + "way 60 60\n"
+    app._edit(app.doc.set_text, t2, label="edit the source", _allow=True)
+    if app.doc.text() != t2 or len(app.doc.undo_stack) != 1:
+        bad.append("source apply: %d undo steps, text %s" % (len(app.doc.undo_stack),
+                                                             "as typed" if app.doc.text() == t2 else "changed"))
     return bad
 
 
@@ -612,6 +747,7 @@ def main():
             B.BLK_MAX = held
     except B.CourseError as e:
         bad.append("occ view: refused: %s" % str(e)[:150])
+    bad += stranded_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

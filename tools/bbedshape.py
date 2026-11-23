@@ -367,6 +367,7 @@ class ShapeEditor(object):
         want = code(d)
         line = self.line
         self.draft = None                       # (the edit refills the inspector: no draft while it does)
+        was = self.app.doc.text()
         self.app._edit(self.app.doc.set_statement, line, want, label="edit a %s" % d["kind"])
         try:
             now = self.app.doc.statement(line).code
@@ -374,7 +375,8 @@ class ShapeEditor(object):
             now = None
         if now == want:
             self.sh = parse(want.split())
-            self.pending = (line, want, d)       # (the picture's compile may still refuse it: picture_refused)
+            self.pending = (line, want, d, was, self.app.doc.text())   # (the picture's compile may still refuse
+                                                                       # it: picture_refused)
             self.app._msg("The %s is changed (line %d); the picture is checking it..." % (d["kind"], line))
         else:
             self.draft = d
@@ -390,16 +392,25 @@ class ShapeEditor(object):
         pend, self.pending = getattr(self, "pending", None), None
         if not pend:
             return False
-        line, want, d = pend
+        line, want, d, was, tried = pend
         import re
         m = re.search(r":(\d+):", error or "")
-        if not m or int(m.group(1)) != line or self.app.doc.text() != text:
-            return False
+        if not m or int(m.group(1)) != line or self.app.doc.text() != text or text != tried:
+            return False                # SPEC.md 130.58.38: refused text is not the text the draft made (a later
+                                        # edit came first, its picture killed): the undo would take THAT edit
         try:
             if self.app.doc.statement(line).code != want:
                 return False
         except Exception:
             return False
+        prev = getattr(self.app, "pic_err", None)       # SPEC.md 130.58.38: the course was refused for this very
+        if prev and prev[0] == was and prev[1]:         # thing (its line, the same words) before the draft was
+            pm = re.search(r":(\d+): (.*)", prev[1])     # tried: not the draft's doing, so it is kept
+            if pm and int(pm.group(1)) == line and re.sub(r"-?\d+", "#", pm.group(2)) == re.sub(
+                    r"-?\d+", "#", error[m.end():].lstrip()):        # (where it lands may move: the same refusal)
+                self.app._msg("The %s is changed, but the course is still refused as it was before: %s" % (
+                    d["kind"], self.app_explain(error).split("\n")[0]))
+                return False
         self.app.doc.undo()
         if self.app.doc.redo_stack:
             self.app.doc.redo_stack.pop()

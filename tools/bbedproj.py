@@ -357,6 +357,14 @@ class Document(object):
         new[line - 1] = s.indent + code + comment
         return self._commit(label or "edit line %d" % line, new)
 
+    def set_text(self, text, label=None):
+        """the whole course replaced by TEXT (the Source tab's Apply, SPEC.md 130.58.38) as ONE edit; its line
+        ends are the file's own whatever TEXT uses"""
+        body = text.replace("\r\n", "\n")
+        if body.endswith("\n"):
+            body = body[:-1]
+        return self._commit(label or "edit the source", body.split("\n") if body else [])
+
     def set_many(self, codes, label=None):
         """replace several statements in ONE edit (one undo step): {line: code}"""
         new = list(self.lines)
@@ -788,6 +796,86 @@ class Document(object):
             del self.undo_stack[n:]
             self.undo_stack.append((label or first[0], first[1]))
 
+    # -- what only made sense on the ground, and an error's identity (SPEC.md 130.58.38) -------------------------
+    LOC = re.compile(r"^[^\n]*?:(\d+): ")
+
+    def err_key(self, err, lines=None):
+        """an error as itself, not as where it is: its words with the `file:LINE: ` prefix replaced by the
+        statement on that line (LINES, default the document's) - so a line inserted above it, which renumbers
+        it, does not make it another error"""
+        if not err:
+            return None
+        lines = self.lines if lines is None else lines
+        m = self.LOC.match(err)
+        if not m:
+            return err
+        ln = int(m.group(1))
+        code = Statement(ln, lines[ln - 1]).code if 1 <= ln <= len(lines) else "?"
+        return "%s | %s" % (code, err[m.end():])
+
+    def error_keys(self, limit=6):
+        """the keys (err_key) of the analysis's error AND of the errors standing behind it: the compiler stops at
+        the first, so each one found has its statement taken out and the course asked again, up to LIMIT - an
+        error with no line of its own (a missing `start`, ...) behind the first is one the taking-out made, and
+        ends the search. -> set (empty: the course is not refused)"""
+        keys, lines = set(), list(self.lines)
+        a = self.analysis()
+        for k in range(limit):
+            err, ln = a["error"], a["error_line"]
+            if not err or (k and not ln):
+                break
+            keys.add(self.err_key(err, lines))
+            if not ln or not 1 <= ln <= len(lines):
+                break
+            lines = lines[:ln - 1] + [""] + lines[ln:]          # (blanked: the line numbers stay)
+            a = analyse(self.eol.join(lines) + (self.eol if self.final_eol else ""), self.path or "<course>")
+        return keys
+
+    def snapshot(self):
+        """what drop_dependents compares an edit against: the ground's cells and the floats already stranded (by
+        their text, which survives renumbering)"""
+        a = self.analysis()
+        return {"cells": set(a["cells"]),
+                "stranded": {Statement(ln, self.lines[ln - 1]).code for _c, ln in a.get("stranded") or ()}}
+
+    def drop_dependents(self, before):
+        """SPEC.md 130.58.38: after an edit, what only made sense on the ground it removed goes too, each a commit
+        of its own (the caller folds them into the edit's undo step): a `float` that floats nothing now and did
+        not before the edit (BEFORE: the analysis before it) - none of its cells hangs a face over the void, so it
+        marks nothing - and a `surface` that painted ground before the edit and lies wholly off the ground now.
+        A float or paint partly on what is left is kept as it is (its cells off the ground change no pixel, and
+        the compiler takes them). -> [(line, code)] removed, lines as they were before the removals"""
+        old_str, g0 = before["stranded"], before["cells"]
+        a = self.analysis()
+        src = a["src"]
+        if src is None or not a["cells"]:                # (a course that does not lay out: nothing judged)
+            return []
+        g1 = set(a["cells"])
+        gone = []
+        for cells, ln in a.get("stranded") or ():
+            code = Statement(ln, self.lines[ln - 1]).code
+            if code not in old_str:
+                gone.append((ln, code))
+        for sent in src.surfaces:
+            cells, ln = set(sent[1]), sent[2]
+            if cells & g0 and not cells & g1:
+                gone.append((ln, Statement(ln, self.lines[ln - 1]).code))
+        for ln, _code in sorted(set(gone), reverse=True):
+            self.remove(ln, label="take what stood on it")
+        return sorted(set(gone))
+
+    def paint_in(self, rect, skip=()):
+        """the `float` and `surface` statements laid by tile or rect wholly inside RECT (x0, y0, x1, y1
+        end-exclusive) - a moved floor's paint and hang that are not its own shape's (SPEC.md 130.58.38) -> [line]"""
+        out = []
+        for st in self.statements():
+            if st.line in skip or st.kind not in ("float", "surface"):
+                continue
+            sh = self._ground_shape(st)
+            if sh and rect[0] <= sh[1][0] and rect[1] <= sh[1][1] and sh[1][2] <= rect[2] and sh[1][3] <= rect[3]:
+                out.append(st.line)
+        return out
+
     def ways_in(self, rect, kinds=("way",)):
         """the KINDS statements (a cell first: `way`, `start`, `checkpoint`) standing in RECT (x0, y0, x1, y1
         end-exclusive): [(line, code)]"""
@@ -955,7 +1043,8 @@ def analyse(text, fname="<course>"):
     The course's tiles as bbcourse lays them; heights are in UNITS as written.
     A course that does not parse returns ok False and the message; one that
     parses but whose tiles are refused returns the src and no cells."""
-    out = {"ok": False, "error": None, "error_line": None, "src": None, "cells": {}, "items": [], "zbase": 0}
+    out = {"ok": False, "error": None, "error_line": None, "src": None, "cells": {}, "items": [], "zbase": 0,
+           "stranded": []}
     try:
         src = B.parse(text, fname)
     except B.CourseError as e:
@@ -974,7 +1063,12 @@ def analyse(text, fname="<course>"):
         tiles = {}
     if tiles and not out["error"]:
         try:                                # the props' own refusals (a family not named, a tube's body ...)
-            B.build_props(src, tiles, fname)
+            props = B.build_props(src, tiles, fname)
+            out["stranded"] = B.float_stranded(src, tiles, props)   # SPEC.md 130.58.38: the compile's own
+            if out["stranded"]:                                     # rule, in the cheap check
+                ln = out["stranded"][0][1]
+                raise B.CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
+                                    "(SPEC.md 130.27.2)" % (fname, ln))
         except B.CourseError as e:
             out["error"], out["error_line"] = str(e), _line_of(str(e))
         except Exception as e:

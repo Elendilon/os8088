@@ -8457,6 +8457,22 @@ def void_face_cells(tiles):
     return {cell for _k, cell, _t, _h, _s, _e, faces in _cell_faces(tiles) if any(f[4] is None for f in faces)}
 
 
+def float_stranded(src, tiles, props, hack=None):
+    """SPEC.md 130.27.2, 130.58.38: the `float` statements that float nothing - no cell of the shape hangs a face
+    over the void, the picture drawn as compile_course draws it (a glass tile's, a membrane's and a turntable's
+    cells undrawn) - as [(cells, line)] in file order. compile_course refuses the first; the course builder asks
+    after every edit, so that a float left with no floor edge over the void goes with the floor"""
+    hack = hack or {}
+    undrawn = {p["at"] for p in props if p.get("art") == "glass" or p["kind"] == SP_KM}
+    if not hack.get("nottart"):
+        for p in props:
+            if p["kind"] == TT_K:
+                t = p["ttab"]
+                undrawn |= {(t["at"][0] + i, t["at"][1] + j) for i in range(t["N"]) for j in range(t["N"])}
+    vface = void_face_cells({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles)
+    return [(fcells, fln) for fcells, fln, _d in src.floats if not fcells & vface]
+
+
 GROUND_AUTO = object()          # draw_ops' default: the ground plane of the tiles it is given
 
 
@@ -12558,11 +12574,11 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     ground = None if hack.get("noground") else ground_z(gtiles)
     floats = {}                                     # (a cell -> its faces' depth over the void, px)
     bridges = set()                                 # (cells a `float ... thick` names: a BRIDGE, 130.27.2.1)
-    vface = void_face_cells({k: v for k, v in tiles.items() if k not in undrawn} if undrawn else tiles)
+    stranded = float_stranded(src, tiles, props, hack)     # (the course builder asks the same, 130.58.38)
+    if stranded:
+        raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
+                          "(SPEC.md 130.27.2)" % (fname, stranded[0][1]))
     for fcells, fln, fdep in src.floats:
-        if not fcells & vface:
-            raise CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
-                              "(SPEC.md 130.27.2)" % (fname, fln))
         floats.update((c_, fdep) for c_ in fcells)     # (a later statement's depth wins)
         bridges = (bridges | fcells) if fdep != FACE8 else (bridges - fcells)
     for sw in src.seesaws:                          # SPEC.md 130.42.5: a see-saw's plate is a THIN slab
