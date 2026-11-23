@@ -522,7 +522,7 @@ def stats_check():
         res = json.loads(out.getvalue().strip().splitlines()[-1])
         st = res.get("stats")
         if rc or not st:
-            bad.append("item 26: %s's check gave rc %d and no stats: %s" % (nm, rc, str(res)[:150]))
+            bad.append("item 27: %s's check gave rc %d and no stats: %s" % (nm, rc, str(res)[:150]))
             continue
         got[nm] = st
     if len(got) < 2:
@@ -536,18 +536,18 @@ def stats_check():
             "picture": (len(c.cga), B.PARTMAX), "disk": (lzb, None), "width": (512, 1280)}
     for k, (n, mx) in want.items():
         if k not in rows or (rows[k]["n"], rows[k]["max"]) != (n, mx):
-            bad.append("item 26: FIRST's %s row is %r, not %r" % (k, rows.get(k) and (rows[k]["n"], rows[k]["max"]),
+            bad.append("item 27: FIRST's %s row is %r, not %r" % (k, rows.get(k) and (rows[k]["n"], rows[k]["max"]),
                                                                    (n, mx)))
     if "world" in rows or "sheet0" in rows or "time" not in rows or "limit 15 s" not in rows["time"]["text"]:
-        bad.append("item 26: FIRST's parts or time rows: %r" % sorted(rows))
+        bad.append("item 27: FIRST's parts or time rows: %r" % sorted(rows))
     for nm, keys in (("first", []), ("down", ["wide", "sheets"])):
         ab = [a["key"] for a in got[nm]["above"]]
         if ab != keys or any("130." not in a["spec"] for a in got[nm]["above"]):
-            bad.append("item 26: %s goes past %r, not %r" % (nm.upper(), ab, keys))
+            bad.append("item 27: %s goes past %r, not %r" % (nm.upper(), ab, keys))
     dr = {r["key"]: r for r in got["down"]["rows"]}
     if not {"sheet0", "sheet1", "world"} <= set(dr) or "picture" in dr or dr["width"]["state"] != "near" \
             or "Sheets" not in got["down"]["summary"]:
-        bad.append("item 26: DOWN's rows %r, width %r, summary %r" % (sorted(dr), dr.get("width"),
+        bad.append("item 27: DOWN's rows %r, width %r, summary %r" % (sorted(dr), dr.get("width"),
                                                                       got["down"]["summary"]))
     return bad
 
