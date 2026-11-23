@@ -3742,6 +3742,8 @@ class App(object):
                      "ctrl": ctrl}
 
     def _motion(self, e):
+        if self.occ.dragging():                 # the occluder overlay's rectangle (SPEC.md 130.58.47)
+            return self.occ.motion(e)
         d = self.drag
         if not d:
             return
@@ -3762,6 +3764,8 @@ class App(object):
         self._draw_plan()
 
     def _release(self, e):
+        if self.occ.dragging():                 # the occluder overlay's click or rectangle (SPEC.md 130.58.47)
+            return self.occ.release(e)
         d, self.drag = self.drag, None
         if not d:
             return

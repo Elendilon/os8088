@@ -100,6 +100,9 @@
  23. THE CUT SHOWN ON A REFUSAL (SPEC.md 130.58.46): REC_ROW_MAX lowered to 1, the refused course's occ.json still
     written (both lists, needs, flags, the refusal) and the overlay saying REFUSED. Red by hand: partial_course
     returning None.
+ 24. SEVERAL AT ONCE (SPEC.md 130.58.47): a rectangle selects every shipped record, Ctrl-click in and out, the
+    union of their cells made noocclude in ONE edit that one Undo takes back, several noocclude cells taken out in
+    one. Red by hand: toggle only adding, or noocclude split into two edits.
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
@@ -770,6 +773,86 @@ def partial_check(text):
     return bad
 
 
+class _SelApp(_OccApp):
+    """what the overlay's selection touches of the window, no Tk"""
+    def __init__(self, text, c):
+        _OccApp.__init__(self, text)
+        ob = B.owners_canvas(c)
+        self.pic["meta"].update(width=c.width, lines=c.lines)
+        self.pic["owners"] = [o for row in ob for o in row]
+        self.sel, self.sels, self.area, self.edits, self.msgs = None, [], None, 0, []
+
+    def _edit(self, fn, *a, **kw):
+        self.edits += 1
+        return fn(*a, **kw)
+
+    def _fill_inspector(self):
+        pass
+
+    def _redraw(self):
+        pass
+
+    def _msg(self, m):
+        self.msgs.append(m)
+
+
+def multi_check(c, od, text):
+    """item 24 (SPEC.md 130.58.47): several occluder records selected - a rectangle, Ctrl-click in and out - and
+    the union of the cells they hide made `noocclude` as ONE edit (one undo step); several noocclude cells selected
+    and taken out as one -> [problems]"""
+    import bbedocc as O
+    bad = []
+    v = O.OccView.__new__(O.OccView)
+    v.app = _SelApp(text, c)
+    v.data, v.flags = od, {(x, y): f for x, y, f in od["cells"]}
+    v.noocc = set()
+    v.show, v.shade, v.which, v.sel, v.drag = _Var(True), _Var(False), _Var("shipped"), None, None
+    sh = od["shipped"]
+    v.pick_rect(0, 0, c.width - 1, c.lines - 1)
+    if not v.sel or v.sel[0] != "recs" or len(v.sel[1]) != len(sh):
+        return ["item 24: a rectangle over the picture selected %r, not the %d shipped records" % (
+            v.sel and (v.sel[0], len(v.sel[1]) if v.sel[0] == "recs" else v.sel[1]), len(sh))]
+    if v.app.msgs[-1:] != ["%d occluder records selected" % len(sh)]:
+        bad.append("item 24: the selection's count is not shown: %r" % v.app.msgs[-1:])
+    ks = sorted(v.sel[1])[:3]
+    v._set_sel("recs", {ks[0]})
+    v.toggle("recs", ks[1])
+    v.toggle("recs", ks[2])
+    v.toggle("recs", ks[2])
+    if v.sel != ("recs", frozenset(ks[:2])):
+        bad.append("item 24: Ctrl-click in and out leaves %r, not records %r" % (v.sel, ks[:2]))
+    v.pick_rect(0, 0, c.width - 1, c.lines - 1)
+    cells, ok, back = v.sel_cells()
+    want = {tuple(n) for r in sh for n in r["needs"]} - v.app.doc.in_play()
+    if ok != want or back:
+        bad.append("item 24: the selection offers %d cells to noocclude, not the union's %d" % (len(ok), len(want)))
+    before = v.app.doc.text()
+    v.noocclude(add=ok)
+    have = set()
+    for cs, _ln in v.app.doc.analysis()["src"].noocc:
+        have |= set(cs)
+    if v.app.edits != 1 or have != ok:
+        bad.append("item 24: noocclude over the selection took %d edits, wrote %d of %d cells" % (
+            v.app.edits, len(have), len(ok)))
+    v.app.doc.undo()
+    if v.app.doc.text() != before:
+        bad.append("item 24: one Undo does not take the selection's noocclude back out")
+    v.app.doc.redo()
+    v.noocc = set(have)
+    some = sorted(have)[:3]
+    for cl in some:
+        v.toggle("noocs", cl)
+    if v.sel != ("noocs", frozenset(some)) or "%d noocclude cells selected" % len(some) not in v.app.msgs[-1]:
+        bad.append("item 24: three noocclude cells Ctrl-clicked leave %r" % (v.sel,))
+    v.noocclude(remove=set(some))
+    left = set()
+    for cs, _ln in v.app.doc.analysis()["src"].noocc:
+        left |= set(cs)
+    if v.app.edits != 2 or left != have - set(some):
+        bad.append("item 24: the noocclude cells selected were not taken out in one edit")
+    return bad
+
+
 def main():
     bad = []
     bad += options_check()
@@ -1271,6 +1354,7 @@ def main():
             bad += occ_ship_check(c, od, occ_course)     # 21. what ships (SPEC.md 130.58.44)
             bad += masks_check(occ_course)               # 22. over 256 masks (130.58.45)
             bad += partial_check(occ_course)             # 23. the cut shown on a refusal (130.58.46)
+            bad += multi_check(c, od, occ_course)        # 24. several at once (130.58.47)
         finally:
             B.BLK_MAX = held
     except B.CourseError as e:
