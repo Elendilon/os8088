@@ -298946,7 +298946,8 @@ Without `--occ` the picture job is unchanged and as fast. MEASURED (one core of 
 
 **The window** (the Iso view's options row, beside *Gap bands*; tools/bbedocc.py):
 
-- **Occluders**: every record over the picture as a checker of a tint chosen by the cell that drew it; the cells
+- **Occluders** *(amended by 130.58.44: by default the records the part SHIPS; these, the rule's, under "as cut")*: every
+  record over the picture as a checker of a tint chosen by the cell that drew it; the cells
   a ball can be hidden in dithered faintly (white OCCG, grey OCC alone); `noocclude` cells hatched blue. Hovering
   names a record (its owner cell and rail, row and top, the cells whose ball it hides, the cells it flags), and a
   flagged or noocclude cell. A click selects a record (filled and ringed) and the inspector offers **Don't hide
@@ -299292,3 +299293,117 @@ point's), right after the selected point when it is that branch's, else after th
 point is selected, so successive Ctrl-clicks lay a route in order. Otherwise Ctrl-click is what it was: it
 adds to the selection, and with a Tube or Chute chosen it traces that part's path (130.58.27), which comes
 first. The edit is the window's checked edit like any other. `tests/unit/t_bbedit.py` item 20 holds it.
+
+#### 130.58.44 The Occluders overlay shows what ships (the owner, 2026-11-23)
+
+The owner, looking at MILL with Occluders on: *"Is this showing with AV, and the 'can it reach it'? There are a ton
+of records here the ball can never reach (the whole back wall section, falling behind any of the guardrailed
+blocks, etc) and then some I would think AV would cover."* It was not showing AV: 130.58.32's overlay drew the
+RULE's records (`c.rule_records`, what the OCC and OCCG flags are counted on), and with AV (130.29) the part ships
+the residual of those over the VOID positions the model runs at, merged (130.11.4.1). On the owner's MILL that is
+**4,284 records as cut and 2,132 shipped**. The reach WAS applied: every record of both lists is needed by some
+reach cell. Whether those cells are ones a ball can be in is the reach's question (130.11.4.4), not the overlay's,
+and this section changes nothing there.
+
+**The view.** Beside *Occluders* in the Iso view's options row, **as shipped** (the default) and **as cut**:
+
+- *as shipped* draws, hovers and selects the part's records (`c.records`, after AV and the merge); *as cut* the
+  rule's, as 130.58.32 did. *Shade: why* alone keeps the rule's records, which are what flag the doorway.
+- The status gives both counts, *"2,132 records shipped (4,284 before AV)"* (*"as cut: AV is off"* on a course AV
+  leaves alone, where the two are one list merged), with *" - showing the rule's"* under *as cut*.
+- A shipped record is named *"shipped occluder N (cut as the rule's A, B ...)"*: the rule's records sharing its
+  pixels (none: AV's residual alone). The inspector's *Cut as* row replaces *Flags OCC in*, which is the rule's.
+- Hover, select and *Don't hide the ball here (noocclude)* work on either list: a shipped record's `needs` are the
+  cells whose ball needs it, by the same test, so a `noocclude` over all of them (none the start's or a route
+  point's) and the compile ships no record for them.
+
+**The job** (`bbedjob.occ_data`): besides `records` (the rule's), `shipped` - one row per `c.records` record, the
+same fields (`runs`, `s`, `top`, `own`, `rails`, `needs`; `flags` empty) and `rule`, the rule records sharing its
+pixels - and `av`. A shipped record's `needs` is the cutter's test over `feet_real`'s poses, as for the rule's
+(`_needs`, one function for both lists). A MERGED record's `s` and `top` are its first member's; the test now
+skips on the highest of its members' (the rule's list too, where it skipped on the first's and could miss a cell).
+Builder only: no compile output moves, so every shipped course is byte-identical.
+
+MEASURED on the owner's MILL (`TRAP_CHECK` off): `occ_data` 0.78 s with both lists (the shipped list's `needs`
+0.04 s of it); every one of the 2,132 shipped records has a non-empty `needs` and `rule`. Taking AV's own
+positions (`c.av_rcs`, the residual's test without the model) into a shipped record's `needs` as well named no
+further cell on MILL or on item 16's floor, so it is not done.
+
+`tests/unit/t_bbedit.py` item 21 holds it, on item 16's walled floor: `shipped` is the part's records pixel for
+pixel and fewer than the rule's; each names its cells and the rule's records sharing its pixels; `OccView` shows
+it by default, the rule's under *as cut* and under *Shade* alone, its status *"N records shipped (M before AV)"*;
+and a `noocclude` over a shipped record's cells leaves no shipped record over its pixels needed by them alone.
+Red by hand: make `occ_data`'s `shipped` the rule's rows (`_rec_rows(c, recs, ...)`: "304 records for the
+part's 215"), or make `OccView.shipped()` False ("does not show the shipped records by default").
+
+#### 130.58.45 Over 256 occluder masks, from the builder (the owner, 2026-11-23)
+
+*"We should have a way to go over 256 records (bands of occluders iirc?)"* The bound is 256 MASKS, the 8 x 8
+cut-outs a 4-byte record names in one byte (130.15.5); a course past it is refused (`N occluder masks, over the 256
+a 4-byte record's mask byte names`) after 130.49.5's re-cuts in larger squares have not brought it under. The way
+over it is the course's own: **`masks banded`** (130.52) gives each band of 16 block rows a mask table of its own, so
+the bound is 256 A BAND. The builder now offers it twice; the guest and the compiler are unchanged.
+
+- **The Course tab**: *Give each band its own mask table (`masks banded`)*, read from the course and written by
+  Apply as the one `masks banded` line after the course's settings, cleared by taking the tick out.
+- **The refusal's row** (130.58.38's fix bar): the explanation says how many masks and what a mask is, and the
+  button **Give each band its own mask table (masks banded)** writes the line as one checked edit. This is the
+  first fix for a refusal of the WHOLE course (no line of its own): `bbedit.WHOLE_FIXES`, tried before FIXES, needs
+  no line.
+- **A band over its 256** (`band N (block rows A - B) names M occluder masks, over the 256 ... in its band`) is
+  explained as past what the game goes to: *noocclude* cells no ball realistically reaches in that band (the
+  Occluders overlay shows which records they cost, 130.58.46 even while refused), or stand fewer things in front of
+  each other there. No button: there is no table smaller than a band.
+
+`tests/unit/t_bbedit.py` item 22: both refusals explained, the button writing `masks banded` once (pressed twice) and
+the course compiling with it, no button for a band's refusal, and the Course tab's box reading the line, clearing it
+back to the course's text and writing it again. Red by hand: the WHOLE_FIXES row's pattern changed ("offers no
+fix: None"), or `_apply_course` without its `masks` row ("the Course tab's box cleared leaves").
+
+#### 130.58.46 The occluders shown when the full rules refuse (the owner, 2026-11-23)
+
+*"When it thinks I have too many, it won't render them so I can remove unneeded ones."* A course refused for a BOUND
+met after the occluder cut - the 256 masks, a band's 256, a block row's records (`REC_ROW_MAX`), the occluder pass's
+clocks, the part's bytes - left the overlay with *"No occluders: the full rules refuse the course"*, exactly when
+it was needed. Now the picture job's `--occ` half writes `occ.json` from the cut the refused compile made:
+`bbedjob.partial_course` walks the refusal's traceback to `bbcourse._compile_course`'s own frame and takes, from its
+locals, what `occ_data` reads - the picture's buffers and owners, the reach, the grid's flags, the rule's records,
+the part's records after AV and the merge, the rails, the `noocclude` cells. A refusal before the cut (no `rule`
+in the frame) writes nothing, as before. Nothing in the compiler changes, so nothing it writes can.
+
+`occ.json` carries `refused`, meta's `occ` the error and `partial`; the overlay draws the records as on a course
+that builds, with every hover, selection and `noocclude`, and its status opens with *"REFUSED, shown as cut before
+the refusal - noocclude cells no ball reaches to come under it: ..."* and the refusal without its file name. The
+counts after it are of the cut shown; a re-cut (130.49.5) shows its LAST cut, the one refused.
+
+`tests/unit/t_bbedit.py` item 23: item 16's floor with `REC_ROW_MAX` lowered to 1 is refused (`block row 1 ...
+occluder records, over 1`) and `occ.json` is still written - rule and shipped records, each shipped one with its
+`needs`, the flagged cells, the refusal - and `OccView.loaded` loads it and says REFUSED. Red by hand:
+`partial_course` returning None ("a refusal after the cut wrote no occ.json").
+
+#### 130.58.47 Several occluder records at once (the owner, 2026-11-23)
+
+*"Can we have a way to drag/ctrl-click and select multiple at a time for marking as included/not included?"* With
+Occluders shown in Iso, every press on the picture is the overlay's (`OccView.press`, `motion`, `release`, which the
+window's own drag handlers hand to while it holds a press):
+
+- a **click** selects the record under it (or a `noocclude` cell); **Ctrl-click** adds it to the selection or takes
+  it away; a click on neither is handed back to the window, which selects what drew that pixel as before (the Iso
+  view's cell-area drag is not offered while Occluders shows);
+- a **drag** selects every record of the list shown (as shipped or as cut, 130.58.44) with a pixel in the rectangle
+  (drawn dashed while it is dragged) - or, when it holds none, every `noocclude` cell with a pixel in it; with Ctrl
+  held, it adds to what is selected.
+
+Several records selected are filled (no rings) and the inspector names the count - *"N shipped occluder records
+selected"*, also in the message line - the union of the cells they hide, **Don't hide the ball here (noocclude N
+cells)** over that union less the start's and the route points' cells, and **Hide it again (remove noocclude from M
+cells)** for those of them `noocclude` names already. Several `noocclude` cells selected are outlined and offer
+**Hide the ball here again (remove noocclude from N cells)**. Each button is `Document.set_noocclude` through the
+window's checked edit: ONE edit, one undo step, whatever the count. A selection of one is the single selection
+130.58.32 had.
+
+`tests/unit/t_bbedit.py` item 24, on item 16's floor without Tk: a rectangle over the picture selects every shipped
+record and the count is said; Ctrl-click in and out leaves the two it should; the union of their cells (less the
+start's and the route points') is written as one edit that one Undo takes out; three `noocclude` cells Ctrl-clicked
+are selected and taken out in one more edit. Red by hand: `toggle` adding without taking away ("Ctrl-click in and
+out leaves"), or `noocclude` splitting the union into two edits ("took 2 edits").

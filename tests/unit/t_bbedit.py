@@ -87,6 +87,23 @@
     compiles glass; and a blank flag a steel pad can bring steel to, past a gap steel cannot hop, is refused
     with words naming the flag, its missing Ball here and the steel ball.
 
+ 21. THE OCCLUDERS AS SHIPPED (SPEC.md 130.58.44): on item 16's floor occ_data's `shipped` is the part's records
+    (c.records, after AV and the merge) pixel for pixel, fewer than the rule's, each naming the cells that need it
+    and the rule's records sharing its pixels; bbedocc.OccView shows them by default, the rule's under "as cut" and
+    under Shade alone, its status "N records shipped (M before AV)"; a noocclude over a shipped record's cells
+    leaves no shipped record over its pixels needed by them alone. Red by hand: occ_data's `shipped` made the
+    rule's rows ("304 records for the part's 215"), or OccView.shipped() False ("does not show the shipped records
+    by default").
+ 22. OVER 256 MASKS (SPEC.md 130.58.45): the 256 masks' refusal explained and its fix button writing `masks banded`
+    once; a band over its 256 explained with no button; the Course tab's box reading and writing the line. Red by
+    hand: the WHOLE_FIXES row's pattern changed, or _apply_course without its `masks` row.
+ 23. THE CUT SHOWN ON A REFUSAL (SPEC.md 130.58.46): REC_ROW_MAX lowered to 1, the refused course's occ.json still
+    written (both lists, needs, flags, the refusal) and the overlay saying REFUSED. Red by hand: partial_course
+    returning None.
+ 24. SEVERAL AT ONCE (SPEC.md 130.58.47): a rectangle selects every shipped record, Ctrl-click in and out, the
+    union of their cells made noocclude in ONE edit that one Undo takes back, several noocclude cells taken out in
+    one. Red by hand: toggle only adding, or noocclude split into two edits.
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -576,6 +593,263 @@ def flag_ball_check():
     words = W.explain(err) if isinstance(err, str) else ""
     if not isinstance(err, str) or not words.startswith("Flag 0 has no Ball here") or "a steel ball" not in words:
         bad.append("item 20: a blank flag steel can reach but not leave: %s" % ((words or err)[:200],))
+    return bad
+
+
+class _OccApp(object):
+    """what bbedocc.OccView reads of the window, no Tk"""
+    def __init__(self, text, secs=1.5):
+        self.doc = E.Document(text)
+        self.pic = {"meta": {"occ": {"secs": secs}}}
+
+
+def occ_ship_check(c, od, text):
+    """item 21 (SPEC.md 130.58.44): the occluder view shows what SHIPS - occ_data's `shipped` is the part's records
+    (c.records, after AV and the merge), each named back to the rule's records it was cut as and to the cells
+    that need it; OccView shows them by default and the rule's with *as cut*, its status gives both counts, and
+    noocclude over a shipped record's cells leaves no shipped record over its pixels -> [problems]"""
+    import bbedocc as O
+    bad = []
+    sh, rl = od.get("shipped"), od["records"]
+    if sh is None or len(sh) != len(c.records) or od.get("av") != bool(c.av):
+        return ["item 21: occ_data's shipped list is %s records for the part's %d (av %r)" % (
+            None if sh is None else len(sh), len(c.records), od.get("av"))]
+    if len(sh) >= len(rl):
+        bad.append("item 21: %d shipped against %d as cut - AV and the merge took nothing on FLAG" % (len(sh),
+                                                                                                    len(rl)))
+    rpix = {}
+    for r in rl:
+        for y, x0, x1 in r["runs"]:
+            for x in range(x0, x1 + 1):
+                rpix.setdefault((x, y), set()).add(r["id"])
+    for r in sh:
+        px = {(x, y) for y, x0, x1 in r["runs"] for x in range(x0, x1 + 1)}
+        if px != {(x, y) for (x, y) in c.records[r["id"]]["pix"]}:
+            bad.append("item 21: shipped record %d's pixels are not the part's record's" % r["id"])
+            break
+        if not r["needs"] or not r["rule"] or set(r["rule"]) != {k for p in px for k in rpix.get(p, ())}:
+            bad.append("item 21: shipped record %d names needs %r, cut as %r" % (r["id"], r["needs"], r["rule"]))
+            break
+    v = O.OccView.__new__(O.OccView)
+    v.app, v.data, v.flags = _OccApp(text), od, {(x, y): f for x, y, f in od["cells"]}
+    v.show, v.shade, v.which = _Var(True), _Var(False), _Var("shipped")
+    said = []
+    v._say = said.append
+    v.wanted = lambda: True
+    if v.recs() is not sh:
+        bad.append("item 21: the Occluders overlay does not show the shipped records by default")
+    v._counts()
+    want = "%s records shipped (%s before AV)" % (format(len(sh), ","), format(len(rl), ","))
+    if not said or not said[-1].startswith(want):
+        bad.append("item 21: the status reads %r, not %r" % (said[-1:] or None, want))
+    k = max(range(len(sh)), key=lambda i: len(sh[i]["needs"]))
+    if not v.describe(k).startswith("shipped occluder %d (cut as the rule's" % k):
+        bad.append("item 21: a shipped record is described %r" % v.describe(k)[:120])
+    v.which = _Var("cut")
+    if v.recs() is not rl or "showing the rule's" not in (v._counts() or said[-1]):
+        bad.append("item 21: *as cut* does not show the rule's records")
+    v.show, v.shade = _Var(False), _Var(True)
+    if v.recs() is not rl:
+        bad.append("item 21: Shade alone does not take the rule's records (its doorway's ids are the rule's)")
+    do = E.Document(text)
+    play = do.in_play()                 # (the start's and the route points' cells: noocclude refuses them)
+    free = [i for i in range(len(sh)) if not {tuple(n) for n in sh[i]["needs"]} & play]
+    if not free:
+        return bad + ["item 21: every shipped record is needed by the start or a route point"]
+    k = max(free, key=lambda i: len(sh[i]["needs"]))
+    r0 = sh[k]
+    pix0 = {(x, y_) for y_, x0_, x1_ in r0["runs"] for x in range(x0_, x1_ + 1)}
+    do.set_noocclude(add=r0["needs"])
+    c2 = B.compile_course(do.text(), "occ.bbc", occluders=True)
+    still = [r for r in J.occ_data(c2)["shipped"]
+             if pix0 & {(x, y_) for y_, x0_, x1_ in r["runs"] for x in range(x0_, x1_ + 1)}
+             and set(map(tuple, r["needs"])) <= set(map(tuple, r0["needs"]))]
+    if still:
+        bad.append("item 21: noocclude over shipped record %d's cells %r left shipped record(s) %r over its pixels" % (
+            k, r0["needs"], [r["id"] for r in still]))
+    return bad
+
+
+class _SVar(_Var):
+    def set(self, v):
+        self.v = v
+
+
+class _CourseApp(object):
+    """the Course tab's variables and its two methods, no Tk"""
+    _fill_course, _apply_course = W.App._fill_course, W.App._apply_course
+
+    def __init__(self, text):
+        self.doc = E.Document(text)
+        for n in ("title", "name", "width", "ball", "music", "pal", "target", "limit", "gold", "silver", "gstyle",
+                  "cstrict", "mbanded"):
+            setattr(self, "cv_" + n, _SVar(""))
+        self.msgs = []
+
+    def _msg(self, m):
+        self.msgs.append(m)
+
+
+def masks_check(text):
+    """item 22 (SPEC.md 130.58.45): over 256 masks - the refusal explained, its fix button writing `masks banded`
+    (once), the Course tab's box reading and writing it, and a band over its 256 explained as past what banding
+    does -> [problems]"""
+    bad = []
+    e256 = "occ.bbc: 301 occluder masks, over the 256 a 4-byte record's mask byte names (SPEC.md 130.15.5)"
+    eband = ("occ.bbc: band 1 (block rows 16 - 31) names 270 occluder masks, over the 256 a record's mask byte "
+             "names in its band (SPEC.md 130.52)")
+    if "masks banded" not in W.explain(e256) or "301" not in W.explain(e256):
+        bad.append("item 22: the 256 masks' refusal is not explained: %r" % W.explain(e256)[:160])
+    if "as far as the game goes" not in W.explain(eband) or "band 1" not in W.explain(eband):
+        bad.append("item 22: a band over its 256 is not explained as past masks banded: %r" % W.explain(eband)[:160])
+    fx = W.fix_for(e256, None, E.Document(text))
+    if not fx or fx[0] != "Give each band its own mask table (masks banded)":
+        return bad + ["item 22: the 256 masks' refusal offers no fix: %r" % (fx,)]
+    d = E.Document(text)
+    fx[1](d)
+    fx[1](d)
+    if d.text().count("masks banded\n") != 1:
+        bad.append("item 22: the fix wrote %d `masks banded` lines" % d.text().count("masks banded"))
+    try:
+        B.compile_course(d.text(), "mb.bbc", occluders=False)
+    except B.CourseError as e:
+        bad.append("item 22: the fixed course is refused: %s" % str(e)[:150])
+    if W.fix_for(eband, None, E.Document(text)):
+        bad.append("item 22: a band over its 256 offers a fix that cannot help")
+    ca = _CourseApp(d.text())
+    ca._fill_course()
+    if ca.cv_mbanded.get() is not True:
+        bad.append("item 22: the Course tab's box does not read `masks banded`")
+    ca.cv_mbanded.set(False)
+    ca._apply_course()
+    if "masks" in ca.doc.text() or ca.doc.text() != text:
+        bad.append("item 22: the Course tab's box cleared leaves %r" % ca.doc.text()[-80:])
+    ca.cv_mbanded.set(True)
+    ca._apply_course()
+    if ca.doc.text().count("masks banded\n") != 1:
+        bad.append("item 22: the Course tab's box set writes no `masks banded`")
+    return bad
+
+
+def partial_check(text):
+    """item 23 (SPEC.md 130.58.46): a course the full rules refuse for a bound AFTER the cut (a block row's records,
+    REC_ROW_MAX lowered) still writes occ.json - the rule's records and the shipped ones, needs, flags, the
+    refusal - and the overlay loads it and says it was refused -> [problems]"""
+    import bbedocc as O
+    import json
+    bad = []
+    text = text + "# (item 23)\n"               # (its own compile: never a cached one)
+    held = B.REC_ROW_MAX
+    out = tempfile.mkdtemp()
+    try:
+        B.REC_ROW_MAX = 1
+        p = os.path.join(out, "part.bbc")
+        with open(p, "w") as f:
+            f.write(text)
+        _ws, err = J.occluders(p, out, "part.bbc")
+    finally:
+        B.REC_ROW_MAX = held
+    if not err or "occluder records, over 1" not in err:
+        return ["item 23: the lowered bound did not refuse: %r" % err]
+    if not os.path.exists(os.path.join(out, "occ.json")):
+        return ["item 23: a refusal after the cut wrote no occ.json (%s)" % err[:100]]
+    with open(os.path.join(out, "occ.json")) as f:
+        d = json.load(f)
+    if d.get("refused") != err or not d["records"] or not d.get("shipped") or not d["cells"] or \
+            not all(r["needs"] for r in d["shipped"]):
+        bad.append("item 23: the partial occ.json holds %d rule, %d shipped records, %d cells, refused %r" % (
+            len(d["records"]), len(d.get("shipped") or ()), len(d["cells"]), d.get("refused")))
+    v = O.OccView.__new__(O.OccView)
+    meta = {"width": 1, "lines": 1, "occ": {"error": err, "partial": True, "secs": 1.0}}
+    v.app = _OccApp(text)
+    v.app.pic = {"meta": meta}
+    v.show, v.shade, v.which, v.sel = _Var(True), _Var(False), _Var("shipped"), None
+    said = []
+    v._say = said.append
+    v.wanted = lambda: True
+    v.loaded(out, meta)
+    if v.data is None or not said or not said[-1].startswith("REFUSED, shown as cut") or "over 1" not in said[-1]:
+        bad.append("item 23: the overlay on a refused cut says %r" % (said[-1:] or None))
+    return bad
+
+
+class _SelApp(_OccApp):
+    """what the overlay's selection touches of the window, no Tk"""
+    def __init__(self, text, c):
+        _OccApp.__init__(self, text)
+        ob = B.owners_canvas(c)
+        self.pic["meta"].update(width=c.width, lines=c.lines)
+        self.pic["owners"] = [o for row in ob for o in row]
+        self.sel, self.sels, self.area, self.edits, self.msgs = None, [], None, 0, []
+
+    def _edit(self, fn, *a, **kw):
+        self.edits += 1
+        return fn(*a, **kw)
+
+    def _fill_inspector(self):
+        pass
+
+    def _redraw(self):
+        pass
+
+    def _msg(self, m):
+        self.msgs.append(m)
+
+
+def multi_check(c, od, text):
+    """item 24 (SPEC.md 130.58.47): several occluder records selected - a rectangle, Ctrl-click in and out - and
+    the union of the cells they hide made `noocclude` as ONE edit (one undo step); several noocclude cells selected
+    and taken out as one -> [problems]"""
+    import bbedocc as O
+    bad = []
+    v = O.OccView.__new__(O.OccView)
+    v.app = _SelApp(text, c)
+    v.data, v.flags = od, {(x, y): f for x, y, f in od["cells"]}
+    v.noocc = set()
+    v.show, v.shade, v.which, v.sel, v.drag = _Var(True), _Var(False), _Var("shipped"), None, None
+    sh = od["shipped"]
+    v.pick_rect(0, 0, c.width - 1, c.lines - 1)
+    if not v.sel or v.sel[0] != "recs" or len(v.sel[1]) != len(sh):
+        return ["item 24: a rectangle over the picture selected %r, not the %d shipped records" % (
+            v.sel and (v.sel[0], len(v.sel[1]) if v.sel[0] == "recs" else v.sel[1]), len(sh))]
+    if v.app.msgs[-1:] != ["%d occluder records selected" % len(sh)]:
+        bad.append("item 24: the selection's count is not shown: %r" % v.app.msgs[-1:])
+    ks = sorted(v.sel[1])[:3]
+    v._set_sel("recs", {ks[0]})
+    v.toggle("recs", ks[1])
+    v.toggle("recs", ks[2])
+    v.toggle("recs", ks[2])
+    if v.sel != ("recs", frozenset(ks[:2])):
+        bad.append("item 24: Ctrl-click in and out leaves %r, not records %r" % (v.sel, ks[:2]))
+    v.pick_rect(0, 0, c.width - 1, c.lines - 1)
+    cells, ok, back = v.sel_cells()
+    want = {tuple(n) for r in sh for n in r["needs"]} - v.app.doc.in_play()
+    if ok != want or back:
+        bad.append("item 24: the selection offers %d cells to noocclude, not the union's %d" % (len(ok), len(want)))
+    before = v.app.doc.text()
+    v.noocclude(add=ok)
+    have = set()
+    for cs, _ln in v.app.doc.analysis()["src"].noocc:
+        have |= set(cs)
+    if v.app.edits != 1 or have != ok:
+        bad.append("item 24: noocclude over the selection took %d edits, wrote %d of %d cells" % (
+            v.app.edits, len(have), len(ok)))
+    v.app.doc.undo()
+    if v.app.doc.text() != before:
+        bad.append("item 24: one Undo does not take the selection's noocclude back out")
+    v.app.doc.redo()
+    v.noocc = set(have)
+    some = sorted(have)[:3]
+    for cl in some:
+        v.toggle("noocs", cl)
+    if v.sel != ("noocs", frozenset(some)) or "%d noocclude cells selected" % len(some) not in v.app.msgs[-1]:
+        bad.append("item 24: three noocclude cells Ctrl-clicked leave %r" % (v.sel,))
+    v.noocclude(remove=set(some))
+    left = set()
+    for cs, _ln in v.app.doc.analysis()["src"].noocc:
+        left |= set(cs)
+    if v.app.edits != 2 or left != have - set(some):
+        bad.append("item 24: the noocclude cells selected were not taken out in one edit")
     return bad
 
 
@@ -1077,6 +1351,10 @@ def main():
                     bad.append("occ view: noocclude taken out leaves %r" % do.text()[-120:])
                 if (4, 4) not in do.set_noocclude(add=[(4, 4)])[2]:
                     bad.append("occ view: noocclude on the start was not refused")
+            bad += occ_ship_check(c, od, occ_course)     # 21. what ships (SPEC.md 130.58.44)
+            bad += masks_check(occ_course)               # 22. over 256 masks (130.58.45)
+            bad += partial_check(occ_course)             # 23. the cut shown on a refusal (130.58.46)
+            bad += multi_check(c, od, occ_course)        # 24. several at once (130.58.47)
         finally:
             B.BLK_MAX = held
     except B.CourseError as e:
