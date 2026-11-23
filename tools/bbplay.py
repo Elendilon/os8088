@@ -66,7 +66,10 @@ def palette(src):
     reading as bbedjob's picture job"""
     b = src.palette[0] if src.palette else B.PAL_DEFAULT
     bright = bool(b & 0x10)
-    if b & 0x20:
+    if b & 0x40:                                # palette 2: mode 5's (the B/W bit), cyan, red, white
+        cols = [(85, 255, 255), (255, 85, 85), (255, 255, 255)] if bright else \
+               [(0, 170, 170), (170, 0, 0), (170, 170, 170)]
+    elif b & 0x20:
         cols = [(85, 255, 255), (255, 85, 255), (255, 255, 255)] if bright else \
                [(0, 170, 170), (170, 0, 170), (170, 170, 170)]
     else:
