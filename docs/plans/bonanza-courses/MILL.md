@@ -33,7 +33,7 @@ and fit the theme."*
 | new to the pathway | the SEE-SAW (130.42) and the QUARTER-TURN TURNTABLE (130.43); also the respawning jump pickup and the cup |
 | music | `windmill` (the prototype's song) |
 | picture | 1,024 x 888 px (`width 128`, `origin 672`) |
-| clocks | 3 (start, turntable, finish), default frame; their art is open question 6 |
+| clocks | 4 since the owner's builder edits (start, by the arch, the turntable's pillar, finish), in the `vase` frames since 2026-11-23 (open question 6, section 8) |
 
 ![the plan](mill/plan.png)
 
@@ -199,7 +199,7 @@ making block room first. See questions 1 and 2.
    (a sign, a step)?
 5. **The see-saw's open east side** (a block rail there hides the ball), and its fall
    back to flag 0. Is that fine, or should it be a guard-railed flat plate instead?
-6. **Clocks.** There are three, in the default frame. A theme idea for art that says where
+6. **Clocks.** ANSWERED (2026-11-23): the owner picked the TULIP VASE ([mill/CLOCKS.md](mill/CLOCKS.md) B), now the tool's `vases`, `vasem`, `vaset` and `vasef` (SPEC.md 130.18.5.2) on the four clocks; section 8. The question as it stood: There are three, in the default frame. A theme idea for art that says where
    the player is: windmill SAILS, whole at the start, split at the fork's turntable (one
    sail for each route) and a flag pin at the cup.
 7. **Both new elements.** Both fit, at the costs above: the see-saw cost the fork clock,
@@ -219,3 +219,110 @@ python3 docs/plans/bonanza-courses/mill/sketch.py --bbc OUT.bbc --force --glass 
 python3 tools/bbcourse.py -o DIR apps/bonanza/courses/mill.bbc   # alone: about 2.5 minutes
 MILL_PIT=1 / MILL_BUNKER=1 / MILL_FINRAILS=1                         # the parts the budgets took out
 ```
+
+**Since 2026-11-22 the owner edits `mill.bbc` in the course builder** (SPEC.md 130.58), so `sketch.py --bbc` no
+longer writes the shipped course: running it over `apps/bonanza/courses/mill.bbc` would throw the owner's edits
+away. Edit `mill.bbc` itself, and keep its geometry, checkpoints and props as the owner left them.
+
+## 8. The vase clocks and the four accepted warnings (2026-11-23)
+
+**The clocks.** The owner picked the TULIP VASE and asked for a FOURTH flower, MILL having four clocks now. The
+concept's frame is lifted into the tool (SPEC.md 130.18.5.2, `_clock_vase`), the bulbs growing one flower a clock
+along the route: `vases` on the tee (7, 13), one bud and the tee'd ball; `vasem` by the arch (21, 25), a bud and
+one opening; `vaset` on the turntable's pillar (34, 35), bud, opening and bloom on the turntable disc; `vasef` at
+the finish (24, 46), two in bloom and two FLAMED tulips, the fourth flower (white petals streaked magenta: it
+reads white on the Hercules, where the magenta heads are a grey checker on MILL's grey walls). The heads are
+lit white on their left for the same reason. **No vase clock carries an occluder record**: every record a vase
+cut hid a ball only in the VOID cells behind it, so those cells are `noocclude` (the start's were already, by
+the owner's own `noocclude` round A). MEASURED, the picture part: blocks 1,156 -> 1,173, masks 221 -> 223,
+records 1,858 -> 1,794, 62,350 -> 62,402 bytes in RAM, LZ4 22,775 -> 23,383.
+
+**The four warnings the builder showed, each kept with `accept` and its reason in the course** (SPEC.md
+130.58.5; `bbcourse.py --strict` passes, reporting each as accepted):
+
+| warning | where | what it is | kept by |
+|---|---|---|---|
+| `shade` | the first windmill (line 71), cell (10, 9) | A's east guard rail (line 47) stands on the raised ramp R, and its west end reaches the lower right corner of a ball's box at (10, 9) | `accept shade 10 9` |
+| `shade` | the second windmill (line 89), cells (29, 27) - (30, 29) | what (31, 28) and (31, 29) draw reaches 8 px into the box of a ball in the doorway's east cells | `accept shade 29 27` |
+| `shade` | the third windmill (line 91), cells (27, 44) - (28, 45) | the guard rails on lines 65 and 66 clip a ball's box in its doorway's 3 x 3, 16 px over the floor | `accept shade 27 44` |
+| the glass PAD's mark, 50% seen (needs 75%) | the pad under the archway (line 92) | the arch's near leg covers half the pad's top, as any single high arch along x would | `accept mark 20 27` (new, SPEC.md 130.58.5) |
+
+The fourth was never the compiler's: it is the visibility audit's (SPEC.md 130.15.10.4), which the builder's
+problems list shows from the picture job, and which only REPORTS - so `--strict` and `bbedjob.py check` saw
+three. `accept mark` reaches the audit's three readers (the build's audit line, the picture job, the window).
+
+Not one of the four: `--selfcheck`'s `courses` item 3 fails MILL with *"the windmill on line 89's doorway: not on
+the glass"*, crystal clocks or vases alike - the owner's `wall rect 28 27 29 30 flat 8.0` stands in front of the
+second windmill's doorway. It is the owner's geometry, so it is left for the owner.
+
+## 9. Research: the windmill's OCCLUDER STOP, and how to process less of it
+
+*Research only, nothing built.* The owner, of the three `shade` warnings: *"apparently we 'stop occlusion' for
+the windmill, and do so in a way that goes around ground blocks in a way that doesn't make a ton of sense to me.
+It barely clips a guardrail in this case so it doesn't really matter, but we'll need a way to mark that as ok for
+now, and maybe an item to research how we can either process less space for this, or process occlusion."*
+
+### 9.1 What is stopped, and where
+
+- **The guest** (SPEC.md 130.12.5.2, 130.12.17 item 2): a windmill whose IN cell is in the ball's 3 x 3 cells
+  (`bz_wol`) and whose TRUE gate state differs from its DRAWN pose is MUST-DRAW: its rotor box is the frame's
+  contact group, drawn whatever the frame, so the blade a collision reads is the blade on the glass. **That
+  frame runs no occluder pass at all** - not for the rotor's box and not for the ball's. It is a budget
+  decision (130.12.11): the one-box rotor frame is already 64.9k clocks of the CGA's 79.6k refresh (82%) and
+  65.0k of the Hercules' 93.8k, and two ball boxes with it about 88k on either card, a frame late. The stop is
+  in TIME (the frames on which the gate changes while the ball is near), not in space.
+- **The tool** keeps that frame correct by a rule in SPACE (130.12.4.6, `shade`): no cell of IN's 3 x 3 may
+  have `OCC` or `OCCG` - a ball anywhere in such a cell can be under an occluder record (130.11.4.3), and on the
+  must-draw frame the record would not be laid, so the ball would be drawn over what stands in front of it for
+  that frame.
+
+### 9.2 Why it seems to walk around ground blocks
+
+- **The region is CELLS of the world grid, IN plus one either way, not pixels.** On the iso picture nine cells
+  are a diamond; the builder's *Shade: why* paints the pixels each cell OWNS (the owners canvas: the cell whose
+  drawing put a pixel there last), so a block nearer the viewer - the windmill's house, a wall, a raised floor
+  - takes its pixels out of the highlight, and the yellow shape bends round it. Three of the nine cells are
+  usually the house itself (walls: no flags).
+- **The flags are a ball's BOX, not its sprite, and the box spills out of its cell.** A ball anywhere in a cell
+  covers a box about 48 px wide (`foot_x`: the cell's width and the sprite either side), so a record drawn by
+  a cell OUTSIDE the 3 x 3 flags a cell INSIDE it: on MILL a guard rail two cells away (drawn with (13, 10), a
+  rail on line 47) flags (10, 9), and rails on lines 65 and 66 flag the third windmill's. The rule then reads
+  as an odd shape picked out of the course, though it is exactly "every cell from which a ball might touch the
+  doorway this frame, at any position in the cell".
+- **The box is generous.** At (10, 9) only the box's lower right CORNER meets the rail, where a round ball's
+  sprite is mostly transparent (130.58.32).
+
+### 9.3 Options: process LESS space
+
+1. **Test lit pixels, not the box (tool only, 0 guest bytes).** Recompute the shade test with the cutter's own
+   per-position test (`feet_real`'s poses and `ball_pixels`, as `clock_vis` and 130.58.32's `needs` do): a cell
+   of the 3 x 3 is in the shade only if some REAL pose of a ball in it has a LIT pixel under a record. It keeps
+   the guest's rule exactly and drops the corners of boxes. PREDICTED to clear MILL's (10, 9); the other two
+   reach 8 and 16 px over the floor and may stay. Cost: tool time on a windmill's nine cells.
+2. **Narrow the trigger to the cells a ball can reach the doorway from (guest, a few bytes).** At the cap a
+   frame of up to 8 steps moves under a cell (12 gu), so a ball touching the doorway this frame starts in IN
+   or a cell sharing an edge or corner with it ON THE OPEN SIDE; the cells beside and behind the house (and
+   their flags) could leave the window. The gain is small (the house cells carry no flags) and the telegraph's
+   proof (`bonanzawheel` leg 10, `bonanzaphys`'s `knock` and `pass`) would have to be re-made for the smaller
+   window.
+3. **Stop only the rotor's box, not the ball's.** The rotor's pixels never need the pass (130.12.4.5: every
+   rotor pixel is the house's), so the stop could be scoped to the rotor's rectangle and the ball's boxes
+   composed with the pass as on any frame. This is option 4's cost, by another name: the pass is what the
+   budget could not afford.
+
+### 9.4 Options: process occlusion PROPERLY on the must-draw frame
+
+4. **Run the pass on the must-draw frame, priced per doorway.** The pass's cost depends on the records at the
+   ball's position: MILL's worst anywhere is 31,130 clocks (`bbcourse.py`'s "the pass at most" line), but a
+   doorway cell in the shade typically has 1 - 16 records. The tool already prices a position's pass; it could
+   price `64.9k + the pass at that cell's worst position` for each flagged cell of the 3 x 3 and REFUSE (or
+   warn) only where that passes the refresh, so a rail that clips a box costs a few hundred clocks and is
+   simply drawn right. Guest: the must-draw frame's "no pass" test made conditional on the cell's `OCC` (tens of
+   bytes, PREDICTED); measure with 130.12.17 item 2's emulated-8086 pricing on MILL's three doorways.
+5. **Defer the rotor a frame when the ball is in a flagged cell and cannot reach the doorway this frame.**
+   The ball's box gets the pass, the rotor waits one frame as any contact lane does. Only safe off IN and the
+   open side's cells (the telegraph), so it is option 2's window with a fallback; more guest logic than 4.
+
+**Suggested order**: 1 first (tool only, it may clear the cases that "barely clip"), then 4 priced on MILL's
+three doorways - if the pass at a doorway is a few hundred clocks, the shade rule turns from a warning about
+the picture into a budget the tool checks, and `accept shade` stops being needed. 2 and 5 only if 4 does not fit.

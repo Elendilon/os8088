@@ -2932,8 +2932,9 @@ class App(object):
             for m in self.pic["meta"]["marks"]:
                 if m["below"] or m["pct"] < 100:
                     cov = ", ".join("(%d, %d)" % (c[0], c[1]) for c in m["cover"][:3])
-                    tag = "warn" if m["below"] else "acc"
-                    out.append((tag, "%s at (%d, %d) is %d%% visible (needs %d%%)%s" % (
+                    tag = "warn" if m["below"] and not m.get("accepted") else "acc"   # (`accept mark`, 130.58.5)
+                    out.append((tag, "%s%s at (%d, %d) is %d%% visible (needs %d%%)%s" % (
+                        "accepted: " if m["below"] and m.get("accepted") else "",
                         m["what"], m["cell"][0], m["cell"][1], m["pct"], m["need"],
                         "; in front: " + cov if cov else ""), m["line"], tuple(m["cell"])))
         return out

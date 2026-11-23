@@ -1,5 +1,10 @@
 # WINDMILL LANE: clock options (2026-11-21, for the owner to pick)
 
+**PICKED (2026-11-23): B, `vase`.** The owner chose the tulip vase to try in the game. It is now the tool's
+`vases`, `vasem`, `vaset` and `vasef` (SPEC.md 130.18.5.2, `_clock_vase`): MILL has FOUR clocks since the owner's
+builder edits, so a fourth frame and a fourth flower (a FLAMED tulip) were added; [MILL.md](../MILL.md) section 8.
+What follows is the study as it stood.
+
 *Course 4's DRAFT ([MILL.md](../MILL.md), [mill.bbc](../../../../apps/bonanza/courses/mill.bbc), the scratch `mill-draft.bbc` until it shipped, SPEC.md 130.54.10) has three clocks, all in the
 default `crystal` frame: the START on the tee's front-left corner (7, 13), the TURNTABLE on a low pillar east of S
 (34, 36), and the FINISH on the sandpit's front-left corner (22, 55), by the cup. Four concepts follow. Each is

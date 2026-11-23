@@ -1087,7 +1087,8 @@ CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 
 CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
-                "frogb", "orbr", "orbh", "orbs", "orbg")   # a clock's `frame`s (SPEC.md 130.18.5.2)
+                "frogb", "orbr", "orbh", "orbs", "orbg", "vases", "vasem", "vaset", "vasef")
+#                             (a clock's `frame`s, SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # SPEC.md 130.18.5.5: THE DIGITS' ANCHOR - where a frame's digits sit, px right and down of their natural spot
 # (the place clock_face_geom derives from the tile, above).  A frame declares its own here (none of the shipped
@@ -1234,7 +1235,8 @@ class MouthFit(CourseError):
 _VWARN = None
 STRICT = False
 STRICT_SKIP = ()            # SPEC.md 130.58.18: the kinds --selfcheck's STRICT reports rather than refuses
-VIS_KINDS = ("hidden", "ball-hidden", "blend", "shade")           # the warnings' names (`accept <kind>`)
+VIS_KINDS = ("hidden", "ball-hidden", "blend", "shade", "mark")   # the warnings' names (`accept <kind>`; `mark`:
+#                                                                   the visibility audit's mark under its share)
 VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
 _VW_AT = re.compile(r"^(.*?):(\d+): ")
 _VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
@@ -4992,16 +4994,17 @@ def clock_vis(c, bound=CLOCK_HIDE, arts=False):
     """SPEC.md 130.18.5.4: each clock (not the pathway's lives counters, which cut no occluder) against a ball
     BEHIND it.  A ball rolled GROUNDED, a ground unit at a time, along x on each of the three cell rows behind the
     clock and along y on each of the three columns behind it (the cell's middle and 4 gu either side), over every
-    floor of the reach from 4 cells before the clock to 4 after, composited by the records.  -> [(clock number,
-    its cell, positions that meet its face, of them positions where the ball is drawn OVER a face pixel (the
-    rule's composite: no ghost), the longest run of positions meeting the face with EVERY lit pixel laid
-    over)]; refused (CourseError) past BOUND - the owner's one ball length"""
+    floor of the reach from 4 cells before the clock to 4 after (but a `noocclude` cell, SPEC.md 130.53), composited
+    by the records.  -> [(clock number, its cell, positions that meet its face, of them positions where the ball
+    is drawn OVER a face pixel (the rule's composite: no ghost), the longest run of positions meeting the face with
+    EVERY lit pixel laid over)]; refused (CourseError) past BOUND - the owner's one ball length"""
     out = []
     zr = {}
+    noocc = getattr(c, "noocc", None) or frozenset()
     for rc in c.reach:
         zr.setdefault((rc.wx, rc.wy), rc)
     for p in c.props:
-        if arts:                                    # SPEC.md 130.41.12 A8: a gate ART's keyed pixels, the same rule
+        if arts:                                   # SPEC.md 130.41.12 A8: a gate ART's keyed pixels, the same rule
             if not p.get("ga_face"):
                 continue
             face = set(p["ga_face"])
@@ -5019,8 +5022,9 @@ def clock_vis(c, bound=CLOCK_HIDE, arts=False):
                         gx, gy = (g, 16 * (cy_ - back) + off) if ax == 0 else (16 * (cx_ - back) + off, g)
                         t = c.tiles.get((gx >> 4, gy >> 4))
                         if (gx >> 4, gy >> 4) not in zr or t is None or isinstance(t, Split) \
-                                or t.kind not in (KIND_FLOOR, KIND_GOAL) or (gx >> 4) + (gy >> 4) >= cx_ + cy_:
-                            run = 0
+                                or t.kind not in (KIND_FLOOR, KIND_GOAL) or (gx >> 4) + (gy >> 4) >= cx_ + cy_ \
+                                or (gx >> 4, gy >> 4) in noocc:     # (SPEC.md 130.53: the author's word that no
+                            run = 0                                 # ball is there in play; no record is cut for it)
                             continue
                         z = _h4t(t, gx & 15, gy & 15) // 4
                         px, py = gx - gy + c.x0 - 8, (gx + gy) // 2 - z + c.y0 - 13
@@ -10834,6 +10838,115 @@ def _clock_orb(p, x0, y0, tops, mat):
 _ORB_MATS = {"orbr": "rubber", "orbh": "split", "orbs": "steel", "orbg": "glass"}
 for _k, _m in _ORB_MATS.items():
     _CLOCK_DRAW[_k] = (lambda m: lambda p, x0, y0, tops: _clock_orb(p, x0, y0, tops, m))(_m)
+
+
+# WINDMILL LANE's `vase` (the owner's pick, 2026-11-23, of docs/plans/bonanza-courses/mill/CLOCKS.md's concepts;
+# lifted from mill/clocks/frames.py's `_clock_vase`, SPEC.md 130.18.5.2): a DELFT TULIP VASE on a short lit
+# pedestal - white glaze, a cyan (Delft blue) pattern of bands and flutes, the shade dithered cyan down its right,
+# the digits on its white belly in a fine cyan frame - and TULIPS on cyan stems out of its neck, magenta heads lit
+# white.  The bulbs GROW down the course, one more flower at each clock and the newest one stage further on:
+#   vases (start)      ONE closed bud with a leaf, and a little tee'd ball at the pedestal's foot
+#   vasem (middle)     TWO: the bud and one OPENING
+#   vaset (turntable)  THREE: bud, opening and one in BLOOM, the pedestal on a turntable disc with its arrow
+#   vasef (finish)     FOUR: two in bloom and, between them, two of the FOURTH flower - a FLAMED tulip (the Dutch
+#                      "broken" tulip: white petals streaked magenta, so it reads white on the Hercules too), the
+#                      left one the tallest
+# Palette 1's inks; on the Hercules cyan and magenta are one grey checker, so the forms are carried by white and
+# black as well, and the digits sit on WHITE
+_VASE_TULIPS = (("...KK...", "..KWMK..", ".KWWMMK.", ".KWMMDK.", ".KWMMDK.", "..KMDK..", "...KK..."),    # bud
+                (".K....K.", "KWK..KMK", "KWWKKMDK", "KWWMMMDK", ".KWMMDK.", "..KMDK..", "...KK..."),    # opening
+                ("K.K..K.K", "WKWKKMKD", "KWWMWMDK", "KWWMWMDK", "KWMMWMDK", ".KWMMDK.", "..KKKK.."),    # bloom
+                ("K.K..K.K", "WKWKKWKW", "KWMWWMWK", "KWWMWMWK", "KWMWWMWK", ".KWWMWK.", "..KKKK.."))    # flamed
+# per position: the stems (x off the neck, lean at the head, length, the flower's stage), drawn left to right
+_VASE_STEMS = {"s": ((0, 0, 9, 0),),
+               "m": ((-3, -2, 8, 0), (3, 2, 11, 1)),
+               "t": ((-4, -3, 7, 0), (0, 0, 11, 2), (4, 3, 9, 1)),
+               "f": ((-6, -6, 6, 2), (-2, -1, 12, 3), (2, 2, 8, 3), (6, 6, 9, 2))}
+
+
+def _clock_disc(a, x, y, rx, ry):
+    """a TURNTABLE disc on the tile (paint, no geometry): a black edge, a white rim, a magenta top and a
+    quarter-turn arrow round its near rim"""
+    for (px, py) in _ellipse(x, y, rx, ry, int(x - rx) - 1, int(x + rx) + 1, int(y - ry) - 1, int(y + ry) + 1):
+        ux, uy = (px + 0.5 - x) / rx, (py + 0.5 - y) / ry
+        d = ux * ux + uy * uy
+        a.put(px, py, BLK if d > 0.78 else (WHT if d > 0.5 else MAG), "shadow")
+    for k in range(8):
+        t = math.radians(110 - k * 9)
+        a.put(int(x + 0.7 * rx * math.cos(t)), int(y + 0.7 * ry * math.sin(t)), BLK, "shadow")
+    hx, hy = int(x + 0.7 * rx * math.cos(math.radians(40))), int(y + 0.7 * ry * math.sin(math.radians(40))) - 1
+    for j, row in enumerate(("K.", "KK", "K.")):
+        for i, ch in enumerate(row):
+            if ch == "K":
+                a.put(hx + i, hy + j, BLK, "shadow")
+
+
+def _clock_vase(p, x0, y0, tops, pos):
+    """`vases` / `vasem` / `vaset` / `vasef` (above): the vase, its pedestal and POS's tulips"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy = a.cx, a.cy, a.fx, a.fy
+    wx0, wx1, wy0, wy1 = a.win
+    if pos == "t":
+        _clock_disc(a, cx - 0.5, cy - 0.5, 13.5, 5.5)
+    else:
+        _clock_top_shadow(a, 4, 11.0, 3.8)
+    bot = cy - (2 if pos == "t" else 1)
+    ped = bot - 9                                   # the PEDESTAL's top row (the vase's foot stands on it)
+    neck = wy0 - 5
+    lip = neck - 2
+    bel = fy                                        # the belly's widest row
+
+    def half(y):                                    # the vase's half width on row Y
+        if y <= lip:
+            return 7.0                              # the lip
+        if y <= neck:
+            return 5.0
+        if y >= ped - 2:
+            return 7.5                              # its foot ring
+        if y <= bel:
+            return 5.0 + 9.5 * math.sin(0.5 * math.pi * (y - neck) / float(bel - neck))
+        return 7.0 + 7.5 * math.cos(0.5 * math.pi * (y - bel) / float(ped - 2 - bel))
+    for (sx, lean, ln, stage) in _VASE_STEMS[pos]:  # the STEMS and HEADS, behind the neck: drawn first
+        for k in range(ln + 1):
+            x = fx + sx + int(round(lean * k / float(ln)))
+            y = lip - k
+            a.put(x - 1, y, BLK)
+            a.put(x, y, CYN)
+            a.put(x + 1, y, BLK)
+        a.pattern(_VASE_TULIPS[stage], fx + sx + lean - 4, lip - ln - 6)
+    if pos == "s":                                  # a LEAF on the bud's stem
+        a.pattern(("KK...", "KCCK.", ".KCCK", "..KK."), fx - 5, lip - 6)
+    pedc = {(x, y) for y in range(ped, bot + 1) for x in range(fx - (7 if y >= bot - 1 else 5),
+                                                               fx + (7 if y >= bot - 1 else 5))}
+    a.blob(pedc, _lit3(fx - 6, fx + 4))
+    vase = {(x, y) for y in range(lip, ped) for x in range(int(fx - half(y) - 0.5), int(fx + half(y) + 0.5))}
+
+    def ink(x, y):
+        u = (x + 0.5 - fx) / half(y)
+        if wx0 - 1 <= x <= wx1 + 1 and wy0 - 1 <= y <= wy1 + 1:
+            return WHT                              # the digits' field
+        if y in (lip + 1, wy0 - 3, wy1 + 3, ped - 2):
+            return CYN                              # the bands
+        if y == neck + 1 and x & 1:
+            return CYN
+        if wy1 + 5 <= y <= ped - 4 and (x - fx) % 4 == 0 and u > -0.6:
+            return CYN                              # the flutes round its foot
+        if u < -0.55:
+            return WHT                              # the shine
+        if u > 0.6:
+            return CYN if (x + y) & 1 else WHT      # the shade
+        return WHT
+    a.blob(vase, ink)
+    for x in range(wx0 - 1, wx1 + 2):               # the field's fine cyan frame round the digits
+        for y in (wy0 - 1, wy1 + 1):
+            a.put(x, y, CYN)
+    if pos == "s":                                  # the TEE's emblem: a white ball on a magenta peg
+        a.pattern((".KKK.", "KWWWK", "KWWCK", ".KKK.", "KMMMK", ".KMK.", ".KMK.", "..K.."), fx + 9, bot - 6)
+    return a.done(tops)
+
+
+for _k in ("s", "m", "t", "f"):
+    _CLOCK_DRAW["vase" + _k] = (lambda q: lambda p, x0, y0, tops: _clock_vase(p, x0, y0, tops, q))(_k)
 
 
 def clock_pose(tsec, place):
@@ -27700,11 +27813,14 @@ def _own_name(o):
 
 
 def vis_marks(c):
-    """-> [{prop, what, cell, px, seen, pct, need, below, cover [(owner, n)] most first}]: every
+    """-> [{prop, what, cell, px, seen, pct, need, below, accepted, cover [(owner, n)] most first}]: every
     spring's, pad's and the cup's mark and the cup's pin against VIS_MARK, every tube mouth against
-    VIS_MOUTH.  Seen: owned in the picture by the prop's own cell"""
+    VIS_MOUTH.  Seen: owned in the picture by the prop's own cell.  ACCEPTED (SPEC.md 130.58.5): the course
+    says `accept mark` at the mark's cell (or course-wide), or marks the element `hidden`"""
     ob = owners_canvas(c)
     out = []
+    acc = [a for a in getattr(c.src, "accepts", ()) if a["kind"] == "mark"]
+    hid = getattr(c.src, "hidden_lines", set())
     for i in sorted(c.prop_pix):
         p = c.props[i]
         for what, pix in sorted(c.prop_pix[i].items()):
@@ -27723,6 +27839,8 @@ def vis_marks(c):
             pct = 100.0 * seen / len(pix) if pix else 100.0
             out.append({"prop": i, "what": ("tube " + what) if what in ("IN", "OUT") else what, "cell": cell,
                         "px": len(pix), "seen": seen, "pct": pct, "need": need, "below": pct < need,
+                        "accepted": p.get("line") in hid or any(a["cell"] is None or tuple(a["cell"]) == tuple(cell)
+                                                                for a in acc),
                         "cover": sorted(cov.items(), key=lambda kv: (-kv[1], kv[0]))})
     return out
 
@@ -27825,7 +27943,7 @@ def visibility(c, k=None, demo=None):
     for mk in marks:
         lines.append("      %-9s %-9s %3d px, %3d seen (%3.0f%% against %d%%)%s%s" % (
             mk["what"], "(%d, %d)" % mk["cell"], mk["px"], mk["seen"], mk["pct"], mk["need"],
-            "  BELOW" if mk["below"] else "",
+            ("  BELOW (accepted)" if mk["accepted"] else "  BELOW") if mk["below"] else "",
             "; the rest under %s" % ", ".join("%s %d" % (_own_name(o), n) for o, n in mk["cover"][:4])
             if mk["cover"] else ""))
     runs = [("route", None, None)]
@@ -27854,8 +27972,9 @@ def visibility(c, k=None, demo=None):
     ghost_on = c.dithered and all(dither(m_) == m_ for m_ in c.masks)
     longest = max(allst, key=lambda nh: nh[1]["steps"]) if allst else None
     nb = sum(1 for mk in marks if mk["below"])
-    head = "    visibility %s: %d of %d marks BELOW, %d hidden stretch%s over 0.5 s%s; ghost %s%s" % (
-        c.name, nb, len(marks), len(allst), "" if len(allst) == 1 else "es",
+    na = sum(1 for mk in marks if mk["below"] and mk["accepted"])
+    head = "    visibility %s: %d of %d marks BELOW%s, %d hidden stretch%s over 0.5 s%s; ghost %s%s" % (
+        c.name, nb, len(marks), " (%d accepted)" % na if na else "", len(allst), "" if len(allst) == 1 else "es",
         ", the longest %.2f s from %s step %d" % (longest[1]["secs"], longest[0], longest[1]["a"]) if longest else "",
         "on" if ghost_on else "OFF", " (a test course's: exempt)" if c.test else "")
     return [head] + lines, {"below": nb, "marks": len(marks), "stretches": len(allst), "ghost": ghost_on,
