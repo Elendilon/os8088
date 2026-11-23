@@ -267050,6 +267050,7 @@ by the archway family's CELL hook (130.39.4), which already makes that cell what
 | T8 | **the picture: nothing new.** The occluder rule (130.10.4.4: lay a pixel iff `s_b < s_C` and `z_b + m < top_C`) already tells a ball ON the slab (`z_b` = `T` = the slab's tops: not laid) from one UNDER it (laid): the slab and the lintel stay keyed `s + 1` (130.12.3.6 U6, 130.39.1 A9). A ball on a walkable wall is in that wall's own row, which never covers it | the draw order a ball on top needs is the one the rule computes from `z` - no record moves, no op is added |
 | T9 | **the reach** takes every TOP a second time: a form "top" (130.25.18's union: the reach again with each top's cell a FLOOR at `T`, the lower `zlo` and the higher `zhi` kept), and OCCG reads a top's cell from its floor to `T` (a walkable wall's at `T`) | 130.39.6's "the floor it is" leaves out a ball ON the top and every flight from it (higher than any from the floor); the union is conservative for the occluders, the bounds and NO TRAP as every form is |
 | T10 | **the visibility rule** (130.12.3.6 U7) is unchanged, and a run's ends must be floors at the run's floor (within a climbable step) to count as a passage under it | a tier at the top's height beside the pipe is the way ONTO it, not a passage under it; measured against such a tier the rule read 33 gu of a ball passing BESIDE the tier, not under the pipe |
+| T11 | **CELL writes BOTH ways** (2026-11-23, found by `bonanzaphys`'s `over-face`): with `Z` at or under `C` the window's copy is written back the FLOOR the grid holds - kind nibble `BZ_AR_FLOOR` and, for a TOP, z0 from the record's +22 `FZ` (the cell's grid z0, written by the compiler only with `top`, so no shipped record moves) | `bz_win9i` KEEPS window cells when the window moves one cell (130.25.7.2: a CELL hook must be idempotent, as the turntable's and water's are). A Hop at the pipe's face from the floor crossed `C` in the step it entered the passable cell: the refill round that cell topped the pipe's row, the fallback put the ball back and refilled round the start's cell with `Z` under `C` - and the guest's CELL, writing only above `C`, left the kept row at `T`, so the guest met the face a step before the model (whose window is rebuilt from the grid). The model was right; the same defect held a 130.39 arch's WALL over a kept cell. Rewritten for no byte: the part stays 350 (`Z` compared in memory, freeing DX for the z0 and kind) |
 
 **What the ball does at the top's edges and ends.** Across a one-cell pipe it rolls off either side onto whatever
 is lower (a fall, with that material's landing); along it, on to the next body cell's top (a passable one at
@@ -267065,7 +267066,8 @@ under a walkable top that is not a flat WALL (a sloped wall the tube runs throug
 **As built** (`tools/bbcourse.py`): `_parse_tube` / `_parse_archway` read `top`; `build_props` gives each passable
 and archway cell's record `top` (`2 z0` of the pipe's slab or the lintel) and lays `_walk_rec`'s walkable walls on
 the tube's body walls and the archway's legs (no owner: never a cell's prop for the pad rule); the record is
-`<BBhbB10x>` (+18 `C`, +20 `T`, +21 the bit); the readers hold +20 and +21 zero without the bit, a walkable wall a
+`<BBhbBb9x>` (+18 `C`, +20 `T`, +21 the bit, +22 `FZ` the cell's grid z0, T11); the readers hold +20 - +22
+zero without the bit, `FZ` the grid's z0 with it, a walkable wall a
 flat WALL at `T`, a top at least 2 px over the clearance's ball; `ArchFamily.cell` is T2; `reach_forms`' "top" form
 and `_occg`'s ranges are T9; `pipe_vis` is T10. The guest's CELL (`apps/bonanza/fam/archway.asm`): the bit tested,
 then `T` written into the window cell's z0 and its kind nibble made FLOOR, else 130.39.4's WALL.
@@ -267089,8 +267091,10 @@ it); `artop` (the TOP never written: 130.39's wall); `arsink` (the centre never 
 `arnocap` (the STEP cap out: a Hop under the pipe rises into the slab); `puhi` (the slab keyed 16 px over its top: a
 ball ON it laid over); `notopreach` (the reach without the tops). `tests/bonanza_phys.py`'s `arch_host` replays
 OVER's scenes `over-top`, `over-hop`, `over-under` and `over-face` on the guest's archway part against the model,
-every step, with the red arms `artop` and `arkind` (the top's height written, its kind left a WALL) - **written,
-NOT RUN in the investigation** (a soak row, `bonanzaphys`: the lead's final pass). `tests/unit/t_bbedit.py` 13f: the
+every step, with the red arms `artop`, `arkind` (the top's height written, its kind left a WALL) and `arback`
+(T11's write-back of a top's z0 gone: red on `over-face`'s window at step 27, the defect as found) - **the four
+scenes and those arms RUN under unicorn for T11 (2026-11-23), not the whole soak row** (`bonanzaphys`: the lead's
+final pass). `tests/unit/t_bbedit.py` 13f: the
 shape editor reads and writes `top`, the builder adds `uses archway`, the records as above, none without it; item
 17 holds the archway's `top` row (`bbedopts`).
 
@@ -267099,6 +267103,8 @@ shape editor reads and writes `top`, the builder adds `uses archway`, the record
 | | before | after | |
 |---|---|---|---|
 | `build/bzf-archway.bin` | 323 | **350 bytes (+27)** | CELL's record body: the bit's test and branch (7), the top's z0 and kind writes and their jump (20), the WALL path's jump to the centre's ceiling (2); the ceiling's test, once before the writes, now after both paths (-2) |
+| T11's write-back (MEASURED, 2026-11-23) | 350 | **350 (0)**, 22 paras | CELL's record body rewritten at the same 73 bytes (with the `Z` load it replaced): `Z` compared in memory (`[bz_gz + 1]`), so DL and DH carry the z0 and the kind, and ONE z0 write and ONE kind write serve all three paths (over `C` topped, over `C` walled, under `C` written back) |
+| T11's record byte | | +22 `FZ` on a TOP's record alone | the 24 shipped files byte for byte the same (`bbcourse.py -o` by HEAD's tool and this one, `diff -r` empty); OVER's 13 records carry it |
 | its RAM (FAMILIES' paras, resident in every play's bundle, 130.25.6.9) | 21 paras | **22 (+16 bytes)** | the ceiling raised 21 -> 22 |
 | `bonanza.bin` | 52,907 | **52,907 (0)** | no engine byte; `BZ_PHYSV` and the archway's FAMV unchanged |
 | `BONANZA.O88` | 175,359 | **175,375 (+16)** | the part, packed |
@@ -294209,7 +294215,8 @@ NOT an owner (A8): +16 FSB 0, +17 class 0 (ATTEMPT: it has no state), **+18
 the CLEARANCE, a signed word, whole px** (`4 z0 + 8 under - AR_TOPB`), +20 -
 +31 zero. The reader accepts exactly that, anchored on a flat FLOOR cell
 whose height leaves the clearance at least 2 px over it, and no lane - or,
-since 130.12.3.7 (`top`), +20 the TOP's height (z0, a byte) and +21 bit 0 set,
+since 130.12.3.7 (`top`), +20 the TOP's height (z0, a byte), +21 bit 0 set and
++22 `FZ` the cell's own z0 in the grid (T11: CELL's write-back), +23 - +31 zero,
 and a WALKABLE WALL's record anchored on a flat WALL at that height, +18
 -32768. The elements are the LAST records of the table (after every prop that claims a
 cell), so the window refill's owner scan - the first record whose anchor is
@@ -294228,10 +294235,15 @@ window (`bz_place`), which writes it before any step reads it: no RESET.
 `HI` = 32767, `CC` = 32767; for every archway record whose cell is in the
 window, `C` its clearance: the centre's cell, `CC = C`; if `Z > C`, the
 window's copy of the cell becomes a WALL (its kind nibble 2; the surface,
-height, slopes and flags kept) and `LO = max(LO, C)`; else `HI = min(HI, C)`.
+height, slopes and flags kept) and `LO = max(LO, C)`; else `HI = min(HI, C)`
+and the copy is written BACK the FLOOR the grid holds (kind nibble 1; the rest
+kept) - `bz_win9i` keeps window cells when the window moves one cell, so a cell
+walled for the last window's `Z` (a fallback's undo, a push, in one step) must
+not stay a wall (130.12.3.7 T11; 130.25.7.2's CELL is idempotent).
 *Since 130.12.3.7*: a record with a TOP (+21 bit 0), `Z > C`, makes the copy a
 FLOOR at its `T` instead (z0 `T`, kind nibble 1, the surface and flags kept),
-and leaves the centre's `CC` at 32767.
+and leaves the centre's `CC` at 32767; `Z <= C`, its z0 is written back too,
+from +22 `FZ` (the grid's).
 
 **STEP**: `Z` as above; if `Z > CC`: `z = CC` (whole, fraction 0), and if
 `gvz > 0`, `gvz = -(gvz >> AR_RSH)` (arithmetic; `AR_RSH` 2); `Z = CC`.

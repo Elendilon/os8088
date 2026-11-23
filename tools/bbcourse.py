@@ -7136,7 +7136,7 @@ def _walk_rec(fam, kr, f, ln, c, t):
                           % (f, ln, c[0], c[1]))
     return {"kind": FK_ARCH, "line": ln, "at": c, "mask": 0, "shift": 0, "seed": 0, "fam": fam, "frow": kr,
             "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": 4 * t.z0, "dur": 0, "ow": 0, "clr": -32768,
-            "noclaim": True, "arch": None, "top": 2 * t.z0, "walk": ln}
+            "noclaim": True, "arch": None, "top": 2 * t.z0, "fz": zq(t.z0), "walk": ln}
 
 
 def build_props(src, tiles, fname):
@@ -7408,8 +7408,8 @@ def build_props(src, tiles, fname):
             props.append({"kind": FK_ARCH, "line": a["line"], "at": c, "mask": 0, "shift": 0, "seed": 0, "fam": fam,
                           "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": 4 * a["z0"], "dur": 0,
                           "ow": 0, "clr": a["clr"], "noclaim": True, "arch": a})
-            if a.get("walk"):                       # SPEC.md 130.12.3.7: `top` - the lintel's TOP a floor
-                props[-1].update(top=2 * a["top"])
+            if a.get("walk"):                       # SPEC.md 130.12.3.7: `top` - the lintel's TOP a floor (+22 the
+                props[-1].update(top=2 * a["top"], fz=zq(tiles[c].z0))     # grid's z0 under it: CELL's write-back)
         for c in sorted(a["legs"]) if a.get("walk") else ():    # ...and the legs WALKABLE WALLs at the lintel's top
             props.append(_walk_rec(fam, kr, f, a["line"], c, tiles[c]))
     for tb in src.tubes:                            # SPEC.md 130.12.3.6: a PASSABLE PIPE - each cell of it the
@@ -7423,8 +7423,8 @@ def build_props(src, tiles, fname):
             props.append({"kind": FK_ARCH, "line": tb["line"], "at": c, "mask": 0, "shift": 0, "seed": 0,
                           "fam": fam, "frow": kr, "cls": CL_ATTEMPT, "art": None, "bits": 0, "z4": F, "dur": 0,
                           "ow": 0, "clr": U - AR_TOPB, "noclaim": True, "arch": None, "slab": tb["line"]})
-            if tb.get("top"):                       # SPEC.md 130.12.3.7: `top` - the pipe's TOP a floor
-                props[-1].update(top=2 * w.z0)
+            if tb.get("top"):                       # SPEC.md 130.12.3.7: `top` - the pipe's TOP a floor (+22 the
+                props[-1].update(top=2 * w.z0, fz=zq(tiles[c].z0))         # grid's z0 under it: CELL's write-back)
         if not tb.get("top"):                       # SPEC.md 130.12.3.7: a WALKABLE tube (`top`): every WALL of its
             continue                                # body a walkable wall
         fam, kr = FKIND[FK_ARCH]
@@ -13908,8 +13908,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                    p["wdir"] | p["wflags"], p["wstr"],
                                    *(p["wreg"] + (p["won"], p["wmask"], p["wseed"], p["wtop"])))
             elif p["kind"] == FK_ARCH:              # THE ARCHWAY (SPEC.md 130.39.3): +18 the CLEARANCE, whole px;
-                rec += struct.pack("<BBhbB10x", 0, p["cls"], p["clr"], p.get("top", 0),
-                                   int("top" in p))     # +20 T, +21 bit 0 a TOP (130.12.3.7; both 0: none)
+                rec += struct.pack("<BBhbBb9x", 0, p["cls"], p["clr"], p.get("top", 0),
+                                   int("top" in p), p.get("fz", 0))     # +20 T, +21 bit 0 a TOP, +22 FZ the cell's
+                                                        # grid z0 (130.12.3.7; all 0: none)
             elif p["kind"] == FK_TILT:              # THE SEE-SAW (SPEC.md 130.42.3): +18 NX, +19 NY, +20 the flags,
                 rec += struct.pack("<BBBBBbBBB7x", p["fsb"], p["cls"], p["tlnx"], p["tlny"], p["tlf"], zq(p["tlpz"]),
                                    p["tlmask"], p["tlflat"], p["tlseed"])     # (+22 - +24 a TIMED one's, 130.42.11)
@@ -17228,8 +17229,10 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
                                                  + 4 * ((d["at"][0] - d["at"][1] - amin) >> 1)) \
                 if 0 <= d["at"][0] + d["at"][1] - smin < nrows and 0 <= (d["at"][0] - d["at"][1] - amin) >> 1 < kw \
                 else (0, 0, 0, 0)
-            clr_, top_, tf_ = struct.unpack_from("<hbB", p, propoff + PROPREC * d["i"] + 18)
-            if not tf_:                             # (130.39.3: no top)
+            clr_, top_, tf_, fz_ = struct.unpack_from("<hbBb", p, propoff + PROPREC * d["i"] + 18)
+            if tf_ and fz_ != z0:                   # (130.12.3.7: a top's +22 its cell's grid z0, CELL's write-back)
+                bad("prop %d" % d["i"], "an archway's top does not hold its cell's z0")
+            elif not tf_:                           # (130.39.3: no top)
                 if kd & 15 != KIND_FLOOR or sl or clr_ < 2 * z0 + 4 * AR_UMIN - AR_TOPB:
                     bad("prop %d" % d["i"], "an archway's cell is not a flat FLOOR under its clearance")
             elif clr_ == -32768:                      # SPEC.md 130.12.3.7: a WALKABLE WALL - a flat WALL at its top
@@ -17506,13 +17509,13 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                          wreg=(x0_, y0_, x1_, y1_), won=won, wmask=wmask, wseed=wseed, wtop=wtop, wflags=wf)
                 continue
             if kr["kind"] == FK_ARCH:               # THE ARCHWAY (SPEC.md 130.39.3): +18 the clearance, else zero
-                clr_, top_, tf_ = struct.unpack_from("<hbB", p, r + 18)  # (130.12.3.7: +20 T, +21 a TOP)
-                if cls != CL_ATTEMPT or fsb_ or p[r + 22:r + 32] != bytes(10) or tf_ > 1 \
-                        or (not tf_ and top_) or d["lane"]:
+                clr_, top_, tf_, fz_ = struct.unpack_from("<hbBb", p, r + 18)   # (130.12.3.7: +20 T, +21 a TOP,
+                if cls != CL_ATTEMPT or fsb_ or p[r + 23:r + 32] != bytes(9) or tf_ > 1 \
+                        or (not tf_ and (top_ or fz_)) or d["lane"]:                # +22 FZ)
                     bad("prop %d" % d["i"], "an archway's record (clearance %d)" % clr_)
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=None, dur=0, ow=0, clr=clr_)
                 if tf_:
-                    d.update(top=top_)
+                    d.update(top=top_, fz=fz_)
                 continue
             if kr["kind"] == FK_TILT:               # THE SEE-SAW (SPEC.md 130.42.3): +18 NX, +19 NY, +20 the flags,
                 nx_, ny_, tf_, pz_, tm_, tfl_, ts_ = struct.unpack_from("<BBBbBBB", p, r + 18)  # +21 PZ; its byte,

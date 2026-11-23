@@ -3160,7 +3160,8 @@ def arch_reds():
     """the ARCHWAY's red arms on the unicorn, each the part assembled from a patched archway.asm: arwall (the CELL
     hook's WALL write gone: the window), arcap (STEP's ceiling gone: the ball), arref (no refill when z leaves the
     band: bz_fref), arcell (the CELL entry 0: the slot never written, so STEP caps the ball at a clearance of 0)"""
-    return (("arwall", ("    or byte [bz_nbr + bx + 2], BZ_AR_WALL\n", ""), "arch-boost", "the window"),
+    return (("arwall", ("    mov dh, BZ_AR_WALL          ; no TOP: a WALL (130.39.4), CC = C\n", ""), "arch-boost",
+             "the window"),
             ("arcap", ("    cmp ax, [di + 4]\n    jle .b\n", "    cmp ax, [di + 4]\n    jmp .b\n"), "arch-under",
              "the ball"),
             ("arref", ("    mov byte [bz_fref], 1\n", ""), "arch-boost", "bz_fref"),
@@ -3171,10 +3172,14 @@ def arch_reds():
 def over_reds():
     """THE WALKABLE PIPE's red arms on the unicorn (SPEC.md 130.12.3.7), each the part assembled from a patched
     archway.asm: artop (the TOP never written - 130.39's wall instead: the window), arkind (the top's height written
-    but its kind left a WALL, as a walkable wall's is in the grid: the window, on its legs)"""
-    return (("artop", ("    jz .wl                      ; no TOP: a WALL (130.39.4)\n", "    jmp short .wl\n"),
-             "over-top", "the window"),
-            ("arkind", ("    or byte [bz_nbr + bx + 2], BZ_AR_FLOOR\n", ""), "over-top", "the window"))
+    but its kind left a WALL, as a walkable wall's is in the grid: the window, on its legs), arback (under the
+    clearance a top's cell keeps the z0 the window already holds rather than the grid's - T where bz_win9i kept a
+    cell topped for the last window's z, the defect T11 closed: the window, on over-face's Hop at the face)"""
+    return (("artop", ("    jnz .k                      ; centre's CC left open\n", ""), "over-top", "the window"),
+            ("arkind", ("    mov dh, BZ_AR_FLOOR         ; under C the FLOOR the grid holds, written\n",
+                        "    mov dh, BZ_AR_WALL\n"), "over-top", "the window"),
+            ("arback", ("    mov dl, [es:si + AR_FZ]     ; DL = a top's z0 in the grid, DH = the kind:\n",
+                        "    mov dl, [bz_nbr + bx]\n"), "over-face", "the window"))
 
 
 def arch_host(binp, lst, sym, fam):
