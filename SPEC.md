@@ -298676,6 +298676,55 @@ a control - pieces (`half`, `quarter`, `box`), water's ripple cells - needs a pi
 docs/plans/BONANZA-BUILDER-OPTIONS.md is the audit, and t_bbedit item 17 holds the table to it. A gate, plate or
 key added alone is refused until its other half is placed; the banner says so (*Keep it anyway*, then add it).
 
+#### 130.58.38 Deleted ground takes its overhang; an old error blocks nothing; an error row is a way out (the owner, 2026-11-23)
+
+The owner, redesigning MILL: *"After deleting a floor to try to reposition another landing I started getting
+this 'float floats nothing' error - which seems to block doing anything else and I have no idea how to clear
+it."* The course had two refusals at once - a `float` left over the void where its floor had been, and the
+launch tube's landing (130.12.3.3) on a wall, which the float's refusal hid because the compiler stops at its
+first - and each repair was undone for the OTHER: the shape editor's *Try it* on the tube left its picture's
+refusal pending (130.58.27), the float's delete came before that picture reported and killed it, and the next
+picture's refusal named the tube's line - so the pending undo took the float's delete back. Deleting the tube
+met the float in turn. Nothing in the builder could get out.
+
+- **What only made sense on the ground goes with it** (`Document.drop_dependents`, after every checked edit, in
+  the edit's own undo step, the status line naming what went): a `float` that floats nothing after the edit
+  and did not before it - no cell of its shape hangs a face over the void, so it marks nothing and the
+  build refuses it (130.27.2) - and a `surface` that painted ground before the edit and lies wholly off the
+  ground after it. A float or paint PARTLY on what is left is kept as it is: its cells off the ground change
+  no pixel, and the compiler takes them (a float that still hangs one face is legal; one that hangs none is
+  removed whole, since clipping it could never make it hang one). Delete, clear-the-area, a move, a resize
+  and a typed text all reach it.
+- **A moved floor carries its paint and hang**: besides its own shape's `surface` and `float` (130.58.14), every
+  `float` and `surface` laid by `tile` or `rect` wholly inside it rides along (`Document.paint_in`), laid again in
+  file order so a later paint still wins (130.58.34's riders are the props; these are the ground's).
+- **The cheap check knows the float rule**: `bbcourse.float_stranded` is the rule, asked by compile_course and by
+  the builder's per-edit analysis alike, so the error shows on the plan at once rather than seconds later from
+  the full check alone.
+- **An edit is refused only for a NEW error.** An error's identity is its words and the STATEMENT it names, not
+  its line number (`Document.err_key`: inserting a line above it renumbers it and leaves it the same error), and
+  "new" is against every error the course was already refused for - the first one and those behind it, each
+  found by setting the one before aside (`error_keys`). A course opened broken, or broken by its text, takes
+  every edit that does not add a refusal; the status line says it is still refused, and for what. Deleting the
+  very part the course is refused for is never refused. The shape editor's pending undo acts only on the text
+  its own *Try it* made (a later edit came first: it does nothing) and only when the course was not refused the
+  same way on that line before the draft (where a launch lands may move: the numbers are not compared).
+- **An error row is a way out**: clicking an ERROR (in the problems list under the plan, or on the Checks tab)
+  selects the part on its line - on the plan, a float's or paint's own cells outlined even over the void, and in
+  the inspector - and shows the whole explanation beside a button where the fix is obvious (`FIXES`:
+  *Remove this overhang (the float)*, *Remove this gap line*), one checked edit and one undo step. The
+  explanation of *float floats nothing* says what a float is and that its floor was usually deleted or moved.
+- **The Source tab is editable**: typing changes a working copy (*Edited* beside the buttons); **Apply**,
+  Ctrl+Enter or leaving the tab puts it in the course as ONE undo step through the checked edit - never
+  undone, because it is the author's own text: an error it adds is shown, not reverted - and **Revert** throws it
+  away. An edit made elsewhere while a working copy is unapplied leaves the copy alone and says so. The gutter's
+  line numbers are read-only: a double-click there, or a Ctrl-double-click in the text, selects that line's
+  part. In the text the window's own keys (Ctrl+Z the course's undo, Ctrl+D duplicate) are the text's own.
+- The `bbedit` row's item 18 builds MILL's deadlock (a stranded float and a launch landing on a wall) and walks
+  both repairs through the window's checked edit and the shape editor; red by hand: drop `text != tried` from
+  `bbedshape.picture_refused` ("undid the float's delete") or compare `after != before` in `App._edit` again
+  ("an edit above the float was refused").
+
 #### 130.58.39 A pipe's height a leg, and how far its column reaches (the owner, 2026-11-23)
 
 *"I'd also like to be able to have a pipe at different heights along its travel - and to decide if its column
