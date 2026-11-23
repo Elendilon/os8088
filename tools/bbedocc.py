@@ -18,6 +18,7 @@ its `_edit`. Nothing here runs a compile: the picture job does, and only while a
 
 import json
 import os
+import sys
 
 
 def _tint(o):
@@ -37,7 +38,10 @@ class OccView(object):
         self.show = tk.BooleanVar(value=False)
         self.shade = tk.BooleanVar(value=False)
         self.data = None                # occ.json, as loaded with the picture it was cut for
-        self.sel = None                 # ("rec", id) - an id of the list shown (recs()) - or ("noocc", cell)
+        self.sel = None                 # ("rec", id) - an id of the list shown (recs()) - or ("noocc", cell); SEVERAL
+        #                                 (130.58.47): ("recs", frozenset of ids) or ("noocs", frozenset of cells)
+        self.drag = None                # a press on the overlay: {x, y (picture px), ctrl, moved, e} (130.58.47)
+        self.passing = False            # (a click that hit nothing, handed back to the window's own press)
         self.hot = None                 # the record under the pointer
         self.which = tk.StringVar(value="shipped")     # 130.58.44: "shipped" (c.records) or "cut" (the rule's)
         self.cache = None               # (key, the composited overlay image)
@@ -62,7 +66,7 @@ class OccView(object):
             a.run_picture()
             self._say("Cutting the occluders (the full rules: tens of seconds on a big course)...")
         self.hot = None                 # (the list shown may be another now: 130.58.44)
-        if self.sel and self.sel[0] == "rec":
+        if self.sel and self.sel[0] in ("rec", "recs"):
             self.sel = None
         if not self.wanted():
             self.sel = None
@@ -132,6 +136,10 @@ class OccView(object):
             self.noocc = {tuple(c) for c in self.data.get("noocc", ())}
             if self.sel and self.sel[0] == "rec" and self.sel[1] >= len(self.recs()):
                 self.sel = None
+            if self.sel and self.sel[0] == "recs":
+                self._set_sel("recs", {k for k in self.sel[1] if k < len(self.recs())})
+            if self.sel and self.sel[0] == "noocs":
+                self._set_sel("noocs", set(self.sel[1]) & self.noocc)
         if self.wanted() and om is None and not self.app.pic_after:
             self.app.root.after(10, self.app.run_picture)
         if self.wanted():
@@ -273,6 +281,34 @@ class OccView(object):
             for y, x0, x1 in r["runs"]:
                 c.create_rectangle(x0 * kx, y * ky, (x1 + 1) * kx, (y + 1) * ky, fill="#00ffd0", outline="#000000")
             ring(r, "#00ffd0")
+        if self.sel and self.sel[0] == "recs":          # several (130.58.47): each filled, no rings
+            for k in self.sel[1]:
+                for y, x0, x1 in recs[k]["runs"]:
+                    c.create_rectangle(x0 * kx, y * ky, (x1 + 1) * kx, (y + 1) * ky, fill="#00ffd0", outline="")
+        if self.sel and self.sel[0] in ("noocc", "noocs"):
+            for cl in ([self.sel[1]] if self.sel[0] == "noocc" else self.sel[1]):
+                bb = self._cell_box(cl)
+                if bb:
+                    c.create_rectangle(bb[0] * kx, bb[1] * ky, (bb[2] + 1) * kx, (bb[3] + 1) * ky, outline="#3c8cff",
+                                       width=2)
+        d = self.drag
+        if d and d["moved"]:                            # the rectangle being dragged out
+            x0, x1 = sorted((d["x"], d["x1"]))
+            y0, y1 = sorted((d["y"], d["y1"]))
+            c.create_rectangle(x0 * kx, y0 * ky, (x1 + 1) * kx, (y1 + 1) * ky, outline="#00ffd0", width=1,
+                               dash=(4, 2))
+
+    def _cell_box(self, cl):
+        """a cell's pixels' box in the picture (its owner pixels), or None"""
+        pic = self.app.pic
+        W = pic["meta"]["width"]
+        o, ow = 256 * cl[0] + cl[1], pic["owners"]
+        xs, ys = [], []
+        for i in range(len(ow)):
+            if ow[i] == o:
+                xs.append(i % W)
+                ys.append(i // W)
+        return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
     # -- the mouse ------------------------------------------------------------
     def _rec_at(self, e):
@@ -333,30 +369,132 @@ class OccView(object):
         self.app.readout.config(text=self.describe(k))
         return True
 
+    def _px(self, e):
+        a = self.app
+        kx, ky = a.iso_scale
+        return int(a.cv.canvasx(e.x) / kx), int(a.cv.canvasy(e.y) / ky)
+
+    def dragging(self):
+        return self.drag is not None
+
     def press(self, e):
-        """-> True when the click was the overlay's: a record selected, or a noocclude cell"""
-        if not (self.wanted() and self._ready()):
+        """-> True when the press is the overlay's.  With Occluders shown every press in Iso is: a click selects a
+        record or a noocclude cell (Ctrl-click adds or takes one away) and a drag selects every record - or, with
+        none, every noocclude cell - with a pixel in the rectangle (130.58.47); a click on neither is handed back
+        to the window.  Shade alone: a click selects one of its records"""
+        if self.passing or not (self.wanted() and self._ready()):
             return False
+        if self.show.get() and self.app.view.get() == "iso" and getattr(self.app, "iso_scale", None):
+            x, y = self._px(e)
+            ctrl = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
+            self.drag = {"x": x, "y": y, "x1": x, "y1": y, "ctrl": ctrl, "moved": False, "e": e}
+            return True
+        return self._click(e, False)
+
+    def motion(self, e):
+        d = self.drag
+        x, y = self._px(e)
+        if (x, y) != (d["x1"], d["y1"]):
+            d["x1"], d["y1"] = x, y
+            d["moved"] = d["moved"] or abs(x - d["x"]) + abs(y - d["y"]) > 2
+            if d["moved"]:
+                self.app._redraw()
+
+    def release(self, e):
+        d, self.drag = self.drag, None
+        if not d["moved"]:
+            if not self._click(d["e"], d["ctrl"]) and not d["ctrl"]:
+                self.passing = True             # nothing of the overlay's there: the window's own click
+                try:
+                    self.app._press(d["e"])
+                finally:
+                    self.passing = False
+            return
+        x0, x1 = sorted((d["x"], d["x1"]))
+        y0, y1 = sorted((d["y"], d["y1"]))
+        self.pick_rect(x0, y0, x1, y1, d["ctrl"])
+
+    def pick_rect(self, x0, y0, x1, y1, add=False):
+        """the records of the list shown with a pixel in the picture's rectangle - or, with none, the noocclude
+        cells with one - selected (ADD: added to what is selected of their kind)"""
+        ids = set()
+        for r in self.recs():
+            if any(y0 <= y <= y1 and r_x0 <= x1 and r_x1 >= x0 for y, r_x0, r_x1 in r["runs"]):
+                ids.add(r["id"])
+        if ids:
+            self._set_sel("recs", ids | (self._sel_set("recs") if add else set()))
+        else:
+            pic = self.app.pic
+            W, ow = pic["meta"]["width"], pic["owners"]
+            cells = set()
+            for y in range(max(y0, 0), min(y1, pic["meta"]["lines"] - 1) + 1):
+                for x in range(max(x0, 0), min(x1, W - 1) + 1):
+                    o = ow[y * W + x]
+                    if o >= 0 and (o >> 8, o & 255) in self.noocc:
+                        cells.add((o >> 8, o & 255))
+            self._set_sel("noocs", cells | (self._sel_set("noocs") if add else set()))
+        self._selected()
+
+    def _sel_set(self, kind):
+        """what is selected of KIND ("recs": record ids, "noocs": cells), one or several"""
+        if not self.sel:
+            return set()
+        one = {"recs": "rec", "noocs": "noocc"}[kind]
+        return {self.sel[1]} if self.sel[0] == one else set(self.sel[1]) if self.sel[0] == kind else set()
+
+    def _set_sel(self, kind, items):
+        one = {"recs": "rec", "noocs": "noocc"}[kind]
+        items = set(items)
+        self.sel = None if not items else (one, next(iter(items))) if len(items) == 1 else (kind, frozenset(items))
+
+    def sel_cells(self):
+        """the selected records' cells (130.58.47) -> (every cell they hide, sorted; those noocclude may take - not
+        the start's or a route point's; those noocclude already names)"""
+        ks = self._sel_set("recs")
+        cells = sorted({tuple(c) for k in ks for c in self.recs()[k]["needs"]})
+        play = self.app.doc.in_play()
+        return cells, {c for c in cells if c not in play}, set(cells) & self.noocc
+
+    def toggle(self, kind, item):
+        """Ctrl-click: ITEM (a record id, kind "recs", or a noocclude cell, "noocs") in or out of the selection"""
+        cur = self._sel_set(kind)
+        self._set_sel(kind, cur ^ {item})
+        self._selected()
+
+    def _selected(self):
+        a = self.app
+        a.sel, a.sels, a.area = None, [], None
+        a._fill_inspector()
+        a._redraw()
+        if self.sel and self.sel[0] in ("recs", "noocs"):
+            a._msg("%d %s selected" % (len(self.sel[1]), "occluder records" if self.sel[0] == "recs"
+                                       else "noocclude cells"))
+        elif self.sel and self.sel[0] == "rec":
+            a._msg(self.describe(self.sel[1]))
+
+    def _click(self, e, ctrl):
+        """a click: -> True when it hit a record or a noocclude cell"""
         k = self._rec_at(e)
         a = self.app
         if k is None and self.show.get():
             cell = a._cell_at(e)
             if cell and cell in self.noocc:
-                self.sel = ("noocc", cell)
-                a.sel, a.sels, a.area = None, [], None
-                a._fill_inspector()
-                a._redraw()
+                if ctrl:
+                    self.toggle("noocs", cell)
+                else:
+                    self._set_sel("noocs", {cell})
+                    self._selected()
                 return True
         if k is None:
-            if self.sel:
+            if self.sel and not ctrl:
                 self.sel = None
                 a._redraw()
             return False
-        self.sel = ("rec", k)
-        a.sel, a.sels, a.area = None, [], None
-        a._fill_inspector()
-        a._redraw()
-        a._msg(self.describe(k))
+        if ctrl:
+            self.toggle("recs", k)
+        else:
+            self._set_sel("recs", {k})
+            self._selected()
         return True
 
     # -- the inspector ----------------------------------------------------------
@@ -371,6 +509,41 @@ class OccView(object):
         body = a.ins_body
         a.raw.set("")
         a.ins_err.config(text="")
+        if self.sel[0] == "noocs":                       # several noocclude cells (130.58.47)
+            cells = set(self.sel[1])
+            a.ins_title.config(text="%d noocclude cells selected" % len(cells))
+            a.ins_line.config(text=_cells(sorted(cells)))
+            ttk.Button(body, text="Hide the ball here again (remove noocclude from %d cells)" % len(cells),
+                       command=lambda: self.noocclude(remove=cells)).grid(row=0, column=0, sticky="w")
+            a.ins_help.config(text="No occluder is cut for a ball in these cells. Take them out (one undo step) and "
+                              "the occluders are cut for them again. Ctrl-click adds or takes away one cell; drag "
+                              "a rectangle to choose again.")
+            return True
+        if self.sel[0] == "recs":                        # several records (130.58.47)
+            ks = sorted(self.sel[1])
+            cells, ok, back = self.sel_cells()
+            a.ins_title.config(text="%d %soccluder records selected" % (len(ks), "shipped " if self.shipped()
+                                                                          else ""))
+            a.ins_line.config(text="records %s" % _ids(ks))
+            ttk.Label(body, text="Hide the ball in").grid(row=0, column=0, sticky="nw")
+            ttk.Label(body, text="%d cells: %s" % (len(cells), _cells(cells) or "-"),
+                      wraplength=220).grid(row=0, column=1, sticky="w")
+            b = ttk.Button(body, text="Don't hide the ball here (noocclude %d cell%s)" % (
+                len(ok), "" if len(ok) == 1 else "s"), command=lambda: self.noocclude(add=ok))
+            b.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 2))
+            if not ok:
+                b.state(["disabled"])
+            b2 = ttk.Button(body, text="Hide it again (remove noocclude from %d cell%s)" % (
+                len(back), "" if len(back) == 1 else "s"), command=lambda: self.noocclude(remove=back))
+            b2.grid(row=2, column=0, columnspan=2, sticky="w")
+            if not back:
+                b2.state(["disabled"])
+            a.ins_help.config(text="Each button is ONE edit (one undo step) over every cell these records hide. "
+                              "Ctrl-click adds or takes away one record; drag a rectangle to choose again (with "
+                              "Ctrl held, to add).%s" % (" The start and route points cannot take noocclude: %s." %
+                                                         _cells(sorted(set(cells) - ok)) if len(ok) < len(cells)
+                                                         else ""))
+            return True
         if self.sel[0] == "noocc":
             cell = self.sel[1]
             a.ins_title.config(text="No occluding at %d, %d" % cell)

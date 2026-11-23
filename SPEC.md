@@ -299381,3 +299381,29 @@ occluder records, over 1`) and `occ.json` is still written - rule and shipped re
 `needs`, the flagged cells, the refusal - and `OccView.loaded` loads it and says REFUSED. Red by hand:
 `partial_course` returning None ("a refusal after the cut wrote no occ.json").
 
+#### 130.58.47 Several occluder records at once (the owner, 2026-11-23)
+
+*"Can we have a way to drag/ctrl-click and select multiple at a time for marking as included/not included?"* With
+Occluders shown in Iso, every press on the picture is the overlay's (`OccView.press`, `motion`, `release`, which the
+window's own drag handlers hand to while it holds a press):
+
+- a **click** selects the record under it (or a `noocclude` cell); **Ctrl-click** adds it to the selection or takes
+  it away; a click on neither is handed back to the window, which selects what drew that pixel as before (the Iso
+  view's cell-area drag is not offered while Occluders shows);
+- a **drag** selects every record of the list shown (as shipped or as cut, 130.58.44) with a pixel in the rectangle
+  (drawn dashed while it is dragged) - or, when it holds none, every `noocclude` cell with a pixel in it; with Ctrl
+  held, it adds to what is selected.
+
+Several records selected are filled (no rings) and the inspector names the count - *"N shipped occluder records
+selected"*, also in the message line - the union of the cells they hide, **Don't hide the ball here (noocclude N
+cells)** over that union less the start's and the route points' cells, and **Hide it again (remove noocclude from M
+cells)** for those of them `noocclude` names already. Several `noocclude` cells selected are outlined and offer
+**Hide the ball here again (remove noocclude from N cells)**. Each button is `Document.set_noocclude` through the
+window's checked edit: ONE edit, one undo step, whatever the count. A selection of one is the single selection
+130.58.32 had.
+
+`tests/unit/t_bbedit.py` item 24, on item 16's floor without Tk: a rectangle over the picture selects every shipped
+record and the count is said; Ctrl-click in and out leaves the two it should; the union of their cells (less the
+start's and the route points') is written as one edit that one Undo takes out; three `noocclude` cells Ctrl-clicked
+are selected and taken out in one more edit. Red by hand: `toggle` adding without taking away ("Ctrl-click in and
+out leaves"), or `noocclude` splitting the union into two edits ("took 2 edits").
