@@ -281650,6 +281650,26 @@ need a fact the grid does not carry. The float slab is the cheapest and
 answers the glass path's islands; the depth is most of the central area and
 is not affordable as built. Left for the owner.
 
+**The floating row, MEASURED and NOT TAKEN** (2026-11-23; the owner's bars: *"as performant as AV is, at
+least"* and *"doesn't just end up splitting into more masks that end up costing more than they save"*). Built
+in model and guest in lockstep - a float counted from its top edge down to its slab bottom (`FL_FDEF` in the
+grid's spare bit 7 for the default 3-unit slab, else a course depth `FDEP` in BZG1 +29 bits 4 - 7), one
+`[lo, hi)` interval a column, the guest equal to the model at every tested position on MILL, DOWN and PLAY -
+and measured against both bars:
+
+| | DOWN | MILL (the owner's) | PLAY | HOP |
+|---|---|---|---|---|
+| records | 2050 -> 1699 | 1794 -> 1641 | 2419 -> 1989 | 836 -> 833 |
+| masks | 198 -> 197 | 223 -> **232** | 221 -> 218 | 109 |
+| part LZB | -94 | -66 | -324 | -7 |
+| `bz_occ` worst, clk (PRICED, unicorn) | 66.3k -> **117.4k** | 79.9k -> **114.8k** | 88.0k -> **119.0k** | |
+
+`bonanza.bin` +451 bytes of code, bss +154; `BONANZA.O88` **-116 bytes net**, the course parts' whole saving
+about 490 packed (a record packs to about 0.3 byte). Walking the residual records is far cheaper than computing
+the slab intervals that replace them (MILL, a position: the model 4.4k -> 9.6k clk, the edges 0.7k -> 4.7k,
+the record walk only -0.6k), so no trim of this guest reaches parity. Both bars fail; the row stays passed
+over. The built design is kept as `docs/plans/retired/bonanza-av-float-slab.patch` for its lesson.
+
 ### 130.30 Two-segment courses (the owner's brief, 2026-11-17)
 
 **The brief.** A course must be able to pass ONE 64KB segment: the owner's
