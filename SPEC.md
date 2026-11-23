@@ -298946,7 +298946,8 @@ Without `--occ` the picture job is unchanged and as fast. MEASURED (one core of 
 
 **The window** (the Iso view's options row, beside *Gap bands*; tools/bbedocc.py):
 
-- **Occluders**: every record over the picture as a checker of a tint chosen by the cell that drew it; the cells
+- **Occluders** *(amended by 130.58.44: by default the records the part SHIPS; these, the rule's, under "as cut")*: every
+  record over the picture as a checker of a tint chosen by the cell that drew it; the cells
   a ball can be hidden in dithered faintly (white OCCG, grey OCC alone); `noocclude` cells hatched blue. Hovering
   names a record (its owner cell and rail, row and top, the cells whose ball it hides, the cells it flags), and a
   flagged or noocclude cell. A click selects a record (filled and ringed) and the inspector offers **Don't hide
@@ -299292,3 +299293,45 @@ point's), right after the selected point when it is that branch's, else after th
 point is selected, so successive Ctrl-clicks lay a route in order. Otherwise Ctrl-click is what it was: it
 adds to the selection, and with a Tube or Chute chosen it traces that part's path (130.58.27), which comes
 first. The edit is the window's checked edit like any other. `tests/unit/t_bbedit.py` item 20 holds it.
+
+#### 130.58.44 The Occluders overlay shows what ships (the owner, 2026-11-23)
+
+The owner, looking at MILL with Occluders on: *"Is this showing with AV, and the 'can it reach it'? There are a ton
+of records here the ball can never reach (the whole back wall section, falling behind any of the guardrailed
+blocks, etc) and then some I would think AV would cover."* It was not showing AV: 130.58.32's overlay drew the
+RULE's records (`c.rule_records`, what the OCC and OCCG flags are counted on), and with AV (130.29) the part ships
+the residual of those over the VOID positions the model runs at, merged (130.11.4.1). On the owner's MILL that is
+**4,284 records as cut and 2,132 shipped**. The reach WAS applied: every record of both lists is needed by some
+reach cell. Whether those cells are ones a ball can be in is the reach's question (130.11.4.4), not the overlay's,
+and this section changes nothing there.
+
+**The view.** Beside *Occluders* in the Iso view's options row, **as shipped** (the default) and **as cut**:
+
+- *as shipped* draws, hovers and selects the part's records (`c.records`, after AV and the merge); *as cut* the
+  rule's, as 130.58.32 did. *Shade: why* alone keeps the rule's records, which are what flag the doorway.
+- The status gives both counts, *"2,132 records shipped (4,284 before AV)"* (*"as cut: AV is off"* on a course AV
+  leaves alone, where the two are one list merged), with *" - showing the rule's"* under *as cut*.
+- A shipped record is named *"shipped occluder N (cut as the rule's A, B ...)"*: the rule's records sharing its
+  pixels (none: AV's residual alone). The inspector's *Cut as* row replaces *Flags OCC in*, which is the rule's.
+- Hover, select and *Don't hide the ball here (noocclude)* work on either list: a shipped record's `needs` are the
+  cells whose ball needs it, by the same test, so a `noocclude` over all of them (none the start's or a route
+  point's) and the compile ships no record for them.
+
+**The job** (`bbedjob.occ_data`): besides `records` (the rule's), `shipped` - one row per `c.records` record, the
+same fields (`runs`, `s`, `top`, `own`, `rails`, `needs`; `flags` empty) and `rule`, the rule records sharing its
+pixels - and `av`. A shipped record's `needs` is the cutter's test over `feet_real`'s poses, as for the rule's
+(`_needs`, one function for both lists). A MERGED record's `s` and `top` are its first member's; the test now
+skips on the highest of its members' (the rule's list too, where it skipped on the first's and could miss a cell).
+Builder only: no compile output moves, so every shipped course is byte-identical.
+
+MEASURED on the owner's MILL (`TRAP_CHECK` off): `occ_data` 0.78 s with both lists (the shipped list's `needs`
+0.04 s of it); every one of the 2,132 shipped records has a non-empty `needs` and `rule`. Taking AV's own
+positions (`c.av_rcs`, the residual's test without the model) into a shipped record's `needs` as well named no
+further cell on MILL or on item 16's floor, so it is not done.
+
+`tests/unit/t_bbedit.py` item 21 holds it, on item 16's walled floor: `shipped` is the part's records pixel for
+pixel and fewer than the rule's; each names its cells and the rule's records sharing its pixels; `OccView` shows
+it by default, the rule's under *as cut* and under *Shade* alone, its status *"N records shipped (M before AV)"*;
+and a `noocclude` over a shipped record's cells leaves no shipped record over its pixels needed by them alone.
+Red by hand: make `occ_data`'s `shipped` the rule's rows (`_rec_rows(c, recs, ...)`: "304 records for the
+part's 215"), or make `OccView.shipped()` False ("does not show the shipped records by default").

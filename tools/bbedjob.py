@@ -206,9 +206,11 @@ def occ_data(c):
     records the cells' OCC and OCCG flags are counted on: c.rule_records), its pixels as runs, s, top, the cells
     that drew them, the cells whose ball positions NEED it (the cutter's test, pixel by pixel: a `noocclude` over
     all of them and it is not cut) and the cells whose flags it sets; every flagged cell; and for each windmill
-    whose doorway is in the shade (130.12.4.6) its IN 3 x 3, the flagged cells and the records that flag them"""
+    whose doorway is in the shade (130.12.4.6) its IN 3 x 3, the flagged cells and the records that flag them;
+    and (SPEC.md 130.58.44) `shipped`, the same rows for the records the PART ships (c.records, after AV and the
+    merge), each with `rule`, the rule's records that share its pixels"""
     ob = B.owners_canvas(c)
-    sb, tb, y0 = c.sbuf, c.tbuf, c.y0
+    y0 = c.y0
     recs = c.rule_records
     rid = {id(r): i for i, r in enumerate(recs)}
     rails = {}
@@ -220,42 +222,8 @@ def occ_data(c):
             two = len(bases[B.rail_key(key, c.tiles)]) > 1
             for (x, y) in B.rail_pix(key, c.redges[key], c.tiles, c.x0, two):
                 rails[(x, y + y0)] = c.redges[key].get("line")
-    out = []
-    for i, r in enumerate(recs):
-        own = {}
-        rl = set()
-        for p in r["pix"]:
-            o = ob[p[1]][p[0]]
-            own[o] = own.get(o, 0) + 1
-            if p in rails:
-                rl.add(rails[p])
-        out.append({"id": i, "s": r["s"], "top": r["top"], "brow": r["brow"], "col": r["col"],
-                    "own": [[o >> 8, o & 255, n] for o, n in sorted(own.items(), key=lambda kv: -kv[1]) if o >= 0],
-                    "rails": sorted(l_ for l_ in rl if l_), "runs": _runs(r["pix"]), "needs": set(), "flags": set()})
-    # who NEEDS each record: _occluders' test over the reach (feet_real, the cutter's poses), pixel by pixel
-    for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in B.feet_real(c.reach, c.tiles, c.x0, getattr(c, "cutdyn", None)):
-        s = rc.s
-        ytop, ybot = yt0 - zhi + y0, yb0 - zlo + y0
-        cell = (rc.wx, rc.wy)
-        for br in range(max(ytop, 0) >> 3, (ybot >> 3) + 1):
-            for bc in range(max(xl, 0) >> 3, (xh >> 3) + 1):
-                for r in c.rule_by_block.get((br, bc), ()):
-                    o = out[rid[id(r)]]
-                    if r["s"] <= s or r["top"] <= zlo or cell in o["needs"]:
-                        continue
-                    for (x, y) in r["pix"]:
-                        if not (xl <= x <= xh and ytop <= y <= ybot):
-                            continue
-                        sp, tp = sb[y][x], tb[y][x]
-                        if sp <= s:
-                            continue
-                        zmax = zhi if tp > zhi else tp - 1
-                        if zmax < zlo or (flo and tp <= zlo + B.CLIMB):
-                            continue
-                        if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
-                            continue
-                        o["needs"].add(cell)
-                        break
+    out = _rec_rows(c, recs, ob, rails)
+    _needs(c, recs, out, c.rule_by_block)
     # the flags, and which records set them
     fl = {}
     for rc in c.reach:
@@ -296,11 +264,74 @@ def occ_data(c):
         shade.append({"line": p.get("wline") or p.get("line"), "inn": [ix, iy], "box": [list(b) for b in box],
                       "flagged": [[cl[0], cl[1], "OCCG" if fl[cl] & B.FL_OCCG else "OCC"] for cl in hit],
                       "records": ids, "feet": feet, "why": _shade_why(c, hit, fl, ids, out)})
+    # SPEC.md 130.58.44: the records the PART ships (c.records: AV's residual and today's records, merged) - the
+    # same rows, their `needs` by the same test over their own blocks, and `rule`: the rule's records sharing
+    # their pixels (what each shipped record was cut as)
+    ship = _rec_rows(c, c.records, ob, rails)
+    _needs(c, c.records, ship, c.by_block)
+    at = {}
     for o in out:
+        for y, x0_, x1_ in o["runs"]:
+            for x in range(x0_, x1_ + 1):
+                at.setdefault((x, y), []).append(o["id"])
+    for o, r in zip(ship, c.records):
+        o["rule"] = sorted({k for p in r["pix"] for k in at.get(p, ())})
+    for o in out + ship:
         o["needs"] = sorted(o["needs"])
         o["flags"] = sorted(o["flags"])
-    return {"records": out, "cells": [[x, y, f] for (x, y), f in sorted(fl.items())], "shade": shade,
+    return {"records": out, "shipped": ship, "av": bool(c.av),
+            "cells": [[x, y, f] for (x, y), f in sorted(fl.items())], "shade": shade,
             "noocc": sorted(getattr(c, "noocc", ()) or ())}
+
+
+def _rec_rows(c, recs, ob, rails):
+    """occ_data's row for each record of RECS: its pixels as runs, s, top, the cells that drew them, a rail's line"""
+    out = []
+    for i, r in enumerate(recs):
+        own = {}
+        rl = set()
+        for p in r["pix"]:
+            o = ob[p[1]][p[0]]
+            own[o] = own.get(o, 0) + 1
+            if p in rails:
+                rl.add(rails[p])
+        out.append({"id": i, "s": r["s"], "top": r["top"], "brow": r["brow"], "col": r["col"],
+                    "own": [[o >> 8, o & 255, n] for o, n in sorted(own.items(), key=lambda kv: -kv[1]) if o >= 0],
+                    "rails": sorted(l_ for l_ in rl if l_), "runs": _runs(r["pix"]), "needs": set(), "flags": set()})
+    return out
+
+
+def _needs(c, recs, out, by_block):
+    """who NEEDS each record of RECS (OUT its rows, BY_BLOCK its blocks): _occluders' test over the reach (feet_real,
+    the cutter's poses), pixel by pixel"""
+    rid = {id(r): i for i, r in enumerate(recs)}
+    hi = {id(r): (max(m["s"] for m in r.get("members") or (r,)), max(m["top"] for m in r.get("members") or (r,)))
+          for r in recs}                        # (a merged record's s and top are its first member's: the test
+    sb, tb, y0 = c.sbuf, c.tbuf, c.y0           # below skips on the highest of its members')
+    for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in B.feet_real(c.reach, c.tiles, c.x0, getattr(c, "cutdyn", None)):
+        s = rc.s
+        ytop, ybot = yt0 - zhi + y0, yb0 - zlo + y0
+        cell = (rc.wx, rc.wy)
+        for br in range(max(ytop, 0) >> 3, (ybot >> 3) + 1):
+            for bc in range(max(xl, 0) >> 3, (xh >> 3) + 1):
+                for r in by_block.get((br, bc), ()):
+                    o = out[rid[id(r)]]
+                    sh, th = hi[id(r)]
+                    if sh <= s or th <= zlo or cell in o["needs"]:
+                        continue
+                    for (x, y) in r["pix"]:
+                        if not (xl <= x <= xh and ytop <= y <= ybot):
+                            continue
+                        sp, tp = sb[y][x], tb[y][x]
+                        if sp <= s:
+                            continue
+                        zmax = zhi if tp > zhi else tp - 1
+                        if zmax < zlo or (flo and tp <= zlo + B.CLIMB):
+                            continue
+                        if y < yt0 - zmax + y0 - (1 if zmax < zhi else 0):
+                            continue
+                        o["needs"].add(cell)
+                        break
 
 
 def _shade_why(c, hit, fl, ids, out):

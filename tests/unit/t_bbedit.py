@@ -87,6 +87,14 @@
     compiles glass; and a blank flag a steel pad can bring steel to, past a gap steel cannot hop, is refused
     with words naming the flag, its missing Ball here and the steel ball.
 
+ 21. THE OCCLUDERS AS SHIPPED (SPEC.md 130.58.44): on item 16's floor occ_data's `shipped` is the part's records
+    (c.records, after AV and the merge) pixel for pixel, fewer than the rule's, each naming the cells that need it
+    and the rule's records sharing its pixels; bbedocc.OccView shows them by default, the rule's under "as cut" and
+    under Shade alone, its status "N records shipped (M before AV)"; a noocclude over a shipped record's cells
+    leaves no shipped record over its pixels needed by them alone. Red by hand: occ_data's `shipped` made the
+    rule's rows ("304 records for the part's 215"), or OccView.shipped() False ("does not show the shipped records
+    by default").
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -576,6 +584,80 @@ def flag_ball_check():
     words = W.explain(err) if isinstance(err, str) else ""
     if not isinstance(err, str) or not words.startswith("Flag 0 has no Ball here") or "a steel ball" not in words:
         bad.append("item 20: a blank flag steel can reach but not leave: %s" % ((words or err)[:200],))
+    return bad
+
+
+class _OccApp(object):
+    """what bbedocc.OccView reads of the window, no Tk"""
+    def __init__(self, text, secs=1.5):
+        self.doc = E.Document(text)
+        self.pic = {"meta": {"occ": {"secs": secs}}}
+
+
+def occ_ship_check(c, od, text):
+    """item 21 (SPEC.md 130.58.44): the occluder view shows what SHIPS - occ_data's `shipped` is the part's records
+    (c.records, after AV and the merge), each named back to the rule's records it was cut as and to the cells
+    that need it; OccView shows them by default and the rule's with *as cut*, its status gives both counts, and
+    noocclude over a shipped record's cells leaves no shipped record over its pixels -> [problems]"""
+    import bbedocc as O
+    bad = []
+    sh, rl = od.get("shipped"), od["records"]
+    if sh is None or len(sh) != len(c.records) or od.get("av") != bool(c.av):
+        return ["item 21: occ_data's shipped list is %s records for the part's %d (av %r)" % (
+            None if sh is None else len(sh), len(c.records), od.get("av"))]
+    if len(sh) >= len(rl):
+        bad.append("item 21: %d shipped against %d as cut - AV and the merge took nothing on FLAG" % (len(sh),
+                                                                                                    len(rl)))
+    rpix = {}
+    for r in rl:
+        for y, x0, x1 in r["runs"]:
+            for x in range(x0, x1 + 1):
+                rpix.setdefault((x, y), set()).add(r["id"])
+    for r in sh:
+        px = {(x, y) for y, x0, x1 in r["runs"] for x in range(x0, x1 + 1)}
+        if px != {(x, y) for (x, y) in c.records[r["id"]]["pix"]}:
+            bad.append("item 21: shipped record %d's pixels are not the part's record's" % r["id"])
+            break
+        if not r["needs"] or not r["rule"] or set(r["rule"]) != {k for p in px for k in rpix.get(p, ())}:
+            bad.append("item 21: shipped record %d names needs %r, cut as %r" % (r["id"], r["needs"], r["rule"]))
+            break
+    v = O.OccView.__new__(O.OccView)
+    v.app, v.data, v.flags = _OccApp(text), od, {(x, y): f for x, y, f in od["cells"]}
+    v.show, v.shade, v.which = _Var(True), _Var(False), _Var("shipped")
+    said = []
+    v._say = said.append
+    v.wanted = lambda: True
+    if v.recs() is not sh:
+        bad.append("item 21: the Occluders overlay does not show the shipped records by default")
+    v._counts()
+    want = "%s records shipped (%s before AV)" % (format(len(sh), ","), format(len(rl), ","))
+    if not said or not said[-1].startswith(want):
+        bad.append("item 21: the status reads %r, not %r" % (said[-1:] or None, want))
+    k = max(range(len(sh)), key=lambda i: len(sh[i]["needs"]))
+    if not v.describe(k).startswith("shipped occluder %d (cut as the rule's" % k):
+        bad.append("item 21: a shipped record is described %r" % v.describe(k)[:120])
+    v.which = _Var("cut")
+    if v.recs() is not rl or "showing the rule's" not in (v._counts() or said[-1]):
+        bad.append("item 21: *as cut* does not show the rule's records")
+    v.show, v.shade = _Var(False), _Var(True)
+    if v.recs() is not rl:
+        bad.append("item 21: Shade alone does not take the rule's records (its doorway's ids are the rule's)")
+    do = E.Document(text)
+    play = do.in_play()                 # (the start's and the route points' cells: noocclude refuses them)
+    free = [i for i in range(len(sh)) if not {tuple(n) for n in sh[i]["needs"]} & play]
+    if not free:
+        return bad + ["item 21: every shipped record is needed by the start or a route point"]
+    k = max(free, key=lambda i: len(sh[i]["needs"]))
+    r0 = sh[k]
+    pix0 = {(x, y_) for y_, x0_, x1_ in r0["runs"] for x in range(x0_, x1_ + 1)}
+    do.set_noocclude(add=r0["needs"])
+    c2 = B.compile_course(do.text(), "occ.bbc", occluders=True)
+    still = [r for r in J.occ_data(c2)["shipped"]
+             if pix0 & {(x, y_) for y_, x0_, x1_ in r["runs"] for x in range(x0_, x1_ + 1)}
+             and set(map(tuple, r["needs"])) <= set(map(tuple, r0["needs"]))]
+    if still:
+        bad.append("item 21: noocclude over shipped record %d's cells %r left shipped record(s) %r over its pixels" % (
+            k, r0["needs"], [r["id"] for r in still]))
     return bad
 
 
@@ -1077,6 +1159,7 @@ def main():
                     bad.append("occ view: noocclude taken out leaves %r" % do.text()[-120:])
                 if (4, 4) not in do.set_noocclude(add=[(4, 4)])[2]:
                     bad.append("occ view: noocclude on the start was not refused")
+            bad += occ_ship_check(c, od, occ_course)     # 21. what ships (SPEC.md 130.58.44)
         finally:
             B.BLK_MAX = held
     except B.CourseError as e:
