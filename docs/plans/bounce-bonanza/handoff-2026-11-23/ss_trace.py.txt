@@ -1,0 +1,26 @@
+import sys; sys.path.insert(0, "/home/user/os8088/tools")
+import bbcourse as B
+src = open("/home/user/os8088/apps/bonanza/courses/mill.bbc").read()
+c = B.compile_course(src, "mill.bbc")
+print("ident %04X" % c.ident)
+log = open(sys.argv[1], "rb").read()
+_K, mat, kt, _fl = B.decode_log_t(log)
+p = B.Physics(c, play=True, mat=mat)
+pl = None
+for pr in p.props:
+    if isinstance(pr, dict) and pr.get("tlf") is not None and "tlpz" in pr:
+        pl = pr; break
+print("plate", {k: pl[k] for k in ("at", "tlf", "tlpz", "fsb", "i")}, "len", B.tl_len(pl))
+k = pl["fsb"] >> 3
+last = None
+for n, (key, t) in enumerate(kt):
+    p.step(key, t)
+    cell = (p.gx >> 12, p.gy >> 12)
+    on = B.tl_in(pl, cell)
+    slots = [s[:3] for s in p.fsl]
+    row = (on, p.air, p.fst[k])
+    if on or row != last:
+        if on:
+            print(n, "key %02X" % key, "cell", cell, "gx %d gy %d gz %d" % (p.gx >> 8, p.gy >> 8, p.gz >> 6), "air", p.air, "pose", p.fst[k], "slots", [list(s) for s in slots if any(s)])
+    last = row
+    if p.tout: break
