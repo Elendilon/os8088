@@ -266974,7 +266974,7 @@ short of the floor with room for the ball, the ball rolls under the pipe.
 | U1 | **no new statement**: a body cell the tube LAYS on a FLOOR (130.12.3.3) whose `column` stops `gap` over it - the pipe's top less the column, less the floor - is a **PASSABLE PIPE** cell when `gap` is 2 units (16 px) or more; refused when it is over 0 and under 2 units; a WALL as before when the column reaches the floor (`gap` 0 or less) | the clause already says how deep the pipe hangs; over the void it hangs that deep, so over a floor it should too. A gap the ball cannot use is a picture that lies, so it is refused rather than drawn |
 | U2 | **the ARCHWAY family's element, unchanged** (130.39.3): each passable cell is a FLAT FLOOR in the grid (the floor it was, no `OBS`) and an archway element anchored on it, +18 the CLEARANCE `U - AR_TOPB` (`U` the pipe's underside, whole px) | the archway's two hooks (130.39.4) are exactly a pipe's underside: the CELL hook makes the cell a WALL in the window while the ball's whole-px `z` is above the clearance, the STEP hook caps a ball inside at it. **No guest byte, no engine byte, no RAM byte, no `BZ_PHYSV` move**: the archway's part is already in every play's resident bundle (130.25.6.9), and its hooks run only on a course that names the family (130.25.6), so a course without a passable pipe or an archway pays nothing |
 | U3 | **`uses archway` is required**, refused naming it otherwise (the course builder adds it, 130.58.40) | 130.25.6.4's rule: a course names the families whose code it loads |
-| U4 | **the pipe's TOP is not a floor: above the clearance the cell is a WALL at every height**, so nothing lands on, rolls along or flies over a passable pipe - exactly what a pipe's body was before (a WALL at every height) | a top would be a hook of its own (a floor at the pipe's top while the ball is over it, the reach and the visibility of a ball ON a one-cell beam) - guest bytes and a second physics proof for a use no course has asked for. The owner's to widen (130.12.3.6's open question) |
+| U4 | **the pipe's TOP is not a floor: above the clearance the cell is a WALL at every height**, so nothing lands on, rolls along or flies over a passable pipe - exactly what a pipe's body was before (a WALL at every height) | a top would be a hook of its own (a floor at the pipe's top while the ball is over it, the reach and the visibility of a ball ON a one-cell beam) - guest bytes and a second physics proof for a use no course has asked for. The owner's to widen (130.12.3.6's open question). *Investigated by 130.12.3.7 (2026-11-23): a tube's `top` makes it one - the same hook writing a FLOOR where it wrote this WALL, 27 part bytes; without `top`, this row stands* |
 | U5 | **the floor under it must be a whole FLAT FLOOR** (no ramp, goal, water, split or FIELD cell, no guard rail), and only a PAD may share a passable cell (130.39.2's rule: the ceiling would meet anything else) | the archway's own cell rule, which its reader holds (130.39.3) |
 | U6 | **the picture**: the floor under the pipe drawn as the floor it is, then the pipe's SLAB - its top at the pipe's height with the pipe on it, its `+x` and `+y` faces from its top down to its underside (a face toward a WALL next along the tube's path down to that wall's top, so the RISER of 130.12.3.3 reaches it; none where the cell in front is no lower than the pipe's top) - every op of the slab KEYED `s + 1`, the archway lintel's rule (130.39.1 A9) | the occluders then lay the slab over a ball UNDER it (the same row) and over one behind it, never over one in front of it. The tube's art (the pipe on the top, the riser, a DROP's mouth) is drawn on the slab, not the floor |
 | U7 | **the visibility rule is the archway's** (130.39.1 A10): along each axis, each run of a tube's passable cells with a whole floor at both ends, a ball rolled grounded along each lane through it may be WHOLLY hidden for at most `AR_HIDE` (16) ground units in a row - refused (a warning in the builder, 130.58.18's `ball-hidden`) past that | a pipe laid ALONG a path two units over it is a tunnel; one across the path is a moment |
@@ -267016,9 +267016,102 @@ and `pipe-hop` on the guest's archway part against the model, every step, and it
 `tests/unit/t_bbedit.py` 13e: `body 5 column 1` over a floor compiles to passable cells, the builder adding
 `uses archway`; `body 4.5` refused.
 
-**Open questions for the owner**: (PQ1) a pipe's TOP as a floor the ball lands and rolls on (U4) - a hook of its
-own; (PQ2) a gap the ball cannot use is refused rather than drawn as a wall to the floor - the alternative is a
+**Open questions for the owner**: (PQ1) a pipe's TOP as a floor the ball lands and rolls on (U4) - investigated
+as 130.12.3.7's `top`, the owner's to merge; (PQ2) a gap the ball cannot use is refused rather than drawn as a wall to the floor - the alternative is a
 column that silently reaches the floor there; (PQ3) a shipped course that uses it - none yet.
+
+##### 130.12.3.7 A pipe the ball rolls OVER: a walkable top (the owner, 2026-11-23; an INVESTIGATION)
+
+*"investigate allowing it to roll over the top of pipes (and arches if it's the same work), that would also allow
+crossings ... A pipe in the center of what is otherwise a floor is visually interesting."* - 130.12.3.6's PQ1. Built
+on branch `bb-editor` as an investigation the owner may or may not merge; every shipped course compiles byte for
+byte as before (below).
+
+**First, what the engine already does with a wall's top: nothing.** A WALL blocks at every height - `blocks()` /
+`bz_blocks` answer a WALL before they look at its height (130.11.8.2 step 5) - and step 6 never grounds a ball on a
+WALL, because nothing puts the ball's centre in one. Walls HAVE heights (the picture's and the reach's), but in the
+physics a wall has no top: a pipe whose column reaches the floor (130.12.3.5) - "a pipe in the centre of a floor" -
+is a wall the ball bounces off at any height, a Hop or a boost included. The engine's walkable BLOCK is a raised
+FLOOR: step 5 stops a ball at its side while the floor's height there is over the step's start `z` + `BZ_CLIMB`,
+exactly as it stops it at a wall, and step 6 grounds a ball over it. So a walkable top is a cell that is a FLOOR at
+the top's height while the ball is over it - and for a passable pipe (130.12.3.6) the floor UNDER it while the ball
+is under it: one cell, two floors. The grid holds one height a cell, so the second floor is the window's, written
+by the archway family's CELL hook (130.39.4), which already makes that cell what the ball's height needs.
+
+| | decision | why |
+|---|---|---|
+| T1 | **opt-in: `top`**, a clause of `tube` (130.12.3.3) and of `archway` (130.39.2, anywhere after `along x|y`). Without it every record, byte and step is 130.12.3.6's and 130.39's | MILL, PLAY and ROLL ship archways and every course ships tubes: a default would move their records and their PLAY (a ball landing on a lintel it bounced off). The A/B is the 24 files of `bbcourse.py -o` (below) |
+| T2 | **a TOP is the archway element's (130.39.3), extended**: +20 `T`, the top's height as the window holds it (z0, 2 px a step; a byte), +21 bit 0 set. CELL, `Z` over the clearance `C`: the window's copy a FLOOR at `T` (kind nibble `BZ_AR_FLOOR`, z0 `T`, its surface and flags kept) where 130.39.4 wrote a WALL, and the centre's `CC` left at 32767 (no ceiling over a ball on the top) | the engine's own floor test then IS the wall a ball under `T - BZ_CLIMB` meets at the face (130.39's, unchanged for every height a wall stopped), and grounds one over it on the top - no engine byte, no `BZ_PHYSV` move, no new hook, no new family (its FAMV unchanged: an old record, +20 and +21 zero, is read and run as before) |
+| T3 | **no exception for the centre**: a ball that comes INTO a passable cell under the slab with its whole-px `z` over `C` at the refill (a Hop that crossed `C` in the step it entered, 130.39.4's late case) meets the top's floor in the step's FALLBACK (`T` > the start `z` + `BZ_CLIMB`) and is put back - exactly as the WALL put it back (130.39.4's undo); one that came ON (`z` within `BZ_CLIMB` of `T`) lands | the first draft carried a band middle `M` (the centre under `M` kept its floor); the model showed it let a ball 1 px over `C` INTO the cell where 130.39's wall puts it back, and its red arm could not go red - the fallback already decides. Dropped: 10 guest bytes and a record word less |
+| T4 | **a WALKABLE WALL**: the same element on a WALL cell, `C` = -32768 (so always its top), `T` its height. With `top`, every WALL of the tube's body - and an archway's LEGS - is one | without it a ball on a passable pipe's top meets the next body cell - a leg, a riser - as a wall at every height: an INVISIBLE wall over a lower leg (walls have no tops). With it the pipe is one floor from mouth to mouth, a step down onto a lower leg, a face where a higher one rises. So `top` alone (no passable cell) is the owner's *pipe in the centre of a floor*: a wall the ball rolls over, landing on it with a Hop or a boost (1 unit: rubber's boost, 9.3 px) or rolling onto it from ground at its height |
+| T5 | **STEP is unchanged**; a window with walkable walls alone leaves `LO`, `HI`, `CC` at their nones, so no STEP runs for them (130.25.6.11) | a walkable wall needs no band: it is the floor at its top at every height |
+| T6 | **the top's surface is the cell's**: a passable top rolls as the floor under it (ice under, an icy top), a walkable wall as the wall (normal) | the window keeps the surface nibble; a surface of its own would be record bytes and a CELL write for a look no course has asked for |
+| T7 | **a respawn** never lands on a top: SAFE is the CELL (130.10.4.3.1) and the respawn places the ball at the grid's floor (under a passable pipe); a walkable wall is never SAFE (a WALL) | the ball comes back where the grid says, under the pipe, with nothing new in the respawn |
+| T8 | **the picture: nothing new.** The occluder rule (130.10.4.4: lay a pixel iff `s_b < s_C` and `z_b + m < top_C`) already tells a ball ON the slab (`z_b` = `T` = the slab's tops: not laid) from one UNDER it (laid): the slab and the lintel stay keyed `s + 1` (130.12.3.6 U6, 130.39.1 A9). A ball on a walkable wall is in that wall's own row, which never covers it | the draw order a ball on top needs is the one the rule computes from `z` - no record moves, no op is added |
+| T9 | **the reach** takes every TOP a second time: a form "top" (130.25.18's union: the reach again with each top's cell a FLOOR at `T`, the lower `zlo` and the higher `zhi` kept), and OCCG reads a top's cell from its floor to `T` (a walkable wall's at `T`) | 130.39.6's "the floor it is" leaves out a ball ON the top and every flight from it (higher than any from the floor); the union is conservative for the occluders, the bounds and NO TRAP as every form is |
+| T10 | **the visibility rule** (130.12.3.6 U7) is unchanged, and a run's ends must be floors at the run's floor (within a climbable step) to count as a passage under it | a tier at the top's height beside the pipe is the way ONTO it, not a passage under it; measured against such a tier the rule read 33 gu of a ball passing BESIDE the tier, not under the pipe |
+
+**What the ball does at the top's edges and ends.** Across a one-cell pipe it rolls off either side onto whatever
+is lower (a fall, with that material's landing); along it, on to the next body cell's top (a passable one at
+another height, a walkable leg: a step it climbs within `BZ_CLIMB`, a drop otherwise, a face it bounces off where
+the next is higher); off the pipe's end onto a mouth's floor - and IN's mouth captures it as it captures any ball
+rolling onto it. An archway's top runs across the arch from leg to leg and off its open sides (the run's ends)
+onto the passage.
+
+**Refused**, naming the line (each a `--selfcheck` string case, section `pipeover`): a `top` on a course without
+`uses archway` (the builder adds it, 130.58.40); `top` twice; an archway's `top` before its `along`; a body cell
+under a walkable top that is not a flat WALL (a sloped wall the tube runs through).
+
+**As built** (`tools/bbcourse.py`): `_parse_tube` / `_parse_archway` read `top`; `build_props` gives each passable
+and archway cell's record `top` (`2 z0` of the pipe's slab or the lintel) and lays `_walk_rec`'s walkable walls on
+the tube's body walls and the archway's legs (no owner: never a cell's prop for the pad rule); the record is
+`<BBhbB10x>` (+18 `C`, +20 `T`, +21 the bit); the readers hold +20 and +21 zero without the bit, a walkable wall a
+flat WALL at `T`, a top at least 2 px over the clearance's ball; `ArchFamily.cell` is T2; `reach_forms`' "top" form
+and `_occg`'s ranges are T9; `pipe_vis` is T10. The guest's CELL (`apps/bonanza/fam/archway.asm`): the bit tested,
+then `T` written into the window cell's z0 and its kind nibble made FLOOR, else 130.39.4's WALL.
+
+**The test course**: `apps/bonanza/courses/pipeover.bbc`, OVER "Pipe crossing" (on no disk, in no tour), a
+CROSSING: one KEEP tube along row 12 with `top`, its middle leg (x 10 - 16) a pipe at 5 units hanging `column 1`
+over the floor at 2 (two units of room: the clearance 16 px, `T` 40 px), its end legs walls at 3 units (walkable).
+The UPPER path: the start on a tier at the pipe's top, +y onto the pipe, +x along its top over column 13, off its
+end onto the east leg's top and the floor. The LOWER path: +y down column 13, under the pipe.
+
+**The checks**: `--selfcheck` section `pipeover` (MEASURED, 2026-11-23): the three refusals; the records (seven
+passable cells, `C` 16 and `T` 20; six walkable leg walls, `C` -32768 and `T` 12; the LAST records); the upper path
+on the model (rubber grounded at 40 px on the pipe's top for 68 steps, over column 13, bouncing on the east leg's
+top at 24 px, out at (23, 12)); the lower path (under at (13, 12) at 16 px, out at (13, 14)); every Hop and second
+press under the pipe (rubber 320 runs, the jump pickup's Hop 320) and along its top (rubber, 160) never THROUGH the
+slab - inside it, across it in one step, or in from its band (0, 0, 0); a ball under the pipe laid over by its slab
+(10 of its px the slab's), one on its top by NOTHING (0 px); the reach holding the six legs and (13, 12) from 16 to
+75 px; the visibility, 5 gu; an archway with `top` crossed leg - lintel - leg at 40 px (its control without `top`:
+stopped at the leg). Controls and red arms, each caught: `top` left out (the pipe 130.12.3.6's: nothing stands on
+it); `artop` (the TOP never written: 130.39's wall); `arsink` (the centre never its top: the ball cannot get on);
+`arnocap` (the STEP cap out: a Hop under the pipe rises into the slab); `puhi` (the slab keyed 16 px over its top: a
+ball ON it laid over); `notopreach` (the reach without the tops). `tests/bonanza_phys.py`'s `arch_host` replays
+OVER's scenes `over-top`, `over-hop`, `over-under` and `over-face` on the guest's archway part against the model,
+every step, with the red arms `artop` and `arkind` (the top's height written, its kind left a WALL) - **written,
+NOT RUN in the investigation** (a soak row, `bonanzaphys`: the lead's final pass). `tests/unit/t_bbedit.py` 13f: the
+shape editor reads and writes `top`, the builder adds `uses archway`, the records as above, none without it; item
+17 holds the archway's `top` row (`bbedopts`).
+
+**Costs** (MEASURED on this tree, 2026-11-23 unless PREDICTED):
+
+| | before | after | |
+|---|---|---|---|
+| `build/bzf-archway.bin` | 323 | **350 bytes (+27)** | CELL's record body: the bit's test and branch (7), the top's z0 and kind writes and their jump (20), the WALL path's jump to the centre's ceiling (2); the ceiling's test, once before the writes, now after both paths (-2) |
+| its RAM (FAMILIES' paras, resident in every play's bundle, 130.25.6.9) | 21 paras | **22 (+16 bytes)** | the ceiling raised 21 -> 22 |
+| `bonanza.bin` | 52,907 | **52,907 (0)** | no engine byte; `BZ_PHYSV` and the archway's FAMV unchanged |
+| `BONANZA.O88` | 175,359 | **175,375 (+16)** | the part, packed |
+| the 24 shipped course / pathway / title / demo files | | **byte for byte the same** | `bbcourse.py -o` by HEAD's tool and this one, `diff -r` empty |
+| a course with `top` | | +32 bytes of its course part a walkable wall (a record) | OVER: 13 records, 416 bytes (7 of them 130.12.3.6's already) |
+| CELL, a refill (PREDICTED, 8088 tables) | | about +40 clk a record IN the window (the bit's test, its branch) and +60 more a TOPPED one (the z0 write); about 60 clk a record walked (130.39.8's) for each walkable wall the family's list holds - OVER's 13 records about 0.8k a refill | refills come on a cell change or a band crossing, not every step |
+| STEP (PREDICTED) | | unchanged; none at all while the window holds walkable walls alone | |
+
+**Open questions for the owner**: (TQ1) is `top` worth merging - 27 part bytes and 16 bytes of every play's RAM for
+crossings and pipes the ball rolls over, nothing on any course that does not say `top`; (TQ2) should a passable
+pipe be walkable without saying so (`top` its default) - it moves no shipped byte today (no shipped passable pipe)
+but changes PIPE's play; (TQ3) a walkable top's surface - the floor's under it (T6), or a surface of its own;
+(TQ4) the guest's scenes (`bonanzaphys`) and a shipped course that uses it - none yet.
 
 ##### 130.12.3.4 The prop clock, and the seeds
 
@@ -294079,7 +294172,7 @@ the checks); 130.39.8 is the as-built record, MEASURED where it says so.**
 #### 130.39.2 The statement
 
     uses archway
-    archway <shape> along x|y [under <units>]
+    archway <shape> along x|y [under <units>] [top]
 
 `<shape>` is `tile` or `rect` (130.10.3's), the cells UNDER the arch;
 `along` the axis the ball rolls through it on. Its DEPTH (cells along the
@@ -294115,8 +294208,10 @@ An archway CELL is one element (130.25.6.4's record), anchored on the cell,
 NOT an owner (A8): +16 FSB 0, +17 class 0 (ATTEMPT: it has no state), **+18
 the CLEARANCE, a signed word, whole px** (`4 z0 + 8 under - AR_TOPB`), +20 -
 +31 zero. The reader accepts exactly that, anchored on a flat FLOOR cell
-whose height leaves the clearance at least 2 px over it, and no lane. The
-elements are the LAST records of the table (after every prop that claims a
+whose height leaves the clearance at least 2 px over it, and no lane - or,
+since 130.12.3.7 (`top`), +20 the TOP's height (z0, a byte) and +21 bit 0 set,
+and a WALKABLE WALL's record anchored on a flat WALL at that height, +18
+-32768. The elements are the LAST records of the table (after every prop that claims a
 cell), so the window refill's owner scan - the first record whose anchor is
 the cell - meets a pad before the arch on a cell they share. **A PASSABLE PIPE's cells (130.12.3.6, 2026-11-23) are this
 element too**, anchored on the floor under the pipe, +18 the pipe's underside less `AR_TOPB`: the same part, hooks
@@ -294134,6 +294229,9 @@ window (`bz_place`), which writes it before any step reads it: no RESET.
 window, `C` its clearance: the centre's cell, `CC = C`; if `Z > C`, the
 window's copy of the cell becomes a WALL (its kind nibble 2; the surface,
 height, slopes and flags kept) and `LO = max(LO, C)`; else `HI = min(HI, C)`.
+*Since 130.12.3.7*: a record with a TOP (+21 bit 0), `Z > C`, makes the copy a
+FLOOR at its `T` instead (z0 `T`, kind nibble 1, the surface and flags kept),
+and leaves the centre's `CC` at 32767.
 
 **STEP**: `Z` as above; if `Z > CC`: `z = CC` (whole, fraction 0), and if
 `gvz > 0`, `gvz = -(gvz >> AR_RSH)` (arithmetic; `AR_RSH` 2); `Z = CC`.
@@ -298950,3 +299048,10 @@ the pipe or that leg, or make the column reach the floor) and one stopping over 
 is not a flat floor - and the explanation of *the tube's column hangs nothing* now names the third way out,
 raising the pipe so the ball can pass under it. `tests/unit/t_bbedit.py` item 13e holds the compile and the
 added `uses`.
+
+**130.12.3.7's `top`** (an investigation, 2026-11-23) is one tick box on the tube's form, **Walkable top** (the
+shape editor reads and writes the clause; the hint says the ball lands and rolls on the pipe and still passes
+under where the column leaves room), and one on an archway's inspector rows (`bbedopts`: the flag `top`, "the
+ball lands and rolls on the lintel and the legs"). The builder adds `uses archway` for it the same way, and the
+banner explains its two refusals - a walkable top without the archway extra, and a body cell under it that is
+not a flat wall. `tests/unit/t_bbedit.py` 13f and item 17 hold them.

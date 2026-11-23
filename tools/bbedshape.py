@@ -87,6 +87,9 @@ def parse(toks):
                 elif t[i] == "column":
                     sh["column"] = float(t[i + 1])
                     i += 2
+                elif t[i] == "top":             # (SPEC.md 130.12.3.7: a walkable top)
+                    sh["top"] = True
+                    i += 1
                 else:
                     return None
             sh["ways"].append(last)
@@ -150,6 +153,8 @@ def code(sh):
             out += " body " + (_g(hs[0]) if len(set(hs)) == 1 else " ".join(_g(h) for h in hs))
         if sh.get("column") is not None:
             out += " column %s" % _g(sh["column"])
+        if sh.get("top"):
+            out += " top"
         return out
     if sh["kind"] == "pit":
         out = "pit %d %d %s radius %d depth %d" % (sh["x"], sh["y"], _g(sh["z"]), sh["radius"], sh["depth"])
@@ -717,6 +722,12 @@ class ShapeEditor(object):
                                       "units above it: then the ball passes UNDER the pipe (the course loads the "
                                       "archway extra for it); stopping closer than 2 units is refused",
                       wraplength=290, foreground="#555").grid(
+                row=row[0], column=0, columnspan=2, sticky="w")
+            row[0] += 1
+            tv = tk.BooleanVar(value=bool(sh.get("top")))     # SPEC.md 130.12.3.7: a walkable top
+            ttk.Checkbutton(self.form, text="Walkable top: the ball lands and rolls on the pipe (and passes under "
+                                            "it where the column leaves room)", variable=tv,
+                            command=lambda: self.apply(dict(sh, top=tv.get() or None), "walkable top")).grid(
                 row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1
             ttk.Label(self.form, text="Points: 1 is where the ball goes in, %d where it comes out; drag them on "

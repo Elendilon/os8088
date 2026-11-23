@@ -3069,6 +3069,51 @@ def pipe_verdict(name, p, trace):
         p.gx >> 12, p.gy >> 12, p.nboost, above[:3])
 
 
+def _over_course():
+    """THE WALKABLE PIPE (SPEC.md 130.12.3.7): its test course, OVER (apps/bonanza/courses/pipeover.bbc, on no
+    disk) - a tube with `top`: its passable cells the archway family's elements with a TOP, its walls walkable ones"""
+    R.crs_fill()
+    if "over" not in dict.keys(R.COURSES):
+        dict.__setitem__(R.COURSES, "over", "apps/bonanza/courses/pipeover.bbc")
+        dict.__setitem__(R.CRS_K, "over", R.CRS_K["play"])
+
+
+def over_poke(wx, wy, mat, gvx=0, gvy=0):
+    _over_course()
+    return poke_of(BB.Physics(R.course("over"), play=True, mat=mat).poke(wx, wy, gvx, gvy))
+
+
+def over_scenarios():
+    """[(name, material, poke, keys)] on OVER (each FOUND on the model, 2026-11-23): the UPPER path - rubber off the
+    north tier onto the pipe's top, along it over column 13 and off its end over the east leg's walkable top
+    (bbcourse.po_key's keys); a Hop and a second press ON the top; the LOWER path - rubber rolled down column 13
+    UNDER the pipe; a Hop at the pipe's face from the floor (its late step into the cell put back by the
+    fallback: the top's floor test, 130.12.3.7)"""
+    H, Y = BB.K_HOP, BB.K_D | BB.K_L
+    up = [BB.po_key(k, 40) for k in range(220)]
+    return [("over-top", BB.MAT_RUBBER, over_poke(10, 9, BB.MAT_RUBBER), up),
+            ("over-hop", BB.MAT_RUBBER, over_poke(10, 9, BB.MAT_RUBBER),
+             [k | (H if i in (100, 110) else 0) for i, k in enumerate(up[:170])]),
+            ("over-under", BB.MAT_RUBBER, over_poke(13, 9, BB.MAT_RUBBER), [Y] * 90),
+            ("over-face", BB.MAT_RUBBER, over_poke(13, 11, BB.MAT_RUBBER), [Y] * 26 + [Y | H] + [Y] * 60)]
+
+
+def over_verdict(name, p, trace):
+    """what an OVER scenario is for, on the model's trace [(cell, z, air)] -> (ok, what)"""
+    band = dict((pr["at"], (pr["clr"], 2 * pr["top"])) for pr in p.props if pr["kind"] == BB.FK_ARCH
+                and "top" in pr and pr["clr"] > -32768)
+    inside = [k for k, (cell, z, _a) in enumerate(trace) if cell in band and band[cell][0] < z < band[cell][1]]
+    if name in ("over-top", "over-hop"):
+        on = [k for k, (cell, z, a) in enumerate(trace) if cell in band and z == band[cell][1] and not a]
+        ok = not inside and len(on) > 10
+        return ok, "ON the pipe's top on %d steps, inside the slab at %s, out at (%d, %d)" % (
+            len(on), inside[:3], p.gx >> 12, p.gy >> 12)
+    under = any(cell == (13, 12) and z == 16 for cell, z, _a in trace)
+    ok = not inside and (under or name == "over-face")
+    return ok, "%s: under at (13, 12) %s, inside the slab at %s, out at (%d, %d)" % (
+        name, under, inside[:3], p.gx >> 12, p.gy >> 12)
+
+
 def arch_poke(wx, wy, mat, gvx=0, gvy=0):
     _arch_course()
     return poke_of(BB.Physics(R.course("arch"), play=True, mat=mat).poke(wx, wy, gvx, gvy))
@@ -3123,6 +3168,15 @@ def arch_reds():
              "the ball"))
 
 
+def over_reds():
+    """THE WALKABLE PIPE's red arms on the unicorn (SPEC.md 130.12.3.7), each the part assembled from a patched
+    archway.asm: artop (the TOP never written - 130.39's wall instead: the window), arkind (the top's height written
+    but its kind left a WALL, as a walkable wall's is in the grid: the window, on its legs)"""
+    return (("artop", ("    jz .wl                      ; no TOP: a WALL (130.39.4)\n", "    jmp short .wl\n"),
+             "over-top", "the window"),
+            ("arkind", ("    or byte [bz_nbr + bx + 2], BZ_AR_FLOOR\n", ""), "over-top", "the window"))
+
+
 def arch_host(binp, lst, sym, fam):
     """the ARCHWAY scenarios under unicorn, every step against the model, and their red arms -> (lines, fails)"""
     import shutil
@@ -3166,6 +3220,35 @@ def arch_host(binp, lst, sym, fam):
             out.append("red arcap (pipe-hit): %s" % ("red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
             if not ok:
                 fails.append("red arcap stayed green on the unicorn on PIPE: %s" % (bad[:1],))
+    for name, mat, pk, keys in over_scenarios():    # THE WALKABLE PIPE (SPEC.md 130.12.3.7): the archway's part
+        p, bad = urun(binp, lst, sym, "over", mat, keys, fam, poke=pk)     # on OVER's records with their TOPS
+        q = model("over", mat, pk)
+        trace = []
+        for k in keys:
+            q.step(k)
+            trace.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air))
+        ok, what = over_verdict(name, q, trace)
+        out.append("%s, %d steps: %s; %s" % (name, len(keys), "; ".join(bad) or "the guest is the model at every "
+                                             "step", what))
+        fails += bad + ([] if ok else ["%s: %s" % (name, what)])
+    for arm, (a_, b_), scn, want in over_reds():    # ...and its red arms on the part, each on OVER
+        assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "bonanza")
+            shutil.copytree(os.path.join(ROOT, "apps", "bonanza"), src)
+            open(os.path.join(src, "fam", "archway.asm"), "w").write(src0.replace(a_, b_))
+            o = os.path.join(td, "part.bin")
+            subprocess.run(R.NASM + ["-f", "bin", "-w+error", "-I", os.path.join(ROOT, "apps") + "/", "-I", src + "/",
+                            "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(src, "fam", "archway.asm")],
+                           cwd=ROOT, check=True)
+            ff = fam_parts({"archway": open(o, "rb").read()})
+        sc_ = dict((n, (m, pk, k)) for n, m, pk, k in over_scenarios())
+        mat, pk, keys = sc_[scn]
+        _p, bad = urun(binp, lst, sym, "over", mat, keys, ff, poke=pk)
+        ok = any(want in b for b in bad)
+        out.append("red %s (%s): %s" % (arm, scn, "red at %s" % bad[0][:160] if ok else "STAYED GREEN"))
+        if not ok:
+            fails.append("red %s stayed green on the unicorn: %s" % (arm, bad[:1]))
     for name, mat, pk, keys in pipe_scenarios():    # THE PASSABLE PIPE (SPEC.md 130.12.3.6): the archway's part
         p, bad = urun(binp, lst, sym, "pipe", mat, keys, fam, poke=pk)     # on PIPE's records
         q = model("pipe", mat, pk)

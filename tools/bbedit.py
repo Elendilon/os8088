@@ -3754,6 +3754,12 @@ EXPLAIN = [
      "every cell of this tube's body stands on floor or beside it, so its column already stops there. Set Column "
      "reaches back to the ground, run the tube out over a gap, or raise the Pipe height so the column stops 2 "
      "units over the floor and the ball can pass under it (130.12.3.6)."),
+    (r"the tube's `top` makes its body a floor", "the tube's Walkable top makes its pipe a floor the ball lands "
+     "and rolls on, which the archway extra does (SPEC.md 130.12.3.7): add `archway` to the course's extras (the "
+     "builder does when you tick it), or untick Walkable top."),
+    (r"the cell \((\d+), (\d+)\) under a walkable top is not a flat WALL", "a walkable top lies on the tube's "
+     "body, and ({0}, {1}) is part of it but is not a flat wall the tube laid - a ramp or a sloped wall the tube "
+     "runs through (SPEC.md 130.12.3.7). Move the tube off it, or untick Walkable top."),
     (r"the tube's column stops (\S+) units over the floor at \((\d+), (\d+)\): a ball needs (\d+) units",
      "the tube's column stops {0} units over the floor at ({1}, {2}): too low for the ball to pass under the pipe "
      "(it needs {3}), and a gap it cannot use is not allowed (SPEC.md 130.12.3.6). Raise the Pipe height (or that "
