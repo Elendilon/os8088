@@ -296238,12 +296238,13 @@ do exactly this):
    the STOPPED one (`bz_rsmn`, `bz_rsmx`: 130.45.5's rmin and rmax) and the picture's (0, `bz_rfmx`: the
    part's rmax before the bottom stop), and the span as the window's columns that hold it, `bz_sglo = b -
    W`, `bz_sghi = a` (none: `-W`, 255). `bz_kpull = 4 >> lsh` (`CAM_PULL`, four lines: two CGA rows, one
-   Hercules row, four VGA lines). The columns' range is folded as before.
+   Hercules row, four VGA lines). The columns' range is folded as before. The STOPPED range is written to
+   `bz_rmin`, `bz_rmax` as well, where a course with no span keeps it (item 4).
 2. **`bz_clampwin`** (the first frame and a cut) and **`bz_clampmv`** (every other frame, `bz_camera`'s
-   `.moved`): the column `bz_c0n` to `bz_cmin - bz_cmax` FIRST; then this frame's rows' range is the
-   STOPPED one when `bz_sglo <= c0n <= bz_sghi`, else the picture's; it is stored in `bz_rmin`, `bz_rmax`
-   (LATTICE's `BZL_MN`, `BZL_MX`, which `bz_lcand` reads next frame, and the VGA camera's `.ylim`), and
-   `bz_R0n` is clamped to it.
+   `.moved`): the column `bz_c0n` to `bz_cmin - bz_cmax` FIRST; then, on a course with a span (`bz_sghi`,
+   its `a`, not 255), this frame's rows' range is the STOPPED one when `bz_sglo <= c0n <= bz_sghi`, else the
+   picture's; it is stored in `bz_rmin`, `bz_rmax` (LATTICE's `BZL_MN`, `BZL_MX`, which `bz_lcand` reads
+   next frame, and the VGA camera's `.ylim`), and `bz_R0n` is clamped to it.
 3. **THE PULL, the transition back**: in `bz_clampmv`, a window whose row as it stands (`bz_R0`) is past
    this frame's range - re-entering the span below a down stop, or above an up one - is not clamped to it
    at once: the range is first widened to reach it less `bz_kpull` (`rmax = max(rmax, R0 - kpull)`, `rmin =
@@ -296253,7 +296254,10 @@ do exactly this):
    range simply grows: the window is inside it, and LATTICE's next pan follows the ball as anywhere. The
    first frame and a cut clamp at once (`bz_clampwin`'s entry: the window is written whole there anyway).
 4. Nothing else in the camera changes; a course without `over` gets the same range every frame and the
-   pull never fires (its window is always inside it), so its play is the build before it.
+   pull never fires (its window is always inside it), so its play is the build before it. **So it pays
+   nothing for the span**: `bz_clampmv` tests `bz_sghi`'s byte for 255 once and clamps the row to the
+   `bz_rmin`, `bz_rmax` `bz_vstop` left, the clamp before 130.45.6 - no choice, no pull, no store (the
+   owner, 2026-11-23: *"cheap"*; the cost below).
 
 **The model**: `cam_span(spantab, card)` is `bz_vstop`'s `(bz_sglo, bz_sghi)`; `Glide` keeps the stopped
 range (`rmin`, `rmax`), the picture's (`rfree`), the span (`sglo`, `sghi`) and `kpull`, and `_clamp(R, C,
@@ -296283,11 +296287,39 @@ byte-identical, `bzcourse.inc` differing by the `BZ_CRS_SPANS` table alone): `bo
 registers -3, `SI` the block's base), `bz_vstop` 75 -> 111 (+36: the picture's most kept, the span's two
 words, the pull). `bzvga.bin` **+0** (its camera reads `bz_rmin`, `bz_rmax` as before). `BONANZA.O88` as
 packed **+100 bytes** (178,465 -> 178,565). Bss **+12** (`bz_rsmn`, `bz_rsmx`, `bz_rfmx`, `bz_sglo`,
-`bz_sghi`, `bz_kpull`, laid out after `bz_rmax` and read off it, `BZR_*`). **Per frame**, every course
-(`bz_clampmv`, the window inside its range, the common path): about **+160 clocks** on the 8088 (about 216
--> 378 by the instruction table, and above the 4.34-clocks-a-byte fetch floor either way: some 34 us at
-4.77 MHz) - the span's two compares, the two range loads and stores, the pull's two compares; a frame that
-pulls, some 50 more. `bz_vstop` runs once a course.
+`bz_sghi`, `bz_kpull`, laid out after `bz_rmax` and read off it, `BZR_*`). **Per frame**, as first built,
+every course paid for it: `bz_clampmv` 216 -> 414 clocks on a frame inside its range (PREDICTED, the
+130.11.15 method - the 8086 table, the 8088's word transfers, the 4.34-clocks-a-byte fetch floor - off the
+instructions unicorn executed), the span's two compares, the two range loads and stores, the pull's two
+compares; a frame that pulls, some 160 more. That put `bonanzaring`'s CAMERA leg over its bound on both
+cards: `bz_camera`'s worst clean call 7,348 cycles on the `dither` scenario (TMIL, a course with no span)
+against 5,760 + 25% (7,200; 130.17.11) (MEASURED, the soak row). `bz_vstop` runs once a course.
+
+**Made cheap** (the owner: *"cheap"*; item 4): a course with no span takes one byte test and the old clamp,
+and `bz_camera` around it sheds what it did not need - the three `bz_abs` calls (the travel ring's and the
+two step tests at `.moved`) become one unsigned range test each (`|d| <= k` as `d + k <= 2k`), `dr` and `dc`
+are kept in registers from the clamp to their stores instead of read back twice, and `bz_clampmv` returns
+the row in `AX`. The same instruction-table pricing (PREDICTED; one window, a LATTICE frame):
+
+| a LATTICE frame | `bd1be675e` (no span yet) | `edeabad05` (the span) | now |
+|---|---|---|---|
+| `bz_clampmv` alone, a course with no span, the window inside | 216 | 414 | **256** |
+| ... MILL inside the span / outside it | 216 / 216 | 414 / 435 | 498 / 519 |
+| `.moved` to the return (the clamp, `bz_full`, `dr`, `dc`), no span, at rest / a row step (with `bz_shchk`) | 653 / 787 | 851 / 985 | **524 / 658** |
+| ... MILL inside the span / outside it / a pulling frame | 653 / 653 / - | 851 / 872 / 1,015 | 766 / 787 / 936 |
+| the travel ring (`bz_gfast`), every LATTICE frame | 247 | 247 | **196** |
+| **a frame, no span** | - | - | **-378 on `edeabad05`, -180 on `bd1be675e`** |
+| **a frame, MILL** | - | - | **-136 on `edeabad05`** (+62 / +83 on `bd1be675e`) |
+
+So the `dither` scenario's worst is PREDICTED near **6,970** cycles (7,348 less 378) against the 7,200
+bound; the final pass's `bonanzaring` measures it. Every other path of `bz_camera` is unchanged. Bytes, on
+the build before (`8b5cc62c7`): `bonanza.bin` **+5** (53,223 -> 53,228: `bz_clampwin` with `bz_clampmv`
+110 -> 125, `bz_vstop` 111 -> 116, `bz_camera` 603 -> 595, `bz_abs` 7 -> 0 in the shipped build, the
+autopilot's alone under `BZDEV`), `bzvga.bin` **+0** (5,439; its links into the package move 5 bytes),
+`BONANZA.O88` packed **+20** (178,245 -> 178,265), bss **+0**; every course part and demo byte-identical.
+Old against new under unicorn, 150,000 random frames (every course row, CGA, Hercules and the VGA's rows,
+cuts and steps past `BZ_MAXR`): `bz_R0n`, `bz_c0n`, `bz_rmin`, `bz_rmax`, `bz_dr`, `bz_dc` and `bz_full`
+identical on every one (red: the span test removed differs on MILL).
 
 **`--selfcheck` section `camstop`**, items 5 - 7:
 
