@@ -646,9 +646,11 @@ class App(object):
             shutil.rmtree(work, ignore_errors=True)
             if r.returncode == 0:
                 self._msg("Wrote %s" % out)
+                rep = [ln_ for ln_ in (r.stdout or "").splitlines() if " replaces the shipped " in ln_]
                 messagebox.showinfo(TITLE, ("Wrote %s.\n\nThe game has this map, and the courses it names." % out)
-                                    if is_map else ("Wrote %s.\n\nYour course is on the pathway's first pad: "
-                                                    "Play Game, then Enter plays it." % out))
+                                    if is_map else ("Wrote %s.\n\n%s." % (out, rep[0].split(": ", 1)[1].capitalize())
+                                                    if rep else "Wrote %s.\n\nYour course is on the pathway's "
+                                                    "first pad: Play Game, then Enter plays it." % out))
             else:
                 self._msg("The game was not made")
                 messagebox.showerror(TITLE, (r.stderr or r.stdout).strip()[-1500:] or "bbgame.py failed")

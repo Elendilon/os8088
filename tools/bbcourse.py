@@ -16890,6 +16890,11 @@ def expand(st, fname="<part>", sim=False, _hack=None, kit=None):
     return bytes(b)
 
 
+FORMS_ALWAYS = 1 << 9          # SPEC.md 130.56.3 (the owner, 2026-11-23): form 9's expander (78 bytes) is in every
+#                                build, so a course past 1,024 blocks goes into the game from the course builder,
+#                                which has no assembler (tools/bbgame.py), as any other does
+
+
 def part_forms(courses):
     """BZ_FORMS: a mask of the forms the parts use (130.15.4.5)"""
     mask = 0
@@ -22697,8 +22702,8 @@ def emit_inc(courses, path=None, title=None):
         "BZ_P_CRS        equ 0        ; course 0's row; course K's is BZ_P_CRS + K (no ball rows: 130.25.5.2)",
         "BZ_REC          equ %d        ; RECB, the occluder record's RAM size: 4 (D, shipped) or 8 (C, "
         "not shipped; SPEC.md 130.15.5.4)" % REC,
-        "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form (SPEC.md 130.15.4.5)"
-        % part_forms(courses),
+        "BZ_FORMS        equ %04Xh    ; the stored forms the parts use, a bit a form, and form 9 always (SPEC.md "
+        "130.15.4.5, 130.56.3)" % (part_forms(courses) | FORMS_ALWAYS),
         "BZ_KWMAX        equ %d       ; the most cells a grid row has (CELLS' scratch rows, SPEC.md 130.15.6)" % KW_MAX,
         "BZ_MROWS        equ %d      ; the most block rows a course has: bz_mrow's words (SPEC.md 130.10.4.2)"
         % BROWS_MAX,
