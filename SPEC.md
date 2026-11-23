@@ -295770,6 +295770,38 @@ With `base` (130.42.12) they stop at the column's top as before. It is the pictu
 physics, and the lanes are still the whole-picture difference of the poses. Shipped `MILL` and the test course
 `TILT` re-draw (their picture parts change, nothing else); every other course is byte-identical.
 
+#### 130.42.14 MILL's see-saw in the game: what was measured (the owner, 2026-11-23)
+
+The owner: *"Got it ingame, and the seesaw is not see-sawing"* - the Test Roll shows MILL's plate (`seesaw 22
+17 24 21 along y pivot 17`, F's teeter) tipping, the game, it seemed, not. MEASURED at `efce8ee2f`, the
+physics and the picture apart:
+
+- **The physics tips.** Under unicorn (`tilt_host`) the guest's `bz_step` on MILL's own part, every ball
+  rolled from rest on F (22, 15) along +y (Down and Left held) up the plate's low end and past its pivot, is
+  the model at every step - ball, slot, `bz_fst`, `bz_fref`, the window, each lane's pose and mark: rubber's
+  pose 0 -> 1 at step 87 and -> 2 at 91, steel's at 118 / 122, glass's at 101 / 105, carried, no landing.
+  The model's autopilot route (MILL's demo) also equal over all 3,018 steps; it does not tip the plate (below).
+- **The picture draws it.** On MartyPC, in the BZDEV=1 build on CGA, Hercules and the VGA and in the SHIPPED
+  `BONANZA.O88` on Hercules (the owner's 5150's card), the ball poked onto the plate's far half with the
+  camera still: the plate's byte goes 0 -> 1 -> 2, each of its nine lanes is marked on the tipping step and
+  committed one a frame (`bz_ldrw` 2 for all nine about ten frames later), and the screen shows the plate's
+  three poses. No candidate cause from the brief - `tilt_base_ops` for every plate (130.42.13), the camera
+  stops and span (130.45.5/6), the tighter reach, form 9, the two-part course - moved either half; the lane
+  records are the first records, sorted by row, and every pose map differs from the rest.
+- **What does not tip it is the WEIGHT rule** (D3, D6): a plate counts only GROUNDED steps on one half,
+  8 for rubber. The autopilot reaches the plate from F, rolls up the minus half (already down: nothing to
+  count) and HOPS before the pivot; it lands on the plus half at (23, 20) and is grounded there 7 steps
+  before it rolls off onto the ramp - one short. A player who crosses the pivot in the air, or crosses the
+  plus half in under 8 grounded steps (0.15 s), sees the plate stay at rest in the game and in the Test Roll
+  alike: both run `bbcourse.Physics` / the guest it is held to, step for step. Held plain Down from F
+  misses the plate (the ball runs +x +y along x 24 to F's rail); held plain Left climbs the minus half and
+  leaves it off its side, short of the pivot.
+
+So no guest or tool defect was found; the open question is the owner's (130.42.10 item 1: the weights). The
+proof stays: `tilt_host`'s three MILL scenes, `mill-rubber`, `mill-steel` and `mill-glass` (each judged:
+the poses 0, 1 and 2, no respawn, no landing), with two red arms on them - `tlmillmark` (no lane marked:
+red at step 87, *never drawn*) and `tlmillcarry` (the carry's z not written: red at step 122, *the ball*).
+
 ### 130.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
 
 The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P11): *"TURNTABLE,
