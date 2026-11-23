@@ -1067,6 +1067,11 @@ class App(object):
     def _apply_course(self):
         d = self.doc
         sts = {s.kind: s for s in d.statements()}
+        cv = {k: getattr(self, k).get() for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal",
+                                                  "cv_gstyle", "cv_target", "cv_limit", "cv_gold", "cv_silver",
+                                                  "cv_cstrict", "cv_mbanded")}
+        # (read EVERY field first: an edit below refills the Course tab from the course, which wiped what was typed
+        # into the fields not yet read - the medals vanished after a `limit` was written)
 
         def put(kind, code):
             if code is None:
@@ -1081,24 +1086,24 @@ class App(object):
                 d.insert(code, after=anchor[-1] if anchor else 0, label="course settings")
             sts.update({s.kind: s for s in d.statements()})
         try:
-            title = self.cv_title.get().strip().replace('"', "")
-            put("course", '%s "%s"' % ("course " + (self.cv_name.get().strip().upper() or "NEW"), title or "Course"))
-            put("width", "width %s" % (self.cv_width.get() or "64"))
-            put("ball", "ball %s" % self.cv_ball.get() if self.cv_ball.get() else None)
-            m = self.cv_music.get()
+            title = cv["cv_title"].strip().replace('"', "")
+            put("course", '%s "%s"' % ("course " + (cv["cv_name"].strip().upper() or "NEW"), title or "Course"))
+            put("width", "width %s" % (cv["cv_width"] or "64"))
+            put("ball", "ball %s" % cv["cv_ball"] if cv["cv_ball"] else None)
+            m = cv["cv_music"]
             put("music", None if m in ("", "(default)") else "music %s" % m)
-            p = self.cv_pal.get()
+            p = cv["cv_pal"]
             put("palette", None if p in ("", "(default)") else "palette %s" % p)
-            g = self.cv_gstyle.get()
+            g = cv["cv_gstyle"]
             put("gatestyle", None if g in ("", "(default)") else "gatestyle %s" % g)
-            t = self.cv_target.get()
+            t = cv["cv_target"]
             put("target", None if t in ("", "(none)") else "target %s" % t)
-            lim = self.cv_limit.get().strip()
+            lim = cv["cv_limit"].strip()
             put("limit", "limit %s" % lim if lim else None)
-            gd, sv = self.cv_gold.get().strip(), self.cv_silver.get().strip()
+            gd, sv = cv["cv_gold"].strip(), cv["cv_silver"].strip()
             put("medals", "medals %s %s" % (gd, sv) if gd and sv else None)
-            put("strict", "strict" if self.cv_cstrict.get() else None)
-            put("masks", "masks banded" if self.cv_mbanded.get() else None)
+            put("strict", "strict" if cv["cv_cstrict"] else None)
+            put("masks", "masks banded" if cv["cv_mbanded"] else None)
         except E.EditError as e:
             self._msg(str(e))
         return True
