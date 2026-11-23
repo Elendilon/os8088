@@ -3580,6 +3580,12 @@ EXPLAIN = [
     (r"its exit mouth .* is not wholly on the face of its last wall", "a DROP tube's mouth sits on the face of its "
      "last wall (its height over the exit floor, and 9 px tall), and the pipe is too low to hold it: raise the "
      "Pipe height (or set it to Automatic), or lower the Mouth height."),
+    (r"the tube's column hangs nothing", "the tube's Column reaches a depth only over the void (SPEC.md 130.12.3.5): "
+     "every cell of this tube's body stands on floor or beside it, so its column already stops there. Set Column "
+     "reaches back to the ground, or run the tube out over a gap."),
+    (r"a tube's body takes one height, or one a leg: (\d+) heights for (\d+) legs", "a tube's pipe height is one "
+     "for the whole tube, or one for each leg - this one has {1} legs and {0} heights. Set them on the Shapes "
+     "tab (Pipe height, and each Leg)."),
     (r"a KEEP exit's next cell \((\d+), (\d+)\) along (\S+) is not a FLOOR", "a KEEP tube lets the ball roll "
      "out onto the floor beyond its end, and ({0}, {1}) - the next cell along {2} - is not floor. Put floor "
      "there, end the tube one cell sooner, or turn its last leg toward the floor."),

@@ -257732,7 +257732,8 @@ state.
 
 ##### 130.12.3.3 The grammar
 
-    tube  keep|launch|drop  <iwx> <iwy>  <owx> <owy>  [via <wx> <wy>]...  [out +x|-x|+y|-y]  [body <units>]
+    tube  keep|launch|drop  <iwx> <iwy>  <owx> <owy>  [via <wx> <wy>]...  [out +x|-x|+y|-y]  [body <units>...]
+          [column <units>]               the body's height a leg, and how deep its column hangs: 130.12.3.5
           speed <gvx> <gvy> <gvz>        launch only, and required: its exit velocity (1/256 gu, px a step)
           height <h>                     drop only, and required: the exit's height above the OUT cell's floor, units
     prop  windmill <iwx> <iwy>  [period 32|64|128|256]  [closed <c0> <c1>]  [seed <n>]
@@ -257830,6 +257831,53 @@ section 8's spring pad, which will be props of their own kinds with `OBS`
 cells, as the cup will), `shape` (non-planar floors - banks, bowls, funnels -
 which are heightfield props for wave 4's courses, plan section 8, and take
 grid kinds 4 - 15 then). `--selfcheck` keeps a refusal for each.
+
+##### 130.12.3.5 A pipe at different heights along it, and a column that stops short (the owner, 2026-11-23)
+
+*"I'd also like to be able to have a pipe at different heights along its travel - and to decide if its column
+reaches the ground or how far down it extends, like walls/floors."*
+
+- **`body <u1> <u2> ... <un>`: one height a LEG**, in the path's order (IN to the first `via`, then via to via,
+  the last to OUT). A leg's cells are those after its first point up to its last, that point included unless it
+  is OUT - so a `via`, the corner, takes the height of the leg that ARRIVES at it, and the next leg's first cell
+  is where the pipe steps. Each is `body <units>`'s height (a quarter rounded up to the next half unit). ONE value
+  is today's clause, every leg at it, compiled byte for byte as before; the clause left out is today's automatic
+  height, unchanged. Any other count is refused (`a tube's body takes one height, or one a leg: M heights for N
+  legs`). A height change in the middle of a straight run is a `via` on that run (a leg may continue along the
+  same axis). Only cells the tube LAYS take the heights: a cell that was already a WALL keeps its own, as before.
+  A DROP's mouth is checked against its LAST wall, so its last leg's height is the one that must hold the mouth.
+- **The joins are the RISER's** (130.12.3.3): two cells next along the path at different heights already carry
+  the pipe down the higher one's face where the camera sees it, so a change of height between two legs is drawn
+  by the same art - no new op, record or lane. A step whose face is out of sight (the lower cell behind) draws
+  the pipe ending at the higher top's edge, as any step does.
+- **`column <units>`: how deep the body hangs**, `float <shape> thick <units>`'s model (130.27.2.1) and range (a
+  multiple of 0.25 from 0.25 to 3 units): every body cell FLOATS, its faces over the VOID hanging that deep
+  instead of to the ground. Without the clause the column reaches the ground (130.27.1), as before. It is the
+  tube's own clause, so on a cell a `float` statement also names, the tube's depth wins. A face over a LOWER
+  NEIGHBOUR (a floor, another wall) still hangs to that neighbour, exactly as a floating cell's does, because the
+  body cell is a WALL to the physics all the way down; and the `deep` rule (130.27.3) still joins a body wall's
+  void face to its other face's depth at their shared corner. The cells are `FL_FLOAT` (130.29.4) like every
+  floating WALL. A `column` none of whose body cells has a face over the void is refused (`the tube's column
+  hangs nothing`), `float floats nothing`'s rule: a clause that changes no pixel is a mistake.
+- **What it is NOT: a pipe the ball rolls UNDER.** The column stops short only over the void, where nothing can
+  be under it. A body cell over a FLOOR is a WALL in the grid, one height a cell, so a ball on that floor meets
+  it as a wall at any height; to pass under, the cell would have to be a floor with a CEILING (the pipe's
+  underside) AND a top (the pipe's), solid only between the two. The ARCHWAY's hooks (130.39.4) have the ceiling
+  half but not the top - above its clearance an archway cell is a wall at every height, so a ball could not
+  fly over or land on a hanging pipe - and an archway is held to one or two cells, legs and the visibility rule
+  A10. So a passable pipe is a GUEST change: a family element of its own (a SLAB cell: wall between its underside
+  and its top, the floor beneath it below, the pipe's top above), sized on the archway's precedent at roughly a
+  233-byte family part and 240 bytes of a play's RAM (PREDICTED from 130.39.8, not measured), plus the tool's
+  underside picture, reach and visibility work. **Left to the owner** (2026-11-23); nothing of it is built.
+- **Costs**: no guest byte, no physics constant (`BZ_PHYSV` unchanged), no record. A course using either clause
+  changes its picture blocks (the walls laid at other heights, shorter faces) and, for `column`, the `FL_FLOAT`
+  bits of its body cells; every shipped course compiles byte for byte as before (none uses them).
+- **The checks**: `--selfcheck` section `riser` (130.12.3.3) builds a two-leg tube on a constructed course with
+  `body 6 4` and holds each leg's walls at its height and the riser down the corner's face, its negative control
+  (the per-leg heights read as one) caught; a tube over a chasm with `column 1` holds its void faces one unit
+  deep and its faces over the floors at each end unchanged, its negative control (the column ignored: faces to
+  the ground) caught; item 2's string cases refuse a count that is not one or one a leg, a `column` out of
+  range, and a column that hangs nothing.
 
 ##### 130.12.3.4 The prop clock, and the seeds
 
@@ -289641,3 +289689,29 @@ and timer, a floor's slope, the route list and the shape editor keep their own s
 a control - pieces (`half`, `quarter`, `box`), water's ripple cells - needs a picture interaction;
 docs/plans/BONANZA-BUILDER-OPTIONS.md is the audit, and t_bbedit item 17 holds the table to it. A gate, plate or
 key added alone is refused until its other half is placed; the banner says so (*Keep it anyway*, then add it).
+
+#### 130.58.39 A pipe's height a leg, and how far its column reaches (the owner, 2026-11-23)
+
+*"I'd also like to be able to have a pipe at different heights along its travel - and to decide if its column
+reaches the ground or how far down it extends, like walls/floors."* The tube form (130.58.29, 130.58.33) writes
+130.12.3.5's two clauses:
+
+- **Pipe height** sets every leg at once (and clears the legs' own heights); below it, a **Leg N** row a leg -
+  its two points named - sets that leg alone, the others kept (an automatic tube's legs all start at the value
+  typed). The form writes `body h` while every leg is the same, `body h1 h2 ... hn` once one differs; Automatic
+  takes the clause out. In the editor's model (`bbedshape`) a leg's height rides on the way it STARTS at (a
+  way's third field, as a chute's lip does), so a point added, a corner `axis_path` inserts or a point dragged
+  keeps every leg's height, and a leg added at the end continues the last one's; `leg_heights` and
+  `set_leg_height` are the two helpers.
+- **Column reaches**: *the ground* (no clause) or *depth* with a spinbox, 0.25 - 3 units (`column <units>`);
+  the hint under it says the depth applies over the void only and that the ball does not pass under a pipe
+  (130.12.3.5's physics gap, the owner's to decide).
+- **Height along it** draws the pipe's top leg by leg along the path once it has a height (cyan), and, with a
+  column depth, the column's foot (blue, dashed); an automatic tube keeps its text.
+- The banner explains the two new refusals in plain words: a column that hangs nothing (set it back to the
+  ground, or run the tube over a gap) and a height count that is not one or one a leg.
+
+`tests/unit/t_bbedit.py` item 13d holds it: a two-leg tube given leg 2 its own height writes `body 6 4`, reads
+back to the same fields, keeps both heights through `axis_path` and an added point, and compiles with each
+leg's walls at its height; Pipe height then writes one `body` again; a tube over a gap with `column 1` compiles
+and one over floor is refused.
