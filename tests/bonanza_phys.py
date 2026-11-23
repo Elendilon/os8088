@@ -3478,6 +3478,12 @@ def tl_verdict(name, p, zs):
         ok = timer and p.nret >= 1 and poses[70][tm[0][0]] != 0
         return ok, "after the RETURN the lift at %d, not at rest (every step the timer's: %s)" % (
             poses[70][tm[0][0]], timer)
+    if name.startswith("mill-"):                    # SPEC.md 130.42.14: the shipped see-saw tips under each ball
+        jumps = [abs(b[1] - a[1]) for a, b in zip(zs, zs[1:]) if not a[2] and not b[2]]
+        ok = (0, 1) in tipped and (0, 2) in tipped and p.nfall == 0 and \
+            "land" not in [e[0] for e in p.events]
+        return ok, "%s tipped MILL's plate through the poses %s, %d respawns, no landing, the most a grounded step " \
+            "moved z %s px (the carry)" % (MAT_N[p.mat], tipped, p.nfall, max(jumps or [0]))
     if name == "ledge-glass":
         ok = p.goal and p.exit == 1 and p.nfall == 0
         return ok, "glass on the ledge: goal %d exit %d, %d respawn(s), the poses %s" % (p.goal, p.exit, p.nfall,
@@ -3507,6 +3513,10 @@ def tl_reds():
             ("tlweight", ("    mov cl, BZ_TL_DWG\n", "    mov cl, BZ_TL_DWS\n"), "ledge-glass", None),
             ("tlrst", ("    dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell\n",
                        "    dw 0, 0, 0, tl_step, tl_pose, tl_cell\n"), "rest-respawn", None),
+            # SPEC.md 130.42.14: MILL's see-saw - no lane marked (the plate tips and is never drawn), the
+            # carry left out (steel rides the tip by its z)
+            ("tlmillmark", ("    call far [bz_fmkp]\n", ""), "mill-rubber", "never drawn"),
+            ("tlmillcarry", ("    mov [bz_gz + 1], ax\n", ""), "mill-steel", "the ball"),
             # SPEC.md 130.42.11: the TIMED plates' - the timer a step late, no carry, RESET leaving them at rest,
             # no lane marked
             ("tltpose", ("    mov al, [bz_nstep]          ; AL = its pose on n + 1\n    inc ax\n",
@@ -3518,29 +3528,49 @@ def tl_reds():
                          "    pop ax\n    cmp byte [bz_air], 0"), "swing-glass", "never drawn"))
 
 
+def tl_mill_scenes():
+    """SPEC.md 130.42.14: the SHIPPED course's see-saw - MILL's F teeter (`seesaw 22 17 24 21 along y pivot 17`),
+    each ball rolled from rest on F, held along +y (Down and Left) onto the plate's low end, up it and past the
+    pivot: [(name, material, (wx, wy, gvx, gvy), keys, what)] on MILL as the build compiled it"""
+    Y = BB.K_D | BB.K_L
+    return [("mill-%s" % MAT_N[m], m, (22, 15, 0, 0), [Y] * 150, "%s rolls from F up MILL's see-saw and "
+             "past its pivot: the plate tips FLAT and on to its far end down, the ball carried, every lane of the "
+             "plate marked" % MAT_N[m]) for m in (BB.MAT_RUBBER, BB.MAT_STEEL, BB.MAT_GLASS)]
+
+
+def tl_run(binp, lst, sym, crs, fam, mat, poke, keys):
+    """a see-saw scene under unicorn: TILT (the knob's course, compiled from the tree and played as BENCH's K) or
+    a SHIPPED course (MILL: the build's own part, its own K) -> urun's (model, failures)"""
+    if crs == "tilt":
+        return urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
+    return urun(binp, lst, sym, crs, mat, keys, fam, poke=poke)
+
+
 def tilt_host(binp, lst, sym):
-    """THE SEE-SAW's unicorn half (SPEC.md 130.42): every scene on TILT equal at every step, what each is for, and
-    the red arms -> (lines, failures)"""
+    """THE SEE-SAW's unicorn half (SPEC.md 130.42): every scene on TILT - and MILL's, the shipped see-saw
+    (130.42.14) - equal at every step, what each is for, and the red arms -> (lines, failures)"""
     import shutil
     import subprocess
     out, fails = [], []
-    c = R.course("tilt", src=TL_SRC)
     fam = fam_parts()
     sc = []
-    for name, mat, at, keys, what in tl_scenes():
-        poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
-        sc.append((name, mat, poke, keys))
-        p, bad = urun(binp, lst, sym, "tilt", mat, keys, fam, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
-        q = model("tilt", mat, poke, src=TL_SRC)
-        pl = [r for r in q.props if r["kind"] == BB.FK_TILT]
-        zs = []
-        for k_ in keys:
-            q.step(k_)
-            zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, tuple(q.fst[r["fsb"] >> 3] for r in pl), q.nstep))
-        ok, saw = tl_verdict(name, q, zs)
-        out.append("tilt %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
-        fails += ["tilt %s: %s" % (name, b) for b in bad] + ([] if ok else ["tilt %s is not what it is for: %s"
-                                                                          % (name, saw)])
+    for crs, scenes in (("tilt", tl_scenes()), ("mill", tl_mill_scenes())):
+        c = R.course(crs, src=TL_SRC if crs == "tilt" else None)
+        for name, mat, at, keys, what in scenes:
+            poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
+            sc.append((name, crs, mat, poke, keys))
+            p, bad = tl_run(binp, lst, sym, crs, fam, mat, poke, keys)
+            q = model(crs, mat, poke, src=TL_SRC if crs == "tilt" else None)
+            pl = [r for r in q.props if r["kind"] == BB.FK_TILT]
+            zs = []
+            for k_ in keys:
+                q.step(k_)
+                zs.append(((q.gx >> 12, q.gy >> 12), q.gz >> 8, q.air, tuple(q.fst[r["fsb"] >> 3] for r in pl),
+                           q.nstep))
+            ok, saw = tl_verdict(name, q, zs)
+            out.append("tilt %s (%s): %s; %s" % (name, what, "; ".join(bad)[:200] or "equal at every step", saw))
+            fails += ["tilt %s: %s" % (name, b) for b in bad] + ([] if ok else ["tilt %s is not what it is for: %s"
+                                                                              % (name, saw)])
     src0 = open(os.path.join(ROOT, "apps", "bonanza", "fam", "seesaw.asm")).read()
     for arm, (a_, b_), scn, want in tl_reds():
         assert src0.count(a_) == 1, "red %s: its patch does not apply" % arm
@@ -3553,8 +3583,8 @@ def tilt_host(binp, lst, sym):
                             "-I", R.at("build/bonanza-art") + "/", "-o", o, os.path.join(d, "fam", "seesaw.asm")],
                            cwd=ROOT, check=True)
             ff = fam_parts({"seesaw": open(o, "rb").read()})
-        name, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
-        _p, bad = urun(binp, lst, sym, "tilt", mat, keys, ff, poke=poke, src=TL_SRC, k=R.CRS_K["bench"])
+        name, crs, mat, poke, keys = next(s_ for s_ in sc if s_[0] == scn)
+        _p, bad = tl_run(binp, lst, sym, crs, ff, mat, poke, keys)
         hit = next((b for b in bad if want is None or want in b), None)
         out.append("red %s (%s): %s" % (arm, scn, "red at %s" % hit[:160] if hit else "STAYED GREEN"))
         if not hit:
