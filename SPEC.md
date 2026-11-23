@@ -257878,7 +257878,10 @@ DROP's (the exit's floor, `height` and 1.5 units, or the author's `body`),
 the last body wall must stand behind OUT along `out`, and its mouth is a
 DROP's arch on that wall's face (10 x 9 px, its sill `h` units over OUT's
 floor; refused when not wholly on the face: `a taller wall, or a lower
-exit`). Unlike a DROP's, a raised LAUNCH's `out` may face `-x` or `-y`: its
+exit`, and since 2026-11-23 (130.58.41) the refusal names the largest height
+in half units, at least 1 unit, whose mouth IS wholly on that face - `height
+N fits; a taller wall, or a lower exit` - or nothing more when none is; a
+DROP's mouth is refused in the same words). Unlike a DROP's, a raised LAUNCH's `out` may face `-x` or `-y`: its
 mouth is then on a face the camera does not see and is not drawn (the ball
 comes out from behind the wall), and the tool refuses a last wall whose top
 is under the mouth's (`h` and 1.5 units over OUT's floor) instead. Its exit
@@ -290081,6 +290084,47 @@ under where the column leaves room), and one on an archway's inspector rows (`bb
 ball lands and rolls on the lintel and the legs"). The builder adds `uses archway` for it the same way, and the
 banner explains its two refusals - a walkable top without the archway extra, and a body cell under it that is
 not a flat wall. `tests/unit/t_bbedit.py` 13f and item 17 hold them.
+
+#### 130.58.41 A mouth height the builder chose fits its wall; a traced end keeps its wall (the owner, 2026-11-23)
+
+The owner placed a DROP whose last wall stood a little over the floor it drops onto (a wall at 24 over a
+platform at 20) and the course was refused for a mouth height they never chose: the palette's Tube (drop)
+writes `height 3`, the Shapes tab's switch to DROP 2 and a traced drop 3, and the height can only be changed
+once the tube is in. Three changes:
+
+1. **The compiler names the height that fits.** Its refusal of a raised tube's mouth not wholly on its last
+   wall's face (130.12.3.3) tries every lower height in half units down to 1 unit and names the largest whose
+   arch is whole on that face: `... (7, 13): height 2.5 fits; a taller wall, or a lower exit`. The refusal is
+   a `MouthFit`, a `CourseError` carrying the tube's line and that height in half units (`fit`, None when none
+   fits - the words are then as before), and the picture and check jobs pass it on as `mouth: [line, fit]`
+   (`bbedjob.refusal`). Nothing a course compiles to changes: every shipped course, the pathway and the title
+   are byte-identical (`bbcourse.py -o`, compared with the tool before it).
+2. **A height the builder wrote is fitted.** The document remembers the tube statements whose mouth height
+   the BUILDER wrote (`Document.auto_mouth`): the palette's placement, a traced drop, the Shapes tab's kind
+   switch to DROP (`bbedshape.set_kind`, the draft's `mouth_auto`), and every rewrite of such a statement that
+   keeps its height - a drag, a leg added, a move (`set_statement`, `set_many`). When the picture or the full
+   check refuses the text with a `MouthFit` for one of them and a height fits, the window rewrites the height
+   to it (`App._fit_mouth`), folded into the edit that made the refused text (one undo step), and the status
+   line says *Mouth height set to 2.5: the most its wall's face holds*. A Try it still pending on that tube
+   takes the fitted text as the one it tried.
+3. **A height the author typed is never changed.** The Mouth height field marks its draft the author's; such a
+   refusal stays, its error row now naming the line (`_line_of` reads a prop's `the tube on line N:`), its
+   explanation the height that fits, and the row's fix button (130.58.38's FIXES) **Use height N** sets it as
+   one checked edit.
+
+**A traced tube keeps the cells it ends on** (the owner, the same day: a drop traced onto a WALL at (20, 33)
+in front of a platform came back with `floor tile 20 33 flat 20` - their wall made floor, a line they never
+wrote). `_add_traced` lays ground only under an EMPTY end, never over a cell the course has; and a TUBE traced
+onto a wall whose next cell along the last leg is a floor or goal comes out on that floor, the wall its last
+body cell - where a DROP's mouth belongs, on the last wall's face behind OUT. Traced on to the floor past the
+wall it lays the same tube, and its default mouth height is fitted as above.
+
+`tests/unit/t_bbedit.py` item 19 holds it: the compiler's MouthFit and its words; the palette's drop on a
+4-unit wall fitted from 3 to 2.5 in its placement's undo step, still the builder's moved and not once written
+over; the kind switch's 2 fitted to 1.5 on a 2.5-unit wall; a typed 3 left refused, its row offering *Use
+height 2.5*, which builds; a drop traced onto the wall and one traced past it both `tube drop 7 12 7 14` with
+no floor written and fitted; a tube traced onto a wall with no floor past it refused rather than the wall made
+floor, and one traced to an empty cell given its floor.
 
 #### 130.58.42 The plan's grid numbers stay on screen (the owner, 2026-11-23)
 

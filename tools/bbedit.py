@@ -924,6 +924,34 @@ class App(object):
             self._msg("Took `%s` off the `uses` line: nothing in the course uses it now" % " ".join(minus))
         return r
 
+    def _fit_mouth(self, e, text):
+        """SPEC.md 130.58.41: a job refused TEXT because a tube's exit mouth is not wholly on its last wall's face,
+        naming the largest height that is - and that tube's height is one the BUILDER wrote (the palette's, the
+        kind switch's, a trace's: Document.auto_mouth), never one the author typed: the height is set to the one
+        that fits, folded into the edit that made TEXT (one undo step), and the status line says so. -> True when
+        it did"""
+        mf = e.get("mouth")
+        if not mf or mf[1] is None or self.doc.text() != text or not self.doc.is_auto_mouth(mf[0]):
+            return False
+        line, h2 = mf
+        n0 = len(self.doc.undo_stack)
+        if not self._edit(self.doc.fit_mouth, line, h2):
+            return False
+        if n0:
+            self.doc.merge_since(n0 - 1)
+        new = self.doc.statement(line).code
+        hs = E.mouth_height(new)
+        sh = getattr(self, "shapes", None)
+        pend = getattr(sh, "pending", None) if sh else None
+        if pend and pend[0] == line:            # a shape's Try it: the fitted text is now the one it tried
+            sh.pending = (line, new, dict(pend[2], height=float(hs)), pend[3], self.doc.text())
+        if sh and sh.line == line:
+            sh.sh, sh.draft = bbedshape.parse(new.split()), None
+        self.select(line)
+        self._msg("Mouth height set to %s: the most its wall's face holds (line %d; Ctrl+Z takes the tube back)"
+                  % (hs, line))
+        return True
+
     def _banner(self, text, keep=False):
         if not text:
             if self.banner_shown:
@@ -1103,12 +1131,23 @@ class App(object):
     def _add_traced(self, it):
         """the chosen Tube or Chute laid along the traced path: its turns found (each leg along an axis), the
         tube's body its own (the compiler lays it), an end off the floor given a floor tile at the height of
-        the nearest floor - then shown on the Shapes tab to draft further"""
+        the nearest floor - then shown on the Shapes tab to draft further. SPEC.md 130.58.41: ground goes only on
+        an EMPTY cell, never over one the course has (a wall stays a wall); a tube traced onto a wall with a floor
+        next along its last leg comes out on that floor, the wall its last body cell (a DROP's mouth on its face)"""
         pts = bbedshape.axis_path([[x, y, None] for (x, y) in self.path_pick])
         if len(pts) < 2:
             self._msg("Trace at least two cells (Ctrl-click them on the plan)")
             return
         a = self.doc.analysis()
+        onto = None
+        if it[0].split()[0] == "Tube":
+            end, prev = pts[-1], pts[-2]
+            dx, dy = (end[0] > prev[0]) - (end[0] < prev[0]), (end[1] > prev[1]) - (end[1] < prev[1])
+            d = a["cells"].get((end[0], end[1]))
+            nx = a["cells"].get((end[0] + dx, end[1] + dy))
+            if d and d["kind"] == "wall" and nx and nx["kind"] in ("floor", "goal"):
+                onto = (end[0], end[1])
+                pts[-1] = [end[0] + dx, end[1] + dy, None]      # (along the last leg: still axis-legged)
 
         def floor_h(c):
             d = a["cells"].get(c)
@@ -1116,7 +1155,7 @@ class App(object):
                 return d["h"], False
             near = sorted((abs(q[0] - c[0]) + abs(q[1] - c[1]), dd["h"]) for q, dd in a["cells"].items()
                           if dd["kind"] in ("floor", "goal"))
-            return (near[0][1] if near else 0.0), True
+            return (near[0][1] if near else 0.0), d is None    # (a cell the course has: never written over)
         h0, need0 = floor_h(tuple(pts[0][:2]))
         h1, need1 = floor_h(tuple(pts[-1][:2]))
         f = lambda v: ("%d" % v) if v == int(v) else ("%g" % v)      # noqa: E731
@@ -1140,13 +1179,16 @@ class App(object):
         code = bbedshape.code(sh)
         n_ = self._edit(self.doc.replace_area, None, ground=ground, then=[code], kinds=(),
                         label="add a %s along a path" % kind.lower())
+        if n_ and E.mouth_height(code) is not None:     # (SPEC.md 130.58.41: the builder's height)
+            self.doc.auto_mouth.add(code)
         if n_:
             self.path_pick = []
             ln = next((s_.line for s_ in reversed(self.doc.statements()) if s_.code == code), n_)
             self.select(ln)
             self._show_shape(ln)
-            self._msg("Added a %s along the %d points you traced%s. Draft it further here; Try it puts a draft in."
-                      % (kind.lower(), len(pts), " (with floor under an end)" if ground else ""))
+            self._msg("Added a %s along the %d points you traced%s%s. Draft it further here; Try it puts a draft in."
+                      % (kind.lower(), len(pts), " (with floor under an end)" if ground else "",
+                         ", out onto the floor past the wall (%d, %d)" % onto if onto else ""))
 
     def _fit_shape(self, kind, area, h):
         """a hump, pit or chute fitted INSIDE the selected area (SPEC.md 130.58.30) - a hump's and a pit's position is
@@ -1590,6 +1632,8 @@ class App(object):
                 return
         n_ = self._edit(self.doc.replace_area, None, ground=ground, then=[code], kinds=(),
                         label="add %s" % name.lower())
+        if n_ and E.mouth_height(code) is not None:     # SPEC.md 130.58.41: the template's height, not the author's
+            self.doc.auto_mouth.add(code)
         if n_:
             ln = next((s_.line for s_ in reversed(self.doc.statements()) if s_.code == code), n_)
             self.select(ln)
@@ -2903,6 +2947,9 @@ class App(object):
                 if e.get("ok"):
                     self.shapes.picture_ok()
                     self._load_picture(out, text)
+                elif self._fit_mouth(e, text):       # SPEC.md 130.58.41: the builder's own mouth height, fitted
+                    self.pic_err = (text, e.get("error"))
+                    return
                 elif self.shapes.picture_refused(e.get("error"), text):   # a shape's Try it the full rules refuse
                     pass
                 elif self.view.get() == "iso":
@@ -2927,6 +2974,8 @@ class App(object):
 
         def ev(job, e):
             if e["stage"] == "done":
+                if not e.get("ok") and self._fit_mouth(e, text):    # (SPEC.md 130.58.41: the check saw it first)
+                    return
                 self.check = {"text": text, "strict": strict, "result": e}
                 self._fill_problems()
                 self._msg("Full check: %s in %.1f s" % ("builds" if e.get("ok") else "refused", time.time() - t0))
@@ -3766,6 +3815,11 @@ EXPLAIN = [
      "hopping as its search does, cannot reach the goal. If a player really can (a jump pickup, a trick the "
      "search does not try), put the game together without it (say No when asked) - it is a helper, not a rule "
      "of the game. Otherwise connect that part, or move the flag or pad."),
+    (r"its exit mouth .* is not wholly on the face of its last wall \((-?\d+), (-?\d+)\): height (\S+) fits",
+     "a DROP tube's (or a raised LAUNCH's) mouth sits on the face of its last wall ({0}, {1}) - its height over "
+     "the exit floor, and 9 px tall - and that face is too short to hold it: a Mouth height of {2} is the most it "
+     "holds (the button beside this explanation sets it). Or raise the Pipe height (or set it to Automatic; where "
+     "the pipe runs through a wall you laid, raise that wall)."),
     (r"its exit mouth .* is not wholly on the face of its last wall", "a DROP tube's (or a raised LAUNCH's) mouth "
      "sits on the face of its last wall (its height over the exit floor, and 9 px tall), and the pipe is too low "
      "to hold it: raise the Pipe height (or set it to Automatic; where the pipe runs through a wall you laid, "
@@ -3866,6 +3920,9 @@ FIXES = [
     (r"float floats nothing", "Remove this overhang (the float)",
      lambda d, ln, m: d.remove(ln, label="remove a float")),
     (r"gap bands nothing", "Remove this gap line", lambda d, ln, m: d.remove(ln, label="remove a gap line")),
+    # SPEC.md 130.58.41: a mouth the wall's face does not hold - the height the compiler names that it does
+    (r"the tube on line \d+: its exit mouth .*: height (\S+) fits;", "Use height {0}",
+     lambda d, ln, m: d.set_clause(ln, "height", [m.group(1)], label="lower a tube's mouth")),
 ]
 
 
@@ -3873,11 +3930,13 @@ def fix_for(err, line, doc):
     """the FIXES row for ERR on LINE -> (the button's words, fn(doc) making it) or None"""
     import re
     if not line:
+        line = E._line_of(err)
+    if not line:
         return None
     for pat, label, fn in FIXES:
         m = re.search(pat, err)
         if m:
-            return label, (lambda d, fn=fn, m=m: fn(d, line, m) or True)
+            return label.format(*m.groups()), (lambda d, fn=fn, m=m: fn(d, line, m) or True)
     return None
 
 

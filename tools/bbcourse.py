@@ -1214,6 +1214,15 @@ class CourseError(Exception):
     pass
 
 
+class MouthFit(CourseError):
+    """SPEC.md 130.58.41: a raised tube's EXIT MOUTH not wholly on its last wall's face - the tube's source LINE
+    and FIT, the largest height in half units (h2 >= 2, a half-unit step) whose mouth is, or None when none is"""
+    def __init__(self, msg, line, fit):
+        CourseError.__init__(self, msg)
+        self.line = line
+        self.fit = fit
+
+
 # SPEC.md 130.58.4: a VISUAL check's finding is a WARNING.  While a compile runs, _VWARN is a list and
 # _visual() appends to it; compile_course() attaches the list to the course (it rides the compile cache with
 # it), drops what the source marks `hidden` and reports what it `accept`s, and refuses only under --strict
@@ -9619,10 +9628,18 @@ def prop_ops(tiles, ops, props, x0):
                     raise CourseError("the tube on line %d: its last wall (%d, %d) shows no %s face"
                                       % (p["line"], w[0], w[1], DIR_NAMES[p["dir"]]))
                 pix, _l, whole = _arch(sp0, xm, rows, half, sill)
-                if not whole:
-                    raise CourseError("the tube on line %d: its exit mouth (%d x %d px, its sill %d px over OUT's "
-                                      "floor) is not wholly on the face of its last wall (%d, %d): a taller wall, "
-                                      "or a lower exit" % (p["line"], 2 * half, rows, sill, w[0], w[1]))
+                if not whole:                       # SPEC.md 130.58.41: the largest height whose mouth fits, named
+                    fit = None
+                    if p["kind"] == PK_TUBE:
+                        for h2 in range(int(math.ceil(p["h2"])) - 1, 1, -1):
+                            if _arch(sp0, xm, rows, half, 4 * h2)[2]:
+                                fit = h2
+                                break
+                    raise MouthFit("the tube on line %d: its exit mouth (%d x %d px, its sill %d px over OUT's "
+                                   "floor) is not wholly on the face of its last wall (%d, %d): %sa taller wall, "
+                                   "or a lower exit" % (p["line"], 2 * half, rows, sill, w[0], w[1],
+                                                        "" if fit is None else "height %g fits; " % (fit / 2.0)),
+                                   p["line"], fit)
                 ring = _rim(sp0, pix, True, MAG) if face == "se" else {}   # the checker's face: a solid rim
                 add(w, face, _paint_op(_merge(pix, ring), w[0] + w[1], tv[w], w), True)
                 p["mouth"] = (w, face, xm, rows, half, sill)
