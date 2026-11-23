@@ -3265,15 +3265,18 @@ def tilt_base_ops(seesaws, ops, x0, ground, tiles):
     them down to the plate's floor only, and the plate floats over a gap"""
     grp = {}
     for sw in seesaws:
-        if sw.get("base") is None:
-            continue
         z0 = tl_base_z(sw)
-        if sw["base"] == "ground":
-            dep = FACE8 if ground is None else max(FACE8, 4 * z0 - ground)
+        if sw.get("base") is None:              # SPEC.md 130.42.13: no column - the faces behind the plate go on
+            dep = None                          # down past it, as over the void, so it floats in front of them
+            bt = {c: None for c in sw["cells"]}
+            bot = None
         else:
-            dep = sw["base"]
-        bt = {c: Tile(KIND_WALL, z0, 0, 0, sw["line"]) for c in sw["cells"]}
-        bot = 4 * z0
+            if sw["base"] == "ground":
+                dep = FACE8 if ground is None else max(FACE8, 4 * z0 - ground)
+            else:
+                dep = sw["base"]
+            bt = {c: Tile(KIND_WALL, z0, 0, 0, sw["line"]) for c in sw["cells"]}
+            bot = 4 * z0
         for (wx, wy) in sorted(bt):
             for n, edge, which, (p, cp), (q, cq) in (
                     ((wx, wy - 1), "S", "sw", ((2 * wx, 2 * wy), (0, 1)), ((2 * wx + 2, 2 * wy), (1, 1))),
@@ -3285,13 +3288,18 @@ def tilt_base_ops(seesaws, ops, x0, ground, tiles):
                 if r is None or isinstance(r, FieldTile):
                     continue
                 zp, zq = 4 * r.corner(*cp), 4 * r.corner(*cq)
-                if zp <= bot and zq <= bot:
+                b_ = bot
+                if b_ is None:                  # (130.42.13: to the ground plane, never less than FACE8)
+                    b_ = min(zp, zq) - FACE8 if ground is None else min(ground, min(zp, zq) - FACE8)
+                if zp <= b_ and zq <= b_:
                     continue
-                poly = [_scr(p[0], p[1], zp, x0), _scr(q[0], q[1], zq, x0), _scr(q[0], q[1], min(zq, bot), x0),
-                        _scr(p[0], p[1], min(zp, bot), x0)]
+                poly = [_scr(p[0], p[1], zp, x0), _scr(q[0], q[1], zq, x0), _scr(q[0], q[1], min(zq, b_), x0),
+                        _scr(p[0], p[1], min(zp, b_), x0)]
                 mk = (lambda xp4, zp_, xq4, zq_: lambda y0: _face_fn(xp4, zp_, xq4, zq_))(
                     poly[0][0], zp, poly[1][0], zq)
                 grp.setdefault((wx, wy), []).append((spans(poly), which, n[0] + n[1], mk, True, r, n))
+        if dep is None:
+            continue
         for op in draw_ops(bt, x0, (), ground, {c: dep for c in bt}):
             grp.setdefault(op[6], []).append(op)
     if not grp:
@@ -13003,7 +13011,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     def _ops_of(tl_, nobase=False):                 # (SPEC.md 130.42.5: a see-saw's poses are drawn by the same ops)
         o_ = draw_ops({k: v for k, v in tl_.items() if k not in undrawn} if undrawn else tl_, x0,
                       {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
-        if any(sw.get("base") is not None for sw in src.seesaws) and not nobase:   # SPEC.md 130.42.12: a COLUMN
+        if src.seesaws and not nobase:              # SPEC.md 130.42.12/13: a COLUMN, or the faces behind
             o_ = tilt_base_ops(src.seesaws, o_, x0, ground, {k: v for k, v in tl_.items() if k not in undrawn})
         if props:
             o_ = prop_ops(tl_, o_, props, x0)
