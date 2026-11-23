@@ -268857,16 +268857,17 @@ course, the value for the CGA's colour-select register, port 3D9h:
 | 0 - 3 | the BACKGROUND: colour 0's ink and the border, one of the sixteen |
 | 4 | BRIGHT: the foreground at high intensity |
 | 5 | the PALETTE: 1 cyan, magenta, white; 0 green, red, brown or yellow |
-| 6 - 7 | 0 |
+| 6 | PALETTE 2: mode 5's cyan, red, white (bit 5 set with it); not a 3D9h bit (below) |
+| 7 | 0 |
 
 **30h is today's look**, the BIOS's mode 4 value (palette 1, bright, black),
 so a course with no statement looks exactly as before.
 
 **The statement**, the tool's:
 
-    palette  0|1  [dim]  [ground <0-15>]     at most once: the course's colour select (default palette 1, bright, ground 0)
+    palette  0|1|2  [dim]  [ground <0-15>]   at most once: the course's colour select (default palette 1, bright, ground 0)
 
-A second `palette`, a palette other than 0 or 1, or a ground outside 0 - 15
+A second `palette`, a palette other than 0, 1 or 2, or a ground outside 0 - 15
 is refused at the line. **It is not in the part**: the byte goes into the
 course table only, so a palette edit moves no identity and no demo (R11:
 cosmetic edits keep identities).
@@ -268922,6 +268923,32 @@ balls on the PLAYGROUND.
 
 The PLAYGROUND ships **palette 0, bright, ground 0** (10h), so the owner sees
 the other palette at gate 1; every other course stays 30h.
+
+**Palette 2, cyan, red, white** (the owner, 2026-11-23). The CGA's third
+palette is not a colour-select value: it is mode 5's, the mode control
+register's (3D8h) B/W bit 2 over mode 4's 2Ah, with 3D9h's bit 5 ignored and
+its intensity bit and ground still in force - cyan, red and light grey dim,
+light cyan, light red and white bright. `palette 2` writes 60h | bright |
+ground: bit 6 is the third palette and bit 5 rides with it, so any reader
+that knows only bit 5 sees palette 1, its nearest (the cyan and the white are
+the same; magenta stands where red would). 3D9h ignores bit 6 on a CGA, so
+the `.vpal` write is unchanged; after it `bz_vinit` sets `bz_cmode`, the
+mode control value `bz_blank` and `bz_unblank` write (130.14.5.6), to 2Eh
+rather than 2Ah (26h and 2Eh for the blank and the light). The play's first
+frame is a full write, whose blank and light are those writes, so the card
+shows mode 5 from that frame and no further port write is needed; `bz_vinit`
+puts 2Ah back first on every launch, the Hercules's and the VGA's included
+(the Hercules's `sub al, 20h` is unchanged). On the VGA (130.46) the part's
+AC 1 - 3 are palette 1's 3, 5, 7 (+8) with AC 2 replaced by 4 (+8), red.
+The balls: rubber's magenta becomes red, steel's and glass's cyan stay; the
+patterns carry identity as in palette 0. On an EGA or VGA that came up
+VID_CGA (above) neither 3D8h's bit nor 3D9h answers and the BIOS's palette 1
+shows. No shipped course uses it; the builder offers it (`2`, `2 dim`).
+Cost, MEASURED (`bonanza.bin` 53,228 -> 53,246, `bzvga.bin` 5,439 -> 5,457):
+**+18 bytes in the package** (`bz_vinit`'s 2Ah and its test after `.vpal`
++14, the blank's and light's reads of `bz_cmode` +4) and a byte of bss, and
+**+18 in the VGA part** (the AC 2 fix-up, fetched only on a VGA); 0 clk a
+frame.
 
 *As built (wave 6):* the table is `bz_cpals` (`BZ_CRS_PALS`, a byte a
 course, after `bz_cids`). The write sits in `bz_vinit`'s own CGA arm, after

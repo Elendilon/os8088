@@ -6789,3 +6789,18 @@ every step on MILL, DOWN and the one-cell-gap test course. The table loop is 79 
 113, and the package grows 123 bytes. *Not measured*: the refill's cycles on the 8088 (about 1.6k clocks
 on a cell change, predicted), and no MartyPC boot was made to look at the rail; the tool's CGA and Hercules
 previews were looked at.
+
+## 2026-11-23 (palette 2: the CGA's cyan, red and white, SPEC.md 130.16.6)
+
+The owner asked for the red, cyan and white palette as an option in the game or the builder. It is the CGA's
+third palette, the one the BIOS reaches through mode 5. It is not a colour-select value: it comes from the mode
+control register's black-and-white bit, set over mode 4. So `palette 2` sets bit 6 of the course's existing
+colour-select byte, with bit 5 set too so a reader that knows only palettes 0 and 1 sees its nearest. The
+engine's video blank and light already wrote the mode control register on every full write, so they now write
+a byte that `bz_vinit` sets per course (2Ah, or 2Eh) instead of a constant. No new port write was needed:
+the first frame of a play is a full write. The VGA part changes its attribute register 2 from magenta to red.
+The builder's course tab offers `2` and `2 dim`, and its previews draw the new colours.
+*Observed*: on MartyPC the title course, with its byte poked at `bz_vinit`, renders exactly light cyan, light
+red and white on the CGA and the VGA alike, and cyan, red and grey over blue with `dim ground 1`. The Hercules
+picture is unchanged. Cost: +18 bytes in the package, +18 in the VGA part, a byte of bss, nothing per frame.
+No shipped course uses it yet.

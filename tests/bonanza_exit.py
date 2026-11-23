@@ -790,11 +790,11 @@ MENU_EIGHTH = 8                             # the rendered frame's top 1/8 (the 
 def pal_colour(byte, idx):
     """the CGA colour (0 - 15) that colour-select BYTE (3D9h, SPEC.md 130.16.6)
     gives mode 4's index IDX: 0 the ground (bits 0 - 3); 1 - 3 palette 1's
-    cyan, magenta, white or palette 0's green, red, brown (bit 5), +8 bright
-    (bit 4)"""
+    cyan, magenta, white or palette 0's green, red, brown (bit 5), or palette
+    2's cyan, red, white (bit 6, mode 5's B/W bit), +8 bright (bit 4)"""
     if idx == 0:
         return byte & 15
-    base = (3, 5, 7) if byte & 0x20 else (2, 4, 6)
+    base = (3, 4, 7) if byte & 0x40 else (3, 5, 7) if byte & 0x20 else (2, 4, 6)
     return base[idx - 1] + (8 if byte & 0x10 else 0)
 
 
