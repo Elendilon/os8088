@@ -322,7 +322,9 @@ SCEN = {
 SCEN_T = {
     # wave 1's four on the TEST courses (docs/plans/BOUNCE-BONANZA-SOAK.md's TPLAY table):
     # name: (course, tile, gvx, gvy, frames at most) - poked in play, no key held
-    "pit": ("bench", (16, 18), 364, 0, 260),    # off the 27.5 flat's east edge: respawned on the SAFE (19, 18)
+    "pit": ("bench", (16, 18), 364, 0, 260),    # off the 27.5 flat's east edge: respawned on the SAFE (20, 18),
+                                                # the edge cell it rolled off ((19, 18) until 130.10.4.3.1 let
+                                                # SAFE off its neighbours; the row asserts only "not the start")
                                                 # (BENCH: no flag, no cup - a respawn is bz_safe's)
     "lip": ("tply", (33, 32), 100, 0, 120),     # the plateau ramp's 2-unit lip: a take-off, a rubber bounce
     "rail": ("tply", (29, 31), -150, -250, 90),     # into the plateau's back rail (wy 30): gvy REBOUNDS
