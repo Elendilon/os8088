@@ -255,10 +255,13 @@ bz_vinit:
 ; 8 t >> lsh - which bz_clampwin / bz_clampmv choose between each frame by the
 ; window's column against the SPAN (BZ_CRS_SPANS' a b: bz_sglo = b - W, bz_sghi
 ; = a; 255 0 none, every column); its l and r set cmin = l and take r off
-; cmax; the PULL bz_kpull = 4 >> lsh rows.  0 is each stop byte's identity
-; and the tool holds every range whole on every card, so neither the bytes
-; nor a course without them needs a branch or a clamp.  Clobbers AX, BX, CL,
-; DX, SI, DI.
+; cmax; the PULL bz_kpull = 4 >> lsh rows.  The stopped range goes in
+; bz_rmin, bz_rmax too, where a course with no span (a 255, every course but
+; one) keeps it: bz_clampmv's every frame there is the clamp before the span
+; (SPEC.md 130.45.6, its cost).  0 is each stop byte's identity and the
+; tool holds every range whole on every card, so neither the bytes nor a
+; course without them needs a branch or a clamp.  Clobbers AX, BX, CL, DX,
+; SI, DI.
 ; -----------------------------------------------------------------------------
 bz_vstop:
     mov bl, [bz_crs]
@@ -283,7 +286,8 @@ bz_vstop:
     jge .nbot
     xchg ax, dx
 .nbot:
-    mov [di + BZR_SMX], dx
+    mov [di + BZR_SMX], dx      ; (and in bz_rmin, bz_rmax: a course with no
+    mov [di + 2], dx            ; span keeps them, bz_clampwin sets a span's)
     mov dx, [bz_cspans + bx]    ; the SPAN: DL a, DH b
     mov al, dh
     xor ah, ah
@@ -302,6 +306,7 @@ bz_vstop:
     shl ax, 1
     shr ax, cl
     mov [di + BZR_SMN], ax
+    mov [di], ax
     lodsb                       ; l: the LEFT stop, a column
     xor ah, ah
     mov [bz_cmin], ax
