@@ -290704,3 +290704,59 @@ note names the way, its cell, its line and the fall; the way is ringed red; brid
 and finishes; `plan_job` reports a search line and writes the same keys. Red by hand: `Roll.frame` not calling
 `auto()` (the roll heading for way 1), `autopilot_run` playing the falling step ("timed out", six falls).
 `tests/unit/t_bbedit.py` item 25 holds the toolbar's command line (the picker's branch, else the main route).
+
+#### 130.58.51 Course stats: what the course costs, and what it goes past (the owner, 2026-11-23)
+
+*"Lets add some output on course stats, once it is built and these are known; total occluder records, masks.
+Size and lzb disk size. If its using any of the 'go above' options (1280px, more than 1024 blocks, two
+segments, etc)."*
+
+**Where it is computed: `bbedjob.course_stats(c)`, at the end of the CHECK job** (130.58.8), on the course
+the full check has just compiled - no second compile - and returned in its `done` line as `stats`, beside the
+warnings: `{"rows": [...], "above": [...], "summary": "..."}`. A row is `key`, `label`, `text`, the figure `n`,
+its bound `max` (or none) and `state`: `over` past the bound, `near` at 90% of it or more (`NEAR`), else `ok`.
+The song is attached first (`bbcourse.attach_song`, as `compile_all` does, 130.50.3: section S is in the
+(world) part), so the RAM and floppy figures are the shipped ones; a course with no `music`, or one whose song
+does not fit, is counted without it and says so. It costs the check one re-encode and one LZB pack (and an LZ4
+pack for a course with a `target`): about 2 s on the PLAYGROUND, 5 s on DOWN.
+
+**The rows, each off the compile:**
+
+| row | figure | bound |
+|---|---|---|
+| Picture | `width` x `lines` px, `cols` x `brows` cells | 1,280 px (`COLS_MAX`, 130.10.4.2) |
+| Block rows | `brows` | 256 (`BROWS_MAX`) |
+| Blocks | `len(c.blocks)`, the map's form | 1,024 (`BLK_ROWP`, form 1 ROWPLANES); past it 4,096 (`BLK_MAX`, form 9 ROWNIBS) |
+| Occluder records | shipped (`model["recs"]`), merged (`c.records`), cut by AV (`c.raw`), the rule's before AV (`c.rule_records`, and `c.rule_raw` before its merge) - the `--selfcheck` report's "records N -> M merged" and the Occluders view's "N shipped (M before AV)" | none |
+| Records a block row | the most in one (`c.per_row`) | 128 (`REC_ROW_MAX`, 130.11.4.2) |
+| Occluder pass | the window's worst (`c.wprice`) | `OCC_PASS_MAX` clocks |
+| Masks | `len(c.masks)`, as cut and merged before the dither; under `masks banded` the most in a band and every band's | 256 (a band's, 130.52) |
+| The part / Picture part / Sheet N / World part | each RAM form's bytes | 65,024 (`PARTMAX`) each |
+| On the floppy | `packed_len(bstored or stored, "lzb")`: os88pkg's `compress_part` of BZ<K>.BIN (LZB, `BZPARTZF`, the near-call filter tried), the course's bytes in BONANZA.O88 | none |
+| Size budget | `check_budget(c)`'s LZ4, for a course with a `target` | `budget(target)` (130.15.8), 1.5x beside it - **reported, never refused** (130.27.5), so this is the one row that is ever `over` |
+| Time | target, route (`lroute` / 55 steps), limit, gold and silver | none |
+
+**"Past the usual bounds" (`above`)**, each named with its section: wider than 1,024 px (130.10.4.2, WIDTH 160);
+more than 1,024 blocks, the map as form 9 ROWNIBS (130.56); two parts (130.30) - with what the one part would
+have been; sheets (130.30.12) - their count, rows and first rows; `masks banded` (130.52); the real-pose re-cut
+in larger squares or at whole cells (130.49.5, `c.recut`, set by `_compile_course_cut`); and the shadows dropped
+past `BLK_MAX` (130.47.5, `c.noshadow`, under `--shadow` only).
+
+**The window.** The Course tab's *Ready to play?* panel has a **Course stats** box under the check's list: the
+options gone past first, then every row, a row near its bound amber with a warning sign, the size budget red
+and "over" when past it, a figure that wraps hanging under its column. Before a check it says so, and after a
+refusal it says the course did not build. The status line at the check's end carries the summary - records,
+masks, blocks, the bytes in RAM and on the floppy, what it goes past and what is near a bound.
+
+**MEASURED (2026-11-23, Xvfb, the owner's MILL copy `m4-fixed.bbc`).** 2,026 records shipped (2,038 merged from
+2,165 cut by AV; the rule's 4,226 before AV), 233 of 256 masks (near), 1,141 blocks (past 1,024: ROWNIBS), two
+parts - the picture part 62,910 of 65,024 bytes (near), the world part 11,970 - and 19,196 bytes LZB on the
+floppy; LZ4 22,859 against a 90 s target's 18,825 (over). Shipped: FIRST 68 records, 30 masks, 140 blocks, one
+part of 10,135 bytes, 1,840 bytes LZB, nothing past; PLAYGROUND two parts, 997 blocks (near); DOWN 1,280 px and
+two sheets of 89 block rows, 17,271 bytes LZB.
+
+**Rows.** `tests/unit/t_bbedit.py` item 26: FIRST's stats are the compile's own figures with their bounds, its
+floppy bytes `os88pkg.compress_part`'s LZB of its part with its song, nothing past a bound; DOWN goes past
+1,024 px and is SHEETS, and nothing else, its width at its bound. Red by hand: the wide test made `c.cols > 160`
+("DOWN goes past ['sheets'], not ['wide', 'sheets']"). Shipped courses are byte-identical: this is the
+builder's alone.
