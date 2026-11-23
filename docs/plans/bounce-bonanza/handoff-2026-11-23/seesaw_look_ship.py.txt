@@ -1,0 +1,126 @@
+import sys, os
+ROOT = os.getcwd()
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import bonanza_phys as P
+R, BB, M = P.R, P.BB, P.M
+import os88ui
+OUT = "/tmp/claude-0/-home-user-os8088/50152400-584f-5f02-99a3-d60ce56fde4a/scratchpad"
+tag = sys.argv[1] if len(sys.argv) > 1 else "cga"
+pass
+sym = R.symbols()
+c = R.course("mill")
+mat = BB.MAT_RUBBER
+# a poke that tips the plate on the model, no keys
+best = None
+for gvy in range(0, 900, 20):
+    q = BB.Physics(c, play=True, mat=mat).poke(22, 18, 0, gvy)
+    pl = [r for r in q.props if r["kind"] == BB.FK_TILT][0]
+    k = pl["fsb"] >> 3
+    for i in range(200):
+        q.step(0)
+        if q.fst[k] == 2:
+            best = (gvy, i)
+            break
+    if best:
+        break
+print("poke gvy", best)
+gvy = best[0]
+K = R.CRS_K["mill"]
+LANES = list(range(6, 18))
+with os88ui.boot(R.at("build/os8088-360.img"), apps=R.at("build/bonanza360.img"), machine=R.MACHINE[tag]) as ui:
+    ui.open_drive("B")
+    ui.open("BONANZA.O88")
+    g = R.Bz(ui, tag, sym)
+    ui.settle()
+    m = g.m
+    print("has", [n for n in ("bz_fs", "bz_frames", "bz_pwck", "bz_t0", "bz_tv", "bz_tf", "bz_presented", "bz_pokd", "bz_lqt") if n not in sym])
+    import bonanza_path as BP
+    BP.enter_game(g)
+    M.guest_sleep(m, 1.0)
+    m.pause()
+    m.bp_exec(g.a("bz_gcrs"))
+    m.run()
+    g.key("Enter")
+    assert m.wait_stop(60) == "breakpoint"
+    print("at bz_gcrs, crs", g.b("bz_crs"))
+    g.putb("bz_crs", K)
+    m.bp_exec()
+    m.run()
+    M.guest_sleep(m, 6.0)
+    print("crs", g.b("bz_crs"), "mode", g.b("bz_mode"), "cseg", g.w("bz_cseg"), "frames", g.w("bz_frames"), "pwck", g.b("bz_pwck"))
+    m.pause()
+    print("crs", g.b("bz_crs"), "K", K)
+    wk = R.Walker(g, t0=True)
+    wk.arm()
+    while wk.next() != "t0":
+        pass
+    q = BB.Physics(c, play=True, mat=g.b("bz_mat")).poke(22, 18, 0, gvy)
+    R.poke_ball(g, q.gx, q.gy, q.gz, q.gvx, q.gvy, q.gvz, air=0)
+    fst0 = g.a("bz_fst")
+    prev = None
+    n = 0
+    shot_at = []
+    while n < 100:
+        k = wk.next()
+        if k != "pr":
+            continue
+        n += 1
+        fst = m.read(fst0, 8)
+        drw = m.read(g.a("bz_ldrw") + 6, 12)
+        att = m.read(g.a("bz_latt") + 6, 12)
+        lr = (g.b("bz_lr0"), g.b("bz_lr1"))
+        st = (g.w("bz_nstep"), g.d("bz_gx") >> 12, g.d("bz_gy") >> 12, g.b("bz_air"))
+        line = (fst.hex(), drw.hex(), att.hex(), lr, g.state()[1:3])
+        if line != prev:
+            print("frame", n, st, "fst", line[0], "drawn", line[1], "att", line[2], "slice", lr, "R0 c0", line[4])
+            prev = line
+        if n in (99,):
+            w_, h_, d_ = m.fbuf()
+            M.write_png_rgb(os.path.join(OUT, "mill_%s_%d.png" % (tag, n)), w_, h_, d_)
+
+    def frames(k):
+        c_ = 0
+        while c_ < k:
+            if wk.next() == "pr":
+                c_ += 1
+    # the ball parked on F, off the plate; then each pose forced and its lanes marked
+    while wk.next() != "t0":
+        pass
+    q = BB.Physics(c, play=True, mat=g.b("bz_mat")).poke(21, 15, 0, 0)
+    R.poke_ball(g, q.gx, q.gy, q.gz, 0, 0, 0, air=0)
+    frames(10)
+    for pose in (0, 1, 2, 0):
+        while wk.next() != "t0":
+            pass
+        m.write(fst0, bytes([pose]))
+        m.write(g.a("bz_latt") + 6, b"\1" * 12)
+        g.putb("bz_lqt", 0)
+        frames(12)
+        print("pose", pose, "fst", m.read(fst0, 1).hex(), "drawn", m.read(g.a("bz_ldrw") + 6, 12).hex(), "R0 c0", g.state()[1:3], "ball", g.d("bz_gx") >> 12, g.d("bz_gy") >> 12)
+        w_, h_, d_ = m.fbuf()
+        M.write_png_rgb(os.path.join(OUT, "mill_%s_pose%d_%d.png" % (tag, pose, n)), w_, h_, d_)
+        n += 1
+
+    # the genuine tip with the camera STILL: parked on F, then onto the plate
+    while wk.next() != "t0":
+        pass
+    q = BB.Physics(c, play=True, mat=g.b("bz_mat")).poke(21, 15, 0, 0)
+    R.poke_ball(g, q.gx, q.gy, q.gz, 0, 0, 0, air=0)
+    frames(60)
+    while wk.next() != "t0":
+        pass
+    q = BB.Physics(c, play=True, mat=g.b("bz_mat")).poke(22, 18, 0, gvy)
+    R.poke_ball(g, q.gx, q.gy, q.gz, q.gvx, q.gvy, q.gvz, air=0)
+    prev = None
+    for f in range(120):
+        while wk.next() != "pr":
+            pass
+        fst = m.read(fst0, 1)
+        drw = m.read(g.a("bz_ldrw") + 6, 12)
+        line = (fst.hex(), drw.hex(), m.read(g.a("bz_latt") + 6, 12).hex(), g.b("bz_lqt"), (g.b("bz_lr0"), g.b("bz_lr1")), g.state()[1:3])
+        if line != prev:
+            print("still", f, g.w("bz_nstep"), (g.d("bz_gx") >> 12, g.d("bz_gy") >> 12), line)
+            prev = line
+    w_, h_, d_ = m.fbuf()
+    M.write_png_rgb(os.path.join(OUT, "mill_%s_still.png" % tag), w_, h_, d_)

@@ -1,0 +1,18 @@
+import sys, os
+ROOT = os.getcwd()
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import bonanza_phys as P
+R, BB = P.R, P.BB
+R.dev()
+mat, keys = P.route_keys("mill")
+q = P.model("mill", mat, None)
+last = None
+for i, k in enumerate(keys):
+    q.step(k)
+    c = (q.gx >> 12, q.gy >> 12)
+    if 560 <= i <= 700:
+        s = (c, q.air, q.gz >> 8)
+        if s != last:
+            print(i, c, "air", q.air, "z", q.gz >> 8, "gv", q.gvx, q.gvy, "key", k, "fst", q.fst[0], "tube", getattr(q, "tube", None))
+            last = s
