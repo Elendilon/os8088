@@ -437,7 +437,9 @@ class App(object):
         self.cv = tk.Canvas(cf, background="#2b2f36", highlightthickness=0)
         xs = ttk.Scrollbar(cf, orient="horizontal", command=self.cv.xview)
         ys = ttk.Scrollbar(cf, orient="vertical", command=self.cv.yview)
-        self.cv.configure(xscrollcommand=xs.set, yscrollcommand=ys.set)
+        self.cv.configure(xscrollcommand=lambda *a: (xs.set(*a), self._pin_rulers()),     # 130.58.42: the
+                          yscrollcommand=lambda *a: (ys.set(*a), self._pin_rulers()))     # grid numbers stay put
+        self._rul_at = (0.0, 0.0)
         self.cv.grid(row=0, column=0, sticky="nsew")
         ys.grid(row=0, column=1, sticky="ns")
         xs.grid(row=1, column=0, sticky="ew")
@@ -3072,6 +3074,20 @@ class App(object):
                 self.gap_row.pack(side="top", fill="x", after=self.gap_row_after)
             self._draw_iso()
 
+    def _pin_rulers(self):
+        """SPEC.md 130.58.42: keep the plan's grid numbers at the view's top and left edges however it is
+        scrolled or zoomed, above everything else on the plan"""
+        c = getattr(self, "cv", None)
+        if c is None or not c.find_withtag("rulx"):
+            return
+        left, top = c.canvasx(0), c.canvasy(0)
+        ax, ay = self._rul_at
+        c.move("rulx", 0, top - ay)
+        c.move("ruly", left - ax, 0)
+        self._rul_at = (left, top)
+        c.tag_raise("ruly")
+        c.tag_raise("rulx")
+
     def _cpx(self, x, y):
         s = CELL * self.zoom
         x0, y0 = self.origin
@@ -3110,13 +3126,23 @@ class App(object):
         for gy in range(by0, by1 + 1):
             _, y = self._cpx(0, gy)
             c.create_line(0, y, (bx1 - bx0) * s, y, fill="#3a3f48" if gy % 4 else "#4a505b")
-        if s >= 14:
-            for gx in range(bx0, bx1, 4 if s < 30 else 2):
-                x, _ = self._cpx(gx, by0)
-                c.create_text(x + 2, 2, text=str(gx), anchor="nw", fill="#8a92a0", font=("TkDefaultFont", 8))
-            for gy in range(by0, by1, 4 if s < 30 else 2):
-                _, y = self._cpx(bx0, gy)
-                c.create_text(2, y + 2, text=str(gy), anchor="nw", fill="#8a92a0", font=("TkDefaultFont", 8))
+        rstep = next((k for k in (1, 2, 4, 8, 16, 32) if k * s >= 26), 64)   # SPEC.md 130.58.42: the RULERS,
+        rxs = [g for g in range(bx0, bx1) if g % rstep == 0]                # at every zoom, pinned to the
+        rys = [g for g in range(by0, by1) if g % rstep == 0]                # view's top and left edges
+        self._ruler_items = [c.create_rectangle(0, 0, (bx1 - bx0) * s, 13, fill="#23262c", outline="",
+                                                tags=("rulx",)),
+                             c.create_rectangle(0, 0, 24, (by1 - by0) * s, fill="#23262c", outline="",
+                                                tags=("ruly",))]
+        for gx in rxs:
+            x, _ = self._cpx(gx, by0)
+            c.create_text(x + 2, 1, text=str(gx), anchor="nw", fill="#b8c0cc", font=("TkDefaultFont", 8),
+                          tags=("rulx", "rultext"))
+        for gy in rys:
+            _, y = self._cpx(bx0, gy)
+            c.create_text(2, y + 2, text=str(gy), anchor="nw", fill="#b8c0cc", font=("TkDefaultFont", 8),
+                          tags=("ruly", "rultext"))
+        self._rul_at = (0.0, 0.0)
+        c.after_idle(self._pin_rulers)          # once the rest of the plan is drawn: on top of it, at the edges
         selcells = set()
         lines_cells = {}
         for (x, y), d in a["cells"].items():
