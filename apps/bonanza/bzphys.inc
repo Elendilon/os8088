@@ -1292,6 +1292,9 @@ bz_step:
     test byte [bz_fhk], BZ_FH_STEP ; wave 9 (130.25.6.3): the families' STEP
     jnz .fstep
 .count2:
+%ifdef BZSSLOG
+    call bz_ssrec               ; (the see-saw log, a diagnostic knob)
+%endif
     inc word [bz_nstep]
     jnz .counted
     inc word [bz_nstep + 2]

@@ -863,6 +863,9 @@ bz_play:
     cmp byte [bz_rsm], 0        ; A RESUMED course (SPEC.md 130.26.4): the
     jne .rs0                    ; ball, the clock and the log where they were
     call bz_pinit               ; the ball at the course's start (bzphys.inc)
+%ifdef BZSSLOG
+    call bz_ssreset             ; (the see-saw log, a diagnostic knob)
+%endif
 %if BZ_PATH_NPAD
     cmp byte [bz_mode], 4       ; wave 8R (130.22.4.2): THE PATHWAY - the marble
     jne .npw                    ; on its pad, the last course's event
@@ -1010,6 +1013,9 @@ bz_t0:
     call bz_fend                ; time, a finish sequence's steps taken back
     call bz_rfin
 .ret:
+%ifdef BZSSLOG
+    call bz_sswrite             ; (the see-saw log, a diagnostic knob)
+%endif
     ret
 .on:
 %if BZ_TITLE

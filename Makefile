@@ -22064,6 +22064,7 @@ $(BZSHADOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshadow-*
 	@touch $@
 #> [Knobs] BZDEV=1 :: Bounce Bonanza's TEST BUILD (SPEC.md 130.26.6.1): the harness bytes, the instruments' keys and face, the benchmark, the autopilot, the measured marks and the scripted camera the bonanza rows drive - none of it shipped; a knob build, into a private tree (make BUILD=build/bzdev BZDEV=1 bonanzadisk)
+#> [Knobs] BZSSLOG=1 :: Bounce Bonanza's SEE-SAW LOG, a diagnostic: every step near MILL's plate recorded and SYSTEM\APPDATA\SSLOG.BIN written at the play's end (apps/bonanza/bzsslog.inc) - into a private tree (make BUILD=build/bzss BZSSLOG=1 bonanzadisk)
 # BZDEV=1 (the owner, 2026-11-19: "anything that is a test only needs to be on a knob. We don't ship tests")
 # assembles BONANZA.O88 with -DBZDEV: bz_dev and every key and page it opens (B R D F G V W L N M T S, the tour,
 # the results page, the benchmark), the instruments (the measured marks, bz_presented's period, the beam
@@ -22089,7 +22090,7 @@ ifeq ($(BZ_PATH),apps/bonanza/courses/path.bbc)
 BZ_PATH := $(BZ_PATHDEV)
 endif
 endif
-BZDEVDEF := $(if $(BZDEV),-DBZDEV)
+BZDEVDEF := $(if $(BZDEV),-DBZDEV) $(if $(BZSSLOG),-DBZSSLOG)
 BZDEVSTAMP := $(BUILD)/.bzdev-$(or $(BZDEV),0)
 $(BZDEVSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzdev-*
@@ -22221,7 +22222,7 @@ BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN \
 # (never a code label) into bzlink.inc, which the part assembles against.
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
-		-I $(BZ_ART)/ $(if $(BZDEV),-D BZDEV) --prefix BZL --consts BZ -o $@
+		-I $(BZ_ART)/ $(if $(BZDEV),-D BZDEV) $(if $(BZSSLOG),-D BZSSLOG) --prefix BZL --consts BZ -o $@
 # The window's art (SPEC.md 130.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
