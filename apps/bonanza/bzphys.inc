@@ -192,7 +192,8 @@ VAR bz_bgd,2                    ; wave 6b (130.17.4.5): BOOST less the rebound's
                                 ; gvz, written where the grace opens (never cleared)
 VAR bz_ckpt,1                   ; ...the last flag touched + 1 (0: none, the start)
 VAR bz_ckmat,1                  ; ...the ball a respawn gets (the start's, then
-                                ; the last flag's record +17)
+                                ; the last flag's record +17, or the touching
+                                ; ball's when that is BZ_CK_TOUCH)
 VAR bz_cksn,1                   ; ...the flags touched, a bit each (their lanes'
                                 ; TRUE pose, bzwheel.inc bz_ltrue)
 VAR bz_inmo,1                   ; ...1 while the centre is in the cup's mouth
@@ -2314,8 +2315,12 @@ bz_prule:
     mov al, cl
     inc ax
     mov [bz_ckpt], al
-    mov al, [es:si + BZP_CBALL] ; the FLAG's ball, not the one it was
-    mov [bz_ckmat], al          ; touched with
+    mov al, [es:si + BZP_CBALL] ; the ball the FLAG names; BZ_CK_TOUCH (no
+    cmp al, BZ_CK_TOUCH         ; `ball`, 2026-11-23): AS TOUCHED, the one
+    jb .fb                      ; it was touched with
+    mov al, [bz_mat]
+.fb:
+    mov [bz_ckmat], al
     mov al, 1
     shl al, cl
     test [bz_cksn], al

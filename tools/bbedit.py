@@ -3890,6 +3890,10 @@ EXPLAIN = [
      r"\((\d+), (\d+)\)", "a {1} ball that takes a pickup could get stuck: from {0} it gets to the {2} with the "
      "pickup, but if it misses it can stop at cell ({3}, {4}) with no way on and no edge to fall from. Give that "
      "spot a way out (a ramp up, or open floor to roll off), or fill it in."),
+    (r"NO TRAP: from the (flag \d+), which names no `ball` .*? an? (\w+) ball cannot reach the (goal|cup)",
+     "{0} has no Ball here, so a fall there gives back the ball that touched it - and a {1} ball can get to it "
+     "on this course but cannot get from it to the {2}. Set its Ball here to a ball that can make it on from "
+     "there (a fall then returns as that ball), or make the way on easier for a {1} ball."),
     (r"NO TRAP: from (.*?) an? (\w+) ball cannot reach the (goal|cup)", "a {1} ball could get stuck: from {0} "
      "there is no way to the {2}, even hopping with Space and taking the course's Speed and Jump pickups. Make the way on easier "
      "there: a rubber or glass ball's hop clears a gap of two cells (a steel ball's, one) and a Jump pickup lets "

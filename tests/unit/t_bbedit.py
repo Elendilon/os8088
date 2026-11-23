@@ -81,6 +81,12 @@
     "Use height 2.5" builds; a drop traced onto a wall comes out on the floor past it, as one traced past it
     does, and no traced end writes a floor over a cell the course has (an empty one still gets one).
 
+ 20. A FLAG'S BLANK BALL IS THE BALL YOU HAD (SPEC.md 130.14.4.5, the owner 2026-11-23): the flag's "Ball here"
+    row names its blank "the ball you had" and its hint says a fall returns as the ball that touched the flag;
+    cleared it writes the bare `checkpoint`, which compiles AS TOUCHED (+17 = CK_TOUCH), while `ball glass`
+    compiles glass; and a blank flag a steel pad can bring steel to, past a gap steel cannot hop, is refused
+    with words naming the flag, its missing Ball here and the steel ball.
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -543,9 +549,40 @@ def mouth_check():
     return bad
 
 
+_CKT = ('course H "h"\nwidth 64\norigin 224\n'
+        'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 11 5 15 8 flat 4\nwall rect 11 4 15 5 flat 5\n'
+        'start 5 6\ncup 13 6\ncheckpoint 5 7%s\n%s')
+
+
+def flag_ball_check():
+    """item 20 (SPEC.md 130.14.4.5): a flag's blank ball is the ball you had -> [problems]"""
+    bad = []
+    row = [o for o in OPT.OPTIONS[("checkpoint", None)] if o["w"] == "ball"]
+    if len(row) != 1 or row[0]["blank"] != "the ball you had" or "touched the flag" not in row[0]["hint"]:
+        bad.append("item 20: the flag's Ball here row does not say blank is the ball you had: %s" % (
+            [(o["blank"], o["hint"]) for o in row],))
+
+    def balls(text):
+        try:
+            c = B.compile_course(text, "ckt.bbc")
+        except B.CourseError as e:
+            return str(e)
+        return [r["ball"] for r in c.part["props"] if r["kind"] == B.PK_CHECKPOINT]
+    got = (balls(_CKT % ("", "")), balls(_CKT % (" ball glass", "")))
+    if got != ([B.CK_TOUCH], [B.MAT_GLASS]):
+        bad.append("item 20: a blank flag and a glass one compile to %s, wanted [%d] and [%d]" % (
+            got, B.CK_TOUCH, B.MAT_GLASS))
+    err = balls(_CKT % ("", "pad steel 13 7\n"))
+    words = W.explain(err) if isinstance(err, str) else ""
+    if not isinstance(err, str) or not words.startswith("Flag 0 has no Ball here") or "a steel ball" not in words:
+        bad.append("item 20: a blank flag steel can reach but not leave: %s" % ((words or err)[:200],))
+    return bad
+
+
 def main():
     bad = []
     bad += options_check()
+    bad += flag_ball_check()
     courses = sorted(glob.glob(os.path.join(ROOT, "apps", "bonanza", "courses", "*.bbc")))
     if not courses:
         bad.append("no courses found")

@@ -5965,7 +5965,7 @@ SOAK = [
         "shattering glass one does not), spring (rubber onto PEAK's upper tier, the max not the sum, no "
         "launch on a shatter), return (bz_nret 1, bz_nfall unchanged), tilt (a TILT log, caps 0 - 8, "
         "8 -> 2 under a held arrow: 8, 6, 4, 2) - each on both cards, the new counters compared. Red "
-        "arms `--red ckpt|ckmat|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (705.0 s in the soak's lane; SPEC.md 130.17.14).",
+        "arms `--red ckpt|ckmat|cktouch|padftg|cupv|springsum|tiltcap`. secs MEASURED in 5b's re-take on the shipped D build (249.3 s, SPEC.md 130.15.13). secs MEASURED in 6b's final pass (705.0 s in the soak's lane; SPEC.md 130.17.14).",
         needs=("marty", "nasm"), timeout=900 + BZDEV_TREE_CPU,
         wants=("build/bonanza360.img", "build/os8088-360.img")),
     Row("bonanzaphyshost", "soak", py("tests/bonanza_phys.py", "--check"), 869.0,

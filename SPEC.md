@@ -263780,6 +263780,8 @@ blocks.
 7. **RESPAWN**: on `bz_safe` (its centre, its floor, zero velocity,
    grounded, the window refilled), `nfall += 1`, and `bz_vx`, `bz_vy` = 0; the frame's camera
    then cuts or not by 130.10.8 item 3. Physics is the same either way.
+   (On a course with a flag or a cup, 130.14.4.5's: on the last flag, with
+   the ball it gives back - the one that touched it, unless it names one.)
 8. **Grounded on a SAFE cell**: `bz_safe` = it. **Grounded on a GOAL cell in
    play**: `bz_goal = 1`. The benchmark ignores the goal.
 9. `nstep += 1`, and the SCREEN state is derived (130.10.8).
@@ -271248,7 +271250,7 @@ there (130.1).
 ##### 130.14.4.1 The grammar
 
     par         <seconds>                              at most once: 1 - 999, whole seconds (130.14.3.1)
-    checkpoint  <wx> <wy>  [ball rubber|steel|glass]   a FLAG; ball: the ball a respawn there gets (default the start ball)
+    checkpoint  <wx> <wy>  [ball rubber|steel|glass]   a FLAG; ball: the ball a respawn there gets (default: AS TOUCHED, the ball that touched it, 130.14.4.5)
     pad         rubber|steel|glass  <wx> <wy>          a BALL-SWAP PAD
     cup         <wx> <wy>  [capture <v>]               the CUP, the course's goal
     spring      <wx> <wy>  <gvz>                       a SPRING pad: its launch, 1/256 px a step
@@ -271286,10 +271288,14 @@ props. Each refusal names the line:
 - `par` given twice, or out of range;
 - **NO TRAP** (`--selfcheck` item 7): from the START with the start's
   ball (2026-11-22, 130.14.4.1.1), from every flag's cell with the flag's
-  ball, and from every pad's cell with the pad's ball, the reachable set -
+  ball - an AS TOUCHED flag's (no `ball`, 130.14.4.5) with EVERY ball the
+  course can be, its start's, its pads' and its named flags' - and from
+  every pad's cell with the pad's ball, the reachable set -
   pads, springs, tubes, the HOP and the timed pickups included
   (130.14.4.1.1, 130.14.4.1.2) - must contain the goal or the cup; a start,
-  flag or pad that fails is refused, naming it and the ball.
+  flag or pad that fails is refused, naming it and the ball (an AS TOUCHED
+  flag's refusal says it names no `ball`, and which ball cannot go on: name
+  one that can, and every fall there returns as it).
   **It rides a lift UP** (2026-11-21, DOWN rev 18's steel flag at a lift's
   foot): a run continues while a lift's slab carries the ball (`onp`) and
   never records the shaft as a resting cell, and on a course with a lift
@@ -271526,7 +271532,7 @@ Prop records (130.12.3.1), the kind's own 16 bytes at +16:
 
 | kind | | lane | +16 .. |
 |---|---|---|---|
-| 5 | CHECKPOINT | yes: 1 x 2 to 2 x 3 blocks, 2 poses | +16 its number 0 - 7, byte; +17 its BALL 0 - 2 (the respawn's), byte |
+| 5 | CHECKPOINT | yes: 1 x 2 to 2 x 3 blocks, 2 poses | +16 its number 0 - 7, byte; +17 its BALL 0 - 2 (the respawn's), or 3 `BZ_CK_TOUCH`: AS TOUCHED (no `ball`, 130.14.4.5), byte |
 | 6 | PAD | no | +16 the material 0 - 2, byte |
 | 7 | CUP | no | +16 `capture`, word; +18 the mouth's half-width in gu, byte (4: a 9 x 9 gu mouth round the cell's centre) |
 | 8 | SPRING | no | +16 `gvz`, word |
@@ -271611,19 +271617,63 @@ is the new material's (`bz_bsegs[bz_mat]`, 130.14.4.7) - drawn on that frame eve
 material again only after the ball has left it with another (`bz_mat`
 differs), so standing on a pad swaps once. The launch fetches the starting
 ball, every ball the pad mask names AND every flag's own ball (a respawn
-at a flag gives its ball whether or not a pad does): 130.14.25 item 2.
+at a flag gives its ball whether or not a pad does): 130.14.25 item 2. An
+AS TOUCHED flag (130.14.4.5) adds no ball: it gives back one the play
+already had. (Since 130.25.5.2 the three balls are held anyway.)
 
 ##### 130.14.4.5 Checkpoints, the respawn and RETURN
 
 A step that ENDS with the centre in a FLAG's cell, grounded or airborne,
 and not shattering: `bz_ckpt` = its number + 1, `bz_ckmat` = the FLAG'S
-BALL (its record's +17, not `bz_mat`); `bz_cksn` |= its bit and, the first
+BALL - its record's +17 when the flag NAMES one (`ball rubber|steel|glass`),
+and `bz_mat`, the ball that touched it, when it names none (+17 =
+`BZ_CK_TOUCH`, 3: AS TOUCHED); `bz_cksn` |= its bit and, the first
 time, `bz_nckpt` += 1. The LAST flag touched is the respawn point: a
 course's flags may be touched in any order, and going back to an earlier
-one makes it the respawn point again. A flag touched with another ball
-(an optional branch's) still gives its own ball back: the tool has proved
-that ball reaches the cup from the flag (130.14.4.1's NO TRAP), and no
-other ball is proved.
+one makes it the respawn point again - and, AS TOUCHED, takes the ball of
+that touch. A flag that names a ball gives that one back whatever touched
+it (an optional branch's): the tool has proved that ball reaches the cup
+from the flag (130.14.4.1's NO TRAP), and no other. An AS TOUCHED flag is
+proved with every ball the course can be (130.14.4.1).
+
+**The owner's ruling (2026-11-23)**, which reverses the one above for a
+flag with no `ball`: *"A flag is 'go back to the state you were in when you
+crossed the flag' (some powerups excluded, from that), unless it's
+specifically set to something else. ... this should be the default."*
+*Until then a flag with no `ball` compiled to the course's START ball, and
+`bonanzaphys`' red arm `ckmat` named "the respawn takes `bz_mat` at the
+touch" as the wrong behaviour; the arm is kept for a flag that NAMES its
+ball, and `cktouch` is the new rule's.* What "the state you were in" is, per
+ball (`bz_pinit`'s state, 130.14.4.7, 130.16.4.3, 130.25.7):
+
+| the ball's state at the touch | at a respawn on an AS TOUCHED flag | why |
+|---|---|---|
+| the MATERIAL, `bz_mat` (a pad's swap, 130.14.4.4) | **RESTORED**: `bz_ckmat` = `bz_mat` at the touch; its record, `fta`, `ftg`, the working Hop, `HTHR`, `HARD` and `HSTEPS` with it, as a pad's swap copies them (`bz_setmat`) | the ball the player had is the state; one byte, captured where the flag is |
+| the place: the flag's cell's centre, its floor, at rest, grounded | as now (the flag's, not where the touch was) | a respawn is a cell's centre at rest (130.14.4.1) |
+| velocity, the arrows' levels, the Hop window, the squash | cleared, as now | transient |
+| a STUN or a SHATTER (`bz_mst`, `bz_mct`) | cleared, as now (a shattering ball never touches a flag) | transient |
+| the BOOST's token, its grace, the spent launch (`bz_btok`, `bz_bgr`, `bz_bsp`, `bz_stf`) | cleared, as now | transient |
+| a SPEED or JUMP pickup's effect and its element (the RESPAWN class: `bz_wacc`, `bz_vup`, the raised Hop) | **EXCLUDED**: cleared and the element put back, as now (130.25.7.1) | a powerup: the owner's "some powerups excluded"; restoring a timed effect at rest would also keep its clock running |
+| LIVES (`prop life`, `bz_lives`, `bz_lfx`, 130.55) | **EXCLUDED**: a respawn neither restores nor resets them, as now | a pickup and the game's count, not the ball's |
+| a MAGNET's pull, WATER, SPIKES | no state of the ball's: read from the cell and the material each step | follows the material |
+| the WORLD: cracks, glass paths, plates, keys, gates (ATTEMPT and RESPAWN classes) | as 130.25.7.1, unchanged | world state, not the ball's |
+
+So the material is the whole of what is restored; everything else a respawn
+already resets or keeps stays as it was. The start is unchanged: before any
+flag `bz_ckmat` is the ball the play STARTED with (130.14.18 item 3). A flag
+that NAMES a ball is unchanged. **Free play's `M`** (a play started with any
+ball) is not among the balls NO TRAP proves an AS TOUCHED flag with, as its
+start is not (130.14.4.1.1). **The encoding** is a reserved value of the
+existing byte, +17 = 3, rather than a bit elsewhere: the guest's touch
+compares one byte it already reads (`cmp al, BZ_CK_TOUCH` / `jb` / `mov al,
+[bz_mat]`: 7 bytes), and every record a course compiled before keeps its
+bytes when its flag names its ball. **The shipped courses** all name every
+flag's ball, so none changed; the one test course with a blank flag, TQUIK
+(rubber, no pad, no other flag: as touched it could only ever be rubber),
+had `ball rubber` written in, so its part is byte-identical. `BZ_PHYSV`
+(130.14.7.2) is not bumped: it covers the material table and the constants,
+neither of which moved, and no course compiled before can hold a 3 at +17,
+so no saved log replays differently.
 
 **RESPAWN** (130.10.7.3 step 7) on a course whose `BZG1` FLAGS bit 0 is
 set: on the centre of flag `bz_ckpt - 1`'s cell (the start's tile when
@@ -271676,7 +271726,7 @@ lands in a void, because the approach is the player's.
 | variable | type | |
 |---|---|---|
 | `bz_ckpt` | byte | 0, or the last flag touched + 1 |
-| `bz_ckmat` | byte | the ball a respawn gets: the start ball, then the last flag's (+17) |
+| `bz_ckmat` | byte | the ball a respawn gets: the start ball, then the last flag's (+17), or for an AS TOUCHED flag (+17 = 3) `bz_mat` at its touch (130.14.4.5) |
 | `bz_cksn` | byte | the flags touched this play, a bit each (their lanes' true pose) |
 | `bz_inmo` | byte | 1 while the centre is in the cup's mouth |
 | `bz_hid` | byte | 1 once the ball has holed out (the sprite is not drawn) |
@@ -273116,7 +273166,7 @@ registered at the final pass's measured times.
 | **`bonanzademo` (new)** | soak, MartyPC | CGA and Hercules: a free play on `MILL` driven by the autopilot, then `W` through the Save dialog (os88ui's dialog verbs) into ANOTHER folder: the file read back on the host equals `bz_rlog`'s bytes; then Enter plays `MILL` (the fetch goes home: `nohome`'s check); `L` of it back: `bz_rlog` equal, the log line the file's name; `R` to the model's end state; `D`: the RESULTS page and `bz_r*` filled, its frames those the replay presented; `V` through the five shipped demos, each `D`'d to its recorded end equal to the model's state; a double-clicked `.BZR` in a Disk window opening BONANZA with it loaded, and a play after it fetching from home; **THE HOSTILE SET** - every malformed file written by the host onto the scratch floppy (an extension not `BZR`, 15 bytes, 4,097 bytes, a bad magic, `K` = `BZ_NCRS`, material 3, +6 bit 3, an identity of another build, +7 another physics, `N` = 0, a length one byte off `16 + 2N`, a TILT log one off `16 + 3N`, steps one off the sum, a count of 0, a key byte with bit 7, a tilt nibble of 9) - each refused with its toast, `bz_rlog` unchanged byte for byte, no part row fetched, no claim left (`tools/heapmap.py`), and for the first three NO `OSAPI_FILE_READ` reached (a logged breakpoint); the double-click legs of the set (4,097 bytes refused by `FERR_BIG` with no data read, 15 bytes, a bad identity) | `nosum` (the step-sum check removed: the off-by-one file is accepted); `readfirst` (the size refused after the read: the 4,097-byte file reaches `OSAPI_FILE_READ`); `stageleak` (the staging claim not freed on a refusal); `inplace` (the checks run on `bz_rlog` itself: a refused file leaves the session's log damaged); `nohome` (`bz_pfetch` does not go home: the play after `W` fails "Cannot read my parts"); `argsize` (the double-click path reads at a capacity of 64KB: the 4,097-byte file is read) |
 | `bonanzaring` (changed) | soak, MartyPC | as 130.13.12, and with the HUD: the oracle composes the panel over its picture at the shown rect when the HUD is shown; a `MILL` demo replayed with the HUD FOLLOW (every one of the eight step directions with the HUD's union box, and one with the ball under the panel), REST (hides, shows, a release) and OFF, and a poked FIVE-box frame; the card equals the oracle at `bz_tf` and `bz_presented` on every checked frame; a LANE under the shown rect (`MILL`'s post put there by a poked camera, made due): never written by the wheel or the LEAD, drawn by a promotion, and its cells OUTSIDE the rect equal to the oracle after that frame; a full write with the HUD shown (the rect skipped, then the panel) and with it hidden (the rect from the course); **no card byte receiving two different values in a frame, and no byte outside the overlap of two boxes written twice** (logged memory-write breakpoints on the rect's and the boxes' card bytes); the cup's capture frame (the ball gone, the footprint restored), a lip-out's pop, and a flag raising (committed or promoted); a respawn's full write with 3D8h / 3B8h's enable bit clear from before its first row to after its flip | `hudinset` (the inset taken to 0: an entering row writes the panel's cells and the HUD box writes them again with a different value); `hudold` (the old rect not restored on a step: the oracle at `bz_presented`); `hudlane` (the wheel's HUD-rect test removed: a commit writes the lane over the panel); `hudfull` (the full write's span skip removed while shown: the rect gets the course, then the panel - two values; and a REST leg's hidden full write that skips the rect: the oracle); `noblank` (the blank left out: the enable bit set during the full write) |
 | `bonanzaperf` (changed) | soak, MartyPC | as 130.13.12; **the DEMO legs**: every shipped demo through `D` on both cards, sound OFF and ON, the HUD OFF and at the default (REST); `MILL`'s route demo also with FOLLOW on both cards: ASSERTED its replay's end state equal to the model's, `bz_wover` 0, `bz_wlate` 0, and in REST no HUD box on a scroll frame but a release; REPORTED busy mean and p95, misses each with its parts, against the HUD-OFF leg of the same demo (each 130.14.5.8 and 130.14.6 prediction set beside its measurement), the HUD's boxes by kind and their spans, the releases, the pad swaps, springs and lip-outs; **D's overhead**: one shipped demo through `D` and through `R` under the outside trace, busy compared, REPORTED; the BENCH A/B against **573eec83** by hand (`--ab`, 130.13.14 item 11's method): ASSERTED `BENCH`'s mean busy at most 0.5k over 3b's on the CGA (PREDICTED +0.15 - 0.3k), the Hercules's reported; ASSERTED on both cards that B draws NO HUD box (`bz_nhud` 0) | `hudon` (B's HUD not forced OFF: `bz_nhud` non-zero on the B leg, either card); `halfcal`, `rideoff`, `level1` as before |
-| `bonanzaphys` (changed) | soak, MartyPC | as 130.13.12, and replays of logs the row writes with the model: `flag` (a pit past flag 0 respawns on it), `flagmat` (`SUMMIT`: a glass ball shattering past flag 3 respawns there AS GLASS, the flag's ball; `MOON`: a shatter on the terrace respawns at flag 2 AS RUBBER), `padswap` (each pad of `MOON` and `SUMMIT`: `bz_mat`, the copied record and `ftg` the model's at every frame), `cup` (128 holes out at the model's step, the play ends; 256 pops (`gvz` `BZ_LIPZ`), `bz_nlip` 1, and rolls on; a stunned steel ball in the mouth holes out after its stun; a shattering glass ball does not), `spring` (rubber onto `SUMMIT`'s upper tier; a rubber bounce on a spring leaves at the max, not the sum; glass shattering on a spring is not launched), `return` (RETURN mid-roll respawns at the flag, `bz_nret` 1, `bz_nfall` unchanged), `tilt` (a TILT log written with caps 0 - 8 on both axes, and a cap dropped from 8 to 2 under a held arrow: levels 8, 6, 4, 2, velocities the model's) - each on both cards; the new counters compared | `ckpt` (the respawn at `bz_safe` on a CKPT course: `flag`); `ckmat` (the respawn takes `bz_mat` at the touch, not the flag's ball: `flagmat`'s `MOON` case); `padftg` (`ftg` not rebuilt at a swap: `padswap`); `cupv` (the capture without the speed test: `cup`'s lip-out holes out); `springsum` (the spring ADDS to the rebound: `spring`'s apex); `tiltcap` (the min before the decay, so a level above the cap drops to it at once: `tilt`'s 8, 6, 4, 2) |
+| `bonanzaphys` (changed) | soak, MartyPC | as 130.13.12, and replays of logs the row writes with the model: `flag` (a pit past flag 0 respawns on it), `flagmat` (`SUMMIT`: a glass ball shattering past flag 3 respawns there AS GLASS, the flag's ball; `MOON`: a shatter on the terrace respawns at flag 2 AS RUBBER), `padswap` (each pad of `MOON` and `SUMMIT`: `bz_mat`, the copied record and `ftg` the model's at every frame), `cup` (128 holes out at the model's step, the play ends; 256 pops (`gvz` `BZ_LIPZ`), `bz_nlip` 1, and rolls on; a stunned steel ball in the mouth holes out after its stun; a shattering glass ball does not), `spring` (rubber onto `SUMMIT`'s upper tier; a rubber bounce on a spring leaves at the max, not the sum; glass shattering on a spring is not launched), `return` (RETURN mid-roll respawns at the flag, `bz_nret` 1, `bz_nfall` unchanged), `tilt` (a TILT log written with caps 0 - 8 on both axes, and a cap dropped from 8 to 2 under a held arrow: levels 8, 6, 4, 2, velocities the model's) - each on both cards; the new counters compared | `ckpt` (the respawn at `bz_safe` on a CKPT course: `flag`); `ckmat` (a flag that NAMES its ball: the respawn takes `bz_mat` at the touch, not that ball: `flagmat`'s `MOON` case, on TPLY `flagmat-rubber`); `cktouch` (an AS TOUCHED flag, 2026-11-23: the respawn takes the course's ball, the rule until then, not `bz_mat` at the touch: `flagmat-touch`, TPLY's flag 0 poked to AS TOUCHED and touched as glass, respawns as glass); `padftg` (`ftg` not rebuilt at a swap: `padswap`); `cupv` (the capture without the speed test: `cup`'s lip-out holes out); `springsum` (the spring ADDS to the rebound: `spring`'s apex); `tiltcap` (the min before the decay, so a level above the cap drops to it at once: `tilt`'s 8, 6, 4, 2) |
 | `bonanzareplay` (changed) | soak, MartyPC | as 130.13.12, and a MOUSE play on `MOON`: the row drives the pointer (`tools/os88mouse.py`'s absolute verbs) through offsets round the anchor on both axes while the play runs; the log is TILT; at each `bz_presented` the frame's tilt byte equals 130.14.8.1's mapping of the pointer the row placed (the extent read in the bracket); a respawn re-anchors; the log replayed on the Hercules equal at every frame; REPORTED the mouse play's busy against the same route's keyboard play | `tiltmap` (the dead zone left out of the mapping: the caps the row expects differ) |
 | `bonanzaexit` (changed) | soak, MartyPC | as 130.13.12 over every part row, with `MOON` and `SUMMIT` (their three ball rows fetched and dropped), every way out of a tour course (the cup, Esc, F, Alt+Enter) and a tour stopped on the face, `D`'s end, `V`'s fetch and drop, `L`, `W` and the double-click with a claim count equal before and after; the part rows `3 + BZ_NCRS + 1 + BZS_NSONG + BZ_NDEMO` | `padleak` (the third ball row not dropped at the cup) |
 | `bonanzamega` (changed) | soak, 86Box | as 130.13.12, and `SUMMIT` on the Hercules display with its three balls and the HUD FOLLOW and REST; `W`, `L`, a double-clicked `.BZR` and `D` through the dialogs; a respawn's blank; no fault charged to the package, no part or claim left | `segadd`, `hxcs`, `mapcs` as before; `stageseg` (the copy reaches the staging claim by adding a paragraph to its selector: a #GP) |
