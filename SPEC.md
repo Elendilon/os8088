@@ -262965,7 +262965,7 @@ compiles to, for example:
 
 | tile | kind | `z0` (half units, the top corner) | slopes `(sx, sy)` | flags |
 |---|---|---|---|---|
-| (4, 5) | FLOOR | 8 | (0, 0) | SAFE (flat, four non-VOID edge neighbours); the start |
+| (4, 5) | FLOOR | 8 | (0, 0) | SAFE (a flat FLOOR no prop owns); the start |
 | (8, 5) | FLOOR | 7 (3.5 units at `cx = 8`) | (-1, 0) | - |
 | (4, 3) | WALL | 12 | (0, 0) | - |
 | (12, 5) | VOID, NEAR | -6: 3 units under the lowest solid cell within two tiles (C, 0) | - | - |
@@ -263153,7 +263153,7 @@ One cell a tile, four bytes, stored by screen row (130.10.2):
 | +0 `z0` | signed, HALF units: the floor's height at the tile's top corner `(wx, wy)`. A NEAR VOID cell holds its KILL height instead: 3 units below the lowest CORNER of the solid cells within two tiles (Chebyshev; where the drawn faces end for its neighbours). An OPEN cell (none within two tiles) holds -128 |
 | +1 slopes | low nibble `sx`, high nibble `sy`, each signed -8..7: half units a tile along `+wx` and `+wy`. wave 1's tool writes neither past -4 .. 4 |
 | +2 kind | low nibble: 0 VOID, 1 FLOOR, 2 WALL, 3 GOAL - each a PLANE; **4 - 15 RESERVED for non-planar floors** (corner ramps, bank, bowl and funnel quadrants: plan 3 and 8), whose slopes byte a later wave re-reads as the shape's parameter. Wave 1's tool never writes them and the guest's floor function (130.10.7.3) dispatches on this nibble, so a shape is a new case, not a new format. High nibble: the SURFACE, 0 in wave 1 (wave 2's ice, sand and the rest) |
-| +3 flags | bit 0 SAFE: a respawn cell for `bz_safe` (the last one stood on, where a course with no flag and no cup respawns, 130.10.7.3 step 8) - a FLOOR with no slope and no VOID among its four edge neighbours. It is the AUTOMATIC respawn's rule only: the start, a flag, a pad and the cup are not held to it (130.10.4.5, 130.14.4.1), because a respawn there is the cell's centre at rest (130.14.4.5), which a one-tile path holds as well as a room; bit 1 OCC: a ball anywhere in this cell may be behind an occluder (130.10.4.4), so the box compose runs the occluder pass; bits 2 - 7 zero (wave 2's thin-wall edges and wave 3's features take them: OCCG, OBS, bits 4 - 5 a GUARD RAIL on the cell's +x / +y edge since 130.35.1, 6 `FL_FLOAT` or a goal's exit with 7) |
+| +3 flags | bit 0 SAFE: a respawn cell for `bz_safe` (the last one stood on, where a course with no flag and no cup respawns, 130.10.7.3 step 8) - a FLOOR with no slope that is no prop's cell (no `OBS`: no tube's IN, spring, pad, post, mover, turntable cell or lift's shaft, 130.12.3.2), **whatever its neighbours** (the owner, 2026-11-23: *"A respawn doesn't need rails around it - the ball spawns on a single tile, still, and is safe then - it just can't spawn on a spring or tube or other mover"*; until then also no VOID among its four edge neighbours, or since 130.35.1 every open edge railed). A respawn is the cell's centre at rest (130.14.4.5), which a one-tile path holds as well as a room - the reason the start, a flag, a pad and the cup were let off the old rule first (130.10.4.5, 130.14.4.1) and the rule's own reason now (130.10.4.3.1); bit 1 OCC: a ball anywhere in this cell may be behind an occluder (130.10.4.4), so the box compose runs the occluder pass; bits 2 - 7 zero (wave 2's thin-wall edges and wave 3's features take them: OCCG, OBS, bits 4 - 5 a GUARD RAIL on the cell's +x / +y edge since 130.35.1, 6 `FL_FLOAT` or a goal's exit with 7) |
 
 The floor's height at a point of a solid cell, `u = gx & 15` and
 `v = gy & 15` the integer ground units inside it, in QUARTER px:
@@ -263168,6 +263168,55 @@ parities); its byte offset is `ROWTAB[r] + 4 k`. A cell outside the rows or
 the row's `KW` cells is OPEN. Rows are not a power of two wide - a 512 px
 course needs 17 cells a row, and 32 would nearly double the grid - so the
 row table is in the part, one word a row.
+
+##### 130.10.4.3.1 SAFE without neighbours (the owner, 2026-11-23)
+
+*"A respawn doesn't need rails around it - the ball spawns on a single tile, still, and is safe then - it
+just can't spawn on a spring or tube or other mover."* The flags' bit 0 is now **a flat FLOOR whole cell
+that is no prop's cell**: kind FLOOR, `sx = sy = 0`, `OBS` clear. No edge neighbour is read and no guard rail
+(130.35.1's railed SAFE is gone with the clause it relaxed). A split cell, a FIELD cell, a ramp, a WALL, a
+GOAL and a VOID are never SAFE, as before; every `OBS` cell (130.12.3.2: a tube's or windmill's IN, a post, a
+clock, a lift's shaft, a spring, a pad, a checkpoint, the cup, and the family elements that own a cell -
+water, spikes, boost, turntable, magnet, wind's fan, gate) is never SAFE, as before. A see-saw's plates own
+no cell (no `OBS`) but rest tipped, so no plate cell is SAFE either; an archway's cells are plain flat floors
+and are SAFE.
+
+What it changes: the cell `bz_safe` holds (130.10.7.3 step 8: the last SAFE cell the ball stood on), so a
+fall respawns where the ball last stood on flat floor rather than where it last stood in a "room" - on a
+one-tile path, beside a drop or on a railed walkway, the cell it rolled off. Physics, the step and the model
+are unchanged code (they read the bit); the tool's grid, `cells_rule` and the guest's CELLS rule
+(`bz_cxcel`, which absorbs `bz_cxsafe`) all drop the clause together, so the stored CELLS form has no SAFE
+exception any course could make (130.15.6). *What moved* is 130.15.6's table of savings and 130.14.7.4's
+demos (below, *as built*).
+
+*As built* (2026-11-23), MEASURED on the host:
+- **Where SAFE moved**, the eight shipped courses' SAFE cells, the old rule -> the new: `FIRST` 6 -> 15,
+  `DOWN` 147 -> 364, `MILL` 307 -> 332, `MOON` 212 -> 247, `PEAK` 176 -> 251, `PLAY` 385 -> 663, `ROLL`
+  136 -> 192, `HOP` 158 -> 194. **Only `FIRST` and `PLAY` respawn on `bz_safe`**: every other shipped course
+  has a flag (`GF_CKPT`), and a fall there respawns on the last flag touched (130.14.4.5), so its SAFE bits
+  are stored bytes and nothing else. On `FIRST` and `PLAY` a fall now respawns on the last flat floor cell
+  stood on.
+- **The demos play as before**: no shipped demo falls on a course that respawns on `bz_safe` (`FIRST`'s,
+  `PLAY`'s, `ROLL`'s, `HOP`'s and the title's: 0 falls; `MOON`'s and `PEAK`'s one fall each respawns on a
+  flag). `bbcourse.py author` wrote `moon.bzd`, `summit.bzd` and `playground.bzd` again - the same runs and
+  steps, their `ident` lines alone (every course's RAM form moved, so every identity did); the route demos
+  are the build's own.
+- **CELLS**: every course has no SAFE exception (the railed ones gone: `DOWN` 10, `MILL` 137, `PLAY` 1,
+  `ROLL` 6, `HOP` 8), so the stored parts packed: `DOWN` -13 LZ4 / -12 LZB, `MILL` -53 / -41, `ROLL` -8 / -3,
+  `PLAY` -1 / 0, `PEAK` 0 / -1, `MOON` 0 / +1, `HOP` 0 / 0, `FIRST` 0 / 0: **-75 LZ4, -55 LZB** over the
+  shipped parts (each other part moved only its two identity bytes).
+- **The guest**: `bz_cxsafe` and its `.vd` deleted and the SAFE test inlined in `bz_cxcel`'s cell loop, the
+  frame two words shorter (no edge neighbours' offsets to carry): `bz_cxcel` + `bz_cxsafe` 574 -> 422
+  bytes, `bonanza.bin` 53,059 -> 52,907 (**-152**; -120 LZB), 0 bss. It runs fewer instructions a cell than
+  it did (four neighbour reads gone), NOT re-priced.
+- **The checks**: `--selfcheck` item 10 requires every CELLS exception to be a lift's shaft cell again (one
+  part and two), with two controls that must part from the tool - SAFE without its `OBS` clause, and SAFE
+  with the old edge clause put back; item 1's cross-commit chain compiles with `edgesafe` (the old rule in
+  grid and CELLS, `_EDGESAFE`), a tool that predates the change. The red arms that broke the deleted reads
+  are re-aimed at what CELLS still reads: `cellhalves` (`tests/bonanza_dsplit.py`) a split cell read whole
+  for NEAR, `cellfield` (`tests/bonanza_dfield.py`) a FIELD's V read by records; `cellsafe`
+  (`tests/bonanza_exit.py`) patches the inline `OBS` test. NOT run on an emulator here (the rows that run
+  them are soak rows): `bonanzaexit`'s claim leg, `bonanzaphys`, and the two unicorn checks.
 
 ##### 130.10.4.4 Occluders
 
@@ -266721,7 +266770,7 @@ state.
     tube  keep|launch|drop  <iwx> <iwy>  <owx> <owy>  [via <wx> <wy>]...  [out +x|-x|+y|-y]  [body <units>...]
           [column <units>]               the body's height a leg, and how deep its column hangs: 130.12.3.5
           speed <gvx> <gvy> <gvz>        launch only, and required: its exit velocity (1/256 gu, px a step)
-          height <h>                     drop only, and required: the exit's height above the OUT cell's floor, units
+          height <h>                     drop: required; launch: optional (2026-11-23) - the MOUTH's height above the OUT cell's floor, units
     prop  windmill <iwx> <iwy>  [period 32|64|128|256]  [closed <c0> <c1>]  [seed <n>]
     prop  bumper   <wx> <wy>    [kick <K>]
     prop  platform <wx> <wy> <L>  [period 64|128|256]  [dwell <w>]  [seed <n>]     a LIFT: its shaft, its rise in units
@@ -266770,6 +266819,27 @@ exit's next cell along `out` must be a FLOOR the ball can roll onto. The
 tool prints each exit's outcome per ball (bounce, stun, shatter, or a plain
 landing), since a hard landing out of a tube is a trap once the ball is in.
 
+**A RAISED LAUNCH** (2026-11-23, the owner on MILL: a launch from a floor at
+21 whose exit tile is a floor at 14 fired from 14 and hit the face of a
+platform at 16, and raising the pipe with `body` did not raise where the
+ball came out): `height <h>` on a LAUNCH puts its MOUTH - where the flight
+starts - `h` units over OUT's floor, exactly as a DROP's: the last segment
+ends at OUT's centre at that height (the segment's `+12` END `z`, as a
+DROP's; no record field is added, and the guest, which sets the ball at the
+last segment's END and adds `gvz`, is unchanged), the body is laid as a
+DROP's (the exit's floor, `height` and 1.5 units, or the author's `body`),
+the last body wall must stand behind OUT along `out`, and its mouth is a
+DROP's arch on that wall's face (10 x 9 px, its sill `h` units over OUT's
+floor; refused when not wholly on the face: `a taller wall, or a lower
+exit`). Unlike a DROP's, a raised LAUNCH's `out` may face `-x` or `-y`: its
+mouth is then on a face the camera does not see and is not drawn (the ball
+comes out from behind the wall), and the tool refuses a last wall whose top
+is under the mouth's (`h` and 1.5 units over OUT's floor) instead. Its exit
+check, its reach (a launch source `UP(gvz)` over the mouth) and
+`--selfcheck`'s mouth checks all start the flight at the mouth. Without
+`height` a LAUNCH fires from OUT's floor as before, so a course with no
+raised launch compiles byte for byte as it did.
+
 **`prop windmill`** names an existing KEEP tube by its IN cell and turns
 that tube's record into a WINDMILL's (one record, 130.12.6.2). Its first leg
 must run along `-x` or `-y` (the ball goes INTO the house through a face the
@@ -266795,8 +266865,9 @@ and at its two docks only - at least one at the lowest rim's height `hP`
 
 Each refusal names the line: a tube whose body cell is not a WALL, whose leg
 is not along an axis, whose exit lands off a FLOOR for some ball or whose
-DROP mouth faces away, a LAUNCH `speed` over the caps, a DROP `height` under
-1 unit; a windmill without a KEEP tube at its IN cell, entered
+DROP mouth faces away, a LAUNCH `speed` over the caps, a DROP `height` (or a
+LAUNCH's) under 1 unit, a RAISED LAUNCH whose last body wall is not behind OUT
+along `out` or is too low for its mouth; a windmill without a KEEP tube at its IN cell, entered
 along `+x` or `+y`, without a wall behind its doorway, whose house cannot
 hold the rotor, or whose doorway is in the shade; a bumper on a non-FLOOR, or
 with a `seed`; a lift whose shaft is not VOID, whose rims stand at anything
@@ -267579,7 +267650,7 @@ increments of `gx`, `gy` (1/256 gu) and `z` (1/256 px), +8 / +10 / +12 its
 END `gx`, `gy` (integer gu) and `z` (whole px), +14 zero. Segment 0 starts at
 IN's centre and floor (a windmill's: at its DOORWAY, the midpoint of IN's
 house-side edge); each ends where the next begins; the last ends at OUT's
-centre, at OUT's floor (DROP: at its exit height). The tool chooses each `m`
+centre, at OUT's floor (DROP, and a RAISED LAUNCH: at its mouth's height). The tool chooses each `m`
 as the least that keeps the ghost inside the ball's own screen speed -
 `|Dsx| <= 3m` px and `|Dsy| <= 3m` lines, `Dsx = Dgx - Dgy`, `Dsy = (Dgx +
 Dgy) / 2 - Dz` - and the increments as `round(256 D / m)`; `T` is the sum.
@@ -267613,7 +267684,7 @@ refilled round OUT (as `bz_pokd`'s refill, 130.10.7.1), and
 | kind | the ball leaves |
 |---|---|
 | KEEP | GROUNDED at OUT's centre and floor, moving along the exit direction at `max(s_in, BZ_TMIN)` (`BZ_TMIN` 64): `(+-v, 0)` or `(0, +-v)` |
-| LAUNCH | AIRBORNE from OUT's floor with the record's `(gvx, gvy, gvz)` (`|gvx|, |gvy| <= BZ_VMAXG`, `0 <= gvz <= BZ_VZMAX`), `ztop = z`, `z += gvz` - a take-off (130.10.7.3 step 6) |
+| LAUNCH | AIRBORNE from OUT's floor (a RAISED launch's: its mouth's height, the last segment's END, 130.12.3.3) with the record's `(gvx, gvy, gvz)` (`|gvx|, |gvy| <= BZ_VMAXG`, `0 <= gvz <= BZ_VZMAX`), `ztop = z`, `z += gvz` - a take-off (130.10.7.3 step 6) |
 | DROP | AIRBORNE at OUT's centre and the exit's height, `gvz` 0, `ztop = z`, moving as KEEP: it FALLS, and lands by 130.11.8.5 (rubber bounces, steel is stunned from 2 units, glass shatters from 3) |
 
 **Art.** A plain tube's IN cell is drawn as a dark HOLE on its top; its OUT
@@ -275158,9 +275229,10 @@ rule host-side over all six at `ef59209a`), and a later lift can have one.
   (Chebyshev in `wx` and `wy`). Then `rule_z0` is the lowest corner of
   those cells, in half units, less 6: `z0 + min(0, sx) + min(0, sy)` over
   them. Otherwise the cell is OPEN, and `rule_z0` is -128.
-- `rule_safe` is 1 on a FLOOR cell (kind nibble 1) with `sx = sy = 0`,
-  `OBS` clear, and no VOID cell among its four edge neighbours. A
-  neighbour outside the grid counts as VOID.
+- `rule_safe` is 1 on a FLOOR cell (kind nibble 1) with `sx = sy = 0` and
+  `OBS` clear, whatever its neighbours (130.10.4.3.1, 2026-11-23; until then
+  also no VOID cell among its four edge neighbours, one outside the grid
+  counting as VOID).
 
 **Scratch, time and bytes:**
 - only `bz_boxbuf`, at most `9 KW` bytes: for example a ring of nine cell
@@ -275178,13 +275250,18 @@ combination, the report's section 4).
 **The guards.**
 - **On the host**, item 10's `expand == RAM` on every course. Item 10 also
   prints each course's exceptions and requires each to be a lift's shaft
-  cell or a RAILED SAFE: a flat FLOOR the tool makes SAFE because a guard
-  rail closes an edge the rule reads as open (130.35.1, 2026-11-22; the
-  rule reads no rail, so such a cell is a stored byte, as above - DOWN 10,
-  MILL 137, PLAY 1, ROLL 6, HOP 8 at the guard rails' landing). A host rule
-  that has drifted from the tool's shows up as more exceptions, never as a
-  wrong grid. Its negative control sorts the exceptions with the rails
-  forgotten, and every railed SAFE is then unexplained.
+  cell. (From the guard rails' landing, 2026-11-22, to 2026-11-23 a RAILED
+  SAFE was a second class - a flat FLOOR the tool made SAFE because a rail
+  closed an edge the rule read as open: DOWN 10, MILL 137, PLAY 1, ROLL 6,
+  HOP 8 stored bytes. SAFE reads no neighbour and no rail since,
+  130.10.4.3.1, so the tool and the rule agree on every SAFE bit and the
+  class is gone.) A host rule that has drifted from the tool's shows up as
+  more exceptions, never as a wrong grid. Its negative controls: the rule
+  with SAFE's `OBS` clause taken out (the red arm `cellsafe`'s), and the
+  rule with the OLD edge clause put back (a guest still reading the four
+  edge neighbours) - each must give an exception on every course where it
+  can (a prop's flat cell; a flat FLOOR beside a VOID), one-part and
+  two-part courses alike.
 - **On the guest**, `bonanzaexit`'s claim leg (130.15.13) compares the
   expanded part with the tool's RAM form. A guest rule that differs from
   the host's gives a wrong grid, which only that compare sees, so its red
@@ -275267,7 +275344,7 @@ host unless marked:
   RAM form byte for byte, nothing written outside the part and
   `bz_boxbuf`, BP, DS, ES and SP preserved.
 - **The red arm `cellsafe`'s target** is the two lines of `bz_cxsafe` that
-  test `BZ_FL_OBS`. With them taken out, the same unicorn run gives
+  test `BZ_FL_OBS` (inline in `bz_cxcel`'s cell loop since 2026-11-23). With them taken out, the same unicorn run gives
   `BENCH`, `FIRST` and `TRIAL` equal and `MILL`, `MOON` and `PEAK`
   differing at a prop's cell (flags 09h for 08h; the first offset moves
   with every change above the `C` section - 130.15.13's as-built note has
@@ -276040,7 +276117,8 @@ these differences from the report are accounted for:
   - the identity rule three ways (130.15.7), the identity equal under
     `RECB` 4 and 8 among them;
   - after the follow-up, each course's exceptions printed, and every one
-    of them a lift's shaft cell or a railed SAFE (130.15.6, 130.35.1).
+    of them a lift's shaft cell (130.15.6; a railed SAFE too, 130.35.1, until
+    2026-11-23's 130.10.4.3.1).
 
   Its negative controls, each required to fail at item 10:
   - ROWPLANES with the low bytes first (the simulation);
@@ -284583,7 +284661,7 @@ tree (`37b614c65`): `tools/bbcourse.py` and `apps/bonanza/bzphys.inc`.
 | the physics window (130.10.7.1) | `bz_nbr`: the 3 x 3 cells round the centre, refilled on a cell change | and `bz_nbh`: the pairs of the split cells among them (130.24.7.6) |
 | the floor (step 6) | the centre's cell's plane `h4 = 16 z0 + sx u + sy v`; VOID: its kill height `z0` | the centre's HALF's (130.24.7.1) |
 | the walls (step 5, 130.11.8.3 - 130.11.8.4) | four edges, each a neighbour that BLOCKS (a WALL; a floor above the step's start `z` + `BZ_CLIMB`) sampled on the shared edge; one corner; the fallback; every contact a reflection | the diagonal inside the cell, the edge by its owning half, the diagonal through a corner (130.24.7.2 - 130.24.7.4) |
-| SAFE, the goal, `bz_gh` (steps 6, 8) | SAFE a flat whole floor with no VOID edge neighbour; the goal and its exit by the centre's cell; `bz_gh` the floor under an airborne ball | a split cell is never SAFE; the goal, its exit and `bz_gh` by the half |
+| SAFE, the goal, `bz_gh` (steps 6, 8) | SAFE a flat whole floor no prop owns (130.10.4.3.1; until 2026-11-23 with no VOID edge neighbour); the goal and its exit by the centre's cell; `bz_gh` the floor under an airborne ball | a split cell is never SAFE; the goal, its exit and `bz_gh` by the half |
 | the camera's ground line (130.16.7) | `bz_gh` while airborne over a FLOOR or GOAL, else held | unchanged: it reads `bz_gh`, which the half sets |
 | the reach (`build_reach`), the route, NO TRAP, the exits' reach (`reach_closure`, `trap_reach`, `check_exits`, `play_sweep`) | per cell, through the model | per half; the model already decides |
 | the pathway (130.22.2, `_route_lay`, 130.22.4.2's follower) | a diagonal step lays its line cells and BOTH side neighbours whole: a 64 px zigzag band | the line cells whole and the side cells' INNER halves: a straight 32 px band (130.24.8); the follower is unchanged |
@@ -284780,21 +284858,24 @@ refused, as today. BUILT (D1): `tools/bbcourse.py` `read_part`.
   four corners, `z0 + min(0, sx) + min(0, sy)`, as today. A split cell's own
   bytes +0 - +1 are an offset, so the rule never applies to it (only kind 0
   takes `rule_z0`), and a VOID half's `z0` is stored PLAIN in `D`.
-- **SAFE** (`rule_safe`): a FLOOR whole cell, flat, OBS clear, with **no VOID
-  across its four edges**: a split neighbour counts by the record that owns
-  the shared edge (the owning half, or the quarter named for that edge). A
-  split cell's `rule_safe` is 0.
+- **SAFE** (`rule_safe`): a FLOOR whole cell, flat, OBS clear (since
+  2026-11-23, 130.10.4.3.1: no neighbour read). A split cell's `rule_safe` is
+  0. *Until then* also **no VOID across its four edges**: a split neighbour
+  counted by the record that owns the shared edge (the owning half, or the
+  quarter named for that edge).
 - The guest's `bz_cxcel` and `bz_cxsafe` read a split cell's pair through
   its offset (PLAIN, already in place); both are launch-only. `--selfcheck`
   item 10's `expand == RAM` and `bonanzaexit`'s claim leg hold them to the
   tool (a guest rule that ignores halves gives a different grid on a split
   course). BUILT (D3): `bz_cxcel`'s V of a split cell is the least of its
-  non-VOID records' (FFh none), `bz_cxsafe` reads an edge neighbour that is
-  split by its record that owns the shared edge (`BZ_SPLIT_WIN`, below);
+  non-VOID records' (FFh none), `bz_cxsafe` read an edge neighbour that is
+  split by its record that owns the shared edge (`BZ_SPLIT_WIN`, below;
+  deleted 2026-11-23 with the edge clause);
   the package's own `bz_cexp` under unicorn turns the stored form of four
   split courses (SPLIT, RAIL, NOTCH, STEPS) into the tool's RAM form byte
-  for byte (`tests/bonanza_dsplit.py`; red arm `cellhalves`, a split
-  neighbour read whole).
+  for byte (`tests/bonanza_dsplit.py`; red arm `cellhalves`, since
+  2026-11-23 a split cell read whole for NEAR - its offset taken for a z0 -
+  where it was a split neighbour read whole for SAFE).
 - **A part is HOSTILE** (D3, the verify of D2): a split cell's +0 - +1 is an
   offset in the part the guest reads through, so `bz_cexp` bounds it first -
   `bz_dfind` takes sections C and D off the directory, `bz_drec` accepts an
@@ -288743,8 +288824,10 @@ field-to-field rule stands on.
 
 **CELLS** (130.15.6, 130.24.5.3): a FIELD cell's `V` is `z0 + 79h` (its +1
 is not slopes), so NEAR reads its base; its `rule_safe` is 0 (it is not a
-FLOOR); a FIELD edge neighbour is not VOID for a FLOOR's SAFE. `bz_cxcel`
-reads it the same way.
+FLOOR); a FIELD edge neighbour was not VOID for a FLOOR's SAFE until SAFE
+stopped reading neighbours (2026-11-23, 130.10.4.3.1). `bz_cxcel` reads it
+the same way (`tests/bonanza_dfield.py`'s red arm `cellfield` since: a
+FIELD's V read by records, as a split cell's).
 
 #### 130.28.3 The text course
 
@@ -292359,11 +292442,10 @@ nothing (now: a shape with no floor), one laid twice, and ~~"a guard rail
 guards ONE height"~~ (130.35.9, already gone). A rail beside floors at two
 heights is two rails, each on its floor (130.35.9).
 
-**SAFE** (130.10.4.3, the automatic respawn): a flat FLOOR whose every edge
-is solid OR RAILED - a respawn there cannot roll off a railed edge, as one
-beside a guard cell could not (no prop's cell is SAFE). 130.15.6's CELLS
-rule reads no rail, so a railed SAFE is one of its exceptions: a stored
-byte, never a wrong grid. **WATER**
+**SAFE** (130.10.4.3, the automatic respawn): ~~a flat FLOOR whose every edge
+is solid OR RAILED~~ - since 2026-11-23 (130.10.4.3.1) a flat FLOOR no prop
+owns, whatever its edges, so a rail changes no SAFE bit; the railed SAFE that
+was 130.15.6's CELLS exception (a stored byte, never a wrong grid) is gone. **WATER**
 (130.36): a railed edge seals a column's side as a wall does.
 
 #### 130.35.2 The height
@@ -298532,6 +298614,16 @@ Without `--occ` the picture job is unchanged and as fast. MEASURED (one core of 
 The builder's tube form (130.58.29) has **Pipe height** (`body <units>`, 130.12.3.3) and **Automatic** (the
 clause removed). A DROP's automatic pipe is now the lowest its mouth stands on, so a drop moved below a higher
 entry no longer sits far above its exit. The mouth's refusal is explained: raise the pipe, or lower the mouth.
+
+**A launch's Mouth height** (2026-11-23, the owner on MILL: *"Pipe height"* did not raise where a launch fired
+from, and trying to raise things only errored): a LAUNCH's form has **Mouth height** as a DROP's has, blank the
+launch from its exit floor as before (no clause), a number its RAISED mouth (`height <units>`, 130.12.3.3) - the
+flight starts that many units over the exit floor, on the face of the last wall, and the automatic pipe is laid
+tall enough for it. Pipe height's note says that it moves the pipe and not where the ball comes out; the refusal
+a launch's landing gets (`not a landing on a FLOOR`) now offers the Mouth height beside the speeds, and the three
+mouth refusals (not wholly on the face, the exit not in front of the last wall, a hidden mouth over its wall)
+are explained. `t_bbedit` item 13 round-trips a raised launch's statement and its automatic body (4 + 4 + 3 half
+units, as a drop's).
 
 #### 130.58.34 What stands on ground moves with it (the owner, 2026-11-22)
 

@@ -1712,8 +1712,8 @@ def _parse_tube(toks, where, ln):
             t["speed"] = tuple(_int(toks[i + k], where, "speed") for k in (1, 2, 3))
             i += 4
         elif w == "height" and i + 2 <= len(toks) and t["height"] is None:
-            if t["sub"] != TK_DROP:
-                raise CourseError("%s: height is a DROP tube's alone" % where)
+            if t["sub"] == TK_KEEP:                 # (a LAUNCH's since 2026-11-23: its MOUTH raised, 130.12.3.3)
+                raise CourseError("%s: height is a DROP's or a LAUNCH's mouth, not a KEEP tube's" % where)
             t["height"] = _height2(toks[i + 1], where, rel=True)
             i += 2
         elif w == "body" and i + 2 <= len(toks) and t["body"] is None:   # SPEC.md 130.12.3.3 (2026-11-22): the
@@ -1751,11 +1751,17 @@ def _parse_tube(toks, where, ln):
             raise CourseError("%s: a LAUNCH speed %s is over the caps (|gvx|, |gvy| <= %d, 0 <= gvz <= %d)"
                               % (where, t["speed"], VMAXG, VZMAX))
     if t["height"] is not None and t["height"] < 2:
-        raise CourseError("%s: a DROP height under 1 unit" % where)
+        raise CourseError("%s: a %s height under 1 unit" % (where, "DROP" if t["sub"] == TK_DROP else "LAUNCH mouth"))
     if t["dir"] is not None and t["sub"] == TK_DROP and t["dir"] not in (0, 2):
         raise CourseError("%s: a DROP's mouth faces %s: it must face +x or +y (a wall shows only those)"
                           % (where, DIR_NAMES[t["dir"]]))
     return t
+
+
+def tube_raised(p):
+    """a tube whose ball leaves through a MOUTH over OUT's floor (SPEC.md 130.12.3.3): a DROP, or a RAISED
+    LAUNCH (`height` on a launch, 2026-11-23) - p a parsed tube or a prop"""
+    return p.get("sub") == TK_DROP or (p.get("sub") == TK_LAUNCH and bool(p.get("height", p.get("h2"))))
 
 
 def _famart(p):
@@ -4528,13 +4534,13 @@ _SIDE_OF = {v: k for k, v in RAIL_SIDES.items()}
 
 
 def rail_flags(cells, tiles, rails, pcell=()):
-    """SPEC.md 130.35.1: every railed edge's bit on the cell that owns it (FL_EDX its +x edge, FL_EDY its +y),
-    and SAFE (130.10.4.3) on a flat FLOOR whose every edge is solid OR RAILED - a respawn there cannot roll off a
-    railed edge (no prop's cell is SAFE)"""
+    """SPEC.md 130.35.1: every railed edge's bit on the cell that owns it (FL_EDX its +x edge, FL_EDY its +y).
+    (Until 2026-11-23 it also made SAFE a flat FLOOR whose every edge was solid OR RAILED; SAFE reads no
+    neighbour since, 130.10.4.3, so a rail changes no SAFE bit)"""
     for (o, ax) in rails:
         assert o in cells and cells[o][2] & 15 != KIND_WALL, "a rail's owner %r is not in the grid" % (o,)
         cells[o][3] |= FL_EDX if ax == "x" else FL_EDY
-    if not rails:
+    if not _EDGESAFE or not rails:              # (item 1's switch: the railed SAFE as it was)
         return
     for (wx, wy), t in tiles.items():
         if type(t) is not Tile or t.kind != KIND_FLOOR or t.sx or t.sy or (wx, wy) in pcell \
@@ -5447,9 +5453,9 @@ def build_cells(tiles):
             cells[(wx, wy)] = [t.z0, fsl(t.shape, t.sym), KIND_FIELD | (t.surf << 4), 0]
             continue
         flags = 0
-        if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and all(
-                edge_rec(tiles.get((wx + dx, wy + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items()):
-            flags |= FL_SAFE
+        if t.kind == KIND_FLOOR and t.sx == 0 and t.sy == 0 and (not _EDGESAFE or all(   # SAFE (130.10.4.3.1,
+                edge_rec(tiles.get((wx + dx, wy + dy)), OPP[e]) is not None for e, (dx, dy) in EDGE_D.items())):
+            flags |= FL_SAFE                    # 2026-11-23): a flat FLOOR, whatever its neighbours; no prop's (below)
         if t.kind == KIND_GOAL:
             flags |= t.exit << FL_EXITSH        # wave 8b (130.19.4): the finish's exit
         cells[(wx, wy)] = [t.z0, (t.sx & 15) | ((t.sy & 15) << 4), t.kind | (t.surf << 4), flags]
@@ -6992,7 +6998,8 @@ def lay_tube_bodies(src, tiles):
         zs = [t.z0 for c in [tb["inn"], tb["out"]] + body for t in [tiles.get(c)]
               if type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL) and not t.sx and not t.sy]
         z = (max(zs) if zs else 0) + 2             # (half units: one unit over the higher end's floor -
-        if tb.get("sub") == TK_DROP and tb.get("height"):     # a DROP: the lowest pipe its mouth (`height` over the
+        if tb.get("sub") in (TK_DROP, TK_LAUNCH) and tb.get("height"):   # a DROP or a RAISED LAUNCH (130.12.3.3,
+            # 2026-11-23): the lowest pipe its mouth (`height` over the
             t_out = tiles.get(tb["out"])                     # EXIT's floor, 9 px tall) stands on - 1.25 units
             zo = t_out.z0 if type(t_out) is Tile else (max(zs) if zs else 0)   # over its sill (half units)
             z = zo + tb["height"] + 3               # (1.5 units: a wall's top is a whole half unit)
@@ -7070,10 +7077,16 @@ def build_props(src, tiles, fname):
         if tb["sub"] == TK_DROP and dr not in (0, 2):
             raise CourseError("%s:%d: a DROP's mouth faces %s: it must face +x or +y (a wall shows only those)"
                               % (f, ln, DIR_NAMES[dr]))
-        if tb["sub"] == TK_DROP and (not body or body[-1] != (tb["out"][0] - DIR_VEC[dr][0],
-                                                             tb["out"][1] - DIR_VEC[dr][1])):
-            raise CourseError("%s:%d: a DROP's mouth must be on the face of the body's last wall, behind OUT "
-                              "along %s" % (f, ln, DIR_NAMES[dr]))
+        if tube_raised(tb) and (not body or body[-1] != (tb["out"][0] - DIR_VEC[dr][0],
+                                                         tb["out"][1] - DIR_VEC[dr][1])):
+            raise CourseError("%s:%d: a %s's mouth must be on the face of the body's last wall, behind OUT "
+                              "along %s" % (f, ln, "DROP" if tb["sub"] == TK_DROP else "raised LAUNCH",
+                                            DIR_NAMES[dr]))
+        if tb["sub"] == TK_LAUNCH and tube_raised(tb) and dr not in (0, 2):     # SPEC.md 130.12.3.3 (2026-11-23):
+            t_w, t_o = tiles.get(body[-1]), tiles.get(tb["out"])               # a mouth on a face out of sight,
+            if type(t_w) is Tile and type(t_o) is Tile and t_w.z0 < t_o.z0 + tb["height"] + 3:   # undrawn: the
+                raise CourseError("%s:%d: a raised LAUNCH's last wall (%d, %d) is too low for its mouth: a "   # wall
+                                  "taller wall, or a lower mouth" % (f, ln, body[-1][0], body[-1][1]))   # holds it
         if tb["sub"] == TK_KEEP:
             o = tb["out"]
             nx = (o[0] + DIR_VEC[dr][0], o[1] + DIR_VEC[dr][1])
@@ -7372,7 +7385,7 @@ def build_props(src, tiles, fname):
         zin = _h4t(tin, u0, v0) // 4 if _h4t(tin, u0, v0) % 4 == 0 else None
         zout = _h4t(tout, 8, 8) // 4
         p["zfloor_out"] = zout
-        if p["sub"] == TK_DROP:
+        if tube_raised(p):                      # (a RAISED LAUNCH's mouth too, SPEC.md 130.12.3.3, 2026-11-23)
             zout += 4 * p["h2"]
         p["zexit"] = zout
         gpts = [p["start"]] + [(16 * x + 8, 16 * y + 8) for (x, y) in p["pts"][1:]]
@@ -7625,7 +7638,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     for p in props:
         if p["kind"] == PK_TUBE and p["sub"] == TK_LAUNCH:
             gvz = p["speed"][2]
-            srcs.append((p["out"], p["zfloor_out"] + UP(gvz), RADIUS(gvz), "launch tube"))
+            srcs.append((p["out"], p["zexit"] + UP(gvz), RADIUS(gvz), "launch tube"))     # (its mouth's, 130.12.3.3)
         elif p["kind"] == PK_TUBE and p["sub"] == TK_DROP:
             srcs.append((p["out"], p["zexit"], max(3, -(-(_fall_steps(p["zexit"] - p["zfloor_out"]) * VMAXG)
                                                         // (256 * TILE))), "drop tube"))
@@ -8915,6 +8928,9 @@ _NOLOOK = False         # SPEC.md 130.47: --selfcheck item 1's switch alone (_ha
                         # THE LOOK, for the cross-commit check against a tool that predates it
 _NORISER = False        # SPEC.md 130.12.3.3: --selfcheck item 1's switch alone (_hack "noriser"): no tube's RISER
                         # painted, for the cross-commit check against a tool that predates it
+_EDGESAFE = False       # SPEC.md 130.10.4.3.1: --selfcheck item 1's switch alone (_hack "edgesafe"): SAFE as it was
+                        # until 2026-11-23 - every edge solid (or railed) - in the grid and the CELLS rule, for the
+                        # cross-commit check against a tool that predates the change
 
 
 def WALL_INK(x, y):
@@ -9199,7 +9215,7 @@ def mouth_of(p, x0):
     w = (o[0] - DIR_VEC[p["dir"]][0], o[1] - DIR_VEC[p["dir"]][1])
     face = "se" if p["dir"] == 0 else "sw"
     xm = 16 * (w[0] - w[1]) + x0 + (8 if p["dir"] == 0 else -8)
-    if p["kind"] == PK_TUBE and p["sub"] == TK_DROP:
+    if p["kind"] == PK_TUBE and tube_raised(p):     # (a DROP's, and a RAISED LAUNCH's since 2026-11-23)
         return w, face, xm, 9, 5, 4 * p["h2"]
     if p["kind"] == PK_WINDMILL and p["body"] and p["body"][-1] == w:
         return w, face, xm, MOUTH_ROWS, MOUTH_HALF, 0
@@ -9221,7 +9237,7 @@ def tube_steps(tiles, p):
         ta, tb = tiles.get(a), tiles.get(b)
         if type(ta) is not Tile or type(tb) is not Tile:
             continue
-        mouth = p["sub"] == TK_DROP and (a, b) == (chain[-2], chain[-1])
+        mouth = tube_raised(p) and (a, b) == (chain[-2], chain[-1])
         dx, dy = b[0] - a[0], b[1] - a[1]
         # the shared edge in each cell's (u, v): its midpoint's height, quarter px
         ea, eb = {(1, 0): ((16, 8), (0, 8)), (-1, 0): ((0, 8), (16, 8)),
@@ -9254,7 +9270,7 @@ def tube_riser_pix(tiles, ops, p, x0):
     -> [(owner cell, "se" | "sw" | "top", {(x, y at Y0 = 0): ink})]"""
     out = []
     ends = {p["inn"]: TUBE_HOLE_R, p["out"]: TUBE_RIM_R[1]}
-    if p["sub"] == TK_DROP:
+    if tube_raised(p):
         del ends[p["out"]]
 
     def ink(d):
@@ -12381,7 +12397,7 @@ def _compile_cached(source, fname=None, occluders=True, _hack=None, crsinfo=None
 
 
 def _compile_y0(source, fname, occluders, _hack, crsinfo):
-    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ, _NORISER
+    global _FAST_EXTRA, _DOWN_S0, _REACH_MEMO, _HM_FTOP, _NOLOOK, _LOOKB, _HALFZ, _NORISER, _EDGESAFE
     hack = _hack or {}
     _HALFZ = bool(hack.get("halfz"))
     global _ONETB
@@ -12389,6 +12405,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
     _HM_FTOP = bool(hack.get("hmtop"))              # (SPEC.md 130.44.4's red arm: a hump topped as a chute)
     _NOLOOK = bool(hack.get("nolook"))              # (SPEC.md 130.47: item 1's cross-commit check, the old ink)
     _NORISER = bool(hack.get("noriser"))            # (SPEC.md 130.12.3.3: item 1's cross-commit check, no riser)
+    _EDGESAFE = bool(hack.get("edgesafe"))          # (SPEC.md 130.10.4.3.1: item 1's cross-commit check, old SAFE)
     _FAST_EXTRA = tuple(hack.get("fast", ()))
     _DOWN_S0 = bool(hack.get("down_s0"))
     global _SHEETS_X
@@ -12407,6 +12424,7 @@ def _compile_y0(source, fname, occluders, _hack, crsinfo):
         _HM_FTOP = False
         _NOLOOK = False
         _NORISER = False
+        _EDGESAFE = False
         _LOOKB = 0
         _HALFZ = False
         _SHEETS_X = 0
@@ -12550,7 +12568,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             for t in p["track"]:
                 cells[t] = [p["h2"] - 6, 0, KIND_VOID, 0]
                 slabcells[t] = (p["hP"], p["hT"])
-    rail_flags(cells, tiles, src.rails, pcell)      # SPEC.md 130.35.1: the GUARD RAILS' edge bits (and SAFE)
+    rail_flags(cells, tiles, src.rails, pcell)      # SPEC.md 130.35.1: the GUARD RAILS' edge bits
     def _reach():
         r_, n_, e_ = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
                                  _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
@@ -14455,6 +14473,8 @@ def exit_run(c, rec, mat, vin=TMIN, n=400, steps=None):
     ux, uy = DIR_VEC[rec["dir"]]
     v = max(vin, TMIN)
     if rec["sub"] == TK_LAUNCH:
+        if tube_raised(c.props[c.order[rec["i"]]]):     # a RAISED LAUNCH (130.12.3.3, 2026-11-23): its mouth,
+            p.gz = rec["segs"][-1]["ez"] << 8       # the last segment's END, as the transit leaves it
         p.gvx, p.gvy, p.gvz = rec["g"]
         p.air = 1
         p.ztop = p.gz >> 8
@@ -16151,7 +16171,7 @@ def _pair_reader(buf):
     return lambda off, n: tuple(bytes(buf[off + 4 * i:off + 4 * i + 4]) for i in range(n))
 
 
-def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
+def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False, _edges=False):
     """the follow-up's RULE (SPEC.md 130.15.6) over a grid's cells (4 KW NROWS
     bytes, row r's s = SMIN + r, cell k's a = AMIN + 2 k + (s AND 1)), exactly
     as bz_cxcel computes it -> (rz, rs), a list each: rz the rule's z0 for a
@@ -16167,16 +16187,20 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
           two tiles is solid (OPEN, FFh + 81h).  For corners -116 .. 127, the
           ones a NEAR cell can be built from, that is 130.10.4.3's rule (-116's
           NEAR z0 IS -128, OPEN's)
-      rs = 1 on a FLOOR cell with sx = sy = 0, OBS clear and none of its four
-          edge neighbours VOID or outside the grid
+      rs = 1 on a FLOOR cell with sx = sy = 0 and OBS clear, whatever its
+          neighbours (2026-11-23: a respawn is the cell's centre at rest, which
+          a one-tile path holds as well as a room)
     SPEC.md 130.24.5.3, a SPLIT cell (kind 4 or 5): its V is the least of its
     non-VOID HALVES' (each its own plane's lowest corner), its own rz and rs
-    none and 0 (its +0 - +1 are an offset, not a z0); a split EDGE neighbour
-    is VOID for SAFE when the half that owns the shared edge is.  pair(offset)
-    -> its two halves' bytes (the part's, through the cell's absolute word).
+    none and 0 (its +0 - +1 are an offset, not a z0).  pair(offset) -> its two
+    halves' bytes (the part's, through the cell's absolute word).
     _no_obs: --selfcheck item 10's negative control, the red arm cellsafe's
     rule (SAFE's OBS clause taken out); _no_halves: 130.24.11's, a rule that
-    reads a split cell as a whole one (its offset taken for a z0)"""
+    reads a split cell as a whole one (its offset taken for a z0); _edges:
+    item 10's control for the guest and the tool disagreeing - the rule as it
+    was until 2026-11-23, SAFE also requiring none of the four edge neighbours
+    VOID or outside the grid (a split neighbour by the half that owns the
+    shared edge)"""
     n = nrows * kw
 
     def at(r, k, dx, dy):
@@ -16212,19 +16236,21 @@ def cells_rule(cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
                 b = min([V[j] for j in (at(r, k, dx, dy) for dx, dy in _CHEB2) if j is not None] + [0xFF])
                 rz[i] = _s8(b + 0x81)
             elif kd & 15 == KIND_FLOOR and not sl and (_no_obs or not fl & FL_OBS):
-                nb = [at(r, k, dx, dy) for dx, dy in _EDGE4]
-                rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID
-                                and (j not in H or H[j][OWNER[cells[4 * j + 2] & 15][e]][2] & 15 != KIND_VOID)
-                                for j, e in zip(nb, _EDGE4_OPP)))
+                rs[i] = 1
+                if _edges or _EDGESAFE:             # (the control: the edge clause put back; item 1's switch)
+                    nb = [at(r, k, dx, dy) for dx, dy in _EDGE4]
+                    rs[i] = int(all(j is not None and cells[4 * j + 2] & 15 != KIND_VOID
+                                    and (j not in H or H[j][OWNER[cells[4 * j + 2] & 15][e]][2] & 15 != KIND_VOID)
+                                    for j, e in zip(nb, _EDGE4_OPP)))
     return rz, rs
 
 
-def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False):
+def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=False, _edges=False):
     """7 CELLS: each cell as in RAM but two fields, each stored as its
     DIFFERENCE from the rule: a VOID cell's z0 as (z0 - rule_z0) mod 256, and
     every cell's flags bit 0 (SAFE) XOR rule_safe.  -> (stored bytes, the
     exceptions: [(r, k, what)] where the stored field is not 0)"""
-    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs, pair, _no_halves)
+    rz, rs = cells_rule(ram_cells, nrows, kw, smin, _no_obs, pair, _no_halves, _edges)
     out = bytearray(ram_cells)
     exc = []
     for i in range(nrows * kw):
@@ -16238,13 +16264,13 @@ def _cells(ram_cells, nrows, kw, smin, _no_obs=False, pair=None, _no_halves=Fals
     return bytes(out), exc
 
 
-def cells_exceptions(ram, _no_obs=False):
+def cells_exceptions(ram, _no_obs=False, _edges=False):
     """a RAM form's CELLS exceptions (SPEC.md 130.15.6): [(wx, wy, what)], the
     cells whose stored field is not 0 - the cells the rule does not reproduce"""
     g = struct.unpack_from("<H", ram, 26)[0]
     nrows, smin, amin, kw = struct.unpack_from("<HhhH", ram, g + 4)
     co = g + GHDR
-    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs, _pair_reader(ram))
+    _, exc = _cells(ram[co:co + 4 * kw * nrows], nrows, kw, smin, _no_obs, _pair_reader(ram), _edges=_edges)
     out = []
     for r, k, what in exc:
         s = smin + r
@@ -26610,6 +26636,9 @@ _W3H = ('course H "h"\nwidth 64\nuses rotor tube\nfloor rect 6 9 16 14 flat 16\n
         'floor rect 6 3 14 5 flat 20\nstart 9 12\ntube keep 7 9 7 4\ntube keep 10 9 10 4\n'
         'tube keep 13 9 13 4\nprop windmill 7 9 seed %d\nprop windmill 10 9 seed %d\nprop windmill 13 9 seed %d\n')
 _W3F = 'course F "f"\nwidth 64\nfloor band -10 10 26 %d flat 0\nstart %d %d\n'
+# SPEC.md 130.12.3.3 (2026-11-23), the owner's MILL case on _W3W: a LAUNCH out of (7, 14), a floor at 16, into a
+# block 2 units up at (7, 15) - refused from the floor, a landing on the block with its mouth raised 3 units (%s)
+_W3RL = 'floor rect 7 14 9 18 flat 16\nfloor rect 7 15 9 16 flat 18\ntube launch 7 12 7 14 speed 0 128 64%s\n'
 
 
 def _posts(cells):
@@ -26674,6 +26703,17 @@ def _wave3_cases():
          "tube drop 7 12 7 14 height 2\n", "not a landing on a FLOOR"),
         ("a DROP whose mouth does not fit its wall", W + "wall tile 7 13 flat 17\nfloor rect 6 14 9 17 flat 16\n"
          "tube drop 7 12 7 14 height 2\n", "not wholly on the face"),
+        # SPEC.md 130.12.3.3 (2026-11-23): a RAISED LAUNCH - `height` on a launch, its mouth a DROP's
+        ("a KEEP tube with a height", W + "tube keep 7 12 7 14 height 2\n", "not a KEEP tube's"),
+        ("a raised LAUNCH under 1 unit", W + "tube launch 7 12 7 14 speed 0 64 200 height 0.5\n", "under 1 unit"),
+        ("a raised LAUNCH whose mouth does not fit its wall", W + "wall tile 7 13 flat 17\nfloor rect 6 14 9 17 "
+         "flat 16\ntube launch 7 12 7 14 speed 0 192 300 height 2\n", "not wholly on the face"),
+        ("a raised LAUNCH whose OUT is not in front of its last wall", W + "floor rect 6 14 9 17 flat 16\n"
+         "tube launch 7 12 7 14 out +x speed 0 64 200 height 2\n", "behind OUT along +x"),
+        ("a raised LAUNCH out of sight (-y) whose last wall is under its mouth", W + "floor rect 6 14 9 17 flat 16\n"
+         "wall tile 7 13 flat 17\ntube launch 7 14 7 12 speed 0 -64 200 height 2\n", "too low for its mouth"),
+        ("the owner's MILL case: a LAUNCH from its floor into the face of a block 2 units up", W + _W3RL % "",
+         "not a landing on a FLOOR"),
         ("a windmill without its KEEP tube", _swap(W, "prop windmill 9 9", "prop windmill 8 10"),
          "without a KEEP tube"),
         ("a windmill entered along +y", W + "wall tile 7 13 flat 17\nfloor tile 7 14 flat 16\n"
@@ -28954,7 +28994,7 @@ def _mouth_checks(c, res, tag):
             continue
         rec = next(r for r in c.part["props"] if r["at"] == p["at"])
         q = Physics(c).poke(*p["out"])                  # the exit's own state, before any step
-        if rec["sub"] == TK_DROP:
+        if tube_raised(p):                              # (a DROP's, a RAISED LAUNCH's: at its mouth)
             q.gz = rec["segs"][-1]["ez"] << 8
         q._derive(True)
 
@@ -30924,7 +30964,7 @@ def rec4_verdicts(c, sb_delta=0, wrap=False):
 
 def _w5_compact(courses, res):
     """item 10 (SPEC.md 130.15.12.3): the compact form, and its eight controls"""
-    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "norail": []}
+    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "edges": []}
     for c in courses:
         if c.split:                                 # (a TWO-PART course, SPEC.md 130.30: _w5_compact2's checks;
             _w5_compact2(c, res)                    # the one-part form's controls run on the one-part courses)
@@ -30971,28 +31011,22 @@ def _w5_compact(courses, res):
                     "leave it, one changed RAM byte moves it, and the RAM form and its 8-byte identity form give the same one%s"
                     % (c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
         # CELLS (130.15.6): the exceptions, the cells whose stored difference from the rule is not 0, every
-        # one a lift's shaft cell; and the control, the rule without SAFE's OBS clause (red arm cellsafe's)
+        # one a lift's shaft cell (no SAFE exception is possible since 2026-11-23: SAFE reads no neighbour and no
+        # rail, 130.10.4.3); and the controls, the rule without SAFE's OBS clause (red arm cellsafe's) and the
+        # rule with the edge clause put back (a guest rule the tool's no longer is) - each must part from the tool
         exc = cells_exceptions(c.cga)
         shaft = set(c.slabcells)
         nvoid = sum(1 for i in range(2, len(c.part["grid"]["cells_raw"]), 4)
                     if c.part["grid"]["cells_raw"][i] & 15 == KIND_VOID)
-        nshaft, nrail, stray = _cells_exc_split(c, exc)
+        nshaft, stray = _cells_exc_split(c, exc)
         res.append(("10 %s: CELLS - %d VOID cells' z0 and every cell's SAFE stored as their difference from the "
-                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s) or a railed SAFE "
-                    "(%d, 130.35.1)%s" % (
+                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s)%s" % (
                         c.name, nvoid, len(exc), "" if len(exc) == 1 else "s",
                         "" if not exc else " (%s)" % ", ".join("(%d, %d) %s" % e for e in exc),
-                        len(shaft), "" if len(shaft) == 1 else "s", nrail,
+                        len(shaft), "" if len(shaft) == 1 else "s",
                         "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
                     not stray))
-        if nrail:                                   # the control: the same exceptions read with no rails
-            ctl["norail"].append(len(_cells_exc_split(c, exc, _norails=True)[2]) == nrail)
-        def _would_be_safe(cell):                   # a prop's cell SAFE but for its OBS (a clock's may not be)
-            tl = c.tiles.get(cell)
-            return (tl is not None and tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0
-                    and all((cell[0] + dx, cell[1] + dy) in c.tiles for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))))
-        if any(_would_be_safe(cell) for cell in c.pcell):
-            ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(c.cga, _no_obs=True)))
+        _cells_ctl(c, c.cga, ctl)
         # the controls
         try:
             expand(stored_form(c.model, 4, c.cga, c.name, _hack={"low_first": True}), c.name, sim=True,
@@ -31027,8 +31061,9 @@ def _w5_compact(courses, res):
                       ("mtab", "MTAB one entry short fails expand == RAM"),
                       ("irmove", "the I and R entries' boundary moved by a word (still tiling the part) is refused "
                                  "by the place-and-size rule, naming I"),
-                      ("norail", "the CELLS exceptions sorted with the guard rails forgotten leave every railed "
-                                 "SAFE unexplained (the courses with one)"),
+                      ("edges", "the CELLS rule with SAFE's edge clause put back (the rule until 2026-11-23: a "
+                                "guest that still reads the four edge neighbours) has SAFE exceptions (the courses "
+                                "with a flat FLOOR beside a VOID)"),
                       ("no_obs", "the CELLS rule with SAFE's OBS clause taken out (the red arm cellsafe's) has "
                                  "exceptions outside the shafts (the courses with a prop's cell that is SAFE but for it)")):
         v = ctl[key]
@@ -31062,35 +31097,48 @@ def _w5_compact2(c, res):
                 "RAM byte moves it, and the two parts give the shipped one%s" % (
                     c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
     exc = cells_exceptions(c.wcga)
-    nshaft, nrail, stray = _cells_exc_split(c, exc)
-    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d) or a railed "
-                "SAFE (%d, 130.35.1)%s" % (
-                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft, nrail,
-                    "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
-                not stray))
+    nshaft, stray = _cells_exc_split(c, exc)
+    ctl = {"no_obs": [], "edges": []}
+    _cells_ctl(c, c.wcga, ctl)
+    cbad = [k for k, v in ctl.items() if v and not all(v)]
+    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d)%s; the rule "
+                "without SAFE's OBS clause%s and with its old edge clause%s part from the tool%s" % (
+                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft,
+                    "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray),
+                    "" if ctl["no_obs"] else " (no prop's cell to show it)",
+                    "" if ctl["edges"] else " (no floor beside a void to show it)",
+                    "" if not cbad else " -- NOT: %s" % ", ".join(cbad)),
+                not stray and not cbad))
 
 
-def _cells_exc_split(c, exc, _norails=False):
+def _cells_exc_split(c, exc):
     """item 10's CELLS exceptions sorted (SPEC.md 130.15.6): a lift's shaft cell (the tool's own VOID rule,
-    130.12.3.2), or a RAILED SAFE - a flat FLOOR the tool makes SAFE because a guard rail closes an edge the
-    rule reads as open (130.35.1, rail_flags; the guest's rule reads no rail, so the cell is stored as its
-    difference, a byte and never a wrong grid) -> (shaft count, railed count, the rest).  _norails: item 10's
-    negative control, the rails forgotten"""
+    130.12.3.2) -> (shaft count, the rest).  (Until 2026-11-23 a RAILED SAFE was a class of its own: SAFE read
+    the edge neighbours and the tool's rails, the guest's rule no rail; SAFE reads neither since, 130.10.4.3)"""
     shaft = set(c.slabcells)
-    rails = {} if _norails else c.src.rails
-    g = Grid(c.cga, c.wcga) if c.split else Grid(c.cga)      # (RAM's flags: the SAFE the part holds)
-    ns = nr = 0
+    ns = 0
     stray = []
     for e in exc:
-        cell = e[:2]
-        if cell in shaft:
+        if e[:2] in shaft:
             ns += 1
-        elif (e[2] == "SAFE" and g.cell(*cell)[4] & FL_SAFE
-              and any(_edge_owner(cell, d) in rails for d in EDGE_D)):
-            nr += 1
         else:
             stray.append(e)
-    return ns, nr, stray
+    return ns, stray
+
+
+def _cells_ctl(c, ram, ctl):
+    """item 10's two CELLS controls on one part's RAM form (SPEC.md 130.15.6): the rule without SAFE's OBS
+    clause (the red arm cellsafe's) where a prop's cell is SAFE but for its OBS, and the rule with SAFE's old
+    edge clause (130.10.4.3 until 2026-11-23) where a flat FLOOR the tool makes SAFE has a VOID edge neighbour -
+    each must give an exception outside the shafts (a guest rule that differs from the tool's is seen)"""
+    shaft = set(c.slabcells)
+    flat = lambda tl: type(tl) is Tile and tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0     # noqa: E731
+    if any(flat(c.tiles.get(cell)) for cell in c.pcell if cell not in shaft):
+        ctl["no_obs"].append(any((wx, wy) not in shaft for wx, wy, _ in cells_exceptions(ram, _no_obs=True)))
+    if any(flat(t) and cell not in c.pcell and any(edge_rec(c.tiles.get((cell[0] + dx, cell[1] + dy)), OPP[e])
+                                                   is None for e, (dx, dy) in EDGE_D.items())
+           for cell, t in c.tiles.items()):
+        ctl["edges"].append(any(w == "SAFE" for _x, _y, w in cells_exceptions(ram, _edges=True)))
 
 
 def _mask_pix(mask, br, bc):
@@ -33261,10 +33309,8 @@ def _course_items(c, k, res, t):
                     okp = False
         if cl[3] != tl.kind:
             okk = False
-        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell
-                and all(edge_rec(c.tiles.get((wx + dx, wy + dy)), OPP[e]) is not None
-                        or _edge_owner((wx, wy), e) in c.src.rails      # (SPEC.md 130.35.1: a railed edge)
-                        for e, (dx, dy) in EDGE_D.items()))
+        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell)  # (130.10.4.3:
+        # a flat FLOOR no prop owns, whatever its neighbours, since 2026-11-23)
         if bool(cl[4] & FL_SAFE) != safe:
             oks = False
     # the surfaces as the statements set them, read back independently
@@ -33590,12 +33636,13 @@ def _sc_crosscommit(X, res):
                 c5 = compile_course(txt, _hack={"hopmax": W5_HOPMAX, "boost": W5_BOOST, "y0add": 0, "noground": True, "nokit": True,
                                                 "occ": "off", "nolook": True, "halfz": True,
                                                 "realcut": False, "noavsplit": True, "onetb": True,
-                                                "nocum": True, "noriser": True})
+                                                "nocum": True, "noriser": True, "edgesafe": True})
                 # (and SPEC.md 130.29's AV off: today's records; and 130.47's look off: that tool's ink; and
                 # 130.48's quarter units off: that tool's half-unit bytes, no rebase, the CELLS rule's 79h; and
                 # 130.49's real-pose cut off: the whole cells that tool cut; and 130.11.4.2's CUMULATIVE masks off
                 # (2026-11-22, `nocum`): each record's own mask, as that tool shipped it; and 130.12.3.3's RISER
-                # off (2026-11-22, `noriser`): no pipe down a column's face, a picture that tool never drew)
+                # off (2026-11-22, `noriser`): no pipe down a column's face, a picture that tool never drew; and
+                # 130.10.4.3.1's SAFE off (2026-11-23, `edgesafe`): every edge solid, as that tool's grid and rule)
             finally:
                 _CHECKS_OFF.discard("famuses")
             if c5.stored != old[c.name]:
@@ -33610,7 +33657,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 4 + len(_wall_low_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 4 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -33653,6 +33700,25 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             ok_, msg = False, str(e)
         res.append(("2 accepted (130.19.10): %s (%s)" % (what, msg), ok_))
+    if mine():                                      # SPEC.md 130.12.3.3 (2026-11-23): the RAISED LAUNCH accepted
+        try:
+            cx = compile_course(_W3W + _W3RL % " height 3", fname="<a raised LAUNCH>", _hack={"no_finish": True})
+            p_ = [q for q in cx.props if q["kind"] == PK_TUBE and q["sub"] == TK_LAUNCH][0]
+            r_ = next(r for r in cx.part["props"] if r["at"] == p_["at"])
+            ex_ = cx.exits[r_["i"]]
+            ok_ = (p_["zexit"] == p_["zfloor_out"] + 24 and r_["segs"][-1]["ez"] == p_["zexit"]
+                   and tuple(r_["g"]) == (0, 128, 64) and p_.get("mouth") is not None and p_["mouth"][0] == (7, 13)
+                   and p_["mouth"][5] == 24 and all(e[1] == (7, 15) for e in ex_.values())
+                   and cx.tiles[(7, 13)].z0 >= cx.tiles[(7, 14)].z0 + 6 + 3)
+            msg = "exit z %d px (OUT's floor %d), the mouth on %s at sill %d px, its body %d half units, the " \
+                  "balls' exits %s" % (p_["zexit"], p_["zfloor_out"], (p_.get("mouth") or (None,))[0],
+                                       (p_.get("mouth") or (0,) * 6)[5], cx.tiles[(7, 13)].z0, ex_)
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (130.12.3.3): the owner's MILL case with its LAUNCH's mouth raised 3 units - the "
+                    "last segment ends 24 px over OUT's floor, the record's velocity as written, a DROP's mouth "
+                    "on its last wall at that sill, the body laid to hold it, and every ball lands on the block "
+                    "it hit from the floor (%s)" % msg, ok_))
     for what, text in _wall_low_cases():          # SPEC.md 130.10.3 as amended 2026-11-22: LOWER than some
         if not mine():                              # of what it touches, a wall compiles
             continue
@@ -36655,16 +36721,17 @@ def _guard_checks(res, _hack=None):
     hk = dict(_hack or {}, no_finish=True)
     c = compile_course(_GCRS, fname="<guard rails>", _hack=hk)
     H = 8 * GUARD_H2 // 2                           # the rail's height, px (16)
-    # the grid: each railed edge's bit on its owner, GF_EDGE, no wall laid, SAFE beside a railed edge
+    # the grid: each railed edge's bit on its owner, GF_EDGE, no wall laid, SAFE the walkway's whole flat floor
     want = {((x, 7), "y") for x in range(4, 12)} | {((x, 10), "y") for x in range(4, 14)}
     g = Grid(c.cga)
     bits = {(k, ax) for k in c.cells for ax, b in (("x", FL_EDX), ("y", FL_EDY))
             if g.cell(*k)[4] & b and g.cell(*k)[3] != KIND_GOAL}
     walls = [k for k in c.tiles if c.tiles[k].kind == KIND_WALL]
-    safe = all(g.cell(x, 8)[4] & FL_SAFE for x in range(5, 12)) and not g.cell(4, 8)[4] & FL_SAFE
+    safe = all(g.cell(x, 8)[4] & FL_SAFE for x in range(4, 12))    # (SPEC.md 130.10.4.3 since 2026-11-23: the
+    # open west end too - SAFE reads no neighbour and no rail)
     res.append(("16 guard: %d railed edges, each its owner's bit (FL_EDX / FL_EDY, SPEC.md 130.35.1) and no other "
-                "cell's, GF_EDGE set, no cell laid as a wall; SAFE on the walkway's railed back row and not past "
-                "the walkway's open west end" % len(bits), bits == want and set(c.redges) == want and bool(g.gflags & GF_EDGE)
+                "cell's, GF_EDGE set, no cell laid as a wall; SAFE on the walkway's back row, its open west end "
+                "included (a rail changes no SAFE bit, 130.10.4.3)" % len(bits), bits == want and set(c.redges) == want and bool(g.gflags & GF_EDGE)
                 and not walls and safe))
     # the picture: every rail pixel drawn, at the FRONT cell's key, the rail's top
     rail = rail_pixels(c)

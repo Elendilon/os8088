@@ -3457,8 +3457,8 @@ bz_cxway:
 ;       the least corner less 12 (NEAR), or FFh + 81h = -128 (OPEN).  The bias
 ;       makes OPEN's value the sentinel's and the order the corners' for every
 ;       corner a NEAR cell can hold (-116 .. 127; -116's NEAR z0 IS -128)
-;   rule_safe = a FLOOR cell with sx = sy = 0, OBS clear and its four edge
-;       neighbours not VOID
+;   rule_safe = a FLOOR cell with sx = sy = 0 and OBS clear, whatever its
+;       neighbours (130.10.4.3, 2026-11-23: a respawn is the centre at rest)
 ; The 5 x 5 least is SEPARABLE: A = the least V on the wx diagonal's 5 cells
 ; through a cell, then the least A on the wy diagonal's.  In the grid's rows
 ; a wx step is (row + 1, k + p) and a wy step (row + 1, k + p - 1), p the
@@ -3472,10 +3472,10 @@ bz_cxway:
 ; fields the form does not change (a VOID cell's z0 and every SAFE bit are the
 ; two it never reads), so its order is free.  NROWS and KW count; the A
 ; writes stay inside the window (one cell either side of KW, the pads), and
-; the grid writes inside the slot, whatever the bytes.  The tool keeps every
-; non-VOID cell two tiles inside the grid (read_part), so the edge reads stay
-; in the grid.  DS = ours (the A rows), ES = the part; the frame is SS:BP.
-; About 0.19 s on PEAK, with bz_cxsafe (priced, 130.15.6).
+; the grid writes inside the slot, whatever the bytes; SAFE reads its own
+; cell alone (130.10.4.3, 2026-11-23: it read the four edge neighbours, in
+; bz_cxsafe, until then).  DS = ours (the A rows), ES = the part; the frame
+; is SS:BP.  Under the 0.19 s priced on PEAK with bz_cxsafe (130.15.6).
 BZ_CXRW     equ 44              ; an A row's stride: a pad, KW cells, a pad (1,280 px)
 BZ_CXNS     equ 4 * BZ_BOXB / BZ_CXRW   ; the A rows bz_boxbuf holds
 %if BZ_CXRW < BZ_KWMAX + 2 || BZ_CXNS < 10 || BZ_CXRW & 1
@@ -3488,10 +3488,8 @@ BZ_CXF_RS   equ 6               ; 4 KW: a grid row's bytes
 BZ_CXF_G    equ 8               ; grid row j
 BZ_CXF_N    equ 10              ; NROWS
 BZ_CXF_KW   equ 12              ; KW
-BZ_CXF_U    equ 14              ; from cell k, row j - 1's cell k + p - 1: 4 p - 4 - 4 KW
-BZ_CXF_D    equ 16              ; and row j + 1's: 4 p - 4 + 4 KW
-BZ_CXF      equ 18
-%if BZ_CXF != 18
+BZ_CXF      equ 14
+%if BZ_CXF != 14
  %error "bz_cxcel: .out's add sp is the frame's size"
 %endif
 bz_cxcel:
@@ -3502,15 +3500,6 @@ bz_cxcel:
     shl dx, 1                   ; DX = 4 KW
     mov ax, [es:bx + BZG_SMIN]
     and ax, 1                   ; AX = p, row 0's
-    mov si, ax
-    shl si, 1
-    shl si, 1
-    sub si, 4
-    add si, dx
-    push si                     ; D: 4 p - 4 + 4 KW
-    sub si, dx
-    sub si, dx
-    push si                     ; U: 4 p - 4 - 4 KW
     push cx                     ; KW
     push word [es:bx + BZG_NROWS]       ; N
     push di                     ; G: grid row 0, the slot
@@ -3543,7 +3532,15 @@ bz_cxcel:
     mov ax, [es:si + 2]         ; AL = surface : kind, AH = flags
     test al, 15
     jz .scn                     ; VOID: no corner
-    call bz_cxsafe
+    and al, 15                  ; SAFE (130.10.4.3): a FLOOR, OBS clear,
+    cmp al, 1                   ; sx = sy = 0 - XOR rule_safe into its
+    jne .sk                     ; flags.  No neighbour is read (2026-11-23)
+    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE
+    jnz .sk
+    cmp byte [es:si + 1], 0
+    jne .sk
+    xor byte [es:si + 3], BZ_FL_SAFE
+.sk:
     test byte [es:si + 2], 0ch  ; D3: a SPLIT cell (kind 4 - 15): its V by its
     jnz .ssp                    ; records (130.24.5.3); 130.28.2: a FIELD's, its z0's
     mov dx, [es:si]             ; DL = z0, DH = sy : sx
@@ -3614,13 +3611,7 @@ bz_cxcel:
 .nx:
     mov ax, [bp + BZ_CXF_RS]
     add [bp + BZ_CXF_G], ax
-    mov ax, 4
     xor byte [bp + BZ_CXF_P], 1
-    jnz .np
-    neg ax
-.np:
-    add [bp + BZ_CXF_U], ax     ; the edge neighbours' cells move with p
-    add [bp + BZ_CXF_D], ax
     mov ax, [bp + BZ_CXF_N]
     add ax, 4
     inc word [bp + BZ_CXF_J]
@@ -3647,7 +3638,7 @@ bz_cxcel:
     mov cx, BZ_CXRW / 2
     jmp .fill
 .out:
-    add sp, 18                  ; BZ_CXF: the frame's nine words (spelled as
+    add sp, 14                  ; BZ_CXF: the frame's seven words (spelled as
     ret                         ; a number, which tools/stkbalance.py reads)
 .v:                             ; DL = z0, DH = sy : sx (CL = 4) -> AL = V,
     mov al, 73h                 ; z0 + 2 min(0, sx) + 2 min(0, sy) + 73h, in
@@ -3704,81 +3695,6 @@ bz_cxcel:
     pop si
     jmp .ly
 
-; bz_cxcel's SAFE: AL = the cell's surface : kind, AH = its flags, ES:SI =
-; the cell, SS:BP bz_cxcel's frame; XORs rule_safe into the cell's flags
-; (D3: a split edge neighbour by its record that owns the shared edge).
-; Clobbers AX and DX.
-bz_cxsafe:
-    and al, 15
-    cmp al, 1                   ; FLOOR
-    jne .no
-    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE
-    jnz .no
-    cmp byte [es:si + 1], 0     ; sx = sy = 0
-    jne .no
-    mov dx, si
-    add si, [bp + BZ_CXF_U]     ; row j - 1: cells k + p - 1 (west) and k + p
-    mov al, 3                   ; (north) ...
-    call .vd
-    jz .nb
-    add si, 4
-    mov al, 1
-    call .vd
-    jz .nb
-    mov si, dx
-    add si, [bp + BZ_CXF_D]     ; ... then row j + 1's: south, east
-    mov al, 7
-    call .vd
-    jz .nb
-    add si, 4
-    mov al, 5
-    call .vd
-    jz .nb
-    mov si, dx
-    xor byte [es:si + 3], BZ_FL_SAFE
-.nb:
-    mov si, dx
-.no:
-    ret
-.vd:                            ; ES:SI an edge neighbour, AL its window index
-    mov ah, [es:si + 2]         ; (bzphys.inc's BZN_*/4) -> ZF = 1 when it is
-    and ah, 15                  ; VOID across the shared edge: VOID, or D3, a
-    cmp ah, BZ_KTB              ; split one whose record that OWNS the edge is
-    jae .vs                     ; (130.24.5.3; BZ_SPLIT_WIN, the model's OWNER).
-    or ah, ah                   ; Preserves all but AX
-    ret
-.vs:
-    cmp ah, BZ_KFIELD           ; SPEC.md 130.28.2: a FIELD neighbour is not VOID
-    jne .vs2
-    or ah, ah                   ; (ZF clear: AH is 7)
-    ret
-.vs2:
-    push bx
-    push si
-    mov bl, al
-    mov al, ah
-    call bz_drec                ; SI = its records (refused: VOID)
-    jc .vv
-    sub al, BZ_KTB
-    mov ah, 9
-    mul ah
-    add bl, al
-    xor bh, bh
-    mov al, [bz_swin + bx]
-    and al, 3
-    shl al, 1
-    shl al, 1
-    cbw
-    add si, ax
-    test byte [es:si + 2], 15   ; ZF = that record VOID
-    pop si
-    pop bx
-    ret
-.vv:
-    xor ah, ah                  ; (ZF)
-    pop si
-    pop bx
-    ret
 ; -----------------------------------------------------------------------------
 ; THE HERCULES MADE AT THE FETCH (SPEC.md 130.11.3).  A Hercules byte is the
 ; CGA byte with each 2-bit pixel c replaced by herc_pair(c, line, column): 00

@@ -109,7 +109,7 @@ proves the course carries what the arm needs):
   padleak      the COURSE PART not dropped at a cup: TCUP's goal leaves its row fetched
   expoff1      WDIFF's count one record short: the claim leg's first launch (TQUIK)
   rowtab1      ROWTAB writes NROWS - 1 words: the claim leg's first launch (TQUIK)
-  cellsafe     the guest's SAFE rule without its OBS test (bz_cxsafe): a prop's cell made SAFE - TQUIK's
+  cellsafe     the guest's SAFE rule without its OBS test (bz_cxcel's, inline): a prop's cell made SAFE - TQUIK's
                KEEP tube's cells (the host's rule without the OBS clause parts there: --check)
   nopal        the `out` left out: TQUIK's rendered colour (palette 1's, the BIOS's 30h)
   hercpal      the bz_herc branch round the write removed, so it runs on the
@@ -1095,7 +1095,7 @@ REDS["expoff1"] = [("bonanza.asm", "    sub cx, bx\n    shr cx, 1               
 REDS["rowtab1"] = [("bonanza.asm", "bz_cxrtb:\n    mov bx, [es:BZC_GRID]\n    mov cx, [es:bx + BZG_NROWS]\n",
                     "bz_cxrtb:\n    mov bx, [es:BZC_GRID]\n    mov cx, [es:bx + BZG_NROWS]\n"
                     "    dec cx                      ; RED rowtab1: NROWS - 1 words\n")]
-REDS["cellsafe"] = [("bonanza.asm", "    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE\n    jnz .no\n",
+REDS["cellsafe"] = [("bonanza.asm", "    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE\n    jnz .sk\n",
                      "    ; RED cellsafe: no OBS test\n")]
 # wave 6 (SPEC.md 130.16.14): the colour select's write left out (TQUIK renders palette 1), and its
 # Hercules branch removed (the labelled write runs there)

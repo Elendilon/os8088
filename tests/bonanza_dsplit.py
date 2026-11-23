@@ -16,8 +16,8 @@ read out of its own bss and compared EXACTLY with the model's (state, state2,
 state6, bz_ps, the goal and its exit, the respawns): no tolerance.
 
   1  CELLS (D3.1): bz_cexp on each split course's STORED form equals its RAM
-     form - bz_cxcel's NEAR and bz_cxsafe's SAFE read a split cell's records
-     (130.24.5.3).
+     form - bz_cxcel's NEAR reads a split cell's records (130.24.5.3; SAFE
+     reads no neighbour since 2026-11-23, 130.10.4.3).
   2  SCRIPTED runs (D3.3), the model's own scenarios of `--selfcheck` item 7
      (_split_physics) and more: a roll off a diagonal edge (the take-off at
      the pick), a fall into a VOID half (its kill height), a goal half and its
@@ -405,10 +405,10 @@ def hostile(binp, sym, c):
 # the red arms (SPEC.md 130.24.11, the plan's D3.1 and D3.3): each is a broken copy of the package the check
 # must find - (file, old, new) as bonanza_ring.patch_tree takes them
 REDS = {
-    # D3.1: the SAFE rule without halves - a split edge neighbour read as a whole cell
-    "cellhalves": [("bonanza.asm", "    cmp ah, BZ_KTB              ; split one whose record that OWNS the edge is\n"
-                  "    jae .vs                     ; (130.24.5.3; BZ_SPLIT_WIN, the model's OWNER).\n",
-                  "    cmp ah, BZ_KTB              ; RED cellhalves: a split neighbour read whole\n")],
+    # D3.1: the CELLS rule without halves - a split cell read as a whole one, its offset taken for a z0 (NEAR's
+    # V; until 2026-11-23 the arm broke SAFE's split edge neighbour, which SAFE no longer reads, 130.10.4.3)
+    "cellhalves": [("bonanza.asm", "    jnz .ssp                    ; records (130.24.5.3); 130.28.2: a FIELD's, its z0's\n",
+                    "    nop                         ; RED cellhalves: a split cell read whole\n")],
     # D3.3: the corner ray dropped
     "noray": [("bzphys.inc", "    call bz_dray\n    cmp byte [bz_sfb], 0\n",
                "    mov byte [bz_sfb], 0        ; RED noray: no corner ray\n    mov word [bz_sor], 0\n"
