@@ -38565,7 +38565,8 @@ def _sc_camstop(X, res):
         num = [n for n, rs in sorted(clk.items())
                if all(sx <= 8 * bx and 8 * (bx + w) <= sx + VIEW_W and sy <= 8 * by and 8 * (by + h) <= sy + VIEW_H
                       for bx, by, w, h in rs for sx, sy in stop_windows(c, fx, fy))]
-        pts = [(cx - 3, cy - 11), (cx - 2, cy - 4), (cx, cy), (cx + 4, cy + 4)]
+        pts = [(cx - 3, cy - 11), (cx - 2, cy - 4), (cx, cy), (cx + 4, cy + 4), (cx + 6, cy + 8)]   # (on past
+        #   the picture's foot: 130.11.4.7's reach made MILL 40 lines shorter, so 4 tiles no longer reach it)
         arrive = 16 * (11 + 7 + 4)                  # frames before the cup (the first two legs, 16 a tile)
         for herc in (0, 1):
             W, _H, rl, _lsh = CARDS[herc]
