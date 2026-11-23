@@ -132,8 +132,8 @@ OPTIONS = {
         O("hidden", "flag", "Secret finish (hidden until found)"),
     ],
     ("checkpoint", None): [
-        O("ball", "choice", "Ball here", "a fall returns as this ball", vals=tuple(B.MAT_NAMES),
-          blank="the ball it had"),
+        O("ball", "choice", "Ball here", "a fall returns as this ball (blank: the course's start ball, whatever ball touched the flag)", vals=tuple(B.MAT_NAMES),
+          blank="the start ball"),
     ],
     ("clock", None): [
         O("frame", "choice", "Frame", vals=tuple(B.CLOCK_STYLES), blank="crystal", at=3),
