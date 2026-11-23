@@ -7416,6 +7416,20 @@ def build_props(src, tiles, fname):
     return props
 
 
+def air_cells(props):
+    """SPEC.md 130.10.4.3.2: the cells in MOVING AIR - every blower's region (lateral, gusting or an updraft,
+    130.34.3) and every magnet's field (130.33.3) - none of which is SAFE: a respawn there is moved off its
+    cell at rest, and on a thin path blown or pulled off it, every time (a respawn loop)"""
+    out = set()
+    for p in props:
+        if p["kind"] == WD_K and p.get("wreg"):
+            x0, y0, x1, y1 = p["wreg"]
+            out.update((x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1))
+        elif "mg" in p:
+            out.update(mg_field(p))
+    return out
+
+
 def prop_cells(props):
     """{cell: prop index} of every OBS cell (SPEC.md 130.12.3.2)"""
     out = {}
@@ -12562,6 +12576,13 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     for c_ in pcell:                                  # no prop's cell is SAFE (a respawn lands in no drain)
         if c_ in cells:
             cells[c_][3] &= ~FL_SAFE
+    # SPEC.md 130.10.4.3.2: no cell in moving air is SAFE either (a blower's region, a magnet's field) - the
+    # guest's rule cannot see one, so each such SAFE-clear is a CELLS exception (130.15.6); `airsafe` (a red
+    # arm's switch) and item 1's `edgesafe` (whose old rule never made one SAFE) leave them be
+    aircell = set() if _EDGESAFE or hack.get("airsafe") else \
+        {c_ for c_ in air_cells(props) if c_ in cells and cells[c_][3] & FL_SAFE}
+    for c_ in aircell:
+        cells[c_][3] &= ~FL_SAFE
     slabcells = {}
     for p in props:
         if p["kind"] == PK_PLATFORM:                 # the shaft: a NEAR void, its kill 3 units under the LOW top
@@ -13844,6 +13865,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.route = route
     c.start = (swx, swy)
     c.props, c.order, c.lanes, c.pcell, c.slab, c.slabcells = props, order, lanes, pcell, slab, slabcells
+    c.aircell = aircell                             # (SPEC.md 130.10.4.3.2: the SAFE cells moving air cleared)
     if src.archways and occluders:                  # SPEC.md 130.39.1 A10: the visibility rule, measured
         c.arch_vis = arch_vis(c, 2 if hack.get("arvis") else AR_HIDE)
     c.clock_vis = clock_vis(c, 1 if hack.get("clockvisb") else CLOCK_HIDE) if occluders and pth is None else []
@@ -30964,11 +30986,12 @@ def rec4_verdicts(c, sb_delta=0, wrap=False):
 
 def _w5_compact(courses, res):
     """item 10 (SPEC.md 130.15.12.3): the compact form, and its eight controls"""
-    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "edges": []}
+    ctl = {"low_first": [], "sb": [], "wrap": [], "wdiff": [], "mtab": [], "irmove": [], "no_obs": [], "edges": [],
+           "noair": []}
     for c in courses:
         if c.split:                                 # (a TWO-PART course, SPEC.md 130.30: _w5_compact2's checks;
-            _w5_compact2(c, res)                    # the one-part form's controls run on the one-part courses)
-            continue
+            _w5_compact2(c, res, ctl)               # the one-part form's controls run on the one-part courses;
+            continue                                # `noair` on any course with a SAFE the air cleared)
         why = []
         try:
             if expand(c.stored, c.name, sim=True) != c.cga:
@@ -31018,14 +31041,17 @@ def _w5_compact(courses, res):
         shaft = set(c.slabcells)
         nvoid = sum(1 for i in range(2, len(c.part["grid"]["cells_raw"]), 4)
                     if c.part["grid"]["cells_raw"][i] & 15 == KIND_VOID)
-        nshaft, stray = _cells_exc_split(c, exc)
+        nshaft, nair, stray = _cells_exc_split(c, exc)
         res.append(("10 %s: CELLS - %d VOID cells' z0 and every cell's SAFE stored as their difference from the "
-                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s)%s" % (
+                    "rule, %d exception%s%s, every one a lift's shaft cell (%d shaft cell%s) or a SAFE moving air "
+                    "cleared (%d, 130.10.4.3.2)%s" % (
                         c.name, nvoid, len(exc), "" if len(exc) == 1 else "s",
                         "" if not exc else " (%s)" % ", ".join("(%d, %d) %s" % e for e in exc),
-                        len(shaft), "" if len(shaft) == 1 else "s",
+                        len(shaft), "" if len(shaft) == 1 else "s", nair,
                         "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray)),
                     not stray))
+        if nair:                                    # the control: the same exceptions read with the air forgotten
+            ctl["noair"].append(len(_cells_exc_split(c, exc, _noair=True)[2]) == nair)
         _cells_ctl(c, c.cga, ctl)
         # the controls
         try:
@@ -31065,12 +31091,14 @@ def _w5_compact(courses, res):
                                 "guest that still reads the four edge neighbours) has SAFE exceptions (the courses "
                                 "with a flat FLOOR beside a VOID)"),
                       ("no_obs", "the CELLS rule with SAFE's OBS clause taken out (the red arm cellsafe's) has "
-                                 "exceptions outside the shafts (the courses with a prop's cell that is SAFE but for it)")):
+                                 "exceptions outside the shafts (the courses with a prop's cell that is SAFE but for it)"),
+                      ("noair", "the CELLS exceptions sorted with moving air forgotten leave every SAFE the air "
+                                "cleared unexplained (130.10.4.3.2; the courses with one)")):
         v = ctl[key]
         res.append(("10 negative control: %s, on every course (%d)" % (what, len(v)), bool(v) and all(v)))
 
 
-def _w5_compact2(c, res):
+def _w5_compact2(c, res, outer=None):
     """item 10 for a TWO-PART course (SPEC.md 130.30.4): each part's stored form expands IN PLACE to its RAM form,
     read_parts takes both, the 4-byte records' compares, and the identity three ways over the pair; CELLS'
     exceptions as a one-part course's"""
@@ -31097,13 +31125,18 @@ def _w5_compact2(c, res):
                 "RAM byte moves it, and the two parts give the shipped one%s" % (
                     c.name, c.ident, "" if all(id3) else " -- %s" % (id3,)), all(id3)))
     exc = cells_exceptions(c.wcga)
-    nshaft, stray = _cells_exc_split(c, exc)
-    ctl = {"no_obs": [], "edges": []}
+    nshaft, nair, stray = _cells_exc_split(c, exc)
+    ctl = {"no_obs": [], "edges": [], "noair": []}
+    if nair:                                        # (the air forgotten: every one unexplained, 130.10.4.3.2)
+        ctl["noair"].append(len(_cells_exc_split(c, exc, _noair=True)[2]) == nair)
+        if outer is not None:                       # (and item 10's course-wide control: OUTER, _w5_compact's)
+            outer["noair"].append(ctl["noair"][-1])
     _cells_ctl(c, c.wcga, ctl)
     cbad = [k for k, v in ctl.items() if v and not all(v)]
-    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d)%s; the rule "
+    res.append(("10 %s: CELLS - %d exception%s in the world part, every one a lift's shaft cell (%d) or a SAFE "
+                "moving air cleared (%d, 130.10.4.3.2)%s; the rule "
                 "without SAFE's OBS clause%s and with its old edge clause%s part from the tool%s" % (
-                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft,
+                    c.name, len(exc), "" if len(exc) == 1 else "s", nshaft, nair,
                     "" if not stray else " -- not one: %s" % ", ".join("(%d, %d) %s" % e for e in stray),
                     "" if ctl["no_obs"] else " (no prop's cell to show it)",
                     "" if ctl["edges"] else " (no floor beside a void to show it)",
@@ -31111,19 +31144,24 @@ def _w5_compact2(c, res):
                 not stray and not cbad))
 
 
-def _cells_exc_split(c, exc):
+def _cells_exc_split(c, exc, _noair=False):
     """item 10's CELLS exceptions sorted (SPEC.md 130.15.6): a lift's shaft cell (the tool's own VOID rule,
-    130.12.3.2) -> (shaft count, the rest).  (Until 2026-11-23 a RAILED SAFE was a class of its own: SAFE read
-    the edge neighbours and the tool's rails, the guest's rule no rail; SAFE reads neither since, 130.10.4.3)"""
+    130.12.3.2), or a cell in MOVING AIR whose SAFE the tool cleared (a blower's region or a magnet's field,
+    130.10.4.3.2 - the guest's rule cannot see one) -> (shaft count, air count, the rest).  _noair: item 10's
+    negative control, the air forgotten.  (Until 2026-11-23 a RAILED SAFE was a class of its own: SAFE read the
+    edge neighbours and the tool's rails, the guest's rule no rail; SAFE reads neither since, 130.10.4.3)"""
     shaft = set(c.slabcells)
-    ns = 0
+    air = set() if _noair else set(getattr(c, "aircell", ()))
+    ns = na = 0
     stray = []
     for e in exc:
         if e[:2] in shaft:
             ns += 1
+        elif e[2] == "SAFE" and e[:2] in air:
+            na += 1
         else:
             stray.append(e)
-    return ns, stray
+    return ns, na, stray
 
 
 def _cells_ctl(c, ram, ctl):
@@ -33268,6 +33306,7 @@ def _course_items(c, k, res, t):
     # 4. the grid against the geometry
     g = Grid(c.cga, c.wcga)
     okp = okk = okv = oks = oksf = True
+    airc = air_cells(c.props)                       # (SPEC.md 130.10.4.3.2, read independently of c.aircell)
     nsplit = 0
     for (wx, wy), ent in c.tiles.items():
         cl = g.cell(wx, wy)
@@ -33309,7 +33348,8 @@ def _course_items(c, k, res, t):
                     okp = False
         if cl[3] != tl.kind:
             okk = False
-        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell)  # (130.10.4.3:
+        safe = (tl.kind == KIND_FLOOR and tl.sx == 0 and tl.sy == 0 and (wx, wy) not in c.pcell
+                and (wx, wy) not in airc)  # (130.10.4.3.2: nor in moving air; 130.10.4.3:
         # a flat FLOOR no prop owns, whatever its neighbours, since 2026-11-23)
         if bool(cl[4] & FL_SAFE) != safe:
             oks = False
@@ -34019,6 +34059,65 @@ def _wind_checks(res):
 def _sc_wind(X, res):
     """--selfcheck's section `wind` (SPEC.md 130.34.8)"""
     _wind_checks(res)
+
+
+SAFE_REST = 300                 # SPEC.md 130.10.4.3.2: the steps a ball respawned on a SAFE cell is left at rest
+
+
+def safe_traps(c, n=SAFE_REST):
+    """SPEC.md 130.10.4.3.2's audit on the model: the ball respawned on every SAFE cell of C (bz_safe's place,
+    the centre at rest), in each material, and left N steps with no key -> [(cell, material, steps)] of each
+    one that FELL (or was RETURNED) - a respawn that loses the ball with nobody touching a key, so a respawn
+    loop on a course with no flag"""
+    g = Physics(c, play=True).grid
+    out = []
+    for wx in range(256):
+        for wy in range(256):
+            if not g.cell(wx, wy)[4] & FL_SAFE:
+                continue
+            for mat in (MAT_RUBBER, MAT_STEEL, MAT_GLASS):
+                p = Physics(c, play=True, mat=mat, _ckpt_safe=True)
+                p.safe = (wx, wy)
+                p._respawn()
+                f0 = p.nfall + p.nret
+                for i in range(n):
+                    p.step(0)
+                    if p.nfall + p.nret > f0:
+                        out.append(((wx, wy), MAT_NAMES[mat], i + 1))
+                        break
+    return out
+
+
+def _sc_airsafe(X, res):
+    """--selfcheck's section `airsafe` (SPEC.md 130.10.4.3.2): on every course file (the shipped, the test and
+    the knob courses), no SAFE cell loses a ball respawned there at rest; and the red arm, the rule without its
+    moving-air clause (`airsafe`), finds PLAYGROUND's five traps in its two lateral blowers and WIND's thin path"""
+    import glob
+    have = {os.path.abspath(c.fname): c for c in X.courses if c.fname}
+    tot, bad, skip = 0, [], []
+    for f in sorted(glob.glob(os.path.join(ROOT, "apps", "bonanza", "courses", "*.bbc"))):
+        c = have.get(os.path.abspath(f))
+        if c is None:
+            try:
+                c = compile_course(f)
+            except CourseError as e:
+                skip.append("%s (%s)" % (os.path.basename(f), str(e)[:60]))
+                continue
+        tot += 1
+        bad += ["%s %s %s at %d" % (c.name, cl, m, k) for cl, m, k in safe_traps(c)]
+    res.append(("18 SAFE at rest (130.10.4.3.2): on all %d course files, every SAFE cell holds a ball respawned there "
+                "at rest, each material, %d steps with no key - no blower's region and no magnet's field is SAFE%s%s"
+                % (tot, SAFE_REST, "" if not bad else " -- falls: " + ", ".join(bad[:12]),
+                   "" if not skip else " (not compiled: %s)" % ", ".join(skip)), tot > 0 and not bad))
+    reds = []
+    for name, want in (("playground", {(17, 30), (17, 32), (23, 36), (24, 36), (25, 36)}),
+                       ("wind", {(10, 9), (13, 12), (14, 12), (16, 9)})):  # (the bridge's two plain ends, the
+                                                                            # thin path's two cells past its fan)
+        c = compile_course(os.path.join(ROOT, "apps", "bonanza", "courses", name + ".bbc"), _hack={"airsafe": 1})
+        got = {cl for cl, _m, _k in safe_traps(c)}
+        reds.append((name, sorted(got), got == want))
+    res.append(("18 red arm `airsafe` (the moving-air clause left out, the rule eb48905bf shipped): the audit finds "
+                "the traps - %s" % "; ".join("%s %s" % (n, g) for n, g, _ok in reds), all(ok for _n, _g, ok in reds)))
 
 
 # SPEC.md 130.36: WATER's refusals, each a string case - a walkway at 3 units over a yard at 0, the water cell
@@ -36550,7 +36649,7 @@ SC_COST = {"determinism": 59, "camcheck": 54, "crosscommit": 48, "physics": 34, 
            "split": 17, "grammar": 16, "w9": 16, "inc": 14, "y0moon": 12, "courses": 10, "budget": 9, "dither": 9,
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
-           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "guard": 30, "water": 20, "kit": 12, "arch": 30,
+           "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "airsafe": 90, "guard": 30, "water": 20, "kit": 12, "arch": 30,
            "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
            "lift2": 10, "width": 8, "sheets": 120, "blocks": 8}
 
@@ -38275,7 +38374,7 @@ def selfcheck_sections():
     return ["determinism"] + [n[4:] for n in _SC_ORDER]
 
 
-_SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind", "_sc_palette", "_sc_tables", "_sc_courses",
+_SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind", "_sc_airsafe", "_sc_palette", "_sc_tables", "_sc_courses",
              "_sc_split", "_sc_splitphys", "_sc_gaps", "_sc_physics", "_sc_props", "_sc_riser", "_sc_routes", "_sc_millroute",
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",

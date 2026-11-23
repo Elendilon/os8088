@@ -254167,7 +254167,7 @@ One cell a tile, four bytes, stored by screen row (130.10.2):
 | +0 `z0` | signed, HALF units: the floor's height at the tile's top corner `(wx, wy)`. A NEAR VOID cell holds its KILL height instead: 3 units below the lowest CORNER of the solid cells within two tiles (Chebyshev; where the drawn faces end for its neighbours). An OPEN cell (none within two tiles) holds -128 |
 | +1 slopes | low nibble `sx`, high nibble `sy`, each signed -8..7: half units a tile along `+wx` and `+wy`. wave 1's tool writes neither past -4 .. 4 |
 | +2 kind | low nibble: 0 VOID, 1 FLOOR, 2 WALL, 3 GOAL - each a PLANE; **4 - 15 RESERVED for non-planar floors** (corner ramps, bank, bowl and funnel quadrants: plan 3 and 8), whose slopes byte a later wave re-reads as the shape's parameter. Wave 1's tool never writes them and the guest's floor function (130.10.7.3) dispatches on this nibble, so a shape is a new case, not a new format. High nibble: the SURFACE, 0 in wave 1 (wave 2's ice, sand and the rest) |
-| +3 flags | bit 0 SAFE: a respawn cell for `bz_safe` (the last one stood on, where a course with no flag and no cup respawns, 130.10.7.3 step 8) - a FLOOR with no slope that is no prop's cell (no `OBS`: no tube's IN, spring, pad, post, mover, turntable cell or lift's shaft, 130.12.3.2), **whatever its neighbours** (the owner, 2026-11-23: *"A respawn doesn't need rails around it - the ball spawns on a single tile, still, and is safe then - it just can't spawn on a spring or tube or other mover"*; until then also no VOID among its four edge neighbours, or since 130.35.1 every open edge railed). A respawn is the cell's centre at rest (130.14.4.5), which a one-tile path holds as well as a room - the reason the start, a flag, a pad and the cup were let off the old rule first (130.10.4.5, 130.14.4.1) and the rule's own reason now (130.10.4.3.1); bit 1 OCC: a ball anywhere in this cell may be behind an occluder (130.10.4.4), so the box compose runs the occluder pass; bits 2 - 7 zero (wave 2's thin-wall edges and wave 3's features take them: OCCG, OBS, bits 4 - 5 a GUARD RAIL on the cell's +x / +y edge since 130.35.1, 6 `FL_FLOAT` or a goal's exit with 7) |
+| +3 flags | bit 0 SAFE: a respawn cell for `bz_safe` (the last one stood on, where a course with no flag and no cup respawns, 130.10.7.3 step 8) - a FLOOR with no slope that is no prop's cell (no `OBS`: no tube's IN, spring, pad, post, mover, turntable cell or lift's shaft, 130.12.3.2) and in no MOVING AIR (no blower's region, no magnet's field, 130.10.4.3.2), **whatever its neighbours** (the owner, 2026-11-23: *"A respawn doesn't need rails around it - the ball spawns on a single tile, still, and is safe then - it just can't spawn on a spring or tube or other mover"*; until then also no VOID among its four edge neighbours, or since 130.35.1 every open edge railed). A respawn is the cell's centre at rest (130.14.4.5), which a one-tile path holds as well as a room - the reason the start, a flag, a pad and the cup were let off the old rule first (130.10.4.5, 130.14.4.1) and the rule's own reason now (130.10.4.3.1); bit 1 OCC: a ball anywhere in this cell may be behind an occluder (130.10.4.4), so the box compose runs the occluder pass; bits 2 - 7 zero (wave 2's thin-wall edges and wave 3's features take them: OCCG, OBS, bits 4 - 5 a GUARD RAIL on the cell's +x / +y edge since 130.35.1, 6 `FL_FLOAT` or a goal's exit with 7) |
 
 The floor's height at a point of a solid cell, `u = gx & 15` and
 `v = gy & 15` the integer ground units inside it, in QUARTER px:
@@ -254231,6 +254231,39 @@ demos (below, *as built*).
   for NEAR, `cellfield` (`tests/bonanza_dfield.py`) a FIELD's V read by records; `cellsafe`
   (`tests/bonanza_exit.py`) patches the inline `OBS` test. NOT run on an emulator here (the rows that run
   them are soak rows): `bonanzaexit`'s claim leg, `bonanzaphys`, and the two unicorn checks.
+
+##### 130.10.4.3.2 No SAFE in moving air (2026-11-23)
+
+130.10.4.3.1's rule let a flat cell inside a blower's region be SAFE, and the first scoped soak after it
+found the cost: `bonanzaphyshost`'s wind path scene, rubber, fell five times in 180 steps - blown off the
+thin path, respawned on (13, 12), its middle cell and inside the steady blower's region, blown off again
+45 steps later, and so on: a RESPAWN LOOP, whatever key is held (none, any of the eight ways, Hop + R: each
+falls again inside 35 - 74 steps, MEASURED on the model). It ships: `PLAY` respawns on `bz_safe`, and five
+of its cells - (23, 36), (24, 36), (25, 36) in the steady +y blower at (22, 36), (17, 30), (17, 32) in the
+gusting one at (17, 29) - lose a ball of every material left there at rest. The owner's own words cover it
+(*"it just can't spawn on a spring or tube or other mover"*): moving air is a mover.
+
+**The rule's clause**: no cell in MOVING AIR is SAFE - every cell of a blower's region (130.34.3: lateral,
+gusting and an updraft alike, the simpler rule; a respawn in moving air is never what is meant) and every
+cell of a magnet's field (130.33.3, `mg_field`: its range out from the post along its way). The tool clears
+the bit where it clears a prop's (`air_cells`, after `prop_cells`); the guest's CELLS rule (`bz_cxcel`)
+cannot see a region or a field and is NOT changed, so each such cell is a **CELLS exception** (130.15.6:
+SAFE stored XOR the rule, the guest's XOR putting it back) - bytes, never a wrong grid, and no guest code.
+`edgesafe` (item 1's old tool) leaves the clause out, its old rule having made no such cell SAFE; `airsafe`
+is the red arm's switch (the rule as 130.10.4.3.1 shipped it).
+
+*As built*, MEASURED on the host: the exceptions are `PLAY` 7 (its five traps and the updraft's two), and
+on the knob courses `WIND` 11 and `MAGNETS` 2; every other course 0. Packed, `PLAY`'s part +5 LZ4 / +5
+LZB, `WIND`'s +19 / +12, `MAGNETS`' +5 / +5; no other part moves. `PLAY`'s identity moves (3D52h ->
+915Dh), so `playground.bzd` was written again by `bbcourse.py author` - the same runs and steps (299, 1504),
+its `ident` line alone; no other demo moves. The checks: `--selfcheck` item 10 sorts an exception into a
+lift's shaft cell or a SAFE moving air cleared (`_cells_exc_split`), with the control that the same
+exceptions sorted with the air forgotten leave every one unexplained; the per-course SAFE check (item 3)
+reads the clause independently (`air_cells` over the course's props); and item 18 (section `airsafe`) is the
+audit that found it, made standing: on every course file (35), the ball respawned on every SAFE cell, each
+material, left `SAFE_REST` (300) steps with no key, must not fall - and its red arm, `airsafe`, must find
+`PLAY`'s five traps and `WIND`'s four ((10, 9), (16, 9) the bridge's plain ends, (13, 12), (14, 12) the thin
+path).
 
 ##### 130.10.4.4 Occluders
 
@@ -266246,7 +266279,9 @@ rule host-side over all six at `ef59209a`), and a later lift can have one.
 - `rule_safe` is 1 on a FLOOR cell (kind nibble 1) with `sx = sy = 0` and
   `OBS` clear, whatever its neighbours (130.10.4.3.1, 2026-11-23; until then
   also no VOID cell among its four edge neighbours, one outside the grid
-  counting as VOID).
+  counting as VOID). The tool's own clause past it - no SAFE in a blower's
+  region or a magnet's field (130.10.4.3.2) - is not the rule's, so each
+  such cell is an exception.
 
 **Scratch, time and bytes:**
 - only `bz_boxbuf`, at most `9 KW` bytes: for example a ring of nine cell
@@ -266268,8 +266303,11 @@ combination, the report's section 4).
   SAFE was a second class - a flat FLOOR the tool made SAFE because a rail
   closed an edge the rule read as open: DOWN 10, MILL 137, PLAY 1, ROLL 6,
   HOP 8 stored bytes. SAFE reads no neighbour and no rail since,
-  130.10.4.3.1, so the tool and the rule agree on every SAFE bit and the
-  class is gone.) A host rule that has drifted from the tool's shows up as
+  130.10.4.3.1, so the class is gone.) The second class since 2026-11-23
+  is a SAFE MOVING AIR CLEARED (130.10.4.3.2): a flat FLOOR the rule makes
+  SAFE that lies in a blower's region or a magnet's field, which the tool
+  clears - `PLAY` 7, `WIND` 11, `MAGNETS` 2 - and its control is the same
+  exceptions sorted with the air forgotten, every one then unexplained. A host rule that has drifted from the tool's shows up as
   more exceptions, never as a wrong grid. Its negative controls: the rule
   with SAFE's `OBS` clause taken out (the red arm `cellsafe`'s), and the
   rule with the OLD edge clause put back (a guest still reading the four
@@ -267131,8 +267169,9 @@ these differences from the report are accounted for:
   - the identity rule three ways (130.15.7), the identity equal under
     `RECB` 4 and 8 among them;
   - after the follow-up, each course's exceptions printed, and every one
-    of them a lift's shaft cell (130.15.6; a railed SAFE too, 130.35.1, until
-    2026-11-23's 130.10.4.3.1).
+    of them a lift's shaft cell or a SAFE moving air cleared (130.15.6,
+    130.10.4.3.2; a railed SAFE too, 130.35.1, until 2026-11-23's
+    130.10.4.3.1).
 
   Its negative controls, each required to fail at item 10:
   - ROWPLANES with the low bytes first (the simulation);
@@ -267144,7 +267183,9 @@ these differences from the report are accounted for:
     two bytes longer, `R` two shorter and two later), so the entries still
     tile the part: the place-and-size rule must name `I`;
   - after the follow-up, the CELLS rule with SAFE's `OBS` clause taken out
-    (exceptions outside the shafts).
+    (exceptions outside the shafts);
+  - the CELLS exceptions sorted with moving air forgotten (every SAFE the
+    air cleared unexplained, 130.10.4.3.2; the courses with one).
 - **11, the dither and the audit**:
   - every `K` mask has the checker set (`mask OR CHK = mask`);
   - the ball's masks and the slab's sprite mask carry no added checker
