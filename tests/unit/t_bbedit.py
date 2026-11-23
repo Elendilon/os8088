@@ -484,7 +484,8 @@ def course_tab_check():
         def __init__(self, text):
             _StubApp.__init__(self, text)
             for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal", "cv_gstyle", "cv_target",
-                      "cv_limit", "cv_gold", "cv_silver", "cv_cstrict", "cv_mbanded", "cv_lock"):
+                      "cv_limit", "cv_gold", "cv_silver", "cv_cstrict", "cv_mbanded", "cv_lock", "cv_over",
+                      "cv_overc"):
                 setattr(self, k, _SetVar(""))
             self.cv_stops = {e: _SetVar("") for e in B.STOP_EDGES}
             self._fill_course()
@@ -507,8 +508,25 @@ def course_tab_check():
     if sorted(got) != ["lock across", "stop down left"]:
         bad.append("item 26: the Course tab's lock and stops down, left applied as %r" % got)
     b = _C(base + "stop up right\n")
-    if [e for e in B.STOP_EDGES if b.cv_stops[e].get()] != ["up", "right"] or b.cv_lock.get():
+    if [e for e in B.STOP_EDGES if b.cv_stops[e].get()] != ["up", "right"] or b.cv_lock.get() or b.cv_over.get():
         bad.append("item 26: the Course tab does not read `stop up right`")
+    # SPEC.md 130.45.6: the span - `over` alone, then two cells - written after the edges and read back
+    a.cv_lock.set(False)
+    a.cv_stops["left"].set(False)
+    a.cv_over.set(True)
+    a._apply_course()
+    got = [l for l in a.doc.text().split("\n") if l.startswith("stop")]
+    a.cv_overc.set("24 52 24 46")
+    a._apply_course()
+    got += [l for l in a.doc.text().split("\n") if l.startswith("stop")]
+    if got != ["stop down over", "stop down over 24 52 24 46"]:
+        bad.append("item 26: the Course tab's span (over, then two cells) applied as %r" % got)
+    b = _C(base + "stop down up over 3 4 5 6\n")
+    if [e for e in B.STOP_EDGES if b.cv_stops[e].get()] != ["down", "up"] or not b.cv_over.get() or \
+            b.cv_overc.get() != "3 4 5 6":
+        bad.append("item 26: the Course tab does not read `stop down up over 3 4 5 6`")
+    a.cv_over.set(False)
+    a.cv_overc.set("")
     for e in B.STOP_EDGES:
         a.cv_stops[e].set(False)
     a.cv_lock.set(False)
@@ -869,7 +887,7 @@ class _CourseApp(object):
     def __init__(self, text):
         self.doc = E.Document(text)
         for n in ("title", "name", "width", "ball", "music", "pal", "target", "limit", "gold", "silver", "gstyle",
-                  "cstrict", "mbanded", "lock"):
+                  "cstrict", "mbanded", "lock", "over", "overc"):
             setattr(self, "cv_" + n, _SVar(""))
         self.cv_stops = {e: _SVar("") for e in B.STOP_EDGES}
         self.msgs = []

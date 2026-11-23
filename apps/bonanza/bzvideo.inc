@@ -247,13 +247,18 @@ bz_vinit:
 
 ; -----------------------------------------------------------------------------
 ; bz_vstop - the course's camera STOPS folded into the limits bz_vinit has just
-; set from its size (SPEC.md 130.45.4, 130.45.5; bbcourse.cam_limits), on any
-; card (bz_rl, bz_lsh and bz_W the card's): the BOTTOM LINE B (BZ_CRS_BOTS, 0
-; none) caps rmax at ceil((B - BZ_LINES) / rl), at least 0; BZ_CRS_STOPS' t l r
-; set rmin = 8 t >> lsh, cmin = l and take r off cmax.  0 is each byte's
-; identity and the tool holds every range whole on every card, so neither the
-; three bytes nor a course without them needs a branch or a clamp.  Clobbers
-; AX, BX, CL, SI.
+; set from its size (SPEC.md 130.45.4 - 130.45.6; bbcourse.cam_limits,
+; cam_span), on any card (bz_rl, bz_lsh and bz_W the card's): the rows' range
+; is kept twice - the picture's, 0 - bz_rfmx (the part's rmax), and the
+; STOPPED one, bz_rsmn - bz_rsmx: the BOTTOM LINE B (BZ_CRS_BOTS, 0 none) caps
+; rmax at ceil((B - BZ_LINES) / rl), at least 0, BZ_CRS_STOPS' t sets rmin =
+; 8 t >> lsh - which bz_clampwin / bz_clampmv choose between each frame by the
+; window's column against the SPAN (BZ_CRS_SPANS' a b: bz_sglo = b - W, bz_sghi
+; = a; 255 0 none, every column); its l and r set cmin = l and take r off
+; cmax; the PULL bz_kpull = 4 >> lsh rows.  0 is each stop byte's identity
+; and the tool holds every range whole on every card, so neither the bytes
+; nor a course without them needs a branch or a clamp.  Clobbers AX, BX, CL,
+; DX, SI, DI.
 ; -----------------------------------------------------------------------------
 bz_vstop:
     mov bl, [bz_crs]
@@ -261,8 +266,11 @@ bz_vstop:
     mov si, bx
     shl bx, 1
     mov cl, [bz_lsh]
-    mov ax, [bz_cbots + bx]     ; the BOTTOM STOP: the window's foot never
-    or ax, ax                   ; passes the course's bottom line
+    mov di, bz_rmin             ; (BZR_*)
+    mov dx, [di + 2]            ; DX = the picture's most (bz_rmax) ...
+    mov [di + BZR_FMX], dx
+    mov ax, [bz_cbots + bx]     ; ... less the BOTTOM STOP: the window's
+    or ax, ax                   ; foot never passes the course's bottom line
     jz .nbot
     sub ax, BZ_LINES
     jns .bpos
@@ -271,10 +279,21 @@ bz_vstop:
     add ax, [bz_rl]
     dec ax
     shr ax, cl
-    cmp ax, [bz_rmax]
+    cmp ax, dx
     jge .nbot
-    mov [bz_rmax], ax
+    xchg ax, dx
 .nbot:
+    mov [di + BZR_SMX], dx
+    mov dx, [bz_cspans + bx]    ; the SPAN: DL a, DH b
+    mov al, dh
+    xor ah, ah
+    sub ax, [bz_W]
+    mov [di + BZR_SLO], ax      ; b - W
+    xor dh, dh
+    mov [di + BZR_SHI], dx      ; a
+    mov ax, 4                   ; the PULL: four lines, in rows
+    shr ax, cl
+    mov [di + BZR_PULL], ax
     lea si, [bz_cstops + bx + si] ; (3 bytes a course)
     lodsb                       ; t: the TOP stop, block rows
     xor ah, ah
@@ -282,7 +301,7 @@ bz_vstop:
     shl ax, 1
     shl ax, 1
     shr ax, cl
-    mov [bz_rmin], ax
+    mov [di + BZR_SMN], ax
     lodsb                       ; l: the LEFT stop, a column
     xor ah, ah
     mov [bz_cmin], ax

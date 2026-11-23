@@ -5373,6 +5373,8 @@ bz_cbots:   BZ_CRS_BOTS         ; ...their BOTTOM LINEs, a word each, 0 none
                                 ; (SPEC.md 130.45.4: bz_vstop's bottom stop)
 bz_cstops:  BZ_CRS_STOPS        ; ...their other STOPS, t l r, three bytes each,
                                 ; 0 0 0 none (SPEC.md 130.45.5: bz_vstop)
+bz_cspans:  BZ_CRS_SPANS        ; ...the SPAN their down and up stops bind over, a b,
+                                ; 255 0 none (SPEC.md 130.45.6: bz_vstop)
 bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzvideo.inc"
 %include "bzcard.inc"           ; wave 8c (130.19.8): the cards
