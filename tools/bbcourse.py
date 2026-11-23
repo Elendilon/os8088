@@ -1711,8 +1711,8 @@ def _parse_tube(toks, where, ln):
             t["speed"] = tuple(_int(toks[i + k], where, "speed") for k in (1, 2, 3))
             i += 4
         elif w == "height" and i + 2 <= len(toks) and t["height"] is None:
-            if t["sub"] != TK_DROP:
-                raise CourseError("%s: height is a DROP tube's alone" % where)
+            if t["sub"] == TK_KEEP:                 # (a LAUNCH's since 2026-11-23: its MOUTH raised, 130.12.3.3)
+                raise CourseError("%s: height is a DROP's or a LAUNCH's mouth, not a KEEP tube's" % where)
             t["height"] = _height2(toks[i + 1], where, rel=True)
             i += 2
         elif w == "body" and i + 2 <= len(toks) and t["body"] is None:   # SPEC.md 130.12.3.3 (2026-11-22): the
@@ -1730,11 +1730,17 @@ def _parse_tube(toks, where, ln):
             raise CourseError("%s: a LAUNCH speed %s is over the caps (|gvx|, |gvy| <= %d, 0 <= gvz <= %d)"
                               % (where, t["speed"], VMAXG, VZMAX))
     if t["height"] is not None and t["height"] < 2:
-        raise CourseError("%s: a DROP height under 1 unit" % where)
+        raise CourseError("%s: a %s height under 1 unit" % (where, "DROP" if t["sub"] == TK_DROP else "LAUNCH mouth"))
     if t["dir"] is not None and t["sub"] == TK_DROP and t["dir"] not in (0, 2):
         raise CourseError("%s: a DROP's mouth faces %s: it must face +x or +y (a wall shows only those)"
                           % (where, DIR_NAMES[t["dir"]]))
     return t
+
+
+def tube_raised(p):
+    """a tube whose ball leaves through a MOUTH over OUT's floor (SPEC.md 130.12.3.3): a DROP, or a RAISED
+    LAUNCH (`height` on a launch, 2026-11-23) - p a parsed tube or a prop"""
+    return p.get("sub") == TK_DROP or (p.get("sub") == TK_LAUNCH and bool(p.get("height", p.get("h2"))))
 
 
 def _famart(p):
@@ -6960,7 +6966,8 @@ def lay_tube_bodies(src, tiles):
         zs = [t.z0 for c in [tb["inn"], tb["out"]] + body for t in [tiles.get(c)]
               if type(t) is Tile and t.kind in (KIND_FLOOR, KIND_GOAL) and not t.sx and not t.sy]
         z = (max(zs) if zs else 0) + 2             # (half units: one unit over the higher end's floor -
-        if tb.get("sub") == TK_DROP and tb.get("height"):     # a DROP: the lowest pipe its mouth (`height` over the
+        if tb.get("sub") in (TK_DROP, TK_LAUNCH) and tb.get("height"):   # a DROP or a RAISED LAUNCH (130.12.3.3,
+            # 2026-11-23): the lowest pipe its mouth (`height` over the
             t_out = tiles.get(tb["out"])                     # EXIT's floor, 9 px tall) stands on - 1.25 units
             zo = t_out.z0 if type(t_out) is Tile else (max(zs) if zs else 0)   # over its sill (half units)
             z = zo + tb["height"] + 3               # (1.5 units: a wall's top is a whole half unit)
@@ -7034,10 +7041,16 @@ def build_props(src, tiles, fname):
         if tb["sub"] == TK_DROP and dr not in (0, 2):
             raise CourseError("%s:%d: a DROP's mouth faces %s: it must face +x or +y (a wall shows only those)"
                               % (f, ln, DIR_NAMES[dr]))
-        if tb["sub"] == TK_DROP and (not body or body[-1] != (tb["out"][0] - DIR_VEC[dr][0],
-                                                             tb["out"][1] - DIR_VEC[dr][1])):
-            raise CourseError("%s:%d: a DROP's mouth must be on the face of the body's last wall, behind OUT "
-                              "along %s" % (f, ln, DIR_NAMES[dr]))
+        if tube_raised(tb) and (not body or body[-1] != (tb["out"][0] - DIR_VEC[dr][0],
+                                                         tb["out"][1] - DIR_VEC[dr][1])):
+            raise CourseError("%s:%d: a %s's mouth must be on the face of the body's last wall, behind OUT "
+                              "along %s" % (f, ln, "DROP" if tb["sub"] == TK_DROP else "raised LAUNCH",
+                                            DIR_NAMES[dr]))
+        if tb["sub"] == TK_LAUNCH and tube_raised(tb) and dr not in (0, 2):     # SPEC.md 130.12.3.3 (2026-11-23):
+            t_w, t_o = tiles.get(body[-1]), tiles.get(tb["out"])               # a mouth on a face out of sight,
+            if type(t_w) is Tile and type(t_o) is Tile and t_w.z0 < t_o.z0 + tb["height"] + 3:   # undrawn: the
+                raise CourseError("%s:%d: a raised LAUNCH's last wall (%d, %d) is too low for its mouth: a "   # wall
+                                  "taller wall, or a lower mouth" % (f, ln, body[-1][0], body[-1][1]))   # holds it
         if tb["sub"] == TK_KEEP:
             o = tb["out"]
             nx = (o[0] + DIR_VEC[dr][0], o[1] + DIR_VEC[dr][1])
@@ -7336,7 +7349,7 @@ def build_props(src, tiles, fname):
         zin = _h4t(tin, u0, v0) // 4 if _h4t(tin, u0, v0) % 4 == 0 else None
         zout = _h4t(tout, 8, 8) // 4
         p["zfloor_out"] = zout
-        if p["sub"] == TK_DROP:
+        if tube_raised(p):                      # (a RAISED LAUNCH's mouth too, SPEC.md 130.12.3.3, 2026-11-23)
             zout += 4 * p["h2"]
         p["zexit"] = zout
         gpts = [p["start"]] + [(16 * x + 8, 16 * y + 8) for (x, y) in p["pts"][1:]]
@@ -7589,7 +7602,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     for p in props:
         if p["kind"] == PK_TUBE and p["sub"] == TK_LAUNCH:
             gvz = p["speed"][2]
-            srcs.append((p["out"], p["zfloor_out"] + UP(gvz), RADIUS(gvz), "launch tube"))
+            srcs.append((p["out"], p["zexit"] + UP(gvz), RADIUS(gvz), "launch tube"))     # (its mouth's, 130.12.3.3)
         elif p["kind"] == PK_TUBE and p["sub"] == TK_DROP:
             srcs.append((p["out"], p["zexit"], max(3, -(-(_fall_steps(p["zexit"] - p["zfloor_out"]) * VMAXG)
                                                         // (256 * TILE))), "drop tube"))
@@ -9141,7 +9154,7 @@ def mouth_of(p, x0):
     w = (o[0] - DIR_VEC[p["dir"]][0], o[1] - DIR_VEC[p["dir"]][1])
     face = "se" if p["dir"] == 0 else "sw"
     xm = 16 * (w[0] - w[1]) + x0 + (8 if p["dir"] == 0 else -8)
-    if p["kind"] == PK_TUBE and p["sub"] == TK_DROP:
+    if p["kind"] == PK_TUBE and tube_raised(p):     # (a DROP's, and a RAISED LAUNCH's since 2026-11-23)
         return w, face, xm, 9, 5, 4 * p["h2"]
     if p["kind"] == PK_WINDMILL and p["body"] and p["body"][-1] == w:
         return w, face, xm, MOUTH_ROWS, MOUTH_HALF, 0
@@ -9163,7 +9176,7 @@ def tube_steps(tiles, p):
         ta, tb = tiles.get(a), tiles.get(b)
         if type(ta) is not Tile or type(tb) is not Tile:
             continue
-        mouth = p["sub"] == TK_DROP and (a, b) == (chain[-2], chain[-1])
+        mouth = tube_raised(p) and (a, b) == (chain[-2], chain[-1])
         dx, dy = b[0] - a[0], b[1] - a[1]
         # the shared edge in each cell's (u, v): its midpoint's height, quarter px
         ea, eb = {(1, 0): ((16, 8), (0, 8)), (-1, 0): ((0, 8), (16, 8)),
@@ -9196,7 +9209,7 @@ def tube_riser_pix(tiles, ops, p, x0):
     -> [(owner cell, "se" | "sw" | "top", {(x, y at Y0 = 0): ink})]"""
     out = []
     ends = {p["inn"]: TUBE_HOLE_R, p["out"]: TUBE_RIM_R[1]}
-    if p["sub"] == TK_DROP:
+    if tube_raised(p):
         del ends[p["out"]]
 
     def ink(d):
@@ -14388,6 +14401,8 @@ def exit_run(c, rec, mat, vin=TMIN, n=400, steps=None):
     ux, uy = DIR_VEC[rec["dir"]]
     v = max(vin, TMIN)
     if rec["sub"] == TK_LAUNCH:
+        if tube_raised(c.props[c.order[rec["i"]]]):     # a RAISED LAUNCH (130.12.3.3, 2026-11-23): its mouth,
+            p.gz = rec["segs"][-1]["ez"] << 8       # the last segment's END, as the transit leaves it
         p.gvx, p.gvy, p.gvz = rec["g"]
         p.air = 1
         p.ztop = p.gz >> 8
@@ -26543,6 +26558,9 @@ _W3H = ('course H "h"\nwidth 64\nuses rotor tube\nfloor rect 6 9 16 14 flat 16\n
         'floor rect 6 3 14 5 flat 20\nstart 9 12\ntube keep 7 9 7 4\ntube keep 10 9 10 4\n'
         'tube keep 13 9 13 4\nprop windmill 7 9 seed %d\nprop windmill 10 9 seed %d\nprop windmill 13 9 seed %d\n')
 _W3F = 'course F "f"\nwidth 64\nfloor band -10 10 26 %d flat 0\nstart %d %d\n'
+# SPEC.md 130.12.3.3 (2026-11-23), the owner's MILL case on _W3W: a LAUNCH out of (7, 14), a floor at 16, into a
+# block 2 units up at (7, 15) - refused from the floor, a landing on the block with its mouth raised 3 units (%s)
+_W3RL = 'floor rect 7 14 9 18 flat 16\nfloor rect 7 15 9 16 flat 18\ntube launch 7 12 7 14 speed 0 128 64%s\n'
 
 
 def _posts(cells):
@@ -26601,6 +26619,17 @@ def _wave3_cases():
          "tube drop 7 12 7 14 height 2\n", "not a landing on a FLOOR"),
         ("a DROP whose mouth does not fit its wall", W + "wall tile 7 13 flat 17\nfloor rect 6 14 9 17 flat 16\n"
          "tube drop 7 12 7 14 height 2\n", "not wholly on the face"),
+        # SPEC.md 130.12.3.3 (2026-11-23): a RAISED LAUNCH - `height` on a launch, its mouth a DROP's
+        ("a KEEP tube with a height", W + "tube keep 7 12 7 14 height 2\n", "not a KEEP tube's"),
+        ("a raised LAUNCH under 1 unit", W + "tube launch 7 12 7 14 speed 0 64 200 height 0.5\n", "under 1 unit"),
+        ("a raised LAUNCH whose mouth does not fit its wall", W + "wall tile 7 13 flat 17\nfloor rect 6 14 9 17 "
+         "flat 16\ntube launch 7 12 7 14 speed 0 192 300 height 2\n", "not wholly on the face"),
+        ("a raised LAUNCH whose OUT is not in front of its last wall", W + "floor rect 6 14 9 17 flat 16\n"
+         "tube launch 7 12 7 14 out +x speed 0 64 200 height 2\n", "behind OUT along +x"),
+        ("a raised LAUNCH out of sight (-y) whose last wall is under its mouth", W + "floor rect 6 14 9 17 flat 16\n"
+         "wall tile 7 13 flat 17\ntube launch 7 14 7 12 speed 0 -64 200 height 2\n", "too low for its mouth"),
+        ("the owner's MILL case: a LAUNCH from its floor into the face of a block 2 units up", W + _W3RL % "",
+         "not a landing on a FLOOR"),
         ("a windmill without its KEEP tube", _swap(W, "prop windmill 9 9", "prop windmill 8 10"),
          "without a KEEP tube"),
         ("a windmill entered along +y", W + "wall tile 7 13 flat 17\nfloor tile 7 14 flat 16\n"
@@ -28881,7 +28910,7 @@ def _mouth_checks(c, res, tag):
             continue
         rec = next(r for r in c.part["props"] if r["at"] == p["at"])
         q = Physics(c).poke(*p["out"])                  # the exit's own state, before any step
-        if rec["sub"] == TK_DROP:
+        if tube_raised(p):                              # (a DROP's, a RAISED LAUNCH's: at its mouth)
             q.gz = rec["segs"][-1]["ez"] << 8
         q._derive(True)
 
@@ -33537,7 +33566,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 2 + len(_w4_cases()) + 4 + len(_wall_low_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 4 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -33580,6 +33609,25 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             ok_, msg = False, str(e)
         res.append(("2 accepted (130.19.10): %s (%s)" % (what, msg), ok_))
+    if mine():                                      # SPEC.md 130.12.3.3 (2026-11-23): the RAISED LAUNCH accepted
+        try:
+            cx = compile_course(_W3W + _W3RL % " height 3", fname="<a raised LAUNCH>", _hack={"no_finish": True})
+            p_ = [q for q in cx.props if q["kind"] == PK_TUBE and q["sub"] == TK_LAUNCH][0]
+            r_ = next(r for r in cx.part["props"] if r["at"] == p_["at"])
+            ex_ = cx.exits[r_["i"]]
+            ok_ = (p_["zexit"] == p_["zfloor_out"] + 24 and r_["segs"][-1]["ez"] == p_["zexit"]
+                   and tuple(r_["g"]) == (0, 128, 64) and p_.get("mouth") is not None and p_["mouth"][0] == (7, 13)
+                   and p_["mouth"][5] == 24 and all(e[1] == (7, 15) for e in ex_.values())
+                   and cx.tiles[(7, 13)].z0 >= cx.tiles[(7, 14)].z0 + 6 + 3)
+            msg = "exit z %d px (OUT's floor %d), the mouth on %s at sill %d px, its body %d half units, the " \
+                  "balls' exits %s" % (p_["zexit"], p_["zfloor_out"], (p_.get("mouth") or (None,))[0],
+                                       (p_.get("mouth") or (0,) * 6)[5], cx.tiles[(7, 13)].z0, ex_)
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (130.12.3.3): the owner's MILL case with its LAUNCH's mouth raised 3 units - the "
+                    "last segment ends 24 px over OUT's floor, the record's velocity as written, a DROP's mouth "
+                    "on its last wall at that sill, the body laid to hold it, and every ball lands on the block "
+                    "it hit from the floor (%s)" % msg, ok_))
     for what, text in _wall_low_cases():          # SPEC.md 130.10.3 as amended 2026-11-22: LOWER than some
         if not mine():                              # of what it touches, a wall compiles
             continue

@@ -257734,7 +257734,7 @@ state.
 
     tube  keep|launch|drop  <iwx> <iwy>  <owx> <owy>  [via <wx> <wy>]...  [out +x|-x|+y|-y]  [body <units>]
           speed <gvx> <gvy> <gvz>        launch only, and required: its exit velocity (1/256 gu, px a step)
-          height <h>                     drop only, and required: the exit's height above the OUT cell's floor, units
+          height <h>                     drop: required; launch: optional (2026-11-23) - the MOUTH's height above the OUT cell's floor, units
     prop  windmill <iwx> <iwy>  [period 32|64|128|256]  [closed <c0> <c1>]  [seed <n>]
     prop  bumper   <wx> <wy>    [kick <K>]
     prop  platform <wx> <wy> <L>  [period 64|128|256]  [dwell <w>]  [seed <n>]     a LIFT: its shaft, its rise in units
@@ -257783,6 +257783,27 @@ exit's next cell along `out` must be a FLOOR the ball can roll onto. The
 tool prints each exit's outcome per ball (bounce, stun, shatter, or a plain
 landing), since a hard landing out of a tube is a trap once the ball is in.
 
+**A RAISED LAUNCH** (2026-11-23, the owner on MILL: a launch from a floor at
+21 whose exit tile is a floor at 14 fired from 14 and hit the face of a
+platform at 16, and raising the pipe with `body` did not raise where the
+ball came out): `height <h>` on a LAUNCH puts its MOUTH - where the flight
+starts - `h` units over OUT's floor, exactly as a DROP's: the last segment
+ends at OUT's centre at that height (the segment's `+12` END `z`, as a
+DROP's; no record field is added, and the guest, which sets the ball at the
+last segment's END and adds `gvz`, is unchanged), the body is laid as a
+DROP's (the exit's floor, `height` and 1.5 units, or the author's `body`),
+the last body wall must stand behind OUT along `out`, and its mouth is a
+DROP's arch on that wall's face (10 x 9 px, its sill `h` units over OUT's
+floor; refused when not wholly on the face: `a taller wall, or a lower
+exit`). Unlike a DROP's, a raised LAUNCH's `out` may face `-x` or `-y`: its
+mouth is then on a face the camera does not see and is not drawn (the ball
+comes out from behind the wall), and the tool refuses a last wall whose top
+is under the mouth's (`h` and 1.5 units over OUT's floor) instead. Its exit
+check, its reach (a launch source `UP(gvz)` over the mouth) and
+`--selfcheck`'s mouth checks all start the flight at the mouth. Without
+`height` a LAUNCH fires from OUT's floor as before, so a course with no
+raised launch compiles byte for byte as it did.
+
 **`prop windmill`** names an existing KEEP tube by its IN cell and turns
 that tube's record into a WINDMILL's (one record, 130.12.6.2). Its first leg
 must run along `-x` or `-y` (the ball goes INTO the house through a face the
@@ -257808,8 +257829,9 @@ and at its two docks only - at least one at the lowest rim's height `hP`
 
 Each refusal names the line: a tube whose body cell is not a WALL, whose leg
 is not along an axis, whose exit lands off a FLOOR for some ball or whose
-DROP mouth faces away, a LAUNCH `speed` over the caps, a DROP `height` under
-1 unit; a windmill without a KEEP tube at its IN cell, entered
+DROP mouth faces away, a LAUNCH `speed` over the caps, a DROP `height` (or a
+LAUNCH's) under 1 unit, a RAISED LAUNCH whose last body wall is not behind OUT
+along `out` or is too low for its mouth; a windmill without a KEEP tube at its IN cell, entered
 along `+x` or `+y`, without a wall behind its doorway, whose house cannot
 hold the rotor, or whose doorway is in the shade; a bumper on a non-FLOOR, or
 with a `seed`; a lift whose shaft is not VOID, whose rims stand at anything
@@ -258545,7 +258567,7 @@ increments of `gx`, `gy` (1/256 gu) and `z` (1/256 px), +8 / +10 / +12 its
 END `gx`, `gy` (integer gu) and `z` (whole px), +14 zero. Segment 0 starts at
 IN's centre and floor (a windmill's: at its DOORWAY, the midpoint of IN's
 house-side edge); each ends where the next begins; the last ends at OUT's
-centre, at OUT's floor (DROP: at its exit height). The tool chooses each `m`
+centre, at OUT's floor (DROP, and a RAISED LAUNCH: at its mouth's height). The tool chooses each `m`
 as the least that keeps the ghost inside the ball's own screen speed -
 `|Dsx| <= 3m` px and `|Dsy| <= 3m` lines, `Dsx = Dgx - Dgy`, `Dsy = (Dgx +
 Dgy) / 2 - Dz` - and the increments as `round(256 D / m)`; `T` is the sum.
@@ -258579,7 +258601,7 @@ refilled round OUT (as `bz_pokd`'s refill, 130.10.7.1), and
 | kind | the ball leaves |
 |---|---|
 | KEEP | GROUNDED at OUT's centre and floor, moving along the exit direction at `max(s_in, BZ_TMIN)` (`BZ_TMIN` 64): `(+-v, 0)` or `(0, +-v)` |
-| LAUNCH | AIRBORNE from OUT's floor with the record's `(gvx, gvy, gvz)` (`|gvx|, |gvy| <= BZ_VMAXG`, `0 <= gvz <= BZ_VZMAX`), `ztop = z`, `z += gvz` - a take-off (130.10.7.3 step 6) |
+| LAUNCH | AIRBORNE from OUT's floor (a RAISED launch's: its mouth's height, the last segment's END, 130.12.3.3) with the record's `(gvx, gvy, gvz)` (`|gvx|, |gvy| <= BZ_VMAXG`, `0 <= gvz <= BZ_VZMAX`), `ztop = z`, `z += gvz` - a take-off (130.10.7.3 step 6) |
 | DROP | AIRBORNE at OUT's centre and the exit's height, `gvz` 0, `ztop = z`, moving as KEEP: it FALLS, and lands by 130.11.8.5 (rubber bounces, steel is stunned from 2 units, glass shatters from 3) |
 
 **Art.** A plain tube's IN cell is drawn as a dark HOLE on its top; its OUT
@@ -289498,6 +289520,16 @@ Without `--occ` the picture job is unchanged and as fast. MEASURED (one core of 
 The builder's tube form (130.58.29) has **Pipe height** (`body <units>`, 130.12.3.3) and **Automatic** (the
 clause removed). A DROP's automatic pipe is now the lowest its mouth stands on, so a drop moved below a higher
 entry no longer sits far above its exit. The mouth's refusal is explained: raise the pipe, or lower the mouth.
+
+**A launch's Mouth height** (2026-11-23, the owner on MILL: *"Pipe height"* did not raise where a launch fired
+from, and trying to raise things only errored): a LAUNCH's form has **Mouth height** as a DROP's has, blank the
+launch from its exit floor as before (no clause), a number its RAISED mouth (`height <units>`, 130.12.3.3) - the
+flight starts that many units over the exit floor, on the face of the last wall, and the automatic pipe is laid
+tall enough for it. Pipe height's note says that it moves the pipe and not where the ball comes out; the refusal
+a launch's landing gets (`not a landing on a FLOOR`) now offers the Mouth height beside the speeds, and the three
+mouth refusals (not wholly on the face, the exit not in front of the last wall, a hidden mouth over its wall)
+are explained. `t_bbedit` item 13 round-trips a raised launch's statement and its automatic body (4 + 4 + 3 half
+units, as a drop's).
 
 #### 130.58.34 What stands on ground moves with it (the owner, 2026-11-22)
 
