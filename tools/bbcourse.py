@@ -7792,12 +7792,13 @@ REACH_ROUNDS = 16             # a course whose reach has not settled by then is 
 
 
 class Reach:
-    __slots__ = ("wx", "wy", "s", "a", "zlo", "zhi", "kind", "src")
+    __slots__ = ("wx", "wy", "s", "a", "zlo", "zhi", "kind", "src", "reached")
 
-    def __init__(self, wx, wy, zlo, zhi, kind, src):
+    def __init__(self, wx, wy, zlo, zhi, kind, src, reached=True):
         self.wx, self.wy = wx, wy
         self.s, self.a = wx + wy, wx - wy
         self.zlo, self.zhi, self.kind, self.src = zlo, zhi, kind, src
+        self.reached = reached              # SPEC.md 130.11.4.7: False - a VOID cell no flight reaches alive
 
 
 def pickup_region(e):
@@ -7837,6 +7838,9 @@ def pickup_reach(tiles, cells, fname, props, reach, hack=None):
             VMAXG = v0
         for q in r2:
             c = (q.wx, q.wy)
+            if c in by and q.reached and not by[c].reached and any(      # (SPEC.md 130.11.4.7: reached with it)
+                    max(abs(c[0] - e["at"][0]), abs(c[1] - e["at"][1])) <= pickup_region(e) for e in els):
+                by[c].reached = True
             if c in by and q.zhi > by[c].zhi and any(
                     max(abs(c[0] - e["at"][0]), abs(c[1] - e["at"][1])) <= pickup_region(e) for e in els):
                 by[c].zhi, by[c].src = q.zhi, (q.src[0] if q.src else c, "pickup " + (
@@ -7851,6 +7855,339 @@ def _pairnote(reach):
         return (" - the speed and jump pickups held together raise the reach this bound is taken over: "
                 "separate them, or mark them `overwrite` (SPEC.md 130.25.9: the latest then replaces the other)")
     return ""
+
+
+# SPEC.md 130.11.4.7: THE FLIGHT'S PATH - a source reaches a cell only along a path a ball can fly, priced by the
+# motion it needs, and only at the height its flight can still have when it gets there
+REACH_PATHS = True            # False: 130.11.4.4's Chebyshev squares at the apex (the A/B; --selfcheck's control)
+_REACH_TIGHT = 0              # --selfcheck's red arm: every crossing priced this many gu MORE than the bound allows
+_REACH_TIGHTZ = 0             # ...and every flight's heights this many px UNDER the step's own
+OPEN_BAND = 2                 # cells: the OPEN void a path is searched through round the grid's cells
+REACH_TELE = 6                # gu: the most a push moves the centre on an axis away from a floor that newly blocks (BZ_RAD)
+# (a post's circle and a clock's, a checkpoint, a pad, a spring, the pickups, a blower, a magnet: still)
+_STILL_KINDS = frozenset((PK_BUMPER, PK_CLOCK, PK_SIGN, PK_CHECKPOINT, PK_PAD, PK_SPRING, K_HOURGLASS, K_SPEED,
+                          K_JUMP, WD_K, K_MAGNET))
+_FREE_KEYS = ("at", "out", "inn", "in", "pts", "body", "track", "house", "D", "cells")
+
+
+def reach_free(props, cells):
+    """SPEC.md 130.11.4.7: the cells whose walls and pushes a flight's path does not price - every cell a MOVING
+    prop names (every prop but _STILL_KINDS's, whose walls stand still and which change a ball's velocity at
+    most): its `at`, a tube's mouths and body, a windmill's house, a lift's track, an arch's cells, a see-saw's
+    and a turntable's area and its ring (a WALL cell only as a prop's `at`, an arch's or an area's) - and every
+    SPLIT cell: a moving thing or a diagonal there can push the centre further than its own motion, so a
+    crossing out of one costs nothing and a rail on its edge is open"""
+    out, path = set(), set()
+
+    def add(v, to=out):
+        if isinstance(v, tuple) and len(v) == 2 and all(type(x) is int for x in v):
+            to.add(v)
+        elif isinstance(v, (list, set, frozenset, tuple)):
+            for w in v:
+                if isinstance(w, tuple) and len(w) == 2 and all(type(x) is int for x in w):
+                    to.add(w)
+    for p in props:
+        if p["kind"] in _STILL_KINDS:
+            continue
+        for k in _FREE_KEYS:
+            if k in p:
+                add(p[k], out if k == "at" else path)
+        for k in ("sw", "ttab", "arch"):
+            d = p.get(k)
+            if isinstance(d, dict):
+                for kk in _FREE_KEYS:
+                    if kk in d:
+                        add(d[kk])
+                at = d.get("at")
+                n = max(d.get("nx", 0), d.get("ny", 0), d.get("N", 0))
+                if isinstance(at, tuple) and n:
+                    for dy in range(-1, n + 2):
+                        for dx in range(-1, n + 2):
+                            out.add((at[0] + dx, at[1] + dy))
+    out |= {c for c, v in cells.items() if v[2] & 15 in SPLIT_KINDS}
+    # (a tube's or a windmill's other cells free only where they are not WALL: its house and its walled body are
+    # walls to a flight - a ball inside them is in the tube's transit, no flight's)
+    out |= {c for c in path if c not in cells or cells[c][2] & 15 != KIND_WALL}
+    return out
+
+
+class ReachPaths:
+    """SPEC.md 130.11.4.7: the grid as a flight's path sees it, and each source's flood over it.
+
+    A ball's centre crosses a cell edge only where nothing walls it at every height: a WALL cell (one no prop
+    names) or a GUARD RAIL (130.35.1) - step 5 holds the centre RAD (6 gu) off such an edge and a step moves it
+    at most 1.75 gu, so it never crosses one (130.35.1's own argument).  Its MOTION per step is at most
+    BZ_VMAXG on each axis; a push adds to it only away from a neighbour that newly blocks (a floor the
+    descending ball has just dropped under, REACH_TELE gu at most on an axis) or inside a free cell
+    (reach_free).  So between crossing one x-line and crossing a DIFFERENT x-line the motion along x is at least
+    16 gu less such a push, less one step shared with each crossing - and likewise y; the steps are at least
+    the larger of the two sums over BZ_VMAXG.  Each axis is a label-setting search of its own over (cell, the
+    side its line on that axis was last crossed by, the push allowance taken since), each a lower bound for
+    every path, pruned with the other axis's Chebyshev least; a cell is entered only while the flight's highest possible height at that many steps is at or above the
+    lowest a live ball is there (thr: a VOID cell's kill, a floor's lowest point less a climb; an OPEN cell's
+    -512 px)."""
+
+    def __init__(self, cells, props, zlo):
+        self.cells = cells
+        self.free = free = reach_free(props, cells)
+        self.kind = {c: v[2] & 15 for c, v in cells.items()}
+        self.hard = {c for c, k in self.kind.items() if k == KIND_WALL and c not in free}
+        self.ex = {c for c, v in cells.items() if v[3] & FL_EDX}
+        self.ey = {c for c, v in cells.items() if v[3] & FL_EDY}
+        self.thr = {c: z - CLIMB for c, z in zlo.items()}
+        self.open_kill = 4 * Z_OPEN
+        self.tmin = min([self.open_kill] + list(self.thr.values()))
+        for c in free:                      # (a prop's WALL cell - a windmill's house, a tube's: a path through it
+            if self.kind.get(c) == KIND_WALL:   # is not priced, and nothing a ball does there is drawn)
+                self.thr[c] = -(1 << 30)
+        self._frlines = ({c[0] for c in free}, {c[1] for c in free})
+        rows = {}
+        for c in zlo:
+            rows.setdefault(c[1], []).append(c[0])
+        self.rows = {y: sorted(xs) for y, xs in rows.items()}
+        bt = {}
+        for c, t in zlo.items():
+            bt.setdefault(t - CLIMB, []).append(c)
+        self.by_thr = sorted(bt.items())
+        band = set(cells)                   # the OPEN cells within OPEN_BAND of a cell: searched, at the OPEN kill
+        for _ in range(OPEN_BAND):
+            band |= {(x + dx, y + dy) for (x, y) in band for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+        for c in band:
+            if c not in self.thr and c not in self.hard:
+                self.thr[c] = self.open_kill
+        self._disc = {}
+        self._nb = {}
+        self.cache = {}
+
+    def blocked(self, a, b):
+        """is the edge between edge neighbours a and b closed to the centre at every height?"""
+        if a in self.hard or b in self.hard:
+            return True
+        if a in self.free or b in self.free:
+            return False
+        if a[1] == b[1]:
+            return min(a, b) in self.ex
+        return min(a, b, key=lambda c: c[1]) in self.ey
+
+    def _pusher(self, p, railed):
+        if p in self.free:
+            return True
+        k = self.kind.get(p)
+        return k is not None and k != KIND_VOID and p not in self.hard and not railed
+
+    def disc(self, c, side):
+        """the push allowance (gu) on an axis inside cell c for a ball that entered its column (side 'W' / 'E') or
+        its row ('N' / 'S') by that side: 16 in a free cell, REACH_TELE when a neighbour on that side (the edge one
+        or a corner one, RAIL_WALL's walling taken) can newly block, else 0"""
+        r = self._disc.get((c, side))
+        if r is not None:
+            return r
+        x, y = c
+        ex, ey = self.ex, self.ey
+        if c in self.free:
+            r = 16
+        else:
+            if side == "W":
+                q = (((x - 1, y), (x - 1, y) in ex),
+                     ((x - 1, y - 1), (x - 1, y - 1) in ex or (x - 1, y - 1) in ey),
+                     ((x - 1, y + 1), (x - 1, y + 1) in ex or (x - 1, y) in ey))
+            elif side == "E":
+                q = (((x + 1, y), c in ex),
+                     ((x + 1, y - 1), (x, y - 1) in ex or (x + 1, y - 1) in ey),
+                     ((x + 1, y + 1), (x + 1, y) in ey or (x, y + 1) in ex))
+            elif side == "N":
+                q = (((x, y - 1), (x, y - 1) in ey),
+                     ((x - 1, y - 1), (x - 1, y - 1) in ex or (x - 1, y - 1) in ey),
+                     ((x + 1, y - 1), (x, y - 1) in ex or (x + 1, y - 1) in ey))
+            else:
+                q = (((x, y + 1), c in ey),
+                     ((x - 1, y + 1), (x - 1, y + 1) in ex or (x - 1, y) in ey),
+                     ((x + 1, y + 1), (x + 1, y) in ey or (x, y + 1) in ex))
+            r = REACH_TELE if any(self._pusher(p, rl) for p, rl in q) else 0
+        self._disc[(c, side)] = r
+        return r
+
+    def thr_of(self, c):
+        return self.thr.get(c, None if c in self.hard else self.open_kill)
+
+    def _nbrs(self, c):
+        """c's open edge neighbours: [(d, axis, fwd, its disc entering by that side, its discs on the other
+        axis (N, S) or (W, E))]"""
+        r = self._nb.get(c)
+        if r is None:
+            x, y = c
+            r = []
+            for d, ax, fwd in (((x + 1, y), 0, 1), ((x - 1, y), 0, 2), ((x, y + 1), 1, 1), ((x, y - 1), 1, 2)):
+                if self.blocked(c, d):
+                    continue
+                if ax == 0:
+                    r.append((d, 0, fwd, self.disc(d, "W" if fwd == 1 else "E"), (self.disc(d, "N"), self.disc(d, "S"))))
+                else:
+                    r.append((d, 1, fwd, self.disc(d, "N" if fwd == 1 else "S"), (self.disc(d, "W"), self.disc(d, "E"))))
+            self._nb[c] = r
+        return r
+
+    def _axis(self, k0, ax, hm, R):
+        """the least motion along axis AX (1/256 gu) a path from k0 needs into each cell: a label-setting search
+        over (cell, the side its line on AX was last crossed by, the push allowance since) -> ({cell: cost}, the
+        least cost into the FAR open void)"""
+        import heapq
+        vm, thr, far = VMAXG, self.thr, {}
+        full = 4096 - vm + _REACH_TIGHT * 256
+        best, seen = {}, set()
+        heap = [(0, k0, 0, 0)]
+        pop, push = heapq.heappop, heapq.heappush
+        nbrs = self._nbrs
+        olow = self._olow(k0, 1 - ax)           # the other axis's least cost into a line, by its index
+        while heap:
+            cost, c, e, dd = pop(heap)
+            st = (c, e, dd)
+            if st in seen:
+                continue
+            seen.add(st)
+            if c not in best:
+                best[c] = cost
+            for d, a2, fwd, din, dother in nbrs(c):
+                if abs(d[0] - k0[0]) > R or abs(d[1] - k0[1]) > R:
+                    continue                        # (130.11.4.4's square: what a source reaches is inside it)
+                if a2 == ax:
+                    nc = cost + (full - 256 * dd if full > 256 * dd else 0) if e == fwd else cost
+                    ne, nd = fwd, din
+                else:
+                    nc, ne = cost, e
+                    nd = (dd if dd >= dother[e - 1] else dother[e - 1]) if e else 0
+                if (d, ne, nd) in seen:
+                    continue
+                ol = olow(d[1 - ax])
+                kk = nc if nc >= ol else ol
+                h = hm(kk)
+                if h is None:
+                    continue
+                t = thr.get(d)
+                if t is None:                       # the FAR open void: the flight leaves the grid behind
+                    if h >= self.open_kill and nc < far.get(d, 1 << 60):
+                        far[d] = nc                 # (its own axis's cost: the way back adds to it)
+                    continue
+                if h < t:
+                    continue
+                push(heap, (nc, d, ne, nd))
+        return best, far
+
+    def _olow(self, k0, ax):
+        """-> f(i): the least cost along axis AX into column (AX 0) or row (AX 1) i from k0's, whatever the path -
+        one crossing of each line between, priced with the push allowance, less one for each line between
+        whose run holds a free cell (a crossing out of one is free)"""
+        o = k0[ax]
+        fr = self._frlines[ax]
+        step = max(0, (16 - REACH_TELE) * 256 - VMAXG + _REACH_TIGHT * 256)
+        memo = {}
+
+        def f(i):
+            v = memo.get(i)
+            if v is None:
+                a, b = (o, i) if i > o else (i, o)
+                nfree = sum(1 for j in range(a, b + 1) if j in fr)
+                v = memo[i] = max(0, b - a - 1 - nfree) * step
+            return v
+        return f
+
+    def costs(self, k0, up, R):
+        """-> ({cell: the least of the larger axis cost into it}, the least into the far void), the search pruned by
+        UP, a cone at or above every one k0's sources will have (so the paths it keeps are a superset and the
+        costs lower bounds) - once a cell a reach"""
+        got = self.cache.get(k0)
+        if got is not None:
+            return got
+        vm = VMAXG
+
+        def hm(key):
+            n = -(-key // vm)
+            return up[n] if n < len(up) else None
+        bx, ox = self._axis(k0, 0, hm, R)
+        by, oy = self._axis(k0, 1, hm, R)
+        out = {c: max(kx, by[c]) for c, kx in bx.items() if c in by and c in self.cells}
+        if ox and oy:                               # out into the FAR void at e and back: each axis's cost into e
+            step = max(1, (16 - REACH_TELE) * 256 - vm + _REACH_TIGHT * 256)    # and a crossing of each of its
+            x0_, y0_ = k0                                                       # lines between e and the cell
+            for y in range(y0_ - R, y0_ + R + 1):
+                for x in range(x0_ - R, x0_ + R + 1):
+                    c = (x, y)
+                    if c not in self.thr or c not in self.cells:
+                        continue
+                    f = min((max(kx + max(0, abs(x - e[0]) - 1) * step, oy[e] + max(0, abs(y - e[1]) - 1) * step)
+                             for e, kx in ox.items() if e in oy), default=1 << 60)
+                    if f < out.get(c, 1 << 60):
+                        out[c] = f
+        got = self.cache[k0] = (out, None)
+        return got
+
+    def flood(self, k0, sm, up, Rup, R):
+        """-> {grid cell: the highest px a ball of a source in k0 whose cone (_cone_suffix) is SM can be at over it}
+        (the cells it reaches alive).  A cell's steps are at least the larger of its two axes' least motion over
+        BZ_VMAXG; a flight out into the FAR void (past OPEN_BAND of every cell) needs OPEN_BAND crossings back"""
+        cmap, kfar = self.costs(k0, up, Rup)
+        vm, thr = VMAXG, self.thr
+        ln = len(sm)
+        best = {}
+        x0_, y0_ = k0
+        for c, k in cmap.items():
+            if abs(c[0] - x0_) > R or abs(c[1] - y0_) > R:
+                continue
+            n = -(-k // vm)
+            if n < ln:
+                h = sm[n]
+                if h >= thr[c]:
+                    best[c] = h
+        return best
+
+
+def _env(a, b):
+    """two cones' ENVELOPE, step by step (the longer's tail kept)"""
+    if len(b) > len(a):
+        a, b = b, a
+    return [x if x >= y else y for x, y in zip(a, b)] + a[len(b):]
+
+
+_CONES = {}
+
+
+def _cone_suffix(cone, tmin):
+    key = (cone, tmin, VMAXG, _REACH_TIGHTZ)
+    r = _CONES.get(key)
+    if r is None:
+        if len(_CONES) > 50000:
+            _CONES.clear()
+        r = _CONES[key] = _cone_suffix0(cone, tmin)
+    return r
+
+
+def _cone_suffix0(cone, tmin):
+    """a source's CONE (SPEC.md 130.11.4.7) -> [the highest whole px its ball can be at, at n steps or later],
+    n = 0 .. while that is at or above tmin.  ("b", h0, U, apex, excess): a flight off h0 leaving at U (the step's
+    own: the first step adds U, each later one BZ_G less, capped at BZ_VZMAX), never above APEX, its first step's
+    motion EXCESS over BZ_VMAXG folded in; ("f", h, nend): h for nend steps (an updraft's hover and its fall)"""
+    if cone[0] == "f":
+        return [cone[1]] * (cone[2] + 1)
+    _b, h0, U, apex, excess = cone
+    hs = [min(apex, h0)]
+    z, g = U, U
+    while True:
+        h = min(apex, h0 + -(-z // 256))
+        hs.append(h)
+        if h < tmin - 1:
+            break
+        g = max(g - G, -VZMAX)
+        z += g
+    if _REACH_TIGHTZ:
+        hs = [h - _REACH_TIGHTZ for h in hs]
+    if excess:                              # (the first step may carry the ball EXCESS further: as many steps sooner)
+        hs = [hs[0]] * -(-excess // VMAXG) + hs
+    sm = list(hs)
+    for i in range(len(sm) - 2, -1, -1):
+        sm[i] = max(sm[i], sm[i + 1])
+    while len(sm) > 1 and sm[-1] < tmin:
+        sm.pop()
+    return sm
 
 
 def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hopmax=None, _boost=None):
@@ -7904,7 +8241,8 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     for k in sorted(sol):
         for t in sol[k]:
             U = (FSLOPE_MAX if t.kind == KIND_FIELD else abs(t.sx) + abs(t.sy)) * VMAXG // 4 + hopmax
-            srcs.append((k, 4 * max(t.corners()) + UP(U), RADIUS(U), "launch"))
+            srcs.append((k, 4 * max(t.corners()) + UP(U), RADIUS(U), "launch",
+                         ("b", 4 * max(t.corners()), U, 4 * max(t.corners()) + UP(U), 0)))
     bcells = set()
     if boost:
         obs = prop_cells(props)
@@ -7912,7 +8250,8 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             for t in sol[k]:
                 if t.kind in (KIND_FLOOR, KIND_GOAL) and t.sx == 0 and t.sy == 0 \
                         and t.surf in (SURF_NORMAL, SURF_ICE) and k not in obs:
-                    srcs.append((k, 4 * max(t.corners()) + UP(boost - G), RADIUS(boost - G), "boost"))
+                    srcs.append((k, 4 * max(t.corners()) + UP(boost - G), RADIUS(boost - G), "boost",
+                                 ("b", 4 * max(t.corners()), boost - G, 4 * max(t.corners()) + UP(boost - G), 0)))
                     bcells.add(k)
     badd_ = BADDMAX if _boost is None else 0
     # wave 3 (SPEC.md 130.12.6.7): a LAUNCH exit, a DROP's fall, a post's top
@@ -7922,17 +8261,24 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
     for p in props:
         if p["kind"] == PK_TUBE and p["sub"] == TK_LAUNCH:
             gvz = p["speed"][2]
-            srcs.append((p["out"], p["zexit"] + UP(gvz), RADIUS(gvz), "launch tube"))     # (its mouth's, 130.12.3.3)
+            srcs.append((p["out"], p["zexit"] + UP(gvz), RADIUS(gvz), "launch tube",      # (its mouth's, 130.12.3.3)
+                         ("b", p["zexit"], gvz, p["zexit"] + UP(gvz),
+                          max(0, abs(p["speed"][0]) - VMAXG, abs(p["speed"][1]) - VMAXG))))
         elif p["kind"] == PK_TUBE and p["sub"] == TK_DROP:
             srcs.append((p["out"], p["zexit"], max(3, -(-(_fall_steps(p["zexit"] - p["zfloor_out"]) * VMAXG)
-                                                        // (256 * TILE))), "drop tube"))
+                                                        // (256 * TILE))), "drop tube",
+                         ("b", p["zexit"], 0, p["zexit"], max(0, abs(p["speed"][0]) - VMAXG,
+                                                             abs(p["speed"][1]) - VMAXG))))
         elif p["kind"] == PK_BUMPER:
-            srcs.append((p["at"], p["top"] + UP(hopmax), RADIUS(hopmax), "post"))
+            srcs.append((p["at"], p["top"] + UP(hopmax), RADIUS(hopmax), "post",
+                         ("b", p["top"], hopmax, p["top"] + UP(hopmax), 0)))
         elif p["kind"] == PK_SPRING and not _no_spring:   # wave 4: a LAUNCH from its cell (130.14.4.6)
-            srcs.append((p["at"], hi[p["at"]] + UP(p["gvz"]), RADIUS(p["gvz"]), "spring"))
+            srcs.append((p["at"], hi[p["at"]] + UP(p["gvz"]), RADIUS(p["gvz"]), "spring",
+                         ("b", hi[p["at"]], p["gvz"], hi[p["at"]] + UP(p["gvz"]), 0)))
         elif p["kind"] == PK_PLATFORM:            # a LIFT: a floor from hP to hT over its shaft
             for c in p["track"]:
-                srcs.append((c, p["hT"] + UP(hopmax), RADIUS(hopmax), "lift"))
+                srcs.append((c, p["hT"] + UP(hopmax), RADIUS(hopmax), "lift",
+                             ("b", p["hT"], hopmax, p["hT"] + UP(hopmax), 0)))
                 bfl[c] = (p["hP"], p["hT"])
         elif p["kind"] == WD_K and p["wdir"] == WD_UP and "windreach" not in _CHECKS_OFF:  # WIND (SPEC.md
             # 130.34.5; --selfcheck's red arm `nowindreach` switches it off): an UPDRAFT lifts an airborne
@@ -7942,17 +8288,18 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
             u = WD_LIFT + wind_push(MAT_GLASS, p["wstr"])
             h = p["wtop"] + UP(u)
             zmin = min(lo.values()) if lo else 0
-            rr = max(3, -(-((_fall_steps(max(0, h - zmin)) + flight(u)[1]) * VMAXG) // (256 * TILE)))
+            nend = _fall_steps(max(0, h - zmin)) + flight(u)[1]
+            rr = max(3, -(-(nend * VMAXG) // (256 * TILE)))
             x0_, y0_, x1_, y1_ = p["wreg"]
             for wy_ in range(y0_, y1_ + 1):
                 for wx_ in range(x0_, x1_ + 1):
-                    srcs.append(((wx_, wy_), h, rr, "updraft"))
+                    srcs.append(((wx_, wy_), h, rr, "updraft", ("f", h, nend)))
     for c, (h0, h1) in bfl.items():
         lo[c], hi[c] = h0, h1
 
     def spread_in_order(srclist):
         best = {}
-        for (k, h, r, why) in srclist:
+        for (k, h, r, why) in (s_[:4] for s_ in srclist):
             for dy in range(-r, r + 1):
                 for dx in range(-r, r + 1):
                     c = (k[0] + dx, k[1] + dy)
@@ -7978,7 +8325,7 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
         best = {}
         free = list(free0)
         for i in sorted(range(len(srclist)), key=lambda i: srclist[i][1], reverse=True):
-            k, h, r, why = srclist[i]
+            k, h, r, why = srclist[i][:4]
             kx, ky = k
             xa, xb = max(kx - r, minx), min(kx + r, maxx)
             if xa > xb:
@@ -7995,6 +8342,61 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
                         m ^= low
         return best
 
+    # the cells' lowest whole px (130.10.4.1's zlo): what a live ball is over them at least (the paths' floor)
+    zlo_of = {}
+    for (wx, wy) in sorted(cells):
+        z0, _, kind, _ = cells[(wx, wy)]
+        kind &= 15
+        if kind == KIND_WALL:
+            continue
+        if kind in SPLIT_KINDS:             # SPEC.md 130.24: the lowest of its floors and a VOID half's kill
+            t = tiles[(wx, wy)]
+            zs = [4 * min(r.corners()) for r in t.halves if r is not None and r.kind != KIND_WALL]
+            if None in t.halves:
+                zs.append(4 * (_near_low(tiles, wx, wy) - 6))
+            if not zs:                              # (two WALL halves: no ball is ever in it)
+                continue
+            zlo_of[(wx, wy)] = min(zs)
+        else:
+            zlo_of[(wx, wy)] = 4 * z0 if kind == KIND_VOID else 4 * min(tiles[(wx, wy)].corners())
+    if REACH_PATHS:                         # SPEC.md 130.11.4.7: each source along its flight's paths
+        paths = ReachPaths(cells, props, zlo_of)
+
+        def spread(srclist):
+            # one flood a cell: the ENVELOPE of its sources' cones (the highest each can be at, step by step) -
+            # what the union of their floods could reach, and a little more; named for its highest source
+            env, top, rr_ = {}, {}, {}
+            for (k, h, r, why, cone) in srclist:
+                rr_[k] = max(rr_.get(k, 0), r)
+                sm = _cone_suffix(cone, paths.tmin)
+                env[k] = _env(env[k], sm) if k in env else sm
+                if k not in top or h > top[k][0]:
+                    top[k] = (h, why)
+            best = {}
+            for k in sorted(env, key=lambda k: -top[k][0]):
+                why = top[k][1]
+                if k not in upc:                # (a source the first round did not have: its own cone, raised)
+                    upc[k] = _env(env[k], _cone_suffix(("b", hi.get(k, top[k][0]), VZMAX, top[k][0] + UP(VZMAX), 0),
+                                                       paths.tmin))
+                    upr[k] = max(rr_.get(k, 3), RADIUS(VZMAX))
+                for c, hh in paths.flood(k, env[k], upc[k], max(upr[k], rr_[k]), rr_[k]).items():
+                    if c not in best or hh > best[c][0]:
+                        best[c] = (hh, k, why)
+            return best
+        spread_in_order = spread
+        # each source cell's UPPER cone, every round's above it: its first sources' and the strongest bounce
+        # (and boost on it) its floor can give - the paths are searched once a cell, pruned by it
+        upc, upr = {}, {}
+        bmax = emax * VZMAX >> 8
+        for (k, h, r, why, cone) in srcs:
+            sm = _cone_suffix(cone, paths.tmin)
+            upc[k] = _env(upc[k], sm) if k in upc else sm
+            upr[k] = max(upr.get(k, 0), r)
+        for k in set(sol) | set(bfl):
+            ub = max(bmax, min(VZMAX, max(boost, bmax + badd_)) - G if k in bcells and badd_ else bmax)
+            sm = _cone_suffix(("b", hi[k], ub, hi[k] + UP(ub), 0), paths.tmin)
+            upc[k] = _env(upc[k], sm) if k in upc else sm
+            upr[k] = max(upr.get(k, 0), RADIUS(ub))
     last = srcs
     best = spread(srcs)
     rounds = 0
@@ -8012,35 +8414,24 @@ def build_reach(tiles, cells, fname="<course>", props=(), _no_spring=False, _hop
                 continue
             rh = min(emax * IMP(E - hi[k]) >> 8, emax * VZMAX >> 8)
             rl = min(emax * IMP(E - lo[k]) >> 8, emax * VZMAX >> 8)
-            extra.append((k, hi[k] + UP(rh), RADIUS(rl), "bounce"))
+            extra.append((k, hi[k] + UP(rh), RADIUS(rl), "bounce", ("b", hi[k], rl, hi[k] + UP(rh), 0)))
             if k in bcells and badd_:           # round 3b (SPEC.md 130.17.17): the boost ADDS to that bounce
                 ub = min(VZMAX, max(boost, rh + badd_))
-                extra.append((k, hi[k] + UP(ub - G), RADIUS(min(VZMAX, max(boost, rl + badd_)) - G), "boost"))
+                ul = min(VZMAX, max(boost, rl + badd_)) - G
+                extra.append((k, hi[k] + UP(ub - G), RADIUS(ul), "boost", ("b", hi[k], ul, hi[k] + UP(ub - G), 0)))
         last = srcs + extra
         nb = spread(last)
         if nb == best:
             break
         best = nb
     out = []
-    for (wx, wy) in sorted(cells):
-        z0, _, kind, _ = cells[(wx, wy)]
-        kind &= 15
-        if kind == KIND_WALL:
-            continue
-        if kind in SPLIT_KINDS:             # SPEC.md 130.24: the lowest of its floors and a VOID half's kill
-            t = tiles[(wx, wy)]
-            zs = [4 * min(r.corners()) for r in t.halves if r is not None and r.kind != KIND_WALL]
-            if None in t.halves:
-                zs.append(4 * (_near_low(tiles, wx, wy) - 6))
-            if not zs:                              # (two WALL halves: no ball is ever in it)
-                continue
-            zlo = min(zs)
-        else:
-            zlo = 4 * z0 if kind == KIND_VOID else 4 * min(tiles[(wx, wy)].corners())
+    for (wx, wy) in sorted(zlo_of):
+        kind = cells[(wx, wy)][2] & 15
+        zlo = zlo_of[(wx, wy)]
         zhi, src = zlo, None
         if (wx, wy) in best and best[(wx, wy)][0] > zhi:
             zhi, src = best[(wx, wy)][0], best[(wx, wy)][1:]
-        out.append(Reach(wx, wy, zlo, zhi, kind, src))
+        out.append(Reach(wx, wy, zlo, zhi, kind, src, not REACH_PATHS or kind != KIND_VOID or (wx, wy) in best))
     return out, rounds, emax
 
 
@@ -8150,6 +8541,7 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
             if rc.zhi > o.zhi:
                 o.zhi, o.src = rc.zhi, rc.src
             o.zlo = min(o.zlo, rc.zlo)
+            o.reached = o.reached or rc.reached
     tops = [p for p in props if p["kind"] == FK_ARCH and p.get("top") is not None]  # SPEC.md 130.12.3.7: every TOP -
     if tops and not hack.get("noforms") and not hack.get("notopreach"):     # a passable pipe's, a lintel's, a walkable
         took = True                                                         # wall's - a FLOOR at its top, unioned
@@ -8172,6 +8564,7 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
             if rc.zhi > o.zhi:
                 o.zhi, o.src = rc.zhi, rc.src
             o.zlo = min(o.zlo, rc.zlo)
+            o.reached = o.reached or rc.reached
     tilt = [p for p in props if p["kind"] == FK_TILT]   # SPEC.md 130.42.6: THE SEE-SAW - the reach again with every
     if tilt and not hack.get("noforms"):                # plate in its FLAT pose and in its other end's, unioned
         took = True
@@ -8192,6 +8585,7 @@ def reach_forms(reach, tiles, cells, fname, props, hack):
                 if rc.zhi > o.zhi:
                     o.zhi, o.src = rc.zhi, rc.src
                 o.zlo = min(o.zlo, rc.zlo)
+                o.reached = o.reached or rc.reached
     return list(by.values()) if took else reach
 
 
@@ -12954,15 +13348,22 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 slabcells[t] = (p["hP"], p["hT"])
     rail_flags(cells, tiles, src.rails, pcell)      # SPEC.md 130.35.1: the GUARD RAILS' edge bits
     def _reach():
-        r_, n_, e_ = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
-                                 _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
-        r_ = reach_forms(r_, tiles, cells, fname, props, hack)
-        if not hack.get("nopickreach"):             # (a red arm's switch: the pickups' reach not taken)
-            r_ = pickup_reach(tiles, cells, fname, props, r_, hack)
+        global REACH_PATHS
+        rp_ = REACH_PATHS
+        if hack.get("squares"):                     # (SPEC.md 130.11.4.7's paths off for this compile: a case
+            REACH_PATHS = False                     # written on the squares' reach, --selfcheck's)
+        try:
+            r_, n_, e_ = build_reach(tiles, cells, fname, props, _no_spring=hack.get("no_spring_reach", False),
+                                     _hopmax=hack.get("hopmax"), _boost=hack.get("boost"))
+            r_ = reach_forms(r_, tiles, cells, fname, props, hack)
+            if not hack.get("nopickreach"):         # (a red arm's switch: the pickups' reach not taken)
+                r_ = pickup_reach(tiles, cells, fname, props, r_, hack)
+        finally:
+            REACH_PATHS = rp_
         return r_, n_, e_
     reach, rounds, emax = _reach_once((hashlib.sha256(text.encode()).digest(), fname, repr(sorted(
         (k_, v_) for k_, v_ in hack.items() if k_ not in ("y0add", "y0probe"))), tuple(sorted(_CHECKS_OFF)),
-        _FAST_EXTRA, _DOWN_S0, repr(crsinfo)), _reach)
+        _FAST_EXTRA, _DOWN_S0, repr(crsinfo), REACH_PATHS, _REACH_TIGHT, _REACH_TIGHTZ), _reach)
     width = src.width * 8
     x0 = src.origin[0] if src.origin else src.width * 4
     # the start (SPEC.md 130.10.4.5): a FLAT FLOOR and no prop's cell - whatever its neighbours (2026-11-20:
@@ -13771,6 +14172,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     # SPEC.md 130.53: `noocclude` - the cells no ball needs occluding in: no record is cut for a position there
     # (the gate's flags and the merge's queries keep the whole reach); refused on the start and on a way
     noocc = frozenset(c_ for cs_, _l in src.noocc for c_ in cs_) if not hack.get("nonoocc") else frozenset()
+    # SPEC.md 130.11.4.7: a VOID cell no flight reaches alive is passed over as `noocclude`'s are - no record is
+    # cut for it (the gate's flags and the merge's queries keep it, as they keep those)
+    unreached = frozenset((rc.wx, rc.wy) for rc in reach if not rc.reached)
+    noocc = noocc | unreached
     for cs_, ln_ in src.noocc:
         for what_, c_ in ([("the start", tuple(src.start[0]))] if src.start else []) + \
                 [("a way", tuple(w_)) for w_, _l in src.ways]:
@@ -23720,7 +24125,7 @@ def _dump(obj, f, gids=None):
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
 _FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS", "_TRAPPAR", "_NESTED",
-                      "_SPANS_MEMO",
+                      "_SPANS_MEMO", "_CONES",
                       "_SHADOW_DYN", "_SHADOW_IN", "_GAP",   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
                       "GROUND_AUTO"))   # (a sentinel object(): its repr is an ADDRESS, so every process keyed apart)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
@@ -27193,6 +27598,20 @@ def _cam_controls(courses, demos, by, res):
     # noprex: guarantee 5 (SPEC.md 130.25.3: a pan a tube made fast is never withheld - the rule guarantee 5
     # rests on since the Y0 search moved PEAK's heavy frames onto a tube exit)
     b = [x for nm, _h, rows in every(_noprex=True) for x in cam_exits(rows, nm)[1]]
+    if not b and any(c_.name == "PEAK" for c_ in courses):
+        # (the case this control was built on - PEAK's autopilot, its heavy frames on a tube exit - is a property
+        # of PEAK's Y0, which SPEC.md 130.11.4.7's tighter reach moved: the control takes PEAK as the squares'
+        # reach lays it out too, so it keeps a case whatever the reach)
+        global REACH_PATHS
+        rp = REACH_PATHS
+        try:
+            REACH_PATHS = False
+            pk = compile_course(next(c_ for c_ in courses if c_.name == "PEAK").fname)
+        finally:
+            REACH_PATHS = rp
+        b = [x for nm, _h, rows in [("%s (squares) %s auto" % (pk.name, ("CGA", "Hercules")[k[1]]), k[1], rows)
+                                    for k, rows in cam_runs([pk], {}, _noprex=True).items()]
+             for x in cam_exits(rows, nm)[1]]
     res.append(("8 control `noprex` (a pre-aimed pan withheld like any other): red at the tube-exit check (%d "
                 "failures; the first: %s)" % (len(b), b[0] if b else "-"), bool(b)))
     # nopreaim: the pan left after an exit (130.17.6.2: the pre-aim runs the pan during the transit, so the exit
@@ -27417,12 +27836,13 @@ def _grammar_cases():
         ("a second ball", F + "ball glass\n", "a second 'ball' statement"),
         # (SPEC.md 130.30.12: a picture past 65,024 bytes is cut into SHEETS now, so BIG - 311 block rows -
         # lays out as two and is refused for its height alone, by the read-back of its parts; the refusal of a
-        # picture over one part is now that its sheets do not lay out: TTALL under --occ off, 94,592 bytes)
+        # picture over one part is now that its sheets do not lay out: TTALL under --occ off, 94,592 bytes - on
+        # the squares' reach, `squares`: SPEC.md 130.11.4.7's tighter one lowers its Y0 and it lays out)
         ("a course over %d block rows (BIG's picture, once a part over 65,024 bytes, is SHEETS)" % BROWS_MAX,
          BIG, "part field BROWS: 311"),
         ("a picture over 65,024 bytes whose %d SHEETS do not lay out (TTALL under --occ off)" % SHEET_MAX,
          open(os.path.join(COURSE_DIR, "ttall.bbc")).read(), "one part may be, and up to %d SHEETS of it do "
-         "not lay out" % SHEET_MAX, {"occ": "off"}),
+         "not lay out" % SHEET_MAX, {"occ": "off", "squares": True}),
         # SPEC.md 130.27.2: `float`'s refusals
         ("a float on a half", F + "float half up tile 4 5\n", "float takes whole cells"),
         ("a float with a height", F + "float rect 3 4 7 7 flat 4\n", "float takes a shape and nothing else"),
@@ -34470,6 +34890,8 @@ def _sc_crosscommit(X, res):
         diff = []
         for c, txt in zip(w5, w5txt):
             _CHECKS_OFF.add("famuses")
+            rp_ = globals()["REACH_PATHS"]
+            globals()["REACH_PATHS"] = False        # (SPEC.md 130.11.4.7's paths off: that tool's squares)
             try:
                 # (that tool had no Y0 search; and SPEC.md 130.27's ground plane is a picture rule that tool lacks:
                 # with it off - every face over the void 3 units, as `float` everywhere - the parts are that tool's)
@@ -34485,6 +34907,7 @@ def _sc_crosscommit(X, res):
                 # 130.10.4.3.1's SAFE off (2026-11-23, `edgesafe`): every edge solid, as that tool's grid and rule)
             finally:
                 _CHECKS_OFF.discard("famuses")
+                globals()["REACH_PATHS"] = rp_
             if c5.stored != old[c.name]:
                 diff.append(c.name)
         res.append(("1 every course compiled with the reach's wave 5b inputs (HOPMAX %d, no BOOST launch) is %s's "
@@ -38465,6 +38888,126 @@ def _sc_guard(X, res):
                     any(want in w for w in caught)))
 
 
+# SPEC.md 130.11.4.7's checks: the reach against the ball the model actually flies
+def reach_misses(c, p, run, reach=None, stop=None):
+    """step Physics P through RUN (key bytes, or (key, tilt) pairs) on course C -> [(step, cell, z, zlo, zhi,
+    reached)]: every step whose ball is in a grid cell of the reach above its zhi or in a cell the reach says no
+    flight reaches (130.11.4.7), or in a grid cell missing from it; a ball in a tube, shattering or hidden is
+    no flight's.  STOP(p) True ends the run"""
+    by = {(r.wx, r.wy): r for r in (reach if reach is not None else c.reach)}
+    out = []
+    for i, k in enumerate(run):
+        if isinstance(k, tuple):
+            p.step(*k)
+        else:
+            p.step(k)
+        if p.tube or p.hid or p.mst == ST_SHATTER:
+            continue
+        cl = (p.gx >> 12, p.gy >> 12)
+        z = p.gz >> 8
+        if cl not in c.cells or c.cells[cl][2] & 15 == KIND_WALL:
+            continue
+        rc = by.get(cl)
+        if rc is None or not rc.reached or z > rc.zhi:
+            out.append((i, cl, z, rc.zlo if rc else None, rc.zhi if rc else None, rc.reached if rc else None))
+        if stop is not None and stop(p):
+            break
+    return out
+
+
+def demo_reach_misses(c, log, reach=None):
+    """a shipped demo's model replay on its course -> reach_misses' list"""
+    _K, mat, kt, _fl = decode_log_t(log)
+    return reach_misses(c, Physics(c, play=True, mat=mat), kt, reach, stop=lambda p: p.tout)
+
+
+_RAILREACH = ('course N "n"\nwidth 64\norigin 256\nball rubber\nfloor rect 6 6 12 10 flat 20\n'
+              'goal rect 6 6 8 10 flat 20\n%sstart 9 8\nway 9 8\nway 7 8\n')
+
+
+def _railreach_runs(c):
+    """SPEC.md 130.11.4.7's scenes: from the floor's centre at the cap toward +x, a Hop on step AT and Space's
+    second edge (the boost's arming) on step S2, over a sweep -> [(at, s2, misses, the void cells entered)]"""
+    out = []
+    for at in range(0, 40, 3):
+        for s2 in (None, at + 6, at + 10, at + 14):
+            p = Physics(c, mat=MAT_RUBBER).poke(9, 8, VMAXG, 0)
+            seen = []
+            run = [K_R | K_D | (K_HOP if i == at or i == s2 else 0) for i in range(200)]
+
+            def stop(p, seen=seen):
+                cl = (p.gx >> 12, p.gy >> 12)
+                if cl in c.cells and c.cells[cl][2] & 15 == KIND_VOID and not p.tube:
+                    seen.append(cl)
+                return bool(p.nfall)
+            m = reach_misses(c, p, run, stop=stop)
+            out.append((at, s2, m, set(seen)))
+    return out
+
+
+def _sc_reachpath(X, res):
+    """--selfcheck's section `reachpath` (SPEC.md 130.11.4.7): the reach along flights' paths - every shipped
+    demo's model replay inside it (and its red arm, an over-tight reach, outside it), the open edge's flight
+    reachable, the railed edge's void unreached and never entered"""
+    global _REACH_TIGHT, _REACH_TIGHTZ
+    courses = X.courses
+    demos = getattr(compile_all, "demos", {}) or {}
+    tot, bad = 0, []
+    for k, d in sorted(demos.items()):
+        c = courses[k]
+        m = demo_reach_misses(c, d["log"])
+        tot += 1
+        if m:
+            bad.append("%s: %d steps, first %r" % (c.name, len(m), m[0]))
+    res.append(("19 every shipped demo's model replay (%d) stays inside its course's reach (SPEC.md 130.11.4.7: no "
+                "step in a cell the reach says no flight reaches, none above a cell's zhi)%s"
+                % (tot, " -- OUTSIDE: " + "; ".join(bad) if bad else ""), tot > 0 and not bad))
+    # the red arm: every crossing priced a cell (16 gu) more than the bound and every flight 4 px lower - a reach
+    # too tight, which some demo leaves (the demos tried in order of their length, the first that leaves it named)
+    if demos:
+        t0, z0_, hit = _REACH_TIGHT, _REACH_TIGHTZ, None
+        try:
+            _REACH_TIGHT, _REACH_TIGHTZ = 16, 4
+            for k in sorted(demos, key=lambda k_: len(demos[k_]["log"])):
+                c = courses[k]
+                m = demo_reach_misses(c, demos[k]["log"], compile_course(c.fname, occluders=False).reach)
+                if m:
+                    hit = (c.name, len(m))
+                    break
+        finally:
+            _REACH_TIGHT, _REACH_TIGHTZ = t0, z0_
+        res.append(("19 red arm: the reach priced a cell a crossing over its bound and its flights 4 px low "
+                    "(_REACH_TIGHT 16, _REACH_TIGHTZ 4) - %s"
+                    % ("%s's demo leaves it (%d steps outside)" % hit if hit else "EVERY demo STAYS INSIDE"),
+                    hit is not None))
+    # the scenes: an open +x edge (a Hop, a boost, a fall past it) and the same edge railed
+    co = compile_course(_RAILREACH % "guard rect 6 6 12 10 side -x -y +y\n", fname="<open edge>", occluders=False)
+    cr = compile_course(_RAILREACH % "guard rect 6 6 12 10\n", fname="<railed>", occluders=False)
+    ro, rr = _railreach_runs(co), _railreach_runs(cr)
+    mo = [x for x in ro if x[2]]
+    went = set().union(*[x[3] for x in ro])
+    boosted = any(x[3] for x in ro if x[1] is not None)
+    res.append(("19 the open edge: %d flights off a floor's open +x edge (Hops, boosts armed, falls) - %d void "
+                "cells entered, every step inside the reach%s" % (len(ro), len(went), " -- OUTSIDE: %r" % (mo[0],)
+                                                                  if mo else ""),
+                bool(went) and boosted and not mo))
+    unr = sorted((r.wx, r.wy) for r in cr.reach if not r.reached)
+    nvoid = sum(1 for r in cr.reach if r.kind == KIND_VOID)
+    wr = set().union(*[x[3] for x in rr])
+    res.append(("19 the railed edge: the same flights at a floor railed all round enter no void cell (%d entered), "
+                "and the reach has every one of its %d void cells unreached (%d)" % (len(wr), nvoid, len(unr)),
+                not wr and nvoid and len(unr) == nvoid and not [x for x in rr if x[2]]))
+    # the same scene with the reach's paths off (130.11.4.4's squares): the railed void is reached - the control
+    rp = REACH_PATHS
+    try:
+        globals()["REACH_PATHS"] = False
+        cq = compile_course(_RAILREACH % "guard rect 6 6 12 10\n", fname="<railed, squares>", occluders=False)
+    finally:
+        globals()["REACH_PATHS"] = rp
+    res.append(("19 control: with the paths off (REACH_PATHS False, 130.11.4.4's squares) the railed floor's void "
+                "is reached (%d of %d unreached)" % (sum(1 for r in cq.reach if not r.reached), nvoid),
+                all(r.reached for r in cq.reach)))
+
 def _sc_av(X, res):
     """--selfcheck's section `av`: item 15 (SPEC.md 130.29.7) - AV on every course, the pathway and the title,
     and its negative controls"""
@@ -39771,7 +40314,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
              "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_tiltbase", "_sc_turn",
              "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder",
-             "_sc_pipeover", "_sc_rampplane")
+             "_sc_pipeover", "_sc_rampplane", "_sc_reachpath")
 
 
 def _selfcheck(paths, res, skipped, S):
