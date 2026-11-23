@@ -1227,6 +1227,9 @@ class MouthFit(CourseError):
         self.line = line
         self.fit = fit
 
+    def __reduce__(self):                       # (its own arguments: the default re-calls it with args alone)
+        return (MouthFit, (self.args[0], self.line, self.fit))
+
 
 # SPEC.md 130.58.4: a VISUAL check's finding is a WARNING.  While a compile runs, _VWARN is a list and
 # _visual() appends to it; compile_course() attaches the list to the course (it rides the compile cache with
@@ -24457,7 +24460,7 @@ class _Kid:
         os.close(fd)
         sys.stdout.flush()
         sys.stderr.flush()
-        self.status = None
+        self.status, self.got = None, None
         self.pid = os.fork()
         if self.pid == 0:                               # the child
             try:
@@ -24475,6 +24478,7 @@ class _Kid:
                     val, exc = None, e
                 sys.stdout.flush()
                 sys.stderr.flush()
+                exc = _kid_exc(exc)
                 with open(self.res, "wb") as f:
                     try:
                         _dump((val, exc), f, _globals_ids())
@@ -24488,8 +24492,11 @@ class _Kid:
 
     def wait(self):
         import pickle
+        if self.got is not None:                        # (waited once: a pool's kill() after a raise here)
+            return self.got
         if self.status is None:
             _pid, self.status = os.waitpid(self.pid, 0)
+        self.got = (None, "", RuntimeError("bbcourse: a child's result was lost reading it back"))
         try:
             with open(self.out, encoding="utf-8", errors="replace") as f:
                 out = f.read()
@@ -24502,13 +24509,53 @@ class _Kid:
                 except OSError:
                     pass
         if not data:
-            return None, out, RuntimeError("bbcourse: a child died (status %d) with no result:\n%s"
-                                           % (self.status, out[-2000:]))
+            self.got = (None, out, RuntimeError("bbcourse: a child died (status %d) with no result:\n%s"
+                                                % (self.status, out[-2000:])))
+            return self.got
         import io
         up = pickle.Unpickler(io.BytesIO(data))
         up.persistent_load = _resolve
-        val, exc = up.load()
-        return val, out, exc
+        try:
+            val, exc = up.load()
+        except Exception as e:                      # (a result that pickled and will not load: said, not lost)
+            val, exc = None, RuntimeError("bbcourse: a child's result did not unpickle: %r; its output:\n%s"
+                                          % (e, out[-2000:]))
+        self.got = (val, out, exc)
+        return self.got
+
+
+class KidError(Exception):
+    """a child's exception that would not survive the trip back (unicorn's UcError: pickled, its __init__
+    wants an errno its args never carried, so loading it raised TypeError and the crash lost its name):
+    its type, message and errno, and the child's traceback text, carried as plain strings"""
+    def __init__(self, kind, msg, errno=None, tb=""):
+        super().__init__(kind, msg, errno, tb)
+        self.kind, self.msg, self.errno, self.tb = kind, msg, errno, tb
+
+    def __str__(self):
+        return "%s%s: %s%s" % (self.kind, "" if self.errno is None else " (errno %s)" % self.errno, self.msg,
+                               "\n(in the child)\n" + self.tb if self.tb else "")
+
+
+def _kid_exc(exc):
+    """EXC as it will come back: itself when it pickles and loads again, else a KidError naming it"""
+    if exc is None:
+        return None
+    import io
+    import pickle
+    try:
+        b = io.BytesIO()
+        _dump(exc, b, _globals_ids())
+        up = pickle.Unpickler(io.BytesIO(b.getvalue()))
+        up.persistent_load = _resolve
+        up.load()
+        return exc
+    except Exception:
+        import traceback
+        if isinstance(exc, CourseError):            # (still a refusal to the caller: par_map returns those)
+            return CourseError(str(exc))
+        return KidError(type(exc).__module__ + "." + type(exc).__qualname__, str(exc),
+                        getattr(exc, "errno", None), "".join(traceback.format_exception(exc))[-4000:])
 
 
 class _Pool:
