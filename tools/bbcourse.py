@@ -24302,7 +24302,7 @@ def _dump(obj, f, gids=None):
 CACHE_DIR = os.path.join(ROOT, "build", "bbcache")
 _CACHE = {"mode": None}         # None: os.environ's BB_CACHE (0 off, else read and write); "w": write only
 _FP_SKIP = frozenset(("_LABEL_GLYPHS", "_LAD_C", "_FEEL_C", "_PACKED", "_REACH_MEMO", "_CACHE", "JOBS", "_TRAPPAR", "_NESTED",
-                      "_SPANS_MEMO", "_CONES",
+                      "_SPANS_MEMO", "_CONES", "_MEMLOG",
                       "_SHADOW_DYN", "_SHADOW_IN", "_GAP",   # (130.47.5: per-compile scratch; SHADOW and _SHADOW_OK key it)
                       "GROUND_AUTO"))   # (a sentinel object(): its repr is an ADDRESS, so every process keyed apart)
 # (memo tables whose contents are a function of their keys, and this machinery's own state)
@@ -24492,9 +24492,13 @@ def cache_put(key, c):
 class _Kid:
     """one forked child running FN(*A): .wait() -> (value, its captured output, the exception or None).
     The child's stdout and stderr (file descriptors 1 and 2, so a subprocess's too) go to a file read back
-    by the parent; the result goes through a file, not a pipe, so a large one never blocks the child's exit"""
-    def __init__(self, fn, a):
+    by the parent; the result goes through a file, not a pipe, so a large one never blocks the child's exit.
+    LABEL: what it runs (a --selfcheck section, a par_map argument), named when it dies with no result.
+    .rss: its peak resident set (KB, the kernel's ru_maxrss: the pages it shares with this process at the
+    fork included), .rss0 this process's as it forked, so .rss - .rss0 is near enough what the child grew"""
+    def __init__(self, fn, a, label=None):
         import tempfile
+        self.label, self.rss, self.rss0 = label, None, _rss_now()
         fd, self.res = tempfile.mkstemp(prefix="bbkid", suffix=".pkl")
         os.close(fd)
         fd, self.out = tempfile.mkstemp(prefix="bbkid", suffix=".out")
@@ -24507,6 +24511,8 @@ class _Kid:
             try:
                 _NESTED[0], _TRAPPAR[0] = True, None    # (one core is this child's: NO TRAP's workers are not)
                 sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__     # (not a parent's capture)
+                if os.environ.get("BB_MEMLOG"):     # (each child's peak PRIVATE memory, sampled: what a fork
+                    _memlog(label)                  # really costs, its copied pages included - RSS cannot say)
                 o = os.open(self.out, os.O_WRONLY)
                 os.dup2(o, 1)
                 os.dup2(o, 2)
@@ -24529,6 +24535,11 @@ class _Kid:
                         _dump((None, RuntimeError("bbcourse: a child's result did not pickle: %r (%r)"
                                                   % (e2, exc))), f)
             finally:
+                if _MEMLOG[0] is not None:
+                    try:
+                        _MEMLOG[0]()
+                    except Exception:
+                        pass
                 os._exit(0)
 
     def wait(self):
@@ -24536,7 +24547,8 @@ class _Kid:
         if self.got is not None:                        # (waited once: a pool's kill() after a raise here)
             return self.got
         if self.status is None:
-            _pid, self.status = os.waitpid(self.pid, 0)
+            _pid, self.status, ru = os.wait4(self.pid, 0)
+            self.rss = ru.ru_maxrss
         self.got = (None, "", RuntimeError("bbcourse: a child's result was lost reading it back"))
         try:
             with open(self.out, encoding="utf-8", errors="replace") as f:
@@ -24550,8 +24562,15 @@ class _Kid:
                 except OSError:
                     pass
         if not data:
-            self.got = (None, out, RuntimeError("bbcourse: a child died (status %d) with no result:\n%s"
-                                                % (self.status, out[-2000:])))
+            sig = os.WTERMSIG(self.status) if os.WIFSIGNALED(self.status) else None
+            self.got = (None, out, RuntimeError(
+                "bbcourse: a child%s died (%s) with no result, its peak RSS %s:\n%s"
+                % ("" if self.label is None else " running %s" % self.label,
+                   "signal %d%s" % (sig, ", SIGKILL: the OOM killer's, most likely" if sig == 9 else "")
+                   if sig is not None else "exit status %d" % os.WEXITSTATUS(self.status),
+                   "unknown" if self.rss is None else "%d MB (%d MB at the fork)" % (self.rss >> 10,
+                                                                                  self.rss0 >> 10),
+                   out[-2000:])))
             return self.got
         import io
         up = pickle.Unpickler(io.BytesIO(data))
@@ -24563,6 +24582,50 @@ class _Kid:
                                           % (e, out[-2000:]))
         self.got = (val, out, exc)
         return self.got
+
+
+def _memlog(label):
+    """BB_MEMLOG=<file>: a thread in this child samples its private memory (smaps_rollup's Private_Clean +
+    Private_Dirty: what it allocated and what it copied of the fork's pages) twice a second, and the peak is
+    appended to the file, with LABEL, as the child exits"""
+    import atexit
+    import threading
+    peak = [0, 0]
+
+    def sample():
+        try:
+            with open("/proc/self/smaps_rollup") as f:
+                kb = sum(int(ln.split()[1]) for ln in f if ln.startswith(("Private_Clean:", "Private_Dirty:")))
+        except (OSError, ValueError, IndexError):
+            return
+        peak[0] = max(peak[0], kb)
+        peak[1] = max(peak[1], _rss_now() or 0)
+
+    def loop():
+        while True:
+            sample()
+            time.sleep(0.5)
+    threading.Thread(target=loop, daemon=True).start()
+    t0 = time.time()
+
+    def done():
+        sample()
+        with open(os.environ["BB_MEMLOG"], "a") as f:
+            f.write("%s\tprivate %d MB\trss %d MB\t%.0f s\n" % (label, peak[0] >> 10, peak[1] >> 10,
+                                                               time.time() - t0))
+    _MEMLOG[0] = done
+
+
+_MEMLOG = [None]
+
+
+def _rss_now():
+    """this process's resident set now, KB (None where /proc has no answer)"""
+    try:
+        with open("/proc/self/statm") as f:
+            return int(f.read().split()[1]) * (os.sysconf("SC_PAGE_SIZE") >> 10)
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 class KidError(Exception):
@@ -24604,16 +24667,16 @@ class _Pool:
     def __init__(self, n):
         self.n, self.live = n, {}
 
-    def start(self, fn, *a):
+    def start(self, fn, *a, label=None):
         while len([k for k in self.live.values() if k.status is None]) >= self.n:
             for k in self.live.values():            # (our own children only: never another's exit status)
                 if k.status is None:
-                    pid, st = os.waitpid(k.pid, os.WNOHANG)
+                    pid, st, ru = os.wait4(k.pid, os.WNOHANG)
                     if pid:
-                        k.status = st
+                        k.status, k.rss = st, ru.ru_maxrss
             else:
                 time.sleep(0.05)
-        k = _Kid(fn, a)
+        k = _Kid(fn, a, label)
         self.live[k.pid] = k
         return k
 
@@ -24649,7 +24712,8 @@ def par_map(fn, args, jobs=None):
         return out
     pool = _Pool(n)
     try:
-        kids = [pool.start(fn, a) for a in args]
+        kids = [pool.start(fn, a, label="%s(%s)" % (getattr(fn, "__name__", "?"), repr(a)[:120]))
+                for a in args]
         out = []
         for k in kids:
             val, text, exc = pool.wait(k)
@@ -38852,7 +38916,7 @@ class _Sections:
     out and said so"""
     def __init__(self, res, jobs, only):
         import io
-        self.res, self.only, self.left, self.times = res, only, [], {}
+        self.res, self.only, self.left, self.times, self.rss = res, only, [], {}, {}
         self.par = jobs > 1 and hasattr(os, "fork")
         self.pool = _Pool(jobs) if self.par else None
         self.todo, self.segs, self.slots = [], [], []
@@ -38900,7 +38964,7 @@ class _Sections:
             return
         s = self._slot(name, post)
         if now:
-            s.kid = self.pool.start(self._child, fn, a, post)
+            s.kid = self.pool.start(self._child, fn, a, post, label="section %s" % name)
         else:
             self.todo.append((s, fn, a))
 
@@ -38910,7 +38974,7 @@ class _Sections:
             sys.stdout = self.real
             self.segs.append(self.buf.getvalue())
             for s, fn, a in sorted(self.todo, key=lambda t_: -SC_COST.get(t_[0].name, 30)):
-                s.kid = self.pool.start(self._child, fn, a, s.post)
+                s.kid = self.pool.start(self._child, fn, a, s.post, label="section %s" % s.name)
             self.todo = []
             err = None
             for seg in self.segs:
@@ -38919,6 +38983,8 @@ class _Sections:
                     continue
                 val, text, exc = self.pool.wait(seg.kid)
                 sys.stdout.write(text)
+                if seg.kid.rss is not None:
+                    self.rss[seg.name] = max(self.rss.get(seg.name, 0), seg.kid.rss)
                 if exc is not None:
                     err = err or exc
                     seg.items = []
@@ -40851,6 +40917,9 @@ def _selfcheck(paths, res, skipped, S):
             ", ".join(n for n in selfcheck_sections() if n not in S.left), ", ".join(S.left)))
     if os.environ.get("BB_TIMES"):              # (each section's seconds, for SC_COST and the policy's table)
         print("  times: " + ", ".join("%s %.1f" % kv for kv in sorted(S.times.items(), key=lambda kv: -kv[1])))
+        if S.rss:                               # (each section's child's peak RSS, the fork's pages included)
+            print("  peak RSS (MB; this process %d at the end): " % ((_rss_now() or 0) >> 10) + ", ".join(
+                "%s %d" % (k, v >> 10) for k, v in sorted(S.rss.items(), key=lambda kv: -kv[1])))
     print("bbcourse selfcheck: %s" % ("ok" if ok and not skipped else "FAILED" if not ok else
                                       "ok, but %d item%s SKIPPED (exit 77)" % (len(skipped), "s" if len(skipped) > 1
                                                                                else "")))
