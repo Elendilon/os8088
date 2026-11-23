@@ -344,8 +344,23 @@ VAR bz_cmax,2                   ; window's RANGE on its axis, the camera's limit
 VAR bz_lay,BZL_SIZE             ; (bz_vinit, bz_vstop: the course's size, its
 VAR bz_rmin,2                   ; STOPS folded in, SPEC.md 130.45.5) - read as
 VAR bz_rmax,2                   ; BZL_MN, BZL_MX
+VAR bz_rsmn,2                   ; SPEC.md 130.45.6 (bz_vstop): the rows' STOPPED
+VAR bz_rsmx,2                   ; range, the picture's most (its least 0), the
+VAR bz_rfmx,2                   ; window's columns that hold the stops' SPAN, and
+VAR bz_sglo,2                   ; the PULL, rows a frame (4 >> lsh): bz_clampwin
+VAR bz_sghi,2                   ; and bz_clampmv set bz_rmin, bz_rmax from them
+VAR bz_kpull,2                  ; every frame - read off bz_rmin (BZR_*)
+BZR_SMN     equ 4
+BZR_SMX     equ 6
+BZR_FMX     equ 8
+BZR_SLO     equ 10
+BZR_SHI     equ 12
+BZR_PULL    equ 14
 %if bz_cmin != bz_lax + BZL_MN || bz_cmax != bz_lax + BZL_MX || bz_rmin != bz_lay + BZL_MN || bz_rmax != bz_lay + BZL_MX
  %error "an axis's range is the two words after its state (BZL_MN, BZL_MX)"
+%endif
+%if bz_rsmn != bz_rmin + BZR_SMN || bz_rsmx != bz_rmin + BZR_SMX || bz_rfmx != bz_rmin + BZR_FMX || bz_sglo != bz_rmin + BZR_SLO || bz_sghi != bz_rmin + BZR_SHI || bz_kpull != bz_rmin + BZR_PULL
+ %error "the rows' ranges, span and pull are read off bz_rmin (BZR_*)"
 %endif
 VAR bz_cgz,2                    ; wave 6 (130.16.7): the GROUND height zg, whole
                                 ; px, the last frame's (held over no floor)
@@ -2494,7 +2509,7 @@ bz_camera:
 .gl:
     call bz_lattice             ; THE camera: LATTICE (wave 6b, 130.17.6.2)
 .moved:
-    call bz_clampwin
+    call bz_clampmv             ; (SPEC.md 130.45.6: the pull, a frame's)
     mov byte [bz_full], 0
     mov ax, [bz_R0n]            ; a step past the ring's rules: a full write
     sub ax, [bz_R0]
@@ -3462,19 +3477,21 @@ bz_shmrow:
     ret
 %endif
 
-; [bz_R0n], [bz_c0n] clamped to the course: bz_rmin - bz_rmax, bz_cmin -
-; bz_cmax (its STOPS folded in, SPEC.md 130.45.5).  Clobbers AX.
+; bz_clampwin - [bz_c0n], [bz_R0n] clamped to the course AT ONCE (the first
+; frame and a cut), and bz_clampmv - every other frame's (bz_camera's .moved),
+; whose window outside the rows' range comes back at most bz_kpull rows a frame
+; (SPEC.md 130.45.6).  The column first, to bz_cmin - bz_cmax; then the rows'
+; range THIS frame: the course's STOPPED one (bz_rsmn - bz_rsmx: SPEC.md
+; 130.45.4, 130.45.5) while that column holds the stops' SPAN (bz_sglo - bz_sghi:
+; every column without `over`), else the picture's (0 - bz_rfmx) - left in
+; bz_rmin, bz_rmax for LATTICE (BZL_MN, BZL_MX) and the VGA's camera.
+; Clobbers AX, BX, DX, SI, DI.
 bz_clampwin:
-    mov ax, [bz_R0n]
-    cmp ax, [bz_rmin]
-    jge .r
-    mov ax, [bz_rmin]
-.r:
-    cmp ax, [bz_rmax]
-    jle .r2
-    mov ax, [bz_rmax]
-.r2:
-    mov [bz_R0n], ax
+    mov di, [bz_rsmn]           ; (a row inside every range: never pulled)
+    jmp short bz_clampmv.go
+bz_clampmv:
+    mov di, [bz_R0]             ; DI = the row as it stands
+.go:
     mov ax, [bz_c0n]
     cmp ax, [bz_cmin]
     jge .c
@@ -3485,6 +3502,44 @@ bz_clampwin:
     mov ax, [bz_cmax]
 .c2:
     mov [bz_c0n], ax
+    mov si, bz_rmin
+    mov bx, [si + BZR_SMN]      ; BX - DX: the stopped range, while the
+    mov dx, [si + BZR_SMX]      ; column holds the span ...
+    cmp ax, [si + BZR_SLO]
+    jl .free
+    cmp ax, [si + BZR_SHI]
+    jle .pull
+.free:
+    xor bx, bx                  ; ... else the picture's
+    mov dx, [si + BZR_FMX]
+.pull:
+    cmp di, dx                  ; THE PULL: a window past the range (it
+    jg .pd                      ; re-entered the span past a stop) is let
+    cmp di, bx                  ; back bz_kpull rows a frame, not at once:
+    jge .r0
+    add di, [si + BZR_PULL]     ; least = min(least, R0 + kpull)
+    cmp di, bx
+    jge .r0
+    mov bx, di
+    jmp short .r0
+.pd:
+    sub di, [si + BZR_PULL]     ; most = max(most, R0 - kpull)
+    cmp di, dx
+    jle .r0
+    mov dx, di
+.r0:
+    mov [si], bx                ; (bz_rmin, bz_rmax: BZL_MN, BZL_MX)
+    mov [si + 2], dx
+    mov ax, [bz_R0n]
+    cmp ax, bx
+    jge .r
+    mov ax, bx
+.r:
+    cmp ax, dx
+    jle .r2
+    mov ax, dx
+.r2:
+    mov [bz_R0n], ax
     ret
 
 ; -----------------------------------------------------------------------------
