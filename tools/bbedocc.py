@@ -102,7 +102,10 @@ class OccView(object):
                                                    else "as cut: AV is off")
         else:
             what = "%s occluder records as cut" % format(n, ",")
-        self._say("%s%s; cut in %.1f s; %d cells where a ball can be hidden" % (
+        ref = self.data.get("refused")
+        self._say("%s%s%s; cut in %.1f s; %d cells where a ball can be hidden" % (
+            ("REFUSED, shown as cut before the refusal - noocclude cells no ball reaches to come under it: %s\n"
+             % _bare(ref)) if ref else "",
             what, " - showing the rule's" if self.which.get() == "cut" else "", om.get("secs", 0), len(self.flags)))
 
     def loaded(self, out, meta):
@@ -110,7 +113,7 @@ class OccView(object):
         overlay was turned on is drawn again with it"""
         self.data, self.cache, self.hot = None, None, None
         om = meta.get("occ")
-        if om and not om.get("error"):
+        if om and (not om.get("error") or om.get("partial")):     # (130.58.46: a bound's refusal, the cut shown)
             try:
                 with open(os.path.join(out, "occ.json")) as f:
                     self.data = json.load(f)
@@ -132,7 +135,7 @@ class OccView(object):
         if self.wanted() and om is None and not self.app.pic_after:
             self.app.root.after(10, self.app.run_picture)
         if self.wanted():
-            if om and om.get("error"):
+            if om and om.get("error") and self.data is None:
                 self._say("No occluders: the full rules refuse the course - %s" % om["error"][:200])
             elif self.data is not None:
                 self._counts()
@@ -422,6 +425,12 @@ class OccView(object):
             ("; " if added and removed else "") + (("noocclude taken out of %s" % _cells(sorted(removed)))
                                                    if removed else ""),
             ("; not on the start or a route point: %s" % _cells(sorted(refused))) if refused else ""))
+
+
+def _bare(err):
+    """a refusal without its file name, cut short for the status line"""
+    err = err.split(": ", 1)[1] if ": " in err else err
+    return err[:220]
 
 
 def _ids(ks):

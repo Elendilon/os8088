@@ -150,6 +150,7 @@ def picture(path, out, name=None, gaps=False, occ=False):
         ws, err = occluders(tmp, out, path)
         os.remove(tmp)
         occm = {"error": err, "secs": round(time.time() - t1, 2),
+                "partial": bool(err) and os.path.exists(os.path.join(out, "occ.json")),   # (130.58.46)
                 "warnings": [w for w in ws if w["kind"] == "shade"] if ws else []}
     meta = {"width": c.width, "lines": c.lines, "x0": c.x0, "y0": c.y0, "name": c.name, "marks": marks,
             "warnings": [warning(w) for w in c.warnings] + (occm["warnings"] if occm else []), "occ": occm,
@@ -369,15 +370,53 @@ def occluders(path, out, name=None):
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
+    refused = None
     try:
         c = B.compile_course(text, name or path, occluders=True)
     except B.CourseError as e:
-        return None, str(e)
+        c = partial_course(e)                   # SPEC.md 130.58.46: a refusal AFTER the cut still shows the cut
+        if c is None:
+            return None, str(e)
+        refused = str(e)
     d = occ_data(c)
     d["secs"] = round(time.time() - t0, 2)
+    d["refused"] = refused
     with open(os.path.join(out, "occ.json"), "w") as f:
         json.dump(d, f, separators=(",", ":"))
-    return [warning(w) for w in c.warnings], None
+    return [warning(w) for w in getattr(c, "warnings", None) or []], refused
+
+
+class _Partial(object):
+    """the course as far as a refused compile cut it (partial_course)"""
+
+
+def partial_course(e):
+    """SPEC.md 130.58.46: a compile refused AFTER its occluder cut (a bound: the 256 masks, a band's 256, a block
+    row's records, the occluder pass, the part's size) -> the course as cut, read off the refused compile's own frame
+    (bbcourse._compile_course's locals: the rule's records and the part's, the flags, the picture's buffers), so the
+    overlay can show what to `noocclude` to come under the bound; None for a refusal before the cut.  The compiler
+    is untouched: nothing it writes can differ"""
+    tb, frame = e.__traceback__, None
+    while tb is not None:
+        f = tb.tb_frame
+        if f.f_code is B._compile_course.__code__ and "rule" in f.f_locals and "records" in f.f_locals:
+            frame = f.f_locals                  # (the innermost: a re-cut's, 130.49.5, after the first's)
+        tb = tb.tb_next
+    if frame is None:
+        return None
+    g = frame.get
+    c = _Partial()
+    c.tiles, c.ops, c.x0, c.y0, c.width, c.lines = g("tiles"), g("ops"), g("x0"), g("y0"), g("width"), g("lines")
+    cv = g("cv")
+    c.sbuf, c.tbuf = cv.sbuf, cv.tbuf
+    c.reach, c.cells, c.redges, c.props, c.src = g("reach"), g("cells"), dict(g("redges") or {}), g("props"), g("src")
+    c.rule_raw, c.rule_records, c.rule_occpix, c.rule_by_block = g("rule")
+    c.records, c.by_block = g("records"), g("by_block")
+    c.av, c.av_rcs = bool(g("av_on")), g("av_rcs")
+    c.noocc = g("noocc") or frozenset()
+    c.cutdyn = g("dyn") if g("cutocc") else None
+    c.warnings = []
+    return c
 
 
 def check(path, strict, name=None, trap=False):

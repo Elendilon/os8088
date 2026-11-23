@@ -97,6 +97,9 @@
  22. OVER 256 MASKS (SPEC.md 130.58.45): the 256 masks' refusal explained and its fix button writing `masks banded`
     once; a band over its 256 explained with no button; the Course tab's box reading and writing the line. Red by
     hand: the WHOLE_FIXES row's pattern changed, or _apply_course without its `masks` row.
+ 23. THE CUT SHOWN ON A REFUSAL (SPEC.md 130.58.46): REC_ROW_MAX lowered to 1, the refused course's occ.json still
+    written (both lists, needs, flags, the refusal) and the overlay saying REFUSED. Red by hand: partial_course
+    returning None.
 
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
@@ -725,6 +728,48 @@ def masks_check(text):
     return bad
 
 
+def partial_check(text):
+    """item 23 (SPEC.md 130.58.46): a course the full rules refuse for a bound AFTER the cut (a block row's records,
+    REC_ROW_MAX lowered) still writes occ.json - the rule's records and the shipped ones, needs, flags, the
+    refusal - and the overlay loads it and says it was refused -> [problems]"""
+    import bbedocc as O
+    import json
+    bad = []
+    text = text + "# (item 23)\n"               # (its own compile: never a cached one)
+    held = B.REC_ROW_MAX
+    out = tempfile.mkdtemp()
+    try:
+        B.REC_ROW_MAX = 1
+        p = os.path.join(out, "part.bbc")
+        with open(p, "w") as f:
+            f.write(text)
+        _ws, err = J.occluders(p, out, "part.bbc")
+    finally:
+        B.REC_ROW_MAX = held
+    if not err or "occluder records, over 1" not in err:
+        return ["item 23: the lowered bound did not refuse: %r" % err]
+    if not os.path.exists(os.path.join(out, "occ.json")):
+        return ["item 23: a refusal after the cut wrote no occ.json (%s)" % err[:100]]
+    with open(os.path.join(out, "occ.json")) as f:
+        d = json.load(f)
+    if d.get("refused") != err or not d["records"] or not d.get("shipped") or not d["cells"] or \
+            not all(r["needs"] for r in d["shipped"]):
+        bad.append("item 23: the partial occ.json holds %d rule, %d shipped records, %d cells, refused %r" % (
+            len(d["records"]), len(d.get("shipped") or ()), len(d["cells"]), d.get("refused")))
+    v = O.OccView.__new__(O.OccView)
+    meta = {"width": 1, "lines": 1, "occ": {"error": err, "partial": True, "secs": 1.0}}
+    v.app = _OccApp(text)
+    v.app.pic = {"meta": meta}
+    v.show, v.shade, v.which, v.sel = _Var(True), _Var(False), _Var("shipped"), None
+    said = []
+    v._say = said.append
+    v.wanted = lambda: True
+    v.loaded(out, meta)
+    if v.data is None or not said or not said[-1].startswith("REFUSED, shown as cut") or "over 1" not in said[-1]:
+        bad.append("item 23: the overlay on a refused cut says %r" % (said[-1:] or None))
+    return bad
+
+
 def main():
     bad = []
     bad += options_check()
@@ -1225,6 +1270,7 @@ def main():
                     bad.append("occ view: noocclude on the start was not refused")
             bad += occ_ship_check(c, od, occ_course)     # 21. what ships (SPEC.md 130.58.44)
             bad += masks_check(occ_course)               # 22. over 256 masks (130.58.45)
+            bad += partial_check(occ_course)             # 23. the cut shown on a refusal (130.58.46)
         finally:
             B.BLK_MAX = held
     except B.CourseError as e:
