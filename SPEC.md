@@ -290081,3 +290081,13 @@ under where the column leaves room), and one on an archway's inspector rows (`bb
 ball lands and rolls on the lintel and the legs"). The builder adds `uses archway` for it the same way, and the
 banner explains its two refusals - a walkable top without the archway extra, and a body cell under it that is
 not a flat wall. `tests/unit/t_bbedit.py` 13f and item 17 hold them.
+
+#### 130.58.42 The plan's grid numbers stay on screen (the owner, 2026-11-23)
+
+*"Can we also have the grid numbers stay on the screen even when zoomed in? The grid position is referenced a
+lot, but I can only find spots by mouseover/clicking them when zoomed into a visible level."* The plan's
+column numbers are a RULER along the view's top edge and its row numbers one along its left edge, each on a
+dark band and drawn above everything else on the plan. They are pinned to the VIEW, not to the course: a
+scroll moves them back to the edge (`_pin_rulers`, run off both scrollbars' commands and once after every
+plan draw). They are drawn at EVERY zoom, where they used to stop below 14 px a cell: the step between
+numbers is the smallest of 1, 2, 4, 8, 16 and 32 cells that leaves 26 px for a number. The Iso view has none.
