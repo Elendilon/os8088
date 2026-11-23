@@ -310,6 +310,25 @@ def new_shape(kind, x, y, z):
     return {"kind": kind, "x": x + 1, "y": y + 1, "z": z, "along": None, "n": 0, "open": False, "height": None}
 
 
+def set_kind(sh, k):
+    """the tube SH made a K ("keep", "launch", "drop") tube: a launch given a speed along its last leg, a drop
+    the builder's mouth height (2 units) when it has none - marked `mouth_auto`, the builder's and not the
+    author's, so a refusal for a mouth its wall's face does not hold fits it (SPEC.md 130.58.41) - and a keep
+    none -> the new fields"""
+    w = sh["ways"]
+    dx, dy = _sg(w[-1][0] - w[-2][0]), _sg(w[-1][1] - w[-2][1])
+    new = dict(sh, sub=k)
+    if k == "launch" and not sh.get("speed"):
+        new["speed"] = [192 * dx, 192 * dy, 300]
+    if k == "drop" and not sh.get("height"):
+        new["height"] = 2.0
+        new["mouth_auto"] = True
+    if k == "keep":
+        new["height"] = None
+        new["mouth_auto"] = False
+    return new
+
+
 def describe(sh):
     if sh["kind"] == "chute":
         n = len(sh["ways"]) - 1
@@ -352,6 +371,8 @@ class ShapeEditor(object):
         except Exception:
             return None
         sh = parse(st.toks) if st.kind in self.KINDS else None
+        if sh and sh["kind"] == "tube" and self.app.doc.is_auto_mouth(line):
+            sh["mouth_auto"] = True             # (SPEC.md 130.58.41: its mouth height is the builder's)
         if line != self.line:
             self.draft, self.wsel, self.drag = None, None, None
         self.line, self.sh = (line, sh) if sh else (None, None)
@@ -423,6 +444,10 @@ class ShapeEditor(object):
         except Exception:
             now = None
         if now == want:
+            if d.get("mouth_auto") and d["sub"] == "drop":     # SPEC.md 130.58.41: the builder's height, fitted
+                self.app.doc.auto_mouth.add(want)               # on a refusal; a typed one never
+            elif "mouth_auto" in d:
+                self.app.doc.auto_mouth.discard(want)
             self.sh = parse(want.split())
             self.pending = (line, want, d, was, self.app.doc.text())   # (the picture's compile may still refuse
                                                                        # it: picture_refused)
@@ -597,18 +622,8 @@ class ShapeEditor(object):
 
             def setk():
                 k = kv.get()
-                if k == sh["sub"]:
-                    return
-                w = sh["ways"]
-                dx, dy = _sg(w[-1][0] - w[-2][0]), _sg(w[-1][1] - w[-2][1])
-                new = dict(sh, sub=k)
-                if k == "launch" and not sh.get("speed"):
-                    new["speed"] = [192 * dx, 192 * dy, 300]
-                if k == "drop" and not sh.get("height"):
-                    new["height"] = 2.0
-                if k == "keep":
-                    new["height"] = None
-                self.apply(new, "tube kind")
+                if k != sh["sub"]:
+                    self.apply(set_kind(sh, k), "tube kind")
             choice("Kind", kv, ("keep", "launch", "drop"), setk)
             ov = tk.StringVar(value=sh.get("out") or "along its last leg")
             ttk.Label(self.form, text="Comes out").grid(row=row[0], column=0, sticky="w", pady=1)
@@ -622,7 +637,7 @@ class ShapeEditor(object):
                 hv = tk.StringVar(value=_g(sh.get("height") or 2))
                 field("Mouth height", hv, 1, 12, 0.5,
                       lambda: self._fvar(hv) is not None and self._fvar(hv) != sh.get("height")
-                      and self.apply(dict(sh, height=self._fvar(hv)), "drop height"))
+                      and self.apply(dict(sh, height=self._fvar(hv), mouth_auto=False), "drop height"))
             if sh["sub"] == "launch":
                 sp = sh.get("speed") or [0, 0, 0]
                 svs = [tk.StringVar(value=str(v)) for v in sp]
@@ -646,7 +661,7 @@ class ShapeEditor(object):
                     if v is not None and v < 1:
                         v = None
                     if v != sh.get("height"):
-                        self.apply(dict(sh, height=v), "launch mouth height")
+                        self.apply(dict(sh, height=v, mouth_auto=False), "launch mouth height")
                 field("Mouth height", mv, 1, 12, 0.5, setm)
                 ttk.Label(self.form, text=("blank: fires from the exit floor; a height raises the mouth that many "
                                            "units over it, on the face of the last wall (the pipe is laid tall "

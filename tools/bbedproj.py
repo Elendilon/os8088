@@ -230,6 +230,7 @@ class Document(object):
         self.saved_text = text
         self.listeners = []
         self._analysis = None
+        self.auto_mouth = set()     # SPEC.md 130.58.41: the tube statements whose mouth HEIGHT the builder wrote
 
     # -- files --------------------------------------------------------------
     @classmethod
@@ -355,6 +356,7 @@ class Document(object):
             comment = " " * pad + comment.lstrip(" \t")
         new = list(self.lines)
         new[line - 1] = s.indent + code + comment
+        self._carry_mouth(s.code, code)
         return self._commit(label or "edit line %d" % line, new)
 
     def set_text(self, text, label=None):
@@ -375,7 +377,32 @@ class Document(object):
                 col = len(st.indent) + len(st.code) + (len(comment) - len(comment.lstrip(" \t")))
                 comment = " " * max(1, col - len(st.indent) - len(code)) + comment.lstrip(" \t")
             new[line - 1] = st.indent + code.strip() + comment
+            self._carry_mouth(st.code, code.strip())
         return self._commit(label or "edit %d lines" % len(codes), new)
+
+    # -- SPEC.md 130.58.41: a mouth height the builder wrote, not the author ---------------------------------
+    def _carry_mouth(self, old, new):
+        """a statement rewritten in place (moved, reshaped): when its mouth height was the builder's and stays the
+        same, the new text's is the builder's too - a height changed is the author's"""
+        if old in self.auto_mouth and mouth_height(old) is not None and mouth_height(new) == mouth_height(old):
+            self.auto_mouth.add(new)
+
+    def is_auto_mouth(self, line):
+        try:
+            return self.statement(line).code in self.auto_mouth
+        except EditError:
+            return False
+
+    def fit_mouth(self, line, h2, label=None):
+        """line LINE's tube with its mouth at H2 half units - still the builder's height"""
+        s = self.statement(line)
+        toks = list(s.toks)
+        i = toks.index("height", 1)
+        toks[i + 1] = ("%d" % (h2 // 2)) if h2 % 2 == 0 else ("%g" % (h2 / 2.0))
+        code = join_tokens(toks)
+        r = self.set_statement(line, code, label or "fit a tube's mouth")
+        self.auto_mouth.add(code)
+        return r
 
     def moved_code(self, line, dx, dy):
         """line LINE's statement moved by (DX, DY), as code (no edit)"""
@@ -1208,8 +1235,16 @@ def _plain(fam):
 
 def _line_of(msg):
     import re
-    m = re.search(r":(\d+): ", msg)
+    m = re.search(r":(\d+): ", msg) or re.search(r"\bon line (\d+): ", msg)   # (a prop's: "the tube on line N: ")
     return int(m.group(1)) if m else None
+
+
+def mouth_height(code):
+    """a DROP's or a raised LAUNCH's `height` word as written (SPEC.md 130.12.3.3), else None"""
+    t = tokens(code) if code else []
+    if t[:1] != ["tube"] or "height" not in t[1:-1]:
+        return None
+    return t[t.index("height", 1) + 1]
 
 
 def _inside(pt, poly):

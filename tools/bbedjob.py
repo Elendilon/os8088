@@ -47,6 +47,12 @@ def emit(**kw):
     sys.stdout.flush()
 
 
+def refusal(e):
+    """a refusal's extra keys for the window: a MOUTH that does not fit (SPEC.md 130.58.41) names its tube's line
+    and the largest height in half units that does (None: none does) -> {"mouth": [line, h2 | None]} or {}"""
+    return {"mouth": [e.line, e.fit]} if isinstance(e, B.MouthFit) else {}
+
+
 def palette(src):
     """the course's CGA colours (SPEC.md 130.16.6): its `palette` byte, else palette 1 bright"""
     b = src.palette[0] if src.palette else 0x30
@@ -97,7 +103,7 @@ def picture(path, out, name=None, gaps=False, occ=False):
                 lines[int(m.group(1)) - 1] = "#" + lines[int(m.group(1)) - 1]     # (the line numbers kept)
                 text = "\n".join(lines)
                 continue
-            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 2))
+            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 2), **refusal(e))
             return 1
     emit(stage="render", what="drawing the picture")
     os.makedirs(out, exist_ok=True)
@@ -353,7 +359,7 @@ def check(path, strict, name=None, trap=False):
         try:
             pr = M.proofs(text, path, log=lambda nm: emit(stage="compile", what="the map: %s's exits" % nm))
         except B.CourseError as e:
-            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
+            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1), **refusal(e))
             return 1
         emit(stage="done", ok=True, warnings=[], proofs=str(pr)[:400], secs=round(time.time() - t0, 1))
         return 0
@@ -362,7 +368,7 @@ def check(path, strict, name=None, trap=False):
     try:
         c = B.compile_course(text, path, strict=strict)
     except B.CourseError as e:
-        emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
+        emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1), **refusal(e))
         return 1
     if not c.test and c.src.title_ln is None:   # SPEC.md 130.58.23: what the GAME BUILD asks of every course (its
         emit(stage="compile", what="the game's rules: the finish clock, music, target")   # finishes' clocks, its
@@ -372,7 +378,7 @@ def check(path, strict, name=None, trap=False):
             B.finish_reach_rule(c)
             B.finish_clock_rule(c)
         except B.CourseError as e:
-            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1))
+            emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1), **refusal(e))
             return 1
     warns = [warning(w) for w in c.warnings]
     emit(stage="done", ok=True, warnings=warns, secs=round(time.time() - t0, 1))
