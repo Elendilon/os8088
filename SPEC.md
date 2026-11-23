@@ -295496,6 +295496,18 @@ drawn whole, pixel for pixel. Red arms, each red on all three plates: `tlbasehig
 the margin 0) item 3; `tlbaseafter` (the column drawn after the plate cell's ops) item 2; `tlbasenolane` (the
 lanes cut from the poses drawn without the column) item 4.
 
+#### 130.42.13 The faces BEHIND a plate go on down past it (the owner, 2026-11-23)
+
+*"I just wanted to close off the gap in the platform's floor, not add walls below the see-saw itself."* A plate
+is a thin slab over the void, so its cells stop nothing behind them; but `draw_ops` hung the faces of the cells
+behind it (its -x and -y neighbours, the faces the camera sees) only down to the plate's own floor, so a
+platform the plate meets showed a black notch in its column under the plate. Now **every** see-saw, with or
+without `base`, carries those faces on down as a face over the void is carried: to the ground plane, never
+less than `FACE8` - `tilt_base_ops`, keyed before the plate cell's own ops so the plate is drawn over them.
+With `base` (130.42.12) they stop at the column's top as before. It is the picture alone: no record, no
+physics, and the lanes are still the whole-picture difference of the poses. Shipped `MILL` and the test course
+`TILT` re-draw (their picture parts change, nothing else); every other course is byte-identical.
+
 ### 130.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
 
 The props plan (docs/plans/BOUNCE-BONANZA-PROPS.md, P11): *"TURNTABLE,
