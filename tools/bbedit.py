@@ -2213,6 +2213,17 @@ class App(object):
                                                           mine[3] else ""), font=("TkDefaultFont", 9, "bold")).grid(
             row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
         row += 1
+        bf = ttk.Frame(body)                    # SPEC.md 130.58.43: the branch picker here too (the plan's twin)
+        bf.grid(row=row, column=0, columnspan=2, sticky="w")
+        ttk.Label(bf, text="Show and edit").pack(side="left")
+        bcb = ttk.Combobox(bf, textvariable=self.route_branch, state="readonly", width=16,
+                           values=(ALL_BRANCHES, MAIN_ROUTE) + tuple(self._branches()) + (NEW_BRANCH,))
+        bcb.pack(side="left", padx=4)
+        bcb.bind("<<ComboboxSelected>>", lambda e: (self._branch_chosen(), self._fill_inspector()))
+        row += 1
+        ttk.Label(body, text="Ctrl-click the plan to add a point to this route after the selected one.",
+                  foreground="#666", wraplength=300).grid(row=row, column=0, columnspan=2, sticky="w")
+        row += 1
         lb = tk.Listbox(body, height=min(10, max(3, len(ways))), width=34, exportselection=False)
         start = next((s_ for s_ in self.doc.statements() if s_.kind == "start"), None)
         lb.insert("end", "start  %s" % " ".join(start.toks[1:3]) if start else "start  (none)")
