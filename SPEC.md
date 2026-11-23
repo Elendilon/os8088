@@ -298232,7 +298232,9 @@ The frame is drawn on the host from the compiler's own pieces, at the card's ref
 of each frame from the accumulator as `glide_run` counts them, at most 8, the first frame's discarded),
 then `Glide.camera()` with `Heavy` - the game's camera and its props' drawn poses. The window
 (`Art.window`): the picture `c.pic` cropped to the camera's window (320 x 200, Hercules 360 x 200 game
-pixels); each lane pasted at Heavy's DRAWN pose (a group lane at its true pose, `fpose`); the tracked
+pixels); each lane pasted in the pose the PHYSICS has (`Heavy.pose_now`; Heavy's DRAWN pose when the
+window's *Draw the props as the XT would* box is ticked; a group lane at its true pose, `fpose`, either way:
+130.58.48); the tracked
 lift's slab at its drawn line; the shadow where `shadow()` gives one (its checker pixels black); the ball's
 `sprite()` frame (`bonanza_assets.material_frame`, `squash_frame`, `stretch_frame`; glass's
 `shatter_frame`, rubber's `pop_frame`) at `(px, py)`, glass's see-through pixels left; then, where the
@@ -298276,12 +298278,12 @@ behind it plays slower (at most 4 frames a tick), never skipping steps.
   replays to its own end; the guest's checks 1 - 8 (`check_log`) pass on the row's. NOT MEASURED: a saved
   run replayed on MartyPC (story 6.4).
 
-The row `bbplay` (soak, `tests/unit/t_bbplay.py`, 3.2 s): the play-only compile against the full one on
+The row `bbplay` (soak, `tests/unit/t_bbplay.py`, 15.2 s): the play-only compile against the full one on
 MILL (the autopilot to the goal, a scripted run from the start and from a poked cell, every frame), the
 frame's ball pixels against `sprite()` and `laid_at` over the autopilot's run (473 ball pixels behind an
 occluder among 54,616), the Hercules translation, a saved log through `check_log` and `run_log`, and a
-rewind driven again to the same end. Red by hand: the ball drawn at `px + 1`, the RETURN left out of the
-log, BLK_MAX left lifted. The bundle row `bbeditbundle` plays MILL 120 frames in the zip.
+rewind driven again to the same end; and the props' poses (items 7 and 8, 130.58.48). Red by hand: the
+ball drawn at `px + 1`, the RETURN left out of the log, BLK_MAX left lifted. The bundle row `bbeditbundle` plays MILL 120 frames in the zip.
 
 #### 130.58.17 Add to the game: the decision, and how it is made (wave 8, 2026-11-21)
 
@@ -299407,3 +299409,55 @@ record and the count is said; Ctrl-click in and out leaves the two it should; th
 start's and the route points') is written as one edit that one Undo takes out; three `noocclude` cells Ctrl-clicked
 are selected and taken out in one more edit. Red by hand: `toggle` adding without taking away ("Ctrl-click in and
 out leaves"), or `noocclude` splitting the union into two edits ("took 2 edits").
+
+#### 130.58.48 Test Roll draws each prop as the physics has it (the owner, 2026-11-23)
+
+The owner, on MILL: *"The test roll's prop animation state doesn't seem to match the physics state, making
+things like the turntable very hard to judge ... the ball falls through holes that are not visually there,
+or rolls over ones that are"*, and then *"its off by seconds, and other props just don't animate at all
+where they do in game (seesaws, any windmills past the first one, all pickups at least)"*.
+
+**The cause: the compositor drew most props with ANOTHER prop's lane.** `Art.window` walked `Physics`'
+prop records and looked each one's lane up by the record's index, but a record's index is the PART's
+order (the records sorted for the guest, 130.12.4) and a lane's `prop` is the course's SOURCE order; the
+compile's `c.order` maps the one to the other. Where the two orders differ - nearly every prop of every
+course - a record's pose was pasted as some other prop's picture at that prop's place: a turntable cell
+showed the port of a cell whose sweep phase differs (so a hole appeared a cell away, or seconds early or
+late), a windmill or seesaw took a clock's or a flag's pose (which hardly changes: "doesn't animate"),
+and a lane whose pose index the borrowed picture did not have was not drawn at all. MEASURED on the
+owner's MILL copy (36 lane records): the old lookup picked another prop's lane for 31 - 2 of 3 windmills,
+all 9 seesaw lanes, the life pickup, all 7 flags, all 4 clock digits, all 4 posts, 4 of 8 turntable
+cells. The shipped courses: every course with a lane but four has records drawn with a wrong lane. The
+guest has no such step (it draws a record's own lane, from the record), so this was the Test Roll's
+alone. `Art.lane(r)` now finds the lane through `c.order`; checked on all 37 shipped courses, every
+record's lane is the one at its own place.
+
+**The drawn pose, and the option.** The window drew each lane at Heavy's DRAWN pose: the model of the
+guest's lane wheel, which may leave a changed lane undrawn for a frame or more to spread a frame's
+drawing (a contact candidate waits while the ball is near the window's edge, the frame is crowded or the
+occluder pass runs, at most `WPRF` = 5 frames; a second must-draw waits a frame). It now draws, BY
+DEFAULT, the pose the physics has after the frame's steps (`Heavy.pose_now`: `_true`'s reading with none
+of its bookkeeping - a windmill's phase at the last step, a family's POSE hook such as `tt_pose` at the
+step to come, a flag touched, a clock's digit, a post lit from its kick), because the owner's use of the
+window is judging DIFFICULTY: what is on the glass is what the ball meets. A checkbox under the buttons,
+*Draw the props as the XT would (lagged)*, draws Heavy's drawn poses instead, for judging the look on the
+real machine; the window's note line says which is shown. A group lane (130.32.4) is its members' pose
+either way.
+
+**The guest's own lag is real and small** (a finding, not changed here): on the host model, the
+autopilot 6,000 steps on MILL and the owner's copy and to the goal on WATER, CGA and Hercules each,
+74 of 785,135 lane-frames were drawn behind the physics, the longest 5 frames (83 ms: `WPRF`) - seesaw
+lanes, flags, turntable cells, posts and water. A turntable changes at most one lane a step by design
+(130.43.1 D5), so it is not starved by the wheel. Nothing near "seconds".
+
+**Rows.** `tests/unit/t_bbplay.py` item 7: TURN from its start plate, 300 frames, every turntable lane
+on the window drawn - its own picture, at its own place - in `tt_pose` at the step the physics is on,
+with Heavy's drawn poses made stale on purpose (and, with the box ticked, in the stale pose). Item 8:
+every one of MILL's 28 lanes (windmills, clock digits, posts, flags, seesaw lanes, the jump, turntable
+cells), the ball poked beside each and rolled 60 frames, drawn in `pose_now` at its own place; the
+expected picture is the lane found BY PLACE, not through the code under test. Red by hand
+(2026-11-23): the lane looked up by the record's index (item 7: a turntable cell's lane not drawn at its
+own place; item 8: MILL's jump at (19, 36) not in its pose); the default pose Heavy's drawn one (item 7).
+Item 4's occluder pixels now expect what is under the ball - a posed lane's pixel where one is drawn,
+else the picture - where it expected the bare picture: at `816e61de9` the row was red there (frames 1098
+and 1101, a turntable cell's lane under MILL's occluder), which was this same fault seen from the side.
