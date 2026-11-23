@@ -1861,7 +1861,12 @@ def _lst_syms(lines, names):
     return out
 
 
-USEGT = 0xFA00                  # (op_seg's table in the image's segment: past the bss, under USTUB)
+USEGS = 0xC000                  # op_seg's table, a segment of its own: it sat in the image's segment at FA00h,
+                                # "past the bss" until the BZDEV build's bss grew to FB28h (bz_osum, bz_tblk,
+                                # bz_rlog over it) - the course load wrote the table, op_seg answered a garbage
+                                # segment and bz_ffetch faulted (UC_ERR_EXCEPTION), a crash in the harness that
+                                # named nothing.  Out here no growth of the package's reaches it, and call()
+                                # still checks after every call that nothing wrote it
 
 
 def fam_parts(over=None, nocell=()):
@@ -1888,7 +1893,7 @@ def fam_parts(over=None, nocell=()):
 class UGuest:
     """BONANZA's image under unicorn: the course part at UPS, each family part
     at UFS + 100h k, op_fetch a CF = 0 and op_seg / op_cseg answering each
-    family row's segment out of a table at USEGT (story 9.8: a course names
+    family row's segment out of a table at USEGS:0 (story 9.8: a course names
     several), bz_toast a HLT (never reached)"""
 
     def __init__(self, binp, lst, sym, part, fam=None, patch=()):
@@ -1915,12 +1920,16 @@ class UGuest:
             else:
                 struct.pack_into("<H", segt, 2 * row, at_)
             at_ += n_
-        mu.mem_write(UCS * 16 + USEGT, bytes(segt))
+        hi = max(v for v in sym.values() if v < 0x10000)
+        assert hi < USTUB, "the harness's return stub at %04Xh is inside the image or its bss (to %04Xh)" % (
+            USTUB, hi)
+        self.segt = bytes(segt)
+        mu.mem_write(USEGS * 16, self.segt)
         op = lst_syms(lst, ("op_fetch", "op_seg", "op_cseg", "bz_toast"))
-        for n in ("op_seg", "op_cseg"):        # push bx; mov bl, al; xor bh, bh; shl bx, 1;
-            if n in op:                         # mov ax, [cs:bx + USEGT]; pop bx; ret
-                mu.mem_write(UCS * 16 + op[n], b"\x53\x88\xc3\x30\xff\xd1\xe3\x2e\x8b\x87"
-                             + struct.pack("<H", USEGT) + b"\x5b\xc3")
+        for n in ("op_seg", "op_cseg"):        # push ds; push bx; mov bx, USEGS; mov ds, bx; mov bl, al;
+            if n in op:                         # xor bh, bh; shl bx, 1; mov ax, [bx]; pop bx; pop ds; ret
+                mu.mem_write(UCS * 16 + op[n], b"\x1e\x53\xbb" + struct.pack("<H", USEGS)
+                             + b"\x8e\xdb\x88\xc3\x30\xff\xd1\xe3\x8b\x07\x5b\x1f\xc3")
         if "op_fetch" in op:
             mu.mem_write(UCS * 16 + op["op_fetch"], b"\xf8\xc3")
         # OSAPI_SEG (bz_fbfind's SEG_SUBC into the RESIDENT BUNDLE, SPEC.md 130.25.6.9): a real-mode
@@ -1953,9 +1962,18 @@ class UGuest:
         mu.reg_write(UC_X86_REG_SP, 0xFFEE)
         mu.reg_write(UC_X86_REG_AX, ax)
         mu.reg_write(UC_X86_REG_BX, bx)
-        mu.emu_start(UCS * 16 + self.sym[n], UCS * 16 + USTUB, count=5000000)
+        from unicorn import UcError
+        try:
+            mu.emu_start(UCS * 16 + self.sym[n], UCS * 16 + USTUB, count=5000000)
+        except UcError as e:                    # (named: the call, where it stopped, and the harness's table)
+            raise AssertionError("%s faulted under unicorn at %04X:%04X: %s%s" % (
+                n, mu.reg_read(UC_X86_REG_CS), mu.reg_read(UC_X86_REG_IP), e,
+                "" if bytes(mu.mem_read(USEGS * 16, len(self.segt))) == self.segt
+                else "; the harness's op_seg table was written")) from None
         assert mu.reg_read(UC_X86_REG_IP) + 16 * mu.reg_read(UC_X86_REG_CS) == UCS * 16 + USTUB, \
             "%s did not return" % n
+        assert bytes(mu.mem_read(USEGS * 16, len(self.segt))) == self.segt, \
+            "%s wrote the harness's op_seg table at %04Xh:0" % (n, USEGS)
         return mu.reg_read(UC_X86_REG_AX), mu.reg_read(UC_X86_REG_FLAGS) & 1
 
 
