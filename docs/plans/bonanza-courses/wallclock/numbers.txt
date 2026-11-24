@@ -1,0 +1,62 @@
+WALL CLOCK study, docs/plans/bonanza-courses/wallclock/wallclock.py
+
+comparator, FIRST's shipped clocks: 4 digit lanes, each 1 x 1 block, 20 distinct pose blocks over pose 0's (CGA 320 B) - MEASURED from the compile
+
+host tall sw  cells [(5, 7), (6, 7)], x 336 .. 368, 768 visible px, 616 inside the edges
+host tall se  cells [(6, 7), (6, 6)], x 368 .. 400, 768 visible px, 616 inside the edges
+host 2u sw    cells [(10, 7), (11, 7)], x 416 .. 448, 512 visible px, 392 inside the edges
+host 1u sw    cells [(15, 7), (16, 7)], x 496 .. 528, 256 visible px, 168 inside the edges
+
+== 1. SHEARED 5 x 7 (the shipped font), two digits a word apart, on a 3-unit face ==
+shear 5x7 sw (left), black, bare   lanes 1x2@(43,19) 1x2@(42,18); new pose blocks 30 (CGA 480 B), static art blocks 0 (0 B), records+maps 152 B
+shear 5x7 se (right), white, bare  lanes 1x2@(47,19) 1x2@(46,20); new pose blocks 31 (CGA 496 B), static art blocks 0 (0 B), records+maps 152 B
+shear 5x7 sw, black on a white plaque lanes 1x2@(43,19) 1x2@(42,18); new pose blocks 30 (CGA 480 B), static art blocks 5 (80 B), records+maps 152 B
+shear 5x7 se, black on a white plaque lanes 1x2@(47,19) 1x2@(46,20); new pose blocks 31 (CGA 496 B), static art blocks 5 (80 B), records+maps 152 B
+  wrote shear57.png
+
+== 2. ONE DIGIT A CELL: a 4 x 7 sheared, a digit on each column's face (16 px apart) ==
+shear 4x7 a cell sw, black, bare   lanes 1x1@(45,20) 1x1@(43,19); new pose blocks 10 (CGA 160 B), static art blocks 0 (0 B), records+maps 108 B
+shear 4x7 a cell se, white, bare   lanes 1x1@(49,19) 1x1@(47,20); new pose blocks 10 (CGA 160 B), static art blocks 0 (0 B), records+maps 108 B
+shear 4x7 a cell sw 2-unit, black, bare lanes 1x1@(54,25) 1x1@(52,24); new pose blocks 10 (CGA 160 B), static art blocks 0 (0 B), records+maps 108 B
+shear 4x7 a cell se 2-unit, white, bare lanes 1x1@(58,25) 1x1@(56,26); new pose blocks 10 (CGA 160 B), static art blocks 0 (0 B), records+maps 108 B
+  wrote percell47.png
+
+== 3. 2-unit and 1-unit faces ==
+shear 5x7 2-unit sw                lanes 1x2@(53,24) 1x2@(52,24); new pose blocks 30 (CGA 480 B), static art blocks 0 (0 B), records+maps 152 B
+shear 5x7 2-unit se                lanes 1x2@(57,25) 1x2@(56,25); new pose blocks 31 (CGA 496 B), static art blocks 0 (0 B), records+maps 152 B
+shear 5x7 1-unit sw                NO LEGAL PLACEMENT (the face is too small for the glyph)
+shear 3x5 1-unit sw                lanes 1x1@(63,30) 1x2@(62,29); new pose blocks 24 (CGA 384 B), static art blocks 0 (0 B), records+maps 130 B
+shear 3x5 1-unit se                lanes 1x1@(67,31) 1x2@(66,31); new pose blocks 23 (CGA 368 B), static art blocks 0 (0 B), records+maps 130 B
+  wrote small.png
+
+== 4. UPRIGHT (unsheared) on the same faces, for comparison ==
+upright 5x7 sw, black              lanes 1x1@(43,19) 1x2@(42,18); new pose blocks 29 (CGA 464 B), static art blocks 0 (0 B), records+maps 130 B
+upright 5x7 se, white              lanes 1x2@(47,19) 1x1@(46,20); new pose blocks 29 (CGA 464 B), static art blocks 0 (0 B), records+maps 130 B
+upright 5x7 sw, black, boxed       lanes 1x1@(43,19) 1x2@(42,18); new pose blocks 29 (CGA 464 B), static art blocks 4 (64 B), records+maps 130 B
+upright 5x7 se, black, boxed       lanes 1x2@(47,19) 1x1@(46,20); new pose blocks 29 (CGA 464 B), static art blocks 4 (64 B), records+maps 130 B
+upright 5x7 sw 2-unit, black, boxed lanes 1x2@(53,24) 1x1@(52,24); new pose blocks 29 (CGA 464 B), static art blocks 4 (64 B), records+maps 130 B
+upright 5x7 se 2-unit, black, boxed lanes 1x1@(57,25) 1x2@(56,25); new pose blocks 29 (CGA 464 B), static art blocks 4 (64 B), records+maps 130 B
+upright 5x7 sw, LEVEL, black, boxed lanes 1x1@(43,19) 1x1@(42,19); new pose blocks 20 (CGA 320 B), static art blocks 4 (64 B), records+maps 108 B
+upright 5x7 se, LEVEL, black, boxed lanes 1x1@(47,20) 1x1@(46,20); new pose blocks 20 (CGA 320 B), static art blocks 4 (64 B), records+maps 108 B
+upright 5x7 sw 2-unit, LEVEL, black, boxed lanes 1x1@(54,25) 1x1@(53,25); new pose blocks 20 (CGA 320 B), static art blocks 4 (64 B), records+maps 108 B
+upright 5x7 sw, a digit a cell, black, boxed lanes 1x1@(44,20) 1x1@(42,19); new pose blocks 10 (CGA 160 B), static art blocks 2 (32 B), records+maps 108 B
+upright 5x7 se, a digit a cell, black, boxed lanes 1x1@(48,19) 1x1@(46,20); new pose blocks 10 (CGA 160 B), static art blocks 2 (32 B), records+maps 108 B
+  wrote upright.png
+
+== 5. THREE digits (a limit of 100 s or more) across two cells ==
+shear 5x7 3 digits sw, black       lanes 1x2@(44,19) 1x2@(43,19) 1x2@(42,18); new pose blocks 30 (CGA 480 B), static art blocks 0 (0 B), records+maps 228 B
+shear 5x7 3 digits se, white       lanes 1x2@(48,19) 1x2@(47,19) 1x2@(46,20); new pose blocks 31 (CGA 496 B), static art blocks 0 (0 B), records+maps 228 B
+  wrote three.png
+
+== 6. a FLOOR clock: digits painted flat on a top (projected, 2 gu a glyph pixel) and as an upright decal ==
+floor projected '47': 144 ink px over 8 blocks (x 352 .. 383, lines 197 .. 209)
+floor decal     '47': 25 ink px over 4 blocks (x 369 .. 381, lines 198 .. 204)
+floor projected lanes 3x2 4x2  SHARED BLOCK; new pose blocks 84 (CGA 1344 B), records+maps 372 B
+  wrote floor.png
+
+== 7. on a real course: FIRST ROLL's plateau front (sw faces of (3..6, 6)) ==
+FIRST plateau sw 5x7 sheared, black, bare lanes 1x2@(27,18) 1x2@(26,18); new pose blocks 30 (CGA 480 B), static art blocks 0 (0 B), records+maps 152 B
+FIRST plateau sw 5x7 sheared, black on a white plaque lanes 1x2@(27,18) 1x2@(26,18); new pose blocks 30 (CGA 480 B), static art blocks 5 (80 B), records+maps 152 B
+FIRST plateau sw 5x7 upright, black, boxed lanes 1x2@(27,18) 1x1@(26,18); new pose blocks 29 (CGA 464 B), static art blocks 4 (64 B), records+maps 130 B
+FIRST plateau sw 5x7 LEVEL, black, boxed lanes 1x1@(27,18) 1x1@(26,18); new pose blocks 20 (CGA 320 B), static art blocks 4 (64 B), records+maps 108 B
+  wrote first.png
