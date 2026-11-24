@@ -1,0 +1,36 @@
+"""a LOOK (not a row): the SHIPPED game's F6 replay of the owner's BZR on MartyPC; the plate's byte and the ball"""
+import sys, os
+sys.path[:0] = ["/home/user/os8088/tests", "/home/user/os8088/tools"]
+os.chdir("/home/user/os8088")
+import bonanza_ring as R, os88marty as M, os88ui
+from PIL import Image
+S = sys.argv[1]; tag = sys.argv[2] if len(sys.argv) > 2 else "cga"
+sym = R.symbols()
+with os88ui.boot(R.at("build/os8088-360.img"), apps=S + "/bzr360.img", machine=R.MACHINE[tag]) as ui:
+    ui.open_drive("B")
+    ui.open("BONANZA.O88")
+    g = R.Bz(ui, tag, sym, live=True)
+    ui.settle()
+    m = g.m
+    g.key("F6")
+    ui.chooser_open("SYSTEM/APPDATA/001MILL.BZR")
+    M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 5, "replay starts", guest=60)
+    last = None
+    shots = 0
+    done_ = set()
+    while True:
+        m.pause()
+        st = (g.b("bz_mode"), g.w("bz_nstep"), g.d("bz_gx") >> 12, g.d("bz_gy") >> 12, g.b("bz_air"),
+              m.read(g.a("bz_fst"), 2).hex(), m.read(g.a("bz_fsl"), 6).hex(), g.b("bz_fs"))
+        if st[2:] != last:
+            print(st, flush=True)
+            last = st[2:]
+        if st[7] == 0 or st[1] > 1700:
+            break
+        for want in (900, 1150, 1450):
+            if st[1] >= want and want not in done_:
+                done_.add(want)
+                w, h, d = m.fbuf(0); Image.frombytes("RGB", (w, h), bytes(d)).save("%s/ship_%s_%d.png" % (S, tag, want))
+                print("shot", want, "lanes drawn", m.read(g.a("bz_ldrw"), 20).hex(), flush=True)
+        m.run()
+        M.guest_sleep(m, 0.05)

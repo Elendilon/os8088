@@ -1,0 +1,60 @@
+"""a LOOK (not a row): the SHIPPED game's LIVE play of MILL (mode 0, via the pathway), the owner's keys fed into
+bz_keys at every bz_step; the guest's ball and plate against the model's, step by step"""
+import sys, os
+sys.path[:0] = ["/home/user/os8088/tests", "/home/user/os8088/tools"]
+os.chdir("/home/user/os8088")
+import bonanza_ring as R, os88marty as M, os88ui, bbcourse as BB, bonanza_path as BP
+from PIL import Image
+S = sys.argv[1]; tag = sys.argv[2] if len(sys.argv) > 2 else "cga"
+log = open(S + "/001MILL.BZR", "rb").read()
+_K, mat, kt, _f = BB.decode_log_t(log)
+keys = [k for k, t in kt]
+c = R.course("mill")
+K = R.CRS_K["mill"]
+p = BB.Physics(c, play=True, mat=mat)
+sym = R.symbols()
+with os88ui.boot(R.at("build/os8088-360.img"), apps=R.at("build/bonanza360.img"), machine=R.MACHINE[tag]) as ui:
+    ui.open_drive("B")
+    ui.open("BONANZA.O88")
+    g = R.Bz(ui, tag, sym, live=True)
+    ui.settle()
+    m = g.m
+    BP.enter_game(g)
+    M.guest_sleep(m, 1.0)
+    m.pause()
+    m.bp_exec(g.a("bz_gcrs"))
+    m.run()
+    g.key("Enter")
+    assert m.wait_stop(60) == "breakpoint"
+    g.putb("bz_crs", K)
+    g.putb("bz_mat", mat)
+    m.bp_exec(g.a("bz_step"))
+    m.run()
+    n = None
+    first_bad = None
+    shots = {900, 1150, 1500}
+    while True:
+        if m.wait_stop(60) != "breakpoint":
+            print("no stop"); break
+        if g.b("bz_mode") != 0 or g.b("bz_crs") != K:
+            m.run(); continue
+        n = g.d("bz_nstep")
+        if n == 0:
+            print("live play of MILL, ball", g.b("bz_mat"), "log ball", mat, flush=True)
+        if n >= len(keys):
+            break
+        gs = (g.d("bz_gx") >> 12, g.d("bz_gy") >> 12, g.d("bz_gz") >> 6, m.read(g.a("bz_fst"), 1)[0])
+        ms = (p.gx >> 12, p.gy >> 12, p.gz >> 6, p.fst[0])
+        if gs != ms and first_bad is None:
+            first_bad = n
+            print("DIVERGE at step", n, "guest", gs, "model", ms, flush=True)
+        if n % 100 == 0 or (900 <= n <= 960 and n % 4 == 0):
+            print(n, "guest", gs, "model", ms, flush=True)
+        if n in shots:
+            shots.discard(n)
+            w, h, d = m.fbuf(0); Image.frombytes("RGB", (w, h), bytes(d)).save("%s/live_%s_%d.png" % (S, tag, n))
+        g.putb("bz_keys", keys[n])
+        p.step(keys[n])
+        m.run()
+    m.bp_exec()
+    print("end step", n, "first divergence", first_bad, "guest fst", m.read(g.a("bz_fst"), 2).hex(), flush=True)

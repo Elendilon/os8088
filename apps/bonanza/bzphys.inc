@@ -393,6 +393,13 @@ bz_pinit:
     call bz_flist               ; (130.25.6.10: each family's own records,
     mov es, [bz_cseg]           ; before its RESET walks them)
     mov byte [bz_fwall], 1      ; (every STEP runs at the first step: 130.25.6.11)
+    xor ax, ax                  ; ...and every slot's WAKE 0, every step (130.25.6.11):
+    mov bx, 2 * BZ_FAMMAX - 2   ; a wake a family set on the LAST course would
+.fwz:                           ; otherwise sleep this course's family in its
+    mov [bz_fwk + bx], ax       ; slot - MILL's see-saw slept until step 16384
+    dec bx                      ; behind a turntable's 4000h
+    dec bx
+    jns .fwz
     mov ax, BZ_HK_RESET         ; wave 9 (130.25.6.3): the families' RESET, class
     call bz_fall                ; 0 (bz_fst and the slots are zero), before the
                                 ; start's refill reads the state (none: no call)
@@ -1292,6 +1299,9 @@ bz_step:
     test byte [bz_fhk], BZ_FH_STEP ; wave 9 (130.25.6.3): the families' STEP
     jnz .fstep
 .count2:
+%ifdef BZSSLOG
+    call bz_ssrec               ; (the see-saw log, a diagnostic knob)
+%endif
     inc word [bz_nstep]
     jnz .counted
     inc word [bz_nstep + 2]

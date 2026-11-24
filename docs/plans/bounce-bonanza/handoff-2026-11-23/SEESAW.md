@@ -69,3 +69,43 @@ two-part MILL, bbgame (owner says the game was a normal build).
   construction.
 
 Soak rows for the lead: `bonanzaphys` (its `--check` runs `tilt_host`).
+
+## Follow-up, 2026-11-23 (evening): the owner's own recordings
+
+The owner recorded the fault twice on the shipped disks (`003MILL.BZR`, and `001MILL.BZR`, which stops after the
+flag at (22, 15)). The second was replayed and played in every way the tree offers, and the plate **tipped in
+each**, at the same step:
+
+| how | instrument | the plate |
+|---|---|---|
+| the model (`bbcourse.Physics`, the full compile, identity 9ABA = the build's) | `ss_trace.py.txt` | 0 -> 1 -> 2 at steps 932 - 936 |
+| the shipped `bonanza.bin` under unicorn, every step against the model, also with a game's lives (`life=`) | `ss_urun.py.txt` | equal at every step |
+| the BZDEV build's R replay on MartyPC, every frame against the model | `ss_marty.py.txt` | equal at every frame |
+| the SHIPPED game's own F6 replay on MartyPC, CGA, Hercules and VGA | `ss_ship.py.txt` | `bz_fst` 01 then 02 at 933 - 942 on all three; the plate's lanes redrawn |
+| a LIVE game play (pathway, mode 0) on MartyPC, the owner's keys fed into `bz_keys` at each `bz_step` | `ss_live.py.txt` | equal to the model at every step; tipped at 932 - 936 |
+| the builder's renderer (`bbplay.Art`) at step 1150 against the guest's frame | `ss_model_pic.py.txt` | the same picture |
+
+The owner's log also proves it: from step 942 to its end (1710) the ball never leaves (22 - 23, 19 - 20).
+**Why it is trapped**: the heights (half units) at the plate. At rest (pose 0) the plate is a flush bridge,
+the plaza at -4, the plate from -4 at y 17 to +4 at y 21, and the ramp beyond from +4 down to -8. The ball
+rolls up onto the plus half; after TL_DW grounded steps (rubber 8) the plate tips (pose 2), and its plus end
+drops to -4 while the ramp still starts at +4 - **a 2-unit wall in front of the ball**, and the plaza end
+up at +4 behind it. The ball rolls back and forth in that V. So MILL's plate as placed tips the ball into a
+pit whenever the ball dawdles on the plus half, and only a fast pass (under 8 grounded steps there)
+reaches the ramp. That is the design question SEESAW.md's "What to try next" already named (the pivot or the
+rest pose so the tipped end meets the ramp), and it is what the owner's report most likely describes.
+Still open: the owner's machine (the 5150's Hercules or CGA, PCem, 86Box) - nothing in MartyPC draws it wrong.
+
+## RESOLVED, 2026-11-23 (late): a stale STEP wake
+
+The owner's `BZSSLOG=1` log (the diagnostic knob written for this) read the see-saw slot's (3) wake as
+**16384**; the tree's run read 0. Nothing cleared `bz_fwk` between plays, so a turntable's, gate's or
+spike's "nothing due" `n + 4000h` from a course played earlier in the same instance slept MILL's see-saw
+(which never writes its wake) until step 16,384. Every test here launched MILL fresh, so the table was clean.
+Fix: `bz_pinit` zeroes every wake (SPEC.md 130.25.6.11). Shown both ways on MartyPC with 4000h planted in
+slot 3 before `001MILL.BZR`'s replay: the pre-fix package never tips, the fixed one tips at 934 - 939.
+Where the 4000h came from (MEASURED on MartyPC with the owner's steps): the TITLE's demo course, whose slot 3
+is GLASS; glass slept its slot at the demo's step 9 and the pathway (no families) kept it. The "pit" above (a
+tipped plate 2 units under the ramp) is INTENDED - the owner: you have to jump, at the right time, to make it
+over. NEXT: the occluders are cut from the rest picture, so a tipped plate's rest-pose edge and column are laid
+over a ball on its low end (SPEC.md 130.42.10 item 5) - a plan is with the owner.
