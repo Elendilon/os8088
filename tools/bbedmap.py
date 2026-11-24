@@ -511,7 +511,7 @@ class MapTab(object):
         if k == "pad":
             n = self.sel[1]
             if n != max(m["pads"]):
-                self.app._msg("Pads are numbered 0 to %d: only the last (pad %d) can be deleted. Change a pad's course "
+                self.app._error("Pads are numbered 0 to %d: only the last (pad %d) can be deleted. Change a pad's course "
                               "to replace it." % (max(m["pads"]), max(m["pads"])))
                 return
             rm = [it["line"]] + [r["line"] for r in m["routes"] if n in (r["a"], r["b"])] + \
@@ -542,7 +542,7 @@ class MapTab(object):
             d.destroy()
             ex = free_exit(m, a, pad_exits(m, a, self.app.doc.text(), self.app.doc.path))
             if a == b or ex is None:
-                self.app._msg("A route joins two different pads, on an exit the first pad's course has free")
+                self.app._error("A route joins two different pads, on an exit the first pad's course has free")
                 return
             if self.edit({}, "add a route", inserts=[route_code(new_route(m, a, b, ex))]):
                 self.sel = ("route", len(self.m["routes"]) - 1)
@@ -587,7 +587,7 @@ class MapTab(object):
         frm = [n for n in sorted(m["pads"]) if free_exit(m, n, pad_exits(m, n, text, dpath)) is not None]
         if not frm:
             d.destroy()
-            self.app._msg("No pad's course has an exit free for a new route: give a course another exit first")
+            self.app._error("No pad's course has an exit free for a new route: give a course another exit first")
             return
         fv = tk.StringVar(value=("%d %s" % (self.sel[1], m["pads"][self.sel[1]]["crs"])) if self.sel and
                           self.sel[0] == "pad" else ("%d %s" % (frm[-1], m["pads"][frm[-1]]["crs"]) if frm else ""))
@@ -619,7 +619,7 @@ class MapTab(object):
                                  ("icons/" + p["icon"], os.path.join(B.COURSE_DIR, "icons", p["icon"])),
                                  exits=pad_exits(self.m, p["from"], self.app.doc.text(), self.app.doc.path))
         except ValueError as e:
-            self.app._msg(str(e))
+            self.app._error(str(e))
             return
         n = max(self.m["pads"]) + 1
         if self.edit({}, "put %s on the map" % p["crs"], inserts=codes):

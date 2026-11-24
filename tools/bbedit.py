@@ -533,10 +533,16 @@ class App(object):
                 self.br_cb.pack(side="left", padx=(0, 6))
                 self.br_cb.bind("<<ComboboxSelected>>", self._branch_chosen)
         self.iso_opts = ttk.Frame(vb2)
+        # (two lines: the card and X-ray, then the occluder overlays - on one they ran 61 px off the view at the
+        #  window's first size, SPEC.md 130.58.54)
+        iso1 = ttk.Frame(self.iso_opts)
+        iso1.pack(side="top", anchor="w")
+        self.iso_occ_row = ttk.Frame(self.iso_opts)
+        self.iso_occ_row.pack(side="top", anchor="w")
         for txt, v in (("CGA", "cga"), ("Hercules", "herc")):
-            ttk.Radiobutton(self.iso_opts, text=txt, variable=self.adapter, value=v,
+            ttk.Radiobutton(iso1, text=txt, variable=self.adapter, value=v,
                             command=self._redraw).pack(side="left")
-        ttk.Checkbutton(self.iso_opts, text="X-ray the selection", variable=self.xray,
+        ttk.Checkbutton(iso1, text="X-ray the selection", variable=self.xray,
                         command=self._redraw).pack(side="left", padx=6)
         # the gap band's row (SPEC.md 130.58.21): the Iso view's alone, under the toolbar
         self.gap_row = ttk.Frame(mid, padding=(4, 0, 4, 4))
@@ -548,12 +554,15 @@ class App(object):
         ttk.Label(self.gap_row, text="px wide").pack(side="left")
         self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80", justify="left")   # (a line of its
         wrap_to(self.gap_l, self.gap_row, 40)                           # own under the row while it says something)
-        self.occ = bbedocc.OccView(self, self.iso_opts)  # SPEC.md 130.58.32: the Occluders and Shade overlays (beside
+        self.occ = bbedocc.OccView(self, self.iso_occ_row)  # SPEC.md 130.58.32: the Occluders and Shade overlays (beside
         #                                                  X-ray since 130.58.54: beside Gap bands they ran off the view)
         self.kit_row = ttk.Frame(mid, padding=(4, 0, 4, 4))     # SPEC.md 130.58.52: the Kit overlay, a row of its own
         self.kitv = bbedkit.KitView(self, self.kit_row)
         self.gap_row_after = vb2
-        self.banner = tk.Frame(mid, background="#fde2df", padx=8, pady=6)
+        # SPEC.md 130.58.56: the banner is the WINDOW's, over the notebook - an edit refused, or an error, from any
+        # tab shows in the tab it was made in (it was the Build tab's, so the Course, Source, Map and Kit tabs'
+        # errors were a cut line in the status bar)
+        self.banner = tk.Frame(self.root, background="#fde2df", padx=8, pady=6)
         self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
                                  justify="left", anchor="w", wraplength=700)
         # (the buttons packed FIRST and the text wrapped to what they leave, so a long refusal never pushes them
@@ -1007,8 +1016,10 @@ class App(object):
         self._edit(self.doc.set_text, text, label="edit the source", _allow=True)
         self._fill_source()
         err = self.doc.analysis()["error"]
-        self._msg(("Applied the text. It does not build: %s" % explain(err).split("\n")[0]) if err
-                  else "Applied the text (one undo step)")
+        if err:                         # SPEC.md 130.58.56: an error shows where it was made, over this tab
+            self._error("Applied the text. It does not build: %s" % explain(err).split("\n")[0])
+        else:
+            self._msg("Applied the text (one undo step)")
 
     def src_revert(self):
         self.src_dirty = False
@@ -1174,7 +1185,7 @@ class App(object):
         try:
             r = fn(*a, **kw)
         except E.EditError as e:
-            self._msg(str(e))
+            self._error(str(e))
             return None
         added = self.doc.auto_uses()
         band = self.doc.auto_band()
@@ -1259,8 +1270,13 @@ class App(object):
         else:
             self.banner_keep.pack_forget()
         if not self.banner_shown:
-            self.banner.pack(side="top", fill="x", before=self.cf)
+            self.banner.pack(side="top", fill="x", before=self.nb)
             self.banner_shown = True
+
+    def _error(self, text):
+        """SPEC.md 130.58.56: an error from any tab - the window's banner (over every tab) and the status bar"""
+        self._msg(text)
+        self._banner(text)
 
     def _fit_banner(self):
         w = self.banner.winfo_width() - self.banner_dismiss.winfo_reqwidth() - 40 - (
@@ -1276,7 +1292,7 @@ class App(object):
             try:
                 fn(*a, **kw)
             except E.EditError as e:
-                self._msg(str(e))
+                self._error(str(e))
             self.doc.auto_uses()
 
     def delete(self):
@@ -1430,7 +1446,7 @@ class App(object):
             put("lock", "lock across" if cv["cv_lock"] else None)          # SPEC.md 130.45
             put("stop", "stop " + " ".join(stops) if stops else None)      # SPEC.md 130.45.4 - 130.45.6
         except E.EditError as e:
-            self._msg(str(e))
+            self._error(str(e))
         return True
 
     # -- the palette --------------------------------------------------------

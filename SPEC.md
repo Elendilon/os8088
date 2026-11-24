@@ -292153,3 +292153,21 @@ own edits refilled the tab; it did not cover the refill from anything else.)
   with Tk): typing marks it; an unrelated edit and an undo keep it; Save writes it; Apply cleans it; a refused
   Apply keeps it; opening another course shows that course's. Its control is the tree before the fix, where an
   unrelated edit put the title back and Save wrote the old one.
+
+#### 130.58.56 An error shows in the tab it was made in (the owner, 2026-11-24)
+
+*"Errors are once again only in the 'Build' tab. If an error occurs while taking an action in another tab, it
+needs to show in that tab."* The banner a refused edit raises (130.58.38) was built inside the Build tab's
+centre pane, so it showed only there; an error from the Course, Source or Map tab went to the status bar alone,
+which 130.58.54 shortens with an ellipsis - a cut grey line at the window's foot.
+
+- **The banner is the WINDOW's**: created on the root and packed directly over the notebook, so it shows over
+  whichever tab is open. Its words, Dismiss and "Keep it anyway" are as before; a successful edit still clears it.
+- **`_error(text)`** puts an error in the banner as well as the status bar. It is what reports a refused edit
+  (`_edit`'s `EditError`, and "Keep it anyway"'s), a Course tab Apply the course refuses (`_apply_course`), a
+  Source tab apply whose text does not build (`src_apply`), and the Map tab's refusals (a pad not the last
+  deleted, a route between two different pads, no exit free, a course that cannot be placed). Plain reports
+  (what was selected, what changed) stay `_msg`'s, in the status bar.
+- **The check**: `tools/bbedcvtab.py` (130.58.55's) also selects the Course tab and applies a refused width,
+  and the Source tab and applies a statement that does not build - the banner shown, over that tab, each time -
+  and a good edit then clears it. Before the change both of the first two fail.
