@@ -3564,9 +3564,8 @@ def poison_host(binp, lst, sym, fam):
     out, fails = [], []
     R.crs_fill()                                    # (CRS_K fills itself lazily: every shipped course, in K order)
     for name, k in sorted(R.CRS_K.items(), key=lambda x: x[1]):
-        if os.path.basename(R.COURSES[name]) != name + ".bbc" and not os.path.exists(
-                R.at("build/bonanza-art/BZD%s.BIN" % name.upper())):
-            continue                                # (a course with no BZD part ships no demo)
+        if not os.path.exists(R.at("build/bonanza-art/BZD%s.BIN" % name.upper())):
+            continue                                # (no BZD part: a TEST course of the BZDEV build ships no demo)
         c = R.course(name)
         if not BB.Physics(c, play=True, mat=0).fam:
             continue
