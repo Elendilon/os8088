@@ -1,0 +1,91 @@
+ART-HOSTED CLOCKS, round 2: docs/plans/bonanza-courses/wallclock/round2/wallclock2.py
+
+FIRST as shipped: picture part 9192 B RAM, 2796 B LZ4, 140 blocks (MEASURED)
+
+== E1: a STATION CLOCK, 2 columns, FIRST's plateau front (sw faces of (4, 6), (5, 6)) ==
+  the art 4 lines under the face's top edge (the offset that admits the most forms)
+  E1 station sw, level 5x7, black digits                         lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E1 station sw, level 5x7, white digits                         lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E1 station sw, stepped, black digits                           lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+  E1 station sw, stepped, white digits                           lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+  E1 station sw, italic, black digits                            lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E1 station sw, italic, white digits                            lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+
+== E2: a SCOREBOARD, 3 columns, FIRST's plateau front (sw faces of (6, 6) - (8, 6)) ==
+  E2 board sw, level 5x7, white digits                           lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E2 board sw, stepped, white digits                             lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+  E2 board sw, italic, white digits                              lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E2 board sw (cyan field), level 5x7, black digits              lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E2 board sw (cyan field), stepped, black digits                lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+
+== E5: a RAIL BANNER, 4 columns, 2 units: FIRST's back rail (sw faces of (3, 3) - (6, 3)) ==
+  E5 banner sw, level 5x7, black digits                          NO LEGAL PLACEMENT in the window
+  E5 banner sw, level 5x7, white digits                          NO LEGAL PLACEMENT in the window
+  E5 banner sw, stepped, black digits                            lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+  E5 banner sw, stepped, white digits                            lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+  E5 banner sw, italic, black digits                             NO LEGAL PLACEMENT in the window
+  E5 banner sw, italic, white digits                             NO LEGAL PLACEMENT in the window
+
+== E6: a SUNDIAL on FIRST's plateau top (cells (4 - 6, 4 - 5); the start is (4, 5)) ==
+  E6 sundial floor, level 5x7, black digits                      lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+  E6 sundial floor, level 5x7, white digits                      lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+
+
+MILL as shipped: picture part 58838 B RAM, 23095 B LZ4, 1175 blocks (MEASURED)
+== E3: the SAME scoreboard source on an se face: MILL (se faces of (35, 25) - (35, 23)) ==
+  E3 board se, level 5x7, white digits                           lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+  E3 board se, stepped, white digits                             lanes 1x2 1x1; new pose blocks 30 (480 B); records+maps 130 B; course records in them 0
+  E3 board se, italic, white digits                              lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+  E3 board se (cyan field), level 5x7, black digits              lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+  E3 board se (cyan field), stepped, black digits                lanes 1x2 1x1; new pose blocks 30 (480 B); records+maps 130 B; course records in them 0
+
+== E4: a DELFT TILE PANEL, 4 columns, MILL (sw faces of (26, 49) - (29, 49)) ==
+  E4 delft sw, level 5x7, black digits                           lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+  E4 delft sw, stepped, black digits                             lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+  E4 delft sw, italic, black digits                              lanes 1x1 1x1; new pose blocks 20 (320 B); records+maps 108 B; course records in them 0
+  E4 delft sw (cyan field), level 5x7, white digits              lanes 1x1 1x1; new pose blocks 10 (160 B); records+maps 108 B; course records in them 0
+  E4 delft sw (cyan field), stepped, white digits                lanes 1x2 1x1; new pose blocks 28 (448 B); records+maps 130 B; course records in them 0
+
+== COSTS: each piece compiled into its course as an `art` statement, then its digits' new pose blocks parked in the void (MEASURED, picture part) ==
+  E1 station clock (2 col, sw)           art: +19 blocks, +304 B RAM, +228 B LZ4
+    level 5x7, black digits                                      poses +10 blocks, +160 B RAM, +128 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, white digits                                      poses +10 blocks, +160 B RAM, +143 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    stepped, black digits                                        poses +28 blocks, +448 B RAM, +257 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    stepped, white digits                                        poses +28 blocks, +448 B RAM, +250 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    italic, black digits                                         poses +10 blocks, +160 B RAM, +128 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    italic, white digits                                         poses +10 blocks, +160 B RAM, +131 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+  E2 scoreboard (3 col, sw)              art: +18 blocks, +288 B RAM, +223 B LZ4
+    level 5x7, white digits                                      poses +10 blocks, +160 B RAM, +142 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    stepped, white digits                                        poses +28 blocks, +448 B RAM, +246 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    italic, white digits                                         poses +10 blocks, +160 B RAM, +132 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+  E5 rail banner (4 col, 2 units, sw)    art: +9 blocks, +144 B RAM, +128 B LZ4
+    stepped, black digits                                        poses +28 blocks, +448 B RAM, +253 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    stepped, white digits                                        poses +28 blocks, +448 B RAM, +256 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+  E6 sundial (floor)                     art: +23 blocks, +368 B RAM, +281 B LZ4
+    level 5x7, black digits                                      poses +20 blocks, +320 B RAM, +234 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, white digits                                      poses +20 blocks, +320 B RAM, +242 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+  E3 scoreboard (3 col, se)              art: +19 blocks, +304 B RAM, +203 B LZ4
+    level 5x7, white digits                                      poses +20 blocks, +320 B RAM, +185 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    stepped, white digits                                        poses +30 blocks, +480 B RAM, +239 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    italic, white digits                                         poses +20 blocks, +320 B RAM, +180 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+  E4 Delft panel (4 col, sw)             art: +40 blocks, +640 B RAM, +459 B LZ4
+    level 5x7, black digits                                      poses +20 blocks, +320 B RAM, +178 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    stepped, black digits                                        poses +28 blocks, +448 B RAM, +252 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    italic, black digits                                         poses +20 blocks, +320 B RAM, +182 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+
+== the PER-FACING FONT alone: its 10 digits' blocks on a plain field, laid in FIRST's void (MEASURED) ==
+  sw digits, black on cyan   : 10 blocks, +160 B RAM, +117 B LZ4 in FIRST's part; the 10 alone LZ4 129 B
+  sw digits, white on cyan   : 10 blocks, +160 B RAM, +126 B LZ4 in FIRST's part; the 10 alone LZ4 121 B
+  sw digits, white on black  : 10 blocks, +160 B RAM, +123 B LZ4 in FIRST's part; the 10 alone LZ4 121 B
+  sw digits, black on white  : 10 blocks, +160 B RAM, +126 B LZ4 in FIRST's part; the 10 alone LZ4 129 B
+  sw digits, black on magenta: 10 blocks, +160 B RAM, +128 B LZ4 in FIRST's part; the 10 alone LZ4 129 B
+  sw digits, white on magenta: 10 blocks, +160 B RAM, +129 B LZ4 in FIRST's part; the 10 alone LZ4 121 B
+  se digits, black on cyan   : 10 blocks, +160 B RAM, +110 B LZ4 in FIRST's part; the 10 alone LZ4 127 B
+  se digits, white on cyan   : 10 blocks, +160 B RAM, +124 B LZ4 in FIRST's part; the 10 alone LZ4 129 B
+  se digits, white on black  : 10 blocks, +160 B RAM, +119 B LZ4 in FIRST's part; the 10 alone LZ4 129 B
+  se digits, black on white  : 10 blocks, +160 B RAM, +119 B LZ4 in FIRST's part; the 10 alone LZ4 127 B
+  se digits, black on magenta: 10 blocks, +160 B RAM, +121 B LZ4 in FIRST's part; the 10 alone LZ4 127 B
+  se digits, white on magenta: 10 blocks, +160 B RAM, +126 B LZ4 in FIRST's part; the 10 alone LZ4 129 B
+
+== DIGIT COLOUR on today's clocks: FIRST's two crystal clocks with WHITE digits (clock_glyph's ink) ==
+  black (shipped): 9192 B RAM, 2796 B LZ4, 140 blocks; white: 9192 B RAM, 2798 B LZ4, 140 blocks (MEASURED)
