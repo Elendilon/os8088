@@ -234,3 +234,232 @@ need to be able to span multiple columns. The artwork would, just like with toda
   moment, which is fine.
 
 Round 2 (below, when it lands) costs those two: art-hosted clocks on a face and on a floor.
+
+## Round 2: art-hosted clocks (2026-11-24)
+
+**Status: research only, for the owner to decide.** Nothing in the game, the tool or SPEC.md changes. The study
+is [`round2/wallclock2.py`](bonanza-courses/wallclock/round2/wallclock2.py) (host only, about 6 minutes, 25 s
+with `--quick`, which skips MILL), with the per-facing digits in
+[`round2/fonts.py`](bonanza-courses/wallclock/round2/fonts.py); its output is
+[`round2/numbers.txt`](bonanza-courses/wallclock/round2/numbers.txt). It reuses round 1's machinery (the face
+reader, the lane counter, the three-card panels) and adds:
+
+- **art authored FLAT** (an elevation: `u` px along the face, `v` px down it, the course's four inks), with a
+  declared **digit window**, written as a text pixmap in the `art` statement's own format (130.23.2) with a
+  `# digits U0 V0 U1 V1` line: [`art_station.bba`](bonanza-courses/wallclock/round2/art_station.bba),
+  [`art_board.bba`](bonanza-courses/wallclock/round2/art_board.bba),
+  [`art_strip.bba`](bonanza-courses/wallclock/round2/art_strip.bba),
+  [`art_delft.bba`](bonanza-courses/wallclock/round2/art_delft.bba);
+- **projection onto a real face**: each column `x` of the art drawn at `plane(x) + 1 + V0 + v`, where `plane` is
+  the face's own top-edge staircase read off the compile (`sw`: `off + (x + 1) // 2`; `se`:
+  `off - (x + 1) // 2`) and extended over the whole run of columns, then clipped to the host cells' VISIBLE
+  pixels (`sbuf`), so what stands in front is never painted;
+- **the digit lanes** placed in the window (every ink pixel of every pose inside it), in three forms and two
+  inks;
+- **the part MEASURED**: the course compiled again with the projected art as a real `art` statement, and again
+  with the digits' new pose blocks laid in the picture's void as art (a pose IS its blocks, 130.12.3.1, so this
+  carries exactly the blocks the lanes would add), RAM and LZ4 of the picture part (`packed_len`), against the
+  course as shipped.
+
+**Labels.** MEASURED = counted from the tool's compile (blocks, records, part bytes) or by the study's
+placement check. PREDICTED = arithmetic from SPEC.md's figures. No emulator ran (the pictures are the
+compile's pixels, as every course preview is; the Hercules through `herc_pair`).
+
+### The pieces and the pictures
+
+| | art | host | pictures |
+|---|---|---|---|
+| **E1** | a STATION CLOCK: a white enamel case hung on a black bracket, a bell, a dithered shaded edge, a CYAN dial with four hour pips | FIRST's plateau front, 2 columns, `sw` (4, 6) - (5, 6) | [e1_station_sw.png](bonanza-courses/wallclock/round2/e1_station_sw.png) |
+| **E2** | a SCOREBOARD: a black board in a white-and-cyan frame lit from the upper left, "TIME" in white, two lamps; a black field (or cyan) | FIRST's plateau front, 3 columns, `sw` (6, 6) - (8, 6) | [e2_board_sw.png](bonanza-courses/wallclock/round2/e2_board_sw.png) |
+| **E3** | **the same scoreboard SOURCE** as E2, unchanged | MILL, 3 columns, `se` (35, 25) - (35, 23) | [e3_board_se.png](bonanza-courses/wallclock/round2/e3_board_se.png) |
+| **E4** | a DELFT TILE PANEL for WINDMILL LANE (its clocks are Delft vases): white tiles, one tile column a face column, cyan corner motifs, a cyan windmill across the tiles, and a long cartouche tile whose white holds the digits | MILL, 4 columns, `sw` (26, 49) - (29, 49) | [e4_delft_sw.png](bonanza-courses/wallclock/round2/e4_delft_sw.png) |
+| **E5** | a RAIL BANNER: a cyan band with white chevrons, on a 2-UNIT face | FIRST's back rail, 4 columns, `sw` (3, 3) - (6, 3) | [e5_banner_sw.png](bonanza-courses/wallclock/round2/e5_banner_sw.png) |
+| **E6** | a SUNDIAL painted on the floor: a white dial, black rim and hour marks, the gnomon's shadow, a cyan field disc at its middle | FIRST's plateau top, (3 - 6, 4 - 6), the start's own floor | [e6_sundial_floor.png](bonanza-courses/wallclock/round2/e6_sundial_floor.png) |
+
+Each sheet is the art blank, then each digit form and ink with "47" on it, every row CGA | Hercules | VGA (the
+VGA's mode 0Dh shows the CGA's four colours, the same blocks converted at load: round 1). The whole of FIRST
+with E1, E2, E5 and E6 and live digits is [first_context.png](bonanza-courses/wallclock/round2/first_context.png)
+(an illustration: four clocks on FIRST would break the 6-lanes-a-window bound, below). The per-facing digit sets
+are [fonts.png](bonanza-courses/wallclock/round2/fonts.png); today's crystal clock with white digits is
+[crystal_ink.png](bonanza-courses/wallclock/round2/crystal_ink.png).
+
+### The digit forms
+
+| form | what | lanes (2 digits) | needs a window (flat) of about |
+|---|---|---|---|
+| **level** | the shipped 5 x 7 (`CLOCK_FONT`), upright, both on one level line (round 1's legible form) | 1 x 1, 1 x 1 | 17 wide x 18 - 20 tall: a level row 13 px wide crosses 7 lines of the face's slope, and the block grid adds a few |
+| **stepped** (per-facing) | a hand-shaped 4 x 7 drawn IN the facing's perspective, the units 8 px right and 4 lines down (`sw`) or up (`se`): the digit line lies on the face | 1 x 2 (one place), 1 x 1 | 20 x 10: the digit line follows the face, so the window is just a glyph tall |
+| **italic** (per-facing) | the same glyphs on ONE level line: each digit leans with the face, the line does not | 1 x 1, 1 x 1 | 20 x 14 |
+
+**The per-facing font** (the owner's "a font per facing", [fonts.png](bonanza-courses/wallclock/round2/fonts.png)):
+a 4-px glyph on a face falls exactly ONE line across its width (the face steps on odd columns), so a 4 x 7 drawn
+in the face's perspective is **8 lines, one block** - where round 1's mechanical shear of the 5 x 7 was 9 lines
+and always a 1 x 2 lane. Each glyph is drawn by hand for its facing: a "horizontal" stroke is two pixels then a
+line down (`sw`) or up (`se`), parallel to the face's edge; verticals stay vertical; diagonals are redrawn, not
+sheared. A glyph must start on an odd picture column (word column 1 or 3), the tool's legality rule.
+
+### R2.1 The wall art: authoring, placement, facings, seams, digits
+
+- **Authoring**: FLAT, an elevation in face pixels, with the digit window declared in the same coordinates.
+  The tool projects it: every column offset by the face's own staircase (1 line per 2 px), so the art lies ON
+  the face (the "TIME" on E2/E3 and the tile joints on E4 are flat source, projected). Width is free: 1 - 4
+  columns is just the art's width; the run of cells is the host. MEASURED: 2 (E1), 3 (E2, E3) and 4 (E4, E5)
+  columns, every pixel clipped to the host's visible face pixels (a pixel above a column's lower top, as over
+  FIRST's ramp at (7, 6) and (8, 6), would simply not be painted; E2 sits under it).
+- **One source serves both facings** (MEASURED: E2's and E3's source is the same file). The projection is the
+  only per-facing step: an elevation has no facing, and text in it reads left to right on both. What does NOT
+  carry over is LIGHT: the course lights `sw` faces solid and `se` faces as a dither, and an art piece lit from
+  the upper left keeps its own lighting on both (E3's frame reads fine). A piece that wants the face's shading
+  mirrored is a second source, the author's choice, not a rule.
+- **Seams**: the art paints over the face's black seam pixels (they are face pixels with the cell's key); a
+  piece that wants them (E4's tile joints ARE the seams: one tile column a face column) draws its own lines
+  there. Every pixel keeps its own cell's key, so a seam under the art changes nothing in the records.
+- **The digits**: in the window, in any of the three forms above (per clock), placed by the tool on the block
+  grid. The art's offset on the face is free per pixel, so when the window and the grid do not agree the tool
+  names the nearest offset that does (the study's `fit`, as 130.18.5.5 names the nearest legal anchor).
+  **Height decides the form**: on a 2-unit face (E5, 16 px) only the STEPPED per-facing form fits (MEASURED:
+  level and italic have no legal place); 3 units and up take all three.
+- **Legibility on the Hercules comes from the art's field**, not a plate: a BLACK field (E2/E3's board: white
+  digits, full contrast on both cards) or a WHITE one (E4's tiles: black digits) carries the digits on every
+  card; a CYAN or MAGENTA field (E1's dial, the cyan variants) is the Hercules' grey checker and takes black or
+  white digits as the bare face does - the owner reads black digits on the bare face as fine, and the pictures
+  show both inks on every field that allows them.
+
+### R2.2 The floor art
+
+- Authored in PLAN (cells; E6 is a function of the floor point, the way `first/decals.py` and `down/art.py`
+  draw floor decals), projected onto the top (`(16 (X - Y), 8 (X + Y) - 4 z0)`), clipped to the host tops'
+  visible pixels. MEASURED: E6 on FIRST's plateau, around the start.
+- **Digits LEVEL** (the 5 x 7, upright on the floor, 1 x 1 lanes): legal in the dial's field. Projected digits
+  stay as round 1 found them (unreadable, shared blocks, refused by the format). A per-floor hand font is not
+  worth it: a floor squashes a glyph 2:1, so a legible one would be about 9 lines and 1 x 2 at best.
+- **The ball over it**: the ball is drawn over the picture, so it hides the digits for a moment (the owner's
+  "fine"); a due digit whose lane meets the ball's boxes is composed in the contact box or waits a frame
+  (130.12.4.2), as a rotor does. It is the clock most often in the contact box (the route crosses it), the
+  per-second cost's worst case, not a new mechanism.
+- **Conflicts with the floor's own occluders and props** (MEASURED for E6): the lanes' blocks hold **0** of
+  the course's records and share no block with another lane. A floor clock can share no block with a prop's
+  lane (a pad, a boost, a flag; 130.12.4.6, refused as every lane is) and must leave the start window's free
+  4 x 3 corner (130.12.4.6); E6, beside FIRST's start, passes the study's lane check, and a real build would
+  also run the start-window rule.
+
+### R2.3 Example art pieces
+
+The six above, each on CGA, Hercules and VGA, with black and white digits wherever the field allows both.
+
+### R2.4 Cost
+
+**Per art piece** (MEASURED: the course compiled with the piece as an `art` statement, picture part):
+
+| piece | blocks | RAM | LZ4 |
+|---|---|---|---|
+| E1 station clock, 2 col | +19 | +304 | +228 |
+| E2 scoreboard, 3 col (FIRST) | +18 | +288 | +223 |
+| E3 the same scoreboard on MILL's `se` | +19 | +304 | +203 |
+| E4 Delft panel, 4 col x 58 px | +40 | +640 | +459 |
+| E5 rail banner, 4 col, 2 units | +9 | +144 | +128 |
+| E6 sundial (floor) | +23 | +368 | +281 |
+
+**Records and masks: none.** MEASURED: FIRST with E2, E5 and E6 compiled in has 58 records and 26 masks, the
+same records in the same blocks with the same masks as without them (130.23.2: art writes colour, the keys
+are the surface's).
+
+**Per clock, the digits** (MEASURED blocks and part bytes, the poses laid in the course; records and pose maps
+PREDICTED, 32 bytes a lane and 11 x w x h words, 130.12.3.1):
+
+| form | pose blocks | RAM (blocks) | LZ4 | + records/maps |
+|---|---|---|---|---|
+| level, a UNIFORM field (E1, E2, E4 cyan) | **10** | 160 | 128 - 143 | 108 |
+| level, a non-uniform field (E3, E4's tiles, E6's dial) | 20 | 320 | 178 - 242 | 108 |
+| italic | 10 - 20 | 160 - 320 | 124 - 182 | 108 |
+| stepped | 28 - 30 | 448 - 480 | 239 - 306 | 130 |
+
+A uniform field halves the level digits: both places' blocks are then the same 10 (the background under each
+place is identical), which no prop clock had (its face is shaded under each place).
+
+**A whole clock** (art + digits + records, RAM): the station clock, level, **about 572 bytes**; the scoreboard,
+level, about 556; the rail banner, stepped, about 722; the sundial about 796; MILL's Delft panel, level, about
+1,068. LZ4 about 350 - 650 plus the records' share. Today's prop clocks on FIRST (round 1, MEASURED): **+328 to
++1,340 RAM, +152 to +332 LZ4** a clock - most of the upper figure the keyed frame's masks and records, which art
+does not have; MILL's vase restyle moved its four clocks' picture by 17 blocks (130.18.5.2). So an art clock
+costs about what a prop clock costs, spent on picture rather than on keying, and none of it is tile space.
+
+**The per-facing font's storage** (MEASURED, the 10 digits on a plain field laid in FIRST's void): **10 blocks,
+160 bytes RAM, 110 - 129 bytes LZ4 in the part**, for each facing, ink and field (121 - 129 bytes LZ4 for the 10
+alone). On a non-uniform field each place adds its own (20), and the STEPPED form's 1 x 2 place about 18 more.
+**Who pays**: a course pays for the facings, inks and fields it USES (a pose is blocks in the course's own pool);
+one with only `sw` clocks never carries the `se` set. **In the kit**: the kit already holds every block at
+least 3 pool courses hold, lane poses included (130.37.2, 130.37.3), so digits on a STANDARD field (black board,
+white tile, cyan) used by 3 courses would move into `BZKIT.BIN` with no new mechanism: on disk a course then
+NAMES them (a bit each in its `KITREF` bitmap) instead of carrying ~120 LZ4 bytes, and the kit carries them
+once; in RAM nothing changes (the kit's pieces are copied into the course's part at load, 130.37), so **RAM stays
+160 a set per course; only the disk is saved** (PREDICTED from 130.37's rules). A font held ONCE in RAM and drawn
+onto any background would need the guest to compose a glyph into a block (a new lane draw, about 40 - 80 bytes,
+PREDICTED) - not worth it at 160 bytes a course.
+
+**Digit colour** (black or white, per clock): a BUILD-TIME choice, **no guest code** - the ink is only which
+pixels the tool writes into the pose blocks (`clock_glyph` hard-codes black today). MEASURED on today's crystal
+clocks (FIRST, `clock_glyph` patched to white,
+[crystal_ink.png](bonanza-courses/wallclock/round2/crystal_ink.png)): **140 blocks either way, 9,192 bytes RAM
+either way, LZ4 2,796 -> 2,798**. A clock pays for one ink; only a course that puts BOTH inks on the same field
+pays twice (another 10 - 20 blocks). On the vase clocks white digits need a non-white belly - an art change,
+not a cost. The tool's work: an `ink black|white` clause on `clock` (and on the art clock's statement), a few
+lines.
+
+**Guest code: 0 bytes** (PREDICTED, as round 1): the CLOCK lane kind draws any pose blocks in a 1 x 1 or 1 x 2
+lane; ink and font are the tool's. Round 1's risk list stands (any site assuming a CLOCK record stands on its
+own floor cell).
+
+**Per second on the 8088** (PREDICTED from 130.11.3's 1,070 clk a block and round 1's commit model): level and
+italic are today's clock exactly, **about 1.2 - 1.9k clk a second**. Stepped has one 1 x 2 place: on the TENS
+(the tool chooses which place takes the 4-line phase; the study took the nearer placement, which gave it to the
+units) it costs one extra block every tenth second, about 1.3 - 2.0k; on the units about 2.4 - 3.1k. The floor
+clock is the same, more often composed in the contact box. **Bound**: a clock is 2 lanes against the 6 a window
+and 8 a range (130.12.4.6); FIRST already shows 4 clock lanes, so ONE art clock fits beside its two prop clocks
+and a second would not.
+
+**Tool work** (PREDICTED): a statement, e.g.
+
+    clock WX WY face sw|se|top art FILE.bba [at U V] [digits level|stepped|italic] [ink black|white]
+
+(`WX WY` the first host cell; for a wall the run goes along the face to screen right; `at` the art's offset,
+refused off the legal grid with the nearest legal one named), the `.bba` reader taking the `# digits` window
+line, the projection (about 40 lines: `down/art.py`'s `paste_y`/`paste_x` grown into the tool), the per-facing
+font tables (2 x 10 glyphs, data), the window placement and its refusals (no legal place; ink off the window; a
+host pixel hidden; a lane shared; a run that is not one plane), and a `--selfcheck` section with red arms. About
+300 - 400 lines with the selfcheck, the size of 130.18.5.5's anchor (+12 KB).
+
+### R2.5 Occlusion: round 1's conclusion HOLDS
+
+- **Several columns**: each art pixel keeps the key of the face that drew it (MEASURED: the same records and
+  masks with and without the art); a digit block across a seam has two keys, but neither changes with the pose,
+  which is all 130.12.4.5 asks. No record, no mask, no OBS, no post.
+- **A floor**: the same - the floor's keys, unchanged by the art or the pose; a ball over it is drawn over it; a
+  ball behind and below a raised floor is laid over by that floor's records exactly as without the art. E6's
+  lanes hold 0 records.
+- **A ball behind a wall**: the face's existing records lay the DRAWN digit through the map (round 1).
+
+### R2.6 Recommendation
+
+1. **Build the WALL art clock first**, with LEVEL digits on a UNIFORM field as the default: one statement, 0
+   guest bytes, 1 x 1 lanes (today's per-second cost), 10 pose blocks (160 B) and the art's own blocks (about
+   300 B for a 2 - 3 column piece). The scoreboard (E2/E3) is the safe first piece: black board, white digits,
+   full contrast on all three cards, one source on both facings.
+2. **Add the per-facing STEPPED digits** as the form for LOW faces (2 units, where nothing else fits: E5) and
+   wherever the digits should lie on the wall: two hand-drawn 10-glyph tables in the tool (drafted here in
+   [fonts.py](bonanza-courses/wallclock/round2/fonts.py), to be redrawn to taste), 28 - 30 blocks a clock, the
+   1 x 2 on the tens. ITALIC is a cheap middle (10 - 20 blocks, 1 x 1) if its look is liked.
+3. **The FLOOR clock** next: the same statement with `face top`, level digits; it costs a little more
+   (non-uniform dials: 20 blocks) and meets the ball's boxes more often, which the owner's terms allow.
+4. **Ink** as a per-clock clause on every clock (today's too): free in guest bytes and in blocks.
+
+**What the owner authors**: the art as a `.bba` FLAT source (an elevation for a wall, a plan for a floor, or
+drawn by a script as `down/art.py` and these pieces are), with one `# digits U0 V0 U1 V1` line naming the
+window, and one `clock ... art` statement placing it; the tool projects, clips, places the digits and refuses
+what will not fit, naming why.
+
+### What was not done
+
+No guest, tool or SPEC change; no part built with lanes (the poses were laid as art to measure their blocks); no
+emulator boot (the pictures are the compile's pixels). No soak rows. The art pieces are study quality, to show
+the shapes and the costs; E4's windmill in particular is a sketch.
