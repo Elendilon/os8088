@@ -770,6 +770,13 @@ class App(object):
         self.cv_stops = {e: tk.BooleanVar() for e in B.STOP_EDGES}     # SPEC.md 130.45.4, 130.45.5: `stop`
         self.cv_over = tk.BooleanVar()              # SPEC.md 130.45.6: `stop ... over [wx0 wy0 wx1 wy1]`
         self.cv_overc = tk.StringVar()
+        # SPEC.md 130.58.55: what the author TYPES on the Course tab is theirs until it is applied - a refill from
+        # the course (any edit, an undo, a save) never throws it away, Save applies it first, and only opening
+        # or starting another course drops it (as the Source tab's working copy, src_dirty)
+        self.cv_dirty = False
+        self.cv_filling = False
+        for v in self._cv_vars():
+            v.trace_add("write", lambda *a: self._cv_touched())
         rows = [
             ("Title", ttk.Entry(g, textvariable=self.cv_title, width=26), "1 - 24 characters, no quote marks"),
             ("Short name", ttk.Entry(g, textvariable=self.cv_name, width=8), "1 - 5 of A-Z 0-9"),
@@ -819,6 +826,8 @@ class App(object):
                   "finish's own)", foreground="#666", wraplength=640, justify="left").grid(row=3, column=0,
                                                                                          columnspan=5, sticky="w")
         ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 3, column=0, sticky="w", pady=4)
+        self.cv_note = ttk.Label(g, text="", foreground="#a40")    # SPEC.md 130.58.55: "not applied yet"
+        self.cv_note.grid(row=len(rows) + 3, column=1, columnspan=4, sticky="w", pady=4)
         ttk.Label(g, text="Extras the course loads (`uses`) are added for you as you place parts.",
                   foreground="#666").grid(row=len(rows) + 4, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
@@ -1046,6 +1055,7 @@ class App(object):
         self.good = None
         self.pic = None
         self.check = None
+        self.cv_dirty = False                   # SPEC.md 130.58.55: another course: its own settings, not these
         self._banner(None)
         self._fill_recent()
         self._changed("open")
@@ -1054,6 +1064,8 @@ class App(object):
             self.nb.select(self.map.frame)
 
     def save(self):
+        if self.cv_dirty:                       # SPEC.md 130.58.55: the Course tab's typed fields go in first
+            self.apply_course()
         if self.doc.path is None:
             return self.save_as()
         try:
@@ -1068,6 +1080,8 @@ class App(object):
         self._title()
 
     def save_as(self):
+        if self.cv_dirty:                       # SPEC.md 130.58.55
+            self.apply_course()
         from tkinter import filedialog
         p = filedialog.asksaveasfilename(title="Save the course", defaultextension=".bbc",
                                          filetypes=[("Courses", "*.bbc")], initialdir=self.cfg.get("dir"))
@@ -1081,7 +1095,7 @@ class App(object):
             self.open(self.doc.path)
 
     def _discard_ok(self):
-        if not self.doc.dirty:
+        if not self.doc.dirty and not self.cv_dirty:    # (unapplied Course tab fields are unsaved work too)
             return True
         from tkinter import messagebox
         return messagebox.askyesno(TITLE, "The course has unsaved changes. Discard them?")
@@ -1335,8 +1349,40 @@ class App(object):
             self.move_sel(dx, dy)
         return "break"
 
+    def _cv_vars(self):
+        """every variable the Course tab's fields hold"""
+        return [getattr(self, k) for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal",
+                                           "cv_gstyle", "cv_target", "cv_limit", "cv_gold", "cv_silver",
+                                           "cv_cstrict", "cv_mbanded", "cv_lock", "cv_over", "cv_overc")] + \
+            [self.cv_stops[e] for e in B.STOP_EDGES]
+
+    def _cv_touched(self):
+        if self.cv_filling:
+            return
+        self.cv_dirty = True
+        self._cv_mark()
+
+    def _cv_mark(self):
+        n = getattr(self, "cv_note", None)
+        if n is not None:
+            n.config(text="Changed - not applied yet (Apply, or Save applies it)" if self.cv_dirty else "")
+
     def apply_course(self):
+        """SPEC.md 130.58.55: the fields read, the course edited, the tab clean again - unless the edit was
+        refused and undone, when what was typed is put back, still not applied"""
+        typed = [v.get() for v in self._cv_vars()]
+        text0 = self.doc.text()
+        self.cv_dirty = False                       # (the edit's own refill now shows the course)
         self._edit(self._apply_course)
+        if self.doc.text() == text0 and typed != [v.get() for v in self._cv_vars()]:
+            self.cv_filling = True
+            try:
+                for v, x in zip(self._cv_vars(), typed):
+                    v.set(x)
+            finally:
+                self.cv_filling = False
+            self.cv_dirty = True
+        self._cv_mark()
 
     def _apply_course(self):
         d = self.doc
@@ -3298,6 +3344,17 @@ class App(object):
 
     # -- the course tab and the source --------------------------------------------
     def _fill_course(self):
+        if self.cv_dirty:               # SPEC.md 130.58.55: what was typed is never thrown away by a refill
+            self._cv_mark()
+            return
+        self.cv_filling = True
+        try:
+            self._fill_course_now()
+        finally:
+            self.cv_filling = False
+        self._cv_mark()
+
+    def _fill_course_now(self):
         sts = {s.kind: s for s in self.doc.statements()}
 
         def tok(kind, i, d=""):
