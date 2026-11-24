@@ -130,6 +130,9 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
               Gap bands: boxes every face a gap band could go on (a
               black-and-dither foot where a column hangs over a gap);
               click a dashed box to mark it, a pink one to unmark it.
+              Kit: greys the picture and tints each 8x8 block green when
+              it comes from the standard kit, amber when it is the
+              course's own; Masks (K) does the same for the occluders.
               The list under the course is every problem; click one to go
               to it.
   Shapes      chutes, pits, humps and tubes are edited ON THE PLAN: select
@@ -145,6 +148,10 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
   Course tab  the title, size, ball, music, colours, times; "Ready to play?"
               runs the full check (by itself, 2 s after you stop editing).
   Source tab  the file itself; double-click a line to select it.
+  Kit tab     every piece of the standard kit (blocks, masks, FIELD
+              tables), how many of the shipped courses use each, which
+              this course uses, and what is stale. Counting compiles the
+              shipped courses: about a minute the first time.
 
   Saving changes only the lines you edited: comments and order are kept.
   A family a part needs (`uses magnet`, ...) is added for you.
