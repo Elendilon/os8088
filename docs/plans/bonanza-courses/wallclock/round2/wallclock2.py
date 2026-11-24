@@ -1,0 +1,718 @@
+#!/usr/bin/env python3
+"""BOUNCE BONANZA's ART-HOSTED clocks, round 2 of the wall clock study (docs/plans/BOUNCE-BONANZA-WALLCLOCK.md,
+"Round 2"): RESEARCH, host only, nothing in `make` runs it and nothing it writes ships.
+
+    python3 docs/plans/bonanza-courses/wallclock/round2/wallclock2.py [--quick]
+
+The owner's terms: a WALL clock is ARTWORK on a column face (a panel, a sign, a clock case), spanning one or more
+columns, drawn over the face like a decal, and the art HOSTS the digits as the vase art hosts today's clock; no
+generic white plate; a FLOOR clock on its own art is an option too.  So this script:
+
+  - AUTHORS each art piece FLAT (an elevation: u px along the face, v px down; or, for the floor, a plan in
+    cells) with a declared DIGIT WINDOW, and writes the flat source as a text pixmap (art_*.bba, the `art`
+    statement's own format, 130.23.2) with the window on a `# digits` line;
+  - PROJECTS it onto a real face of a shipped course (FIRST, MILL) compiled by tools/bbcourse.py as it is: every
+    column of the art dropped (sw) or raised (se) by the face's own 1:2 staircase, read off the compile, and
+    clipped to the host cells' VISIBLE pixels (what stands in front is never painted);
+  - PLACES the digit lanes in the window: the shipped 5 x 7 UPRIGHT and LEVEL (round 1's legible form), and the
+    per-facing hand-shaped 4 x 7 digits drawn IN the face's perspective (fonts.py), both STEPPED (the digit line
+    follows the face) and on a LEVEL line; black and white ink;
+  - CHECKS each placement (every ink pixel at every pose inside the window and on a host pixel), counts its lanes,
+    its new pose blocks and its records, the records the course already cuts in those blocks, and any lane it
+    would share a block with;
+  - MEASURES what the art and the poses cost in the PART: the course compiled again with the art as an `art`
+    statement (the statement exists, 130.23.2) and with the new pose blocks parked in the void as art, RAM and
+    LZ4 (tools/bbcourse.packed_len), against the course as shipped;
+  - MEASURES the per-facing font alone (its 10 digits' blocks on a plain field, each facing) and a white-ink
+    variant of today's crystal clocks (FIRST);
+  - draws CGA | Hercules | VGA crops (round 1's panels) into round2/*.png.
+
+Writes round2/*.png, round2/art_*.bba and round2/numbers.txt.  About 3 minutes (MILL compiles 40 s a time);
+--quick skips MILL."""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", ".."))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+import bbcourse as B                                                   # noqa: E402
+import wallclock as R1                                                 # noqa: E402  (round 1's machinery)
+import fonts                                                           # noqa: E402
+from bonanza_assets import BLK, CYN, MAG, WHT, CGA1, herc_pair          # noqa: E402
+from PIL import Image, ImageDraw                                       # noqa: E402
+
+K, C, M, W = BLK, CYN, MAG, WHT
+R1.Z = 4
+OUT = []
+QUICK = "--quick" in sys.argv
+POSES = 11
+
+
+def say(s=""):
+    print(s)
+    OUT.append(s)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# the art's SOURCE: a flat pixmap and its digit window
+# ---------------------------------------------------------------------------------------------------------------
+class Flat:
+    """an art piece drawn FLAT: px {(u, v): ink}; win (u0, v0, u1, v1) the digit window (exclusive ends)"""
+
+    def __init__(self, name, w, h):
+        self.name, self.w, self.h, self.px, self.win = name, w, h, {}, None
+
+    def fill(self, u0, v0, u1, v1, ink):
+        for v in range(v0, v1):
+            for u in range(u0, u1):
+                self.px[(u, v)] = ink(u, v) if callable(ink) else ink
+
+    def shape(self, inside, fill, line=K):
+        """a filled shape with a one-pixel black line (the game's)"""
+        got = {(u, v) for v in range(self.h) for u in range(self.w) if inside(u + 0.5, v + 0.5)}
+        for (u, v) in got:
+            edge = any((u + du, v + dv) not in got for du, dv in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            self.px[(u, v)] = line if edge else (fill(u, v) if callable(fill) else fill)
+        return got
+
+    def text(self, s, u, v, ink):
+        for ch in s:
+            for r, row in enumerate(TINY[ch]):
+                for k, b in enumerate(row):
+                    if b == "#":
+                        self.px[(u + k, v + r)] = ink
+            u += len(TINY[ch][0]) + 1
+
+    def write(self, path):
+        with open(path, "w", encoding="ascii", newline="\n") as f:
+            f.write("# %s: a FLAT art source (round 2's proposal; the `art` statement's pixmap, 130.23.2)\n"
+                    "# GENERATED by wallclock2.py - u across the face, v down it; the tool projects it\n" % self.name)
+            f.write("# digits %d %d %d %d\n" % self.win)
+            for v in range(self.h):
+                f.write("".join(str(self.px[(u, v)]) if (u, v) in self.px else "." for u in range(self.w)) + "\n")
+
+
+TINY = {"T": ("###", ".#.", ".#.", ".#.", ".#."), "I": ("#", "#", "#", "#", "#"),
+        "M": ("#...#", "##.##", "#.#.#", "#...#", "#...#"), "E": ("###", "#..", "##.", "#..", "###"),
+        "S": (".##", "#..", ".#.", "..#", "##."), "C": (".##", "#..", "#..", "#..", ".##")}
+
+
+def station(field=C):
+    """E1, a STATION CLOCK hung on the wall, 2 columns: a white enamel case on a black hanging bracket, a bell
+    on top, the case lit from the upper left (a white bevel) and shaded at its right (a white-and-black dither);
+    the DIAL is a FIELD colour (cyan: black and white digits both read on it), black-rimmed, four hour pips"""
+    a = Flat("station", 30, 36)
+    a.fill(5, 0, 25, 2, K)                                         # the bracket bar and its two hangers
+    a.fill(7, 2, 8, 5, K)
+    a.fill(22, 2, 23, 5, K)
+    a.shape(lambda u, v: (u - 15) ** 2 + (v - 4.2) ** 2 < 3.2 ** 2 and v < 5, W)    # the bell
+    a.shape(lambda u, v: 1 <= u <= 29 and 5 <= v <= 35 and not ((u < 3 or u > 27) and (v < 7 or v > 33)),
+            lambda u, v: K if (u >= 26 and (u + v) % 2) else W)    # the case (its right edge dithered)
+    a.shape(lambda u, v: 5 <= u <= 25 and 9 <= v <= 32, field)      # the dial, its black rim
+    for (u, v) in ((15, 10), (15, 30), (6, 20), (24, 20)):          # the four hour pips
+        a.px[(u, v)] = K
+    a.win = (7, 11, 24, 30)
+    return a
+
+
+def board(field=K):
+    """E2/E3, a SCOREBOARD, 3 columns: a black board in a white-and-cyan frame (lit upper left), "TIME" in white
+    over the digit field, two cyan lamps; the field black (white digits) or another colour"""
+    a = Flat("board", 46, 32)
+    a.shape(lambda u, v: 0 <= u <= 46 and 0 <= v <= 32,
+            lambda u, v: W if (u <= 1 or v <= 1) else (C if (u >= 44 or v >= 30) else K))
+    a.text("TIME", 15, 3, W)
+    a.px[(5, 5)] = a.px[(40, 5)] = C
+    a.px[(4, 5)] = a.px[(39, 5)] = W
+    if field != K:
+        a.shape(lambda u, v: 4 <= u <= 42 and 10 <= v <= 28, field)
+    a.win = (5, 11, 42, 28)
+    return a
+
+
+def strip(field=C):
+    """E5, a RAIL BANNER, 4 columns and 2 units: a cyan band, white chevrons at each end pointing along it, the
+    digit field the band's middle - low enough that only the per-facing digits fit (the level 5 x 7 cannot)"""
+    a = Flat("strip", 62, 11)
+    a.shape(lambda u, v: 0 <= u <= 62 and 0 <= v <= 11, C)
+    for u0 in (3, 9, 49, 55):                                       # chevrons: >
+        for v in range(2, 9):
+            for t in range(2):
+                a.px[(u0 + t + (3 - abs(v - 5)), v)] = W
+    if field != C:
+        a.shape(lambda u, v: 20 <= u <= 42 and 0 <= v <= 11, field)
+    a.win = (18, 1, 45, 10)
+    return a
+
+
+def delft(field=W):
+    """E4, a DELFT TILE PANEL for WINDMILL LANE (its clocks are Delft vases), 4 columns, 16-px tiles,
+    one tile column a face column: white tiles, cyan corner motifs, a cyan windmill painted across them, and a
+    cartouche (a double cyan line) on the bottom row's middle tiles that holds the digits on the tiles' white"""
+    a = Flat("delft", 64, 58)
+    a.fill(0, 0, 64, 58, W)
+    for t in range(0, 64, 16):                                      # the tile joints: on the face's own seams
+        for v in range(58):
+            a.px[(t, v)] = K
+    for v in (0, 16, 32, 57):
+        for u in range(64):
+            a.px[(u, v)] = K
+    for tu in range(0, 64, 16):                                     # corner motifs
+        for tv in (0, 16):
+            for du, dv in ((2, 2), (13, 2), (2, 13), (13, 13)):
+                a.px[(tu + du, tv + dv)] = C
+    for tu in (0, 48):
+        for du, dv in ((2, 34), (13, 34), (2, 55), (13, 55)):
+            a.px[(tu + du, dv)] = C
+    # the windmill: a tapering tower, a cap, four sails as an X
+    for v in range(12, 31):
+        half = 3 + (v - 12) // 5
+        for u in range(32 - half, 32 + half + 1):
+            if a.px.get((u, v)) == W:
+                a.px[(u, v)] = C if (u in (32 - half, 32 + half) or v in (12, 30) or (u == 32 and v > 25)) else W
+    for s in range(-11, 12):
+        for (u, v) in ((32 + s, 10 + s // 2), (32 + s, 10 - s // 2)):
+            if 0 < u < 64 and 0 < v < 32 and a.px.get((u, v)) == W:
+                a.px[(u, v)] = C
+    for u in range(14, 50):                                         # the ground line
+        if a.px.get((u, 31)) == W:
+            a.px[(u, 31)] = C
+    # the bottom row's two middle tiles are one long CARTOUCHE tile (a 32 x 24 tile, its joint left out): two
+    # cyan lines round the window, which is the tile's own white
+    for v in range(33, 57):
+        a.px[(32, v)] = W
+    for u in range(18, 47):
+        for v in (35, 54):
+            a.px[(u, v)] = C
+    for v in range(35, 55):
+        for u in (18, 46):
+            a.px[(u, v)] = C
+    a.win = (19, 36, 46, 54)
+    if field != W:
+        a.fill(19, 36, 46, 54, field)
+    return a
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# hosts: a run of faces, and a floor
+# ---------------------------------------------------------------------------------------------------------------
+class Wall:
+    """a run of one facing's faces: the visible pixels (round 1's Face, the compile's own), and the face's PLANE
+    staircase - the line of its top edge, extended over the whole run, which is what the art is projected on"""
+
+    def __init__(self, c, which, cells):
+        self.c, self.which, self.cells = c, which, cells
+        self.faces = R1.hosts(c, which, cells)
+        self.pix = set().union(*[f.pix for f in self.faces])
+        top = {}
+        for f in self.faces:
+            top.update(f.top)
+        sg = 1 if which == "sw" else -1
+        cnt = {}
+        for x, y in top.items():
+            k = y - sg * ((x + 1) // 2)
+            cnt[k] = cnt.get(k, 0) + 1
+        self.off = max(cnt, key=cnt.get)
+        self.sg = sg
+        self.x0 = min(f.x0 for f in self.faces)
+        self.x1 = max(f.x1 for f in self.faces)
+        # paintable: a face pixel under the plane's edge line (the art covers the seams between columns)
+        self.ok = {(x, y) for (x, y) in self.pix if y > self.plane(x)}
+
+    def plane(self, x):
+        return self.off + self.sg * ((x + 1) // 2)
+
+    def project(self, art, U0, V0):
+        """the flat art with its u = 0 at picture column U0 and its v = 0 V0 lines under the edge line ->
+        ({(x, y): ink} clipped to the host, {(x, y)} of the window's pixels, the screen map (u, v) -> (x, y))"""
+        def at(u, v):
+            x = U0 + u
+            return x, self.plane(x) + 1 + V0 + v
+        px = {}
+        for (u, v), ink in art.px.items():
+            q = at(u, v)
+            if q in self.ok:
+                px[q] = ink
+        u0, v0, u1, v1 = art.win
+        win = {at(u, v) for u in range(u0, u1) for v in range(v0, v1)} & set(px)
+        return px, win, at
+
+
+class Floor:
+    """a floor host: the top pixels of CELLS (round 1's Face on 'top'), and the plan -> picture projection"""
+
+    def __init__(self, c, cells):
+        self.c = c
+        self.faces = [R1.Face(c, "top", k) for k in cells]
+        self.pix = set().union(*[f.pix for f in self.faces])
+        self.z0 = c.tiles[cells[0]].z0
+
+    def to_screen(self, X, Y):
+        return 16 * (X - Y) + self.c.x0, 8 * (X + Y) - 4 * self.z0 + self.c.y0
+
+    def plan(self, sx, sy):
+        u = (sx - self.c.x0) / 16.0
+        v = (sy - self.c.y0 + 4 * self.z0) / 8.0
+        return (u + v) / 2, (v - u) / 2
+
+
+def sundial(fl, X, Y, R, field=C):
+    """E6, a SUNDIAL painted on the floor (plan coordinates, cells; centre X, Y, radius R): a white dial with a
+    black rim, twelve black hour marks, the gnomon's black wedge of shadow, and a FIELD disc at its middle (cyan:
+    black or white digits); -> (px, window px)"""
+    px, win = {}, set()
+    xs = [x for x, _ in fl.pix]
+    ys = [y for _, y in fl.pix]
+    import math
+    got = {}
+    for sy in range(min(ys), max(ys) + 1):
+        for sx in range(min(xs), max(xs) + 1):
+            if (sx, sy) not in fl.pix:
+                continue
+            PX, PY = fl.plan(sx + 0.5, sy + 0.5)
+            d = math.hypot(PX - X, PY - Y)
+            if d < R:
+                got[(sx, sy)] = (PX - X, PY - Y, d)
+    for (sx, sy), (dx, dy, d) in got.items():
+        edge = any((sx + a, sy + b) not in got for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        ang = math.degrees(math.atan2(dy, dx)) % 360
+        if edge:
+            ink = K
+        elif d < 0.5 * R:
+            ink = field
+            win.add((sx, sy))
+        elif d < 0.55 * R:
+            ink = K
+        elif d > 0.78 * R and min(ang % 30, 30 - ang % 30) < 4:
+            ink = K
+        elif 0.55 * R <= d < 0.95 * R and 300 < ang < 322:
+            ink = K                                                 # the gnomon's shadow
+        else:
+            ink = W
+        px[(sx, sy)] = ink
+    return px, win
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# the digits: candidate lanes in a window, three forms
+# ---------------------------------------------------------------------------------------------------------------
+def level_poses(bx, by, nx, ny, n=2):
+    """the shipped 5 x 7 (clock_glyph), upright, n places a word apart on one line -> [{pose: ink set}]"""
+    out = []
+    for p in range(n):                                              # p 0 the units, the rightmost
+        col = bx + (n - 1 - p)
+        poses = {0: set()}
+        for d in range(10):
+            poses[1 + d] = set(B.clock_glyph(d, col, by, nx, ny))
+        out.append(poses)
+    return out
+
+
+def facing_poses(table, which, bx, by, cs, step, n=2):
+    """the per-facing 4 x 7 (fonts.py) at word column CS (1 or 3), block row BY; STEP True: each place 8 px on
+    is 4 lines down (sw) or up (se), the digit line following the face; False: one level line"""
+    out = []
+    for p in range(n):
+        k = n - 1 - p                                               # left to right
+        dy = (4 * k if which == "sw" else -4 * k) if step else 0
+        poses = {0: set()}
+        for d in range(10):
+            poses[1 + d] = {(8 * (bx + k) + cs + u, 8 * by + dy + r) for (u, r) in fonts.glyph(table, d)}
+        out.append(poses)
+    return out
+
+
+def candidates(form, which, win):
+    """every legal digit placement in the window, nearest its centre first"""
+    xs = [x for x, _ in win]
+    ys = [y for _, y in win]
+    cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+    out = []
+    for by in range(min(ys) // 8 - 2, max(ys) // 8 + 2):
+        for bx in range(min(xs) // 8 - 1, max(xs) // 8 + 1):
+            if form == "level":
+                opts = [level_poses(bx, by, nx, ny) for nx in (-1, 0, 1, 2) for ny in (0, 1)]
+            else:
+                tab = fonts.SW if which == "sw" else fonts.SE
+                opts = [facing_poses(tab, which, bx, by, cs, form == "stepped") for cs in (1, 3)]
+            for pl in opts:
+                ink = set().union(*[q for p in pl for q in p.values()])
+                if ink <= win:
+                    ix = [x for x, _ in ink]
+                    iy = [y for _, y in ink]
+                    dist = abs((min(ix) + max(ix)) / 2.0 - cx) + abs((min(iy) + max(iy)) / 2.0 - cy)
+                    out.append((dist, pl))
+    out.sort(key=lambda t: t[0])
+    return [pl for _d, pl in out]
+
+
+def lane_cost(c, base, places, ink):
+    """round 1's lane_cost, returning the new blocks themselves -> (rects, shared, {new block bytes}, rec bytes)"""
+    have = R1.pool(base, c.width, c.lines)
+    rects, cells = [], []
+    for pl in places:
+        bs = set().union(*[R1.blocks_of(q) for q in pl.values()])
+        cells.append(bs)
+        xs = [b[0] for b in bs]
+        ys = [b[1] for b in bs]
+        rects.append((min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1))
+    shared = any(cells[i] & cells[j] for i in range(len(cells)) for j in range(i + 1, len(cells)))
+    new = set()
+    for pl, (bx0, by0, w, h) in zip(places, rects):
+        for q in pl.values():
+            for by in range(by0, by0 + h):
+                for bx in range(bx0, bx0 + w):
+                    blk = bytearray(R1.block_bytes(base, bx, by))
+                    for (x, y) in q:
+                        if x >> 3 == bx and y >> 3 == by:
+                            blk[8 * (y & 7) + (x & 7)] = ink
+                    blk = bytes(blk)
+                    if blk not in have:
+                        new.add(blk)
+    rec = sum(32 + 2 * POSES * w * h for (_x, _y, w, h) in rects)
+    return rects, shared, new, rec
+
+
+def lane_context(c, rects):
+    """the records the course already cuts in the lanes' blocks, and any existing lane sharing a block"""
+    recs = sum(c.per_block.get((by, bx), 0) for (x0, y0, w, h) in rects
+               for by in range(y0, y0 + h) for bx in range(x0, x0 + w))
+    mine = {(bx, by) for (x0, y0, w, h) in rects for by in range(y0, y0 + h) for bx in range(x0, x0 + w)}
+    hit = []
+    for L in c.lanes:
+        x0, y0, w, h = L["rect"]
+        if mine & {(bx, by) for by in range(y0, y0 + h) for bx in range(x0, x0 + w)}:
+            hit.append(L["rect"])
+    return recs, hit
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# the measured part: the course compiled with the art (and parked poses) as `art` statements
+# ---------------------------------------------------------------------------------------------------------------
+SCRATCH = {}
+_read_bba = B.read_bba
+
+
+def _rb(path, fname="<course>", ln=0):
+    nm = os.path.basename(path)
+    if nm in SCRATCH:
+        return dict(SCRATCH[nm])
+    return _read_bba(path, fname, ln)
+
+
+B.read_bba = _rb
+
+
+def part_of(c):
+    """(picture-part RAM bytes, its LZ4 stored bytes, its blocks)"""
+    return len(c.cga), B.packed_len(c.cga), len(c.blocks)
+
+
+def compile_with(path, arts):
+    """the course at PATH compiled with ARTS ([{(x, y): ink}] in picture px) appended as `art` statements"""
+    with open(path, encoding="ascii") as f:
+        text = f.read()
+    lines = []
+    for i, px in enumerate(arts):
+        xs = [x for x, _ in px]
+        ys = [y for _, y in px]
+        ax, ay = min(xs), min(ys)
+        nm = "wc2_%d.bba" % len(SCRATCH)          # a fresh name every time: the compile cache keys the TEXT
+        SCRATCH[nm] = {(x - ax, y - ay): v for (x, y), v in px.items()}
+        lines.append("art %s %d %d" % (nm, ax, ay))
+    return B.compile_course(text + "\n" + "\n".join(lines) + "\n", fname=os.path.basename(path))
+
+
+def void_park(c, blocks, avoid=()):
+    """the BLOCKS laid as art in the picture's VOID (whole 8 x 8 blocks with no geometry, black, not in AVOID), so
+    a compile carries them in its pool exactly as a lane's poses would be (a pose IS its blocks, 130.12.3.1)"""
+    free = []
+    for by in range(1, c.lines // 8 - 1):
+        for bx in range(1, c.width // 8 - 1):
+            if (bx, by) in avoid:
+                continue
+            if all(c.sbuf[8 * by + j][8 * bx + i] < 0 and c.pic[8 * by + j][8 * bx + i] == K
+                   for j in range(8) for i in range(8)):
+                free.append((bx, by))
+    blocks = sorted(blocks)
+    assert len(free) >= len(blocks), "no room in the void"
+    px = {}
+    for (bx, by), blk in zip(free, blocks):
+        for j in range(8):
+            for i in range(8):
+                px[(8 * bx + i, 8 * by + j)] = blk[8 * j + i]
+    return px
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# a study: art on a host, its digits in every form, the pictures
+# ---------------------------------------------------------------------------------------------------------------
+def panels(pic, box, title):
+    """round 1's three cards, CGA | Hercules | VGA, with the title on a line of its own over them"""
+    sheet = R1.panels(pic, box, "")
+    out = Image.new("RGB", (max(sheet.width, 8 * len(title) + 8), sheet.height + 14), (60, 60, 60))
+    out.paste(sheet, (0, 14))
+    d = ImageDraw.Draw(out)
+    d.rectangle((0, 14, sheet.width, 27), fill=(60, 60, 60))
+    w = (sheet.width - 16) // 3
+    for k, nm in enumerate(("CGA", "Hercules", "VGA")):
+        d.text((k * (w + 8) + 2, 15), nm, fill=(200, 200, 200))
+    d.text((2, 1), title, fill=(255, 255, 255))
+    return out
+
+
+def fit(host, art, which, forms, U0, V0s):
+    """the art's offset down the face (the tool would name the nearest legal one) that admits the most FORMS"""
+    best = None
+    for V0 in V0s:
+        px, win, _at = host.project(art, U0, V0)
+        n = sum(1 for f, _ink in forms if candidates(f, which, win))
+        if best is None or n > best[0]:
+            best = (n, V0, px, win)
+    return best[1], best[2], best[3]
+
+
+def crop_of(pts, pad=10):
+    xs = [x for x, _ in pts]
+    ys = [y for _, y in pts]
+    return (min(xs) - pad, min(ys) - pad, max(xs) - min(xs) + 2 * pad + 1, max(ys) - min(ys) + 2 * pad + 1)
+
+
+def study(c, title, px, win, which, forms, rows, box):
+    """paint PX on the course, try each (form, ink) of FORMS in WIN; -> [result]"""
+    base = [bytearray(r) for r in c.pic]
+    for (x, y), v in px.items():
+        base[y][x] = v
+    res = []
+    rows.append(panels(base, box, "%s - the art, blank" % title))
+    for form, ink in forms:
+        cs = candidates(form, which, win)
+        nm = "%s, %s, %s digits" % (title, form if form != "level" else "level 5x7",
+                                    "black" if ink == K else "white")
+        if not cs:
+            say("  %-62s NO LEGAL PLACEMENT in the window" % nm)
+            res.append({"name": nm, "ok": False})
+            continue
+        pl = cs[0]
+        rects, shared, new, rec = lane_cost(c, base, pl, ink)
+        recs, hit = lane_context(c, rects)
+        say("  %-62s lanes %s; new pose blocks %d (%d B); records+maps %d B; course records in them %d%s%s"
+            % (nm, " ".join("%dx%d" % (w, h) for (_x, _y, w, h) in rects), len(new), 16 * len(new), rec, recs,
+               "; SHARED BLOCK" if shared else "", "; MEETS LANE %s" % hit if hit else ""))
+        pic = [bytearray(r) for r in base]
+        for p, d in enumerate((7, 4)):                               # "47": units 7, tens 4
+            R1.draw(pic, pl[p][1 + d], ink)
+        rows.append(panels(pic, box, "%s  '47'" % nm))
+        res.append({"name": nm, "ok": True, "rects": rects, "new": new, "rec": rec, "ink": ink, "form": form,
+                    "places": pl})
+    return base, res
+
+
+def font_sheet():
+    """round2/fonts.png: the two per-facing digit sets on the sw face's magenta and the se face's checker"""
+    im = Image.new("RGB", (2 * 62 + 6, 14), (60, 60, 60))
+    for t, (tab, bg) in enumerate(((fonts.SW, lambda x, y: M), (fonts.SE, lambda x, y: M if (x + y) % 2 else K))):
+        for y in range(12):
+            for x in range(62):
+                im.putpixel((t * 66 + x, y + 1), CGA1[bg(x, y)])
+        for d in range(10):
+            for (k, r) in fonts.glyph(tab, d):
+                im.putpixel((t * 66 + 2 + 6 * d + k, r + 3), CGA1[W])
+    im.resize((im.width * 6, im.height * 6), Image.NEAREST).save(os.path.join(HERE, "fonts.png"))
+
+
+def main():
+    font_sheet()
+    say("ART-HOSTED CLOCKS, round 2: %s" % os.path.relpath(__file__, ROOT))
+    say("")
+    pf = os.path.join(ROOT, "apps", "bonanza", "courses", "first.bbc")
+    first = B.compile_course(pf)
+    f0 = part_of(first)
+    say("FIRST as shipped: picture part %d B RAM, %d B LZ4, %d blocks (MEASURED)" % f0)
+    say("")
+    forms_wall = (("level", K), ("level", W), ("stepped", K), ("stepped", W), ("italic", K), ("italic", W))
+    pieces = []                                                     # (course, label, px, results) for the costs
+
+    # ---- E1: the station clock on FIRST's plateau front, 2 columns (sw) ----
+    say("== E1: a STATION CLOCK, 2 columns, FIRST's plateau front (sw faces of (4, 6), (5, 6)) ==")
+    hw = Wall(first, "sw", ((4, 6), (5, 6)))
+    art = station()
+    art.write(os.path.join(HERE, "art_station.bba"))
+    V0, px, win = fit(hw, art, "sw", forms_wall, hw.x0 + 1, range(4, 16))
+    say("  the art %d lines under the face's top edge (the offset that admits the most forms)" % V0)
+    rows = []
+    _b, res = study(first, "E1 station sw", px, win, "sw", forms_wall, rows, crop_of(hw.ok, 6))
+    R1.stack(rows, os.path.join("round2", "e1_station_sw.png"))
+    pieces.append(("FIRST", pf, "E1 station clock (2 col, sw)", px, res))
+    say("")
+
+    # ---- E2: the scoreboard on FIRST's plateau front, 3 columns (sw) ----
+    say("== E2: a SCOREBOARD, 3 columns, FIRST's plateau front (sw faces of (6, 6) - (8, 6)) ==")
+    hw2 = Wall(first, "sw", ((6, 6), (7, 6), (8, 6)))
+    art2 = board()
+    art2.write(os.path.join(HERE, "art_board.bba"))
+    V2, px2, win2 = fit(hw2, art2, "sw", forms_wall, hw2.x0 + 1, range(8, 18))
+    rows = []
+    _b, res2 = study(first, "E2 board sw", px2, win2, "sw", (("level", W), ("stepped", W), ("italic", W)), rows,
+                     crop_of(hw2.ok, 6))
+    art2c = board(C)
+    px2c, win2c, _ = hw2.project(art2c, hw2.x0 + 1, V2)
+    _b, res2c = study(first, "E2 board sw (cyan field)", px2c, win2c, "sw", (("level", K), ("stepped", K)), rows,
+                      crop_of(hw2.ok, 6))
+    R1.stack(rows, os.path.join("round2", "e2_board_sw.png"))
+    pieces.append(("FIRST", pf, "E2 scoreboard (3 col, sw)", px2, res2))
+    say("")
+
+    # ---- E5: a 4-column, 2-unit rail banner on FIRST's back rail (sw) ----
+    say("== E5: a RAIL BANNER, 4 columns, 2 units: FIRST's back rail (sw faces of (3, 3) - (6, 3)) ==")
+    hw5 = Wall(first, "sw", ((3, 3), (4, 3), (5, 3), (6, 3)))
+    art5 = strip()
+    art5.write(os.path.join(HERE, "art_strip.bba"))
+    px5, win5, _ = hw5.project(art5, hw5.x0 + 1, 0)
+    rows = []
+    _b, res5 = study(first, "E5 banner sw", px5, win5, "sw", forms_wall, rows, crop_of(hw5.ok, 6))
+    R1.stack(rows, os.path.join("round2", "e5_banner_sw.png"))
+    pieces.append(("FIRST", pf, "E5 rail banner (4 col, 2 units, sw)", px5, res5))
+    say("")
+
+    # ---- E6: a sundial on FIRST's plateau top ----
+    say("== E6: a SUNDIAL on FIRST's plateau top (cells (4 - 6, 4 - 5); the start is (4, 5)) ==")
+    fl = Floor(first, [(x, y) for x in range(3, 7) for y in range(4, 7)])
+    px6, win6 = sundial(fl, 5.6, 5.0, 1.15)
+    rows = []
+    _b, res6 = study(first, "E6 sundial floor", px6, win6, "floor", (("level", K), ("level", W)), rows,
+                     crop_of(px6, 12))
+    R1.stack(rows, os.path.join("round2", "e6_sundial_floor.png"))
+    pieces.append(("FIRST", pf, "E6 sundial (floor)", px6, res6))
+    say("")
+
+    # ---- the whole of FIRST with E1, E2, E5, E6 and live digits ----
+    allpx = {}
+    for _c, _p, _l, px_, _r in pieces:
+        allpx.update(px_)
+    pic = [bytearray(r) for r in first.pic]
+    for (x, y), v in allpx.items():
+        pic[y][x] = v
+    for r_, digs in ((res[1], (7, 4)), (res2[0], (2, 1)), (res5[2], (5, 3)), (res6[0], (9, 0))):
+        if r_["ok"]:
+            for p, d in enumerate(digs):
+                R1.draw(pic, r_["places"][p][1 + d], r_["ink"])
+    xs = [x for x, _ in allpx]
+    ys = [y for _, y in allpx]
+    box = (min(xs) - 40, min(ys) - 40, max(xs) - min(xs) + 80, max(ys) - min(ys) + 60)
+    zsave, R1.Z = R1.Z, 2
+    R1.stack([panels(pic, box, "FIRST with E1, E2, E5, E6 and live digits")], os.path.join("round2", "first_context.png"))
+    R1.Z = zsave
+    say("")
+
+    # ---- MILL: the same scoreboard source on an se face; the Delft panel on a 4-column sw face ----
+    mres = []
+    if not QUICK:
+        pm = os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")
+        mill = B.compile_course(pm)
+        m0 = part_of(mill)
+        say("MILL as shipped: picture part %d B RAM, %d B LZ4, %d blocks (MEASURED)" % m0)
+        say("== E3: the SAME scoreboard source on an se face: MILL (se faces of (35, 25) - (35, 23)) ==")
+        hw3 = Wall(mill, "se", ((35, 25), (35, 24), (35, 23)))
+        V3, px3, win3 = fit(hw3, art2, "se", forms_wall, hw3.x0 + 1, range(4, 14))
+        rows = []
+        _b, res3 = study(mill, "E3 board se", px3, win3, "se", (("level", W), ("stepped", W), ("italic", W)), rows,
+                         crop_of(hw3.ok, 6))
+        px3c, win3c, _ = hw3.project(art2c, hw3.x0 + 1, V3)
+        _b, res3c = study(mill, "E3 board se (cyan field)", px3c, win3c, "se", (("level", K), ("stepped", K)),
+                          rows, crop_of(hw3.ok, 6))
+        R1.stack(rows, os.path.join("round2", "e3_board_se.png"))
+        say("")
+        say("== E4: a DELFT TILE PANEL, 4 columns, MILL (sw faces of (26, 49) - (29, 49)) ==")
+        hw4 = Wall(mill, "sw", ((26, 49), (27, 49), (28, 49), (29, 49)))
+        art4 = delft()
+        art4.write(os.path.join(HERE, "art_delft.bba"))
+        V4, px4, win4 = fit(hw4, art4, "sw", forms_wall, hw4.x0, range(4, 20))
+        rows = []
+        _b, res4 = study(mill, "E4 delft sw", px4, win4, "sw", (("level", K), ("stepped", K), ("italic", K)), rows,
+                         crop_of(hw4.ok, 6))
+        art4c = delft(C)
+        px4c, win4c, _ = hw4.project(art4c, hw4.x0, V4)
+        _b, res4c = study(mill, "E4 delft sw (cyan field)", px4c, win4c, "sw", (("level", W), ("stepped", W)),
+                          rows, crop_of(hw4.ok, 6))
+        R1.stack(rows, os.path.join("round2", "e4_delft_sw.png"))
+        say("")
+        mres = [("MILL", pm, "E3 scoreboard (3 col, se)", px3, res3), ("MILL", pm, "E4 Delft panel (4 col, sw)",
+                                                                       px4, res4)]
+        mbase = {"MILL": (mill, m0)}
+    else:
+        mbase = {}
+
+    # ---- the costs, MEASURED in the part ----
+    say("== COSTS: each piece compiled into its course as an `art` statement, then its digits' new pose blocks "
+        "parked in the void (MEASURED, picture part) ==")
+    bases = {"FIRST": (first, f0)}
+    bases.update(mbase)
+    for cname, path, label, px_, res_ in pieces + mres:
+        cc, (r0, l0, b0) = bases[cname]
+        ca = compile_with(path, [px_])
+        r1, l1, b1 = part_of(ca)
+        say("  %-38s art: +%d blocks, +%d B RAM, +%d B LZ4" % (label, b1 - b0, r1 - r0, l1 - l0))
+        for r_ in res_:
+            if not r_["ok"]:
+                continue
+            base = [bytearray(r) for r in ca.pic]
+            rects, shared, new, rec = lane_cost(ca, base, r_["places"], r_["ink"])
+            mine = {(bx, by) for (x0, y0, w, h) in rects for by in range(y0, y0 + h) for bx in range(x0, x0 + w)}
+            cp = compile_with(path, [px_, void_park(ca, new, mine)])
+            r2, l2, b2 = part_of(cp)
+            say("    %-60s poses +%d blocks, +%d B RAM, +%d B LZ4; + lane records/maps %d B (PREDICTED, 130.12.3.1)"
+                % (r_["name"].split(", ", 1)[1], b2 - b1, r2 - r1, l2 - l1, rec))
+    say("")
+
+    # ---- the per-facing font alone ----
+    say("== the PER-FACING FONT alone: its 10 digits' blocks on a plain field, laid in FIRST's void (MEASURED) ==")
+    for which, tab in (("sw", fonts.SW), ("se", fonts.SE)):
+        for field, fname in ((C, "cyan"), (K, "black"), (W, "white"), (M, "magenta")):
+            for ink in (K, W):
+                if ink == field:
+                    continue
+                blks = set()
+                for d in range(10):
+                    blk = bytearray([field] * 64)
+                    for (u, r) in fonts.glyph(tab, d):
+                        blk[8 * r + 1 + u] = ink
+                    blks.add(bytes(blk))
+                cp = compile_with(pf, [void_park(first, blks)])
+                r2, l2, b2 = part_of(cp)
+                say("  %s digits, %s on %-7s: %d blocks, +%d B RAM, +%d B LZ4 in FIRST's part; the 10 alone LZ4 %d B"
+                    % (which, "black" if ink == K else "white", fname, b2 - f0[2], r2 - f0[0], l2 - f0[1],
+                       B.packed_len(b"".join(sorted(blks)))))
+    say("")
+
+    # ---- the digit colour on TODAY's clocks: FIRST's crystal clocks with white digits ----
+    say("== DIGIT COLOUR on today's clocks: FIRST's two crystal clocks with WHITE digits (clock_glyph's ink) ==")
+    orig = B.clock_glyph
+
+    def white(d, bx, by, nx=0, ny=0):
+        return {q: WHT for q in orig(d, bx, by, nx, ny)}
+    B.clock_glyph = white
+    try:
+        cw = B.compile_course(open(pf, encoding="ascii").read() + "\n# white\n", fname="first.bbc")
+    finally:
+        B.clock_glyph = orig
+    rw, lw, bw = part_of(cw)
+    say("  black (shipped): %d B RAM, %d B LZ4, %d blocks; white: %d B RAM, %d B LZ4, %d blocks (MEASURED)"
+        % (f0 + (rw, lw, bw)))
+    pic = [bytearray(r) for r in cw.pic]
+    box = None
+    for L in first.lanes:
+        x0_, y0_, w_, h_ = L["rect"]
+        box = (8 * x0_ - 24, 8 * y0_ - 20, 8 * w_ + 48, 8 * h_ + 52)
+        break
+    if box:
+        R1.stack([panels(first.pic, box, "FIRST's clock, black digits (shipped)"),
+                  panels(cw.pic, box, "FIRST start clock, white digits")], os.path.join("round2", "crystal_ink.png"))
+    with open(os.path.join(HERE, "numbers.txt"), "w") as f:
+        f.write("\n".join(OUT) + "\n")
+
+
+if __name__ == "__main__":
+    main()
