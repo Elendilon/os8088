@@ -37133,6 +37133,108 @@ def _sc_tiltbase(X, res):
                     % (item, arm, item, red or "NONE"), bool(red)))
 
 
+def _tlocc_count(c, pose, p_or_pos, tlanes):
+    """SPEC.md 130.42.15's measure at one ball state in see-saw POSE (every plate's lanes drawn in it) ->
+    (wrong, right, missed): ball pixels the records lay that the pose's own depth does not put in front of the
+    ball (beyond a record's BAND of tops), ball pixels the pose's rule hides that are laid (records, AV's model
+    and the gate), and the ones it hides that are not"""
+    px, py, sb, zb, oair, cell, gate = p_or_pos
+    cvs = {0: (c.sbuf, c.tbuf)}
+    for (_k, q), cvp in c.tl_rep["cv"].items() if c.tl_rep else ():
+        cvs[q] = (cvp.sbuf, cvp.tbuf)
+    sbuf, tbuf = cvs[pose]
+    m = 0 if oair else CLIMB
+    ball = {q for q in ball_pixels(px, py) if 0 <= q[1] < c.lines and 0 <= q[0] < c.width}
+    truth = {(x, y) for (x, y) in ball if sb < sbuf[y][x] and zb + m < tbuf[y][x]}
+    poses = {i: pose for i in tlanes}
+    recp = {q for r in laid_at(c, px, py, sb, zb, oair, poses=poses) for q in r["pix"]} & ball
+    wrong = {(x, y) for (x, y) in recp if not (sb < sbuf[y][x] and zb + m < tbuf[y][x] + BAND)}
+    laid = laid_at(c, px, py, sb, zb, oair, card=True, cell=cell, poses=poses) & ball if gate else set()
+    miss = {q for q in truth - laid if not ghost(*q)}
+    return len(wrong), len(laid & truth), len(miss)
+
+
+def _tlocc_checks(c, mats=(MAT_RUBBER, MAT_STEEL, MAT_GLASS)):
+    """SPEC.md 130.42.15 on a course with a see-saw: (1) the LATTICE - every reach cell round the plate (one its
+    poses change the depth near), its centre and four inner points, every height of its range in 2 px airborne
+    and its floor in the pose grounded, in each pose -> {pose: (positions, wrong, right, missed)}; (2) the
+    OWNER'S SCENARIO - each ball poked on F (22, 15) and Down + Left held 400 steps: up the plate, past its pivot,
+    the plate tipped to its far end and the ball against the ramp's wall -> {mat: (steps by pose, wrong, right,
+    missed)}"""
+    tlanes = [L["prop"] for L in c.lanes if L["kind"] == FK_TILTL]
+    rb = c.tl_rep["rb"][1] | c.tl_rep["rb"][2] if c.tl_rep else set()
+    if not rb:                                      # (the cut off: the region from a cut made here)
+        c2 = compile_course(os.path.join(COURSE_DIR, os.path.basename(c.fname)))
+        rb = c2.tl_rep["rb"][1] | c2.tl_rep["rb"][2]
+        c.tl_rep = {"cv": c2.tl_rep["cv"], "rb": c2.tl_rep["rb"]} if c.tl_rep is None else c.tl_rep
+    near = tl_occ_reach(c.reach, rb, c.x0, c.y0)
+    plates = [p for p in c.src.seesaws]
+    lat = {}
+    for pose in (0, 1, 2):
+        t2 = dict(c.tiles)
+        for sw in plates:
+            t2.update(tl_tiles(sw, pose))
+        n = w = r = mi = 0
+        for rc in near:
+            if rc.kind not in (KIND_VOID, KIND_FLOOR, KIND_GOAL):
+                continue
+            for u, v in ((8, 8), (3, 3), (12, 3), (3, 12), (12, 12)):
+                gx, gy = (16 * rc.wx + u) << 8, (16 * rc.wy + v) << 8
+                st = [(z, 1) for z in range(rc.zlo, rc.zhi + 1, 2)]
+                if rc.kind != KIND_VOID and (rc.wx, rc.wy) in t2:
+                    f_ = pose_floor(t2, rc.wx, rc.wy, gx, gy)
+                    if f_ is not None:
+                        st.append((f_, 0))
+                for z, air in st:
+                    px = ((gx - gy) >> 8) + c.x0 - 8
+                    py = (((gx + gy) >> 1) - (z << 8) >> 8) + c.y0 - 13
+                    cl = c.cells.get((rc.wx, rc.wy))
+                    gate = bool(cl and cl[3] & (FL_OCC if air else FL_OCCG))
+                    a, b, d = _tlocc_count(c, pose, (px, py, rc.s, z, air, mcell(gx, gy), gate), tlanes)
+                    n, w, r, mi = n + 1, w + a, r + b, mi + d
+        lat[pose] = (n, w, r, mi)
+    scen = {}
+    for mat in mats:
+        p = Physics(c, play=True, mat=mat).poke(22, 15, 0, 0)
+        pl = [q for q in p.props if q["kind"] == FK_TILT]
+        steps, w = {}, [0, 0, 0]
+        for _ in range(400):
+            p.step(K_D | K_L)
+            if p.tube:
+                continue
+            pose = p.fst[pl[0]["fsb"] >> 3]
+            cl = p.cell(p.gx >> 12, p.gy >> 12)
+            gate = bool(cl[4] & (FL_OCC if p.air else FL_OCCG))
+            a, b, d = _tlocc_count(c, pose, (p.px, p.py, p.sb, p.zb, p.oair, mcell(p.gx, p.gy), gate), tlanes)
+            steps[pose] = steps.get(pose, 0) + 1
+            w = [w[0] + a, w[1] + b, w[2] + d]
+        scen[MAT_NAMES[mat]] = (steps, w[0], w[1], w[2])
+    return lat, scen
+
+
+def _sc_tlocc(X, res):
+    """--selfcheck's section `tlocc` (SPEC.md 130.42.15): PER-POSE OCCLUDERS on MILL's see-saw - the lattice and
+    the owner's scenario in every pose, wrong 0 and missed 0; and two red arms: the cut from the rest picture
+    alone (`tlocc` False: the defect) and the pose test removed (`tloccall`)"""
+    mp = os.path.join(COURSE_DIR, "mill.bbc")
+    c = X.byname.get("MILL") or compile_course(mp)
+    lat, scen = _tlocc_checks(c)
+    for pose, (n, w, r, mi) in sorted(lat.items()):
+        res.append(("1 see-saw occluders (130.42.15), MILL's lattice in pose %d: %d positions, %d px laid over the "
+                    "ball the pose's picture does not put in front of it, %d hidden right, %d missed"
+                    % (pose, n, w, r, mi), n > 0 and w == 0 and mi == 0))
+    for mat, (steps, w, r, mi) in sorted(scen.items(), key=str):
+        res.append(("2 see-saw occluders (130.42.15), MILL's scenario, %s: steps by pose %s, %d wrong px, %d "
+                    "hidden right, %d missed" % (mat, dict(sorted(steps.items())), w, r, mi),
+                    steps.get(2, 0) > 100 and w == 0 and mi == 0))
+    for arm, hk in (("tlocc", {"tlocc": False}), ("tloccall", {"tloccall": True})):
+        cr = compile_course(mp, _hack=hk)
+        lat, scen = _tlocc_checks(cr, mats=(MAT_RUBBER,))
+        bad = [(k, v) for k, v in list(lat.items()) + list(scen.items()) if v[1] or v[3]]
+        res.append(("3 see-saw occluders red %s: %s" % (arm, ("red at %s" % (bad[:2],)) if bad else "STAYED GREEN"),
+                    bool(bad)))
+
+
 def _sc_water(X, res):
     """--selfcheck's section `water` (SPEC.md 130.36)"""
     _water_checks(res)
@@ -39866,7 +39968,7 @@ SC_COST = {"camstop": 3, "determinism": 59, "camcheck": 54, "crosscommit": 48, "
            "flags": 7, "palette": 7, "routes": 7, "gaps": 6, "w4": 6, "path": 4, "splitphys": 4, "cache": 3,
            "compact": 2, "hud": 2, "props": 2, "riser": 2, "clockvis": 1, "demos4": 1, "gap3": 1, "launch": 1, "millroute": 1,
            "seeds": 1, "tables": 1, "title": 1, "av": 40, "wind": 4, "airsafe": 90, "guard": 30, "water": 20, "kit": 12, "arch": 30,
-           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "tiltbase": 20, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
+           "spike": 20, "boost": 12, "hump": 30, "gate": 30, "tilt": 20, "tiltbase": 20, "tlocc": 60, "turn": 20, "clockocc": 10, "clockdig": 8, "hopplan": 30,
            "lift2": 10, "width": 8, "sheets": 120, "blocks": 8, "pipeunder": 170, "pipeover": 200}
 
 
@@ -41741,7 +41843,7 @@ _SC_ORDER = ("_sc_seeds", "_sc_crosscommit", "_sc_grammar", "_sc_w9", "_sc_wind"
              "_sc_camcheck", "_sc_play", "_sc_launch", "_sc_clockvis", "_sc_gap3", "_sc_w4", "_sc_flags",
              "_sc_y0moon", "_sc_hud", "_sc_demos4", "_sc_hopplan", "_sc_inc", "_sc_compact", "_sc_dither", "_sc_budget",
              "_sc_twoseg", "_sc_title", "_sc_clockrule", "_sc_path", "_sc_av", "_sc_guard", "_sc_kit", "_sc_cache",
-             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_tiltbase", "_sc_turn",
+             "_sc_magnet", "_sc_water", "_sc_boost", "_sc_spike", "_sc_arch", "_sc_hump", "_sc_gate", "_sc_tilt", "_sc_tiltbase", "_sc_tlocc", "_sc_turn",
              "_sc_clockocc", "_sc_clockdig", "_sc_lift2", "_sc_width", "_sc_sheets", "_sc_blocks", "_sc_pipeunder",
              "_sc_pipeover", "_sc_rampplane", "_sc_camstop", "_sc_reachpath")
 

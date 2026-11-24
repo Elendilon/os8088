@@ -1009,6 +1009,9 @@ bz_ltog:
     mov cl, dl
     mov dh, 20h
     shl dh, cl                  ; DH = the pose's bit
+    push es
+    push ds
+    pop es                      ; ES = ours (bz_osum)
     mov ds, [bz_mseg]           ; (the PICTURE part: L and R, 130.30.5)
     cld
     lodsb
@@ -1021,6 +1024,10 @@ bz_ltog:
     mov bl, al
     xor bh, bh
     shl bx, 1
+    cmp bx, 2 * BZ_OSROWS       ; the row's summary (bz_osmake's, made from
+    jae .ns                     ; the records as they sat): its greatest s'
+    mov byte [es:bz_osum + bx], 0ffh    ; no more, so no row is left early
+.ns:
     add bx, [BZC_OCCIDX]
     mov di, [bx]
     mov al, ah
@@ -1044,6 +1051,7 @@ bz_ltog:
     pop cx
     loop .run
 .out:
+    pop es
     pop ds
     pop di
     pop si
