@@ -273142,6 +273142,26 @@ natural spot (`_CLOCK_ANCHOR_LANES` "blocks": refused, the digits off the
 moved art), the glyph's nudge dropped ("nudge": the ink item red), and a
 frog's digits moved 48 px down, below its body: refused.
 
+##### 130.18.5.6 The digits' INK: black or white (the owner, 2026-11-24)
+
+*"Black digits on a bare face ... read fine. The white digits do read even cleaner, so having the option to
+toggle black/white for the digit color (for normal clocks too, per clock) would be awesome."*
+
+    clock <wx> <wy> [frame <style>] [digits <dx> <dy>] [ink black|white]
+
+`ink` may stand anywhere among the clauses (`frame` before `digits` as before), default **black**, today's look:
+a course without it compiles byte for byte as before, its identity too. `clock_glyph` draws the 5 x 7 glyph
+in the clock's ink; the digits are still ten POSES of the clock's lanes, so white costs **no guest byte, no
+lane and no block more** - the poses' pixels change, nothing else - and a build-time choice only.
+
+**Refused**: digits the colour of the face under them - every pixel of the 8 (the fullest glyph) on face
+pixels of the ink's colour - are no clock, so the tool refuses the statement at its line, naming the
+other ink or a frame whose window is not that colour. Today's frames: `crystal`, `pin` and `spring` take
+white digits; every other frame's digit window is white, so white digits are refused there and stay
+black (MEASURED: FIRST's clock compiled with each frame and each ink). The wall clocks' art (the research
+in docs/plans/BOUNCE-BONANZA-WALLCLOCK.md) is where white is meant to be used. The builder's clock dialog
+offers it as "Digits' colour" (`tools/bbedopts.py`).
+
 #### 130.18.6 `music` and the sound events (stories 7.5, 7.6)
 
 - **`music NAME`**: a `SONGS` name (`fairway`, `trial`, `windmill`,

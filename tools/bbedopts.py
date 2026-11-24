@@ -138,6 +138,7 @@ OPTIONS = {
     ("clock", None): [
         O("frame", "choice", "Frame", vals=tuple(B.CLOCK_STYLES), blank="crystal", at=3),
         O("digits", "pair", "Digits moved", "dx dy, px from the frame's own place", lo=-64, hi=64, d="0 0"),
+        O("ink", "choice", "Digits' colour", vals=tuple(B.CLOCK_INKS), blank="black"),
     ],
     ("spring", None): [
         O(None, "num", "Launch (gvz)", "upward speed, %d - %d" % (B.SPRING_LO, B.VZMAX), pos=3, lo=B.SPRING_LO,
@@ -258,7 +259,7 @@ GRAMMAR = {
     ("arch", None): ("#3", "guard", "height"), ("float", None): ("thick",), ("gap", None): ("sw|se",),
     ("guard", None): ("side", "height"), ("archway", None): ("along", "under", "top"), ("seesaw", None): ("rest", "base"),
     ("cup", None): ("capture", "exit", "hidden"), ("checkpoint", None): ("ball",),
-    ("clock", None): ("frame", "digits"), ("spring", None): ("#3",), ("pad", None): ("#1",),
+    ("clock", None): ("frame", "digits", "ink"), ("spring", None): ("#3",), ("pad", None): ("#1",),
     ("label", None): ("ink",), ("way", None): ("branch",),
     ("prop", "windmill"): ("period", "closed", "seed"), ("prop", "bumper"): ("kick",),
     ("prop", "platform"): ("#4", "period", "dwell", "seed"),
