@@ -5465,7 +5465,8 @@ def tl_occ_poses(cv, plates, props, render_pose, base, records, rule_by_block, r
                 for r in rs:
                     r["kmask"] = r["mask"] if hack.get("no_dither") else dither(r["mask"])
                 cum_masks(rs, _off=hack.get("nocum"))
-                keys[pose] = sorted((r["s"], r["top"], r["kmask"], r["cmask"]) for r in rs if r["kmask"] != ALLKEEP)
+                keys[pose] = sorted((r["s"], r["top"], r["mask"], r["kmask"], r["cmask"]) for r in rs
+                                    if r["kmask"] != ALLKEEP)
             if keys[0] == keys[1] == keys[2]:
                 continue
             nposed += 1
@@ -5473,10 +5474,9 @@ def tl_occ_poses(cv, plates, props, render_pose, base, records, rule_by_block, r
             un = {}
             for pose in (0, 1, 2):
                 for r in sets[pose]:
-                    kk = (r["s"], r["top"], r["kmask"], r["cmask"])
+                    kk = (r["s"], r["top"], r["mask"], r["kmask"], r["cmask"])
                     if kk in un:
                         un[kk]["pm"] |= 1 << pose
-                        un[kk]["pix"] = un[kk]["pix"] | r["pix"]
                     else:
                         r2 = dict(r)
                         r2["pm"], r2["tl"] = 1 << pose, near["prop"]
@@ -35780,12 +35780,14 @@ def _course_items(c, k, res, t):
     # 5. the occluders, on the MERGED records
     recs = c.records
     srt = all((x["brow"], x["col"], x["s"]) <= (y["brow"], y["col"], y["s"]) for x, y in zip(recs, recs[1:]))
-    seen = set()
     dup = False
-    for r in recs:
-        if seen & r["pix"]:
-            dup = True
-        seen |= r["pix"]
+    for pose in (0, 1, 2):                          # (SPEC.md 130.42.15: a posed block's poses each hold its pixels)
+        seen = set()
+        for r in recs:
+            if (r.get("pm", 7) >> pose) & 1:
+                if seen & r["pix"]:
+                    dup = True
+                seen |= r["pix"]
     span = 0
     for r in c.raw:
         tops = [c.tbuf[y][x] for (x, y) in r["pix"]]
@@ -35796,7 +35798,7 @@ def _course_items(c, k, res, t):
     res.append(("5 %s: OCCIDX non-decreasing to the records' end, records sorted, no pixel in two records, no "
                 "unmerged record's tops spanning over %d px (most %d), masks deduplicated (%d for %d records)"
                 % (tag, BAND, span, len(c.masks), len(recs)), srt and not dup and span <= BAND and masks_unique))
-    tried, diff = merge_exact(c.raw, c.records, c.queries)
+    tried, diff = merge_exact(c.raw, [r for r in c.records if r.get("pm", 1) & 1], c.queries)   # (at rest)
     res.append(("5 %s: the merge is exact - for every block and every (s_b, z_b + m) of its query set the %d "
                 "merged records lay exactly the pixels the %d unmerged ones lay (%d queries%s)" % (
                     tag, len(c.records), len(c.raw), tried, "" if diff is None else ", differs at %s" % (diff,)),
