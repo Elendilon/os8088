@@ -5324,6 +5324,54 @@ def tl_lanes(src, props, lanes, tiles, tlpose, ops_of, x0, y0, width, lines, own
         p["tlnl"] = len(rects)
 
 
+TL_TOGS = 5                   # SPEC.md 130.42.15: a toggle byte's poses, bits 5 - 7 (bit 5 + P: laid in pose P) ...
+TL_TOGM = 31                  # ...and its s', bits 0 - 4
+
+
+def tl_toggles(records, props, mindex, lanes, fname):
+    """SPEC.md 130.42.15: each see-saw lane's OCCLUDER TOGGLES, the bytes after its three pose maps - a count of
+    RUNS, then each run's block row, its first record's place in the row and its records, and a byte a record:
+    bits 0 - 4 its s' (SPEC.md 130.15.5.1), bits 5 - 7 the poses it is laid in.  A run is the posed records of
+    one block row, in the part's order, that the one lane selects.  -> ({lane's prop index: its bytes, every
+    see-saw lane's - b"\x00" for one that selects none}, the part's record indices stored s' 0: not laid at
+    rest)"""
+    part = [r for r in records if r["kmask"] != ALLKEEP]
+    recs = [(r["brow"], r["col"], r["s"], r["top"], mindex[r["cmask"]]) for r in part]
+    SB = rec_biases(recs, fname)[0] if recs else 0
+    runs, sz, k, prev = {}, set(), {}, None
+    for i, r in enumerate(part):
+        kk = k[r["brow"]] = k.get(r["brow"], -1) + 1
+        if "pm" not in r:
+            prev = None
+            continue
+        sp = r["s"] - r["brow"] + SB
+        if not 1 <= sp <= TL_TOGM:
+            raise CourseError("%s: a see-saw's posed occluder record (block row %d, column %d) has s' = %d, past "
+                              "the %d a toggle holds (SPEC.md 130.42.15)" % (fname, r["brow"], r["col"], sp, TL_TOGM))
+        if not r["pm"] & 1:
+            sz.add(i)
+        ls = runs.setdefault(r["tl"], [])
+        if prev is not None and prev[0] == r["tl"] and prev[1] == r["brow"] and prev[2] == i - 1:
+            ls[-1][2].append(sp | r["pm"] << TL_TOGS)
+        else:
+            ls.append((r["brow"], kk, [sp | r["pm"] << TL_TOGS]))
+        prev = (r["tl"], r["brow"], i)
+    out = {}
+    for L in lanes:
+        if L["kind"] != FK_TILTL:
+            continue
+        b = bytearray([len(runs.get(L["prop"], ()))])
+        for br, kk, bs in runs.get(L["prop"], ()):
+            if br > 255 or kk > 255 or len(bs) > 255:
+                raise CourseError("%s: a see-saw's toggle run at block row %d, record %d, of %d records: past a "
+                                  "byte (SPEC.md 130.42.15)" % (fname, br, kk, len(bs)))
+            b += bytes((br, kk, len(bs))) + bytes(bs)
+        out[L["prop"]] = bytes(b)
+    if len(runs) and any(len(v) > 255 for v in runs.values()):
+        raise CourseError("%s: a see-saw lane with more than 255 toggle runs (SPEC.md 130.42.15)" % fname)
+    return out, frozenset(sz)
+
+
 class _PoseCanvas:
     """SPEC.md 130.42.15: the picture's DEPTH (sbuf, tbuf) with one see-saw in one pose - the compile's canvas
     with the pixels whose depth that pose's render changes taken from it.  Rows shared where nothing changed"""
@@ -15028,7 +15076,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     order += sorted((i for i in range(len(props)) if i not in lane_of),    # (SPEC.md 130.39.3: the archway
                     key=lambda i: (props[i]["kind"] == FK_ARCH, props[i]["line"]))   # cells LAST: never an owner)
     pmoff = PROPREC * len(props)
-    segoff = pmoff + sum(2 * len(L["poses"]) * L["rect"][2] * L["rect"][3] for L in lanes)
+    tltog, tlsz = tl_toggles(records, props, mindex, lanes, fname)     # SPEC.md 130.42.15: a see-saw lane's TOGGLES
+    segoff = pmoff + sum(2 * len(L["poses"]) * L["rect"][2] * L["rect"][3] + len(tltog.get(L["prop"], b""))
+                         for L in lanes)
     spoff = segoff + SEGREC * sum(len(props[i]["segs"]) for i in order if "segs" in props[i])
     gflags = (GF_CKPT if any(p["kind"] in (PK_CHECKPOINT, PK_CUP) for p in props) else 0) \
         | (GF_CUP if cups else 0) | ((GF_PAGED if pth is not None else GF_VIEW) if view else 0) \
@@ -15098,6 +15148,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     blkp.append(pmoff + len(pmb))
                     pmb += struct.pack("<H", 16 * n)
             pmo += 2 * len(L["poses"]) * w * h
+            if i in tltog:                          # SPEC.md 130.42.15: its toggles, after its pose maps
+                pmb += tltog[i]
+                pmo += len(tltog[i])
         elif p.get("grp"):                          # SPEC.md 130.32.4: a MEMBER, its group lanes' records
             rec += bytes(jof[g] for g in p["grp"]) + b"\xff" * (8 - len(p["grp"]))
             p["lane"] = None
@@ -15181,8 +15234,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             elif p["kind"] == FK_TILT:              # THE SEE-SAW (SPEC.md 130.42.3): +18 NX, +19 NY, +20 the flags,
                 rec += struct.pack("<BBBBBbBBB7x", p["fsb"], p["cls"], p["tlnx"], p["tlny"], p["tlf"], zq(p["tlpz"]),
                                    p["tlmask"], p["tlflat"], p["tlseed"])     # (+22 - +24 a TIMED one's, 130.42.11)
-            elif p["kind"] == FK_TILTL:             # ...+21 PZ; a lane's +18 its plate's record
-                rec += struct.pack("<BBB13x", 0, p["cls"], jofid[id(p["tlof"])])
+            elif p["kind"] == FK_TILTL:             # ...+21 PZ; a lane's +18 its plate's record, +20 its TOGGLES'
+                rec += struct.pack("<BBBBH10x", 0, p["cls"], jofid[id(p["tlof"])], 0,   # bytes (SPEC.md 130.42.15)
+                                   len(tltog[i]))
             elif p["kind"] == WD_K2:                # ...a WISP's: +18 its blower's record (SPEC.md 130.34.11)
                 rec += struct.pack("<BBB13x", 0, p["cls"], jofid[id(p["wof"])])
             else:                                   # (MAGNETS' +21 the strength, +22 a hanging one's ceiling)
@@ -15224,6 +15278,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     model = {"cols": cols, "brows": brows, "idx": list(mp), "blocks": bytes(blkb),
              "recs": [(r["brow"], r["col"], r["s"], r["top"], mindex[r["cmask"]]) for r in records
                       if r["kmask"] != ALLKEEP],
+             "sz": tlsz,                               # SPEC.md 130.42.15: the records stored s' 0 (not laid at rest)
              "masks": list(masks),
              "mband": src.mbands is not None,          # SPEC.md 130.52
              "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx,
@@ -16766,6 +16821,7 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
     nprop = m["props"]["n"] if m["props"] else 0
     SB, TBS = rec_biases(recs, fname, brows) if recb == 4 else (0, [0] * nbands(brows))
     ytab, otab, mloc = band_tables(m, TBS, sec["O"][0], maskoff, fname) if bzc2 and recb == 4 else (b"", b"", None)
+    tlsz = m.get("sz") or ()                        # (SPEC.md 130.42.15: stored s' 0, laid in no pose at rest)
     present = [t for t in order if sec[t][1]] if bzc2 else []
     diroff = end
     b = bytearray(end + DIRENT * len(present))
@@ -16790,7 +16846,8 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
         if recb == 8:
             struct.pack_into("<BBHhH", b, occrec + 8 * i, col, 0, s, top, maskoff + 16 * mi)
         else:
-            b[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TBS[br >> BAND_SH],
+            b[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, 0 if i in tlsz else s - br + SB,
+                                                          top - TBS[br >> BAND_SH],
                                                           mloc[(br >> BAND_SH, mi)] if mloc else mi))
     for i, mk in enumerate(masks):
         b[maskoff + 16 * i:maskoff + 16 * i + 16] = mk
@@ -17014,6 +17071,8 @@ def decode_part(p):
         for o in blkp:
             struct.pack_into("<H", pb, o, (struct.unpack_from("<H", pb, o)[0] - blkoff) & 0xFFFF)
         m["props"] = {"n": nprop, "blob": bytes(pb), "self": selfp, "blk": blkp}
+    if recb == 4:
+        tl_fix_recs(m, SB)                          # (SPEC.md 130.42.15: the records stored s' 0)
     return m
 
 
@@ -17035,8 +17094,92 @@ def _props_runs(m):
     for i in range(pr["n"]):
         r = PROPREC * i
         if blob[r + 1] & PF_LANE:
-            pm += 2 * blob[r + 13] * blob[r + 11] * blob[r + 12]
+            pm += lane_tail(blob, r)
     return PROPREC * pr["n"], pm
+
+
+def lane_tail(blob, r):
+    """a lane record's bytes in the pose maps' run (SPEC.md 130.12.3.1): its 2 poses w h - and a see-saw lane's
+    TOGGLES after them, +20's count (SPEC.md 130.42.15)"""
+    n = 2 * blob[r + 13] * blob[r + 11] * blob[r + 12]
+    if blob[r] == FK_TILTL:
+        n += struct.unpack_from("<H", blob, r + 20)[0]
+    return n
+
+
+def tl_togs_of(blob, nprop, pmof=None):
+    """SPEC.md 130.42.15: the see-saw lanes' toggles out of a props blob (records, then the pose maps' run) ->
+    {lane record: [(block row, first record's place in it, [toggle bytes])]}.  pmof(r): the record's pose maps'
+    offset in BLOB (default: the record's +14, relative to the blob as a model holds it)"""
+    out = {}
+    for i in range(nprop):
+        r = PROPREC * i
+        if blob[r] != FK_TILTL or not blob[r + 1] & PF_LANE:
+            continue
+        o = (pmof(r) if pmof else struct.unpack_from("<H", blob, r + 14)[0]) + 2 * blob[r + 13] * blob[r + 11] \
+            * blob[r + 12]
+        runs, n = [], blob[o]
+        o += 1
+        for _ in range(n):
+            br, kk, nn = blob[o:o + 3]
+            runs.append((br, kk, list(blob[o + 3:o + 3 + nn])))
+            o += 3 + nn
+        out[i] = runs
+    return out
+
+
+def tl_check_togs(m, pic, occrec, oi, SB, tlz, bad):
+    """read_part's (SPEC.md 130.42.15): every see-saw lane's toggle runs inside their block rows, no record in two,
+    each byte's poses not none and its s' 1 - 31, the record's stored s' its own when it is laid at rest and 0
+    when not - and the records stored 0 exactly those"""
+    pr = m.get("props")
+    seen, z = set(), set()
+    for j, runs in (tl_togs_of(pr["blob"], pr["n"]) if pr else {}).items():
+        for br, kk, bs in runs:
+            if br + 1 >= len(oi):
+                bad("prop %d" % j, "a toggle run at block row %d, past the map" % br)
+                continue
+            a_ = (oi[br] - occrec) // 4 + kk
+            if a_ + len(bs) > (oi[br + 1] - occrec) // 4:
+                bad("prop %d" % j, "a toggle run of %d records from %d of block row %d, past the row" % (
+                    len(bs), kk, br))
+                continue
+            for i, t in enumerate(bs, a_):
+                if i in seen or not t >> TL_TOGS or not t & TL_TOGM:
+                    bad("prop %d" % j, "toggle %02Xh of record %d (a record twice, no pose or s' 0)" % (t, i))
+                seen.add(i)
+                st = pic[occrec + 4 * i + 1]
+                if st != ((t & TL_TOGM) if (t >> TL_TOGS) & 1 else 0):
+                    bad("record %d" % i, "s' %d against its toggle %02Xh" % (st, t))
+                if not (t >> TL_TOGS) & 1:
+                    z.add(i)
+    if z != tlz:
+        bad("records", "%d stored s' 0, %d of them a see-saw's toggles' (SPEC.md 130.42.15)" % (len(tlz),
+                                                                                                 len(z & tlz)))
+
+
+def tl_fix_recs(m, SB):
+    """SPEC.md 130.42.15: a decoded model's records stored s' 0 given back their s from their toggles, and the
+    model's "sz" made (the part's record indices stored 0)"""
+    pr = m.get("props")
+    if not pr or not any(pr["blob"][PROPREC * i] == FK_TILTL for i in range(pr["n"])):
+        return
+    oi, x = {}, 0
+    for i, rr in enumerate(m["recs"]):
+        if rr[0] not in oi:
+            oi[rr[0]] = i
+    sz = set()
+    for runs in tl_togs_of(pr["blob"], pr["n"]).values():
+        for br, kk, bs in runs:
+            for j, t in enumerate(bs):
+                i = oi.get(br, 0) + kk + j
+                if i >= len(m["recs"]):
+                    continue
+                b_, col, s_, top, mi = m["recs"][i]
+                if not (t >> TL_TOGS) & 1:
+                    sz.add(i)
+                    m["recs"][i] = (b_, col, (t & TL_TOGM) - SB + b_, top, mi)
+    m["sz"] = frozenset(sz)
 
 
 def one_part_len(m, recb):
@@ -17100,6 +17243,7 @@ def _encode2(m, recb, ident=0, fname="<course>", mrows=None):
     plen = len(m["props"]["blob"]) - pm if m["props"] else 0
     SB, TBS = rec_biases(recs, fname, brows) if recb == 4 else (0, [0] * nbands(brows))
     ytab, otab, mloc = band_tables(m, TBS, sa["O"][0], maskoff, fname) if recb == 4 else (b"", b"", None)
+    tlsz = m.get("sz") or ()                        # (SPEC.md 130.42.15: stored s' 0, laid in no pose at rest)
     pa, pb = [t for t in oa if sa[t][1]], [t for t in ob if sb[t][1]]
     for ln in (ea + DIRENT * len(pa), eb + DIRENT * len(pb)):
         if ln > 0xFFFF:
@@ -17135,7 +17279,8 @@ def _encode2(m, recb, ident=0, fname="<course>", mrows=None):
         if recb == 8:
             struct.pack_into("<BBHhH", a, occrec + 8 * i, col, 0, s, top, maskoff + 16 * mi)
         else:
-            a[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, s - br + SB, top - TBS[br >> BAND_SH],
+            a[occrec + 4 * i:occrec + 4 * i + 4] = bytes((col, 0 if i in tlsz else s - br + SB,
+                                                          top - TBS[br >> BAND_SH],
                                                           mloc[(br >> BAND_SH, mi)] if mloc else mi))
     for i, mk in enumerate(masks):
         a[maskoff + 16 * i:maskoff + 16 * i + 16] = mk
@@ -17317,9 +17462,12 @@ def decode_parts(a, b, _mrows=None):
                 continue
             selfp.append(o)
             struct.pack_into("<H", pw, o, (struct.unpack_from("<H", pw, o)[0] - propoff + pm) & 0xFFFF)
-        for k in range(0, pm, 2):
+        for k in blkp:                              # (the pose map words alone: a see-saw lane's toggles follow
+            k -= rl                                 # its maps, SPEC.md 130.42.15)
             struct.pack_into("<H", pmb, k, (struct.unpack_from("<H", pmb, k)[0] - blkoff) & 0xFFFF)
         m["props"] = {"n": nprop, "blob": bytes(pw[:rl] + pmb + pw[rl:]), "self": selfp, "blk": blkp}
+    if recb == 4:
+        tl_fix_recs(m, SB)                          # (SPEC.md 130.42.15: the records stored s' 0)
     return m
 
 
@@ -17334,6 +17482,7 @@ def models_equal(m1, m2):
         d["grid"].setdefault("view", 0)
         d["kit"] = d.get("kit") or {}               # (SPEC.md 130.37.4: a model before the kit has none)
         d["farl"] = d.get("farl") or b""            # (SPEC.md 130.29.13: nor a model before the far list)
+        d["sz"] = frozenset(d.get("sz") or ())      # (SPEC.md 130.42.15: nor one before the see-saw's toggles)
         return d
     return norm(m1) == norm(m2)
 
@@ -18310,6 +18459,7 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
         if (idx[i + 1] - idx[i]) // recb > ROWREC_MAX:
             bad("OCCIDX[%d]" % i, "%d records in a block row, over %d" % ((idx[i + 1] - idx[i]) // recb, ROWREC_MAX))
     recs = []
+    tlz = set()                                     # (SPEC.md 130.42.15: the records stored s' 0)
     for i in range(nocc):
         if recb == 8:
             col, z, s, top, moff = struct.unpack_from("<BBHhH", p, occrec + 8 * i)
@@ -18323,8 +18473,11 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
             col, s_, t_, mi = p[occrec + 4 * i:occrec + 4 * i + 4]
             if col >= cols:
                 bad("record %d" % i, "column %d" % col)
-            if not s_ or not t_:
-                bad("record %d" % i, "s' %d, t' %d: each must be 1 - 255" % (s_, t_))
+            if not t_:
+                bad("record %d" % i, "s' %d, t' %d: each must be 1 - 255 (s' 0: a see-saw's, SPEC.md 130.42.15)"
+                    % (s_, t_))
+            if not s_:
+                tlz.add(i)
             b_ = br >> BAND_SH                      # SPEC.md 130.52: its band's mask table, to the next one's or O's end
             o_end = min([o_ for o_ in MTB if o_ > MTB[b_]] + [mtab + olen]) if banded else mtab + olen
             if MTB[b_] + 2 * mi + 2 > o_end:
@@ -18339,6 +18492,8 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
                 bad("MTAB[%d]" % i, "word %d, not %s" % (w_, "MASKOFF + 16 x %d" % i if not banded else "a mask"))
     for br in range(brows):
         row = recs[(idx[br] - occrec) // recb:(idx[br + 1] - occrec) // recb]
+        if tlz and any(tlz & set(range((idx[br] - occrec) // recb, (idx[br + 1] - occrec) // recb))):
+            continue                                # (a row with a see-saw's s' 0: checked with its toggles below)
         if [r[:2] for r in row] != sorted(r[:2] for r in row):
             bad("records of block row %d" % br, "not sorted by column, then s")
     p_, p = p, pw                                   # (from here the world part's: the grid, the route, the props)
@@ -18635,6 +18790,14 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
             q = _encode(model, recb, ident=ident)
             k = next((i for i in range(min(len(p), len(q))) if p[i] != q[i]), min(len(p), len(q)))
             bad("layout", "the part is not its own model's serialisation (first difference at offset %d)" % k)
+    if recb == 4:                                   # SPEC.md 130.42.15: the see-saw lanes' TOGGLES
+        tl_check_togs(model, p_, occrec, idx, SB, tlz, bad)
+        for i in sorted(tlz):
+            recs[i] = (recs[i][0], model["recs"][i][2]) + tuple(recs[i][2:])
+        for br in range(brows):
+            row = recs[(idx[br] - occrec) // recb:(idx[br + 1] - occrec) // recb]
+            if [r[:2] for r in row] != sorted(r[:2] for r in row):
+                bad("records of block row %d" % br, "not sorted by column, then s")
     return {"cols": cols, "brows": brows, "nblk": nblk, "mapsh": mapsh, "blkoff": blkoff,
             "occidx": occidx, "occrec": occrec, "nocc": nocc, "maskoff": maskoff, "nmask": nmask,
             "rowb": rowb, "gridoff": gridoff, "map": mp, "idx": idx, "recs": recs,
@@ -18693,19 +18856,33 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
             if not (1 <= w <= LANE_WMAX and 1 <= h <= LANE_HMAX
                     and 2 <= poses <= (GRP_PMAX if kind == PK_GROUP else LANE_PMAX)):
                 bad("prop %d" % i, "lane %d x %d, %d poses" % (w, h, poses))
+            tln = struct.unpack_from("<H", p, r + 20)[0] if kind == FK_TILTL else 0   # (SPEC.md 130.42.15)
             if pmaps is None:
-                if pmo != tail or pmo + 2 * poses * w * h > n:
+                if pmo != tail or pmo + 2 * poses * w * h + tln > n:
                     bad("prop %d" % i, "pose maps at %d" % pmo)
-            elif pmo != lat or pmo + 2 * poses * w * h > lend:
+            elif pmo != lat or pmo + 2 * poses * w * h + tln > lend:
                 bad("prop %d" % i, "pose maps at %d of the picture part, where L's next are at %d" % (pmo, lat))
+            if kind == FK_TILTL:                    # its TOGGLES fill +20's bytes exactly: a count of runs, each
+                q_, o_ = (p if pmaps is None else pmp), pmo + 2 * poses * w * h   # three bytes and its records'
+                e_ = o_ + tln
+                if not tln:
+                    bad("prop %d" % i, "a see-saw lane without its toggles (SPEC.md 130.42.15)")
+                else:
+                    nr_, o_ = q_[o_], o_ + 1
+                    for _ in range(nr_):
+                        if o_ + 3 > e_ or not q_[o_ + 2]:
+                            break
+                        o_ += 3 + q_[o_ + 2]
+                    if o_ != e_:
+                        bad("prop %d" % i, "a see-saw lane's toggles do not fill its %d bytes" % tln)
             for k in range(poses * w * h):
                 wd = struct.unpack_from("<H", p if pmaps is None else pmp, pmo + 2 * k)[0]
                 if wd < blkoff or wd >= occidx or (wd - blkoff) % 16:
                     bad("prop %d pose map[%d]" % (i, k), "word %d is not a block offset" % wd)
             if pmaps is None:
-                tail += 2 * poses * w * h
+                tail += 2 * poses * w * h + tln
             else:
-                lat += 2 * poses * w * h
+                lat += 2 * poses * w * h + tln
             d["lane"] = {"brow": brow, "col": col, "w": w, "h": h, "poses": poses, "off": pmo}
             lanebr.append(brow)
             if len(lanebr) != i + 1:
@@ -18860,8 +19037,8 @@ def read_props(p, propoff, nprop, blkoff, occidx, bad, end=None, pmaps=None):
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art="galane", dur=0, ow=0, gap=p[r + 18],
                          gch=p[r + 19])
                 continue
-            if kr["kind"] == FK_TILTL:              # ...a LANE of one: +18 its plate (checked below), else zero
-                if cls != CL_ATTEMPT or fsb_ or p[r + 19:r + 32] != bytes(13) or not d["lane"] \
+            if kr["kind"] == FK_TILTL:              # ...a LANE of one: +18 its plate (checked below), +20 its
+                if cls != CL_ATTEMPT or fsb_ or p[r + 19] or p[r + 22:r + 32] != bytes(10) or not d["lane"] \
                         or d["lane"]["poses"] != 3:
                     bad("prop %d" % d["i"], "a see-saw lane's record")
                 d.update(fam=fam, frow=kr, fsb=fsb_, cls=cls, bits=0, art=kr["art"], dur=0, ow=0, tlp=p[r + 18],
