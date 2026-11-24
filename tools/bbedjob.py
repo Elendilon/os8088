@@ -504,13 +504,14 @@ def kit_masks(c, d):
 
 
 def _open_course(text, name, full):
-    """the open course for the Kit tab: compiled WITH its occluders when FULL (K counted), else as the Kit overlay
-    compiles it - occluders off, at the kit's alignment, the block limit lifted (B and F alone, seconds)"""
-    if full:
-        return B.compile_course(text, name)
+    """the open course for the Kit tab, the block limit lifted as the picture job lifts it (so its compiles are the
+    picture's, from the cache): compiled WITH its occluders when FULL (K counted), else as the Kit overlay compiles
+    it - occluders off, at the kit's alignment (B and F alone, seconds)"""
     held = B.BLK_MAX
     B.BLK_MAX = 1 << 30
     try:
+        if full:
+            return B.compile_course(text, name)
         c = B.compile_course(text, name, occluders=False)
         k = (B.KIT_Y0 - c.y0) % 8
         if c.kit_use is not None and k:
