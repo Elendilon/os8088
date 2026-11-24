@@ -938,6 +938,7 @@ bz_lsrcp:
 ; Preserves all but the flags.
 bz_lsync:
     mov [bz_ldrw + bx], al
+    call bz_ltog
     push ax
     push cx
     push dx
@@ -973,6 +974,82 @@ bz_lsync:
     pop si
     pop dx
     pop cx
+    pop ax
+    ret
+
+; bz_ltog - SPEC.md 130.42.15: lane BX is now DRAWN in pose AL (its map words
+; just written, or about to be, with nothing between): a SEE-SAW lane's
+; OCCLUDER TOGGLES written into the course part's records, so the occluder
+; pass lays the records of the pose the map shows.  The toggles follow the
+; lane's three pose maps: a count of RUNS, each its block row, its first
+; record's place in that row and its record count, then a byte a record -
+; bits 0 - 4 its s', bit 5 + P set when it is laid in pose P.  A record not
+; laid in AL's pose gets s' 0, which no key is under (bz_occ's `ks < s'`).
+; Every other lane: the kind's compare.  Through DS = the course part (its
+; selector on kern_mega, as bz_lsync).  DS = ours.  Preserves all.
+bz_ltog:
+    cmp byte [bz_lknd + bx], BZ_FK_SEESAWLANE
+    je .go
+    ret
+.go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    mov dl, al                  ; DL = the pose
+    mov al, [bz_ltsz + bx]      ; three poses' maps past the first
+    mov ah, 3
+    mul ah
+    shl bx, 1
+    mov si, [bz_ltpm + bx]
+    add si, ax                  ; SI = the toggles
+    mov cl, dl
+    mov dh, 20h
+    shl dh, cl                  ; DH = the pose's bit
+    mov ds, [bz_mseg]           ; (the PICTURE part: L and R, 130.30.5)
+    cld
+    lodsb
+    mov cl, al
+    xor ch, ch
+    jcxz .out
+.run:
+    push cx
+    lodsw                       ; AL = the block row, AH = the place
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    add bx, [BZC_OCCIDX]
+    mov di, [bx]
+    mov al, ah
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    add di, ax                  ; DI = the run's first record
+    lodsb
+    mov cl, al                  ; (CH 0)
+.rec:
+    lodsb
+    mov dl, al
+    and dl, 1fh                 ; its s'...
+    test al, dh
+    jnz .on
+    xor dl, dl                  ; ...or 0: not laid in this pose
+.on:
+    mov [di + 1], dl
+    add di, BZ_REC
+    loop .rec
+    pop cx
+    loop .run
+.out:
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -1768,6 +1845,7 @@ bz_wcommit:
     call bz_wcore
     mov al, [bz_ltru + bx]
     mov [bz_ldrw + bx], al
+    call bz_ltog                ; (SPEC.md 130.42.15: a see-saw lane's occluders)
     mov byte [bz_lage + bx], 0
     inc word [bz_wcom]
     call bz_wnow
@@ -2075,6 +2153,7 @@ bz_wclk:
     call bz_wcore
     mov al, [bz_ltru + bx]
     mov [bz_ldrw + bx], al
+    call bz_ltog                ; (SPEC.md 130.42.15: a see-saw lane's occluders)
     mov byte [bz_lage + bx], 0
     inc word [bz_wcom]
     pop bx
