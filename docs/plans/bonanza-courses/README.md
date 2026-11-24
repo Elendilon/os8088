@@ -380,3 +380,7 @@ named by courses, copied in at load.
 the sand platform, the start ice with no purpose, hidden springs, the hidden
 end hole, unguarded unseen paths, a finish placed only to test the pathway
 (TRIAL's split double finish).
+
+## Maps of the courses as they ship
+
+`tools/bbmap.py COURSE.bbc -o OUT.png` draws the sketches' style over the SHIPPED picture: the course compiler's own CGA art, the route (red: its shipped demo replayed in the model), its branches (cyan), every flag, clock, cup, pad, spring, tube end, see-saw and prop, and a CGA window box at the start, each clock and the cup. The sketches here are the PLAN; a map is the course as built, so it stays right as a course is edited in the builder.
