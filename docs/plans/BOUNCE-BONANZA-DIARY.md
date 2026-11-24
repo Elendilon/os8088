@@ -6850,3 +6850,33 @@ entering frame sits 2.5k (PEAK) to 18.6k (PLAY) under each course's worst. `test
 run on MILL at all, before the far list or after: MILL compiled with `--occ off`, its A/B leg, needs 284 masks
 where a record can name 256. *Not done*: still no MartyPC look at a ball behind a far cliff, and the soak rows
 are the lead's.
+
+## 2026-11-24 (the see-saw's occluders, per pose: SPEC.md 130.42.15)
+
+The owner's screenshots of MILL showed the tipped see-saw's rest edge and column drawn over a ball on its lowered
+end. The occluder records were cut from one picture - the plates at rest - and the owner chose "option 2": cut the
+records round a plate once for each pose and pick them by the pose. *Observed first*, in the model over the owner's
+log: on the 776 steps the ball spent by the tipped plate, 3,516 ball pixels were laid that the tipped picture does
+not put in front of it, and 24,677 that it does were NOT laid - the gate itself was the rest picture's, so a ball on
+the lowered end, with the ramp's 2-unit wall now in front of it, had the gate shut and was drawn over the wall. The
+second half was worse than the first and nobody had named it.
+
+*Decisions*: a record depends only on its block's depth and the positions near it, so the tool draws the picture
+with the plate in each pose, finds the blocks whose depth moves, cuts only those again (the same pipeline, AV's far
+lists held to the rest cut's) and keeps a block's records untagged when all three poses agree. The guest picks a
+posed record by the pose the MAP shows - the lane's drawn pose - not the physics' pose, because the occluder pass
+lays the map's pixels: records and pixels then agree on every frame, also while the wheel is still committing a
+tipped plate's lanes one a frame. The cheapest tag turned out to be no tag in the walk at all: the occluder pass is
+untouched, and each see-saw lane carries TOGGLES after its pose maps that set a record's `s'` to itself or to 0
+(laid by no key) whenever the lane's drawn pose is set. A record not laid at rest is stored 0, so a fresh part lays
+the rest pose as its map shows it. One trap found on the way: the guest's row summary is made from the stored
+`s'`, so a toggle raises its row's (none of MILL's rows needed it; the guard is 7 bytes).
+
+*Measured*: MILL's part +146 records (1,444 -> 1,590), +21 masks, 293 toggle bytes, **+683 bytes LZB**; the guest
++134 bytes; **`BONANZA.O88` 177,091 -> 177,890 (+799)** at the same build number; every other course byte for
+byte. The occluder pass round the plate, priced from the executed instructions at 9,990 entering positions in
+each pose: worst 75,076 clk before and after, mean +300 - +380. In the model over the owner's log: 0 wrong pixels,
+0 missed (27,144 hidden right on the tipped steps). `--selfcheck --only tlocc`: MILL's lattice and the scripted
+scenario (each ball up the plate, tipped, held at the wall) 0 wrong and 0 missed in every pose, both red arms red;
+`tests/bonanza_av.py` on MILL with the guest's own `bz_lsync` setting each pose: every buffer the host's, and its
+two new red arms red. *Not done*: no MartyPC look at the tipped plate; the soak rows are the lead's.
