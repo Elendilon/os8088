@@ -254309,6 +254309,9 @@ cell's area at its lowest point: a ball at a channel's bottom height under
 its lip is not a pose a FIELD cell can give it (130.28.6, the occluder
 cut).*
 
+*Amended by 130.42.15: round a SEE-SAW the picture is not one picture - the records of the blocks whose depth a
+plate's pose changes are cut once for each pose and the pass lays those of the pose the map shows there.*
+
 *Amended by 130.15.5: this 8-byte record was idea C's RAM record
 (130.15.5.3), and it did not ship: 130.15.5.4's second measurement shipped
 D, whose RAM record is 4 bytes (130.15.5.1). The tool still lays this one

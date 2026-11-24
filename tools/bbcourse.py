@@ -12553,7 +12553,8 @@ def occ_window(reach, records, x0, y0, cum=True):
         if r["kmask"] != ALLKEEP:
             byb.setdefault((r["brow"], r["col"]), []).append(r)
             ms, mt = rmax.get(r["brow"], (None, None))
-            rmax[r["brow"]] = (r["s"] if ms is None else max(ms, r["s"]), r["top"] if mt is None else max(mt, r["top"]))
+            s_ = 1 << 30 if "pm" in r else r["s"]   # (SPEC.md 130.42.15: a toggle sets its row's s summary 0FFh)
+            rmax[r["brow"]] = (s_ if ms is None else max(ms, s_), r["top"] if mt is None else max(mt, r["top"]))
     memo = {}
     worst = (0, None, None, 0, 0, 0, 0)
     for rc in reach:
@@ -37176,15 +37177,14 @@ def _tlocc_checks(c, mats=(MAT_RUBBER, MAT_STEEL, MAT_GLASS)):
             t2.update(tl_tiles(sw, pose))
         n = w = r = mi = 0
         for rc in near:
-            if rc.kind not in (KIND_VOID, KIND_FLOOR, KIND_GOAL):
-                continue
+            if rc.kind not in (KIND_VOID, KIND_FLOOR, KIND_GOAL) or (rc.wx, rc.wy) in c.noocc:
+                continue                            # (SPEC.md 130.53, 130.11.4.7: no record is cut there)
             for u, v in ((8, 8), (3, 3), (12, 3), (3, 12), (12, 12)):
                 gx, gy = (16 * rc.wx + u) << 8, (16 * rc.wy + v) << 8
-                st = [(z, 1) for z in range(rc.zlo, rc.zhi + 1, 2)]
-                if rc.kind != KIND_VOID and (rc.wx, rc.wy) in t2:
-                    f_ = pose_floor(t2, rc.wx, rc.wy, gx, gy)
-                    if f_ is not None:
-                        st.append((f_, 0))
+                f_ = pose_floor(t2, rc.wx, rc.wy, gx, gy) if rc.kind != KIND_VOID else None
+                st = [(z, 1) for z in range(rc.zlo if f_ is None else max(rc.zlo, f_ + CLIMB), rc.zhi + 1, 2)]
+                if f_ is not None:                  # (over a floor: above it, out of a low flight's margin, 130.49;
+                    st.append((f_, 0))              # and grounded ON it, in the pose)
                 for z, air in st:
                     px = ((gx - gy) >> 8) + c.x0 - 8
                     py = (((gx + gy) >> 1) - (z << 8) >> 8) + c.y0 - 13
