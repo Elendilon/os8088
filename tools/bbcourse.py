@@ -12651,7 +12651,6 @@ OCCN = 14                     # ...and their number, (OCCDEPTH + 1)(OCCDEPTH + 2
 AV_FARD0, AV_FARD = 5, 18     # SPEC.md 130.29.13: THE FAR LIST's cells, at i + j = AV_FARD0 .. AV_FARD (i, j a nibble)
 AV_FARBLOB = 255              # ...the lists' section A, whose offset back from ROWTAB a VOID cell's +1 holds
 AV_FAR = True                 # (False: no far list - the A/B, and --selfcheck's controls)
-AV_FARUNIFY = True            # SPEC.md 130.29.14: fewer distinct lists (False: the A/B)
 AV_FARPRUNE = True            # SPEC.md 130.29.14: each list cut to the entries some residual pixel needs (False: the A/B)
 # the first filter's estimate of the model's ENTERING frame (SPEC.md 130.29.13, av_mfeat's terms in its order), clk:
 # the frame, a counting half, a footprint column of one, a far entry, a word passed by, a word laid under the
@@ -13192,7 +13191,7 @@ def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _no
             bud = max([av_enter(grid, q, x0, y0, [], rec0[(q.wx, q.wy)]) for q in rcs if q.pts is None] or [0])
         nblob, seen = 0, set()
         for key in sorted(plan):
-            q, sel = plan[key][:2]
+            q, sel = plan[key]
             while sel and not _nobudget and av_enter(grid, q, x0, y0, [ij for ij, _he in sel], rec0[key]) \
                     > bud - AVP_MARGIN:
                 sel = sel[:-1]                      # (the last pick first)
@@ -13206,11 +13205,7 @@ def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _no
             if lst:
                 far[key] = list(lst)
         if far and occb is not None and AV_FARPRUNE:
-            st_ = _far_prune(cv, rcs, grid, y0, depth, far, occb)
-            if AV_FARUNIFY:
-                _far_unify(cv, rcs, grid, y0, depth, far, st_, {k_: v_[2] for k_, v_ in plan.items()},
-                           (lambda k_, l_: True) if _nobudget else
-                           (lambda k_, l_: av_enter(grid, plan[k_][0], x0, y0, l_, rec0[k_]) <= bud - AVP_MARGIN))
+            _far_prune(cv, rcs, grid, y0, depth, far, occb)
     if farfix is not None:                          # (SPEC.md 130.42.15: a see-saw pose's cut reads the lists the
         far = farfix                                # course's own picked, never picks its own)
     occ = {}
@@ -13263,8 +13258,8 @@ def _far_prune(cv, rcs, grid, y0, depth, far, occb):
         for p_, v_ in r.items():
             cnt[p_] = cnt.get(p_, 0) + 1
     for p_, v_ in occb.items():                     # (a pixel today's records lay with the canvas's own value)
-        if cnt.get(p_) and cv.sbuf[p_[1]][p_[0]] == v_[0] and cv.tbuf[p_[1]][p_[0]] == v_[1]:
-            cnt[p_] += 1 << 20
+        if cv.sbuf[p_[1]][p_[0]] == v_[0] and cv.tbuf[p_[1]][p_[0]] == v_[1]:
+            cnt[p_] = cnt.get(p_, 0) + (1 << 20)
     # the longest lists first (an entry costs the most there), each entry tried last first
     for key in sorted(by, key=lambda k_: (-len(far[k_]), k_)):
         lst = list(far[key])
@@ -13294,60 +13289,6 @@ def _far_prune(cv, rcs, grid, y0, depth, far, occb):
             far[key] = lst
         else:
             del far[key]
-    return sets, cnt
-
-
-def _far_unify(cv, rcs, grid, y0, depth, far, st, okf, bok):
-    """SPEC.md 130.29.14: THE UNIFY - fewer distinct far lists.  The rarest list first, every cell of it moved to a
-    list already in use (the most used first, then the shortest) when that list is one the cell may hold (each
-    entry a cell the pick could take there and the second filter passes: OKF; the first filter: BOK) and no
-    pixel its residual then needs is one no other position lays already - so the occluder pixels are the
-    prune's or FEWER; a list is given up only when all its cells move.  FAR in place; ST the prune's (sets,
-    counts), kept"""
-    sets, cnt = st
-    by = {}
-    for q in rcs:
-        if q.pts is None and (q.wx, q.wy) in far:
-            by.setdefault((q.wx, q.wy), []).append(q)
-    while True:
-        users = {}
-        for k_, l_ in far.items():
-            users.setdefault(tuple(l_), []).append(k_)
-        done = False
-        for L in sorted(users, key=lambda l_: (len(users[l_]), -len(l_), l_)):
-            tg = sorted((t_ for t_ in users if t_ != L), key=lambda t_: (-len(users[t_]), len(t_), t_))
-            undo, moved = [], {}
-            for key in users[L]:
-                for T in tg:
-                    if len(T) > getattr(okf[key], "room", 0) or not all(okf[key](ij) for ij in T) \
-                            or not bok(key, list(T)):
-                        continue
-                    new = {id(q): _av_resq(cv, q, grid, y0, depth, list(T)) for q in by[key]}
-                    if any(p_ not in sets[id(q)] and not cnt.get(p_) for q in by[key] for p_ in new[id(q)]):
-                        continue
-                    for q in by[key]:
-                        undo.append((q, sets[id(q)]))
-                        for p_ in sets[id(q)]:
-                            cnt[p_] -= 1
-                        for p_ in new[id(q)]:
-                            cnt[p_] = cnt.get(p_, 0) + 1
-                        sets[id(q)] = new[id(q)]
-                    moved[key] = list(T)
-                    break
-                else:
-                    break
-            if len(moved) == len(users[L]):
-                far.update(moved)
-                done = True
-                break
-            for q, old in reversed(undo):           # (not every cell of L moves: none does)
-                for p_ in sets[id(q)]:
-                    cnt[p_] -= 1
-                for p_ in old:
-                    cnt[p_] = cnt.get(p_, 0) + 1
-                sets[id(q)] = old
-        if not done:
-            return
 
 
 def far_parse(p, lo, hi):
@@ -13426,7 +13367,7 @@ def _far_pick(cv, q, grid, x0, y0, depth, _nowrong):
     near = grid.front(q.wx, q.wy, depth)
     room = AV_XMAX - grid._nx
     if xl > xh or room <= 0:
-        return q, [], lambda ij: False
+        return q, []
     cols = amodel_cols(near, xl, xh)
     res, vis = [], []
     for y, zlo_y, zhi_y in _av_lines(q, y0, cv.h):
@@ -13437,32 +13378,20 @@ def _far_pick(cv, q, grid, x0, y0, depth, _nowrong):
                 if max(zlo_y, amodel_z(cols, x, y)) <= hi:
                     res.append((x, y, hi))
             vis.append((x, y, zlo_y, zhi_y, tr[x] if sr[x] > q.s else -(1 << 30)))
-    def wrong(hes):
-        H = hes[0][0]
-        for x, y, lo, hi, vf in vis:
-            if min(hi, H - 1) < max(lo, vf):
-                continue
-            for he in hes:
-                e = amodel_hedge(he, x)
-                if e is not None and e <= y:
-                    return True
-        return False
-    okc = {}
-
-    def okf(ij):                                    # (SPEC.md 130.29.14: an entry the cell may hold - a whole cell
-        if ij not in okc:                           # the near walk would count, in the far list's reach, that
-            i, j = ij                               # the second filter passes here)
-            b = grid.raw(q.wx + i, q.wy + j)
-            okc[ij] = b is not None and AV_FARD0 <= i + j <= AV_FARD and 0 <= i <= 15 and 0 <= j <= 15 \
-                and b[2] & 15 in (KIND_FLOOR, KIND_WALL, KIND_GOAL) and not b[3] & FL_OBS \
-                and (b[2] & 15 == KIND_GOAL or not b[3] & FL_FLOAT) \
-                and (_nowrong or not wrong(_far_hedges(grid, q.wx, q.wy, i, j)))
-        return okc[ij]
-    okf.room = room
     if not res:
-        return q, [], okf
+        return q, []
     cands = _far_cands(grid, q, xl, xh, max(y for _x, y, _h in res))
     if not _nowrong:                                # THE SECOND FILTER: no pixel the rule shows hidden
+        def wrong(hes):
+            H = hes[0][0]
+            for x, y, lo, hi, vf in vis:
+                if min(hi, H - 1) < max(lo, vf):
+                    continue
+                for he in hes:
+                    e = amodel_hedge(he, x)
+                    if e is not None and e <= y:
+                        return True
+            return False
         cands = [c_ for c_ in cands if not wrong(c_[1])]
     sel = []
     while cands and res and len(sel) < room:
@@ -13484,7 +13413,7 @@ def _far_pick(cv, q, grid, x0, y0, depth, _nowrong):
         sel.append((ij, hes))
         res = [(x, y, hi) for x, y, hi in res
                if not (hes[0][0] > hi and any(e is not None and e <= y for e in (amodel_hedge(he, x) for he in hes)))]
-    return q, sel, okf
+    return q, sel
 
 
 def _group_occ(occ):
