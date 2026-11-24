@@ -3574,11 +3574,15 @@ class App(object):
         """SPEC.md 130.58.38: under the problems list, a picked ERROR's explanation in full and - where FIXES knows
         the obvious way out - a button that takes it, as one checked edit"""
         fix = fix_for(err, line, self.doc) if err else None
-        if not err or not (fix or explain(err) != err):
+        if not err:
             self.fixbar.pack_forget()
             self.fix = None
             return
-        self.fix_l.config(text=explain(err).split("\n")[0])
+        # SPEC.md 130.58.58: ANY picked row's whole text, wrapped - the list keeps one line a problem, and a long
+        # one ran off the view with no way to read it (an explained error: its explanation in full, then the
+        # tool's own words when they differ)
+        ex = explain(err)
+        self.fix_l.config(text=ex if ex == err else "%s\n(%s)" % (ex, " ".join(err.split())))
         self.fix = fix
         if fix:
             self.fix_b.config(text=fix[0])

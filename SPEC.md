@@ -292171,3 +292171,18 @@ which 130.58.54 shortens with an ellipsis - a cut grey line at the window's foot
 - **The check**: `tools/bbedcvtab.py` (130.58.55's) also selects the Course tab and applies a refused width,
   and the Source tab and applies a statement that does not build - the banner shown, over that tab, each time -
   and a good edit then clears it. Before the change both of the first two fail.
+
+#### 130.58.58 A picked problem's whole text (the owner, 2026-11-24)
+
+*"Errors and messages in the lower box on the build tab go off the screen with no way to read them. I do like one
+error per line - just need a way to see the whole thing when selecting it."* The problems list under the Build
+tab's view keeps ONE LINE a problem. The bar under it (130.58.38's fix bar) showed only an EXPLAINED error's first
+line, and nothing at all for a warning, a note or an error with no explanation - so a long one was cut at the
+view's edge for good.
+
+- **Picking any row shows its whole text** in the bar, wrapped to the view's width (`_fit_fix`): a warning or a
+  note as the tool wrote it; an explained error its explanation in full, then the tool's own words in brackets
+  when they differ. The fix button is shown beside it as before when FIXES knows one.
+- **The check**: the real window under Xvfb, PLAYGROUND's test course TPLY open (it compiles with two warnings
+  and a note): every row picked shows the bar, its text fits the bar, and the row's whole words are in it.
+  Before, the warnings and the note showed no bar.
