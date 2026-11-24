@@ -5382,6 +5382,7 @@ bz_s_dat:   db 'BONANZA.DAT', 0
 %include "bzwheel.inc"
 %include "bzphys.inc"
 %include "bzfam.inc"            ; wave 9 (SPEC.md 130.25.6): the families' dispatch
+%include "bzsslog.inc"          ; the see-saw log, a diagnostic knob (BZSSLOG=1)
 %include "bzsound.inc"
 %include "bzmenu.inc"           ; SPEC.md 130.26: the window's button, menus and replays
 %include "bzballgen.inc"        ; the balls generated at fetch (wave 9, 130.25.5)
@@ -5658,6 +5659,9 @@ VAR bz_tay,BZT_SIZE             ; ...and its y axis
 BZ_GAME_VARS
 BZ_PHYS_VARS
 BZ_FAM_VARS
+%ifdef BZSSLOG
+BZ_SS_VARS                      ; the see-saw log (bzsslog.inc, a diagnostic knob)
+%endif
 BZ_SND_VARS
 VAR bz_osum,2 * BZ_OSROWS        ; the occluder rows' summary (bz_osmake): a row's greatest s', t'
 %if BZ_TITLE

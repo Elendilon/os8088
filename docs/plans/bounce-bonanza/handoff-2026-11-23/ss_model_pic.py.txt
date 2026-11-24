@@ -1,0 +1,29 @@
+import sys; sys.path.insert(0, "/home/user/os8088/tools")
+import bbplay as BP, bbcourse as B
+S = sys.argv[1]
+src = open("/home/user/os8088/apps/bonanza/courses/mill.bbc").read()
+c = BP.compile_full(src, "mill.bbc")
+log = open(S + "/001MILL.BZR", "rb").read()
+_K, mat, kt, _f = B.decode_log_t(log)
+keys = [k for k, t in kt]
+r = BP.Roll(c, mat=mat)
+art = BP.Art(c)
+pal = BP.palette(B.parse(src) if hasattr(B, "parse") else None) if False else [(0,0,0),(85,255,255),(255,85,255),(255,255,255)]
+for want in map(int, sys.argv[2:]):
+    while r.p.nstep < want:
+        n = int(r.acc + r.spf)
+        r.frame(0, steps=keys[len(r.keys):len(r.keys) + min(n, 8)])
+    win, org = art.window(r)
+    BP.to_rgb(win, pal).resize((win.size[0] * 2, win.size[1] * 2)).save("%s/model_%d.png" % (S, want))
+    print(want, r.p.nstep, "fst", list(r.p.fst), "cell", r.p.gx >> 12, r.p.gy >> 12)
+from PIL import Image
+outs = []
+for q in (0, 1, 2):
+    r.p.fst[0] = q
+    win, org = art.window(r)
+    outs.append(BP.to_rgb(win, pal).crop((40, 50, 240, 190)).resize((400, 280), Image.NEAREST))
+im = Image.new("RGB", (1212, 280), (90, 0, 0))
+for i, o in enumerate(outs):
+    im.paste(o, (i * 406, 0))
+im.save(S + "/poses.png")
+print("ball z", r.p.gz >> 6, "py", r.p.py)

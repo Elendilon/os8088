@@ -1,0 +1,16 @@
+import sys, os
+sys.path[:0] = ["/home/user/os8088/tests", "/home/user/os8088/tools"]
+os.chdir("/home/user/os8088")
+import bonanza_phys as P, bonanza_ring as R, bbcourse as BB
+log = open(sys.argv[1], "rb").read()
+_K, mat, kt, _fl = BB.decode_log_t(log)
+keys = [k for k, t in kt]
+sym = R.symbols()
+binp, lst = R.at("build/bonanza.bin"), R.at("build/bonanza.lst")
+fam = P.fam_parts()
+life = eval(os.environ["LIFE"]) if os.environ.get("LIFE") else None
+p, bad = P.urun(binp, lst, sym, "mill", mat, keys, fam, life=life)
+print("goal", p.goal, "pos", p.gx >> 12, p.gy >> 12, "fst", list(p.fst))
+print("model nstep", p.nstep, "fails", len(bad))
+for b in bad[:10]:
+    print(b[:600])

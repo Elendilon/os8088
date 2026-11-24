@@ -1,0 +1,18 @@
+"""a LOOK (not a row): the owner's BZR replayed by the BZDEV guest on MartyPC, every frame against the model"""
+import sys, os
+sys.path[:0] = ["/home/user/os8088/tests", "/home/user/os8088/tools"]
+os.chdir("/home/user/os8088")
+import bonanza_ring as R
+R.dev()
+import bonanza_replay as RP, bbcourse as BB
+log = open(sys.argv[1], "rb").read()
+tag = sys.argv[2] if len(sys.argv) > 2 else "cga"
+c = R.course("mill")
+_K, mat, _kt, _fl = BB.decode_log_t(log)
+booted, sym = RP.boot(tag, None, None)
+with booted as ui:
+    g = RP.open_pkg(ui, tag, sym)
+    fails, frames = RP.replay(g, log, lambda: BB.Physics(c, play=True, mat=mat))
+    print("FAILS", fails[:3])
+    g.m.pause()
+    print("bz_fst", g.m.read(g.a("bz_fst"), 2).hex())
