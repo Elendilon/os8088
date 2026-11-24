@@ -1,0 +1,13 @@
+# SCRATCH (docs/plans/BOUNCE-BONANZA-WALLCLOCK.md): host blocks for a wall clock, compiled only by
+# wallclock.py, never shipped.  A floor apron round three blocks, each 2 x 2 cells, so both of a block's
+# visible faces (sw: the left, the +y face; se: the right, the +x face) are two cells wide and in full view:
+# 3 units (24 px), 2 units (16 px) and 1 unit (8 px) proud.
+course WALLT "Wall clock test"
+width 96
+ball rubber
+floor rect 3 3 20 11 flat 0
+floor rect 5 6 7 8 flat 3
+floor rect 10 6 12 8 flat 2
+floor rect 15 6 17 8 flat 1
+goal  rect 19 10 20 11 flat 0
+start 4 4
