@@ -300632,3 +300632,102 @@ floppy bytes `os88pkg.compress_part`'s LZB of its part with its song, nothing pa
 1,024 px and is SHEETS, and nothing else, its width at its bound. Red by hand: the wide test made `c.cols > 160`
 ("DOWN goes past ['sheets'], not ['wide', 'sheets']"). Shipped courses are byte-identical: this is the
 builder's alone.
+
+#### 130.58.52 Kit visibility: the Kit overlay and the Kit tab (the owner, 2026-11-24)
+
+*"For the builder, can we have a iso overlay view that shows what comes from the kit? I never have been able to
+visualize that, so I'm never sure what is getting put into that or how it is being used. Also, a kit tab - which
+shows what is in the kit."* Two views of 130.37's STANDARD KIT, the builder's alone (tools/bbedkit.py, the data
+from tools/bbedjob.py): no compile output moves, so every shipped course is byte-identical.
+
+##### 130.58.52.1 What each shows
+
+| view | where | what |
+|---|---|---|
+| **Kit** overlay | the Iso view, a row of its own under the Occluders row: *Kit*, *own blocks too*, *Masks (K)* | the picture GREYED and every 8 x 8 BLOCK tinted by where its 16 bytes come from: **green** a kit B piece the course names, **amber** the course's own (grey with *own blocks too* off); the black block, every course's block 0 and the kit's piece 0 (130.10.4), left plain. Every FIELD cell **cyan**-striped when its 17 x 17 table is a kit F piece, **violet** when its own, labelled `F<i>` (the kit index) or `own <s>`. With *Masks (K)*, every record the part ships checkered **blue** when its mask is a kit K piece, **red** when it is the course's own (a record whose mask lays nothing: none). Hovering adds to the readout the block under the pointer (`kit block 37`, `the course's own block 812`, `the black block`) and, with the masks, the record's mask. |
+| the overlay's line | under its row | each class against the course's - *"blocks 128 of 1,175 from the kit (9 of the 222 only lanes' poses use); masks 41 of 187 ...; no tables"* - and *"The kit saves it N bytes of its stored form (M named, for B of bitmap); its own pieces are O bytes"* (below) |
+| **Kit** tab | the last tab | every piece of the kit, drawn: B as 8 x 8 tiles x5 in the open course's palette (palette 1 bright with none open), K as 1-bit tiles x5 (laid dark, kept light), F as 17 x 17 height thumbnails x3 (low dark); under each its INDEX and how many of the `KIT_POOL` courses use it. Ringed **green** when the open course uses it, **red** when no pool course does (stale). Below each class, the pieces the kit LACKS that a re-cut would take, ringed **yellow** with how many pool courses hold them. On the left: the totals, the staleness, when the source was last committed, and the chosen piece |
+| a piece clicked | the tab's left | *"Kit block 37: 16 bytes. Used by FIRST, TRIAL, ... (7 of 7 pool courses). This course (MILL): uses it at 43 places."* and **Show where this course uses it**: the overlay on (*Masks (K)* too for a K piece), the Build tab in Iso, every place ringed magenta and the first scrolled to |
+
+**The bytes.** A class's account (`bbedjob.kit_bytes`): `kit` the pieces named (`len(c.kit_use[t])`), `all` the
+course's pieces of the class; when the section is stored `KITREF` (130.37.4: the named pieces outweigh the bitmap)
+`named` = `KIT_SIZE` x `kit`, `bitmap` = `ceil(NKIT / 8)`, `saved` = `named` - `bitmap`, `own` = `KIT_SIZE` x
+(`all` - `kit`); a PLAIN section carries every piece itself, so `saved` = 0 and the line says *"carried, the bitmap
+would cost more"*. These are the stored form's bytes BEFORE packing; the LZB a course saves is `bbcourse.py
+--sizes`'s (130.37.7), which compiles each course twice and is not the builder's to pay. **The staleness**
+(130.37.2): STALE, a piece no pool course names any more; MISSING, a block or mask `KIT_MIN` or more pool courses
+hold as their own, or any FIELD table one holds - the generator's own rule (`kit_build`), counted off the shipped
+compiles, which are the kit-less ones with the pieces reordered (130.37.3). A stale kit costs bytes, never
+correctness; the tab says so and that a re-cut is the owner's call (130.37.12). **Last cut**: the source records
+no date, so the tab gives `git log -1`'s date and commit of `kit.bzk`, or "not recorded" where there is no git
+(the bundle).
+
+##### 130.58.52.2 The overlay's data: the picture job's `--kit`
+
+`bbedjob.py picture COURSE OUTDIR --kit` (the window passes it while *Kit* is on, as `--occ` for the Occluders,
+130.58.32) writes `OUTDIR/kit.json` (`kit_overlay`) and meta's `kit` (`secs`, `play`):
+
+- **The alignment.** The picture compiles with no occluders, which keeps `Y0` +0 (130.37.6); a play course SHIPS at
+  `Y0` = 4 (mod 8), and its blocks - the only ones the kit can name - are cut there. MEASURED on MILL: at +0 the
+  picture's blocks match 9 kit pieces, at its shipped +6 128. So a play course whose picture is not at the kit's
+  alignment is compiled once more, still without occluders, with `_hack` `y0add` = `(KIT_Y0 - Y0) mod 8`; its
+  blocks, block map and `kit_use` are the shipped compile's exactly (MEASURED on MILL: 1,175 blocks, the same map,
+  B 128). `dy` = that compile's `Y0` less the picture's: block row `r` covers the picture's lines `8r - dy` ..
+  `8r - dy + 7`.
+- **`kit_data`**: `cols`, `brows`, the block MAP row-major (block index `j` is kit piece `use.B[j]` while `j <
+  len(use.B)` - kit order puts the named pieces first, 130.37.3 - else the course's own), `use` (`B`, `F`),
+  `nkit`, the accounts of B and F, `pose` (the blocks only the lanes' poses use, and how many of them are the
+  kit's: the map shows a lane's pose 0 only), and `fcells` (each FIELD cell, its table and that table's kit
+  piece, -1 its own).
+- **K** is the occluder compile's: with *Masks (K)* the window asks for `--occ` too, and `occluders` adds to
+  `occ.json` `kit` (the K account and `use`) and, on each SHIPPED row, `kmask` - its mask's kit piece, -1 the
+  course's own, null a record that lays nothing (`kit_masks`; a mask's index is `c.masks`' for its `cmask`).
+- The pathway and the title name no kit piece (130.37.3): `play` false, said on the line.
+
+MEASURED (MILL, one core of a loaded four-core container): the second compile 9.5 s cold, a cache hit after;
+`kit.json` 37KB.
+
+##### 130.58.52.3 The tab's data: the KIT job
+
+`bbedjob.py kit OUTDIR [COURSE --name PATH] [--masks]` writes `OUTDIR/kitlib.json` (`kit_lib`): the kit's pieces
+in hex, `KIT_SIZE`, `KIT_MIN`; each `KIT_POOL` course compiled WITH the kit as it ships (`compile_course`, NO TRAP
+off as in the builder - it moves no piece - through the compile cache, `par_map` across the cores), giving each
+piece's users and each course's own pieces; the open COURSE (the window's text) compiled as the overlay compiles
+it - B and F, seconds - or with `--masks` (*"this course's masks too"*) WITH its occluders, K counted; per class
+each piece's PLACES in the open course (B: map positions; K: shipped records; F: cells); the staleness; the
+totals (`kit_part`'s bytes, `kit_file`'s with the replay log's tail, the part's LZB); the last commit; the open
+course's palette. The tab counts when it is first shown and again when shown after an edit; **Count again**
+forces it.
+
+MEASURED (four cores): **42 s** with a cold cache (the seven pool courses' full compiles, PLAYGROUND's the
+longest), **1.4 s** warm, 2.3 s in the window with MILL open. The cache is keyed by the interpreter too, so a
+second Python on the same box pays the cold figure once more (56 s under 3.12).
+
+##### 130.58.52.4 The occluders in the picture's lines (a fix)
+
+The same alignment moved the Occluders overlay (130.58.32): its records are the occluder compile's, at the kit's
+alignment, drawn over the picture at +0 - on MILL six lines low. `occluders` now takes the picture's `Y0` and
+moves every run and every Shade ball box up by the difference (`shift_occ`; `occ.json`'s `dy`), so the records,
+hovering and the rectangle pick all sit on the pixels they hide. Item 16's and 21's checks read `occ_data`
+directly and are unmoved.
+
+##### 130.58.52.5 MEASURED, and the rows
+
+MILL (2026-11-24, the kit as committed at `0dfdc954`): **B 128 of 1,175** from the kit (2,048 bytes named for a
+29-byte bitmap: 2,019 saved; 9 of the 222 pose-only blocks are the kit's); **K 41 of 187** (656 for 11: 645
+saved); no FIELD tables; **2,664 bytes** of its stored form saved in all, its own pieces 19,088. The kit: 226
+blocks, 84 masks, 22 tables, `BZKIT.BIN` 11,350 bytes (15,446 held with the log's tail), 3,948 LZB. Stale against
+today's pool: 13 masks no pool course names; missing, 52 blocks and 20 masks three or more pool courses share.
+Screenshots: `docs/plans/bonanza-courses/kitview/` (`mill-overlay-blocks.png`, `mill-overlay-masks.png`,
+`mill-overlay-pick.png` - block 37's 43 places - `mill-kit-tab.png`, `mill-kit-tab-lower.png`).
+
+`tests/unit/t_bbedit.py` **item 28**: on MILL the overlay's B and F and the occluder compile's K are the shipped
+compile's `c.kit_use`, each account its counts and the shipped records' kit masks exactly `kit_use.K`; the block
+map placed `dy` lines up puts the kit's piece over the picture's own pixels for 98% or more of the kit blocks
+(3,783 of 3,797: a few pixels differ between the two alignments) and `occ.json`'s record 0 is the compile's moved up
+`dy`; the line and the tint read the same figures; the Kit tab's job counts MILL as using exactly `c.kit_use`, its
+block places the map's. Red arms every run: the map at dy 0 fits under 90% (1,988 of 3,797), and a stubbed
+`kit_use` changes the data. Red by hand: `shift_occ` made a no-op ("occ.json's shipped record 0 is not the
+compile's moved up 6 lines"); `kit_overlay` without its aligned compile ("MILL's overlay names B [0, 13, 15 ...]
+for the compile's"). The window was driven under Xvfb (python3.12's Tk) for the screenshots: the overlay on,
+the masks, the tab counted, a piece picked and shown.

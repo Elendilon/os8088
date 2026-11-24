@@ -82,3 +82,18 @@ into `bounce-bonanza`: the owner merges.
 `bonanzacourse`, `bonanzaexit`, `bonanzapath`, `bonanzagame`, `bonanzademo`,
 `bonanzaring`, `bonanzaphys`, `bonanzamega`, `bonanzaperf`, once, after K2;
 then `test-full`.
+
+### Wave KV: seeing the kit in the course builder (the owner, 2026-11-24)
+
+*"an iso overlay view that shows what comes from the kit ... Also, a kit tab - which shows what is in the kit."*
+SPEC.md 130.58.52; branch `bb-kitview`.
+
+| # | story | verified by |
+|---|---|---|
+| KV.1 [x] | the **Kit** overlay on the Iso view: the picture greyed, each block green (the kit's) or amber (its own), FIELD cells striped by their table's class, with *Masks (K)* each shipped record checkered by its mask's; the line counting each class and the bytes saved | `t_bbedit` item 28 (MILL: B 128 of 1,175, K 41 of 187, 2,664 bytes saved = `c.kit_use`); screenshots in `docs/plans/bonanza-courses/kitview/` |
+| KV.2 [x] | the overlay at the kit's alignment (`dy`), and the Occluders overlay moved into the picture's lines with it (it was six lines low on MILL) | item 28's alignment check and its dy-0 red arm; `shift_occ` red by hand |
+| KV.3 [x] | the **Kit** tab: every piece drawn with its index and pool users, the open course's use ringed, stale and missing pieces, the totals, the last commit; a piece shown on the Iso view | item 28's `kit_lib` counts; the window driven under Xvfb |
+| KV.4 [x] | its cost: the pool through the compile cache | 42 s cold, 1.4 s warm (four cores) |
+
+Not done: the kit's LZB saving per course in the window (it needs the kit-less compile, `--sizes`'s); a
+Hercules look at the tiles (they are CGA's, as the kit is).
