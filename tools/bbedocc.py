@@ -52,8 +52,8 @@ class OccView(object):
         self.shade_b = ttk.Checkbutton(row, text="Shade: why", variable=self.shade, command=self.toggled)
         self.shade_b.pack(side="left", padx=4)
         self.row = row
-        self.label = ttk.Label(row, text="", foreground="#6b3a0b")    # (its own line under the row while it
-        #                                                                says something: _say)
+        self.label = ttk.Label(row, text="", foreground="#6b3a0b", justify="left")    # (its own line under the
+        app.wrap_to(self.label, row, 40)                        # row while it says something: _say; 130.58.54)
 
     # -- the job --------------------------------------------------------------
     def wanted(self):

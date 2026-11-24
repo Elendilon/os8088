@@ -37,6 +37,7 @@ import bbedopts as OPT  # noqa: E402
 TITLE = "Bounce Bonanza course builder"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "os8088", "bbedit.json")
 CELL = 24                       # a plan cell at zoom 1, screen px
+INS_W = 380                     # the inspector column's width as the window opens, px (SPEC.md 130.58.54)
 
 # ----------------------------------------------------------------------------
 # the palette: every part, its group, plain name, what it does, its template
@@ -183,6 +184,57 @@ def hcolour(h):
     return "#%02x%02x%02x" % RAMP[-1][1]
 
 
+def _elide(font, text, room):
+    """TEXT cut to ROOM px of FONT, an ellipsis ending what was cut (SPEC.md 130.58.54)"""
+    if not text or font.measure(text) <= room:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:                      # (the longest head that fits with its ellipsis)
+        m = (lo + hi + 1) // 2
+        if font.measure(text[:m].rstrip() + "\u2026") <= room:
+            lo = m
+        else:
+            hi = m - 1
+    return text[:lo].rstrip() + "\u2026"
+
+
+def _descendants(w):
+    for c in w.winfo_children():
+        yield c
+        for d in _descendants(c):
+            yield d
+
+
+def _wrap_px(font, text, room):
+    """TEXT broken into lines of at most ROOM px of FONT, at spaces (a check box's words: ttk's cannot wrap)"""
+    out = []
+    for para in text.split("\n"):
+        line = ""
+        for word in para.split(" "):
+            t = (line + " " + word) if line else word
+            if line and font.measure(t) > room:
+                out.append(line)
+                line = word
+            else:
+                line = t
+        out.append(line)
+    return "\n".join(out)
+
+
+def wrap_to(label, box, pad=0, least=120):
+    """SPEC.md 130.58.54: LABEL's wraplength follows BOX's width (less PAD) as the window is sized, so a hint
+    wraps to the room it has instead of running off the side"""
+    def fit(e=None):
+        w = box.winfo_width()
+        if w > 1:
+            want = max(least, w - pad)
+            if abs(int(str(label.cget("wraplength") or 0)) - want) > 2:
+                label.configure(wraplength=want)
+    box.bind("<Configure>", lambda e: fit(), add="+")
+    fit()
+    return label
+
+
 def load_config():
     try:
         with open(CONFIG) as f:
@@ -266,6 +318,8 @@ class Job(object):
 # ----------------------------------------------------------------------------
 
 class App(object):
+    wrap_to = staticmethod(wrap_to)     # (for the views in tools/bbed*.py, which do not import this module)
+
     def __init__(self, path=None):
         import tkinter as tk
         from tkinter import ttk
@@ -273,7 +327,9 @@ class App(object):
         self.root = tk.Tk()
         self.root.title(TITLE)
         self.cfg = load_config()
-        self.root.geometry(self.cfg.get("geometry", "1400x860"))
+        # (SPEC.md 130.58.54: the first size 1400 x 860, or the screen less a margin when it is smaller)
+        self.root.geometry(self.cfg.get("geometry", "%dx%d" % (min(1400, self.root.winfo_screenwidth() - 24),
+                                                               min(860, self.root.winfo_screenheight() - 72))))
         self.doc = E.Document("")
         self.sel = None                 # the selected statement's line
         self.zoom = 1.0
@@ -385,16 +441,23 @@ class App(object):
         self.badge_warn.pack(side="right", padx=4)
 
         # status bar
-        sb = ttk.Frame(r, padding=(6, 2))
+        # (SPEC.md 130.58.54: Cancel and the bar packed FIRST, so a long message never pushes them off the
+        #  window; the two messages are cut to the room left, with an ellipsis, and a click shows the whole)
+        sb = self.sbar = ttk.Frame(r, padding=(6, 2))
         sb.pack(side="bottom", fill="x")
-        self.status = ttk.Label(sb, text="Open a course (File > Open) or start a new one.")
-        self.status.pack(side="left")
         self.cancel_b = ttk.Button(sb, text="Cancel", command=self.cancel_jobs)
         self.cancel_b.pack(side="right")
         self.job_l = ttk.Label(sb, text="")
         self.job_l.pack(side="right", padx=8)
         self.pbar = ttk.Progressbar(sb, mode="indeterminate", length=140)
         self.pbar.pack(side="right")
+        self.status = ttk.Label(sb, text="")
+        self.status.pack(side="left")
+        self._status_full, self._job_full = "Open a course (File > Open) or start a new one.", ""
+        sb.bind("<Configure>", lambda e: self._fit_bar())
+        for w_ in (self.status, self.job_l):
+            w_.bind("<Button-1>", lambda e: self._bar_whole())
+        self._fit_bar()
 
         self.nb = ttk.Notebook(r)
         self.nb.pack(side="top", fill="both", expand=True)
@@ -431,6 +494,7 @@ class App(object):
         self.add_name.pack(anchor="w")
         self.add_desc = ttk.Label(addf, text="", wraplength=220, foreground="#444")
         self.add_desc.pack(anchor="w")
+        wrap_to(self.add_desc, addf, 24)                     # (the panel's width: 130.58.54)
         self.add_opts = ttk.Frame(addf)         # a diagonal part's choice (SPEC.md 130.58.53), shown for one
         self.add_choice = tk.StringVar()
         self.add_opts_for = None
@@ -438,6 +502,7 @@ class App(object):
         self.add_btn.pack(fill="x", pady=(6, 2))
         self.add_where = ttk.Label(addf, text="", wraplength=220, foreground="#666")
         self.add_where.pack(anchor="w")
+        wrap_to(self.add_where, addf, 24)                     # (the panel's width: 130.58.54)
         pw.add(left, weight=0)
 
         # view
@@ -454,8 +519,12 @@ class App(object):
                         command=self._tool_changed).pack(side="left")
         ttk.Label(vb, text="   New floor height").pack(side="left")
         ttk.Spinbox(vb, from_=-20, to=60, increment=0.5, width=5, textvariable=self.height).pack(side="left")
-        self.plan_opts = ttk.Frame(vb)
-        self.plan_opts.pack(side="right")
+        # the view's own options: a row of their own under the tools (SPEC.md 130.58.54 - beside them they ran
+        # off the right of the view at the window's first size)
+        vb2 = self.vb2 = ttk.Frame(mid, padding=(4, 0, 4, 4))
+        vb2.pack(side="top", fill="x")
+        self.plan_opts = ttk.Frame(vb2)
+        self.plan_opts.pack(side="left")
         for txt, v in (("Height map", self.show_heights), ("Route", self.show_route), ("Hard to see", self.show_hard)):
             ttk.Checkbutton(self.plan_opts, text=txt, variable=v, command=self._redraw).pack(side="left")
             if v is self.show_route:            # SPEC.md 130.58.43: which branch of the route to show and edit
@@ -463,7 +532,7 @@ class App(object):
                                           width=14, values=(ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH))
                 self.br_cb.pack(side="left", padx=(0, 6))
                 self.br_cb.bind("<<ComboboxSelected>>", self._branch_chosen)
-        self.iso_opts = ttk.Frame(vb)
+        self.iso_opts = ttk.Frame(vb2)
         for txt, v in (("CGA", "cga"), ("Hercules", "herc")):
             ttk.Radiobutton(self.iso_opts, text=txt, variable=self.adapter, value=v,
                             command=self._redraw).pack(side="left")
@@ -477,19 +546,24 @@ class App(object):
         ttk.Spinbox(self.gap_row, from_=1, to=60, width=3, textvariable=self.gap_min,
                     command=self._redraw).pack(side="left")
         ttk.Label(self.gap_row, text="px wide").pack(side="left")
-        self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80")
-        self.gap_l.pack(side="left", padx=10)
-        self.occ = bbedocc.OccView(self, self.gap_row)   # SPEC.md 130.58.32: the Occluders and Shade overlays
+        self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80", justify="left")   # (a line of its
+        wrap_to(self.gap_l, self.gap_row, 40)                           # own under the row while it says something)
+        self.occ = bbedocc.OccView(self, self.iso_opts)  # SPEC.md 130.58.32: the Occluders and Shade overlays (beside
+        #                                                  X-ray since 130.58.54: beside Gap bands they ran off the view)
         self.kit_row = ttk.Frame(mid, padding=(4, 0, 4, 4))     # SPEC.md 130.58.52: the Kit overlay, a row of its own
         self.kitv = bbedkit.KitView(self, self.kit_row)
-        self.gap_row_after = vb
+        self.gap_row_after = vb2
         self.banner = tk.Frame(mid, background="#fde2df", padx=8, pady=6)
         self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
                                  justify="left", anchor="w", wraplength=700)
-        self.banner_l.pack(side="left", fill="x", expand=True)
-        tk.Button(self.banner, text="Dismiss", command=lambda: self._banner(None)).pack(side="right")
+        # (the buttons packed FIRST and the text wrapped to what they leave, so a long refusal never pushes them
+        #  off the view: SPEC.md 130.58.54)
+        self.banner_dismiss = tk.Button(self.banner, text="Dismiss", command=lambda: self._banner(None))
+        self.banner_dismiss.pack(side="right")
         self.banner_keep = tk.Button(self.banner, text="Keep it anyway", command=self._keep_anyway)
         self.banner_keep.pack(side="right", padx=6)
+        self.banner_l.pack(side="left", fill="x", expand=True)
+        self.banner.bind("<Configure>", lambda e: self._fit_banner())
         self.banner_shown = False
         self.banner_after = mid
         cf = ttk.Frame(mid)
@@ -516,6 +590,7 @@ class App(object):
         self.fix_l.pack(side="left", fill="x", expand=True)
         self.fix_b = ttk.Button(self.fixbar, text="", command=self.do_fix)
         self.fix = None
+        self.fixbar.bind("<Configure>", lambda e: self._fit_fix())       # (130.58.54: wrapped to the view)
         self.probs = ttk.Treeview(pf, show="tree", height=4, selectmode="browse")
         self.probs.column("#0", width=600, stretch=True)
         self.probs.pack(fill="x")
@@ -548,11 +623,15 @@ class App(object):
         r.bind("<equal>", lambda e: self.set_zoom(self.zoom * 1.25))
         r.bind("<minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
-        # inspector
-        right = ttk.Frame(pw, padding=8, width=330)
+        # inspector: a column of its own width that SCROLLS (SPEC.md 130.58.54) - a tube's or a chute's rows are
+        # taller than the window, and the text in it wraps to whatever width the sash gives it
+        outer, right, self.ins_cv = self.scroll_column(pw, INS_W, padding=8, on_width=self._ins_resized)
+        self.ins_outer, self.ins_right = outer, right
+        right.bind("<Configure>", lambda e: self._ins_fit_soon(), add="+")
         self.ins_title = ttk.Label(right, text="Nothing selected", font=("TkDefaultFont", 13, "bold"))
         self.ins_title.pack(anchor="w")
         self.ins_line = ttk.Label(right, text="", foreground="#555", wraplength=310)
+        wrap_to(self.ins_line, right, 24)
         self.ins_line.pack(anchor="w", pady=(0, 6))
         self.ins_also = ttk.Frame(right)        # every other part on the clicked cell (SPEC.md 130.58.28)
         self.ins_also.pack(fill="x", pady=(0, 6))
@@ -570,11 +649,103 @@ class App(object):
         ttk.Button(bf, text="Delete", command=self.delete).pack(side="left")
         self.ins_help = ttk.Label(right, text="", wraplength=310, foreground="#444")
         self.ins_help.pack(anchor="w", pady=(8, 0))
+        wrap_to(self.ins_help, right, 24)
         self.ins_err = ttk.Label(right, text="", wraplength=310, foreground="#b3261e")
         self.ins_err.pack(anchor="w", pady=(8, 0))
-        pw.add(right, weight=0)
+        wrap_to(self.ins_err, right, 24)
+        pw.add(outer, weight=0)
         self._fill_palette()
         self._fill_add()
+
+    def _fit_ins(self):
+        """SPEC.md 130.58.54: the inspector's own wrapping - each wrapped hint narrowed to the room left of it in
+        the column, and a long check box's words broken onto lines of their own - so a row written for one width
+        never runs off the side of another. Narrows only from each control's own width, so it re-fits both ways"""
+        import tkinter.font as tkfont
+        self._ins_fit_after = None
+        right, body = self.ins_right, self.ins_body
+        W = self.ins_cv.winfo_width()
+        if W <= 1:
+            return
+        f = tkfont.nametofont("TkDefaultFont")
+        for _pass in range(3):
+            self.root.update_idletasks()
+            changed = False
+            for w in _descendants(body):
+                cls = w.winfo_class()
+                if cls not in ("TLabel", "TCheckbutton", "TRadiobutton"):
+                    continue
+                room = W - 12 - (w.winfo_rootx() - right.winfo_rootx())
+                if cls == "TLabel":
+                    wl0 = getattr(w, "_wl0", None)
+                    if wl0 is None:
+                        wl0 = w._wl0 = int(str(w.cget("wraplength")) or 0)
+                    if wl0 <= 0:
+                        continue
+                    want = max(80, min(wl0, room - 4))
+                    if int(str(w.cget("wraplength"))) != want:
+                        w.configure(wraplength=want)
+                        changed = True
+                else:
+                    t0 = getattr(w, "_t0", None)
+                    if t0 is None:
+                        t0 = w._t0 = str(w.cget("text"))
+                    if f.measure(t0) < 200:     # (a short choice in a row is the row's to fit, not its words)
+                        continue
+                    want = _wrap_px(f, t0, max(120, room - 30))
+                    if str(w.cget("text")) != want:
+                        w.configure(text=want)
+                        changed = True
+            if not changed:
+                break
+
+    def _ins_resized(self, e):
+        if getattr(self, "_ins_w", None) != e.width:
+            self._ins_w = e.width
+            self._ins_fit_soon()
+
+    def _ins_fit_soon(self):
+        """(whatever filled the inspector - a selection, the shape editor's form, an overlay's record)"""
+        if getattr(self, "_ins_fit_after", None):
+            self.root.after_cancel(self._ins_fit_after)
+        self._ins_fit_after = self.root.after(30, self._fit_ins)
+
+    def scroll_column(self, parent, width, padding=0, on_width=None):
+        """SPEC.md 130.58.54: a column WIDTH px wide (as it opens) whose content scrolls up and down and is laid
+        out to the column's width - the inspector's, and the Kit tab's list. -> (outer, the frame to fill, canvas)"""
+        tk, ttk = self.tk, self.ttk
+        outer = ttk.Frame(parent)
+        bg = ttk.Style().lookup("TFrame", "background") or self.root.cget("background")
+        cv = tk.Canvas(outer, width=width, highlightthickness=0, borderwidth=0, background=bg)
+        ys = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=ys.set)
+        ys.pack(side="right", fill="y")
+        cv.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(cv, padding=padding)
+        win = cv.create_window(0, 0, window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: cv.configure(
+            scrollregion=(0, 0, inner.winfo_reqwidth(), inner.winfo_reqheight())))
+
+        def resized(e):
+            cv.itemconfigure(win, width=e.width)
+            if on_width:
+                on_width(e)
+        cv.bind("<Configure>", resized)
+        if not getattr(self, "_columns", None):
+            self._columns = []
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                self.root.bind_all(seq, self._column_wheel, add="+")
+        self._columns.append((outer, inner, cv))
+        return outer, inner, cv
+
+    def _column_wheel(self, e):
+        """the wheel over a scrolling column scrolls it (and nothing else; the view's own wheel zooms)"""
+        w = e.widget
+        if isinstance(w, str):
+            return
+        for outer, inner, cv in self._columns:
+            if str(w).startswith(str(outer)) and inner.winfo_reqheight() > cv.winfo_height():
+                cv.yview_scroll(-1 if getattr(e, "num", 0) == 4 or getattr(e, "delta", 0) > 0 else 1, "units")
 
     def _build_course_tab(self):
         tk, ttk = self.tk, self.ttk
@@ -622,13 +793,14 @@ class App(object):
             ("Silver medal", ttk.Entry(g, textvariable=self.cv_silver, width=6), "seconds"),
         ]
         for i, (lab, w, hint) in enumerate(rows):
-            ttk.Label(g, text=lab).grid(row=i, column=0, sticky="w", pady=3)
+            ttk.Label(g, text=lab).grid(row=i, column=0, sticky="w", pady=2)
             w.grid(row=i, column=1, sticky="w", padx=8)
-            ttk.Label(g, text=hint, foreground="#666").grid(row=i, column=2, sticky="w")
+            ttk.Label(g, text=hint, foreground="#666", wraplength=300, justify="left").grid(row=i, column=2,
+                                                                                         sticky="w")
         ttk.Checkbutton(g, text="This course is finished: hold it to --strict in every build (`strict`)",
-                        variable=self.cv_cstrict).grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=6)
-        ttk.Checkbutton(g, text="Give each band its own mask table (`masks banded`): up to 256 occluder masks a band "
-                        "of 16 block rows, not 256 in all", variable=self.cv_mbanded
+                        variable=self.cv_cstrict).grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Checkbutton(g, text="Give each band its own mask table (`masks banded`):\nup to 256 occluder masks a "
+                        "band of 16 block rows, not 256 in all", variable=self.cv_mbanded
                         ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w")      # SPEC.md 130.52, 130.58.45
         cam = ttk.Frame(g)                          # SPEC.md 130.58: the camera's course flags (130.45)
         cam.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -637,28 +809,32 @@ class App(object):
         ttk.Label(cam, text="Once the finish is in view, stop scrolling:").grid(row=1, column=0, sticky="w")
         for i, e in enumerate(B.STOP_EDGES):
             ttk.Checkbutton(cam, text=e, variable=self.cv_stops[e]).grid(row=1, column=1 + i, sticky="w", padx=4)
-        ttk.Checkbutton(cam, text="...only while the window shows the finish across (`over`), or these two cells:",
-                        variable=self.cv_over).grid(row=2, column=0, sticky="w")
-        ttk.Entry(cam, textvariable=self.cv_overc, width=14).grid(row=2, column=1, columnspan=4, sticky="w", padx=4)
+        ovf = ttk.Frame(cam)                        # (the cells' box beside its own words, not in the edges' column)
+        ovf.grid(row=2, column=0, columnspan=5, sticky="w")
+        ttk.Checkbutton(ovf, text="...only while the window shows the finish across (`over`), or these two cells:",
+                        variable=self.cv_over).pack(side="left")
+        ttk.Entry(ovf, textvariable=self.cv_overc, width=14).pack(side="left", padx=4)
         ttk.Label(cam, text="(`stop`: for a finish at an edge of the course - it keeps the cup or goal and its clock "
                   "in view past it; `over` lets down and up go elsewhere - the cells wx0 wy0 wx1 wy1, empty for the "
-                  "finish's own)", foreground="#666").grid(row=3, column=0, columnspan=5, sticky="w")
+                  "finish's own)", foreground="#666", wraplength=640, justify="left").grid(row=3, column=0,
+                                                                                         columnspan=5, sticky="w")
         ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 3, column=0, sticky="w", pady=4)
         ttk.Label(g, text="Extras the course loads (`uses`) are added for you as you place parts.",
-                  foreground="#666").grid(row=len(rows) + 4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+                  foreground="#666").grid(row=len(rows) + 4, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         c = ttk.LabelFrame(f, text="Ready to play?", padding=10)
         c.grid(row=0, column=1, sticky="nsew")
         f.columnconfigure(1, weight=1)
         f.rowconfigure(0, weight=1)
-        top = ttk.Frame(c)
+        top = ttk.Frame(c)                          # (two lines: on one they ran off the tab, 130.58.54)
         top.pack(fill="x")
         ttk.Button(top, text="Check now", command=self.run_check).pack(side="left")
         ttk.Button(top, text="Put this course in the game...", command=self.put_in_game).pack(side="right")
-        ttk.Checkbutton(top, text="Treat warnings as errors (--strict, what agents' runs use)",
-                        variable=self.strict, command=self.run_check).pack(side="left", padx=8)
+        ttk.Checkbutton(c, text="Treat warnings as errors (--strict, what agents' runs use)",
+                        variable=self.strict, command=self.run_check).pack(anchor="w", pady=(4, 0))
         self.check_l = ttk.Label(c, text="", wraplength=520)
         self.check_l.pack(anchor="w", pady=6)
+        wrap_to(self.check_l, c, 24)
         self.checks = ttk.Treeview(c, show="tree", height=7)
         self.checks.column("#0", width=600, stretch=True)
         self.checks.pack(fill="x")             # (fixed: the stats box below takes the rest, 130.58.51)
@@ -667,9 +843,12 @@ class App(object):
         self.checks.tag_configure("ok", foreground="#2e7d32")
         self.checks.tag_configure("acc", foreground="#666")
         self.checks.bind("<<TreeviewSelect>>", lambda e: self._pick_check())
-        ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` (its inspector) or "
+        self.check_hint = (ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` "
+                                     "(its inspector) or "
                   "`accept` a warning to keep it under --strict (SPEC.md 130.58.5).", wraplength=520,
-                  foreground="#444").pack(anchor="w", pady=(6, 0))
+                  foreground="#444"))
+        self.check_hint.pack(anchor="w", pady=(6, 0))
+        wrap_to(self.check_hint, c, 24)
         # SPEC.md 130.58.51: the course's STATS, off the last full check's compile (bbedjob.course_stats)
         sf = ttk.LabelFrame(c, text="Course stats", padding=6)
         sf.pack(fill="both", expand=True, pady=(8, 0))
@@ -1062,12 +1241,18 @@ class App(object):
             return
         self.banner_l.config(text=text)
         if keep:
-            self.banner_keep.pack(side="right", padx=6)
+            self.banner_keep.pack(side="right", padx=6, before=self.banner_l)
         else:
             self.banner_keep.pack_forget()
         if not self.banner_shown:
             self.banner.pack(side="top", fill="x", before=self.cf)
             self.banner_shown = True
+
+    def _fit_banner(self):
+        w = self.banner.winfo_width() - self.banner_dismiss.winfo_reqwidth() - 40 - (
+            self.banner_keep.winfo_reqwidth() + 12 if self.banner_keep.winfo_manager() else 0)
+        if w > 100 and abs(int(self.banner_l.cget("wraplength")) - w) > 2:
+            self.banner_l.config(wraplength=w)
 
     def _keep_anyway(self):
         k, self.keep = self.keep, None
@@ -1981,6 +2166,7 @@ class App(object):
     def _fill_inspector(self):
         for w in self.ins_body.winfo_children():
             w.destroy()
+        self.ins_cv.yview_moveto(0)
         if self.occ.fill_inspector():           # an occluder record or a noocclude cell (130.58.32)
             return
         a = self.doc.analysis()
@@ -2010,7 +2196,7 @@ class App(object):
                 ttk.Button(df_, text="\u2198 down the screen", command=lambda: self.diagonal_strip("down")).grid(
                     row=0, column=0, padx=1)
                 ttk.Button(df_, text="\u2197 across", command=lambda: self.diagonal_strip("across")).grid(
-                    row=0, column=1, padx=1)
+                    row=0, column=1, padx=1, sticky="w")
                 ttk.Label(self.ins_body, text="Half tile:").grid(row=4, column=0, sticky="w")
                 hf_ = ttk.Frame(self.ins_body)
                 hf_.grid(row=4, column=1, sticky="w")
@@ -2032,9 +2218,9 @@ class App(object):
                 ttk.Label(self.ins_body, text="Paint:").grid(row=1, column=0, sticky="w")
                 pf_ = ttk.Frame(self.ins_body)
                 pf_.grid(row=1, column=1, sticky="w")
-                for k, nm in enumerate(("Ice", "Sand", "Bounce mat", "Normal")):
+                for k, nm in enumerate(("Ice", "Sand", "Bounce mat", "Normal")):     # (three a row, as Make it's:
                     ttk.Button(pf_, text=nm.split()[0], width=6, command=lambda nm=nm: self.add_part(nm)).grid(
-                        row=0, column=k, padx=1)
+                        row=k // 3, column=k % 3, padx=1, pady=1)                 # four ran off: 130.58.54)
                 self.ins_title.config(text="An area, %d x %d" % (x1 - x0 + 1, y1 - y0 + 1))
                 self.ins_line.config(text="from (%d, %d) to (%d, %d)" % (x0, y0, x1, y1))
                 self.ins_help.config(text="%s\n\nMake it replaces just these cells (the floor around keeps "
@@ -2494,6 +2680,9 @@ class App(object):
         ttk.Button(fr, text="Insert one after", command=lambda: self.route_insert(st.line)).pack(side="left")
         if mine and not mine[3]:                # 130.58.43: a main point - fork a new branch from it
             ttk.Button(fr, text="Branch from here", command=lambda: self.route_fork(st.line)).pack(side="left")
+        row += 1
+        fr = ttk.Frame(body)                    # (a second line: five buttons ran off the inspector, 130.58.54)
+        fr.grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 2))
         ttk.Button(fr, text="Earlier", width=7, command=lambda: self.route_shift(st.line, -1)).pack(side="left")
         ttk.Button(fr, text="Later", width=6, command=lambda: self.route_shift(st.line, 1)).pack(side="left")
         ttk.Button(fr, text="Delete", width=7, command=self.delete).pack(side="left")
@@ -3325,6 +3514,11 @@ class App(object):
             self.fix_b.pack_forget()
         self.fixbar.pack(side="top", fill="x", before=self.probs)
 
+    def _fit_fix(self):
+        w = self.fixbar.winfo_width() - 30 - (self.fix_b.winfo_reqwidth() + 12 if self.fix_b.winfo_manager() else 0)
+        if w > 100 and abs(int(self.fix_l.cget("wraplength")) - w) > 2:
+            self.fix_l.config(wraplength=w)
+
     def do_fix(self):
         f, self.fix = self.fix, None
         self.fixbar.pack_forget()
@@ -3385,7 +3579,7 @@ class App(object):
                     self._msg("No picture: %s" % e.get("error"))
                 self.pic_err = (text, None if e.get("ok") else e.get("error"))   # (what the NEXT one compares with)
             elif e["stage"] not in ("exit", "log"):
-                self.job_l.config(text="Picture: %s" % e.get("what", e["stage"]))
+                self._job_say("Picture: %s" % e.get("what", e["stage"]))
         self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []) +
                            (["--occ"] if self.occ.wanted() or self.kitv.wants_occ() else []) +
                            (["--kit"] if self.kitv.wanted() else []), ev).start()
@@ -3414,7 +3608,7 @@ class App(object):
             elif e["stage"] == "exit":            # (the process ends after its "done": the box's "Checking..."
                 self._fill_checks(self._problems())     # was filled while it still ran)
             elif e["stage"] != "log":
-                self.job_l.config(text="Check: %s" % e.get("what", e["stage"]))
+                self._job_say("Check: %s" % e.get("what", e["stage"]))
         self.check_job = Job(["check", p, "--name", self._name()] + (["--strict"] if strict else []) +
                              (["--trap"] if trap else []), ev).start()
         self._fill_checks(self._problems())
@@ -3487,7 +3681,7 @@ class App(object):
         else:
             if getattr(self, "_spin", False):
                 self.pbar.stop()
-                self.job_l.config(text="")
+                self._job_say("")
             self._spin = False
         self.cancel_b.state(["!disabled"] if busy else ["disabled"])
         self.root.after(100, self._tick)
@@ -3572,11 +3766,11 @@ class App(object):
             self.iso_opts.pack_forget()
             self.gap_row.pack_forget()
             self.kit_row.pack_forget()
-            self.plan_opts.pack(side="right")
+            self.plan_opts.pack(side="left")
             self._draw_plan()
         else:
             self.plan_opts.pack_forget()
-            self.iso_opts.pack(side="right")
+            self.iso_opts.pack(side="left")
             if not self.gap_row.winfo_ismapped():
                 self.gap_row.pack(side="top", fill="x", after=self.gap_row_after)
             if not self.kit_row.winfo_ismapped():
@@ -3904,7 +4098,7 @@ class App(object):
         if self.show_gaps.get():
             self._draw_gaps()
         else:
-            self.gap_l.config(text="")
+            self._gap_say("")
         self.occ.draw(c)
         self.kitv.draw(c)
         self._draw_blends(c, "iso")
@@ -3960,9 +4154,16 @@ class App(object):
                 c.create_rectangle(*r, outline="#29e6ff", width=1, dash=(3, 2))
         allg = self.pic["meta"].get("gaps") or []
         m = sum(1 for g in allg if g["marked"])
-        self.gap_l.config(text=("%d of %d shown, %d marked (pink): click a box to mark or unmark it"
-                                % (len(shown), len(allg), m))
-                          if self.pic["meta"].get("gaps") is not None else "finding them...")
+        self._gap_say(("%d of %d shown, %d marked (pink): click a box to mark or unmark it" % (len(shown), len(allg), m))
+                      if self.pic["meta"].get("gaps") is not None else "finding them...")
+
+    def _gap_say(self, text):
+        """the gap bands' count, on a line of its own under the row (SPEC.md 130.58.54), as the occluders' is"""
+        self.gap_l.config(text=text)
+        if text and not self.gap_l.winfo_manager():
+            self.gap_l.pack(side="bottom", anchor="w", padx=8, before=self.gap_row.winfo_children()[0])
+        elif not text:
+            self.gap_l.pack_forget()
 
     def _gap_at(self, e):
         """the shown candidate under the pointer (the smallest box, within a few screen px of a sliver)"""
@@ -4253,7 +4454,31 @@ class App(object):
 
     def _msg(self, text):
         note, self._note = getattr(self, "_note", ""), ""
-        self.status.config(text=note + text)
+        self._status_full = note + text
+        self._fit_bar()
+
+    def _job_say(self, text):
+        self._job_full = text
+        self._fit_bar()
+
+    def _fit_bar(self):
+        """SPEC.md 130.58.54: the status bar's two messages, each cut with an ellipsis to the room the bar has
+        (the running job's at most two fifths of it)"""
+        import tkinter.font as tkfont
+        f = tkfont.nametofont("TkDefaultFont")
+        room = self.sbar.winfo_width() - self.pbar.winfo_reqwidth() - self.cancel_b.winfo_reqwidth() - 40
+        room = max(120, room if self.sbar.winfo_width() > 1 else 1000)
+        job = " ".join(self._job_full.split())
+        jw = min(f.measure(job), int(room * 0.4)) if job else 0
+        self.job_l.config(text=_elide(f, job, jw))
+        self.status.config(text=_elide(f, " ".join(self._status_full.split()), room - jw))
+
+    def _bar_whole(self):
+        """a click on a cut message: the whole of it"""
+        from tkinter import messagebox
+        whole = "\n\n".join(t for t in (self._status_full, self._job_full) if t)
+        if self.status.cget("text").endswith("\u2026") or self.job_l.cget("text").endswith("\u2026"):
+            messagebox.showinfo(TITLE, whole, parent=self.root)
 
     def run(self):
         self.root.mainloop()

@@ -677,7 +677,7 @@ class MapTab(object):
             ttk.Label(self.form, text="\n".join(os.path.basename(p) for p in ex) or "none", foreground="#444").grid(
                 row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1
-            ttk.Button(self.form, text="Check the whole map (every pad reachable, every exit real)",
+            ttk.Button(self.form, text="Check the whole map\n(every pad reachable, every exit real)",
                        command=self.app.run_check).grid(row=row[0], column=0, columnspan=2, sticky="w", pady=(10, 0))
             return
         k = sel[0]
@@ -757,7 +757,10 @@ class MapTab(object):
                     return
                 pts = [list(p) for j, p in enumerate(it["pts"]) if j != int(s[0])]
                 self.edit({it["line"]: route_code(dict(it, pts=tidy_points(pts)))}, "remove a point")
-            ttk.Button(fr, text="Set", command=seth).pack(side="left")
+            ttk.Button(fr, text="Set", width=5, command=seth).pack(side="left")
+            row[0] += 1
+            fr = ttk.Frame(self.form)           # (its own line: beside Set it ran off the form, SPEC.md 130.58.54)
+            fr.grid(row=row[0], column=0, columnspan=2, sticky="w", pady=(0, 2))
             ttk.Button(fr, text="Remove point", command=delp).pack(side="left")
             tv.bind("<<TreeviewSelect>>", lambda e: tv.selection() and hv.set(tv.item(tv.selection()[0])["values"][2]))
             row[0] += 1
@@ -769,13 +772,13 @@ class MapTab(object):
             icons = sorted("icons/" + f for f in os.listdir(os.path.join(B.COURSE_DIR, "icons")) if f.endswith(".bba"))
             fv = tk.StringVar(value=it["file"])
             ttk.Label(self.form, text="Picture").grid(row=row[0], column=0, sticky="w")
-            cb = ttk.Combobox(self.form, values=icons, textvariable=fv, state="readonly", width=26)
+            cb = ttk.Combobox(self.form, values=icons, textvariable=fv, state="readonly", width=20)
             cb.grid(row=row[0], column=1, sticky="w")
             cb.bind("<<ComboboxSelected>>", lambda e: self.edit({it["line"]: icon_code(dict(it, file=fv.get()))},
                                                                 "icon picture"))
             row[0] += 1
             tvv = tk.StringVar(value=it.get("title") or "")
-            ttk.Label(self.form, text="Title (blank: the course's; | breaks a line)", wraplength=200).grid(
+            ttk.Label(self.form, text="Title (blank: the course's; | breaks a line)", wraplength=120).grid(
                 row=row[0], column=0, sticky="w")
             e = ttk.Entry(self.form, textvariable=tvv, width=22)
             e.grid(row=row[0], column=1, sticky="w")

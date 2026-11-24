@@ -290905,7 +290905,8 @@ clicks the ones that get it.
 
 - **The Iso view's own row**, under its toolbar: *Gap bands* (off by default), *show places at least N px
   wide* (default 4: Little Hop has 88 candidates and many are 1-px slivers), and a count - shown, of all,
-  marked. The detector runs in the picture job only while the box is ticked (`bbedjob.py picture ...
+  marked - on a line of its own under the row since 130.58.54. The detector runs in the picture job only
+  while the box is ticked (`bbedjob.py picture ...
   --gaps` sets `GAP_DETECT` and writes `c.gap_faces` into `meta.json` as `gaps`); ticking it with a picture
   that has none draws the picture again. MEASURED: on HOP the detector's cost is inside the picture
   compile's run-to-run spread (6 to 8.5 s either way, one core); predicted to stay a small share on any
@@ -291198,7 +291199,8 @@ Without `--occ` the picture job is unchanged and as fast. MEASURED (one core of 
 `occ_data` 0.4 s; 3,683 records, 615 flagged cells, `occ.json` 1.0 MB); PLAY (`playground.bbc`) 4.3 s and
 82.7 s (78.6 s, 3,871 records). A course compiled before comes from the compile cache: 1.4 s.
 
-**The window** (the Iso view's options row, beside *Gap bands*; tools/bbedocc.py):
+**The window** (the Iso view's options row, beside *X-ray the selection* - beside *Gap bands* until 130.58.54
+moved it, where it ran off a narrow view; tools/bbedocc.py):
 
 - **Occluders** *(amended by 130.58.44: by default the records the part SHIPS; these, the rule's, under "as cut")*: every
   record over the picture as a checker of a tint chosen by the cell that drew it; the cells
@@ -292078,3 +292080,55 @@ to 'quarter n'"*), the row dropped from OPTIONS (item 17: *"no row for floor's h
 driven under Xvfb (python3.12's Tk): `docs/plans/bonanza-courses/diagui/` (`palette-half-tile.png` - the group
 and the Add panel's halves -, `half-added.png`, `corner-cut.png`, `selected-half.png`, `selected-quarter.png`,
 `selected-quarter-iso.png` and `area-inspector.png`).
+
+#### 130.58.54 Nothing cut off at the window's first size (the owner, 2026-11-24)
+
+*"Do look through the pages, a good number of things cut off or don't show on the right side without resizing
+first."* The window's columns were sized for the controls of their first day, and each section since added a
+row to a column that did not grow: at 1400 x 860 the area inspector's Paint row ended *Nor*, a tube's form ran a
+third of its spinboxes, its *Automatic* and its *Walkable top* off the inspector and its last rows off the bottom,
+the Plan view's *Hard to see* was not shown at all, the Iso view's occluder buttons were dropped once the gap
+count spoke, the Course tab's *Ready to play?* column was 40 px wide, and one long check result in the status
+bar pushed *Cancel* out of the window. A widget Tk has no room for is clipped silently, so none of it raised.
+
+**The audit**, `tools/bbedlayout.py`, is how each was found and is the check that none comes back:
+
+    xvfb-run -s "-screen 0 1920x1080x24" python3 tools/bbedlayout.py [--geometry WxH] [--shots DIR] [--only PAGE]
+
+It opens the window at its own first size (or WxH), visits every page - the Build tab empty, with nothing
+selected, with an area, the Add panel's diagonal choices, ONE STATEMENT OF EVERY KIND found in the shipped courses
+(85 inspectors: every prop, surface and tube kind, halves, ramps, the shaped kinds' editor forms, the header
+statements), several selected, a refusal's banner, the Iso view with the gap bands, the occluders (a record,
+several, a noocclude cell), Shade and the kit overlay, a picked problem's fix bar, the Course, Source and Kit tabs
+(a piece picked), the Map tab on the pathway with a pad, a route, an icon, a lives counter and the map selected,
+its two dialogs, and Test Roll's window - and walks the widget tree of each: a control whose requested width does
+not fit the room its frames leave it (**cut**), one packed or gridded where no room was left to map it
+(**hidden**), a list or canvas squeezed narrower than it asks (**squeezed**), and a fixed-width button whose text
+is longer than its width (**text**). A frame inside a scrolling column is not cut by the column's bottom. Exit
+status 1 when anything is clipped. It needs Tk and an X display, which the suite's hosts do not have, so it is a
+tool run by hand (as 130.58.53's screenshots are), not a row.
+
+**The layout** (what changed; every control and its meaning kept):
+
+| where | before | now |
+|---|---|---|
+| the window's first size | 1400 x 860 | 1400 x 860, or the screen less 24 x 72 px when that is smaller (a saved size still wins) |
+| the inspector | a 330 px frame, clipped right and below | a column 380 px wide as the window opens that SCROLLS (the wheel over it scrolls it), its content laid out to its width; its hints wrap to that width, and a pass after each fill (`_fit_ins`) narrows any wrapped hint to the room left of it in its row and breaks a long check box's words onto lines (ttk's cannot wrap) - narrowing only from each control's own width, so a wider sash re-widens them |
+| an area's inspector | *Paint* four buttons in a row | three a row, as *Make it*'s |
+| a tube's form | each leg's height in the label column | each leg's label and height on a line of its own, so the column of labels stays as narrow as *Column reaches* |
+| a chute's form | *Set* and *Level* at full width | narrow buttons |
+| a route point's inspector | five buttons on one line | *Insert one after* and *Branch from here*; then *Earlier*, *Later*, *Delete* |
+| the Plan / Iso toolbar | the view's options on the right of the tools | a row of their own under the tools: *Height map*, *Route* and its branch, *Hard to see*; in Iso *CGA*, *Hercules*, *X-ray the selection*, then *Occluders*, *as shipped*, *as cut*, *Shade: why* (130.58.32's, moved from beside *Gap bands*) |
+| the gap bands', occluders' and kit's counts | beside the row, or wrapped at a fixed 900 px | a line of its own under their row, wrapped to the view's width |
+| a refusal's banner, a problem's fix bar | the text first, its buttons squeezed out | the buttons packed first and the text wrapped to what they leave |
+| the status bar | the message first, *Cancel* and the job squeezed out | *Cancel*, the bar and the job's stage packed first; the message and the stage (at most two fifths of the room) cut to fit with an ellipsis; a click on a cut one shows the whole |
+| the Add panel | its sentences wrapped at 220 px in a 216 px panel | wrapped to the panel's width |
+| the Course tab | hints and the camera's sentence on one line each, *Ready to play?* squeezed to nothing | the hints wrapped at 300 px, the camera's sentence at 640, `masks banded`'s check box on two lines, `over`'s cells beside its own words; *Ready to play?* has its buttons on one line and *Treat warnings as errors* under them, its sentences wrapped to the column |
+| the Kit tab's list | a fixed 380 px frame, its last button below the window | a scrolling column 384 px wide |
+| the Map tab's form | a route's *Set* and *Remove point* beside its height; an icon's *Picture* 26 characters | *Remove point* on a line of its own; the picture 22 characters, the title's label wrapped at 120 px; *Check the whole map* on two lines |
+| Test Roll | its picture's label 2 px wider than its box | no border on the label |
+
+**MEASURED** (`tools/bbedlayout.py`, Xvfb, python3.12's Tk 8.6, clam): before, **519 clipped controls over 104
+pages** at the first size (575 at 1366 x 768); after, **0 over 113 pages** at the first size, and at 1366 x 768
+the same. Screenshots of each page with something clipped, before and after:
+`docs/plans/bonanza-courses/layout/before/` and `after/`.

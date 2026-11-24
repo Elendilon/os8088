@@ -594,8 +594,8 @@ class ShapeEditor(object):
             ttk.Label(fr, text="Selected way's lip").pack(side="left")
             e = ttk.Spinbox(fr, from_=-8, to=60, increment=0.5, width=6, textvariable=zv)
             e.pack(side="left", padx=4)
-            ttk.Button(fr, text="Set", command=lambda: self._set_lip(zv)).pack(side="left")
-            ttk.Button(fr, text="Level", command=lambda: self._set_lip(None)).pack(side="left")
+            ttk.Button(fr, text="Set", width=5, command=lambda: self._set_lip(zv)).pack(side="left")
+            ttk.Button(fr, text="Level", width=6, command=lambda: self._set_lip(None)).pack(side="left")
             row[0] += 1
             ttk.Label(self.form, text="A lip on a later way makes the leg before it a slope.", foreground="#555",
                       wraplength=330).grid(row=row[0], column=0, columnspan=2, sticky="w")
@@ -696,11 +696,12 @@ class ShapeEditor(object):
             w_ = sh["ways"]                     # SPEC.md 130.58.39: a height a LEG (the riser joins a change)
             for k in range(len(w_) - 1):
                 lv = tk.StringVar(value=_g(hs[k]) if hs else "")
-                ttk.Label(self.form, text="  Leg %d (%d, %d to %d, %d)" % (k + 1, w_[k][0], w_[k][1], w_[k + 1][0],
-                                                                         w_[k + 1][1])).grid(
-                    row=row[0], column=0, sticky="w", pady=1)
-                sl = ttk.Spinbox(self.form, from_=-8, to=60, increment=0.5, width=6, textvariable=lv)
-                sl.grid(row=row[0], column=1, sticky="w")
+                lf = ttk.Frame(self.form)       # (across both columns: in the first, its cells pushed every
+                lf.grid(row=row[0], column=0, columnspan=2, sticky="w", pady=1)    # control off the side, 130.58.54)
+                ttk.Label(lf, text="  Leg %d (%d, %d to %d, %d)" % (k + 1, w_[k][0], w_[k][1], w_[k + 1][0],
+                                                                  w_[k + 1][1])).pack(side="left")
+                sl = ttk.Spinbox(lf, from_=-8, to=60, increment=0.5, width=6, textvariable=lv)
+                sl.pack(side="left", padx=(6, 0))
 
                 def setl(k=k, lv=lv):
                     v = self._fvar(lv)
@@ -727,7 +728,7 @@ class ShapeEditor(object):
                         self.apply(dict(sh, column=v), "column")
             ttk.Radiobutton(cf, text="the ground", value="ground", variable=cv, command=setc).pack(side="left")
             ttk.Radiobutton(cf, text="depth", value="depth", variable=cv, command=setc).pack(side="left")
-            sc = ttk.Spinbox(cf, from_=0.25, to=3, increment=0.25, width=5, textvariable=dv,
+            sc = ttk.Spinbox(cf, from_=0.25, to=3, increment=0.25, width=4, textvariable=dv,
                              command=lambda: (cv.set("depth"), setc()))
             sc.pack(side="left")
             sc.bind("<Return>", lambda e: (cv.set("depth"), setc()))
