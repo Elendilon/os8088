@@ -95,7 +95,8 @@ class KitView(object):
         ttk.Checkbutton(row, text="Kit", variable=self.show, command=self.toggled).pack(side="left")
         ttk.Checkbutton(row, text="own blocks too", variable=self.own, command=self.toggled).pack(side="left")
         ttk.Checkbutton(row, text="Masks (K)", variable=self.masks, command=self.toggled).pack(side="left")
-        self.label = ttk.Label(row, text="", foreground="#1d5e33", wraplength=900, justify="left")
+        self.label = ttk.Label(row, text="", foreground="#1d5e33", justify="left")
+        app.wrap_to(self.label, row, 40)                        # (the row's width, not a fixed 900: 130.58.54)
 
     # -- the job --------------------------------------------------------------
     def wanted(self):
@@ -387,9 +388,8 @@ class KitTab(object):
         f = ttk.Frame(nb)
         nb.add(f, text="Kit")
         self.frame = f
-        left = ttk.Frame(f, padding=8, width=380)
-        left.pack(side="left", fill="y")
-        left.pack_propagate(False)
+        louter, left, _cv = app.scroll_column(f, 384, padding=8)     # (it scrolls: the list of what is stale
+        louter.pack(side="left", fill="y")                          # ran off the bottom, SPEC.md 130.58.54)
         ttk.Label(left, text="The standard kit", font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
         ttk.Label(left, wraplength=360, justify="left", foreground="#444", text=(
             "Picture blocks (B), occluder masks (K) and FIELD shape tables (F) held ONCE, in BZKIT.BIN, instead of "

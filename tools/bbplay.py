@@ -655,7 +655,8 @@ class Player(object):
         box.pack(side="top", padx=8, pady=8)
         box.pack_propagate(False)
         self.view = tk.Label(box, background="black", text="compiling %s ..." % os.path.basename(self.name),
-                             foreground="white", font=("TkDefaultFont", 16), compound="center", wraplength=900)
+                             foreground="white", font=("TkDefaultFont", 16), compound="center", wraplength=900,
+                             borderwidth=0, highlightthickness=0)      # (the picture fills the box exactly)
         self.view.pack(fill="both", expand=True)
         self.read = tk.Label(r, text="", anchor="w", justify="left", background="#202020", foreground="#e0e0e0",
                              font=("TkFixedFont", 12))
