@@ -3,7 +3,8 @@
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
-    python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH] [--gaps] [--occ]   # the Iso view's picture
+    python3 tools/bbedjob.py picture COURSE.bbc OUTDIR [--name PATH] [--gaps] [--occ] [--kit]   # the Iso view's picture
+    python3 tools/bbedjob.py kit     OUTDIR [COURSE.bbc] [--name PATH] [--masks]   # the Kit tab: the kit, who uses it
     python3 tools/bbedjob.py check   COURSE.bbc [--strict] [--trap] [--name PATH]   # the full check
     python3 tools/bbedjob.py ride    COURSE.bbc LINE [--name PATH]     # how each ball rides a shape
 
@@ -19,7 +20,17 @@ origin, every mark the visibility audit weighs with its seen and hidden
 pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4). With
 --occ it also compiles WITH the occluders and writes OUTDIR/occ.json: every
 record the rule cuts, the cells it hides, the OCC/OCCG cells and why a
-windmill's doorway is in the shade (SPEC.md 130.58.32).
+windmill's doorway is in the shade (SPEC.md 130.58.32), every record's pixels in the
+PICTURE's lines (the occluder compile is at the kit's alignment, the picture's at
++0: 130.58.52.4).  With --kit it writes OUTDIR/kit.json: which of the picture's
+8 x 8 blocks and FIELD cells are THE STANDARD KIT's (SPEC.md 130.37), off a
+compile at the kit's alignment; with --occ as well, occ.json's shipped records
+name their mask's kit piece (SPEC.md 130.58.52).
+
+KIT (SPEC.md 130.58.52.3) writes OUTDIR/kitlib.json: every piece of the kit,
+the pool courses (bbcourse.KIT_POOL) that use each - each compiled WITH the
+kit, as it ships, through the compile cache - the open COURSE's own use, the
+totals and the kit's staleness (SPEC.md 130.37.2).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
 the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
@@ -84,7 +95,7 @@ def warning(w):
     return out
 
 
-def picture(path, out, name=None, gaps=False, occ=False):
+def picture(path, out, name=None, gaps=False, occ=False, kit=False):
     from PIL import Image
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
@@ -154,13 +165,26 @@ def picture(path, out, name=None, gaps=False, occ=False):
         with open(tmp, "w", encoding="ascii", newline="") as f:
             f.write(text)                       # (the text the picture drew: dropped gap marks commented out)
         t1 = time.time()
-        ws, err = occluders(tmp, out, path)
+        ws, err = occluders(tmp, out, path, pic_y0=c.y0)
         os.remove(tmp)
         occm = {"error": err, "secs": round(time.time() - t1, 2),
                 "partial": bool(err) and os.path.exists(os.path.join(out, "occ.json")),   # (130.58.46)
                 "warnings": [w for w in ws if w["kind"] == "shade"] if ws else []}
+    kitm = None
+    if kit:                                     # SPEC.md 130.58.52: what comes from the kit, only while it shows
+        emit(stage="kit", what="what comes from the kit")
+        t1 = time.time()
+        try:
+            kd = kit_overlay(c, text, path)
+        except B.CourseError as e:              # (the compile at the kit's alignment refused: said, not raised)
+            kd = {"play": False, "why": "the course does not lay out at the kit's alignment: %s" % e}
+        kd["secs"] = round(time.time() - t1, 2)
+        with open(os.path.join(out, "kit.json"), "w") as f:
+            json.dump(kd, f, separators=(",", ":"))
+        kitm = {"secs": kd["secs"], "play": kd["play"]}
     meta = {"width": c.width, "lines": c.lines, "x0": c.x0, "y0": c.y0, "name": c.name, "marks": marks,
             "warnings": [warning(w) for w in c.warnings] + (occm["warnings"] if occm else []), "occ": occm,
+            "kit": kitm,
             "gaps": c.gap_faces if gaps else None, "dropped_gaps": dropped, "secs": round(time.time() - t0, 2)}
     with open(os.path.join(out, "meta.json"), "w") as f:
         json.dump(meta, f)
@@ -374,9 +398,12 @@ def _shade_why(c, hit, fl, ids, out):
                 cells, what, "those cells are" if many else "that cell is", over))
 
 
-def occluders(path, out, name=None):
+def occluders(path, out, name=None, pic_y0=None):
     """the --occ half of PICTURE: the course compiled WITH its occluders (the part's block limit lifted, as the
-    picture's), written to OUTDIR/occ.json; -> the compile's warnings, or an error string"""
+    picture's), written to OUTDIR/occ.json; -> the compile's warnings, or an error string.  PIC_Y0: the picture's
+    Y0 - a play course's occluder compile is at the kit's alignment (SPEC.md 130.37.6) and the picture's at +0, so
+    every line written is moved up by the difference into the picture's lines (130.58.52.4); and each shipped
+    record names its mask's kit piece (`kmask`, 130.58.52.2)"""
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
@@ -389,11 +416,226 @@ def occluders(path, out, name=None):
             return None, str(e)
         refused = str(e)
     d = occ_data(c)
+    d["kit"] = kit_masks(c, d)
+    d["dy"] = 0
+    if pic_y0 is not None and c.y0 != pic_y0:
+        d["dy"] = c.y0 - pic_y0
+        shift_occ(d, d["dy"])
     d["secs"] = round(time.time() - t0, 2)
     d["refused"] = refused
     with open(os.path.join(out, "occ.json"), "w") as f:
         json.dump(d, f, separators=(",", ":"))
     return [warning(w) for w in getattr(c, "warnings", None) or []], refused
+
+
+def shift_occ(d, dy):
+    """occ_data's rows moved DY lines up (SPEC.md 130.58.52.4): the occluder compile's lines into the picture's.
+    A run above the picture's first line is dropped (none is there: those lines are the alignment's blank ones)"""
+    for k in ("records", "shipped"):
+        for o in d.get(k) or ():
+            o["runs"] = [[y - dy, a, b] for y, a, b in o["runs"] if y - dy >= 0]
+    for s_ in d.get("shade") or ():
+        for cl, (xl, yt, xh, yb) in list(s_["feet"].items()):
+            s_["feet"][cl] = [xl, yt - dy, xh, yb - dy]
+
+
+def kit_bytes(tag, idx, n, nkit, ref):
+    """SPEC.md 130.58.52.2: one class's account - IDX the kit indices the course's section names (c.kit_use's), N
+    its pieces in all, NKIT the kit's; REF whether the section is stored KITREF (130.37.4: only when the named
+    pieces outweigh the bitmap; a PLAIN section carries them itself, so the kit saves it nothing)"""
+    sz = B.KIT_SIZE[tag]
+    bm = B.kit_bmlen(nkit) if ref else 0
+    return {"kit": len(idx), "all": n, "ref": bool(ref), "named": sz * len(idx) if ref else 0,
+            "own": sz * (n - len(idx)) if ref else sz * n, "bitmap": bm,
+            "saved": sz * len(idx) - bm if ref else 0}
+
+
+def kit_overlay(c, text, name):
+    """SPEC.md 130.58.52.2: the Kit overlay's data for the picture compile C (of TEXT, named NAME): a play course
+    is compiled again at the kit's alignment when the picture's is not it (occluders off, as the picture: its
+    blocks and map are the shipped ones), and kit_data read off that; anything else is no play course"""
+    if getattr(c, "kit_use", None) is None:
+        return {"play": False, "why": "the pathway and the title name no kit piece (SPEC.md 130.37.3): only a play "
+                                      "course does"}
+    k = (B.KIT_Y0 - c.y0) % 8
+    ca = c if k == 0 else B.compile_course(text, name, occluders=False, _hack={"y0add": k})
+    return kit_data(ca, ca.y0 - c.y0)
+
+
+def kit_data(c, dy=0):
+    """SPEC.md 130.58.52.2: what of the course C (compiled at the kit's alignment) is THE KIT's - the block map
+    (row-major, `cols` x `brows`: block index j is kit piece use["B"][j] when j < len(use["B"]), else the course's
+    own, 130.37.3), the FIELD cells with their table's kit piece (-1: own), the blocks only the lanes' poses use,
+    and each class's account (kit_bytes).  DY: the lines the picture's are above this compile's"""
+    kit = B.kit_load()
+    use = c.kit_use
+    mk = c.model.get("kit") or {}
+    nb, nf = len(use["B"]), len(use["F"])
+    mp = list(c.map)
+    inmap = set(mp)
+    pose = [j for j in range(len(c.blocks)) if j not in inmap]
+    fcells = []
+    for cell, t in sorted(c.tiles.items()):
+        if isinstance(t, B.FieldTile) and t.shape is not None:
+            fcells.append([cell[0], cell[1], t.shape, use["F"][t.shape] if t.shape < nf else -1])
+    return {"play": True, "dy": dy, "name": c.name, "cols": c.cols, "brows": c.brows, "map": mp,
+            "use": {"B": list(use["B"]), "F": list(use["F"])}, "nkit": {t: len(kit[t]) for t in B.KIT_TAGS},
+            "classes": {"B": kit_bytes("B", use["B"], len(c.blocks), len(kit["B"]), mk.get("B") is not None),
+                        "F": kit_bytes("F", use["F"], len(c.ftabs), len(kit["F"]), mk.get("F") is not None)},
+            "pose": {"n": len(pose), "kit": sum(1 for j in pose if j < nb)}, "fcells": fcells}
+
+
+def kit_masks(c, d):
+    """SPEC.md 130.58.52.2: the K class off the occluder compile C - each of occ_data's SHIPPED rows given `kmask`,
+    its mask's kit piece (-1: the course's own; None: a record that lays nothing), and the class's account; None
+    for no play course (or a refused compile cut before the kit was ordered)"""
+    use = getattr(c, "kit_use", None)
+    masks = getattr(c, "masks", None)
+    if use is None or masks is None:
+        return None
+    nk = len(use["K"])
+    mi = {m: i for i, m in enumerate(masks)}
+    for o, r in zip(d["shipped"], c.records):
+        i = None if r.get("kmask") == B.ALLKEEP else mi.get(r.get("cmask"))
+        o["kmask"] = None if i is None else (use["K"][i] if i < nk else -1)
+    mk = (getattr(c, "model", None) or {}).get("kit") or {}
+    return dict(kit_bytes("K", use["K"], len(masks), len(B.kit_load()["K"]), mk.get("K") is not None),
+                use=list(use["K"]))
+
+
+def _open_course(text, name, full):
+    """the open course for the Kit tab, the block limit lifted as the picture job lifts it (so its compiles are the
+    picture's, from the cache): compiled WITH its occluders when FULL (K counted), else as the Kit overlay compiles
+    it - occluders off, at the kit's alignment (B and F alone, seconds)"""
+    held = B.BLK_MAX
+    B.BLK_MAX = 1 << 30
+    try:
+        if full:
+            return B.compile_course(text, name)
+        c = B.compile_course(text, name, occluders=False)
+        k = (B.KIT_Y0 - c.y0) % 8
+        if c.kit_use is not None and k:
+            c = B.compile_course(text, name, occluders=False, _hack={"y0add": k})
+        return c
+    finally:
+        B.BLK_MAX = held
+
+
+def _kit_course(arg):
+    """the Kit tab's one course (SPEC.md 130.58.52.3): ARG a pool course's path, compiled WITH the kit as it ships
+    (the occluders cut: K is theirs), or (text, name, full) for the open one (_open_course) -> {name, use, own:
+    {tag: [hex]}, places, palette}, or None for no play course; an open course compiled without its occluders has
+    `use` and `places` K None.  Small, so a forked child hands it back cheaply"""
+    if isinstance(arg, str):
+        held = B.TRAP_CHECK
+        B.TRAP_CHECK = False                    # (the softlock search changes no piece: not run, 130.58.24)
+        try:
+            c = B.compile_course(arg)
+        finally:
+            B.TRAP_CHECK = held
+    else:                                       # (as the picture job compiles it, so its compiles are cache hits)
+        c = _open_course(*arg)
+    if c.kit_use is None:
+        return None
+    pcs = B._kit_pieces(c)
+    use = c.kit_use
+    own = {t: [q.hex() for q in pcs[t][len(use[t]):]] for t in B.KIT_TAGS}
+    cut = isinstance(arg, str) or arg[2]
+    places = {t: {} for t in B.KIT_TAGS}
+    nb, nk, nf = len(use["B"]), len(use["K"]), len(use["F"])
+    for j in c.map:
+        if j < nb:
+            places["B"][use["B"][j]] = places["B"].get(use["B"][j], 0) + 1
+    mi = {m: i for i, m in enumerate(c.masks)}
+    for r in c.records:
+        i = mi.get(r.get("cmask"))
+        if i is not None and i < nk and r.get("kmask") != B.ALLKEEP:
+            places["K"][use["K"][i]] = places["K"].get(use["K"][i], 0) + 1
+    for t in c.tiles.values():
+        if isinstance(t, B.FieldTile) and t.shape is not None and t.shape < nf:
+            places["F"][use["F"][t.shape]] = places["F"].get(use["F"][t.shape], 0) + 1
+    return {"name": c.name, "use": {t: list(use[t]) if cut or t != "K" else None for t in B.KIT_TAGS}, "own": own,
+            "palette": palette(c.src),
+            "places": {t: {str(k): n for k, n in v.items()} if cut or t != "K" else None for t, v in places.items()}}
+
+
+def kit_cut_date():
+    """when the kit's source was last committed (`git log`: date and commit), or None (no git, as in the bundle) -
+    the source itself records no date (SPEC.md 130.37.2)"""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "log", "-1", "--format=%cs %h", "--", B.KIT_FILE], cwd=B.ROOT,
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (r.stdout.strip() or None) if r.returncode == 0 else None
+
+
+class _NoSrc(object):
+    palette = None
+
+
+def kit_lib(course=None, jobs=None):
+    """SPEC.md 130.58.52.3: the Kit tab's data - every piece of the kit by class, which pool courses use each (each
+    compiled with the kit, through the compile cache, in parallel), the open COURSE's use ((text, name, full) or
+    None: _open_course),
+    the totals and the staleness: pieces no pool course names, and pieces the kit lacks that its own rule would take
+    (a block or mask KIT_MIN or more pool courses hold as their own; any FIELD table one holds)"""
+    kit = B.kit_load()
+    paths = B.kit_pool_paths()
+    args = list(paths) + ([course] if course else [])
+    got = B.par_map(_kit_course, args, jobs)
+    pool, errs = [], []
+    for p, (v, e) in zip(paths, got[:len(paths)]):
+        if e is not None:
+            errs.append([os.path.basename(p), str(e)])
+        elif v is not None:
+            pool.append(v)
+    mine = None
+    if course:
+        v, e = got[-1]
+        mine = v if e is None else {"error": str(e)}
+    uses = {t: [[] for _ in kit[t]] for t in B.KIT_TAGS}
+    for k, v in enumerate(pool):
+        for t in B.KIT_TAGS:
+            for i in v["use"][t]:
+                uses[t][i].append(k)
+    missing = {}
+    for t in B.KIT_TAGS:
+        held = {}
+        for k, v in enumerate(pool):
+            for q in set(v["own"][t]):
+                held.setdefault(q, []).append(k)
+        missing[t] = [[q, ks] for q, ks in held.items() if t == "F" or len(ks) >= B.KIT_MIN]
+    part = B.kit_part(kit)
+    return {"pieces": {t: [q.hex() for q in kit[t]] for t in B.KIT_TAGS}, "size": B.KIT_SIZE, "min": B.KIT_MIN,
+            "pool": [v["name"] for v in pool], "pool_err": errs, "uses": uses, "course": mine,
+            "unused": {t: [i for i, u in enumerate(uses[t]) if not u] for t in B.KIT_TAGS}, "missing": missing,
+            "totals": {"part": len(part), "file": len(B.kit_file(kit)), "lzb": B.packed_len(part, "lzb"),
+                       "bytes": {t: B.KIT_SIZE[t] * len(kit[t]) for t in B.KIT_TAGS}},
+            "cut": kit_cut_date(), "source": os.path.relpath(B.KIT_FILE, B.ROOT),
+            "palette": (mine or {}).get("palette") or palette(_NoSrc())}
+
+
+def kit_job(out, path=None, name=None, full=False):
+    """the KIT job (SPEC.md 130.58.52.3): kit_lib written to OUTDIR/kitlib.json; FULL (--masks): the open course
+    compiled with its occluders, so its masks are counted too"""
+    t0 = time.time()
+    course = None
+    if path:
+        with open(path, "r", encoding="ascii", newline="") as f:
+            text = f.read()
+        if not M.is_map(text):
+            course = (text, name or path, full)
+    emit(stage="compile", what="compiling the %d pool courses%s with the kit (cached after the first time)" % (
+        len(B.KIT_POOL), " and this one" if course else ""))
+    d = kit_lib(course)
+    d["secs"] = round(time.time() - t0, 2)
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "kitlib.json"), "w") as f:
+        json.dump(d, f, separators=(",", ":"))
+    emit(stage="done", ok=True, out=out, secs=d["secs"])
+    return 0
 
 
 class _Partial(object):
@@ -759,7 +1001,10 @@ def main(argv):
         name = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
     if len(argv) >= 3 and argv[0] == "picture":
-        return picture(argv[1], argv[2], name, "--gaps" in argv[3:], "--occ" in argv[3:])
+        return picture(argv[1], argv[2], name, "--gaps" in argv[3:], "--occ" in argv[3:], "--kit" in argv[3:])
+    if len(argv) >= 2 and argv[0] == "kit":
+        rest = [a for a in argv[2:] if a != "--masks"]
+        return kit_job(argv[1], rest[0] if rest else None, name, "--masks" in argv[2:])
     if len(argv) >= 3 and argv[0] == "ride":
         return ride(argv[1], int(argv[2]), name)
     if len(argv) >= 2 and argv[0] == "check":

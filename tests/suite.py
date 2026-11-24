@@ -5192,7 +5192,7 @@ SOAK = [
         "flipped (the table and the translated part both fail), glass's "
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
-    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 64.0,
+    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 75.0,
         "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.58.3 - 130.58.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
@@ -5203,7 +5203,11 @@ SOAK = [
         "see-saw, a leg over no floor, a tube mouth off the route, a windmill doorway left sideways - each named "
         "on its way and not on its negative control, not named on a leg a run takes, carried by the check job "
         "under --strict, explained, with their fix buttons; the toolbar's Autopilot command line. secs measured "
-        "(64 s for the whole row, 2026-11-23; item 25 1.3 s)"),
+        "(64 s for the whole row, 2026-11-23; item 25 1.3 s). Item 28, KIT VISIBILITY (SPEC.md 130.58.52): on "
+        "MILL the Kit overlay's B, F and K are c.kit_use, its block map placed over the picture's own pixels, "
+        "occ.json moved into the picture's lines, the Kit tab's job counting MILL as c.kit_use; red arms run "
+        "every time (dy 0 misses the pieces, a stubbed kit_use changes the data). secs re-measured (61 s warm, "
+        "2026-11-24; 4.5 min with a cold compile cache: MILL's full compile and the pool's)"),
     Row("bbplay", "soak", py("tests/unit/t_bbplay.py"), 28.0,
         "TEST ROLL (SPEC.md 130.58.16), host only, no Tk: the course builder's player plays MILL on "
         "bbcourse's own Physics, Glide and Heavy. If it goes red the builder's Test Roll is lying to the "

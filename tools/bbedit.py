@@ -31,6 +31,7 @@ import bbcourse as B  # noqa: E402
 import bbedshape  # noqa: E402
 import bbedmap  # noqa: E402
 import bbedocc  # noqa: E402
+import bbedkit  # noqa: E402
 import bbedopts as OPT  # noqa: E402
 
 TITLE = "Bounce Bonanza course builder"
@@ -360,6 +361,7 @@ class App(object):
         self._build_source_tab()
         self.shapes = bbedshape.ShapeEditor(self, self.tk, self.ttk, Job, hcolour)   # SPEC.md 130.58.29: in place
         self.map = bbedmap.MapTab(self, self.nb, self.tk, self.ttk, _photo)                  # SPEC.md 130.58.20
+        self.kittab = bbedkit.KitTab(self, self.nb, Job, _photo)                             # SPEC.md 130.58.52
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
     def _build_build_tab(self):
@@ -433,6 +435,8 @@ class App(object):
         self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80")
         self.gap_l.pack(side="left", padx=10)
         self.occ = bbedocc.OccView(self, self.gap_row)   # SPEC.md 130.58.32: the Occluders and Shade overlays
+        self.kit_row = ttk.Frame(mid, padding=(4, 0, 4, 4))     # SPEC.md 130.58.52: the Kit overlay, a row of its own
+        self.kitv = bbedkit.KitView(self, self.kit_row)
         self.gap_row_after = vb
         self.banner = tk.Frame(mid, background="#fde2df", padx=8, pady=6)
         self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
@@ -2958,6 +2962,8 @@ class App(object):
         self.src_tab_was = cur
         if getattr(self, "map", None) and self.map.shown():
             self.map.refresh()
+        if getattr(self, "kittab", None) and self.kittab.shown():
+            self.kittab.refresh()
 
     def _src_tab(self):
         return self.nb.index(self.src_t.master.master)
@@ -3161,7 +3167,8 @@ class App(object):
             elif e["stage"] not in ("exit", "log"):
                 self.job_l.config(text="Picture: %s" % e.get("what", e["stage"]))
         self.pic_job = Job(["picture", p, out, "--name", self._name()] + (["--gaps"] if self.show_gaps.get() else []) +
-                           (["--occ"] if self.occ.wanted() else []), ev).start()
+                           (["--occ"] if self.occ.wanted() or self.kitv.wants_occ() else []) +
+                           (["--kit"] if self.kitv.wanted() else []), ev).start()
 
     def run_check(self, trap=False):
         """the full check; TRAP: NO TRAP too (SPEC.md 130.58.24 - the softlock search, off unless asked)"""
@@ -3253,6 +3260,7 @@ class App(object):
                 j.poll()
                 busy = busy or j.running
         self.shapes.poll()
+        busy = self.kittab.poll() or busy
         if busy:
             self.pbar.start(12) if not getattr(self, "_spin", False) else None
             self._spin = True
@@ -3289,6 +3297,7 @@ class App(object):
         first = self.pic is None
         self.pic = {"meta": meta, "cga": cga, "herc": herc, "owners": ow, "text": text}
         self.occ.loaded(out, meta)
+        self.kitv.loaded(out, meta)
         if getattr(self, "map", None) and self.map.shown():
             self.map.draw()
         if first and self.view.get() == "iso":
@@ -3342,6 +3351,7 @@ class App(object):
         if self.view.get() == "plan":
             self.iso_opts.pack_forget()
             self.gap_row.pack_forget()
+            self.kit_row.pack_forget()
             self.plan_opts.pack(side="right")
             self._draw_plan()
         else:
@@ -3349,6 +3359,8 @@ class App(object):
             self.iso_opts.pack(side="right")
             if not self.gap_row.winfo_ismapped():
                 self.gap_row.pack(side="top", fill="x", after=self.gap_row_after)
+            if not self.kit_row.winfo_ismapped():
+                self.kit_row.pack(side="top", fill="x", after=self.gap_row)
             self._draw_iso()
 
     def _pin_rulers(self):
@@ -3653,6 +3665,7 @@ class App(object):
         if self.xray.get() and self.sel:
             img = self._xray(img, herc)
         img = self.occ.composite(img, herc)
+        img = self.kitv.composite(img, herc)
         z = max(1, int(round(self.zoom * 2)))
         disp = img.resize((W * z, H * z), Image.NEAREST)     # (the Hercules image is 2 px a pixel across)
         self.iso_scale = (disp.width / float(W), disp.height / float(H))
@@ -3673,6 +3686,7 @@ class App(object):
         else:
             self.gap_l.config(text="")
         self.occ.draw(c)
+        self.kitv.draw(c)
         self._draw_blends(c, "iso")
 
     # -- the gap band (SPEC.md 130.58.21, 130.57) --------------------------------
@@ -3980,13 +3994,14 @@ class App(object):
             return
         if self.view.get() == "iso" and self.occ.hover(e):
             return
+        kw = self._kit_words(e)                 # (SPEC.md 130.58.52: the block under the pointer, kit's or own)
         cell = self._cell_at(e)
         if cell is None:
-            self.readout.config(text="")
+            self.readout.config(text=kw or "")
             return
         a = self.doc.analysis()
         d = a["cells"].get(cell)
-        parts = ["x %d, y %d" % cell]
+        parts = ["x %d, y %d" % cell] + ([kw] if kw else [])
         if d and d["slope"] != (0, 0):
             sx_, sy_ = d["slope"]
             parts.append("rises toward %s" % ("+x" if sx_ > 0 else "-x" if sx_ < 0 else "+y" if sy_ > 0 else "-y"))
@@ -4004,6 +4019,13 @@ class App(object):
         if names:
             parts.append(("drawn by " if self.view.get() == "iso" else "") + "; ".join(names))
         self.readout.config(text="    ".join(parts))
+
+    def _kit_words(self, e):
+        """the Kit overlay's words for the picture pixel under the pointer (SPEC.md 130.58.52), or None"""
+        if self.view.get() != "iso" or not self.pic or not getattr(self, "iso_scale", None):
+            return None
+        kx, ky = self.iso_scale
+        return self.kitv.describe_at(int(self.cv.canvasx(e.x) / kx), int(self.cv.canvasy(e.y) / ky))
 
     def _msg(self, text):
         note, self._note = getattr(self, "_note", ""), ""

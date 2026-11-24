@@ -120,6 +120,16 @@
     bound. Red by hand (2026-11-23): course_stats's wide test made `c.cols > 160` ("DOWN goes past ['sheets'],
     not ['wide', 'sheets']").
 
+ 28. KIT VISIBILITY (SPEC.md 130.58.52): on MILL the Kit overlay's B and F (bbedjob.kit_overlay) and K (kit_masks on
+    the occluder compile) are the shipped compile's c.kit_use, each class's account its counts; the block map, `dy`
+    lines up, puts each kit piece over the picture pixels that ARE it (98% or more: a few pixels differ between the
+    two alignments) and occ.json is the compile's records moved up those lines; the summary line and the tint read
+    the same figures; the Kit tab's job (kit_lib) counts MILL using exactly c.kit_use, its block places the map's,
+    its staleness its own counts'. Red arms, run every time: the map placed at dy 0 fits under 90% of the kit
+    blocks, and a stubbed kit_use (one block fewer) changes the overlay's data. Red by hand (2026-11-24): occluders'
+    shift dropped ("occ.json's shipped record 0 is not the compile's moved up 6 lines"); kit_overlay without its
+    aligned compile ("named B ... for the compile's").
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -585,6 +595,146 @@ def stats_check():
             or "Sheets" not in got["down"]["summary"]:
         bad.append("item 27: DOWN's rows %r, width %r, summary %r" % (sorted(dr), dr.get("width"),
                                                                       got["down"]["summary"]))
+    return bad
+
+
+def _kit_fit(c_pic, kd, kit, dy):
+    """item 28: of the overlay's kit blocks (0 left out) inside the picture, how many have the kit piece's bytes at
+    the picture's own pixels when the map is placed DY lines down -> (matched, counted)"""
+    from bonanza_assets import cga_bytes
+    ok = n = 0
+    nb = len(kd["use"]["B"])
+    for i, j in enumerate(kd["map"]):
+        if 0 < j < nb:
+            bx, by = i % kd["cols"], i // kd["cols"]
+            y0 = 8 * by - dy
+            if y0 < 0 or y0 + 8 > c_pic.lines:
+                continue
+            n += 1
+            ok += b"".join(cga_bytes(c_pic.pic[y][8 * bx:8 * bx + 8]) for y in range(y0, y0 + 8)) == \
+                kit[kd["use"]["B"][j]]
+    return ok, n
+
+
+def kit_view_check():
+    """28. KIT VISIBILITY (SPEC.md 130.58.52) on MILL: the overlay's B and F (bbedjob.kit_overlay, a compile at the
+    kit's alignment) and its K (kit_masks on the occluder compile) are the shipped compile's c.kit_use; its block
+    map, placed its `dy` lines up, puts each kit piece over the picture pixels that ARE that piece; occ.json is moved
+    into the picture's lines; the Kit tab's job (kit_lib) counts MILL as using exactly c.kit_use, its staleness
+    follows from its own counts; the summary line and the tint read the same figures. Red arms: a stubbed kit_use
+    makes the overlay's data differ; the map placed at dy 0 (the picture's own alignment) misses the pieces"""
+    import copy
+    import io
+    import contextlib
+    import json
+    import bbedkit as K
+    bad = []
+    p = os.path.join(ROOT, "apps", "bonanza", "courses", "mill.bbc")
+    with open(p, encoding="ascii", newline="") as f:
+        text = f.read()
+    name = "mill.bbc"
+    kit = B.kit_load()
+    held = B.BLK_MAX
+    B.BLK_MAX = 1 << 30                             # (as the picture job)
+    try:
+        c_pic = B.compile_course(text, name, occluders=False)
+        kd = J.kit_overlay(c_pic, text, name)
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "m.bbc")
+            with open(src, "w", encoding="ascii", newline="") as f:
+                f.write(text)
+            with contextlib.redirect_stdout(io.StringIO()):
+                J.occluders(src, td, name, pic_y0=c_pic.y0)
+            with open(os.path.join(td, "occ.json")) as f:
+                od = json.load(f)
+        c = B.compile_course(text, name)            # (the shipped compile: the occluder job's, from the cache)
+    finally:
+        B.BLK_MAX = held
+    if not kd.get("play") or kd["use"] != {"B": c.kit_use["B"], "F": c.kit_use["F"]} or od.get("kit") is None \
+            or od["kit"]["use"] != c.kit_use["K"]:
+        return ["item 28: MILL's overlay names B %r, F %r, K %r for the compile's %r" % (
+            kd.get("use", {}).get("B", [])[:5], kd.get("use", {}).get("F"), (od.get("kit") or {}).get("use", [])[:5],
+            {t: v[:5] for t, v in c.kit_use.items()})]
+    for t, n in (("B", len(c.blocks)), ("F", len(c.ftabs))):
+        a = kd["classes"][t]
+        if (a["kit"], a["all"]) != (len(c.kit_use[t]), n):
+            bad.append("item 28: the overlay's %s account %r for %d of %d" % (t, a, len(c.kit_use[t]), n))
+    a = od["kit"]
+    if (a["kit"], a["all"]) != (len(c.kit_use["K"]), len(c.masks)) or a["ref"] != (c.model["kit"].get("K") is not None):
+        bad.append("item 28: the K account %r for %d of %d masks" % (a, len(c.kit_use["K"]), len(c.masks)))
+    named = {r["kmask"] for r in od["shipped"] if r.get("kmask") is not None and r["kmask"] >= 0}
+    if named != set(c.kit_use["K"]):
+        bad.append("item 28: the shipped records' kit masks %d, the compile names %d" % (len(named),
+                                                                                          len(c.kit_use["K"])))
+    if kd["dy"] != c.y0 - c_pic.y0 or od.get("dy") != kd["dy"] or not kd["dy"]:
+        bad.append("item 28: dy %r (occ.json %r), wanted MILL's %d" % (kd["dy"], od.get("dy"), c.y0 - c_pic.y0))
+    else:                                            # occ.json in the picture's lines: the compile's runs moved up
+        r0 = c.records[0]
+        want = sorted((y - kd["dy"], x) for (x, y) in r0["pix"])
+        got = sorted((y, x) for y, a_, b_ in od["shipped"][0]["runs"] for x in range(a_, b_ + 1))
+        if got != want:
+            bad.append("item 28: occ.json's shipped record 0 is not the compile's moved up %d lines" % kd["dy"])
+    ok, n = _kit_fit(c_pic, kd, kit["B"], kd["dy"])
+    if n < 100 or ok < 0.98 * n:
+        bad.append("item 28: %d of %d kit blocks are the picture's pixels at dy %d" % (ok, n, kd["dy"]))
+    ok0, n0 = _kit_fit(c_pic, kd, kit["B"], 0)         # red arm: the picture's own alignment misses them
+    if ok0 >= 0.9 * n0:
+        bad.append("item 28: placed at dy 0 the map still fits %d of %d: the alignment test proves nothing" % (ok0, n0))
+    ca = copy.copy(c_pic if not kd["dy"] else B.compile_course(text, name, occluders=False,
+                                                              _hack={"y0add": kd["dy"]}))
+    real = J.kit_data(ca, kd["dy"])
+    ca.kit_use = dict(ca.kit_use, B=ca.kit_use["B"][:-1])     # red arm: a stubbed kit_use
+    stub = J.kit_data(ca, kd["dy"])
+    if real != kd or stub["classes"]["B"] == kd["classes"]["B"] or stub["use"] == kd["use"]:
+        bad.append("item 28: a stubbed kit_use leaves the overlay's data as it was (or kit_data is not the job's)")
+    # the summary line and the tint, off the same figures
+    line = K.summary(kd, od["kit"])
+    want = "blocks %s of %s from the kit" % (format(len(c.kit_use["B"]), ","), format(len(c.blocks), ","))
+    saved = kd["classes"]["B"]["saved"] + od["kit"]["saved"] + kd["classes"]["F"]["saved"]
+    if want not in line or ("saves it %s bytes" % format(saved, ",")) not in line \
+            or "masks %d of %d" % (len(c.kit_use["K"]), len(c.masks)) not in line:
+        bad.append("item 28: the summary reads %r" % line[:200])
+    v = K.KitView.__new__(K.KitView)
+    from PIL import Image
+    pic = Image.new("RGB", (c_pic.width, c_pic.lines), (170, 170, 170))
+    v.app = _OccApp(text)
+    v.app.pic["meta"].update(width=c_pic.width, lines=c_pic.lines)
+    v.app.pic["owners"] = [-1] * (c_pic.width * c_pic.lines)
+    v.data, v.kmask, v.cache, v.show, v.own = kd, None, None, _Var(True), _Var(True)
+    img = v.composite(pic, False)
+    nb = len(kd["use"]["B"])
+    seen = set()
+    for i, j in enumerate(kd["map"]):
+        y = 8 * (i // kd["cols"]) - kd["dy"] + 4
+        if j and 0 <= y < c_pic.lines and ("kit" if j < nb else "own") not in seen:
+            r, g, b_ = img.getpixel((8 * (i % kd["cols"]) + 4, y))
+            cls = "kit" if j < nb else "own"
+            if (cls == "kit") != (g > r):
+                bad.append("item 28: a %s block is tinted %r" % (cls, (r, g, b_)))
+            seen.add(cls)
+    if seen != {"kit", "own"}:
+        bad.append("item 28: the tint test met %r" % sorted(seen))
+    # the Kit tab's job: MILL among the pool, counted as using exactly c.kit_use
+    with contextlib.redirect_stdout(io.StringIO()):
+        lib = J.kit_lib((text, name, True))
+    if "MILL" not in lib["pool"] or lib["course"] is None or lib["course"].get("use") != c.kit_use:
+        return bad + ["item 28: the kit job's pool %r, this course %r" % (lib["pool"], (lib["course"] or {}).get(
+            "use", {}).keys())]
+    k = lib["pool"].index("MILL")
+    for t in B.KIT_TAGS:
+        mine = sorted(i for i, us in enumerate(lib["uses"][t]) if k in us)
+        if mine != sorted(c.kit_use[t]):
+            bad.append("item 28: the Kit tab counts MILL using %d %s pieces, the compile names %d" % (
+                len(mine), t, len(c.kit_use[t])))
+        if lib["unused"][t] != [i for i, us in enumerate(lib["uses"][t]) if not us] or len(lib["pieces"][t]) != \
+                len(kit[t]) or any(q in {x.hex() for x in kit[t]} for q, _ks in lib["missing"][t]):
+            bad.append("item 28: the Kit tab's %s staleness does not follow from its counts" % t)
+    pl = lib["course"]["places"]["B"]
+    if sum(pl.values()) != sum(1 for j in c.map if j < len(c.kit_use["B"])):
+        bad.append("item 28: the Kit tab's MILL block places %d, the map's %d" % (
+            sum(pl.values()), sum(1 for j in c.map if j < len(c.kit_use["B"]))))
+    if lib["totals"]["part"] != len(B.kit_part(kit)):
+        bad.append("item 28: the Kit tab's part %d, kit_part %d" % (lib["totals"]["part"], len(B.kit_part(kit))))
     return bad
 
 
@@ -1621,6 +1771,7 @@ def main():
     bad += course_tab_check()
     bad += route_lint_check()
     bad += stats_check()
+    bad += kit_view_check()
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
