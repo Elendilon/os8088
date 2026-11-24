@@ -281906,6 +281906,8 @@ offset):
   cell's entering frame is estimated over the course's own worst entering frame with no list;
 - **the blob**: each distinct list once (sorted), a cell whose list would take section `A` past 255 bytes gets
   none (its residual records stay); the residual is then cut with the lists as they are.
+- *since 130.29.14.1*: **the prune** - each list then cut to the entries some residual pixel needs, the records
+  exactly the unpruned lists'.
 
 **The first filter's estimate** (`av_enter`): the entering frame (`bz_acptr` -1: the table read, the words
 computed, the model's words laid, and the records walked) at every height of the cell in 2 px, the ball
@@ -281928,10 +281930,13 @@ model's work alone with the course's worst model work while a frame's price is t
 - **V's +1**: 0 none, else `v` = the list's offset BACK from `ROWTAB` (section `A` ends where `T` begins), 1 -
   255. Only on a VOID cell, not `OBS`, of a `GF_ANA` part.
 - **Section `A`**: each list a count (1 - `BZ_AXMAX`) and then a byte `i << 4 | j` an entry; lists shared;
-  at most 255 bytes; every byte some listed cell's.
+  at most 255 bytes; every byte some listed cell's. *Since 130.29.14.2: no count - a list's entries RISE and the
+  first byte at or under the one before ends it; the lists laid in falling order of their first byte, a list
+  that is another's tail not laid again, a 0 ending the last.*
 - `read_part` refuses: `A` past 255 bytes or without `GF_ANA`; a VOID cell's +1 that is not a list inside `A`,
   or on an `OBS` cell; an entry not a whole cell at `i + j >= 5` inside the grid (the near walk's test); a byte
-  of `A` no cell names. The canonical-layout check carries `A` (the model's `farl`).
+  of `A` no cell names. The canonical-layout check carries `A` (the model's `farl`). *Since 130.29.14.2: a list
+  not ENDED inside `A`, or of more than `BZ_AXMAX` entries; the byte that ends a list counts as named.*
 
 **The audit of the +1 byte's readers** (the brief's step 2, done before relying on it):
 - *the guest's physics* reads the grid only through the window (`bz_fill`, `bz_win9i`: the nine cells' four
@@ -281961,7 +281966,8 @@ AMIN) >> 1)` through `ROWTAB`, written into the next EXTRA slot (130.49.3) as a 
 (`H / 2`, X, Y, the slopes byte, no shadow: so a flat far half takes `bz_arange`'s flat path) and the count set's
 interval updated as `.cell`'s; the slots' end checked (the tool never fills them). `bz_arange` and the count
 loop already walk the extra slots. The neighbour test reads `bz_axpe` instead of `bz_axe`, so a far list does not
-force the next V to read its table whole. A frame in the same cell is unchanged.
+force the next V to read its table whole. A frame in the same cell is unchanged. *Since 130.29.14.2 the list has no count: it
+is read until a byte at or under the one before.*
 
 ##### 130.29.13.4 `--selfcheck` and the red arms
 
@@ -282047,6 +282053,112 @@ palette 2, the `BZSSLOG` knob, the see-saw's wakes - and every figure taken agai
   A/B leg) is refused, 284 masks over the 256 a record names (130.15.5) - the owner's MILL, not the far list;
   the entering frames above are priced with the same `Pass` and `price_of` against the guest with its far-list
   block reverted instead.
+
+#### 130.29.14 The far list and the near walk OPTIMIZED (the owner's, 2026-11-23, BUILT 2026-11-24)
+
+The owner, on 130.29.13: *"Have someone implement it, and then start a different agent on optimizing it, and AV in
+general. The end result from the two needs to be roughly as good as the reported estimate thought it would be, or
+better is preferable."* Three changes are kept - the PRUNE (the tool), the ENDED encoding of section `A` (the
+tool, the reader and `bz_afar`) and the near walk's CHEAP REJECT (the guest) - and one is measured and dropped
+(the UNIFY). No proof is loosened: the occluder records each course ships are the SAME records, byte for byte,
+with and without the prune (MEASURED on the eight `BZ_COURSES`), and WRONG-HIDE with the lists is today's
+(item 15's comparison, 130.29.13.4, unchanged).
+
+##### 130.29.14.1 The prune (the tool, `_far_prune`)
+
+After the pick and both filters (130.29.13.1), each list is cut to the entries some residual pixel NEEDS: an
+entry is dropped (the longest lists first, each list's entries last first) when every pixel the cell's residual
+then gains is laid anyway - by another position's residual, or by today's records over the positions the model
+does not run at with the canvas's own `(s, top)` (so `av_records`' `occ.update` leaves its value as it was). The
+occluder pixels, and with them the grouping, the merge, every record, every mask and the gate's flags, are
+therefore EXACTLY the unpruned lists' (MEASURED: `c.records` equal on all eight courses); COMPLETENESS holds
+because the residual is cut with the lists as pruned. A pruned entry costs nothing and buys nothing: it is
+dataset bytes and an entering frame's work hiding pixels the part lays anyway. `AV_FARPRUNE` False is the A/B.
+The see-saw's posed cut (130.42.15) reads the pruned lists, as it read the picked ones. **`--selfcheck` item 15** (the `av` section, on MILL)
+holds it: the course compiled with the prune and with it off (`_hack` `farnoprune`) ship the same records, with
+fewer entries (MEASURED 162 against 169); its red arm `farprunebad` - every entry dropped whatever it hides -
+changes them (1,608 -> 1,961 records) and is caught.
+
+##### 130.29.14.2 The ENDED encoding (section `A`, `far_blob`, `far_parse`, `bz_afar`)
+
+A list is its entries `i << 4 | j` in RISING order, and the first byte at or under the one before it ENDS it (an
+entry is at least 05h: `i + j >= 5`, so 0 ends any list). `far_blob` lays each distinct list once in FALLING
+order of its first byte - every next list's first byte is then at or under the last one's last, so it ends that
+one and no byte is spent on it - lays no list that is the TAIL of one already laid (its cells point into the
+longer one), and puts a 0 after the last. A cell's +1 is the list's offset back from `ROWTAB` as before.
+`read_part` refuses a list not ended inside `A`, one of more than `BZ_AXMAX` entries, and a byte of `A` that
+is neither some list's entry nor the byte ending one. **The guest**: `bz_afar` reads the first entry, and after
+each entry the next byte, ending where `cmp al, [si - 2]` is not above (the count, its register and the loop's
+`dec` gone).
+
+##### 130.29.14.3 The near walk's cheap reject (the guest, `bz_amodel`'s `.cell`)
+
+PROFILED first (the entering frame's priced instructions by label, every 8 px of MILL's VOID cells): reading the
+14 front cells was **44% of the entering frame** (9.1k of 20.8k clk), a passed-over cell 180 - 230 clk and a
+readable one about twice that. Three changes, kept:
+- **a cell passed over pushes nothing**: the kind and flags are tested in BX (`mov bx, [si + 2]`, free in the
+  loop) before `push ax`/`push cx`, so a VOID, OBS or floating cell goes straight to `.cnext`; a split cell's
+  `bz_axcell`, which keeps every register, is called with AX alone saved;
+- **a FLAT cell's height term is free**: `2 max(sx, 0) + 2 max(sy, 0)` is 0 for a slopes byte of 0, tested
+  first (`.cyes` and `bz_afar`'s `.f3`);
+- **the cell pointer walks**: BP is cell `k0`'s four bytes at the row's start and steps 4 a cell (no `shl`,
+  `shl`, `add` a cell); the slopes and the cleared shadow byte are one word store, the slopes kept in BL for the
+  shadow test.
+MEASURED (priced, MILL, every 8 px): **20,785 -> 19,939 clk the mean entering frame** (the first two -742, the
+third -104). `bonanza.bin` **+18 bytes**.
+
+##### 130.29.14.4 Measured, and dropped: the UNIFY
+
+A cell moved to a list ALREADY IN USE (the rarest list first, its cells to the most used, then the shortest,
+each entry one the pick could take there and the second filter passes, the first filter's estimate held, no pixel
+its residual then needs that no other position lays) so fewer distinct `+1` values and lists. MEASURED with the
+ended encoding: **-28 bytes LZB over the eight courses for +85 entries** (an entering frame of a listed cell
+dearer by up to an entry's work each); under the count encoding it was -71. Not kept: the ended encoding's tail
+sharing had already taken most of what fewer lists save.
+
+*What the grid's +1 bytes cost* (MEASURED, the stored world form, the listed cells' +1 zeroed): 845 bytes LZB
+over the eight courses at 130.29.13's lists, of which about 430 is the VALUES' diversity (the same cells set to
+one value cost 414): a listed cell is a lone non-zero byte in a run of VOID cells, one a grid row along a cliff.
+No form that removes it was found that pays (a cell list in `A` searched at a new V costs both bytes and clocks;
+the unify above is the diversity's lever, and it did not pay).
+
+*Per listed cell, what its list buys* (MEASURED, DOWN, 120 cells): dropping a whole list costs records or masks
+on all but 9 of them (62 cells a record and a mask, about 20 bytes raw), so a cost-based drop beyond the exact
+prune is not worth its proof.
+
+##### 130.29.14.5 MEASURED
+
+Against `bounce-bonanza` at aeebce21 built in a private tree, both at `OS88_BUILDNUM` 9999 (the per-pose
+see-saw records of 130.42.15 included on both sides):
+
+| course | the part LZB | `A` bytes | listed cells | entries | worst entering frame | mean entering frame |
+|---|---|---|---|---|---|---|
+| FIRST | 1,316 -> 1,313 (-3) | 4 -> 3 | 9 -> 9 | 9 -> 9 | 71.3k -> **70.9k** | 17.39k -> **16.75k** |
+| DOWN | 16,388 -> 16,356 (-32) | 48 -> 26 | 121 -> 114 | 159 -> 151 | 76.9k -> **75.9k** | 17.12k -> **16.29k** |
+| MILL | 19,351 -> 19,291 (-60) | 156 -> 92 | 98 -> 92 | 169 -> 162 | 80.7k -> **79.8k** | 20.21k -> **19.33k** |
+| MOON | 6,414 -> 6,359 (-55) | 59 -> 24 | 44 -> 36 | 66 -> 47 | 81.1k -> **80.3k** | 22.42k -> **21.30k** |
+| PEAK | 7,986 -> 7,886 (-100) | 109 -> 39 | 69 -> 54 | 116 -> 81 | 78.8k -> **78.4k** | 23.37k -> **22.00k** |
+| PLAY | 17,918 -> 17,857 (-61) | 66 -> 33 | 113 -> 90 | 155 -> 128 | 92.0k -> **91.4k** | 17.41k -> **16.50k** |
+| ROLL | 8,664 -> 8,645 (-19) | 16 -> 8 | 51 -> 48 | 57 -> 53 | 73.5k -> **72.4k** | 19.68k -> **18.81k** |
+| HOP | 9,057 -> 9,035 (-22) | 32 -> 17 | 61 -> 56 | 80 -> 72 | 74.5k -> **73.3k** | 22.66k -> **21.71k** |
+| **the eight** | **87,094 -> 86,742 (-352)** | **490 -> 242** | 566 -> 499 | **811 -> 703** | every one lower | every one lower |
+
+The parts are the stored forms packed LZB as `os88pkg` packs a part (a one-part course's whole part); the title's
+part 5,953 -> 5,946 (-7). Records and masks: unchanged on every course (the same `c.records`). The entering
+frames are 130.29.13.5's pricing (`Pass`, `price_of`: the ball centred, `bz_acptr` -1, every VOID cell of the
+model's positions, every 4 px of its heights), the same frames on both sides. **`BONANZA.O88` 177,890 -> 177,590
+(-300 bytes)**; `bonanza.bin` 53,632 -> 53,650 (+18 bytes of code); `bonanza360.img` 182 clusters in use on both.
+
+**Against the pre-far-list figures** (130.29.13.5's TODAY): the far list and this together are **`BONANZA.O88`
+-1,598 bytes** (178,389 -> 177,091 for the far list, then this section's -300 on the tree the see-saw's +799
+moved: 130.29.12 PREDICTED about -1.1 KB), and the entering frames, worst / mean, FIRST 71.4k / 17.18k -> 70.9k
+/ 16.75k, DOWN 77.1k / 16.71k -> 75.9k / 16.29k, MILL 83.9k / 18.12k -> 79.8k / 19.33k, MOON 81.0k / 21.44k ->
+80.3k / 21.30k, PEAK 78.7k / 22.05k -> 78.4k / 22.00k, PLAY 91.9k / 17.01k -> 91.4k / 16.50k, ROLL 73.4k /
+19.54k -> 72.4k / 18.81k, HOP 76.6k / 22.41k -> 73.3k / 21.71k: **every worst lower, and every mean lower but
+MILL's** (+1.2k, its 92 listed cells): what 130.29.12 said was not a speed-up now is one on seven courses of
+eight. The first filter's coefficients (`AVP_COEF`) were fitted to the guest before 130.29.14.3 and are not
+refitted: the filter compares a list's estimate with the course's own worst estimate, both from the same
+coefficients, and the guest it was fitted to is the dearer one.
 
 ### 130.30 Two-segment courses (the owner's brief, 2026-11-17)
 

@@ -2331,6 +2331,10 @@ bz_amodel:
     sub ax, [es:bz_ad]          ; a - d: N's a for i = 0
     sub ax, [bx + BZG_AMIN]
     sar ax, 1                   ; k0
+    mov si, ax                  ; BP = cell k0's four bytes, 4 more an i
+    shl si, 1                   ; (SPEC.md 130.29.14)
+    shl si, 1
+    add bp, si
     mov dx, [es:bz_aan]         ; DX = N's X, 32 more an i
     mov cx, [es:bz_ad]
     mov bx, cx
@@ -2347,36 +2351,41 @@ bz_amodel:
                                 ; pass reads the rest of its slot)
     cmp ax, [es:bz_akw]
     jae .cnext                  ; (a negative k is huge)
-    mov si, ax
-    shl si, 1
-    shl si, 1
-    add si, bp                  ; SI = N's four bytes: a FLOOR, WALL or GOAL,
-    push ax                     ; not OBS, not FL_FLOAT unless a GOAL
-    push cx
-    mov ax, [si + 2]
-    and al, 0fh
-    dec al
-    cmp al, 2
+    mov si, bp                  ; SI = N's four bytes: a FLOOR, WALL or GOAL,
+    mov bx, [si + 2]            ; not OBS, not FL_FLOAT unless a GOAL (BL the
+    and bl, 0fh                 ; kind, BH the flags; SPEC.md 130.29.14: a
+    dec bl                      ; cell passed over pushes nothing)
+    cmp bl, 2
     jbe .cwh
-    cmp al, BZ_KQ - 1
-    ja .cno
-    test ah, BZ_FL_FLOAT        ; SPEC.md 130.49.2: a SPLIT front cell - its
-    jnz .cno                    ; slot stays unreadable (no shadow), its
-    inc al                      ; pieces go to the extra slots (a FLOATING
-    xor ah, ah                  ; one: passed over)
+    cmp bl, BZ_KQ - 1
+    ja .cnext
+    test bh, BZ_FL_FLOAT        ; SPEC.md 130.49.2: a SPLIT front cell - its
+    jnz .cnext                  ; slot stays unreadable (no shadow), its
+    push ax                     ; pieces go to the extra slots (a FLOATING
+    mov al, bl                  ; one: passed over; bz_axcell keeps every
+    inc al                      ; register)
+    xor ah, ah
     call bz_axcell
-    jmp .cno
+    pop ax
+    jmp .cnext
 .cwh:
-    test ah, BZ_FL_OBS
-    jnz .cno
-    cmp al, 2
+    test bh, BZ_FL_OBS
+    jnz .cnext
+    cmp bl, 2
     je .cyes
-    test ah, BZ_FL_FLOAT
-    jnz .cno
+    test bh, BZ_FL_FLOAT
+    jnz .cnext
 .cyes:                          ; READABLE: X, the slopes, H / 2 = z0 +
-    mov [es:di + 2], dx         ; 2 max(sx, 0) + 2 max(sy, 0) and Y = 8 (s + d)
-    mov al, [si + 1]            ; + Y0 - 2 z0 (z0 quarter units, 130.48)
-    mov [es:di + 6], al
+    push ax                     ; 2 max(sx, 0) + 2 max(sy, 0) and Y = 8 (s + d)
+    push cx                     ; + Y0 - 2 z0 (z0 quarter units, 130.48)
+    mov [es:di + 2], dx
+    mov al, [si + 1]
+    xor ah, ah
+    mov [es:di + 6], ax         ; (the slopes, and no shadow yet)
+    mov bl, al                  ; (BL = N's slopes, for its shadows below)
+    xor cx, cx                  ; (SPEC.md 130.29.14: a FLAT cell's term 0)
+    or al, al
+    jz .h3
     mov ah, al
     and al, 0fh                 ; (a nibble 8 - 15 is a negative slope)
     cmp al, 8
@@ -2393,6 +2402,7 @@ bz_amodel:
     xor ah, ah
     shl ax, 1
     mov cx, ax
+.h3:
     mov al, [si]
     cbw
     add cx, ax
@@ -2408,11 +2418,9 @@ bz_amodel:
     ; runs 0 .. 8 along a flat half, the two the other way round); and with
     ; H_P >= H_N, P counts whenever N does.  So that half of N is never the
     ; least in any column, and is never computed (bz_arange).
-    mov byte [es:di + 7], 0
     cmp word [es:bz_ad], 1
     je .csh                     ; (row 1: its parents are not front cells)
     sub ax, 8                   ; AX = Y_N - 8: Y_P at or over it
-    mov bl, [es:di + 6]         ; BL = N's slopes
     test bl, 0fh
     jnz .cl1                    ; N's right half not flat
     cmp di, [es:bz_arowl]
@@ -2460,6 +2468,7 @@ bz_amodel:
 .cnext:
     add di, BZ_AFL
     add dx, 32
+    add bp, 4
     inc ax
     dec cx
     jz .cend
@@ -3050,7 +3059,8 @@ bz_arange:
 
 ; bz_afar - SPEC.md 130.29.13: V's FAR LIST into the extra slots.  AL = V's +1
 ; (not 0), the list's offset BACK from ROWTAB (section A ends where T begins):
-; a count, then a byte i << 4 | j an entry, each a WHOLE cell (wx + i, wy + j)
+; a byte i << 4 | j an entry, RISING, the list ended by the first byte at or
+; under the one before (SPEC.md 130.29.14), each a WHOLE cell (wx + i, wy + j)
 ; the tool picked - so no kind, OBS or FL_FLOAT test - written at DI (the
 ; slots' end) as a front-table slot is written (H / 2, X, Y, the slopes, no
 ; shadow: a flat half takes bz_arange's flat path), the count set's interval
@@ -3061,16 +3071,10 @@ bz_afar:
     mov bx, [es:bz_goff]
     mov si, [bx + BZG_ROWTAB]
     sub si, ax                  ; SI = the list
-    lodsb
-    mov bp, ax                  ; BP = its entries (AH 0)
-    jmp short .fent
-.fend:
-    mov [es:bz_axe], di
-    ret
+    lodsb                       ; (its first entry)
 .fent:
     cmp di, bz_axl + BZ_AFL * BZ_AXMAX
-    jae .fend
-    lodsb                       ; i << 4 | j
+    jae .fend                   ; AL = i << 4 | j
     push si
     mov ah, al
     mov cl, 4
@@ -3106,8 +3110,11 @@ bz_afar:
     mov al, [si + 1]            ; the slopes, and no shadow
     xor ah, ah
     mov [es:di + 6], ax
-    mov ah, al                  ; H / 2 = z0 + 2 max(sx, 0) + 2 max(sy, 0),
-    and al, 0fh                 ; Y = 8 (s + d) + Y0 - 2 z0 (as .cyes's)
+    xor cx, cx                  ; H / 2 = z0 + 2 max(sx, 0) + 2 max(sy, 0),
+    or al, al                   ; Y = 8 (s + d) + Y0 - 2 z0 (as .cyes's; a
+    jz .f3                      ; FLAT cell's term 0)
+    mov ah, al
+    and al, 0fh
     cmp al, 8
     jb .f1
     xor al, al
@@ -3122,6 +3129,7 @@ bz_afar:
     xor ah, ah
     shl ax, 1
     mov cx, ax
+.f3:
     mov al, [si]
     cbw
     add cx, ax
@@ -3142,9 +3150,13 @@ bz_afar:
 .fn:
     add di, BZ_AFL
     pop si
-    dec bp
-    jz .fend
+    lodsb
+    cmp al, [si - 2]
+    jbe .fend                   ; (at or under the entry before: the list's end)
     jmp .fent
+.fend:
+    mov [es:bz_axe], di
+    ret
 
 ; bz_ahalf - E = Y + (num >> 3) over CX columns from DI (bz_aE's), num = AX
 ; stepping by DX a column, BX = Y: each the least of it and the column's.
