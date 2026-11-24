@@ -3050,7 +3050,8 @@ bz_arange:
 
 ; bz_afar - SPEC.md 130.29.13: V's FAR LIST into the extra slots.  AL = V's +1
 ; (not 0), the list's offset BACK from ROWTAB (section A ends where T begins):
-; a count, then a byte i << 4 | j an entry, each a WHOLE cell (wx + i, wy + j)
+; a byte i << 4 | j an entry, RISING, the list ended by the first byte at or
+; under the one before (SPEC.md 130.29.14), each a WHOLE cell (wx + i, wy + j)
 ; the tool picked - so no kind, OBS or FL_FLOAT test - written at DI (the
 ; slots' end) as a front-table slot is written (H / 2, X, Y, the slopes, no
 ; shadow: a flat half takes bz_arange's flat path), the count set's interval
@@ -3061,16 +3062,10 @@ bz_afar:
     mov bx, [es:bz_goff]
     mov si, [bx + BZG_ROWTAB]
     sub si, ax                  ; SI = the list
-    lodsb
-    mov bp, ax                  ; BP = its entries (AH 0)
-    jmp short .fent
-.fend:
-    mov [es:bz_axe], di
-    ret
+    lodsb                       ; (its first entry)
 .fent:
     cmp di, bz_axl + BZ_AFL * BZ_AXMAX
-    jae .fend
-    lodsb                       ; i << 4 | j
+    jae .fend                   ; AL = i << 4 | j
     push si
     mov ah, al
     mov cl, 4
@@ -3142,9 +3137,13 @@ bz_afar:
 .fn:
     add di, BZ_AFL
     pop si
-    dec bp
-    jz .fend
+    lodsb
+    cmp al, [si - 2]
+    jbe .fend                   ; (at or under the entry before: the list's end)
     jmp .fent
+.fend:
+    mov [es:bz_axe], di
+    ret
 
 ; bz_ahalf - E = Y + (num >> 3) over CX columns from DI (bz_aE's), num = AX
 ; stepping by DX a column, BX = Y: each the least of it and the column's.
