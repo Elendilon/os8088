@@ -295764,8 +295764,8 @@ statement lays, or another plate's, is refused.
 | +16, +17 | FSB (a byte, a multiple of 8), class 1 RESPAWN | 0, class 0 |
 | +18 | NX, its cells along x | its PLATE's record |
 | +19 | NY | 0 |
-| +20 | `TL_FAXY` (1: its axis is y) OR `TL_FPLUS` (2: `rest +`) | 0 |
-| +21 | PZ (signed half units) | 0 |
+| +20 | `TL_FAXY` (1: its axis is y) OR `TL_FPLUS` (2: `rest +`) | +20 - +21: its OCCLUDER TOGGLES' length, bytes, at least 1 (130.42.15) |
+| +21 | PZ (signed half units) | (above) |
 | +22 - +24 | a TIMED plate's MASK (period - 1), FLAT, SEED (130.42.11); else 0 | 0 |
 | +25 - +31 | 0 | 0 |
 
@@ -295929,7 +295929,13 @@ a `BZTILT=1` tree) - not taken here (fork rule 9: sub-agents do not soak).
 5. **A tilting plate and the occluders**: the occluder records are cut from
    the rest picture and the three poses' reach; a ball BEHIND a plate whose
    near end has risen could be drawn over it for a frame or two (not seen on
-   the test course, whose plates have nothing behind them).
+   the test course, whose plates have nothing behind them). **ANSWERED
+   2026-11-24 by 130.42.15** (the owner's "option 2"): it was worse than a
+   frame or two - on MILL the tipped plate's rest edge and column were laid
+   over a ball on its lowered end and the ramp beyond, and the gate stayed shut
+   on the lowered end, so the ramp's wall in front of the ball was drawn under
+   it. The records round a plate are now cut PER POSE and chosen by the pose
+   the map shows.
 
 #### 130.42.11 The TIMED see-saw (2026-11-18, `bb-propfix`)
 
@@ -296153,6 +296159,100 @@ So no guest or tool defect was found; the open question is the owner's (130.42.1
 proof stays: `tilt_host`'s three MILL scenes, `mill-rubber`, `mill-steel` and `mill-glass` (each judged:
 the poses 0, 1 and 2, no respawn, no landing), with two red arms on them - `tlmillmark` (no lane marked:
 red at step 87, *never drawn*) and `tlmillcarry` (the carry's z not written: red at step 122, *the ball*).
+
+#### 130.42.15 PER-POSE OCCLUDERS (the owner's "option 2", 2026-11-24)
+
+**The defect** (the owner's screenshots of MILL, 2026-11-23; 130.42.10 item 5). The occluder records
+(130.10.4.4) are cut from the picture, and the picture is the plates at REST. When MILL's plate tips to its
+far end down (pose 2), the records still describe the rest picture: its rest edge and the column under it are
+laid back over a ball on the lowered end and over a ball on the ramp just past it - pixels that, in pose 2,
+are NOT in front of the ball - and the gate (`OCC` / `OCCG`, 130.11.4.3) is the rest picture's too, so a
+grounded ball on the lowered end, which the ramp's 2-unit wall now stands in front of, had the gate SHUT and
+was drawn over the wall. MEASURED in the model over the owner's log (`001MILL.BZR`, rubber, 1,710 steps: 974
+of them with the footprint on a block of the plate's lanes, 194 at rest, 4 FLAT, 776 tipped): **3,516 ball
+pixels over 116 steps laid that the pose's own picture does not put in front of the ball** (wrong), and
+**24,677 ball pixels on 776 tipped steps that the pose's picture puts in front of it NOT laid** (missed), all of
+them with the gate shut.
+
+**The rule.** Round each see-saw the records are cut PER POSE, from the picture with that plate in that pose
+(every other plate at rest), and the pass lays a block's records of the pose the MAP shows there:
+
+- **The tool** (`tl_occ_poses`): for each plate and each of poses 1 and 2, the whole picture is drawn with the
+  plate in the pose by the same ops (`_ops_of`, as the lanes, 130.42.5) and its DEPTH (each pixel's row `s` and
+  top) taken where it differs from the rest render's (`_PoseCanvas`: the compile's canvas with those pixels
+  replaced). A record depends only on its block's depth and the positions whose footprint meets the block, so
+  the records of the blocks whose depth that pose changes are CUT AGAIN from it - by the same pipeline as the
+  shipped records (AV's residual with each VOID cell's FAR LIST as the rest cut picked it, 130.29.13; or
+  today's cut under `--occ off`), merged over the same queries - from the reach positions round those blocks
+  (`tl_occ_reach`). Each block is then compared across its three poses on what the part ships (s, top, the
+  dithered mask, the cumulative mask): the same in all three, it keeps its records as they were, UNTAGGED;
+  otherwise it is a POSED block and carries the three poses' records, a record equal in two or three poses
+  held ONCE with the poses it is laid in (`pm`, bit P: laid in pose P). Two plates whose changed depth meets
+  one block are refused (`keep the plates apart`).
+- **Which pose**: a posed block's records follow the DRAWN pose of the plate's lane that holds the block, or
+  the plate's nearest lane for a block no lane holds (one on MILL: a pixel's depth changes where its colour
+  does not). The occluder pass lays the map's blocks (`bz_olay`), and the map holds each lane's drawn pose
+  (`bz_ldrw`, 130.12.4.2), so the records then match the pixels they lay at every frame - also on the frames
+  where the wheel has not yet committed every lane of a tipped plate (a lane a frame, 130.42.14).
+- **Cumulative masks** (130.11.4.2) are cut within a pose: a posed record's is the AND over the records laid
+  in the first pose it is laid in (equal in each of its poses by the comparison), so the walk's least-t' skip
+  holds in every pose.
+- **The gate**: `OCC` and `OCCG` take each pose's RULE records (the full cut, 130.29.1) over the positions round
+  the changed blocks - `OCCG` a grounded ball at that pose's floor (the plate's cells at that pose) - ORed into
+  the rest flags.
+
+**The part.** Records keep the 4-byte form (130.15.5.1). A posed record that is not laid at REST is stored with
+`s'` = 0, which no key is under (`ks < s'` is never true), so a part fresh from the disk lays the rest pose's
+records, as its map shows the rest pose. Each see-saw lane (kind 81) carries its OCCLUDER TOGGLES straight
+after its three pose maps, their length at the lane record's +20 (a word; 130.42.3):
+
+| | |
+|---|---|
+| +0 | NRUN, the runs (0: the lane selects no record) |
+| each run | its BLOCK ROW (a byte), its first record's PLACE in that row (a byte: the row's `OCCIDX` start + 4 x place) and its record count N, then N bytes, one a record in the part's order: **bits 0 - 4 its `s'`** (1 - 31; a posed record's `s'` past 31 is refused naming it), **bit 5 + P set when it is laid in pose P** |
+
+A run is the consecutive posed records of one block row that the one lane selects. `read_part` refuses: a
+see-saw lane without toggles or whose toggles do not fill +20's bytes; a run past its row; a record in two
+runs; a toggle with no pose or `s'` 0; a record's stored `s'` that is not its toggle's `s'` when the toggle is
+laid at rest, or not 0 when it is not; any other record stored with `s'` 0. The decoders give a record stored
+0 its `s` back from its toggle (`tl_fix_recs`), so the model and every form round-trip.
+
+**The guest** (`bz_ltog`, bzwheel.inc): wherever a lane's DRAWN pose is set - `bz_lsync` (a lane outside the
+window, a sheet switch, the contact box) and a wheel or lead COMMIT, right after `bz_ldrw` - a see-saw lane's
+toggles are written into the picture part's records: each record's `s'` from its byte when the byte has the
+pose's bit, else 0. Every other lane pays the kind's compare (about 25 clk a commit). The occluder pass itself
+is UNCHANGED: not a clock is added a record, a block or a frame, posed or not. **The row summary**
+(`bz_osum`, `bz_osmake`'s, made at the launch from the records as they sit) holds a row's greatest STORED
+`s'`, and a posed record not laid at rest is stored 0 - so once a toggle lays it, the row's summary could read
+under its `s'` and `bz_occ` would leave the row early: `bz_ltog` sets the greatest-`s'` byte of each row a run
+writes to 0FFh (that row is then never left on `s'`, its `t'` test kept), which is exact and costs those rows
+the walk the summary saved.
+**kern_mega**: nothing differs - the toggles are written through `bz_mseg` (the picture part's selector), as
+`bz_lsync` writes the map, and no segment is computed.
+
+**AV and the far lists** (130.29): the simplest correct rule is the one already in force - a see-saw's cells
+are `FL_FLOAT` (130.29.4: the plate is a floating slab), so neither the near walk nor a far list ever counts a
+plate cell, and everything a plate hides is in the RESIDUAL records, which are cut per pose like any other.
+A pose's residual is cut with the FAR LISTS the rest cut picked (a cell has one list, whatever the pose); a far
+cell's edge is pose-independent, so COMPLETENESS (130.29.7) holds in every pose by construction, and WRONG-HIDE
+is measured at rest as before.
+
+**The proofs.**
+- `--selfcheck --only tlocc` (MEASURED): on MILL, **the lattice** - every reach cell round the plate, its
+  centre and four inner points, every height of its range in 2 px airborne and its floor in the pose grounded,
+  in each pose: 0 wrong pixels and 0 missed; **the owner's scenario** - each ball poked on F (22, 15), Down +
+  Left held 400 steps (up the plate, past its pivot, the plate tipped, the ball held against the ramp's wall):
+  0 wrong, 0 missed. Red arms: `tlocc` (the cut from the rest picture alone) and `tloccall` (every posed record
+  laid in every pose) are red.
+- `tests/bonanza_av.py` (the guest under unicorn against the host, 130.29.7): on MILL, each of poses 2, 1 and 0
+  set by the guest's own `bz_lsync` on the plate's nine lanes (their map words and toggles), positions round
+  the plate - every buffer and laid count the host's, the host laying the records the part's toggles lay in
+  the pose from the blocks of the map the guest holds. Red arms: `--red tltog` (bz_lsync writing no toggle)
+  and `--red tlall` (the pose test removed) are red.
+- `tests/bonanza_phys.py`'s `tilt_host` MILL scenes (`mill-rubber`, `mill-steel`, `mill-glass`) and their red
+  arms: unchanged, green on the new part (the physics never reads a record).
+
+**What it costs** (MEASURED, below in 130.42.15.1).
 
 ### 130.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
 
