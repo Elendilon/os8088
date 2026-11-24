@@ -301114,7 +301114,8 @@ tool run by hand (as 130.58.53's screenshots are), not a row.
 | the Map tab's form | a route's *Set* and *Remove point* beside its height; an icon's *Picture* 26 characters | *Remove point* on a line of its own; the picture 22 characters, the title's label wrapped at 120 px; *Check the whole map* on two lines |
 | Test Roll | its picture's label 2 px wider than its box | no border on the label |
 
-**MEASURED** (`tools/bbedlayout.py`, Xvfb, python3.12's Tk 8.6, clam): before, **519 clipped controls over 104
-pages** at the first size (575 at 1366 x 768); after, **0 over 113 pages** at the first size, and at 1366 x 768
-the same. Screenshots of each page with something clipped, before and after:
-`docs/plans/bonanza-courses/layout/before/` and `after/`.
+**MEASURED** (`tools/bbedlayout.py`, Xvfb, python3.12's Tk 8.6, clam; the same audit run on the tree before
+this change and after it): before, **430 clipped controls over 113 pages** at the first size and **603 at 1366 x
+768** (73 and 82 distinct places); after, **0 over 113 pages at either size**. Screenshots of the pages that were
+clipped, before and after, at the first size and five at 1366 x 768: `docs/plans/bonanza-courses/layout/before/`
+and `after/`.
