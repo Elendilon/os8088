@@ -23,7 +23,7 @@ Key: *missing* = no control unless typed; *if written* = a control only when the
 |---|---|---|---|---|
 | `floor` `wall` `goal` | `flat H` / `ramp AX P0 P1 H0 H1` | heights, rate whole half units | bespoke (Slope) | unchanged |
 | | surface, hang (`surface`, `float`) | normal ice sand bounce; hang depths | bespoke | unchanged |
-| | `half SIDE`, `quarter N`, `box ... chamfer N` | pieces | missing | **left**: a piece's shape is a picture interaction; the area's Cut a corner and Diagonal strip make the common ones |
+| | `half SIDE`, `quarter N`, `box ... chamfer N` | pieces | missing | **left** at first; since SPEC.md 130.58.53 (2026-11-24) a **Piece** row (Whole cell, four halves, four quarters; `floor` `wall` `goal` `hole`, not on a box) and a **Cut corners** row on a box, and the palette's *Diagonals and corners* group adds halves, quarters, corner cuts, strips and boxes |
 | `goal` | `exit E` | 0 - 3 | missing | row |
 | | `hidden` (a secret finish) | flag | missing | tick box |
 | `hole` | - | | | |

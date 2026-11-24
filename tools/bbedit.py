@@ -68,6 +68,23 @@ PALETTE = [
          "longer side (or trace it: Ctrl-click its cells)"),
         ("Pit", "cell", "pit {x} {y} {h} radius 3 depth 16", "A bowl to ride round at speed, centred in the area"),
     ]),
+    ("Diagonals and corners", [        # SPEC.md 130.58.53: the area tools, where a part is looked for
+        ("Half tile", "rect", "half", "Cuts each cell of the area along a diagonal and keeps ONE half; the other "
+         "half is left empty. Choose the half below (the triangle is the half as the plan shows it). A floor, "
+         "wall or goal there keeps its height; an empty cell gets floor. Click a half later to change it, or to "
+         "make it whole again"),
+        ("Quarter tile", "rect", "quarter", "Cuts each cell of the area along both diagonals and keeps ONE "
+         "quarter, the one on the cell edge you choose below; the rest is left empty. Click a quarter later to "
+         "change it, or to make it whole again"),
+        ("Cut a corner", "rect", "corner", "Cuts one corner off the area along a diagonal, as deep as the area's "
+         "shorter side: the cells on the line halved, those beyond it emptied. Drag an area over a floor's "
+         "corner, choose the corner below, and Add"),
+        ("Diagonal strip", "rect", "strip", "A straight lane on the screen, one diamond (32 px) wide, from the "
+         "area's first cell to its last - down the screen or across it - at the floor's height there"),
+        ("Box", "rect", "box", "Ground with STRAIGHT sides on the screen: the screen rectangle through the centres "
+         "of the area's four corner cells - whole cells inside, halves along its sides. Its four numbers are "
+         "screen columns (a) and rows (s); Cut corners on the right makes it an octagon"),
+    ]),
     ("Surface", [
         ("Ice", "rect", "surface ice rect {x0} {y0} {x1} {y1}", "Slippery: keeps speed, steers badly"),
         ("Sand", "rect", "surface sand rect {x0} {y0} {x1} {y1}", "Drags the ball to a stop"),
@@ -121,11 +138,36 @@ PALETTE = [
     ]),
 ]
 
+# SPEC.md 130.58.53: what the Add panel asks before a diagonal part is added - (value, the button's text, its row
+# and column: the halves laid out where their triangles are on the plan, the quarters as a compass, the corners
+# where they are)
+DIAG_CHOICES = {
+    "Half tile": [("half up", "\u25e4 up", 0, 0), ("half right", "\u25e5 right", 0, 1),
+                  ("half left", "\u25e3 left", 1, 0), ("half down", "\u25e2 down", 1, 1)],
+    "Quarter tile": [("quarter n", "\u25bc n", 0, 1), ("quarter w", "\u25b6 w", 1, 0),
+                     ("quarter e", "\u25c0 e", 1, 2), ("quarter s", "\u25b2 s", 2, 1)],
+    "Cut a corner": [("nw", "\u2196 top-left", 0, 0), ("ne", "\u2197 top-right", 1, 0),
+                     ("sw", "\u2199 bottom-left", 2, 0), ("se", "\u2198 bottom-right", 3, 0)],
+    "Diagonal strip": [("down", "\u2198 down the screen", 0, 0), ("across", "\u2197 across", 1, 0)],
+    "Box": [("floor", "Floor", 0, 0), ("wall", "Wall", 0, 1), ("hole", "Hole", 1, 0), ("goal", "Goal", 1, 1)],
+}
+
 GLYPH = {"Windmill": "W", "Bumper": "B", "Lift": "L", "Turntable": "T", "Start": "S", "Route point": "·",
          "Flag": "F", "Ball pad": "P", "Cup": "U", "Clock": "C", "Tube": "", "Spring": "Sp", "Boost": "»",
          "Blower": "~", "Magnet": "M", "Spikes": "^", "Pop-up spikes": "^", "Membrane": "=", "Cracked floor": "x",
          "Glass path": "g", "Hourglass": "H", "Speed": ">", "Jump": "J", "Life": "♥", "Gate": "G", "Pressure plate": "_",
          "Key": "K", "Bridge": "#", "Seesaw": "/", "Probe": "?"}
+
+# SPEC.md 130.58.53: the Piece row's words. A piece's button shows its triangle AS THE PLAN DRAWS IT
+# (bbedproj.PIECE_POLY: x right, y down) beside the grammar's name for it, a half named by the side of the SCREEN
+# (Iso) it is on
+PIECE_HINT = ("Each cell of its shape keeps only this piece; the rest of the cell is left to what an earlier "
+              "statement laid there, or empty. The triangle is the piece as the Plan shows it; a half's name is the "
+              "side of the screen it is on in Iso, a quarter's the cell edge it owns (n: the Plan's top). To cut "
+              "only some cells, drag an area and use Half tile or Cut a corner.")
+PIECE_HINT_ONE = ("The cell keeps only this piece; the rest is left to what an earlier statement laid there, or "
+                  "empty. The triangle is the piece as the Plan shows it; a half's name is the side of the screen "
+                  "it is on in Iso, a quarter's the cell edge it owns (n: the Plan's top).")
 
 # a height (units) to a colour: dark blue low, through green and yellow, to pale high
 RAMP = [(-8, (38, 52, 110)), (0, (42, 110, 150)), (4, (64, 160, 120)), (10, (150, 200, 80)),
@@ -389,6 +431,9 @@ class App(object):
         self.add_name.pack(anchor="w")
         self.add_desc = ttk.Label(addf, text="", wraplength=220, foreground="#444")
         self.add_desc.pack(anchor="w")
+        self.add_opts = ttk.Frame(addf)         # a diagonal part's choice (SPEC.md 130.58.53), shown for one
+        self.add_choice = tk.StringVar()
+        self.add_opts_for = None
         self.add_btn = ttk.Button(addf, text="Add to the selection", command=self.add_part)
         self.add_btn.pack(fill="x", pady=(6, 2))
         self.add_where = ttk.Label(addf, text="", wraplength=220, foreground="#666")
@@ -1166,7 +1211,8 @@ class App(object):
             shown = [it for it in items if not q or q in it[0].lower() or q in it[3].lower() or q in it[2].lower()]
             if not shown:
                 continue
-            gid = self.pal.insert("", "end", text=grp, open=bool(q) or grp in ("Ground", "Game"))
+            gid = self.pal.insert("", "end", text=grp,
+                                  open=bool(q) or grp in ("Ground", "Diagonals and corners", "Game"))
             for it in shown:
                 iid = self.pal.insert(gid, "end", text=it[0])
                 self.pal_items[iid] = it
@@ -1316,8 +1362,28 @@ class App(object):
             return min(xs), min(ys), max(xs), max(ys)
         return None
 
+    def _fill_add_opts(self, it):
+        """the Add panel's choice for a diagonal part (SPEC.md 130.58.53): which half, quarter, corner, way or
+        kind - kept while the same part stays chosen"""
+        name = it[0] if it else None
+        if name == self.add_opts_for:
+            return
+        self.add_opts_for = name
+        for w in self.add_opts.winfo_children():
+            w.destroy()
+        ch = DIAG_CHOICES.get(name)
+        if not ch:
+            self.add_opts.pack_forget()
+            return
+        self.add_choice.set(ch[0][0])
+        for val, lab, r_, c_ in ch:
+            self.ttk.Radiobutton(self.add_opts, text=lab, value=val, variable=self.add_choice).grid(
+                row=r_, column=c_, sticky="w", padx=(0, 4))
+        self.add_opts.pack(fill="x", pady=(4, 0), before=self.add_btn)
+
     def _fill_add(self):
         it = self.part
+        self._fill_add_opts(it)
         t = self._target()
         if self._is_path_part(it) and len(self.path_pick) >= 2:
             self.add_name.config(text=it[0])
@@ -1478,6 +1544,113 @@ class App(object):
             self._msg("Added a diagonal strip %s the screen at height %s: %s" % (
                 "down" if how == "down" else "across", hs, code))
 
+    def add_diagonal(self, name, choice, area):
+        """SPEC.md 130.58.53: a part of the palette's Diagonals and corners on AREA (cells, inclusive) with the
+        Add panel's CHOICE - a half or quarter of each cell, a corner cut, a strip, a box"""
+        self.area = tuple(area)
+        if name in ("Half tile", "Quarter tile"):
+            return self.piece_area(choice)
+        if name == "Cut a corner":
+            return self.cut_corner(choice)
+        if name == "Diagonal strip":
+            return self.diagonal_strip(choice)
+        return self.add_box(choice)
+
+    def piece_area(self, piece):
+        """SPEC.md 130.58.53: each cell of the area cut to PIECE ("half left", "quarter n", ...): a cell laid by a
+        floor, wall or goal `tile` or `rect` keeps that statement's kind, height and clauses for the piece; an
+        empty cell gets floor at the height there; the rest of the cell is left empty. Cells already split,
+        laid by a band or a box, or under a shaped floor are left. One undo step"""
+        if not self.area or piece not in OPT.PIECES:
+            return
+        x0, y0, x1, y1 = self.area
+        a = self.doc.analysis()
+        by, empty, skipped = {}, [], 0
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                d = a["cells"].get((x, y))
+                if not d:
+                    empty.append((x, y))
+                    continue
+                if d.get("pieces") or d["kind"] == "field":
+                    skipped += 1
+                    continue
+                st = self.doc.statement(d["line"])
+                if st.kind not in ("floor", "wall", "goal") or not self.doc._ground_shape(st):
+                    skipped += 1
+                    continue
+                by.setdefault(d["line"], []).append((x, y))
+        if not by and not empty:
+            self._msg("Nothing to cut there: the area's cells are already diagonal, or shaped")
+            return
+        inside, around = self._heights(self.area)
+        try:
+            typed = float(self.height.get())
+        except ValueError:
+            typed = 4.0
+        flat_in, flat_out = self._flat_heights(self.area)
+        h = next(v for v in (flat_in, flat_out, inside, around, typed) if v is not None)
+        h = round(h * 4) / 4.0
+        hs = ("%d" % h) if h == int(h) else ("%g" % h)
+        codes, cells = [], []
+        for line, cs in sorted(by.items()):
+            st = self.doc.statement(line)
+            i, _r, w = self.doc._ground_shape(st)
+            for rx0, ry0, rx1, ry1 in cell_rects(cs):
+                shape = ["tile", str(rx0), str(ry0)] if (rx0, ry0) == (rx1, ry1) else \
+                    ["rect", str(rx0), str(ry0), str(rx1 + 1), str(ry1 + 1)]
+                codes.append(E.join_tokens(st.toks[:i] + piece.split() + shape + st.toks[i + w:]))
+            cells += cs
+        for rx0, ry0, rx1, ry1 in cell_rects(empty):
+            shape = "tile %d %d" % (rx0, ry0) if (rx0, ry0) == (rx1, ry1) else "rect %d %d %d %d" % (
+                rx0, ry0, rx1 + 1, ry1 + 1)
+            codes.append("floor %s %s flat %s" % (piece, shape, hs))
+
+        def go():
+            with self.doc.group("cut to a %s" % piece.split()[0]):
+                self.doc.replace_area([(x, y, x, y) for x, y in cells] or None, ground=codes)
+                self.doc.tidy(self.area)
+            return True
+        if self._edit(go):
+            ln = next((s_.line for s_ in self.doc.statements() if s_.code == codes[0]), None)
+            self.select(ln)
+            self._msg("Cut %d cells to their %s%s; change it on the right%s" % (
+                len(cells) + len(empty), piece, (" (%d new floor)" % len(empty)) if empty else "",
+                ("; %d already diagonal or shaped, left alone" % skipped) if skipped else ""))
+
+    def add_box(self, kind):
+        """SPEC.md 130.58.53: `<kind> box A0 A1 S0 S1`, the screen rectangle through the centres of the area's
+        four corner cells (a cell's centre is at a = wx - wy, s = wx + wy + 1), at least one column and row
+        across; at the floor's height there, laid over what is there (a box is never cut)"""
+        if not self.area or kind not in ("floor", "wall", "hole", "goal"):
+            return
+        x0, y0, x1, y1 = self.area
+        a0, a1, s0, s1 = x0 - y1, x1 - y0, x0 + y0 + 1, x1 + y1 + 1
+        if a1 - a0 < 2:
+            a0, a1 = a0 - 1, a1 + 1
+        if s1 - s0 < 2:
+            s0, s1 = s0 - 1, s1 + 1
+        inside, around = self._heights(self.area)
+        try:
+            typed = float(self.height.get())
+        except ValueError:
+            typed = 4.0
+        h = inside if inside is not None else around if around is not None else typed
+        if kind == "wall":
+            h += 1
+        h = round(h * 4) / 4.0
+        hs = ("%d" % h) if h == int(h) else ("%g" % h)
+        code = "%s box %d %d %d %d%s" % (kind, a0, a1, s0, s1, "" if kind == "hole" else " flat " + hs)
+
+        def go():
+            self.doc.replace_area(None, ground=[code], label="add a box")
+            return True
+        if self._edit(go):
+            ln = next((s_.line for s_ in self.doc.statements() if s_.code == code), None)
+            self.select(ln)
+            self._msg("Added a %s box with straight sides on the screen: %s. Its columns (a) and rows (s) and Cut "
+                      "corners are on the right" % (kind, code))
+
     def _flat_heights(self, t):
         """(the highest FLAT floor in the area, the highest flat floor touching it from outside), or None"""
         a = self.doc.analysis()
@@ -1537,6 +1710,8 @@ class App(object):
         if not it or not t:
             self._fill_add()
             return
+        if it[0] in DIAG_CHOICES:               # SPEC.md 130.58.53: the area tools, from the palette
+            return self.add_diagonal(it[0], self.add_choice.get() or DIAG_CHOICES[it[0]][0][0], t)
         name, mode, tpl, _hint = it
         x0, y0, x1, y1 = t
         inside, around = self._heights(t)
@@ -1836,6 +2011,24 @@ class App(object):
                     row=0, column=0, padx=1)
                 ttk.Button(df_, text="\u2197 across", command=lambda: self.diagonal_strip("across")).grid(
                     row=0, column=1, padx=1)
+                ttk.Label(self.ins_body, text="Half tile:").grid(row=4, column=0, sticky="w")
+                hf_ = ttk.Frame(self.ins_body)
+                hf_.grid(row=4, column=1, sticky="w")
+                for k, (val, lab, _r, _c) in enumerate(DIAG_CHOICES["Half tile"]):
+                    ttk.Button(hf_, text=lab.split()[0], width=3, command=lambda p_=val: self.piece_area(p_)).grid(
+                        row=0, column=k, padx=1)
+                ttk.Label(self.ins_body, text="Quarter tile:").grid(row=5, column=0, sticky="w")
+                qf_ = ttk.Frame(self.ins_body)
+                qf_.grid(row=5, column=1, sticky="w")
+                for k, (val, lab, _r, _c) in enumerate(sorted(DIAG_CHOICES["Quarter tile"],
+                                                              key=lambda q: "nesw".index(q[0][-1]))):
+                    ttk.Button(qf_, text=lab.split()[0], width=3, command=lambda p_=val: self.piece_area(p_)).grid(
+                        row=0, column=k, padx=1)
+                ttk.Label(self.ins_body, text="Box:").grid(row=6, column=0, sticky="w")
+                xf_ = ttk.Frame(self.ins_body)
+                xf_.grid(row=6, column=1, sticky="w")
+                ttk.Button(xf_, text="Straight-sided floor", command=lambda: self.add_box("floor")).grid(
+                    row=0, column=0, padx=1)
                 ttk.Label(self.ins_body, text="Paint:").grid(row=1, column=0, sticky="w")
                 pf_ = ttk.Frame(self.ins_body)
                 pf_.grid(row=1, column=1, sticky="w")
@@ -1845,7 +2038,9 @@ class App(object):
                 self.ins_title.config(text="An area, %d x %d" % (x1 - x0 + 1, y1 - y0 + 1))
                 self.ins_line.config(text="from (%d, %d) to (%d, %d)" % (x0, y0, x1, y1))
                 self.ins_help.config(text="%s\n\nMake it replaces just these cells (the floor around keeps "
-                                     "its height). Or choose any part on the left and press Add. Delete removes "
+                                     "its height). Cut a corner, Diagonal strip, Half tile, Quarter tile and Box "
+                                     "make diagonal edges (the parts list's Diagonals and corners says what each "
+                                     "does). Or choose any part on the left and press Add. Delete removes "
                                      "every part lying wholly inside the area." % ("Floor here: up to %g units high." % inside if inside is not None
                                                    else "Empty space%s." % (
                                                        ", next to floor %g units high" % around
@@ -1854,8 +2049,10 @@ class App(object):
                 self.ins_title.config(text="Nothing selected")
                 self.ins_line.config(text="")
                 self.ins_help.config(text="Click a part on the course to edit it, or drag across the course to "
-                                     "choose an area to add to. You can also type a whole statement below and "
-                                     "press Apply.")
+                                     "choose an area to add to. Diagonal edges and corners: drag an area, then "
+                                     "use Cut a corner, Half tile or Diagonal strip here, or a part from "
+                                     "Diagonals and corners on the left; click a half or quarter to change it. "
+                                     "You can also type a whole statement below and press Apply.")
             return
         if len(self.sels) > 1:
             return self._fill_multi()
@@ -2573,6 +2770,25 @@ class App(object):
             fr = ttk.Frame(body)
             fr.grid(row=row, column=1, sticky="w")
             row += 1
+            if k == "piece":                                # SPEC.md 130.58.53: whole, a half or a quarter
+                v = tk.StringVar(value=cur or "")
+                ttk.Radiobutton(fr, text="Whole cell", value="", variable=v,
+                                command=lambda o=o, v=v: self.set_option(ln, o, v.get())).grid(
+                    row=0, column=0, columnspan=3, sticky="w")
+                for r0, (lab, name) in ((1, ("Half", "Half tile")), (2, ("Quarter", "Quarter tile"))):
+                    ttk.Label(fr, text=lab, foreground="#555").grid(row=r0, column=0, sticky="nw", padx=(0, 4),
+                                                                   pady=2)
+                    gf = ttk.Frame(fr)
+                    gf.grid(row=r0, column=1, sticky="w", pady=2)
+                    for val, text, r_, c_ in DIAG_CHOICES[name]:
+                        ttk.Radiobutton(gf, text=text, value=val, variable=v,
+                                        command=lambda o=o, v=v: self.set_option(ln, o, v.get())).grid(
+                            row=r_, column=c_, sticky="w")
+                fr._v = v
+                ttk.Label(body, text=PIECE_HINT_ONE if self._one_cell(st) else PIECE_HINT, foreground="#666",
+                          wraplength=260, justify="left").grid(row=row, column=1, sticky="w")
+                row += 1
+                continue
             if k in ("choice", "bare", "mode"):
                 dflt = None
                 if k == "mode":
@@ -2640,6 +2856,10 @@ class App(object):
                     row=row, column=1, sticky="w")
                 row += 1
         return row
+
+    def _one_cell(self, st):
+        sh = self._shape(st)
+        return bool(sh) and sh[2][2] - sh[2][0] == 1 and sh[2][3] - sh[2][1] == 1
 
     def _spin_default(self, e, v, o):
         """an arrow of an empty spinbox steps from the clause's default (the arrow's own step then lands on it),
@@ -3848,10 +4068,13 @@ class App(object):
         kx, ky = self.iso_scale
         px, py = int(x / kx), int(y / ky)
         W, H = self.pic["meta"]["width"], self.pic["meta"]["lines"]
+        self.frac = None
         if 0 <= px < W and 0 <= py < H:
             o = self.pic["owners"][py * W + px]
             if o >= 0:
-                return o >> 8, o & 255
+                cell = o >> 8, o & 255
+                self.frac = iso_frac(self.doc.analysis(), cell, px, py, self.pic["meta"])
+                return cell
         return None
 
     def _press(self, e):
@@ -3873,7 +4096,7 @@ class App(object):
                 self._edit(self.doc.remove, lines[0], label="erase")
             return
         if self.view.get() != "plan":                    # Iso: a click selects what drew that pixel
-            lines = E.at_cell(a, cell)
+            lines = E.at_cell(a, cell, getattr(self, "frac", None))     # (in a split cell, the piece: 130.58.53)
             self.area = (cell[0], cell[1], cell[0], cell[1])
             if lines and self.sel in lines and cell == getattr(self, "last_click", None):
                 self.here = (cell, lines)               # (the same cell again: the next part there)
@@ -3958,8 +4181,9 @@ class App(object):
         elif not d["move"] and d["to"] != d["from"]:
             self._fill_inspector()                # an area: it stays selected
             x0, y0, x1, y1 = self.area
-            self._msg("Selected %d x %d cells. Choose a part on the left and press Add, or press Delete to "
-                      "clear what is in it." % (x1 - x0 + 1, y1 - y0 + 1))
+            self._msg("Selected %d x %d cells. Choose a part on the left and press Add - or on the right make it "
+                      "floor, cut a corner, halve it or lay a diagonal strip - or press Delete to clear what is in "
+                      "it." % (x1 - x0 + 1, y1 - y0 + 1))
         else:                                     # a click: select what is there
             cell = d["from"]
             lines = E.at_cell(self.doc.analysis(), cell, getattr(self, "frac", None))
@@ -4216,6 +4440,53 @@ EXPLAIN = [
     (r"HIDDEN", "the player could not see it (it is behind something taller)."),
     (r"unknown statement", "that is not a statement the course language has."),
 ]
+
+
+def cell_rects(cells):
+    """CELLS as few rectangles (x0, y0, x1, y1 inclusive): runs along x, rows with the same run joined"""
+    rows = {}
+    for x, y in sorted(set(cells), key=lambda c: (c[1], c[0])):
+        r = rows.setdefault(y, [])
+        if r and r[-1][1] == x - 1:
+            r[-1][1] = x
+        else:
+            r.append([x, x])
+    out, open_ = [], {}
+    for y in sorted(rows):
+        now = {}
+        for a, b in rows[y]:
+            k = (a, b)
+            if k in open_ and open_[k][3] == y - 1:
+                open_[k][3] = y
+                now[k] = open_.pop(k)
+            else:
+                now[k] = [a, y, b, y]
+        out += [tuple(v) for v in open_.values()]
+        open_ = now
+    out += [tuple(v) for v in open_.values()]
+    return sorted(out, key=lambda r: (r[1], r[0]))
+
+
+def iso_frac(a, cell, px, py, meta):
+    """SPEC.md 130.58.53: the point (u, v), 0 - 1 each way, of a SPLIT cell under the Iso picture's pixel (PX, PY)
+    - the top's projection inverted (bbcourse._top_world: gx - gy = x + 0.5 - X0, gx + gy = 2 (y - Y0 + 0.5 + z))
+    at each piece's own height, the first piece the point then falls in; a face pixel (below every top) clamped
+    to the cell. None for a cell that is not split"""
+    d = a["cells"].get(cell)
+    if not d or not d.get("pieces"):
+        return None
+    zb = a.get("zbase", 0)
+    A = px + 0.5 - meta["x0"]
+    best = None
+    for p in d["pieces"]:
+        b = 2 * (py - meta["y0"] + 0.5 + 8 * (p["h"] - zb))
+        u = ((A + b) / 2.0 - 16 * cell[0]) / 16.0
+        v = ((b - A) / 2.0 - 16 * cell[1]) / 16.0
+        f = (min(max(u, 0.0), 0.999), min(max(v, 0.0), 0.999))
+        if 0 <= u < 1 and 0 <= v < 1 and E._inside(f, p["poly"]):
+            return f
+        best = best or f
+    return best
 
 
 def explain(err):
