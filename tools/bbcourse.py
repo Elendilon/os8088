@@ -29071,8 +29071,12 @@ def _grammar_cases():
         # 130.49.9's ramp plane took the 4-tile ramp's worst nocum pass from 65,440 to 47,300 clocks, under
         # the bound, so the arm compiled and proved nothing.  This one's worst cell, (11, 15), prices 67,930
         # nocum with or without the plane rule and 36,280 with the masks cumulative)
+        # 2026-11-24: on TODAY'S records (--occ off), as RIDGES below: AV's model now owns the ramp's VOID
+        # positions (130.29), which left the residual's worst nocum pass at 26,030 clocks, under the bound, so
+        # the arm compiled and proved nothing again; the window price is the RECORDS' and so is this arm's
+        # question.  Under --occ off: 67,930 nocum (refused), 36,280 cumulative (compiles)
         ("a ramp toward the viewer priced with the masks NOT cumulative (the red arm nocum)", RAMPUP,
-         "the occluder pass at cell", {"nocum": True}),
+         "the occluder pass at cell", {"nocum": True, "occ": "off"}),
         # (both bound refusals PIN their alignment, SPEC.md 130.25.3: the Y0 search would otherwise look for
         # one that compiles, and these prove the refusal itself)
         ("a block row over %d records" % REC_ROW_MAX, RIDGES, "occluder records, over %d" % REC_ROW_MAX,
