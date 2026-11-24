@@ -282005,6 +282005,23 @@ estimate held under the course's worst estimate with a margin, checked here on t
 course edited later is held to the same estimate, and this section's pricing (`tests/bonanza_av.py`'s method,
 the entering frames above) is the measurement to repeat when the guest's model changes.
 
+**Re-measured on the merged tree** (2026-11-24: the far list merged with `bounce-bonanza` at e7312092 - CGA
+palette 2, the `BZSSLOG` knob, the see-saw's wakes - and every figure taken again; MEASURED unless marked):
+- the records, masks, the parts' LZB, the dataset's LZB and `A` per course: **the table above, figure for figure**
+  (the merge touched no course);
+- **the guest**: `bonanza.bin` 53,259 -> **53,498 (+239)**, the merge parent built in a tree of its own at the
+  same build number;
+- **`BONANZA.O88` 178,389 -> 177,091 (-1,298 bytes)**, against 130.29.12's PREDICTED about -1.1 KB; os88pkg's
+  packed course parts FIRST -82, DOWN -195, MILL -524, MOON -34, PEAK -55, PLAY -94, ROLL -121, HOP -195 (the
+  eight -1,300), the title's -74; `bonanza360.img` 183 -> 181 clusters;
+- **the entering frames**: the table above, figure for figure, on every course; the worst entering frame of a
+  LISTED cell against the course's worst with no list: FIRST 58.8k / 71.4k, DOWN 70.0k / 77.1k, MILL 75.2k /
+  83.9k, MOON 78.2k / 81.0k, PEAK 76.2k / 78.7k, PLAY 73.3k / 91.9k, ROLL 61.2k / 73.4k, HOP 70.9k / 76.6k;
+- `tests/bonanza_av.py --price` cannot price MILL, here or on the merge parent: MILL compiled `--occ off` (its
+  A/B leg) is refused, 284 masks over the 256 a record names (130.15.5) - the owner's MILL, not the far list;
+  the entering frames above are priced with the same `Pass` and `price_of` against the guest with its far-list
+  block reverted instead.
+
 ### 130.30 Two-segment courses (the owner's brief, 2026-11-17)
 
 **The brief.** A course must be able to pass ONE 64KB segment: the owner's
