@@ -33,6 +33,8 @@ top line or its left word inside it).
 --red aneigh: the guest's neighbour reuse (SPEC.md 130.29.5) keeping the old shadows on the new row 1 must fail.
 --red acache: the guest's cell cache not dropped when a front cell starts to count (the speed pass's cache,
 SPEC.md 130.29.5: the FALLS above are what reach it) must fail.
+--red afar: a VOID cell's FAR LIST (SPEC.md 130.29.13) never read must fail; the positions in a listed cell are
+counted in the report.
 SPEC.md 130.49's: --red lowfl (the low flight's margin left out), --red apick (a split V's pick ignored), --red
 acent (a centre half-edge a line low) and --red aflat (a flat word laid from the first laid line) must fail;
 SPEC.md 130.11.4.2's: --red acum (a group's later laid records never ANDed, the least-t' test gone) must fail;
@@ -70,6 +72,10 @@ REDS = {
                 "    nop\n")],
     "acache": [("bzvideo.inc", "    jl .count0                  ; a front cell counts that did not",
                 "    nop                         ; RED acache\n    nop")],
+    # SPEC.md 130.29.13: a VOID V's far list never read (the residual was cut with it); and the neighbour's test
+    # back on the extra slots' end (a far list then forces the next V to read whole: not red - a speed, not a
+    # picture - so it is not an arm)
+    "afar": [("bzvideo.inc", "    or al, al\n    jz .fnone\n    call bz_afar\n", "    or al, al\n    jmp .fnone                  ; RED afar\n")],
     # SPEC.md 130.49: the low flight's margin left out; a split V's pick ignored (the model in every split
     # cell with a VOID piece); a centre half-edge's + 8 made + 24 (a line low)
     "lowfl": [("bzvideo.inc", "    cmp ax, bx\n    jge .air\n.grd:", "    cmp ax, bx\n    jmp .air          ; RED lowfl\n.grd:")],
@@ -356,7 +362,7 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                 offc = BB.compile_course(c.fname if os.path.isabs(c.fname) else os.path.join(ROOT, c.fname),
                                          _hack={"occ": "off"}, crsinfo=info if c.pth is not None else None)
                 off = Pass(binp, sym, offc)
-            nv = nmod = bad = clip = lays = 0
+            nv = nmod = bad = clip = lays = nfar = 0
             first = None
             pr = []
             for pos_ in positions(c, P.ag, n, rnd):
@@ -378,6 +384,7 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                 got, want, dl, hl, dm, runs, tr, at = r_
                 nv += void
                 nmod += runs
+                nfar += bool(runs and P.ag.far_list(*BB.mcell(gx, gy)[:2]))
                 lays += dl
                 if got != want or dl != hl or dm != int(runs):
                     bad += 1
@@ -395,9 +402,9 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                                    rw_ is not None and rw_[2] & 15 in BB.SPLIT_KINDS))
             if verbose:
                 print("bonanza_av %-6s GF_ANA %s: %d positions (%d VOID, the model ran at %d, %d of them a new cell's "
-                      "table from its neighbour's; %d clipped), %d records laid: %s" % (
+                      "table from its neighbour's, %d in a cell with a far list; %d clipped), %d records laid: %s" % (
                           name, "set" if P.ag.gflags & BB.GF_ANA else "clear", nv + max(1, n // 3), nv, nmod,
-                          P.nneigh, clip, lays, "every buffer, laid count and model verdict the host's" if not bad
+                          P.nneigh, nfar, clip, lays, "every buffer, laid count and model verdict the host's" if not bad
                                     else "%d DIFFER, the first %s" % (bad, first)), flush=True)
             if bad:
                 out.append("bonanza_av %s: %d positions differ, the first %s" % (name, bad, first))

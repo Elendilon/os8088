@@ -629,7 +629,8 @@ VAR bz_aprep,1
 VAR bz_namod,2
 VAR bz_axl,BZ_AFL * BZ_AXMAX    ; SPEC.md 130.49.3: THE EXTRA SLOTS - a split
 VAR bz_axe,2                    ; piece's half-edge each (H / 4, X, Y, k, the
-VAR bz_alim,2                   ; flags), their end, a walk's end; V's VOID
+VAR bz_axpe,2                   ; flags) and a far cell's (130.29.13), their end,
+VAR bz_alim,2                   ; the pieces' end, a walk's end; V's VOID
 VAR bz_avm,1                    ; pieces (a bit each, 0: a VOID cell) and its
 VAR bz_avk,1                    ; split kind; bz_axcell's piece's half-edges
 VAR bz_axed,1                   ; its cell's X and whether it is V's own

@@ -6804,3 +6804,26 @@ The builder's course tab offers `2` and `2 dim`, and its previews draw the new c
 red and white on the CGA and the VGA alike, and cyan, red and grey over blue with `dim ground 1`. The Hercules
 picture is unchanged. Cost: +18 bytes in the package, +18 in the VGA part, a byte of bss, nothing per frame.
 No shipped course uses it yet.
+
+## 2026-11-23 (the far list: far cliffs built, SPEC.md 130.29.13)
+
+The owner asked whether MILL's tall cliffs, which AV cannot see past its four-diagonal walk, could be covered by a
+very simple dataset built ahead of time. The research session (130.29.12) found the form that pays: a FAR LIST
+per VOID cell, the few whole cells five to eighteen diagonals in front that hide a pixel the model misses. This
+session built it. The tool picks each list greedily, refuses a far cell that would hide a ball the picture shows
+(a cliff's face hides nothing below the ground plane), stores the list's offset in the VOID cell's spare +1 byte
+and the lists in a new world-part section `A` that ends where ROWTAB begins, so the guest finds a list with one
+subtraction. Before relying on the byte, every reader of a cell's +1 was audited; the tool's own physics was run
+with every VOID cell's +1 poisoned and replayed step for step the same. The guest writes each far cell into
+AV's existing extra slots as an ordinary front-table slot, so the edge and count code already in place does the
+rest: 239 bytes of code, against the 280 - 300 predicted. *The surprise*: the research's clock filter, which
+priced the model's reads and edges alone, let four courses' worst entering frame rise by up to 2.6k on the built
+guest - a far cliff makes the model LAY words it did not, and a frame's price is the model's plus the records'.
+The filter was rebuilt as an estimate of the whole entering frame (the model's work fitted to 47,351 priced
+guest frames, the records' walk from 130.11.4.2's price) held 4,000 clocks under the course's worst. *Measured*,
+on the built guest under unicorn, at every VOID cell and every 4 px of height: no listed cell's entering frame
+reaches its course's worst; the worst rises by 0.1k on four courses, at an unlisted cell, which is the cost of
+reading the byte. The eight courses' parts are 1,300 bytes LZB smaller (records -2,656, the dataset +1,356) and
+`BONANZA.O88` 1,217 bytes smaller. It is not a speed-up: the mean entering frame is 0.2k - 1.3k dearer. *Not
+done*: no MartyPC run (the clocks are priced from the instructions, not measured on the 8088), and the soak
+rows are the lead's to run.
