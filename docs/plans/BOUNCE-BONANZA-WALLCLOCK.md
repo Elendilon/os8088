@@ -463,3 +463,9 @@ what will not fit, naming why.
 No guest, tool or SPEC change; no part built with lanes (the poses were laid as art to measure their blocks); no
 emulator boot (the pictures are the compile's pixels). No soak rows. The art pieces are study quality, to show
 the shapes and the costs; E4's windmill in particular is a sketch.
+
+## The owner's choice after round 2 (2026-11-24)
+
+*"For the clock, the stepped digits look like the right digit style. We'll build a clock or two once I get the
+next course started."* - the STEPPED per-facing digits (R2's 4x7, the digit line following the face; the 1x2
+lane on the tens), on art; built when the next course starts, not before.
