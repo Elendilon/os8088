@@ -220,3 +220,17 @@ No guest or tool change, no part built, no emulator boot (the pictures decide no
 they are the compiled pixels the card shows, and the Hercules is drawn through `herc_pair` as the course
 previews are). No soak rows. Before building: a host compile of the statement into real parts (FIRST and MILL)
 would MEASURE the RAM / LZ4 lines above, and `bonanzawheel`'s CLOCK leg covers the lanes unchanged.
+
+## The owner's answer to round 1 (2026-11-24)
+
+*"A good first pass, but these would need worked into artwork themselves (sit on top of), and the artwork would
+need to be able to span multiple columns. The artwork would, just like with today's clock, host the digits."*
+
+- **No generic white plate**: "these make them not fit into the world" - a clock's art may occasionally contain
+  a plate, but that is not the general case.
+- **The wall clock is ART on a face**, spanning one or more columns, drawn over the face like a decal, hosting
+  the digits as the vase art hosts today's.
+- **The floor clock is a real option**, also on its own art; a ball rolling over it only obstructs it for a
+  moment, which is fine.
+
+Round 2 (below, when it lands) costs those two: art-hosted clocks on a face and on a floor.
