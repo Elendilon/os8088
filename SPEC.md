@@ -287201,7 +287201,7 @@ them with the gate shut.
   the records of the blocks whose depth that pose changes are CUT AGAIN from it - by the same pipeline as the
   shipped records (AV's residual with each VOID cell's FAR LIST as the rest cut picked it, 130.29.13; or
   today's cut under `--occ off`), merged over the same queries - from the reach positions round those blocks
-  (`tl_occ_reach`). Each block is then compared across its three poses on what the part ships (s, top, the
+  (`tl_occ_reach`). Each block is then compared across its three poses on its records (s, top, the mask, the
   dithered mask, the cumulative mask): the same in all three, it keeps its records as they were, UNTAGGED;
   otherwise it is a POSED block and carries the three poses' records, a record equal in two or three poses
   held ONCE with the poses it is laid in (`pm`, bit P: laid in pose P). Two plates whose changed depth meets

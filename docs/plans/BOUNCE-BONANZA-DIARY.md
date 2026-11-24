@@ -6870,7 +6870,7 @@ tipped plate's lanes one a frame. The cheapest tag turned out to be no tag in th
 untouched, and each see-saw lane carries TOGGLES after its pose maps that set a record's `s'` to itself or to 0
 (laid by no key) whenever the lane's drawn pose is set. A record not laid at rest is stored 0, so a fresh part lays
 the rest pose as its map shows it. One trap found on the way: the guest's row summary is made from the stored
-`s'`, so a toggle raises its row's (none of MILL's rows needed it; the guard is 7 bytes).
+`s'`, so a toggle raises its row's (none of MILL's rows needed it; the guard is 12 bytes and ES saved round it).
 
 *Measured*: MILL's part +146 records (1,444 -> 1,590), +21 masks, 293 toggle bytes, **+683 bytes LZB**; the guest
 +134 bytes; **`BONANZA.O88` 177,091 -> 177,890 (+799)** at the same build number; every other course byte for
