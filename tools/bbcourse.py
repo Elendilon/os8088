@@ -178,12 +178,12 @@ NSEC_MAX = 16
 F_PLAIN, F_ROWPLANES, F_COUNTS, F_WDIFF, F_MASKTAB, F_ROWTAB, F_WAYS, F_CELLS, F_KITREF, F_ROWNIBS = range(10)
 FORM_NAMES = ("PLAIN", "ROWPLANES", "COUNTS", "WDIFF", "MASKTAB", "ROWTAB", "WAYS", "CELLS", "KITREF", "ROWNIBS")
 SEC_FORM = {"M": F_ROWPLANES, "B": F_PLAIN, "I": F_COUNTS, "R": F_WDIFF, "K": F_PLAIN, "O": F_MASKTAB,
-            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
+            "G": F_PLAIN, "C": F_CELLS, "D": F_PLAIN, "F": F_PLAIN, "A": F_PLAIN, "T": F_ROWTAB, "W": F_WAYS, "P": F_PLAIN,   # RAM order
             "L": F_PLAIN, "Y": F_PLAIN,   # SPEC.md 130.30.4.2: a TWO-PART course's pose maps, its picture part's last
             "S": F_PLAIN}             # SPEC.md 130.50.3: the course's SONG, its (world) part's last section
 SEC_NAMES = {"M": "the map", "B": "the blocks", "I": "OCCIDX", "R": "the records", "K": "the masks",
              "O": "the mask table", "G": "the grid's header", "C": "the cells", "D": "the split cells' pairs",
-             "F": "the FIELD cells' tables",
+             "F": "the FIELD cells' tables", "A": "the far lists",
              "T": "ROWTAB",
              "W": "the route", "P": "the props", "L": "the lanes' pose maps", "Y": "the bands' top biases",
              "S": "the course's song"}
@@ -12451,6 +12451,17 @@ def merge_exact(raw, merged, q):
 GF_ANA = 64                   # BZG1 +28 bit 6: the part's records are AV's, the pass runs the model in VOID cells
 FL_FLOAT = 64                 # grid +3 bit 6: a FLOOR or WALL whole cell that FLOATS (130.27.2): the model passes over it
 OCCDEPTH = 4                  # the front cells: (wx + i, wy + d - i), d = 1 .. OCCDEPTH, i = 0 .. d
+OCCN = 14                     # ...and their number, (OCCDEPTH + 1)(OCCDEPTH + 2) / 2 - 1
+AV_FARD0, AV_FARD = 5, 18     # SPEC.md 130.29.13: THE FAR LIST's cells, at i + j = AV_FARD0 .. AV_FARD (i, j a nibble)
+AV_FARBLOB = 255              # ...the lists' section A, whose offset back from ROWTAB a VOID cell's +1 holds
+AV_FAR = True                 # (False: no far list - the A/B, and --selfcheck's controls)
+# the first filter's estimate of the model's ENTERING frame (SPEC.md 130.29.13, av_mfeat's terms in its order), clk:
+# the frame, a counting half, a footprint column of one, a far entry, a word passed by, a word laid under the
+# checker alone and a line of it, a word laid under a built mask and a line of it, a cell counting at all, a split
+# front cell read, a piece's slot (fitted to the guest's priced instructions, tests/bonanza_av.py's method)
+AVP_RECK, AVP_REC0 = 0.932, -1979   # ...and the records' walk from av_recest's (130.11.4.2's terms)
+AVP_MARGIN = 4000                # a list's estimate is held this far under the course's worst (the estimate's error)
+AVP_COEF = (2947, 1072, 78, 607, 101, 245, 126, 924, 193, 1236, 152, 3467, 267, 6388, 1142, 984, 837, 379)
 OCC_WRONG_MAX = 0.0025        # WRONG-HIDE's bound: 0.25% of the ball's lit pixels over a course's VOID lattice
 OCC_MODES = ("void", "off")   # --occ: AV (the default), or today's records everywhere (the A/B)
 OCC_MODE = "void"
@@ -12518,10 +12529,17 @@ class AGrid:
         rows = struct.unpack_from("<%dH" % self.nrows, p, rt)
         self._b = lambda r, k: struct.unpack_from("<bBBB", p, rows[r] + 4 * k)
 
+        def fl(b):                                  # SPEC.md 130.29.13: a VOID cell's +1, the list ROWTAB - it back
+            return [(p[rt - b[1] + 1 + e] >> 4, p[rt - b[1] + 1 + e] & 15) for e in range(p[rt - b[1]])]
+        self._fl = fl
+
         def pc(r, k):
             po, kd = struct.unpack_from("<HB", p, rows[r] + 4 * k)
             return [struct.unpack_from("<bBBB", p, po + 4 * h) for h in range(NREC[kd & 15])]
         self._p = pc
+
+    _fl = staticmethod(lambda b: [])              # (a VOID cell's far list from its bytes: none until a part's)
+    far = None                                      # (of_cells: {(wx, wy): [(i, j)]}, the compile's own)
 
     @classmethod
     def of_cells(cls, cells, smin, amin, kw, nrows, x0, y0, gflags, pairs=None):
@@ -12551,6 +12569,16 @@ class AGrid:
         if not (0 <= r < self.nrows and 0 <= k < self.kw):
             return None
         return self._b(r, k)
+
+    def far_list(self, wx, wy):
+        """SPEC.md 130.29.13: VOID cell (wx, wy)'s FAR LIST [(i, j)] - from the part, its +1 (0: none) the list's
+        offset back from ROWTAB, a count and then a byte i << 4 | j an entry; or the compile's (of_cells)"""
+        b = self.raw(wx, wy)
+        if b is None or b[2] & 15 != KIND_VOID or b[3] & FL_OBS:
+            return []
+        if self.far is not None:
+            return self.far.get((wx, wy), [])
+        return self._fl(b) if b[1] else []
 
     def pieces(self, wx, wy):
         """a split cell's records (z0, slopes byte, kind byte, flags), in D's order"""
@@ -12598,6 +12626,7 @@ class AGrid:
                 out.append((H, X, Y, 2 - (sx if side == "R" else sy), side == "R", False))
             else:
                 out.append((H, X, Y + 8 - 2 * (sx + sy), (sy - sx) if side == "R" else (sx - sy), side == "R", True))
+            self._pcs.append(out[-1])
 
     def front(self, wx, wy, depth=None):
         """-> [(H, X, Y, k, right, centre)] the HALF-EDGES of the READABLE front cells of (wx, wy) and of their
@@ -12605,6 +12634,7 @@ class AGrid:
         rounded up to 4), X the cell's apex column, Y its edge's apex line (a centre edge's: the centre's)"""
         out = []
         self._nx = 0                                # (the extra slots filled, in the guest's order)
+        self._pcs = []                              # (...and the pieces' half-edges among them)
         s, a = wx + wy, wx - wy
         if self.split:                              # V's own FRONT pieces (keyed s + 1, 130.24.6.3)
             b = self.raw(wx, wy)
@@ -12637,6 +12667,11 @@ class AGrid:
                 H, X, Y, kr, kl = self.geom((z0, sl), sN, aN)
                 out.append((H, X, Y, kr, True, False))
                 out.append((H, X, Y, kl, False, False))
+        for i, j in self.far_list(wx, wy):          # SPEC.md 130.29.13: THE FAR LIST, a slot an entry after the
+            if self._nx >= AV_XMAX:                 # pieces' (the guest stops where the slots end)
+                break
+            self._nx += 1
+            out += _far_hedges(self, wx, wy, i, j)
         return out
 
     def geom(self, b, sN, aN):
@@ -12762,14 +12797,223 @@ def _av_lines(q, y0, lines):
     return out
 
 
-def av_residual(cv, rcs, grid, x0, y0, depth=None):
+def _far_cands(grid, q, xl, xh, ylast):
+    """SPEC.md 130.29.13: the far list's CANDIDATES for VOID position q - every WHOLE cell (FLOOR, WALL or GOAL, not
+    OBS, not FL_FLOAT unless a GOAL: the near walk's own test) at i + j = AV_FARD0 .. AV_FARD in front of it, i, j
+    a nibble each, whose 32 columns meet the footprint's [xl, xh], higher than the position's least height and
+    whose apex is at or over the residual's last line -> [((i, j), (half-edge right, half-edge left))]"""
+    out = []
+    for d in range(AV_FARD0, AV_FARD + 1):
+        for i in range(max(0, d - 15), min(d, 15) + 1):
+            j = d - i
+            b = grid.raw(q.wx + i, q.wy + j)
+            if b is None:
+                continue
+            z0, sl, kd, fl = b
+            kind = kd & 15
+            if kind not in (KIND_FLOOR, KIND_WALL, KIND_GOAL) or fl & FL_OBS \
+                    or (kind != KIND_GOAL and fl & FL_FLOAT):
+                continue
+            H, X, Y, kr, kl = grid.geom((z0, sl), q.s + d, q.wx - q.wy + i - j)
+            if X + 15 < xl or X - 16 > xh or H <= q.zlo or Y > ylast:
+                continue
+            out.append(((i, j), ((H, X, Y, kr, True, False), (H, X, Y, kl, False, False))))
+    return out
+
+
+def _avp_table(grid, wx, wy):
+    """the proxy's view of V's front table (SPEC.md 130.29.13): {(d, i): (H, X, Y, sx, sy)} of the readable whole
+    cells, and the guest's flat parent shadow a slot (bit 0 the right half, bit 1 the left: 130.29.5)"""
+    t = {}
+    for d in range(1, OCCDEPTH + 1):
+        for i in range(d + 1):
+            b = grid.raw(wx + i, wy + d - i)
+            if b is None:
+                continue
+            z0, sl, kd, fl = b
+            kind = kd & 15
+            if kind not in (KIND_FLOOR, KIND_WALL, KIND_GOAL) or fl & FL_OBS \
+                    or (kind != KIND_GOAL and fl & FL_FLOAT):
+                continue
+            H, X, Y, _kr, _kl = grid.geom((z0, sl), wx + wy + d, wx - wy + 2 * i - d)
+            t[(d, i)] = (H, X, Y, _nib(sl & 15), _nib(sl >> 4))
+    sh = {}
+    for (d, i), (H, X, Y, sx, sy) in t.items():
+        v = 0
+        if d >= 2:
+            p1, p2 = t.get((d - 1, i)), t.get((d - 1, i - 1))
+            if sx == 0 and p1 and p1[4] == 0 and p1[0] >= H and p1[2] <= Y - 8:
+                v |= 1
+            if sy == 0 and p2 and p2[3] == 0 and p2[0] >= H and p2[2] <= Y - 8:
+                v |= 2
+        sh[(d, i)] = v
+    return t, sh
+
+
+def _avp_ov(X, right, w0, w1):
+    lo, hi = (X, X + 15) if right else (X - 16, X - 1)
+    return max(0, min(hi, 8 * w1 + 7) - max(lo, 8 * w0) + 1)
+
+
+def av_mfeat(grid, q, x0, y0, fl, zs=None):
+    """SPEC.md 130.29.13: the model's ENTERING frame at VOID position q (the ball centred in its cell) as the
+    guest's work counts it, at each height z of q (or ZS): {z: (1, the counting halves the parent shadow leaves
+    whose columns meet the footprint's words - FLAT halves, their columns, sloped halves, their columns, a split
+    cell's pieces' halves, their columns - far entries, footprint words passed by, words laid under the checker
+    alone and their lines, words laid under a built mask and their lines, 1 when any cell counts, split front
+    cells read, the pieces' slots, the readable whole front cells, the front cells inside the grid)}.  FL: V's far
+    list [(i, j)]"""
+    t, sh = _avp_table(grid, q.wx, q.wy)
+    s = q.wx + q.wy
+    px = 16 * (q.wx - q.wy) + x0 - 8
+    dl, dh = px >> 3, ((px >> 2) + 4) >> 1
+    halves = []                                     # (H, columns met, 0 flat 1 sloped 2 a piece's) of each half
+    for k, (H, X, Y, sx, sy) in t.items():          # the guest computes
+        for right, bit in ((True, 1), (False, 2)):
+            ov = _avp_ov(X, right, dl, dh)
+            if ov and not sh[k] & bit:
+                halves.append((H, ov, int(bool(sx if right else sy))))
+    hes = list(grid.front(q.wx, q.wy))
+    npc = grid._nx - len(grid.far_list(q.wx, q.wy))     # (the pieces' extra slots, 130.49.3)
+    nsplit = ngrid = 0
+    for d in range(1, OCCDEPTH + 1):
+        for i in range(d + 1):
+            b = grid.raw(q.wx + i, q.wy + d - i)
+            ngrid += b is not None
+            if b is not None and b[2] & 15 in SPLIT_KINDS and not b[3] & FL_FLOAT:
+                nsplit += 1
+    for he in getattr(grid, "_pcs", ()):           # (the pieces' half-edges: computed as the table's halves)
+        ov = _avp_ov(he[1], he[4], dl, dh)
+        if ov:
+            halves.append((he[0], ov, 2))
+    nfar = 0
+    for i, j in fl:
+        fh = _far_hedges(grid, q.wx, q.wy, i, j)
+        if not any(h == fh[0] for h in hes):        # (a grid read from the part has them in front() already)
+            hes += fh
+        nfar += 1
+        for he in fh:
+            ov = _avp_ov(he[1], he[4], dl, dh)
+            if ov:
+                halves.append((he[0], ov, int(he[3] != 2)))
+    out = {}
+    for z in (range(q.zlo, q.zhi + 1) if zs is None else zs):
+        py = 8 * s + 8 - z + y0 - 13
+        hf = [0] * 6
+        for H, ov, k in halves:
+            if H > z:
+                hf[2 * k] += 1
+                hf[2 * k + 1] += ov
+        anyc = any(he[0] > z for he in hes)
+        cols = amodel_cols([he for he in hes if he[0] > z], 8 * dl, 8 * dh + 7)
+        emin = {x: v[0][0] for x, v in cols.items()}
+        nskip = nchk = nchkl = nmask = nmaskl = 0
+        if anyc:
+            for br in range(py >> 3, ((py + 15) >> 3) + 1):
+                a, b = max(8 * br, py), min(8 * br + 8, py + 16)
+                for w in range(dl, dh + 1):
+                    es = [emin.get(x, 1 << 30) for x in range(8 * w, 8 * w + 8)]
+                    if min(es) >= b:
+                        nskip += 1
+                    elif max(es) <= a:
+                        nchk += 1
+                        nchkl += b - a
+                    else:
+                        nmask += 1
+                        nmaskl += b - a
+        out[z] = (1,) + tuple(hf) + (nfar, nskip, nchk, nchkl, nmask, nmaskl, int(anyc), nsplit, npc, len(t), ngrid)
+    return out
+
+
+def av_recest(q, recs, x0, y0, zs=None, _rmax=None):
+    """SPEC.md 130.29.13: the records' share of the pass (130.11.4.2's price, occ_window's terms) at VOID
+    position q, the ball centred in its cell and airborne, at each height z (or ZS) -> {z: clocks}.  RECS the
+    part's records (dicts, kmask not all-keep)"""
+    byb, rmax = {}, _rmax if _rmax is not None else {}
+    for r in recs:
+        byb.setdefault((r["brow"], r["col"]), []).append(r)
+        if _rmax is None:
+            ms, mt = rmax.get(r["brow"], (None, None))
+            rmax[r["brow"]] = (r["s"] if ms is None else max(ms, r["s"]), r["top"] if mt is None else max(mt, r["top"]))
+    s = q.wx + q.wy
+    px = 16 * (q.wx - q.wy) + x0 - 8
+    c0, c1 = px >> 3, ((px >> 2) + 4) >> 1
+    out = {}
+    for z in (range(q.zlo, q.zhi + 1) if zs is None else zs):
+        py = 8 * s + 8 - z + y0 - 13
+        n = OCC_BASE
+        for br in range(py >> 3, ((py + 15) >> 3) + 1):
+            if br not in rmax or not (s < rmax[br][0] and z < rmax[br][1]):
+                continue
+            S = g = a = 0
+            for bc in range(c0, c1 + 1):
+                rs = byb.get((br, bc))
+                if rs:
+                    v = occ_block_cost(rs, s, z)
+                    S += OCC_TEST * v[0] + OCC_COV * v[1]
+                    g += v[2]
+                    a += v[3]
+            nl = min(py + 16, 8 * br + 8) - max(py, 8 * br)
+            n += OCC_ROW + S + (OCC_ROWLAY if g else 0) + g * OCC_LAYF + a * OCC_ANDF + (g * OCC_LAYL + a * OCC_ANDL) * nl
+        out[z] = n
+    return out
+
+
+def _avz(q):
+    """the heights the first filter prices a VOID position at: zlo .. zhi in 2 px, zhi too"""
+    return sorted(set(range(q.zlo, q.zhi + 1, 2)) | {q.zhi})
+
+
+def av_enter(grid, q, x0, y0, fl, rec):
+    """SPEC.md 130.29.13's FIRST FILTER: the ENTERING frame's estimate at VOID position q with far list FL, its
+    worst over q's heights - the model's work (av_mfeat, each term at AVP_COEF's clocks, fitted to the guest's
+    priced instructions) plus the records' walk (REC: av_recest's {z: clocks}, an upper bound of the guest's).
+    Records a far list saves are not counted (it only ever cuts the residual), so a list is held to at most"""
+    f = av_mfeat(grid, q, x0, y0, fl, rec)
+    return max(sum(k * v for k, v in zip(AVP_COEF, f[z])) + AVP_RECK * rec[z] + AVP_REC0 for z in f)
+
+
+def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _nobudget=False, recs0=()):
     """the RESIDUAL occluder pixels (SPEC.md 130.29.3) over the model's positions RCS (AvPos): {(x, y): (s, top)} -
-    each footprint pixel the rule lays at some height of the position at which the model does not hide it"""
+    each footprint pixel the rule lays at some height of the position at which the model does not hide it.
+    FAR (a dict, SPEC.md 130.29.13): THE FAR LIST picked for each VOID cell - the residual cut with it, and FAR
+    filled {(wx, wy): sorted [(i, j)]}; _nowrong, _nobudget its two filters off (--selfcheck's red arms)"""
+    if far is not None:
+        rcs, plan = list(rcs), {}
+        for q in rcs:                               # (the lists first: the budget is the course's worst today)
+            if q.pts is None and grid.gflags & GF_ANA:
+                plan[(q.wx, q.wy)] = _far_pick(cv, q, grid, x0, y0, depth, _nowrong)
+        if not _nobudget:                           # THE FIRST FILTER: the entering frame's estimate (av_enter) at
+            rmax = {}                               # every height of every VOID cell, today's records (RECS0) and
+            for r in recs0:                         # no far list - the course's worst - is each list's budget
+                ms, mt = rmax.get(r["brow"], (None, None))
+                rmax[r["brow"]] = (r["s"] if ms is None else max(ms, r["s"]),
+                                   r["top"] if mt is None else max(mt, r["top"]))
+            rec0 = {(q.wx, q.wy): av_recest(q, recs0, x0, y0, _avz(q), rmax) for q in rcs if q.pts is None}
+            bud = max([av_enter(grid, q, x0, y0, [], rec0[(q.wx, q.wy)]) for q in rcs if q.pts is None] or [0])
+        nblob, seen = 0, set()
+        for key in sorted(plan):
+            q, sel = plan[key]
+            while sel and not _nobudget and av_enter(grid, q, x0, y0, [ij for ij, _he in sel], rec0[key]) \
+                    > bud - AVP_MARGIN:
+                sel = sel[:-1]                      # (the last pick first)
+            lst = tuple(sorted(ij for ij, _he in sel))
+            if lst and lst not in seen:
+                if nblob + 1 + len(lst) > AV_FARBLOB:
+                    lst = ()                        # (the blob is full: this cell keeps its residual records)
+                else:
+                    seen.add(lst)
+                    nblob += 1 + len(lst)
+            if lst:
+                far[key] = list(lst)
     occ = {}
     w, h = cv.w, cv.h
     for q in rcs:
         xl, xh = max(q.xl, 0), min(q.xh, w - 1)
-        cols = amodel_cols(grid.front(q.wx, q.wy, depth), xl, xh)
+        fr = grid.front(q.wx, q.wy, depth)
+        if far is not None and (q.wx, q.wy) in far and q.pts is None:
+            fr = fr + [he for ij in far[(q.wx, q.wy)] for he in _far_hedges(grid, q.wx, q.wy, *ij)]
+        cols = amodel_cols(fr, xl, xh)
         if xl > xh:
             continue
         s = q.s
@@ -12785,6 +13029,102 @@ def av_residual(cv, rcs, grid, x0, y0, depth=None):
                 if max(zlo_y, amodel_z(cols, x, y)) <= min(zhi_y, tp - 1):
                     occ[(x, y)] = (sp, tp)
     return occ
+
+
+def far_blob(far, fname="<course>"):
+    """SPEC.md 130.29.13: the far lists {(wx, wy): [(i, j)]} as the part holds them -> ({cell: its +1}, section
+    A's bytes): each distinct list once (a count, then a byte i << 4 | j an entry), in the order of the cells'
+    first use, and each listed cell's +1 its list's offset BACK from A's end (ROWTAB, section T, follows A)"""
+    at, blob = {}, bytearray()
+    for key in sorted(far):
+        lst = tuple(far[key])
+        if lst not in at:
+            if not 0 < len(lst) <= AV_XMAX or any(not (0 <= i <= 15 and 0 <= j <= 15) for i, j in lst):
+                raise CourseError("%s: cell (%d, %d)'s far list %s" % (fname, key[0], key[1], lst))
+            at[lst] = len(blob)
+            blob += bytes([len(lst)] + [(i << 4) | j for i, j in lst])
+    if len(blob) > AV_FARBLOB:
+        raise CourseError("%s: the far lists are %d bytes, over the %d a cell's +1 reaches (SPEC.md 130.29.13)"
+                          % (fname, len(blob), AV_FARBLOB))
+    return {key: len(blob) - at[tuple(far[key])] for key in far}, bytes(blob)
+
+
+def _far_drop(far):
+    """--selfcheck's red arm fardrop: the far lists with the first listed cell's first entry dropped (the part's
+    lists, not the residual's: the residual was cut with it)"""
+    out = dict(far)
+    key = min(far)
+    if len(far[key]) > 1:
+        out[key] = far[key][1:]
+    else:
+        del out[key]
+    return out
+
+
+def _far_hedges(grid, wx, wy, i, j):
+    """far entry (i, j) of V = (wx, wy): its cell's two half-edges, as a front cell's (SPEC.md 130.29.13)"""
+    b = grid.raw(wx + i, wy + j)
+    H, X, Y, kr, kl = grid.geom(b, wx + wy + i + j, wx - wy + i - j)
+    return [(H, X, Y, kr, True, False), (H, X, Y, kl, False, False)]
+
+
+def _far_pick(cv, q, grid, x0, y0, depth, _nowrong):
+    """SPEC.md 130.29.13: VOID position q's far list before the budget - (q, [((i, j), half-edges)] in pick
+    order): the candidates (_far_cands) less those that would hide a pixel the rule SHOWS at a height of q's
+    range (the second filter: WRONG-HIDE), then greedily the one that hides the most residual (pixel, line)
+    pairs - a pair being hidden at every height the rule lays it - while one hides any, at most the extra
+    slots the near walk leaves (AV_XMAX)"""
+    xl, xh = max(q.xl, 0), min(q.xh, cv.w - 1)
+    near = grid.front(q.wx, q.wy, depth)
+    room = AV_XMAX - grid._nx
+    if xl > xh or room <= 0:
+        return q, []
+    cols = amodel_cols(near, xl, xh)
+    res, vis = [], []
+    for y, zlo_y, zhi_y in _av_lines(q, y0, cv.h):
+        sr, tr = cv.sbuf[y], cv.tbuf[y]
+        for x in range(xl, xh + 1):
+            if sr[x] > q.s:
+                hi = min(zhi_y, tr[x] - 1)
+                if max(zlo_y, amodel_z(cols, x, y)) <= hi:
+                    res.append((x, y, hi))
+            vis.append((x, y, zlo_y, zhi_y, tr[x] if sr[x] > q.s else -(1 << 30)))
+    if not res:
+        return q, []
+    cands = _far_cands(grid, q, xl, xh, max(y for _x, y, _h in res))
+    if not _nowrong:                                # THE SECOND FILTER: no pixel the rule shows hidden
+        def wrong(hes):
+            H = hes[0][0]
+            for x, y, lo, hi, vf in vis:
+                if min(hi, H - 1) < max(lo, vf):
+                    continue
+                for he in hes:
+                    e = amodel_hedge(he, x)
+                    if e is not None and e <= y:
+                        return True
+            return False
+        cands = [c_ for c_ in cands if not wrong(c_[1])]
+    sel = []
+    while cands and res and len(sel) < room:
+        best = None
+        for n_, (ij, hes) in enumerate(cands):
+            n = 0
+            for x, y, hi in res:
+                if hes[0][0] > hi:
+                    for he in hes:
+                        e = amodel_hedge(he, x)
+                        if e is not None and e <= y:
+                            n += 1
+                            break
+            if n and (best is None or n > best[0]):
+                best = (n, n_)
+        if best is None:
+            break
+        ij, hes = cands.pop(best[1])
+        sel.append((ij, hes))
+        res = [(x, y, hi) for x, y, hi in res
+               if not (hes[0][0] > hi and any(e is not None and e <= y for e in (amodel_hedge(he, x) for he in hes)))]
+    return q, sel
 
 
 def _group_occ(occ):
@@ -12816,7 +13156,7 @@ def _group_occ(occ):
 
 
 def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=False, tiles=None, sub=None,
-               _raise=0, show=None, lift=CLIMB, dyn=None):
+               _raise=0, show=None, lift=CLIMB, dyn=None, far=None, _nowrong=False, _nobudget=False):
     """AV's records (SPEC.md 130.29.3, 130.49.4): today's occluder pixels over every position the model does not run
     at (_occluders', a FIELD cell's ball at its real poses: TILES, SUB, _RAISE, SHOW and LIFT as there, 130.28.6;
     a split cell's FLOOR squares at their floor, 130.49.5), the residual over the ones it does (VOID cells, a
@@ -12829,7 +13169,12 @@ def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=Fa
                          lift, dyn, avsplit=sids)  # (SHOW and LIFT: 130.28.6's toggle, as the compile's own cut)
     occ = dict(occ)
     if not _noresidual:
-        occ.update(av_residual(cv, rcs, grid, x0, y0, depth))
+        recs0 = ()
+        if far is not None and not _nobudget:       # (SPEC.md 130.29.13: today's records, the first filter's)
+            occ0 = dict(occ)
+            occ0.update(av_residual(cv, rcs, grid, x0, y0, depth))
+            recs0 = merge_records(_group_occ(occ0), q)
+        occ.update(av_residual(cv, rcs, grid, x0, y0, depth, far, _nowrong, _nobudget, recs0))
     raw = _group_occ(occ)
     return raw, merge_records(raw, q), occ, rcs
 
@@ -12908,6 +13253,20 @@ def av_wrong(c, grid=None, step=2):
                 if w and (worst is None or w / float(len(bp)) > worst[0]):
                     worst = (w / float(len(bp)), (q.wx, q.wy), z, px, py)
     return nb, nw, worst, npos
+
+
+def av_wrong_far(c, g, nw=None):
+    """item 15 (SPEC.md 130.29.13): a course's far lists against WRONG-HIDE - (listed cells, entries, WRONG-HIDE's
+    pixels with the lists left out of the model read from the part), or None for a course with none.  The second
+    filter holds when that equals av_wrong's with them (NW)"""
+    lists = {(q.wx, q.wy): g.far_list(q.wx, q.wy) for q in av_positions(c.reach, g, c.slabcells, c.x0)
+             if q.pts is None}
+    lists = {k: v for k, v in lists.items() if v}
+    if not lists:
+        return None
+    g0 = AGrid(world_of(c))
+    g0._fl = lambda b: []
+    return len(lists), sum(len(v) for v in lists.values()), av_wrong(c, g0)[1]
 
 
 def av_tile_edges(c, grid=None):
@@ -14350,6 +14709,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     av_on = bool(cutocc) and hack.get("occ", "void") == "void" and not any(    # (130.31: no records, no model)
         c_ in tiles and not isinstance(tiles[c_], Split) and tiles[c_].kind == KIND_GOAL for c_ in floats)
     av_rcs = []
+    far, farv, farl = None, {}, b""
     if av_on:
         for c_ in floats:
             t_ = tiles.get(c_)
@@ -14366,10 +14726,17 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                     cells_v[c_][3] |= FL_FLOAT
         ag = AGrid.of_cells(cells_v, smin, amin, kw, nrows, x0, y0, GF_ANA, pairs)
         ag.split = AV_SPLIT and not hack.get("noavsplit")
+        far = {} if AV_FAR and not hack.get("nofar") else None      # SPEC.md 130.29.13: THE FAR LIST
         raw, records, occpix, av_rcs = av_records(cv, rcut, ag, slabcells, x0, y0, q, depth=hack.get("occdepth"),
                                                   _noresidual=hack.get("noresidual"), tiles=tiles,
                                                   sub=hack.get("focc"), _raise=hack.get("fraise", 0), show=fshow,
-                                                  lift=hack.get("flift", CLIMB), dyn=dyn)
+                                                  lift=hack.get("flift", CLIMB), dyn=dyn, far=far,
+                                                  _nowrong=hack.get("farnowrong"),
+                                                  _nobudget=hack.get("farnobudget"))
+        if far:
+            farv, farl = far_blob(far, fname)
+            if hack.get("fardrop"):                 # (--selfcheck's red arm: an entry of the part's lists dropped)
+                farv, farl = far_blob(_far_drop(far), fname)
         per_row, per_block = {}, {}
         for r in records:
             per_row[r["brow"]] = per_row.get(r["brow"], 0) + 1
@@ -14485,13 +14852,20 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         if p["kind"] == PK_PAD:
             padmask |= 1 << p["mat"]
     cellb, pairb = bytearray(), bytearray()
+    farv = farv if av_on and far else {}            # (SPEC.md 130.29.13: a listed VOID cell's +1)
     for r in range(nrows):
         s = smin + r
         for k in range(kw):
             a = amin + 2 * k + (s & 1)
             wx, wy = (s + a) >> 1, (s - a) >> 1
             c = cells.get((wx, wy))
-            if c is None:
+            if (wx, wy) in farv:                    # SPEC.md 130.29.13: a VOID cell's +1, its FAR LIST
+                if c is not None and (c[2] & 15 != KIND_VOID or c[1] or c[3] & FL_OBS):
+                    raise CourseError("%s: cell (%d, %d) has a far list and is not a plain VOID cell" % (
+                        fname, wx, wy))
+                cellb += struct.pack("<bBBB", Z_OPEN if c is None else zq(c[0]), farv[(wx, wy)],
+                                     KIND_VOID if c is None else c[2], 0 if c is None else c[3])
+            elif c is None:
                 cellb += struct.pack("<bBBB", Z_OPEN, 0, KIND_VOID, 0)
             elif (wx, wy) in pairs:                 # SPEC.md 130.24.5: the pair's offset, RELATIVE to D in the
                 cellb += struct.pack("<HBB", len(pairb), c[2], c[3])     # model (the encoder makes it absolute)
@@ -14669,6 +15043,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                       "swy": swy, "gflags": gflags, "padmask": padmask,
                       "view": (view[0] // 4 | view[1] << 8) if view else 0},
              "cells": bytes(cellb), "pairs": bytes(pairb), "ftabs": b"".join(ftabs),
+             "farl": farl if av_on and far else b"",   # SPEC.md 130.29.13: section A
              "route": list(route), "ways": [t for t, ln in src.ways],
              "props": {"n": len(props), "blob": bytes(recp + pmb + segb + sprb + ftab + ptab), "self": selfp,
                        "blk": blkp} if props else None,
@@ -16030,7 +16405,8 @@ def part_layout(m, recb, bzc2=True):
         lens.append(("O", otab_len(m)))
         lens.append(("Y", 0 if _ONETB else YENT * nbands(m["brows"])))  # SPEC.md 130.51, 130.52: the bands
     lens += [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
-             ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
+             ("F", len(m.get("ftabs") or b""))] + ([("A", len(m.get("farl") or b""))] if bzc2 else []) \
+        + [("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]       # (A: SPEC.md 130.29.13, before ROWTAB)
     if m["props"]:
         lens.append(("P", len(m["props"]["blob"])))
     if bzc2 and m.get("song"):
@@ -16246,6 +16622,8 @@ def _encode(m, recb, bzc2=True, ident=0, fname="<course>"):
                 struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
     if m.get("ftabs"):                              # SPEC.md 130.28.2: F after D, PLAIN
         b[sec["F"][0]:sec["F"][0] + len(m["ftabs"])] = m["ftabs"]
+    if m.get("farl") and "A" in sec:                # SPEC.md 130.29.13: A after F, PLAIN
+        b[sec["A"][0]:sec["A"][0] + len(m["farl"])] = m["farl"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
     for i, (x, y) in enumerate(m["route"]):
@@ -16396,7 +16774,7 @@ def decode_part(p):
     nfam, famoff = struct.unpack_from("<BH", p, 45) if bzc2 else (0, 0)
     celloff = gridoff + GHDR
     cells = bytearray(p[celloff:celloff + 4 * kw * nrows])
-    pairs = ftabs = b""
+    pairs = ftabs = farl = b""
     pend, song = diroff, None                       # SPEC.md 130.50.3: the props end where S begins
     for j in range(nsec):                           # SPEC.md 130.24.5.2: section D, if there is one
         tag, form, off, ln, dl = struct.unpack_from("<BBHHH", p, diroff + DIRENT * j)
@@ -16404,6 +16782,8 @@ def decode_part(p):
             pend, song = off, _song_of(p, off, ln)
         if tag == ord("F"):                         # SPEC.md 130.28.2: section F, the FIELD tables
             ftabs = bytes(p[off:off + ln])
+        if tag == ord("A"):                         # SPEC.md 130.29.13: section A, the far lists
+            farl = bytes(p[off:off + ln])
         if tag == ord("D"):
             pairs = bytes(p[off:off + ln])
             for i in range(0, len(cells), 4):
@@ -16413,7 +16793,7 @@ def decode_part(p):
          "recs": recs, "masks": masks, "mband": _o_banded(p),
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
                   "gflags": gflags, "padmask": padmask, "view": gview},
-         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
+         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs, "farl": farl,
          "route": [struct.unpack_from("<HH", p, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (pend - pthoff) if pthoff else 0,
          "npages": npages, "fam": ((pthoff or pend) - famoff) if famoff else 0, "nfam": nfam}
@@ -16486,7 +16866,8 @@ def part_layout2(m, recb, mrows=None):
         la.append(("Y", 0 if _ONETB else YENT * nbands(m["brows"])))   # SPEC.md 130.51, 130.52
     la.append(("L", pm))
     lb = [("G", GHDR), ("C", len(m["cells"])), ("D", len(m.get("pairs") or b"")),
-          ("F", len(m.get("ftabs") or b"")), ("T", 2 * g["nrows"]), ("W", 4 * len(m["route"]))]
+          ("F", len(m.get("ftabs") or b"")), ("A", len(m.get("farl") or b"")), ("T", 2 * g["nrows"]),
+          ("W", 4 * len(m["route"]))]
     if m["props"]:
         lb.append(("P", len(m["props"]["blob"]) - pm))
     if m.get("song"):                   # SPEC.md 130.50.3: the WORLD part's last section
@@ -16591,6 +16972,8 @@ def _encode2(m, recb, ident=0, fname="<course>", mrows=None):
                 struct.pack_into("<H", b, celloff + i, struct.unpack_from("<H", b, celloff + i)[0] + doff)
     if m.get("ftabs"):                              # SPEC.md 130.28.2: F after D, PLAIN, in the WORLD part
         b[sb["F"][0]:sb["F"][0] + len(m["ftabs"])] = m["ftabs"]
+    if m.get("farl"):                               # SPEC.md 130.29.13: A after F, PLAIN, in the WORLD part
+        b[sb["A"][0]:sb["A"][0] + len(m["farl"])] = m["farl"]
     for r in range(g["nrows"]):
         struct.pack_into("<H", b, rowtab + 2 * r, celloff + 4 * g["kw"] * r)
     for i, (x_, y_) in enumerate(m["route"]):
@@ -16706,11 +17089,12 @@ def decode_parts(a, b, _mrows=None):
             if cells[i + 2] & 15 in SPLIT_KINDS:
                 struct.pack_into("<H", cells, i, (struct.unpack_from("<H", cells, i)[0] - off) & 0xFFFF)
     ftabs = bytes(b[eb["F"][0]:eb["F"][0] + eb["F"][1]]) if "F" in eb else b""   # (SPEC.md 130.28.2)
+    farl = bytes(b[eb["A"][0]:eb["A"][0] + eb["A"][1]]) if "A" in eb else b""    # (SPEC.md 130.29.13)
     m = {"cols": cols, "brows": brows, "idx": idx, "blocks": bytes(a[blkoff:blkoff + 16 * nblk]),
          "recs": recs, "masks": masks, "mband": _o_banded(a),
          "grid": {"nrows": nrows, "smin": smin, "amin": amin, "kw": kw, "x0": x0, "y0": y0, "swx": swx, "swy": swy,
                   "gflags": gflags, "padmask": padmask, "view": gview},
-         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs,
+         "cells": bytes(cells), "pairs": pairs, "ftabs": ftabs, "farl": farl,
          "route": [struct.unpack_from("<HH", b, routeoff + 4 * i) for i in range(nway)], "ways": None,
          "props": None, "pth": (pendb - pthoff) if pthoff else 0,
          "npages": npages, "fam": ((pthoff or pendb) - famoff) if famoff else 0, "nfam": nfam,
@@ -16756,6 +17140,7 @@ def models_equal(m1, m2):
         d["grid"] = dict(d["grid"])
         d["grid"].setdefault("view", 0)
         d["kit"] = d.get("kit") or {}               # (SPEC.md 130.37.4: a model before the kit has none)
+        d["farl"] = d.get("farl") or b""            # (SPEC.md 130.29.13: nor a model before the far list)
         return d
     return norm(m1) == norm(m2)
 
@@ -17608,7 +17993,7 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
     nway, routeoff = struct.unpack_from("<HH", pw, gridoff + 24)
     if kw > KW_MAX:
         bad("KW", "%d, over %d" % (kw, KW_MAX))
-    dlen = flen = 0                                 # SPEC.md 130.24.5.2: section D's length, its entry's alone
+    dlen = flen = alen = 0                          # SPEC.md 130.24.5.2: section D's length, its entry's alone
     llen = 0                                        # (and 130.28.2: F's; 130.30.4.2: L's, two parts only)
     for q, do, ns in dirs:
         for j in range(ns):
@@ -17616,6 +18001,8 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
                 dlen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
             if q[do + DIRENT * j] == ord("F"):
                 flen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
+            if q[do + DIRENT * j] == ord("A"):      # (SPEC.md 130.29.13: A's, the far lists)
+                alen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
             if q[do + DIRENT * j] == ord("L"):
                 llen = struct.unpack_from("<H", q, do + DIRENT * j + 4)[0]
     want = [("M", HDR, 2 * cols * mr), ("B", blkoff, 16 * nblk), ("I", occidx, 2 * (brows + 1)),
@@ -17628,6 +18015,7 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
         want.append(("L", maskend, llen))
     want += [("G", gridoff, GHDR), ("C", gridoff + GHDR, 4 * kw * nrows),
              ("D", gridoff + GHDR + 4 * kw * nrows, dlen), ("F", gridoff + GHDR + 4 * kw * nrows + dlen, flen),
+             ("A", gridoff + GHDR + 4 * kw * nrows + dlen + flen, alen),
              ("T", rowtab, 2 * nrows), ("W", routeoff, 4 * nway)]
     send = wdiroff if split else diroff             # SPEC.md 130.50.3: S, the (world) part's last section
     for j in range(wnsec if split else nsec):
@@ -17784,8 +18172,11 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
         bad("AMIN", "odd")
     celloff = g + GHDR
     cellend = doff = celloff + 4 * nrows * kw
-    if rowtab != cellend + dlen + flen:
+    if rowtab != cellend + dlen + flen + alen:
         bad("ROWTAB", "offset %d" % rowtab)
+    if alen > AV_FARBLOB or (alen and not gflags & GF_ANA):    # SPEC.md 130.29.13: section A, the far lists
+        bad("A", "%d bytes (at most %d), GF_ANA %s" % (alen, AV_FARBLOB, "set" if gflags & GF_ANA else "clear"))
+    aoff, aused = rowtab - alen, set()
     foff = cellend + dlen                           # SPEC.md 130.28.2: section F, after D
     if flen % FTAB or flen > FTAB * FSHAPE_MAX or bool(gflags & GF_FIELD) != bool(flen):
         bad("F", "%d bytes (tables of %d, at most %d), GF_FIELD %s" % (flen, FTAB, FSHAPE_MAX,
@@ -17854,6 +18245,23 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
                           | (FL_FLOAT if kd & 15 in (KIND_FLOOR, KIND_WALL) else 0)) \
                 or (fl & FL_OCCG and not fl & FL_OCC):
             bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
+        if kd & 15 == KIND_VOID and sl:             # SPEC.md 130.29.13: a VOID cell's +1, its FAR LIST - in A,
+            r_, k_ = divmod(i, kw)                  # inside the grid and every entry a whole cell the near walk
+            s_ = smin + r_                          # would count
+            a_ = amin + 2 * k_ + (s_ & 1)
+            lo_ = rowtab - sl
+            if fl & FL_OBS or lo_ < aoff or not 0 < p[lo_] <= AV_XMAX or lo_ + 1 + p[lo_] > rowtab:
+                bad("cell %d" % i, "a VOID cell's +1 %d: not a far list inside A (%d bytes)%s" % (
+                    sl, alen, ", and the cell OBS" if fl & FL_OBS else ""))
+            for e_ in range(p[lo_]):
+                fi, fj = p[lo_ + 1 + e_] >> 4, p[lo_ + 1 + e_] & 15
+                r2, k2 = r_ + fi + fj, (a_ + fi - fj - amin) >> 1
+                fb = struct.unpack_from("<bBBB", p, rt[r2] + 4 * k2) if 0 <= r2 < nrows and 0 <= k2 < kw else None
+                if fi + fj < AV_FARD0 or fb is None or fb[2] & 15 not in (KIND_FLOOR, KIND_WALL, KIND_GOAL) \
+                        or fb[3] & FL_OBS or (fb[2] & 15 != KIND_GOAL and fb[3] & FL_FLOAT):
+                    bad("cell %d" % i, "far entry (%d, %d): not a whole cell %d or more in front, inside the grid"
+                        % (fi, fj, AV_FARD0))
+            aused.update(range(lo_, lo_ + 1 + p[lo_]))
         # CELLS (130.15.6): bz_cxcel reads a cell's edge neighbours with no bound and lays its lowest corner
         # one row and one cell either side of it, so every cell that is not VOID has the cells within two
         # tiles of it inside the grid (the tool's grid is their bounding box, and NEAR is two tiles wide)
@@ -17864,6 +18272,8 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
             if not (4 <= r < nrows - 4 and amin + 4 <= a_ < amin + 2 * kw - 4):
                 bad("cell %d" % i, "row %d, cell %d: a cell that is not VOID has a cell within two tiles of it "
                     "outside the grid" % (r, k))
+    if aused != set(range(aoff, rowtab)):           # (SPEC.md 130.29.13: every byte of A a listed cell's)
+        bad("A", "%d of its %d bytes in no cell's far list" % (alen - len(aused), alen))
     if len(fnamed) * FTAB != flen:
         bad("F", "%d tables, %d of them named by a cell (every table is)" % (flen // FTAB, len(fnamed)))
     for (fx, fy), h in sorted(fcells.items()):      # SPEC.md 130.28.2: the slope bound and the SEAM rule
@@ -38285,7 +38695,7 @@ def _twoseg_checks(courses, res, paths):
     res.append(("15 TWOSEG: read_parts takes it - the picture part's sections %s, the world part's %s; the two headers "
                 "the same but the magic and the directory; %d lanes' pose maps in L, the picture part's [%s, %s)" % (
                     tags[0], tags[1], len(lanes), loff, lend),
-                tags[0] in ("MBIRKOYL", "MBIRKOY") and tags[1].startswith("GC") and set(tags[1]) <= set("GCDFTWP")
+                tags[0] in ("MBIRKOYL", "MBIRKOY") and tags[1].startswith("GC") and set(tags[1]) <= set("GCDFATWP")
                 and c.cga[4:38] == c.wcga[4:38] and c.cga[42:HDR] == c.wcga[42:HDR]
                 and all(loff <= d["lane"]["off"] < lend for d in lanes) and bool(lanes)))
     res.append(("15 TWOSEG: decode_parts gives back the model the compile serialised (the pose maps back in the "
@@ -39118,9 +39528,16 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
     rcs = [q for q in av_positions(c.reach, g, c.slabcells)
            if (q.wx, q.wy) not in getattr(c, "noocc", ())]      # (SPEC.md 130.53: the proofs pass them over)
     tried, miss = av_proof(c, g, rcs)
+    tried0 = tried
+    if not tried:                               # (SPEC.md 130.29.13: the far lists may cover a course's residual
+        g0 = AGrid(world_of(c))                 # whole - BENCH's, the title's - so the cases the check exercises
+        g0._fl = lambda b: []                   # are counted without them too)
+        tried0 = av_proof(c, g0, rcs)[0]
     res.append(("15 %s: COMPLETENESS - at %d VOID positions' every height, %d (pixel, cell) cases the rule lays are "
-                "each hidden by the model read from the PART or laid by a shipped record%s" % (
-                    tag, len(rcs), tried, "" if not miss else " -- MISSED %s" % miss), tried > 0 and not miss))
+                "each hidden by the model read from the PART or laid by a shipped record%s%s" % (
+                    tag, len(rcs), tried, " (%d without the far lists: they hide every one)" % tried0
+                    if tried0 != tried else "", "" if not miss else " -- MISSED %s" % miss),
+                tried0 > 0 and not miss))
     n, bad = av_tile_edges(c, g)
     res.append(("15 %s: the model's edges and heights read from the part are the tiles' (the top polygons' first "
                 "lines, %d columns, the end columns apart)%s" % (tag, n, "" if not bad else " -- %s" % bad[:3]),
@@ -39133,6 +39550,11 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
                     "%.1f%% of the ball (cell %s at %d px, top-left %d, %d)" % (100 * worst[0], worst[1], worst[2],
                                                                                 worst[3], worst[4])
                     if worst else "none"), share <= OCC_WRONG_MAX))
+    nl = av_wrong_far(c, g, nw)
+    if nl is not None:
+        res.append(("15 %s: THE FAR LISTS (SPEC.md 130.29.13, %d cells, %d entries) hide no ball pixel the rule "
+                    "shows: WRONG-HIDE with them %d pixels, without them %d" % (tag, nl[0], nl[1], nw, nl[2]),
+                    nw == nl[2]))
     c.av_figs = (len(rcs), tried, share, worst)
     if off is not None:
         same_g = all((c.cells[k][3] & ~(FL_FLOAT if c.cells[k][2] & 15 != KIND_GOAL else 0)) == off.cells[k][3]
@@ -39673,6 +40095,20 @@ def _sc_av(X, res):
         _t, miss = av_proof(nr)
         res.append(("15 FIRST negative control: the residual dropped (today's records outside the VOID cells "
                     "alone) is caught by COMPLETENESS (%s)" % (miss[:1] if miss else "not caught"), bool(miss)))
+    mill = byname.get("MILL")
+    if mill is not None:                        # SPEC.md 130.29.13's two red arms, on the owner's MILL
+        mpath = os.path.join(ROOT, mill.fname) if not os.path.isabs(mill.fname) else mill.fname
+        fd = compile_course(mpath, _hack={"fardrop": True})
+        _t, miss = av_proof(fd)
+        res.append(("15 MILL negative control: a far list's entry dropped from the part (the residual cut with it) "
+                    "is caught by COMPLETENESS (%s)" % (miss[:1] if miss else "not caught"), bool(miss)))
+        fw = compile_course(mpath, _hack={"farnowrong": True})
+        gw = AGrid(world_of(fw))
+        nw_ = av_wrong(fw, gw)[1]
+        nl = av_wrong_far(fw, gw)
+        res.append(("15 MILL negative control: the far list's WRONG-HIDE filter off is caught by the comparison "
+                    "(WRONG-HIDE %d pixels with the lists, %s without)" % (nw_, nl[2] if nl else "-"),
+                    nl is not None and nw_ > nl[2]))
     bench = byname.get("BENCH")
     if bench is not None:
         g = AGrid(world_of(bench))

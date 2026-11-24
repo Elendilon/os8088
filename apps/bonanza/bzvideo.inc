@@ -2194,8 +2194,8 @@ bz_amodel:
     mov dx, -1                  ; read with it, through the WORLD part.  DX:
     cmp word [es:bz_acptr], -1  ; THE NEIGHBOUR (the speed pass, SPEC.md
     je .nfull                   ; 130.29.5): a V one step in front of the
-    cmp word [es:bz_axe], bz_axl ; (130.49.3: a table with extra slots is
-    jne .nfull                  ; read whole)
+    cmp word [es:bz_axpe], bz_axl ; (130.49.3: a table with PIECES in the
+    jne .nfull                  ; extra slots is read whole; a far list is V's own, 130.29.13)
     mov ax, [es:bz_awx]         ; table's own cell, (wx + 1, wy) or (wx, wy +
     mov bx, [es:bz_awy]         ; 1), sees that cell's rows 2 - 4 as its rows
     sub ax, [es:bz_atx]         ; 1 - 3, from i = 1 (DX = 1) or i = 0 (DX =
@@ -2473,6 +2473,19 @@ bz_amodel:
     jmp .drow
 .listed:
     mov [es:bz_afe], di
+    ; THE FAR LIST (SPEC.md 130.29.13): a VOID V's +1 (0: none) is its list's
+    ; offset back from ROWTAB, read by bz_afar.  bz_axpe: the pieces' end (the
+    ; neighbour's test, which a far list does not spoil).
+    mov di, [es:bz_axe]
+    mov [es:bz_axpe], di
+    cmp byte [es:bz_avm], 0
+    jne .fnone                  ; (a split V: its +0 - +1 are D's offset)
+    mov si, [es:bz_acptr]
+    mov al, [si + 1]
+    or al, al
+    jz .fnone
+    call bz_afar
+.fnone:
     pop ds                      ; (DS = the picture part again)
     cmp byte [es:bz_arue], 0ffh
     je .lwords                  ; read whole: the count set read with it
@@ -3034,6 +3047,104 @@ bz_arange:
     jbe .mw
     pop ds
     ret
+
+; bz_afar - SPEC.md 130.29.13: V's FAR LIST into the extra slots.  AL = V's +1
+; (not 0), the list's offset BACK from ROWTAB (section A ends where T begins):
+; a count, then a byte i << 4 | j an entry, each a WHOLE cell (wx + i, wy + j)
+; the tool picked - so no kind, OBS or FL_FLOAT test - written at DI (the
+; slots' end) as a front-table slot is written (H / 2, X, Y, the slopes, no
+; shadow: a flat half takes bz_arange's flat path), the count set's interval
+; as .cell's; the slots' end checked (the tool never fills them).  DS = the
+; world part, ES = ours.  Clobbers AX, BX, CX, DX, SI, DI, BP.
+bz_afar:
+    xor ah, ah
+    mov bx, [es:bz_goff]
+    mov si, [bx + BZG_ROWTAB]
+    sub si, ax                  ; SI = the list
+    lodsb
+    mov bp, ax                  ; BP = its entries (AH 0)
+    jmp short .fent
+.fend:
+    mov [es:bz_axe], di
+    ret
+.fent:
+    cmp di, bz_axl + BZ_AFL * BZ_AXMAX
+    jae .fend
+    lodsb                       ; i << 4 | j
+    push si
+    mov ah, al
+    mov cl, 4
+    shr al, cl                  ; AL = i
+    and ah, 0fh                 ; AH = j
+    mov dl, al
+    add dl, ah
+    xor dh, dh                  ; DX = d = i + j
+    sub al, ah
+    cbw
+    add ax, [es:bz_aa]          ; AX = its a = a + i - j
+    mov cx, ax
+    sub ax, [bx + BZG_AMIN]
+    and al, 0feh
+    shl ax, 1                   ; 4 k
+    mov si, dx
+    add si, [es:bz_ar]
+    shl si, 1
+    add si, [bx + BZG_ROWTAB]
+    add ax, [si]
+    xchg ax, si                 ; SI = its four bytes (its row r + d)
+    mov ax, cx
+    mov cl, 4
+    shl ax, cl
+    add ax, [bx + BZG_X0]
+    mov [es:di + 2], ax         ; X = 16 a + X0
+    mov ax, dx
+    add ax, [es:bz_as]
+    mov cl, 3
+    shl ax, cl
+    add ax, [bx + BZG_Y0]
+    xchg ax, dx                 ; DX = 8 (s + d) + Y0
+    mov al, [si + 1]            ; the slopes, and no shadow
+    xor ah, ah
+    mov [es:di + 6], ax
+    mov ah, al                  ; H / 2 = z0 + 2 max(sx, 0) + 2 max(sy, 0),
+    and al, 0fh                 ; Y = 8 (s + d) + Y0 - 2 z0 (as .cyes's)
+    cmp al, 8
+    jb .f1
+    xor al, al
+.f1:
+    mov cl, 4
+    shr ah, cl
+    cmp ah, 8
+    jb .f2
+    xor ah, ah
+.f2:
+    add al, ah
+    xor ah, ah
+    shl ax, 1
+    mov cx, ax
+    mov al, [si]
+    cbw
+    add cx, ax
+    mov [es:di], cx             ; CX = H / 2
+    shl ax, 1
+    sub dx, ax
+    mov [es:di + 4], dx
+    cmp cx, [es:bz_akq]         ; the count set's interval
+    jg .fgt
+    cmp cx, [es:bz_amaxnc]
+    jle .fn
+    mov [es:bz_amaxnc], cx
+    jmp short .fn
+.fgt:
+    cmp cx, [es:bz_aminc]
+    jge .fn
+    mov [es:bz_aminc], cx
+.fn:
+    add di, BZ_AFL
+    pop si
+    dec bp
+    jz .fend
+    jmp .fent
 
 ; bz_ahalf - E = Y + (num >> 3) over CX columns from DI (bz_aE's), num = AX
 ; stepping by DX a column, BX = Y: each the least of it and the column's.

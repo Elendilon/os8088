@@ -281169,8 +281169,8 @@ word whose mask keeps every pixel is not laid.
   split cell anyway) or a VOID cell. It is the picture's, and no step of
   physics reads it. A course with a floating GOAL cell is built without
   `GF_ANA`.
-- Nothing else is added. The part is smaller by the records the model
-  replaces; the RAM form moves, so every identity moves (130.29.8).
+- Nothing else is added (*since 130.29.13: a VOID cell's +1, its FAR LIST's offset, and section `A`*). The
+  part is smaller by the records the model replaces; the RAM form moves, so every identity moves (130.29.8).
 - The tool's reader (`read_part`, the HOSTILE pass's twin) accepts bit 6
   of FLAGS and bit 6 of a FLOOR or WALL cell's flags, and refuses bit 6
   anywhere else.
@@ -281712,7 +281712,8 @@ over. The built design is kept as `docs/plans/retired/bonanza-av-float-slab.patc
 **A precomputed far list, and the cheap float, MEASURED in the model** (2026-11-23; the owner's two ideas:
 *"those blocks don't have 4 layers ... Is that something we could make a very simple, coarse mask for and build
 ahead of time? Would that save AV calculation time in general?"* and, on floats, *"Sometimes the issue is the
-implementation rather than the idea"*). Research only: neither is built; the model, the residual cut and the
+implementation rather than the idea"*). Research only: neither is built (*the far list was built afterwards:
+130.29.13 is its contract and its measurements*); the model, the residual cut and the
 measurements are `docs/plans/bounce-bonanza/handoff-2026-11-23/far-cliffs/` (`avfar.py` patches `av_residual`; MEASURED is the tool's
 records, masks and the parts packed LZB as `os88pkg` packs them, this tree, the eight `BZ_COURSES`; clocks are
 PREDICTED, 130.15.5.2's method on the guest's own `bz_arange` / `bz_ahalf` lines and on a sketch,
@@ -281814,6 +281815,170 @@ unchanged (the residual is cut from the same lists the guest reads) plus WRONG-H
 before it, red arms an entry dropped in the guest (completeness) and the WRONG-HIDE filter off (MILL's 0.19%);
 and the proxy's budget re-priced from `tests/bonanza_av.py --price` on the built guest before it is trusted
 as the worst frame's guard.
+
+#### 130.29.13 The FAR LIST (far cliffs: the owner's, 2026-11-23, BUILT)
+
+The owner, on 130.29.12's research: *"Is that something we could make a very simple, coarse mask for and build
+ahead of time? ... this would need to be a very simple dataset to be a win."* 130.29.12's row *past the depth*
+is the largest class AV leaves: a tall face 5 - 18 diagonals in front of a VOID cell still covers a ball
+falling there, and the walk reads 4 deep. The FAR LIST is that class's dataset: for each VOID cell, the few
+WHOLE cells past depth 4 that the tool found hiding a residual pixel, read by the guest once when the ball
+enters the cell and counted from then on exactly as front cells are. It is not a speed-up (130.29.12 says why);
+it is a byte win that holds the worst frame and keeps WRONG-HIDE where it is.
+
+It amends:
+- **130.29.2**: the front cells of a VOID V are the 14 at `d = 1 .. 4`, then V's FAR LIST's (below); a far cell
+  counts by the same rule (its `H > K`) and hides by the same edge `E(x)`. The tool picks only cells the walk
+  would count (FLOOR, WALL or GOAL, not `OBS`, not `FL_FLOAT` unless a GOAL), so the guest tests none of that.
+- **130.29.3**: the residual is cut with each VOID cell's far list in the model.
+- **130.29.4**: a VOID cell's +1 (its slopes byte, 0 on every VOID cell until now) is its far list's offset, and
+  section `A` holds the lists. Nothing else is added.
+- **130.15.4.2**: tag `A`, form 0 PLAIN, after `F` and before `T` (in the WORLD part of a two-part course,
+  130.30.4.2), present only when a list exists; `read_part`'s want: `A` = (the end of `F`, its entry's length),
+  and `ROWTAB` = the cells' end + `D` + `F` + `A`.
+
+##### 130.29.13.1 The pick (the tool, `av_residual`)
+
+For each VOID position (a whole VOID cell, never a split cell's VOID square: a split cell's +0 - +1 are `D`'s
+offset):
+- **the candidates** (`_far_cands`): every whole cell `(wx + i, wy + j)`, `5 <= i + j <= 18`, `i, j <= 15`
+  (each a nibble), that the near walk would count, inside the grid, whose 32 columns meet the position's
+  footprint, higher than the position's least height and whose apex is at or over the residual's last line;
+- **the second filter, WRONG-HIDE**: a candidate is refused when it hides a pixel of the position's superset
+  footprint at a height of its range at which the RULE shows that pixel (a far face is "everything under its
+  edge" only down to the ground plane: unfiltered, MILL's WRONG-HIDE rose 0.0018% -> 0.19% with one position
+  hiding a whole ball below the ground plane behind a cliff, 130.29.12);
+- **greedily** the candidate that hides the most residual (pixel, line) pairs - a pair hidden when the
+  candidate's `H` is over every height the rule lays it at and its edge is at or over the line - while one
+  hides any, at most the extra slots the near walk's pieces leave (`BZ_AXMAX`, 130.49.3);
+- **the first filter, the WORST FRAME** (below): the list trimmed, last pick first, until no height of the
+  cell's entering frame is estimated over the course's own worst entering frame with no list;
+- **the blob**: each distinct list once (sorted), a cell whose list would take section `A` past 255 bytes gets
+  none (its residual records stay); the residual is then cut with the lists as they are.
+
+**The first filter's estimate** (`av_enter`): the entering frame (`bz_acptr` -1: the table read, the words
+computed, the model's words laid, and the records walked) at every height of the cell in 2 px, the ball
+centred. The model's share is `av_mfeat`'s terms - the frame, each counting half the parent shadow leaves
+(flat, sloped, a piece's) and the footprint columns it meets, each far entry, each footprint word passed by,
+laid under the checker alone or under a built mask and its lines, a cell counting at all, each split front cell
+read and each piece's slot, the readable front cells and the ones inside the grid - each at `AVP_COEF`'s clocks,
+FITTED to the built guest's priced instructions (130.29.13.5); the records' share is 130.11.4.2's price
+(`av_recest`, `occ_window`'s terms at the one position) calibrated the same way (`AVP_RECK`, `AVP_REC0`), over
+the records cut with NO far list (a list only ever cuts the residual, so the records a list saves are not
+counted). A list is held to `AVP_MARGIN` under the course's worst estimate.
+**Why the research's proxy was not enough** (MEASURED): 130.29.12's proxy priced the front reads and the
+counting halves only. On the built guest it let MOON's worst entering frame rise 81.0k -> 82.0k, PEAK's 78.7k
+-> 79.9k, PLAY's 91.9k -> 95.6k (at today's own worst position) and ROLL's 73.4k -> 74.6k: a far cliff makes the
+model LAY words it did not (a mask built and laid, about 3.5k and 0.27k a line), and the proxy compared the
+model's work alone with the course's worst model work while a frame's price is the model's AND the records'.
+
+##### 130.29.13.2 The bytes (the part)
+
+- **V's +1**: 0 none, else `v` = the list's offset BACK from `ROWTAB` (section `A` ends where `T` begins), 1 -
+  255. Only on a VOID cell, not `OBS`, of a `GF_ANA` part.
+- **Section `A`**: each list a count (1 - `BZ_AXMAX`) and then a byte `i << 4 | j` an entry; lists shared;
+  at most 255 bytes; every byte some listed cell's.
+- `read_part` refuses: `A` past 255 bytes or without `GF_ANA`; a VOID cell's +1 that is not a list inside `A`,
+  or on an `OBS` cell; an entry not a whole cell at `i + j >= 5` inside the grid (the near walk's test); a byte
+  of `A` no cell names. The canonical-layout check carries `A` (the model's `farl`).
+
+**The audit of the +1 byte's readers** (the brief's step 2, done before relying on it):
+- *the guest's physics* reads the grid only through the window (`bz_fill`, `bz_win9i`: the nine cells' four
+  bytes copied as they are), and every reader of a window cell's +1 dispatches on its kind first: `bz_wtail`,
+  `bz_tslope` and `bz_bok` (FLOOR or GOAL), `bz_blocks` (FLOOR, GOAL; WALL blocks without a height; VOID
+  `clc`), step 6's `.floorh` (FLOOR). `bz_h4` is called on the centre at a bumper's post, a respawn, a tube's
+  exit and a drain's or doorway's touch - each a prop's cell (`OBS`) or a floor, never a listed cell. The
+  rails' refill (`bz_wedge`, 130.35.1) makes a cell across a railed edge a WALL keeping its other bytes, and
+  a WALL's slopes are read by nothing. The families write window cells (an archway's, a gate's, a glass
+  tile's) - prop cells, never listed. `bz_cxcel` (the CELLS form) skips VOID cells; `bz_cxway` reads way
+  tiles, never VOID. `bz_amodel` reads V's +1 only for a VOID V (`bz_avm` 0), never a split one;
+- *the tool's physics* (`Grid.cell` returns a VOID cell's +1 as slopes, so it would show): MEASURED - every
+  VOID cell's +1 of each of the eight `BZ_COURSES` poisoned to 77h (slopes 7, 7) and the model's physics run on
+  both, the route's autopilot and six random 2,500-step key runs with hops: every state the same, step by step;
+  its control (FLOOR cells poisoned instead) differs on every run;
+- *the tool's readers*: `read_part` (the cell checks pass a VOID cell's +1 by; the new checks above), `cells_rule`
+  and the CELLS form (a VOID cell's z0 alone), `decode_part` / `decode_parts` (the cells raw, `A` into `farl`),
+  `AGrid` (the model's view: now reads the list), `Grid` (physics), `cells_exceptions`; the builder's grid
+  readers (`tools/bbed*.py`, `bbplay.py`, `bbgame.py`) read courses through `compile_course` and
+  `read_part`, never a part's cell bytes of their own.
+
+##### 130.29.13.3 The guest (`bz_amodel`'s `.listed`, `bz_afar`)
+
+At a NEW V, after the front table (a full read or the neighbour's), in `.listed`: `bz_axpe` takes the pieces' end; for a VOID V
+(`bz_avm` 0) whose +1 is not 0, `bz_afar` (out of the line: the unlisted cell pays 149 clk) reads the list at `ROWTAB - v`, and for each entry its cell `(r + i + j, (a + i - j -
+AMIN) >> 1)` through `ROWTAB`, written into the next EXTRA slot (130.49.3) as a FRONT-TABLE slot is written
+(`H / 2`, X, Y, the slopes byte, no shadow: so a flat far half takes `bz_arange`'s flat path) and the count set's
+interval updated as `.cell`'s; the slots' end checked (the tool never fills them). `bz_arange` and the count
+loop already walk the extra slots. The neighbour test reads `bz_axpe` instead of `bz_axe`, so a far list does not
+force the next V to read its table whole. A frame in the same cell is unchanged.
+
+##### 130.29.13.4 `--selfcheck` and the red arms
+
+Item 15's COMPLETENESS is unchanged and holds (the residual is cut from the same lists the guest reads: the model
+read from the part). Item 15 adds, on every course with a list, **WRONG-HIDE with the lists equal to WRONG-HIDE
+with them left out of the model** (the second filter's guarantee, exactly). Two red arms, MILL: an entry of the
+part's lists dropped (`fardrop`: the first listed cell's first entry) is caught by COMPLETENESS; the WRONG-HIDE
+filter off (`farnowrong`) is caught by the comparison. `tests/bonanza_av.py` (the guest against the host) covers
+the lists (it counts its positions in a listed cell) and its red arm `afar` (the list never read) is red.
+
+##### 130.29.13.5 MEASURED
+
+On this tree (the eight `BZ_COURSES`; `--occ void` with the far list against the same compile with none, the
+stored forms packed LZB as `os88pkg` packs a part; the dataset's share is the same stored bytes with section `A`
+and every VOID cell's +1 zeroed):
+
+| course | records | masks | the records' LZB | the dataset LZB | the part LZB, net | `A`: bytes, cells, entries |
+|---|---|---|---|---|---|---|
+| FIRST | 68 -> 58 | 30 -> 26 | -97 | +17 | **-80** | 4, 9, 9 |
+| DOWN | 2,050 -> 1,874 | 198 -> 187 | -387 | +190 | **-197** | 48, 121, 159 |
+| MILL | 1,794 -> 1,444 | 223 -> 187 | -857 | +334 | **-523** | 156, 98, 169 |
+| MOON | 911 -> 826 | 60 -> 55 | -177 | +142 | **-35** | 59, 44, 66 |
+| PEAK | 1,236 -> 1,085 | 60 -> 58 | -288 | +235 | **-53** | 109, 69, 116 |
+| PLAY | 2,419 -> 2,246 | 221 -> 224 | -314 | +214 | **-100** | 66, 113, 155 |
+| ROLL | 1,058 -> 981 | 139 -> 133 | -229 | +111 | **-118** | 16, 51, 57 |
+| HOP | 836 -> 687 | 109 -> 103 | -307 | +113 | **-194** | 32, 61, 80 |
+| **the eight** | **10,372 -> 9,201** | **1,040 -> 973** | **-2,656** | **+1,356** | **-1,300** | 490, 566, 811 |
+
+130.29.12's PREDICTION was -2,660 and +1,299 (-1,361) on the tree of that evening; the dataset's share here also
+carries `A`'s directory entry (8 bytes a part). The title's part is -74 (it has lists too); the pathway has no
+records. **The guest**: `bonanza.bin` 53,246 -> **53,485 (+239 bytes of code: `bz_afar` 206, the call site in
+`.listed` 33)**, bss +2 (`bz_axpe`) - under 130.29.12's PREDICTED 280 - 300, the far slot being one front-table
+slot (not two half-edge slots) and reading the cell's bytes as `.cyes` does. **`BONANZA.O88` 178,293 ->
+177,076 (-1,217 bytes)**; `bonanza360.img` 183 -> 181 clusters. (130.29.12 PREDICTED about -1.1 KB.)
+
+**The clocks, PRICED on the built guest** (`tests/bonanza_av.py`'s `Pass` and `price_of`: the entering frame -
+`bz_acptr` -1, the ball centred, every VOID cell of the model's positions, every 4 px of its heights - each
+executed instruction at max(EU + EA, 4.34 a byte) x 1.05; TODAY is the guest with its far-list block reverted on
+the course compiled with none):
+
+| course | entering frames | TODAY worst / mean | FAR LIST worst / mean | in a listed cell: mean, worst, best |
+|---|---|---|---|---|
+| FIRST | 1,456 | 71.4k / 17.18k | 71.3k / 17.39k | +1.8k, +4.1k, -1.1k |
+| DOWN | 20,763 | 77.1k / 16.71k | 76.9k / 17.12k | +2.5k, +27.6k, -9.2k |
+| MILL | 16,004 | 83.9k / 18.12k | **80.7k** / 19.13k | +4.6k, +28.8k, -17.4k |
+| MOON | 6,142 | 81.0k / 21.44k | 81.1k / 22.27k | +4.8k, +38.1k, -9.5k |
+| PEAK | 7,170 | 78.7k / 22.05k | 78.8k / 23.28k | +7.5k, +38.7k, -13.4k |
+| PLAY | 23,241 | 91.9k / 17.01k | 92.0k / 17.41k | +2.3k, +27.7k, -12.3k |
+| ROLL | 8,951 | 73.4k / 19.54k | 73.5k / 19.77k | +2.0k, +15.2k, -10.0k |
+| HOP | 6,462 | 76.6k / 22.41k | **74.5k** / 22.61k | +2.3k, +24.7k, -14.3k |
+
+**No course's worst entering frame rises by more than the byte read**: where the worst moved up (MOON, PEAK,
+PLAY, ROLL: +0.1k each) it is at TODAY's own worst position, an UNLISTED cell, and the rise is the read of V's +1
+(the unlisted cells' median +149 clk: 30 bytes of `.listed`, PRICED 149 clk; 130.29.12 PREDICTED +0.1k). No
+listed cell's frame reaches the course's worst. MILL's and HOP's worst fall (their worst positions lose records to
+the lists). The mean entering frame rises +0.2k - +1.3k: **not a speed-up**, as 130.29.12 said. A frame that stays
+in its cell is unchanged.
+
+**The first filter's estimate, fitted** (`AVP_COEF`, least squares over 47,351 entering frames of the eight
+courses compiled with the budget off, the model's share of each priced trace): within -2.4k / +2.1k of the
+guest's price for 99.8% of them (mean |error| 0.28k), the tail (to -5.5k / +8.8k) at cells with split front
+cells; the records' share `av_recest` is an upper bound of the walk's price (+0.5k - +4.4k), calibrated by
+`AVP_RECK`, `AVP_REC0`. `AVP_MARGIN` 4,000 is the error it is held under: MEASURED at 0 the lists rose MOON's
+worst entering frame to 83.6k (a listed cell's), ROLL's to 74.6k and PEAK's to 79.9k; at 4,000 and at 8,000 no
+listed cell's frame reaches the worst (8,000 cost 190 bytes LZB more over the eight). **What the filter is**: an
+estimate held under the course's worst estimate with a margin, checked here on the built guest - not a proof; a
+course edited later is held to the same estimate, and this section's pricing (`tests/bonanza_av.py`'s method,
+the entering frames above) is the measurement to repeat when the guest's model changes.
 
 ### 130.30 Two-segment courses (the owner's brief, 2026-11-17)
 
