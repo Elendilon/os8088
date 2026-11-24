@@ -278420,7 +278420,10 @@ every per-play family variable (the wakes, the slots, `bz_fst`, `bz_fwkk`,
 `bz_fwm`) POISONED before `bz_pinit` under unicorn, the course's play then
 equal to the model's at every step - the pre-fix package fails it at step 890
 of the owner's `001MILL.BZR`, the fixed one passes it on six courses' routes
-and that log. Found with the `BZSSLOG=1` knob (`apps/bonanza/bzsslog.inc`,
+and that log. It is a standing leg of `bonanzaphyshost` (`poison_host`): every
+shipped course with a family plays its built demo poisoned (seven courses,
+about 2.5 minutes under unicorn), and its red arm, `bz_pinit`'s wake reset
+NOPped, fails MILL's see-saw scene at step 47. Found with the `BZSSLOG=1` knob (`apps/bonanza/bzsslog.inc`,
 `tools/bzsslog.py`): the owner's log read slot 3's wake 16384, the tree's 0.
 MEASURED on MartyPC with `001MILL.BZR` and 4000h planted in slot 3's wake
 before the replay: the pre-fix package never tips the plate, the fixed one
