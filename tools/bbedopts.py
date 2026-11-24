@@ -18,8 +18,8 @@ import bbcourse as B
 
 # the statements whose options have a dedicated inspector section of their own (and why), not rows here
 DEDICATED = {
-    ("floor", None): "Slope (flat / ramp) and Surface: _slope_rows, set_surface",
-    ("wall", None): "Slope (flat / ramp) and Surface: _slope_rows, set_surface",
+    ("floor", None): "Slope (flat / ramp) and Surface: _slope_rows, set_surface (its Piece and Cut corners: rows)",
+    ("wall", None): "Slope (flat / ramp) and Surface: _slope_rows, set_surface (its Piece and Cut corners: rows)",
     ("tube", None): "the shape editor's tube form (bbedshape.py): kind, exit, speed, mouth height, pipe height",
     ("chute", None): "the shape editor (bbedshape.py): width, cross-section, depth, ways and lips",
     ("pit", None): "the shape editor (bbedshape.py): lip height, radius, depth, hole",
@@ -67,12 +67,14 @@ def O(w, t, label, hint="", **kw):
     sides guard's `side` edges: any of +x -x +y -y (none ticked: the clause out, the floor's open edges)
     bare  one of `vals` written alone (gap's sw | se)
     mode  one of `modes`: (value, label, clauses [(word, default)], words it takes out)
+    piece which piece of each cell the statement lays (SPEC.md 130.24.4, 130.58.53): "half <side>", "quarter
+          <edge>" (PIECES), or blank: the whole cell - written right after the statement word
     `at` where a new clause goes: None the end (before a trailing `hidden`), an index, or (word, k) k past that
     word; `need` a test of the statement's tokens for when the row applies; `req` no way to clear it; `skip`
     words between the clause word and its value (magnet's `face down <way>`)"""
     o = {"w": w, "t": t, "label": label, "hint": hint, "at": None, "need": None, "req": False, "skip": (),
          "vals": (), "blank": None, "lo": None, "hi": None, "inc": 1, "d": None, "pos": None, "pattern": None,
-         "modes": ()}
+         "modes": (), "implied": None}
     o.update(kw)
     o["n"] = {"num": 1, "choice": 1, "name": 1, "pair": 2}.get(t, 0)
     return o
@@ -81,10 +83,33 @@ def O(w, t, label, hint="", **kw):
 CHANNELS = tuple(B.GT_CHANNELS)
 BASE_DEPTHS = tuple("%g" % (q / 4.0) for q in range(1, 13))     # a see-saw's `base <units>`: 0.25 - 3 (130.42.12)
 DIRS4 = ("+x", "-x", "+y", "-y")
+# the pieces a statement may lay of each cell (SPEC.md 130.24.3 - 130.24.4): halves named by the side of the SCREEN
+# they are on, quarters by the one cell edge they own
+HALVES = ("up", "down", "left", "right")
+QUARTERS = ("n", "e", "s", "w")
+PIECES = tuple("half " + h for h in HALVES) + tuple("quarter " + q for q in QUARTERS)
+
+
+def _no_box(t):
+    return "box" not in t[1:]
+
+
+def _piece_rows():
+    """the Piece row and the box's chamfer: what floor, wall, goal and hole share (SPEC.md 130.58.53)"""
+    return [
+        O("half", "piece", "Piece", "the whole cell, or one half or quarter of each cell of its shape (the other "
+          "part left as it was: empty, or what an earlier statement laid)", d="half left", need=_no_box),
+        O("chamfer", "num", "Cut corners", "a box's corners cut along the grid, 1 - 16 cells (blank: square)",
+          lo=1, hi=16, d="1", at=("box", 5), need=_has("box"), implied="1"),
+    ]
+
 
 OPTIONS = {
     # -- ground ------------------------------------------------------------------------------------------------
-    ("goal", None): [
+    ("floor", None): _piece_rows(),
+    ("wall", None): _piece_rows(),
+    ("hole", None): _piece_rows(),
+    ("goal", None): _piece_rows() + [
         O("exit", "num", "Exit", "the pathway's exit, 0 - 3 (blank 0)", lo=0, hi=B.EXIT_MAX, d="1"),
         O("hidden", "flag", "Secret finish (hidden until found)"),
     ],
@@ -255,7 +280,9 @@ OPTIONS[("prop", "jump")] = OPTIONS[("prop", "speed")]
 # what the grammar accepts, kind by kind, that the builder sets in place of typing it: the audit's list
 # (docs/plans/BONANZA-BUILDER-OPTIONS.md), held against OPTIONS + DEDICATED by tests/unit/t_bbedit.py
 GRAMMAR = {
-    ("goal", None): ("exit", "hidden"), ("water", None): ("top", "bed", "open"),
+    ("floor", None): ("half|quarter", "chamfer"), ("wall", None): ("half|quarter", "chamfer"),
+    ("hole", None): ("half|quarter", "chamfer"), ("goal", None): ("half|quarter", "chamfer", "exit", "hidden"),
+    ("water", None): ("top", "bed", "open"),
     ("arch", None): ("#3", "guard", "height"), ("float", None): ("thick",), ("gap", None): ("sw|se",),
     ("guard", None): ("side", "height"), ("archway", None): ("along", "under", "top"), ("seesaw", None): ("rest", "base"),
     ("cup", None): ("capture", "exit", "hidden"), ("checkpoint", None): ("ball",),
@@ -290,7 +317,7 @@ def options_for(toks):
 
 def covered_words(toks):
     """the clause words this table answers for, so the inspector's generic rows leave them alone"""
-    return {o["w"] for o in OPTIONS.get(key_of(toks), []) if o["w"]} | (
+    return {o["w"] for o in OPTIONS.get(key_of(toks), []) if o["w"]} | {"quarter"} | (
         {w for o in OPTIONS.get(key_of(toks), []) for m in o["modes"] for w, _d in m[2]})
 
 
@@ -300,6 +327,8 @@ def option_id(o):
         return "|".join(m[0] for m in o["modes"])
     if o["t"] == "bare":
         return "|".join(o["vals"])
+    if o["t"] == "piece":
+        return "half|quarter"
     return o["w"] if o["w"] else "#%d" % o["pos"]
 
 
@@ -335,10 +364,22 @@ def value(toks, o):
         return next((x for x in reversed(toks[1:]) if x in o["vals"]), None)
     if t == "sides":
         return _sides(toks)
+    if t == "piece":
+        return " ".join(toks[1:3]) if len(toks) > 2 and toks[1] in ("half", "quarter") else None
     if t == "mode":
         return next((m[0] for m in o["modes"] if any(w in toks[1:] for w, _d in m[2])), o["modes"][0][0])
     v = _clause(toks, o["w"], o["n"], o["skip"])
+    if o["implied"] is not None and o["w"] in toks[1:] and not (v and _isnum(v[0])):
+        return o["implied"]                         # (`chamfer` alone: its number left out)
     return " ".join(v) if v is not None else None
+
+
+def _isnum(x):
+    try:
+        float(x)
+        return True
+    except (TypeError, ValueError):
+        return False
 
 
 def _insert_at(toks, o):
@@ -381,6 +422,12 @@ def apply(toks, o, val):
             i = _insert_at(t, o)
             t[i:i] = [val]
         return _fix(t, o)
+    if k == "piece":
+        if len(t) > 2 and t[1] in ("half", "quarter"):
+            del t[1:3]
+        if val and val in PIECES:
+            t[1:1] = val.split()
+        return _fix(t, o)
     if k == "sides":
         if "side" in t[1:]:
             i = t.index("side", 1)
@@ -411,10 +458,11 @@ def apply(toks, o, val):
         j = i + 1
         while j < len(t) and t[j] in o["skip"]:
             j += 1
+        n = o["n"] if o["implied"] is None or (j < len(t) and _isnum(t[j])) else 0   # (`chamfer` alone)
         if vals:
-            t[j:j + o["n"]] = vals
+            t[j:j + n] = vals
         elif not o["req"]:
-            del t[j:j + o["n"]]
+            del t[j:j + n]
             del t[i]
     elif vals:
         i = _insert_at(t, o)

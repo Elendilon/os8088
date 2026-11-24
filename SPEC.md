@@ -300367,7 +300367,8 @@ choice that means "as it is without the clause" - takes the clause out. An edit 
 illegal puts that right in the same step (an updraft gets its `top`, a hanging magnet loses its `range`, a
 shorter period drops a seed it no longer holds, a new turntable size starts a legal `fill`). The see-saw's size
 and timer, a floor's slope, the route list and the shape editor keep their own sections. What is left without
-a control - pieces (`half`, `quarter`, `box`), water's ripple cells - needs a picture interaction;
+a control - water's ripple cells - needs a picture interaction (pieces, `half`, `quarter` and a box's `chamfer`,
+have rows since 130.58.53, and the palette adds them);
 docs/plans/BONANZA-BUILDER-OPTIONS.md is the audit, and t_bbedit item 17 holds the table to it. A gate, plate or
 key added alone is refused until its other half is placed; the banner says so (*Keep it anyway*, then add it).
 
@@ -300995,3 +300996,71 @@ block places the map's. Red arms every run: the map at dy 0 fits under 90% (1,98
 compile's moved up 6 lines"); `kit_overlay` without its aligned compile ("MILL's overlay names B [0, 13, 15 ...]
 for the compile's"). The window was driven under Xvfb (python3.12's Tk) for the screenshots: the overlay on,
 the masks, the tab counted, a piece picked and shown.
+
+#### 130.58.53 Diagonals and corners: found, added, selected and changed (the owner, 2026-11-24)
+
+*"I just went looking for how to make a diagonal in the builder, or a corner, and while it shows them I don't see
+any way to select that. Can you add interface for that?"* 130.58.15 built two AREA tools - *Cut a corner* and
+*Diagonal strip* - that appeared only in the inspector of an area dragged out with nothing selected, and nothing
+else in the window made a half, a quarter or a `box` (130.24.4) without typing it. A piece once laid could be
+clicked on the plan (130.58.15's `at_cell`) but not changed: 130.58.37 left `half`, `quarter` and `box` without a
+control. So:
+
+| where | what the author sees and does |
+|---|---|
+| the parts list | a group **Diagonals and corners**, open by default under Ground: **Half tile**, **Quarter tile**, **Cut a corner**, **Diagonal strip**, **Box**, each with a sentence saying what it does and what to do (*"drag an area over a floor's corner, choose the corner below, and Add"*) |
+| the Add panel | for those five, the choice the part needs before Add, as radio buttons laid out where they are: the halves where their triangles are on the plan (◤ up ◥ right / ◣ left ◢ down), the quarters as a compass (▼ n, ▶ w, ◀ e, ▲ s), the four corners, the strip's two ways, the box's kind (Floor, Wall, Hole, Goal). Add then acts on the selected area, else the selected part's footprint, as every part does (130.58.12) |
+| an area's inspector | beside Cut a corner and Diagonal strip, **Half tile** (four triangle buttons), **Quarter tile** (four) and **Box: Straight-sided floor**; its help names all of them and where the parts list keeps them |
+| nothing selected | the help says how diagonals are made and that a half or quarter is clicked to change it |
+| an area dragged | the status line names the area tools: *"... or on the right make it floor, cut a corner, halve it or lay a diagonal strip ..."* |
+| a half or quarter selected | its statement's **Piece** row: *Whole cell*, the four halves and the four quarters in the same layout as the Add panel's, the one written ticked. Choosing one rewrites the clause (`floor half left rect ...` to `floor quarter n rect ...`); *Whole cell* takes it out. It acts on every cell of the statement's shape, and says so (*"to cut only some cells, drag an area and use Half tile or Cut a corner"*) |
+| a box selected | its four numbers as the screen axes (`a`, `s`: coord_slots), and **Cut corners**, 1 - 16, blank square: the `chamfer` clause |
+
+**The labels.** A half is named by the grammar's word - the side of the SCREEN it is on in Iso (130.24.3) - and
+shown with its triangle as the PLAN draws it (`bbedproj.PIECE_POLY`: up ◤, right ◥, left ◣, down ◢); a quarter by
+the cell edge it owns, `n` the plan's top edge (▼ n: the triangle on that edge pointing in). The hint under the
+row says this, so the two views' different names for one piece are never a puzzle.
+
+**What each does** (`tools/bbedit.py`):
+
+- **Half tile / Quarter tile** (`piece_area`): every cell of the area is cut to the chosen piece. A cell laid by a
+  floor, wall or goal `tile` or `rect` keeps that statement's kind and every clause (height, ramp - its positions
+  are absolute, so a ramp's pieces keep its plane -, hang, exit): the statement is cut out of the area (130.58.13's
+  `replace_area`) and the piece written over the same cells, as few `rect`s as the cells allow (`cell_rects`). An
+  EMPTY cell gets a floor piece at the flat floor's height in or beside the area (else the toolbar's). The rest of
+  each cell is left EMPTY. A cell already split, laid by a band or a box, or a shaped floor is left, and the
+  status line counts it. One undo step; the new statement selected, its Piece row showing.
+- **Cut a corner**, **Diagonal strip**: 130.58.15's, unchanged, reached from the palette with the corner or the
+  way chosen.
+- **Box** (`add_box`): `<kind> box A0 A1 S0 S1`, the screen rectangle through the CENTRES of the area's four corner
+  cells (a cell's centre is at `a = wx - wy`, `s = wx + wy + 1`, so `A0 = x0 - y1`, `A1 = x1 - y0`, `S0 = x0 + y0 +
+  1`, `S1 = x1 + y1 + 1`), widened to two columns or rows where the area is one cell across; at the height of the
+  floor there (a wall one more), laid OVER what is there - a box is never cut (130.58.13) - as the strip is.
+- **The Piece row** is an option of `tools/bbedopts.py` like any other (130.58.37), a row kind of its own,
+  `piece`, on `floor`, `wall`, `goal` and `hole`, absent on a box (130.24.4 refuses `half` on one); `chamfer` is a
+  `num` row there that reads `chamfer` written alone as 1. GRAMMAR lists `half|quarter` and `chamfer` for the four
+  kinds, so item 17 holds the table to them as to every clause.
+
+**Iso picks the piece too.** An Iso click gave `at_cell` no point in the cell, so a split cell's click selected
+its top record whichever half drew the pixel. `iso_frac` inverts the picture's projection at each piece's own
+height - `gx - gy = x + 0.5 - X0`, `gx + gy = 2 (y - Y0 + 0.5 + z)`, `z` 8 px a unit over the course's rebase
+(`bbcourse._top_world`) - and returns the first point that falls inside its piece; a pixel of a face (below every
+top) is clamped into the cell. A TB split divides exactly at the cell's centre column whatever the heights, an LR
+split at its diagonal on the top.
+
+**The views are unchanged**: the plan draws `analyse()`'s pieces and Iso the compiler's picture, as before; the
+screenshots show the halves and quarters each statement writes drawn as the compiler lays them.
+
+**Checked** (`tests/unit/t_bbedit.py` **item 29**, and item 17's GRAMMAR audit): the palette's five parts with
+their choices; Half tile on a 2 x 2 area of a floor writes `floor half left rect 5 5 7 7 flat 4`, the course lays
+the left halves and one Undo restores the text; on an empty cell it brings `floor half right tile 14 6 flat 4`;
+the Piece row set to `quarter n`, Whole cell and `half left` again lays exactly those pieces each time; Box on
+(5, 5) - (7, 7) writes `floor box -2 2 11 15 flat 4` and lays out; Cut a corner from the palette halves the
+corner; on a compiled course every pixel an Iso click can land on in a TB cell picks the half left or right of the
+centre column, in an LR cell the half above or below its diagonal, and a quartered cell's clicks reach both its
+visible quarters. Red by hand (2026-11-24): `iso_frac` returning None (*"an Iso click in the TB cell (6, 5) picked
+the wrong piece at 128 of 512 pixels"*), the Piece row's apply not taking the old clause out (*"the Piece row set
+to 'quarter n'"*), the row dropped from OPTIONS (item 17: *"no row for floor's half|quarter"*). The window was
+driven under Xvfb (python3.12's Tk): `docs/plans/bonanza-courses/diagui/` (`palette-half-tile.png` - the group
+and the Add panel's halves -, `half-added.png`, `corner-cut.png`, `selected-half.png`, `selected-quarter.png`,
+`selected-quarter-iso.png` and `area-inspector.png`).

@@ -130,6 +130,18 @@
     shift dropped ("occ.json's shipped record 0 is not the compile's moved up 6 lines"); kit_overlay without its
     aligned compile ("named B ... for the compile's").
 
+ 29. DIAGONALS AND CORNERS SELECTED AND EDITED (SPEC.md 130.58.53): the palette's Diagonals and corners group
+    names Half tile, Quarter tile, Cut a corner, Diagonal strip and Box, each with its Add choices; Half tile on a
+    2 x 2 area of a floor writes `floor half left rect ...` at the floor's height and the course lays the left
+    halves; on an empty cell it brings floor; one Undo takes it back. The Piece row (bbedopts) set to quarter n,
+    whole and back to half left on that statement lays exactly those pieces each time; Box on an area writes the
+    screen rectangle through its corner cells' centres and lays out; on a compiled course an Iso click in a TB, an LR
+    and a quartered cell picks the piece whose top the pixel shows (bbedit.iso_frac): the left half's every pixel
+    left of the cell's centre column, the up half's every top pixel above its diagonal. Red by hand (2026-11-24):
+    iso_frac returning None ("an Iso click in the TB cell picked"), the Piece row's apply not taking the old piece
+    out ("the Piece row set to 'quarter n'"), or the Piece row dropped from OPTIONS (item 17: "no row for
+    floor's half|quarter").
+
 Red arms, by hand: drop the `half`/`quarter` skip from bbedproj.coord_slots
 (item 2 goes red on DOWN), make bbcourse._visual raise again (item 3), or
 make toggle_gap's `codes` keep the pieces no face is in (item 8: "gap bands
@@ -177,7 +189,9 @@ way 12 4
 
 # item 17: each statement kind bbedopts answers for, bare and with every clause it may take written (one form)
 OPT_BARE = {
-    ("goal", None): "goal rect 4 4 6 6 flat 2", ("water", None): "water rect 4 4 6 6 top 4 bed 0",
+    ("goal", None): "goal rect 4 4 6 6 flat 2", ("floor", None): "floor rect 4 4 6 6 flat 2",
+    ("wall", None): "wall tile 4 4 flat 3", ("hole", None): "hole rect 4 4 6 6",
+    ("water", None): "water rect 4 4 6 6 top 4 bed 0",
     ("arch", None): "arch 4 4 +x", ("float", None): "float rect 4 4 6 6", ("gap", None): "gap rect 4 4 6 6",
     ("guard", None): "guard rect 4 4 8 8", ("seesaw", None): "seesaw 4 4 6 5 along x pivot 3",
     ("archway", None): "archway rect 4 4 6 5 along x", ("cup", None): "cup 4 4",
@@ -192,7 +206,11 @@ OPT_BARE = {
     ("prop", "key"): "prop key 4 4 channel ring", ("prop", "speed"): "prop speed 4 4",
     ("prop", "jump"): "prop jump 4 4", ("prop", "life"): "prop life 4 4"}
 OPT_FULL = {
-    ("goal", None): "goal rect 4 4 6 6 flat 2 exit 1 hidden",
+    ("goal", None): ("goal quarter e rect 4 4 6 6 flat 2 exit 1 hidden", "goal box -3 3 7 15 chamfer 1 flat 2"),
+    ("floor", None): ("floor half left rect 4 4 6 6 flat 2", "floor quarter n tile 4 4 ramp x 4 5 1 1.5",
+                      "floor box -3 3 7 15 chamfer flat 2"),
+    ("wall", None): ("wall half up tile 4 4 flat 3", "wall box -3 3 7 15 chamfer 1 flat 3"),
+    ("hole", None): ("hole half right rect 4 4 6 6", "hole box -3 3 7 15 chamfer 1"),
     ("water", None): "water rect 4 4 6 6 top 4 bed 0 open ripple 4 4",
     ("arch", None): "arch 4 4 +y guard height 2.5", ("float", None): "float rect 4 4 6 6 thick 1",
     ("gap", None): "gap rect 4 4 6 6 sw", ("guard", None): "guard rect 4 4 8 8 side +x -y height 2.5",
@@ -310,6 +328,132 @@ def _full_error(text):
         return str(e)
     finally:
         B.BLK_MAX = held
+
+
+class _DiagApp(_StubApp):
+    """the window's diagonal tools (SPEC.md 130.58.53) with no Tk"""
+    piece_area = W.App.piece_area
+    add_box = W.App.add_box
+    add_diagonal = W.App.add_diagonal
+    cut_corner = W.App.cut_corner
+    _heights = W.App._heights
+    _flat_heights = W.App._flat_heights
+
+    class _H(object):
+        def get(self):
+            return "4"
+
+    def __init__(self, text):
+        _StubApp.__init__(self, text)
+        self.height, self.area = self._H(), None
+
+
+DIAG = """course DIAGT "Diagonals"
+width 64
+ball rubber
+floor rect 3 3 13 9 flat 4
+start 4 4
+goal rect 12 3 13 5 flat 4
+clock 11 3
+target 30
+music fairway
+way 4 4
+way 12 4
+"""
+
+DIAG_ISO = DIAG.replace("start 4 4", """floor half left tile 6 5 flat 4
+wall half right tile 6 5 flat 6
+floor half up tile 8 5 flat 4
+floor half down tile 8 5 flat 3
+floor quarter n tile 6 7 flat 4
+wall quarter e tile 6 7 flat 6
+start 4 4""")
+
+
+def diag_check():
+    """item 29 (SPEC.md 130.58.53): the diagonal parts from the palette, a piece edited, a box, an Iso click
+    -> [problems]"""
+    bad = []
+    grp = dict(W.PALETTE).get("Diagonals and corners", [])
+    names = [it[0] for it in grp]
+    for nm in ("Half tile", "Quarter tile", "Cut a corner", "Diagonal strip", "Box"):
+        if nm not in names or not W.DIAG_CHOICES.get(nm):
+            bad.append("diagonals: the palette has no %s with its choices" % nm)
+    app = _DiagApp(DIAG)
+    app.add_diagonal("Half tile", "half left", (5, 5, 6, 6))
+    code = "floor half left rect 5 5 7 7 flat 4"
+    st = next((s_ for s_ in app.doc.statements() if s_.code == code), None)
+    a = app.doc.analysis()
+    if st is None or a["error"]:
+        bad.append("diagonals: Half tile wrote %r (%s), not %r" % (
+            [s_.code for s_ in app.doc.statements() if "half" in s_.toks], a["error"], code))
+        return bad
+    if app.sel != st.line:
+        bad.append("diagonals: Half tile left line %s selected, not its own %d" % (app.sel, st.line))
+    for c in ((5, 5), (6, 6)):
+        ps = a["cells"][c].get("pieces") or []
+        if [p["poly"] for p in ps] != [E.PIECE_POLY[(B.KIND_TB, 0)]]:
+            bad.append("diagonals: the half-left cell %r lays %r" % (c, [p["poly"] for p in ps]))
+    app.doc.undo()
+    if app.doc.text() != DIAG:
+        bad.append("diagonals: one Undo does not take the half tile back")
+    app.add_diagonal("Half tile", "half right", (14, 6, 14, 6))      # an empty cell beside the floor
+    if "floor half right tile 14 6 flat 4" not in app.doc.text() or app.doc.analysis()["error"]:
+        bad.append("diagonals: Half tile on an empty cell: %r" % [s_.code for s_ in app.doc.statements()
+                                                                  if "half" in s_.toks])
+    app.doc.undo()
+    # the Piece row on the statement: quarter n, whole, half left again
+    app = _DiagApp(DIAG)
+    app.add_diagonal("Half tile", "half left", (5, 5, 6, 6))
+    o = OPT.OPTIONS[("floor", None)][0]
+    for val, want in (("quarter n", [E.PIECE_POLY[(B.KIND_Q, 0)]]), ("", None),
+                      ("half left", [E.PIECE_POLY[(B.KIND_TB, 0)]])):
+        st = app.doc.statement(app.sel)
+        app._edit(app.doc.set_tokens, st.line, OPT.apply(st.toks, o, val), label="piece")
+        a = app.doc.analysis()
+        d = a["cells"].get((5, 5))
+        got = [p["poly"] for p in d.get("pieces") or []] or None if d else "void"
+        if a["error"] or got != want or OPT.value(app.doc.statement(app.sel).toks, o) != (val or None):
+            bad.append("diagonals: the Piece row set to %r: %r lays %r (%s)" % (
+                val, app.doc.statement(app.sel).code, got, a["error"]))
+    # a box
+    app = _DiagApp(DIAG)
+    app.add_diagonal("Box", "floor", (5, 5, 7, 7))
+    if "floor box -2 2 11 15 flat 4" not in app.doc.text() or app.doc.analysis()["error"]:
+        bad.append("diagonals: Box wrote %r (%s)" % ([s_.code for s_ in app.doc.statements() if "box" in s_.toks],
+                                                    app.doc.analysis()["error"]))
+    # Cut a corner from the palette
+    app = _DiagApp(DIAG)
+    app.add_diagonal("Cut a corner", "se", (10, 7, 12, 8))
+    if not any("half" in s_.toks for s_ in app.doc.statements()) or app.doc.analysis()["error"]:
+        bad.append("diagonals: Cut a corner from the palette halved nothing (%s)" % app.doc.analysis()["error"])
+    # an Iso click picks the piece the pixel shows
+    held, B.BLK_MAX = B.BLK_MAX, 1 << 30
+    try:
+        c = B.compile_course(DIAG_ISO, "d.bbc", occluders=False)
+    finally:
+        B.BLK_MAX = held
+    ob = B.owners_canvas(c)
+    a = E.analyse(DIAG_ISO, "d.bbc")
+    meta = {"x0": c.x0, "y0": c.y0}
+    lines = {s_.toks[1] + s_.toks[2]: s_.line for s_ in E.Document(DIAG_ISO).statements()
+             if len(s_.toks) > 3 and s_.toks[1] in ("half", "quarter")}
+    for cell, test in (((6, 5), lambda x, y, cx, cy: lines["halfleft"] if x < cx else lines["halfright"]),
+                       ((8, 5), lambda x, y, cx, cy: lines["halfup"] if y < cy else lines["halfdown"])):
+        own = 256 * cell[0] + cell[1]
+        cx = 16 * (cell[0] - cell[1]) + c.x0
+        tops = [(x, y) for y, row in enumerate(ob) for x, o_ in enumerate(row) if o_ == own]
+        cy = (min(y for _x, y in tops) + max(y for _x, y in tops) + 1) / 2.0
+        miss = [(x, y) for x, y in tops if (E.at_cell(a, cell, W.iso_frac(a, cell, x, y, meta)) or [None])[0]
+                != test(x, y, cx, cy)]
+        if not tops or miss:
+            bad.append("diagonals: an Iso click in the %s cell %r picked the wrong piece at %d of %d pixels %r" % (
+                "TB" if cell == (6, 5) else "LR", cell, len(miss), len(tops), miss[:3]))
+    q = [(x, y) for y, row in enumerate(ob) for x, o_ in enumerate(row) if o_ == 256 * 6 + 7]
+    got = {(E.at_cell(a, (6, 7), W.iso_frac(a, (6, 7), x, y, meta)) or [None])[0] for x, y in q}
+    if not {lines["quartern"], lines["quartere"]} <= got:
+        bad.append("diagonals: Iso clicks in the quartered cell pick only %r" % sorted(got))
+    return bad
 
 
 def stranded_check():
@@ -1772,6 +1916,7 @@ def main():
     bad += route_lint_check()
     bad += stats_check()
     bad += kit_view_check()
+    bad += diag_check()                             # 29. diagonals and corners (130.58.53)
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))
