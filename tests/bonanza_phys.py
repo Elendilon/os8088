@@ -1978,7 +1978,7 @@ class UGuest:
 
 
 def _cellb(c):
-    z0, sx, sy, kd, fl, sf = c
+    z0, sx, sy, kd, fl, sf = c[:6]                  # (a FIELD cell's 7th, its world shape, is the model's: no byte)
     return bytes((z0 & 255, (sx & 15) | (sy & 15) << 4, kd | sf << 4, fl & 255))
 
 
@@ -2439,7 +2439,9 @@ def fam_host():
     go, gf = gt_host(binp, lst, sym)               # SWITCHES, KEYS, GATES, DRAWBRIDGE (SPEC.md 130.41)
     to, tf = tilt_host(binp, lst, sym)             # THE SEE-SAW (SPEC.md 130.42)
     tto, ttf = tt_host(binp, lst, sym)             # THE TURNTABLE (SPEC.md 130.43)
-    return out + o_ + o2 + wo + ao + so + bo + go + to + tto, fails + f_ + f2 + wf + af + sf + bf + gf + tf + ttf
+    po, pf = poison_host(binp, lst, sym, fam)      # A PLAY'S START resets every family's per-play state (130.25.6.11)
+    return out + o_ + o2 + wo + ao + so + bo + go + to + tto + po, \
+        fails + f_ + f2 + wf + af + sf + bf + gf + tf + ttf + pf
 
 
 # ---- MAGNETS (SPEC.md 130.33): the test course's scenes, poked - each POKE a tile, a ground velocity, the steps,
@@ -3526,6 +3528,67 @@ def tl_reds():
              None),
             ("tltmark", ("    call tl_mark                ; ...its lanes drawn\n    pop ax\n    cmp byte [bz_air], 0",
                          "    pop ax\n    cmp byte [bz_air], 0"), "swing-glass", "never drawn"))
+
+
+def _poison_spans():
+    """the per-play family state bz_pinit must reset, each POISONED before it (SPEC.md 130.25.6.11): (name, bytes,
+    value) - the wakes, the slots, the state bits, the wake scratch, the material the wakes were last forced for"""
+    fam_max, fstb = R.inc_equ("BZ_FAMMAX"), R.inc_equ("BZ_FSTB")
+    return (("bz_fwk", 2 * fam_max, 0x40), ("bz_fsl", 8 * fam_max, 0x5A), ("bz_fst", fstb, 0xA5),
+            ("bz_fwkk", 2, 0x40), ("bz_fwm", 1, 0x7F))
+
+
+def _poisoned_urun(*a, **kw):
+    """urun with the per-play family state filled with garbage just before bz_pinit, as a play after the TITLE's
+    demo finds it (the owner's MILL: glass slept slot 3, the see-saw's, at 4000h)"""
+    spans, orig = _poison_spans(), UGuest.call
+
+    def call(self, n, ax=0, bx=0):
+        if n == "bz_pinit":
+            for name, size, v in spans:
+                self.mu.mem_write(UCS * 16 + self.sym[name], bytes([v]) * size)
+        return orig(self, n, ax, bx)
+    UGuest.call = call
+    try:
+        return urun(*a, **kw)
+    finally:
+        UGuest.call = orig
+
+
+def poison_host(binp, lst, sym, fam):
+    """SPEC.md 130.25.6.11 (the owner's MILL see-saw, 2026-11-23): every shipped course's demo with a family
+    (its BZD part, as built) played with the per-play family state POISONED before bz_pinit, equal to the
+    model at every step - so state a play's start forgets to reset is seen by the first play, not only by a play
+    after the title's demo.  Red: bz_pinit's wake reset NOPped, on MILL's see-saw scene (130.42.14's
+    mill-rubber: held up the plate, it tips at step 87) -> (lines, failures)"""
+    out, fails = [], []
+    R.crs_fill()                                    # (CRS_K fills itself lazily: every shipped course, in K order)
+    for name, k in sorted(R.CRS_K.items(), key=lambda x: x[1]):
+        if os.path.basename(R.COURSES[name]) != name + ".bbc" and not os.path.exists(
+                R.at("build/bonanza-art/BZD%s.BIN" % name.upper())):
+            continue                                # (a course with no BZD part ships no demo)
+        c = R.course(name)
+        if not BB.Physics(c, play=True, mat=0).fam:
+            continue
+        log = open(R.at("build/bonanza-art/BZD%s.BIN" % name.upper()), "rb").read()
+        _k, mat, kt, _fl = BB.decode_log_t(log)
+        _p, bad = _poisoned_urun(binp, lst, sym, name, mat, [k_ for k_, _t in kt], fam)
+        out.append("poisoned %s: its demo, %d steps: %s" % (name.upper(), len(kt), "; ".join(bad[:1]) or
+                                                             "the guest is the model at every step"))
+        fails += ["poisoned %s: %s" % (name.upper(), b) for b in bad]
+    sname, mat, at, keys, _what = tl_mill_scenes()[0]
+    c = R.course("mill")
+    poke = poke_of(BB.Physics(c, play=True, mat=mat).poke(*at))
+    raw = open(binp, "rb").read()
+    zat = raw.find(b"\x89\x87" + struct.pack("<H", sym["bz_fwk"]), sym["bz_pinit"])
+    assert 0 < zat - sym["bz_pinit"] < 400, "red pinitwk: bz_pinit's wake reset not found"
+    _p, bad = _poisoned_urun(binp, lst, sym, "mill", mat, keys, fam, ((zat, b"\x90" * 4),), poke=poke)
+    ok = bool(bad)
+    out.append("red pinitwk (the wake reset NOPped, poisoned, %s): %s" % (sname, "red at %s" % bad[0][:160] if ok
+                                                                         else "STAYED GREEN"))
+    if not ok:
+        fails.append("red pinitwk stayed green on the unicorn")
+    return out, fails
 
 
 def tl_mill_scenes():
