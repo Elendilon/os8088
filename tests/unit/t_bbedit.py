@@ -640,9 +640,11 @@ def course_tab_check():
 
     class _C(_StubApp):
         _apply_course, _fill_course = W.App._apply_course, W.App._fill_course
+        _fill_course_now, _cv_mark = W.App._fill_course_now, W.App._cv_mark      # (SPEC.md 130.58.55)
 
         def __init__(self, text):
             _StubApp.__init__(self, text)
+            self.cv_dirty = self.cv_filling = False
             for k in ("cv_title", "cv_name", "cv_width", "cv_ball", "cv_music", "cv_pal", "cv_gstyle", "cv_target",
                       "cv_limit", "cv_gold", "cv_silver", "cv_cstrict", "cv_mbanded", "cv_lock", "cv_over",
                       "cv_overc"):
@@ -1229,9 +1231,11 @@ class _SVar(_Var):
 class _CourseApp(object):
     """the Course tab's variables and its two methods, no Tk"""
     _fill_course, _apply_course = W.App._fill_course, W.App._apply_course
+    _fill_course_now, _cv_mark = W.App._fill_course_now, W.App._cv_mark      # (SPEC.md 130.58.55)
 
     def __init__(self, text):
         self.doc = E.Document(text)
+        self.cv_dirty = self.cv_filling = False
         for n in ("title", "name", "width", "ball", "music", "pal", "target", "limit", "gold", "silver", "gstyle",
                   "cstrict", "mbanded", "lock", "over", "overc"):
             setattr(self, "cv_" + n, _SVar(""))
