@@ -5324,6 +5324,140 @@ def tl_lanes(src, props, lanes, tiles, tlpose, ops_of, x0, y0, width, lines, own
         p["tlnl"] = len(rects)
 
 
+class _PoseCanvas:
+    """SPEC.md 130.42.15: the picture's DEPTH (sbuf, tbuf) with one see-saw in one pose - the compile's canvas
+    with the pixels whose depth that pose's render changes taken from it.  Rows shared where nothing changed"""
+    def __init__(self, cv, rp, base, region):
+        self.w, self.h = cv.w, cv.h
+        self.sbuf, self.tbuf = list(cv.sbuf), list(cv.tbuf)
+        self.diff = set()
+        for y in range(cv.h):
+            sa_, sb_, ta_, tb_ = base.sbuf[y], rp.sbuf[y], base.tbuf[y], rp.tbuf[y]
+            if sa_ == sb_ and ta_ == tb_:
+                continue
+            s2, t2 = array("h", cv.sbuf[y]), array("h", cv.tbuf[y])
+            for x in range(cv.w):
+                if sa_[x] != sb_[x] or ta_[x] != tb_[x]:
+                    s2[x], t2[x] = sb_[x], tb_[x]
+                    self.diff.add((x, y))
+            self.sbuf[y], self.tbuf[y] = s2, t2
+        region.update((y >> 3, x >> 3) for (x, y) in self.diff)
+
+
+def tl_occ_reach(reach, blocks, x0, y0):
+    """the reach positions whose footprint can meet one of BLOCKS ((block row, block column)): _laid's lines and
+    foot_x's columns, a block's margin each way - a record of a block depends on those positions alone"""
+    if not blocks:
+        return []
+    out = []
+    for rc in reach:
+        xl, xh = foot_x(rc, x0)
+        b0, b1 = (foot_top(rc, rc.zhi) + y0 - 2) >> 3, (foot_top(rc, rc.zlo) + y0 + 31) >> 3
+        c0, c1 = (xl >> 3) - 1, (xh >> 3) + 1
+        if any(b0 <= br <= b1 and c0 <= bc <= c1 for br, bc in blocks):
+            out.append(rc)
+    return out
+
+
+def tl_occ_poses(cv, plates, props, render_pose, base, records, rule_by_block, rcut, x0, y0, cut, rule_cut,
+                 lanes, fname, hack):
+    """SPEC.md 130.42.15: PER-POSE OCCLUDERS.  For each see-saw plate and each of its poses 1 and 2 (every other
+    plate at rest), the picture's depth in that pose (_PoseCanvas), and the occluder records CUT from it over the
+    blocks whose depth that pose changes (cut: the shipped pipeline's - AV's residual with the far lists FIXED, or
+    today's - merged; rule_cut: the rule's, for the gate's flags).  A block whose shipped records (s, top, the
+    dithered mask, the cumulative mask) are the same in all three poses keeps today's, untagged; every other
+    block is POSED: its records are the three poses' union, each tagged r["pm"] (bit P: laid in pose P) and
+    r["tl"] (the lane whose drawn pose selects it: the plate's lane holding the block, else its nearest).
+    -> (records: today's with every posed block's replaced, {(plate, pose): the rule's by_block} for the
+    flags, the report)"""
+    posed, out_recs, rule_bb = {}, [], {}
+    rep = {"blocks": 0, "regions": 0, "plates": [], "rb": {1: set(), 2: set()}, "cv": {}}
+    owner = {}
+    byb0 = {}
+    for r in records:
+        byb0.setdefault((r["brow"], r["col"]), []).append(r)
+    for k, p in enumerate(plates):
+        sw = p["sw"]
+        mylanes = [L for L in lanes if L["kind"] == FK_TILTL and props[L["prop"]].get("tlof") is p]
+        per = {1: {}, 2: {}}
+        region = set()
+        rbs = {}
+        for pose in (1, 2):
+            rb = set()
+            cvp = _PoseCanvas(cv, render_pose(sw, pose), base, rb)
+            rep["cv"][(k, pose)] = cvp
+            rbs[pose] = rb
+            rep["rb"][pose] |= rb
+            region |= rb
+            rsub = tl_occ_reach(rcut, rb, x0, y0)
+            for r in cut(cvp, rsub):
+                if (r["brow"], r["col"]) in rb:
+                    per[pose].setdefault((r["brow"], r["col"]), []).append(r)
+            bb = rule_bb[(k, pose)] = dict(rule_by_block)
+            for b in rb:
+                bb.pop(b, None)
+            for r in rule_cut(cvp, rsub):
+                if (r["brow"], r["col"]) in rb:
+                    bb.setdefault((r["brow"], r["col"]), []).append(r)
+        hit = sorted(b for b in region if b in owner)
+        if hit:
+            raise CourseError("%s:%d: the see-saw's occluders meet another see-saw's in block (column %d, row %d): "
+                              "keep the plates apart (SPEC.md 130.42.15)" % (fname, sw["line"], hit[0][1], hit[0][0]))
+        for b in region:
+            owner[b] = k
+        rep["regions"] += len(region)
+        nposed = 0
+        for b in sorted(region):
+            sets = {0: [dict(r) for r in byb0.get(b, ())]}
+            for pose in (1, 2):
+                sets[pose] = [dict(r) for r in per[pose].get(b, ())] if b in rbs[pose] else \
+                    [dict(r) for r in byb0.get(b, ())]
+            keys = {}
+            for pose, rs in sets.items():
+                for r in rs:
+                    r["kmask"] = r["mask"] if hack.get("no_dither") else dither(r["mask"])
+                cum_masks(rs, _off=hack.get("nocum"))
+                keys[pose] = sorted((r["s"], r["top"], r["kmask"], r["cmask"]) for r in rs if r["kmask"] != ALLKEEP)
+            if keys[0] == keys[1] == keys[2]:
+                continue
+            nposed += 1
+            near = min(mylanes, key=lambda L: (_rect_dist(L["rect"], b), L["rect"][1], L["rect"][0]))
+            un = {}
+            for pose in (0, 1, 2):
+                for r in sets[pose]:
+                    kk = (r["s"], r["top"], r["kmask"], r["cmask"])
+                    if kk in un:
+                        un[kk]["pm"] |= 1 << pose
+                        un[kk]["pix"] = un[kk]["pix"] | r["pix"]
+                    else:
+                        r2 = dict(r)
+                        r2["pm"], r2["tl"] = 1 << pose, near["prop"]
+                        un[kk] = r2
+            posed[b] = sorted(un.values(), key=lambda r: (r["s"], r["top"], r["mask"]))
+        rep["plates"].append((sw["line"], len(region), nposed))
+        rep["blocks"] += nposed
+    for b, rs in byb0.items():
+        if b not in posed:
+            out_recs.extend(rs)
+    for rs in posed.values():
+        if hack.get("tloccall"):                    # (--selfcheck's red arm: the pose test removed)
+            for r in rs:
+                r["pm"] = 7
+        out_recs.extend(rs)
+    out_recs.sort(key=lambda r: (r["brow"], r["col"], r["s"], r["top"], r["mask"]))
+    rep["posed"] = sorted(posed)
+    return out_recs, rule_bb, rep
+
+
+def _rect_dist(rect, b):
+    """a block's distance (in blocks, the greater of the two axes) from a lane's rectangle"""
+    bx, by, w, h = rect
+    br, bc = b
+    dx = 0 if bx <= bc < bx + w else min(abs(bc - bx), abs(bc - (bx + w - 1)))
+    dy = 0 if by <= br < by + h else min(abs(br - by), abs(br - (by + h - 1)))
+    return max(dx, dy)
+
+
 def ga_pixels(p, x0, y0):
     """SPEC.md 130.41.12 A4, A8: an art element's frames placed - its foot on its first cell's top centre, mirrored
     `along y` - -> ([{(x, y): ink} a frame, picture coordinates], {(x, y): the cell (0 - N-1) whose column is
@@ -12318,11 +12452,14 @@ def cum_masks(records, _off=False):
         r["cmask"], r["ucmask"] = r["kmask"], r["mask"]
     if _off:
         return
+    def _with(r, q):                                # (SPEC.md 130.42.15: a POSED record's with its pose's - the
+        pm = r.get("pm", 1)                         # records laid in the first pose it is laid in, which are the
+        return (q.get("pm", 1) >> ((pm & -pm).bit_length() - 1)) & 1    # same in each of its poses by its cut)
     for rs in byb.values():
         for r in rs:
             m = bytearray(r["kmask"])
             for q in rs:
-                if q is not r and q["s"] >= r["s"] and q["top"] >= r["top"]:
+                if q is not r and q["s"] >= r["s"] and q["top"] >= r["top"] and _with(r, q):
                     for i in range(16):
                         m[i] &= q["kmask"][i]
             r["cmask"] = bytes(m)
@@ -12330,7 +12467,7 @@ def cum_masks(records, _off=False):
         for r in rs:
             m = bytearray(r["mask"])
             for q in rs:
-                if q is not r and q["s"] >= r["s"] and q["top"] >= r["top"]:
+                if q is not r and q["s"] >= r["s"] and q["top"] >= r["top"] and _with(r, q):
                     for i in range(16):
                         m[i] &= q["mask"][i]
             r["ucmask"] = bytes(m)
@@ -12973,7 +13110,7 @@ def av_enter(grid, q, x0, y0, fl, rec):
     return max(sum(k * v for k, v in zip(AVP_COEF, f[z])) + AVP_RECK * rec[z] + AVP_REC0 for z in f)
 
 
-def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _nobudget=False, recs0=()):
+def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _nobudget=False, recs0=(), farfix=None):
     """the RESIDUAL occluder pixels (SPEC.md 130.29.3) over the model's positions RCS (AvPos): {(x, y): (s, top)} -
     each footprint pixel the rule lays at some height of the position at which the model does not hide it.
     FAR (a dict, SPEC.md 130.29.13): THE FAR LIST picked for each VOID cell - the residual cut with it, and FAR
@@ -13006,6 +13143,8 @@ def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _no
                     nblob += 1 + len(lst)
             if lst:
                 far[key] = list(lst)
+    if farfix is not None:                          # (SPEC.md 130.42.15: a see-saw pose's cut reads the lists the
+        far = farfix                                # course's own picked, never picks its own)
     occ = {}
     w, h = cv.w, cv.h
     for q in rcs:
@@ -13156,7 +13295,7 @@ def _group_occ(occ):
 
 
 def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=False, tiles=None, sub=None,
-               _raise=0, show=None, lift=CLIMB, dyn=None, far=None, _nowrong=False, _nobudget=False):
+               _raise=0, show=None, lift=CLIMB, dyn=None, far=None, _nowrong=False, _nobudget=False, farfix=None):
     """AV's records (SPEC.md 130.29.3, 130.49.4): today's occluder pixels over every position the model does not run
     at (_occluders', a FIELD cell's ball at its real poses: TILES, SUB, _RAISE, SHOW and LIFT as there, 130.28.6;
     a split cell's FLOOR squares at their floor, 130.49.5), the residual over the ones it does (VOID cells, a
@@ -13170,11 +13309,12 @@ def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=Fa
     occ = dict(occ)
     if not _noresidual:
         recs0 = ()
-        if far is not None and not _nobudget:       # (SPEC.md 130.29.13: today's records, the first filter's)
+        if far is not None and not _nobudget and farfix is None:   # (SPEC.md 130.29.13: today's records, the
+                                                    # first filter's)
             occ0 = dict(occ)
             occ0.update(av_residual(cv, rcs, grid, x0, y0, depth))
             recs0 = merge_records(_group_occ(occ0), q)
-        occ.update(av_residual(cv, rcs, grid, x0, y0, depth, far, _nowrong, _nobudget, recs0))
+        occ.update(av_residual(cv, rcs, grid, x0, y0, depth, far, _nowrong, _nobudget, recs0, farfix))
     raw = _group_occ(occ)
     return raw, merge_records(raw, q), occ, rcs
 
@@ -14744,6 +14884,53 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         by_block = {}
         for r in records:
             by_block.setdefault((r["brow"], r["col"]), []).append(r)
+    # SPEC.md 130.42.15: PER-POSE OCCLUDERS - a see-saw's blocks whose records differ between its poses carry
+    # each pose's, tagged; the gate's flags take every pose's rule.  _hack tlocc False: the cut from the rest
+    # picture alone (--selfcheck's red arm, the defect it closes)
+    tlrep = None
+    tl_plates = [p for p in props if p["kind"] == FK_TILT]
+    if tl_plates and cutocc and hack.get("tlocc", True):
+        def _render_pose(sw_, pose_):
+            t2_ = dict(tiles)
+            t2_.update(tl_tiles(sw_, pose_))
+            return render(t2_, _ops_of(t2_), x0, y0, width, lines)
+
+        def _cut(cvp, rsub):
+            if av_on:
+                return av_records(cvp, rsub, ag, slabcells, x0, y0, q, depth=hack.get("occdepth"),
+                                  _noresidual=hack.get("noresidual"), tiles=tiles, sub=hack.get("focc"),
+                                  _raise=hack.get("fraise", 0), show=fshow, lift=hack.get("flift", CLIMB), dyn=dyn,
+                                  farfix=far if far else {})[1]
+            return merge_records(_occluders(cvp, rsub, x0, y0, cols, brows, tiles, hack.get("focc"),
+                                            hack.get("fraise", 0), fshow, hack.get("flift", CLIMB), dyn)[0], q)
+
+        def _rule_cut(cvp, rsub):
+            return merge_records(_occluders(cvp, rsub, x0, y0, cols, brows, tiles, hack.get("focc"),
+                                            hack.get("fraise", 0), fshow, hack.get("flift", CLIMB), dyn)[0], q)
+        records, tl_rbb, tlrep = tl_occ_poses(cv, tl_plates, props, _render_pose,
+                                              render(tiles, ops, x0, y0, width, lines), records, rule[3], rcut,
+                                              x0, y0, _cut, _rule_cut, lanes, fname, hack)
+        tlreach = tl_occ_reach(reach, tlrep["rb"][1] | tlrep["rb"][2], x0, y0)
+        for (k_, pose_), bb_ in sorted(tl_rbb.items()):     # the gate: a cell some pose's rule lays a record in,
+            laid_, _w = _laid(tlreach, bb_, x0, y0)          # a grounded ball on the plate at that pose's floor
+            for c_, n_ in laid_.items():
+                if n_:
+                    cells[c_][3] |= FL_OCC
+            t2_ = dict(tiles)
+            t2_.update(tl_tiles(tl_plates[k_]["sw"], pose_))
+            occg_ = _occg(tlreach, bb_, x0, y0, t2_, {**slabcells, **topz} if topz else slabcells,
+                          field=fshow is None and not hack.get("noccgf"))
+            for c_, n_ in occg_.items():
+                if n_:
+                    cells[c_][3] |= FL_OCC | FL_OCCG
+        per_row, per_block = {}, {}
+        for r in records:
+            per_row[r["brow"]] = per_row.get(r["brow"], 0) + 1
+            per_block[(r["brow"], r["col"])] = per_block.get((r["brow"], r["col"]), 0) + 1
+        by_block = {}
+        for r in records:
+            if r.get("pm", 1) & 1:
+                by_block.setdefault((r["brow"], r["col"]), []).append(r)
     for br in sorted(per_row):
         if per_row[br] > REC_ROW_MAX:
             raise CourseError("%s: block row %d (lines %d - %d) has %d occluder records, over %d%s"
@@ -15127,6 +15314,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.blocks, c.map = blocks, mp
     c.nblk_pic = nblk_pic
     c.records, c.occpix, c.by_block = records, occpix, by_block
+    c.tl_byb = None                                 # SPEC.md 130.42.15: every record, posed ones included, by block
+    c.tl_rep = tlrep                                # ...and the per-pose cut's report (its depth canvases)
+    if tlrep is not None:
+        c.tl_byb = {}
+        for r in records:
+            c.tl_byb.setdefault((r["brow"], r["col"]), []).append(r)
     # SPEC.md 130.29: the records above are the PART's (AV's under --occ void); the rule's, over the whole reach,
     # are what the flags were computed from
     c.rule_raw, c.rule_records, c.rule_occpix, c.rule_by_block = rule
@@ -28734,18 +28927,22 @@ def _decode(part, herc=False):
     return rows
 
 
-def laid_at(course, px, py, sb, zb, air, card=False, cell=None):
+def laid_at(course, px, py, sb, zb, air, card=False, cell=None, poses=None):
     """the records the guest's pass lays for a ball at picture top-left (px, py)
     in cell row sb at whole height zb (SPEC.md 130.10.8 item 1).  card: the
     CARD's count instead (130.15.10.3) - the set of the footprint's pixels
-    those records lay on the card, their pixels less the checker's"""
+    those records lay on the card, their pixels less the checker's.  poses: SPEC.md 130.42.15 - {a see-saw lane's
+    prop index: its DRAWN pose} (a lane not named: 0), a POSED record laid only in its lane's pose; None: every
+    plate at rest"""
     m = 0 if air else CLIMB
     x4 = px & ~3
     out = []
+    byb = course.by_block if poses is None or getattr(course, "tl_byb", None) is None else course.tl_byb
     for br in range(py >> 3, ((py + FOOT_H - 1) >> 3) + 1):
         for bc in range(x4 >> 3, ((x4 + FOOT_W - 1) >> 3) + 1):
-            for r in course.by_block.get((br, bc), ()):
-                if sb < r["s"] and zb + m < r["top"]:
+            for r in byb.get((br, bc), ()):
+                if sb < r["s"] and zb + m < r["top"] and (poses is None or not (r.get("pm", 1) >> poses.get(
+                        r.get("tl"), 0)) & 1 == 0):
                     out.append(r)
     if not card:
         return out
