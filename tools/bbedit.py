@@ -349,6 +349,7 @@ class App(object):
         self.area = None                # the selected AREA, cells (x0, y0, x1, y1) inclusive
         self.path_pick = []             # the cells Ctrl-clicked for a Tube or Chute (SPEC.md 130.58.27)
         self.sels = []                  # Ctrl-click's MULTI-selection: lines (self.sel the last one)
+        self.clip = None                # Copy's course text (SPEC.md 130.58.57), beside the system clipboard
         self.drag = None
         self.good = None                # the last analysis that laid out (shown while one does not)
         self.keep = None                # the edit "Keep it anyway" re-does
@@ -393,6 +394,9 @@ class App(object):
         em.add_command(label="Undo", command=self.undo, accelerator="Ctrl+Z")
         em.add_command(label="Redo", command=self.redo, accelerator="Ctrl+Y")
         em.add_separator()
+        em.add_command(label="Cut", command=self.cut_sel, accelerator="Ctrl+X")       # SPEC.md 130.58.57
+        em.add_command(label="Copy", command=self.copy_sel, accelerator="Ctrl+C")
+        em.add_command(label="Paste", command=self.paste, accelerator="Ctrl+V")
         em.add_command(label="Duplicate", command=self.duplicate, accelerator="Ctrl+D")
         em.add_command(label="Delete", command=self.delete, accelerator="Del")
         mb.add_cascade(label="Edit", menu=em)
@@ -421,6 +425,15 @@ class App(object):
             #  plain s typed into a field opened Save and a plain z undid an edit)
             try:
                 r.bind_all(k, lambda e, fn=fn: (fn(), "break")[1])
+            except tk.TclError:
+                pass
+        # SPEC.md 130.58.57: Cut, Copy and Paste are the COURSE's on the Build tab, and a field's own anywhere else
+        # (a text field's class binding has already copied its text when this runs: it is left to it)
+        for k, fn in (("<Control-c>", self.copy_sel), ("<Control-v>", self.paste), ("<Control-x>", self.cut_sel)) + (
+                (("<Command-c>", self.copy_sel), ("<Command-v>", self.paste), ("<Command-x>", self.cut_sel))
+                if sys.platform == "darwin" else ()):
+            try:
+                r.bind_all(k, lambda e, fn=fn: self._clip_key(e, fn))
             except tk.TclError:
                 pass
 
@@ -1188,8 +1201,17 @@ class App(object):
             self._error(str(e))
             return None
         added = self.doc.auto_uses()
+        # SPEC.md 130.58.57: a part past the grid's edge moves the WHOLE course back inside, when there is room
+        shift = self.doc.auto_shift() if len(self.doc.undo_stack) > n0 and not E._GRID_ERR.search(before or "") \
+            else None
+        self.doc.last_shift = shift.get("moved") if shift else None
+        if self.doc.last_shift:
+            added += self.doc.auto_uses()       # (a refusal the grid's hid: the part's family)
         band = self.doc.auto_band()
         self._note = ("The course grew past the game's picture, so the builder %s. " % band) if band else ""
+        if shift and shift.get("moved"):
+            self._note = ("It reached the edge of the course's grid, so the builder moved the whole course %s "
+                          "(every part with it; the picture is the same). " % shift_words(*shift["moved"])) + self._note
         if len(self.doc.undo_stack) > n0:
             gone = self.doc.drop_dependents(snap)
             if gone:
@@ -1213,9 +1235,15 @@ class App(object):
                 self.doc.undo()
                 if self.doc.redo_stack:
                     self.doc.redo_stack.pop()
+            if shift and shift.get("refused"):      # (no room to move the course: a plain refusal, nothing to keep)
+                self.keep = None
+                self._error("That change was undone: it reaches the edge of the course's grid, and %s."
+                            % shift["refused"])
+                return None
             self.keep = (fn, a, kw)
             self._banner("That change was undone: %s" % explain(after), keep=True)
             return None
+        self.edit_note = self._note             # (what the edit did besides: a caller's own message keeps it)
         self._banner(None)
         if after and len(self.doc.undo_stack) > n0:
             self._msg("Done. The course was refused before this edit and still is, for the same reason - the "
@@ -1319,6 +1347,150 @@ class App(object):
             if E.coord_slots(st.toks):
                 self._edit(self.doc.move, n, 1, 1, label="duplicate %s" % st.subkind)
 
+    # -- SPEC.md 130.58.57: several parts moved together; copy, cut and paste ---------------------------------
+    def _selected(self):
+        return sorted(set(self.sels) | ({self.sel} if self.sel else set()))
+
+    def _reselect(self, codes):
+        """select the statements holding CODES after an edit (moved over by a whole-course shift, when one came
+        with it) -> their lines"""
+        sh = getattr(self.doc, "last_shift", None)
+        if sh:
+            codes = [E.shifted_code(c, sh[0], sh[1]) for c in codes]
+        lines = self.doc.lines_of(codes)
+        self.sels, self.sel = list(lines), (lines[-1] if lines else None)
+        if lines:
+            self.select(lines[-1], add=False)
+            self.sels = list(lines)
+            self._fill_inspector()
+            self._redraw()
+        return lines
+
+    def move_multi(self, dx, dy):
+        """several selected parts dragged (or nudged) together by (DX, DY) whole cells: each keeps its own
+        shape and height; a floor's, wall's or goal's own paint and hang and what stands wholly on it ride along
+        (130.58.34); the ground they land on is cut away under them; ONE checked edit"""
+        sel = [ln for ln in self._selected() if E.coord_slots(self.doc.statement(ln).toks)]
+        if not sel:
+            return None
+        block = set(sel)
+        for ln in sel:
+            st = self.doc.statement(ln)
+            if st.kind in ("floor", "wall", "goal"):
+                block.update(self._companions(ln))
+                sh = self._shape(st)
+                if sh:
+                    block.update(self.doc.paint_in(sh[2], skip=block))
+                    block.update(w for w, _c in self.doc.riders(sh[2], skip=block)[0])
+        codes = [E.shifted_code(self.doc.statement(ln).code, dx, dy) for ln in sel]
+        held = (self.sel, list(self.sels))
+        self.sel, self.sels = None, []          # (the edit renumbers lines: the selection is found again after)
+        r = self._edit(self.doc.move_block, sorted(block), dx, dy, label="move %d parts" % len(sel))
+        if not r:
+            self.sel, self.sels = held          # (refused and undone: the same lines again)
+            self._fill_inspector()
+            self._redraw()
+        if r:
+            self._reselect(codes)
+            rode = len(block) - len(sel)
+            self._msg(getattr(self, "edit_note", "") + "Moved %d parts %s%s" % (
+                len(sel), shift_words(dx, dy).split(" (")[0],
+                (", with %d that ride%s on them" % (rode, "" if rode == 1 else "s")) if rode else ""))
+        return r
+
+    def _clip_key(self, e, fn):
+        """Ctrl+C, Ctrl+V, Ctrl+X: the course's on the Build tab, a text field's own in a field"""
+        if isinstance(e.widget, (self.tk.Entry, self.ttk.Entry, self.tk.Text, self.ttk.Spinbox, self.ttk.Combobox)):
+            return None
+        try:
+            if self.nb.index("current") != 0:
+                return None
+        except self.tk.TclError:
+            return None
+        fn()
+        return "break"
+
+    def copy_sel(self):
+        """the selected statement or statements as course text: to the builder's clipboard and the system's"""
+        lines = self._selected()
+        if not lines:
+            self._msg("Select a part (Ctrl-click for several) to copy it")
+            return None
+        codes, skipped = self.doc.copy_codes(lines)
+        if not codes:
+            self._msg("Nothing to copy: %s %s the course's own, not a part" % (
+                ", ".join("`%s`" % k for k in skipped), "is" if len(skipped) == 1 else "are"))
+            return None
+        self.clip = "\n".join(codes) + "\n"
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.clip)
+        except Exception:
+            pass
+        self._msg("Copied %d part%s%s. Ctrl+V pastes %s - at the pointer when it is over the plan" % (
+            len(codes), "" if len(codes) == 1 else "s",
+            (" (left out %s: a course has one)" % ", ".join("`%s`" % k for k in sorted(set(skipped))))
+            if skipped else "", "it" if len(codes) == 1 else "them"))
+        return codes
+
+    def cut_sel(self):
+        if self.copy_sel():
+            self.delete()
+
+    def _pointer_cell(self):
+        """the plan cell under the pointer, or None (not over the plan, or the Iso view)"""
+        try:
+            if self.view.get() != "plan":
+                return None
+            c = self.cv
+            x, y = c.winfo_pointerx() - c.winfo_rootx(), c.winfo_pointery() - c.winfo_rooty()
+            if not (0 <= x < c.winfo_width() and 0 <= y < c.winfo_height()):
+                return None
+
+            class _E(object):
+                pass
+            ev = _E()
+            ev.x, ev.y = x, y
+            return self._cell_at(ev)
+        except Exception:
+            return None
+
+    def paste(self, text=None, at=False):
+        """SPEC.md 130.58.57: the clipboard's statements (this builder's copy, or course text copied from anywhere)
+        added as new parts - at the pointer's cell when it is over the plan, else one cell over (diagonally) from
+        where they were, as far as it takes not to lie exactly on a copy - then selected, so they can be dragged.
+        AT: a cell (a test's pointer); False asks the pointer"""
+        if text is None:
+            text = None
+            try:
+                text = self.root.clipboard_get()
+            except Exception:
+                pass
+            text = text or getattr(self, "clip", None)
+        if not text or not text.strip():
+            self._msg("Nothing to paste: copy a part first (select it, Ctrl+C)")
+            return None
+        cell = self._pointer_cell() if at is False else at
+        codes, (dx, dy), notes = self.doc.paste_plan(text, at=cell)
+        if not codes:
+            self._error("Nothing to paste: the clipboard holds no part a course can take twice%s" % (
+                " (" + "; ".join(notes) + ")" if notes else ""))
+            return None
+        self.sel, self.sels = None, []          # (the paste renumbers lines; the pasted set is selected after)
+        r = self._edit(self.doc.paste, codes, label="paste %d part%s" % (len(codes), "" if len(codes) == 1 else "s"))
+        if not r:
+            self._fill_inspector()
+            self._redraw()
+        if r:
+            lines = self._reselect(codes)
+            self._msg(getattr(self, "edit_note", "") + "Pasted %d part%s %s%s - selected, so a drag moves them" % (
+                len(codes), "" if len(codes) == 1 else "s",
+                "at x %d, y %d" % tuple(v + w for v, w in zip(cell, getattr(self.doc, "last_shift", None) or (0, 0)))
+                if cell else "%d cell%s over" % (dx, "" if dx == 1 else "s"),
+                "; " + "; ".join(notes) if notes else ""))
+            return lines
+        return None
+
     def apply_raw(self):
         if not self.sel:
             code = self.raw.get().strip()
@@ -1361,7 +1533,9 @@ class App(object):
         if isinstance(e.widget, (self.tk.Entry, self.ttk.Entry, self.tk.Text, self.ttk.Spinbox,
                                  self.ttk.Treeview)) or not self.sel:
             return
-        if E.coord_slots(self.doc.statement(self.sel).toks):
+        if len(self._selected()) > 1:           # SPEC.md 130.58.57: several selected move together
+            self.move_multi(dx, dy)
+        elif E.coord_slots(self.doc.statement(self.sel).toks):
             self.move_sel(dx, dy)
         return "break"
 
@@ -2163,7 +2337,8 @@ class App(object):
                 cells.update(it["cells"])
         src = a["src"]                          # SPEC.md 130.58.38: a float's or paint's own shape, so an error
         if src is not None:                     # naming one shows where it is even over the void
-            for cs, ln in [(f[0], f[1]) for f in src.floats] + [(s_[1], s_[2]) for s_ in src.surfaces]:
+            for cs, ln in [(f[0], f[1]) for f in src.floats] + [(s_[1], s_[2]) for s_ in src.surfaces] + [
+                    (h_[0], h_[1]) for h_ in src.holes]:     # (a hole's cells too: a drag shows where it goes)
                 if ln in want:
                     cells.update(cs)
         return cells
@@ -2434,8 +2609,9 @@ class App(object):
         self.ins_line.config(text=", ".join(sorted({_plain_kind(st) for st in sts})))
         self.raw.set("")
         self.ins_err.config(text="")
-        self.ins_help.config(text="Ctrl-click (Command-click on a Mac) adds or removes a part. Changes here "
-                             "apply to every selected floor, wall or goal; Delete removes them all.")
+        self.ins_help.config(text="Ctrl-click (Command-click on a Mac) adds or removes a part; drag any of them "
+                             "(or use the arrow keys) to move them all. Changes here apply to every selected "
+                             "floor, wall or goal; Delete removes them all, Ctrl+C copies them.")
         row = 0
         if ground:
             flats = [float(st.toks[st.toks.index("flat") + 1]) for st in ground if "flat" in st.toks]
@@ -4408,7 +4584,8 @@ class App(object):
             self.select(w)
             self.drag = {"from": cell, "to": cell, "move": True, "shift": False, "ctrl": False}
             return
-        movable = self.sel and cell in self._sel_cells() and E.coord_slots(self.doc.statement(self.sel).toks)
+        movable = self.sel and cell in self._sel_cells() and any(    # (several: any of them, SPEC.md 130.58.57)
+            E.coord_slots(self.doc.statement(ln).toks) for ln in self._selected())
         ctrl = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
         self.drag = {"from": cell, "to": cell, "move": bool(movable) and not ctrl, "shift": bool(e.state & 0x0001),
                      "ctrl": ctrl}
@@ -4450,7 +4627,9 @@ class App(object):
             if d["rect"] != d["orig"]:
                 self.resize_sel(d["rect"])
                 return
-        if d["move"] and d["to"] != d["from"]:
+        if d["move"] and d["to"] != d["from"] and len(self._selected()) > 1:     # SPEC.md 130.58.57
+            self.move_multi(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
+        elif d["move"] and d["to"] != d["from"]:
             self.move_sel(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
         elif not d["move"] and d["to"] != d["from"]:
             self._fill_inspector()                # an area: it stays selected
@@ -4785,6 +4964,17 @@ def iso_frac(a, cell, px, py, meta):
             return f
         best = best or f
     return best
+
+
+def shift_words(dx, dy):
+    """SPEC.md 130.58.57: a whole-course shift in the plan's words: '2 cells right and 1 down (x +2, y +1)'"""
+    parts = []
+    if dx:
+        parts.append("%d %s" % (abs(dx), "right" if dx > 0 else "left"))
+    if dy:
+        parts.append("%d %s" % (abs(dy), "down" if dy > 0 else "up"))
+    return "%s cell%s %s (x %+d, y %+d)" % (parts[0].split()[0], "" if parts[0].startswith("1 ") else "s",
+                                           " and ".join([parts[0].split(" ", 1)[1]] + parts[1:]), dx, dy)
 
 
 def explain(err):

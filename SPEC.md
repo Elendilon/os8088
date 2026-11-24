@@ -292171,3 +292171,91 @@ which 130.58.54 shortens with an ellipsis - a cut grey line at the window's foot
 - **The check**: `tools/bbedcvtab.py` (130.58.55's) also selects the Course tab and applies a refused width,
   and the Source tab and applies a statement that does not build - the banner shown, over that tab, each time -
   and a good edit then clears it. Before the change both of the first two fail.
+
+#### 130.58.57 The course moved over, several parts dragged, copy and paste (the owner, 2026-11-24)
+
+The owner: *"If an addition is going to reach the edge of the course, move the whole course so it doesn't, if there
+is room to do so. When selecting multiple things, allow them to all be moved by drag and drop. Allow copy/paste of an
+item, or a selection of multiple."*
+
+**The edge of the course** is the GRID's: every solid cell lies inside `3 .. 252` on both axes (`build_tiles`,
+130.10.3: the two tiles round a solid cell stay inside the 256). The picture's own sides - the `width` and `origin`
+band, past which a floor is "too near the edge of the course's picture" - were already met by 130.58.13's
+`auto_band`, which moves the origin or widens the picture; nothing here changes that.
+
+- **The whole course moved over** (`Document.auto_shift`, run by the window's checked edit after every edit, before
+  `auto_band`): an edit that leaves a solid cell outside `3 .. 252` - an Add, a paste, a drag, a nudge, a typed
+  statement, a duplicate - moves EVERY statement of the course by the smallest whole-cell offset that brings the
+  course back inside (`shift_needed`), folded into that edit: ONE undo step takes both back. The status line says
+  so and by how much (*"It reached the edge of the course's grid, so the builder moved the whole course 2 cells
+  right (x +2, y +0)"*). The offset is found from the course as the compiler LAYS it (`grid_extent`: a copy moved
+  to the grid's middle and laid, so a ramp's span, a tube's body and a rail are all counted), and when the course
+  would then be wider than the grid's 250 cells along either axis the edit is refused and undone with a plain
+  `_error`: *"That change was undone: it reaches the edge of the course's grid, and the course is wider than the
+  game's grid (250 cells each way, x and y from 3 to 252), so there is no room to move it over"*. A pathway
+  (`path.bbc`) is never moved.
+- **What moves** (`Document.shifted_lines`): every world cell of every statement - `coord_slots`' positions (every
+  shape, a ramp's span, water's ripple cells, a region, a tube's ends and `via` points, a chute's ways, a see-saw,
+  pads, clocks, flags, the start, the route and its branches, springs, humps, pits, cups, arches, `noocclude`,
+  `gap`, `guard`, `float`, `surface`) and the two cells that are not a part's position and so never ride with a
+  part (`world_slots`): an `accept`'s cell (130.58.5) and a camera stop's `over` span (130.45.6). The picture's
+  `origin` moves back by 16 (dx - dy) px (written, or dropped when it comes back to the default 4 x width), so
+  every cell draws where it did. `view`, `art` and `label` are the PICTURE's coordinates, which do not move.
+- **Position only, proved** (`bbedproj.shift_same`, and `python3 tools/bbedproj.py shift COURSE DX DY --prove`):
+  the course compiled before and after - the picture pixel for pixel, the route's places in it, the laid cells one
+  over, the occluder masks and records, the warnings (accepted or not, their cells one over), the camera's stops,
+  the part's size, the limit and medals. MEASURED on every shipped course but `title` and the pathway: shifted
+  (2, 4), 30 of 32 the same (PLAYGROUND left out: minutes a compile); shifted (6, 0), 30 of 33 (PLAYGROUND the
+  same). Two things are not position-free, and both are the COMPILER's:
+  - **The floor's checker is by cell parity** (`(wx + wy) & 1`, white or cyan), so an offset with dx + dy ODD
+    swaps the two colours of every floor. `shift_needed` therefore asks an EVEN dx + dy - one cell more along
+    the axis that needed it (a course needing 1 right moves 2), or along the other when the first has no room
+    - and takes an odd one only when nothing even fits.
+  - **A shaped floor's lattice** (`FieldInk`, `HumpInk`: humps, pits, chutes) maps the screen
+    back to the ground in floating point on ABSOLUTE ground units, so a handful of its lattice pixels - where a
+    line falls on a rounding boundary - change with the course's position: HUMPS by 11 to 19 px at (2, 2),
+    (4, 0) and (2, 4); HUMPS and DOWN differ at (2, 4), and HUMPS, DOWN and PITS at (6, 0) - the three courses
+    above. MEASURED that this is the whole of it: HUMPS at all three offsets and DOWN at (2, 4) compiled with the
+    two inks' ground points taken relative to a multiple of 16 gu (one cell) are the same (0 px). Making that
+    the compiler's arithmetic would move a few lattice pixels of the shipped courses' pictures, so it is left
+    for a decision of its own; the builder says nothing different for such a course, and its picture is the
+    same to the eye.
+  - **The identity moves**: the part's bytes name absolute cells (a way's tile, a record's depth), so a shifted
+    course is a new identity (130.15.7) like any edit, and its AUTHOR demo and any shipped `BZD<NAME>.BIN` stop
+    replaying (130.58.3). An author who keeps a recorded demo keeps the course off the edge - or re-records.
+- **Several parts dragged together** (`App.move_multi`, `Document.move_block`): with several selected (Ctrl-click,
+  130.58.14), a drag on the PLAN that starts on any of them moves them all by whole cells, the selected cells drawn
+  where they will land while the drag lasts (floor, wall, goal, hole and parts alike), ONE checked edit on release:
+  refused and undone with the banner like any edit, auto-shifted when it reaches the grid's edge. Each part keeps
+  its own shape and height (unlike a single floor's move, which takes the height of the floor it lands on); a
+  floor's, wall's or goal's own paint and hang and what stands wholly on it ride along (130.58.34; a guard rail
+  half on it stays); the ground the block's floors, walls, goals and holes land on is cut away under them, so the
+  block lies on top (130.58.13). The moved set stays selected; the arrow keys move it the same way. The Iso view
+  has no drag of a part (a click there selects what drew the pixel), so neither has this.
+- **Copy, Cut and Paste** (the Edit menu; Ctrl+C, Ctrl+X, Ctrl+V on the Build tab - Command on a Mac; in a text
+  field they are the field's own): Copy puts the selected statement or statements on the builder's clipboard and
+  the system's as course TEXT, a statement a line, comments left behind (`Document.copy_codes`). What a course
+  holds once or that is the course's own setting (the start, and everything without a position: `course`,
+  `width`, `ball`, `music`, `uses`, `accept`, `stop`, ...) is left out and the status line names it. Cut is Copy
+  then Delete. Paste (`Document.paste_plan`, `paste`) takes the system clipboard's text - so text copied from
+  another course, or from an editor, pastes too - leaves out the same, refuses a pathway pad (the Map tab's), gives
+  a pasted route BRANCH a name this course does not use (`B` -> `B2`: the pasted points are a branch of their own;
+  pasted main-route points go at the end of the main route), and places the set with its top-left cell at the
+  pointer's cell when the pointer is over the plan, or else (k, k) over, k the smallest that puts no statement
+  exactly where one already is - so a paste lands beside its originals and a second paste beside the first. Ground
+  is laid the way an area is changed (`replace_area`: cut under it, added after the last ground); the rest after
+  the last of its kind. ONE checked edit; the pasted set is selected, so a drag moves it at once.
+- **The checks**: `tests/unit/t_bbedit.py` item 30 (no Tk): FIRST with a stop's span, a flag with an `accept`,
+  WATER (ripple cells) and WIND (a region) shifted and compiled the same (`shift_same`), and undone in one step;
+  red: the stop's span and the accept's cell left unshifted (`world_slots` as `coord_slots`) - "compiles the same
+  (the proof is blind)" - and an odd shift that does compile differently; a floor added at x 1 moving FIRST 2
+  right in the same undo step, the course without it the same course; a course from 3 to 252 refusing a floor at
+  x 2 with "no room"; three parts moved in one step and still selected, a refused move undone, a floor moved with
+  its wall carrying the start and a clock; Copy leaving `course`, `width` and the start and saying so; Paste one
+  over and never on a copy (red: at the originals' own corner it is seen to lie on them), a second paste one
+  more over, another course's text with its singletons left out and its branch renamed. Red by hand:
+  `auto_shift` returning None ("moved the course by None"), `CLIP_SINGLE` empty ("Copy took ... 'start 4 5'"),
+  `move_block` as two edits. `tools/bbedcopymove.py` drives the real window under Xvfb: a three-part drag with
+  its preview, a refused drag and its banner, Ctrl+C to the system clipboard, Ctrl+V with the pointer off and
+  over the plan (past the edge: the course moved over, the origin moved back, one Undo), Ctrl+X, the start left
+  out, and Ctrl+C in the Source tab's text left to the text. Screenshots: `docs/plans/bonanza-courses/copymove/`.
