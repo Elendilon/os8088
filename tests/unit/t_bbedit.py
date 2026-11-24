@@ -190,7 +190,7 @@ OPT_FULL = {
                        "seesaw 4 4 6 5 along x pivot 3 base ground"),
     ("archway", None): "archway rect 4 4 6 5 along y under 3 top",
     ("cup", None): "cup 4 4 capture 200 exit 1 hidden", ("checkpoint", None): "checkpoint 4 4 ball steel",
-    ("clock", None): "clock 4 4 frame pin digits 1 2", ("spring", None): "spring 4 4 500",
+    ("clock", None): "clock 4 4 frame pin digits 1 2 ink white", ("spring", None): "spring 4 4 500",
     ("pad", None): "pad steel 4 4", ("label", None): 'label 1 2 3 glyphs "HI" ink 2',
     ("way", None): "way 4 4 branch AB",
     ("prop", "windmill"): "prop windmill 4 4 period 32 closed 12 20 seed 5",

@@ -3868,15 +3868,20 @@ def _parse_text(text, fname="<course>"):
             src.labels.append({"num": n, "col": col, "row": row, "glyphs": text, "ink": ink, "line": ln})
         elif st == "clock":                         # wave 7 (SPEC.md 130.18.5)
             rest, frame, digs = toks[3:], "crystal", (0, 0)     # (130.18.5.5: `digits DX DY`, px, after `frame`)
+            ink = BLK                               # (130.18.5.6: `ink black|white` anywhere among the clauses)
+            for j_ in range(len(rest) - 1):
+                if rest[j_][1] == "ink" and rest[j_ + 1][1] in CLOCK_INKS:
+                    ink, rest = CLOCK_INKS[rest[j_ + 1][1]], rest[:j_] + rest[j_ + 2:]
+                    break
             if len(rest) >= 2 and rest[0][1] == "frame" and rest[1][1] in CLOCK_STYLES:
                 frame, rest = rest[1][1], rest[2:]
-            if len(rest) == 3 and rest[0][1] == "digits":
-                digs, rest = (_int(rest[1], where, "the digits' DX"), _int(rest[2], where, "the digits' DY")), ()
+            if len(rest) >= 3 and rest[0][1] == "digits":
+                digs, rest = (_int(rest[1], where, "the digits' DX"), _int(rest[2], where, "the digits' DY")), rest[3:]
             if len(toks) < 3 or rest:
-                raise CourseError("%s: clock takes <wx> <wy> [frame %s] [digits <dx> <dy>]" % (
+                raise CourseError("%s: clock takes <wx> <wy> [frame %s] [digits <dx> <dy>] [ink black|white]" % (
                     where, "|".join(CLOCK_STYLES)))
             src.clocks.append({"line": ln, "at": (_int(toks[1], where, "wx"), _int(toks[2], where, "wy")),
-                               "frame": frame, "digits": digs})
+                               "frame": frame, "digits": digs, "ink": ink})
         elif st == "pad":
             if len(toks) != 4 or toks[1][1] not in MAT_NAMES:
                 raise CourseError("%s: pad takes rubber|steel|glass <wx> <wy>" % where)
@@ -7645,7 +7650,7 @@ def build_props(src, tiles, fname):
         for place in range(ndig):                   # (130.18.5.3: each record a POST's too - no kick, no light)
             props.append({"kind": PK_CLOCK, "line": ln, "at": at, "mask": 0, "shift": 0, "seed": 0, "num": num,
                           "place": place, "ndig": ndig, "z4": 4 * t.z0, "K": 0, "KA": 0, "frame": sp["frame"],
-                          "digits": sp.get("digits", (0, 0)),
+                          "digits": sp.get("digits", (0, 0)), "ink": sp.get("ink", BLK),
                           "cx": 16 * at[0] + 8, "cy": 16 * at[1] + 8, "ph": CLOCK_PH,
                           "small57": sp.get("small57", False)})     # (a lives counter's LIVES face)
     for lb in src.labels:                           # SPEC.md 130.23.2: a LABEL - a SIGN (wave 8R, 130.22.4.1,
@@ -11372,15 +11377,20 @@ def clock_pose(tsec, place):
     return 1 + (tsec // 10 ** place) % 10
 
 
-def clock_glyph(d, bx, by, nx=0, ny=0):
+CLOCK_INKS = {"black": BLK, "white": WHT}     # SPEC.md 130.18.5.6: a clock's `ink`, its digits' colour
+
+
+def clock_glyph(d, bx, by, nx=0, ny=0, ink=None):
     """digit D's ink in block (bx, by), canvas pixels: the 5 x 7 glyph a pixel in
     from the block's left, at its top - NX, NY px further right and down (the
-    anchor's nudge, SPEC.md 130.18.5.5: -1 to 2 across, 0 to 1 down, inside the block)"""
+    anchor's nudge, SPEC.md 130.18.5.5: -1 to 2 across, 0 to 1 down, inside the block) - in INK, the clock's
+    `ink` (SPEC.md 130.18.5.6: black, the default, or white)"""
     out = {}
+    ink = BLK if ink is None else ink
     for r, bits in enumerate(CLOCK_FONT[d]):
         for k in range(5):
             if bits & (16 >> k):
-                out[(8 * bx + 1 + nx + k, 8 * by + ny + r)] = BLK
+                out[(8 * bx + 1 + nx + k, 8 * by + ny + r)] = ink
     return out
 
 
@@ -14545,7 +14555,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                 _bdx, _bdy, gnx, gny = clock_anchor(p) or (0, 0, 0, 0)
                 if _CLOCK_ANCHOR_LANES == "nudge":  # (the red arm: the glyph at its block's place)
                     gnx = gny = 0
-                gl = [clock_glyph(d, bx, by, gnx, gny) for d in range(10)]
+                gl = [clock_glyph(d, bx, by, gnx, gny, p.get("ink")) for d in range(10)]
                 off = sorted({k for g in gl for k in g if k not in clock_art})   # SPEC.md 130.18.5.5: the
                 if off:                             # frame's art HOLDS its digits (hidden or not: the picture's)
                     raise CourseError("%s:%d: the clock at (%d, %d)'s digits (offset %+d, %+d px) leave its "
@@ -14553,6 +14563,15 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                       "digits sit on (SPEC.md 130.18.5.5)" % (
                                           fname, p["line"], p["at"][0], p["at"][1], clock_digits_px(p)[0],
                                           clock_digits_px(p)[1], len(off), off[0][0], off[0][1]))
+                ink_ = p.get("ink", BLK)            # SPEC.md 130.18.5.6: digits the colour of the face under them
+                face_ = q0["face_pix"] if p["place"] else p["face_pix"]       # are no clock: refused, not shipped
+                if gl[8] and all(face_.get(k) == ink_ for k in gl[8] if k in face_):
+                    raise CourseError("%s:%d: the clock at (%d, %d)'s digits are %s on a %s face: they would not "
+                                      "show (SPEC.md 130.18.5.6) - give it `ink %s` or a frame whose digits' window "
+                                      "is not %s" % (fname, p["line"], p["at"][0], p["at"][1],
+                                                     *(["white"] * 2 if ink_ == WHT else ["black"] * 2),
+                                                     "black" if ink_ == WHT else "white",
+                                                     "white" if ink_ == WHT else "black"))
                 for d in range(10):
                     poses[1 + d] = {k: v for k, v in gl[d].items() if k in clock_seen}
             lanes.append({"prop": i, "rect": (bx, by, 1, 1), "poses": poses, "st": {},
