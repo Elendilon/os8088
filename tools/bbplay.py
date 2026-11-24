@@ -479,11 +479,14 @@ class Art:
         ox, oy = 8 * g.c0, g.R0 * g.rl
         win = self.base.crop((ox, oy, ox + W, oy + B.WIN_LINES))
         hv = g.heavy
+        tlp = {}                                # SPEC.md 130.42.15: each see-saw lane's DRAWN pose, for laid_at
         for r in p.props:
             L = self.lane(r)
             if L is None:
                 continue
             q = pose(roll, r, lagged)
+            if L.get("kind") == B.FK_TILTL:
+                tlp[L["prop"]] = q or 0
             if not q:
                 continue
             bx, by, _w, _h = L["rect"]
@@ -522,7 +525,7 @@ class Art:
             cl = p.cell(p.gx >> 12, p.gy >> 12)
             if cl[4] & (B.FL_OCC if p.air else B.FL_OCCG):
                 for (x, y) in B.laid_at(self.c, p.px, p.py, p.sb, p.zb, p.oair, card=True,
-                                        cell=B.mcell(p.gx, p.gy)):
+                                        cell=B.mcell(p.gx, p.gy), poses=tlp if tlp else None):
                     if (x, y) in under:
                         put(x, y, under[(x, y)])
         return win, (ox, oy)
