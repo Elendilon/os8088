@@ -6880,3 +6880,26 @@ each pose: worst 75,076 clk before and after, mean +300 - +380. In the model ove
 scenario (each ball up the plate, tipped, held at the wall) 0 wrong and 0 missed in every pose, both red arms red;
 `tests/bonanza_av.py` on MILL with the guest's own `bz_lsync` setting each pose: every buffer the host's, and its
 two new red arms red. *Not done*: no MartyPC look at the tipped plate; the soak rows are the lead's.
+
+## 2026-11-24 (the far list optimized, and the near walk: SPEC.md 130.29.14)
+
+The owner asked for a second agent to optimize the far list "and AV in general", the bar being the research's
+estimate or better. The far list had already beaten it on bytes and was not a speed-up. *Measured first*: what
+each listed cell's list buys (on DOWN, dropping a whole list costs a record and a mask on most cells, so the lists
+pay), what the grid's +1 bytes cost (845 bytes LZB over the eight courses, half of it the values' diversity), and
+where an entering frame's clocks go (a profile by label of the priced instructions: reading the 14 front cells is
+44% of MILL's). *Kept*: an exact PRUNE in the tool - an entry is dropped when every pixel it hid is laid anyway,
+by another position's residual or by today's records over the cells the model does not run in, so every course
+ships the same records byte for byte with 108 fewer entries; an ENDED encoding of section `A` - entries rising,
+a list ended by the first byte at or under the one before, lists laid in falling order of their first byte so
+none needs an ending byte of its own, a list that is another's tail not laid again - which halves `A` (490 -> 242
+bytes); and three cheap changes in the guest's near walk (a passed-over cell pushes nothing, a flat cell's height
+term costs nothing, the cell pointer steps instead of being recomputed), -4% of MILL's mean entering frame for 18
+bytes of code. *Dropped*: moving cells onto lists already in use to cut the values' diversity - 28 bytes for 85
+more entries once the ended encoding had taken the sharing. *The surprise*: the ended encoding, not the prune,
+was the byte win (the prune alone under the count encoding was -28 bytes); and the prune counted at first only
+other VOID positions' pixels, and counting today's records too took it from 27 entries to 108. *Measured*, the
+same frames on both sides: `BONANZA.O88` -300 bytes (177,890 -> 177,590), the eight parts -352 bytes LZB, every
+course's worst and mean entering frame lower, and against the figures before the far list every worst and every
+mean lower but MILL's mean. *Not done*: no MartyPC look; the first filter's coefficients not refitted to the
+faster guest; the soak rows are the lead's.
