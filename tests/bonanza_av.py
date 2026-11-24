@@ -39,6 +39,13 @@ SPEC.md 130.49's: --red lowfl (the low flight's margin left out), --red apick (a
 acent (a centre half-edge a line low) and --red aflat (a flat word laid from the first laid line) must fail;
 SPEC.md 130.11.4.2's: --red acum (a group's later laid records never ANDed, the least-t' test gone) must fail;
 --course BBC (more than once) runs those course files alone (ROLL, HOP: the BZROLL=1 build's).
+
+SPEC.md 130.42.15, THE SEE-SAW'S POSES: on a course with see-saw lanes (MILL), after its positions, each plate's
+lanes are put in each pose P by the guest's own bz_lsync (the map's words and, through bz_ltog, the records'
+TOGGLES), then --n / 3 positions round the plate (the reach whose footprint meets a block one of its poses
+changes) are run as above - the host's expectation laying only the records the part's toggles lay in pose P, from
+the blocks of the map as the guest holds it.  --red tltog (bz_lsync writing no toggle: the records stay as the
+last pose left them) and --red tlall (every posed record laid in every pose: the pose test removed) must fail.
 """
 import argparse
 import os
@@ -96,6 +103,11 @@ REDS = {
     # a record UNDER the least laid t' - an antichain's, not under any laid cumulative mask - is never ANDed
     "acum": [("bzvideo.inc", "    jae .skip                   ; every record of its block at or over it in",
               "    jmp .skip                   ; RED acum")],
+    # SPEC.md 130.42.15: a see-saw lane's toggles never written; every posed record laid in every pose
+    "tltog": [("bzwheel.inc", "    mov [bz_ldrw + bx], al\n    call bz_ltog\n    push ax\n",
+               "    mov [bz_ldrw + bx], al\n    push ax                     ; RED tltog\n")],
+    "tlall": [("bzwheel.inc", "    jnz .on\n    xor dl, dl                  ; ...or 0: not laid in this pose",
+               "    jmp .on                     ; RED tlall\n    xor dl, dl")],
 }
 
 
@@ -131,13 +143,29 @@ class Pass:
         self.ag = BB.AGrid(BB.world_of(c))
         self.g.w("bz_gfl", self.ag.gflags)
         m = BB.course_model(c)
+        self.masks = m["masks"]
         self.recs = {}
-        for br, col, s_, top, mi in m["recs"]:
-            self.recs.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
+        sz = m.get("sz") or ()                  # (SPEC.md 130.42.15: a record stored s' 0 is laid at rest by none)
+        for i, (br, col, s_, top, mi) in enumerate(m["recs"]):
+            if i not in sz:
+                self.recs.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
         info = BB.read_parts(c.cga, c.wcga) if getattr(c, "wcga", None) else BB.read_part(c.cga)
         self.mapsh, self.mapoff = info["mapsh"], BB.HDR
         self.cols = info["cols"]
         self.nneigh = 0
+        # SPEC.md 130.42.15: the see-saw lanes (the part's record order: lane j is record j) and each record's
+        # TOGGLE byte (the part's record index: a byte its toggle run's), read from the part's own props
+        self.pose = 0
+        self.mrecs = m["recs"]
+        self.tlanes = [d for d in info["props"] if d["kind"] == BB.FK_TILTL]
+        self.tog = {}
+        first = {}
+        for i, rr in enumerate(m["recs"]):
+            first.setdefault(rr[0], i)
+        for runs in (BB.tl_togs_of(m["props"]["blob"], m["props"]["n"]).values() if m["props"] else ()):
+            for br, kk, bs in runs:
+                for j, t in enumerate(bs):
+                    self.tog[first[br] + kk + j] = t
         # A SHEETED course (SPEC.md 130.30.12): sheet 0 at PS (above), each other sheet at a segment of its own
         # (SHS up), and the sheet SHOWN for a window chosen by the plan's rule (show(): the shown one while it
         # serves the window's top, else the first that does) - bz_mseg its segment and bz_mrow its rows clamped
@@ -150,6 +178,28 @@ class Pass:
             self.segs = [PS] + [SHS + 0x1000 * (i - 1) for i in range(1, len(self.sheets))]
             for s_, q in zip(self.segs[1:], self.sheets[1:]):
                 self.g.mu.mem_write(s_ * 16, bytes(q))
+
+    def set_pose(self, pose):
+        """SPEC.md 130.42.15: every see-saw lane DRAWN in POSE through the guest's bz_lsync (its map words and its
+        toggles), its tables poked as bz_winit makes them; the host's records those the toggles lay in it"""
+        g, X = self.g, self.g.X
+        for d in self.tlanes:
+            j, L = d["i"], d["lane"]
+            g.mu.mem_write(D.CS * 16 + self.sym["bz_lknd"] + j, bytes((d["kind"],)))
+            g.mu.mem_write(D.CS * 16 + self.sym["bz_ltsz"] + j, bytes((2 * L["w"] * L["h"],)))
+            g.mu.mem_write(D.CS * 16 + self.sym["bz_ltw"] + j, bytes((L["w"],)))
+            g.mu.mem_write(D.CS * 16 + self.sym["bz_lhh"] + j, bytes((L["h"],)))
+            g.mu.mem_write(D.CS * 16 + self.sym["bz_ltpm"] + 2 * j, struct.pack("<H", L["off"]))
+            mo = g.r("bz_mrow", 2, k=2 * L["brow"]) + 2 * L["col"]
+            g.mu.mem_write(D.CS * 16 + self.sym["bz_ltmo"] + 2 * j, struct.pack("<H", mo))
+            g.mu.reg_write(X.UC_X86_REG_BX, j)
+            g.call("bz_lsync", ax=pose)
+        self.pose = pose
+        self.recs = {}
+        for i, (br, col, s_, top, mi) in enumerate(self.mrecs):
+            t = self.tog.get(i)
+            if t is None or (t >> (BB.TL_TOGS + pose)) & 1:
+                self.recs.setdefault((br, col), []).append((s_, top, self.masks[mi]))
 
     def show(self, wtop):
         """a SHEETED course: the sheet serving the window's top WTOP (lines) made the shown one"""
@@ -164,6 +214,9 @@ class Pass:
         self.g.mu.mem_write(CS * 16 + self.sym["bz_mrow"], mrow)
 
     def block_word(self, br, w, ly):
+        if self.pose and not self.sheets:       # (SPEC.md 130.42.15: the map as the guest's bz_lsync left it)
+            mw = struct.unpack("<H", self.g.mu.mem_read(PS * 16 + self.mapoff + 2 * self.cols * br + 2 * w, 2))[0]
+            return struct.unpack("<H", self.g.mu.mem_read(PS * 16 + mw + 2 * ly, 2))[0]
         if not self.sheets:
             p, row = self.c.cga, br
         else:                                   # (a sheet holding block row BR: its map is rows m0 .. m0 + n - 1)
@@ -400,6 +453,44 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                         rw_ = P.ag.raw(gx >> 12, gy >> 12)
                         pr.append((price_of(tr, lst), price_of(r0[6], lst), runs,
                                    rw_ is not None and rw_[2] & 15 in BB.SPLIT_KINDS))
+            if P.tlanes and not P.sheets and getattr(c, "tl_rep", None):   # SPEC.md 130.42.15: the poses
+                near = BB.tl_occ_reach(c.reach, c.tl_rep["rb"][1] | c.tl_rep["rb"][2], c.x0, c.y0)
+                for pose in (2, 1, 0):
+                    P.set_pose(pose)
+                    npos = nbad = nlay = 0
+                    pfirst = None
+                    for _ in range(max(1, n // 3)):
+                        rc = rnd.choice(near)
+                        air = 1 if rc.kind == BB.KIND_VOID else rnd.randrange(2)
+                        z = rnd.randrange(rc.zlo, rc.zhi + 1)
+                        gx, gy = (16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096)
+                        gz = (z << 8) + rnd.randrange(256)
+                        py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
+                        px = ((gx - gy) >> 8) + c.x0 - 8
+                        r_ = P.run((gx, gy, gz, air, None), max(0, py - 92), max(0, (px >> 3) - 18),
+                                   random.Random(rnd.randrange(1 << 30)))
+                        if r_ is None:
+                            continue
+                        got, want, dl, hl, dm, runs, tr, at = r_
+                        npos += 1
+                        nlay += dl
+                        if got != want or dl != hl or dm != int(runs):
+                            nbad += 1
+                            if pfirst is None:
+                                k = next((i for i in range(len(got)) if got[i] != want[i]), None)
+                                pfirst = "pose %d at px %d py %d s %d z %d air %d cell %s: %s" % (
+                                    pose, at[0], at[1], at[2], at[3], at[4], at[5],
+                                    "buffer byte %s: guest %02Xh, host %02Xh" % (k, got[k], want[k])
+                                    if k is not None else "laid %d / %d" % (dl, hl))
+                    if verbose:
+                        print("bonanza_av %-6s see-saw pose %d (its %d lanes by bz_lsync): %d positions round the "
+                              "plate, %d records laid: %s" % (name, pose, len(P.tlanes), npos, nlay,
+                                                              "every buffer and laid count the host's" if not nbad
+                                                              else "%d DIFFER, the first %s" % (nbad, pfirst)),
+                              flush=True)
+                    if nbad:
+                        out.append("bonanza_av %s see-saw pose %d: %d positions differ, the first %s" % (
+                            name, pose, nbad, pfirst))
             if verbose:
                 print("bonanza_av %-6s GF_ANA %s: %d positions (%d VOID, the model ran at %d, %d of them a new cell's "
                       "table from its neighbour's, %d in a cell with a far list; %d clipped), %d records laid: %s" % (
