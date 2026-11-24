@@ -6827,3 +6827,26 @@ reading the byte. The eight courses' parts are 1,300 bytes LZB smaller (records 
 `BONANZA.O88` 1,217 bytes smaller. It is not a speed-up: the mean entering frame is 0.2k - 1.3k dearer. *Not
 done*: no MartyPC run (the clocks are priced from the instructions, not measured on the 8088), and the soak
 rows are the lead's to run.
+
+## 2026-11-24 (the far list verified and merged with bounce-bonanza)
+
+The session above was cut off by a container restart in its final verification, so a second session picked its
+work up as one WIP commit, merged `bounce-bonanza` into it (CGA palette 2, the `BZSSLOG` knob and the see-saw's
+wake fix: no conflict, no shared lines), reviewed it and re-ran what had not finished. The review found nothing to
+change: `bz_afar` is 8086-only, runs with DS on the world part as `.cell` does, writes a far cell as an ordinary
+front-table slot (so `bz_arange` takes its flat or sloped path and never the pieces' one), checks the extra
+slots' end before each entry, exactly as the tool's `front()` stops; and the audit of every reader of a VOID
+cell's +1 held (the CELLS form keeps the byte, `World.cell` would show it as slopes but physics never reaches
+it, and the builder's tools read courses only through `compile_course` and `read_part`). *Measured* on the
+merged tree: `--selfcheck --only av,twoseg` green, both red arms red (an entry dropped: COMPLETENESS; the
+WRONG-HIDE filter off: 193,052 pixels against 1,813 on MILL); `--only determinism,courses,demos4` green but for
+MILL's ROUND OPENINGS, which fails on `bounce-bonanza` itself (the windmill doorway on line 90, not on the
+glass); `tests/bonanza_av.py` green on every course and `--red afar` red; `make bonanzadisk` takes the three
+re-stamped demos; `make` green. The figures came out the same as the first session's, course for course and
+frame for frame, except the package: **`BONANZA.O88` 178,389 -> 177,091, 1,298 bytes smaller** against the
+merge parent built at the same build number (the first session wrote 1,217 on its own tree), with the guest
++239 bytes. Against the owner's bar - the estimate's -1.1 KB or better - it is better. The listed cells' worst
+entering frame sits 2.5k (PEAK) to 18.6k (PLAY) under each course's worst. `tests/bonanza_av.py --price` cannot
+run on MILL at all, before the far list or after: MILL compiled with `--occ off`, its A/B leg, needs 284 masks
+where a record can name 256. *Not done*: still no MartyPC look at a ball behind a far cliff, and the soak rows
+are the lead's.
