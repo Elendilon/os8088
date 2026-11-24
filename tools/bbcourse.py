@@ -17202,6 +17202,25 @@ def tl_fix_recs(m, SB):
     m["sz"] = frozenset(sz)
 
 
+def _part_poses(m):
+    """SPEC.md 130.42.15: each decoded record's POSES (bit P: laid in see-saw pose P) read out of the part's
+    toggles, as tl_fix_recs places them - 7 for a record no toggle names -> [pose bits] by m["recs"] index"""
+    out = [7] * len(m["recs"])
+    pr = m.get("props")
+    if not pr:
+        return out
+    oi = {}
+    for i, rr in enumerate(m["recs"]):
+        oi.setdefault(rr[0], i)
+    for runs in tl_togs_of(pr["blob"], pr["n"]).values():
+        for br, kk, bs in runs:
+            for j, t in enumerate(bs):
+                i = oi.get(br, 0) + kk + j
+                if i < len(out):
+                    out[i] = (t >> TL_TOGS) & 7
+    return out
+
+
 def one_part_len(m, recb):
     """the ONE-part RAM form's length under RECB `recb`, from the layout alone: a course past 64KB is
     measured, never packed into a 16-bit offset"""
@@ -29148,7 +29167,7 @@ def laid_at(course, px, py, sb, zb, air, card=False, cell=None, poses=None):
         q for q in amodel_pix(course, cell, zb, air, px, py) if not ghost(*q)}     # (SPEC.md 130.29: the model's)
 
 
-def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None, cell=None):
+def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None, cell=None, _laysz=False):
     """the footprint as the CARD lays it, read independently of the tool's
     records: the records and masks out of the RAM part (decode_part, which
     reads the bytes the guest holds), each laid as the guest lays a mask -
@@ -29157,13 +29176,17 @@ def card_composite(course, px, py, sb, zb, air, _strip=True, laid=None, cell=Non
     dithered composite composite(..., ghost=True) must equal (item 11).
     _strip=False: the masks with the checker taken back out (the oracle with
     the checker NOT stripped, the control's other half).  laid: a set, which
-    gets every footprint pixel a mask lays (its pair 0).  -> {(x, y): index}"""
-    if getattr(course, "_cm", None) is None or course._cm[0] is not course.cga:
+    gets every footprint pixel a mask lays (its pair 0).  _laysz: the records
+    STORED s' 0 laid as well, at the s the decoder gives them back (the
+    oracle that forgets 130.42.15, item 11's control).  -> {(x, y): index}"""
+    if getattr(course, "_cm", None) is None or course._cm[0] is not course.cga or course._cm[2] != _laysz:
         m = course_model(course)
         byb = {}
-        for br, col, s_, top, mi in m["recs"]:
-            byb.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
-        course._cm = (course.cga, byb)
+        sz = () if _laysz else m.get("sz") or ()    # (SPEC.md 130.42.15: a record STORED s' 0 - a see-saw pose's,
+        for i, (br, col, s_, top, mi) in enumerate(m["recs"]):      # not laid at rest - the guest never lays:
+            if i not in sz:                                         # its s is the toggle's, given back by the
+                byb.setdefault((br, col), []).append((s_, top, m["masks"][mi]))    # decoder)
+        course._cm = (course.cga, byb, _laysz)
     byb = course._cm[1]
     mg = 0 if air else CLIMB
     x4 = px & ~3
@@ -33508,6 +33531,39 @@ def _mask_pix(mask, br, bc):
                      if not (mask[2 * ly + (lx >> 2)] >> (6 - 2 * (lx & 3))) & 3)
 
 
+def _cum_check(c, m):
+    """item 11's CUMULATIVE check on one course's decoded model m (SPEC.md 130.11.4.2): each record's mask the AND
+    of the records of its block at or over it in s and top - within each see-saw pose its toggle lays it in
+    (130.42.15), an untoggled record in all three - and a block's records in (s, top) order -> (ok, records
+    whose mask differs from their own, posed records)"""
+    kept = [r for r in c.records if r["kmask"] != ALLKEEP]
+    if len(kept) != len(m["recs"]):
+        return False, 0, 0
+    pms = _part_poses(m)
+    byb = {}
+    for i, q in enumerate(m["recs"]):
+        byb.setdefault((q[0], q[1]), []).append((i, q))
+    ok, ncum = True, 0
+    for iqs in byb.values():
+        qs = [q for _, q in iqs]
+        if [r[2:4] for r in qs] != sorted(r[2:4] for r in qs):
+            ok = False
+        for i, q in iqs:
+            for pose in (0, 1, 2):
+                if not (pms[i] >> pose) & 1:
+                    continue
+                want = bytearray(b"\xff" * 16)
+                for i2, q2 in iqs:
+                    if (pms[i2] >> pose) & 1 and q2[2] >= q[2] and q2[3] >= q[3]:
+                        mk = kept[i2]["kmask"]
+                        for j in range(16):
+                            want[j] &= mk[j]
+                if m["masks"][q[4]] != bytes(want):
+                    ok = False
+            ncum += 1 if m["masks"][q[4]] != kept[i]["kmask"] else 0
+    return ok, ncum, sum(1 for p_ in pms if p_ != 7)
+
+
 def _w5_dither(courses, res, demos=None):
     """item 11 (SPEC.md 130.15.12.3, 130.15.10): the dither and the audit"""
     import bonanza_assets as _BA
@@ -33541,30 +33597,51 @@ def _w5_dither(courses, res, demos=None):
     # of the masks of every record of its block at or over it in s and top (its own included); so the AND over
     # any laid set's masks is the AND over its records' own (the guest ANDs only the laid records under the
     # least top it has laid) - and laying them as the old guest did, every laid mask ANDed, lays the same
+    # (SPEC.md 130.42.15: a see-saw's POSED block holds every pose's records, each cumulative WITHIN the poses
+    # its toggle byte lays it in - so the AND is taken over the records of one pose at a time, a record's poses
+    # read out of the part's toggles; an untoggled record is laid in all three)
     cbad, cfig = [], []
+    nposed = 0
     for c in courses:
         m = decode_parts(c.cga, c.wcga) if c.split else decode_part(c.cga)
-        byb = {}
-        for q in m["recs"]:
-            byb.setdefault((q[0], q[1]), []).append(q)
-        own = {(r["brow"], r["col"], r["s"], r["top"]): r["kmask"] for r in c.records if r["kmask"] != ALLKEEP}
-        ncum = 0
-        for key_, qs in byb.items():
-            for q in qs:
-                want = bytearray(b"\xff" * 16)
-                for q2 in qs:
-                    if q2[2] >= q[2] and q2[3] >= q[3]:
-                        mk = own[q2[:4]]
-                        for i in range(16):
-                            want[i] &= mk[i]
-                ncum += 1 if bytes(want) != own[q[:4]] else 0
-                if m["masks"][q[4]] != bytes(want) or [r[2:4] for r in qs] != sorted(r[2:4] for r in qs):
-                    cbad.append(c.name)
+        ok_, ncum, np_ = _cum_check(c, m)
+        nposed += np_
+        if not ok_:
+            cbad.append(c.name)
         cfig.append("%s %d of %d" % (c.name, ncum, len(m["recs"])))
     res.append(("11 every record's mask in the part is CUMULATIVE (130.11.4.2: the AND of its block's records at or "
-                "over it in s and top) and a block's records run in (s, top) order; masks that differ from the "
-                "record's own: %s%s" % (", ".join(cfig), "" if not cbad else " -- %s" % sorted(set(cbad))),
+                "over it in s and top, within each see-saw pose that lays it, 130.42.15 - %d posed records) and a "
+                "block's records run in (s, top) order; masks that differ from the record's own: %s%s" % (
+                    nposed, ", ".join(cfig), "" if not cbad else " -- %s" % sorted(set(cbad))),
                 not cbad))
+    # its negative controls on a see-saw's POSED blocks (MILL's): the part's posed masks ANDed across every pose
+    # (a pose laying another's records' coverage), and each posed record's own mask, not cumulative at all
+    mill = next((c for c in courses if c.name == "MILL"), None)
+    if mill is not None:
+        m = decode_parts(mill.cga, mill.wcga) if mill.split else decode_part(mill.cga)
+        pms = _part_poses(m)
+        kept = [r for r in mill.records if r["kmask"] != ALLKEEP]
+        arms = []
+        for arm in ("blind", "own"):
+            m2 = dict(m, masks=list(m["masks"]), recs=list(m["recs"]))
+            for i, q in enumerate(m["recs"]):
+                if pms[i] == 7:
+                    continue
+                if arm == "own":
+                    mk = kept[i]["kmask"]
+                else:
+                    want = bytearray(b"\xff" * 16)
+                    for i2, q2 in enumerate(m["recs"]):
+                        if q2[:2] == q[:2] and q2[2] >= q[2] and q2[3] >= q[3]:
+                            for j in range(16):
+                                want[j] &= kept[i2]["kmask"][j]
+                    mk = bytes(want)
+                m2["masks"].append(mk)
+                m2["recs"][i] = q[:4] + (len(m2["masks"]) - 1,)
+            arms.append(not _cum_check(mill, m2)[0])
+        res.append(("11 MILL negative controls (130.42.15): the posed blocks' masks made cumulative ACROSS the poses - "
+                    "%s; each posed record's own mask - %s" % tuple("caught" if a else "NOT caught" for a in arms),
+                    all(arms)))
     # what is not dithered: the balls' masks and the lift's slab, each its generator's bytes
     bbad = []
     for mat in range(len(MAT_NAMES)):
@@ -33614,11 +33691,13 @@ def _w5_dither(courses, res, demos=None):
             if bytes(andm) != r["mask"] or _mask_pix(r["mask"], r["brow"], r["col"]) != r["pix"]:
                 mbad.append(c.name)
                 break
-        tried, diff = merge_exact(from_masks(c.raw, "mask"), from_masks(c.records, "mask"), c.queries)
-        if diff is not None:
+        tried, diff = merge_exact(from_masks(c.raw, "mask"), from_masks(
+            [r for r in c.records if r.get("pm", 1) & 1], "mask"), c.queries)      # (at rest: c.raw is the rest
+        if diff is not None:                                                        # picture's, 130.42.15)
             mbad.append(c.name)
     res.append(("11 the merge is exact on the UNDITHERED masks: every merged mask the AND of its members', laying "
-                "exactly its pixels, and every query's laid set the unmerged masks' (%s)%s" % (
+                "exactly its pixels, and every query's laid set the unmerged masks' - at rest, a see-saw's posed "
+                "records laid in pose 0 alone, as item 5's (%s)%s" % (
                     ", ".join(c.name for c in courses), "" if not mbad else " -- %s" % mbad), not mbad))
     # the CARD's composite (records less the checker) against the dithered masks laid as the guest lays them,
     # and laid_at's card count against the pixels those masks lay: reach centres, lowest and highest, both
@@ -33663,6 +33742,11 @@ def _w5_dither(courses, res, demos=None):
                     != card_composite(mill, *q[:5], cell=q[5])), None)
         res.append(("11 MILL negative control: the card's model with the checker NOT stripped disagrees with the "
                     "dithered composite%s" % (" (first at px %d, py %d)" % hit[:2] if hit else ""), hit is not None))
+        hit = next((q for q in mill._vis_pos if composite(mill, *q[:5], ghost=True, cell=q[5])
+                    != card_composite(mill, *q[:5], cell=q[5], _laysz=True)), None)
+        res.append(("11 MILL negative control (130.42.15): the card laying the see-saw records STORED s' 0 (a pose's "
+                    "not laid at rest) disagrees with the dithered composite%s" % (
+                        " (first at px %d, py %d)" % hit[:2] if hit else ""), hit is not None))
         if getattr(mill, "_raised", None) is None:
             mill._raised = _raised_tops(mill)
         keep = mill.by_block
@@ -40291,19 +40375,22 @@ def _guard_lw_checks(res, _hack=None):
     cd = compile_course(_GLW + "guard rect 4 8 14 11\n", fname="<guard rails: a lower wall, default>", _hack=hk)
     g0, g, gd = Grid(c0.cga), Grid(c.cga), Grid(cd.cga)
 
-    def ball(gr, k, m=FL_OCC | FL_OCCG):            # (a cell's grid bytes but the OCCLUDERS' bits: the rail in
-        v = gr.cell(*k)                             # front of a ball is the picture's, 130.35.4)
+    def ball(gr, k, m=FL_OCC | FL_OCCG):            # (a cell's grid bytes but the OCCLUDERS': its bits, and a
+        v = gr.cell(*k)                             # VOID cell's +1, its FAR LIST (130.29.13) - the rail in front
+        if v[3] == KIND_VOID:                       # of a ball is the picture's, 130.35.4, and so are the
+            v = v[:1] + (0, 0) + v[3:]              # records it cuts and the far lists they leave AV)
         return v[:4] + (v[4] & ~m,) + v[5:]
     occ = sum(g.cell(*k)[4] != g0.cell(*k)[4] for k in c0.cells)
+    far = sum(g.cell(*k)[1:3] != g0.cell(*k)[1:3] for k in c0.cells if g0.cell(*k)[3] == KIND_VOID)
     same = not (g.gflags & GF_EDGE) and g.gflags == g0.gflags and all(ball(g, k) == ball(g0, k) for k in c0.cells)
     dflt = set(cd.redges) == want | void and set(cd.src.rails) == void and all(
         ball(gd, k, FL_OCC | FL_OCCG | FL_EDGES | FL_SAFE) == ball(g0, k, FL_OCC | FL_OCCG | FL_EDGES | FL_SAFE)
         for k in c0.cells) and not any(gd.cell(*k)[4] & FL_EDGES for k in c0.cells
                                        if c0.cells[k][2] & 15 == KIND_WALL)
     res.append(("16 guard (a LOWER WALL): %d rails beside the 2-unit wall, the picture's alone - no edge bit, GF_EDGE "
-                "clear, every grid byte the course's without them but %d cells' occluder bits (the wall's edge is "
-                "closed to the ball already); by default they join the void edges' %d, no wall cell given a bit"
-                % (len(c.redges), occ, len(void)),
+                "clear, every grid byte the course's without them but %d cells' occluder bits and %d VOID cells' far "
+                "lists (130.29.13: the wall's edge is closed to the ball already); by default they join the void "
+                "edges' %d, no wall cell given a bit" % (len(c.redges), occ, far, len(void)),
                 set(c.redges) == want and not c.src.rails and same and dflt))
     rail = rail_pixels(c)
     keys = {sum(rail_key(k, c.tiles)) for k in c.redges}
