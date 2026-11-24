@@ -120,6 +120,11 @@ IN THE WINDOW: SELECT FIRST, THEN ACT
   Several parts on one cell (a tube in a wall, a windmill, a route point):
   click the cell again for the next one, or pick it under "Also here".
   Ctrl+Z / Ctrl+Y undo and redo. Esc clears the selection.
+  Ctrl-click selects several parts; drag any of them to move them all.
+  Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste parts (as course text: text
+  copied from another course pastes too) - at the pointer when it is over
+  the plan, else one cell over. A part placed past the grid's edge moves
+  the whole course over to make room, when there is room.
   Mouse wheel zooms; right- or middle-drag pans. Tab switches Plan and Iso.
 
   Build tab   Plan: the height map (colour = height, arrows point UPHILL),
@@ -176,6 +181,7 @@ THE COMMAND LINE (what agents use; the same edits as the window)
     python3 bbedproj.py set   COURSE.bbc LINE "floor rect 6 9 11 14 flat 16"
     python3 bbedproj.py move  COURSE.bbc LINE DX DY
     python3 bbedproj.py remove COURSE.bbc LINE
+    python3 bbedproj.py shift COURSE.bbc DX DY [--prove]   the whole course
     python3 bbcourse.py --png OUTDIR COURSE.bbc     the game's pictures
 
 NEEDS
