@@ -7,6 +7,7 @@
     python3 tools/bbedproj.py set   COURSE.bbc LINE 'floor rect 6 9 11 14 flat 16'
     python3 tools/bbedproj.py move  COURSE.bbc LINE DX DY
     python3 tools/bbedproj.py remove COURSE.bbc LINE
+    python3 tools/bbedproj.py shift COURSE.bbc DX DY [--prove]   # the WHOLE course (SPEC.md 130.58.57)
 
 A `.bbc` course is its TEXT. Every edit rewrites only the lines it is about:
 a changed statement keeps its indentation and its trailing comment, a new one
@@ -167,6 +168,37 @@ def coord_slots(toks):
             if t == "way":
                 pair(i + 1)
     return out
+
+
+def world_slots(toks):
+    """SPEC.md 130.58.57: EVERY world cell a statement names - coord_slots' positions, and the two kinds of cell
+    that are not a part's position and so never move with a part: an `accept`'s cell (130.58.5) and a camera
+    stop's `over` span (130.45.6). What a whole-course shift moves. -> [(index, axis)]"""
+    out = list(coord_slots(toks))
+    if not toks:
+        return out
+    if toks[0] == "accept" and len(toks) == 4 and _isnum(toks[2]) and _isnum(toks[3]):
+        out += [(2, "x"), (3, "y")]
+    elif toks[0] == "stop" and "over" in toks:
+        k = toks.index("over")
+        if len(toks) == k + 5 and all(_isnum(t) for t in toks[k + 1:]):
+            out += [(k + 1, "x"), (k + 2, "y"), (k + 3, "x"), (k + 4, "y")]
+    return out
+
+
+def shifted_code(code, dx, dy, slots=None):
+    """CODE (one statement) with every world position moved by (DX, DY): coord_slots' by default"""
+    toks = tokens(code)
+    d = {"x": dx, "y": dy, "a": dx - dy, "s": dx + dy}
+    for i, ax in (slots or coord_slots)(toks):
+        toks[i] = _shift(toks[i], d[ax])
+    return join_tokens(toks)
+
+
+GRID_LO, GRID_HI = 3, 252       # every SOLID cell inside 3 .. 252 on both axes (bbcourse.build_tiles, 130.10.3)
+_GRID_ERR = re.compile(r"tile \((-?\d+), (-?\d+)\) is solid outside 3 \.\. 252")
+# statements a course holds once (or that are the course's settings): never copied (SPEC.md 130.58.57)
+CLIP_SINGLE = ("start",)
 
 
 def _shift(tok, d):
@@ -533,14 +565,22 @@ class Document(object):
         self._commit(label or "change the area", new)
         return first
 
-    def _cut(self, lines, area, cut_kinds):
+    def _cut(self, lines, area, cut_kinds, skip=None):
         """LINES with AREA cut out of every statement of CUT_KINDS; -> (lines, the index after the last
-        ground statement)"""
+        ground statement). SKIP (a set of 1-based line numbers in LINES) are left whole, and are renumbered into
+        the result in place (SPEC.md 130.58.57: a moved block is not cut by its own landing)"""
         ax0, ay0, ax1, ay1 = area[0], area[1], area[2] + 1, area[3] + 1
         new = []
         last_ground = 0
+        kept = set()
         for i, raw in enumerate(lines, 1):
             st = Statement(i, raw)
+            if skip is not None and i in skip:
+                new.append(raw)
+                kept.add(len(new))
+                if st.kind in ("floor", "wall", "goal", "hole", "surface", "float"):
+                    last_ground = len(new)
+                continue
             if st.kind not in cut_kinds:
                 new.append(raw)
                 if st.kind in ("floor", "wall", "goal", "hole", "surface", "float"):
@@ -572,6 +612,8 @@ class Document(object):
                 code = join_tokens(st.toks[:k] + shape + st.toks[k + n:])
                 new.append(st.indent + code + (st.comment if j == 0 else ""))
                 last_ground = len(new)
+        if skip is not None:
+            self._cut_kept = kept
         return new, last_ground
 
     def auto_band(self):
@@ -626,6 +668,258 @@ class Document(object):
             self._notify("band")
             return " and ".join(done) or None
         return None
+
+    # -- SPEC.md 130.58.57: the whole course moved, a block moved, copy and paste ------------------------------
+    def shifted_lines(self, dx, dy, lines=None):
+        """LINES (default the document's) with every world cell of every statement moved by (DX, DY)
+        (world_slots: positions, an accept's cell, a stop's span) and the picture's `origin` moved back by
+        16 (dx - dy) px, so every cell draws at the same place in the picture: the same course, elsewhere on
+        the grid. A comment and a statement with no cell are untouched"""
+        lines = list(self.lines if lines is None else lines)
+        width, org = 64, None
+        for i, raw in enumerate(lines):
+            st = Statement(i + 1, raw)
+            if not st.toks:
+                continue
+            if st.kind == "width" and len(st.toks) == 2 and st.toks[1].isdigit():
+                width = int(st.toks[1])
+            elif st.kind == "origin" and len(st.toks) == 2 and _isnum(st.toks[1]):
+                org = i
+            slots = world_slots(st.toks)
+            if slots:
+                lines[i] = st.indent + shifted_code(st.code, dx, dy, world_slots) + st.comment
+        if dx != dy:
+            x0 = int(Statement(org + 1, lines[org]).toks[1]) if org is not None else 4 * width
+            x0 -= 16 * (dx - dy)
+            if org is not None:
+                st = Statement(org + 1, lines[org])
+                if x0 == 4 * width and not st.comment.strip():
+                    del lines[org]
+                else:
+                    lines[org] = st.indent + "origin %d" % x0 + st.comment
+            elif x0 != 4 * width:
+                at = next((i + 1 for i, raw in enumerate(lines) if Statement(i + 1, raw).kind == "width"),
+                          next((i + 1 for i, raw in enumerate(lines) if Statement(i + 1, raw).kind == "course"), 0))
+                lines.insert(at, "origin %d" % x0)
+        return lines
+
+    def shift_course(self, dx, dy, label=None):
+        """the whole course moved by (DX, DY) cells as ONE edit (shifted_lines)"""
+        return self._commit(label or "move the whole course", self.shifted_lines(dx, dy))
+
+    def grid_extent(self):
+        """(x0, y0, x1, y1) inclusive: the SOLID cells' extent as the compiler lays them, wherever the course is -
+        found by laying a copy moved to the grid's middle, so a course already past the edge is measured too.
+        -> None when it does not lay out for another reason, or 'wide' when it is wider than the grid itself"""
+        xs, ys = [], []
+        for st in self.statements():
+            for i, ax in coord_slots(st.toks):
+                if ax in "xy" and _isnum(st.toks[i]):
+                    (xs if ax == "x" else ys).append(float(st.toks[i]))
+        px = 128 - int((min(xs) + max(xs)) // 2) if xs else 0
+        py = 128 - int((min(ys) + max(ys)) // 2) if ys else 0
+        text = self.eol.join(self.shifted_lines(px, py))
+        try:
+            tiles = B.build_tiles(B.parse(text, self.path or "<course>"))
+        except B.CourseError as e:
+            return "wide" if _GRID_ERR.search(str(e)) else None
+        except Exception:
+            return None
+        if not tiles:
+            return None
+        return (min(x for x, _y in tiles) - px, min(y for _x, y in tiles) - py,
+                max(x for x, _y in tiles) - px, max(y for _x, y in tiles) - py)
+
+    def shift_needed(self):
+        """the smallest whole-cell (dx, dy) that brings every solid cell inside 3 .. 252, preferring an EVEN
+        dx + dy (the floor's checker is by cell parity, so an odd shift swaps its two colours: SPEC.md 130.58.57).
+        -> (dx, dy), (0, 0) when it is inside already, or the reason there is no room, in words"""
+        ext = self.grid_extent()
+        if ext is None:
+            return "the course does not lay out, so the builder cannot tell how far to move it"
+        span = GRID_HI - GRID_LO + 1
+        if ext == "wide":
+            return ("the course is wider than the game's grid (%d cells each way, x and y from %d to %d), so "
+                    "there is no room to move it over" % (span, GRID_LO, GRID_HI))
+        x0, y0, x1, y1 = ext
+        need = []
+        for lo, hi, ax in ((x0, x1, "x"), (y0, y1, "y")):
+            if hi - lo + 1 > span:
+                return ("the course would be %d cells along %s, and the game's grid holds %d (%d to %d): there is "
+                        "no room to move the course over" % (hi - lo + 1, ax, span, GRID_LO, GRID_HI))
+            need.append(GRID_LO - lo if lo < GRID_LO else GRID_HI - hi if hi > GRID_HI else 0)
+        dx, dy = need
+
+        def fits(dx_, dy_):
+            return GRID_LO <= x0 + dx_ and x1 + dx_ <= GRID_HI and GRID_LO <= y0 + dy_ and y1 + dy_ <= GRID_HI
+        if (dx + dy) % 2 == 0:
+            return dx, dy
+        sx = 1 if dx > 0 else -1 if dx < 0 else 0
+        sy = 1 if dy > 0 else -1 if dy < 0 else 0
+        for c in ((dx + sx, dy) if sx else None, (dx, dy + sy) if sy else None,
+                  (dx, dy + 1), (dx, dy - 1), (dx + 1, dy), (dx - 1, dy)):
+            if c and fits(*c):
+                return c
+        return dx, dy
+
+    def auto_shift(self):
+        """SPEC.md 130.58.57: an edit that put a solid cell past the grid's edge (3 .. 252) moves the WHOLE course
+        back inside, by shift_needed's offset, when there is room - folded into the edit that needed it (one undo
+        step). A pathway (path.bbc) is never moved. -> None (nothing to do), {"moved": (dx, dy)} or
+        {"refused": the reason in words}"""
+        a = analyse(self.text(), self.path or "<course>")
+        if not a["error"] or not _GRID_ERR.search(a["error"]):
+            return None
+        if a["src"] is not None and getattr(a["src"], "pathway", None) is not None:
+            return None
+        n = self.shift_needed()
+        if isinstance(n, str):
+            return {"refused": n}
+        if n == (0, 0):
+            return None
+        self.lines = self.shifted_lines(*n)
+        self._analysis = None
+        self._notify("shift")
+        return {"moved": n}
+
+    def move_block(self, lines, dx, dy, label=None):
+        """SPEC.md 130.58.57: several statements (LINES, with whatever rides with them) moved together by
+        (DX, DY) as ONE edit: each rewritten in its own place, and the ground they land on (floor, wall, goal,
+        hole and paint not in the block) cut away under the block's floors, walls, goals and holes, so the
+        block lies on top - the ground is one layer (130.58.13). -> the block's codes after the move"""
+        lines = sorted(set(lines))
+        new = list(self.lines)
+        codes, areas = [], []
+        for ln in lines:
+            st = self.statement(ln)
+            if not coord_slots(st.toks):
+                continue
+            code = shifted_code(st.code, dx, dy)
+            new[ln - 1] = st.indent + code + st.comment
+            codes.append(code)
+            if st.kind in ("floor", "wall", "goal", "hole"):
+                sh = self._ground_shape(Statement(ln, new[ln - 1]))
+                if sh:
+                    x0, y0, x1, y1 = sh[1]
+                    areas.append((x0, y0, x1 - 1, y1 - 1))
+        if not codes:
+            raise EditError("nothing selected has a position to move")
+        skip = set(lines)
+        for ar in areas:
+            new, _lg = self._cut(new, ar, ("floor", "wall", "goal", "hole", "surface"), skip=skip)
+            skip = self._cut_kept
+        self._commit(label or "move %d parts" % len(codes), new)
+        return codes
+
+    def lines_of(self, codes):
+        """the lines holding CODES (each once, the LAST such statement first: a paste lands after its
+        originals) -> [line]"""
+        want = {}
+        for c in codes:
+            c = join_tokens(tokens(c))
+            want[c] = want.get(c, 0) + 1
+        out = []
+        for st in reversed(self.statements()):
+            c = join_tokens(st.toks)
+            if want.get(c):
+                want[c] -= 1
+                out.append(st.line)
+        return sorted(out)
+
+    def copy_codes(self, lines):
+        """SPEC.md 130.58.57: what Copy takes of LINES - each statement's code, comments left behind - and what it
+        leaves: a course's settings (no position) and what it holds once (the start). -> (codes, [skipped kind])"""
+        codes, skipped = [], []
+        for ln in sorted(set(lines)):
+            try:
+                st = self.statement(ln)
+            except EditError:
+                continue
+            if not coord_slots(st.toks) or st.kind in CLIP_SINGLE:
+                skipped.append(st.kind)
+            else:
+                codes.append(join_tokens(st.toks))
+        return codes, skipped
+
+    def paste_plan(self, text, at=None):
+        """SPEC.md 130.58.57: TEXT (statements, a line each: this builder's copy, or any course's text) made ready
+        to paste: settings and singletons left out, a route BRANCH renamed to a name this course does not use (the
+        pasted points are a branch of their own), a pathway pad refused - then moved so the set's top-left
+        corner is on AT (a cell), or else by (k, k), the smallest k >= 1 that puts no statement exactly where one
+        already is. -> (codes, (dx, dy), [notes]); codes [] when nothing is left"""
+        notes, skipped, codes = [], [], []
+        for raw in text.replace("\r\n", "\n").split("\n"):
+            try:
+                st = Statement(0, raw)
+            except Exception:
+                continue
+            if not st.toks:
+                continue
+            if st.kind == "pad" and len(st.toks) > 1 and st.toks[1].isdigit():
+                notes.append("a pathway pad is laid on the Map tab, not pasted")
+                continue
+            if not coord_slots(st.toks) or st.kind in CLIP_SINGLE:
+                skipped.append(st.kind)
+                continue
+            codes.append(st.code)
+        if skipped:
+            names = sorted(set(skipped))
+            notes.append("left out %s: a course has one of %s" % (", ".join("`%s`" % k for k in names),
+                                                                   "each" if len(names) > 1 else "it"))
+        used = {st.toks[st.toks.index("branch") + 1] for st in self.statements()
+                if st.kind == "way" and "branch" in st.toks[:-1]}
+        ren = {}
+        for i, c in enumerate(codes):
+            t = tokens(c)
+            if t[0] == "way" and "branch" in t[:-1]:
+                k = t.index("branch") + 1
+                old = t[k]
+                if old not in ren:
+                    n = 2
+                    while True:
+                        cand = (old[:5 - len(str(n))] + str(n))
+                        if cand not in used and cand not in ren.values():
+                            break
+                        n += 1
+                    ren[old] = cand
+                t[k] = ren[old]
+                codes[i] = join_tokens(t)
+        for o, n_ in sorted(ren.items()):
+            notes.append("route branch %s pasted as %s (a branch of its own)" % (o, n_))
+        if not codes:
+            return [], (0, 0), notes
+        if at is not None:
+            xs, ys = [], []
+            for c in codes:
+                t = tokens(c)
+                for i, ax in coord_slots(t):
+                    if ax in "xy" and _isnum(t[i]):
+                        (xs if ax == "x" else ys).append(int(float(t[i])))
+            dx, dy = (at[0] - min(xs), at[1] - min(ys)) if xs and ys else (0, 0)
+        else:
+            have = {join_tokens(st.toks) for st in self.statements()}
+            k = 1
+            while k < 64 and any(shifted_code(c, k, k) in have for c in codes):
+                k += 1
+            dx = dy = k
+        return [shifted_code(c, dx, dy) for c in codes], (dx, dy), notes
+
+    def paste(self, codes, label=None):
+        """CODES (paste_plan's) added as ONE edit: ground (floor, wall, goal, hole, its paint and hang) laid over
+        what is under it the way an area is changed (replace_area: cut, then added after the last ground), every
+        other statement after the last of its kind. -> CODES"""
+        ground = [c for c in codes if c.split()[0] in ("floor", "wall", "goal", "hole", "surface", "float")]
+        then = [c for c in codes if c not in ground]
+        areas = []
+        for c in ground:
+            st = Statement(0, c)
+            if st.kind in ("floor", "wall", "goal", "hole"):
+                sh = self._ground_shape(st)
+                if sh:
+                    x0, y0, x1, y1 = sh[1]
+                    areas.append((x0, y0, x1 - 1, y1 - 1))
+        self.replace_area(areas, ground=ground, then=then, surfaces=True, label=label or "paste")
+        return list(codes)
 
     def tidy(self, near=None, label=None):
         """SPEC.md 130.58.14: rejoin ground statements of ONE kind and the SAME clauses (a ramp's are its
@@ -1056,6 +1350,40 @@ def reshape(toks, si, n, rect):
     return join_tokens(t)
 
 
+def shift_same(c0, c1, dx, dy):
+    """SPEC.md 130.58.57's proof that a whole-course shift moved only the course's POSITION: two compiled courses
+    (bbcourse.compile_course), C1 the C0 course shifted by (DX, DY). -> [what differs] ([] for the same course):
+    the picture pixel for pixel, every route point's place in it, the laid cells (one over), the occluder masks
+    and records (their pixels; a record's depth s is wx + wy, so one over by dx + dy), the warnings (kind,
+    accepted; a cell one over), the camera's stops, the part's size and block count, the limit and medals"""
+    out = []
+
+    def same(what, a, b):
+        if a != b:
+            out.append(what)
+    same("picture", list(map(bytes, c0.pic)), list(map(bytes, c1.pic)))
+    same("picture size", (c0.cols, c0.brows, c0.lines, c0.width), (c1.cols, c1.brows, c1.lines, c1.width))
+    same("route (the ways' places in the picture)", c0.route, c1.route)
+    same("laid cells", {(x + dx, y + dy): v for (x, y), v in c0.cells.items()}, c1.cells)
+    same("start", (c0.start[0] + dx, c0.start[1] + dy) if c0.start else None, c1.start)
+    same("occluder masks", c0.masks, c1.masks)
+
+    def recs(c, ds):
+        return [(r["brow"], r["col"], r["top"], r["mask"], r["s"] + ds) for r in c.records]
+    same("occluder records", recs(c0, dx + dy), recs(c1, 0))
+
+    def warns(c, d_):               # (not the line: a shift may have written an `origin` line above it)
+        return sorted((w["kind"], w["accepted"], tuple(w["cell"]) if w.get("cell") else None)
+                      for w in [dict(w_, cell=(w_["cell"][0] + d_[0], w_["cell"][1] + d_[1]) if w_.get("cell")
+                                     else None) for w_ in c.warnings])
+    same("warnings", warns(c0, (dx, dy)), warns(c1, (0, 0)))
+    same("camera stops", (c0.stoptab, c0.spantab, c0.lockx), (c1.stoptab, c1.spantab, c1.lockx))
+    same("part size", (len(c0.part_bytes), c0.nblk_pic, len(c0.blocks)), (len(c1.part_bytes), c1.nblk_pic,
+                                                                          len(c1.blocks)))
+    same("limit and medals", (c0.limit, c0.medals, c0.target), (c1.limit, c1.medals, c1.target))
+    return out
+
+
 def _rec_height(r):
     """a record's centre height, half units"""
     try:
@@ -1352,6 +1680,11 @@ def main(argv=None):
     p = sub.add_parser("remove")
     p.add_argument("course")
     p.add_argument("line", type=int)
+    p = sub.add_parser("shift")
+    p.add_argument("course")
+    p.add_argument("dx", type=int)
+    p.add_argument("dy", type=int)
+    p.add_argument("--prove", action="store_true", help="compile both and compare (shift_same); write nothing")
     a = ap.parse_args(argv)
     if a.cmd == "check":
         return _check(a.course, a.strict, a.json)
@@ -1364,6 +1697,13 @@ def main(argv=None):
             for r in rows:
                 print("%5d  %-18s %s" % (r["line"], r["kind"], r["code"]))
         return 0
+    if a.cmd == "shift" and a.prove:
+        t0 = d.text()
+        d.shift_course(a.dx, a.dy)
+        diff = shift_same(B.compile_course(t0, a.course), B.compile_course(d.text(), a.course), a.dx, a.dy)
+        print("%s shifted (%d, %d): %s" % (a.course, a.dx, a.dy, "differs in " + ", ".join(diff) if diff else
+                                           "the same course, elsewhere on the grid"))
+        return 1 if diff else 0
     try:
         if a.cmd == "add":
             n = d.insert(a.code, after=a.after)
@@ -1374,6 +1714,8 @@ def main(argv=None):
             d.move(a.line, a.dx, a.dy)
         elif a.cmd == "remove":
             d.remove(a.line)
+        elif a.cmd == "shift":
+            d.shift_course(a.dx, a.dy)
         an = analyse(d.text(), a.course)
         if an["error"] and not an["src"]:
             print("refused, nothing written: %s" % an["error"])

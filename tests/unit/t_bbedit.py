@@ -370,6 +370,182 @@ wall quarter e tile 6 7 flat 6
 start 4 4""")
 
 
+class _CopyApp(_StubApp):
+    """the window's multi-move, copy and paste (SPEC.md 130.58.57) with no Tk"""
+    move_multi = W.App.move_multi
+    _selected = W.App._selected
+    _reselect = W.App._reselect
+    _companions = W.App._companions
+    _surface_of = W.App._surface_of
+    _float_of = W.App._float_of
+    _shape = W.App._shape
+    copy_sel = W.App.copy_sel
+    cut_sel = W.App.cut_sel
+    paste = W.App.paste
+
+    class _Root(object):
+        def clipboard_clear(self):
+            raise RuntimeError("no Tk")
+
+        def clipboard_get(self):
+            raise RuntimeError("no Tk")
+
+    def __init__(self, text):
+        _StubApp.__init__(self, text)
+        self.root, self.clip, self._status_full = self._Root(), None, ""
+
+    def _error(self, t):
+        self.msgs.append(t)
+        self.banner = t
+
+    def select(self, ln, add=False, **kw):
+        if add and ln:
+            self.sels.append(ln)
+        else:
+            self.sels = [ln] if ln else []
+        self.sel = ln
+
+
+def _norm(doc):
+    return [" ".join(s.toks) for s in doc.statements()]
+
+
+def _course(name):
+    return open(os.path.join(ROOT, "apps", "bonanza", "courses", name), encoding="ascii").read()
+
+
+def copymove_check():
+    """item 30 (SPEC.md 130.58.57): the whole course moved over (every kind of world cell, the picture the same),
+    an addition past the grid's edge moving it in the same undo step or refused when there is no room, several
+    parts moved as one, Copy leaving the course's own statements, Paste one cell over and renamed branches
+    -> [problems]"""
+    bad = []
+    first = _course("first.bbc")
+    # (1) every kind of world cell shifts, and the course compiles the same but for its position: a stop's span
+    # and an accept's cell (world_slots' own), water's ripple cell, a wind region (coord_slots'), the origin
+    cases = [("first + stop over", first + "stop down over 11 4 13 6\n", (2, 4)),
+             ("flag + accept", FLAG % ("", "accept hidden 6 5\n"), (4, 0)),
+             ("water.bbc", _course("water.bbc"), (2, 4)),
+             ("wind.bbc", _course("wind.bbc"), (0, 2))]
+    for name, text, (dx, dy) in cases:
+        d = E.Document(text, "s.bbc")
+        d.shift_course(dx, dy)
+        try:
+            diff = E.shift_same(B.compile_course(text, "s.bbc"), B.compile_course(d.text(), "s.bbc"), dx, dy)
+        except B.CourseError as e:
+            bad.append("copymove: %s shifted (%d, %d) is refused: %s" % (name, dx, dy, str(e)[:120]))
+            continue
+        if diff:
+            bad.append("copymove: %s shifted (%d, %d) differs in %s" % (name, dx, dy, ", ".join(diff)))
+        d.undo()
+        if d.text() != text:
+            bad.append("copymove: one Undo does not take %s's shift back" % name)
+    # ...red: a kind of cell left where it was - the stop's span, the accept's cell - and the compile differs
+    held = E.world_slots
+    try:
+        E.world_slots = E.coord_slots
+        for name, text, (dx, dy) in cases[:2]:
+            d = E.Document(text, "s.bbc")
+            d.shift_course(dx, dy)
+            if not E.shift_same(B.compile_course(text, "s.bbc"), B.compile_course(d.text(), "s.bbc"), dx, dy):
+                bad.append("copymove: %s with its own cells left unshifted compiles the same (the proof is blind)"
+                           % name)
+    finally:
+        E.world_slots = held
+    # ...red: an ODD shift swaps the floor's checker (by cell parity), so shift_needed asks an even one
+    d = E.Document(first, "s.bbc")
+    d.shift_course(1, 0)
+    if not E.shift_same(B.compile_course(first, "s.bbc"), B.compile_course(d.text(), "s.bbc"), 1, 0):
+        bad.append("copymove: an odd shift compiles the same - the parity rule is not needed?")
+    # (2) an addition past the grid's edge: the whole course moved over in the same undo step, and the
+    # course without the addition is the same course
+    app = _CopyApp(first)
+    app._edit(app.doc.insert, "floor rect 1 4 3 7 flat 4", label="add a floor")
+    sh = getattr(app.doc, "last_shift", None)
+    if sh != (2, 0) or len(app.doc.undo_stack) != 1 or app.doc.analysis()["error"]:
+        bad.append("copymove: a floor at x 1 moved the course by %r in %d step(s) (%s)" % (
+            sh, len(app.doc.undo_stack), app.doc.analysis()["error"]))
+    elif "moved the whole course 2 cells right" not in getattr(app, "edit_note", ""):
+        bad.append("copymove: the shift is not said: %r" % getattr(app, "edit_note", None))
+    else:
+        rest = [ln for ln in app.doc.lines if ln.strip() != "floor rect 3 4 5 7 flat 4"]
+        diff = E.shift_same(B.compile_course(first, "s.bbc"), B.compile_course("\n".join(rest) + "\n", "s.bbc"), 2, 0)
+        if diff:
+            bad.append("copymove: the course moved over for an addition differs in %s" % ", ".join(diff))
+        app.doc.undo()
+        if app.doc.text() != first:
+            bad.append("copymove: one Undo does not take the addition AND the shift back")
+    # ...and no room: a course from 3 to 252 already, a floor at x 2 refused in plain words, nothing changed
+    wide = ('course WIDE "Wide"\nwidth 64\nball rubber\nfloor rect 3 3 6 6 flat 4\nfloor rect 250 250 253 253 '
+            'flat 4\nstart 4 4\n')
+    app = _CopyApp(wide)
+    app._edit(app.doc.insert, "floor tile 2 4 flat 4", label="add")
+    if app.doc.text() != wide or not app.banner or "no room" not in app.banner:
+        bad.append("copymove: an addition with no room to move the course: %r, banner %r" % (
+            app.doc.text() == wide, app.banner))
+    # (3) several parts moved together: one checked edit, one undo, the moved set still selected
+    app = _CopyApp(first)
+    lines = [s.line for s in app.doc.statements() if " ".join(s.toks) in ("clock 3 6", "clock 11 4", "hole tile 12 5")]
+    for ln in lines:
+        app.select(ln, add=True)
+    app.move_multi(1, 0)
+    got = _norm(app.doc)
+    if not {"clock 4 6", "clock 12 4", "hole tile 13 5"} <= set(got) or len(app.doc.undo_stack) != 1:
+        bad.append("copymove: three parts moved (1, 0) leave %r in %d step(s)" % (
+            [g for g in got if g.startswith(("clock", "hole"))], len(app.doc.undo_stack)))
+    elif sorted(" ".join(app.doc.statement(ln).toks) for ln in app.sels) != ["clock 12 4", "clock 4 6",
+                                                                             "hole tile 13 5"]:
+        bad.append("copymove: after the move the selection is %r" % app.sels)
+    app.doc.undo()
+    lines = [s.line for s in app.doc.statements() if " ".join(s.toks) in ("clock 3 6", "clock 11 4")]
+    app.sels, app.sel = list(lines), lines[-1]
+    app.move_multi(0, -3)                           # a clock onto the back wall, the other into the void
+    if app.doc.text() != first or not app.banner:
+        bad.append("copymove: a refused move of several was not undone with the banner")
+    # ...a floor moved with others carries what stands on it and is laid over what it lands on
+    app = _CopyApp(first)
+    for code in ("floor rect 3 4 7 7 flat 4", "wall rect 3 3 7 4 flat 6"):
+        app.select(next(s.line for s in app.doc.statements() if " ".join(s.toks) == code), add=True)
+    app.move_multi(0, 1)
+    got = _norm(app.doc)
+    if "start 4 6" not in got or "clock 3 7" not in got or "floor rect 3 5 7 8 flat 4" not in got:
+        bad.append("copymove: a floor moved with its wall leaves the start and clock behind: %r" % got[4:12])
+    # (4) copy: settings and the start left out, said; paste one cell over (never exactly on a copy), renamed
+    # branches, one undo step, the pasted set selected
+    app = _CopyApp(first)
+    for s in app.doc.statements():
+        if s.kind in ("course", "start", "width") or " ".join(s.toks) in ("floor rect 3 4 7 7 flat 4", "clock 3 6"):
+            app.select(s.line, add=True)
+    codes = app.copy_sel()
+    if sorted(codes or []) != ["clock 3 6", "floor rect 3 4 7 7 flat 4"] or \
+            "left out" not in app.msgs[-1] or "`start`" not in app.msgs[-1]:
+        bad.append("copymove: Copy took %r and said %r" % (codes, app.msgs[-1:]))
+    have = set(_norm(app.doc))
+    pcodes, off, _n = app.doc.paste_plan(app.clip)
+    if off != (1, 1) or set(pcodes) & have:
+        bad.append("copymove: a paste lands %r over, on %r" % (off, set(pcodes) & have))
+    on_top, _o, _n = app.doc.paste_plan(app.clip, at=(3, 4))     # ...red: at the originals' own corner
+    if not set(on_top) & have:
+        bad.append("copymove: a paste at the originals' corner is not seen to lie on them (the check is blind)")
+    app.paste(app.clip, at=None)
+    got = _norm(app.doc)
+    if not {"floor rect 4 5 8 8 flat 4", "clock 4 7"} <= set(got) or len(app.doc.undo_stack) != 1:
+        bad.append("copymove: the paste wrote %r in %d step(s)" % (got[-6:], len(app.doc.undo_stack)))
+    elif sorted(" ".join(app.doc.statement(ln).toks) for ln in app.sels) != ["clock 4 7", "floor rect 4 5 8 8 flat 4"]:
+        bad.append("copymove: the pasted set is not what is selected: %r" % app.sels)
+    app.paste(app.clip, at=None)                    # again: one more over, not on the first paste
+    if "floor rect 5 6 9 9 flat 4" not in _norm(app.doc):
+        bad.append("copymove: a second paste does not go one more over: %r" % _norm(app.doc)[-6:])
+    # ...text from another course: its singletons left out, a branch renamed when this course has it
+    app = _CopyApp(first + "way 11 5 branch B\n")
+    codes, _o, notes = app.doc.paste_plan('course OTHER "x"\nwidth 64\nmusic fairway\nstart 4 5\nway 12 5 branch B\n')
+    if codes != ["way 13 6 branch B2"] or not any("B2" in n for n in notes) or not any("`start`" in n for n in notes):
+        bad.append("copymove: another course's text pastes as %r (%r)" % (codes, notes))
+    if app.doc.paste_plan("course X \"y\"\nwidth 64\n")[0]:
+        bad.append("copymove: a paste of settings alone pasted something")
+    return bad
+
+
 def diag_check():
     """item 29 (SPEC.md 130.58.53): the diagonal parts from the palette, a piece edited, a box, an Iso click
     -> [problems]"""
@@ -1921,6 +2097,7 @@ def main():
     bad += stats_check()
     bad += kit_view_check()
     bad += diag_check()                             # 29. diagonals and corners (130.58.53)
+    bad += copymove_check()                         # 30. the course moved over, several moved, copy and paste
     for b_ in bad:
         print("FAIL " + b_)
     print("t_bbedit: %d courses, %s" % (len(courses), "%d problem(s)" % len(bad) if bad else "ok"))

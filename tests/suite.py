@@ -5192,7 +5192,7 @@ SOAK = [
         "flipped (the table and the translated part both fail), glass's "
         "interior mask made solid, a squash parity copy altered, one rim pixel "
         "of steel made cyan. secs measured on the host (0.4 s, rounded up)"),
-    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 75.0,
+    Row("bbedit", "soak", py("tests/unit/t_bbedit.py"), 85.0,
         "THE COURSE BUILDER'S MODEL AND THE WARNING TIER (SPEC.md 130.58.3 - 130.58.5), host only: every "
         "course read and written by tools/bbedproj.py byte-identical, and every positioned statement moved "
         "and undone byte-identical; every course moved (+1, +1) lays the same cells one over (coord_slots "
