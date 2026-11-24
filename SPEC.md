@@ -296255,7 +296255,30 @@ is measured at rest as before.
 - `tests/bonanza_phys.py`'s `tilt_host` MILL scenes (`mill-rubber`, `mill-steel`, `mill-glass`) and their red
   arms: unchanged, green on the new part (the physics never reads a record).
 
-**What it costs** (MEASURED, below in 130.42.15.1).
+##### 130.42.15.1 What it costs (MEASURED, 2026-11-24, against `944ce685` built at the same build number)
+
+| | before | after |
+|---|---|---|
+| MILL's records (the tool's / the part's) | 1,455 / 1,444 | **1,608 / 1,590 (+153 / +146)** |
+| MILL's blocks the plate's poses change the depth of / POSED | - | 60 / **57** (one outside every lane of the plate) |
+| MILL's posed records, by the poses they are laid in | - | 232: rest only 66, FLAT only 67, the far end only 86, two poses 3, all three 10 |
+| MILL's masks | 187 | **208 (+21)** |
+| MILL's toggles (9 lanes) | - | **293 bytes** |
+| MILL's part `BZ2.BIN`, stored | 71,098 | **72,346 (+1,248)** |
+| ...packed LZB / LZ4 | 19,159 / 22,781 | **19,842 / 23,611 (+683 / +830)** |
+| `bonanza.bin` (the guest: `bz_ltog` 125 bytes, its three calls 9) | 53,498 | **53,632 (+134)** |
+| `BONANZA.O88` | 177,091 | **177,890 (+799)** |
+| every other course's part, the title, the pathway | | byte for byte (`cmp`); `BZDMILL.BIN` re-stamped with MILL's identity |
+| `bz_occ` round the plate (9,990 positions: every reach cell whose footprint meets a changed block, its centre and four inner points, every 4 px of its range airborne and its floor in each pose grounded, ENTERING - AV's cell cache dropped), PRICED from the executed instructions (`tests/bonanza_av.py`'s method) | worst 75,076 clk, mean 13,296 | **worst 75,076 in every pose**; mean 13,592 / 13,595 / 13,673 in poses 0 / 1 / 2 (+296 to +377); one position +17.8k (pose 2: the ramp's wall now laid over a ball the rest records drew over it) |
+
+The prediction was about +170 records, +0.5 - 1 KB LZB on MILL's part and tens of bytes of guest code: the
+records and the part are inside it (+146, +683 bytes LZB); the guest is 134 bytes, over "tens" - `bz_ltog` 125
+(the kind's compare, the register saves, the two segment switches, the loop over runs and records and the row
+summary's guard) and its three calls 9. MILL's worst entering frame (80.7k, 130.29.13.5) is not round the plate and
+does not move: the plate's own worst is 75,076 clk before and after. A toggle runs on the step a lane's drawn
+pose changes - a plate's nine lanes when it tips - about 40 clk a record and 100 a run (PREDICTED from the
+instructions, not measured): at most 65 records a lane on MILL, about 2.7k clk once a tip, outside the wheel's
+timed span.
 
 ### 130.43 The QUARTER-TURN TURNTABLE, a family (the props round's P11, 2026-11-17; BUILT on `bb-turn`)
 
