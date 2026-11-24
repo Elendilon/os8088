@@ -13171,7 +13171,7 @@ def av_enter(grid, q, x0, y0, fl, rec):
 
 
 def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _nobudget=False, recs0=(), farfix=None,
-                occb=None):
+                occb=None, _prunebad=False):
     """the RESIDUAL occluder pixels (SPEC.md 130.29.3) over the model's positions RCS (AvPos): {(x, y): (s, top)} -
     each footprint pixel the rule lays at some height of the position at which the model does not hide it.
     FAR (a dict, SPEC.md 130.29.13): THE FAR LIST picked for each VOID cell - the residual cut with it, and FAR
@@ -13205,7 +13205,7 @@ def av_residual(cv, rcs, grid, x0, y0, depth=None, far=None, _nowrong=False, _no
             if lst:
                 far[key] = list(lst)
         if far and occb is not None and AV_FARPRUNE:
-            _far_prune(cv, rcs, grid, y0, depth, far, occb)
+            _far_prune(cv, rcs, grid, y0, depth, far, occb, _prunebad)
     if farfix is not None:                          # (SPEC.md 130.42.15: a see-saw pose's cut reads the lists the
         far = farfix                                # course's own picked, never picks its own)
     occ = {}
@@ -13241,11 +13241,12 @@ def _av_resq(cv, q, grid, y0, depth, lst):
     return occ
 
 
-def _far_prune(cv, rcs, grid, y0, depth, far, occb):
+def _far_prune(cv, rcs, grid, y0, depth, far, occb, _bad=False):
     """SPEC.md 130.29.14: THE PRUNE - each far list cut to the entries some residual pixel needs.  A list's
     entry is dropped when every pixel it alone hid at its cell is laid anyway: by another position's residual
     or by today's records over the positions the model does not run at (OCCB, the same value), so the occluder
-    pixels, and with them every record and mask the part ships, are EXACTLY the unpruned lists'.  FAR in place"""
+    pixels, and with them every record and mask the part ships, are EXACTLY the unpruned lists'.  FAR in place;
+    _bad: every entry dropped whatever it hides (--selfcheck's red arm farprunebad)"""
     by = {}
     for q in rcs:
         if q.pts is None and (q.wx, q.wy) in far:
@@ -13267,7 +13268,7 @@ def _far_prune(cv, rcs, grid, y0, depth, far, occb):
             trial = [x_ for x_ in lst if x_ != e]
             new = {id(q): _av_resq(cv, q, grid, y0, depth, trial) for q in by[key]}
             ok = True
-            for q in by[key]:
+            for q in (() if _bad else by[key]):
                 old = sets[id(q)]
                 for p_ in new[id(q)]:
                     if p_ not in old and not cnt.get(p_):
@@ -13445,7 +13446,8 @@ def _group_occ(occ):
 
 
 def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=False, tiles=None, sub=None,
-               _raise=0, show=None, lift=CLIMB, dyn=None, far=None, _nowrong=False, _nobudget=False, farfix=None):
+               _raise=0, show=None, lift=CLIMB, dyn=None, far=None, _nowrong=False, _nobudget=False, farfix=None,
+               _noprune=False, _prunebad=False):
     """AV's records (SPEC.md 130.29.3, 130.49.4): today's occluder pixels over every position the model does not run
     at (_occluders', a FIELD cell's ball at its real poses: TILES, SUB, _RAISE, SHOW and LIFT as there, 130.28.6;
     a split cell's FLOOR squares at their floor, 130.49.5), the residual over the ones it does (VOID cells, a
@@ -13464,7 +13466,8 @@ def av_records(cv, reach, grid, slabcells, x0, y0, q, depth=None, _noresidual=Fa
             occ0 = dict(occ)
             occ0.update(av_residual(cv, rcs, grid, x0, y0, depth))
             recs0 = merge_records(_group_occ(occ0), q)
-        occ.update(av_residual(cv, rcs, grid, x0, y0, depth, far, _nowrong, _nobudget, recs0, farfix, occ))
+        occ.update(av_residual(cv, rcs, grid, x0, y0, depth, far, _nowrong, _nobudget, recs0, farfix,
+                               None if _noprune else occ, _prunebad))   # (SPEC.md 130.29.14.1: the prune)
     raw = _group_occ(occ)
     return raw, merge_records(raw, q), occ, rcs
 
@@ -15031,7 +15034,9 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                                   sub=hack.get("focc"), _raise=hack.get("fraise", 0), show=fshow,
                                                   lift=hack.get("flift", CLIMB), dyn=dyn, far=far,
                                                   _nowrong=hack.get("farnowrong"),
-                                                  _nobudget=hack.get("farnobudget"))
+                                                  _nobudget=hack.get("farnobudget"),
+                                                  _noprune=hack.get("farnoprune") or not AV_FARPRUNE,
+                                                  _prunebad=hack.get("farprunebad"))
         if far:
             farv, farl = far_blob(far, fname)
             if hack.get("fardrop"):                 # (--selfcheck's red arm: an entry of the part's lists dropped)
@@ -40700,6 +40705,19 @@ def _sc_av(X, res):
         res.append(("15 MILL negative control: the far list's WRONG-HIDE filter off is caught by the comparison "
                     "(WRONG-HIDE %d pixels with the lists, %s without)" % (nw_, nl[2] if nl else "-"),
                     nl is not None and nw_ > nl[2]))
+        fn = compile_course(mpath, _hack={"farnoprune": True})     # SPEC.md 130.29.14.1: THE PRUNE keeps every record
+        fb = compile_course(mpath, _hack={"farprunebad": True})
+
+        def _ne(c_):
+            g_ = AGrid(world_of(c_))
+            return sum(len(g_.far_list(q.wx, q.wy)) for q in av_positions(c_.reach, g_, c_.slabcells, c_.x0)
+                       if q.pts is None)
+        rk = lambda c_: [(r["brow"], r["col"], r["s"], r["top"], r["mask"]) for r in c_.records]
+        res.append(("15 MILL: THE PRUNE (SPEC.md 130.29.14.1) keeps every record - %d records the unpruned lists' "
+                    "exactly, %d entries of %d kept" % (len(mill.records), _ne(mill), _ne(fn)),
+                    rk(mill) == rk(fn) and _ne(mill) < _ne(fn)))
+        res.append(("15 MILL negative control: a prune dropping every entry whatever it hides is caught by the "
+                    "records (%d -> %d)" % (len(fn.records), len(fb.records)), rk(fb) != rk(fn)))
     bench = byname.get("BENCH")
     if bench is not None:
         g = AGrid(world_of(bench))

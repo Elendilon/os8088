@@ -282074,7 +282074,10 @@ occluder pixels, and with them the grouping, the merge, every record, every mask
 therefore EXACTLY the unpruned lists' (MEASURED: `c.records` equal on all eight courses); COMPLETENESS holds
 because the residual is cut with the lists as pruned. A pruned entry costs nothing and buys nothing: it is
 dataset bytes and an entering frame's work hiding pixels the part lays anyway. `AV_FARPRUNE` False is the A/B.
-The see-saw's posed cut (130.42.15) reads the pruned lists, as it read the picked ones.
+The see-saw's posed cut (130.42.15) reads the pruned lists, as it read the picked ones. **`--selfcheck` item 15** (the `av` section, on MILL)
+holds it: the course compiled with the prune and with it off (`_hack` `farnoprune`) ship the same records, with
+fewer entries (MEASURED 162 against 169); its red arm `farprunebad` - every entry dropped whatever it hides -
+changes them (1,608 -> 1,961 records) and is caught.
 
 ##### 130.29.14.2 The ENDED encoding (section `A`, `far_blob`, `far_parse`, `bz_afar`)
 
