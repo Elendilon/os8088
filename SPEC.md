@@ -301119,3 +301119,23 @@ this change and after it): before, **430 clipped controls over 113 pages** at th
 768** (73 and 82 distinct places); after, **0 over 113 pages at either size**. Screenshots of the pages that were
 clipped, before and after, at the first size and five at 1366 x 768: `docs/plans/bonanza-courses/layout/before/`
 and `after/`.
+
+#### 130.58.55 The Course tab keeps what was typed (the owner, 2026-11-24)
+
+*"Saving, applying, alter a course, etc deletes anything entered in the Course tab."* The tab wrote to the
+course only on its **Apply**, and every change to the course - any edit, an undo, a save's refresh - refilled it
+FROM the course, throwing away what was typed and not applied. (The earlier fix read every field before Apply's
+own edits refilled the tab; it did not cover the refill from anything else.)
+
+- **Typed is kept**: a field changed by the author marks the tab NOT APPLIED (`cv_dirty`, set by a trace on
+  every field variable, never by the refill itself, `cv_filling`); while it is, a refill leaves every field
+  alone, and a note beside Apply says "Changed - not applied yet (Apply, or Save applies it)" - as the Source
+  tab keeps an unapplied working copy (`src_dirty`).
+- **Apply** writes the fields and clears it; an Apply the course refuses (and undoes, 130.58.38) puts what was
+  typed back, still not applied.
+- **Save** and **Save as** apply first. **New** and **Open** drop it (another course has its own settings), and
+  the "unsaved changes - discard?" question counts unapplied Course tab fields as unsaved work.
+- **The check**: `tools/bbedcvtab.py` drives the real window (`xvfb-run -a python3 tools/bbedcvtab.py`, a Python
+  with Tk): typing marks it; an unrelated edit and an undo keep it; Save writes it; Apply cleans it; a refused
+  Apply keeps it; opening another course shows that course's. Its control is the tree before the fix, where an
+  unrelated edit put the title back and Save wrote the old one.
