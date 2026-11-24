@@ -31646,18 +31646,35 @@ def _opening_checks(c, res, tag):
     deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
     ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
     narch = nrim = nhole = 0
-    bad, ctl = [], {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
-    want = {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0}
+    bad, ctl = [], {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0, "unswept": 0}
+    want = {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0, "unswept": 0}
+    # (the owner, 2026-11-24: "the sail rotates. It covering something during that rotation is correct" - a
+    # doorway pixel a windmill's own SAILS sweep, one its rotor lane's poses differ at, may be the sail's on the
+    # glass; every other doorway pixel is the hole's, black)
+    sweep = {}
+    for L in c.lanes:
+        if L.get("kind") == PK_WINDMILL and len(L["pics"]) > 1:
+            lbx, lby = L["rect"][0], L["rect"][1]
+            pics = list(L["pics"].values())
+            sw_ = set()
+            for j in range(min(len(r) for r in pics)):
+                for i in range(min(len(r[j]) for r in pics)):
+                    if len({r[j][i] for r in pics}) > 1:
+                        sw_.add((8 * lbx + i, 8 * lby + j - c.y0))
+            sweep[L["line"]] = sw_
+
+    def lit(hole, pix, sw_):
+        return [q for q in hole if pix(q) != BLK and q not in sw_]
     for p in c.props:
         arches = []
         if p.get("door_pix") is not None:
             arches.append(("the windmill on line %d's doorway" % p["wline"], p["D"], p["face"], p["xh"],
-                           MOUTH_ROWS, MOUTH_HALF, 0, p["door_pix"], p["door_rim"]))
+                           MOUTH_ROWS, MOUTH_HALF, 0, p["door_pix"], p["door_rim"], sweep.get(p["wline"], set())))
         if p.get("mouth_pix"):
             w, face, xm, rows, half, sill = p["mouth"]
             arches.append(("the tube on line %d's mouth" % p["line"], w, face, xm, rows, half, sill,
-                           p["mouth_pix"], p["mouth_rim"]))
-        for what, w, face, xc, rows, half, sill, hole, ring in arches:
+                           p["mouth_pix"], p["mouth_rim"], set()))
+        for what, w, face, xc, rows, half, sill, hole, ring, sw_ in arches:
             sp0 = _op_spans(ops, w, face, slab=True)
             last = _face_last(sp0)
             narch += 1
@@ -31680,8 +31697,14 @@ def _opening_checks(c, res, tag):
                 v = rim_verdict(_merge(hole, ring), chk, hole, sp0, True, MAG)
                 if v or not ring:
                     bad.append("%s's rim: %s" % (what, v or "none"))
-                if not v and any(c.pic[y + c.y0][x] != BLK for (x, y) in hole):
+                glass = (lambda q: c.pic[q[1] + c.y0][q[0]])
+                if not v and lit(hole, glass, sw_):
                     bad.append("%s: not on the glass" % what)
+                free = sorted(q for q in hole if q not in sw_)
+                if free:                        # negative control: a doorway pixel the sails never cross, lit
+                    want["unswept"] += 1
+                    if lit(hole, lambda q, f=free[0]: MAG if q == f else glass(q), sw_):
+                        ctl["unswept"] += 1
                 want["norim"] += 1
                 if rim_verdict(hole, chk, hole, sp0, True, MAG):
                     ctl["norim"] += 1
@@ -31709,10 +31732,11 @@ def _opening_checks(c, res, tag):
     res.append(("3 %s: the ROUND OPENINGS (the owner's, 130.14.20) - %d arch%s sheared, symmetric, monotone and "
                 "round, %d solid rim%s on a patterned ground, %d IN hole%s a projected circle%s; negative controls "
                 "failing: wave 3's arch %d/%d, a notch %d/%d, a lopsided top %d/%d, no rim %d/%d, wave 3's square "
-                "hole %d/%d" % (tag, narch, "es" if narch != 1 else "", nrim, "s" if nrim != 1 else "", nhole,
-                                "s" if nhole != 1 else "", (": " + "; ".join(bad)) if bad else "",
-                                ctl["old"], want["old"], ctl["notch"], want["notch"], ctl["lop"], want["lop"],
-                                ctl["norim"], want["norim"], ctl["square"], want["square"]), ok))
+                "hole %d/%d, a doorway pixel the sails never cross lit %d/%d" % (
+                    tag, narch, "es" if narch != 1 else "", nrim, "s" if nrim != 1 else "", nhole,
+                    "s" if nhole != 1 else "", (": " + "; ".join(bad)) if bad else "",
+                    ctl["old"], want["old"], ctl["notch"], want["notch"], ctl["lop"], want["lop"],
+                    ctl["norim"], want["norim"], ctl["square"], want["square"], ctl["unswept"], want["unswept"]), ok))
 
 
 def _mill_rec(c, kind, at=None):

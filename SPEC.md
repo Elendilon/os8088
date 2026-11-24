@@ -273699,7 +273699,13 @@ run, the widths unimodal, each row's half width within a pixel of the
 projected circle's `sqrt(2 R^2 - 4 Y^2)`). **Negative controls**, each
 failing: wave 3's arch (`_arch(..., _old=True)`), a notch (the centre
 column's top pixel taken out), a lopsided top (one half a taller arch's),
-no rim (the checker under it), wave 3's square IN hole. Item **1**: `MILL`
+no rim (the checker under it), wave 3's square IN hole. **On the glass**
+(the owner, 2026-11-24: *"the sail rotates. It covering something during
+that rotation is correct"*): a checker-face doorway's pixels are the hole's,
+black, in the picture - but for the ones its windmill's own SAILS sweep (its
+rotor lane's poses differ there), which may be the sail's; its control, a
+doorway pixel the sails never cross lit, fails (MILL's windmill at (29, 28)
+has one pixel of its doorway's corner under a sail's tip at rest). Item **1**: `MILL`
 is no longer byte for byte 573eec83's part; `openings_only` holds it to
 3b's but for its openings - every changed pixel of its picture and of its
 lanes' poses inside one of `opening_regions` (an arch's columns and a
