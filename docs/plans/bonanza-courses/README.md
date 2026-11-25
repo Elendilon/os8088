@@ -58,6 +58,34 @@ playtest list. Still in no build. What it found that the next course meets too:*
   130.11.4.7): a new course's route demo is tried shortest first, and LODE's reach under the arm took one
   round more than the bound.*
 
+*CLOCKWORK KEEP is REFINED (2026-11-25): `keep.bbc` says `guide` and passes what a shipped course is held to;
+[KEEP.md](KEEP.md) sections 10 - 13 are what it passes, what changed, each risk's outcome and the owner's
+playtest list. Still in no build. It has TWO exits, the second a secret (`hidden`): section 7 is what the pathway
+has to add. What it found that the next course meets too:*
+
+- *NO TRAP remembers an opened channel and waits for a timed drawbridge since this step (SPEC.md 130.14.4.1.4):
+  a key need not be in line with its door for the check, nor a bridge down on step 0. It still proves a way on
+  with the Hop, not that a player makes a timer: MEASURE the window (`keep/measure.py`'s phases: a 3-tile
+  bridge wants a third of its period, and a bridge that is DOWN as the play starts drops a ball sent a second
+  late).*
+- *A `guide` course's route demo STANDS at every timed element since this step (SPEC.md 130.14.7.4.6), as it did
+  at a turntable: no Hop on the spot to pass the time. A course of timers has no one route time (KEEP's is 29 -
+  36 s over the phases it can meet its cogs at): `keep/measure.py --only phases`.*
+- *A flag and a key are ONE cell. In a 2-wide walk half the balls pass them by: narrow the walk to the flag's
+  lane with a merlon (a `wall` half a unit proud), and put a key on the lane the flag before it leaves the ball
+  in.*
+- *A way point is taken 12 px short of its tile: the way for a key is the tile PAST it. And a `branch` is
+  finished by ANY goal: check which exit a second run ends at (`measure.py --only exits`; KEEP's pen-in "run to
+  the treasury" ended at the throne).*
+- *Do not put a finish straight ahead off a timed crossing: a ball that rode it fast is in the goal before its
+  player has chosen an exit.*
+- *A drop a route takes on purpose lands on SAND: rubber off a 2-unit wall bounces for 2 s on plain floor and
+  not at all on sand, which is a flight G3 has nothing to say about.*
+- *`--selfcheck`'s `courses` section took an art gate's lane for a stranger until this step (SPEC.md
+  130.41.12.1): any course with a gate's `art` failed it.*
+- *A flag within 3 cells of the main route that the route cannot also reach its fellows of (a secret's) makes
+  the route search's flag pass spend its whole budget, 45 s a compile: keep a secret's flags 4 cells off.*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
