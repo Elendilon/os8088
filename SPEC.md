@@ -262702,6 +262702,95 @@ it."* The cap of 4 was wave 4's first guess and nothing depends on it.
 - **The check** is `--selfcheck` section `grammar`: twelve springs on one course compile. The old "a 5th spring"
   refusal case is gone.
 
+###### 130.14.4.1.4 NO TRAP remembers an opened channel, and waits for a timed bridge
+
+*(2026-11-25, CLOCKWORK KEEP's refinement: docs/plans/bonanza-courses/KEEP.md,
+risks C1 and C2.)* Course 7 is the first whose way on is not ahead: a door
+shows the glyph of the key that opens it, and the key is somewhere else. Its
+pen-in was laid out to get past this check rather than as it was wanted: the
+key IN LINE with its door and the plate one tile from its gate, because a run
+that opened a channel was the only run that found it open; and its second
+drawbridge on its first one's timer, because every run began on step 0. Both
+were the check's, not the engine's:
+
+- **A channel LATCHES** (130.41.1 D3: a plate or a key opens its channel for
+  the attempt, and a respawn keeps it). The search's state was a cell and a
+  ball, so the state a run came to rest in had forgotten the channel the run
+  had opened, and the next run from it met the gate shut.
+- **A timer comes round.** A ball at rest waits; a timed drawbridge that is up
+  on step 0 is down a second later. The search ran each state from one phase
+  (two with a windmill, eight with a lift) and never waited, so a timed bridge
+  UP at step 0 stranded everything past it.
+
+**The rule.**
+
+- **The channels are part of the state.** On a course with a plate or a key
+  (`trap_chans`) a state is (cell, material, OPEN CHANNELS): `_trap_run`
+  starts with the state's channels open - GATE's slot +0, and each open
+  channel's art at its last frame (130.41.12 A6: the ball has waited the
+  gate's opening out) - and every state it reaches carries the channels open
+  at that step. A channel only ever opens, so the states are at most 2^k
+  times as many (k at most `GT_NCH`, 4) and the search is as finite as it
+  was. The state's material carries them above bit `TRAP_CHSH` (4), so the
+  cache, the waves on every core (`_TrapPar`) and the pickup arm's states read
+  them with no change of their own. A course with no plate and no key has the
+  states it always had.
+- **The start, the flags and the pads are still proved with NO channel
+  open**, as they were. That is the least a respawn can find (a channel is
+  never shut again), and it is the proof that has to hold: a course is refused
+  when the start, a flag or a pad cannot reach a finish by opening what it
+  needs on the way. *Not proved*: that a finish is still reachable with MORE
+  open than that. Opening adds floor (a gate a floor where it was a wall, a
+  switched bridge a floor where it was a void) and takes none away, so a way
+  on is lost only where a run LEANED on a shut gate to stop - and what is
+  proved is still a way on, never every state a player can reach
+  (130.14.4.1.2's guard is the one place the whole set is asked about).
+- **A run that meets a TIMED drawbridge is run from eight phases**
+  (`trap_waits`: the lift's own `TRAP_LIFT_PHASES`, 32 steps apart) - the
+  phases the course's other rule already ran it from, then the rest. "Meets":
+  the ball's cell is one of a timed bridge's on any step of the run. A run
+  that meets none is the one run it was, so a course's other states cost what
+  they did. The window is refilled on the run's first step when it starts off
+  step 0 (the poke filled it for step 0). Pop-up spikes, a timed see-saw and a
+  turntable are still read from step 0 alone: a course that needs to wait for
+  one is passed by the Hop or refused, as before.
+- **What a timed bridge's phases do NOT prove**: that a PLAYER makes the
+  crossing. The search presses the Hop where it matters (130.14.4.1.1) at each
+  phase, and finds a 4-cell bridge down 8 steps of 256 crossable in one bounce
+  off its deck. The window a human needs is the design sheet's to measure
+  (KEEP.md section 3: a third of the period is fair, a quarter is not).
+
+**MEASURED** (2026-11-25, `BB_CACHE=0`):
+
+- **No existing course's verdict or bytes move.** Each of the 39 other
+  `.bbc` files of `apps/bonanza/courses/` compiled alone (`bbcourse.py --dev
+  -o`) under the tool before and after: the same files byte for byte (the
+  part, the demo, `bzcourse.inc`, the kit) and the same verdict (the nine test
+  courses and the three pathway sources end as they did when compiled alone).
+  The build's own run over the eight shipped courses, KITE, LODE and the nine
+  test courses with the pathway, the title and the kit writes 37 files under
+  each, every one byte-identical.
+- **What it costs** (the model's steps NO TRAP takes, one core,
+  `BB_TRAPPAR=0`): the three courses with a plate, a key or a timed bridge -
+  GATE 22,284 steps before, 27,760 after (314 states, 342); PLAYGROUND, the
+  biggest, 2,907,838 and 3,104,350 (+6.8%: the same 36,268 states; the runs
+  that meet its lift were at eight phases already, and the ones that meet its
+  bridge are now; 58 s and 63 s); KEEP's pen-in 1,354,874 and 1,687,495 (857
+  states, 3,172 with their channels - and the Hop asked for at 12 states
+  where it was 297, the search no longer stuck at a door it had opened), the
+  refined KEEP 2,004,352 (3,461 states: 32 s on one core, about 10 s of its
+  compile on four). Every other
+  course runs the code it ran: its states carry no channel and its runs meet
+  no timed bridge.
+- **`--selfcheck` section `grammar`** (`_sc_trapchan`): a ring key in a side
+  nook and its door in a wall across the only way to the cup, round a corner
+  (`_TRAPK`) - compiles; the RED ARM `_TRAPNOCHAN` (the channel forgotten
+  between runs, the search until now) refuses it; the key BEHIND its own door,
+  a real trap - refused; a 4-cell timed bridge up at step 0 and down 96 steps
+  of 256 (`_TRAPB`) - compiles; the RED ARM `_TRAPNOWAIT` (one phase) refuses
+  it; a 7-cell bridge down 16 steps of 256, which nothing crosses at any
+  phase - refused.
+
 ##### 130.14.4.2 Records, the grid and the header
 
 Prop records (130.12.3.1), the kind's own 16 bytes at +16:
@@ -262880,9 +262969,8 @@ rebound)` (0 for a landing) with the floor's rate added, as a Hop does
 (130.11.8.6) - never the SUM of the spring and a rebound, so nothing pumps
 (O13) - `ztop = z`, airborne; `bz_nspr` += 1. The Hop's window does not add
 to it. A landing that shatters a glass ball on the spring (step 6) is a
-shatter and is not launched; a landing that STUNS a steel ball is launched
-- the spring is under it - and stays stunned in the air (no steering) until
-its count ends. A rubber, steel or glass ball leaves the same way: the
+shatter and is not launched; a landing on a spring never STUNS
+(130.14.4.6.1). A rubber, steel or glass ball leaves the same way: the
 spring is material-blind, and steel's or glass's landing at the top is
 judged as any landing, which each course meets by putting the upper tier
 at the flight's apex (a soft landing, 130.14.6).
@@ -262896,6 +262984,33 @@ ground velocity a ball can bring to it, at most `BZ_VMAXG` an axis, so
 landings per ball over the approaches it sweeps (`--selfcheck` item 7), as
 it prints a tube exit's; a spring is not refused for an approach that
 lands in a void, because the approach is the player's.
+
+###### 130.14.4.6.1 A landing on a spring never stuns (the owner, 2026-11-25; PHYS_REV 16)
+
+*"When steel gets on a spring going straight up and down, it is softlocked."* A hard landing STUNS steel: its
+arrows are ignored for its stun's steps. The spring relaunched a ball at the same contact, so a stunned ball
+went up stunned. From a spring of about 450 up, steel came down hard enough to stun at EVERY landing on it, so
+it never had a step it could steer in.
+
+MEASURED on the model before the change, steel bouncing straight and then one arrow held: off the cell in
+0.9 - 1.25 s on a 400 spring; NEVER on 450 - 700; 26 - 52 s on 768 (MILL's, PEAK's and HOP's springs).
+
+- **The rule.** `bz_land`'s hard test is skipped when the centre's owner is a SPRING (`bz_wckd`, `bz_wolf`'s
+  kind; the model's `_land`, the window's owner). It is a STUN only: a landing that SHATTERS glass on a spring
+  still shatters, as before. The ball takes a soft contact's bounce, which the spring then replaces with its
+  launch.
+- **What it measures now** (the same scenes on the model, against the old rule):
+  - steel leaves the spring's cell in 0.9 - 1.25 s at every strength 400 - 768, as it did at 400 before;
+  - from a 768 spring, steering towards a floor 1 - 4 units higher lands on it from any of 40 phases of the
+    bounce, and a floor 5 units higher from some; from a 500 spring (a 2.4-unit bounce), +1 often and +2
+    sometimes. With the old rule it reached none of them.
+- **PHYS_REV 16.** It is a rule with no table, so the physics identity moves. The shipped demos (MOON's,
+  PLAYGROUND's and PEAK's) were written again by `bbcourse.py author`: only their `physics` lines changed. No
+  shipped demo stuns on a spring: DOWN's, HOP's, MILL's and PEAK's route demos replay step for step the same
+  under both rules.
+- **The checks.** `tests/bonanza_phys.py`'s replay `spring-steel`: steel on TPLY's spring 2 (its launch poked
+  to 600) bouncing straight 80 steps, then steered. The model shows 0 stuns and the ball off the cell. Red arm
+  `sprstun` (the model's `_sprstun`, the guest's `jmp short .hard`) stuns it and leaves it on the cell.
 
 ##### 130.14.4.7 State, and the step's place for each rule (binding)
 
@@ -263970,7 +264085,55 @@ way point; `_plan_stands` skips it rather than raising (the KeyError killed `com
 `_course_limit`'s `route_plan`). Every course that compiled before compiles to the same bytes: the skip is
 only reached where the old code raised.
 
-###### 130.14.7.4.6 The SWITCH WAY and the RUN-UP: a pressure plate on a step
+###### 130.14.7.4.6 The STAND at every timer: a real course's route waits as a player does
+
+*(2026-11-25, CLOCKWORK KEEP's refinement: docs/plans/bonanza-courses/KEEP.md,
+risk C5.)* KEEP is a course of timers - a drawbridge, a rocking stair (a TIMED
+see-saw, 130.42.11), two rows of pop-up spikes, two turntables - and its
+pen-in's route demo pressed the Hop four times, twice only to pass the time:
+`PLAN_STALL` fails a leg whose ball is still for 24 steps, the Hops are tried
+before the WAITS (130.14.7.4.3), and a Hop on the spot is the first thing that
+keeps the ball "moving" until a timer comes round. G3 then refused the demo
+for the flight. A player does not hop on the spot at the foot of a stair. He
+waits.
+
+- **The rule**: on a course that says `guide` (a real course: wave 11's rule,
+  docs/plans/bonanza-courses/README.md section 1.9) the STAND CELLS of
+  130.14.7.4.5 are every TIMED element's, not a turntable's alone
+  (`_plan_tt`): the cells of a timed drawbridge (130.41, `period`), of a
+  popspike (130.38) and of a timed see-saw's plate. Where the leg's arrows'
+  path enters one, the cell it came from is a stand (the APPROACH; none has a
+  pivot), held 0, 8, 16 ... steps up to the longest such timer's period, and
+  the stands come before the Hops, as a turntable's do.
+- **Beside a plate**: a timed see-saw's raised end is a WALL to a ball beside
+  it, so the arrows stop against it and never enter its cell. Every floor
+  cell next to a timed plate that the path is on is a stand too (`_plan_tt`'s
+  `beside`).
+- **Only a `guide` course**: the prototype, lab and test courses keep the
+  search they had, so no demo, limit or identity of theirs moves. No course
+  that says `guide` had a timed element before KEEP (ROLL, HOP, DOWN, MILL,
+  KITE and LODE have none), so theirs do not move either: MEASURED with
+  130.14.4.1.4's two builds (every file byte-identical), which carry this
+  change as well.
+- **MEASURED on KEEP**: the pen-in's route demo was 1,725 steps (31.6 s), 4
+  Hops; a `guide` copy of the same file is searched to 1,497 steps (27.4 s) with no
+  Hop - what that course was once nothing stalled in it - and G3 still refused
+  it (a 4-column pan as the ball dropped off its folding drawbridge). The
+  refined course's route demo is 1,805 steps (33.0 s), COMPLETE, 0 falls, 0
+  returns, **no Hop**: the ball stands at the stair's foot for a swing, before
+  the first row of spikes until it drops, at the pit's edge and on the island
+  between the cogs. `--guide`: G1, G3 (2 flights, 0 panned, on both cards),
+  G11 and G12 pass. The search is under a second of the compile, where the
+  Hops' search took 45.
+- **`--selfcheck`'s `hopplan`, item 8** (`_sc_tstand`): `_TSSTAND`, a `guide`
+  course whose two-wide walk is crossed by a row of pop-up spikes, up when
+  130.6's arrows reach it - the arrows roll onto the points; the search finds
+  a route with no fall, no return and no Hop, the ball at rest on the cell
+  before the row (11 steps); RED ARM: `_NOTSTAND` (a turntable's stands alone)
+  finds the Hop over the row; and the same course WITHOUT `guide` keeps the
+  red arm's route, key for key.
+
+###### 130.14.7.4.7 The SWITCH WAY and the RUN-UP: a pressure plate on a step
 
 *(2026-11-25, the owner: "help teach autopilot that it needs to actually
 get on the pressure plate (with the route point) that it is missing in
@@ -264012,7 +264175,7 @@ there, at way 6, reported as a stall at the gate.
   the open gate and on to way 8 (`18 33`). There the straight leg from
   `31 20` falls off the stairs at `27 22`, which is a matter for the route,
   not for this section.
-- **`--selfcheck`'s `hopplan`, item 8**: `_PLATESTEP`, the same geometry
+- **`--selfcheck`'s `hopplan`, item 9**: `_PLATESTEP`, the same geometry
   in small: a step entered from the side, the plate off its far edge, a
   wall on the diagonal, and the goal behind the plate's gate. The search
   finds a route with no fall and no return. RED ARMS: `_NOSWITCH` (the
@@ -280127,6 +280290,33 @@ owner made it the default: *"Floating thin bridge will be our default
   the first (a fall, restored), then at speed across all five (every one
   vanished behind it), guest = model at every step and every pose drawn.
 
+##### 130.27.2.2 The face BEHIND a floating cell goes on down (the owner, 2026-11-25)
+
+*"It looks like the cracked floor needs the same 'tile behind it' work seesaw did - or maybe a floating floor in
+general? It's leaving a 'hole' behind it like the see-saw used to on mill."* It was every floating cell.
+`draw_ops` stopped a cell's front face at the top of the neighbour in front of it, which assumes that neighbour
+is a column to the ground. A FLOATING neighbour (a `float`, a tube's `column`) has nothing under it, so a solid
+block behind an overhang showed a black notch under the overhang: the same notch 130.42.13 closed for a
+see-saw.
+
+- **The rule.** A face whose neighbour in front floats is hung as if that neighbour were the void, by its own
+  cell's rule: to the ground plane (never less than `FACE8`), or its own float's depth when it floats too. The
+  floating cell, drawn after it (it is in front), covers what it covers. `draw_ops(..., behind=)` carries the
+  set: the compile's floating cells less every see-saw's plate, whose faces behind are `tilt_base_ops`'
+  (130.42.13, 130.42.13.1). The compile keeps it as `c.behind`, and the self-checks that redraw a course pass it.
+- **A vanishing crack** (130.25.18.1) gains the most. The face behind it is now in the picture before it
+  breaks, so its broken pose changes only its own tile. A vanishing crack on a grounded corner, refused before
+  ("float its neighbours too"), now compiles.
+- **Shipped pictures change** where a floating cell stands in front of a taller column: PLAYGROUND (3,285 px),
+  GATE (174), HOP (125) and MILL (5). They were LOOKED AT before and after. Each black notch under an overhang
+  is now the block's face going on down, and PLAYGROUND's archway passage is unchanged. DOWN, ROLL and PATH are
+  byte-identical. PLAYGROUND's demo was written again (its `ident` line).
+- **The checks** (`--selfcheck`):
+  - section `budget`, item 14: a grounded block behind a floating slab. Where the red arm `_FL_NOBEHIND` (the
+    face stopped at the slab's top) differs (712 px), the picture is the same course's with the slab taken
+    away, pixel for pixel;
+  - section `w9`: the grounded-corner crack compiles, and under the red arm it is refused as before.
+
 #### 130.27.3 Everything else that draws down into the void
 
 - **A tube's body** (130.12.6.1, `deep`): its rule lowers a body wall's
@@ -286916,6 +287106,17 @@ no art is byte for byte what it was); this is the feature.
   cell of an N-cell gate), else 0. An art element has NO lane of its own
   (its lanes are kind 76's), and CONTACT's channel walk does not mark it
   (it has no lane to mark: `bz_latt` is the lanes').
+- **The record that OWNS an art gate's first cell is its art's first lane**
+  (2026-11-25): a kind-76 record is anchored at its gate's first cell and is
+  laid before the gate's own, so the window's scan (`bz_win9f`: the first
+  record anchored at an OBS cell) names the lane. No hook reads the
+  difference: CONTACT on a gate and on its lane are both nothing, and CELL
+  and STEP walk the records themselves (`gt_host`'s `art` scenes are equal at
+  every step). `--selfcheck`'s `courses` item 4 ("bz_wol's scan names the
+  owning record") asked for the gate's own record and so FAILED on every
+  course with a gate's art - GATE itself, which only a knob build lists, and
+  KEEP, the first real course with one. It takes the gate's lane as the
+  gate's now (`owns`); a lane of any OTHER element still fails it.
 - **Kind 76 `gatelane`**: +16 FSB 0, +17 ATTEMPT, +18 its gate's record,
   +19 its channel, the rest zero; a lane of 4 poses; no cell OBS, no owner
   (the see-saw lane's precedent, 130.42.3).
