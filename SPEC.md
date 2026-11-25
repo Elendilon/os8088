@@ -284487,7 +284487,9 @@ course.
   cell stays REACHABLE with its clocks in place (`finish_reach_rule`: the
   start's reach closure over the tiles less the clock posts and the goal
   cells of other exits, one closure an exit, plus a free neighbour to roll in
-  from) - every goal cell AND every cup.  TRIAL's finish clock moved from
+  from; since 2026-11-25 the closure takes an UPDRAFT that carries one of the
+  course's balls, 130.34.5, so a finish above its start is reached as the
+  engine reaches it) - every goal cell AND every cup.  TRIAL's finish clock moved from
   (9, 17), which walled exit 0's goal off, to (14, 18) on the ice's front
   row: (11, 17), tried first, is MET by the autopilot (its route demo 499 ->
   796 steps, the limit 20 -> 30 s); at (14, 18) the replay is the same step for
@@ -292921,6 +292923,51 @@ pickups' reach). NO TRAP needs nothing: its runs hold arrows and never Hop,
 so an updraft never carries one, and a finish that only an updraft reaches is
 not one NO TRAP can prove (the WIND course's ledge is a second exit, not the
 only finish).
+
+**The finish's reach takes an updraft that carries (2026-11-25, KITE HILL's
+refinement).** `finish_reach_rule` (130.22.6's: every finish cell reachable
+from the start with the clocks in place) closes the start's reach with
+`reach_closure`, whose launches were the Hop, the boost and the bounces
+alone - so a finish ABOVE its start that a thermal serves was refused
+(*"the goal cell cannot be reached with the course's clocks in place"*),
+though the engine reaches it: 130.34.11's `lift` launches a grounded ball,
+and a ball that Hops in an updraft or rolls off into its pit is in the air
+inside the column and is carried to the top. The pen-in of KITE HILL
+(docs/plans/bonanza-courses/KITE.md, risk K1) had worked round it with a
+ramp no ball could climb, railed off at both ends. The closure now does what
+the engine does:
+
+- **`updraft_carries(c)`**: each updraft whose push beats gravity (`A > BZ_G`,
+  24) for a ball a play of the course can be (`course_balls`: its start's, a
+  pad's, a flag's named ball - A is `S`, `2S` or `S / 4`, 130.34.1 D3) as
+  `(region, height, radius)`: the height its TOP plus the flight of
+  `WD_LIFT + A` (the hover's overshoot, the strongest such ball's), the
+  radius the cells a fall from there to the course's lowest floor can carry
+  a ball at `VMAXG` - `build_reach`'s own two figures for an updraft, above.
+  An updraft no ball of the course can ride (rubber at 16) is not in it.
+- **`reach_closure(..., updrafts=)`**: in each round, an updraft whose region
+  HOLDS a reached record, or has one ACROSS AN EDGE of a region cell (the
+  ball rolls off it into the column), is a launch from that height over
+  every cell of its region. `finish_reach_rule` alone passes the updrafts;
+  every other caller's closure (`_play_checks`' dead ends) is what it was.
+- **It can only add to a closure**, so no finish that was reachable stops
+  being so: MEASURED, `finish_reach_rule`'s verdict on every course file
+  under `apps/bonanza/courses/` (37, the shipped, test and knob courses; two
+  have an updraft, `PLAY` and `WIND`) is the same line before and after.
+  Nothing a compile writes reads it: every part, demo and identity is as it
+  was.
+- **`--selfcheck` section `wind`, one more item 6 (34 items in all)**: a goal ledge 6 units
+  over the start (past every Hop, boost and bounce) behind a `lift` thermal
+  of 40 is REACHED, as the model reaches it (rubber rolled onto the fan with
+  the arrows held toward the ledge finishes); the red arm `nowindreach`
+  (130.34.8's switch: no carry in the closure) REFUSES it; and the same
+  course with a thermal of 16, which rubber cannot ride and the model does
+  not climb, is refused too.
+
+NO TRAP still needs nothing, for another reason than the one above: its
+runs are the MODEL's, and since 130.34.11 a run that rolls onto a `lift`
+updraft's cell or off into a pit wind is carried exactly as a play is
+(KITE HILL's three flags are proved through its thermal and its glide).
 
 #### 130.34.6 The art
 
