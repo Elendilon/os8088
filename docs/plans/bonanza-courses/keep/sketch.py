@@ -15,6 +15,8 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from penkit import Pen
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import art as ART                         # the gates' art and the decals (keep/art.py, ART.md): their names and `art` lines
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
@@ -75,7 +77,7 @@ p.floor("G", GX, GY, GX + 2, GY + 3, ZC, "G: the GATEHOUSE, 2 x 3")
 p.wall(GX - 1, GY, GX, GY + 3, ZC + 1.5, col=STONE, note="the gatehouse's cheeks: low, so the courtyard is seen over them")
 p.wall(GX + 2, GY, GX + 3, GY + 3, ZC + 1.5, col=STONE)
 p.plate(GX, GY + 1, "plus")
-p.gate(GX, GY, "plus", "y", art="portcullis")
+p.gate(GX, GY, "plus", "y", art=ART.GATES["portcullis"])
 # 4. THE COURTYARD: the keep's DOOR in its east curtain, in sight from the gate --------------------------------
 p.floor("C", CX0, CY0, CX1, CY1, ZC, "C: the COURTYARD, 10 x 9")
 p.guard(CX0, CY1 - 1, GX, CY1, sides=["+y"])               # the south curtain, either side of the gatehouse
@@ -111,7 +113,7 @@ p.key(CX0 - 1, KY, "ring")
 # 7. THE DOOR, the keep's passage and the COG HALL: two quarter-turn tables over a pit, an island, the throne ----
 p.floor("K", DX, KY, DX + 2, KY + 1, ZC, "the door's sill and the keep's passage")
 p.guard(DX + 1, KY, DX + 2, KY + 1, sides=["-y", "+y"])
-p.gate(DX, KY, "ring", "x", art="door")
+p.gate(DX, KY, "ring", "x", art=ART.GATES["door"])
 p.wall(DX, KY - 1, DX + 1, KY, ZC + 2, col=STONE, note="the door's jamb")
 p.floor("H", HX, KY - 2, HX + 3, KY + 3, ZC, "H: the COG HALL's near floor, 3 x 5")
 p.floor("H", HX + 3, KY, HX + 5, KY + 2, ZC, "the first cog (a 2 x 2 table)")
@@ -138,7 +140,8 @@ p.flag(DX + 1, KY, name="flag 2")
 p.goal(TX + 1, KY + 2, TX + 3, KY + 4, ZC)          # the THRONE: to the RIGHT off the second cog, never straight on
 # 8. THE SECRET: the TRAITOR'S BRIDGE off the west battlement to a turret, the cross key, the TREASURY -----------
 p.floor("X", CX0 - 5, BY, CX0 - 2, BY + 1, ZW, "the TRAITOR'S BRIDGE's cells")
-p.bridge(CX0 - 5, BY, CX0 - 2, BY + 1, period=256, on=96, seed=96)
+p.bridge(CX0 - 5, BY, CX0 - 2, BY + 1, period=256, on=96, seed=96, style="portcullis")   # iron plates, a boss a
+# tile: a different machine from the planked drawbridge, and plainly not floor (the default deck is a bare seam)
 p.floor("Z", CX0 - 8, BY - 1, CX0 - 5, BY + 2, ZW, "the turret, 3 x 3")
 p.guard(CX0 - 8, BY - 1, CX0 - 5, BY + 2, sides=["-x", "-y", "+y"])
 p.guard(CX0 - 6, BY - 1, CX0 - 5, BY, sides=["+x"])
@@ -148,7 +151,7 @@ p.flag(CX0 - 6, BY, name="flag 4")
 p.key(CX0 - 7, BY, "cross")
 p.floor("Z", TX + 1, KY - 3, TX + 2, KY - 2, ZC, "the treasury's gate cell")
 p.guard(TX + 1, KY - 3, TX + 2, KY - 2, sides=["-x", "+x"])
-p.gate(TX + 1, KY - 3, "cross", "y")
+p.gate(TX + 1, KY - 3, "cross", "y", art=ART.GATES["vault"])
 p.floor("Z", TX, KY - 6, TX + 3, KY - 3, ZC, "the TREASURY, 3 x 3")
 p.guard(TX, KY - 6, TX + 3, KY - 3, sides=["-x", "-y", "+x"])
 p.guard(TX, KY - 4, TX + 1, KY - 3, sides=["+y"])
@@ -156,9 +159,15 @@ p.guard(TX + 2, KY - 4, TX + 3, KY - 3, sides=["+y"])
 p.goal(TX + 1, KY - 6, TX + 2, KY - 4, ZC, exit=1, hidden=True)   # a SECRET finish (SPEC.md 130.19.4): the pathway's `secret` route needs the word
 p.float_all(CX0 - 10, CY0 - 7, TX + 5, GY + 14)
 
-p.clock(GX - 2, GY + 9, ZC, "start")
-p.clock(CX0 - 2, CY0 - 3, ZW, "tower")
-p.clock(TX, KY - 2, ZC, "throne")                  # the dais's back-left corner: only the void is behind its head
+# the clocks are HOURGLASSES (keep/CLOCKS.md; SPEC.md 130.18.5.2): the sand runs out along the course, and the
+# finial is a padlock, a key, a crown.  White digits where the sand is below them (SPEC.md 130.18.5.6)
+p.clock(GX - 2, GY + 9, ZC, "start: full, a padlock", frame="hourp")
+p.clock(CX0 - 2, CY0 - 3, ZW, "tower: half run, a key", frame="hourk ink white")
+p.clock(TX, KY - 2, ZC, "throne: run out, a crown", frame="hourc ink white")                  # the dais's back-left corner: only the void is behind its head
+
+p.comment("ART (docs/plans/bonanza-courses/keep/art.py draws the files and places them: ART.md)")
+for _ln in ART.lines():
+    p.raw(_ln)
 
 p.route = [(GX + .5, GY + 10.5), (GX + .5, GY + 2.5), (GX + .5, GY - .5), (SX + 3.5, CY0 + 1.5), (SX + 3.5, CY0 + .5),
            (SX + 3.5, CY0 - 1.5), (SX - .5, CY0 - 2.5), (SX - 1.5, CY0 - 2.5), (SX - 3.5, CY0 - 2.5), (CX0 + .5, CY0 - 1.5),

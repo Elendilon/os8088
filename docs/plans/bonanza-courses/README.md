@@ -104,6 +104,36 @@ the step found that the next song meets too:*
 - *A song's tempo can equal a timer's period exactly (a 16th of 8 sub-ticks, a bar of 128 steps); its PHASE
   cannot be held, by any song: KEEP.md section 16.*
 
+*Courses 5 - 7 have their ART (2026-11-25, the step after the songs): custom clocks, KEEP's gates, signs and
+decals, all in the three course files and still in no build. Each course has a `CLOCKS.md` (two or three
+concepts studied, one installed for the owner's pick) and an `ART.md` in its folder, and its sheet's section 17
+is what it carries now and the room it has left: [kite/CLOCKS.md](kite/CLOCKS.md), [kite/ART.md](kite/ART.md)
+(a KITE whose tail grows a bow a clock), [lode/CLOCKS.md](lode/CLOCKS.md), [lode/ART.md](lode/ART.md) (an ORE
+CART that fills), [keep/CLOCKS.md](keep/CLOCKS.md), [keep/ART.md](keep/ART.md) (an HOURGLASS that runs out).
+`clockkit.py` and `artkit.py` are the kits the three share, as `penkit.py` is their pen. What the step found
+that the next course's art meets too:*
+
+- *A clock frame's THIN parts are paint, not face. A string, a tail, a track or a trestle keyed as the clock's
+  geometry cuts an occluder mask in nearly every block it crosses: KITE went from 178 masks to 232 with its
+  kites' strings keyed and to 180 with them as paint (`_ClockArt.put(..., "shadow")`); LODE's cart on a keyed
+  trestle needs 267 of 256. The price is that a ball behind the clock is drawn over the thin part.*
+- *A frame is drawn round the digits wherever they are, and the COURSE says where: `digits 0 -16` flies KITE's
+  kites two block rows over their tiles, `digits 0 16` would set LODE's cart on its tile. No frame declares an
+  anchor, so the selfcheck's "no shipped frame has one" still holds.*
+- *`ink white` is a design tool: KEEP's hourglass keeps the sand over the digits or under them, never across,
+  and takes white digits once they are on the glass.*
+- *Gate art (KEEP's is the first in a real course): draw the channel's glyph UPRIGHT and large, the stone in the
+  scene's face ink (white stone is lost on the floor behind it), what moves in black and white, and leave a
+  grille's gaps open - the occluder is the shut frame's, so a ball behind an open gate is still cut by it
+  (SPEC.md 130.41.12.7). A gate's art is masks: KEEP's three took 32.*
+- *A sign that STANDS goes where only the void is behind it (a ball behind it would be drawn over it). Floor
+  paint goes on any tile a prop does not draw itself: paint ON a cog, a stair or a plate would be drawn over
+  by the prop's poses (and would not turn or tilt with it), but paint BESIDE one is safe - a lane's poses are
+  cut from the picture with the art in it (MEASURED: six lanes of KEEP and KITE share blocks with a decal, and
+  every pose of each holds the decal's pixels). Paint costs blocks and no mask.*
+- *`bbcourse.py --png` draws every course in palette 1. For a `palette 0` course (KITE) the kits draw the
+  picture in its own inks (`art.py --png`, `picture-cga.png`).*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped

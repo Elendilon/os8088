@@ -86,7 +86,7 @@ float rect  15  28  18  29 thick 0.5
 
 prop bridge 24 33 26 37 period 256 on 160 seed 216 style picket
 prop plate 24 31 channel plus
-prop gate 24 30 channel plus along y art portcullis
+prop gate 24 30 channel plus along y art keep_port
 surface sand rect 20 23 22 26
 seesaw 25 20 29 21 along x pivot 11 rest + period 128 flat 16
 prop popspikes 22 18 period 128 on 64 seed 0
@@ -94,12 +94,22 @@ prop popspikes 22 19 period 128 on 64 seed 1
 prop popspikes 18 22 period 128 on 64 seed 64
 prop popspikes 19 22 period 128 on 64 seed 65
 prop key 19 24 channel ring
-prop gate 30 24 channel ring along x art door
+prop gate 30 24 channel ring along x art keep_door
 prop turntable 35 24 size 2 fill oo/..
 prop turntable 38 24 size 2 fill oo/.. seed 96
-prop bridge 15 28 18 29 period 256 on 96 seed 96
+prop bridge 15 28 18 29 period 256 on 96 seed 96 style portcullis
 prop key 13 28 channel cross
-prop gate 41 21 channel cross along y
+prop gate 41 21 channel cross along y art keep_vault
+# ART (docs/plans/bonanza-courses/keep/art.py draws the files and places them: ART.md)
+art keep_wait.bba 257 297
+art keep_plate.bba 393 296
+art keep_up0.bba 599 240
+art keep_up1.bba 551 216
+art keep_hay.bba 406 191
+art keep_carpet.bba 611 294
+art keep_throne.bba 694 370
+art keep_tower0.bba 726 173
+art keep_tower1.bba 278 220
 
 goal  rect 41 26 43 28  flat 10
 goal  rect 41 18 42 20  flat 10 exit 1 hidden
@@ -111,9 +121,9 @@ checkpoint 18 28 ball rubber   # flag 3
 checkpoint 14 28 ball rubber   # flag 4
 
 # clocks: on a corner of a floor off the way, or on a tile one out from it
-clock 22 39   # start
-clock 18 18   # tower
-clock 40 22   # throne
+clock 22 39 frame hourp   # start: full, a padlock
+clock 18 18 frame hourk ink white   # tower: half run, a key
+clock 40 22 frame hourc ink white   # throne: run out, a crown
 
 # the autopilot's route
 way 24 40

@@ -1,0 +1,5 @@
+ground: cart0, cart1, cart2, cart3
+blocks 803; occluder masks 249 (of 256), records 1334
+one part, 54560 bytes in RAM (10464 under 65,024)
+on disk: LZ4 17157, LZB 13997
+the longest wholly-hidden run behind each clock (bound 16 gu): 0, 0, 0, 2

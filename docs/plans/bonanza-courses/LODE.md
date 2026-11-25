@@ -35,7 +35,7 @@ its one new idea, and every meeting turns them over:
 | new to the pathway | MAGNETS, in three forms (a side magnet's pull, a fence of them, a row of hanging ones); the FLUME (an S of 3-wide channel between curbs) |
 | target time | 55 - 60 s for a first clear, 40 s for a good one (`target 60`'s class, `limit 99`). MEASURED on the model: the route demo **35.7 s** (1,948 steps), no fall (section 3) |
 | palette | the default (cyan, magenta, white): cold stone and magenta lodestones. The owner's call |
-| clocks | 4: start, pen, turn, vault. An ORE CART that fills along the way (section 9) |
+| clocks | 4: start, pen, turn, vault. An ORE CART on a timber trestle, the digits painted on its side, filling along the way: `cart0` - `cart3` (section 17, [lode/CLOCKS.md](lode/CLOCKS.md)) |
 | song | **Lodestone Gorge** (`music lodestone`, section 16): G dorian at 109, a work song whose every bar is pulled back onto one low G; a lift into G major and a held note for the hover. Nobody has heard it yet |
 | the one new idea | **something outside the ball pulls it, and it is steel's alone.** Speed beats a pull; a pull can carry |
 | picture | 832 x 728 px (`width 104`, `origin 272`); the floors are 640 px across. ONE part, 54,871 bytes |
@@ -320,6 +320,9 @@ SPEC, no engine change made or wanted):
 
 ### The art (for the art agent)
 
+*DONE (2026-11-25): the clocks are [lode/CLOCKS.md](lode/CLOCKS.md), the signs and decals [lode/ART.md](lode/ART.md), and
+section 17 is what the course carries now and what room it has left. What follows is the brief as it was written.*
+
 - **Theme**: an open quarry. Cold grey stone, timber props, magenta LODESTONES (the
   magnets' own ink) growing out of the rock.
 - **Clocks**: an ORE CART on a stub of track, the digits painted on its side. What is
@@ -603,3 +606,58 @@ Trial's bass goes as low and the owner has heard that one) and the ka-CHUNK's 5-
 16th under the horn's scoop. Then the guest: `bonanzamusic` covers the song, and the frame
 cost on the XT is not measured.
 
+## 17. The art (done 2026-11-25): what the course carries, and its room
+
+*The pipeline's art step, after the song. Clocks, signs and decals are in `lode.bbc` (`lode/sketch.py` writes
+them; `lode/art.py` draws the `.bba` files). The studies, with every picture on both cards, are
+[lode/CLOCKS.md](lode/CLOCKS.md) and [lode/ART.md](lode/ART.md). No cell, route, timing or `origin` moved.*
+
+![the course with its art](lode/picture-cga.png)
+
+- **Clocks: `cart`** (SPEC.md 130.18.5.2), of three studied (the same cart set on the tile; a miner's lamp on
+  a gallows). An ore cart on a stub of track on a timber trestle, the digits painted on the whitewashed side
+  of its iron tub.
+
+  | clock | cell | frame | what is in the tub |
+  |---|---|---|---|
+  | start | (24, 6) | `cart0` | nothing: its dark mouth |
+  | pen | (14, 19) | `cart1` | a few lumps of lodestone over the rim |
+  | turn | (45, 18) | `cart2` | half full: a low mound |
+  | vault | (32, 30) | `cart3` | heaped, and glinting |
+
+- **Signs and decals** (4 files, `lode_*.bba`): a horseshoe painted on the floor at the hoist's foot and an
+  arrow up its ramp; chevrons on the sirens' bridge before the first siren (keep moving); chevrons up the
+  runway (straight on); the last magnet's post dressed as rough lodestone, glints round it.
+- **No gate.**
+
+| | before the art | with it |
+|---|---|---|
+| the part (of 65,024) | 55,132 | **55,948** (9,076 to spare) |
+| picture blocks | 768 | 823 |
+| occluder masks (of 256) | 247 | **244** |
+| LZ4 (60 s class 12,550; its 1.5x 18,825) | 17,046 | **18,188** (637 under the 1.5x line) |
+| as the package stores it (LZB) | 13,696 before the song | 14,862 |
+| the route demo | 1,948 steps (35.66 s), COMPLETE | the same |
+| `--guide`, both cards | G1 35.4 s; 1 flight, 0 panned; G9; G10; no clock touched; G12 7.0 s / 7.0 s | the same |
+
+**Room left**: 12 masks (no `masks banded`), 9,076 part bytes, **637 LZ4 bytes** to the 1.5x line: about two
+more small floor pieces. The cart's track and trestle are PAINT, not the clock's keyed face: with the trestle's
+bents keyed the course needs 267 masks and does not compile. So a ball behind a clock is drawn over the
+trestle's legs and under the cart. `masks banded` (SPEC.md 130.52, about 750 LZ4 bytes here) would buy the
+keyed trestle at the cost of the 1.5x line.
+
+**Verified in this step** (host only; no emulator was booted):
+
+- the compile, plain and `--strict`: the same part, byte for byte;
+- `--guide` with the route demo: every figure as before the art (the table above);
+- `--selfcheck --only courses,clockvis,clockrule` on this course alone: 29 items green and the same 3 red as
+  at the commit before (each names TRIAL or a shipped demo a one-course list has not got);
+- `--selfcheck --only clockocc,clockdig` on the default list: 48 items green, none red;
+- the eight default-build courses, the pathway and the title compiled under the tool before and after: every
+  output file byte-identical, and `make BUILD=<dir> bonanzadisk` gives the same `bonanza.o88` and the same four
+  disk images (the new frames move no shipped byte).
+
+**Not run, named for the pass that wires the course in**: the rows section 10 names (`bonanzacourse` with the
+course in `BZ_COURSES`, `bonanzaring`, `bonanzaperf`, `bonanzaexit`), `bbeditbundle` (the builder's zip takes
+every file under `apps/bonanza/courses/`, the new `.bba` among them), and one look on the glass at each clock,
+sign and gate on both cards.

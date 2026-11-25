@@ -29,7 +29,7 @@ onto the summit.
 | new to the pathway | WIND: the gusting blower, the updraft with `lift` (a THERMAL), the updraft over a pit (the GLIDE); the CRACKED TILE |
 | target time | 45 - 50 s for a first clear, 35 s for a good one (`target 60`'s class, `limit 90`). MEASURED on the model: the route demo **26.8 s** (1,463 steps), no fall - the autopilot never waits for a calm; a player does (section 3) |
 | palette | `palette 0` (green, red, yellow on black: LITTLE HOP's): a grassy hill |
-| clocks | 4: start, fan plaza, launch plaza, summit. A KITE whose tail grows a bow a clock (section 9) |
+| clocks | 4: start, fan plaza, launch plaza, summit. A KITE on its string, the digits on its sail, its tail a bow longer at each clock: `kite1` - `kite4` (section 17, [kite/CLOCKS.md](kite/CLOCKS.md)) |
 | song | **Kite Hill** (`music kitehill`, section 16): D major with the raised fourth, a 6/8 at 121; each phrase an arc a step higher, one held note for the thermal, a gust and a breath. Nobody has heard it yet |
 | the one new idea | **the air moves the ball.** Wind is read off its cues and timed; rising air is ridden |
 | picture | 768 x 960 px (`width 96`, `origin 528`); the floors are 544 px across. ONE part, 53,959 bytes |
@@ -265,6 +265,9 @@ is wired: `path.bbc` and `BZ_COURSES` are a later step's.
   3.6 s and 1.4 s long, if the tune wants to mark them.
 
 ### The art (for the art agent)
+
+*DONE (2026-11-25): the clocks are [kite/CLOCKS.md](kite/CLOCKS.md), the signs and decals [kite/ART.md](kite/ART.md), and
+section 17 is what the course carries now and what room it has left. What follows is the brief as it was written.*
 
 - **Theme**: a spring hill and a kite festival. Green terraces, a bare stone summit.
 - **Clocks**: a KITE on its string. The digits are on the kite's sail; the TAIL says
@@ -507,3 +510,58 @@ a 5150's cone or a real chip. Then the guest: `bonanzamusic` (the selfcheck) cov
 song now, `bonanzasound` plays ROLL's song and not this one, and the frame cost on the XT
 is not measured (PREDICTED low on the speaker, by the tone count above).
 
+## 17. The art (done 2026-11-25): what the course carries, and its room
+
+*The pipeline's art step, after the song. Clocks, signs and decals are in `kite.bbc` (`kite/sketch.py` writes
+them; `kite/art.py` draws the `.bba` files). The studies, with every picture on both cards, are
+[kite/CLOCKS.md](kite/CLOCKS.md) and [kite/ART.md](kite/ART.md). No cell, route, timing or `origin` moved.*
+
+![the course with its art, in its own palette](kite/picture-cga.png)
+
+- **Clocks: `kite`** (SPEC.md 130.18.5.2), of two concepts studied (the other a windsock). A diamond kite on a
+  string from a peg in the tile, the digits on its yellow sail; `digits 0 -16` lifts it clear of the tile.
+
+  | clock | cell | frame | what it shows | its digits (px, line) |
+  |---|---|---|---|---|
+  | start | (54, 55) | `kite1` | ONE bow on the tail; the kite leans right, up the first rise | 504, 816 |
+  | plaza | (41, 37) | `kite2` | TWO; it leans left, at the thermal's cliff | 584, 552 |
+  | launch | (16, 38) | `kite3` | THREE; upright: the glide goes straight up | 168, 296 |
+  | summit | (7, 22) | `kite4` | a FULL tail of five, streaming, and wind marks | 280, 72 |
+
+  (Section 2's table gives the digits 16 lines lower: all four moved up together, so its G10 margins stand.)
+- **Signs and decals** (8 files, `kite_*.bba`): the GREAT KITE in the sky up-left of the summit, its string to
+  the crown; a signboard by the gust bridge (a pennant flying: WAIT; a pennant limp: GO); two arrows on the fan
+  plaza's floor into the thermal; the windbreaks' four sheltered tiles framed in red with a banner hung from
+  each rail; an arrow up the screen and a kite painted on the launch plaza's open corner; three small kites in
+  the void.
+- **No gate.**
+
+| | before the art | with it |
+|---|---|---|
+| the part (of 65,024) | 54,030 | **56,670** (8,354 to spare) |
+| picture blocks | 634 | 796 |
+| occluder masks (of 256) | 178 | **180** |
+| LZ4 (60 s class 12,550; its 1.5x 18,825) | 13,624 | **16,067** (2,758 under the 1.5x line) |
+| as the package stores it (LZB) | 11,198 before the song | 13,350 |
+| the route demo | 1,463 steps (26.78 s), COMPLETE | the same |
+| `--guide`, both cards | G1 26.6 s; 4 flights, 0 panned; G9; G10; no clock touched; G12 3.1 s / 2.2 s | the same |
+
+**Room left**: 76 masks, 8,354 part bytes, 2,758 LZ4 bytes to the 1.5x line. The fan plaza's windows still
+hold 5 own-clock lanes of 6: nothing here is a lane. A kite's string, tail and bows are PAINT, not the clock's
+keyed face (keyed, they took the course from 178 masks to 232).
+
+**Verified in this step** (host only; no emulator was booted):
+
+- the compile, plain and `--strict`: the same part, byte for byte;
+- `--guide` with the route demo: every figure as before the art (the table above);
+- `--selfcheck --only courses,clockvis,clockrule` on this course alone: 29 items green and the same 3 red as
+  at the commit before (each names TRIAL or a shipped demo a one-course list has not got);
+- `--selfcheck --only clockocc,clockdig` on the default list: 48 items green, none red;
+- the eight default-build courses, the pathway and the title compiled under the tool before and after: every
+  output file byte-identical, and `make BUILD=<dir> bonanzadisk` gives the same `bonanza.o88` and the same four
+  disk images (the new frames move no shipped byte).
+
+**Not run, named for the pass that wires the course in**: the rows section 10 names (`bonanzacourse` with the
+course in `BZ_COURSES`, `bonanzaring`, `bonanzaperf`, `bonanzaexit`), `bbeditbundle` (the builder's zip takes
+every file under `apps/bonanza/courses/`, the new `.bba` among them), and one look on the glass at each clock,
+sign and gate on both cards.

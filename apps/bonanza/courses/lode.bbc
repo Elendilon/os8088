@@ -165,6 +165,11 @@ noocclude rect 27 41 30 42
 noocclude rect 44 41 49 42
 noocclude rect 27 42 35 45
 noocclude rect 45 42 49 44
+# ART (docs/plans/bonanza-courses/lode/art.py draws the files and places them: ART.md)
+art lode_hoist.bba 310 320
+art lode_sirens.bba 405 302
+art lode_runway.bba 133 512
+art lode_great.bba 341 376
 
 goal  rect 29 25 32 26  flat 15.5
 start 22 5
@@ -172,10 +177,10 @@ checkpoint 26 18 ball steel   # flag 0
 checkpoint 36 40 ball steel   # flag 1
 
 # clocks: on a corner of a floor off the way, or on a tile one out from it
-clock 24 6   # start
-clock 14 19   # pen
-clock 45 18   # turn
-clock 32 30   # vault
+clock 24 6 frame cart0   # start: empty
+clock 14 19 frame cart1   # pen: a few lumps
+clock 45 18 frame cart2   # turn: half full
+clock 32 30 frame cart3   # vault: heaped
 
 # the autopilot's route
 way 22 5
