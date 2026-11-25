@@ -263970,6 +263970,59 @@ way point; `_plan_stands` skips it rather than raising (the KeyError killed `com
 `_course_limit`'s `route_plan`). Every course that compiled before compiles to the same bytes: the skip is
 only reached where the old code raised.
 
+###### 130.14.7.4.6 The SWITCH WAY and the RUN-UP: a pressure plate on a step
+
+*(2026-11-25, the owner: "help teach autopilot that it needs to actually
+get on the pressure plate (with the route point) that it is missing in
+this course".)* CASTLE CLIMB's draft puts its plate (`prop plate 41 28
+channel plus`, at 3.5) on top of a staircase, with a `way` on it, and
+the gate it opens (`37 31`) is on the route. A human finishes the course.
+The search did not: 130.6's reach test is 12 px in the PICTURE, so the
+plate's way was "taken" from the step below it (`40 29`, at 2.25) while the
+ball never touched the plate. The run went on to the shut gate and stalled
+there, at way 6, reported as a stall at the gate.
+
+- **A SWITCH WAY** (`_plan_switches`): a route way whose point is a PLATE's
+  or a KEY's cell's (130.41; not a timed channel's). While that channel is
+  shut, the leg into it steers with the route cut to END at the switch's
+  way, as 130.14.7.4.4's AIM does. 130.6's reach test cannot pass it, so
+  the arrows steer onto the switch's cell, and the way is taken only once
+  the ball has opened the channel. A switch whose channel is already open
+  is an ordinary way. The keys are 130.6's arrows throughout.
+- **Why the arrows alone still fail there** (MEASURED on the model): the
+  plate is off the far edge of a step (`41 29`, at 2.75), 0.75 above it,
+  and a wall stands on the diagonal (`40 28`). From the floor below, the
+  arrows push diagonally into the wall's corner. A Hop from rest on the
+  step peaks about 1/8 short of the plate. A Hop from a short run at it
+  clears the plate.
+- **The RUN-UP** (`_plan_runups`): on a leg into a shut switch way, after
+  the Hops. 130.6's arrows are aimed at the way BEFORE the switch's (the
+  STAND's approach, 130.14.7.4.5) until the ball is on that cell,
+  grounded and at rest. Then the leg is tried again with the arrows
+  REVERSED for `PLAN_RUNBACK`'s lengths (2 - 40 steps, shortest first)
+  and then turned back on at the switch, with a Hop pressed on each of the
+  `PLAN_RUNHOP` (48) steps after the back-up. At most `PLAN_ALT` are kept.
+- **What does not move**: only a route with a way on a switch's cell is
+  touched, and no shipped course has one (GATE's and PLAYGROUND's plates
+  carry no `way`). Only CLOCKWORK KEEP's draft has such a way, and it is
+  not in the build. Every other route is searched exactly as before.
+- **MEASURED on CASTLE CLIMB's draft**: before, the planner's furthest
+  progress was way 6 (`37 21`), stalled at the shut gate at step 738. Now
+  the ball stands on `41 29`, backs off, Hops onto the plate, rolls through
+  the open gate and on to way 8 (`18 33`). There the straight leg from
+  `31 20` falls off the stairs at `27 22`, which is a matter for the route,
+  not for this section.
+- **`--selfcheck`'s `hopplan`, item 8**: `_PLATESTEP`, the same geometry
+  in small: a step entered from the side, the plate off its far edge, a
+  wall on the diagonal, and the goal behind the plate's gate. The search
+  finds a route with no fall and no return. RED ARMS: `_NOSWITCH` (the
+  plate's way taken by reach, no run-up) and `_NORUNUP` (the run-ups off)
+  each find none.
+- **Not handled**: a switch with no `way` on it is not sought. A run-up
+  backs off along the arrows' own line, so it fails where the stand cell
+  has no room behind it on that line. The stand is only the way before the
+  switch's.
+
 ##### 130.14.7.5 The association, and the double-click's path
 
 The header gains `OS88_ASSOC16` with `OS88_ASSOC_EXT 'BZR'` and a document
