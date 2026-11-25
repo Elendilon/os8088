@@ -262441,8 +262441,8 @@ props. Each refusal names the line:
   What the player takes on beside a pit is the player's: a ball left
   rolling sideways off a one-tile flag falls and respawns there, at rest
   (`--selfcheck` section `flags`, `_sc_onepath`).*
-- at most 8 checkpoints (numbered 0 - 7 in file order), 8 pads, ONE cup,
-  4 springs; at most 16 props with a lane (windmills, bumpers, flags) and
+- at most 8 checkpoints (numbered 0 - 7 in file order), 8 pads, ONE cup;
+  springs have no cap of their own (130.14.4.1.3); at most 16 props with a lane (windmills, bumpers, flags) and
   32 props in all (130.14.4.2);
 - a course has GOAL cells or a cup, never both, and the tool refuses one
   with neither;
@@ -262689,7 +262689,20 @@ cache's by then); HOP falls by a third, its Hops asked for at 4 states
 rather than pressed from all of them. No shipped course needs the pickup
 arm, and none asks for a Hop but HOP.
 
-###### 130.14.4.1.3 NO TRAP remembers an opened channel, and waits for a timed bridge
+###### 130.14.4.1.3 Springs have no cap of their own (the owner, 2026-11-25)
+
+*"We seem to be limited to 4 springs a course? That tile has no animation, and only needs checked when they enter
+it."* The cap of 4 was wave 4's first guess and nothing depends on it.
+
+- A spring is ONE prop record (its `gvz`) and nothing else: no lane, no state byte, no table sized by the count.
+  The engine reads it only when the ball's centre makes contact on the spring's cell (`bz_prule`'s owner
+  dispatch, the SPRING family's CONTACT, 130.25.20).
+- `SPRING_MAX` is now `PROP_ALL`, so the bound on springs is the 255 props a course holds in all (130.19.10).
+  Each one costs its record, like any other stateless prop.
+- **The check** is `--selfcheck` section `grammar`: twelve springs on one course compile. The old "a 5th spring"
+  refusal case is gone.
+
+###### 130.14.4.1.4 NO TRAP remembers an opened channel, and waits for a timed bridge
 
 *(2026-11-25, CLOCKWORK KEEP's refinement: docs/plans/bonanza-courses/KEEP.md,
 risks C1 and C2.)* Course 7 is the first whose way on is not ahead: a door
@@ -262956,9 +262969,8 @@ rebound)` (0 for a landing) with the floor's rate added, as a Hop does
 (130.11.8.6) - never the SUM of the spring and a rebound, so nothing pumps
 (O13) - `ztop = z`, airborne; `bz_nspr` += 1. The Hop's window does not add
 to it. A landing that shatters a glass ball on the spring (step 6) is a
-shatter and is not launched; a landing that STUNS a steel ball is launched
-- the spring is under it - and stays stunned in the air (no steering) until
-its count ends. A rubber, steel or glass ball leaves the same way: the
+shatter and is not launched; a landing on a spring never STUNS
+(130.14.4.6.1). A rubber, steel or glass ball leaves the same way: the
 spring is material-blind, and steel's or glass's landing at the top is
 judged as any landing, which each course meets by putting the upper tier
 at the flight's apex (a soft landing, 130.14.6).
@@ -262972,6 +262984,33 @@ ground velocity a ball can bring to it, at most `BZ_VMAXG` an axis, so
 landings per ball over the approaches it sweeps (`--selfcheck` item 7), as
 it prints a tube exit's; a spring is not refused for an approach that
 lands in a void, because the approach is the player's.
+
+###### 130.14.4.6.1 A landing on a spring never stuns (the owner, 2026-11-25; PHYS_REV 16)
+
+*"When steel gets on a spring going straight up and down, it is softlocked."* A hard landing STUNS steel: its
+arrows are ignored for its stun's steps. The spring relaunched a ball at the same contact, so a stunned ball
+went up stunned. From a spring of about 450 up, steel came down hard enough to stun at EVERY landing on it, so
+it never had a step it could steer in.
+
+MEASURED on the model before the change, steel bouncing straight and then one arrow held: off the cell in
+0.9 - 1.25 s on a 400 spring; NEVER on 450 - 700; 26 - 52 s on 768 (MILL's, PEAK's and HOP's springs).
+
+- **The rule.** `bz_land`'s hard test is skipped when the centre's owner is a SPRING (`bz_wckd`, `bz_wolf`'s
+  kind; the model's `_land`, the window's owner). It is a STUN only: a landing that SHATTERS glass on a spring
+  still shatters, as before. The ball takes a soft contact's bounce, which the spring then replaces with its
+  launch.
+- **What it measures now** (the same scenes on the model, against the old rule):
+  - steel leaves the spring's cell in 0.9 - 1.25 s at every strength 400 - 768, as it did at 400 before;
+  - from a 768 spring, steering towards a floor 1 - 4 units higher lands on it from any of 40 phases of the
+    bounce, and a floor 5 units higher from some; from a 500 spring (a 2.4-unit bounce), +1 often and +2
+    sometimes. With the old rule it reached none of them.
+- **PHYS_REV 16.** It is a rule with no table, so the physics identity moves. The shipped demos (MOON's,
+  PLAYGROUND's and PEAK's) were written again by `bbcourse.py author`: only their `physics` lines changed. No
+  shipped demo stuns on a spring: DOWN's, HOP's, MILL's and PEAK's route demos replay step for step the same
+  under both rules.
+- **The checks.** `tests/bonanza_phys.py`'s replay `spring-steel`: steel on TPLY's spring 2 (its launch poked
+  to 600) bouncing straight 80 steps, then steered. The model shows 0 stuns and the ball off the cell. Red arm
+  `sprstun` (the model's `_sprstun`, the guest's `jmp short .hard`) stuns it and leaves it on the cell.
 
 ##### 130.14.4.7 State, and the step's place for each rule (binding)
 
@@ -264074,7 +264113,7 @@ waits.
   search they had, so no demo, limit or identity of theirs moves. No course
   that says `guide` had a timed element before KEEP (ROLL, HOP, DOWN, MILL,
   KITE and LODE have none), so theirs do not move either: MEASURED with
-  130.14.4.1.3's two builds (every file byte-identical), which carry this
+  130.14.4.1.4's two builds (every file byte-identical), which carry this
   change as well.
 - **MEASURED on KEEP**: the pen-in's route demo was 1,725 steps (31.6 s), 4
   Hops; a `guide` copy of the same file is searched to 1,497 steps (27.4 s) with no
@@ -280198,6 +280237,33 @@ owner made it the default: *"Floating thin bridge will be our default
   the first (a fall, restored), then at speed across all five (every one
   vanished behind it), guest = model at every step and every pose drawn.
 
+##### 130.27.2.2 The face BEHIND a floating cell goes on down (the owner, 2026-11-25)
+
+*"It looks like the cracked floor needs the same 'tile behind it' work seesaw did - or maybe a floating floor in
+general? It's leaving a 'hole' behind it like the see-saw used to on mill."* It was every floating cell.
+`draw_ops` stopped a cell's front face at the top of the neighbour in front of it, which assumes that neighbour
+is a column to the ground. A FLOATING neighbour (a `float`, a tube's `column`) has nothing under it, so a solid
+block behind an overhang showed a black notch under the overhang: the same notch 130.42.13 closed for a
+see-saw.
+
+- **The rule.** A face whose neighbour in front floats is hung as if that neighbour were the void, by its own
+  cell's rule: to the ground plane (never less than `FACE8`), or its own float's depth when it floats too. The
+  floating cell, drawn after it (it is in front), covers what it covers. `draw_ops(..., behind=)` carries the
+  set: the compile's floating cells less every see-saw's plate, whose faces behind are `tilt_base_ops`'
+  (130.42.13, 130.42.13.1). The compile keeps it as `c.behind`, and the self-checks that redraw a course pass it.
+- **A vanishing crack** (130.25.18.1) gains the most. The face behind it is now in the picture before it
+  breaks, so its broken pose changes only its own tile. A vanishing crack on a grounded corner, refused before
+  ("float its neighbours too"), now compiles.
+- **Shipped pictures change** where a floating cell stands in front of a taller column: PLAYGROUND (3,285 px),
+  GATE (174), HOP (125) and MILL (5). They were LOOKED AT before and after. Each black notch under an overhang
+  is now the block's face going on down, and PLAYGROUND's archway passage is unchanged. DOWN, ROLL and PATH are
+  byte-identical. PLAYGROUND's demo was written again (its `ident` line).
+- **The checks** (`--selfcheck`):
+  - section `budget`, item 14: a grounded block behind a floating slab. Where the red arm `_FL_NOBEHIND` (the
+    face stopped at the slab's top) differs (712 px), the picture is the same course's with the slab taken
+    away, pixel for pixel;
+  - section `w9`: the grounded-corner crack compiles, and under the red arm it is refused as before.
+
 #### 130.27.3 Everything else that draws down into the void
 
 - **A tube's body** (130.12.6.1, `deep`): its rule lowers a body wall's
@@ -286174,15 +286240,33 @@ leg may replace a WALL a room laid.
 - a leg on a floor, a goal, a split or FIELD cell, water or a guard rail (a
   leg stands on the open edge beside the passage, or replaces a wall);
 - an END of the run (the cells just before and after it along the axis)
-  that is not a whole floor - a passage leads somewhere - or whose corners on
-  the shared edge are higher than the archway's floor plus its clearance (a
-  ball rolling off it would meet the arch as a wall);
+  whose corners on the shared edge are higher than the archway's floor plus
+  its clearance (a ball rolling off it would meet the arch as a wall). An end
+  need not be a floor (130.39.2.1);
 - two archways sharing a cell, legs included;
 - a prop on an archway cell other than a PAD (a clock, a windmill, a tube's
   cell, a bumper, a spring, the cup, a checkpoint, a family element): the
   ceiling would meet it;
 - the visibility rule (A10) not met;
 - any other clause.
+
+##### 130.39.2.1 An end may be a drop (the owner, 2026-11-25)
+
+*"When coming out of an arch, the path past it doesn't need to be a floor. It could be a drop, even into void (an
+arch to nowhere, or an arch 4 high they have to jump from, etc)."* The rule "a passage leads somewhere" is gone.
+
+- **What an end may be now.** The void, a lower floor, a wall or a goal: anything whose corners on the shared
+  edge are no higher than the clearance. A ball leaving the run over the void falls and respawns like any other
+  fall.
+- **What is still refused.** An end that rises past the clearance, because a ball rolling off would meet the arch
+  as a wall.
+- **Why nothing else needed to change.** The ceiling is the archway's own cells (the CELL hook's wall and the
+  STEP cap), so nothing read the ends except this rule. This was looked at on ARCH with its two-wide archway's
+  path cut off at the arch: the picture is a lintel over a passage that ends in the void, and on the model a
+  rubber ball rolled through, fell and respawned.
+- **The check** is `--selfcheck` section `arch`. Three ends are taken: both ends the void, an end a floor lower
+  than the archway's, and an end a wall under the clearance. The old "an end that is the void" refusal case is
+  gone.
 
 #### 130.39.3 The record and the slot
 
@@ -287514,6 +287598,26 @@ less than `FACE8` - `tilt_base_ops`, keyed before the plate cell's own ops so th
 With `base` (130.42.12) they stop at the column's top as before. It is the picture alone: no record, no
 physics, and the lanes are still the whole-picture difference of the poses. Shipped `MILL` and the test course
 `TILT` re-draw (their picture parts change, nothing else); every other course is byte-identical.
+
+##### 130.42.13.1 ...as far as the neighbour's OWN faces hang (the owner, 2026-11-25)
+
+*"Instead of looking what is connected to it, and that tile's ground/float rules, it's just always adding a
+column. Which means seesaws without a solid column behind them now also show a solid column."* 130.42.13 hung
+the faces behind a plate (with no `base`) to the GROUND plane whatever the cell behind was. Beside a FLOATING
+platform (a `float`, a bridge) that drew a solid column the platform does not have.
+
+- **The rule now.** Each face behind the plate hangs as that neighbour's own face over the void would hang if
+  the plate's cell were empty, which is `draw_ops`' rule for that cell:
+  - a FLOATING cell's face hangs its `float`'s depth (3 units, or its `thick`);
+  - any other cell's face hangs to the ground plane, never less than `FACE8`, as before.
+- **`base` is unchanged.** With `base` the faces stop at the column's top.
+- **No option to set.** The look follows what the plate is attached to, which is what the owner asked for first.
+- **The check** is `--selfcheck` section `tiltbase`, item 5: `_TLB`'s platform floated one unit thick
+  (`float ... thick 1`), with a plate beside it. Where the old rule drew the platform's face on to the ground
+  (the red arm `tlfaceground`: 92 px), the picture is the same course's without the see-saw, pixel for pixel.
+- **Shipped courses.** MILL's and TILT's plates sit beside grounded floors. Their pictures were compiled with
+  the rule and with the red arm and compared pixel for pixel: 0 px differ (MEASURED, and the same for the
+  unshipped KEEP), so no shipped part moves.
 
 #### 130.42.14 MILL's see-saw in the game: what was measured (the owner, 2026-11-23)
 
@@ -292546,3 +292650,22 @@ beside the selected box, sometimes below it, sometimes right beside it but never
 - **The check** is `tools/bbedcopymove.py` section 9. A diagonal pair is pasted into a one-cell area, once with
   the pointer off the plan and once over another cell. Both times the top part lands in the area and the other
   beside it, and the pasted pair is selected. With the old anchor, both checks fail.
+
+#### 130.58.61 A crack that falls away with its column (the owner, 2026-11-25)
+
+*"I can't find, for crack, the one that makes the column it was on also disappear."* That crack is not an option of
+the crack. A crack VANISHES, the tile and its column gone, when its cell FLOATS (130.25.18.1): a `float` over it.
+PLAYGROUND's lab gets one from a floating bridge. In the builder, that meant setting *Hangs down* on the floor
+under the crack, and nothing on the crack's own page said so.
+
+- **The crack's inspector gains *Falls away with its column*.** Ticking it writes `float tile <x> <y>` under the
+  crack, as one checked edit. Unticking it takes that float out.
+- **When the crack's floor already hangs as a whole** (a floor's *Hangs down*, a `float` over more than this
+  tile), the tick shows ticked and greyed. The note under it says to set that floor to the ground instead.
+- **The note says where it works.** The cell's front edge (down the screen) must be over the void, because a
+  `float` floats only a cell that hangs a face over it ("float floats nothing" otherwise, shown in the tab as any
+  refused edit is, 130.58.56).
+- **The parts list's *Cracked floor*** says it can fall away.
+- **The check** is `tools/bbedcopymove.py` section 10, in the real window under Xvfb. FIRST has a crack on a
+  front-edge cell. Ticking the box writes the float, the course builds, and the crack stays selected and shows
+  ticked. Unticking it takes the float out.

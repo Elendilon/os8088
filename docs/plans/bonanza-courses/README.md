@@ -63,7 +63,7 @@ playtest list. Still in no build. What it found that the next course meets too:*
 playtest list. Still in no build. It has TWO exits, the second a secret (`hidden`): section 7 is what the pathway
 has to add. What it found that the next course meets too:*
 
-- *NO TRAP remembers an opened channel and waits for a timed drawbridge since this step (SPEC.md 130.14.4.1.3):
+- *NO TRAP remembers an opened channel and waits for a timed drawbridge since this step (SPEC.md 130.14.4.1.4):
   a key need not be in line with its door for the check, nor a bridge down on step 0. It still proves a way on
   with the Hop, not that a player makes a timer: MEASURE the window (`keep/measure.py`'s phases: a 3-tile
   bridge wants a third of its period, and a bridge that is DOWN as the play starts drops a ball sent a second

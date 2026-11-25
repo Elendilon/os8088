@@ -113,7 +113,8 @@ PALETTE = [
         ("Spikes", "rect", "prop spikes {x0} {y0} {x1} {y1}", "Pop rubber and glass; steel rolls over"),
         ("Pop-up spikes", "cell", "prop popspikes {x} {y} period 128 on 64", "Spikes on a timer"),
         ("Membrane", "rect", "prop membrane {x0} {y0} {x1} {y1}", "Only glass crosses it"),
-        ("Cracked floor", "cell", "prop crack {x} {y}", "Breaks under the ball"),
+        ("Cracked floor", "cell", "prop crack {x} {y}", "Breaks under the ball; on an edge cell it can fall away with "
+         "its column (tick Falls away)"),
         ("Glass path", "cell", "prop glass {x} {y}", "Solid, unseen until touched"),
     ]),
     ("Pickups", [
@@ -2561,6 +2562,8 @@ class App(object):
             row = self._seesaw_rows(st, body, row)
         if st.kind == "way":
             row = self._route_rows(st, body, row)
+        if st.kind == "prop" and st.toks[1:2] == ["crack"]:
+            row = self._crack_rows(st, body, row)
         row = self._option_rows(st, body, row)      # every clause it may take, written or not (130.58.37)
         covered = OPT.covered_words(st.toks)
         for word, n, label in (("flat", 1, "Height"), ("top", 1, "Water top"), ("bed", 1, "Water bed"),
@@ -3212,6 +3215,64 @@ class App(object):
                         self.doc.replace_area(None, ground=[code])
             return True
         self._edit(go)
+
+    def _crack_float(self, cell):
+        """SPEC.md 130.58.61: the `float` statements whose cells take in CELL -> [(line, tile only)]"""
+        a = self.doc.analysis()
+        src = a["src"]
+        out = []
+        for f in (src.floats if src is not None else ()):
+            if tuple(cell) in {tuple(c) for c in f[0]}:
+                st = self.doc.statement(f[1])
+                out.append((f[1], st.toks[1:2] == ["tile"]))
+        return out
+
+    def _crack_rows(self, st, body, row):
+        """SPEC.md 130.58.61: a crack FALLS AWAY with its column when its cell floats (130.25.18.1) - a tick
+        that writes or takes out a one-tile `float` under it"""
+        tk, ttk = self.tk, self.ttk
+        try:
+            cell = (int(st.toks[2]), int(st.toks[3]))
+        except (ValueError, IndexError):
+            return row
+        fl = self._crack_float(cell)
+        v = tk.BooleanVar(value=bool(fl))
+        wide = bool(fl) and not any(t for _l, t in fl)
+        cb = ttk.Checkbutton(body, text="Falls away with its column", variable=v,
+                             command=lambda: self.set_crack_falls(cell, v.get()))
+        cb.grid(row=row, column=0, columnspan=2, sticky="w")
+        if wide:
+            cb.state(["disabled"])
+        row += 1
+        ttk.Label(body, text=("Its floor hangs (the floor's Hangs down), so it falls away; set that floor "
+                              "to the ground to keep the column." if wide else
+                              "When it breaks, the tile and the column under it vanish and the void shows. Only "
+                              "on a cell whose front edge (down the screen) is over the void."),
+                  foreground="#666", wraplength=300, justify="left").grid(row=row, column=0, columnspan=2,
+                                                                          sticky="w")
+        return row + 1
+
+    def set_crack_falls(self, cell, on):
+        """SPEC.md 130.58.61: a one-tile `float` under a crack written (ON) or taken out"""
+        x, y = cell
+        sel = self.sel
+
+        def go():
+            with self.doc.group("crack falls away" if on else "crack keeps its column"):
+                if on:
+                    self.doc.replace_area(None, ground=["float tile %d %d" % (x, y)])
+                else:
+                    for ln, tile in sorted(self._crack_float(cell), reverse=True):
+                        if tile:
+                            self.doc.remove(ln)
+            return True
+        r = self._edit(go)
+        if r:
+            ln = next((s_.line for s_ in self.doc.statements() if s_.kind == "prop" and s_.toks[1:4] ==
+                       ["crack", str(x), str(y)]), sel)
+            self.select(ln)
+        else:
+            self._fill_inspector()
 
     def _option_rows(self, st, body, row):
         """SPEC.md 130.58.37: a control for every clause the statement may take (tools/bbedopts.py's table),

@@ -270,6 +270,36 @@ for name, ptr in (("pointer off the plan", None), ("pointer over another cell", 
     settle()
 chk("the course is as it was (pastes undone)", app.doc.text() == t0)
 
+# 10. SPEC.md 130.58.61: a crack's "Falls away with its column" writes and takes out a one-tile float under it
+n0 = len(app.doc.undo_stack)
+app.doc.insert("prop crack 5 6")
+app._fill_problems()
+ln = line_of("prop crack 5 6")
+app.select(ln)
+settle()
+cbs = [w for w in app.ins_body.winfo_children() if isinstance(w, app.ttk.Checkbutton)
+       and w.cget("text") == "Falls away with its column"]
+chk("a crack's inspector has Falls away with its column", len(cbs) == 1)
+if cbs:
+    cbs[0].invoke()
+    settle()
+    a_ = app.doc.analysis()
+    chk("ticking it writes a one-tile float under the crack, and the course builds (%s)" % a_["error"],
+        "float tile 5 6" in norm() and not a_["error"])
+    chk("...the crack stays selected", app.sel and " ".join(app.doc.statement(app.sel).toks) == "prop crack 5 6")
+    cbs = [w for w in app.ins_body.winfo_children() if isinstance(w, app.ttk.Checkbutton)
+           and w.cget("text") == "Falls away with its column"]
+    chk("...and shows ticked", bool(cbs) and cbs[0].instate(["selected"]))
+    if cbs:
+        cbs[0].invoke()
+        settle()
+    chk("unticking it takes the float out", "float tile 5 6" not in norm())
+while app.doc.text() != t0 and app.doc.undo_stack:
+    app.doc.undo()
+app._escape()
+settle()
+chk("the course is as it was (the crack's edits undone)", app.doc.text() == t0)
+
 # 8. SPEC.md 130.58.59: the problem bar describes a PICKED row, or it goes
 app.doc.insert("clock 40 40")
 app._fill_problems()
