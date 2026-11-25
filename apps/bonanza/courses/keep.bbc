@@ -12,7 +12,7 @@ width 128
 origin 496
 ball rubber
 uses gate spike seesaw turntable
-music fairway             # PLACEHOLDER: the song is the music agent's (KEEP.md section 9: a clockwork march)
+music clockwork           # its own song (2026-11-25): a tick-tock march in C minor at the machines' own rate (KEEP.md, "The song")
 limit 99
 target 90
 

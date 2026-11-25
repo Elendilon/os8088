@@ -39,7 +39,8 @@ BANK = os.path.join(MUSDIR, "bank.bmb")
 # THE MANIFEST: song S is SONGS[S]. Every course NAMES its song with `music`
 # (SPEC.md 130.50.3: no song by position any more); 5 the finish's fanfare and
 # 8 TIME'S UP are no course's; 6 the TITLE SCREEN's one-shot (SPEC.md 130.23.1:
-# the title course's `music attract`); 7 First Roll's and 9 Little Hop's own.
+# the title course's `music attract`); 7 First Roll's and 9 Little Hop's own; 10 Kite Hill's,
+# 11 Lodestone Gorge's and 12 Clockwork Keep's.
 # APPEND, never insert: a song's number is its part's place in the build.
 SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "moonlit.bmu", "summit.bmu",
@@ -47,12 +48,15 @@ SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "attract.bmu",              # SPEC.md 130.23.1: the title screen's
          "firstroll.bmu",            # First Roll's own, by its `music firstroll` (NON_COURSE)
          "timeup.bmu",               # SPEC.md 130.22.9.1: the timeout's tune; APPEND, never insert
-         "littlehop.bmu"]            # Little Hop's own, by its `music littlehop` (NON_COURSE)
+         "littlehop.bmu",            # Little Hop's own, by its `music littlehop` (NON_COURSE)
+         "kitehill.bmu",             # courses 5 - 7's own (2026-11-25), each by its course's `music`: Kite Hill's,
+         "lodestone.bmu",            # Lodestone Gorge's
+         "clockwork.bmu"]            # and Clockwork Keep's (NON_COURSE; APPEND, never insert)
 
 # songs no course may be built around by default: the finish's tunes (which no course
 # may NAME), the title screen's and the courses' own (SPEC.md 130.50.3: every course
 # names its song, so this list is now only what bbcourse's `music` refuses and reports)
-NON_COURSE = ("victory", "attract", "firstroll", "timeup", "littlehop")
+NON_COURSE = ("victory", "attract", "firstroll", "timeup", "littlehop", "kitehill", "lodestone", "clockwork")
 
 # SPEC.md 130.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
 # demo (bbcourse.TITLE_STEPS, BZ_TSTEPS): its order rows before `loop` play

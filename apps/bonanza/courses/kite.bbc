@@ -12,7 +12,7 @@ origin 528                # NOT free: the camera's lattice is 64 px of the PICTU
                           # 496 and 560 do not).  Move it by 64 or re-run --guide
 ball rubber
 uses wind glass           # (the crumbling bridge's cracked tiles are GLASS's kind `crack`, SPEC.md 130.25.8)
-music fairway             # PLACEHOLDER: the song is the music agent's (KITE.md: light, airy, rising)
+music kitehill            # its own song (2026-11-25): a 6/8 in D that climbs, each phrase a step higher (KITE.md, "The song")
 palette 0                 # green, red, yellow on black: a grassy hill (LITTLE HOP's palette)
 limit 90
 target 60

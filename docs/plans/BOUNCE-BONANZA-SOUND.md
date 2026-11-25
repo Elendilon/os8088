@@ -83,6 +83,16 @@ to their waves.
       four times what the chip needs) is a driver-side improvement outside
       this work.
 
+- [x] **S12 Courses 5 - 7's songs** (2026-11-25): *Kite Hill* (D major with
+      the raised fourth, a 6/8 at 121), *Lodestone Gorge* (G dorian at 109,
+      a work song on one low G, a lift into G major) and *Clockwork Keep* (C
+      minor at 102.4, strict, a tick-tock in the bass channel that the
+      speaker folds between the tune's notes); 950, 1,092 and 967 bytes. The
+      bank is unchanged. *Evidence: `bonanzamusic` (13 songs, 0 problems);
+      both arms rendered and the WAVs read back against the model (each
+      sheet's section 16 under [bonanza-courses/](bonanza-courses/)). Not
+      heard (S9), and no guest row plays them: their courses are in no build.*
+
 ## How it was built (diary)
 
 ### 2026-11-13: the map

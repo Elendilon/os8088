@@ -14,7 +14,7 @@ origin 272                # NOT free: the least the reach allows, so the picture
                           # no pan (LODE.md section 2).  A wider picture takes `width`; the origin stays
 ball steel
 uses magnet
-music fairway             # PLACEHOLDER: the song is the music agent's (LODE.md: heavy, driving, a work song)
+music lodestone           # its own song (2026-11-25): a work song in G dorian, every bar pulled back to one low G (LODE.md, "The song")
 limit 99
 target 60
 

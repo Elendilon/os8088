@@ -36,7 +36,7 @@ opens the treasury: the course's second exit, a secret.
 | target time | 50 - 60 s by the throne on a first clear, 75 s with the treasury (`target 90`'s class, `limit 99`): PREDICTED. MEASURED on the model: the route demo **33.0 s** (1,805 steps), no fall and no Hop; the run to the treasury 44.2 s (section 3) |
 | palette | the default (cyan, magenta, white) on black: grey stone needs white. The owner's call |
 | clocks | 3: the barbican, the north-west tower, the throne's dais. A SHIELD whose crest changes (section 9) |
-| song | NEW, the music agent's (section 9): a clockwork march that ticks. `music fairway` stands in |
+| song | **Clockwork Keep** (`music clockwork`, section 16): C minor at 102.4, strict; a tick-tock the speaker folds between the tune's notes, a fanfare in C major. It keeps the machines' rate, not their beat. Nobody has heard it yet |
 | the one new idea | **the way on is not ahead.** A door shows what opens it; the player goes and gets it, and comes back |
 | picture | 1,024 x 472 px (`width 128`, `origin 496`); the floors are 688 px across. ONE part, 47,703 bytes |
 
@@ -529,7 +529,7 @@ and make the finale three rides (section 13).
 | **C9** | the second exit needs the pathway | **WRITTEN for the pathway's agent** (section 7): one `route 6 <B> exit 1 secret ...`. The course's half is done: its second goal says `hidden`, without which the tool refuses a secret route |
 | **C10** | the gatehouse's plate is in one lane of two | **KEPT, decided: a fair lesson.** The start is in the plate's lane now, so the straight line presses it and the player watches the bars rise. A ball in the other lane stops at shut bars with nothing that can hurt it and the plate on the tile beside it (MEASURED: 0.5 s to press, 1.2 s more to be through); the glyph is on both. A gate that opens for every ball teaches nothing about the door. A floor arrow in the right lane is on the art's list |
 | **C11** | the drop off the battlement after the key | **RESOLVED for the bounce, MEASURED for the aim.** The hay: 0.58 s in the air at the most, no bounce. The aim: from rest and centred the pair east goes through the door every time; off centre or still drifting, 44 of 75 runs end at rest on the tile beside the door (section 3). No fall, one nudge. Section 13 |
-| **C12** | the music's tempo against the step clock | **ANSWERED with the facts** (section 9): the same 54.6 Hz clock, counted separately; 102.4 beats a minute is exact; the phase is not tied |
+| **C12** | the music's tempo against the step clock | **ANSWERED with the facts** (section 9): the same 54.6 Hz clock, counted separately; 102.4 beats a minute is exact; the phase is not tied. **The song is written to it** (section 16): 102.4, a bar the stair's period, the loop 12 x 256 sub-ticks; and a pause and a cut each move the phase |
 | **C13** | the gates' art | **LISTED** (section 9): the portcullis and the door use the gate lab's files, the treasury's gate the preset grille; all three want the castle's own |
 
 **Found in refinement** (not on the pen-in's list):
@@ -608,7 +608,13 @@ and make the finale three rides (section 13).
   without a script.
 - **The downbeat** (C12): starting the song's row counter on the play's first step and
   holding the two counters together would make a 102.4 song tick WITH the castle. An
-  engine change in `bzsound.inc`.
+  engine change in `bzsound.inc`. *(From the song's step, section 16: holding them
+  together is more than a common start. The song steps on through a pause while the play
+  does not, and a cut and a slow frame drop sub-ticks from each side separately. The
+  whole of it would be to step the song by the PLAY's steps while a play runs - the count
+  the frame loop already has - and to decide what a pause does: hold the song, or let it
+  run and wait for the next bar line of `bz_nstep` (128 steps) before it joins again. The
+  song as written needs neither: it is right at any offset.)*
 - **A taller floating face** (C6): `float ... thick` over 3 units, for towers.
 
 ## 15. How the pictures and the course are made
@@ -630,3 +636,75 @@ the tool's own (the autopilot on the course's `way` points, as ROLL's, HOP's, DO
 MILL's, KITE's and LODE's are): there is no `demos/keep.bzd` to keep in step. The
 treasury's run is the tool's search over the `branch VAULT` way points; nothing ships
 it, and `--guide` reads it as a log.
+
+## 16. The song (written 2026-11-25; NOT YET HEARD)
+
+`apps/bonanza/music/clockwork.bmu`, song 12 of `tools/bbmusic.py`'s manifest, "Clockwork
+Keep"; the course names it (`music clockwork`, which `keep/sketch.py` writes). The file's
+own header is the full account; this is the summary and what was checked.
+
+| | |
+|---|---|
+| the idea | a march for wind-up soldiers over a CLOCK. A tick on beats 1 and 3 and a tock an octave below it on 2 and 4, each a six-sub-tick pluck of the chord's root (C4, C3 over C minor), and the tune in the three 16ths BETWEEN them. Its motif is a MORDENT through the leading tone (C B C, a music box's ornament) and a leap to G; the next three bars keep that rhythm exactly. B is the WORKS: three 16ths after every tick and tock, the chords falling by fifths two to a bar (Cm Fm, Bb Eb, Ab Ddim, G G7). The loop ends on a trumpet FANFARE, Fm, G, C MAJOR, whose last C is held while the clock goes on under it |
+| key | C minor (Windmill Lane's C major, grown stern); the cadence C major |
+| tempo | 4/4 at **102.4 exactly**, no swing: `groove 8`, a beat 32 sub-ticks, a bar 128 (2.34 s), a bar a pattern |
+| length | 26 bars a pass. Intro 2 bars (**256** sub-ticks, 4.69 s: the clock alone, then the key winding); **the loop 24 bars, 3,072 sub-ticks (12 x 256), 56.24 s** (A B A' F, order rows 2 - 25) |
+| bytes | 967; KEEP's part 48,151 -> 48,287 bytes in RAM with it, of 65,024 |
+| the speaker | tick, tune, tock, tune - with ONE voice. The ticks are the BASS channel's, so `spkbass` plays them wherever the lead is silent; every tune note before a tick ends two sub-ticks early so the tick falls ON the beat, and stops two sub-ticks before the tune comes back. Lead G4 - D6 (392 - 1,175 Hz), ticks G2 - F4 (98 - 349 Hz). The kick blips once a bar; in the fanfare the trumpet plays through the ticks. 10.8 tones a second; 22% of the time is silence, on purpose |
+| the AdLib | fiddle (the tune), music box (the ticks, `v10`), organ (each chord a bare fifth, held), trumpet (the fanfare); a kick on the bar and hats on the off 8ths |
+
+**C12, checked** (section 9's facts were read from the code, not run; so are these - no
+engine was run by this step either, and nothing in `apps/bonanza/*.inc` was changed):
+
+- **The rate: CONFIRMED.** `bzs_frame` steps the song once for every sub-tick `bz_subs`
+  counted since the last frame (`bzs_lsub`, `bzs_steps`), and the frame loop steps the play
+  off the same `bz_subs` (`bz_lsubs`, after `bz_t0`). A row of 8 sub-ticks is a 16th at 102.4; the song
+  was written to it: a bar is the stair's and the spikes' period, two beats a cog's
+  quarter turn, two bars a drawbridge's, and the intro and the loop are whole multiples
+  of 256, so going round the loop moves nothing.
+- **The phase: NOT TIED, and three things move it**, each read in the code. (1) THE
+  START: `bzs_open`'s first frame only takes the clock (`bzs_snap`), and the play's first
+  frame discards its sub-ticks (`bz_disc`), each by its own rule. (2) **A PAUSE: the song
+  plays on.** `bz_pause`'s wait loop (and the info card's, `bz_kinfow`) calls `bzs_frame`
+  every turn, then sets `bz_lsubs` to now: the play loses the pause, the song does not,
+  so every pause shifts the two by its own length. (3) A CUT OR A SLOW FRAME: a cut (a
+  respawn that lands outside the window is a centred full write, `bz_disc`) discards the
+  play's sub-ticks and not the song's, and each side caps a frame's catch-up at 8 by
+  itself (`BZS_MAXT`, `BZ_STEPS`). The finish's sequence also
+  takes steps back off `bz_nstep`.
+- **So the song was not written to land on the machines' beat**, and its header says so.
+  What a player should hear is a tick at the pace the cogs turn (two beats a turn) with
+  an offset that is constant between pauses and respawns. If the offset at the start
+  turns out stable on the guest, that is luck to measure, not a design.
+
+**What was checked, on the host** (`bbmusic --selfcheck`: 13 songs, 0 problems; the model's
+keys; both arms rendered to WAV and the WAVs read back):
+
+- Every one of the 196 lead keys of a pass sounds on the speaker at its sub-tick (13 after
+  the kick's blip), and the first bar of the theme reads, in sub-ticks: kick 0 - 1, tick
+  2 - 5, C B C from 8, tock 32 - 37, G from 40, tick 64 - 69, E-flat from 72, tock 96 -
+  101, D C from 104. The speaker WAV's pitch is the model's on all 2,152 measurable
+  sub-ticks of the full pass and silent on the 454 the model is silent on.
+- The loop: keys and speaker tones repeat exactly from the second pass; nothing is held
+  across the loop point.
+- Loudness: speaker -14.8 dB RMS (the silences); AdLib -19.0 dB, peak 0.44 (0.54 in the
+  fanfare), nothing clipped. The lead alone is 2.9 dB over the accompaniment alone (the
+  shipped songs -1.3 to +3.3). On the lead's notes of 9 sub-ticks or more the loudest
+  spectral peak is the lead's on 44 of 47 (Bounce Trial: 63 of 74); on the other three a
+  tick's ring is.
+- Two instruments were changed BY MEASUREMENT: the ticks were the damped pluck (`stab`),
+  which rendered at -35.7 dB a bar of ticks against the music box's -19.4 at the same
+  volume, and in the song 16 dB under the tune; and the ORGAN is additive, so a `v` moves one of its two
+  operators (two steps of volume took 0.4 dB off a held chord, not 3): its chords were
+  thinned to bare fifths instead, 1.8 dB.
+- Recompiled with the song, the route demo (`BZDKEEP.BIN`, 1,252 bytes) is byte-identical
+  and the part differs only from the song's offset on (and the directory's offset word).
+
+**Still owed**: a LISTEN - nobody has heard a note of it. The renders are
+`12-clockwork-spk.wav` and `12-clockwork-fm.wav` (40 s) and the full pass, with the works'
+second half and the fanfare, under `full/` (`python3 tools/bbmusic.py wav -o DIR --song
+12`). Above all the speaker's tocks (98 - 175 Hz for 110 ms: are they a tock or a thud?)
+and whether a tick six sub-ticks long reads as a clock or as part of the tune. Then the
+guest: `bonanzamusic` covers the song; the offset against the machines and the frame cost
+on the XT are not measured.
+

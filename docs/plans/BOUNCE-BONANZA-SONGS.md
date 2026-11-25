@@ -101,3 +101,36 @@ about 0.2 s. To be MEASURED with the same probe after.
       0.94 s (a free play); the soak's rows below in the final pass:
       `bonanzasound`, `bonanzapath`, `bonanzademo` and `bonanzaexit` in the
       final pass; the title, a course, a replay and the pathway heard.
+
+## The courses' songs (the list, 2026-11-25)
+
+Every course names its song with `music` (SPEC.md 130.50.3); the song is a
+section of that course's part, so a song no course of a build names ships
+nowhere. The manifest is `tools/bbmusic.py`'s `SONGS` (append, never insert);
+the Makefile's `BZ_SONGS` is the same list.
+
+| song | file | the courses that name it |
+|---|---|---|
+| 0 *Fairway* | `fairway.bmu` | the pathway; FIRST, PLAYGROUND and most of the test courses (BENCH, the props' labs) |
+| 1 *Bounce Trial* | `trial.bmu` | DOWN (DOWNHILL DECISION); TRIAL, TPLY, TLFT |
+| 2 *Windmill Lane* | `windmill.bmu` | MILL (WINDMILL LANE); TMIL |
+| 3 *Moonlit Green* | `moonlit.bmu` | MOON |
+| 4 *Summit Rush* | `summit.bmu` | SUMMIT (PEAK) |
+| 5 *Victory*, 8 *Time's Up* | `victory.bmu`, `timeup.bmu` | no course may name them: the finish's tunes, in the resident bundle |
+| 6 *Attract* | `attract.bmu` | the title screen |
+| 7 *First Roll* | `firstroll.bmu` | ROLL (FIRST ROLL) |
+| 9 *Little Hop* | `littlehop.bmu` | HOP (LITTLE HOP) |
+| 10 *Kite Hill* | `kitehill.bmu` | KITE (KITE HILL), in no build yet |
+| 11 *Lodestone Gorge* | `lodestone.bmu` | LODE (LODESTONE GORGE), in no build yet |
+| 12 *Clockwork Keep* | `clockwork.bmu` | KEEP (CLOCKWORK KEEP), in no build yet |
+
+Songs 10 - 12 (2026-11-25) are each written up in their course's sheet,
+section 16 ([KITE](bonanza-courses/KITE.md), [LODE](bonanza-courses/LODE.md),
+[KEEP](bonanza-courses/KEEP.md)): host-checked on both arms, **not yet heard**.
+MEASURED when they were added, private trees at one commit: the default
+`BONANZA.O88` (177,638 bytes; 182 of the 360 KB disk's 354 clusters) and its
+four disks are byte-identical with and without the three in the manifest. With
+KITE, LODE and KEEP added to the eight shipped courses, the package is 216,902
+bytes (220 clusters) on the placeholder song and **217,366 bytes (221
+clusters)** on their own: +464 bytes, one cluster.
+

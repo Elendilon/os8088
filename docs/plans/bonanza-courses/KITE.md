@@ -30,7 +30,7 @@ onto the summit.
 | target time | 45 - 50 s for a first clear, 35 s for a good one (`target 60`'s class, `limit 90`). MEASURED on the model: the route demo **26.8 s** (1,463 steps), no fall - the autopilot never waits for a calm; a player does (section 3) |
 | palette | `palette 0` (green, red, yellow on black: LITTLE HOP's): a grassy hill |
 | clocks | 4: start, fan plaza, launch plaza, summit. A KITE whose tail grows a bow a clock (section 9) |
-| song | NEW, the music agent's (section 9): light, airy, rising. `music fairway` stands in |
+| song | **Kite Hill** (`music kitehill`, section 16): D major with the raised fourth, a 6/8 at 121; each phrase an arc a step higher, one held note for the thermal, a gust and a breath. Nobody has heard it yet |
 | the one new idea | **the air moves the ball.** Wind is read off its cues and timed; rising air is ridden |
 | picture | 768 x 960 px (`width 96`, `origin 528`); the floors are 544 px across. ONE part, 53,959 bytes |
 
@@ -459,3 +459,51 @@ python3 tools/bbmap.py apps/bonanza/courses/kite.bbc -o docs/plans/bonanza-cours
 `../penkit.py` is the pen the three sketches of courses 5 - 7 share. The route demo is
 the tool's own (the autopilot on the course's `way` points, as ROLL's, HOP's, DOWN's and
 MILL's are): there is no `demos/kite.bzd` to keep in step.
+
+## 16. The song (written 2026-11-25; NOT YET HEARD)
+
+`apps/bonanza/music/kitehill.bmu`, song 10 of `tools/bbmusic.py`'s manifest, "Kite Hill";
+the course names it (`music kitehill`, which `kite/sketch.py` writes). The file's own
+header is the full account; this is the summary and what was checked.
+
+| | |
+|---|---|
+| the idea | a kite let out and dipping back: every phrase of A is ONE ARC, up a broken chord in the 6/8's long-short and down again, and each arc starts a step higher than the last (on A, B, C#, D; the tops A5, B5, C#6, D6). The fifth phrase runs up an E7 chord to an E6 that is HELD (72 sub-ticks, 1.3 s): the thermal, the only long note in A. B is the glide: slow falling notes, then THE GUST (six 16ths up through G# that stop dead on a clipped D6, the harp stopping with them) and a bar's BREATH, harp alone, before the next climb. The second A ends on the summit (a held F#6) |
+| key | D major; the raised fourth (G#) is in the motif's first bar, the gust and the E7 bars |
+| tempo | 6/8, 121.4 to the dotted quarter: `groove 5 4`, an 8th 9 sub-ticks, a bar 54 (0.99 s). The only course song in compound time |
+| length | 44 bars a pass. Intro 4 bars (216 sub-ticks, 3.95 s: harp, gust, breath); **the loop 40 bars, 2,160 sub-ticks, 39.55 s** (A B A' B', order rows 1 - 10) |
+| bytes | 950 (First Roll 1,194, Little Hop 1,309); KITE's part 53,911 -> 54,030 bytes in RAM with it, of 65,024 |
+| the speaker | the lead (recorder's line) A4 - G6, 440 - 1,568 Hz; `spkbass` gives the harp's broken chord (A2 - C#5) to every rest: the intro's two bars, each breath, the half bar that ends each A. Kick blips every two bars, none under the gust or the thermal. No arpeggio macro: 7.6 tones a second, the fewest of the course songs (Windmill Lane 8.2, Bounce Trial 21.7) |
+| the AdLib | recorder over a harp (the bass channel) and a soft string pad (`v10`) whose chords are all below the tune; hats long-short |
+
+**What was checked, on the host** (`bbmusic --selfcheck`: 13 songs, 0 problems; the model's
+keys; both arms rendered to WAV and the WAVs read back):
+
+- Every one of the 139 lead keys of a pass sounds on the speaker at its sub-tick (17 of
+  them after a kick's two-sub-tick blip); the speaker WAV's pitch, a sub-tick at a time,
+  is the model's on all 1,965 measurable sub-ticks of the full pass, and silent where the
+  model is silent.
+- The loop: the keys and the speaker's tones of the loop's second and third passes equal
+  the first's; no note is held across the loop point.
+- Loudness: the speaker render is -14.3 dB RMS (the other songs -14.0 to -14.2: one
+  square wave); the AdLib render -17.5 dB, peak 0.44, nothing clipped (Little Hop -18.3,
+  First Roll -19.0). The lead alone is 5.0 dB over the accompaniment alone (the shipped
+  songs -1.3 to +3.3), and on every lead note of 9 sub-ticks or more the loudest spectral
+  peak is the lead's (62 of 62). The gust's 16ths speak at the motif's level (-18.5 dB
+  both, lead alone), and on the speaker the gust is seven tones, then 23 sub-ticks
+  (0.42 s) of nothing at all before the harp.
+- Recompiled with the song, the route demo (`BZDKITE.BIN`, 670 bytes) is byte-identical
+  and the part differs only from the song's offset on (and the directory's offset word).
+
+**What it does not do that section 9 asked**: the held note is 1.3 s, not the thermal's
+3.6 s (a 3.6 s tone on the speaker is a drone); the breath comes before each A, twice a
+loop, not before each of the five phrases.
+
+**Still owed**: a LISTEN. Nobody has heard a note of it: the renders are
+`10-kitehill-spk.wav` and `10-kitehill-fm.wav` (40 s) and the full pass under `full/`,
+made by `python3 tools/bbmusic.py wav -o DIR --song 10 [--secs 40]`; the speaker render
+is a square wave through a one-pole filter, the AdLib's is DOSBox's OPL2, and neither is
+a 5150's cone or a real chip. Then the guest: `bonanzamusic` (the selfcheck) covers the
+song now, `bonanzasound` plays ROLL's song and not this one, and the frame cost on the XT
+is not measured (PREDICTED low on the speaker, by the tone count above).
+

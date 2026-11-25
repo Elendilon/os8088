@@ -1,0 +1,162 @@
+; BOUNCE BONANZA - song 12, course 7 "Clockwork Keep": "Clockwork Keep" (SPEC.md 130.20)
+;
+; C minor at 102.4 BPM, STRICT: a 16th is a row of EIGHT sub-ticks and there
+; is no swing at all (`groove 8`), so a beat is 32 sub-ticks and a bar 128.
+; A pattern is ONE bar, 2.34 s.
+;
+; THE COURSE'S MACHINES RUN OFF THE SAME 54.6 Hz SUB-TICK, with periods of
+; 128 steps (the rocking stair, the pop-up spikes) and 256 (the drawbridges,
+; the cogs, which turn every 64): a bar is the stair's and the spikes' whole
+; period, two beats a cog's quarter turn, two bars a drawbridge's. The intro
+; is two bars (256 sub-ticks) and the loop 24 bars (3,072 = 12 x 256), so the
+; song never DRIFTS against the castle as it goes round. Nothing ties the two
+; counters' PHASE (the song starts with the bracket and plays on through a
+; pause; the play's step counter starts with the play and loses the steps a
+; pause and a cut discard), so the song ticks at the machines' RATE
+; and not, by any promise, on their beat (KEEP.md sections 9 and 16, C12).
+;
+; A castle of timed machines, so this is a MARCH FOR WIND-UP SOLDIERS and
+; its accompaniment is a clock: a TICK on beats 1 and 3 and a TOCK an octave
+; below it on 2 and 4, each a short chime of the chord's root (C4 C3 over C
+; minor), and the tune lives in the three 16ths BETWEEN them. Its motif is a
+; MORDENT - a music box's ornament, through the leading tone - and a leap:
+;   (tick) c16 <b16 >c16 (tock) g8. (tick) e-8. (tock) d8 c16      (over Cm)
+; and the next three bars keep that rhythm exactly, as a machine would, over
+; Fm (with its sixth), G7 and home.
+;
+; A  (8 bars): the theme, Cm Fm G7 Cm, and its answer from the high C over
+;    Cm Ab Ddim G, a half close - three notes and a rest, the clock alone.
+; B  (8 bars): the WORKS. The tune becomes the mechanism: three 16ths after
+;    every tick and every tock, down each chord and back, the chords falling
+;    by fifths two to a bar - Cm Fm | Bb Eb | Ab Ddim | G G7 - and round
+;    again to a full bar of G that winds itself up: G A B, D C B.
+; A' (4 bars): the theme.
+; F  (4 bars): the FANFARE, for the throne, on the trumpet: dotted calls up
+;    an F minor chord, then up a G major one, and a cadence in C MAJOR (the
+;    Picardy third) whose last C is held while the clock is heard going on
+;    under it - tick, tock - into the loop and C minor again.
+; Intro (the clock alone, then the key winding: G A B, D C B), A B A' F for
+; ever: the loop is 24 bars, 56.2 s.
+;
+; Windmill Lane is this idea cheerful (a turning figure, a waltz, the organ
+; leading); here it is stern: duple, minor, nothing lilts, the organ only
+; holds the chords, and the bowed fiddle leads.
+;
+; THE SPEAKER: the tick-tock IS the arrangement. The ticks are the BASS
+; channel's (`spkbass`), so the speaker's one voice plays tick, tune, tock,
+; tune: every tune note before a tick ends two sub-ticks early (its `q`), so
+; the bass is let through ON the beat, and each tick is six sub-ticks long
+; and stops before the tune comes in. The kick blips once a bar, under the
+; first tick; the hats (the escapement, on the off 8ths) are the AdLib's.
+; In the fanfare the trumpet plays through the ticks and the snare's rolls
+; blip under it; its last bar gives the clock back.
+; ON THE ADLIB the ticks are the MUSIC BOX (a toy's bell; the damped pluck,
+; `stab`, was tried and rendered 16 dB under the tune), a notch under the
+; fiddle (`v10`); the organ holds each chord low, and the trumpet takes the
+; fanfare.
+;
+; A tune note that is followed by a tick is spelled as ONE longer note with a
+; `q` gap (Bounce Trial's spelling): `q10 g4` is a dotted 8th of G and the
+; next beat's 16th of silence, with the two sub-ticks' breath before it.
+
+song clockwork "Clockwork Keep"
+groove 8
+unit 16
+rows 16
+measure 16
+spkbass
+voice lead fiddle
+voice bass musicbox
+voice chord organ
+
+; --- the clock: tick (beats 1, 3) and tock (2, 4), the chord's root, six sub-ticks --
+bass TC  = v10 q26 o4 c4 <c4 >c4 <c4 |
+bass TF  = v10 q26 o4 f4 <f4 >f4 <f4 |
+bass TG  = v10 q26 o3 g4 <g4 >g4 <g4 |
+bass TA  = v10 q26 o3 a-4 <a-4 >a-4 <a-4 |
+bass TD  = v10 q26 o4 d4 <d4 >d4 <d4 |
+bass TCF = v10 q26 o4 c4 <c4 >f4 <f4 |
+bass TBE = v10 q26 o3 b-4 <b-4 >>e-4 <e-4 |
+bass TAD = v10 q26 o3 a-4 <a-4 >>d4 <d4 |
+bass TAF = v10 q26 o3 a-4 <a-4 >>f4 <f4 |
+
+; --- the intro's second bar: the key winding, over G -------------------------------
+lead LW  = v15 r2 r16 o4 q1 g16 a16 q10 b8 q1 >d16 c16 q2 <b16 |
+
+; --- A: the theme, and its answer ---------------------------------------------------
+lead LA1 = v15 r16 o5 q1 c16 <b16 q10 >c8 g4 e-4 q1 d8 q2 c16 |
+lead LA2 = v15 r16 o5 q1 a-16 g16 q10 a-8 f4 d4 q1 c8 q2 <b16 |
+lead LA3 = v15 r16 o5 q1 d16 c16 q10 d8 g4 f4 q1 d8 q2 <b16 |
+lead LA4 = v15 r16 o5 q1 e-16 d16 q10 e-8 c4 <g4 r8. |
+lead LA6 = v15 r16 o6 q1 c16 <b-16 q10 >c8 <a-4 e-4 q1 f8 q2 e-16 |
+lead LA7 = v15 r16 o5 q1 d16 c16 q10 d8 f4 a-4 q1 g8 q2 f16 |
+lead LA8 = v15 r16 o5 q10 d4 <b4 g4 r8. |
+
+; --- B: the works. Three 16ths after every tick and tock, the chords by fifths -------
+lead LB1 = v15 r16 o5 q1 g16 e-16 q10 c8 q1 e-16 c16 q10 e-8
+           q1 f16 c16 q10 <a-8 q1 >c16 <a-16 q2 >c16 |
+lead LB2 = v15 r16 o5 q1 f16 d16 q10 <b-8 q1 >d16 <b-16 q10 >d8
+           q1 e-16 <b-16 q10 g8 q1 b-16 g16 q2 b-16 |
+lead LB3 = v15 r16 o5 q1 e-16 c16 q10 <a-8 q1 >c16 <a-16 q10 >c8
+           q1 f16 d16 q10 <a-8 q1 >d16 <a-16 q2 >d16 |
+lead LB4 = v15 r16 o5 q1 d16 <b16 q10 g8 q1 b16 g16 q10 b8
+           q1 >f16 d16 q10 <b8 q1 >d16 <b16 q2 >d16 |
+lead LB5 = v15 r16 o5 q1 e-16 c16 q10 <a-8 q1 >c16 <a-16 q10 >c8
+           q1 f16 c16 q10 <a-8 q1 >c16 f16 q2 a-16 |
+lead LB6 = v15 r16 o5 q1 g16 d16 q10 <b8 q1 >d16 <b16 q10 g8
+           q1 g16 a16 q10 b8 q1 >d16 c16 q2 <b16 |
+
+; --- F: the fanfare, Fm G C, on the trumpet -------------------------------------------
+lead LF1 = @trumpet v14 o5 q2 c8. c16 f4 a-8. a-16 >c4 |
+lead LF2 = @trumpet v14 o5 q2 d8. d16 g4 b8. b16 >d4 |
+lead LF3 = @trumpet v14 o6 q2 c4. <g8 e8. e16 g4 |
+lead LF4 = @trumpet v14 o6 q2 c2 r2 |
+
+; --- the organ: each chord a bare fifth (the tune carries the thirds, the ticks the roots),
+; held, low and soft; whole only on the last two bars' C major. The organ is
+; ADDITIVE, so a volume moves one of its two operators: it is kept under the
+; tune by its two notes, not by its `v`.
+chord KC  = v6 o3 [c g]1 |
+chord KF  = v6 o2 [f >c]1 |
+chord KG7 = v6 o2 [g >f]1 |
+chord KG  = v6 o2 [g >d]1 |
+chord KA  = v6 o2 [a- >e-]1 |
+chord KD  = v6 o3 [d a-]1 |
+chord KCF = v6 o3 [c g]2 o2 [f >c]2 |
+chord KBE = v6 o2 [b- >f]2 o3 [e- b-]2 |
+chord KAD = v6 o2 [a- >e-]2 o3 [d a-]2 |
+chord KGG = v6 o2 [g >d]2 [g >f]2 |
+chord KAF = v6 o2 [a- >e-]2 [f >c]2 |
+chord KCM = v6 o3 [c g >e]1 |
+
+; the escapement: a kick on the bar, hats on the off 8ths; the fanfare's rolls
+drum DK = k8 h4 h4 h4 h8 |
+drum DR = k4 s8 s16 s16 k4 s4 |
+
+order -   TC  -   DK          ; 0: the clock alone
+order LW  TG  -   DK          ; 1: the key winding
+order LA1 TC  KC  DK          ; 2: A - the loop comes back here.  Cm
+order LA2 TF  KF  DK          ;    Fm
+order LA3 TG  KG7 DK          ;    G7
+order LA4 TC  KC  DK          ;    Cm
+order LA1 TC  KC  DK          ;    Cm
+order LA6 TA  KA  DK          ;    Ab
+order LA7 TD  KD  DK          ;    Ddim
+order LA8 TG  KG  DK          ;    G, the half close
+order LB1 TCF KCF DK          ; 10: B.  Cm Fm
+order LB2 TBE KBE DK          ;    Bb Eb
+order LB3 TAD KAD DK          ;    Ab Ddim
+order LB4 TG  KGG DK          ;    G G7
+order LB1 TCF KCF DK          ;    Cm Fm
+order LB2 TBE KBE DK          ;    Bb Eb
+order LB5 TAF KAF DK          ;    Ab Fm
+order LB6 TG  KG7 DK          ;    G7, winding
+order LA1 TC  KC  DK          ; 18: A'.  Cm
+order LA2 TF  KF  DK          ;    Fm
+order LA3 TG  KG7 DK          ;    G7
+order LA4 TC  KC  DK          ;    Cm
+order LF1 TF  KF  DR          ; 22: F, the fanfare.  Fm
+order LF2 TG  KG  DR          ;    G
+order LF3 TC  KCM DR          ;    C major
+order LF4 TC  KCM DK          ;    C: the last note held, the clock going on
+loop 2

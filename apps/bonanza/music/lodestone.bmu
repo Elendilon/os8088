@@ -1,0 +1,150 @@
+; BOUNCE BONANZA - song 11, course 6 "Lodestone Gorge": "Lodestone Gorge" (SPEC.md 130.20)
+;
+; G dorian at 109 BPM, a heavy four: a 16th is a row, and the rows are ten and
+; five sub-ticks (`groove 10 5`), so an 8th is always 15, a beat 30, and the
+; off-beat 16th is the short third of a triplet - the hammer's back-swing. A
+; pattern is ONE bar (rows 16, 2.2 s), as Summit Rush's is: the bass, the
+; drone and the beat are a bar a chord, shared by every section.
+;
+; A steel ball, magnets and a mine, so this is a WORK SONG, and its motif is
+; a HAMMER and what PULLS it: every bar starts on the same low G - struck
+; with the kick, a quarter long, the horn in its bottom octave - the tune
+; climbs away from it in strong 8ths, and the bar's last, short 16th (the
+; "ka" of ka-CHUNK) drops back onto the next bar's G:
+;   g4 >d8 g8 b-4 a8 g16 d16 | g4 ...             (over Gm, G3 the hammer)
+; The tune is pulled to that note as the ball is to the lodestone. The
+; dorian's major IV (C, with its E natural) is the colour; nothing is fast.
+;
+; The intro is the FLUME: three bars of 8ths tumbling down in thirds from
+; D5, a last gallop of swung 16ths, and the first G3 with its "ka" - 6.6 s,
+; about where a run reaches the pen.
+; A  (8 bars): the work song. Gm Gm C Gm | Gm Bb C-Dm Gm: three calls each
+;    reaching a step higher (Bb, C, D), an answer that falls to the G; then
+;    the tune breaks free for a bar over C - Dm and is pulled home, the G
+;    held a half note.
+; B  (8 bars): the WALL. The hammer doubles - a G on beats 1 and 3, a pair
+;    of 8ths climbing between them (G-Bb, A-C, Bb-D, C-E) - and a long fall
+;    from F5; the second time a step higher, to G5, and out through a D
+;    MAJOR arpeggio (the F# that turns the mode).
+; C  (8 bars): the LIFT into G major, on the trumpet: the same hammer and
+;    the same calls with B natural and long notes (b4. c4. d4.), and in the
+;    last bar the band stops and one G is held for three beats, 1.65 s - the
+;    hover under the great lodestone - before the "ka" drops into the loop
+;    and G dorian again.
+; Intro, A B C for ever: the loop is 24 bars, 52.7 s; a first clear of 55 -
+; 60 s ends in the lift.
+;
+; Downhill Decision's song (Bounce Trial) is speed and funk in D dorian at
+; 136; this is weight: half its notes, a drone, and a low note it cannot leave.
+;
+; THE SPEAKER: the lead IS the arrangement - the low G on the beat and the
+; tune off it are one voice, so it sounds like striking. The kick blips under
+; each G and the clap (the anvil, a snap from high to low) on beats 2 and 4;
+; `spkbass` gives the bass's G2 to the breath before each "ka". The horn's
+; scoop is one sub-tick a note and does not loop, so no `spkring` is wanted.
+; ON THE ADLIB a held bass walks the four beats and low strings hold a drone
+; (an open fifth on G, the chords over a G pedal where they can be), all
+; BELOW the tune; kick and clap are on their own two channels.
+
+song lodestone "Lodestone Gorge"
+groove 10 5
+unit 16
+rows 16
+measure 16
+spkbass
+voice lead horn
+voice bass bass
+voice chord strings
+
+; --- the intro: the flume. Thirds tumbling down, a gallop, the first G ------------
+lead LI1 = v13 o5 d8 <b-8 >c8 <a8 b-8 g8 a8 f8 |
+lead LI2 = v13 o4 g8 e8 f8 d8 e8 c8 d8 <b-8 |
+lead LI3 = v13 o5 c16 <b-16 a16 g16 f16 e16 d16 c16 <b-8 a8 g8. >d16 |
+bass BW  = v14 o2 g1 |
+bass BI3 = v14 o2 q8 g2 g4 g8 d8 |
+
+; --- A: the work song --------------------------------------------------------------
+lead LA1 = v14 o3 g4 >d8 g8 b-4 a8 g16 d16 |
+lead LA2 = v14 o3 g4 >d8 g8 >c4 <b-8 g16 d16 |
+lead LA3 = v14 o3 g4 >e8 g8 >c4 d8 c16 <d16 |
+lead LA4 = v14 o4 b-8 a8 g8 d8 <g4 r8. >d16 |
+lead LA6 = v14 o3 g4 >f8 b-8 >d4 c8 <b-16 d16 |
+lead LA7 = v14 o5 c4 e8 c8 d4 <a8 f8 |
+lead LA8 = v14 o4 g8 d8 <g2 r8. >d16 |
+
+; --- B: the wall. The hammer on 1 and 3, the pairs climbing between ---------------
+lead LB1 = v14 o3 g4 >g8 b-8 <g4 >a8 >c8 |
+lead LB2 = v14 o3 g4 >b-8 >d8 <<g4 >>c8 e8 |
+lead LB3 = v14 o5 f4. e8 d8 c8 <a4 |
+lead LB4 = v14 o4 b-8 a8 g4 <g4 r8. >d16 |
+lead LB5 = v14 o3 g4 >a8 >c8 <<g4 >b-8 >d8 |
+lead LB6 = v14 o3 g4 >>c8 e8 <<g4 >>d8 f8 |
+lead LB7 = v14 o5 g4. f8 e8 d8 c4 |
+lead LB8 = v14 o5 d4 <a8 f+8 d4 r8. d16 |
+
+; --- C: the lift, G major, on the trumpet; the last bar is the hover -----------------
+lead LC1 = @trumpet v13 o3 g4 >d8 g8 b4. a8 |
+lead LC2 = @trumpet v13 o3 g4 >e8 g8 >c4. <b8 |
+lead LC3 = @trumpet v13 o3 g4 >g8 b8 >d4. e8 |
+lead LC4 = @trumpet v13 o5 d4 c8 <a8 f+4 r8. d16 |
+lead LC6 = @trumpet v13 o3 g4 >e8 g8 >c4. d8 |
+lead LC7 = @trumpet v13 o5 e4 d8 <b8 a4 >c8 <a8 |
+lead LC8 = @trumpet v13 o4 g2. r8. d16 |
+
+; --- the band: a bar a chord. The bass walks the four beats, detached -------------
+bass BG  = v14 o2 q8 g4 g4 g4 g8 d8 |
+bass BC  = v14 o3 q8 c4 c4 c4 c8 <g8 |
+bass BBb = v14 o2 q8 b-4 b-4 b-4 b-8 f8 |
+bass BF  = v14 o2 q8 f4 f4 f4 f8 >c8 |
+bass BD  = v14 o3 q8 d4 d4 d4 d8 <a8 |
+bass BGC = v14 o2 q8 g4 g4 >c4 c8 <g8 |
+bass BCD = v14 o3 q8 c4 c4 d4 d8 <a8 |
+bass BBC = v14 o2 q8 b-4 b-4 >c4 c8 <g8 |
+bass BGE = v14 o2 q8 g4 g4 e4 e8 b8 |
+bass BED = v14 o2 q8 e4 e4 >d4 d8 <a8 |
+; the drone: low strings, a G under every chord that can carry one
+chord KG  = v11 o2 [g >d g]1 |
+chord KC  = v11 o2 [g >c e]1 |
+chord KBb = v11 o2 [f b- >d]1 |
+chord KF  = v11 o2 [f >c f]1 |
+chord KD  = v11 o2 [a >d f+]1 |
+chord KGC = v11 o2 [g >d g]2 [g >c e]2 |
+chord KCD = v11 o2 [g >c e]2 [a >d f]2 |
+chord KBC = v11 o2 [f b- >d]2 [g >c e]2 |
+chord KGM = v11 o2 [g >d b]1 |
+chord KGE = v11 o2 [g >d b]2 [g b >e]2 |
+chord KED = v11 o2 [g b >e]2 [f+ >c d]2 |
+; the hammer: kick, the anvil (the clap) on 2 and 4; a doubled kick ends a phrase
+drum DH = k4 c4 k4 c4 |
+drum DF = k4 c4 k8 k8 c4 |
+drum DI = r2 k4 k4 |
+drum DV = k4 r2. |
+
+order LI1 BW  KG  -           ; 0: the flume
+order LI2 BW  KG  -
+order LI3 BI3 KG  DI
+order LA1 BG  KG  DH          ; 3: A - the loop comes back here.  Gm
+order LA2 BG  KG  DH          ;    Gm
+order LA3 BC  KC  DH          ;    C
+order LA4 BG  KG  DF          ;    Gm
+order LA1 BG  KG  DH          ;    Gm
+order LA6 BBb KBb DH          ;    Bb
+order LA7 BCD KCD DH          ;    C Dm
+order LA8 BG  KG  DF          ;    Gm
+order LB1 BG  KG  DH          ; 11: B.  Gm
+order LB2 BGC KGC DH          ;    Gm C
+order LB3 BF  KF  DH          ;    F
+order LB4 BG  KG  DF          ;    Gm
+order LB5 BG  KG  DH          ;    Gm
+order LB6 BCD KCD DH          ;    C Dm
+order LB7 BBC KBC DH          ;    Bb C
+order LB8 BD  KD  DF          ;    D
+order LC1 BG  KGM DH          ; 19: C, the lift.  G
+order LC2 BC  KC  DH          ;    C
+order LC3 BGE KGE DH          ;    G Em
+order LC4 BD  KD  DF          ;    D7
+order LC1 BG  KGM DH          ;    G
+order LC6 BC  KC  DH          ;    C
+order LC7 BED KED DH          ;    Em D7
+order LC8 BW  KGM DV          ;    G: the hover
+loop 3

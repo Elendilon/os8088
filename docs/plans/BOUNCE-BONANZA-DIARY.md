@@ -6903,3 +6903,43 @@ same frames on both sides: `BONANZA.O88` -300 bytes (177,890 -> 177,590), the ei
 course's worst and mean entering frame lower, and against the figures before the far list every worst and every
 mean lower but MILL's mean. *Not done*: no MartyPC look; the first filter's coefficients not refitted to the
 faster guest; the soak rows are the lead's.
+
+## 2026-11-25 (courses 5 - 7's songs: Kite Hill, Lodestone Gorge, Clockwork Keep)
+
+- **The ask**: one new song a course for KITE, LODE and KEEP (each refined that
+  day, each still saying `music fairway`), in the game's own format, checked by
+  its host tool, for both arms. Host only: no emulator, no engine change.
+- **Written**: `kitehill.bmu` (D major with the raised fourth, a 6/8 at 121 -
+  every phrase an arc a step higher, one held note for the thermal, a gust that
+  stops dead, a bar's breath), `lodestone.bmu` (G dorian at 109, `groove 10 5` -
+  every bar starts on one low G in the lead and its last short 16th drops back
+  onto the next; a lift into G major whose last G is held 1.65 s, the hover's
+  length) and `clockwork.bmu` (C minor at 102.4, strict - the tick-tock in the
+  BASS channel, so the speaker's fold plays tick, tune, tock, tune; a fanfare in
+  C major). 950, 1,092 and 967 bytes; the bank untouched.
+- **Observed** (host renders, read back): three things a listen would have
+  caught and a measurement did. A kick blipped over the gust's first 16th on
+  the speaker, and over the thermal's held note: the gust's and the thermal's
+  bars have no kick now. The ticks, first on the damped pluck, rendered 16 dB
+  under the tune: they are the music box. And the organ would not come down
+  with its volume - it is an additive patch, a `v` moves one operator of two
+  (0.4 dB for two steps) - so its chords were thinned to bare fifths.
+- **KEEP's clock** (the sheet's C12): the rate is the machines' by
+  construction and the song is written to it (a bar 128 sub-ticks, the loop
+  12 x 256). The phase is not tied, and reading the code found more than the
+  start: `bz_pause`'s loop steps the song while the play discards the pause.
+  Written up as a proposal (KEEP.md section 14), not built.
+- **MEASURED** (private trees at one commit, `make BUILD=<dir> bonanzadisk`):
+  with the three songs in the manifest and no course of the default build
+  naming them, `BONANZA.O88` (177,638 bytes) and its four disks are
+  byte-identical to HEAD's; only `bzsnd.inc`'s `BZS_NSONG`, which nothing
+  assembles, and its comments moved. With KITE, LODE and KEEP added to the
+  eight shipped courses (`BZ_COURSES="..."`, the two-part test build's way):
+  216,902 bytes and 220 of the 360 KB disk's 354 clusters with the placeholder
+  song, **217,366 bytes and 221 clusters** with their own (+464 bytes, one
+  cluster; the three parts pack to 11,201, 13,924 and 13,336 bytes, +53, +228
+  and +164).
+- **Not done**: nobody has heard them. No guest row plays them (their courses
+  are in no build); the frame cost on the XT is predicted from tone counts, not
+  measured.
+
