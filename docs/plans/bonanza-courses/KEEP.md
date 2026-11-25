@@ -5,6 +5,12 @@
 > LZ4 **15,794** (it was 47,703, 183 and 15,523 when the numbers below were taken). The
 > route demo, the treasury's run and every `--guide` figure are unmoved. Headroom for the
 > art step is therefore 65 masks, 3,031 LZ4 bytes and 16,873 part bytes.
+>
+> **After the second merge of 2026-11-25** (the branch's autopilot now gets ON a pressure
+> plate, SPEC.md 130.14.7.4.7): the route demo is **1,802** steps (32.99 s, it was 1,805)
+> and the treasury's run is **2,671** steps (48.6 s, it was 2,416), 3 flights, none panned,
+> its longest stretch with no clock in view 8.3 s on CGA and 12.6 s on Hercules. Both
+> still pass `--guide`. With its own song the part is 48,287 bytes.
 
 *Status: **REFINED** (2026-11-25), the second step of the guide's pipeline
 ([README.md](README.md) section 3): the pen-in of the same day, designed for looks and
