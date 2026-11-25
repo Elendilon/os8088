@@ -275643,6 +275643,34 @@ No missed refresh was seen on the owner's VGA at 4.77 MHz before the
 change; it is for a goal with other animated props in view. Cost: 7
 bytes of code, nothing measured.
 
+##### 130.22.6.3 The finish-reach rule blames the clocks only for what they wall off (2026-11-25)
+
+The owner, on CASTLE CLIMB's draft: the builder refused it with *"the goal
+cell (7, 9) cannot be reached with the course's clocks in place ... move
+the clock"*. The course finishes, by hand and by the autopilot. Its goal is
+up a tower that a `tube` reaches. `finish_reach_rule`'s closure (the start's
+reach over the tiles, 8R.9) does not follow a tube, so it could never see
+that goal, and the rule then named the clocks whatever they were. MEASURED:
+with every clock post taken out (`_hack` `clockreach`), the refusal was the
+same. The message pointed at a fix that could not work.
+
+- **The rule**: a finish is refused only when the closure reaches it with
+  NO clock in place and does not reach it with the clocks in place: the
+  clocks are then what walls it off, and "move the clock" is the fix. A
+  finish the closure cannot see even with no clock (a tube, a lift, a gate,
+  anything its model leaves out) is not the clocks' doing. The rule passes
+  it, and its verdict names it as *beyond the closure's reach*. Whether
+  such a finish can be reached is for the autopilot (130.58.50) and the
+  softlock check (NO TRAP, 130.14.4.1, off in the builder unless asked:
+  130.58.24) to judge.
+- **What does not move**: every shipped course's finishes are all inside
+  the closure, so the rule's verdict on them is the same. TRIAL's and
+  MOON's red controls (8R.9) still refuse.
+- **`--selfcheck`'s `clockrule`**: `TOWER`, a goal on a platform up a wall
+  with no way up and a clock on the floor. The rule passes it and names the
+  finish as beyond the closure's reach. RED ARM: `_hack` `reachblame` (the
+  rule as it was) says *move the clock*.
+
 #### 130.22.7 Memory: the pathway HELD (BUILT)
 
 At the game's entry the pathway's part is fetched and kept (`bz_phold`) if
