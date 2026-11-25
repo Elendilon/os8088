@@ -15644,6 +15644,33 @@ TRAP_DIRS = (K_R | K_D, K_L | K_U, K_L | K_D, K_R | K_U, K_R, K_L, K_U, K_D)
 TRAP_HOP_MARKS = 2                        # the HOP RUNS (130.14.4.1.1): a plain run's first MARKS (where it leaves
 TRAP_HOP_BEFORE = (1, 4, 8, 16)           # the ground by itself or meets a wall), and the Hop pressed this many
 TRAP_AGAIN = 2                            # steps before each; its "and again" this many steps after the Hop
+TRAP_CHSH = 4                             # SPEC.md 130.14.4.1.3: a state's `mat` is material | OPEN CHANNELS << 4 on a
+TRAP_MATM = (1 << TRAP_CHSH) - 1          # course with a plate or a key (GATE's latch: a channel opened stays open)
+_TRAPNOCHAN = False           # the red arm of `grammar`'s "a key far from its door" (a channel forgotten between runs)
+_TRAPNOWAIT = False           # the red arm of `grammar`'s "a bridge up at step 0" (a timed bridge read at one phase)
+
+
+def trap_chans(c):
+    """SPEC.md 130.14.4.1.3: the channels a ball can OPEN on this course (a plate's or a key's, 130.41), a bit each
+    - what NO TRAP's states carry; 0 on a course with none (its states are (cell, material), as ever)"""
+    m = c.__dict__.get("_trapch")
+    if m is None:
+        m = 0
+        for pr in c.props:
+            if pr["kind"] in (GT_KP, GT_KK):
+                m |= 1 << pr["gch"]
+        c.__dict__["_trapch"] = m
+    return 0 if _TRAPNOCHAN else m
+
+
+def trap_waits(c):
+    """SPEC.md 130.14.4.1.3: (the cells of the course's TIMED drawbridges, the phases a run that meets one is
+    run at) - a ball at rest can wait for a bridge, so the run is tried from eight steps of its period"""
+    w = c.__dict__.get("_trapw")
+    if w is None:
+        w = frozenset(tuple(pr["at"]) for pr in c.props if pr["kind"] == GT_KB and pr["gch"] == GT_TIMED)
+        c.__dict__["_trapw"] = w
+    return (frozenset(), ()) if _TRAPNOWAIT or not w else (w, TRAP_LIFT_PHASES)
 
 
 def trap_presets(c):
@@ -15724,24 +15751,37 @@ def _trap_key(cell, mat, hop, eff=None, resp=False):
     return (cell, mat, eff, hop) if resp else (cell, mat, "hop") if hop else (cell, mat)
 
 
-def _trap_run(c, cell, mat, k, hops, ph, preset, eff, resp, cup, shafts, out):
+def _trap_run(c, cell, mat, k, hops, ph, preset, eff, resp, cup, shafts, out, waits=frozenset()):
     """one of NO TRAP's runs: a ball at rest on `cell`'s centre holds direction K for TRAP_RUN steps, pressing
-    the Hop at the steps in HOPS, from step PH; the states it reaches grounded go into OUT.  -> (hit, fell,
-    touched a lift, MARKS: the steps at which it left the ground by itself, met a wall or began a fall, the first
+    the Hop at the steps in HOPS, from step PH; the states it reaches grounded go into OUT.  MAT is the state's:
+    the material, and above TRAP_CHSH the channels OPEN as the run starts (SPEC.md 130.14.4.1.3) - each state it
+    reaches carries the channels open THEN.  -> (hit, fell, touched: bit 0 a lift, bit 1 a TIMED drawbridge's cell
+    (WAITS), MARKS: the steps at which it left the ground by itself, met a wall or began a fall, the first
     TRAP_HOP_MARKS of them - where a Hop matters, 130.14.4.1.1)"""
-    hit = fell = touched = False
+    hit = fell = False
+    touched = 0
     marks = []
     last = None
+    m0, ch = mat, mat >> TRAP_CHSH
+    mat &= TRAP_MATM
     p = Physics(c, play=True, mat=mat)
     p.nopick = True                     # (wave 9: every finish with no pickup, 130.25.7.3)
     if preset and p.fam:                # (wave 9: a respawn finding ATTEMPT state PRESET)
         p.fst[:] = preset
         p._fhook(H_RESET, 1)
     p.pickrs = resp                     # (...or taking the timed ones, 130.14.4.1.2)
+    gs = p.fsl[p._fk[GT_KP]] if trap_chans(c) else None     # (GATE's slot: +0 the open channels, 130.41.3)
+    if ch:                              # (130.14.4.1.3: the channels this state has open - a gate's art at its
+        gs[0] = ch                      # last frame, 130.41.12 A6: the ball has waited it out)
+        for i in range(len(GT_CHANNELS)):
+            if ch >> i & 1:
+                gs[2 + i] = GT_AFR - 1
     p.poke(*cell)
     if eff:
         trap_eff_put(p, eff)
     p.nstep = ph
+    if ph and waits:                    # (a timed bridge at this phase, not the poke's step 0: the window again)
+        p.fref = 1
     p.ckmat = mat
     events = p.events                       # (the model's one list: only ever appended to)
     for st_ in range(TRAP_RUN + 320):
@@ -15757,7 +15797,9 @@ def _trap_run(c, cell, mat, k, hops, ph, preset, eff, resp, cup, shafts, out):
                                                                     for e in events[n0:]):
             marks.append(st_)
         if p.onp or here in shafts:
-            touched = True
+            touched |= 1
+        if here in waits:
+            touched |= 2
         if p.nfall or p.nret:
             fell = bool(p.nfall)
             break
@@ -15766,14 +15808,15 @@ def _trap_run(c, cell, mat, k, hops, ph, preset, eff, resp, cup, shafts, out):
             break
         if (here != cell or resp) and not p.tube and not p.onp and (not p.air or (len(events) > n0 and any(
                 e[0] in ("land", "bounce", "hopc", "stun") for e in events[n0:]))):
+            pm = p.mat if gs is None else p.mat | gs[0] << TRAP_CHSH    # (130.14.4.1.3: the channels open now)
             if not resp:                # grounded there, or a contact there (a rubber ball bounces on)
-                st = (here, p.mat)
+                st = (here, pm)
                 if st != last:          # (the state the step before added: in the set already)
                     out.add(st)
                     last = st
             else:
-                st = (here, p.mat, trap_eff(p))
-                if st != (cell, mat, eff):     # (the arm's: another cell, or this one with an
+                st = (here, pm, trap_eff(p))
+                if st != (cell, m0, eff):      # (the arm's: another cell, or this one with an
                     out.add(st)                # effect taken here or worn down)
     return hit, fell, touched, marks
 
@@ -15799,19 +15842,38 @@ def trap_succ(c, cell, mat, cache, phases, preset=b"", eff=None, resp=False, hop
     cup = [r["at"] for r in c.part["props"] if r["kind"] == PK_CUP]
     shafts = {r["at"] for r in c.part["props"] if r["kind"] == PK_PLATFORM}
     mills = any(r["kind"] == PK_WINDMILL for r in c.part["props"])      # (asked once, not after every run)
+    waits, wph = trap_waits(c)                  # SPEC.md 130.14.4.1.3: the TIMED drawbridges' cells and phases
     for k in TRAP_DIRS:
+        ran, met = [], 0
         for ph in phases:                       # (every phase only for a run that meets a LIFT: the others are the
-            h, f, touched, marks = _trap_run(c, cell, mat, k, (), ph, preset, eff, resp, cup, shafts, out)
+            h, f, touched, marks = _trap_run(c, cell, mat, k, (), ph, preset, eff, resp, cup, shafts, out, waits)
             hit, fell = hit or h, fell or f     # same run whatever the phase - SPEC.md 130.14.4.1)
             if hop and not (h and not resp):    # (the Hop and its "and again" where the plain run left the ground
                 for t in sorted({m - d for m in marks for d in TRAP_HOP_BEFORE if m >= d}):    # or met a wall;
                     h, f, tch, _m = _trap_run(c, cell, mat, k, (t, t + TRAP_AGAIN), ph, preset, eff, resp, cup,
-                                              shafts, out)      # an over-Hop is the course's rails' to catch)
-                    hit, fell, touched = hit or h, fell or f, touched or tch
+                                              shafts, out, waits)   # an over-Hop is the course's rails' to catch)
+                    hit, fell, touched = hit or h, fell or f, touched | tch
                     if hit and not resp:
                         break
-            if (hit and not resp) or not (touched or mills):
+            ran.append(ph)
+            met |= touched
+            if (hit and not resp) or not (touched & 1 or mills):
                 break
+        if met & 2 and not (hit and not resp):  # (130.14.4.1.3: the run met a TIMED drawbridge - a ball at rest can
+            for ph in wph:                      # wait for it, so the run again from each phase not yet tried)
+                if ph in ran:
+                    continue
+                h, f, _t, marks = _trap_run(c, cell, mat, k, (), ph, preset, eff, resp, cup, shafts, out, waits)
+                hit, fell = hit or h, fell or f
+                if hop and not (h and not resp):
+                    for t in sorted({m - d for m in marks for d in TRAP_HOP_BEFORE if m >= d}):
+                        h, f, _t, _m = _trap_run(c, cell, mat, k, (t, t + TRAP_AGAIN), ph, preset, eff, resp, cup,
+                                                 shafts, out, waits)
+                        hit, fell = hit or h, fell or f
+                        if hit and not resp:
+                            break
+                if hit and not resp:
+                    break
         if hit and not resp:
             break
     cache[key] = (out, hit, fell) if resp else (out, hit)
@@ -25901,6 +25963,7 @@ _NOFLAG = False               # the AIMS' red arm (the selfcheck's `hopplan` ite
 PLAN_HOLD_EVERY = 4           # ...from every 4th step of the leg up to the step the arrows failed on
 PLAN_TT_EVERY = 8             # a STAND's waits (SPEC.md 130.14.7.4.5): 0, 8, 16 ... steps at rest, up to a table's period
 _NOSTAND = False              # the STANDS' red arm (the selfcheck's `hopplan` item 7)
+_NOTSTAND = False             # the TIMED STANDS' red arm (SPEC.md 130.14.7.4.6, the selfcheck's `hopplan` item 8)
 PLAN_WATCH = None             # SPEC.md 130.58.50: a dict while autopilot_run watches a search (its steps, its best)
 # a world push (sign x, sign y) as held arrows (SPEC.md 130.11.8.2's _forces: Right pushes +x -y, Down +x +y)
 PLAN_W2K = {(1, 0): K_R | K_D, (-1, 0): K_L | K_U, (0, 1): K_L | K_D, (0, -1): K_R | K_U,
@@ -26065,10 +26128,15 @@ def _plan_waits(p, spent, fail):
 
 def _plan_tt(c):
     """the course's TURNTABLES for the search's STANDS (SPEC.md 130.14.7.4.5) -> (c, {each table cell: its
-    table's PIVOT, or None on a 2 x 2}, the longest table's period 4Q), or None (no table, or _NOSTAND)"""
+    table's PIVOT, or None on a 2 x 2}, the longest table's period 4Q), or None (no table, or _NOSTAND).  On a
+    `guide` course (SPEC.md 130.14.7.4.6) the cells of every other TIMED element as well - a timed drawbridge's,
+    a popspike's, a timed see-saw's plate - each None (no pivot: the stand is the APPROACH), the period its
+    timer's: a real course's route waits for a timer as a player does; and BESIDE, the floor cells next to a
+    timed plate, which is a WALL to a ball beside its raised end (the arrows never enter it: they stop against
+    it) -> (c, cells, period, beside)"""
     if _NOSTAND:
         return None
-    cells, per = {}, 0
+    cells, per, beside = {}, 0, set()
     for q in c.props:
         if q["kind"] == TT_K and "ttab" in q:
             t = q["ttab"]
@@ -26077,15 +26145,32 @@ def _plan_tt(c):
                 for j in range(N):
                     cells[(ax + i, ay + j)] = (ax + 1, ay + 1) if N == 3 else None
             per = max(per, 4 * t["Q"])
-    return (c, cells, per) if cells else None
+    g = getattr(c, "guide", None)
+    if g is None:                                   # (asked for the limit's route, before the compile sets c.guide)
+        g = getattr(getattr(c, "src", None), "guide", None)
+    if g is not None and not _NOTSTAND:
+        for q in c.props:
+            if (q["kind"] == GT_KB and q["gch"] == GT_TIMED) or q["kind"] == SP_KP:
+                cells.setdefault(tuple(q["at"]), None)
+                per = max(per, q["smask"] + 1)
+            elif q["kind"] == FK_TILT and q["tlf"] & TL_FTIME:
+                for i in range(q["tlnx"]):
+                    for j in range(q["tlny"]):
+                        x, y = q["at"][0] + i, q["at"][1] + j
+                        cells.setdefault((x, y), None)
+                        beside.update(((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)))
+                per = max(per, q["tlmask"] + 1)
+        beside -= set(cells)
+    return (c, cells, per, frozenset(beside)) if cells else None
 
 
 def _plan_stands(p, spent, tt, trail):
     """_plan_tries' STANDS (SPEC.md 130.14.7.4.5): the cells a player stops on to wait for a TURNTABLE - on
     the leg's arrows' path (TRAIL, their ground cells), each time it enters a table, the cell it came from
     when that is not the table's (the APPROACH) and the table's PIVOT (a 3 x 3's centre, never a gap), in the
-    order the path meets them; for each, _plan_stand's tries"""
-    c, cells, per = tt
+    order the path meets them; for each, _plan_stand's tries.  And each cell BESIDE a timed plate the path
+    is on (SPEC.md 130.14.7.4.6: a raised plate is a wall the arrows stop against, never entering it)"""
+    c, cells, per, beside = tt
     stands, prev = [], None
     for at in trail:
         if at in cells:
@@ -26093,6 +26178,8 @@ def _plan_stands(p, spent, tt, trail):
                 if s is not None and s not in stands and s in c.tiles:   # (an approach over the VOID - the
                     #                                   arrows' diagonal across a gap - is no place to stand)
                     stands.append(s)
+        elif at in beside and at not in stands and at in c.tiles:
+            stands.append(at)
         prev = at
     for s in stands:
         if spent[0] > PLAN_BUDGET:
@@ -26207,7 +26294,7 @@ def route_plan(c, nohop=False, nohold=False):
     meet a table try the STANDS before the Hops.  nohop, nohold: the selfcheck's red arms (and _NOFLAG, the
     flag pass's, and _NOSTAND, the stands')"""
     memo = c.__dict__.setdefault("_hplan", {})     # (kept with the course, the compile cache's copy too;
-    key = (c.ident, c.ball, nohop, nohold, _NOFLAG, _NOSTAND)   # by its identity and ball: a course edited is
+    key = (c.ident, c.ball, nohop, nohold, _NOFLAG, _NOSTAND, _NOTSTAND)   # by its identity and ball: a course edited is
     if key in memo:                                 # another)
         return memo[key]
     one = not nohold and any(q["kind"] == TT_K for q in c.props)    # (a TURNTABLE's course: ONE pass, every
@@ -31355,7 +31442,12 @@ def _props_course_checks(c, res, tag):
             if bool(g.cell(*cell)[4] & FL_OBS) != (cell in c.pcell):
                 obs_ok = False
     p = Physics(c)
-    scan_ok = all(p.owner(cell) is not None and c.order[p.owner(cell)["i"]] == pi for cell, pi in c.pcell.items())
+
+    def owns(oi, pi):                                   # the record that owns a prop's cell is the prop's - or, for
+        q = c.props[oi]                                 # a gate with ART (SPEC.md 130.41.12.1), a LANE of its art:
+        return oi == pi or (q["kind"] == GT_KA and q["gaof"] is c.props[pi])    # kind 76, anchored at the gate's
+    scan_ok = all(p.owner(cell) is not None and owns(c.order[p.owner(cell)["i"]], pi)   # first cell and laid before
+                  for cell, pi in c.pcell.items())      # it (no hook reads the difference: CONTACT on either is nothing)
     kill_ok = all(g.cell(*t)[3] == KIND_VOID and g.cell(*t)[0] == zq(pr["h2"]) - 12 and not g.cell(*t)[4] & FL_SAFE
                   for pr in c.props if pr["kind"] == PK_PLATFORM for t in pr["track"])
     nwm = [pr for pr in c.props if pr["kind"] == PK_WINDMILL]
@@ -31373,7 +31465,7 @@ def _props_course_checks(c, res, tag):
                 q._fill(cell[0] - dx, cell[1] - dy)
                 wins += 1
                 k = 3 * (dy + 1) + dx + 1
-                if (k, next(i for i, pi in enumerate(c.order) if pi == c.pcell[cell])) not in q.wol:
+                if not any(k_ == k and owns(c.order[i_], c.pcell[cell]) for k_, i_ in q.wol):
                     scan_ok = False
     # wave 8b (130.19.4): every GOAL cell's bits 6 - 7 its statement's exit (4 - 5 its rails); every other cell's zero
     ex_ok, exits = True, {}
@@ -36349,7 +36441,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 5 + len(_wall_low_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 6 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -36468,6 +36560,8 @@ def _sc_grammar(X, res, part=(0, 1)):
         _sc_traphop(res)
     if mine():                                      # SPEC.md 130.14.4.5: a flag with no `ball` is AS TOUCHED
         _sc_cktouch(res)
+    if mine():                                      # SPEC.md 130.14.4.1.3: a channel remembered, a bridge waited for
+        _sc_trapchan(res)
 
 
 # SPEC.md 130.14.4.1.2: a glass flag before a 3-tile gap (x 9 - 11) that only the jump's Hop crosses, the cup beyond
@@ -36553,6 +36647,58 @@ def _sc_cktouch(res):
                 flagb(c1) == [CK_TOUCH] and flagb(c2) == [MAT_GLASS] and m1 == "glass" and m2 == "rubber"
                 and mr == "rubber" and c3 is None and "flag 0, which names no `ball`" in e3
                 and "a steel ball cannot reach the cup" in e3 and c4 is not None))
+
+
+# SPEC.md 130.14.4.1.3: a ring KEY in a side nook (x 6, y 8 - 10) and its DOOR in a wall across the only way to the
+# cup (x 10): no single run from the key's tile goes through the door...
+_TRAPK = ('course K "k"\nwidth 64\norigin 224\nuses gate\n'
+          'floor rect 4 5 15 8 flat 4\nwall rect 4 4 15 5 flat 5\nwall rect 10 5 11 6 flat 5\nwall rect 10 7 11 8 flat 5\n'
+          'floor rect 6 8 7 11 flat 4\nstart 5 6\ncup 13 6\nprop gate 10 6 channel ring along x\nprop key %s channel ring\n')
+# ...and a TIMED drawbridge of N thin cells (x 9 on) between the start's floor and the cup's, DOWN for ON steps of
+# 256 from step 128: UP at step 0, where every run of NO TRAP started
+_TRAPB = ('course B "b"\nwidth 96\norigin 320\nuses gate\n'
+          'floor rect 4 5 9 8 flat 4\nwall rect 4 4 9 5 flat 5\nfloor rect 9 6 %(x1)d 7 flat 4\n'
+          'float rect 9 6 %(x1)d 7 thick 0.5\nfloor rect %(x1)d 5 %(x2)d 8 flat 4\nwall rect %(x1)d 4 %(x2)d 5 flat 5\n'
+          'start 5 6\ncup %(xc)d 6\ncheckpoint 7 6\nprop bridge 9 6 %(x1)d 7 period 256 on %(on)d seed 128\n')
+
+
+def _sc_trapchan(res):
+    """--selfcheck section `grammar`: NO TRAP remembers an opened channel and waits for a timed bridge (SPEC.md
+    130.14.4.1.3) - a key in a nook, its door round the corner (compiles; RED ARM _TRAPNOCHAN, the channel
+    forgotten between runs, refuses it); the key BEHIND its own door, a real trap (refused); a 4-cell bridge up at
+    step 0 and down 96 of 256 (compiles; RED ARM _TRAPNOWAIT, one phase, refuses it); a 7-cell bridge down 16 of
+    256, which nothing crosses at any phase (refused)"""
+    global _TRAPNOCHAN, _TRAPNOWAIT
+
+    def go(text, what):
+        try:
+            c_ = compile_course(text, fname="<%s>" % what)
+            return True, "compiled (%s)" % ", ".join("%s: %d states" % (k, n) for k, _a, _m, _ok, n in c_.trap)
+        except CourseError as e:
+            return False, str(e)
+
+    def tb(n, on):
+        return _TRAPB % {"x1": 9 + n, "x2": 12 + n, "xc": 10 + n, "on": on}
+    ok1, m1 = go(_TRAPK % "6 10", "a key in a nook, its door round the corner")
+    _TRAPNOCHAN = True
+    try:
+        ok2, m2 = go(_TRAPK % "6 10" + "# red arm\n", "a key in a nook, red arm")
+    finally:
+        _TRAPNOCHAN = False
+    ok3, m3 = go(_TRAPK % "12 7", "a key behind its own door")
+    ok4, m4 = go(tb(4, 96), "a timed bridge up at step 0")
+    _TRAPNOWAIT = True
+    try:
+        ok5, m5 = go(tb(4, 96) + "# red arm\n", "a timed bridge up at step 0, red arm")
+    finally:
+        _TRAPNOWAIT = False
+    ok6, m6 = go(tb(7, 16), "a timed bridge nothing crosses")
+    res.append(("2 NO TRAP remembers a channel and waits for a bridge (130.14.4.1.3): a key in a nook, its door round "
+                "the corner: %s; RED ARM (_TRAPNOCHAN, the channel forgotten between runs): %s; the key behind its own "
+                "door: %s; a 4-cell timed bridge up at step 0: %s; RED ARM (_TRAPNOWAIT, one phase): %s; a 7-cell "
+                "bridge down 16 steps of 256: %s" % (m1, m2[-60:], m3[-60:], m4, m5[-60:], m6[-60:]),
+                ok1 and not ok2 and "NO TRAP" in m2 and not ok3 and "NO TRAP" in m3 and ok4 and not ok5
+                and "NO TRAP" in m5 and not ok6 and "NO TRAP" in m6))
 
 
 def _sc_traphop(res):
@@ -39165,6 +39311,60 @@ _TTSTAND = ('course N "n"\nwidth 64\norigin 256\nball rubber\nuses turntable\n'
             'way 7 5\nway 7 9\nway 7 12\n')
 
 
+# SPEC.md 130.14.7.4.6: a `guide` course, a row of POP-UP SPIKES across its two-wide walk, up when 130.6's arrows
+# reach it (they roll onto the points) and down 48 steps of every 128
+_TSSTAND = ('course N "n"\nwidth 64\norigin 256\n%sball rubber\nuses spike\nlimit 60\n'
+            'floor rect 6 4 8 16 flat 10\nprop popspikes 6 9 period 128 on 80 seed 48\n'
+            'prop popspikes 7 9 period 128 on 80 seed 49\ngoal rect 6 13 8 15 flat 10\nstart 6 5\nclock 7 4\n'
+            'way 6 5\nway 6 8\nway 6 11\nway 6 13\n')
+
+
+def _sc_tstand(res):
+    """--selfcheck section `hopplan`, item 8: a `guide` course's route STANDS at a timed element (SPEC.md
+    130.14.7.4.6) - at rest on the cell before a row of pop-up spikes until they drop, no Hop; the RED ARM
+    _NOTSTAND (a turntable's stands alone) Hops the row; and the same course WITHOUT `guide` is searched as it
+    always was (its route the red arm's, key for key: no course that is not a real one moves)"""
+    global _NOTSTAND
+    c = compile_course(_TSSTAND % "guide\n", "<pop-up spikes a rolling ball meets up>")
+    plain = Physics(c, play=True)
+    for _i in range(PLAN_STEPS):
+        if plain.goal or plain.nfall:
+            break
+        plain.step(plain.auto())
+    runs = []
+    for off in (False, True):
+        _NOTSTAND = off
+        try:
+            c.__dict__.pop("_hplan", None)
+            plan = route_plan(c)
+        finally:
+            _NOTSTAND = False
+            c.__dict__.pop("_hplan", None)
+        q = Physics(c, play=True)
+        q.tsec = 0
+        rest = 0
+        for k in plan or ():
+            q.step(k)
+            rest += (q.gx >> 12, q.gy >> 12) == (6, 8) and not q.air and abs(q.gvx) < 2 * AUTO_ACC \
+                and abs(q.gvy) < 2 * AUTO_ACC
+        runs.append((plan, q, rest))
+    (plan, q, rest), (red, r, _rr) = runs
+    lab = compile_course(_TSSTAND % "", "<the same, not a guide course>")
+    lplan = route_plan(lab)
+    ok = plain.nfall and not plain.goal and plan is not None and q.goal and not q.nfall and not q.nret \
+        and not q.nhop and rest >= PLAN_TT_EVERY and red is not None and r.goal and r.nhop and lplan == red
+    res.append(("8 the STAND at a TIMED element (130.14.7.4.6): a guide course's row of pop-up spikes, up when "
+                "130.6's arrows reach it - the arrows %s; the search with its stands finds a route (%s steps), its "
+                "replay at the goal with %d falls, %d returns and %d Hops, at rest on the cell before the row %d "
+                "steps; RED ARM: a turntable's stands alone (_NOTSTAND), the search finds %s; the same course "
+                "without `guide` keeps the route it had (%s)" % (
+                    "ROLL ONTO THE POINTS" if plain.nfall else "do not fall (the case is gone)",
+                    len(plan) if plan else "NO", q.nfall, q.nret, q.nhop, rest,
+                    "none" if red is None else "a route with %d Hop(s) and %d falls" % (r.nhop, r.nfall),
+                    "the red arm's, key for key" if lplan == red else "ANOTHER"),
+                bool(ok)))
+
+
 def _sc_hopplan(X, res):
     """--selfcheck's section `hopplan` (SPEC.md 130.14.7.4.1): the HOPPING autopilot finishes HOP (course 2,
     built on the Hop) with no fall and no RETURN, its route is the limit's and the route demo's, and its red
@@ -39305,6 +39505,7 @@ def _sc_hopplan(X, res):
                     len(plan) if plan else "NO", q.nfall, q.nret, q.nhop, rest,
                     "none" if red is None else "a route with %d Hop(s) and %d falls" % (r.nhop, r.nfall)),
                 bool(ok)))
+    _sc_tstand(res)                                 # SPEC.md 130.14.7.4.6: the STAND at a timed element
     # every compiled course the arrows alone finish touching every flag: its route demo is the plain
     # autopilot's, key for key
     same, n = True, 0
