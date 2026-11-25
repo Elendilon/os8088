@@ -23,6 +23,12 @@ designer's and the owner's judgment.*
 *Course 4 WINDMILL LANE's pen-in (attempt 1, 2026-11-21) is [MILL.md](MILL.md); it ships as `mill.bbc`
 in the prototype's place, whose features the rows now play on TMIL (SPEC.md 130.54.10).*
 
+*Courses 5 - 7's pen-ins (attempt 1, 2026-11-25; designed for looks and function, each sheet's "Risks for
+refinement" the list for the step after): [KITE.md](KITE.md) KITE HILL (wind: gusts, a thermal, a glide),
+[LODE.md](LODE.md) LODESTONE GORGE (steel and magnets: a hoist, sirens, a wall, a gantry) and
+[KEEP.md](KEEP.md) CLOCKWORK KEEP (keys, gates, drawbridges, pop-up spikes, a rocking stair). Their courses
+are `kite.bbc`, `lode.bbc` and `keep.bbc`, in no build yet; their sketches share one pen, `penkit.py`.*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
