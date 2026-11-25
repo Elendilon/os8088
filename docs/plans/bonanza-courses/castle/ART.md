@@ -1,5 +1,10 @@
 # CASTLE CLIMB: minimal art (2026-11-25, in the course; the owner may strike any piece)
 
+> **2026-11-25, the owner:** finding the plate's side stair is part of the course, and this is not a
+> training course, so the two pieces that pointed to it (`castle_plus.bba`, `castle_toplate.bba`) are
+> removed from the course and the tree, and the plate is marked `hidden`. Four pieces remain. `art.py`
+> still knows how to draw the two.
+
 *The course is the owner's own layout, drawn in the Builder. Nothing of it moved: no floor, wall, prop, route,
 clock cell, guard or `noocclude` line. This step added the four clocks' `frame` words ([CLOCKS.md](CLOCKS.md))
 and SIX `art` lines at the END of `apps/bonanza/courses/castle.bbc`, under a comment, a line a piece: deleting a
