@@ -9466,7 +9466,7 @@ def float_stranded(src, tiles, props, hack=None):
 GROUND_AUTO = object()          # draw_ops' default: the ground plane of the tiles it is given
 
 
-def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
+def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=(), behind=()):
     """-> [(spans at Y0 = 0, colour, s, top-maker, outline-left, tile)], back
     to front: each tile's two front faces, then its top (130.3's order).
     SPEC.md 130.27: a face over the void hangs to the GROUND plane, px
@@ -9486,7 +9486,10 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
     a quartered cell's W and N) hangs a FRONT face from it down to the piece in
     front (or 3 units); a TB line inside the cell, where its sides differ, a
     1 px black line ("tline", a paint op after the top).  The order and the
-    keys: _cell_pieces"""
+    keys: _cell_pieces.
+    BEHIND (SPEC.md 130.27.2.2): FLOATING cells a face IN FRONT of which goes on down by its own cell's rule (to
+    the ground, or its own float's depth) instead of stopping at the floating cell's top - there is nothing
+    under a floating cell, so the face behind it shows there; the floating cell, drawn later, covers the rest"""
     ops = []
     if ground is GROUND_AUTO:
         ground = ground_z(tiles) if tiles else None
@@ -9510,6 +9513,9 @@ def draw_ops(tiles, x0, deep=(), ground=GROUND_AUTO, floats=()):
         floating = ground is None or (wx, wy) in floats
         fd = floats.get((wx, wy), FACE8) if isinstance(floats, dict) else FACE8   # (a `thick` bridge's)
         for p, zp, q, zq, nb, which in faces:
+            if nb is not None and behind and not _FL_NOBEHIND and \
+                    ((wx, wy + 1) if which == "sw" else (wx + 1, wy) if which == "se" else None) in behind:
+                nb = None                           # SPEC.md 130.27.2.2: in front, a FLOATING cell - nothing under it
             if nb is None:                          # over the void: 3 units (FLOATING), else to the ground
                 if floating:
                     bots.append([zp - fd, zq - fd])
@@ -14080,6 +14086,7 @@ def y0_order(counts):
     return [k for _n, k in ok] or [0]
 
 
+_FL_NOBEHIND = False    # (a red arm, SPEC.md 130.27.2.2: a face stops at a FLOATING neighbour's top in front of it)
 _VANISH_MEMO = {}       # EXPLORATORY (SPEC.md 130.25.18.1): a vanishing crack's picture change, y0-free
 
 
@@ -14248,9 +14255,12 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         floats.update((c_, tb["column"]) for c_ in bcells)
     for sw in src.seesaws:                          # SPEC.md 130.42.5: a see-saw's plate is a THIN slab
         floats.update((c_, TL_THICK) for c_ in sw["cells"])
+    # SPEC.md 130.27.2.2: the floating cells a face behind goes on down past - not a see-saw's plate, whose faces
+    # behind are tilt_base_ops' (130.42.13, its `base`)
+    behind = frozenset(floats) - {c_ for sw in src.seesaws for c_ in sw["cells"]}
     def _ops_of(tl_, nobase=False):                 # (SPEC.md 130.42.5: a see-saw's poses are drawn by the same ops)
         o_ = draw_ops({k: v for k, v in tl_.items() if k not in undrawn} if undrawn else tl_, x0,
-                      {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
+                      {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats, behind)
         if src.seesaws and not nobase:              # SPEC.md 130.42.12/13: a COLUMN, or the faces behind
             o_ = tilt_base_ops(src.seesaws, o_, x0, ground, {k: v for k, v in tl_.items() if k not in undrawn},
                                floats)
@@ -14295,7 +14305,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         for ri in sorted(pth["secret_rooms"]):
             rtiles[ri] = dict(tiles)
             rtiles[ri].update({k: v for k, v in _secret_tiles(pth, ri).items() if k not in tiles})
-            rops[ri] = draw_ops({k: v for k, v in rtiles[ri].items() if k not in rails}, x0, set(), ground, floats)
+            rops[ri] = draw_ops({k: v for k, v in rtiles[ri].items() if k not in rails}, x0, set(), ground, floats, behind)
             if props:
                 rops[ri] = prop_ops(rtiles[ri], rops[ri], props, x0)
             rops[ri] = rail_ops(redges, rtiles[ri], rops[ri], x0)
@@ -15496,6 +15506,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.fname, c.name, c.title = fname, src.name, src.title
     c.src, c.tiles, c.cells, c.reach = src, tiles, cells, reach
     c.ground, c.floats = ground, floats             # SPEC.md 130.27: the ground plane (px), the FLOATING cells
+    c.behind = behind                               # SPEC.md 130.27.2.2: the floating cells a face goes on down past
     c.gap_faces = gap_list(gfound, gmarks) if gfound is not None else None   # SPEC.md 130.57: the detector's
     c.rails = frozenset(rails)                      # (SPEC.md 130.35's guard cells, none since 130.35.1's rework)
     c.redges = dict(redges)                         # SPEC.md 130.35.1: the GUARD RAILS, {edge key: rail}
@@ -20856,7 +20867,7 @@ class Physics:
                  _w6trig=False, _noheld=False, _nogate=False, _nofall=False, _bgrace=None,
                  _nospent=False, _noadd=False, _nolaunch=False, _toutoff=False, _own_swap=False, _pick_swap=False,
                  _dsig_flip=False, _ray_inv=False, _all_radial=False, _inner_on=False, _nolift=False,
-                 _ffblock=False, _auto_plane=False):
+                 _ffblock=False, _auto_plane=False, _sprstun=False):
         part = course.cga if isinstance(course, Course) else course
         if mat is None:
             mat = course.ball if isinstance(course, Course) else MAT_RUBBER
@@ -20877,6 +20888,7 @@ class Physics:
         self.m = MATERIALS[mat]
         self._slope_sign = _slope_sign
         self._auto_plane = _auto_plane              # (a red arm: 130.6's law on a FIELD way, SPEC.md 130.28.10)
+        self._sprstun = _sprstun                    # (a red arm: a spring's landing stuns, SPEC.md 130.14.4.6.1)
         self._takeoff_zero = _takeoff_zero
         self._ef_zero, self._east_w1, self._no_stun = _ef_zero, _east_w1, _no_stun
         self._abs_impact, self._no_airclimb, self._hop_add = _abs_impact, _no_airclimb, _hop_add
@@ -22115,6 +22127,11 @@ class Physics:
         mat = surf == SURF_BOUNCE
         hard = self.hard if not mat else HARD_NONE
         base = min(fr, 0)
+        if hard == HARD_STUN and not self._sprstun and self.wol and Cv[4] & FL_OBS:
+            pr_ = self.owner((self.gx >> 12, self.gy >> 12))
+            if pr_ is not None and pr_["kind"] == PK_SPRING:
+                hard = HARD_NONE                    # SPEC.md 130.14.4.6.1: the spring takes the impact - a
+                                                    # landing on one never STUNS (steel was relaunched stunned)
         if hard == HARD_STUN and lvz >= self.hthr and not self._no_stun:
             self.air = 0
             self.gvx = self.gvy = self.gvz = 0
@@ -22462,6 +22479,7 @@ PHYS_REV = 13                 # SPEC.md 130.28.5 (story C2): the step reads FIEL
 PHYS_REV = 14                 # SPEC.md 130.16.4.1.1: the boost's rule 4 takes a FLAT prop's OBS cell
 PHYS_REV = 15                 # SPEC.md 130.35.1: the window's refill walls a GUARD RAIL's edge (the grid's EDGE
                               # bits) - the guest's bz_wedge
+PHYS_REV = 16                 # SPEC.md 130.14.4.6.1: a landing on a SPRING never stuns
 # SPEC.md 130.16.4.1.1: the props whose OBS cell is a FLAT floor the ball rolls over - rubber's boost is
 # allowed there (rule 4).  Not a spring, water, spikes or the membrane, a cup or a tube, the lift, a turntable,
 # a drawbridge or a gate (moving, or barred overhead), nor an obstacle the ball never stands on (a windmill,
@@ -31547,7 +31565,7 @@ def _mouth_checks(c, res, tag):
         if rec["sub"] == TK_DROP:                       # the preview's: the mouth on the floor line
             w, face, xm, rows, half, sill = mo
             ops = draw_ops(c.tiles, c.x0, {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]},
-                           c.ground, c.floats)
+                           c.ground, c.floats, getattr(c, "behind", ()))
             low, _l, _w = _arch(_op_spans(ops, w, face, slab=True), xm, rows, half, 0)
             if stands(low)[0]:
                 bad.append("negative control: the DROP's mouth on the floor line still passes (b)")
@@ -31568,7 +31586,7 @@ def _mouth_checks(c, res, tag):
     # (SPEC.md 130.27: the course's own look, grounded or floating, must not bite; the deep rule itself is
     # held on the FLOATING look, every face over the void 3 units - ground None - where it is what keeps the
     # column whole, and its negative control, that look without the rule, must bite)
-    ops_deep = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
+    ops_deep = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats, getattr(c, "behind", ()))
     ops_fdeep = draw_ops(c.tiles, c.x0, deep, None)
     ops_flat = draw_ops(c.tiles, c.x0, (), None)
     nctl = 0
@@ -31686,7 +31704,7 @@ def top_hole_verdict(marks, cell, t, x0, R):
 def _square_hole(c, cell):
     """wave 3's IN hole (a square in ground units, max(|du|, |dv|) <= 5): the negative control"""
     t = c.tiles[cell]
-    ops = draw_ops(c.tiles, c.x0, (), c.ground, c.floats)
+    ops = draw_ops(c.tiles, c.x0, (), c.ground, c.floats, getattr(c, "behind", ()))
     sp0 = _op_spans(ops, cell, "top")
     wf = _top_world(t, cell[0], cell[1], c.x0)
     out = set()
@@ -31710,7 +31728,7 @@ def _opening_checks(c, res, tag):
     (one side a larger circle's) fails (b); the rim's pixels put back to the
     checker fail the rim; wave 3's square IN hole fails the circle"""
     deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
-    ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
+    ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats, getattr(c, "behind", ()))
     narch = nrim = nhole = 0
     bad, ctl = [], {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0, "unswept": 0}
     want = {"old": 0, "notch": 0, "lop": 0, "norim": 0, "square": 0, "unswept": 0}
@@ -32644,8 +32662,6 @@ def _w9_cases():
          "prop crack 8 7\n", "never group"),
         ("a float thick 4 units", _W9B + "float rect 9 5 12 6 thick 4\n", "float's thick takes units"),
         ("a float thick 0.3 units", _W9B + "float rect 9 5 12 6 thick 0.3\n", "float's thick takes units"),
-        ("a vanishing crack on a grounded corner", _W9B + "floor rect 4 10 6 12 flat -4\nfloat rect 8 7 9 8\n"
-         "uses glass\nprop crack 8 7\n", "a vanishing crack at (8, 7)"),
     ]
 
 
@@ -32707,6 +32723,26 @@ def _w9_checks(res):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 9): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    # SPEC.md 130.27.2.2: a vanishing crack on a grounded CORNER - refused until the face behind a floating cell
+    # went on down (its grounded neighbour's face then hung into the gap only when the crack went, a column too
+    # tall for its two lanes); now that face is in the picture already, so the crack's change is its own tile
+    global _FL_NOBEHIND
+    gc_ = _W9B + "floor rect 4 10 6 12 flat -4\nfloat rect 8 7 9 8\nuses glass\nprop crack 8 7\n"
+    got = []
+    for red in (False, True):
+        _FL_NOBEHIND = red
+        _VANISH_MEMO.clear()                        # (the memo is keyed on the text, not on the arm)
+        try:
+            compile_course(gc_, fname="<a vanishing crack on a grounded corner>", occluders=False)
+            got.append("compiled")
+        except CourseError as e:
+            got.append("refused" if "a vanishing crack at (8, 7)" in str(e) else str(e))
+        finally:
+            _FL_NOBEHIND = False
+            _VANISH_MEMO.clear()
+    res.append(("2 a vanishing crack on a grounded corner compiles (130.27.2.2: the face behind it already hangs "
+                "down); the red arm, the face stopped at its top, is refused as before: %s" % got,
+                got == ["compiled", "refused"]))
     # GROUP LANES (SPEC.md 130.32.9): the cap's refusal (a control: the cap lowered under a pair's 12 poses),
     # and every group lane's every pose, read back out of the PART, equal to the overlay of its members' own
     # marks at the poses its class maps give - over the bare picture, in painter's order
@@ -34068,6 +34104,34 @@ def _ground_ramp_float(res):
                 th == [4] and n > 0 and not bad and bco and all(arms)))
 
 
+def _ground_behind_float(res):
+    """item 14 (SPEC.md 130.27.2.2): a grounded block BEHIND a floating slab - its face goes on down under the slab
+    (the red arm _FL_NOBEHIND stopped it at the slab's top: a black notch).  Where the red arm and the rule
+    differ, the picture is the same course's with the slab taken away, pixel for pixel"""
+    global _FL_NOBEHIND
+    base = 'course B "b"\nwidth 64\nfloor rect 4 4 8 8 flat 6\nfloor rect 4 12 6 14 flat 0\nstart 5 5\n'
+    pics = {}
+    for key, text, red in (("rule", base + "floor rect 8 4 10 8 flat 6\nfloat rect 8 4 10 8\n", False),
+                           ("red", base + "floor rect 8 4 10 8 flat 6\nfloat rect 8 4 10 8\n", True),
+                           ("bare", base, False)):
+        _FL_NOBEHIND = red
+        try:
+            c_ = compile_course(text, "<behind a float: %s>" % key, _hack={"no_finish": True})
+            pics[key] = (c_.x0, c_.y0, [bytes(r) for r in c_.pic])
+        except CourseError as e:
+            res.append(("14 GROUND: behind a floating slab (130.27.2.2) compiles (%s)" % e, False))
+            return
+        finally:
+            _FL_NOBEHIND = False
+    same_frame = pics["rule"][:2] == pics["bare"][:2]
+    r_, d_, b_ = pics["rule"][2], pics["red"][2], pics["bare"][2]
+    diff = {(x, y) for y, row in enumerate(r_) for x in range(len(row)) if row[x] != d_[y][x]}
+    same = sum(1 for x, y in diff if y < len(b_) and x < len(b_[y]) and b_[y][x] == r_[y][x]) if same_frame else -1
+    res.append(("14 GROUND: a grounded block behind a FLOATING slab (130.27.2.2) - its face goes on down under the "
+                "slab: %d px the red arm (the face stopped at the slab's top) leaves black, %d of them the picture "
+                "with the slab taken away" % (len(diff), same), bool(diff) and same == len(diff)))
+
+
 def _ground_checks(courses, res):
     """item 14 (SPEC.md 130.27.6): the grounded faces - the rule on a course made for it and its FLOATING twin,
     each with its negative control, and every course's faces over the void held to the rule"""
@@ -34107,6 +34171,7 @@ def _ground_checks(courses, res):
                                             "every one on its line" if not bad else
                                             "%d off: %s" % (len(bad), "; ".join(bad[:4]))), not bad))
     _ground_ramp_float(res)
+    _ground_behind_float(res)
     play = next((c for c in courses if c.name == "PLAY"), None)
     if play is not None:
         res.append(("14 GROUND: PLAYGROUND uses `float` (%d floating cells), so the statement ships exercised"
@@ -38851,7 +38916,7 @@ def _sc_riser(X, res):
         if not tubes:
             continue
         deep = {cl for pp in c.props if pp["kind"] == PK_TUBE for cl in pp["body"]}
-        ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats)
+        ops = draw_ops(c.tiles, c.x0, deep, c.ground, c.floats, getattr(c, "behind", ()))
         for p in tubes:
             n = len(tube_steps(c.tiles, p))
             if c.name == "MILL":
@@ -38908,7 +38973,7 @@ def _tube_body_checks(res):
     one = {k: v.z0 for k, v in c1.tiles.items() if v.kind == KIND_WALL}   # (the negative control: `body 6`)
     p = next(q for q in c2.props if q["kind"] == PK_TUBE)
     deep = {cl for q in c2.props if q["kind"] == PK_TUBE for cl in q["body"]}
-    ops = draw_ops(c2.tiles, c2.x0, deep, c2.ground, c2.floats)
+    ops = draw_ops(c2.tiles, c2.x0, deep, c2.ground, c2.floats, getattr(c2, "behind", ()))
     steps = [(hi, lo, face) for _a, _b, hi, lo, face, _m in tube_steps(c2.tiles, p)]
     v = riser_verdict(c2, ops, p, p.get("riser", []))
     vneg = riser_verdict(c2, ops, p, [r for r in p.get("riser", []) if r[0] != (14, 8)])
