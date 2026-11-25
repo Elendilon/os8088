@@ -1509,8 +1509,8 @@ class App(object):
         elif self.area:
             self.clear_area()
 
-    def clear_area(self):
-        """remove every part whose whole footprint is inside the selected area (one undo step)"""
+    def _parts_in_area(self, whole=True):
+        """the lines of the parts lying in the selected area: wholly inside it (WHOLE), else touching it"""
         x0, y0, x1, y1 = self.area
         a = self.doc.analysis()
         foot = {}
@@ -1518,8 +1518,30 @@ class App(object):
             foot.setdefault(d["line"], set()).add(c)
         for it in a["items"]:
             foot.setdefault(it["line"], set()).update(it["cells"])
-        gone = sorted((ln for ln, cs in foot.items() if ln and cs and all(x0 <= x <= x1 and y0 <= y <= y1
-                                                                          for x, y in cs)), reverse=True)
+        test = all if whole else any
+        return sorted(ln for ln, cs in foot.items() if ln and cs and test(x0 <= x <= x1 and y0 <= y <= y1
+                                                                         for x, y in cs))
+
+    def select_area(self, whole=True):
+        """SPEC.md 130.58.59: the area's parts made the selection - wholly inside it, or every one touching it -
+        so a drag moves them together, Ctrl+C copies them and Delete removes them"""
+        if not self.area:
+            return
+        lines = self._parts_in_area(whole)
+        if not lines:
+            self._msg("Nothing lies %s the area" % ("wholly inside" if whole else "in"))
+            return
+        self.area = None
+        self.select(lines[-1])
+        self.sels = list(lines)
+        self._fill_inspector()
+        self._redraw()
+        self._msg("%d part%s selected: drag one to move them all, Ctrl+C copies them, Delete removes them; "
+                  "Ctrl-click adds or drops one" % (len(lines), "" if len(lines) == 1 else "s"))
+
+    def clear_area(self):
+        """remove every part whose whole footprint is inside the selected area (one undo step)"""
+        gone = self._parts_in_area(True)[::-1]
         if not gone:
             self._msg("Nothing lies wholly inside the area; click a part to delete it")
             return
@@ -2452,6 +2474,13 @@ class App(object):
                 xf_.grid(row=6, column=1, sticky="w")
                 ttk.Button(xf_, text="Straight-sided floor", command=lambda: self.add_box("floor")).grid(
                     row=0, column=0, padx=1)
+                ttk.Label(self.ins_body, text="Select:").grid(row=7, column=0, sticky="w")
+                sf_ = ttk.Frame(self.ins_body)                  # SPEC.md 130.58.59: the outline's parts selected
+                sf_.grid(row=7, column=1, sticky="w")
+                ttk.Button(sf_, text="Parts inside", command=lambda: self.select_area(True)).grid(
+                    row=0, column=0, padx=1)
+                ttk.Button(sf_, text="Parts touching", command=lambda: self.select_area(False)).grid(
+                    row=0, column=1, padx=1)
                 ttk.Label(self.ins_body, text="Paint:").grid(row=1, column=0, sticky="w")
                 pf_ = ttk.Frame(self.ins_body)
                 pf_.grid(row=1, column=1, sticky="w")
@@ -2463,8 +2492,10 @@ class App(object):
                 self.ins_help.config(text="%s\n\nMake it replaces just these cells (the floor around keeps "
                                      "its height). Cut a corner, Diagonal strip, Half tile, Quarter tile and Box "
                                      "make diagonal edges (the parts list's Diagonals and corners says what each "
-                                     "does). Or choose any part on the left and press Add. Delete removes "
-                                     "every part lying wholly inside the area." % ("Floor here: up to %g units high." % inside if inside is not None
+                                     "does). Or choose any part on the left and press Add. Select makes the "
+                                     "parts inside the area (or every one touching it) the selection, to drag, "
+                                     "copy or delete together. Delete removes every part lying wholly inside "
+                                     "the area." % ("Floor here: up to %g units high." % inside if inside is not None
                                                    else "Empty space%s." % (
                                                        ", next to floor %g units high" % around
                                                        if around is not None else "")))
@@ -3670,6 +3701,7 @@ class App(object):
             self.probs.insert("", "end", text="No problems found" + ("" if self.check else
                                                                      " yet (the full check runs after you stop "
                                                                      "editing)"), tags=("ok",))
+        self._keep_fix(self.probs, self.prob_rows)
         self.badge_err.config(text="%d error%s" % (nerr, "" if nerr == 1 else "s") if nerr else "")
         self.badge_warn.config(text="%d warning%s" % (nwarn, "" if nwarn == 1 else "s") if nwarn else "")
         self._fill_checks(probs)
@@ -3692,6 +3724,7 @@ class App(object):
             self.check_rows[iid] = (line, cell, text)
         if not probs and self.check and self.check.get("text") == self.doc.text():
             t.insert("", "end", text="Everything passes.", tags=("ok",))
+        self._keep_fix(t, self.check_rows)
         self._fill_stats()
 
     def _fill_stats(self):
@@ -3724,36 +3757,68 @@ class App(object):
         t.delete("end-2c", "end-1c")              # (no blank line under the last)
         t.config(state="disabled")
 
+    def _keep_fix(self, tree, rows):
+        """SPEC.md 130.58.59: after a refill the bar under the problems list still describes a SELECTED row or
+        it goes - the same problem picked again where it is still listed (quietly: no jump), else hidden"""
+        src, raw = getattr(self, "fix_src", (None, None))
+        if src is not tree:
+            return
+        for iid, (_line, _cell, r) in rows.items():
+            if r == raw:
+                self.fix_quiet = iid
+                tree.selection_set(iid)
+                return
+        self._hide_fix()
+
+    def _hide_fix(self):
+        self.fixbar.pack_forget()
+        self.fix = None
+        self.fix_src = (None, None)
+
+    def _picked(self, tree, rows):
+        """the row TREE has picked, or None - and with none picked, the bar goes if it was this tree's"""
+        s = tree.selection()
+        if s and s[0] == getattr(self, "fix_quiet", None):
+            self.fix_quiet = None               # (_keep_fix's own re-pick: not a click)
+            return None
+        if not s or s[0] not in rows:
+            if getattr(self, "fix_src", (None,))[0] is tree:
+                self._hide_fix()
+            return None
+        return s[0]
+
     def _pick_problem(self):
-        s = self.probs.selection()
-        if s and s[0] in self.prob_rows:
+        iid = self._picked(self.probs, self.prob_rows)
+        if iid:
+            s = [iid]
             line, cell, raw = self.prob_rows[s[0]]
             self.occ.problem_picked(self.probs.item(s[0], "text"))
             if line:                            # SPEC.md 130.58.38: the part on the plan and in the inspector
                 self.nb.select(0)
                 self.hilite = cell
                 self.select(line, scroll=True)
-            self._show_fix(raw, line)
+            self._show_fix(raw, line, self.probs)
 
     def _pick_check(self):
-        s = self.checks.selection()
-        if s and s[0] in self.check_rows:
+        iid = self._picked(self.checks, self.check_rows)
+        if iid:
+            s = [iid]
             line, cell, raw = self.check_rows[s[0]]
             self.occ.problem_picked(self.checks.item(s[0], "text"))
             if line:
                 self.nb.select(0)
                 self.hilite = cell
                 self.select(line, scroll=True)
-            self._show_fix(raw, line)
+            self._show_fix(raw, line, self.checks)
 
-    def _show_fix(self, err, line):
+    def _show_fix(self, err, line, src=None):
         """SPEC.md 130.58.38: under the problems list, a picked ERROR's explanation in full and - where FIXES knows
         the obvious way out - a button that takes it, as one checked edit"""
         fix = fix_for(err, line, self.doc) if err else None
         if not err:
-            self.fixbar.pack_forget()
-            self.fix = None
+            self._hide_fix()
             return
+        self.fix_src = (src, err)
         # SPEC.md 130.58.58: ANY picked row's whole text, wrapped - the list keeps one line a problem, and a long
         # one ran off the view with no way to read it (an explained error: its explanation in full, then the
         # tool's own words when they differ)
@@ -3773,8 +3838,8 @@ class App(object):
             self.fix_l.config(wraplength=w)
 
     def do_fix(self):
-        f, self.fix = self.fix, None
-        self.fixbar.pack_forget()
+        f = self.fix
+        self._hide_fix()
         if not f:
             return
         label, fn = f
@@ -4585,7 +4650,8 @@ class App(object):
             return
         w = self._way_at(e) if cell != getattr(self, "last_click", None) else None   # (a route point picked off
         if w:                                                                     # the plan; a repeat click steps)
-            self.select(w)
+            if not (w in self._selected() and len(self._selected()) > 1):   # (one of several: they drag together)
+                self.select(w)
             self.drag = {"from": cell, "to": cell, "move": True, "shift": False, "ctrl": False}
             return
         movable = self.sel and cell in self._sel_cells() and any(    # (several: any of them, SPEC.md 130.58.57)
