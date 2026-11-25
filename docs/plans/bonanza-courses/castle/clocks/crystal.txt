@@ -1,0 +1,5 @@
+crystal: crystal, crystal, crystal, crystal
+blocks 943; occluder masks 178 (of 256), records 984
+one part, 58191 bytes in RAM (6833 under 65,024)
+on disk: LZ4 16779, LZB 13950
+the longest wholly-hidden run behind each clock (bound 16 gu): 0, 26, 0, 0

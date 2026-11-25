@@ -182,3 +182,191 @@ the route to 6 UP-LEFT, so Up takes one and Left the other), so revision 3
 is undone: pad 3 back at (24, 17), and Downhill Decision's icon and two-line
 title 16 px lower, clear of the route to 6's underside; LITTLE HOP's title
 centred over its frog again.
+
+## The journey: the owner's order on the map (2026-11-25, the pathway step)
+
+*The last step of the pipeline that made KITE HILL, LODESTONE GORGE and CLOCKWORK KEEP
+(design, refinement, music, course art, pathway), with CASTLE CLIMB, the owner's own
+course, added the same day. SPEC.md 130.22.11 is the contract's record. Nothing was run
+on an emulator.*
+
+**The order is the owner's** (2026-11-25): *"order on the pathway is only decided up
+until downhill; my current thought is kite where mill is currently, with mill moving
+after it on the path, and loadstone where moon currently is, with caste after it, and
+keep after that splitting into two; with the treasury allowing a course skip. (Pathway
+page 2 is not yet designed, at all, what is there was just prototype)."* So the ORDER
+below is the owner's current thought, and the LAYOUT past page 0 is this step's working
+arrangement, not a design: every choice is one line of
+`apps/bonanza/courses/path.bbc`.
+
+![the map, after](map-after-cga.png)
+
+`map-before-*.png` and `map-after-*.png` are the whole map before and after, on both
+cards; `map-after-revealed-*.png` is the map once the secret route is taken;
+`icons-new.png` is the four new icons, every frame, on both cards.
+
+### What ships
+
+| pad | course | cell (height) | page | reached by | |
+|---|---|---|---|---|---|
+| 0 | ROLL, First Roll | (34, 41) | 0 | a new game rests here | |
+| 1 | HOP, Little Hop | (37, 38) | 0 | ROLL's exit 0 | |
+| 2 | DOWN, Downhill Decision | (37, 30) | 0 | HOP's exit 0 | the split |
+| 8 | KITE, Kite Hill | (33, 26) | 0 | DOWN's exit 0 | on MILL's old pad cell |
+| 3 | MILL, Windmill Lane | (25, 18) | 1 | KITE's exit 0 | |
+| 4 | PEAK, Summit Rush | (15, 10), 2 up | 2 | MILL's exit 0 | stand-in; the right-hand branch's end |
+| 9 | LODE, Lodestone Gorge | (28, 30) | 0 | DOWN's exit 1 | on MOON's old pad cell |
+| 11 | CASTL, Castle Climb | (22, 24) | 1 | LODE's exit 0 | |
+| 10 | KEEP, Clockwork Keep | (17, 19) | 1 | CASTL's exit 0 | the second split |
+| 5 | MOON, Moonlit Green | (11, 13) | 2 | KEEP's exit 0 (the throne) | stand-in; the course the treasury skips |
+| 6 | PLAY, Playground | (6, 13) | 2 | MOON's exit 0, **and KEEP's exit 1, SECRET** | stand-in; where the shortcut lands |
+| 7 | FIRST, "Bounce Trial" | (3, 10) | 2 | PLAY's exit 0 | stand-in; the left-hand branch's end |
+
+Twelve pads, twelve routes, three pages.
+
+- **`BZ_COURSES`** gained `kite.bbc lode.bbc keep.bbc castle.bbc` at its END: courses K
+  8, 9, 10 and 11, so no other course's K moved. K is not play order (the pathway is):
+  the three were appended in the order their sheets and records already number them,
+  and CASTL after them because it came last. Nothing keys by K but a course's part row.
+- **Pad numbers** follow the courses: pads 0 - 7 play the courses they played, the new
+  courses are pads 8 (KITE), 9 (LODE), 10 (KEEP) and 11 (CASTL). "Where mill is" and
+  "where moon is" are the CELLS: KITE and LODE stand on them, and page 0's picture is
+  the owner's mark-up with two icons and two titles changed.
+- **Every cell is 13 further along both axes.** That is 208 lines down the picture, the
+  room page 2 needs above page 1 (a world cell is never negative). Nothing on page 0
+  moved against anything else there: `view 0 332` is `view 0 540`, and each kept icon's
+  SY is 208 more.
+- **The stand-ins**, re-hung in the order they had: PEAK still follows MILL and ends
+  the right-hand branch (now up a ramp, 2 units: a summit). MOON, PLAY and FIRST, which
+  were DOWN's exit-1 branch, follow KEEP's throne exit.
+
+### The treasury: a secret SHORTCUT
+
+`route 10 6 exit 1 secret  path 17,19 12,19 6,13`: CLOCKWORK KEEP's hidden exit 1 opens
+a route straight to PLAYGROUND, **skipping MOONLIT GREEN**. The tool's verdict is
+`SHORTCUT (2 pads to the end where the open way takes 3)`.
+
+- **The format allows it**: a secret route may end on a pad that is also reached
+  normally. Each pad may be the visible end of one secret route (its pad sign carries
+  four more poses for it); KEEP and PLAY each are, of this one.
+- **Why MOON is skipped and PLAY is the landing.** A shortcut has to land on a pad
+  further along KEEP's own road, so the choice was among the stand-ins after the
+  throne. Keeping them in the order they had (MOON, PLAY, FIRST) and skipping the first
+  is the smallest change, lands on a course with something after it (a skip to the very
+  last pad would make the shortcut the end of the map), and MOONLIT GREEN is the
+  gentlest of the three to miss.
+- **Not given away.** Nothing of the route is in the picture; it is drawn by 8 reveal
+  lanes as the marble first takes it. At KEEP's pad it is the Left arrow alone (Up is
+  the throne's road), which does nothing until the route is open.
+
+### The layout, and why
+
+- **Page 0** is the owner's mark-up, with KITE HILL's icon and title in WINDMILL LANE's
+  place and LODESTONE GORGE's in MOONLIT GREEN's (its title on two lines).
+- **The right-hand branch** is the climb that was there: KITE, up into page 1 to MILL,
+  up into page 2 and a ramp to SUMMIT RUSH.
+- **The left-hand branch** is one road straight up from LODE: CASTLE CLIMB, then
+  CLOCKWORK KEEP, then into page 2 to MOONLIT GREEN, up-left to PLAYGROUND and up to
+  "Bounce Trial". The secret leaves KEEP up-left and climbs the left edge to PLAYGROUND.
+- **KEEP's pad is plain on purpose** (the owner expects to rework KEEP): no scenery is
+  its, and moving it is its `pad` line, three `route` lines and its `icon` line.
+- **The scenery** is small and all near page 0's top: three kites over KITE HILL, the
+  gorge's two rock walls either side of the road up from LODESTONE GORGE (the mine's
+  adit and an ore cart in the west one, a vein of lodestone in the east). CASTLE
+  CLIMB's icon stands on the west wall's top.
+
+Rules that shaped it (the tool's, each met):
+
+- **The key map (130.22.4.5).** A three-way pad needs a straight among its roads. KEEP
+  is reached straight up, the throne's road goes straight on (Up), and the secret is the
+  one diagonal (Left). The first try (KEEP reached by a diagonal) left the Right arrow
+  claimed by two diagonals, refused.
+- A pad's cell is at least 24 lines inside its page, so no pad sits near a page
+  boundary; roads cross them.
+- Scenery is `art`: painted over the finished picture with no depth, so each piece
+  stands in open sky.
+
+### The art
+
+All generated by `gen.py` (`--ship` writes the files, `--check` says the committed ones
+are what it writes; no hand-edited pixel):
+
+| file | | |
+|---|---|---|
+| `icons/kite32x24.bba` | 6 frames | a diamond kite with a two-bow tail over a hill, swaying on its string (KITE.md's idea; the course's clocks are kites) |
+| `icons/lode32x24.bba` | 6 frames | a horseshoe magnet lifting a steel ball and letting it go, two sparks (LODE.md's idea) |
+| `icons/keep32x24.bba` | 6 frames | a square clock tower whose hand turns a sixth a frame, a pennant, a key (KEEP.md's idea) |
+| `icons/castl32x24.bba` | 6 frames | a tall narrow tower, a stair zig-zagging up it and a marble climbing the stair, a banner: told from KEEP's beside it by its shape (narrow against square) and by what moves (a climber against a clock hand) |
+| `path_kites.bba` | 40 x 64 | three kites on their strings |
+| `path_cragw.bba` | 48 x 64 | the gorge's west wall: the mine's adit, an ore cart |
+| `path_crage.bba` | 32 x 48 | the gorge's east wall: a vein of lodestone |
+
+White carries every shape and the two colours shade it, so each reads on the Hercules,
+where both colours are one grey (`bbicons.py`'s rule).
+
+No pad or gate art was added: pads 0 - 3 use the tool's own pad overlay and gate, and
+so do the new ones. `pads/` and `gates/` are SPEC.md 130.22.8's provisional previews and
+the courses' own gate art, which no map names.
+
+### One tool change it needed
+
+`art` was only ever on the title. On a map with a secret route the tool renders the
+picture a second time with the route drawn and cuts the DIFFERENCE into the reveal
+lanes; the art was painted on the first picture only, so every art pixel counted as a
+difference and a reveal would have painted the scenery out. `tools/bbcourse.py` now
+paints a map's art on each secret route's picture too. No map before this one had both
+an `art` and a `secret`, so no other output changed; no guest code changed.
+
+Two of `--selfcheck`'s `path` items were about the shipped map as it was and now say
+what it is: the shipped map HAS a secret route (each must be opened by a hidden exit
+and carry a verdict, and KEEP's exit 1 must be a SHORTCUT), and the test map's first
+two pads are compared with the shipped map's by the ROAD between them, since the
+shipped map's cells moved and the test map's did not.
+
+### The limits found (none was raised)
+
+| limit | where | now | of |
+|---|---|---|---|
+| pads | `BZ_PAD_MAX`, the save's word-a-pad tables (the grammar allows 0 - 31) | 12 | 23 |
+| routes | the save's opened and taken dwords | 12 | 32 |
+| courses | `BZ_CRS_MAX`, every per-course table's width | 12 (21 with BZDEV's nine test courses) | 23 |
+| pages | the grid header's top-line byte (the grammar allows 8) | 3 (page 0's top line 432) | about 5 (1,020) |
+| the pathway's part | one part, 65,024 bytes | 35,711 | 65,024 |
+| signs | a byte | 43 | 255 |
+| an icon's frames | a lane's poses | 6 | 16 |
+| lanes on a page | SPEC.md 130.19.10's bounds, proved by the tool on every window row | icons' FAST lanes: 1 in a window, 3 changes a step | 6 and 6 |
+
+What one more of each costs, MEASURED on this map (bytes of the part in RAM): a pad
+about 200 (its lane and poses), an animated 32 x 24 icon about 410, a gate about 230, a
+page 3,200 for its rows of the map plus its picture blocks, a block of new picture 16.
+The resident package pays nothing for any of them (SPEC.md 130.22.11's table).
+
+### What the map cost (MEASURED on the host, 2026-11-25)
+
+| | before | after | |
+|---|---|---|---|
+| the pathway's part, RAM (the tool's figure) | 22,784 | 34,862 | +12,078: the third page's rows 3,200, 210 more picture blocks 3,360 (the scenery 1,440 of the part), 4 pads 608, 4 more icons' lanes 1,672, 4 gates 704, the reveals 568, the rest tables |
+| the same, LZB | 6,561 | 10,194 | +3,633 (the scenery 971 of it) |
+
+The package and the disks are in SPEC.md 130.22.11, measured at the end of the step.
+
+### Open choices for the owner
+
+1. **Pages 1 and 2 are a working layout.** The order is yours; where each pad stands
+   past page 0 is not designed.
+2. **Which course the treasury skips, and where it lands** (MOON skipped, PLAY the
+   landing): one `route` line.
+3. **Where the stand-ins hang.** PEAK after MILL; MOON, PLAY, FIRST after the throne.
+   When real courses take those places the stand-ins need pads somewhere, or to leave
+   the default build.
+4. **A secret or a plain second way.** The treasury is `secret` because KEEP's second
+   goal says `hidden`. A plain fork (as DOWNHILL DECISION's) is the word off the goal
+   in `keep/sketch.py`, and `secret` off the route with a `gate` on it.
+5. **The scenery.** Each piece is one `art` line; without all three the part is 1,440
+   bytes smaller in RAM and 971 packed. A castle behind CASTLE CLIMB's pad was drawn and
+   left out: the pad is in the middle of a straight road, and it had no clear sky.
+6. **`width 64`.** The Hercules window uses 45 of the map's 64 columns. `width 48` would
+   save about 2,700 bytes of the part in RAM. Not done: it moves the picture's column
+   origin, and nothing here could be run on an emulator.
+7. **The three sheets' section 7** (KITE.md, LODE.md, KEEP.md) describe the places the
+   sheets pencilled in before your order. Their status lines now point here.

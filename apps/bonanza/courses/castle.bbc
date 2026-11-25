@@ -1,0 +1,269 @@
+course CASTL "Castle Climb"
+width 112
+origin 384
+ball rubber
+uses gate archway spring pickups glass seesaw tube rotor
+medals 65 80
+limit 99
+gatestyle portcullis
+palette 2
+music castleclimb
+
+floor rect 37 27 39 35 flat 0.5
+floor rect 21 30 22 33 flat 0
+floor tile 22 31 flat 0
+floor tile 42 30 flat 0.5
+floor tile 41 31 flat 0.5
+floor tile 40 32 flat 0.5
+floor tile 39 33 flat 0.5
+floor tile 37 35 flat 0.5
+floor tile 36 36 flat 0.5
+floor tile 34 38 flat 0.5
+floor tile 33 39 flat 0.5
+floor tile 31 41 flat 0.5
+floor tile 32 40 flat 0.75
+floor half down tile 31 40 flat 0.5
+floor half down tile 32 39 flat 0.5
+floor half down tile 33 38 flat 0.75
+floor half up tile 32 41 flat 0.5
+floor half up tile 33 40 flat 0.5
+wall tile 30 40 flat 5.5
+wall tile 31 39 flat 7
+wall tile 32 38 flat 5.5
+wall tile 33 37 flat 7
+floor half down tile 34 37 flat 0.5
+floor half down tile 35 36 flat 0.5
+floor half up tile 34 39 flat 0.5
+floor half up tile 35 38 flat 0.5
+floor half up tile 36 37 flat 0.5
+floor half up tile 37 36 flat 0.5
+wall tile 34 36 flat 5.5
+floor half down tile 36 35 flat 0.75
+floor half up tile 38 35 flat 0.5
+wall tile 35 35 flat 7
+wall tile 36 34 flat 5.5
+wall tile 36 31 flat 7
+wall tile 39 31 flat 7
+floor half up tile 39 34 flat 0.5
+floor half up tile 40 33 flat 0.5
+floor half up tile 41 32 flat 0.75
+floor half up tile 42 31 flat 0.5
+floor half up tile 43 30 flat 0.5
+floor half down tile 41 30 flat 0.5
+floor tile 39 32 flat 0.75
+floor tile 40 31 flat 1
+floor tile 40 30 flat 1.5
+floor tile 40 29 flat 2.25
+floor tile 41 29 flat 2.75
+floor tile 41 28 flat 3.5
+floor half up tile 44 29 flat 0.5
+floor half up tile 45 28 flat 0.5
+floor half down tile 42 29 flat 0.5
+wall tile 42 28 flat 7
+wall tile 43 27 flat 5.5
+wall tile 44 26 flat 7
+wall tile 45 25 flat 5.5
+floor tile 39 30 flat 5.5
+wall tile 39 29 flat 7
+wall tile 40 28 flat 5.5
+wall tile 41 27 flat 7
+wall tile 36 33 flat 7
+wall tile 36 32 flat 5.5
+floor rect 37 23 39 27 ramp y 23 27 2.5 0.5
+wall tile 36 30 flat 5.5
+wall tile 36 27 flat 7
+wall tile 36 29 flat 7
+wall tile 36 28 flat 5.5
+floor rect 34 19 38 20 flat 2.5
+floor rect 31 20 35 22 flat 2.5
+floor rect 37 20 39 23 flat 2.5
+floor rect 34 22 37 23 flat 2.5
+wall tile 32 19 flat 2.5
+wall tile 32 22 flat 2.5
+floor half left tile 38 19 flat 2.5
+floor half down tile 33 19 flat 2.5
+floor half right tile 33 22 flat 2.5
+floor rect 35 20 37 22 flat 3
+floor half up tile 31 22 flat 2.5
+floor half up tile 30 23 flat 2.5
+floor half up tile 29 24 flat 3.25
+floor rect 30 21 31 23 flat 2.5
+floor rect 28 23 30 24 flat 3.25
+floor half down tile 31 19 flat 2.5
+floor half down tile 30 20 flat 2.5
+floor half down tile 29 21 flat 2.5
+floor tile 29 22 flat 2.5
+floor half down tile 28 22 flat 2.5
+floor half down tile 27 23 flat 3.25
+floor rect 26 25 28 26 flat 4
+floor rect 25 26 27 27 flat 4
+floor half up tile 27 26 flat 4
+floor half down tile 25 25 flat 4
+floor rect 24 27 26 28 flat 4.75
+floor rect 23 28 25 29 flat 4.75
+floor rect 16 33 20 34 flat 4
+floor rect 17 34 19 35 flat 4
+floor half down tile 23 27 flat 4.75
+floor half up tile 24 29 flat 4.75
+floor half down tile 23 27 flat 4.75
+floor half up tile 25 28 flat 4.75
+floor half up tile 26 27 flat 4
+floor half down tile 24 26 flat 4
+floor half up tile 28 25 flat 3.25
+floor half down tile 26 24 flat 3.25
+floor rect 27 24 29 25 flat 3.25
+floor half right tile 23 29 flat 4.75
+floor quarter e tile 22 28 flat 4.75
+floor half left tile 22 30 flat 0
+floor half down tile 20 30 flat 0
+floor half up tile 22 32 flat 0
+floor tile 20 31 flat 0
+floor half right tile 20 32 flat 0
+surface bounce rect 20 30 23 33
+floor half up tile 19 34 flat 4
+floor half down tile 18 32 flat 4
+floor half left tile 19 32 flat 4
+floor quarter w tile 20 33 flat 4
+wall tile 26 44 flat 5.5
+wall tile 27 43 flat 7
+wall tile 28 42 flat 5.5
+wall tile 29 41 flat 7
+floor half down tile 30 41 flat 0.25
+floor half up tile 31 42 flat 0.25
+floor tile 30 42 flat 0.25
+floor half down tile 29 42 flat 0.25
+floor half up tile 30 43 flat 0.25
+floor tile 29 43 flat 0.25
+floor half down tile 28 43 flat 0
+floor half up tile 29 44 flat 0
+floor tile 28 44 flat 0
+floor half down tile 27 44 flat 0
+floor half up tile 28 45 flat 0
+floor tile 27 45 flat 0
+floor tile 28 41 flat 4.5
+floor half right tile 17 35 flat 4
+floor half up tile 18 35 flat 4
+floor quarter e tile 15 33 flat 4
+floor half right tile 16 34 flat 4
+floor rect 16 29 18 33 ramp y 29 33 6 4
+floor rect 16 25 18 29 flat 6
+floor rect 20 35 22 37 flat 1
+floor rect 16 24 18 25 flat 8
+floor rect 19 17 20 24 flat 10
+floor rect 18 22 19 25 flat 10
+floor tile 17 23 flat 10
+floor half down tile 16 23 flat 10
+floor half up tile 19 24 flat 10
+floor half down tile 17 22 flat 10
+floor half down tile 18 21 flat 10
+floor rect 12 10 29 12 flat 12
+floor rect 27 12 29 18 flat 12
+floor rect 29 14 33 15 flat 12
+floor tile 26 17 flat 12
+floor rect 20 17 22 18 flat 10
+wall tile 16 9 flat 18
+wall tile 16 12 flat 18
+wall half up tile 11 14 flat 32
+wall half left tile 11 6 flat 32
+wall rect 5 6 11 8 flat 30
+wall rect 4 7 5 14 flat 30
+wall rect 11 7 12 14 flat 30
+wall rect 5 8 6 15 flat 30
+wall rect 6 13 11 15 flat 30
+floor rect 6 8 11 9 flat 28
+floor rect 6 12 11 13 flat 28
+floor rect 6 9 7 12 flat 28
+floor rect 10 9 11 12 flat 28
+wall half down tile 4 6 flat 32
+wall half right tile 4 14 flat 32
+goal rect 7 9 10 12 flat 28
+floor rect 35 13 38 16 flat 13
+floor rect 33 14 35 15 ramp x 33 35 12 13
+float rect 30 14 33 15 thick 0.25
+float rect 29 14 33 15 thick 0.25
+floor tile 23 22 flat 5
+start 27 45
+clock 28 41 frame bcn0
+clock 39 30 frame bcn1
+clock 23 22 frame bcn2
+clock 8 8 frame bcn3
+target 90
+way 27 45
+way 40 32
+way 40 30
+way 41 29
+way 41 28
+way 38 33
+way 37 21
+way 31 20
+way 29 22
+way 27 24
+way 25 26
+way 23 28
+way 18 33
+way 16 33
+way 16 24
+way 19 23
+way 19 17
+way 27 17
+way 27 14
+way 37 14
+way 28 14
+way 28 11
+way 12 10
+way 8 10
+prop plate 41 28 channel plus
+prop gate 37 31 channel plus along y art portcullis
+prop hourglass 21 36
+prop crack 19 20 hole wide
+prop crack 19 18 hole wide
+prop speed 20 17 for 3 respawn
+prop gate 16 10 channel ring art portcullis
+prop key 37 14 channel ring
+prop windmill 12 10
+prop crack 30 14 hole wide
+prop crack 31 14 hole wide
+prop speed 29 14 for 1
+guard rect 37 23 38 27
+guard rect 38 23 39 29
+guard rect 19 17 20 18 side -y
+guard rect 35 13 38 14 side +x -y
+guard rect 37 14 38 15
+guard rect 35 15 38 16 side +x +y
+guard rect 27 13 28 16
+archway rect 32 20 33 22 along x under 4
+archway rect 16 28 18 29 along y
+spring 16 25 500
+spring 17 24 500
+checkpoint 31 20 ball rubber
+checkpoint 18 33 ball rubber
+checkpoint 19 23
+checkpoint 27 17
+checkpoint 35 14
+checkpoint 38 34 ball rubber
+pad steel 16 28
+pad steel 17 28
+pad rubber 36 14
+seesaw 22 17 26 18 along x pivot 11 period 256
+tube keep 12 10 6 10 via 11 10 via 11 13 via 5 13 via 5 10
+noocclude rect 5 4 6 6
+noocclude rect 4 5 5 7
+noocclude tile 6 5
+noocclude rect 11 5 12 7
+noocclude rect 3 6 4 8
+noocclude rect 6 8 8 9
+noocclude rect 13 8 16 9
+noocclude rect 14 9 16 10
+noocclude tile 15 10
+noocclude rect 3 14 5 15
+noocclude rect 21 20 24 22
+noocclude rect 21 22 23 23
+# ART (docs/plans/bonanza-courses/castle/ART.md; castle/art.py writes the files): six pieces, a line each -
+# delete a line to strike its piece.  The plus on the first gate, the arrow to its plate, the ring and arrow to the
+# ring key, the ring on the keep's gate, up over the tube, the keep's pennant
+art castle_plus.bba 499 731
+art castle_toplate.bba 519 768
+art castle_tokey.bba 583 440
+art castle_ring.bba 451 307
+art castle_up.bba 402 234
+art castle_flag.bba 351 9

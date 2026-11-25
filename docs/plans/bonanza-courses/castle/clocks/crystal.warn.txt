@@ -1,0 +1,4 @@
+hidden: castle-crystal.bbc:215: the plate at (41, 28) is HIDDEN: 64 of its pressed pose's 120 pixels are drawn over by geometry in front of it (the player must see where the ball goes)
+shade: castle-crystal.bbc:223: the windmill's doorway is in the shade: cell (12, 9) of IN's 3 x 3 has OCC set - while the rotor turns, a ball there is drawn over what stands in front of it rather than behind
+ball-hidden: castle-crystal.bbc:187: a ball rolled behind the clock at (39, 30) is WHOLLY hidden for 26 ground units in a row, past one ball length (16: SPEC.md 130.18.5.4)
+blend: castle-crystal.bbc:78: the floor (height 2.5) at (34, 21) and the floor (height 3) at (35, 21) on line 86 BLEND: in the CGA and Hercules picture their checker runs on across 76 px of seam with no edge between them, though they do not adjoin there (SPEC.md 130.58.18)

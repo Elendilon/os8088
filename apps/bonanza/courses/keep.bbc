@@ -12,7 +12,7 @@ width 128
 origin 496
 ball rubber
 uses gate spike seesaw turntable
-music clockwork           # its own song (2026-11-25): a tick-tock march in C minor at the machines' own rate (KEEP.md, "The song")
+music clockwork           # its own song (the second, 2026-11-25): a gavotte in D major whose motif KNOCKS, at the machines' own rate (KEEP.md, "The song")
 limit 99
 target 90
 

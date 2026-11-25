@@ -12,6 +12,11 @@ designer's and the owner's judgment.*
 
 *The pathway's initial-look options (2026-11-19) are in [pathway/](pathway/README.md).*
 
+*KITE HILL, LODESTONE GORGE, CLOCKWORK KEEP and CASTLE CLIMB (`castle.bbc`, the owner's own) are IN THE DEFAULT
+BUILD and on the map since 2026-11-25, in the owner's order of that day: [pathway/README.md](pathway/README.md),
+"The journey", and SPEC.md 130.22.11. Where a paragraph below says a course is "in no build yet", it is that
+step's record.*
+
 *What 3-wide chutes would cost (a deferred study for DOWN, 2026-11-20) is [CHUTE3.md](CHUTE3.md).*
 
 *What two lifts in a course would cost, and where DOWN could put steel's (a study, 2026-11-20), is [LIFT2.md](LIFT2.md).*
@@ -108,7 +113,7 @@ the step found that the next song meets too:*
 decals, all in the three course files and still in no build. Each course has a `CLOCKS.md` (two or three
 concepts studied, one installed for the owner's pick) and an `ART.md` in its folder, and its sheet's section 17
 is what it carries now and the room it has left: [kite/CLOCKS.md](kite/CLOCKS.md), [kite/ART.md](kite/ART.md)
-(a KITE whose tail grows a bow a clock), [lode/CLOCKS.md](lode/CLOCKS.md), [lode/ART.md](lode/ART.md) (an ORE
+(a WINDSOCK the wind fills, the owner's pick; the kite frames stay in the tool), [lode/CLOCKS.md](lode/CLOCKS.md), [lode/ART.md](lode/ART.md) (an ORE
 CART that fills), [keep/CLOCKS.md](keep/CLOCKS.md), [keep/ART.md](keep/ART.md) (an HOURGLASS that runs out).
 `clockkit.py` and `artkit.py` are the kits the three share, as `penkit.py` is their pen. What the step found
 that the next course's art meets too:*
@@ -131,6 +136,10 @@ that the next course's art meets too:*
   by the prop's poses (and would not turn or tilt with it), but paint BESIDE one is safe - a lane's poses are
   cut from the picture with the art in it (MEASURED: six lanes of KEEP and KITE share blocks with a decal, and
   every pose of each holds the decal's pixels). Paint costs blocks and no mask.*
+- *MEASURE what the camera shows before drawing in the sky. KITE's great kite, over its summit, was whole in
+  the window for 0.0 s of the route: the window reaches the top of a picture only when the ball does.
+  `kite/camera.py` runs the route through the tool's camera model and prints each `art` piece's seconds on
+  screen on both cards; it reads any course with a line changed.*
 - *`bbcourse.py --png` draws every course in palette 1. For a `palette 0` course (KITE) the kits draw the
   picture in its own inks (`art.py --png`, `picture-cga.png`).*
 

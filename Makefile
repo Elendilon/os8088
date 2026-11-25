@@ -22539,9 +22539,15 @@ BZ_TESTCRS := apps/bonanza/courses/bench.bbc apps/bonanza/courses/tquik.bbc apps
 BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/down.bbc \
               apps/bonanza/courses/mill.bbc apps/bonanza/courses/moon.bbc apps/bonanza/courses/summit.bbc \
               apps/bonanza/courses/playground.bbc \
-              apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc
+              apps/bonanza/courses/roll.bbc apps/bonanza/courses/hop.bbc \
+              apps/bonanza/courses/kite.bbc apps/bonanza/courses/lode.bbc apps/bonanza/courses/keep.bbc \
+              apps/bonanza/courses/castle.bbc
 # (6 FIRST ROLL and 7 LITTLE HOP, the real courses 1 and 2 (wave 11; the pathway's pads 0 and 1 since
 # 2026-11-19): appended when K still mattered; the BZROLL knob that carried them is gone)
+# (8 KITE HILL, 9 LODESTONE GORGE, 10 CLOCKWORK KEEP and 11 CASTLE CLIMB (CASTL, the owner's own), 2026-11-25:
+# the pathway's pads 8, 9, 10 and 11, in the owner's order of that day, SPEC.md 130.22.11.  APPENDED in the
+# order they were made, so every course before them keeps its K - K is not play order, the pathway is.  To take
+# one out of the default build, drop it here AND its pad, routes and icon in path.bbc)
 # wave 8b (SPEC.md 130.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
@@ -23021,7 +23027,7 @@ $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py to
                    fonts/tallx.f8 $(BZ_COURSES) apps/bonanza/courses/kit.bzk $(BZ_PATH) $(BZSHAPESTAMP) \
                    $(BZMAGNETSTAMP) $(BZWINDSTAMP) $(BZRAILSTAMP) $(BZWATERSTAMP) $(BZARCHSTAMP) $(BZSPIKESTAMP) \
                    $(BZBOOSTSTAMP) $(BZHUMPSTAMP) $(BZQSTEPSTAMP) $(BZGATESTAMP) $(BZTILTSTAMP) $(BZTURNSTAMP) $(BZFSHOWSTAMP) $(BZSHADOWSTAMP) \
-                   $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
+                   $(BZDEVSTAMP) $(wildcard apps/bonanza/courses/icons/*.bba) $(wildcard apps/bonanza/courses/path_*.bba) $(BZ_TITLESRC) $(BZ_DEMOSRC) | $(BUILD)
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
@@ -23044,9 +23050,9 @@ bonanza-sizes: $(BUILD)/bonanza.o88
 # under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
 # and writes bzsnd.inc.  BZ_SONGS is the tool's SONGS manifest, in its order.
 BZ_SONGS := fairway trial windmill moonlit summit victory attract firstroll timeup littlehop \
-            kitehill lodestone clockwork
+            kitehill lodestone clockwork castleclimb
 BZ_MUSSRC := apps/bonanza/music/bank.bmb $(addprefix apps/bonanza/music/,$(addsuffix .bmu,$(BZ_SONGS)))
-BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7 8 9 10 11 12,$(BZ_ART)/BZM$(i).BIN)
+BZ_SNDPARTS := $(BZ_ART)/BZSND.BIN $(foreach i,0 1 2 3 4 5 6 7 8 9 10 11 12 13,$(BZ_ART)/BZM$(i).BIN)
 BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
 $(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
 	python3 tools/bbmusic.py -o $(BZ_ART)

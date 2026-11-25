@@ -6,7 +6,7 @@ shipped build's own pieces (`make bbgamebin`: the pieces and their map, no varia
     (the course compile through the cache, the pieces the build's, os88pkg as the Makefile runs it), and its
     --disk --size 360 is build/bonanza360.img byte for byte when `make bonanzadisk` has made that;
  2. TWO ADDED COURSES: XTRA and XTRB (FIRST's and HOP's text under other NAMEs and titles) composed after the
-    shipped ones - os88pkg validated it, its course table names them in rows 8 and 9, its counts byte says 10,
+    shipped ones - os88pkg validated it, its course table names them in rows 12 and 13, its counts byte says 14,
     and it is byte for byte the package `make BUILD=... BZ_COURSES="<shipped> XTRA XTRB"` assembles with nasm
     (the tables and counts written at the map's places are all that nasm would have changed);
  3. --pad0 XTRA: XTRA takes pad 0's course's K (ROLL's, 6), ROLL goes last, the pathway's pad 0 names
@@ -14,12 +14,12 @@ shipped build's own pieces (`make bbgamebin`: the pieces and their map, no varia
  4. REFUSALS: an inc that needs a larger BZ_PROPMAX is refused naming the lanes, a pathway past BZ_PAD_MAX pads
     is refused naming it, a course part row of a form the shipped rows lack is refused, a course NAME that is
     the game's own symbol (TITLE) is refused, a TEST course is refused, more than BZ_CRS_MAX courses are refused;
- 5. A BIGGER MAP: the shipped pathway with XTRA on a NINTH pad (`# builder-course:`, the pad, route and icon
-    bbedmap.place_course writes) composed with --path - 9 pads and 26 signs where the shipped map has 8 and 23 -
+ 5. A BIGGER MAP: the shipped pathway with XTRA on a THIRTEENTH pad (`# builder-course:`, the pad, route and icon
+    bbedmap.place_course writes) composed with --path - 13 pads where the shipped map has 12 -
     os88pkg validated it, its course table names XTRA, and it is byte for byte the package
     `make BZ_COURSES=... BZ_PATH=...` assembles with nasm; RED: the same game with BZ_CRS_COUNTS left as the
-    shipped one's (the save's pad guard at 8 where the map has 9) is not nasm's build;
- 6. A BIGGER MAP, NO ADDED COURSE: FIRST on a ninth pad as well (no `# builder-course:`) composes, byte for byte
+    shipped one's (the save's pad guard at 12 where the map has 13) is not nasm's build;
+ 6. A BIGGER MAP, NO ADDED COURSE: FIRST on a thirteenth pad as well (no `# builder-course:`) composes, byte for byte
     nasm's build of the shipped list and that pathway.
 
 The nasm builds (2, 3, 5, 6) seed their art from the composition's compile (make -o .bz-crs), so they assemble
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory() as t:
     G.compose(o0, [], disk=d0, size=360, log=log)
     ok(rb(o0) == rb(os.path.join(ROOT, "build", "bonanza.o88")),
        "the shipped list composed is build/bonanza.o88 byte for byte (%d bytes)" % os.path.getsize(o0))
-    ok(counts(o0) == (len(ship), len(ship), 8), "its counts are %d courses, %d demos, 8 pads" % (len(ship), len(ship)))
+    ok(counts(o0) == (len(ship), len(ship), 12), "its counts are %d courses, %d demos, 12 pads" % (len(ship), len(ship)))
     ref360 = os.path.join(ROOT, "build", "bonanza360.img")
     if os.path.isfile(ref360):   # bonanzadisk is on demand, not in `all`
         ok(rb(d0) == rb(ref360), "its --disk --size 360 is build/bonanza360.img byte for byte")
@@ -145,40 +145,40 @@ with tempfile.TemporaryDirectory() as t:
                            capture_output=True, text=True)
         ok(r.returncode == 0 and os.path.getsize(img) == 368640, "the 360 KB floppy verifies")
 
-        # 5. a bigger map: XTRA on a ninth pad of the author's pathway
+        # 5. a bigger map: XTRA on a thirteenth pad of the author's pathway (pad 12, off pad 7: the shipped map has 12)
         pd = os.path.join(t, "map")
         os.makedirs(pd)
         shutil.copyfile(xt, os.path.join(pd, "xtra.bbc"))
         pth = os.path.join(pd, "path.bbc")
         with open(pth, "w", encoding="ascii") as f:
             f.write(open(os.path.join(B.COURSE_DIR, "path.bbc"), encoding="ascii").read()
-                    + "# builder-course: xtra.bbc\npad 8 XTRA 8 7\nroute 7 8 exit 0  path 4,11 8,7\n"
-                    "icon 8 icons/first32x24.bba 0 80\n")
+                    + "# builder-course: xtra.bbc\npad 12 XTRA 7 6\nroute 7 12 exit 0  path 3,10 7,6\n"
+                    "icon 12 icons/first32x24.bba 0 64\n")
         o5, w5 = os.path.join(t, "map.o88"), os.path.join(t, "w5")
         G.compose(o5, [], pathway=pth, work=w5, log=log)
         inc5 = open(os.path.join(w5, "art", "bzcourse.inc")).read()
-        ok("BZ_PATH_NPAD    equ 9" in inc5 and counts(o5) == (n + 1, n + 1, 9)
+        ok("BZ_PATH_NPAD    equ 13" in inc5 and counts(o5) == (n + 1, n + 1, 13)
            and names_row(o5, len(ship)) == b"XTRA\0\0",
-           "a ninth pad: composed with --path, its counts say 9 pads, its course table names XTRA")
+           "a thirteenth pad: composed with --path, its counts say 13 pads, its course table names XTRA")
         n5 = nasm_build(tree, [os.path.relpath(p, ROOT) for p in ship] + [os.path.join(pd, "xtra.bbc")],
                         os.path.join(w5, "art"), path=pth)
         ok(n5 is not None and rb(n5) == rb(o5), "the bigger map composed is the nasm build of that list and pathway "
            "byte for byte (%d bytes)" % os.path.getsize(o5))
         o6 = os.path.join(t, "red.o88")
         G.compose(o6, [], pathway=pth, work=os.path.join(t, "w6"), log=log, _skip=("BZ_CRS_COUNTS",))
-        ok(n5 is not None and rb(o6) != rb(n5) and counts(o6) == (n, n, 8),
-           "RED: the shipped counts left in (the save's pad guard at 8) are not nasm's build")
+        ok(n5 is not None and rb(o6) != rb(n5) and counts(o6) == (n, n, 12),
+           "RED: the shipped counts left in (the save's pad guard at 12) are not nasm's build")
 
-        # 6. a bigger map and no added course: FIRST on a ninth pad as well
+        # 6. a bigger map and no added course: FIRST on a thirteenth pad as well
         p0 = os.path.join(pd, "path0.bbc")
         with open(p0, "w", encoding="ascii") as f:
             f.write(open(os.path.join(B.COURSE_DIR, "path.bbc"), encoding="ascii").read()
-                    + "pad 8 FIRST 8 7\nroute 7 8 exit 0  path 4,11 8,7\nicon 8 icons/first32x24.bba 0 80\n")
+                    + "pad 12 FIRST 7 6\nroute 7 12 exit 0  path 3,10 7,6\nicon 12 icons/first32x24.bba 0 64\n")
         o7, w7 = os.path.join(t, "map0.o88"), os.path.join(t, "w7")
         G.compose(o7, [], pathway=p0, work=w7, log=log)
         n7 = nasm_build(tree, [os.path.relpath(p, ROOT) for p in ship], os.path.join(w7, "art"), path=p0)
-        ok(n7 is not None and rb(n7) == rb(o7) and counts(o7) == (n, n, 9),
-           "no added course, FIRST on a ninth pad too: the nasm build of the shipped list and that pathway byte "
+        ok(n7 is not None and rb(n7) == rb(o7) and counts(o7) == (n, n, 13),
+           "no added course, FIRST on a thirteenth pad too: the nasm build of the shipped list and that pathway byte "
            "for byte (%d bytes)" % os.path.getsize(o7))
     finally:
         shutil.rmtree(tree, ignore_errors=True)

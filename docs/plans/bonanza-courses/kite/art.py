@@ -69,16 +69,16 @@ def _tail(s, tx, ty, side, bows, slope, gap=9):
 
 def decals():
     out = []
-    # 1. the GREAT KITE: in the sky up-left of the summit, its string down to the crown - the picture the player
-    #    climbs toward, and straight above the ball on the launch plaza
+    # 1. the GREAT KITE: flown from the launch plaza, out over the valley to its left - what the plaza is for.
+    #    Placed by the CAMERA (kite/camera.py): whole in the window on the launch plaza and all through the glide
     s = A.Sheet(X0, Y0)
-    gx, gy = s.tile(7, 25, 18.5)                     # the crown's middle
-    s.line(152, 77, gx - 2, gy - 2, K)               # the string, drawn first (the sail over its top): yellow,
-    s.line(152, 76, gx - 2, gy - 3, W)               # a black line under it where it crosses the floor
-    s.pat((".K.", "KWK", "KMK", "KMK", ".K."), gx - 3, gy - 6)      # its peg in the crown
-    tx, ty = _kite(s, 150.0, 50.0, 22.0, 26.0, 36.0, (W, M), lean=-3)
-    _tail(s, tx, ty, -1, 4, 0.3)
-    out.append(s.write("kite_great", "KITE HILL: the great kite over the summit, its string to the crown (kite/art.py)"))
+    gx, gy = s.tile(16, 36, 15.5)                    # its peg: the launch plaza's west edge
+    s.line(100, 289, gx - 2, gy - 2, K)               # the string, drawn first (the sail over its top): yellow,
+    s.line(100, 288, gx - 2, gy - 3, W)               # a black line under it where it crosses the floor
+    s.pat((".K.", "KWK", "KMK", "KMK", ".K."), gx - 3, gy - 6)      # the peg
+    tx, ty = _kite(s, 89.0, 292.0, 22.0, 26.0, 36.0, (W, M), lean=-3)  # (INSIDE the launch plaza's windows: camera.py.  At
+    _tail(s, tx, ty, 1, 3, 0.9, gap=7)               # its first place, over the summit, the camera never showed it whole)
+    out.append(s.write("kite_great", "KITE HILL: the great kite, flown from the launch plaza (kite/art.py)"))
     # 2. the GUST BRIDGE's sign: on the breezeway's last tile beside the bridge's mouth (only the void is behind
     #    it).  A pennant FLYING: WAIT.  A pennant LIMP: GO.  (The fan's own pennant is the one to watch.)
     s = A.Sheet(X0, Y0)
@@ -131,9 +131,10 @@ def decals():
         return M if (b < 0) == (a < 0) else W
     s.floor(16, 34, 15.5, mark, margin=0.03)
     out.append(s.write("kite_launch", "KITE HILL: the launch plaza's arrow and the kite on its corner (kite/art.py)"))
-    # 6. three small KITES in the void beside the hill (a backdrop: the ball is always drawn over them)
+    # 6. two small KITES in the void beside the hill (a backdrop: the ball is always drawn over them), each where
+    #    the route's window shows it whole on both cards (kite/camera.py: the first places were cut by its edges)
     s = A.Sheet(X0, Y0)
-    for (kx, ky, inks, side) in ((690, 430, (W, M), 1), (615, 255, (C, W), -1), (70, 300, (M, W), 1)):
+    for (kx, ky, inks, side) in ((678, 430, (W, M), 1), (440, 330, (C, W), -1)):
         tx, ty = _kite(s, kx + 0.0, ky + 0.0, 8.0, 9.0, 14.0, inks, lean=2 * side)
         _tail(s, tx, ty, side, 2, 0.5, gap=7)
         out.append(s.write("kite_small%d" % len([o for o in out if "small" in o]),
@@ -154,7 +155,7 @@ if __name__ == "__main__":
         c = A.check("kite", X0, Y0)
         if "--png" in sys.argv:
             out = sys.argv[sys.argv.index("--png") + 1]
-            print(A.crop_png(c, [(60, 0, 300, 210), (372, 590, 130, 90)], os.path.join(out, "art-signs.png"), pal=0, zoom=2))
-            print(A.crop_png(c, [(540, 560, 120, 80), (300, 400, 170, 90), (190, 280, 110, 80), (570, 220, 150, 240)],
+            print(A.crop_png(c, [(60, 240, 200, 130), (372, 590, 130, 90)], os.path.join(out, "art-signs.png"), pal=0, zoom=2))
+            print(A.crop_png(c, [(540, 560, 120, 80), (300, 400, 170, 90), (190, 280, 110, 80), (400, 300, 80, 70), (640, 400, 80, 70)],
                              os.path.join(out, "art-decals.png"), pal=0, zoom=2))
             print(A.picture_png(c, out, pal=0))
