@@ -1,0 +1,137 @@
+# Course 5 (KITE; docs/plans/bonanza-courses/KITE.md): KITE HILL, a CLIMB - a hill of terraces up the screen
+# and the WIND on it.  A gust that shoves (railed: the lesson), a gust across a CRUMBLING BRIDGE, a THERMAL
+# that lifts the ball 8 units up a cliff, gusts waited out behind WINDBREAKS, and the GLIDE: a chasm crossed
+# on rising air, the summit across it.  Rubber from start to finish.  PEN-IN, attempt 1: written by
+# docs/plans/bonanza-courses/kite/sketch.py --bbc --force while the layout moves.  NOT in the build, NOT
+# `guide` yet (KITE.md's "Risks for refinement").
+course KITE "Kite Hill"
+width 128
+origin 480                # 1,024 px: the floors run from about px -250 (the launch plaza) to +310 (terrace 3)
+ball rubber
+uses wind glass           # (the crumbling bridge's cracked tiles are GLASS's kind `crack`, SPEC.md 130.25.8)
+music fairway             # PLACEHOLDER: the song is the music agent's (KITE.md: light, airy, rising)
+palette 0                 # green, red, yellow on black: a grassy hill (LITTLE HOP's palette)
+limit 90
+target 60
+
+# rooms (the sketch's sections), walls and guard rails
+floor rect  38  44  45  49  flat 4   # A: the MEADOW, 7 x 5
+hole  half up tile 38 44          # a diagonal corner
+hole  half right tile 44 44          # a diagonal corner
+hole  half left tile 38 48          # a diagonal corner
+hole  half down tile 44 48          # a diagonal corner
+guard rect  39  44  44  49
+guard rect  38  45  45  48
+floor rect  40  38  43  44  ramp y 38 44 7 4   # R: the first rise, 3 units in 6 tiles, 3 wide
+floor rect  29  35  43  38  flat 7   # B: the BREEZEWAY, 14 x 3, walked up-left (-x)
+floor rect  36  34  37  35  flat 7   # the lesson's fan, in a notch on the upwind side
+guard rect  32  37  41  38 side +y
+guard rect  32  35  36  36 side -y
+guard rect  37  35  41  36 side -y
+guard rect  36  34  37  35 side -x -y +x
+guard rect  29  35  30  38 side -x
+floor rect  30  30  31  31  flat 7   # C: the crumbling bridge
+floor rect  30  31  31  32  flat 7   # C: the crumbling bridge
+floor rect  30  32  31  33  flat 7   # C: the crumbling bridge
+floor rect  30  33  31  34  flat 7   # C: the crumbling bridge
+floor rect  30  34  31  35  flat 7   # C: the crumbling bridge
+floor rect  28  32  29  33  flat 7   # the bridge's fan, on a lone pillar upwind (one void cell off the bridge)
+floor rect  28  24  36  30  flat 7   # D: the FAN PLAZA, 8 x 6, under the cliff
+hole  half left tile 28 29          # a diagonal corner
+hole  half down tile 35 29          # a diagonal corner
+guard rect  28  24  36  29
+guard rect  29  29  35  30
+floor rect  27  19  37  24  flat 15   # S: terrace 3, the cliff's top (its +y face is the cliff, 8 units)
+hole  half up tile 27 19          # a diagonal corner
+hole  half right tile 36 19          # a diagonal corner
+guard rect  28  19  36  20 side -y
+guard rect  36  20  37  24 side +x
+guard rect  27  23  31  24 side +y
+guard rect  34  23  36  24 side +y
+floor rect  36  24  37  28  ramp y 24 28 15 7   # K: a TOOL AID, railed off - not a design element (risk K1)
+guard rect  36  23  37  24 side +y
+guard rect  35  24  36  28 side +x
+floor rect  16  21  27  23  flat 15   # E: the WINDBREAK bridge, 11 x 2, walked up-left (-x)
+guard rect  24  22  25  23 side +y
+guard rect  20  22  21  23 side +y
+floor rect  22  19  23  20  flat 15   # the windbreaks' fan, on a lone pillar upwind
+floor rect   9  19  16  24  flat 15   # F: the LAUNCH PLAZA, 7 x 5
+hole  half left tile 9 23          # a diagonal corner
+hole  half down tile 15 23          # a diagonal corner
+guard rect   9  19  10  23 side -x
+guard rect  10  23  15  24 side +y
+guard rect   9  19  10  20 side -y
+guard rect  14  19  15  20 side -y
+guard rect  15  19  16  21 side +x
+floor rect  11  15  12  16  flat 12   # P: the glide's fan, on a pillar in the middle of the chasm, 3 units down
+floor rect  15  14  16  19  ramp y 14 19 17.5 15   # the ROPE BRIDGE: 1 wide, 2.5 units up in 5 tiles
+floor rect  15  12  16  14  flat 17.5   # the rope bridge's last two planks
+guard rect  15  12  16  19 side +x -x
+floor rect   8   5  17  12  flat 17.5   # G: the SUMMIT, 9 x 7
+hole  half up tile 8 5          # a diagonal corner
+hole  half right tile 16 5          # a diagonal corner
+guard rect   9   5  16   6 side -y
+guard rect   8   6   9  12 side -x
+guard rect  16   6  17  12 side +x
+guard rect   8  11  10  12 side +y
+guard rect  14  11  15  12 side +y
+guard rect  16  11  17  12 side +y
+floor rect  10   6  15   9  flat 18   # the CROWN: half a unit up (every ball rolls up it), the goal on it
+float rect  30  30  31  35 thick 0.5
+float rect  16  21  27  23 thick 1
+float rect  15  12  16  19 thick 0.5
+
+prop blower 36 34 face +y region 34 35 38 37 strength 10 gust 64 64 flag
+prop crack 30 30
+prop crack 30 31
+prop crack 30 32
+prop crack 30 33
+prop crack 30 34
+prop blower 28 32 face +x region 29 30 31 34 strength 8 gust 64 192
+prop blower 32 25 face up region 31 24 33 25 strength 40 top 9 lift
+prop blower 22 19 face +y region 17 20 26 22 strength 12 gust 24 104
+prop blower 11 15 face up region 10 12 13 18 strength 40 top 7 lift
+
+goal  rect 11 6 14 8  flat 18
+start 41 47
+checkpoint 30 36 ball rubber   # flag 0
+checkpoint 28 21 ball rubber   # flag 1
+checkpoint 12 21 ball rubber   # flag 2
+
+# clocks: on a corner of a floor off the way, or on a tile one out from it
+clock 44 45   # start
+clock 35 28   # plaza
+clock 9 22   # launch
+clock 16 7   # summit
+
+# the autopilot's route
+way 41 47
+way 41 44
+way 41 38
+way 41 36
+way 36 36
+way 30 36
+way 30 35
+way 30 30
+way 30 28
+way 32 26
+way 32 25
+way 32 24
+way 32 23
+way 32 21
+way 28 21
+way 27 21
+way 16 21
+way 12 21
+way 12 19
+way 12 11
+way 12 9
+way 12 7
+# the ROPE way: a branch (the tool's alone)
+way 12 21 branch ROPE
+way 15 20 branch ROPE
+way 15 19 branch ROPE
+way 15 12 branch ROPE
+way 15 11 branch ROPE
+way 12 9 branch ROPE
+way 12 7 branch ROPE
