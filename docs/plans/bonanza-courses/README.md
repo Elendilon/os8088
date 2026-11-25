@@ -29,6 +29,15 @@ refinement" the list for the step after): [KITE.md](KITE.md) KITE HILL (wind: gu
 [KEEP.md](KEEP.md) CLOCKWORK KEEP (keys, gates, drawbridges, pop-up spikes, a rocking stair). Their courses
 are `kite.bbc`, `lode.bbc` and `keep.bbc`, in no build yet; their sketches share one pen, `penkit.py`.*
 
+*KITE HILL is REFINED (2026-11-25, the step after its pen-in): `kite.bbc` says `guide` and passes what a shipped
+course is held to; [KITE.md](KITE.md) sections 10 - 13 are what it passes, what changed, each risk's outcome and
+the owner's playtest list. Still in no build. Two things it found that the next courses meet too: `--guide`'s G3
+counts a flight until the ball stops BOUNCING, and depends on `origin` (the camera's lattice is 64 px of the
+picture: KITE.md section 2); `finish_reach_rule` follows an updraft that carries a ball since this step
+(SPEC.md 130.34.5), and nothing else that lifts one (a magnet's hoist, a lift, a spring, a tube); and
+`--camcheck`'s dither map (SPEC.md 130.17.6.5 item 4) reverses at the flat top of any ramp a route CLIMBS
+(KITE.md section 12, K13): run `--camcheck` with the shipped and test courses and the new one in the list.*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
