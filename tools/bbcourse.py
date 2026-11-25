@@ -25991,6 +25991,8 @@ PLAN_WAIT = (32, 64, 96, 128, 160, 192, 224, 256)   # a WAIT's lengths (SPEC.md 
 _NOWAIT = False               # the WAITS' red arm (the selfcheck's `hopplan` item 5)
 PLAN_FLAG_NEAR = 3            # an AIM's flags (SPEC.md 130.14.7.4.4): within this many cells of a leg's arrows' path
 _NOFLAG = False               # the AIMS' red arm (the selfcheck's `hopplan` item 6): no flag pass, flags not required
+_NOSWITCH = False             # the SWITCH WAYS' red arm (the selfcheck's `hopplan` item 9): a plate's way taken by reach,
+                              # and no run-up
 PLAN_HOLD_EVERY = 4           # ...from every 4th step of the leg up to the step the arrows failed on
 PLAN_TT_EVERY = 8             # a STAND's waits (SPEC.md 130.14.7.4.5): 0, 8, 16 ... steps at rest, up to a table's period
 _NOSTAND = False              # the STANDS' red arm (the selfcheck's `hopplan` item 7)
@@ -26013,7 +26015,7 @@ def _plan_hold(p, k, ax):
     return PLAN_W2K[tuple(s)] | (k & ~(K_L | K_R | K_U | K_D))
 
 
-def _plan_leg(p, hops, n, hold=None, aim=None, trail=None, st=None):
+def _plan_leg(p, hops, n, hold=None, aim=None, trail=None, st=None, back=0):
     """step p in place: 130.6's autopilot, Space added on the steps in HOPS (counted from 0), for at most n
     steps -> (ok, keys, the step it failed on): ok when the next way is taken (p.wp moves) or the goal reached
     with no fall, no RETURN and no timeout; a fall, a shatter or PLAN_STALL steps stuck fail it.  HOLD: (axis,
@@ -26022,8 +26024,10 @@ def _plan_leg(p, hops, n, hold=None, aim=None, trail=None, st=None):
     and the leg ok only with it touched; TRAIL: a list the ball's ground cell is appended to each step.
     ST (_LegHead's): [the step to go on from, its keys so far, last, still] - a leg whose first steps another
     has already stepped, P the Physics after them (its way and its falls are the leg's start's: a step that
-    moved either ended the leg); the list is left as the leg stands when its N steps run out"""
+    moved either ended the leg); the list is left as the leg stands when its N steps run out.  BACK: the arrows
+    REVERSED on the first BACK steps (a RUN-UP's back-up, SPEC.md 130.14.7.4.7)"""
     w, nf = p.wp, p.nfall
+    sw = (getattr(p, "pswitch", None) or {}).get(w)    # (SPEC.md 130.14.7.4.7: the leg's way a SWITCH's cell)
     i0, keys, last, still = st if st is not None else (0, [], None, 0)
     for i in range(i0, n):
         if aim is not None and not p.cksn >> aim[0] & 1:
@@ -26031,10 +26035,17 @@ def _plan_leg(p, hops, n, hold=None, aim=None, trail=None, st=None):
             p.route = list(base[:w]) + [aim[1]]     # cannot pass a LAST way, so the arrows steer onto the
             k = p.auto()                            # flag's cell and slow there; the route then put back)
             p.route, p.wp = base, w
+        elif sw is not None and not p.fsl[sw[0]][0] >> sw[1] & 1:
+            base = p.route                          # (a SWITCH way, its channel still shut: the route cut to
+            p.route = list(base[:w + 1])            # end at it, as the AIM's, so 130.6's reach test cannot
+            k = p.auto()                            # take it from beside or below the switch - the arrows
+            p.route, p.wp = base, w                 # steer onto its cell until the ball opens the channel)
         else:
             k = p.auto()
         if hold is not None and hold[1] <= i < hold[1] + hold[2]:
             k = _plan_hold(p, _plan_hold(p, k, 0), 1) if hold[0] == 2 else _plan_hold(p, k, hold[0])
+        if i < back:
+            k = _plan_rev(k)
         k |= K_HOP if i in hops else 0
         p.step(k)
         keys.append(k)
@@ -26108,6 +26119,9 @@ def _plan_tries(p, spent, nohop=False, hold=False, flags=None, tt=None):
         yield from _plan_stands(p, spent, tt, trail)    # not jump it - 130.14.7.4.5)
     if not nohop:                                   # (nohop: the selfcheck's red arm, the arrows alone)
         yield from _plan_hops(p, spent, fail)
+    sw = (getattr(p, "pswitch", None) or {}).get(p.wp)
+    if sw is not None and sw[2] is not None and not nohop and not p.fsl[sw[0]][0] >> sw[1] & 1:
+        yield from _plan_runups(p, spent, sw[2])    # (a SWITCH way's leg: SPEC.md 130.14.7.4.7)
     if hold:
         yield from _plan_holds(p, spent, fail)
         yield from _plan_waits(p, spent, fail)
@@ -26273,6 +26287,60 @@ def _plan_stand(p, spent, s, pt, per):
                 return
 
 
+PLAN_RUNBACK = range(2, 42, 2)    # a RUN-UP's back-up lengths (SPEC.md 130.14.7.4.7), shortest first
+PLAN_RUNHOP = 48              # ...and the steps after it its Hop is tried on
+_NORUNUP = False              # the RUN-UPS' red arm (the selfcheck's `hopplan` item 9)
+
+
+def _plan_rev(k):
+    """130.6's arrows K turned round: Left for Right, Up for Down (the push away from where they steer)"""
+    return (k & ~(K_L | K_R | K_U | K_D)) | (K_R if k & K_L else 0) | (K_L if k & K_R else 0) \
+        | (K_D if k & K_U else 0) | (K_U if k & K_D else 0)
+
+
+def _plan_runups(p, spent, stand):
+    """_plan_tries' RUN-UPS (SPEC.md 130.14.7.4.7), on a leg into a SWITCH way whose channel is shut: 130.6's
+    arrows aimed at STAND's cell S (the way before the switch's: the STAND's approach, 130.14.7.4.5) until the ball is
+    on it, grounded, at rest; then from there the leg with the arrows REVERSED for PLAN_RUNBACK's lengths
+    (shortest first), then on at the switch, a Hop pressed on each of the PLAN_RUNHOP steps after the back-up -
+    a player squares up on the step below the switch, backs off and takes it with a running Hop.  The approach
+    is stepped once and shared; at most PLAN_ALT"""
+    if _NORUNUP:
+        return
+    q = _clone(p)
+    (s, pt), w, pre = stand, q.wp, []
+    for _i in range(PLAN_SEG):
+        base = q.route
+        q.route = list(base[:w]) + [pt]
+        k = q.auto()
+        q.route, q.wp = base, w
+        q.step(k)
+        pre.append(k)
+        if q.nfall != p.nfall or q.nret or q.tout or q.mst == ST_SHATTER or q.wp != w or q.goal:
+            spent[0] += len(pre)
+            return
+        if (q.gx >> 12, q.gy >> 12) == s and not q.air and abs(q.gvx) < 2 * AUTO_ACC \
+                and abs(q.gvy) < 2 * AUTO_ACC:
+            break
+    else:
+        spent[0] += len(pre)
+        return
+    spent[0] += len(pre)
+    found = 0
+    for n in PLAN_RUNBACK:
+        for t in range(PLAN_RUNHOP):
+            if spent[0] > PLAN_BUDGET:
+                return
+            g = _clone(q)
+            ok, keys, _f = _plan_leg(g, (n + t,), n + t + PLAN_FLIGHT, back=n)
+            spent[0] += len(keys)
+            if ok:
+                yield pre + keys, g
+                found += 1
+                if found >= PLAN_ALT:
+                    return
+
+
 def _plan_hops(p, spent, fail):
     """_plan_tries' Hops (SPEC.md 130.14.7.4.1)"""
     found = 0
@@ -26325,7 +26393,7 @@ def route_plan(c, nohop=False, nohold=False):
     meet a table try the STANDS before the Hops.  nohop, nohold: the selfcheck's red arms (and _NOFLAG, the
     flag pass's, and _NOSTAND, the stands')"""
     memo = c.__dict__.setdefault("_hplan", {})     # (kept with the course, the compile cache's copy too;
-    key = (c.ident, c.ball, nohop, nohold, _NOFLAG, _NOSTAND, _NOTSTAND)   # by its identity and ball: a course edited is
+    key = (c.ident, c.ball, nohop, nohold, _NOFLAG, _NOSTAND, _NOTSTAND, _NOSWITCH, _NORUNUP)   # by its identity and ball: a course edited is
     if key in memo:                                 # another)
         return memo[key]
     one = not nohold and any(q["kind"] == TT_K for q in c.props)    # (a TURNTABLE's course: ONE pass, every
@@ -26390,7 +26458,7 @@ def branch_plan(c, name, want=()):
     those flags alone as its AIMS and its goal test -> the keys or None.  Kept with the course, as
     route_plan's"""
     memo = c.__dict__.setdefault("_bplan", {})
-    key = (c.ident, c.ball, name, tuple(sorted(want)), _NOFLAG)
+    key = (c.ident, c.ball, name, tuple(sorted(want)), _NOFLAG, _NOSWITCH, _NORUNUP)
     if key in memo:
         return memo[key]
     pts = [_way_point(c, t) for t in branch_route(c, name)]
@@ -26758,6 +26826,23 @@ def autopilot_run(c, branch=None, watch=None):
     return out
 
 
+def _plan_switches(c, p):
+    """the route's SWITCH WAYS (SPEC.md 130.14.7.4.7): {the index of a way in P's route whose point is a PLATE's or
+    a KEY's cell's: (the gate family's slot, the switch's channel)} - each such leg is taken only with that channel
+    open (_plan_leg).  Empty on a course with no switch on its route, or _NOSWITCH"""
+    j = getattr(p, "_fk", {}).get(GT_KP) if p.fam and not _NOSWITCH else None
+    if j is None:
+        return {}
+    at = {_way_point(c, tuple(q["at"])): q["gch"] for q in c.props
+          if q["kind"] in (GT_KP, GT_KK) and q.get("gch") is not None and q["gch"] != GT_TIMED}
+    if not any(pt in at for pt in p.route):
+        return {}
+    cell = {_way_point(c, t): t for t, _ln in list(c.src.ways) + [w for b in (c.branches or {}).values() for w in b]}
+    #                                               (a way point's tile: the RUN-UP's stand, the way before)
+    return {i: (j, at[pt], (cell[p.route[i - 1]], p.route[i - 1]) if i and p.route[i - 1] in cell else None)
+            for i, pt in enumerate(p.route) if pt in at}
+
+
 def _route_nflags(c, keys):
     """the flags a route's keys touch, replayed from the start as route_plan steps it (no limit)"""
     p = Physics(c, play=True)
@@ -26775,6 +26860,7 @@ def _plan_search(c, nohop, hold, flags=None, route=None):
     p0.tsec = 0                                     # (the route's own time: the limit is made from it)
     if route is not None:
         p0.route = list(route)
+    p0.pswitch = _plan_switches(c, p0)              # (SPEC.md 130.14.7.4.7: the route's SWITCH ways)
     spent = [0]
     w = PLAN_WATCH                                  # (SPEC.md 130.58.50: the Autopilot's watch - it reads, never steers)
     if w is not None:
@@ -39485,6 +39571,19 @@ def _sc_tstand(res):
                 bool(ok)))
 
 
+# SPEC.md 130.14.7.4.7's case (CASTLE CLIMB's, 2026-11-25): a PLATE a quarter-and-a-bit above a STEP a quarter-and-a-
+# half above the floor, the step entered from the side and the plate off its far edge, a wall on the diagonal
+# between them; the plate opens the gate the goal is behind.  130.6's reach test takes the plate's way from the
+# floor below it, and the arrows push diagonally into the wall's corner; the search squares up on the step,
+# backs off and takes the plate with a running Hop
+_PLATESTEP = ('course N "n"\nwidth 64\norigin 256\nball rubber\nuses gate\n'
+              'floor rect 6 9 10 13 flat 2\nfloor tile 10 9 flat 2.5\nfloor tile 10 8 flat 3.25\n'
+              'wall tile 10 10 flat 6\nwall tile 9 8 flat 6\nwall tile 11 8 flat 6\nwall tile 10 7 flat 6\n'
+              'wall tile 11 9 flat 6\nfloor rect 6 13 7 17 flat 2\nwall tile 7 13 flat 6\nwall tile 7 14 flat 6\n'
+              'prop plate 10 8 channel plus\nprop gate 6 13 channel plus along y\ngoal rect 6 15 7 17 flat 2\n'
+              'start 7 10\nway 7 10\nway 9 9\nway 10 9\nway 10 8\nway 6 11\nway 6 16\n')
+
+
 def _sc_hopplan(X, res):
     """--selfcheck's section `hopplan` (SPEC.md 130.14.7.4.1): the HOPPING autopilot finishes HOP (course 2,
     built on the Hop) with no fall and no RETURN, its route is the limit's and the route demo's, and its red
@@ -39626,6 +39725,35 @@ def _sc_hopplan(X, res):
                     "none" if red is None else "a route with %d Hop(s) and %d falls" % (r.nhop, r.nfall)),
                 bool(ok)))
     _sc_tstand(res)                                 # SPEC.md 130.14.7.4.6: the STAND at a timed element
+    # SPEC.md 130.14.7.4.7: the SWITCH WAY and the RUN-UP - a plate on a step, taken by a running Hop
+    global _NOSWITCH, _NORUNUP
+    c = compile_course(_PLATESTEP, "<a plate on a step, a wall on the diagonal>", occluders=False, strict=False)
+    runs = []
+    for arm in (None, "_NOSWITCH", "_NORUNUP"):
+        if arm == "_NOSWITCH":
+            _NOSWITCH = True
+        elif arm == "_NORUNUP":
+            _NORUNUP = True
+        try:
+            c.__dict__.pop("_hplan", None)
+            plan = route_plan(c)
+        finally:
+            _NOSWITCH = _NORUNUP = False
+            c.__dict__.pop("_hplan", None)
+        q = Physics(c, play=True)
+        q.tsec = 0
+        for k in plan or ():
+            q.step(k)
+        runs.append((plan, q))
+    (plan, q), (red1, _r1), (red2, _r2) = runs
+    ok = plan is not None and q.goal and not q.nfall and not q.nret and q.nhop and red1 is None and red2 is None
+    res.append(("9 the SWITCH WAY and the RUN-UP (130.14.7.4.7): a plate on a step, a wall on the diagonal, the "
+                "goal behind its gate - the search finds a route (%s steps), its replay at the goal with %d falls, "
+                "%d returns and %d Hops; RED ARMS: the plate's way taken by reach (_NOSWITCH) finds %s, the run-ups "
+                "off (_NORUNUP) finds %s" % (
+                    len(plan) if plan else "NO", q.nfall, q.nret, q.nhop,
+                    "none" if red1 is None else "one in %d" % len(red1),
+                    "none" if red2 is None else "one in %d" % len(red2)), bool(ok)))
     # every compiled course the arrows alone finish touching every flag: its route demo is the plain
     # autopilot's, key for key
     same, n = True, 0
