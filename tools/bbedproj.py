@@ -844,8 +844,8 @@ class Document(object):
     def paste_plan(self, text, at=None):
         """SPEC.md 130.58.57: TEXT (statements, a line each: this builder's copy, or any course's text) made ready
         to paste: settings and singletons left out, a route BRANCH renamed to a name this course does not use (the
-        pasted points are a branch of their own), a pathway pad refused - then moved so the set's top-left
-        corner is on AT (a cell), or else by (k, k), the smallest k >= 1 that puts no statement exactly where one
+        pasted points are a branch of their own), a pathway pad refused - then moved so the set's first part
+        in reading order (topmost, then leftmost) has its top-left on AT (a cell), or else by (k, k), the smallest k >= 1 that puts no statement exactly where one
         already is. -> (codes, (dx, dy), [notes]); codes [] when nothing is left"""
         notes, skipped, codes = [], [], []
         for raw in text.replace("\r\n", "\n").split("\n"):
@@ -889,13 +889,21 @@ class Document(object):
         if not codes:
             return [], (0, 0), notes
         if at is not None:
-            xs, ys = [], []
+            # SPEC.md 130.58.60: the FIRST PART in reading order (the topmost, then the leftmost of those) lands
+            # on AT, the rest keeping their places around it. The set's bounding corner was the anchor, and for
+            # a diagonal pair that corner is an empty cell, so nothing landed where the author pointed
+            anchors = []
             for c in codes:
                 t = tokens(c)
-                for i, ax in coord_slots(t):
-                    if ax in "xy" and _isnum(t[i]):
-                        (xs if ax == "x" else ys).append(int(float(t[i])))
-            dx, dy = (at[0] - min(xs), at[1] - min(ys)) if xs and ys else (0, 0)
+                xs = [int(float(t[i])) for i, ax in coord_slots(t) if ax == "x" and _isnum(t[i])]
+                ys = [int(float(t[i])) for i, ax in coord_slots(t) if ax == "y" and _isnum(t[i])]
+                if xs and ys:
+                    anchors.append((min(ys), min(xs)))
+            if anchors:
+                ay, ax_ = min(anchors)
+                dx, dy = at[0] - ax_, at[1] - ay
+            else:
+                dx, dy = 0, 0
         else:
             have = {join_tokens(st.toks) for st in self.statements()}
             k = 1

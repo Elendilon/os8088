@@ -292240,8 +292240,9 @@ band, past which a floor is "too near the edge of the course's picture" - were a
   then Delete. Paste (`Document.paste_plan`, `paste`) takes the system clipboard's text - so text copied from
   another course, or from an editor, pastes too - leaves out the same, refuses a pathway pad (the Map tab's), gives
   a pasted route BRANCH a name this course does not use (`B` -> `B2`: the pasted points are a branch of their own;
-  pasted main-route points go at the end of the main route), and places the set with its top-left cell at the
-  pointer's cell when the pointer is over the plan, or else (k, k) over, k the smallest that puts no statement
+  pasted main-route points go at the end of the main route), and places the set with its first part in the
+  selected area's top-left cell, else at the pointer's cell when the pointer is over the plan (both 130.58.60),
+  or else (k, k) over, k the smallest that puts no statement
   exactly where one already is - so a paste lands beside its originals and a second paste beside the first. Ground
   is laid the way an area is changed (`replace_area`: cut under it, added after the last ground); the rest after
   the last of its kind. ONE checked edit; the pasted set is selected, so a drag moves it at once.
@@ -292298,3 +292299,21 @@ to select things within the outline?"*
     them as one undo step. *Parts touching* takes the floor that reaches past a one-cell outline.
   - Section 8: a broken line's problem picked, which shows the bar; unpicked, which hides it; picked and the
     list refilled, which keeps it; and the line undone, which hides it.
+
+#### 130.58.60 Where a paste lands (the owner, 2026-11-25)
+
+*"The position it places the blocks into seems almost random, if multiple blocks are selected ... sometimes they go
+beside the selected box, sometimes below it, sometimes right beside it but never in it."* Two causes:
+
+- **The anchor was the set's bounding corner.** `paste_plan` put the smallest x and the smallest y of all the
+  set's coordinates on the target cell. For a diagonal pair (one wall up and right of the other) that corner is an
+  EMPTY cell, so neither part landed on the target. Now the set's **first part in reading order** (the topmost,
+  then the leftmost of those) has its top-left on the target cell, and the rest keep their places around it.
+- **The target was the pointer, wherever it was.** With an area selected, Ctrl+V still went to whatever cell the
+  pointer happened to be over, and the Edit menu's Paste (pointer off the plan) went one cell over from the
+  originals. Now a **selected area wins**: the paste goes to the area's top-left cell, wherever the pointer is.
+  The pointer's cell is used when there is no area, and one cell over when the pointer is off the plan too. The
+  pasted set becomes the selection and the area outline is cleared.
+- **The check** is `tools/bbedcopymove.py` section 9. A diagonal pair is pasted into a one-cell area, once with
+  the pointer off the plan and once over another cell. Both times the top part lands in the area and the other
+  beside it, and the pasted pair is selected. With the old anchor, both checks fail.

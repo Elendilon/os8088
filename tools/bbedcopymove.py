@@ -246,6 +246,30 @@ chk("Parts touching also takes the floor reaching past a one-cell area (%s)" % p
 app._escape()
 chk("the course is as it was", app.doc.text() == t0)
 
+# 9. SPEC.md 130.58.60: a diagonal pair pasted into a selected one-cell area - the pair's first part (topmost,
+# then leftmost) lands IN the area, the other keeping its place beside it, wherever the pointer is
+pair = "wall half right tile 14 16 flat 6.5\nwall half right tile 13 17 flat 6.5\n"
+for name, ptr in (("pointer off the plan", None), ("pointer over another cell", (5, 9))):
+    app.area = (11, 16, 11, 16)
+    app.select(None)
+    if ptr:
+        x, y = at(ptr)
+        app.cv.event_generate("<Motion>", warp=True, x=x, y=y)
+    else:
+        r.event_generate("<Motion>", warp=True, x=10, y=10)
+    settle(0.1)
+    app.paste(pair)
+    txt = norm()
+    sh = getattr(app.doc, "last_shift", None) or (0, 0)
+    chk("a diagonal pair pasted into a one-cell area, %s: the top part in it, the other beside" % name,
+        "wall half right tile %d %d flat 6.5" % (11 + sh[0], 16 + sh[1]) in txt and
+        "wall half right tile %d %d flat 6.5" % (10 + sh[0], 17 + sh[1]) in txt)
+    chk("...the pasted pair selected, the area given way", len(app.sels) == 2 and app.area is None)
+    while app.doc.text() != t0 and app.doc.undo_stack:
+        app.doc.undo()
+    settle()
+chk("the course is as it was (pastes undone)", app.doc.text() == t0)
+
 # 8. SPEC.md 130.58.59: the problem bar describes a PICKED row, or it goes
 app.doc.insert("clock 40 40")
 app._fill_problems()
