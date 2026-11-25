@@ -1427,7 +1427,7 @@ class App(object):
             self.root.clipboard_append(self.clip)
         except Exception:
             pass
-        self._msg("Copied %d part%s%s. Ctrl+V pastes %s - at the pointer when it is over the plan" % (
+        self._msg("Copied %d part%s%s. Ctrl+V pastes %s - into the selected area, else at the pointer when it is over the plan" % (
             len(codes), "" if len(codes) == 1 else "s",
             (" (left out %s: a course has one)" % ", ".join("`%s`" % k for k in sorted(set(skipped))))
             if skipped else "", "it" if len(codes) == 1 else "them"))
@@ -1457,7 +1457,8 @@ class App(object):
 
     def paste(self, text=None, at=False):
         """SPEC.md 130.58.57: the clipboard's statements (this builder's copy, or course text copied from anywhere)
-        added as new parts - at the pointer's cell when it is over the plan, else one cell over (diagonally) from
+        added as new parts - the first of them in the selected area's top-left cell, else at the pointer's cell
+        when it is over the plan (130.58.60), else one cell over (diagonally) from
         where they were, as far as it takes not to lie exactly on a copy - then selected, so they can be dragged.
         AT: a cell (a test's pointer); False asks the pointer"""
         if text is None:
@@ -1470,7 +1471,9 @@ class App(object):
         if not text or not text.strip():
             self._msg("Nothing to paste: copy a part first (select it, Ctrl+C)")
             return None
-        cell = self._pointer_cell() if at is False else at
+        # SPEC.md 130.58.60: into the selected AREA when there is one (its top-left cell, wherever the pointer
+        # is - a menu's Paste has it off the plan), else at the pointer's cell, else one cell over
+        cell = ((self.area[0], self.area[1]) if self.area else self._pointer_cell()) if at is False else at
         codes, (dx, dy), notes = self.doc.paste_plan(text, at=cell)
         if not codes:
             self._error("Nothing to paste: the clipboard holds no part a course can take twice%s" % (
@@ -1482,6 +1485,7 @@ class App(object):
             self._fill_inspector()
             self._redraw()
         if r:
+            self.area = None                    # (the pasted set is the selection now, not the area)
             lines = self._reselect(codes)
             self._msg(getattr(self, "edit_note", "") + "Pasted %d part%s %s%s - selected, so a drag moves them" % (
                 len(codes), "" if len(codes) == 1 else "s",
