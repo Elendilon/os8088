@@ -301260,3 +301260,27 @@ view's edge for good.
 - **The check**: the real window under Xvfb, PLAYGROUND's test course TPLY open (it compiles with two warnings
   and a note): every row picked shows the bar, its text fits the bar, and the row's whole words are in it.
   Before, the warnings and the note showed no bar.
+
+#### 130.58.59 The bar follows the pick; an area's parts selected (the owner, 2026-11-25)
+
+*"Errors: The last one sticks around, even when cleared or unselected, in that extra box."* and *"Multiselect: Can
+we have a way to make a drag select things? Drag still outlines 'I want to place something here' so maybe a button
+to select things within the outline?"*
+
+- **The bar under the problems list describes a PICKED row or it is not shown.** It remembers which list it came
+  from and the row's raw text (`fix_src`). Unpicking the row hides it. A refill of either list (after an edit, or
+  when a full check ends) picks the same problem again if it is still listed. That re-pick is quiet
+  (`fix_quiet`), so the view does not jump. If the problem is gone, the bar goes with it.
+- **An area's parts become the selection.** The area panel gains a **Select** row. *Parts inside* selects every
+  part whose whole footprint lies in the outline, the same test Delete uses (`_parts_in_area`). *Parts touching*
+  selects every part with any cell in the outline. The outline then gives way to the selection, so the parts
+  drag together, copy together and Delete removes them, as 130.58.57's Ctrl-click selection does. Dragging the
+  mouse on empty ground still outlines an area, as before.
+- **Pressing on a route point that belongs to a multi-selection drags the selection.** Before, that press
+  selected the route point alone and dropped the rest. An outline over a stretch of the route almost always
+  includes route points, so this showed up as soon as the new Select row was used.
+- **The check** is `tools/bbedcopymove.py` sections 7 and 8, in the real window under Xvfb.
+  - Section 7: an area's *Parts inside*, then a drag pressed on a route point among them, which moves all of
+    them as one undo step. *Parts touching* takes the floor that reaches past a one-cell outline.
+  - Section 8: a broken line's problem picked, which shows the bar; unpicked, which hides it; picked and the
+    list refilled, which keeps it; and the line undone, which hides it.
