@@ -292429,3 +292429,22 @@ beside the selected box, sometimes below it, sometimes right beside it but never
 - **The check** is `tools/bbedcopymove.py` section 9. A diagonal pair is pasted into a one-cell area, once with
   the pointer off the plan and once over another cell. Both times the top part lands in the area and the other
   beside it, and the pasted pair is selected. With the old anchor, both checks fail.
+
+#### 130.58.61 A crack that falls away with its column (the owner, 2026-11-25)
+
+*"I can't find, for crack, the one that makes the column it was on also disappear."* That crack is not an option of
+the crack. A crack VANISHES, the tile and its column gone, when its cell FLOATS (130.25.18.1): a `float` over it.
+PLAYGROUND's lab gets one from a floating bridge. In the builder, that meant setting *Hangs down* on the floor
+under the crack, and nothing on the crack's own page said so.
+
+- **The crack's inspector gains *Falls away with its column*.** Ticking it writes `float tile <x> <y>` under the
+  crack, as one checked edit. Unticking it takes that float out.
+- **When the crack's floor already hangs as a whole** (a floor's *Hangs down*, a `float` over more than this
+  tile), the tick shows ticked and greyed. The note under it says to set that floor to the ground instead.
+- **The note says where it works.** The cell's front edge (down the screen) must be over the void, because a
+  `float` floats only a cell that hangs a face over it ("float floats nothing" otherwise, shown in the tab as any
+  refused edit is, 130.58.56).
+- **The parts list's *Cracked floor*** says it can fall away.
+- **The check** is `tools/bbedcopymove.py` section 10, in the real window under Xvfb. FIRST has a crack on a
+  front-edge cell. Ticking the box writes the float, the course builds, and the crack stays selected and shows
+  ticked. Unticking it takes the float out.
