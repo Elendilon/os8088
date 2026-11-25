@@ -1,0 +1,202 @@
+# Course 6 (LODE; docs/plans/bonanza-courses/LODE.md): LODESTONE GORGE, STEEL's course - a SPIRAL into a
+# quarry round the GREAT LODESTONE, on an island in its middle.  The FLUME (an S of round channel between stone
+# curbs, 6.5 units down), a HOIST (a magnet at a ramp's top hauls steel up it), the SIRENS (magnets across a gap
+# that pull steel off a bridge), a ramp into the LODESTONE WALL (a tilted ledge a fence of magnets holds steel
+# on), the SLAG gallery (a room to stop in), the GANTRY (a row of hanging magnets steel HOVERS under, over the
+# moat), and the great lodestone's own hoist, into the goal.  REFINED (2026-11-25, the step after the pen-in):
+# written by docs/plans/bonanza-courses/lode/sketch.py --bbc --force while the layout moves.  NOT in the build
+# yet (no BZ_COURSES entry, no pathway pad).
+course LODE "Lodestone Gorge"
+guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
+width 104                 # 832 px: the reach runs from px 8 (the void off the gallery's west corner) to 791 (off the turn)
+origin 272                # NOT free: the least the reach allows, so the picture's LEFT EDGE is 112 px from the gallery's
+                          # pocket - the window cannot pan further left, which is what frames the gantry's flight with
+                          # no pan (LODE.md section 2).  A wider picture takes `width`; the origin stays
+ball steel
+uses magnet
+music fairway             # PLACEHOLDER: the song is the music agent's (LODE.md: heavy, driving, a work song)
+limit 99
+target 60
+
+# rooms (the sketch's sections), walls and guard rails
+floor rect  20   4  25   8  flat 22.5   # A: the HEADLAND, 5 x 4
+guard rect  20   4  25   5 side -y
+guard rect  20   4  21   8 side -x
+guard rect  24   4  25   8 side +x
+wall  rect  20   8  21   9  flat 23   # the flume's curbs: the mouth's flanks
+wall  rect  24   8  25   9  flat 23
+wall  rect  20   9  21  13  ramp y 9 13 23 19   # the first leg's west curb, sloping with it
+wall  rect  24   9  25  14  ramp y 9 14 23 18   # ...and its east curb
+wall  rect  20  13  21  14  flat 19   # (the far curb's end, at the first leg's lip)
+wall  rect  24  14  25  17  flat 18   # the first corner: its east side
+wall  rect  21  17  24  18  flat 18   # ...and its outside
+wall  rect  18  17  21  18  ramp x 18 21 16.5 18   # the middle leg's near curb
+wall  rect  18  13  20  14  ramp x 18 20 16.5 17.5   # ...and its far curb
+wall  rect  15  13  18  14  flat 16.5   # the second corner: its north side
+wall  rect  14  14  15  18  flat 16.5   # ...and its outside, down the last leg
+floor rect  14  18  24  25  flat 16   # B: the CATCH PEN, 10 x 7
+guard rect  14  18  15  25 side -x
+guard rect  14  24  24  25 side +y
+guard rect  23  18  24  21 side +x
+guard rect  23  23  24  25 side +x
+floor rect  24  21  26  23  flat 16   # the hoist's foot, off the pen's east side
+floor rect  25  19  26  21  ramp y 19 21 18 16   # H: the HOIST's ramp, 2 units in 2 tiles: steel stalls on it
+floor rect  25  18  26  19  flat 18   # its top
+floor rect  25  17  26  18  flat 20   # the hoist's post
+guard rect  24  22  26  23 side +y
+guard rect  25  21  26  23 side +x
+guard rect  25  19  26  21 side -x +x
+guard rect  25  18  26  19 side -x
+guard rect  24  21  25  22 side -y
+floor rect  26  18  43  20  flat 18   # C: the SIRENS' bridge, 17 x 2
+floor rect  31  15  32  16  flat 20   # a siren's pillar
+floor rect  35  22  36  23  flat 20   # a siren's pillar
+floor rect  39  15  40  16  flat 20   # a siren's pillar
+floor rect  43  18  46  23  flat 18   # P: the TURN, 3 x 5
+guard rect  43  18  46  19 side -y
+guard rect  45  18  46  23 side +x
+guard rect  43  20  44  23 side -x
+guard rect  43  22  45  23 side +y
+floor rect  45  23  46  28  ramp y 23 28 18 13   # R: the ramp, 5 units in 5 tiles, 1 wide and railed: the speed for the wall
+guard rect  45  23  46  28 side +x -x
+floor rect  45  28  46  33  flat 13   # L: the ledge, 1 wide, level and railed
+guard rect  45  28  46  33 side +x -x
+floor rect  45  33  46  39  ramp x 45 46 13.25 12.75   # L: the LODESTONE WALL's first leg: tilted to its open side
+floor rect  45  39  46  41  flat 13   # the wall's corner
+guard rect  45  39  46  41 side +x +y
+guard rect  45  39  46  40 side -x
+floor rect  43  40  45  41  flat 13   # the second leg's lead-in: level and railed, as the first leg's ledge is
+guard rect  43  40  45  41 side -y +y
+floor rect  37  40  43  41  ramp y 40 41 13.25 12.75   # L: its second leg, walked up-left (-x)
+floor rect  44  33  45  34  flat 15   # a lodestone's post
+floor rect  44  34  45  35  flat 15   # a lodestone's post
+floor rect  44  35  45  36  flat 15   # a lodestone's post
+floor rect  44  36  45  37  flat 15   # a lodestone's post
+floor rect  44  37  45  38  flat 15   # a lodestone's post
+floor rect  44  38  45  39  flat 15   # a lodestone's post
+floor rect  37  39  38  40  flat 15   # a lodestone's post
+floor rect  38  39  39  40  flat 15   # a lodestone's post
+floor rect  39  39  40  40  flat 15   # a lodestone's post
+floor rect  40  39  41  40  flat 15   # a lodestone's post
+floor rect  41  39  42  40  flat 15   # a lodestone's post
+floor rect  42  39  43  40  flat 15   # a lodestone's post
+floor rect  30  39  37  42  flat 13   # S: the SLAG gallery, 7 x 3
+guard rect  30  39  31  42 side -x
+guard rect  30  41  37  42 side +y
+guard rect  31  39  37  40 side -y
+guard rect  36  41  37  42 side +x
+floor rect  30  37  31  39  flat 13   # Y: the RUNWAY, 1 wide, railed both sides: the ball leaves it straight
+guard rect  30  37  31  39 side -x +x
+floor rect  29  32  30  33  flat 14.5   # the gantry's post
+floor rect  29  33  30  34  flat 14.5   # the gantry's post
+floor rect  29  34  30  35  flat 14.5   # the gantry's post
+floor rect  29  35  30  36  flat 14.5   # the gantry's post
+floor rect  29  36  30  37  flat 14.5   # the gantry's post
+floor rect  28  29  33  32  flat 12.5   # V: the island's apron, 5 x 3
+guard rect  28  29  29  32 side -x
+guard rect  32  29  33  32 side +x
+guard rect  28  31  30  32 side +y
+guard rect  31  31  33  32 side +y
+guard rect  28  29  30  30 side -y
+guard rect  31  29  33  30 side -y
+floor rect  30  26  31  29  ramp y 26 29 15.5 12.5   # the last ramp, 3 units in 3 tiles, railed both sides
+guard rect  30  26  31  29 side -x +x
+floor rect  30  24  31  25  flat 17.5   # the GREAT LODESTONE's post
+
+chute 3 round depth 6 way 22 8 22.5 way 22 15 17.5 way 16 15 16 way 16 18 16
+prop magnet 25 17 face +y range 3 strength 64
+prop magnet 31 15 face +y range 4 strength 16
+prop magnet 35 22 face -y range 4 strength 24
+prop magnet 39 15 face +y range 4 strength 32
+prop magnet 44 33 face +x strength 8
+prop magnet 44 34 face +x strength 8
+prop magnet 44 35 face +x strength 8
+prop magnet 44 36 face +x strength 8
+prop magnet 44 37 face +x strength 8
+prop magnet 44 38 face +x strength 8
+prop magnet 37 39 face +y strength 8
+prop magnet 38 39 face +y strength 8
+prop magnet 39 39 face +y strength 8
+prop magnet 40 39 face +y strength 8
+prop magnet 41 39 face +y strength 8
+prop magnet 42 39 face +y strength 8
+prop magnet 29 32 face down +x
+prop magnet 29 33 face down +x
+prop magnet 29 34 face down +x
+prop magnet 29 35 face down +x
+prop magnet 29 36 face down +x
+prop magnet 30 24 face +y range 4 strength 104
+# the cells no ball is in (LODE.md section 11): the void no fall reaches, and the tiles of the posts no ball gets onto
+noocclude rect 17 1 28 4
+noocclude rect 17 4 20 10
+noocclude rect 25 4 28 12
+noocclude rect 12 10 20 11
+noocclude rect 11 11 20 13
+noocclude rect 25 12 35 14
+noocclude rect 36 12 43 14
+noocclude rect 11 13 15 14
+noocclude rect 11 14 14 25
+noocclude rect 31 15 32 16
+noocclude rect 39 15 40 16
+noocclude rect 45 15 49 17
+noocclude rect 24 17 26 18
+noocclude rect 44 17 49 18
+noocclude rect 24 18 25 21
+noocclude rect 46 18 49 31
+noocclude rect 35 22 36 23
+noocclude rect 24 24 39 25
+noocclude rect 40 24 45 26
+noocclude rect 11 25 29 26
+noocclude rect 32 25 39 26
+noocclude rect 11 26 30 28
+noocclude rect 31 26 36 29
+noocclude rect 42 26 45 30
+noocclude rect 25 28 30 29
+noocclude rect 25 29 28 30
+noocclude rect 33 29 36 30
+noocclude rect 34 30 36 35
+noocclude rect 41 30 45 36
+noocclude rect 46 31 47 32
+noocclude rect 34 36 45 39
+noocclude rect 26 39 27 40
+noocclude rect 37 39 45 40
+noocclude rect 46 40 47 41
+noocclude rect 27 41 30 42
+noocclude rect 44 41 49 42
+noocclude rect 27 42 35 45
+noocclude rect 45 42 49 44
+
+goal  rect 29 25 32 26  flat 15.5
+start 22 5
+checkpoint 26 18 ball steel   # flag 0
+checkpoint 36 40 ball steel   # flag 1
+
+# clocks: on a corner of a floor off the way, or on a tile one out from it
+clock 24 6   # start
+clock 14 19   # pen
+clock 45 18   # turn
+clock 32 30   # vault
+
+# the autopilot's route
+way 22 5
+way 22 8
+way 22 15
+way 16 15
+way 16 18
+way 17 21
+way 22 21
+way 25 21
+way 25 18
+way 26 18
+way 42 19
+way 44 20
+way 45 23
+way 45 28
+way 45 40
+way 44 40
+way 36 40
+way 30 40
+way 30 37
+way 30 30
+way 30 29
+way 30 25

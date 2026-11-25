@@ -23,6 +23,41 @@ designer's and the owner's judgment.*
 *Course 4 WINDMILL LANE's pen-in (attempt 1, 2026-11-21) is [MILL.md](MILL.md); it ships as `mill.bbc`
 in the prototype's place, whose features the rows now play on TMIL (SPEC.md 130.54.10).*
 
+*Courses 5 - 7's pen-ins (attempt 1, 2026-11-25; designed for looks and function, each sheet's "Risks for
+refinement" the list for the step after): [KITE.md](KITE.md) KITE HILL (wind: gusts, a thermal, a glide),
+[LODE.md](LODE.md) LODESTONE GORGE (steel and magnets: a hoist, sirens, a wall, a gantry) and
+[KEEP.md](KEEP.md) CLOCKWORK KEEP (keys, gates, drawbridges, pop-up spikes, a rocking stair). Their courses
+are `kite.bbc`, `lode.bbc` and `keep.bbc`, in no build yet; their sketches share one pen, `penkit.py`.*
+
+*KITE HILL is REFINED (2026-11-25, the step after its pen-in): `kite.bbc` says `guide` and passes what a shipped
+course is held to; [KITE.md](KITE.md) sections 10 - 13 are what it passes, what changed, each risk's outcome and
+the owner's playtest list. Still in no build. Two things it found that the next courses meet too: `--guide`'s G3
+counts a flight until the ball stops BOUNCING, and depends on `origin` (the camera's lattice is 64 px of the
+picture: KITE.md section 2); `finish_reach_rule` follows an updraft that carries a ball since this step
+(SPEC.md 130.34.5), and nothing else that lifts one (a magnet's hoist, a lift, a spring, a tube); and
+`--camcheck`'s dither map (SPEC.md 130.17.6.5 item 4) reverses at the flat top of any ramp a route CLIMBS
+(KITE.md section 12, K13): run `--camcheck` with the shipped and test courses and the new one in the list.*
+
+*LODESTONE GORGE is REFINED (2026-11-25): `lode.bbc` says `guide` and passes what a shipped course is held to;
+[LODE.md](LODE.md) sections 10 - 13 are what it passes, what changed, each risk's outcome and the owner's
+playtest list. Still in no build. What it found that the next course meets too:*
+
+- *A flight ACROSS the screen can be framed by the PICTURE'S EDGE: the window cannot pan past it, so an `origin`
+  at the least the reach allows makes that edge the frame for every line (LODE.md section 2). The reach is
+  3 cells of void round every floor, rails or not, and that is what sets the least origin.*
+- *A drop of more than 1 px is a flight to G3, however short: a tilted floor that hangs under its neighbours
+  hops at every join. Tilt it about its centre line (LODE.md section 11).*
+- *A chute ENDS in a taper steel cannot climb from rest. With a slope behind it a stopped ball is trapped
+  (only rocking frees it); a level last leg lets it back up (LODE.md section 12, L12).*
+- *A guard rail beside curved FIELD cells, and a hump, are each cut into about 50 occluder masks of a course's
+  256; a curb (a low wall) is cheap. `lode/sketch.py`'s `noocclude()` writes the statement for the void no
+  fall reaches, which took a third of the course's records.*
+- *Hold every arrow from rest on every tile of the model before trusting a room: `lode/measure.py` (its `held`
+  and `soft` sections read any course) found a dozen open edges nobody had chosen.*
+- *`--selfcheck`'s `reachpath` red arm compiles under a round bound of its own since this step (SPEC.md
+  130.11.4.7): a new course's route demo is tried shortest first, and LODE's reach under the arm took one
+  round more than the bound.*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
