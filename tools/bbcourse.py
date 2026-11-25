@@ -8013,6 +8013,7 @@ check_boosts()
 
 
 REACH_ROUNDS = 16             # a course whose reach has not settled by then is refused
+REACH_TIGHT_ROUNDS = 64       # ...and --selfcheck's too-tight red arm's own bound (its mispriced reach settles later: _sc_reachpath)
 
 
 class Reach:
@@ -25127,7 +25128,10 @@ def finish_reach_rule(c, _hack=None, _posts=()):
     clocks' posts (solid, 130.18.5.3) and less every goal cell of ANOTHER exit
     (a ball that rolls into one has finished there) holds it, with a FREE
     4-neighbour in the closure it rolls in from (the closure's launches fly
-    over a post).  One closure an exit, not one a cell.  _posts: extra posts
+    over a post).  The closure takes the course's UPDRAFTS that carry one of
+    its balls (updraft_carries, SPEC.md 130.34.5): a finish above the start
+    that a thermal serves is reached as the engine reaches it.
+    One closure an exit, not one a cell.  _posts: extra posts
     (the selfcheck's red controls).  SPEC.md 130.24 (story D2.5): per RECORD -
     a goal half or quarter is a finish, reached with a free record it rolls
     in from (rec_adj).  -> the verdict; refused naming the cell"""
@@ -25144,10 +25148,11 @@ def finish_reach_rule(c, _hack=None, _posts=()):
         byex.setdefault(rm[g].exit, []).append(g)
     if cups:
         byex[None] = cups
+    ups = updraft_carries(c)
     for e, fins in sorted(byex.items(), key=lambda kv: -1 if kv[0] is None else kv[0]):
         drop = {k for k in rm if k[:2] in posts or (k in goals and rm[k].exit != e)}
         start = tuple(c.src.start[0])
-        R = reach_closure(c.tiles, start, drop=drop) if start in rm and start not in drop else set()
+        R = reach_closure(c.tiles, start, drop=drop, updrafts=ups) if start in rm and start not in drop else set()
         for g in fins:
             if g not in R or not any(n in R and 4 * min(rm[g].corners()) <= 4 * max(rm[n].corners()) + CLIMB
                                      for n in rec_adj(c.tiles, g)):
@@ -27379,7 +27384,34 @@ def rec_adj(tiles, key):
     return out
 
 
-def reach_closure(tiles, start, props=(), drop=()):
+def updraft_carries(c):
+    """SPEC.md 130.34.5: the UPDRAFTS that CARRY a ball of the course up to their top, for the finish's reach
+    (finish_reach_rule) -> [(region, the height px a ball leaves the column at, the cells its fall can carry
+    it)].  One carries when its push beats gravity (A > G: 130.34.11 R1's launch, and the airborne rule's
+    climb) for a ball a play of the course can be (course_balls: its start's, a pad's, a flag's) - the
+    strongest of those is the hover's overshoot.  The height and the radius are build_reach's own for an
+    updraft (the top plus the flight of WD_LIFT + A; a fall from there to the course's lowest floor, at the
+    ground cap).  --selfcheck's red arm `nowindreach` leaves them out, as it does build_reach's"""
+    if "windreach" in _CHECKS_OFF:
+        return []
+    out = []
+    zmin = None
+    for p in c.props:
+        if p["kind"] != WD_K or p["wdir"] != WD_UP:
+            continue
+        a = max(wind_push(m, p["wstr"]) for m in course_balls(c))
+        if a <= G:
+            continue
+        if zmin is None:
+            zmin = min([4 * min(u.corners()) for u in rec_map(c.tiles).values() if u.kind != KIND_WALL] or [0])
+        u = WD_LIFT + a
+        h = p["wtop"] + UP(u)
+        nend = _fall_steps(max(0, h - zmin)) + flight(u)[1]
+        out.append((tuple(p["wreg"]), h, max(3, -(-(nend * VMAXG) // (256 * TILE)))))
+    return out
+
+
+def reach_closure(tiles, start, props=(), drop=(), updrafts=()):
     """SPEC.md 130.11.4.4's reach RESTRICTED to what the start can get to (the
     PLAYGROUND's dead ends, 130.16.8): a launch (HOPMAX on a floor's rate), a
     BOOST launch from a firm level floor and a bounce only from a cell already
@@ -27392,7 +27424,12 @@ def reach_closure(tiles, start, props=(), drop=()):
     SPEC.md 130.24 (story D2.5): per RECORD - rec_map's keys, a whole cell's
     (wx, wy) as before, a split cell's pieces (wx, wy, i); a flight over a cell
     reaches each of its records, a roll goes by rec_adj.  drop: record keys left
-    out (posts, another exit's goals).  -> the set of record keys"""
+    out (posts, another exit's goals).  updrafts: updraft_carries' (SPEC.md
+    130.34.5; finish_reach_rule's alone) - one whose region holds a reached
+    record, or has one across an edge of a region cell (a `lift` launches the
+    ball there, a Hop on it or a roll off into its pit puts it in the air
+    inside the column), is a launch from its top over every cell of its
+    region.  -> the set of record keys"""
     rm = rec_map(tiles)
     sol = {k: u for k, u in rm.items() if u.kind != KIND_WALL and k not in drop}
     bycell = {}
@@ -27426,6 +27463,12 @@ def reach_closure(tiles, start, props=(), drop=()):
             if BOOSTMAX and u.kind in (KIND_FLOOR, KIND_GOAL) and not u.sx and not u.sy \
                     and u.surf in (SURF_NORMAL, SURF_ICE) and k[:2] not in obs:
                 srcs.append((k, hi[k] + UP(BOOSTMAX - G), RADIUS(BOOSTMAX - G)))
+        if updrafts:                            # SPEC.md 130.34.5: an updraft the reach has come to carries
+            at = {k[:2] for k in R}
+            for (x0, y0, x1, y1), h, r in updrafts:
+                if any((x + dx, y + dy) in at for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)
+                       for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1))):
+                    srcs += [((x, y), h, r) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
         best = spread(srcs)
         while True:
             extra = []
@@ -36714,6 +36757,40 @@ def _wind_checks(res):
                 "column's zhi %d px (its top %d px and the hover's overshoot); the red arm `nowindreach` raises %d"
                 % (len(raised), zu[(6, 10)], top, sum(1 for k in zr if zr[k] > zf.get(k, zr[k]))),
                 len(raised) > 6 and zu[(6, 10)] > top and not any(zr[k] > zf.get(k, zr[k]) for k in zr)))
+    # the updraft in the FINISH's reach (130.34.5): a goal ledge 6 units over the start, past every Hop, boost and
+    # bounce, a `lift` thermal at its foot.  finish_reach_rule proves the goal as the model reaches it (rubber
+    # rolled onto the fan, the arrows held toward the ledge); the red arm `nowindreach` (no carry in the closure)
+    # refuses it; and so does a push the course's ball cannot ride (rubber at 16, under G), which the model
+    # does not climb either
+    fr = ('course W "w"\nwidth 64\norigin 224\nuses wind\nfloor rect 4 8 10 12 flat 2\nfloor rect 4 4 10 8 flat 8\n'
+          'goal rect 6 5 8 6 flat 8\nstart 5 10\nprop blower 7 8 face up region 6 8 8 9 strength %d top 7 lift\n')
+    got = {}
+    for stg in (40, 16):
+        cf = compile_course(fr % stg, fname="<thermal %d>" % stg, occluders=False)
+        for arm in ("shipped", "nowindreach"):
+            if arm == "nowindreach":
+                _CHECKS_OFF.add("windreach")
+            try:
+                finish_reach_rule(cf)
+                got[(stg, arm)] = "reached"
+            except CourseError as e:
+                got[(stg, arm)] = "refused" if "cannot be reached" in str(e) else str(e)
+            finally:
+                _CHECKS_OFF.discard("windreach")
+        q = Physics(cf, play=True).poke(7, 10)
+        for _ in range(700):
+            q.step(K_R | K_U)
+            if q.goal:
+                break
+        got[(stg, "model")] = bool(q.goal)
+    res.append(("6 WIND's updraft in the FINISH's reach (130.34.5): a goal 6 units over the start behind a `lift` "
+                "thermal of 40 is %s (the model: rubber %s); the red arm `nowindreach` - %s; a thermal of 16, which "
+                "rubber cannot ride, is %s (the model: %s)" % (
+                    got[(40, "shipped")], "finishes" if got[(40, "model")] else "does NOT finish",
+                    got[(40, "nowindreach")], got[(16, "shipped")],
+                    "finishes" if got[(16, "model")] else "does not finish"),
+                got[(40, "shipped")] == "reached" and got[(40, "model")] and got[(40, "nowindreach")] == "refused"
+                and got[(16, "shipped")] == "refused" and not got[(16, "model")]))
 
 
 def _sc_wind(X, res):
@@ -40736,7 +40813,7 @@ def _sc_reachpath(X, res):
     """--selfcheck's section `reachpath` (SPEC.md 130.11.4.7): the reach along flights' paths - every shipped
     demo's model replay inside it (and its red arm, an over-tight reach, outside it), the open edge's flight
     reachable, the railed edge's void unreached and never entered"""
-    global _REACH_TIGHT, _REACH_TIGHTZ
+    global _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS
     courses = X.courses
     demos = getattr(compile_all, "demos", {}) or {}
     tot, bad = 0, []
@@ -40752,21 +40829,45 @@ def _sc_reachpath(X, res):
     # the red arm: every crossing priced a cell (16 gu) more than the bound and every flight 4 px lower - a reach
     # too tight, which some demo leaves (the demos tried in order of their length, the first that leaves it named)
     if demos:
-        t0, z0_, hit = _REACH_TIGHT, _REACH_TIGHTZ, None
+        t0, z0_, r0, hit, slow = _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS, None, None
         try:
-            _REACH_TIGHT, _REACH_TIGHTZ = 16, 4
+            # THE ARM'S ROUND BOUND IS LIFTED (2026-11-25, LODE's flume): REACH_ROUNDS is a TRUE reach's bound, and
+            # this reach is priced wrong on purpose - a crossing a cell dearer, so each round carries a bounce's
+            # height a cell less far and the fixed point takes more of them (MILL's 15 where its own reach takes
+            # 7; LODE's 17 where its own takes 6, one over the bound: refused as unsettled, the arm never asked).
+            # A course is judged by its demo here, as every other is
+            _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = 16, 4, REACH_TIGHT_ROUNDS
             for k in sorted(demos, key=lambda k_: len(demos[k_]["log"])):
                 c = courses[k]
-                m = demo_reach_misses(c, demos[k]["log"], compile_course(c.fname, occluders=False).reach)
+                ct = compile_course(c.fname, occluders=False)
+                if slow is None or ct.rounds > slow[1]:
+                    slow = (c.name, ct.rounds, c.fname)
+                m = demo_reach_misses(c, demos[k]["log"], ct.reach)
                 if m:
                     hit = (c.name, len(m))
                     break
         finally:
-            _REACH_TIGHT, _REACH_TIGHTZ = t0, z0_
+            _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = t0, z0_, r0
         res.append(("19 red arm: the reach priced a cell a crossing over its bound and its flights 4 px low "
                     "(_REACH_TIGHT 16, _REACH_TIGHTZ 4) - %s"
                     % ("%s's demo leaves it (%d steps outside)" % hit if hit else "EVERY demo STAYS INSIDE"),
                     hit is not None))
+        if slow is not None and slow[1] > 1:        # the lift's own control: the arm's slowest reach under a bound
+            fired = None                            # one round short of what it took is REFUSED as unsettled
+            try:
+                _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = 16, 4, slow[1] - 1
+                compile_course(slow[2], occluders=False)
+                fired = "compiled"
+            except CourseError as e:
+                fired = True if "has not settled in %d rounds" % (slow[1] - 1) in str(e) else str(e)
+            finally:
+                _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = t0, z0_, r0
+            res.append(("19 the red arm's reach is compiled under a round bound of its own (REACH_TIGHT_ROUNDS %d, a "
+                        "true reach's REACH_ROUNDS %d): the slowest it compiled, %s's, settled in %d rounds; control "
+                        "`tightrounds` - the same reach under a bound of %d is refused as unsettled%s"
+                        % (REACH_TIGHT_ROUNDS, r0, slow[0], slow[1], slow[1] - 1,
+                           "" if fired is True else " -- got: %s" % fired),
+                        slow[1] <= REACH_TIGHT_ROUNDS and fired is True))
     # the scenes: an open +x edge (a Hop, a boost, a fall past it) and the same edge railed
     co = compile_course(_RAILREACH % "guard rect 6 6 12 10 side -x -y +y\n", fname="<open edge>", occluders=False)
     cr = compile_course(_RAILREACH % "guard rect 6 6 12 10\n", fname="<railed>", occluders=False)

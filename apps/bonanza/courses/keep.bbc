@@ -1,0 +1,141 @@
+# Course 7 (KEEP; docs/plans/bonanza-courses/KEEP.md): CLOCKWORK KEEP, a floating castle that is one LOCK -
+# the first course that is not a line.  A DRAWBRIDGE on a timer, a PORTCULLIS its plate raises, a courtyard
+# with the keep's locked DOOR in sight, the ROCKING STAIR (a timed see-saw) up to the battlements, POP-UP
+# SPIKES along them to the ring KEY, a drop back to the door, and the COG HALL: two quarter-turn tables over
+# a pit, the throne across them.  The cross key, over the TRAITOR'S BRIDGE (down a third of the time), opens
+# the TREASURY: exit 1.  Rubber throughout.  PEN-IN, attempt 1: written by
+# docs/plans/bonanza-courses/keep/sketch.py --bbc --force while the layout moves.  NOT in the build, NOT
+# `guide` yet (KEEP.md's "Risks for refinement").
+course KEEP "Clockwork Keep"
+width 128
+origin 496
+ball rubber
+uses gate spike seesaw turntable
+music fairway             # PLACEHOLDER: the song is the music agent's (KEEP.md: a clockwork march, ticking)
+limit 99
+target 90
+
+# rooms (the sketch's sections), walls and guard rails
+floor rect  22  36  28  40  flat 10   # S: the BARBICAN, 6 x 4
+hole  half up tile 22 36          # a diagonal corner
+hole  half right tile 27 36          # a diagonal corner
+hole  half left tile 22 39          # a diagonal corner
+hole  half down tile 27 39          # a diagonal corner
+guard rect  22  37  23  39 side -x
+guard rect  27  37  28  39 side +x
+guard rect  23  39  27  40 side +y
+guard rect  23  36  24  37 side -y
+guard rect  26  36  27  37 side -y
+floor rect  24  32  26  36  flat 10   # D: the DRAWBRIDGE's cells
+floor rect  24  29  26  32  flat 10   # G: the GATEHOUSE, 2 x 3
+wall  rect  23  29  24  32  flat 11.5   # the gatehouse's cheeks: low, so the courtyard is seen over them
+wall  rect  26  29  27  32  flat 11.5
+floor rect  20  21  30  29  flat 10   # C: the COURTYARD, 10 x 8
+guard rect  20  28  24  29 side +y
+guard rect  26  28  30  29 side +y
+guard rect  29  25  30  29 side +x
+guard rect  29  21  30  23 side +x
+wall  rect  29  20  30  21  flat 12.5   # the stair's end wall: the ball waits against it
+wall  rect  20  20  25  21  flat 12.5   # the north battlement's inner parapet (and the stair's other end wall)
+floor rect  18  18  32  20  flat 12   # B: the north battlement, 14 x 2
+floor rect  18  20  20  29  flat 12   # B: the west battlement, 2 x 9
+guard rect  18  18  19  26 side -x
+guard rect  18  27  19  29 side -x
+guard rect  18  18  32  19 side -y
+guard rect  31  18  32  20 side +x
+guard rect  29  19  32  20 side +y
+wall  rect  16  16  18  18  flat 15   # the north-west tower (3 units: a floating face is at most 3, KEEP.md risk C6)
+wall  rect  32  16  34  18  flat 15   # the north-east tower
+wall  rect  18  29  20  31  flat 14   # the south-west tower (low: it stands in front of the battlement)
+wall  rect  20  21  21  23  flat 12.5   # a buttress: a spiked cell may not stand beside a LOWER floor (KEEP.md risk C4)
+floor rect  30  24  31  25  flat 10   # the door's sill
+wall  rect  30  23  31  24  flat 12   # the door's jamb
+floor rect  31  22  34  27  flat 10   # H: the COG HALL's near floor, 3 x 5
+floor rect  34  24  36  26  flat 10   # the first cog (a 2 x 2 table)
+floor rect  36  24  37  26  flat 10   # the island between the cogs
+floor rect  37  24  39  26  flat 10   # the second cog
+floor rect  39  22  42  28  flat 10   # T: the THRONE's dais, 3 x 6
+guard rect  31  22  34  23 side -y
+guard rect  31  26  34  27 side +y
+guard rect  39  27  42  28 side +y
+guard rect  41  22  42  28 side +x
+guard rect  39  22  40  23 side -y
+guard rect  41  22  42  23 side -y
+floor rect  15  26  18  27  flat 12   # the TRAITOR'S BRIDGE's cells
+floor rect  12  25  15  28  flat 12   # the turret, 3 x 3
+guard rect  12  25  15  28 side -x -y +y
+floor rect  40  21  41  22  flat 10   # the treasury's gate cell
+floor rect  39  18  42  21  flat 10   # the TREASURY, 3 x 3
+guard rect  39  18  42  21 side -x -y +x
+float rect  10  14  44  42
+float rect  24  32  26  36 thick 0.5
+float rect  16  16  18  18 thick 3
+float rect  32  16  34  18 thick 3
+float rect  18  29  20  31 thick 2
+float rect  15  26  18  27 thick 0.5
+
+prop bridge 24 32 26 36 period 256 on 128 style picket
+prop plate 24 30 channel plus
+prop gate 24 29 channel plus along y art portcullis
+seesaw 25 20 29 21 along x pivot 11 rest + period 128 flat 16
+prop popspikes 22 18 period 128 on 64 seed 0
+prop popspikes 22 19 period 128 on 64 seed 1
+prop popspikes 18 22 period 128 on 64 seed 64
+prop popspikes 19 22 period 128 on 64 seed 65
+prop key 19 24 channel ring
+prop gate 30 24 channel ring along x art door
+prop turntable 34 24 size 2 fill oo/..
+prop turntable 37 24 size 2 fill oo/.. seed 96
+prop bridge 15 26 18 27 period 256 on 96
+prop key 13 26 channel cross
+prop gate 40 21 channel cross along y
+
+goal  rect 40 24 42 26  flat 10
+goal  rect 40 18 41 20  flat 10 exit 1
+start 25 38
+checkpoint 25 27 ball rubber   # flag 0
+checkpoint 24 18 ball rubber   # flag 1
+checkpoint 32 24 ball rubber   # flag 2
+checkpoint 19 26 ball rubber   # flag 3
+checkpoint 14 26 ball rubber   # flag 4
+
+# clocks: on a corner of a floor off the way, or on a tile one out from it
+clock 22 38   # start
+clock 18 18   # tower
+clock 41 27   # throne
+
+# the autopilot's route
+way 25 38
+way 24 36
+way 24 30
+way 24 29
+way 25 27
+way 28 22
+way 28 19
+way 22 18
+way 19 19
+way 19 22
+way 19 24
+way 21 24
+way 29 24
+way 30 24
+way 32 24
+way 34 24
+way 36 24
+way 38 24
+way 40 24
+# the VAULT way: a branch (the tool's alone)
+way 19 24 branch VAULT
+way 19 26 branch VAULT
+way 18 26 branch VAULT
+way 15 26 branch VAULT
+way 13 26 branch VAULT
+way 15 26 branch VAULT
+way 18 26 branch VAULT
+way 20 25 branch VAULT
+way 29 24 branch VAULT
+way 32 24 branch VAULT
+way 38 24 branch VAULT
+way 40 23 branch VAULT
+way 40 21 branch VAULT
+way 40 19 branch VAULT
