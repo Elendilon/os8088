@@ -2351,15 +2351,25 @@ def gt_hole_pix(cx, cy, ch):
 
 
 def gt_plate_pix(cx, cy, ch, pressed=0):
-    """a PLATE (SPEC.md 130.41.5) on its top: a black-rimmed square of the channel's ink (|u| / 2 + |v| under 6,
-    the rim past 5), its plaque in the middle; PRESSED, the plaque inverted (black, the glyph white)"""
+    """a PLATE (SPEC.md 130.41.5, 130.41.13) on its top: a black-rimmed square of the channel's ink (|u| / 2 + |v|
+    under 6, the rim past 5), the channel's glyph drawn INTO it - white, with a 1 px black edge round its strokes
+    (no plaque: the plate is the marker); PRESSED, the glyph black with a white edge"""
     out = {}
     for v in range(-8, 8):
         for u in range(-16, 16):
             d = abs(u) / 2.0 + abs(v)
             if d < 6.0:
                 out[(cx + u, cy + v)] = BLK if d >= 5.0 else GT_INK[ch]
-    out.update(gt_plaque(cx, cy, ch, pressed))
+    gl = {(cx - 2 + i, cy - 2 + j) for j in range(5) for i in range(5) if GT_GLYPHS[ch][j][i] == "#"}
+    ink, edge = (BLK, WHT) if pressed else (WHT, BLK)
+    for x, y in gl:
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                q = (x + dx, y + dy)
+                if q not in gl and out.get(q, BLK) != BLK:
+                    out[q] = edge
+    for q in gl:
+        out[q] = ink
     return out
 
 
