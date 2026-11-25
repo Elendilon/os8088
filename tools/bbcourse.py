@@ -1188,7 +1188,7 @@ WPRF = 5                      # BZ_WPRF on any frame - and a waiting contact can
                               # the slot anyway (SPEC.md 130.12.18, 130.13.9)
 
 # --- wave 4: flags, the cup, pads, springs (SPEC.md 130.14.4), PROVISIONAL ----------
-CKPT_MAX, PAD_MAX, CUP_MAX, SPRING_MAX = 8, 8, 1, 4
+CKPT_MAX, PAD_MAX, CUP_MAX, SPRING_MAX = 8, 8, 1, PROP_ALL   # (springs: no cap of their own, 130.14.4.1.3)
 CAPTURE = 160                 # a cup's default capture speed (max(|gvx|, |gvy|), 1/256 gu a step)
 CAPTURE_LO, CAPTURE_HI = 64, 384
 MOUTH_HW = 4                  # the mouth's half-width, gu: a 9 x 9 gu mouth round the cell's centre
@@ -4738,11 +4738,13 @@ def lay_arches(src, tiles):
             legs = [(xs[0] - 1, y) for y in ys] + [(xs[-1] + 1, y) for y in ys]
             ends = [((x, ys[0] - 1), "N") for x in xs] + [((x, ys[-1] + 1), "S") for x in xs]
         for (nb, e) in ends:
+            # SPEC.md 130.39.2.1 (the owner, 2026-11-25): an END need not be a floor - the passage may lead to a
+            # DROP, even into the void (an arch to nowhere, an arch high up the ball leaves by jumping). Only what
+            # rises past the clearance at the shared edge is refused: the ball would meet the arch as a wall
             n = tiles.get(nb)
             r = edge_rec(n, OPP[e]) if n is not None and not isinstance(n, FieldTile) else None
-            if r is None or r.kind not in (KIND_FLOOR, KIND_GOAL):
-                raise CourseError("%s:%d: the archway's end (%d, %d) is not a floor: a passage leads somewhere "
-                                  "(SPEC.md 130.39.2)" % (f, ln, nb[0], nb[1]))
+            if r is None:
+                continue
             dx, dy = EDGE_D[e]
             hi = max(r.corner(m[0] - dx, m[1] - dy) for m in EDGE_CORNERS[e])
             if 4 * hi > clr:
@@ -32462,7 +32464,6 @@ def _w4_cases():
         ("a second cup", C + "cup 9 6\n", "a second cup"),
         ("a 9th checkpoint", C + many("checkpoint %d %d\n", 9), "9th checkpoint"),
         ("a 9th pad", C + many("pad rubber %d %d\n", 9), "9th pad"),
-        ("a 5th spring", C + many("spring %d %d 300\n", 5), "5th spring"),
         ("a spring under 256", C + "spring 6 6 200\n", "outside 256"),
         ("a spring over BZ_VZMAX", C + "spring 6 6 800\n", "outside 256"),
         ("a capture under 64", _swap(C, "cup 12 6", "cup 12 6 capture 50"), "capture 50 is outside"),
@@ -36306,7 +36307,7 @@ def _sc_crosscommit(X, res):
 def _sc_grammar(X, res, part=(0, 1)):
     """--selfcheck's section `grammar` (selfcheck(): a fork of its state after the compile).  PART (k, n):
     the k-th of n contiguous slices of its cases, in their order (SC_SPLIT: the parallel run's spread)"""
-    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 5 + len(_wall_low_cases())
+    total = len(_grammar_cases()) + len(_wave3_cases()) + 3 + len(_w4_cases()) + 6 + len(_wall_low_cases())
     lo, hi, n_ = total * part[0] // part[1], total * (part[0] + 1) // part[1], [-1]
 
     def mine():
@@ -36386,6 +36387,16 @@ def _sc_grammar(X, res, part=(0, 1)):
         except CourseError as e:
             fired, msg = want in str(e), str(e)
         res.append(("2 refused (wave 4): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
+    if mine():                                      # SPEC.md 130.14.4.1.3: springs have no cap of their own
+        try:                                        # (stateless: a record each, read on contact)
+            many = "".join("spring %d %d 300\n" % (5 + k % 8, 5 + k // 8 * 2) for k in range(12))
+            compile_course(_W4C.replace("origin 224\n", "origin 224\nuses spring\n") + many,
+                           fname="<twelve springs>")
+            ok_, msg = True, "compiled"
+        except CourseError as e:
+            ok_, msg = False, str(e)
+        res.append(("2 accepted (130.14.4.1.3): twelve springs on a course%s" % ("" if ok_ else " -- got: " + msg),
+                    ok_))
     if mine():                                      # SPEC.md 130.14.4.1: a SPRING may stand at a pit's edge
         try:                                        # (VOID west of (4, 6)); _sc_flags: a flag, a pad, the cup
             compile_course(_W4C.replace("origin 224\n", "origin 224\nuses spring\n") + "spring 4 6 300\n",
@@ -37502,7 +37513,6 @@ def _arch_cases():
             ("an archway with no axis", A + "archway tile 9 6\n", "archway takes <shape> along"),
             ("an archway with another clause", A + "archway tile 9 6 along x height 3\n", "archway takes"),
             ("a leg on a floor", A + "floor tile 9 5 flat 2\narchway tile 9 6 along x\n", "stands on a floor"),
-            ("an end that is the void", A + "archway tile 9 6 along y\n", "is not a floor"),
             ("an end above the clearance", A + "floor tile 10 6 flat 3\narchway tile 9 6 along x\n",
              "higher than its clearance"),
             ("two archways on one cell", A + "archway tile 9 6 along x\narchway tile 10 6 along x\n"
@@ -37608,8 +37618,23 @@ def _arch_checks(res, hack=None):
     return c
 
 
+def _arch_accepts():
+    """(what, text): SPEC.md 130.39.2.1's ends the course takes - a passage may lead to a drop, even the void"""
+    A = _ABASE
+    return (("both ends the void (an arch to nowhere)", A + "floor tile 9 9 flat 2\narchway tile 9 9 along y\n"),
+            ("an end a floor below the archway's", A + "floor tile 10 6 flat 0\narchway tile 9 6 along x\n"),
+            ("an end a wall under the clearance", A + "wall tile 10 6 flat 3\narchway tile 9 6 along x under 3\n"))
+
+
 def _sc_arch(X, res):
     """--selfcheck's section `arch` (SPEC.md 130.39.7): the refusals, the ARCH course's checks and their red arms"""
+    for what, text in _arch_accepts():
+        try:
+            compile_course(text, fname="<%s>" % what, occluders=False)
+            ok, msg = True, ""
+        except CourseError as e:
+            ok, msg = False, " -- refused: " + str(e)
+        res.append(("2 taken (archway, 130.39.2.1): %s%s" % (what, msg), ok))
     for what, text, want in _arch_cases():
         try:
             compile_course(text, fname="<%s>" % what, occluders=False)
