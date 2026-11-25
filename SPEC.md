@@ -271866,9 +271866,8 @@ rebound)` (0 for a landing) with the floor's rate added, as a Hop does
 (130.11.8.6) - never the SUM of the spring and a rebound, so nothing pumps
 (O13) - `ztop = z`, airborne; `bz_nspr` += 1. The Hop's window does not add
 to it. A landing that shatters a glass ball on the spring (step 6) is a
-shatter and is not launched; a landing that STUNS a steel ball is launched
-- the spring is under it - and stays stunned in the air (no steering) until
-its count ends. A rubber, steel or glass ball leaves the same way: the
+shatter and is not launched; a landing on a spring never STUNS
+(130.14.4.6.1). A rubber, steel or glass ball leaves the same way: the
 spring is material-blind, and steel's or glass's landing at the top is
 judged as any landing, which each course meets by putting the upper tier
 at the flight's apex (a soft landing, 130.14.6).
@@ -271882,6 +271881,33 @@ ground velocity a ball can bring to it, at most `BZ_VMAXG` an axis, so
 landings per ball over the approaches it sweeps (`--selfcheck` item 7), as
 it prints a tube exit's; a spring is not refused for an approach that
 lands in a void, because the approach is the player's.
+
+###### 130.14.4.6.1 A landing on a spring never stuns (the owner, 2026-11-25; PHYS_REV 16)
+
+*"When steel gets on a spring going straight up and down, it is softlocked."* A hard landing STUNS steel: its
+arrows are ignored for its stun's steps. The spring relaunched a ball at the same contact, so a stunned ball
+went up stunned. From a spring of about 450 up, steel came down hard enough to stun at EVERY landing on it, so
+it never had a step it could steer in.
+
+MEASURED on the model before the change, steel bouncing straight and then one arrow held: off the cell in
+0.9 - 1.25 s on a 400 spring; NEVER on 450 - 700; 26 - 52 s on 768 (MILL's, PEAK's and HOP's springs).
+
+- **The rule.** `bz_land`'s hard test is skipped when the centre's owner is a SPRING (`bz_wckd`, `bz_wolf`'s
+  kind; the model's `_land`, the window's owner). It is a STUN only: a landing that SHATTERS glass on a spring
+  still shatters, as before. The ball takes a soft contact's bounce, which the spring then replaces with its
+  launch.
+- **What it measures now** (the same scenes on the model, against the old rule):
+  - steel leaves the spring's cell in 0.9 - 1.25 s at every strength 400 - 768, as it did at 400 before;
+  - from a 768 spring, steering towards a floor 1 - 4 units higher lands on it from any of 40 phases of the
+    bounce, and a floor 5 units higher from some; from a 500 spring (a 2.4-unit bounce), +1 often and +2
+    sometimes. With the old rule it reached none of them.
+- **PHYS_REV 16.** It is a rule with no table, so the physics identity moves. The shipped demos (MOON's,
+  PLAYGROUND's and PEAK's) were written again by `bbcourse.py author`: only their `physics` lines changed. No
+  shipped demo stuns on a spring: DOWN's, HOP's, MILL's and PEAK's route demos replay step for step the same
+  under both rules.
+- **The checks.** `tests/bonanza_phys.py`'s replay `spring-steel`: steel on TPLY's spring 2 (its launch poked
+  to 600) bouncing straight 80 steps, then steered. The model shows 0 stuns and the ball off the cell. Red arm
+  `sprstun` (the model's `_sprstun`, the guest's `jmp short .hard`) stuns it and leaves it on the cell.
 
 ##### 130.14.4.7 State, and the step's place for each rule (binding)
 
@@ -289059,6 +289085,33 @@ owner made it the default: *"Floating thin bridge will be our default
   `tests/bonanza_phys.py --check`'s `crack-bridge` leg: rubber slowly onto
   the first (a fall, restored), then at speed across all five (every one
   vanished behind it), guest = model at every step and every pose drawn.
+
+##### 130.27.2.2 The face BEHIND a floating cell goes on down (the owner, 2026-11-25)
+
+*"It looks like the cracked floor needs the same 'tile behind it' work seesaw did - or maybe a floating floor in
+general? It's leaving a 'hole' behind it like the see-saw used to on mill."* It was every floating cell.
+`draw_ops` stopped a cell's front face at the top of the neighbour in front of it, which assumes that neighbour
+is a column to the ground. A FLOATING neighbour (a `float`, a tube's `column`) has nothing under it, so a solid
+block behind an overhang showed a black notch under the overhang: the same notch 130.42.13 closed for a
+see-saw.
+
+- **The rule.** A face whose neighbour in front floats is hung as if that neighbour were the void, by its own
+  cell's rule: to the ground plane (never less than `FACE8`), or its own float's depth when it floats too. The
+  floating cell, drawn after it (it is in front), covers what it covers. `draw_ops(..., behind=)` carries the
+  set: the compile's floating cells less every see-saw's plate, whose faces behind are `tilt_base_ops`'
+  (130.42.13, 130.42.13.1). The compile keeps it as `c.behind`, and the self-checks that redraw a course pass it.
+- **A vanishing crack** (130.25.18.1) gains the most. The face behind it is now in the picture before it
+  breaks, so its broken pose changes only its own tile. A vanishing crack on a grounded corner, refused before
+  ("float its neighbours too"), now compiles.
+- **Shipped pictures change** where a floating cell stands in front of a taller column: PLAYGROUND (3,285 px),
+  GATE (174), HOP (125) and MILL (5). They were LOOKED AT before and after. Each black notch under an overhang
+  is now the block's face going on down, and PLAYGROUND's archway passage is unchanged. DOWN, ROLL and PATH are
+  byte-identical. PLAYGROUND's demo was written again (its `ident` line).
+- **The checks** (`--selfcheck`):
+  - section `budget`, item 14: a grounded block behind a floating slab. Where the red arm `_FL_NOBEHIND` (the
+    face stopped at the slab's top) differs (712 px), the picture is the same course's with the slab taken
+    away, pixel for pixel;
+  - section `w9`: the grounded-corner crack compiles, and under the red arm it is refused as before.
 
 #### 130.27.3 Everything else that draws down into the void
 
