@@ -89,6 +89,15 @@ prop blower 38 42 face +x region 39 40 41 44 strength 8 gust 64 192 seed 80
 prop blower 38 37 face up region 37 35 38 39 strength 40 top 9 lift
 prop blower 27 35 face +y region 22 36 31 38 strength 12 gust 24 104 seed 48
 prop blower 14 32 face up region 11 29 16 34 strength 40 top 7
+# ART (docs/plans/bonanza-courses/kite/art.py draws the files and places them: ART.md)
+art kite_great.bba 111 24
+art kite_calm.bba 406 611
+art kite_lift.bba 537 576
+art kite_shelter.bba 292 402
+art kite_launch.bba 231 309
+art kite_small0.bba 681 420
+art kite_small1.bba 597 245
+art kite_small2.bba 61 290
 
 goal  rect 6 24 9 27  flat 18.5
 start 51 57
@@ -97,10 +106,10 @@ checkpoint 34 37 ball rubber   # flag 1
 checkpoint 18 36 ball rubber   # flag 2
 
 # clocks: on a corner of a floor off the way, or on a tile one out from it
-clock 54 55   # start
-clock 41 37   # plaza
-clock 16 38   # launch
-clock 7 22   # summit
+clock 54 55 frame kite1 digits 0 -16   # start: one bow
+clock 41 37 frame kite2 digits 0 -16   # plaza: two
+clock 16 38 frame kite3 digits 0 -16   # launch: three
+clock 7 22 frame kite4 digits 0 -16   # summit: a full tail
 
 # the autopilot's route
 way 51 57

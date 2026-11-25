@@ -16,6 +16,8 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from penkit import Pen, DIRV
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import art as ART                         # the signs and decals (lode/art.py, ART.md): the course's `art` lines
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
@@ -255,10 +257,15 @@ def noocclude(p, keep=()):
 ZONE_OUT = 4
 noocclude(p, keep={(GW, y) for y in range(RY - 5, RY)})
 
-p.clock(24, 6, ZA, "start")
-p.clock(14, 19, ZB, "pen")
-p.clock(WX, 18, ZC, "turn")
-p.clock(GW + 2, AY + 1, ZV, "vault")
+# the clocks are ORE CARTS on a trestle (lode/CLOCKS.md; SPEC.md 130.18.5.2): the tub fills down the quarry
+p.clock(24, 6, ZA, "start: empty", frame="cart0")
+p.clock(14, 19, ZB, "pen: a few lumps", frame="cart1")
+p.clock(WX, 18, ZC, "turn: half full", frame="cart2")
+p.clock(GW + 2, AY + 1, ZV, "vault: heaped", frame="cart3")
+
+p.comment("ART (docs/plans/bonanza-courses/lode/art.py draws the files and places them: ART.md)")
+for _ln in ART.lines():
+    p.raw(_ln)
 
 p.route = [(22.5, 5.5), (22.5, 8.5), (22.5, 15.5), (16.5, 15.5), (16.5, 18.5), (17.5, 21.5), (22.5, 21.5),
            (25.5, 21.5), (25.5, 18.5), (26.5, 18.5), (BX - 1, 19), (BX + 1.5, 20.5), (WX + 0.5, 23), (WX + 0.5, 28), (WX + 0.5, 40.5),

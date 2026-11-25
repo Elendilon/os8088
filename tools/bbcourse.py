@@ -1087,7 +1087,9 @@ CLOCK_POSES = 11              # a digit lane's poses: 0 blank (a leading zero), 
 CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle stops the ball at every height,
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
-                "frogb", "orbr", "orbh", "orbs", "orbg", "vases", "vasem", "vaset", "vasef")
+                "frogb", "orbr", "orbh", "orbs", "orbg", "vases", "vasem", "vaset", "vasef",
+                "kite1", "kite2", "kite3", "kite4", "cart0", "cart1", "cart2", "cart3",
+                "hourp", "hourk", "hourc")
 #                             (a clock's `frame`s, SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # SPEC.md 130.18.5.5: THE DIGITS' ANCHOR - where a frame's digits sit, px right and down of their natural spot
@@ -11578,6 +11580,287 @@ def _clock_vase(p, x0, y0, tops, pos):
 
 for _k in ("s", "m", "t", "f"):
     _CLOCK_DRAW["vase" + _k] = (lambda q: lambda p, x0, y0, tops: _clock_vase(p, x0, y0, tops, q))(_k)
+
+
+# KITE HILL's `kite` (2026-11-25, docs/plans/bonanza-courses/kite/CLOCKS.md; SPEC.md 130.18.5.2): a diamond KITE
+# flying on its string from a peg in the tile, the digits on its sail (no window: the sail is the field).  Drawn
+# in the course's inks BY INDEX, as LITTLE HOP's frames are - on KITE's palette 0 a YELLOW sail (colour 3) in a
+# broad RED hem (colour 2), its spars black; on the Hercules a white sail in a grey hem.  The sail is drawn
+# round the digits wherever they are: KITE's clocks say `digits 0 -16`, which lifts the kite two block rows clear
+# of its tile so that it FLIES (at the natural spot its foot is on the tile).  Its TAIL says how far up the hill
+# the clock stands, a bow a clock, and the kite leans the way the course goes next:
+#   kite1 (the meadow)        ONE bow, the kite leaning right (the first rise goes up-right), its tail to the left
+#   kite2 (the fan plaza)     TWO, leaning left (the thermal's cliff is on the plaza's west side)
+#   kite3 (the launch plaza)  THREE, upright (the glide goes straight up the screen)
+#   kite4 (the summit)        a FULL tail of five, streaming level, and wind marks past its end
+_KITE_POSE = {1: (4, -1, 1), 2: (-4, 1, 2), 3: (0, 1, 3), 4: (0, 1, 5)}      # lean px, the tail's side, its bows
+_KITE_BOW = ("MM...MM", "MMM.MMM", ".MMWMM.", "MMM.MMM", "MM...MM")
+
+
+def _clock_kite(p, x0, y0, tops, pos):
+    """`kite1` .. `kite4` (above): the peg, the string, the sail round the digits and POS's tail.  The sail and
+    the peg are the clock's GEOMETRY (SPEC.md 130.18.5.4); the string, the tail, its bows and the wind marks are
+    PAINT, as a shadow is - thin lines that would each cut an occluder mask of their own in every block they
+    cross (MEASURED on KITE: 232 masks with them keyed, 180 as paint), and a ball behind a string loses nothing"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx0, wx1, wy0, wy1 = a.win
+    lean, side, bows = _KITE_POSE[pos]
+    hw, up, dn = 4 * n + 7.5, 15.0, 24.0            # the sail: half its width, its rise and fall about the spreader
+    kx, ky = fx - 0.5, fy - 0.5
+    _clock_top_shadow(a, 3, 9.0, 3.2)
+    pgx = cx - side * 9                             # the PEG, on the side the tail is not
+    sx0, sy0 = kx - side * 5.0, ky + 0.55 * dn      # the STRING: from behind the sail's lower edge to the peg
+    m = int(cy - 5 - sy0)
+    for k in range(m + 1):
+        t = k / float(max(1, m))
+        x = int(round(sx0 + (pgx - sx0) * t - side * 2.5 * math.sin(math.pi * t)))
+        a.put(x, int(sy0) + k, WHT, "shadow")
+        a.put(x + side, int(sy0) + k, BLK, "shadow")
+    a.pattern((".K.", "KWK", "KMK", "KMK", "KMK", ".K."), pgx - 1, cy - 5)
+
+    def row(y):                                     # the sail's centre and half width on row Y
+        v = y + 0.5 - ky
+        if v <= 0:
+            t = -v / up
+            return kx + lean * t, hw * (1.0 - t)
+        t = v / dn
+        return kx - 0.6 * lean * t, hw * (1.0 - t) - 1.2 * math.sin(math.pi * t)
+    sail = set()
+    for y in range(int(ky - up), int(ky + dn) + 1):
+        xc, half = row(y)
+        for x in range(int(math.floor(xc - half)), int(math.ceil(xc + half)) + 1):
+            if abs(x + 0.5 - xc) <= half:
+                sail.add((x, y))
+
+    def ink(x, y):
+        if wx0 <= x <= wx1 and wy0 <= y <= wy1:
+            return WHT                              # the digits' field
+        xc, half = row(y)
+        d = half - abs(x + 0.5 - xc)
+        if d < 4.2:                                 # the broad hem, shaded down its lower right
+            return (BLK if (x + y) & 1 else MAG) if (x + 0.5 > xc and y + 0.5 > ky) else MAG
+        if x == int(xc) or y == int(ky):
+            return BLK                              # the spine and the spreader, behind the cloth
+        return WHT
+    a.blob(sail, ink)
+    ty = max(y for (_x, y) in sail)                 # the TAIL, from the sail's foot
+    tx = min(x for (x, y) in sail if y == ty)
+    slope = {1: 0.5, 2: 0.42, 3: 0.36, 4: 0.04}[pos]
+    ln = 4 + 9 * bows
+    pts = []
+    for k in range(1, ln + 1):
+        y = ty + int(slope * k + 1.5 * math.sin(k * 0.7))
+        pts.append((tx + side * k, min(y, cy - 6)))
+    for (x, y) in pts:
+        a.put(x, y, MAG, "shadow")
+        a.put(x, y + 1, BLK, "shadow")
+    for b in range(bows):                           # the bows: a red bow-tie on a yellow knot
+        x, y = pts[7 + 9 * b]
+        cells = {(x - 3 + i, y - 2 + j): ch for j, r in enumerate(_KITE_BOW) for i, ch in enumerate(r) if ch != "."}
+        for (bx_, by_) in cells:                    # ...a black line round it, so it stands on the yellow floor too
+            for ddx, ddy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                if (bx_ + ddx, by_ + ddy) not in cells:
+                    a.put(bx_ + ddx, by_ + ddy, BLK, "shadow")
+        for (bx_, by_), ch in cells.items():
+            a.put(bx_, by_, MAG if ch == "M" else WHT, "shadow")
+    if pos == 4:                                    # the summit's wind, past the tail's end
+        ex, ey = pts[-1]
+        for k, (dx, dy) in enumerate(((3, -3), (5, 0), (3, 3))):
+            for i in range(5 - 2 * (k == 1)):
+                a.put(ex + side * (dx + i), ey + dy, WHT, "shadow")
+    return a.done(tops)
+
+
+for _k in (1, 2, 3, 4):
+    _CLOCK_DRAW["kite%d" % _k] = (lambda q: lambda p, x0, y0, tops: _clock_kite(p, x0, y0, tops, q))(_k)
+
+
+# LODESTONE GORGE's `cart` (2026-11-25, docs/plans/bonanza-courses/lode/CLOCKS.md; SPEC.md 130.18.5.2): an ORE
+# CART on a stub of track, the digits painted on its side (no window: the tub's white side is the field, between
+# two iron straps).  Palette 1's inks: a dark iron tub (a cyan and black dither) whitewashed between its straps,
+# a magenta rim, the ore MAGENTA - the magnets' own ink - faceted white, so that on the Hercules the tub is white and the ore a grey
+# heap with white glints.  The cart is drawn round the digits wherever they are, on bents of timber down to the
+# tile: LODE's clocks say `digits 0 16`, which sets it two block rows down, its wheels on a track laid on the
+# tile (at the natural spot it stands on a trestle).  What is IN the tub says how far down the quarry the clock
+# stands:
+#   cart0 (the headland)  EMPTY: the tub's dark mouth
+#   cart1 (the pen)       a few LUMPS showing over the rim
+#   cart2 (the turn)      HALF full: a low mound of lodestone
+#   cart3 (the island)    HEAPED, and glinting: the great lodestone's own
+_CART_ORE = {0: (),                                  # (x off the tub's middle, y off its rim, radius) a lump
+             1: ((-6, -1, 3.2), (4, -1, 3.6)),
+             2: ((-9, -1, 3.4), (8, -1, 3.6), (-3, -3, 4.6), (4, -3, 4.2)),
+             3: ((-10, -1, 3.4), (10, -1, 3.4), (-5, -4, 4.6), (5, -4, 4.6), (0, -8, 4.8), (-6, -9, 3.0),
+                 (6, -9, 3.0), (0, -13, 3.2))}
+_CART_GLINT = ((-15, -12), (14, -14), (-8, -19), (9, -20))
+
+
+def _clock_cart(p, x0, y0, tops, load):
+    """`cart0` .. `cart3` (above): the track and its bents, the wheels, the tub round the digits, LOAD's ore"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx0, wx1, wy0, wy1 = a.win
+    hw = 4 * n + 6.0                                # the tub's half width at its rim
+    rim, bot = wy0 - 3, wy1 + 2                     # its rim's row and its floor's
+    ry = bot + 7                                    # the rail's row, under the wheels
+    _clock_top_shadow(a, 3, 12.0, 3.6)
+    TRK = "shadow"                                  # the track and the trestle are PAINT, as the shadow is: thin
+    #                                                 lines, each an occluder mask in every block it crosses (with
+    #                                                 the bents keyed LODE is past its one mask table, 267 of 256;
+    #                                                 as paint 244).  A ball behind the trestle is drawn over its
+    #                                                 legs; the cart itself is laid over the ball
+    xl, xr = int(fx - hw) - 3, int(fx + hw) + 2     # the TRACK: a lit rail on sleepers...
+    for x in range(xl, xr + 1):
+        a.put(x, ry, WHT, TRK)
+        a.put(x, ry + 1, BLK, TRK)
+    for sx in range(xl + 2, xr - 2, 6):
+        for i in range(4):
+            a.put(sx + i, ry + 2, BLK if i in (0, 3) else MAG, TRK)
+            a.put(sx + i, ry + 3, BLK, TRK)
+    posts = [(px, cy + 1 - abs(px + 1 - cx) // 4) for px in (xl + 3, int(fx) - 2, xr - 6)]
+    if min(f for _px, f in posts) - (ry + 4) >= 5:  # ...and, where the cart stands clear of the tile, a TRESTLE
+        mid = (ry + 4 + cy - 2) // 2                # under it: three timber bents, a tie and two braces
+        for (pa, _fa), (pb, _fb) in zip(posts, posts[1:]):
+            for k in range(pb - pa - 3):
+                t = k / float(max(1, pb - pa - 4))
+                y = int(round(ry + 5 + t * (mid - ry - 6)))
+                a.put(pa + 3 + k, y, BLK, TRK)
+                a.put(pa + 3 + k, y + 1, WHT, TRK)
+        for x in range(posts[0][0], posts[-1][0] + 4):
+            a.put(x, mid, BLK, TRK)
+            a.put(x, mid + 1, WHT, TRK)
+            a.put(x, mid + 2, BLK, TRK)
+        for (px, foot) in posts:
+            for y in range(ry + 4, foot + 1):
+                for i, ink in enumerate((BLK, WHT, MAG, BLK)):
+                    a.put(px + i, y, ink, TRK)
+    for wxc in (fx - hw + 5.5, fx + hw - 6.5):      # the WHEELS: an iron tyre, a white web, a hub
+        for (x, y) in _ellipse(wxc, bot + 3.5, 3.6, 3.6, int(wxc) - 4, int(wxc) + 4, bot, bot + 7):
+            d = ((x + 0.5 - wxc) / 3.6) ** 2 + ((y + 0.5 - bot - 3.5) / 3.6) ** 2
+            a.put(x, y, BLK if d > 0.5 or d < 0.08 else WHT)
+
+    def half(y):                                    # the tub tapers to its floor
+        return hw - 3.0 * (y - rim) / float(bot - rim)
+    for (x, y) in _ellipse(fx - 0.5, rim + 0.5, hw, 2.6, int(fx - hw) - 1, int(fx + hw), rim - 3, rim + 3):
+        d = ((x + 0.5 - (fx - 0.5)) / hw) ** 2 + ((y - rim) / 2.6) ** 2
+        a.put(x, y, BLK if d > 0.86 or d < 0.5 else WHT)        # the tub's mouth: its far rim lit, the dark inside
+    for (ox, oy, r) in _CART_ORE[load]:             # the ORE, behind the tub's near wall
+        ocx, ocy = fx - 0.5 + ox, rim + oy
+        lump = _ellipse(ocx, ocy, r, r * 0.9, int(ocx - r) - 1, int(ocx + r) + 1, int(ocy - r) - 1, int(ocy + r) + 1)
+
+        def oink(x, y, ocx=ocx, ocy=ocy, r=r):
+            ux, uy = (x + 0.5 - ocx) / r, (y + 0.5 - ocy) / r
+            if ux + uy < -0.55:
+                return WHT                          # a facet in the light
+            if ux + uy > 0.5 and (x + y) & 1:
+                return BLK
+            return MAG
+        a.blob(lump, oink)
+    tub = {(x, y) for y in range(rim + 1, bot + 1) for x in range(int(fx - half(y)), int(fx + half(y)))}
+
+    def tink(x, y):
+        if wx0 <= x <= wx1 and wy0 <= y <= wy1:
+            return WHT                              # the digits' field
+        if y <= rim + 2:
+            return MAG                              # the rim's iron band
+        if x in (wx0 - 2, wx1 + 2):
+            return BLK                              # the straps either side of the digits
+        if x < wx0 - 2 or x > wx1 + 2:
+            return CYN if (x + y) & 1 else BLK      # the tub's dark iron ends
+        return WHT                                  # (the whitewashed panel the digits are painted on)
+    a.blob(tub, tink)
+    for x in (wx0 - 2, wx1 + 2):                    # a rivet on each strap, top and bottom
+        a.put(x, rim + 2, WHT)
+        a.put(x, bot - 1, WHT)
+    for x in range(int(fx - hw) + 3, int(fx + hw) - 3):    # the frame under the tub
+        a.put(x, bot + 1, BLK)
+    if load == 3:                                   # the heap GLINTS: four-point stars round it (paint)
+        for (gx, gy) in _CART_GLINT:
+            for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1), (-2, 0), (2, 0), (0, -2), (0, 2)):
+                a.put(int(fx + gx + dx), rim + gy + dy, WHT, "shadow")
+    return a.done(tops)
+
+
+for _k in (0, 1, 2, 3):
+    _CLOCK_DRAW["cart%d" % _k] = (lambda q: lambda p, x0, y0, tops: _clock_cart(p, x0, y0, tops, q))(_k)
+
+
+# CLOCKWORK KEEP's `hour` (2026-11-25, docs/plans/bonanza-courses/keep/CLOCKS.md; SPEC.md 130.18.5.2): an
+# HOURGLASS in a turned stand - the castle's timers are all the course is - with the digits IN ITS UPPER BULB (no
+# window: the bulb is the field).  The digits are BLACK on the white sand while the bulb is full and WHITE on
+# the cyan glass once the sand is below them (`ink white`, SPEC.md 130.18.5.6: the course's clock lines say it).
+# The SAND says how far through the keep the clock stands, and the stand's FINIAL is the course's own lock:
+#   hourp (the barbican)  the upper bulb FULL, a first trickle below; on top a PADLOCK (the keep is shut)
+#   hourk (the tower)     HALF run through - the sand under the digits, a mound below; on top a KEY (the ring
+#                         key is two tiles on)
+#   hourc (the dais)      RUN OUT: the upper bulb clear glass, the lower one full; on top a CROWN (the throne)
+_HOUR_CREST = {"p": ("..KKKKK..", ".KWWWWWK.", ".KWKKKWK.", ".KWK.KWK.", "KKKKKKKKK", "KWWWWWWWK", "KWWWKWWWK",
+                     "KWWWKWWDK", "KWWWWWDDK", "KKKKKKKKK"),
+               "k": (".KKK.........", "KWWWK........", "KWKWKKKKKKKKK", "KWKWWWWWWWWWK", "KWKWKKKWKWKKK",
+                     "KWWWK.KWKWK..", ".KKK..KKKKK.."),
+               "c": (".K...K...K.", "KWK.KWK.KWK", "KWKKWWWKKWK", "KWWWWWWWWWK", "KWMWWMWWMWK", "KWWWWWWWDDK",
+                     "KKKKKKKKKKK")}
+_HOUR_SAND = {"p": (1.0, 0.18), "k": (0.5, 0.6), "c": (0.0, 1.0)}    # the sand left above, the heap's share below
+
+
+def _clock_hour(p, x0, y0, tops, pos):
+    """`hourp` / `hourk` / `hourc` (above): the stand, the two bulbs round the digits, POS's sand and finial"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx0, wx1, wy0, wy1 = a.win
+    hb = 4 * n + 3.0                                # a bulb's half width
+    kx = fx - 0.5
+    cap0, cap1 = wy0 - 4, wy0 - 2                   # the stand's top plate
+    b0, b1 = wy0 - 1, wy1 + 1                       # the upper bulb's straight part
+    neck = b1 + 7                                   # the waist's row
+    base0, base1 = cy - 4, cy - 1                   # the foot plate, on the tile
+    l0 = min(neck + 7, base0 - 1)                   # the lower bulb's straight part, to the foot
+    up, low = _HOUR_SAND[pos]
+    _clock_top_shadow(a, 4, 12.0, 3.8)
+
+    def half(y):
+        if y <= b1 or y >= l0:
+            return hb
+        t = (y - b1) / float(neck - b1) if y <= neck else (l0 - y) / float(max(1, l0 - neck))
+        return 1.6 + (hb - 1.6) * math.cos(0.5 * math.pi * min(1.0, t)) ** 1.4
+    for sx in (int(kx - hb) - 3, int(kx + hb) + 2):  # the stand's two turned rods, behind the glass
+        for y in range(cap1 + 1, base0):
+            a.put(sx, y, BLK)
+            a.put(sx + 1, y, MAG if (y - cap1) % 6 else WHT)
+            a.put(sx + 2, y, BLK)
+    glass = {(x, y) for y in range(b0, base0) for x in range(int(math.floor(kx - half(y) + 0.5)),
+                                                                 int(math.floor(kx + half(y) + 0.5)))}
+    top_surf = b0 + 1 if up >= 1.0 else b1 + 1                          # the sand's level in the upper bulb: over
+    #                                                 the digits or under them, never across (so `hourk` and `hourc`
+    #                                                 take `ink white`, SPEC.md 130.18.5.6, and `hourp` black)
+    heap = low * (base0 - 1 - (neck + 3))                               # the heap's height in the lower one
+
+    def gink(x, y):
+        ux = (x + 0.5 - kx) / hb
+        if y <= neck:
+            sand = up > 0 and y + 0.5 >= top_surf + 1.5 * ux * ux       # (a shallow dish: it runs out at the middle)
+        else:
+            sand = y + 0.5 >= base0 - 0.5 - heap * (1.0 - 0.55 * ux * ux) or \
+                (up > 0 and x == int(kx) and y > neck)                  # the heap, and the stream that feeds it
+        if sand:
+            return WHT
+        if x + 0.5 < kx - half(y) + 2.6 and (y <= b1 or y >= l0):
+            return WHT                              # the glass's shine, down its left
+        if x + 0.5 > kx + half(y) - 2.6 and (x + y) & 1:
+            return MAG                              # ...and its shade, down its right
+        return CYN
+    a.blob(glass, gink)
+    for (y0_, y1_) in ((cap0, cap1), (base0, base1)):   # the two plates
+        plate = {(x, y) for y in range(y0_, y1_ + 1) for x in range(int(kx - hb) - 4, int(kx + hb) + 5)}
+        a.blob(plate, _lit3(int(kx - hb) - 3, int(kx + hb) + 3))
+    rows = _HOUR_CREST[pos]                          # the finial
+    a.pattern(rows, fx - (len(rows[0]) + 1) // 2, cap0 - len(rows))
+    return a.done(tops)
+
+
+for _k in ("p", "k", "c"):
+    _CLOCK_DRAW["hour" + _k] = (lambda q: lambda p, x0, y0, tops: _clock_hour(p, x0, y0, tops, q))(_k)
 
 
 def clock_pose(tsec, place):

@@ -11,6 +11,9 @@
 > and the treasury's run is **2,671** steps (48.6 s, it was 2,416), 3 flights, none panned,
 > its longest stretch with no clock in view 8.3 s on CGA and 12.6 s on Hercules. Both
 > still pass `--guide`. With its own song the part is 48,287 bytes.
+>
+> **After the art step of 2026-11-25** (section 17): the part is **50,703** bytes, **240** masks, LZ4 **18,233**
+> (592 under its class). The route demo, the treasury's run and every `--guide` figure are unmoved.
 
 *Status: **REFINED** (2026-11-25), the second step of the guide's pipeline
 ([README.md](README.md) section 3): the pen-in of the same day, designed for looks and
@@ -41,7 +44,7 @@ opens the treasury: the course's second exit, a secret.
 | new to the pathway | the whole GATE family (a plate, two keys, three gates, two timed drawbridges); POP-UP SPIKES; the TIMED see-saw; the turntable as a 2 x 2 CHAIN |
 | target time | 50 - 60 s by the throne on a first clear, 75 s with the treasury (`target 90`'s class, `limit 99`): PREDICTED. MEASURED on the model: the route demo **33.0 s** (1,805 steps), no fall and no Hop; the run to the treasury 44.2 s (section 3) |
 | palette | the default (cyan, magenta, white) on black: grey stone needs white. The owner's call |
-| clocks | 3: the barbican, the north-west tower, the throne's dais. A SHIELD whose crest changes (section 9) |
+| clocks | 3: the barbican, the north-west tower, the throne's dais. An HOURGLASS whose sand runs out along the course, a padlock, a key, a crown on its stand: `hourp`, `hourk`, `hourc` (section 17, [keep/CLOCKS.md](keep/CLOCKS.md); the shield is kept there) |
 | song | **Clockwork Keep** (`music clockwork`, section 16): C minor at 102.4, strict; a tick-tock the speaker folds between the tune's notes, a fanfare in C major. It keeps the machines' rate, not their beat. Nobody has heard it yet |
 | the one new idea | **the way on is not ahead.** A door shows what opens it; the player goes and gets it, and comes back |
 | picture | 1,024 x 472 px (`width 128`, `origin 496`); the floors are 688 px across. ONE part, 47,703 bytes |
@@ -371,6 +374,10 @@ grammar, SPEC.md 130.22.2):
   | the portcullis, the door | - | open 16 - 24 steps after the plate or the key | under a beat |
 
 ### The art (for the art agent)
+
+*DONE (2026-11-25): the clocks are [keep/CLOCKS.md](keep/CLOCKS.md), the gates, signs and decals
+[keep/ART.md](keep/ART.md), and section 17 is what the course carries now and what room it has left. What follows is
+the brief as it was written.*
 
 - **Theme**: a storybook castle on floating crystal islands, everything driven by
   gears. Grey stone, white highlights, banners in the channel inks.
@@ -714,3 +721,64 @@ and whether a tick six sub-ticks long reads as a clock or as part of the tune. T
 guest: `bonanzamusic` covers the song; the offset against the machines and the frame cost
 on the XT are not measured.
 
+## 17. The art (done 2026-11-25): what the course carries, and its room
+
+*The pipeline's art step, after the song. Clocks, gates, signs and decals are in `keep.bbc` (`keep/sketch.py`
+writes them; `keep/art.py` draws the `.bba` files). The studies, with every picture on both cards, are
+[keep/CLOCKS.md](keep/CLOCKS.md) and [keep/ART.md](keep/ART.md). No cell, route, timing or `origin` moved.*
+
+![the course with its art](keep/picture-cga.png)
+
+- **Clocks: `hour`** (SPEC.md 130.18.5.2), of two concepts studied (the other the shield of section 9). An
+  hourglass in a turned stand, the digits in its upper bulb.
+
+  | clock | cell | frame | the sand | the stand's finial | digits |
+  |---|---|---|---|---|---|
+  | start | (22, 39) | `hourp` | the upper bulb full, a first trickle | a PADLOCK | black, on the sand |
+  | tower | (18, 18) | `hourk` | half run: under the digits, a mound below | a KEY | white, on the glass (`ink white`) |
+  | throne | (40, 22) | `hourc` | run out: the lower bulb full | a CROWN | white, on the glass (`ink white`) |
+
+- **Gates** (SPEC.md 130.41.12.7; `gates/keep_port.bba`, `keep_door.bba`, `keep_vault.bba`: the course's own,
+  GATE's lab art untouched): a stone gate arch with battlements whose grille RISES, the PLUS on its keystone;
+  the keep's door, two iron-bound leaves that SLIDE apart, the RING on its keystone; the treasury's bars,
+  sliding ASIDE, the CROSS on its keystone. The glyphs are 7 x 7 on upright plaques. The traitor's bridge takes
+  `style portcullis` (iron plates); the drawbridge keeps `picket`.
+- **Signs and decals** (9 files, `keep_*.bba`): a WAIT signboard with an hourglass before the drawbridge; a
+  floor arrow to the plate in the gatehouse's right lane; an up arrow on the courtyard floor at each end of
+  the rocking stair; straw over the six sand tiles; a carpet from the keep's passage across the hall, the
+  island and the dais, turning right to the goal; the throne beside the goal; arrow slits on two towers and a
+  pennant on one.
+
+| | before the art | with it |
+|---|---|---|
+| the part (of 65,024) | 48,287 | **50,703** (14,321 to spare) |
+| picture blocks | 719 | 810 |
+| occluder masks (of 256) | 191 | **240** |
+| LZ4 (90 s class 18,825) | 15,979 | **18,233** (592 under its class) |
+| as the package stores it (LZB) | 12,943 before the song | 15,207 |
+| the occluder pass | at most 6 records in a block, 29,530 clocks, 100 in a block row | 6, 32,620 (bound 50,050), 102 (bound 128) |
+| the route demo | 1,802 steps (32.99 s), COMPLETE | the same |
+| the treasury's run (`keep/measure.py --vault`) | 2,671 steps (48.6 s), exit 1 | the same |
+| `--guide`, both logs, both cards | 32.8 s and 48.6 s; 2 and 3 flights, 0 panned; G9; G10; no clock touched; G12 8.3 s / 3.0 s and 8.3 s / 12.6 s | the same |
+
+**Room left**: **16 masks** (the gates took 32, the hourglasses 17), 14,321 part bytes, **592 LZ4 bytes** to
+the class. The next solid thing the course carries wants `masks banded` (SPEC.md 130.52) or a piece struck;
+paint (a sign, a decal) costs blocks and no mask. The courtyard's window had 11 pose changes that can fall on
+one step (section 9): the portcullis's art is 2 lanes and the door's 2, as the lab art's were, and the
+treasury's art is 1 lane where its preset bars were 1, so that count has not grown; no sign or decal is a lane.
+
+**Verified in this step** (host only; no emulator was booted):
+
+- the compile, plain and `--strict`: the same part, byte for byte;
+- `--guide` with the route demo and the treasury's run: every figure as before the art (the table above);
+- `--selfcheck --only courses,clockvis,clockrule,gate` on this course alone: 75 items green and the same 3 red as
+  at the commit before (each names TRIAL or a shipped demo a one-course list has not got);
+- `--selfcheck --only clockocc,clockdig` on the default list: 48 items green, none red;
+- the eight default-build courses, the pathway and the title compiled under the tool before and after: every
+  output file byte-identical, and `make BUILD=<dir> bonanzadisk` gives the same `bonanza.o88` and the same four
+  disk images (the new frames move no shipped byte).
+
+**Not run, named for the pass that wires the course in**: the rows section 10 names (`bonanzacourse` with the
+course in `BZ_COURSES`, `bonanzaring`, `bonanzaperf`, `bonanzaexit`), `bbeditbundle` (the builder's zip takes
+every file under `apps/bonanza/courses/`, the new `.bba` among them), and one look on the glass at each clock,
+sign and gate on both cards.

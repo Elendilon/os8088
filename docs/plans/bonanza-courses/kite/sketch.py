@@ -15,6 +15,8 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from penkit import Pen
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import art as ART                         # the signs and decals (kite/art.py, ART.md): the course's `art` lines
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
@@ -145,10 +147,16 @@ p.guard(9, 34, 11, 35, sides=["+y"])
 p.floor("H", 6, 24, 9, 27, ZG + 0.5, "the CROWN: half a unit up (every ball rolls up it), the goal on it")
 p.goal(6, 24, 9, 27, ZG + 0.5)
 
-p.clock(54, 55, ZA, "start")
-p.clock(41, 37, Z1, "plaza")
-p.clock(16, 38, Z3, "launch")
-p.clock(7, 22, ZG, "summit")
+# the clocks are KITES (kite/CLOCKS.md; SPEC.md 130.18.5.2): a bow more on the tail at each, and `digits 0 -16`
+# lifts each kite two block rows clear of its tile, so it flies on its string
+p.clock(54, 55, ZA, "start: one bow", frame="kite1 digits 0 -16")
+p.clock(41, 37, Z1, "plaza: two", frame="kite2 digits 0 -16")
+p.clock(16, 38, Z3, "launch: three", frame="kite3 digits 0 -16")
+p.clock(7, 22, ZG, "summit: a full tail", frame="kite4 digits 0 -16")
+
+p.comment("ART (docs/plans/bonanza-courses/kite/art.py draws the files and places them: ART.md)")
+for _ln in ART.lines():
+    p.raw(_ln)
 
 p.route = [(51.5, 57.5), (51.5, 54), (51.5, 48), (50.5, 46.5), (46, 46.5), (40.5, 46.5), (40.5, 38.5), (38.5, 37.5),
            (36.5, 37.5), (34.5, 37.5), (32, 37.5), (21, 37.5), (18.5, 36.5), (16.5, 34.5), (10.5, 28.5),

@@ -282103,6 +282103,65 @@ ball only in a void cell behind it, falling; the start's clock was already
 clear), so no vase clock carries an occluder record. Every clock passes
 130.18.5.4's one ball length (the longest wholly-hidden runs 0, 0, 0, 0).
 
+**Courses 5 - 7's frames** (2026-11-25, the pipeline's art step; each a
+study of two or three concepts with the others kept as scratch frames:
+`docs/plans/bonanza-courses/kite/CLOCKS.md`, `lode/CLOCKS.md`,
+`keep/CLOCKS.md`, and `docs/plans/bonanza-courses/clockkit.py` the kit that
+compiles and draws them). Eleven frames, three objects, each with a variant
+a clock that says where on its course the clock stands. None declares an
+anchor (`CLOCK_DIGITS`, 130.18.5.5): where a course wants the digits
+elsewhere it says so on its `clock` line, and each frame is drawn round the
+digits wherever they are. **A frame's thin parts are PAINT**: `_ClockArt.put`
+with the part `"shadow"` draws a pixel that is not the clock's geometry
+(130.18.5.4 item 2: it takes no key, and the ball is drawn over it). A
+string, a tail or a trestle keyed as face cuts an occluder mask of its own
+in most blocks it crosses; as paint it cuts none (MEASURED below).
+
+- **KITE HILL's `kite`** (`_clock_kite`; drawn in the course's inks BY INDEX,
+  as LITTLE HOP's are - on KITE's palette 0 colour 3 is yellow and colour 2
+  red): a diamond kite, taller than wide, on a string from a peg in the
+  tile; a yellow sail in a broad red hem, black spars, the digits on the
+  sail where the spars cross (no window). KITE's clocks say `digits 0 -16`,
+  which lifts the kite two block rows clear of its tile so that it flies.
+  The sail and the peg are the face; the string, the tail, its bows and the
+  wind marks are paint. **`kite1`** (the meadow): ONE bow on the tail, the
+  kite leaning right; **`kite2`** (the fan plaza): TWO, leaning left;
+  **`kite3`** (the launch plaza): THREE, upright; **`kite4`** (the summit): a
+  full tail of FIVE streaming level, wind marks past its end. MEASURED on
+  KITE against the default frame (no song): blocks 769 -> 796, masks 178 ->
+  **180** (232 with the string and tail keyed), RAM +480, LZ4 +748; the
+  longest wholly-hidden runs 5, 1, 0, 0.
+- **LODESTONE GORGE's `cart`** (`_clock_cart`, palette 1's inks): an ore cart
+  on a stub of track. A dark iron tub (a cyan and black dither) with a
+  magenta rim, whitewashed between two iron straps where the digits are
+  painted (no window), two wheels, and magenta ORE faceted white. At a
+  clock's natural spot the track is carried by a timber TRESTLE standing on
+  the tile (three bents, a tie, two braces); with `digits 0 16` the track
+  lies on the tile and there is none. The tub, the wheels and the ore are
+  the face; the track and the trestle are paint. **`cart0`** (the headland):
+  EMPTY, the tub's dark mouth; **`cart1`** (the pen): a few LUMPS over the
+  rim; **`cart2`** (the turn): HALF full; **`cart3`** (the island): HEAPED,
+  four glints round it. MEASURED on LODE against the default frame: blocks
+  803 -> 823, masks 247 -> **244** (267, past the one table's 256 and
+  refused, with the trestle's bents keyed), RAM +254, LZ4 +674; the runs 0,
+  0, 0, 2.
+- **CLOCKWORK KEEP's `hour`** (`_clock_hour`, palette 1's inks): an hourglass
+  in a turned stand - two plates, two banded rods, cyan glass with a white
+  shine down its left, white sand - the digits IN ITS UPPER BULB (no
+  window). The sand's level is over the digits or under them, never across,
+  so the digits are BLACK on the sand in `hourp` and the course asks
+  `ink white` (130.18.5.6) for the other two, on the glass. The stand's
+  finial is the course's own lock. **`hourp`** (the barbican): the upper
+  bulb FULL, a trickle below, a PADLOCK on top; **`hourk`** (the tower): HALF
+  run through, a mound below, a KEY; **`hourc`** (the dais): RUN OUT, the
+  lower bulb full, a CROWN. MEASURED on KEEP against the default frame:
+  blocks 789 -> 810, masks 223 -> 240, RAM +662, LZ4 +845; the runs 0, 0, 0.
+
+No shipped course names one: the eight default-build courses, the pathway
+and the title compile to the same bytes under the tool before and after
+(MEASURED: every file `bbcourse.py -o` writes, and `make BUILD=<dir>
+bonanzadisk`'s package and four images).
+
 It is all picture: no byte of code and no lane moves (the digits are
 130.18.5's lanes); the courses' parts and identities move (`PEAK`'s demo
 re-authored).
@@ -282398,7 +282457,9 @@ lane and no block more** - the poses' pixels change, nothing else - and a build-
 **Refused**: digits the colour of the face under them - every pixel of the 8 (the fullest glyph) on face
 pixels of the ink's colour - are no clock, so the tool refuses the statement at its line, naming the
 other ink or a frame whose window is not that colour. Today's frames: `crystal`, `pin` and `spring` take
-white digits; every other frame's digit window is white, so white digits are refused there and stay
+white digits, and so do CLOCKWORK KEEP's `hourk` and `hourc` (2026-11-25: their digits are on cyan glass,
+and the course's clock lines say `ink white`); every other frame's digits are on white (`hourp`'s on the
+sand), so white digits are refused there and stay
 black (MEASURED: FIRST's clock compiled with each frame and each ink). The wall clocks' art (the research
 in docs/plans/BOUNCE-BONANZA-WALLCLOCK.md) is where white is meant to be used. The builder's clock dialog
 offers it as "Digits' colour" (`tools/bbedopts.py`).
@@ -296211,6 +296272,45 @@ weakest (a leaf swung back is still a leaf).
    item 14: neither is refused now.)
 4. The door: a better swing needs the leaf drawn as the reader expects
    (perhaps sliding into the wall); designer's art, not engine.
+
+##### 130.41.12.7 CLOCKWORK KEEP's gates (2026-11-25; art only)
+
+The first real course with gate art has its OWN three files in
+`apps/bonanza/courses/gates/` (GATE's `door`, `crumble` and `portcullis` are
+the lab's and are unchanged; nothing else names the new three). No tool or
+part byte moved for them: they are 130.41.12's feature used as built.
+`docs/plans/bonanza-courses/keep/art.py` is their source (it writes the
+files; `keep/ART.md` has the pictures) and `docs/plans/bonanza-courses/artkit.py`'s
+`gate_bba` the writer: a gate is drawn as four ELEVATIONS, sheared onto the
+wall's plane through the cell's middle as the picture's own faces are.
+
+| art | on | shut | frames 1 - 3 |
+|---|---|---|---|
+| `keep_port`, 2 cells, 44 x 54 px a frame | the portcullis, plus | a stone gate arch with battlements, an iron grille (2 px of iron in 4), the PLUS on its keystone | the grille RISES into the arch; at 3 its spikes show under the head |
+| `keep_door`, 1 cell, 24 x 40 | the keep's door, ring | two iron-bound plank leaves under a round stone head, a ring their knocker, the RING on the keystone | the leaves SLIDE apart into the jambs; 3 is an empty doorway |
+| `keep_vault`, 1 cell, 24 x 38 | the treasury's gate, cross (a preset grille until now) | heavy bars (3 px in 5) under a round stone head, the CROSS on the keystone | the bars slide ASIDE into one jamb |
+
+What drawing them found, for the next gate:
+
+- **A glyph is drawn UPRIGHT.** Each art carries its channel's glyph 7 x 7,
+  black on a white 11 x 11 plaque with a black edge - 130.41.5's plaque at
+  about twice the size - in screen pixels on the keystone. Sheared with the
+  wall a 7 x 7 glyph is unreadable.
+- **Stone in the scene's face ink.** White stone is lost on a white and
+  cyan floor behind it; the arches are magenta with black joints, and what
+  MOVES is black and white, so A9 (two frames equal on the Hercules) holds
+  by construction.
+- **Leave the gaps open.** The occluder is frame 0's (130.41.12.6 question
+  1), so a ball behind an OPEN gate is still cut by the shut frame's
+  pixels: a grille drawn as iron with nothing between its bars shows the
+  ball through it, shut or open. The door's leaves are solid, and a ball
+  rolling up to the open door is clipped for the last third of a tile, as
+  with the lab's door.
+- **They are masks.** MEASURED on KEEP: the three arts in the place of the
+  lab's two and the preset grille took the course from 209 occluder masks
+  to **240** of 256 (+3 blocks, about +660 bytes of RAM and +460 of LZ4);
+  lanes 2 (portcullis), 2 (door) and 1 (vault), the count the lab's arts
+  and the preset had. `--selfcheck --only gate` on KEEP is green.
 
 #### 130.41.13 A plate's glyph is part of its top (the owner, 2026-11-25; tool only)
 
