@@ -286521,7 +286521,7 @@ record of what was built. Figures are MEASURED unless marked PREDICTED.
 | D2 | the switch state is a CHANNEL: `GT_NCH` = 4 a course, each one BIT of the family's slot (+0); no per-element state bits | four channels are as many as a player can keep apart by eye; the slot is per course and costs no `bz_fst` byte; a plate, key, gate or bridge has nothing of its own to remember once its channel says it all |
 | D3 | LATCHING: a plate or key opens its channel for the ATTEMPT - a respawn keeps it (the engine keeps the slot), a play's start (a retry, a replay) zeroes it | a momentary plate needs the ball to stay on it while the gate is elsewhere - one ball, so a momentary gate is unusable unless it closes on a timer, which is the drawbridge's job; latching also means a GATE NEVER CLOSES during an attempt, so "a gate closing on a ball" cannot happen (D6) |
 | D4 | a PLATE opens on a GROUNDED ball (`bz_air` 0, not shattering) - rolled over, as a boost pad pushes; a KEY on any touch, airborne too, as a pickup is taken | a Hop over a plate is a way not to press it; a key is a pickup |
-| D5 | the PAIRING is the channel's GLYPH - ring, plus, box, cross - 5 x 5 px, BLACK on a 7 x 7 WHITE plaque, on every plate, key, gate and switched bridge of it; the channel's ink (magenta ring and box, cyan plus and cross) only a second cue | on the Hercules and CGA magenta and cyan are the same grey checker; black on white reads on every card (LOOKED AT in the tool's previews, both cards) |
+| D5 | the PAIRING is the channel's GLYPH - ring, plus, box, cross - 5 x 5 px, BLACK on a 7 x 7 WHITE plaque, on every key, gate and switched bridge of it (a PLATE draws it into its own top, 130.41.13); the channel's ink (magenta ring and box, cyan plus and cross) only a second cue | on the Hercules and CGA magenta and cyan are the same grey checker; black on white reads on every card (LOOKED AT in the tool's previews, both cards) |
 | D6 | a GATE is a WALL in the window while shut (CELL writes the kind nibble, its surface kept) and its grid's FLOOR once open; it never closes in an attempt (D3), and the tool refuses a gate on the start's cell, so a play never begins inside one | the cracked tile's state-driven cell; a WALL is a column at every height, so nothing hops a shut gate |
 | D7 | a DRAWBRIDGE cell is its grid's FLOOR at its DECK while DOWN, and a NEAR VOID (the deck less 3 units, kind and surface 0: a broken crack's) while UP; a ball on it when it goes up FALLS (expected); one below the deck in its cell when it comes down is NOT lifted - the window's centre keeps the void while the ball's whole-px z is under the deck | the plan's VOID <-> FLOOR; the no-lift rule is the one thing a floor appearing round a falling ball could otherwise do - teleport it up - and the `under` scene with the red arm `lift` holds it |
 | D8 | a bridge is SWITCHED (lowered once its channel opens, then down for the attempt) or TIMED (`period P on N [seed S]`, a popspike's timer: DOWN while ((n + S) AND (P - 1)) < N); a timed rectangle's cells take seeds S, S + 1, ... so they turn one a step | the switched one pairs with P6; the timed one is the plan's "on a timer"; one pose change a step keeps a window's timed lanes to the event budget (130.19.10) and reads as the bridge folding cell by cell |
@@ -286595,7 +286595,7 @@ top's centre must lie on a block:
 
 | kind | the picture (pose 0) | pose 1 | the lane |
 |---|---|---|---|
-| plate | a black-rimmed square of the channel's ink on the top with the plaque (UP) | the plaque inverted, black with a white glyph (PRESSED) | a crack's 2 x 2 blocks round the top's centre |
+| plate | a black-rimmed square of the channel's ink on the top, the glyph WHITE in it with a 1 px black edge round its strokes (UP; 130.41.13) | the glyph black with a white edge (PRESSED) | a crack's 2 x 2 blocks round the top's centre |
 | key | nothing (taken) | the KEY floating over the cell (the pickup icon's path): its bow a black frame round the plaque, its shaft and bit in the channel's ink | the icon's bounds |
 | gate | a black GROOVE across the top (open) | the GRILLE standing across the path (shut): black posts and rails, bars black and the channel's ink, 15 x 10 px, the plaque in its middle | its bounds: 2 x 3 blocks |
 | bridge | the deck: a black seam round the top (a trapdoor's outline) | UP: the top black inside the crack's 2 x 2 blocks (its `band` hole), a switched bridge's plaque in its middle | a crack's 2 x 2 (a run of bridge cells shares no block, so none groups) |
@@ -286867,6 +286867,23 @@ weakest (a leaf swung back is still a leaf).
    item 14: neither is refused now.)
 4. The door: a better swing needs the leaf drawn as the reader expects
    (perhaps sliding into the wall); designer's art, not engine.
+
+#### 130.41.13 A plate's glyph is part of its top (the owner, 2026-11-25; tool only)
+
+*"Can the channel marker for pressure plates be worked into the tile art without the big box around it? As 'part
+of' the tile, instead of 'in a square pasted on top of it'?"* Seven treatments were drawn on GATE's plate tile on
+CGA and Hercules. The owner picked **F**:
+
+- **UP**: the plate's square of the channel's ink keeps its black rim. The glyph (130.41.1 D5) is drawn into it
+  in WHITE, and every ink pixel touching one of the glyph's strokes (the eight neighbours) is BLACK. The edge hugs
+  the strokes, so there is no 7 x 7 square: a plus is a black-edged white plus on the ink.
+- **PRESSED**: the same with the colours swapped, the glyph black with a white edge. The glyph and its edge are
+  7 x 7, inside the lane's 2 x 2 blocks, as the plaque was.
+- **Why the edge**: on the Hercules and on mono CGA the channel's ink is a grey checker. A bare black glyph on it
+  (treatment B) was lost there. A white glyph with a black edge reads on every card.
+- **Keys, gates and switched bridges keep the plaque.** The owner asked about plates only.
+- **Cost**: `gt_plate_pix` only, which is the compiler's picture and the plate lane's pressed pose. No record,
+  no rule, no resident byte. GATE's and PLAYGROUND's pictures change at their plates.
 
 ### 130.42 The SEE-SAW: a tilt plate the ball's weight tips (the props round's P9, 2026-11-17; BUILT on `bb-tilt`)
 
