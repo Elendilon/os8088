@@ -1638,8 +1638,14 @@ bz_land:
     mov cx, [bz_mrec + BZM_BMIN] ; CL = BMIN, CH = GRIP (unused); CL = the
     mov al, [bz_mrec + BZM_HARD] ; mat's BZ_BMINMAT and no hard landing on a
     cmp byte [bz_surf], BZ_SURF_BOUNCE ; `bounce` floor (130.11.6.2)
-    jne .hard
+    jne .hspr
     mov cl, BZ_BMINMAT
+    xor al, al
+.hspr:                          ; SPEC.md 130.14.4.6.1: a landing on a SPRING
+    cmp al, BZ_HARD_STUN        ; never stuns - the spring takes the impact
+    jne .hard                   ; (the centre's owner, bz_wolf's kind)
+    cmp byte [bz_wckd], BZ_PK_SPRING
+    jne .hard
     xor al, al
 .hard:
     or al, al

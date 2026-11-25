@@ -162,6 +162,8 @@ and PASSES only if the row FAILS - at its own check:
                       shipped springs are BZ_VZMAX, 130.14.19 item 6) leaves at
                       the max, not the sum
        spring-shatter glass shattering on a spring is not launched
+       spring-steel   steel bouncing on a spring is never stunned there and
+                      steers off it (SPEC.md 130.14.4.6.1; red sprstun)
        return         RETURN mid-roll from MOON's flag 1: back on it, bz_nret 1
        tilt           a TILT log on FIRST: caps 0 - 8 on both axes, then Right
                       held at cap 8 and dropped to 2 - levels 8, 6, 4, 2
@@ -173,6 +175,8 @@ and PASSES only if the row FAILS - at its own check:
              touching one - the rule until 2026-11-23: flagmat-touch parts
   padftg     ftg not rebuilt at a swap: padswap's tables (and its steps)
   cupv       the capture without the speed test: cup-lip holes out
+  sprstun    a landing on a spring STUNS (130.14.4.6.1): spring-steel's
+             steel is relaunched stunned and never leaves the spring
   springsum  the spring ADDS to the rebound: spring-max's apex
   tiltcap    the min before the decay: tilt's 8, 6, 4, 2 become 8, 2
 
@@ -4198,6 +4202,18 @@ def w4_replays():
         "max(360, the rebound) = %s, not the sum" % (s2["at"], sp[0][2] if sp else None),
         sp and evs(p, "bounce") and sp[0][2] == max(360, evs(p, "bounce")[0][3]),
         red={"_spring_sum": True})
+    # SPEC.md 130.14.4.6.1: STEEL bouncing straight on spring 2 (its launch poked to 600, a hard landing every
+    # bounce) and then steered: a landing on a spring never stuns, so it leaves the spring's cell - the old rule
+    # (red sprstun) relaunched it stunned every time, keys ignored, for good
+    pk = w4_poke(TP, *s2["at"], mat=BB.MAT_STEEL, lift=30, recpoke=(s2["i"], "gvz", 600))
+    keys = [0] * 80 + [CHORD_X] * 120
+    p = run_keys(TP, BB.MAT_STEEL, pk, keys)
+    q = run_keys(TP, BB.MAT_STEEL, pk, keys, _sprstun=True)
+    add("spring-steel", TP, BB.MAT_STEEL, pk, keys, "steel bouncing on spring 2 %s (launch 600), then steered: "
+        "%d stuns, off its cell %s (the old rule: %d stuns, ends %s)" % (
+            s2["at"], p.nstun, (p.gx >> 12, p.gy >> 12) != tuple(s2["at"]), q.nstun, (q.gx >> 12, q.gy >> 12)),
+        p.nstun == 0 and p.nspr >= 2 and (p.gx >> 12, p.gy >> 12) != tuple(s2["at"]) and q.nstun > 0
+        and (q.gx >> 12, q.gy >> 12) == tuple(s2["at"]), red={"_sprstun": True})
     pk = w4_poke(TP, *s2["at"], mat=BB.MAT_GLASS, lift=64)
     p = run_keys(TP, BB.MAT_GLASS, pk, [0] * 50)
     add("spring-shatter", TP, BB.MAT_GLASS, pk, [0] * 50, "glass dropped 64 px onto spring 2: shattered, never "
@@ -5292,13 +5308,18 @@ REDS = {
 # leaves the probe's TOUCHED bit set (the `probe` replay's bz_fst parts from the model's)
 REDS["famrsp"] = [("bzphys.inc", "    call bz_frst                ; the place, whose refill runs the CELL hook\n",
                    "    nop                         ; RED famrsp: the RESPAWN class ignored\n    nop\n    nop\n")]
+# SPEC.md 130.14.4.6.1: a landing on a SPRING stuns as on any floor (steel relaunched stunned, for good)
+REDS["sprstun"] = [("bzphys.inc", "    cmp byte [bz_wckd], BZ_PK_SPRING\n    jne .hard\n    xor al, al\n.hard:\n",
+                    "    cmp byte [bz_wckd], BZ_PK_SPRING\n    jmp short .hard              ; RED sprstun: it stuns\n"
+                    "    xor al, al\n.hard:\n")]
 RED_LEGS = {"slope": ("bench",), "respawn": ("scen",), "takeoff": ("scen",)}
 RED_FAM = {"famrsp"}            # (its scenario, `probe`, is PLAYGROUND's: w9_replays, no test course has a family)
 RED_ONLY = {"respawn": ("pit",), "takeoff": ("lip",), "bounce": ("bounce",), "edge": ("eastwall",),
             "stun": ("stun",), "shatter": ("shatter",), "absimpact": ("ramphop",), "airwall": ("stepup",),
             "gate": ("knock",), "kick": ("kick",), "carry": ("hop",), "carrys": ("ride",), "stick": ("hop",),
             "exit": ("keep",), "ckpt": ("flag",), "ckmat": ("flagmat",), "cktouch": ("flagmat-touch",), "padftg": ("padswap",),
-            "cupv": ("cup",), "springsum": ("spring",), "tiltcap": ("tilt",), "famrsp": ("probe",)}
+            "cupv": ("cup",), "springsum": ("spring",), "tiltcap": ("tilt",), "famrsp": ("probe",),
+            "sprstun": ("spring-steel",)}
 RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", "bounce": "bounce frame",
             "edge": "eastwall frame", "stun": "stun frame", "shatter": "shatter frame",
             "absimpact": "ramphop-", "airwall": "stepup frame", "gate": "knock frame", "kick": "kick frame",
@@ -5306,7 +5327,7 @@ RED_WANT = {"slope": "the benchmark frame", "respawn": "pit", "takeoff": "lip", 
             "ckpt": "flag frame", "ckmat": "flagmat-rubber frame", "cktouch": "flagmat-touch frame",
             "padftg": "padswap-",
             "cupv": "cup-lip frame", "springsum": "spring-max frame", "tiltcap": "tilt frame",
-            "famrsp": "probe frame"}
+            "famrsp": "probe frame", "sprstun": "spring-steel frame"}
 
 # wave 6 (SPEC.md 130.16.14): the token set again by a contact Hop (a boost every other contact)
 REDS["pump"] = [("bzphys.inc", ".hp:\n    mov byte [bz_hopw], 0\n    inc word [bz_nhop]\n    jmp short .leave\n",
