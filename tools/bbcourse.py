@@ -25523,17 +25523,33 @@ def finish_reach_rule(c, _hack=None, _posts=()):
     if cups:
         byex[None] = cups
     ups = updraft_carries(c)
+    start = tuple(c.src.start[0])
+    beyond = []                                     # (finishes the closure cannot see with NO clock in place)
+
+    def held(R, g):
+        return g in R and any(n in R and 4 * min(rm[g].corners()) <= 4 * max(rm[n].corners()) + CLIMB
+                              for n in rec_adj(c.tiles, g))
     for e, fins in sorted(byex.items(), key=lambda kv: -1 if kv[0] is None else kv[0]):
-        drop = {k for k in rm if k[:2] in posts or (k in goals and rm[k].exit != e)}
-        start = tuple(c.src.start[0])
+        other = {k for k in rm if k in goals and rm[k].exit != e}
+        drop = other | {k for k in rm if k[:2] in posts}
+        R0 = reach_closure(c.tiles, start, drop=other, updrafts=ups) if start in rm and start not in other else set()
         R = reach_closure(c.tiles, start, drop=drop, updrafts=ups) if start in rm and start not in drop else set()
         for g in fins:
-            if g not in R or not any(n in R and 4 * min(rm[g].corners()) <= 4 * max(rm[n].corners()) + CLIMB
-                                     for n in rec_adj(c.tiles, g)):
+            if not held(R0, g) and "reachblame" not in (_hack or ()):     # SPEC.md 130.22.6.3: past the closure's model with no clock in
+                beyond.append(g)                    # place (a tube, a lift, a gate) - not the clocks' to answer for
+                continue
+            if not held(R, g):
                 raise CourseError("%s: the %s (%d, %d) cannot be reached with the course's clocks in place "
                                   "(clock posts at %s): move the clock (SPEC.md 130.22.6)"
                                   % (c.fname, "cup" if e is None else "goal cell", g[0], g[1], sorted(posts)))
     n = len(goals) + len(cups)
+    if beyond:
+        return ("%s: %d of %d finish cell%s reachable past %d clock post%s; %d (%s) beyond the closure's reach with no "
+                "clock in place either (a tube, a lift, a gate: the softlock check and the autopilot judge those, "
+                "SPEC.md 130.22.6.3)" % (c.name, n - len(beyond), n, "s" * (n != 1), len(posts),
+                                         "s" * (len(posts) != 1), len(beyond),
+                                         ", ".join("(%d, %d)" % g[:2] for g in beyond[:3])
+                                         + (" ..." if len(beyond) > 3 else "")))
     return "%s: all %d finish cell%s reachable past %d clock post%s" % (
         c.name, n, "s" * (n != 1), len(posts), "s" * (len(posts) != 1))
 
@@ -35289,6 +35305,25 @@ def _clock_rule_checks(courses, res, paths=None):
                     if okr else verd[0][:120]),
                 okr and "goal cell (8, 17) cannot be reached" in redr and "the cup " in redc
                 and "cannot be reached" in redc))
+    # SPEC.md 130.22.6.3 (CASTLE CLIMB's, 2026-11-25): a finish the closure cannot see with NO clock in place - a
+    # goal up a tube, here a tower 20 above the floor with no way up - is not the clocks' doing: the rule passes
+    # it and names it, never "move the clock"; TRIAL's and MOON's red controls above still refuse
+    tower = ('course TOWER "t"\nwidth 64\nfloor rect 4 10 12 14 flat 0\nwall rect 12 9 15 15 flat 30\n'
+             'floor rect 15 10 18 14 flat 20\ngoal rect 16 11 18 13 flat 20\nstart 5 12\nclock 6 11\nlimit 60\n')
+    vt = vr = None
+    try:
+        ct = compile_course(tower, fname="<a goal up a tower>", occluders=False, _hack={"no_bounds": 1})
+        vt = finish_reach_rule(ct)
+        vr = finish_reach_rule(ct, _hack=("reachblame",))       # (the RED ARM: the rule as it was)
+    except CourseError as e:
+        if vt is None:
+            vt = "REFUSED: " + str(e)
+        else:
+            vr = str(e)
+    res.append(("8R a finish beyond the closure's reach with no clock in place (a goal up a tower) is not the "
+                "clocks' doing: %s; RED ARM: the rule as it was (`reachblame`) says %s" % (
+                    vt[:140], (vr or "nothing")[:110]),
+                "beyond the closure's reach" in vt and "move the clock" not in vt and "move the clock" in (vr or "")))
     # R1: TRIAL's finish clock is off the autopilot's route - the route demo's replay is the same, step for
     # step, with it and without it, and so is the limit; red control: the clock on (11, 17), where the
     # autopilot meets it (796 steps, a 30 s limit)
