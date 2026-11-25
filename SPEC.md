@@ -283332,10 +283332,19 @@ BZ_NCRS`), so a course added by the other waves moves them and nothing else:
 | *(later rows)* | *(the table's numbering predates 130.26.5, which removed the title's song: the parts are `BZM0` *Fairway* ... `BZM5` *Victory*, `BZM6` the title screen's `attract`)* | | |
 | `BZM7.BIN` | *First Roll* (F major, 136.5, `groove 7 5`; 2026-11-18): FIRST ROLL's own, by its `music firstroll`. Listed in `bbmusic.NON_COURSE` so the default wrap (`course_song`, `(K - 1) mod n`) still counts the five course songs and no course falls onto the fanfare | 1,202 | |
 | `BZM9.BIN` | *Little Hop* (A major, 149, `groove 7 4`; 2026-11-19): LITTLE HOP's own, by its `music littlehop`, its motif a Hop and an "and again". In `bbmusic.NON_COURSE` like First Roll's, so the default wrap is unchanged | 1,309 | |
+| `BZM10.BIN` | *Kite Hill* (D major with the lydian's raised fourth, a 6/8 at 121 to the dotted quarter, `groove 5 4`, four bars a pattern; 2026-11-25): KITE HILL's own, by its `music kitehill`. Each phrase an arc a step higher than the last, one held note (the thermal), a gust that stops dead and a bar's breath; the loop 40 bars, 39.5 s | 950 | |
+| `BZM11.BIN` | *Lodestone Gorge* (G dorian, 109, `groove 10 5`, a bar a pattern; 2026-11-25): LODESTONE GORGE's own, by its `music lodestone`. A work song: every bar starts on one low G (the hammer, in the lead, so the speaker plays it) and its last short 16th drops back onto the next; a lift into G major for the last eight bars, whose final G is held 90 sub-ticks, the hover's 1.6 s. The loop 24 bars, 52.7 s, after a 3-bar intro | 1,092 | |
+| `BZM12.BIN` | *Clockwork Keep* (C minor, 102.4, `groove 8`: no swing; a bar a pattern; 2026-11-25): CLOCKWORK KEEP's own, by its `music clockwork`. The TICK-TOCK is the BASS channel's (the chord's root, an octave apart, six sub-ticks a beat), so `spkbass` folds it between the tune's notes on the speaker; a fanfare in C major ends the loop. **A bar is 128 sub-ticks, the intro 256 and the loop 3,072 (12 x 256)**: the periods of KEEP's timers (128 and 256 steps of the same 54.6 Hz clock), so the song keeps the machines' RATE and does not drift round its loop. Their PHASE is not tied, and no song can tie it: the song's counter starts at the bracket and steps on through a pause's wait (`bz_pause`, `bz_kinfow`), while the play's steps are discarded there and at a cut (`bz_lsubs`, `bz_disc`), and each is capped at 8 a frame by itself ([KEEP.md](docs/plans/bonanza-courses/KEEP.md) section 16) | 967 | |
 
 **A part a song**, so only the song playing is in memory: at most the sound
 part and one song, **2,071 bytes**, in two claims - on the desktop the title's,
 in a play the course's. 4,904 bytes of the floppy. The sound part:
+*(Since 130.50.3 a song is a section of the course part that plays it, so a
+song in the manifest that no course of a build names ships nowhere: songs 10 -
+12 were added while KITE, LODE and KEEP were in no build, and the default
+`BONANZA.O88` and its four disks were byte-identical before and after
+(MEASURED 2026-11-25, two private trees at one commit; only `bzsnd.inc`'s
+`BZS_NSONG`, which nothing assembles, and its comments moved).)*
 
 ```
 +0  'BS', version 1, instruments

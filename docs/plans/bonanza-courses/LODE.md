@@ -36,7 +36,7 @@ its one new idea, and every meeting turns them over:
 | target time | 55 - 60 s for a first clear, 40 s for a good one (`target 60`'s class, `limit 99`). MEASURED on the model: the route demo **35.7 s** (1,948 steps), no fall (section 3) |
 | palette | the default (cyan, magenta, white): cold stone and magenta lodestones. The owner's call |
 | clocks | 4: start, pen, turn, vault. An ORE CART that fills along the way (section 9) |
-| song | NEW, the music agent's (section 9): heavy, driving, a work song. `music fairway` stands in |
+| song | **Lodestone Gorge** (`music lodestone`, section 16): G dorian at 109, a work song whose every bar is pulled back onto one low G; a lift into G major and a held note for the hover. Nobody has heard it yet |
 | the one new idea | **something outside the ball pulls it, and it is steel's alone.** Speed beats a pull; a pull can carry |
 | picture | 832 x 728 px (`width 104`, `origin 272`); the floors are 640 px across. ONE part, 54,871 bytes |
 
@@ -548,3 +548,58 @@ python3 docs/plans/bonanza-courses/lode/measure.py                # section 3's 
 `../penkit.py` is the pen the three sketches of courses 5 - 7 share. The route demo is
 the tool's own (the autopilot on the course's `way` points, as ROLL's, HOP's, DOWN's,
 MILL's and KITE's are): there is no `demos/lode.bzd` to keep in step.
+
+## 16. The song (written 2026-11-25; NOT YET HEARD)
+
+`apps/bonanza/music/lodestone.bmu`, song 11 of `tools/bbmusic.py`'s manifest, "Lodestone
+Gorge"; the course names it (`music lodestone`, which `lode/sketch.py` writes). The file's
+own header is the full account; this is the summary and what was checked.
+
+| | |
+|---|---|
+| the idea | a HAMMER and what PULLS it. Every bar starts on the same low G3, a quarter long, struck with the kick; the tune climbs away from it in strong 8ths; the bar's last, short 16th (the "ka" of ka-CHUNK, the hammer's back-swing) drops onto the next bar's G. The low note is in the LEAD, so the speaker plays it: low on the beat, tune off it, as section 9 asked |
+| key | G dorian (the major IV, C, with its E natural, is the colour); the last eight bars G MAJOR, reached through a D major arpeggio |
+| tempo | 4/4 at 109.2: `groove 10 5`, so the 8ths are even (15 sub-ticks) and the off 16th is the short third of a triplet. A bar 120 sub-ticks, 2.2 s, and a bar a pattern |
+| length | 27 bars a pass. Intro 3 bars (360 sub-ticks, 6.59 s: the flume, 8ths tumbling down in thirds, a gallop, the first G); **the loop 24 bars, 2,880 sub-ticks, 52.73 s** (A B C, order rows 3 - 26) |
+| bytes | 1,092; LODE's part 54,871 -> 55,132 bytes in RAM with it, of 65,024 |
+| the speaker | the lead G3 - G5, 196 - 784 Hz (the lowest lead of the course songs); kick blips under each G and the clap (the anvil) on beats 2 and 4; `spkbass` gives the bass's G2 and D2 to the breath before each "ka". 10.5 tones a second |
+| the AdLib | horn (A, B), trumpet (C); a held bass walking the four beats (`v14`); low strings holding a drone (`v11`), an open fifth on G, the other chords over a G where they can carry one; kick and clap on their two channels. Everything is below the tune |
+
+**Its shape against the autopilot's run** (section 9's timeline; a player's run is longer):
+
+| song | from | the run's |
+|---|---|---|
+| the flume (intro) | 0 s | the pen is reached at 6.3 s; the first hammer falls at 6.59 |
+| A, the work song: three calls a step higher each, a bar that breaks free over C - Dm, pulled home | 6.59 s | hoist 11.9, bridge 13.2, turn 17.3, ramp 21.9 |
+| B, the wall: the hammer on beats 1 and 3, pairs of 8ths climbing between, a long fall from F5, then from G5 | 24.17 s | the wall 24.0 - 28.7 |
+| C, the lift into G major | 41.74 s | a first clear of 55 - 60 s ends here; the autopilot's 35.4 s ends in B |
+| C's last bar: the band stops, one G4 held 90 sub-ticks, **1.65 s** | 57.12 s | the hover under the great lodestone is 1.6 s |
+
+**What was checked, on the host** (`bbmusic --selfcheck`: 13 songs, 0 problems; the model's
+keys; both arms rendered to WAV and the WAVs read back):
+
+- Every one of the 161 lead keys of a pass sounds on the speaker at its sub-tick (81 after
+  a drum's two-sub-tick blip: the drums fall on every beat, as Summit Rush's do, 89 of
+  127); the speaker WAV's pitch is the model's on all 2,546 measurable sub-ticks of the
+  full pass. The longest unbroken tone is the hover's, 1.59 s.
+- The loop: keys and speaker tones repeat exactly from the second pass; nothing is held
+  across the loop point (the trumpet's last "ka" is a 16th; the horn takes the next G).
+- Loudness: speaker -13.8 dB RMS; AdLib -17.9 dB, peak 0.51, nothing clipped. The lead
+  alone is 4.0 dB over the accompaniment alone, and the loudest spectral peak of every
+  lead note of 9 sub-ticks or more is the lead's (146 of 146; often its second partial,
+  the horn being low).
+- Recompiled with the song, the route demo (`BZDLODE.BIN`, 270 bytes) is byte-identical
+  and the part differs only from the song's offset on (and the directory's offset word).
+
+**What it does not do that section 9 asked**: the low note is on the bar (and on beats 1
+and 3 in B), not on every beat - every beat is CLOCKWORK KEEP's tick, and the two must not
+sound alike; the tune proper starts with the first hammer at 6.6 s, not at the hoist.
+
+**Still owed**: a LISTEN - nobody has heard a note of it. The renders are
+`11-lodestone-spk.wav` and `11-lodestone-fm.wav` (40 s) and the full pass, with the lift
+and the hover, under `full/` (`python3 tools/bbmusic.py wav -o DIR --song 11`). Above all
+the low G on a real speaker (196 Hz, and the bass's 73 - 98 Hz in the breaths: Bounce
+Trial's bass goes as low and the owner has heard that one) and the ka-CHUNK's 5-sub-tick
+16th under the horn's scoop. Then the guest: `bonanzamusic` covers the song, and the frame
+cost on the XT is not measured.
+

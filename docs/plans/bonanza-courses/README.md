@@ -86,6 +86,24 @@ has to add. What it found that the next course meets too:*
 - *A flag within 3 cells of the main route that the route cannot also reach its fellows of (a secret's) makes
   the route search's flag pass spend its whole budget, 45 s a compile: keep a secret's flags 4 cells off.*
 
+*Courses 5 - 7 have their own SONGS (2026-11-25, the step after the three refinements): `kitehill.bmu`,
+`lodestone.bmu` and `clockwork.bmu`, each named by its course's `music` line (which the course's `sketch.py`
+writes) and written up in its sheet's section 16. Host-checked on both arms and NOT YET HEARD by anybody. What
+the step found that the next song meets too:*
+
+- *A song in the manifest that no course of a build names ships nowhere (SPEC.md 130.50.3): adding the three
+  moved no byte of the default `BONANZA.O88`.*
+- *The speaker plays the BASS channel wherever the lead is silent for two sub-ticks (`spkbass`), and the bass
+  channel can hold anything: CLOCKWORK KEEP's tick-tock is there, so one speaker voice plays tick, tune, tock,
+  tune. End the lead's note two sub-ticks before the beat (`q2`) or the tick is a sub-tick late.*
+- *A drum with a speaker blip (kick, snare, clap, tom) eats the first two or three sub-ticks of whatever starts
+  with it: keep it off a quick run's first note (KITE HILL's gust lost its first 16th to a kick) and off a note
+  that is meant to be held unbroken.*
+- *Measure an instrument before trusting its name: the damped pluck (`stab`) is 16 dB under the music box at one
+  volume, and the ORGAN and the PEDAL are additive patches, on which a `v` moves one operator of two.*
+- *A song's tempo can equal a timer's period exactly (a 16th of 8 sub-ticks, a bar of 128 steps); its PHASE
+  cannot be held, by any song: KEEP.md section 16.*
+
 **Every existing course is a test course.** FIRST, TRIAL, PLAYGROUND, MILL,
 MOON, SUMMIT (PEAK), BENCH and the props' labs ship nothing. Ideas and
 components are taken from them (section 5); none is reworked into a shipped
