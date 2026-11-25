@@ -287398,6 +287398,26 @@ With `base` (130.42.12) they stop at the column's top as before. It is the pictu
 physics, and the lanes are still the whole-picture difference of the poses. Shipped `MILL` and the test course
 `TILT` re-draw (their picture parts change, nothing else); every other course is byte-identical.
 
+##### 130.42.13.1 ...as far as the neighbour's OWN faces hang (the owner, 2026-11-25)
+
+*"Instead of looking what is connected to it, and that tile's ground/float rules, it's just always adding a
+column. Which means seesaws without a solid column behind them now also show a solid column."* 130.42.13 hung
+the faces behind a plate (with no `base`) to the GROUND plane whatever the cell behind was. Beside a FLOATING
+platform (a `float`, a bridge) that drew a solid column the platform does not have.
+
+- **The rule now.** Each face behind the plate hangs as that neighbour's own face over the void would hang if
+  the plate's cell were empty, which is `draw_ops`' rule for that cell:
+  - a FLOATING cell's face hangs its `float`'s depth (3 units, or its `thick`);
+  - any other cell's face hangs to the ground plane, never less than `FACE8`, as before.
+- **`base` is unchanged.** With `base` the faces stop at the column's top.
+- **No option to set.** The look follows what the plate is attached to, which is what the owner asked for first.
+- **The check** is `--selfcheck` section `tiltbase`, item 5: `_TLB`'s platform floated one unit thick
+  (`float ... thick 1`), with a plate beside it. Where the old rule drew the platform's face on to the ground
+  (the red arm `tlfaceground`: 92 px), the picture is the same course's without the see-saw, pixel for pixel.
+- **Shipped courses.** MILL's and TILT's plates sit beside grounded floors. Their pictures were compiled with
+  the rule and with the red arm and compared pixel for pixel: 0 px differ (MEASURED, and the same for the
+  unshipped KEEP), so no shipped part moves.
+
 #### 130.42.14 MILL's see-saw in the game: what was measured (the owner, 2026-11-23)
 
 The owner: *"Got it ingame, and the seesaw is not see-sawing"* - the Test Roll shows MILL's plate (`seesaw 22

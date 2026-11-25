@@ -3265,6 +3265,7 @@ def _parse_seesaw(toks, where, ln):
 
 _TL_BASEHIGH = False          # (--selfcheck tiltbase's red arms: the column's top a half unit higher, margin 0;
 _TL_BASEAFTER = False         # ...the column drawn after its plate cell's ops;
+_TL_FACEGROUND = False        # ...a floating neighbour's face hung to the ground all the same (130.42.13.1)
 _TL_BASENOLANE = False        # ...the plate's lanes cut from the poses drawn without the column)
 
 
@@ -3275,7 +3276,7 @@ def tl_base_z(sw):
     return sw["pz"] - L // 2 - (TL_THICK + (0 if _TL_BASEHIGH else TL_BMARGIN)) // 4
 
 
-def tilt_base_ops(seesaws, ops, x0, ground, tiles):
+def tilt_base_ops(seesaws, ops, x0, ground, tiles, floats=None):
     """SPEC.md 130.42.12: each `base` see-saw's COLUMN - a block (a WALL's top: nothing the ball reaches) at
     tl_base_z under every plate cell, its faces over the void to the GROUND plane (draw_ops' rule: never less than
     FACE8) or `base`'s depth - each cell's ops put into the back-to-front order immediately before that plate cell's
@@ -3307,13 +3308,22 @@ def tilt_base_ops(seesaws, ops, x0, ground, tiles):
                 if r is None or isinstance(r, FieldTile):
                     continue
                 zp, zq = 4 * r.corner(*cp), 4 * r.corner(*cq)
-                b_ = bot
-                if b_ is None:                  # (130.42.13: to the ground plane, never less than FACE8)
-                    b_ = min(zp, zq) - FACE8 if ground is None else min(ground, min(zp, zq) - FACE8)
-                if zp <= b_ and zq <= b_:
+                if bot is not None:
+                    bp = bq = bot
+                elif floats and n in floats and not _TL_FACEGROUND:
+                    # SPEC.md 130.42.13.1: the neighbour's OWN rule, as draw_ops hangs its face over the void -
+                    # a FLOATING cell's (a `float`, its `thick`) that deep, so a plate beside a bridge or a
+                    # floating platform shows no solid column under it
+                    fd = floats.get(n, FACE8) if isinstance(floats, dict) else FACE8
+                    bp, bq = zp - fd, zq - fd
+                elif ground is None:            # (130.42.13: to the ground plane, never less than FACE8)
+                    bp = bq = min(zp, zq) - FACE8
+                else:
+                    bp = bq = min(ground, min(zp, zq) - FACE8)
+                if zp <= bp and zq <= bq:
                     continue
-                poly = [_scr(p[0], p[1], zp, x0), _scr(q[0], q[1], zq, x0), _scr(q[0], q[1], min(zq, b_), x0),
-                        _scr(p[0], p[1], min(zp, b_), x0)]
+                poly = [_scr(p[0], p[1], zp, x0), _scr(q[0], q[1], zq, x0), _scr(q[0], q[1], min(zq, bq), x0),
+                        _scr(p[0], p[1], min(zp, bp), x0)]
                 mk = (lambda xp4, zp_, xq4, zq_: lambda y0: _face_fn(xp4, zp_, xq4, zq_))(
                     poly[0][0], zp, poly[1][0], zq)
                 grp.setdefault((wx, wy), []).append((spans(poly), which, n[0] + n[1], mk, True, r, n))
@@ -14242,7 +14252,8 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
         o_ = draw_ops({k: v for k, v in tl_.items() if k not in undrawn} if undrawn else tl_, x0,
                       {c for p in props if p["kind"] == PK_TUBE for c in p["body"]}, ground, floats)
         if src.seesaws and not nobase:              # SPEC.md 130.42.12/13: a COLUMN, or the faces behind
-            o_ = tilt_base_ops(src.seesaws, o_, x0, ground, {k: v for k, v in tl_.items() if k not in undrawn})
+            o_ = tilt_base_ops(src.seesaws, o_, x0, ground, {k: v for k, v in tl_.items() if k not in undrawn},
+                               floats)
         if props:
             o_ = prop_ops(tl_, o_, props, x0)
         if redges and not hack.get("norail"):       # SPEC.md 130.35.3 (red arms: norail, the rails undrawn;
@@ -37457,6 +37468,25 @@ def _sc_tiltbase(X, res):
             fired, msg = want in str(e), str(e)
         res.append(("1 refused (see-saw base, 130.42.12): %s%s" % (what, "" if fired else " -- got: " + msg), fired))
     _tiltbase_checks(res)
+    # SPEC.md 130.42.13.1: beside a FLOATING platform (`float ... thick 1`) a plate with no `base` shows no column:
+    # where the old rule (red arm tlfaceground) drew the platform's face on down to the ground, the picture is
+    # the same course's without the see-saw, pixel for pixel
+    global _TL_FACEGROUND
+    pics = {}
+    for key, text, red in (("fixed", _TLB + "float rect 4 4 8 8 thick 1\nseesaw 8 5 10 6 along x pivot 2\n", False),
+                           ("red", _TLB + "float rect 4 4 8 8 thick 1\nseesaw 8 5 10 6 along x pivot 2\n", True),
+                           ("bare", _TLB.replace("uses seesaw\n", "") + "float rect 4 4 8 8 thick 1\n", False)):
+        _TL_FACEGROUND = red
+        try:
+            c_ = compile_course(text, fname="<%s>" % key, occluders=False, _hack={"no_finish": True})
+            pics[key] = [bytes(r) for r in c_.pic]
+        finally:
+            _TL_FACEGROUND = False
+    diff = {(x, y) for y, r in enumerate(pics["fixed"]) for x in range(len(r)) if r[x] != pics["red"][y][x]}
+    same = sum(pics["bare"][y][x] == pics["fixed"][y][x] for x, y in diff)
+    res.append(("5 a plate beside a FLOATING platform hangs no column (130.42.13.1): the old rule's %d px of it "
+                "are the picture without the see-saw (%d of them) - the red arm must draw some" % (len(diff), same),
+                bool(diff) and same == len(diff)))
     for arm, item in (("tlbasehigh", 3), ("tlbaseafter", 2), ("tlbasenolane", 4)):
         bad = _tiltbase_checks([], arm)
         red = [w for (w, k), ok in bad.items() if k == item and not ok]
