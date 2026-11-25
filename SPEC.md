@@ -262424,8 +262424,8 @@ props. Each refusal names the line:
   What the player takes on beside a pit is the player's: a ball left
   rolling sideways off a one-tile flag falls and respawns there, at rest
   (`--selfcheck` section `flags`, `_sc_onepath`).*
-- at most 8 checkpoints (numbered 0 - 7 in file order), 8 pads, ONE cup,
-  4 springs; at most 16 props with a lane (windmills, bumpers, flags) and
+- at most 8 checkpoints (numbered 0 - 7 in file order), 8 pads, ONE cup;
+  springs have no cap of their own (130.14.4.1.3); at most 16 props with a lane (windmills, bumpers, flags) and
   32 props in all (130.14.4.2);
 - a course has GOAL cells or a cup, never both, and the tool refuses one
   with neither;
@@ -262671,6 +262671,19 @@ The growth is the START's search (the others' states are mostly the
 cache's by then); HOP falls by a third, its Hops asked for at 4 states
 rather than pressed from all of them. No shipped course needs the pickup
 arm, and none asks for a Hop but HOP.
+
+###### 130.14.4.1.3 Springs have no cap of their own (the owner, 2026-11-25)
+
+*"We seem to be limited to 4 springs a course? That tile has no animation, and only needs checked when they enter
+it."* The cap of 4 was wave 4's first guess and nothing depends on it.
+
+- A spring is ONE prop record (its `gvz`) and nothing else: no lane, no state byte, no table sized by the count.
+  The engine reads it only when the ball's centre makes contact on the spring's cell (`bz_prule`'s owner
+  dispatch, the SPRING family's CONTACT, 130.25.20).
+- `SPRING_MAX` is now `PROP_ALL`, so the bound on springs is the 255 props a course holds in all (130.19.10).
+  Each one costs its record, like any other stateless prop.
+- **The check** is `--selfcheck` section `grammar`: twelve springs on one course compile. The old "a 5th spring"
+  refusal case is gone.
 
 ##### 130.14.4.2 Records, the grid and the header
 
@@ -285973,15 +285986,33 @@ leg may replace a WALL a room laid.
 - a leg on a floor, a goal, a split or FIELD cell, water or a guard rail (a
   leg stands on the open edge beside the passage, or replaces a wall);
 - an END of the run (the cells just before and after it along the axis)
-  that is not a whole floor - a passage leads somewhere - or whose corners on
-  the shared edge are higher than the archway's floor plus its clearance (a
-  ball rolling off it would meet the arch as a wall);
+  whose corners on the shared edge are higher than the archway's floor plus
+  its clearance (a ball rolling off it would meet the arch as a wall). An end
+  need not be a floor (130.39.2.1);
 - two archways sharing a cell, legs included;
 - a prop on an archway cell other than a PAD (a clock, a windmill, a tube's
   cell, a bumper, a spring, the cup, a checkpoint, a family element): the
   ceiling would meet it;
 - the visibility rule (A10) not met;
 - any other clause.
+
+##### 130.39.2.1 An end may be a drop (the owner, 2026-11-25)
+
+*"When coming out of an arch, the path past it doesn't need to be a floor. It could be a drop, even into void (an
+arch to nowhere, or an arch 4 high they have to jump from, etc)."* The rule "a passage leads somewhere" is gone.
+
+- **What an end may be now.** The void, a lower floor, a wall or a goal: anything whose corners on the shared
+  edge are no higher than the clearance. A ball leaving the run over the void falls and respawns like any other
+  fall.
+- **What is still refused.** An end that rises past the clearance, because a ball rolling off would meet the arch
+  as a wall.
+- **Why nothing else needed to change.** The ceiling is the archway's own cells (the CELL hook's wall and the
+  STEP cap), so nothing read the ends except this rule. This was looked at on ARCH with its two-wide archway's
+  path cut off at the arch: the picture is a lintel over a passage that ends in the void, and on the model a
+  rubber ball rolled through, fell and respawned.
+- **The check** is `--selfcheck` section `arch`. Three ends are taken: both ends the void, an end a floor lower
+  than the archway's, and an end a wall under the clearance. The old "an end that is the void" refusal case is
+  gone.
 
 #### 130.39.3 The record and the slot
 
