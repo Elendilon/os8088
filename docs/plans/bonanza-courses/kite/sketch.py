@@ -147,12 +147,12 @@ p.guard(9, 34, 11, 35, sides=["+y"])
 p.floor("H", 6, 24, 9, 27, ZG + 0.5, "the CROWN: half a unit up (every ball rolls up it), the goal on it")
 p.goal(6, 24, 9, 27, ZG + 0.5)
 
-# the clocks are KITES (kite/CLOCKS.md; SPEC.md 130.18.5.2): a bow more on the tail at each, and `digits 0 -16`
-# lifts each kite two block rows clear of its tile, so it flies on its string
-p.clock(54, 55, ZA, "start: one bow", frame="kite1 digits 0 -16")
-p.clock(41, 37, Z1, "plaza: two", frame="kite2 digits 0 -16")
-p.clock(16, 38, Z3, "launch: three", frame="kite3 digits 0 -16")
-p.clock(7, 22, ZG, "summit: a full tail", frame="kite4 digits 0 -16")
+# the clocks are WINDSOCKS (the owner's pick, 2026-11-25: kite/CLOCKS.md; SPEC.md 130.18.5.2): the wind fills the
+# sock up the hill - limp, half out, straight, taut
+p.clock(54, 55, ZA, "start: limp", frame="sock1")
+p.clock(41, 37, Z1, "plaza: half out", frame="sock2")
+p.clock(16, 38, Z3, "launch: straight out", frame="sock3")
+p.clock(7, 22, ZG, "summit: taut", frame="sock4")
 
 p.comment("ART (docs/plans/bonanza-courses/kite/art.py draws the files and places them: ART.md)")
 for _ln in ART.lines():

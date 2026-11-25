@@ -273121,7 +273121,7 @@ clear), so no vase clock carries an occluder record. Every clock passes
 study of two or three concepts with the others kept as scratch frames:
 `docs/plans/bonanza-courses/kite/CLOCKS.md`, `lode/CLOCKS.md`,
 `keep/CLOCKS.md`, and `docs/plans/bonanza-courses/clockkit.py` the kit that
-compiles and draws them). Eleven frames, three objects, each with a variant
+compiles and draws them). Fifteen frames, four objects, each with a variant
 a clock that says where on its course the clock stands. None declares an
 anchor (`CLOCK_DIGITS`, 130.18.5.5): where a course wants the digits
 elsewhere it says so on its `clock` line, and each frame is drawn round the
@@ -273144,7 +273144,22 @@ in most blocks it crosses; as paint it cuts none (MEASURED below).
   full tail of FIVE streaming level, wind marks past its end. MEASURED on
   KITE against the default frame (no song): blocks 769 -> 796, masks 178 ->
   **180** (232 with the string and tail keyed), RAM +480, LZ4 +748; the
-  longest wholly-hidden runs 5, 1, 0, 0.
+  longest wholly-hidden runs 5, 1, 0, 0. **Not KITE's clocks any more** (the
+  owner, 2026-11-25): the frames stay in the tool for another course.
+- **KITE HILL's `sock`** (`_clock_sock`; the owner's pick, 2026-11-25: *"the
+  windsock is probably better; just because kites themselves don't have a
+  reason to be in that spot, and we'll have kite art"*; in the course's inks
+  by index, as `kite`): a WINDSOCK on a pole banded every 4 px, a hoop on
+  two arms, the digits on the sock's first band (yellow on KITE, white on
+  the Hercules; no window) and a cone beyond it banded red and yellow. The
+  pole, the band and the cone are the face; the arms and the wind marks are
+  paint. The wind fills it up the hill: **`sock1`** (the meadow) LIMP, the
+  cone hanging; **`sock2`** (the fan plaza) HALF out; **`sock3`** (the launch
+  plaza) STRAIGHT out; **`sock4`** (the summit) TAUT, longer, its tip
+  fluttering, wind marks past it. KITE's four clocks wear them at a clock's
+  natural spot. MEASURED on KITE against the default frame (no song):
+  blocks 747 -> 752, masks 178 -> **200**, RAM +526, LZ4 +522; the runs 0,
+  0, 0, 0.
 - **LODESTONE GORGE's `cart`** (`_clock_cart`, palette 1's inks): an ore cart
   on a stub of track. A dark iron tub (a cyan and black dither) with a
   magenta rim, whitewashed between two iron straps where the digits are
@@ -273170,6 +273185,19 @@ in most blocks it crosses; as paint it cuts none (MEASURED below).
   run through, a mound below, a KEY; **`hourc`** (the dais): RUN OUT, the
   lower bulb full, a CROWN. MEASURED on KEEP against the default frame:
   blocks 789 -> 810, masks 223 -> 240, RAM +662, LZ4 +845; the runs 0, 0, 0.
+- **CASTLE CLIMB's `beacon`** (`_clock_beacon`, 2026-11-25; the study and its
+  two other concepts are `docs/plans/bonanza-courses/castle/CLOCKS.md`; in
+  palette 2's inks by index, so the tool's magenta is that course's red): an
+  iron fire-basket on a stem, standing on its block, the digits on the
+  fire's white-hot heart (no window), which cools to a red ring and then to
+  the basket's cyan and black iron. The stem, the basket and the flames are
+  the face; the two stays, the smoke and the sparks are paint. The fire
+  grows up the castle: **`bcn0`** (the outer wall) only EMBERS and a curl of
+  smoke; **`bcn1`** (the first gate) a SMALL flame; **`bcn2`** (the terraces)
+  a TALL one; **`bcn3`** (the keep) the GREAT fire, four tongues and sparks.
+  MEASURED on CASTLE against the default frame (no song, no art): blocks 943
+  -> 959, masks 178 -> **179**, RAM +338, LZ4 +660; the runs 0, 25, 0, 0
+  (the 25 is the course's own warning: 26 under the default frame).
 
 No shipped course names one: the eight default-build courses, the pathway
 and the title compile to the same bytes under the tool before and after
@@ -274460,9 +274488,10 @@ BZ_NCRS`), so a course added by the other waves moves them and nothing else:
 | *(later rows)* | *(the table's numbering predates 130.26.5, which removed the title's song: the parts are `BZM0` *Fairway* ... `BZM5` *Victory*, `BZM6` the title screen's `attract`)* | | |
 | `BZM7.BIN` | *First Roll* (F major, 136.5, `groove 7 5`; 2026-11-18): FIRST ROLL's own, by its `music firstroll`. Listed in `bbmusic.NON_COURSE` so the default wrap (`course_song`, `(K - 1) mod n`) still counts the five course songs and no course falls onto the fanfare | 1,202 | |
 | `BZM9.BIN` | *Little Hop* (A major, 149, `groove 7 4`; 2026-11-19): LITTLE HOP's own, by its `music littlehop`, its motif a Hop and an "and again". In `bbmusic.NON_COURSE` like First Roll's, so the default wrap is unchanged | 1,309 | |
-| `BZM10.BIN` | *Kite Hill* (D major with the lydian's raised fourth, a 6/8 at 121 to the dotted quarter, `groove 5 4`, four bars a pattern; 2026-11-25): KITE HILL's own, by its `music kitehill`. Each phrase an arc a step higher than the last, one held note (the thermal), a gust that stops dead and a bar's breath; the loop 40 bars, 39.5 s | 950 | |
+| `BZM10.BIN` | *Kite Hill* (D major with the lydian's raised fourth, a 6/8 at 121 to the dotted quarter, `groove 5 4`, four bars a pattern; 2026-11-25): KITE HILL's own, by its `music kitehill`. REVISED the same day after the owner's listen (*"the first 4-5 seconds are good, but then it repeats too much for too long"*): the arc motif is stated once and answered, then a second theme in B minor over the harp in three, the thermal's held note as a bridge, the motif back a sixth higher to the summit, a glide, a gust that stops dead and a bar's breath; the loop 36 bars, 35.6 s | 1,253 | |
 | `BZM11.BIN` | *Lodestone Gorge* (G dorian, 109, `groove 10 5`, a bar a pattern; 2026-11-25): LODESTONE GORGE's own, by its `music lodestone`. A work song: every bar starts on one low G (the hammer, in the lead, so the speaker plays it) and its last short 16th drops back onto the next; a lift into G major for the last eight bars, whose final G is held 90 sub-ticks, the hover's 1.6 s. The loop 24 bars, 52.7 s, after a 3-bar intro | 1,092 | |
-| `BZM12.BIN` | *Clockwork Keep* (C minor, 102.4, `groove 8`: no swing; a bar a pattern; 2026-11-25): CLOCKWORK KEEP's own, by its `music clockwork`. The TICK-TOCK is the BASS channel's (the chord's root, an octave apart, six sub-ticks a beat), so `spkbass` folds it between the tune's notes on the speaker; a fanfare in C major ends the loop. **A bar is 128 sub-ticks, the intro 256 and the loop 3,072 (12 x 256)**: the periods of KEEP's timers (128 and 256 steps of the same 54.6 Hz clock), so the song keeps the machines' RATE and does not drift round its loop. Their PHASE is not tied, and no song can tie it: the song's counter starts at the bracket and steps on through a pause's wait (`bz_pause`, `bz_kinfow`), while the play's steps are discarded there and at a cut (`bz_lsubs`, `bz_disc`), and each is capped at 8 a frame by itself ([KEEP.md](docs/plans/bonanza-courses/KEEP.md) section 16) | 967 | |
+| `BZM12.BIN` | *Clockwork Keep* (D major, a gavotte at 102.4, `groove 4`, `unit 32`, two bars a pattern; the SECOND song for the course, 2026-11-25, the first having been heard as "almost out of tune"): CLOCKWORK KEEP's own, by its `music clockwork`. Its motif is two knocks at a door, each answered by the same note lower down (on the speaker the bass in the lead's rest); glockenspiel runs with the bass's answer behind them for the machines, a music box over a pedal for the treasury, an organ fanfare for the throne. One scale in every part (no accidental; the minor section is B minor with A natural) and only the bank's patches MEASURED true on the tool's OPL2 - harp, glockenspiel, music box, organ, pedal - `pluckbass`, `bass`, `lute` and `stab` reading 4 - 34 cents flat as they decay; every bass note the speaker can reach is D3 or above, where its whole-Hz tones are under 3 cents out (up to 11 in the octave below). MEASURED on the renders: worst sustained note +2.3 cents on the speaker, +2.1 on the AdLib (KEEP.md section 16). The loop 24 bars, 3,072 sub-ticks, 56.3 s, after a 2-bar intro; not yet heard | 1,601 | |
+| `BZM13.BIN` | *Castle Climb* (D aeolian, 136.5, `groove 6`, a bar a pattern; 2026-11-25): CASTLE CLIMB's own (CASTL, the owner's course), by its `music castleclimb`; in `bbmusic.NON_COURSE`. A climb with a slip in it: two notes up to the wall (A C into D, the song's door and the loop's), four steps up in a herald's dotted rhythm, a step back, and the sixth leaning on the fifth. A the assault on the organ over a stamping pedal; B the terraces in F on the glockenspiel, even 8ths zig-zagging up by thirds over a walking bass; C the see-saw on the harp, no beat and no chord - three notes up, and the bass answers with them coming down (on the speaker the bass in the lead's rest), tipping twice a bar, then a snare roll under one held note for the tube; D the keep, the motif an octave up over the full organ, then squeezed into one bar, and the top D held three beats. One scale in every part (no accidental; the cadence is C to Dm) and only patches MEASURED true on the tool's OPL2 - organ, pedal, harp, glockenspiel; every bass note the speaker can reach is D3 or above. MEASURED on the renders: worst sustained note +2.4 cents on the speaker, +2.1 on the AdLib. The loop 32 bars, 3,072 sub-ticks, 56.2 s, after a 1-bar intro; not yet heard | 1,333 | |
 
 **A part a song**, so only the song playing is in memory: at most the sound
 part and one song, **2,071 bytes**, in two claims - on the desktop the title's,
@@ -274693,6 +274722,12 @@ it still says "First Roll", and the title screen's demos include its route
 demo. It goes when page 1 is designed. The map is 22,784 bytes in RAM and
 6,561 LZB (the prototype's, compiled today: 21,954 and 6,514).
 
+**Since 2026-11-25 the shipped map is 130.22.11's**: three pages and twelve
+pads in the owner's order of that day - KITE on MILL's cell and MILL after
+it, LODE on MOON's cell, then CASTL and KEEP, KEEP's hidden exit a secret
+shortcut - every cell 13 further along both axes. Pads 0 - 2 are as written
+above; the stand-ins are re-hung.
+
 #### 130.22.1 The decisions, in one table
 
 | decision | chosen (the owner's, 2026-11-16, unless marked) | why |
@@ -274840,6 +274875,14 @@ refused on any other course (`view` is also the title's, 130.23.2):
   point - and `crystal_side_ink` on the sides; the default) or a surface's
   look (`normal`, `ice`, `sand`, `bounce`; ice stands in when the art set
   has no crystal). The ground around the routes is the course's void.
+- **`art FILE SX SY`** (130.23.2's statement, the title's until 2026-11-25):
+  a map's SCENERY, painted over the finished picture from page 0's CGA
+  window's top-left corner, no depth, no lane, no byte of the tables. The
+  tool paints it on **every secret route's picture too**, so a reveal's
+  difference is the route's alone and revealing a route never paints the
+  art out (before 130.22.11 it was on the bare picture only, and a map with
+  both an `art` and a `secret` would have cut every art pixel into the
+  reveal lanes). Icons, pads and gates are drawn after it, over it.
 - **The tool proves** (refusing the build, each refusal provoked by
   `--selfcheck`, 130.22.10): every pad reachable from pad 0 through the
   routes its courses' exits open; every (A, E) keyed by at most one route,
@@ -276059,6 +276102,127 @@ HEARD.
   +1,235 - REPORTED. The +4.1k a frame on `PEAK` against an earlier soak
   is older than 8R. Left failing, as 130.17.15 decided; no assertion
   weakened.
+
+#### 130.22.11 The owner's order on the map: three pages, twelve pads, a secret shortcut (BUILT 2026-11-25; host only)
+
+KITE HILL, LODESTONE GORGE, CLOCKWORK KEEP (`kite.bbc`, `lode.bbc`,
+`keep.bbc`) and CASTLE CLIMB (`castle.bbc`, `CASTL`, the owner's own) are in
+the default build and on the map. **The order is the owner's** (2026-11-25):
+*"order on the pathway is only decided up until downhill; my current thought
+is kite where mill is currently, with mill moving after it on the path, and
+loadstone where moon currently is, with caste after it, and keep after that
+splitting into two; with the treasury allowing a course skip. (Pathway page 2
+is not yet designed, at all, what is there was just prototype)."* The LAYOUT
+past page 0 is the pathway step's working arrangement, not a design: the
+reasons and the owner's open choices are in
+[docs/plans/bonanza-courses/pathway/README.md](docs/plans/bonanza-courses/pathway/README.md),
+"The journey". Nothing here was run on an emulator: every figure is the
+host's (`make bonanzadisk`, the tool's own proofs), MEASURED.
+
+- **`BZ_COURSES`** gains the four at its END: courses K 8 (KITE), 9 (LODE),
+  10 (KEEP) and 11 (CASTL), twelve courses of `BZ_CRS_MAX` 23 (twenty-one in
+  the `BZDEV=1` build). No other course's K moved; K is not play order.
+  Each has its route demo (`BZ_NDEMO` 12).
+- **The map** (`path.bbc`): `pages 3`, `view 0 540`, `version 2`.
+
+  | pad | course | cell, height | page | opened by |
+  |---|---|---|---|---|
+  | 0 | ROLL | (34, 41) | 0 | a new game |
+  | 1 | HOP | (37, 38) | 0 | route 0: ROLL's exit 0 |
+  | 2 | DOWN | (37, 30) | 0 | route 1: HOP's exit 0 |
+  | 3 | MILL | (25, 18) | 1 | route 4: KITE's exit 0 |
+  | 4 | PEAK | (15, 10), 2 units | 2 | route 10: MILL's exit 0 |
+  | 5 | MOON | (11, 13) | 2 | route 7: KEEP's exit 0 |
+  | 6 | PLAY | (6, 13) | 2 | route 8: MOON's exit 0; route 11: **KEEP's exit 1, `secret`** |
+  | 7 | FIRST | (3, 10) | 2 | route 9: PLAY's exit 0 |
+  | 8 | KITE | (33, 26) | 0 | route 2: DOWN's exit 0 |
+  | 9 | LODE | (28, 30) | 0 | route 3: DOWN's exit 1 |
+  | 10 | KEEP | (17, 19) | 1 | route 6: CASTL's exit 0 |
+  | 11 | CASTL | (22, 24) | 1 | route 5: LODE's exit 0 |
+
+  Pads 0 - 7 play the courses they played and the new courses are pads 8 -
+  11; KITE stands on the cell MILL's pad had and LODE on MOON's. **Every
+  cell is 13 further along both axes** than before (208 lines down the
+  picture, the room page 2 needs above page 1; a world cell is never
+  negative), which moves nothing on page 0 against anything else there. The
+  four old test courses still stand in, one pad each: PEAK ends the
+  right-hand branch after MILL (up a ramp, 2 units in one cell - the
+  shipped map's first), and MOON, PLAY and FIRST follow KEEP's exit 0 in
+  the order they had. The map's two ENDS are pads 4 and 7, as before.
+- **The secret route**, the shipped map's first: `route 10 6 exit 1 secret
+  path 17,19 12,19 6,13`, keyed to KEEP's `hidden` exit 1 (the treasury), to
+  PLAY, past MOON: by the tool's verdict a **SHORTCUT (2 pads to the end
+  where the open way takes 3)**. Both its ends are VISIBLE pads reached
+  normally too, which 130.22.2 allows (a pad may be the visible end of one
+  secret route: pads 10 and 6 carry poses 4 - 7 for it). Its cells are
+  drawn by 8 reveal lanes (at 4, 20, 36, 52, 53, 92, 116 and 140 ground px
+  along it). At KEEP it is the Left arrow alone: the pad is reached
+  straight up and the throne's road goes straight on, so the key map
+  (130.22.4.5) gives Up to that road and the one diagonal Left.
+  `--selfcheck`'s `path` item that said "the shipped map has no secret
+  route" now says what its secret routes are: each opened by a hidden
+  exit, each with a verdict, KEEP's exit 1 a SHORTCUT.
+- **The art**, all written by `docs/plans/bonanza-courses/pathway/gen.py
+  --ship` (`--check`: the committed files are what it writes): four icons
+  of 32 x 24 and 6 frames (`icons/kite32x24.bba`, `lode32x24.bba`,
+  `keep32x24.bba`, `castl32x24.bba`) and three pieces of scenery placed by
+  `art` (130.22.2): `path_kites.bba` 40 x 64, `path_cragw.bba` 48 x 64,
+  `path_crage.bba` 32 x 48. The build depends on
+  `apps/bonanza/courses/path_*.bba`.
+- **The save**: nothing in `BONANZA.DAT`'s layout changes (130.22.5.1's
+  `BZS5`, 488 bytes: 23 best entries, 23 pads a slot). A file written by the
+  eight-course build still loads: its header's course count (8) is within 1 -
+  23, and **every best time is kept**, since a best is found by its course's
+  save key and no course's name or version changed. **Its three games are
+  emptied**, by `version 2` on the map: past pad 2 the pads stand elsewhere
+  and the routes are other routes (route 2 led to MILL and leads to KITE),
+  so a slot's open, done, opened and taken bits no longer mean what they
+  did. Nothing is released, so no player has such a file.
+- **A course that starts as steel** (LODE, `ball steel`) needs nothing new
+  when it is entered from a pad: `bz_grounds`' Enter puts the pad's K in
+  `bz_crs` and calls `bz_gcrs`, which loads `bz_mat` from `bz_cballs` (the
+  tool's `BZ_CRS_BALLS`, a byte a course) before `bz_cload` fetches that
+  ball's part - the same three instructions for every course, read on
+  2026-11-25 (`apps/bonanza/bonanza.asm`). Nothing carries a ball from one
+  course to the next, and the pathway's own marble stays rubber. NOT run on
+  an emulator here; the rows play a steel-start course from a pad of the
+  test map (TCUP, 130.54.6).
+- **No guest change, no limit raised.** The limits met: 12 pads of
+  `BZ_PAD_MAX` 23, 12 routes of 32, 12 courses of 23, 3 pages of about 5
+  (page 0's top line 432 of 1,020), 43 signs of 255, the part 35,711
+  bytes of 65,024, the icons' FAST lanes at most 1 in a window and 3
+  changes on a step.
+- **Bytes** (MEASURED on the host, 2026-11-25; the songs and clocks in the
+  tree when it was taken: `kitehill`, `lodestone` and `clockwork` as the tree had them, CASTL on `music castleclimb` - the song and clock steps were still at work, so these move by a few hundred bytes):
+
+  | | before (eight courses) | after (twelve) |
+  |---|---|---|
+  | `BONANZA.O88` | 177,638 | **242,182** |
+  | `bonanza.bin` | 53,663 | 53,663 |
+  | the family bundle, `bzfbun.bin` | 36,128 | 36,128 |
+  | `BZ_PROPMAX` / `BZ_PROPALL` / `BZ_FSTB` | 50 / 68 / 22 | 50 / 68 / 22 |
+  | `BZ_CRS_MAXCLAIM` / `BZ_CRS_ARMAX`, paragraphs | 8,256 / 192 | 8,256 / 192 |
+  | the pathway's part (`BZPATH.BIN`), and packed | 23,631 / 6,999 | 35,711 / 10,630 |
+  | `BZ_PATH_CLAIM`, paragraphs | 1,477 | 2,232 |
+  | KITE, LODE, KEEP, CASTL: the parts, and packed | - | KITE 56,669 / 12,865, LODE 55,948 / 14,862, KEEP 51,337 / 15,470, CASTL 60,333 / 15,762 |
+  | the 360KB floppy, clusters of 354 | 182 | **245** |
+  | the 720KB floppy, of 713 | 182 | 245 |
+  | the 1.2MB floppy, of 2,371 | 360 | 487 |
+  | the 1.44MB floppy, of 2,847 | 360 | 487 |
+
+  The pathway in RAM by the tool's figure is 22,784 -> 34,862 (LZB 6,561 ->
+  10,194): the third page's rows of the map 3,200; 210 more picture blocks
+  3,360 (the scenery 1,440 of the part, 971 packed); four pads' lanes 608;
+  four more icons' 1,672; four gates' 704; the reveals 568; the rest
+  tables. BONANZA is `local` (apps/RETIRED.txt): on no shipped image, so
+  the four `bonanzadisk` floppies are every disk that carries it.
+- **The rows** a later emulator pass owes this: `bonanzagame` and
+  `bonanzademo` (the default build's course list and its demos),
+  `bonanzatitle`, `bonanzamega`, and by hand a walk of the shipped map's
+  three pages, its ramp and its secret route - the rows walk the TEST map
+  (130.54.6), which did not change. `bbedit` and `bbgame` (host) had the
+  shipped map's pad count and cells written in them and were edited: 12
+  pads, the author's pad placed at (7, 6) from pad 7.
 
 ### 130.23 The title screen
 
@@ -289998,7 +290162,12 @@ already run:
   for cell (ROLL at (21, 28), HOP at (24, 25), their icons, ROLL's exit 0 the
   route across: Right, Left back), so what a row does on a new game's first
   two pads it does unchanged - Enter on pad 0 plays ROLL in either build. The
-  rest are test courses, one route a feature:
+  rest are test courses, one route a feature.
+  *(2026-11-25, 130.22.11: the SHIPPED map's cells are 13 further along both
+  axes, ROLL at (34, 41) and HOP at (37, 38); the test map did not move. The
+  two maps' first two pads are the same courses on the same road - three
+  cells right - and that road, not the cells, is what `--selfcheck` now
+  compares.)*
 
   | pad | course | cell | page | |
   |---|---|---|---|---|

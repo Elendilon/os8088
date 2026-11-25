@@ -3,8 +3,11 @@
 *Status: **REFINED** (2026-11-25), the second step of the guide's pipeline
 ([README.md](README.md) section 3): the pen-in of the same day, designed for looks and
 function, fitted to the engine's constraints. `apps/bonanza/courses/kite.bbc` says
-`guide` and passes every check a shipped course is held to (section 10); it is NOT in
-the build yet (no `BZ_COURSES` entry, no pathway pad: a later step's). `kite/sketch.py`
+`guide` and passes every check a shipped course is held to (section 10). **IN THE
+DEFAULT BUILD since the pathway step of 2026-11-25** (`BZ_COURSES`' course K 8; the
+pathway's pad 8, on WINDMILL LANE's old cell, DOWNHILL DECISION's exit 0, by the
+owner's order of that day: SPEC.md 130.22.11 and [pathway/README.md](pathway/README.md),
+"The journey" - section 7 below is the sheet's earlier pencil, not what shipped). `kite/sketch.py`
 draws the pictures and writes the course (`--bbc`). Distances are tiles and heights are
 units; the cells are the engine's own. A number marked MEASURED was run on the tool's
 model (`bbcourse.Physics`, `Glide`), never on an emulator and never by a player; one
@@ -29,8 +32,8 @@ onto the summit.
 | new to the pathway | WIND: the gusting blower, the updraft with `lift` (a THERMAL), the updraft over a pit (the GLIDE); the CRACKED TILE |
 | target time | 45 - 50 s for a first clear, 35 s for a good one (`target 60`'s class, `limit 90`). MEASURED on the model: the route demo **26.8 s** (1,463 steps), no fall - the autopilot never waits for a calm; a player does (section 3) |
 | palette | `palette 0` (green, red, yellow on black: LITTLE HOP's): a grassy hill |
-| clocks | 4: start, fan plaza, launch plaza, summit. A KITE on its string, the digits on its sail, its tail a bow longer at each clock: `kite1` - `kite4` (section 17, [kite/CLOCKS.md](kite/CLOCKS.md)) |
-| song | **Kite Hill** (`music kitehill`, section 16): D major with the raised fourth, a 6/8 at 121; each phrase an arc a step higher, one held note for the thermal, a gust and a breath. Nobody has heard it yet |
+| clocks | 4: start, fan plaza, launch plaza, summit. A WINDSOCK the wind fills up the hill, the digits on its first band: `sock1` - `sock4` (the owner's pick; section 17, [kite/CLOCKS.md](kite/CLOCKS.md)) |
+| song | **Kite Hill** (`music kitehill`, section 16): D major with the raised fourth, a 6/8 at 121; a motif that rises and dips, a second theme in B minor, one held note for the thermal, a gust and a breath. Revised after the owner's first listen; the revision is not yet heard |
 | the one new idea | **the air moves the ball.** Wind is read off its cues and timed; rising air is ridden |
 | picture | 768 x 960 px (`width 96`, `origin 528`); the floors are 544 px across. ONE part, 53,959 bytes |
 
@@ -463,28 +466,52 @@ python3 tools/bbmap.py apps/bonanza/courses/kite.bbc -o docs/plans/bonanza-cours
 the tool's own (the autopilot on the course's `way` points, as ROLL's, HOP's, DOWN's and
 MILL's are): there is no `demos/kite.bzd` to keep in step.
 
-## 16. The song (written 2026-11-25; NOT YET HEARD)
+## 16. The song (written 2026-11-25; REVISED after the owner's first listen, the revision NOT YET HEARD)
 
 `apps/bonanza/music/kitehill.bmu`, song 10 of `tools/bbmusic.py`'s manifest, "Kite Hill";
 the course names it (`music kitehill`, which `kite/sketch.py` writes). The file's own
 header is the full account; this is the summary and what was checked.
 
+**The owner heard the first version**: *"The first 4-5 seconds are good, but then it repeats
+too much for too long."* It stated one rising arc four times, a step higher each time, in
+one rhythm, twice a loop. The intro (those 4 seconds) is kept as it was; the body is new.
+MEASURED on the lead, old against new, by one script over the loop's bars:
+
+| | the first version | the revision |
+|---|---|---|
+| bars in the loop | 40 | 36 |
+| different bar rhythms | 10 | 14 |
+| bars in the commonest rhythm | 12 (30%) | 9 (25%) |
+| a two-bar phrase with the rhythm of the one before it | 7 of 19 | **0 of 17** |
+| ...and its contour too (the phrase before, moved) | 6 | **0** |
+| longest stretch where bar N+2 has bar N's rhythm | 8 bars | **1 bar** |
+
+| bars | section | what happens | chords |
+|---|---|---|---|
+| intro 1 - 4 | (unchanged) | the harp alone, the gust, the breath | D D E7 A7 |
+| 1 - 4 | A | the motif (up the chord through G#, down again), then an ANSWER in another rhythm: a held E, a turn of 8ths, a close on D | D D A7 D |
+| 5 - 8 | | a leap to a held D6, a run of 8ths, a whole-bar E6: the half close | G A G A |
+| 9 - 16 | B | the SECOND THEME, B minor, an octave lower: two slow notes a bar against a bar of quick ones; the harp in three even quarters across the bar, the hats with it | Bm Bm Em A, Bm A D A |
+| 17 - 20 | C | the THERMAL: up an E7 chord to an E6 held 1.3 s, the glide down | E7 A A7 D |
+| 21 - 28 | A' | the motif a sixth higher and turned round, six 8ths up to a held F#6 (the summit), and the first full close, a whole bar of D | D D G D, A7 G A7 D |
+| 29 - 36 | D | the GLIDE, falling notes that quicken; the GUST stops dead; a bar's BREATH | G D Em A7, G D E7 A7 |
+
 | | |
 |---|---|
-| the idea | a kite let out and dipping back: every phrase of A is ONE ARC, up a broken chord in the 6/8's long-short and down again, and each arc starts a step higher than the last (on A, B, C#, D; the tops A5, B5, C#6, D6). The fifth phrase runs up an E7 chord to an E6 that is HELD (72 sub-ticks, 1.3 s): the thermal, the only long note in A. B is the glide: slow falling notes, then THE GUST (six 16ths up through G# that stop dead on a clipped D6, the harp stopping with them) and a bar's BREATH, harp alone, before the next climb. The second A ends on the summit (a held F#6) |
-| key | D major; the raised fourth (G#) is in the motif's first bar, the gust and the E7 bars |
+| the idea | a kite let out and dipping back: the MOTIF goes up a broken chord in the 6/8's long-short, through the raised fourth, and down again - ONCE - and the tune then develops from it (the table above): an answer, a second theme in the relative minor, the thermal's held E6 as a bridge, the motif back higher and turned round, a glide, THE GUST (six 16ths up through G# that stop dead on a clipped D6, the harp stopping with them) and a bar's BREATH, harp alone |
+| key | D major; B minor for the second theme. The raised fourth (G#) is in the motif's first bar, the gust and the E7 bars |
 | tempo | 6/8, 121.4 to the dotted quarter: `groove 5 4`, an 8th 9 sub-ticks, a bar 54 (0.99 s). The only course song in compound time |
-| length | 44 bars a pass. Intro 4 bars (216 sub-ticks, 3.95 s: harp, gust, breath); **the loop 40 bars, 2,160 sub-ticks, 39.55 s** (A B A' B', order rows 1 - 10) |
-| bytes | 950 (First Roll 1,194, Little Hop 1,309); KITE's part 53,911 -> 54,030 bytes in RAM with it, of 65,024 |
-| the speaker | the lead (recorder's line) A4 - G6, 440 - 1,568 Hz; `spkbass` gives the harp's broken chord (A2 - C#5) to every rest: the intro's two bars, each breath, the half bar that ends each A. Kick blips every two bars, none under the gust or the thermal. No arpeggio macro: 7.6 tones a second, the fewest of the course songs (Windmill Lane 8.2, Bounce Trial 21.7) |
-| the AdLib | recorder over a harp (the bass channel) and a soft string pad (`v10`) whose chords are all below the tune; hats long-short |
+| length | 40 bars a pass. Intro 4 bars (216 sub-ticks, 3.95 s: harp, gust, breath); **the loop 36 bars, 1,944 sub-ticks, 35.59 s** (A B C A' D, order rows 1 - 9) |
+| bytes | 1,253 (the first version 950; First Roll 1,194, Little Hop 1,309); KITE's part is 56,973 bytes in RAM with it and its art, of 65,024 |
+| the speaker | the lead (recorder's line) A4 - G6, 440 - 1,568 Hz; `spkbass` gives the harp's broken chord (A2 - C#5) to every rest: the intro's two bars, the breath, the half bars that end B and C. Kick blips every two bars, none under the gust or the thermal. No arpeggio macro: 7.4 tones a second, the fewest of the course songs (Windmill Lane 8.2, Bounce Trial 21.7) |
+| the AdLib | recorder over a harp (the bass channel: long-short-long, and three even quarters in B) and a soft string pad (`v10`) whose chords are all below the tune; hats long-short, in three in B |
 
 **What was checked, on the host** (`bbmusic --selfcheck`: 13 songs, 0 problems; the model's
 keys; both arms rendered to WAV and the WAVs read back):
 
-- Every one of the 139 lead keys of a pass sounds on the speaker at its sub-tick (17 of
+- Every one of the 120 lead keys of a pass sounds on the speaker at its sub-tick (16 of
   them after a kick's two-sub-tick blip); the speaker WAV's pitch, a sub-tick at a time,
-  is the model's on all 1,965 measurable sub-ticks of the full pass, and silent where the
+  is the model's on all 1,823 measurable sub-ticks of the full pass, and silent where the
   model is silent.
 - The loop: the keys and the speaker's tones of the loop's second and third passes equal
   the first's; no note is held across the loop point.
@@ -492,18 +519,20 @@ keys; both arms rendered to WAV and the WAVs read back):
   square wave); the AdLib render -17.5 dB, peak 0.44, nothing clipped (Little Hop -18.3,
   First Roll -19.0). The lead alone is 5.0 dB over the accompaniment alone (the shipped
   songs -1.3 to +3.3), and on every lead note of 9 sub-ticks or more the loudest spectral
-  peak is the lead's (62 of 62). The gust's 16ths speak at the motif's level (-18.5 dB
+  peak is the lead's (54 of 54). The gust's 16ths speak at the motif's level (-18.5 dB
   both, lead alone), and on the speaker the gust is seven tones, then 23 sub-ticks
   (0.42 s) of nothing at all before the harp.
-- Recompiled with the song, the route demo (`BZDKITE.BIN`, 670 bytes) is byte-identical
-  and the part differs only from the song's offset on (and the directory's offset word).
+- Recompiled with the revision (the course carrying its art by then), `kite.bbc` compiles,
+  the part is 56,973 bytes of 65,024 (56,670 with the first version) and the route demo
+  is still 670 bytes, 1,463 steps.
 
 **What it does not do that section 9 asked**: the held note is 1.3 s, not the thermal's
-3.6 s (a 3.6 s tone on the speaker is a drone); the breath comes before each A, twice a
-loop, not before each of the five phrases.
+3.6 s (a 3.6 s tone on the speaker is a drone); the breath comes once a loop, before A.
+And since the revision the phrases no longer each start a step higher: that sequence is
+what the owner heard as repetition.
 
-**Still owed**: a LISTEN. Nobody has heard a note of it: the renders are
-`10-kitehill-spk.wav` and `10-kitehill-fm.wav` (40 s) and the full pass under `full/`,
+**Still owed**: a LISTEN to the revision (the owner heard the first version only): the
+renders are `v2/10-kitehill-spk.wav` and `v2/10-kitehill-fm.wav` (40 s) and the full pass under `v2/full/`,
 made by `python3 tools/bbmusic.py wav -o DIR --song 10 [--secs 40]`; the speaker render
 is a square wave through a one-pole filter, the AdLib's is DOSBox's OPL2, and neither is
 a 5150's cone or a real chip. Then the guest: `bonanzamusic` (the selfcheck) covers the
@@ -518,43 +547,52 @@ them; `kite/art.py` draws the `.bba` files). The studies, with every picture on 
 
 ![the course with its art, in its own palette](kite/picture-cga.png)
 
-- **Clocks: `kite`** (SPEC.md 130.18.5.2), of two concepts studied (the other a windsock). A diamond kite on a
-  string from a peg in the tile, the digits on its yellow sail; `digits 0 -16` lifts it clear of the tile.
+- **Clocks: `sock`, the WINDSOCK** (SPEC.md 130.18.5.2; the owner's pick of the two concepts studied, 2026-11-25:
+  *"the windsock is probably better; just because kites themselves don't have a reason to be in that spot, and
+  we'll have kite art"*). A banded pole, a hoop, the digits on the sock's first band; the wind fills it up the
+  hill. The kite frames (`kite1` - `kite4`) stay in the tool.
 
-  | clock | cell | frame | what it shows | its digits (px, line) |
-  |---|---|---|---|---|
-  | start | (54, 55) | `kite1` | ONE bow on the tail; the kite leans right, up the first rise | 504, 816 |
-  | plaza | (41, 37) | `kite2` | TWO; it leans left, at the thermal's cliff | 584, 552 |
-  | launch | (16, 38) | `kite3` | THREE; upright: the glide goes straight up | 168, 296 |
-  | summit | (7, 22) | `kite4` | a FULL tail of five, streaming, and wind marks | 280, 72 |
+  | clock | cell | frame | what it shows |
+  |---|---|---|---|
+  | start | (54, 55) | `sock1` | LIMP: the cone hangs |
+  | plaza | (41, 37) | `sock2` | HALF out |
+  | launch | (16, 38) | `sock3` | STRAIGHT out |
+  | summit | (7, 22) | `sock4` | TAUT, its tip fluttering, wind marks past it |
 
-  (Section 2's table gives the digits 16 lines lower: all four moved up together, so its G10 margins stand.)
-- **Signs and decals** (8 files, `kite_*.bba`): the GREAT KITE in the sky up-left of the summit, its string to
-  the crown; a signboard by the gust bridge (a pennant flying: WAIT; a pennant limp: GO); two arrows on the fan
-  plaza's floor into the thermal; the windbreaks' four sheltered tiles framed in red with a banner hung from
-  each rail; an arrow up the screen and a kite painted on the launch plaza's open corner; three small kites in
-  the void.
+  (The digits are at a clock's natural spot: section 2's table stands.)
+- **Signs and decals** (7 files, `kite_*.bba`): the GREAT KITE flown from the launch plaza, in the sky to its
+  left, its string to a peg on the plaza's west edge; a signboard by the gust bridge (a pennant flying: WAIT; a
+  pennant limp: GO); two arrows on the fan plaza's floor into the thermal; the windbreaks' four sheltered tiles
+  framed in red with a banner hung from each rail; an arrow up the screen and a kite painted on the launch
+  plaza's open corner; two small kites in the void.
+- **The sky art is placed by the camera** (`kite/camera.py`, [kite/ART.md](kite/ART.md): the route through the
+  tool's camera model). The window does not reach the top of the picture until half a second before the goal,
+  so the great kite's first place over the summit was never whole on screen (0.0 s); beside the launch plaza
+  it is whole for 3.7 s on the CGA and 3.6 s on the Hercules, from the plaza through the glide. One small kite
+  was never seen and one was cut by the window's edge: both moved (now whole for 2.2 s and 4.4 s on the CGA);
+  the third's place is the great kite's.
+
+  ![the route's windows, each piece boxed with its seconds whole](kite/camera.png)
 - **No gate.**
 
 | | before the art | with it |
 |---|---|---|
-| the part (of 65,024) | 54,030 | **56,670** (8,354 to spare) |
-| picture blocks | 634 | 796 |
-| occluder masks (of 256) | 178 | **180** |
-| LZ4 (60 s class 12,550; its 1.5x 18,825) | 13,624 | **16,067** (2,758 under the 1.5x line) |
-| as the package stores it (LZB) | 11,198 before the song | 13,350 |
+| the part (of 65,024) | 54,030 | **56,669** (8,355 to spare; with the song as it is now) |
+| picture blocks | 634 | 752 |
+| occluder masks (of 256) | 178 | **200** |
+| LZ4 (60 s class 12,550; its 1.5x 18,825) | 13,624 | **15,615** (3,210 under the 1.5x line) |
 | the route demo | 1,463 steps (26.78 s), COMPLETE | the same |
 | `--guide`, both cards | G1 26.6 s; 4 flights, 0 panned; G9; G10; no clock touched; G12 3.1 s / 2.2 s | the same |
 
-**Room left**: 76 masks, 8,354 part bytes, 2,758 LZ4 bytes to the 1.5x line. The fan plaza's windows still
-hold 5 own-clock lanes of 6: nothing here is a lane. A kite's string, tail and bows are PAINT, not the clock's
-keyed face (keyed, they took the course from 178 masks to 232).
+**Room left**: 56 masks, 8,355 part bytes, 3,210 LZ4 bytes to the 1.5x line. The fan plaza's windows still
+hold 5 own-clock lanes of 6: nothing here is a lane. The windsock is 22 masks (its hoop's arms and wind marks
+are paint; the pole, the band and the cone are the clock's keyed face).
 
 **Verified in this step** (host only; no emulator was booted):
 
 - the compile, plain and `--strict`: the same part, byte for byte;
 - `--guide` with the route demo: every figure as before the art (the table above);
-- `--selfcheck --only courses,clockvis,clockrule` on this course alone: 29 items green and the same 3 red as
+- `--selfcheck --only courses,clockvis,clockrule` on this course alone (re-run with the windsocks): 30 items green and the same 3 red as
   at the commit before (each names TRIAL or a shipped demo a one-course list has not got);
 - `--selfcheck --only clockocc,clockdig` on the default list: 48 items green, none red;
 - the eight default-build courses, the pathway and the title compiled under the tool before and after: every

@@ -1088,8 +1088,8 @@ CLOCK_PH = 255                # a clock's POST's height (130.18.5.3): its circle
                               # so nothing lands on a crystal ball, and the reach has no launch from its top
 CLOCK_STYLES = ("crystal", "pin", "tee", "board", "lamp", "spring", "frog", "ball", "shroom", "frogl", "frogr",
                 "frogb", "orbr", "orbh", "orbs", "orbg", "vases", "vasem", "vaset", "vasef",
-                "kite1", "kite2", "kite3", "kite4", "cart0", "cart1", "cart2", "cart3",
-                "hourp", "hourk", "hourc")
+                "kite1", "kite2", "kite3", "kite4", "sock1", "sock2", "sock3", "sock4", "cart0", "cart1", "cart2", "cart3",
+                "hourp", "hourk", "hourc", "bcn0", "bcn1", "bcn2", "bcn3")
 #                             (a clock's `frame`s, SPEC.md 130.18.5.2)
 CLOCK_UP = 31                 # the digits' block row's top, px above the clock tile's floor at its centre: at least, rounded up a block (the pole at least as long as the owner chose: TRIAL's first clock's, 2026-11-15)
 # SPEC.md 130.18.5.5: THE DIGITS' ANCHOR - where a frame's digits sit, px right and down of their natural spot
@@ -11676,6 +11676,83 @@ for _k in (1, 2, 3, 4):
     _CLOCK_DRAW["kite%d" % _k] = (lambda q: lambda p, x0, y0, tops: _clock_kite(p, x0, y0, tops, q))(_k)
 
 
+# KITE HILL's `sock` (the owner's pick, 2026-11-25, of docs/plans/bonanza-courses/kite/CLOCKS.md's two concepts:
+# "the windsock is probably better; just because kites themselves don't have a reason to be in that spot, and
+# we'll have kite art"; lifted from kite/clocks/frames.py's scratch `_clock_sock`, SPEC.md 130.18.5.2): a WINDSOCK
+# on a banded pole, the digits on its first band (no window: the band is the field).  Drawn in the course's inks
+# BY INDEX - on KITE's palette 0 the digits' band is yellow (colour 3) and the cone beyond it banded red (colour
+# 2) and yellow; on the Hercules a white band and a grey and white cone.  The WIND fills it up the hill:
+#   sock1 (the meadow)        LIMP: the cone hangs down from the band
+#   sock2 (the fan plaza)     HALF out: it droops
+#   sock3 (the launch plaza)  STRAIGHT out
+#   sock4 (the summit)        TAUT: longer, its tip fluttering, wind marks past it
+_SOCK_POSE = {1: (22, 0.85), 2: (22, 0.42), 3: (22, None), 4: (27, None)}      # the cone's length px, its droop
+
+
+def _clock_sock(p, x0, y0, tops, pos):
+    """`sock1` .. `sock4` (above): the pole on its foot, the hoop's two arms, the digits' band and POS's cone.
+    The pole, the band and the cone are the clock's GEOMETRY (SPEC.md 130.18.5.4); the arms and the wind marks
+    are PAINT, as a shadow is (thin lines, each an occluder mask in the blocks it crosses)"""
+    a = _ClockArt(p, x0, y0)
+    cy, fy = a.cy, a.fy
+    wx0, wx1, wy0, wy1 = a.win
+    px = wx0 - 7                                    # the pole's left edge
+    L, droop = _SOCK_POSE[pos]
+    _clock_top_shadow(a, 2, 10.0, 3.4)
+    for (x, y) in _ellipse(px + 2.0, cy - 1.0, 5.0, 2.2, px - 4, px + 8, cy - 4, cy + 2):   # its foot, on the tile
+        a.put(x, y, BLK if y >= cy or x in (px - 3, px + 6) else (WHT if x < px + 1 else MAG))
+    for y in range(wy0 - 9, cy - 1):                # the POLE, banded every 4 px
+        band = ((cy - y) // 4) & 1
+        for k, ink in enumerate((BLK, WHT, WHT if band else MAG, BLK)):
+            a.put(px + k, y, ink)
+    a.pattern((".KK.", "KWMK", "KWMK", ".KK."), px, wy0 - 13)      # its knob
+    for y in (wy0 - 2, wy1 + 1):                    # the two arms that hold the hoop (paint)
+        for x in range(px + 4, wx0 - 2):
+            a.put(x, y, BLK, "shadow")
+            a.put(x, y + 1, WHT, "shadow")
+    xb = wx1 + 2                                    # the digits' band ends here; the cone flies from it
+
+    def off(u):                                     # the cone's drop, u px past the band
+        if droop is not None:
+            return droop * u * u / 22.0
+        if pos == 3:
+            return 0.1 * u
+        return 1.3 * math.sin(u * 0.55) * (u / float(L))
+    cells = {}
+    for x in range(wx0 - 1, xb + L + 1):
+        u = max(0, x - xb)
+        h = 7.0 - 4.4 * u / float(L)
+        yc = fy - 0.5 + off(u)
+        for y in range(int(math.floor(yc - h + 0.5)), int(math.floor(yc + h + 0.5))):
+            cells[(x, y)] = (u, y + 0.5 - yc, h)
+    cs = set(cells)
+
+    def ink(x, y):
+        u, v, h = cells[(x, y)]
+        if u == 0:
+            if wx0 - 1 <= x <= wx1 + 1 and wy0 - 1 <= y <= wy1 + 1:
+                return WHT                          # the digits' band
+            return MAG if (v > 0 and (x + y) & 1) else WHT      # its hems: lit above, shaded below
+        band = MAG if (int(u - 1) // 6) % 2 == 0 else WHT
+        if v > h - 2.0 and (x + y) & 1:
+            return BLK if band == MAG else MAG      # the shade under the cone
+        return band
+    a.blob(cs, ink)
+    for y in range(wy0 - 3, wy1 + 4):               # the HOOP: a bright ring at the sock's mouth
+        a.put(wx0 - 2, y, BLK)
+        a.put(wx0 - 1, y, WHT if (wy0 - 2 <= y <= wy1 + 2) else BLK)
+    if pos == 4:                                    # the summit's wind, past the tip (paint)
+        tx, ty = xb + L + 3, int(fy + off(L))
+        for k, (dx, dy) in enumerate(((0, -3), (2, 0), (0, 3))):
+            for i in range(5 - 2 * (k == 1)):
+                a.put(tx + dx + i, ty + dy, WHT, "shadow")
+    return a.done(tops)
+
+
+for _k in (1, 2, 3, 4):
+    _CLOCK_DRAW["sock%d" % _k] = (lambda q: lambda p, x0, y0, tops: _clock_sock(p, x0, y0, tops, q))(_k)
+
+
 # LODESTONE GORGE's `cart` (2026-11-25, docs/plans/bonanza-courses/lode/CLOCKS.md; SPEC.md 130.18.5.2): an ORE
 # CART on a stub of track, the digits painted on its side (no window: the tub's white side is the field, between
 # two iron straps).  Palette 1's inks: a dark iron tub (a cyan and black dither) whitewashed between its straps,
@@ -11861,6 +11938,93 @@ def _clock_hour(p, x0, y0, tops, pos):
 
 for _k in ("p", "k", "c"):
     _CLOCK_DRAW["hour" + _k] = (lambda q: lambda p, x0, y0, tops: _clock_hour(p, x0, y0, tops, q))(_k)
+
+
+# CASTLE CLIMB's `beacon` (2026-11-25, docs/plans/bonanza-courses/castle/CLOCKS.md; SPEC.md 130.18.5.2): a BEACON,
+# an iron fire-basket on a stem with two stays, the digits on its white-hot coals (no window: the fire's heart is
+# the field, cooling to red and then to the basket's dark iron).  Palette 2's inks, by index: the tool's MAG is
+# this course's RED, so the fire is white with red edges and the iron a cyan and black dither; on the Hercules a
+# white heart and white flames in a grey basket.  The castle is climbed from below and the alarm runs up it ahead
+# of the ball: the FIRE says how far up the clock stands:
+#   bcn0 (the outer wall)  only EMBERS: the coals glow, a curl of smoke
+#   bcn1 (the first gate)  a SMALL flame
+#   bcn2 (the terraces)    a TALL one
+#   bcn3 (the keep)        the GREAT fire: four tongues, and sparks
+_BCN_FIRE = {0: (), 1: ((-5, 6, 3.4, 0.3), (1, 9, 4.0, 1.0), (6, 5, 3.0, 2.0)),
+             2: ((-7, 9, 4.0, 0.3), (-1, 16, 5.0, 1.1), (6, 11, 4.2, 2.2)),
+             3: ((-9, 12, 4.6, 0.3), (-3, 20, 5.6, 1.4), (4, 25, 5.6, 2.6), (10, 14, 4.4, 0.9))}
+_BCN_SPARK = ((-14, -20), (13, -24), (-6, -30), (9, -33))
+
+
+def _clock_beacon(p, x0, y0, tops, fire):
+    """`bcn0` .. `bcn3` (above): the stem and its stays, FIRE's flames, the basket round the digits"""
+    a = _ClockArt(p, x0, y0)
+    cx, cy, fx, fy, n = a.cx, a.cy, a.fx, a.fy, a.n
+    wx0, wx1, wy0, wy1 = a.win
+    hw = 4 * n + 9.0                                # the basket's half width at its rim
+    kx = fx - 0.5
+    rim, bot = wy0 - 3, wy1 + 5                     # its rim's row and its floor's
+    _clock_top_shadow(a, 3, 11.0, 3.6)
+    for (x, y) in _ellipse(cx - 0.5, cy - 1.5, 7.0, 2.6, cx - 8, cx + 8, cy - 5, cy + 2):   # the stem's foot
+        a.put(x, y, BLK if y >= cy or x in (cx - 7, cx + 6) else (WHT if x < cx - 2 else CYN))
+    for y in range(bot + 1, cy - 2):                # the STEM, an iron bar with a collar every 6 px
+        ring = (y - bot) % 6 == 5
+        for k, ink in enumerate((BLK, WHT, WHT if ring else CYN, BLK)):
+            a.put(cx - 2 + k, y, ink)
+    for s in (-1, 1):                               # two stays from the stem up to the basket (paint)
+        for k in range(7):
+            a.put(cx - (1 if s < 0 else 0) + s * (2 + k), bot + 8 - k, BLK, "shadow")
+            a.put(cx - (1 if s < 0 else 0) + s * (2 + k), bot + 7 - k, WHT, "shadow")
+    flame, core = set(), set()                      # the FIRE, behind the basket's near wall
+    for (dx, h, w, ph) in _BCN_FIRE[fire]:
+        for j in range(int(h) + 1):
+            t = j / float(h)
+            xc = kx + dx + 1.6 * t * math.sin(2.6 * t + ph)
+            hf = w * (1.0 - t) ** 0.75
+            y = rim - j
+            flame |= {(x, y) for x in range(int(math.floor(xc - hf + 0.5)), int(math.floor(xc + hf + 0.5)) + 1)}
+            if t < 0.78:
+                hc = hf - 1.7
+                core |= {(x, y) for x in range(int(math.floor(xc - hc + 0.5)), int(math.floor(xc + hc + 0.5)) + 1)}
+    a.blob(flame, lambda x, y: WHT if (x, y) in core else MAG)
+    for (x, y) in _ellipse(kx, rim + 0.5, hw, 2.6, int(kx - hw) - 1, int(kx + hw) + 1, rim - 3, rim + 3):
+        d = ((x + 0.5 - kx) / hw) ** 2 + ((y - rim) / 2.6) ** 2
+        if (x, y) in flame and y < rim:
+            continue
+        a.put(x, y, BLK if d > 0.86 else (WHT if d > 0.5 and y < rim else (MAG if (x + y) & 1 else WHT)))   # the mouth
+
+    def half(y):                                    # a round-bottomed basket
+        t = (y - rim) / float(bot - rim)
+        return hw * (1.0 - 0.42 * t * t * t)
+    bowl = {(x, y) for y in range(rim + 1, bot + 1)
+            for x in range(int(math.floor(kx - half(y) + 0.5)), int(math.floor(kx + half(y) + 0.5)))}
+
+    def bink(x, y):
+        e = ((x + 0.5 - kx) / (4 * n + 3.5)) ** 2 + ((y + 0.5 - fy) / 7.0) ** 2
+        if e <= 1.0 or (abs(x + 0.5 - kx) <= 4 * n + 1 and abs(y - fy) <= 4):
+            return WHT                              # the coals' white heart: the digits' field
+        if y <= rim + 2:
+            return CYN if (x + y) & 1 else BLK      # the iron hoop under the rim
+        if e <= 1.22:
+            return MAG                              # the heart cools to red toward the iron
+        if (x - wx0) % 4 == 2:
+            return BLK                              # the basket's bars
+        return CYN if (x + y) & 1 else BLK          # dark iron
+    a.blob(bowl, bink)
+    if fire == 0:                                   # only embers yet: a curl of smoke (paint)
+        for k in range(16):
+            sx = int(kx + 3.0 * math.sin(k * 0.55))
+            if k % 3 != 2:
+                a.put(sx, rim - 4 - k, WHT, "shadow")
+    if fire == 3:                                   # the great fire throws sparks (paint)
+        for (gx, gy) in _BCN_SPARK:
+            for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)):
+                a.put(int(fx + gx + dx), rim + gy + dy, WHT if (dx, dy) == (0, 0) else MAG, "shadow")
+    return a.done(tops)
+
+
+for _k in (0, 1, 2, 3):
+    _CLOCK_DRAW["bcn%d" % _k] = (lambda q: lambda p, x0, y0, tops: _clock_beacon(p, x0, y0, tops, q))(_k)
 
 
 def clock_pose(tsec, place):
@@ -14653,6 +14817,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
             cv.rows[py][px] = ink
     if pth is not None:                             # ...its SIGNS (130.22.4.1), each a record and a lane
         rcv = {ri: render(rtiles[ri], rops[ri], x0, y0, width, lines) for ri in rtiles}
+        for afile, ax, ay, aln in src.arts:          # a map's ART is on every secret route's picture too (130.22.2):
+            for (x, y), ink in read_bba(os.path.join(COURSE_DIR, afile), fname, aln).items():   # the topmost layer
+                for rc_ in rcv.values():            # there as in the picture, so a reveal's difference is the route
+                    rc_.rows[view[0] + ay + y][8 * view[1] + ax + x] = ink     # alone and never un-paints the art
         for sp_ in path_signs(pth, src, props, cv, rcv, x0, y0, vinfo, fname):
             props.append({"kind": PK_SIGN, "line": sp_["line"], "at": SIGN_AT, "mask": 0, "shift": 0, "seed": 0,
                           "num": sp_["num"], "spec": sp_})
@@ -34825,7 +34993,11 @@ def _testmap_checks(courses, res):
     ft = testmap_features(pth)
     byk = {c.name: c for c in courses}
     sp = shipped_pc.pth["pads"]
-    same01 = all(pth["pads"][i]["crs"] == sp[i]["crs"] and pth["pads"][i]["at"] == sp[i]["at"] for i in (0, 1))
+    # (the shipped map's ORIGIN may differ - it moved 13 cells along both axes on 2026-11-25, room for its page
+    # 2, SPEC.md 130.22.11 - so the cells are compared as the ROAD between them, pad 0's cell to pad 1's)
+    same01 = (all(pth["pads"][i]["crs"] == sp[i]["crs"] for i in (0, 1)) and
+              tuple(b - a for a, b in zip(pth["pads"][0]["at"], pth["pads"][1]["at"])) ==
+              tuple(b - a for a, b in zip(sp[0]["at"], sp[1]["at"])))
     rest = [q["crs"] for q in pth["pads"][2:]]
     print("    the test map: %d pads (%s), %d routes, %d pages; part %d bytes in RAM, LZ4 %d; %s" % (
         len(pth["pads"]), " ".join(q["crs"] for q in pth["pads"]), len(pth["routes"]), pth["npages"], len(pc.cga),
@@ -34836,7 +35008,7 @@ def _testmap_checks(courses, res):
           and ft["straight"][1] == ["Right"] and ft["straight"][2] == ["Left"] and len(pc.cga) <= PARTMAX
           and pc.src.test is not None)
     res.append(("130.54.6 the test map compiles against the test build's courses (%d pads, %d routes, %d bytes): "
-                "pads 0 and 1 the shipped map's (%s, %s, their cells), the rest TEST courses (%s); a STRAIGHT route "
+                "pads 0 and 1 the shipped map's (%s, %s, the same road between their cells), the rest TEST courses (%s); a STRAIGHT route "
                 "0 -> 1 (Right, Left back: %s), a DIAGONAL (pad, route %s), a route across the PAGES %s, an ICON on "
                 "its far pad (%s), a CLIMB on from it (route, end gz %s), a SECRET route (route, pad, its hidden "
                 "pad, exit %s)" % (len(pth["pads"]), len(pth["routes"]), len(pc.cga), sp[0]["crs"], sp[1]["crs"],
@@ -34927,9 +35099,17 @@ def _path_checks(courses, res):
                 "resolved, its tables read back as written (PTHOFF %d, NPAGES %d, BZG1 +28 bit 3), within %d bytes "
                 "(%d)" % (len(pth["pads"]), len(pth["routes"]), part["pthoff"], part["npages"], PARTMAX, len(pc.cga)),
                 ok_t and len(pc.cga) <= PARTMAX))
+    # (until 2026-11-25 the shipped map had no secret route and this item said so; SPEC.md 130.22.11)
     sec = [r for r in pth["routes"] if r["secret"]]
-    res.append(("8R the shipped map has no secret route (130.22.2's brief: the secret path is the selfcheck's)",
-                not sec))
+    exs = [course_exits(courses[pth["pads"][r["a"]]["K"]]) for r in sec]
+    res.append(("8R the shipped map's secret route%s: %s - each opened by a HIDDEN exit and a SIDE or a SHORTCUT, "
+                "and KEEP's exit 1 (the treasury) opens a SHORTCUT (SPEC.md 130.22.11)" % (
+                    "" if len(sec) == 1 else "s", "; ".join("%d -> %d by %s's exit %d, %s" % (
+                        r["a"], r["b"], pth["pads"][r["a"]]["crs"], r["exit"], r.get("verdict")) for r in sec)
+                    or "none"),
+                all(ex.get(r["exit"]) is True and r.get("verdict") for r, ex in zip(sec, exs))
+                and any(pth["pads"][r["a"]]["crs"] == "KEEP" and r["exit"] == 1
+                        and str(r.get("verdict")).startswith("SHORTCUT") for r in sec)))
     # the map's layout (option A, the owner's, 2026-11-19): pad 0 plays ROLL, pad 1 HOP, ROLL's exit 0 the
     # route to HOP and HOP's exit 0 on to pad 2 (DOWNHILL DECISION's place), whose exits 0 and 1 branch; at
     # least one route crossing between pages

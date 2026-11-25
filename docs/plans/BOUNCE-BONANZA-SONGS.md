@@ -122,11 +122,14 @@ the Makefile's `BZ_SONGS` is the same list.
 | 9 *Little Hop* | `littlehop.bmu` | HOP (LITTLE HOP) |
 | 10 *Kite Hill* | `kitehill.bmu` | KITE (KITE HILL), in no build yet |
 | 11 *Lodestone Gorge* | `lodestone.bmu` | LODE (LODESTONE GORGE), in no build yet |
-| 12 *Clockwork Keep* | `clockwork.bmu` | KEEP (CLOCKWORK KEEP), in no build yet |
+| 12 *Clockwork Keep* | `clockwork.bmu` | KEEP (CLOCKWORK KEEP), in no build yet. The SECOND song for it (2026-11-25): the owner heard the first as "almost out of tune"; this one is a gavotte in D major on the bank's phase-true patches only, 1,601 bytes, the loop 56.3 s |
+| 13 *Castle Climb* | `castleclimb.bmu` | CASTL (CASTLE CLIMB, the owner's course). D aeolian at 136.5, organ, glockenspiel, harp and pedal only; four sections (the assault, the terraces, the see-saw, the keep); 1,333 bytes, the loop 32 bars, 56.2 s. Host-checked on both arms (worst sustained note +2.4 cents on the speaker, +2.1 on the AdLib; one two-bar phrase in sixteen repeats the rhythm of the one before), **not yet heard** |
 
 Songs 10 - 12 (2026-11-25) are each written up in their course's sheet,
 section 16 ([KITE](bonanza-courses/KITE.md), [LODE](bonanza-courses/LODE.md),
 [KEEP](bonanza-courses/KEEP.md)): host-checked on both arms, **not yet heard**.
+(The package figures below were taken with KEEP's FIRST song, 967 bytes; its second is
+1,601, and KEEP's part 51,337 bytes, LZ4 18,572. The package was not rebuilt for it.)
 MEASURED when they were added, private trees at one commit: the default
 `BONANZA.O88` (177,638 bytes; 182 of the 360 KB disk's 354 clusters) and its
 four disks are byte-identical with and without the three in the manifest. With

@@ -15,6 +15,15 @@ writes, for each option in OPTIONS below:
 
 and DIR/overview.png, every option side by side.  DIR defaults to build/bonanza-pathway/.
 
+THE SHIPPED MAP'S ART (2026-11-25, README.md "The journey") is this file's too, and separate from the options:
+
+    gen.py --ship                      write apps/bonanza/courses/icons/{kite,lode,keep,castl}32x24.bba and
+                                       apps/bonanza/courses/path_{kites,cragw,crage}.bba (the scenery `art`)
+    gen.py --check                     the committed files are what --ship writes
+    gen.py --map BBC --stem S [--revealed] --out DIR     DIR/S-cga.png and S-herc.png of pathway BBC, compiled
+                                       against BZ_COURSES' names (seconds; no course is compiled)
+    gen.py --icons --out DIR           DIR/icons-new.png, the new icons' frames on both cards
+
 Everything here is TOOL-side.  The pathway is compiled by tools/bbcourse.py itself (compile_course, the
 same call `make` makes with --path, its checks included) and its proofs (path_proofs) run against the
 BZROLL=1 course list, so ROLL and HOP are pads.  Two things are done to the tool from OUTSIDE it, for a
@@ -545,12 +554,379 @@ def title_faces(out, z=3):
     return p
 
 
+# =============================================================================
+# the SHIPPED map's art for courses 5 - 7 (2026-11-25): three icons and four pieces of scenery
+# =============================================================================
+# Everything below is written NATIVE at its shipped size (an icon 32 x 24), never scaled, into
+# apps/bonanza/courses/ by --ship; --check says the committed files are these.  Ink 3 (white) carries every
+# shape against the black sky and inks 1 and 2 shade it (the Hercules shows both as one grey: bbicons.py's rule).
+SHIP_ICONS = os.path.join(B.COURSE_DIR, "icons")
+
+
+def _kite(t, n):
+    """KITE HILL: a diamond kite with a two-bow tail over a hill, swaying on its string (the course's clocks
+    are kites)"""
+    cv = BaseCanvas(32, 24)
+    for x in range(32):                                       # the hill: a low mound, white along its crest
+        top = 20 - int(round(3.4 * math.sin(math.pi * (x + 3) / 40.0)))
+        for y in range(top, 24):
+            cv.put(x, y, 3 if y == top else (1 if (x + y) % 2 or y > top + 1 else 2))
+    sway = (0, 1, 2, 1, 0, -1)[t % 6]
+    bob = (0, -1, -1, 0, 1, 0)[t % 6]
+    kx, ky = 19 + sway, 7 + bob                               # the kite's centre
+    top, bot, lft, rgt = (kx, ky - 6), (kx - 1, ky + 7), (kx - 6, ky - 1), (kx + 5, ky - 1)
+    cv.poly([top, rgt, bot, lft], 2)
+    cv.poly([top, (kx, ky - 1), lft], 1)                      # two quarters cyan, two magenta
+    cv.poly([(kx, ky - 1), rgt, bot], 1)
+    for a, b in ((top, rgt), (rgt, bot), (bot, lft), (lft, top), (top, bot), (lft, rgt)):
+        cv.line(a[0] + .5, a[1] + .5, b[0] + .5, b[1] + .5, 3, 1.0)
+    tx, ty = bot[0], bot[1] + 1                               # the tail: a wavy line with two bows
+    for k in range(1, 8):
+        wx = tx - k + (1 if (k + t) % 4 < 2 else 0)
+        cv.put(wx, ty + k // 2, 3)
+        if k in (3, 6):
+            cv.put(wx - 1, ty + k // 2 - 1, 2), cv.put(wx + 1, ty + k // 2 + 1, 2)
+            cv.put(wx - 1, ty + k // 2 + 1, 2), cv.put(wx + 1, ty + k // 2 - 1, 2)
+    cv.line(kx + .5, ky + .5, 3.5, 18.5, 1, 1.0)              # the string, down to the hill
+    cv.put(3, 18, 3)
+    return cv
+
+
+def _lode(t, n):
+    """LODESTONE GORGE: a horseshoe magnet over a steel ball it lifts and lets go, two sparks at its poles"""
+    cv = BaseCanvas(32, 24)
+    cx = 16
+    cv.ring(cx, 9.5, 3.8, 8.6, 2)                             # the horseshoe: an arch...
+    for y in range(9, 24):
+        for x in range(32):
+            if cv.p[y][x] is not None:
+                cv.p[y][x] = None
+    cv.rect(cx - 9, 9, cx - 4, 14, 2)                         # ...its two legs
+    cv.rect(cx + 4, 9, cx + 9, 14, 2)
+    cv.rect(cx - 9, 11, cx - 4, 14, 3)                        # the poles, white
+    cv.rect(cx + 4, 11, cx + 9, 14, 3)
+    for y in range(14):                                       # the outline: white round the magenta
+        for x in range(32):
+            if cv.p[y][x] is None and any(0 <= x + dx < 32 and 0 <= y + dy < 24 and cv.p[y + dy][x + dx] == 2
+                                          for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                cv.p[y][x] = 3
+    lift = (0, 1, 2, 3, 2, 1)[t % 6]
+    by = 19 - lift                                            # the steel ball: white, shaded cyan lower right
+    cv.disc(cx, by, 3.6, 3, lambda x, y: 1 if (x - cx) * .6 + (y - by) * .8 > 1.2 else 3)
+    cv.put(cx - 2, by - 2, 0)
+    for x in range(8, 24):                                    # the ground it leaves
+        cv.put(x, 23, 1 if x % 2 else 2)
+    for i, (sx, sy) in enumerate(((cx - 12, 15), (cx + 11, 15))):   # the sparks, lit in turn
+        if (t + 3 * i) % 6 in (1, 2, 3):
+            cv.put(sx, sy, 3), cv.put(sx - 1, sy - 1, 3), cv.put(sx + 1, sy - 1, 3)
+            cv.put(sx - 1, sy + 1, 3), cv.put(sx + 1, sy + 1, 3)
+        else:
+            cv.put(sx, sy, 1)
+    return cv
+
+
+def _keep(t, n):
+    """CLOCKWORK KEEP: a tower whose clock face turns its hand a sixth each frame, a pennant, a key beside it"""
+    cv = BaseCanvas(32, 24)
+    cv.rect(8, 6, 22, 24, 1)                                  # the tower, its right third in shade
+    cv.rect(18, 6, 22, 24, 2)
+    for x0 in (7, 11, 15, 19):                                # the battlements
+        cv.rect(x0, 3, x0 + 3, 6, 3)
+    cv.rect(7, 6, 23, 7, 3)
+    cv.line(7.5, 6, 7.5, 24, 3, 1.0)
+    cv.line(22.5, 6, 22.5, 24, 3, 1.0)
+    cx, cy = 15, 13                                           # the clock: a white rim, a black face, one hand
+    cv.disc(cx, cy, 5.2, 3)
+    cv.disc(cx, cy, 4.0, 0)
+    a = -math.pi / 2 + t * 2 * math.pi / n
+    cv.line(cx, cy, cx + 3.4 * math.cos(a), cy + 3.4 * math.sin(a), 3, 1.0)
+    cv.put(cx, cy, 3)
+    cv.rect(13, 21, 17, 24, 0)                                # the door, arched
+    cv.rect(14, 20, 16, 21, 0)
+    cv.line(15.5, 3, 15.5, 0, 3, 1.0)                         # the pennant on its pole
+    for k in range(5):
+        y = (0, 1, 0, 1, 0)[(k + t) % 5] if k else 0
+        cv.put(16 + k, y, 2), cv.put(16 + k, y + 1, 2 if k < 4 else None)
+    cv.ring(27, 9, 1.2, 2.9, 3)                               # the key: a ring bow, a stem, two teeth
+    cv.rect(26, 12, 28, 21, 3)
+    cv.rect(28, 17, 30, 18, 3)
+    cv.rect(28, 19, 30, 21, 3)
+    return cv
+
+
+SHIP_DRAW = {"kite": (_kite, 6), "lode": (_lode, 6), "keep": (_keep, 6)}
+
+
+def _rock(cv, outline, shade_right=True, icicles=(), cracks=()):
+    """a floating crag: OUTLINE filled cyan with magenta strata and a shaded flank, white along its top and
+    edges, ICICLES [(x, y, length)] hanging under it (the pathway's floating look).  The strata repeat every
+    8 px both ways, so the blocks inside the rock are few (the piece's origin is a block's corner)"""
+    xs = [q[0] for q in outline]
+    xa, xb = min(xs), max(xs)
+
+    def ink(x, y):
+        edge = (xb - x) if shade_right else (x - xa)
+        if edge < 7 and (x + y) % 2:
+            return 2
+        if y % 8 == 5 and x % 8 < 5:
+            return 2
+        return 1
+    cv.poly(outline, 1, ink)
+    for cr in cracks:                                         # fissures: black, a white lip on their lit side
+        for a, b in zip(cr, cr[1:]):
+            cv.line(a[0] + 1, a[1], b[0] + 1, b[1], 3, 1.0)
+        for a, b in zip(cr, cr[1:]):
+            cv.line(a[0], a[1], b[0], b[1], 0, 1.2)
+    for a, b in zip(outline, outline[1:] + outline[:1]):
+        cv.line(a[0], a[1], b[0], b[1], 3, 1.3)
+    for x, y, ln in icicles:
+        for k in range(ln):
+            cv.put(x, y + k, 3 if k < ln - 2 else 1)
+            if k < ln // 2:
+                cv.put(x + 1, y + k, 1)
+
+
+def _castl(t, n):
+    """CASTLE CLIMB: a tall round tower with a stair winding up it, a marble climbing the stair, a banner at
+    the top (CLOCKWORK KEEP's icon, its neighbour on the map, is a square clock tower and a key)"""
+    cv = BaseCanvas(32, 24)
+    for y in range(5, 24):                                    # the tower: narrow, lit on the left
+        for x in range(11, 21):
+            cv.put(x, y, 2 if x >= 17 else 1)
+    cv.line(10.5, 5, 10.5, 24, 3, 1.0)
+    cv.line(20.5, 5, 20.5, 24, 3, 1.0)
+    for x0 in (9, 13, 17, 21):                                # a flared crown of merlons
+        cv.rect(x0, 2, x0 + 2, 5, 3)
+    cv.rect(9, 5, 23, 6, 3)
+    for k, y in enumerate((21, 16, 11)):                      # the stair: three flights, zig-zag
+        x0, x1 = (11, 20) if k % 2 == 0 else (20, 11)
+        cv.line(x0 + .5, y + .5, x1 + .5, y - 3.5, 0, 1.6)
+        cv.line(x0 + .5, y - .5, x1 + .5, y - 4.5, 3, 1.0)
+    p = (t % n) / float(n)                                    # the marble, up the three flights and round again
+    k = int(p * 3)
+    f = p * 3 - k
+    x0, x1 = (11, 20) if k % 2 == 0 else (20, 11)
+    y = (21, 16, 11)[k]
+    cv.disc(x0 + (x1 - x0) * f + .5, y - 4 * f - 2.0, 1.6, 3)
+    cv.line(15.5, 2, 15.5, -1, 3, 1.0)
+    for x in range(0, 8):                                     # the ground: a mound either side
+        cv.put(3 + x, 23 - min(x, 2) // 2, 1), cv.put(28 - x, 23 - min(x, 2) // 2, 1)
+    for i in range(4):                                        # the banner, to the right, rippling
+        yy = (0, 1)[(i + t) % 2]
+        cv.put(16 + i, yy, 2), cv.put(16 + i, yy + 1, 2)
+    return cv
+
+
+SHIP_DRAW["castl"] = (_castl, 6)
+
+
+def scenery():
+    """-> {file: (canvas, SX, SY, what)}: the three pieces, each placed in the map's PICTURE px relative to the
+    page-0 CGA window's top-left (an `art` statement's SX SY, SPEC.md 130.23.2), every origin a block's corner"""
+    out = {}
+    # --- the kites over KITE HILL: three on their strings, gathered over the pad's icon ---
+    cv = BaseCanvas(40, 64)
+    hold = (30, 59)
+
+    def kite(kx, ky, w, h, ink):
+        top, bot, lft, rgt = (kx, ky - h * .45), (kx - 1, ky + h * .55), (kx - w / 2.0, ky - h * .08), (kx + w / 2.0, ky - h * .08)
+        cv.line(kx, ky, hold[0], hold[1], 1, 1.0)             # the string first: the kite is drawn over its end
+        cv.poly([top, rgt, bot, lft], ink)
+        cv.poly([top, (kx, ky - h * .08), lft], 3 - ink)
+        cv.poly([(kx, ky - h * .08), rgt, bot], 3 - ink)
+        for a, b in ((top, rgt), (rgt, bot), (bot, lft), (lft, top), (top, bot), (lft, rgt)):
+            cv.line(a[0], a[1], b[0], b[1], 3, 1.0)
+        x, y = bot                                            # the tail and its bows
+        for k in range(1, int(h * .7)):
+            wx = int(x + 2.2 * math.sin(k * .9)) - k // 3
+            cv.put(wx, int(y) + k, 3)
+            if k % 5 == 3:
+                for dx, dy in ((-1, -1), (1, 1), (-1, 1), (1, -1)):
+                    cv.put(wx + dx, int(y) + k + dy, 2)
+    kite(24, 12, 18, 23, 2)
+    kite(9, 30, 11, 14, 1)
+    kite(33, 36, 9, 12, 2)
+    out["path_kites.bba"] = (cv, 200, 48 - 96, "KITE HILL's kites")
+    # --- the gorge's WEST wall: a crag with the mine's adit, an ore cart at its mouth ---
+    cv = BaseCanvas(48, 64)
+    _rock(cv, [(6, 16), (12, 5), (18, 11), (25, 2), (35, 6), (40, 16), (46, 22), (44, 40), (46, 50),
+               (36, 56), (24, 52), (14, 56), (6, 48), (9, 34), (2, 28)],
+          True, ((10, 50, 7), (19, 54, 9), (30, 54, 6), (40, 53, 8)),
+          (((12, 7), (15, 15), (12, 21)), ((8, 36), (16, 42), (14, 50))))
+    cv.rect(22, 20, 42, 40, 0)                                # the adit: a black mouth in a timber frame
+    cv.rect(20, 18, 44, 21, 3)
+    cv.rect(20, 18, 23, 41, 3)
+    cv.rect(41, 18, 44, 41, 3)
+    cv.rect(18, 41, 46, 43, 3)                                # the sill
+    cv.poly([(26, 31), (39, 31), (37, 38), (28, 38)], 2)      # the ore cart, heaped
+    cv.line(26, 31, 39, 31, 3, 1.0), cv.line(26, 31, 28, 38, 3, 1.0), cv.line(39, 31, 37, 38, 3, 1.0)
+    cv.line(28, 38, 37, 38, 3, 1.0)
+    for x, y in ((29, 29), (32, 27), (35, 28), (33, 29)):
+        cv.put(x, y, 3), cv.put(x + 1, y, 1), cv.put(x, y + 1, 3)
+    cv.disc(30, 40, 1.5, 3), cv.disc(35.5, 40, 1.5, 3)
+    out["path_cragw.bba"] = (cv, 40, -64, "LODESTONE GORGE's west wall and the mine")
+    # --- the gorge's EAST wall: a small crag with a vein of lodestone ---
+    cv = BaseCanvas(32, 48)
+    _rock(cv, [(4, 14), (9, 5), (15, 9), (20, 2), (26, 8), (29, 18), (27, 30), (30, 38), (22, 43),
+               (14, 40), (7, 42), (4, 34), (7, 24), (2, 19)],
+          False, ((8, 38, 6), (15, 40, 7), (23, 40, 6)), (((20, 4), (22, 11), (20, 16)),))
+    for k, (x, y) in enumerate(((12, 17), (17, 22), (13, 28), (19, 33))):   # the vein: white crystals
+        cv.poly([(x, y - 3), (x + 3, y), (x, y + 3), (x - 3, y)], 3)
+        cv.put(x, y, 0)
+    out["path_crage.bba"] = (cv, 168, -48, "LODESTONE GORGE's east wall and its lodestone")
+    return out
+
+
+def ship_files():
+    """-> {path: text} of every file --ship writes"""
+    out = {}
+    for stem, (fn, k) in sorted(SHIP_DRAW.items()):
+        rows = [r for t in range(k) for r in fn(t, k).rows()]
+        out[os.path.join(SHIP_ICONS, "%s32x24.bba" % stem)] = BA.bba_text(
+            rows, k, "%s at 32 x 24, %d frames: generated by docs/plans/bonanza-courses/pathway/gen.py --ship - "
+                     "edit that" % (stem, k))
+    for name, (cv, sx, sy, what) in sorted(scenery().items()):
+        out[os.path.join(B.COURSE_DIR, name)] = BA.bba_text(
+            cv.rows(), None, "%s, %d x %d: the pathway's scenery (path.bbc: `art %s %d %d`), generated by\n"
+                             "docs/plans/bonanza-courses/pathway/gen.py --ship - edit that" % (
+                                 what, cv.w, cv.h, name, sx, sy))
+    return out
+
+
+def ship(check=False):
+    bad = 0
+    for path, text in sorted(ship_files().items()):
+        rel = os.path.relpath(path, ROOT)
+        if check:
+            try:
+                same = open(path, encoding="ascii").read() == text
+            except OSError:
+                same = False
+            print("%s %s" % ("ok " if same else "DIFFERS", rel))
+            bad += not same
+        else:
+            with open(path, "w", newline="\n") as f:
+                f.write(text)
+            print("wrote " + rel)
+    return bad
+
+
+def _make_courses():
+    """BZ_COURSES' (NAME, title) pairs, read off each source's `course` line: all the pathway's compile needs"""
+    out = []
+    for p in B._mk_list(B._makefile(), "BZ_COURSES"):
+        m = re.search(r'^course\s+(\w+)\s+"([^"]*)"', open(os.path.join(ROOT, p), encoding="ascii").read(), re.M)
+        out.append((m.group(1), m.group(2)))
+    return out
+
+
+def map_pngs(src, out, stem, z=2, revealed=False):
+    """compile pathway SRC (a file) against BZ_COURSES' names and write OUT/<stem>-cga.png and -herc.png: every
+    page, the CGA window's rows outlined.  Its routes' exits are the BUILD's to prove (`make bonanza-art`).
+    REVEALED: every secret route TAKEN - its reveal lanes at pose 1, its hidden pad (OPEN) and that pad's icon
+    (frame 0) drawn, its visible end's pad at pose 4 (the lanes' own pixels, as the guest poses them)"""
+    from PIL import Image, ImageDraw
+    old_mode, B._CACHE["mode"] = B._CACHE["mode"], "off"
+    try:
+        pc = B.compile_course(src, crsinfo=_make_courses())
+    finally:
+        B._CACHE["mode"] = old_mode
+    vi = pc.vinfo
+    xa, xb = 8 * vi["c0h"], 8 * vi["c0h"] + 8 * 45
+    ya, yb = vi["tops"][-1], vi["tops"][0] + B.VIEW_H
+    w, h = xb - xa, yb - ya
+    names = []
+    pic = [list(r) for r in pc.pic]
+    if revealed:
+        for q in pc.props:
+            sp = q.get("spec") if q["kind"] == B.PK_SIGN else None
+            if sp is None:
+                continue
+            ps = sp["poses"]
+            k = 1 if (sp["kind"] == "reveal" or (sp["kind"] in ("pad", "icon") and ps.get(0) == {})) else \
+                4 if (sp["kind"] == "pad" and 4 in ps) else None
+            for (x, y), ink in (ps[k].items() if k is not None else ()):
+                pic[y][x] = ink
+    for card in ("cga", "herc"):
+        img = Image.new("RGB", (2 * w, h))
+        px = img.load()
+        for y in range(ya, yb):
+            row = pic[y]
+            for x in range(xa, xb):
+                v = row[x]
+                if card == "cga":
+                    px[2 * (x - xa), y - ya] = px[2 * (x - xa) + 1, y - ya] = B.CGA1[v]
+                else:
+                    pr = B.herc_pair(v, y, x)
+                    for b in range(2):
+                        px[2 * (x - xa) + b, y - ya] = (235, 235, 235) if (pr >> (1 - b)) & 1 else (0, 0, 0)
+        img = img.resize((2 * w * z // 2, h * z), Image.NEAREST)
+        d = ImageDraw.Draw(img)
+        for k, tp in enumerate(vi["tops"]):
+            x0 = (vi["left"] - xa) * z
+            d.rectangle([x0, (tp - ya) * z, x0 + B.VIEW_W * z - 1, (tp - ya + B.VIEW_H) * z - 1], outline=(255, 200, 0))
+            d.text((x0 + 4, (tp - ya) * z + 3), "page %d" % k, fill=(255, 200, 0), font=_font(6 * z))
+        name = os.path.join(out, "%s-%s.png" % (stem, card))
+        img.save(name)
+        names.append(name)
+    picb, kinds = B.path_costs(pc)
+    print("%s: RAM %d, LZB %d, picture %d (%d blocks), %s" % (
+        src, len(pc.cga), B.packed_len(pc.stored, "lzb"), picb, pc.nblk_pic,
+        ", ".join("%s %d lanes %d" % (k, v[0], v[1]) for k, v in sorted(kinds.items()))))
+    return names
+
+
+def icon_sheet(out, z=8):
+    """OUT/icons-new.png: the three new icons, every frame, CGA palette 1 over the Hercules"""
+    from PIL import Image
+    stems = sorted(SHIP_DRAW)
+    k = max(v[1] for v in SHIP_DRAW.values())
+    gap = 4
+    img = Image.new("RGB", (k * (32 + gap) * z, len(stems) * 2 * (24 + gap) * z), (40, 40, 60))
+    for si, stem in enumerate(stems):
+        fn, n = SHIP_DRAW[stem]
+        for t in range(n):
+            rows = fn(t, n).rows()
+            for card in range(2):
+                ox, oy = t * (32 + gap) * z, (2 * si + card) * (24 + gap) * z
+                for y in range(24):
+                    for x in range(32):
+                        v = rows[y][x] or 0
+                        if card == 0:
+                            cols = [B.CGA1[v]] * 2
+                        else:
+                            pr = B.herc_pair(v, y, x)
+                            cols = [(235, 235, 235) if (pr >> (1 - b)) & 1 else (0, 0, 0) for b in range(2)]
+                        for b in range(2):
+                            for yy in range(z):
+                                for xx in range(z // 2):
+                                    img.putpixel((ox + x * z + b * (z // 2) + xx, oy + y * z + yy), cols[b])
+    name = os.path.join(out, "icons-new.png")
+    img.save(name)
+    return name
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "bonanza-pathway"))
     ap.add_argument("--only")
+    ap.add_argument("--ship", action="store_true", help="write the SHIPPED map's three icons and four pieces of "
+                    "scenery into apps/bonanza/courses/ (2026-11-25) and stop")
+    ap.add_argument("--check", action="store_true", help="the committed shipped files are what --ship writes")
+    ap.add_argument("--map", metavar="BBC", help="render pathway BBC, both cards, into --out as <--stem>-*.png")
+    ap.add_argument("--stem", default="map")
+    ap.add_argument("--revealed", action="store_true", help="with --map: every secret route drawn as TAKEN")
+    ap.add_argument("--icons", action="store_true", help="write --out/icons-new.png, the new icons' frames")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
+    if a.ship or a.check:
+        return 1 if ship(a.check) else 0
+    if a.map or a.icons:
+        if a.map:
+            print("\n".join(map_pngs(a.map, a.out, a.stem, revealed=a.revealed)))
+        if a.icons:
+            print(icon_sheet(a.out))
+        return 0
     keys = a.only.split(",") if a.only else sorted(OPTIONS)
     base = costs(today())
     print("today (BZROLL=1): RAM %(ram)d, stored %(stored)d, LZ4 %(lz4)d, LZB %(lzb)d; picture %(pic)d, %(blocks)d "

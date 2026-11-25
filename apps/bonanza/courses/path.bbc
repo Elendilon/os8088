@@ -1,66 +1,121 @@
-# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 130.22).  The SHIPPED map since 2026-11-19:
-# option A of docs/plans/bonanza-courses/pathway/ (the owner's concept sketch, "Faithful"), page 0 as the
-# owner marked it up; PAGE 1 IS A PROTOTYPE ("screen 2 is fully undecided yet ... prototype only for now").
-# The marble AUTO-ROLLS along a route between glowing pads: finishing course A by exit E opens the one route
-# keyed (A, E), whose gate sinks; an arrow on that route's side of the screen takes it, Enter plays the pad's
-# course.
+# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 130.22).  The SHIPPED map: option A of
+# docs/plans/bonanza-courses/pathway/ (the owner's concept sketch, "Faithful"), page 0 as the owner marked it
+# up (2026-11-19), and since 2026-11-25 THREE pages carrying the owner's ORDER of that day (SPEC.md 130.22.11;
+# docs/plans/bonanza-courses/pathway/README.md, "The journey"): "kite where mill is currently, with mill moving
+# after it on the path, and loadstone where moon currently is, with caste after it, and keep after that
+# splitting into two; with the treasury allowing a course skip".  THE ORDER IS DECIDED ONLY UP TO DOWNHILL
+# DECISION, and pages 1 and 2 are NOT designed ("what is there was just prototype"): everything past page 0
+# here is a working layout, each choice one line.  The marble AUTO-ROLLS along a route between glowing pads:
+# finishing course A by exit E opens the one route keyed (A, E), whose gate sinks; an arrow on that route's
+# side of the screen takes it, Enter plays the pad's course.
 #
-#   page 1 (above, PROTOTYPE): 8 <-up-left- 7 <-up- 6        5 (up the right-hand climb from 4)
-#   page 0 (below):            6 <-left- 3 -up-> 4
-#                                        ^ up the right-hand road
-#                              1 -right-> 2
+#   page 2 (top):     BOUNCE TRIAL'                         SUMMIT RUSH' (up a ramp)
+#                       ^ up                                   ^
+#                     PLAYGROUND' <-up-left- MOONLIT GREEN'    |
+#                       ^ SECRET (the treasury)   ^ up         | up the right-hand climb
+#   page 1 (middle):    +---<-up-left---- CLOCKWORK KEEP     WINDMILL LANE
+#                                           ^ up               ^
+#                                         CASTLE CLIMB         | up the right-hand climb
+#                                           ^ up               |
+#   page 0 (bottom):                      LODESTONE GORGE    KITE HILL
+#                                           ^ up-left (exit 1)  ^ up (exit 0)
+#                                           +--- DOWNHILL DECISION
+#                                                  ^ up the right-hand road
+#                      FIRST ROLL -right-> LITTLE HOP
 #
-# 1 FIRST ROLL (ROLL) and 2 LITTLE HOP (HOP) are the real first courses; 3 is DOWNHILL DECISION (DOWN, since
-# 2026-11-21 in the place TRIAL stood in for it: its two exits the split); 4 - 8 are the old test courses standing in (8 is the OLD
-# First Roll, labelled "Bounce Trial" so no two pads read FIRST ROLL).  Every course of the default build
-# has a pad here; the TEST courses (BZ_TESTCRS, SPEC.md 130.54) have none (the owner, 2026-11-19: no test course nobody can reach).  The icons are
-# docs/plans/bonanza-courses/pathway/gen.py's (32 x 24, placeholders for 3 - 8).  A screen direction is a
-# ground step: +x down-right, -x up-left, +y down-left, -y up-right; both axes at once (equal amounts) down,
-# up, left or right.
+# The REAL courses: FIRST ROLL (ROLL), LITTLE HOP (HOP), DOWNHILL DECISION (DOWN: its two exits the split); by
+# its exit 0 KITE HILL (KITE) then WINDMILL LANE (MILL); by its exit 1 LODESTONE GORGE (LODE), CASTLE CLIMB
+# (CASTL) and CLOCKWORK KEEP (KEEP), whose two exits split again.  The four old test courses (marked ' above)
+# still stand in on pads of their own, so every course of the default build has a pad (the TEST courses,
+# BZ_TESTCRS, SPEC.md 130.54, have none: the owner, 2026-11-19): SUMMIT RUSH (PEAK) ends the right-hand branch
+# after WINDMILL LANE as it did; MOONLIT GREEN (MOON), PLAYGROUND (PLAY) and the OLD First Roll (FIRST, labelled
+# "Bounce Trial" so no two pads read FIRST ROLL) follow CLOCKWORK KEEP's exit 0 (the throne) in the order they
+# had.  CLOCKWORK KEEP's HIDDEN exit 1 (the treasury) is the map's one SECRET route, a SHORTCUT: straight to
+# PLAYGROUND, SKIPPING MOONLIT GREEN.
+#
+# PAD NUMBERS: pads 0 - 7 play the courses they played (MILL is still pad 3, PEAK 4, MOON 5, PLAY 6, FIRST 7),
+# on other cells past pad 2; the new courses are pads 8 (KITE), 9 (LODE), 10 (KEEP) and 11 (CASTL).  A route's
+# number is its line's place below (the save's opened and taken bits, SPEC.md 130.22.5).  Every cell is 13
+# further along both axes than before 2026-11-25 (208 lines down the picture: room for page 2 above), which
+# moves nothing on page 0.
+#
+# The icons are docs/plans/bonanza-courses/pathway/gen.py's (32 x 24; placeholders for the stand-ins), and so
+# is the scenery, three `art` pieces (gen.py --ship).  A screen direction is a ground step: +x down-right, -x
+# up-left, +y down-left, -y up-right; both axes at once (equal amounts) down, up, left or right.
 course PATH "The Pathway"
 width  64
 ball   rubber
 pathway
+version 2                                   # the SAVE's (SPEC.md 130.22.5.1): 2 since 2026-11-25 - the pads past
+                                            # DOWNHILL DECISION play other courses and the routes are other routes,
+                                            # so a game saved on the old map is emptied (its best times are kept:
+                                            # they go by course)
 music  fairway                              # (8b.10 gives the pathway its own)
 rail   crystal                              # the route material (SPEC.md 130.22.8)
-view   0 332                                # page 0's CGA window: 8 lines up, so the gate on 6's route and the
-                                            # titles there are wholly on page 0 (the owner's mark-up)
-pages  2
+view   0 540                                # page 0's CGA window: 8 lines up, so the gate on Lodestone Gorge's
+                                            # road on and the titles there are wholly on page 0 (the owner's
+                                            # mark-up; 332 + 208)
+pages  3
 titles 5x7                                  # the map's titles in the 5 x 7 face (SPEC.md 130.22.2, 2026-11-19)
 float  rect 0 0 64 64                       # the whole map FLOATS (the owner, 2026-11-16): crystal islands
                                             # with short icicle faces are the pathway's look (SPEC.md 130.27.2)
 
 # pad N COURSE WX WY
-pad 0 ROLL  21 28                           # 1 First Roll: where a new game rests
-pad 1 HOP   24 25                           # 2 Little Hop
-pad 2 DOWN  24 17                           # 3 Downhill Decision: two exits, the split
-pad 3 MILL  20 13                           # 4
-pad 4 PEAK  12  5                           # 5 (page 1)
-pad 5 MOON  15 17                           # 6
-pad 6 PLAY   9 11                           # 7 (page 1)
-pad 7 FIRST  4 11                           # 8 (page 1): the OLD First Roll standing in, LABELLED "Bounce Trial"
-                                            # below (the map has the real First Roll on pad 0); replaced with page 1
+pad 0 ROLL  34 41                           # First Roll: where a new game rests
+pad 1 HOP   37 38                           # Little Hop
+pad 2 DOWN  37 30                           # Downhill Decision: two exits, the split
+pad 3 MILL  25 18                           # Windmill Lane (page 1): after Kite Hill
+pad 4 PEAK  15 10                           # (page 2, 2 units up) Summit Rush standing in: the right-hand branch's end
+pad 5 MOON  11 13
+                                            # treasury SKIPS
+pad 6 PLAY   6 13
+pad 7 FIRST  3 10
+                                            # (the map has the real First Roll on pad 0): the left-hand branch's end
+pad 8 KITE  33 26                           # Kite Hill, where Windmill Lane was
+pad 9 LODE  28 30                           # Lodestone Gorge, where Moonlit Green was
+pad 10 KEEP 17 19
+pad 11 CASTL 22 24                          # Castle Climb (page 1), where Playground was: before its castle
 
 # route A B exit E [secret] [gate WX WY] path WX,WY[,H] ...
-route 0 1 exit 0  path 21,28 24,25                  # 1 -> 2, right along the bottom road
-route 1 2 exit 0  path 24,25 28,21 24,17            # 2 -> 3, right then up
-route 2 3 exit 0  path 24,17 20,13                  # 3's exit 0 -> 4, UP (the Up arrow)
-route 2 5 exit 1  path 24,17 15,17                  # 3's exit 1 -> 6, UP-LEFT (the Left arrow)
-route 3 4 exit 0  path 20,13 12,5                   # 4 -> 5, up the right-hand climb into page 1
-route 5 6 exit 0  gate 14 16  path 15,17 9,11       # 6 -> 7, up into page 1
-route 6 7 exit 0  path 9,11 4,11                    # 7 -> 8, up-left
+route 0 1 exit 0  path 34,41 37,38                  # First Roll -> Little Hop, right along the bottom road
+route 1 2 exit 0  path 37,38 41,34 37,30            # Little Hop -> Downhill Decision, right then up
+route 2 8 exit 0  path 37,30 33,26                  # Downhill Decision's exit 0 -> Kite Hill, UP (the Up arrow)
+route 2 9 exit 1  path 37,30 28,30                  # Downhill Decision's exit 1 -> Lodestone Gorge, UP-LEFT (Left)
+route 8 3 exit 0  path 33,26 25,18                  # Kite Hill -> Windmill Lane, up the right-hand climb into page 1
+route 9 11 exit 0  gate 27 29  path 28,30 22,24     # Lodestone Gorge -> Castle Climb, up into page 1
+route 11 10 exit 0  path 22,24 17,19
+route 10 5 exit 0  path 17,19 11,13
+                                                    # page 2
+route 5 6 exit 0  path 11,13 6,13
+route 6 7 exit 0  path 6,13 3,10
+route 3 4 exit 0  path 25,18 17,10 15,10,2          # Windmill Lane -> Summit Rush: up into page 2, then up-left UP A
+                                                    # RAMP to the summit (2 units in one cell)
+route 10 6 exit 1 secret  path 17,19 12,19 6,13
+                                                    # Moonlit Green: a SHORTCUT, drawn only once it is taken
 
 # icon N FILE SX SY [fps F] [title "TEXT"] [tdx DX]: frame 0 the rest pose, the rest while the marble rests
 # here; a title on the map in place of the course's ("|" breaks a line), DX px off the icon's centre
-icon 0 icons/first32x24.bba       -128 368
-icon 1 icons/frog32x24.bba         -32 368
-icon 2 icons/fork32x24.bba          56 352  title "Downhill|Decision"  tdx -25
-icon 3 icons/mill32x24.bba          56 256  tdx -21
-icon 4 icons/summit32x24.bba        24 128
-icon 5 icons/moon32x24.bba         -80 256  tdx -26
-icon 6 icons/playground32x24.bba    -8 160
-icon 7 icons/trial32x24.bba        -88  96  title "Bounce Trial"
+icon 0 icons/first32x24.bba       -128 576
+icon 1 icons/frog32x24.bba         -32 576
+icon 2 icons/fork32x24.bba          56 560  title "Downhill|Decision"  tdx -25
+icon 3 icons/mill32x24.bba          56 360  tdx -21
+icon 4 icons/summit32x24.bba        64 152
+icon 5 icons/moon32x24.bba           8 176  tdx -8
+icon 6 icons/playground32x24.bba   -72 136  tdx 8
+icon 7 icons/trial32x24.bba        -72  88  title "Bounce Trial"  tdx 14
+icon 8 icons/kite32x24.bba          56 464
+icon 9 icons/lode32x24.bba         -80 464  title "Lodestone|Gorge"  tdx -26
+icon 10 icons/keep32x24.bba          8 272  title "Clockwork|Keep"  tdx 8
+icon 11 icons/castl32x24.bba      -104 352
+
+# the SCENERY: art FILE SX SY (SPEC.md 130.23.2), px from page 0's CGA window's top-left corner, painted over
+# the finished picture - so each piece stands in open sky, clear of every route, icon and title.  gen.py --ship
+# writes the three files.  None is KEEP's: its pad is the one most likely to move.
+art path_kites.bba  200 -48                 # Kite Hill's kites, their strings down behind its title to its icon
+art path_cragw.bba   40 -64                 # the gorge's west wall: the mine's adit and an ore cart
+art path_crage.bba  168 -48                 # the gorge's east wall: a vein of lodestone
 
 # the lives, one counter a page
-lives 16 23
-lives  6  4
+lives 29 36
+lives 21 17
+lives  7  5

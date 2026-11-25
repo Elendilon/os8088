@@ -1,9 +1,11 @@
 # KITE HILL: clock options (2026-11-25, for the owner to pick)
 
-**INSTALLED for the pick: A, `kite`** - the tool's `kite1`, `kite2`, `kite3` and `kite4` (`_clock_kite` in
-`tools/bbcourse.py`, SPEC.md 130.18.5.2), named on the four `clock` lines that
-[kite/sketch.py](sketch.py) writes into `apps/bonanza/courses/kite.bbc`. The course is complete with them. B,
-`sock`, is kept here as scratch frames: picking it is the lift described under *Tool support*.
+**PICKED (2026-11-25): B, `sock`, the WINDSOCK.** The owner: *"I do like the kite clocks a lot, but the windsock
+is probably better; just because kites themselves don't have a reason to be in that spot, and we'll have kite
+art."* It is the tool's `sock1`, `sock2`, `sock3` and `sock4` (`_clock_sock` in `tools/bbcourse.py`, SPEC.md
+130.18.5.2), named on the four `clock` lines that [kite/sketch.py](sketch.py) writes into
+`apps/bonanza/courses/kite.bbc`. The `kite1` - `kite4` frames stay in the tool for another course: a frame no
+course names costs no byte of any part. What follows is the study, its numbers re-measured with the pick in.
 
 *The brief is the course guide's G23 ([README.md](../README.md) 1.5): the digits fit into the art, no window is
 needed, no flat squares, cyan is allowed, and something on the clock says where in the course it stands.
@@ -16,16 +18,14 @@ YELLOW. On the Hercules green and red are one grey checker and yellow is white.*
 
 | file | what |
 |---|---|
-| [clocks/overview-cga.png](clocks/overview-cga.png), [clocks/overview-herc.png](clocks/overview-herc.png) | a row a position, a column a concept (`crystal` the default frame, then `kite`, then `sock`), each cropped from the course's REAL compiled picture with "47" put into the digits' blocks as the lanes would |
+| [clocks/overview-cga.png](clocks/overview-cga.png), [clocks/overview-herc.png](clocks/overview-herc.png) | a row a position, a column a concept (`crystal` the default frame, then `sock`, then `kite`), each cropped from the course's REAL compiled picture with "47" put into the digits' blocks as the lanes would |
 | [clocks/frames.png](clocks/frames.png) | every frame on a plain block, zoomed, no compile: CGA rows over Hercules rows |
 | `clocks/<concept>.txt` | the compile's sizes for that concept (the table below) |
 | [clocks/frames.py](clocks/frames.py), [clocks/sheet.py](clocks/sheet.py) | the concepts and the sheet. [../clockkit.py](../clockkit.py) is the kit the three courses share: `sheet.py` compiles the course once a concept (about 25 s each), `--overview` redraws the pictures from its cache, `--preview` draws `frames.png`, `--outline` is the fast proxy for masks |
 
 ## The options
 
-### A. `kite`: a KITE on its string, the digits on its sail (INSTALLED)
-
-![the kites in place](clocks/overview-cga.png)
+### A. `kite`: a KITE on its string, the digits on its sail (not picked; kept in the tool)
 
 A diamond kite, taller than it is wide, flying on a string from a peg in the clock's tile. The sail is YELLOW
 in a broad RED hem with black spars, and the digits sit on the yellow where the spars cross: no window. The
@@ -49,9 +49,11 @@ tail, its bows and the wind marks are PAINT, as a clock's shadow is: thin lines 
 their own in every block they cross. MEASURED on this course: 232 masks with them keyed, 180 as paint (the
 course has 178 with the default frame). A ball behind a string is drawn over it.
 
-### B. `sock`: a WINDSOCK on a pole, the digits on its first band
+### B. `sock`: a WINDSOCK on a pole, the digits on its first band (PICKED)
 
-A red and yellow pole with a hoop on two arms, and a windsock flying from it: the first band is yellow and
+![the windsocks in place, with the kites beside them](clocks/overview-cga.png)
+
+A pole banded red and yellow with a hoop on two arms, and a windsock flying from it: the first band is yellow and
 carries the digits, the cone beyond it is banded red and yellow. The WIND fills it up the hill, which is the
 course's subject:
 
@@ -65,29 +67,30 @@ the Hercules) with a black line round it, and the pole and the cone are an unmis
 band is a rectangle, which is the one thing G23 warns about; it is a cloth on a hoop, as FIRST ROLL's `pin` is a
 sign on a pole. **It is the cheaper one on disk** and the dearer one in masks.
 
+**As installed**: the pole is banded every 4 px, the band's hems are lit above and shaded below, and the hoop's
+two arms and the summit's wind marks are PAINT (thin lines, as the kite's string is). The pole, the band and
+the cone are the clock's keyed face.
+
 ## The bytes (MEASURED: each concept compiled on the course as committed, art included, no song)
 
 | concept | picture blocks | occluder masks (of 256) | part in RAM | on disk LZ4 / LZB | against `crystal` | longest wholly-hidden run behind each clock (bound 16) |
 |---|---|---|---|---|---|---|
-| `crystal` (the default) | 769 | 178 | 55,226 | 14,726 / 12,147 | - | 6, 8, 0, 0 |
-| `kite` (installed) | **796 (+27)** | **180 (+2)** | 55,706 (+480) | 15,474 / 12,855 | **+748 B LZ4, +708 LZB** | 5, 1, 0, 0 |
-| `sock` | **775 (+6)** | **199 (+21)** | 55,766 (+540) | 15,175 / 12,509 | **+449 B LZ4, +362 LZB** | 0, 0, 0, 0 |
+| `crystal` (the default) | 747 | 178 | 54,874 | 14,348 / 11,859 | - | 6, 8, 0, 0 |
+| `sock` (picked) | **752 (+5)** | **200 (+22)** | 55,400 (+526) | 14,870 / 12,258 | **+522 B LZ4, +399 LZB** | 0, 0, 0, 0 |
+| `kite` | **777 (+30)** | **180 (+2)** | 55,402 (+528) | 15,167 / 12,616 | **+819 B LZ4, +757 LZB** | 5, 1, 0, 0 |
 
 Both compile under `--strict` and pass 130.18.5.4's one ball length. Neither adds a lane: the fan plaza's
 windows stay at 5 own-clock lanes of 6 (KITE.md section 9).
 
 ## Rules each one keeps
 
-- **G9, G10, G12** (MEASURED, `--guide`, the installed `kite` with its digits 16 px up): the start's window holds
-  clock 0; no two clocks in one window; the longest stretch with no clock in view is 3.1 s on the CGA and 2.2 s
-  on the Hercules, as with the default frame. All four clocks move up together, so the launch and summit
-  clocks keep their 32 lines of G10 margin.
+- **G9, G10, G12** (MEASURED, `--guide`, the picked `sock`; its digits are at a clock's natural spot): the
+  start's window holds clock 0; no two clocks in one window; the longest stretch with no clock in view is 3.1 s
+  on the CGA and 2.2 s on the Hercules, as with the default frame. (The kites, 16 px higher, measured the same.)
 - **G11**: no run touches a clock. The post's circle is the tile's, whatever the frame (SPEC.md 130.18.5.3).
 - **No flat squares**: the kite is a kite. The sock's band is discussed above.
 
 ## Tool support
 
-`kite` costs no guest byte: the frames are picture, the digits the format's lanes. To take `sock` instead:
-copy `_clock_sock` from `clocks/frames.py` into `tools/bbcourse.py` beside `_clock_kite` (about 60 lines), add
-its four names to `CLOCK_STYLES` and `_CLOCK_DRAW`, a paragraph to SPEC.md 130.18.5.2, and name them in
-`kite/sketch.py`'s four `p.clock(...)` lines (without `digits`: the sock stands on its pole).
+Both concepts are frames of the tool now and neither costs a guest byte. To go back to the kites, name
+`kite1` - `kite4` with `digits 0 -16` in `kite/sketch.py`'s four `p.clock(...)` lines.

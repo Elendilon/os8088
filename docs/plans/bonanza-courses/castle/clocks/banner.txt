@@ -1,0 +1,5 @@
+banner: bnr1, bnr2, bnr3, bnr4
+blocks 955; occluder masks 177 (of 256), records 1005
+one part, 58449 bytes in RAM (6575 under 65,024)
+on disk: LZ4 17371, LZB 14445
+the longest wholly-hidden run behind each clock (bound 16 gu): 0, 27, 0, 0

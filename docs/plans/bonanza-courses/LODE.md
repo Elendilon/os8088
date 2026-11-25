@@ -3,8 +3,11 @@
 *Status: **REFINED** (2026-11-25), the second step of the guide's pipeline
 ([README.md](README.md) section 3): the pen-in of the same day, designed for looks and
 function, fitted to the engine's constraints. `apps/bonanza/courses/lode.bbc` says
-`guide` and passes every check a shipped course is held to (section 10); it is NOT in
-the build yet (no `BZ_COURSES` entry, no pathway pad: a later step's). `lode/sketch.py`
+`guide` and passes every check a shipped course is held to (section 10). **IN THE
+DEFAULT BUILD since the pathway step of 2026-11-25** (`BZ_COURSES`' course K 9; the
+pathway's pad 9, on MOONLIT GREEN's old cell, DOWNHILL DECISION's exit 1, by the
+owner's order of that day: SPEC.md 130.22.11 and [pathway/README.md](pathway/README.md),
+"The journey" - section 7 below is the sheet's earlier pencil, not what shipped). `lode/sketch.py`
 draws the pictures and writes the course (`--bbc`). Distances are tiles and heights are
 units; the cells are the engine's own. A number marked MEASURED was run on the tool's
 model (`bbcourse.Physics`, `Glide`), never on an emulator and never by a player; one

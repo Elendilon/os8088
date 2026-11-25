@@ -14,12 +14,18 @@
 >
 > **After the art step of 2026-11-25** (section 17): the part is **50,703** bytes, **240** masks, LZ4 **18,233**
 > (592 under its class). The route demo, the treasury's run and every `--guide` figure are unmoved.
+>
+> **After the second song of 2026-11-25** (section 16): the part is **51,337** bytes, LZ4 **18,572** (253 under
+> its class). The route demo is unmoved (1,802 steps); the picture and the physics are the same bytes.
 
 *Status: **REFINED** (2026-11-25), the second step of the guide's pipeline
 ([README.md](README.md) section 3): the pen-in of the same day, designed for looks and
 function, fitted to the engine's constraints. `apps/bonanza/courses/keep.bbc` says
-`guide` and passes every check a shipped course is held to (section 10); it is NOT in
-the build yet (no `BZ_COURSES` entry, no pathway pad: a later step's). `keep/sketch.py`
+`guide` and passes every check a shipped course is held to (section 10). **IN THE
+DEFAULT BUILD since the pathway step of 2026-11-25** (`BZ_COURSES`' course K 10; the
+pathway's pad 10, after CASTLE CLIMB; its exit 0 leads on and its hidden exit 1 is the map's secret shortcut, by the
+owner's order of that day: SPEC.md 130.22.11 and [pathway/README.md](pathway/README.md),
+"The journey" - section 7 below is the sheet's earlier pencil, not what shipped). `keep/sketch.py`
 draws the pictures and writes the course (`--bbc`); `keep/measure.py` makes section 3's
 numbers. Distances are tiles and heights are units; the cells are the engine's own. A
 number marked MEASURED was run on the tool's model (`bbcourse.Physics` and its camera),
@@ -45,7 +51,7 @@ opens the treasury: the course's second exit, a secret.
 | target time | 50 - 60 s by the throne on a first clear, 75 s with the treasury (`target 90`'s class, `limit 99`): PREDICTED. MEASURED on the model: the route demo **33.0 s** (1,805 steps), no fall and no Hop; the run to the treasury 44.2 s (section 3) |
 | palette | the default (cyan, magenta, white) on black: grey stone needs white. The owner's call |
 | clocks | 3: the barbican, the north-west tower, the throne's dais. An HOURGLASS whose sand runs out along the course, a padlock, a key, a crown on its stand: `hourp`, `hourk`, `hourc` (section 17, [keep/CLOCKS.md](keep/CLOCKS.md); the shield is kept there) |
-| song | **Clockwork Keep** (`music clockwork`, section 16): C minor at 102.4, strict; a tick-tock the speaker folds between the tune's notes, a fanfare in C major. It keeps the machines' rate, not their beat. Nobody has heard it yet |
+| song | **Clockwork Keep** (`music clockwork`, section 16): the second song, a gavotte in D major at 102.4 whose motif is two knocks at a door, each answered lower down; glockenspiel runs for the machines, a music box for the treasury, an organ fanfare for the throne. One scale and only the bank's true patches. Nobody has heard it yet |
 | the one new idea | **the way on is not ahead.** A door shows what opens it; the player goes and gets it, and comes back |
 | picture | 1,024 x 472 px (`width 128`, `origin 496`); the floors are 688 px across. ONE part, 47,703 bytes |
 
@@ -650,76 +656,99 @@ MILL's, KITE's and LODE's are): there is no `demos/keep.bzd` to keep in step. Th
 treasury's run is the tool's search over the `branch VAULT` way points; nothing ships
 it, and `--guide` reads it as a log.
 
-## 16. The song (written 2026-11-25; NOT YET HEARD)
+## 16. The song (the SECOND, written 2026-11-25; NOT YET HEARD)
 
-`apps/bonanza/music/clockwork.bmu`, song 12 of `tools/bbmusic.py`'s manifest, "Clockwork
-Keep"; the course names it (`music clockwork`, which `keep/sketch.py` writes). The file's
-own header is the full account; this is the summary and what was checked.
+`apps/bonanza/music/clockwork.bmu`, song 12, named by the course's `music clockwork`. It
+REPLACES the first song written for this course, which the owner heard and rejected:
+*"Seems out of tune almost?"* This one was written from the course (sections 1 to 9 and the
+pictures) without reading the first, and its first rule is that complaint.
+
+**The idea.** The castle is a lock: three shut doors, each showing what opens it, and
+machines that make the player wait and then go. So the tune KNOCKS. Its motif is two notes
+up to the door, a turn, and two knocks, one note twice, each answered by the same note
+lower down: `a d | f+ e d  A A | b a g  F+ F+`. The first phrase ends waiting on the
+dominant (the door is shut); the second is the same phrase with its key, the knock an
+octave up on D, and it closes. It is a GAVOTTE: every phrase starts on the half bar.
 
 | | |
 |---|---|
-| the idea | a march for wind-up soldiers over a CLOCK. A tick on beats 1 and 3 and a tock an octave below it on 2 and 4, each a six-sub-tick pluck of the chord's root (C4, C3 over C minor), and the tune in the three 16ths BETWEEN them. Its motif is a MORDENT through the leading tone (C B C, a music box's ornament) and a leap to G; the next three bars keep that rhythm exactly. B is the WORKS: three 16ths after every tick and tock, the chords falling by fifths two to a bar (Cm Fm, Bb Eb, Ab Ddim, G G7). The loop ends on a trumpet FANFARE, Fm, G, C MAJOR, whose last C is held while the clock goes on under it |
-| key | C minor (Windmill Lane's C major, grown stern); the cadence C major |
-| tempo | 4/4 at **102.4 exactly**, no swing: `groove 8`, a beat 32 sub-ticks, a bar 128 (2.34 s), a bar a pattern |
-| length | 26 bars a pass. Intro 2 bars (**256** sub-ticks, 4.69 s: the clock alone, then the key winding); **the loop 24 bars, 3,072 sub-ticks (12 x 256), 56.24 s** (A B A' F, order rows 2 - 25) |
-| bytes | 967; KEEP's part 48,151 -> 48,287 bytes in RAM with it, of 65,024 |
-| the speaker | tick, tune, tock, tune - with ONE voice. The ticks are the BASS channel's, so `spkbass` plays them wherever the lead is silent; every tune note before a tick ends two sub-ticks early so the tick falls ON the beat, and stops two sub-ticks before the tune comes back. Lead G4 - D6 (392 - 1,175 Hz), ticks G2 - F4 (98 - 349 Hz). The kick blips once a bar; in the fanfare the trumpet plays through the ticks. 10.8 tones a second; 22% of the time is silence, on purpose |
-| the AdLib | fiddle (the tune), music box (the ticks, `v10`), organ (each chord a bare fifth, held), trumpet (the fanfare); a kick on the bar and hats on the off 8ths |
+| key | D major, and ONLY its seven notes: no accidental is written in any part. The minor section is B minor with A natural |
+| tempo | 102.4 beats a minute: `groove 4`, `unit 32`, a row of 4 sub-ticks (a 32nd, 73 ms), a beat 32, a bar 128, a pattern two bars |
+| form | intro 2 bars, then A 8, B 8, C 4, A' 4 for ever: **the loop is 24 bars, 3,072 sub-ticks, 56.3 s**; one pass with the intro 60.9 s |
+| size | 1,601 bytes (13 patterns). KEEP's part is **51,337** bytes with it (50,703 with the first song), LZ4 **18,572**: 253 under its class's 18,825, where the first left 592 |
 
-**C12, checked** (section 9's facts were read from the code, not run; so are these - no
-engine was run by this step either, and nothing in `apps/bonanza/*.inc` was changed):
+| bars | section | lead | what happens |
+|---|---|---|---|
+| intro 1 - 2 | the DRAWBRIDGE | (the bass alone) | eight planks: eight 8ths down the scale from D4; it lands on D, A; then the two notes up to the door |
+| 1 - 4 | A, the question | harp | the motif, knocks on A and on F+, a fall to a held E on the dominant |
+| 5 - 8 | A, the answer | harp | the motif, the knock an octave up on D, a close on D; the bass walks D, F+ into B |
+| 9 - 12 | B, the MACHINES | glockenspiel | a run of 16ths, and the bass's answer under it half a bar behind: two rising (Bm, Em), two falling (A, D) |
+| 13 - 14 | B | glockenspiel | the answers a BEAT behind (G, A, Bm), then E, F+ climbing |
+| 15 - 16 | B | glockenspiel | a terraced fall of sixteen 16ths from G6; the tune stops on a held F+ |
+| 17 - 20 | C, the TREASURY | music box | unbroken 8ths up and down one chord a bar (Bm, G, Em, A) over the organ's held pedal; no chord, no beat |
+| 21 - 24 | A', the THRONE | organ | the answer as a fanfare: a dotted climb up the D chord to the high knock, a scale up to a close on D6, and the two notes up to the door, into the loop |
 
-- **The rate: CONFIRMED.** `bzs_frame` steps the song once for every sub-tick `bz_subs`
-  counted since the last frame (`bzs_lsub`, `bzs_steps`), and the frame loop steps the play
-  off the same `bz_subs` (`bz_lsubs`, after `bz_t0`). A row of 8 sub-ticks is a 16th at 102.4; the song
-  was written to it: a bar is the stair's and the spikes' period, two beats a cog's
-  quarter turn, two bars a drawbridge's, and the intro and the loop are whole multiples
-  of 256, so going round the loop moves nothing.
-- **The phase: NOT TIED, and three things move it**, each read in the code. (1) THE
-  START: `bzs_open`'s first frame only takes the clock (`bzs_snap`), and the play's first
-  frame discards its sub-ticks (`bz_disc`), each by its own rule. (2) **A PAUSE: the song
-  plays on.** `bz_pause`'s wait loop (and the info card's, `bz_kinfow`) calls `bzs_frame`
-  every turn, then sets `bz_lsubs` to now: the play loses the pause, the song does not,
-  so every pause shifts the two by its own length. (3) A CUT OR A SLOW FRAME: a cut (a
-  respawn that lands outside the window is a centred full write, `bz_disc`) discards the
-  play's sub-ticks and not the song's, and each side caps a frame's catch-up at 8 by
-  itself (`BZS_MAXT`, `BZ_STEPS`). The finish's sequence also
-  takes steps back off `bz_nstep`.
-- **So the song was not written to land on the machines' beat**, and its header says so.
-  What a player should hear is a tick at the pace the cogs turn (two beats a turn) with
-  an offset that is constant between pauses and respawns. If the offset at the start
-  turns out stable on the guest, that is luck to measure, not a design.
+The lead's rhythm changes with each section (quarters and knocks; 16th runs and rests; even
+8ths; dotted), and so does what is under it (a walking bass with half-bar chords; one chord
+a bar and the answering runs; a pedal alone; a chord every beat with the snare).
 
-**What was checked, on the host** (`bbmusic --selfcheck`: 13 songs, 0 problems; the model's
-keys; both arms rendered to WAV and the WAVs read back):
+**The clock.** A song row is a whole number of physics sub-ticks and the machines count the
+same sub-ticks (`bzs_frame` steps the song from `bz_subs`; `tools/bbmusic.py`'s `TICK_HZ`),
+so a bar is the stair's and the spikes' period and a pattern the bridges' and the cogs', and
+the loop is twelve patterns: the song keeps the castle's RATE. Their PHASE is not tied, so
+nothing in the tune is written to land on a machine's beat.
 
-- Every one of the 196 lead keys of a pass sounds on the speaker at its sub-tick (13 after
-  the kick's blip), and the first bar of the theme reads, in sub-ticks: kick 0 - 1, tick
-  2 - 5, C B C from 8, tock 32 - 37, G from 40, tick 64 - 69, E-flat from 72, tock 96 -
-  101, D C from 104. The speaker WAV's pitch is the model's on all 2,152 measurable
-  sub-ticks of the full pass and silent on the 454 the model is silent on.
-- The loop: keys and speaker tones repeat exactly from the second pass; nothing is held
-  across the loop point.
-- Loudness: speaker -14.8 dB RMS (the silences); AdLib -19.0 dB, peak 0.44 (0.54 in the
-  fanfare), nothing clipped. The lead alone is 2.9 dB over the accompaniment alone (the
-  shipped songs -1.3 to +3.3). On the lead's notes of 9 sub-ticks or more the loudest
-  spectral peak is the lead's on 44 of 47 (Bounce Trial: 63 of 74); on the other three a
-  tick's ring is.
-- Two instruments were changed BY MEASUREMENT: the ticks were the damped pluck (`stab`),
-  which rendered at -35.7 dB a bar of ticks against the music box's -19.4 at the same
-  volume, and in the song 16 dB under the tune; and the ORGAN is additive, so a `v` moves one of its two
-  operators (two steps of volume took 0.4 dB off a held chord, not 3): its chords were
-  thinned to bare fifths instead, 1.8 dB.
-- Recompiled with the song, the route demo (`BZDKEEP.BIN`, 1,252 bytes) is byte-identical
-  and the part differs only from the song's offset on (and the directory's offset word).
+**What "in tune" means on this engine** (each MEASURED on the tool's model, none heard):
 
-**Still owed**: a LISTEN - nobody has heard a note of it. The renders are
-`12-clockwork-spk.wav` and `12-clockwork-fm.wav` (40 s) and the full pass, with the works'
-second half and the fanfare, under `full/` (`python3 tools/bbmusic.py wav -o DIR --song
-12`). Above all the speaker's tocks (98 - 175 Hz for 110 ms: are they a tock or a thud?)
-and whether a tick six sub-ticks long reads as a clock or as part of the tune. Then the
-guest: `bonanzamusic` covers the song; the offset against the machines and the frame cost
-on the XT are not measured.
+- **The patches.** A note of every bank instrument, D2 to D6, its fundamental and its
+  second partial fitted over the attack, the decay and the tail (the tool's OPL2). Harp,
+  organ, pedal, glockenspiel and music box are true to under half a cent, both partials
+  together. `pluckbass` and `bass` are not: over a quarter note the fundamental reads
+  **34 cents flat at D2, 22 at A2, 11 at A3** and the second partial stays true, so the low
+  octave beats against itself as it decays. `lute` is 17 - 28 cents flat in its first eighth at D3 - D4
+  and 2 - 6 flat held; `stab` 4 - 14 flat in its attack. Trumpet, horn, recorder, fiddle,
+  strings and chip carry the chip's vibrato (7 cents); the horn has a semitone scoop. **This
+  song uses only the five true ones.**
+- **The speaker's pitches.** Its tone is a whole number of Hz and then a PIT divisor. In this
+  key from D3 up that is under 3 cents; in the bottom octave it is up to 11 (C2 -10.7, D2 -9.7,
+  E2 -8.6, F+2 +9.5). `spkbass` gives the speaker the bass wherever the lead rests, so the
+  bass is written so that every note the speaker can reach is D3 or above; the bottom
+  octave sounds only under a lead note, where the AdLib alone plays it.
+- **The speaker's drums are pitched.** The snare's blip is A5 then A4, the clap's E5 then
+  E4, the kick's D2 then B1, the toms fall by semitones. In D major the kick and the snare
+  are in the key; no tom and no clap is written.
+- **Harmony.** One scale in every part, so there is no major form against a minor one. A
+  first draft had the pickup's D over an A chord with its C+: a minor ninth held a beat,
+  at every pickup. The pickups' chord is now a bare fifth (E A E).
+
+**The renders, measured** (the first pass and the loop again, 6,400 sub-ticks):
+
+| | speaker | AdLib |
+|---|---|---|
+| worst pitch against equal temperament, sustained notes (14 sub-ticks or more) | **+2.3 cents** (E4, a bass answer; the lead's worst +2.2 on G6): 218 tones measured in the WAV, the same figure as the divisor's arithmetic | **+2.1 cents** (every E: the F-number's rounding): 600 notes, each on its own voice's render (lead 194, bass 184, chord 222) |
+| every note measured, short ones too | 370 tones of 6 sub-ticks or more: worst +2.8, mean 0.95 | 746 notes of 7 or more: worst +2.1, mean 0.8 |
+| notes at once | one voice | no two voices a semitone class apart for longer than 15 sub-ticks (a passing 8th); 22 such passing notes in the span |
+| what the fold puts side by side | 37 lead-to-bass seams in the span: 15 the same note in another octave (the knocks), 18 a fourth or fifth, 2 a third, 2 a whole tone; none a semitone | - |
+| pitch classes sounded | the seven of D major | the seven of D major |
+| the loop | the second time round equals the third, tone for tone (431) | envelope correlation 1.0000 over 53.9 s |
+| level | rms 0.200 over 30 s, sounding 91% of the time (Bounce Trial 0.203 and 94%, Windmill Lane 0.195 and 88%) | rms 0.079, peak 0.42, no clipped sample (Bounce Trial 0.087, Windmill Lane 0.060, First Roll 0.112); the treasury 0.05 - 0.06, the rest 0.07 - 0.09 |
+| load | 7.5 tones a second (Windmill Lane 8.2, Bounce Trial 21.6) | 32 register writes a second (Windmill Lane 37, Bounce Trial 80); no key left down without a note |
+
+`python3 tools/bbmusic.py --selfcheck`: 13 songs, 0 problems.
+
+**Still owed.** Nobody has HEARD it: every figure above is the tool's model and its renders
+(the speaker's a square wave through one low-pass, the AdLib's DOSBox's OPL2), not a 5150's
+cone or a real YM3812. A listen on real hardware on both arms is the owner's. On the AdLib
+the guest writes at most 8 registers a frame, which the render does not model: a section's
+first note follows its 11-register patch by a frame or two, as in every song that changes
+instrument. The harp rings past its gate (a struck patch), so a knock's silence is the
+speaker's alone.
+
+**Proposed, the bank untouched.** (1) A plucked bass and a damped chord that stay true: the
+harp's patch with a faster release would be both, and `pluckbass`, `lute` and `stab` could
+be re-measured the same way in the songs that use them. (2) A volume for the additive
+patches' second operator: `v` lowers only the carrier, so the organ and the pedal cannot be
+played softer than their octave stop (the treasury has no chord pad for that reason).
 
 ## 17. The art (done 2026-11-25): what the course carries, and its room
 

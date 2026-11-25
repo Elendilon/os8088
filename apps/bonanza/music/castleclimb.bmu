@@ -1,0 +1,180 @@
+; BOUNCE BONANZA - song 13, "Castle Climb": CASTLE CLIMB's own (SPEC.md 130.20)
+;
+; D aeolian at 136.5 BPM: a 16th is one row of SIX sub-ticks, a bar a pattern
+; (rows 16, 96 sub-ticks, 1.76 s). ONE SCALE in every part - D E F G A Bb C,
+; no accidental anywhere - so the cadence is the modal one, C to Dm, and no
+; C sharp ever sounds against a C.
+;
+; The course is an assault on a tower: a start at the foot, a zig-zag between
+; tall walls, a portcullis, terraces and springs, a see-saw to wait on, and a
+; tube up into the keep. So the tune CLIMBS, and its motif is a climb with a
+; slip in it - two notes up to the wall, four steps up it in a herald's
+; dotted rhythm, a step back, and the dark sixth leaning on the fifth:
+;   a8 c8 | d4 f8. g16 a4 g8 a8 | b-4 a8. g16 a2
+; (the pickup A C into D is the song's door: every return of the motif and
+; the loop itself come through it).
+;
+; Intro (1 bar): the foot of the wall. The bass alone stamps the dotted
+;    rhythm on D3 and plays the pickup (the speaker plays it: `spkbass`).
+; A  (8 bars), the ASSAULT, organ: the motif on D, then a third higher on F
+;    ending open on C; the answer in a gallop (8th, two 16ths) falling from
+;    D5 and from C5, arpeggios up Bb and C, and a close on D.
+; B  (8 bars), the TERRACES, glockenspiel, in F (the same scale): even 8ths
+;    that zig-zag up by thirds and land, twice; then the springs - leaps with
+;    rests the bass shows through - and a half close on C.
+; C  (8 bars), the SEE-SAW, harp: no beat and no chords. The tune goes up
+;    three notes and stops; the bass answers with the same three coming down.
+;    Gm, Gm higher, Am, and four notes up Am; then the see-saw tips twice a
+;    bar (Bb, C), the tune runs up Bb without stopping over the walking bass,
+;    and a snare roll under a held E - the tube - and the pickup.
+; D  (8 bars), the KEEP, organ: the motif an octave up over the full organ, a
+;    broad fall from D6; then the whole two-bar motif squeezed into ONE bar,
+;    on D and on F; four quarters up Bb and C, and the top D held nearly
+;    three beats, with the intro's bass and its pickup under it: the foot again.
+; Intro, A B C D for ever: the loop is 32 bars, 3,072 sub-ticks, 56.2 s.
+; Under A the harp strikes a chord a bar and the drums march; under B only the
+; walking bass and claps; under C nothing but the bass's answers; under D the
+; organ holds the chords. Where the tune leans on B flat or A the chord under
+; it leaves that note's neighbour out (a bare G fifth, a D chord of D F D).
+;
+; IN TUNE (measured on the tool's renders, not heard): only the bank's
+; patches that hold their pitch - organ, glockenspiel, harp, pedal - and
+; none that carries the chip's vibrato or a scoop. THE SPEAKER: the lead is
+; the tune; `spkbass` gives it the bass only where the lead rests, and every
+; bass note the speaker can reach is D3 or above (whole-Hz tones under
+; 3 cents out) and a chord note of its bar. The see-saw's answers are the
+; call's own notes, so most seams are a unison or an octave; one is a
+; semitone STEP of the scale (F down to E, bar 21 into 22). Its drum blips
+; are pitched: the snare's A, the clap's E and the kick's D are all in this
+; key; no tom is written.
+
+song castleclimb "Castle Climb"
+groove 6
+unit 16
+rows 16
+measure 16
+spkbass
+voice lead organ
+voice bass pedal
+voice chord harp
+
+; --- the intro: the foot of the wall, and the two notes up to it -------------------
+
+; --- A: the assault ----------------------------------------------------------------
+lead LA1 = o4 d4 f8. g16 a4 g8 a8 |
+lead LA2 = o4 b-4 a8. g16 q5 a2 |
+lead LA3 = o4 f4 a8. b-16 >c4 <b-8 >c8 |
+lead LA4 = o5 d4 c8. <b-16 q5 >c2 |
+lead LA5 = o5 d8 d16 d16 c8 <b-8 a8 g8 b-4 |
+lead LA6 = o5 c8 c16 c16 <a8 g8 e8 g8 a4 |
+lead LA7 = o4 b-8 >d8 f8 d8 c8 e8 g8 e8 |
+lead LA8 = o5 a4. f8 q5 d2 |
+
+; --- B: the terraces, in F, on the glockenspiel ---------------------------------------
+lead LB1 = @glock o5 f8 a8 g8 b-8 a8 >c8 <b-8 >d8 |
+lead LB2 = @glock o6 c4. <g8 e4 g4 |
+lead LB3 = @glock o5 d8 f8 e8 g8 f8 a8 g8 b-8 |
+lead LB4 = @glock o5 a4 >c8 <a8 e2 |
+lead LB5 = @glock o5 q6 b-4 >d4 q1 f8 d8 <b-4 |
+lead LB6 = @glock o5 a8 >c8 f4 c8 <a8 f4 |
+lead LB7 = @glock o5 q6 g4 b-4 q1 >d8 <b-8 >f8 d8 |
+lead LB8 = @glock o5 e4 g4 >c2 |
+
+; --- C: the see-saw, on the harp. The tune goes up and stops; the bass comes down ----
+lead LC1 = @harp o4 g8 b-8 q49 >d2. |
+lead LC2 = @harp o4 b-8 >d8 q49 g2. |
+lead LC3 = @harp o4 a8 >c8 q49 e2. |
+lead LC4 = @harp o5 c8 e8 a8 q49 >c:10 |
+lead LC5 = @harp o4 b-8 q25 >d4. q1 d8 q25 f4. |
+lead LC6 = @harp o4 e8 q25 g4. q1 g8 q25 >c4. |
+lead LC7 = @harp o4 f8 b-8 >d8 f8 b-8 f8 b-8 >d8 |
+lead LC8 = o5 g8 >c8 q4 e2 q1 <<a8 >c8 |
+
+; --- D: the keep. The motif an octave up, then squeezed into a bar ---------------------
+lead LD1 = o5 d4 f8. g16 a4 g8 a8 |
+lead LD2 = o5 b-4 a8. g16 a4 >c4 |
+lead LD3 = o6 d4 c8 <b-8 g4 f4 |
+lead LD4 = o5 g4. e8 c4 e8 g8 |
+lead LD5 = o5 d8 f16 g16 a8 g16 a16 b-8 a16 g16 a4 |
+lead LD6 = o5 f8 a16 b-16 >c8 <b-16 >c16 d8 c16 <b-16 >c4 |
+lead LD7 = o5 b-4 >d4 c4 e4 |
+lead LD8 = o6 q36 d1 |
+
+; --- the bass. A and D: the stamp, the motif's own dotted rhythm --------------------
+bass BI  = o3 q4 d4 d8. d16 d4 q1 a8 >c8 |
+bass BD  = o2 q4 d4 d8. d16 d4 a4 |
+bass BGA = o2 q4 g4 g8. g16 a4 a4 |
+bass BF  = o2 q4 f4 f8. f16 f4 >c4 |
+bass BBC = o2 q4 b-4 b-8. b-16 >c4 c4 |
+bass BG  = o2 q4 g4 g8. g16 g4 >d4 |
+bass BA  = o2 q4 a4 a8. a16 a4 >e4 |
+; B: it walks, a chord note a beat
+bass WF  = o3 f4 >c4 <a4 >c4 |
+bass WC  = o3 c4 e4 g4 e4 |
+bass WD  = o3 d4 a4 f4 d4 |
+bass WA  = o3 a4 e4 a4 >c4 |
+bass WB  = o3 b-4 f4 b-4 >d4 |
+bass WG  = o3 g4 b-4 >d4 <b-4 |
+; C: a low note under the call, then the call's three notes coming back down
+bass SG1 = o2 g2 >>d8 <b-8 g4 |
+bass SG2 = o2 g2 >>g8 d8 <b-8 g8 |
+bass SA1 = o2 a2 >>e8 c8 <a4 |
+bass SA2 = o2 a2 >>>c8 <a8 e8 c8 |
+bass SB  = o2 b-4 >>f8 d8 <<b-4 >>b-8 f8 |
+bass SC  = o3 c4 >g8 e8 <c4 >>c8 <g8 |
+
+; --- the chords. A: the harp on one and three. B: on two and four. D: the organ ---------
+chord KD  = o4 [d f a]1 |
+chord KGA = o3 [g >d]2 [a >c e]2 |
+chord KF  = o3 [f a >c]1 |
+chord KBC = o3 [b- >d f]2 o4 [c e g]2 |
+chord KG  = o3 [g b- >d]1 |
+chord KA  = o3 [a >c e]1 |
+chord OD  = @organ v9 o4 [d f >d]1 |
+chord OGA = @organ v9 o3 [g >d]2 [a >c e]2 |
+chord OB  = @organ v9 o3 [b- >d f]1 |
+chord OC  = @organ v9 o4 [c e g]1 |
+chord OF  = @organ v9 o3 [f a >c]1 |
+chord OBC = @organ v9 o3 [b- >d f]2 o4 [c e g]2 |
+
+; --- the drums -------------------------------------------------------------------------
+drum DI = k4 r4 k4 r4 |
+drum DA = k4 s4 k8 k8 s4 |
+drum DB = k4 c4 k4 c4 |
+drum DR = k4 s8 s8 s16 s16 s16 s16 r4 |
+drum DD = k4 s4 k8 k8 s8 s8 |
+
+order -   BI  -   DI          ; 0: the foot of the wall
+order LA1 BD  KD  DA          ; 2: A - the loop comes back here.  Dm
+order LA2 BGA KGA DA          ;    G (a bare fifth) Am
+order LA3 BF  KF  DA          ;    F
+order LA4 BBC KBC DA          ;    Bb C
+order LA5 BG  KG  DA          ;    Gm
+order LA6 BA  KA  DA          ;    Am
+order LA7 BBC KBC DA          ;    Bb C
+order LA8 BD  KD  DA          ;    Dm
+order LB1 WF  -   DB          ; 10: B.  F
+order LB2 WC  -   DB          ;    C
+order LB3 WD  -   DB          ;    Dm
+order LB4 WA  -   DB          ;    Am
+order LB5 WB  -   DB          ;    Bb
+order LB6 WF  -   DB          ;    F
+order LB7 WG  -   DB          ;    Gm
+order LB8 WC  -   DB          ;    C
+order LC1 SG1 -   -           ; 18: C, the see-saw.  Gm
+order LC2 SG2 -   -           ;    Gm
+order LC3 SA1 -   -           ;    Am
+order LC4 SA2 -   -           ;    Am: four up, four down
+order LC5 SB  -   DI          ;    Bb
+order LC6 SC  -   DI          ;    C
+order LC7 WB  -   DI          ;    Bb
+order LC8 WC  -   DR          ;    C: the tube
+order LD1 WD  OD  DD          ; 26: D, the keep.  Dm
+order LD2 BGA OGA DD          ;    G (a bare fifth) Am
+order LD3 WB  OB  DD          ;    Bb
+order LD4 WC  OC  DD          ;    C
+order LD5 WD  OD  DD          ;    Dm
+order LD6 WF  OF  DD          ;    F
+order LD7 BBC OBC DD          ;    Bb C
+order LD8 BI  OD  DA          ;    Dm: the top D, and the bass's pickup
+loop 1

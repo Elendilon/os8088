@@ -29,7 +29,7 @@
     back to the same meaning (bbedmap.parse_map / *_code); a route step bridged is legal; pad 1 dragged a cell
     takes its routes with it and the map compiles; a pad dropped on another's cell is refused; a course of
     the author's (`# builder-course:`) put on the map from pad 7, one of the two pads whose course has an exit free,
-    at (8, 7) - pad, route, icon - compiles.
+    at (7, 6) - pad, route, icon - compiles.
  11. EDITS KEEP THE ROUTE (130.58.22): a floor cut back from under two route points leaves them moved to the
     nearest floor (relocate_ways), folded into the edit's one undo step (merge_since), and the course lays out;
     a ramp reshaped longer keeps its slope (reshape: 4 to 9 over 10 cells at half a unit a cell); ways_in
@@ -1815,11 +1815,11 @@ def main():
         except B.CourseError as e:
             return str(e)
     p1 = m["pads"][1]
-    codes = {p1["line"]: M.pad_code(dict(p1, at=(25, 24)))}
+    codes = {p1["line"]: M.pad_code(dict(p1, at=(38, 37)))}
     for r in m["routes"]:
         if 1 in (r["a"], r["b"]):
             pts = [list(q) for q in r["pts"]]
-            pts[0 if r["a"] == 1 else -1][:2] = (25, 24)
+            pts[0 if r["a"] == 1 else -1][:2] = (38, 37)
             codes[r["line"]] = M.route_code(dict(r, pts=M.tidy_points(pts)))
     d.set_many(codes)
     if mapc(d.text(), pp):
@@ -1837,11 +1837,11 @@ def main():
         ends = [n for n in m["pads"] if M.free_exit(m, n, M.pad_exits(m, n, d.text(), tp)) is not None]
         if ends != [4, 7]:                      # (the map's two ends: every other pad's exits open a route)
             bad.append("map: the pads with an exit free are %r, not the two ends [4, 7]" % ends)
-        for code in M.place_course(m, "XTRA", (8, 7), 7, ("icons/first32x24.bba", os.path.join(
+        for code in M.place_course(m, "XTRA", (7, 6), 7, ("icons/first32x24.bba", os.path.join(
                 B.COURSE_DIR, "icons", "first32x24.bba")), exits=M.pad_exits(m, 7, d.text(), tp)):
             d.insert(code)
-        if mapc(d.text(), tp) or 8 not in M.parse_map(d.statements())["pads"]:
-            bad.append("map: XTRA put on the map at (8, 7) from pad 7 is refused: %s" % mapc(d.text(), tp))
+        if mapc(d.text(), tp) or 12 not in M.parse_map(d.statements())["pads"]:
+            bad.append("map: XTRA put on the map at (7, 6) from pad 7 is refused: %s" % mapc(d.text(), tp))
     # 11. EDITS KEEP THE ROUTE (SPEC.md 130.58.22)
     wt = ('course WAYT "Way test"\nwidth 96\nball rubber\nfloor rect 4 4 12 10 flat 4\n'
           'floor rect 12 4 20 7 ramp x 12 20 4 8\nstart 5 5\ncheckpoint 6 8\ngoal rect 18 4 20 7 flat 8\ntarget 30\n'

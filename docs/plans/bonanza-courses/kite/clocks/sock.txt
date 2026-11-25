@@ -1,5 +1,5 @@
 sock: sock1, sock2, sock3, sock4
-blocks 775; occluder masks 199 (of 256), records 1599
-one part, 55766 bytes in RAM (9258 under 65,024)
-on disk: LZ4 15175, LZB 12509
+blocks 752; occluder masks 200 (of 256), records 1595
+one part, 55400 bytes in RAM (9624 under 65,024)
+on disk: LZ4 14870, LZB 12258
 the longest wholly-hidden run behind each clock (bound 16 gu): 0, 0, 0, 0
