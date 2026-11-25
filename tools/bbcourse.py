@@ -8011,6 +8011,7 @@ check_boosts()
 
 
 REACH_ROUNDS = 16             # a course whose reach has not settled by then is refused
+REACH_TIGHT_ROUNDS = 64       # ...and --selfcheck's too-tight red arm's own bound (its mispriced reach settles later: _sc_reachpath)
 
 
 class Reach:
@@ -40787,7 +40788,7 @@ def _sc_reachpath(X, res):
     """--selfcheck's section `reachpath` (SPEC.md 130.11.4.7): the reach along flights' paths - every shipped
     demo's model replay inside it (and its red arm, an over-tight reach, outside it), the open edge's flight
     reachable, the railed edge's void unreached and never entered"""
-    global _REACH_TIGHT, _REACH_TIGHTZ
+    global _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS
     courses = X.courses
     demos = getattr(compile_all, "demos", {}) or {}
     tot, bad = 0, []
@@ -40803,21 +40804,45 @@ def _sc_reachpath(X, res):
     # the red arm: every crossing priced a cell (16 gu) more than the bound and every flight 4 px lower - a reach
     # too tight, which some demo leaves (the demos tried in order of their length, the first that leaves it named)
     if demos:
-        t0, z0_, hit = _REACH_TIGHT, _REACH_TIGHTZ, None
+        t0, z0_, r0, hit, slow = _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS, None, None
         try:
-            _REACH_TIGHT, _REACH_TIGHTZ = 16, 4
+            # THE ARM'S ROUND BOUND IS LIFTED (2026-11-25, LODE's flume): REACH_ROUNDS is a TRUE reach's bound, and
+            # this reach is priced wrong on purpose - a crossing a cell dearer, so each round carries a bounce's
+            # height a cell less far and the fixed point takes more of them (MILL's 15 where its own reach takes
+            # 7; LODE's 17 where its own takes 6, one over the bound: refused as unsettled, the arm never asked).
+            # A course is judged by its demo here, as every other is
+            _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = 16, 4, REACH_TIGHT_ROUNDS
             for k in sorted(demos, key=lambda k_: len(demos[k_]["log"])):
                 c = courses[k]
-                m = demo_reach_misses(c, demos[k]["log"], compile_course(c.fname, occluders=False).reach)
+                ct = compile_course(c.fname, occluders=False)
+                if slow is None or ct.rounds > slow[1]:
+                    slow = (c.name, ct.rounds, c.fname)
+                m = demo_reach_misses(c, demos[k]["log"], ct.reach)
                 if m:
                     hit = (c.name, len(m))
                     break
         finally:
-            _REACH_TIGHT, _REACH_TIGHTZ = t0, z0_
+            _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = t0, z0_, r0
         res.append(("19 red arm: the reach priced a cell a crossing over its bound and its flights 4 px low "
                     "(_REACH_TIGHT 16, _REACH_TIGHTZ 4) - %s"
                     % ("%s's demo leaves it (%d steps outside)" % hit if hit else "EVERY demo STAYS INSIDE"),
                     hit is not None))
+        if slow is not None and slow[1] > 1:        # the lift's own control: the arm's slowest reach under a bound
+            fired = None                            # one round short of what it took is REFUSED as unsettled
+            try:
+                _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = 16, 4, slow[1] - 1
+                compile_course(slow[2], occluders=False)
+                fired = "compiled"
+            except CourseError as e:
+                fired = True if "has not settled in %d rounds" % (slow[1] - 1) in str(e) else str(e)
+            finally:
+                _REACH_TIGHT, _REACH_TIGHTZ, REACH_ROUNDS = t0, z0_, r0
+            res.append(("19 the red arm's reach is compiled under a round bound of its own (REACH_TIGHT_ROUNDS %d, a "
+                        "true reach's REACH_ROUNDS %d): the slowest it compiled, %s's, settled in %d rounds; control "
+                        "`tightrounds` - the same reach under a bound of %d is refused as unsettled%s"
+                        % (REACH_TIGHT_ROUNDS, r0, slow[0], slow[1], slow[1] - 1,
+                           "" if fired is True else " -- got: %s" % fired),
+                        slow[1] <= REACH_TIGHT_ROUNDS and fired is True))
     # the scenes: an open +x edge (a Hop, a boost, a fall past it) and the same edge railed
     co = compile_course(_RAILREACH % "guard rect 6 6 12 10 side -x -y +y\n", fname="<open edge>", occluders=False)
     cr = compile_course(_RAILREACH % "guard rect 6 6 12 10\n", fname="<railed>", occluders=False)
