@@ -256012,6 +256012,23 @@ entered and every void cell of it UNREACHED; and the control, the squares
 (130.29.7, item 15) is unchanged: it is taken over the cells the model runs
 at less the passed-over ones, as `noocclude`'s.
 
+**The red arm's round bound** (2026-11-25, LODE's refinement). `REACH_ROUNDS`
+(16, 130.11.4.4) bounds a TRUE reach's fixed point. The red arm's reach is
+priced wrong on purpose - a crossing a cell dearer - so each round carries a
+bounce's height a cell less far and the fixed point takes more of them:
+MILL's 15 rounds where its own reach takes 7, and LODESTONE GORGE's 17 where
+its own takes 6 (its flume: a channel 5 units down between curbs). One over
+the bound, so the arm's compile REFUSED that course as unsettled, uncaught,
+and the section died before any demo was asked - and a course's route demo
+is tried in the order of its length, LODE's the shortest. The arm compiles
+under a bound of its own, **`REACH_TIGHT_ROUNDS`** (64), and a course is
+judged by its demo there as every other is. Nothing a compile emits reads
+it (the constant is `_sc_reachpath`'s alone): the shipped list's five items
+are the same lines before and after (the arm: HOP's demo leaves it, 26 steps
+outside). Its own item names the slowest reach the arm compiled and carries
+the control **`tightrounds`**: that reach under a bound one round short of
+what it took is refused as unsettled.
+
 **What else moves.** A cell's `zhi` can only fall, so `Y0` (130.11.4.4's
 highest footprint) can only fall: MILL's from 92 to 52, its picture 40
 lines (five block rows) shorter. Item 8's `noprex` control (130.25.3) was
