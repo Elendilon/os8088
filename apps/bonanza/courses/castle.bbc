@@ -212,7 +212,7 @@ way 28 14
 way 28 11
 way 12 10
 way 8 10
-prop plate 41 28 channel plus
+prop plate 41 28 channel plus hidden
 prop gate 37 31 channel plus along y art portcullis
 prop hourglass 21 36
 prop crack 19 20 hole wide
@@ -258,12 +258,11 @@ noocclude tile 15 10
 noocclude rect 3 14 5 15
 noocclude rect 21 20 24 22
 noocclude rect 21 22 23 23
-# ART (docs/plans/bonanza-courses/castle/ART.md; castle/art.py writes the files): six pieces, a line each -
-# delete a line to strike its piece.  The plus on the first gate, the arrow to its plate, the ring and arrow to the
+# ART (docs/plans/bonanza-courses/castle/ART.md; castle/art.py writes the files): four pieces, a line each -
+# delete a line to strike its piece.  The ring and arrow to the
 # ring key, the ring on the keep's gate, up over the tube, the keep's pennant
-art castle_plus.bba 499 731
-art castle_toplate.bba 519 768
 art castle_tokey.bba 583 440
 art castle_ring.bba 451 307
 art castle_up.bba 402 234
 art castle_flag.bba 351 9
+# the plate up the side stair is MEANT to be found (the owner, 2026-11-25): its being half hidden is the course (`hidden` on its prop line)
