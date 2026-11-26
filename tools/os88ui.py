@@ -1828,7 +1828,46 @@ class UI:
         'Apple' here because that is what every script calls it, and the
         System menu answers to both.
         """
-        n = self._word("menu_nbar")
+        # ONE BAR, NOT TWO HALVES. [menu_nbar] and menu_bar[] are two reads
+        # of a RUNNING guest, and menu_relayout rewrites both: an nbar read
+        # before a raise's relayout over the cells written after it is a
+        # bar that never existed. The Disk window's 6 over the Calculator's
+        # 5 decodes as [... 'View', 'Calc', 'Calc'] - slot 5 is the Disk
+        # window's stale NAME cell, whose title points into menu_abstr and
+        # so reads the NEW name (tests/toastfpg.py, soak 20261126; stopped
+        # at menu_relayout and at the `stc` after it, that pair decodes to
+        # exactly that bar, and single-stepping the relayout between shows
+        # the guest itself only ever holding the old bar or a prefix of the
+        # new one).
+        #
+        # So the pair is read until two CONSECUTIVE reads agree. That is a
+        # proof, not a hope: menu_relayout writes [menu_nbar] = 1 and then
+        # each cell BEFORE the `inc` that counts it, and every cell once, so
+        # a relayout overlapping the first pair either moves nbar by the
+        # second (it only ever ends at its own count) or rewrote cells the
+        # second pair reads again. Two agreeing pairs are the guest's state
+        # at the instant between them - the old bar, the new one, or a
+        # prefix of the new one, never a mixture. Taken RUNNING, because
+        # menus() is called inside bp_trace blocks whose pump owns the
+        # stops, and by the kern_mega shims, which have no pause.
+        at_n, at_bar = self._S("menu_nbar"), self._S("menu_bar")
+
+        def pair():
+            n = _u16(self.m.read(at_n, 2))
+            return n, self.m.read(at_bar, max(n, 1) * geom.MB_ENTSZ)
+
+        box = {"p": pair()}
+
+        def agree(_):
+            cur = pair()
+            if cur == box["p"]:
+                return True
+            box["p"] = cur
+            return False
+        if not agree(None):             # the common case is one look more
+            os88marty.until(self.m, agree, "two reads of the menu bar to "
+                            "agree", poll=POLL, guest=T_MENU)
+        n, first = box["p"]
         size = max(n, 1) * geom.MB_ENTSZ
 
         def segs(raw):
@@ -1851,7 +1890,7 @@ class UI:
         # A package's menu strings are in ITS segment, which the compactor
         # moves - so the bar is read and then checked again with the
         # compactor idle, or taken off a paused guest (os88marty.table_snap).
-        raw = self.m.read(self._S("menu_bar"), size)
+        raw = first
         if not any(segs(raw)):          # the kernel's own menus only
             return take(self.m, raw)
         return os88marty.table_snap(self.m, self._S("menu_bar"), size, take,
@@ -1881,19 +1920,23 @@ class UI:
         return out
 
     def _bar_has(self, menu, item, limit=10.0):
-        """KERN_MEGA'S SHIMS ONLY (tools/os88megabochs.py, and
-        os88mega86box.py, whose 286 shows a Disk window on a 1.2MB A: before
-        its bar - tests/wimgtrip.py): wait, in GUEST seconds, for the bar to
-        carry `menu` -> `item` before menu_pick reads it once.
+        """Wait, in GUEST seconds, for the bar to carry `menu` -> `item`
+        before menu_pick reads it - on EVERY emulator.
 
         A package's window is VISIBLE - which is all `open`/`path` confirm -
-        before its entry proc has run OSAPI_MENU_SET, and between the two
-        the bar is the previous window's cells plus the new one's About
-        cell (`Calc` holding only `About Calc`). MartyPC runs the guest ~4x
-        faster than real time, so its launch is over before the next read;
-        Bochs runs it AT real time and a pick straight after a launch read
-        the half-built bar (tests/toastfpg.py). A name that never arrives
-        falls through to menu_pick's own refusal, which prints the bar."""
+        BEFORE the bar is its own: wm_show_b sets the visible bit, runs the
+        zoom (WM_ANIM), and only then reaches wm_front_b's menu_activate and
+        menu_relayout. Stopped at menu_relayout during a Calculator launch,
+        the front window is 'Calculator', visible, and the bar is still the
+        Disk window's [Apple, File, Edit, Nav, Disk, Locator]: a pick inside
+        that gap reads the PREVIOUS window's bar. This used to run on
+        kern_mega's shims only, on the reasoning that MartyPC's guest runs
+        ~4x real time "so its launch is over before the next read" - a claim
+        about HOST timing, and the soak of 2026-11-26 landed in the gap on
+        MartyPC too (tests/toastfpg.py; the `'Calc', 'Calc'` bar it printed
+        was menus() tearing its read across that same relayout, fixed
+        there). A name that never arrives falls through to menu_pick's own
+        refusal, which prints the bar."""
         if isinstance(menu, int) or isinstance(item, int):
             return
         mw, iw = menu.upper(), item.upper()
@@ -1942,9 +1985,7 @@ class UI:
         printed: `menu_hover` will not stop on one, so the drag would end
         parked on a neighbour and release there.
         """
-        if getattr(self.m, "bochs", False) or getattr(self.m, "box86",
-                                                      False):
-            self._bar_has(menu, item)
+        self._bar_has(menu, item)
         cells = self.menus()
         # AN INT IS A POSITION, a string is a name. Names are what a test
         # should say - they survive a menu gaining an item - but a row whose
