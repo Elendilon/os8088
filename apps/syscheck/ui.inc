@@ -20,6 +20,7 @@ SYD_BTN       equ 0x0020              ; the buttons (a label or a grey moved)
 SYD_STAT      equ 0x0040              ; the status text beside them
 SYD_FIND      equ 0x0080              ; the whole findings list
 SYD_FADD      equ 0x0100              ; findings lines from [sc_dfind] on
+SYD_OWED      equ 0x01FF              ; every bit above (sc_promise)
 SC_UITICKS  equ 4                   ; the path/counter/bar lines' rate
 
 ; --- the layout (sc_geo + SCG_*) -------------------------------------------------
@@ -453,7 +454,7 @@ sc_drawowed:
     je .out                         ; no paint yet: it will draw everything
     cmp byte [sc_btrec+OS88UI_BT_N], 0
     je .out                         ; the About card is over it all
-    call OSAPI_WM_CLIP_SET
+    call sc_clip
     jc .out                         ; not visible: the next paint draws it
     call sc_pen
     cmp byte [sc_choose], 0
@@ -1575,7 +1576,7 @@ sc_select:
     mov word [sc_sb+12], 0
     push ax
     mov bx, si
-    call OSAPI_WM_CLIP_SET          ; a key or a click has no clip armed
+    call sc_clip                    ; a key or a click has no clip armed
     pop ax
     jc .out                         ; not visible: the next paint draws it
     call sc_pen
@@ -1605,7 +1606,7 @@ sc_fscroll:
     cmp [sc_sb+12], cx
     je .out
     mov bx, si
-    call OSAPI_WM_CLIP_SET
+    call sc_clip
     jc .out
     call sc_pen
     xor ax, ax

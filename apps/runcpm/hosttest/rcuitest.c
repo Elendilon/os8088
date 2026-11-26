@@ -238,7 +238,14 @@ void os88_t_onresize(void) {}
 void os88_t_ontimer(void) {}
 void os88_t_onwheel(void) {}
 static struct os88_class *h_cls;        /* what os88_wm_create was handed */
-void os88_wm_flag(void *win, int bit, int on) { (void)win; (void)bit; (void)on; }
+static int h_saveu;                     /* W_FLAGS' WF_SAVEU, as the kernel
+                                         * holds it (SPEC.md 74.7) */
+void os88_wm_flag(void *win, int bit, int on)
+{
+    (void)win;
+    need_lock("wm_flag");               /* the withdrawal frees a claim */
+    if (bit == OS88_WFB_SAVEU) h_saveu = on != 0;
+}
 void *os88_wm_create(int x, int y, int w, int h, const char *title,
                      struct os88_class *cls)
 { (void)x; (void)y; (void)w; (void)h; (void)title; h_cls = cls; return (void *)1; }
@@ -841,6 +848,8 @@ static void run_all(int cols_geom, int rows_geom, int table)
     rc_khead = rc_ktail = 0;
     n_claims = 0; spawn_refuses = 0; spawned = 0; destroyed = 0;
     n_axreads = 0; n_partseg = 0; z_movable = 0;   /* a fresh claim is born pinned */
+    h_saveu = 0; rc_prom = 0;               /* a fresh window is born without
+                                             * WF_SAVEU, and told nothing */
     /* AUTOEXEC.TXT: 'DIR' and a rest behind a CR - and on one geometry a
      * 200-byte line, longer than main.c's 125-byte poke AND than a 125-byte
      * read would carry: the file is read whole and the first 125 bytes are
@@ -976,8 +985,18 @@ static void run_all(int cols_geom, int rows_geom, int table)
      * CCP's buffer, HL = the count, a CR. Then ^C on an EMPTY line: '^C', a
      * warm boot - CCPHEAD again. */
 #define KEY(ch, sc) do { lock_depth = 1; os88_onkey((ch), (sc), win); lock_depth = 0; wake(); } while (0)
+    /* THE RAISE CACHE (SPEC.md 74.7): blocked at the prompt with the glass
+     * caught up, it is PROMISED, two colours from birth; the key that
+     * starts the machine WITHDRAWS it inside os88_onkey - before the wake
+     * that echoes - and the echo's wake, blocked and flushed, promises
+     * again */
+    if (!h_saveu) { printf("FAIL: blocked at the prompt and flushed, WF_SAVEU not promised\n"); fails++; }
+    if (!(h_cls->style & OS88_WF_1BPP)) { printf("FAIL: the class does not declare WF_1BPP\n"); fails++; }
     callreset();
-    KEY('d', 0x20); 
+    lock_depth = 1; os88_onkey('d', 0x20, win); lock_depth = 0;
+    if (h_saveu) { printf("FAIL: a key that runs the machine left WF_SAVEU promised\n"); fails++; }
+    wake();
+    if (!h_saveu) { printf("FAIL: blocked again after the echo, WF_SAVEU not promised\n"); fails++; }
     audit("type d");
     if (calls() != 1 || n_cells != 2) { printf("FAIL: one key into the line editor cost %d calls / %d cells, wanted 1 / 2\n", calls(), n_cells); fails++; }
     if (table) cost("one key into C_READSTR (echo + cursor)");

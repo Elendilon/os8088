@@ -431,10 +431,16 @@ kind = "program"
 summary = "Checks the disk the machine starts from for parts left over or broken by an upgrade, and cleans up what is safe to remove. Also checks, repairs and defragments any disk, with FSCHECK.DRV."
 short = "Installed system checker"
 
+["INPUTCHK.O88"]
+title = "Input Check"
+kind = "program"
+summary = "Shows what the system found of the keyboard and the mouse, checks the keyboard controller, and asks for key presses before and after. On the input debug disk; saves its report as text files to send to the project."
+short = "Keyboard and mouse report"
+
 ["SNDDIAG.O88"]
 title = "Sound Debug"
 kind = "program"
-summary = "Shows what the sound driver found on this machine - where each card answered, its version, its interrupt, its mixer - and plays a ten-second tone, a line a second, to show whether the card keeps playing. On the sound debug disk, for photographing and sending to the project."
+summary = "Shows what the sound driver found on this machine - where each card answered, its version, its interrupt, its mixer - plays a ten-second tone to show whether the card keeps playing, and drives the card and its DMA channel sixteen ways in a DMA lab. On the sound debug disk; saves its report as text files to send to the project."
 short = "Sound card report"
 
 ["TASKMGR.O88"]
@@ -608,6 +614,13 @@ summary = "Pong full screen. Play another computer over a null modem cable, or p
 short = "Full-screen Pong, two players"
 needs = "A null modem cable and a second machine for two players"
 
+["WIRERENA.O88"]
+title = "Wire Arena"
+kind = "program"
+summary = "A first-person arena shooter drawn in text, fast enough for an IBM PC. Eight arenas, six weapons, bots, and free-for-all, team deathmatch, capture the flag and king of the hill, alone or with up to four players over a serial cable or a network."
+short = "Text-mode arena shooter"
+needs = "The standard system disk; a mouse to aim; a null modem cable or a network card to play others"
+
 ["WIREFLET.O88"]
 title = "WireFleet"
 kind = "program"
@@ -712,10 +725,22 @@ kind = "document"
 summary = "Notes on what is on this disk and how to use it. On the system disk it is the whole os8088 manual. Double-click to read it in Note Pad."
 short = "Read this first"
 
+["INPDEBUG.TXT"]
+title = "Input debug notes"
+kind = "document"
+summary = "What the input debug disk is for, what Input Check does when it boots, and the report files to send when the keyboard or mouse does not work. Opens in Note Pad."
+short = "How to use the input debug disk"
+
+["INPUTCHK.LNK"]
+title = "Input Check startup link"
+kind = "data"
+summary = "The link in the input debug disk's startup folder that opens Input Check, running its automatic script, as soon as the machine has started."
+short = "Opens Input Check at startup"
+
 ["SNDDEBUG.TXT"]
 title = "Sound debug notes"
 kind = "document"
-summary = "What the sound debug disk is for, what its three pages show, and the photographs to send when sound does not work. Opens in Note Pad."
+summary = "What the sound debug disk is for, what its five pages show, and the report files to send when sound does not work. Opens in Note Pad."
 short = "How to use the sound debug disk"
 
 ["SNDDIAG.LNK"]

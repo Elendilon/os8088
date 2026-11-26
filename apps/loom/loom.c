@@ -74,9 +74,22 @@
  * on both 1bpp adapters. The resize notice tells us when the box moves
  * without anyone proposing it. SPEC.md 75.1's negotiator - a missing one is
  * the quietest failure there is, a close box that throws away the user's
- * work in silence. And the WHEEL (SPEC.md 13.18). */
+ * work in silence. And the WHEEL (SPEC.md 13.18).
+ *
+ * SAVEU - THE RAISE CACHE'S PROMISE (SPEC.md 11.96.1, WEAVE-SPEC 1.7.2): our
+ * content does not change while we are not drawing. Nothing here moves by
+ * itself - no worker, no timer (the caret does not blink, loom.asm says why),
+ * no wake - and every callback that edits arrives at the FRONT window: a key
+ * and the wheel go to the front, a click on a covered window only raises it,
+ * and the Standard File dialog is modal and gone before os88_onfile(). The one
+ * answer that can arrive while we are covered is the close alert's, because
+ * os88ui_ask is not modal (SPEC.md 75.3.1), and lm_alertdone() raises us before
+ * its Save arm draws a word. Not 1BPP: os88ui's greyed controls and the
+ * Preview's WEAVE painter draw colour 8 on a VGA, so the claim would be false,
+ * and this band-sized window's four-plane cache is past wm_su_kb there - the
+ * promise pays on Hercules and CGA and is refused, harmlessly, on VGA/EGA. */
 static struct os88_class lm_cls = {
-    OS88_CLASS_LEN, OS88_WF_SIZABLE,
+    OS88_CLASS_LEN, OS88_WF_SIZABLE | OS88_WF_SAVEU,
     os88_t_paint, os88_t_onkey, os88_t_onclick, os88_t_about, 0,
     os88_t_onclose, 0, os88_t_onresize, 0, 0, 0, 0, os88_t_onwheel
 };
@@ -840,6 +853,17 @@ void lm_alertdone(int button)
     if (was != LM_ASK_CLOSE)
         return;
     if (button == 0) {                  /* Save */
+        /* RAISED FIRST, because the alert is not modal (SPEC.md 75.3.1): the
+         * user may have put another window over us before answering, and a
+         * failed save repaints the sidebar and writes its sentence on the
+         * status row. Drawn while covered, that paints over the window on top
+         * AND leaves the raise cache a picture of the rows before the save -
+         * SPEC.md 11.96.1's promise broken. In front, the sentence is seen
+         * and the cache is dropped the way every front window's is. Already
+         * in front - the usual case - this costs the menu bar, against a
+         * floppy write. Cancel draws nothing new (lm_status_paint(0) is a
+         * no-op on an unchanged row) and Discard closes, so neither needs it. */
+        os88_wm_front(lm_win);
         lm_saveall();
         if (lm_anymod()) {
             lm_side_paint();

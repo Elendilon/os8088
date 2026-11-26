@@ -3,9 +3,9 @@
 ;
 ; THE SOUND DEBUG DISK'S PROGRAM (SPEC.md 127.4). It boots from the disk's
 ; \AUTOSTRT and puts on the screen everything SOUND.DRV found and everything
-; a short playback does, as text a user photographs and sends us. Three
-; pages, each one screenful on every adapter (17 rows of 78 columns - CGA's
-; 640x200 is the floor that sizes it):
+; a short playback does, and saves it as a benchlib text report (sdlab.inc)
+; on the disk it was started from. Five pages, each one screenful on every
+; adapter (17 rows of 78 columns - CGA's 640x200 is the floor that sizes it):
 ;
 ;   1 DETECT     the driver's probes: the reset scan base by base, the DSP
 ;                version, how the IRQ was found, the mixer, an ESS chip's own
@@ -19,6 +19,13 @@
 ;                stopped
 ;   3 REGISTERS  the mixer's registers 01h..7Fh, the last 32 bytes written to
 ;                the DSP, the stream record and the 8259
+;   4 LAB        the DMA lab (sdlab.inc): sixteen ways of driving the DSP and
+;   5 MORE       DMA channel 1, each played and sampled for 2.4 s; the ESS
+;                controller registers and the 8237 after the play test
+;
+; THE AUTOMATIC RUN, from the debug disk's \AUTOSTRT link (parameter AUTO):
+; page 1, the play test, SOUNDAn.TXT, the lab, SOUNDBn.TXT - nobody needs to
+; touch the machine, and nobody needs to photograph it.
 ;
 ; THE DETAIL COMES FROM THE DRIVER, through SNDV_DIAG (snddiag.inc), which
 ; only the debug disk's SOUND.DRV answers - the same source built with
@@ -34,6 +41,9 @@
 %define DEC_U16
 %define DEC_U32
 %define DEC_FLD
+%define BL_ARENA_BYTES 18000        ; the report (sdlab.inc): ~16KB at most
+%define BL_NUMBERED                 ; SOUNDA1, SOUNDA2... no run overwrites one
+%define BL_INTRO_HOW 'by itself; S saves it again' ; benchlib's banner
     OS88_HEADER 'Sound Debug', sd_entry
     OS88_ICON16                     ; a speaker with a magnifier's handle
     dw 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF
@@ -55,9 +65,13 @@ SD_SECS     equ 10                  ; play test length, seconds
 SD_TONE     equ 256                 ; the staged tone block (every period
                                     ; divides it, and it divides SD_RL)
 SD_DSPGAP   equ 36                  ; ticks on page 1 before the play test
+SD_PLOGN    equ 190                 ; play-test ticks sampled (10.4 s)
+SD_PLW      equ 6                   ; dw IRQs, dw ch 1 count, db status, db -
+SD_NPAGES   equ 5
 
 ; --- the window ------------------------------------------------------------------
 sd_entry:
+    call sd_autoarg                 ; first: OSAPI_ARG_TEXT is valid here only
     mov si, sd_tpl
     call OSAPI_WM_CREATE            ; BX = window, CF = table full
     jc .ret
@@ -80,6 +94,38 @@ sd_entry:
 .ret:
     ret
 sd_ret:
+    ret
+
+; sd_autoarg - [sd_autorun] = 1 when the link's parameter is AUTO (any case)
+sd_autoarg:
+    push ax
+    push dx
+    push si
+    push ds
+    call OSAPI_ARG_TEXT             ; CF = 1: none, every ordinary launch
+    jc .out
+    mov ds, dx                      ; DX:SI = the parameter
+    mov ax, [si]
+    and ax, 0xDFDF
+    cmp ax, 'AU'
+    jne .no
+    mov ax, [si+2]
+    and ax, 0xDFDF
+    cmp ax, 'TO'
+    jne .no
+    cmp byte [si+4], 0
+.no:
+    pop ds
+    push ds
+    jne .out
+    mov byte [sd_autorun], 1
+.out:
+    pop ds
+    pop si
+    pop dx
+    pop ax
+    mov word [sd_savea], 0xFFFF     ; nothing saved yet
+    mov word [sd_saveb], 0xFFFF
     ret
 
 ; sd_pitch - the row pitch for this screen: 8 on CGA's 200 lines, 10 on
@@ -230,7 +276,7 @@ sd_onkey:
 .up:
     cmp al, '1'
     jb .notpg
-    cmp al, '3'
+    cmp al, '0' + SD_NPAGES
     ja .notpg
     sub al, '1'
     mov [sd_page], al
@@ -239,15 +285,39 @@ sd_onkey:
     call sd_mixdump
     jmp short .redo
 .notpg:
+    cmp al, 'V'                     ; (V is legal while the test plays)
+    jne .notv
+    xor byte [sd_vsamp], 1
+    jmp short .redo
+.notv:
+    call sd_busy                    ; nothing below while a test plays
+    jc .out
     cmp al, 'P'
     jne .notp
     call sd_pstart
     jmp short .redo
 .notp:
+    cmp al, 'A'                     ; the play test, then the lab
+    jne .nota
+    mov byte [sd_chain], 1
+    call sd_pstart
+    jmp short .redo
+.nota:
+    cmp al, 'L'
+    jne .notl
+    call sl_begin
+    call sd_retime
+    jmp short .redo
+.notl:
+    cmp al, 'S'
+    jne .nots
+    mov al, 'S'
+    call sd_save
+    mov [sd_saveb], ax
+    jmp short .redo
+.nots:
     cmp al, 'R'
     jne .notr
-    cmp byte [sd_pstate], SD_PS_RUN ; not while one plays
-    je .out
     mov al, [sd_ratei]
     inc ax
     cmp al, SD_NRATE
@@ -257,9 +327,7 @@ sd_onkey:
     mov [sd_ratei], al
     jmp short .redo
 .notr:
-    cmp al, 'V'
-    jne .out
-    xor byte [sd_vsamp], 1
+    jmp short .out
 .redo:
     call sd_recopy
     call sd_build
@@ -279,7 +347,46 @@ sd_onkey:
 
 sd_onclose:
     call sd_pstop
+    cmp byte [sl_ph], SL_PH_RUN     ; a lab run in flight: stop the card
+    jne .nl
+    push ax
+    push bx
+    mov al, SDGF_LABSTOP
+    mov bx, DRVC_SOUND * 256 + SNDV_DIAG
+    call OSAPI_DRV_CALL
+    pop bx
+    pop ax
+.nl:
+    call sl_free
     clc
+    ret
+
+; sd_busy - CF = 1 while the play test or a lab run is going
+sd_busy:
+    cmp byte [sd_pstate], SD_PS_RUN
+    je .b
+    cmp byte [sl_ph], SL_PH_RUN
+    je .b
+    cmp byte [sl_ph], SL_PH_GAP
+    je .b
+    clc
+    ret
+.b:
+    stc
+    ret
+
+; sd_retime - the next tick, when something is running
+sd_retime:
+    call sd_busy
+    jnc .r
+    push ax
+    push bx
+    mov bx, [sd_win]
+    mov ax, 1
+    call OSAPI_WM_TIMER
+    pop bx
+    pop ax
+.r:
     ret
 
 sd_about:
@@ -345,6 +452,13 @@ sd_probe:
     mov [sd_m40], ax
     mov [sd_m40+2], dx
 .nodrv:
+    cmp byte [sd_diag], 0           ; the 8237 as the boot left it
+    je .nod
+    mov di, sd_dpre
+    mov al, SDGF_DMARD
+    mov bx, DRVC_SOUND * 256 + SNDV_DIAG
+    call OSAPI_DRV_CALL
+.nod:
     call sd_mixdump
     pop di
     pop si
@@ -424,23 +538,30 @@ sd_ontimer:
     push di
     cmp byte [sd_pstate], SD_PS_IDLE
     jne .run
-    cmp byte [sd_auto], 0           ; the first firing: the automatic start
-    jne .out
+    cmp byte [sd_auto], 0           ; the first firing: the automatic start,
+    jne .lab                        ; the play test and then the lab
     mov byte [sd_auto], 1
+    mov byte [sd_chain], 1
     call sd_pstart
     jmp short .draw
 .run:
     cmp byte [sd_pstate], SD_PS_RUN
-    jne .out
+    jne .lab
     call sd_ptick
+    cmp byte [sd_pstate], SD_PS_RUN
+    je .draw
+    call sd_post                    ; it just ended: the snapshots, the A
+    cmp byte [sd_chain], 0          ; report, and the lab if asked
+    je .draw
+    mov byte [sd_chain], 0
+    call sl_begin
+    jmp short .draw
+.lab:
+    call sl_tick
 .draw:
     call sd_build
     call sd_refresh
-    cmp byte [sd_pstate], SD_PS_RUN
-    jne .out
-    mov bx, [sd_win]
-    mov ax, 1
-    call OSAPI_WM_TIMER
+    call sd_retime
 .out:
     pop di
     pop si
@@ -448,6 +569,42 @@ sd_ontimer:
     pop cx
     pop bx
     pop ax
+    ret
+
+; sd_post - after the play test: the 8237, the ESS registers both ways, and
+; the A report when started AUTO
+sd_post:
+    cmp byte [sd_diag], 0
+    je .r
+    mov di, sd_dpost
+    mov al, SDGF_DMARD
+    mov bx, DRVC_SOUND * 256 + SNDV_DIAG
+    call OSAPI_DRV_CALL
+    mov byte [sd_dpostok], 1
+    cmp byte [sd_rec+SDG_O_SBUP], 0
+    je .save
+    call sd_isess
+    jc .save
+    mov di, sd_essc                 ; compatibility mode as it stands (C0h
+    mov ax, SDGF_ESS                ; alone), then extended (C6h first, a
+    mov bx, DRVC_SOUND * 256 + SNDV_DIAG    ; reset after)
+    call OSAPI_DRV_CALL
+    jc .x
+    mov [sd_esscn], cl
+.x:
+    mov di, sd_essx
+    mov ax, SDGF_ESS | 0x0100
+    mov bx, DRVC_SOUND * 256 + SNDV_DIAG
+    call OSAPI_DRV_CALL
+    jc .save
+    mov [sd_essxn], cl
+.save:
+    cmp byte [sd_autorun], 0
+    je .r
+    mov al, 'A'
+    call sd_save
+    mov [sd_savea], ax
+.r:
     ret
 
 ; sd_pstart - grant, stage, open; on page 2 from here on
@@ -459,6 +616,7 @@ sd_pstart:
     mov byte [sd_auto], 1
     mov byte [sd_page], 1
     mov byte [sd_prow], 0
+    mov word [sd_pln], 0
     mov word [sd_perr], 0
     push ds
     pop es
@@ -557,6 +715,27 @@ sd_pstop:
 
 ; sd_ptick - feed, and at each whole second take a row
 sd_ptick:
+    cmp byte [sd_diag], 0           ; the 8237 every tick (SPEC.md 127.4.1)
+    je .nolog
+    mov di, sd_dbuf
+    mov al, SDGF_DMARD
+    mov bx, DRVC_SOUND * 256 + SNDV_DIAG
+    call OSAPI_DRV_CALL
+    mov ax, [sd_pln]
+    cmp ax, SD_PLOGN
+    jae .nolog
+    inc word [sd_pln]
+    mov cx, SD_PLW
+    mul cx
+    mov di, ax
+    add di, sd_plog
+    mov ax, [sd_dbuf+SDD_SIRQ]
+    mov [di], ax
+    mov ax, [sd_dbuf+SDD_CH+6]      ; channel 1's count
+    mov [di+2], ax
+    mov al, [sd_dbuf+SDD_ST]
+    mov [di+4], al
+.nolog:
     mov ah, [sd_hand]
     mov al, 3                       ; status: AX state, DX consumed
     call OSAPI_SND_STREAM
@@ -590,6 +769,10 @@ sd_ptick:
     call OSAPI_SND_STREAM
 .pp:
     mov [di+SR_STATE], al
+    push ax
+    mov ax, [sd_dbuf+SDD_CH+6]      ; the 8237 at this row (read this tick)
+    mov [di+SR_CNT], ax
+    pop ax
     mov ax, dx
     sub ax, [sd_plast]              ; bytes this second (mod 65536)
     mov [sd_plast], dx
@@ -679,7 +862,12 @@ sd_tone:
 %define OS88UI_ABOUT                ; the standard About card and nothing else
 %define OS88UI_NOBTN
 %include "os88ui.inc"
-%include "snddiag/sdtext.inc"              ; the three pages' text
+%include "snddiag/sdtext.inc"              ; the pages' text
+%include "snddiag/sdlab.inc"               ; the DMA lab, pages 4-5, the report
+%include "benchlib.inc"                    ; the report's lines and its save
+%if SD_COLS != BL_MAXLINE
+  %error "a page row is a report line: SD_COLS must be benchlib's BL_MAXLINE"
+%endif
 
 ; --- data ----------------------------------------------------------------------
 sd_tpl:     dw 0, MBAR_H, 640, 240
@@ -700,10 +888,11 @@ sd_ablines:
     dw sd_ab1, sd_ab2, sd_ab3, 0
 sd_ab1:     db 'Sound Debug for os8088', 0
 sd_ab2:     db 'What SOUND.DRV found, and what a tone does', 0
-sd_ab3:     db 'Photograph pages 1, 2 and 3 and send them to us', 0
+sd_ab3:     db 'Saves its report as SOUNDAn.TXT and SOUNDBn.TXT', 0
 
 sd_ratei:   db 0
 sd_vsamp:   db 1                    ; D8h sampling on
+sd_stem:    db 'SOUNDA.TXT', 0      ; letter at [5]; benchlib numbers it
 
 ; the play table: one row a second
 SR_VALID    equ 0
@@ -714,13 +903,15 @@ SR_D8F      equ 6                   ; 0 not asked, 1 SR_D8 holds it, 2 refused
 SR_D8       equ 7
 SR_MIXF     equ 8
 SR_MIX      equ 9                   ; SD_NMX bytes
+SR_CNT      equ 14                  ; dw the 8237's channel 1 count
 SD_ROWSZ    equ 16
+%if SR_MIX + SD_NMX > SR_CNT
+  %error "a play row's mixer bytes run into SR_CNT"
+%endif
 
-; --- bss: offsets past the image, zeroed at load ---------------------------------
-%assign SDB 0
+; --- bss: past the image, zeroed at load; benchlib's block 512-aligned -----
 %macro SDV 2
-%1 equ os88_image_end + SDB
-  %assign SDB SDB + (%2)
+    OS88_ABUF %1, %2
 %endmacro
 SDV sd_win, (1)*2
 SDV sd_vh, (1)*2
@@ -740,7 +931,18 @@ SDV sd_pst, (1)*1
 SDV sd_prow, (1)*1
 SDV sd_hand, (1)*1
 SDV sd_e7n, (1)*1
-%assign SDB SDB + (1)*1
+SDV sd_autorun, (1)*1
+SDV sd_chain, (1)*1
+SDV sd_dpostok, (1)*1
+SDV sd_essxn, (1)*1
+SDV sd_esscn, (1)*1
+SDV sd_sletter, (1)*1
+SDV sl_ph, (1)*1
+SDV sl_run, (1)*1
+SDV sl_tk, (1)*1
+SDV sl_why, (1)*1
+SDV sl_jsame, (1)*1
+SDV sl_jlast, (1)*1
 SDV sd_e7, (1)*2
 SDV sd_m40, (4)*1
 SDV sd_perr, (1)*2
@@ -751,14 +953,34 @@ SDV sd_plast, (1)*2
 SDV sd_psum, (2)*2
 SDV sd_pisr0, (1)*2
 SDV sd_pisrl, (1)*2
-SDV sd_rec, (SDG_LEN + 2)*1
-SDV sd_rows, (SD_SECS * SD_ROWSZ)*1
-SDV sd_tonebuf, (SD_TONE)*1
-SDV sd_txt, (SD_ROWS * SD_LW)*1
-SDV sd_shown, (SD_ROWS * SD_LW)*1
-SDV sd_num, (16)*1
+SDV sd_pln, (1)*2
+SDV sd_savea, (1)*2
+SDV sd_saveb, (1)*2
+SDV sl_jprev, (1)*2
+SDV sl_buf, (2)*2
+SDV sl_lbuf, (2)*2
 SDV sd_rowp, (1)*2
 SDV sd_mixok, (1)*1
+SDV sd_num, (16)*1
+SDV sd_namea, (14)*1
+SDV sd_nameb, (14)*1
+SDV sl_lp, (LP_LEN + 1)*1
+SDV sd_rec, (SDG_LEN + 2)*1
+SDV sd_dbuf, (SDD_LEN)*1
+SDV sd_dpre, (SDD_LEN)*1
+SDV sd_dpost, (SDD_LEN)*1
+SDV sd_essx, (16)*1
+SDV sd_essc, (16)*1
+SDV sd_rows, (SD_SECS * SD_ROWSZ)*1
+SDV sd_tonebuf, (SD_TONE)*1
 SDV sd_mixd, (128)*1
-OS88_BSS SDB
-OS88_IMAGE_END
+SDV sd_line, (SD_LW + 1)*1
+SDV sl_rec, (SDL_LEN)*1
+SDV sl_res, (SL_N * SL_RESW)*1
+SDV sl_recs, (SL_N * SL_RECW)*1
+SDV sl_samp, (SL_N * SL_TICKS * SL_SAMPW)*1
+SDV sd_plog, (SD_PLOGN * SD_PLW)*1
+SDV sd_txt, (SD_ROWS * SD_LW)*1
+SDV sd_shown, (SD_ROWS * SD_LW)*1
+    OS88_BSS_ALIGNED sd_blsect, BL_BSS_SIZE
+    BL_BSS sd_blsect

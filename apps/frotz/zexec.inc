@@ -426,6 +426,9 @@ zx_relock:
     push ax
     push dx
     call zx_lock
+    call zf_unpromise               ; out of the wait: the opcode's tail may
+                                    ; draw, so the raise cache goes first
+                                    ; (zio.inc, SPEC.md 61.16)
     pop dx
     pop ax
     popf

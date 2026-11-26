@@ -885,7 +885,11 @@ cy_help:
 ; cy_panel_up - arm the panel. SI = text, AX/BX = box size, CL = its line cap.
 ; UI task, gfx lock held.
 cy_panel_up:
-    push si
+    call cy_unpromise               ; it draws HERE, without a clip, and a menu
+    push si                         ; pick can reach a window only partly
+                                    ; visible - which is when a cache of it
+                                    ; exists. The worker promises again once
+                                    ; the panel is on the glass (SPEC.md 67.27)
     mov [cy_pntxt], si
     mov [cy_pnw], ax
     mov [cy_pnh], bx
@@ -1044,6 +1048,7 @@ cy_paint:
     call cy_hs_load                 ; a UI-task callback, which the entry proc
     call cy_hire                    ; is not a safe place to read a file from
     call cy_full_repaint
+    call cy_promise                 ; a whole picture is the present (67.27)
     pop si
     ret
 
@@ -1168,6 +1173,7 @@ cy_key_common:
 .p2:
     cmp byte [cy_state], CYS_PAUSE
     jne .ret0
+    call cy_unpromise               ; BEFORE the game moves (SPEC.md 67.27)
     mov byte [cy_state], CYS_PLAY
     mov byte [cy_full], 1
     ret
@@ -3657,6 +3663,7 @@ cy_sfx:
 cy_newgame:
     ; Preserves nothing: every caller is a spine or a callback that reloads
     ; what it uses on the next line (SPEC.md 67.5.5).
+    call cy_unpromise               ; a new game moves: withdrawn first (67.27)
     mov byte [cy_ient], 0           ; ABANDON a half-typed name. cy_init_key
                                     ; swallows every key while the prompt is
                                     ; up, so the player cannot reach here with
@@ -3942,6 +3949,12 @@ cy_render:
     jne .draw                       ; the bracket holds the lock already
 
     call OSAPI_GFX_LOCK
+    cmp byte [cy_prom], 0           ; A PROMISED, STILL PAUSE DOES NOT ARM
+    je .look                        ; (SPEC.md 67.27, 11.96.1): arming drops
+    call cy_still                   ; the raise cache, so a paused game that
+    jnc .unlk                       ; armed every tick would destroy the cache
+.look:                              ; it promised for whenever it is partly
+                                    ; visible - and there is nothing to draw
     mov ax, KERNEL_SEG              ; A WORKER MUST LOAD ES ITSELF. Only a
     mov es, ax                      ; CALLBACK arrives with ES = KERNEL_SEG
                                     ; (SPEC.md 20.1); a worker is entered
@@ -3990,15 +4003,86 @@ cy_render:
                                     ; state drew underneath it
     cmp byte [cy_inbr], 0
     jne .out
-    call OSAPI_GFX_UNLOCK
+    call cy_promise                 ; the glass is the present: still or not.
+.unlk:                              ; (NOT in the bracket: no wm_* setter is
+    call OSAPI_GFX_UNLOCK           ; a bracket's call, SPEC.md 53.7)
     jmp short .out
 .skip:
     ; The update ran and the screen did not follow, so every "where it is
     ; DRAWN" rect is now a claim about pixels nobody can see. The next frame
     ; that CAN draw owes a whole one (Missile Command's skipped-frame rule).
     mov byte [cy_full], 1
+    call cy_unpromise               ; ...and what the kernel banked is the past
     call OSAPI_GFX_UNLOCK
 .out:
+    ret
+
+; --- cy_still / cy_promise / cy_unpromise (SPEC.md 67.27) ---------------------
+; cy_still: CF = 0 when the glass will stay right until the player does
+; something - a PAUSED game, outside the bracket, with its PAUSED banner on
+; the glass and no repaint, layout, HUD or panel owed - and CF = 1 otherwise.
+; PAUSE is the only such state: the attract screen and the warps animate, the
+; game-over screen runs its debris and its clock, and PLAY is never promised
+; because cy_focus_ck's pause is noticed by the WORKER a frame after the
+; window over us came up - after the kernel banked us - and its banner's draw
+; is then skipped while covered. Withdrawn through play, the raise repaints
+; with the banner, and the still face after it is promised then.
+;
+; cy_promise says that to the kernel as WF_SAVEU, cy_unpromise withdraws it,
+; and [cy_prom] is what the kernel was last told, so OSAPI_WM_FLAG is called
+; on a CHANGE (the class is born without the flag, as bss is born zero). Gfx
+; lock held (SPEC.md 20.6 rule 7: the clear frees the cache). In the bracket
+; [cy_prom] is always 0 - cy_go_fsx withdrew it and cy_still answers CF = 1
+; there - so cy_key_common, which the bracket's loop shares, never reaches
+; the kernel from inside one. All three preserve every register; cy_promise
+; and cy_unpromise the flags too.
+; -----------------------------------------------------------------------------
+cy_still:
+    cmp byte [cy_inbr], 0
+    jne .no
+    cmp byte [cy_state], CYS_PAUSE
+    jne .no
+    cmp word [cy_needlay], 0        ; ...and cy_full, the byte after it
+    jne .no
+    cmp byte [cy_huddirty], 0
+    jne .no
+    cmp word [cy_msgp], cy_s_paused ; the banner ON THE GLASS (cy_msg_render)
+    jne .no
+    cmp byte [cy_pnon], 0
+    je .yes
+    cmp byte [cy_pndirty], 0
+    jne .no
+.yes:
+    clc
+    ret
+.no:
+    stc
+    ret
+
+cy_promise:
+    pushf
+    push ax
+    xor al, al
+    call cy_still
+    jc cy_unpromise.say
+    inc ax
+    jmp short cy_unpromise.say
+cy_unpromise:
+    pushf
+    push ax
+    xor al, al
+.say:
+    cmp al, [cy_prom]
+    je .out
+    push bx
+    mov bx, [cy_win]
+    mov [cy_prom], al
+    mov ah, WFB_SAVEU
+    call OSAPI_WM_FLAG              ; BX is [cy_win], never a stray register
+    pop bx                          ; (SPEC.md 11.96.11.4)
+.out:
+    pop ax
+    popf
     ret
 
 
@@ -7639,6 +7723,11 @@ cy_go_fsx:
     ; what it uses on the next line (SPEC.md 67.5.5).
     cmp byte [cy_fsx], 0
     jne .out
+    call cy_unpromise               ; the game moves on in the bracket, and
+                                    ; fsx_restore's wm_paint_all may put a
+                                    ; covered window back from its cache: off
+                                    ; until the worker finds it still again
+                                    ; (SPEC.md 67.27)
     ; A PANEL MAY NOT CROSS INTO THE BRACKET. Every windowed way to take one
     ; down is a key or a click through W_ONKEY/W_ONCLICK, and neither is
     ; dispatched in a bracket (SPEC.md 53.1) - the exclusive loop polls int 16h
@@ -7923,6 +8012,7 @@ CY_TWORDS equ 14
     CBYTE cy_col                    ; the pen we last set (it cannot be read)
     CBYTE cy_huddirty
     CBYTE cy_msgdirty
+    CBYTE cy_prom                   ; WF_SAVEU as the kernel was last told
     CBYTE cy_firereq
     CBYTE cy_firecd
     CBYTE cy_c_e2                   ; the mover inks for THIS display (cy_pal)

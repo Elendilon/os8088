@@ -39,10 +39,11 @@ This file is a map. Each document below is the authority on its subject and
 nothing here duplicates it — a second copy is a copy that goes stale.
 
 **"Working in this fork" at the end is BRANCH-SPECIFIC — read it before your
-first commit and before any `git` question about ancestry.** Nine rules that
+first commit and before any `git` question about ancestry.** Ten rules that
 are this fork's rather than the project's, kept in one section at the bottom
-so that a PR going upstream deletes them rather than hunting for them. The
-first of them fires in the first minute of a session.
+so that a PR going upstream deletes them rather than hunting for them. Two
+of them fire in the first minute of a session: rule 9 (`tools/session-sync.sh`)
+is the first command, and rule 0 (`make deps`) the second.
 
 | document | read it before |
 |---|---|
@@ -54,7 +55,7 @@ first of them fires in the first minute of a session.
 | **[docs/86BOX.md](docs/86BOX.md)** | anything only an 86Box machine can answer - **a 286 or 386 running kern_mega's RESET path, an AT BIOS, the owner's mr286 or pc5150 profile, or a TIMING on a machine MartyPC does not model** - or the moment you are about to write *"86Box cannot be automated"*. **It can, and in a container**: `python3 tools/os88box.py build` makes upstream 86Box with its automation socket and GDB stub (three minutes), and `tools/os88box.py` boots any `vm/` profile HEADLESS - step by exact emulated time, screenshot, read the text screen and guest memory, keys, a closed-loop pointer (`to X Y` off the kernel's own `mouse_x`), double-clicks, typing, `quit` saving the CMOS. **`faults` is the instrument for a machine that REBOOTS**: this tree's patch prints every CPU exception and shutdown with its CS:IP, resolved against the kernel map - the one tool that sees a 286 reset loop, which Bochs (a 386) cannot. Read its *AT machines start in BIOS setup once* before the first launch and its *What it is NOT* before quoting a time: 86Box is not cycle-accurate |
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable, **or reaching for a test tier** — it is the matrix of what each emulator can and cannot do, with a recipe per capability, and its *When to run which tier* is the AUTHORITY on when `fast`, `full` and the soak are run. None of the three is a per-commit gate, and the Testing section below is only its short form |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory — the three rules and their guards, what `kernsize`'s lines mean, the ladder, task stacks and the standing gotchas (no transfer across a 64KB page, sections are not heap, rungs are not a design input). |
-| **[docs/HEAP-CLAIMS.md](docs/HEAP-CLAIMS.md)** | declaring a heap claim movable, or asking why a compaction achieved less than expected — one row per claim in the tree with its `MC_RLOC` verdict and the reason, including the packages that claim and have never declared (Word, Sheet, every C package — the C SDK cannot). `tools/heapmap.py` reads the fact off a running machine |
+| **[docs/HEAP-CLAIMS.md](docs/HEAP-CLAIMS.md)** | declaring a heap claim movable, or asking why a compaction achieved less than expected — one row per claim in the tree with its `MC_RLOC` verdict and the reason, including what still stays pinned and why: the launch images and WIN16's region (`tests/movable.txt`) and the claims held only across one transfer. Word, Sheet and every C package declare now (crt0 declares a C package's region; `os88_mem_movable()` its claims). `tools/heapmap.py` reads the fact off a running machine |
 | **[docs/HERCULES-TESTING.md](docs/HERCULES-TESTING.md)** | testing on Hercules — MartyPC boots a real Hercules and `shot` reads it back (use the `_herc_gla` twin: the IBM ROM is not in the tree); QEMU needs `VIDEO=herc HERCSEG=0x7000` plus `tools/hercshot.py`, and all four ways of getting that wrong give a black or plausible image rather than an error |
 | **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§73) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
 | **[docs/MARTYPC-DEBUG.md](docs/MARTYPC-DEBUG.md)** | driving the emulator — `launch`/`settle`/`sym`, the debug server, reading the guest's floppy back on the host, and installing the deps in a fresh Ubuntu container. The IBM ROM is NOT in the tree, so `launch()`'s default machine exits at once in a container: name a `_gla` twin, or go through `os88ui.boot()` which substitutes it |
@@ -409,7 +410,9 @@ user gives a different workflow. `apps/wirefleet/` and its SPEC.md section
   are proved inside one page by guard 6 instead (SPEC.md 2.1.1).
 - **Memory is THREE rules and three quantities** (docs/KERNEL-MEMORY.md):
   **kern_big fully RESIDES in 100KB at the desktop**, **kern_small fully
-  RESIDES in 64KB** — every non-purgeable byte, no drivers, no XMS, on VGA
+  RESIDES in 64KB** — and its 128KB machine's heap is LOCKED at 70.5KB
+  (guard 1b, `HEAP_SEG` <= 0x0E60, no grace: the owner, 2026-11-15) —
+  every non-purgeable byte, no drivers, no XMS, on VGA
   (guard 1's `KERN_BUDGET`, DERIVED from those, plus `tests/kernresident.py`
   and `tests/small128.py` for the half an assembler cannot see) — and **BOTH
   BOOT on 128KB** (guard 5, `MIN_RAM_KB`, asserted by booting each kernel on a
@@ -1128,7 +1131,7 @@ branch-specific rule anywhere else in this file, precisely so that removing it
 is a deletion rather than a search — the one other thing to take with it is
 the pointer to it, five lines under the map sentence at the top.
 
-### 0. `make deps` IS THE FIRST COMMAND OF A SESSION — before `make`, before `make marty`
+### 0. `make deps` comes FIRST after `tools/session-sync.sh` (rule 9) — before `make`, before `make marty`
 
 A fresh container has `cargo` and `python3` and **has neither `nasm` nor
 `qemu` nor `libudev-dev`**. `make deps` installs the set in about half a
@@ -1235,9 +1238,10 @@ repository", which is where the branch already lives, and do nothing.
 
 ### 3. SEND the 360KB set and the two 1.44MB main disks after every commit, without being asked
 
-**All THIRTEEN of them**: the eleven 360KB images `build/os8088-360.img`,
+**All FOURTEEN of them**: the twelve 360KB images `build/os8088-360.img`,
 `build/apps360.img`, `build/media360.img`, `build/office360.img`,
-`build/network360.img`, `build/games360.img`, `build/emu360.img`,
+`build/network360.img`, `build/games360.img`, `build/games2-360.img`,
+`build/emu360.img`,
 `build/util360.img`, `build/small360.img`, `build/win16-360.img` and
 `build/arcrel360.img`, plus
 the two 1.44MB main disks,
@@ -1250,11 +1254,12 @@ not only the normal set: WIN16's `build/win16.img` while WIN16 is off the
 an on-demand application floppy (`c64disk`, `weavedisk`, ...) when its
 package changed, and the like.
 The 360KB part is exactly the 360KB images `all` builds: system, apps, the
-module's own disk (§24.4), the five category disks (§24.6), the 128KB
+module's own disk (§24.4), the six category disks (§24.6), the 128KB
 machine's system disk (§24.5.7), WIN16's own disk (§124.18.1) and ARCADE's
 (ARCADE-SPEC 1.6). It was three until the category disks
 landed, six until `emu360` did, seven until `util360` did, eight until
-`small360` did, nine until `win16-360` did, ten until `arcrel360` did, and it will grow
+`small360` did, nine until `win16-360` did, ten until `arcrel360` did,
+eleven until `games2-360` did, and it will grow
 again — **`$(SHIPIMGS)` in the Makefile is the
 list**, filtered to the 360KB ones. Do NOT reach for `ls build/*360*.img`:
 that also catches `c64360`, `weave360`, `loom360` and `wire360`, which are
@@ -1263,12 +1268,12 @@ The 1.44MB pair is those two files and no others: the 720KB and 1.2MB
 geometries are not sent.
 
 **The exception: send them only when the commit could change the CONTENT of
-one of those thirteen disks.** A commit that cannot - documentation, notes, a plan,
+one of those fourteen disks.** A commit that cannot - documentation, notes, a plan,
 a test or harness file, a host tool that writes no shipped byte - sends
 nothing. The build number does not count: it is the commit count (SPEC.md
 §14.2), so every commit moves three bytes of `.text` in every image, and an
 image that differs only by that is not a change to its content. When the
-commit does reach one disk, the rule above stands and all thirteen go. Which tools
+commit does reach one disk, the rule above stands and all fourteen go. Which tools
 write shipped bytes, and so are NOT in the exception, is fork rule 6's list
 (`os88disk.py`, `os88pkg.py`, `os88drv.py`, `os88mini.py`, `buildnum.py`).
 
@@ -1396,3 +1401,35 @@ which background holds ended) and carry on with the task already in hand. Do
 not ask what it refers to, and do not undo or redo work that had already
 landed. It was once read as "the fix you sent does not work, do it again",
 which it never means.
+
+### 9. Run `tools/session-sync.sh` FIRST, and name a generated branch after the request
+
+The owner's standing preferences (2026-11-14). **`tools/session-sync.sh` is
+the first command of every session, ahead of `make deps`, and it is run again
+after a resume or a "Try again" (rule 8).** It is a command and not a
+SessionStart hook on purpose: upstream refuses start hooks, and the owner's
+Default environment serves every repository, so it cannot carry one either.
+
+- **The checkout can be STALE.** A cloud container can come from a cached
+  snapshot that is older than the branch on GitHub, and work built on top of
+  one has been lost again and again. The script fetches the session's branch
+  (or `elendilon`, for a session branch that is not on GitHub yet) and
+  FAST-FORWARDS when that is safe. It never resets, rebases or merges. If it
+  prints **DIVERGED**, a failed fast-forward, or a failed fetch, stop and tell
+  the owner before any work. Do not reset or force-push your way past it.
+- **A generated branch name is renamed after the request.** A session started
+  from `elendilon` is given `claude/<adjective>-<name>-<id>`, which says
+  nothing about the work, and the script says so when it sees one. Before
+  the first commit, run `tools/session-branch.sh <short-slug>` with two to
+  five words naming the request (e.g. `wireball-serve-fix`). It keeps the
+  `<id>`, so `claude/charming-goodall-plll24` becomes
+  `claude/wireball-serve-fix-plll24` and still matches its session. **This is
+  the owner's standing permission to develop on and push to that renamed
+  branch instead of the one the session was assigned.** It covers that one
+  rename and no other branch. A branch the owner picked, or one already on
+  GitHub, keeps its name. The script refuses to rename those.
+- **Rename BEFORE the first push, never after.** The agent proxy allows
+  pushing a new branch name but refuses deleting one, so a branch pushed
+  under the wrong name stays on GitHub until the owner deletes it there.
+- **When this section is lifted for upstream,** `tools/session-sync.sh` and
+  `tools/session-branch.sh` go with it.

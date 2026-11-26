@@ -412,6 +412,7 @@ ru_paint:
     jmp .out
 .buttons:
     call ru_buttons_paint
+    call rl_promise                 ; the whole window is the present (103.8)
 .out:
 ; The epilogue of every handler that saves all eight (rl_key, ru_navigation,
 ; ru_paint, ru_facts): one copy, reached by a jmp.
@@ -1710,6 +1711,7 @@ ru_drawline:
     ret
  ; Completion animation runs on the UI timer, outside every timed span.
 ru_start_animation:
+    call rl_unpromise               ; the bars grow from nothing (103.8)
     mov word [ru_anim], 0
     mov bx, [rl_win]
     mov ax, 1
@@ -1732,9 +1734,15 @@ ru_timer:
     cmp word [ru_anim], RU_ANIM_STEPS
     jae .out
     inc word [ru_anim]
+    call ru_clip                    ; a timer is W_ONCLICK's environment: NO
+    jc .schedule                    ; region (SPEC.md 13.9, 11.3). Unarmed,
+                                    ; a covered window's bars were drawn over
+                                    ; whatever lay on top of it. Wholly
+                                    ; covered: no frame, the clock goes on,
+                                    ; and ru_clip has withdrawn (103.8)
     call ru_geometry
     cmp byte [ru_view], 1
-    je .schedule
+    je .drawn
     cmp byte [ru_view], 2
     je .results
     cmp byte [ru_small], 0
@@ -1750,6 +1758,8 @@ ru_timer:
     call ru_bar
 .results:
     call ru_rowspaint             ; the frame, title and bar are already up
+.drawn:
+    call rl_promise                 ; after the LAST frame drawn: still (103.8)
 .schedule:
     cmp word [ru_anim], RU_ANIM_STEPS
     jae .out

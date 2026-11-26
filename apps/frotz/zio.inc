@@ -246,6 +246,108 @@ zi_flush:
     pop ax
     ret
 
+;=============================================================================
+; THE RAISE CACHE AS A MODE (SPEC.md 61.16, 11.96.1)
+;
+; WF_SAVEU promises "my content does not change while I am not drawing", and
+; an interpreter keeps that promise in exactly one state: the worker BLOCKED
+; on a key with nothing owed - @read, @read_char, [MORE] or a file request's
+; prompt, the ring empty. Then every pixel is the last thing drawn and nothing
+; moves it: no caret blinks (there is none), @read's and @read_char's timed
+; forms are not implemented (zxo_read, zxo_read_char), a v1-3 status line is
+; drawn BEFORE the wait and never during it, and a sound effect draws nothing.
+; Whatever runs it (a raise, a cover, a minimize, 11.96.4/11.96.5) is then
+; put back from the kernel's copy instead of 46 rows of scrollback lettered.
+;
+; IT IS WITHDRAWN BEFORE ANYTHING CAN CHANGE, and that is the half that
+; matters (11.96.1's asymmetry: late to promise costs a repaint, late to
+; withdraw costs the picture). The v1-5 window's output is NOT clipped - it
+; draws through zx_run's lock with no OSAPI_WM_CLIP_SET, so 11.96.18's net
+; never fires for it - and the echo is drawn by the worker in the wait loop,
+; so the withdrawal cannot wait for the worker to wake. Three places:
+;   - zf_onkey, as the key goes into the ring: the UI task, lock held, and
+;     ahead of the echo, the answer and the [MORE] blank it is about to cause.
+;     A key only reaches the FRONT window, so this is the common case.
+;   - zi_ondlg, a dialog's completion: the one callback that reaches us while
+;     we are COVERED (by the dialog), and it may load a story, restore a game
+;     or put up a notice - each a draw the bank would not see.
+;   - zx_relock and zw_morewait's own re-lock: the wait's exit, said again
+;     before the worker's first draw, so no route out of a wait outruns it.
+; The kernel is asked only when the answer CHANGES ([zf_prom], Tracker's
+; tw_prom idiom), so a key costs a byte compare.
+;
+; THE DEPTH CLAIM RIDES WITH IT, stated per promise as Telnet's te_promise
+; does (SPEC.md 70.8.5): every pixel of a v1-5 window is colour 0 or 15 -
+; zw_runsel's CBLACK/CWHITE, reversed for a style, the scroll bar's black
+; rules and 0/15 dither, the About card - UNTIL a story asks for a colour
+; ([zw_tint], sticky until the next story) or it is v6, whose pictures and
+; per-window colours are anything. Without the claim the window's four-plane
+; cache on VGA is 558/8 x 377 x 4 = ~105KB, past wm_su_kb's 64,512, and the
+; promise would buy nothing there; with it, one plane, ~26KB.
+;=============================================================================
+
+; -----------------------------------------------------------------------------
+; zi_promise - worker: PROMISE, if nothing is owed and it is not said already
+; in:  the gfx lock NOT held, inside a key wait (the four loops that call it)
+; out: nothing; preserves every register and the flags' callers ignore
+;
+; Called on every pass of the wait and costs one compare once said. The ring
+; is re-read UNDER the lock: zf_onkey deposits and withdraws holding it, so a
+; key that lands between the empty zi_getkey and here is seen, and a key that
+; lands after finds the promise made and withdraws it.
+; -----------------------------------------------------------------------------
+zi_promise:
+    cmp byte [zf_prom], 0
+    jne .out                        ; said: no lock, no call
+    push ax
+    push bx
+    push es                         ; the PC's segment, in three of the four
+    call OSAPI_GFX_LOCK             ; loops; zi_yield shifts it after a move
+    mov bx, [zf_win]
+    or bx, bx
+    jz .unlock
+    mov al, [zi_rtail]
+    cmp al, [zi_rhead]
+    jne .unlock                     ; a key is queued: its answer is owed
+    mov ax, WFB_1BPP * 256          ; the depth first, so the first bank is
+    cmp byte [zf_ver], 6            ; taken at the depth it is claimed at
+    je .depth                       ; v6: pictures and per-window colours
+    cmp byte [zw_tint], 0
+    jne .depth                      ; the story asked for a colour
+    inc ax                          ; two colours (see the block above)
+.depth:
+    call OSAPI_WM_FLAG
+    mov ax, WFB_SAVEU * 256 + 1
+    call OSAPI_WM_FLAG              ; preserves every register and the flags
+    mov byte [zf_prom], 1
+.unlock:
+    call OSAPI_GFX_UNLOCK
+    pop es
+    pop bx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; zf_unpromise - WITHDRAW, if promised: the kernel drops the cache with it
+; in:  the gfx lock HELD (SPEC.md 20.6 rule 7 - the clear frees a claim), on
+;      either task
+; out: nothing; preserves every register (flags: the compare's)
+; -----------------------------------------------------------------------------
+zf_unpromise:
+    cmp byte [zf_prom], 0
+    je .out
+    push ax
+    push bx
+    mov byte [zf_prom], 0
+    mov bx, [zf_win]
+    mov ax, WFB_SAVEU * 256         ; the depth claim is left as it was: it
+    call OSAPI_WM_FLAG              ; means nothing without this (11.96.17)
+    pop bx
+    pop ax
+.out:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; zi_yield - worker: stay alive, then give up the slice
 ; out: nothing; preserves all registers. MAY NEVER RETURN.
@@ -602,6 +704,10 @@ zi_ondlg:
     mov si, di
     mov di, zi_name
     call zf_copyname                ; ES:SI -> DS:DI, bounded, NUL-terminated
+    call zf_unpromise               ; THE callback that reaches us COVERED -
+                                    ; by the dialog - and every arm below may
+                                    ; draw: a story, a restore, a notice
+                                    ; (SPEC.md 61.16)
     mov al, [zi_dlg]
     mov byte [zi_dlg], ZID_NONE
     cmp al, ZID_STORY
@@ -1319,6 +1425,7 @@ zi_readchar:
 .wait:
     call zi_getkey
     jnc .got
+    call zi_promise                 ; still: a raise may put us back (61.16)
     call zi_yield
     jmp short .wait
 .got:
@@ -1394,6 +1501,7 @@ zi_readline:
 .wait:
     call zi_getkey
     jnc .key
+    call zi_promise                 ; the echo is drawn: still (SPEC.md 61.16)
     call zi_yield
     jmp short .wait
 
@@ -1553,6 +1661,7 @@ zi_request:
     mov si, zi_m_press
     call zw_notice
 .wait:
+    call zi_promise                 ; the prompt, until RETURN (SPEC.md 61.16)
     call zi_yield                   ; the only way out if the window closes
     cmp byte [zf_req], ZREQ_NONE
     jne .wait

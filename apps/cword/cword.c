@@ -189,9 +189,36 @@
  * single-store path on the two 1bpp adapters (SPEC.md 6.1, 11.94). The About
  * opens the same box Help > About does; the release is a drag's other half;
  * the wake opens the launch document once the window is on the glass
- * (54.10). */
+ * (54.10).
+ *
+ * SAVEU - THE RAISE CACHE'S PROMISE (SPEC.md 11.96.1, 73.12.5): our content
+ * does not change while we are not drawing. Its three questions, answered:
+ * the worker draws nothing (os88_worker sleeps and closes, no more); there is
+ * no timer, so the caret does not blink; and every path that skips its draw -
+ * cw_show()'s os88_wm_obscured() test - is reached only from a callback, and
+ * every callback that can change the text reaches a FRONT window. A key and
+ * the wheel go to the front window, a click on a covered window only raises
+ * it (SPEC.md 81.86.4), the Standard File dialog is modal and torn down before
+ * os88_onfile() (38.6), and os88_onwake() is CALLED by assoc_run straight
+ * after wm_show drew us on top (54.10) rather than posted, so nothing can
+ * cover us between the two. A raise puts the old pixels back and W_PAINT does
+ * not run - which is safe because os88_paint() resets nothing that the
+ * pixels do not also show: the shadow, the caret, an open dropdown and a
+ * dialog are restored exactly as the state still describes them. (The one
+ * thing a paint does besides draw is retry a refused worker hire, and the
+ * first paint - which no cache can stand in for - is where that is normally
+ * spent.)
+ *
+ * 1BPP (SPEC.md 11.96.17): every pixel we draw is colour 0 or 15. Text,
+ * rules and boxes are OS88_BLACK/OS88_WHITE, the caret and selection are
+ * os88_gfx_xor_fill (an inversion), the ruler and proportional rows are
+ * os88_gfx_blit1 bands; the one grey is a disabled dropdown item, which is an
+ * os88_font_run() under os88_gfx_pen(1), and 11.96.17.1 has the renderer
+ * reduce exactly that to a checkerboard of 0 and 15. It is what makes the
+ * promise worth anything on a VGA or an EGA: four planes of this content are
+ * ~108KB against wm_su_kb's 64,512 and are refused, one plane is ~27KB. */
 static struct os88_class cw_cls = {
-    OS88_CLASS_LEN, OS88_WF_SIZABLE,
+    OS88_CLASS_LEN, OS88_WF_SIZABLE | OS88_WF_SAVEU | OS88_WF_1BPP,
     os88_t_paint, os88_t_onkey, os88_t_onclick, os88_t_about, os88_t_onwake,
     0, os88_t_onmouseup, 0, 0, 0, 0, 0, 0
 };

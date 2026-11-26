@@ -162,10 +162,15 @@ gr_key:
     cmp byte [gr_fs], 0
     jne .quit
     mov bx, [gr_win]
-    mov ax, gr_exclusive
-    xor cx, cx
-    call OSAPI_FSX_RUN
-    ret
+    mov ax, WFB_SAVEU*256 + 0       ; the game moves on in the bracket, and
+    call OSAPI_WM_FLAG              ; fsx_restore's wm_paint_all may put a
+    mov ax, gr_exclusive            ; covered window back from its cache: the
+    xor cx, cx                      ; promise is off until the paint after it
+    call OSAPI_FSX_RUN              ; (SPEC.md 99.6). A menu pick reaches here
+    mov bx, [gr_win]                ; while we are only PARTLY visible, which
+    mov ax, WFB_SAVEU*256 + 1       ; is exactly when a cache of ours exists.
+    call OSAPI_WM_FLAG              ; Back on the desktop, lock still held,
+    ret                             ; W_PAINT run: still again (rule 7, 20.6)
 .quit:
     mov byte [gr_quit], 1
 .out:
@@ -2622,8 +2627,16 @@ gr_cgablit:
     ret
 
 gr_tpl: dw 40, 28, 530, 282, gr_title, gr_cls
-; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
-    OS88_CLASS gr_cls, WF_OWNBG, PAINT, gr_paint, ONKEY, gr_onkey, \
+; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with.
+; WF_SAVEU in EVERY mode, flight and the animated intro included, because the
+; worker advances nothing unless this window is frontmost AND owns the menu
+; bar - asked under the gfx lock, in the same hold as the draw (gr_worker) -
+; and a key or command that cannot arm a clip is dropped (gr_clipped). So the
+; glass is current whenever another window can come up over us, and nothing
+; moves until we are the front again: SPEC.md 11.96.1's question 1 answered
+; no by construction, with no focus-loss banner owed (99.6). Only the
+; fullscreen bracket withdraws it (gr_key's .full)
+    OS88_CLASS gr_cls, WF_OWNBG | WF_SAVEU, PAINT, gr_paint, ONKEY, gr_onkey, \
                ONCLICK, gr_click, ABOUT, gr_about
 OS88_PREFER gr_pref, 530, 282, 530, 282, 530, 150
 OS88_MENUSET gr_menus, gr_title, gr_oncmd
