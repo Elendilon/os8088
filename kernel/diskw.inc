@@ -532,8 +532,16 @@ dskw_wrap7:
 ; against: the name and the folder this one was handed are the old disk's.
 ; Fixed, driver and redirected volumes answer the motor test with no I/O and
 ; never clear [dsk_mvok].
+;
+; NOT INSIDE A BATCH: there the caller has said the disk is the same disk
+; (SPEC.md 18.9.3, which rejects a motor gate in a batch), and the re-mount
+; would read nothing - a banked head - yet would PARK the volume onto itself
+; mid-call, flushing a held stream's dirt that 18.8.5 banks: a join's two
+; FAT writes a block came back with this door until it asked.
 ; -----------------------------------------------------------------------------
 dskw_wck:
+    cmp byte [dsk_batch], 0     ; the caller vouches for the disk
+    jne .go
     cmp byte [dsk_mntok], 1     ; nothing mounted: the body's own gate says so
     jne .go
     push dx
@@ -668,11 +676,16 @@ dwf_dskw_vstat:                 ; THE FAR ENTRY IS THE BODY (SPEC.md 2.6.1):
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2
     je .v32
+    clc                         ; FAT12/16 is 0/1 here, so that `cmp` BORROWED:
+                                ; CF=1 with every output valid, and every
+                                ; caller read a mounted volume as no disk
+                                ; (XT-MP3's Save: "Pick a hard drive folder")
 %endif
     mov bx, ax
     mov al, [dsk_spc]
     cbw                         ; (<= 64, a zero extension; CF is 0 from the
-                                ; `jc` above and nothing below writes it)
+                                ; `jc` above - or the `clc` - and nothing
+                                ; below writes it)
     mov cx, 512                 ; mount rule 3
     mov dx, [dsk_maxclus]       ; CountOfClusters + 1 is what the mount stored
     dec dx                      ; (SPEC.md 19 rule 15), and the COUNT is what

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -21,10 +22,25 @@ PREVIEW=ROOT/'build/drmario-art/preview'
 
 
 def preview(name):
-    """The compiler's uncompressed oracle image `name`, generated on first use."""
-    if not (PREVIEW/'native').is_dir():
-        subprocess.run([sys.executable,'tools/drmario_assets.py',str(SOURCE),str(PREVIEW),
-                        '--art',str(PREVIEW/'native')],cwd=ROOT,check=True)
+    """The compiler's uncompressed oracle image `name`, generated on first use.
+
+    Generated into a fresh directory and RENAMED into place, and the test is
+    the file asked for rather than the directory: a generator killed part
+    way (a container restart did it, mid-soak) used to leave `native/`
+    without the PNGs, and every later run took the directory for done and
+    died on a FileNotFoundError."""
+    if not (PREVIEW/name).is_file():
+        PREVIEW.parent.mkdir(parents=True,exist_ok=True)
+        tmp=Path(tempfile.mkdtemp(prefix='preview.',dir=PREVIEW.parent))
+        try:
+            subprocess.run([sys.executable,'tools/drmario_assets.py',str(SOURCE),str(tmp),
+                            '--art',str(tmp/'native')],cwd=ROOT,check=True)
+            if PREVIEW.exists():
+                shutil.rmtree(PREVIEW)
+            os.replace(tmp,PREVIEW)
+        finally:
+            if tmp.exists():
+                shutil.rmtree(tmp)
     return PREVIEW/name
 sys.path.insert(0,str(ROOT/'tools'))
 import os88marty as M

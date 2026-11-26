@@ -37,6 +37,7 @@ import sys
 _OS88_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_OS88_ROOT, "tools"))
 sys.path.insert(0, os.path.join(_OS88_ROOT, "tests"))
+import cpface                                          # noqa: E402
 import dispcp                                          # noqa: E402
 import os88geom  # noqa: E402
 import os88marty                                       # noqa: E402
@@ -175,6 +176,10 @@ def main():
                          % before[2])
 
         # --- tick the Ram Disk ---------------------------------------------
+        # the COMPACT face: every coordinate here is its, and kern_mega's
+        # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+        # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+        cpface.compact(m, S)
         mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
         os88marty.settle(m)
         cps = [w for w in dispcp.win_list(m, S)]

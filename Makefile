@@ -3682,7 +3682,8 @@ DRIVERS += $(BUILD)/pciether.drv
 # 135.6, 135.7): a DATA file beside CTRL.DRV, built by tools/cpwdat.py. It is
 # kern_big / kern_emu / kern_mega's alone - kern_small has no wide panel - and
 # $(SMALLDRIVERS) is a restatement that never held it. On a
-# boot disk: an ordinary file (SPEC.md 19.6), so it takes one root listing slot.
+# boot disk: hidden + system, not read-only (SPEC.md 19.6, 135.6), so it takes
+# a root directory slot and no listing slot.
 DRIVERS += $(BUILD)/cpwide.dat
 # ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
 # in this list that is an absence. Its code is 386 instructions and the target

@@ -39344,11 +39344,21 @@ quiet mount, which is ONE `int 13h` (LBA 0; the FAT window is kept) and a
 seek to cylinder 0 - which a create, replace, delete, rename or mkdir on a
 floppy pays anyway for its FAT and directory, so the extra is a revolution;
 a write-at inside a file or a `WRITE_SEQ` chunk after a pause pays the seek
-as well. It bumps `[dsk_mgen]`, so a `READ_SEQ` cursor re-walks once. Inside
-a batch (§18.9.3) the mount takes the banked head and does no I/O.
+as well. It bumps `[dsk_mgen]`, so a `READ_SEQ` cursor re-walks once.
 
-**Bytes**: `kern_big` `.cold` +80 and `.bss` +1 (`[dsk_mvok]`), `.text`
-unchanged, resident; `kern_mega` the same (its `.cold` above 1MB). The warm
+**Not inside a batch** (§18.9.3): there the caller has said the disk is the
+same disk, and §18.9.3 rejects a motor gate for exactly that bracket, so
+`dskw_wck` goes straight to the body while `[dsk_batch]` is non-zero. The
+re-mount would have read nothing there anyway - a banked head - and it was
+not free: it PARKS the volume onto itself in the middle of a `WRITE_SEQ` call,
+where `dws_hpark` cannot bank, so a held stream's dirt was flushed at every
+block and a join's target was back to two FAT writes a block (`czseq`: 44 FAT
+writes for 20 blocks, 131.8 guest s; with the batch test 7 and 108.2 s,
+§18.8.5's table being 6). `[dsk_mvok]` is left as it was, so the first write
+after the batch ends re-checks.
+
+**Bytes**: `kern_big` `.cold` +87 (+80 as first built, +7 the batch test)
+and `.bss` +1 (`[dsk_mvok]`), `.text` unchanged, resident; `kern_mega` the same (its `.cold` above 1MB). The warm
 test's store is `mov [dsk_mvok], ch` (CH is 0 there, four bytes) and
 `.publish` carries a one-byte pad after its word store, so `dsk_runcap` and
 `dsk_next_clus_x` keep their measured parity (`hotpar`).
@@ -46622,6 +46632,7 @@ place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
 | `KERNEL.SYS` | read-only + hidden + system | deleting it unboots the disk, and it is not a document |
 | `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
 | `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only — and stamped the same by the build on a disk that ships one (§80.7) |
+| `CPWIDE.DAT` | hidden + system | the wide Control Panel's assets (§135.6): the machine's, and deleting it unboots nothing, so **not** read-only |
 | everything else, on either disk | archive | ordinary and **visible** — `TASKMGR.O88` (the chip menu loads it by name, §28), `README.TXT` (the manual, meant to be opened, §19.7), every package in `APPS/` and `GAMES/`, `SYSTEM/DOS/`'s tools and the faces |
 
 **Only what would unboot the disk is locked.** The last row used to be split
@@ -76896,25 +76907,48 @@ stopped.
 
 So **`sbl_find` asks, once a load** (`sbl_f_aiprobe`, attach-only with the
 rest of §34.5.7): with `[sbl_auto]` set, a line found and no PicoMEM, a
-32-byte auto-init cycle over `0000:0400` (the BIOS data area - read, never
-written: playback DMA is memory to card), `40h D3`, `48h 1F 00`, `1Ch`, the
-card's line masked at the PIC and the speaker never switched on; then 2,048
-samples of channel 1 after its first TC. **Every sample at `{base, 0000}` is
-the signature, and `[sbl_auto]` is cleared**: every stream from then on takes
+16-byte auto-init cycle of SILENCE - `80h` bytes in the attach-only tail
+(`sbl_aip_sil`), its first paragraph by `OSAPI_SEG` `SEG_LIN`, so it never
+crosses a 64KB page - `40h D3`, `48h 0F 00`, `1Ch`, the card's line masked
+at the PIC and the speaker never switched on; then 2,048 samples of the
+SELECTED channel (`[sbl_dma]`: its own address/count ports, status bit and
+mask, §34.5.8) after its first TC. **The cycle is silence because the card
+plays it**: `D3h` mutes nothing on an SB16 (Bochs) or in 86Box's SB 2.0,
+and the probe's first cycle was a burst of the BIOS data area (`0000:0400`,
+what it read until 2026-11-26) - the first sound of the session, ahead of
+the first stream's byte 0 (`vidrmbtwice`'s play 1; a phase break in
+`vidrmbsnd`'s capture) - with the DAC left holding its last byte.
+**Every sample at `{base, 0000}` is the signature, and `[sbl_auto]` is cleared**: every stream from then on takes
 the single-cycle path a DSP below 2.00 takes - the double buffer, `14h` per
 2KB half, the ISR re-arming the 8237 (§34.5). A sample anywhere else is a
 reload, and auto-init stays; no TC at all is no answer and changes nothing.
 That is the conservative way round on purpose: a false "broken" costs a
 working card its auto-init regimes, a missed one costs what it cost.
 
+**The probe ends its cycle the way a stream stops** (`sbl_stop_stream`):
+the channel masked, `D0h`, then `14h 00 00` - a one-byte transfer the
+masked channel never serves, there only to hand the card a NEW transfer,
+which drops whatever the cycle left buffered (Bochs's SB16 passed that
+buffer to its streaming resampler at the next completion, whose state then
+bent the first stream's phase for half a second) - then `DAh`, and only then
+the DSP reset and the `2xEh` read.
+A reset over a still-live auto-init is the one ending it may not use: Bochs's
+SB16 completes that DMA inside the reset with a block IRQ, then clears its
+own pending flag, so the `2xEh` read lowers nothing - the line stays HIGH at
+an edge-triggered 8259 and the card never interrupts again. Every stream
+after the load then had no block IRQ and was ended by the watchdog
+(`SND_ST_ENDED`; XT-MP3's "The sound card stopped"), which is how `x3mega`
+found it.
+`DAh` first leaves no DMA for the reset to complete.
+
 What a machine that fails the probe loses with auto-init: rates above
 22,222 Hz (wide and high-speed are both auto-init; err 2, never a clamp),
 stereo and 16-bit formats (err 7), ADPCM4, recording (`SND_CAP_PCM_IN` is not
 published) and direct rings (the copy path plays them). `snd_sb_pub` already
 derives the caps from `[sbl_auto]`, so a package greys what is gone rather
-than being refused it. The probe is ~150 bytes of attach-only code - nothing
-resident - and runs in about 10 ms on the board that needs it. The debug
-build records its answer (`SDG_O_AIP`, record v3, §127.3) and page 1 says
+than being refused it. The probe is 275 bytes of attach-only code and
+data (its silence 31) - nothing resident - and runs in about 10 ms on
+the board that needs it. The debug build records its answer (`SDG_O_AIP`, record v3, §127.3) and page 1 says
 `(8237 no wrap)` beside `auto no`; the DMA lab still runs its auto-init runs
 there, by the DSP's version rather than the driver's regime, because the lab
 is how the fault is seen.
@@ -99276,6 +99310,15 @@ every bar lit, and each column was blacked by its own run a frame or two
 later. On a 4.77 MHz machine that is the better part of a second.
 
 Both windows now declare `WF_OWNBG`. What keeps the promise:
+
+- **the frames**: each is exactly its layout plus the chrome - two columns
+  wide and `TITLE_H + 1` rows tall (the title bar holds the top border,
+  `wm_geom`), so the content is the 416x184, 416x136 or 256x136 the tiles
+  cover. They were `TITLE_H + 2` while the kernel's fill still ran, which
+  hid it; under `WF_OWNBG` that spare bottom row was painted by nobody and
+  kept whatever was on the glass (`tests/dispsize.py` leg C: 72 stale
+  pixels on the CGA). `tools/trkface.py` checks every frame against its
+  layout as well as the cover.
 
 - **the face**: the tiles, the LCD, every transport and option button
   (`tw_lastf` is forgotten to FFFFh), both sliders, the status row, and
@@ -137476,7 +137519,11 @@ Why no other copy of a segment survives a move:
 
 +86 bytes of image. `pkgmove-browser` is the gate (a file load on a VGA XT,
 Note Pad opened first so its claims leave a hole under the page's), red with
-`br_reloc` a bare `ret`.
+`br_reloc` a bare `ret`. Since 1.8 the line table and the link arena are no
+claims of their own in real mode (§71.34.13, §71.34.8): the row names
+`[br_urlseg]` as the third claim and checks `[br_lseg]` and `[br_lnkseg]` as
+DERIVED words (`--derived`), each at the same offset into its moved claim -
+red as well with `br_lnkfix` and `br_lsfix` not called.
 
 **Browser 1.6 (§71.18) broke the first bullet and the merge that brought it
 in mended it rather than pinning.** 1.6 GROWS these claims while a segment is
@@ -260063,10 +260110,20 @@ on every kern_big, kern_emu and kern_mega system disk - the 1.44MB, 720KB and
 images - and on no kern_small disk (`$(SMALLDRIVERS)` never held it). It is
 **not** on the 360KB system disk: it and `CPWIDE.DRV` are in
 `$(SYS360OMITDRV)`, the owner's decision of 2026-11-22 (§135.2), so a 360KB
-boot opens the compact panel. `os88disk.py`
-leaves it an ordinary file (archive only: SPEC.md 19.6 locks only what would
-unboot the disk, and a read-only file is one a keep-install cannot replace), so
-it is visible in the root listing and takes one slot of it. It is packed as a `CZ` file by
+boot opens the compact panel. `os88disk.py` stamps it **hidden + system +
+archive and NOT read-only** - `SYSTEM.CFG`'s row of §19.6's table: hidden
+because it is the machine's and not the user's, not read-only because deleting
+it unboots nothing (the panel opens compact) and a keep-install must be able to
+replace it (§52.10.15.1). The installer's system phase carries it as it carries
+the drivers (`OSAPI_FILE_WRITE_SYS`), and the panel finds and reads it by name
+through `drv_find` and `dskw_read_x`, which walk the directory sectors and
+answer about a hidden file as they do about a `.DRV` (§19.6). It was an
+ORDINARY, visible file when it landed (#402), which put a root entry on every
+system disk and every installed C: that no association can claim: §25's
+generic icon, and a double-click that sweeps every volume for an opener
+(§54.4.3) before it says `Load failed`. `tests/icohd.py` met it on an
+installed hard disk (2026-11-26). It takes a directory slot and no listing
+slot. It is packed as a `CZ` file by
 `tools/os88lz.py --wrap` in the same pass as a driver: the directory entry
 carries the §20.13.5 hint, so a kernel read that names the file expands it
 transparently into a claim of the unpacked size - the wide panel sees the 14,642
@@ -260578,7 +260635,20 @@ and no kernel byte spent. The wide face
 hosts the very same page code (135.3), so a pinned row still tests the page
 it was written for. Pinned: `hmadrv`, `heaphi`, `rdxms`, `ethcfg`,
 `vesakbd`, `vesacp`, and `colorpresets` (whose desktop sample sits under a
-wide frame moved aside). **`cpwide`** (`tests/cpwide.py`, soak, QEMU) is the
+wide frame moved aside) - and, found after the pass (2026-11-26), the rows
+whose own legs boot the 360KB disk (no `CPWIDE.DRV`) but whose kern_mega
+ports boot `mega.img` on Bochs' VGA and opened wide: `rdpreserve`,
+`kbdlayouttext`, `rdcz`/`rdboot`/`fpgop` (through `rdcz.ramdisk_page`),
+`rdup`, `rdmove`, `drvcall`, `drvmove`, `dtfield`, `dtwrite`, `lzdrv`,
+`hdsize` (and `hdmap` through it), `instdeep` (and `bigvol` through it),
+`hddcp`, `hdnoclaim`, `sndmove` and `wirezone`. The same pass found a second, separate miss in the driver-page
+rows: since the Keyboard page joined the statics, a machine that shows all
+nine (VGA, the Display row not hidden) puts the first DRIVER page below the
+eight rows a scrolling list shows (31.1.5), so a click at ordinal
+`[cp_nst]` lands on the arrows. `tests/cpface.py`'s `select` and
+`scroll_to` reach a list ordinal through the arrows, each step confirmed off
+`[cp_sel]`/`[cp_ltop]`, and every driver-page row uses them (`ethcfg`,
+`rdxms`, `cpnames` among them). **`cpwide`** (`tests/cpwide.py`, soak, QEMU) is the
 row that drives the WIDE face: it opens at 618x408 on 640x480, the page list
 selects Drivers, Theme, Display and Dock (each click answered by `cp_sel`,
 which is also the row's check that its mirror of `cpw_lay` still matches the

@@ -61,7 +61,7 @@ _OS88_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_OS88_ROOT, "tools"))
 import os88build
 sys.path.insert(0, os.path.join(_OS88_ROOT, "tests"))
-import os88marty, os88mouse, os88sym, os88geom, os88ui, dispcp
+import os88marty, os88mouse, os88sym, os88geom, os88ui, dispcp, cpface
 
 MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
 PKG_HEAPFRAG = "HEAPFRAG.O88"
@@ -263,6 +263,10 @@ def main():
         # --- then TICK the RAM disk, which claims the store ABOVE A ---------
         # No driver row is wanted by default (SPEC.md 51.3), so this click is
         # both the request and the moment the arena exists.
+        # the COMPACT face: every coordinate here is its, and kern_mega's
+        # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+        # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+        cpface.compact(m, S)
         mo.menu(8, 8, 8, 40)                    # chip menu -> Control Panel
         os88marty.settle(m)
         cp = [w for w in os88geom.windows(m, S)
@@ -303,7 +307,7 @@ def main():
         # is the first button of its first row.
         nst = m.read(S("cp_nst"), 1)[0]
         r0 = reads()
-        mo.click(x0 + 40, y0 + CP_I0Y + nst * CP_IROWH + 7)
+        cpface.select(m, mo, S, x0, y0, nst, "rdmove")  # scrolled to (31.1.5)
         floppy_done(r0)                         # the first paint LOADS the
         os88marty.settle(m)                     # page image off the floppy
         mo.click(x0 + CP_RX + RP_MNTX + RP_MNTW // 2, y0 + RP_B0Y + RP_BH // 2)

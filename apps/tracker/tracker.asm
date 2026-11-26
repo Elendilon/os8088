@@ -294,10 +294,14 @@ TRK_MAXFEED equ 6                   ; halves mixed per worker wake, at most -
                                     ; bounds the lock-free burst so a wake
                                     ; never mixes more than ~1.1s of audio
 TRK_WINW    equ TW_W + 2            ; the windowed face's FRAME: content plus
-TRK_WINH    equ TW_HFULL + TITLE_H + 2  ; the border and the title bar. CGA's
+TRK_WINH    equ TW_HFULL + TITLE_H + 1  ; the border and the title bar. CGA's
                                     ; band cannot hold it and wm_fit clamps
                                     ; it, which is what tw_track's COMPACT
-                                    ; layout is for (SPEC.md 45.21.1)
+                                    ; layout is for (SPEC.md 45.21.1). +1,
+                                    ; not +2: the title bar holds the top
+                                    ; border (wm_geom: content = h-TITLE_H-1),
+                                    ; and under WF_OWNBG a spare content row
+                                    ; is a row nothing paints (45.21.13)
 
 ; =============================================================================
 ; Entry (SPEC.md 20.2): create the splash window, register menus + About,
@@ -3475,7 +3479,7 @@ trk_tpl:
 
 ; --- the frame per adapter (SPEC.md 11.100.1): VGA, Hercules, CGA ------------
     OS88_PREFER trk_pref, TRK_WINW, TRK_WINH,  TRK_WINW, TRK_WINH, \
-                          TRK_WINW, TW_HCOMP + TITLE_H + 2
+                          TRK_WINW, TW_HCOMP + TITLE_H + 1
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
     OS88_MENUSET trk_menus, trk_m_name, trk_oncmd

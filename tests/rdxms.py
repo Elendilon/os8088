@@ -397,8 +397,9 @@ def session(q, a, R, P, data, bimg):
                     + rp.CP_DROWH // 2)
             q.need(rd_seg, "the RAM disk driver to load", 30)
             q.done(4.0)
-        nst = q.read(S("cp_nst"), 1)[0]     # the Ram Disk page's row
-        q.click(x0 + 40, y0 + rp.CP_I0Y + nst * rp.CP_IROWH + 7, cap=6.0)
+        nst = q.read(S("cp_nst"), 1)[0]     # the Ram Disk page: the first
+        cpface.select(q, q, S, x0, y0, nst, "rdxms", wait=q.wait)  # driver
+        q.done(6.0)                         # page, scrolled to (31.1.5)
         return cp, x0 + rp.CP_RX, y0        # the first paint LOADS RAMPAGE
 
     def press(px, py, r, cap=2.0):

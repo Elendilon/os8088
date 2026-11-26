@@ -269,7 +269,7 @@ static int ovl_bp_v_decks(const BPState *s)
         seen = 0;
         for (j = 0; j < s->deck_n[d]; j++) {
             c = s->deck[d][j];
-            if ((c >> 3) != d || ((seen >> (c & 7)) & 1)) return -9;
+            if ((int)(c >> 3) != d || ((seen >> (c & 7)) & 1)) return -9;
             seen |= 1u << (c & 7);
         }
         if (held)

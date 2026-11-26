@@ -97,7 +97,7 @@ static pdw gc_copy(void);
 
 /* ---- PDENG calls ---------------------------------------------------------- */
 /* every call that reads the SOURCE stands in the source's folder (D14).
- * THE UI TASK'S STACK IS 384 BYTES (SPEC.md 8) and PDENG is called from the
+ * THE UI TASK'S STACK IS 512 BYTES (STK0_SIZE, SPEC.md 8) and PDENG is called from the
  * bottom of this module's own chain, so every frame between job_slice and
  * pdw_engcall is paid for twice: eng_get is ONE function (no wrapper, no
  * separate chunk/probe layers) and its arguments are file-scope words. */

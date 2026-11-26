@@ -21,6 +21,13 @@ ROOT = Path(__file__).resolve().parents[1]
 HOST = ROOT / 'apps' / 'byteopoly' / 'hosttest'
 FLAGS = ['-std=c99', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
          '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+         # gcc's flow analyses, which differ by version and inlining: a
+         # `k` set whenever the n>=1 guard reading it holds, and copies
+         # between distinct rows of one array read as overlapping, and a
+         # snprintf whose bound IS the truncation it warns of. clang
+         # has none of them, and gcc ignores an unknown -Wno-*, clang does not.
+         '-Wno-maybe-uninitialized', '-Wno-restrict', '-Wno-format-truncation',
+         '-Wno-unknown-warning-option',
          '-DBP_HOST', '-I', str(ROOT / 'apps' / 'byteopoly'), '-I', str(HOST)]
 
 

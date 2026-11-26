@@ -25,6 +25,8 @@ from os.path import abspath, dirname, join
 ROOT = dirname(dirname(abspath(__file__)))
 WIN = join(ROOT, "apps", "tracker", "trkwin.inc")
 LST = join(ROOT, "apps", "tracker", "trklist.inc")
+ASM = join(ROOT, "apps", "tracker", "tracker.asm")
+API = join(ROOT, "apps", "os88api.inc")
 
 
 def consts(text):
@@ -179,6 +181,47 @@ def cover_fault(W, H, els, tiles):
     return None
 
 
+def frame_faults(c):
+    """Each FRAME against the content its tiles cover. wm_geom's content is
+    the frame less 2 wide and less TITLE_H + 1 tall (the title bar holds the
+    top border), and both windows are WF_OWNBG (SPEC.md 45.21.13): a frame one
+    row taller than its layout leaves a content row that NOTHING paints - no
+    tile, no element and no kernel fill - so it shows whatever was on the
+    glass before (dispsize leg C saw it as 72 stale pixels on the CGA)."""
+    asm = open(ASM).read()
+    c = dict(c)
+    c.update(consts(open(API).read()))
+
+    def val(expr):
+        expr = expr.split(";")[0].strip()
+        return eval(re.sub(r"[A-Za-z_]\w*",
+                           lambda m: str(c[m.group(0)]), expr), {})
+    for m in re.finditer(r"^(TRK_WIN[WH])\s+equ\s+(.*)$", asm, re.M):
+        c[m.group(1)] = val(m.group(2))
+    pref = re.search(r"OS88_PREFER\s+trk_pref,(.*?)\n(?!\s+[A-Z_])",
+                     asm, re.S).group(1).replace("\\", " ")
+    pref = [val(t) for t in pref.split(",")]
+    tpl = re.search(r"\ntpl_tpl:\s*\n\s+dw\s+([^;\n]*)", lst_text()).group(1)
+    tpl = [val(t) for t in tpl.split(",")][2:4]
+    out = []
+    for name, (fw, fh), (W, H) in (
+            ("trk_tpl", (c["TRK_WINW"], c["TRK_WINH"]), (c["TW_W"], c["TW_HFULL"])),
+            ("trk_pref VGA", pref[0:2], (c["TW_W"], c["TW_HFULL"])),
+            ("trk_pref Hercules", pref[2:4], (c["TW_W"], c["TW_HFULL"])),
+            ("trk_pref CGA", pref[4:6], (c["TW_W"], c["TW_HCOMP"])),
+            ("tpl_tpl", tpl, (c["TPL_W"], c["TPL_H"]))):
+        cw, ch = fw - 2, fh - c["TITLE_H"] - 1
+        if (cw, ch) != (W, H):
+            out.append("%s: a %dx%d frame has %dx%d of content and the layout "
+                       "covers %dx%d - the difference is painted by nobody"
+                       % (name, fw, fh, cw, ch, W, H))
+    return out
+
+
+def lst_text():
+    return open(LST).read()
+
+
 def main(argv):
     win, lst = open(WIN).read(), open(LST).read()
     c = consts(win)
@@ -215,7 +258,12 @@ def main(argv):
         else:
             print("trkface: %s: %d tiles + %d elements cover %dx%d exactly once"
                   % (name, len(tiles), len(els), W, H))
-    return bad
+    faults = frame_faults(c)
+    for f in faults:
+        print("trkface: %s" % f)
+    if not faults:
+        print("trkface: every frame's content is exactly its layout")
+    return bad or (1 if faults else 0)
 
 
 if __name__ == "__main__":

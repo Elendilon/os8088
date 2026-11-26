@@ -122,6 +122,11 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
 
     # The chip menu's Control Panel item. menu, not click: a menu cannot be
     # opened with a click (os88mouse's own note).
+    # the COMPACT face: every coordinate here is its, and kern_mega's
+    # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+    # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    import cpface
+    cpface.compact(m, m.sym)
     mo.menu(8, 8, 8, 40)
     M.settle(m)
     w = panel(m)

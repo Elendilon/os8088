@@ -73,23 +73,29 @@ def clusters(n, size):
     return (n + size - 1) // size
 
 
-# A parted package's --part arguments, in table order, as its Makefile rule
-# passes them: a re-pack without them is refused by os88pkg.py, and the
-# shipped file's size includes them, so LZB and LZ4 are compared like for like.
-# SHEET's two modules are parts since SPEC.md 82.16.12; the Browser's
-# Download Manager is one too, packed LZ4 whatever the image is.
-PARTS = {"sheet": ("sheet.chart.bin", "sheet.macro.bin"),
-         "browser": ("browser.part.bin",)}
-PART_ARGS = {"browser": ("--part-compress", "lz4")}
+# A parted package's --part arguments, in table order, READ OUT OF ITS
+# Makefile rule: a re-pack without them is refused by os88pkg.py, and the
+# shipped file's size includes them, so LZB and LZ4 are compared like for
+# like. A hand-kept copy of the list went stale when the Browser grew from
+# one part to eight, and the row failed on os88pkg's refusal.
+def part_args(stem):
+    text = open(os.path.join(ROOT, "Makefile")).read().replace("\\\n", " ")
+    m = re.search(r"^\$\(BUILD\)/%s\.o88:[^\n]*\n((?:\t[^\n]*\n)+)"
+                  % re.escape(stem), text, re.M)
+    if not m:
+        return []
+    out = []
+    for flag, val in re.findall(r"(--part(?:-compress)?)\s+(\S+)", m.group(1)):
+        if flag == "--part":
+            val = os.path.join(BUILD, val.replace("$(BUILD)/", ""))
+        out += [flag, val]
+    return out
 
 
 def pack(binp, fmt, tmp):
     out = os.path.join(tmp, os.path.basename(binp) + "." + fmt)
     stem = os.path.basename(binp).split(".")[0]
-    parts = []
-    for f in PARTS.get(stem, ()):
-        parts += ["--part", os.path.join(os.path.dirname(binp), f)]
-    parts += list(PART_ARGS.get(stem, ()))
+    parts = part_args(stem)
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"),
                         binp, "-o", out, "--compress-if=" + fmt] + parts,
                        capture_output=True, text=True)
@@ -105,7 +111,7 @@ def check_list(names, tmp):
         binp = os.path.join(BUILD, name + ".bin")
         # (the SAME input the Makefile packs: a package whose overlays
         # tools/os88ovl.py splits off ships `<name>.trim.bin`, the image
-        # without them - Sheet 2.1's two modules, its PARTS now (PARTS above)
+        # without them - Sheet 2.1's two modules, its PARTS now (part_args above)
         # - and the whole .bin's image field is not that file's size)
         trim = os.path.join(BUILD, name + ".trim.bin")
         if os.path.exists(trim):

@@ -3550,7 +3550,7 @@ sbl_find:
     ret
 .irq:
     call sbl_f_irqdisc
-    call sbl_f_aiprobe          ; does channel 1's auto-init WRAP? (34.5.9)
+    call sbl_f_aiprobe          ; does the channel's auto-init WRAP? (34.5.9)
     cmp byte [sbl_verhi], 4     ; a DSP 4.xx: its 16-bit channel too
     jb .ret                     ; (SPEC.md 34.5.5)
     call sbl_hdma_find
@@ -3630,8 +3630,8 @@ sbl_hdma_find:
     ret
 
 ; -----------------------------------------------------------------------------
-; sbl_f_aiprobe - does DMA channel 1's AUTO-INIT reload its count? (SPEC.md
-;                 34.5.9, docs/FIELD-NOTES.md 70)
+; sbl_f_aiprobe - does the 8-bit channel's AUTO-INIT reload its count?
+;                 (SPEC.md 34.5.9, docs/FIELD-NOTES.md 70)
 ; in:  sbl_find, after the discovery: [sbl_auto], [sbl_base], [sbl_irq]
 ; out: [sbl_auto] = 0 when the 8237 shows the STPC signature, so every
 ;      stream takes the single-cycle path (14h, re-armed per block)
@@ -3643,17 +3643,21 @@ sbl_hdma_find:
 ; counter raises IRQs as if it were playing. Every auto-init regime froze at
 ; the first wrap there (1Ch, 90h, demand mode, any order, any cycle, any
 ; buffer); 14h re-armed per block played. So it is ASKED, once a load: a
-; 32-byte auto-init cycle over the BIOS data area (read, never written:
-; playback DMA is memory to card), speaker off and the card's line masked,
-; then 2,048 samples of the channel after its first TC. A sample anywhere
+; 16-byte auto-init cycle of SILENCE (80h, sbl_aip_sil in this attach-only
+; tail - the card PLAYS what it reads, and "speaker off" mutes nothing on an
+; SB16 or in 86Box's SB 2.0: a cycle of the BIOS data area was the first
+; sound of the session, and the DAC held its last byte after), the card's
+; line masked, then 2,048 samples of the channel ([sbl_dma], its own ports
+; and status bit) after its first TC. A sample anywhere
 ; but {base, 0000} is a reload, and auto-init stays; all of them there is
 ; the signature, and it goes. No TC at all is no answer, and changes
 ; nothing - the conservative way round, because a false "broken" costs a
 ; working card its auto-init regimes and a missed one costs what it cost.
 ; Not on a PicoMEM, whose DMA is its own (SPEC.md 34.10).
 ; -----------------------------------------------------------------------------
-SBL_AIP_BUF  equ 0x0400         ; 0000:0400, the BIOS data area
-SBL_AIP_LEN  equ 32
+SBL_AIP_LEN  equ 16             ; the cycle, a paragraph: aligned, so it
+                                ; never crosses a 64KB page
+sbl_aip_sil: times 2 * SBL_AIP_LEN - 1 db 0x80  ; the paragraph inside it
 sbl_f_aiprobe:
     cmp byte [sbl_auto], 0
     je .ret
@@ -3668,6 +3672,7 @@ sbl_f_aiprobe:
     push cx
     push dx
     push si
+    push di
     mov cl, [sbl_irq]           ; the card's line, masked for the probe
     mov dx, 0x21
     cmp cl, 8
@@ -3690,42 +3695,56 @@ sbl_f_aiprobe:
     mov al, 0xD3
     call sbl_dsp_wr
     in al, 0x08                 ; status: retire a stale TC bit
-    mov ax, SBL_AIP_BUF
+    mov dx, ds                  ; the silence's linear address: asked, a
+    mov bl, SEG_LIN             ; selector under kern_mega (MC7)
+    call OSAPI_SEG
+    add ax, sbl_aip_sil + 15    ; up to its first paragraph...
+    adc dl, 0
+    and al, 0xF0
+    mov si, ax                  ; SI = the base the samples compare with
+    mov ch, dl                  ; ...CH its page, CL auto-init read (the
+    mov cl, 0x59                ; channel is sbl_dma_auto's)
     mov bx, SBL_AIP_LEN - 1
-    mov cx, 0x0059              ; CL mode (auto-init, read, ch 1), CH page 0
     call sbl_dma_auto
     mov al, 0x48                ; one block = the cycle, then 1Ch
     call sbl_dsp_wr3
     mov al, 0x1C
     call sbl_dsp_wr
+    mov cl, [sbl_dma]
+    mov ah, 1                   ; AH = the channel's TC bit in the status
+    shl ah, cl
+    mov dl, [sbl_dmaport]       ; DX = its address port, the count's next
+    xor dh, dh
     mov cx, 0xFFFF              ; the first terminal count, bounded
 .tc:
     in al, 0x08
-    test al, 0x02
+    test al, ah
     jnz .got
     loop .tc
     mov al, 3                   ; none: no answer, auto-init stays
     jmp short .done
 .got:
-    mov si, 2048
+    mov di, 2048
 .s:
     pushf
     cli
     out 0x0C, al                ; flip-flop clear (any value)
-    in al, 0x02
+    in al, dx
     mov bl, al
-    in al, 0x02
+    in al, dx
     mov bh, al                  ; BX = the address
-    in al, 0x03
+    inc dx
+    in al, dx
     mov cl, al
-    in al, 0x03
+    in al, dx
     mov ch, al                  ; CX = the count
+    dec dx
     popf
-    cmp bx, SBL_AIP_BUF
+    cmp bx, si
     jne .ok
     or cx, cx
     jne .ok
-    dec si
+    dec di
     jnz .s
     mov byte [sbl_auto], 0      ; the signature, every sample: single-cycle
     mov al, 2
@@ -3734,12 +3753,23 @@ sbl_f_aiprobe:
     mov al, 1
 .done:
     SDG_SET sdg_aip, al
-    mov al, 0xD0                ; stop, then the reset that leaves 1Ch
-    call sbl_dsp_wr
-    xor cx, cx
+    mov al, [sbl_dma]
+    or al, 4
+    out 0x0A, al                ; the channel masked, as every start expects
+    mov al, 0xD0                ; stop; then 14h of ONE byte the masked
+    call sbl_dsp_wr             ; channel never serves, which hands the
+    xor bx, bx                  ; card a new transfer and so DROPS what the
+    mov al, 0x14                ; cycle buffered (Bochs's SB16 passes a
+    call sbl_dsp_wr3            ; flushed buffer to its resampler, whose
+                                ; state then bent the first stream's
+                                ; phase); then DAh, ending the transfer
+    mov al, 0xDA                ; (sbl_stop_stream's D0h DAh), then the
+    call sbl_dsp_wr             ; reset that leaves 1Ch. Never a reset over
+    xor cx, cx                  ; a live transfer: Bochs ends it with a
+                                ; block IRQ the reset then forgets, its line
+                                ; left HIGH - no edge, no IRQ, for good
+                                ; (SPEC.md 34.5.9)
     call sbl_f_reset
-    mov al, 0x05
-    out 0x0A, al                ; channel 1 masked, as every start expects
     mov dx, [sbl_base]
     add dx, 0x0E
     in al, dx                   ; retire the card's IRQ SB-side
@@ -3747,6 +3777,7 @@ sbl_f_aiprobe:
     pop ax
     pop dx
     out dx, al                  ; the line's mask as it was
+    pop di
     pop si
     pop dx
     pop cx

@@ -157,6 +157,11 @@ def main():
         # both the request and the mount (SPEC.md 52.6.1).
         mega = getattr(m, "bochs", False)
         pool0 = pool(m) if mega else {}
+        # the COMPACT face: every coordinate here is its, and kern_mega's
+        # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+        # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+        import cpface
+        cpface.compact(m, S)
         mo.menu(8, 8, 8, 40)                    # chip menu -> Control Panel
         os88marty.settle(m)
         cp = [w for w in os88geom.windows(m, S)

@@ -40,6 +40,16 @@ FOR A PACKAGE WHOSE CLAIMS ARE NOT ALL OF THE STORY (PiXEL, SPEC.md 106.5.1):
                              drive's zone
 A --word may be an expression over the map's labels (`op_table+32`: part 2's
 row segment), and --word is optional when --still is given.
+
+A WORD DERIVED FROM ANOTHER'S CLAIM (the Browser's, SPEC.md 71.34.8 and
+71.34.13): `--derived WORD:PARENT` names a segment word that points INSIDE the
+claim a --word names rather than at a claim's base - the link arena past the
+URL store, the line table past the document - so it can name no claim of its
+own and checks 1, 3 and 4 do not apply to it. Instead, before and after the
+move it must lie inside PARENT's claim at the SAME paragraph offset, and
+PARENT must have moved (a derived word under a claim that stood still proves
+nothing). A relocation proc that follows the claim and forgets the derived
+word leaves it at the old offset from the old base: red.
 """
 import argparse
 import hashlib
@@ -79,6 +89,12 @@ def main():
     ap.add_argument("--word", action="append", default=[],
                     help="a word naming a declared claim, which must MOVE "
                     "(at least one of them) - optional with --still")
+    ap.add_argument("--derived", action="append", default=[],
+                    metavar="WORD:PARENT",
+                    help="a word naming a segment INSIDE the claim the "
+                    "--word PARENT names (a derived segment, not a claim of "
+                    "its own): it must keep its paragraph offset into that "
+                    "claim across the move, and PARENT must move")
     ap.add_argument("--disk", default="build/apps360.img",
                     help="the B: floppy; a bare name (games360.img) is "
                     "build/'s, which is how a suite row names one without "
@@ -164,6 +180,10 @@ def main():
         # which no label names. The map holds labels, not constants
         return MAP[w] if w in MAP else int(eval(w, {"__builtins__": {}},
                                                  dict(MAP)))
+    derived = [d.split(":", 1) for d in a.derived]
+    for d, p in derived:
+        if p not in a.word:
+            ap.error("--derived %s:%s: %s is not a --word" % (d, p, p))
     fails = []
     done = lambda mm, **k: os88marty.ui_done(mm)
 
@@ -251,12 +271,26 @@ def main():
         def stills(seg):
             return {w: key(u16(m.read(lin(seg, addr(w)), 2))) for w in a.still}
 
+        def dwords(seg):
+            # A derived word is the SEGMENT ITSELF (real mode: the Browser
+            # takes no sums on kern_mega, SPEC.md 71.34.8, so there it is a
+            # claim of its own and is passed as a --word instead)
+            return {d: u16(m.read(lin(seg, addr(d)), 2)) for d, _ in derived}
+
+        def inside(dv, pv, held):
+            # the paragraph offset of a derived word into its parent's claim,
+            # or None when it lies outside it
+            if pv not in held or not pv <= dv < pv + held[pv][0]:
+                return None
+            return dv - pv
+
         seg0 = pseg()
         w0 = words(seg0)
+        d0 = dwords(seg0)
         s0 = stills(seg0)
-        held = claims(m)
+        held = held0 = claims(m)
         print("%s at %04x: %s" % (a.app, seg0, "  ".join(
-            "%s=%04x" % kv for kv in w0.items())))
+            "%s=%04x" % kv for kv in list(w0.items()) + list(d0.items()))))
         hashes = {}
         for w, c in w0.items():
             if c not in held:
@@ -414,7 +448,8 @@ def main():
                 fails.append("%s moved or was movable while the package "
                              "stood in it" % k)
         print("%s at %04x: %s" % (a.app, seg1, "  ".join(
-            "%s=%04x" % kv for kv in w1.items())))
+            "%s=%04x" % kv for kv in list(w1.items()) +
+            list(dwords(seg1).items()))))
         moved = [k for k in w1 if w1[k] != w0[k]]
         print("  2 moved              %s" % (", ".join(moved) or "NOTHING"))
         if not moved and a.word:
@@ -433,6 +468,25 @@ def main():
                                              "STALE: %s" % stale))
         if stale:
             fails.append("stale words: %s" % stale)
+        d1 = dwords(seg1)
+        for d, p in derived:
+            o0 = inside(d0[d], w0[p], held0)
+            o1 = inside(d1[d], w1[p], held)
+            ok = o0 is not None and o0 == o1 and w1[p] != w0[p]
+            print("  3 derived %-10s %04x -> %04x, %s+%s -> %s+%s %s" % (
+                d, d0[d], d1[d], p, "%x" % o0 if o0 is not None else "?",
+                p, "%x" % o1 if o1 is not None else "?",
+                "followed" if ok else "WRONG"))
+            if o0 is None:
+                fails.append("%s = %04x is not inside %s's claim %04x before "
+                             "the move" % (d, d0[d], p, w0[p]))
+            elif w1[p] == w0[p]:
+                fails.append("%s's claim did not move, so derived %s proves "
+                             "nothing" % (p, d))
+            elif o1 != o0:
+                fails.append("derived %s = %04x did not follow %s (%04x -> "
+                             "%04x, offset %x)" % (d, d1[d], p, w0[p], w1[p],
+                                                   o0))
         bad = [k for k in moved if k in hashes and w1[k] in held and
                hashlib.md5(m.read(w1[k] * 16, held[w1[k]][0] * 16)).digest()
                != hashes[k]]

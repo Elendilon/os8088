@@ -282,6 +282,14 @@ def run(ms, cable):
     for m in rest:
         m.wait_for(lambda m=m: m.v('wa_lkon') == 1, '3 + 1: in the match',
                    secs=20)
+    # wa_lkon is set before the counts settle: the host's START carries the
+    # player and bot counts and a guest learns them a frame later, so a
+    # read straight after wa_lkon caught one guest mid-way while the
+    # message's re-read a moment later said (3, 1) everywhere. Wait on the
+    # counts themselves; the check then reports what they settled to.
+    for m in rest:
+        Q.acted(m, lambda m=m: m.v('wa_lknp') == 3 and m.v('wa_lknb') == 1,
+                secs=5, what='3 + 1: the counts')       # the check names it
     check(all(m.v('wa_lknp') == 3 and m.v('wa_lknb') == 1 for m in rest),
           '3 + 1: three players, one of the host\'s two bots (%r)'
           % [(m.v('wa_lknp'), m.v('wa_lknb')) for m in rest])

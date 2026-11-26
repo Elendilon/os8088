@@ -1109,7 +1109,7 @@ tpl_onkey:
 ; Data
 ; =============================================================================
 tpl_tpl:
-    dw 0, 0, TPL_W + 2, TPL_H + 20
+    dw 0, 0, TPL_W + 2, TPL_H + TITLE_H + 1 ; content exactly TPL_H (45.21.13)
     dw tpl_ttl, tpl_cls
 ; WF_OWNBG for the face's reason (SPEC.md 45.21.13): tiles, frame, every row
 ; (a row's key is never the forgotten 0) and every button, each pixel once.

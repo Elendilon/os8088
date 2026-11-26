@@ -161,6 +161,14 @@ def main(argv=None):
         set_file(fresh, "SYSTEM.CFG", None, scratch)
         with os88ui.boot(str(fresh), apps=apps, machine=a.machine, quick=True) as ui:
             m = ui.m
+            # The Keyboard page's LOGIC is this row's subject, clicked at the
+            # compact face's coordinates: a VGA desktop booted off a disk
+            # that carries CPWIDE.DRV (kern_mega's mega.img on Bochs) opens
+            # WIDE, so pin the compact face as SPEC.md 135.13 decides for
+            # such rows (tests/cpface.py; the wide face hosts the same page
+            # code, 135.3). The 360KB disk has no CPWIDE.DRV: a no-op there.
+            import cpface
+            cpface.compact(m, ui.sym)
             page = KeyboardPage(ui, eq, syms)
 
             def evidence(name):

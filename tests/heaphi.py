@@ -144,20 +144,13 @@ def main():
         x0, y0 = cp[1] + 1, cp[2] + 18
 
         def item(n):
-            if getattr(m, "bochs", False):
-                # KERN_MEGA'S LIST SCROLLS: eight static pages (cp_nst) and
-                # the two driver pages are past the CP_LALL rows the pane
-                # shows, so the item is brought into the CP_LVIS rows by the
-                # list's own down arrow first (ctrl.inc CP_LAY, CP_LAX1)
-                top = lambda: m.read(m.sym("cp_ltop"), 1)[0]  # noqa: E731
-                while n >= top() + CP_LVIS:
-                    t0 = top()
-                    mo.click(x0 + CP_LAX1 + 6, y0 + CP_LAY + CP_LAH // 2)
-                    quiet(m)
-                    if top() == t0:
-                        break                   # ...no arrow to scroll with
-                n -= top()
-            mo.click(x0 + 40, y0 + CP_I0Y + n * CP_IROWH + 7)
+            """List ORDINAL n, scrolled to and selected. THE LIST SCROLLS on
+            every machine this row runs on now: since the Keyboard page
+            joined the statics, the static pages and the two driver pages
+            are past the nine rows the pane shows - on MartyPC's CGA as on
+            kern_mega's VGA - so the item is brought in by the list's own
+            down arrow (SPEC.md 31.1.5, tests/cpface.py's select)"""
+            cpface.select(m, mo, m.sym, x0, y0, n, "heaphi")
             quiet(m)
 
         def floppy_quiet():

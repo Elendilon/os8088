@@ -527,7 +527,14 @@ def main(argv):
             # the MORE RESTRICTIVE display (wm_disp_rest), so the facts must
             # already be the CGA's here, and the drag on from the straddle is
             # then not a change of kind and must move nothing.
-            mo.drag(px + pw // 2, py + TITLE_H // 2, seam - pw // 3,
+            #
+            # The landing leaves the LEFT edge 2/3 of the old width short of
+            # the seam, so a window the straddle shrinks still straddles as
+            # long as it keeps more than 2/3 of its width. It was 5/6, and
+            # Arkanoid's CGA frame is 208 of 250 - 0.832 - so its right edge
+            # came down on the seam exactly (512 + 208 = 720) and its
+            # straddle was never checked.
+            mo.drag(px + pw // 2, py + TITLE_H // 2, seam - pw // 6,
                     py + TITLE_H // 2)
             settle(m, card=sec)
             strad = facts(pseg)

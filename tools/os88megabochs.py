@@ -581,8 +581,14 @@ class MegaBochs(MegaMixin, om.Marty):
 
     def _status(self):
         self._bp_hit()
+        # THE CLOCK FIRST, THEN THE STATE: a fresh reading of a RUNNING
+        # guest is a stop of its own (_cycles -> _stopped -> _halt), and a
+        # breakpoint met there is recorded by it - so a state read before
+        # it answered "running" for a guest already at that breakpoint,
+        # with the stop count and CS:IP of the stop before (see _c_advance)
+        cycles = self._cycles(fresh=True)
         cs, ip, flat = self._at
-        return {"state": self._state, "cycles": self._cycles(fresh=True),
+        return {"state": self._state, "cycles": cycles,
                 "stops": self._stops, "cs": cs, "ip": ip, "flat_ip": flat}
 
     def _c_ping(self, **_):
@@ -616,6 +622,7 @@ class MegaBochs(MegaMixin, om.Marty):
         return self._status()
 
     KICK = 0.05                # s: _halt's SIGINT again, until a prompt
+    ADVANCE_STALL = 60.0       # host s an advance's clock may stand still
     GLASS_GUEST = 0.12         # guest s a running look runs first (_fbuf)
     TB_SENTINEL = 10 ** 15     # ticks: eight years of guest at 4M
 
@@ -716,7 +723,14 @@ class MegaBochs(MegaMixin, om.Marty):
     def _c_advance(self, frames=None, cycles=None, card=None, **_):
         secs = (cycles / GUEST_HZ if cycles is not None else
                 (frames or 1) / 60.0)
+        # A STOP THAT ARRIVED SINCE THE CALLER LAST LOOKED IS ANSWERED, NOT
+        # RUN PAST. A pump (tests/dispcells.py) asks `stopped()` and, told
+        # no, advances - and a breakpoint met between the two used to be
+        # resumed here unseen: one of the hits that "go missing"
+        was = self._state
         self._bp_hit()
+        if was == "running" and self._state != "running":
+            return self._status()
         if self._run_exact(secs, count=True):
             return self._status()
         if ob.SYNC == "realtime":
@@ -731,18 +745,46 @@ class MegaBochs(MegaMixin, om.Marty):
         # GUEST seconds, read off the guest (_cycles): a host that stalls
         # makes this take longer, never hand the guest less than it asked
         want = self._cycles(fresh=True) + int(secs * GUEST_HZ)
+        if was == "running" and self._state != "running":
+            return self._status()       # (that reading met one: as above)
         self._resume()
         t0 = time.time()
+        last, moved = self._cycles(), t0
+        look = secs * 0.9 / self.box.rate
         while True:
-            if self._bp_hit():
+            # `_state`, NOT `_bp_hit()` alone: the fresh reading below is a
+            # stop of its own, and a breakpoint it meets is recorded THERE -
+            # after which `_bp_hit` answers False for good (it reports only
+            # a running guest's stop), the clock never moves again and this
+            # loop polled a stopped guest for ever. mega-zoomsave sat 59
+            # minutes so at BANK's breakpoint, its last debugger command the
+            # `ptime` that reading takes, until the soak's wall limit
+            if self._state != "running" or self._bp_hit():
                 return self._status()
-            rem = (want - self._cycles()) / GUEST_HZ
+            now = self._cycles()
+            rem = (want - now) / GUEST_HZ
             if rem <= 0:
                 break
+            # ...AND A CLOCK THAT STOPS MOVING IS SAID. The bound above is
+            # guest time, which a guest that does not run never spends: a
+            # Bochs that stops answering (its stops time out inside
+            # _cycles, which keeps the last reading) is raised here, naming
+            # what was waited for, rather than polled until a wall limit
+            # - counted from the first moment the loop READS the clock (the
+            # look below), so a long advance is not charged its blind part
+            if now != last:
+                last, moved = now, time.time()
+            elif time.time() - max(moved, t0 + look) > self.ADVANCE_STALL:
+                raise om.MartyError(
+                    "os88megabochs: advance(%.3f guest s) - the guest clock "
+                    "stood at %d of the %d cycles wanted for %.0f host s with "
+                    "the machine %r: Bochs on %s is not running the guest"
+                    % (secs, now, want, time.time() - moved, self._state,
+                       self.box.display))
             # ...looking only once the host has had the time to run it: the
             # guest runs at real time at most, so an earlier look is a stop
             # spent on an answer known in advance
-            if time.time() - t0 >= secs * 0.9 / self.box.rate:
+            if time.time() - t0 >= look:
                 if self._cycles(fresh=True, stale=min(0.02, rem)) >= want:
                     break
             time.sleep(min(0.005, max(0.001, rem / 4)))

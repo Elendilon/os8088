@@ -213,6 +213,11 @@ def open_drivers_page(q):
     kernel's own fixed layout; a miss shows up as [desk_svc_seg] never
     reaching 0 below, which is what the failure says.
     """
+    # the COMPACT face: these coordinates are its fixed layout, and kern_mega's
+    # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel would
+    # open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    import cpface
+    cpface.compact(q, os88sym.linear)
     sys.argv = ["mouse.py", SOCK]
     import mouse                                            # noqa: E402
     mouse.SOCK = SOCK

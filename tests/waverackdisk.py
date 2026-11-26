@@ -443,6 +443,11 @@ def leg_bigclu(tag, o88, syms, tmp, fx):
             "--vbr", os88build.at("build/boothd.bin"),
             "--mbr", os88build.at("build/mbr.bin"),
             "--file", "SOUND.DRV=" + os88build.at("build/sound.drv"),
+            # the save's last step is a RENAME (the temp onto OUT32.WAV), and
+            # Rename's body lives in DISKOPS.DRV, loaded off the SYSTEM volume
+            # - which is this one (SPEC.md 18.5.3). Without it the rename
+            # refuses FERR_IO and the save ends 'Kept as WRSAVnn.$$$'
+            "--file", "DISKOPS.DRV=" + os88build.at("build/diskops.drv"),
             "--file", "WAVERACK.O88=" + o88]
     for n in ("BIG22.WAV", "MID11.WAV"):
         args += ["--file", "%s=%s" % (n, os.path.join(fx, n))]

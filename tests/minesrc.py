@@ -22,6 +22,11 @@ SEVEN CASES, and three of them are about what must NOT happen:
   G  right press on a BACKGROUND Minesweeper  -> RAISES it and does not flag;
                                                 the next one flags
 
+They RUN in the order A B C D G E F: G needs a covered cell in the one board
+row the GAMES window leaves bare, and after E's reveal - whose mines are placed
+off the guest's tick at that click - whether that row is still covered was the
+luck of the board (see case G).
+
 G is the case the SDK's second rule exists for and the only one that needs a
 second window, so this drives the GAMES folder window it launched from back
 to the front and then aims at a board cell that window does not cover.
@@ -176,6 +181,11 @@ def acted(m, cond, ticks=110):
     So a press is followed by the guest's own answer to "did you act", and 110
     ticks is ~6 guest seconds - a budget a loaded box cannot shorten, where a
     `time.sleep` is a different amount of the machine at every width.
+
+    THAT WAS ONE CAUSE OF THAT LINE, NOT THE ONLY ONE: the same FAIL came back
+    in a later soak with the raise long finished, because the cell G aimed at
+    had been OPENED by E's tick-seeded flood and an open cell refuses a flag.
+    Case G's comment is that account; it now runs before E.
     """
     t0 = gticks(m)
     while not cond():
@@ -199,6 +209,10 @@ def quiet(m, ticks=20):
     t0 = gticks(m)
     while ((gticks(m) - t0) & 0xFFFF) < ticks:
         time.sleep(0.02)
+    # ...and then the UI has to have FINISHED with the press: ticks alone are
+    # a guess that it landed, and a press still queued here is one the next
+    # case's press lands behind
+    _ui_done(m, 10.0, what="the press")
 
 
 def cell_xy(rect, col, row):
@@ -344,29 +358,6 @@ def _run(m):
           got["mn_flags"] == 1 and got["mn_revealed"] == 0
           and state(m, seg, 2 * MN_COLS + 2) == MN_S_FLAG, "-> %r" % (got,))
 
-    # --- E: ...and the left button is otherwise untouched --------------------
-    mo.click(*cell_xy(rect, 5, 5))
-    acted(m, lambda: w()["mn_revealed"] > 0)
-    got = w()
-    check("E left still reveals", got["mn_revealed"] > 0, "-> %r" % (got,))
-    if not got["mn_revealed"]:
-        sys.exit("minesrc: the LEFT button opened nothing either - the click "
-                 "path is broken, not the right button")
-
-    # --- F: an open cell cannot be flagged (SPEC.md 23) ----------------------
-    open_cell = next((c for c in range(MN_COLS * MN_COLS)
-                      if state(m, seg, c) == MN_S_OPEN), None)
-    if open_cell is None:
-        fails.append("F no open cell to aim at")
-    else:
-        before = w()["mn_flags"]
-        mo.rclick(*cell_xy(rect, open_cell % MN_COLS, open_cell // MN_COLS))
-        quiet(m)
-        got = w()
-        check("F open cell refuses a flag",
-              got["mn_flags"] == before
-              and state(m, seg, open_cell) == MN_S_OPEN, "-> %r" % (got,))
-
     # --- G: a BACKGROUND window is raised, not played ------------------------
     mo.click(grect[0] + 40, grect[1] + TITLE_H // 2)        # GAMES to the front
     if not acted(m, lambda: frontmost(m) == games):
@@ -386,6 +377,20 @@ def _run(m):
     else:
         cx, cy, row = aim
         before = w()["mn_flags"]
+        # THE AIMED CELL MUST BE COVERED, or both halves of G are vacuous: a
+        # flag on an OPEN cell is refused (case F), so "the raise did not
+        # flag" holds for free and "the next press flags" fails for a reason
+        # that is not the dispatch. G used to run after E, whose reveal is
+        # seeded off the guest's tick at that click (mn_place: GET_TICKS ->
+        # SRAND), so the flood differed per run - and a 54-cell flood opened
+        # (0,8), the only row the GAMES window leaves uncovered: the soak's
+        # "G the NEXT press flags -> mn_flags 1", reproduced by aiming at an
+        # open cell of that row. G now runs BEFORE E, on the unrevealed
+        # board, so the cell is covered on every run; this says so rather
+        # than trusting it
+        if state(m, seg, row * MN_COLS) != MN_S_COVER:
+            fails.append("G cell (0,%d) is not covered - the press cannot "
+                         "flag it, so the case poses no question" % row)
         mo.rclick(cx, cy)
         # THE RAISE IS THE GUEST'S ANSWER, and it is what makes the next line
         # an assertion rather than a coin toss: "flags unchanged" is true for
@@ -411,6 +416,29 @@ def _run(m):
         check("G the NEXT press flags",
               got["mn_flags"] == before + 1
               and state(m, seg, row * MN_COLS) == MN_S_FLAG, "-> %r" % (got,))
+
+    # --- E: ...and the left button is otherwise untouched --------------------
+    mo.click(*cell_xy(rect, 5, 5))
+    acted(m, lambda: w()["mn_revealed"] > 0)
+    got = w()
+    check("E left still reveals", got["mn_revealed"] > 0, "-> %r" % (got,))
+    if not got["mn_revealed"]:
+        sys.exit("minesrc: the LEFT button opened nothing either - the click "
+                 "path is broken, not the right button")
+
+    # --- F: an open cell cannot be flagged (SPEC.md 23) ----------------------
+    open_cell = next((c for c in range(MN_COLS * MN_COLS)
+                      if state(m, seg, c) == MN_S_OPEN), None)
+    if open_cell is None:
+        fails.append("F no open cell to aim at")
+    else:
+        before = w()["mn_flags"]
+        mo.rclick(*cell_xy(rect, open_cell % MN_COLS, open_cell // MN_COLS))
+        quiet(m)
+        got = w()
+        check("F open cell refuses a flag",
+              got["mn_flags"] == before
+              and state(m, seg, open_cell) == MN_S_OPEN, "-> %r" % (got,))
 
     print()
     for f in fails:

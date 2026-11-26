@@ -44,7 +44,7 @@ F = 4772727
 TICK = F // 30
 DR_ITEMS, DR_N = 8, 10
 WC_ST, WC_X, WC_Y, WC_Z, WC_TMR = 0, 2, 4, 6, 8
-F_X, F_DEAD = 0, 17
+F_X, F_DEAD, F_SIZE = 0, 17, 56
 FOC_MODE = 6
 
 
@@ -342,23 +342,48 @@ def main():
         m.advance(cycles=F * 2)
 
         p.write(sym["wa_lkarena"], b"\x03")    # THE BOTS PLAY FOR IT: the
-        p.write(sym["wa_lkbots"], b"\x02")      # hedge, us idle, bot 2 red's
+        p.write(sym["wa_lkbots"], b"\x02")      # hedge, us out, bot 2 red's
         p.write(sym["wa_sgoal"] + 3, b"\x00")   # and bot 1 blue's, no limit
         m.key("Enter")
         m.go()
         f0 = p.byte(sym["wa_frame"])
         os88marty.until(m, lambda _: p.byte(sym["wa_frame"]) != f0,
                         "the match's first frames", guest=20)
-        took, t = set(), 0                      # (the hedge's hill is off
-        while t < 480 and took != {1, 2}:       # the bots' patrols: with no
-            g.put("wa_hp", 100)                 # goal it stood a minute
-            m.advance(cycles=F // 4)            # untaken)
-            t += 1
-            st = p.byte(sym["wa_cfl"] + WC_ST)
-            if st:
-                took.add(st)
-        check(took == {1, 2}, "THE BOTS PLAY: each team's bot takes the "
-              "hill within 2 minutes (%d s)" % (t // 4), took)
+        # EACH TEAM'S BOT ALONE, one after the other (the hedge's hill is off
+        # the bots' patrols: with no goal it stands untaken). It was both
+        # bots at once, us idle and topped up, for 2 minutes - and THAT was
+        # a dice game, not a test: the bots meet on the way and fight, one
+        # dies and waits out its 8 s, one that sees us stays engaged with a
+        # target that never falls, and the second team's first take came
+        # anywhere from 12 s to 80 s in, by the seed (pit_now at the match's
+        # start: wherever a host-timed Enter landed) and by where the host's
+        # poll found the first frame. A soak ran out of the 2 minutes with
+        # blue's never taken (mega-wamodes: {1}), the rerun passed.
+        # Alone and with nothing else to do - us dead and the other bot held
+        # dead (no target), no pickup to FETCH instead - a bot walks wc_hgoal's route to the hill: 12-13 s from the
+        # spawn on MartyPC and on Bochs alike, every run. With wc_hgoal a
+        # bare `ret` the bots roam at random and took 46 s and 29 s with
+        # the dice pinned below (MartyPC), so 20 s tells the two apart.
+        p.write(sym["wa_seed"], struct.pack('<H', 0x4321))   # (the dice)
+        b1, b2 = sym["wa_figs"], sym["wa_figs"] + F_SIZE   # (blue, red)
+
+        def alone(other, side, secs):
+            t = 0
+            while t < secs * 4 and p.byte(sym["wa_cfl"] + WC_ST) != side:
+                p.write(sym["wa_pdead"], bytes([90]))      # (us: no target)
+                p.write(other + F_DEAD, bytes([152]))      # (nor the other)
+                p.write(sym["wa_pkon"], b"\x00")          # (nor a pickup)
+                m.advance(cycles=F // 4)
+                t += 1
+            return p.byte(sym["wa_cfl"] + WC_ST), t / 4.0
+
+        st, s = alone(b2, 2, 20)
+        check(st == 2, "THE BOTS PLAY: blue's bot alone goes for the hill "
+              "and takes it within 20 s (%.1f s)" % s, st)
+        p.write(b2 + F_DEAD, b"\x01")           # (red's: back, at home)
+        st, s = alone(b1, 1, 20)
+        check(st == 1, "THE BOTS PLAY: red's bot alone goes for blue's hill "
+              "and takes it within 20 s (%.1f s)" % s, st)
     if fails:
         print("wamodes: FAIL - %d of the checks:" % len(fails))
         for f in fails:

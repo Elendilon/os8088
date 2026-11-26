@@ -36,6 +36,8 @@ import sys
 import time
 
 sys.path.insert(0, "tools")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cpface
 import os88marty as M
 import os88sym
 from os88mouse import Mouse
@@ -127,6 +129,10 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
         b = bmp(rect)
         return sum(1 for v in b if v) if not mono else sum(b)
 
+    # the COMPACT face: every coordinate here is its, and kern_mega's port
+    # boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel would open
+    # WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    cpface.compact(m, m.sym)
     mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
     quiet(m)
     cp = [w for w in wins(m) if w[2] >= 280 and w[3] >= 100]
@@ -156,15 +162,16 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
     off = int.from_bytes(
         m.read(m.sym("drv_svct") + (DRVC_FILE - 2) * 2, 2), "little")
     check("the Ram Disk's table is published", off != 0, f"(+{off:#06x})")
-    base = seg * 16 + off
+    # a real segment, or kern_mega's selector (tools/os88megabochs.py)
+    base = getattr(m, "lin", lambda sg, o=0: sg * 16 + o)(seg, off)
     up = int.from_bytes(m.read(base + DSV_CPUP, 2), "little")
     dg = int.from_bytes(m.read(base + DSV_CPDRAG, 2), "little")
     check("DSV_CPUP and DSV_CPDRAG are published", up != 0 and dg != 0,
           f"(CPUP={up:#06x} CPDRAG={dg:#06x})")
 
-    nst = m.read(m.sym("cp_nst"), 1)[0]
-    item(nst)                                   # the driver's own page, first
-    quiet(m, 20.0)                              # paint LOADS RAMPAGE.DRV
+    nst = m.read(m.sym("cp_nst"), 1)[0]         # the driver's own page,
+    cpface.select(m, mo, m.sym, x0, y0, nst, "rdup")    # scrolled to (31.1.5)
+    quiet(m, 20.0)                              # first paint LOADS RAMPAGE.DRV
 
     plus = (x0 + CP_RX + RP_PX, y0 + RP_SY - 2,
             x0 + CP_RX + RP_PX + RP_MW - 1, y0 + RP_SY - 2 + RP_FH - 1)

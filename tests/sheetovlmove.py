@@ -19,15 +19,23 @@ through it now, so both claims are declared movable.
 
 THE SCENARIO IS A REAL ONE, not a test hook: Formula > Goto (F5) is
 `ch_ovcall` -> CHART.OVL's SHM_IDOPEN -> `SHK wm_show` -> ch_xthunk ->
-OSAPI_WM_SHOW -> wm_raise -> wm_su_take's `mem_claim` - a window being shown
-banks the one it lands on. The row stops on that one `mem_claim` and asks for
+OSAPI_WM_SHOW -> wm_su_precover -> wm_su_take's `mem_claim` - a window being
+shown banks the one it lands on (SPEC.md 11.96.16). The row stops on that one `mem_claim` and asks for
 one KB more than the largest free run, so it can be granted ONLY by a
 compaction - which slides both modules down while CHART.OVL's frame is live.
 
 TWO ARRANGEMENTS, each found by a run that proved nothing without it:
-  - SHEET's window is given WF_SAVEU (SPEC.md 11.96.1), the promise PAINT and
-    HELLO make for themselves: without it wm_su_take refuses at wm_dc_ok and
-    the Goto open makes no claim at all.
+  - the dialog lands on a window that PROMISES (WF_SAVEU, SPEC.md 11.96.1)
+    and holds no cache: without that wm_su_take refuses at wm_dc_ok, or
+    wm_su_ck finds the old cache still right, and the Goto open makes no
+    claim at all. That window was SHEET's own, with WF_SAVEU poked on, until
+    SPEC.md 81.120 made SHEET withdraw its promise in sh_k_wm_show before
+    any of its dialogs shows - after which this row read `forced 0` with
+    every other check green. It is the Disk window now, which promises for
+    real: SHEET is shrunk clear of it, so the centred dialog lands on the
+    Disk window alone, and the Disk window's raise cache - PURGEABLE, banked
+    when it stopped being the front window - is given back the way
+    mem_shed_one gives one back (its owner word, then the record's MC_SEG).
   - The hole has to be BETWEEN SHEET's data claims and its modules, because
     the staging buffer among the data WAS PINNED when this row was written:
     a hole under SHEET only ever moved three claims below that wall. (It
@@ -60,7 +68,9 @@ SIX ASSERTIONS:
 VERIFIED TO FAIL: with CHX put back to the old shim shape (`call routine /
 retf`, the module's CS left on the stack) the return is caught at the OLD
 home (5c00:2559, the module moved 5c00 -> 44c0), the UI task halts in the
-poison, and 2, 5 and 6 go red. With sh_partmv's store to [sh_m2dseg]
+poison, and 2, 5 and 6 go red - and again on the Disk window
+arrangement (2026-11-26: caught at 5920:2543, the module moved 5920 ->
+3ec0). With sh_partmv's store to [sh_m2dseg]
 taken out, 4 goes STALE (the word still names 6800 after MACRO.OVL moved
 to 4f80). SOVL_DEBUG=1 prints every stop and the arena.
 """
@@ -270,16 +280,57 @@ def main():
             print("FAIL: Note Pad did not close, so no hole opened")
             return 1
         raise_win(sh_win.i, title=True)          # F5 goes to the front window
-        # THE FIRST ARRANGEMENT (see the header): SHEET's window is given
-        # WF_SAVEU (SPEC.md 11.96.1), the promise PAINT and HELLO make for
-        # themselves. Without
-        # it wm_su_take refuses at wm_dc_ok - no promise, no raise cache - and
-        # the Goto open claims nothing at all; the second run here stopped in
-        # wm_su_take and never reached a claim. With it, wm_raise banks the
-        # window the dialog lands on, from inside the module's WM_SHOW. It
-        # changes what is drawn back on a raise and nothing else.
-        wp = os88geom.winptr(m, sh_win.i, S) + os88geom.W_FLAGS
-        m.write(wp, bytes([m.read(wp, 1)[0] | 32]))
+        # THE FIRST ARRANGEMENT (see the header): the Goto dialog has to land
+        # on a window that PROMISES (WF_SAVEU, SPEC.md 11.96.1), or
+        # wm_su_take refuses at wm_dc_ok and the open claims nothing at all.
+        # SHEET itself no longer can be that window: it WITHDRAWS its promise
+        # in sh_k_wm_show before any of its dialogs shows (SPEC.md 81.120),
+        # and this row poked WF_SAVEU onto it until then - after that change
+        # it read `forced 0`, no claim inside the chain, every other check
+        # green. The Disk window promises for real (files.inc), so SHEET is
+        # SHRUNK clear of it: the dialog, centred on the screen, then lands
+        # on the Disk window alone, which nothing covers, and
+        # wm_su_precover banks it from inside the module's WM_SHOW
+        # (SPEC.md 11.96.16) - the same claim, the same chain.
+        sw = win(sh_win.i)
+        dw = win(dslot)
+        nw = dw.x - sw.x - 16           # SHEET's right edge + shadow short of
+        mo.drag(sw.x + sw.w - 8, sw.y + sw.h - 8,           # the Disk's left
+                sw.x + nw - 8, sw.y + 90 - 8)
+        os88marty.settle(m)
+        sw = win(sh_win.i)
+        if sw.x + sw.w >= dw.x or not sw.visible:
+            print("FAIL: SHEET did not shrink clear of the Disk window "
+                  "(%d,%d %dx%d against x %d)" % (sw.x, sw.y, sw.w, sw.h, dw.x))
+            return 1
+        dfl = m.read(os88geom.winptr(m, dslot, S) + os88geom.W_FLAGS, 1)[0]
+        if not dfl & 32:
+            print("FAIL: the Disk window makes no WF_SAVEU promise (flags "
+                  "%02x), so nothing under the dialog can be banked" % dfl)
+            return 1
+        # ...AND IT HOLDS NO CACHE. It was banked the moment it stopped being
+        # the front window, nothing has drawn it since, so wm_su_precover's
+        # wm_su_ck would find that cache still right and take nothing (the
+        # first run of this arrangement: `forced 0` again). A raise cache is
+        # PURGEABLE (MEM_P_WSAVE, SPEC.md 50.6): the kernel gives one back
+        # whenever anything else wants the room, and this does to it exactly
+        # what mem_shed_one does - the owner's word zeroed (mem_pg_forget),
+        # then the record's MC_SEG. The claim is free, the window uncached,
+        # which is the state a busy heap leaves it in.
+        su = S("wm_su_segs") + 2 * dslot
+        cseg = u16(m.read(su, 2))
+        if cseg:
+            raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)
+            rec = next((i for i in range(MEM_MAX)
+                        if u16(raw, i * MC_SIZE) == cseg), None)
+            if rec is None:
+                print("FAIL: the Disk window's cache %04x is no claim" % cseg)
+                return 1
+            m.write(su, b"\0\0")
+            m.write(S("mem_tab") + rec * MC_SIZE, b"\0\0")
+        print("SHEET shrunk to %d,%d %dx%d, clear of the Disk window at x %d; "
+              "its cache %s" % (sw.x, sw.y, sw.w, sw.h, dw.x,
+                                "%04x shed" % cseg if cseg else "none"))
 
         runs = free_runs(m, S)
         if os.environ.get("SOVL_DEBUG"):

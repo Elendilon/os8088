@@ -294,6 +294,13 @@ def cell_regs():
             text += " " + lines[j].split(";", 1)[1]
             j += 1
         low = text.lower()
+        # "Every register preserved (... banks AX..DX ...)" is a statement
+        # about the cell's FOOTPRINT, not a list of inputs or outputs: the
+        # registers it names are neither read nor written (OSAPI_WM_GROW's
+        # comment made a 2BASIC site look like it read a clobbered AX).
+        k = low.find("every register preserved")
+        if k >= 0:
+            low = low[:k]
         cut = len(low)
         for w in ("out:", "out ", "returns", "-> ", "clobbers"):
             k = low.find(w)

@@ -87,6 +87,11 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
         return m.read(m.sym("cp_wdirty"), 1)[0]
 
     print(f"== {MACHINE} : the close spends the RTC write (37.94) ==")
+    # the COMPACT face: every coordinate here is its, and kern_mega's
+    # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+    # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    import cpface
+    cpface.compact(m, m.sym)
     mo.menu(8, 8, 8, 40)
     M.ui_done(m)                # every read below is guest state
     w = panel(m)

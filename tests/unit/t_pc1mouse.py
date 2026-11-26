@@ -72,7 +72,21 @@ def main():
           and "je .pc1eat" in scan.group(1),
           "PC1 filtering runs before KBM_SCAN's chain exits in both scan forms",
           why="the XT uses the shared `mem` expansion in kern_big; neither scan form may bypass the filter")
-    kfilter = re.search(r"(?ms)^%ifdef OS88_DRIVERS\s*(.*?)^\.chain:", ksrc)
+    # The eat path from .pc1eat to .chain. A KBD_I15 kernel shares its tail
+    # (.kleat) with the AT's INT 15h AH=4Fh hook, which tests kbm_ivec ONLY
+    # to pick that frame (0x54) and otherwise falls through to the XT
+    # acknowledge below; that arm is checked for its guard and then
+    # removed, so what remains is exactly what the XT's INT 09h runs.
+    kfilter = re.search(r"(?ms)^\.pc1eat:\s*(.*?)^\.chain:", ksrc)
+    if kfilter is not None:
+        i15 = re.search(r"(?ms)^%ifdef KBD_I15\s*(.*?)^%endif",
+                        kfilter.group(1).split(".kleat:", 1)[-1])
+        check(i15 is None or ("cmp byte [kbm_ivec], 0x54" in i15.group(1)
+                              and "jne .klxt" in i15.group(1)),
+              "the AT INT 15h arm of .kleat is taken only for vector 54h",
+              why="an XT INT 09h scan must reach the 8255 acknowledge, never the AT frame")
+        kfilter = re.search(r"(?ms)(.*)", re.sub(
+            r"(?ms)^%ifdef KBD_I15\s*.*?^%endif", "", kfilter.group(1)))
     check(kfilter is not None
           and "in  al, 0x61" in kfilter.group(1)
           and "or  al, 0x80" in kfilter.group(1)

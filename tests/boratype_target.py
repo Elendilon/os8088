@@ -982,7 +982,7 @@ def select_instrument(args):
         raise ValueError("VESA display QA uses QEMU's actual VBE and VESA.DRV")
     if not args.machine:
         args.machine = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla",
-                        "ega": "os8088_xt_ega_640k"}.get(args.adapter, "os8088_xt_vga")
+                        "ega": "xt_ega_640k"}.get(args.adapter, "os8088_xt_vga")
     return backend
 
 

@@ -1009,7 +1009,7 @@ FAST = [
         needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
-               "build/boothd.bin", "build/kernel.sys")),
+               "build/boothd.bin", "build/kernel.sys", "build/diskops.drv")),
     Row("xtmp3move", "soak", py("tests/xtmp3xt.py", "--leg", "std",
                                 "--move"), 100.0,
         "SPEC.md 121.10.1 (NO-PINNING): XTMP3's claims MOVE. xtmp3xt's std "
@@ -1028,7 +1028,7 @@ FAST = [
         needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
-               "build/boothd.bin", "build/kernel.sys")),
+               "build/boothd.bin", "build/kernel.sys", "build/diskops.drv")),
     Row("romtool", "fast", py("tools/os88rom.py", "--selfcheck"), 0.3,
         "docs/plans/ROM-PLAN.md 1.3: the ROM image builder re-derives its own "
         "invariants - 55 AA and a 32KB declaration (40KB would send the "
@@ -4196,17 +4196,29 @@ SOAK = [
         needs=("marty",), serial=True, wants=("build/apps360.img",)),
     Row("pkgmove-browser", "soak",
         py("tests/pkgmove.py", "--app", "browser", "--machine",
-           "os8088_xt_vga", "--first", "B:/APPS/NOTEPAD.O88", "--open",
+           "os8088_xt_vga", "--disk", "network360.img",
+           "--first", "B:/FTPD.O88", "--open",
            "B:/MEDIA/BROWSER.HTM", "--word", "br_srcseg", "--word",
-           "br_docseg", "--word", "br_lseg", "--word", "br_lnkseg"), 30.0,
-        "NO-PINNING A3 (SPEC.md 71.14.1): the Browser's four page claims - "
-        "source, document, line table, link arena - MOVE, each named by one "
-        "word. A file load (no NIC needed: the worker idles at BN_IDLE and "
+           "br_docseg", "--word", "br_urlseg", "--derived",
+           "br_lseg:br_docseg", "--derived", "br_lnkseg:br_urlseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 71.14.1): the Browser's page claims - "
+        "source, document, URL store - MOVE, each named by one word; in real "
+        "mode the line table lives in the document's claim (71.34.13) and "
+        "the link arena in the URL store's (71.34.8), so br_lseg and "
+        "br_lnkseg are DERIVED words that must keep their offset into the "
+        "moved claim (br_lsfix, br_lnkfix). A file load (no NIC needed: the "
+        "worker idles at BN_IDLE and "
         "parks at OSAPI_TASK_ALIVE). On a VGA XT because on CGA the Browser "
         "is allowed over the dock and Note Pad's tile cannot be reached. "
-        "Measured: 3760/3f60/4f20/5120 -> 2420/2c20/3be0/3de0; red with "
-        "br_reloc a bare ret (all four stale). 25s measured",
-        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+        "Measured: src/doc/url 3480/3700/3600 -> 2220/2420/2320, lseg "
+        "3780 -> 24a0 (doc+80), lnkseg 36ad -> 23cd (url+ad = BR_URLSTORE/16); "
+        "red with br_reloc a bare ret (stale words), and red ONLY on the "
+        "derived check with br_reloc's br_lnkfix/br_lsfix calls nop'd "
+        "(3780, 36ad left behind). 20s measured. Off "
+        "network360.img, where the Browser and its page live at 360KB "
+        "(SPEC.md 71.30); FTPD is the package under it (it starts with no "
+        "card, and that disk has no Note Pad)",
+        needs=("marty",), serial=True, wants=("build/network360.img",)),
     Row("pkgmove-ftpd", "soak",
         py("tests/pkgmove.py", "--app", "ftpd", "--first",
            "B:/APPS/NOTEPAD.O88", "--open", "B:/APPS/FTPD.O88", "--word",
@@ -8247,13 +8259,18 @@ SOAK = [
         "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's chart module MOVES out from "
         "under its own call chain and the return lands in the new home. F5 is "
         "ch_ovcall -> SHM_IDOPEN -> SHK wm_show -> ch_xthunk -> OSAPI_WM_SHOW "
-        "-> wm_su_take's mem_claim, which the row inflates to one KB past the "
+        "-> wm_su_precover -> wm_su_take's mem_claim for the DISK window the "
+        "dialog lands on (SHEET withdraws its own promise before a dialog "
+        "shows, 81.120, so it is shrunk clear of the Disk window and that "
+        "window's purgeable cache is shed as mem_shed_one would), which the "
+        "row inflates to one KB past the "
         "largest run; a claim record OWNED BY NOTE PAD, placed between SHEET's "
         "data (whose staging buffer is a pinned wall) and its modules, is the "
         "hole. The module's frame is read off the stack and its IP watched at "
         "BOTH homes, and the old home is poisoned with HLT. Red with CHX put "
         "back to `call routine / retf`: the return lands at the OLD home "
-        "5c00:2559 and Esc never closes the dialog; 35s measured",
+        "5c00:2559 and Esc never closes the dialog (re-verified on the Disk "
+        "window arrangement: OLD home 5920:2543, 2, 5 and 6 red); 35s measured",
         needs=("marty",), serial=True,
         wants=("build/sheetovl360.img", "build/sheet.chart.bin",
                "build/sheet.macro.bin")),
@@ -8664,7 +8681,10 @@ SOAK = [
         "reboot from C:, and a scratch B: of ten shipped packages padded by "
         "16 bytes (another build of the same programs: same names, new "
         "sizes, so new keys), XTMP3 and a BACKUP.IMG. Every live entry of "
-        "every folder on both is asked whether it references ICO_R_NONE. "
+        "every folder on both that HAS a picture (a package, a *.IMG, a "
+        "document whose extension is claimed) is asked whether it references "
+        "ICO_R_NONE; a file nothing claims draws that icon by design (24.1, "
+        "54.4.3 - BROWSER.HTM on the 720KB pair, whose Browser is off it). "
         "The tree before the grow stops at 60 rows with MINES, SOLITAIR, "
         "TELNET and BACKUP.IMG generic; with it the store takes a sixth KB "
         "and nothing is, and the row also fails if the scenario stops "
@@ -9197,7 +9217,7 @@ SOAK = [
         needs=("marty", "nasm", "pil"), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img", "build/notepad.bin")),
     Row("kbdlayouttext-cga", "soak",
-        py("tests/kbdlayouttext.py", "--machine", "os8088_5150_cga"), 37.0,
+        py("tests/kbdlayouttext.py", "--machine", "os8088_5150_cga_gla"), 37.0,
         "The complete CP850 text round trip and provider lifetime on CGA's "
         "1bpp renderer. Independent file bytes and exact accented glyph "
         "occupancy are checked, not inferred from VGA. 31.35s measured.",

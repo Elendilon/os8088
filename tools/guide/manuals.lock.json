@@ -152,6 +152,14 @@
   "strings": "945242275f9dc221",
   "why": "About card gained a credit line (ec45f031, and Desk Calendar's 'by jggonz'); the page's About description now says it shows who made it"
  },
+ "BREADXT_O88": {
+  "sources": [
+   "apps/breadxt"
+  ],
+  "stamped": "f7a9719fc",
+  "strings": "b6ae43b5917b6bff",
+  "why": "first page: menus, keys, layouts, examples and limits read from apps/breadxt (ui.c, face.c, model.c, HELP.TXT, art/help.txt) and SPEC.md 130"
+ },
  "BROWSER_HTM": {
   "sources": [],
   "stamped": "e4576a70",
@@ -165,6 +173,14 @@
   "stamped": "60b0d6f0c",
   "strings": "511e2c056170a587",
   "why": "restamp at #389's squash; the branch stamp 80235ef47 is not in main's history. Strings unchanged."
+ },
+ "BYTEOPLY_O88": {
+  "sources": [
+   "apps/byteopoly"
+  ],
+  "stamped": "f7a9719fc",
+  "strings": "ad32fa0d2ff4185c",
+  "why": "first page: menus, keys, panels, cable play and saves read from apps/byteopoly (bp_app.c, bp_panels.c, art/tx-*.txt, art/help.txt) and SPEC.md 131"
  },
  "C64": {
   "sources": [],

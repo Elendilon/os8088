@@ -82,6 +82,8 @@ import os88build                                        # noqa: E402
 import os88flush                                        # noqa: E402
 import os88marty                                        # noqa: E402
 import os88ui                                           # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rdcz                                             # noqa: E402
 
 # ctrl.inc's geometry and page.inc's, mirrored for tests/rdup.py's reason: a
 # gate that derives its coordinates from the thing under test tests it
@@ -300,19 +302,14 @@ def session(ui, a, R, data):
 
     # --- the panel, its Drivers page, the row, the Ram Disk page -----------
     def open_page(first):
-        mo.menu(8, 8, 8, 40)
-        cp = ui.wait_window("Control Panel")
-        x0, y0 = cp.x + 1, cp.y + TITLE_H
+        """The Ram Disk's page, on the compact face, reached through the
+        list's scroll (tests/rdcz.py's shared sequence): the first time
+        through Drivers with its row ticked, later straight to the page."""
         if first:
-            mo.click(x0 + 40, y0 + CP_I0Y + CP_IDRV * CP_IROWH + 7)
-            ui.settle(limit=15.0)
-            mo.click(x0 + CP_RX + 40,
-                     y0 + CP_DBY1 + RD_ROW * CP_DROWH + CP_DROWH // 2)
-            if not wait(rd_seg, "the RAM disk driver to load", 30.0):
-                sys.exit("rdpreserve: the RAM disk driver did not load")
-            ui.settle(limit=25.0)
-        nst = m.read(ui.sym("cp_nst"), 1)[0]
-        mo.click(x0 + 40, y0 + CP_I0Y + nst * CP_IROWH + 7)
+            cp, x0, y0 = rdcz.ramdisk_page(ui, tick=True, who="rdpreserve")
+        else:
+            cp, x0, y0 = rdcz.open_panel(ui, "rdpreserve")
+            rdcz.select_rd_page(ui, x0, y0, "rdpreserve")
         ui.settle(limit=25.0)           # the first paint LOADS RAMPAGE.DRV
         return cp, x0 + CP_RX, y0
 

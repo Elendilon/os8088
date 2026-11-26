@@ -383,6 +383,7 @@ HDBOOT_NAME = b"BOOTHD  SYS"   # ...and the hard-disk boot sector built with
 HMA_NAME    = b"COLDHMA SYS"   # ...and the HMA image cut from it, which
                                # XMEM.DRV reads (docs/plans/HMA-PLAN.md)
 CFG_NAME    = b"SYSTEM  CFG"   # the Control Panel's settings (SPEC.md 51.5)
+CPWDAT_NAME = b"CPWIDE  DAT"   # the wide Control Panel's assets (SPEC.md 135.6)
 
 # Directory attributes. A system disk hides the things that are the KERNEL's
 # business and nobody else's, from DOS and from os8088's own file manager
@@ -563,7 +564,14 @@ def sys_attr(name11: bytes, boot: bool, hdd: bool = False) -> int:
         return A_HIDDEN | A_SYS     # the kernel rewrites it, so not read-only
     if not boot:
         return A_ARCH
-    if name11 == CFG_NAME:
+    # CPWIDE.DAT (SPEC.md 135.6) is the wide panel's data and nobody
+    # else's - the machine's - so it is HIDDEN like the drivers it rides
+    # with (19.6), and NOT read-only: deleting it unboots nothing (the panel
+    # opens compact) and a keep-install must be able to replace it
+    # (52.10.15.1). Visible, it was a root entry no association can claim -
+    # the generic icon, and a double-click that sweeps every volume for an
+    # opener (54.4.3) before it says Load failed.
+    if name11 in (CFG_NAME, CPWDAT_NAME):
         return A_HIDDEN | A_SYS | A_ARCH    # dskw_write_sys's create + commit
     if not (name11.endswith(b"DRV") or name11 in (HDBOOT_NAME, HMA_NAME)):
         return A_ARCH

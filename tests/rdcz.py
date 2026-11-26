@@ -179,30 +179,72 @@ def verdict(where, got, want, packed):
                  "says %d (%s)" % (where, got, want, how))
 
 
-def mount_ramdisk(ui):
-    """Control Panel -> Drivers -> Ram Disk -> its page -> Mount.
+def rd_loaded(ui):
+    """RAMDISK.DRV's drv_tab row names a segment (or kern_mega's selector)."""
+    return int.from_bytes(ui.m.read(ui.sym("drv_tab") + RD_ROW * DRVR_SZ
+                                    + DRVR_SEG, 2), "little")
 
-    Lifted from tests/rdicon.py, which is where these coordinates are
-    explained; there is no `os88ui` verb for a Control Panel page yet.
-    """
+
+def _wait(ui, cond, what, guest):
+    try:
+        os88marty.until(ui.m, lambda _: cond(), what, poll=0.2, guest=guest)
+        return True
+    except os88marty.MartyError:
+        return False
+
+
+def open_panel(ui, who="rdcz"):
+    """Open the Control Panel on its COMPACT face; answer (cp, x0, y0), the
+    window and its content origin.
+
+    The compact face because every coordinate here is its: a VGA desktop
+    booted off a disk that carries CPWIDE.DRV - kern_mega's mega.img on
+    Bochs - would open WIDE (SPEC.md 135.2), so the face is pinned as 135.13
+    decides for the driver-page rows (tests/cpface.py; the wide face hosts
+    the same page code, 135.3). On a 360KB disk or a 1bpp adapter the pin
+    changes nothing the row can see."""
+    import cpface
+    cpface.compact(ui.m, ui.sym)
+    ui.mo.menu(8, 8, 8, 40)
+    cp = ui.wait_window("Control Panel")
+    os88marty.ui_done(ui.m, limit=15.0)
+    return cp, cp.x + 1, cp.y + TITLE_H
+
+
+def select_rd_page(ui, x0, y0, who="rdcz"):
+    """Select the Ram Disk's page - the FIRST driver page, list ordinal
+    [cp_nst] - scrolling the list to it (tests/cpface.py's select)."""
+    import cpface
+    cpface.select(ui.m, ui.mo, ui.sym, x0, y0,
+                  ui.m.read(ui.sym("cp_nst"), 1)[0], who)
+    os88marty.ui_done(ui.m, limit=25.0)
+
+
+def ramdisk_page(ui, tick=True, who="rdcz"):
+    """Control Panel -> Drivers -> [tick Ram Disk] -> the Ram Disk's page.
+    Answers (cp, x0, y0). `tick` False when the driver is loaded already (a
+    click on its row would UNload it). The one sequence rdcz, rdboot,
+    rdpreserve and fpgop share; the coordinates are explained in
+    tests/rdicon.py - there is no `os88ui` verb for a Control Panel page."""
     m, mo = ui.m, ui.mo
-    mo.menu(8, 8, 8, 40)
-    os88marty.ui_done(ui.m, limit=15.0)
-    cp = ui.window("Control Panel")
-    x0, y0 = cp.x + 1, cp.y + TITLE_H
+    cp, x0, y0 = open_panel(ui, who)
     mo.click(x0 + 40, y0 + CP_I0Y + CP_IDRV * CP_IROWH + 7)     # Drivers
-    os88marty.ui_done(ui.m, limit=15.0)
-    mo.click(x0 + CP_RX + 40,                                   # tick Ram Disk
-             y0 + CP_DBY1 + RD_ROW * CP_DROWH + CP_DROWH // 2)
-    os88marty.ui_done(ui.m, limit=25.0)
-    if not int.from_bytes(
-            m.read(ui.sym("drv_tab") + RD_ROW * DRVR_SZ + DRVR_SEG, 2),
-            "little"):
-        sys.exit("rdcz: the RAM disk driver did not load")
-    nst = m.read(ui.sym("cp_nst"), 1)[0]        # its page, then Mount
-    mo.click(x0 + 40, y0 + CP_I0Y + nst * CP_IROWH + 7)
-    os88marty.ui_done(ui.m, limit=25.0)
-    mo.click(x0 + CP_RX + RP_MNTX + RP_MNTW // 2, y0 + RP_B0Y + RP_BH // 2)
+    os88marty.ui_done(m, limit=15.0)
+    if tick:
+        mo.click(x0 + CP_RX + 40,                               # tick Ram Disk
+                 y0 + CP_DBY1 + RD_ROW * CP_DROWH + CP_DROWH // 2)
+        if not _wait(ui, lambda: rd_loaded(ui), "the RAM disk driver to load",
+                     30.0):
+            sys.exit("%s: the RAM disk driver did not load" % who)
+        os88marty.ui_done(m, limit=25.0)
+    select_rd_page(ui, x0, y0, who)
+    return cp, x0, y0
+
+
+def mount_ramdisk(ui, tick=True, who="rdcz"):
+    """Control Panel -> Drivers -> Ram Disk -> its page -> Mount."""
+    cp, x0, y0 = ramdisk_page(ui, tick, who)
+    ui.mo.click(x0 + CP_RX + RP_MNTX + RP_MNTW // 2, y0 + RP_B0Y + RP_BH // 2)
     os88marty.ui_done(ui.m, limit=25.0)
     ui.close(cp)
 

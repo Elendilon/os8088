@@ -159,10 +159,23 @@ def main():
             nst = m.read(S("cp_nst"), 1)[0]
             _w, _h, rows = m.vram()
             cx, cy = wx + 1, wy + TITLE_H + 1
-            # the pane's NINE rows (SPEC.md 31.1.5): a machine that shows all
-            # eight static pages (kern_mega's VGA) puts the driver's row ninth
+            # the pane's NINE rows (SPEC.md 31.1.5) hold every row while the
+            # list does not scroll. A machine that shows all nine static
+            # pages (kern_mega's VGA, since Keyboard joined them) puts the
+            # driver's row tenth, so the list scrolls and shows eight from
+            # [cp_ltop]: scroll it into view - selecting nothing, since a
+            # selected row letters on the bar, which is not this row's
+            # subject - and read again
             at = find(rows, cx + CP_IX - 1, cy + CP_I0Y, CP_DIVX - CP_IX,
                       CP_IROWH * 9, render(HDD_PAGE, tab))
+            if at is None:
+                import cpface
+                cpface.scroll_to(m, mo, S, cx, cy - 1, nst, scrolls=True,
+                                 who="cpnames")
+                os88marty.ui_done(m)
+                _w, _h, rows = m.vram()
+                at = find(rows, cx + CP_IX - 1, cy + CP_I0Y, CP_DIVX - CP_IX,
+                          CP_IROWH * 8, render(HDD_PAGE, tab))
             print("  %-10s list    %s (a driver's page, row %d)"
                   % (HDD_PAGE, at, nst))
             if at is None:

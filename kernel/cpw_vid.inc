@@ -22,6 +22,10 @@
 
 section .modv
 
+%ifndef VID_EXT                 ; NOVIDEXT=1 (SPEC.md 120.3): vidext.inc, which
+%include "vxabi.inc"            ; brings the VXV_/VXC_ names, is not assembled,
+%endif                          ; and every verb is refused at cpg_vxcall (stc)
+
 ; --- the state ---------------------------------------------------------------
 CPV_LIVE    equ CPW_W_FULL + 1  ; db 1 = the page area is this page's (the
 %if CPV_LIVE >= CPW_W_KIT       ;    working area's pad byte, SPEC.md 135.9.2)
@@ -408,7 +412,11 @@ cpv_quit:
 cpv_test:
     mov al, [vid_kind]
     mov [es:CPV_SKIND], al
+%ifdef VID_EXT
     mov al, [vx_class]
+%else
+    mov al, 0                   ; NOVIDEXT: vx_class's value with no driver
+%endif
     mov [es:CPV_SCLS], al
     call cpv_arrnow
     mov [es:CPV_SARR], al
@@ -965,9 +973,15 @@ cpv_geo:
     mov cl, ch
     jmp short .out
 .live:                          ; no record to ask: the live (or attached)
+%ifdef VID_EXT
     mov ax, [vid_vxrow + 14]    ; one's geometry and its drawing depth
     mov dx, [vid_vxrow + 16]
     mov cl, [vx_bpp]
+%else
+    xor ax, ax                  ; NOVIDEXT: the unattached row's zeros and
+    xor dx, dx                  ; vx_bpp's initial 8
+    mov cl, 8
+%endif
 .out:
     pop di
     pop si
@@ -1400,9 +1414,11 @@ cpv_modes:
     test byte [vid_avail], VID_A_VESA
     jnz .l2
     mov si, cpv_s_load          ; ...and where more come from, or that the
-    cmp word [vesa_row + DRVR_SEG], 0   ; driver IS loaded and attaches at
-    je .ld                      ; the next start (SPEC.md 120.4, 135.9.1)
+%ifdef VID_EXT                  ; driver IS loaded and attaches at the next
+    cmp word [vesa_row + DRVR_SEG], 0   ; start (SPEC.md 120.4, 135.9.1).
+    je .ld                      ; NOVIDEXT has no VESA.DRV row to load
     mov si, cpv_s_rst
+%endif
 .ld:
     call cpw_strcat
 .l2:
@@ -2025,9 +2041,11 @@ cpv_rbox:
     mov si, cpv_s_novx
     test byte [vid_avail], VID_A_VESA
     jnz .vx
+%ifdef VID_EXT                  ; NOVIDEXT: no VESA.DRV row, so never loaded
     cmp word [vesa_row + DRVR_SEG], 0
     je .c
     mov si, cpv_s_novl          ; loaded at run time: it attaches at boot
+%endif
     jmp short .c
 .vx:
     mov si, cpv_s_nolist

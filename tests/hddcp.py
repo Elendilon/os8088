@@ -92,6 +92,11 @@ with M.launch(IMG, apps="build/apps360.img", machine=MACHINE) as m:
     M.settle(m)
     mo = Mouse(marty=m)
 
+    # the COMPACT face: every coordinate here is its, and kern_mega's
+    # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+    # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    import cpface
+    cpface.compact(m, m.sym)
     mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
     quiet(m)
     cp = [w for w in wins(m) if w[3] >= 280 and w[4] >= 100]
@@ -145,8 +150,9 @@ with M.launch(IMG, apps="build/apps360.img", machine=MACHINE) as m:
     # The driver's page is appended after the static rows (SPEC.md 31.9), so
     # it is the row past the last one. cp_nst is the static count.
     nst = m.read(m.sym("cp_nst"), 1)[0]
-    print(f"  cp_nst={nst}, so the driver's page is item row {nst}")
-    item(nst)
+    print(f"  cp_nst={nst}, so the driver's page is list ordinal {nst}")
+    cpface.select(m, mo, m.sym, x0, y0, nst, "hddcp")   # scrolled to (31.1.5)
+    quiet(m)
     grab(cp, "disks")
 
     # --- and the two WINDOWS behind it -------------------------------------

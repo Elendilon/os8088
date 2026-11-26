@@ -170,7 +170,13 @@ def open_cp(m):
 def open_setup(m, mo, cx, cy, cp_ether):
     """The Ethernet page, then its Set Up window."""
     x0, y0 = cx + 1, cy + TITLE_H
-    mo.click(x0 + 40, y0 + CP_I0Y + cp_ether * CP_IROWH + 7)
+    # the first driver page, scrolled to: a machine that shows all nine
+    # static pages (kern_mega's VGA, since Keyboard joined them) puts it
+    # below the eight rows a scrolling list shows (SPEC.md 31.1.5)
+    import cpface
+    cpface.select(m, mo, S, x0, y0, cp_ether, "ethcfg",
+                  wait=lambda c, what, secs: os88qemu.acted(
+                      m, c, secs=secs, what=what, poll=0.1))
     os88qemu.ui_done(m, S, cap=2.0)     # the page swap: the UI, finished
     mo.click(x0 + CP_RX + EU_B2X + EU_BW // 2, y0 + EU_BY + EU_BH // 2)
     if os88qemu.acted(m, lambda: bool(setup_wins(m)), secs=10,

@@ -979,7 +979,7 @@ void bt_face_paint(void *win,int full)
     if(full||key!=tf_hintkey){if(full&&tf_compact){i=tf_w>=600?280:220;tf_render(tf_x+i,tf_y+2,tf_w-i-70,8,7,0);}tf_hintpending=!full;tf_hintrow=0;tf_hintkey=key;}
     if(textchange){
         for(i=0;i<2;i++){tf_dirtyfirst[i]=-1;tf_dirtylast[i]=-1;}if(full){tf_dirtyfirst[2]=-1;tf_dirtylast[2]=-1;}
-        if(full||oldview!=tf_view||oldinput!=tf_inputview||tf_savedlen!=bt_session.length||tf_savedcomplete!=bt_session.completed||tf_savedpos+1<bt_session.pos||bt_session.pos+1<tf_savedpos){
+        if(full||oldview!=tf_view||oldinput!=tf_inputview||tf_savedlen!=bt_session.length||tf_savedcomplete!=bt_session.completed||tf_savedpos+1<bt_session.pos||bt_session.pos+1u<tf_savedpos){
             for(i=0;i<ncells;i++)tf_cache_cell(i,full);
         }else{
             i=tf_savedpos-tf_view;if(i>=0&&i<2*tf_cols)tf_cache_cell(i,0);

@@ -79,6 +79,11 @@ def entry(vhd, slot):
 def open_tool(m):
     """Control Panel -> Drivers -> Hard Drive -> its page -> Format."""
     mo = Mouse(marty=m)
+    # the COMPACT face: every coordinate here is its, and kern_mega's
+    # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+    # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    import cpface
+    cpface.compact(m, m.sym)
     mo.menu(8, 8, 8, 40)
     cp = [w for w in ID.wins(m) if w[3] >= 280 and w[4] >= 100]
     if not cp:
@@ -88,7 +93,8 @@ def open_tool(m):
     mo.click(x0 + ID.CP_RX + 40,
              y0 + ID.CP_DBY1 + ID.CP_DROWH + ID.CP_DROWH // 2, settle=0); M.ui_done(m, cap=36.0)
     nst = m.read(m.sym("cp_nst"), 1)[0]
-    mo.click(x0 + 40, y0 + ID.CP_I0Y + nst * ID.CP_IROWH + 7, settle=0); M.ui_done(m, cap=13.5)
+    cpface.select(m, mo, m.sym, x0, y0, nst, "hdsize")  # scrolled to (31.1.5)
+    M.ui_done(m, cap=13.5)
     known = {w[0] for w in ID.wins(m)}
     mo.click(x0 + ID.CP_RX + HDP_B0X + HDP_BW0 // 2,
              y0 + ID.HDP_BY + ID.HDP_BH // 2, settle=0); M.ui_done(m, cap=36.0)

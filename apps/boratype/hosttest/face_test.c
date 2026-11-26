@@ -246,7 +246,7 @@ static void caption_change(void)
  for(int n=0;n<2*((tf_ph+3)/4+24);n++){
   unsigned prior=unpacks;area=flushes=0;last_sprite=-1;bt_face_paint(0,0);assert(flushes<=1);
   if(!tf_compact&&flushes&&bandx<tf_px+tf_pw&&bandy>=tf_py+(tf_ph>=150?132:60)+2&&bandy<tf_py+tf_ph-6){assert(bandpaper==15&&last_sprite==-1);assert(bandx==tf_px+8&&bandw==((tf_pw-16)&~7));assert(bandy+bandh<=tf_py+tf_ph-6);}
-  if(!tf_compact)assert(area<=(unsigned)(unpacks==prior?((tf_pw+7)&~7)*4:tf_aw*(direct_height?direct_height:24)));
+  if(!tf_compact)assert(area<=(unsigned)(unpacks==prior?(unsigned)(((tf_pw+7)&~7)*4):tf_aw*(direct_height?direct_height:24)));
   if(!tf_cosneeded&&!tf_capneeded)break;
   assert(n<2*((tf_ph+3)/4+24)-1);
  }

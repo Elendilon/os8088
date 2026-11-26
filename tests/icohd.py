@@ -20,8 +20,10 @@ This is that machine, end to end:
      programs: same names, different sizes), XTMP3 (the one package on the
      1.44MB pair the 720KB set lacks), and a `BACKUP.IMG`;
   3  every folder of C: is browsed, then B:, then C: again, and every LIVE
-     entry (FS_N, not the claim's width) is asked whether it references
-     ICO_R_NONE, SPEC.md 25's generic icon.
+     entry (FS_N, not the claim's width) that HAS a picture - a package, a
+     `*.IMG`, a document whose extension is claimed at that moment - is
+     asked whether it references ICO_R_NONE, SPEC.md 25's generic icon. An
+     unclaimed file draws that icon by design and is listed, not counted.
 
 The tree before SPEC.md 25.9.6 fails it: the store stops at 60 rows and
 MINES, SOLITAIR, TELNET and BACKUP.IMG draw the generic icon (measured, base
@@ -57,6 +59,22 @@ _EQ = os88sym.equates()
 
 def V(name):
     return _SY[name] if name in _SY else _EQ[name]
+
+
+def has_picture(name, claimed):
+    """Whether the Disk window HAS a picture for this entry, so that the
+    generic icon on it can only mean the store refused one.
+
+    A package carries its own, a `*.IMG` draws the diskette (SPEC.md
+    18.101.6) and a document whose extension an association claims draws
+    its program's page (54.3). A file nothing claims draws the generic icon
+    BY DESIGN (24.1, 54.4.3) whatever the store holds - on the 720KB pair
+    that is `MEDIA/BROWSER.HTM` until B: brings a Browser, the program being
+    off both of those disks since 2026-11-14 (the Makefile's SYS720OMIT) -
+    so counting it here would fail the row on a curation decision rather
+    than on the store."""
+    ext = name.rpartition(".")[2] if "." in name else ""
+    return ext in ("O88", "IMG") or ext in claimed
 
 
 def fail(msg):
@@ -123,6 +141,13 @@ def main():
         def rd(a, n=1):
             return int.from_bytes(m.read((k << 4) + a, n), "little")
 
+        def claimed_exts():
+            """The extensions the machine can open NOW (SPEC.md 54.2's
+            assoc_ext: 3 bytes + the slot, 0 = a free row)."""
+            raw = m.read((k << 4) + V("assoc_ext"), V("ASSOC_NEXT") * 4)
+            return {raw[i:i + 3].decode("latin-1").rstrip()
+                    for i in range(0, len(raw), 4) if raw[i]}
+
         generic, seen = [], 0
         for p in WALK:
             ui.path(p)
@@ -137,11 +162,17 @@ def main():
             ix = m.read(lin(vs, rd(vp + V("FS_IOFH"), 1) << V("FV_IOSH")), n)
             names = [raw[i * st:i * st + 16].split(b"\0")[0].decode("latin-1")
                      for i in range(min(live, n))]
-            gen = [nm for nm, r in zip(names, ix) if r == 0xFF and nm != ".."]
+            claimed = claimed_exts()
+            gen, bare = [], []
+            for nm, r in zip(names, ix):
+                if r != 0xFF or nm == "..":
+                    continue
+                (gen if has_picture(nm, claimed) else bare).append(nm)
             seen += len(names)
             generic += [p.rstrip("/") + "/" + g for g in gen]
-            print("icohd: %-11s %2d entries  store rows %3d  generic: %s"
-                  % (p, len(names), rd(V("ico_n")), " ".join(gen) or "-"))
+            print("icohd: %-11s %2d entries  store rows %3d  generic: %s%s"
+                  % (p, len(names), rd(V("ico_n")), " ".join(gen) or "-",
+                     "  (unclaimed: %s)" % " ".join(bare) if bare else ""))
         print("icohd: store %d rows, %dKB holding %d"
               % (rd(V("ico_n")), rd(V("ico_kb")), rd(V("ico_max"))))
         if seen < 60:

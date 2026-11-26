@@ -5,7 +5,9 @@ This is host behavior/cost evidence, not target rendering/ABI validation.
 Builds inside TemporaryDirectory and never touches target build products.
 """
 from pathlib import Path
+import os
 import re
+import sys
 import subprocess
 import tempfile
 import time
@@ -22,16 +24,28 @@ def main():
         header = (ROOT/'apps/cc/os88.h').read_text()
         header = re.sub(r'^typedef char os88__sz_.*\n','',header,flags=re.M)
         (folder/'sdk-host.h').write_text(header)
+        # The face's art, built privately rather than read out of build/:
+        # without it every family would run the PLAIN face (SPEC.md
+        # 130.6.3), which the art-face checks are not about.
+        art = folder/'BBART.BIN'
+        subprocess.run([sys.executable,str(ROOT/'tools/os88bbart.py'),'build','-o',str(art)],
+                       check=True,cwd=ROOT,stdout=subprocess.DEVNULL)
+        env = dict(os.environ,BB_ART=str(art))
         binary = folder/'uiglasstest'
-        subprocess.run(['cc','-std=c99','-Wall','-Wextra','-Werror',
+        subprocess.run([os.environ.get('CC','cc'),'-std=c99','-Wall','-Wextra','-Werror',
                         '-Wno-comment','-Wno-logical-op-parentheses',
+                        # gcc's names for what the clang flag above
+                        # silences, and its maybe-uninitialized on a
+                        # value set and read under one test (face.c lvl)
+                        '-Wno-misleading-indentation','-Wno-parentheses',
+                        '-Wno-maybe-uninitialized','-Wno-unknown-warning-option',
                         '-Wno-unused-variable','-Wno-unused-but-set-variable',
                         '-O1','-g','-fsanitize=address,undefined','-I',str(folder),
                         str(ROOT/'apps/breadxt/hosttest/uiglasstest.c'),
                         '-lm','-o',str(binary)],check=True,cwd=ROOT)
         failed = []
-        for mode in ('queue','modal','damage','wide','wide-dismiss','locate-help','locate-scope','locate-offscreen','locate-none','stale','scope-hold','replace-led','sections'):
-            positive = subprocess.run([str(binary),mode],cwd=ROOT)
+        for mode in ('queue','modal','damage','wide','wide-dismiss','locate-help','locate-scope','locate-offscreen','locate-none','stale','scope-hold','replace-led','sections','sections-plain'):
+            positive = subprocess.run([str(binary),mode],cwd=ROOT,env=env)
             if positive.returncode:
                 failed.append(mode)
             # Each hook deliberately reintroduces the class of defect under
@@ -40,7 +54,7 @@ def main():
             if mode.startswith('locate-'):
                 continue
             negative = subprocess.run([str(binary),mode,'negative'],text=True,
-                                      capture_output=True,cwd=ROOT)
+                                      capture_output=True,cwd=ROOT,env=env)
             assert negative.returncode == 1 and 'FAIL ui:' in negative.stderr, (mode,negative.stdout,negative.stderr)
             print(f'breadxt UI {mode}: injected defect fails as intended',flush=True)
         assert not failed, f'positive UI families failed: {failed}'

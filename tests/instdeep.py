@@ -284,6 +284,11 @@ def open_installer(m):
     out: the wizard (tests/instwiz.py's Wizard), on its Welcome page.
     """
     mo = Mouse(marty=m)
+    # the COMPACT face: every coordinate here is its, and kern_mega's
+    # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+    # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+    import cpface
+    cpface.compact(m, m.sym)
     mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
     cp = [w for w in wins(m) if w[3] >= 280 and w[4] >= 100]
     if not cp:
@@ -305,7 +310,8 @@ def open_installer(m):
             "HDD.DRV to load", poll=.05, limit=60)
         M.ui_done(m, "the Hard Drive tick", cap=13.5)
     nst = m.read(m.sym("cp_nst"), 1)[0]         # SPEC.md 31.9: the driver's
-    mo.click(x0 + 40, y0 + CP_I0Y + nst * CP_IROWH + 7, settle=0)  # own page
+    cpface.select(m, mo, m.sym, x0, y0, nst, "instdeep")  # own page,
+                                                # scrolled to (SPEC.md 31.1.5)
     M.ui_done(m, "the driver's own page", cap=13.5)
     known = {w[0] for w in wins(m)}
     mo.click(x0 + CP_RX + HDP_B2X + HDP_BW2 // 2, y0 + HDP_BY + HDP_BH // 2,

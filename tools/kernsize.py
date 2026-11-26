@@ -446,12 +446,20 @@ def instrument(src):
     have been seen already.
     """
     mods, out, last_at, sect, at = [], [], None, ".text", ".text"
+    declared = False
     for line in src.splitlines(keepends=True):
         d = SECTION.match(line)
         if d:
             sect = "." + d.group(1)
+            declared = True
         m = INCLUDE.match(line)
-        if m:
+        # An %include ABOVE kernel.asm's first `section` line is a header
+        # (clu.inc: macros and equates) met before the sections are
+        # declared, and a marker there would be the first mention of
+        # `.lowbss` - as progbits, so its `nobits` declaration later is an
+        # error. It is left unbracketed; were it ever to emit a byte, that
+        # byte lands in the residual and the binary compare still holds.
+        if m and declared:
             out.append(_markers(len(mods), sect))
             mods.append(m.group(1))
             last_at = len(out) + 1        # ...after the include line itself

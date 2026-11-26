@@ -161,6 +161,11 @@ def main():
         # and sound then goes straight back to the ceiling it came from.
         # SBTEST fits, and it is on the disk anyway to hook the vector.
         def panel():
+            # the COMPACT face: every coordinate here is its, and kern_mega's
+            # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+            # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+            import cpface
+            cpface.compact(m, S)
             mo.menu(8, 8, 8, 40)                # chip menu -> Control Panel
             M.ui_done(m)
             cps = [w for w in heaphi.wins(m) if w[3] >= 280 and w[4] >= 100]

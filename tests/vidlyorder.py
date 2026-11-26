@@ -85,8 +85,9 @@ def clip(tmp):
                        check=True)
     # THE ENCODE ONCE PER INPUT (os88fixture.cached), as vidlysplit's
     os88fixture.cached(out, ("vidlyorder", SRC, ENC), make, tools=("ffmpeg",))
-    # NO PREFILL: the bank and the layer's slots are filled before the
-    # first frame otherwise, and the order is over before it can be seen
+    # NO PREFILL ASKED: 0 is the player's own ask, 10 s at the stream's
+    # mean (98.3.18.3) - 6 of the bank's 26 slots here, measured, room
+    # left to see the order in; a larger ask fills it before frame 1
     d = bytearray(open(out, "rb").read())
     struct.pack_into("<H", d, vid.H_XPRE, 0)
     open(out, "wb").write(d)
@@ -185,8 +186,15 @@ def main():
         # THE COPYING BANK (98.3.18.14): a 386 reads an XMS bank in place,
         # with no FIFO to refill and so no order to see - [vp_noinp], the
         # gate's A/B, keeps the FIFO this row counts, as every 386 had it
+        # THE BANK HELD AT THE PREFILL'S SLOTS until the hold ([vp_bhold],
+        # vidbank's own): B:'s throttle is HOST seconds and the hold is
+        # GUEST frames, so on a loaded host - a guest clock at a sixth of
+        # the wall's, measured - the bank filled whole before frame 20 and
+        # the order was never seen. Let go at the instant the slots are
+        # marked, below, so the reader's choice starts from there
         qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", HOLD)),
-                  (base + syms["vp_noinp"], b"\1")])
+                  (base + syms["vp_noinp"], b"\1"),
+                  (base + syms["vp_bhold"], b"\1")])
         q.hmp("sendkey p")
         wait(lambda: rb("vp_held") == 1 and rw("vp_done") == HOLD,
              "the hold before frame %d" % HOLD, 120)
@@ -201,7 +209,8 @@ def main():
         x0 = rw("vp_xcnt")              # the bank reads on between QMP calls)
         qpoke(q, [(base + syms["vp_lyuse"],
                    struct.pack("<H", (rw("vp_lyuse") + rw("vp_lyns"))
-                               & 0xFFFF))])
+                               & 0xFFFF)),
+                  (base + syms["vp_bhold"], b"\0")])
         q.hmp("cont")
         fill = lambda: (rw("vp_lyrd") - rw("vp_lyuse")) & 0xFFFF  # noqa
         # ...watched in FROZEN looks: how far the bank got while the layer's

@@ -1190,10 +1190,10 @@ summary = "The Borat Teaches Typing program. Double-click BORATYPE.O88 to start 
 short = "Borat Teaches Typing"
 
 ["HELP.TXT"]
-title = "Borat Teaches Typing help"
+title = "Help"
 kind = "document"
-summary = "Borat Teaches Typing's help: lessons, practice, challenges, the keys, sound, display modes and saving. Double-click to read it in Note Pad."
-short = "Help for the typing tutor"
+summary = "A program's help, to read in Note Pad. On the Borat Teaches Typing disk it covers lessons, practice, challenges, the keys, sound, display modes and saving; on the Breadboard XT disk it is a first-steps guide to the board, the parts, running and measuring, the examples and the limits."
+short = "Help for the program beside it"
 
 ["CWORD.O88"]
 title = "Word, C edition"
@@ -1651,3 +1651,63 @@ title = "About these videos"
 kind = "document"
 summary = "What each demo video is, what it needs, and how to play it."
 short = "Guide to the demo videos"
+
+["BREADXT.O88"]
+title = "Breadboard XT"
+kind = "program"
+summary = "A breadboard on the screen: plug in resistors, LEDs, switches, capacitors, logic chips and a 555 timer, wire them up, then run the circuit and read its voltages, currents and logic levels with a probe and a two-channel oscilloscope. Opens .BBX projects."
+short = "Circuit breadboard simulator"
+
+["LEDTEST.BBX"]
+title = "LED test example"
+kind = "document"
+summary = "A Breadboard XT example: a 5 V supply lighting a red LED through a 330-ohm resistor, about 8.8 mA. Double-click to open it in Breadboard XT."
+short = "Example: an LED and its resistor"
+
+["DIVIDER.BBX"]
+title = "Voltage divider example"
+kind = "document"
+summary = "A Breadboard XT example: two 10k resistors halve 5 V to 2.5 V at the midpoint, with 250 uA flowing. Double-click to open it in Breadboard XT."
+short = "Example: a voltage divider"
+
+["POT.BBX"]
+title = "Potentiometer example"
+kind = "document"
+summary = "A Breadboard XT example: a 10k potentiometer set halfway, giving 2.5 V on its wiper. Select it and press T to move the wiper, and the reading follows. Double-click to open it in Breadboard XT."
+short = "Example: a potentiometer"
+
+["SWITCH.BBX"]
+title = "Switch example"
+kind = "document"
+summary = "A Breadboard XT example: a switch that lights an LED through its resistor. Select the switch and press Space to open and close it. Double-click to open it in Breadboard XT."
+short = "Example: a switch and an LED"
+
+["LOGIC.BBX"]
+title = "Logic gate example"
+kind = "document"
+summary = "A Breadboard XT example: a powered 74HC00 NAND chip with two HIGH inputs, so its output is LOW. Set an input LOW and the output goes HIGH. Double-click to open it in Breadboard XT."
+short = "Example: a NAND gate"
+
+["BROKEN.BBX"]
+title = "Broken circuit example"
+kind = "document"
+summary = "A Breadboard XT example with a mistake in it: an LED wired straight across 5 V. Run it to see the warning, then add a 330-ohm resistor in series and run it again. Double-click to open it in Breadboard XT."
+short = "Example: a mistake to fix"
+
+["RC.BBX"]
+title = "RC charging example"
+kind = "document"
+summary = "A Breadboard XT example: a 10uF capacitor charging through a 10k resistor, reaching about 3.15 V after 0.1 s. Watch it on the oscilloscope. Double-click to open it in Breadboard XT."
+short = "Example: a capacitor charging"
+
+["FLASHER.BBX"]
+title = "555 flasher example"
+kind = "document"
+summary = "A Breadboard XT example: a 555 timer flashing an LED about once a second, with the oscilloscope showing its output and its timing capacitor. Double-click to open it in Breadboard XT."
+short = "Example: a 555 LED flasher"
+
+["BYTEOPLY.O88"]
+title = "Byteopoly"
+kind = "program"
+summary = "A property-trading board game about collecting vintage computers, for 2 to 4 players on one PC or on two PCs joined by a null-modem cable. Buy, auction, trade and upgrade computers from the Commodore PET to the 486DX2, and outlast the others."
+short = "Vintage-computer trading game"

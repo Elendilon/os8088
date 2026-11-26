@@ -54,29 +54,14 @@ RD_CFGBIT = 2                       # kernel/driver.inc's drv_cfgbit
 
 
 def rd_loaded(ui):
-    return int.from_bytes(ui.m.read(ui.sym("drv_tab") + rdcz.RD_ROW
-                                    * rdcz.DRVR_SZ + rdcz.DRVR_SEG, 2),
-                          "little")
+    return rdcz.rd_loaded(ui)
 
 
 def mount(ui):
     """Control Panel -> Drivers -> the Ram Disk's page -> Mount: rdcz's
     sequence WITHOUT the tick, the driver being loaded already (a click on
     its row would UNload it)."""
-    m, mo, c = ui.m, ui.mo, rdcz
-    mo.menu(8, 8, 8, 40)
-    os88marty.ui_done(m, limit=15.0)
-    cp = ui.window("Control Panel")
-    x0, y0 = cp.x + 1, cp.y + c.TITLE_H
-    mo.click(x0 + 40, y0 + c.CP_I0Y + c.CP_IDRV * c.CP_IROWH + 7)  # Drivers
-    os88marty.ui_done(m, limit=15.0)
-    nst = m.read(ui.sym("cp_nst"), 1)[0]        # its page, then Mount
-    mo.click(x0 + 40, y0 + c.CP_I0Y + nst * c.CP_IROWH + 7)
-    os88marty.ui_done(m, limit=25.0)
-    mo.click(x0 + c.CP_RX + c.RP_MNTX + c.RP_MNTW // 2,
-             y0 + c.RP_B0Y + c.RP_BH // 2)
-    os88marty.ui_done(m, limit=25.0)
-    ui.close(cp)
+    rdcz.mount_ramdisk(ui, tick=False, who="rdboot")
 
 
 def main():

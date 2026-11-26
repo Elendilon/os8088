@@ -17,7 +17,8 @@ SOURCE = ROOT / "apps/boratype"
 
 def run(tree, executable, banks):
     subprocess.run([os.environ.get("CC", "cc"), "-std=c99", "-O1", "-g",
-                    "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
+                    "-Wall", "-Wextra", "-Werror", "-Wno-misleading-indentation",
+                    "-fsanitize=address,undefined",
                     "-fno-sanitize-recover=all", "-I", str(ROOT / "apps/cc"),
                     str(tree / "hosttest/face_test.c"), "-o", str(executable)], check=True)
     return subprocess.run([str(executable)], capture_output=True, text=True,

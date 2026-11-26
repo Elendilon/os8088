@@ -57,6 +57,15 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 FAILS = []
 VM = "xt-picomem1"      # --board 2: xt-picomem2, its -1fd and -usbm twins
 OWN = 5                 # the card's own line: the 1.x's jumper, the 2.x's IRQ 7
+# A card whose PICOMEM.CFG mksd.py writes (--fdd/--hdd/--cfg) starts from
+# ZEROS, and a zero ne2000Port is "no NE2000" to the firmware (pm_cmd.cpp).
+# The system disks here want ETHER.DRV at boot (build/pmcfg/system.cfg), so
+# on such a card drv_notice opens the Control Panel on its Drivers page
+# (SPEC.md 51.3) - and on this VGA machine that is the WIDE face (SPEC.md
+# 135), 616x408, over every drive zone on the desktop. So every card these
+# legs make carries the NE2000 where the field cards (and the default card,
+# leg_net's) have it: the machine the disks were set up for
+FIELD_NE2K = ["--cfg", "ne2000Port=0x300", "--cfg", "ne2000IRQ=3"]
 
 
 def check(cond, what):
@@ -211,7 +220,8 @@ def leg_fdd(tmp):
     import os88ui
     sd = os.path.join(tmp, "fdd-sd.img")
     subprocess.run([sys.executable, os.path.join(ROOT, "tools/picomem/mksd.py"), sd,
-                    "--fdd", "1:" + os.path.join(ROOT, "build/pmboxb360.img")],
+                    "--fdd", "1:" + os.path.join(ROOT, "build/pmboxb360.img")]
+                   + FIELD_NE2K,
                    check=True, stdout=subprocess.DEVNULL)
     os.environ["OS88_PMSD"] = sd
     os.environ["OS88_86BOX_VM"] = VM + "-1fd"
@@ -278,7 +288,7 @@ def leg_hdd(tmp):
                     "--mb", "64", "--hdd", "0:" + os.path.join(ROOT, "build/pmhd.img"),
                     # the card's own boot strap: an XT BIOS goes to ROM BASIC
                     # when its floppy is empty, as this one did without it
-                    "--cfg", "PMBOOT=1"],
+                    "--cfg", "PMBOOT=1"] + FIELD_NE2K,
                    check=True, stdout=subprocess.DEVNULL)
     os.environ["OS88_PMSD"] = sd
     os.environ.pop("OS88_PMWAV", None)

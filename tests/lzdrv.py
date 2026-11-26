@@ -151,6 +151,11 @@ def run(a, sysimg, plain):
 
         # 1. tick the Ram Disk on, exactly as tests/drvcall.py does - a
         #    driver is not attached at boot unless SYSTEM.CFG asks for it
+        # the COMPACT face: every coordinate here is its, and kern_mega's
+        # port boots mega.img (CPWIDE.DRV) on Bochs' VGA, where the panel
+        # would open WIDE (SPEC.md 135.2, 135.13, tests/cpface.py)
+        import cpface
+        cpface.compact(m, S)
         mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
         os88marty.settle(m)
         cp = None

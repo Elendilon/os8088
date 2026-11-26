@@ -342,7 +342,7 @@ static void bu_button(int s,int icon,const char *text,int state)
     if(state&2)bu_grey(1);
     sz=icon>=0?bx_size(icon):0;iw=sz&255;ih=sz>>8;
     if(iw&&ih>y2-y1-2)iw=0;
-    if(!iw&&!text)text=bu_compact?bu_tb_short[s-S_BTN]:bu_tb_text[s-S_BTN];
+    if(!iw&&!text)text=bu_compact||bu_plain?bu_tb_short[s-S_BTN]:bu_tb_text[s-S_BTN];
     tw=text?bx_twidth(text,bu_tf):0;
     ix=(x1+x2+1-iw-tw-(iw&&tw?5:0))/2;
     if(iw)bu_s(ix,(y1+y2+1-ih)/2,icon);
@@ -1001,8 +1001,8 @@ static int ovl_bu_s_insp(void)
             bu_t(x1+6,bu_ibtn+2,"Edit > Wire color",C_DGRAY,bu_tf);
         }else{
             bu_t(x1+6,y+2,"Select a part",C_BLACK,bu_tf);
-            bu_t(x1+6,y+bu_th+4,"or pick one from",C_DGRAY,bu_tf);
-            bu_t(x1+6,y+2*bu_th+6,"Parts.",C_DGRAY,bu_tf);
+            bu_t(x1+6,y+bu_th+4,"or pick one",C_DGRAY,bu_tf);
+            bu_t(x1+6,y+2*bu_th+6,"from Parts.",C_DGRAY,bu_tf);
         }
         return 1;
     }

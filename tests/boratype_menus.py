@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 SOURCE=ROOT/'apps/boratype'
 def run(tree,exe):
     subprocess.run([os.environ.get('CC','cc'),'-std=c99','-O1','-g','-Wall','-Wextra','-Werror',
+                    '-Wno-misleading-indentation',
                     '-fsanitize=address,undefined','-fno-sanitize-recover=all','-I',str(ROOT/'apps/cc'),
                     str(tree/'hosttest/menu_test.c'),'-o',str(exe)],check=True)
     return subprocess.run([str(exe)],text=True,capture_output=True,

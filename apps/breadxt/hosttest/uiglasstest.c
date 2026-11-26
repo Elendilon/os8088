@@ -101,7 +101,12 @@ static unsigned char hb_band[720*64],hb_art[32768];
 static int hb_x0,hb_y0,hb_w,hb_h,hb_bpp,hb_haveart;
 static unsigned ug_bxouts,ug_area;
 int os88_part_lazyok(int i){(void)i;return 1;}
-int os88_part_fetch(int i){FILE *f;size_t n;(void)i;f=fopen("build/BBART.BIN","rb");if(!f)return -1;n=fread(hb_art,1,sizeof(hb_art),f);fclose(f);hb_haveart=n>4;return hb_haveart?0:-1;}
+/* The art is BBART.BIN from $BB_ART (tests/breadxt_ui_host.py builds it
+ * privately), else build/'s. A missing file is a FAILURE, never a quiet
+ * plain face: the art-face families measure sprites the plain face has not
+ * got. ug_plain is the plain face on purpose (SPEC.md 130.6.3). */
+static int ug_plain;
+int os88_part_fetch(int i){FILE *f;size_t n;const char *path=getenv("BB_ART");(void)i;if(ug_plain)return -1;f=fopen(path?path:"build/BBART.BIN","rb");if(!f){fprintf(stderr,"no art: %s\n",path?path:"build/BBART.BIN");UC(0);return -1;}n=fread(hb_art,1,sizeof(hb_art),f);fclose(f);hb_haveart=n>4;UC(hb_haveart);return hb_haveart?0:-1;}
 unsigned os88_part_seg(int i){(void)i;return hb_haveart?1:0;}
 static const unsigned char *hb_rec(int id){unsigned off;if(!hb_haveart||id<0)return 0;off=hb_art[4+2*id]|hb_art[5+2*id]<<8;return off?hb_art+off:0;}
 static int ug_plot_x1=1,ug_plot_y1=1,ug_plot_x2=0,ug_plot_y2=0;
@@ -290,4 +295,4 @@ static void ug_section_checks(void)
         }
     }
 }
-int main(int argc,char **argv){if(argc!=2&&argc!=3)return 2;ug_negative=argc==3&&!strcmp(argv[2],"negative");if(!strcmp(argv[1],"queue"))ug_queue_checks();else if(!strcmp(argv[1],"modal"))ug_modal_checks();else if(!strcmp(argv[1],"damage"))ug_damage_checks();else if(!strcmp(argv[1],"wide"))ug_wide_checks(0);else if(!strcmp(argv[1],"wide-dismiss"))ug_wide_checks(1);else if(!strcmp(argv[1],"locate-help"))ug_locate_checks(0);else if(!strcmp(argv[1],"locate-scope"))ug_locate_checks(1);else if(!strcmp(argv[1],"locate-offscreen"))ug_locate_checks(2);else if(!strcmp(argv[1],"locate-none"))ug_locate_checks(3);else if(!strcmp(argv[1],"stale"))ug_stale_checks();else if(!strcmp(argv[1],"scope-hold"))ug_scope_hold_checks();else if(!strcmp(argv[1],"replace-led"))ug_replacement_checks();else if(!strcmp(argv[1],"sections"))ug_section_checks();else return 2;printf("breadxt UI host %s: %u checks, %u failures\n",argv[1],ug_checks,ug_failures);return ug_failures?1:0;}
+int main(int argc,char **argv){if(argc!=2&&argc!=3)return 2;ug_negative=argc==3&&!strcmp(argv[2],"negative");if(!strcmp(argv[1],"queue"))ug_queue_checks();else if(!strcmp(argv[1],"modal"))ug_modal_checks();else if(!strcmp(argv[1],"damage"))ug_damage_checks();else if(!strcmp(argv[1],"wide"))ug_wide_checks(0);else if(!strcmp(argv[1],"wide-dismiss"))ug_wide_checks(1);else if(!strcmp(argv[1],"locate-help"))ug_locate_checks(0);else if(!strcmp(argv[1],"locate-scope"))ug_locate_checks(1);else if(!strcmp(argv[1],"locate-offscreen"))ug_locate_checks(2);else if(!strcmp(argv[1],"locate-none"))ug_locate_checks(3);else if(!strcmp(argv[1],"stale"))ug_stale_checks();else if(!strcmp(argv[1],"scope-hold"))ug_scope_hold_checks();else if(!strcmp(argv[1],"replace-led"))ug_replacement_checks();else if(!strcmp(argv[1],"sections"))ug_section_checks();else if(!strcmp(argv[1],"sections-plain")){ug_plain=1;ug_section_checks();}else return 2;printf("breadxt UI host %s: %u checks, %u failures\n",argv[1],ug_checks,ug_failures);return ug_failures?1:0;}
