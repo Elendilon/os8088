@@ -258,4 +258,18 @@ ZEXEC_SLACK  equ 1684                         ; 84
                                             ;   into the .PIX claim, 0 = none
                                             ;   yet (zpic.inc)
 
-ZF_BSS_TOTAL equ 1808
+%define zf_prom    (os88_image_end + 1808)  ; byte: what the kernel was last
+                                            ;   told about WF_SAVEU - 1 = the
+                                            ;   raise cache is PROMISED, the
+                                            ;   worker blocked on a key with
+                                            ;   nothing owed (zio.inc's
+                                            ;   zi_promise, SPEC.md 61.16).
+                                            ;   0 is the class's own answer,
+                                            ;   as bss is born zero
+%define zw_tint    (os88_image_end + 1809)  ; byte: this story has asked for a
+                                            ;   colour (zw_colour) since it was
+                                            ;   loaded, so its glass may hold a
+                                            ;   third one and WF_1BPP would be
+                                            ;   a lie (SPEC.md 11.96.17)
+
+ZF_BSS_TOTAL equ 1810

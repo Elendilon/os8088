@@ -780,6 +780,8 @@ ark_layout:
 ark_paint:                          ; (no registers banked here: every
     call ark_track                  ; routine it calls keeps them all)
     call ark_draw_full
+    call ark_promise                ; the whole board is the present: if it
+                                    ; stands still, say so (SPEC.md 44.13)
     jmp ark_hire                    ; idempotent: only the first paint spawns
 
 ; -----------------------------------------------------------------------------
@@ -877,9 +879,12 @@ ark_onkey:
 .space:
     cmp byte [ark_mode], M_PAUSE    ; paused? then Space is the RESUME, and
     je .pause                       ; nothing else - see ark_cmd_pause, whose
-    mov byte [ark_launch], 1        ; M_PAUSE half that is. Otherwise the
-    jmp short .out                  ; worker decides what it means: serve, or
-                                    ; fire the laser
+                                    ; M_PAUSE half that is. Otherwise the
+                                    ; worker decides what it means: serve, or
+                                    ; fire the laser - and a serve moves the
+    call ark_unpromise              ; ball, so the promise goes BEFORE the
+    mov byte [ark_launch], 1        ; worker can (SPEC.md 44.13)
+    jmp short .out
 .pause:
     call ark_cmd_pause
     jmp .out
@@ -939,10 +944,12 @@ ark_onclick:
 ; front of a PAUSED banner will press first.
 ; -----------------------------------------------------------------------------
 ark_cmd_new:
-    call ark_newgame
-    jmp ark_draw_all
-
-ark_cmd_pause:
+    call ark_unpromise              ; both change the content from the UI task,
+    call ark_newgame                ; drawing without a clip, and a resume
+    jmp ark_draw_all                ; starts the ball: the promise goes FIRST,
+                                    ; and the worker makes it again once the
+ark_cmd_pause:                      ; board is still (SPEC.md 44.13)
+    call ark_unpromise
     push ax
     mov al, [ark_mode]
     cmp al, M_PAUSE
@@ -1177,6 +1184,21 @@ ark_worker:
     ; kernel's own Bounce does. [ark_full] survives the skip, so whatever was
     ; owed still gets drawn on the first frame that shows.
     call OSAPI_GFX_LOCK
+    ; A PROMISED BOARD THAT HAS NOTHING NEW DOES NOT ARM (SPEC.md 44.13,
+    ; 11.96.1's "a window that polls must decide BEFORE it arms"): arming
+    ; says "I am about to draw" and drops the raise cache, so a paused game
+    ; that armed every tick would destroy the cache it promised for, and pay
+    ; 11.96.18's z-order walk for nothing. Hidden or covered alike, there is
+    ; nothing to draw - and nothing owed, so [ark_full] is left alone and a
+    ; cached raise is not followed by a whole repaint. Anything new (a paddle
+    ; moved by an arrow typed into another window - OSAPI_KEY_DOWN is the
+    ; machine's, not the front window's) falls through, and if it cannot be
+    ; drawn .skip withdraws the promise
+    cmp byte [ark_prom], 0
+    je .look
+    call ark_still
+    jnc .unlock
+.look:
     mov ax, KERNEL_SEG
     mov es, ax
     mov bx, [ark_win]
@@ -1193,7 +1215,7 @@ ark_worker:
     cmp byte [ark_full], 0
     je .parts
     call ark_draw_full
-    jmp short .unlock
+    jmp short .drawn
 .parts:
     call ark_wipe_pu
     call ark_wipe_shots
@@ -1208,11 +1230,11 @@ ark_worker:
     call ark_draw_status
 .msg:
     cmp byte [ark_msg], 0
-    je .unlock
+    je .drawn
     mov byte [ark_msg], 0
     call ark_clear_msg
     call ark_draw_msg
-    jmp short .unlock
+    jmp short .drawn
 
     ; --- a frame that drew nothing owes a WHOLE one -------------------------
     ; the worker's update half ran and moved everything; the screen did not
@@ -1229,9 +1251,120 @@ ark_worker:
     ; LESS often). One byte buys independence from it.
 .skip:
     mov byte [ark_full], 1
+    call ark_unpromise              ; a change NOT drawn: whatever the kernel
+    jmp short .unlock               ; banked is now the past (SPEC.md 44.13)
+.drawn:
+    call ark_promise                ; the glass is the present: still or not
 .unlock:
     call OSAPI_GFX_UNLOCK
     jmp .loop
+
+; -----------------------------------------------------------------------------
+; ark_still - CF = 1 while the board moves ON ITS OWN or owes a draw; CF = 0
+;             when what is on the glass will stay right until a key, a click
+;             or a menu pick changes it (SPEC.md 44.13)
+; in:  gfx lock held, so [ark_full]/[ark_msg]/[ark_stat] are not mid-write;
+;      preserves all but flags
+;
+; M_PAUSE and M_OVER run nothing but ark_do_paddle, so the paddle is the
+; whole question there: a countdown still running ([ark_pkeep], which a held
+; arrow refills) or a move not yet drawn. M_READY also runs the capsules and
+; the bolts, which a death leaves falling, so it is still only once none is
+; left in the air or owed an erase. M_PLAY, M_DEAD and M_CLEAR never are:
+; the ball moves, or a hold counts down to a new board. A pending Space
+; ([ark_launch]) is a serve the worker has not run yet.
+; -----------------------------------------------------------------------------
+%if PU_NONE != 0
+%error ark_still reads PU_NONE as 0
+%endif
+ark_still:
+    push ax
+    push si
+    mov al, [ark_mode]
+    cmp al, M_PAUSE
+    je .flags
+    cmp al, M_OVER
+    je .flags
+    cmp al, M_READY
+    jne .yes
+    xor si, si
+.pu:
+    mov al, [ark_pukind + si]
+    or al, [ark_puwipe + si]
+    jnz .yes
+    inc si
+    cmp si, ARK_MAXPU
+    jb .pu
+    xor si, si
+.shot:
+    mov al, [ark_shot + si]
+    or al, [ark_shwipe + si]
+    jnz .yes
+    inc si
+    cmp si, ARK_MAXSHOT
+    jb .shot
+.flags:
+    cmp word [ark_pkeep], 0         ; the paddle runs this tick or the next
+    jg .yes
+    mov al, [ark_full]
+    or al, [ark_stat]
+    or al, [ark_msg]
+    or al, [ark_padwipe]
+    or al, [ark_launch]
+    jnz .yes
+    clc
+    jmp short .out
+.yes:
+    stc
+.out:
+    pop si
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ark_promise - WF_SAVEU as the board stands (SPEC.md 44.13, 11.96.1):
+; PROMISED while ark_still says still, so a raise puts the board back from
+; the kernel's cache instead of drawing the wall again; WITHDRAWN otherwise,
+; which drops whatever was banked. ark_unpromise is the withdrawal alone.
+;
+; NEVER promised in play, and that is the reason the rule is "still" and not
+; "not covered": §44.8's focus pause is noticed by the WORKER a frame after
+; the window over us came up, and the kernel takes the cache synchronously
+; as it comes up - so a cache taken mid-rally is a picture with no PAUSED
+; banner on it, and the banner's own draw is skipped while we are covered.
+; Withdrawn through the rally, the raise repaints as it always did, banner
+; and all, and the still face after it is promised then.
+;
+; in:  gfx lock held (SPEC.md 20.6 rule 7: the clear frees the cache);
+;      preserves all, flags included. The kernel is asked only when the
+;      answer CHANGES - [ark_prom] is what it was last told, and the class
+;      is born without the flag, as bss is born zero.
+; -----------------------------------------------------------------------------
+ark_promise:
+    pushf
+    push ax
+    xor al, al
+    call ark_still
+    jc ark_unpromise.say
+    inc ax
+    jmp short ark_unpromise.say
+ark_unpromise:
+    pushf
+    push ax
+    xor al, al
+.say:
+    cmp al, [ark_prom]
+    je .out
+    push bx
+    mov bx, [ark_win]
+    mov [ark_prom], al
+    mov ah, WFB_SAVEU
+    call OSAPI_WM_FLAG              ; BX is [ark_win], never a stray register
+    pop bx                          ; (SPEC.md 11.96.11.4)
+.out:
+    pop ax
+    popf
+    ret
 
 
 ; -----------------------------------------------------------------------------
@@ -4112,6 +4245,7 @@ ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
     ABYTE ark_msg                   ; ...or at least the banner (ark_draw_full
                                     ; clears these two as ONE word)
     ABYTE ark_padwipe
+    ABYTE ark_prom                  ; WF_SAVEU as the kernel was last told
     ABYTE ark_olaser                ; whether the bat on the glass has muzzles
 
 ; --- the ball -----------------------------------------------------------------

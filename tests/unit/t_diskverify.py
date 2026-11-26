@@ -43,7 +43,9 @@ IMAGES = ["os8088.img", "os8088-120.img", "os8088-720.img", "os8088-360.img",
           "arcrel.img", "arcrel120.img", "arcrel720.img", "arcrel360.img",
           # ...and the sound debug disk in four geometries (SPEC.md 127)
           "debug-sound.img", "debug-sound-120.img", "debug-sound-720.img",
-          "debug-sound-360.img"]
+          "debug-sound-360.img",
+          "debug-input.img", "debug-input-120.img", "debug-input-720.img",
+          "debug-input-360.img"]
 # ON-DEMAND images, verified when they have been built: PageDesk's own disks
 # (`make pagedeskdisk`), the 360KB pair among them (PAGEDESK-SPEC 20.22.2.8)
 OPTIONAL = ["pagedesk.img", "pagedesk120.img", "pagedesk720.img",

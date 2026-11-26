@@ -1495,6 +1495,13 @@ dsk_xfer:
     mov dl, [disk_drive]        ; **A STOPPED FLOPPY MOTOR IS WARM ALREADY**
     call dsk_media_ok           ; (SPEC.md 12.8.3.1). The first transfer of a
     jnc .warm                   ; mount is the one-sector boot read, and it is
+%ifndef KERN_SMALL
+    mov [dsk_mvok], ch          ; (...and a write must now re-check the disk,
+                                ; SPEC.md 18.9.1.3: this transfer may spin
+                                ; the motor up on a disk nobody has signed.
+                                ; CH is 0 here - below - so the store is 4
+                                ; bytes, and dsk_runcap keeps its parity)
+%endif
     mov cl, FPG_WARM            ; the one that carries the SPIN-UP - an AT
 .warm:                          ; BIOS waits DPT byte 10 for it, one second on
                                 ; a 286 - so FPG_WARM's sector count put the
@@ -5160,8 +5167,13 @@ disk_mount_x:
 .publish:
     mov [disk_nfiles], bp       ; publish the count last
     mov [dsk_lstale], al
+%ifdef KERN_SMALL
     mov byte [dsk_mntok], 1     ; the volume IS validated: only now open the
-    clc                         ; write gate
+%else                           ; write gate...
+    mov word [dsk_mntok], 0x0101 ; ...and [dsk_mvok], its medium just read
+    nop                         ; (SPEC.md 18.9.1.3). Parity: the word store
+%endif                          ; is a byte over the byte store, and
+    clc                         ; dsk_next_clus_x is measured where it was
     jmp .out
     ; --- A REDIRECTED VOLUME: ASK THE DRIVER, READ NO DISK (SPEC.md 62.9) ---
     ; Everything the FAT path does between .cwd_kept and the listing is about
@@ -12885,6 +12897,13 @@ dsk_base:     resd 1            ; the partition base added to every LBA; 0
 ; --- write-path state (SPEC.md 18.4), all reset by disk_mount ---------------
 dsk_mntok:    resb 1            ; 1 only between a fully successful mount and
                                 ; the next mount attempt - the write gate
+%ifndef KERN_SMALL
+dsk_mvok:     resb 1            ; ADJACENT to dsk_mntok (.publish sets both
+                                ; with one word): 1 = no transfer has run on
+                                ; this volume with its floppy motor stopped
+                                ; since the mount - dskw_wck's question
+                                ; (SPEC.md 18.9.1.3)
+%endif
                                 ; (a dsk_wpad was here to keep the words below
                                 ; even-aligned. The target is an 8088 and its
                                 ; bus is EIGHT BITS WIDE, so a word costs two

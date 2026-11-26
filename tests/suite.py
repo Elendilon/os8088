@@ -1482,24 +1482,31 @@ FAST = [
         "mem_regrow taken out, and red at 7K on the SB leg with snd_keep "
         "written unconditionally",
         wants=("build/covoxsys720.img", "build/mixer360.img")),
-    Row("snddiag", "soak", py("tests/snddiag.py", "--evidence", "build/ess-sound/herc-dma3.png"), 8.0,
-        "THE SOUND DEBUG DISK, BOOTED (SPEC.md 127.2-127.4): "
+    Row("snddiag", "soak", py("tests/snddiag.py", "--evidence", "build/ess-sound/herc-dma3.png"), 25.0,
+        "THE SOUND DEBUG DISK, BOOTED (SPEC.md 127.2-127.4.3): "
         "debug-sound-720.img on the SB 5150 with nobody at it. \\AUTOSTRT "
-        "opens SNDDIAG.O88, the play test starts by itself and runs ten "
+        "opens SNDDIAG.O88 AUTO, the play test starts by itself and runs ten "
         "seconds - every second from 2 to 9 within 10% of 22,050 bytes and "
         "taking block IRQs, no watchdog stop, a verdict that names nothing - "
         "and pages 1 and 3 show the probe record: the -DSNDDIAG driver "
-        "answering SNDV_DIAG, the DSP at 220h, a BLASTER= line, E1h in the "
-        "DSP write log. Then, after the tone has stopped, inject reported DMA 3 "
-        "and FFh to check the DSP/BLASTER text and refusal without claiming "
-        "physical ESS playback. Read from the package's own text buffer",
+        "answering SNDV_DIAG, the DSP at 220h, a BLASTER= line. Then the DMA "
+        "lab runs to Done: every run the card can do plays on except NOAUTO, "
+        "the control, which must FREEZE at its terminal count (red if the "
+        "lab stops seeing a frozen 8237), and the benchlib reports "
+        "SOUNDA1.TXT and SOUNDB1.TXT are read back off the guest's floppy - "
+        "the A one with E1h in its DSP log, the B one complete. Read out of "
+        "the package's own text buffer, which is what its rows draw. "
+        "Then, after the tone has stopped, inject "
+        "reported DMA 3 and FFh to check the DSP/BLASTER text and refusal "
+        "without claiming physical ESS playback",
         needs=("marty", "nasm"),
         wants=("build/debug-sound-720.img", "build/apps720.img")),
     Row("snddiag-vga", "soak", py("tests/snddiag.py", "--image", "build/debug-sound-360.img",
         "--apps", "build/apps360.img", "--machine", "os8088_xt_vga_sb",
-        "--evidence", "build/ess-sound/vga-dma3.png"), 10.0,
+        "--evidence", "build/ess-sound/vga-dma3.png"), 25.0,
         "SPEC.md 127.4/34.5.8: Sound Debug on VGA, including the ten-second "
-        "tone and DMA-3/refused report injection; no physical ESS claim",
+        "tone, the DMA lab and DMA-3/refused report injection; no physical "
+        "ESS claim",
         needs=("marty", "nasm"), wants=("build/debug-sound-360.img", "build/apps360.img")),
     Row("snddiag-cga", "soak", py("tests/snddiag.py", "--image", "build/debug-sound-360.img",
         "--apps", "build/apps360.img", "--machine", "os8088_5150_sb_gla",
@@ -3446,6 +3453,20 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
+    Row("inputchk", "soak", py("tests/unit/t_inputchk.py"), 0.1,
+        "SPEC.md 136.4: INPUTCHK reads the kernel's 'MO' debug block by "
+        "offset - the one shipped reader SPEC.md 57.3 names - so "
+        "apps/inputchk/moblk.inc must equal kernel/mouse.inc's real layout "
+        "(every MOS_*, MOP_*, MOC_* member, the descriptor's four words read "
+        "off the image), the two bytes the keyboard section reads past the "
+        "span (mou_p2cmdr, and kern_big's mou_p2m1 at KBO_P2M1, SPEC.md "
+        "136.11.1) must be where it reads them, and the three 'ID' words "
+        "build/inputchk_kid.inc carries must be what the map says they are. "
+        "Upstream registers its twin in FAST, because any KERNEL change can "
+        "break it and only `make` runs on every kernel change; here it is "
+        "soak until the owner adds it to tests/tierlock.txt (WRITING-TESTS "
+        "2.0). Reads kernel.map and kernel-full.bin, assembles "
+        "nothing"),
     Row("wirefleetlink", "soak", py("tests/wirefleetlink.py"), 140.0,
         "WireFleet two UART peers: turn rules, private fleets, lost result, save/load/reconnect, duplicate commands/chat, malformed frames, victory and cleanup (SPEC.md 114/115)",
         needs=("qemu", "nasm", "pil"), wants=("build/wireflet.img", "build/os8088.img"), timeout=300),

@@ -2482,8 +2482,9 @@ sh_x_k_keyboard:                    ; 83.7: os88kbd.inc's HOLD, the Note box's
 sh_k_wm_create:
     call OSAPI_WM_CREATE
     ret
-sh_k_wm_show:
-    call OSAPI_WM_SHOW
+sh_k_wm_show:                           ; every one of SHEET's own dialogs
+    call sh_unpromise                   ; (81.120): withdrawn BEFORE it lands,
+    call OSAPI_WM_SHOW                  ; or 11.96.16's precover banks the grid
     ret
 sh_k_wm_destroy:
     call OSAPI_WM_DESTROY
@@ -4315,7 +4316,69 @@ sh_paint:
     call os88ui_about_d               ; _d: this paint's region is already armed
     pop si
 .noab:
+    call sh_promise                   ; the whole content is the present (81.120)
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; sh_promise - WF_SAVEU as SHEET stands (SPEC.md 81.120, 11.96.1): PROMISED
+; while nothing can change the grid behind SHEET's back, so a raise puts it
+; back from the kernel's cache instead of lettering every cell again;
+; WITHDRAWN while that is not so. Two things change it out of sight:
+;   - a MACRO RUN. WAIT and ON.TIME carry one on from the timer, ALERT, INPUT
+;     and DIALOG.BOX from a window on top, and ECHO(FALSE) changes cells and
+;     paints nothing at all until the run ends (81.86). Every one of those
+;     comes in through sh_macro_onalert, which withdraws before the module
+;     runs a cell;
+;   - one of SHEET's own DIALOGS. They are not modal (sh_onclick), they apply
+;     while they are in FRONT of the grid, and an apply moves the selection
+;     with sh_selpaint, which arms no region - so wm_clip_set never hears of
+;     it and a cache banked when the dialog came up would put the OLD
+;     selection back when it goes. sh_k_wm_show withdraws before one shows.
+; It is promised again only where the whole content was just drawn - this
+; paint, or a visible sh_repaint - and only if neither is still true.
+; sh_unpromise is the withdrawal alone, and drops whatever was banked. Lock
+; held (SPEC.md 20.6 rule 7: the clear frees the cache). The kernel is asked
+; only when the answer CHANGES - [sh_prom] is what it was last told, and the
+; class is born without the flag as bss is born zero. Preserves all, flags
+; included. The Chart window and the dialogs make no promise of their own.
+; -----------------------------------------------------------------------------
+sh_promise:
+    pushf
+    push ax
+    xor ax, ax
+    cmp byte [sh_macro_running], 0    ; a run, going or paused
+    jne sh_unpromise.say
+    mov ax, [sh_fdlg_win]             ; any of SHEET's own dialogs up
+    or ax, [sh_bdlg_win]
+    or ax, [sh_idlg_win]
+    or ax, [sh_ldlg_win]
+    or ax, [sh_ndlg_win]
+    or ax, [sh_df_win]
+    or ax, [sh_dbx_win]
+    cmp ax, 1                         ; CF = 1 only when all were 0...
+    sbb ax, ax
+    neg ax                            ; ...and then AL = 1
+    jmp short sh_unpromise.say
+sh_unpromise:
+    pushf
+    push ax
+    xor al, al
+.say:
+    cmp al, [sh_prom]
+    je .out
+    push bx
+    mov bx, [sh_ownwin]
+    or bx, bx                         ; before wm_create: nothing to say it to
+    jz .pop
+    mov [sh_prom], al
+    mov ah, WFB_SAVEU
+    call OSAPI_WM_FLAG                ; BX is [sh_ownwin], never a stray
+.pop:                                 ; register (SPEC.md 11.96.11.4)
+    pop bx
+.out:
+    pop ax
+    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4362,7 +4425,11 @@ sh_repaint:
     call OSAPI_GFX_FILL
     call sh_drawall
     call OSAPI_WM_CLIP_CLEAR
-.covered:
+    call sh_promise                     ; drawn whole where it shows (81.120)
+    jmp short .chart
+.covered:                               ; NOT drawn: a cache banked before is
+    call sh_unpromise                   ; now the past, and wm_clip_set left
+.chart:                                 ; it standing (11.96.18, 81.120)
     cmp word [sh_chartwin], 0           ; stage 2.x: keep the live Chart Column
     je .nochart                         ; window in sync with every data-
     cmp byte [sh_chartdirty], 0         ; changing command that already routes
@@ -40004,7 +40071,8 @@ sh_macro_run:
 ; sh_macro_onalert - os88ui_ask's completion proc (SPEC.md 75.3), and the
 ; way every paused run carries on: the module, verb SHM_MRESUME
 sh_macro_onalert:
-    push bp
+    call sh_unpromise                 ; the run moves cells from here on, seen
+    push bp                           ; or not (81.120)
     mov bp, SHM2_MRESUME
     call sh_m2call
     pop bp
@@ -57468,7 +57536,7 @@ section .text                          ; fragment, so nothing lands after this
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 9496                     ; +4 for SHK keyboard's vector (83.7, os88kbd.inc's HOLD from the chart module); +2 for sh_m2dseg, the macro module as DATA under kern_mega (MC7); +3 for KERN-MEGA-MEMORY-PLAN MC7: OP_BSS grew by op_at's second window and op_seg's verb; +102 for 82.16.12: the parts standard's own OP_BSS, at the chain's head (the two modules are parts of SHEET.O88 now); +48 for 82.16.11: twelve vectors, CHOUT and the SHK kernel slots; +2 for sh_df_dirty, the Data Form's typed-in flag (81.71.5); +2 for sh_pstk0, the parser's stack anchor (81.3); +2 for ch_ovfail, the chart module's failure latch (82.16.5); +38 for 81.118's ask-before-discard (sh_modified, sh_pend and sh_askmsg's OS88UI_AMAX+2); +4 at the 2026-10-20 merge for 13.18's sh_v_os88ui_sbwheel (the Paste list's wheel is in the chart module, so it reaches the resident bar library through a shim); +9 for 81.114.10 (sh_tbl_isres, sh_tbl_idx and the 7-byte DATATABLE-written bitmap); +1 for 81.114.8's re-entrancy guard; +30 for 81.114.7 (the table list, the selection and table rectangles sh_tbl_overlap compares, and sh_prot_blocked's two bytes); +67 for 81.114 Data > Table; +8 at the 2026-10-14 merge for ch_v_dec_s16/ch_v_dec_u16, os88dec.inc being resident here now (20.5.2); 81.111: Find left the vectors, sh_btfix joined; +24 for 81.108's Reference scratch;
+    OS88_BSS 9497                     ; +1 for 81.120's sh_prom; +4 for SHK keyboard's vector (83.7, os88kbd.inc's HOLD from the chart module); +2 for sh_m2dseg, the macro module as DATA under kern_mega (MC7); +3 for KERN-MEGA-MEMORY-PLAN MC7: OP_BSS grew by op_at's second window and op_seg's verb; +102 for 82.16.12: the parts standard's own OP_BSS, at the chain's head (the two modules are parts of SHEET.O88 now); +48 for 82.16.11: twelve vectors, CHOUT and the SHK kernel slots; +2 for sh_df_dirty, the Data Form's typed-in flag (81.71.5); +2 for sh_pstk0, the parser's stack anchor (81.3); +2 for ch_ovfail, the chart module's failure latch (82.16.5); +38 for 81.118's ask-before-discard (sh_modified, sh_pend and sh_askmsg's OS88UI_AMAX+2); +4 at the 2026-10-20 merge for 13.18's sh_v_os88ui_sbwheel (the Paste list's wheel is in the chart module, so it reaches the resident bar library through a shim); +9 for 81.114.10 (sh_tbl_isres, sh_tbl_idx and the 7-byte DATATABLE-written bitmap); +1 for 81.114.8's re-entrancy guard; +30 for 81.114.7 (the table list, the selection and table rectangles sh_tbl_overlap compares, and sh_prot_blocked's two bytes); +67 for 81.114 Data > Table; +8 at the 2026-10-14 merge for ch_v_dec_s16/ch_v_dec_u16, os88dec.inc being resident here now (20.5.2); 81.111: Find left the vectors, sh_btfix joined; +24 for 81.108's Reference scratch;
                                        ; +1 for 81.107's own-RETURN byte;
                                        ; +1 for 81.106's check-box kind;
                                        ; +21 for 81.103's window caption;
@@ -58952,7 +59020,9 @@ sh_tbl_idx        equ sh_tbl_isres + 1 ; byte: ...and which table, 0-based, so
 sh_tbl_wdone      equ sh_tbl_idx + 1   ; 81.114.10: one bit a table, "its
                                        ; DATATABLE is already in this file".
                                        ; SH_TBL_CAP is 56, so seven bytes
-sh_bss_end        equ sh_tbl_wdone + ((SH_TBL_CAP + 7) / 8)
+sh_prom           equ sh_tbl_wdone + ((SH_TBL_CAP + 7) / 8) ; byte: WF_SAVEU
+                                       ; as the kernel was last told (81.120)
+sh_bss_end        equ sh_prom + 1
 
 ; -----------------------------------------------------------------------------
 ; The bss size above is a PLAIN LITERAL and nothing in the toolchain checks it

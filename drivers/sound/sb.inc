@@ -941,7 +941,8 @@ sbl_isr:
     jmp .eoi                    ; back up: .eoi sits after .input
 
 .spur:
-    SDG_SPURHOOK
+    SDG_LABHOOK                 ; snddiag.inc: a lab run's IRQ (nothing in a
+    SDG_SPURHOOK                ; shipped build)
     cmp byte [sbl_irq], 7       ; line 7: real or spurious? only the 8259
     jne .prime                  ; knows - a REAL IRQ 7 (the SB's factory
     mov al, 0x0B                ; default line) sets ISR bit 7. OCW3: the
@@ -1327,6 +1328,8 @@ sbl_v_open:
     and ah, SND_OPENF_RING | SND_OPENF_ADPCM4   ; a linear stream's tail
     cmp ah, SND_OPENF_RING      ; pads with 8-bit silence - and never
     jne .e7x                    ; ADPCM4, which is a format of its own
+    cmp byte [sbl_auto], 0      ; ...and auto-init: both formats' starts are
+    je .e7x                     ; (SPEC.md 34.5.9)
     cmp bx, 4000
     jb .e2n
     cmp byte [sbl_verhi], 4
@@ -1349,6 +1352,8 @@ sbl_v_open:
     jbe .ratok                  ; the kernel banks it for us on the way in
     cmp bx, 44100               ; above 22,222 Hz needs one of two regimes -
     ja .e2n                      ; err 2 above 44,100, never a clamp
+    cmp byte [sbl_auto], 0      ; ...and both are auto-init: not where the
+    je .e2n                     ; 8237 cannot wrap (SPEC.md 34.5.9)
     cmp byte [sbl_verhi], 3     ; below DSP 3.00 there is neither wide (41h,
     jb .e2n                      ; SB16) nor high-speed (90h, SB Pro): err 2,
     mov bp, 2*SBL_HALF          ; never a clamp. WHICH of the two is not
@@ -3545,6 +3550,7 @@ sbl_find:
     ret
 .irq:
     call sbl_f_irqdisc
+    call sbl_f_aiprobe          ; does channel 1's auto-init WRAP? (34.5.9)
     cmp byte [sbl_verhi], 4     ; a DSP 4.xx: its 16-bit channel too
     jb .ret                     ; (SPEC.md 34.5.5)
     call sbl_hdma_find
@@ -3621,6 +3627,132 @@ sbl_hdma_find:
     pop dx
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sbl_f_aiprobe - does DMA channel 1's AUTO-INIT reload its count? (SPEC.md
+;                 34.5.9, docs/FIELD-NOTES.md 70)
+; in:  sbl_find, after the discovery: [sbl_auto], [sbl_base], [sbl_irq]
+; out: [sbl_auto] = 0 when the 8237 shows the STPC signature, so every
+;      stream takes the single-cycle path (14h, re-armed per block)
+; clobbers: nothing (flags)
+;
+; An STPC 486's integrated 8237 reloads channel 1's ADDRESS at an auto-init
+; terminal count and not its COUNT: from the first TC on it reads base/0000
+; for good and moves one byte over and over, while the card's own block
+; counter raises IRQs as if it were playing. Every auto-init regime froze at
+; the first wrap there (1Ch, 90h, demand mode, any order, any cycle, any
+; buffer); 14h re-armed per block played. So it is ASKED, once a load: a
+; 32-byte auto-init cycle over the BIOS data area (read, never written:
+; playback DMA is memory to card), speaker off and the card's line masked,
+; then 2,048 samples of the channel after its first TC. A sample anywhere
+; but {base, 0000} is a reload, and auto-init stays; all of them there is
+; the signature, and it goes. No TC at all is no answer, and changes
+; nothing - the conservative way round, because a false "broken" costs a
+; working card its auto-init regimes and a missed one costs what it cost.
+; Not on a PicoMEM, whose DMA is its own (SPEC.md 34.10).
+; -----------------------------------------------------------------------------
+SBL_AIP_BUF  equ 0x0400         ; 0000:0400, the BIOS data area
+SBL_AIP_LEN  equ 32
+sbl_f_aiprobe:
+    cmp byte [sbl_auto], 0
+    je .ret
+    cmp byte [sbl_irq], 0xFF
+    je .ret
+%ifdef PICOMEM
+    cmp byte [pm_up], 0
+    jne .ret
+%endif
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov cl, [sbl_irq]           ; the card's line, masked for the probe
+    mov dx, 0x21
+    cmp cl, 8
+    jb .m
+    mov dl, 0xA1
+    sub cl, 8
+.m:
+    mov ah, 1
+    shl ah, cl
+    in al, dx
+    push dx
+    push ax                     ; the mask as it was (AL)
+    or al, ah
+    out dx, al
+    xor cx, cx
+    call sbl_f_reset
+    jc .rest
+    mov al, 0x40                ; the stream's own time constant
+    call sbl_dsp_wr
+    mov al, 0xD3
+    call sbl_dsp_wr
+    in al, 0x08                 ; status: retire a stale TC bit
+    mov ax, SBL_AIP_BUF
+    mov bx, SBL_AIP_LEN - 1
+    mov cx, 0x0059              ; CL mode (auto-init, read, ch 1), CH page 0
+    call sbl_dma_auto
+    mov al, 0x48                ; one block = the cycle, then 1Ch
+    call sbl_dsp_wr3
+    mov al, 0x1C
+    call sbl_dsp_wr
+    mov cx, 0xFFFF              ; the first terminal count, bounded
+.tc:
+    in al, 0x08
+    test al, 0x02
+    jnz .got
+    loop .tc
+    mov al, 3                   ; none: no answer, auto-init stays
+    jmp short .done
+.got:
+    mov si, 2048
+.s:
+    pushf
+    cli
+    out 0x0C, al                ; flip-flop clear (any value)
+    in al, 0x02
+    mov bl, al
+    in al, 0x02
+    mov bh, al                  ; BX = the address
+    in al, 0x03
+    mov cl, al
+    in al, 0x03
+    mov ch, al                  ; CX = the count
+    popf
+    cmp bx, SBL_AIP_BUF
+    jne .ok
+    or cx, cx
+    jne .ok
+    dec si
+    jnz .s
+    mov byte [sbl_auto], 0      ; the signature, every sample: single-cycle
+    mov al, 2
+    jmp short .done
+.ok:
+    mov al, 1
+.done:
+    SDG_SET sdg_aip, al
+    mov al, 0xD0                ; stop, then the reset that leaves 1Ch
+    call sbl_dsp_wr
+    xor cx, cx
+    call sbl_f_reset
+    mov al, 0x05
+    out 0x0A, al                ; channel 1 masked, as every start expects
+    mov dx, [sbl_base]
+    add dx, 0x0E
+    in al, dx                   ; retire the card's IRQ SB-side
+.rest:
+    pop ax
+    pop dx
+    out dx, al                  ; the line's mask as it was
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.ret:
     ret
 
 sbl_dsc_fired: db 0             ; discovery: confirmed candidate index

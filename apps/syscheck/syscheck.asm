@@ -313,13 +313,78 @@ sc_onwake:
     mov si, [sc_win]
     call sc_act_report
 .norep:
-    call OSAPI_GFX_UNLOCK
+    call sc_promise                 ; the scan's last burst drawn: still now
+    call OSAPI_GFX_UNLOCK           ; (SPEC.md 118.15)
     cmp byte [sc_run], 0
     je .out
     call sc_kick
 .out:
     pop bp
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; sc_promise - WF_SAVEU as the window stands (SPEC.md 118.15, 11.96.1): PROMISED
+; once the scan has finished and everything it owed the glass has been drawn
+; (no SYD_* bit, no row), so a raise puts the window back from the kernel's
+; cache instead of lettering ~2,000 cells again; WITHDRAWN while a scan runs,
+; because sc_onwake changes rows, counters and the bar while the window is
+; merely covered and sc_drawowed then SKIPS (CF = 1 from the clip), which
+; wm_clip_set does not see (11.96.18: the wholly covered case keeps the
+; cache). sc_unpromise is the withdrawal alone, and drops whatever was
+; banked. Lock held (SPEC.md 20.6 rule 7: the clear frees the cache). The
+; kernel is asked only when the answer CHANGES - [sc_prom] is what it was last
+; told, and the class is born without the flag as bss is born zero.
+; Preserves all, flags included.
+; -----------------------------------------------------------------------------
+sc_promise:
+    pushf
+    push ax
+    xor ax, ax
+    cmp byte [sc_laid], 0           ; never painted: nothing on the glass
+    je sc_unpromise.say
+    cmp byte [sc_run], 0            ; the scan moves the window by itself
+    jne sc_unpromise.say
+    test word [sc_dirty], SYD_OWED  ; ...and what it owes was skipped while
+    jnz sc_unpromise.say            ; covered, or the About card was up. NOT
+                                    ; the whole word: a scan's begin and end
+                                    ; owe 0xFFFF, and sc_drawowed clears the
+                                    ; nine bits that mean something
+    cmp word [sc_drows], 0
+    jne sc_unpromise.say
+    inc ax
+    jmp short sc_unpromise.say
+sc_unpromise:
+    pushf
+    push ax
+    xor al, al
+.say:
+    cmp al, [sc_prom]
+    je .out
+    push bx
+    mov bx, [sc_win]
+    or bx, bx                       ; before wm_create: nothing to say it to
+    jz .pop
+    mov [sc_prom], al
+    mov ah, WFB_SAVEU
+    call OSAPI_WM_FLAG              ; BX is [sc_win], never a stray register
+.pop:                               ; (SPEC.md 11.96.11.4)
+    pop bx
+.out:
+    pop ax
+    popf
+    ret
+
+; sc_clip - OSAPI_WM_CLIP_SET on BX, for every handler's draw: CF = 1 nothing
+; of the window shows, so the change being made is NOT drawn - and a cache the
+; kernel banked is then a picture of the past, which wm_clip_set leaves
+; standing when it refuses (SPEC.md 11.96.18). So the refusal withdraws the
+; promise (118.15). Preserves every register; CF is the clip's answer
+sc_clip:
+    call OSAPI_WM_CLIP_SET
+    jnc .ret
+    jmp sc_unpromise                ; keeps CF = 1
+.ret:
     ret
 
 ; sc_onclose - the close negotiator: a disk task's engine is told it is over
@@ -377,6 +442,7 @@ sc_paint:
     call os88ui_about_d
     pop si
 .out:
+    call sc_promise                 ; the whole window is the present (118.15)
     call sc_owe
     ret
 
@@ -385,7 +451,7 @@ sc_paint:
 sc_repaint:
     push si
     mov bx, si
-    call OSAPI_WM_CLIP_SET
+    call sc_clip
     jc .out                         ; not one pixel visible: the next paint
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -748,6 +814,7 @@ sc_abn:     db 'Jorge Gonzalez', 0
     OS88_ABYTE sc_stopped           ; ...and the last one was stopped
     OS88_ABYTE sc_owekick           ; a wake post was refused - re-post
     OS88_ABYTE sc_laid              ; sc_layout has run: the rects are real
+    OS88_ABYTE sc_prom              ; WF_SAVEU as the kernel was last told
     OS88_ABYTE sc_details           ; the findings have the checks' room
     OS88_ABYTE sc_sel               ; the selected check
     OS88_ABYTE sc_seluser           ; ...chosen by the user, so it stays

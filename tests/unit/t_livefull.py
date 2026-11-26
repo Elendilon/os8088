@@ -103,6 +103,11 @@ LOCAL_EXEMPT = {
                "the debug disks with that driver and nowhere else - beside "
                "the live media's shipped SOUND.DRV it could only say it has "
                "nothing to show",
+    "inputchk": "the input DEBUG disk's program (SPEC.md 127.5, 136): it "
+                "decodes the kernel's 'MO' block only on the kern_big it was "
+                "built against and ships on the debug-input disks alone for "
+                "now; upstream's MOUSECHK, its source, rides SYSTOOLS, and "
+                "putting INPUTCHK there is the change that lifts this",
 }
 
 

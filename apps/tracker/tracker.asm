@@ -1412,6 +1412,7 @@ trk_fs_enter:
     pop si
     jmp .out
 .surf:
+    call tw_unpromise               ; the face goes off the glass (45.21.12)
     mov byte [trk_fs], 1            ; BEFORE the call - see the header
     call trk_legend                 ; ...and the status legend is picked FOR a
                                     ; surface, so it changes with this byte
@@ -2470,6 +2471,7 @@ trk_transport:
     mov si, trk_s_stopdf            ; from the first transport change on, so
     jmp short .msg                  ; tui_s_hint is the FIRST paint's legend and
 .playing:                           ; these two are every one after it. L is off
+    call tw_unpromise               ; (moving BEFORE the face does: 45.21.12)
     mov si, trk_s_playing           ; both fullscreen twins (SPEC.md 45.17)
     cmp byte [trk_fs], 0
     je .msg
@@ -3417,6 +3419,13 @@ trk_render:
     jnc .none                       ; take the lock either (tw_want)
     call OSAPI_GFX_LOCK
     call trk_frame
+    call tw_promise                 ; still now, or moving: the raise cache
+                                    ; follows (SPEC.md 45.21.12). HERE and not
+                                    ; in trk_frame, whose other caller is the
+                                    ; speaker's bracket, where no wm_* slot
+                                    ; may be called (53.7) - and this one
+                                    ; cannot run inside it: the bracket holds
+                                    ; the lock taken above
     call OSAPI_GFX_UNLOCK           ; also clears the clip
 .none:
     ret
@@ -3452,8 +3461,15 @@ trk_frame:
 trk_tpl:
     dw 0, 0, TRK_WINW, TRK_WINH
     dw trk_ttl, trk_cls
-; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
-    OS88_CLASS trk_cls, 0, PAINT, trk_paint, ONKEY, trk_onkey, \
+; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with.
+; WF_OWNBG: the face paints every pixel of the content ONCE - the body tiles
+; are exactly what no element owns (tools/trkface.py proves it, both
+; layouts), and every pane mode grounds its own interior when owed whole - so
+; the kernel's white fill in front of W_PAINT was a second write, and on a
+; paused face it showed every spectrum column lit white until its own pass
+; blacked it (SPEC.md 45.21.13). WF_SAVEU is NOT here: it is a mode
+; (tw_promise, 45.21.12)
+    OS88_CLASS trk_cls, WF_OWNBG, PAINT, trk_paint, ONKEY, trk_onkey, \
                ONCLICK, tw_clickw, ABOUT, trk_about, ONWAKE, trk_onwake, \
                ONMOUSEUP, tw_onup, ONDRAG, tw_ondrag
 

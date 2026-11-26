@@ -975,12 +975,17 @@ zw_morewait:
 .wait:
     call zi_getkey                  ; CF=1 = the ring is empty
     jnc .got
+    call zi_promise                 ; the prompt is all there is: a raise may
+                                    ; put it back (SPEC.md 61.16)
     call zi_yield                   ; OSAPI_TASK_ALIVE + a yield
     jmp short .wait
 .got:
     mov ax, zx_restart              ; ...and restartable again
     call OSAPI_TASK_RESTARTABLE
     call OSAPI_GFX_LOCK
+    call zf_unpromise               ; the key's onkey withdrew already; this
+                                    ; is the wait's own exit saying it again
+                                    ; before the blank and the text it frees
     call zw_bounds                  ; the window may have been dragged
     jc .done
     call zw_liverow
@@ -2320,6 +2325,8 @@ zw_colour:
     or bl, bl
     jz .bgin
     mov [zw_fg], bl
+    mov byte [zw_tint], 1           ; a colour may reach the glass now: no
+                                    ; more two-colour claim (zi_promise)
 .bgin:
     mov bl, ah
     cmp bl, 1
@@ -2331,6 +2338,7 @@ zw_colour:
     or bl, bl
     jz .out
     mov [zw_bg], bl
+    mov byte [zw_tint], 1
 .out:
     pop bx
     pop ax
@@ -2845,6 +2853,7 @@ zw_setup:
     mov [zw_style], al              ; ZST_ROMAN
     mov [zw_fg], al
     mov [zw_bg], al
+    mov [zw_tint], al               ; a new story starts on a cleared window
     mov [zw_capon], al
     mov [zw_nomore], al
     inc ax

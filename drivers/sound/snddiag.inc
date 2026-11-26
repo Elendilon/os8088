@@ -29,7 +29,7 @@ SNDV_DIAG    equ 14             ; the verb (sndpkg.inc's numbering, past
                                 ; which is how the package tells the builds
                                 ; apart
 SDG_SIG      equ 'SG'
-SDG_VER      equ 2
+SDG_VER      equ 3
 
 SDGF_COPY    equ 0              ; AL: ES:DI <- the record, CX = SDG_LEN
 SDGF_MIXRD   equ 1              ; AL: mixer register AH, read CL times (1..4)
@@ -39,10 +39,78 @@ SDGF_VOICE   equ 2              ; AL: DSP D8h now (voice/speaker status),
 SDGF_DSPCMD  equ 3              ; AL: DSP command AH with no stream open, up
                                 ;     to two answer bytes -> AL, AH, CL = how
                                 ;     many came; the DSP is reset after it
+SDGF_DMARD   equ 4              ; AL: ES:DI <- SDD_LEN bytes, the 8237's
+                                ;     channels 0-3 live, its status (READ:
+                                ;     the TC bits clear), page registers,
+                                ;     the DSP's 2xCh and the PIC (127.3.1)
+SDGF_LAB     equ 5              ; AL: start a LAB run, ES:SI = an LP_LEN
+                                ;     parameter block; no stream open
+SDGF_LABSTOP equ 6              ; AL: end the lab run (DSP reset, ch 1 masked)
+SDGF_LABREC  equ 7              ; AL: ES:DI <- SDL_LEN bytes, the lab record
+SDGF_ESS     equ 8              ; AL: ES:DI <- 16 bytes, ESS controller
+                                ;     registers (sdg_essl), CL = answered;
+                                ;     AH bit 0 = C6h first and reset after.
+                                ;     No stream and no lab run open
 SDGE_NOSB    equ 1              ; refusals (CF=1, AX): no DSP found
 SDGE_BUSY    equ 2              ;   a stream is open / high-speed holds it
 SDGE_TIME    equ 3              ;   the DSP did not answer in SBL_POLLS
 SDGE_ARG     equ 4              ;   an AL this driver does not know
+
+; --- the 8237 snapshot, as SDGF_DMARD writes it (SPEC.md 127.3.1) -------------
+SDD_CH       equ 0              ; 4 x {dw current address, dw current count},
+                                ;    channels 0..3 of the first 8237
+SDD_ST       equ 16             ; db status 08h: bits 0-3 TC reached, 4-7 DREQ
+SDD_MASK     equ 17             ; db port 0Fh read back (an all-mask register
+                                ;    on chipsets that have one, else noise)
+SDD_PG       equ 18             ; 4 x db page registers 87h 83h 81h 82h
+SDD_HPG      equ 22             ; 4 x db high pages 487h 483h 481h 482h
+SDD_DSPW     equ 26             ; db the DSP's 2xCh (write status)
+SDD_IMR      equ 27             ; db master PIC mask
+SDD_IRR      equ 28             ; db ...request register
+SDD_ISRR     equ 29             ; db ...in-service register
+SDD_LIRQ     equ 30             ; dw lab block IRQs so far
+SDD_SIRQ     equ 32             ; dw stream block IRQs so far (SDG_O_ISR)
+SDD_LEN      equ 34
+
+; --- a lab run's parameters (caller's ES:SI, SDGF_LAB) ---------------------------
+LP_OFF       equ 0              ; dw the buffer's offset in its 64KB page
+LP_PAGE      equ 2              ; db ...and the page (address bits 16-19)
+LP_MODE      equ 3              ; db the 8237 mode byte (channel bits forced 01)
+LP_CNT       equ 4              ; dw the DMA cycle's length - 1
+LP_BLK       equ 6              ; dw the DSP block length - 1
+LP_TC        equ 8              ; db the time constant
+LP_CMD       equ 9              ; db the start: 1Ch auto, 90h high-speed, 14h
+                                ;    single-cycle (with LF_REARM)
+LP_FLAGS     equ 10             ; db LF_*
+LP_LEN       equ 11
+LF_REARM     equ 0x01           ; single-cycle: the ISR re-arms the 8237 and
+                                ;    sends 14h for the next block of the buffer
+LF_SDK       equ 0x02           ; program the 8237 in Creative's SDK order:
+                                ;    mask, flip-flop, MODE, address, page,
+                                ;    count, unmask (the driver's: address,
+                                ;    count, mode, page)
+LF_SLOW      equ 0x04           ; ...and two ISA reads of 61h after each write
+LF_QUIET     equ 0x08           ; the ISR reads nothing of the 8237
+LF_DMA1ST    equ 0x10           ; the 8237 before the DSP's 40h and D1h
+LF_NOSPK     equ 0x20           ; no D1h (speaker on)
+LF_NOACK     equ 0x40           ; the ISR does not read 2xEh (no SB-side ACK)
+LF_ESSRD     equ 0x80           ; at the stop, before the reset: the ESS
+                                ;    registers with C0h and no C6h
+
+; --- the lab record, as SDGF_LABREC writes it ------------------------------------
+SDL_IRQ      equ 0              ; dw block IRQs taken in lab mode
+SDL_ST       equ 2              ; db 8237 status bits seen, OR'd (ISR + DMARD)
+SDL_N        equ 3              ; db log entries written (<= SDL_LOGN)
+SDL_ACK      equ 4              ; db the last 2xEh read
+SDL_DTMO     equ 5              ; db DSP writes timed out since the start
+SDL_ESSN     equ 6              ; db ESS registers that answered at the stop
+SDL_RSV      equ 7
+SDL_ESS      equ 8              ; 16 x db ESS registers at the stop (FFh = none)
+SDL_LOG      equ 24             ; SDL_LOGN x {dw address, dw count, db status,
+                                ;    db the ACK}: the 8237 AT each block IRQ
+SDL_LOGN     equ 48
+SDL_LOGW     equ 6
+SDL_LEN      equ SDL_LOG + SDL_LOGN * SDL_LOGW
 
 SDG_SCANN    equ 7              ; reset-scan slots: six bases + the retry
 SDG_LOGN     equ 32             ; DSP write log entries (power of two)
@@ -119,7 +187,10 @@ SDG_O_IMR    equ 170            ; db master PIC mask, read at the copy
 SDG_O_IRR    equ 171            ; db master PIC request register
 SDG_O_ISRR   equ 172            ; db master PIC in-service register
 SDG_O_IMR2   equ 173            ; db slave PIC mask (0FFh on an XT: no slave)
-SDG_LEN      equ 174
+SDG_O_AIP    equ 174            ; db the auto-init probe (SPEC.md 34.5.9): 0
+                                ;    not run, 1 the 8237 wraps, 2 it does not
+                                ;    (single-cycle from here), 3 no TC seen
+SDG_LEN      equ 175
 
 ; =============================================================================
 %ifdef SNDDIAG
@@ -165,6 +236,13 @@ SDG_LEN      equ 174
     inc word [sdg_spur]
 %endmacro
 
+%macro SDG_LABHOOK 0            ; sbl_isr's unexpected path: a lab run's IRQ
+    cmp byte [sdg_lab], 0       ; is the lab's (sdg_lisr ends at sbl_isr.eoi)
+    je %%no
+    jmp sdg_lisr
+%%no:
+%endmacro
+
 %macro SDG_WDOGHOOK 0
     inc word [sdg_wdog]
 %endmacro
@@ -196,6 +274,7 @@ SDG_LEN      equ 174
 ; --- the resident record --------------------------------------------------------
 %macro SDG_STATE 0
 sdg_imeth:  db 0
+sdg_aip:    db 0
 sdg_m80:    db 0
 sdg_ftry:   db 0
 sdg_iwin:   db 0
@@ -211,6 +290,30 @@ sdg_opens:  dw 0
 sdg_dtmo:   dw 0
 sdg_mx:     dw 0, 0             ; SDGF_MIXRD / SDGF_DSPCMD's answer bytes
 sdg_dlog:   times SDG_LOGN dw 0
+sdg_lab:    db 0                ; 1 = a lab run owns the DSP and channel 1
+sdg_lflags: db 0
+sdg_lpage:  db 0
+sdg_lmode:  db 0
+sdg_ltc:    db 0
+sdg_lcmd:   db 0
+sdg_loff:   dw 0
+sdg_lcnt:   dw 0
+sdg_lblk:   dw 0
+sdg_lnext:  dw 0                ; LF_REARM: the block now playing, as an offset
+sdg_ldt0:   dw 0                ; sdg_dtmo at the start
+sdg_lrec:                       ; --- SDL_LEN bytes, SDGF_LABREC's copy -----
+sdg_lirq:   dw 0
+sdg_lst:    db 0
+sdg_ln:     db 0
+sdg_lack:   db 0
+sdg_ldto:   db 0
+sdg_lessn:  db 0
+            db 0
+sdg_less:   times 16 db 0
+sdg_llog:   times SDL_LOGN * SDL_LOGW db 0
+%if $ - sdg_lrec != SDL_LEN
+  %error "sdg_lrec is laid out in SDL_* order"
+%endif
 %endmacro
 
 ; --- the verb ---------------------------------------------------------------------
@@ -229,6 +332,16 @@ sdg_verb:
     je sdg_voice
     cmp al, SDGF_DSPCMD
     je sdg_dspcmd
+    cmp al, SDGF_DMARD
+    je sdg_dmard
+    cmp al, SDGF_LAB
+    je sdg_lab_go
+    cmp al, SDGF_LABSTOP
+    je sdg_lab_stop
+    cmp al, SDGF_LABREC
+    je sdg_lab_rec
+    cmp al, SDGF_ESS
+    je sdg_ess
     mov ax, SDGE_ARG
     stc
     ret
@@ -373,7 +486,9 @@ sdg_copy:
     in al, 0xA1
 .noslave:
     stosb                                   ; 173
-%if SDG_LEN != 174
+    mov al, [sdg_aip]
+    stosb                                   ; 174
+%if SDG_LEN != 175
   %error "sdg_copy writes the record in SDG_O_* order"
 %endif
     popf
@@ -446,6 +561,8 @@ sdg_voice:
 sdg_dspcmd:
     cmp byte [sbl_str_act], 0
     jne sdg_busy
+    cmp byte [sdg_lab], 0
+    jne sdg_busy
     mov word [sdg_mx], 0
     xor cx, cx
     call sdg_cmd1
@@ -503,6 +620,450 @@ sdg_rd:
     pop cx
     clc
     ret
+; --- SDGF_DMARD: the 8237 and the DSP's write status, live (SPEC.md 127.3.1).
+; ES:DI -> SDD_LEN bytes. The status read CLEARS the TC bits, so what it saw
+; is OR'd into a running lab's SDL_ST too. One cli window: the flip-flop is
+; shared state. Legal any time, a stream or a lab run open or not
+sdg_dmard:
+    push ax
+    push cx
+    push dx
+    push di
+    cld
+    pushf
+    cli
+    out 0x0C, al                ; flip-flop clear (any value)
+    xor dx, dx                  ; DX = 00h, 02h, 04h, 06h: address registers
+    mov cx, 4
+.ch:
+    in al, dx                   ; current address lo, hi
+    stosb
+    in al, dx
+    stosb
+    inc dx                      ; ...and the count beside it
+    in al, dx
+    stosb
+    in al, dx
+    stosb
+    inc dx
+    loop .ch
+    in al, 0x08                 ; status: TC 0-3, DREQ 4-7
+    stosb
+    cmp byte [sdg_lab], 0
+    je .nl
+    or [sdg_lst], al
+.nl:
+    in al, 0x0F                 ; SDD_MASK
+    stosb
+    in al, 0x87                 ; page registers, channels 0..3
+    stosb
+    in al, 0x83
+    stosb
+    in al, 0x81
+    stosb
+    in al, 0x82
+    stosb
+    mov dx, 0x487               ; ...and the high pages (EISA/PCI bridges)
+    in al, dx
+    stosb
+    mov dl, 0x83
+    in al, dx
+    stosb
+    mov dl, 0x81
+    in al, dx
+    stosb
+    mov dl, 0x82
+    in al, dx
+    stosb
+    mov dx, [sbl_base]          ; 2xCh: the write status (never 2xEh, which
+    add dx, 0x0C                ; is the IRQ's ACK)
+    in al, dx
+    stosb
+    in al, 0x21
+    stosb
+    mov al, 0x0A                ; IRR, then ISR, then IRR selected again
+    out 0x20, al
+    in al, 0x20
+    stosb
+    mov al, 0x0B
+    out 0x20, al
+    in al, 0x20
+    stosb
+    mov al, 0x0A
+    out 0x20, al
+    mov ax, [sdg_lirq]
+    stosw
+    mov ax, [sdg_isr]
+    stosw
+    popf
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    mov cx, SDD_LEN
+    clc
+    ret
+
+; --- SDGF_LAB: start a lab run (SPEC.md 127.3.1). ES:SI = LP_LEN bytes.
+; The driver's stream is not involved: the lab drives the DSP and channel 1
+; itself, and sbl_isr hands every IRQ to sdg_lisr while [sdg_lab] is set.
+; out CF=0 AX = DSP writes that timed out during the start; CF=1 AX = SDGE_*
+sdg_lab_go:
+    cmp byte [sbl_str_act], 0
+    jne sdg_busy
+    cmp byte [sbl_expect], 0
+    jne sdg_busy
+    cmp byte [sdg_lab], 0
+    jne sdg_busy
+    cmp byte [sbl_up], 0
+    je sdg_nosb
+    push bx
+    push cx
+    mov ax, [es:si+LP_OFF]
+    mov [sdg_loff], ax
+    mov ax, [es:si+LP_PAGE]     ; page, mode
+    and ah, 0xFC
+    or ah, 0x01                 ; channel 1, whatever was asked
+    mov [sdg_lpage], al
+    mov [sdg_lmode], ah
+    mov ax, [es:si+LP_CNT]
+    mov [sdg_lcnt], ax
+    mov ax, [es:si+LP_BLK]
+    mov [sdg_lblk], ax
+    mov ax, [es:si+LP_TC]       ; TC, command
+    mov [sdg_ltc], al
+    mov [sdg_lcmd], ah
+    mov al, [es:si+LP_FLAGS]
+    mov [sdg_lflags], al
+    xor ax, ax
+    mov [sdg_lnext], ax
+    mov [sdg_lirq], ax
+    mov [sdg_lst], ax           ; and sdg_ln
+    mov [sdg_lack], ax          ; and sdg_ldto
+    mov [sdg_lessn], al
+    mov ax, [sdg_dtmo]
+    mov [sdg_ldt0], ax
+    xor cx, cx                  ; a known DSP: reset, as an attach does
+    call sbl_f_reset
+    mov ax, SDGE_TIME
+    jc .out
+    mov byte [sdg_lab], 1       ; the ISR is the lab's from here
+    test byte [sdg_lflags], LF_DMA1ST
+    jz .a
+    call sdg_l_dma
+.a:
+    mov al, 0x40                ; time constant
+    call sbl_dsp_wr
+    mov al, [sdg_ltc]
+    call sbl_dsp_wr
+    test byte [sdg_lflags], LF_NOSPK
+    jnz .b
+    mov al, 0xD1                ; speaker on
+    call sbl_dsp_wr
+.b:
+    test byte [sdg_lflags], LF_DMA1ST
+    jnz .c
+    call sdg_l_dma
+.c:
+    mov bx, [sdg_lblk]
+    mov al, [sdg_lcmd]
+    cmp al, 0x14
+    je .single
+    mov al, 0x48                ; block size, then the start byte
+    call sbl_dsp_wr3
+    mov al, [sdg_lcmd]
+    call sbl_dsp_wr
+    jmp short .go
+.single:
+    call sbl_dsp_wr3            ; 14h and the block's length
+.go:
+    mov ax, [sdg_dtmo]
+    sub ax, [sdg_ldt0]
+    clc
+.out:
+    pop cx
+    pop bx
+    ret
+
+; sdg_l_dma - channel 1 for the lab: the whole cycle, or (LF_REARM) the block
+; at [sdg_lnext]. The driver's own recipe (sbl_dma_auto) unless LF_SDK or
+; LF_SLOW ask for Creative's order. Every register kept. Called from the ISR
+; too (LF_REARM), which is why it is its own cli window
+sdg_l_dma:
+    push ax
+    push bx
+    push cx
+    mov ax, [sdg_loff]
+    mov bx, [sdg_lcnt]
+    test byte [sdg_lflags], LF_REARM
+    jz .whole
+    add ax, [sdg_lnext]
+    mov bx, [sdg_lblk]
+.whole:
+    mov cl, [sdg_lmode]
+    mov ch, [sdg_lpage]
+    test byte [sdg_lflags], LF_SDK | LF_SLOW
+    jnz .sdk
+    call sbl_dma_auto           ; mask, ff, addr, ff, count, mode, page, unmask
+    jmp short .r
+.sdk:
+    pushf
+    cli
+    push ax
+    mov al, 0x05
+    out 0x0A, al                ; mask channel 1
+    call sdg_l_dly
+    out 0x0C, al                ; flip-flop
+    call sdg_l_dly
+    mov al, cl
+    out 0x0B, al                ; MODE first
+    call sdg_l_dly
+    pop ax
+    out 0x02, al                ; address lo
+    call sdg_l_dly
+    mov al, ah
+    out 0x02, al                ; ...hi
+    call sdg_l_dly
+    mov al, ch
+    out 0x83, al                ; page
+    call sdg_l_dly
+    mov al, bl
+    out 0x03, al                ; count lo
+    call sdg_l_dly
+    mov al, bh
+    out 0x03, al                ; ...hi
+    call sdg_l_dly
+    mov al, 0x01
+    out 0x0A, al                ; unmask
+    popf
+.r:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sdg_l_dly - LF_SLOW: two ISA reads of port 61h (~2us), AL kept
+sdg_l_dly:
+    test byte [sdg_lflags], LF_SLOW
+    jz .r
+    push ax
+    in al, 0x61
+    in al, 0x61
+    pop ax
+.r:
+    ret
+
+; sdg_lisr - sbl_isr's unexpected path while a lab run is on (SDG_LABHOOK).
+; Entered with AX BX DX DS ES pushed and DS ours, IF = 0; leaves through
+; sbl_isr.eoi. ACK (unless LF_NOACK), then the 8237 at this IRQ into the log
+; (unless LF_QUIET), then LF_REARM's next block
+sdg_lisr:
+    inc word [sdg_lirq]
+    test byte [sdg_lflags], LF_NOACK
+    jnz .na
+    mov dx, [sbl_base]
+    add dx, 0x0E
+    in al, dx
+    mov [sdg_lack], al
+.na:
+    test byte [sdg_lflags], LF_QUIET
+    jnz .q
+    push cx
+    in al, 0x08                 ; status first: TC 0-3 (cleared by this
+    or [sdg_lst], al            ; read), DREQ 4-7
+    mov dh, al                  ; DH = this IRQ's status
+    mov bl, [sdg_ln]
+    cmp bl, SDL_LOGN
+    jae .full
+    inc byte [sdg_ln]
+    mov al, SDL_LOGW
+    mul bl                      ; AX = the entry's offset (a byte MUL: DX kept)
+    mov bx, ax
+    out 0x0C, al                ; flip-flop clear (any value)
+    in al, 0x02                 ; channel 1's current address...
+    mov cl, al
+    in al, 0x02
+    mov ch, al
+    mov [sdg_llog+bx], cx
+    in al, 0x03                 ; ...and count
+    mov cl, al
+    in al, 0x03
+    mov ch, al
+    mov [sdg_llog+bx+2], cx
+    mov [sdg_llog+bx+4], dh
+    mov al, [sdg_lack]
+    mov [sdg_llog+bx+5], al
+.full:
+    pop cx
+.q:
+    test byte [sdg_lflags], LF_REARM
+    jz .e
+    push cx
+    mov ax, [sdg_lblk]
+    inc ax
+    add ax, [sdg_lnext]
+    mov cx, [sdg_lcnt]
+    inc cx                      ; the buffer's length
+    cmp ax, cx
+    jb .k
+    xor ax, ax
+.k:
+    mov [sdg_lnext], ax
+    call sdg_l_dma
+    mov bx, [sdg_lblk]
+    mov al, 0x14
+    call sbl_dsp_wr3
+    pop cx
+.e:
+    jmp sbl_isr.eoi
+
+; --- SDGF_LABSTOP: the ESS registers (LF_ESSRD), mask channel 1, reset the
+; DSP, speaker off, and the ISR is the driver's again. CF = 0
+sdg_lab_stop:
+    cmp byte [sdg_lab], 0
+    je .r
+    push ax
+    push cx
+    push dx
+    push di
+    push es
+    pushf                       ; no re-arm from here on: an IRQ landing in
+    cli                         ; the reset below must not start the next
+    and byte [sdg_lflags], ~LF_REARM & 0xFF ; 14h block (and its DMA)
+    popf
+    test byte [sdg_lflags], LF_ESSRD
+    jz .m
+    push ds
+    pop es
+    mov di, sdg_less
+    xor ah, ah                  ; no C6h, no reset: the live state
+    call sdg_essrd
+    mov [sdg_lessn], cl
+.m:
+    pushf
+    cli
+    mov al, 0x05
+    out 0x0A, al                ; mask channel 1
+    popf
+    xor cx, cx
+    call sbl_f_reset            ; leaves 1Ch, 90h and 14h alike
+    mov al, 0xD3
+    call sbl_dsp_wr
+    mov dx, [sbl_base]          ; retire an IRQ the card latched at the reset
+    add dx, 0x0E
+    in al, dx
+    pushf
+    cli
+    mov byte [sdg_lab], 0       ; a stray after this is the spurious path's
+    popf
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop ax
+.r:
+    clc
+    ret
+
+; --- SDGF_LABREC: ES:DI <- SDL_LEN bytes, the record of the run (current or
+; last). CF = 0, CX = SDL_LEN
+sdg_lab_rec:
+    push ax
+    push si
+    push di
+    cld
+    pushf
+    cli
+    mov ax, [sdg_dtmo]
+    sub ax, [sdg_ldt0]
+    mov [sdg_ldto], al
+    mov si, sdg_lrec
+    mov cx, SDL_LEN
+    rep movsb
+    popf
+    pop di
+    pop si
+    pop ax
+    mov cx, SDL_LEN
+    clc
+    ret
+
+; --- SDGF_ESS: the ESS controller registers. AH bit 0 = extended mode first
+; (C6h) and a reset after; else C0h straight away. No stream, no lab run
+sdg_ess:
+    cmp byte [sbl_str_act], 0
+    jne sdg_busy
+    cmp byte [sdg_lab], 0
+    jne sdg_busy
+    push ax
+    push cx
+    test ah, 1
+    jz .go
+    xor cx, cx
+    call sbl_f_reset
+    mov al, 0xC6                ; ESS: enable extended mode
+    call sbl_dsp_wr
+.go:
+    pop cx
+    pop ax
+    push ax
+    call sdg_essrd
+    pop ax
+    test ah, 1
+    jz .r
+    push cx
+    xor cx, cx
+    call sbl_f_reset            ; back to compatibility mode
+    pop cx
+.r:
+    clc
+    ret
+
+; sdg_essrd - ES:DI <- 16 bytes: each register of sdg_essl by C0h, its
+; number, a read (FFh where none came); CL = how many answered. Keeps AX,
+; DI advanced past the 16
+sdg_essrd:
+    push ax
+    push bx
+    push si
+    cld
+    xor cx, cx
+    mov si, sdg_essl
+.l:
+    mov bl, [si]
+    or bl, bl
+    jz .pad
+    mov al, 0xC0
+    call sbl_dsp_wr
+    mov al, bl
+    call sbl_dsp_wr
+    call sdg_rd
+    jnc .ok
+    mov al, 0xFF
+    jmp short .st
+.ok:
+    inc cl
+.st:
+    stosb
+    inc si
+    inc ch
+    jmp short .l
+.pad:
+    xor al, al
+.p:
+    cmp ch, 16
+    jae .d
+    stosb
+    inc ch
+    jmp short .p
+.d:
+    xor ch, ch
+    pop si
+    pop bx
+    pop ax
+    ret
+sdg_essl:   db 0xA1, 0xA2, 0xA4, 0xA5, 0xA8, 0xB1, 0xB2, 0xB4
+            db 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0
 %endmacro
 
 %else ; ---- the shipped build: every hook is nothing ---------------------------
@@ -513,6 +1074,8 @@ sdg_rd:
 %macro SDG_ISRHOOK 0
 %endmacro
 %macro SDG_SPURHOOK 0
+%endmacro
+%macro SDG_LABHOOK 0
 %endmacro
 %macro SDG_WDOGHOOK 0
 %endmacro
