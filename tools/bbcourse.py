@@ -1240,8 +1240,11 @@ class MouthFit(CourseError):
 _VWARN = None
 STRICT = False
 STRICT_SKIP = ()            # SPEC.md 130.58.18: the kinds --selfcheck's STRICT reports rather than refuses
-VIS_KINDS = ("hidden", "ball-hidden", "blend", "shade", "mark")   # the warnings' names (`accept <kind>`; `mark`:
-#                                                                   the visibility audit's mark under its share)
+VIS_KINDS = ("hidden", "ball-hidden", "blend", "mark")    # the warnings' names (`accept <kind>`; `mark`: the
+#                                                           visibility audit's mark under its share).  `shade`
+#                                                           (a windmill's doorway, 130.12.4.6) went 2026-11-25:
+#                                                           SPEC.md 130.12.19 - a line that still names it is
+#                                                           refused BY NAME, so the rule cannot come back unseen
 VIS_HIDEABLE = ("checkpoint", "spring", "pad", "clock", "prop", "archway", "label")  # (goal, cup: their own)
 _VW_AT = re.compile(r"^(.*?):(\d+): ")
 _VW_CELL = re.compile(r"\((-?\d+), (-?\d+)\)")
@@ -3504,6 +3507,10 @@ def _parse_text(text, fname="<course>"):
         if st in VIS_HIDEABLE and len(toks) > 1 and toks[-1] == ('w', "hidden"):
             src.hidden_lines.add(ln)                # SPEC.md 130.58.5: hidden ON PURPOSE (no part byte)
             toks = toks[:-1]
+        if st == "accept" and len(toks) > 1 and toks[1] == ('w', "shade"):
+            raise CourseError("%s: accept shade: the windmill's shade rule is gone (SPEC.md 130.12.19, 2026-11-25: "
+                              "a ball beside a windmill is hidden by what stands in front of it as anywhere else, "
+                              "on the rotor's frames too) - delete this line" % where)
         if st == "accept":                          # SPEC.md 130.58.5: a warning this course keeps
             if len(toks) not in (2, 4) or toks[1][0] != 'w' or toks[1][1] not in VIS_KINDS:
                 raise CourseError("%s: accept takes a warning (%s) and optionally <wx> <wy> (SPEC.md 130.58.5)"
@@ -13088,6 +13095,28 @@ def occ_window(reach, records, x0, y0, cum=True):
     return worst
 
 
+def mill_pass(props, reach, records, x0, y0, cells, cum=True):
+    """SPEC.md 130.12.19: what the occluder pass can cost on a windmill's MUST-DRAW frame - the frame its rotor is
+    drawn whatever else it holds, which happens only while the windmill's IN cell is in the ball's 3 x 3
+    (130.12.5.2).  The pass's gate is the ball's own cell (bz_mkboxes: OCC airborne, OCCG grounded), so the
+    frame pays the pass only with the ball's centre in a FLAGGED cell of the nine, occ_window's price there, and
+    nothing for the rotor: -> [(the windmill's line, its IN cell, the worst clocks over the flagged reachable
+    cells of IN's 3 x 3, that cell, its z, [(cell, its worst clocks)] for each flagged cell)], one a windmill, in
+    the props' order; 0 and no cell when none of the nine is flagged (the pass never runs on its frame).  A
+    REPORT, never a refusal: the bound a frame's pass must meet is OCC_PASS_MAX's, everywhere alike"""
+    out = []
+    for p in props:
+        if p["kind"] != PK_WINDMILL:
+            continue
+        ix, iy = p["inn"]
+        near = [rc for rc in reach if abs(rc.wx - ix) <= 1 and abs(rc.wy - iy) <= 1
+                and cells.get((rc.wx, rc.wy)) and cells[(rc.wx, rc.wy)][3] & (FL_OCC | FL_OCCG)]
+        each = sorted(((rc.wx, rc.wy), occ_window([rc], records, x0, y0, cum=cum)[0]) for rc in near)
+        w = occ_window(near, records, x0, y0, cum=cum)
+        out.append((p["wline"], (ix, iy), w[0], w[1], w[2], each))
+    return out
+
+
 def merge_exact(raw, merged, q):
     """the merge's own check (SPEC.md 130.11.17.1 item 5): for every block and
     every query of it, the merged records lay exactly the pixels the unmerged
@@ -15594,20 +15623,10 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                                   "hides a ball in cell (%d, %d) at %d px (%s) differently from pose 0's (a "
                                   "moving part in front of the ball needs per-pose records, O25)"
                                   % (fname, L["line"], qq, x, y, rc.wx, rc.wy, z, "airborne" if air else "grounded"))
-    for p in props:
-        if p["kind"] == PK_WINDMILL:
-            ix, iy = p["inn"]
-            shade = [(ix + dx, iy + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
-                     if cells.get((ix + dx, iy + dy)) and cells[(ix + dx, iy + dy)][3] & (FL_OCC | FL_OCCG)]
-            for dy, dx in ([(shade[0][1] - iy, shade[0][0] - ix)] if shade else []):   # (once a windmill)
-                if True:
-                    cl = cells.get((ix + dx, iy + dy))
-                    if cl and cl[3] & (FL_OCC | FL_OCCG):   # SPEC.md 130.12.4.6 (2026-11-22): a WARNING now - a
-                        _visual("%s:%d: the windmill's doorway is in the shade: cell (%d, %d) of IN's 3 x 3 has "   # rotor
-                                "OCC%s set - while the rotor turns, a ball there is drawn over what stands in front "
-                                "of it rather than behind" % (fname, p["wline"], ix + dx, iy + dy,
-                                                              "G" if cl[3] & FL_OCCG else ""), "shade")
-                        # (the rotor's frame runs no occluder pass: a glitch, not a fault)
+    # (SPEC.md 130.12.19, 2026-11-25: wave 3's DOORWAY IN THE SHADE rule stood here - no cell of a windmill's IN
+    # 3 x 3 with OCC or OCCG - and is GONE.  It was a budget bound written as a picture rule: the guest lays the
+    # occluders on a must-draw rotor's frame as on any other, bz_occ's gate being the ball's cell alone; what that
+    # frame's pass costs is mill_pass's figure, reported after the window's price below)
     slab = slab_pixels() if any(p["kind"] == PK_PLATFORM for p in props) else {}
     for p in props:
         if p["kind"] != PK_PLATFORM:
@@ -15663,6 +15682,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
                               "130.11.4.2)%s" % (fname, wx_, wy_, z_, t_, g_, a_, n_, OCC_PASS_MAX, _pairnote(reach)))
     else:
         wp = (0, None, None, 0, 0, 0, 0)
+    millpass = mill_pass(props, reach, records, x0, y0, cells, cum=not hack.get("nocum")) if cutocc else []
     if kit is not None:                             # SPEC.md 130.37.3: the masks in kit order, then its own
         mo, kidx["K"] = kit_order(masks, kit["K"])
         masks = [masks[j] for j in mo]
@@ -15991,6 +16011,7 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
     c.dithered = not hack.get("no_dither")
     c.laid, c.worst, c.occg = laid, worst, occg
     c.wprice = wp                                  # SPEC.md 130.11.4.2: the window's worst price
+    c.millpass = millpass                          # SPEC.md 130.12.19: each windmill's must-draw frame's pass
     c.fshow = fshow if cutocc else None             # SPEC.md 130.28.6: the SHOW rule's bound, None off
     c.per_row, c.per_block = per_row, per_block
     c.raw_row, c.raw_block = {}, {}
@@ -23857,7 +23878,7 @@ class Heavy:
     room, which is when the promotion fires) - and a deferred contact lane
     waits."""
 
-    def __init__(self, phys, wcap=None):
+    def __init__(self, phys, wcap=None, _mustnopass=False):
         self.p = phys
         self.wcap = wcap                        # None: the wheel takes every candidate
         self.drawn = {}
@@ -23865,6 +23886,12 @@ class Heavy:
         self.old = None                         # the last frame's footprint (x4, py)
         self.oshadow = None
         self.ncon = self.ndef = self.nmust = self.npbx = 0
+        # SPEC.md 130.12.19: THE FRAME'S PASS (bz_ogate) - the ball's cell's flag, whatever the contact group is;
+        # mustrot: this frame's group is a must-draw ROTOR.  _mustnopass: the control - wave 3's contract, a
+        # must-draw rotor's frame laying no occluder (what the doorway's shade rule was written to make harmless)
+        self.passon = self.mustrot = False
+        self.nmustpass = 0                      # must-draw rotor frames that ran the pass
+        self._mustnopass = _mustnopass
         self.npwt = 0                           # the platform's box waited (bz_npwt)
         self.npro = 0                           # a wheel lane PROMOTED to the contact group
         self.pylp = False                       # ...last frame (never two running)
@@ -24039,9 +24066,12 @@ class Heavy:
                                       (self.age[wbest["i"]] >= WPRO and conok))
         waits = len(must) + len(mustp)          # must-draw lanes not chosen wait a frame
         pwait = promo = False
+        self.mustrot = bool(must)
+        self.passon = passon and not (must and self._mustnopass)
         if must:
             contact = min(must, key=lambda t: t[:2])[2]
             waits -= 1
+            self.nmustpass += self.passon
             slabbox = False                     # (its line holds: no window has both, 130.12.4.6)
         elif slabbox:
             if not self.pylp and not p.onp and not slableave:
@@ -28667,6 +28697,11 @@ def report(c, k=None):
               " (cell %s at %d px)" % (c.worst[1], c.worst[2]) if c.worst[1] else "",
               sum(1 for v in c.cells.values() if v[3] & FL_OCC), sum(1 for v in c.cells.values() if v[3] & FL_OCCG),
               len(c.reach)))
+    for ln, inn, n, cl, z, cells in getattr(c, "millpass", None) or ():     # SPEC.md 130.12.19
+        print("    the windmill on line %d (IN %s): its must-draw frame's occluder pass at most %d clocks%s - the "
+              "ball's own pass, laid on the rotor's frame as on any other (no rule: 130.12.19)" % (
+                  ln, inn, n, " (cell %s at %d px; %s)" % (cl, z, ", ".join("%s %d" % q for q in cells))
+                  if cells else " (no cell of IN's 3 x 3 carries OCC or OCCG: the pass never runs on it)"))
     if c.ftabs:                                     # SPEC.md 130.28.4: the tables each shape statement costs
         rows = field_tables_by_statement(c.tiles)
         print("    section F: %d tables of %d (%d bytes); by statement: %s" % (
@@ -29904,8 +29939,10 @@ def _wave3_cases():
         ("a house that cannot hold the rotor", 'course P "p"\nwidth 64\nuses rotor tube\nfloor rect 6 9 11 14 flat 16\n'
          'wall rect 7 8 12 9 flat 17\nfloor rect 7 5 12 8 flat 16.5\ntube keep 9 9 9 7\nprop windmill 9 9\n'
          'start 9 12\n', "cannot hold its rotor"),
-        ("a doorway in the shade (a warning since 2026-11-22, so the case needs a finish to reach the strict refusal)",
-         W + "wall tile 11 10 flat 30\ngoal tile 15 7 flat 20\n", "is in the shade"),
+        # (SPEC.md 130.12.19, 2026-11-25: "a doorway in the shade" was refused here; the rule is gone, _mill_shade
+        # proves its course compiles, and its `accept` is refused by name so the rule cannot come back unseen)
+        ("`accept shade`: the windmill's shade rule is gone", W + "accept shade 10 9\n",
+         "the windmill's shade rule is gone"),
         ("a bumper off a FLOOR", W + "prop bumper 3 3\n", "not a FLOOR"),
         ("a bumper with a seed", W + "prop bumper 7 11 seed 3\n", "takes no seed"),
         ("a period not a power of two", _swap(W, "prop windmill 9 9", "prop windmill 9 9 period 48"),
@@ -39729,9 +39766,158 @@ def _tube_body_checks(res):
                 and cc.floats == {(x, 8): 8 for x in range(9, 15)} and not cg.floats))
 
 
+_SHADE = "wall tile 11 10 flat 30\ngoal tile 15 7 flat 20\n"      # on _W3W: a tall wall in front of the doorway's
+#                                                                   east cells (the case wave 3 refused)
+
+
+def _mill_shade(res, _mustnopass=False, _rule=False):
+    """SPEC.md 130.12.19 (the owner, 2026-11-25): A WINDMILL TOUCHES NOTHING ROUND IT.  _W3W with a wall in front
+    of its doorway's east cells - the course wave 3's `shade` rule refused - (1) compiles under strict with no
+    warning naming the windmill, though cells of IN's 3 x 3 carry OCC or OCCG; (2) is priced: mill_pass's figure
+    for the doorway is the window's price over those cells, under OCC_PASS_MAX; (3) a ball resting in a flagged
+    cell of the 3 x 3 through two turns of the rotor sees the rotor MUST-DRAW (its gate closing and opening) and
+    on every one of those frames the PASS runs (Heavy.passon, bz_ogate: the ball's cell alone) and the card's
+    composite hides the ball's pixels behind the wall, the same pixels as on the frames between.
+    _mustnopass: the control - a must-draw frame that lays no occluder shows the ball over the wall.  _rule:
+    the other control - the old rule's test (any flag in the 3 x 3) as a refusal, which this course trips"""
+    text = _W3W + _SHADE
+    try:
+        c = compile_course(text, fname="<a doorway behind a wall>", strict=True)
+    except CourseError as e:
+        res.append(("7 SHADE (130.12.19): a windmill whose doorway's cells are behind a wall compiles under "
+                    "--strict -- got: %s" % e, False))
+        return None
+    W = _mill_rec(c, PK_WINDMILL)
+    ix, iy = W["at"]
+    box = [(ix + dx, iy + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
+    flagged = [cl for cl in box if cl in c.cells and c.cells[cl][3] & (FL_OCC | FL_OCCG)]
+    if _rule:
+        return bool(flagged)                        # (wave 3's refusal, 2026-11-22's warning: it fires here)
+    ws = [w for w in c.warnings if "windmill" in w["msg"]]
+    mp = c.millpass[0] if c.millpass else (0, None, 0, None, 0, [])
+    res.append(("7 SHADE (130.12.19): a windmill whose doorway's cells are behind a wall compiles under --strict "
+                "with no warning of its own (%d), %d of IN's 3 x 3 carrying OCC or OCCG (%s) - the case wave 3 "
+                "refused and 2026-11-22 warned of; its must-draw frame's pass priced at most %d clocks (cell %s, "
+                "bound %d; the course's worst anywhere %d)" % (
+                    len(ws), len(flagged), ", ".join("%d, %d" % cl for cl in flagged), mp[2], mp[3], OCC_PASS_MAX,
+                    c.wprice[0]),
+                not ws and bool(flagged) and 0 < mp[2] <= c.wprice[0] <= OCC_PASS_MAX and mp[3] in flagged))
+    # (3) the ball at rest where the rule hides most of it, among the grounded cells of the 3 x 3
+    best = (0, None)
+    for cl in flagged:
+        if not c.cells[cl][3] & FL_OCCG:
+            continue
+        for fx in range(1, 16, 2):
+            for fy in range(1, 16, 2):
+                p = Physics(c).poke(*cl)
+                p.gx, p.gy = (16 * cl[0] + fx) << 8, (16 * cl[1] + fy) << 8
+                p._fill(p.gx >> 12, p.gy >> 12)
+                p._derive(True)
+                if p.air or (p.gx >> 12, p.gy >> 12) != cl:
+                    continue
+                g0 = (p.gx, p.gy)
+                for _ in range(4):                  # (at REST there: not swallowed by the doorway, not rolling)
+                    p.step(0)
+                if p.tube or p.air or (p.gx, p.gy) != g0:
+                    continue
+                laid = set()
+                card_composite(c, p.px, p.py, p.sb, p.zb, p.oair, laid=laid, cell=cl)
+                k = len(laid & set(ball_pixels(p.px, p.py)))
+                if k > best[0]:
+                    best = (k, (cl, p.gx, p.gy))
+    if best[1] is None:
+        res.append(("7 SHADE: a resting ball in a flagged cell of the 3 x 3 has pixels behind the wall", False))
+        return None
+    cl, gx, gy = best[1]
+    out = []
+    for herc in (False, True):
+        p = Physics(c).poke(*cl)
+        p.gx, p.gy = gx, gy
+        p._fill(gx >> 12, gy >> 12)
+        p._derive(True)
+        g = Glide(p, herc, c.brows, c.cols, heavy=Heavy(p, _mustnopass=_mustnopass))
+        p.glide = g
+        nm = nmp = bad = moved = 0
+        for fr in range(2 * (W["mask"] + 1) + 8):
+            if fr:
+                p.step(0)
+            g.camera()
+            moved += bool(p.tube) or (p.gx, p.gy) != (gx, gy)
+            hidden = set()
+            if g.heavy.passon:
+                card_composite(c, p.px, p.py, p.sb, p.zb, p.oair, laid=hidden, cell=cl)
+            hid = len(hidden & set(ball_pixels(p.px, p.py)))
+            if g.heavy.mustrot:
+                nm += 1
+                nmp += g.heavy.passon
+                bad += hid != best[0]
+        out.append((nm, nmp, bad, moved))
+    ok = all(nm >= 4 and nmp == nm and not bad and not moved for nm, nmp, bad, moved in out)
+    res.append(("7 SHADE (130.12.19): a ball resting at cell %s of IN's 3 x 3 with %d of its pixels behind the "
+                "wall, through two turns of the rotor on each card: the rotor MUST-DRAW on %s frames (its gate "
+                "closing and opening), the pass run on %s of them and the ball's %d pixels hidden on every one, as "
+                "on the frames between (frames showing the ball over the wall: %s)" % (
+                    cl, best[0], " / ".join(str(o[0]) for o in out), " / ".join(str(o[1]) for o in out), best[0],
+                    " / ".join(str(o[2]) for o in out)), ok))
+    return ok
+
+
+def _mill_gate_src(texts=None, _red=False):
+    """SPEC.md 130.12.19, the guest's half, read off its source: THE PASS'S GATE IS THE BALL'S CELL ALONE.
+    bz_ogate is written once, in bz_mkboxes, from bz_air, the centre cell's flags, bz_pokd and bz_fcnt, and
+    nothing the props' walk chose - bz_must, bz_mustp, bz_ctype, bz_cln - is read on the way; bz_occ leaves only
+    on bz_ogate 0.  -> None, or what is wrong.  _red: the control - the gate closed on a must-draw rotor's frame
+    (wave 3's contract written into the guest), which this must name"""
+    if texts is None:
+        d = os.path.join(ROOT, "apps", "bonanza")
+        texts = {}
+        for f in sorted(os.listdir(d)):
+            if f.endswith((".inc", ".asm")):
+                with open(os.path.join(d, f), encoding="utf-8", errors="replace") as fh:
+                    texts[f] = fh.read()
+    if _red:
+        texts = dict(texts)
+        texts["bzgame.inc"] = texts["bzgame.inc"].replace(
+            "    mov [bz_ogate], al\n", "    cmp byte [bz_must], 0\n    je .og3\n    xor al, al\n.og3:\n"
+            "    mov [bz_ogate], al\n", 1)
+    code = {f: [ln.split(";", 1)[0].rstrip() for ln in t.split("\n")] for f, t in texts.items()}
+    writes = [(f, i) for f, ls in code.items() for i, ln in enumerate(ls)
+              if re.search(r"\bmov\s+(byte\s+)?\[bz_ogate\]", ln)]
+    if writes != [w for w in writes if w[0] == "bzgame.inc"] or len(writes) != 1:
+        return "bz_ogate is written at %s: once, in bzgame.inc's bz_mkboxes, is the contract" % (writes,)
+    ls = code["bzgame.inc"]
+    top = next((i for i, ln in enumerate(ls) if ln == "bz_mkboxes:"), None)
+    if top is None or not top < writes[0][1] < top + 40:
+        return "bz_ogate's write is not at the head of bz_mkboxes"
+    head = [ln.strip() for ln in ls[top + 1:writes[0][1]] if ln.strip()]
+    read = sorted(set(re.findall(r"\[(bz_\w+)", " ".join(head))))
+    want = ["bz_R0n", "bz_air", "bz_fcnt", "bz_lsh", "bz_nbr", "bz_pokd", "bz_wtop"]
+    if read != want:
+        return "bz_mkboxes reads %s before it writes bz_ogate, not %s: the gate is the ball's cell alone" % (
+            ", ".join(read), ", ".join(want))
+    ov = code.get("bzvideo.inc", [])
+    o = next((i for i, ln in enumerate(ov) if ln == "bz_occ:"), None)
+    if o is None or [ln.strip() for ln in ov[o + 1:o + 4]] != ["cmp byte [bz_ogate], 0", "jne .gate", "ret"]:
+        return "bz_occ does not open on bz_ogate alone"
+    return None
+
+
 def _sc_props(X, res):
     """--selfcheck's section `props` (selfcheck(): a fork of its state after the compile)"""
     byname = X.byname
+    gs, gr = _mill_gate_src(), _mill_gate_src(_red=True)
+    res.append(("7 SHADE (130.12.19), the guest's source: the occluder pass's gate (bz_ogate) is written once, at "
+                "the head of bz_mkboxes, from the ball's air flag, its cell's flags, a harness's poke and the "
+                "finish, and bz_occ opens on it alone - no must-draw rotor, contact group or lane is read%s; "
+                "negative control (the gate closed while bz_must is set): %s" % (
+                    "" if gs is None else " -- " + gs, "named" if gr else "NOT named"), gs is None and bool(gr)))
+    if _mill_shade(res) is not None:            # SPEC.md 130.12.19: the windmill's neighbourhood, and its controls
+        r2 = []
+        red = _mill_shade(r2, _mustnopass=True)
+        res.append(("7 negative control `mustnopass` (a must-draw rotor's frame lays no occluder, wave 3's "
+                    "contract): the ball is drawn over the wall on those frames and the check fails", red is False))
+        res.append(("7 negative control `rule` (the doorway's shade rule put back: any OCC or OCCG in IN's 3 x 3): "
+                    "it fires on this course, which now compiles", _mill_shade([], _rule=True) is True))
     if "TMIL" in byname:                        # (the prototype MILL's props: TMIL's since 2026-11-21)
         _props_physics(byname["TMIL"], res)
 

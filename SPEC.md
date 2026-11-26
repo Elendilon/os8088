@@ -258048,9 +258048,10 @@ viewer sees), and IN's neighbour in that direction must be a WALL of the
 house: the DOORWAY is the edge between them. The tool stands the rotor on
 the doorway (130.12.6.2) and refuses a house whose silhouette - its `+x` and
 `+y` faces and its roof - does not hold the rotor's 24 x 24 px (in practice
-a house at least 2 cells along the face and 3 units tall), and a doorway in
-the shade: IN, or a FLOOR cell of IN's 3 x 3, with `OCC` or `OCCG` set
-(130.12.4.6).
+a house at least 2 cells along the face and 3 units tall). That is the whole
+of what a windmill asks of the course round it: the cells in front of its
+doorway are ordinary cells (wave 3 also refused a doorway "in the shade",
+IN's 3 x 3 with `OCC` or `OCCG` set; that rule is GONE, 130.12.19).
 
 **`prop bumper`**: a FLAT FLOOR cell (as built: a ramp is refused, so the
 post's top is one height); the post is drawn 1 unit tall; `seed` is
@@ -258070,7 +258071,7 @@ DROP mouth faces away, a LAUNCH `speed` over the caps, a DROP `height` (or a
 LAUNCH's) under 1 unit, a RAISED LAUNCH whose last body wall is not behind OUT
 along `out` or is too low for its mouth; a windmill without a KEEP tube at its IN cell, entered
 along `+x` or `+y`, without a wall behind its doorway, whose house cannot
-hold the rotor, or whose doorway is in the shade; a bumper on a non-FLOOR, or
+hold the rotor (a doorway in the shade is no longer one: 130.12.19); a bumper on a non-FLOOR, or
 with a `seed`; a lift whose shaft is not VOID, whose rims stand at anything
 but its two docks (or are not `L` apart), whose slab at some height of its
 rise is hidden by a higher cell in front of it, or whose `v` is over 192; a
@@ -258553,7 +258554,7 @@ of it that rises above the slab's top there (130.12.6.4).
 | two lifts' TRACKS (the slab over its whole rise) in one window WIDENED by the walk's margins - the range's lines (two block rows above, three below) and `BZ_LCM` (2) word columns either side - on either card, at any position | **never** | the guest tracks ONE lift, the one whose track meets that widened window (130.12.4.7): so none is handed over while another is on the card, and the plain one-a-window bound (O24) follows from it |
 | a lane meeting the lift's sprite at any height of its rise | never | a commit would erase the platform |
 | a lift's `v` | at most 192 (0.75 lines a step), a multiple of 64 | its drawn and true footprints stay one box at `BZ_STEPS` (18 + 6 lines) |
-| a windmill's doorway | IN and every FLOOR cell of IN's 3 x 3 with `OCC` and `OCCG` clear - **a WARNING since 2026-11-22** (kind `shade`, refused under `--strict`, `accept shade`): the owner, *"I don't think it is obscured/in shade/hidden at all here? And should this be a warning, not an error?"* | a must-draw rotor's frame never runs the occluder pass, so a ball in that 3 x 3 while the rotor turns is drawn over what stands in front of it rather than behind: a glitch of the picture, not a fault |
+| a windmill's doorway | **no bound** (the owner, 2026-11-25; 130.12.19). Wave 3 refused a windmill with `OCC` or `OCCG` on a cell of IN's 3 x 3 ("in the shade"), a warning from 2026-11-22 (kind `shade`, `accept shade`); both are gone and `accept shade` is refused by name | the bound was a BUDGET (130.12.15 item 2: one frame's cost), worded as a picture rule. The guest lays the occluders on a must-draw rotor's frame as on any other - `bz_ogate` is the ball's cell alone - so nothing round a windmill is drawn differently; what that frame's pass can cost is reported a windmill (`mill_pass`) and bounded by `OCC_PASS_MAX` as everywhere |
 | the start window, on both cards | holds a corner of 4 words x 3 block rows free of lanes, the lift's sprite over its whole rise and the ball's start footprint | the calibration's rectangle (130.12.5.4) |
 
 Several lanes meeting the ball's boxes on one frame is NOT refused (a bumper
@@ -258698,8 +258699,12 @@ Then **the contact group**, at most one a frame, in this order:
   3 x 3, 130.12.3.2) and whose true pose's gate state differs from its drawn
   pose's (the closed window `c0 .. c1` is in poses, 130.12.6.2). It is drawn
   whatever the frame, as the contact group, whether or not it meets a box
-  (its own rectangle, merged with the ball's group when they fit). With the
-  doorway in the open (130.12.4.6) its frame never runs the pass. **A post
+  (its own rectangle, merged with the ball's group when they fit). Its frame
+  runs the pass whenever the ball's cell asks for it, as any frame does
+  (`bz_ogate`, 130.11.10.2: nothing about the rotor is in the gate), so a
+  ball beside a windmill is hidden by what stands in front of it on that
+  frame too (130.12.19; until 2026-11-25 the tool kept the pass off this
+  frame by refusing a doorway "in the shade", for the frame's cost). **A post
   LIGHTING** - its true pose lit, its drawn dark - is MUST-DRAW the same way
   (the owner's preview, 130.12.16 item 2: a hit always shows, whatever the
   wheel's credit), one a frame, the first in the slice; its frame MAY run
@@ -259714,7 +259719,7 @@ adjustments):
 |---|---|---|
 | `BENCH`'s mean, the A/B leg | 44.3k (55.6%) | 44.6k (47.4%) |
 | `MILL`'s mean | 46 - 48k (58 - 60%) | 47 - 49k (50 - 52%) |
-| a contact rotor beside the ball, or a must-draw rotor at the doorway (one box for the ball; no pass, by 130.12.4.3 and 130.12.4.6; level 2) | 48 + 21.6 - 4.7 = **64.9k (82%)** | 49 + 19.9 - 3.9 = **65.0k (69%)** |
+| a contact rotor beside the ball (no pass, by 130.12.4.3), or a must-draw rotor at the doorway with the ball's cell's flag clear (one box for the ball; with the flag set the frame adds the ball's pass, 130.12.19; level 2) | 48 + 21.6 - 4.7 = **64.9k (82%)** | 49 + 19.9 - 3.9 = **65.0k (69%)** |
 | a kick: the post lit in the contact slot, the kick itself (level 2) | 48 + 12.5 + 1.6 - 4.7 = **57.4k (72%)** | 49 + 11.5 + 1.8 - 3.9 = **58.4k (62%)** |
 | riding the slab, its line unchanged (the slab's layer in the ball's box) | 48 + 5 = **53k (67%)** | 49 + 4.5 = **53.5k (57%)** |
 | riding, its line changes (68% of CGA frames, 81% of Hercules ones, while the slab moves at `v` 192; level 2) | 53 + 26.5 - 4.7 = **74.8k (94%)** | 53.5 + 24.8 - 3.9 = **74.4k (79%)** |
@@ -259814,7 +259819,8 @@ before (130.1). **Sound**: none (plan section 10, wave 4).
    faces `-x` or `-y`, a KEEP whose next cell is not a FLOOR, a LAUNCH over
    the caps, a DROP under 1 unit; a windmill without its KEEP tube, entered
    along `+x` or `+y`, without a wall behind its doorway, whose house cannot
-   hold the rotor, whose doorway is in the shade; a bumper off a FLOOR, or
+   hold the rotor (and, since 130.12.19, an `accept shade`: the doorway's
+   shade rule is gone, and `props` proves its course compiles); a bumper off a FLOOR, or
    with a `seed`; a lift's rim at a third height, its rims not `L` apart, its
    shaft not VOID, its `v` over 192, a lift hidden by a higher rim in front;
    a DROP whose mouth does not fit its wall; a 17th prop; a period not a power of two, a closed window off
@@ -259968,7 +259974,9 @@ These amend the subsections they name and are binding.
    frame of two or more steps, only for a step other than the last, and
    only by one phase. Its red arm (`n` after the steps) must still fail.
 2. **A must-draw rotor's frame is bounded on every cell of IN's 3 x 3**
-   (amends 130.12.4.6 and 130.12.11's row): the tool REFUSES a windmill
+   (amends 130.12.4.6 and 130.12.11's row; **the refusal WITHDRAWN
+   2026-11-25, 130.12.19** - the prices below stand, and a frame with the
+   pass adds the pass to them): the tool REFUSES a windmill
    with `OCC` or `OCCG` set on any cell of IN's 3 x 3, floor or void, and a
    harness poke (`bz_pokd`) is not a play path. The ball group may still be
    two boxes on that frame (must-draw rotors are never deferred), so
@@ -260288,6 +260296,106 @@ beam, a lane entering stale - which `MILL`'s route does not give.
 **`secs`**, registered at the measured run times: ring 127, perf 117,
 phys 143, replay 58, exit 96, mega 25, wheel 57 (course 79 and assets 0.5
 as before).
+
+#### 130.12.19 A windmill touches nothing round it: the doorway's SHADE rule withdrawn (the owner, 2026-11-25)
+
+The owner, on CASTLE CLIMB refused under `--strict` with *"the windmill's doorway is in the shade: cell (12, 9)
+of IN's 3 x 3 has OCC set"*: *"Even though the windmill itself is completely uncovered, for some reason huge
+boxes around a 3x3 tile area in front of the windmill is also looked at - and occlusion is turned off around
+them. None of that really seems needed or right ... lets set an agent to reworking windmills instead. If the
+rotors need to be fully visible, thats ok. But the huge area around them should not be affected. Speed is still
+a concern."*
+
+**What was there, and why.** Three things about a windmill reach past its own pixels, and only one of them was a
+rule about the course:
+
+| piece | what it is | since | kept |
+|---|---|---|---|
+| the house holds the rotor (130.12.3.3) and its verdicts are the same in every pose (130.12.4.5, O25) | the rotor's 24 x 24 px are all the house's own faces and roof, so nothing stands in front of a blade and no blade passes in front of a ball | wave 3 | **yes**: this is "the rotor is fully visible" |
+| MUST-DRAW (130.12.5.2) | while the windmill's IN cell is one of the ball's nine (`bz_wol`, the cells a step's collisions read) and its true gate differs from its drawn one, the rotor's box is drawn on that frame whatever else it holds - the blade a knock-back reads is the blade on the glass | wave 3 | **yes**: it draws the rotor's own 3 x 3 BLOCKS (24 x 24 px) and nothing else; the nine CELLS only decide when |
+| the doorway IN THE SHADE (130.12.4.6, 130.12.15 item 2) | the tool refused a windmill with `OCC` or `OCCG` on any cell of IN's 3 x 3 | wave 3 (e781df538); a warning, `accept shade`, from 2026-11-22 (78f191309) | **no** |
+
+The third was a BUDGET. 130.12.11 priced a must-draw rotor's frame at 64.9k clocks of the CGA's 79.6k with one
+ball box and no occluder pass, and 130.12.15 item 2 kept the pass off that frame the only way the tool can - by
+refusing any course where the ball could need it there. It was then DESCRIBED as a picture rule (*"a must-draw
+rotor's frame never runs the occluder pass, so a ball in that 3 x 3 ... is drawn over what stands in front of
+it"*), and 130.58.32, the builder's *Shade: why* view and docs/plans/bonanza-courses/MILL.md section 9 all took
+that sentence at its word. **It was never true of the guest.** The pass's gate is `bz_ogate`, written once, at the
+head of `bz_mkboxes`, from the ball's air flag, its centre cell's `OCC` / `OCCG`, a harness's poke and the finish
+(130.11.10.2); `bz_occ` opens on it alone; neither has ever read `bz_must`, `bz_ctype` or a lane (in no commit of
+`bzgame.inc` or `bzvideo.inc`). A lighting post is must-draw through the same code (`bz_props`'s `.mlane`,
+`bz_csync`) and 130.12.5.2 already said of it *"its frame MAY run the pass"*. So from the day the refusal became
+a warning, `MILL` - three doorways accepted "in the shade" - has shipped with the pass running on its rotors'
+frames, and the rails in front of those cells have been laid over the ball there on every frame.
+
+**So there was nothing to turn back on, and the rework is a deletion.** The guest is unchanged, byte for byte.
+
+**The contract now.** A windmill asks of a course exactly what 130.12.3.3 lists - a KEEP tube at IN entered
+along `-x` or `-y`, a wall behind the doorway, a house that holds the rotor - and the bounds on lanes and pose
+changes (130.12.4.6). The cells in front of it are ordinary cells: walls, rails and props may stand in front of
+them, their `OCC` / `OCCG` are what the reach makes them, and a ball in them is hidden by what stands in front
+of it on every frame, the rotor's included.
+
+- `bbcourse.py` makes no `shade` warning; `shade` is not a warning's name (`VIS_KINDS`), and **`accept shade` is
+  refused by name** (*"the windmill's shade rule is gone ... delete this line"*), so the rule cannot come back
+  behind an `accept` nobody reads. `MILL`'s three `accept shade` lines are deleted.
+- The builder's *Shade: why* overlay, `occ.json`'s `shade` rows and `_shade_why` are deleted with it (130.58.32
+  as amended); *Occluders* is unchanged.
+- **The cost is REPORTED, a windmill** (`mill_pass`, on the compile's records line): the worst price of the
+  occluder pass (130.11.4.2's price, `occ_window`) over the FLAGGED reachable cells of IN's 3 x 3 - the cells
+  where a must-draw frame can also owe the pass. No bound of its own: a frame's pass is bounded by
+  `OCC_PASS_MAX` (50,050) wherever the ball is.
+
+**Frame cost, in counted work.** Nothing moves against the shipped build - the guest's bytes are the same and a
+part's are (below). Against wave 3's refusing rule, what a course may now ask of a frame is this: on a frame
+that is ALREADY a must-draw rotor's, with the ball's centre in a flagged cell of the nine, the ball's own pass
+is added. Counted:
+
+- how often: a rotor's gate changes twice a turn (closed `c0 .. c1`), a turn `P` steps (64 as shipped: 1.17 s),
+  so at most 2 such frames a turn a windmill, about 1.7 a second, and only while the ball is beside that
+  windmill AND in a flagged cell;
+- how much: the pass at that position, which the same ball pays on every OTHER frame it moves there. PRICED by
+  the tool (130.11.4.2's units), the worst flagged cell of each doorway:
+
+| course | windmill | flagged cells of the nine | the pass there, at most |
+|---|---|---|---|
+| `MILL` | line 72, IN (9, 9) | (10, 9) | 9,150 |
+| `MILL` | line 90, IN (29, 28) | six | 22,340, at (30, 28) |
+| `MILL` | line 92, IN (27, 44) | four | 20,870, at (28, 45) |
+| `PEAK` | line 67, IN (23, 23) | none | 0: the pass never runs on its frame |
+| `CASTL` | line 223, IN (12, 10) | five | 23,230, at (12, 9) |
+
+- against the refresh: 130.13.3.4 MEASURED a must-draw rotor's frame on `MILL` (the wave 3 build, no pass) at a
+  mean 86.4k clocks on the CGA (109% of its 79.6k refresh, max 99.0k) and 89.1k on the Hercules (95% of 93.8k,
+  max 103.8k), and 130.13.10 predicted about 79k and 82.6k after wave 3b's savings. So that frame is AT a
+  refresh on the CGA before any pass; with the worst pass above (86.4k + 23.2k, about 110k; or 79k + 23.2k,
+  about 102k - PREDICTED, arithmetic on those figures) it presents one refresh late on either card, and is
+  nowhere near two (159.2k, 187.6k). Display only, as every late frame is: the step count is the clock's
+  (130.12.3.4), and collision reads the true phase.
+
+That is the trade, stated: at most two frames a turn present a refresh late where the old rule kept them at
+its one-box price - by refusing the course. The alternative that keeps both, deferring the rotor a frame
+when the pass is on, is MILL.md 9.4's option 5; it breaks the telegraph on exactly the frame it exists for and
+is not built.
+
+**The checks** (`bbcourse.py --selfcheck --only props,grammar`): item 7's SHADE items on `_W3W` with a tall
+wall in front of the doorway's east cells (the very course item 2 used to prove refused) - it compiles under
+strict with no warning of the windmill's, five of the nine cells flagged and the doorway's pass priced; a ball
+resting in a flagged cell through two turns of the rotor sees it must-draw four times on each card, the pass
+on (`Heavy.passon`) on all four, and the same 104 of its pixels hidden behind the wall on those frames as on
+every other. Negative controls: `mustnopass` (a must-draw frame that lays nothing: the ball shows over the wall
+on those four frames, and the item fails), `rule` (the old test put back: it fires on this course), and the
+guest's source (`_mill_gate_src`: `bz_ogate` written once, at the head of `bz_mkboxes`, reading nothing but
+`bz_air`, `bz_nbr`, `bz_pokd`, `bz_fcnt` and the window's top; red arm, a `cmp byte [bz_must], 0` before the
+write, named). Item 2: `accept shade` refused.
+
+**Parts.** No course's part moves: `shade` only ever warned, so `MILL` (its `accept` lines gone), `CASTL`,
+`PEAK`, `TMIL` and the title compile to the bytes they had, and so does every course without a windmill.
+
+**Not checked on a machine.** The guest's half stands on its source and on the rows that already compare the
+glass with the model on `MILL` (`bonanzaring`, `bonanzawheel`, `bonanzareplay`, `bonanzaperf`'s must-draw
+figures); none was run for this change, which moved no guest byte. The 110k figure is arithmetic on two
+measured numbers and a priced one.
 
 ### 130.13 Wave 3b: the performance round
 
@@ -273345,7 +273453,7 @@ until moved: *a course that then meets a bound is edited*, 130.37.6):
 
 | course | was | now | why |
 |---|---|---|---|
-| `MILL` | (8, 11) | **(6, 13)**, the front-left corner | at (8, 11) it stood in front of both windmills' doorways and set OCCG in their IN 3 x 3 (130.12.4.6: a must-draw rotor's frame runs no occluder pass) |
+| `MILL` | (8, 11) | **(6, 13)**, the front-left corner | at (8, 11) it stood in front of both windmills' doorways and set OCCG in their IN 3 x 3 (130.12.4.6's shade rule of the day, gone since 130.12.19) |
 | `MILL` | (22, 22), the finish clock | **(18, 27)**, the goal floor's front-left corner | it stood in front of the DROP's exit (20, 20) and made the fall cross an OCC cell (`--selfcheck` item 8: a flight from an exit runs no occluder pass); the finish clock rule (130.22.6) and the finish reach hold there |
 | `TRIAL` | (18, 17) | **(18, 18)**, the lower floor's front row | its post added a fifth record to a block the ramp's foot already held at the bound of 4 (130.11.4.2) |
 
@@ -291842,9 +291950,16 @@ move (130.58.14) cut the cells' ground but kept their paint; and no click reache
   with it, as before).
 - **A cell's paint is one of its parts** (`at_cell`: the last `surface` laid over it, after the floor), so a
   click (again) reaches it and the inspector changes or deletes it.
-- The same move put the windmill's doorway "in the shade"; that refusal is a warning now (130.12.4.6).
+- The same move put the windmill's doorway "in the shade"; that refusal was made a warning (130.12.4.6) and the rule itself was taken out on 2026-11-25 (130.12.19).
 
 #### 130.58.32 The occluders shown; why a doorway is "in the shade" (the owner, 2026-11-22)
+
+**AMENDED 2026-11-25 (130.12.19): the shade rule is gone, and with it this section's *Shade: why* overlay, its
+`shade` rows in `occ.json` (`occ_data`'s `shade`, `_shade_why`), the problems list's click that turned it on and
+meta's `occ.warnings` (now always empty). The *Occluders* overlay, `occ.json`'s records and flagged cells and
+`noocclude` are as written. The MILL answer below is right about WHICH records flag the cells and wrong in one
+clause: "while the rotor turns (no occluder pass) the ball there would be drawn over them" - the guest runs the
+pass on that frame, so those rail pixels are laid over the ball then as on any other frame.**
 
 The owner, after moving MILL's ramp R one cell toward the start floor A (`floor rect 13 9 15 17 ramp y 9 17 32 20`)
 and getting 130.12.4.6's `shade` warning: *"can you highlight what it is drawing/where it is conflicting? ... a
@@ -292264,7 +292379,7 @@ and this section changes nothing there.
 **The view.** Beside *Occluders* in the Iso view's options row, **as shipped** (the default) and **as cut**:
 
 - *as shipped* draws, hovers and selects the part's records (`c.records`, after AV and the merge); *as cut* the
-  rule's, as 130.58.32 did. *Shade: why* alone keeps the rule's records, which are what flag the doorway.
+  rule's, as 130.58.32 did. (*Shade: why* alone kept the rule's records; it is gone, 130.12.19.)
 - The status gives both counts, *"2,132 records shipped (4,284 before AV)"* (*"as cut: AV is off"* on a course AV
   leaves alone, where the two are one list merged), with *" - showing the rule's"* under *as cut*.
 - A shipped record is named *"shipped occluder N (cut as the rule's A, B ...)"*: the rule's records sharing its
@@ -292287,7 +292402,7 @@ further cell on MILL or on item 16's floor, so it is not done.
 
 `tests/unit/t_bbedit.py` item 21 holds it, on item 16's walled floor: `shipped` is the part's records pixel for
 pixel and fewer than the rule's; each names its cells and the rule's records sharing its pixels; `OccView` shows
-it by default, the rule's under *as cut* and under *Shade* alone, its status *"N records shipped (M before AV)"*;
+it by default, the rule's under *as cut* (and, until 130.12.19, under *Shade* alone), its status *"N records shipped (M before AV)"*;
 and a `noocclude` over a shipped record's cells leaves no shipped record over its pixels needed by them alone.
 Red by hand: make `occ_data`'s `shipped` the rule's rows (`_rec_rows(c, recs, ...)`: "304 records for the
 part's 215"), or make `OccView.shipped()` False ("does not show the shipped records by default").
@@ -292810,7 +292925,7 @@ tool run by hand (as 130.58.53's screenshots are), not a row.
 | a tube's form | each leg's height in the label column | each leg's label and height on a line of its own, so the column of labels stays as narrow as *Column reaches* |
 | a chute's form | *Set* and *Level* at full width | narrow buttons |
 | a route point's inspector | five buttons on one line | *Insert one after* and *Branch from here*; then *Earlier*, *Later*, *Delete* |
-| the Plan / Iso toolbar | the view's options on the right of the tools | a row of their own under the tools: *Height map*, *Route* and its branch, *Hard to see*; in Iso *CGA*, *Hercules*, *X-ray the selection*, then *Occluders*, *as shipped*, *as cut*, *Shade: why* (130.58.32's, moved from beside *Gap bands*) |
+| the Plan / Iso toolbar | the view's options on the right of the tools | a row of their own under the tools: *Height map*, *Route* and its branch, *Hard to see*; in Iso *CGA*, *Hercules*, *X-ray the selection*, then *Occluders*, *as shipped*, *as cut* (130.58.32's, moved from beside *Gap bands*; *Shade: why* stood after them until 130.12.19) |
 | the gap bands', occluders' and kit's counts | beside the row, or wrapped at a fixed 900 px | a line of its own under their row, wrapped to the view's width |
 | a refusal's banner, a problem's fix bar | the text first, its buttons squeezed out | the buttons packed first and the text wrapped to what they leave |
 | the status bar | the message first, *Cancel* and the job squeezed out | *Cancel*, the bar and the job's stage packed first; the message and the stage (at most two fifths of the room) cut to fit with an ellipsis; a click on a cut one shows the whole |

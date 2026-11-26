@@ -3857,7 +3857,6 @@ class App(object):
         if iid:
             s = [iid]
             line, cell, raw = self.prob_rows[s[0]]
-            self.occ.problem_picked(self.probs.item(s[0], "text"))
             if line:                            # SPEC.md 130.58.38: the part on the plan and in the inspector
                 self.nb.select(0)
                 self.hilite = cell
@@ -3869,7 +3868,6 @@ class App(object):
         if iid:
             s = [iid]
             line, cell, raw = self.check_rows[s[0]]
-            self.occ.problem_picked(self.checks.item(s[0], "text"))
             if line:
                 self.nb.select(0)
                 self.hilite = cell
