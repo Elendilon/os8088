@@ -261,8 +261,6 @@ noocclude rect 21 22 23 23
 # ART (docs/plans/bonanza-courses/castle/ART.md; castle/art.py writes the files): four pieces, a line each -
 # delete a line to strike its piece.  The ring and arrow to the
 # ring key, the ring on the keep's gate, up over the tube, the keep's pennant
-art castle_tokey.bba 583 440
 art castle_ring.bba 451 307
-art castle_up.bba 402 234
 art castle_flag.bba 351 9
 # the plate up the side stair is MEANT to be found (the owner, 2026-11-25): its being half hidden is the course (`hidden` on its prop line)

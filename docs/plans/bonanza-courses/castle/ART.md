@@ -82,3 +82,7 @@ No new warning. The course compiles with these, all the layout's and all the own
 - **Arrow slits, banners along the walls, a drawbridge look for the float**: dressing, not reading. The owner
   asked for minimal.
 - **Words** ("KEY", "UP"): the glyphs are the engine's own and need no reading.
+
+**2026-11-26:** the owner removed the ring-key arrow (`castle_tokey.bba`) and the tube's up arrow
+(`castle_up.bba`) too: Castle Climb is not a training course. The RING plaque and the pennant remain;
+`art.py` can still draw the removed pieces.
