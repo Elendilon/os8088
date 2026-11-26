@@ -19,8 +19,8 @@ pixel, 256 wx + wy or -1, int32 rows) and OUTDIR/meta.json (the size, the
 origin, every mark the visibility audit weighs with its seen and hidden
 pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4). With
 --occ it also compiles WITH the occluders and writes OUTDIR/occ.json: every
-record the rule cuts, the cells it hides, the OCC/OCCG cells and why a
-windmill's doorway is in the shade (SPEC.md 130.58.32), every record's pixels in the
+record the rule cuts, the cells it hides and the OCC/OCCG cells (SPEC.md
+130.58.32), every record's pixels in the
 PICTURE's lines (the occluder compile is at the kit's alignment, the picture's at
 +0: 130.58.52.4).  With --kit it writes OUTDIR/kit.json: which of the picture's
 8 x 8 blocks and FIELD cells are THE STANDARD KIT's (SPEC.md 130.37), off a
@@ -169,7 +169,7 @@ def picture(path, out, name=None, gaps=False, occ=False, kit=False):
         os.remove(tmp)
         occm = {"error": err, "secs": round(time.time() - t1, 2),
                 "partial": bool(err) and os.path.exists(os.path.join(out, "occ.json")),   # (130.58.46)
-                "warnings": [w for w in ws if w["kind"] == "shade"] if ws else []}
+                "warnings": []}       # (the `shade` warnings' place: none is made since SPEC.md 130.12.19)
     kitm = None
     if kit:                                     # SPEC.md 130.58.52: what comes from the kit, only while it shows
         emit(stage="kit", what="what comes from the kit")
@@ -237,8 +237,7 @@ def occ_data(c):
     """SPEC.md 130.58.32: the occluder view's data, in the picture's pixels - every record the RULE cuts (the
     records the cells' OCC and OCCG flags are counted on: c.rule_records), its pixels as runs, s, top, the cells
     that drew them, the cells whose ball positions NEED it (the cutter's test, pixel by pixel: a `noocclude` over
-    all of them and it is not cut) and the cells whose flags it sets; every flagged cell; and for each windmill
-    whose doorway is in the shade (130.12.4.6) its IN 3 x 3, the flagged cells and the records that flag them;
+    all of them and it is not cut) and the cells whose flags it sets; every flagged cell;
     and (SPEC.md 130.58.44) `shipped`, the same rows for the records the PART ships (c.records, after AV and the
     merge), each with `rule`, the rule's records that share its pixels"""
     ob = B.owners_canvas(c)
@@ -270,32 +269,6 @@ def occ_data(c):
             ids |= _flag_recs(c, rc, B.CLIMB, *(zr or (rc.zlo, rc.zhi)))
         for k in ids:
             out[rid[k]]["flags"].add(cell)
-    by_cell = {}
-    for o in out:
-        for cl in o["flags"]:
-            by_cell.setdefault(cl, []).append(o["id"])
-    shade = []
-    for p in c.props:
-        if p["kind"] != B.PK_WINDMILL:
-            continue
-        ix, iy = p["inn"]
-        box = [(ix + dx, iy + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)]
-        hit = [cl for cl in box if cl in fl]
-        if not hit:
-            continue
-        ids = sorted({k for cl in hit for k in by_cell.get(cl, ())})
-        feet = {}
-        for cl in hit:
-            rc = next((q for q in c.reach if (q.wx, q.wy) == cl), None)
-            if rc is not None:
-                xl, xh = B.foot_x(rc, c.x0)
-                zr = _floor_range(c, rc) if fl[cl] & B.FL_OCCG else None
-                z = zr[0] if zr else rc.zlo
-                t0 = B.foot_top(rc, z) + y0
-                feet["%d,%d" % cl] = [xl, t0 - 1, xh, t0 + 30]   # the box a ball anywhere in the cell covers
-        shade.append({"line": p.get("wline") or p.get("line"), "inn": [ix, iy], "box": [list(b) for b in box],
-                      "flagged": [[cl[0], cl[1], "OCCG" if fl[cl] & B.FL_OCCG else "OCC"] for cl in hit],
-                      "records": ids, "feet": feet, "why": _shade_why(c, hit, fl, ids, out)})
     # SPEC.md 130.58.44: the records the PART ships (c.records: AV's residual and today's records, merged) - the
     # same rows, their `needs` by the same test over their own blocks, and `rule`: the rule's records sharing
     # their pixels (what each shipped record was cut as)
@@ -312,7 +285,7 @@ def occ_data(c):
         o["needs"] = sorted(o["needs"])
         o["flags"] = sorted(o["flags"])
     return {"records": out, "shipped": ship, "av": bool(c.av),
-            "cells": [[x, y, f] for (x, y), f in sorted(fl.items())], "shade": shade,
+            "cells": [[x, y, f] for (x, y), f in sorted(fl.items())],
             "noocc": sorted(getattr(c, "noocc", ()) or ())}
 
 
@@ -369,35 +342,6 @@ def _needs(c, recs, out, by_block):
                         break
 
 
-def _shade_why(c, hit, fl, ids, out):
-    """one plain sentence: what flags the doorway's cells - the cells that drew the records, a guard rail's
-    line when its pixels are the record's, and how far over a resting ball they reach"""
-    cells = " and ".join("(%d, %d)" % cl for cl in hit)
-    if not ids:
-        return "%s of the doorway's 3 x 3 can be hidden (no record found to show)" % cells
-    owners, rails = {}, set()
-    for k in ids:
-        for x, y, n in out[k]["own"]:
-            owners[(x, y)] = owners.get((x, y), 0) + n
-        rails |= set(out[k]["rails"])
-    own = ", ".join("(%d, %d)" % o for o in sorted(owners, key=lambda o: -owners[o])[:4])
-    top = max(out[k]["top"] for k in ids)
-    many = len(owners) > 1
-    if rails:
-        what = ("the guard rail on line%s %s, drawn with cell%s %s (a rail stands on the HIGHER floor of its edge, "
-                "so a floor raised beside it lifts it)" % ("s" if len(rails) > 1 else "",
-                                                          ", ".join(map(str, sorted(rails))), "s" if many else "", own))
-    else:
-        what = "what cell%s %s draw%s" % ("s" if many else "", own, "" if many else "s")
-    rc = next((q for q in c.reach if (q.wx, q.wy) == hit[0]), None)
-    zr = _floor_range(c, rc) if rc is not None else None
-    over = (", %d px over the floor a ball rests on" % (top - zr[0])) if zr else ""
-    return ("Not the windmill: it is the BALL. A ball anywhere in %s (the doorway's 3 x 3) has its box (dashed) "
-            "reaching under %s; %s nearer the viewer, so it is drawn in front of the ball%s. While the rotor turns no "
-            "occluder is laid, so such a ball would be drawn over it." % (
-                cells, what, "those cells are" if many else "that cell is", over))
-
-
 def occluders(path, out, name=None, pic_y0=None):
     """the --occ half of PICTURE: the course compiled WITH its occluders (the part's block limit lifted, as the
     picture's), written to OUTDIR/occ.json; -> the compile's warnings, or an error string.  PIC_Y0: the picture's
@@ -434,9 +378,6 @@ def shift_occ(d, dy):
     for k in ("records", "shipped"):
         for o in d.get(k) or ():
             o["runs"] = [[y - dy, a, b] for y, a, b in o["runs"] if y - dy >= 0]
-    for s_ in d.get("shade") or ():
-        for cl, (xl, yt, xh, yb) in list(s_["feet"].items()):
-            s_["feet"][cl] = [xl, yt - dy, xh, yb - dy]
 
 
 def kit_bytes(tag, idx, n, nkit, ref):

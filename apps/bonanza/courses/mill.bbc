@@ -271,17 +271,9 @@ noocclude tile 18 50
 noocclude rect 20 50 22 52
 noocclude rect 21 52 22 54
 
-# warnings this course keeps (SPEC.md 130.58.5; docs/plans/bonanza-courses/MILL.md section 8, and section 9's
-# research item on the windmill's occluder stop)
-# the first windmill (line 71): A's east guard rail (line 47) stands on the raised ramp R and its west end reaches
-# the lower right corner of a ball's box at (10, 9) - a corner of a box, mostly clear of a round ball's sprite
-accept shade 10 9
-# the second windmill (line 89): what (31, 28) and (31, 29) draw reaches 8 px into a ball's box in the doorway's
-# east cells - a sliver, and it shows only on a frame whose rotor turns its gate (SPEC.md 130.12.4.6)
-accept shade 29 27
-# the third windmill (line 91): the guard rails on lines 65 and 66 barely clip a ball's box in its doorway's
-# 3 x 3 (16 px over the floor) - a sliver of rail, only while the rotor turns
-accept shade 27 44
+# warnings this course keeps (SPEC.md 130.58.5; docs/plans/bonanza-courses/MILL.md section 8)
+# (the three windmills' `accept shade` lines stood here until 2026-11-25: the rule they answered is gone, SPEC.md
+# 130.12.19 - a ball beside a windmill is hidden by the rails in front of it on the rotor's frames as on any other)
 # the glass pad under the archway (line 92): half its top is under the arch's near leg, as it would be under any
 # single high arch along x - the other half and the arch over it say where it is
 accept mark 20 27

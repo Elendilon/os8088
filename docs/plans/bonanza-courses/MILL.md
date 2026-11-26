@@ -238,7 +238,9 @@ the owner's own `noocclude` round A). MEASURED, the picture part: blocks 1,156 -
 records 1,858 -> 1,794, 62,350 -> 62,402 bytes in RAM, LZ4 22,775 -> 23,383.
 
 **The four warnings the builder showed, each kept with `accept` and its reason in the course** (SPEC.md
-130.58.5; `bbcourse.py --strict` passes, reporting each as accepted):
+130.58.5; `bbcourse.py --strict` passes, reporting each as accepted). **2026-11-25: the three `shade` rows are
+history - the rule was withdrawn (SPEC.md 130.12.19, section 9's closing note below), `accept shade` is refused
+by name and the course's three lines are deleted. `accept mark 20 27` is the one this course keeps.**
 
 | warning | where | what it is | kept by |
 |---|---|---|---|
@@ -256,6 +258,15 @@ the glass"*, crystal clocks or vases alike - the owner's `wall rect 28 27 29 30 
 second windmill's doorway. It is the owner's geometry, so it is left for the owner.
 
 ## 9. Research: the windmill's OCCLUDER STOP, and how to process less of it
+
+**CLOSED 2026-11-25 by SPEC.md 130.12.19, and 9.1's first bullet is WRONG about the guest.** There is no
+"occluder stop": `bz_ogate` (`bz_mkboxes`) is the ball's cell's flag and nothing else, `bz_occ` opens on it alone,
+and neither has ever read `bz_must` - so a must-draw rotor's frame runs the pass whenever the ball's cell asks.
+The "no pass" was only ever the TOOL's promise, kept by refusing the course; once that became a warning with
+`accept shade`, MILL shipped with the pass running on those frames. So option 4 below ("run the pass on the
+must-draw frame") needed no guest byte: it was already what the guest did, and the rework is the rule's
+deletion, with the frame's pass REPORTED a windmill (MILL: 9,150, 22,340 and 20,870 clocks at the worst flagged
+cell of each doorway). The rest of this section is kept as it was written.
 
 *Research only, nothing built.* The owner, of the three `shade` warnings: *"apparently we 'stop occlusion' for
 the windmill, and do so in a way that goes around ground blocks in a way that doesn't make a ton of sense to me.

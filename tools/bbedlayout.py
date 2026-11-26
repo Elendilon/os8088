@@ -354,11 +354,6 @@ def run_builder(rn, args):
         app._fill_inspector()
         rn.page("ins-noocclude", r)
         app.occ.sel = None
-    app.occ.shade.set(True)
-    app.occ.toggled()
-    rn.settle(r, 2)
-    rn.page("iso-shade", r)
-    app.occ.shade.set(False)
     app.occ.show.set(False)
     app.occ.toggled()
     app.kitv.show.set(True)

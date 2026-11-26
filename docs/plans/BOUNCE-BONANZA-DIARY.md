@@ -6943,3 +6943,57 @@ faster guest; the soak rows are the lead's.
   are in no build); the frame cost on the XT is predicted from tone counts, not
   measured.
 
+
+## 2026-11-25 (a windmill touches nothing round it: the doorway's shade rule withdrawn, SPEC.md 130.12.19)
+
+- **The owner**, on CASTLE CLIMB refused under `--strict` for *"the windmill's
+  doorway is in the shade: cell (12, 9) of IN's 3 x 3 has OCC set"*: the
+  windmill itself is uncovered, a 3 x 3 of tiles in front of it is looked at,
+  "and occlusion is turned off around them. None of that really seems needed
+  or right" - rework windmills rather than `accept` it again.
+- **Found, by reading the guest before designing anything**: occlusion was
+  never turned off. The pass's gate (`bz_ogate`) is written once, at the head
+  of `bz_mkboxes`, from the ball's air flag and its own cell's `OCC` / `OCCG`;
+  `bz_occ` opens on it alone; no commit of either file ever read `bz_must`.
+  Wave 3's rule was a BUDGET - keep the pass off the must-draw rotor's frame,
+  priced at 64.9k of the CGA's 79.6k without it - and the only way the tool
+  could keep it was to refuse the course. Its message then described the
+  budget as a picture defect ("a ball there is drawn over what stands in
+  front of it"), and the builder's *Shade: why* view and MILL.md section 9
+  both took the message at its word. Since 2026-11-22, when the refusal
+  became a warning and MILL accepted three of them, MILL has shipped with the
+  pass running on its rotors' frames.
+- **So the rework is a deletion, and the guest did not move a byte.** The
+  tool makes no `shade` warning; `accept shade` is refused by name; MILL's
+  three lines are gone; the builder's *Shade: why* overlay and `occ.json`'s
+  `shade` rows went with the rule. What a windmill still asks: a house that
+  holds its rotor (so nothing stands in front of a blade) and the lane
+  bounds. What it no longer asks: anything of the cells in front of it.
+- **The cost, reported instead of refused** (`mill_pass`, a line a windmill
+  on the compile's report): the occluder pass's price at the worst FLAGGED
+  cell of the doorway's nine - MILL 9,150, 22,340 and 20,870 clocks; CASTL
+  23,230; PEAK, TMIL and the title 0 (no flagged cell: the pass never runs on
+  their rotor frames). At most two such frames a turn of a rotor, while the
+  ball is beside it in a flagged cell.
+- **MEASURED** (the same tool run before and after, `BB_CACHE=0`, the twelve
+  shipped courses with the pathway and the title, and the BZDEV list with the
+  nine test courses): all 32 and all 41 output files byte-identical - every
+  `BZ<K>.BIN`, demo and include. `bonanza.bin` 53,663 bytes and `BONANZA.O88`
+  242,118, and the four `bonanza*.img`, identical to the build before.
+- **Looked at** (host renders of the model's composites, CGA and Hercules,
+  cropped and zoomed 4x: a ball resting in a flagged cell beside MILL's second
+  and third windmills and CASTL's, at four rotor poses): the rails and the
+  pillar in front are laid over the ball in every pose and the rotor is whole
+  in every pose. These are the model's pictures, not a machine's.
+- **The checks**: `--selfcheck --only props,grammar` - the course wave 3
+  refused compiles under strict, five of its nine cells flagged; a resting
+  ball there sees four must-draw frames on each card with the pass on and its
+  104 pixels hidden on each; red arms `mustnopass`, `rule` and a patched
+  `bz_mkboxes` source. `tests/unit/t_bbedit.py` passes with item 21 less its
+  Shade line.
+- **Not done**: no emulator row was run (none was owed: no guest byte moved).
+  The "one refresh late" figure for a must-draw frame with the pass is
+  arithmetic on 130.13.3.4's measured frame and the tool's priced pass.
+  CASTL is still refused under `--strict`, for its own two warnings (a
+  `ball-hidden` behind the clock on line 187, a `blend` on line 78): the
+  owner's course and the owner's call.

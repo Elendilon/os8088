@@ -89,8 +89,8 @@
 
  21. THE OCCLUDERS AS SHIPPED (SPEC.md 130.58.44): on item 16's floor occ_data's `shipped` is the part's records
     (c.records, after AV and the merge) pixel for pixel, fewer than the rule's, each naming the cells that need it
-    and the rule's records sharing its pixels; bbedocc.OccView shows them by default, the rule's under "as cut" and
-    under Shade alone, its status "N records shipped (M before AV)"; a noocclude over a shipped record's cells
+    and the rule's records sharing its pixels; bbedocc.OccView shows them by default, the rule's under "as cut",
+    its status "N records shipped (M before AV)"; a noocclude over a shipped record's cells
     leaves no shipped record over its pixels needed by them alone. Red by hand: occ_data's `shipped` made the
     rule's rows ("304 records for the part's 215"), or OccView.shipped() False ("does not show the shipped records
     by default").
@@ -1361,7 +1361,7 @@ def occ_ship_check(c, od, text):
             break
     v = O.OccView.__new__(O.OccView)
     v.app, v.data, v.flags = _OccApp(text), od, {(x, y): f for x, y, f in od["cells"]}
-    v.show, v.shade, v.which = _Var(True), _Var(False), _Var("shipped")
+    v.show, v.which = _Var(True), _Var("shipped")
     said = []
     v._say = said.append
     v.wanted = lambda: True
@@ -1377,9 +1377,6 @@ def occ_ship_check(c, od, text):
     v.which = _Var("cut")
     if v.recs() is not rl or "showing the rule's" not in (v._counts() or said[-1]):
         bad.append("item 21: *as cut* does not show the rule's records")
-    v.show, v.shade = _Var(False), _Var(True)
-    if v.recs() is not rl:
-        bad.append("item 21: Shade alone does not take the rule's records (its doorway's ids are the rule's)")
     do = E.Document(text)
     play = do.in_play()                 # (the start's and the route points' cells: noocclude refuses them)
     free = [i for i in range(len(sh)) if not {tuple(n) for n in sh[i]["needs"]} & play]
@@ -1495,7 +1492,7 @@ def partial_check(text):
     meta = {"width": 1, "lines": 1, "occ": {"error": err, "partial": True, "secs": 1.0}}
     v.app = _OccApp(text)
     v.app.pic = {"meta": meta}
-    v.show, v.shade, v.which, v.sel = _Var(True), _Var(False), _Var("shipped"), None
+    v.show, v.which, v.sel = _Var(True), _Var("shipped"), None
     said = []
     v._say = said.append
     v.wanted = lambda: True
@@ -1538,7 +1535,7 @@ def multi_check(c, od, text):
     v.app = _SelApp(text, c)
     v.data, v.flags = od, {(x, y): f for x, y, f in od["cells"]}
     v.noocc = set()
-    v.show, v.shade, v.which, v.sel, v.drag = _Var(True), _Var(False), _Var("shipped"), None, None
+    v.show, v.which, v.sel, v.drag = _Var(True), _Var("shipped"), None, None
     sh = od["shipped"]
     v.pick_rect(0, 0, c.width - 1, c.lines - 1)
     if not v.sel or v.sel[0] != "recs" or len(v.sel[1]) != len(sh):
