@@ -433,7 +433,7 @@ dhcp_in:
     call mem_cp4
 .nodns:
     mov byte [dhcp_st], DH_BOUND
-    mov word [dhcp_tmo], 0
+    and word [dhcp_tmo], 0              ; (no caller reads the flags)
 .out:
     pop di
     pop si
@@ -562,20 +562,15 @@ dns_skip:
     inc si
     add si, ax
     jmp short .l
-.ptr:
-    add si, 2
+.ptr:                           ; a pointer is two bytes, both inside:
+    inc si                      ; the first is, so is the second?
     cmp si, bx
-    ja  .no
-    clc
-    pop ax
-    ret
-.zero:
+    jae .no
+.zero:                          ; ...and the root label is one
     inc si
-    clc
-    pop ax
-    ret
-.no:
-    stc
+    db 0xA8                     ; `test al, 0xF9`: CF = 0, over the `stc` -
+.no:                            ; one tail for the three answers (driver
+    stc                         ; size pass 2)
     pop ax
     ret
 
@@ -785,7 +780,7 @@ dns_unres:
     jne dns_dropr
 dns_drop:                       ; the resolver is idle again
     mov byte [dns_sk], 0xFF
-    mov word [dns_lport], 0
+    and word [dns_lport], 0     ; (the flags are this routine's to spend)
 dns_dropr:
     ret
 
@@ -820,24 +815,15 @@ dns_timer:
     mov [dns_sk], al                    ; way: dns_fail below lets go of it
     mov si, eth_dns                     ; ...and can we even ask? A machine
     call ip_zero                        ; with no name server has to say no
-    jz  .nodns                          ; rather than time out four times
+    jz  .give                           ; rather than time out four times
     call OSAPI_RAND
     mov [dns_id], ax
     call tcp_lport                      ; a source port out of the same pool
     mov [dns_lport], ax
     mov byte [dns_try], 0
     call dns_send
-    jc  .bad
-    call OSAPI_GET_TICKS
-    add ax, DNS_TMO
-    mov [dns_tmo], ax
-    jmp short .out
-.bad:
-    call dns_fail                       ; the name will not even encode
-    jmp short .out
-.nodns:
-    call dns_fail
-    jmp short .out
+    jc  .give                           ; the name will not even encode
+    jmp short .arm
 .live:
     call OSAPI_GET_TICKS
     sub ax, [dns_tmo]
@@ -847,9 +833,10 @@ dns_timer:
     cmp al, DNS_TRIES
     jae .give
     call dns_send
-    call OSAPI_GET_TICKS
-    add ax, DNS_TMO
-    mov [dns_tmo], ax
+.arm:                                   ; ONE deadline for the first ask and
+    call OSAPI_GET_TICKS                ; every retry, and one dns_fail for
+    add ax, DNS_TMO                     ; the three ways to give up (driver
+    mov [dns_tmo], ax                   ; size pass 2)
     jmp short .out
 .give:
     call dns_fail
