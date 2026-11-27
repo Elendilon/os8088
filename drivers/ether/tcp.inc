@@ -1760,9 +1760,9 @@ tcp_abort:
 ;
 ; A connection the stack has completed but NETV_ACCEPT has not taken is marked
 ; SKF_ACPT and belongs to NOBODY: the package was never given a handle for it,
-; so it cannot close it, and eth_v_accept will not hand it over once the peer
-; has closed, because it matches on NSK_UP. So it sat in the table until the
-; machine was turned off.
+; so it cannot close it - and until SPEC.md 77.54 eth_v_accept would not hand
+; it over once the peer had closed, because it matched on NSK_UP alone. So it
+; sat in the table until the machine was turned off.
 ;
 ; **THE FOURTH HANDLE IS WHAT MAKES THAT FATAL RATHER THAN UNTIDY** (netpkg.inc
 ; keeps NET_SOCKS at 4 precisely for a server). Measured: an FTP server that

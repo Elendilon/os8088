@@ -145424,8 +145424,8 @@ other end.
 `drivers/ether/tcp.inc`). A connection the stack has completed but
 `NETV_ACCEPT` has not taken is marked `SKF_ACPT` and belongs to *nobody*: the
 package was never given a handle for it, so it cannot close it, and
-`eth_v_accept` will not hand it over once the peer has closed, because it
-matches on `NSK_UP`. So it sat in the socket table until the machine was
+`eth_v_accept` would not hand it over once the peer had closed, because it
+matched on `NSK_UP` (it does since 77.54). So it sat in the socket table until the machine was
 turned off. **The fourth handle is what makes that fatal rather than untidy**:
 `NET_SOCKS` is 4 precisely so a server can hold a listener, a control
 connection and a data connection at once, so one stranded socket is the whole
@@ -148978,6 +148978,29 @@ before it finishes, which is what netpkg.inc says end of stream is. And the
 failure that remains (`NSK_FAILED`, `NSK_CLOSED`, a driver error) **answers
 425** through `fd_xfail` - abort the data socket, forget the transfer, say
 so - instead of leaving the client to time out.
+
+### 77.54 ...and so is a passive one the peer closed before it was accepted
+
+77.53's race has a passive half, and that half was in the DRIVER. The stack
+completes a connection to a listener on its own, before anyone accepts it.
+It marks the connection `SKF_ACPT` and ACKs the client's data into its
+receive ring. `eth_v_accept` (`drivers/ether/ethsock.inc`) handed over only
+a child in `NSK_UP`. A host client that connects, sends 8 KB and closes
+before the guest's next accept poll is waited on with no reply. Its child
+goes to `NSK_CLOSING` with the bytes and the FIN still waiting, and it is
+never accepted. The server sat after its 150 with `[fd_dmode]` at
+`DM_PASV`, and the client waited for a 226 that never came. `tests/ftpd.py`'s
+8d (`STOR TWTEST.DAT` straight after a `LIST`) hit it in a full soak, with
+the guest clock running all 30 seconds. The client is the host and pays
+nothing for the load that starves the guest, so a loaded box widens the
+window.
+
+**`NETV_ACCEPT` hands over a connection whose peer has already closed**, as
+every sockets implementation does. The readable bytes are still there, and
+`NSK_CLOSING` is the end of stream that netpkg.inc's receive contract
+already describes (77.53). The package needed no change: `fd_data_ready`'s
+passive arm reaches `DM_UP`, and the receive stage drains the ring to
+CX = 0.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

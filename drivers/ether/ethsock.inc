@@ -472,8 +472,12 @@ eth_v_accept:
     jz  .next
     cmp si, [bx+SKO_LP]
     jne .next
-    cmp byte [bx+SKO_ST], NSK_UP
-    jne .next
+    mov al, [bx+SKO_ST]
+    cmp al, NSK_UP
+    je .take
+    cmp al, NSK_CLOSING         ; **CONNECTED, SENT AND CLOSED BEFORE ANYONE
+    jne .next                   ; ASKED** (SPEC.md 77.54): its bytes and its
+.take:                          ; FIN are in the ring, so it is a connection
     and byte [bx+SKO_FL], ~SKF_ACPT
     mov al, dl
     inc al

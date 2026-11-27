@@ -102,7 +102,10 @@ NETV_LISTEN  equ 7              ; in  CX = a port -> AX = a LISTENING handle
 NETV_ACCEPT  equ 8              ; in  AL = a listening handle
                                 ; out AX = a NEW connected handle, or 0 with
                                 ;     CF=0 for "nobody yet" - which is the
-                                ;     ordinary answer and not an error.
+                                ;     ordinary answer and not an error. A
+                                ;     connection whose peer has ALREADY CLOSED
+                                ;     is handed over too, NSK_CLOSING with its
+                                ;     bytes still readable (SPEC.md 77.54).
                                 ;
                                 ; SEPARATE FROM LISTEN because a server must
                                 ; stay reachable while it is serving: the

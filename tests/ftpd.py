@@ -1010,6 +1010,54 @@ def run_gate(m, mo, fails):
         say("STOR immediately after LIST: %.2fs, so the pool did not starve"
             % dt)
 
+    say("--- 8d2. a passive upload that is OVER before the accept (SPEC.md "
+        "77.54) ---")
+    # The stack completes a connection to the listener on its own and ACKs
+    # its bytes into the ring before anyone accepts it, and NETV_ACCEPT
+    # handed over only an NSK_UP child: a host client that connected, sent
+    # and closed before the guest's next accept poll left its child CLOSING
+    # and never accepted, and the server sat after its 150 for ever - the
+    # full soak's 8d, a host client being fast and a loaded guest slow. Made
+    # CERTAIN here: the data connection is made, filled and closed while the
+    # guest is STOPPED (slirp, in QEMU's main loop, takes the host's side
+    # while the vCPU stands), the guest then runs a second - its stack
+    # completes the child, rings the 8 KB and takes the FIN, NSK_CLOSING -
+    # and only then does STOR go out, which is when the server first asks
+    # to accept. A client may dial before it sends the verb; ftplib dials
+    # after, and on a loaded box that ends in the same place. VERIFIED RED
+    # with eth_v_accept matching NSK_UP alone: no 226.
+    f = connect()
+    f.login("os8088", "os8088")
+    f.voidcmd("TYPE I")
+    _h, dport = f.makepasv()
+    blob = bytes((i * 7 + 3) & 255 for i in range(8192))
+    m.hmp("stop")
+    try:
+        d = socket.create_connection((HOST, dport), timeout=10)
+        d.sendall(blob)
+        d.close()
+    finally:
+        m.hmp("cont")
+    os88qemu.pace(m, 1.0)
+    f.putcmd("STOR LATE.DAT")
+    try:
+        r1 = f.getresp()
+        r2 = f.voidresp()
+        say("STOR into a connection closed before the accept: %s / %s"
+            % (r1[:3], r2[:3]))
+        got = io.BytesIO()
+        f.retrbinary("RETR LATE.DAT", got.write)
+        if got.getvalue() != blob:
+            fails.append("8d2: LATE.DAT came back %d bytes, not the 8192 "
+                         "sent" % len(got.getvalue()))
+        else:
+            say("RETR LATE.DAT: 8192 bytes, exact")
+        f.delete("LATE.DAT")
+        f.quit()
+    except (socket.timeout, ftplib.Error, EOFError) as e:
+        fails.append("8d2: a passive STOR whose client closed before the "
+                     "accept got no 226 (%s) - SPEC.md 77.54" % e)
+
     say("--- 8f. a LIST of a folder that is not there ENDS (SPEC.md 77.25.1) ---")
     # THE 150 GOES OUT BEFORE THE WALK, which runs on the UI task - so the
     # refusal used to abort a data connection the worker had not ACCEPTED
