@@ -340,7 +340,22 @@ def main():
     rb = lambda n: m.readseg(pseg, sy[n], 1)[0]         # noqa: E731
     rw = lambda n: u16(m.readseg(pseg, sy[n], 2))       # noqa: E731
 
+    # THE REQUEST BEFORE THE STATE, after a fetch(): the server's count of
+    # requests when it pressed Return. Half a guest second is not proof that
+    # the fetch has LEFT the finished state it found: a fetch that never
+    # started reads the PREVIOUS page's BN_DONE, and "page A after the
+    # frameset" passed on the frameset's own while Save As then wrote its
+    # last frame's 20,443 bytes (brnav, the soak)
+    fmark = [None]
+
     def wait_done(what):
+        if fmark[0] is not None:
+            if not os88qemu.acted(m, lambda: len(srv.log) > fmark[0],
+                                  secs=20, poll=0.05,
+                                  what="%s: its request at the server"
+                                  % what):
+                fails.append("%s: the fetch never reached the server" % what)
+            fmark[0] = None
         # The first half-second is not a poll: it is the time the action this
         # follows has to LEAVE the finished state it found, which a check made
         # at once would read as done.
@@ -360,7 +375,17 @@ def main():
         # asked for the page.
         lx2 = u16(m.readseg(pseg, sy["br_loc"] + 4, 2))
         ly1 = u16(m.readseg(pseg, sy["br_loc"] + 2, 2))
-        Mouse().click(lx2 - 6, ly1 + 7)         # past the text: the caret
+        # THE CLICK IS CONFIRMED on the Browser's own focus byte, and made
+        # again if it did not take: QEMU's mouse edges are the HOST's, and on
+        # a loaded soak a press and its release can reach a starved guest in
+        # one sync - no click at all, the bar unfocused, and every key typed
+        # after it went to the page (brnav, after the frameset: the bar still
+        # read fs.htm and no request left)
+        for _try in range(3):
+            Mouse().click(lx2 - 6, ly1 + 7)     # past the text: the caret
+            if os88qemu.acted(m, lambda: rb("br_tfocus") == 1, secs=3,
+                              what="the address bar focused", poll=0.05):
+                break
         os88qemu.pace(m, 1.0)                   # lands at its END
 
         def barlen():
@@ -377,6 +402,7 @@ def main():
         type_url(url)
         os88qemu.acted(m, lambda: barlen() == len(url), secs=5,
                        what="the URL typed", poll=0.1)
+        fmark[0] = len(srv.log)
         subprocess.run(["python3", "tools/qmp.py", SOCK, "sendkey ret"],
                        check=True, capture_output=True)
 
