@@ -1250,7 +1250,9 @@ VID_CTXCAP ext_ctxcap, ret      ; (vidsel.inc: the panel, the boot and this)
 ;            pass 13; EXT_FCUT, behind font_ch_spill's [gfx_dnest] = 1 test)
 ;
 ; in:       CX = x, DX = y, LOCAL to the display font_char entered; AL = the
-;           character; one of the two edge tests has just failed
+;           glyph's INDEX (the character less FONT_FIRST, font_char's own - it
+;           was the character until kernel size pass 21); one of the two edge
+;           tests has just failed
 ; out:      CF = 0 - font_seam_a holds this display's part of the cell, and the
 ;           spill has ALREADY been drawn on the display across the seam with
 ;           this one put back current. The caller draws font_seam_a in place
@@ -1298,11 +1300,11 @@ ext_fcut:                       ; [gfx_dnest] = 1 was asked by the caller,
     push bp
 
     mov es, [font_seg]          ; ES:SI -> the source rows, wherever the table
-    sub al, FONT_FIRST          ; is (SPEC.md 6) - and this is the same
-    xor ah, ah                  ; arithmetic that will address the scratch
-    shl ax, 1                   ; cell on the way back in. ZERO-extend AFTER
-    shl ax, 1                   ; the subtract, and this is the ONE site with
-    shl ax, 1                   ; no range test above it: AL is anything up to
+    xor ah, ah                  ; is (SPEC.md 6) - and this is the same
+    shl ax, 1                   ; arithmetic that will address the scratch
+    shl ax, 1                   ; cell on the way back in. ZERO-extend the
+    shl ax, 1                   ; index, and this is the ONE site with
+                                ; no range test above it: AL is anything up to
     add ax, [font_base]         ; [font_last] (255 with the CP850 provider, an
     xchg ax, si                 ; (ES is font_char's to clobber: it banked it)
                                 ; index of 223), or FONT_SEAM_A/_B under

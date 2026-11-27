@@ -2337,8 +2337,7 @@ os88ui_sbar:
 %endif                          ; gives DX back (the rule above, -2)
     mov ax, si
     sub ax, bp
-    mov bx, si
-    add bx, bp
+    lea bx, [bp+si]             ; (the line writes no flag it reads: -2)
     UI_HLINE
 %ifndef OS88UI_KERNEL
     pop dx

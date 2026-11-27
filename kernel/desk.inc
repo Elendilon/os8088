@@ -1338,9 +1338,9 @@ desk_click_x:
     jmp short .out
 .sel:
     call desk_select            ; a miss clears the selection
-    jmp short .out
+%ifdef OS88_SHORTCUTS           ; (without them .drag IS .out, and .sel falls
+    jmp short .out              ; in: kernel size pass 21, -2 on kern_small)
 .drag:
-%ifdef OS88_SHORTCUTS
     mov cx, di                  ; the press that selected it is the press that
     mov dx, si                  ; drags it: fm_drag's own four pixels, waited
     call ct_cw_gfx_lock         ; out with the lock free inside the wait
@@ -1351,6 +1351,8 @@ desk_click_x:
     call sc_modcall
 .u:
     call ct_cw_gfx_unlock
+%else
+.drag:
 %endif
 .out:
     jmp kretfc_bp
@@ -1641,9 +1643,8 @@ desk_colr:
     mov cx, ax
     add cx, DESK_ZW - 1
     mov bx, [desk_zy]
-    mov dx, bx
-    add dx, [desk_zh1]
-    sub dx, DESK_LBLH
+    lea dx, [bx-DESK_LBLH]      ; DX = the same sum (kernel size pass 21, -2;
+    add dx, [desk_zh1]          ; no caller reads the flags)
     ret
 
 ; desk_g2 - the ground in rows BX..DX of the cell, either side of AX..CX

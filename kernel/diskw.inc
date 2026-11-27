@@ -4817,12 +4817,11 @@ dskw_wabody:
     mov byte [dsk_chwr], 1      ; dsk_write_chain_x, written at its one
     call dsk_read_chain_x       ; caller: the walk's write arm (pass 17, -4)
     mov byte [dsk_chwr], 0      ; `mov` writes no flag: the CF stands
-    jc .jio                     ; a media error, mapped as one: 03h is
-%ifdef OS88_FAT32
-    jmp .size                   ; FERR_WPROT here as on every other write path
-%else
-    jmp short .size             ; FERR_WPROT here as on every other write path
-%endif
+    jnc .size                   ; CF = 1 a media error, mapped as one: 03h is
+                                ; FERR_WPROT here as on every other write path.
+                                ; (In reach without FAT32, -2: kernel size pass
+                                ; 21. With it nasm writes `jc $+5 / jmp near`,
+                                ; the two that stood here)
 .jio:
     cmp al, 1                   ; AL = 2 is the CHAIN ending before the size
     jne .jcor                   ; said: corruption, not [dsk_ioerr]'s last

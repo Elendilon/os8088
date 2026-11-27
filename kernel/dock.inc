@@ -968,9 +968,8 @@ db_rect_ax:                   ; ...and the arithmetic ALONE, for a caller
 %else
     mov bx, [vid_dock_ty0]
 %endif
-    mov dx, bx
-    add dx, DOCK_TILE_H-1
-    ret
+    lea dx, [bx+DOCK_TILE_H-1]  ; (flags are clobbered by contract: pass 21,
+    ret                         ; -2)
 
 ; -----------------------------------------------------------------------------
 ; db_erase_tile - white out tile i's rect

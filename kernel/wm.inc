@@ -11371,10 +11371,10 @@ wm_nest_pushd_x:
 wm_nest_pop_x:
     call wm_nest_pop
     retf
-%else
-    nop                         ; PARITY PAD, never executed: the nest's 47
-%endif                          ; bytes leave kern_small's hot .cold routines
-                                ; at an EVEN shift (t_hotpar.py)
+%endif                          ; (kern_small's PARITY pad here, for the nest's
+                                ; odd 47, went in kernel size pass 21 with
+                                ; blank.inc's, the byte before it: the two
+                                ; cancelled)
 ; ...and wm_pkgcall's dispatch into a KERNEL window's callback (SPEC.md 2.6.3):
 ; every one is a `.cold` near proc, named by its offset in BP. The same entry
 ; serves anything else in the kernel that wants a cold near proc called from

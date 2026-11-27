@@ -922,7 +922,7 @@ section .text                   ; ...but NOT this one. dsk_dbg_raw is a FAR
 dsk_dbg_raw:
     push ds
     push si
-    KDATAR si
+    KSEGR si                    ; (far-called at KERNEL_SEG: CS is the kernel's)
     mov ds, si
     inc byte [sch_lock]         ; pause task switching, exactly as dsk_xfer
     mov ah, 0x02                ; does - the tick still runs, the motor needs
@@ -8738,10 +8738,10 @@ dsk_rah_redo:
     mov bx, MEM_P_RAHB
     xor dx, dx
     xchg dx, [dsk_rah_bnc]
-    or dx, dx
-    jz .gone
-    call mem_free_x
-    jmp short .gone
+    call mem_free_x             ; (a 0 - the landing shed already - is
+    jmp short .gone             ; mem_find_own's refusal: mega_ishif(0) is
+                                ; CF = 1. Rare, and .gone writes the flags:
+                                ; kernel size pass 21, -4)
 .conv:
 %endif
     mov bx, MEM_P_DIRW
@@ -8803,10 +8803,8 @@ dsk_rah_want:
     mov bx, MEM_P_RAHB          ; landing stood low with nothing to land for
     xor dx, dx                  ; and this branch never took a store again
     xchg dx, [dsk_rah_bnc]      ; (KERN-MEGA-PLAN 14.121). The landing goes,
-    or dx, dx                   ; and the solve below takes both afresh
-    jz .lo
-    call mem_free_x
-.lo:
+    call mem_free_x             ; and the solve below takes both afresh - a
+.lo:                            ; 0 is mem_free's refusal (pass 21, -4)
 %endif
     cmp word [dsk_rah_seg], 0
     jne .out                    ; already held
@@ -10483,9 +10481,8 @@ dsk_read_chain_x:
 %endif
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2   ; FAT32: the same walk, each cluster whole
-    jne .w16                    ; (below, SPEC.md 19.12.3)
-    jmp .w32
-.w16:
+    je .w32                     ; (below, SPEC.md 19.12.3; in reach since
+.w16:                           ; kernel size pass 21's count, -2)
 %endif
     mov si, ax                  ; SI = current cluster
     xor cx, cx                  ; CX = run_len (0 = no pending run)
@@ -12141,8 +12138,9 @@ dsk_fdd_park_x:
     ; second read having written nothing (dsk_fdd_pmemu's ramp, SPEC.md 18.97.6)
 %ifdef KERN_MEGA
     cmp byte [ss:mega_pm], 0    ; protected mode: EVERY machine is warm-reset
-    je .rmode                   ; once the heads are parked - the int 19h at
-    jmp short .parked           ; dsk_rb_go is mega_svc's 8042 reset there.
+    jne .parked                 ; once the heads are parked - the int 19h at
+                                ; dsk_rb_go is mega_svc's 8042 reset there
+                                ; (one jcc, kernel size pass 21: -2).
 .rmode:                         ; The PicoMEM's own `jmp FFFF:0` is a SELECTOR
 %endif                          ; in protected mode: the Victory hung on it
     pushf

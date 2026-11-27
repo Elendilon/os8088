@@ -568,11 +568,13 @@ fm_kinit_x:
 %ifdef KERN_SMALL
     push bx                     ; THE PREVIOUS TENANT OF THIS KD_POOL BLOCK
     mov dx, [di+FS_VSEG]        ; (22.6.1) IS FREED HERE, and on this kernel
-    or dx, dx                   ; that is not tidiness: the cache is purgeable
-    jz .nostale                 ; and so owned by MEM_P_VIEW + this slot
+                                ; that is not tidiness: the cache is purgeable
+                                ; and so owned by MEM_P_VIEW + this slot
     call fmv_owner              ; (50.6), which mem_free_rec's owner walk
     call mem_free_x             ; cannot reap - a tag is nobody's instance. A
-.nostale:                       ; window that closed left its claim standing,
+                                ; 0 (no tenant) is mem_find_own's refusal, on
+                                ; a window's open (pass 21, -4). A
+                                ; window that closed left its claim standing,
     pop bx                      ; and the block it names is about to be a
                                 ; DIFFERENT window's. Shedding it then would
                                 ; zero the new tenant's FS_VSEG. (DX is not
@@ -2893,8 +2895,9 @@ fm_choose:
     ; pass 17)
     push ax
     push si
-    mov ch, 0
-    mov cl, [wm_zn]
+    mov al, [wm_zn]             ; CX = the count: [wm_zn] <= MAX_WIN, so `cbw`
+    cbw                         ; zero-extends it, and AX is banked (kernel
+    xchg ax, cx                 ; size pass 21, -1: wm_top's form)
     mov si, wm_zord
     add si, cx
     jcxz .nofront
