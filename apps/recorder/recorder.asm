@@ -541,8 +541,10 @@ rc_poll:
     call rc_pump                    ; (what did arrive is kept)
     mov ax, rc_s_rwdog
 .rend:
-    call rc_close
-.say:
+    push ax                         ; rc_close CLOBBERS AX (verb 2's answer):
+    call rc_close                   ; without the push every take that ended
+    pop ax                          ; by itself - FULL, lapped, watchdog -
+.say:                               ; said string 0, the package header
     mov [rc_msg], ax
 .out:
     pop dx

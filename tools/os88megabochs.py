@@ -1004,7 +1004,7 @@ class MegaBochs(MegaMixin, om.Marty):
             self._log.append({"cycles": self._cycles(), "kind": "queued",
                               "args": list(a)})
 
-    def paced_input(self, chains, gap):
+    def paced_input(self, chains, gap, stay=False):
         """Send each xdotool chain of CHAINS to a STOPPED guest and run it
         EXACTLY `gap` GUEST seconds before the next (_run_exact) - input
         whose spacing matters, on a device that cannot take a queue.
@@ -1027,8 +1027,13 @@ class MegaBochs(MegaMixin, om.Marty):
         unread at the stop - it cannot be read stopped - is waited for on a
         running guest, as queued_input does, and said.
 
-        Leaves the guest RUNNING. Answers the GUEST seconds run after each
-        chain, read off the time breakpoint (so they are the spacing the
+        Leaves the guest RUNNING - or, with STAY, stopped where the last
+        chain's exact run ended, so a caller stepping a gesture on a paused
+        guest (tests/recorder.py's stepped_click) hands it no host-timed
+        run between the chains it sends: resumed here and paused by the
+        caller after, the guest ran 0.3-0.5 s of a host round trip on an
+        idle box against the 0.04 asked. Answers the GUEST seconds run after
+        each chain, read off the time breakpoint (so they are the spacing the
         guest saw, exactly, where ticks read around the call also count the
         host's gaps either side of it); [] when an exact run cannot be had
         here (a breakpoint of the row's own armed, a bp_trace pump,
@@ -1059,7 +1064,8 @@ class MegaBochs(MegaMixin, om.Marty):
                     self._resume()
                     inp.taken(stopped=self._bp_hit)
                     self._halt()
-            self._resume()
+            if not stay:
+                self._resume()
             self._log.append({"cycles": self._cycles(), "kind": "paced",
                               "args": [list(a) for a in chains]})
         return ran

@@ -26,11 +26,12 @@ confirmed off the package's own variables, read through its window's W_SEG:
      ends PLAY DONE (SPEAKER); and the heap holds no claim of the package's
      but its region afterwards (the play buffer is a claim for the length of
      one play, SPEC.md 35.2).
-  5. REC / STOP: Record opens the input stream (RECORDING...) into a ring of
+  5. REC / STOP: the REC button opens the input stream (RECORDING...) into a ring of
      the package's own (SPEC.md 34.6.4), and with NOTHING clicked the
-     window timer's pump moves [rc_len] - the take grows by itself; Stop
-     closes it, and the ring's claim is gone (rc_rseg 0, the package's claims
-     what they were).
+     window timer's pump moves [rc_len] - the take grows by itself; the
+     STOP button, clicked on a paused guest stepped in guest time, closes it
+     BEFORE the grant fills ('STOPPED', not the FULL path's message), and the
+     ring's claim is gone (rc_rseg 0, the package's claims what they were).
 
 Broken on purpose - `--break-sweep` flips one sample of the model, and step
 2 FAILS; the base package (b13cfe60) FAILS step 1, its release handler
@@ -94,6 +95,75 @@ def every(hm):
     above 1MB as well (tools/heapmap.py's pool), where a package's own
     claims usually are - empty on every other kernel"""
     return hm.claims + getattr(hm, "pool", [])
+
+
+def stepped_click(m, mo, x, y, box):
+    """Move the pointer into BOX = (x1, y1, x2, y2), aiming at (x, y), then
+    press and release - all on a PAUSED guest handed only guest time, so the
+    gesture's length is the machine's and not the host's. Leaves it paused.
+
+    MartyPC: each serial packet is sent on the stopped guest and the machine
+    advanced until the published pointer moves; the edges are os88mouse's
+    stepped `_gedge`. Bochs: os88megabochs.paced_input, every xdotool chain
+    sent stopped and the guest run EXACTLY `gap` after it (Bochs's serial
+    mouse builds a packet only at its 100 ms poll, so its gap is longer)."""
+    def inside():
+        cx, cy, _ = mo.where()
+        return box[0] <= cx <= box[2] and box[1] <= cy <= box[3]
+    m.pause()
+    bochs = getattr(m, "bochs", False)
+    if bochs:
+        import os88bochs
+        gap = 0.15 if os88bochs.MOUSE == "serial" else 0.04
+    for _ in range(12):
+        if inside():
+            break
+        cx, cy, _ = mo.where()
+        dx = max(-100, min(100, x - cx))
+        dy = max(-100, min(100, y - cy))
+        if bochs:
+            # two X pixels a guest pixel (os88megabochs._c_mouse)
+            # STAY: left stopped where the exact run ended, or the guest
+            # runs a host round trip between chains (0.3-0.5 guest s)
+            if not m.paced_input([("mousemove_relative", "--", 2 * dx,
+                                   2 * dy)], gap, stay=True):
+                fail("5: no exact paced input here")
+        else:
+            m.mouse(dx, dy)
+            for _ in range(60):                 # ~0.25 guest s a packet
+                m.advance(cycles=20000)
+                if mo.where()[:2] != (cx, cy):
+                    break
+    if not inside():
+        fail("5: the pointer did not reach the button %r (at %r)"
+             % (box, mo.where()[:2]))
+    if bochs:
+        # EACH EDGE PROVED, as _gedge proves it: the press, then the
+        # release, each confirmed by the published mouse_btn before the
+        # next goes, and an edge not taken is SENT AGAIN (a packet carries
+        # the level, so a repeat is the same level - os88megabochs._c_mouse).
+        # ...and the press HELD a whole guest tick, as os88mouse holds one
+        # (HOLD_TICKS: a loop polling the level sees a press only if a poll
+        # lands inside it) - 0.04 s of press lost REC's click 1 run in 8
+        hold = max(gap, mo.HOLD_TICKS / 18.2065)
+        for down in (True, False):
+            for k in range(8):
+                if not m.paced_input([("mousedown" if down else "mouseup",
+                                       1)], hold if down else gap,
+                                     stay=True):
+                    fail("5: no exact paced input here")
+                if bool(mo.where()[2] & 1) == down:
+                    break
+                sys.stderr.write("recorder: the %s was not taken in %.2f "
+                                 "guest s; again\n"
+                                 % ("press" if down else "release", gap))
+            else:
+                fail("5: the %s never reached the guest (mouse_btn %02x)"
+                     % ("press" if down else "release", mo.where()[2]))
+    else:
+        mo._gedge(True)                 # tap()'s gesture: the press held
+        m.advance(cycles=int(mo.HOLD_TICKS * M.GUEST_HZ / 18.2065))
+        mo._gedge(False)
 
 
 def main():
@@ -252,36 +322,68 @@ def main():
         p.ww("rc_caps", caps)
 
         # --- 5. rec / stop ----------------------------------------------------
-        ui.menu_pick("Sound", "Record")
+        # THE REC BUTTON, CLICKED ON A PAUSED GUEST stepped in guest time
+        # (stepped_click), and the Record command's state then waited for in
+        # GUEST steps. It was Sound > Record off the menu, which returns at
+        # the release with the guest running: everything this process did
+        # after it was host time the guest spent recording - 0.4 s of a 2 s
+        # grant on an idle box, before the Stop below had even started. The
+        # menu's dispatch is Play's to test (steps 3 and 4); both reach the
+        # same rc_cmd
+        def rect(i):
+            r = m.read(p.addr("rc_rects") + 8 * i, 8)
+            x1, y1, x2, y2 = (u16(r[j:j + 2]) for j in range(0, 8, 2))
+            return ((x1 + x2) // 2, (y1 + y2) // 2,
+                    (x1 + 2, y1 + 2, x2 - 2, y2 - 2))
+        stepped_click(m, ui.mo, *rect(0))           # rect 0: REC
+        for _ in range(250):                    # 5 guest seconds at most
+            if p.rb("rc_st") != RC_IDLE:
+                break
+            m.advance(cycles=int(0.02 * M.GUEST_HZ))
         if p.rb("rc_st") != RC_REC or msg() != "RECORDING...":
-            fail("5: Record did not open the input (st %d, %r)"
-                 % (p.rb("rc_st"), msg()))
+            fail("5: Record did not open the input (st %d, %r, a press "
+                 "armed button %d)" % (p.rb("rc_st"), msg(), p.rw("rc_down")))
         if not p.rw("rc_rseg"):
             fail("5: recording with no ring claimed")
-        # EXACTLY 0.5 guest seconds, run by the server and read paused: 4,000
-        # bytes, under the smallest grant tier (RC_D_LEN), so not FULL. It
-        # was guest_sleep, which polls the guest's clock every 20 ms of HOST
-        # time and reads after it - so a host that preempted this process
-        # overshot by whatever the guest ran meanwhile, and on a loaded box
-        # that was a whole extra second (8,192 bytes, 'the pump is not
-        # running', and a pass when the same row ran alone)
-        m.pause()
+        # EXACTLY 0.5 guest seconds, run by the server, and the take's GROWTH
+        # over them read paused at both ends: ~4,000 bytes, well inside the
+        # smallest grant tier (RC_D_LEN). It was guest_sleep, which polls the
+        # guest's clock every 20 ms of HOST time and reads after it - so a
+        # host that preempted this process overshot by whatever the guest ran
+        # meanwhile (8,192 bytes, 'the pump is not running'). And it was then
+        # the TOTAL rc_len after the advance - which also counted every guest
+        # moment between Record opening and the pause, the three reads above
+        # taken on a running guest: host time again, 9,216 bytes on a loaded
+        # box (mega-recorder, soak 20261127-002230) and a pass alone
+        base = p.rw("rc_len")
         m.advance(cycles=int(0.5 * M.GUEST_HZ))
-        grown = p.rw("rc_len")
-        m.run()
+        grown = p.rw("rc_len") - base
         if not 1500 <= grown <= 6000 or p.rb("rc_st") != RC_REC:
             fail("5: 0.5 s of recording with nothing clicked took %d bytes, "
                  "state %d %r - the timer's pump is not running (cap %d)"
                  % (grown, p.rb("rc_st"), msg(), p.rw("rc_cap")))
-        ui.menu_pick("Sound", "Stop")
-        # ...ON THE GUEST'S CLOCK: the Stop lands a moment after the menu
-        # closes (the pick returns when the menu is gone, not when the
-        # handler has run), and an immediate read was the host's race
-        try:
-            M.until(m, lambda _: p.rb("rc_st") == RC_IDLE, "the Stop",
-                    guest=5)
-        except M.MartyError:
-            pass                        # ...the check below says what it saw
+        # STOP, PRESSED AND RELEASED ON THE GUEST'S CLOCK, the machine still
+        # paused. It was Sound > Stop off the menu, a gesture of 1.6-2.0
+        # GUEST seconds on both emulators, and the take's grant is 16,000
+        # bytes - 2 s - so the take was FULL before the pick ever landed:
+        # every run ended 'NOT RUNNING', the ring freed by rc_poll's FULL
+        # path, and the check below passed with Stop doing nothing at all.
+        # Stepped, the whole gesture is a few hundred guest ms and nothing
+        # the host does can lengthen it
+        stepped_click(m, ui.mo, *rect(1))           # rect 1: STOP
+        for _ in range(100):                    # 2 guest seconds at most
+            if p.rb("rc_st") == RC_IDLE:
+                break
+            m.advance(cycles=int(0.02 * M.GUEST_HZ))
+        took, said = p.rw("rc_len"), msg()
+        m.run()
+        # ...AND IT WAS STOP THAT ENDED IT: rc_do_stop's own message, with
+        # the take short of the grant - the FULL path says 'REC STOPPED
+        # (FULL)', and a Stop that lands after it 'NOT RUNNING'
+        if p.rb("rc_st") == RC_IDLE and (said != "STOPPED"
+                                         or took >= p.rw("rc_cap")):
+            fail("5: the take ended %r at %d of %d bytes - not by Stop"
+                 % (said, took, p.rw("rc_cap")))
         if p.rb("rc_st") != RC_IDLE:
             fail("5: Stop left state %d (%r)" % (p.rb("rc_st"), msg()))
         after = sorted((c.seg, c.para) for c in every(heapmap.Map(m, heap))
@@ -290,8 +392,9 @@ def main():
             fail("5: the ring was not freed (rc_rseg %04x, claims %s against "
                  "%s)" % (p.rw("rc_rseg"), after, mine))
         print("PASS 5: Record opened the ring, the pump took %d bytes in .5 s "
-              "unclicked, Stop closed it and freed the ring (%r, %d bytes)"
-              % (grown, msg(), p.rw("rc_len")), flush=True)
+              "unclicked, the STOP button closed it at %d of %d bytes and "
+              "freed the ring (%r)" % (grown, took, p.rw("rc_cap"), msg()),
+              flush=True)
     print("recorder: ok", flush=True)
 
 
