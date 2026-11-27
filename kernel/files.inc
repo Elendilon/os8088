@@ -567,15 +567,18 @@ fm_kinit_x:
 
 %ifdef KERN_SMALL
     push bx                     ; THE PREVIOUS TENANT OF THIS KD_POOL BLOCK
-    push dx                     ; (22.6.1) IS FREED HERE, and on this kernel
-    mov dx, [di+FS_VSEG]        ; that is not tidiness: the cache is purgeable
-    or dx, dx                   ; and so owned by MEM_P_VIEW + this slot
-    jz .nostale                 ; (50.6), which mem_free_rec's owner walk
-    call fmv_owner              ; cannot reap - a tag is nobody's instance. A
-    call mem_free_x             ; window that closed left its claim standing,
-.nostale:                       ; and the block it names is about to be a
-    pop dx                      ; DIFFERENT window's. Shedding it then would
-    pop bx                      ; zero the new tenant's FS_VSEG
+    mov dx, [di+FS_VSEG]        ; (22.6.1) IS FREED HERE, and on this kernel
+    or dx, dx                   ; that is not tidiness: the cache is purgeable
+    jz .nostale                 ; and so owned by MEM_P_VIEW + this slot
+    call fmv_owner              ; (50.6), which mem_free_rec's owner walk
+    call mem_free_x             ; cannot reap - a tag is nobody's instance. A
+.nostale:                       ; window that closed left its claim standing,
+    pop bx                      ; and the block it names is about to be a
+                                ; DIFFERENT window's. Shedding it then would
+                                ; zero the new tenant's FS_VSEG. (DX is not
+                                ; banked: the ladder has it for the caller,
+                                ; and nothing reads it before wm_minsize's
+                                ; `mov dx, FM_MIN_H` - kernel size pass 21)
 %endif                          ; (kern_big's wheel is fm_cls's, 13.18.3)
     xor ax, ax                  ; EVERY field a fresh window starts from,
     push di                     ; as words off one zero, by STOSW (kernel size
@@ -1366,17 +1369,22 @@ fmv_fit:
 fmv_owner:
 %ifdef KERN_SMALL
     push ax                     ; THE TAG, AND OFF THE BLOCK IN DI (SPEC.md
-    push cx                     ; 50.6): a purgeable claim's owner IS its
-    mov ax, di                  ; request, so this cache is MEM_P_VIEW plus its
-    sub ax, fm_pool             ; fm_pool slot and not an instance at all -
-    mov cl, FS_SIZE             ; which also makes the answer independent of
-    div cl                      ; [fm_vinst], the ACTING window, so a shed can
-    mov ah, 0                   ; ask about a window that is not the one in
-    add ax, MEM_P_VIEW          ; front. AL = the slot and AH the remainder;
-    mov bx, ax                  ; FS_SIZE is not a power of two, so it is a
-    pop cx                      ; divide - and `div r/m8` takes its dividend
-    pop ax                      ; from AX alone, so DX is not in this at all
-    ret
+    mov ax, di                  ; 50.6): a purgeable claim's owner IS its
+    sub ax, fm_pool             ; request, so this cache is MEM_P_VIEW plus its
+    mov bl, FS_SIZE             ; fm_pool slot and not an instance at all -
+    div bl                      ; which also makes the answer independent of
+    cbw                         ; [fm_vinst], the ACTING window, so a shed can
+    add ax, MEM_P_VIEW          ; ask about a window that is not the one in
+    xchg ax, bx                 ; front. AL = the slot and AH the remainder;
+    pop ax                      ; FS_SIZE is not a power of two, so it is a
+    ret                         ; divide - and `div r/m8` takes its dividend
+                                ; from AX alone, so DX is not in this at all.
+                                ; The divisor is BL, the output's own byte,
+                                ; and the slot (< FM_NSLOT) widens by `cbw`
+                                ; (kernel size pass 21, -4)
+%if FM_NSLOT > 127
+  %error "fmv_owner widens the slot with cbw"
+%endif
 %else
     push ax
     mov ax, [fm_vinst]
@@ -2863,7 +2871,7 @@ fm_choose:
 %endif
     mov bx, [di+I_WIN]
     KDOOR wm_show
-    jmp ct_cw_gfx_unlock
+    jmp short .unlock           ; (one near jump to the thunk: pass 21, -1)
 .notopen:
     call fm_count               ; CX = live file-manager instances
     cmp cx, FM_MAXWIN
@@ -4030,8 +4038,8 @@ fm_onup_x:
                                 ; selection is kept (SPEC.md 22). The mirrors
                                 ; are re-read by the repaint's own fm_layout
 .paint:
-    call fm_repaint             ; SI still = window ptr
-.out:
+    jmp short fm_onclick_x.redraw ; its fm_repaint (SI still = window ptr)
+.out:                           ; and kretc_di, the same frame (size pass 21)
     jmp short fm_onclick_x.out  ; a neighbour's kretc_di (size pass 21)
 
 ; .still - the question both procs ask of a press: in AX = the arm, CX/DX
@@ -4139,19 +4147,16 @@ fm_hit:
     call fm_rowdiv              ; AX = visible row
     cmp ax, [fm_fit]
     jae .none                   ; below the row area
-    call fm_isicon
-    je .listidx
+    add ax, [fm_lscr]           ; the LISTING's row, both views: in the list
+    call fm_isicon              ; it IS the directory index (one `add` for
+    je .chk                     ; the two arms, kernel size pass 21, -6)
     xchg ax, di                 ; icon view: column from x (AX = x, DI the
     call fm_div80               ; row, for the divide)
     xchg ax, di                 ; DI = column, AX = the row again
     cmp di, [fm_cols]
     jae .none                   ; right of the last column
-    add ax, [fm_lscr]
     mul word [fm_cols]
     add ax, di                  ; AX = directory index
-    jmp short .chk
-.listidx:
-    add ax, [fm_lscr]           ; AX = directory index
 .chk:
     cmp ax, [fm_lnf]            ; past THIS window's listing: CF = 1 from
     cmc                         ; the `cmp` means INSIDE it, so flip it
@@ -5320,7 +5325,7 @@ fm_c_open:                      ; File > Open - the selection, if any
     call fm_open_sel
     jc .out                     ; a folder re-listed us and owes the whole
 .none:                          ; window; a package or a DOCUMENT opened
-    jmp fm_nw_none              ; somebody else's and changed NOTHING on
+    jmp short fm_arm_sel.nw     ; somebody else's and changed NOTHING on
 .out:                           ; this one - fm_open_sel's own answer, which
     ret                         ; is the same one fm_onclick reads on a
                                 ; double-click (SPEC.md 22.13.2). It was the
@@ -5363,6 +5368,7 @@ fm_arm_sel:
     jmp fm_edit_arm             ; size pass 21, -3)
 .none:
     pop ax                      ; nothing selected: a no-op, like File > Open
+.nw:                            ; (fm_c_open's too: kernel size pass 21)
     jmp fm_nw_none              ; - and a no-op draws nothing (22.13)
 %ifdef FM_MSEL
 fm_mdelarm:                     ; (Rename names the focus, as every one-name-
@@ -6096,6 +6102,7 @@ fm_c_clip:
     jnz fm_armset
 %endif
     mov bx, [di+FS_SEL]
+.arm:                           ; (fm_dgarm's too: kernel size pass 21)
     jmp fcp_arm                 ; CF=1 = nothing selected, or '..': a no-op,
                                 ; like every other command with nothing to act
                                 ; on.  Tail call - filecp.inc's `.cold` is
@@ -6185,7 +6192,7 @@ fm_dgarm:                       ; (DI is fm_drag's to lose: fm_dgwait has)
     call fm_misin               ; ZF = 0: the press is on the set
     xchg ax, bx
     jnz fm_armset
-    jmp fcp_arm
+    jmp short fm_c_clip.arm
 %endif
 
 fm_c_paste:                     ; File > Paste - into THIS window's folder
@@ -6302,6 +6309,7 @@ fm_c_up:                        ; Nav > Up One Folder
 %else
     xor si, si                  ; the parent cannot be named without the
 %endif                          ; grandparent's listing (SPEC.md 22)
+.go:                            ; (fm_c_root's too: kernel size pass 21)
     jmp fm_go
 .none equ fm_c_pasteno   ; its neighbour's ret (kernel size pass 16)
 
@@ -6309,7 +6317,7 @@ fm_c_root:                      ; Nav > Root Folder
     xor ax, ax
     CLU_HI0                     ; ...and its high word (SPEC.md 19.12.3)
     xor si, si
-    jmp fm_go
+    jmp short fm_c_up.go
 
 fm_vflip:                       ; the View button, V and the small build's
     mov di, [fm_vp]             ; header click: the OTHER view, back to the
@@ -8498,8 +8506,7 @@ fm_sel_bar:                     ; comes back holding it)
     lea dx, [bx+FM_ROW_H-1]     ; y2
     call fm_cxrgt
     sub cx, 15
-    call ct_cw_gfx_xor_fill
-    jmp short .out
+    jmp short .xf               ; the icon arm's call (kernel size pass 21)
 
 .icon:
     call fm_cellxy              ; the painter's own cell arithmetic
@@ -8508,6 +8515,7 @@ fm_sel_bar:                     ; comes back holding it)
     mov ax, [fm_cellx]
     mov cx, ax
     add cx, FMI_CELL_W - 1
+.xf:
     call ct_cw_gfx_xor_fill
 .out:
     jmp kretc_di
@@ -9206,6 +9214,9 @@ fm_draw_status:
 
 
     mov al, [fm_ledit]          ; ...and RECORD whether this paint leaves a
+    push ax                     ; (the mode again, for the ladder below: a
+                                ; push and a pop where a second load was -
+                                ; kernel size pass 21, -1)
     call fm_2line               ; line up in the row area (SPEC.md 22.20.1).
     sbb al, al                  ; Here rather than at the three branches that
     neg al                      ; draw one, so a fourth two-line prompt is a
@@ -9229,7 +9240,7 @@ fm_draw_status:
     ;     buffer is free by now, so every branch stages into it and one
     ;     truncation serves them all.
     mov di, fm_hdrbuf
-    mov al, [fm_ledit]          ; 1. the input line, prompt and all - the
+    pop ax                      ; 1. the input line, prompt and all - the
     cbw                         ;    editor IS the status line (SPEC.md 22).
     dec ax                      ; The modes are 0..FM_ESAVE, so AH = 0 and
     js .fs_st_space             ; the ladder is a COUNT-DOWN, a `dec` a rung
@@ -9598,7 +9609,9 @@ fm_scat:
 ; fm_kbfig - stage one KB figure, or '?' for the not-known sentinel
 ; in:  AX = KB (0xFFFF = not known), DI = destination
 ; out: DI -> the stored NUL
-; clobbers: DI (the output), flags
+; clobbers: AX, DI (the output), flags - both calls are fm_draw_status's, and
+;           what follows each (fm_scat's lodsb, fm_stat_line's load) writes AX
+;           before it reads it (kernel size pass 21)
 ;
 ; The sentinel is drawn rather than skipped: a Disk window whose mount failed
 ; still has a status line, and a blank one there reads as "no free space" -
@@ -9606,14 +9619,15 @@ fm_scat:
 ; big build carries bytes and draws them with fm_szfig_k (22.7.1).
 ; -----------------------------------------------------------------------------
 fm_kbfig:
-    cmp ax, 0xFFFF
-    je .unknown
+    inc ax                      ; 0xFFFF, the sentinel, is 0 now...
+    jz .unknown
+    dec ax
     call fm_utoa
-    mov word [di], 'K'          ; the letter AND its NUL, one store each arm
-    inc di                      ; (kernel size pass 18, -4)
-    ret
-.unknown:
-    mov word [di], '?'
+    mov ax, 'K'                 ; the letter AND its NUL, one store for both
+    SKIPF2                      ; arms (kernel size pass 18, -4; the store
+.unknown:                       ; shared, pass 21, -3)
+    mov al, '?'                 ; ...and AH its 0
+    mov [di], ax
     inc di
     ret
 %else
