@@ -1041,8 +1041,8 @@ fmv_get_icon:
 ; separate because THIS one is `.cold` and that one is `.text`, which are
 ; different address spaces (SPEC.md 2.6): a near call between them is a jump
 ; into the wrong segment and a thunk costs more than either body. fm_reloc,
-; the one walker in this file that is `.text`, calls inst_next instead - and
-; says so where it stands.
+; the one routine here in `.text`, walks neither: it finds its blocks by
+; value (kernel size pass 21).
 ; -----------------------------------------------------------------------------
 fmv_ifirst:
     mov si, inst_tab-I_RECSZ
@@ -3226,18 +3226,21 @@ fm_layout:
 
     ; cols = 1 (list) or max(1, (cw-16)/FMI_CELL_W) (icons) - the constant and
     ; not a literal, because it moved 78 -> 80 (SPEC.md 22.11.1.1) and this
-    ; comment said 78 for as long as it was true
+    ; comment said 78 for as long as it was true. The icon arm is that max as
+    ; 1 + max(0, cw-16-FMI_CELL_W)/FMI_CELL_W - the same quotient (x/80 is
+    ; (x-80)/80 + 1 from x = 80 up, and 1 below it), with the floor as one
+    ; clamp to 0 rather than two tests for 1 (kernel size pass 21, -4). The
+    ; list arm is untouched. CX and DX are kretc_di's: fm_div80 spends them
     mov ax, 1
     call fm_isicon
     je .cols
     mov ax, [fm_cw]
-    sub ax, 16
-    jle .cols1
+    sub ax, 16 + FMI_CELL_W
+    jge .colsq
+    xor ax, ax                  ; under one cell's width: 0, so the 1 below
+.colsq:
     call fm_div80
-    or ax, ax
-    jnz .cols
-.cols1:
-    mov ax, 1
+    inc ax
 .cols:
     stosw                       ; fm_cols
 
@@ -3675,9 +3678,9 @@ fm_onclick_x:
 %else
     mov al, FDH_CLICK           ; a chooser's column first (SPEC.md 38.3):
     call fdlg_hook              ; the press arms it, fdlg_onup fires it
-    jnc .nochcol
-    jmp .quiet
-.nochcol:
+    jc short .sbq               ; ...and .quiet, by the scroll ladder's
+                                ; trampoline: .quiet is past a short jump
+                                ; from here (kernel size pass 21, -3)
     cmp cx, 2                   ; BOTH buttons' rows, 2..15, asked once
     jl .sbar                    ; (kernel size pass 20)
     cmp cx, 15
@@ -3693,8 +3696,10 @@ fm_onclick_x:
     cmp dx, ax
     jg .sbar                    ; right of it: the toggle is LEFT of it
     call fm_reload              ; re-list where we ARE, folder included
-    jmp .redraw                 ; (under the gfx lock: stalls painters
-                                ;  briefly; accepted by SPEC.md 22)
+    jmp short .btnrd            ; (under the gfx lock: stalls painters
+                                ;  briefly; accepted by SPEC.md 22) - and the
+                                ; toggle's near jump to .redraw, which is past
+                                ; a short one (kernel size pass 21, -1)
 
     ; --- view toggle (drawn iff cw >= 142) ---
 .viewbtn:                       ; AX = cw - 68 still
@@ -3709,6 +3714,7 @@ fm_onclick_x:
     call fm_vflip               ; flip the view, back to the top; the
                                 ; selection is kept (SPEC.md 22). The mirrors
                                 ; are re-read by the repaint's own fm_layout
+.btnrd:
     jmp .redraw
 %endif
 
@@ -3723,21 +3729,19 @@ fm_onclick_x:
     ; content's y + the same y, which fm_layout stores out of the same
     ; wm_content (kernel size pass 18, -4). kern_big has just done exactly
     ; that for fm_bhit and arrives at .sbar_abs with it done (-6 more)
-%ifdef KERN_BIG
-.sbar_abs:
-    cmp word [fm_fit], 0
-    jne .sbar_go
-    pop dx
-    pop cx
-    jmp short .rows
-%else
-.sbar:
-    cmp word [fm_fit], 0
-    je .rows
+%ifndef KERN_BIG                ; (kern_small's arm FIRST: tools/stkbalance.py
+.sbar:                          ; reads both arms as one text, and kern_big's
+    cmp word [fm_fit], 0        ; falls into .sbar_go with the two words
+    je .rows                    ; pushed that this one pushes)
     push cx
     push dx
     mov cx, [fm_pressx]
     mov dx, [fm_pressy]
+%else
+.sbar_abs:                      ; AL = 0, fm_bhit's miss: with no bar, the
+    cmp word [fm_fit], 0        ; part ladder below reads it as "not on the
+    je .sbnone                  ; bar" and goes to .rows past the same two
+                                ; pops (kernel size pass 21, -4)
 %endif
 .sbar_go:
     call fm_sbset
@@ -3753,6 +3757,7 @@ fm_onclick_x:
     mov al, 0xFF                ; taken: this click scrolls NOTHING yet - the
 .nograb:                        ; rate decides when the view follows (13.10.5.4)
 %endif
+.sbnone:                        ; (kern_big's press with no row area: AL = 0)
     pop dx
     pop cx
 %ifdef OS88UI_SBDRAG
@@ -3993,15 +3998,11 @@ fm_onup_x:
     call os88ui_fire            ; AX = what the press armed, and it is CLEARED
     or ax, ax
     jz .out
-    push ax
-    call fm_slayout             ; ...which publishes [fm_vp] as well
-    pop bx                      ; BL = the button the press armed
-    call fm_bhit                ; is the pointer STILL on it?
-    cmp al, bl
-    je .fire
-    xor al, al                  ; no: thought better of. Let it up and that is
-    call fm_setdown             ; all - nothing fires
-    jmp short .out
+    call .still                 ; is the pointer STILL on it?
+    jne short fm_ondrag_x.off   ; no: thought better of. Let it up and that is
+                                ; all - nothing fires: fm_ondrag_x's own tail,
+                                ; the same frame (kentc_di) ending in the same
+                                ; kretc_di (kernel size pass 21, -7)
 .fire:
     cmp al, FM_BVIEW            ; a chooser's column (SPEC.md 38.3): let the
     jbe .hdr                    ; button up - its answer repaints nothing of
@@ -4030,6 +4031,19 @@ fm_onup_x:
     call fm_repaint             ; SI still = window ptr
 .out:
     jmp kretc_di
+
+; .still - the question both procs ask of a press: in AX = the arm, CX/DX
+; the pointer (absolute), SI the window; out BL = the armed button, AL = the
+; one the pointer is over now, ZF = 1 when they are the same; fm_layout's
+; mirrors current and [fm_vp] published. Clobbers AH and BX. It was written
+; out in each (kernel size pass 21, -3)
+.still:
+    push ax
+    call fm_slayout             ; ...which publishes [fm_vp] as well
+    pop bx                      ; BL = the button the press armed
+    call fm_bhit
+    cmp al, bl
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_ondrag - W_ONDRAG (SPEC.md 13.8.1): the pointer moved, press still down
@@ -4079,12 +4093,9 @@ fm_ondrag_x:
     jz .band                    ; the run from the first entry the pointer
     dec ax                      ; reached to the one it is on
 %endif
-    push ax
-    call fm_slayout
-    pop bx
-    call fm_bhit                ; AL = what the pointer is over now
-    cmp al, bl
+    call fm_onup_x.still        ; AL = what the pointer is over now
     je .set
+.off:                           ; (fm_onup_x's release off its button too)
     xor al, al                  ; off it: nothing is down
 .set:
     call fm_setdown             ; ...which draws only if that CHANGED
@@ -4535,18 +4546,19 @@ fm_onkey_x:
 ; The stamp moves on an IGNORED repeat too, or a held key drifts past the gap
 ; and fires anyway - [kbm_btick]'s own lesson. Its power-on value cannot
 ; matter: the ARM stamps it, and nothing can be confirmed before it is armed.
+;
+; [ticks] is read ONCE, and the stamp then gains (now - then), which leaves it
+; holding that same `now` with no second register to bank (kernel size pass
+; 21, -5).
 ; -----------------------------------------------------------------------------
 fm_delrep:
     push ax
-    push bx
-    mov bx, [ticks]
-    mov ax, bx
+    mov ax, [ticks]
     sub ax, [fm_delt]           ; wrap-safe, like every other tick compare in
-    mov [fm_delt], bx           ; this tree (the sign of a difference, never
-    cmp ax, KBM_GAP             ; two absolute readings compared)
-    pop bx                      ; `pop` does not touch flags, so the compare's
-    pop ax                      ; CF is the answer
-    ret
+    add [fm_delt], ax           ; this tree (the sign of a difference, never
+    cmp ax, KBM_GAP             ; two absolute readings compared); the stamp
+    pop ax                      ; is now. `pop` does not touch flags, so the
+    ret                         ; compare's CF is the answer
 
 ; =============================================================================
 ; Navigation and the shared open path (SPEC.md 19.2/22)
@@ -5319,8 +5331,8 @@ fm_c_open:                      ; File > Open - the selection, if any
                                 ; its own copy of
 
 fm_c_mkdir:                     ; File > New Folder... - arm the editor
-    mov al, 1                   ; (fm_edit_arm loads DI itself)
-    jmp fm_edit_arm
+    mov al, 1                   ; (fm_edit_arm loads DI itself), by
+    jmp short fm_arm_sel.arm    ; fm_arm_sel's near jump (kernel size pass 21)
 
 fm_c_rename:                    ; File > Rename... - arm it on the selection
     mov al, 2
@@ -5343,8 +5355,10 @@ fm_arm_sel:
     call fm_stage_onam          ; fm_onam + [fm_odir]
     cmp word [fm_ftype], 3      ; '..' is a way out of the folder, not a
     je .none                    ; thing in it: it renames and deletes like
-    pop ax                      ; the no-selection case, silently (19.5)
-    jmp fm_edit_arm
+.go:                            ; the no-selection case, silently (19.5)
+    pop ax                      ; (fm_mdelarm's arm too, and fm_c_mkdir's
+.arm:                           ; jump: one near `jmp` for the three, kernel
+    jmp fm_edit_arm             ; size pass 21, -3)
 .none:
     pop ax                      ; nothing selected: a no-op, like File > Open
     jmp fm_nw_none              ; - and a no-op draws nothing (22.13)
@@ -5365,8 +5379,7 @@ fm_mdelarm:                     ; (Rename names the focus, as every one-name-
     mov si, fm_s_items
     mov cx, 6
     call fm_ncpy
-    pop ax
-    jmp fm_edit_arm
+    jmp short fm_arm_sel.go     ; pop ax, and arm
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -5532,8 +5545,12 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
                                 ; as one word (kernel size pass 14, -4).
                                 ; DI is still the block: dskw_fmt_load banks
                                 ; AX alone and mod_need preserves the rest
+.swap:                          ; (fm_c_clone's swap prompt too)
     mov al, 6
-    jmp fm_edit_arm
+.arm:                           ; ONE near `jmp` for the four arms of this
+    jmp fm_edit_arm             ; block: fm_fmt_go's, fm_c_clone's and
+                                ; fm_clone_go's come here short (kernel size
+                                ; pass 21, -5)
 .no equ fm_fmt_go.no   ; its neighbour's ret (kernel size pass 16)
 
 ; -----------------------------------------------------------------------------
@@ -5556,7 +5573,7 @@ fm_fmt_go:                      ; the image is here; the drive is the user's
                                 ; or CF=1 with AX = FERR_*. READS ONLY, so a
                                 ; refusal here has changed nothing at all
     mov al, 5                   ; ...and ask, with the size in the question
-    jmp fm_edit_arm
+    jmp short fm_c_format.arm
 .bad:
     call fm_sayerr              ; an unreadable medium is a verdict about what
 .no:                            ; just happened, so it is a toast (60.5) - and
@@ -5600,10 +5617,8 @@ fm_c_clone:
                                 ; system disk on the CLONER's
                                 ; behalf (SPEC.md 22.21.4). DI is still the
                                 ; block: clo_need preserves every register
-    mov al, 6
-    jmp fm_edit_arm
-.no:
-    ret
+    jmp short fm_c_format.swap  ; mode 6, as Format's
+.no equ fm_cloneok.r            ; its neighbour's ret (kernel size pass 21)
 
 ; -----------------------------------------------------------------------------
 ; fm_clone_go - the image is here; probe, plan and ask (SPEC.md 22.21)
@@ -5629,7 +5644,7 @@ fm_clone_go:
     jc fm_clone_bad             ; user agrees, so a refusal has changed nothing
     mov al, 7                   ; - and the refusal's whole body is a `ret`
                                 ;   away, so this is a tail jump
-    jmp fm_edit_arm
+    jmp short fm_c_format.arm
 
 ; =============================================================================
 ; File > Compress / Uncompress (SPEC.md 22.22, 22.23) - both are the module
@@ -5758,8 +5773,10 @@ fm_cldrop:                      ; (fm_c_uncto's entry: AL and flags clobbered)
     cmp word [clo_seg], 0       ; ...and the image goes back HERE, because no
     jne .armed                  ; mode was armed and fm_edit_end will therefore
     jmp clo_drop               ; never be reached with one to drop it from
-.armed equ fm_c_clone.no        ; ...its neighbour's ret (kernel size pass
-                                ; 16) - UNLESS a claim is live, which is
+.armed equ fm_cloline.out       ; ...a neighbour's ret (kernel size pass
+                                ; 16; fm_cloline's since pass 21, which gave
+                                ; fm_c_clone's to fm_cloneok's) - UNLESS a
+                                ; claim is live, which is
                                 ; CERR_BUSY and means ANOTHER
                                 ; window's mode 7 is armed and owns the image.
                                 ; Freeing it there leaves that prompt needing
@@ -7736,8 +7753,9 @@ fm_cfill:
     push dx
     mov dx, [bx+W_Y]
     add dx, [bx+W_H]
-    sub dx, 2                   ; DX = y2
-    pop bx                      ; BX = y1
+    dec dx                      ; DX = y2 (two `dec` are a byte under a
+    dec dx                      ; `sub dx, 2`, and gfx_fill reads no flag:
+    pop bx                      ; kernel size pass 21). BX = y1
 fm_wfill:                       ; ...which is also every WHITE fill in this
     mov byte [gfx_color], CWHITE ; file: one entry, so the pen and the call are
     jmp ct_cw_gfx_fill          ; spelled once (AX..DX = the rect)
@@ -8945,9 +8963,11 @@ fm_scroll_by:
 
     mov bx, [fm_cy]             ; the row band: full content width (the bar
     add bx, FM_ROW_Y0           ; is inside it and is redrawn with it), from
-    mov dx, [fm_cy]             ; the header's bottom to the status line's top
-    add dx, [fm_listb]
-    dec dx
+    lea dx, [bx-FM_ROW_Y0-1]    ; the header's bottom to the status line's top
+    add dx, [fm_listb]          ; (fm_cy + fm_listb - 1, off the BX just made:
+                                ; a `lea` where a load and a `dec` were, -2
+                                ; and faster - kernel size pass 21; the flags
+                                ; are fm_cxrgt's compare's next)
     call fm_cxrgt
     jg .no                      ; degenerate content: nothing to draw into.
                                 ; The y span needs no test of its own - fit
@@ -9465,8 +9485,11 @@ fm_rowdiv:                      ; AX = a pixel offset into the row area ->
     mov cx, FM_ROW_H            ; AX = whole rows (a list row or an icon
     call fm_isicon              ; cell's height); CX = that height, DX the
     je fm_div                   ; remainder. fm_layout's fit and fm_hit's row
-    mov cx, FMI_CELL_H
+    mov cl, FMI_CELL_H          ; (CH is FM_ROW_H's 0: kernel size pass 21)
     jmp short fm_div
+%if FM_ROW_H > 255 || FMI_CELL_H > 255
+  %error "fm_rowdiv loads the icon cell's height into CL alone: CH is FM_ROW_H's high byte"
+%endif
 fm_div80:                       ; AX / FMI_CELL_W: the icon grid's columns,
     mov cx, FMI_CELL_W          ; for fm_layout and fm_hit alike
 fm_div:
@@ -10024,38 +10047,35 @@ section .text
 ; poked one word would move the block, update the state block, and leave every
 ; painter reading the old address - which is why relocation is a CALLBACK.
 ;
-; It finds the owner by walking the Disk instances rather than being told,
-; because the compactor knows a claim and not a window; fmv_mark's walk
-; exactly, with the folder tests dropped.
+; It finds the owner BY VALUE - the fm_pool block whose FS_VSEG is the old
+; base - because the compactor knows a claim and not a window, and the word
+; equal to the moved block's base is the word naming it: two live windows
+; never share a listing (fmv_bcast copies one's CONTENTS into the other's own
+; claim). It walked the Disk instances until kernel size pass 21 (-16 `.text`,
+; and five blocks where it was INST_MAX records). A block no live window
+; stands on can hold a stale FS_VSEG, and re-pointing one is harmless: on this
+; build nothing reads a free block's FS_VSEG before fm_kinit_x stores 0 over
+; it (kern_small, which DOES free a stale one there, has no fm_reloc - its
+; cache is shed, never moved). kern_small's mem_evw finds the same five words
+; the same way (SPEC.md 50.6.13).
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL              ; purgeable there, so it is shed and never moved
 fm_reloc:
     push si
-    push di
-    mov di, inst_tab - I_RECSZ  ; NOT fmv_ifirst, and that has not changed: that
-.scan:                          ; one is `.cold` and this routine is `.text`, so
-    call inst_next              ; the near call the other six make is a jump
-    jc .done                    ; into another address space. What it CAN reach
-                                ; is instance.inc's own walk (SPEC.md 29.1.1),
-                                ; which is `.text` like this - so the record
-                                ; cursor moves to DI and the state block to SI,
-                                ; and CX stops being a counter at all
-    cmp byte [di+I_STATE], 1
-    jne .scan
-    cmp byte [di+I_KIND], KIND_FILES
-    jne .scan
-    mov si, [di+I_SPTR]
-    cmp [si+FS_VSEG], bx
-    jne .scan
-    mov [si+FS_VSEG], dx
-    jmp short .scan
-.done:
+    mov si, fm_pool + FS_VSEG
+.scan:
+    cmp [si], bx
+    jne .next
+    mov [si], dx
+.next:
+    add si, FS_SIZE
+    cmp si, fm_pool + FS_VSEG + FM_NSLOT*FS_SIZE
+    jb .scan
     cmp [fm_vseg], bx           ; ...and the mirror, which is the half a word
     jne .out                    ; poke would have missed
     mov [fm_vseg], dx
 .out:
-    pop di                      ; ...and NEITHER AX NOR CX IS BANKED: CX was the
-    pop si                      ; count `inst_next` does not need, and AX was
-    ret                         ; never written on any arm of this routine
+    pop si                      ; ...and NEITHER AX NOR CX IS BANKED: neither
+    ret                         ; is written on any arm of this routine
 %endif                          ; KERN_SMALL - fm_reloc is kern_big's
 

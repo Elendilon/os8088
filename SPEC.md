@@ -72329,9 +72329,12 @@ care (`inst_find_kind`, and `app_launch`'s cap check by way of not caring) ask
 `I_STATE` themselves. A **free** record is not a walk: `inst_alloc` is looking
 for exactly the row this skips, and keeps its own scan.
 
-`files.inc`'s **`fm_reloc`** is the sixth caller and the only one outside this
-file — the listing cache's relocation proc (§66.6), which walks the Disk
-instances to find the one holding the block being moved.
+`files.inc`'s **`fm_reloc`** was a sixth caller, the only one outside this
+file — the listing cache's relocation proc (§66.6), which walked the Disk
+instances to find the one holding the block being moved. Since kernel size
+pass 21 it walks no records at all: it matches the old base against the five
+`fm_pool` blocks' `FS_VSEG` by value, as `kern_small`'s `mem_evw` does
+(§50.6.13), which is 16 bytes of `.text` smaller.
 
 ##### 29.1.1.1 The five walks that are NOT this one
 
@@ -126104,8 +126107,12 @@ naming words — `FS_VSEG` in the window's state block and `[fm_vseg]`, the
 global mirror `fmv_fit`'s own comment calls *"what every reader looks at"* —
 and that pair is what decided §66's shape in the first place (§66.1). A word
 poke would move the block, update the state block, and leave every painter
-reading the old address. It finds its owner by walking the Disk instances,
-because the compactor knows a claim and not a window.
+reading the old address. It finds its owner by value — the `fm_pool` block
+whose `FS_VSEG` equals the old base — because the compactor knows a claim and
+not a window, and no two live windows share a listing (it walked the Disk
+instances until kernel size pass 21). A free block's stale `FS_VSEG` may be
+re-pointed with it, which nothing reads: `fm_kinit_x` stores 0 over it before
+a new window uses the block.
 
 **Every one of them is safe for the same reason**: each reader loads its
 segment immediately before a short in-memory burst and never carries it across
