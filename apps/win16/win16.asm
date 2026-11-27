@@ -2637,6 +2637,7 @@ w16_s_noload:   db 'WIN16.O88 could not be read.', 0
 
 ; --- the alert (SPEC.md 75.3): MessageBox's face until S6 --------------------
 %define OS88UI_ALERT 1
+%define OS88UI_BANKPL                ; w16_mpsave's planes (SPEC.md 5.3.1)
 %define OS88UI_AEXTRA           ; OK / Cancel (MB_OKCANCEL)
 %define OS88UI_NOGLYPH
 %include "os88ui.inc"
