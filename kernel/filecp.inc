@@ -1676,24 +1676,9 @@ fcp_file1:
 ; an error** on both, where a cluster-at-a-time loop once returned short and
 ; silently truncated the copy (SPEC.md 22.5).
 ; -----------------------------------------------------------------------------
-%ifdef KERN_BIG
-fcp_rdnext:
-    push di                     ; fcp_xfer's WRITE_SEQ token
-    push ds                     ; ES is NOT banked: it is a clobber here as on
-    pop es                      ; kern_small, and fcp_xfer, the one caller,
-                                ; banks it itself and reloads it before it
-                                ; next reads it (fcp_wprep) - kernel size pass
-                                ; 21, -2. ES:DI = the cursor, in .bss
-    mov di, fcp_rcur
-    mov dx, [fcp_seg]
-    xor bx, bx                  ; DX:BX = the copy buffer (READ_SEQ's DX:BX)
-    mov cx, [fcp_chunk]         ; capacity: a cluster multiple of the source
-    mov si, fcp_fname           ; THE NAME, on every call: in the current
-    COLDCALL dwf_dskw_read_seq  ; directory -> DX:AX = the bytes, DX = 0 here
-    pop di
-.out:                           ; AX = the bytes, or CF and FERR_*; the
-    ret                         ; cursor now holds the size and the offset
-%else
+; (kern_big's is written at its one call, fcp_xfer's .chunk - kernel size
+; pass 21, -6 with the ES bank it carried)
+%ifndef KERN_BIG
 fcp_rdnext:
     push di                     ; the rest is fcp_run's free set, and ES is
                                 ; fcp_xfer's to put back
@@ -1963,7 +1948,23 @@ fcp_xfer:
     ; take is min(what is left, the chunk) and the loop goes round only while
     ; something is left - and that creates a real empty file.
 .chunk:
+%ifdef KERN_BIG
+    ; fcp_rdnext, written here (its header is above): READ_SEQ's body
+    push di                     ; the WRITE_SEQ token, across the read
+    push ds                     ; ES is NOT banked: this routine banks it at
+    pop es                      ; its top and reloads it before it next reads
+                                ; it (fcp_wprep). ES:DI = the cursor, in .bss
+    mov di, fcp_rcur
+    mov dx, [fcp_seg]
+    xor bx, bx                  ; DX:BX = the copy buffer (READ_SEQ's DX:BX)
+    mov cx, [fcp_chunk]         ; capacity: a cluster multiple of the source
+    mov si, fcp_fname           ; THE NAME, on every call: in the current
+    COLDCALL dwf_dskw_read_seq  ; directory -> DX:AX = the bytes, DX = 0 here,
+    pop di                      ; or CF and FERR_*; the cursor now holds the
+                                ; size and the offset
+%else
     call fcp_rdnext             ; AX = bytes; a chain that ended early says so
+%endif
     jc .err
 %ifdef KERN_BIG
     or ax, ax                   ; 0 bytes AFTER the first chunk is a source
@@ -1976,30 +1977,9 @@ fcp_xfer:
     mov FCV(fcp_flen), ax
     call fcp_gofd               ; the destination, with the chunk in hand
     jc .err
-    cmp byte [fcp_made], 0
-    jne .more
-%ifdef FPG_OPS
-    mov cx, [fcp_rcur+RSQ_SIZE] ; the copy is ONE operation to the user: its
-    mov dx, [fcp_rcur+RSQ_SIZE+2]   ; read and its write, every chunk of
-    shl cx, 1                   ; both, on one bar (SPEC.md 12.8.8) - armed
-    rcl dx, 1                   ; HERE, off the size READ_SEQ's first call
-    sub cx, FCV(fcp_flen)       ; statted, and less that first chunk, whose
-    sbb dx, 0                   ; read nothing counted. fcp_room clobbers DX
-    call KERNEL_SEG:fpg_opbegin ; and fcp_wprep reloads CX
-%endif
-    call fcp_room               ; ...but ASK FIRST (SPEC.md 22.5.2). Here and
-    mov ax, FERR_FULL           ; not earlier, because this is the first moment
-    jc .err                     ; the destination volume is current - so the
-                                ; check costs no switch of its own - and it is
-                                ; still before anything has been created
-                                ; (`mov` writes no flag: CF is fcp_room's)
-    call fcp_wprep
-    xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1) - the one
-    FCPX dskw_write_x           ; argument the two sites do not share
-    jc .err
-    mov byte [fcp_made], 1      ; ...and from HERE a failure owes a delete
-    jmp short .next
-.more:
+    cmp byte [fcp_made], 0      ; the FIRST chunk creates: that arm is past
+    je .first                   ; the loop, below .err, so the back edge
+.more:                          ; stays short (kernel size pass 21)
     call fcp_wprep
 %ifdef KERN_BIG
     mov al, WSQF_HELD           ; ONE HELD STREAM per file (SPEC.md 22.5.3):
@@ -2031,6 +2011,29 @@ fcp_xfer:
     jmp short .out              ; partial destination goes with it (SPEC.md
                                 ; 22.5.2). It preserves AX and the flags, the
                                 ; FERR_* being on its way out
+.first:                         ; THE FIRST CHUNK, the arm .more's `je` skips -
+                                ; out here, so the loop's back edge is short
+%ifdef FPG_OPS
+    mov cx, [fcp_rcur+RSQ_SIZE] ; the copy is ONE operation to the user: its
+    mov dx, [fcp_rcur+RSQ_SIZE+2]   ; read and its write, every chunk of
+    shl cx, 1                   ; both, on one bar (SPEC.md 12.8.8) - armed
+    rcl dx, 1                   ; HERE, off the size READ_SEQ's first call
+    sub cx, FCV(fcp_flen)       ; statted, and less that first chunk, whose
+    sbb dx, 0                   ; read nothing counted. fcp_room clobbers DX
+    call KERNEL_SEG:fpg_opbegin ; and fcp_wprep reloads CX
+%endif
+    call fcp_room               ; ...but ASK FIRST (SPEC.md 22.5.2). Here and
+    mov ax, FERR_FULL           ; not earlier, because this is the first moment
+    jc .err                     ; the destination volume is current - so the
+                                ; check costs no switch of its own - and it is
+                                ; still before anything has been created
+                                ; (`mov` writes no flag: CF is fcp_room's)
+    call fcp_wprep
+    xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1) - the one
+    FCPX dskw_write_x           ; argument the two sites do not share
+    jc .err
+    mov byte [fcp_made], 1      ; ...and from HERE a failure owes a delete
+    jmp short .next             ; ...and back into the loop
 .fin:
 %ifdef KERN_BIG
     xor cx, cx                  ; THE CLOSE: the stream's link, FAT and size.
