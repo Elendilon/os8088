@@ -4366,6 +4366,20 @@ SOAK = [
         "never comes back to its prompt. 57s measured",
         needs=("marty",), serial=True,
         wants=("build/frotz.o88", "build/zt/ZBIG.Z5")),
+    Row("zecholock", "soak", py("tests/zecholock.py", "-q"), 8.0,
+        "SPEC.md 61.18: Frotz's line editor draws its echo, rub-out and the "
+        "Enter's newline UNDER THE GFX LOCK. @read's wait runs with the lock "
+        "parked, and the three were called bare, so the worker drew lock-free "
+        "beside the UI task - on an extended desktop (VGA primary + "
+        "Hercules) a drag at the Enter switched the display context under "
+        "the half-drawn row and took the machine down. Exec breakpoints on "
+        "zw_typec/zw_rubc/zw_newline in the live package; a key, Backspace, "
+        "a key and Enter at ZBIG.Z5's prompt; every stop must read "
+        "[gfx_lock_flag] = 1 owned by the running task, each routine must be "
+        "stopped in, and the prompt must come back. Red with the three bare "
+        "calls restored: every stop reads the lock free. 5-8s measured",
+        needs=("marty",), serial=True,
+        wants=("build/frotz.o88", "build/zt/ZBIG.Z5")),
     Row("megafrotz", "soak", py("tests/megafrotz.py"), 45.0,
         "KERN-MEGA-MEMORY-PLAN MC7: a story past 256KB on kern_mega in "
         "protected mode, where the story claim is an LDT selector and each "
