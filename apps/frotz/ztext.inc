@@ -130,7 +130,12 @@ zt_print_ret:
     mov [zt_mode], ax           ; and not locked; no escape, no abbreviation
     mov al, 3
     mov [zt_ci], ax             ; ci = 3: nothing buffered, fetch on the first
+    mov byte [zt_busy], al      ; (nonzero) THE CURSOR IS IN USE: a character
+                                ; printed below can reach zw_paint, and its
+                                ; status line must not start a second decode
+                                ; over this one (SPEC.md 61.17)
     call zt_decloop             ; turn; end = 0
+    mov byte [zt_busy], 0
     mov ax, [zt_al]
     mov dx, [zt_ah]
     pop di
