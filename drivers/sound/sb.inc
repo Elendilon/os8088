@@ -228,32 +228,46 @@ sbl_tc_out:
 ; in:       AL = byte; [sbl_base] set
 ; out:      CF = 1 the DSP never went ready (timeout)
 ; clobbers: nothing else (flags)
+;
+; The FIRST status read is taken alone: a DSP is ready at once nearly every
+; time (an XT's next write is tens of microseconds away), and then the poll
+; budget's register is never touched - no CX bank, no load. The loop after it
+; reads the SBL_POLLS - 1 the budget has left, so a DSP that never goes
+; ready is asked exactly as often as it was. Every DSP byte comes through
+; here: the single-cycle ISR's re-arm sends three.
 ; -----------------------------------------------------------------------------
 sbl_dsp_wr:
     push ax
-    push cx
     push dx
     mov ah, al                  ; park the byte
     mov dx, [sbl_base]
     add dx, 0x0C                ; 2xCh: write-buffer status
-    mov cx, SBL_POLLS
-.poll:
     in al, dx
     test al, 0x80               ; bit 7 clear = ready for a write
-    jz .ok
-    loop .poll
-    SDG_DSPHOOK 1               ; snddiag.inc: the debug disk's log (nothing
-    stc                         ; in a shipped build)
-    jmp .out
+    jnz .busy
 .ok:                            ; (CF = 0: the TEST cleared it)
     SDG_DSPHOOK 0
     mov al, ah
     out dx, al                  ; 2xCh is also the write port
 .out:
     pop dx
-    pop cx
     pop ax
     ret
+.busy:
+    push cx
+    mov cx, SBL_POLLS - 1
+.poll:
+    in al, dx
+    test al, 0x80
+    jz .okc
+    loop .poll
+    pop cx
+    SDG_DSPHOOK 1               ; snddiag.inc: the debug disk's log (nothing
+    stc                         ; in a shipped build)
+    jmp short .out
+.okc:
+    pop cx
+    jmp short .ok
 
 ; =============================================================================
 ; Selected 8-bit DMA channel + DSP transfer control (.text)
@@ -269,37 +283,34 @@ sbl_dsp_wr:
 ; The DMA byte pairs run under pushf/cli (the 8237 flip-flop is shared
 ; state); the DSP 14h + length writes are bounded polls. Called from verb-0
 ; start and from sbl_isr's re-arm branch - the ~40-instruction audible-gap
-; mitigation on 1.x DSPs (SPEC.md 34.5).
+; mitigation on 1.x DSPs (SPEC.md 34.5), so its every cycle is a gap's.
 ; -----------------------------------------------------------------------------
 sbl_arm_half:
     push ax
-    push dx
-    xor dx, dx                  ; DX = half * SBL_HALF: the offset INSIDE
-    or al, al                   ; our buffer. A half is 0 or 1, so the
-    jz .base                    ; stride is a test and an add rather than a
-    mov dx, SBL_HALF            ; hand-counted shift - DERIVED, so a change
-.base:                          ; to the geometry cannot leave it behind
-    add dx, [sbl_dmaoff]        ; ...and this is where that buffer sits in
+    push bx
+    push cx
+    neg al                      ; AX = half * SBL_HALF: the offset INSIDE
+    cbw                         ; our buffer. A half is 0 or 1, so 0 or
+    and ax, SBL_HALF            ; FFFFh masked by the stride, with no branch
+                                ; - DERIVED, so a change to the geometry
+                                ; cannot leave it behind
+    add ax, [sbl_dmaoff]        ; ...and this is where that buffer sits in
                                 ; its 8237 page, computed at its claim
                                 ; (sbl_dma_get). Nothing is doubled - address
                                 ; doubling is a 16-bit-channel concept the XT
                                 ; does not have
-    push bx
-    push cx
-    mov ax, dx
     mov bx, SBL_HALF-1
     mov cl, 0x49
     mov ch, [sbl_page]
-    call sbl_dma_auto
-    pop cx
-    pop bx
+    call sbl_dma_auto           ; (keeps DX and AH)
     mov al, 0x14                ; DSP 14h, 8-bit single-cycle out, then the
     call sbl_dsp_wr             ; length
     mov al, (SBL_HALF-1) & 0xFF
     call sbl_dsp_wr
     mov al, (SBL_HALF-1) >> 8
     call sbl_dsp_wr
-    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -419,24 +430,21 @@ sbl_hw_start_in:
     push ax
     push bx
     push cx
-    push dx
     mov al, 0xD3                ; speaker (DAC) off for the capture path
     call sbl_dsp_wr
     call sbl_tc_out             ; 40h and the time constant
     mov ax, [sbl_xoff]          ; the caller's ring, where verb 4 found it
-    mov bx, [sbl_rmask]         ; (SPEC.md 34.6.4): count RL - 1...
+    mov bx, [sbl_rmask]         ; (SPEC.md 34.6.4): count RL - 1
     mov ch, [sbl_xpage]
-    mov dx, [sbl_half]          ; ...and its block
-    dec dx
     mov cl, 0x55                ; auto-init, write (card -> memory); the
                                 ; channel bits are sbl_dma_auto's
     call sbl_dma_auto
-    mov bx, dx
+    mov bx, [sbl_half]          ; ...and its block
+    dec bx
     mov al, 0x48
     call sbl_dsp_wr3
     mov al, 0x2C                ; auto-init 8-bit DMA input
     call sbl_dsp_wr
-    pop dx
     pop cx
     pop bx
     pop ax
@@ -446,26 +454,27 @@ sbl_hw_start_in:
 ; sbl_dma_auto - program the selected 8-bit DMA channel: both starts'
 ;                one recipe (SPEC.md 34.5, binding)
 ; in:       AX = the address inside the page, BX = the count - 1, CL = the
-;           mode byte (59h playback, 55h capture), CH = the page
+;           mode byte FOR CHANNEL 1 (59h playback, 55h capture, 49h single:
+;           every caller's ends in 01, the lab's forced so), CH = the page
 ; out:      nothing; clobbers AL (flags)
 ;
 ; Mask, flip-flop, address lo/hi, flip-flop, count lo/hi, mode, page, unmask,
 ; under one pushf/cli: the flip-flop is shared state. Called from task
 ; context at a start, or from the single-cycle ISR re-arm (sbl_arm_half).
-; The mode byte's low two bits are replaced with the selected channel.
+; The mode byte's channel bits are OR'd with the selected channel: 01 | 1
+; is 1 and 01 | 3 is 3, so no mask is owed first.
 ; -----------------------------------------------------------------------------
 sbl_dma_auto:
     push dx
     pushf
     cli
-    push ax
+    xchg ax, dx                 ; DX = the address while AL masks
     mov al, [sbl_dma]
     or al, 4
     out 0x0A, al                ; mask the selected 8-bit channel
     out 0x0C, al                ; flip-flop clear (any value)
-    mov dl, [sbl_dmaport]
-    xor dh, dh
-    pop ax
+    xchg ax, dx                 ; AX = the address again (AH is the caller's)
+    mov dx, [sbl_dmaport]       ; (a word: its high byte is 0)
     out dx, al                 ; address lo
     mov al, ah
     out dx, al                 ; address hi
@@ -476,7 +485,6 @@ sbl_dma_auto:
     mov al, bh
     out dx, al
     mov al, cl
-    and al, 0xFC
     or al, [sbl_dma]            ; direction/auto-init plus channel
     out 0x0B, al
     mov dl, [sbl_pageport]
@@ -519,15 +527,14 @@ sbl_hdma_auto:
     pushf
     cli
     push ax
-    mov al, cl
-    or al, 4
-    out 0xD4, al                ; mask it
+    mov al, [sbl_hdma]          ; its index | 4, which for 5, 6 and 7 IS the
+    out 0xD4, al                ; channel number: mask it
     out 0xD8, al                ; flip-flop clear (any value)
     mov dx, cx
-    shl dx, 1
-    shl dx, 1
-    add dx, 0xC0                ; C4h/C8h/CCh: its address register
-    pop ax
+    shl dl, 1
+    shl dl, 1
+    add dl, 0xC0                ; C4h/C8h/CCh: its address register (DH = 0:
+    pop ax                      ; CH was)
     out dx, al                  ; address lo
     mov al, ah
     out dx, al                  ; address hi
@@ -542,8 +549,7 @@ sbl_hdma_auto:
     out 0xD6, al
     mov al, bl                  ; the page
     mov bx, cx
-    mov dl, [sbl_hpage+bx-1]    ; 8Bh/89h/8Ah
-    mov dh, 0
+    mov dl, [sbl_hpage+bx-1]    ; 8Bh/89h/8Ah (DH is still 0)
     out dx, al
     mov al, cl
     out 0xD4, al                ; unmask
@@ -1322,14 +1328,16 @@ sbl_v_open:
     jne .e1n                     ; one stream per card (SPEC.md 34.3)
     cmp byte [sbl_clip], 0
     jne .e1n                     ; an exclusive clip holds the machine
-    or al, al
-    jz .mono
+    or al, al                   ; (a format is held only on an auto-init
+    jz .mono                    ; card: verb 11 takes no format whose cap
+                                ; is unpublished, and snd_sb_pub publishes
+                                ; SND_CAP_STEREO and _PCM16 only with
+                                ; [sbl_auto], settled before it at the
+                                ; attach - SPEC.md 34.5.9)
     mov ah, [sbl_oflags]        ; A FORMAT (SPEC.md 34.5.5): a ring only -
     and ah, SND_OPENF_RING | SND_OPENF_ADPCM4   ; a linear stream's tail
     cmp ah, SND_OPENF_RING      ; pads with 8-bit silence - and never
     jne .e7x                    ; ADPCM4, which is a format of its own
-    cmp byte [sbl_auto], 0      ; ...and auto-init: both formats' starts are
-    je .e7x                     ; (SPEC.md 34.5.9)
     cmp bx, 4000
     jb .e2n
     cmp byte [sbl_verhi], 4
@@ -2123,8 +2131,7 @@ sbl_dleft:
     test byte [sbl_fmt], SND_FMT_16
     jnz .w16
     push dx
-    mov dl, [sbl_dmaport]
-    xor dh, dh
+    mov dx, [sbl_dmaport]       ; (a word: its high byte is 0)
     inc dx
     out 0x0C, al                ; flip-flop clear (any value)
     in al, dx                  ; selected channel's count: lo...
@@ -3520,8 +3527,8 @@ sbl_stub_c:
 ;      usable line), [sbl_hdma]; clobbers: AX (flags)
 ; -----------------------------------------------------------------------------
 sbl_find:
-    mov word [sbl_dma], 0x0201  ; DMA 1, address port 02h (the next byte),
-    mov byte [sbl_pageport], 0x83   ; page 83h
+    mov word [sbl_dma], 0x0201  ; DMA 1, address port 02h (the port's high
+    mov byte [sbl_pageport], 0x83   ; byte is never written), page 83h
     call sbl_f_probe
     or al, al
     jz .ret
@@ -3686,8 +3693,7 @@ sbl_f_aiprobe:
     mov cl, [sbl_dma]
     mov ah, 1                   ; AH = the channel's TC bit in the status
     shl ah, cl
-    mov dl, [sbl_dmaport]       ; DX = its address port, the count's next
-    xor dh, dh
+    mov dx, [sbl_dmaport]       ; DX = its address port, the count's next
     mov cx, 0xFFFF              ; the first terminal count, bounded
 .tc:
     in al, 0x08
@@ -4070,8 +4076,14 @@ sbl_verlo:    db 0              ;   minor - FOLLOWS sbl_verhi: sbl_f_probe
 sbl_auto:     db 0              ; 1 = auto-init strategy (DSP >= 2.00, 34.5)
 sbl_irq:      db 0              ; discovered IRQ line, 0xFF = none usable
 sbl_dma:      db 0              ; 8-bit channel 1 or 3; FFh = ESS refused
-sbl_dmaport:  db 0              ; 2 * channel (address); count is the next port
-sbl_pageport: db 0              ; 83h for channel 1, 82h for channel 3
+sbl_dmaport:  dw 0              ; 2 * channel (address); count is the next
+                                ; port. A WORD whose high byte nothing
+                                ; writes, so `mov dx, [sbl_dmaport]` is the
+                                ; port with no zero-extension - and
+                                ; sbl_pageport, the third byte the three
+                                ; channel cells were, is at the END of this
+                                ; block, so every hot word cell below keeps
+                                ; the alignment it had
 sbl_hdma:     db 0              ; the SB16's 16-bit DMA channel (5..7), 0 =
                                 ; none or no second 8237 (sbl_hdma_find)
 sbl_zb:                         ; --- cleared at every attach ----------------
@@ -4152,8 +4164,8 @@ sbl_ze:                         ; --- end of the attach-time clear -----------
 %if sbl_ext - sbl_direct != 1 || sbl_hisp - sbl_wide != 1 || sbl_verlo - sbl_verhi != 1
   %error "sbl_v_open clears sbl_direct/sbl_ext and sbl_wide/sbl_hisp as words, and sbl_f_probe stores sbl_verhi/sbl_verlo as one"
 %endif
-%if sbl_dmaport - sbl_dma != 1
-  %error "sbl_find and sbl_ess_setup store sbl_dma and sbl_dmaport as one word"
+%if sbl_dma - sbl_irq != 1 || sbl_dmaport - sbl_dma != 1
+  %error "snd_hwinfo reads sbl_irq/sbl_dma as one word, and sbl_find and sbl_ess_setup store sbl_dma/sbl_dmaport as one"
 %endif
 
 sbl_oldvec:   dw 0, 0           ; the winner's saved vector (off, seg)
@@ -4195,4 +4207,6 @@ sbl_clip:     db 0              ; 1 = the kernel says a PCM_EXCL clip owns
 sbl_gr_off:   times SBL_GMAX dw 0     ; staging grants (SPEC.md 34.6): offset,
 sbl_gr_size:  times SBL_GMAX dw 0     ;   size in bytes (the owner is in
                                       ;   sbl_gr_act's low byte)
+sbl_pageport: db 0              ; 83h for channel 1, 82h for channel 3 -
+                                ; settled by sbl_find, with sbl_dma
 %endmacro

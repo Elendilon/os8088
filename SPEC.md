@@ -77024,8 +77024,9 @@ What a machine that fails the probe loses with auto-init: rates above
 stereo and 16-bit formats (err 7), ADPCM4, recording (`SND_CAP_PCM_IN` is not
 published) and direct rings (the copy path plays them). `snd_sb_pub` already
 derives the caps from `[sbl_auto]`, so a package greys what is gone rather
-than being refused it. The probe is 275 bytes of attach-only code and
-data (its silence 31) - nothing resident - and runs in about 10 ms on
+than being refused it. The probe is 239 bytes of attach-only code and
+data (its silence 31; 275 as it landed, driver size pass 2) - nothing
+resident - and runs in about 10 ms on
 the board that needs it. The debug build records its answer (`SDG_O_AIP`, record v3, §127.3) and page 1 says
 `(8237 no wrap)` beside `auto no`; the DMA lab still runs its auto-init runs
 there, by the DSP's version rather than the driver's regime, because the lab
@@ -78904,7 +78905,7 @@ https://www.phatcode.net/res/243/files/sbhwpg.pdf .
 
 ### 34.15.1 What a machine cannot run leaves the claim
 
-SOUND.DRV is 10,460 bytes (11,151 when this was written) and four runs of
+SOUND.DRV is 10,835 bytes (11,151 when this was written) and four runs of
 it are dead weight once its attach has answered - one on every machine, and
 three on every machine without the hardware each one drives:
 
