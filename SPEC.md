@@ -84120,6 +84120,52 @@ should also stop banking its own clamp is left as the separate question it is.
 at *"it does not straddle the seam"*, because the window it is trying to make
 wide is the one this discards.
 
+#### 39.16.3.6 …and on the FREE axis, never larger than the smaller display
+
+**The owner's model** (2026-11-27): *"a window can't draw in two modes at
+once — so inside its window it draws in the more restrictive mode or
+height."* A straddler is sized for the restrictive display on BOTH axes.
+§39.16.3 leaves the axis the displays tile along free, so that a straddler
+may SPAN them, and it still may: its origin is the user's, and so is the
+seam it is dropped on. What it may not do is be LARGER on that axis than
+the smaller of the two displays' extents. So after the dead-zone clamp,
+`wm_strad_fit` caps the free axis at
+`min(the primary's usable extent, display 1's extent)`. The primary's
+usable extent is the band's width (`[vid_band_xe] - [vid_band_x0]`) or its
+height (`[vid_dock_y0] - MBAR_H - 1`, `wm_fit`'s rule). When x is cut, it
+is rounded DOWN onto a byte boundary, because a straddler keeps both side
+borders and its content is `W - 2`. It is never rounded up (§11.94.5).
+Rounding up after a cut is what made a 640 frame 642 (§39.16.3.4).
+§11.100.2's floor still outranks the cap.
+
+Two audit findings are this one rule:
+
+- **K2(b).** On a Below layout, a window sized for the 480-row VGA kept its
+  460 rows across the seam. It could then never be dragged wholly onto the
+  348-row Hercules, so its kind never changed back.
+- **K2(a).** A 640 frame snapped up to 642 in a Right straddle could never
+  sit wholly on a 640 display again. That was DOS's 642, Telnet's and
+  Weave's.
+
+**Entering a straddle and leaving one are each a trigger** (§39.16.3.3),
+even when the adapter kind does not change. A Below layout's VGA primary
+is the narrower display, so a window from the VGA keeps kind VGA across the
+seam. A window that never changed kind would never be capped, and one that
+was capped would never get its size back. So `W_PKIND` carries **bit 7**
+for "sized for a straddle". `ui_drag_size` compares `kind | (straddles ?
+80h : 0)` against it, and banks the bit beside the kind. The zoom's
+`ext_knote` (§39.17.2.1) does the same. No other reader of `W_PKIND`
+exists: tests print it.
+
+**Returning to one display restores that display's size.** It is
+`ui_drag_size`'s landing, which takes the natural size back out of the
+bank (§11.100.3). Nothing here writes that bank, so the cap costs the
+window nothing it will not get back.
+
+Like the rest of `wm_strad_fit` it is `wm_reflows`-gated (§39.16.3.1). A
+fixed layout that published no preference keeps its size and hangs, which
+is WINDOW-SIZING-PLAN 12.5's third row. Cost: EXTD.DRV only, 0 resident.
+
 #### 39.16.3.4 …and the width it leaves must still be a WHOLE NUMBER OF BYTES
 
 **A window dragged across the seam came back two pixels narrower than it went,
@@ -84199,6 +84245,61 @@ monitor must not move it to the first. `wm_disp_span` answers the origin and
 width, `wm_zoom_xmax` the largest legal x for a given width, and both are
 `wm_disp_of` again. The restore path's clamp floors at that display's left
 edge rather than at 0, for the same reason.
+
+##### 39.17.2.1 A zoom lands wholly on one display, and the window is told
+
+**The owner's rule** (2026-11-27): *"Nothing should size wrong on a maximize
+- if the window is straddling, then they zoom it, when it finishes zooming
+it's fully on one screen (and thus that is its answer for where it is, what
+mode it should now be drawing in, and at what size)."* Two questions have
+two different answers, and both answers are deliberate:
+
+| question | answer | routine |
+|---|---|---|
+| *Where do I go fullscreen, and which display do I maximize on?* | the display the window is MOSTLY on: its centre | `wm_disp_of` |
+| *How do I size and draw my window where it stands?* | while it straddles, the MORE RESTRICTIVE display; otherwise the one it is on | `wm_disp_now` (§39.16.4.1) |
+
+A window cannot draw in two modes at once, so inside a straddle it draws for
+the restrictive display. A zoom moves it, so the zoom's target is a question
+about where it is going, and that is the first row.
+
+Three things make the zoom honour it:
+
+- **Before the size is asked, the display is decided once.** `wm_zoom`
+  enters `EXT_SPAN` with CF = 1, and EXTD.DRV then arms §39.16.4.2's latch
+  with `wm_disp_of`'s answer. From then on, until the zoom ends,
+  `OSAPI_WM_DISPLAY` and `wm_kind_now` answer the TARGET display for this
+  window. So a negotiator (§11.1) that reads its display, as Paint's
+  `pt_onsize` does, sizes for the display it is being zoomed onto, not for
+  the straddle it is leaving. When the target's adapter kind differs from
+  the kind the window was last sized for (`W_PKIND`, §11.100.4), the kind
+  is banked and the §11.98 handler is told there and then. That is BEFORE
+  the ask and BEFORE the paint, so the window relays out once and is painted
+  right the first time.
+- **The commit clamps into that display's box, not the primary's.**
+  `wm_resize_nb`'s height cap, its floor and its y clamp read `wm_box`, the
+  same five registers `wm_fit` uses: the menu bar to the dock on the
+  primary, and on display 1 its own extent through `EXT_FITBOX`, by the
+  origin, which a zoom has just put there. Its x bound stays the union's
+  `[vid_w]`: an app that resizes itself while straddling must not be pulled
+  off the seam the user dropped it on. Before this, a zoom on a Below
+  layout's display 1 was capped at the primary's band and pulled up onto
+  display 0. Its rect then no longer matched the standard rect, so the next
+  zoom zoomed again instead of restoring (the audit's K5).
+- **The latch is spent when the zoom ends,** in `wm_zoom` with BX = 0 and
+  CF = 1 into `EXT_SPAN`. The restore path spends it BEFORE its paint,
+  because the user state it puts back may straddle again. Then the window's
+  kind is the restrictive display's once more, and if that differs from the
+  target's, the kind is banked and the handler told before the pixels are
+  drawn. `WIN95.DRV`'s title paint also asks `EXT_SPAN`, and it enters with
+  CF = 0, so it arms nothing.
+
+Un-zooming replays the user state (§11.95, §11.100). The size it puts back
+is the one the window had in the straddle, which §39.16.3 already sized
+within both displays.
+
+Cost: resident, `.text` only and kern_big's three kernels; the measured
+bytes are in the commit that landed it. EXTD.DRV carries the rest.
 
 ### 39.18 Inside an fsx bracket the machine is single-display again
 
@@ -119947,7 +120048,8 @@ between a cache that exists and one that does not: the 558×377 content is
 Two bytes of bss, the two helpers in `zio.inc` and a call in each of the four
 waits and the four withdrawal sites. Found on the way and left for its own
 change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
-gfx lock, although `zwin.inc` documents it as lock-held.
+gfx lock, although `zwin.inc` documents it as lock-held - which turned out to
+be a machine-killer on an extended desktop, and §61.18 is that change.
 
 ### 61.17 The status line re-entered the text decoder
 
@@ -119993,8 +120095,49 @@ every line. And on a VGA primary with the Hercules to the right, dragging a
 straddling window onto the Hercules WHILE the worker is printing still takes
 the machine down (SS = 0, CS:IP in ROM; three runs of three, with and without
 this fix, never with the worker idle); the audit's STACK OVERFLOW panel for
-slot `0C` was on that same pairing. That one is in the kernel's display
-switching and is recorded in the audit's fix notes, not here.
+slot `0C` was on that same pairing. It looked like the kernel's display
+switching and was not: it is §61.18, the worker drawing without the lock.
+
+### 61.18 The line editor drew without the gfx lock
+
+**`@read`'s echo was drawn lock-free.** `zxo_read` parks the lock before the
+wait (`zx_park`; a worker that waits under the lock is a hung machine, §20.6
+rule 3), and `zi_readline` then called `zw_typec` for each key, `zw_rubc` for
+a Backspace and `zw_newline` for the Enter BARE - three routines `zwin.inc`
+documents as lock-held, and the Enter's is the expensive one: on a straddling
+window the scroll is refused (§39.14.2) and the newline is a whole
+`zw_paint`. So the worker drew while the UI task drew, and on one display
+that is a race over the renderer's scratch and the Graphics Controller that
+usually loses nothing visible.
+
+**On an extended desktop it lost the machine.** The display context - the
+live geometry block, `[vid_cur]`, `[vid_ox]`/`[vid_oy]` - is the LOCK
+HOLDER'S (§39.14.3: the last display drawn on stays current until
+`gfx_unlock`), so a drag's outline, its cursor bracket and the unlock's
+reset all switched it under the worker's half-drawn row, and the rest of the
+row went through the other card's geometry with coordinates translated for
+the first. Measured on MartyPC (`os8088_xt_vga_herc`, VGA primary, the
+Hercules to the right) with a diagnostic kernel that records every switch and
+checks the live block against `[vid_cur]` at every `vid_ctx_act`: the first
+disagreement was the Frotz worker, task 12, switching with `[gfx_lock_flag]`
+0, called from `zi_readline.store` -> `zw_typec` -> `zw_putc` ->
+`zw_ensuresnap` -> `zw_paint`; the glass showed the Hercules half of each
+line drawn at the VGA's x = 0 before the machine went wild (SS = 0, CS:IP in
+ROM, or no progress in 180 guest seconds). A VGA beside a Hercules is the
+pairing where that is fatal rather than a smear because the two renderers
+differ - the planar one through `[vid_rseg]` = 0 is §39.14.6's wild write -
+which is why the two 1bpp pairings never fell over.
+
+**`zi_echo` takes the lock for each of the three** and gives it back, so the
+wait itself still holds nothing; `zw_morewait`, reachable from the newline,
+now drops and retakes a lock this worker really holds instead of releasing
+the UI task's. Twenty-eight bytes of image, no bss. The same diagnostic kernel
+dragged Fractal, Arkanoid, Tamegram, Skies, Tracker, Tank and Cyclone across
+the seam on that pairing with no switch by a non-holder and no disagreement,
+so the kernel needed nothing: a package that draws without the lock breaks
+§7's contract, and a resident guard against a package is not spent (§34.11.1).
+`tests/zecholock.py` is the gate: breakpoints on the three in the live
+package, and every stop must read the lock held by the running task.
 
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
