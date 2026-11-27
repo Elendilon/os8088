@@ -84971,8 +84971,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 |---|---|---|---|
 | 0 | `EXT_EXTEND` — the Extend arm | `vid_disp_init` `.extend` | CF = 1 → `jc .single`, with AL/AH the two kinds `.single` wants: the arrangement is Single. This IS the refusal path |
 | 1 | `EXT_LAND` — `ui_drag_size` | `ui_drag`, `ui_grow` | the image answers CF **inverted** (1 = NOT moved) and `ui_drag` follows the call with `cmc`, so `mod_gone` reads "not moved" and the drag cache survives on one display. `ui_grow` ignores CF |
-| 2 | `EXT_STRADS` | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16) | CF = 1 is "not straddling" — the one-display answer |
-| 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
+| 2 | `EXT_STRADS` — the straddle test, and with **CF = 1 in** the fit after it (`wm_strads` + `wm_strad_fit`: slot 3's `EXT_APPLY` until kernel size pass 21 made CF the selector, −4 `.bss`) | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16), CF = 0 in; `wm_apply_wh`, CF = 1 in | CF = 1 is "not straddling" — the one-display answer for both: `wm_apply_wh`'s `jnc` falls into its one-display path |
+| 3 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`). The last entry until slot 3 was freed, and it moved in rather than leave a 4-byte hole (kernel size pass 21, as pass 20 did for slot 10) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
 | 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
 | 5 | `EXT_KINDNOW` — `wm_kind_now`'s arm | `wm_kind_now`, UNGATED (a create, fit or resize) | AL kept, and the caller loaded `[vid_kind]`: the primary's kind |
 | 6 | `EXT_FSX`, AH = enter/leave/unblank, and `EXTF_KIND`/`EXTF_CAPS` | `fsx_mode` ×2, `fsx_restore` ×2, `fsx_caps` | the bracket's three read no flags and are no-ops on one display; the two queries keep BL/DL, which the caller loaded with `[vid_kind]` |
@@ -84983,7 +84983,6 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
-| 14 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before

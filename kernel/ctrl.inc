@@ -1542,7 +1542,9 @@ cp_onkey_x:                     ; (CPG_HKEY enters here, past the forward)
     add di, CP_RX
     pop ax
     call cp_key_key
+%ifdef KERN_BIG                 ; (kern_small: .driver IS .out - pass 21, -2)
     jmp short .out
+%endif
 .driver:
 %ifdef KERN_BIG
     xchg dx, ax                 ; DX = the KEY: cp_drv_ev hands DX to the page

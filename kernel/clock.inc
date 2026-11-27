@@ -2020,12 +2020,10 @@ clk_fmt:
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 clk_h12h:
-    cmp al, 12
-    jb .am
-    sub al, 12
-.am:
-    or al, al
-    jnz .out
+    sub al, 12                  ; 13..23 -> 1..11, and ABOVE is done (kernel
+    ja .out                     ; size pass 21, -2: it was a compare, a jump
+    add al, 12                  ; and an `or`). 0..12 come back as they were,
+    jnz .out                    ; and 1..12 read as they are
     mov al, 12                  ; 00:xx is 12 AM, 12:xx is 12 PM
 .out:
     ret

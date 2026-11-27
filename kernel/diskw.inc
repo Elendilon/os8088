@@ -1719,12 +1719,11 @@ dskw_wbody:
 
     ; --- 3. the commit: one directory-sector write ------------------------
     call dskw_commit            ; past here the file IS the new bytes, and
-    jc .out                     ; rolling back is no longer an option
-
+                                ; rolling back is no longer an option
     ; --- 4. release the replaced chain and flush again --------------------
-    jmp dskw_relold
-.out:
-    ret
+    jnc dskw_relold             ; (one jcc where it reaches - kern_small, -2:
+.out:                           ; kernel size pass 21 - and nasm's own
+    ret                         ; `jc $+5 / jmp near` on kern_big, as was)
 .rollback:                      ; the half-built chain FREED and flushed,
     jmp dskw_wabody.rbfree      ; as an append's is (SPEC.md 18.4, Rollback)
 .rbret:                         ; (dskw_wdata's nothing-to-write exit, pass 16)

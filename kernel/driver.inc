@@ -6485,9 +6485,9 @@ cpc_fdtest:
     jae .after                  ; it fits before the page
     add di, cx                  ; ...else it starts ON the page
     cmp cx, bp
-    jb .after                   ; no track's room below it
-    jmp short .read             ; DX = the claim's base: the track goes there
-.after:
+    jae .read                   ; DX = the claim's base: the track goes there
+.after:                         ; (else no track's room below it: one jcc,
+                                ; kernel size pass 21, -2)
     mov dx, di
     add dx, bx                  ; the track buffer after the cylinder
 .read:

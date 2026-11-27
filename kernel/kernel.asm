@@ -6342,8 +6342,12 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 ; all call it and every one of them is %included first.
 EXT_EXTEND  equ 0               ; vid_disp_init's Extend arm; CF = 1 Single
 EXT_LAND    equ 1               ; ui_drag_size, CF INVERTED (1 = not moved)
-EXT_STRADS  equ 2               ; wm_strads: CF = 1 not straddling
-EXT_APPLY   equ 3               ; wm_strads + wm_strad_fit; CF = 1 not
+EXT_STRADS  equ 2               ; wm_strads: CF = 1 not straddling. CF = 1
+                                ; IN asks wm_strad_fit after it too (it was
+                                ; EXT_APPLY, slot 3); mod_gone's CF = 1 out
+                                ; answers both callers (kernel size pass 21)
+EXT_DEAD    equ 3               ; ui_drag_dead, UNGATED: registers kept - the
+                                ; last entry, moved into EXT_APPLY's slot
 EXT_FITBOX  equ 4               ; wm_fit_box: registers kept = the primary
 EXT_KINDNOW equ 5               ; wm_kind_now's arm: AL kept = the primary's
 EXT_FSX     equ 6               ; fsx.inc's second-display arms, by AH:
@@ -6361,8 +6365,8 @@ EXT_PHASE   equ 10              ; ui_drag_phase's arm, UNGATED: registers kept
                                 ; entry, took its slot: the slot block is 4
                                 ; bytes of .bss an entry - kernel size pass 20)
 EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
-EXT_DEAD    equ 14              ; ui_drag_dead, UNGATED: registers kept (12 and
-                                ; 13 are the seam cuts, font.inc/vga12.inc)
+                                ; (12 and 13 are the seam cuts, font.inc and
+                                ; vga12.inc: the last two entries)
 %macro EXTCALL 1
     call far [EXFP + %1*4]
 %endmacro
