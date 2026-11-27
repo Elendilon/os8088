@@ -222432,6 +222432,21 @@ writes all 200 lines (~19.2k clocks; 18.9k a two-opponent frame, 9% of it), beca
 columns and its row step 4 lines, so the plan's precomputed "plain over plain" lists (pitch 40, step 1
 line) do not apply and would have to be compiled for the (45, 4) pair.
 
+#### 102.7.7 The race plays on a display that can (2026-11-27)
+
+`xb_frontpick` decides where the race plays, following §53.1.2.1. It asks
+the display the window is mostly on first. If that one cannot play, it asks
+each display in turn with `OSAPI_FSX_CAPS` BX = 1, 2, ... (DrMarco's walk).
+The predicate is unchanged: a VGA with 0Dh, a real CGA with 320x200x4, a
+Hercules. An EGA alone is not playable.
+
+`[xb_fskind]` is the kind `xb_fullscreen` sets its mode for, read instead of
+asking again inside the bracket. `[xb_fsdisp]` is the CH that `xb_launch`
+hands `OSAPI_FSX_RUN`. A window on the EGA or MDA of a two-display machine
+plays on the other card. The splash says Enter there rather than the EGA's
+sentence. The walk is not `fsxw_pick`, because its predicate is per kind:
+an EGA offers CGA 320 and is still refused.
+
 ### 102.8 Polish, the four geometries, the low-memory refusal (wave 7)
 
 #### 102.8.1 The lane dash, on the two adapters that could not show it

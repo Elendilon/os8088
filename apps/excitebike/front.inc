@@ -8,6 +8,54 @@
 ; 66) and stays across a fullscreen visit, so leaving fullscreen repaints from
 ; memory and the heap returns to exactly where it was.  The row grammar is the
 ; one DrMarco's DMF1 uses (tools/excitebike_assets.py restates it).
+; xb_frontpick - WHERE THE RACE PLAYS (SPEC.md 53.1.2.1, 102.7.7): the
+; display the window is mostly on when it can, else the first display of an
+; extended desktop that can (OSAPI_FSX_CAPS BX = 1, 2, ... - DrMarco's walk),
+; so a window on an EGA or an MDA plays on the VGA, CGA or Hercules beside it.
+; Playable: a VGA that offers 0Dh, a real CGA that offers 320x200x4, a
+; Hercules - a fact from OSAPI_FSX_CAPS, never a guess (SPEC.md 47). An EGA
+; alone sees the splash and a sentence. out: [xb_frontplay], [xb_fskind]
+; (the kind the bracket sets its mode for), [xb_fsdisp] (OSAPI_FSX_RUN's
+; CH: 0 = the window's own). Clobbers AX, BX, DX.
+xb_frontpick:
+    mov byte [xb_frontplay], 0
+    mov byte [xb_fsdisp], 0
+    mov bx, [xb_win]
+.ask:
+    push bx
+    call OSAPI_FSX_CAPS
+    pop bx
+    jc .out                         ; past the last display: none plays
+    mov [xb_fskind], dl
+    cmp dl, VID_VGA
+    jne .cgakind
+    test ax, 1 << FSXM_VGA0D
+    jnz .yes
+.cgakind:
+    cmp dl, VID_CGA
+    jne .herckind
+    test ax, 1 << FSXM_CGA320
+    jnz .yes
+.herckind:
+    cmp dl, VID_HERC
+    jne .next
+    test ax, 1 << FSXM_HERC         ; Hercules plays too (SPEC.md 102.7): 720x348 mono, 2 card pixels a game pixel
+    jnz .yes
+.next:
+    cmp bx, 15                      ; a window pointer is far past 15: the
+    jbe .n                          ; walk starts at display 0
+    xor bx, bx
+.n:
+    inc bx
+    jmp short .ask
+.yes:
+    inc byte [xb_frontplay]
+    cmp bx, 15
+    ja .out
+    mov [xb_fsdisp], bl
+.out:
+    ret
+
 xb_frontgeom:
     mov bx, [xb_win]
     call OSAPI_WM_DISPLAY
@@ -16,32 +64,9 @@ xb_frontgeom:
     jbe .mono
     inc byte [xb_frontcolor]
 .mono:
-    ; Playable on a VGA that offers 0Dh and on a real CGA that offers the
-    ; 320x200x4 mode - a fact from OSAPI_FSX_CAPS, never a guess (SPEC.md 47).
-    ; EGA sees the splash and a sentence: the race is VGA/CGA/Hercules.
-    mov bx, [xb_win]
-    call OSAPI_FSX_CAPS
-    mov byte [xb_frontplay], 0
-    cmp dl, VID_VGA
-    jne .cgakind
-    test ax, 1 << FSXM_VGA0D
-    jz .caps
-    inc byte [xb_frontplay]
-    jmp .caps
-.cgakind:
-    cmp dl, VID_CGA
-    jne .herckind
-    test ax, 1 << FSXM_CGA320
-    jz .caps
-    inc byte [xb_frontplay]
-    jmp .caps
-.herckind:
-    cmp dl, VID_HERC
-    jne .caps
-    test ax, 1 << FSXM_HERC         ; Hercules plays too (SPEC.md 102.7): 720x348 mono, 2 card pixels a game pixel
-    jz .caps
-    inc byte [xb_frontplay]
+    call xb_frontpick
 .caps:
+    mov bx, [xb_win]
     call OSAPI_WM_CONTENT
     mov [xb_frontx], ax
     mov [xb_fronty], dx
