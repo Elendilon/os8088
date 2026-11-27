@@ -240155,6 +240155,12 @@ an ATAPI device answers 256 words, of which word 0 must say ATAPI (bits
 15-14 = 10b) and a CD-ROM (bits 12-8 = 5). Bits 1-0 give the packet length:
 12 bytes, or 16. Words 27-46 are the model string, kept for `CDV_DRIVE`.
 **The first CD-ROM found is the drive**; a second is not used (§119.8).
+**The probe is the last thing in the image and attach gives it back**
+(`DRV_H_KEEP`, §51.1.3; driver size pass 2): it runs once, after every cell
+of the driver's state, and its bytes take the loaded claim from 17 of the
+heap's 512-byte granules to 16. A second `DRVV_ATTACH` into the same image is
+refused `DRVE_TWICE` by a test of the drive's base, a cell before the offset,
+so nothing reaches the probe again.
 
 **The transport** (`cd_packet`): wait for BSY and DRQ clear, select the
 device, write the byte-count limit (8000h) and `PACKET` (A0h), wait for DRQ,

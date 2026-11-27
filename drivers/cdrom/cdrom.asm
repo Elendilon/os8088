@@ -8,7 +8,8 @@
 ; package plays the audio through the door in cdpkg.inc.
 ;
 ;   cdpkg.inc   the package door's ABI, shared with apps/cdrack
-;   atapi.inc   the drive: the probe, the packet command, its waits and sense
+;   atapi.inc   the drive: the packet command, its waits and sense (the
+;               probe is the LAST thing in this file: attach hands it back)
 ;   cddisc.inc  the disc: the TOC, the volume descriptor, the path table
 ;   cdiso.inc   the volume: records, names, handles and the FSV_* verbs
 ;   cdaudio.inc the door's verbs: play, pause, stop, where, eject, volume
@@ -127,6 +128,7 @@ cd_attach:
                                 ; every high byte (SPEC.md 52.1, 119.2)
     call cd_probe
     jc .no
+    mov word [DRV_H_KEEP], cd_keep ; the probe is done with: give it back
     mov si, cd_svc              ; CF = 0 off the `jc`
     ret
 .no:
@@ -319,5 +321,144 @@ cd_hcnext:  db 0                ; the next cache row to overwrite, mod CD_HC_N
 %if cd_rlen - cd_rlba != 4 || cd_cwdlen - cd_cwdlba != 4 || cd_r_len - cd_r_lba != 4 || cd_bseg - cd_boff != 2
   %error "cdrom: cd_resolve and cd_setcwd copy an extent and its length as one run; les reads cd_boff then cd_bseg"
 %endif
+
+; =============================================================================
+; THE PROBE (SPEC.md 119.2) - ATTACH'S AND NOTHING ELSE'S, SO IT IS LAST
+;
+; After every cell of the image's state: cd_attach writes DRV_H_KEEP =
+; cd_keep once its probe has found the drive, and the kernel gives these bytes
+; back (SPEC.md 51.1.3) - the 8,2xx-byte image is 17 of the heap's 512-byte
+; granules and the part it keeps is 16. Nothing reaches them again: cd_probe
+; is called by cd_attach alone, cd_ident by cd_probe alone, cd_bases is read
+; by cd_probe alone, and a second DRVV_ATTACH into the same image is turned
+; away (DRVE_TWICE) by cd_attach's test of cd_base - a cell BEFORE the offset
+; - before it could get here. A refused attach frees the whole image and
+; never writes the word (driver size pass 2).
+; =============================================================================
+cd_keep:
+cd_bases:   dw 0x168, 0x1E8, 0x170, 0x1F0   ; BACKWARDS: cd_probe walks it down
+CD_NBASE    equ 4                           ; from the end, 1F0h first
+
+; -----------------------------------------------------------------------------
+; cd_probe - find the first CD-ROM. out: CF = 0 and [cd_base], [cd_unit],
+;            [cd_pkw] and [cd_model] set; CF = 1 = none
+;
+; The first two channels, then - only if neither held one - the other two:
+; 1E8h and 168h are where a sound card's own IDE port sits, and a machine
+; that already showed us its CD-ROM has no reason to have them written.
+; -----------------------------------------------------------------------------
+cd_probe:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, (CD_NBASE - 1) * 2  ; the table's LAST row is 1F0h
+.base:
+    mov bx, [cd_bases+si]
+    lea dx, [bx+ATA_STAT]
+    in al, dx
+    cmp al, 0xFF
+    je .nextbase                ; a floating bus: nothing written to it
+    xor cl, cl
+.unit:
+    call cd_ident
+    jnc .found
+    xor cl, 1                   ; unit 0, then 1, then back to 0 and out
+    jnz .unit
+.nextbase:
+    sub si, 2                   ; the borrow past the first row is CF = 1:
+    jnc .base                   ; "none", with nothing more to say
+    jmp short .out
+.found:
+    mov [cd_base], bx           ; CF = 0 off the `jnc`
+    mov [cd_unit], cl
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cd_ident - IDENTIFY PACKET DEVICE on one unit (internal)
+; in:  BX = base, CL = unit
+; out: CF = 0 a CD-ROM: [cd_pkw] and [cd_model] set; CF = 1 not one
+; clobbers: AX, DX, ES, flags
+;
+; An ATA disk aborts A1h; an absent device never raises DRQ inside
+; CD_PROBE_T; an ATAPI device that is not a CD-ROM (a tape, a ZIP) answers
+; with another type in word 0. All 256 words are drained whatever they say -
+; the drive holds DRQ until they are.
+; -----------------------------------------------------------------------------
+cd_ident:
+    push cx
+    push di
+    mov ax, CD_PROBE_T
+    call cd_tmo_set
+    call cd_select
+    call cd_wait                ; DX = the status port, on every answer
+    jc .no
+    cmp al, 0xFF
+    je .no
+    mov al, ATA_C_PIDENT
+    out dx, al
+    call cd_delay
+    call cd_wait
+    jc .no
+    test al, ATA_ST_ERR
+    jnz .no
+    test al, ATA_ST_DRQ
+    jz .no                      ; nobody answered: no device there
+    mov dx, bx                  ; ATA_DATA
+    in ax, dx                   ; word 0, ON THE STACK across the drain
+    push ax
+    mov cx, 26                  ; words 1-26, dropped
+.skip:
+    in ax, dx
+    loop .skip
+    push ds                     ; ES = ours for the model, and NOT put back:
+    pop es                      ; the one caller is DRVV_ATTACH, and the
+                                ; drv_stamped that sent it restores ES itself
+    mov di, cd_model
+    mov cx, 20                  ; words 27-46: the model, two characters a
+.model:                         ; word and the FIRST in the HIGH byte
+    in ax, dx
+    xchg al, ah
+    stosw
+    loop .model
+    mov cx, 256 - 47
+.rest:
+    in ax, dx
+    loop .rest
+                                ; (cd_model+40, the NUL, is 0 from the load
+                                ; and nothing writes it: the 20 words above
+                                ; are bytes 0-39, and the trim writes zeros)
+    pop ax                      ; word 0
+    and ah, 0xDF                ; bits 15-14 = 10b (ATAPI) and 12-8 = 5 (a
+    cmp ah, 0x85                ; CD-ROM): bit 13 is reserved
+    jne .no
+    and al, 3                   ; the packet's size: 0 = 12 bytes, 1 = 16,
+    cmp al, 1                   ; and 2 or 3 a size no ATAPI version defines
+    ja .no
+    shl al, 1
+    add al, 6
+    cbw                         ; 6 or 8 WORDS - and AH = 0, the high byte the
+    mov [cd_pkw], ax            ; trim below stops on
+    mov di, cd_model + 39       ; the model is padded with spaces: trim them,
+.tr:                            ; down to cd_pkw's high byte if it is ALL
+    cmp byte [di], ' '          ; spaces - which is never one
+    jne .ok
+    mov byte [di], 0
+    dec di
+    jmp short .tr
+.ok:
+    CLC_OR_STC .no              ; CF = 0 here, CF = 1 at .no: cd_probe asks
+                                ; for nothing but CF
+    pop di
+    pop cx
+    ret
+
 
     OS88_DRV_END
