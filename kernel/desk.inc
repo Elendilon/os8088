@@ -898,10 +898,11 @@ desk_reflow:
 .a:
     mov al, [di+desk_zslot]
     mov [di+desk_zold], al      ; (the paint's memory)
-    cmp al, DSL_NONE
-    je .an                      ; not shown: nothing to let go of
-    cmp al, [desk_ncell]
-    jae .rel                    ; a cell this screen has not got
+    cmp al, [desk_ncell]        ; a cell this screen has not got - and NOT
+    jae .rel                    ; SHOWN, DSL_NONE being past every
+                                ; [desk_ncell] (<= DESK_CMAX): .rel stores the
+                                ; DSL_NONE it already holds (kernel size pass
+                                ; 21, -4: its own compare)
     cmp al, [di+desk_zpin]
     jne .rel                    ; flowing (DSL_NONE), or displaced
     mov bx, di
@@ -1921,11 +1922,10 @@ desk_cap:
     add ax, DESK_ZOVER
     xchg ax, bp                 ; BP = the pen, in bits from the band's start
     call desk_issel
-    mov al, 0FFh                ; white...
+    mov ax, 0FFFFh              ; white...
     jne .g
-    inc ax                      ; ...or black, selected
-.g:
-    mov ah, al
+    inc ax                      ; ...or black, selected (a WORD: kernel size
+.g:                             ; pass 21, -1 against `mov ah, al`)
     push es
     push ds
     pop es
@@ -2282,23 +2282,20 @@ osapi_desk_item_x:
     mov dx, es                  ; DX:CX = the caller's record, which survives
     mov cx, si                  ; the module's load where ES:SI would not
     or al, al
-    jz .pdel
     mov ax, (SC_OP_ADD << 8) | 0xFF ; AL = 0xFF unless the module answers a
-    call sc_modcall             ; zone - and one that cannot be read answers
-    cmp al, 0xFF                ; nothing, having said why
-    je .no
-    jmp short .ok
-.pdel:
-    mov ax, (SC_OP_PDEL << 8) | 0xFF ; THE RECORD ALONE, DX:CX (ABI-BREAK-LIST C10,
+    jnz .pgo                    ; zone - and one that cannot be read answers
+    mov ah, SC_OP_PDEL          ; nothing, having said why. A REMOVE is THE
+.pgo:                           ; RECORD ALONE, DX:CX (ABI-BREAK-LIST C10,
     call sc_modcall             ; kernel size pass 19): CTRL.DRV finds the row
-    or al, al                   ; by it - a zone is reused, and renumbered at
-    jnz .no                     ; boot, so it named nothing the record did not.
-                                ; AL = 0xFF going in: a module that cannot be
-                                ; read (no system disk) answers nothing, and
-                                ; that is a REFUSAL - 0 was "removed", and a
-                                ; Sticky App closed with its row stranded
-                                ; AL = 0 removed; 0xFF is a refusal, or no disk
-                                ; to read the module from
+    cmp al, 0xFF                ; by it - a zone is reused, and renumbered at
+    je .no                      ; boot, so it named nothing the record did not.
+                                ; ONE TEST FOR BOTH VERBS (kernel size pass 21,
+                                ; -10): an add answers its zone or 0xFF, and
+                                ; sc_m_pdel 0 (removed, out of sc_m_del) or
+                                ; 0xFF - a refusal, or no disk to read the
+                                ; module from, which leaves the 0xFF going in.
+                                ; 0 was never the refusal: a Sticky App closed
+                                ; with its row stranded when it was
 .ok:
     CLC_OR_STC .no              ; (kernel size pass 15: OSAPI_DESK_ITEM's
 .out:                           ; answer is CF)

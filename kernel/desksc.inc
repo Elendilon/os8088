@@ -451,15 +451,13 @@ osapi_arg_text_x:
 ; -----------------------------------------------------------------------------
 sc_modcall:
     push bx                     ; mod_live answers a row in BX
-    push ax
-    mov al, MOD_CTRL
-    call mod_live               ; CF = 0: a Control Panel is open
-    pop ax
-    jnc .full
-    push ax
+    push ax                     ; ...and the operation, banked ONCE for both
+    mov al, MOD_CTRL            ; questions (kernel size pass 21, -1: it was
+    call mod_live               ; popped and pushed again between them).
+    jnc .full                   ; CF = 0: a Control Panel is open
     mov al, MOD_SETS
     call mod_need
-    pop ax
+    pop ax                      ; (a pop writes no flag: CF is mod_need's)
     jc .no
     call far [SETFP]            ; the core's one slot, CPE_SC
     push ax
@@ -469,6 +467,7 @@ sc_modcall:
     pop bx
     ret
 .full:
+    pop ax
     call far [CPFP + CPE_SC * 4]
     pop bx
     ret
