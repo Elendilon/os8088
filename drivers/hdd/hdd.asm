@@ -311,6 +311,25 @@ hd_vol_row:
     ret
 
 ; -----------------------------------------------------------------------------
+; hd_xfer_rst - rung 0's retry: an int 13h failed, so reset the controller and
+;               spend an attempt (hd_xfer's and hd_xfer_ext's, one copy)
+; in:  AH = the failed call's status, BP = attempts left, DI = the device row
+; out: ZF = 1 when that was the last attempt; AX kept
+; clobbers: DL, flags
+; -----------------------------------------------------------------------------
+hd_xfer_rst:
+    push ax                     ; AH = the status, across the reset
+    mov ah, 0x00
+    mov dl, [di+HDD_BIOS]
+%ifdef INSTBENCH
+    inc word [hd_bn_rst]
+%endif
+    int 0x13
+    pop ax
+    dec bp
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_xfer - one transfer to a DEVICE, on whichever rung it is reached by
 ; in:  DI = the device row, [hd_lba], [hd_bcnt], [hd_bseg]:[hd_bofs], [hd_bop]
 ; out: CF = 0 and AL = 0 done; CF = 1 and AL = an int 13h status byte
@@ -364,19 +383,11 @@ hd_xfer:
 %endif                          ; install, which nothing else counts
     int 0x13
     jnc .next
-    push ax                     ; AH = the status, across the reset
-    mov ah, 0x00                ; reset the controller and try again
-    mov dl, [di+HDD_BIOS]
-%ifdef INSTBENCH
-    inc word [hd_bn_rst]
-%endif
-    int 0x13
-    pop ax
-    dec bp
+    call hd_xfer_rst            ; reset the controller and try again
     jnz .attempt
     mov al, ah
     jmp short hd_xfer_fail
-.next:
+.next:                          ; ...and hd_xfer_ext's, whose run ends here too
     mov cx, [hd_run]            ; hd_buf_step is per sector, and the LBA it
 .step:                          ; walks is what hd_chs reads next time round
     call hd_buf_step
@@ -424,10 +435,10 @@ hd_xfer_ext:
     call OSAPI_CPU_INFO         ; NEVER IN PROTECTED MODE (SPEC.md 52.1.6),
     test ah, CPU_F_PM           ; and it is asked HERE: a boot driver attaches
     jnz hd_xfer_fail4           ; before mega_enter, so attach cannot know
-    mov ax, 1                   ; a whole track's worth for hd_bios_run: the
-    mov [hd_sec], ax            ; packet has no track, only the page
-    dec ax
-    mov [hd_head], ax
+    xor ax, ax                  ; a whole track's worth for hd_bios_run: the
+    mov [hd_head], ax           ; packet has no track, only the page
+    inc ax
+    mov [hd_sec], ax
     call hd_bios_run
     jc hd_xfer_fail9
     mov [hd_run], ax
@@ -459,26 +470,11 @@ hd_xfer_ext:
     sbb cx, cx                  ; CX = -1 on the int 13h's CF, banked before
     add sp, 16                  ; the ADD that takes the packet off moves it
     pop si
-    jcxz .next
-    push ax
-    mov ah, 0x00                ; reset and try again, CHS's own retry
-    mov dl, [di+HDD_BIOS]
-%ifdef INSTBENCH
-    inc word [hd_bn_rst]
-%endif
-    int 0x13
-    pop ax
-    dec bp
+    jcxz hd_xfer.next           ; the run is done: hd_xfer's own walk of it
+    call hd_xfer_rst            ; reset and try again, CHS's own retry
     jnz .attempt
     mov al, ah
     jmp short hd_xfer_fail
-.next:
-    mov cx, [hd_run]
-.step:
-    call hd_buf_step
-    dec si
-    loop .step
-    jmp hd_xfer.run
 
 
 ; -----------------------------------------------------------------------------
@@ -527,10 +523,13 @@ hd_xfer_ide:
                                 ; the drive-select bit (SPEC.md 52.1)
 .lba:                           ; LBA MODE, for a sector CHS cannot name and
     test byte [di+HDD_FLAGS], HDF_LBA   ; only on a drive that said it takes
-    jz .fail                    ; it (SPEC.md 52.1.5): to a drive that does
-    mov ch, [hd_lba+3]          ; not, bit 6 is a different address
+    jnz .lbaok                  ; it (SPEC.md 52.1.5): to a drive that does
+.refuse:                        ; not, bit 6 is a different address. (Here
+    jmp hd_xfer_fail4           ; and not at .fail: both jumps stay short)
+.lbaok:
+    mov ch, [hd_lba+3]
     cmp ch, 0x0F                ; 28 bits: the top four in the head nibble
-    ja .fail
+    ja .refuse
     or ch, 0x40                 ; ...and bit 6, which says LBA
     mov al, [hd_lba]            ; bits 0..7 where the sector goes, 8..23
     mov [hd_sec], al            ; where the cylinder does: the registers
@@ -541,13 +540,12 @@ hd_xfer_ide:
     call hd_ide_select
     jc .fail
     mov ax, si                  ; the whole remainder in one command, up to
-    cmp ax, 255                 ; what the count register holds
-    jbe .n
+    test ah, ah                 ; what the count register holds: 256 and up
+    jz .n                       ; has a high byte, and only then is it cut
     mov ax, 255
 .n:
     mov [hd_run], ax
-    mov dx, bx
-    add dx, IDE_SCNT
+    lea dx, [bx+IDE_SCNT]
     out dx, al                  ; AL = the run: 1..255
     inc dx                      ; IDE_SNUM
     mov al, [hd_sec]
@@ -558,8 +556,7 @@ hd_xfer_ide:
     inc dx                      ; IDE_CYLH
     mov al, [hd_cyl+1]
     out dx, al
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     mov al, IDE_C_READ
     cmp byte [hd_bop], 0
     je .cmd
@@ -794,8 +791,7 @@ HD_WAITN    equ 128
 hd_ide_wait:
     push cx
     push dx
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     xor cx, cx
     mov ah, HD_WAITN            ; AH is this routine's to clobber (AX's output
 .poll:                          ; is AL)
@@ -825,8 +821,7 @@ hd_ide_wait:
 hd_ide_drq:
     push cx
     push dx
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     xor cx, cx
     mov ah, HD_WAITN
 .poll:
@@ -851,8 +846,7 @@ hd_ide_drq:
 ; -----------------------------------------------------------------------------
 hd_ide_select:
     push dx
-    mov dx, bx
-    add dx, IDE_DRVH
+    lea dx, [bx+IDE_DRVH]
     mov al, 0xA0                ; the two bits ATA-1 pins high...
     test cl, 1
     jz .d0
@@ -923,12 +917,10 @@ hd_ide_setparams:
     and ch, 0x0F
     call hd_ide_select
     jc .out
-    mov dx, bx
-    add dx, IDE_SCNT
+    lea dx, [bx+IDE_SCNT]
     mov al, [di+HDD_SPT]
     out dx, al
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     mov al, IDE_C_INITP
     out dx, al
     call hd_ide_wait
@@ -1256,8 +1248,7 @@ hd_at_ident:
     je .no
     test al, IDE_ST_DRDY
     jz .no
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     mov al, IDE_C_IDENT
     out dx, al
     call hd_ide_drq

@@ -126,10 +126,14 @@ hd_dev_row_ck:
 ; lucky: the first divide is refused unless DX is below the divisor, so its
 ; quotient - the cylinder - fits a word, and the second divides a remainder
 ; already below spt*heads.
+;
+; PER RUN on both rungs, so its common case runs straight through: a cylinder
+; below 1,024 takes no jump (the large-disk test is out of line, at .big),
+; and BX, which nothing here touches, is not banked (driver size pass 2:
+; ~39 clocks a call on an 8088, and 7 bytes).
 ; -----------------------------------------------------------------------------
 hd_chs:
     push ax
-    push bx
     push cx
     push dx
     mov ax, [di+HDD_HEADS]
@@ -137,21 +141,15 @@ hd_chs:
     mov cx, ax                  ; CX = spt*heads (<= 16,065)
     test dx, dx
     jnz .bad
-    or cx, cx
-    jz .bad
+    jcxz .bad
     mov ax, [hd_lba]
     mov dx, [hd_lba+2]
     cmp dx, cx
     jae .bad                    ; the quotient would not fit a word
     div cx                      ; AX = cylinder, DX = the rest
     cmp ax, 1024                ; int 13h's ten bits of cylinder, on every
-    jb .cyl                     ; row - a BIOS reserves the drive's last
-                                ; cylinder from AH=08h and it is still there
-    cmp byte [di+HDD_KIND], HDK_IDE
-    jne .bad
-    cmp ax, [di+HDD_CYL]        ; ...and past them the task file's sixteen,
-    jae .bad                    ; to the drive's OWN geometry: past THAT is
-.cyl:                           ; LBA mode's, or nobody's (SPEC.md 52.1.5)
+    jae .big                    ; row - a BIOS reserves the drive's last
+.cyl:                           ; cylinder from AH=08h and it is still there
     mov [hd_cyl], ax
     mov ax, dx
     xor dx, dx
@@ -159,19 +157,17 @@ hd_chs:
     mov [hd_head], ax
     inc dx
     mov [hd_sec], dx
+    CLC_OR_STC .bad
     pop dx
     pop cx
-    pop bx
     pop ax
-    clc
     ret
-.bad:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
+.big:
+    cmp byte [di+HDD_KIND], HDK_IDE
+    jne .bad
+    cmp ax, [di+HDD_CYL]        ; ...and past them the task file's sixteen,
+    jb .cyl                     ; to the drive's OWN geometry: past THAT is
+    jmp short .bad              ; LBA mode's, or nobody's (SPEC.md 52.1.5)
 
 ; -----------------------------------------------------------------------------
 ; hd_part_load - read the selected device's partition table into hd_mbr
