@@ -841,9 +841,9 @@ cpv_build:
 .tl:
     mov di, CPV_TABD            ; the tabs: All, then each depth present
     mov al, 7                   ; (All keeps every depth)
-    stosb
-    CSDO_ON                     ; (kern_mega: DS = this image's data)
-    mov si, cpv_s_tall          ; ...and their labels into cpv_tlab: All,
+    stosb                       ; (ES IS this image's data view since
+    mov si, cpv_s_tall          ; CPWIDE.DAT folded in: no CSDO run needed)
+                                ; ...and their labels into cpv_tlab: All,
     mov bx, cpv_tlab            ; then 256, 32,768 and 65,536 in that order
     call .lab
     mov al, 1
@@ -859,8 +859,7 @@ cpv_build:
     shl al, 1
     cmp al, 8
     jb .td
-    mov byte [CSEG bx], 0       ; the strip's end
-    CSDO_OFF
+    mov byte [es:bx], 0         ; the strip's end
     xchg ax, di
     sub ax, CPV_TABD            ; AL = the tabs
     cmp [es:CPV_FLT], al
@@ -902,11 +901,11 @@ cpv_build:
     mov [es:CPV_TB + CPKT_TOP], ax
 .out:
     ret
-.lab:                           ; CS:SI's label onto the image at BX, both
-    push ax                     ; advanced (inside CSDO_ON)
+.lab:                           ; CS:SI's label onto the image at ES:BX,
+    push ax                     ; both advanced
 .lc:
     cs lodsb
-    mov [CSEG bx], al
+    mov [es:bx], al
     inc bx
     or al, al
     jnz .lc

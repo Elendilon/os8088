@@ -37,10 +37,10 @@ pays (lz4; CTRL.DRV ships plain on kern_big, emu and mega).
 | | mega | 12,300 → **12,105** (−195, a granule) | 10,091 → **10,010** (−81) |
 | | small | 7,995 → **7,880** (−115) | 7,118 → **7,023** (−95) |
 | FSCHECK.DRV | big / emu / mega | 6,294 / 6,283 / 6,286 → 6,241 / 6,230 / 6,239 (−53 / −53 / −47) | −41 / −41 / −36 |
-| SERIAL.DRV | big, emu, small | 1,090 → 1,062 (−28); mega 1,181 (pinned, 3.2) | −36; mega −35 |
+| SERIAL.DRV | big, emu, small / mega | 1,090 → 1,062 (−28) / 1,181 → 1,152 (−29) | −36 / −36 |
 | STIKMENU.DRV | big, emu / mega | 7,935 → 7,911 (−24) / 8,426 → 8,390 (−36) | −25 / −38 |
 | EXTD.DRV | big, emu, mega | −15 | −15 |
-| HIBER.DRV | big, emu / mega | 7,729 → 7,722 (−7) / 11,632 (pinned, 3.2) | −10 / −7 |
+| HIBER.DRV | big, emu / mega | 7,729 → 7,722 (−7) / 11,632 → 11,625 (−7) | −10 / −13 |
 | WIN95.DRV | big, emu, mega | −2 | −2 |
 | FORMAT, DOCK, DESK, FILECP, FDLG | all | 0 | 0 |
 
@@ -125,7 +125,7 @@ number), every non-module section compared byte by byte:
 |---|---:|---|
 | kern_big, kern_emu | 7 | `osapi_font_glyphs` (KEYBOARD.DRV's `klf_saved_seg` offset), `mod_need` (`MODC_SIZE`, `MODS_SIZE`), `mod_need.whole` (`MOD_MAX_KB` 17 → 30, the high byte 44h → 78h) |
 | kern_small | 2 | `osapi_font_glyphs` |
-| kern_mega | 11 | `osapi_font_glyphs` (two offsets), `mod_need` (`MODC_SIZE`, `MODS_SIZE`, `MOD_MAX_KB`), `mod_hi` (`MODC_SIZE`), `kl_control_x` (`klm_scan`'s offset). **`.mega` byte-identical** |
+| kern_mega | 22 | `osapi_font_glyphs` (two offsets), `mod_need` (`MODC_SIZE`, `MODS_SIZE`, `MOD_MAX_KB`), `mod_hi` (`MODC_SIZE`), `kl_control_x` (`klm_scan`'s offset); and in `.mega`, `mega_dstubup` (HIBER.DRV's park stub, 1F80h → 1F79h) and `fsx_rsvcsz`/`fsx_rserdn`/`fsx_rserup` (SERIAL.DRV's lease cells, −29) - 11 low bytes |
 
 ## 4. The CPWIDE.DAT fold (the owner's instruction)
 
@@ -197,7 +197,8 @@ Not fixed (described in the notes):
    class has more members, and used them under the same proof (section 3):
    `MODC_SIZE` (any CTRL.DRV saving moves it), `MOD_MAX_KB` (the fold),
    KEYBOARD.DRV's internal offsets read by `osapi_font_glyphs` on every kernel
-   and by kern_mega's `kl_control_x`. No instruction, length or size moved.
+   and by kern_mega's `kl_control_x`, and HIBER.DRV's park stub and SERIAL.DRV's
+   lease cells read by kern_mega's `.mega` (item 3). No instruction, length or size moved.
    **Confirm the ruling**, or each of those savings has to be padded back
    (KEYBOARD.DRV would keep its 11 granules and only its file saving).
 2. **The fold's two consequences** (`cpwshell.md`): the open panel needs one
@@ -207,11 +208,14 @@ Not fixed (described in the notes):
    bytes in `cpg_open`.
 3. **kern_mega's resident names two module offsets** (`dops.md` CROSS-FILE 1):
    `mega_dstubup` adds HIBER.DRV's park stub offset and `fsx_rserdn` reads
-   SERIAL.DRV's lease block. The pass PINNED both on kern_mega with zero
-   padding (29 bytes in SERIAL, 7 in HIBER, each with an `%error`) to keep
-   `.mega` byte-identical. The proper fix is one resident change: a fixed
-   place after the entry table, or the offset read at run time; it gives the
-   36 bytes back.
+   SERIAL.DRV's lease block. `dops` PINNED both with zero padding to keep
+   `.mega` byte-identical under the brief's narrower ruling; the final pass's
+   `buildmatrix` then failed on it - the `MEGADIAG` arms put more code above
+   the stub than the fixed 1F80h allowed. Both references are labels of the
+   same assembly, so the coordinator took the pins out under the widened
+   ruling (item 1): `.mega` moves by 11 immediate bytes (section 3), the
+   modules give the 36 bytes back, and the knob arms assemble. A fixed place
+   or a run-time read would remove even those value changes; not needed.
 4. **CDROM.DRV gives its probe back after attach** (`DRV_H_KEEP`, SOUND.DRV's
    mechanism): a loaded CD-ROM holds 16 granules while `DRVM_IMG_CD` (the
    before-attach figure) says 17 (`input.md`).
@@ -256,4 +260,44 @@ Not fixed (described in the notes):
 
 ## 8. The final pass
 
-(Filled at the close.)
+**The union.** Every row the nine notes name, deduplicated: **298 soak
+rows**, run once with `tools/os88soak.py` against a frozen snapshot of
+`16fa9befe` (four emulator lanes, Bochs two a core). Before it, every
+capability the union needs was installed so that it would answer rather than
+skip: Bochs, 86Box (automation build), QEMU 9.2, the PicoMEM host firmware,
+the C toolchain, DOSBox and `wiredisk`.
+
+**Result: 290 ok, 5 FAIL, 3 SKIP in 47 minutes.** The skips are
+`win16mscdex`, `win16hiber` and `win16megadgroup`, which want the WIN16
+reference fixtures (`win16-reference` skill), not on this box.
+
+| failed | cause | after |
+|---|---|---|
+| `buildmatrix` | `make megadiag` / `megadiag-hb`: the `MEGADIAG` arms put code above HIBER.DRV's park stub, past the 1F80h pin `dops` had added (6, item 3) | **fixed**: both pins out (`58530cfd1`); ok on re-run |
+| `megap2hiber` | Bochs's debugger prompt not seen within 60 s, AFTER the guest reached its breakpoint in HIBER.DRV's wake (`hbm_wake`'s `.nowz`) | ok on re-run alone (16 s) |
+| `modcache` | the modkeep VGA leg's first step, opening `CALC.O88` from B: before any module was loaded: `LD_EBAD` | ok on re-run alone |
+| `ftpdflick` | its tick-release measurement was NOT SETTLED (a moving target); FTPD is untouched | ok on re-run alone |
+| `stikmenu` | one read of the Desk Calendar's `W_FLAGS` just after launch (0081h, where the same window reads as a desk window a step later) | ok on re-run alone |
+
+Because the `buildmatrix` fix moved kern_mega's HIBER.DRV and SERIAL.DRV, the
+kern_mega rows over them were run again: `megahiber`, `megahibfull`,
+`megadosp`, `megadosroom`, `walinkmega`, `megarmbref` - **6 ok**.
+
+**`test-full`, once**: 78 passed, 3 failed, 1 skipped.
+
+* `cswrite`: four sites in `cpw_vid.inc` - `cpwvid` wrote the Display page's
+  tab labels into the image's `cpv_tlab` inside a `CSDO_ON` run with a call
+  and string instructions in it, which is right on its branch and against
+  the run's rules; after the fold ES IS the image's writable view, so the
+  labels go through ES and the run is gone. **Fixed**, and `cpwide`,
+  `megamodcache`, `mega-vesacp` and `mega-vesa` re-run: **ok**.
+* `guidelock-full`: CPWIDE.DRV's manual page was stamped before the pages'
+  and the Display page's merges; it says the same, but for the memory the open
+  panel holds (29KB to 26KB). Restamped.
+* `hostwait`: `tests/cpface.py`, `tests/ethcfg.py` and `tests/rdcz.py` hold
+  host-time polls their lines in `tests/hostwait.txt` do not allow. **The
+  same three fail at the base** (`1b01907f1`); none of the three files was
+  touched by this pass. Not this pass's, and left as found.
+
+`test-full` again after the fixes: **80 passed, 1 failed (`hostwait`, as at
+the base), 1 skipped**.

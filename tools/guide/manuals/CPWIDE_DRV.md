@@ -132,4 +132,4 @@ are the Control Panel's pages, shown in the wide window: see [[CTRL.DRV]].
 - It is on the 720KB, 1.2MB and 1.44MB system disks, the emulator disk and
   the live media. A machine started from the 360KB system disk, or from a
   small system disk for 128KB machines, opens the compact layout.
-- While it is open, it takes about 29KB of memory.
+- While it is open, it takes about 26KB of memory.
