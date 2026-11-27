@@ -5758,6 +5758,32 @@ one side and not the other is the kind that costs somebody a day.
 *display's*, and `OSAPI_VIDEO` answers about the primary alone (§39.2.1).
 That distinction is §39.14.8's field bug, one register along.
 
+**…and from the DEEPEST display when the panel can land on another one
+(§5.3.1).**
+
+#### 5.3.1 A straddling window's panel can sit on the deeper card
+
+`OSAPI_WM_DISPLAY` answers a straddling window with the *more restrictive*
+of its two displays (§39.16.4.1), because that is what its frame is sized
+for. Its dropdown is a rect of its own, and it can lie wholly on the OTHER
+display - a window across a Hercules and a VGA whose menu bar is past the
+seam. `OSAPI_GFX_SAVE` accepts that rect, since it straddles nothing, and
+writes **four planes into a buffer sized for one**: past the claim, over the
+heap. The extended-desktop audit (2026-11-27, L2) found the pattern in
+`os88ui_drbank`, `os88ui_mnbank`, Sheet's `sh_mbank` and WIN16's
+`w16_mpsave`.
+
+So a save-under is sized for **`OSAPI_WM_DISPLAY`'s DH, raised to 4 when any
+display on the machine is planar** (`OSAPI_FSX_CAPS` with BX = 1, 2, ...
+names each display's kind; VGA and EGA are planar). `apps/os88ui.inc`'s
+`os88ui_bankpl` is that rule written once (in BX = the window, out BX = the
+planes), and all four sites call it. On a one-display machine, and on a
+two-display one with no planar card, it is DH unchanged; with a VGA beside a
+mono card a bank over a mono window costs four times the bytes it needs,
+which is a short list's few KB of transient claim against an overrun. A
+packed VESA display is never one of two (§120.5's extended-desktop row), so
+DH ≥ 4 is final.
+
 **Software-renderer dispatch (§32/§39.5).** Every public drawing entry above
 (`gfx_pixel` … `gfx_restore`) reaches a `[vid_planes]` test at its raw body,
 below the clip and display hooks, and branches to its `sw_*` twin in
@@ -158170,10 +158196,11 @@ and Word's (§68.2.1):
 - **`sh_mbank`** runs between `sh_mdrop_geo` and the first draw and calls
   `OSAPI_GFX_SAVE` over the panel's rect. Its size is §13.16.4's formula,
   planes × rows × byte columns, with the plane count from
-  `OSAPI_WM_DISPLAY` (never `OSAPI_VIDEO`, §39.16.4) and taken AS IT COMES,
+  `os88ui_bankpl` (§5.3.1: `OSAPI_WM_DISPLAY`'s DH, never `OSAPI_VIDEO`'s,
+  raised to the deepest display's) and taken AS IT COMES,
   §120.5's package rule: DH ≥ 4 is DH planes, 8 or 16 being the bytes a
-  column on a packed display, and only 1 is one plane. The bottom is clamped
-  to the display's last row, in `[sh_mbky2]`.
+  column on a packed display, and only 1 is one plane. The bottom is the
+  display's last row, found by §81.98.2, in `[sh_mbky2]`.
 - **`sh_mclose`** writes it back with `OSAPI_GFX_REST` and redraws the bar
   so the title is plain again. The full `sh_repaint` it used to make is now
   the REFUSAL path only: no bank (a rect straddling two displays, or one
@@ -158219,6 +158246,36 @@ dragged 24 rows lower, where the panel runs off the screen. Skipping the
 restore fails both comparisons.
 
 **Resident +174 bytes, bss +3** on the build this section first shipped on.
+
+#### 81.98.2 The bank's bottom is the DISPLAY's, found by asking the save
+
+The first `sh_mbank` clamped the panel's bottom to `OSAPI_WM_DISPLAY`'s
+height less one. That height is LOCAL - the display's own rows - and the
+panel's rect is VIRTUAL, so the clamp was right only on display 0. In a
+Below layout display 1 starts at the primary's height: a Hercules primary
+over a VGA put SHEET's bar at y = 477 and its Data panel to 522, the clamp
+cut the bank at 479, and the close left rows 480-522 of the panel on the
+glass (the extended-desktop audit, 2026-11-27, L2). A VGA primary over a
+Hercules had the panel run three rows onto the Hercules, where no bank and
+no repaint of SHEET's window reaches.
+
+No cell answers where a display starts, and none is needed: `OSAPI_GFX_SAVE`
+already refuses a rect that leaves the display holding its top-left. So
+`sh_mbank` saves the whole panel first - the common case, one call - and
+only when that is refused finds the display's last row by asking the same
+question of a ONE-COLUMN rect from the panel's top, halving the interval
+(at most nine probes, each a column of bytes, on the refused path only).
+One more one-pixel probe asks whether the row under that one belongs to
+ANOTHER display. If it does, the panel is **shortened to the whole items
+that fit above the seam, with its frame closed under them**, and banked: it
+never draws onto the other display, and what it banked is all it drew. If it
+does not - the screen's end, or the dead zone beside a shorter monitor - the
+tail is drawn nowhere, so the panel stays whole and the bank stops at the
+last row, which is the old behaviour exactly (`tests/sheetmtail.py`'s
+dragged-down arm). kern_small's save does not refuse a rect past the screen,
+so there the first save succeeds clipped, as before. A refusal across a
+vertical seam (the column fits, the width does not) is the old repaint. The
+plane count is §5.3.1's.
 
 #### 81.98.1 What the VGA machine found
 
