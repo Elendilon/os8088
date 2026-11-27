@@ -237,12 +237,9 @@ hd_iw_slot:
     mov [hd_iscur], ax
     mov ax, [si+HP_SECS+2]
     mov [hd_iscur+2], ax
-    mov al, [si+HP_TYPE]        ; FAT32 is never an install TARGET, even on
-    sub al, HPT_FAT32           ; the kernel that reads it: the boot path
-    cmp al, HPT_FAT32L-HPT_FAT32+1  ; reads FAT12/16 (SPEC.md 19.12.9)
-    jb .alien
-    call hd_part_isfat
-    jnc .fat
+    call hd_part_isf16          ; FAT32 is never an install TARGET, even on
+    jnc .fat                    ; the kernel that reads it: the boot path
+                                ; reads FAT12/16 (SPEC.md 19.12.9)
 .alien:
     mov al, [si+HP_TYPE]        ; SOMEBODY ELSE'S, and its name is the reason
     call hd_ptype_name          ; DX = the name, 0 = 'Type nnh' at draw time
@@ -1239,8 +1236,8 @@ hd_inst_apps:
     call hd_ivol_back
 .failed2:
     call hd_ibuf_put
-    stc
-    jmp short .out
+    stc                         ; ...and on into .out (its `jmp short` was to
+                                ; the next byte: driver size pass 2, -2)
     ; ...and NO `.nboot` arm here. It said "the files are all there and the
     ; disk simply will not boot", which is a real distinction and no longer
     ; this phase's to make: SPEC.md 52.10.10 moved the boot commit into the
