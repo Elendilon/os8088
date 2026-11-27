@@ -91070,6 +91070,26 @@ the row. Two things go with it:
   over the dock by default is about every boot; this is about a size somebody
   asked for.
 
+#### 42.9.2 ...and the negotiator asks which display BEFORE it answers
+
+Being `WF_KEEPH` (42.9.1) means the kernel never takes Paint's height in for
+it: a landing on another adapter (§39.16.3.3) proposes the size Paint asked
+for and leaves the cut to `pt_onsize`, which caps the proposal at
+`[pt_cwmax]`/`[pt_chmax]`. Those were `pt_screen`'s facts about the display
+the window was LAST on, because the kernel asks (§11.1) before it notifies
+(§11.98) and `pt_onresize` is what re-read them. So from #365 on, each move
+gave Paint the previous display's height: on `os8088_5150_both_gla`
+(Hercules primary, CGA Right) 300 rows on the 200-row CGA and 200 on the
+Hercules, the audit's K2/K3 (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+Before #365 the kernel shrank the frame itself and the stale ceiling only
+ever bound a grow, which is why Paint "used to" follow the display.
+
+`pt_onsize` now runs `pt_screen` for its window first. `OSAPI_WM_DISPLAY`
+answers the display the landing latched (§39.16.4.2), so the ceiling is the
+one the window is arriving on. Measured on that machine after the change:
+Hercules 498x300, straddle and CGA 498x200, Hercules again 498x300, and the
+same on every further trip. No kernel bytes; Paint +11 bytes of code.
+
 ### 42.10 A window that resizes itself inside its own paint must re-derive its layout
 
 `pt_track` runs at the top of every `W_PAINT` (there is no resize callback in
