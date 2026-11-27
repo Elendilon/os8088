@@ -495,18 +495,18 @@ inst_park_unlk:
     mov al, 0
 inst_park_mk:
     push bx                     ; AL = the value to mark, kept in AL across the
-                                ; test, which works in AH: both entries bank
-                                ; AX, so AH is theirs to spend (it was a second
-                                ; push of AX round the test until size pass
-                                ; 10). (The test was inst_park_me, a routine
+                                ; test. (The test was inst_park_me, a routine
                                 ; with this one caller - inline since size pass
                                 ; 9.) NO push cx: sch_currec clobbers BX only
-    call sch_currec             ; BX = the running task's record offset
-    mov ah, [bx+sch_tasks+T_INST]
-    cmp ah, INST_MAX
-    jae .no                     ; the UI task, or a task with no record
-    mov bl, ah
-    xor bh, bh
+    call sch_currec             ; BX = the running task's record offset, and
+    mov bl, [bx+sch_tasks+T_INST] ; BH = 0 (the %if below): the instance is
+    cmp bl, INST_MAX            ; read straight into BL, so BX is its index
+    jae .no                     ; the UI task, or a task with no record (it
+                                ; went through AH until kernel size pass 21:
+                                ; -4, the `mov bl, ah` and the `xor bh, bh`)
+%if MAX_TASKS * T_SIZE > 256
+  %error "the park mark reads the instance into BL over the running task's record offset: it needs that offset's BH to be 0"
+%endif
     cmp byte [bx+inst_parksafe], 0
     je .no                      ; never declared: park it at ALIVE and nowhere
                                 ; else (SPEC.md 66.5.4)
@@ -606,10 +606,13 @@ inst_park_req:                  ; FAR-ENTERED (SPEC.md 2.6.1): no near caller
 .scan:
     call inst_next
     jc .out                     ; everybody who has a worker has parked
-    test byte [di+I_KIND], KIND_PKG
-    jz .scan
-    cmp byte [di+I_TASK], 0xFF
-    je .scan                    ; no worker: nothing to wait for
+    cmp byte [di+I_TASK], 0xFF  ; no worker: nothing to wait for - and a
+    je .scan                    ; BUILT-IN never has one: only inst_pkg_spawn
+                                ; writes a task slot there, behind
+                                ; inst_pkg_fence's KIND_PKG test, so the
+                                ; kind test that stood here was always
+                                ; answered by this one (kernel size pass 21,
+                                ; -6)
     call inst_wk_parked
     jne .scan
     mov ax, [ticks]             ; ...somebody is still running
@@ -1028,6 +1031,18 @@ inst_caller:
     pop bx
     ret
 
+; inst_caller_bx - inst_caller, and the answer as an INDEX: BX = DH zero-
+; extended, and the flags of `cmp bl, INST_MAX` (CF = 1: an instance slot,
+; CF = 0: the kernel itself). inst_where's and inst_vol_mark's common head,
+; written out in each until kernel size pass 21 (-3)
+; clobbers: BX, DH (the outputs), flags
+inst_caller_bx:
+    call inst_caller
+    mov bl, dh
+    xor bh, bh
+    cmp bl, INST_MAX
+    ret
+
 ; -----------------------------------------------------------------------------
 ; inst_vol_enter - stand the machine in the CALLING instance's directory
 ;                  (SPEC.md 19.2.1)
@@ -1113,13 +1128,10 @@ inst_vol_enter:
 ; -----------------------------------------------------------------------------
 inst_where:
     push bx
-    call inst_caller            ; DH = the instance behind this call
+    call inst_caller_bx         ; DH = the instance behind this call, BX it
     mov dl, [disk_drive]        ; ...the machine's, until it says otherwise
-    CLU_LD dsk_cwd
-    mov bl, dh
-    xor bh, bh
-    cmp bl, INST_MAX
-    jae .out                    ; 0xFF: nobody's
+    CLU_LD dsk_cwd              ; (a `mov` and CLU_LD write no flag, so the
+    jae .out                    ; compare inst_caller_bx made is still read)                    ; 0xFF: nobody's
     mov dl, [inst_fdrv+bx]
     shl bx, 1
     mov ax, [inst_fcwd+bx]
@@ -1145,11 +1157,8 @@ inst_vol_mark:
     push ax
     push bx
     push dx
-    call inst_caller
-    cmp dh, INST_MAX
-    jae .out
-    mov bl, dh
-    xor bh, bh
+    call inst_caller_bx         ; BX = the caller's slot...
+    jae .out                    ; ...or the kernel, which has no row
     call inst_fhome_here        ; the drive and the folder, into this slot's two
 .out:                           ; side-table rows - the body inst_fhome_clr
     pop dx                      ; writes too
@@ -1475,17 +1484,17 @@ app_launch:
     call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     push es
 
-    mov [inst_knd], al
     mov bl, al                  ; BL = the kind, kept to the pool scan below
     mov ah, KD_SIZE             ; SI = kind descriptor: kind x KD_SIZE, which
     mul ah                      ; is 13 and not a power of two (an 8-bit `mul`
     add ax, inst_kinds          ; writes AX alone), and AL back out of BL,
     xchg si, ax                 ; which nothing writes until the pool scan
-    mov al, bl                  ; reads it (kernel size pass 21, -1: the
-                                ; reload from [inst_knd], and .alloc's own
-                                ; `mov bl, al`). AH is dead until the I_KIND
-                                ; store far below, and CX is zeroed by the
-                                ; very next instruction
+    mov al, bl                  ; reads it - and AL stays the kind to .alloc,
+                                ; where it is stored (kernel size pass 21: the
+                                ; [inst_knd] byte it was banked in, its store,
+                                ; its reload and .alloc's own `mov bl, al`, -8).
+                                ; AH is dead until then, and CX is zeroed by
+                                ; the very next instruction
 
     ; --- cap check: count records of this kind with I_STATE != 0 ------------
     xor cx, cx                  ; CL = count - and DX is free now, where this
@@ -1522,15 +1531,28 @@ app_launch:
     call inst_find_kind         ; a true singleton: front the live one instead
     jc .failj                   ; only dying ones exist: retry later
     mov bp, inst_restore        ; un-minimize and show, THE one copy of it -
-    call ui_lcall               ; it banks BX, which neither this path nor
+    jmp .lcall                  ; it banks BX, which neither this path nor
                                 ; ui_tm_open's reads afterwards (BP is not
-                                ; this routine's record until .alloc)
-    jmp .ok
+                                ; this routine's record until .alloc). The
+                                ; show's own ui_lcall, below: [inst_lkhd] is
+                                ; 0 on this path - fdlg_open sets it only to
+                                ; launch KIND_FILES, whose cap is above 1 and
+                                ; so never reaches the singleton front
+                                ; (kernel size pass 21, -3: a call and a jmp)
 
 .alloc:
     call inst_alloc
     jc .failj
     mov bp, di                  ; BP = our record for the duration
+%if I_TASK != I_KIND + 1
+  %error "app_launch writes I_KIND and I_TASK as one word"
+%endif
+    mov ah, 0xFF                ; I_KIND = the kind (AL: inst_alloc keeps AX)
+    mov [di+I_KIND], ax         ; and I_TASK = none, beside it in one store -
+                                ; NOW, while the record is unpublished: no
+                                ; walker reads an I_STATE = 0 row, and a
+                                ; refusal below leaves it free for inst_alloc
+                                ; to zero again
 
     ; --- state-pool slot pick (SPEC.md 29.4) ---------------------------------
     xor dx, dx                  ; DX = the slot, which is also the cascade step
@@ -1596,12 +1618,6 @@ app_launch:
                                 ; word now, born in wm_create: SPEC.md 11.104)
 
     ; --- fill + bind + init --------------------------------------------------
-%if I_TASK != I_KIND + 1
-  %error "app_launch writes I_KIND and I_TASK as one word"
-%endif
-    mov al, [inst_knd]
-    mov ah, 0xFF                ; ...and I_TASK = none, beside it in one store
-    mov [ds:bp+I_KIND], ax
     mov ax, [si+KD_ICON]
     mov [ds:bp+I_ICON], ax
     push si
@@ -1637,6 +1653,7 @@ app_launch:
     ; after the loader has published it, which is why it is not here either.
     mov bx, [ds:bp+I_WIN]
     mov bp, wm_show             ; BP is spent: the record's last use was above
+.lcall:                         ; (the singleton front's way in, BP = restore)
     cmp byte [inst_lkhd], 0     ; the Standard File chooser is launched by a
     jne .held                   ; caller that HOLDS the lock (SPEC.md 38.6),
     call ui_lcall               ; and the lock is not recursive - so lock,
@@ -2547,7 +2564,8 @@ sch_parked:   resb MAX_TASKS    ; ...and which TASKS have. PER TASK and not per
                                 ; because the park is what writes it
 
 inst_launch: resb 1             ; deferred launch: 0 = none, else kind + 1
-inst_knd:    resb 1             ; app_launch scratch: kind being launched
+                                ; (inst_knd, app_launch's banked kind, went
+                                ; in kernel size pass 21: AL holds it)
                                 ; (the state-pool slot was a word here, and is
                                 ; DX across the pick since size pass 9)
                                 ; (inst_tplbuf, the cascaded template copy,
