@@ -1051,7 +1051,8 @@ hd_svc_end:                     ; ...AND STOPS HERE, its length in the header
 ; out: CF = 0 yes - the BIOS reported it and this unit gets no row of its own,
 ;      and that BIOS row is now SPENT: ZF = 1 and DI = the row to pair it
 ;      with, or ZF = 0 and no pairing (AMBIGUOUS, or more heads than a task
-;      file has); CF = 1 no
+;      file has); CF = 1 no, and AL = how many BIOS rows no unit has spent
+;      have its sectors per track (0 = HDF_XCYL, SPEC.md 52.1.5)
 ; clobbers: AX, CX, DX, DI, flags (BX, the base port, is kept)
 ;
 ; The key is the GEOMETRY, because it is the only thing the two rungs both
@@ -1087,7 +1088,8 @@ hd_svc_end:                     ; ...AND STOPS HERE, its length in the header
 hd_at_dup:
     push si
     xor si, si                  ; SI = the first unspent match, 0 = none
-    xor ch, ch                  ; CH = how many OTHER rows match
+    xor cx, cx                  ; CH = how many OTHER rows match, CL = how
+                                ; many UNSPENT rows share its sectors/track
     mov dx, 0x0100              ; DL = the row index, DH = its bit in [hd_dupd]
 .scan:
     cmp dl, [hd_ndev]
@@ -1096,11 +1098,15 @@ hd_at_dup:
     call hd_dev_row
     cmp byte [di+HDD_KIND], HDK_BIOS
     jne .next
+    mov ax, [hd_idbuf + 6*2]    ; word 6: sectors per track - FIRST, because
+    cmp ax, [di+HDD_SPT]        ; it is the past-1,024 question's key as well
+    jne .next                   ; (SPEC.md 52.1.5): a BIOS that TRANSLATES a
+    test [hd_dupd], dh          ; big drive keeps its sectors per track, so
+    jnz .spent                  ; an unspent row that has this drive's could
+    inc cx                      ; be this drive, translated. CL counts them
+.spent:                         ; for hd_at_channel's HDF_XCYL
     mov ax, [hd_idbuf + 3*2]    ; word 3: heads
     cmp ax, [di+HDD_HEADS]
-    jne .next
-    mov ax, [hd_idbuf + 6*2]    ; word 6: sectors per track
-    cmp ax, [di+HDD_SPT]
     jne .next
     mov ax, [hd_idbuf + 1*2]    ; word 1: cylinders - the BIOS may report
     cmp [di+HDD_CYL], ax        ; fewer, never more
@@ -1122,6 +1128,7 @@ hd_at_dup:
     shl dh, 1
     jmp short .scan
 .end:
+    mov al, cl                  ; AL = CL, for a drive that gets a row
     mov di, si
     cmp si, 1                   ; CF = 1: no row matched
     jc .out
@@ -1264,13 +1271,13 @@ hd_at_ident:
                                 ; is gated on a 16-bit bus (SPEC.md 52.1) -
                                 ; so on a 286 and up, and a 186's string op
                                 ; is legal here as in hd_xfer_ide (52.1.2)
-    mov cx, 49 - 7              ; on to word 49, the capabilities...
-.skip:
+    mov cl, 49 - 7              ; on to word 49, the capabilities (CH = 0
+.skip:                          ; after the REP, and after a LOOP below)...
     in ax, dx
     loop .skip
     in ax, dx
     stosw                       ; ...at hd_idbuf+14, DI following the insw:
-    mov cx, 256 - 50            ; bit 9 is LBA (SPEC.md 52.1.5)
+    mov cl, 256 - 50            ; bit 9 is LBA (SPEC.md 52.1.5)
 .drain:
     in ax, dx
     loop .drain
@@ -1278,48 +1285,6 @@ hd_at_ident:
     ret
 .no:
     stc
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_at_xcyl - may rung 1 address this fresh IDE row past cylinder 1,023?
-; in:  DI = the row (HDD_KIND IDE), AX = its sectors per track
-; out: HDF_XCYL set on the row when it may; every register kept
-;
-; ATTACH-ONLY. An IDE row past 1,024 cylinders was always unusable - hd_chs
-; and hd_geom_ok both stopped at int 13h's ten bits - and that hid a second
-; fact: a BIOS that TRANSLATES a big drive (32, 64, 128 or 255 heads) reports
-; a geometry hd_at_dup cannot pair, so such a drive has a BIOS row AND an IDE
-; row, and only the first could mount. Lifting the bound alone would mount
-; every partition on it twice, through two transports (SPEC.md 52.1). So the
-; bound lifts only when no BIOS row the pairing left unspent has this drive's
-; sectors per track - the one field a translation keeps. A drive that fails
-; the test is exactly as it was: listed, its geometry unusable, and its BIOS
-; row (if it is one) reaching it through rung 0 and the packet calls.
-; -----------------------------------------------------------------------------
-hd_at_xcyl:
-    push dx
-    push si
-    mov si, hd_devs
-    mov dx, 0x0100              ; DL = the row index, DH = its bit in [hd_dupd]
-.scan:
-    cmp dl, [hd_ndev]
-    jae .yes
-    cmp byte [si+HDD_KIND], HDK_BIOS
-    jne .next
-    test [hd_dupd], dh
-    jnz .next                   ; paired with another unit: another drive
-    cmp ax, [si+HDD_SPT]
-    je .out                     ; could be this one, translated
-.next:
-    add si, HDD_SIZE
-    inc dx
-    shl dh, 1
-    jmp short .scan
-.yes:
-    or byte [di+HDD_FLAGS], HDF_XCYL
-.out:
-    pop si
-    pop dx
     ret
 
 %include "hdxms.inc"            ; the read straight into XMS (52.1.4): in
@@ -1460,8 +1425,8 @@ hd_at_bios:
     mov ah, 0x41                ; THE PACKET CALLS (SPEC.md 52.1.6): what the
                                 ; ROM has, on every kernel - hd_xfer_ext is
                                 ; what refuses them in protected mode
+    mov dl, bl                  ; (the drive, still)
     mov bx, 0x55AA
-    mov dl, [di+HDD_BIOS]
     int 0x13
     jc .out                     ; an XT ROM's 'bad command'
     cmp bx, 0xAA55
@@ -1504,11 +1469,14 @@ hd_at_channel:
     mov byte [di+HDD_KIND], HDK_IDE
     mov [di+HDD_UNIT], cl
     mov [di+HDD_BASE], bx
+    or al, al                   ; PAST 1,024 CYLINDERS only when no BIOS row
+    jnz .xcyl                   ; the pairing left unspent has this drive's
+    or byte [di+HDD_FLAGS], HDF_XCYL    ; sectors per track (hd_at_dup's AL,
+.xcyl:                          ; SPEC.md 52.1.5) - hd_at_geom reads it
     mov cx, [hd_idbuf + 1*2]    ; word 1: cylinders
     mov dx, [hd_idbuf + 3*2]    ; word 3: heads
     mov ax, [hd_idbuf + 6*2]    ; word 6: sectors per track
-    call hd_at_xcyl             ; past 1,024 cylinders only if nothing else
-    call hd_at_geom             ; can be this disk (SPEC.md 52.1.5)
+    call hd_at_geom
     call hd_ide_setparams       ; tell the drive the geometry we will use -
                                 ; without it every read lands somewhere else
 .lba:

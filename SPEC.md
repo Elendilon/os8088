@@ -109402,9 +109402,11 @@ of address with no geometry at all.
   reports a geometry `hd_at_dup` cannot pair (heads must be equal), so that
   drive has a BIOS row AND an IDE row, and what kept the second from mounting
   every partition a second time, through another transport, was only the
-  1,024-cylinder refusal this section lifts. So `hd_at_xcyl`, at attach, sets
-  `HDF_XCYL` only when no BIOS row the pairing left unspent has this drive's
-  sectors per track — the one field a translation keeps. A drive that fails
+  1,024-cylinder refusal this section lifts. So attach sets `HDF_XCYL` only
+  when no BIOS row the pairing left unspent has this drive's sectors per
+  track — the one field a translation keeps. (It was a scan of its own,
+  `hd_at_xcyl`; since driver size pass 2 `hd_at_dup`'s scan counts those
+  rows on its way past, the same set, and hands the count back in AL.) A drive that fails
   it is exactly as it was: listed, unusable, and its BIOS row reaching it
   through rung 0 and §52.1.6. One that passes is a drive no BIOS row can be:
   the BIOS does not know it, or knows it exactly and paired it.
@@ -109437,7 +109439,8 @@ BIOS's set apart): a 1GB drive at 2,080/16/63 that SeaBIOS reports as
 at LBA 1,100,000, is reachable only in LBA mode. Broken on purpose — the LBA
 arm refused — nothing mounts. `hdextebios` holds the guard: a 9GB drive SeaBIOS
 translates to 255 heads, whose IDE row must stay without `HDF_XCYL`; with
-`hd_at_xcyl`'s scan skipped it mounts its one volume TWICE.
+that count skipped (`HDF_XCYL` set on every new IDE row) it mounts its one
+volume TWICE.
 
 #### 52.1.6 Rung 0 past cylinder 1,023: the packet calls (2026-11-18)
 

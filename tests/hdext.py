@@ -38,7 +38,8 @@ EXTENDED partition. Each volume carries a marker file named for where it is.
 Break on purpose: hd_mount's call to hd_mount_chain taken out, and the default
 leg finds one volume; the forward test in the link taken out, and --loop mounts
 the logical drives again; hd_xfer_ide's LBA arm refused, and --lba lists
-nothing; hd_at_xcyl's BIOS scan skipped, and --ebios mounts the volume twice.
+nothing; hd_at_dup's count of unspent BIOS rows sharing the sectors per track
+skipped (HDF_XCYL on every new IDE row), and --ebios mounts the volume twice.
 """
 import atexit
 import os

@@ -576,27 +576,21 @@ hd_geom_ok:
     ja .no                      ; 504MB is ADDRESSABLE when nothing else can
 .heads:                         ; be the same disk (SPEC.md 52.1.5)
     mov ax, [di+HDD_HEADS]
-    test ax, ax
-    jz .no
-    cmp ax, 255
-    ja .no
+    dec ax                      ; 1..255 is 0..254 now and 0 is FFFFh, so
+    cmp ax, 255                 ; ONE unsigned compare is both bounds
+    jae .no
     cmp byte [di+HDD_KIND], HDK_IDE
     jne .spt
     cmp ax, 16                  ; the task file has four bits of head, so an
-    ja .no                      ; IDE row carrying more is not a drive we can
+    jae .no                     ; IDE row carrying more is not a drive we can
 .spt:                           ; address at all - refuse the GEOMETRY rather
                                 ; than truncate it at the port (SPEC.md 52.1)
     mov ax, [di+HDD_SPT]
-    test ax, ax
-    jz .no
+    dec ax                      ; 1..63, the same way
     cmp ax, 63
-    ja .no
+    jae .no
+    CLC_OR_STC .no
     pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
     ret
 
 %ifdef HD_TOOL                 ; the page's size column and labels
