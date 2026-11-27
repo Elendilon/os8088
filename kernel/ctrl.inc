@@ -1368,8 +1368,9 @@ cpg_glyph:
 ; between here and the window being shown can arm anything), then SPEC.md
 ; 135.2's predicate - a VGA or VESA primary whose WORK AREA (the band wm_fit
 ; places windows in) holds the 616x408 face - then
-; MOD_CPW, then CPWIDE.DRV's own open: CPWIDE.DAT read and the window's size
-; written into cp_tpl.
+; MOD_CPW, then CPWIDE.DRV's own open: the window's size written into cp_tpl
+; (its icons and catalog are its own image's bytes, so once mod_need has the
+; image the open cannot refuse - SPEC.md 135.2).
 ; -----------------------------------------------------------------------------
 cpg_open:
     push ax
@@ -1407,14 +1408,10 @@ cpg_open:
 .have:
     push bp
     mov bp, CWV_OPEN
-    call far [CPWFP]            ; CF = 1: no CPWIDE.DAT, or no room for it
-    pop bp
-    jnc .wide
-    mov al, MOD_CPW
-    CPXC mod_drop
-    jmp short .out
-.wide:
-    CSDO mov byte [CSEG cp_wide], 1
+    call far [CPWFP]            ; the size into cp_tpl; it answers CF = 0
+    pop bp                      ; always (CPWIDE.DAT is the image's own bytes
+    CSDO mov byte [CSEG cp_wide], 1 ; since driver size pass 2: no read, no
+                                ; claim, so no refusal past mod_need's)
 .out:
     mov al, KIND_CTRL           ; ...and the launch, cp_open_x's own lines
     KDOOR app_launch            ; until the face moved here: CF = 1 is the
