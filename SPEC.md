@@ -233482,10 +233482,21 @@ repaints, once, before the place is saved. **The layout is the PRIMARY's**
 (`OSAPI_VIDEO`'s height, chosen once at `stik_load`), so a face dropped on a
 shorter second display - a MID face on a 200-row CGA beside a Hercules, a
 TALL one on a 348-row Hercules beside a VGA - may not fit it at any `y`:
-the re-fit then lifts it to the menu bar ONCE and leaves it, because it
-moves a frame only UP. Without that rule it was hidden and shown again
+the re-fit then lifts it to that display's top ONCE and leaves it, because
+it moves a frame only UP. Without that rule it was hidden and shown again
 every beat, forever. `deskdrag`'s H leg drops the
 probe to a bottom at 544 on a 480-row screen and reads it back at 480.
+
+**Every one of these compares in the display's OWN place** (`stik_dbox`):
+`W_X`/`W_Y` are virtual, so the bottom it is held above is the display's
+`OSAPI_WM_DORIGIN` y plus its `OSAPI_WM_DISPLAY` height, its right edge the
+origin's x plus the width, and its top the menu bar's foot on the primary
+and the display's own first row anywhere else (§39.16.4.3). The beat's
+re-fit, the restore at launch and `stik_resize` all ask it. Before, they
+compared a virtual `y` with display 1's LOCAL height, so a calendar dropped
+at y = 330 on the VGA under a Hercules (Below) was lifted to 238 at the next
+beat, and a size change on the Right layout's second display threw the
+widget back onto the primary (the extended-desktop audit's L1).
 
 **The state file's place is the FACE's origin** (header +3 bit 1,
 `STIK_HF_CONT`, §110.5): a v1 file holds a titled frame, so its face is
@@ -234138,7 +234149,8 @@ other Sticky App **byte for byte** what it was (measured: `deskcal.bin` and
 - **`stik_resize`** (SI = the window, the lock held): the package changed
   something its size depends on. A frame of the same size is one
   `stik_redraw`; another size is HIDDEN, re-sized from its top-left (kept on
-  its display and on the byte grid) and SHOWN - there is no move cell, and the
+  its display - in that display's own place, `stik_dbox`, §110.5's re-fit -
+  and on the byte grid) and SHOWN - there is no move cell, and the
   kernel's Arrange does the same (§110.12.4) - and a widget that owned the bar
   takes it back with `OSAPI_WM_FRONT`, which on a desk window activates and
   raises nothing (§11.103.4). The titled fallback goes through
