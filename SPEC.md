@@ -255551,6 +255551,14 @@ kept.
 page: like CGA's, a cut is drawn where it can be seen. Their second page is
 not used yet. An EGA takes the CGA4 bundle in mode 4.
 
+**A display's refusal is the display's.** A play refused because the
+window's display has not the battle's mode ("Needs CGA, EGA or VGA", "Needs
+BATTLEH.VBT on a Hercules") sets `[vb_dispno]`, and `vb_onresize` (§11.98)
+puts Ready back when the window lands on another display of an extended
+desktop (§39.16.3.3), so the word never describes a card the window has
+left; Enter asks the new one. It read "Needs CGA, EGA or VGA" on a VGA d1
+where Enter played, until the extended-desktop audit of 2026-11-27.
+
 **Hardware not yet heard.** The PC speaker (VIDEO-BATTLE-PLAN 3.2) is not
 an output.
 

@@ -1514,6 +1514,7 @@ vb_play:
     jmp .paint
 .go:
     mov byte [vb_cpq], 0
+    mov byte [vb_dispno], 0
     mov word [vb_status], vb_s_load
     mov si, [vb_win]
     call vb_paint
@@ -1643,6 +1644,19 @@ vb_cpask:
 
 ; vb_onwake - EVT_WAKE: the compaction a play posted has run - the play,
 ; now, with the room it made
+; vb_onresize - W_ONRESIZE (SPEC.md 11.98): the window landed on another
+; display of an extended desktop (39.16.3.3). A play refused because THE
+; DISPLAY had not the battle's mode said so about the display it stood on,
+; so that word goes and Ready comes back: Enter asks the new one. MUST NOT
+; DRAW - the repaint that follows does
+vb_onresize:
+    cmp byte [vb_dispno], 0
+    je .r
+    mov byte [vb_dispno], 0
+    mov word [vb_status], vb_s_ready
+.r:
+    ret
+
 vb_onwake:
     cmp byte [vb_cpq], 1
     jne .out
@@ -3711,6 +3725,7 @@ vb_main1:
     shl ax, cl
     test dx, ax
     jnz .mode
+    mov byte [vb_dispno], 1         ; (a fact about the DISPLAY: vb_onresize)
     mov word [vb_err], vb_s_nocga
     cmp byte [vb_kind], VK_HERC
     jne .mx
@@ -5774,7 +5789,8 @@ vb_tpl:
     dw vb_title, vb_cls
 ; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
     OS88_CLASS vb_cls, 0, PAINT, vb_paint, ONKEY, vb_onkey, \
-               ONCLICK, vb_onclick, ABOUT, vb_about, ONWAKE, vb_onwake
+               ONCLICK, vb_onclick, ABOUT, vb_about, ONWAKE, vb_onwake, \
+               ONRESIZE, vb_onresize
 vb_title:     db 'Video Battle', 0
 vb_actab:     db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0
 vb_name:      db 'BATTLE.VBT', 0
@@ -6020,6 +6036,7 @@ VB_VAR vb_vid, 1
 VB_VAR vb_hopd, 1                   ; kern_mega: the hold opened at the door
 VB_VAR vb_pmd, 1                    ; the desktop in PROTECTED mode at the
                                     ; door: kern_mega (vb_door)
+VB_VAR vb_dispno, 1                 ; the last play refused for the display
 VB_VAR vb_capm, 2                   ; OSAPI_FSX_CAPS's modes, at the door
 VB_VAR vb_rkeep, 2                  ; KB the rings leave free (vb_door)
 VB_VAR vb_fsxl, 24                  ; FSXF_REAL's list (vb_mklist)
