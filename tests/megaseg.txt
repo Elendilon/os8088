@@ -237,4 +237,13 @@
 #             `jc` (2: a refused class with a null ES would fault in
 #             protected mode) and vid_ctx_act's KSEGR (1: kern_mega's is the
 #             data-alias load either way). The 4 bytes of slack went first
-3784
+# 2026-11-27: +3 more, to 3,787, kernel size pass 21 (docs/plans/ksp21/draw.md)
+#             - and kern_mega did NOT grow: its kernel segment is 84 bytes
+#             smaller and kern_big's 87. The three are the two things the VGA
+#             rung lets kern_big do that kern_mega's .text cannot: the
+#             pattern fill's early exits reach gfx_fill_gray's teardown in a
+#             rel8 only on the rung (-4 there; kern_mega keeps one stub, -3,
+#             and disk.inc's self-adjusting parity byte takes one of those
+#             back), and ico_core_v's tail `ret` (-1), which kern_mega's
+#             inline planar body already shared with ico_core.none
+3787

@@ -167,15 +167,18 @@ icon_draw_x:
 .out:
     jmp kret_di                 ; a pop writes no flags, so CF survives it
 .refuse:
-    mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: the pen is
-                                ; ONE-SHOT, and a refusal spends it too. Without
-                                ; this the pair a refused draw was set for is
-                                ; still armed for whatever the caller draws
-                                ; next - which on the failing path is the one
-                                ; time nobody is looking. A `mov` writes no
-                                ; flags, so it goes ABOVE the `stc`
-    stc
-    jmp short .out
+    stc                         ; SPEC.md 25.6: the pen is ONE-SHOT, and a
+    push bp                     ; refusal spends it too. Without that the pair
+    push es                     ; a refused draw was set for is still armed for
+    jmp short ico_draw_common.pen ; whatever the caller draws next - which on
+                                ; the failing path is the one time nobody is
+                                ; looking. So it leaves through icon_draw's
+                                ; own reset: kent_di's six words and these two
+                                ; are exactly kent_bp's and ES, which is the
+                                ; frame .pen's kret_es pops, and its `mov` and
+                                ; the ladder write no flag, so CF = 1 crosses
+                                ; them (kernel size pass 21: -4 against its
+                                ; own copy of the reset)
 
 ; -----------------------------------------------------------------------------
 ; icon_draw - draw a full icon record (header + mask + data)
@@ -191,7 +194,17 @@ icon_draw:
     lodsw                       ; header: AL = wwords, AH = height, and SI ->
 .hdr:                           ; body (mask rows first). icon_draw16 joins
     mov bl, ah                  ; HERE with its fixed header in AX
+%ifdef KERN_BIG
+    cbw                         ; AH = 0: the width is 1 or 2 words in every
+                                ; record that reaches here - icon_draw_x
+                                ; normalises a package's to 1, and the rest
+                                ; are the kernel's own - so AL < 80h, and this
+                                ; is `xor ah, ah` in a byte less. kern_big's
+                                ; alone (kernel size pass 21): its .text total
+                                ; is even with it, and kern_small's without
+%else
     xor ah, ah
+%endif
     mov [ico_ww], ax
     mov bh, ah
     mov [ico_h], bx
@@ -279,10 +292,6 @@ icon_draw_ix:
     ; --- expand: `2 * h` rows, mask table then data table ------------------
     mov bp, ax
     shl bp, 1                   ; BP = rows still to produce
-    push cx                     ; CX is the x and DX the y, and ico_draw_common
-    push dx                     ; wants both - so they are BANKED rather than
-                                ; worked around, which leaves the walk below
-                                ; every register but SI and DI to spend
     push ds
     pop es                      ; ...and ES, for `stosw`. Nothing below
                                 ; ico_draw_common requires a particular ES and
@@ -300,6 +309,13 @@ icon_draw_ix:
     cmp byte [ico_bnd], 0
     jne .band                   ; a desktop cell composing (SPEC.md 26.9.9)
 %endif
+    push cx                     ; CX is the x and DX the y, and ico_draw_common
+    push dx                     ; wants both - so they are BANKED rather than
+                                ; worked around, which leaves the walk below
+                                ; every register but SI and DI to spend. The
+                                ; band (.band) wants neither, so it is past
+                                ; them and has nothing to pop (kernel size
+                                ; pass 21, -2)
 .run:
     mov bl, [si]                ; run byte: pool row << 3 | repeat count - 1
     inc si
@@ -310,9 +326,11 @@ icon_draw_ix:
                                 ; bits on the way past
     mov ax, [bx+ico_pool]       ; the row, once, however many times it repeats
     mov dx, [bx+ico_pool+2]
-    and cl, 0x07
-    inc cl
-    mov ch, 0                   ; CX = the repeat count, 1..8
+    and cx, 0x07                ; CX = the repeat count, 1..8: the word `and`
+    inc cx                      ; clears CH as it masks (the sign-extended
+                                ; imm8 is as short as the byte form), where it
+                                ; was `and cl / inc cl / mov ch, 0` - kernel
+                                ; size pass 21, -3 and faster a run
     sub bp, cx                  ; ...off the budget BEFORE `loop` spends it
 .rep:
     stosw                       ; the row's two words, `count` times over. The
@@ -345,8 +363,6 @@ icon_draw_ix:
 ; over the same rows, which is ico_band_x's rule. BP counts the rows still to
 ; come, so it is above h exactly while the mask table is.
 .band:
-    pop dx
-    pop cx
     xor cx, cx                  ; (CH stays 0: `loop` leaves CX at 0)
     mov di, ico_band
 .brun:
@@ -459,7 +475,9 @@ ico_core:
                                 ; again (kernel size pass 20, -3)
     mov dx, [vid_ch]            ; ...held across the bottom clip rather than
     cmp ax, dx                  ; read three times. DX has been scratch since
-    jae .none                   ; the `mul` above. Fully below the screen
+    jae .ret                    ; the `mul` above. Fully below the screen
+                                ; (.ret, in reach, where it was the foot's
+                                ; .none - which kern_small no longer has)
     add ax, bx
     cmp ax, dx
     jbe .rows_ok
@@ -487,8 +505,13 @@ ico_core:
     sub ch, cl                  ; CH = 8 - shift
 
 %ifndef GFX_VGA
-    jmp ico_core_bb             ; no VGA: the 1bpp twin is the only pass there
-%else                           ; is, and it returns straight to the wrapper
+                                ; no VGA: the 1bpp twin is the only pass there
+                                ; is, it returns straight to the wrapper - and
+                                ; it is the next byte, so this FALLS into it
+                                ; (it was `jmp ico_core_bb` over the `ret`
+                                ; below, which this build no longer carries:
+                                ; kernel size pass 21, -3)
+%else
     VIDEXTM VX_ICON, ico_core_bb, pad ; 1bpp? (SPEC.md 39.5) - the software
                                 ; twin returns straight to the wrapper
                                 ; ...and a packed display's is the driver's
@@ -508,28 +531,22 @@ ico_core_v:
     mov ax, 0x0F01
     out dx, ax
     mov ah, [ico_c1]            ; GC0: Set/Reset color = the underlay
-    mov al, 0                   ; (SPEC.md 25.6; CWHITE unless icon_pen said
-    out dx, ax                  ; otherwise)
-    mov al, 8                   ; leave the index at GC8 (Bit Mask)
-    out dx, al
-    mov si, [ico_maskp]
-    call ico_pass               ; white underlay from the mask rows - it banks
-                                ; DI itself, on every path including the
-                                ; fully-clipped early-out
+    mov si, [ico_maskp]         ; (SPEC.md 25.6; CWHITE unless icon_pen said
+    call ico_vpass              ; otherwise): white underlay from the mask
+                                ; rows - ico_pass banks DI itself, on every
+                                ; path including the fully-clipped early-out
     dec dx                      ; 0x3CF -> 0x3CE. ico_pass's DOCUMENTED output
                                 ; (see its header): the port is loaded above
                                 ; its own early-out precisely so this is true
                                 ; whether or not it drew anything
     mov ah, [ico_c2]            ; GC0: Set/Reset color = the picture's
-    mov al, 0
-    out dx, ax
-    mov al, 8
-    out dx, al
     mov si, [ico_datap]
-    call ico_pass               ; black pixels on top
+    call ico_vpass              ; black pixels on top
 
-    call vga_gc_reset           ; back to SPEC.md 1 rule 7's resting state.
-                                ; The five instructions this replaces wrote
+    jmp vga_gc_reset            ; back to SPEC.md 1 rule 7's resting state,
+                                ; and its `ret` is this routine's (a tail
+                                ; jump, kernel size pass 21). The five
+                                ; instructions it replaced wrote
                                 ; GC1 and GC8 and left GC3 alone; the helper
                                 ; is a SUPERSET - it writes GC3 = replace too
                                 ; - so it can only move the card closer to the
@@ -540,13 +557,14 @@ ico_core_v:
                                 ; vga12.inc already call it, and this was the
                                 ; last hand-rolled copy.
 %ifdef COLD_SLIDE
-    ret                         ; (it fell into .none's, which stays in .text)
 section .text
 %endif
 %endif
+%ifdef GFX_VGA
 ico_core.none:                  ; (spelled out: ico_core_v above is the last
     ret                         ; non-local label in the text, and a bare
                                 ; `.none` would be its)
+%endif
 
 ; (ico_core_bb sits HERE, straight after ico_core, so ico_core's `jne` to it
 ; is a short jump rather than a relaxed five-byte one.)
@@ -562,7 +580,11 @@ ico_core.none:                  ; (spelled out: ico_core_v above is the last
 ico_core_bb:
     mov ax, [ico_col0]
     cmp ax, [vid_stride]        ; x < 0 (huge unsigned) or entirely off the
-    jae ico_core.none           ; right edge: the passes would skip every
+%ifdef GFX_VGA                  ; right edge: the passes would skip every
+    jae ico_core.none
+%else
+    jae ico_core.ret            ; (ico_core's own, in reach with no VGA pass
+%endif                          ; between)
                                 ; byte - so skip them. It is also what proves
                                 ; ico_pass_bb's byte column cannot wrap: col0
                                 ; is below the stride, the stride is 90 at
@@ -572,89 +594,16 @@ ico_core_bb:
     call ico_bbpass             ; hardcoded pair's own behaviour, and gives a
     mov al, [ico_c2]            ; pressed control its black underlay and a
     mov si, [ico_datap]         ; disabled one its stipple for free (the
-    jmp short ico_bbpass        ; CALLER dithers the data rows; a 1bpp op has
-                                ; nowhere to put a grey)
+                                ; CALLER dithers the data rows; a 1bpp op has
+                                ; nowhere to put a grey) - and the second pass
+ico_cbb_end:                    ; is ico_bbpass's own, FALLEN INTO: the VGA
+                                ; pass that sat between them is below
+                                ; ico_bbop_byte now (it is the rung's on
+                                ; kern_big, so only kern_mega's .text saw it).
+                                ; It was `jmp short ico_bbpass`, a jump of 0
+                                ; bytes on kern_big and kern_small (kernel
+                                ; size pass 21: -2 on every kernel)
 
-
-%ifdef GFX_VGA
-%ifdef COLD_SLIDE                ; (the VGA rung's, ico_core_v's alone)
-section .vga
-%endif
-; -----------------------------------------------------------------------------
-; ico_pass - one masked pass over [ico_rows] rows of [ico_ww] words each.
-;            Each word lands at bit offset CL in a 3-byte window at DI+2w;
-;            zero mask bytes and byte columns past the row end are skipped.
-;
-; in:       SI -> word rows, DI = VRAM offset of the row's first byte,
-;           CL = shift, CH = 8-shift, ES = VGA_SEG,
-;           GC: Set/Reset enabled + color set, index register = 8
-; outs:     DX = 0x3CF, the GC DATA port - a documented OUTPUT, not a
-;           leftover. ico_core's second pen reaches 0x3CE with `dec dx` on the
-;           strength of it, which is why the load is ABOVE the early-out
-;           below: a fully-clipped icon has to leave the same DX as one that
-;           drew.
-;           preserves CX, DI; clobbers ax, bx, dx, si, bp
-; -----------------------------------------------------------------------------
-ico_pass:
-    push di
-    mov dx, 0x3CF               ; GC data port; index already 8 (Bit Mask)
-    mov bp, [ico_rows]
-    or  bp, bp
-    jz .done                    ; degenerate record / fully clipped
-.row:
-    mov ax, [ico_col0]
-    mov [ico_col], ax           ; running byte column (right-edge clip)
-    mov ax, [ico_ww]
-    mov [ico_wleft], ax
-.word:
-    lodsw                       ; AX = row word, MSB = leftmost pixel
-    mov bx, ax
-    shr bx, cl                  ; BH:BL = B0:B1
-    xchg cl, ch
-    shl ax, cl                  ; AL = B2 (low bits spilling into byte 3)
-    xchg cl, ch
-    mov ah, al                  ; stash B2
-
-    mov al, bh                  ; --- byte 0, column [ico_col] ---
-    or  al, al
-    jz .b1
-    cmp word [ico_col], ROW_BYTES
-    jae .b1
-    out dx, al
-    xchg [es:di], al            ; load latches and write back in ONE: xchg
-                                ; reads then writes, and every plane takes
-                                ; Set/Reset (GC1 = 0Fh) so the byte written
-                                ; is don't-care - font_char's latch idiom
-.b1:
-    mov al, bl                  ; --- byte 1, column +1 ---
-    or  al, al
-    jz .b2
-    cmp word [ico_col], ROW_BYTES-1
-    jae .b2
-    out dx, al
-    xchg [es:di+1], al
-.b2:
-    mov al, ah                  ; --- byte 2, column +2 ---
-    or  al, al
-    jz .wnext
-    cmp word [ico_col], ROW_BYTES-2
-    jae .wnext
-    out dx, al
-    xchg [es:di+2], al
-.wnext:
-    inc di                      ; next word of this row
-    inc di
-    add word [ico_col], 2
-    dec word [ico_wleft]
-    jnz .word
-    add di, [ico_rowadv]        ; next scanline (80 - 2*wwords)
-    dec bp
-    jnz .row
-.done:
-    pop di
-    ret
-section .text
-%endif                          ; ...end of the VGA icon pass
 
 ; ico_bbpass - AL = a colour, SI -> word rows: [ico_bbop] = 0 (or) for white,
 ; 0FFh (and-not) otherwise, and FALL INTO ico_pass_bb with it. The 1bpp
@@ -663,6 +612,9 @@ section .text
 ; ico_bbop_of, a value both passes stored and then called the pass with -
 ; one entry for the three is 15 bytes (kernel size pass 10). gfx_ink keeps SI.
 ico_bbpass:
+%if ico_bbpass - ico_cbb_end != 0
+  %error "ico_core_bb falls into ico_bbpass, and something now sits between them"
+%endif
     call gfx_ink
     cmp al, 0xFF                ; CF = 1 for anything but white...
     sbb al, al                  ; ...so 0FFh is and-not and 0 is or
@@ -829,6 +781,94 @@ ico_bbop_byte:
     not al
     and [es:di], al
     ret
+
+%ifdef GFX_VGA
+%ifdef COLD_SLIDE                ; (the VGA rung's, ico_core_v's alone - and
+                                ; HERE, below the 1bpp passes, so that
+                                ; ico_core_bb falls into ico_bbpass on a
+                                ; kernel whose VGA pass is .text's)
+section .vga
+%endif
+; -----------------------------------------------------------------------------
+; ico_pass - one masked pass over [ico_rows] rows of [ico_ww] words each.
+;            Each word lands at bit offset CL in a 3-byte window at DI+2w;
+;            zero mask bytes and byte columns past the row end are skipped.
+;
+; in:       SI -> word rows, DI = VRAM offset of the row's first byte,
+;           CL = shift, CH = 8-shift, ES = VGA_SEG,
+;           GC: Set/Reset enabled + color set, index register = 8
+; outs:     DX = 0x3CF, the GC DATA port - a documented OUTPUT, not a
+;           leftover. ico_core's second pen reaches 0x3CE with `dec dx` on the
+;           strength of it, which is why the load is ABOVE the early-out
+;           below: a fully-clipped icon has to leave the same DX as one that
+;           drew.
+;           preserves CX, DI; clobbers ax, bx, dx, si, bp
+; -----------------------------------------------------------------------------
+ico_vpass:                      ; ...ico_core_v's two pens, written once
+    mov al, 0                   ; (kernel size pass 21, -7 with the tail jump
+    out dx, ax                  ; there): GC0 = AH, the pass's colour, and the
+    mov al, 8                   ; index left at GC8 (Bit Mask). DX = 0x3CE in;
+    out dx, al                  ; it falls into the pass, whose outs are these
+ico_pass:
+    push di
+    mov dx, 0x3CF               ; GC data port; index already 8 (Bit Mask)
+    mov bp, [ico_rows]
+    or  bp, bp
+    jz .done                    ; degenerate record / fully clipped
+.row:
+    mov ax, [ico_col0]
+    mov [ico_col], ax           ; running byte column (right-edge clip)
+    mov ax, [ico_ww]
+    mov [ico_wleft], ax
+.word:
+    lodsw                       ; AX = row word, MSB = leftmost pixel
+    mov bx, ax
+    shr bx, cl                  ; BH:BL = B0:B1
+    xchg cl, ch
+    shl ax, cl                  ; AL = B2 (low bits spilling into byte 3)
+    xchg cl, ch
+    mov ah, al                  ; stash B2
+
+    mov al, bh                  ; --- byte 0, column [ico_col] ---
+    or  al, al
+    jz .b1
+    cmp word [ico_col], ROW_BYTES
+    jae .b1
+    out dx, al
+    xchg [es:di], al            ; load latches and write back in ONE: xchg
+                                ; reads then writes, and every plane takes
+                                ; Set/Reset (GC1 = 0Fh) so the byte written
+                                ; is don't-care - font_char's latch idiom
+.b1:
+    mov al, bl                  ; --- byte 1, column +1 ---
+    or  al, al
+    jz .b2
+    cmp word [ico_col], ROW_BYTES-1
+    jae .b2
+    out dx, al
+    xchg [es:di+1], al
+.b2:
+    mov al, ah                  ; --- byte 2, column +2 ---
+    or  al, al
+    jz .wnext
+    cmp word [ico_col], ROW_BYTES-2
+    jae .wnext
+    out dx, al
+    xchg [es:di+2], al
+.wnext:
+    inc di                      ; next word of this row
+    inc di
+    add word [ico_col], 2
+    dec word [ico_wleft]
+    jnz .word
+    add di, [ico_rowadv]        ; next scanline (80 - 2*wwords)
+    dec bp
+    jnz .row
+.done:
+    pop di
+    ret
+section .text
+%endif                          ; ...end of the VGA icon pass
 
 ; =============================================================================
 ; THE INDEXED RECORD (SPEC.md 25.7) - the desktop's six volume icons
