@@ -933,8 +933,10 @@ class UI:
         The bar was two cells by then, x=199 was past the last title, and
         `menu_track` was refusing a press that really had arrived. Three
         fresh edges could not fix that and neither could ten more seconds:
-        the tell was `menu_cell` == `menu_nbar`, which is the MISS COUNTER
-        and not a resolved cell. `tests/hdboot.py` carries the whole account.
+        the tell was `menu_cell` == `menu_nbar`, which was the MISS COUNTER
+        and not a resolved cell (since kernel size pass 21 `menu_cell` is
+        written only when a cell is FOUND, so a miss leaves the previous
+        press's there instead). `tests/hdboot.py` carries the whole account.
 
         THE RETRY IS A RELEASE AND A SECOND PRESS, never a re-sent packet. A
         Microsoft packet carries the button's LEVEL, so re-sending says what

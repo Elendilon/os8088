@@ -13353,9 +13353,11 @@ slice as its `gfx_unlock`, so it re-takes the flag before the waiter has been
 
 **What it cost, measured on `os8088_5150_herc` with `apps/wire` drawing** — a
 memory breakpoint on `evq_tail` starts the clock where the mouse ISR queues the
-press, one on `menu_ent` stops it where `menu_track` has the pull-down up, so
-the number is the kernel's own and carries none of the harness's injection
-delay (§7.3.1):
+press, one on `menu_cell` stops it where `menu_track` has found the pressed
+title and starts on the pull-down (its `.found` store; the word `menu_ent`,
+written one instruction earlier, was the stop until kernel size pass 21 took
+it away), so the number is the kernel's own and carries none of the harness's
+injection delay (§7.3.1):
 
 | | press queued → menu up | blocks on the lock |
 |---|---|---:|

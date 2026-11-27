@@ -910,11 +910,12 @@ menu_draw_bar:
     mov dx, MBAR_H - 2
     call gfx_fill
 
-    call thm_ink
-    xor ax, ax                  ; the black rule along the bottom
-    mov bx, [vid_pwm1]
-    mov dx, MBAR_H - 1
-    call gfx_hline
+    call thm_ink                ; the black rule along the bottom, out of
+    mov bx, cx                  ; the field's own registers: gfx_fill keeps
+    inc dx                      ; every one (and thm_ink too), so AX is still
+    call gfx_hline              ; x 0, CX [vid_pwm1] and DX MBAR_H - 2, one
+                                ; row above the rule (kernel size pass 21, -6:
+                                ; the `xor ax, ax`, a word load and an imm16)
 
     ; THE LOGO IS SEVEN RECTS, NOT 78 PIXELS (SPEC.md 12.05.1). The 11x11
     ; chip silhouette (the os8088 logo, rows 0 and 10 blank) in [gfx_color],
@@ -923,7 +924,7 @@ menu_draw_bar:
     ; rows are only ever two shapes and a notch, so it is the body, the four
     ; pin rows across it and the top row's two halves: the same pixels in
     ; the same pen, the pins re-writing seven body pixels each in the colour
-    ; they already hold. AH = 0, the rule's `xor ax, ax` above (gfx_hline
+    ; they already hold. AH = 0, the field's `xor ax, ax` above (gfx_hline
     ; preserves every register), so the x loads are byte moves.
     ;
     ;   ..###.###..   y+1   the notch row: two hlines
@@ -940,13 +941,18 @@ menu_draw_bar:
                                 ; wm_hit's `cbw`)
     call gfx_fill               ; the body
     mov dl, MENU_LOGO_Y + 1     ; (DH = 0: DX was MENU_LOGO_Y + 9)
-    mov bx, MENU_SYS_TX + 4
+    mov bl, MENU_SYS_TX + 4     ; (BH = 0: BX was the body's MENU_LOGO_Y + 2,
+                                ; and gfx_fill keeps it - kernel size pass
+                                ; 21, -1)
     call gfx_hline              ; the notch row's left half...
     mov al, MENU_SYS_TX + 6
-    mov bl, MENU_SYS_TX + 8     ; (BH = 0 from the line above. kern_big's was
+    mov bl, MENU_SYS_TX + 8     ; (BH = 0 still. kern_big's was
                                 ; a byte longer on purpose for ui_task's
                                 ; parity, until the `mov dl` above paired it:
                                 ; kernel size pass 18)
+%if MENU_LOGO_Y + 9 > 0xFF || MENU_SYS_TX + 10 > 0xFF
+  %error "menu_draw_bar's logo loads its x and y into BL, CL and DL alone: BH, CH and DH must stay 0"
+%endif
     call gfx_hline              ; ...and its right
     mov al, MENU_SYS_TX
     mov bl, MENU_SYS_TX + 10
@@ -1579,7 +1585,7 @@ menu_track:
                                 ; [bp+disp] is SS-relative with no override,
                                 ; and menu_bar is .lowbss - every [ss:si+]
                                 ; was a prefix byte, and the cell went through
-                                ; [menu_ent] to reach menu_title_xor (kernel
+                                ; a .bss word to reach menu_title_xor (kernel
                                 ; size pass 20). Banked HERE and not with the
                                 ; five, which are menu_popup's shared tail
 
@@ -1591,28 +1597,32 @@ menu_track:
                                 ; directly, so mixing the two coordinate ages
                                 ; makes a shifted press land on cell 0.
     mov bp, menu_bar
-    mov di, [menu_nbar]
-    mov byte [menu_cell], 0
-.find:
-    cmp cx, [bp + MB_XL]
-    jb .miss
-    cmp cx, [bp + MB_XR]
+    xor di, di                  ; DI = the cell's index, counted UP in a
+.find:                          ; register: [menu_cell] is written ONCE, at
+    cmp cx, [bp + MB_XL]        ; .found, where it was zeroed at the top and
+    jb .miss                    ; bumped in memory past every miss (kernel
+    cmp cx, [bp + MB_XR]        ; size pass 21, -3)
     jbe .found
 .miss:
     add bp, MB_ENTSZ
-    inc byte [menu_cell]
-    dec di
-    jnz .find
+    inc di
+    cmp di, [menu_nbar]         ; [menu_nbar] >= 1: the System menu is cell 0
+    jb .find
     mov ax, 0xFFFF              ; dead zone / the name label: no menu, no work
     jmp short .none
 
 .found:
-    mov [menu_ent], bp          ; NOT read by the kernel any more (BP is the
-                                ; cell), and kept on purpose: it is the
-                                ; instruments' "menu_track has its cell" -
-                                ; tests/uilat.py and weavelat.py stop a
-                                ; memory breakpoint on this store, and
-                                ; a2uilat polls it (SPEC.md 7.3)
+    xchg ax, di                 ; AL = the cell (AX is dead here: both arms
+    mov [menu_cell], al         ; below load it first, and menu_title_xor
+                                ; keeps it; DI is popped at .out). THIS STORE
+                                ; IS THE INSTRUMENTS' "menu_track has its
+                                ; cell": tests/uilat.py and weavelat.py stop a
+                                ; memory breakpoint on it (SPEC.md 7.3), as
+                                ; they did on [menu_ent]'s, the word that was
+                                ; here for them alone and went in kernel size
+                                ; pass 21 (-6) - the two stores were one
+                                ; instruction apart. A press in the dead zone
+                                ; leaves [menu_cell] as the last press's
     call menu_title_xor         ; highlight the title cell (VRAM-direct, so
                                 ; no flush needed - SPEC.md 32)
 %ifdef KERN_BIG
@@ -2137,12 +2147,11 @@ menu_drop:
     mov ax, [menu_sel]
 
     pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp menu_track.out          ; pop di, si, dx, cx, bx and ret: menu_track's
+                                ; own tail, this frame's push order exactly
+                                ; (kernel size pass 21, -3; menu_popup leaves
+                                ; through it too). A near jump: it is out of
+                                ; short reach, behind the tracker loop
 
 ; (menu_dropd - a pull-down is on the screen, SPEC.md 9.6.3 - is defined in
 ; wm.inc above wm_hit_ttl_b on kern_big and in ui.inc after ui_task on
@@ -2454,7 +2463,11 @@ menu_trunc:
 ;      (kernel size pass 17: they moved it into CX, -5)
 ; out: AX = the MENU's width: max font_width over them (0 when CX = 0) plus
 ;      16 for the frame and padding, at most MENU_MAXW
-; clobbers: BX (both callers reload it next: kernel size pass 17, -2)
+; clobbers: BX (both callers reload it next: kernel size pass 17, -2) and SI
+;           (kernel size pass 21, -2: menu_track never reads SI again - its
+;           five-push frame banks it - and menu_popup loads SI with [vid_pw]
+;           before it reads it). CX and DX are kept: they are menu_popup's
+;           anchor, read straight after
 ;
 ; Parameterized by the array rather than by a bar cell (which is what it took
 ; before) precisely so menu_popup can size a menu that has no bar cell at all
@@ -2463,7 +2476,6 @@ menu_trunc:
 menu_widest:
     push cx
     push dx
-    push si
     push es
     xchg ax, cx                 ; CX = the count
     call menu_des               ; the dropped menu's segment (SPEC.md 12.2)
@@ -2492,7 +2504,6 @@ menu_widest:
     mov ax, MENU_MAXW           ; The clamp both callers need (above): the
 .clamped:                       ; save-under's width factor, bounded here
                                 ; once instead of at two call sites
-    pop si
     pop dx
     pop cx
     ret
@@ -2663,9 +2674,9 @@ menu_set:   resw 1              ; its app menu set (SPEC.md 12.2)
 menu_namep: resw 1              ; the name string drawn at MENU_NAME_X
 menu_nbar:  resw 1              ; live cells in menu_bar (>= 1: the System
                                 ; menu is always cell 0)
-menu_ent:   resw 1              ; -> bar cell being tracked: written for the
-                                ; instruments alone (menu_track's .found)
-menu_cell:  resb 1              ; its index (the AH half of menu_track's out)
+menu_cell:  resb 1              ; the bar cell being tracked (the AH half of
+                                ; menu_track's out), stored once at .found -
+                                ; the latency rows' stop (SPEC.md 7.3)
 menu_x1:    resw 1              ; dropped menu rect, left. IN RECT ORDER
 menu_y1:    resw 1              ; (x1,y1,x2,y2) since size pass 4, so menu_drop
                                 ; reads it with rect_get: top - MBAR_H from the

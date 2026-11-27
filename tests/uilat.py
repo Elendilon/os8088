@@ -17,8 +17,11 @@ merely runs reports zero and means nothing.
 
 So this brackets the kernel's own path with two memory breakpoints and reads
 `cycles` at each. `evq_tail` moves when the mouse ISR queues the press - on an
-idle machine nothing else pushes - and `menu_ent` is written by menu_track once
-the pull-down is up. The difference is what the OS took and nothing else.
+idle machine nothing else pushes - and `menu_cell` is written by menu_track
+once it has found the pressed title's cell, the instant it starts on the
+pull-down. The difference is what the OS took and nothing else. (It stopped on
+`menu_ent` until kernel size pass 21 took that word away; the two stores were
+one instruction apart, so the figures SPEC.md 7.3 quotes carry over.)
 
 THE GATE is SPEC.md 7.3's regression: before the lock handover this click cost
 1,382-14,722 ms with apps/wire drawing, and 37-70 ms after. UILAT_MAX is set
@@ -56,7 +59,6 @@ def click_latency(m, mo, S, tries=3):
     out = []
     for _ in range(tries):
         m.pause()
-        m.write(S("menu_ent"), b"\x00\x00")
         m.breakpoints([{"type": "mem", "addr": S("evq_tail")}])
         m.run()
         mo._pk(l=True)                          # one packet; nothing resent
@@ -64,7 +66,10 @@ def click_latency(m, mo, S, tries=3):
             out.append(None)
         else:
             t1 = m.status()["cycles"]
-            m.breakpoints([{"type": "mem", "addr": S("menu_ent")}])
+            # ANY access stops it, and nothing touches [menu_cell] between
+            # the press being queued and menu_track's .found store: its only
+            # other access is that routine's own read of it, after the drop
+            m.breakpoints([{"type": "mem", "addr": S("menu_cell")}])
             m.run()
             out.append(None if m.wait_stop(120) is None
                        else (m.status()["cycles"] - t1) / HZ)

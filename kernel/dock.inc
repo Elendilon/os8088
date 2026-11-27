@@ -656,8 +656,8 @@ db_paint:
                                 ; iteration. BX costs no new push (db_paint
                                 ; already banks it) and every callee in this
                                 ; loop preserves it - db_key touches only AX,
-                                ; db_erase_tile and db_draw_tile `push bx`
-                                ; and leave through kret_dx / kret_si, and
+                                ; db_erase_tile and db_draw_tile bank bx
+                                ; and leave through kret_dx / kret_di, and
                                 ; the three bodies written in below (the span,
                                 ; the ring, the body) bank it themselves
     xor cx, cx                  ; CX = instance index
@@ -1030,11 +1030,11 @@ db_mark_ax:                   ; ...and the same rect from a caller ALREADY
 ; out: nothing (all registers preserved; module internal)
 ; -----------------------------------------------------------------------------
 db_draw_tile:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kent_di                ; = push ax/bx/cx/dx/si/di: DI is not spent
+                                ; here, and banked so the exit is the shared
+                                ; ladder's whole run (kernel size pass 21, -2;
+                                ; a tile REDRAW - its key moved - ~40 cycles
+                                ; against a frame and a masked icon blit)
 
     call db_tile_x
     mov si, ax                  ; SI = tile left for the duration
@@ -1070,7 +1070,7 @@ db_draw_tile:
     call gfx_xor_fill
 
 .done:
-    jmp kret_si
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; db_hit - which tile is under a point? (SPEC.md 30/30.2)

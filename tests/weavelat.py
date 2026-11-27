@@ -26,7 +26,8 @@ machine is doing - so a number taken by clicking and watching carries a
 half-second floor and cannot tell 1 ms from 400 (SPEC.md 7.3.1). So the
 kernel's own path is bracketed with two memory breakpoints and `cycles` is
 read at each: `evq_tail` moves when the mouse ISR queues the press, and
-`menu_ent` is written by menu_track once the pull-down is up. The difference
+`menu_cell` is written by menu_track once it has found the pressed title's
+cell (uilat.py's stop, `menu_ent` until kernel size pass 21). The difference
 is what the OS took and nothing else.
 
 THE THREE LEGS. An idle desktop is the control; WEAVE open with a bundle
