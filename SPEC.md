@@ -260201,7 +260201,7 @@ repaints.
 | 20-31 | `CPW_W_KIT` | the kit's scratch (§135.5) | one call |
 | 32-143 | `CPW_W_LIST` | the page list's 28 entries | rebuilt by every list paint |
 | 144-239 | `CPW_W_STR` | a composed line | one call |
-| 240-319 | `CPW_W_PAGE` | **the page showing, whole**: Drivers `CPD_*` (the table block, the categories, the box's top, the columns, the listed rows - checked against the block in `kernel.asm`), Display `CPV_*` (checked in `cpw_vid.inc`), Theme `CPT_*` (checked in `cpw_thm.inc`) | one visit |
+| 240-319 | `CPW_W_PAGE` | **the page showing, whole**: Drivers `CPD_*` (the table block, what DETAILS has on the glass, the categories, the columns' air, the box's top, a row's x's, the listed rows - checked against the block in `kernel.asm`), Display `CPV_*` (checked in `cpw_vid.inc`), Theme `CPT_*` (checked in `cpw_thm.inc`) | one visit |
 | 320 | `CPW_W_DFLT` | the Drivers page's filter (0 All, else a `CWC_*`) | the open |
 | 321 | `CPW_W_DSEL` | the Drivers page's selected `drv_tab` row (0 at the open: row 0 if it is listed, else the first row) | the open |
 | 322 | `CPW_W_DON` (`CPW_D_ON`) | 1 while the page block is the Drivers page's; `cpw_page` clears it before drawing any other page (§135.8) | the open |
@@ -260416,20 +260416,39 @@ release draws it up and acts only if the pointer is still over it (§13.8.3).
 A greyed button arms nothing.
 
 **What each action redraws** (CLAUDE.md, Performance rules 1-2): a **tab** the
-strip, the table (top 0) and DETAILS; a **row** the row losing the bar, the one
-gaining it and DETAILS (the whole table when the selection scrolls into view);
+two tabs whose look changed (the rest of the strip is stepped past at its
+widths), the table (top 0) and DETAILS; a **row** the row losing the bar, the
+one gaining it and DETAILS (every row and the scroll bar's thumb -
+`os88ui_sbmove`, not the whole bar - when the selection scrolls the view);
 the **bar** the rows and `os88ui_sbmove`; the **check box** one row; **Load /
 Unload** that row, DETAILS, the status line's driver count and - only when its
 length moved - the page list (a driver page may have appeared or gone, §31.9).
-A failed load shows its reason in the row's badge and in DETAILS. Nothing else.
-**Up** and **Down** move the selection a row (the panel's own key edge).
+**DETAILS draws its 32x32 icon and each of its four buttons only when that
+look is not the one on the glass** (a byte each in the page block, forgotten by
+every full paint), so a selection between two rows of one category and one
+state draws neither. A failed load shows its reason in the row's badge and in
+DETAILS. Nothing else. **Up** and **Down** move the selection a row (the
+panel's own key edge).
+
+**A row is 19 primitive calls** at either width: twelve spans of its ground,
+two of the badge's paper, the icon, the name's, the badge's and the memory's
+runs and the check box. Every x it is laid at is worked out once a paint
+(`CPD_XA`), and a wide window's air between the name and the badge, and the
+badge and the memory, is those runs' own spaces. Measured on the XT with a VGA
+(MartyPC `os8088_xt_vga_144`, 616x408, 12 rows; driver size pass 2, every
+gesture's pixels identical before and after): the page's first paint 316
+calls, 1.40 s; a selection 45 calls, 0.37 s; a filter tab back to All 232
+calls, 0.97 s; a scroll by key 204 calls, 1.01 s; the bar's arrow 197 calls,
+0.83 s; a Start at boot box 19 calls, 0.10 s. A row is ~85 ms of it.
 
 **Gate ops.** None added: the page uses `CPG_DRVON`/`OFF`/`WANT`/`TTL`/`STAT`/
 `MEM` (§135.4); `CPG_N` stays 22 and opcodes 22-24 are unused.
 
 **State** is the working area's 80-byte page block (§135.5.1): the kit's
-table block, the categories present, the box's top, three column x's and one
-byte for each of at most `DRV_MAX` listed rows - all rebuilt by every paint -
+table block, what DETAILS has on the glass (its icon, each button's look), the
+categories present, the cells the badge, memory and boot columns gain over
+616's, the box's top, the thirteen x's a row is laid at and one byte for each
+of at most `DRV_MAX` listed rows - all rebuilt by every paint -
 and two KEPT bytes outside it, the filter (0 All, else a `CWC_*`) and the
 selected `drv_tab` row. **The filter and the selection are kept while the
 panel is open**, whatever page was visited between. A FRESH entry (`CPW_D_ON`
@@ -260688,6 +260707,10 @@ ring) and a button, the Effects group (about 9) and the Screen Saver group
 170 x 756 us = about 130 ms of fixed cost plus the pixels, once per theme
 change - beside the world's own repaint it is not the bill. No call is made
 while the page merely sits, and a press that changes nothing draws nothing.
+Measured (driver size pass 2, MartyPC `os8088_xt_vga_144`): the page's paint
+is 174 primitive calls and 0.47 s on the XT; a card's desktop starts under
+its menu bar and its window's face under its title bar, the rows the later
+rect covers whole, so a card writes 19 rows fewer for the same pixels.
 
 **Measured (S9, 2026-11-21).** `CPWIDE.DRV` +1,551 bytes (4,471 -> 6,022 on
 kern_big, 6,022 on kern_emu, 4,485 -> 6,034 on kern_mega) with the whole
