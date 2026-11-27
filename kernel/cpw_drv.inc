@@ -265,8 +265,10 @@ cpd_build:
 .take:
     cmp ch, [es:CPD_SELR]
     jne .ns
-    lea si, [bp - (CPD_ROWS - cpw_bss + MODV_IMG)] ; (CPD_ROWS as a NUMBER:
-                                ; it is a bss label of the image now)
+    mov si, bp                  ; its place in the list: CPD_ROWS is a bss
+    sub si, CPD_ROWS            ; LABEL of the image since CPWIDE.DAT folded
+                                ; in, so no `lea [bp - label]` (driver size
+                                ; pass 2: +2, and no layout assumed)
 .ns:
     mov [es:bp], ch
     inc bp

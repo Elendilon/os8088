@@ -355,8 +355,10 @@ cpt_elems:
 .col:
     xchg ax, di                 ; DI = the pen
     mov bx, CPT_X0
-    mov cx, 4
-.c:                             ; x1, y1, x2, y2: from the origin, or back
+    mov dx, CPT_Y0              ; BX/DX swap a turn: x1 y1 x2 y2 (the
+    mov cx, 4                   ; working area is a bss LABEL of the image,
+.c:                             ; so no xor of two addresses - pass 2, +2).
+                                ; x1, y1, x2, y2: from the origin, or back
     cs lodsb                    ; from the far edge
     xor ah, ah
     test al, R_
@@ -367,7 +369,7 @@ cpt_elems:
 .p:
     add ax, [es:bx]
     push ax
-    xor bx, (CPT_X0 - cpw_bss + MODV_IMG) ^ (CPT_Y0 - cpw_bss + MODV_IMG)
+    xchg bx, dx
     loop .c
     pop dx
     pop cx
