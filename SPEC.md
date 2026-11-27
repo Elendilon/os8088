@@ -62699,7 +62699,8 @@ AH=08h for units 0 and 1 with `CF = 1, AH = 01h`, exactly as it does with
 360KB ones. Several of this tree's own 86Box XTs (`xt-z`, `xt-word`,
 `xt-paccman`, `xt-sound-1.44`) boot a 3.5" drive 0 on an XT ROM. So on a
 marked row the **first mount corrects it from the medium**: `disk_mount_x`
-calls `desk_learn_x` right after `dsk_bpb_check`, and the medium settles the
+asks right after `dsk_bpb_check` (its DESK_LEARN block - `desk_learn_x` until
+kernel size pass 21 wrote it in at its one call), and the medium settles the
 drive where the medium CAN —
 
 | mounted medium | the drive must take |
@@ -79533,7 +79534,7 @@ the caller cannot know which rung answered.
 | `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only — AH is left 0 or 2, which is inside that, and the one caller reads AL. **It drains `[clk_barq]` with an `xchg` and DOUBLES the byte into mask bit 1, so `[clk_barq]` is 0 or 1 and nothing else**: a 2 would set bit 2 and a 0x80 would double to 0 and lose the request silently. Every writer stores 0 or 1; a new one must too, or it owes this routine a compare instead. |
 | `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
 | `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 25 bytes — 24 + the NUL, counted off the format itself and no longer carrying a guard byte, because the RTC probe's scratch is now declared *into* it (§37.90). Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
-| `str_len` | In: SI = an ASCIIZ string in `KERNEL_SEG`. Out: CX = its length, NUL excluded; SI one past the NUL; every other register preserved. The kernel's only strlen, hosted in `clock.inc` beside `clk_fmt` and reached by a near call from `.text` alone — a site in `.modc` or `.cold` is in another segment and needs a shim, which is worth more than the loop it would replace. |
+| `str_len` | **Gone (kernel size pass 21).** It had one caller, `toast_place` (`toast.inc`), and is written there: the same six-instruction loop over `toast_buf`, CX = the length, NUL excluded. A `.text` routine wanting a strlen writes the loop at its site (it is cheaper than a call and a `ret` until a second caller). |
 | `clk_fld_str` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Called by §31.5, which is its only caller and now also its host. |
 
@@ -114946,6 +114947,8 @@ that is not harvested off a disk (`dsk_folder_ico` is the other). Its white
 interior holds an **8×8 inset at x=4..11, y=5..12**, one pixel clear of the
 border on every side. `assoc_compose` lays the frame down and ORs the glyph
 into data rows 5..12, shifted left by 4 so a glyph byte's bit 7 lands on x=4.
+(It is the ASSOC_COMPOSE block of `disk.inc`'s `dsk_docpass`, its one caller,
+since kernel size pass 21; the name is kept for what it does.)
 
 **The frame is GENERATED, not stored.** Twenty-four of its thirty-two words
 are one of two constants, so `assoc.inc`'s `.text` carries only the seven

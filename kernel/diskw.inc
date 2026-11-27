@@ -7839,9 +7839,16 @@ dskw_seg:     resw 1            ; ...and that segment (ES at entry), right
                                 ; behind it for the `lds`
 dskw_wseg:    resw 1            ; the advancing source/destination segment
                                 ; (+32 paragraphs per 512-byte sector)
-%if dskw_wseg - dskw_seg != 2   ; ADJACENT ON PURPOSE: memory.inc's mem_rr_tab
-    %error "dskw_seg and dskw_wseg must stay adjacent (mem_rr_tab names them as one row)"
-%endif                          ; names the pair as ONE row of two words
+dskw_czseg:   resw 1            ; a COMPRESSED read's (SPEC.md 20.14): the
+                                ; segment it expands INTO - the caller's own
+                                ; base, banked before R is folded into
+                                ; [dskw_seg]
+%if dskw_wseg - dskw_seg != 2 || dskw_czseg - dskw_wseg != 2
+    %error "dskw_seg, dskw_wseg and dskw_czseg must stay adjacent (mem_rr_tab names them as one row)"
+%endif                          ; ADJACENT ON PURPOSE: memory.inc's mem_rr_tab
+                                ; names the three as ONE row of three words
+                                ; (kernel size pass 21: dskw_czseg was a row of
+                                ; its own, -4)
 %if dskw_seg - dskw_src != 2    ; ...and dskw_src:dskw_seg is a far pointer
     %error "dskw_src and dskw_seg must stay adjacent (lds si, [dskw_src])"
 %endif
@@ -7902,9 +7909,8 @@ dskw_uzhi:    resw 1            ; entry's hint says the file expands to, 32
                                 ; bits of it, and what the caller is told it
                                 ; read. BEVERLY.MOD is 116,085 bytes, which is
                                 ; the whole reason this is not one word
-dskw_czseg:   resw 1            ; ...and the segment it expands INTO - the
-                                ; caller's own base, banked before R is folded
-                                ; into [dskw_seg]
+                                ; (its segment, dskw_czseg, sits beside
+                                ; dskw_wseg for mem_rr_tab's row)
 %ifdef KERN_MEGA
 dskw_czsrc:   resw 1            ; ...and ABOVE 1MB the packed bytes' OFFSET,
                                 ; banked before the read: that read moves

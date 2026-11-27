@@ -6191,6 +6191,9 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %ifdef KERN_BIG
   %define ct_cw_wm_clip_test KERNEL_SEG:cw_wm_clip_test ; 2 sites (small: 3)
 %endif
+%define ct_cw_font_run KERNEL_SEG:cw_font_run ; 1 site, os88ui's UI_RUN, on
+                                ; kern_big and none on kern_small: fm_brun,
+                                ; its tail, makes the far call (pass 21, -1)
 
 ; -----------------------------------------------------------------------------
 ; KSW_SECT / KSWK - THE ADAPTER SWITCH IS CTRL.DRV's (SPEC.md 39.11.2, kernel
@@ -7074,8 +7077,9 @@ cw_gfx_disp_enter:      call gfx_disp_enter
 cw_gfx_fill:            call gfx_fill
                     retf
 cw_gfx_fill_gray equ apic_gfx_fill_gray ; THE CELL IS THE DOOR (size pass 9)
-cw_gfx_fill_pat:        call gfx_fill_pat
-                    retf
+;(cw_gfx_fill_pat and cw_vga_xor_rect_vram went in kernel size pass 21: their
+; one site each, files.inc's fm_more_mark and fm_dgxor, bank BP and go through
+; cw_mem_disp's `call bp`)
 %ifdef OS88_THEME              ; (kern_small: vga12.inc aliases it)
 cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
                                 ; desktop's ground, once per damaged zone
@@ -7140,8 +7144,6 @@ cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
                                 ; DS, which desk.inc's one caller has just
                                 ; made ES itself
 %endif
-cw_vga_xor_rect_vram:   call vga_xor_rect_vram
-                    retf
 ; (cw_vid_disp_init went in kernel size pass 13: its two callers are boot-only
 ; and run the boot's own expansion, bvs_disp_init (driver.inc) - kmain_o and
 ; drv_boot_x, both near and all three `.boot3`'s since BOOT3-PLAN wave 4)
@@ -7307,7 +7309,6 @@ rd_tab:
     RDENT RDK_RS, cursor_show
     RDENT RDK_RS, blk_relit
     RDENT RDK_RS, inst_ptr
-    RDENT RDK_RS, vid_disp_of
 %endif
 %ifdef WM_ANIM
     RDENT RDK_RS, inst_unmin
@@ -7323,7 +7324,9 @@ rd_tab:
     RDENT RDK_RS, wm_dmg_wins
     RDENT RDK_RS, wm_hit
     RDENT RDK_RS, wm_idx2ptr
-    RDENT RDK_RS, wm_paint_all
+%ifndef KERN_BIG                ; (kern_big's one site, HIBER.DRV's, takes the
+    RDENT RDK_RS, wm_paint_all  ; image's own hop: kernel size pass 21)
+%endif
     RDENT RDK_RS, wm_paint_dmg
     RDENT RDK_RS, wm_rect_empty     ; fm_paste_res's union (kernel size pass
     RDENT RDK_RS, wm_runion         ; 20: its own seed and compares were 30)
@@ -8354,10 +8357,9 @@ section .text
 ; jumps both, re-measured off the listing at kernel size pass 13; a target
 ; whose CALL count falls to 2 is paying for its trampoline and goes back to
 ; the plain far call (3 is a wash) - on that build alone, through the
-; %define block above the includes. ct_cw_font_run's are mostly TAILS, which
-; a far call cannot replace for less, so it stays at 2 on kern_big; on
-; kern_small its one caller, fm_brun, makes the far call itself (kernel size
-; pass 20).
+; %define block above the includes. ct_cw_font_run went the same way: its
+; one tail, fm_brun, makes the far call itself (kernel size pass 20 on
+; kern_small, 21 on kern_big), which left kern_big one call site.
 section .cold
 osapi_vol_kind_x:               ; (see osapi_vol_kind's header above)
     push bx
@@ -8372,10 +8374,6 @@ ct_cw_gfx_unlock:   call KERNEL_SEG:cw_gfx_unlock
                     ret                     ; 11 / 8 sites
 ct_cw_gfx_lock:     call KERNEL_SEG:cw_gfx_lock
                     ret                     ; 12 / 8 sites
-%ifndef KERN_SMALL
-ct_cw_font_run:     call KERNEL_SEG:cw_font_run
-                    ret                     ; 2 / - sites
-%endif
 ct_cw_wm_content:   call KERNEL_SEG:cw_wm_content
                     ret                     ; 3 / 3 sites
 ct_cw_mem_disp:     call KERNEL_SEG:cw_mem_disp

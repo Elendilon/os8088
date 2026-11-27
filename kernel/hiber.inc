@@ -5505,7 +5505,12 @@ hbm_wake:
     call hbm_wakem              ; the KEPT rows woken, a refusal joining DX
 %endif
     push dx
-    KDOOR wm_paint_all
+%ifdef KERN_BIG
+    call hbg_kgo                ; the image's own hop (KGO_PAIR): rd_tab's word
+    dw wm_paint_all             ; for it went (kernel size pass 21, -2 resident)
+%else
+    KDOOR wm_paint_all          ; (kern_small keeps the word: desk.inc's .cold
+%endif                          ; site is the door too)
     ; 5. the busy pointer, then the two files spent and the drivers loaded.
     ; **THE CLOCK FROM THE FIRST FRAME** (SPEC.md 87.6 step 5): from here to
     ; step 6's gfx_unlock the machine takes no input - the deletes and every

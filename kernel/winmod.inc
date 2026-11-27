@@ -535,7 +535,10 @@ wn_maxart:
     sub cx, 7                   ; width and height give or take 7px: a
     cmp [di+W_W], cx            ; WF_SNAP origin's, and a negotiator's small
     jl .std                     ; quantum
-    sub dx, 7
+    add dx, -7                  ; (not `sub dx, 7`: its 83 EA 07 39 55 08
+                                ; reads to mod_cfix's scan as a far jump
+                                ; naming 0855h, and .cold's home can be that.
+                                ; The same DX; the cmp writes the flags)
     cmp [di+W_H], dx
     jl .std
     mov bx, wnb_rest

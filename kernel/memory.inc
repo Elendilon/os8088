@@ -3911,8 +3911,10 @@ mem_rr_tab:
                                 ; MEM_K_MOD and never moves, so its row never
                                 ; matches a moving base
 %endif
-    MEM_RR_ROW dskw_seg, 2, 2   ; a CALLER's segment and the advancing one,
-    MEM_RR_ONE dskw_czseg       ; banked across a whole file transfer
+    MEM_RR_ROW dskw_seg, 3, 2   ; a CALLER's segment, the advancing one and
+                                ; a compressed read's destination, banked
+                                ; across a whole file transfer: three adjacent
+                                ; words (diskw.inc's %error keeps them so)
     ; ...and the driver words that are NOT in drv_tab. Three of them are rows
     ; shaped like a drv_tab row and deliberately outside it (SPEC.md 41.12.5),
     ; and a walk of the table alone would miss every one.

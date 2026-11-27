@@ -7213,15 +7213,16 @@ fm_dgmove:
 ; XOR-erased before the lock ever drops.
 ; -----------------------------------------------------------------------------
 fm_dgxor:
-    call kentc_di
+    call kentc_bp               ; (BP too: the outline goes through
     mov ax, [fm_dgx]            ; the position it was DRAWN at, not where the
     mov bx, [fm_dgy]            ; pointer is now: XOR only erases what it drew,
     mov cx, ax                  ; and the pointer moves between the two calls
     add cx, 95                  ; a 96 x FM_ROW_H ghost: wide enough to read
     lea dx, [bx+FM_ROW_H-1]     ; as "a row", narrow enough not to swamp a
                                 ; 320px window
-    call KERNEL_SEG:cw_vga_xor_rect_vram ; clips, so the screen edges are free
-    jmp kretc_di
+    mov bp, vga_xor_rect_vram   ; cw_mem_disp's `call bp`, so its one-site
+    call KERNEL_SEG:cw_mem_disp ; shim went: kernel size pass 21, -1). It
+    jmp kretc_bp                ; clips, so the screen edges are free
 
 ; -----------------------------------------------------------------------------
 ; fm_dgdrop - resolve the release point and move the dragged entry there
@@ -8285,7 +8286,7 @@ fm_draw_isel:                   ; fm_draw_rows' tail: the selection bar, drawn
 ; this.
 ; -----------------------------------------------------------------------------
 fm_more_mark:
-    call kentc_di
+    call kentc_bp               ; (BP too: the chevrons go through cw_mem_disp)
     call fm_cxrgt
     jg .out                     ; degenerate content: nothing to draw into
 
@@ -8327,9 +8328,10 @@ fm_more_mark:
     and si, 7                   ; bytes into the doubled table (SI is free:
     add si, fm_chevtab          ; its fold test is spent, and the ladder
     mov [gfx_pat], si           ; gives it back)
-    call KERNEL_SEG:cw_gfx_fill_pat
+    mov bp, gfx_fill_pat        ; cw_mem_disp's `call bp`: the one-site shim
+    call KERNEL_SEG:cw_mem_disp ; went (kernel size pass 21, -1)
 .out:
-    jmp kretc_di
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fm_2line - does this editor mode put a line UP IN THE ROW AREA? (22.20.1)
@@ -9576,14 +9578,11 @@ fm_pen8:                        ; CX = the content's left edge + 8: the pen
 
 fm_brun:                        ; a BLACK-on-WHITE opaque run (SPEC.md 6.1):
     mov ax, (CWHITE << 8) | CBLACK ; CX/DX/SI as font_run takes them, AX the
-%ifdef KERN_SMALL
     call KERNEL_SEG:cw_font_run ; colours - every run in this file is these
-    ret                         ; (kern_small: the .cold trampoline's one
-                                ; caller, written here - kernel size pass 20,
-                                ; -3; kern_big keeps it for os88ui's UI_RUN)
-%else
-    jmp ct_cw_font_run          ; colours - every run in this file is these
-%endif
+    ret                         ; (the .cold trampoline's tail, written here:
+                                ; kern_small's since kernel size pass 20, and
+                                ; kern_big's since 21, whose one other site,
+                                ; os88ui's UI_RUN, makes the far call itself)
 
 fm_vpdrv:                       ; DI = the acting window's block, AL = its
     mov di, [fm_vp]             ; drive: five callers' opening pair

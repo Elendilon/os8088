@@ -34,10 +34,9 @@
 ; routine's own near `ret` lands on cw_kretf - dockmod.inc's device, so the
 ; image costs no resident shim. The two kernel routines that are a pointer
 ; walk (vid_ctx_ptr, vid_kind_of) have a near copy here instead, and the ones
-; that have a resident far shim (cw_thm_desk, and cw_vid_disp_of for the one
-; on OSAPI_WM_DISPLAY's
-; path) or a cell of their own (apic_wm_top) are far-called through it, at
-; the same five bytes as an EXK and without exk_go's work. os88ovlchk
+; that have a resident far shim (cw_thm_desk) or a cell of their own
+; (apic_wm_top) are far-called through it, at the same five bytes as an EXK
+; and without exk_go's work. os88ovlchk
 ; refuses a near call either way across the boundary (its MODS list names
 ; `.modx`).
 ; =============================================================================
@@ -292,7 +291,7 @@ ext_e_ylow:                     ; EXT_YLOW: ui_ylow's arm, behind its caller's
     mov ax, [ui_curx]           ; the drag's PROPOSED x, not W_X
     mov bx, MBAR_H              ; any row the primary's band contains, so a
                                 ; point on display 0 resolves to it
-    KDOOR vid_disp_of
+    EXK vid_disp_of
     or al, al
     jz .done                    ; display 0 keeps the chrome's floor, which
                                 ; the caller loaded into SI. Anything else is
@@ -521,8 +520,8 @@ ext_org_disp:
     push bx
     mov ax, [bx+W_X]
     mov bx, [bx+W_Y]
-    KDOOR vid_disp_of
-    pop bx
+    EXK vid_disp_of             ; (an EXK and not the door: rd_tab's word went,
+    pop bx                      ; kernel size pass 21, -2 resident)
     or al, al
     ret
 
@@ -1554,9 +1553,10 @@ ext_refuse:                     ; a knob-compiled-out cut: CF = 1, the drop
 ; It is the cost of a COLD path: ~300 cycles a hop more than a stub, which is
 ; ~60 us on a 4.77MHz 8088 and a few dozen of them on a drag release that then
 ; repaints for tens of milliseconds. The two hops that are not cold do not come
-; here: vid_ctx_ptr and vid_kind_of are near copies above, and vid_disp_of,
-; which wm_disp_now's one-display arm makes on OSAPI_WM_DISPLAY's path, is
-; far-called through its resident shim, cw_vid_disp_of. Its stack peak is 16
+; here: vid_ctx_ptr and vid_kind_of are near copies above. vid_disp_of,
+; which ext_org_disp asks on OSAPI_WM_DISPLAY's path, does - its resident shim
+; became a rare-door word (pass 19), and the door is ~420 clocks against this
+; hop's ~390, so the word went too (kernel size pass 21). Its stack peak is 16
 ; bytes above the call, and every routine reached through it goes at least
 ; that deep once it is entered.
 ; -----------------------------------------------------------------------------

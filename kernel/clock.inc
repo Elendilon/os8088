@@ -2002,28 +2002,6 @@ clk_fmt:
     ret
 
 ; -----------------------------------------------------------------------------
-; str_len - the length of an ASCIIZ string in the kernel segment
-; in:  SI = the string
-; out: CX = its length, NUL excluded; SI ONE PAST THE NUL; everything else
-;      preserved. Its one caller, toast_place, loads SI itself and reads it
-;      no further, so the bank that kept it went (kernel size pass 18, -1)
-;
-; The kernel's only strlen, and it is here rather than anywhere else because
-; clk_fmt above is what created it. `.text` sites ONLY: a caller in `.modc` or
-; `.cold` is in another segment and needs a cw_ shim, which costs more than
-; the six-instruction loop it would be replacing.
-; -----------------------------------------------------------------------------
-str_len:
-    mov cx, si
-    not cx                      ; CX = -SI - 1...
-.l:
-    cmp byte [si], 1            ; CF = 1 on the NUL alone
-    inc si                      ; (`inc` leaves CF alone)
-    jnc .l
-    add cx, si                  ; ...+ (the NUL's address + 1) = the length
-    ret
-
-; -----------------------------------------------------------------------------
 ; The FIELD EDITOR is not here (SPEC.md 37.93). clk_fld_str, clk_fld_adj and
 ; clk_step are still SPEC.md 37's and still called clk_*, but they are
 ; assembled into ctrl.inc's `.modc` and ship in CTRL.DRV: the Date/Time page
