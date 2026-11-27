@@ -113258,6 +113258,42 @@ through the desktop's own slots and is told the rect it owns, so on another
 display than its window's it would paint where it has no window - the
 Video Player asks for CH only on the fullscreen path, which sets a mode.
 
+### 53.1.2.1 Full screen goes to a display the content can use (2026-11-27)
+
+**The owner's rule: if the content runs on display type A and not on type B,
+going full screen is never a refusal because of where the window happens to
+stand. It goes to a screen of the type the content supports, if the machine
+has one.** The extended-desktop audit (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md,
+K6) found Pixelstein and Lemmings refusing Full Screen with the right card
+one inch away, and DrMarco refusing on the owner's own 5150 arrangement.
+
+Two questions about a straddling window have two answers, and both are right:
+
+- **Where full screen goes** is the display the window is MOSTLY on - its
+  centre, which is what `OSAPI_FSX_CAPS` and `OSAPI_FSX_RUN` with CH = 0 ask
+  (§39.17) - when that display can set one of the package's modes. Otherwise
+  it is the first display, walked `OSAPI_FSX_CAPS` BX = 1, 2, ..., that can,
+  and `OSAPI_FSX_RUN` takes it with CH = n. Only when no display on the
+  machine can is it a refusal, and the menu says so.
+- **How the window sizes and draws** is the MORE RESTRICTIVE display
+  (`OSAPI_WM_DISPLAY`, §39.16.4.1): one window cannot draw in two modes at
+  once.
+
+A package's full-screen mode menu describes the first answer and its
+in-window colour or face describes the second. **Both are asked where they
+are used**: a drag that moves the centre across the seam without changing
+the restrictive display fires no `OSAPI_WM_ONRESIZE`, so a mode row banked
+only in the notice is stale exactly when it matters. The bracket's entry
+asks again, and a package with a worker re-asks between frames.
+
+`apps/os88fsxw.inc`'s `fsxw_pick` is the walk written once (in: BX = the
+window, DX = the FSXM_* bits the content can use; out: AX = what the target
+can set of those, DL = its kind, CH = the bracket's display, CF = 1 when no
+display can). It returns CH = 0 whenever the window's own display answers,
+which keeps `kern_small` (whose door refuses any CH) and every one-display
+machine on the path they always took. A same-mode bracket (§53.7) may not
+take a CH and does not use it. C packages have it as `os88_fsx_pick()`.
+
 ### 53.2 The freeze — a whitelist, not `sch_lock` (binding)
 
 `sch_lock` is the wrong tool and sched.inc documents why: it stops the
@@ -207166,6 +207202,23 @@ spare) is not reached. The eager run is **112 unpacked sectors of 128**
 (111 after wave 4), `PXSTEIN.O88` **48,847 bytes packed** of the 57,344
 the recipe allows (48,335 after wave 4). The kernel is unchanged. *Wave 6's
 figures are 97.15's: part 0 59,378, the run 116, the file 50,476.*
+
+#### 97.14.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode menu and Full Screen follow §53.1.2.1. `px_adapter` asks
+`fsxw_pick` for Mode X, CGA 320 or Hercules: the display the window is mostly
+on when it has one of them, else the first display that does. The two Mode
+items name that display's modes, and `[px_fsdisp]` is the CH that
+`px_go_fsx` hands `OSAPI_FSX_RUN`. The Colour item still asks
+`OSAPI_WM_DISPLAY`, the restrictive display, because it is about the window.
+
+The audit's case was a VGA-and-Hercules desktop with the window dragged from
+the Hercules until its centre was on the VGA. The restrictive display stayed
+the Hercules, so no `W_ONRESIZE` came. The Mode row still said Hercules, and
+Full Screen opened on the VGA, asked it for the Hercules mode, was refused,
+and did nothing. Now `px_adapter` runs at the top of `px_go_fsx` and in the
+worker's `px_back_ck` between frames, as well as in the notice, so the row
+and the bracket agree with the window as it stands.
 
 ### 97.15 What shipped: the final frame table, the machines, the price of wave 6
 

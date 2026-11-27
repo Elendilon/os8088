@@ -1388,6 +1388,7 @@ px_gent  equ px_bstage            ; a generated height's entry, by h - IN
     ZWORD px_caps
     ZBYTE px_bpp
     ZBYTE px_vkind
+    ZBYTE px_fsdisp                 ; the bracket's CH (px_adapter)
     ZBYTE px_fsxm
     ZBYTE px_mode
     ZBYTE px_mode0

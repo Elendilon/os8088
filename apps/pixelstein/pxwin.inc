@@ -181,6 +181,9 @@ px_render_win:
 ;              px_adapter, and the pick is taken HERE, between frames - the
 ;              sets of the new class then built by px_apply (px_pend)
 px_back_ck:
+    call px_adapter                 ; the depth AND the Mode row: a drag that
+                                    ; moves the centre and not the restrictive
+                                    ; display fires no W_ONRESIZE (97.14.1)
     call px_w4want
     cmp al, [px_back]
     je .out

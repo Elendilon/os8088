@@ -9853,7 +9853,7 @@ PXGAME_SRC  := apps/pixelstein/pxgame.asm apps/pixelstein/pxicon.inc \
                apps/pixelstein/pxact.inc apps/pixelstein/pxhud.inc \
                apps/pixelstein/pxhs.inc \
                $(PXSTEIN_GEN) apps/os88api.inc apps/os88ui.inc \
-               apps/os88pit.inc
+               apps/os88pit.inc apps/os88fsxw.inc
 PXSLEVELS   := $(wildcard apps/pixelstein/levels/*.txt)
 PXSART      := $(wildcard apps/pixelstein/art/*.png)
 
