@@ -627,7 +627,7 @@ srl_release:
 ; module's data selector at their offsets in this image (SRL_O_*): resident
 ; IMMEDIATES assembled from these labels in the same build, so they follow
 ; the block wherever it lands - a value that moves with the module's layout,
-; the class driver size pass 2's record rules (docs/plans/dsp2/RECORD.md 3)
+; the class driver size pass 2's record rules (docs/plans/completed/dsp2/RECORD.md 3)
     align 2, db 0
 srl_base: dw 0
 srl_seg: dw 0

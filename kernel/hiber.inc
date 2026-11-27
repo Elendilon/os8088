@@ -6003,7 +6003,7 @@ kds_stub_end:
 ; megados.inc's mega_dstubup names the park stub in the resident kernel as an
 ; immediate (`add ax, mpk_stub`), assembled from this label in the same
 ; build, so it follows the stub wherever it lands - a value that moves with
-; the module's layout (driver size pass 2's record, docs/plans/dsp2/RECORD.md
+; the module's layout (driver size pass 2's record, docs/plans/completed/dsp2/RECORD.md
 ; 3; the MEGADIAG arms put more code above it, which a fixed place refused)
 %include "megapark.inc"       ; ...and kern_mega's PARK stub, which the kernel
                               ; copies out of this image (kernel/megados.inc)

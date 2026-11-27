@@ -37844,7 +37844,7 @@ full-screen DOS program whose arena had taken the heap the 11KB module needed
   its disks.
 
 **Where the empty-folder removal is resident, the tree calls it** (driver size
-pass 2, docs/plans/dsp2/dops.md): on `kern_big`, `kern_emu` and `kern_mega`
+pass 2, docs/plans/completed/dsp2/dops.md): on `kern_big`, `kern_emu` and `kern_mega`
 the walk removes each folder it has emptied through `dskw_rmbody_n83`, and a
 redirected volume whose driver has no tree verb through `dskw_rmbody`, both
 reached through `wm_cbd` - the same gate, find, emptiness scan and commit,
@@ -110233,7 +110233,7 @@ Driver size pass 2 took the resident span in front of the `align` from 4,094
 to 3,901 bytes and the file 4,021 → 3,927 - the image stays 4,608, the span
 being 317 bytes above the 3,584 that would give the half-KB back - and the
 tool back under its alignment: 16,665 → 16,231, a 16,384-byte claim again
-(docs/plans/dsp2/hdd.md).
+(docs/plans/completed/dsp2/hdd.md).
 
 `hdext` is the gate (QEMU's 386, the disk written sector by sector as FDISK
 writes it): C: a primary and an extended partition with two logical drives;
@@ -112759,7 +112759,7 @@ a pad of 319 to 0: the image 16,508 -> 16,153, a 16,896-byte claim -> 16,384
 (docs/plans/completed/dsp1/hdd.md). §52.4.1's code in front made it a pad of
 397 and a 16,665-byte image; driver size pass 2 freed 48 bytes there and moved
 those three routines back out, to the END past the buffers: a pad of 11, the
-image 16,231 and the claim 16,384 (docs/plans/dsp2/hdd.md).
+image 16,231 and the claim 16,384 (docs/plans/completed/dsp2/hdd.md).
 
 ### 52.12 Every label on both surfaces is one opaque run
 
@@ -240023,7 +240023,7 @@ being the image's. The retired form is **+229 bytes of image** (5,679 ->
 image** (6,176; 5,085 packed) and System Check **+93** (18,268), the kernel
 still byte-identical. Driver size pass 2 found it at 6,294 (5,280 packed) and
 left it at **6,241 (5,239)** - kern_emu 6,230, kern_mega 6,239 - with every
-transfer of a run the same call in the same place (docs/plans/dsp2/hdd.md).
+transfer of a run the same call in the same place (docs/plans/completed/dsp2/hdd.md).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*
@@ -260857,7 +260857,7 @@ allocation; the lead accepted it (the Drivers and Theme pages came in near
 wide panel is open grows by the module's claim, 5,120 → 10,240 bytes.
 
 **Driver size pass 2 (2026-11-27): `CPWIDE.DAT` folded into `CPWIDE.DRV`**
-(§135.6; `docs/plans/dsp2/cpwshell.md` is the record), against `1b01907f1`.
+(§135.6; `docs/plans/completed/dsp2/cpwshell.md` is the record), against `1b01907f1`.
 Fresh builds of each; MartyPC `os8088_xt_vga_144` (XT 4.77 MHz, VGA, the
 1.44MB system disk) for the open, guest seconds from `cp_open_x` to the
 last primitive:
@@ -260880,8 +260880,8 @@ resident byte the fold moved. The framebuffers after each step matched the
 base's but for the status line's free-memory figure (500K → 502K).
 
 **The pass merged** (the fold above, the Drivers and Theme pages
-`docs/plans/dsp2/cpwpages.md`, the Display page `docs/plans/dsp2/cpwvid.md`;
-`docs/plans/dsp2/RECORD.md` is the whole): `CPWIDE.DRV` is **26,336** image
+`docs/plans/completed/dsp2/cpwpages.md`, the Display page `docs/plans/completed/dsp2/cpwvid.md`;
+`docs/plans/completed/dsp2/RECORD.md` is the whole): `CPWIDE.DRV` is **26,336** image
 with its bss on kern_big and kern_emu (26,348 on kern_mega) and **15,732** on
 the disk (15,749), against 29,253 and 16,934 in two files before the pass;
 the open panel holds ONE claim of 26,624 bytes where it held 29,696 in two.

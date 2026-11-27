@@ -14,7 +14,7 @@ bytes only (`docs/plans/completed/ksp21/sweep.md`, `desk.md`, `diskw.md`).
 
 Each agent works in its own git worktree, created by the coordinator at
 `/home/user/wt/<name>` on a branch `dsp2-<name>` cut from the commit that
-adds this file. Each writes its record to `docs/plans/dsp2/<name>.md`. The
+adds this file. Each writes its record to `docs/plans/completed/dsp2/<name>.md`. The
 coordinator merges the branches. **Agents do not push.**
 
 Read these before writing any code, in this order:
@@ -23,7 +23,7 @@ Read these before writing any code, in this order:
 2. **`docs/plans/completed/dsp1/BRIEF.md` sections 0.2, 1, 3 and 4**: where
    the bytes usually are, the rules, the method and environment, and the
    note's shape. They carry over UNCHANGED except where this file says
-   otherwise. Substitute `dsp2` for `dsp1`, `docs/plans/dsp2/` for its note
+   otherwise. Substitute `dsp2` for `dsp1`, `docs/plans/completed/dsp2/` for its note
    directory and `(driver size pass 2)` for the commit suffix everywhere;
 3. **dsp1's note for your area** (`docs/plans/completed/dsp1/<area>.md`),
    and its section 3 (WANTS THE OWNER, which is NOT taken), 4 (cross-file)
