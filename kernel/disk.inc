@@ -12909,8 +12909,18 @@ dsk_wclus:    CLURES 1          ; dirw: the cluster being walked, 0 = root
 dsk_rcsh:     resw 1            ; dsk_read_chain_x's FAT32 walk: the high
 dsk_rcdh:     resw 1            ; words of SI, DI and BP's clusters
 dsk_rcph:     resw 1
-dsk_fcih:     resw 1            ; dsk_free_clus_x's FAT32 cluster, high word
-dsk_fcnh:     resw 1            ; ...and its count's
+dsk_fcih      equ dsk_rcsh      ; dsk_free_clus_x's FAT32 cluster, high word,
+dsk_fcnh      equ dsk_rcdh      ; ...and its count's: THE SAME TWO WORDS
+                                ; (kernel size pass 21, -4 kern_mega). Each
+                                ; routine writes them before it reads them
+                                ; and neither reads them past its own return;
+                                ; neither reaches the other - the free count
+                                ; walks the FAT through dsk_fat_ofs_x and the
+                                ; window, the chain read through dsk_xfer,
+                                ; and dsk_xfer calls neither - and a file
+                                ; operation is the UI task's alone (SPEC.md
+                                ; 20.6 rule 7: a worker touches no file), so
+                                ; two cannot interleave either
 %endif
 dsk_wsec:     resw 1            ; dirw: sector index inside it
 dsk_wguard:   resw 1            ; dirw: sectors left before the walk gives up
