@@ -1842,7 +1842,7 @@ fmv_load:
                                 ; that pass cut the doubling back
 .done:
 %endif
-    jmp short fmv_sync_x.out    ; a neighbour's kretc_di (size pass 21)
+    jmp short fm_measure.out    ; a neighbour's kretc_di (size pass 21)
 
 ; -----------------------------------------------------------------------------
 ; fm_measure - fill one window's FS_FREE / FS_USED (SPEC.md 22.7)
@@ -1958,7 +1958,10 @@ fm_measure:
                                 ; -5, and -1 for the xchg)
 %endif
 .out:
-    jmp short fmv_sync_x.out    ; a neighbour's kretc_di (size pass 21)
+    jmp kretc_di                ; (fmv_load's, fmv_sync_x's and fmv_mark's
+                                ; exit too: kernel size pass 21. HERE, and
+                                ; not at fmv_sync_x, for kern_mega's FAT32
+                                ; arms: all three reach it on every kernel)
 
 ; -----------------------------------------------------------------------------
 ; fmv_sync - make the global snapshot BE this window's directory (SPEC.md 22.1)
@@ -2053,7 +2056,7 @@ fmv_sync_x:
 %endif                          ; that went: its indices name the ROOT now
     call fm_settitle0           ; (SI is kretc_di's to restore - no bank)
 .out:
-    jmp kretc_di
+    jmp short fm_measure.out    ; a neighbour's kretc_di (size pass 21)
 
 ; -----------------------------------------------------------------------------
 ; fmv_mark - a file operation changed the CURRENT folder (SPEC.md 22.8)
@@ -2105,7 +2108,7 @@ fmv_mark:
     call fmv_inext
     jnc .scan
 .done:
-    jmp short fmv_sync_x.out    ; a neighbour's kretc_di (size pass 21)
+    jmp short fm_measure.out    ; a neighbour's kretc_di (size pass 21)
 
 
 ; -----------------------------------------------------------------------------
@@ -6643,9 +6646,10 @@ fm_editkey:
     cmp byte [fm_fmtalt], 0xFF  ; to the Enter test, so .confirm is mode 3's
     je .confirme                ; alone). The SAME byte the line is composed
                                 ; from, so the two cannot disagree
-    mov ax, [fm_fmtrow]         ; the row and fm_fmtalt, the byte after it -
-    xchg al, ah                 ; swapped as one word (AX is the entry's to
-    mov [fm_fmtrow], ax         ; restore)
+    mov cl, 8                   ; the row and fm_fmtalt, the byte after it -
+    rol word [fm_fmtrow], cl    ; swapped as one word, in place (CX is the
+                                ; entry's to restore, and .lineonly writes
+                                ; the carry: kernel size pass 21, -2)
     jmp .lineonly               ; the size on the line IS [fm_fmtrow], so the
                                 ; redraw is the one a typed rename character
                                 ; already takes - nothing else on the window
