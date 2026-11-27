@@ -179818,6 +179818,20 @@ there are `CSI_LIFT`'s, read at `cs_r_end` so the read cannot land between
 the erase and the fill; in the Cessna they are not. `--no-lift` (`cs_mapair`
 a bare `ret`) and a map with its transpose taken out both go red.
 
+### 88.17 Fly goes to the display that can, asked when it is pressed (2026-11-27)
+
+`cs_adapter` asks `fsxw_pick` (§53.1.2.1) for Mode X, CGA 320 or Hercules.
+The answer is the display the window is mostly on when it can set one of
+them, else the first display that can. `[cs_caps]`, `[cs_vidk]` (which picks
+the Mode row's two names and the 16-colour text hack's real-CGA offer) and
+`[cs_fsdisp]`, the bracket's CH, all describe that display.
+
+`cs_cmd_fly` runs `cs_adapter` again first. The answer used to be banked
+only in `W_ONRESIZE`, which fires on a change of the restrictive display. A
+window dragged from a Hercules until its centre was on a VGA flew into a
+bracket on the VGA, asked it for the Hercules mode, was refused, and did
+nothing. Tank (§85.10.8) and Pixelstein (§97.14.1) had the same case.
+
 ## 89. Pac-Man (`apps/pacman/pacman.asm`) — **RETIRED**
 
 > **THIS PACKAGE IS RETIRED AND SHIPS NOWHERE** (§20.16, `apps/RETIRED.txt`).

@@ -9672,7 +9672,7 @@ SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
              apps/skies/cspanel.inc apps/skies/cssin.inc \
              apps/skies/cswmac.inc apps/skies/csvocab.inc \
              apps/skies/csart.inc apps/skies/csdiag.inc \
-             apps/skies/csset.inc apps/os88data.inc $(CSWORLDS) \
+             apps/skies/csset.inc apps/os88data.inc apps/os88fsxw.inc $(CSWORLDS) \
              apps/skies/csload.asm apps/skies/csicon.inc \
              apps/os88api.inc apps/os88ui.inc \
              apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \

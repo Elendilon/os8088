@@ -1258,16 +1258,22 @@ cs_wldget:
 ;      Fly item's caption, and the menu set installed - with a Mode menu
 ;      only where there is a choice. Preserves every register (it is the
 ;      resize callback itself). EVERY BRANCH WRITES BOTH WAYS - SPEC.md 48's lesson.
-; OSAPI_FSX_CAPS is asked with our WINDOW in BX, so on a two-card machine the
-; answer is about the display this window is on (SPEC.md 39.18.2).
+; THE DISPLAY IS THE FULL-SCREEN TARGET (SPEC.md 53.1.2.1, 88.17): the
+; one the window is mostly on when it can set one of the three, else the
+; first display that can (os88fsxw.inc); [cs_fsdisp] is the bracket's CH.
+; cs_cmd_fly asks again: a drag that moves the centre and not the
+; restrictive display fires no W_ONRESIZE.
 ; -----------------------------------------------------------------------------
 cs_adapter:
     push ax
     push bx
+    push cx
     push dx
     push si
     mov bx, [cs_win]
-    call OSAPI_FSX_CAPS
+    mov dx, (1 << FSXM_MODEX) | (1 << FSXM_CGA320) | (1 << FSXM_HERC)
+    call fsxw_pick                  ; AX = the target's modes of those, DL =
+    mov [cs_fsdisp], ch             ; its kind, CH = its display
     mov [cs_caps], ax
     mov [cs_vidk], dl
     mov bx, CSB_NONE | (0FFh << 8)  ; BL = [cs_want] and BH = [cs_fsxm], which
@@ -1323,6 +1329,7 @@ cs_adapter:
     call OSAPI_MENU_SET             ; (SPEC.md 12.2): installed afresh
     pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -2806,6 +2813,7 @@ cs_hand equ os88_image_end      ; THE HANDOFF IS THE FIRST THING IN THE BSS,
     ZBYTE cs_fsxm
     OS88_ADJACENT cs_want, cs_fsxm, 1   ; cs_adapter stores the pair as a word
     ZBYTE cs_vidk
+    ZBYTE cs_fsdisp                 ; the full-screen target, FSX_RUN's CH
     ZBYTE cs_abon
     ZBYTE cs_page                   ; the launcher's page: 0 the title, 1 the
                                     ; instructions (88.10)
@@ -3615,6 +3623,7 @@ cs_rend     equ cs_lend + CS_ENDN * 2 ; (88.4.5.5), 640 entries each: a view's
 %define OS88UI_NOBFIND          ; hit-tests its own rects: no os88ui_bfind (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOGRADIO       ; check boxes only: no radio ring/dot (SPEC.md 13.15.3)
 %include "os88ui.inc"           ; of which this is the first user
+%include "os88fsxw.inc"         ; fsxw_pick (SPEC.md 53.1.2.1)
 
 ; --- THE BANDS, PACKED, for the instance's life (SPEC.md 88.10.7.1, 88.10.7.2)
 ; tools/csworlds.py packs the six one by one into csartz.bin, and cs_artes
