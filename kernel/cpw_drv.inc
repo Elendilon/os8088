@@ -17,12 +17,14 @@
 ; visits except the filter and the selection, which are the working area's
 ; KEPT bytes (CPW_W_DFLT, CPW_W_DSEL) - outside the block, because the Theme
 ; and Display pages lay their own maps over all of it. Everything is
-; content-relative; ES = the asset claim.
+; content-relative; ES = the asset view.
 ;
 ; REDRAW ONLY WHAT CHANGED (CLAUDE.md, Performance): a row is painted opaque,
 ; in the spans AROUND its text, so a selection change is two rows and the
 ; details, a want bit one row, a load one row, the details, the status line and
-; (only when its length moved) the page list.
+; (only when its length moved) the page list. A filter change draws the two
+; tabs whose look changed and steps past the rest, and DETAILS draws its icon
+; and each of its buttons only when that look is not the one on the glass.
 ; =============================================================================
 
 section .modv                   ; CPWIDE.DRV's image, like the file that includes
@@ -38,12 +40,17 @@ CPD_FLT     equ CPW_W_DFLT              ; db the filter: 0 All, else a CWC_*
 CPD_SELR    equ CPW_W_DSEL              ; db the selected drv_tab row, 0FFh none
 CPD_ON      equ CPW_W_DON               ; db 1 = the page block is this page's
 CPD_TB      equ CPW_W_PAGE              ; the table's block (CPKT_SIZE = 18)
-CPD_MASK    equ CPD_TB + CPKT_SIZE + 3  ; db one bit per CWC_* that has a row
-CPD_GT      equ CPD_TB + CPKT_SIZE + 4  ; dw the DETAILS box's top
-CPD_C1      equ CPD_TB + CPKT_SIZE + 6  ; dw the badge column's x, row-relative
-CPD_C2      equ CPD_TB + CPKT_SIZE + 8  ; dw the memory column's
-CPD_C3      equ CPD_TB + CPKT_SIZE + 10 ; dw the Start-at-boot column's
-CPD_ROWS    equ CPD_TB + CPKT_SIZE + 12 ; db x DRV_MAX: the drv_tab rows listed
+CPD_DIC     equ CPD_TB + CPKT_SIZE      ; db the DETAILS icon on the glass...
+CPD_DBT     equ CPD_DIC + 1             ; 4 x db ...and each DETAILS button's
+                                        ; look on it (cpd_btn): 0FFh, not drawn
+                                        ; since cpd_paint laid the ground
+CPD_MASK    equ CPD_DBT + 4             ; db one bit per CWC_* that has a row,
+                                        ; and bit 0 - All - always
+CPD_KC      equ CPD_MASK + 1            ; dw the cells each of the badge, memory
+                                        ; and boot columns gains over 616's
+CPD_GT      equ CPD_KC + 2              ; dw the DETAILS box's top
+CPD_XA      equ CPD_GT + 2              ; dw x CPD_NXA: a row's x's (below)
+CPD_ROWS    equ CPD_XA + CPD_NXA * 2    ; db x DRV_MAX: the drv_tab rows listed
 ; (kernel.asm, after driver.inc, checks CPD_ROWS + DRV_MAX against the block)
 CPW_D_ON    equ CPD_ON                  ; (cpwide.inc's name for it)
 
@@ -61,7 +68,9 @@ CPD_ROWMIN  equ 465                     ; a row's width at 616x408 (no bar)
 
 ; a row's columns, row-relative: 2 icon, 20 name (22 cells), 196 badge
 ; (12 cells), 292 memory (8), 356 Start at boot (13). The window's width above
-; 616 is shared out among the badge, memory and boot columns in whole cells.
+; 616 is shared out among the badge, memory and boot columns in whole cells:
+; K = 8 x [CPD_KC] px each, so the badge is at SX + K, the memory at MX + 2K
+; and the box's column at BXC + 3K.
 CPD_NX      equ 20
 CPD_NW      equ 22
 CPD_SX      equ CPD_NX + CPD_NW * 8
@@ -69,161 +78,38 @@ CPD_MX      equ CPD_SX + 96
 CPD_BXC     equ CPD_MX + 64
 CPD_CKX     equ 46                      ; the check box, in the boot column
 
+; CPD_XA - every x a row is laid at, CONTENT-relative (a row's left is CPD_XL
+; on every row), worked out once a paint by cpd_paint rather than once a span.
+; The slots, as byte offsets into it:
+CPD_XL0     equ 0                       ; XL          the row's left
+CPD_XL1     equ 2                       ; XL + 1
+CPD_XN0     equ 4                       ; XL + 18     the air before the name
+CPD_XN1     equ 6                       ; XL + 19
+CPD_XBM     equ 8                       ; the badge - 1 (the name run's last)
+CPD_XB      equ 10                      ; the badge (SX + K)
+CPD_XBE     equ 12                      ; the badge + 95
+CPD_XM      equ 14                      ; the badge + 96: the memory's run, its
+                                        ; air to the column as spaces
+CPD_XME     equ 16                      ; the memory + 64: past its 8 cells
+CPD_XCM     equ 18                      ; the box - 1 (the box is at + 1)
+CPD_XCE     equ 20                      ; the box + 12: past it
+CPD_XR      equ 22                      ; the row's last column (no bar)
+CPD_XTR     equ 24                      ; the table's last column (its bar's)
+CPD_NXA     equ 13
+
+CPD_MSTR    equ CPW_W_STR + 48          ; a row's memory line, composed after
+                                        ; its name (which is at CPW_W_STR)
+
 CPD_GRN     equ 10                      ; the badges' papers (EGA indices)
 CPD_RED     equ 12
 CPD_YEL     equ 14
 
-; -----------------------------------------------------------------------------
-; cpd_geo - the table's block and the columns, from the content's size
-; in:  nothing. out: nothing; every register kept
-; -----------------------------------------------------------------------------
-cpd_geo:
-    push ax
-    push bx
-    push cx
-    push dx
-    mov word [es:CPD_TB + CPKT_X], CPD_XL
-    mov word [es:CPD_TB + CPKT_Y], CPD_ROWY
-    mov word [es:CPD_TB + CPKT_RH], CPD_RH
-    mov word [es:CPD_TB + CPKT_ROW], cpd_row
-    mov ax, [es:CPW_W_CW]
-    sub ax, CPD_XL + 8
-    mov [es:CPD_TB + CPKT_W], ax
-    sub ax, CPK_SBW + CPD_ROWMIN    ; the width over 616's, in 24 px steps: a
-    jge .e                          ; third of it, in cells, to each column
-    xor ax, ax
-.e:
-    xor dx, dx
-    mov cx, 24
-    div cx
-    mov cl, 3
-    shl ax, cl                      ; AX = 8 px a cell of it
-    mov bx, CPD_SX
-    add bx, ax
-    mov [es:CPD_C1], bx
-    mov bx, CPD_MX
-    add bx, ax
-    add bx, ax
-    mov [es:CPD_C2], bx
-    mov bx, CPD_BXC
-    add bx, ax
-    add bx, ax
-    add bx, ax
-    mov [es:CPD_C3], bx
-    call cpw_sty
-    sub ax, 4 + CPD_DH              ; the box: its bottom 3 rows above the page's
-    mov [es:CPD_GT], ax
-    sub ax, 3 + CPD_ROWY            ; ...and the rows that fit above it
-    xor dx, dx
-    mov cx, CPD_RH
-    div cx
-    mov [es:CPD_TB + CPKT_NV], ax
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; cpd_cat - a drv_tab row's category. in: AL = a row. out: AL = its CWC_*
-; (CWC_UNK for a file the catalog does not know); every other register kept
-; -----------------------------------------------------------------------------
-cpd_cat:
-    push di
-    call cpw_cat
-    mov al, CWC_UNK
-    jc .r
-    mov al, [es:di + CWD_C_CAT]
-.r:
-    pop di
-    ret
-
-; -----------------------------------------------------------------------------
-; cpd_build - the table's rows: the drv_tab rows the filter keeps, the
-;             categories present, the selection's place in the list
-; in:  [CPD_FLT], [CPD_SELR]. out: [CPD_ROWS], N, SEL, TOP clamped, [CPD_MASK];
-;      every register kept
-; A selection the filter dropped (or none yet) becomes the first row shown.
-; -----------------------------------------------------------------------------
-cpd_build:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push bp
-    xor dx, dx                  ; DL = the categories present
-    xor cx, cx                  ; CL = the drv_tab row, CH = rows listed
-    mov bp, CPD_ROWS
-    mov bx, drv_tab
-    mov si, 0FFFFh              ; SI = the selected row's place
-.r:
-    cmp word [bx + DRVR_FILE], 0
-    je .n
-    mov al, cl
-    call cpd_cat
-    mov ah, al
-    or al, al
-    jz .m
-    push cx
-    mov cl, al
-    mov al, 1
-    shl al, cl
-    pop cx
-    or dl, al
-.m:
-    mov al, [es:CPD_FLT]
-    or al, al
-    jz .take
-    cmp al, ah
-    jne .n
-.take:
-    mov [es:bp], cl
-    inc bp
-    cmp cl, [es:CPD_SELR]
-    jne .ns
-    mov al, ch
-    xor ah, ah
-    mov si, ax
-.ns:
-    inc ch
-.n:
-    add bx, DRVR_SIZE
-    inc cl
-    cmp cl, DRV_MAX
-    jb .r
-    mov [es:CPD_MASK], dl
-    mov al, ch
-    xor ah, ah
-    mov [es:CPD_TB + CPKT_N], ax
-    cmp si, 0FFFFh
-    jne .sel
-    or ax, ax
-    jz .none
-    xor si, si                  ; the first row shown
-    mov al, [es:CPD_ROWS]
-    mov [es:CPD_SELR], al
-    jmp short .sel
-.none:
-    mov byte [es:CPD_SELR], 0FFh
-.sel:
-    mov [es:CPD_TB + CPKT_SEL], si
-    mov ax, [es:CPD_TB + CPKT_N]
-    sub ax, [es:CPD_TB + CPKT_NV]   ; the last top there is
-    jge .t
-    xor ax, ax
-.t:
-    cmp [es:CPD_TB + CPKT_TOP], ax
-    jle .o
-    mov [es:CPD_TB + CPKT_TOP], ax
-.o:
-    pop bp
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+%if CPG_DRVOFF != CPG_DRVON + 1
+  %error "cpw_drv: cpd_rel picks Load or Unload by adding the button"
+%endif
+%if CWC_UNK != 0
+  %error "cpw_drv: cpd_build's and cpd_det's category 0 is the unknown one"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cpd_paint - the whole page: ground, tabs, column heads, table, DETAILS
@@ -233,39 +119,96 @@ cpd_build:
 ; one of them never needs the ground again.
 ; -----------------------------------------------------------------------------
 cpd_paint:
-    call cpd_geo
-    cmp byte [es:CPD_ON], 0
-    jne .live
-    mov byte [es:CPD_ON], 1     ; a FRESH entry: the block was another page's,
-    mov word [es:CPD_TB + CPKT_TOP], 0  ; so its first row is not to be
-    call cpd_build              ; trusted - from the top, and then down only
-    mov ax, [es:CPD_TB + CPKT_SEL]  ; as far as the kept selection needs to
-    sub ax, [es:CPD_TB + CPKT_NV]   ; be in view (SEL 0FFFFh: none, the top)
-    jl .go
-    inc ax
-    mov [es:CPD_TB + CPKT_TOP], ax
-    jmp short .go
-.live:
-    call cpd_build
-.go:
+    mov di, CPD_TB              ; --- the geometry, from the content's size
+    mov ax, CPD_XL
+    stosw                       ; CPKT_X
+    mov ax, CPD_ROWY
+    stosw                       ; CPKT_Y
+    mov ax, [es:CPW_W_CW]
+    sub ax, CPD_XL + 8
+    stosw                       ; CPKT_W, the box's width too
+    mov word [es:di], CPD_RH    ; CPKT_RH
+    mov word [es:CPD_TB + CPKT_ROW], cpd_row
+    xchg ax, dx                 ; DX = the table's width
+    mov di, CPD_DIC
+    mov ax, 0FFFFh              ; the ground is about to cover DETAILS: none
+    stosw                       ; of its icon or its buttons is on the glass
+    stosw
+    stosb
+    inc di                      ; (CPD_MASK is cpd_build's)
+    mov ax, dx
+    sub ax, CPK_SBW + CPD_ROWMIN    ; the width over 616's, in 24 px steps: a
+    jge .e                          ; third of it, in cells, to each column
+    xor ax, ax
+.e:
+    mov cl, 24
+    div cl
+    cbw
+    stosw                       ; CPD_KC
+    mov cl, 3
+    shl ax, cl
+    xchg ax, bx                 ; BX = K, 8 px a cell of it
     call cpw_sty
-    mov dx, ax
-    dec dx
-    dec dx
-    mov byte [gfx_color], CWHITE
-    mov ax, CPW_PX
-    mov bx, CPW_BY
-    mov cx, [es:CPW_W_CW]
-    dec cx
-    call cpw_fill
+    sub ax, 4 + CPD_DH          ; the box: its bottom 3 rows above the page's
+    stosw                       ; CPD_GT
+    sub ax, 3 + CPD_ROWY        ; ...and the rows that fit above it
+    mov cl, CPD_RH
+    div cl
+    cbw
+    mov [es:CPD_TB + CPKT_NV], ax
+    mov ax, CPD_XL              ; --- CPD_XA, slot by slot
+    stosw
+    inc ax
+    stosw
+    mov al, CPD_XL + 18
+    stosw
+    inc ax
+    stosw
+    lea ax, [bx + CPD_XL + CPD_SX - 1]
+    stosw                       ; the badge - 1
+    inc ax
+    stosw                       ; the badge
+    add ax, 95
+    stosw
+    inc ax
+    stosw                       ; the badge + 96
+    add ax, bx
+    add ax, 64
+    stosw                       ; the memory + 64 (MX + 2K + 64)
+    add ax, bx
+    add ax, CPD_CKX - 1
+    stosw                       ; the box - 1 (BXC + 3K + 45)
+    add ax, 13
+    stosw                       ; the box + 12
+    xchg ax, dx
+    add ax, CPD_XL - CPK_SBW - 1
+    stosw                       ; the row's last column
+    add ax, CPK_SBW
+    stosw                       ; the table's
+    mov al, 1                   ; --- the rows. A FRESH entry (the block was
+    xchg al, [es:CPD_ON]        ; another page's) does not trust its first
+    push ax                     ; row: from the top, and then down only as
+    call cpd_build              ; far as the kept selection needs to be in
+    pop ax                      ; view (SEL 0FFFFh, none: the top)
+    or al, al
+    jnz .go
+    mov ax, [es:CPD_TB + CPKT_SEL]
+    sub ax, [es:CPD_TB + CPKT_NV]
+    inc ax
+    jg .t
+    xor ax, ax
+.t:
+    mov [es:CPD_TB + CPKT_TOP], ax
+.go:
+    call cpd_ground
+    mov ah, 0FFh                ; every tab
     call cpd_tabs
     call cpd_hdr
     mov bx, CPD_TB
     call cpk_table
     mov ax, CPD_XL                  ; the DETAILS box: its band and frame
     mov bx, [es:CPD_GT]
-    mov cx, [es:CPD_TB + CPKT_W]
-    add cx, CPD_XL - 1
+    mov cx, [es:CPD_XA + CPD_XTR]
     mov dx, bx
     add dx, CPD_DH - 1
     mov si, cpd_s_det
@@ -273,139 +216,141 @@ cpd_paint:
     jmp cpd_det
 
 ; -----------------------------------------------------------------------------
+; cpd_ground - the page area's white ground, from y CPW_BY (or, entered at
+; cpd_groundb, from y BX) to the status line's rule: the one fill each wide
+; page drawn natively lays first (the Theme page's too)
+; in:  nothing (BX). out: nothing; AX CX DX spent
+; -----------------------------------------------------------------------------
+cpd_ground:
+    mov bx, CPW_BY
+cpd_groundb:
+    call cpw_sty
+    xchg ax, dx
+    dec dx
+    dec dx
+    mov byte [gfx_color], CWHITE
+    mov ax, CPW_PX
+    mov cx, [es:CPW_W_CW]
+    dec cx
+    jmp cpw_fill
+
+; -----------------------------------------------------------------------------
+; cpd_build - the table's rows: the drv_tab rows the filter keeps, the
+;             categories present, the selection's place in the list
+; in:  [CPD_FLT], [CPD_SELR]. out: [CPD_ROWS], N, SEL, TOP clamped, [CPD_MASK];
+;      AX BX CX DX SI DI BP spent
+; A selection the filter dropped (or none yet) becomes the first row shown.
+; -----------------------------------------------------------------------------
+cpd_build:
+    mov dx, 1                   ; DL = the categories present: All always
+    xor ch, ch                  ; CH = the drv_tab row
+    mov bp, CPD_ROWS            ; BP = where the next listed row goes
+    mov bx, drv_tab
+    mov si, 0FFFFh              ; SI = the selected row's place
+.r:
+    cmp word [bx + DRVR_FILE], 0
+    je .n
+    mov al, ch
+    call cpw_cat                ; ES:DI = its record, CF = 1 none
+    mov ah, CWC_UNK
+    jc .m
+    mov ah, [es:di + CWD_C_CAT]
+    mov cl, ah
+    mov al, 1
+    shl al, cl
+    or dl, al
+.m:
+    mov al, [es:CPD_FLT]
+    or al, al
+    jz .take
+    cmp al, ah
+    jne .n
+.take:
+    cmp ch, [es:CPD_SELR]
+    jne .ns
+    lea si, [bp - CPD_ROWS]
+.ns:
+    mov [es:bp], ch
+    inc bp
+.n:
+    add bx, DRVR_SIZE
+    inc ch
+    cmp ch, DRV_MAX
+    jb .r
+    mov [es:CPD_MASK], dl
+    xchg ax, bp
+    sub ax, CPD_ROWS            ; AX = the rows listed
+    mov [es:CPD_TB + CPKT_N], ax
+    or si, si
+    jns .sel
+    or ax, ax                   ; the selection is not listed: the first row
+    mov dl, 0FFh                ; shown, if there is one
+    jz .none
+    inc si
+    mov dl, [es:CPD_ROWS]
+.none:
+    mov [es:CPD_SELR], dl
+.sel:
+    mov [es:CPD_TB + CPKT_SEL], si
+    sub ax, [es:CPD_TB + CPKT_NV]   ; the last top there is
+    jge .t
+    xor ax, ax
+.t:
+    cmp [es:CPD_TB + CPKT_TOP], ax
+    jle .o
+    mov [es:CPD_TB + CPKT_TOP], ax
+.o:
+    ret
+
+; -----------------------------------------------------------------------------
 ; cpd_tabs - the filter strip: All, then each category a row has, the chosen
 ;            one barred. Each tab is cpk_tabs' with the one label (and the
 ;            empty string that ends it) so the strip can be any subset.
+; in:  AH = the categories to DRAW, a bit each (0FFh all). A filter change
+;      draws the two tabs whose look changed and steps past the others at
+;      cpk_tabs' widths - 4 + 4 + 1, and 8 a character
+; out: nothing; AX BX CX DX SI DI spent
 ; -----------------------------------------------------------------------------
 cpd_tabs:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
     mov cx, CPD_XL
     mov dx, CPD_TABY
-    mov si, cpd_s_all
-    mov al, 1
-    cmp byte [es:CPD_FLT], 0
-    jne .a
-    xor al, al
-.a:
-    call cpk_tabs                   ; CX = past it
-    mov bl, 1                       ; BL = the category
     mov bh, [es:CPD_MASK]
+    mov di, cpd_cn
+    xor bl, bl                  ; BL = the category, 0 All
 .c:
-    push cx
-    mov cl, bl
-    mov al, 1
-    shl al, cl
-    pop cx
-    test bh, al
-    jz .nx
-    mov al, 1
-    cmp bl, [es:CPD_FLT]
-    jne .d
-    xor al, al
-.d:
-    push bx
-    xor bh, bh
-    shl bx, 1
-    mov si, [cs:bx + cpd_cn - 2]
-    pop bx
-    call cpk_tabs
-.nx:
-    inc bl
-    cmp bl, CWC_N
-    jb .c
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; cpd_tabhit - which filter is at this x?
-; in:  AX = x, content-relative. out: CF = 0 and AL = the filter (0 All, or a
-;      CWC_*); CF = 1 none. Every other register kept
-; -----------------------------------------------------------------------------
-cpd_tabhit:
-    push bx
-    push cx
-    push dx
-    push si
-    sub ax, CPD_XL
-    js .no
-    mov dx, ax
-    mov si, cpd_s_all
-    xor al, al
-    mov ah, [es:CPD_MASK]
-.t:
-    mov bx, 9                       ; cpk_tabs' widths: 4 + 4 + 1, 8 a cell
+    shr ah, 1
+    sbb al, al                  ; AL = 0FFh draw it, 0 step past it
+    shr bh, 1
+    jnc .nx                     ; no row has it: no tab
+    mov si, [cs:di]
+    or al, al
+    jz .step
+    mov al, bl
+    xor al, [es:CPD_FLT]        ; 0 = the chosen one
+    call cpk_tabs               ; CX = past it
+    jmp short .nx
+.step:
+    inc cx
 .w:
-    mov cl, [cs:si]
-    inc si
-    or cl, cl
-    jz .wd
-    add bx, 8
-    jmp short .w
-.wd:
-    cmp dx, bx
-    jl .yes
-    sub dx, bx
+    add cx, 8
+    cs lodsb
+    or al, al
+    jnz .w
 .nx:
-    inc al
-    cmp al, CWC_N
-    jae .no
-    mov cl, al
-    mov ch, 1
-    shl ch, cl
-    test ah, ch
-    jz .nx
-    mov bl, al
-    xor bh, bh
-    shl bx, 1
-    mov si, [cs:bx + cpd_cn - 2]
-    jmp short .t
-.yes:
-    clc
-    jmp short .o
-.no:
-    stc
-.o:
-    pop si
-    pop dx
-    pop cx
-    pop bx
+    inc di
+    inc di
+    inc bx
+    or bh, bh
+    jnz .c
     ret
 
 ; -----------------------------------------------------------------------------
-; cpd_hdr - the column heads: one run on a light grey band
+; cpd_hdr - the column heads: one run on a light grey band. The line is spaces
+; to the table's right with each head laid over them at its cell, a wide
+; window's extra width going between the columns ([CPD_KC] cells a gap)
 ; -----------------------------------------------------------------------------
 cpd_hdr:
-    mov di, CPW_W_STR
-    mov ax, [es:CPD_C1]
-    sub ax, CPD_SX
-    mov cl, 3
-    shr ax, cl
-    mov dx, ax                  ; DX = the cells of air in each gap
-    xor bl, bl
-    mov si, cpd_h0
-    mov cx, 22
-    call cpd_cpyn
-    call .air
-    mov si, cpd_h1
-    mov cx, 12
-    call cpd_cpyn
-    call .air
-    mov si, cpd_h2
-    mov cx, 8
-    call cpd_cpyn
-    call .air
-    mov si, cpd_h3
-    mov cx, 13
-    call cpd_cpyn
-    mov ax, [es:CPD_TB + CPKT_W]    ; ...and spaces to the table's right
+    mov ax, [es:CPD_TB + CPKT_W]
     sub ax, CPD_NX
     mov cl, 3
     shr ax, cl
@@ -413,13 +358,38 @@ cpd_hdr:
     jbe .l
     mov ax, 95
 .l:
+    xchg ax, cx
+    mov di, CPW_W_STR
+    mov al, ' '
+    rep stosb
+    mov [es:di], cl             ; (CX = 0) the NUL
+    mov si, cpd_hd
+    xor dx, dx                  ; DX = the air so far
+.h:
+    cs lodsw                    ; AX = a head, 0 the end
+    or ax, ax
+    jz .band
+    xchg ax, bx
+    cs lodsb                    ; AL = its cell before any air
+    cbw
+    add ax, dx
     add ax, CPW_W_STR
-    call cpd_pad
+    xchg ax, di
+.c:
+    mov al, [cs:bx]
+    or al, al
+    jz .nx
+    stosb
+    inc bx
+    jmp short .c
+.nx:
+    add dx, [es:CPD_KC]
+    jmp short .h
+.band:
     mov byte [gfx_color], CLGRAY
     mov ax, CPD_XL                  ; the band round the run
     mov bx, CPD_HDRY
-    mov cx, [es:CPD_TB + CPKT_W]
-    add cx, CPD_XL - 1
+    mov cx, [es:CPD_XA + CPD_XTR]
     mov dx, bx
     inc dx
     call cpw_fill
@@ -438,194 +408,105 @@ cpd_hdr:
     mov bl, 2
     call cpw_run                    ; CX = past it
     mov ax, cx
-    mov cx, [es:CPD_TB + CPKT_W]
-    add cx, CPD_XL - 1
+    mov cx, [es:CPD_XA + CPD_XTR]
     cmp ax, cx
     jg .r
     mov byte [gfx_color], CLGRAY
     mov bx, dx
     add dx, 7
-    call cpw_fill
+    jmp cpw_fill
 .r:
-    ret
-.air:                           ; DX spaces at ES:DI, and the next field's SI
-    push cx
-    mov cx, dx
-    jcxz .a1
-.a2:
-    mov byte [es:di], ' '
-    inc di
-    loop .a2
-.a1:
-    pop cx
     ret
 
 ; cpd_cpyn - SI = a string in segment BL (0 CS, 1 DS, 2 ES): at most CX of its
-; characters at ES:DI, DI advanced past them (no NUL written). Keeps the rest
-; but SI
+; characters at ES:DI, DI advanced past them (no NUL written). CX SI spent
 cpd_cpyn:
     push ax
     push ds
     call cpk_ds
 .c:
-    mov al, [si]
-    or al, al
+    mov al, [si]                ; (DS = the string's: not lodsb, which
+    or al, al                   ; os88ovlchk refuses in a module image)
     jz .z
-    mov [es:di], al
     inc si
-    inc di
+    stosb
     loop .c
 .z:
     pop ds
     pop ax
     ret
 
-; cpd_pad - spaces at ES:DI up to the address in AX, and the NUL
+; cpd_pad - spaces at ES:DI up to the address in AX, and the NUL. AX CX spent
 cpd_pad:
-.p:
-    cmp di, ax
-    jae .z
-    mov byte [es:di], ' '
-    inc di
-    jmp short .p
+    sub ax, di
+    jb .z
+    xchg ax, cx
+    mov al, ' '
+    rep stosb
 .z:
     mov byte [es:di], 0
     ret
 
-; -----------------------------------------------------------------------------
-; The row
-; -----------------------------------------------------------------------------
-
-; cpd_g - [gfx_color] = the row's ground (CPK_S_B). Keeps all
-cpd_g:
+; cpd_rowp - AL = a drv_tab row -> BX = its address. Keeps the rest
+cpd_rowp:
     push ax
-    mov al, [es:CPK_S_B]
-    mov [gfx_color], al
+    mov ah, DRVR_SIZE
+    mul ah
+    add ax, drv_tab
+    xchg ax, bx
     pop ax
     ret
 
-; cpd_ip - AL = the row's ink, AH = its ground. Keeps the rest
-cpd_ip:
-    mov ah, [es:CPK_S_B]
-    mov al, CBLACK
-    cmp ah, CBLUE
-    jne .r
-    mov al, CWHITE
-.r:
+; cpd_name - a row's name: AL = the drv_tab row, BP = its catalog record (0
+; none). out: SI/BL = the catalog's long name (ES), else its drv_tab title
+; staged by CPG_DRVTTL (DS). AH spent
+cpd_name:
+    or bp, bp
+    jz .t
+    lea si, [bp + CWD_C_LONG]
+    mov bl, 2
     ret
-
-; cpd_rfill - a fill in the pen, ROW-relative: AX/CX = x1/x2, BL/BH = y1/y2.
-; Keeps every register
-cpd_rfill:
-    push ax
-    push bx
-    push cx
-    push dx
-    add ax, [es:CPK_S_X]
-    add cx, [es:CPK_S_X]
-    mov dl, bh
-    xor dh, dh
-    add dx, [es:CPK_S_Y]
-    xor bh, bh
-    add bx, [es:CPK_S_Y]
-    call cpw_fill
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; cpd_gap - the ground over columns AX..CX (when there are any), rows 1-16 of
-; the row. Keeps every register
-cpd_gap:
-    cmp cx, ax
-    jl .r
-    push bx
-    mov bx, 0x1001
-    call cpd_g
-    call cpd_rfill
-    pop bx
-.r:
-    ret
-
-; cpd_rrun - a run at ROW-relative CX/DX: SI = the string in segment BL,
-; AL = ink, AH = paper. Out: CX past it (cpw_run's); keeps the rest
-cpd_rrun:
-    add cx, [es:CPK_S_X]
-    add dx, [es:CPK_S_Y]
-    call cpw_run
-    sub dx, [es:CPK_S_Y]
-    ret
-
-; cpd_stat - a row's badge state, drv_status's own reading of its live row:
-; a reported reason outranks 'Loaded'. in: AL = a row. out: AL = 0 loaded,
-; 1 off, 2 no hardware, 3 any other reason; every other register kept
-cpd_stat:
-    push bx
-    mov bl, al
-    xor bh, bh
-    push cx
-    mov cl, 4
-    shl bx, cl
-    pop cx
-    mov al, [bx + drv_tab + DRVR_ERR]
-    cmp al, DRVE_NERR
-    jae .n
-    or al, al
-    jz .n
-    cmp al, DRVE_HW
-    mov al, 2
-    je .r
-    mov al, 3
-    jmp short .r
-.n:
-    xor al, al
-    cmp word [bx + drv_tab + DRVR_SEG], 0
-    jne .r
-    mov al, 1
-.r:
-    pop bx
+.t:
+    mov ah, CPG_DRVTTL
+    call cpw_gate               ; SI = cp_sbuf
+    mov bl, 1
     ret
 
 ; cpd_memstr - a row's memory figure, as the compact page prints it (SPEC.md
 ; 31.6.2): '~', the KB to the half, 'K', and '+' for a store it sizes
-; in:  AL = a row, ES:DI = where. out: DI at the NUL; every other register kept
+; in:  AL = a row, ES:DI = where. out: DI at the NUL; AX BX CX DX SI spent
 cpd_memstr:
-    push ax
-    push bx
-    push si
     mov ah, CPG_DRVMEM
     call cpw_gate               ; AX = the half-KB word, DRVM_PLUS in bit 15
     mov bx, ax
     and ax, 0x7FFF
     jz .z
-    mov byte [es:di], '~'
-    inc di
+    push ax
+    mov al, '~'
+    stosb
+    pop ax
     shr ax, 1
     sbb si, si                  ; SI = -1 for a half
     call cpw_utoa
     or si, si
     jz .k
-    mov word [es:di], '.5'
-    inc di
-    inc di
+    mov ax, '.5'
+    stosw
 .k:
-    mov byte [es:di], 'K'
-    inc di
-    test bh, 0x80
-    jz .z
-    mov byte [es:di], '+'
-    inc di
+    mov al, 'K'
+    stosb
+    or bx, bx
+    jns .z
+    mov al, '+'
+    stosb
 .z:
     mov byte [es:di], 0
-    pop si
-    pop bx
-    pop ax
     ret
 
 ; cpd_blit12 - the 12x12 check box: SI = its 12 pattern words in the image,
 ; AX/BX = x/y content-relative. Expanded to 4bpp (set = black, clear = white)
 ; in the icon staging buffer and put down with ONE OSAPI_GFX_BLIT4. Keeps all
+; (cpw_vid.inc's Display page draws its tick boxes with it too)
 cpd_blit12:
     push ax
     push bx
@@ -639,9 +520,8 @@ cpd_blit12:
     mov di, CPW_W_ICON
     mov bp, 12
 .r:
-    mov dx, [cs:si]
-    inc si
-    inc si
+    cs lodsw
+    xchg ax, dx
     mov cx, 6
 .b:
     mov al, 0xFF
@@ -653,8 +533,7 @@ cpd_blit12:
     jnc .s
     and al, 0xF0
 .s:
-    mov [es:di], al
-    inc di
+    stosb
     loop .b
     dec bp
     jnz .r
@@ -678,14 +557,18 @@ cpd_blit12:
 
 ; -----------------------------------------------------------------------------
 ; cpd_row - the table's row painter (CPKT_ROW, SPEC.md 135.5)
-; in:  AX = the list's row, BL = its ground (CWHITE, CBLUE selected), CX/DX =
-;      left/top, DI = the width without the bar. out: nothing; every register
-;      kept
+; in:  AX = the list's row, BL = its ground (CWHITE, CBLUE selected), DX = its
+;      top - CX and DI, its left and width, are the block's own, and CPD_XA
+;      has every x of it. out: nothing; every register kept
 ;
 ; The whole row, opaque, in the spans AROUND its runs: nothing is written
 ; twice. Row-relative: row 0 and 17 the ground; 1-16 the icon (2..17), the
 ; name (20), the badge (12 cells: its paper over rows 3-14, the label on 5-12),
-; the memory, and the Start at boot check box (12x12 at rows 3-14).
+; the memory, and the Start at boot check box (12x12 at rows 3-14). The ground
+; is twelve spans (cpd_rtg) and the badge's paper two (cpd_rtp); a wide
+; window's air between the name and the badge and between the badge and the
+; memory is those runs' own spaces - so a row is 19 primitives at either width
+; (it was 21 at 616 and 23 at 760 until driver size pass 2).
 ; -----------------------------------------------------------------------------
 cpd_row:
     push ax
@@ -695,28 +578,14 @@ cpd_row:
     push si
     push di
     push bp
-    mov [es:CPK_S_X], cx
     mov [es:CPK_S_Y], dx
-    dec di
-    mov [es:CPK_S_R], di        ; the row's last column, row-relative
-    mov si, ax
+    mov [es:CPK_S_B], bl
+    xchg ax, si
     mov al, [es:si + CPD_ROWS]
     mov [es:CPK_S_I], al        ; the drv_tab row
-    xor bh, bh
-    mov [es:CPK_S_B], bx        ; BL = the ground
-    call cpd_g
-    xor ax, ax                  ; --- rows 0 and 17, the left margin, the gap
-    mov cx, [es:CPK_S_R]        ; between the icon and the name
-    xor bx, bx
-    call cpd_rfill
-    mov bx, (CPD_RH - 1) * 0x101
-    call cpd_rfill
-    mov cx, 1
-    mov bx, 0x1001
-    call cpd_rfill
-    mov ax, 18
-    mov cx, 19
-    call cpd_rfill
+    mov al, bl                  ; --- the ground round everything on it
+    mov si, cpd_rtg
+    call cpd_rects
     mov al, [es:CPK_S_I]        ; --- the icon: the catalog's, or the gear
     call cpw_cat
     mov bp, di                  ; BP = the record, 0 = none
@@ -730,133 +599,91 @@ cpd_row:
     jb .ic
     mov al, CWI16_GEAR
 .ic:
-    mov cx, [es:CPK_S_X]
-    add cx, 2
+    mov cx, CPD_XL + 2
     mov dx, [es:CPK_S_Y]
     inc dx
     xor ah, ah
     mov bl, [es:CPK_S_B]
     call cpw_icon
-    mov di, CPW_W_STR           ; --- the name, 22 cells
-    mov cx, CPD_NW
-    or bp, bp
-    jz .ttl
-    lea si, [bp + CWD_C_LONG]
-    mov bl, 2
-    jmp short .nm
-.ttl:
-    mov al, [es:CPK_S_I]
-    mov ah, CPG_DRVTTL
-    call cpw_gate               ; SI = cp_sbuf
-    mov bl, 1
-.nm:
-    call cpd_cpyn
-    mov ax, CPW_W_STR + CPD_NW
-    call cpd_pad
-    call cpd_g
-    mov ax, CPD_NX
-    mov cx, CPD_SX - 1
-    mov bx, 0x0401
-    call cpd_rfill
-    mov bx, 0x100D
-    call cpd_rfill
-    call cpd_ip
-    mov cx, CPD_NX
-    mov dx, 5
-    mov si, CPW_W_STR
-    mov bl, 2
-    call cpd_rrun
-    call cpd_g                  ; --- the badge
-    mov ax, CPD_SX              ; (the air to it, when the window is wide)
-    mov cx, [es:CPD_C1]
-    dec cx
-    call cpd_gap
-    mov ax, [es:CPD_C1]
-    mov cx, ax
-    add cx, 95
-    mov bx, 0x0201
-    call cpd_rfill
-    mov bx, 0x100F
-    call cpd_rfill
-    mov al, [es:CPK_S_I]
-    call cpd_stat
-    xor ah, ah
-    mov si, ax
-    mov dl, [cs:si + cpd_pc]    ; DL = its paper
-    mov [gfx_color], dl
-    mov ax, [es:CPD_C1]
-    mov bx, 0x0403
-    call cpd_rfill
-    mov bx, 0x0E0D
-    call cpd_rfill
-    mov ax, si
-    mov dh, 13
-    mul dh                      ; AX = the label's offset (DL, the paper, kept)
-    mov si, ax
-    add si, cpd_pl
-    mov ah, dl
-    mov al, CBLACK
-    mov cx, [es:CPD_C1]
-    mov dx, 5
-    xor bl, bl
-    call cpd_rrun
-    call cpd_g                  ; --- the memory
-    mov ax, [es:CPD_C1]
-    add ax, 96
-    mov cx, [es:CPD_C2]
-    dec cx
-    call cpd_gap
-    mov ax, [es:CPD_C2]
-    mov cx, ax
-    add cx, 63
-    mov bx, 0x0401
-    call cpd_rfill
-    mov bx, 0x100D
-    call cpd_rfill
+    mov al, [es:CPK_S_I]        ; --- the name: 22 cells, and the air to the
+    call cpd_name               ; badge as spaces
     mov di, CPW_W_STR
-    mov byte [es:di], ' '
-    inc di
+    mov cx, CPD_NW
+    call cpd_cpyn
+    mov ax, [es:CPD_KC]
+    add ax, CPW_W_STR + CPD_NW
+    call cpd_pad
+    mov di, CPD_MSTR            ; --- the memory: the air from the badge as
+    mov cx, [es:CPD_KC]         ; spaces, then ' ~12K+' in 8 cells
+    inc cx
+    mov al, ' '
+    rep stosb
     mov al, [es:CPK_S_I]
     call cpd_memstr
-    mov ax, CPW_W_STR + 8
+    mov ax, [es:CPD_KC]
+    add ax, CPD_MSTR + 8
     call cpd_pad
-    call cpd_ip
-    mov cx, [es:CPD_C2]
-    mov dx, 5
-    mov si, CPW_W_STR
+    mov al, [es:CPK_S_I]        ; --- the badge: drv_status's own reading of
+    call cpd_rowp               ; the live row, a reported reason outranking
+    mov al, [bx + DRVR_ERR]     ; 'Loaded' - cpd_pl's order: loaded, off, no
+    dec ax                      ; hardware, any other reason
+    cmp al, DRVE_NERR - 1
+    jae .n                      ; (0, or past the strings: no reason)
+    cmp al, DRVE_HW - 1
+    mov al, 2
+    je .st
+    inc ax
+    jmp short .st
+.n:
+    xor ax, ax
+    cmp [bx + DRVR_SEG], ax
+    jne .st
+    inc ax
+.st:
+    mov ah, 14
+    mul ah
+    add ax, cpd_pl
+    push ax                     ; its label...
+    xchg ax, bx
+    mov al, [cs:bx + 13]        ; ...and its paper, after the label's NUL
+    push ax
+    mov si, cpd_rtp
+    call cpd_rects
+    pop ax
+    mov ah, al
+    mov al, CBLACK
+    pop si
+    mov cx, [es:CPD_XA + CPD_XB]
+    mov dx, [es:CPK_S_Y]
+    add dx, 5
+    xor bl, bl
+    call cpw_run
+    mov ah, [es:CPK_S_B]        ; --- the name and the memory: black on
+    mov al, CBLACK              ; white, white on the selection's blue
+    cmp ah, CBLUE
+    jne .ink
+    mov al, CWHITE
+.ink:
     mov bl, 2
-    call cpd_rrun
-    call cpd_g                  ; --- the check box and the air round it
-    mov ax, [es:CPD_C2]
-    add ax, 64
-    mov cx, [es:CPD_C3]
-    add cx, CPD_CKX - 1
-    call cpd_gap
-    mov ax, [es:CPD_C3]
-    add ax, CPD_CKX
-    mov cx, ax
-    add cx, 11
-    mov bx, 0x0201
-    call cpd_rfill
-    mov bx, 0x100F
-    call cpd_rfill
-    mov bl, [es:CPK_S_I]        ; the box: checked when the row is WANTED
-    xor bh, bh
-    mov cl, 4
-    shl bx, cl
+    mov si, CPW_W_STR
+    mov cx, CPD_XL + CPD_NX
+    call cpw_run
+    mov si, CPD_MSTR
+    mov cx, [es:CPD_XA + CPD_XM]
+    call cpw_run
+    mov al, [es:CPK_S_I]        ; --- the box: checked when the row is WANTED
+    call cpd_rowp
     mov si, cpd_ck0
-    cmp byte [bx + drv_tab + DRVR_WANT], 0
+    cmp byte [bx + DRVR_WANT], 0
     je .ck
     mov si, cpd_ck1
 .ck:
-    add ax, [es:CPK_S_X]
-    mov bx, [es:CPK_S_Y]
-    add bx, 3
+    mov ax, [es:CPD_XA + CPD_XCM]
+    inc ax
+    mov bx, dx
+    dec bx
+    dec bx                      ; (DX = the row's top + 5)
     call cpd_blit12
-    mov ax, [es:CPD_C3]
-    add ax, CPD_CKX + 12
-    mov cx, [es:CPK_S_R]
-    call cpd_gap
     pop bp
     pop di
     pop si
@@ -866,16 +693,38 @@ cpd_row:
     pop ax
     ret
 
+; cpd_rects - a row's spans in pen AL: SI = a table in the image of (x1, x2,
+; y1, y2) - the x's CPD_XA slots, the y's from the row's top [CPK_S_Y] - and
+; 0FFh to end it. AX BX CX DX SI spent
+cpd_rects:
+    mov [gfx_color], al
+.f:
+    cs lodsw                    ; AL/AH = the x slots
+    cmp al, 0FFh
+    je .r
+    mov bl, ah
+    xor bh, bh
+    mov cx, [es:bx + CPD_XA]
+    mov bl, al
+    push word [es:bx + CPD_XA]
+    cs lodsw                    ; AL/AH = the rows
+    mov bl, al
+    mov dl, ah
+    mov dh, bh
+    mov ax, [es:CPK_S_Y]
+    add bx, ax
+    add dx, ax
+    pop ax
+    call cpw_fill
+    jmp short .f
+.r:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cpd_row1 - repaint one list row if it is showing
-; in:  AX = the list's row (0FFFFh none). out: nothing; every register kept
+; in:  AX = the list's row (0FFFFh none). out: nothing; BX CX DX spent
 ; -----------------------------------------------------------------------------
 cpd_row1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
     mov cx, ax
     sub cx, [es:CPD_TB + CPKT_TOP]
     jl .o
@@ -886,29 +735,20 @@ cpd_row1:
     jne .g
     mov bl, CBLUE
 .g:
-    push ax
-    mov ax, cx
-    mov dx, CPD_RH
-    mul dx
+    xchg ax, cx
+    mov dl, CPD_RH
+    mul dl
     add ax, CPD_ROWY
-    mov dx, ax
-    pop ax
-    mov cx, CPD_XL
-    mov di, [es:CPD_TB + CPKT_W]
-    sub di, CPK_SBW
-    call cpd_row
+    xchg ax, dx                 ; DX = its top
+    xchg ax, cx                 ; AX = the row again
+    jmp cpd_row
 .o:
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; cpd_setsel - select list row AX, redrawing what changed: the row losing the
-;              bar and the row gaining it (or the whole table, when the
-;              selection scrolls it into view), and the DETAILS
+;              bar and the row gaining it (or, when the selection scrolls the
+;              view, the rows and the scroll bar's thumb), and the DETAILS
 ; in:  AX = a list row, in range. out: nothing
 ; -----------------------------------------------------------------------------
 cpd_setsel:
@@ -919,26 +759,25 @@ cpd_setsel:
     mov bx, ax
     mov cl, [es:bx + CPD_ROWS]
     mov [es:CPD_SELR], cl
-    mov cx, [es:CPD_TB + CPKT_TOP]
-    cmp ax, cx
-    jl .up
-    add cx, [es:CPD_TB + CPKT_NV]
-    cmp ax, cx
-    jl .vis
-    mov cx, ax                  ; scrolled: the table's last row is this one
-    sub cx, [es:CPD_TB + CPKT_NV]
-    inc cx
-    jmp short .scr
-.up:
+    mov dx, [es:CPD_TB + CPKT_TOP]  ; DX = the view's top
     mov cx, ax
+    cmp ax, dx
+    jl .scr                     ; above it: the selection becomes the top
+    sub cx, [es:CPD_TB + CPKT_NV]
+    inc cx                      ; CX = the top that makes it the last row
+    cmp cx, dx
+    jle .vis                    ; ...not below the top it has: in view
 .scr:
-    mov [es:CPD_TB + CPKT_TOP], cx
     mov bx, CPD_TB
-    call cpk_table
+    mov [es:bx + CPKT_TOP], cx
+    call cpk_tbrows             ; the rows, and the thumb moved (SPEC.md
+    call cpk_tbsb               ; 13.10.4: three calls, not the bar's
+    xchg ax, dx                 ; sixteen) - AX = the pos it was at
+    CPWC os88ui_sbmove
     jmp short .det
 .vis:
     call cpd_row1               ; the new one...
-    mov ax, si
+    xchg ax, si
     call cpd_row1               ; ...and the one losing the bar
 .det:
     jmp cpd_det
@@ -949,7 +788,9 @@ cpd_setsel:
 ; cpd_det - the DETAILS body for the selected row: its 32x32 icon, long name,
 ;           file, description, status sentence, memory and the four buttons.
 ;           Every line is one opaque padded run (cpk_text), the buttons erase
-;           their own interior, so nothing is cleared first
+;           their own interior, so nothing is cleared first; and the icon and
+;           each button go down only when that look is not on the glass
+;           already (CPD_DIC, CPD_DBT - which cpd_paint forgets)
 ; in:  nothing. out: nothing
 ; -----------------------------------------------------------------------------
 cpd_det:
@@ -961,149 +802,123 @@ cpd_det:
     jc .ic
     mov bp, di
 .ic:
-    mov al, CWI32_GEAR          ; --- the icon: the category's header icon
+    xor al, al                  ; --- the icon: the category's header icon
     or bp, bp
-    jz .i2
+    jz .i1
     mov al, [es:bp + CWD_C_CAT]
     cmp al, CWC_N
     jb .i1
     xor al, al
 .i1:
-    xor ah, ah
-    mov si, ax
-    mov al, [cs:si + cpd_c32]
-.i2:
+    mov bx, cpd_c32
+    cs xlatb
+    cmp al, [es:CPD_DIC]
+    je .nm
+    mov [es:CPD_DIC], al
     mov ah, 1
     mov bl, CWHITE
     mov cx, CPD_XL + 8
     mov dx, [es:CPD_GT]
     add dx, CPK_BANDH + 4
     call cpw_icon
-    mov si, cpd_s_sp            ; --- the long name
-    xor bl, bl
-    cmp byte [es:CPD_SELR], 0FFh
-    je .nm
-    or bp, bp
-    jz .tt
-    lea si, [bp + CWD_C_LONG]
-    mov bl, 2
-    jmp short .nm
-.tt:
-    mov al, [es:CPD_SELR]
-    mov ah, CPG_DRVTTL
-    call cpw_gate               ; SI = cp_sbuf
-    mov bl, 1
 .nm:
+    call cpd_sp                 ; --- the long name
+    je .n1
+    call cpd_name
+.n1:
     mov dx, CPK_BANDH + 4
-    mov ax, (CWHITE << 8) | CBLACK
-    call cpd_dl
-    mov si, cpd_s_sp            ; --- the file
-    xor bl, bl
-    mov al, [es:CPD_SELR]
-    cmp al, 0FFh
+    call cpd_dlb
+    call cpd_sp                 ; --- the file
     je .fl
-    xor ah, ah
-    mov si, ax
-    mov cl, 4
-    shl si, cl
-    mov si, [si + drv_tab + DRVR_FILE]
+    call cpd_rowp
+    mov si, [bx + DRVR_FILE]
     mov bl, 1
 .fl:
     mov dx, CPK_BANDH + 15
     mov ax, (CWHITE << 8) | CDGRAY
     call cpd_dl
-    mov bx, CWD_C_D1            ; --- the description, two lines
+    mov si, CWD_C_D1            ; --- the description, two lines
     mov dx, CPK_BANDH + 29
     call .desc
-    mov bx, CWD_C_D2
+    mov si, CWD_C_D2
     mov dx, CPK_BANDH + 39
     call .desc
-    mov si, cpd_s_sp            ; --- the status sentence
-    xor bl, bl
-    mov al, [es:CPD_SELR]
-    cmp al, 0FFh
+    call cpd_sp                 ; --- the status sentence
     je .st
     mov ah, CPG_DRVSTAT
     call cpw_gate               ; SI = cp_sbuf
     mov bl, 1
 .st:
     mov dx, CPK_BANDH + 53
-    mov ax, (CWHITE << 8) | CBLACK
-    call cpd_dl
+    call cpd_dlb
     mov di, CPW_W_ICON + 384    ; --- the memory, composed in the icon buffer
     xor bl, bl                  ; (cpk_text's own line is CPW_W_STR)
     mov si, cpd_s_mem
     mov cx, 8
     call cpd_cpyn
-    mov al, [es:CPD_SELR]
-    cmp al, 0FFh
+    mov byte [es:di], 0
+    call cpd_sp
     je .mm
     call cpd_memstr
 .mm:
-    mov byte [es:di], 0
     mov si, CPW_W_ICON + 384
     mov bl, 2
     mov dx, CPK_BANDH + 64
-    mov ax, (CWHITE << 8) | CBLACK
-    call cpd_dl
-    xor al, al                  ; --- the buttons
+    call cpd_dlb
+    xor ax, ax                  ; --- the buttons
 .b:
-    xor ah, ah
     call cpd_btn
-    inc al
+    inc ax
     cmp al, 4
     jb .b
     ret
-.desc:                          ; BX = CWD_C_D1 / D2, DX = the line's top
-    mov si, cpd_s_sp
-    xor cl, cl
+.desc:                          ; SI = CWD_C_D1 / D2, DX = the line's top
+    xor bl, bl
     or bp, bp
     jz .dk
-    add bx, bp
-    mov ax, [es:bx]
+    mov ax, [es:bp + si]
     or ax, ax
     jz .dk
     add ax, CPW_WSZ
-    mov si, ax
-    mov cl, 2
+    xchg ax, si
+    mov bl, 2
+    jmp short cpd_dlb
 .dk:
-    mov bl, cl
-    mov ax, (CWHITE << 8) | CBLACK
-    ; falls into cpd_dl
+    mov si, cpd_s_sp
+    ; falls into cpd_dlb
 
 ; cpd_dl - one DETAILS text line: DX = its top, box-relative; SI = the string
-; in segment BL; AX = ink / paper. One opaque padded run (cpk_text). Keeps the
-; rest
+; in segment BL; AX = ink / paper (cpd_dlb: black on white). One opaque padded
+; run (cpk_text), as wide as the box less its text column and a margin, at
+; most 95 cells. CX DX DI spent
+cpd_dlb:
+    mov ax, (CWHITE << 8) | CBLACK
 cpd_dl:
-    push cx
-    push di
     add dx, [es:CPD_GT]
-    mov cx, CPD_XL + CPD_TXC
-    call cpd_wc
-    call cpk_text
-    pop di
-    pop cx
-    ret
-
-; cpd_wc - DI = the DETAILS text's width in cells (the box's width less the
-; text column and a margin), at most 95. Keeps the rest
-cpd_wc:
     mov di, [es:CPD_TB + CPKT_W]
     sub di, CPD_TXC + 8
-    push cx
     mov cl, 3
     shr di, cl
-    pop cx
     cmp di, 95
-    jbe .r
+    jbe .w
     mov di, 95
-.r:
+.w:
+    mov cx, CPD_XL + CPD_TXC
+    jmp cpk_text
+
+; cpd_sp - a DETAILS line's blank (SI/BL = ' ' in the image), and the row to
+; read the real one from: AL = [CPD_SELR], ZF = 1 when there is none
+cpd_sp:
+    mov si, cpd_s_sp
+    xor bl, bl
+    mov al, [es:CPD_SELR]
+    cmp al, 0FFh
     ret
 
 ; -----------------------------------------------------------------------------
 ; The buttons: Load, Unload, Settings..., Ports... (SPEC.md 135.8). Each is
-; (x from the box's left, width, label); a press arms CPW_ID0 + its number and
-; acts on the release, over it (SPEC.md 13.8.3)
+; (x, width less one, label); a press arms CPW_ID0 + its number and acts on
+; the release, over it (SPEC.md 13.8.3)
 ; -----------------------------------------------------------------------------
 
 ; cpd_page - the page a loaded row's driver publishes (SPEC.md 31.9)
@@ -1112,27 +927,18 @@ cpd_wc:
 cpd_page:
     push bx
     push cx
-    mov bl, al
-    xor bh, bh
-    mov cl, 4
-    shl bx, cl
-    mov ch, [bx + drv_tab + DRVR_CLASS]
+    call cpd_rowp
+    mov ch, [bx + DRVR_CLASS]
     xor cl, cl                  ; CL = the page's ordinal
 .k:
     mov al, cl
     CPWC drv_cp_class_x         ; AL = its class, CF = 1 past the last
-    jc .no
+    jc .o
+    inc cx
     cmp al, ch
-    je .hit
-    inc cl
-    jmp short .k
-.hit:
+    jne .k
     mov al, cl
-    add al, CP_ITEMS
-    clc
-    jmp short .o
-.no:
-    stc
+    add al, CP_ITEMS - 1        ; (CF = 0)
 .o:
     pop cx
     pop bx
@@ -1145,45 +951,37 @@ cpd_page:
 cpd_bflags:
     push ax
     push bx
-    push cx
     mov di, OS88UI_DIS
-    cmp al, 3
+    mov ah, al                  ; AH = the button
+    cmp ah, 3
     je .en
-    mov ah, [es:CPD_SELR]
-    cmp ah, 0FFh
+    mov al, [es:CPD_SELR]
+    cmp al, 0FFh
     je .r
-    mov bl, ah
-    xor bh, bh
-    mov cl, 4
-    shl bx, cl
-    add bx, drv_tab
-    cmp al, 1
-    ja .set
-    jb .load
+    call cpd_rowp
     cmp word [bx + DRVR_SEG], 0
-    jne .en
-    cmp byte [bx + DRVR_WANT], 0
-    jne .en
-    jmp short .r
-.load:
-    cmp word [bx + DRVR_SEG], 0
+    je .down
+    cmp ah, 1                   ; it is up: not Load; Unload; Settings... if
+    jb .r                       ; it publishes a page
     je .en
-    jmp short .r
-.set:
-    cmp word [bx + DRVR_SEG], 0
-    je .r
-    mov al, ah
     call cpd_page
-    jc .r
+    jnc .en
+    jmp short .r
+.down:
+    cmp ah, 1                   ; it is down: Load; not Settings...; Unload
+    jb .en                      ; if it is wanted
+    ja .r
+    cmp byte [bx + DRVR_WANT], 0
+    je .r
 .en:
     xor di, di
 .r:
-    pop cx
     pop bx
     pop ax
     ret
 
-; cpd_btn - draw button AL, AH = 1 pressed. Keeps every register
+; cpd_btn - draw button AL, AH = 1 pressed, unless that look is the one on the
+; glass (CPD_DBT). Keeps every register
 cpd_btn:
     push ax
     push bx
@@ -1201,22 +999,24 @@ cpd_btn:
 .d:
     mov bl, al
     xor bh, bh
-    mov si, bx
-    shl si, 1
-    add si, bx
-    shl si, 1                   ; SI x 6
-    add si, cpd_bt
+    mov dx, di
+    cmp [es:bx + CPD_DBT], dl
+    je .o
+    mov [es:bx + CPD_DBT], dl
+    mov al, 6
+    mul bl
+    add ax, cpd_bt
+    xchg ax, si
     mov ax, [cs:si]
-    add ax, CPD_XL
     mov cx, ax
     add cx, [cs:si + 2]
-    dec cx
     mov bx, [es:CPD_GT]
     add bx, CPD_BTY
     mov dx, bx
     add dx, 17
     mov si, [cs:si + 4]
     call cpk_button
+.o:
     pop di
     pop si
     pop dx
@@ -1226,37 +1026,30 @@ cpd_btn:
     ret
 
 ; cpd_bhit - the button at a point. in: AX/BX = x/y, content-relative. out:
-; CF = 0 and AL = the button; CF = 1 none (BX spent)
+; CF = 0 and AL = the button; CF = 1 none. BX CX DX SI spent
 cpd_bhit:
-    push cx
-    push si
     mov cx, [es:CPD_GT]
     add cx, CPD_BTY
     sub bx, cx
     cmp bx, 18
     jae .no
-    sub ax, CPD_XL
     mov si, cpd_bt
     xor cl, cl
 .l:
-    push ax
-    sub ax, [cs:si]
-    cmp ax, [cs:si + 2]
-    pop ax
-    jb .hit
+    mov dx, ax
+    sub dx, [cs:si]
+    cmp dx, [cs:si + 2]
+    jbe .hit
     add si, 6
-    inc cl
+    inc cx
     cmp cl, 4
     jb .l
 .no:
     stc
-    jmp short .o
+    ret
 .hit:
     mov al, cl
     clc
-.o:
-    pop si
-    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1279,25 +1072,57 @@ cpd_click:
     call cpd_bhit
     jc .r
     xor ah, ah
-    push ax
     call cpd_bflags
-    pop ax
     or di, di
     jnz .r                      ; a greyed button: nothing arms
-    mov si, ax
-    add ax, CPW_ID0
+    xchg ax, si
+    lea ax, [si + CPW_ID0]
     CPWC os88ui_arm
-    mov ax, si
+    xchg ax, si
     mov ah, 1
     jmp cpd_btn                 ; ...and drawn down
-.tabs:
-    call cpd_tabhit
-    jc .r
-    cmp al, [es:CPD_FLT]
+.tabs:                          ; --- which filter is at this x? (cpk_tabs'
+    sub ax, CPD_XL              ; widths, and a gap is the tab before it)
+    jl .r
+    xchg ax, dx                 ; DX = x from the strip's left
+    mov bh, [es:CPD_MASK]
+    mov di, cpd_cn
+    xor bl, bl
+.tc:
+    shr bh, 1
+    jnc .tn
+    mov si, [cs:di]
+    dec dx
+.tw:
+    sub dx, 8
+    cs lodsb
+    or al, al
+    jnz .tw
+    or dx, dx
+    js .th
+.tn:
+    inc di
+    inc di
+    inc bx
+    or bh, bh
+    jnz .tc
+    ret
+.th:                            ; BL = the filter pressed
+    mov al, bl
+    xchg al, [es:CPD_FLT]
+    cmp al, bl
     je .r
-    mov [es:CPD_FLT], al
+    mov cl, al                  ; the two tabs whose look changes: the strip,
+    mov ah, 1                   ; the table (top 0) and DETAILS
+    shl ah, cl
+    mov cl, bl
+    mov al, 1
+    shl al, cl
+    or ah, al
+    push ax
     mov word [es:CPD_TB + CPKT_TOP], 0
     call cpd_build
+    pop ax
     call cpd_tabs
     mov bx, CPD_TB
     call cpk_table
@@ -1309,25 +1134,21 @@ cpd_click:
     cmp ax, 0FFFFh
     je .r                       ; the bar: acted on
     mov si, ax                  ; SI = the list row
-    mov ax, cx
-    sub ax, CPD_XL
-    sub ax, [es:CPD_C3]
-    cmp ax, 104                 ; the Start at boot column (unsigned: left of
-    jae .sel                    ; it wraps)
-    mov bx, si
-    mov al, [es:bx + CPD_ROWS]
-    mov bl, al
-    xor bh, bh
-    mov cl, 4
-    shl bx, cl
-    mov cl, [bx + drv_tab + DRVR_WANT]
+    xchg ax, cx
+    sub ax, [es:CPD_XA + CPD_XCM]
+    add ax, CPD_CKX - 1         ; AX = x from the Start at boot column
+    cmp ax, 104                 ; (unsigned: left of it wraps)
+    jae .sel
+    mov al, [es:si + CPD_ROWS]
+    call cpd_rowp
+    mov cl, [bx + DRVR_WANT]
     xor cl, 1
     mov ah, CPG_DRVWANT         ; the want bit ALONE
     call cpw_gate
-    mov ax, si
+    xchg ax, si
     jmp cpd_row1
 .sel:
-    mov ax, si
+    xchg ax, si
     jmp cpd_setsel
 .r:
     ret
@@ -1342,9 +1163,8 @@ cpd_rel:
     cmp ax, 4
     jae .r
     push ax
-    xor ah, ah
-    call cpd_btn
-    mov ax, cx
+    call cpd_btn                ; (AH = 0: up)
+    xchg ax, cx
     sub ax, [es:CPW_W_OX]
     mov bx, dx
     sub bx, [es:CPW_W_OY]
@@ -1354,11 +1174,9 @@ cpd_rel:
     cmp al, bl
     jne .r
     mov al, [es:CPD_SELR]
-    cmp bl, 1
-    jb .load
-    je .unl
-    cmp bl, 3
-    je .ports
+    cmp bl, 2
+    jb .lu
+    ja .ports
     call cpd_page               ; Settings...: that driver's page
     jc .r
     jmp cpw_select
@@ -1366,12 +1184,9 @@ cpd_rel:
     mov byte [cp_dview], 1
     mov byte [es:CPD_ON], 0
     jmp cpw_page
-.load:
-    mov ah, CPG_DRVON
-    jmp short .go
-.unl:
-    mov ah, CPG_DRVOFF
-.go:
+.lu:
+    mov ah, CPG_DRVON           ; Load, or Unload
+    add ah, bl
     call cpw_gate
     mov al, [es:CPW_W_NL]       ; --- a driver coming up or going may have
     push ax                     ; brought or taken its page: the list, when
@@ -1391,35 +1206,55 @@ cpd_rel:
 
 ; -----------------------------------------------------------------------------
 ; cpd_key - Up / Down move the selection. AX = the key word. out: nothing
+; (with nothing selected there are no rows, so either way is past the end)
 ; -----------------------------------------------------------------------------
 cpd_key:
     mov bx, [es:CPD_TB + CPKT_SEL]
-    cmp bx, 0FFFFh
-    je .r
-    cmp ah, 0x48
-    je .up
-    cmp ah, 0x50
-    jne .r
     inc bx
+    cmp ah, 0x50
+    je .go
+    dec bx
+    dec bx
+    cmp ah, 0x48
+    jne .r
+.go:
     cmp bx, [es:CPD_TB + CPKT_N]
     jae .r
-    jmp short .go
-.up:
-    or bx, bx
-    jz .r
-    dec bx
-.go:
-    mov ax, bx
+    xchg ax, bx
     jmp cpd_setsel
 .r:
     ret
 
-; --- the image's strings ------------------------------------------------------
+; --- the image's tables and strings -------------------------------------------
+; a row's spans (x1, x2 as CPD_XA slots; y1, y2 from the row's top): the
+; ground's, then the badge's paper's
+cpd_rtg:
+    db CPD_XL0, CPD_XR,  0, 0           ; row 0
+    db CPD_XL0, CPD_XR,  17, 17         ; row 17
+    db CPD_XL0, CPD_XL1, 1, 16          ; the margin before the icon
+    db CPD_XN0, CPD_XR,  1, 2           ; rows 1-2 and 15-16 past the icon
+    db CPD_XN0, CPD_XR,  15, 16
+    db CPD_XN0, CPD_XBM, 3, 4           ; over and under the name
+    db CPD_XN0, CPD_XBM, 13, 14
+    db CPD_XN0, CPD_XN1, 5, 12          ; the air before the name's run
+    db CPD_XM,  CPD_XCM, 3, 4           ; over and under the memory, to the box
+    db CPD_XM,  CPD_XCM, 13, 14
+    db CPD_XME, CPD_XCM, 5, 12          ; the air after the memory's run
+    db CPD_XCE, CPD_XR,  3, 14          ; past the box
+    db 0FFh
+cpd_rtp:
+    db CPD_XB,  CPD_XBE, 3, 4           ; the badge's paper over its label
+    db CPD_XB,  CPD_XBE, 13, 14         ; ...and under it
+    db 0FFh + 0 * (1 / (CPKT_X == 0 && CPKT_Y == 2 && CPKT_W == 4 && CPKT_RH == 6))
+    ; (...and a check that costs no byte: cpd_paint lays the table block's
+    ; CPKT_X, Y, W and RH out with stosw, in that order, and nasm stops on a
+    ; division by zero here if cpwkit.inc ever moves them - an %if cannot see
+    ; them, the kit being %included after this file)
 cpd_s_det:  db 'DETAILS', 0
 cpd_s_sp:   db ' ', 0
 cpd_s_mem:  db 'Memory: ', 0
-cpd_s_all:  db 'All', 0, 0
-cpd_cn:     dw cpd_n1, cpd_n2, cpd_n3, cpd_n4, cpd_n5, cpd_n6, cpd_n7   ; CWC_DISP..SYS
+cpd_cn:     dw cpd_s_all, cpd_n1, cpd_n2, cpd_n3, cpd_n4, cpd_n5, cpd_n6, cpd_n7
+cpd_s_all:  db 'All', 0, 0              ; (All, then CWC_DISP..SYS)
 cpd_n1:     db 'Display', 0, 0
 cpd_n2:     db 'Sound', 0, 0
 cpd_n3:     db 'Storage', 0, 0
@@ -1427,26 +1262,34 @@ cpd_n4:     db 'Network', 0, 0
 cpd_n5:     db 'Input', 0, 0
 cpd_n6:     db 'Memory', 0, 0
 cpd_n7:     db 'System', 0, 0
-; the column heads: exactly 22, 12, 8 and 13 characters
-cpd_h0:     db 'Name                  ', 0
-cpd_h1:     db '   Status   ', 0
-cpd_h2:     db ' Memory ', 0
+; the column heads, each with its cell before any air: Name (22 cells), the
+; 12-cell Status column's word, the 8-cell Memory column's, Start at boot
+cpd_hd:     dw cpd_h0
+            db 0
+            dw cpd_h1
+            db CPD_NW + 3
+            dw cpd_n6
+            db CPD_NW + 12 + 1
+            dw cpd_h3
+            db CPD_NW + 12 + 8
+            dw 0
+cpd_h0:     db 'Name', 0
+cpd_h1:     db 'Status', 0
 cpd_h3:     db 'Start at boot', 0
-; the badges, 12 characters each, and their papers (loaded, off, no hardware,
-; any other refusal)
-cpd_pl:     db '   Loaded   ', 0
-            db '    Off     ', 0
-            db 'No hardware ', 0
-            db '   Error    ', 0
-cpd_pc:     db CPD_GRN, CLGRAY, CPD_RED, CPD_YEL
+; the badges, 12 characters each, and each one's paper after its NUL (loaded,
+; off, no hardware, any other refusal): 14 bytes a badge
+cpd_pl:     db '   Loaded   ', 0, CPD_GRN
+            db '    Off     ', 0, CLGRAY
+            db 'No hardware ', 0, CPD_RED
+            db '   Error    ', 0, CPD_YEL
 ; a category's 32x32 header icon, by CWC_*
 cpd_c32:    db CWI32_GEAR, CWI32_DISP, CWI32_SOUND, CWI32_HDD, CWI32_NET
             db CWI32_GEAR, CWI32_GEAR, CWI32_GEAR
-; the buttons: x from the box's left, width, label
-cpd_bt:     dw CPD_TXC,       56, cpd_b0
-            dw CPD_TXC + 64,  64, cpd_b1
-            dw CPD_TXC + 136, 104, cpd_b2
-            dw CPD_TXC + 248, 80, cpd_b3
+; the buttons: x content-relative, width less one, label
+cpd_bt:     dw CPD_XL + CPD_TXC,       56 - 1, cpd_b0
+            dw CPD_XL + CPD_TXC + 64,  64 - 1, cpd_b1
+            dw CPD_XL + CPD_TXC + 136, 104 - 1, cpd_b2
+            dw CPD_XL + CPD_TXC + 248, 80 - 1, cpd_b3
 cpd_b0:     db 'Load', 0
 cpd_b1:     db 'Unload', 0
 cpd_b2:     db 'Settings...', 0
