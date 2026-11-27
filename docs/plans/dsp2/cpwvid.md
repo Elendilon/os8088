@@ -218,6 +218,9 @@ harness counts are exact; the counts above are the speed record.
   be dropped.
 - **Taken, but say so: CPWIDE.DRV +36 / +38 for the press redraws**
   (section 2.2), filed as defects against SPEC.md 135.9.2's own paragraph.
+- **`VX_ICON`'s row origin** (section NOT REACHED): about +63 bytes, the
+  claim 7,680 -> 8,192, for no `mul` per set pixel of every icon on a VESA
+  desktop. Not taken.
 - dsp1's **9.3** (an unnameable VBE mode) is still open: `vx_offer` accepts
   widths and heights no class byte names (768, 960; 576, 720), and VXV_INFO
   answers CL without `VXC_SET` for them (00h now, 06h before); the Display
@@ -288,10 +291,18 @@ followed each selection.
 
 ## NOT REACHED
 
-- VESA.DRV's other per-pixel bodies (`VX_BLIT1`, `VX_BLIT4`, `VX_ICON`,
-  `VX_GRAY`, `VX_PAT`): each puts a pixel through `vx_px` (a call and, at
-  16bpp, a push/lookup/pop) where a row the window holds whole could be one
-  pass as VX_FONTRUN's now is. Priced at ~40-60 bytes each for similar
-  ratios; `vxf.py` extends to their selectors.
+- VESA.DRV's other per-pixel bodies (`VX_BLIT1`, `VX_BLIT4`, `VX_GRAY`,
+  `VX_PAT`): each puts a pixel through `vx_px` (a call and, at 16bpp, a
+  push/lookup/pop) where a row the window holds whole could be one pass as
+  VX_FONTRUN's now is. Priced at ~40-60 bytes each; `vxf.py` extends to
+  their selectors.
+- **`VX_ICON` calls `vx_addr` - a `mul` - for every SET pixel** (desktop,
+  dock and Disk-window icons). Designed, not taken: the row's origin
+  (y x stride as a window and an offset, and the next window) once a row,
+  then each set pixel's window and offset by one `add` and its carry, the
+  same `vx_setwin` and `vx_px` calls in the same order (so the same 4F05h
+  sequence). About +63 bytes (+6 of state) - which takes the image past
+  7,680 and its claim to 8,192, +512 bytes of RAM on every VESA machine:
+  that is the owner's call, not a size pass's.
 - The countdown tick (`cpv_kline`): already one ROW; nothing left there.
 - No MartyPC session (section 3).
