@@ -1028,6 +1028,21 @@ bas_onwake:
     pop ax
     ret
 
+; bas_video - OSAPI_VIDEO's answer for the display the CONSOLE WINDOW is on
+; (SPEC.md 132, 39.16.4): AX width, BX height, CX the dock's row, DL kind,
+; DH bits a pixel. SI, DI kept
+bas_video:
+    mov bx, [bas_window]
+    or bx, bx
+    jz .primary
+    push si
+    call OSAPI_WM_DISPLAY
+    pop si
+    ret
+.primary:
+    call OSAPI_VIDEO
+    ret
+
 bas_init:
     push ax
     push si
@@ -7967,25 +7982,25 @@ bas_parse_primary:
     ret
 
 .screenw:
-    call OSAPI_VIDEO
+    call bas_video
     clc
     ret
 
 .screenh:
-    call OSAPI_VIDEO
+    call bas_video
     mov ax, bx
     clc
     ret
 
 .screenbpp:
-    call OSAPI_VIDEO
+    call bas_video
     xor ax, ax
     mov al, dh
     clc
     ret
 
 .videomode:
-    call OSAPI_VIDEO
+    call bas_video
     xor ax, ax
     mov al, dl
     clc

@@ -255608,6 +255608,14 @@ kept.
 page: like CGA's, a cut is drawn where it can be seen. Their second page is
 not used yet. An EGA takes the CGA4 bundle in mode 4.
 
+**A display's refusal is the display's.** A play refused because the
+window's display has not the battle's mode ("Needs CGA, EGA or VGA", "Needs
+BATTLEH.VBT on a Hercules") sets `[vb_dispno]`, and `vb_onresize` (§11.98)
+puts Ready back when the window lands on another display of an extended
+desktop (§39.16.3.3), so the word never describes a card the window has
+left; Enter asks the new one. It read "Needs CGA, EGA or VGA" on a VGA d1
+where Enter played, until the extended-desktop audit of 2026-11-27.
+
 **Hardware not yet heard.** The PC speaker (VIDEO-BATTLE-PLAN 3.2) is not
 an output.
 
@@ -259346,6 +259354,12 @@ source no longer assembled. The changes, all mechanical:
   as a black bar on Hercules. Each package picks its ground from
   `OSAPI_VIDEO`'s DH at entry (`bas_ui_ground`, `br_ground`): grey at 4 bpp
   and up, white below.
+- **`SCREENW`, `SCREENH`, `SCREENBPP` and `VIDEOMODE` answer the CONSOLE
+  WINDOW's display** (`bas_video`: `OSAPI_WM_DISPLAY` on `[bas_window]`,
+  §39.16.4), asked at each call. On one display that is `OSAPI_VIDEO`'s
+  answer; on an extended desktop (§39.19) a program whose console stands on
+  the second card is told that card's width, height, depth and kind - it was
+  told the primary's until the extended-desktop audit of 2026-11-27.
 - **Two upstream layout defects fixed.** 2BRES's footer drew the current file
   name unpadded on a partial refresh, so `MIXED.RES` opened over
   `UNTITLED.RES` read `MIXED.RESRES`; it is padded to twelve cells. And its
