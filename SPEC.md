@@ -234181,7 +234181,13 @@ frame grows for them and shrinks back after.
 
 A dial is as tall as it is wide **to the eye**: its rows are its width times
 the screen's aspect (`[dk_ys]`, 256 on VGA's square pixels, 186 on EGA, 165 on
-Hercules, 107 on CGA), so every circle stays round on every adapter. A
+Hercules, 107 on CGA), so every circle stays round on every adapter. The
+aspect is the display the clock is ON (`OSAPI_WM_DISPLAY`, §39.16.4), asked
+again every beat: dropped on a display of another aspect, the clock is laid
+out again for it at the next beat (`dk_relay`, `stik_resize`, which keeps it
+on that display, §110.5). It was the primary's, asked once at launch, so a
+clock on the CGA beside a Hercules drew the Hercules' ellipse, 1.5 times too
+tall on the CGA's glass (the extended-desktop audit, 2026-11-27). A
 digital face's height is its own share of its width (`dk_fhr`: the Casios
 0.66, Mono Digital 0.53, the LEDs 0.5, the flip clock 0.47).
 
