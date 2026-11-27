@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""cpwdat.py - build CPWIDE.DAT, the wide Control Panel's asset file.
+"""cpwdat.py - build CPWIDE.DAT, the wide Control Panel's assets.
 
-    python3 tools/cpwdat.py [-o build/cpwide.dat] [--fmt lz4|lzb] [--check]
+    python3 tools/cpwdat.py [-o build/cpwdat.bin] [--check]
 
 Reads kernel/cpwart/cp-icons-16.png (256x32: thirty-two 16x16 cells, row-major,
-16 across and 2 down) and cp-icons-32.png (384x32: twelve 32x32 cells), drivers/catalog.toml, and writes
-the file SPEC.md 135.6 / 135.7 describe. Deterministic: same inputs, same
+16 across and 2 down, stored once per DISTINCT cell) and cp-icons-32.png
+(384x32: twelve 32x32 cells), drivers/catalog.toml, and writes the assets
+SPEC.md 135.6 / 135.7 describe. Deterministic: same inputs, same
 bytes. Every number it uses - offsets, sizes, counts, record layout, category
 and icon indices - is PARSED out of kernel/cpwfmt.inc, the file the wide
 panel's code assembles with, and the build refuses to write a file that
@@ -15,8 +16,10 @@ Pixels: every pixel of a sheet must be one of the sixteen EGA/VGA palette
 colours (the index is its position in PALETTE) or the key #FF00FF, which is
 transparent. Anything else is an error naming the file, cell and pixel.
 
---fmt wraps the result in a 'CZ' file (SPEC.md 20.13.5) with tools/os88lz.py,
-the way the build packs a data file; the kernel's transparent read expands it.
+The result is not a file on any disk (driver size pass 2, the owner's
+no-required-sidecar rule): the build writes it UNPACKED to build/cpwdat.bin
+and kernel/cpwide.inc `incbin`s it into CPWIDE.DRV's image, whose own 'CZ'
+packing covers it - so the module and its assets are one file and one read.
 --check prints the driver FILES drv_tab names that have no catalog entry and
 exits non-zero (tests/unit/t_cpwdat.py uses the functions, not this flag).
 
@@ -53,21 +56,40 @@ class CpwError(Exception):
 # ---- cpwfmt.inc --------------------------------------------------------------
 def parse_fmt(path=FMT_INC):
     """Every `NAME equ VALUE` of cpwfmt.inc -> {name: int}. VALUE is a decimal
-    or hex number or a quoted two-character string ('CW' reads as the word
-    whose first byte is 'C')."""
-    out = {}
+    or hex number, a quoted two-character string ('CW' reads as the word
+    whose first byte is 'C'), or an expression of numbers and NAMES defined in
+    the file (+, -, *, parentheses) - an offset computed from the counts, or
+    one name standing for another's value."""
+    raw = {}
     for ln in open(path, encoding="utf-8"):
         ln = ln.split(";", 1)[0].strip()
         m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s+equ\s+(.+)$", ln)
-        if not m:
-            continue
-        name, val = m.group(1), m.group(2).strip()
+        if m:
+            raw[m.group(1)] = m.group(2).strip()
+    out = {}
+
+    def value(name, seen=()):
+        if name in out:
+            return out[name]
+        if name not in raw or name in seen:
+            raise CpwError(f"{path}: `{name}` is not defined (or is circular)")
+        val = raw[name]
         if val.startswith("'") and val.endswith("'") and len(val) == 4:
-            out[name] = ord(val[1]) | (ord(val[2]) << 8)
-        elif re.fullmatch(r"0[xX][0-9a-fA-F]+|[0-9]+", val):
-            out[name] = int(val, 0)
+            v = ord(val[1]) | (ord(val[2]) << 8)
         else:
-            raise CpwError(f"{path}: cannot read `{name} equ {val}`")
+            expr = re.sub(r"[A-Za-z_][A-Za-z0-9_]*",
+                          lambda w: str(value(w.group(0), seen + (name,))),
+                          val)
+            if not re.fullmatch(r"[0-9xXa-fA-F+\-*() ]+", expr):
+                raise CpwError(f"{path}: cannot read `{name} equ {val}`")
+            try:
+                v = eval(expr, {"__builtins__": {}}, {})
+            except Exception:
+                raise CpwError(f"{path}: cannot read `{name} equ {val}`")
+        out[name] = v
+        return v
+    for name in raw:
+        value(name)
     return out
 
 
@@ -84,7 +106,7 @@ def check_layout(f):
     need(f["CWD_I32_STR"] == 16, "32x32 stride is 16")
     need(f["CWD_I32_SZ"] == f["CWD_I32_PIX"] + 32 * 4, "32x32 icon size")
     need(f["CWD_HDR"] == f["CWD_H_STR"] + 2, "header is 16 bytes")
-    need(f["CWD_C_PAD"] + 20 == f["CWD_CAT_SZ"], "catalog record size")
+    need(f["CWD_C_D2"] + 2 == f["CWD_CAT_SZ"], "catalog record size")
     need(f["CWD_C_D1"] == f["CWD_C_LONG"] + 26, "long name is 26 bytes")
     need(f["CWD_C_LONG"] == f["CWD_C_FILE"] + 12 + 2, "record fields")
 
@@ -123,13 +145,15 @@ def _cells(path, cell, count, fmt):
     return cells
 
 
-def _pack(rows, size, f, stride, pixbytes, maskwords):
+def _pack(rows, size):
+    """One icon: its 4bpp pixels row by row (high nibble left), then its
+    mask, a word per sixteen pixels (bit 15 the leftmost, 1 = opaque) -
+    cpwfmt.inc's icon layout."""
     out = bytearray()
-    for row in rows:                                  # 4bpp, high nibble left
+    for row in rows:
         for x in range(0, size, 2):
             out.append(((row[x] or 0) << 4) | (row[x + 1] or 0))
-    assert len(out) == pixbytes
-    for row in rows:                                  # mask, bit 15 leftmost
+    for row in rows:
         for w in range(size // 16):
             v = 0
             for b in range(16):
@@ -139,14 +163,52 @@ def _pack(rows, size, f, stride, pixbytes, maskwords):
     return bytes(out)
 
 
+def sheet_cells(path=FMT_INC):
+    """{CWI16_* name: its cell on the 16x16 sheet}, from the `; cell N`
+    cpwfmt.inc writes after each slot name."""
+    out = {}
+    for ln in open(path, encoding="utf-8"):
+        m = re.match(r"^(CWI16_[A-Z0-9_]+)\s+equ\s+[^;]*;\s*cell\s+(\d+)", ln)
+        if m:
+            out[m.group(1)] = int(m.group(2))
+    return out
+
+
+def slots16(cells):
+    """The 16x16 sheet's DISTINCT cells in sheet order (the block's slots),
+    and each cell's slot: a cell equal pixel for pixel to an earlier one is
+    that one's slot (SPEC.md 135.6)."""
+    uniq, slot, seen = [], [], {}
+    for c in cells:
+        key = repr(c)
+        if key not in seen:
+            seen[key] = len(uniq)
+            uniq.append(c)
+        slot.append(seen[key])
+    return uniq, slot
+
+
 def icon_blocks(f):
     n16, n32 = f["CWI16_N"], f["CWI32_N"]
-    c16 = _cells(SHEET16, 16, n16, f)
+    c16 = _cells(SHEET16, 16, f["CWD_S16_N"], f)
     c32 = _cells(SHEET32, 32, n32, f)
-    b16 = b"".join(_pack(c, 16, f, f["CWD_I16_STR"], f["CWD_I16_PIX"], 16)
-                   for c in c16)
-    b32 = b"".join(_pack(c, 32, f, f["CWD_I32_STR"], f["CWD_I32_PIX"], 32)
-                   for c in c32)
+    u16, slot = slots16(c16)
+    if len(u16) != n16:
+        raise CpwError(f"{os.path.relpath(SHEET16, ROOT)} has {len(u16)} "
+                       f"distinct cells and kernel/cpwfmt.inc's CWI16_N "
+                       f"says {n16}: renumber its slots (a cell that equals "
+                       f"an earlier one takes that one's slot)")
+    names = sheet_cells()
+    if len(names) != f["CWD_S16_N"] or sorted(names.values()) != list(
+            range(f["CWD_S16_N"])):
+        raise CpwError("kernel/cpwfmt.inc: every 16x16 cell needs exactly "
+                       "one CWI16_* name with its `; cell N`")
+    for nm, cell in sorted(names.items(), key=lambda x: x[1]):
+        if f[nm] != slot[cell]:
+            raise CpwError(f"kernel/cpwfmt.inc: {nm} is slot {f[nm]}, but "
+                           f"its cell {cell} is stored in slot {slot[cell]}")
+    b16 = b"".join(_pack(c, 16) for c in u16)
+    b32 = b"".join(_pack(c, 32) for c in c32)
     if len(b16) != n16 * f["CWD_I16_SZ"] or len(b32) != n32 * f["CWD_I32_SZ"]:
         raise CpwError("icon block sizes disagree with cpwfmt.inc")
     return n16, b16, n32, b32
@@ -255,6 +317,11 @@ def build(f=None, cat=None):
     off16 = f["CWD_HDR"]
     off32 = off16 + len(b16)
     offcat = off32 + len(b32)
+    if (off16, off32, offcat) != (f["CWD_OFF16"], f["CWD_OFF32"],
+                                  f["CWD_OFFCAT"]):
+        raise CpwError("the blocks' offsets disagree with cpwfmt.inc's "
+                       "CWD_OFF16/CWD_OFF32/CWD_OFFCAT, which the module "
+                       "assembles as constants")
     offstr = offcat + ncat * f["CWD_CAT_SZ"]
     strs = bytearray()
     recs = bytearray()
@@ -314,14 +381,9 @@ def verify(data, f):
             raise CpwError("description offset outside the string block")
 
 
-def wrap(data, fmt):
-    import os88lz
-    z, packed = os88lz.cz_wrap(data, {"lz4": os88lz.LZ4, "lzb": os88lz.LZB}[fmt])
-    return z
-
-
 def unwrap(blob):
-    """The raw file back from a (possibly) 'CZ'-wrapped one."""
+    """The raw bytes back from a (possibly) 'CZ'-wrapped file: a module
+    (CPWIDE.DRV, which carries CPWIDE.DAT inside its image) ships packed."""
     if blob[:2] == b"CZ":
         import os88lz
         return os88lz.cz_unwrap(blob)
@@ -331,9 +393,7 @@ def unwrap(blob):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("-o", "--output", default=os.path.join(ROOT, "build",
-                                                           "cpwide.dat"))
-    ap.add_argument("--fmt", choices=("lz4", "lzb"), default="",
-                    help="wrap the file as 'CZ' (empty: plain)")
+                                                           "cpwdat.bin"))
     ap.add_argument("--check", action="store_true",
                     help="list drv_tab files without a catalog entry")
     a = ap.parse_args()
@@ -344,16 +404,14 @@ def main():
                 print(f"no catalog entry: {m}")
             return 1 if miss else 0
         data = build()
-        out = wrap(data, a.fmt) if a.fmt else data
     except (CpwError, OSError) as e:
         print(f"cpwdat: {e}", file=sys.stderr)
         return 1
     tmp = a.output + ".tmp"
     with open(tmp, "wb") as fh:
-        fh.write(out)
+        fh.write(data)
     os.replace(tmp, a.output)
-    print(f"cpwdat: {a.output}: {len(data)} bytes"
-          + (f", {len(out)} packed" if a.fmt else ""))
+    print(f"cpwdat: {a.output}: {len(data)} bytes")
     return 0
 
 

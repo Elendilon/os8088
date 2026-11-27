@@ -577,7 +577,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 132 | 2BASIC — a BASIC interpreter and its resource editor (`apps/2basic/`, `2BASIC.O88`, `2BRES.O88`) |
 | 133 | The C game kit - 3D widgets, scenes and music for C packages (`apps/cc/gk.h`) |
 | 134 | Borat Teaches Typing (`apps/boratype/`) |
-| 135 | The wide Control Panel - a second face for VGA and VESA (`kernel/cpw*.inc`, `CPWIDE.DRV`, `CPWIDE.DAT`) |
+| 135 | The wide Control Panel - a second face for VGA and VESA (`kernel/cpw*.inc`, `CPWIDE.DRV`) |
 | 136 | INPUTCHK — Input Check, a keyboard and mouse diagnostic (`apps/inputchk/`) |
 
 ## docs/

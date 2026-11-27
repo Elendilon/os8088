@@ -33,7 +33,10 @@ green, not yet seen in the QA pass), `[S]` seen working in the QA pass.
 - D4. **Refusal is the compact face**, silently (135.2).
 - D5. **Assets and the driver catalog are a data file**, `CPWIDE.DAT`, built
   from committed PNGs and `drivers/catalog.toml` (135.6, 135.7). A driver
-  with no catalog entry still shows.
+  with no catalog entry still shows. (Driver size pass 2, the owner's
+  no-required-sidecar rule: `CPWIDE.DAT` is assembled INTO `CPWIDE.DRV`'s
+  image now - one file, one read, nothing read at a re-open with the image
+  kept. SPEC.md 135.6, 135.12.)
 - D6. Artwork: mockups and icon sheets from Codex CLI image generation, kept
   with their exact prompts (`docs/cpwide/`, `kernel/cpwart/`).
 

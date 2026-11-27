@@ -16,8 +16,10 @@ SPEC.md 135.6 / 135.7. Four things go wrong here without any compiler noticing:
     palette (an anti-aliased brush, a re-exported PNG): the converter would
     have to guess an index, so it refuses - and this row refuses first, naming
     the cell and pixel.
-  * build/cpwide.dat IS STALE - the tool, a sheet, the catalog or cpwfmt.inc
-    changed and the file on the disks did not.
+  * THE ASSETS THE MODULE CARRIES ARE STALE - the tool, a sheet, the catalog
+    or cpwfmt.inc changed and build/cpwdat.bin, or the CPWIDE.DRV image it
+    was assembled into (SPEC.md 135.6: the assets ride inside the module, one
+    file and one read), did not.
 
 The drv_tab side is read from kernel/driver.inc as the UNION of every kernel's
 rows (one source, ifdefs per kernel): a row on any shipped kernel needs an
@@ -27,6 +29,7 @@ catalog record by record - so a converter that agreed with itself and disagreed
 with the format fails.
 """
 import os
+import re
 import sys
 import tomllib
 
@@ -101,7 +104,7 @@ def main():
         if isinstance(ic, str):
             ic = f.get("CWI16_" + ic)
         check(isinstance(ic, int) and 0 <= ic < f["CWI16_N"],
-              "[%s] icon %r is a cell of the 16x16 sheet (0..%d)"
+              "[%s] icon %r is a slot of the 16x16 block (0..%d)"
               % (k, e.get("icon"), f["CWI16_N"] - 1),
               "an index past CWI16_N reads the next record's bytes as a bitmap")
         check(("CWC_" + str(e.get("category"))) in f
@@ -109,7 +112,7 @@ def main():
               "[%s] category %r is a CWC_* of cpwfmt.inc" % (k, e.get("category")))
 
     # --- the sheets ----------------------------------------------------------
-    for path, cell, n in ((cpwdat.SHEET16, 16, f["CWI16_N"]),
+    for path, cell, n in ((cpwdat.SHEET16, 16, f["CWD_S16_N"]),
                           (cpwdat.SHEET32, 32, f["CWI32_N"])):
         (w, h), bad = sheet_problems(path, cell)
         rel = os.path.relpath(path, ROOT)
@@ -126,28 +129,37 @@ def main():
     except cpwdat.CpwError as e:
         check(False, "cpwdat.build() succeeds: %s" % e, why_fmt)
         done("t_cpwdat")
-    check(len(fresh) <= 16384, "CPWIDE.DAT is %d bytes (<= 16,384 unpacked)"
-          % len(fresh), "the wide panel reads it into one heap claim (135.6)")
-
-    have = os.path.join(BUILD, "cpwide.dat")
+    have = os.path.join(BUILD, "cpwdat.bin")
     if not check(os.path.exists(have), "%s exists" % have,
-                 "make builds it and puts it on every big/emu/mega system disk"):
+                 "make builds it before the kernel, which assembles it into "
+                 "CPWIDE.DRV's image (SPEC.md 135.6)"):
         done("t_cpwdat")
-    blob = open(have, "rb").read()
-    raw = cpwdat.unwrap(blob)
-    check(raw == fresh, "build/cpwide.dat is what tools/cpwdat.py writes now",
-          "a sheet, the catalog, cpwfmt.inc or the tool changed and the file "
+    raw = open(have, "rb").read()
+    check(raw == fresh, "build/cpwdat.bin is what tools/cpwdat.py writes now",
+          "a sheet, the catalog, cpwfmt.inc or the tool changed and the blob "
           "did not: run make", got=raw, want=fresh)
-    if blob[:2] == b"CZ":
-        eq(int.from_bytes(blob[4:8], "little"), len(fresh),
-           "the 'CZ' header's unpacked size is the file's length",
-           "the directory hint sizes the claim from it (SPEC.md 20.13.5)")
+    mod = os.path.join(BUILD, "cpwide.drv")
+    if check(os.path.exists(mod), "%s exists" % mod,
+             "make cuts it out of the kernel's assembly (SPEC.md 2.8)"):
+        img = cpwdat.unwrap(open(mod, "rb").read())
+        eq(img.count(fresh), 1, "CPWIDE.DRV's image carries CPWIDE.DAT, as "
+           "tools/cpwdat.py writes it now, exactly once",
+           "kernel/cpwide.inc incbins build/cpwdat.bin at its foot: a module "
+           "cut before the blob changed ships the old icons and catalog")
+        o = img.find(fresh)
+        eq(o & 1, 0, "CPWIDE.DAT starts on a word of the image (%#x)" % o,
+           "cpwide.inc aligns it, so the mask words read as the claim they "
+           "were read into had them")
 
     # --- a second reader: the file against the sheets and the catalog -------
     w = lambda o: int.from_bytes(fresh[o:o + 2], "little")
     eq(fresh[:2], b"CW", "magic", why_fmt)
     eq(fresh[f["CWD_H_VER"]], f["CWD_VERSION"], "version", why_fmt)
     eq(w(f["CWD_H_SIZE"]), len(fresh), "size field", why_fmt)
+    for k in ("OFF16", "OFF32", "OFFCAT"):
+        eq(w(f["CWD_H_" + k]), f["CWD_" + k], "the header's %s is cpwfmt.inc's "
+           "CWD_%s" % (k.lower(), k), "CPWIDE.DRV reads the blocks at the "
+           "constants it assembles with, never through the header")
     from PIL import Image
     for tag, path, cell, n, off, sz, stride, pixb in (
             ("16x16", cpwdat.SHEET16, 16, f["CWI16_N"], w(f["CWD_H_OFF16"]),
@@ -157,16 +169,41 @@ def main():
         im = Image.open(path).convert("RGB")
         px = im.load()
         cols = im.size[0] // cell
+        ncell = (im.size[0] // cell) * (im.size[1] // cell)
+        # the slots: the sheet's DISTINCT cells in sheet order (135.6)
+        grid = [bytes(v for y in range(cell) for x in range(cell)
+                      for v in px[(c % cols) * cell + x, (c // cols) * cell + y])
+                for c in range(ncell)]
+        slot_cell, first = [], {}
+        for c, gbytes in enumerate(grid):
+            if gbytes not in first:
+                first[gbytes] = len(slot_cell)
+                slot_cell.append(c)
+        eq(len(slot_cell), n, "%s: %d distinct cells, one a slot" % (tag, n),
+           why_fmt)
+        if tag == "16x16":
+            # every name's slot holds the cell cpwfmt.inc says it is
+            cells = {}
+            for ln in open(cpwdat.FMT_INC, encoding="utf-8"):
+                m = re.match(r"^(CWI16_\w+)\s+equ\s+[^;]*;\s*cell\s+(\d+)", ln)
+                if m:
+                    cells[m.group(1)] = int(m.group(2))
+            eq(sorted(cells.values()), list(range(ncell)), "every 16x16 cell "
+               "has one CWI16_* name", why_fmt)
+            for nm, c in cells.items():
+                eq(f[nm], first[grid[c]], "%s (cell %d) is the slot holding "
+                   "that cell" % (nm, c), why_fmt)
         wrong = 0
         for i in range(n):
             base = off + i * sz
+            sc = slot_cell[i]
             for y in range(cell):
                 mrow = fresh[base + pixb + y * (cell // 8):
                              base + pixb + (y + 1) * (cell // 8)]
                 mword = [int.from_bytes(mrow[j:j + 2], "little")
                          for j in range(0, len(mrow), 2)]
                 for x in range(cell):
-                    r, g, b = px[(i % cols) * cell + x, (i // cols) * cell + y]
+                    r, g, b = px[(sc % cols) * cell + x, (sc // cols) * cell + y]
                     rgb = (r << 16) | (g << 8) | b
                     byte = fresh[base + y * stride + x // 2]
                     nib = byte >> 4 if x % 2 == 0 else byte & 15
@@ -195,10 +232,9 @@ def main():
         eq(cstr(fresh[d1:]), d[0], "record %d line 1" % i, why_fmt)
         eq(cstr(fresh[d2:]) if d2 else None, d[1] if len(d) > 1 else None,
            "record %d line 2" % i, why_fmt)
-        eq(r[f["CWD_C_PAD"]:], bytes(20), "record %d pad is zero" % i, why_fmt)
 
-    print("t_cpwdat: %d drv_tab rows, %d catalog entries, %d bytes (%d on disk)"
-          % (len(rows), len(cat), len(fresh), len(blob)))
+    print("t_cpwdat: %d drv_tab rows, %d catalog entries, %d bytes in "
+          "CPWIDE.DRV's image" % (len(rows), len(cat), len(fresh)))
     done("t_cpwdat")
 
 

@@ -9,9 +9,17 @@ own Drivers, Display and Theme pages with room to show more.
 
 The large window's frame, its page list, header and status line, and the
 wide Drivers, Display and Theme pages. Every other page comes from the
-Control Panel itself ([[CTRL.DRV]]). The system reads this file and
-[[CPWIDE.DAT]] from the system disk when you open the Control Panel and frees
-them when you close it.
+Control Panel itself ([[CTRL.DRV]]).
+
+It also holds the pictures and the words the wide layout shows: a small icon
+for each page and each kind of driver, the OK, error and warning marks, a
+large icon for each page's header, and the driver catalog - for each driver
+the system knows, its kind, its icon, the name the Drivers page shows, such as
+**Sound Cards** or **VESA Display**, and two lines saying what it does and
+what it needs.
+
+The system reads this file from the system disk when you open the Control
+Panel and frees it when you close it.
 
 ## When the wide layout appears
 
@@ -23,8 +31,8 @@ an 800x600 or larger one.
 Otherwise it opens in its compact layout: on EGA, Hercules or CGA, on a VESA
 640x400 screen, and on a 640x480 screen with the dock on its left or right
 edge. A hidden dock leaves room. The compact layout also opens, with no
-message, when `CPWIDE.DRV` or `CPWIDE.DAT` is not on the system disk or there
-is not enough free memory for them.
+message, when `CPWIDE.DRV` is not on the system disk or there is not enough
+free memory for it.
 
 The layout is chosen when the panel opens. If the screen changes while it is
 open and the window does not fit, the panel says **Close and reopen the
@@ -121,8 +129,7 @@ are the Control Panel's pages, shown in the wide window: see [[CTRL.DRV]].
 
 ## Good to know
 
-- The two files are on the 720KB, 1.2MB and 1.44MB system disks, the
-  emulator disk and the live media. A machine started from the 360KB system
-  disk, or from a small system disk for 128KB machines, opens the compact
-  layout.
-- While it is open, the two files take about 20KB of memory.
+- It is on the 720KB, 1.2MB and 1.44MB system disks, the emulator disk and
+  the live media. A machine started from the 360KB system disk, or from a
+  small system disk for 128KB machines, opens the compact layout.
+- While it is open, it takes about 29KB of memory.

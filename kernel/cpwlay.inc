@@ -48,9 +48,12 @@ CWV_KEY   equ 4                 ; W_ONKEY     AX = the key word
 CWV_WIN   equ 5                 ; (the first event that names no window)
 CWV_TICK  equ 5                 ; CPE_TICK: the clock text, or a second
 CWV_LIST  equ 6                 ; the page list's membership changed (cp_list)
-CWV_CLOSE equ 7                 ; the panel is closing: free the asset claim
-CWV_OPEN  equ 8                 ; the panel is opening: read CPWIDE.DAT, size
-CWV_N     equ 9                 ; the window. out CF = 1 refused (compact)
+CWV_CLOSE equ 7                 ; the panel is closing: a Test reverts, and
+                                ; the compact template goes back
+CWV_OPEN  equ 8                 ; the panel is opening: size the window, zero
+CWV_N     equ 9                 ; the working area. out CF = 1 refused
+                                ; (compact) - which CPWIDE.DRV, carrying its
+                                ; assets in its image, never answers
 
 ; --- CPE_GATE's opcodes (SPEC.md 135.4): AH = one of these -------------------
 ; The first CPG_NFAR are the compact face's own FAR bodies, entered past their
