@@ -1539,8 +1539,7 @@ fsk_entry1:
     cmp al, '.'                 ; a stray '.' entry past the first two
     je fsk_eback
     test byte [es:si+11], 10h
-    jz .file
-    jmp fsk_dirent
+    jnz fsk_dirent              ; (one jcc: kernel size pass 21, -2)
 .file:
     jmp fsk_filent
 
@@ -2391,8 +2390,8 @@ fsk_lost_rest:
     mov bx, 1 << 8 | FSKF_FREED
     mov ax, FSV_NOTE << 8 | 4
     call fsk_q0
-.aft:
-    jmp fsk_aftlost
+.aft:                           ; ...and falls into fsk_aftlost: its `jmp`
+                                ; was to the next byte (kernel size pass 21, -3)
 
 ; fsk_aftlost - after the lost chains: the second FAT copy, or the end
 fsk_aftlost:

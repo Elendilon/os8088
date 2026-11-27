@@ -1542,8 +1542,10 @@ figure beside each in `kernel.asm` is the count it was taken at, kern_big's /
 kern_small's; a target whose CALL sites fall to two on one build takes the
 plain far call there instead, through the `%define` block above the includes
 (`cw_snd_beep` on `kern_small`, `cw_wm_clip_test` on `kern_big`), and three is
-a wash. `ct_cw_font_run` stays at two on `kern_big` because its sites are
-mostly tail jumps, which a far call cannot replace for less.
+a wash. `ct_cw_font_run` went the same way on both builds: its one tail
+jump, `fm_brun`, makes the far call itself (kernel size pass 20 on
+`kern_small`, 21 on `kern_big`), which left `kern_big` one call site, the
+kernel arm's `UI_RUN`, and the trampoline's name is the far call there.
 
 ### 2.6.3 A kernel window's callbacks are `.cold` — no thunk per callback
 
@@ -62699,7 +62701,8 @@ AH=08h for units 0 and 1 with `CF = 1, AH = 01h`, exactly as it does with
 360KB ones. Several of this tree's own 86Box XTs (`xt-z`, `xt-word`,
 `xt-paccman`, `xt-sound-1.44`) boot a 3.5" drive 0 on an XT ROM. So on a
 marked row the **first mount corrects it from the medium**: `disk_mount_x`
-calls `desk_learn_x` right after `dsk_bpb_check`, and the medium settles the
+asks right after `dsk_bpb_check` (its DESK_LEARN block - `desk_learn_x` until
+kernel size pass 21 wrote it in at its one call), and the medium settles the
 drive where the medium CAN —
 
 | mounted medium | the drive must take |
@@ -79533,7 +79536,7 @@ the caller cannot know which rung answered.
 | `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only — AH is left 0 or 2, which is inside that, and the one caller reads AL. **It drains `[clk_barq]` with an `xchg` and DOUBLES the byte into mask bit 1, so `[clk_barq]` is 0 or 1 and nothing else**: a 2 would set bit 2 and a 0x80 would double to 0 and lose the request silently. Every writer stores 0 or 1; a new one must too, or it owes this routine a compare instead. |
 | `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
 | `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 25 bytes — 24 + the NUL, counted off the format itself and no longer carrying a guard byte, because the RTC probe's scratch is now declared *into* it (§37.90). Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
-| `str_len` | In: SI = an ASCIIZ string in `KERNEL_SEG`. Out: CX = its length, NUL excluded; SI one past the NUL; every other register preserved. The kernel's only strlen, hosted in `clock.inc` beside `clk_fmt` and reached by a near call from `.text` alone — a site in `.modc` or `.cold` is in another segment and needs a shim, which is worth more than the loop it would replace. |
+| `str_len` | **Gone (kernel size pass 21).** It had one caller, `toast_place` (`toast.inc`), and is written there: the same six-instruction loop over `toast_buf`, CX = the length, NUL excluded. A `.text` routine wanting a strlen writes the loop at its site (it is cheaper than a call and a `ret` until a second caller). |
 | `clk_fld_str` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Called by §31.5, which is its only caller and now also its host. |
 
@@ -84970,8 +84973,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 |---|---|---|---|
 | 0 | `EXT_EXTEND` — the Extend arm | `vid_disp_init` `.extend` | CF = 1 → `jc .single`, with AL/AH the two kinds `.single` wants: the arrangement is Single. This IS the refusal path |
 | 1 | `EXT_LAND` — `ui_drag_size` | `ui_drag`, `ui_grow` | the image answers CF **inverted** (1 = NOT moved) and `ui_drag` follows the call with `cmc`, so `mod_gone` reads "not moved" and the drag cache survives on one display. `ui_grow` ignores CF |
-| 2 | `EXT_STRADS` | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16) | CF = 1 is "not straddling" — the one-display answer |
-| 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
+| 2 | `EXT_STRADS` — the straddle test, and with **CF = 1 in** the fit after it (`wm_strads` + `wm_strad_fit`: slot 3's `EXT_APPLY` until kernel size pass 21 made CF the selector, −4 `.bss`) | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16), CF = 0 in; `wm_apply_wh`, CF = 1 in | CF = 1 is "not straddling" — the one-display answer for both: `wm_apply_wh`'s `jnc` falls into its one-display path |
+| 3 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`). The last entry until slot 3 was freed, and it moved in rather than leave a 4-byte hole (kernel size pass 21, as pass 20 did for slot 10) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
 | 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
 | 5 | `EXT_KINDNOW` — `wm_kind_now`'s arm | `wm_kind_now`, UNGATED (a create, fit or resize) | AL kept, and the caller loaded `[vid_kind]`: the primary's kind |
 | 6 | `EXT_FSX`, AH = enter/leave/unblank, and `EXTF_KIND`/`EXTF_CAPS` | `fsx_mode` ×2, `fsx_restore` ×2, `fsx_caps` | the bracket's three read no flags and are no-ops on one display; the two queries keep BL/DL, which the caller loaded with `[vid_kind]` |
@@ -84982,7 +84985,6 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
-| 14 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before
@@ -85066,8 +85068,9 @@ resize, zoom, drag release, whole-desktop repaint or fsx bracket, and on an
 (`OSAPI_WM_DISPLAY`, the drag release) are gated, so one display pays nothing
 there. `EXT_DISPLAY` names display 1's record in line rather than through an
 `EXK` hop, and its path (`wm_disp_now`, `wm_strads`, `wm_disp_rest`) makes
-none - the record pointer is a near copy and `vid_disp_of` is far-called
-through its resident shim `cw_vid_disp_of` - so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far call
+one - the record pointer is a near copy, and `vid_disp_of` is `ext_org_disp`'s
+`EXK` hop (it was the resident shim `cw_vid_disp_of`, then a rare-door word:
+kernel size passes 19 and 21) - so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far call
 `EXT_DISPNOW` already cost it. `OSAPI_WM_DISPLAY` and `OSAPI_FSX_CAPS` on
 an extended desktop go one far frame (~10 bytes of stack) deeper, and are the
 only two that can run on a worker slice. And there is a new failure: Extend can be REFUSED, with a reason,
@@ -114946,6 +114949,8 @@ that is not harvested off a disk (`dsk_folder_ico` is the other). Its white
 interior holds an **8×8 inset at x=4..11, y=5..12**, one pixel clear of the
 border on every side. `assoc_compose` lays the frame down and ORs the glyph
 into data rows 5..12, shifted left by 4 so a glyph byte's bit 7 lands on x=4.
+(It is the ASSOC_COMPOSE block of `disk.inc`'s `dsk_docpass`, its one caller,
+since kernel size pass 21; the name is kept for what it does.)
 
 **The frame is GENERATED, not stored.** Twenty-four of its thirty-two words
 are one of two constants, so `assoc.inc`'s `.text` carries only the seven

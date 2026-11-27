@@ -1719,12 +1719,11 @@ dskw_wbody:
 
     ; --- 3. the commit: one directory-sector write ------------------------
     call dskw_commit            ; past here the file IS the new bytes, and
-    jc .out                     ; rolling back is no longer an option
-
+                                ; rolling back is no longer an option
     ; --- 4. release the replaced chain and flush again --------------------
-    jmp dskw_relold
-.out:
-    ret
+    jnc dskw_relold             ; (one jcc where it reaches - kern_small, -2:
+.out:                           ; kernel size pass 21 - and nasm's own
+    ret                         ; `jc $+5 / jmp near` on kern_big, as was)
 .rollback:                      ; the half-built chain FREED and flushed,
     jmp dskw_wabody.rbfree      ; as an append's is (SPEC.md 18.4, Rollback)
 .rbret:                         ; (dskw_wdata's nothing-to-write exit, pass 16)
@@ -4817,12 +4816,11 @@ dskw_wabody:
     mov byte [dsk_chwr], 1      ; dsk_write_chain_x, written at its one
     call dsk_read_chain_x       ; caller: the walk's write arm (pass 17, -4)
     mov byte [dsk_chwr], 0      ; `mov` writes no flag: the CF stands
-    jc .jio                     ; a media error, mapped as one: 03h is
-%ifdef OS88_FAT32
-    jmp .size                   ; FERR_WPROT here as on every other write path
-%else
-    jmp short .size             ; FERR_WPROT here as on every other write path
-%endif
+    jnc .size                   ; CF = 1 a media error, mapped as one: 03h is
+                                ; FERR_WPROT here as on every other write path.
+                                ; (In reach without FAT32, -2: kernel size pass
+                                ; 21. With it nasm writes `jc $+5 / jmp near`,
+                                ; the two that stood here)
 .jio:
     cmp al, 1                   ; AL = 2 is the CHAIN ending before the size
     jne .jcor                   ; said: corruption, not [dsk_ioerr]'s last
@@ -7839,9 +7837,16 @@ dskw_seg:     resw 1            ; ...and that segment (ES at entry), right
                                 ; behind it for the `lds`
 dskw_wseg:    resw 1            ; the advancing source/destination segment
                                 ; (+32 paragraphs per 512-byte sector)
-%if dskw_wseg - dskw_seg != 2   ; ADJACENT ON PURPOSE: memory.inc's mem_rr_tab
-    %error "dskw_seg and dskw_wseg must stay adjacent (mem_rr_tab names them as one row)"
-%endif                          ; names the pair as ONE row of two words
+dskw_czseg:   resw 1            ; a COMPRESSED read's (SPEC.md 20.14): the
+                                ; segment it expands INTO - the caller's own
+                                ; base, banked before R is folded into
+                                ; [dskw_seg]
+%if dskw_wseg - dskw_seg != 2 || dskw_czseg - dskw_wseg != 2
+    %error "dskw_seg, dskw_wseg and dskw_czseg must stay adjacent (mem_rr_tab names them as one row)"
+%endif                          ; ADJACENT ON PURPOSE: memory.inc's mem_rr_tab
+                                ; names the three as ONE row of three words
+                                ; (kernel size pass 21: dskw_czseg was a row of
+                                ; its own, -4)
 %if dskw_seg - dskw_src != 2    ; ...and dskw_src:dskw_seg is a far pointer
     %error "dskw_src and dskw_seg must stay adjacent (lds si, [dskw_src])"
 %endif
@@ -7902,9 +7907,8 @@ dskw_uzhi:    resw 1            ; entry's hint says the file expands to, 32
                                 ; bits of it, and what the caller is told it
                                 ; read. BEVERLY.MOD is 116,085 bytes, which is
                                 ; the whole reason this is not one word
-dskw_czseg:   resw 1            ; ...and the segment it expands INTO - the
-                                ; caller's own base, banked before R is folded
-                                ; into [dskw_seg]
+                                ; (its segment, dskw_czseg, sits beside
+                                ; dskw_wseg for mem_rr_tab's row)
 %ifdef KERN_MEGA
 dskw_czsrc:   resw 1            ; ...and ABOVE 1MB the packed bytes' OFFSET,
                                 ; banked before the read: that read moves

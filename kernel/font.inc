@@ -427,9 +427,10 @@ font_ch_spill:                  ; the cell runs off this display's edge
     cmp byte [gfx_dnest], 1     ; 0 = one card, above 1 = a caller owns the
     jne font_ch_drop            ; translation: 39.14.2's whole-cell drop stands
                                 ; for both, and a one-card machine is answered
-                                ; HERE, faster than the call it replaces
-    add al, FONT_FIRST          ; (font_char hands an index on; the cut takes
-                                ; the character, as it always has)
+                                ; HERE, faster than the call it replaces.
+                                ; AL is font_char's INDEX, which the cut takes
+                                ; as it is (kernel size pass 21: it took the
+                                ; character, and each side spent an add/sub)
     EXTCALL EXT_FCUT            ; ...and the CUT is EXTD.DRV's (kernel size
     jc font_ch_drop             ; pass 13): refused - or no image - is 39.14.2's
                                 ; whole-cell drop
@@ -1538,8 +1539,9 @@ font_run_x:
     ; and repeated cells compose to one byte. That is a `rep stosb`. The scan
     ; is here, once, rather than a compare per cell per row; SI and CX are
     ; free because the values they held are on the stack.
-    mov si, bx                  ; AX already holds the repeated glyph
-    sub si, 4                   ; ...and the one before it
+    lea si, [bx-4]              ; AX already holds the repeated glyph; SI =
+                                ; the one before it (`mov`/`sub`, kernel size
+                                ; pass 21: -2, and ~8 clocks a run faster)
     mov cx, 1                   ; the last cell always repeats itself
 .p1trl:
     cmp cx, bp
@@ -2149,13 +2151,15 @@ font_run_cell:
     add dx, 7
     call wm_clip_rows           ; CX and DX are spent here and NOT put back:
     pop ax                      ; nothing below reads them, the masks arriving
-    jc .outq                    ; in CX from memory instead
-%ifdef KERN_BIG
+%ifdef KERN_BIG                 ; in CX from memory instead
+    jc .outq
     mov dl, [wm_clip_cm]        ; SPEC.md 11.3.4: the COLUMNS too. DX is free
                                 ; from here to the epilogue, which puts the
                                 ; caller's back
-%endif
     jmp short .have_rows
+%else
+    jnc .have_rows              ; (no column mask: one jump, -2 and faster both
+%endif                          ; ways - kernel size pass 21)
 .outq:                          ; (the two exits, in short reach below the
     jmp .out                    ; one jump there is: `jcc` two bytes and not
 .noclip:                        ; five, 4 clocks a cell not-taken where 16)

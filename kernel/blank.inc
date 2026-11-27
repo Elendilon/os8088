@@ -606,11 +606,10 @@ ss_mins2idle:
     pop dx
     pop ax
     ret
-%else
-    nop                         ; PARITY, never executed (kernel size pass 13):
-                                ; an odd 23 out of kern_small's .cold would put
-                                ; dsk_xfer and the FAT walk at an odd shift
-%endif
+%endif                          ; (kern_small's PARITY nop that stood here, for
+                                ; an odd 23 out of its .cold, went in kernel
+                                ; size pass 21 with wm.inc's, the next byte:
+                                ; two adjacent pads cancel)
 %ifdef KERN_BIG                 ; ...and the saver's own entries, below
 
 ; -----------------------------------------------------------------------------

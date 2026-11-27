@@ -1960,7 +1960,8 @@ wm_apply_wh:
     pushf
     push ax
 %ifdef KERN_BIG
-    EXTCALL EXT_APPLY           ; **AND wm_fit IS SINGLE-DISPLAY** (SPEC.md
+    stc                         ; CF = 1 IN: the straddle test AND the fit
+    EXTCALL EXT_STRADS          ; **AND wm_fit IS SINGLE-DISPLAY** (SPEC.md
     jnc wm_apply_out            ; 11.100.9.1): it confines a frame to the box
                                 ; the ORIGIN is in, so run on a straddling
                                 ; window it cuts the width to the columns the
@@ -4059,6 +4060,7 @@ wm_snap_w:
                                 ; column: wm_snap_far, written at its one call
                                 ; and answering in CX (kernel size pass 16, -6)
 %ifdef KERN_BIG
+    clc                         ; CF = 0 IN: the straddle test alone
     EXTCALL EXT_STRADS          ; CF = 0 is "it straddles"...
     mov cx, [vid_w]             ; ...and then it is the whole desktop (39.2.1)
     jnc .far
@@ -11371,10 +11373,10 @@ wm_nest_pushd_x:
 wm_nest_pop_x:
     call wm_nest_pop
     retf
-%else
-    nop                         ; PARITY PAD, never executed: the nest's 47
-%endif                          ; bytes leave kern_small's hot .cold routines
-                                ; at an EVEN shift (t_hotpar.py)
+%endif                          ; (kern_small's PARITY pad here, for the nest's
+                                ; odd 47, went in kernel size pass 21 with
+                                ; blank.inc's, the byte before it: the two
+                                ; cancelled)
 ; ...and wm_pkgcall's dispatch into a KERNEL window's callback (SPEC.md 2.6.3):
 ; every one is a `.cold` near proc, named by its offset in BP. The same entry
 ; serves anything else in the kernel that wants a cold near proc called from

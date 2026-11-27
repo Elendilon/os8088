@@ -2436,8 +2436,8 @@ cmz_jstart:
     call cmz_jopen              ; a part, the claim, clusters a take reads whole
     jc cmz_jret                 ; nothing held: say why
     call cmz_jhdr               ; --- the SELECTION first: a plain file that
-    jc cmz_jnotcs               ; only looks like a part is not compressed,
-%ifdef KERN_BIG                 ; and must not be told part 1 is missing
+%ifdef KERN_BIG                 ; only looks like a part is not compressed,
+    jc cmz_jnotcs               ; and must not be told part 1 is missing
     cmp byte [cs:cmz_jto], 0
     je cmz_jloop
     ; --- Uncompress To...'s probe: the name it rejoins as, the box's default
@@ -2455,7 +2455,7 @@ cmz_jstart:
     call COLD_SEG:fdf_fdlg_open ; (a box already up) cannot happen from a
     jmp cmz_jspoke        ; menu pick - and either way it has spoken
 %else
-    jmp short cmz_jloop
+    jnc cmz_jloop               ; (one jcc: kernel size pass 21, -2)
 %endif
 
 ; cmz_jnotcs - not a part at all - or, past part 1, a part of nothing this
@@ -2665,8 +2665,7 @@ cmz_jloop:
     call COLD_SEG:dwf_dskw_append
 %endif
 .wchk:
-    jnc .wok
-    jmp cmz_jerr
+    jc cmz_jerr                 ; (one jcc: kernel size pass 21, -2)
 .wok:
     mov ax, [cs:cmz_jnn]
     mov bx, cmz_jw              ; (BX is reloaded before .rec reads it)

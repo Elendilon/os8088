@@ -34,10 +34,9 @@
 ; routine's own near `ret` lands on cw_kretf - dockmod.inc's device, so the
 ; image costs no resident shim. The two kernel routines that are a pointer
 ; walk (vid_ctx_ptr, vid_kind_of) have a near copy here instead, and the ones
-; that have a resident far shim (cw_thm_desk, and cw_vid_disp_of for the one
-; on OSAPI_WM_DISPLAY's
-; path) or a cell of their own (apic_wm_top) are far-called through it, at
-; the same five bytes as an EXK and without exk_go's work. os88ovlchk
+; that have a resident far shim (cw_thm_desk) or a cell of their own
+; (apic_wm_top) are far-called through it, at the same five bytes as an EXK
+; and without exk_go's work. os88ovlchk
 ; refuses a near call either way across the boundary (its MODS list names
 ; `.modx`).
 ; =============================================================================
@@ -100,7 +99,7 @@ section .modx
     call exk_go
     dw %1
 %endmacro
-EXT_NENT    equ 15
+EXT_NENT    equ 14
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -111,7 +110,13 @@ modx_hdr:
     dw ext_extend_b             ; EXT_EXTEND - far procs, the six whose only
     dw ui_drag_size             ; EXT_LAND     caller is their slot (or a
     dw ext_e_strads             ; EXT_STRADS   `push cs` + call in here) and
-    dw ext_e_apply              ; EXT_APPLY    so end in their own retf
+                                ;              so end in their own retf - and
+                                ;              CF = 1 IN is EXT_APPLY's fit
+                                ;              too, which was slot 3
+    dw ext_e_dead               ; EXT_DEAD     (kernel size pass 14): the
+                                ;              last entry, in slot 3 since
+                                ;              pass 21 rather than leave a
+                                ;              hole four bytes of .bss wide
     dw wm_fit_box               ; EXT_FITBOX   rather than behind a
     dw ext_e_kindnow            ; EXT_KINDNOW  call/retf trampoline
     dw ext_e_fsx                ; EXT_FSX
@@ -134,9 +139,8 @@ modx_hdr:
 %else
     dw ext_refuse
 %endif
-    dw ext_e_dead               ; EXT_DEAD  (kernel size pass 14)
-%if EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_DEAD != 14 || EXT_NENT != 15
-  %error "extmod: EXT_PHASE is entry 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, then EXT_DEAD, the last (kernel.asm)"
+%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_NENT != 14
+  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, the last (kernel.asm)"
 %endif
 %ifdef SEAMCUT
  %if EXT_FCUT != 12
@@ -173,9 +177,10 @@ modx_hdr:
 ; is mod_gone's few dozen clocks against the repaint the release starts anyway.
 
 ext_e_strads:                   ; EXT_STRADS: CF = 1 not straddling, which is
-    call wm_strads              ; also mod_gone's answer and the one-display
-    retf                        ; one
-ext_e_apply:                    ; EXT_APPLY: wm_apply_wh's straddle arm, the
+    jc .apply                   ; also mod_gone's answer and the one-display
+    call wm_strads              ; one. CF = 1 IN is wm_apply_wh's straddle arm
+    retf                        ; (EXT_APPLY's slot until kernel size pass 21:
+.apply:                         ; one entry, CF the selector, -4 .bss): the
     call wm_strads              ; two calls in one entry. CF = 1: not
     jc .r                       ; straddling, the caller's .one
     call wm_strad_fit
@@ -211,7 +216,7 @@ ext_e_display:                  ; EXT_DISPLAY: wm_display's second arm, behind
     retf
 ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
     call ext_one                ; CF = 1: one display, and the caller writes
-    jb ext_e_apply.r            ; the primary's rect itself (a bare retf)
+    jb ext_e_strads.r            ; the primary's rect itself (a bare retf)
     push ax
     push si
     push di
@@ -292,7 +297,7 @@ ext_e_ylow:                     ; EXT_YLOW: ui_ylow's arm, behind its caller's
     mov ax, [ui_curx]           ; the drag's PROPOSED x, not W_X
     mov bx, MBAR_H              ; any row the primary's band contains, so a
                                 ; point on display 0 resolves to it
-    KDOOR vid_disp_of
+    EXK vid_disp_of
     or al, al
     jz .done                    ; display 0 keeps the chrome's floor, which
                                 ; the caller loaded into SI. Anything else is
@@ -521,8 +526,8 @@ ext_org_disp:
     push bx
     mov ax, [bx+W_X]
     mov bx, [bx+W_Y]
-    KDOOR vid_disp_of
-    pop bx
+    EXK vid_disp_of             ; (an EXK and not the door: rd_tab's word went,
+    pop bx                      ; kernel size pass 21, -2 resident)
     or al, al
     ret
 
@@ -624,7 +629,7 @@ wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
 ; -----------------------------------------------------------------------------
 ui_drag_size:
     call ext_one                ; one display - mod_gone's case, or this image
-    jb ext_e_apply.r            ; over a collapsed desktop: a drag can never
+    jb ext_e_strads.r            ; over a collapsed desktop: a drag can never
                                 ; change a kind, and CF = 1 is "not moved"
     push ax
     push cx
@@ -1251,7 +1256,9 @@ VID_CTXCAP ext_ctxcap, ret      ; (vidsel.inc: the panel, the boot and this)
 ;            pass 13; EXT_FCUT, behind font_ch_spill's [gfx_dnest] = 1 test)
 ;
 ; in:       CX = x, DX = y, LOCAL to the display font_char entered; AL = the
-;           character; one of the two edge tests has just failed
+;           glyph's INDEX (the character less FONT_FIRST, font_char's own - it
+;           was the character until kernel size pass 21); one of the two edge
+;           tests has just failed
 ; out:      CF = 0 - font_seam_a holds this display's part of the cell, and the
 ;           spill has ALREADY been drawn on the display across the seam with
 ;           this one put back current. The caller draws font_seam_a in place
@@ -1299,11 +1306,11 @@ ext_fcut:                       ; [gfx_dnest] = 1 was asked by the caller,
     push bp
 
     mov es, [font_seg]          ; ES:SI -> the source rows, wherever the table
-    sub al, FONT_FIRST          ; is (SPEC.md 6) - and this is the same
-    xor ah, ah                  ; arithmetic that will address the scratch
-    shl ax, 1                   ; cell on the way back in. ZERO-extend AFTER
-    shl ax, 1                   ; the subtract, and this is the ONE site with
-    shl ax, 1                   ; no range test above it: AL is anything up to
+    xor ah, ah                  ; is (SPEC.md 6) - and this is the same
+    shl ax, 1                   ; arithmetic that will address the scratch
+    shl ax, 1                   ; cell on the way back in. ZERO-extend the
+    shl ax, 1                   ; index, and this is the ONE site with
+                                ; no range test above it: AL is anything up to
     add ax, [font_base]         ; [font_last] (255 with the CP850 provider, an
     xchg ax, si                 ; (ES is font_char's to clobber: it banked it)
                                 ; index of 223), or FONT_SEAM_A/_B under
@@ -1554,9 +1561,10 @@ ext_refuse:                     ; a knob-compiled-out cut: CF = 1, the drop
 ; It is the cost of a COLD path: ~300 cycles a hop more than a stub, which is
 ; ~60 us on a 4.77MHz 8088 and a few dozen of them on a drag release that then
 ; repaints for tens of milliseconds. The two hops that are not cold do not come
-; here: vid_ctx_ptr and vid_kind_of are near copies above, and vid_disp_of,
-; which wm_disp_now's one-display arm makes on OSAPI_WM_DISPLAY's path, is
-; far-called through its resident shim, cw_vid_disp_of. Its stack peak is 16
+; here: vid_ctx_ptr and vid_kind_of are near copies above. vid_disp_of,
+; which ext_org_disp asks on OSAPI_WM_DISPLAY's path, does - its resident shim
+; became a rare-door word (pass 19), and the door is ~420 clocks against this
+; hop's ~390, so the word went too (kernel size pass 21). Its stack peak is 16
 ; bytes above the call, and every routine reached through it goes at least
 ; that deep once it is entered.
 ; -----------------------------------------------------------------------------

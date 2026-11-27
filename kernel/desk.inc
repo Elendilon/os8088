@@ -1338,9 +1338,9 @@ desk_click_x:
     jmp short .out
 .sel:
     call desk_select            ; a miss clears the selection
-    jmp short .out
+%ifdef OS88_SHORTCUTS           ; (without them .drag IS .out, and .sel falls
+    jmp short .out              ; in: kernel size pass 21, -2 on kern_small)
 .drag:
-%ifdef OS88_SHORTCUTS
     mov cx, di                  ; the press that selected it is the press that
     mov dx, si                  ; drags it: fm_drag's own four pixels, waited
     call ct_cw_gfx_lock         ; out with the lock free inside the wait
@@ -1351,6 +1351,8 @@ desk_click_x:
     call sc_modcall
 .u:
     call ct_cw_gfx_unlock
+%else
+.drag:
 %endif
 .out:
     jmp kretfc_bp
@@ -1641,9 +1643,8 @@ desk_colr:
     mov cx, ax
     add cx, DESK_ZW - 1
     mov bx, [desk_zy]
-    mov dx, bx
-    add dx, [desk_zh1]
-    sub dx, DESK_LBLH
+    lea dx, [bx-DESK_LBLH]      ; DX = the same sum (kernel size pass 21, -2;
+    add dx, [desk_zh1]          ; no caller reads the flags)
     ret
 
 ; desk_g2 - the ground in rows BX..DX of the cell, either side of AX..CX
@@ -2157,51 +2158,9 @@ desk_draw_zone:
     jmp kretc_es                ; ES, BP, DI (banked for this) and the rest
 %endif
 
-; -----------------------------------------------------------------------------
-; desk_learn_x - a floppy just mounted: settle its drive's KIND off the medium,
-;                if the ROM would not say (SPEC.md 26.4.1)
-; in:  [disk_drive], and [disk_spt]/[dsk_totsec] as dsk_bpb_check has just
-;      filled them
-; out: nothing (all registers preserved); a changed picture posts the repaint
-;
-; Only a row desk_init marked DVF_GUESS is touched, so a drive whose ROM
-; answered AH=08h is never second-guessed by what happens to be in it - and
-; that is also the whole of the "is it a floppy" test: desk_init marks BIOS
-; floppy rows and nothing else, and every other writer of DV_FLAGS stores the
-; byte whole, so a partition or a driver's volume can never carry the bit. The
-; medium settles the drive only where the medium CAN: 15 sectors a track is
-; the 1.2MB format and 720 sectors or fewer a 40-track one, and both exist
-; only on 5.25" media; 720KB and up is 3.5". A 5.25" drive fed an 80-track
-; 9-sector disk would read as 3.5" here - it is the one medium that fits
-; both, and on a ROM this old it is by far the rarer drive.
-; -----------------------------------------------------------------------------
-desk_learn_x:
-    push ax
-    push bx
-    mov bl, [disk_drive]
-    call dsk_vol_row_x
-    jc .out
-    mov al, [bx+DV_FLAGS]
-    test al, DVF_GUESS
-    jz .out                     ; the drive said what it is
-    cmp word [disk_spt], 15     ; AL becomes the bit that must FLIP: the
-    je .is525                   ; row's own DVF_525, complemented where the
-    cmp word [dsk_totsec], 720  ; medium says 5.25" - so it is 0 exactly when
-    ja .flip                    ; the guess was right, and the `and` that
-.is525:                         ; isolates it sets ZF on every path in
-    xor al, DVF_525
-.flip:
-    and al, DVF_525
-    jz .out                     ; the guess was right - nothing to repaint
-    xor [bx+DV_FLAGS], al
-    mov al, [disk_drive]        ; the picture changed: its CELL owes a repaint
-    call desk_zs                ; (SPEC.md 26.9), if it is shown at all
-    jc .out
-    call desk_cmark
-.out:
-    pop bx
-    pop ax
-    ret
+; (desk_learn_x, a floppy's drive KIND off the medium (SPEC.md 26.4.1), is
+; written in disk.inc's disk_mount_x, its one caller, since kernel size pass
+; 21: -8.)
 
 %ifndef KERN_SMALL
 ; -----------------------------------------------------------------------------

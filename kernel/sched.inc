@@ -1861,8 +1861,8 @@ task_yield:
     jz .noyvmm
     push ds
     push ax
-    KDATAR ax
-    mov ds, ax
+    KSEGR ax                    ; CS is the kernel's here: a byte and two
+    mov ds, ax                  ; clocks under the immediate (pass 21)
     call vmm_poll
     pop ax
     pop ds

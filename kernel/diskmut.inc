@@ -180,9 +180,7 @@ dmo_rtbody:
 
     jnc .fsok
     or ax, ax
-    jnz .fsno
-
-    jmp dmo_rmbody
+    jz dmo_rmbody               ; (one jcc: kernel size pass 21, -2)
 
 %else
     jmp short .fat

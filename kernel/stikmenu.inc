@@ -1268,8 +1268,7 @@ stm_c_item:
 .t:
     xor dl, dl
     test byte [cs:bx+SL_FLAGS], SF_DIS
-    jz .live
-    jmp stm_greytext
+    jnz stm_greytext            ; (one jcc: kernel size pass 21, -2)
 .live:
     jmp stm_text
 

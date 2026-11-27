@@ -2434,8 +2434,13 @@ drv_call:
     je .row                     ; LEGITIMATE ROWS** (SPEC.md 41.12.5). xm_row
  %endif
     cmp bx, ss_row              ; ...and ss_row is the SECOND (SPEC.md 79.2),
-    je .row                     ; which is why this is a list and not a pair of
-%endif                          ; compares somebody has to remember to widen.
+    jne .none                   ; which is why this is a list and not a pair of
+                                ; compares somebody has to remember to widen
+                                ; (`je .row / jmp short .none`, kernel size
+                                ; pass 21: -2 - and .row is the next line)
+%else
+    jmp short .none
+%endif
                                 ; (THMPAL.DRV's thmv_row, the third, sits one
                                 ; row past drv_tab instead, inside the range
                                 ; test above - SPEC.md 76.14.14)
@@ -2455,7 +2460,6 @@ drv_call:
                                 ; range, because the guard's strength is that
                                 ; it is exact - a range grown to cover this
                                 ; would cover 40KB of unrelated .text with it
-    jmp short .none
 .row:
     cmp word [bx+DRVR_SEG], 0   ; NOT LOADED IS A REFUSAL, NOT A FAR CALL
     jne .go                     ; (SPEC.md 51.2). DRVR_SEG's own declaration
@@ -6481,9 +6485,9 @@ cpc_fdtest:
     jae .after                  ; it fits before the page
     add di, cx                  ; ...else it starts ON the page
     cmp cx, bp
-    jb .after                   ; no track's room below it
-    jmp short .read             ; DX = the claim's base: the track goes there
-.after:
+    jae .read                   ; DX = the claim's base: the track goes there
+.after:                         ; (else no track's room below it: one jcc,
+                                ; kernel size pass 21, -2)
     mov dx, di
     add dx, bx                  ; the track buffer after the cylinder
 .read:

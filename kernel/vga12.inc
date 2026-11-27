@@ -1237,9 +1237,11 @@ PT_2ND      equ 2               ; ...and the second pass has been spent
 %endif
 %%skip:
     dec cx                      ; not `loop`: the reach from out here is not
-    jz %%done                   ; rel8's to give, and this path is taken once
-    jmp %%each                  ; a call rather than once a point
-%%done:
+    jnz %%each                  ; rel8's to give, and this path is taken once
+                                ; a call rather than once a point. In reach on
+%%done:                         ; kern_big (-2 a loop, kernel size pass 21);
+                                ; nasm's own `jz $+5 / jmp near` on kern_small,
+                                ; the bytes that were written here
 %endmacro
 
 %ifdef KERN_BIG
@@ -6428,10 +6430,14 @@ gfx_blit1_x:
                                 ; two passes, the second re-entering through
                                 ; the frame. Either one: the general loop
     cmp word [bp+8], 0          ; a stride wider than the row: the band has to
-    jne .row                    ; be stepped, and there is no register left
-    jmp .fast                   ; NEAR - the two bodies sit below `.none`, so
-                                ; that no jump the general path already had
-                                ; has to grow to make room for them
+    je .fast                    ; be stepped, and there is no register left.
+                                ; NEAR on kern_big - the two bodies sit below
+                                ; `.none`, so that no jump the general path
+                                ; already had has to grow to make room for
+                                ; them - where nasm writes it `jne $+5 / jmp
+                                ; near`, the bytes that stood here; SHORT on
+                                ; kern_small, where `.fast` is in reach (kernel
+                                ; size pass 21, -2 there, and both ways faster)
 .row:
     mov cx, [bp+10]
     push di

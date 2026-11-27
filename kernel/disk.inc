@@ -922,7 +922,7 @@ section .text                   ; ...but NOT this one. dsk_dbg_raw is a FAR
 dsk_dbg_raw:
     push ds
     push si
-    KDATAR si
+    KSEGR si                    ; (far-called at KERNEL_SEG: CS is the kernel's)
     mov ds, si
     inc byte [sch_lock]         ; pause task switching, exactly as dsk_xfer
     mov ah, 0x02                ; does - the tick still runs, the motor needs
@@ -4468,8 +4468,44 @@ disk_mount_x:
 %endif                          ; never read
     call dsk_bpb_check          ; fills the 18.1 vars + disk_spt/disk_heads
     jc .jfail
-    call desk_learn_x           ; ...which is what settles a floppy drive's
-                                ; KIND when its ROM would not (SPEC.md 26.4.1)
+%ifndef KD_BUILD                ; (kern_dos draws no desktop)
+    ; --- DESK_LEARN: a floppy just mounted settles its drive's KIND off the
+    ; medium, if the ROM would not say (SPEC.md 26.4.1). Only a row desk_init
+    ; marked DVF_GUESS is touched, so a drive whose ROM answered AH=08h is
+    ; never second-guessed by what happens to be in it - and that is also the
+    ; whole of the "is it a floppy" test: desk_init marks BIOS floppy rows and
+    ; nothing else, and every other writer of DV_FLAGS stores the byte whole,
+    ; so a partition or a driver's volume can never carry the bit. The medium
+    ; settles the drive only where the medium CAN: 15 sectors a track is the
+    ; 1.2MB format and 720 sectors or fewer a 40-track one, and both exist only
+    ; on 5.25" media; 720KB and up is 3.5". A 5.25" drive fed an 80-track
+    ; 9-sector disk would read as 3.5" here - it is the one medium that fits
+    ; both, and on a ROM this old it is by far the rarer drive. It was
+    ; desk_learn_x in desk.inc with this one call; AX and BX are nobody's
+    ; here, dsk_bpb_bank_put below clobbering AX..DI with nothing carried
+    ; across it (kernel size pass 21, -8)
+    mov bl, [disk_drive]
+    call dsk_vol_row_x
+    jc .learnt
+    mov al, [bx+DV_FLAGS]
+    test al, DVF_GUESS
+    jz .learnt                  ; the drive said what it is
+    cmp word [disk_spt], 15     ; AL becomes the bit that must FLIP: the
+    je .is525                   ; row's own DVF_525, complemented where the
+    cmp word [dsk_totsec], 720  ; medium says 5.25" - so it is 0 exactly when
+    ja .flip                    ; the guess was right, and the `and` that
+.is525:                         ; isolates it sets ZF on every path in
+    xor al, DVF_525
+.flip:
+    and al, DVF_525
+    jz .learnt                  ; the guess was right - nothing to repaint
+    xor [bx+DV_FLAGS], al
+    mov al, [disk_drive]        ; the picture changed: its CELL owes a repaint
+    call desk_zs                ; (SPEC.md 26.9), if it is shown at all
+    jc .learnt
+    call desk_cmark
+.learnt:
+%endif
     call dsk_bpb_bank_put       ; ...and remember it, if this volume is fixed
 %ifdef OS88_FAT32
     call dsk_f32_fsi            ; FSInfo "unknown", once a boot (19.12.7)
@@ -8702,10 +8738,10 @@ dsk_rah_redo:
     mov bx, MEM_P_RAHB
     xor dx, dx
     xchg dx, [dsk_rah_bnc]
-    or dx, dx
-    jz .gone
-    call mem_free_x
-    jmp short .gone
+    call mem_free_x             ; (a 0 - the landing shed already - is
+    jmp short .gone             ; mem_find_own's refusal: mega_ishif(0) is
+                                ; CF = 1. Rare, and .gone writes the flags:
+                                ; kernel size pass 21, -4)
 .conv:
 %endif
     mov bx, MEM_P_DIRW
@@ -8767,10 +8803,8 @@ dsk_rah_want:
     mov bx, MEM_P_RAHB          ; landing stood low with nothing to land for
     xor dx, dx                  ; and this branch never took a store again
     xchg dx, [dsk_rah_bnc]      ; (KERN-MEGA-PLAN 14.121). The landing goes,
-    or dx, dx                   ; and the solve below takes both afresh
-    jz .lo
-    call mem_free_x
-.lo:
+    call mem_free_x             ; and the solve below takes both afresh - a
+.lo:                            ; 0 is mem_free's refusal (pass 21, -4)
 %endif
     cmp word [dsk_rah_seg], 0
     jne .out                    ; already held
@@ -9507,6 +9541,11 @@ dsk_find_x:
     mov ax, [dsk_ent+20]
     mov dx, [dsk_ent+22]
     mov cl, [dsk_ent+24]
+    mov ch, 0                   ; +22, the flags: none on a redirected entry.
+                                ; CH was the walk's - dsk_dscan's next row, or
+                                ; the driver's - so from row 255 a listing
+                                ; read OSAPI_FIND_CZ and from 511 _FAR
+                                ; (kernel size pass 21: a defect, +2)
 %endif
 .staged:
     push cx                     ; (AX and DX ride through: nothing below
@@ -10442,9 +10481,8 @@ dsk_read_chain_x:
 %endif
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2   ; FAT32: the same walk, each cluster whole
-    jne .w16                    ; (below, SPEC.md 19.12.3)
-    jmp .w32
-.w16:
+    je .w32                     ; (below, SPEC.md 19.12.3; in reach since
+.w16:                           ; kernel size pass 21's count, -2)
 %endif
     mov si, ax                  ; SI = current cluster
     xor cx, cx                  ; CX = run_len (0 = no pending run)
@@ -10838,14 +10876,53 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
     ; fifth is why the cli above exists
     call assoc_slot_of          ; AL = the app slot the extension names
     jc .dp_noasc
-    mov di, dsk_ico
-    call assoc_compose          ; CF = 0 and dsk_ico holds the composed body
-    mov [assoc_docslot], al     ; ...AND WHICH SLOT IT CAME FROM (SPEC.md
-                                ; 25.9). The body is a pure function of the
-                                ; slot's glyph, so every document of one
-                                ; association composes the same 64 bytes -
-                                ; which is the whole reason the store keys
-                                ; them by slot instead of by name
+    mov [assoc_docslot], al     ; WHICH SLOT IT COMES FROM (SPEC.md 25.9),
+                                ; stored first: the compose spends AL and the
+                                ; cli above keeps every reader out. The body
+                                ; is a pure function of the slot's glyph, so
+                                ; every document of one association composes
+                                ; the same 64 bytes - which is the whole
+                                ; reason the store keys them by slot
+    ; --- ASSOC_COMPOSE: the page frame, then the app's glyph OR'd into the
+    ; interior the frame has already cleared to white (SPEC.md 54.3). An
+    ; UNRESOLVED glyph is eight zero bytes and composes to the bare page,
+    ; which is a correct document icon and not a placeholder - the SPEC.md
+    ; 50 degradation rule, applied to an icon. It was assoc_compose in
+    ; assoc.inc with this one call (kernel size pass 21, -10): CX, DI and SI
+    ; are this pass's to spend, and ES is banked round it
+    push es
+    push ds
+    pop es                      ; ES = DS = KERNEL_SEG for the frame copy
+    mov bl, al                  ; the slot, for assoc_glyph_di: the runs spend
+    mov di, dsk_ico             ; AX. DI = the body (dsk_get_icon's buffer)
+    mov si, assoc_pg_seed       ; the page frame, composed rather than copied
+    cld
+    mov cx, 3
+    rep movsw                   ; ...and every run leaves CX = 0, so the next
+    mov ax, ASSOC_PGMASK        ; three counts are one byte shorter (CH is 0)
+    mov cl, 13
+    rep stosw
+    mov cl, 4
+    rep movsw
+    mov ax, ASSOC_PGBODY
+    mov cl, 11
+    rep stosw
+    mov ax, ASSOC_PGMASK        ; the second run left ASSOC_PGBODY in AX
+    stosw                       ; ...and the bottom edge is solid
+    call assoc_glyph_di         ; DI -> the app's glyph (BL; AX..CX kept)...
+    mov si, di
+    mov di, dsk_ico + ASSOC_INSET ; ...into the page frame just laid down
+    mov cl, ASSOC_INSHL         ; CL = the shift, set once, and BH counts:
+    mov bh, 8                   ; BL is spent once assoc_glyph_di has read it
+.dp_inset:
+    lodsb                       ; ES = DS here and DF = 0 from the cld above,
+    xor ah, ah                  ; so the string forms are free: lodsb the
+    shl ax, cl                  ; glyph byte, scasw past the word just ORed
+    or [di], ax                 ; (its compare only writes flags, and dec
+    scasw                       ; rewrites those)
+    dec bh
+    jnz .dp_inset
+    pop es                      ; dsk_ico holds the composed body
     clc
 .dp_noasc:
 %ifdef OS88_IMG
@@ -12061,8 +12138,9 @@ dsk_fdd_park_x:
     ; second read having written nothing (dsk_fdd_pmemu's ramp, SPEC.md 18.97.6)
 %ifdef KERN_MEGA
     cmp byte [ss:mega_pm], 0    ; protected mode: EVERY machine is warm-reset
-    je .rmode                   ; once the heads are parked - the int 19h at
-    jmp short .parked           ; dsk_rb_go is mega_svc's 8042 reset there.
+    jne .parked                 ; once the heads are parked - the int 19h at
+                                ; dsk_rb_go is mega_svc's 8042 reset there
+                                ; (one jcc, kernel size pass 21: -2).
 .rmode:                         ; The PicoMEM's own `jmp FFFF:0` is a SELECTOR
 %endif                          ; in protected mode: the Victory hung on it
     pushf

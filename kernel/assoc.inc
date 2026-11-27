@@ -614,54 +614,10 @@ assoc_img_glyph:
     pop si
     ret
 
-; -----------------------------------------------------------------------------
-; assoc_compose - a document icon for one app slot (SPEC.md 54.3)
-; in:  AL = app slot index, DI -> 64 bytes in the kernel segment
-; out: the composed 16x16 body (icon_draw16's layout)
-; clobbers: nothing (all registers preserved)
+; assoc_compose - a document icon for one app slot (SPEC.md 54.3) - is written
+; in disk.inc's dsk_docpass, its one caller, since kernel size pass 21 (-10:
+; its call, frame and the DI it banked).
 ;
-; The page frame, then the app's glyph OR'd into the interior the frame has
-; already cleared to white. An UNRESOLVED glyph is eight zero bytes and
-; composes to the bare page, which is a correct document icon and not a
-; placeholder - the SPEC.md 50 degradation rule, applied to an icon.
-; -----------------------------------------------------------------------------
-assoc_compose:
-    call kentc_bp               ; the ladder's frame, and kretc_es its end
-    push es                     ; (kernel size pass 16)
-    push ds
-    pop es                      ; ES = DS = KERNEL_SEG for the frame copy
-    mov bl, al                  ; bank the slot: the .inset loop below spends AX
-    push di
-    mov si, assoc_pg_seed       ; the page frame, composed rather than copied
-    cld                         ; (SPEC.md 54.3) - and the runs spend AX, which
-    mov cx, 3                   ; is why the slot is banked in BL two lines up
-    rep movsw                   ; ...and every run leaves CX = 0, so the next
-    mov ax, ASSOC_PGMASK        ; three counts are one byte shorter (CH is 0)
-    mov cl, 13
-    rep stosw
-    mov cl, 4
-    rep movsw
-    mov ax, ASSOC_PGBODY
-    mov cl, 11
-    rep stosw
-    mov ax, ASSOC_PGMASK        ; the second run left ASSOC_PGBODY in AX
-    stosw                       ; ...and the bottom edge is solid
-    call assoc_glyph_di         ; the app's glyph, addressed through DI...
-    mov si, di
-    pop di                      ; ...and the page frame we just laid down
-    add di, ASSOC_INSET
-    mov cl, ASSOC_INSHL         ; CL = the shift, set once, and BH counts:
-    mov bh, 8                   ; BL is spent once assoc_glyph_di has read it
-.inset:
-    lodsb                       ; ES = DS here and DF=0 from the cld above,
-    xor ah, ah                  ; so the string forms are free: lodsb the
-    shl ax, cl                  ; glyph byte, scasw past the word just ORed
-    or [di], ax                 ; (its compare only writes flags, and dec
-    scasw                       ; rewrites those)
-    dec bh
-    jnz .inset
-    jmp kretc_es
-
 ; assoc_docicon - a document icon for one directory entry (SPEC.md 54.3) - is
 ; written in disk.inc's dsk_docpass, its one caller, since kernel size pass 14;
 ; dsk_ico's tenancy rule, which it was the home of, went with it.

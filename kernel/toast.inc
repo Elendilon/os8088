@@ -527,9 +527,14 @@ toast_place:
     call clk_fmt                ; CX = the clock's glyphs (AX it keeps)
     sub ax, cx                  ; AX = the clock's first glyph
     mov si, toast_buf           ; the strip's width in cells: the message plus
-    call str_len                ; the one inverted space at its left (AX it
-    jcxz .out                   ; keeps too, so the two widths need no bank:
-    inc cx                      ; kernel size pass 14, 4 bytes)
+    mov cx, -1                  ; the one inverted space at its left. CX
+.len:                           ; counts from -1, so it is the length at the
+    inc cx                      ; NUL: CF = 1 on the NUL alone (neither `inc`
+    cmp byte [si], 1            ; touches it). This was clock.inc's str_len,
+    inc si                      ; and its one call (kernel size pass 21, -6)
+    jnc .len
+    jcxz .out                   ; AX is untouched, so the two widths need no
+    inc cx                      ; bank (kernel size pass 14, 4 bytes)
     mov bx, [menu_bend]
     sub ax, bx                  ; the gap...
     jb .clk
