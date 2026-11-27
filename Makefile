@@ -12741,7 +12741,7 @@ ARCADE_SRC := apps/arcade/arcade.asm apps/arcade/arcdefs.inc apps/arcade/arcpm.i
               apps/arcade/arc6502.inc apps/arcade/arcqbs.inc \
               apps/arcade/arcsnd.inc apps/arcade/arcland.inc drivers/sound/sndpkg.inc \
               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc apps/os88pit.inc \
-              apps/os88ui.inc apps/os88mega.inc
+              apps/os88ui.inc apps/os88mega.inc apps/os88fsxw.inc
 # WHAT SHIPS HAS NO ROM IN IT (docs/plans/ARCADE-RELEASE-PLAN.md 2.1): each
 # translated board's RECIPE (.rcp: its code with the ROM's bytes as holes,
 # and the fill list) and its PC table; Q*bert's N88 core. The ROMs are the
@@ -21723,7 +21723,7 @@ $(BUILD)/1942art.inc $(N1942BANKS): $(BUILD)/.1942assets
 	@test -f $@ || python3 tools/1942assets.py -o $(BUILD) $(if $(N1942_ROM),--rom "$(N1942_ROM)")
 $(BUILD)/1942front.inc: tools/1942front.py tools/os88lz.py apps/1942/art/splash.json apps/1942/art/sprites.json | $(BUILD)
 	python3 tools/1942front.py -o $(BUILD)
-$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
+$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88fsxw.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 	$(NASM) -f bin -w+error -I apps/ -I apps/1942/ -I $(BUILD)/ -l $(BUILD)/1942.lst -o $@ $<
 # EVERY PART IS OP_COMP | OP_LAZY, packed lz4 by os88pkg.py (SPEC.md 101.2),
 # so one file serves every geometry - and the 360KB disk no longer leaves the
@@ -22301,7 +22301,7 @@ $(BUILD)/wireflet360.img: $(BUILD)/wireflet.o88 apps/wirefleet/README.TXT tools/
 vbattle: $(BUILD)/vbattle.o88 $(BUILD)/BATTLE.VBT
 $(BUILD)/vbattle.bin: apps/vbattle/vbattle.asm apps/vbattle/vbrules.inc apps/vbattle/vbgame.inc \
                       apps/vbattle/vbloop.inc apps/vbattle/vbhold.inc apps/vbattle/vbcache.inc apps/vbattle/vbinp.inc apps/vbattle/vbbm.inc \
-                      apps/vbattle/vbband.inc apps/video/vdec.inc apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88ui.inc | $(BUILD)
+                      apps/vbattle/vbband.inc apps/video/vdec.inc apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88ui.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -l $(BUILD)/vbattle.lst -o $@ $<
 $(BUILD)/vbattle.o88: $(BUILD)/vbattle.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@
@@ -22311,7 +22311,7 @@ $(BUILD)/vbattle.o88: $(BUILD)/vbattle.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/vbattled.bin: apps/vbattle/vbattle.asm apps/vbattle/vbprof.inc apps/vbattle/vbrules.inc \
                        apps/vbattle/vbgame.inc apps/vbattle/vbloop.inc apps/vbattle/vbhold.inc apps/vbattle/vbcache.inc \
                        apps/vbattle/vbinp.inc apps/vbattle/vbbm.inc apps/vbattle/vbband.inc apps/video/vdec.inc \
-                       apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88real.inc apps/os88ui.inc | $(BUILD)
+                       apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88real.inc apps/os88ui.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVB_DIAG -o $@ apps/vbattle/vbattle.asm
 $(BUILD)/vbattled.o88: $(BUILD)/vbattled.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@
