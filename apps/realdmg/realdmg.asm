@@ -3050,6 +3050,13 @@ rw_worker:                          ;   the worker parked at the top of its
     jmp .loop
 .held:                              ; paused or stopped: nothing owed, and
     mov word [rw_owed], 0           ;   the clock kept - Go ran at once what
+    cmp byte [rw_undrawn], 0        ; (but a paint that found the buffer in
+    je .hq                          ;   the other format - a move onto the
+    cmp byte [rw_shown], 0          ;   other kind of display - still owes
+    je .hq                          ;   the paused picture, which would
+    mov si, rw_present              ;   otherwise stay white: RB1)
+    call rw_timed
+.hq:
     call OSAPI_GET_TICKS            ;   the menu's own stall had owed before
 .resync:                            ;   the pause (gblog: 30 frames, 133%)
     mov [rw_last], ax
@@ -4028,9 +4035,11 @@ rw_present:
     jne .mono
     cmp byte [rw_pfmt], 4           ; colour: the changed lines, as the
     je .c1                          ;   four planes BLITP reads (a buffer of
-    call rw_dmgfull                 ;   the other format: every line again)
+    call rw_renderw                 ;   the other format: every line again)
+    jmp short .c2
 .c1:
     call rw_render
+.c2:
     mov byte [rw_pfmt], 4
     or ax, ax
     jz .none
@@ -4039,9 +4048,11 @@ rw_present:
 .mono:
     cmp byte [rw_pfmt], 1           ; the buffer held the other format:
     je .m1                          ;   every line again
-    call rw_dmgfull
+    call rw_renderw
+    jmp short .m3
 .m1:
     call rw_render                  ; AX = the lines that changed
+.m3:
     mov byte [rw_pfmt], 1
     or ax, ax
     jnz .m2
@@ -4135,8 +4146,9 @@ rw_blit:
     push ds                         ; (ES as it came back before the frame
     pop es                          ;   had a segment of its own)
     ret
-.white:
-    jmp rw_fillwhite
+.white:                             ; the buffer is the other format: the
+    mov byte [rw_undrawn], 1        ;   worker's next draw puts it up whole,
+    jmp rw_fillwhite                ;   paused too (rw_worker's .held)
 
 ; rw_dither - [rw_fseg]'s frame as one bit a pixel, 1 = lit: shade 0 all
 ; lit, 1 a quarter dark, 2 half (a checkerboard), 3 all dark - a 2x2 ordered
@@ -4187,6 +4199,30 @@ rw_dither:
     cmp dl, RW_CONT_H
     jb .row
     pop ds
+    ret
+
+; rw_renderw - rw_render, and EVERY line marked changed: the buffer [rw_pseg]
+; held the other format, so a line whose pixels did not move still has to be
+; converted and put up. RDG_DFULL alone composes every line but marks only
+; the ones whose pixels DIFFER from the last frame's - a status bar that
+; never changes was never put up again after a move onto the other kind of
+; display (the extended-desktop audit's RB1). AX = 144
+rw_renderw:
+    call rw_dmgfull
+    call rw_render
+    push es
+    push di
+    push cx
+    push ds
+    pop es
+    mov di, rw_chg
+    mov cx, 144 / 2
+    mov ax, 0101h
+    rep stosw
+    pop cx
+    pop di
+    pop es
+    mov ax, 144
     ret
 
 ; rw_dchg - DL = a line: ZF = 0 if the last rdg_renderd changed it. Any DS
@@ -5052,6 +5088,7 @@ rw_jdtab:                               ; (rw_jdoff's, from rdgcore.inc)
     RDGC_JDTAB
 
 %include "os88alt.inc"
+%include "os88fsxw.inc"             ; fsxw_pick: the full-screen target (53.1.2.1)
 %include "os88pit.inc"
 %include "rwlog.inc"
 %include "rwbank.inc"
