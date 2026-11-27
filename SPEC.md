@@ -253426,14 +253426,14 @@ leaves the slot free for `PCIETHER.DRV`). What the row's builds add is the words
 `DRVE_CLASS`, `Class already in use`, in place of `DRVE_TWICE`'s
 `Attached twice (bug)` (§51.2.1). Its `SYSTEM.CFG` bit is **11** on every
 build that has the row (§125.8 item 2), so one settings file means the same
-on all three. Its Drivers-page price is `DRVM_PCIETH` = `DRVM_IMG_PCIETH` (35
-half-KB: 17,432 bytes with its bss, the UDP verbs of §72.24 included) + `DRVM_RT_PCIETH` (23: `rt_claim`'s
+on all three. Its Drivers-page price is `DRVM_PCIETH` = `DRVM_IMG_PCIETH` (34
+half-KB: 17,233 bytes with its bss, the UDP verbs of §72.24 included - 17,432 until driver size pass 2 sized them) + `DRVM_RT_PCIETH` (23: `rt_claim`'s
 ring, slack, overrun and transmit buffer, `RT_CLAIM` = 11,280 bytes, held
 from attach to detach) + `DRVM_SK_PCIETH` (21: the socket pool at the
 **middle** rung, because `sk_cardcap` holds a rung to the 8KB ring less
-`SK_RINGSLK` and `SK_RXMAX` never fits) = **79 half-KB, 40 KB** — against
+`SK_RINGSLK` and `SK_RXMAX` never fits) = **78 half-KB, 39 KB** — against
 `ETHER.DRV`'s 68. The two are alternatives, so the big builds' `DRVC_NET`
-ceiling is the larger and not their sum: `DRVM_CEIL_NET_PCI` = 40, which every
+ceiling is the larger and not their sum: `DRVM_CEIL_NET_PCI` = 39 (40 until driver size pass 2), which every
 `DOS.O88` quotes (the shipped one and kern_mega's `-DDOS_MEGA` copy), while
 `DRVM_CEIL_NET` is 34 (35 with §72.24's UDP before driver size pass 1) for kern_small, which has no PCI row and no DOS
 (§51.12.1; `tests/unit/t_drvmem.py` re-derives every term from

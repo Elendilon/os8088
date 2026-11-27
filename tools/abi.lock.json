@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "a8f72a915b39c66209a9e4ebd7f3ff2809b98c8e3943c31058e8970f4af37b99",
+  "fingerprint": "c2262cf856aa1c0756df812f36e8ec251ed44afbbe49b6f25b3995149710bd54",
   "version": 14
  },
  "HD_ABI_VER": {
@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "78d9a6aeaf42b14a7e9ff44e3a9493639ab52ecd4166769ac38ceda37300db9a",
+  "fingerprint": "b3dee7e8aea9c5b4d52affdb03eaaf41f075bc84c2ec54e56dee4fa41579f2cc",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2491,6 +2491,20 @@
    "guard": "VX_ABI_VER",
    "reason": "VXV_INFO (0x44): additive verb for the wide Display page, like VXV_PM; an image or kernel from before it cannot be broken by it, so VX_ABI_VER stays 6",
    "to": 6
+  },
+  {
+   "fingerprint": "b3dee7e8aea9c5b4d52affdb03eaaf41f075bc84c2ec54e56dee4fa41579f2cc",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "PCIETHER.DRV sized by driver size pass 2 (17,432 -> 17,233): DRVM_CEIL_NET_PCI 40 -> 39, a caption ceiling DOS.O88 quotes. No cell moved, no DRV_VER bump (the driver size pass 1 precedent, SPEC.md 72.4.3)",
+   "to": 13
+  },
+  {
+   "fingerprint": "c2262cf856aa1c0756df812f36e8ec251ed44afbbe49b6f25b3995149710bd54",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "PCIETHER.DRV sized by driver size pass 2 (17,432 -> 17,233): DRVM_CEIL_NET_PCI 40 -> 39, a caption ceiling DOS.O88 quotes. No cell moved, no DRV_VER bump (the driver size pass 1 precedent, SPEC.md 72.4.3)",
+   "to": 14
   }
  ]
 }
