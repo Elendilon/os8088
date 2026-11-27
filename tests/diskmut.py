@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Directory mutations load DISKOPS before changing the caller's B:/CASE.
+"""Directory mutations on the caller's B:/CASE (SPEC.md 18.5.3).
 
 The public API bench does Rename, New Folder, empty RMDIR and recursive
-RMDIR. Host FAT reads verify their actual effects. Missing/mismatched
-DISKOPS.DRV must return FERR_IO with BOTH floppy images byte-identical.
+RMDIR. Host FAT reads verify their actual effects. Rename, New Folder and
+the empty RMDIR are RESIDENT on kern_big: they must succeed with
+DISKOPS.DRV missing or mismatched too. The recursive RMDIR is the module's:
+missing/mismatched DISKOPS.DRV must return FERR_IO with BOTH floppy images
+byte-identical to what they were before that call.
 Every call records CF/AX, non-AX registers, instance HERE and stack balance;
 global mount/CWD and the module's acquired-hold drop are checked too.
 
@@ -80,7 +83,6 @@ def main(argv=None):
                 pkg = os88marty.Pkg(m, win, image=len(rawbin), sym=S)
                 flush = os88flush.Flush(marty=m)
                 volume = flush.volume(1)
-                before_b = bytes(volume.img)
                 before_a = bytes(flush.volume(0).img)
                 folder = next(e for e in volume.listdir() if e.name == "CASE")
                 cwd = folder.cluster
@@ -96,6 +98,9 @@ def main(argv=None):
 
                 require(disarmed(), "DISKOPS is already live before the first mutation")
                 for key, command, name in COMMANDS:
+                    resident = command != b"t"      # SPEC.md 18.5.3
+                    ok = case == "success" or resident
+                    before_b = bytes(flush.volume(1).img)
                     old = pkg.byte(0)
                     ui.press(key, need=True)
                     ui._wait(lambda: pkg.byte(0) == (old + 1) & 0xff,
@@ -112,8 +117,8 @@ def main(argv=None):
                              rawbin.index(name), 0xd345, 0xc234, 0xb123),
                             "%s %s clobbered a non-AX register: %r" % (case, command, regs))
                     require(u16(record, 2) == u16(record, 4), "public mutation unbalanced SP")
-                    expected_error = 0 if case == "success" else eq["FERR_IO"]
-                    require(ax == expected_error and flags & 1 == (case != "success"),
+                    expected_error = 0 if ok else eq["FERR_IO"]
+                    require(ax == expected_error and flags & 1 == (not ok),
                             "%s %s returned AX=%04x CF=%d" % (case, command, ax, flags & 1))
                     require((u16(record, 8), u16(record, 10), record[12], record[13]) ==
                             (cwd, cwd, 1, 1), "instance CWD/volume changed during module loading")
@@ -125,7 +130,7 @@ def main(argv=None):
                     volume = flush.volume(1)
                     require(bytes(flush.volume(0).img) == before_a,
                             "directory mutation changed boot volume A")
-                    if case != "success":
+                    if not ok:
                         require(bytes(volume.img) == before_b,
                                 "%s refusal changed target-volume metadata/data" % case)
                     else:
@@ -154,7 +159,8 @@ def main(argv=None):
                 subprocess.run([sys.executable, str(ROOT / "tools/os88disk.py"),
                                 "--verify", str(saved)], check=True)
                 ui.close(win)
-    print("PASS directory mutation success and missing/mismatched module refusal")
+    print("PASS resident directory mutations with and without DISKOPS, "
+          "and the module tree's missing/mismatched refusal")
 
 
 if __name__ == "__main__":

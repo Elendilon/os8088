@@ -1777,7 +1777,7 @@ kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
 finished. Both builds carry `CTRL.DRV`, the Control Panel (§31),
 `FORMAT.DRV`, the floppy formatter (§18.96), `DISKOPS.DRV`, the disk cloner
-and directory-mutation bodies (§18.99, §18.5.3), `SERIAL.DRV`, the serial
+and the recursive folder removal (§18.99, §18.5.3), `SERIAL.DRV`, the serial
 service (§9.15), and `KEYBOARD.DRV`, optional input layouts and CP850 glyphs
 (§9.16). `kern_big` also carries `HIBER.DRV` (§87), the optional
 `DOCK.DRV`, advanced Dock behavior (§30.5), `EXTD.DRV`, the extended
@@ -5639,7 +5639,7 @@ VIEW_KB       equ 1          ; a listing claim's floor (2, fixed, on
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19); and `dsk_ncopy`, the **counted DS:SI→DS:DI byte copy the whole `.cold` segment shares** — `diskw.inc`, `filecp.inc`, `files.inc` and `fdlg.inc` all call it, and it lives here because `disk.inc` is the first `.cold` `%include`, so every site is a backward near reference. It was the same seventeen bytes in four files. (Its NUL string compare, `dsk_streq`, was down to one caller and is written at it since kernel size pass 14.) Not to be confused with a NUL-stopping bounded copy, which answers a different question |
 | `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
 | `kernel/diskops.inc`  | the disk cloner (§18.99): the on-demand `DISKOPS.DRV` — sector-for-sector copy between any two floppy drives or one drive twice, its XMS/heap planner, its own geometry probe and its status-line prompts — prefix `clo_`; the resident half is one word and one thunk, both **`.cold`**/`.text` (§2.6) |
-| `kernel/diskmut.inc` | `DISKOPS.DRV` directory mutation bodies (§18.5.3): New Folder, Rename, empty-folder removal and recursive folder removal; prefix `dmo_`; shared FAT commit/rollback and load dispatch stay resident |
+| `kernel/diskmut.inc` | `DISKOPS.DRV` directory mutation bodies (§18.5.3): recursive folder removal on every kernel, and on `kern_small` alone (`DSKW_DIRMOD`) New Folder, Rename and empty-folder removal too; prefix `dmo_`; shared FAT commit/rollback and load dispatch stay resident |
 | `kernel/hiber.inc`  | hibernate and resume (§87): the on-demand `HIBER.DRV` — the Hibernate window, the image write, the boot-time question, the extent walk, the stub that puts memory back from the text framebuffer and the wake — prefix `hbm_`/`hbs_`; the resident half is the template, the state block, the `.text` thunks a kernel window needs, and in **`.cold`** the boot probe, the greying predicate and the loading thunks (`hb_`/`hbf_`/`hbk_`) |
 | `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21). **`.cold`** (§2.6) |
 | `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22). **`.cold`** (§2.6), with its strings and dispatch tables toggled back to `.text` |
@@ -37802,52 +37802,89 @@ publisher, and the walker that already followed the chain. `kern_dos` refuses
 as before (`KD_BUILD`): its image is at `KD_IMG_KB`'s edge, and raising it is
 a layout decision (`kerndos/kdlayout.inc`).
 
-#### 18.5.3 Directory mutations in the on-demand disk module
+#### 18.5.3 Directory mutations: resident file operations, the tree in the disk module
 
-**Optional-keyboard integration (§9.16):** the private bodies
-for Rename, New Folder and folder removal live in the existing
-`DISKOPS.DRV` (§2.8). Their public register, CF, validation and disk-integrity
-contracts remain those in §18.4–§18.6. File reads, ordinary file writes,
-boot, module loading and the shared FAT/directory commit helpers remain
-available without loading this module. No operation in `mod_need`'s
-transitive cone may move into a module that it loads.
+**The owner's rule (2026-11-26):** the on-demand disk module is for the File
+Manager's UI-sized jobs, not for wrappers round a few bytes of file
+operation. So **Rename, New Folder and empty-folder removal are RESIDENT**
+(`diskw.inc`'s `dskw_nbody`, `dskw_mkbody`, `dskw_rmbody`) on `kern_big`,
+`kern_emu` and `kern_mega`, and `OSAPI_FILE_RENAME`, `OSAPI_FILE_MKDIR` and
+`OSAPI_FILE_RMDIR` with AL = 0 answer without loading anything. That is what
+DOS's 17h/56h, 39h and 3Ah reach (§96), and they used to fail under a
+full-screen DOS program whose arena had taken the heap the 11KB module needed
+(`dosfcbwr`, FERR_IO). #396 (§9.16) had moved all four bodies into
+`DISKOPS.DRV` to pay for the keyboard hooks; this undoes the three.
 
-A directory mutation loads the module on the UI task before making changes.
-The system disk must therefore be available when first invoking these
-commands. The loader preserves/restores the caller's mounted target volume;
-loading must not redirect a mutation to the system disk. **The mount gate is
-tested BEFORE the module is loaded**: `dskw_dircall` refuses `[dsk_mntok]` ≠
-1 with CF=1, AX = `FERR_NODISK` (§18.4's gate answer) and loads nothing,
-because a shut gate is exactly the state in which `mod_need`'s
-`drv_vol_bank` banks the BOOT volume's root (§51.5.2.1: a failed mount is
-not banked), so the load would open the gate there and the verb would run on the
-system disk. The module's own gate stays, for the state after a load. A
-missing or mismatched module refuses through the existing file-error path before any
-metadata is modified. It must never report success or partially rename,
-create or remove a directory on a load refusal.
+**What stays in `DISKOPS.DRV` (`diskmut.inc`, prefix `dmo_`):**
+
+- **The recursive folder removal** (`OSAPI_FILE_RMDIR` AL ≠ 0,
+  `dskw_rmtree`): the File Manager's folder Delete, a Cut's second half and
+  WIN16's Delete Group. 296 bytes on `kern_big`, 412 on `kern_mega`, and with
+  it resident `KERNEL.SYS` takes a 167th packed sector, which costs the
+  360KB and 720KB system disks an int 13h call at boot (`t_blobruns`).
+- **On `kern_small`, all four** (`DSKW_DIRMOD`, `kernel.asm`): the 128KB
+  machine's heap rung is locked (guard 1b) and the three bodies are 250
+  bytes of `.cold` there against 136 left in the rung (468 with the tree).
+  `kern_small` is byte-identical to the split it had; DOS does not ship on
+  its disks.
+
+**Measured cost of the three resident bodies (`.cold` symbol spans, bytes):**
+
+| | `kern_big`/`kern_emu` | `kern_mega` | `kern_small` (not taken) |
+|---|---:|---:|---:|
+| New Folder (`dskw_mkbody`) | 62 | 62 | 58 |
+| Rename (`dskw_nbody`, less its thunk's 3) | 78 | 83 | 67 |
+| empty rmdir (`dskw_rmbody`, `_n83`, `dskw_fdir`, `dskw_isempty`, `dskw_scan1`, the AL split) | 132 | 151 | 125 |
+| `dskw_dir_mkclus_f` gone | −4 | −4 | |
+| `dskw_dircall`'s media check (§18.9.1.3) | +7 | +7 | |
+| a folder Copy no longer loads the module (`fcp_step`) | +7 | +7 | |
+| **total `.cold`** | **+282** | **+306** | |
+
+`kern_mega`'s `.cold` is above 1MB, so its conventional `MEGA_RESIDENT` does
+not move. `DISKOPS.DRV` is 265 bytes smaller on `kern_big`, 270 on
+`kern_mega`.
+
+**The module path (the tree; all four on `kern_small`).** Their public
+register, CF, validation and disk-integrity contracts remain those in
+§18.4–§18.6. A mutation in the module loads it on the UI task before making
+changes, so the system disk must be available when one is first invoked.
+The loader preserves/restores the caller's mounted target volume; loading
+must not redirect a mutation to the system disk. **The mount gate is tested
+BEFORE the module is loaded**: `dskw_dircall` refuses `[dsk_mntok]` ≠ 1 with
+CF=1, AX = `FERR_NODISK` (§18.4's gate answer) and loads nothing, because a
+shut gate is exactly the state in which `mod_need`'s `drv_vol_bank` banks the
+BOOT volume's root (§51.5.2.1: a failed mount is not banked), so the load
+would open the gate there and the verb would run on the system disk. Where
+§18.9.1.3's media check is built (every kernel but `kern_small`),
+`dskw_dircall` runs it next, through `dskw_wck`, exactly as the resident
+bodies do through `dskw_wrp`/`dskw_wrap7` - a swapped floppy refuses before
+the module loads. The module's own gate stays, for the state after a load. A
+missing or mismatched module refuses through the existing file-error path
+(FERR_IO) before any metadata is modified. It must never report success or
+partially rename, create or remove a directory on a load refusal.
 
 Module code reaches the shared resident helpers through documented private
 gates and preserves their segment/register contracts. No paint callback or
 IRQ loads it. The operation releases its module claim when finished, using
 the existing disk-module cache/drop policy; no new default boot claim or
-permanent scratch buffer is permitted. This split pays for the keyboard
-hooks with measured permanent-byte savings on every kernel. Allocation
-rounding alone is insufficient evidence for the no-growth requirement.
+permanent scratch buffer is permitted. No operation in `mod_need`'s
+transitive cone may move into a module that it loads.
 
-**A folder paste (§22.3) takes the module's hold BEFORE its copy buffer.**
-`fcp_claim` sizes the buffer from the largest free run, up to 64KB, and
+**A folder paste (§22.3) that will need the module takes its hold BEFORE its
+copy buffer** - a folder Cut (its rmtree) on every kernel, and on
+`kern_small` any folder paste (its mkdirs). `fcp_claim` sizes the buffer from
+the largest free run, up to 64KB, and
 counts every cache as free (§22.5), so a buffer claimed first can take the
 room the module needs and shed a kept image - on a 128KB machine every
 mkdir of the walk would then refuse `FERR_IO`. So `fcp_step`, when the entry
-is a folder, asks `mod_live` and `clo_need`s the image before `fcp_claim`,
+is such a folder, asks `mod_live` and `clo_need`s the image before `fcp_claim`,
 recording in `fcp_dhold` whether the hold is its own (the image was not
 LIVE). It is held across the overwrite question, like the buffer, and
 `fcp_stop` - every end of the operation, the stop a closed window's
 `.pastegone` sends included - drops only its own hold, through `fm_cldrop`,
 so a clone armed meanwhile keeps the image it now owns. A load refused at
-that point refuses nothing: each mkdir still tries its own load. Inside the
-hold each mkdir, rename and rmtree finds the image LIVE and neither reloads
-nor drops it.
+that point refuses nothing: each verb still tries its own load. Inside the
+hold each module verb finds the image LIVE and neither reloads nor drops it.
 
 ### 18.6 `dskw_rmdir` — removing an empty subdirectory
 
@@ -255671,9 +255708,19 @@ assumes the machine boots and asks what a driver made of its hardware.
    carried this way runs against the disk's drivers, not its own disk's -
    Sound Debug beside the shipped `SOUND.DRV` says it has no detail (rule 2),
    and Input Check beside `-DSNDDIAG`'s reads a boot that driver took part in -
-   so the tool's own disk stays the one to send. **The pattern holds until the
-   360KB disks run out** (29 and 30 clusters free with three tools), and is
-   then re-assessed, not trimmed.
+   so the tool's own disk stays the one to send. **A debug disk is a boot
+   disk, not a system disk** (the owner, 2026-11-26, when the 360KB sound
+   disk ran out at 15 clusters free against its two reports' ~24): it keeps
+   every driver that drives hardware and every OS tool, and leaves out what
+   serves a desktop somebody lives on - `SAVER.DRV` (the kernel's blanker is
+   the fallback, §79.1), `HIBER.DRV`, `RAMDISK.DRV` and its page
+   `RAMPAGE.DRV`, `MEDIA\OS8088.GIF`, and the system `README.TXT`, whose
+   place a short `README.TXT` of the debug disks' own takes
+   (`apps/snddiag/README.TXT`, shared by both families; the Makefile's `$(DIAGDOC)` and
+   `$(DIAGDROPDRV)`, whose guard refuses a drop that matches nothing). The
+   360KB pair then has 47 and 49 clusters free: one boot's reports fit with
+   room, a second boot's do not always, and a disk that fills says so in its
+   own report line.
 7. **A debug disk follows its driver.** A probe added to the driver is a row
    added to the record and a line added to a page in the same change; the
    record carries a version byte (`SDG_VER`) for a program reading an older

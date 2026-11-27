@@ -483,7 +483,7 @@ dskw_delete_x:
 ; clobbers: AX (the output), CF
 ; -----------------------------------------------------------------------------
 dskw_rename_x:
-%ifndef KD_BUILD
+%ifdef DSKW_DIRMOD
     mov ax, CLV_RENAME
     jmp dskw_dircall
 %else
@@ -742,7 +742,7 @@ dwf_dskw_vstat:                 ; THE FAR ENTRY IS THE BODY (SPEC.md 2.6.1):
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
 dskw_mkdir_x:
-%ifndef KD_BUILD
+%ifdef DSKW_DIRMOD
     mov ax, CLV_MKDIR
     jmp dskw_dircall
 %else
@@ -869,7 +869,7 @@ dws_gate:
 ; could match a name that is not in this directory at all.
 ; -----------------------------------------------------------------------------
 dskw_mkbody:
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
 %ifdef OS88_REDIR               ; SPEC.md 62.9.2.3: mkdir's
     mov ax, FSV_MKDIR
 %endif                          ; OS88_REDIR
@@ -1179,7 +1179,7 @@ dskw_rmdir:                     ; dwf_dskw_rmany spells it itself (pass 17)
 ; inside the cluster we are about to free, so the moment it is gone nothing
 ; on the volume names them any more - there is no fsck answer to that.
 ; -----------------------------------------------------------------------------
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
 dskw_rmbody:
 %ifdef OS88_REDIR               ; SPEC.md 62.9.2.3: rmdir's
     mov ax, FSV_RMDIR           ; EMPTINESS is the driver's test, exactly as
@@ -1191,7 +1191,7 @@ dskw_rmbody:
                                 ; the target
 %endif
 dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
                                 ; filled - what dskw_rmtree calls, because it
                                 ; works from raw 11-byte names it read off the
                                 ; disk rather than from display names
@@ -1225,7 +1225,7 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
 ;      corruption - and a walk we refuse is cheaper than one we bound
 ; clobbers: as dskw_find
 ; -----------------------------------------------------------------------------
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
 dskw_fdir:
     call dskw_find
     jc .out
@@ -1338,9 +1338,9 @@ DSKW_RT_MAX equ 4096            ; iterations: one per entry removed or level
                                 ; callers outside itself are `files.inc` and
                                 ; `filecp.inc`, neither of which is in a
                                 ; kerndos root
-dskw_rmtree:
-    mov ax, CLV_RMTREE
-    jmp dskw_dircall
+dskw_rmtree:                    ; the TREE stays in DISKOPS.DRV on every
+    mov ax, CLV_RMTREE          ; kernel (SPEC.md 18.5.3): it is the file
+    jmp dskw_dircall            ; manager's folder Delete, 296 bytes
 
 %endif                          ; KD_BUILD - and `dskw_clok` below is NOT in the
                                 ; band: `dskw_rmdir` asks it too (the header
@@ -1459,7 +1459,7 @@ dskw_walk32:
                                 ; why the band stops here: `dskw_rmdir` calls
                                 ; it to refuse a populated directory, which is
                                 ; exactly what AH=3Ah is
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
 dskw_isempty:
     push bx
     push cx
@@ -1501,7 +1501,7 @@ dskw_isempty:
 ; name like '.XT     TXT', but a foreign disk may carry one, and this module
 ; trusts nothing it reads (SPEC.md 18.6) - so such an entry is live.
 ; -----------------------------------------------------------------------------
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
 dskw_scan1:
     call dsk_dirw_start_x
 .sector:
@@ -3272,7 +3272,7 @@ dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
 ; and SPEC.md 18.4 for why replace and delete may not do the same.
 ; -----------------------------------------------------------------------------
 dskw_nbody:
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
     call dskw_mounted           ; returns only when there is a volume
 %ifdef OS88_REDIR               ; SPEC.md 62.9.2.3: rename's
     jne .fatn
@@ -3290,7 +3290,7 @@ dskw_nbody:
     mov ax, FERR_NAME
     stc
     ret
-%ifdef KD_BUILD
+%ifndef DSKW_DIRMOD
 .named:
     push si
     mov si, dskw_n83            ; keep it: dskw_find works out of dskw_n83,
@@ -7968,18 +7968,29 @@ dwf_dskw_wat_no:    stc         ; every caller tests CF (SPEC.md 18.4.7.4).
 ; thunk: both bodies are already cold, so branching here costs one far entry
 ; and one `.text` thunk instead of two of each (SPEC.md 18.6).
 %ifndef KD_BUILD            ; ...and AL=1 is the tree arm, gated with it
+%ifndef DSKW_DIRMOD             ; the empty folder is the RESIDENT body,
+dwf_dskw_rmany:         or  al, al              ; the tree DISKOPS.DRV's
+                    jnz .tree                   ; (SPEC.md 18.5.3)
+                    mov ax, dskw_rmbody
+                    call dskw_wrap7
+                    retf
+.tree:              mov ax, CLV_RMTREE
+%else                           ; DSKW_DIRMOD: both in DISKOPS.DRV
 dwf_dskw_rmany:         or al, al
                     mov ax, CLV_RMDIR
                     jz .go
                     mov ax, CLV_RMTREE
+%endif                          ; DSKW_DIRMOD
 .go:                call dskw_dircall
                     retf
 %endif                      ; KD_BUILD - the file manager is the only caller
                             ; and no kerndos root has one
 
 %ifndef KD_BUILD
-; Directory mutation boundary (SPEC.md 18.5.3). Only a new hold is dropped:
-; Compress calls Rename from inside this same image and must retain its code.
+; Directory mutation boundary (SPEC.md 18.5.3): the verbs whose bodies are in
+; DISKOPS.DRV - the tree everywhere, and on kern_small (DSKW_DIRMOD) New
+; Folder, Rename and the empty folder too. Only a new hold is dropped: Compress
+; calls Rename from inside this same image and must retain its code.
 ; mod_need/clo_need read and restore the target mount before any verb executes.
 dskw_dircall:
     push bx
@@ -7994,6 +8005,12 @@ dskw_dircall:
                                 ; volume's root, and the load would leave
                                 ; the verb standing there with the gate open
     mov dl, al
+%ifndef KERN_SMALL
+    mov ax, .run                ; ...and SPEC.md 18.9.1.3's media check, as
+    call dskw_wck               ; every resident write body has it: a swapped
+    jmp dskw_wrp.pop            ; floppy refuses before the module loads
+.run:                           ; (dskw_wck keeps DL, the verb)
+%endif
     mov al, MOD_DISKOPS
     call mod_live
     pushf                       ; CF = 1: this operation acquires the hold
@@ -8013,15 +8030,21 @@ dskw_dircall:
 .kept:
     pop ax
     popf
+%ifndef KERN_SMALL
+    ret                         ; to dskw_wck's caller above
+%else
     jmp dskw_wrp.pop            ; same seven saved registers in the same order
+%endif
 .nodisk:
     mov ax, FERR_NODISK         ; dskw_gate's own answer (SPEC.md 18.5.3):
     stc                         ; nothing is held yet, so nothing is dropped
     jmp dskw_wrp.pop
 
+%ifdef DSKW_DIRMOD
 dskw_dir_mkclus_f:              ; mkclus's BP is its near cold callback
     call dskw_mkclus
     retf
+%endif
 %ifdef OS88_REDIR
 dskw_dir_fsop_f:                ; fsop's BP is its FSV_* verb
     call dskw_fsop

@@ -5,7 +5,9 @@
 ; first thing it did, and it is a collection now: the disk cloner and Write Img
 ; (SPEC.md 18.99, prefix `clo_`), and the compressor and Uncompress To...
 ; that ride in the same image (compress.inc, prefix `cmz_`, SPEC.md 20.15.3),
-; plus directory mutations (diskmut.inc, prefix `dmo_`, SPEC.md 18.5.3).
+; plus the recursive folder removal - and on kern_small (DSKW_DIRMOD) New
+; Folder, Rename and the empty folder too (diskmut.inc, prefix `dmo_`, SPEC.md
+; 18.5.3).
 ;
 ; The disk cloner (SPEC.md 18.99), prefix `clo_`. It copies LBA 0 to
 ; LBA N-1 from one floppy to another - or from one floppy to a second disk in
@@ -106,13 +108,18 @@ CLV_UNMNTW   equ 9              ; Disk > Unmount Image: the image the acting
                                 ; window is SHOWING, off [fm_vp]
 
 %ifdef OS88_IMG
-CLV_MKDIR    equ 10             ; private mutation block follows image verbs
+CLV_DIRV     equ 10             ; private mutation block follows image verbs
 %else
-CLV_MKDIR    equ 6              ; ...or the six common clone verbs
+CLV_DIRV     equ 6              ; ...or the six common clone verbs
 %endif
-CLV_RENAME   equ CLV_MKDIR + 1
-CLV_RMDIR    equ CLV_MKDIR + 2
-CLV_RMTREE   equ CLV_MKDIR + 3
+%ifdef DSKW_DIRMOD              ; kern_small: all four (SPEC.md 18.5.3)
+CLV_MKDIR    equ CLV_DIRV
+CLV_RENAME   equ CLV_DIRV + 1
+CLV_RMDIR    equ CLV_DIRV + 2
+CLV_RMTREE   equ CLV_DIRV + 3
+%else                           ; ...elsewhere the tree alone
+CLV_RMTREE   equ CLV_DIRV
+%endif
 
 ; --- the job block, at offset 0 of the claim (SPEC.md 18.99.1) ---------------
 CL_SRC       equ 0              ; db: the source volume index
@@ -279,7 +286,7 @@ modl_e_cmz:     call cmz_verb   ; CF and AX are the answer, and `retf` leaves
 ; property that has to be checked when another one is added, not assumed.
 ; -----------------------------------------------------------------------------
 clo_disp_x:
-    cmp dl, CLV_MKDIR
+    cmp dl, CLV_DIRV
     jae dmo_dispatch             ; these verbs own no clone/join state
 %ifdef KERN_BIG
     cmp word [clo_seg], 0       ; Uncompress To... (SPEC.md 22.23.6) rides the

@@ -1009,7 +1009,7 @@ FAST = [
         needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
-               "build/boothd.bin", "build/kernel.sys", "build/diskops.drv")),
+               "build/boothd.bin", "build/kernel.sys")),
     Row("xtmp3move", "soak", py("tests/xtmp3xt.py", "--leg", "std",
                                 "--move"), 100.0,
         "SPEC.md 121.10.1 (NO-PINNING): XTMP3's claims MOVE. xtmp3xt's std "
@@ -1028,7 +1028,7 @@ FAST = [
         needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
-               "build/boothd.bin", "build/kernel.sys", "build/diskops.drv")),
+               "build/boothd.bin", "build/kernel.sys")),
     Row("romtool", "fast", py("tools/os88rom.py", "--selfcheck"), 0.3,
         "docs/plans/ROM-PLAN.md 1.3: the ROM image builder re-derives its own "
         "invariants - 55 AA and a 32KB declaration (40KB would send the "
@@ -9257,10 +9257,12 @@ SOAK = [
         wants=("build/mega.img", "build/kbdlayoutreal.img", "build/kbdreal.bin")),
     Row("diskmut", "soak", py("tests/diskmut.py"), 25.0,
         "SPEC.md 18.5.3: Rename/New Folder/empty removal/recursive removal "
-        "through actual public APIs on a B: subdirectory. Success, absent "
-        "and mismatched DISKOPS modules preserve registers, mount/CWD and "
-        "write gate; independent FAT fsck checks success, refusal must leave "
-        "both disk images byte-identical. 20.86s measured across twelve cases.",
+        "through actual public APIs on a B: subdirectory. Rename, New Folder "
+        "and empty removal are RESIDENT: they must succeed with DISKOPS.DRV "
+        "present, absent and mismatched; the recursive removal (the module's) "
+        "succeeds with it and refuses FERR_IO without, leaving both disk "
+        "images byte-identical. Registers, mount/CWD and write gate kept; "
+        "independent FAT fsck after each case. 20.86s measured across twelve cases.",
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/diskmut.img", "build/diskmut.bin")),
     Row("keymap", "soak", py("tests/keymap.py"), 1.0,

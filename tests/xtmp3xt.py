@@ -9,8 +9,7 @@ THE WHOLE PLAYER, NOT A PART. The XT track timed GRANULE alone and the STD
 track a bench; this is the SHIPPED package (build/xtmp3.o88 with its real
 FRONT and XT parts) on os8088_xt_vga_hdd_sb - an IBM 5160, 8088 at 4.77 MHz,
 640 KB, a VGA, an XT-IDE fixed disk and a Sound Blaster DSP 2.01 - booted
-off a VHD that holds the system, SOUND.DRV, DISKOPS.DRV (the
-finished file's rename, SPEC.md 18.5.3), XTMP3.O88 and one fixture.
+off a VHD that holds the system, SOUND.DRV, XTMP3.O88 and one fixture.
 
 THE INSTRUMENT IS THE GUEST'S CYCLE COUNTER, two ways at once. The machine
 is driven by `advance` in steps of a pseudo-random 20,000 to 40,000 cycles
@@ -255,11 +254,6 @@ class Rig(object):
              "--vbr", os88build.at("build/boothd.bin"),
              "--mbr", os88build.at("build/mbr.bin"),
              "--file", "XTMP3.O88=" + os88build.at("build/xtmp3.o88"),
-             # the finished file's RENAME (.TMP -> .WAV) is a directory
-             # mutation, and its body lives in DISKOPS.DRV, loaded off the
-             # system volume on first use (SPEC.md 18.5.3): without it
-             # every conversion ends "Cannot name the file"
-             "--file", "DISKOPS.DRV=" + os88build.at("build/diskops.drv"),
              "--file", "%s=%s" % (fixture, os.path.join(FIX, fixture))]
             + (["--file", "SOUND.DRV=" + os88build.at("build/sound.drv")]
                if sound else []),

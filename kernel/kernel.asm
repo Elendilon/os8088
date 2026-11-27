@@ -1050,6 +1050,16 @@ ksg_%1_%2:
   %define OS88_IMG 1
 %endif
 
+; ...and SPEC.md 18.5.3's DIRECTORY MUTATIONS. Rename, New Folder and folder
+; removal are RESIDENT (diskw.inc) on every kernel but one, so a package - DOS
+; under a full-screen arena above all - reaches OSAPI_FILE_RENAME, _MKDIR and
+; _RMDIR without a module load (the owner, 2026-11-26). kern_small keeps them
+; in DISKOPS.DRV (diskmut.inc) because its heap rung is LOCKED (guard 1b) and
+; the bodies are +468 bytes of `.cold` there against 136 left in the rung.
+%ifdef KERN_SMALL
+  %define DSKW_DIRMOD 1
+%endif
+
 ; ...and SPEC.md 37.90's RTC LADDER, for a reason that is about the HARDWARE
 ; and not about the bytes (SPEC.md 37.0.1). All four rungs are chips a 128KB
 ; machine cannot have:

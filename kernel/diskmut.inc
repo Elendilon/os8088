@@ -1,5 +1,7 @@
 ; =============================================================================
-; Directory mutations in DISKOPS.DRV (SPEC.md 18.5.3).
+; Directory mutations in DISKOPS.DRV (SPEC.md 18.5.3): the recursive folder
+; removal on every kernel; New Folder, Rename and the empty folder only on
+; kern_small (DSKW_DIRMOD), whose locked heap rung cannot take them resident.
 ; DS is the kernel, CS this image. Shared FAT/commit/rollback helpers remain
 ; cold and are reached through wm_cbd, except the two BP-taking private gates.
 ; The resident dispatcher loads before mutation and releases only its own hold.
@@ -21,7 +23,8 @@ section .modl
   %endif
 %endmacro
 
-; These four verbs are private constants, dispatched before clone state.
+; These verbs are private constants, dispatched before clone state.
+%ifdef DSKW_DIRMOD
 dmo_dispatch:
     sub dl, CLV_MKDIR
     mov bl, dl
@@ -30,6 +33,9 @@ dmo_dispatch:
     jmp [cs:bx+dmo_verbs]
 dmo_verbs:
     dw dmo_mkbody, dmo_nbody, dmo_rmbody, dmo_rtbody
+%else
+dmo_dispatch equ dmo_rtbody     ; the one verb (CLV_RMTREE)
+%endif
 
 ; Gate failures discard exactly one NEAR image return address. Never call
 ; the resident dskw_gate through wm_cbd: its stack escape belongs to .cold.
@@ -73,6 +79,7 @@ dmo_mounted:
 .ret:
     ret
 
+%ifdef DSKW_DIRMOD
 ; Allocate and initialize the new cluster, flush FAT, then commit the entry.
 ; mkclus stays resident because ordinary file writes grow directories too.
 dmo_mkbody:
@@ -118,6 +125,8 @@ dmo_mkbody:
     stc
 .fail:
     ret
+
+%endif ; DSKW_DIRMOD
 
 ; Remove an empty folder only after the same species/emptiness checks.
 ; The resident commit tail is shared with ordinary Delete and truncate.
@@ -421,6 +430,13 @@ dmo_scan1:
 .out:
     ret
 
+%ifndef DSKW_DIRMOD
+dmo_nbody:                      ; Rename is resident: only the tree's
+.badarg:                        ; refusal is here
+    mov ax, FERR_NAME
+    stc
+    ret
+%else
 ; Validate the destination first, refuse protected sources, and change only
 ; the eleven name bytes before using the shared one-sector commit.
 dmo_nbody:
@@ -480,6 +496,8 @@ dmo_nbody:
 
 .protected:
     DMO_TAIL dskw_dbody_n83.protj
+
+%endif ; DSKW_DIRMOD
 
 ; Name buffers remain kernel data: the FAT parsers consume DS:DI.
 dmo_rawn83:

@@ -1011,13 +1011,17 @@ fcp_step:
     stc                         ; below with CF set: .fail is one byte past a
     jnz .jcfail                 ; short jnz's reach from here (size pass 8)
 .copyit:
-    cmp word [fcp_type], 2      ; A FOLDER'S mkdirs (and a Cut's rmtree) run
-    jb .claim                   ; in DISKOPS.DRV (SPEC.md 18.5.3): its image
+%ifndef DSKW_DIRMOD             ; A Cut's rmtree runs in DISKOPS.DRV (SPEC.md
+    cmp byte [fcp_op], FCP_CUT  ; 18.5.3) - and on kern_small a FOLDER'S
+    jne .claim                  ; mkdirs too, Copy or Cut: its image
+%endif
+    cmp word [fcp_type], 2
+    jb .claim
     mov al, MOD_DISKOPS         ; goes in FIRST, so the buffer below is sized
     FCPX mod_live               ; from what it leaves. CF = 1: not live, so
     rcl byte FCV(fcp_dhold), 1  ; the hold is OURS (0 here: fcp_stop clears
     FCPX clo_need               ; it) - and a refusal is no refusal: each
-.claim:                         ; mkdir still tries the load itself
+.claim:                         ; verb still tries the load itself
     call fcp_claim              ; THE COPY BUFFER, CLAIMED ONLY NOW - after the
 .jcfail:
     jc .fail                    ; re-link has had its chance, and before the

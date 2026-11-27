@@ -59,13 +59,14 @@ for each disk in turn.
 
 All three are on the right-click menu of a file as well.
 
-## Folder commands
+## Deleting a folder
 
-**New Folder**, renaming a file or folder, and deleting a folder load this
-module from the system disk before changing anything. Keep the matching
-system disk available, even when working on a folder on another disk.
-If the module is missing or belongs to a different build, the command
-refuses and leaves the attempted change untouched.
+Deleting a folder together with everything in it loads this module from
+the system disk before changing anything, so keep the matching system disk
+available, even when the folder is on another disk. If the module is
+missing or belongs to a different build, the delete refuses and leaves the
+folder untouched. **New Folder** and renaming need no module, except on the
+128KB system disk, where they load it too.
 
 ## Why it is a separate file
 

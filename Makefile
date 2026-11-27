@@ -6124,8 +6124,10 @@ $(BUILD)/snddiag.o88: $(BUILD)/snddiag.bin tools/os88pkg.py $(PKGZSTAMP)
 SDDRV := $(BUILD)/snddiag/sound.drv
 SDDRIVERS = $(if $(filter $(BUILD)/sound.drv,$(DRIVERS)),,$(error \
     the sound debug disk swaps $(BUILD)/sound.drv out of DRIVERS and it is \
-    not there - SPEC.md 127.2))$(filter-out $(BUILD)/sound.drv,$(DRIVERS)) $(SDDRV)
-SDDRIVERS360 = $(filter-out $(BUILD)/sound.drv,$(DRIVERS360)) $(SDDRV)
+    not there - SPEC.md 127.2))$(call DIAGDRV,$(filter-out $(BUILD)/sound.drv,$(DRIVERS))) $(SDDRV)
+SDDRIVERS360 = $(call DIAGDRV,$(filter-out $(BUILD)/sound.drv,$(DRIVERS360))) $(SDDRV)
+IDDRIVERS = $(call DIAGDRV,$(DRIVERS))
+IDDRIVERS360 = $(call DIAGDRV,$(DRIVERS360))
 SDFILES := $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT \
            $(BUILD)/sdcfg/system.cfg AUTOSTRT:$(BUILD)/sdcfg/SNDDIAG.LNK
 # THE OTHER DIAGNOSTICS RIDE EVERY DEBUG DISK, BY HAND (SPEC.md 127.1 rule 6,
@@ -6136,9 +6138,25 @@ SDFILES := $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT \
 # opening at once would compete for the keys one of them is counting. Until
 # they stop fitting the 360KB disk, then re-assess.
 DIAGTOOLS := $(BUILD)/redline.o88 $(BUILD)/snddiag.o88 $(BUILD)/inputchk.o88
+# A DEBUG DISK IS A BOOT DISK, not a system disk (the owner's, 2026-11-26,
+# when the 360KB sound disk ran out: 15 clusters free, its two reports
+# need ~24 - SPEC.md 127.1 rule 6's re-assessment). It keeps the drivers
+# that drive hardware and every OS tool, and leaves out what serves a
+# desktop someone lives on: the screen saver (the kernel's blanker is the
+# fallback, SPEC.md 79.1), hibernation, the RAM disk and its page, the
+# logo picture, and the system README - DIAGDOC, a short one of its own,
+# goes in its place. The guard refuses a drop that matches nothing.
+DIAGDROPDRV := $(BUILD)/saver.drv $(BUILD)/hiber.drv $(BUILD)/ramdisk.drv \
+               $(BUILD)/rampage.drv
+# (in apps/snddiag/ only because a folder of its own under apps/ is a package
+# to the live-media gate; it is both families' and names both)
+DIAGDOC := apps/snddiag/README.TXT
+DIAGDRV = $(if $(filter-out $(filter $(DIAGDROPDRV),$(1)),$(DIAGDROPDRV)),$(error \
+    a debug disk drops $(filter-out $(filter $(DIAGDROPDRV),$(1)),$(DIAGDROPDRV)) \
+    and it is not in the driver list - SPEC.md 127.1),$(filter-out $(DIAGDROPDRV),$(1)))
 SDAPPS := APPS:$(BUILD)/notepad.o88 \
           $(addprefix APPS:,$(filter-out $(BUILD)/snddiag.o88,$(DIAGTOOLS)))
-SDDEPS := $(KERNFILE) $(DRIVERS) $(SDDRV) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+SDDEPS := $(KERNFILE) $(DRIVERS) $(SDDRV) $(SYSAPPS) $(DIAGDOC) $(BUILD)/notepad.o88 \
           $(DIAGTOOLS) \
           $(BUILD)/snddiag.o88 apps/snddiag/SNDDEBUG.TXT $(BUILD)/sdcfg/system.cfg \
           $(BUILD)/sdcfg/SNDDIAG.LNK tools/os88disk.py
@@ -6156,25 +6174,25 @@ $(BUILD)/sdcfg/SNDDIAG.LNK: tools/os88lnk.py | $(BUILD)
 $(DEBUGSND): $(BUILD)/boot.bin $(SDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
-		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(DIAGDOC) \
 		$(SDFILES) $(APPDATAFOLDER)
 
 $(DEBUGSND120): $(BUILD)/boot120.bin $(SDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
-		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(DIAGDOC) \
 		$(SDFILES) $(APPDATAFOLDER)
 
 $(DEBUGSND720): $(BUILD)/boot360.bin $(SDDEPS)
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDDRIVERS) $(SYSAPPSARGS) $(SDAPPS) $(DIAGDOC) \
 		$(SDFILES) $(APPDATAFOLDER)
 
 $(DEBUGSND360): $(BUILD)/boot360.bin $(SDDEPS)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(SDDRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(SDDRIVERS360) $(SYSAPPSARGS) $(SDAPPS) $(DIAGDOC) \
 		$(SDFILES) $(APPDATAFOLDER)
 
 # THE INPUT DEBUG DISK (SPEC.md 127.5): the SHIPPED kernel and drivers - no
@@ -6188,7 +6206,7 @@ IDFILES := $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
            AUTOSTRT:$(BUILD)/idcfg/INPUTCHK.LNK
 IDAPPS := APPS:$(BUILD)/notepad.o88 \
           $(addprefix APPS:,$(filter-out $(BUILD)/inputchk.o88,$(DIAGTOOLS)))
-IDDEPS := $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSDOC) $(SYSLOGO) $(BUILD)/notepad.o88 \
+IDDEPS := $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(DIAGDOC) $(BUILD)/notepad.o88 \
           $(DIAGTOOLS) \
           $(BUILD)/inputchk.o88 apps/inputchk/INPDEBUG.TXT \
           $(BUILD)/idcfg/INPUTCHK.LNK tools/os88disk.py
@@ -6200,25 +6218,25 @@ $(BUILD)/idcfg/INPUTCHK.LNK: tools/os88lnk.py | $(BUILD)
 $(DEBUGINP): $(BUILD)/boot.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDDRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(DIAGDOC) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 $(DEBUGINP120): $(BUILD)/boot120.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDDRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(DIAGDOC) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 $(DEBUGINP720): $(BUILD)/boot360.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDDRIVERS) $(SYSAPPSARGS) $(IDAPPS) $(DIAGDOC) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 $(DEBUGINP360): $(BUILD)/boot360.bin $(IDDEPS)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(IDAPPS) $(SYSDOC) $(SYSLOGOARG) \
+		$(IDDRIVERS360) $(SYSAPPSARGS) $(IDAPPS) $(DIAGDOC) \
 		$(IDFILES) $(APPDATAFOLDER)
 
 .PHONY: debugdisks
@@ -23152,7 +23170,7 @@ $(BUILD)/diskmut.o88: $(BUILD)/diskmut.bin tools/os88pkg.py
 $(BUILD)/diskmut.img: $(BUILD)/diskmut.o88 tests/diskmut/old.txt tests/diskmut/leaf.txt tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 --folder CASE/EMPTY \
 		CASE:$(BUILD)/diskmut.o88 CASE:tests/diskmut/old.txt CASE/TREE/CHILD:tests/diskmut/leaf.txt
-#> [Gate disks] diskmuttest :: directory mutations, target restoration and missing-module refusals
+#> [Gate disks] diskmuttest :: directory mutations, target restoration and the tree's missing-module refusal
 .PHONY: diskmuttest
 diskmuttest: $(BUILD)/diskmut.img
 

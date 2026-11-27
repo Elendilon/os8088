@@ -1543,6 +1543,15 @@ budget reset put the footprint back in front ("Which guard binds" above).
 the exact core and resident baseline for §9.16. `KEYBOARD.DRV` owns its
 translator, layout tables, mutable state and CP850 provider in an optional
 claim; no layout payload is part of the permanent kernel. Directory
-mutations move to the existing disk module (§18.5.3) to pay for the hooks.
+mutations moved to the existing disk module (§18.5.3) to pay for the hooks.
 Final integrated measurements, rather than allocation slack, decide the
 no-growth gate.
+
+**Three of them came back (2026-11-26, the owner's rule):** Rename, New
+Folder and empty-folder removal are resident again on `kern_big`, `kern_emu`
+and `kern_mega` - +282 bytes of `.cold` on big/emu, +306 on mega (above 1MB,
+so `MEGA_RESIDENT` +0) - because a module is for the File Manager's UI-sized
+jobs, not for a few bytes of file operation any package calls. The recursive
+removal stays in the module, and `kern_small` keeps all four there: its heap
+rung is locked and the three would be 250 bytes against 136 left (§18.5.3
+has the per-body table).
