@@ -1542,8 +1542,10 @@ figure beside each in `kernel.asm` is the count it was taken at, kern_big's /
 kern_small's; a target whose CALL sites fall to two on one build takes the
 plain far call there instead, through the `%define` block above the includes
 (`cw_snd_beep` on `kern_small`, `cw_wm_clip_test` on `kern_big`), and three is
-a wash. `ct_cw_font_run` stays at two on `kern_big` because its sites are
-mostly tail jumps, which a far call cannot replace for less.
+a wash. `ct_cw_font_run` went the same way on both builds: its one tail
+jump, `fm_brun`, makes the far call itself (kernel size pass 20 on
+`kern_small`, 21 on `kern_big`), which left `kern_big` one call site, the
+kernel arm's `UI_RUN`, and the trampoline's name is the far call there.
 
 ### 2.6.3 A kernel window's callbacks are `.cold` — no thunk per callback
 
@@ -85066,8 +85068,9 @@ resize, zoom, drag release, whole-desktop repaint or fsx bracket, and on an
 (`OSAPI_WM_DISPLAY`, the drag release) are gated, so one display pays nothing
 there. `EXT_DISPLAY` names display 1's record in line rather than through an
 `EXK` hop, and its path (`wm_disp_now`, `wm_strads`, `wm_disp_rest`) makes
-none - the record pointer is a near copy and `vid_disp_of` is far-called
-through its resident shim `cw_vid_disp_of` - so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far call
+one - the record pointer is a near copy, and `vid_disp_of` is `ext_org_disp`'s
+`EXK` hop (it was the resident shim `cw_vid_disp_of`, then a rare-door word:
+kernel size passes 19 and 21) - so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far call
 `EXT_DISPNOW` already cost it. `OSAPI_WM_DISPLAY` and `OSAPI_FSX_CAPS` on
 an extended desktop go one far frame (~10 bytes of stack) deeper, and are the
 only two that can run on a worker slice. And there is a new failure: Extend can be REFUSED, with a reason,
