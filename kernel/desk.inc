@@ -898,10 +898,11 @@ desk_reflow:
 .a:
     mov al, [di+desk_zslot]
     mov [di+desk_zold], al      ; (the paint's memory)
-    cmp al, DSL_NONE
-    je .an                      ; not shown: nothing to let go of
-    cmp al, [desk_ncell]
-    jae .rel                    ; a cell this screen has not got
+    cmp al, [desk_ncell]        ; a cell this screen has not got - and NOT
+    jae .rel                    ; SHOWN, DSL_NONE being past every
+                                ; [desk_ncell] (<= DESK_CMAX): .rel stores the
+                                ; DSL_NONE it already holds (kernel size pass
+                                ; 21, -4: its own compare)
     cmp al, [di+desk_zpin]
     jne .rel                    ; flowing (DSL_NONE), or displaced
     mov bx, di
@@ -973,12 +974,24 @@ desk_reflow:
 ; -----------------------------------------------------------------------------
 desk_zones_paint_x:
     call kentc_di
+%if DESK_CMAX == 255
+    mov si, -256                ; kern_big: SI's LOW BYTE is the cell, and the
+                                ; loop ends where SI reaches 0 - an `inc` and a
+                                ; `js` for the 16-bit compare 255 cannot make
+                                ; short (kernel size pass 21, -3). Cell 255 is
+                                ; DSL_NONE, which desk_cmark never marks, and
+                                ; its bit is the last of [desk_cdirty]'s 32
+                                ; bytes, so walking it costs one bit test at
+                                ; most. desk_cbit and desk_cell_xy both read
+                                ; AL alone (each zero-extends it)
+%else
     xor si, si
+%endif
 .c:
     mov ax, si
     call desk_cbit
-    cmp byte [bx+desk_cdirty], 0
-    jne .bit
+    cmp [bx+desk_cdirty], bh    ; BH = 0: a cell's byte is cell / 8, below 32
+    jne .bit                    ; (kernel size pass 21: -1 against the imm8)
     or si, 7                    ; a clean BYTE: past its eight cells at once,
     jmp short .n                ; so DESK_CMAX's 255 cost 32 compares idle
 .bit:
@@ -1001,8 +1014,12 @@ desk_zones_paint_x:
     KDOOR wm_paint_dmg
 .n:
     inc si
+%if DESK_CMAX == 255
+    js .c                       ; ...through cell 255, which nothing marks
+%else
     cmp si, DESK_CMAX           ; ...and DSL_NONE is never painted
     jb .c
+%endif
     jmp kretfc_di
 
 ; =============================================================================
@@ -1017,23 +1034,23 @@ desk_zones_paint_x:
 ; -----------------------------------------------------------------------------
 desk_cell_xy:
     push bx
-    push cx
     mov ah, 0                   ; AL is a CELL, a whole byte: zero-extended
     cwd                         ; (AX < 8000h: DX = 0)
     div word [desk_rows]        ; AX = column, DX = row within it
-    mov cx, dx
-    mov bx, DESK_PX
-    mul bx                      ; AX = column * pitch (DX = 0)
-    mov bx, [vid_desk_zx]
-    sub bx, ax                  ; columns run LEFTWARDS from the right edge
-    xchg ax, cx                 ; (CX and BX are popped below)
-    mul word [desk_zstep]
-    add ax, DESK_ZY0
-    xchg ax, dx
-    xchg ax, bx
-    pop cx
+    xchg ax, dx                 ; AL = the row, DX = the column
+    mul byte [desk_zstep]       ; BYTE multiplies, so DX rides through the
+    add ax, DESK_ZY0            ; first and CX is never touched (kernel size
+    xchg ax, dx                 ; pass 21, -5, and faster): a row is below
+    mov bl, DESK_PX             ; [desk_rows] and a pitch below 256, and a
+    mul bl                      ; column is a cell over at least one row - so
+    mov bx, [vid_desk_zx]       ; each operand is a byte and each product a
+    sub bx, ax                  ; word. Columns run LEFTWARDS from the right
+    xchg ax, bx                 ; edge
     pop bx
     ret
+%if DESK_PX > 255 || DESK_ZSTEP > 255 || DESK_ZSTEP_S > 255
+  %error "desk_cell_xy multiplies by the pitch and the step as BYTES"
+%endif
 
 
 ; -----------------------------------------------------------------------------
@@ -1190,9 +1207,13 @@ desk_caprect:
 ; -----------------------------------------------------------------------------
 desk_paint_mask_x:
     push ax
-    push bx
-    push cx
+%ifdef KERN_BIG                 ; kern_small's loop spends AX and CX alone -
+    push bx                     ; desk_draw_zone keeps every register - so it
+%endif                          ; banks those two and pops its own (kernel
+    push cx                     ; size pass 21, -2 there)
+%ifdef KERN_BIG
     push dx
+%endif
     xor cx, cx
 .next:
 %if DESK_NZ > 16
@@ -1220,7 +1241,13 @@ desk_paint_mask_x:
     inc cx
     cmp cl, DESK_NZ
     jb .next
+%ifdef KERN_BIG
     jmp kretfc_dx
+%else
+    pop cx
+    pop ax
+    retf
+%endif
 
 ; -----------------------------------------------------------------------------
 ; desk_dmg_zones - which zones does the damage rect touch?
@@ -1231,7 +1258,9 @@ desk_paint_mask_x:
 ;      to be marked too - per window, by wm_dmg_wins); on kern_big
 ;      desk_zone_clip makes both decisions at the draw. The DAMAGE is not
 ;      grown: folded in, it damaged every window the box reached rather than
-;      the ones over a zone (SPEC.md 11.91). AX clobbered, everything else
+;      the ones over a zone (SPEC.md 11.91). AX clobbered - and on
+;      kern_small SI, wm_zone_r's: its one caller there is wm_paint_dmg, whose
+;      next read of SI follows its own write (.promote) - everything else
 ;      preserved.
 ;
 ; THE MASK IS A DWORD now, zone z at bit 31-z: shortcuts and drives share one
@@ -1262,10 +1291,11 @@ desk_dmg_zones_x:
     push bx
     push cx
     push dx
-    push si
-    call KERNEL_SEG:cw_wm_zone_r    ; ...but is any of it REVEALED?
-    pop si                      ; (`pop` writes no flag)
-    pop dx
+    call KERNEL_SEG:cw_wm_zone_r    ; ...but is any of it REVEALED? It spends
+    pop dx                      ; SI too, which this routine's one kern_small
+                                ; caller (wm_paint_dmg) writes before it next
+                                ; reads it (kernel size pass 21, -2). `pop`
+                                ; writes no flag
     pop cx
     pop bx
     pop ax
@@ -1509,12 +1539,10 @@ desk_zone_redraw:
     push bx
     push cx
     push dx
-    push ax
-    call desk_zs
-    pop ax
-    push ax
-    jc .nonep                   ; not shown: nothing to flip
-    call desk_zone_rect
+    push ax                     ; the zone, for the draw below
+    call desk_zone_xy           ; (desk_zone_rect's two halves, so its CF -
+    jc .nonep                   ; not shown: nothing to flip - is asked with
+    call desk_rect_ax           ; no bank round it: kernel size pass 21, -2)
     call KERNEL_SEG:wm_clip_rect
     jc .full
     jz .nonep
@@ -1902,11 +1930,10 @@ desk_cap:
     add ax, DESK_ZOVER
     xchg ax, bp                 ; BP = the pen, in bits from the band's start
     call desk_issel
-    mov al, 0FFh                ; white...
+    mov ax, 0FFFFh              ; white...
     jne .g
-    inc ax                      ; ...or black, selected
-.g:
-    mov ah, al
+    inc ax                      ; ...or black, selected (a WORD: kernel size
+.g:                             ; pass 21, -1 against `mov ah, al`)
     push es
     push ds
     pop es
@@ -1997,8 +2024,9 @@ DESK_TBSTR  equ 14              ; the widest rect, 100 px, off the byte grid.
 desk_zones_r_x:
     call kentc_bp
     call desk_bpat
-    cmc
-    jnc .ret                    ; Color: CF = 0, nothing done here
+    jc .clr                     ; Color: CF = 0 out, nothing done here (the
+                                ; ring's own `clc`, below: kernel size pass
+                                ; 21, -1 against a `cmc`)
     mov di, 33                  ; THE MASK IS A 33-BIT RING with CF: each
     mov si, wm_cl_ox1           ; step rotates the last zone's verdict in at
     mov al, -1                  ; bit 0 and the next zone's bit out of bit
@@ -2010,8 +2038,8 @@ desk_zones_r_x:
     inc ax                      ; in CF (AH is nobody's); INC and DEC keep CF
     dec di
     jnz .z
+.clr:
     clc                         ; (CF = 0)
-.ret:
     jmp kretfc_bp
 .z:
     jnc .n                      ; not owed
@@ -2084,12 +2112,15 @@ desk_draw_zone:
     mov [desk_zdrv], al
     call desk_zone_xy
     jc .done                    ; not shown: nothing to draw
-    mov [desk_zx], ax
-    mov [desk_zy], dx
+    push dx                     ; the cell's origin, ON THE STACK across the
+    push ax                     ; ground: [desk_zx]/[desk_zy] are kern_big's
+                                ; desk_col and desk_pic's, and here nothing
+                                ; else read them (kernel size pass 21, -11
+                                ; and 4 bytes of kern_small's .bss)
     call desk_rect_ax
     call KERNEL_SEG:cw_thm_desk ; the ground under the cell and the overhang
-    mov cx, [desk_zx]
-    mov dx, [desk_zy]
+    pop cx                      ; CX = the left, DX = the top: the picture's
+    pop dx
     mov bl, [desk_zdrv]
     mov si, [desk_pico]         ; [diskette, 5.25", hard disk] at this height
     call dsk_vol_fixed_x        ; the MEDIUM, not the transport (SPEC.md 18.7.2)
@@ -2263,23 +2294,20 @@ osapi_desk_item_x:
     mov dx, es                  ; DX:CX = the caller's record, which survives
     mov cx, si                  ; the module's load where ES:SI would not
     or al, al
-    jz .pdel
     mov ax, (SC_OP_ADD << 8) | 0xFF ; AL = 0xFF unless the module answers a
-    call sc_modcall             ; zone - and one that cannot be read answers
-    cmp al, 0xFF                ; nothing, having said why
-    je .no
-    jmp short .ok
-.pdel:
-    mov ax, (SC_OP_PDEL << 8) | 0xFF ; THE RECORD ALONE, DX:CX (ABI-BREAK-LIST C10,
+    jnz .pgo                    ; zone - and one that cannot be read answers
+    mov ah, SC_OP_PDEL          ; nothing, having said why. A REMOVE is THE
+.pgo:                           ; RECORD ALONE, DX:CX (ABI-BREAK-LIST C10,
     call sc_modcall             ; kernel size pass 19): CTRL.DRV finds the row
-    or al, al                   ; by it - a zone is reused, and renumbered at
-    jnz .no                     ; boot, so it named nothing the record did not.
-                                ; AL = 0xFF going in: a module that cannot be
-                                ; read (no system disk) answers nothing, and
-                                ; that is a REFUSAL - 0 was "removed", and a
-                                ; Sticky App closed with its row stranded
-                                ; AL = 0 removed; 0xFF is a refusal, or no disk
-                                ; to read the module from
+    cmp al, 0xFF                ; by it - a zone is reused, and renumbered at
+    je .no                      ; boot, so it named nothing the record did not.
+                                ; ONE TEST FOR BOTH VERBS (kernel size pass 21,
+                                ; -10): an add answers its zone or 0xFF, and
+                                ; sc_m_pdel 0 (removed, out of sc_m_del) or
+                                ; 0xFF - a refusal, or no disk to read the
+                                ; module from, which leaves the 0xFF going in.
+                                ; 0 was never the refusal: a Sticky App closed
+                                ; with its row stranded when it was
 .ok:
     CLC_OR_STC .no              ; (kernel size pass 15: OSAPI_DESK_ITEM's
 .out:                           ; answer is CF)
@@ -2367,8 +2395,11 @@ desk_dmgm    resw 1             ; ...a word, with 16 zones or fewer
 %endif
 desk_sel     resb 1             ; selected ZONE index, 0xFF = none
 desk_clkt    resw 1             ; click birth tick (EV_C) of the last zone click
+%ifdef OS88_SHORTCUTS
 desk_zy      resw 1             ; desk_draw_zone: current zone top
-desk_zx      resw 1             ; ...and its left column (SPEC.md 26.1)
+desk_zx      resw 1             ; ...and its left column (SPEC.md 26.1) -
+%endif                          ; kern_big's: kern_small's keeps both on its
+                                ; stack (kernel size pass 21)
 %ifndef KERN_SMALL
 ; --- the SERVICE zone a driver registered (SPEC.md 26.7) ---------------------
 ; The record's three strings are COPIED here at registration rather than read
