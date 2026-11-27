@@ -233410,7 +233410,13 @@ the name (`np_arg`), so Ctrl+S writes back to the note.
   blue (`CLCYAN`) or white. A 1bpp adapter does not read the pen, so the
   papers are white there, and **the Color menu greys every item `(color
   screen)`** (§47), as it does with no note. The pen is reset after the pad's
-  slabs so the include's tag is drawn in the default one.
+  slabs so the include's tag is drawn in the default one. **"1bpp" is the
+  PAD's display** (`sn_monoask`: `OSAPI_WM_DISPLAY`, §39.16.4), asked at every
+  beat - the menu said again when the answer changes - and at every pick, so
+  a pad dragged onto the mono card of an extended desktop greys the menu
+  there and a pad on the colour one offers it, whichever card is primary
+  (the extended-desktop audit of 2026-11-27 found it decided once, from
+  `OSAPI_VIDEO`).
 
 **A press on the pad** acts only on its controls - `+`, the arrow, `<`, `>`
 and a box; the rest of the card only hands the widget the bar, as the
