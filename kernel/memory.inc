@@ -3262,11 +3262,11 @@ mem_cp_step:                    ; the key steps past SI's ORIGINAL base, which
 ; still pass the claim's own base is turned into "do not move it", which both
 ; callers already handle because it is the same answer as "already packed".
 mem_cp_dest:
-    mov di, bx
-    cmp byte [mem_cp_msk], 0
-    je .page
-    sub di, [ss:si+MC_PARA]
-.page:
+    mov ax, [ss:si+MC_PARA]     ; the fill point, less the block's length
+    and ax, [mem_cp_msk]        ; MASKED IN - 0 going up, all of it coming
+    mov di, bx                  ; down - with no branch (kernel size pass 21,
+    sub di, ax                  ; -1: mem_cp_gap's own idiom; AX is this
+.page:                          ; routine's to spend)
     push cx                     ; CX is the walk's largest run. NOT AX: it is
 .pchk:
     mov ax, [ss:si+MC_DMA]      ; the walk's scratch, and the one caller banks
@@ -4518,7 +4518,7 @@ mem_compact:
 
 
     cmp byte [mem_cp_busy], 0
-    jne .none0                  ; a relocation proc that claimed would arrive
+    jne .none                   ; a relocation proc that claimed would arrive
                                 ; here inside the walk it is being driven by,
                                 ; and the walk's own map would move under it
                                 ; (SPEC.md 66.3 rule 3 forbids it; this is what
@@ -4626,10 +4626,10 @@ mem_compact:
     inc byte [mem_parked]       ; ...and it is withdrawn on EVERY path out
     jmp short .plan             ; ...then ask again, with whoever parked now
                                 ; movable
-.none0:                         ; THE PROLOGUE'S REFUSALS land here: .none is
-    jmp short .none             ; past short reach of them, and nothing falls
-                                ; into this spot (two bytes against two
-                                ; five-byte relaxed jccs)
+                                ; (.none0, a `jmp short .none` for the
+                                ; prologue's refusal, stood here: .none is in
+                                ; its short reach again since .end's stores
+                                ; became two words - kernel size pass 21, -2)
 
     ; --- STILL not enough: pack the CEILING instead (SPEC.md 66.4) ----------
     ; The last resort, and it is asked last for the reason every tier here is:
@@ -4693,9 +4693,11 @@ mem_compact:
     ; (it was a routine, mem_cp_end, while it had two callers). AX is free:
     ; kentc_di banked it.
     xor ax, ax
-    mov [mem_parked], al        ; release the workers, if this pass ever asked
-    mov [inst_parkreq], al      ; them to stand (SPEC.md 66.5): withdraw the
-                                ; request and every parked worker resumes
+    mov [mem_parked], ax        ; release the workers, if this pass ever asked
+                                ; them to stand (SPEC.md 66.5): [mem_parked]
+                                ; and [inst_parkreq] AS ONE WORD (the %if at
+                                ; the .bss; kernel size pass 21, -3) - withdraw
+                                ; the request and every parked worker resumes
                                 ; (inst_park_end was this one store behind a
                                 ; far call, size pass 9). UNCONDITIONALLY:
                                 ; inst_park_req, reached from .nowt alone, is
@@ -6962,6 +6964,14 @@ mem_wpin:    resb 1             ; the last plan pinned something ONLY because a
                                 ; worth asking for (SPEC.md 66.5)
 mem_parked:  resb 1             ; ...and this pass has asked, so it owes the
                                 ; withdrawal on every path out
+inst_parkreq: resb 1            ; SPEC.md 66.5: the compactor is asking every
+                                ; package worker to stand still (instance.inc's
+                                ; to read and inst_park_req's to raise; HERE,
+                                ; after [mem_parked], because mem_compact's
+                                ; .end clears the two as one word)
+%if inst_parkreq - mem_parked != 1
+  %error "mem_compact clears [mem_parked] and [inst_parkreq] as ONE word: keep them adjacent, mem_parked first"
+%endif
 %endif                          ; OS88_COMPACT: mem_cp_busy, mem_cp_msk,
                                 ; mem_wpin and mem_parked are the walk's own
                                 ; state. mem_pg_rank below is NOT - the SHED

@@ -1419,13 +1419,11 @@ inst_win_owner:
 ; practice as a package's tally jumping backwards by ~0.6 tick).
 ; -----------------------------------------------------------------------------
 inst_charge:
-    push ax
-    push dx
-    push bx
-    push cx
-    push si
-    push di
-    push bp
+    call kent_bp                ; KENT: push ax..bp (kernel size pass 21: -7
+                                ; with the ladder's tail below, for ~100
+                                ; clocks a CHARGED CALLBACK - a W_PAINT or a
+                                ; dispatched event, whose own bracket's two
+                                ; sch_account charges are ~1,000 - H3)
     mov bp, ax                  ; BP:DI = the start stamp - sch_account
     mov di, dx                  ; clobbers AX/BX/CX/DX/SI, but not BP/DI
     pushf
@@ -1447,12 +1445,7 @@ inst_charge:
     pop di                      ; DI = the instance record again
     add [di+I_CYC], ax          ; ...and onto the instance's
     adc [di+I_CYC+2], dx
-    pop si
-    pop cx
-    pop bx
-    pop dx
-    pop ax
-    ret
+    jmp kret_si                 ; SI, DX, CX, BX, AX - the ladder's own five
 
 ; inst_lkhd - 1 while fdlg_open launches the chooser: app_launch's caller
 ; holds the gfx lock already (SPEC.md 38.6). In .text with an initialiser,
@@ -1483,14 +1476,16 @@ app_launch:
     push es
 
     mov [inst_knd], al
+    mov bl, al                  ; BL = the kind, kept to the pool scan below
     mov ah, KD_SIZE             ; SI = kind descriptor: kind x KD_SIZE, which
-    mul ah                      ; is 14 and not a power of two (an 8-bit `mul`
-    add ax, inst_kinds          ; writes AX alone), and AL back out of the
-    xchg si, ax                 ; byte it was banked in - eleven bytes, as the
-    mov al, [inst_knd]          ; `cbw` and four-place shift were (kernel size
-                                ; pass 13). AH is dead until the I_KIND store
-                                ; far below, and CX is zeroed by the very
-                                ; next instruction
+    mul ah                      ; is 13 and not a power of two (an 8-bit `mul`
+    add ax, inst_kinds          ; writes AX alone), and AL back out of BL,
+    xchg si, ax                 ; which nothing writes until the pool scan
+    mov al, bl                  ; reads it (kernel size pass 21, -1: the
+                                ; reload from [inst_knd], and .alloc's own
+                                ; `mov bl, al`). AH is dead until the I_KIND
+                                ; store far below, and CX is zeroed by the
+                                ; very next instruction
 
     ; --- cap check: count records of this kind with I_STATE != 0 ------------
     xor cx, cx                  ; CL = count - and DX is free now, where this
@@ -1539,9 +1534,9 @@ app_launch:
 
     ; --- state-pool slot pick (SPEC.md 29.4) ---------------------------------
     xor dx, dx                  ; DX = the slot, which is also the cascade step
-    mov bl, al                  ; BL = the kind for the scan: AL still is it
-                                ; here, inst_alloc preserving AX (kernel size
-                                ; pass 17: it was reloaded from inst_knd)
+                                ; - and BL = the kind for the scan, from the
+                                ; top: inst_next, inst_alloc and the cap test
+                                ; all keep BX
     mov ax, [si+KD_POOL]        ; AX = the candidate state ptr, stepped by the
     or ax, ax                   ; stride rather than multiplied out per slot
     jz .tpl                     ; stateless: I_SPTR stays 0
@@ -2525,8 +2520,9 @@ inst_fname:  resb INST_MAX * INST_FNSZ  ; ...and the name it picked there,
                                 ; NUL-terminated; an empty string = none
 
 %ifdef OS88_COMPACT             ; (kern_small has no compactor to ask)
-inst_parkreq: resb 1            ; SPEC.md 66.5: the compactor is asking every
-                                ; package worker to stand still
+                                ; ([inst_parkreq], the compactor's request,
+                                ; is memory.inc's .bss, beside [mem_parked]:
+                                ; kernel size pass 21)
 inst_parksafe: resb INST_MAX    ; ...and which instances said the kernel may
                                 ; park them while they are BLOCKED IN IT, not
                                 ; only at OSAPI_TASK_ALIVE (SPEC.md 66.5.4).
