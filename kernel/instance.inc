@@ -1770,13 +1770,17 @@ app_close_now:
     call COLD_SEG:desk_drop_x   ; ...and DESK.DRV, if that was the last
 %endif                          ; widget (SPEC.md 11.103.10)
     mov byte [di+I_STATE], 0    ; record (and any package region) free
-    jmp .out
-.hide:
-    call wm_hide                ; instant visual feedback + repaint
-.out:
     pop di
-app_close_ret:                  ; (app_close_win's refusal: nothing pushed)
-    ret
+.ret:                           ; app_close_ret: app_close_win's refusal,
+    ret                         ; nothing pushed (an `equ`, below, so that
+.hide:                          ; .hide stays in this routine's scope)
+    pop di                      ; instant visual feedback + repaint, as a
+    jmp wm_hide                 ; TAIL: wm_hide takes BX and keeps every
+                                ; register, so DI is ours to put back first
+                                ; and its `ret` is this routine's (kernel
+                                ; size pass 21, -1: the `jmp short .out` over
+                                ; the call)
+app_close_ret equ app_close_now.ret
                                 ; (kern_big's parity pad here and menu.inc's
                                 ; before menu_popup cancelled, with nothing
                                 ; hot between them: kernel size pass 14)
