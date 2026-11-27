@@ -963,6 +963,22 @@ int os88_fsx_caps(void *win, int *kind);         /* -> FSXM_* mask; *kind =
                                                   * (47). `kind` is an
                                                   * out-parameter and must be
                                                   * a static (rule 1) */
+int os88_fsx_pick(void *win, int want, int *kd); /* the FULL-SCREEN TARGET
+                                                  * (SPEC.md 53.1.2.1): the
+                                                  * window's own display when
+                                                  * it can set one of `want`
+                                                  * (1 << FSXM_* bits), else
+                                                  * the first that can. ->
+                                                  * those modes, 0 = none on
+                                                  * the machine. *kd: low byte
+                                                  * the target's OS88_VID_*,
+                                                  * high byte the display -
+                                                  * os88_fsx_run(e, win,
+                                                  * flags | (kd & 0xFF00)).
+                                                  * A static (rule 1). For a
+                                                  * MODE-SETTING bracket only;
+                                                  * the window's own DRAWING
+                                                  * asks os88_wm_display() */
 int os88_fsx_run(void (*entry)(void), void *win, int flags);
 int os88_fsx_mode(int id, void *fsi);            /* fsi = a static block of
                                                   * OS88_FSI_SIZE bytes */

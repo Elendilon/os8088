@@ -238443,6 +238443,24 @@ rather than a greyed control:
   them, which is what leaves the letter free for §11.2.1's fullscreen door.
 - **Custom / Lemmini level loading, the level finder, and any level editor.**
 
+#### 116.8.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode row and Play follow §53.1.2.1. `lem_probe_mode` asks
+`os88_fsx_pick()` for 320x200x16, CGA 320 or Hercules: the display the
+launcher is mostly on when it can set one of them, else the first display
+that can. `lem_vidkind` and `lem_caps` are that display's, so the row's
+caption, the second screen's mode (`ovl_scr_id`) and the bracket's mouse map
+all describe it. `lem_fsdisp` is the display `os88_fsx_run()` is handed.
+
+The audit (K6) had the launcher straddling a Hercules and a VGA with its
+centre on the VGA. No `W_ONRESIZE` came, because the restrictive display was
+still the Hercules. The row said "Hercules 720x348", the bracket opened on
+the VGA, was asked for the Hercules mode and refused, and Play did nothing.
+So the probe now also runs before every Play and in every `W_PAINT`
+(`lem_reprobe`, which lays the window out again only when the answer
+changed). A drop repaints the window, so the row is right when it is next
+seen.
+
 ### 116.9 The names, and the four disks
 
 | | |
