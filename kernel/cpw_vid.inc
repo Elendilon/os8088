@@ -424,15 +424,21 @@ cpv_click:
     sub ax, CPV_AY + CPK_BANDH
     mov bl, CPV_RH
     div bl
-    call cpv_slot               ; AL = the kind in it
+    call cpv_slot               ; AL = the kind in it, AH = its bit
     jc .r
     cmp al, [es:CPV_ASEL]
     je .r
-    mov [es:CPV_ASEL], al       ; another adapter: its rows, the preview,
-    call cpv_bsel               ; the Modes group and the controls' greying
+    xchg al, [es:CPV_ASEL]      ; another adapter: the two rows that changed
+    mov cl, al                  ; (its and the one that had the bar), the
+    mov al, 1                   ; preview, the Modes group and the controls'
+    shl al, cl                  ; greying (SPEC.md 135.9.2)
+    or ah, al
+    push ax
+    call cpv_bsel
+    pop bx                      ; BH = the two rows' bits
     call cpv_arows
-    call cpv_prev
-    call cpv_modes
+    call cpv_prevc
+    call cpv_modesc
     jmp cpv_ctls0
 .ctl:                           ; --- a control: armed, drawn pressed, and it
     call cpv_hit                ; acts on the release (SPEC.md 13.8.3)
@@ -461,7 +467,8 @@ cpv_click:
     cmp al, [es:CPV_FLT]
     je .r
     mov [es:CPV_FLT], al
-    call cpv_build              ; the rows the filter keeps
+    call cpv_build.rows         ; the rows the filter keeps (the records are
+                                ; the last paint's: the card has not moved)
     xor ax, ax
     mov [es:CPV_TB + CPKT_TOP], ax
     mov [es:CPV_MSEL], ax       ; (Auto, the first row of every filter)
@@ -484,7 +491,7 @@ cpv_click:
     xchg ax, bx
     call cpv_trowat
 .pctl:
-    call cpv_prev
+    call cpv_prevc
 .ctls:
     jmp cpv_ctls0
 
@@ -533,14 +540,14 @@ cpv_up:
     mov [drv_cfg + CFG_VE], cl
     mov ah, CPG_WDSET           ; owed to SYSTEM.CFG at the close (31.8)
     call cpw_gate
-    mov bx, CPV_TB              ; the marks moved: the rows, the controls
-    call cpk_tbrows             ; and the Running mode group's last line
-    call cpv_ctls0
-    jmp cpv_rbox
+    mov bx, CPV_TB              ; the marks moved: the rows; and the
+    call cpk_tbrows             ; controls (the Running mode group names no
+    jmp cpv_ctls0               ; startup mode, SPEC.md 135.9.1)
 .fc:
-    mov ah, CPG_VGC             ; Force Color (SPEC.md 31.10.4)
-    call cpw_gate
-    jmp cpv_ctls0
+    mov ah, CPG_VGC             ; Force Color (SPEC.md 31.10.4): its box, the
+    call cpw_gate               ; one thing it changes
+    mov ax, CPV_IFC
+    jmp cpv_ctl1
 .apply:
     call cpv_target             ; AL = the kind, CL = the class
     mov ah, CPG_VIDSET          ; switched, kept, owed - and NOTHING drawn
@@ -964,8 +971,11 @@ cpv_rrow:
     jmp cpv_row
 
 ; -----------------------------------------------------------------------------
-; cpv_ctls - the check boxes' glyphs and labels, the buttons, and (AL = 1, a
-; full paint) the ground between them; cpv_ctls0 is the same with AL = 0
+; cpv_ctls - the controls under the table: AL = 1 (a full paint) both check
+; boxes, their labels, the buttons and the ground between them; cpv_ctls0
+; (AL = 0, a press) what a press on the page can change - the startup box
+; and its label, Apply and Test... - and not Force Color, which no press but
+; its own changes (SPEC.md 135.9.2)
 ; -----------------------------------------------------------------------------
 cpv_ctls0:
     xor al, al
@@ -978,12 +988,14 @@ cpv_ctls:
     mov si, cpv_s_start         ; ...and its label, then Force Color's
     mov al, CPV_ISTART
     call .lab
-    add dx, 14
-    mov al, CPV_IFC
-    call .lab
     pop ax
     or al, al
     jz .ctl
+    add dx, 14
+    mov al, CPV_IFC
+    call .lab
+    mov ax, CPV_IFC
+    call cpv_ctl1
     call cpv_wh                 ; --- the ground between them (full)
     mov ax, CPV_L
     mov cx, CPV_CR
@@ -1003,14 +1015,12 @@ cpv_ctls:
     mov cx, CPV_CR
     call cpw_fill               ; right of them
 .ctl:
-    xor bx, bx
-.c:
-    mov ax, bx                  ; every control's own picture, up
+    xor ax, ax                  ; the startup box, Apply and Test..., up
     call cpv_ctl1
-    inc bx
-    cmp bx, CPV_IKEEP
-    jb .c
-    ret
+    mov al, CPV_IAPPLY
+    call cpv_ctl1
+    inc ax
+    jmp cpv_ctl1
 .lab:                           ; control AL's label (SI) as a ROW at DX,
     call cpv_ctlok              ; greyed as the control is; SI on past it
     mov ax, (CWHITE << 8) | CBLACK
@@ -1325,6 +1335,7 @@ cpv_adap:
     mov dx, CPV_AB
     mov si, cpv_s_gad
     call cpk_group
+    mov bh, 0FFh                ; every row
     call cpv_arows
     call cpv_wh                 ; the group's last two rows
     mov ax, CPV_L + 1
@@ -1384,16 +1395,19 @@ cpv_arect:
 cpv_arx:    db 65, 133, 193, 253    ; each radio's left, and past the last
 
 ; cpv_arows - the four adapter row slots: each adapter's line, the chosen one
-; barred, an empty slot a blank row
+; barred, an empty slot a blank row. in: BH = the rows to draw, as [vid_avail]
+; bits, 80h the empty slots (0FFh: all)
 cpv_arows:
     xor bl, bl
     mov dx, CPV_AY + CPK_BANDH
 .s:
     call cpv_new
     mov al, bl
-    call cpv_slot
+    call cpv_slot               ; AL = the kind, AH = its bit
     mov si, (CWHITE << 8) | CBLACK
-    jc .row
+    jc .empty
+    test bh, ah
+    jz .next                    ; not asked for: this row did not change
     cmp al, [es:CPV_ASEL]
     jne .t
     mov si, (CBLUE << 8) | CWHITE
@@ -1428,11 +1442,16 @@ cpv_arows:
     mov cx, CPV_L + 1
     mov di, CPV_AR - CPV_L - 1
     call cpv_row
+.next:
     add dx, CPV_RH
     inc bl
     cmp bl, 4
     jb .s
     ret
+.empty:
+    test bh, 80h
+    jnz .row
+    jmp short .next
 
 
 ; -----------------------------------------------------------------------------
@@ -1451,7 +1470,8 @@ cpv_prev:
     mov dx, CPV_AB
     mov si, cpv_s_gpv
     call cpk_group
-    mov al, [es:CPV_ASEL]       ; --- the chosen mode
+cpv_prevc:                      ; ...its inside alone, for a press (the box
+    mov al, [es:CPV_ASEL]       ; and its title do not change) - the chosen mode
     call cpv_msrec
     cmp al, VID_VESA
     je .g
@@ -1583,7 +1603,10 @@ cpv_modes:
     call cpv_r
     mov si, cpv_s_gmd
     call cpk_group
-    mov bp, dx                  ; BP = its bottom
+cpv_modesc:                     ; ...its inside alone, for the adapter press
+    call cpv_c0
+    sub ax, 5
+    xchg ax, bp                 ; BP = its bottom
     cmp byte [es:CPV_ASEL], VID_VESA
     je .vesa
     call cpv_new                ; --- one mode: say which
