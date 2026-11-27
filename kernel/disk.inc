@@ -1045,10 +1045,11 @@ dsk_bpb_zap:
 .row:
     cmp [bx], al
     jb .next
-    mov byte [bx], 0
-.next:
+    mov [bx], ch                ; CH is 0 for the whole loop (CX counts the
+.next:                          ; rows down): a byte under the immediate (pass 21)
     inc bx
     loop .row
+.pcx:                           ; (dsk_rah_want's tail too: pass 21)
     pop cx
     pop bx
     pop ax
@@ -2901,11 +2902,9 @@ dsk_vol_row_x:
     call dsk_vol_slot_x
     jc .out                     ; the slot already left BX = 0 and CF = 1
     cmp byte [bx+DV_KIND], DVK_FREE
-    clc                         ; CLC writes CF alone on the 8086, so the
-    jne .out                    ; compare's ZF is still the one being read
-    xor bx, bx
-    stc
-.out:
+    je dsk_vol_slot_x.bad       ; ...and a free row is answered the same way,
+    clc                         ; by the slot's own `xor bx, bx / stc / ret`
+.out:                           ; (kernel size pass 21, -3)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3374,11 +3373,10 @@ dsk_flop_add_x:
 section .cold                   ; ...and back to resident cold code
 dsk_vol_fixed_x:
     push bx
-    call dsk_vol_slot_x
-    jc .no
-    mov ah, [bx+DV_KIND]
-    cmp ah, DVK_FREE
-    je .no                      ; AH IS the transport: VT_BIOS/VT_DRIVER are
+    call dsk_vol_row_x          ; CF = 1: out of range, or a free row - the
+    jc .no                      ; row's own test, where this asked the slot
+                                ; and then the kind (kernel size pass 21, -5)
+    mov ah, [bx+DV_KIND]        ; AH IS the transport: VT_BIOS/VT_DRIVER are
                                 ; DVK_BIOS/DVK_DRV, asserted below rather than
                                 ; assumed, so a change to either breaks the
                                 ; BUILD instead of the published ABI
@@ -8895,11 +8893,10 @@ dsk_rah_want:
     mov [dsk_rah_next], ax      ; ...and no cursor may point past the width
 .out:
     pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    ret
+    jmp dsk_bpb_zap.pcx         ; the other four pops and the popf are
+                                ; dsk_bpb_zap's own, in the same order
+                                ; (kernel size pass 21, -2; a mount's 15
+                                ; clocks)
 
 %ifdef KERN_MEGA
 ; -----------------------------------------------------------------------------
@@ -9558,10 +9555,14 @@ dsk_find_x:
     pop cx                      ; the next ordinal, banked at entry
     pop di
     pop bp
-    pop si
-    pop dx
+%ifndef KERN_SMALL
+    jmp dsk_path_x.psi          ; ...and dsk_path_x's `pop si / dx / bx /
+%else                           ; retf` is this one's, a far return both
+    pop si                      ; (kernel size pass 21, -1; kern_small has no
+    pop dx                      ; dsk_path_x)
     pop bx
     retf
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dsk_chdir - make a directory the current one and re-list the volume
@@ -10106,6 +10107,7 @@ dsk_path_x:
     dec cx                      ; the length the caller is told excludes the NUL
 .out:
     pop di                      ; ...and DI comes back as it arrived
+.psi:                           ; (dsk_find_x's tail too, also far: pass 21)
     pop si
     pop dx
     pop bx
@@ -10707,6 +10709,7 @@ dsk_ncopy:
     cld
     rep movsb
     pop es
+.pdi:                           ; (ico_key_stem's tail too: pass 21)
     pop di
     pop si
     pop cx
@@ -11188,10 +11191,14 @@ ico_need:
     mov es, dx
     clc
 .out:
-    pop dx
+%ifdef OS88_DRIVERS
+    jmp dsk_fatw_drop.out       ; its `pop dx / bx / ax / ret` is this one's,
+%else                           ; three bytes for four (kernel size pass 21;
+    pop dx                      ; kern_small has no dsk_fatw_drop)
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ico_demote - the shed took the machine-wide icon store (SPEC.md 25.9.5)
@@ -11701,10 +11708,8 @@ ico_key_stem:
                                 ; work. Both sides copy the same eight bytes
                                 ; now, so there is nothing left to get wrong
     mov [ico_keyb+ICO_R_SIZE], dx
-    pop di
-    pop si
-    pop cx
-    ret
+    jmp dsk_ncopy.pdi           ; ...and dsk_ncopy's `pop di / si / cx / ret`
+                                ; is this one's (kernel size pass 21, -1)
 %endif                          ; OS88_ASSOC
 
 ; -----------------------------------------------------------------------------
