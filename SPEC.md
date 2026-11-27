@@ -84200,6 +84200,61 @@ width, `wm_zoom_xmax` the largest legal x for a given width, and both are
 `wm_disp_of` again. The restore path's clamp floors at that display's left
 edge rather than at 0, for the same reason.
 
+##### 39.17.2.1 A zoom lands wholly on one display, and the window is told
+
+**The owner's rule** (2026-11-27): *"Nothing should size wrong on a maximize
+- if the window is straddling, then they zoom it, when it finishes zooming
+it's fully on one screen (and thus that is its answer for where it is, what
+mode it should now be drawing in, and at what size)."* Two questions have
+two different answers, and both answers are deliberate:
+
+| question | answer | routine |
+|---|---|---|
+| *Where do I go fullscreen, and which display do I maximize on?* | the display the window is MOSTLY on: its centre | `wm_disp_of` |
+| *How do I size and draw my window where it stands?* | while it straddles, the MORE RESTRICTIVE display; otherwise the one it is on | `wm_disp_now` (§39.16.4.1) |
+
+A window cannot draw in two modes at once, so inside a straddle it draws for
+the restrictive display. A zoom moves it, so the zoom's target is a question
+about where it is going, and that is the first row.
+
+Three things make the zoom honour it:
+
+- **Before the size is asked, the display is decided once.** `wm_zoom`
+  enters `EXT_SPAN` with CF = 1, and EXTD.DRV then arms §39.16.4.2's latch
+  with `wm_disp_of`'s answer. From then on, until the zoom ends,
+  `OSAPI_WM_DISPLAY` and `wm_kind_now` answer the TARGET display for this
+  window. So a negotiator (§11.1) that reads its display, as Paint's
+  `pt_onsize` does, sizes for the display it is being zoomed onto, not for
+  the straddle it is leaving. When the target's adapter kind differs from
+  the kind the window was last sized for (`W_PKIND`, §11.100.4), the kind
+  is banked and the §11.98 handler is told there and then. That is BEFORE
+  the ask and BEFORE the paint, so the window relays out once and is painted
+  right the first time.
+- **The commit clamps into that display's box, not the primary's.**
+  `wm_resize_nb`'s height cap, its floor and its y clamp read `wm_box`, the
+  same five registers `wm_fit` uses: the menu bar to the dock on the
+  primary, and on display 1 its own extent through `EXT_FITBOX`, by the
+  origin, which a zoom has just put there. Its x bound stays the union's
+  `[vid_w]`: an app that resizes itself while straddling must not be pulled
+  off the seam the user dropped it on. Before this, a zoom on a Below
+  layout's display 1 was capped at the primary's band and pulled up onto
+  display 0. Its rect then no longer matched the standard rect, so the next
+  zoom zoomed again instead of restoring (the audit's K5).
+- **The latch is spent when the zoom ends,** in `wm_zoom` with BX = 0 and
+  CF = 1 into `EXT_SPAN`. The restore path spends it BEFORE its paint,
+  because the user state it puts back may straddle again. Then the window's
+  kind is the restrictive display's once more, and if that differs from the
+  target's, the kind is banked and the handler told before the pixels are
+  drawn. `WIN95.DRV`'s title paint also asks `EXT_SPAN`, and it enters with
+  CF = 0, so it arms nothing.
+
+Un-zooming replays the user state (§11.95, §11.100). The size it puts back
+is the one the window had in the straddle, which §39.16.3 already sized
+within both displays.
+
+Cost: resident, `.text` only and kern_big's three kernels; the measured
+bytes are in the commit that landed it. EXTD.DRV carries the rest.
+
 ### 39.18 Inside an fsx bracket the machine is single-display again
 
 **That is the whole design of §53 on two monitors, and it is what makes it

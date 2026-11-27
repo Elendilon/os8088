@@ -526,6 +526,7 @@ wn_maxart:
     mov dx, [vid_dock_y0]
     sub dx, MBAR_H + 1
     mov bx, di
+    clc                         ; CF = 0: a question, not a zoom (39.17.2.1)
     EXTCALL EXT_SPAN            ; ...on the window's OWN display (39.17.2).
                                 ; NOT wm_ask_size: that calls the package,
                                 ; and a title paint must not

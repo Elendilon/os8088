@@ -554,8 +554,17 @@ ext_org_disp:
 ; out:      AX = x0, CX = width, SI = y0, DX = band height (one pixel short,
 ;           wm_fit's drop-shadow rule)
 ; clobbers: AX, CX, SI, DX, flags
+;
+; CF = 1 IN IS wm_zoom (SPEC.md 39.17.2.1), and WIN95.DRV's title paint - the
+; other caller - enters with CF = 0. With BX = a window it ARMS the zoom's
+; latch before answering; with BX = 0 it SPENDS it and answers nothing.
 ; -----------------------------------------------------------------------------
 wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
+    jnc .span
+    or bx, bx
+    jz ext_zoff                 ; the zoom is over (a jump: it ends in retf)
+    call ext_zarm
+.span:
     call ext_one
     jb .out                     ; one display: the caller's numbers stand
     push di
@@ -572,6 +581,59 @@ wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
     pop di
 .out:
     retf
+
+;  ext_zarm - a ZOOM decides its display once (SPEC.md 39.17.2.1)
+; in:       BX = the window; out: nothing; every register preserved
+;
+; The display the window is MOSTLY on - wm_disp_of, the centre - is where it
+; is going: the owner's rule, "which screen do I maximize on? The one I am
+; more on". Latched in 39.16.4.2's two cells, so the negotiator wm_zoom asks
+; next and the 11.98 handler told here both hear THAT display from
+; OSAPI_WM_DISPLAY rather than the restrictive one the straddle it is leaving
+; was sized for. A change of kind is told here, before the ask and the paint.
+ext_zarm:
+    call ext_one
+    jb .r                       ; one display (a collapsed desktop): no latch
+    push ax
+    EXK wm_disp_of              ; AL = the centre's display
+    CSDO_ON
+    mov [CSEG wm_lf_disp], al
+    mov [CSEG wm_lf_win], bx
+    CSDO_OFF
+    call ext_knote              ; ...its kind against the one last sized for
+    pop ax
+.r: ret
+
+; ext_zoff - EXT_SPAN, BX = 0, CF = 1: the zoom is over. Spend the latch, then
+; ask the window's kind afresh - the user state a restore put back may
+; straddle, and then it is the restrictive display's again - and tell it if
+; that changed. FAR (EXT_SPAN's frame), and every register preserved.
+ext_zoff:
+    push bx
+    CSDO_ON
+    xor bx, bx
+    xchg bx, [CSEG wm_lf_win]   ; BX = the zoomed window, the latch spent
+    CSDO_OFF
+    or bx, bx
+    jz .r                       ; nothing armed (the restore spent it already)
+    call ext_knote
+.r: pop bx
+    retf
+
+; ext_knote - has window BX's adapter kind changed since it was last sized?
+; Then bank the new one and tell its 11.98 handler (ui_drag_size's .snapped,
+; for a window whose box a zoom moved rather than a drag). Every register
+; preserved.
+ext_knote:
+    push ax
+    call wm_disp_now            ; the latch while armed, the geometry after
+    call ext_kind_of
+    cmp al, [bx+W_PKIND]
+    je .r
+    EXK wm_kind_bank
+    WM_SZNOTE EXK
+.r: pop ax
+    ret
 
 ; (vid_disp_desk - EXT_DESK, every display but the primary's ground, whole -
 ; stood here. Its one caller was the layered wm_paint_all, and the damage pass
