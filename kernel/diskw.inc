@@ -1179,24 +1179,24 @@ dskw_dotents:
     xchg ax, dx
     stosw                       ; +22 last-write time
     xchg ax, dx
-    stosw                       ; +24 last-write date; +26 the cluster below,
-                                ; +28 the size, which the sector already holds
-%if DSK_R_ATTR != 11 || DSK_R_CTIME != 14 || DSK_R_CDATE != 16 || DSK_R_ADATE != 18 || DSK_R_WTIME != 22 || DSK_R_WDATE != 24
+    stosw                       ; +24 last-write date
+    mov ax, [dskw_first]        ; +26 '.' -> this directory, stored in the
+    stosw                       ; run; +28 the size, which the sector holds
+%if DSK_R_ATTR != 11 || DSK_R_CTIME != 14 || DSK_R_CDATE != 16 || DSK_R_ADATE != 18 || DSK_R_WTIME != 22 || DSK_R_WDATE != 24 || DSK_R_CLUS != 26
   %error "dskw_dotents stores the dot entry's fields IN ORDER from +11: re-derive the stosb/stosw/scasw run"
 %endif
     push ds
     push es
-    pop ds                      ; DS = ES = LOW_SEG for the 32-byte copy
-    mov si, dsk_secbuf
-    mov di, dsk_secbuf + 32     ; '..' -> the parent
-    mov cl, 16                  ; (CX = 0 out of the `rep` above)
+    pop ds                      ; DS = ES = LOW_SEG for the copy: '.' up to
+    mov si, dsk_secbuf          ; its cluster, 26 bytes, becomes '..'...
+    mov di, dsk_secbuf + 32
+    mov cl, DSK_R_CLUS / 2      ; (CX = 0 out of the `rep` above)
     rep movsw
     pop ds
+    mov ax, [dsk_cwd]           ; ...and DI is ITS +26: '..' -> the parent,
+    stosw                       ; in the run too (kernel size pass 21, -6:
+                                ; the two clusters were stores of their own)
     mov byte [es:dsk_secbuf+33], '.'   ; the second dot
-    mov ax, [dskw_first]        ; '.' -> this directory
-    mov [es:dsk_secbuf+DSK_R_CLUS], ax
-    mov ax, [dsk_cwd]           ; '..' -> the parent
-    mov [es:dsk_secbuf+32+DSK_R_CLUS], ax
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2   ; FAT32: both carry FstClusHI, and '..' is 0
     jne .d16                    ; - the root - when [dsk_cwd] is (19.12.5)
@@ -2618,7 +2618,7 @@ dskw_czexp:
     ret
 .bad:
 %ifdef KERN_MEGA
-    mov word [ss:mega_hzes], 0
+    and word [ss:mega_hzes], 0  ; (the `stc` below is the answer)
 %endif
     pop ds
     stc
@@ -2771,8 +2771,8 @@ dskw_subsrc:
     call MEGA_SEL_CODE:mega_segf
     jc .q
     mov [dskw_seg], dx
-    mov word [dskw_src], 0
-.q:
+    and word [dskw_src], 0      ; (CF = 0 either way, the `jc`'s; the one
+.q:                             ; caller compares [dskw_src] next)
     pop dx
     pop cx
     pop bx
@@ -3697,7 +3697,7 @@ dskw_read_at_x:
     or di, di                   ; a HOT cursor: DI links from its cluster
     jz .w32
     mov cx, di
-    mov word [dskw_skh], 0
+    and word [dskw_skh], 0      ; (dskw_walk32 opens on a `jcxz`)
 .w32:
     mov ax, bx                  ; AX:[dsk_ch] = the stat's, or the hot one's
     call dskw_walk32
@@ -5605,7 +5605,8 @@ dskw_alloc:
     jne .a16
     jmp dskw_alloc32            ; ...its answer is ours
 .a16:
-    mov word [dsk_ch], 0        ; a FAT12/16 cluster is a word
+    and word [dsk_ch], 0        ; a FAT12/16 cluster is a word (`and`: the
+                                ; `cmp` at .try writes every flag first)
 %endif
     mov cx, [dsk_maxclus]
     dec cx                      ; candidates: clusters 2..maxclus
@@ -5725,7 +5726,7 @@ dskw_alloc32:
     call dsk_f32_clok           ; past the last or below the first: 2
     jnc .chk
     mov ax, 2
-    mov word [dsk_ch], 0
+    and word [dsk_ch], 0        ; (dsk_f32_ent reads no flag)
 .chk:
     call dsk_f32_ent            ; ES:BX = AX's entry, its sector resident
     jc .io
@@ -6029,20 +6030,18 @@ dskw_flush_x:
     adc di, 0
     mov [dsk_lbahi], di
     call disk_write_x
-    jc .ioerr32
-    cmp byte [dsk_nfats], 2
-    jne .done32
+    jc .p32
+    cmp byte [dsk_nfats], 1     ; mount rule 6: 1 or 2, and the equal
+    je .p32                     ; compare leaves CF = 0
     add ax, [dsk_fatsz]         ; FAT2 = FAT1 + FATSz (32-bit on FAT32)
     adc di, [dsk_fatsz32]
     mov [dsk_lbahi], di
     call disk_write_x
-    jc .ioerr32
-.done32:
-    pop di
-    jmp short .done
-.ioerr32:
-    pop di
-    jmp short .ioerr
+.p32:
+    pop di                      ; (`pop` keeps CF: the write's answer)
+    jc .ioerr                   ; ...and .done is next, the 16-bit arm being
+                                ; the other half of this %if (kernel size
+                                ; pass 21, -5 on kern_mega)
 %else
     cmp ax, bx
     jb .stale                   ; the range starts below the window

@@ -627,22 +627,21 @@ loader_run_x:
     ; against the global snapshot, so an empty one is fatal there (SPEC.md
     ; 18.9, docs/FIELD-NOTES.md 4). Here the entry comes out of the window's
     ; own cache, and a quiet mount does not touch that.
-    mov dl, [di+FS_DRV]
-    cmp dl, [disk_drive]
-    jne .move
-    mov dx, [di+FS_CWD]
-    cmp dx, [dsk_cwd]
+    mov dl, [di+FS_DRV]         ; DL = the poster's drive, HELD to .move:
+    cmp dl, [disk_drive]        ; the folder is compared in BX, which the
+    jne .move                   ; KENT frame banked and nothing below reads
+    mov bx, [di+FS_CWD]         ; (kernel size pass 21: .move's reload of
+    cmp bx, [dsk_cwd]           ; DL went, -3)
 %ifdef OS88_FAT32
     jne .move                   ; ...all of it (SPEC.md 19.12.3)
-    mov dx, [di+FS_CWDH]
-    cmp dx, [dsk_cwd+2]
+    mov bx, [di+FS_CWDH]
+    cmp bx, [dsk_cwd+2]
 %endif
     je .stage
 .move:
     push ax                     ; the index: dsk_chdir_q_x wants AX
     FS_CWD_LD ax, di            ; stand where the poster stands, QUIETLY
-    mov dl, [di+FS_DRV]         ; (assoc_back's shape, SPEC.md 18.9/54.9)
-    call dsk_chdir_q_x
+    call dsk_chdir_q_x          ; (assoc_back's shape, SPEC.md 18.9/54.9)
     pop ax
     jc .loud                    ; the folder is gone or the disk changed:
                                 ; fmv_sync carries the recovery for that -
@@ -1789,10 +1788,10 @@ ld_start:
     mov es, ax                  ; ES = the program, whose class byte is read
     cmp cx, 0x0FFF
     ja .rhbig                   ; ...over one segment: KERN-MEGA-PLAN 14.48
-    shl cx, 1                   ; paragraphs -> bytes
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1
+    xchg ax, cx                 ; paragraphs -> bytes, through AX: ld_hisi
+    mov cl, 4                   ; reloads it before it reads it (kernel size
+    shl ax, cl                  ; pass 21, -2)
+    xchg ax, cx
     call ld_hicx
     jmp short .rhnohi
 .rhbig:                         ; ONE pool block of the whole keep, the pair
@@ -2008,7 +2007,7 @@ ld_pkg_byname:
     push si                     ; the staged NAME, across the document's copy
     mov si, di
 %ifdef OS88_FAT32
-    mov word [assoc_dcluh], 0   ; a locator's folder is a WORD (19.12.8)
+    and word [assoc_dcluh], 0   ; a locator's folder is a WORD (19.12.8)
 %endif
     mov di, assoc_doc
     mov cx, 16                  ; **THE WHOLE LOCATOR, ONE WALK** (21.5.3.3):
