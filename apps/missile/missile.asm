@@ -438,22 +438,38 @@ mc_adapter:
     push bx
     push cx
     push dx
-    mov bx, [mc_win]                ; ONE QUESTION FOR BOTH FACTS, and it is
-    call OSAPI_FSX_CAPS             ; about OUR WINDOW'S DISPLAY: AX = the
-    mov [mc_caps], ax               ; Mode X mask, DL = that display's VID_*
-                                    ; kind, which is also how deep it is.
-                                    ; OSAPI_VIDEO's DH answers about the
-                                    ; PRIMARY (SPEC.md 39.2.1) - right for
-                                    ; sizing a window and wrong for this, and
-                                    ; taking both from one call is what keeps
-                                    ; mc_mono and mc_caps from disagreeing
-                                    ; about which monitor this game is on.
+    push si
+    ; TWO QUESTIONS, TWO DISPLAYS (SPEC.md 48.27). MODE X is a full-screen
+    ; mode, so it is asked of the FULL-SCREEN TARGET: the display the window
+    ; is mostly on when that one has Mode X, else the first that does
+    ; (os88fsxw.inc, SPEC.md 53.1.2.1) - the bracket takes [mc_fsdisp] as its
+    ; CH, so Mode X is offered on a Hercules with a VGA beside it.
+    mov bx, [mc_win]
+    mov dx, 1 << FSXM_MODEX
+    call fsxw_pick                  ; AX = Mode X's bit or 0, CH = its display
+    mov [mc_caps], ax
+    mov [mc_fsdisp], ch
     mov bx, mc_s_xcmd               ; ...and the menu item says WHY not, from
     test ax, 1 << FSXM_MODEX        ; the mask read above. mc_cmd_modex
     jnz .fsxok                      ; refuses with the same bit - one
     mov bx, mc_s_xcmdn              ; predicate for both (SPEC.md 47/53.4)
 .fsxok:
     mov [mc_mi_game+6], bx
+    ; THE DEPTH is the window's own: the display it is DRAWN on, which for a
+    ; straddling window is the more restrictive one (OSAPI_WM_DISPLAY,
+    ; SPEC.md 39.16.4.1) - the same display its frame is sized for, so the
+    ; colours and the size can no longer come from two monitors (audit K6).
+    ; Before the window exists (mc_entry) that is the primary's.
+    mov bx, [mc_win]
+    or bx, bx
+    jz .prim
+    call OSAPI_WM_DISPLAY           ; DL = the kind
+    jmp short .kind
+.prim:
+    call OSAPI_VIDEO
+.kind:
+    mov [mc_wkind], dl
+    pop si
 
     xor bx, bx                      ; BL = mc_mono, CH = mc_ecoarse and
     mov cx, MC_EXPFR                ; CL = mc_expfr: bss is zeroed, and a life
@@ -962,8 +978,9 @@ mc_cmd_modex:
     mov byte [mc_fsxm], FSXM_MODEX
     mov ax, mc_fsx_main
     mov bx, [mc_win]
-    xor cx, cx                      ; no flags: our worker freezes with the
-    call OSAPI_FSX_RUN              ; rest, and this loop replaces it
+    mov cl, 0                       ; no flags: our worker freezes with the
+    mov ch, [mc_fsdisp]             ; rest, and this loop replaces it - on
+    call OSAPI_FSX_RUN              ; the display that has Mode X (53.1.2.1)
 .out:
     jmp mc_pop_3
 
@@ -1429,18 +1446,29 @@ mc_worker:
 mc_dispck:
     push ax
     push bx
+    push cx
     push dx
+    push si
     cmp byte [mc_fsx], 0
     jne .out
     mov bx, [mc_win]
     or bx, bx
     jz .out
-    call OSAPI_FSX_CAPS             ; AX = the mask, DL = that display's kind
+    mov dx, 1 << FSXM_MODEX         ; the full-screen target's Mode X...
+    call fsxw_pick
     cmp ax, [mc_caps]
-    je .out                         ; the same display, or one that answers
-    call mc_adapter                 ; the same: nothing to re-decide
+    jne .re
+    cmp ch, [mc_fsdisp]
+    jne .re
+    call OSAPI_WM_DISPLAY           ; ...and the window's own kind (BX kept
+    cmp dl, [mc_wkind]              ; by fsxw_pick)
+    je .out                         ; the same answers: nothing to re-decide
+.re:
+    call mc_adapter
 .out:
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -7471,7 +7499,9 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
                                     ; back, and the Mode X twins need it
     MBYTE mc_pbtn                   ; last-seen mouse buttons (edge detect -
                                     ; no W_ONCLICK arrives in a bracket)
-    MWORD mc_caps                   ; the OSAPI_FSX_CAPS mask, from mc_entry
+    MWORD mc_caps                   ; Mode X's bit on the full-screen target
+    MBYTE mc_fsdisp                 ; ...that target, as OSAPI_FSX_RUN's CH
+    MBYTE mc_wkind                  ; the WINDOW's display's kind (WM_DISPLAY)
     MWORD mc_gtab                   ; the kernel glyph table's offset, for
                                     ; mx_text (OSAPI_FONT_GLYPHS, once)
     MWORD mc_gseg                   ; ...and its SEGMENT: the table lives in
@@ -7769,6 +7799,7 @@ MC_ABMD     equ MC_MAXICBM
 %define GFXE_PT_MAX MC_PTMAX
 %include "os88gfx.inc"
 %include "os88alt.inc"              ; SPEC.md 11.2.1.1's edge, for the bracket
+%include "os88fsxw.inc"             ; fsxw_pick: Mode X's display (53.1.2.1)
 
     OS88_BSS MC_BSS
     OS88_IMAGE_END

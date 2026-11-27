@@ -103829,6 +103829,32 @@ cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
 one tick, the same end state (`C3B7`) and the same final screen
 (`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
 
+### 48.27 Two displays, two questions (2026-11-27)
+
+The extended-desktop audit (K6) found Missile taking its depth from one
+display and its frame size from another. `mc_adapter` asked
+`OSAPI_FSX_CAPS` for both `mc_mono` and Mode X, and that answers the
+display the window's CENTRE is on. The frame is sized by the kernel for the
+MORE RESTRICTIVE display of a straddle (§39.16.4.1). So a window straddling
+a Hercules and a VGA, centre on the VGA, was sized 634x303 for the Hercules
+and drew the colour ramp, with half its pixels on the 1bpp card.
+
+Now each question asks the display it is about:
+
+- **The depth** (`mc_mono`, `mc_ecoarse`, `mc_expfr`) comes from
+  `OSAPI_WM_DISPLAY`'s kind, `[mc_wkind]`. That is the display the window is
+  drawn and sized for. In the §11.2 full-screen surface the window lies
+  wholly on one display, so it is that display's answer.
+- **Mode X** is a full-screen mode, so it is asked of the full-screen target
+  (§53.1.2.1, `fsxw_pick`): the display the window is mostly on when it has
+  Mode X, else the first display that does. `mc_cmd_modex` hands
+  `OSAPI_FSX_RUN` that display as CH (`[mc_fsdisp]`). The item is offered on
+  a Hercules with a VGA beside it, and greyed only on a machine with no VGA.
+
+`mc_dispck` already ran every frame for exactly this reason: no callback
+says the window moved. It now compares both answers and re-runs
+`mc_adapter` when either changed.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
