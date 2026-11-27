@@ -904,11 +904,13 @@ fcp_claim:
 fcp_stop:
     xor dx, dx
     xchg dx, FCV(fcp_seg)       ; the buffer, and the word left 0
-    or dx, dx
-    jz .nobuf
     mov bx, MEM_K_COPY          ; mem_free takes the owner word too, and
-    FCPX mem_free_x             ; refuses a base that is not this owner's.
-.nobuf:                         ; It preserves AX, so AL survives it
+    FCPX mem_free_x             ; refuses a base that is not this owner's -
+                                ; and NO BUFFER, DX = 0, is nobody's: a 0 is
+                                ; mem_find_own's refusal, so it needs no test
+                                ; of its own (fcp_lfree's rule; kernel size
+                                ; pass 21, -4). It preserves AX, so AL
+                                ; survives it
     shr byte FCV(fcp_dhold), 1  ; ...then fcp_step's DISKOPS hold, if it took
     jnc .nohold                 ; one (cleared either way) - unless a clone
     push ax                     ; armed while the question was up owns the

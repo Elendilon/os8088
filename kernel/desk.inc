@@ -1529,12 +1529,10 @@ desk_zone_redraw:
     push bx
     push cx
     push dx
-    push ax
-    call desk_zs
-    pop ax
-    push ax
-    jc .nonep                   ; not shown: nothing to flip
-    call desk_zone_rect
+    push ax                     ; the zone, for the draw below
+    call desk_zone_xy           ; (desk_zone_rect's two halves, so its CF -
+    jc .nonep                   ; not shown: nothing to flip - is asked with
+    call desk_rect_ax           ; no bank round it: kernel size pass 21, -2)
     call KERNEL_SEG:wm_clip_rect
     jc .full
     jz .nonep
@@ -2103,12 +2101,15 @@ desk_draw_zone:
     mov [desk_zdrv], al
     call desk_zone_xy
     jc .done                    ; not shown: nothing to draw
-    mov [desk_zx], ax
-    mov [desk_zy], dx
+    push dx                     ; the cell's origin, ON THE STACK across the
+    push ax                     ; ground: [desk_zx]/[desk_zy] are kern_big's
+                                ; desk_col and desk_pic's, and here nothing
+                                ; else read them (kernel size pass 21, -11
+                                ; and 4 bytes of kern_small's .bss)
     call desk_rect_ax
     call KERNEL_SEG:cw_thm_desk ; the ground under the cell and the overhang
-    mov cx, [desk_zx]
-    mov dx, [desk_zy]
+    pop cx                      ; CX = the left, DX = the top: the picture's
+    pop dx
     mov bl, [desk_zdrv]
     mov si, [desk_pico]         ; [diskette, 5.25", hard disk] at this height
     call dsk_vol_fixed_x        ; the MEDIUM, not the transport (SPEC.md 18.7.2)
@@ -2383,8 +2384,11 @@ desk_dmgm    resw 1             ; ...a word, with 16 zones or fewer
 %endif
 desk_sel     resb 1             ; selected ZONE index, 0xFF = none
 desk_clkt    resw 1             ; click birth tick (EV_C) of the last zone click
+%ifdef OS88_SHORTCUTS
 desk_zy      resw 1             ; desk_draw_zone: current zone top
-desk_zx      resw 1             ; ...and its left column (SPEC.md 26.1)
+desk_zx      resw 1             ; ...and its left column (SPEC.md 26.1) -
+%endif                          ; kern_big's: kern_small's keeps both on its
+                                ; stack (kernel size pass 21)
 %ifndef KERN_SMALL
 ; --- the SERVICE zone a driver registered (SPEC.md 26.7) ---------------------
 ; The record's three strings are COPIED here at registration rather than read

@@ -956,9 +956,11 @@ assoc_try:
 ;      one caller, sends a folderless program to BOTH and never to neither,
 ;      so the `or bl, bl / jz` that stood here was unreachable (size pass 5)
 ; out: as assoc_try
+; clobbers: AX, BX, SI, CF - SI is assoc_sweep's proc's to spend (its one
+;      caller is assoc_tryvol, whose one caller is the sweep: kernel size pass
+;      21, -2); CX and DX are the sweep's and kept
 ; -----------------------------------------------------------------------------
 assoc_tryfold:
-    push si
     push cx
     push dx
     mov si, assoc_s_apps
@@ -989,7 +991,6 @@ assoc_tryfold:
 .out:
     pop dx
     pop cx
-    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -997,7 +998,10 @@ assoc_tryfold:
 ;                the folder a default names (rungs 3 to 5 of SPEC.md 54.4.2)
 ; in:  DL = volume, DI = the app slot
 ; out: as assoc_try
-; clobbers: AX (the output), CF
+; clobbers: AX, BX, SI, CF - assoc_sweep's proc contract, its one way in
+;      (CX, DX and BP kept: nothing here writes DX, and assoc_tryfold keeps
+;      CX). It banked BX and DX, and assoc_tryfold SI, for nobody - kernel
+;      size pass 21, -6 with that one
 ;
 ; **THE VOLUME'S OWN ASSOC.DAT IS ASKED HERE, not only after a find** (SPEC.md
 ; 54.4.2.3). The hint rung 1 reads is ONE location, seeded by whichever
@@ -1017,8 +1021,6 @@ assoc_tryfold:
 ; unfindable anywhere but through a hint.
 ; -----------------------------------------------------------------------------
 assoc_tryvol:
-    push bx
-    push dx
     xor ax, ax
     CLU_HI0
     call assoc_try              ; the volume's root - and AX is still 0 after
@@ -1041,9 +1043,7 @@ assoc_tryvol:
     jb .out                     ; the miss, AX the folder's answer
     mov bl, 2                   ; ...and a declared one tries GAMES too
     call assoc_tryfold
-.out:
-    pop dx                      ; a pop touches no flag, so the CF both rungs
-    pop bx                      ; answer in is what reaches the caller
+.out:                           ; the CF both rungs answer in
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1071,9 +1071,10 @@ assoc_tryext:
 ; -----------------------------------------------------------------------------
 ; assoc_sweep - ask every live volume one question, the document's own first
 ;               and then cheapest medium first (SPEC.md 54.4.2, 54.4.2.2)
-; in:  BP = the question: a near proc taking DL = the volume, answering CF=0 =
-;      stop here, and preserving CX, DX and BP; [assoc_ddrv] = the document's
-;      volume
+; in:  BP = the question: a near proc taking DL = the volume (and whatever DI
+;      the caller set: assoc_tryvol's is the app slot, which the walk keeps),
+;      answering CF=0 = stop here, and preserving CX, DX and BP; [assoc_ddrv]
+;      = the document's volume
 ; out: CF=0 = a volume answered, with whatever the proc left in AX/BX/DI;
 ;      CF=1 = none did
 ; clobbers: AX, BX, CX, DX, CF (and whatever the proc does)
@@ -1121,13 +1122,20 @@ assoc_sweep:
     jne .kind
     mov al, [bx+DV_CLASS]       ; THIS ROW's class (SPEC.md 62.9.19): two
     push es                     ; file classes, and only one of them is memory
+    push di                     ; ...and DI, which is NOT this loop's: it is
+                                ; assoc_tryvol's INPUT, the app slot, and the
+                                ; sweep handed every volume after a redirected
+                                ; one the table's offset instead - which
+                                ; assoc_locate's .known then wrote the hint
+                                ; through, at assoc_drv/assoc_clus plus that
+                                ; offset (DEFECT, kernel size pass 21: +2)
     call drv_cls_svc_x          ; CLSCF: a DVK_FILE row's class is a published one - dsk_vol_add derives the kind FROM the class, 5 or 8, and drv_release drops a class's rows with it
     mov al, [es:di+DSV_CAPS]    ; ...read in place (kernel size pass 19), and
     and al, FSCAP_LOCAL         ; the PASS is the bit: 2 for a redirected one
     shl al, 1                   ; whose reads are MEMORY (62.9.2.2), 0 for any
-    pop es                      ; other, which is the cable. DI is this loop's
-%endif                          ; to clobber (the proc answers in it).
-                                ; FSCAP_LOCAL is 1: driver.inc says so
+    pop di                      ; other, which is the cable. FSCAP_LOCAL is 1:
+    pop es                      ; driver.inc says so
+%endif
 .kind:
     cmp al, ch
     jne .volnext                ; ...not this pass's
