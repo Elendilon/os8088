@@ -230,6 +230,11 @@ def qm(sock):
     if m is None:
         import os88qemu
         m = _QM[sock] = os88qemu._Sock(sock)
+        # ...and its BURST, so os88qemu.mouse_dblclick sends the four edges
+        # in one write: without it every xmcheck double-click was four round
+        # trips, and a loaded soak spread them past the 9-tick window (the
+        # chooser's folder in waverackplay's d2 leg, 12 ticks: two clicks)
+        m.hmp_burst = lambda lines, s=sock: qmp_burst(s, lines)
     return m
 
 

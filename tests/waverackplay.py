@@ -108,10 +108,23 @@ class PR(WRT.WR):
                         os88build.at("build/mixercfg/SYSTEM.CFG")],
                        check=True, capture_output=True)  # SOUND.DRV wanted
         shutil.copy(os88build.at("build/wrfix.img"), bimg)
+        # A FIXED-SPEED GUEST, AND THE CARD ON ITS CLOCK (os88qemu.icount,
+        # os88build.qemuvt; xtmp3eng's rate legs). Every check here is the
+        # CAPTURE - samples played, sample for sample - and on a stock QEMU
+        # both the SB16's DMA and the wav backend run in HOST time, so a
+        # loaded soak played and captured a different stream: TONE44's count
+        # short, a sample off at 9,702 of 11,025. Under -icount the PIT, the
+        # tick and the wav audiodev are the guest's, and on `qemuvt` the
+        # 8237's transfers too; without it the DMA is the one host clock left
+        vt = os88build.qemuvt() if os.environ.get("OS88_QEMUVT") != "0" \
+            else None
+        if vt and os.path.dirname(vt) not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = (os.path.dirname(vt) + os.pathsep +
+                                  os.environ.get("PATH", ""))
         self.q = Q(tmp, sysimg, bimg, 4, keep=True, extra=[
             "-device", "sb16,audiodev=a0" + sbopt, "-audiodev",
             "wav,id=a0,path=%s,out.frequency=%d,out.channels=2,"
-            "out.format=s16" % (self.wav, afreq)])
+            "out.format=s16" % (self.wav, afreq)] + os88qemu.icount())
         self.sock = self.q.sock
         os88qemu.acted(self.q, lambda: os.path.exists(self.sock), secs=30,
                        what="the QMP socket")

@@ -736,7 +736,7 @@ FAST = [
         "the window after the zoom equal to a forced full repaint",
         needs=("qemu", "nasm", "pil"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/wrfix.img", "build/waverack.bin")),
-    Row("waverackplay", "soak", py("tests/waverackplay.py"), 50.0,
+    Row("waverackplay", "soak", py("tests/waverackplay.py"), 150.0,
         "WaveRack's transport (SPEC.md 123.6, 123.8, 123.9) on QEMU's SB16, "
         "its output captured by the wav audiodev at the rate the card plays "
         "and each play a slice held to tools/wrsim.py's convert(): "
@@ -753,7 +753,9 @@ FAST = [
         "a DSP 2.01 (no PCM_HI) TONE44.WAV at d = 2 with VOLUME 50% from the "
         "keys, every sample; and on an SB16 TONE44.WAV at d = 1 - 44,100 Hz, "
         "the card's 4 KB block against eleven 2 KB halves - ending IDLE with "
-        "no underrun and every sample captured",
+        "no underrun and every sample captured. Under -icount, and on "
+        "`qemuvt` where the box has it: a capture in host time is a different "
+        "stream on a loaded box. 150s is 152 measured beside a soak",
         needs=("qemu", "nasm", "numpy"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/wrfix.img", "build/waverack.bin",
                "build/mixercfg/SYSTEM.CFG")),
