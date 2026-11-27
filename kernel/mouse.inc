@@ -1453,13 +1453,12 @@ mouse_unhook:
     mov ax, 0x0100              ; IER = 0: no more UART interrupts
     call mou_pall
 
-%ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector (and no
-%else                           ; zero: AX is written before it is read)
-    xor ax, ax
-    mov es, ax
-%endif
     xor bx, bx
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
+    mov es, bx                  ; ES = 0 out of BX's zero: AX is written before
+%endif                          ; it is read (kernel size pass 21: -2)
 .port:
     cmp word [bx+mou_bases], 0
     je .next
@@ -1611,6 +1610,9 @@ osapi_mouse:
     jae .done                       ; a UART and index no serial table
     xor bh, bh                      ; BX = the PORT's row, for mou_pout
     xor di, di                      ; DI = the LINE's row: IRQ4 is row 0's
+%ifndef KERN_MEGA
+    mov es, di                      ; ES = 0, the IVT, while DI is still 0
+%endif                              ; (kernel size pass 21: -2)
     cmp byte [mou_line], MOU_L4     ; int 0Ch and mou_isr, IRQ3 row 2's -
     je .row                         ; whichever base the card answered at
     inc di                          ; (two `inc`s, not `mov di, 2`: a byte
@@ -1622,11 +1624,8 @@ osapi_mouse:
                                     ; a bank and SI's push and pop went (kernel
                                     ; size pass 20, -2 and ~10 clocks a pass)
 %ifdef KERN_MEGA
-    MEGA_SEG0 es                  ; segment 0 is the NULL selector (and no
-%else                           ; zero: AX is popped or reloaded below)
-    xor ax, ax
-    mov es, ax
-%endif
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector (AX is
+%endif                          ; popped or reloaded below: no zero kept)
     mov cx, cs
     cmp [es:di+2], cx               ; still ours? ONE compare, which is what
     je .done                        ; every pass but a theft pays

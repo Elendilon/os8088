@@ -235,5 +235,8 @@
 #             the PARITY nop after mou_p2_off goes with that odd byte (-1);
 #             kern_mega's CS is a read-only selector in protected mode, so it
 #             keeps the DS bank and the pad that keeps its own hot ISRs where
-#             they were
-3780
+#             they were; and osapi_mouse's re-hook arm and mouse_unhook take
+#             ES = 0 out of a register already 0 (-2 each), where kern_mega
+#             loads its segment-0 selector (MEGA_SEG0) either way. +4 more,
+#             to 3,784
+3784
