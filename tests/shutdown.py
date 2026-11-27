@@ -194,8 +194,18 @@ def run(card, machine, image):
         bios = int.from_bytes(m.read(0x46C, 2), "little")
         io = m.disk()
         angles, pictures = set(), set()
+        # ONE SAMPLE A TICK, not one every quarter second: the spinner's 16
+        # steps give 9 distinct cosines, and a fixed interval ALIASES onto a
+        # few of them - on Bochs, whose guest_sleep ends on a clock read that
+        # may lag, the samples fell ~9 ticks apart and read 5 values in one
+        # run of 4 (mega-shutdown, the soak). Each sample waits for the BIOS
+        # tick to MOVE, so consecutive samples are consecutive ticks
+        tick = lambda: int.from_bytes(m.read(0x46C, 2), "little")  # noqa: E731
+        last = tick()
         for _ in range(20):
-            M.guest_sleep(m, .25)
+            M.until(m, lambda _m: tick() != last, "the next BIOS tick",
+                    guest=2.0)
+            last = tick()
             angles.add(m.readseg(seg(), offsets["sd_cos"], 2))
             if card != "vga":
                 pictures.add(bytes(b for row in m.vram(card)[2] for b in row))
