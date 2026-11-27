@@ -241173,6 +241173,16 @@ depth blit went 7.9 → 3.4 ms, the fill's rate to within 10%, and the
 sixteen-colour `OSAPI_GFX_BLIT4` of the same rows is 5.3x it, which is
 what §120.7 buys a package. PERFORMANCE.md Part 5 carries the rows.
 
+**The text run puts a glyph row down in one pass** (driver size pass 2):
+`VX_FONTRUN` wrote every pixel through `vx_px` - a call, the depth test and
+the window-edge test a pixel, and at 16bpp the RGB word looked up each time.
+A row whose eight pixels end short of the window's last byte (DI + 8, or
++ 16, does not carry - so no edge test would have fired) is now one
+`stosb`/`stosw` loop with the run's two pixel values looked up once; a row
+that reaches the edge keeps the per-pixel loop, so every window switch
+happens where it did. Counted in a unicorn model of a banked VBE, not timed:
+the same pixels and the same `4F05h` calls in 55% of the instructions.
+
 ### 120.9 Testing
 
 QEMU's standard VGA carries a VBE 2.0/3.0 BIOS, so `-vga std` — the default
