@@ -89,10 +89,11 @@ def main():
     # to pick that frame (0x54) and otherwise falls through to the XT
     # acknowledge below; that arm is checked for its guard and then
     # removed, so what remains is exactly what the XT's INT 09h runs.
-    kfilter = re.search(r"(?ms)^\.pc1eat:\s*(.*?)^\.chain:", ksrc)
     # Since kernel size pass 21 the eat path is the KBM_EAT macro, expanded
-    # here on the OS88_DRIVERS kernels (and after the chain on kern_small) so
-    # that .selfchain shares its EOI tail: read the expansion in its place.
+    # AFTER the chain on every kernel (.pc1eat's KBD_DIAG mark just above it
+    # on the OS88_DRIVERS kernels) so that .selfchain shares its EOI tail and
+    # nothing falls into it: read the expansion in its place.
+    kfilter = re.search(r"(?ms)^\.pc1eat:\s*(.*?^\s+KBM_EAT\b[^\n]*$)", ksrc)
     eat = re.search(r"(?ms)^%macro KBM_EAT 0\s*(.*?)^%endmacro", ksrc)
     if kfilter is not None and eat is not None and re.search(
             r"(?m)^\s+KBM_EAT\b", kfilter.group(1)):
@@ -107,6 +108,20 @@ def main():
               why="an XT INT 09h scan must reach the 8255 acknowledge, never the AT frame")
         kfilter = re.search(r"(?ms)(.*)", re.sub(
             r"(?ms)^%ifdef KBD_I15\s*.*?^%endif", "", kfilter.group(1)))
+    # KBM_SCAN's keypad-5 arm ENDS BY FALLING THROUGH, and the BIOS must get
+    # the key (SPEC.md 9.6.4, 9.15), so what follows the expansion in kbm_isr
+    # is .chain and nothing else. From #371 until the owner's fix in kernel
+    # size pass 21 the PC1 eat tail sat there on the OS88_DRIVERS kernels and
+    # swallowed keypad 5 - on kern_big, kern_emu and kern_mega, not kern_small.
+    isr = re.search(r"(?ms)^kbm_isr:(.*?)^kbm_i15:", ksrc)
+    fall = isr and isr.group(1).rsplit("KBM_SCAN .chain", 1)[-1].split(
+        "\n.chain:", 1)[0]
+    check(fall is not None and "\n.chain:" in isr.group(1)
+          and not re.search(r"KBM_EAT|\.pc1eat|\biret\b|\bout\b",
+                            re.sub(r"(?m);.*$", "", fall)),
+          "keypad 5 falls from KBM_SCAN straight into .chain",
+          why="the keyboard mouse's button press is the BIOS's key too; an eat "
+              "tail between KBM_SCAN and .chain acknowledges it and drops it")
     check(kfilter is not None
           and "in  al, 0x61" in kfilter.group(1)
           and "or  al, 0x80" in kfilter.group(1)

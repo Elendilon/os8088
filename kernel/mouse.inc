@@ -2939,18 +2939,6 @@ kbm_isr:
 %else
     KBM_SCAN .chain
 %endif
-%ifdef OS88_DRIVERS
-.pc1eat:
-%ifdef KBD_DIAG
-    ; Mark diagnostic rows that actually reached this filter. KBG_X bit 5
-    ; distinguishes a matched byte from one merely observed at port 60h.
-    push bx
-    mov bx, [kbg_cur]
-    or byte [bx+KR_X], 0x20
-    pop bx
-%endif
-    KBM_EAT                     ; (the keypad-5 press falls in here as well)
-%endif
 .chain:
     ; A CHAIN TO OURSELVES IS A DEAD MACHINE, so it is refused rather than
     ; taken (SPEC.md 9.6.5). mouse_unhook puts int 09h back now and that is
@@ -3038,9 +3026,26 @@ kbm_isr:
     jmp far [cs:kbm_old9]       ; CS, not DS: DS is the interrupted code's again
 %endif
 %endif
-%ifndef OS88_DRIVERS
-    KBM_EAT                     ; kern_small: AFTER the chain, so the keypad-5
-%endif                          ; press falls into .chain where it jumped
+    ; THE EAT TAIL IS AFTER THE CHAIN ON EVERY KERNEL, so nothing FALLS into
+    ; it: KBM_SCAN's keypad-5 arm ends by falling through, and what it falls
+    ; into must be .chain - the BIOS gets keypad 5 as it gets every key it
+    ; does not own (SPEC.md 9.6.4, 9.15). From #371 to kernel size pass 21
+    ; the PC1 filter's .pc1eat sat between KBM_SCAN and .chain on the
+    ; OS88_DRIVERS kernels, and the keypad-5 press fell into it: acknowledged
+    ; and EOI'd on an XT, refused in int 15h's frame on an AT, and never
+    ; stored. kern_small had this layout all along. Every way in is a jump.
+%ifdef OS88_DRIVERS
+.pc1eat:
+%ifdef KBD_DIAG
+    ; Mark diagnostic rows that actually reached this filter. KBG_X bit 5
+    ; distinguishes a matched byte from one merely observed at port 60h.
+    push bx
+    mov bx, [kbg_cur]
+    or byte [bx+KR_X], 0x20
+    pop bx
+%endif
+%endif
+    KBM_EAT
 
 %ifdef KBD_I15
 ; -----------------------------------------------------------------------------

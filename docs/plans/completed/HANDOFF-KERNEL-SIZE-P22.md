@@ -140,6 +140,19 @@ differences listed after them.
    - Wider, there is one hit at **0x0872**: a real far call in CTRL.DRV and
      DISKOPS.DRV whose offset's high byte is 9Ah. It is noted and not
      chased (section 5).
+4. **Keypad 5 never reached the BIOS on kern_big, kern_emu and kern_mega**
+   (input found it; the owner said take it, after the close, 0 bytes). Since
+   #371 (`d4349a0a4`) the PC1 filter's eat tail sat between `KBM_SCAN` and
+   `.chain`. The keypad-5 arm ends by falling through, so it fell into the
+   tail: acknowledged and EOI'd on an XT, refused in int 15h's frame on an
+   AT, and never stored, against SPEC.md 9.6.4 and 9.15. `KBM_EAT` is now
+   after the chain on every kernel, kern_small's layout all along, and every
+   way in is a jump.
+   - Sizes are identical on all four kernels, and kern_small is
+     byte-identical. On kern_big only `kbm_isr` changed, at the same
+     address, and nothing shifted.
+   - `tests/unit/t_pc1mouse.py` now guards that nothing sits between the
+     `KBM_SCAN` expansion and `.chain:`. It went red against the old layout.
 
 **Flag differences, none of them read by any caller and none in a
 contract:**
@@ -152,16 +165,8 @@ contract:**
 
 ## 4. Wants the owner
 
-1. **Keypad 5 is eaten on kern_big, kern_emu and kern_mega, and has been
-   since #371 (`d4349a0a4`)** (input.md).
-   - **What happens:** once the keypad-5 flag is set, `KBM_SCAN` falls into
-     `.pc1eat`, which acknowledges and EOIs the byte (or clears CF in the
-     int 15h frame). A BIOS that delivers keypad 5 therefore never sees it.
-   - **Why it is wrong:** SPEC.md 9.6.4 and 9.15 say ordinary scancodes keep
-     their normal path. kern_small's layout already gets this right.
-   - **The fix:** 0 bytes. Expand `KBM_EAT` after `.chain` on every kernel,
-     as kern_small does.
-   - **Status:** not taken, because it changes what the BIOS receives.
+1. ~~Keypad 5 eaten on kern_big, kern_emu and kern_mega~~ - **taken on the
+   owner's word, 0 bytes: section 3 item 4.**
 2. **No-force flag as `call bp`** in `wm_paint_dmg`/`wm_paint_all` (wm.md):
    -3 on big/emu/mega. The damage pass gets faster, but each whole-desktop
    pass costs about +22 clocks. That path was bought by the flag's own speed

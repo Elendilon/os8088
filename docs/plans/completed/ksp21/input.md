@@ -125,7 +125,9 @@ character), vmm_poll's ladder (kent_bp pushes AX..BP in kret_es's order).
    chain on every kernel (kern_small's layout since item 3) lets the press
    fall into `.chain` as it did before #371; every consume path is a jump
    either way, and the sizes are identical. Not taken: it changes what the
-   BIOS receives.
+   BIOS receives. **The owner said take it (after the pass closed): it
+   landed in the coordinator's tree, 0 bytes, with `t_pc1mouse.py` guarding
+   the layout - HANDOFF-KERNEL-SIZE-P22 section 3 item 4.**
 
 ## WANTS AN ABI BREAK
 
@@ -174,8 +176,8 @@ planar arm.
    frame's CF), so a BIOS that delivers keypad 5 (SeaBIOS) never sees it.
    SPEC.md 9.6.4's design is that the BIOS gets it and kbm_key's guard keeps
    one press from being two; 9.15 says ordinary scancodes keep their path.
-   kern_small chains as before (its `jmp .chain`, now its layout). Not fixed:
-   WANTS THE OWNER 1, at 0 bytes.
+   kern_small chains as before (its `jmp .chain`, now its layout). FIXED
+   after the close, on the owner's word (WANTS THE OWNER 1).
 2. **kl_control_x loses a module refusal's CF**: after `call far
    [KLFP+KL_CMD]`, CF = 1 with AL != 0 leaves by `or al, al`, which clears
    CF. Unreachable today - klm_control's klm_bad is never reached through

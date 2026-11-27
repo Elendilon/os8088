@@ -20072,7 +20072,13 @@ codes. While the PC1 row is attached, the kernel records 77h/78h/79h in that
 map and prevents those bytes from being enqueued as typed keys. Since the PC1
 is an XT, the kernel consumes them in INT 09h, pulses bit 7 of port 61h to
 acknowledge the 8255 byte, then sends IRQ1's EOI. Ordinary scancodes keep their
-normal path. The middle code 78h is consumed but does not map to an OS button.
+normal path, and keypad 5 is one of them: §9.6.4's press marks `[kbm_p5]` and
+then chains to the BIOS like any other key. That is why the eat tail sits after
+`kbm_isr`'s chain on every kernel, reached only by jumps. From #371 until kernel
+size pass 21 it sat between `KBM_SCAN` and `.chain` on kern_big, kern_emu and
+kern_mega, and keypad 5 fell into it and never reached the BIOS
+(`tests/unit/t_pc1mouse.py` guards the layout). The middle code 78h is consumed
+but does not map to an OS button.
 Detach stops the worker, which feeds a release for any held button on its way
 out.
 
