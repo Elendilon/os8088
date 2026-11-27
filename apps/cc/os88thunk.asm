@@ -719,6 +719,23 @@ _os88_wm_display:
     ret
 %endif
 
+; void os88_wm_dorigin(void *win, struct os88_pt *o) - BX = win; out AX/DX =
+; the origin of the display os88_wm_display() describes, virtual coordinates
+; (SPEC.md 39.16.4.3). OSAPI_WM_CONTENT's point convention, so the same body.
+CC_GATE _os88_wm_dorigin
+%ifdef CC_U__os88_wm_dorigin
+_os88_wm_dorigin:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    call OSAPI_WM_DORIGIN
+    mov bx, [bp+6]
+    mov [bx], ax
+    mov [bx+2], dx
+    pop bp
+    ret
+%endif
+
 ; int os88_wm_damage(void *win, struct os88_rect *r) - from inside your own
 ; os88_paint(). Returns 1 = draw the WHOLE content, 0 = draw exactly r, which
 ; may be EMPTY (x1 > x2) meaning draw nothing. Requires os88_wm_ownbg(win, 1);

@@ -156,13 +156,13 @@
  *     to read a file's HEADER and decide from it before reading the rest,
  *     which os88_file_read() cannot express - it is os88_file_read_at().)
  *
- * The count: 106 of the 164 slots apps/os88api.inc publishes, plus six
+ * The count: 107 of the 165 slots apps/os88api.inc publishes, plus six
  * window-record accessors and seven runtime helpers that are not slots at all -
- * 135 C entry points, and every one of them is in apps/cc/os88thunk.asm -
+ * 136 C entry points, and every one of them is in apps/cc/os88thunk.asm -
  * FOUR OF THEM ONLY IF THE SHIM SAYS SO. The four fsx_* thunks are behind
  * `%define CC_HAS_FSX` (the gate list below), so a package without it has
  * four prototypes with no bodies. And a package ASSEMBLES ONLY THE ENTRY
- * POINTS ITS C CALLS (SPEC.md 73.9.1): ccsmoke carries 13 of the 135, so an
+ * POINTS ITS C CALLS (SPEC.md 73.9.1): ccsmoke carries 13 of the 136, so an
  * unused prototype here costs nothing and neither does an unused thunk. The
  * recipe below counts the FILE, which holds all of them.
  *
@@ -189,7 +189,9 @@
  * 105/160/133, and this cycle's four slots - PKG_REHOME, GFX_POINTS, CUR_BUSY
  * and WM_MINIMIZE, none of them wrapped - take it to 105/164/133, and the
  * extended-desktop round's os88_wm_prefer() (a slot) and os88_fsx_pick() (a
- * helper over OSAPI_FSX_CAPS, inside the CC_HAS_FSX block) to 106/164/135.
+ * helper over OSAPI_FSX_CAPS, inside the CC_HAS_FSX block) to 106/164/135,
+ * and OSAPI_WM_DORIGIN with os88_wm_dorigin() (SPEC.md 39.16.4.3) to
+ * 107/165/136.
  * Run the
  * recipe when you touch this file; do not add one to what is written here.
  * ==========================================================================*/
@@ -797,6 +799,12 @@ int  os88_wm_obscured(void *win);                /* 1 = covered or hidden */
  * the dock owns on THAT display; the desktop row the slot also answers has no
  * field in the struct and is dropped. */
 void os88_wm_display(void *win, struct os88_video *v);
+/* os88_wm_dorigin - WHERE that display is: the top-left corner of the display
+ * os88_wm_display() describes, in the same virtual coordinates as your
+ * window's position (SPEC.md 39.16.4.3). (0, 0) on one display; on display 1
+ * of an extended desktop it is not, so compare a desktop position with
+ * o->x .. o->x + v->w - 1, never with 0 .. v->w - 1. */
+void os88_wm_dorigin(void *win, struct os88_pt *o);
 void os88_wm_title(void *win, const char *s);    /* redraws the caption strip
                                                   * and NOTHING else: 17 rows.
                                                   * The bytes must outlive it */

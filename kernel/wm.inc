@@ -1916,6 +1916,35 @@ wm_display:
     ret
 
 ; -----------------------------------------------------------------------------
+; osapi_wm_dorigin - OSAPI_WM_DORIGIN: WHERE is the display this window is on?
+;                 (public; API 0x0244, a JCELL - SPEC.md 39.16.4.3)
+; in:  BX = the window
+; out: AX = that display's x origin, DX = its y origin, in the VIRTUAL
+;      coordinates W_X/W_Y and every drawing slot take; every other register
+;      preserved. FAR, and DS is the caller's on entry.
+;
+; OSAPI_WM_DISPLAY's companion: the same display (wm_disp_now), its ORIGIN
+; where that cell answers its size. A package comparing a desktop position -
+; its own W_X/W_Y - with a display's extent needs both, and that cell has no
+; register left to carry two more words (39.16.4.3 is the decision). One
+; display: (0, 0), the answer every kernel had before 39.16.
+; -----------------------------------------------------------------------------
+osapi_wm_dorigin:
+    xor ax, ax
+    cwd
+%ifdef KERN_BIG
+    push ds
+    KDS
+    cmp byte [vid_ndisp], 1     ; GATED, as wm_display is: EXT_DISPLAY with
+    jbe .one                    ; CF = 1 is its ORIGIN form
+    stc
+    EXTCALL EXT_DISPLAY
+.one:
+    pop ds
+%endif
+    retf
+
+; -----------------------------------------------------------------------------
 ; wm_prefer - "this is how big I want to be on each adapter" (public; API
 ;             0x0478, SPEC.md 11.100.1)
 ; in:  BX = window ptr, SI = the offset of a PREF_SIZE table in the window's own

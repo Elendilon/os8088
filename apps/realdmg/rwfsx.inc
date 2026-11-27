@@ -246,17 +246,20 @@ rw_fsenter:
                                     ;   restore's repaint paints white, and
                                     ;   the next draw starts from every line
     mov byte [rw_fsrate], 1
+    call rw_fspick                  ; CH = the display (asked where it is
+    mov [rw_fskind], al             ;   used: the yields above let it move)
     mov ax, rw_fsmain
     mov bx, [rw_win]
-    mov cx, FSXF_RATE
+    mov cl, FSXF_RATE
     mov dx, RW_FSDIV
     mov di, rw_fshook
     call OSAPI_FSX_RUN
     jnc .out
     mov byte [rw_fsrate], 0         ; kern_small: no rate, the tick paces
+    call rw_fspick
     mov ax, rw_fsmain
     mov bx, [rw_win]
-    xor cx, cx
+    xor cl, cl
     call OSAPI_FSX_RUN
 .out:
     call OSAPI_GET_TICKS            ; the window takes up from now
@@ -273,14 +276,21 @@ rw_fsenter:
 .r:
     ret
 
-; rw_fspick - the writer for this window's display: VGA mode 0Dh, else the
-; Hercules page at 2x2, else CGA's 320x200 in four colours. AL = RW_FS*, or
-; CF = 1 for none.
+; rw_fspick - the display a full screen goes to and its writer: the display
+; the window is MOSTLY on when it can set one of our three modes, else the
+; first that can (os88fsxw.inc, SPEC.md 53.1.2.1 - an MDA half of a VGA+MDA
+; pair no longer refuses). On it, VGA mode 0Dh, else the Hercules page at
+; 2x2, else CGA's 320x200 in four colours. AL = RW_FS*, CH = OSAPI_FSX_RUN's
+; display, or CF = 1 for none.
 rw_fspick:
     push bx
+    push dx
     mov bx, [rw_win]
-    call OSAPI_FSX_CAPS             ; AX = the modes this display can set
+    mov dx, (1 << FSXM_VGA0D) | (1 << FSXM_HERC) | (1 << FSXM_CGA320)
+    call fsxw_pick                  ; AX = the modes that display can set
+    pop dx
     pop bx
+    jc .no
     test ax, 1 << FSXM_VGA0D
     jz .h
     mov al, RW_FSVGA

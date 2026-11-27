@@ -199,7 +199,14 @@ ext_e_kindnow:                  ; EXT_KINDNOW: wm_kind_now, UNGATED. The caller
                                 ; is then told it is on
 ext_e_display:                  ; EXT_DISPLAY: wm_display's second arm, behind
     push di                     ; its gate. CF = 1: the window is on display
-    call wm_disp_now            ; 0, whose numbers the caller loads itself
+    jnc .size                   ; 0, whose numbers the caller loads itself.
+    call wm_disp_now            ; CF = 1 IN is OSAPI_WM_DORIGIN (39.16.4.3):
+    call ext_ctx_ptr            ; AX/DX = the ORIGIN of the same display, and
+    mov ax, [di+VID_CTX_VX]     ; display 0's record holds (0, 0)
+    mov dx, [di+VID_CTX_VY]
+    jmp short .p
+.size:
+    call wm_disp_now
     or al, al
     stc
     jz .p
