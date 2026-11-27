@@ -37844,6 +37844,21 @@ full-screen DOS program whose arena had taken the heap the 11KB module needed
 not move. `DISKOPS.DRV` is 265 bytes smaller on `kern_big`, 270 on
 `kern_mega`.
 
+**Kernel size pass 21 made them smaller, with the swapped-floppy check, every
+refusal and every int 13h call as they were** (docs/plans/ksp21/diskw.md):
+`dskw_rmbody_n83` carries the folder test and the emptiness scan itself
+(`dskw_fdir`, `dskw_isempty` and `dskw_scan1` were its single-caller
+helpers; `dskw_isempty` is left as the pop tail `drvvol.inc` shares); both
+renames hold the new name's pointer in BX and parse it a second time into
+the staged entry, so `dskw_n83b` is gone from `.bss`; `dskw_commit` spends
+`[dskw_isdir]` at its last read, so New Folder neither clears it nor banks
+round its rollback; `dskw_wck` banks once and reads the gate and
+`[dsk_mvok]` as one word; and the module's verbs are `dskw_wrap7` bodies
+(`dskw_dirbody`, and on `kern_small` `dskw_dirb`) where `dskw_dircall` was a
+ladder of its own. The three bodies and their door, kern_big/kern_emu:
+New Folder -11 (`dskw_mkbody`'s tails and the commit), Rename -14 `.cold`
+and -11 `.bss`, empty rmdir -35, the media check -18, the tree's door -32.
+
 **The module path (the tree; all four on `kern_small`).** Their public
 register, CF, validation and disk-integrity contracts remain those in
 §18.4–§18.6. A mutation in the module loads it on the UI task before making
