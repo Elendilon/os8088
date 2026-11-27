@@ -491,13 +491,17 @@ wm_pkgcall:
                                 ; unaffected
 %endif
     push ax                     ; ...and it is this window's claim now. AX is
-    mov al, [es:si+W_FLAGS+1]   ; the callback's, so it is banked around three
+    mov al, [si+W_FLAGS+1]      ; the callback's, so it is banked around three
     and al, WF_1BPP >> 8        ; instructions rather than spent - and the
     mov [gfx_mono1], al         ; LOW BYTE alone is written, which is what
     pop ax                      ; keeps the word above safe to push and pop
-    cmp word [es:si+W_SEG], 0   ; (the cmp sets the flags the branch reads, so
+    cmp word [si+W_SEG], 0      ; (the cmp sets the flags the branch reads, so
     je .near                    ; the `and` above cannot reach it)
-    mov ds, [es:si+W_SEG]       ; DS = the package's own segment...
+    mov ds, [si+W_SEG]          ; DS = the package's own segment... (these
+                                ; three read the record through DS, which is
+                                ; still the KERNEL's until this load - the
+                                ; `mov [gfx_mono1], al` between says so - and
+                                ; carry no `es:` byte: kernel size pass 21, -3)
 %ifdef KERN_MEGA
     call COLD_SEG:mega_pcin_x   ; ...and the bracket below, plus kern_mega's
 %elifdef OS88_COMPACT           ; CATCH for a fault in it (KERN-MEGA-PLAN 14.42)
@@ -1153,6 +1157,10 @@ NR_SIZE equ 8
 ; that reads it (ui_drag's "did it move", wm_create's CF), and a bank is
 ; bookkeeping that no caller should have to make room for.
 ; -----------------------------------------------------------------------------
+wm_rz_bank:                     ; the resize bank (its header is wm_resize's
+    push di                     ; neighbour, below): wm_rz_ox..oh = the
+    mov di, wm_rz_ox            ; record's X..H, every register and the flags
+    jmp short wm_nat_bank.go    ; preserved - wm_nat_bank's own tail
 wm_nat_bank:
     push di
     lea di, [bx+W_NATR]
@@ -2622,11 +2630,8 @@ wm_rz_precover:
 ; still an enormous improvement on the whole screen. The union is computed one
 ; pixel wide at the far edges, which is exactly the drop shadow.
 ; -----------------------------------------------------------------------------
-wm_rz_bank:
-    push di
-    mov di, wm_rz_ox
-    jmp wm_nat_bank.go          ; ...whose tail is this one's: wm_bank4, the
-                                ; pop and the ret (kernel size pass 21, -2)
+; (wm_rz_bank's body is beside wm_nat_bank, whose tail - wm_bank4, the pop
+; and the ret - it shares by a short jump: kernel size pass 21, -3)
 
 ; -----------------------------------------------------------------------------
 ; wm_bank4 - copy the record's X..H (BX -> window) to DS:DI
