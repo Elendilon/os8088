@@ -5488,6 +5488,11 @@ gfx_scroll:
     GFXAUDIT_HOOK
     call cur_unlazy              ; off the clip list (SPEC.md 11.3): 7.1.4
     call kent_di                ; the same six words (kernel size pass 15)
+    push es                     ; ...and ES, which every backend loads with
+                                ; the framebuffer: "registers preserved" is
+                                ; SPEC.md 5.5's contract, and vgas_bankcopy's
+                                ; `mov es, [vid_rseg]` broke it for a caller
+                                ; holding ES (the audit's ES finding)
     GFXDENTERR                  ; a blit cannot take a sub-rect (SPEC.md 11.3),
                                 ; so it goes onto the display holding its top
                                 ; left - and the two edge tests below then
@@ -5576,6 +5581,7 @@ gfx_scroll:
     clc
 .out:
     GFXDLEAVE                   ; ...and it banks CF, which is this routine's
+    pop es                      ; (pop writes no flag: CF is still the answer)
     jmp kret_di
 
 %ifdef COLD_SLIDE

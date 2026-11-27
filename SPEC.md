@@ -7645,7 +7645,12 @@ rows `vga_prow_emit` writes were left as bytes: nothing measured them.
 **in** AX/BX/CX/DX = x1/y1/x2/y2 inclusive, absolute screen coordinates;
 SI = dy **signed**, positive scrolling the content *up*. Caller holds the
 gfx lock. **out** CF=0 moved, CF=1 refused and nothing touched. Every
-register preserved — CF is the whole answer.
+register preserved — CF is the whole answer. **ES included**: every backend
+loads ES with the framebuffer, and until the extended-desktop audit the mono
+backend's `mov es, [vid_rseg]` came back to the caller unbanked. A package
+holding ES across the call (a `rep movsb` source segment, a claim) then read
+the framebuffer through it. `gfx_scroll` now banks ES round its whole body,
+for 2 bytes.
 
 **It lives in `vga12.inc`.** It was in `softgfx.inc` while it had three
 backends and one of them was §32's back buffer; with the buffer gone it has
