@@ -144416,13 +144416,18 @@ the row, which is the constraint §75.3 above is about.
 
 The alert was centred on `OSAPI_VIDEO`'s width and height, which are the
 PRIMARY's (§39.2.1), so on a two-display machine a window on the second
-monitor asked its question on the first one. No cell says where a display
-starts, and none is needed: **`os88ui_centre`** (AX = the frame's width, DX =
-its height, BX = the asking window; out AX/BX = x/y) centres the box over the
-asking window's content when there are two displays (`OSAPI_FSX_CAPS` with
-BX = 2 answers CF = 0), and `wm_create`'s fit keeps it inside that window's
-display (§39.16.1). On one display it is the old arithmetic exactly: centred
-on the primary and never up under the menu bar. SHEET's seven dialogs that
+monitor asked its question on the first one. **`os88ui_centre`** (AX = the
+frame's width, DX = its height, BX = the asking window; out AX/BX = x/y)
+centres the box on the asking window's DISPLAY: `OSAPI_WM_DISPLAY`'s size
+from `OSAPI_WM_DORIGIN`'s origin (§39.16.4.3), never left of that display
+nor above its first row, and never up under the menu bar on the primary. A
+straddling window's display is the restrictive one `OSAPI_WM_DISPLAY`
+names. On one display the origin is (0, 0) and the size the primary's, so it
+is the old arithmetic exactly. Until that cell it centred over the asking
+window's content when `OSAPI_FSX_CAPS` admitted a second display, and left
+`wm_create`'s fit to pull the box back onto a display - the box's own
+display, which for a window across the seam need not be the asker's - and
+it is 11 bytes shorter now. SHEET's seven dialogs that
 copied the alert's placement call it too (§81's dialogs, the extended-desktop
 audit of 2026-11-27).
 

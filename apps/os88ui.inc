@@ -3333,7 +3333,7 @@ os88ui_ask:
                                 ; first (SPEC.md 75.3.5)
     mov ax, OS88UI_AW           ; centred on the LIVE screen (SPEC.md 39),
     mov dx, OS88UI_AH           ; and on the asking window's DISPLAY when
-    call os88ui_centre          ; there are two (SPEC.md 75.3.1)
+    call os88ui_centre          ; there are two (SPEC.md 75.3.4)
     mov [os88ui_atpl + WT_X], ax
     mov [os88ui_atpl + WT_Y], bx
     mov si, os88ui_atpl
@@ -3356,59 +3356,57 @@ os88ui_ask:
     ret
 
 ; -----------------------------------------------------------------------------
-; os88ui_centre - WHERE A DIALOG OPENS (SPEC.md 75.3.1)
+; os88ui_centre - WHERE A DIALOG OPENS (SPEC.md 75.3.4)
 ; in:  AX = the frame's width, DX = its height, BX = the window asking, or 0
-; out: AX = x, BX = y, never under the menu bar. Every other register kept
+; out: AX = x, BX = y: centred on the DISPLAY the asking window is on, never
+;      left of it or up under the menu bar. Every other register kept
 ;
-; One display: centred on the primary, as every dialog always was. Two:
-; centred over the asking window, and wm_create's fit then keeps it on that
-; window's display (SPEC.md 39.16.1). OSAPI_VIDEO is the PRIMARY's, so a
-; dialog centred on it opened on the other monitor from the window that
-; asked; and no cell says where a display starts, which is why the window's
-; own rect is the anchor rather than its display's.
+; OSAPI_WM_DISPLAY is that display's size and OSAPI_WM_DORIGIN where it is
+; (SPEC.md 39.16.4.3) - (0, 0) and the primary's size on one display, which
+; is the old arithmetic exactly. OSAPI_VIDEO is the PRIMARY's, so a dialog
+; centred on it opened on the other monitor from the window that asked.
 ; -----------------------------------------------------------------------------
 os88ui_centre:
     push cx
     push dx
     push si
     push di
-    mov si, ax                  ; SI = w
-    mov di, dx                  ; DI = h
+    push dx                     ; the height
+    mov di, ax                  ; DI = the width
+    xor ax, ax
+    cwd                         ; no window: the primary, at (0, 0)
     or bx, bx
     jz .prim
-    push bx
-    mov bx, 2                   ; display 1: CF = 1, there is none
-    call OSAPI_FSX_CAPS
-    pop bx
-    jc .prim
-    call OSAPI_WM_CONTENT       ; AX = left, DX = top
+    call OSAPI_WM_DORIGIN       ; AX, DX = its display's origin (BX kept)
     push ax
     push dx
-    call OSAPI_WM_GEOM          ; CX = w, DX = h; CF = 1 not visible
-    pop bx                      ; BX = top
-    pop ax                      ; AX = left (pop writes no flag)
-    jc .prim
-    sub cx, si
-    sar cx, 1
-    add ax, cx
-    sub dx, di
-    sar dx, 1
-    add bx, dx
-    jmp short .floor
+    call OSAPI_WM_DISPLAY       ; AX = width, BX = height (CX DX SI)
+    jmp short .got
 .prim:
+    push ax
+    push dx
     call OSAPI_VIDEO            ; AX = width, BX = height
-    sub ax, si
+.got:
+    sub ax, di
     sar ax, 1
-    sub bx, di
+    pop dx                      ; DX = the display's top
+    pop cx                      ; CX = its left
+    add ax, cx
+    pop si                      ; SI = the frame's height
+    sub bx, si
     sar bx, 1
-.floor:
-    cmp bx, MBAR_H + 8
-    jge .y                      ; never up under the menu bar on a short
-    mov bx, MBAR_H + 8          ; screen; wm_fit has the other end
+    add bx, dx
+    cmp dx, MBAR_H + 8          ; the top: never up under the menu bar on a
+    jge .t                      ; short primary (wm_fit has the other end),
+    mov dx, MBAR_H + 8          ; never above the display's own first row
+.t:
+    cmp bx, dx
+    jge .y
+    mov bx, dx
 .y:
-    or ax, ax
-    jns .x
-    xor ax, ax
+    cmp ax, cx
+    jge .x
+    mov ax, cx
 .x:
     pop di
     pop si
