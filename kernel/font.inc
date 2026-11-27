@@ -1295,13 +1295,17 @@ font_run_x:
                                 ; not there, so the planar prologue and every
                                 ; fallback get it without knowing it exists
 %ifdef KERN_BIG
-    mov byte [font_rn_pl], 0    ; SPEC.md 6.1.10: which prologue set the masks
-%endif
-%ifdef KERN_BIG
-    mov ax, cx                  ; SPEC.md 6.1.11: the pen's phase, and the
-    and al, 7                   ; whole of what UNALIGNED costs from here -
-    mov [font_rn_k7], al        ; the prologue, the glyph table and the span
-%ifdef NOUNAL                   ; are the run's either way
+    mov ah, cl                  ; SPEC.md 6.1.11: the pen's phase, and the
+    and ax, 0x0700              ; whole of what UNALIGNED costs from here -
+    mov [font_rn_pl], ax        ; the prologue, the glyph table and the span
+                                ; are the run's either way. ONE word store:
+                                ; [font_rn_pl] = 0 (SPEC.md 6.1.10: which
+                                ; prologue set the masks) and [font_rn_k7] =
+                                ; x & 7, the pair adjacent by assertion, and
+                                ; ZF is still the phase's (kernel size pass
+                                ; 21: -4, and faster). AX is dead here: every
+                                ; path below loads it before reading it
+%ifdef NOUNAL
     jnz .slow                   ; `make NOUNAL=1` is the A/B: the same session
 %endif                          ; through the kernel that has no 6.1.11
 %else
@@ -1400,7 +1404,7 @@ font_run_x:
                                 ; which a pixel diff catches and an eye does
                                 ; not
 %ifdef KERN_BIG
-    test byte [font_rn_k7], 1   ; ...but HORIZONTALLY the phase is screen-
+    test cl, 1                  ; ...but HORIZONTALLY the phase is screen-
     jz .dseed                   ; absolute: font_char masks the SHIFTED bytes
     mov bl, 0x55                ; and 6.1.11's row walk masks the cell before
 %endif                          ; shifting it, so an odd skew takes the other
@@ -1887,16 +1891,16 @@ font_run_x:
     mov bh, al
     and bh, bl                  ; BH = A, the planes that want the glyph
     and ah, bl                  ; AH = B, the planes that want its complement
+    mov dx, 0xFFFF              ; DL = xm, DH = bm (DX is banked above and
+                                ; next written as VGA_GC; .plno pops it back)
     or bh, bh
-    jz .plcpl                   ; A empty: every varying plane wants ~glyph
+    jz .plset                   ; A empty: every varying plane wants ~glyph
     or ah, ah
     jnz .plno                   ; both non-empty: two passes, not this one
-    mov byte [font_rn_bm], 0x00 ; B empty: the CPU byte IS the glyph
-    jmp short .plset
-.plcpl:
-    mov byte [font_rn_bm], 0xFF
+    mov dh, 0                   ; B empty: the CPU byte IS the glyph
 .plset:
-    mov byte [font_rn_xm], 0xFF ; the compose is a pass-through either way...
+    mov [font_rn_xm], dx        ; the compose is a pass-through either way...
+                                ; (xm and bm in ONE word, kernel size pass 21)
     cmp byte [gfx_mono1], 0     ; ...UNLESS THIS WINDOW DECLARED TWO COLOURS
     je .plgo                    ; AND THE RUN IS DISABLED (SPEC.md 11.96.17.1).
     cmp byte [gfx_dis], 0       ; [gfx_dis] AND NOT [font_rn_dt], which is 0
@@ -1918,18 +1922,17 @@ font_run_x:
                                 ; either bm: 00 writes (glyph & AA) and FF
                                 ; writes its complement, which is the same
                                 ; pixels read the other way up.
-    push ax
-    mov al, 0xAA
+    mov dh, 0xAA                ; DH = xm (AX stays: no bank, pass 21)
 %ifdef KERN_BIG
-    test byte [font_rn_k7], 1   ; ...on the other phase for an odd skew, so
+    test cl, 1                  ; ...on the other phase for an odd skew, so
     jz .plph                    ; the checkerboard lands in the same screen
-    mov al, 0x55                ; columns whatever the cell's x is
-.plph:
+    mov dh, 0x55                ; columns whatever the cell's x is (CX is the
+.plph:                          ; run's x, whose x & 7 is [font_rn_k7])
 %endif
-    mov [font_rn_xm], al
-    mov byte [font_rn_dt], 0xFF ; ...and the per-row swap is the whole mask,
-    pop ax                      ; the two colours having been reduced to
-.plgo:                          ; 00/FF by font_ink before we got here
+    mov dl, 0xFF                ; ...and DL = dt: the per-row swap is the
+    mov [font_rn_dt], dx        ; whole mask, the two colours having been
+.plgo:                          ; reduced to 00/FF by font_ink before we got
+                                ; here. dt and xm in ONE word (pass 21)
     mov byte [font_rn_pl], 1
     not bl
     and bl, 0x0F                ; BL = C, the planes Set/Reset answers for
@@ -2704,6 +2707,14 @@ font_dith:      resb 1          ; 1 = this glyph is disabled text on a mono
 %endif
 %if (font_rn_bm - font_rn_xm) != 1
   %error "font_run_x's .rm and font_run_cell both read the run's masks as ONE word (`mov dx,[font_rn_xm]`, `mov cx,[font_rn_xm]` -> low = xm, high = bm): they must stay adjacent, xm first (SPEC.md 6.1.5)"
+%endif
+%if (font_rn_xm - font_rn_dt) != 1
+  %error "font_run_x's planar dither stores [font_rn_dt] and [font_rn_xm] as ONE word (low = dt, high = xm): they must stay adjacent, dt first"
+%endif
+%ifdef KERN_BIG
+%if (font_rn_k7 - font_rn_pl) != 1
+  %error "font_run_x's prologue stores [font_rn_pl] and [font_rn_k7] as ONE word (low = pl, high = k7): they must stay adjacent, pl first"
+%endif
 %endif
 
 %ifdef BAKED_FONT

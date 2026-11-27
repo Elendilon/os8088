@@ -229,4 +229,11 @@
 #             mega_r15's KEYBOARD.DRV intercept (+25 in mega.inc), the INT
 #             15h hook the real-mode BIOS calls (SPEC.md 9.16), so `.mega`
 #             cannot hold it; the rest is macros (+8) and keyboard.inc (+4)
-3778
+# 2026-11-27: +2, to 3,780, kernel size pass 21 (docs/plans/ksp21/input.md):
+#             kern_mega did not grow - kern_big shrank under it. kern_big's
+#             OSAPI_MOUSE_REL body reads its three cells through CS (-1) and
+#             the PARITY nop after mou_p2_off goes with that odd byte (-1);
+#             kern_mega's CS is a read-only selector in protected mode, so it
+#             keeps the DS bank and the pad that keeps its own hot ISRs where
+#             they were
+3780
