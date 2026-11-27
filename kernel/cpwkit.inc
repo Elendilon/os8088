@@ -10,15 +10,16 @@
 ; THE COMMON CONTRACT, which SPEC.md 135.5 pins per proc:
 ; - every coordinate is CONTENT-relative (the window's content box: the
 ;   working area's CPW_W_OX/OY), so a page never adds an origin;
-; - ES = the asset claim (cpw_ev's), DS = KERNEL_SEG, the gfx lock held;
+; - ES = the image's data view (cpw_ev's), DS = KERNEL_SEG, the gfx lock
+;   held;
 ; - every register is preserved but a documented output, and [gfx_color] is
 ;   left wherever the last primitive put it;
 ; - text is ONE opaque font_run (SPEC.md 6.1) and nothing writes a pixel
 ;   twice: a band with text in it is laid as the spans AROUND the text;
 ; - a label a widget takes is an IMAGE string (CS); text from elsewhere goes
 ;   through cpw_run or cpk_text, whose BL names the segment - 0 this image,
-;   1 the kernel's (cp_sbuf: what CPE_GATE stages), 2 the asset claim
-;   (CPWIDE.DAT's catalog, the working area).
+;   1 the kernel's (cp_sbuf: what CPE_GATE stages), 2 ES, the image's data
+;   view (CPWIDE.DAT's catalog, the working area).
 ; =============================================================================
 
 section .modv                   ; CPWIDE.DRV's image, like the file that
@@ -210,7 +211,7 @@ cpw_icon:
     mov cx, CWD_I32_PIX / 8
     mov bp, CWD_I32_PIX
 .have:
-    add si, CPW_WSZ             ; SI = its pixels in the claim
+    add si, CPW_WSZ             ; SI = its pixels in CPWIDE.DAT
     add bp, si                  ; BP = its masks
     mov di, CPW_W_ICON
     push cx                     ; (the group count says which size)
@@ -786,7 +787,8 @@ cpk_badge:
     ret
 
 ; cpk_ds - DS = the segment BL names (0 this image, 1 the kernel's - DS as it
-; is - 2 the claim). The caller pushes DS first and pops it after. Keeps all
+; is - 2 ES, the image's data view). The caller pushes DS first and pops it
+; after. Keeps all
 cpk_ds:
     or bl, bl
     jnz .n

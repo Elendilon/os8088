@@ -21,13 +21,18 @@
 ; and kernel code is reached by far calls through cells and shims (cw_*,
 ; apic_*) or this image's own KGO hop (CPWC/CPWK, below).
 ;
-; ITS STATE IS NOT IN ITS IMAGE. CPWIDE.DAT is read into ONE heap claim at
-; open (SPEC.md 135.2), and that claim's first CPW_WSZ bytes are this image's
-; working memory - the origin, the list's entries, the status line's cache,
-; the icon staging buffer - with the file after them. So every handler runs
-; with ES = that claim, its state is `[es:CPW_W_*]` and needs no CSDO on
-; kern_mega, the icon blitter's source is ES:SI as OSAPI_GFX_BLIT4 wants it,
-; and the image's own bss is the one word naming the claim (cpw_dseg).
+; ITS STATE AND ITS ASSETS ARE IN ITS OWN IMAGE (SPEC.md 135.2, 135.6).
+; CPWIDE.DAT - the icons and the driver catalog tools/cpwdat.py builds - is
+; ASSEMBLED INTO this image (cpw_dat, an incbin at its foot), and the working
+; memory - the origin, the list's entries, the status line's cache, the icon
+; staging buffer - is its bss tail (cpw_wa), zero at every load and every
+; re-adoption (MOD_H_SCR, SPEC.md 2.8.3) and zeroed again at every open. So
+; every handler runs with ES = this image's own DATA view - its segment, or
+; on kern_mega in protected mode its writable data alias (PUSH_CSDATA) - its
+; state is `[es:CPW_W_*]`, the icon blitter's source is ES:SI as
+; OSAPI_GFX_BLIT4 wants it, and cpw_dseg names that view. One file, one read
+; (the owner's no-required-sidecar rule, driver size pass 2): it was a second
+; file, CPWIDE.DAT, read into a heap claim of its own at every open.
 ; =============================================================================
 
 %ifdef KERN_BIG
@@ -36,48 +41,50 @@
 CPW_NENT    equ 1               ; CPWIDE.DRV's mod_fp entries, in CPWFP: one,
                                 ; cpw_ev, the event in BP (SPEC.md 135.4)
 
-; --- the working area: the asset claim's first CPW_WSZ bytes ------------------
-CPW_W_OX    equ 0               ; dw  the content box's left, SCREEN x
-CPW_W_OY    equ 2               ; dw  ...its top
-CPW_W_CW    equ 4               ; dw  ...its width (W_W - 2)
-CPW_W_CH    equ 6               ; dw  ...its height (W_H - TITLE_H - 1)
-CPW_W_WIN   equ 8               ; dw  the window, from the last window event
-CPW_W_ES0   equ 10              ; dw  the caller's ES at this event, which the
+; --- the working area: CPW_WAN bytes of the image's bss tail (cpw_wa), ------
+; --- ES-relative like everything a handler keeps (SPEC.md 135.5.1) ---------
+CPW_W_OX    equ cpw_wa + 0      ; dw  the content box's left, SCREEN x
+CPW_W_OY    equ cpw_wa + 2      ; dw  ...its top
+CPW_W_CW    equ cpw_wa + 4      ; dw  ...its width (W_W - 2)
+CPW_W_CH    equ cpw_wa + 6      ; dw  ...its height (W_H - TITLE_H - 1)
+CPW_W_WIN   equ cpw_wa + 8      ; dw  the window, from the last window event
+CPW_W_ES0   equ cpw_wa + 10     ; dw  the caller's ES at this event, which the
                                 ;     gate is called with (cpw_gate)
-CPW_W_SKB   equ 12              ; dw  the status line's cache: free KB...
-CPW_W_SLD   equ 14              ; db  ...drivers loaded...
-CPW_W_STO   equ 15              ; db  ...of how many rows
-CPW_W_NL    equ 16              ; db  list entries built
-CPW_W_LSEL  equ 17              ; db  the record the header and page last drew
-CPW_W_FULL  equ 18              ; db  1 inside a full list paint (cpw_lrow)
-CPW_W_KIT   equ 20              ; 12 bytes: the kit's scratch (cpwkit.inc)
-CPW_W_LIST  equ 32              ; the list's entries, CPW_LMAX x 4 bytes:
+CPW_W_SKB   equ cpw_wa + 12     ; dw  the status line's cache: free KB...
+CPW_W_SLD   equ cpw_wa + 14     ; db  ...drivers loaded...
+CPW_W_STO   equ cpw_wa + 15     ; db  ...of how many rows
+CPW_W_NL    equ cpw_wa + 16     ; db  list entries built
+CPW_W_LSEL  equ cpw_wa + 17     ; db  the record the header and page last drew
+CPW_W_FULL  equ cpw_wa + 18     ; db  1 inside a full list paint (cpw_lrow)
+CPW_W_KIT   equ cpw_wa + 20     ; 12 bytes: the kit's scratch (cpwkit.inc)
+CPW_W_LIST  equ cpw_wa + 32     ; the list's entries, CPW_LMAX x 4 bytes:
 CPW_LMAX    equ 28              ;   +0 db 80h|heading or 0, +1 db the record,
                                 ;   +2 dw the entry's top, content-relative
-CPW_W_STR   equ CPW_W_LIST + CPW_LMAX * 4   ; 144: a composed line, 96 bytes
-CPW_W_PAGE  equ CPW_W_STR + 96  ; 240: THE PAGE BLOCK, 80 bytes, the page
+CPW_W_STR   equ CPW_W_LIST + CPW_LMAX * 4   ; +144: a composed line, 96 bytes
+CPW_W_PAGE  equ CPW_W_STR + 96  ; +240: THE PAGE BLOCK, 80 bytes, the page
 CPW_W_PAGEN equ 80              ;   SHOWING owns whole: each wide page lays its
                                 ;   own map over all of it (SPEC.md 135.5.1),
                                 ;   so leaving a page is losing its block - a
                                 ;   page rebuilds it on a fresh entry, and what
                                 ;   must outlive a visit lives in KEEP below
-CPW_W_KEEP  equ CPW_W_PAGE + CPW_W_PAGEN    ; 320: bytes kept across visits,
+CPW_W_KEEP  equ CPW_W_PAGE + CPW_W_PAGEN    ; +320: bytes kept across visits,
 CPW_W_DFLT  equ CPW_W_KEEP + 0  ; db  the Drivers page's filter (0 All, CWC_*)
 CPW_W_DSEL  equ CPW_W_KEEP + 1  ; db  ...its selected drv_tab row, 0FFh none
 CPW_W_DON   equ CPW_W_KEEP + 2  ; db  1 = the page block is the Drivers page's
                                 ;     (cpw_page clears it for any other page)
-CPW_W_KEEPN equ 16              ; (13 spare: a paragraph, so the file stays on
-                                ;  one - below)
-CPW_W_ICON  equ CPW_W_KEEP + CPW_W_KEEPN    ; 336: the icon staging buffer,
-CPW_WSZ     equ CPW_W_ICON + CWD_I32_PIX    ; one 32x32; CPWIDE.DAT at 848
+CPW_W_KEEPN equ 16              ; (13 spare)
+CPW_W_ICON  equ CPW_W_KEEP + CPW_W_KEEPN    ; +336: the icon staging buffer,
+CPW_WAN     equ 32 + CPW_LMAX * 4 + 96 + CPW_W_PAGEN + CPW_W_KEEPN + CWD_I32_PIX
+                                ; ...one 32x32: 848 bytes in all, the bss tail
+CPW_W_END   equ cpw_wa + CPW_WAN    ; (an equ: %if takes the forward label
+%if CPW_W_ICON + CWD_I32_PIX != CPW_W_END ; through one, never bare)
+  %error "cpwide: CPW_WAN is not the working area's length"
+%endif
 %if CPW_W_DON >= CPW_W_ICON || CPW_W_DFLT < CPW_W_PAGE + CPW_W_PAGEN
   %error "cpwide: the kept bytes must lie between the page block and the icons"
 %endif
-%if CPW_WSZ & 15                ; a PACKED read (PKGZ, SPEC.md 20.13.5) expands
-  %error "cpwide: CPWIDE.DAT must start on a paragraph of the claim"
-%endif                          ; at a paragraph (lz wants DI = 0, diskw.inc):
-                                ; at 836 the open was refused, silently compact
-CPW_DATMAX  equ 16384           ; the file's bound (SPEC.md 135.6)
+CPW_WSZ     equ cpw_dat         ; CPWIDE.DAT's first byte, ES-relative: every
+                                ; offset the file holds is from here (135.6)
 
 ; --- the page list (SPEC.md 135.3), content-relative --------------------------
 CPW_LT0     equ 4               ; the first heading's top
@@ -121,8 +128,9 @@ modv_hdr:
     db MOD_VER, MOD_CPW         ; MOD_H_VER, MOD_H_ID
     dw BUILD_NUM, MOD_STAMP     ; MOD_H_BUILD, MOD_H_STAMP (SPEC.md 2.8.2)
     dw modv_end, CPW_NENT       ; MOD_H_IMG, MOD_H_NENT
-    dw MODV_BSS                 ; MOD_H_SCR: the whole bss tail (cpw_dseg) -
-                                ; KEPT at its drop, that word zeroed again
+    dw MODV_BSS                 ; MOD_H_SCR: the whole bss tail (cpw_dseg,
+                                ; the working area) - KEPT at its drop, the
+                                ; tail zeroed again (SPEC.md 2.8.3)
     dw cpw_ev
 
 ; -----------------------------------------------------------------------------
@@ -131,9 +139,9 @@ modv_hdr:
 ; out: CF (CWV_OPEN's answer; nothing for the rest); every register but BP
 ;      preserved - the forwarder in CTRL.DRV (cp_wfwd) owns BP
 ;
-; Every event but CWV_OPEN finds the asset claim already there; one that does
-; not (a stale forward after a refused open) is dropped. The handlers are
-; near procs entered with ES = the claim and every input register as it came.
+; Every event but CWV_OPEN finds cpw_dseg set by the open; one that does not
+; (a forward before the open) is dropped. The handlers are near procs entered
+; with ES = this image's data view and every input register as it came.
 ; -----------------------------------------------------------------------------
 cpw_ev:
     push es
@@ -176,8 +184,8 @@ cpw_evt:
 
 ; -----------------------------------------------------------------------------
 ; cpw_gate - call CTRL.DRV's CPE_GATE (SPEC.md 135.4) with the caller's ES
-; in:  AH = CPG_*, the op's registers; ES = the claim
-; out: the op's; ES = the claim again
+; in:  AH = CPG_*, the op's registers; ES = the image's data view
+; out: the op's; ES = the image's data view again
 ; -----------------------------------------------------------------------------
 cpw_gate:
     push es
@@ -187,79 +195,19 @@ cpw_gate:
     ret
 
 ; =============================================================================
-; CWV_OPEN / CWV_CLOSE - the asset claim (SPEC.md 135.2)
+; CWV_OPEN / CWV_CLOSE (SPEC.md 135.2)
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; cpw_open - read CPWIDE.DAT into a claim of its own, and size the window
+; cpw_open - the face is ready: the window's size, and the working area
 ; in:  nothing (CTRL.DRV's open, before app_launch); DS = KERNEL_SEG
-; out: CF = 0 the face is ready and cp_tpl holds the wide size; CF = 1 refused
-;      and nothing is held - the caller drops this image and opens compact
-;
-; mod_need's own order (mod.inc): bank the user's volume, stand on the boot
-; volume, size the file from its directory entry, claim it top-down (a
-; module's data beside the module's image, pinned while the panel is open -
-; tests/pins.txt), read it whole, put the volume back. The file is checked
-; before anything trusts an offset in it: the magic, the version, its own
-; size field, and every block inside the file.
+; out: CF = 0 - always: CPWIDE.DAT is this image's own bytes, which mod_need
+;      read and mod_check stamped with the code (SPEC.md 2.8.2), so nothing
+;      is left to refuse. cp_tpl holds the wide size; cpw_dseg names the
+;      image's data view; the working area is zero (its KEPT bytes are per
+;      open, SPEC.md 135.5.1)
 ; -----------------------------------------------------------------------------
 cpw_open:
-    CPWC drv_vol_bank
-    CPWC drv_mounted
-    jc .back
-    mov si, cpw_datname         ; the name through DS: staged (cp_sbuf)
-    call cpw_stage
-    CPWC drv_find               ; AX = its size
-    jc .back
-    cmp ax, CWD_HDR
-    jb .no
-    cmp ax, CPW_DATMAX
-    ja .no
-    mov bp, ax                  ; BP = the file's bytes
-    add ax, CPW_WSZ
-    CPWC mem_bytes_gp_x         ; AX = paragraphs, whole sectors
-    mov bx, MEM_K_MOD
-    CPWC mem_claimp_hi_x        ; DX = the claim, top-down
-    jc .no
-    mov es, dx
-    push dx
-    mov bx, CPW_WSZ             ; ES:BX = where the file goes
-    mov cx, bp
-    xor dx, dx                  ; DX:CX = the capacity
-    CPWC dskw_read_x            ; SI is still the staged name
-    pop dx
-    jc .free
-    cmp ax, bp
-    jne .free
-    cmp word [es:CPW_WSZ + CWD_H_MAGIC], CWD_MAGIC
-    jne .free
-    cmp byte [es:CPW_WSZ + CWD_H_VER], CWD_VERSION
-    jne .free
-    cmp [es:CPW_WSZ + CWD_H_SIZE], bp
-    jne .free
-    cmp byte [es:CPW_WSZ + CWD_H_N16], CWI16_N
-    jb .free
-    cmp byte [es:CPW_WSZ + CWD_H_N32], CWI32_N
-    jb .free
-    mov ax, CWI16_N * CWD_I16_SZ    ; every block inside the file
-    mov bx, [es:CPW_WSZ + CWD_H_OFF16]
-    call .fits
-    jc .free
-    mov ax, CWI32_N * CWD_I32_SZ
-    mov bx, [es:CPW_WSZ + CWD_H_OFF32]
-    call .fits
-    jc .free
-    mov al, CWD_CAT_SZ
-    mul byte [es:CPW_WSZ + CWD_H_NCAT]
-    mov bx, [es:CPW_WSZ + CWD_H_OFFCAT]
-    call .fits
-    jc .free
-    xor di, di                  ; the working area, zeroed
-    mov cx, CPW_WSZ / 2
-    xor ax, ax
-    cld
-    rep stosw
-    CSDO mov [CSEG cpw_dseg], es
     mov ax, CPW_W1              ; the size (SPEC.md 135.2): 616x408 on a
     mov dx, CPW_H1              ; 640x480 primary, 760x520 from 800x600 up
     cmp word [vid_pw], 800
@@ -283,37 +231,22 @@ cpw_open:
     mov dx, MBAR_H
 .y:
     mov [cp_tpl + 2], dx
-    clc
-    jmp short .back
-.free:
-    mov bx, MEM_K_MOD           ; DX = the claim
-    CPWC mem_free_x
-.no:
-    stc
-.back:
-    CPWC drv_vol_back           ; keeps the flags
-    ret
-; .fits - CF = 1 unless [BX, BX + AX) lies inside the file (BP bytes)
-.fits:
-    cmp bx, CWD_HDR
-    jb .nf
-    add ax, bx
-    jc .nf
-    cmp bp, ax                  ; CF = 1 when the block runs past the end
-    ret
-.nf:
-    stc
+    PUSH_CSDATA                 ; ES = this image as DATA (kern_mega: the
+    pop es                      ; writable alias of its code selector)
+    CSDO mov [CSEG cpw_dseg], es
+    mov di, cpw_wa              ; the working area, zeroed
+    mov cx, CPW_WAN / 2
+    xor ax, ax                  ; (CF = 0: the answer - stosw writes no flag)
+    cld
+    rep stosw
     ret
 
 ; -----------------------------------------------------------------------------
-; cpw_close - CWV_CLOSE: the asset claim goes back, and the compact template
-; in:  ES = the claim. out: nothing
+; cpw_close - CWV_CLOSE: a Test... reverts, and the compact template goes back
+; in:  ES = the image's data view. out: nothing
 ; -----------------------------------------------------------------------------
 cpw_close:
     call cpv_quit               ; a Test... running reverts first (135.9.3)
-    mov dx, es
-    mov bx, MEM_K_MOD
-    CPWC mem_free_x
     xor ax, ax
     CSDO mov [CSEG cpw_dseg], ax
     mov word [cp_tpl], CP_TX    ; the compact face's template back, so a
@@ -1337,7 +1270,6 @@ cpw_cat:
 %include "cpw_drv.inc"
 
 ; --- the image's strings ------------------------------------------------------
-cpw_datname: db 'CPWIDE.DAT', 0
 cpw_s_h0:   db 'SYSTEM', 0
 cpw_s_h1:   db 'HARDWARE', 0
 cpw_s_h2:   db 'APPEARANCE', 0
@@ -1364,9 +1296,21 @@ KGO_PAIR cpw
 %include "cpwkit.inc"           ; the widget kit (SPEC.md 135.5), same image
 %include "cpw_vid.inc"          ; the Display page (SPEC.md 135.9), same image
 
-section .modvb                  ; ...and its bss: the claim's one name
-cpw_bss:
-cpw_dseg:   resw 1              ; the asset claim (0 = no face). Written at
-                                ; open and close through CSDO; read [cs:]
+; CPWIDE.DAT (SPEC.md 135.6), LAST of the image's initialised bytes: the
+; blob tools/cpwdat.py wrote (build/cpwdat.bin, a prerequisite of the
+; kernel's assembly), immutable - nothing writes a byte of it, so a KEPT
+; image (SPEC.md 2.8.3) is its file's own. Read through ES, at CPW_WSZ
+section .modv
+    align 2, db 0               ; (its mask words on a word, as they were
+cpw_dat:                        ; in the claim they were read into)
+    incbin "cpwdat.bin"
+    align 2, db 0               ; (and the bss tail after it on one too)
+
+section .modvb                  ; ...and its bss: the data view's name and the
+cpw_bss:                        ; working area, zeros in the file
+cpw_dseg:   resw 1              ; this image's data view (0 = not open).
+                                ; Written at open and close through CSDO;
+                                ; read [cs:]
+cpw_wa:     resb CPW_WAN        ; the working area (above, SPEC.md 135.5.1)
 section .text
 %endif

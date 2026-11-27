@@ -16,8 +16,10 @@ SPEC.md 135.6 / 135.7. Four things go wrong here without any compiler noticing:
     palette (an anti-aliased brush, a re-exported PNG): the converter would
     have to guess an index, so it refuses - and this row refuses first, naming
     the cell and pixel.
-  * build/cpwide.dat IS STALE - the tool, a sheet, the catalog or cpwfmt.inc
-    changed and the file on the disks did not.
+  * THE ASSETS THE MODULE CARRIES ARE STALE - the tool, a sheet, the catalog
+    or cpwfmt.inc changed and build/cpwdat.bin, or the CPWIDE.DRV image it
+    was assembled into (SPEC.md 135.6: the assets ride inside the module, one
+    file and one read), did not.
 
 The drv_tab side is read from kernel/driver.inc as the UNION of every kernel's
 rows (one source, ifdefs per kernel): a row on any shipped kernel needs an
@@ -126,22 +128,27 @@ def main():
     except cpwdat.CpwError as e:
         check(False, "cpwdat.build() succeeds: %s" % e, why_fmt)
         done("t_cpwdat")
-    check(len(fresh) <= 16384, "CPWIDE.DAT is %d bytes (<= 16,384 unpacked)"
-          % len(fresh), "the wide panel reads it into one heap claim (135.6)")
-
-    have = os.path.join(BUILD, "cpwide.dat")
+    have = os.path.join(BUILD, "cpwdat.bin")
     if not check(os.path.exists(have), "%s exists" % have,
-                 "make builds it and puts it on every big/emu/mega system disk"):
+                 "make builds it before the kernel, which assembles it into "
+                 "CPWIDE.DRV's image (SPEC.md 135.6)"):
         done("t_cpwdat")
-    blob = open(have, "rb").read()
-    raw = cpwdat.unwrap(blob)
-    check(raw == fresh, "build/cpwide.dat is what tools/cpwdat.py writes now",
-          "a sheet, the catalog, cpwfmt.inc or the tool changed and the file "
+    raw = open(have, "rb").read()
+    check(raw == fresh, "build/cpwdat.bin is what tools/cpwdat.py writes now",
+          "a sheet, the catalog, cpwfmt.inc or the tool changed and the blob "
           "did not: run make", got=raw, want=fresh)
-    if blob[:2] == b"CZ":
-        eq(int.from_bytes(blob[4:8], "little"), len(fresh),
-           "the 'CZ' header's unpacked size is the file's length",
-           "the directory hint sizes the claim from it (SPEC.md 20.13.5)")
+    mod = os.path.join(BUILD, "cpwide.drv")
+    if check(os.path.exists(mod), "%s exists" % mod,
+             "make cuts it out of the kernel's assembly (SPEC.md 2.8)"):
+        img = cpwdat.unwrap(open(mod, "rb").read())
+        eq(img.count(fresh), 1, "CPWIDE.DRV's image carries CPWIDE.DAT, as "
+           "tools/cpwdat.py writes it now, exactly once",
+           "kernel/cpwide.inc incbins build/cpwdat.bin at its foot: a module "
+           "cut before the blob changed ships the old icons and catalog")
+        o = img.find(fresh)
+        eq(o & 1, 0, "CPWIDE.DAT starts on a word of the image (%#x)" % o,
+           "cpwide.inc aligns it, so the mask words read as the claim they "
+           "were read into had them")
 
     # --- a second reader: the file against the sheets and the catalog -------
     w = lambda o: int.from_bytes(fresh[o:o + 2], "little")
@@ -197,8 +204,8 @@ def main():
            "record %d line 2" % i, why_fmt)
         eq(r[f["CWD_C_PAD"]:], bytes(20), "record %d pad is zero" % i, why_fmt)
 
-    print("t_cpwdat: %d drv_tab rows, %d catalog entries, %d bytes (%d on disk)"
-          % (len(rows), len(cat), len(fresh), len(blob)))
+    print("t_cpwdat: %d drv_tab rows, %d catalog entries, %d bytes in "
+          "CPWIDE.DRV's image" % (len(rows), len(cat), len(fresh)))
     done("t_cpwdat")
 
 

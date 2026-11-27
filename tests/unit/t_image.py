@@ -38,8 +38,7 @@ WHAT IT CHECKS THAT --verify CANNOT.
      52.10.16), `COLDHMA.SYS` (docs/plans/HMA-PLAN.md) and every `.DRV` hidden +
      system + read-only, `SYSTEM.CFG` hidden + system but WRITABLE (the
      kernel rewrites it - make it read-only and the first save locks out
-     every save after it), `CPWIDE.DAT` hidden + system but WRITABLE
-     (SPEC.md 135.6), everything else on a system disk visible and
+     every save after it), everything else on a system disk visible and
      read-only, and a data disk untouched because it is the user's.
 
   4. THE BOOT SECTOR'S SECTOR COUNT MATCHES THE KERNEL.  It is baked in at
@@ -343,12 +342,6 @@ def check_attrs(v, is_system):
             check(not (attr & hs), "%s: %s is not hidden on a DATA disk" % (v.name, nm),
                   "a data disk is the user's; a hidden+system file there cannot be "
                   "listed or deleted from inside os8088 (SPEC.md 19.6)")
-        elif name11 == b"CPWIDE  DAT":
-            eq(attr & (hs | A_RDONLY), hs,
-               "%s: %s hidden+system, WRITABLE" % (v.name, nm),
-               "the wide panel's assets are the machine's, so hidden; deleting "
-               "them unboots nothing and a keep-install replaces them, so not "
-               "read-only (SPEC.md 19.6, 135.6)")
         elif name11 in (b"KERNEL  SYS", b"BOOTHD  SYS", b"COLDHMA SYS") \
                 or name11.endswith(b"DRV"):
             # BOOTHD.SYS is the hard-disk boot sector built with that kernel,

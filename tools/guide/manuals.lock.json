@@ -292,12 +292,6 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
- "CPWIDE_DAT": {
-  "sources": [],
-  "stamped": "242d42709",
-  "strings": null,
-  "why": "first page: written from SPEC.md 135.6-135.7 and drivers/catalog.toml"
- },
  "CPWIDE_DRV": {
   "sources": [
    "kernel/cpwide.inc",
@@ -305,9 +299,9 @@
    "kernel/cpw_vid.inc",
    "kernel/cpw_thm.inc"
   ],
-  "stamped": "242d42709",
-  "strings": "f88cbb8a26ef502d",
-  "why": "first page: written from SPEC.md 135 and the cpw* sources' strings (page list, Drivers, Display with Test..., Theme)"
+  "stamped": "1b01907f1",
+  "strings": "e3b5e405c07cea0d",
+  "why": "driver size pass 2 folded CPWIDE.DAT into CPWIDE.DRV: the page says the icons and catalog are inside it, one file, ~29KB open; CPWIDE_DAT's page and line went with the file"
  },
  "CTRL_DRV": {
   "sources": [
