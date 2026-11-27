@@ -1510,7 +1510,7 @@ FAST = [
         needs=("marty", "nasm"), wants=("build/debug-sound-360.img", "build/apps360.img")),
     Row("snddiag-cga", "soak", py("tests/snddiag.py", "--image", "build/debug-sound-360.img",
         "--apps", "build/apps360.img", "--machine", "os8088_5150_sb_gla",
-        "--evidence", "build/ess-sound/cga-dma3.png"), 7.0,
+        "--evidence", "build/ess-sound/cga-dma3.png"), 28.0,
         "SPEC.md 127.4/34.5.8: Sound Debug fits the 640x200 CGA display, including "
         "the ten-second tone and DMA-3/refused report injection",
         needs=("marty", "nasm"), wants=("build/debug-sound-360.img", "build/apps360.img")),

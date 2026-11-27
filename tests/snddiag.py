@@ -35,7 +35,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 os.chdir(ROOT)
 import os88marty as M          # noqa: E402
-import os88drvsym
+import os88build                # noqa: E402
+import os88drvsym               # noqa: E402
 import os88geom as G           # noqa: E402
 import os88flush as F          # noqa: E402
 
@@ -45,6 +46,42 @@ MACHINE = "os8088_5150_herc_sb_720_gla"
 HDR = re.compile(rb" os8088 Sound Debug  build \d")
 ROWS, LW = 17, 79
 RATE = 22050
+
+
+# The code bytes the injection trusts the maps by: sdg_copy is the routine
+# that reads [sbl_dma] into the record, so its encoding carries the very
+# offset the injection writes. Read at the base the kernel map and drv_owner
+# give, they are build/snddiag/sound.bin's - or one of the three maps (the
+# kernel's, the driver's, the base the compactor last left) does not describe
+# the machine, and a byte written through them lands somewhere else in
+# silence: the page then never shows it, which reads as a broken diagnostic.
+IDENT = "sdg_copy", 64
+
+
+def drv_poke(m, dsym, bin_, off, val):
+    """Write byte `val` at offset `off` of the running SOUND.DRV and answer
+    the byte that was there - in ONE heap_read, on a paused guest with the
+    compactor idle, because a driver image is MOVABLE (SPEC.md 66.6.3) and a
+    base read on a running guest can be retired before the write lands."""
+    io, n = dsym[IDENT[0]], IDENT[1]
+
+    def act(mm):
+        row = int.from_bytes(mm.read(mm.sym("drv_owner"), 2), "little")
+        seg = int.from_bytes(mm.readseg(M.KERNEL_SEG, row + G.DRVR_SEG, 2),
+                             "little")
+        base = G.drv_base(seg)
+        got = bytes(mm.read(base + io, n))
+        if got != bin_[io:io + n]:
+            raise M.MartyError(
+                "the SOUND.DRV at %04X (drv_owner row %04X) is not "
+                "build/snddiag/sound.bin: its %s bytes differ, so offset "
+                "%04X is not its [sbl_dma]. The image under test was rebuilt "
+                "during the run, or the kernel map is another kernel's - "
+                "nothing is written through either" % (seg, row, IDENT[0], off))
+        old = bytes(mm.read(base + off, 1))
+        mm.write(base + off, bytes([val]))
+        return old
+    return M.heap_read(m, act, "SOUND.DRV's [sbl_dma]")
 
 
 def page(m):
@@ -101,6 +138,12 @@ def main():
         if not os.path.exists(p):
             print("snddiag: %s missing - make" % p)
             return 1
+    # The driver's map is HOST work: made before the boot, so it spends none
+    # of the guest's time and the injection lands at the same guest moment
+    # after page 1 on an idle box and a loaded one.
+    dsym = os88drvsym.symbols("snddiag/sound.bin")
+    with open(os88build.at("build/snddiag/sound.bin"), "rb") as f:
+        sbin = f.read()
     with M.launch(a.image, apps=a.apps, machine=a.machine) as m:
         rows = None
         for _ in range(240):                # the play test, then the lab
@@ -172,15 +215,11 @@ def main():
         # The real tone has finished. Change only the driver's reported DMA
         # byte to exercise the diagnostic on a card the emulator cannot model;
         # never start playback with this injection in place.
-        dsym = os88drvsym.symbols("snddiag/sound.bin")
-        row = int.from_bytes(m.read(m.sym("drv_owner"), 2), "little")
-        seg = int.from_bytes(m.readseg(M.KERNEL_SEG, row + 2, 2), "little")
-        dma_addr = (seg << 4) + dsym["sbl_dma"]
-        original = m.read(dma_addr, 1)
+        dma = dsym["sbl_dma"]
+        original = drv_poke(m, dsym, sbin, dma, 3)
         try:
-            m.write(dma_addr, bytes([3]))
             m.key("Digit1")
-            m.go()                         # advance() above left the guest paused
+            m.go()                         # (running again: a no-op confirm)
             M.until(m, lambda mm: " D3" in page(mm)[11],
                     "the diagnostic's selected DMA 3", limit=30, guest=5)
             selected = page(m)
@@ -196,9 +235,9 @@ def main():
                 else:
                     M.write_png(str(path), *m.vram())
                 print("DMA-3 report injection screenshot: " + str(path))
-            m.write(dma_addr, bytes([255]))
+            drv_poke(m, dsym, sbin, dma, 255)
             m.key("Digit1")
-            m.go()                         # advance() above left the guest paused
+            m.go()                         # (running again: a no-op confirm)
             M.until(m, lambda mm: "DMA none" in page(mm)[4],
                     "a refused DMA route", limit=30, guest=5)
             refused = page(m)
@@ -206,7 +245,7 @@ def main():
             check("DMA route is unusable" in refused[13],
                   "a refused DMA route's verdict names the DMA, not the IRQ")
         finally:
-            m.write(dma_addr, original)
+            drv_poke(m, dsym, sbin, dma, original[0])
 
         turn(m, "Digit3", "[3 Regs]")
         p3 = page(m)
