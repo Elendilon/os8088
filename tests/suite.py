@@ -21121,16 +21121,19 @@ SOAK = [
         needs=("86box",),
         wants=("build/mega.img", "build/megarmbe.o88", "build/megarmbe.bin",
                "build/ems.bin")),
-    Row("vbtvgaflash", "soak", py("tests/vbtvgaflash.py"), 100.0,
+    Row("vbtvgaflash", "soak", py("tests/vbtvgaflash.py"), 110.0,
         "SPEC.md 126.3.2: VGA4's FLASHES - a pixel's planes are separate "
         "stores, and written mask by mask over the whole frame a changing "
         "pixel shows a colour of neither frame for the frame's whole decode "
         "(the owner's 'VGA tears constantly'). On 86Box's VGA XT, a title of "
-        "Conway's Life in 16-row bands: its colours' values in Gray order "
-        "over 60 flash pixels a sampled frame (98 to 142 measured), the CHOSEN "
-        "tearing (os88vbt.vga_order) two thirds or less, and the banded title the "
+        "Conway's Life in 16-row bands, sampled every 15.1 emulated ms through "
+        "one whole loop: its colours' values in Gray order over 60 flash "
+        "pixels a sample (97 to 112 measured), the CHOSEN "
+        "tearing (os88vbt.vga_order) two thirds or less (1.9x to 2.4x fewer), "
+        "and the banded title the "
         "same frames on the host as a whole-frame one. Gray order IS the "
-        "broken arm (vga_order answering its CODES0). 100s is 68 measured",
+        "broken arm (vga_order answering its CODES0). 110s is 100 measured "
+        "beside a soak",
         needs=("86box", "ffmpeg", "numpy"),
         wants=("build/vbattle.o88",)),
     Row("vbtmega", "soak", py("tests/vbtmega.py"), 240.0,

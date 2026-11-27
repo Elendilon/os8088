@@ -28,8 +28,8 @@ turns cells between colours that differ in several planes):
      colour their pixel never takes in any of the loop's frames - over 60
      a sample on average (the effect, so 2 proves something);
   2. banded, the values CHOSEN against the tearing (os88vbt.vga_order): at
-     at most two thirds as many (measured 2.3x and 1.8x fewer at 60
-     samples: the glass is sampled, so a bar at 1.5x over 120)
+     at most two thirds as many (measured 1.9x to 2.4x fewer over a whole
+     loop sampled every 15.1 ms: STEP below, and why it is not 120 samples)
 
 Measured when written: whole frames against bands of 16, 639 -> 88 a
 sample, and on the owner's own VGA footage (debug only) 308 -> 30 for
@@ -64,6 +64,17 @@ from cycweb import pkg_syms     # noqa: E402
 
 MACHINE = "os8088_xt_vga_hdd_sb"
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
+# THE SAMPLING: one every STEP emulated seconds through one whole title
+# loop (47 frames at 12/s is 3.9 s; SAMPLES x STEP is 4.1). It was 120
+# samples 137 ms apart, and a mean over 120 of a quantity this heavy-tailed
+# (a sample that lands mid-decode of a big change is a thousand pixels, most
+# are tens) swung with where the first one fell - a host poll decides that:
+# the same tree read Gray 116 then 79, and chosen 1.9x then 1.3x fewer, and
+# the soak failed it at 1.48x. Every 15.1 ms (about a display frame, not a
+# multiple of it) covers the loop's every phase, and five runs read Gray
+# 97 to 112 and chosen 42 to 60: 1.9x to 2.4x every time.
+STEP = 0.0151
+SAMPLES = 270
 LIFE = ("life=s=320x200:r=12:ratio=0.3:seed=1:life_color=#ffffff:"
         "death_color=#202060:mold=0")
 fails = []
@@ -149,8 +160,8 @@ def glass_flashes(tmp, data, syms, n):
         os88marty.until(m, lambda mm: rb("vb_tplay") == 1, "the title",
                         poll=0.1, limit=600, guest=120)
         # THE SAMPLES ARE PLACED ON THE EMULATED CLOCK, the machine held
-        # between them: 3 guest seconds into the loop, then one every 137
-        # emulated ms. Both waits were `until(lambda: True, guest=...)`,
+        # between them: 3 guest seconds into the loop, then one every STEP
+        # emulated seconds (above). Both waits were `until(lambda: True, guest=...)`,
         # which returns at once - so the "settle" never happened and the
         # gap was one PNG round trip of HOST time. On an idle box that is
         # a sample every few guest frames; with the box full the guest
@@ -169,7 +180,7 @@ def glass_flashes(tmp, data, syms, n):
             d = np.abs(a[:, :, None, :] - rgb[None, None, :, :]).sum(3)
             good = allowed[yy, xx, d.argmin(2)] & (d.min(2) <= 12)
             bad.append(int((~good).sum()))
-            m.advance(cycles=int(0.137 * os88marty.GUEST_HZ))
+            m.advance(cycles=int(STEP * os88marty.GUEST_HZ))
     finally:
         m.quit()
     return sum(bad) / float(n), max(bad)
@@ -177,7 +188,7 @@ def glass_flashes(tmp, data, syms, n):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--samples", type=int, default=120)
+    ap.add_argument("--samples", type=int, default=SAMPLES)
     a = ap.parse_args()
     os.chdir(ROOT)
     syms, _ = pkg_syms("apps/vbattle/vbattle.asm", ("apps/",))
