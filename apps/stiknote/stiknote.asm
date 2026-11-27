@@ -169,7 +169,7 @@ SN_WZ       equ SNB
                                 ; 0 = walk to it by name)...
     SNV sn_dvol, 1              ; ...and the volume: OSAPI_PKG_START's ES:DI
     SNV sn_stem, 8              ; sn_colfind's stem
-    SNV sn_mono, 1              ; the primary is 1bpp: no colours
+    SNV sn_mono, 1              ; the pad's display is 1bpp: no colours
     SNV sn_ask, 1               ; Delete's latch: 2 armed by this event
     SNV sn_opq, 1               ; an open is owed to the wake
     SNV sn_wslot, 1             ; THE WATCH: the editor's instance slot + 1,
@@ -222,8 +222,8 @@ sn_entry:
     mov di, snp_tpl
     call stik_load              ; QUERY, the layout by the screen's height,
     jc .out                     ; the template's size and place (110.11)
-    call OSAPI_VIDEO
-    mov al, 0
+    call OSAPI_VIDEO            ; (no pad yet: it opens on the primary;
+    mov al, 0                   ; sn_monoask asks the pad's display after)
     cmp dh, 1
     ja .col
     inc ax
@@ -289,6 +289,10 @@ sn_check:
 ; plan's decision 2). out: CF = 0, a save may go
 ; -----------------------------------------------------------------------------
 sn_tick:
+    call sn_monoask             ; the pad dragged onto a display of another
+    je .same                    ; depth: the Color menu said again (SPEC.md
+    call sn_menulive            ; 110.13, 39.16.4)
+.same:
     mov cl, [sn_wslot]
     or cl, cl
     jz .x
@@ -636,8 +640,26 @@ sn_flip:
 ; THE PAPERS
 ; -----------------------------------------------------------------------------
 
+; sn_monoask - [sn_mono] asked of the PAD's display (OSAPI_WM_DISPLAY,
+; SPEC.md 39.16.4): a pad on an extended desktop is dragged between a colour
+; and a 1bpp card. ZF = 0 when the answer changed. AX kept; BX..DX, SI spent
+sn_monoask:
+    push ax
+    mov bx, [stik_win]
+    call OSAPI_WM_DISPLAY
+    mov al, 0
+    cmp dh, 1
+    ja .c
+    inc ax
+.c:
+    xchg al, [sn_mono]
+    cmp al, [sn_mono]
+    pop ax
+    ret
+
 ; sn_setcol - the Color menu: the current note's paper AL (0..4)
 sn_setcol:
+    call sn_monoask             ; (the display the pad is on NOW)
     cmp byte [sn_mono], 0
     jne .r                      ; greyed: a shortcut never comes here either
     cmp byte [sn_n], 0
