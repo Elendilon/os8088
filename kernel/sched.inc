@@ -1421,25 +1421,12 @@ task_cycles:
 ; NOT RESIDENT (kernel size pass 13): its two callers are the settings reader
 ; in the boot blob, which writes the two stores out (driver.inc's %1_unpack -
 ; its range test has already normalised AL), and the Control Panel's
-; Scheduling radio, so the body is CTRL.DRV's: cp_schset, the panel half. An
-; image's DS is KERNEL_SEG like the kernel's own, so nothing else changes.
+; Scheduling radio, so the body is CTRL.DRV's. An image's DS is KERNEL_SEG
+; like the kernel's own, so nothing else changes. And since driver size pass
+; 2 it is WRITTEN OUT at that radio too (ctrl.inc's cp_sched_click, -12):
+; its one caller, whose AL is already 0 or 1, so the normalising goes with
+; the call - pushf / cli / the two stores / popf is all that is left of it.
 ; -----------------------------------------------------------------------------
-section .modu
-cp_schset:
-    push ax
-    pushf
-    cli                         ; no tick between the two stores
-    or al, al
-    jz .store
-    mov al, 1                   ; normalise: any non-zero means cooperative
-.store:
-    mov [sch_coop], al
-    mov byte [sch_hold], SCH_WD_TICKS
-                                ; the incoming mode starts with a full budget
-    popf
-    pop ax
-    ret
-section .text
 
 ; -----------------------------------------------------------------------------
 ; sch_isr - int 08h handler (PIT, ~18.2 Hz)

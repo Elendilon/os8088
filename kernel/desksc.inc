@@ -1411,13 +1411,9 @@ sc_m_cell:
     inc bx
     jmp .cell                   ; (short where it reaches: kern_mega's CSDO
 .end:                           ; is longer)
-    cmp word [cs:sc_best], 0xFFFF
-    je .none
-    clc
-    ret
-.none:
-    stc
-    ret
+    cmp word [cs:sc_best], 0xFFFF   ; CF = 1: a cell was found...
+    cmc                         ; ...so CF = 1 when none was (driver size
+    ret                         ; pass 2: -4, the same flags both ways)
 
 ; -----------------------------------------------------------------------------
 ; sc_m_move - SC_OP_MOVE: ANY item dragged past the threshold (SPEC.md 26.9.5)

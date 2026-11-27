@@ -151,9 +151,9 @@ clk_at_eput:
 ; -----------------------------------------------------------------------------
 clk_at_hour:
     push bx
-    test byte [clk_rb], 0x02
-    jnz .h24
-    xor bl, bl
+    xor bl, bl                  ; no PM bit - 24-hour's answer too, so it
+    test byte [clk_rb], 0x02    ; shares the tail (driver size pass 2, -5)
+    jnz .enc
     cmp al, 12
     jb .am
     mov bl, 0x80
@@ -165,10 +165,6 @@ clk_at_hour:
 .enc:
     call clk_at_enc             ; BCD FIRST and the PM bit after - the other
     or al, bl                   ; order feeds 8Ch to clk_tobcd
-    pop bx
-    ret
-.h24:
-    call clk_at_enc
     pop bx
     ret
 ; -----------------------------------------------------------------------------
@@ -288,8 +284,7 @@ clk_ns_bput:
     call clkw_tobcd
     mov ah, al
     mov al, bl
-    call clkw_ns_put
-    ret
+    jmp clkw_ns_put             ; (kmod's tail: driver size pass 2)
 
 clk_ns_write:
     push ax
