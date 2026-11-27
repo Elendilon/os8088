@@ -5242,16 +5242,15 @@ kmain:
 %ifdef BOOT_MARK
     call mark_beacon            ; BEFORE anything: no state of ours is needed
 %endif
-%ifdef KERN_MEGA
-    KDATAR ax                   ; the boot sector jumped here with its own
-    mov ds, ax                  ; segments; setting ours up is our job
-    mov es, ax
-%else
-    push cs                     ; ...and its far jump was to KERNEL_SEG:0000
-    pop ds                      ; (cold_entry), so CS is the kernel's data
-    push cs                     ; segment already: KDS's own spelling, and
-    pop es                      ; AX is loaded below (kernel size pass 21, -3)
-%endif
+    push cs                     ; the boot sector jumped here with its own
+    pop ds                      ; segments, and setting ours up is our job:
+    push cs                     ; its far jump was to KERNEL_SEG:0000
+    pop es                      ; (cold_entry), so CS IS the kernel's data
+                                ; segment - on kern_mega too, whose [k_dsel]
+                                ; is KERNEL_SEG until mega_enter at kmain's
+                                ; foot. KDS's own spelling, a byte under
+                                ; `mov ax, KERNEL_SEG` and the two moves, and
+                                ; AX is loaded below (kernel size pass 21, -3)
 %ifdef BOOT_MARK
     MARK 50                    ; ...and the first one down the ORDINARY path,
                                 ; while SS is still the boot sector's. A corner

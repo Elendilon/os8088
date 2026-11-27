@@ -229,4 +229,12 @@
 #             mega_r15's KEYBOARD.DRV intercept (+25 in mega.inc), the INT
 #             15h hook the real-mode BIOS calls (SPEC.md 9.16), so `.mega`
 #             cannot hold it; the rest is macros (+8) and keyboard.inc (+4)
-3778
+# 2026-11-27: +6, to 3,784, kernel size pass 21 (docs/plans/ksp21/hw.md):
+#             three kern_big savings kern_mega cannot follow, so the
+#             difference grows with no kern_mega byte added -
+#             osapi_font_glyphs' `les` pair (7: an offset loaded into ES is
+#             no selector), drv_pkg_call_x's DSV_PKGCALL read without its
+#             `jc` (2: a refused class with a null ES would fault in
+#             protected mode) and vid_ctx_act's KSEGR (1: kern_mega's is the
+#             data-alias load either way). The 4 bytes of slack went first
+3784
