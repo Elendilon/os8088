@@ -5758,6 +5758,32 @@ one side and not the other is the kind that costs somebody a day.
 *display's*, and `OSAPI_VIDEO` answers about the primary alone (§39.2.1).
 That distinction is §39.14.8's field bug, one register along.
 
+**…and from the DEEPEST display when the panel can land on another one
+(§5.3.1).**
+
+#### 5.3.1 A straddling window's panel can sit on the deeper card
+
+`OSAPI_WM_DISPLAY` answers a straddling window with the *more restrictive*
+of its two displays (§39.16.4.1), because that is what its frame is sized
+for. Its dropdown is a rect of its own, and it can lie wholly on the OTHER
+display - a window across a Hercules and a VGA whose menu bar is past the
+seam. `OSAPI_GFX_SAVE` accepts that rect, since it straddles nothing, and
+writes **four planes into a buffer sized for one**: past the claim, over the
+heap. The extended-desktop audit (2026-11-27, L2) found the pattern in
+`os88ui_drbank`, `os88ui_mnbank`, Sheet's `sh_mbank` and WIN16's
+`w16_mpsave`.
+
+So a save-under is sized for **`OSAPI_WM_DISPLAY`'s DH, raised to 4 when any
+display on the machine is planar** (`OSAPI_FSX_CAPS` with BX = 1, 2, ...
+names each display's kind; VGA and EGA are planar). `apps/os88ui.inc`'s
+`os88ui_bankpl` is that rule written once (in BX = the window, out BX = the
+planes), and all four sites call it. On a one-display machine, and on a
+two-display one with no planar card, it is DH unchanged; with a VGA beside a
+mono card a bank over a mono window costs four times the bytes it needs,
+which is a short list's few KB of transient claim against an overrun. A
+packed VESA display is never one of two (§120.5's extended-desktop row), so
+DH ≥ 4 is final.
+
 **Software-renderer dispatch (§32/§39.5).** Every public drawing entry above
 (`gfx_pixel` … `gfx_restore`) reaches a `[vid_planes]` test at its raw body,
 below the clip and display hooks, and branches to its `sw_*` twin in
@@ -23067,6 +23093,23 @@ Three consequences worth naming:
   right edge is re-tested. A window too wide for that is **left unsnapped**
   rather than made illegal: it simply misses the fast path, which is a normal
   path and not a failure.
+- **Display 1's left edge is the same case as x = 0** (§39.16, Right
+  layout). Its origin `VX` is a multiple of 8, so a candidate x in
+  `VX .. VX + 6` rounds LEFT to `VX - 1`: one column onto the display to its
+  left. The window then straddles, and the straddle sizes it for the more
+  restrictive display (§39.16.3). That was the audit's K4 and K5. Every
+  snapped window dragged to display 1's left edge, and every zoom there,
+  landed one pixel short. So when `[vid_ndisp]` > 1 and the rounded content
+  origin equals display 1's `VX`, the snap moves RIGHT to `VX + 7`, exactly
+  as the `x = 0..6` arm does. The right-edge test that follows is the same
+  test, so a window spanning display 1 is refused that move and stays at
+  `VX`. There `wm_flush_ck` already says it spans its display
+  (§11.95.2.1), so it drops its left border and its content origin is `VX`,
+  which is aligned. **This is not §11.95.2's rule taking effect; it is the
+  snap breaking that rule.** A zoom on display 1 committed `x = VX`, and the
+  snap then moved it to `VX - 1`, where it neither spans its display nor
+  sits on it. The gate on `[vid_ndisp]` is there because a collapsed desktop
+  leaves display 1's record stale.
 - **Dragging becomes 8-pixel steps horizontally** — **on every adapter now,
   VGA included**, which is the whole of what removing the `[vid_mono]` gate
   costs. It is cheaper than it sounds because `ui_drag` drags an XOR *outline*
@@ -24806,7 +24849,7 @@ then have `wm_dmg_stale` treat the windows above a `WF_DESK`
 `.text`.
 
 **The drop's bound is the title bar's**, `y + TITLE_H <= [vid_h]`
-(`vid_ymax`), and a widget has no title bar: its grab handle and close box
+(computed at the drop since §39.16.1.1; it was the word `vid_ymax`), and a widget has no title bar: its grab handle and close box
 are in the tag row at the BOTTOM of its face. With `wm_dock_snap`'s
 half-strip rule, a widget can be dropped with only its top 18 rows on the
 glass - card 1, where a press is not a drag - so the tag row, the handle and
@@ -31689,6 +31732,21 @@ play ends — Repeat off — under a Disk window across the lower half of the
 button row, and each button's visible rows must equal the same rows once the
 window is moved off. The body before this reads 20 of 56 rows wrong on the VGA
 XT; it reads 0.
+
+##### 13.8.9.2 …and the mono rule is the WINDOW's display's
+
+Which of the two band encodings to stage is a question about the display the
+button is drawn on, and the first build asked `OSAPI_VIDEO` - the PRIMARY.
+On a two-display machine a window on a mono second monitor beside a VGA
+primary staged the colour band and the lit pixels came out inverted; the
+reverse put the mono band on a VGA. The extended-desktop audit (2026-11-27,
+L4) found it by reading.
+
+So `os88ui_btn` banks the record's `OS88UI_BT_WIN` in `os88ui_bwin` (package
+arm, `OS88UI_BIMG` only) and `UI_ISMONO` asks `OSAPI_WM_DISPLAY` about that
+window; a record no `os88ui_btninit` has met has no window, and keeps the
+primary's answer. A straddling window gets the more restrictive display's
+answer (§39.16.4.1), which is the same face its frame was sized for.
 
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
@@ -81020,7 +81078,7 @@ or single instructions with no register to spare for the arithmetic:
 `vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
 `vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
 `vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
-`vid_clk_hx`, `vid_ymax`, `vid_desk_zx`, and the bytes
+`vid_clk_hx`, `vid_desk_zx`, and the bytes
 `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
 
 **`vid_popmax` left that list and became a CONSTANT.** `[vid_h]` at the point
@@ -81072,7 +81130,9 @@ draw writes past the end of the framebuffer.
 
 `MBAR_H` (20) and `TITLE_H` (18) stay assembly-time constants: they are font
 and chrome dimensions, not screen-derived. Only `SCREEN_H - TITLE_H`
-combined them, and that is the precomputed `[vid_ymax]`.
+combined them, and that was the precomputed `[vid_ymax]` - gone since
+§39.16.1.1, because the drag's bound is the DESKTOP's (`[vid_h]`) and the
+precomputed word was the primary's.
 
 ### 39.2.1 The display's extent and the desktop's — `vid_cw` / `vid_w`
 
@@ -83451,7 +83511,7 @@ monitor is *for*.
 without a special case anywhere. `vid_desk_union` then grows `[vid_w]`,
 `[vid_h]`, `[vid_wm1]` and `[vid_hm1]` past them and touches nothing else —
 which is why every derived chrome word (`[vid_dock_y0]`, `[vid_clk_hx]`,
-`[vid_ymax]`, `[vid_desk_z*]`) is already right: `vid_apply` computed them
+`[vid_desk_z*]`) is already right: `vid_apply` computed them
 before the desktop grew. `[vid_popmax]` is not derived at all any more — it is
 a constant, and §39.2 says why a union cannot change it either. On a machine
 with one display the two sets are the same numbers and nothing above happens
@@ -83601,6 +83661,28 @@ drag therefore crosses the seam** — the frame is clamped only when the origin
 lands somewhere no display has — and a window straddling the two cards is
 drawn by §39.14's split, one fragment per display, with no code in the window
 manager aware of it.
+
+#### 39.16.1.1 The drop's lowest row is the DESKTOP's, and the title bar must be on a display
+
+`ui_drag` bounded a drop's y with `[vid_ymax]`, which `vid_apply` derives as
+`vid_h - TITLE_H` **for the display it is applying** - the primary, last - and
+which `vid_desk_union` never grew. So the one bound that is about the desktop
+was the primary's: in every Below layout no window could be dragged wholly onto
+display 1 (it stopped `TITLE_H` rows above the seam), and in a Right layout
+under a CGA primary the Hercules rows below the CGA's bottom could not be
+reached (audit K1, docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+
+The bound is now computed at the drop from `[vid_h]` - the union on an
+extended desktop, the primary on every other machine, where it is the same
+number `[vid_ymax]` held - and the word is gone (one store and one word fewer
+than the two reads cost, so kern_small and kern_mega pay nothing either).
+
+The union's bound is a bounding box, so it allows a title bar into the dead
+zone below the SHORTER display. `EXT_DEAD` (EXTD.DRV, §39.19.6) is what keeps
+that out, and it now asks about the title bar's LAST row before its first: a
+bar whose bottom row no display holds is clamped into the pointer's display and
+lifted by `TITLE_H - 1`, so the whole bar lands on glass - which `[vid_ymax]`
+used to guarantee on the primary alone and nothing guaranteed on display 1.
 
 #### 39.16.3 …and a window may hang off the DESKTOP, but not into a HOLE in it
 
@@ -91019,6 +91101,26 @@ the row. Two things go with it:
   a user's grow takes it over the strip. §11.93's argument against hanging
   over the dock by default is about every boot; this is about a size somebody
   asked for.
+
+#### 42.9.2 ...and the negotiator asks which display BEFORE it answers
+
+Being `WF_KEEPH` (42.9.1) means the kernel never takes Paint's height in for
+it: a landing on another adapter (§39.16.3.3) proposes the size Paint asked
+for and leaves the cut to `pt_onsize`, which caps the proposal at
+`[pt_cwmax]`/`[pt_chmax]`. Those were `pt_screen`'s facts about the display
+the window was LAST on, because the kernel asks (§11.1) before it notifies
+(§11.98) and `pt_onresize` is what re-read them. So from #365 on, each move
+gave Paint the previous display's height: on `os8088_5150_both_gla`
+(Hercules primary, CGA Right) 300 rows on the 200-row CGA and 200 on the
+Hercules, the audit's K2/K3 (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+Before #365 the kernel shrank the frame itself and the stale ceiling only
+ever bound a grow, which is why Paint "used to" follow the display.
+
+`pt_onsize` now runs `pt_screen` for its window first. `OSAPI_WM_DISPLAY`
+answers the display the landing latched (§39.16.4.2), so the ceiling is the
+one the window is arriving on. Measured on that machine after the change:
+Hercules 498x300, straddle and CGA 498x200, Hercules again 498x300, and the
+same on every further trip. No kernel bytes; Paint +11 bytes of code.
 
 ### 42.10 A window that resizes itself inside its own paint must re-derive its layout
 
@@ -103727,6 +103829,32 @@ cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
 one tick, the same end state (`C3B7`) and the same final screen
 (`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
 
+### 48.27 Two displays, two questions (2026-11-27)
+
+The extended-desktop audit (K6) found Missile taking its depth from one
+display and its frame size from another. `mc_adapter` asked
+`OSAPI_FSX_CAPS` for both `mc_mono` and Mode X, and that answers the
+display the window's CENTRE is on. The frame is sized by the kernel for the
+MORE RESTRICTIVE display of a straddle (§39.16.4.1). So a window straddling
+a Hercules and a VGA, centre on the VGA, was sized 634x303 for the Hercules
+and drew the colour ramp, with half its pixels on the 1bpp card.
+
+Now each question asks the display it is about:
+
+- **The depth** (`mc_mono`, `mc_ecoarse`, `mc_expfr`) comes from
+  `OSAPI_WM_DISPLAY`'s kind, `[mc_wkind]`. That is the display the window is
+  drawn and sized for. In the §11.2 full-screen surface the window lies
+  wholly on one display, so it is that display's answer.
+- **Mode X** is a full-screen mode, so it is asked of the full-screen target
+  (§53.1.2.1, `fsxw_pick`): the display the window is mostly on when it has
+  Mode X, else the first display that does. `mc_cmd_modex` hands
+  `OSAPI_FSX_RUN` that display as CH (`[mc_fsdisp]`). The item is offered on
+  a Hercules with a VGA beside it, and greyed only on a machine with no VGA.
+
+`mc_dispck` already ran every frame for exactly this reason: no callback
+says the window moved. It now compares both answers and re-runs
+`mc_adapter` when either changed.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
@@ -103813,13 +103941,18 @@ centred in it by `[tg_bx0]`. A zero cell size is refused, because a zero cell
 makes every rect inside-out and an inside-out rect is a stripe rather than a
 small mistake.
 
-### 49.4 Two colours are chosen at boot, not pinned
+### 49.4 Two colours are chosen by the display, not pinned
 
 §39.4 leaves a 4bpp screen three greys and a 1bpp screen none. On VGA the HUD
 band is `CDGRAY` under `CLGRAY`-bordered matrix; on Hercules and CGA both of
 those land in the **dither** class, and white text on a 50% pattern is
 legible only in principle. `[tg_hudbg]`/`[tg_frcol]` are set from
-`OSAPI_VIDEO`'s `DH`: black band and a solid white border on 1bpp. The HUD
+`OSAPI_WM_DISPLAY`'s `DH` - the WINDOW's display (§39.16.4), asked again by
+`tg_track` before every draw, so a window dragged onto the other card of an
+extended desktop takes that card's pair - black band and a solid white border
+on 1bpp. They were `OSAPI_VIDEO`'s at the entry until the extended-desktop
+audit of 2026-11-27 found a dithered band on a Hercules d1 and a mono one on
+a VGA d1. The HUD
 text itself is `CWHITE` on every adapter — §47's lesson, that a dithered 8x8
 glyph loses the half of each stroke the pattern masks out, so text comes from
 the white class and only a filled *area* may dither.
@@ -113151,6 +113284,42 @@ through the desktop's own slots and is told the rect it owns, so on another
 display than its window's it would paint where it has no window - the
 Video Player asks for CH only on the fullscreen path, which sets a mode.
 
+### 53.1.2.1 Full screen goes to a display the content can use (2026-11-27)
+
+**The owner's rule: if the content runs on display type A and not on type B,
+going full screen is never a refusal because of where the window happens to
+stand. It goes to a screen of the type the content supports, if the machine
+has one.** The extended-desktop audit (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md,
+K6) found Pixelstein and Lemmings refusing Full Screen with the right card
+one inch away, and DrMarco refusing on the owner's own 5150 arrangement.
+
+Two questions about a straddling window have two answers, and both are right:
+
+- **Where full screen goes** is the display the window is MOSTLY on - its
+  centre, which is what `OSAPI_FSX_CAPS` and `OSAPI_FSX_RUN` with CH = 0 ask
+  (§39.17) - when that display can set one of the package's modes. Otherwise
+  it is the first display, walked `OSAPI_FSX_CAPS` BX = 1, 2, ..., that can,
+  and `OSAPI_FSX_RUN` takes it with CH = n. Only when no display on the
+  machine can is it a refusal, and the menu says so.
+- **How the window sizes and draws** is the MORE RESTRICTIVE display
+  (`OSAPI_WM_DISPLAY`, §39.16.4.1): one window cannot draw in two modes at
+  once.
+
+A package's full-screen mode menu describes the first answer and its
+in-window colour or face describes the second. **Both are asked where they
+are used**: a drag that moves the centre across the seam without changing
+the restrictive display fires no `OSAPI_WM_ONRESIZE`, so a mode row banked
+only in the notice is stale exactly when it matters. The bracket's entry
+asks again, and a package with a worker re-asks between frames.
+
+`apps/os88fsxw.inc`'s `fsxw_pick` is the walk written once (in: BX = the
+window, DX = the FSXM_* bits the content can use; out: AX = what the target
+can set of those, DL = its kind, CH = the bracket's display, CF = 1 when no
+display can). It returns CH = 0 whenever the window's own display answers,
+which keeps `kern_small` (whose door refuses any CH) and every one-display
+machine on the path they always took. A same-mode bracket (§53.7) may not
+take a CH and does not use it. C packages have it as `os88_fsx_pick()`.
+
 ### 53.2 The freeze — a whitelist, not `sch_lock` (binding)
 
 `sch_lock` is the wrong tool and sched.inc documents why: it stops the
@@ -119779,6 +119948,53 @@ Two bytes of bss, the two helpers in `zio.inc` and a call in each of the four
 waits and the four withdrawal sites. Found on the way and left for its own
 change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
 gfx lock, although `zwin.inc` documents it as lock-held.
+
+### 61.17 The status line re-entered the text decoder
+
+**A story halted mid-sentence with `unknown opcode 0x1F at 0x00000E15
+es=0000`** (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md, Severity 1
+#1): four of about seven sessions that dragged Frotz across the seam of an
+extended desktop, never one that stayed on one display. The `es=0000` is not
+evidence - `zx_badseg` is written only by `zx_lost`, and this was `zx_bad`,
+an opcode decoded from the right segment at the wrong address.
+
+**`zt_print_ret` is not reentrant, and `zw_status` called it from inside
+itself.** The decoder's cursor is bss (`zt_al`/`zt_ah`, `zt_ci`, `zt_cw`,
+`zt_end`, the alphabet and the abbreviation bank), because a decode is one
+flat loop and nothing was meant to start a second one while it ran. But a
+character it prints can reach `zw_paint` - a refused `OSAPI_GFX_SCROLL`
+(§61.5's fallback), a pending resize (`zw_sync`), a split - and `zw_paint`
+draws the v1-3 status line, and `zw_status` captures the location's short
+name by DECODING it. The inner decode ran to its end bit, so the outer one
+found its cursor exhausted and stopped mid-word; and an inline `@print`
+resumes at the address `zt_print_ret` answers, which was now the end of the
+object's name in dynamic memory. Measured on MartyPC
+(`os8088_5150_both_gla`, Hercules primary, CGA to the right), the instruction
+ring read `@print` at `0x8527` followed by a PC of `0x0E12`, every time.
+
+The seam is why it showed there: `OSAPI_GFX_SCROLL` refuses a band that
+crosses two displays (§39.14.2), so every line on a straddling window falls
+back to `zw_paint`, and every wrap inside a sentence was a chance. A grow-box
+drag or an adapter switch reaches the same `zw_paint` through `zw_sync`, and
+the UI task's own `W_PAINT` reaches it while the worker waits under `[MORE]`
+mid-sentence - so one display was never immune, only lucky.
+
+**`[zt_busy]` is set for the length of a decode, and `zw_status` does not
+re-capture the name while it is.** The row is still drawn - score, moves and
+the clock are global reads, which touch no cursor - from the name the last
+capture left in `zw_stat`, which is the name on the glass anyway: a location
+does not change in the middle of a sentence about it. One byte of bss and
+fifteen of code, and the worker's stack gains nothing.
+
+**What this does not cover.** The worker's slice reaches 298-300 of its 384
+bytes on a straddle with or without the nest - the depth is the full repaint
+itself, cut per cell at the seam (§39.14.6), which a refused scroll costs on
+every line. And on a VGA primary with the Hercules to the right, dragging a
+straddling window onto the Hercules WHILE the worker is printing still takes
+the machine down (SS = 0, CS:IP in ROM; three runs of three, with and without
+this fix, never with the worker idle); the audit's STACK OVERFLOW panel for
+slot `0C` was on that same pairing. That one is in the kernel's display
+switching and is recorded in the audit's fix notes, not here.
 
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
@@ -132979,13 +133195,14 @@ and it is stated rather than hidden.
 **The depth is asked in `te_layout` and not once at launch**, which is the
 same argument one level down: `te_layout` re-derives everything the live
 content box implies on every paint, click, key and worker draw, so the answer
-is never older than the last event. It is `OSAPI_VIDEO`'s `DH`, and that is
-**the PRIMARY's depth** by that slot's own contract — on an extended desktop
-with a mono card beside a colour one it is the wrong question for the far
-display, and there is no per-display depth published to ask instead (§39.14
-has none). Stated rather than hidden; `OSAPI_FSX_CAPS` answers `DL` per
-display but a `VID_*` kind is not a depth, and inventing a slot for one
-package is what CLAUDE.md's index exists to prevent.
+is never older than the last event. It is `OSAPI_WM_DISPLAY`'s `DH` for
+[te_win] - the depth of the display the WINDOW is on (§39.16.4) - and
+`OSAPI_VIDEO`'s only before the window exists. It was `OSAPI_VIDEO`'s, the
+PRIMARY's, written when no per-display depth was published; the
+extended-desktop audit (2026-11-27) found iCE Colours still live on a
+Hercules beside a VGA primary and greyed on a VGA beside a Hercules one. The
+Session menu's iCE item is re-labelled in the same `te_layout`, so it follows
+the drag.
 
 #### 70.8.6 Two hundred and fifty-six glyphs, and where they come from
 
@@ -143956,6 +144173,36 @@ Sixteen bytes of any package that opts into the alert — eight for the row and
 eight for the one label that was not already there. `Proceed` is SEVEN
 characters because that is what `OS88UI_ABW` holds; `Continue` would not fit
 the row, which is the constraint §75.3 above is about.
+
+#### 75.3.4 It opens on the asking window's DISPLAY — `os88ui_centre`
+
+The alert was centred on `OSAPI_VIDEO`'s width and height, which are the
+PRIMARY's (§39.2.1), so on a two-display machine a window on the second
+monitor asked its question on the first one. No cell says where a display
+starts, and none is needed: **`os88ui_centre`** (AX = the frame's width, DX =
+its height, BX = the asking window; out AX/BX = x/y) centres the box over the
+asking window's content when there are two displays (`OSAPI_FSX_CAPS` with
+BX = 2 answers CF = 0), and `wm_create`'s fit keeps it inside that window's
+display (§39.16.1). On one display it is the old arithmetic exactly: centred
+on the primary and never up under the menu bar. SHEET's seven dialogs that
+copied the alert's placement call it too (§81's dialogs, the extended-desktop
+audit of 2026-11-27).
+
+#### 75.3.5 The caption is read through KERNEL_SEG, not through ES
+
+`os88ui_ask` took the asking window's caption as `[es:bx + W_TITLE]`, on the
+rule that ES is `KERNEL_SEG` on entry to every callback. That is true at the
+entry and not after it: a C package's thunks spend ES (§73, `os88thunk.asm`'s
+window-record readers load `KERNEL_SEG` themselves for this reason), and
+Loom's close negotiator reaches `os88ui_ask` through several of them. The
+alert's title was then a word out of Loom's own image - an offset into its
+code - and read `^[ PSQRVW N` (the extended-desktop audit, 2026-11-27; on
+one display too). **The C packages' wrappers load `KERNEL_SEG` into ES before
+the call**, as the thunks do, and give it back: Loom's `_lm_ask`, Weave's
+`_wd_ask`, Breadboard XT's `_bb_ask` and ByteOpoly's `_bp_ask`. An assembly
+package's callback still arrives with it. It is not done inside `os88ui_ask`
+because six bytes there would cost every package with the alert, and REDLINE
+has no six bytes to give.
 
 ## 76. The theme — Bright and Dark (`kernel/vga12.inc`, `kernel/ctrl.inc`)
 
@@ -158165,10 +158412,11 @@ and Word's (§68.2.1):
 - **`sh_mbank`** runs between `sh_mdrop_geo` and the first draw and calls
   `OSAPI_GFX_SAVE` over the panel's rect. Its size is §13.16.4's formula,
   planes × rows × byte columns, with the plane count from
-  `OSAPI_WM_DISPLAY` (never `OSAPI_VIDEO`, §39.16.4) and taken AS IT COMES,
+  `os88ui_bankpl` (§5.3.1: `OSAPI_WM_DISPLAY`'s DH, never `OSAPI_VIDEO`'s,
+  raised to the deepest display's) and taken AS IT COMES,
   §120.5's package rule: DH ≥ 4 is DH planes, 8 or 16 being the bytes a
-  column on a packed display, and only 1 is one plane. The bottom is clamped
-  to the display's last row, in `[sh_mbky2]`.
+  column on a packed display, and only 1 is one plane. The bottom is the
+  display's last row, found by §81.98.2, in `[sh_mbky2]`.
 - **`sh_mclose`** writes it back with `OSAPI_GFX_REST` and redraws the bar
   so the title is plain again. The full `sh_repaint` it used to make is now
   the REFUSAL path only: no bank (a rect straddling two displays, or one
@@ -158214,6 +158462,36 @@ dragged 24 rows lower, where the panel runs off the screen. Skipping the
 restore fails both comparisons.
 
 **Resident +174 bytes, bss +3** on the build this section first shipped on.
+
+#### 81.98.2 The bank's bottom is the DISPLAY's, found by asking the save
+
+The first `sh_mbank` clamped the panel's bottom to `OSAPI_WM_DISPLAY`'s
+height less one. That height is LOCAL - the display's own rows - and the
+panel's rect is VIRTUAL, so the clamp was right only on display 0. In a
+Below layout display 1 starts at the primary's height: a Hercules primary
+over a VGA put SHEET's bar at y = 477 and its Data panel to 522, the clamp
+cut the bank at 479, and the close left rows 480-522 of the panel on the
+glass (the extended-desktop audit, 2026-11-27, L2). A VGA primary over a
+Hercules had the panel run three rows onto the Hercules, where no bank and
+no repaint of SHEET's window reaches.
+
+No cell answers where a display starts, and none is needed: `OSAPI_GFX_SAVE`
+already refuses a rect that leaves the display holding its top-left. So
+`sh_mbank` saves the whole panel first - the common case, one call - and
+only when that is refused finds the display's last row by asking the same
+question of a ONE-COLUMN rect from the panel's top, halving the interval
+(at most nine probes, each a column of bytes, on the refused path only).
+One more one-pixel probe asks whether the row under that one belongs to
+ANOTHER display. If it does, the panel is **shortened to the whole items
+that fit above the seam, with its frame closed under them**, and banked: it
+never draws onto the other display, and what it banked is all it drew. If it
+does not - the screen's end, or the dead zone beside a shorter monitor - the
+tail is drawn nowhere, so the panel stays whole and the bank stops at the
+last row, which is the old behaviour exactly (`tests/sheetmtail.py`'s
+dragged-down arm). kern_small's save does not refuse a rect past the screen,
+so there the first save succeeds clipped, as before. A refusal across a
+vertical seam (the column fits, the width does not) is the old repaint. The
+plane count is §5.3.1's.
 
 #### 81.98.1 What the VGA machine found
 
@@ -167365,6 +167643,12 @@ the region the player painted over its own Open dialog. The
 elapsed clock is derived from the free-running `verb 3` consumed count
 accumulated into a 32-bit `ap_played`, so it survives the counter's ~3–6 s
 wrap.
+
+**The bar's frame sets its own pen.** `apu_draw_time_full` framed the bar in
+whatever colour was current, and `ap_paint` (`W_PAINT`) does not set one, so
+a repaint the KERNEL drove - a drag across a display seam is one - framed it
+in the ground fill's white and the bar vanished until the next track (the
+extended-desktop audit, 2026-11-27). It sets black first.
 
 **The first paint can beat `wm_fit`**: the loader shows the window after the
 entry proc returns, so `OSAPI_WM_GEOM` / `OSAPI_WM_CONTENT` can answer CF=1
@@ -189370,7 +189654,7 @@ every paint:
 | `[con_topy]` | **0**: §96.32's band origin is the text's origin, where Telnet's is the window's and its own chrome is above |
 | `[con_vcols]`/`[con_vrows]` | `[dos_concols]`/`[dos_conrows]` |
 | `[con_vtop]` | **`[con_cy] + 1 - [con_vrows]`, floored at 0** — the window FOLLOWS THE CURSOR (§96.33.8). It was `CON_ROWS - [con_vrows]`, the bottom of the buffer, which is the same number only once the console has filled and is a blank screen before that |
-| `[con_mono]` | `OSAPI_VIDEO`'s `DH`, asked here and not at launch (§11.96.12) |
+| `[con_mono]` | `OSAPI_WM_DISPLAY`'s `DH` for `[dos_win]`, asked here and not at launch (§11.96.12) - the WINDOW's display, since `OSAPI_VIDEO` is the primary's (§39.16.4; it was, until the extended-desktop audit of 2026-11-27) |
 
 **`con_open` is called once, from the entry proc**, and it is not optional: the
 loader zeroes bss (§21 step 5), so an unopened console has attribute 0 — black
@@ -206945,6 +207229,23 @@ spare) is not reached. The eager run is **112 unpacked sectors of 128**
 the recipe allows (48,335 after wave 4). The kernel is unchanged. *Wave 6's
 figures are 97.15's: part 0 59,378, the run 116, the file 50,476.*
 
+#### 97.14.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode menu and Full Screen follow §53.1.2.1. `px_adapter` asks
+`fsxw_pick` for Mode X, CGA 320 or Hercules: the display the window is mostly
+on when it has one of them, else the first display that does. The two Mode
+items name that display's modes, and `[px_fsdisp]` is the CH that
+`px_go_fsx` hands `OSAPI_FSX_RUN`. The Colour item still asks
+`OSAPI_WM_DISPLAY`, the restrictive display, because it is about the window.
+
+The audit's case was a VGA-and-Hercules desktop with the window dragged from
+the Hercules until its centre was on the VGA. The restrictive display stayed
+the Hercules, so no `W_ONRESIZE` came. The Mode row still said Hercules, and
+Full Screen opened on the VGA, asked it for the Hercules mode, was refused,
+and did nothing. Now `px_adapter` runs at the top of `px_go_fsx` and in the
+worker's `px_back_ck` between frames, as well as in the notice, so the row
+and the bracket agree with the window as it stands.
+
 ### 97.15 What shipped: the final frame table, the machines, the price of wave 6
 
 Wave 6's (the plan's last): the dog (97.4, 97.6, 97.8), the Tab map
@@ -220200,6 +220501,16 @@ exclusive bracket; Escape/Alt+Enter restores the desktop with the game paused.
 VGA selects FSXM_MODEX (320x240); CGA selects FSXM_CGA320 (320x200), black
 background and bright green/red/yellow palette 0 (3D9h=10h). VGA retains
 blue/red/yellow. Unsupported adapters refuse fullscreen with an explanation.
+**The display that plays is asked, not assumed** (§53.1.2): the window's own
+first, then - refused there - each display of an extended desktop in turn,
+`OSAPI_FSX_CAPS` with BX = 1, 2, ... until it says there is none, the first
+offering Mode X or CGA 320 being `[dm_fsdisp]` and the bracket opening on it
+with `OSAPI_FSX_RUN` CH = n. So a window on the Hercules of a Hercules + CGA
+or Hercules + VGA pair plays on the colour card, the window staying where it
+is, and the splash's play label says Enter rather than VGA/CGA. The walk is
+the same `dm_playdisp` the splash's label and the Enter key both ask, at
+every paint and every press, so a window dragged between displays is asked
+again. A lone Hercules still refuses: BX = 1 is that card and BX = 2 is none.
 Original artwork uses offline converted native pixels: 16x12 VGA cells and
 16x10 CGA cells. Cells are horizontally doubled, so VGA batches dirty cells in two passes,
 each writing one stored plane to a plane pair (map masks 3 and 0Ch); cells
@@ -233395,7 +233706,13 @@ the name (`np_arg`), so Ctrl+S writes back to the note.
   blue (`CLCYAN`) or white. A 1bpp adapter does not read the pen, so the
   papers are white there, and **the Color menu greys every item `(color
   screen)`** (§47), as it does with no note. The pen is reset after the pad's
-  slabs so the include's tag is drawn in the default one.
+  slabs so the include's tag is drawn in the default one. **"1bpp" is the
+  PAD's display** (`sn_monoask`: `OSAPI_WM_DISPLAY`, §39.16.4), asked at every
+  beat - the menu said again when the answer changes - and at every pick, so
+  a pad dragged onto the mono card of an extended desktop greys the menu
+  there and a pad on the colour one offers it, whichever card is primary
+  (the extended-desktop audit of 2026-11-27 found it decided once, from
+  `OSAPI_VIDEO`).
 
 **A press on the pad** acts only on its controls - `+`, the arrow, `<`, `>`
 and a box; the rest of the card only hands the widget the bar, as the
@@ -238168,6 +238485,24 @@ rather than a greyed control:
   addition, not the 1991 game. Lemmix's own `F` (skip one minute) goes with
   them, which is what leaves the letter free for §11.2.1's fullscreen door.
 - **Custom / Lemmini level loading, the level finder, and any level editor.**
+
+#### 116.8.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode row and Play follow §53.1.2.1. `lem_probe_mode` asks
+`os88_fsx_pick()` for 320x200x16, CGA 320 or Hercules: the display the
+launcher is mostly on when it can set one of them, else the first display
+that can. `lem_vidkind` and `lem_caps` are that display's, so the row's
+caption, the second screen's mode (`ovl_scr_id`) and the bracket's mouse map
+all describe it. `lem_fsdisp` is the display `os88_fsx_run()` is handed.
+
+The audit (K6) had the launcher straddling a Hercules and a VGA with its
+centre on the VGA. No `W_ONRESIZE` came, because the restrictive display was
+still the Hercules. The row said "Hercules 720x348", the bracket opened on
+the VGA, was asked for the Hercules mode and refused, and Play did nothing.
+So the probe now also runs before every Play and in every `W_PAINT`
+(`lem_reprobe`, which lays the window out again only when the answer
+changed). A drop repaints the window, so the row is right when it is next
+seen.
 
 ### 116.9 The names, and the four disks
 
@@ -245061,6 +245396,20 @@ saying so in the window.
 A glyph is never wider than its advance, so a glyph's cell is its advance,
 and the composer needs no second width. A character outside 32-126 is drawn
 as `?`.
+
+#### 124.7.2 A drag onto the other display re-reads it
+
+`w16_dispinit` ran once, at the first wake, so a window dragged across a
+display seam kept the launch display's state: every opaque text run was drawn
+with the other depth's polarity (inverted), and `GetDeviceCaps` and the
+system metrics answered for the display it had left (the extended-desktop
+audit, 2026-11-27). The main window's class now has `W_ONRESIZE`
+(`w16_onresize`), which fires on a drag across the seam as well as a resize
+(§39.16.4), and calls `w16_dispinit` again; the full repaint that follows
+draws with the new state. **The System font is NOT re-fetched**: it is a part,
+a file read, and the handler runs with the lock held - so a program keeps the
+face of the display it started on, which is also what Windows does with a
+font a program has already measured.
 
 ### 124.8 USER: windows, the queue and the pump *(shipped in S3)*
 
@@ -255536,6 +255885,14 @@ kept.
 page: like CGA's, a cut is drawn where it can be seen. Their second page is
 not used yet. An EGA takes the CGA4 bundle in mode 4.
 
+**A display's refusal is the display's.** A play refused because the
+window's display has not the battle's mode ("Needs CGA, EGA or VGA", "Needs
+BATTLEH.VBT on a Hercules") sets `[vb_dispno]`, and `vb_onresize` (§11.98)
+puts Ready back when the window lands on another display of an extended
+desktop (§39.16.3.3), so the word never describes a card the window has
+left; Enter asks the new one. It read "Needs CGA, EGA or VGA" on a VGA d1
+where Enter played, until the extended-desktop audit of 2026-11-27.
+
 **Hardware not yet heard.** The PC speaker (VIDEO-BATTLE-PLAN 3.2) is not
 an output.
 
@@ -259001,6 +259358,12 @@ mush it has a `_M` twin drawn in black and white only (dark chromatic fills as a
 as an ID added after the colour ones; the face prefers `BP_A_M_x` when `bp_mono`. `art.h` lists
 which exist. `os88bpart.py png DIR --mono` previews every sprite through the core's mapping.
 
+**`bp_mono` is the WINDOW's display's**, not the launch's: `os88_onresize` (§11.98, which fires when
+the window lands on a display of another kind, §39.16.3.3) asks `os88_wm_display` (§39.16.4), and a
+change of depth goes through `bp_face_depth` - `bp_mono`, `bx_setup`'s planes and `gk_init`'s roles
+again, the next paint laying out and drawing the whole face. The colour art dithered past reading on
+a Hercules d1 under a VGA primary until the extended-desktop audit of 2026-11-27.
+
 The Apple IIe, PC AT, Atari ST and 486 were redrawn from a fourth master (`art/master4.png`) so no two
 machines are near-twins: a light-grey keyboard with a separate amber monitor, a tall grey case with
 three bays and a yellow screen, a dark-grey wedge with a blue-screen monitor, and a lone black tower.
@@ -259274,6 +259637,12 @@ source no longer assembled. The changes, all mechanical:
   as a black bar on Hercules. Each package picks its ground from
   `OSAPI_VIDEO`'s DH at entry (`bas_ui_ground`, `br_ground`): grey at 4 bpp
   and up, white below.
+- **`SCREENW`, `SCREENH`, `SCREENBPP` and `VIDEOMODE` answer the CONSOLE
+  WINDOW's display** (`bas_video`: `OSAPI_WM_DISPLAY` on `[bas_window]`,
+  §39.16.4), asked at each call. On one display that is `OSAPI_VIDEO`'s
+  answer; on an extended desktop (§39.19) a program whose console stands on
+  the second card is told that card's width, height, depth and kind - it was
+  told the primary's until the extended-desktop audit of 2026-11-27.
 - **Two upstream layout defects fixed.** 2BRES's footer drew the current file
   name unpadded on a partial refresh, so `MIXED.RES` opened over
   `UNTITLED.RES` read `MIXED.RESRES`; it is padded to twelve cells. And its

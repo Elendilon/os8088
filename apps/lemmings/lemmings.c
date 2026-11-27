@@ -630,6 +630,7 @@ static int   lem_caps;              /* ...and its whole FSXM bitmask, which is
                                      * what lem_mode_id() picks the PLAYING
                                      * mode out of */
 static int   lem_vidkind;           /* OS88_VID_* */
+static int   lem_fsdisp;            /* os88_fsx_run()'s display, << 8 (53.1.2.1) */
 static int   lem_snd;               /* the speaker path answered */
 static int   lem_abon;              /* the About card is up */
 static int   lem_waked;             /* the first wake has happened */
@@ -839,18 +840,35 @@ static struct os88_menuset lem_menus = { lem_title, 0, 0, { { 0, 0, 0 } } };
  * which is SPEC.md 47 rule 4's one predicate for both. An EGA answers 0x000F -
  * the CGA-compatible modes only (kernel/fsx.inc:117) - so a sixteen-colour card
  * gets four colours and the row says so with the fact. */
+/* THE DISPLAY IS THE FULL-SCREEN TARGET, NOT ALWAYS THE WINDOW'S (SPEC.md
+ * 53.1.2.1, 116.8.1): the one the window is mostly on when it can set one of
+ * the three modes this game plays in, else the first display that can, and
+ * lem_fsdisp is the os88_fsx_run() display for it. The extended-desktop audit
+ * (K6) had the launcher straddling a Hercules and a VGA with its centre on the
+ * VGA: the Mode row said "Hercules 720x348" and Play did nothing, because the
+ * bracket opened on the VGA and was asked for the Hercules' mode. So this is
+ * asked where it is used - before Play and in every W_PAINT (lem_reprobe: a
+ * drop repaints the window) - as well as in W_ONRESIZE, which a drag that
+ * leaves the restrictive display alone never fires. The FULL caps of that display are kept (lem_caps): the second
+ * screen's mode (ovl_scr_id) is picked off them too. */
 static int lem_probe_mode(void *win)
 {
-    static int kind;                /* an out-parameter, so a static (73.5) */
-    int caps;
+    static int kd;                  /* an out-parameter, so a static (73.5) */
+    int want;
 
-    kind = OS88_VID_VGA;
-    caps = os88_fsx_caps(win, &kind);
-    lem_vidkind = kind;
-    lem_caps = caps;
-    if (caps < 0)
+    want = (1 << OS88_FSXM_VGA0D) | (1 << OS88_FSXM_CGA320)
+         | (1 << OS88_FSXM_HERC);
+    kd = OS88_VID_VGA;
+    if (os88_fsx_pick(win, want, &kd) == 0) {
+        lem_caps = 0;               /* no display on the machine: refused */
+        lem_fsdisp = 0;
         return 0;
-    return (caps & (1 << OS88_FSXM_VGA0D)) != 0;
+    }
+    lem_vidkind = kd & 0xFF;
+    lem_fsdisp = kd & 0xFF00;
+    lem_caps = os88_fsx_caps(lem_fsdisp ? (void *)(lem_fsdisp >> 8) : win,
+                             &kd);
+    return (lem_caps & (1 << OS88_FSXM_VGA0D)) != 0;
 }
 
 /* lem_mode_id / lem_kind_id / ovl_raster_ok - WHICH MODE THIS ADAPTER PLAYS IN,
@@ -970,6 +988,18 @@ static void lem_abdismiss(void *win)
  * The callbacks the shim declares (apps/lemmings/lemmings.asm)
  * ==========================================================================*/
 
+/* lem_reprobe - lem_probe_mode() again; nonzero when its answer changed */
+static int lem_reprobe(void *win)
+{
+    int k, f, m;
+
+    k = lem_vidkind;
+    f = lem_fsdisp;
+    m = lem_mode_ok;
+    lem_mode_ok = lem_probe_mode(win);
+    return k != lem_vidkind || f != lem_fsdisp || m != lem_mode_ok;
+}
+
 void os88_paint(void *win)          /* W_PAINT: the gfx lock is ALREADY held */
 {
     lem_kick(win);                  /* free when one is queued, and the only
@@ -986,6 +1016,15 @@ void os88_paint(void *win)          /* W_PAINT: the gfx lock is ALREADY held */
      * blank box, so the repaint below draws the cells that carry something and
      * skips the ones that do not (LESSONS.md 6, and kernel/wm.inc's WF_OWNBG
      * interlock is what makes the fill a fact rather than a hope). */
+    /* THE FULL-SCREEN TARGET CAN MOVE WITH NO W_ONRESIZE (SPEC.md 116.8.1):
+     * the Mode row is lettered for the new one, laid out as os88_onresize()
+     * lays it */
+    if (lem_reprobe(win)) {
+        lem_sh_ok = 0;
+        lem_layout(win);
+        if (lem_screen != LEM_SC_LIST)
+            lem_wrap();
+    }
     lem_sh_blank();
     lem_glass_blank = 1;            /* ...and the fill took ovl_chrome()'s two
                                      * rules down with everything else, so a
@@ -2400,7 +2439,8 @@ static void ovl_launch(void *win)
          * LEMMINGS.SAV. APPLE2's a2scr.c is the shape. */
         lem_exit = LEM_X_FAIL;
         lem_lv_said = LEMS_NONE;
-        if (os88_fsx_run(lem_fsx_main, win, 0) < 0) {
+        lem_mode_ok = lem_probe_mode(win);  /* asked where it is used */
+        if (os88_fsx_run(lem_fsx_main, win, lem_fsdisp) < 0) {
             if (lem_resume) {
                 lem_suspended = 1;  /* a kept level stays kept */
                 ovl_preview(level);

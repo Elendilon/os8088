@@ -242,7 +242,14 @@
     push dx                         ; so bank them all. A pop writes no flags,
     push si                         ; which is what lets the answer survive
     push di
+    mov bx, [os88ui_bwin]           ; ...and THE BUTTON'S WINDOW'S display,
+    or bx, bx                       ; not the primary (SPEC.md 13.8.9.1): a
+    jz %%prim                       ; window on a mono second monitor beside a
+    call OSAPI_WM_DISPLAY           ; VGA drew its cut picture inverted.
+    jmp short %%ask                 ; A record that never met os88ui_btninit
+%%prim:                             ; has no window: the primary, as before
     call OSAPI_VIDEO
+%%ask:
     cmp dh, 4                       ; 1 is mono, ZF = 0 as it always was; 4
     jb %%mono                       ; planes, and 8 or 16 bits on a packed
     cmp dh, dh                      ; display (SPEC.md 120.5), are COLOUR:
@@ -671,6 +678,12 @@ OS88UI_BT_SIZE   equ 18
     push si
     push di
     push bp
+%endif
+%ifdef OS88UI_BIMG
+%ifndef OS88UI_KERNEL
+    push word [bx+OS88UI_BT_WIN] ; the window UI_ISMONO asks about (13.8.9.1)
+    pop word [os88ui_bwin]
+%endif
 %endif
     xor ah, ah
     dec ax                      ; AX = the 0-based index
@@ -1278,6 +1291,9 @@ OS88UI_BT_SIZE   equ 18
 os88ui_ir: dw 0, 0, 0, 0        ; the inner rect, and the pair - DATA, inline,
 os88ui_bk: dw 0                 ; for os88ui_armw's reason
 os88ui_band: times 48 db 0      ; a picture cut by the clip, as a band
+%ifndef OS88UI_KERNEL
+os88ui_bwin: dw 0               ; the button's window, for UI_ISMONO
+%endif
 %endif                          ; OS88UI_BIMG
 %endmacro
 %ifndef OS88UI_KBTNIMG
@@ -3055,6 +3071,54 @@ os88ui_sbd_id:   dw 0, 0
 
 %ifndef OS88UI_KERNEL
 
+%ifdef OS88UI_DROP
+ %define OS88UI_BANKPL
+%endif
+%ifdef OS88UI_MENU
+ %define OS88UI_BANKPL
+%endif
+%ifdef OS88UI_BANKPL
+; -----------------------------------------------------------------------------
+; os88ui_bankpl - THE PLANES A SAVE-UNDER IS SIZED FOR (SPEC.md 5.3.1)
+; in:  BX = the window the panel belongs to
+; out: BX = OSAPI_WM_DISPLAY's DH, raised to 4 when any display on the machine
+;      is planar. Every other register preserved; any context
+;
+; A straddling window is answered with the MORE RESTRICTIVE display (SPEC.md
+; 39.16.4.1), and its panel can lie wholly on the other, deeper one - where
+; OSAPI_GFX_SAVE accepts it and writes four planes into a buffer sized for
+; one. OSAPI_FSX_CAPS with BX = n + 1 names display n's kind (CF = 1: none).
+; DH >= 4 is final: a packed VESA display is never one of two (SPEC.md 120.5)
+; -----------------------------------------------------------------------------
+os88ui_bankpl:
+    push ax
+    push cx
+    push dx
+    push si
+    call OSAPI_WM_DISPLAY       ; DH = the window's display's depth
+    mov bx, 1
+.walk:
+    cmp dh, 4
+    jae .done
+    call OSAPI_FSX_CAPS         ; DL = display BX-1's kind; AX, DL only
+    jc .done                    ; past the last display
+    inc bx
+    cmp dl, VID_EGA
+    je .four
+    cmp dl, VID_VGA
+    jne .walk
+.four:
+    mov dh, 4                   ; the deepest there is: no need to look on
+.done:
+    mov bl, dh
+    xor bh, bh
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+%endif                          ; OS88UI_BANKPL
+
 %ifdef OS88UI_ALERT
 ; =============================================================================
 ; THE ALERT (SPEC.md 75.3) - one line of text over up to three buttons, in a
@@ -3264,17 +3328,13 @@ os88ui_ask:
                                 ; KERNEL_SEG on entry to every callback and
                                 ; the record lives there (SPEC.md 20.1); the
                                 ; OFFSET it holds is ours, so it needs no
-                                ; translating
-    call OSAPI_VIDEO            ; AX = width, BX = height: centre on the LIVE
-    sub ax, OS88UI_AW           ; screen (SPEC.md 39), not on 640x480
-    sar ax, 1
+                                ; translating - and a caller that has spent
+                                ; ES (a C package's thunks) loads it back
+                                ; first (SPEC.md 75.3.5)
+    mov ax, OS88UI_AW           ; centred on the LIVE screen (SPEC.md 39),
+    mov dx, OS88UI_AH           ; and on the asking window's DISPLAY when
+    call os88ui_centre          ; there are two (SPEC.md 75.3.1)
     mov [os88ui_atpl + WT_X], ax
-    sub bx, OS88UI_AH
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed                 ; ...but never up under the menu bar on a
-    mov bx, MBAR_H + 8          ; short screen; wm_fit has the other end
-.placed:
     mov [os88ui_atpl + WT_Y], bx
     mov si, os88ui_atpl
     call OSAPI_WM_CREATE        ; BX = window ptr, CF = the table is full
@@ -3293,6 +3353,67 @@ os88ui_ask:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_centre - WHERE A DIALOG OPENS (SPEC.md 75.3.1)
+; in:  AX = the frame's width, DX = its height, BX = the window asking, or 0
+; out: AX = x, BX = y, never under the menu bar. Every other register kept
+;
+; One display: centred on the primary, as every dialog always was. Two:
+; centred over the asking window, and wm_create's fit then keeps it on that
+; window's display (SPEC.md 39.16.1). OSAPI_VIDEO is the PRIMARY's, so a
+; dialog centred on it opened on the other monitor from the window that
+; asked; and no cell says where a display starts, which is why the window's
+; own rect is the anchor rather than its display's.
+; -----------------------------------------------------------------------------
+os88ui_centre:
+    push cx
+    push dx
+    push si
+    push di
+    mov si, ax                  ; SI = w
+    mov di, dx                  ; DI = h
+    or bx, bx
+    jz .prim
+    push bx
+    mov bx, 2                   ; display 1: CF = 1, there is none
+    call OSAPI_FSX_CAPS
+    pop bx
+    jc .prim
+    call OSAPI_WM_CONTENT       ; AX = left, DX = top
+    push ax
+    push dx
+    call OSAPI_WM_GEOM          ; CX = w, DX = h; CF = 1 not visible
+    pop bx                      ; BX = top
+    pop ax                      ; AX = left (pop writes no flag)
+    jc .prim
+    sub cx, si
+    sar cx, 1
+    add ax, cx
+    sub dx, di
+    sar dx, 1
+    add bx, dx
+    jmp short .floor
+.prim:
+    call OSAPI_VIDEO            ; AX = width, BX = height
+    sub ax, si
+    sar ax, 1
+    sub bx, di
+    sar bx, 1
+.floor:
+    cmp bx, MBAR_H + 8
+    jge .y                      ; never up under the menu bar on a short
+    mov bx, MBAR_H + 8          ; screen; wm_fit has the other end
+.y:
+    or ax, ax
+    jns .x
+    xor ax, ax
+.x:
+    pop di
+    pop si
+    pop dx
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5023,15 +5144,13 @@ os88ui_drbank:
     mov bx, [ds:bp+OS88UI_DR_WIN]
     or bx, bx
     jz .none
-    push ax                     ; ...and the plane count is banked across the
-    call OSAPI_WM_DISPLAY       ; call: DH = the bpp OF THE DISPLAY WE ARE ON,
-    mov bl, dh                  ; which OSAPI_VIDEO cannot answer on a two-card
-    xor bh, bh                  ; machine (SPEC.md 39.16.4) - and CX comes back
-    pop ax                      ; as the dock's first row (a buffer sized for
-    cmp bl, 4                   ; the wrong one arrives as noise, 39.14.8)
-    jae .planes                 ; 4 planes - or 8 or 16 BYTES a column on
-    mov bx, 1                   ; a packed display, whose save is its
-.planes:                        ; pixels (SPEC.md 120.5): DH AS IT COMES
+    call os88ui_bankpl          ; BX = the planes: the DISPLAY's, never
+                                ; OSAPI_VIDEO's (39.16.4) - and the deepest
+                                ; display's, since a straddling window's list
+                                ; can sit on the other card (SPEC.md 5.3.1).
+                                ; 4 planes - or 8 or 16 BYTES a column on
+                                ; a packed display, whose save is its
+                                ; pixels (SPEC.md 120.5): DH AS IT COMES
     mul bx                      ; DX:AX - 16 x a list on a 1024-wide
     add ax, 15                  ; display passes 64KB, and a claim sized
     adc dx, 0                   ; off AX alone is what the kernel then
@@ -6267,15 +6386,10 @@ os88ui_mnbank:
     mov bx, [ds:bp+OS88UI_MN_WIN]
     or bx, bx
     jz .no
-    push ax
-    call OSAPI_WM_DISPLAY           ; DH = bpp OF THE DISPLAY WE ARE ON, which
-    mov bl, dh                      ; OSAPI_VIDEO cannot answer on a two-card
-    xor bh, bh                      ; machine (SPEC.md 39.16.4)
-    pop ax
-    cmp bl, 4
-    jae .planes                 ; 4 planes - or 8 or 16 BYTES a column on
-    mov bx, 1                   ; a packed display, whose save is its
-.planes:                        ; pixels (SPEC.md 120.5): DH AS IT COMES
+    call os88ui_bankpl              ; BX = the planes - the deepest
+                                    ; display's (SPEC.md 5.3.1): DH AS IT
+                                    ; COMES, 8 or 16 BYTES a column on a
+                                    ; packed display (SPEC.md 120.5)
     mul bx                      ; DX:AX - 16 x a list on a 1024-wide
     add ax, 15                  ; display passes 64KB, and a claim sized
     adc dx, 0                   ; off AX alone is what the kernel then

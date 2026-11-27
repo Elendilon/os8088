@@ -1128,6 +1128,30 @@ _os88_fsx_caps:
 ; predicate each: already in a bracket, the file dialog is up, the caller is
 ; not task 0, or the ownership fence (the window must be a live instance of
 ; ours and the entry inside our image+bss).
+; int os88_fsx_pick(void *win, int want, int *kd) - the FULL-SCREEN TARGET
+; (SPEC.md 53.1.2.1): apps/os88fsxw.inc's fsxw_pick. `want` = the FSXM_* bits
+; the content can use. Answers what the target can set of them, 0 when no
+; display on the machine can; *kd = the target's VID_* kind in the low byte
+; and, in the HIGH byte, the display to hand os88_fsx_run() - pass
+; `flags | (kd & 0xFF00)`, which is 0 whenever the window's own display
+; answers (so kern_small, which refuses any display, is never handed one).
+; `kd` is an out-parameter and must be a static (SPEC.md 73.5).
+CC_GATE _os88_fsx_pick
+%ifdef CC_U__os88_fsx_pick
+_os88_fsx_pick:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    mov dx, [bp+6]
+    call fsxw_pick                  ; AX = the target's modes, DL = its kind,
+    mov dh, ch                      ; CH = its display; CF = 1, AX = 0: none
+    mov bx, [bp+8]
+    mov [bx], dx
+    pop bp
+    ret
+%include "os88fsxw.inc"
+%endif
+
 CC_GATE _os88_fsx_run
 %ifdef CC_U__os88_fsx_run
 _os88_fsx_run:

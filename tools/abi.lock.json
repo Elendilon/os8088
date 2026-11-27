@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "78d9a6aeaf42b14a7e9ff44e3a9493639ab52ecd4166769ac38ceda37300db9a",
+  "fingerprint": "f05e33001d0422b64390ee6c8a9519560337c18305f1800e091cba822f3a16c7",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2491,6 +2491,13 @@
    "guard": "VX_ABI_VER",
    "reason": "VXV_INFO (0x44): additive verb for the wide Display page, like VXV_PM; an image or kernel from before it cannot be broken by it, so VX_ABI_VER stays 6",
    "to": 6
+  },
+  {
+   "fingerprint": "f05e33001d0422b64390ee6c8a9519560337c18305f1800e091cba822f3a16c7",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "C SDK: os88_fsx_pick() added (SPEC.md 53.1.2.1) - a new thunk, nothing built before changes",
+   "to": 13
   }
  ]
 }

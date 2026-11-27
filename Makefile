@@ -9853,7 +9853,7 @@ PXGAME_SRC  := apps/pixelstein/pxgame.asm apps/pixelstein/pxicon.inc \
                apps/pixelstein/pxact.inc apps/pixelstein/pxhud.inc \
                apps/pixelstein/pxhs.inc \
                $(PXSTEIN_GEN) apps/os88api.inc apps/os88ui.inc \
-               apps/os88pit.inc
+               apps/os88pit.inc apps/os88fsxw.inc
 PXSLEVELS   := $(wildcard apps/pixelstein/levels/*.txt)
 PXSART      := $(wildcard apps/pixelstein/art/*.png)
 
@@ -9966,7 +9966,7 @@ $(BUILD)/arkanoid.o88: $(BUILD)/arkanoid.bin tools/os88pkg.py $(PKGZSTAMP)
 # colours that survive SPEC.md 39.4's reduction to three inks. No heap claim:
 # every array is sized by the arcade's object counts and fits the package bss.
 $(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc \
-                      apps/os88alt.inc | $(BUILD)
+                      apps/os88alt.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
@@ -10218,7 +10218,7 @@ glyphbn: $(BUILD)/glyphbn360.img
 # here ships, and `all` must not pay for it.
 $(BUILD)/mcbench.bin: apps/missile/missile.asm apps/missile/mcbench.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
-                      apps/os88alt.inc | $(BUILD)
+                      apps/os88alt.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/missile/ -DMC_BENCH \
 		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) \
 		$(if $(MCDRNBUD),-DMC_DRNBUD=$(MCDRNBUD)) -o $@ \

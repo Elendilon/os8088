@@ -10,6 +10,9 @@ _bp_ask:
     push bp
     mov bp,sp
     push es
+    mov ax,KERNEL_SEG                ; os88ui_ask reads our record's caption
+    mov es,ax                        ; through ES (SPEC.md 75.3.5): a thunk may
+                                     ; have spent it since the callback began
     mov si,[bp+4]
     mov bx,[bp+6]
     mov ax,[bp+8]

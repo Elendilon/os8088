@@ -186,6 +186,7 @@ int  os88_key_down(int scan);
 unsigned os88_ticks(void);
 int  os88_toast(const char *text, int ticks);
 int  os88_fsx_caps(void *win, int *kind);
+int  os88_fsx_pick(void *win, int want, int *kd);
 int  os88_fsx_run(void (*entry)(void), void *win, int flags);
 int  os88_fsx_mode(int id, void *fsi);
 int  os88_fsx_wait(int kind);

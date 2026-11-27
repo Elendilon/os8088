@@ -7670,11 +7670,14 @@ dos_con_pub:
 .settop:                            ; home can, and it markalls anyway
     mov [con_vtop], cx
 .mono:
-    call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1 - the PRIMARY's
-    cmp dh, 1                       ; (osapi_video's own contract), which on an
-    mov dh, 0                       ; extended desktop is the wrong question for
-    ja .colour                      ; the far display and is stated rather than
-    mov dh, 1                       ; hidden, exactly as te_layout states it
+    push si                         ; DH = bits per pixel, 4 or 1, of the
+    mov bx, [dos_win]               ; display THIS WINDOW is on (SPEC.md
+    call OSAPI_WM_DISPLAY           ; 39.16.4) - OSAPI_VIDEO is the primary's,
+    pop si                          ; and a console dragged onto a mono card
+    cmp dh, 1                       ; beside a colour one drew its colour band
+    mov dh, 0                       ; there (SPEC.md 96.33.1). BX is the
+    ja .colour                      ; caller's again at the pop below
+    mov dh, 1
 .colour:
     mov [con_mono], dh
     pop dx
