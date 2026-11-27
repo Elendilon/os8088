@@ -350,10 +350,13 @@ hd_part_used:
     je .no
     cmp word [si+HP_SECS], 0
     jne .yes
-    cmp word [si+HP_SECS+2], 1  ; the high word decides: CF = 1 when it is
-    ret                         ; 0 as well, which is the answer
+    cmp word [si+HP_SECS+2], 0
+    jne .yes
+.no:
+    stc
+    ret
 .yes:
-    CLC_OR_STC .no
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
