@@ -2824,6 +2824,12 @@ w16_tarm:
     jbe .nohv
     mov bx, 1
 .nohv:
+    cmp byte [w16_mtrk], 0          ; the menu loop: is the bar still ours?
+    je .nomt                        ;   (w16_ontimer, every other tick)
+    cmp bx, 2
+    jbe .nomt
+    mov bx, 2
+.nomt:
     mov al, [w16_go1]               ; the first run's tick (124.31.8)
 %ifdef PKG_MEGA
     or al, [w16mm_wq]               ; ...and a waveOut block queued: every
@@ -2865,6 +2871,21 @@ w16_ontimer:
     ret
 .nogo:
     push si
+    cmp byte [w16_mtrk], 0          ; THE MENU LOOP LOSES THE BAR: a click
+    je .nomt                        ;   outside every window of ours (the
+    call w16_mlost                  ;   desktop, another program) closes it,
+    jnc .nomt                       ;   as Windows' does - os8088 says we
+    LCALL w16_mhpre                 ;   have focus, never that we lost it,
+    jc .nomt                        ;   so the tick asks (SPEC.md 124.11)
+    push word [w16_locked]
+    mov byte [w16_locked], 1        ; (the kernel holds the lock: w16_mgon
+    LCALL w16_mstop                 ;   must not take it again)
+    LCALL w16_mhpost
+    pop word [w16_locked]
+    call w16_tarm
+    pop si
+    ret
+.nomt:
     call OSAPI_GET_TICKS
     mov dx, ax
     mov si, w16_tmr
@@ -3224,6 +3245,30 @@ w16_hvmove:
     ret
 .no:
     clc
+    ret
+
+; w16_mlost - CF=1: the menu bar is not ours any more - OSAPI_MENU_OWNER
+; names Locator (the bare desktop was clicked) or a window that is neither
+; WIN16's nor a program's. Keeps every register.
+w16_mlost:
+    push ax
+    push bx
+    push si
+    call OSAPI_MENU_OWNER           ; BX = the bar's owner, 0 = Locator
+    cmp bx, [w16_win]
+    je .ours                        ; (CF = 0 from the equal compare)
+    or bx, bx
+    stc
+    jz .out
+    mov si, bx
+    call w16_osw2rec                ; CF = 1: not a program's window
+    jmp short .out
+.ours:
+    clc
+.out:
+    pop si
+    pop bx
+    pop ax
     ret
 
 ; w16_hvwant - CF=0: a move with no button down can be ours - the program

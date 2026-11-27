@@ -246396,7 +246396,13 @@ aside for the end goal: it has no nested popup, a one-byte action and os8088's
   callbacks while the program waits inside `DefWindowProc`, which is the
   menu loop (§124.2.2's host send). A pick POSTS `WM_COMMAND`, as Windows
   does. A greyed or disabled item does nothing. A click outside the menu,
-  or on the open title, closes it. Alt+F4 posts `WM_CLOSE` and Alt+Space is
+  or on the open title, closes it - **and so does a click outside every
+  window of WIN16's** (the bare desktop, another program), which os8088
+  never tells a package about: while the loop runs WIN16's tick is armed
+  every second tick and asks `OSAPI_MENU_OWNER` (`w16_mlost`); a bar that is
+  Locator's or another window's ends the loop as Esc would. Before
+  2026-11-27 the popup stayed drawn over the desktop with the bar gone
+  (the extended-desktop audit; any one display shows it). Alt+F4 posts `WM_CLOSE` and Alt+Space is
   does nothing (there is no system menu to open).
 
 ### 124.12 How a program ends *(shipped in S5)*
