@@ -7509,11 +7509,10 @@ wm_draw_title:                  ; Windows, and this body otherwise
 %endif                          ; recolour. Only Color sets it, so only
                                 ; kern_big can ever take the branch
     lea dx, [bx+2]              ; 6 stripes, rows y+3,5,7,9,11,13
-    mov ax, [di+W_X]            ; inset 3px from each side - once, outside the
-    mov bx, ax                  ; loop: gfx_hline preserves every register
-    add ax, 3
-    add bx, [di+W_W]
-    sub bx, 4
+    mov bx, [di+W_X]            ; inset 3px from each side - once, outside the
+    lea ax, [bx+3]              ; loop: gfx_hline preserves every register
+    add bx, [di+W_W]            ; (`lea` off BX for `mov` + `add`: kernel size
+    sub bx, 4                   ; pass 21, -2)
     mov cx, 6
 .stripe:
     call gfx_hline
