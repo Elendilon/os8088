@@ -225507,8 +225507,14 @@ between 0/1 and 2/3, and the four bytes are the planes (`OSAPI_GFX_BLITP`,
 DI bit 14 set so an armed clip is walked); when BLITP refuses (CF), the lanes
 are made packed pairs through a 256-byte table and go to `OSAPI_GFX_BLIT4`
 instead; on 1bpp, eight pixels a byte straight to `OSAPI_GFX_BLIT1`. The
-image's left edge is always on the byte grid: the canvas starts on it (the
-tool column is 32 pixels) and the horizontal pan moves in steps of 8. At
+image's left edge is always on the byte grid: the horizontal pan moves in
+steps of 8 and the picture's left is rounded UP onto the SCREEN's grid
+(`px_vclamp`) - the canvas starts 32 pixels into the content, which is on
+the grid only when the window is. A window that landed at an odd x (an
+extended desktop's landing, the extended-desktop audit's PX1, 2026-11-27)
+put the canvas off it, and the composer's first column (`x & ~7`) then
+lay LEFT of the picture: a negative first sample, the picture wrapped round
+or noise. The up-to-7-pixel gap the rounding leaves is the canvas ground. At
 exactly one master pixel a screen pixel (a picture at 100%) the DDA is left
 out of the loop and CX counts the groups. **What it costs on an 8088**
 (106.17): on VGA, 137 cycles a pixel zoomed in (the DDA) and 116 at 100%,
@@ -225816,8 +225822,10 @@ Makefile's guard that `pixel.asm`'s `PXA_*` numbers and widths are the art's.
 **They are PART 9 of `PIXEL.O88`** - `OP_ASSET|OP_COMP|OP_LAZY`, the last
 row of the table (106.5), 27,648 bytes packed to 5,529 - fetched at entry,
 after the window is made so a failed entry holds no claim, into a claim of
-its own, **only on a colour primary**: a Hercules or a CGA machine never
-reads a byte of it. PiXEL's master is **sized from the heap** (106.8), and
+its own, **only when a display is colour** - any display, walked with
+`OSAPI_FSX_CAPS` (BX = 1, 2, ...), not `OSAPI_VIDEO`'s primary: on an
+extended desktop the window can be dragged to the colour card whatever the
+primary is. A Hercules or a CGA machine never reads a byte of it. PiXEL's master is **sized from the heap** (106.8), and
 a 27 KB claim can be the difference between 1/1 and 1/2, so nothing is read,
 and every button is the code-drawn bevel, unless the heap has **256 KB**
 (`PXA_MINFREE`) free beside the pictures: `px_artload` asks `op_lazyok`
