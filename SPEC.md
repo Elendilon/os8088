@@ -144017,6 +144017,22 @@ on the primary and never up under the menu bar. SHEET's seven dialogs that
 copied the alert's placement call it too (§81's dialogs, the extended-desktop
 audit of 2026-11-27).
 
+#### 75.3.5 The caption is read through KERNEL_SEG, not through ES
+
+`os88ui_ask` took the asking window's caption as `[es:bx + W_TITLE]`, on the
+rule that ES is `KERNEL_SEG` on entry to every callback. That is true at the
+entry and not after it: a C package's thunks spend ES (§73, `os88thunk.asm`'s
+window-record readers load `KERNEL_SEG` themselves for this reason), and
+Loom's close negotiator reaches `os88ui_ask` through several of them. The
+alert's title was then a word out of Loom's own image - an offset into its
+code - and read `^[ PSQRVW N` (the extended-desktop audit, 2026-11-27; on
+one display too). **The C packages' wrappers load `KERNEL_SEG` into ES before
+the call**, as the thunks do, and give it back: Loom's `_lm_ask`, Weave's
+`_wd_ask`, Breadboard XT's `_bb_ask` and ByteOpoly's `_bp_ask`. An assembly
+package's callback still arrives with it. It is not done inside `os88ui_ask`
+because six bytes there would cost every package with the alert, and REDLINE
+has no six bytes to give.
+
 ## 76. The theme — Bright and Dark (`kernel/vga12.inc`, `kernel/ctrl.inc`)
 
 **Two themes, and the boundary is CHROME against CONTENT.** Bright is what

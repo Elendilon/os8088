@@ -3328,7 +3328,9 @@ os88ui_ask:
                                 ; KERNEL_SEG on entry to every callback and
                                 ; the record lives there (SPEC.md 20.1); the
                                 ; OFFSET it holds is ours, so it needs no
-                                ; translating
+                                ; translating - and a caller that has spent
+                                ; ES (a C package's thunks) loads it back
+                                ; first (SPEC.md 75.3.5)
     mov ax, OS88UI_AW           ; centred on the LIVE screen (SPEC.md 39),
     mov dx, OS88UI_AH           ; and on the asking window's DISPLAY when
     call os88ui_centre          ; there are two (SPEC.md 75.3.1)
