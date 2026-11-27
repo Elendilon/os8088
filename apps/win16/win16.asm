@@ -1656,6 +1656,30 @@ w16_freeprog:
     ret
 
 ; -----------------------------------------------------------------------------
+; w16_onresize - W_ONRESIZE (SPEC.md 11.98, 124.7.2): the content box changed,
+; and a drag across a display seam is one of the ways it does. The display
+; state is read AGAIN - [w16_mono] decides every opaque text run's polarity,
+; and GetDeviceCaps answers from [w16_disp] and [w16_scrw]/[w16_scrh] - and
+; the full repaint that follows (the kernel's, this must not draw) uses it.
+; The System font stays the one fetched at launch: a part is a file read, and
+; this runs with the lock held.
+; in: SI = our window, lock held; preserves everything
+; -----------------------------------------------------------------------------
+w16_onresize:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call w16_dispinit
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; w16_facein - read the display the window is on and fetch the System font
 ; Windows showed there (SPEC.md 124.7): a part of WIN16.O88, read from the
 ; folder it was launched from. CF=1: refused, with the reason in [w16_l2].
@@ -2614,7 +2638,8 @@ w16_tpl:
     OS88_CLASS w16_tpl_cls, 0, PAINT, w16_paint, ONKEY, w16_onkey, \
                ONCLICK, w16_onclick, ONWAKE, w16_wake, ONCLOSE, w16_onclose, \
                ONMOUSEUP, w16_onup, ONRCLICK, w16_onrclick, \
-               ONTIMER, w16_ontimer, ONDRAG, w16_ondrag
+               ONTIMER, w16_ontimer, ONDRAG, w16_ondrag, \
+               ONRESIZE, w16_onresize
 ; ...and every OWNED window's (w16wnd.inc's w16_oopen builds the template in
 ; w16_otpl): W_PAINT paints every pixel, and a dialog does not zoom open
 ; (SPEC.md 11.99.2.1)

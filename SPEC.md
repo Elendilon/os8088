@@ -245186,6 +245186,20 @@ A glyph is never wider than its advance, so a glyph's cell is its advance,
 and the composer needs no second width. A character outside 32-126 is drawn
 as `?`.
 
+#### 124.7.2 A drag onto the other display re-reads it
+
+`w16_dispinit` ran once, at the first wake, so a window dragged across a
+display seam kept the launch display's state: every opaque text run was drawn
+with the other depth's polarity (inverted), and `GetDeviceCaps` and the
+system metrics answered for the display it had left (the extended-desktop
+audit, 2026-11-27). The main window's class now has `W_ONRESIZE`
+(`w16_onresize`), which fires on a drag across the seam as well as a resize
+(§39.16.4), and calls `w16_dispinit` again; the full repaint that follows
+draws with the new state. **The System font is NOT re-fetched**: it is a part,
+a file read, and the handler runs with the lock held - so a program keeps the
+face of the display it started on, which is also what Windows does with a
+font a program has already measured.
+
 ### 124.8 USER: windows, the queue and the pump *(shipped in S3)*
 
 **Classes.** At most 64 (`W16_MAXCLS`; 12 until §124.25.18.1 moved the table out of bss, 8 before File Manager's nine, 124.27.1). `RegisterClass` copies:
