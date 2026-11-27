@@ -298,6 +298,7 @@ int  os88_fullscreen(void *win, int enter)
                                             * primitives assert depth 1 */
     return 0;
 }
+void os88_wm_prefer(void *win, const int *table) { (void)win; (void)table; }
 void os88_menu_set(void *win, struct os88_menuset *set) {}
 int  os88_snd_tone(int hz, int ticks, int prio) { return 0; }
 /* the self-close (wave 3): os88_task_spawn wants the lock held (SPEC.md 20.6)

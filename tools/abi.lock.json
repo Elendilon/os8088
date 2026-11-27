@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "616ef99c437543006db3c45e693e2d6839e25b027250f9df7db39c505d3311cd",
+  "fingerprint": "01bfc8e9575cb11ab4e8dab9233939eebe3fb5f175902581d1209700b0d0c211",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2512,6 +2512,13 @@
    "guard": "DRV_VER",
    "reason": "OSAPI_WM_DORIGIN (JCELL 0x0244, SPEC.md 39.16.4.3) appended at the end of the table and the C SDK's os88_wm_dorigin - an addition, every package built before still runs",
    "to": 14
+  },
+  {
+   "fingerprint": "01bfc8e9575cb11ab4e8dab9233939eebe3fb5f175902581d1209700b0d0c211",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "C SDK: os88_wm_prefer() added (SPEC.md 11.100.1) - a new thunk, nothing built before changes",
+   "to": 13
   }
  ]
 }

@@ -321,6 +321,12 @@ unsigned char c64_bgfill;           /* the uniform level of a mode wave 1 does
  * model's last row was never on the glass. */
 #define C64_W_H    (OS88_TITLE_H + C64_CONT_H + 1)          /* 245 */
 
+/* the frame on each adapter kind (os88_wm_prefer): KEPT by the kernel, so a
+ * static - the template's on all three, and the display clamps the height */
+static int c64_pref[6] = {
+    C64_W_W, C64_W_H, C64_W_W, C64_W_H, C64_W_W, C64_W_H
+};
+
 #define C64_ROWS 25
 #define C64_COLS 40
 #define C64_CELLS (C64_ROWS * C64_COLS)
@@ -2248,6 +2254,13 @@ static void *ovl_main(void)
         return 0;
     }
     c64_win = win;
+    /* ...AND THE SAME ANSWER ON EVERY OTHER DISPLAY (C64-SPEC 9.8.1, SPEC.md
+     * 11.100.1). The height above is the PRIMARY's; dragged onto a 200-row
+     * CGA beside a VGA the window kept 245 rows and its status row went off
+     * the glass (the extended-desktop audit's K3). One frame for all three
+     * kinds, clamped by each display: the kernel refits it at every landing
+     * on another kind and c64_geom reads what it got at the next paint */
+    os88_wm_prefer(win, c64_pref);
     os88_menu_set(win, (struct os88_menuset *)&c64_menus);
     /* ...AND THE FIRST WAKE HAS TO BE ASKED FOR. The class's onwake is the
      * handler; os88_wm_wake POSTS the kick, and os88_paint

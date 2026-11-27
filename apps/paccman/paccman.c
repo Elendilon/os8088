@@ -123,6 +123,15 @@ static struct os88_class pmc_cls = {
 #define PMC_WIN_W     (PMC_FIELD_W + 2)          /* 226 */
 #define PMC_WIN_H     (PMC_FIELD_H + OS88_TITLE_H + 1)          /* 307 */
 #define PMC_WIN_H_LO  ((PMC_FIELD_H / 2) + OS88_TITLE_H + 1)    /* 163 */
+
+/* the frame on each adapter kind (os88_wm_prefer, SPEC.md 11.100.1): KEPT by
+ * the kernel, so a static. Every source row on a VGA and a Hercules, the
+ * alternate rows on a CGA - pmc_layout picks the rows off the live box, so a
+ * drag onto a 200-row CGA beside a VGA (the audit's K3) gets the CGA's frame
+ * and the CGA's layout, and back again */
+static int pmc_pref[6] = {
+    PMC_WIN_W, PMC_WIN_H, PMC_WIN_W, PMC_WIN_H, PMC_WIN_W, PMC_WIN_H_LO
+};
 #define PMC_WIN_X     48
 #define PMC_WIN_Y     OS88_MBAR_H
 
@@ -334,7 +343,9 @@ void *os88_main(void)
     if (win == 0)
         return 0;
 
-    os88_wm_minsize(win, PMC_WIN_W, h);
+    os88_wm_minsize(win, PMC_WIN_W, PMC_WIN_H_LO);  /* the CGA's frame is
+                                                       * the floor anywhere */
+    os88_wm_prefer(win, pmc_pref);
 
     pmc_pause_item();
     os88_menu_set(win, &pmc_mset);

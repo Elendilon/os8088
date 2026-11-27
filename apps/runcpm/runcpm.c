@@ -275,6 +275,13 @@ static int rc_key_pop(void)
 #define RC_WIN_W   (RC_COLS * 8 + 2)
 #define RC_WIN_H   (OS88_TITLE_H + RC_ROWS * RC_CELLH + 1)
 
+/* the frame on each adapter kind (os88_wm_prefer, SPEC.md 11.100.1): KEPT by
+ * the kernel, so a static - one frame, clamped by each display, so a drag
+ * onto a 200-row CGA refits it as a CGA primary's launch is (the audit's K3) */
+static int rc_pref[6] = {
+    RC_WIN_W, RC_WIN_H, RC_WIN_W, RC_WIN_H, RC_WIN_W, RC_WIN_H
+};
+
 static const char rc_title[] = "RunCPM";
 
 /* The kernel bar shows the instance name unless a menu set says otherwise
@@ -1363,6 +1370,7 @@ void *os88_main(void)
     if (win == 0)
         return 0;
     rc_win = win;
+    os88_wm_prefer(win, rc_pref);
     os88_menu_set(win, (struct os88_menuset *)&rc_kmenus);
     rc_fs_init();                           /* bank the launch folder */
     return win;                             /* the first paint kicks */

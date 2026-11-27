@@ -2402,6 +2402,22 @@ refused `blit1` must come down to 1:1.
 
 ---
 
+#### 9.8.1 The frame on another display (2026-11-27)
+
+`os88_main` sizes the window from `os88_video()`, the primary's figures, so
+that it is not taller than the desktop it opens on. The extended-desktop
+audit (K3) dragged it onto a 200-row CGA beside a VGA. It kept 245 rows, and
+the status row went off the glass. The status row carries §1.4's permanent
+fact and every refusal.
+
+So the window also declares one frame for all three adapter kinds with
+`os88_wm_prefer()` (SPEC.md 11.100.1): 338 x 245, the template's own frame.
+The kernel applies the preference at every landing on another kind of
+display, clamped to that display, which on the CGA is its whole height.
+`c64_geom` reads the box it got at the next paint and anchors the status row
+to its live bottom, as it does on a CGA primary. No `os88_onresize` is
+needed, because nothing is derived from the box outside the paint.
+
 ### 9.9 The display latch — the frame registers once a frame, at line 51
 
 **The screen is drawn from a LATCH, not from the live registers.** `$D011`,

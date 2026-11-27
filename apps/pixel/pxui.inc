@@ -3491,8 +3491,9 @@ px_bvband:
 ; THE COLOUR FACE'S PICTURES - part 9 (SPEC.md 106.16)
 ; =============================================================================
 ; tools/pixart.py draws them, and they ride inside PIXEL.O88 as a compressed
-; lazy part: fetched at entry only on a colour primary - a Hercules or a CGA
-; machine never spends a byte or a revolution on them - into a claim of
+; lazy part: fetched at entry only when a display is colour - the window's
+; or one it can be dragged to; a Hercules or a CGA machine never spends a
+; byte or a revolution on them - into a claim of
 ; their own, MOVABLE (px_mreloc follows it), and freed with the window. They
 ; were a file beside the package until the parts standard could compress a
 ; parted image (SPEC.md 20.13.8). PiXEL's master is sized from the heap
@@ -3500,7 +3501,7 @@ px_bvband:
 ; a picture is left them: under PXA_MINFREE free after the claim, nothing is
 ; read and every button is the code-drawn bevel - a complete face.
 
-; px_artload - the pictures, if the primary is colour and the heap can spare
+; px_artload - the pictures, if any display is colour and the heap can spare
 ; them. Silent when it cannot: op_lazyok is asked first, so op_fetch's own
 ; toast is only ever a read that failed. Preserves all
 px_artload:
@@ -3513,9 +3514,17 @@ px_artload:
     push si
     push di
     push es
-    call OSAPI_VIDEO                ; DH = the primary's bits per pixel
-    cmp dh, 1
-    jbe .out
+    mov bx, 1                       ; ANY colour display, not the primary:
+.disp:                              ; the window goes where it is dragged
+    push bx                         ; (OSAPI_FSX_CAPS, BX = 1, 2, ...: DL =
+    call OSAPI_FSX_CAPS             ; each display's kind; CF = 1 past the
+    pop bx                          ; last). A Hercules or a CGA is 1bpp
+    jc .out
+    inc bx
+    cmp dl, VID_HERC
+    je .disp
+    cmp dl, VID_CGA
+    je .disp
     mov al, PXPART_GFX
     call op_lazyok                  ; the largest run holds the fetch...
     jc .out
