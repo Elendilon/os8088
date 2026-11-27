@@ -41,19 +41,19 @@ CPV_ASEL    equ CPW_W_PAGE + 20 ; db the adapter chosen (a VID_* kind)
 CPV_NREC    equ CPW_W_PAGE + 21 ; db VXV_INFO's record count (0 = none)
 CPV_RUN     equ CPW_W_PAGE + 22 ; db the running record, FFh none
 CPV_REC     equ CPW_W_PAGE + 23 ; db Auto's record, FFh none
-CPV_NTAB    equ CPW_W_PAGE + 24 ; db the filter's tabs
-CPV_TABD    equ CPW_W_PAGE + 25 ; 4 db: a tab's depth (0 = All)
+CPV_TABD    equ CPW_W_PAGE + 25 ; 4 db: a tab's depths, cpv_dbit's bits (All 7)
 CPV_LEFT    equ CPW_W_PAGE + 29 ; db a test's seconds left, 0 = no test
 CPV_SKIND   equ CPW_W_PAGE + 30 ; db what ran before it: the kind...
 CPV_SCLS    equ CPW_W_PAGE + 31 ; db ...the VESA class...
 CPV_SARR    equ CPW_W_PAGE + 32 ; db ...the arrangement (0/1/2)
-CPV_CLS     equ CPW_W_PAGE + 33 ; 16 db: each record's class, bit 5 = 15bpp
+CPV_CLS     equ CPW_W_PAGE + 33 ; 16 db: each record's class, bit 5 = 16 bits
+                                ;    a pixel; 0 = the record is no row
 CPV_ROWS    equ CPW_W_PAGE + 49 ; 17 db: the rows - a record, FFh = Auto
-CPV_GX      equ CPW_W_PAGE + 66 ; dw the chosen mode's X (the preview's)...
-CPV_GY      equ CPW_W_PAGE + 68 ; dw ...its Y
-CPV_GD      equ CPW_W_PAGE + 70 ; db ...its depth
-%if CPV_GD + 1 > CPW_W_PAGE + CPW_W_PAGEN
+%if CPV_ROWS + 17 > CPW_W_PAGE + CPW_W_PAGEN
   %error "cpw_vid: the page's state outgrew CPW_W_PAGE"
+%endif
+%if CPV_SKIND != CPV_LEFT + 1 || CPV_SCLS != CPV_LEFT + 2 || CPV_SARR != CPV_LEFT + 3
+  %error "cpw_vid: cpv_test stores the countdown and what ran as one run"
 %endif
 CPV_MSEL    equ CPV_TB + CPKT_SEL   ; the table's selected row IS the block's
 CPV_NMAX    equ 16              ; records kept (VESA.DRV's VX_NMODES)
@@ -100,13 +100,11 @@ cpv_page:
     mov cx, CPW_W_PAGEN / 2
     cld
     rep stosw
+    inc ax
+    mov [es:CPV_LIVE], al
     mov al, [vid_kind]
     mov [es:CPV_ASEL], al
-    mov byte [es:CPV_LIVE], 1
-    call cpv_build
-    mov al, [es:CPV_RUN]        ; ...and the running record's row chosen
-    call cpv_rowof
-    mov [es:CPV_MSEL], ax
+    call cpv_bsel               ; ...and the running record's row chosen
     jmp short .draw
 .have:
     call cpv_build
@@ -116,8 +114,243 @@ cpv_page:
     call cpv_prev
     call cpv_modes
     mov al, 1
-    call cpv_ctls
-    jmp cpv_rbox
+    call cpv_ctls               ; ...and the right group, below
+
+; =============================================================================
+; The right group: Running mode, or Keep this mode? during a test
+; =============================================================================
+cpv_rbox:
+    call cpv_testing
+    jnc cpv_kbox
+    call cpv_c0                 ; --- Running mode
+    mov bx, ax
+    mov dx, ax
+    add dx, 49
+    mov ax, CPV_IX
+    call cpv_r
+    mov si, cpv_s_grun
+    call cpk_group
+    mov bp, bx                  ; BP = its top
+    call cpv_new                ; the running adapter and mode
+    mov al, [vid_kind]
+    mov bl, [es:CPV_RUN]
+    call cpv_mode
+    call .line
+    call cpv_new                ; the card
+    mov si, cpv_s_novx
+    test byte [vid_avail], VID_A_VESA
+    jnz .vx
+%ifdef VID_EXT                  ; NOVIDEXT: no VESA.DRV row, so never loaded
+    cmp word [vesa_row + DRVR_SEG], 0
+    je .c
+    mov si, cpv_s_novl          ; loaded at run time: it attaches at boot
+%endif
+    jmp short .c
+.vx:
+    mov si, cpv_s_nolist
+    cmp byte [es:CPV_NREC], 0
+    je .c
+    mov si, cpv_s_vbe           ; ' VBE M.m, <mem> video memory'
+    call cpw_strcat
+    push di
+    mov cl, 0FFh
+    call cpv_info               ; AX = the version, DX = 64KB units
+    pop di
+    push dx
+    push ax
+    mov al, ah
+    xor ah, ah
+    call cpw_utoa
+    mov al, '.'
+    stosb
+    pop ax
+    xor ah, ah
+    call cpw_utoa
+    mov si, cpv_s_comma
+    call cpw_strcat
+    pop ax
+    mov si, cpv_s_mb
+    cmp ax, 16
+    jb .kb
+    mov cl, 4
+    shr ax, cl
+    jmp short .mem
+.kb:
+    mov cl, 6
+    shl ax, cl
+    mov si, cpv_s_kb
+.mem:
+    call cpw_utoa
+    call cpw_strcat
+    mov si, cpv_s_vm
+.c:
+    call cpw_strcat
+    call .line
+    call cpv_wh                 ; the group's last 13 rows
+    mov ax, CPV_IX + 1
+    call cpv_r
+    dec cx
+    mov bx, bp
+    add bx, CPV_RH
+    mov dx, bx
+    add dx, CPV_RH
+    jmp cpw_fill
+.line:                          ; the composed line, the next of three
+    add bp, CPV_RH
+    mov dx, bp
+    mov cx, CPV_IX + 1
+    jmp cpv_rrow
+
+; -----------------------------------------------------------------------------
+; cpv_kbox - Keep this mode?: the countdown, Keep and Revert, at cpv_kpos
+; -----------------------------------------------------------------------------
+cpv_kbox:
+    call cpv_kpos               ; AX/BX = left/top, CX = right
+    push ax                     ; --- its title: white on blue, one ROW - the
+    push cx                     ; mockup's band, and on a 1bpp desktop (the
+    mov di, cx                  ; small state after a test of a Hercules or a
+    sub di, ax                  ; CGA) blue is black and the words stay
+    inc di                      ; white, where the kit's grey band would set
+    mov cx, ax                  ; black words on black
+    mov dx, bx
+    mov si, cpv_s_gkeep
+    mov ax, (CBLUE << 8) | CWHITE
+    call cpv_srow
+    pop cx
+    pop ax
+    mov byte [gfx_color], CBLACK    ; --- its frame: left, right, bottom
+    add bx, CPK_BANDH
+    mov dx, bx
+    add dx, 49 - CPK_BANDH
+    push cx
+    mov cx, ax
+    call cpw_fill
+    pop cx
+    push ax
+    mov ax, cx
+    call cpw_fill
+    pop ax
+    mov bx, dx
+    call cpw_fill
+    sub bx, 49
+    call cpv_kline
+    call cpv_wh                 ; --- the ground round the buttons
+    inc ax
+    dec cx
+    add bx, 24
+    mov dx, bx
+    inc dx
+    call cpw_fill               ; under the line
+    push cx
+    add bx, 2
+    add dx, 18
+    mov cx, ax
+    add cx, 4
+    call cpw_fill               ; left of Keep
+    add ax, 69
+    add cx, 68
+    call cpw_fill               ; between Keep and Revert
+    add ax, 68
+    pop cx
+    call cpw_fill               ; right of Revert
+    sub ax, 137
+    add bx, 18
+    add dx, 5
+    call cpw_fill               ; under them
+    mov ax, CPV_IKEEP
+    call cpv_ctl1
+    inc ax                      ; ...Revert
+
+; -----------------------------------------------------------------------------
+; cpv_ctl1 - control AL drawn: AH = 1 pressed. Keeps all
+; A check box and a radio through CPG_GLYPH (os88ui_glyph is CTRL.DRV's), a
+; button through cpk_button; greyed as cpv_ctlok says (SPEC.md 47 rule 1)
+; -----------------------------------------------------------------------------
+cpv_ctl1:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, ax                  ; BP = the control and its press
+    call cpv_ctlok
+    sbb di, di                  ; DI = FFFFh greyed
+    call cpv_rect               ; AX/BX/CX/DX = its rect (AL: ctlok kept it)
+    push ax
+    mov ax, bp
+    cmp al, CPV_IAPPLY
+    jb .check
+    cmp al, CPV_IARR
+    jae .radio
+    and di, OS88UI_DIS          ; --- a button
+    or ah, ah
+    jz .b
+    or di, OS88UI_DOWN
+.b:
+    xor ah, ah
+    sub al, CPV_IAPPLY
+    mov si, ax
+    shl si, 1
+    mov si, [cs:si + cpv_blab]
+    pop ax
+    call cpk_button
+    jmp short .out
+.check:
+    cmp al, CPV_IFC
+    mov al, OS88UI_GCHECK
+    je .fc
+    push bx
+    call cpv_sclass             ; ZF = 1: the row is the startup mode
+    pop bx
+    jne .off
+.on:
+    mov si, cpd_ck1             ; the Drivers page's tick box (QA-8), up and
+    or al, OS88UI_GON           ; live; greyed or pressed is the gate's glyph
+    jmp short .z0
+.fc:
+    test byte [drv_cfg + CFG_VGC], CFG_VGCB
+    jnz .on
+.off:
+    mov si, cpd_ck0
+.z0:
+    test di, di
+    jnz .g
+    test bp, 0FF00h
+    jnz .g
+    pop ax                      ; its left (content); BX is still its top
+    call cpd_blit12
+    jmp short .out
+.radio:
+    call cpv_aron               ; ZF = 1: it is the one on
+    mov al, OS88UI_GRADIO
+    jne .g
+    or al, OS88UI_GON
+.g:
+    mov cx, bp
+    or ch, ch
+    jz .gu
+    or al, OS88UI_GDOWN
+.gu:
+    pop cx                      ; CX/DX = its top left, SCREEN
+    add cx, [es:CPW_W_OX]
+    mov dx, bx
+    add dx, [es:CPW_W_OY]
+    mov bx, di
+    and bl, 1                   ; BL = 1 greyed
+    mov ah, CPG_GLYPH
+    call cpw_gate
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+cpv_blab:   dw cpv_s_apply, cpv_s_test, cpv_s_keep, cpv_s_revert
 
 ; -----------------------------------------------------------------------------
 ; cpv_small - cpw_small's dispatch: the window is under the face's size (a
@@ -131,8 +364,7 @@ cpv_small:
     call cpv_wh                 ; the ground round the group
     xor ax, ax
     xor bx, bx
-    mov cx, [es:CPW_W_CW]
-    dec cx
+    call cpv_rx
     mov dx, 3
     call cpw_fill               ; above it
     mov bx, 4
@@ -140,8 +372,7 @@ cpv_small:
     mov cx, 3
     call cpw_fill               ; left of it
     mov ax, 4 + 264
-    mov cx, [es:CPW_W_CW]
-    dec cx
+    call cpv_rx
     call cpw_fill               ; right of it
     xor ax, ax
     mov bx, 4 + 50
@@ -155,21 +386,9 @@ cpv_small:
 
 ; cpv_testing - CF = 0 a test is running on this page; keeps all
 cpv_testing:
-    cmp byte [es:CPV_LIVE], 0
-    je .no
-    cmp byte [es:CPV_LEFT], 0
-    je .no
-    clc
-    ret
-.no:
-    stc
-    ret
-
-; cpv_big - CF = 0 the window holds the face (cpw_paint's own test); keeps all
-cpv_big:
-    cmp word [es:CPW_W_CW], CPW_W1 - 2
+    cmp byte [es:CPV_LIVE], 1   ; CF = 1: the block is not this page's...
     jb .r
-    cmp word [es:CPW_W_CH], CPW_H1 - TITLE_H - 1
+    cmp byte [es:CPV_LEFT], 1   ; ...or no seconds are left
 .r:
     ret
 
@@ -183,7 +402,7 @@ cpv_click:
     mov dx, bx
     call cpv_testing
     jnc .ctl                    ; only the Keep group's two buttons
-    call cpv_big
+    call cpw_big
     jb .r                       ; small, no test: nothing here is drawn
     cmp ax, CPW_LW
     jge .page
@@ -201,7 +420,7 @@ cpv_click:
     jg .r
     cmp dx, CPV_AY + CPK_BANDH + 4 * CPV_RH
     jge .ctl                    ; the desktop line's radios
-    mov ax, dx                  ; --- an adapter row: which slot?
+    xchg ax, dx                 ; --- an adapter row: which slot?
     sub ax, CPV_AY + CPK_BANDH
     mov bl, CPV_RH
     div bl
@@ -210,16 +429,24 @@ cpv_click:
     cmp al, [es:CPV_ASEL]
     je .r
     mov [es:CPV_ASEL], al       ; another adapter: its rows, the preview,
-    call cpv_build              ; the Modes group and the controls' greying
-    mov al, [es:CPV_RUN]
-    call cpv_rowof
-    mov [es:CPV_MSEL], ax
-    mov word [es:CPV_TB + CPKT_TOP], 0
+    call cpv_bsel               ; the Modes group and the controls' greying
     call cpv_arows
     call cpv_prev
     call cpv_modes
-    xor al, al
-    jmp cpv_ctls
+    jmp cpv_ctls0
+.ctl:                           ; --- a control: armed, drawn pressed, and it
+    call cpv_hit                ; acts on the release (SPEC.md 13.8.3)
+    jc .r
+    call cpv_ctlok
+    jc .r
+    push ax
+    add ax, CPW_ID0
+    CPWC os88ui_arm
+    pop ax
+    mov ah, 1                   ; pressed
+    jmp cpv_ctl1
+.r:
+    ret
 .modes:
     cmp byte [es:CPV_ASEL], VID_VESA
     jne .ctl
@@ -241,15 +468,14 @@ cpv_click:
     call cpv_tabs
     mov bx, CPV_TB
     call cpk_table
-    call cpv_prev
-    xor al, al
-    jmp cpv_ctls
+    jmp short .pctl
 .tbl:
     mov bx, CPV_TB              ; --- the table: a row, or the bar (acted on)
     call cpk_tbclick
     jc .ctl
-    cmp ax, 0FFFFh
-    je .r
+    inc ax
+    jz .r                       ; (0FFFFh: the bar)
+    dec ax
     mov bx, [es:CPV_MSEL]
     cmp ax, bx
     je .r
@@ -257,22 +483,10 @@ cpv_click:
     call cpv_trowat
     xchg ax, bx
     call cpv_trowat
+.pctl:
     call cpv_prev
-    xor al, al
-    jmp cpv_ctls
-.ctl:                           ; --- a control: armed, drawn pressed, and it
-    call cpv_hit                ; acts on the release (SPEC.md 13.8.3)
-    jc .r
-    call cpv_ctlok
-    jc .r
-    push ax
-    add ax, CPW_ID0
-    CPWC os88ui_arm
-    pop ax
-    mov ah, 1                   ; pressed
-    jmp cpv_ctl1
-.r:
-    ret
+.ctls:
+    jmp cpv_ctls0
 
 ; -----------------------------------------------------------------------------
 ; cpv_up - a wide control's release (cpw_edge's dispatch): it acts when the
@@ -287,21 +501,16 @@ cpv_up:
     cmp ax, CPV_NCTL
     jae .r
     push ax
-    mov ax, cx
-    sub ax, [es:CPW_W_OX]
-    mov bx, dx
-    sub bx, [es:CPW_W_OY]
-    mov cx, ax
-    mov dx, bx
+    sub cx, [es:CPW_W_OX]       ; the point, content-relative
+    sub dx, [es:CPW_W_OY]
     call cpv_hit                ; AX = the control under the release
     pop bx                      ; BX = the one armed
     jc .up
     cmp ax, bx
     je .act
 .up:
-    mov ax, bx                  ; released elsewhere: drawn up, nothing done
-    xor ah, ah
-    jmp cpv_ctl1
+    xchg ax, bx                 ; released elsewhere: drawn up (AH = 0, the
+    jmp cpv_ctl1                ; id is under CPV_NCTL), nothing done
 .r:
     ret
 .act:
@@ -318,8 +527,7 @@ cpv_up:
     cmp al, CPV_IFC
     je .fc
     call cpv_sclass             ; --- Use this mode at startup: the VE byte
-    test byte [es:CPV_LIVE], 2  ; (cpv_sclass: CL = the row's class, and
-    jz .vok                     ; CPV_LIVE bit 1 = it is ticked)
+    jne .vok                    ; (CL = the row's class; ZF = 1 it is ticked)
     xor cl, cl                  ; ticked: un-ticking is Auto
 .vok:
     mov [drv_cfg + CFG_VE], cl
@@ -327,21 +535,19 @@ cpv_up:
     call cpw_gate
     mov bx, CPV_TB              ; the marks moved: the rows, the controls
     call cpk_tbrows             ; and the Running mode group's last line
-    xor al, al
-    call cpv_ctls
+    call cpv_ctls0
     jmp cpv_rbox
 .fc:
     mov ah, CPG_VGC             ; Force Color (SPEC.md 31.10.4)
     call cpw_gate
-    xor al, al
-    jmp cpv_ctls
+    jmp cpv_ctls0
 .apply:
     call cpv_target             ; AL = the kind, CL = the class
     mov ah, CPG_VIDSET          ; switched, kept, owed - and NOTHING drawn
     jmp cpw_gate                ; (SPEC.md 31.10)
 .keep:
     call cpv_tend               ; Keep: the switch stands (cp_repost owed it)
-    call cpv_big
+    call cpw_big
     jb .ksmall
     jmp cpv_rbox
 .ksmall:
@@ -350,6 +556,60 @@ cpv_up:
     sub al, CPV_IARR            ; the desktop line, now (SPEC.md 31.10.2)
     mov ah, CPG_VIDARR
     jmp cpw_gate
+
+; =============================================================================
+; Test... (SPEC.md 135.9.3)
+; =============================================================================
+
+; cpv_test - save what runs, start the countdown, switch. Draws nothing
+cpv_test:
+    mov di, CPV_LEFT            ; the countdown, and what runs: the kind, the
+    mov al, CPV_TEST            ; class and the arrangement, one run
+    stosb
+    mov al, [vid_kind]
+    stosb
+%ifdef VID_EXT
+    mov al, [vx_class]
+%else
+    mov al, 0                   ; NOVIDEXT: vx_class's value with no driver
+%endif
+    stosb
+    call cpv_arrnow
+    stosb
+    mov byte [cp_tickp], CP_IVID    ; the resident gate ticks this page
+    call cpv_target
+    mov ah, CPG_VIDSET
+    call cpw_gate
+    jnc .r
+    call cpv_tend               ; refused: no test, and the page repainted
+    mov ah, CPG_REPOST
+    call cpw_gate
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
+; cpv_revert - back to EXACTLY what ran before the test: its kind, its class
+; and its arrangement; the VGA if that switch is refused. Draws nothing
+; -----------------------------------------------------------------------------
+cpv_revert:
+    call cpv_tend
+    mov ax, [es:CPV_SKIND]      ; AL = the kind, AH = the class
+    mov cl, ah
+    mov ah, CPG_VIDSET
+    call cpw_gate
+    jnc .arr
+    mov ax, (CPG_VIDSET << 8) | VID_VGA ; a revert that fails leaves a working
+    call cpw_gate               ; display: the VGA every machine this face
+.arr:                           ; opens on has
+    call cpv_arrnow
+    mov ah, [es:CPV_SARR]
+    cmp al, ah
+    je .r
+    mov al, ah
+    mov ah, CPG_VIDARR
+    call cpw_gate
+.r:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; cpv_key - a key (cpw_key's dispatch): Esc reverts a test; the rest dropped
@@ -404,34 +664,6 @@ cpv_quit:
 .r:
     ret
 
-; =============================================================================
-; Test... (SPEC.md 135.9.3)
-; =============================================================================
-
-; cpv_test - save what runs, start the countdown, switch. Draws nothing
-cpv_test:
-    mov al, [vid_kind]
-    mov [es:CPV_SKIND], al
-%ifdef VID_EXT
-    mov al, [vx_class]
-%else
-    mov al, 0                   ; NOVIDEXT: vx_class's value with no driver
-%endif
-    mov [es:CPV_SCLS], al
-    call cpv_arrnow
-    mov [es:CPV_SARR], al
-    mov byte [es:CPV_LEFT], CPV_TEST
-    mov byte [cp_tickp], CP_IVID    ; the resident gate ticks this page
-    call cpv_target
-    mov ah, CPG_VIDSET
-    call cpw_gate
-    jnc .r
-    call cpv_tend               ; refused: no test, and the page repainted
-    mov ah, CPG_REPOST
-    call cpw_gate
-.r:
-    ret
-
 ; cpv_tend - no test any more: the countdown off and the gate back to
 ; Date/Time's. Keeps all
 cpv_tend:
@@ -439,28 +671,13 @@ cpv_tend:
     mov byte [cp_tickp], CP_ITIME
     ret
 
-; -----------------------------------------------------------------------------
-; cpv_revert - back to EXACTLY what ran before the test: its kind, its class
-; and its arrangement; the VGA if that switch is refused. Draws nothing
-; -----------------------------------------------------------------------------
-cpv_revert:
-    call cpv_tend
-    mov al, [es:CPV_SKIND]
-    mov cl, [es:CPV_SCLS]
-    mov ah, CPG_VIDSET
-    call cpw_gate
-    jnc .arr
-    mov al, VID_VGA             ; a revert that fails leaves a working
-    mov ah, CPG_VIDSET          ; display: the VGA every machine this face
-    call cpw_gate               ; opens on has
-.arr:
+; cpv_aron - is desktop radio AL (CPV_IARR and up) the one on? ZF = 1 yes.
+; Spends AX
+cpv_aron:
+    sub al, CPV_IARR
+    mov ah, al
     call cpv_arrnow
-    cmp al, [es:CPV_SARR]
-    je .r
-    mov al, [es:CPV_SARR]
-    mov ah, CPG_VIDARR
-    call cpw_gate
-.r:
+    cmp al, ah
     ret
 
 ; cpv_arrnow - AL = the arrangement running, as its radio: 0 Single, 1 Right,
@@ -485,32 +702,29 @@ cpv_target:
 
 ; -----------------------------------------------------------------------------
 ; cpv_sclass - the selected row's class and whether it is the startup one
-; out: CL = its class byte (Auto, or not the VESA adapter: 0); CPV_LIVE bit 1
-;      = it is what the VE byte names. BL = its record (FFh Auto). Keeps the
-;      rest
+; out: CL = its class byte (Auto, or not the VESA adapter: 0); ZF = 1 it is
+;      what the VE byte names (never off the VESA adapter); BL = its record
+;      (FFh Auto; BH = 0 on the VESA adapter). Keeps the rest
 ; -----------------------------------------------------------------------------
 cpv_sclass:
-    push ax
-    and byte [es:CPV_LIVE], 1
     xor cl, cl
     mov bl, 0FFh
     cmp byte [es:CPV_ASEL], VID_VESA
-    jne .out
-    mov bx, [es:CPV_MSEL]
-    mov bl, [es:bx + CPV_ROWS]
+    jne .r
+    call cpv_msrec
     cmp bl, 0FFh
     je .ve
-    push bx
-    xor bh, bh
     mov cl, [es:bx + CPV_CLS]
     and cl, 0xDF                ; (bit 5 is this page's, not the class's)
-    pop bx
 .ve:
     cmp cl, [drv_cfg + CFG_VE]
-    jne .out
-    or byte [es:CPV_LIVE], 2
-.out:
-    pop ax
+.r:
+    ret
+
+; cpv_msrec - BX = the selected row's record (BH = 0; FFh Auto). Keeps the rest
+cpv_msrec:
+    mov bx, [es:CPV_MSEL]
+    mov bl, [es:bx + CPV_ROWS]
     ret
 
 ; =============================================================================
@@ -520,17 +734,42 @@ cpv_sclass:
 ; cpv_info - VXV_INFO through the gate (SPEC.md 120.10): CL = 0FFh the card,
 ; or a record. out: the verb's (AX, CX, DX, SI, DI), CF. Keeps BX
 cpv_info:
-    mov al, VXV_INFO
-    mov ah, CPG_VXCALL
+    mov ax, (CPG_VXCALL << 8) | VXV_INFO
     jmp cpw_gate
+
+; cpv_bsel - cpv_build, the running record's row chosen (Auto's when it shows
+; none) and the table at its top. Spends AX..DI
+cpv_bsel:
+    call cpv_build
+    mov al, [es:CPV_RUN]        ; FFh none: Auto's, row 0
+    mov di, CPV_ROWS
+    mov cx, [es:CPV_TB + CPKT_N]
+    repne scasb                 ; (DF = 0: cpv_build's `cld`)
+    lea ax, [di - CPV_ROWS - 1]
+    je .s
+    xor ax, ax
+.s:
+    mov [es:CPV_MSEL], ax
+    xor ax, ax
+    mov [es:CPV_TB + CPKT_TOP], ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; cpv_build - the card's records, the filter's tabs and the rows, from the
 ;             driver as it is now. Keeps the adapter, the filter (clamped) and
 ;             the selection (clamped). Spends AX..DI
+;
+; ONE ROW PER CLASS (SPEC.md 135.9.1): a record is a row only when it is the
+; one its class reaches - VESA.DRV's vx_find, the deepest of the class, ties
+; to the first. The records are asked in the card's order and each class
+; keeps one holder: a later record that is deeper takes the class from the
+; earlier one (whose CPV_CLS goes 0, no row), and one that is not is no row
+; itself. So every CPV_CLS left non-zero is a row's.
 ; -----------------------------------------------------------------------------
 cpv_build:
-    mov byte [es:CPV_NREC], 0
+    cld
+    xor bx, bx                  ; BX = 0: the count, and the first record
+    mov [es:CPV_NREC], bl
     mov word [es:CPV_RUN], 0FFFFh   ; RUN and REC: none
     test byte [vid_avail], VID_A_VESA
     jz .tabs
@@ -542,107 +781,98 @@ cpv_build:
     mov cl, CPV_NMAX
 .n:
     mov [es:CPV_NREC], cl
-    mov ax, si
+    xchg ax, si
     mov [es:CPV_REC], al
     cmp byte [vid_kind], VID_VESA
-    jne .k0
+    jne .k
     mov [es:CPV_RUN], ch
-.k0:
-    xor bx, bx                  ; --- each record's class, bit 5 its 15bpp
-.k:
+.k:                             ; --- each record's class, bit 5 its 16 bits
     cmp bl, [es:CPV_NREC]
     jae .tabs
     mov cl, bl
-    call cpv_info
-    jnc .kc
-    xor cx, cx                  ; (a record that does not answer: no class,
-.kc:                            ; so it is never a row)
-    cmp ch, 15
+    call cpv_info               ; CL = its class, CH = its depth
+    jc .kz                      ; (a record that does not answer: no class,
+    test cl, VXC_SET            ; so it is never a row)
+    jz .kz
+    cmp ch, 16
     jne .ks
     or cl, 0x20
 .ks:
+    xor si, si                  ; the record that holds its class so far
+.c:
+    cmp si, bx
+    jae .put                    ; none: this one
+    mov al, [es:si + CPV_CLS]
+    xor al, cl
+    test al, 0xDF
+    jnz .cn                     ; another class (or no row)
+    cmp cl, [es:si + CPV_CLS]
+    jbe .kz                     ; as deep, and first: not this one
+    mov [es:si + CPV_CLS], bh   ; deeper: this one, and that one no row
+    jmp short .put
+.cn:
+    inc si
+    jmp short .c
+.kz:
+    xor cl, cl
+.put:
     mov [es:bx + CPV_CLS], cl
     inc bx
     jmp short .k
 .tabs:
-    xor dx, dx                  ; --- the depths among the reachable records:
-    xor bx, bx                  ; DL bit 0 = 8, bit 1 = 15, bit 2 = 16
+    xor dx, dx                  ; --- the depths among the rows: DL bit 0 =
+    xor bx, bx                  ; 8, bit 1 = 15, bit 2 = 16
 .t:
     cmp bl, [es:CPV_NREC]
     jae .tl
-    call cpv_reach
-    jc .tn
-    call cpv_dbit               ; AH = the record's depth bit
+    call cpv_dbit
     or dl, ah
-.tn:
     inc bx
     jmp short .t
 .tl:
     mov di, CPV_TABD            ; the tabs: All, then each depth present
-    mov byte [es:di], 0
-    inc di
-    mov si, cpv_s_tall          ; ...and their labels into cpv_tlab
-    mov bx, cpv_tlab
+    mov al, 7                   ; (All keeps every depth)
+    stosb
+    CSDO_ON                     ; (kern_mega: DS = this image's data)
+    mov si, cpv_s_tall          ; ...and their labels into cpv_tlab: All,
+    mov bx, cpv_tlab            ; then 256, 32,768 and 65,536 in that order
     call .lab
-    mov cx, 3
     mov al, 1
-    mov si, cpv_s_t8
 .td:
-    test dl, al
-    jz .tx
-    push ax
-    call .depth                 ; AH = 8 / 15 / 16 for bit AL
-    mov [es:di], ah
-    pop ax
-    inc di
+    mov cx, bx
     call .lab
-    jmp short .ty
-.tx:
-    push bx
-    mov bx, si                  ; (past a label not used)
-.tz:
-    inc bx
-    cmp byte [cs:bx - 1], 0
-    jne .tz
-    mov si, bx
-    pop bx
+    stosb
+    test dl, al
+    jnz .ty
+    dec di                      ; not offered: no tab, and its label is
+    mov bx, cx                  ; written over by the next
 .ty:
     shl al, 1
-    loop .td
-    CSDO mov byte [CSEG bx], 0  ; the strip's end
-    mov ax, di
-    sub ax, CPV_TABD
-    mov [es:CPV_NTAB], al
+    cmp al, 8
+    jb .td
+    mov byte [CSEG bx], 0       ; the strip's end
+    CSDO_OFF
+    xchg ax, di
+    sub ax, CPV_TABD            ; AL = the tabs
     cmp [es:CPV_FLT], al
     jb .rows
     mov byte [es:CPV_FLT], 0
 .rows:
-    mov di, CPV_ROWS            ; --- the rows: Auto, then the reachable
-    mov byte [es:di], 0FFh      ; records the filter keeps, in the card's
-    inc di                      ; order (SPEC.md 120.10)
+    mov di, CPV_ROWS            ; --- the rows: Auto, then the records the
+    mov al, 0FFh                ; filter keeps, in the card's order (SPEC.md
+    stosb                       ; 120.10)
     mov bl, [es:CPV_FLT]
     xor bh, bh
-    mov dh, [es:bx + CPV_TABD]  ; DH = the depth kept, 0 = all
+    mov dh, [es:bx + CPV_TABD]  ; DH = the depths kept
     xor bx, bx
 .r:
     cmp bl, [es:CPV_NREC]
     jae .rl
-    call cpv_reach
-    jc .rn
-    or dh, dh
-    jz .rt
     call cpv_dbit
-    mov al, ah
-    xor ah, ah
-    push bx
-    mov bl, al
-    call .depthb                ; AL = the record's depth
-    pop bx
-    cmp al, dh
-    jne .rn
-.rt:
-    mov [es:di], bl
-    inc di
+    test ah, dh
+    jz .rn
+    mov al, bl
+    stosb
 .rn:
     inc bx
     jmp short .r
@@ -653,7 +883,7 @@ cpv_build:
     jb .m
     mov word [es:CPV_MSEL], 0
 .m:
-    mov ax, di
+    xchg ax, di
     sub ax, [es:CPV_TB + CPKT_NV]
     jge .tp
     xor ax, ax
@@ -663,154 +893,144 @@ cpv_build:
     mov [es:CPV_TB + CPKT_TOP], ax
 .out:
     ret
-.lab:                           ; CS:SI's label onto CS:BX, both advanced
-    push ax
+.lab:                           ; CS:SI's label onto the image at BX, both
+    push ax                     ; advanced (inside CSDO_ON)
 .lc:
-    mov al, [cs:si]
-    inc si
-    CSDO mov [CSEG bx], al
+    cs lodsb
+    mov [CSEG bx], al
     inc bx
     or al, al
     jnz .lc
     pop ax
     ret
-.depth:                         ; AL = a depth bit -> AH = its bpp
-    push bx
-    mov bl, al
-    call .depthb
-    mov ah, al
-    pop bx
-    ret
-.depthb:                        ; BL = a depth bit -> AL = its bpp
-    mov al, 8
-    shr bl, 1
-    jc .dr
-    mov al, 15
-    shr bl, 1
-    jc .dr
-    mov al, 16
-.dr:
-    ret
 
-; cpv_dbit - record BL's depth as a bit: AH = 1 (8), 2 (15), 4 (16). Keeps
-; the rest
+; cpv_dbit - record BX's depth as a bit (BH = 0): AH = 1 (8), 2 (15), 4 (16),
+; 0 when it is no row (cpv_build's CPV_CLS 0). CL spent; keeps the rest
 cpv_dbit:
-    push bx
-    xor bh, bh
-    mov bl, [es:bx + CPV_CLS]
-    mov ah, 1
-    test bl, VXC_D16
+    mov ah, [es:bx + CPV_CLS]
+    or ah, ah
     jz .r
-    mov ah, 2
-    test bl, 0x20
-    jnz .r
-    mov ah, 4
+    mov cl, 4
+    shr ah, cl                  ; 1000 0 b5 b4: 8 (8 bits), 9 (15), 11 (16)
+    and ah, 3
+    inc ah
 .r:
-    pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; cpv_reach - is record BL the one its class reaches (VESA.DRV's vx_find: the
-;             deepest of the class, ties to the first - SPEC.md 135.9.1)?
-; out: CF = 0 yes, CF = 1 no (or no class). Keeps every register
-; -----------------------------------------------------------------------------
-cpv_reach:
-    push ax
-    push bx
-    push cx
-    xor bh, bh
-    mov ah, [es:bx + CPV_CLS]   ; AH = its class and 15bpp bit
-    test ah, VXC_SET
-    jz .no
-    xor cx, cx                  ; CL = the other record
-.o:
-    cmp cl, [es:CPV_NREC]
-    jae .yes
-    cmp cl, bl
-    je .on
-    push bx
-    mov bl, cl
-    mov al, [es:bx + CPV_CLS]
-    pop bx
-    mov ch, al
-    xor ch, ah
-    test ch, 0xDF
-    jnz .on                     ; another class
-    cmp al, ah
-    jb .no                      ; deeper (its 15bpp bit clear, ours set)
-    ja .on
-    cmp cl, bl
-    jb .no                      ; as deep, and first
-.on:
-    inc cl
-    jmp short .o
-.yes:
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; cpv_rowof - the row showing record AL (FFh: none, so Auto's row 0)
-; out: AX = the row. Keeps the rest
-cpv_rowof:
-    push bx
-    push cx
-    mov cx, [es:CPV_TB + CPKT_N]
-    xor bx, bx
-.r:
-    cmp bx, cx
-    jae .none
-    cmp al, [es:bx + CPV_ROWS]
-    je .hit
-    inc bx
-    jmp short .r
-.none:
-    xor bx, bx
-.hit:
-    xchg ax, bx
-    pop cx
-    pop bx
     ret
 
 ; cpv_slot - adapter slot AL -> AL = the kind in it, CF = 1 none. Keeps the
-; rest. The order is VGA, VESA, EGA, Hercules, CGA, absent adapters skipped
+; rest but AH. The order is VGA, VESA, EGA, Hercules, CGA, absent adapters
+; skipped
 cpv_slot:
-    push bx
     push cx
     push si
-    mov ah, al                  ; AH = the slot wanted
+    mov cl, al                  ; CL = the slots still to pass
     mov si, cpv_aord
-    mov bx, 5
 .n:
-    mov al, [cs:si]
-    inc si
-    mov cl, al
-    mov ch, 1
-    shl ch, cl
-    test [vid_avail], ch
+    cs lodsw                    ; AL = a kind, AH = its [vid_avail] bit
+    test [vid_avail], ah
     jz .s
-    or ah, ah
-    jz .hit
-    dec ah
+    dec cl
+    js .out                     ; (CF = 0 off the `test`)
 .s:
-    dec bx
-    jnz .n
+    cmp si, cpv_aord + 10
+    jb .n
     stc
-.hit:                           ; (CF = 0 off the `or`)
+.out:
     pop si
     pop cx
-    pop bx
     ret
-cpv_aord:   db VID_VGA, VID_VESA, VID_EGA, VID_HERC, VID_CGA
+%macro CPVKIND 1                ; a kind, and its bit in [vid_avail]
+    db %1, 1 << %1
+%endmacro
+cpv_aord:   CPVKIND VID_VGA
+            CPVKIND VID_VESA
+            CPVKIND VID_EGA
+            CPVKIND VID_HERC
+            CPVKIND VID_CGA
 
 ; =============================================================================
 ; Text: the 12-row ROW every line on the page is (SPEC.md 135.9.2)
 ; =============================================================================
+
+; cpv_rrow - a black-on-white ROW from x CX to the page's right (cpv_r), at
+; DX, of the text at ES:CPW_W_STR. Every register kept but DI and AX
+cpv_rrow:
+    push cx
+    call cpv_r
+    mov di, cx
+    pop cx
+    sub di, cx
+    mov ax, (CWHITE << 8) | CBLACK
+    jmp cpv_row
+
+; -----------------------------------------------------------------------------
+; cpv_ctls - the check boxes' glyphs and labels, the buttons, and (AL = 1, a
+; full paint) the ground between them; cpv_ctls0 is the same with AL = 0
+; -----------------------------------------------------------------------------
+cpv_ctls0:
+    xor al, al
+cpv_ctls:
+    push ax
+    call cpv_c0
+    xchg ax, dx                 ; DX = the controls' top
+    mov cx, CPV_L + 12
+    mov di, CPV_CR - CPV_L - 11
+    mov si, cpv_s_start         ; ...and its label, then Force Color's
+    mov al, CPV_ISTART
+    call .lab
+    add dx, 14
+    mov al, CPV_IFC
+    call .lab
+    pop ax
+    or al, al
+    jz .ctl
+    call cpv_wh                 ; --- the ground between them (full)
+    mov ax, CPV_L
+    mov cx, CPV_CR
+    mov bx, dx                  ; (DX = C0 + 14)
+    sub bx, 2
+    dec dx
+    call cpw_fill               ; rows C0+12..C0+13
+    add bx, 14
+    add dx, 18
+    call cpw_fill               ; rows C0+26..C0+31
+    add bx, 6
+    add dx, 18                  ; rows C0+32..C0+49, round the buttons
+    mov ax, CPV_L + 64
+    mov cx, CPV_L + 67
+    call cpw_fill               ; between the buttons
+    mov ax, CPV_L + 132
+    mov cx, CPV_CR
+    call cpw_fill               ; right of them
+.ctl:
+    xor bx, bx
+.c:
+    mov ax, bx                  ; every control's own picture, up
+    call cpv_ctl1
+    inc bx
+    cmp bx, CPV_IKEEP
+    jb .c
+    ret
+.lab:                           ; control AL's label (SI) as a ROW at DX,
+    call cpv_ctlok              ; greyed as the control is; SI on past it
+    mov ax, (CWHITE << 8) | CBLACK
+    jnc .l
+    mov al, CDGRAY              ; greyed: the label in the grey pen (47 r2)
+.l:                             ; ...and on into cpv_srow
+
+; cpv_srow - an image string (CS:SI) as a ROW: cpv_row's other registers. SI
+; ends past its NUL. Every other register kept
+cpv_srow:
+    push ax
+    push di
+    mov di, CPW_W_STR
+.c:
+    cs lodsb
+    stosb
+    or al, al
+    jnz .c
+    pop di
+    pop ax                      ; ...and on into cpv_row
 
 ; -----------------------------------------------------------------------------
 ; cpv_row - one ROW: two rows of paper, the text at ES:CPW_W_STR as one opaque
@@ -828,31 +1048,9 @@ cpv_row:
     push di
     push bp
     mov bp, ax                  ; BP = ink : paper
+    mov [gfx_color], ah
     mov si, di                  ; SI = the width
     and di, 0xFFF8              ; DI = the cells' px
-    push di
-    shr di, 1
-    shr di, 1
-    shr di, 1
-    add di, CPW_W_STR           ; DI -> where the run ends
-    mov bx, CPW_W_STR
-.f:
-    cmp bx, di
-    jae .cut
-    cmp byte [es:bx], 0
-    je .pad
-    inc bx
-    jmp short .f
-.pad:
-    mov byte [es:bx], ' '
-    inc bx
-    cmp bx, di
-    jb .pad
-.cut:
-    mov byte [es:bx], 0
-    pop di
-    mov ax, bp
-    mov [gfx_color], ah
     mov ax, cx
     mov bx, dx
     add cx, si
@@ -870,7 +1068,22 @@ cpv_row:
     call cpw_fill               ; ...the columns past the cells
 .run:
     sub ax, di
-    mov cx, ax
+    push ax                     ; (the run's x)
+    mov cx, di
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1                   ; CX = the cells
+    mov di, CPW_W_STR
+    xor al, al
+    repne scasb                 ; the text's NUL within the cells?
+    jne .cut                    ; no: cut at the last cell
+    dec di
+    inc cx                      ; yes: spaces from it to the last cell
+    mov al, ' '
+    rep stosb
+.cut:
+    mov byte [es:di], 0
+    pop cx
     mov dx, bx
     mov si, CPW_W_STR
     mov ax, bp
@@ -890,27 +1103,17 @@ cpv_wh:
     mov byte [gfx_color], CWHITE
     ret
 
-; cpv_srow - an image string (CS:SI) as a ROW: cpv_row's other registers.
-; Keeps all
-cpv_srow:
-    push di
-    mov di, CPW_W_STR
-    call cpw_strcat
-    pop di
-    jmp cpv_row
-
 ; cpv_new - DI = CPW_W_STR with a space in it (every line's leading cell)
 cpv_new:
     mov di, CPW_W_STR
-    mov byte [es:di], ' '
+    mov word [es:di], ' '       ; ' ' and its NUL
     inc di
-    mov byte [es:di], 0
     ret
 
 ; cpv_col - pad ES:DI with spaces to column AL of CPW_W_STR. Keeps AX
 cpv_col:
     push ax
-    xor ah, ah
+    cbw                         ; (a column under 128)
     add ax, CPW_W_STR
 .p:
     cmp di, ax
@@ -932,23 +1135,19 @@ cpv_wxh:
     pop ax
     jmp cpw_utoa
 
-; cpv_cols - CL = a depth (1, 4, 8, 15, 16) -> SI = its colours. Keeps the rest
+; cpv_cols - CL = a depth (1, 4, 8, 15, 16) -> SI = its colours. Keeps the
+; rest. The five depths >> 2 are 0..4, the table's index; past 16 is 16's
 cpv_cols:
-    mov si, cpv_s_c2
-    cmp cl, 1
-    je .r
-    mov si, cpv_s_c16
-    cmp cl, 4
-    je .r
-    mov si, cpv_s_c256
-    cmp cl, 8
-    je .r
-    mov si, cpv_s_c32k
-    cmp cl, 15
-    je .r
-    mov si, cpv_s_c64k
-.r:
+    mov si, 16
+    cmp cl, 16
+    ja .t
+    mov si, cx
+.t:
+    and si, 0x1C
+    shr si, 1
+    mov si, [cs:si + cpv_ctabc]
     ret
+cpv_ctabc:  dw cpv_s_c2, cpv_s_c16, cpv_s_c256, cpv_s_c32k, cpv_s_c64k
 
 ; -----------------------------------------------------------------------------
 ; cpv_geo - a mode's geometry: AL = a kind; BL = a record for VESA (FFh: Auto's)
@@ -962,9 +1161,7 @@ cpv_geo:
     mov cl, bl
     cmp cl, 0FFh
     jne .rec
-    mov cl, [es:CPV_REC]
-    cmp cl, 0FFh
-    je .live
+    mov cl, [es:CPV_REC]        ; (FFh none: past NREC, so the live one)
 .rec:
     cmp cl, [es:CPV_NREC]
     jae .live
@@ -990,21 +1187,18 @@ cpv_geo:
     push bx
     mov bl, al
     xor bh, bh
+    mov cl, [cs:bx + cpv_pdep]  ; VGA and EGA 16 colours, the mono two
     shl bx, 1
     shl bx, 1
     mov ax, [cs:bx + cpv_ptab]
     mov dx, [cs:bx + cpv_ptab + 2]
-    mov cl, 4                   ; VGA and EGA: 16 colours
-    cmp bl, VID_HERC * 4
-    je .mono
-    cmp bl, VID_CGA * 4
-    jne .p
-.mono:
-    mov cl, 1
-.p:
     pop bx
     ret
 cpv_ptab:   dw 640, 480,  720, 348,  640, 200,  640, 350    ; VGA HERC CGA EGA
+cpv_pdep:   db 4, 1, 1, 4
+%if VID_VGA != 0 || VID_HERC != 1 || VID_CGA != 2 || VID_EGA != 3
+  %error "cpw_vid: cpv_ptab and cpv_pdep are in VID_* order"
+%endif
 
 ; cpv_name - "<adapter>" for kind AL onto ES:DI. Keeps the rest
 cpv_name:
@@ -1056,10 +1250,15 @@ cpv_c0:
     sub ax, 54
     ret
 
-; cpv_r - CX = the page's right (the content width - 5). Keeps the rest
+; cpv_r - CX = the page's right (the content width - 5); cpv_rx - CX = the
+; content's last column. Keep the rest
 cpv_r:
+    call cpv_rx
+    sub cx, 4
+    ret
+cpv_rx:
     mov cx, [es:CPW_W_CW]
-    sub cx, 5
+    dec cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1070,8 +1269,7 @@ cpv_ground:
     call cpv_wh
     mov ax, CPW_PX              ; above everything
     mov bx, CPW_BY
-    mov cx, [es:CPW_W_CW]
-    dec cx
+    call cpv_rx
     mov dx, CPV_AY - 1
     call cpw_fill
     call cpv_sty2               ; the right margin, to the status rule
@@ -1079,8 +1277,7 @@ cpv_ground:
     call cpv_r
     mov ax, cx
     inc ax
-    mov cx, [es:CPW_W_CW]
-    dec cx
+    call cpv_rx
     mov bx, CPV_AY
     call cpw_fill
     mov ax, CPW_PX              ; the left margin
@@ -1146,27 +1343,21 @@ cpv_adap:
 .arr:
     mov di, 64
     mov si, cpv_s_desk
-    call cpv_srow               ; 'Desktop'
-    xor bl, bl                  ; BL = the radio
+    call cpv_srow               ; 'Desktop' - and SI on to the radios'
+    xor bx, bx                  ; labels, one after another; BX = the radio
 .ar:
-    mov al, bl
-    add al, CPV_IARR
-    xor ah, ah
-    call cpv_ctl1               ; its glyph
+    lea ax, [bx + CPV_IARR]     ; its glyph, up
+    call cpv_ctl1
     mov al, bl                  ; ...and its label, past it
     call cpv_arect              ; AX/CX = its x span
     add ax, 12
     mov di, cx
     sub di, ax
     inc di
-    mov cx, ax
-    xor bh, bh
-    mov si, bx
-    shl si, 1
-    mov si, [cs:si + cpv_arnam]
+    xchg ax, cx
     mov ax, (CWHITE << 8) | CBLACK
     call cpv_srow
-    inc bl
+    inc bx
     cmp bl, 3
     jb .ar
     call cpv_wh                 ; the two columns past Below
@@ -1175,7 +1366,6 @@ cpv_adap:
     mov bx, dx
     add dx, CPV_RH - 1
     jmp cpw_fill
-cpv_arnam:  dw cpv_s_sing, cpv_s_rgt, cpv_s_blw
 
 ; cpv_arect - radio AL's x span: AX = its left, CX = its right (the glyph and
 ; its label). Keeps the rest
@@ -1262,8 +1452,7 @@ cpv_prev:
     mov si, cpv_s_gpv
     call cpk_group
     mov al, [es:CPV_ASEL]       ; --- the chosen mode
-    mov bx, [es:CPV_MSEL]
-    mov bl, [es:bx + CPV_ROWS]
+    call cpv_msrec
     cmp al, VID_VESA
     je .g
     mov bl, 0FFh
@@ -1277,15 +1466,15 @@ cpv_prev:
     mov ax, 4
     mov dx, 3
 .have:
-    mov [es:CPV_GX], ax
-    mov [es:CPV_GY], dx
-    mov [es:CPV_GD], cl
+    push ax                     ; X and Y, for the picture
+    push dx
+    push cx                     ; ...and the depth, for the second line
     call cpv_new                ; --- ' WxH'
     call cpv_wxh
     mov dx, CPV_ZT
     call .line
     call cpv_new                ; ' <n> colours'
-    mov cl, [es:CPV_GD]
+    pop cx
     call cpv_cols
     call cpw_strcat
     mov si, cpv_s_colours
@@ -1302,21 +1491,23 @@ cpv_prev:
     ; --- the screen, SW x SH in a 64 x 40 box at the mode's aspect: 40X >=
     ; 64Y is SW 64 and SH 64Y/X, else SH 40 and SW 40X/Y (X <= 1024 and Y <=
     ; 768, so 40X and 64Y fit a word)
+    pop di                      ; DI = Y
+    pop si                      ; SI = X
     mov ax, 40
-    mul word [es:CPV_GX]
+    mul si
     xchg ax, cx                 ; CX = 40X
     mov ax, 64
-    mul word [es:CPV_GY]        ; AX = 64Y
+    mul di                      ; AX = 64Y
     cmp cx, ax
     jb .tall
     xor dx, dx
-    div word [es:CPV_GX]        ; SH = 64Y / X
+    div si                      ; SH = 64Y / X
     mov bx, 64
     jmp short .box
 .tall:
     xchg ax, cx
     xor dx, dx
-    div word [es:CPV_GY]        ; SW = 40X / Y
+    div di                      ; SW = 40X / Y
     xchg ax, bx
     mov ax, 40
 .box:                           ; BX = SW, AX = SH
@@ -1377,12 +1568,7 @@ cpv_prev:
     jmp cpw_fill
 .line:                          ; the composed line beside the zone, at DX
     mov cx, CPV_ZR + 1
-    call cpv_r
-    mov di, cx
-    sub di, CPV_ZR + 1
-    mov cx, CPV_ZR + 1
-    mov ax, (CWHITE << 8) | CBLACK
-    jmp cpv_row
+    jmp cpv_rrow
 
 ; -----------------------------------------------------------------------------
 ; cpv_modes - the Modes group: the VESA adapter's filter, header and table, or
@@ -1407,8 +1593,8 @@ cpv_modes:
     mov bl, 0FFh
     call cpv_mode
     mov dx, CPV_BY + CPK_BANDH
-    call .w
-    call cpv_row
+    mov cx, CPV_L + 1
+    call cpv_rrow               ; (which keeps CX for the second)
     mov di, CPW_W_STR
     mov byte [es:di], 0
     test byte [vid_avail], VID_A_VESA
@@ -1423,16 +1609,13 @@ cpv_modes:
     call cpw_strcat
 .l2:
     add dx, CPV_RH
-    call .w
-    call cpv_row
+    call cpv_rrow
     add dx, CPV_RH
     mov bx, dx
     jmp short .under
 .vesa:
-    call .w
-    push di
     call cpv_wh
-    mov ax, cx
+    mov ax, CPV_L + 1
     call cpv_r
     dec cx
     mov bx, CPV_BY + CPK_BANDH
@@ -1442,23 +1625,31 @@ cpv_modes:
     mov dx, CPV_HY - 1
     call cpw_fill               ; between it and the header
     call cpv_tabs
-    pop di
+    call cpv_r
+    mov di, cx
+    sub di, CPV_L + 1           ; DI = the rows' width
     mov cx, CPV_L + 1
     mov dx, CPV_HY
     mov si, cpv_s_head
     mov ax, (CLGRAY << 8) | CBLACK
     call cpv_srow               ; the header line
-    mov [es:CPV_TB + CPKT_X], cx    ; --- the table
-    mov word [es:CPV_TB + CPKT_Y], CPV_RY
-    mov [es:CPV_TB + CPKT_W], di
-    mov word [es:CPV_TB + CPKT_RH], CPV_RH
+    push di                     ; --- the table: its block's X, Y, W, RH, NV
+    mov di, CPV_TB + CPKT_X
+    xchg ax, cx
+    stosw
+    mov ax, CPV_RY
+    stosw
+    pop ax
+    stosw
+    mov ax, CPV_RH
+    stosw
     mov ax, bp
     sub ax, CPV_RY + 1
-    xor dx, dx
-    mov bx, CPV_RH
-    div bx
-    mov [es:CPV_TB + CPKT_NV], ax
-    mul bx
+    mov bl, CPV_RH
+    div bl
+    xor ah, ah                  ; AX = the rows that fit
+    stosw
+    mul bl
     add ax, CPV_RY
     xchg ax, bx                 ; BX = the first row under it
     mov word [es:CPV_TB + CPKT_ROW], cpv_trow
@@ -1475,16 +1666,12 @@ cpv_modes:
     dec dx
     cmp bx, dx
     jg .r
-    call cpw_fill
+    jmp cpw_fill
 .r:
     ret
-.w:                             ; DI = a row's width (the group's inside),
-    call cpv_r                  ; CX = its left, AX = black on white
-    mov di, cx
-    sub di, CPV_L + 1
-    mov cx, CPV_L + 1
-    mov ax, (CWHITE << 8) | CBLACK
-    ret
+%if CPKT_Y != CPKT_X + 2 || CPKT_W != CPKT_X + 4 || CPKT_RH != CPKT_X + 6 || CPKT_NV != CPKT_X + 8
+  %error "cpw_vid: cpv_modes stores the table block's first five words as one run"
+%endif
 
 ; cpv_tabs - the filter strip and its row's ground either side
 cpv_tabs:
@@ -1506,7 +1693,7 @@ cpv_tabs:
     call cpv_wh
     cmp ax, cx
     jg .r
-    call cpw_fill
+    jmp cpw_fill
 .r:
     ret
 
@@ -1527,18 +1714,17 @@ cpv_trow:
     push cx
     push dx
     push di
-    mov si, ax
-    mov al, [es:si + CPV_ROWS]
+    xchg ax, bx
+    mov bl, [es:bx + CPV_ROWS]  ; BX = its record (FFh Auto; BH = 0)
     call cpv_rtext
     pop di
     pop dx
     pop cx
     pop bx
-    mov ax, (CWHITE << 8) | CBLACK
-    cmp bl, CBLUE
-    jne .p
-    mov ax, (CBLUE << 8) | CWHITE
-.p:
+    mov ah, bl                  ; the ground is the paper; the ink is white
+    cmp bl, CBLUE + 1           ; on the blue bar, else black
+    sbb al, al
+    and al, CWHITE
     call cpv_row
     pop bp
     pop di
@@ -1548,6 +1734,9 @@ cpv_trow:
     pop bx
     pop ax
     ret
+%if CBLUE != 1 || CWHITE != 15 || CBLACK != 0
+  %error "cpw_vid: cpv_trow forms the ink from the ground"
+%endif
 
 ; cpv_trowat - row AX of the table drawn where it is, if it is in view.
 ; Keeps all
@@ -1562,14 +1751,14 @@ cpv_trowat:
     jb .r
     cmp ax, [es:CPV_TB + CPKT_NV]
     jae .r
-    mov dx, CPV_RH
-    mul dx
-    add ax, [es:CPV_TB + CPKT_Y]
+    mov dl, CPV_RH
+    mul dl
+    add ax, CPV_RY              ; (CPKT_Y, cpv_modes')
     xchg ax, dx                 ; DX = its top
-    mov cx, [es:CPV_TB + CPKT_X]
+    mov cx, CPV_L + 1           ; (CPKT_X, cpv_modes')
     mov di, [es:CPV_TB + CPKT_W]
     sub di, CPK_SBW
-    mov ax, bx
+    xchg ax, bx
     mov bl, CWHITE
     cmp ax, [es:CPV_MSEL]
     jne .p
@@ -1585,11 +1774,10 @@ cpv_trowat:
     ret
 
 ; -----------------------------------------------------------------------------
-; cpv_rtext - a table row's text into CPW_W_STR: AL = its record, FFh Auto.
-;             Columns at cells 1, 12, 20 and 28. Spends AX..DI
+; cpv_rtext - a table row's text into CPW_W_STR: BL = its record, FFh Auto;
+;             BH = 0. Columns at cells 1, 12, 20 and 28. Spends AX..DI
 ; -----------------------------------------------------------------------------
 cpv_rtext:
-    mov bl, al
     call cpv_new
     cmp bl, 0FFh
     jne .rec
@@ -1619,13 +1807,11 @@ cpv_rtext:
     call cpv_col
     pop ax
     call cpw_utoa
-    mov byte [es:di], 'K'
-    inc di
-    mov byte [es:di], 0
+    mov si, cpv_s_kb
+    call cpw_strcat
 .marks:
     mov al, 28
     call cpv_col
-    xor dl, dl                  ; DL = 1 once a mark is down
     mov al, [drv_cfg + CFG_VE]
     cmp bl, 0FFh
     jne .m1
@@ -1646,23 +1832,19 @@ cpv_rtext:
 .m3:
     or al, al
     jz .r
-    push bx
-    xor bh, bh
     mov ah, [es:bx + CPV_CLS]
-    pop bx
     and ah, 0xDF
     cmp ah, al
     jne .r
     mov si, cpv_s_mstart
-.mark:
-    or dl, dl
-    jz .mk
+.mark:                          ; a mark, after a comma if one is down
+    cmp di, CPW_W_STR + 28
+    je .mk
     push si
     mov si, cpv_s_comma
     call cpw_strcat
     pop si
 .mk:
-    mov dl, 1
     jmp cpw_strcat
 .r:
     ret
@@ -1671,163 +1853,6 @@ cpv_rtext:
 ; The controls (SPEC.md 135.9.1): two check boxes and two buttons under the
 ; table, Keep and Revert in their group, the desktop line's three radios
 ; =============================================================================
-
-; -----------------------------------------------------------------------------
-; cpv_ctls - the check boxes' glyphs and labels, the buttons, and (AL = 1, a
-; full paint) the ground between them
-; -----------------------------------------------------------------------------
-cpv_ctls:
-    push ax
-    call cpv_c0
-    mov dx, ax                  ; DX = the controls' top
-    mov cx, CPV_L + 12
-    mov di, CPV_CR - CPV_L - 11
-    mov al, CPV_ISTART
-    call cpv_ctlok
-    mov ax, (CWHITE << 8) | CBLACK
-    jnc .s
-    mov al, CDGRAY              ; greyed: the label in the grey pen (47 r2)
-.s:
-    mov si, cpv_s_start
-    call cpv_srow
-    add dx, 14
-    push ax
-    mov al, CPV_IFC
-    call cpv_ctlok
-    pop ax
-    mov al, CBLACK
-    jnc .f
-    mov al, CDGRAY
-.f:
-    mov si, cpv_s_fc
-    call cpv_srow
-    pop ax
-    or al, al
-    jz .ctl
-    call cpv_wh                 ; --- the ground between them (full)
-    mov ax, CPV_L
-    mov cx, CPV_CR
-    mov bx, dx                  ; (DX = C0 + 14)
-    sub bx, 2
-    dec dx
-    call cpw_fill               ; rows C0+12..C0+13
-    add bx, 14
-    add dx, 18
-    call cpw_fill               ; rows C0+26..C0+31
-    add bx, 6
-    add dx, 18                  ; rows C0+32..C0+49, round the buttons
-    mov ax, CPV_L + 64
-    mov cx, CPV_L + 67
-    call cpw_fill               ; between the buttons
-    mov ax, CPV_L + 132
-    mov cx, CPV_CR
-    call cpw_fill               ; right of them
-.ctl:
-    xor bx, bx
-.c:
-    mov ax, bx                  ; every control's own picture, up
-    call cpv_ctl1
-    inc bx
-    cmp bx, CPV_IKEEP
-    jb .c
-    ret
-
-; -----------------------------------------------------------------------------
-; cpv_ctl1 - control AL drawn: AH = 1 pressed. Keeps all
-; A check box and a radio through CPG_GLYPH (os88ui_glyph is CTRL.DRV's), a
-; button through cpk_button; greyed as cpv_ctlok says (SPEC.md 47 rule 1)
-; -----------------------------------------------------------------------------
-cpv_ctl1:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov bp, ax                  ; BP = the control and its press
-    call cpv_ctlok
-    sbb di, di                  ; DI = FFFFh greyed
-    mov ax, bp
-    call cpv_rect               ; AX/BX/CX/DX = its rect
-    push ax
-    mov ax, bp
-    cmp al, CPV_IAPPLY
-    jb .check
-    cmp al, CPV_IARR
-    jae .radio
-    and di, OS88UI_DIS          ; --- a button
-    or ah, ah
-    jz .b
-    or di, OS88UI_DOWN
-.b:
-    xor ah, ah
-    sub al, CPV_IAPPLY
-    mov si, ax
-    shl si, 1
-    mov si, [cs:si + cpv_blab]
-    pop ax
-    call cpk_button
-    jmp short .out
-.radio:
-    sub al, CPV_IARR
-    mov ah, al
-    call cpv_arrnow
-    cmp al, ah
-    mov al, OS88UI_GRADIO
-    jmp short .on
-.check:
-    cmp al, CPV_IFC
-    je .fc
-    push bx
-    call cpv_sclass
-    pop bx
-    test byte [es:CPV_LIVE], 2
-    mov al, OS88UI_GCHECK
-    jmp short .nz
-.fc:
-    test byte [drv_cfg + CFG_VGC], CFG_VGCB
-    mov al, OS88UI_GCHECK
-.nz:
-    mov si, cpd_ck0             ; the Drivers page's tick box (QA-8), up and
-    jz .z0                      ; live; greyed or pressed is the gate's glyph
-    mov si, cpd_ck1
-    or al, OS88UI_GON
-.z0:
-    test di, di
-    jnz .g
-    test bp, 0FF00h
-    jnz .g
-    pop ax                      ; its left (content); BX is still its top
-    call cpd_blit12
-    jmp short .out
-.on:
-    jne .g
-    or al, OS88UI_GON
-.g:
-    mov cx, bp
-    or ch, ch
-    jz .gu
-    or al, OS88UI_GDOWN
-.gu:
-    pop cx                      ; CX/DX = its top left, SCREEN
-    add cx, [es:CPW_W_OX]
-    mov dx, bx
-    add dx, [es:CPW_W_OY]
-    mov bx, di
-    and bl, 1                   ; BL = 1 greyed
-    mov ah, CPG_GLYPH
-    call cpw_gate
-.out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-cpv_blab:   dw cpv_s_apply, cpv_s_test, cpv_s_keep, cpv_s_revert
 
 ; -----------------------------------------------------------------------------
 ; cpv_ctlok - is control AL live? CF = 1 greyed. Keeps every register
@@ -1843,20 +1868,16 @@ cpv_ctlok:
     jb .switch
     cmp al, CPV_IARR
     jb .yes                     ; Keep and Revert
-    sub al, CPV_IARR            ; a radio: not the one on
-    mov ah, al
-    call cpv_arrnow
-    cmp al, ah
+    call cpv_aron               ; a radio: not the one on
     je .no
     jmp short .yes
 .start:
     cmp byte [es:CPV_ASEL], VID_VESA
     jne .no                     ; not the VESA adapter: no class to keep
-    call cpv_sclass
-    cmp bl, 0FFh
+    call cpv_sclass             ; ZF = 1 ticked
     jne .yes
-    test byte [es:CPV_LIVE], 2
-    jnz .no                     ; Auto, ticked: there is nothing to un-tick to
+    cmp bl, 0FFh
+    je .no                      ; Auto, ticked: there is nothing to un-tick to
     jmp short .yes
 .fc:
     test byte [vid_avail], VID_A_VGA
@@ -1870,20 +1891,15 @@ cpv_ctlok:
     jne .yes
     cmp al, VID_VESA
     jne .no
-    mov bx, [es:CPV_MSEL]
-    mov al, [es:bx + CPV_ROWS]
-    cmp al, 0FFh
+    call cpv_msrec
+    cmp bl, 0FFh
     jne .rec
-    mov al, [es:CPV_REC]        ; Auto is the recommended record
+    mov bl, [es:CPV_REC]        ; Auto is the recommended record
 .rec:
-    cmp al, [es:CPV_RUN]
-    jne .yes
-.no:
-    stc
-    jmp short .out
+    cmp bl, [es:CPV_RUN]
+    je .no
 .yes:
-    clc
-.out:
+    CLC_OR_STC .no
     pop cx
     pop bx
     pop ax
@@ -1894,7 +1910,6 @@ cpv_ctlok:
 ; -----------------------------------------------------------------------------
 cpv_rect:
     push si
-    push di
     mov si, ax
     and si, 0x00FF              ; SI = the control
     cmp si, CPV_IARR
@@ -1921,7 +1936,8 @@ cpv_rect:
     mov dl, [cs:si + cpv_ctab + 1]
     add bx, dx
     pop dx
-    jmp short .out
+    pop si
+    ret
 .arr:
     mov ax, si
     sub al, CPV_IARR
@@ -1929,8 +1945,6 @@ cpv_rect:
     mov bx, CPV_AY + CPK_BANDH + 4 * CPV_RH
     mov dx, bx
     add dx, CPV_RH - 1
-.out:
-    pop di
     pop si
     ret
 ; each control's rect from its base, in bytes: left, top, right, bottom
@@ -1957,6 +1971,9 @@ cpv_hit:
     mov si, cx
     mov di, dx
     xor bp, bp
+    jmp short .n
+.skip:
+    inc bp
 .n:
     cmp bp, CPV_NCTL
     jae .no
@@ -1986,14 +2003,7 @@ cpv_hit:
     cmp di, dx
     jg .skip
     mov ax, bp
-    clc
-    jmp short .out
-.skip:
-    inc bp
-    jmp short .n
-.no:
-    stc
-.out:
+    CLC_OR_STC .no
     pop bp
     pop di
     pop si
@@ -2005,7 +2015,7 @@ cpv_hit:
 ; cpv_kpos - the Keep group's place: AX/BX = left/top, CX = right. Under the
 ; table in the face; at (4, 4) in the small state (SPEC.md 135.9.3). Keeps DX
 cpv_kpos:
-    call cpv_big
+    call cpw_big
     jb .small
     call cpv_c0
     xchg ax, bx
@@ -2016,156 +2026,6 @@ cpv_kpos:
     mov bx, ax
     mov cx, 4 + 263
     ret
-
-; =============================================================================
-; The right group: Running mode, or Keep this mode? during a test
-; =============================================================================
-cpv_rbox:
-    call cpv_testing
-    jnc cpv_kbox
-    call cpv_c0                 ; --- Running mode
-    mov bx, ax
-    mov dx, ax
-    add dx, 49
-    mov ax, CPV_IX
-    call cpv_r
-    mov si, cpv_s_grun
-    call cpk_group
-    mov bp, bx                  ; BP = its top
-    call cpv_new                ; the running adapter and mode
-    mov al, [vid_kind]
-    mov bl, [es:CPV_RUN]
-    call cpv_mode
-    call .line
-    call cpv_new                ; the card
-    mov si, cpv_s_novx
-    test byte [vid_avail], VID_A_VESA
-    jnz .vx
-%ifdef VID_EXT                  ; NOVIDEXT: no VESA.DRV row, so never loaded
-    cmp word [vesa_row + DRVR_SEG], 0
-    je .c
-    mov si, cpv_s_novl          ; loaded at run time: it attaches at boot
-%endif
-    jmp short .c
-.vx:
-    mov si, cpv_s_nolist
-    cmp byte [es:CPV_NREC], 0
-    je .c
-    mov si, cpv_s_vbe           ; ' VBE M.m, <mem> video memory'
-    call cpw_strcat
-    push di
-    mov cl, 0FFh
-    call cpv_info               ; AX = the version, DX = 64KB units
-    pop di
-    push dx
-    push ax
-    mov al, ah
-    xor ah, ah
-    call cpw_utoa
-    mov byte [es:di], '.'
-    inc di
-    pop ax
-    xor ah, ah
-    call cpw_utoa
-    mov si, cpv_s_comma
-    call cpw_strcat
-    pop ax
-    mov si, cpv_s_mb
-    cmp ax, 16
-    jb .kb
-    mov cl, 4
-    shr ax, cl
-    jmp short .mem
-.kb:
-    mov cl, 6
-    shl ax, cl
-    mov si, cpv_s_kb
-.mem:
-    call cpw_utoa
-    call cpw_strcat
-    mov si, cpv_s_vm
-.c:
-    call cpw_strcat
-    call .line
-    call cpv_wh                 ; the group's last 13 rows
-    mov ax, CPV_IX + 1
-    call cpv_r
-    dec cx
-    mov bx, bp
-    add bx, CPV_RH
-    mov dx, bx
-    add dx, CPV_RH
-    jmp cpw_fill
-.line:                          ; the composed line, the next of three
-    add bp, CPV_RH
-    call cpv_r
-    mov di, cx
-    sub di, CPV_IX + 1
-    mov cx, CPV_IX + 1
-    mov dx, bp
-    mov ax, (CWHITE << 8) | CBLACK
-    jmp cpv_row
-
-; -----------------------------------------------------------------------------
-; cpv_kbox - Keep this mode?: the countdown, Keep and Revert, at cpv_kpos
-; -----------------------------------------------------------------------------
-cpv_kbox:
-    call cpv_kpos               ; AX/BX = left/top, CX = right
-    push ax                     ; --- its title: white on blue, one ROW - the
-    push cx                     ; mockup's band, and on a 1bpp desktop (the
-    mov di, cx                  ; small state after a test of a Hercules or a
-    sub di, ax                  ; CGA) blue is black and the words stay
-    inc di                      ; white, where the kit's grey band would set
-    mov cx, ax                  ; black words on black
-    mov dx, bx
-    mov si, cpv_s_gkeep
-    mov ax, (CBLUE << 8) | CWHITE
-    call cpv_srow
-    pop cx
-    pop ax
-    mov byte [gfx_color], CBLACK    ; --- its frame: left, right, bottom
-    add bx, CPK_BANDH
-    mov dx, bx
-    add dx, 49 - CPK_BANDH
-    push cx
-    mov cx, ax
-    call cpw_fill
-    pop cx
-    push ax
-    mov ax, cx
-    call cpw_fill
-    pop ax
-    mov bx, dx
-    call cpw_fill
-    sub bx, 49
-    call cpv_kline
-    call cpv_wh                 ; --- the ground round the buttons
-    inc ax
-    dec cx
-    add bx, 24
-    mov dx, bx
-    inc dx
-    call cpw_fill               ; under the line
-    push cx
-    add bx, 2
-    add dx, 18
-    mov cx, ax
-    add cx, 4
-    call cpw_fill               ; left of Keep
-    add ax, 69
-    add cx, 68
-    call cpw_fill               ; between Keep and Revert
-    add ax, 68
-    pop cx
-    call cpw_fill               ; right of Revert
-    sub ax, 137
-    add bx, 18
-    add dx, 5
-    call cpw_fill               ; under them
-    mov ax, CPV_IKEEP
-    call cpv_ctl1
-    inc ax
-    jmp cpv_ctl1
 
 ; cpv_kline - ' Reverting in N seconds.' at the Keep group's first line
 cpv_kline:
@@ -2182,7 +2042,7 @@ cpv_kline:
     mov si, cpv_s_rev1
     call cpw_strcat
     mov al, [es:CPV_LEFT]
-    xor ah, ah
+    cbw                         ; (15 at the most)
     call cpw_utoa
     mov si, cpv_s_rev2
     call cpw_strcat
@@ -2250,6 +2110,13 @@ cpv_s_vm:       db ' video memory', 0
 cpv_s_kb:       db 'K', 0
 cpv_s_rev1:     db 'Reverting in ', 0
 cpv_s_rev2:     db ' seconds.', 0
+; (cpv_adap and cpv_ctls walk their labels as runs: SI on past each NUL)
+%if cpv_s_sing != cpv_s_desk + 9 || cpv_s_rgt != cpv_s_sing + 8 || cpv_s_blw != cpv_s_rgt + 7
+  %error "cpw_vid: cpv_adap walks the radios' labels as one run"
+%endif
+%if cpv_s_fc != cpv_s_start + 21
+  %error "cpw_vid: cpv_ctls walks the two check boxes' labels as one run"
+%endif
 
 section .modvb                  ; ...and the filter strip's labels, built
 cpv_tlab:   resb 24             ; from the depths the card offers (cpv_build)

@@ -260513,7 +260513,9 @@ as `CWV_PAINT` with the new origin.
 **The page's state** is the page area of the working area (`CPW_W_PAGE`,
 §135.5): the table block, the filter, the adapter and row chosen, the
 record count, running and recommended indices, a class byte per record (bit
-5 marks a 15bpp one), the rows, the filter's depths, and the test's state.
+5 marks a 16bpp one, and 0 a record no row shows - not the one its class
+reaches, driver size pass 2), the rows, the filter's depths, and the test's
+state.
 Working-area byte 19 (`CPV_LIVE`, the pad between `CPW_W_FULL` and the kit's
 scratch) is 1 while that state belongs to this page: `cpw_page` clears it
 when any other page is drawn, so coming back to Display builds the page again
