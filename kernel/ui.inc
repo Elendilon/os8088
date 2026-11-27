@@ -1822,8 +1822,8 @@ ui_drag:
     sub bx, [ui_dragw]          ; BX = rightmost legal x
     cmp ax, bx
     jle .x_high_ok
-    mov ax, bx
-.x_high_ok:
+    xchg ax, bx                 ; (BX is reloaded below: 1 byte where `mov`
+.x_high_ok:                     ; is 2 - the y clamp's computed bound's, 39.16.1.1)
     or ax, ax                   ; low bound last so it wins
     jns .x_low_ok
     xor ax, ax
@@ -1844,10 +1844,19 @@ ui_drag:
                                 ; it and wm_dock_snap's `inc di` cannot wrap
 
     ; clamp y: MBAR_H <= y and y + TITLE_H <= [vid_h] (title bar on screen)
+    ; - [vid_h] the DESKTOP's, the union on an extended one (SPEC.md
+    ; 39.16.1.1). It was [vid_ymax], which vid_apply derives for the PRIMARY
+    ; and the union never grew, so no Below window could reach display 1.
+    ; Computed here, the word and its store gone: -1 on every kernel. SI is
+    ; free: KERN_BIG reloads it below, and kern_small's next read is the
+    ; phase's `mov si, bx`. A bar the union's box lets into a dead zone is
+    ; EXT_DEAD's to lift, title bar's last row first
     mov ax, [ui_cury]
-    cmp ax, [vid_ymax]
+    mov si, [vid_h]
+    sub si, TITLE_H
+    cmp ax, si
     jle .y_high_ok
-    mov ax, [vid_ymax]
+    xchg ax, si                 ; (SI dead: 1 byte where `mov ax, si` is 2)
 .y_high_ok:
 %ifdef KERN_BIG
     mov si, MBAR_H              ; SPEC.md 39.16.2: MBAR_H is the PRIMARY's

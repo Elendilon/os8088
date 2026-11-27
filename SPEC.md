@@ -24806,7 +24806,7 @@ then have `wm_dmg_stale` treat the windows above a `WF_DESK`
 `.text`.
 
 **The drop's bound is the title bar's**, `y + TITLE_H <= [vid_h]`
-(`vid_ymax`), and a widget has no title bar: its grab handle and close box
+(computed at the drop since §39.16.1.1; it was the word `vid_ymax`), and a widget has no title bar: its grab handle and close box
 are in the tag row at the BOTTOM of its face. With `wm_dock_snap`'s
 half-strip rule, a widget can be dropped with only its top 18 rows on the
 glass - card 1, where a press is not a drag - so the tag row, the handle and
@@ -81020,7 +81020,7 @@ or single instructions with no register to spare for the arithmetic:
 `vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
 `vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
 `vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
-`vid_clk_hx`, `vid_ymax`, `vid_desk_zx`, and the bytes
+`vid_clk_hx`, `vid_desk_zx`, and the bytes
 `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
 
 **`vid_popmax` left that list and became a CONSTANT.** `[vid_h]` at the point
@@ -81072,7 +81072,9 @@ draw writes past the end of the framebuffer.
 
 `MBAR_H` (20) and `TITLE_H` (18) stay assembly-time constants: they are font
 and chrome dimensions, not screen-derived. Only `SCREEN_H - TITLE_H`
-combined them, and that is the precomputed `[vid_ymax]`.
+combined them, and that was the precomputed `[vid_ymax]` - gone since
+§39.16.1.1, because the drag's bound is the DESKTOP's (`[vid_h]`) and the
+precomputed word was the primary's.
 
 ### 39.2.1 The display's extent and the desktop's — `vid_cw` / `vid_w`
 
@@ -83451,7 +83453,7 @@ monitor is *for*.
 without a special case anywhere. `vid_desk_union` then grows `[vid_w]`,
 `[vid_h]`, `[vid_wm1]` and `[vid_hm1]` past them and touches nothing else —
 which is why every derived chrome word (`[vid_dock_y0]`, `[vid_clk_hx]`,
-`[vid_ymax]`, `[vid_desk_z*]`) is already right: `vid_apply` computed them
+`[vid_desk_z*]`) is already right: `vid_apply` computed them
 before the desktop grew. `[vid_popmax]` is not derived at all any more — it is
 a constant, and §39.2 says why a union cannot change it either. On a machine
 with one display the two sets are the same numbers and nothing above happens
@@ -83601,6 +83603,28 @@ drag therefore crosses the seam** — the frame is clamped only when the origin
 lands somewhere no display has — and a window straddling the two cards is
 drawn by §39.14's split, one fragment per display, with no code in the window
 manager aware of it.
+
+#### 39.16.1.1 The drop's lowest row is the DESKTOP's, and the title bar must be on a display
+
+`ui_drag` bounded a drop's y with `[vid_ymax]`, which `vid_apply` derives as
+`vid_h - TITLE_H` **for the display it is applying** - the primary, last - and
+which `vid_desk_union` never grew. So the one bound that is about the desktop
+was the primary's: in every Below layout no window could be dragged wholly onto
+display 1 (it stopped `TITLE_H` rows above the seam), and in a Right layout
+under a CGA primary the Hercules rows below the CGA's bottom could not be
+reached (audit K1, docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+
+The bound is now computed at the drop from `[vid_h]` - the union on an
+extended desktop, the primary on every other machine, where it is the same
+number `[vid_ymax]` held - and the word is gone (one store and one word fewer
+than the two reads cost, so kern_small and kern_mega pay nothing either).
+
+The union's bound is a bounding box, so it allows a title bar into the dead
+zone below the SHORTER display. `EXT_DEAD` (EXTD.DRV, §39.19.6) is what keeps
+that out, and it now asks about the title bar's LAST row before its first: a
+bar whose bottom row no display holds is clamped into the pointer's display and
+lifted by `TITLE_H - 1`, so the whole bar lands on glass - which `[vid_ymax]`
+used to guarantee on the primary alone and nothing guaranteed on display 1.
 
 #### 39.16.3 …and a window may hang off the DESKTOP, but not into a HOLE in it
 
