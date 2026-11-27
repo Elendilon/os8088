@@ -1239,10 +1239,8 @@ fcp_relink:
     FCPX dsk_clus2lba_x ; AX = the folder's first sector
 %endif
     jc .rlout
-    push ax
-    FCPX dsk_rd1_x
-    pop ax
-    jc .rlout
+    FCPX dsk_rd1_x              ; (AX, the sector, is kept: dsk_rd1_x spends
+    jc .rlout                   ; BX and CX alone - kernel size pass 21, -2)
     cmp word [es:dsk_secbuf+32], '..'   ; the first TWO bytes of the name,
     jne .rlout                    ; in one compare
     mov bx, FCV(fcp_dcwd)

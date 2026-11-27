@@ -1207,9 +1207,13 @@ desk_caprect:
 ; -----------------------------------------------------------------------------
 desk_paint_mask_x:
     push ax
-    push bx
-    push cx
+%ifdef KERN_BIG                 ; kern_small's loop spends AX and CX alone -
+    push bx                     ; desk_draw_zone keeps every register - so it
+%endif                          ; banks those two and pops its own (kernel
+    push cx                     ; size pass 21, -2 there)
+%ifdef KERN_BIG
     push dx
+%endif
     xor cx, cx
 .next:
 %if DESK_NZ > 16
@@ -1237,7 +1241,13 @@ desk_paint_mask_x:
     inc cx
     cmp cl, DESK_NZ
     jb .next
+%ifdef KERN_BIG
     jmp kretfc_dx
+%else
+    pop cx
+    pop ax
+    retf
+%endif
 
 ; -----------------------------------------------------------------------------
 ; desk_dmg_zones - which zones does the damage rect touch?
@@ -2014,8 +2024,9 @@ DESK_TBSTR  equ 14              ; the widest rect, 100 px, off the byte grid.
 desk_zones_r_x:
     call kentc_bp
     call desk_bpat
-    cmc
-    jnc .ret                    ; Color: CF = 0, nothing done here
+    jc .clr                     ; Color: CF = 0 out, nothing done here (the
+                                ; ring's own `clc`, below: kernel size pass
+                                ; 21, -1 against a `cmc`)
     mov di, 33                  ; THE MASK IS A 33-BIT RING with CF: each
     mov si, wm_cl_ox1           ; step rotates the last zone's verdict in at
     mov al, -1                  ; bit 0 and the next zone's bit out of bit
@@ -2027,8 +2038,8 @@ desk_zones_r_x:
     inc ax                      ; in CF (AH is nobody's); INC and DEC keep CF
     dec di
     jnz .z
+.clr:
     clc                         ; (CF = 0)
-.ret:
     jmp kretfc_bp
 .z:
     jnc .n                      ; not owed
