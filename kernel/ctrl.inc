@@ -1213,24 +1213,19 @@ modc_e_dlg:
 ;      BP is put back here
 ; -----------------------------------------------------------------------------
 cp_wfwd:
+    push bp
+    mov bp, sp                  ; [bp+2] = the address of the code byte
     cmp byte [cs:cp_wide], 0
     jne .wide
-    push bp
-    mov bp, sp
     inc word [bp+2]             ; past the code byte: the compact body
     pop bp
     ret
 .wide:
-    push bp
-    push si
-    mov bp, sp
-    mov si, [bp+4]              ; SI -> the code byte
-    mov si, [cs:si]
-    and si, 0x00FF
-    mov bp, si                  ; BP = the event (CWV_*)
-    pop si
-    call far [CPWFP]
-    pop bp
+    mov bp, [bp+2]              ; BP -> the code byte...
+    mov bp, [cs:bp]             ; ...and the byte after it
+    and bp, 0x00FF              ; BP = the event (CWV_*). No register is
+    call far [CPWFP]            ; borrowed for it (driver size pass 2: -6,
+    pop bp                      ; the compact path the same instructions)
     inc sp                      ; the near frame CPWF pushed (inc keeps CF)
     inc sp
     retf
@@ -1280,13 +1275,12 @@ cp_wlist:
 ; -----------------------------------------------------------------------------
 modc_e_gate:
     cmp ah, CPG_N
-    jae .bad
+    cmc                         ; CF = 1: past CPG_N, refused...
+    jc .r                       ; ...through the near ops' own `retf`
     cmp ah, CPG_NFAR
     jb cpg_jmp                  ; a far body: it owns the far return
     call cpg_jmp                ; a near op: it returns here
-    retf
-.bad:
-    stc
+.r:
     retf
 cpg_jmp:
     ; STKBALANCE-OK: the `ret` below IS the dispatch - it pops the target this writes into the slot it pushed
@@ -1333,10 +1327,9 @@ cpg_tab:
   %error "ctrl: cpg_tab and the CPG_* opcodes (cpwlay.inc) disagree"
 %endif
 
-;cpg_none: an opcode this build has no body for
-cpg_none:
-    stc
-    ret
+;cpg_none: an opcode this build has no body for - CF = 1, which is
+; cp_ctl's own `stc / ret` (driver size pass 2: -2)
+cpg_none    equ cp_ctl.no
 
 cpg_hkey:
     mov ax, bx                  ; W_ONKEY's AX: AH carried the opcode
@@ -1382,16 +1375,15 @@ cpg_open:
     xor ax, ax                  ; refused it)
     mov [cp_down], al
     call COLD_SEG:os88ui_arm_f
-    mov al, [vid_kind]
-    cmp al, VID_VGA
-    je .kind
-%ifdef VID_EXT
-    cmp al, VID_VESA
-    jne .out
+%ifdef VID_EXT                  ; VID_VGA or VID_VESA: the kinds 0 and 4,
+  %if VID_VGA != 0 || VID_VESA != 4 ; the two bytes with no bit but bit 2 -
+    %error "cpg_open: VGA and VESA must be the kinds 0 and 4"
+  %endif
+    test byte [vid_kind], ~4 & 0FFh ; so one test (driver size pass 2: -4)
 %else
-    jmp short .out              ; (kern_mega: no VESA renderer)
+    cmp byte [vid_kind], VID_VGA
 %endif
-.kind:
+    jnz .out
     mov ax, [vid_band_xe]       ; THE WORK AREA, not the screen (SPEC.md 135.2
     sub ax, [vid_band_x0]       ; step 4): the band wm_fit clamps every window
     cmp ax, CPW_W1 + CPW_FITX   ; to, less a side Dock's columns - so a Dock on
@@ -1487,8 +1479,8 @@ cpg_drvstat:                    ; SI = what it is doing now, staged
     ret
 cpg_drvmem:                     ; AX = its drv_memk word (DRVM_PLUS in bit 15)
     push bx
-    mov bl, al
-    xor bh, bh
+    cbw                         ; (a row is under DRV_MAX: AH = 0)
+    xchg ax, bx
     shl bx, 1
     mov ax, [cs:drv_memk + bx]
     pop bx
@@ -2156,10 +2148,10 @@ cp_entry:
 ; inside the table rather than a contract anybody reads.
 ; -----------------------------------------------------------------------------
 cp_v2r:
-    push bx
-    push cx
     cmp al, [cp_nst]
     jae .drv                    ; past every shown static: a driver's page
+    push bx                     ; (which needs neither register: driver size
+    push cx                     ; pass 2, -2 and two push pairs off its rows)
     mov ch, al                  ; CH = the ordinal wanted
     xor bx, bx                  ; BL = the record, BH = ordinals counted
 .scan:
@@ -2184,8 +2176,6 @@ cp_v2r:
 .drv:
     sub al, [cp_nst]            ; the driver's own ordinal...
     add al, CP_ITEMS            ; ...is a record past the end of the table
-    pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2265,15 +2255,11 @@ cp_r2v:
     je .hit
     inc ch
     jmp short .scan
-.hit:
+.miss:                          ; (jae: CF = 0)
+    mov ch, bh                  ; hidden: no ordinal names it, AL = the record
+    cmc                         ; CF = 1
+.hit:                           ; (je: CF = 0) - one tail, driver size pass 2
     mov al, ch
-    clc
-    pop cx
-    pop bx
-    ret
-.miss:
-    mov al, bh                  ; hidden: no ordinal names it
-    stc
     pop cx
     pop bx
     ret
@@ -2499,19 +2485,18 @@ cp_drv_ev:
 ; -----------------------------------------------------------------------------
 cp_ctl:
     cmp byte [cp_probe], 0
-    je .act
+    je .act                     ; (CF = 0: a compare with 0 never borrows)
     or al, al
     jz .sel                     ; not an armable control: nothing to report
     mov [cp_ctlid], al
-.no:
-    stc
+.no:                            ; (also the gate's cpg_none: keep it the two
+    stc                         ; instructions it is)
+.act:
     ret
 .sel:
     cmp byte [cp_probe], 2      ; ...and it still selects on the press
     jne .no
-.act:
-    clc
-    ret
+    ret                         ; (equal: CF = 0)
 
 ; cp_ctli - cp_ctl for control AL + 1, AL kept: a row whose value is 0-based
 ; and whose id is 1-based (`dec` writes no CF, so cp_ctl's answer stands)
@@ -2519,21 +2504,6 @@ cp_ctli:
     inc al
     call cp_ctl
     dec al
-    ret
-
-; -----------------------------------------------------------------------------
-; cp_isdown - is control AL the one drawn pressed? (SPEC.md 13.8/13.8.3)
-; in:  AL = a control id
-; out: ZF = 1 if it is; every register preserved
-;
-; The painters' half: every glyph and button site asks, so what is on the
-; glass follows [cp_down] on a full page paint as well as on an edge.
-;
-; The id space is PER PAGE, so this needs no page number beside it - the same
-; reason cp_ctl does not.
-; -----------------------------------------------------------------------------
-cp_isdown:
-    cmp al, [cp_down]
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2549,27 +2519,28 @@ cp_isdown:
 ; reason its own header gives: AL is the argument, so it cannot also be the
 ; question. BH is free at all six glyph sites; AL is free at all three button
 ; ones.
+;
+; "Is it the one drawn pressed?" is one compare against [cp_down], written at
+; each entry - the painters' half, so what is on the glass follows [cp_down]
+; on a full page paint as well as on an edge. The id space is PER PAGE, so it
+; needs no page number beside it, the same reason cp_ctl does not. It was
+; cp_isdown, a routine of its own these two alone called (driver size pass 2:
+; -11, and a call, a return and a push pair off every control a page draws).
+; cp_dngly joins cp_skipset past its `push ax`, its own standing in for it.
 ; -----------------------------------------------------------------------------
-cp_dnbtn:
-    call cp_isdown
-    jne .up
-    or di, OS88UI_DOWN
-.up:
-    jmp cp_skipset              ; ...and AL is still the id (SPEC.md 31.1.3)
-
 cp_dngly:
-    push ax
-    mov al, bh
-    call cp_isdown
-    pop ax
+    cmp bh, [cp_down]
     jne .up
     or al, OS88UI_GDOWN
 .up:
-    push ax
+    push ax                     ; cp_skipset's own push, made here...
     mov al, bh
-    call cp_skipset
-    pop ax
-    ret
+    jmp short cp_skipset.id     ; ...so it joins past it, and pops it
+
+cp_dnbtn:
+    cmp al, [cp_down]
+    jne cp_skipset              ; ...and AL is still the id (SPEC.md 31.1.3)
+    or di, OS88UI_DOWN
 
 ; -----------------------------------------------------------------------------
 ; cp_skipset - arm the next control emit's skip, if [cp_only] names another
@@ -2583,14 +2554,15 @@ cp_dngly:
 ; -----------------------------------------------------------------------------
 cp_skipset:
     push ax
+.id:                            ; (cp_dngly joins here, AX pushed and AL the id)
     mov ah, [cp_only]
     or ah, ah
     jz .want                    ; 0 = every control, which is what a full page
     cmp ah, al                  ; paint and every setting change leave it at
 .want:                          ; ZF = 1: draw it. A `mov` writes no flag, so
     mov byte [cp_skip], 0       ; the store is the answer's for both, and a
-    je .out                     ; skip is the one byte more
-    inc byte [cp_skip]
+    je .out                     ; skip is the one byte more - so [cp_skip] is
+    inc byte [cp_skip]          ; only ever 0 or 1, which cp_gemit's `shr` reads
 .out:
     pop ax
     ret
@@ -2653,17 +2625,13 @@ cp_lvis:
 cp_lrow:
     push bx
     sub al, [cp_ltop]
-    jb .off
+    jb .off                     ; CF = 1: above the rows shown
     mov bl, al
     call cp_lvis
-    cmp bl, al
+    cmp bl, al                  ; CF = 1: on the screen...
     mov al, bl                  ; (a mov writes no flags)
-    jae .off
-    clc
-    pop bx
-    ret
-.off:
-    stc
+    cmc                         ; ...so CF = 1 at or past the rows shown
+.off:                           ; (driver size pass 2: one tail, -5)
     pop bx
     ret
 
@@ -3184,10 +3152,9 @@ cp_gdraw:
 %endif
 cp_gemit:
 %ifdef KERN_BIG
-    cmp byte [cp_skip], 0
-    mov byte [cp_skip], 0       ; ...one-shot (a `mov` writes no flags)
-    jne .out
-%endif
+    shr byte [cp_skip], 1       ; ...one-shot: [cp_skip] is 0 or 1 (cp_skipset),
+    jc .out                     ; so this clears it and CF is the skip (driver
+%endif                          ; size pass 2: -6 a site, and faster)
     CPXN os88ui_glyph           ; IN THIS IMAGE (OS88UI_KGLYPH, fdlg.inc)
 %ifdef KERN_BIG
 .out:
@@ -3196,9 +3163,8 @@ cp_gemit:
 
 cp_bemit:
 %ifdef KERN_BIG
-    cmp byte [cp_skip], 0
-    mov byte [cp_skip], 0
-    jne .out
+    shr byte [cp_skip], 1       ; (cp_gemit's)
+    jc .out
 %endif
 %ifdef KERN_SMALL
     call os88ui_kbtn            ; this image's own (fdlg.inc, OS88UI_KBTNIMG)
@@ -3414,11 +3380,9 @@ cp_thm_cust_btn:
     mov bx, CPH_CZY + CPH_CZH - 1
     call cp_krect               ; BX = os88ui_krect
     CPSTAGE cp_s_tcust
-    mov di, OS88UI_FILL
     call cp_thm_colgrey         ; the FACT, not the radio above it: see below
-    jnc .enabled
-    or di, OS88UI_DIS
-.enabled:
+    mov di, OS88UI_FILL         ; (a `mov` keeps CF)...
+    adc di, 0                   ; ...| OS88UI_DIS (1) when greyed
     mov al, CPH_CCUST
     call cp_dnbtn               ; ...pressed if it is the one down (13.8.3)
     call cp_bemit
@@ -3914,16 +3878,16 @@ cp_dock_click:
     xor al, DOCK_F_AUTO
 
 .change:
-    cmp al, [dock_cfg]
+    mov ah, al                  ; the new byte in, AH = the byte it replaces
+    xchg ah, [dock_cfg]         ; (the same byte back, when it is the same)
+    cmp ah, al
     je .done                    ; already the setting: change nothing
-    mov ah, [dock_cfg]
-    mov [dock_cfg], al
     CPXF dock_apply             ; IN THIS IMAGE (KSW_SECT, kernel.asm)
     jnc .changed
     mov [dock_cfg], ah          ; failed enable: keep the working preference
     push si
-    CPSTAGE cp_dock_fail
-    call cp_toast
+    mov si, cp_dock_fail        ; the IMAGE's line: a toast copies it
+    call sc_m_say
     pop si
     jmp short .done
 .changed:
@@ -4090,6 +4054,10 @@ cp_key_apply:
     mov al, bl
     jmp cp_key_dot
 .failed:
+%ifdef KERN_BIG
+    mov si, cp_s_kfailed        ; the IMAGE's line (sc_m_say: a toast copies
+    jmp sc_m_say                ; it) - driver size pass 2
+%else
     CPSTAGE cp_s_kfailed
     push es
     push ds
@@ -4097,6 +4065,7 @@ cp_key_apply:
     xor cx, cx
     KDOOR toast_show
     pop es
+%endif
 .out:
     ret
 
@@ -4571,9 +4540,9 @@ cp_radios:
 ; out: CF = 0 yes, CF = 1 no
 ; clobbers: nothing (flags)
 ; -----------------------------------------------------------------------------
-cp_vid_rowok:
-    call vid_avail_test         ; in this image (KSW_SECT, kernel.asm)
-    ret
+cp_vid_rowok equ vid_avail_test ; in this image (KSW_SECT, kernel.asm): the
+                                ; same contract, so the name is the routine's
+                                ; (driver size pass 2: -4 and a call a row)
 
 ; -----------------------------------------------------------------------------
 ; cp_vid_pick - the pending adapter, resolved (module internal)
@@ -4628,15 +4597,11 @@ cp_vid_slot:
     inc bl
     cmp bl, VID_KIND_MAX + 1    ; VID_VGA / VID_HERC / VID_CGA / VID_EGA, and
     jb .n                       ; VID_VESA with the external renderer
-    pop cx
-    pop bx
-    stc                         ; fewer rows than the slot asked for
-    ret
-.hit:
+    cmc                         ; CF = 1: fewer rows than the slot asked for
+.hit:                           ; (je: CF = 0) - one tail, driver size pass 2
     mov al, bl
     pop cx
     pop bx
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4759,11 +4724,9 @@ cp_vid_vxlabel:
     mov bl, cl
     and bl, VXC_YMASK
     shr bl, 1
-    shr bl, 1
-    mov ah, [cs:bx+vxc_y8tab]
-    mov bl, ah
-    xor ah, ah
-    xor bh, bh
+    shr bl, 1                   ; (BH is still 0)
+    mov bl, [cs:bx+vxc_y8tab]
+    xor ah, ah                  ; (driver size pass 2: -4)
     shl ax, 1
     shl ax, 1
     shl ax, 1                   ; AX = the width
@@ -4835,15 +4798,11 @@ cp_vid_vxcall:
     push bx
     push bp
     mov bx, vesa_row
-    cmp word [bx+DRVR_SEG], 0
-    je .no
+    cmp word [bx+DRVR_SEG], 1   ; CF = 1: no image (a segment is never 0
+    jb .no                      ; once loaded) - one tail, driver size pass 2
     mov bp, [bx+DRVR_ENT]
     CPXC drv_call
-    pop bp
-    pop bx
-    ret
 .no:
-    stc
     pop bp
     pop bx
     ret
@@ -4912,9 +4871,8 @@ cp_vid_mode:
     lea cx, [di+CP_PLX]         ; --- the label
     add cx, ax
     lea dx, [bp+CPV_MY + CP_PLDY]
-    push ax
-    call cp_brun
-    pop ax
+    call cp_brun                ; (it keeps AX: cp_run banks it, and cp_black
+                                ; is a store - driver size pass 2, -2)
 
     lea cx, [di+CP_PGX]         ; --- the glyph. The x offset is SPENT into CX
                                 ; before AX becomes the glyph's own argument,
@@ -4964,9 +4922,9 @@ cp_vid_btn:
 
     call cpf_vidok              ; CF = 1 when there is nothing to activate
     mov di, OS88UI_FILL         ; the pane behind it is not white
-    jnc .live
-    or di, OS88UI_DIS           ; SPEC.md 47 rule 1: the frame AND the label
-.live:                          ; dither together, which is one flag now
+    adc di, 0                   ; ...| OS88UI_DIS (1): SPEC.md 47 rule 1, the
+                                ; frame AND the label dither together, which
+                                ; is one flag now
     CPSTAGE cp_s_vact
 %ifdef KERN_BIG
     mov al, 1                   ; ...and pressed if it is being held; DIS
@@ -4984,16 +4942,16 @@ cp_vid_btn:
 ; SPEC.md 47 rule 1's one predicate: the label's pen, the glyph's DIS and the
 ; click's refusal all read it. [vid_avail] is a fact fixed at boot (39.11.1).
 ; -----------------------------------------------------------------------------
+%if VID_KIND_MAX > VID_VESA
+  %error "cp_vid_fcok: kind >= VID_VESA must be exactly the VESA desktop"
+%endif
 cp_vid_fcok:
     test byte [vid_avail], VID_A_VGA
-    jz .no
-    cmp byte [vid_kind], VID_VESA       ; a VESA desktop's DAC 0..63 is its
-    jne .ok                             ; own palette (SPEC.md 135.9.1)
-.no:
     stc
-    ret
-.ok:
-    clc
+    jz .r                               ; no VGA: greyed
+    cmp byte [vid_kind], VID_VESA       ; a VESA desktop's DAC 0..63 is its
+    cmc                                 ; own palette (SPEC.md 135.9.1): the
+.r:                                     ; highest kind, so CF = 1 is VESA
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5237,9 +5195,8 @@ cp_vid_click:
     add al, 2                   ; ids 2..4, the Activate button being 1
     call cp_ctl
     jc .done
-    sub al, 2
 %endif
-    call cp_vid_msel
+    call cp_vid_msel            ; (AL its answer: no `sub al, 2` owed)
     cmp al, ah
     je .done                    ; draw nothing, exactly like the rows above
     mov al, ah
@@ -5445,11 +5402,9 @@ cp_time_click:
     jg .done
 .step:
 %ifdef KERN_BIG
-    mov al, 5                   ; '+' is 5 and '-' is 6; BL carries which and
-    cmp bl, 1                   ; is what the action below reads
-    je .stepc
-    inc al
-.stepc:
+    mov al, 11                  ; '+' is 5 and '-' is 6; BL carries which (1 or
+    sub al, bl                  ; -1) and is what the action below reads: 10
+    shr al, 1                   ; or 12, halved (driver size pass 2: -3)
     call cp_ctl
     jc .done
 %endif
@@ -5733,10 +5688,9 @@ cp_time_pick:
     cmp si, 4 + 11
     ja .next                    ; ...in y - 4 .. y + 11
     mov ax, bx                  ; hit: index = offset / 4
-    shr ax, 1
-    shr ax, 1
-    clc                         ; after the shifts - they write CF
-    jmp short .out
+    shr ax, 1                   ; ...and the shifts write CF = 0: an offset
+    shr ax, 1                   ; is a multiple of 4 (driver size pass 2: the
+    jmp short .out              ; clc that followed them went)
 .next:
     sub bx, 4
     jnc .scan                   ; ...past record 0: CF = 1, not found
@@ -5782,13 +5736,15 @@ cp_timechk:
 cp_timebtn:
     call kentm_bp
 
-    CPSTAGE cp_s_tplus
+    mov si, cp_s_tplus
     mov dx, CPT_BUY
     or al, al
     jz .have
-    CPSTAGE cp_s_tminus
+    mov si, cp_s_tminus
     mov dx, CPT_BDY
 .have:
+    call cp_stage               ; ONE staging, of the one label (driver size
+                                ; pass 2: -3, and '-' stages once)
     push ax                     ; AL = 0 '+' / 1 '-', for the id below
     mov ax, CPT_BX
     mov cx, CPT_BX + CPT_BW - 1
@@ -6011,13 +5967,11 @@ clk_step:
     jl .under                   ; 0xFF from a -1: wrap to the top
     mov al, cl                  ; past the max: wrap to the bottom
     ret
-.under:
-    mov al, ch
-    ret
 .lo:
     cmp al, cl
     jae .out
-    mov al, ch                  ; below the min: wrap to the top
+.under:                         ; (the two wraps to the top are one: driver
+    mov al, ch                  ; size pass 2) below the min, or 0xFF
 .out:
     ret
 
@@ -6090,14 +6044,18 @@ cp_flush_x:
     mov [cp_dsave], bl
     push si
     push es
+    PUSH_CSDATA                 ; every line is this image's, out through
+    pop es                      ; ES = CS - set once for both arms (driver
+                                ; size pass 2). The save's verdicts were a
+                                ; resident word table and three resident
+                                ; lines for a message only this image ever
+                                ; says (kernel size pass 9)
 %ifdef OS88_DRIVERS
     cmp byte [cs:cp_fdno], 0    ; the save turned Cylinder back to Auto
     je .verdict                 ; (SPEC.md 31.14): ONE line on the bar, so
     CSDO mov byte [CSEG cp_fdno], 0 ; it is chosen before the toast and not
-    cmp byte [cp_dsave], 0      ; drawn over 'Settings Saved' after it
-    jne .fdback
-    PUSH_CSDATA
-    pop es                      ; the line is this image's: a toast copies it
+    or bl, bl                   ; drawn over 'Settings Saved' after it -
+    jne .fdback                 ; BL is [cp_dsave]
     mov si, [cs:cp_fdnop]       ; a POINTER to image data, read `cs:` - the
                                 ; core has no cp_stage (that is .modu's), and
                                 ; the line goes out through ES = CS
@@ -6110,11 +6068,6 @@ cp_flush_x:
                                 ; saving Auto and saying 'Settings Saved'
 .verdict:
 %endif
-    PUSH_CSDATA                 ; every line is this image's, out through
-    pop es                      ; ES = CS. The save's verdicts were a
-                                ; resident word table and three resident
-                                ; lines for a message only this image ever
-                                ; says (kernel size pass 9)
     cmp bl, 1                   ; [cp_dsave] = 1, no system disk: its drive
     jne .tab                    ; letter copied in from the resident
     mov al, [cp_s_nodrv]        ; [cp_s_nodrv], which the mount stamps
@@ -6422,9 +6375,8 @@ cp_snd_rowok:
     test byte [drv_svc+DSV_TIERS], bl
     pop bx                      ; POP does not touch flags
     jz .no
-.yes:
-    clc
-    ret
+.yes:                           ; CF = 0 on every way in: `or`, `test` and a
+    ret                         ; compare with 0 (driver size pass 2, -1)
 .no:
     stc
     ret
@@ -8130,19 +8082,27 @@ CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
 
 ; The list names. Each is ALSO its page's heading, which cp_item_paint draws
 ; before it dispatches (SPEC.md 31.9) - so one string, one reader, and it
-; lives in the image beside its only reader. 'Sound' is here a SECOND time:
-; driver.inc's DRV_TITLES carries the copy drv_tab's row names (drvt_sound,
-; in this same image since kernel size pass 14), and a string in an image may
-; be copied rather than shared (SPEC.md 2.8.6).
+; lives in the image beside its only reader. 'Sound' and 'Display' are
+; driver.inc's DRV_TITLES strings where this image carries that block (the
+; Sound row, the VESA row's tail): the block is in this image beside the
+; Drivers page since kernel size pass 14, so one copy serves both readers.
 CPS cp_s_sched, 'Scheduler'
 CPS cp_s_time,  'Date/Time'
 %ifdef OS88_DRIVERS
 CPS cp_s_drv,   'Drivers'
 CPS cp_s_fdd,   'Floppy'
 %endif
+%ifdef VID_EXT                  ; 'Display' is the VESA row's title's TAIL,
+cp_s_vid    equ drvt_vesa + 5   ; 'VESA Display' (DRV_TITLES, driver.inc - in
+%else                           ; this image too): one copy (driver size pass 2)
 CPS cp_s_vid,   'Display'
+%endif
 CPS cp_s_key,   'Keyboard'
+%ifdef OS88_DRIVERS             ; ...and 'Sound' IS that block's Sound row,
+cp_s_snd    equ drvt_sound      ; in this same image since kernel size pass 14
+%else                           ; (driver size pass 2)
 CPS cp_s_snd,   'Sound'
+%endif
 %ifdef OS88_THEME
 CPS cp_s_thm,   'Theme'
 %endif
@@ -8156,7 +8116,8 @@ cp_s_gone:  db 0                ; the empty string: what a vanished driver's
 CPS cp_s_tbrt,  'Bright'
 CPS cp_s_tdrk,  'Dark'
 %ifdef KERN_BIG
-CPS cp_s_tclr,  'Color'         ; ...and the third, VGA's alone (SPEC.md 76.12)
+cp_s_tclr   equ cp_s_vfc + 6    ; ...and the third, VGA's alone (SPEC.md
+                                ; 76.12): 'Color', Force Color's tail, below
 CPS cp_s_twin,  'Windows'       ; ...and the fourth (SPEC.md 76.14)
 TOASTSTR cp_s_tnowin, 'WIN95.DRV not loaded' ; ...and its refusal (76.14.1),
                                 ; a TOAST, so TOASTSTR's bound (24) and not
@@ -8226,7 +8187,9 @@ cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga, cp_s_vega
 %endif
 CPS cp_s_vact,  'Set Primary'
 %ifdef KERN_BIG
-CPS cp_s_vfc,   'Force Color'   ; SPEC.md 31.10.4
+CPS cp_s_vfc,   'Force Color'   ; SPEC.md 31.10.4 - and its last five
+                                ; letters are the Theme page's 'Color' row
+                                ; (cp_s_tclr), one copy (driver size pass 2)
 %endif
 ; The Display caption, inside the pane's 27-character limit. It is ONE string
 ; and the page's only constant line: it says what the button does, on every
@@ -8252,7 +8215,11 @@ CPV_DESKN   equ $ - cp_s_vdesk - 1   ; ...measured rather than counted, so the
 %error "ctrl: the Display page's desktop label runs past the pane (31.10.3)"
 %endif
 CPS cp_s_vsing, 'Single'
+%ifdef DOCK_OPT
+cp_s_vrgt   equ cp_s_kright     ; the Dock page's 'Right' (driver size pass 2)
+%else
 CPS cp_s_vrgt,  'Right'
+%endif
 CPS cp_s_vblw,  'Below'
 cp_vmodnam: dw cp_s_vsing, cp_s_vrgt, cp_s_vblw
 %endif
