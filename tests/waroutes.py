@@ -24,6 +24,8 @@ import os
 import struct
 import sys
 
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
 import arenagen                                                 # noqa: E402
@@ -33,6 +35,17 @@ from os88fixture import need                                    # noqa: E402
 from waweapons import Arena, start, amap, SYS, APPS, FS, ITEM          # noqa: E402
 
 GESZ = 12
+
+
+def watab(name):
+    """one of build/watab.inc's constants (the animations' keyframes)"""
+    import re
+    import os88build
+    t = open(os.path.join(ROOT, os88build.at("build/"), "watab.inc")).read()
+    return int(re.search(r"^%s equ (\d+)" % name, t, re.M).group(1))
+
+
+SEED = 0x1357                   # the dice (wa_seed at the match's start)
 
 
 def main():
@@ -54,13 +67,50 @@ def main():
                      quick=True) as ui:
         m = ui.m
         w = ui.path("B:/WIRERENA.O88")
-        p = start(ui, w, sym)
+        # THE MATCH PINNED AT ITS START. Its dice are seeded from pit_now
+        # when the setup's Enter is taken - wherever a host-timed key
+        # landed - and they roll the weapon spawns, the bots' spawn shields
+        # and every branch after; and the player used to be put out of the
+        # way only once the host's poll had seen the first frames, some
+        # host-timed number of ticks in, the bots' first looks already
+        # taken at the spawn. So two minutes of three bots branching,
+        # meeting and fighting were a different game every run: one walked
+        # 43 edges and the next 30 (of the 31 asked), and a soak's lift ride
+        # failed with the lift never moving. Now the seed is written over
+        # the clock's at wa_pkreset, before its first roll, and the player
+        # put out of the way at the first wa_tick, before the first tick;
+        # from there the sim is a function of its ticks alone (no key, no
+        # mouse), and ROAM is bounded by the sim's own tick count. No Win
+        # at: a bot's 20th kill would end the match (and restart it) under
+        # the lift's ride.
+        lin = os88marty._linf(m, None)(os88marty.Pkg(m, w).seg)  # (kern_
+        pk, tk = lin + sym["wa_pkreset"], lin + sym["wa_tick"]  # mega: LDT)
+        pinned = []
+
+        def pin(m_, rec):
+            q = os88marty.Pkg(m_, w)
+            if rec["addr"] == pk and not pinned:
+                q.write(sym["wa_seed"], struct.pack('<H', SEED))
+                pinned.append("seed")
+            elif rec["addr"] == tk and pinned == ["seed"]:
+                for n, v in (("wa_px", 1024), ("wa_py", 200), ("wa_pxf", 0),
+                             ("wa_pyf", 0), ("wa_pitch", 0), ("wa_jz", 0),
+                             ("wa_jv", 0), ("wa_feet", 0), ("wa_fpx", -1),
+                             ("wa_ang", 256 << 6),     # (out of the way,
+                             ("wa_tkn", 0)):           # looking north; the
+                    q.write(sym[n], struct.pack('<h', v))  # sim's tick 0)
+                pinned.append("player")
+        with os88marty.bp_trace(m, pk, tk, on_hit=pin) as tr:
+            q = os88marty.Pkg(m, w)
+            q.write(sym["wa_sgoal"] + q.byte(sym["wa_lkgmode"]), b"\x00")
+            p = start(ui, w, sym)
+            tr.until(lambda: pinned == ["seed", "player"],
+                     "the match's start: its seed, its first tick", 60)
         f0 = p.byte(sym["wa_frame"])
         os88marty.until(m, lambda _: p.byte(sym["wa_frame"]) != f0,
                         "the Heights arena's first frames", guest=20)
         m.pause()
         g = Arena(ui, w, sym)
-        g.at(1024, 200, 0, ang=256)     # (out of the way, looking north)
         gep = g.word("wa_gep", signed=False)
 
         def figs():
@@ -84,8 +134,8 @@ def main():
             for a in loop:
                 homes_of[a] = k
         seen, away, bad, badz = set(), [False] * 3, [], []
-        for _ in range(450):
-            g.tick(8)
+        while g.word("wa_tkn", signed=False) < 3600:
+            g.tick(8)                   # (the sim's first two minutes)
             lh = lifth()
             for i, (x, y, z, e, dead, wait) in enumerate(figs()):
                 if dead or e >= len(edges):
@@ -120,14 +170,30 @@ def main():
         e = edges[on]
         base = sym["wa_figs"]
         m.pause()
+        lrest0 = g.word("wa_lrest")
         g.p.write(base + 6, struct.pack('<H', on * GESZ))
         g.p.write(base + 0, struct.pack('<hh', e[3], e[4]))
         g.p.write(base + 20, struct.pack('<H', e[5] & 1023))
         g.p.write(base + 8, struct.pack('<H', e[6]))
         g.p.write(base + 45, bytes([1]))
         g.p.write(base + 16, bytes([0, 0]))     # (alive, not flashing)
-        g.p.write(base + 46, bytes([0]))        # (roaming: not still in
-                                                # a fight from the ROAM run)
+        # ...and the rest of it as a spawn leaves it, not as the ROAM run
+        # did (it may have ended dead - F_HP 0, a death's keyframes - or
+        # mid-flinch, or in a fight): running, whole, no shield, roaming
+        # with nothing seen, the pistol; the lift at rest with nobody's
+        # count running, as walift's pose() starts each ride
+        a_run, n_run = watab("WA_A_RUN"), watab("WA_N_RUN")
+        g.p.write(base + 10, bytes([0, a_run, n_run, 1, 0, 0]))
+        g.p.write(base + 18, struct.pack('<h', 0))      # (F_Z: the ground)
+        g.p.write(base + 36, struct.pack('<H', 0))      # (F_VH: step anew)
+        g.p.write(base + 42, bytes([100]))              # (F_HP)
+        g.p.write(base + 46, bytes(10))                 # (F_BST..F_BTGT)
+        g.put("wa_bxh", lrest0, g.lift)
+        g.put("wa_lon", 0)
+        g.put("wa_loff", 0)
+        g.p.write(sym["wa_rks"], bytes(4 * 8))  # (no rocket or grenade of
+        g.p.write(sym["wa_rkn"], b"\x00")       # the ROAM's still flying)
+        tkn0 = g.word("wa_tkn", signed=False)
 
         def park():
             """bots 1 and 2 dead and away: nobody for bot 0 to fight"""
@@ -153,6 +219,13 @@ def main():
                 dropped = True
             if dropped and z == 0:
                 break
+        ran = (g.word("wa_tkn", signed=False) - tkn0) & 0xFFFF
+        check(ran >= t + 1 and g.byte("wa_quit") == 0 and
+              g.byte("wa_arena") == 2 and g.word("wa_cwin") == 0,
+              "THE LIFT: the match ran on under it, in the Heights (%d sim "
+              "ticks in %d ticks' time, quit %d, arena %d, win shown %d)"
+              % (ran, 2 * (t + 1), g.byte("wa_quit"), g.byte("wa_arena"),
+                 g.word("wa_cwin")))
         check(rose and maxlh == ltop, "THE LIFT: bot 0 waited on it and it "
               "rose to the top (%d of %d)" % (maxlh, ltop))
         check(top_z and dropped, "THE LIFT: it walked onto the tower and "
