@@ -628,7 +628,7 @@ eth_cfg_reap:
     jz  .out
     call OSAPI_WM_HIDE
     call OSAPI_WM_DESTROY
-    mov word [ec_win], 0
+    and word [ec_win], 0        ; (both callers write the flags again)
 .out:
     pop bx
     pop ax
@@ -677,7 +677,7 @@ ec_apply:
     mov cx, 16
     call mem_copy
     mov byte [dhcp_st], DH_BOUND
-    mov word [dhcp_tmo], 0
+    and word [dhcp_tmo], 0      ; (.mode reads no flag before it sets them)
     jmp short .mode
 .auto:
     mov di, eth_ip              ; the old address goes with the mode: a machine
@@ -981,12 +981,17 @@ ec_bufs:     dw ec_t0, ec_t1, ec_t2, ec_t3
 
 EC_TLEN     equ 16              ; 15 characters and the NUL
 
+ec_msg:     dw ec_s_ready
+
+; --- and the Setup window's state that is ZERO at load, which ethdrv.inc
+; places after ethstate.inc: the tail of the image's trailing zeros, and not
+; a run of them in mid-image (driver size pass 2)
+%macro ETHCFG_ZSTATE 0
 ec_win:     dw 0
 ec_mode:    db ECM_DHCP         ; what the WINDOW is showing...
 ec_dirty:   db 0
 ec_wrote:   db 0                ; 1 = ETHER.CFG was written IN FULL by us this
                                 ; session, so a rewrite may be in place
-ec_msg:     dw ec_s_ready
 ec_cx:      dw 0
 ec_cy:      dw 0
 ec_down:    db 0             ; which button is drawn PRESSED (SPEC.md 13.8.4)
@@ -1006,3 +1011,7 @@ ec_f1:      times OS88LINE_SZ db 0
 ec_f2:      times OS88LINE_SZ db 0
 ec_f3:      times OS88LINE_SZ db 0
 ec_fbuf:    times EC_F_SIZE db 0
+  %if ECM_DHCP != 0
+    %error "ETHCFG_ZSTATE is zero-only state, and ec_mode starts at ECM_DHCP"
+  %endif
+%endmacro
