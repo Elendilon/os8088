@@ -6000,16 +6000,11 @@ kds_stub_end:
 %include "hbstub.inc"         ; ...and the stub's body, in THIS host's
                               ; `.modh` - the section is the includer's
 %ifdef KERN_MEGA
-; THE PARK STUB MAY NOT MOVE: megados.inc's mega_dstubup names it in the
-; resident kernel as an immediate (`add ax, mpk_stub`), so it stays at 1F80h
-; and what the code above gives up stands in front of it as zeros (driver
-; size pass 2, docs/plans/dsp2/dops.md CROSS-FILE 1). The %error is the
-; coupling written down: it fires the day the code above outgrows the place
-MPK_MEGA_AT equ 0x1F80
- %if ($ - $$) > MPK_MEGA_AT
-  %error "HIBER.DRV's park stub passed 1F80h on kern_mega: mega_dstubup names its offset - move them together"
- %endif
-    times MPK_MEGA_AT - ($ - $$) db 0
+; megados.inc's mega_dstubup names the park stub in the resident kernel as an
+; immediate (`add ax, mpk_stub`), assembled from this label in the same
+; build, so it follows the stub wherever it lands - a value that moves with
+; the module's layout (driver size pass 2's record, docs/plans/dsp2/RECORD.md
+; 3; the MEGADIAG arms put more code above it, which a fixed place refused)
 %include "megapark.inc"       ; ...and kern_mega's PARK stub, which the kernel
                               ; copies out of this image (kernel/megados.inc)
 %include "megares.inc"        ; ...and its STREAMING RESUME's stub and tail

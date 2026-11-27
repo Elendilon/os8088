@@ -622,22 +622,13 @@ srl_release:
 ; dispatch and the ISR read its three words on every call and every byte, a
 ; bus cycle less apiece on a 16-bit bus (driver size pass 2)
 ;
-; ...EXCEPT ON kern_mega, WHERE IT MAY NOT MOVE AT ALL: the fsx bracket
-; (fsx.inc's fsx_rserdn and its rows, W7, SPEC.md 53.2.3) reads and writes
-; srl_seg, srl_buf and srl_mask through the module's data selector at their
-; offsets in this image - IMMEDIATES in the resident kernel. So there the
-; block is held where it stood (048Dh), and what the code above gave up is
-; zeros in front of it until that coupling is the kernel's to undo (driver
-; size pass 2, docs/plans/dsp2/dops.md CROSS-FILE)
-%ifdef KERN_MEGA
-SRL_MEGA_AT equ 0x48D
- %if ($ - $$) > SRL_MEGA_AT
-  %error "SERIAL.DRV's lease block passed 048Dh on kern_mega: fsx.inc names its offsets - move them together"
- %endif
-    times SRL_MEGA_AT - ($ - $$) db 0
-%else
+; On kern_mega the fsx bracket (fsx.inc's fsx_rserdn and its rows, W7,
+; SPEC.md 53.2.3) reads and writes srl_seg, srl_buf and srl_mask through the
+; module's data selector at their offsets in this image (SRL_O_*): resident
+; IMMEDIATES assembled from these labels in the same build, so they follow
+; the block wherever it lands - a value that moves with the module's layout,
+; the class driver size pass 2's record rules (docs/plans/dsp2/RECORD.md 3)
     align 2, db 0
-%endif
 srl_base: dw 0
 srl_seg: dw 0
 srl_buf: dw 0
