@@ -1156,8 +1156,9 @@ NR_SIZE equ 8
 wm_nat_bank:
     push di
     lea di, [bx+W_NATR]
-    call wm_bank4               ; flags and all preserved (wm_bank4's header)
-    pop di
+.go:                            ; (wm_rz_bank's tail too: DI banked, DI = the
+    call wm_bank4               ; destination) flags and all preserved
+    pop di                      ; (wm_bank4's header)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2624,9 +2625,8 @@ wm_rz_precover:
 wm_rz_bank:
     push di
     mov di, wm_rz_ox
-    call wm_bank4
-    pop di
-    ret
+    jmp wm_nat_bank.go          ; ...whose tail is this one's: wm_bank4, the
+                                ; pop and the ret (kernel size pass 21, -2)
 
 ; -----------------------------------------------------------------------------
 ; wm_bank4 - copy the record's X..H (BX -> window) to DS:DI
@@ -4123,10 +4123,10 @@ wm_fullscreen:
     or al, al
     jz .ok                      ; put down with nothing fullscreen: no-op
     mov [wm_fs], bx
-    push di
-    mov di, wm_fs_save
-    call wm_bank4
-    pop di
+    push bp                     ; (banked HERE for the raise below, so the
+    push di                     ; save's DI needs no pair of its own: nothing
+    mov di, wm_fs_save          ; between reads DI, and wm_top_dbp writes it
+    call wm_bank4               ; first - kernel size pass 21, -2)
     call wm_fs_setrect          ; the display this window is primarily ON
                                 ; (SPEC.md 39.17.1), which is the primary on a
                                 ; machine with one
@@ -4144,8 +4144,6 @@ wm_fullscreen:
                                 ; to wm_paint_all; nothing else in the tree
                                 ; changes a window's geometry and then raises
                                 ; it, which is why wm_front never had to know.
-    push bp
-    push di
     call wm_top_dbp             ; BP = the outgoing front (may be us)
     mov al, 1                   ; a new frame has no pixels on screen
     call wm_raise
@@ -6203,9 +6201,8 @@ wm_ttl_rect:
     add cx, [di+W_W]
     dec cx
     mov bx, [di+W_Y]
-    mov dx, bx
-    add dx, TITLE_H-1
-    ret
+    lea dx, [bx+TITLE_H-1]      ; (`lea` for `mov` + `add`, and no caller reads
+    ret                         ; a flag here: kernel size pass 21, -2)
 
 ; wm_seed_frame - BX = window: seed the list with its FRAME, drop shadow
 ; included - x .. x+w and y .. y+h, one short each way on a fullscreen
@@ -7897,9 +7894,8 @@ wmt_barrect:
 ; -----------------------------------------------------------------------------
 wm_chrome_rect_x:
     mov bx, [si+W_Y]
-    mov dx, bx
-    add bx, 5                   ; rows W_Y+5 .. W_Y+13 for both boxes
-    add dx, 13
+    lea dx, [bx+13]             ; rows W_Y+5 .. W_Y+13 for both boxes (`lea`
+    add bx, 5                   ; for `mov` + `add`: kernel size pass 21, -2)
     cmp ah, 3
     mov ax, [si+W_X]            ; (writes no flags: the cmp above still stands)
     jne .close

@@ -6585,18 +6585,31 @@ section .bss
 ; their own comment and had it right; this is what forgetting it costs.
 ; -----------------------------------------------------------------------------
 os88ui_krect: resw 4
-os88ui_krlbl: resw 1            ; ...and the one control's staging beside it
-os88ui_krflg: resw 1            ; (SPEC.md 20.5.1.3). The kernel cannot use
-os88ui_krec:  resw OS88UI_BT_PLACE / 2  ; up to the place proc, which is
-                                ; a package's (OS88UI_PLACE, 20.5.1.3.5)
-                                ; OS88UI_BTNREC - that macro is in
-                                ; apps/os88api.inc, which the kernel does not
-                                ; include - so this record is .bss and
-                                ; os88ui_kbtn aims it at the call. It is ONE
-                                ; record for os88ui_krect's own reason: every
-                                ; kernel user is the UI task under the gfx
-                                ; lock, and a gesture is one press and one
-                                ; release
+section .text                   ; ...and the one control's staging, which is
+os88ui_krlbl: dw 0              ; NOT .bss: it is DS-addressed as the rect is,
+os88ui_krflg: dw 0              ; but four of its words never change, so they
+os88ui_krec:                    ; are assembled in rather than stored by
+    dw 0                        ; os88ui_kbtn on every button (kernel size
+    dw os88ui_krlbl             ; pass 21: -24 a copy of that body, data
+    dw os88ui_krflg             ; bytes the same, only their section moved).
+    dw 1                        ; The kernel cannot use OS88UI_BTNREC - that
+    dw 0                        ; macro is in apps/os88api.inc, which the
+    dw 0                        ; kernel does not include - so this record is
+    dw 0                        ; laid out here up to the place proc, which is
+    dw 0                        ; a package's (OS88UI_PLACE, 20.5.1.3.5), and
+                                ; os88ui_kbtn aims its RECTS at the call. It
+                                ; is ONE record for os88ui_krect's own reason:
+                                ; every kernel user is the UI task under the
+                                ; gfx lock, and a gesture is one press and one
+                                ; release. Nothing in the kernel writes LABELS,
+                                ; FLAGS, N or DOWN: the record's writers
+                                ; (os88ui_btninit, _btnpress, _btndrag,
+                                ; _btnup) are packages' alone, %ifndef
+                                ; OS88UI_KERNEL
+%if ($ - os88ui_krec) != OS88UI_BT_PLACE || OS88UI_BT_RECTS != 0 || OS88UI_BT_LABELS != 2 || OS88UI_BT_FLAGS != 4 || OS88UI_BT_N != 6 || OS88UI_BT_DOWN != 10
+  %error "os88ui_krec's assembled words must be OS88UI_BT_RECTS .. the place proc, in order"
+%endif
+section .bss
 
 
 %ifdef OS88UI_SCROLL
@@ -6659,12 +6672,8 @@ section .cold
     push bx
     mov [os88ui_krlbl], si
     mov [os88ui_krflg], di
-    mov [os88ui_krec+OS88UI_BT_RECTS], bx
-    mov word [os88ui_krec+OS88UI_BT_LABELS], os88ui_krlbl
-    mov word [os88ui_krec+OS88UI_BT_FLAGS], os88ui_krflg
-    mov word [os88ui_krec+OS88UI_BT_N], 1
-    mov word [os88ui_krec+OS88UI_BT_DOWN], 0
-    mov bx, os88ui_krec
+    mov [os88ui_krec+OS88UI_BT_RECTS], bx ; (LABELS, FLAGS, N = 1 and DOWN = 0
+    mov bx, os88ui_krec                   ; are the record's assembled words)
     mov al, 1
     call %2
     pop bx
