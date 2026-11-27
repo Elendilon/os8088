@@ -84737,6 +84737,30 @@ Either way it is clamped into that display (`vid_pt_clamp`, §39.15.4) and
 `[cur_disp]` is set to it, both under one `cli`. `vid_apply`'s
 `[cur_shchk]` already says the pointer moved. Cost: EXTD.DRV only.
 
+#### 39.18.5 A VGA running as the CGA goes dark through its Sequencer
+
+`vid_bk` darks a CGA by clearing 3D8h's video-enable bit. A VGA ignores
+3D8h, and on a VGA + Hercules machine the VGA can BE the CGA: BIOS mode 6,
+`[vid_kind]` = CGA, `[vid_avail]`'s VGA bit set. A bracket on the Hercules
+then left that monitor lit with a frozen desktop (the audit's D3). So
+`EXTD.DRV`'s `vid_fsx_enter` and `vid_fsx_unblank` also set and clear
+**SR01 bit 5**, the VGA Sequencer's screen-off, when the other display's
+kind is CGA and the machine has a VGA. The test is the machine's VGA bit
+and not the kind, because only the VGA has that bit: an EGA's SR01 bit 5
+means something else. The index and data writes happen under one `cli`,
+because the cursor's planar paths write 3C4h too. A real CGA has nothing at
+3C4h, and the test keeps it from being written there. Cost: EXTD.DRV only.
+
+**Why not `vid_bk`'s planar arm.** That arm darks through the Attribute
+Controller's Colour Plane Enable, and routing this case to it would be 7
+resident bytes. But its unblank writes 0Fh, the value for the planar modes,
+and BIOS mode 6 sets 01h. With 0Fh, planes 1 to 3 (plane 2 holds the font)
+would show through the CGA picture. So that route also needs the restore
+value per mode. SR01 is a read-modify-write of one bit, so it puts back
+exactly what the mode had, whatever that was. It was chosen for that
+correctness. MartyPC parses SR01 bit 5 and does not render it, so the
+bracket is checked on 86Box.
+
 ### 39.19 Single or Extend, and where the second display sits
 
 Two bytes, `[vid_dmode]` (0 = Single, 1 = Extend) and `[vid_dlay]`

@@ -504,8 +504,42 @@ vid_fsx_unblank:                ; (no DI: ext_kind_of banks it and the blank
     dec byte [fsx_vndisp]       ; 2 -> 1, one-shot: a bracket that set no mode and a
     call ext_okind              ; second restore must not write these ports
     EXK vid_unblank_kind        ; pair never names it)
+    mov ah, 0                   ; (AL kept) ...and SR01's screen-off bit down
+    call ext_seqblank
     pop ax
     retf
+
+; ext_seqblank - A VGA RUNNING AS THE CGA (BIOS mode 6, SPEC.md 39.18.5)
+; in:       AL = the other display's kind, AH = 20h dark / 0 lit
+; out:      -; every register preserved, flags clobbered
+;
+; vid_bk darks a CGA through 3D8h, and a VGA ignores 3D8h: on a VGA + Hercules
+; machine whose VGA is the CGA (mode 6), a Hercules bracket left that monitor
+; showing a frozen desktop (the audit's D3). The VGA's own screen-off is the
+; Sequencer's Clocking Mode bit 5, and only the VGA has it - an EGA's SR01 bit
+; 5 is something else - so the test is the machine's VGA bit, not the kind.
+; Index and data under one cli: the cursor's planar paths write 3C4h too.
+ext_seqblank:
+    cmp al, VID_CGA
+    jne .r
+    test byte [vid_avail], VID_A_VGA
+    jz .r
+    push ax
+    push dx
+    pushf
+    cli
+    mov dx, 0x3C4
+    mov al, 1                   ; SR01, Clocking Mode
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 0xDF
+    or al, ah
+    out dx, al
+    popf
+    pop dx
+    pop ax
+.r: ret
 
 ; -----------------------------------------------------------------------------
 ; vid_fsx_enter - one display, and the other dark (SPEC.md 39.18)
@@ -541,6 +575,8 @@ vid_fsx_enter:
 
     call ext_okind              ; ...dark the card that is not the bracket's
     EXK vid_blank_kind
+    mov ah, 20h                 ; (AL kept: vid_bk banks it) - and a VGA
+    call ext_seqblank           ; running as the CGA through SR01 (D3)
 
     mov al, [fsx_vdisp]
     call ext_kind_of            ; ...and become that one: the live block, the
