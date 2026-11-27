@@ -1076,6 +1076,33 @@ hbm_knk_n   equ $ - hbm_knk
 ; --- what the far entry does.
 hbm_kd:     call KERNEL_SEG:cw_mem_disp     ; BP = a .text body
             ret
+
+; -----------------------------------------------------------------------------
+; hbm_findimg - find HIBERNAT.IMG in the volume standing now
+; out: CF = 0 with BX = its first cluster and DX:CX = its size;
+;      CF = 1 = there is no such file
+; clobbers: AX, BX, CX, DX (the outputs)
+;
+; **BY NAME OFF THE DIRECTORY, not out of the global listing** (SPEC.md 18.4).
+; It was `dsk_find_name_x` then `dsk_get_dir_x` - two thunked far calls to
+; reach a staged entry from which its three callers took exactly two things,
+; the first cluster at +18 and the size at +20. `dskw_stat_x` answers both in
+; REGISTERS off a directory walk, so this is one far call instead of two and
+; the entry is never staged at all.
+;
+; It is also what takes hibernate out of the global snapshot's consumer list
+; (docs/plans/LISTING-HOME-PLAN.md): a resume runs with no Disk window in
+; existence, so it was the reader that no window's cache could ever serve.
+; The walk it pays for instead is noise beside writing a whole memory image.
+;
+; IT FALLS INTO hbm_cb, which is why it lives here among the doors (driver
+; size pass 2, kmod's queue): the far call's own `ret` is its answer, where
+; a `call hbm_cb` and a `ret` of its own stood
+; -----------------------------------------------------------------------------
+hbm_findimg:
+    call hbm_nimg               ; SI = the name - this build has ONE, and the
+    mov bp, dskw_stat_x         ; extension is stamped on (SPEC.md 87.3); CF,
+                                ; BX and DX:CX are all the stat's answer
 hbm_cb:     call COLD_SEG:wm_cbd            ; BP = a .cold body
             ret
 hbm_vbn:    call COLD_SEG:drvf_drv_vol_bank
@@ -1603,30 +1630,6 @@ hbm_root:
     ret
 
 ; -----------------------------------------------------------------------------
-; hbm_findimg - find HIBERNAT.IMG in the volume standing now
-; out: CF = 0 with BX = its first cluster and DX:CX = its size;
-;      CF = 1 = there is no such file
-; clobbers: AX, BX, CX, DX (the outputs)
-;
-; **BY NAME OFF THE DIRECTORY, not out of the global listing** (SPEC.md 18.4).
-; It was `dsk_find_name_x` then `dsk_get_dir_x` - two thunked far calls to
-; reach a staged entry from which its three callers took exactly two things,
-; the first cluster at +18 and the size at +20. `dskw_stat_x` answers both in
-; REGISTERS off a directory walk, so this is one far call instead of two and
-; the entry is never staged at all.
-;
-; It is also what takes hibernate out of the global snapshot's consumer list
-; (docs/plans/LISTING-HOME-PLAN.md): a resume runs with no Disk window in
-; existence, so it was the reader that no window's cache could ever serve.
-; The walk it pays for instead is noise beside writing a whole memory image.
-; -----------------------------------------------------------------------------
-hbm_findimg:
-    call hbm_nimg               ; SI = the name - this build has ONE, and the
-    mov bp, dskw_stat_x         ; extension is stamped on (SPEC.md 87.3)
-    call hbm_cb         
-    ret                         ; CF, BX and DX:CX are all its answer
-
-; -----------------------------------------------------------------------------
 ; hbm_forget - delete the pointer and the image (SPEC.md 87.6 step 5, and
 ;              87.4 step 3, before a new pair is written)
 ; in:  [hb_vol] = the volume; both files are in its root
@@ -1828,7 +1831,18 @@ hbm_geom:
     mov [hb_spt], dx
     mov dx, [dsk_boothds]
     mov [hb_heads], dx
-    jmp short .check
+.check:                         ; (the BIOS arm falls in, and the driver arm
+    mov ax, [hb_spt]            ; is laid after the exit: driver size pass
+    dec ax                      ; 2, so the first refusal reaches .no short)
+    cmp ax, 62                  ; 1..63 and 1..255 as ONE unsigned window
+    ja .no                      ; each: 0 wraps to 0xFFFF and is refused by
+    mov ax, [hb_heads]          ; the same `ja` the upper bound needs
+    dec ax
+    cmp ax, 254
+    ja .no
+    CLC_OR_STC .no              ; CF = 0, or (.no) CF = 1
+    pop bp
+    jmp hbm_ret6                ; pops neither touch CF
 .drv:
     cmp byte [bx+DV_KIND], DVK_DRV
     jne .no
@@ -1851,18 +1865,7 @@ hbm_geom:
     mov [hb_base + 2], cx
     mov [hb_spt], si
     mov [hb_heads], di
-.check:
-    mov ax, [hb_spt]            ; 1..63 and 1..255 as ONE unsigned window
-    dec ax                      ; each: 0 wraps to 0xFFFF and is refused by
-    cmp ax, 62                  ; the same `ja` the upper bound needs
-    ja .no
-    mov ax, [hb_heads]
-    dec ax
-    cmp ax, 254
-    ja .no
-    CLC_OR_STC .no              ; CF = 0, or (.no) CF = 1
-    pop bp
-    jmp hbm_ret6                ; pops neither touch CF
+    jmp short .check
 
 ; -----------------------------------------------------------------------------
 ; hbm_arm - the Hibernate button (SPEC.md 87.2, 87.4): the disk in [hb_vol]
@@ -5997,6 +6000,11 @@ kds_stub_end:
 %include "hbstub.inc"         ; ...and the stub's body, in THIS host's
                               ; `.modh` - the section is the includer's
 %ifdef KERN_MEGA
+; megados.inc's mega_dstubup names the park stub in the resident kernel as an
+; immediate (`add ax, mpk_stub`), assembled from this label in the same
+; build, so it follows the stub wherever it lands - a value that moves with
+; the module's layout (driver size pass 2's record, docs/plans/completed/dsp2/RECORD.md
+; 3; the MEGADIAG arms put more code above it, which a fixed place refused)
 %include "megapark.inc"       ; ...and kern_mega's PARK stub, which the kernel
                               ; copies out of this image (kernel/megados.inc)
 %include "megares.inc"        ; ...and its STREAMING RESUME's stub and tail

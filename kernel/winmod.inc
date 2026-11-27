@@ -250,7 +250,17 @@ section .modw
 ; background bar is dearer and the front one cheaper - and Windows draws its
 ; buttons on every window, which is the owner's decision (SPEC.md 76.14.5).
 ; -----------------------------------------------------------------------------
+wn_title.none:                  ; ...and nothing banked yet, so the near return
+    ret                         ; under the `jmp far` is all that is owed
 wn_title:
+    WM_CHROMELESS di            ; A FULLSCREEN WINDOW HAS NO TITLE BAR, and
+    jnz .none                   ; nor has a DESK one (SPEC.md 11.103.5): this
+                                ; door stands in front of wm_draw_title_b's
+                                ; own test, so it asks the same question -
+                                ; FIRST, before the bank (driver size pass 2:
+                                ; its answer at .out was out of a short
+                                ; jump's reach, a `jz` over a near jmp taken
+                                ; on every bar painted)
     push ax                     ; kret_es's order, so the one exit is the
     push bx                     ; kernel's own ladder
     push cx
@@ -259,11 +269,6 @@ wn_title:
     push di
     push bp
     push es
-    WM_CHROMELESS di
-    jnz .out                    ; a fullscreen window HAS no title bar, and
-                                ; nor has a DESK one (SPEC.md 11.103.5): this
-                                ; door stands in front of wm_draw_title_b's
-                                ; own test, so it asks the same question
 
     ; --- the pens come from the selected Color preset -----------------------
     mov ax, [thm_tbgc]          ; AL = ground, AH = ink (adjacent, in order)

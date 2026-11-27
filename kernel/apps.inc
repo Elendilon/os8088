@@ -132,7 +132,7 @@ app_about_paint_x:
     mov al, [sch_coop]          ; third line follows the live scheduler mode:
     mov ah, APP_ABOUT_S3N       ; 0 pre-emptive, 1 cooperative - the byte
     mul ah                      ; itself (kernel size pass 20), which nothing
-    add ax, app_about_s3p       ; writes but 0 or 1 (cp_schset normalises it,
+    add ax, app_about_s3p       ; writes but 0 or 1 (the Scheduling radio's AL is,
     xchg si, ax                 ; the settings reader range-tests it), as the
                                 ; index of one of two equal-length strings
                                 ; (kernel size pass 21, -2 on the compare,

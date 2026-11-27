@@ -292,12 +292,6 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
- "CPWIDE_DAT": {
-  "sources": [],
-  "stamped": "242d42709",
-  "strings": null,
-  "why": "first page: written from SPEC.md 135.6-135.7 and drivers/catalog.toml"
- },
  "CPWIDE_DRV": {
   "sources": [
    "kernel/cpwide.inc",
@@ -305,9 +299,9 @@
    "kernel/cpw_vid.inc",
    "kernel/cpw_thm.inc"
   ],
-  "stamped": "242d42709",
-  "strings": "f88cbb8a26ef502d",
-  "why": "first page: written from SPEC.md 135 and the cpw* sources' strings (page list, Drivers, Display with Test..., Theme)"
+  "stamped": "58530cfd1",
+  "strings": "895d0c9c3edfb9e6",
+  "why": "driver size pass 2: the Drivers, Theme and Display pages draw the same pixels with fewer calls, and the Display page's redraws are narrower - below this page's detail; the memory figure follows the merged module (26,624 bytes in one claim)"
  },
  "CTRL_DRV": {
   "sources": [

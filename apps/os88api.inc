@@ -3629,7 +3629,7 @@ PKGV_IDENT   equ 0              ; **VERB 0 OF EVERY PACKAGE DOOR IS IDENTIFY**
 DRVM_CEIL_DISK equ 5           ; DRVC_DISK's ceiling, in KB
 DRVM_CEIL_NET  equ 34          ; ...and DRVC_NET's on kern_small, which has
                                 ; no PCIETHER.DRV row
-DRVM_CEIL_NET_PCI equ 40       ; ...and DRVC_NET's on kern_big, kern_emu and
+DRVM_CEIL_NET_PCI equ 39       ; ...and DRVC_NET's on kern_big, kern_emu and
                                 ; kern_mega, whose PCIETHER.DRV (SPEC.md
                                 ; 125.5) is the class's larger row: DOS.O88
                                 ; quotes this one

@@ -9,7 +9,6 @@ klf_enable:
     push cx
     push si
     push di
-    push ds
     call klf_lock
     cmp byte [es:klf_active], 0
     jne .done
@@ -17,13 +16,13 @@ klf_enable:
     mov [es:klf_saved_seg], ax
     mov si, [font_base]
     mov [es:klf_saved_base], si
+    push ds                         ; the kernel's, needed below
     mov ds, ax
     mov di, klf_table
     mov cx, FONT_BYTES / 2
     cld
     rep movsw                       ; retain the selected ASCII face
     pop ds
-    push ds                         ; the saved kernel DS, needed below
     pushf
     cli
     mov ax, es
@@ -34,7 +33,6 @@ klf_enable:
     popf
 .done:
     call klf_unlock
-    pop ds
     pop di
     pop si
     pop cx
@@ -43,14 +41,17 @@ klf_enable:
     clc
     ret
 
+; No caller reads CF from klf_disable, klf_suspend or klf_rearm: klm_status
+; ends every control call with its own, and kl_drop_x answers AX = 0.
 klf_disable:
     push ax
     push bx
     call klf_lock
-    cmp byte [es:klf_active], 0
-    je .done
-    cmp byte [es:klf_active], 2
-    je .suspended
+    mov al, [es:klf_active]
+    or al, al
+    jz .done
+    cmp al, 2
+    je .off                     ; suspended: the original face is in place
     pushf
     cli
     mov ax, [es:klf_saved_seg]
@@ -58,16 +59,13 @@ klf_disable:
     mov ax, [es:klf_saved_base]
     mov [font_base], ax
     mov word [font_last], ((FONT_LAST-FONT_FIRST) << 8) | FONT_LAST
-    mov byte [es:klf_active], 0
     popf
-    jmp short .done
-.suspended:
-    mov byte [es:klf_active], 0
+.off:                           ; (the active byte is read only under the
+    mov byte [es:klf_active], 0 ; drawing lock this holds, never by an IRQ)
 .done:
     call klf_unlock
     pop bx
     pop ax
-    clc
     ret
 
 ; Private wake bracket: 2 means a live provider temporarily unbound. The
@@ -78,16 +76,12 @@ klf_suspend:
     call klf_disable
     mov byte [es:klf_active], 2
 .done:
-    clc
     ret
 klf_rearm:
     cmp byte [es:klf_active], 2
-    jne .done
+    jne klf_suspend.done
     mov byte [es:klf_active], 0
     jmp klf_enable              ; sample the repaired original pointer afresh
-.done:
-    clc
-    ret
 
 ; A worker can be paused between reading font_base and font_seg. Publishing
 ; the pair with IF=0 is not enough: serialize with the whole drawing burst.
@@ -99,13 +93,12 @@ klf_lock:
     je .take
     mov bl, [sch_cur]
     cmp bl, [gfx_lock_own]
+    mov bl, 0                   ; (flags kept)
     je .owned
 .take:
     call KERNEL_SEG:cw_gfx_lock
-    mov bl, 1
-    ret
+    inc bx                      ; BX = 1
 .owned:
-    xor bx, bx
     ret
 klf_unlock:
     or bl, bl

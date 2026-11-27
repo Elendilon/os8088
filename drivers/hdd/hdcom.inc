@@ -50,7 +50,12 @@ hd_msgc:     db HDM_PICK        ; the page's caption, as an HDM_* code and
                                 ; through DS, so a string only means anything
                                 ; in the image that letters it
 hd_nmnt:     db 0               ; ...how many volumes the last mount click
-                                ; mounted, which is what HDM_MOUNTED counts
+                                ; mounted, which is what HDM_MOUNTED counts.
+                                ; hd_msgc's NEIGHBOUR: hd_mount sets the two
+                                ; with one word
+%if hd_nmnt != hd_msgc + 1
+  %error "hd_mount stores hd_msgc and hd_nmnt as one word"
+%endif
 %ifdef HD_TOOL                 ; the PAGE's alone, and the page is in the
                                 ; tool image (SPEC.md 52.13): the resident
                                 ; letters nothing but one refusal, through
@@ -84,8 +89,8 @@ hd_dev_row:
     push ax
     mov ah, HDD_SIZE
     mul ah                      ; a BYTE multiply: AX only, DX untouched
-    add ax, hd_devs
-    mov di, ax
+    add ax, hd_devs             ; (CF = 0: no row is near 64KB, and
+    mov di, ax                  ; hd_dev_row_ck's answer is that CF)
     pop ax
     ret
 
@@ -105,13 +110,9 @@ hd_dev_row:
                                 ; only callers
 hd_dev_row_ck:
     cmp al, [hd_ndev]
-    jae .no
-    call hd_dev_row
-    clc
-    ret
-.no:
-    stc
-    ret
+    cmc                         ; CF = 1 = past the table...
+    jnc hd_dev_row              ; ...and the row comes back with CF = 0:
+    ret                         ; hd_dev_row's `add` cannot carry
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -126,10 +127,14 @@ hd_dev_row_ck:
 ; lucky: the first divide is refused unless DX is below the divisor, so its
 ; quotient - the cylinder - fits a word, and the second divides a remainder
 ; already below spt*heads.
+;
+; PER RUN on both rungs, so its common case runs straight through: a cylinder
+; below 1,024 takes no jump (the large-disk test is out of line, at .big),
+; and BX, which nothing here touches, is not banked (driver size pass 2:
+; ~39 clocks a call on an 8088, and 7 bytes).
 ; -----------------------------------------------------------------------------
 hd_chs:
     push ax
-    push bx
     push cx
     push dx
     mov ax, [di+HDD_HEADS]
@@ -137,21 +142,15 @@ hd_chs:
     mov cx, ax                  ; CX = spt*heads (<= 16,065)
     test dx, dx
     jnz .bad
-    or cx, cx
-    jz .bad
+    jcxz .bad
     mov ax, [hd_lba]
     mov dx, [hd_lba+2]
     cmp dx, cx
     jae .bad                    ; the quotient would not fit a word
     div cx                      ; AX = cylinder, DX = the rest
     cmp ax, 1024                ; int 13h's ten bits of cylinder, on every
-    jb .cyl                     ; row - a BIOS reserves the drive's last
-                                ; cylinder from AH=08h and it is still there
-    cmp byte [di+HDD_KIND], HDK_IDE
-    jne .bad
-    cmp ax, [di+HDD_CYL]        ; ...and past them the task file's sixteen,
-    jae .bad                    ; to the drive's OWN geometry: past THAT is
-.cyl:                           ; LBA mode's, or nobody's (SPEC.md 52.1.5)
+    jae .big                    ; row - a BIOS reserves the drive's last
+.cyl:                           ; cylinder from AH=08h and it is still there
     mov [hd_cyl], ax
     mov ax, dx
     xor dx, dx
@@ -159,19 +158,17 @@ hd_chs:
     mov [hd_head], ax
     inc dx
     mov [hd_sec], dx
+    CLC_OR_STC .bad
     pop dx
     pop cx
-    pop bx
     pop ax
-    clc
     ret
-.bad:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
+.big:
+    cmp byte [di+HDD_KIND], HDK_IDE
+    jne .bad
+    cmp ax, [di+HDD_CYL]        ; ...and past them the task file's sixteen,
+    jb .cyl                     ; to the drive's OWN geometry: past THAT is
+    jmp short .bad              ; LBA mode's, or nobody's (SPEC.md 52.1.5)
 
 ; -----------------------------------------------------------------------------
 ; hd_part_load - read the selected device's partition table into hd_mbr
@@ -187,7 +184,10 @@ hd_chs:
 ; A disk with no signature is not an error here - it is a disk nobody has
 ; partitioned - so the failure path leaves a table the user can edit rather
 ; than nothing at all. What it must never do is leave the PREVIOUS device's
-; table in the buffer, which is why the blank happens before the read.
+; table in the buffer, which is why every way out but a signed read blanks it.
+; (It blanked it BEFORE the read as well, until driver size pass 2: a read
+; that succeeds writes all 512 bytes and every other way out blanks again,
+; so that first blank - 256 stores a load - was never seen.)
 ;
 ; HMB_BAD AND HMB_NONE USED TO BE THE SAME ANSWER, and that was a way to lose
 ; a disk: a marginal LBA 0 on a drive with three real partitions read as "not
@@ -198,39 +198,45 @@ hd_chs:
 ; -----------------------------------------------------------------------------
 hd_part_load:
     push ax
+    push dx
+    xor ax, ax
+    cwd                         ; DX:AX = LBA 0
+    call hd_rec_load
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_rec_load - a sector shaped like a partition table into hd_mbr: the MBR,
+;               or one of the extended partition's records (SPEC.md 52.4.1)
+; in:  DX:AX = its LBA, DI = the device row
+; out: as hd_part_load
+; clobbers: AX, flags
+; -----------------------------------------------------------------------------
+hd_rec_load:
     push bx
     push cx
-    push dx
     push es
-    call hd_mbr_blank
     push ds
     pop es
     mov bx, hd_mbr
-    xor ax, ax
-    cwd                         ; DX:AX = LBA 0
     mov cx, 1
-    mov [hd_rawop], al          ; read
+    mov [hd_rawop], ch          ; read
     call hd_raw
-    jc .bad                     ; the READ failed: leave HMB_BAD
+    mov al, HMB_BAD             ; the READ failed: this table is a fabrication
+    jc .blank
     cmp word [hd_mbr+510], 0xAA55
-    jne .nosig
-    mov byte [hd_mbrok], HMB_OK ; ...and CF = 0, off the compare's equal
-    jmp short .out
-.nosig:                         ; read fine, nobody has partitioned it - the
-    mov al, HMB_NONE            ; blank IS the right answer, and committing it
-    jmp short .blank            ; destroys nothing
-.bad:
-    mov al, HMB_BAD             ; this table is a fabrication
-.blank:
-    call hd_mbr_blank
-    mov [hd_mbrok], al
+    mov al, HMB_OK              ; (`mov` writes no flag)
+    je .store                   ; ...and CF = 0, off the compare's equal
+    mov al, HMB_NONE            ; read fine, nobody has partitioned it - the
+.blank:                         ; blank IS the right answer, and committing it
+    call hd_mbr_blank           ; destroys nothing
     stc
-.out:
+.store:
+    mov [hd_mbrok], al
     pop es
-    pop dx
     pop cx
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -262,7 +268,7 @@ hd_mbr_blank:
     xor ax, ax
     rep stosw
     mov word [hd_mbr+510], 0xAA55
-    mov byte [hd_mbrok], 0
+    mov [hd_mbrok], al          ; HMB_BAD: AL is the zero just stored
     pop es
     pop di
     pop cx
@@ -388,24 +394,32 @@ hd_part_big:
 ; 19.12.10) - kern_mega reads it, and every other kernel's BPB check refuses
 ; FATSz16 = 0 as it refuses any boot sector that is not its format.
 ; -----------------------------------------------------------------------------
+%ifdef HD_TOOL
+hd_part_isf16:                  ; ...the same, FAT12 and FAT16 only: what the
+    push ax                     ; installer can install to (inst.inc)
+    mov ax, HPT_NOTFAT | (1 << HPT_FAT32) | (1 << HPT_FAT32L)
+    jmp short hd_part_istype
+%endif
 hd_part_isfat:
     push ax
+    mov ax, HPT_NOTFAT
+hd_part_istype:                 ; ...THE TEST, for any set of types (mount.inc's
+                                ; hd_part_isext too): AX = a mask whose bit n
+                                ; is CLEAR for each type n (< 16) in the set,
+                                ; and the caller's AX on the stack under it
     call hd_part_used
     jc .no
-    mov al, [si+HP_TYPE]
-    cmp al, 15
-    ja .no
-    push cx                     ; ONE BIT A TYPE: HPT_NOTFAT's bit n = type n
-    xchg cx, ax                 ; is not one, so CL = the type shifts the
-    mov ax, HPT_NOTFAT          ; answer down to bit 0 and out into CF
+    push cx
+    mov cl, [si+HP_TYPE]        ; ONE BIT A TYPE: CL = the type shifts the
+    cmp cl, 16                  ; answer down to bit 0 and out into CF...
+    cmc                         ; ...and no type from 16 up is in any set
+    jc .not                     ; (CF = 1 from there)
     shr ax, cl
-    pop cx
     shr al, 1
-    pop ax
-    ret
+.not:
+    pop cx
 .no:
     pop ax
-    stc
     ret
 
 %ifdef HD_TOOL                 ; hd_win_erase, hd_scat and hd_utoa draw and
@@ -571,27 +585,21 @@ hd_geom_ok:
     ja .no                      ; 504MB is ADDRESSABLE when nothing else can
 .heads:                         ; be the same disk (SPEC.md 52.1.5)
     mov ax, [di+HDD_HEADS]
-    test ax, ax
-    jz .no
-    cmp ax, 255
-    ja .no
+    dec ax                      ; 1..255 is 0..254 now and 0 is FFFFh, so
+    cmp ax, 255                 ; ONE unsigned compare is both bounds
+    jae .no
     cmp byte [di+HDD_KIND], HDK_IDE
     jne .spt
     cmp ax, 16                  ; the task file has four bits of head, so an
-    ja .no                      ; IDE row carrying more is not a drive we can
+    jae .no                     ; IDE row carrying more is not a drive we can
 .spt:                           ; address at all - refuse the GEOMETRY rather
                                 ; than truncate it at the port (SPEC.md 52.1)
     mov ax, [di+HDD_SPT]
-    test ax, ax
-    jz .no
+    dec ax                      ; 1..63, the same way
     cmp ax, 63
-    ja .no
+    jae .no
+    CLC_OR_STC .no
     pop ax
-    clc
-    ret
-.no:
-    pop ax
-    stc
     ret
 
 %ifdef HD_TOOL                 ; the page's size column and labels

@@ -3034,8 +3034,11 @@ endif
 KERNNAME   := kernel.sys
 KERNFILE   := $(BUILD)/$(KERNNAME)
 
+# CPWIDE.DRV's assets, assembled into its image (SPEC.md 135.6; the rule is
+# $(BUILD)/cpwdat.bin's, below). kern_small assembles no byte of SPEC.md 135
+CPWDATBIN := $(if $(KERN_SMALL),,$(BUILD)/cpwdat.bin)
 $(BUILD)/kernel-full.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) $(FONTINC) $(BUILDINC) tools/os88ovlchk.py tools/os88cfx.py tools/os88ksig.py \
-                          $(BUILD)/stiklib.bin | $(BUILD)
+                          $(BUILD)/stiklib.bin $(CPWDATBIN) | $(BUILD)
 ifeq ($(NOOVLCHK),)
 	@python3 tools/os88ovlchk.py
 else
@@ -3678,13 +3681,6 @@ DRIVERS += $(BUILD)/vesa.drv
 # ($(SYS360OMITDRV)): no XT has a PCI bus. kern_small filters it back out
 # ($(SMALLDRIVERS) is a restatement that never held it)
 DRIVERS += $(BUILD)/pciether.drv
-# CPWIDE.DAT - the wide Control Panel's icons and driver catalog (SPEC.md
-# 135.6, 135.7): a DATA file beside CTRL.DRV, built by tools/cpwdat.py. It is
-# kern_big / kern_emu / kern_mega's alone - kern_small has no wide panel - and
-# $(SMALLDRIVERS) is a restatement that never held it. On a
-# boot disk: hidden + system, not read-only (SPEC.md 19.6, 135.6), so it takes
-# a root directory slot and no listing slot.
-DRIVERS += $(BUILD)/cpwide.dat
 # ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
 # in this list that is an absence. Its code is 386 instructions and the target
 # machine is an 8088, so it is the one file in the tree that MUST NOT BE
@@ -4142,15 +4138,18 @@ $(BUILD)/%.f88: faces/%.t88 tools/os88face.py | $(BUILD)
 $(BUILD)/faces:
 	mkdir -p $@
 
-# CPWIDE.DAT (SPEC.md 135.6) packs like a driver: a 'CZ' file the kernel's
-# transparent read expands into the claim the directory hint sizes. Every input
-# is a prerequisite - the two sheets, the catalog, the layout it is checked
-# against and the compressor - and PKGZSTAMP carries the PKGZ knob, so a
-# BUILD= tree (kern_emu's, kern_mega's, a knob's) rebuilds it for its own PKGZ.
-$(BUILD)/cpwide.dat: tools/cpwdat.py kernel/cpwfmt.inc drivers/catalog.toml \
-                     kernel/cpwart/cp-icons-16.png kernel/cpwart/cp-icons-32.png \
-                     tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
-	python3 tools/cpwdat.py -o $@ $(if $(PKGZ),--fmt $(PKGZ))
+# CPWIDE.DAT (SPEC.md 135.6) - the wide Control Panel's icons and driver
+# catalog - is not a file on any disk: tools/cpwdat.py writes it UNPACKED here
+# and kernel/cpwide.inc `incbin`s it into CPWIDE.DRV's image (the owner's
+# no-required-sidecar rule, driver size pass 2), so the module file's own 'CZ'
+# packing covers it and one read brings both. A prerequisite of the KERNEL's
+# assembly, as stiklib.bin is, in every BUILD= tree but kern_small's, which
+# assembles no byte of SPEC.md 135 ($(CPWDATBIN), above the kernel's rule).
+# Every input is a prerequisite: the two sheets, the catalog and the layout it
+# is checked against.
+$(BUILD)/cpwdat.bin: tools/cpwdat.py kernel/cpwfmt.inc drivers/catalog.toml \
+                     kernel/cpwart/cp-icons-16.png kernel/cpwart/cp-icons-32.png | $(BUILD)
+	python3 tools/cpwdat.py -o $@
 
 $(BUILD)/faces/%.f88: $(BUILD)/%.f88 tools/os88lz.py $(PKGZSTAMP) | $(BUILD)/faces
 ifeq ($(PKGZ),)
@@ -4336,14 +4335,15 @@ COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
 # it would take two thirds of what the disk has left.
 # System Check's manifest marks them OPTIONAL (118.2.3), so a hard disk
 # installed from this disk is not reported as missing them.
-# The WIDE CONTROL PANEL's two files (SPEC.md 135.2) are the FIFTH and
-# SIXTH, the owner's decision of 2026-11-22: the wave-2 pages took the disk
-# past what it had left (708 clusters of 706), and a 360KB machine is an XT,
-# where the wide face's drawing and ~20KB of heap fit worse than on a 286+.
-# Without them the panel opens compact, silently - 135.2's refusal path - so
-# a 360KB boot is the compact face, as it was before 134 existed.
+# The WIDE CONTROL PANEL (SPEC.md 135.2) is the FIFTH, the owner's decision
+# of 2026-11-22: the wave-2 pages took the disk past what it had left (708
+# clusters of 706), and a 360KB machine is an XT, where the wide face's
+# drawing and its ~29KB of heap fit worse than on a 286+. Without it the
+# panel opens compact, silently - 135.2's refusal path - so a 360KB boot is
+# the compact face, as it was before 134 existed. (It was two files until
+# driver size pass 2 folded CPWIDE.DAT into the module's image.)
 SYS360OMITDRV = $(BUILD)/cdrom.drv $(HMAIMG) $(BUILD)/xmem.drv $(BUILD)/pciether.drv \
-                $(KMODDIR)/cpwide.drv $(BUILD)/cpwide.dat
+                $(KMODDIR)/cpwide.drv
 DRIVERS360 = $(if $(filter $(BUILD)/cdrom.drv,$(DRIVERS)),,$(error \
     DRIVERS360 filters $(BUILD)/cdrom.drv out of DRIVERS and it is not \
     there - SPEC.md 119.6.7's omission now matches nothing))$(filter-out \

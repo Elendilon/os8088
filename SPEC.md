@@ -2102,6 +2102,7 @@ words `mod_cfix` re-pointed at the load (the load's, not a use's).
 | `DESK.DRV` | `modj_scr`, ONE zero byte: it writes no byte of itself, and `MOD_H_SCR` = 0 is "freed" | - |
 | `STIKMENU.DRV` | `stm_cellx` to the end | every byte the menu writes but its KEPT SCAN: the geometry, the census, the band. The scan - `stm_kok`, `stm_kgen`, `stm_n`, `stm_over`, `stm_ents` - sits just BELOW the tail on purpose, so the drop keeps it (§110.12.2) |
 | `SERIAL.DRV` | the lease, its last 16 bytes: `srl_base` .. `srl_seen` | - (`srl_base` = 0 is "no lease"; `srl_open` writes every other cell before it sets `srl_base`, and `srl_body`, `srl_open` and now `srl_release` test it first - so `srl_owner` and `srl_div` lost their non-zero initialisers, and a `srl_release` with no lease no longer reaches `srl_close` with `srl_base` 0) |
+| `CPWIDE.DRV` | `.modvb`, 874 bytes: the Display page's filter labels (`cpv_tlab`), `cpw_dseg` (0 = not open) and the 848-byte working area (§135.5.1, zeroed again at every open) | - (`CPWIDE.DAT`, assembled into the image since driver size pass 2, is never written, §135.6) |
 
 **`CTRL.DRV`'s tail serves both rows, and the core zeroes its part itself.**
 The settings core's read stops at `MODS_SIZE` (§2.8.7), so on `MOD_SETS`'s
@@ -37842,6 +37843,19 @@ full-screen DOS program whose arena had taken the heap the 11KB module needed
   `kern_small` is byte-identical to the split it had; DOS does not ship on
   its disks.
 
+**Where the empty-folder removal is resident, the tree calls it** (driver size
+pass 2, docs/plans/completed/dsp2/dops.md): on `kern_big`, `kern_emu` and `kern_mega`
+the walk removes each folder it has emptied through `dskw_rmbody_n83`, and a
+redirected volume whose driver has no tree verb through `dskw_rmbody`, both
+reached through `wm_cbd` - the same gate, find, emptiness scan and commit,
+where the image carried a copy of all four. `kern_small`, which has no
+resident copy, keeps the image's. The image answers its own refusals
+(`FERR_IO`, `FERR_PROT`, `FERR_NAME`, `FERR_NODISK`, `FERR_EXIST`) rather than
+hopping to the kernel's three-instruction tails, and on `kern_small` its four
+verbs are words of the cloner's verb table. `DISKOPS.DRV` -150 bytes on
+`kern_big` and `kern_emu`, -194 on `kern_mega`, -116 on `kern_small`, with
+every answer and every `int 13h` call as it was.
+
 **Measured cost of the three resident bodies (`.cold` symbol spans, bytes):**
 
 | | `kern_big`/`kern_emu` | `kern_mega` | `kern_small` (not taken) |
@@ -46704,7 +46718,6 @@ place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
 | `KERNEL.SYS` | read-only + hidden + system | deleting it unboots the disk, and it is not a document |
 | `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
 | `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only — and stamped the same by the build on a disk that ships one (§80.7) |
-| `CPWIDE.DAT` | hidden + system | the wide Control Panel's assets (§135.6): the machine's, and deleting it unboots nothing, so **not** read-only |
 | everything else, on either disk | archive | ordinary and **visible** — `TASKMGR.O88` (the chip menu loads it by name, §28), `README.TXT` (the manual, meant to be opened, §19.7), every package in `APPS/` and `GAMES/`, `SYSTEM/DOS/`'s tools and the faces |
 
 **Only what would unboot the disk is locked.** The last row used to be split
@@ -77024,8 +77037,9 @@ What a machine that fails the probe loses with auto-init: rates above
 stereo and 16-bit formats (err 7), ADPCM4, recording (`SND_CAP_PCM_IN` is not
 published) and direct rings (the copy path plays them). `snd_sb_pub` already
 derives the caps from `[sbl_auto]`, so a package greys what is gone rather
-than being refused it. The probe is 275 bytes of attach-only code and
-data (its silence 31) - nothing resident - and runs in about 10 ms on
+than being refused it. The probe is 239 bytes of attach-only code and
+data (its silence 31; 275 as it landed, driver size pass 2) - nothing
+resident - and runs in about 10 ms on
 the board that needs it. The debug build records its answer (`SDG_O_AIP`, record v3, §127.3) and page 1 says
 `(8237 no wrap)` beside `auto no`; the DMA lab still runs its auto-init runs
 there, by the DSP's version rather than the driver's regime, because the lab
@@ -78904,7 +78918,7 @@ https://www.phatcode.net/res/243/files/sbhwpg.pdf .
 
 ### 34.15.1 What a machine cannot run leaves the claim
 
-SOUND.DRV is 10,460 bytes (11,151 when this was written) and four runs of
+SOUND.DRV is 10,835 bytes (11,151 when this was written) and four runs of
 it are dead weight once its attach has answered - one on every machine, and
 three on every machine without the hardware each one drives:
 
@@ -109402,9 +109416,11 @@ of address with no geometry at all.
   reports a geometry `hd_at_dup` cannot pair (heads must be equal), so that
   drive has a BIOS row AND an IDE row, and what kept the second from mounting
   every partition a second time, through another transport, was only the
-  1,024-cylinder refusal this section lifts. So `hd_at_xcyl`, at attach, sets
-  `HDF_XCYL` only when no BIOS row the pairing left unspent has this drive's
-  sectors per track — the one field a translation keeps. A drive that fails
+  1,024-cylinder refusal this section lifts. So attach sets `HDF_XCYL` only
+  when no BIOS row the pairing left unspent has this drive's sectors per
+  track — the one field a translation keeps. (It was a scan of its own,
+  `hd_at_xcyl`; since driver size pass 2 `hd_at_dup`'s scan counts those
+  rows on its way past, the same set, and hands the count back in AL.) A drive that fails
   it is exactly as it was: listed, unusable, and its BIOS row reaching it
   through rung 0 and §52.1.6. One that passes is a drive no BIOS row can be:
   the BIOS does not know it, or knows it exactly and paired it.
@@ -109437,7 +109453,8 @@ BIOS's set apart): a 1GB drive at 2,080/16/63 that SeaBIOS reports as
 at LBA 1,100,000, is reachable only in LBA mode. Broken on purpose — the LBA
 arm refused — nothing mounts. `hdextebios` holds the guard: a 9GB drive SeaBIOS
 translates to 255 heads, whose IDE row must stay without `HDF_XCYL`; with
-`hd_at_xcyl`'s scan skipped it mounts its one volume TWICE.
+that count skipped (`HDF_XCYL` set on every new IDE row) it mounts its one
+volume TWICE.
 
 #### 52.1.6 Rung 0 past cylinder 1,023: the packet calls (2026-11-18)
 
@@ -110212,6 +110229,11 @@ in front of `hd_mbr`. `HDDTOOL.DRV` grew ~100 bytes (Format's unmount, the
 installer's reach test, the clamp) and that crossed ITS `hd_mbr` alignment:
 16,153 → 16,665, half a KB more claimed while the tool is open. **No kernel
 byte**: `DRVM_IMG_HDD` and the ceiling are values in words already there.
+Driver size pass 2 took the resident span in front of the `align` from 4,094
+to 3,901 bytes and the file 4,021 → 3,927 - the image stays 4,608, the span
+being 317 bytes above the 3,584 that would give the half-KB back - and the
+tool back under its alignment: 16,665 → 16,231, a 16,384-byte claim again
+(docs/plans/completed/dsp2/hdd.md).
 
 `hdext` is the gate (QEMU's 386, the disk written sector by sector as FDISK
 writes it): C: a primary and an extended partition with two logical drives;
@@ -112734,7 +112756,10 @@ routine or a string across the buffers, never padding. Since driver size pass
 1 the controls (`os88ui.inc`) and `ipkg.inc`'s code are what sit after them,
 and three routines and the install log's strings were moved in front to take
 a pad of 319 to 0: the image 16,508 -> 16,153, a 16,896-byte claim -> 16,384
-(docs/plans/completed/dsp1/hdd.md).
+(docs/plans/completed/dsp1/hdd.md). §52.4.1's code in front made it a pad of
+397 and a 16,665-byte image; driver size pass 2 freed 48 bytes there and moved
+those three routines back out, to the END past the buffers: a pad of 11, the
+image 16,231 and the claim 16,384 (docs/plans/completed/dsp2/hdd.md).
 
 ### 52.12 Every label on both surfaces is one opaque run
 
@@ -112988,7 +113013,8 @@ to the kernel. A `call` there would return into a partition table. Nothing
 outside the run may name a label inside it but `hd_entry`'s two jumps, and the
 routines carry `hd_at_` in their names for that reason.
 
-**`hd_idbuf` is fourteen bytes now** (§52.13.3's union, one step further):
+**`hd_idbuf` is fourteen bytes now** (§52.13.3's union, one step further;
+sixteen since §52.1.5 kept word 49 as well):
 IDENTIFY's words 0..6 are the only ones the probe reads, and the other 249 are
 still read off the data port - the drive holds DRQ until the sector is drained
 - and dropped. **`hd_cfgbuf` is `hd_mbr`'s first 34 bytes**: a blob's
@@ -239995,7 +240021,9 @@ being the image's. The retired form is **+229 bytes of image** (5,679 ->
 `sc_fload`) and **+251** and 4 of bss for the second question (18,175;
 23,944 -> 23,948). §118.8.3's two more kinds of file are **+116 bytes of
 image** (6,176; 5,085 packed) and System Check **+93** (18,268), the kernel
-still byte-identical.
+still byte-identical. Driver size pass 2 found it at 6,294 (5,280 packed) and
+left it at **6,241 (5,239)** - kern_emu 6,230, kern_mega 6,239 - with every
+transfer of a run the same call in the same place (docs/plans/completed/dsp2/hdd.md).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*
@@ -240155,6 +240183,12 @@ an ATAPI device answers 256 words, of which word 0 must say ATAPI (bits
 15-14 = 10b) and a CD-ROM (bits 12-8 = 5). Bits 1-0 give the packet length:
 12 bytes, or 16. Words 27-46 are the model string, kept for `CDV_DRIVE`.
 **The first CD-ROM found is the drive**; a second is not used (§119.8).
+**The probe is the last thing in the image and attach gives it back**
+(`DRV_H_KEEP`, §51.1.3; driver size pass 2): it runs once, after every cell
+of the driver's state, and its bytes take the loaded claim from 17 of the
+heap's 512-byte granules to 16. A second `DRVV_ATTACH` into the same image is
+refused `DRVE_TWICE` by a test of the drive's base, a cell before the offset,
+so nothing reaches the probe again.
 
 **The transport** (`cd_packet`): wait for BSY and DRQ clear, select the
 device, write the byte-count limit (8000h) and `PACKET` (A0h), wait for DRQ,
@@ -241172,6 +241206,16 @@ movsw` to the edge, the next window and the rest now (`vx_rowcopy`): the
 depth blit went 7.9 → 3.4 ms, the fill's rate to within 10%, and the
 sixteen-colour `OSAPI_GFX_BLIT4` of the same rows is 5.3x it, which is
 what §120.7 buys a package. PERFORMANCE.md Part 5 carries the rows.
+
+**The text run puts a glyph row down in one pass** (driver size pass 2):
+`VX_FONTRUN` wrote every pixel through `vx_px` - a call, the depth test and
+the window-edge test a pixel, and at 16bpp the RGB word looked up each time.
+A row whose eight pixels end short of the window's last byte (DI + 8, or
++ 16, does not carry - so no edge test would have fired) is now one
+`stosb`/`stosw` loop with the run's two pixel values looked up once; a row
+that reaches the edge keeps the per-pixel loop, so every window switch
+happens where it did. Counted in a unicorn model of a banked VBE, not timed:
+the same pixels and the same `4F05h` calls in 55% of the instructions.
 
 ### 120.9 Testing
 
@@ -253411,14 +253455,14 @@ leaves the slot free for `PCIETHER.DRV`). What the row's builds add is the words
 `DRVE_CLASS`, `Class already in use`, in place of `DRVE_TWICE`'s
 `Attached twice (bug)` (§51.2.1). Its `SYSTEM.CFG` bit is **11** on every
 build that has the row (§125.8 item 2), so one settings file means the same
-on all three. Its Drivers-page price is `DRVM_PCIETH` = `DRVM_IMG_PCIETH` (35
-half-KB: 17,432 bytes with its bss, the UDP verbs of §72.24 included) + `DRVM_RT_PCIETH` (23: `rt_claim`'s
+on all three. Its Drivers-page price is `DRVM_PCIETH` = `DRVM_IMG_PCIETH` (34
+half-KB: 17,233 bytes with its bss, the UDP verbs of §72.24 included - 17,432 until driver size pass 2 sized them) + `DRVM_RT_PCIETH` (23: `rt_claim`'s
 ring, slack, overrun and transmit buffer, `RT_CLAIM` = 11,280 bytes, held
 from attach to detach) + `DRVM_SK_PCIETH` (21: the socket pool at the
 **middle** rung, because `sk_cardcap` holds a rung to the 8KB ring less
-`SK_RINGSLK` and `SK_RXMAX` never fits) = **79 half-KB, 40 KB** — against
+`SK_RINGSLK` and `SK_RXMAX` never fits) = **78 half-KB, 39 KB** — against
 `ETHER.DRV`'s 68. The two are alternatives, so the big builds' `DRVC_NET`
-ceiling is the larger and not their sum: `DRVM_CEIL_NET_PCI` = 40, which every
+ceiling is the larger and not their sum: `DRVM_CEIL_NET_PCI` = 39 (40 until driver size pass 2), which every
 `DOS.O88` quotes (the shipped one and kern_mega's `-DDOS_MEGA` copy), while
 `DRVM_CEIL_NET` is 34 (35 with §72.24's UDP before driver size pass 1) for kern_small, which has no PCI row and no DOS
 (§51.12.1; `tests/unit/t_drvmem.py` re-derives every term from
@@ -259860,7 +259904,7 @@ runtime (§73), band core (§130.6), game kit (§133), native fullscreen
 latch (§11.2), and the exclusive bracket (§53) for CGA color gameplay.
 No new resident kernel memory or API slot is allocated.
 
-## 135. The wide Control Panel - a second face for VGA and VESA (`kernel/cpw*.inc`, `CPWIDE.DRV`, `CPWIDE.DAT`)
+## 135. The wide Control Panel - a second face for VGA and VESA (`kernel/cpw*.inc`, `CPWIDE.DRV`)
 
 **Status: the plan is `docs/plans/CPWIDE-PLAN.md`; each story there says
 whether a subsection below is pinned only or shipped.** Until a story is
@@ -259897,8 +259941,8 @@ image generation, kept with their prompts as source (`docs/cpwide/`,
 | where | **`kern_big`, `kern_emu` and `kern_mega` only.** `kern_small` has no VGA renderer (§39.27) and no driver layer (§51.0); it never assembles a byte of this section and its `CTRL.DRV` is byte for byte unchanged |
 | when | at OPEN, when the primary display is a colour display whose WORK AREA holds the 616×408 face: `[vid_kind]` is `VID_VGA` or `VID_VESA`, and the band `wm_fit` places windows in is at least 632 wide and 408 high (§135.2 step 4) - so EGA's 640×350, VESA's 640×400, Hercules, CGA, and a 640×480 VGA with the Dock on its left or right edge keep the compact face. The decision is taken once per open; a `vid_switch` while the panel is open does not change face until it is closed and opened again (§135.2) |
 | how it loads | `CTRL.DRV` is loaded exactly as today, and then `CPWIDE.DRV` - a second on-demand module (§2.8), `MOD_CPW` - beside it. `CTRL.DRV` keeps ALL the panel's logic and every compact page; `CPWIDE.DRV` carries only the wide chrome, the shared widget kit of §135.5 and the three pages drawn natively wide (Drivers §135.8, Display §135.9, Theme §135.11). The two call each other through slot blocks (§135.4). Nothing is assembled twice |
-| assets | `CPWIDE.DAT`, a data file beside `CTRL.DRV` on every system disk of the three kernels but the 360KB one (§135.2): the icon sheets as 4bpp + mask and the driver catalog (§135.6, §135.7). Read once at open into a heap claim, freed at close |
-| refusal | **a refusal is a normal path, and it is the compact face.** `CPWIDE.DRV` or `CPWIDE.DAT` missing, refused by `mod_check`, or a heap that cannot fund them: the panel opens compact, exactly as before this section existed, with no message. The wide face is an improvement, never a requirement |
+| assets | `CPWIDE.DAT`, the icon sheets as 4bpp + mask and the driver catalog (§135.6, §135.7), assembled INTO `CPWIDE.DRV`'s image: one file and one read, no sidecar (the owner's rule, driver size pass 2). It was a data file of its own beside `CTRL.DRV` until then, read at every open into a heap claim of its own |
+| refusal | **a refusal is a normal path, and it is the compact face.** `CPWIDE.DRV` missing, refused by `mod_check`, or a heap that cannot fund it: the panel opens compact, exactly as before this section existed, with no message. The wide face is an improvement, never a requirement |
 | resident cost | the `MOD_CPW` row, its name, its `mod_fpt` word and slot block, the open-time predicate, and one slot more in `CTRL.DRV`'s block for the gate - **no rung crossed on any kernel** (CLAUDE.md, and the owner's standing zero-resident rule). Measured per wave in the plan |
 
 ### 135.2 Choosing the face, loading it, and falling back
@@ -259912,7 +259956,7 @@ Shipped by story S1. The pieces, and who owns each:
 | `.modv` / `.modvb` | `kernel/kernel.asm` | the image's sections, between `.modq` (KEYBOARD.DRV) and FSCHECK's; the Makefile cuts it as `-m 11=cpwide.drv` (`BIGMODS`), `os88ovlchk`, `os88modcost` and `kernsize` know the section |
 | `[cp_wide]` | `CTRL.DRV`'s bss (`.modcb`) | 0 compact, 1 wide. Written by `cpg_open` and `cp_wclose` alone, zero in the file tail - a re-adopted image starts compact |
 | `CPG_OPEN` | `CTRL.DRV`, through `CPE_GATE` | the choice AND the launch: the resident `cp_open_x` calls it once `CTRL.DRV` is in (`mov ah, CPG_OPEN` / `call far [CPFP + CPE_GATE*4]` / `jmp short`), in place of the `app_launch` and its beep that were there - so `.cold` is 2 bytes SMALLER, which is what kept kern_emu inside its rung (§135.12) |
-| `cpw_open` / `cpw_close` | `CPWIDE.DRV` (`CWV_OPEN` / `CWV_CLOSE`) | `CPWIDE.DAT` read into a claim of its own, and the window's size; the claim freed and the compact template put back |
+| `cpw_open` / `cpw_close` | `CPWIDE.DRV` (`CWV_OPEN` / `CWV_CLOSE`) | the window's size, the image's data view named (`cpw_dseg`) and the working area zeroed; a Test... reverted and the compact template put back |
 
 **The open**, in order (`cpg_open`):
 
@@ -259937,15 +259981,16 @@ Shipped by story S1. The pieces, and who owns each:
    band includes every reservation `dock_geom` makes, so a future edge
    strip is answered by the same two numbers. (A screen narrower than 640 or
    shorter than 480 fails this test too, so no separate size test is kept.)
-5. `mod_need MOD_CPW`; then `CWV_OPEN`: under the boot volume bracket
-   (`drv_vol_bank`/`drv_vol_back`), `drv_find` sizes `CPWIDE.DAT` (its
-   UNPACKED size - `PKGZ` packs it, §20.13.5), refused under the 16-byte
-   header or over 16,384 bytes (§135.6); `mem_claimp_hi_x` claims
-   `CPW_WSZ` + the file, `MEM_K_MOD` - pinned, top-down, beside the module
-   (`tests/pins.txt`); `dskw_read_x` reads it whole at `CPW_WSZ`; and the
-   file is CHECKED before an offset in it is trusted: the magic, the
-   version, its own size field against the bytes read, at least `CWI16_N`
-   and `CWI32_N` icons, and each of the three blocks inside the file.
+5. `mod_need MOD_CPW` - ONE read, the assets with the code (§135.6), or no
+   read at all when `MOD_CACHE` kept the image (§2.8.3) - then `CWV_OPEN`,
+   which refuses nothing: `CPWIDE.DAT` is the image's own bytes, stamped
+   with this build by `mod_check` (§2.8.2) like its code, so the checks a
+   file read off a disk needed (its magic, version, size field and block
+   bounds) have nothing left to guard. Until driver size pass 2 this step
+   looked `CPWIDE.DAT` up (`drv_find`), claimed `CPW_WSZ` + its bytes top-down
+   beside the module (`MEM_K_MOD`), read it whole (`dskw_read_x`) and
+   checked it, at EVERY open - so a re-open with the image kept still read
+   the disk.
 6. The window: **616×408** on a primary under 800×600, **760×520** on one
    of at least 800×600, centred on the primary (never above the menu bar),
    written into `cp_tpl` - which `app_launch` then copies. `cp_tpl`'s
@@ -259956,10 +260001,11 @@ Shipped by story S1. The pieces, and who owns each:
    instance slot, no window - closes a face just chosen, beeps (§34.3) and
    answers CF = 1, which `cp_open_x` hands its callers as before.
 
-**Any refusal is the compact face, silently**: no `CPWIDE.DRV` (`mod_need`
-refuses), no `CPWIDE.DAT`, a file that fails a check, or a heap that cannot
-fund the claim - the claim (if taken) is freed, `mod_drop MOD_CPW` runs, and
-the panel opens at 320×151 exactly as before §135. No toast, no beep.
+**Any refusal is the compact face, silently**: no `CPWIDE.DRV`, an image
+`mod_check` refuses, or a heap that cannot fund it - all three are
+`mod_need`'s refusal - and the panel opens at 320×151 exactly as before
+§135. No toast, no beep. (`cpg_open` still drops the image if `CWV_OPEN`
+answers CF = 1, which `CPWIDE.DRV` no longer does.)
 
 **A refused `CPWIDE.DRV` is not asked for again** until the next boot:
 when `mod_need MOD_CPW` refuses, `cpg_open` writes 0 over the first byte of
@@ -259971,12 +260017,17 @@ change line, where main made none on a re-adopted panel (2.8.3; measured on
 MartyPC's XT with VGA). A flag in `CTRL.DRV`'s own bss would not do: a
 re-adoption zeroes it. The name costs no byte. `mod_need` gives no reason,
 so a refusal for want of heap is remembered too, until the next boot - a
-price taken for the common case. A `CPWIDE.DAT` refusal is NOT remembered:
-it may be heap.
+price taken for the common case. Since the assets joined the image (driver
+size pass 2) that is the WHOLE heap case: the asset claim was a second,
+smaller refusal that was NOT remembered (it may be heap), so a heap that
+could fund the module but not the assets opened compact that once and tried
+again at the next open; now one contiguous claim answers both, and a heap
+that cannot fund it is remembered until the next boot (§135.12 measures
+it; the owner's to rule on).
 
 **The close**: `CPE_FLUSH`'s stub (`modc_e_flush`) runs the compact close
 (`cp_flush_close_x`, §31.8 - `SYSTEM.CFG` is written exactly as before),
-then `cp_wclose`: `CWV_CLOSE` frees the claim and restores `cp_tpl`,
+then `cp_wclose`: `CWV_CLOSE` reverts a Test... and restores `cp_tpl`,
 `mod_drop MOD_CPW`, `[cp_wide]` = 0. Then the resident thunk drops
 `CTRL.DRV` as it always did. `MOD_CACHE` keeps both images as purgeable
 caches (§2.8.3).
@@ -260004,13 +260055,13 @@ The resident `cpf_*` thunks are unchanged. `cp_list` (the list's membership
 changed - a driver came up or went) sends `CWV_LIST` instead of drawing.
 
 **Not on the 360KB system disk (the owner's decision, 2026-11-22).**
-`CPWIDE.DRV` and `CPWIDE.DAT` are in `$(SYS360OMITDRV)` beside CDROM.DRV and
-PCIETHER.DRV: with the three wide pages the disk needed 708 clusters of 706.
-A machine booted from the 360KB system disk therefore opens the compact
-face, by this section's own refusal path - an XT, where the wide face's
-drawing and its ~20KB of heap fit worse than on a 286 or better; the
-720KB, 1.2MB and 1.44MB
-system disks, the emu disk and the live media carry both files.
+`CPWIDE.DRV` is in `$(SYS360OMITDRV)` beside CDROM.DRV and PCIETHER.DRV
+(with `CPWIDE.DAT` until that became part of it): with the three wide pages
+the disk needed 708 clusters of 706. A machine booted from the 360KB system
+disk therefore opens the compact face, by this section's own refusal path -
+an XT, where the wide face's drawing and its ~29KB of heap fit worse than on
+a 286 or better; the 720KB, 1.2MB and 1.44MB system disks, the emu disk and
+the live media carry it.
 
 ### 135.3 The window, its panes, and the hosted pages
 
@@ -260019,7 +260070,7 @@ inner dimension derives from the content box, so both sizes are one layout):
 
 | element | where | drawn as |
 |---|---|---|
-| page list | x 0..119 (`CPW_LW` 120), y 0 to the status rule | white ground in spans; a heading every group (`SYSTEM`, `HARDWARE`, `APPEARANCE`: dark grey words padded to 14 cells, 13 rows with the air); a row every page (20 px pitch: a 19-row bar, the 16×16 icon at x 6, the name at x 26); the selection a blue bar with white text |
+| page list | x 0..119 (`CPW_LW` 120), y 0 to the status rule | white ground in spans; a heading every group (`SYSTEM`, `HARDWARE`, `APPEARANCE`: dark grey words and the rest of their rows ONE fill - padded to 14 cells until driver size pass 2, the same pixels and 18 glyph cells fewer a list - 13 rows with the air); a row every page (20 px pitch: a 19-row bar, the 16×16 icon at x 6, the name at x 26); the selection a blue bar with white text |
 | rule | x 120, y 0 to the status rule | 1 px black |
 | header strip | x 121 (`CPW_PX`) to the right edge, y 0..43 (`CPW_HDRH`) | the page's 32×32 icon at (PX+8, 5); its list name at (PX+48, 10) and a one-line description at (PX+48, 24), each padded with its paper to the right edge; a 1 px rule at y 41 |
 | page area | x 121.., y 44 (`CPW_BY`).. | the hosted page (below), or a wide page |
@@ -260076,7 +260127,8 @@ Shipped by S3. Two entries, one each way:
 - **`CTRL.DRV` → `CPWIDE.DRV`: `cpw_ev`** (`CPWFP` slot 0). Entered FAR with
   BP = a `CWV_*` event; it preserves every register but BP (the forwarder
   owns it) and answers CF for `CWV_OPEN` alone. An event other than
-  `CWV_OPEN` with no asset claim is dropped.
+  `CWV_OPEN` before the open has named the image's data view (`cpw_dseg`
+  0) is dropped.
 
 | `CWV_*` | | in |
 |---|---|---|
@@ -260133,14 +260185,16 @@ S8 owns that change and its resident bytes.
 Shipped by S4: `kernel/cpwkit.inc`, assembled into `CPWIDE.DRV` behind
 `cpwide.inc`, so the wave-2 pages draw with these and not with copies.
 **The common contract**: every coordinate is CONTENT-relative (the working
-area's `CPW_W_OX`/`CPW_W_OY`, set at every window event); ES = the asset
-claim, DS = `KERNEL_SEG`, the gfx lock held; every register is preserved but
+area's `CPW_W_OX`/`CPW_W_OY`, set at every window event); ES = the image's
+own DATA view (its segment; on kern_mega in protected mode its writable data
+alias, `PUSH_CSDATA`), which holds the working area and `CPWIDE.DAT`;
+DS = `KERNEL_SEG`, the gfx lock held; every register is preserved but
 a documented output; text is ONE opaque `font_run` (§6.1) and nothing writes
 a pixel twice - a band with text in it is laid as the spans around the run;
 a widget's label is an IMAGE string (CS); text from elsewhere goes through
 `cpw_run`/`cpk_text`, whose BL names the segment: 0 the image (CS), 1 the
-kernel's (DS - `cp_sbuf`, what the gate stages), 2 the asset claim (ES -
-the catalog, the working area). A renderer may leave the pen at the ink
+kernel's (DS - `cp_sbuf`, what the gate stages), 2 ES (the image's data
+view - the catalog, the working area). A renderer may leave the pen at the ink
 after a run (VESA.DRV does): a proc sets `[gfx_color]` before every fill.
 
 | proc | in | out | what |
@@ -260170,14 +260224,17 @@ columns, their headings and the selection bar's ink are therefore the
 PAGE's: a column layout is the row painter's arithmetic, and a header row is
 a `cpw_run` over it.
 
-**The working area** (`CPW_WSZ` = 848 bytes at the asset claim's start,
-`cpwide.inc`): the content origin and size, the window, the caller's ES,
+**The working area** (`CPW_WAN` = 848 bytes at `cpw_wa`, the image's bss
+tail, `cpwide.inc`; every `CPW_W_*` is ES-relative): the content origin and size, the window, the caller's ES,
 the status line's cache, the list's 28 entries, a 96-byte composed line
 (`CPW_W_STR`), the 80-byte PAGE BLOCK (`CPW_W_PAGE`), 16 KEPT bytes
 (`CPW_W_KEEP`), the kit's 12-byte scratch, and the 512-byte icon staging
-buffer. `CPWIDE.DAT` follows it, **on a paragraph**: a packed read (§20.13.5)
-expands at one, so an offset off the grid is a refused open, and `cpwide.inc`
-refuses to assemble one. The working area is zeroed at every open.
+buffer. It is zeros in the file, so a load delivers it zero and a drop
+zeroes it again before a re-adoption (`MOD_H_SCR`, §2.8.3), and `cpw_open`
+zeroes it at every open as well (the KEPT bytes are per open). `CPWIDE.DAT`
+is in the image's initialised part, `CPW_WSZ` its first byte (§135.6). It
+followed the working area in a claim of its own until driver size pass 2,
+**on a paragraph** then, for a packed read's sake.
 
 #### 135.5.1 The working area's map - who owns which byte
 
@@ -260193,7 +260250,7 @@ bytes in `CPW_W_KEEP` (13 of its 16 are spare; it grows by whole paragraphs), an
 fresh-entry flag of its own if it keeps anything in the block across
 repaints.
 
-| bytes | name | owner | lifetime |
+| bytes (from `cpw_wa`) | name | owner | lifetime |
 |---|---|---|---|
 | 0-17 | `CPW_W_OX` .. `CPW_W_LSEL` | the chrome (`cpwide.inc`) | the open |
 | 18 | `CPW_W_FULL` | the list paint | one paint |
@@ -260201,7 +260258,7 @@ repaints.
 | 20-31 | `CPW_W_KIT` | the kit's scratch (§135.5) | one call |
 | 32-143 | `CPW_W_LIST` | the page list's 28 entries | rebuilt by every list paint |
 | 144-239 | `CPW_W_STR` | a composed line | one call |
-| 240-319 | `CPW_W_PAGE` | **the page showing, whole**: Drivers `CPD_*` (the table block, the categories, the box's top, the columns, the listed rows - checked against the block in `kernel.asm`), Display `CPV_*` (checked in `cpw_vid.inc`), Theme `CPT_*` (checked in `cpw_thm.inc`) | one visit |
+| 240-319 | `CPW_W_PAGE` | **the page showing, whole**: Drivers `CPD_*` (the table block, what DETAILS has on the glass, the categories, the columns' air, the box's top, a row's x's, the listed rows - checked against the block in `kernel.asm`), Display `CPV_*` (checked in `cpw_vid.inc`), Theme `CPT_*` (checked in `cpw_thm.inc`) | one visit |
 | 320 | `CPW_W_DFLT` | the Drivers page's filter (0 All, else a `CWC_*`) | the open |
 | 321 | `CPW_W_DSEL` | the Drivers page's selected `drv_tab` row (0 at the open: row 0 if it is listed, else the first row) | the open |
 | 322 | `CPW_W_DON` (`CPW_D_ON`) | 1 while the page block is the Drivers page's; `cpw_page` clears it before drawing any other page (§135.8) | the open |
@@ -260215,16 +260272,23 @@ block and the icons, and each page refuses one that outgrows the block.
 `cpk_tabs` call a tab), a table with a row painter of its own, a group box, text
 lines, buttons and icons - all of this kit and nothing else.
 
-### 135.6 `CPWIDE.DAT` - the asset file
+### 135.6 `CPWIDE.DAT` - the assets, inside `CPWIDE.DRV`
 
 Built by `tools/cpwdat.py` from `kernel/cpwart/*.png` and
 `drivers/catalog.toml`; deterministic, no generation service in `make`
-(CLAUDE.md, *Treat artwork as source*). Little-endian:
+(CLAUDE.md, *Treat artwork as source*). **It is not a file on any disk**:
+the build writes it UNPACKED to `build/cpwdat.bin`, a prerequisite of the
+kernel's assembly like `stiklib.bin`, and `kernel/cpwide.inc` `incbin`s it
+as the LAST of `CPWIDE.DRV`'s initialised bytes (`cpw_dat`, on a word), so
+the module file's own `'CZ'` packing covers it and the one `mod_need` read
+brings code and assets together. Nothing writes a byte of it, so a kept
+image (§2.8.3) is its file's own. `CPW_WSZ` is its first byte, ES-relative,
+and every offset the format holds is from there. Little-endian:
 
 ```
 +0   db 'CW'          magic
-+2   db 1             version
-+3   db n16           16x16 icons
++2   db 2             version (2: 16x16 slots, 44-byte records)
++3   db n16           16x16 icons (slots)
 +4   db n32           32x32 icons
 +5   db ncat          catalog entries (§135.7)
 +6   dw off16         offset of the 16x16 block
@@ -260239,12 +260303,18 @@ Built by `tools/cpwdat.py` from `kernel/cpwart/*.png` and
 ```
 
 **Exact layout.** The header is 16 bytes (`CWD_HDR`); then, back to back, the
-32 16×16 icons at `off16` (= 16; 5,120 bytes), the 12 32×32 icons at `off32`
-(= 5,136; 7,680 bytes), the catalog at `offcat` (= 12,816; `ncat` × 64 bytes)
+26 16×16 slots at `off16` (= 16; 4,160 bytes), the 12 32×32 icons at `off32`
+(= 4,176; 7,680 bytes), the catalog at `offcat` (= 11,856; `ncat` × 44 bytes)
 and the description strings at `offstr` (NUL-terminated, in catalog order, line
-1 before line 2). Every offset in the file is from the file's start. A 16×16
-icon's mask is 16 words, one a row, bit 15 the leftmost pixel; a 32×32's is 32
-rows of two words, the left 16 pixels first. A pixel is opaque (mask bit 1) or
+1 before line 2). Every offset in the file is from the file's start, and the
+three block offsets are fixed by the counts: `kernel/cpwfmt.inc` carries them
+as `CWD_OFF16`, `CWD_OFF32` and `CWD_OFFCAT`, the module reads the blocks at
+those constants (never through the header), and `cpwdat.py` refuses a file
+whose header disagrees. A 16×16 icon's mask is 16 words, one a row, bit 15
+the leftmost pixel; a 32×32's is 32 rows of two words, the left 16 pixels
+first. (A mask word before each sixteen pixels read faster still and packed
+310 bytes worse, so the pixels-then-mask layout stayed: `cpw_icon`'s copy is
+`es lodsb` / `stosb` over it, driver size pass 2.) A pixel is opaque (mask bit 1) or
 transparent (mask bit 0, nibble 0); colour nibbles are indices into the sixteen
 EGA/VGA colours in their usual order - black, blue, green, cyan, red, magenta,
 brown, light grey, dark grey, light blue, light green, light cyan, light red,
@@ -260254,53 +260324,46 @@ light magenta, yellow, white - which are the sheets' RGB values `#000000`,
 `#FFFFFF`; the key `#FF00FF` is the transparent pixel and anything else is a
 build error (`tools/cpwdat.py` names the file, cell and pixel).
 
-**Measured (2026-11-21, 13 catalog entries): 14,642 bytes unpacked** - header
-16, icons 12,800, catalog 832, strings 994 - **5,290 bytes packed** (LZ4, `PKGZ`'s
-default; `make PKGZ=` ships it plain). The ceiling is 16,384 unpacked
-(`CPWIDE.DAT` is read into one heap claim); each new driver adds 64 bytes and its
-description strings, so the file has room for about a dozen more entries.
+**Measured (2026-11-21, 13 catalog entries): 14,642 bytes** - header
+16, icons 12,800, catalog 832, strings 994 - 5,290 bytes packed (LZ4) when it
+was a file of its own. **Driver size pass 2: 13,422 bytes** - icons 11,840
+(the six duplicate 16×16 cells stored once, -960), catalog 572 (the records'
+20 reserved bytes gone, -260). Each new driver adds 44 bytes and its
+description strings; the image's bound is `MOD_MAX_KB` (`kernel/mod.inc`), which
+`kernel.asm` checks at assembly.
 
-**It is on the disk like a driver.** `CPWIDE.DAT` rides `$(DRIVERS)`, so it is
-on every kern_big, kern_emu and kern_mega system disk - the 1.44MB, 720KB and
-1.2MB floppies, the emu disk, the hard-disk and live-media images, the mega
-images - and on no kern_small disk (`$(SMALLDRIVERS)` never held it). It is
-**not** on the 360KB system disk: it and `CPWIDE.DRV` are in
-`$(SYS360OMITDRV)`, the owner's decision of 2026-11-22 (§135.2), so a 360KB
-boot opens the compact panel. `os88disk.py` stamps it **hidden + system +
-archive and NOT read-only** - `SYSTEM.CFG`'s row of §19.6's table: hidden
-because it is the machine's and not the user's, not read-only because deleting
-it unboots nothing (the panel opens compact) and a keep-install must be able to
-replace it (§52.10.15.1). The installer's system phase carries it as it carries
-the drivers (`OSAPI_FILE_WRITE_SYS`), and the panel finds and reads it by name
-through `drv_find` and `dskw_read_x`, which walk the directory sectors and
-answer about a hidden file as they do about a `.DRV` (§19.6). It was an
-ORDINARY, visible file when it landed (#402), which put a root entry on every
-system disk and every installed C: that no association can claim: §25's
-generic icon, and a double-click that sweeps every volume for an opener
-(§54.4.3) before it says `Load failed`. `tests/icohd.py` met it on an
-installed hard disk (2026-11-26). It takes a directory slot and no listing
-slot. It is packed as a `CZ` file by
-`tools/os88lz.py --wrap` in the same pass as a driver: the directory entry
-carries the §20.13.5 hint, so a kernel read that names the file expands it
-transparently into a claim of the unpacked size - the wide panel sees the 14,642
-bytes above and never the stream. The rule is `$(BUILD)/cpwide.dat` in the
-Makefile; its prerequisites are the tool, `kernel/cpwfmt.inc`, the catalog,
-both sheets, the compressor and the `PKGZ` stamp, and it is built per `BUILD=`
-tree, so kern_emu's and kern_mega's directories and a knob tree each carry
-their own copy of the same bytes.
-
-Measured before the 360KB omission (2026-11-21), it cost 11 of that disk's
-706 512-byte clusters (678 → 689 in use, 17 free) and one root directory slot;
-the wave-2 pages later took the disk past what it had, which is why it is off.
+**One file, one read (the owner, driver size pass 2).** *"We have a policy
+against required sidecars, so if that is true then as part of this work
+combine them so we don't need an extra int13 for every wide control panel
+load."* It was true: a missing, refused or unaffordable `CPWIDE.DAT` opened
+the compact face exactly as a missing `CPWIDE.DRV` did, so the two were one
+feature in two files - and the second cost more than its sectors, because
+`cpw_open` looked it up and read it at EVERY open while `MOD_CACHE` kept the
+module's image re-adoptable with no read at all. It rode `$(DRIVERS)` as
+`CPWIDE.DAT`, hidden + system and not read-only (§19.6), on every kern_big,
+kern_emu and kern_mega system disk but the 360KB one, and the installer
+carried it with the drivers; `tests/icohd.py` met it as a visible root entry
+on an installed hard disk while it still was one (2026-11-26). Measured
+before the 360KB omission (2026-11-21), it cost 11 of that disk's 706
+512-byte clusters and one root directory slot. §135.12 has what the merge
+moved.
 
 A transparent pixel's colour nibble is 0 and means nothing; the drawer
-substitutes the ground. Icon indices are the sheets' cells, row-major:
-16×16 indices 0-15 are page icons (Scheduler, Date/Time, Keyboard, Floppy,
-Drivers, Display, Sound, Theme, Dock, Hard disk, Network, Debug monitor,
-generic driver page, Mouse, Memory, Ports) and 16-31 the driver categories
-and status marks (Display, Sound, Storage, CD-ROM, RAM disk, Network card,
-Input, Memory, System, Screen saver, USB, Virtual machine, Unknown, OK,
-Error, Warning); 32×32 indices 0-11 are the header icons (Scheduler,
+substitutes the ground. The sheets' cells are row-major: 16×16 cells 0-15
+are page icons (Scheduler, Date/Time, Keyboard, Floppy, Drivers, Display,
+Sound, Theme, Dock, Hard disk, Network, Debug monitor, generic driver page,
+Mouse, Memory, Ports) and 16-31 the driver categories and status marks
+(Display, Sound, Storage, CD-ROM, RAM disk, Network card, Input, Memory,
+System, Screen saver, USB, Virtual machine, Unknown, OK, Error, Warning).
+**A 16×16 index is a SLOT, not a cell**: six category cells are pixel for
+pixel a page icon (Display, Sound, Storage, Input, Memory and System are the
+Display, Sound, Hard disk, Mouse, Memory and gear pages'), so the block
+stores each distinct cell once, in sheet order - 26 slots; those six names
+are the earlier cell's slot and CD-ROM .. Warning are slots 16-25.
+`cpwfmt.inc` writes each name's cell after it (`; cell N`), and `cpwdat.py`
+and `t_cpwdat` both refuse a name whose slot does not hold its cell, or a
+sheet whose distinct cells are not `CWI16_N`. 32×32 indices 0-11 are the
+cells of the header icons (Scheduler,
 Date/Time, Keyboard, Floppy, Drivers, Display, Sound, Theme, Dock, Hard
 disk, Network, generic driver). `kernel/cpwfmt.inc` carries the offsets,
 sizes and index `equ`s (`CWD_*`, `CWI16_*`, `CWI32_*`, `CWC_*`) that the
@@ -260312,7 +260375,7 @@ disagrees with it.
 `drv_tab` (§51) knows a driver's file, title, class and memory figure and
 nothing a user would call a description. A library that grows by dozens
 cannot put that in resident tables, so it lives in `drivers/catalog.toml`,
-one table per driver FILE, compiled into `CPWIDE.DAT`'s catalog: 64-byte
+one table per driver FILE, compiled into `CPWIDE.DAT`'s catalog: 44-byte
 fixed records -
 
 ```
@@ -260320,11 +260383,10 @@ fixed records -
                       the drv_tab row's DRVR_FILE name
 +12  db cat           CWC_*: 0 unknown, 1 display, 2 sound, 3 storage,
                       4 network, 5 input, 6 memory, 7 system
-+13  db icon          16x16 icon index
++13  db icon          16x16 slot (a CWI16_*)
 +14  db long[26]      long name, NUL-terminated (<= 25 chars)
 +40  dw d1            offset (from the file's start) of description line 1
 +42  dw d2            ...of line 2, or 0
-+44  db pad[20]       reserved (0)
 ```
 
 and the description lines themselves - NUL-terminated, at most 46
@@ -260348,10 +260410,12 @@ new driver, and `python3 tools/cpwdat.py --check` lists the rows that lack one.
 
 **What `t_cpwdat.py` reads.** The `drv_tab` side is `kernel/driver.inc`'s table,
 scraped as the union of every kernel's rows (one source, ifdefs per kernel),
-and the file side is `build/cpwide.dat`, read back by a second reader written
-in the test from `kernel/cpwfmt.inc`'s numbers and compared pixel by pixel with
-the sheets and record by record with the catalog. `build/cpwide.dat` differing
-from what `cpwdat.py` writes now fails it, so a stale asset file cannot ship.
+and the asset side is what `cpwdat.py` writes now, read back by a second
+reader written in the test from `kernel/cpwfmt.inc`'s numbers and compared
+pixel by pixel with the sheets and record by record with the catalog.
+`build/cpwdat.bin` differing from it fails the row, and so does a
+`build/cpwide.drv` whose image does not carry it exactly once (on a word), so
+a stale icon or catalog cannot ship inside the module.
 
 ### 135.8 The Drivers page
 
@@ -260416,20 +260480,39 @@ release draws it up and acts only if the pointer is still over it (§13.8.3).
 A greyed button arms nothing.
 
 **What each action redraws** (CLAUDE.md, Performance rules 1-2): a **tab** the
-strip, the table (top 0) and DETAILS; a **row** the row losing the bar, the one
-gaining it and DETAILS (the whole table when the selection scrolls into view);
+two tabs whose look changed (the rest of the strip is stepped past at its
+widths), the table (top 0) and DETAILS; a **row** the row losing the bar, the
+one gaining it and DETAILS (every row and the scroll bar's thumb -
+`os88ui_sbmove`, not the whole bar - when the selection scrolls the view);
 the **bar** the rows and `os88ui_sbmove`; the **check box** one row; **Load /
 Unload** that row, DETAILS, the status line's driver count and - only when its
 length moved - the page list (a driver page may have appeared or gone, §31.9).
-A failed load shows its reason in the row's badge and in DETAILS. Nothing else.
-**Up** and **Down** move the selection a row (the panel's own key edge).
+**DETAILS draws its 32x32 icon and each of its four buttons only when that
+look is not the one on the glass** (a byte each in the page block, forgotten by
+every full paint), so a selection between two rows of one category and one
+state draws neither. A failed load shows its reason in the row's badge and in
+DETAILS. Nothing else. **Up** and **Down** move the selection a row (the
+panel's own key edge).
+
+**A row is 19 primitive calls** at either width: twelve spans of its ground,
+two of the badge's paper, the icon, the name's, the badge's and the memory's
+runs and the check box. Every x it is laid at is worked out once a paint
+(`CPD_XA`), and a wide window's air between the name and the badge, and the
+badge and the memory, is those runs' own spaces. Measured on the XT with a VGA
+(MartyPC `os8088_xt_vga_144`, 616x408, 12 rows; driver size pass 2, every
+gesture's pixels identical before and after): the page's first paint 316
+calls, 1.40 s; a selection 45 calls, 0.37 s; a filter tab back to All 232
+calls, 0.97 s; a scroll by key 204 calls, 1.01 s; the bar's arrow 197 calls,
+0.83 s; a Start at boot box 19 calls, 0.10 s. A row is ~85 ms of it.
 
 **Gate ops.** None added: the page uses `CPG_DRVON`/`OFF`/`WANT`/`TTL`/`STAT`/
 `MEM` (§135.4); `CPG_N` stays 22 and opcodes 22-24 are unused.
 
 **State** is the working area's 80-byte page block (§135.5.1): the kit's
-table block, the categories present, the box's top, three column x's and one
-byte for each of at most `DRV_MAX` listed rows - all rebuilt by every paint -
+table block, what DETAILS has on the glass (its icon, each button's look), the
+categories present, the cells the badge, memory and boot columns gain over
+616's, the box's top, the thirteen x's a row is laid at and one byte for each
+of at most `DRV_MAX` listed rows - all rebuilt by every paint -
 and two KEPT bytes outside it, the filter (0 All, else a `CWC_*`) and the
 selected `drv_tab` row. **The filter and the selection are kept while the
 panel is open**, whatever page was visited between. A FRESH entry (`CPW_D_ON`
@@ -260502,9 +260585,18 @@ the page.
 **Redraw only what changed** (CLAUDE.md, Performance rule 1): a press on an
 adapter row redraws the two rows that changed, the preview and the Modes
 group (its content depends on the adapter), the controls (their greying) and
-nothing else; a filter tab, the strip and the table; a table row, the two
-rows, the preview and the controls; a check box, its glyph; Keep, the right
-group. **Nothing is drawn after `CPG_VIDSET` or `CPG_VIDARR` returns** -
+nothing else; a filter tab, the strip and the table - and the preview and the
+controls, the selection going to Auto - the rows re-filtered from the records
+the last paint read, the card not asked again; a table row, the two rows, the
+preview and the controls; Force Color, its glyph; the startup box, its glyph,
+its label and the table's rows (their marks moved); Keep, the right group.
+The preview and the Modes group are their INSIDES: a group's box and title
+never change after the paint. "The controls" a press redraws are the startup
+box and its label, Apply and Test... - Force Color is changed by no press but
+its own (driver size pass 2 made the code match this paragraph: an adapter
+press redrew all four rows and both boxes, a filter tab asked the card for
+every record again, and the startup box redrew the Running mode group).
+**Nothing is drawn after `CPG_VIDSET` or `CPG_VIDARR` returns** -
 §31.10's rule: the switch re-fits every window, so the origin the press was
 handed may describe a rectangle that no longer exists, and `cp_repost` has
 already handed the whole screen to `ui_task`, whose repaint comes back here
@@ -260513,7 +260605,9 @@ as `CWV_PAINT` with the new origin.
 **The page's state** is the page area of the working area (`CPW_W_PAGE`,
 §135.5): the table block, the filter, the adapter and row chosen, the
 record count, running and recommended indices, a class byte per record (bit
-5 marks a 15bpp one), the rows, the filter's depths, and the test's state.
+5 marks a 16bpp one, and 0 a record no row shows - not the one its class
+reaches, driver size pass 2), the rows, the filter's depths, and the test's
+state.
 Working-area byte 19 (`CPV_LIVE`, the pad between `CPW_W_FULL` and the kit's
 scratch) is 1 while that state belongs to this page: `cpw_page` clears it
 when any other page is drawn, so coming back to Display builds the page again
@@ -260688,6 +260782,10 @@ ring) and a button, the Effects group (about 9) and the Screen Saver group
 170 x 756 us = about 130 ms of fixed cost plus the pixels, once per theme
 change - beside the world's own repaint it is not the bill. No call is made
 while the page merely sits, and a press that changes nothing draws nothing.
+Measured (driver size pass 2, MartyPC `os8088_xt_vga_144`): the page's paint
+is 174 primitive calls and 0.47 s on the XT; a card's desktop starts under
+its menu bar and its window's face under its title bar, the rows the later
+rect covers whole, so a card writes 19 rows fewer for the same pixels.
 
 **Measured (S9, 2026-11-21).** `CPWIDE.DRV` +1,551 bytes (4,471 -> 6,022 on
 kern_big, 6,022 on kern_emu, 4,485 -> 6,034 on kern_mega) with the whole
@@ -260757,6 +260855,39 @@ The page is 4,707 bytes of `CPWIDE.DRV` against the fan-out's 3,300
 allocation; the lead accepted it (the Drivers and Theme pages came in near
 1,600 each, and the module's cap, `MOD_MAX_KB` 17,408, holds with room). The heap while the
 wide panel is open grows by the module's claim, 5,120 → 10,240 bytes.
+
+**Driver size pass 2 (2026-11-27): `CPWIDE.DAT` folded into `CPWIDE.DRV`**
+(§135.6; `docs/plans/completed/dsp2/cpwshell.md` is the record), against `1b01907f1`.
+Fresh builds of each; MartyPC `os8088_xt_vga_144` (XT 4.77 MHz, VGA, the
+1.44MB system disk) for the open, guest seconds from `cp_open_x` to the
+last primitive:
+
+| | before (two files) | after (one) |
+|---|---|---|
+| `CPWIDE.DRV` image (+ bss) kern_big / emu | 13,763 (+ `CPWIDE.DAT`'s 848 + 14,642 in the asset claim) | 27,638 (bss 874: `cpw_dseg`, `cpv_tlab`, the working area) |
+| ...kern_mega | 13,793 | 27,662 |
+| on the disk (lz4), kern_big / emu | 11,653 + 5,281 = 16,934, two files | 16,461, one file (-1 cluster on every system disk that carries it, one root slot fewer) |
+| ...kern_mega | 11,670 + 5,281 = 16,951 | 16,455 |
+| heap while the wide panel is open | 13,824 + 15,872 = 29,696 bytes in two claims | 27,648 in ONE contiguous claim |
+| first open: `int 13h` calls / guest s | 8 / 3.78 | 6 / 3.22 |
+| re-open, the image kept (§2.8.3): `int 13h` / guest s | 2 / 1.64 (the DAT read again) | **0** / 0.90 |
+| the open's paint: the face's `cw_gfx_fill` / `apic_font_run` / `api_gfx_blit4` calls | 39 / 15 / 10 | 39 / 15 / 10 (18 glyph cells fewer: the headings, §135.3) |
+| the Drivers page switch | 289 calls, 1.40 s | 289 calls, 1.39 s |
+
+`MOD_MAX_KB` is 30 on kern_big, kern_emu and kern_mega (17 on kern_small,
+which has no wide panel): one immediate in resident `mod_need`, the only
+resident byte the fold moved. The framebuffers after each step matched the
+base's but for the status line's free-memory figure (500K → 502K).
+
+**The pass merged** (the fold above, the Drivers and Theme pages
+`docs/plans/completed/dsp2/cpwpages.md`, the Display page `docs/plans/completed/dsp2/cpwvid.md`;
+`docs/plans/completed/dsp2/RECORD.md` is the whole): `CPWIDE.DRV` is **26,336** image
+with its bss on kern_big and kern_emu (26,348 on kern_mega) and **15,732** on
+the disk (15,749), against 29,253 and 16,934 in two files before the pass;
+the open panel holds ONE claim of 26,624 bytes where it held 29,696 in two.
+The merged tree was compared on MartyPC's `os8088_xt_vga_144` against the
+base, gesture by gesture on the Drivers and Theme pages: the same pixels,
+but for PCI Ethernet's memory figure, which the same pass moved (§125.5).
 
 ### 135.13 Testing
 

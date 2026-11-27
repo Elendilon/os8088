@@ -663,40 +663,25 @@ modc_e_sc:                      ; CPE_SC (SPEC.md 2.8.7): AH = the operation
     pop ax
 %endif
     push bp                     ; wm_cbd takes its routine in BP
-    or ah, ah
-    jz .new
+    call .op                    ; ONE return address for every operation,
+.out:                           ; which each reaches by a JUMP (driver size
+    pop bp                      ; pass 2: a call and a jump an operation, -13)
+    retf                        ; AL is the operation's answer (sc_m_add);
+                                ; sc_modcall decides whether the image goes
+.op:                            ; ...and AH counted down to the operation's
+    or ah, ah                   ; ZF exactly as before: every body is entered
+    jz sc_m_new                 ; with the registers it always had
     dec ah
-    jz .move
+    jz sc_m_move
     dec ah
-    jz .del
+    jz sc_m_del
     dec ah
-    jz .add
+    jz sc_m_add
     dec ah
-    jz .pdel
+    jz sc_m_pdel
     dec ah
-    jz .vgc
-    call sc_m_lnk               ; SC_OP_LNK (SPEC.md 26.10.4)
-    jmp short .out
-.vgc:
-    call cp_vgc_force           ; SC_OP_VGC (SPEC.md 39.28)
-    jmp short .out
-.add:
-    call sc_m_add
-    jmp short .out
-.pdel:
-    call sc_m_pdel
-    jmp short .out
-.del:
-    call sc_m_del
-    jmp short .out
-.new:
-    call sc_m_new
-    jmp short .out
-.move:
-    call sc_m_move
-.out:
-    pop bp                      ; AL is the operation's answer (sc_m_add);
-    retf                        ; sc_modcall decides whether the image goes
+    jz cp_vgc_force             ; SC_OP_VGC (SPEC.md 39.28)
+    jmp sc_m_lnk                ; SC_OP_LNK (SPEC.md 26.10.4)
 
 ; sc_m_cold - call the kernel's cold routine at BP (wm_cbd), near from here:
 ; one far entry the kernel already has, where a resident stub per routine
@@ -1426,13 +1411,9 @@ sc_m_cell:
     inc bx
     jmp .cell                   ; (short where it reaches: kern_mega's CSDO
 .end:                           ; is longer)
-    cmp word [cs:sc_best], 0xFFFF
-    je .none
-    clc
-    ret
-.none:
-    stc
-    ret
+    cmp word [cs:sc_best], 0xFFFF   ; CF = 1: a cell was found...
+    cmc                         ; ...so CF = 1 when none was (driver size
+    ret                         ; pass 2: -4, the same flags both ways)
 
 ; -----------------------------------------------------------------------------
 ; sc_m_move - SC_OP_MOVE: ANY item dragged past the threshold (SPEC.md 26.9.5)

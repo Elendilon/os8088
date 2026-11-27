@@ -709,6 +709,9 @@ eu_bufnext:
     pop ax
     ret
 
+; --- the page's state, ZERO at load: placed after ethstate.inc by
+; ethdrv.inc, with the Setup window's (driver size pass 2)
+%macro ETHUI_ZSTATE 0
 eth_px:     dw 0
 eth_py:     dw 0
 eth_r1:     dw 0, 0, 0, 0     ; Renew's rect, Set Up's and the buffer's - one
@@ -717,3 +720,4 @@ eth_r3:     dw 0, 0, 0, 0
 eth_down:   db 0             ; which one is drawn PRESSED (SPEC.md 13.8.4)
 eu_buf:     times 20 db 0
 eu_st:      db 0                ; eu_digit: has anything been written yet?
+%endmacro

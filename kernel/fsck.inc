@@ -399,6 +399,42 @@ fsk_ioerr:
     mov al, FSKE_WPROT
     jmp short fsk_die
 
+; fsk_rootsec - read root sector AX into DBUF (and P_LBA)
+fsk_rootsec:
+    add ax, [es:P_ROOTLBA]
+    xor dx, dx
+; fsk_rdlba - the folder sector at DX:AX into DBUF, and P_LBA = DX:AX
+fsk_rdlba:
+    mov [es:P_LBA], ax
+    mov [es:P_LBA+2], dx
+; fsk_rd1d - one sector at DX:AX into DBUF
+fsk_rd1d:
+    mov bx, FSK_DBUF
+    jmp short fsk_rd1
+; fsk_rd0c / fsk_rd1c - the volume's sector 0 / the one at DX:AX into CBUF
+; (kernel size pass 17: eight callers loaded BX, CX and the LBA by hand)
+fsk_rd0c:
+    xor ax, ax
+    xor dx, dx
+fsk_rd1c:
+    mov bx, FSK_CBUF
+fsk_rd1:
+    mov cx, 1
+; fsk_rd / fsk_wr - CX sectors at DX:AX to/from ES = the workspace : BX.
+; Die on an error. HERE, beside fsk_ioerr, so both `jc`s are short: they
+; were 5-byte pairs, a taken jump on every transfer (driver size pass 2)
+fsk_rd:
+    mov [dsk_lbahi], dx
+    KC disk_read_x
+    jc fsk_ioerr
+    ret
+fsk_wr:
+    or byte [es:P_FLAGS], PF_WROTE
+    mov [dsk_lbahi], dx
+    KC disk_write_x
+    jc fsk_ioerr
+    ret
+
 ; fsk_mounted - the volume is a FAT one, or die FSKE_NOFAT
 fsk_mounted:
     cmp byte [dsk_mntok], 1
@@ -557,7 +593,6 @@ fsk_delsys:
     add bx, 11
     jmp short .list
 .bad:
-.bad2:
     mov ax, FSKE_ARG
     jmp fsk_die
 .hma:                           ; ...or the one other name the refused form
@@ -623,6 +658,9 @@ fsk_delsys:
     jne .io
     mov ax, FSKE_SMALL
     jmp fsk_die
+.bad2:                          ; .bad's refusal again, where the checks
+    mov ax, FSKE_ARG            ; below reach it with SHORT jumps (driver
+    jmp fsk_die                 ; size pass 2: six of them were 5-byte pairs)
 .read:
     cmp byte [dskw_n83 + 8], 'S'    ; COLDHMA.SYS, the only .SYS let in
     jne .rdrv
@@ -1055,41 +1093,6 @@ fsk_name:
 ; =============================================================================
 ; sectors, clusters, bits
 ; =============================================================================
-; fsk_rootsec - read root sector AX into DBUF (and P_LBA)
-fsk_rootsec:
-    add ax, [es:P_ROOTLBA]
-    xor dx, dx
-; fsk_rdlba - the folder sector at DX:AX into DBUF, and P_LBA = DX:AX
-fsk_rdlba:
-    mov [es:P_LBA], ax
-    mov [es:P_LBA+2], dx
-; fsk_rd1d - one sector at DX:AX into DBUF
-fsk_rd1d:
-    mov bx, FSK_DBUF
-    jmp short fsk_rd1
-; fsk_rd0c / fsk_rd1c - the volume's sector 0 / the one at DX:AX into CBUF
-; (kernel size pass 17: eight callers loaded BX, CX and the LBA by hand)
-fsk_rd0c:
-    xor ax, ax
-    xor dx, dx
-fsk_rd1c:
-    mov bx, FSK_CBUF
-fsk_rd1:
-    mov cx, 1
-; fsk_rd / fsk_wr - CX sectors at DX:AX to/from ES = the workspace : BX.
-; Die on an error
-fsk_rd:
-    mov [dsk_lbahi], dx
-    KC disk_read_x
-    jc fsk_ioerr
-    ret
-fsk_wr:
-    or byte [es:P_FLAGS], PF_WROTE
-    mov [dsk_lbahi], dx
-    KC disk_write_x
-    jc fsk_ioerr
-    ret
-
 ; fsk_c2l - DX:AX = the first LBA of cluster AX (in range: the callers ask)
 fsk_c2l:
     KC dsk_clus2lba_x
@@ -1403,6 +1406,15 @@ fsk_ph_tree:
     add ax, [es:P_ROOTLBA]
     xor dx, dx
     jmp short .read
+.dirdone:                       ; HERE, between the jumps to it, so every one
+    cmp byte [es:P_DEPTH], 0    ; is short (the root's above was a 5-byte
+    je .treedone                ; pair on every root sector: driver size
+    mov ax, [es:bx+LV_PLEN]     ; pass 2). Up a folder: the path loses its
+    mov [es:P_PLEN], ax         ; name
+    dec byte [es:P_DEPTH]
+    ret
+.treedone:
+    jmp fsk_treedone
 .sub:
     mov ax, [es:bx+LV_SEC]
     cmp ax, [es:P_SPC]
@@ -1456,15 +1468,6 @@ fsk_ph_tree:
     inc word [es:bx+LV_SEC]
     mov word [es:bx+LV_ENT], 0
     ret
-.dirdone:
-    cmp byte [es:P_DEPTH], 0
-    je .treedone
-    mov ax, [es:bx+LV_PLEN]     ; up a folder: the path loses its name
-    mov [es:P_PLEN], ax
-    dec byte [es:P_DEPTH]
-    ret
-.treedone:
-    jmp fsk_treedone
 
 ; fsk_entry1 - one entry at ES:SI, BX = its level. out CF=1 = stop the step;
 ; SI and BX come back as they went in
@@ -1680,9 +1683,11 @@ fsk_filent:
     jnz .chain
     mov ax, [es:si+28]          ; no chain: right exactly when the size is 0
     or ax, [es:si+30]
-    jz .done
+    jz .done0
     xor ax, ax
     jmp .short
+.done0:                         ; .done, where the jumps above and below
+    jmp fsk_eback               ; reach it short (driver size pass 2)
 .chain:
     mov cl, 1
     call fsk_walk               ; AL, CX = n, DX = pieces, BX = last, SI, DI
@@ -1704,9 +1709,9 @@ fsk_filent:
     call fsk_chainq
     pop ax
     cmp al, FSKF_XLINK
-    je .done
+    je .done0
     or bh, bh
-    jz .done
+    jz .done0
     ; ...repaired: the chain ends at its last good cluster and the size is
     ; cut to what it holds. The entry first, the FAT second (118.14.4)
     inc word [es:FSW_FIXED]
@@ -1718,7 +1723,7 @@ fsk_filent:
     mov [es:si+28], ax
     mov [es:si+30], ax
     call fsk_wdir
-    jmp .done
+    jmp short .done0
 .brkend:
     mov cx, [es:P_N]
     call fsk_cutsize
@@ -1727,7 +1732,8 @@ fsk_filent:
     mov dx, DSKW_EOC16
     call fsk_set
     call fsk_flush
-    jmp .done
+.done1:                         ; ...and once more, for the jumps below
+    jmp fsk_eback
 .ended:
     ; --- a proper chain of CX clusters, against the size -----------------
     mov [es:P_N], cx
@@ -1736,7 +1742,7 @@ fsk_filent:
     mov [es:P_NEED], dx
     mov ax, [es:P_N]
     cmp ax, dx
-    je .done
+    je .done1
     jb .short
     ; --- LONG: more chain than size --------------------------------------
     call fsk_fix
@@ -1747,7 +1753,7 @@ fsk_filent:
     call fsk_bm2                ; an entry not reached yet may share its tail,
     call fsk_bs                 ; and the cut would free that file's clusters.
     or byte [es:P_FLAGS], PF_LONG ; BM2 names it to fsk_trment
-    jmp .done
+    jmp short .done1
 .long:                          ; (fsk_trment joins here: SI, P_N, P_NEED)
     call fsk_qp_ent
     mov cx, [es:P_N]
@@ -1757,7 +1763,7 @@ fsk_filent:
     mov ax, FSV_WARN << 8 | 2
     call fsk_q0ds
     or bh, bh
-    jz .done
+    jz .done1
     inc word [es:FSW_FIXED]
     mov si, [es:P_E]
     mov cx, [es:P_N]
@@ -2247,9 +2253,10 @@ fsk_lost_chain:
 .ended:
     call fsk_flush              ; the chain is well formed, still lost: FAT
     pop ax                      ; first, the entry second (118.14.4)
-    add [es:FSW_USED], cx
-    call fsk_save               ; AX = the head, CX = its clusters
-    ret
+    add [es:FSW_USED], cx       ; ...and into fsk_save: AX = the head, CX =
+                                ; its clusters (its `call` and `ret` were a
+                                ; tail onto the next byte - driver size pass 2,
+                                ; -4)
 
 ; fsk_save - give the lost chain at AX (CX clusters) a root entry, or free it
 fsk_save:
@@ -2356,8 +2363,7 @@ fsk_save:
     dec di
     mov bx, 1 << 8 | FSKF_SAVED
     mov ax, FSV_NOTE << 8 | 4
-    call fsk_q0ds
-    ret
+    jmp fsk_q0ds                ; (a tail: driver size pass 2)
 
 fsk_lost_rest:
     mov cx, FSK_SCANN
@@ -2379,8 +2385,7 @@ fsk_lost_rest:
     inc word [es:P_FREED]
 .n:
     loop .c
-    call fsk_flush
-    ret
+    jmp fsk_flush               ; (a tail: driver size pass 2)
 .end:
     call fsk_flush
     mov cx, [es:P_FREED]
@@ -2421,8 +2426,7 @@ fsk_ph_sync:
     mov bx, FSK_CBUF
     call fsk_rd
     add ax, [es:P_FATSZ]
-    call fsk_wr
-    ret
+    jmp fsk_wr                  ; (a tail: driver size pass 2)
 .end:
     inc word [es:FSW_FIXED]
     jmp fsk_notdef
@@ -2567,12 +2571,15 @@ fsk_defpass:
 ; fsk_defent - one entry, for the defragmenter (ES:SI, BX = the level)
 ; out: CF=1 = the step is over (a folder entered, a move begun)
 ; -----------------------------------------------------------------------------
+fsk_defskip:                    ; its .skip, where its first two jumps reach
+    clc                         ; it short (driver size pass 2)
+    ret
 fsk_defent:
     mov al, [es:si]
     cmp al, '.'
-    je .skip
+    je fsk_defskip
     cmp al, 20h
-    jb .skip
+    jb fsk_defskip
     mov al, [es:si+11]
     test al, 10h
     jz .file
@@ -2991,6 +2998,19 @@ fsk_dotpatch:
 fsk_kids:
     mov ax, [es:M_DST]
     mov [es:P_KC], ax
+    jmp short .clus
+.nsec:                          ; THE LOOP'S TAIL, up here so both its jumps
+    inc word [es:P_KS]          ; are short (they were 5-byte pairs at the
+    mov ax, [es:P_KS]           ; bottom: driver size pass 2)
+    cmp ax, [es:P_SPC]
+    jb .sec
+    inc word [es:P_KC]
+    mov ax, [es:P_KC]
+    sub ax, [es:M_DST]
+    cmp ax, [es:M_N]
+    jb .clus
+.out:
+    ret
 .clus:
     mov word [es:P_KS], 0
 .sec:
@@ -3035,18 +3055,6 @@ fsk_kids:
     pop ax
     call fsk_wr                 ; DX:AX, BX, CX: the read's
     jmp short .ent
-.nsec:
-    inc word [es:P_KS]
-    mov ax, [es:P_KS]
-    cmp ax, [es:P_SPC]
-    jb .sec
-    inc word [es:P_KC]
-    mov ax, [es:P_KC]
-    sub ax, [es:M_DST]
-    cmp ax, [es:M_N]
-    jb .clus
-.out:
-    ret
 
 ; fsk_krefs - the KERNEL's own words that name the folder's old cluster on
 ; this volume, made to name the new one: every instance's folder (19.2.1),

@@ -335,8 +335,11 @@ ne_dma_write:
     out dx, al
     loop .weight
 .wait:
-    mov dx, [eth_base]          ; ...and the completion poll, on ONE address
-    add dx, NE_ISR              ; rather than through ne_in every spin
+    add dx, NE_ISR - NE_DATA    ; ...and the completion poll, on ONE address
+                                ; rather than through ne_in every spin: DX is
+                                ; base+NE_DATA on every path here (the read's
+                                ; own step, driver size pass 2 - it was a
+                                ; seven-byte reload on every frame sent)
     mov cx, NE_RDCSPIN          ; bounded: a card that never raises RDC is one
 .rdc:                           ; that has gone away, and this must not hang
     in  al, dx
@@ -688,24 +691,8 @@ ne_t_ovw2:  db 3                                ; ...and once the ring has
             db NE_ISR,   NE_OVW                 ; out of loopback
             db NE_TCR,   0x00
 
-; -----------------------------------------------------------------------------
-; ne_curr - what page the CARD will write next (page 1's CURR)
-; out: AL = the page. The card is on page 0 again.
-; -----------------------------------------------------------------------------
-ne_curr:
-    push dx                     ; THE PORTS DIRECT, ne_dma_read's walk: one
-    mov dx, [eth_base]          ; load and a step between neighbours where
-    mov al, NE_PAGE1 | NE_STA | NE_RD_ABORT ; three ne_out/ne_in calls each
-    out dx, al                  ; rebuilt base + register behind a push/pop
-    add dx, NE_CURR - NE_CR     ; pair (driver size pass 1: per frame, on
-    in  al, dx                  ; ne_rx's path)
-    sub dx, NE_CURR - NE_CR
-    push ax
-    mov al, NE_STA | NE_RD_ABORT
-    out dx, al
-    pop ax
-    pop dx
-    ret
+; (ne_curr - page 1's CURR - is written at its one call, the head of ne_rx:
+; driver size pass 2)
 
 ; -----------------------------------------------------------------------------
 ; ne_ring_read - AX bytes from ring page BH offset BL into DS:DI, WRAPPING
@@ -765,18 +752,33 @@ ne_rx:
     push dx
     push di
 
-    mov al, NE_ISR              ; an overrun is recovered before anything else:
-    call ne_in                  ; the ring's pointers cannot be trusted after
-    test al, NE_OVW             ; one, and every frame in it is lost anyway
-    jz  .nov
+    ; --- THE PORTS DIRECT, ne_dma_read's walk (driver size pass 2) ----------
+    ; This is the head of EVERY pump - every verb a package calls runs it,
+    ; whether or not a frame is waiting - and it was ne_in, ne_out and
+    ; ne_curr: three calls each rebuilding base + register behind a push/pop
+    ; pair. DX walks ISR, CR and CURR instead, the same five port accesses in
+    ; the same order with the same values. ISR and CURR are both register 7,
+    ; on pages 0 and 1.
+    mov dx, [eth_base]
+    add dx, NE_ISR
+    in  al, dx                  ; an overrun is recovered before anything else:
+    test al, NE_OVW             ; the ring's pointers cannot be trusted after
+    jz  .nov                    ; one, and every frame in it is lost anyway
     call ne_overflow
     jmp .empty
 .nov:
-    mov ax, (NE_PRX | NE_RXE) << 8 | NE_ISR
-    call ne_out
-
-    call ne_curr
-    cmp al, [eth_next]
+    mov al, NE_PRX | NE_RXE     ; ISR: those two acknowledged
+    out dx, al
+    sub dx, NE_ISR - NE_CR      ; CURR is page 1's: CR there...
+    mov al, NE_PAGE1 | NE_STA | NE_RD_ABORT
+    out dx, al
+    add dx, NE_CURR - NE_CR
+    in  al, dx                  ; ...CURR...
+    sub dx, NE_CURR - NE_CR
+    mov ah, al
+    mov al, NE_STA | NE_RD_ABORT
+    out dx, al                  ; ...and page 0 again
+    cmp ah, [eth_next]
     je  .empty
 
     mov bh, [eth_next]          ; the four-byte header

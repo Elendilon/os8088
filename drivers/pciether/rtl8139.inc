@@ -291,7 +291,7 @@ rt_start:
     sub dx, RT_TCR - RT_CAPR
     mov ax, RT_CAPR0
     out dx, ax                  ; CAPR = 0 - 16: the ring is empty
-    mov word [rt_off], 0
+    and word [rt_off], 0        ; (both callers' callers set what they read)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -335,17 +335,17 @@ rt_rxreset:
 ; -----------------------------------------------------------------------------
 rt_stop:
     call rt_halt
-    mov dx, [rt_win]            ; rt_es's window, if protected mode made one
-    or  dx, dx
-    jz  .nowin
-    mov word [rt_win], 0
+    xor dx, dx                  ; rt_es's window, if protected mode made one -
+    xchg dx, [rt_win]           ; taken and zeroed in ONE instruction, where a
+    or  dx, dx                  ; load, a test and a store of zero were
+    jz  .nowin                  ; (driver size pass 2)
     mov bl, SEG_FREE
     call OSAPI_SEG
 .nowin:
-    mov dx, [rt_seg]
+    xor dx, dx                  ; ...and the ring's claim, the same way
+    xchg dx, [rt_seg]
     or  dx, dx
     jz  .out
-    mov word [rt_seg], 0
     call OSAPI_MEM_FREE         ; a boot claim named by its PARAGRAPH is not
                                 ; found under protected mode (mem_find_own
                                 ; compares selectors there) and is refused:

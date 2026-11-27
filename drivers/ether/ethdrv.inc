@@ -377,8 +377,7 @@ eth_dropall:
 .l:
     call sk_ptr
     call sk_rst                 ; a peer is told (tcp.inc), every register kept
-    mov byte [bx+SKO_TS], TS_CLOSED
-    mov byte [bx+SKO_ST], NSK_FREE
+    and word [bx+SKO_ST], 0     ; NSK_FREE and TS_CLOSED, one store
     inc ax                      ; AL is the slot (never past NET_SOCKS)
     loop .l
     jmp ep_cx
@@ -640,6 +639,9 @@ eth_v_state:
     OS88_PIN                    ; the Ports view's byte (SPEC.md 51.9.2)
 
 %include "ethstate.inc"         ; ...and the state it all runs on
+    ETHUI_ZSTATE                ; ...and the page's and the Setup window's,
+    ETHCFG_ZSTATE               ; zero at load: the tail of the trailing
+                                ; zeros (etherui.inc, ethcfg.inc)
     OS88_DRV_END
 
 ; --- the published frame bounds against the real ones ------------------------

@@ -289,8 +289,10 @@ modl_e_cmz:     call cmz_verb   ; CF and AX are the answer, and `retf` leaves
 ; property that has to be checked when another one is added, not assumed.
 ; -----------------------------------------------------------------------------
 clo_disp_x:
+%ifndef DSKW_DIRMOD             ; (kern_small's four are clo_vtab's words)
     cmp dl, CLV_DIRV
-    jae dmo_dispatch             ; these verbs own no clone/join state
+    jae dmo_rtbody              ; the tree owns no clone/join state
+%endif
 %ifdef KERN_BIG
     cmp word [clo_seg], 0       ; Uncompress To... (SPEC.md 22.23.6) rides the
     jne .claimed                ; cloner's claim word and its mode 7. With NO
@@ -338,6 +340,12 @@ clo_vtab:                       ; one word per CLV_*, in CLV_* order
     dw clo_start, clo_key, clo_line, clo_free, clo_saved, clo_wimg
 %ifdef OS88_IMG
     dw clo_mount, clo_mntdlg, clo_unmnt, clo_unmntw
+%endif
+%ifdef DSKW_DIRMOD              ; kern_small's directory mutations (diskmut.inc):
+    dw dmo_mkbody, dmo_nbody, dmo_rmbody, dmo_rtbody ; they own no clone/join
+  %if CLV_MKDIR != 6            ; state, and its clo_disp_x has no other arm
+    %error "clo_vtab is indexed by CLV_*: kern_small's CLV_MKDIR follows CLV_WIMG"
+  %endif                        ; (driver size pass 2: dmo_dispatch went)
 %endif
 %if CLV_START != 0 || CLV_KEY != 1 || CLV_LINE != 2 || CLV_FREE != 3 || CLV_SAVED != 4 || CLV_WIMG != 5
   %error "clo_vtab is indexed by CLV_*: its words are in that order"

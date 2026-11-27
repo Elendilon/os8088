@@ -24,8 +24,8 @@ P1_RIGHT    equ 0x79
 ; signed axis when its magnitude exceeds two mickeys in one sample.
 %macro P1_ACCEL 1
     mov dx, %1
-    test dx, 0x8000
-    jz %%magnitude
+    or dx, dx                   ; the sign (driver size pass 2: was a test
+    jns %%magnitude             ; against 8000h, two bytes longer)
     neg dx
 %%magnitude:
     cmp dx, 2
@@ -38,6 +38,8 @@ P1_RIGHT    equ 0x79
     %error "pc1mouse.asm assumes the published DRVV_* verb values"
 %endif
 
+; Attach's probe and the PC1 key-code setup are written here, at their only
+; caller (driver size pass 2: they were two near procs).
 p1_entry:
     cmp al, DRVV_DETACH
     je p1_detach
@@ -46,11 +48,72 @@ p1_entry:
     cmp al, DRVV_ATTACH
     jne .no                    ; any other verb is REFUSED: CF = 0 is "I did
                                ; it" (SPEC.md 51.2.2)
-    call p1_probe
-    jc .refuse
+    ; A positive BIOS identity is required before any PC1-specific keyboard
+    ; or counter access. The DOS reference recognizes the final ROM word
+    ; FE44h (floppy), FE49h (unknown disk configuration) and FE4Ah (hard
+    ; disk).
+    call OSAPI_CPU_INFO         ; the PC1 is an 8086-class machine. Ask first:
+    cmp al, CPU_8086            ; on kern_mega in protected mode F000h is no
+    jne .refuse                 ; selector and the load below would #GP
+    push ds
+    mov ax, 0xF000
+    mov ds, ax
+    mov ax, [0xFFFD]
+    pop ds
+    cmp ax, 0xFE44
+    je .pc1
+    cmp ax, 0xFE49
+    je .pc1
+    cmp ax, 0xFE4A
+    jne .refuse
+.pc1:
     mov al, P1_LEFT            ; arm the kernel's make/break map before PC1
     call OSAPI_KEY_DOWN        ; button scans can arrive (SPEC.md 9.7)
-    call p1_keyinit
+    ; Configure the PC1 keyboard interface to publish left and right button
+    ; state as the make/break codes the reference driver documents. Bound
+    ; every 8042 wait: a failed controller must refuse attach rather than
+    ; hang boot. If the PC1 reports that these codes are already enabled,
+    ; leave its state alone.
+    push bx
+    push cx
+    ; Keep the keyboard ISR from consuming the controller's reply byte. The
+    ; BIOS tick stays enabled; only IRQ1 is masked for this short transaction.
+    pushf
+    cli
+    in al, 0x21
+    mov bl, al
+    and bl, 2                  ; remember only the bit we temporarily change
+    or al, 2
+    out 0x21, al
+    mov [p1_imr], bl
+    popf
+    mov dx, P1_KBCMD
+    mov al, 0x12
+    call p1_kbout
+    jc .unmask
+    call p1_kbin
+    jc .unmask
+    test al, 1
+    jnz .unmask                ; (CF = 0: the codes are already on)
+    mov bx, p1_keyseq
+    mov cx, 5
+    mov dx, P1_KBDATA
+.next:
+    mov al, [bx]
+    inc bx
+    call p1_kbout
+    jc .unmask
+    loop .next                 ; (CF = 0 from the last write)
+.unmask:                        ; CF = the setup's answer, kept by POPF
+    pushf
+    cli
+    in al, 0x21                ; preserve other IRQ mask changes made while
+    and al, 0xFD               ; the bounded controller wait ran
+    or al, [p1_imr]
+    out 0x21, al
+    popf
+    pop cx
+    pop bx
     jc .refuse
     mov byte [p1_stop], 0
     mov byte [p1_alive], 0
@@ -81,97 +144,6 @@ p1_detach:
     ret                         ; refusal) nothing was ever fed. BX is the
                                 ; caller's row and must survive (drv_unload_x)
 
-; A positive BIOS identity is required before any PC1-specific keyboard or
-; counter access. The DOS reference recognizes the final ROM word FE44h
-; (floppy), FE49h (unknown disk configuration) and FE4Ah (hard disk).
-p1_probe:
-    call OSAPI_CPU_INFO         ; the PC1 is an 8086-class machine. Ask first:
-    cmp al, CPU_8086            ; on kern_mega in protected mode F000h is no
-    jne .no                     ; selector and the load below would #GP
-    push ds
-    push bx
-    mov ax, 0xF000
-    mov ds, ax
-    mov bx, 0xFFFD
-    mov ax, [bx]
-    cmp ax, 0xFE44
-    je .yes
-    cmp ax, 0xFE49
-    je .yes
-    cmp ax, 0xFE4A
-    je .yes
-    stc
-    jmp short .out
-.yes:
-    clc
-.out:
-    pop bx
-    pop ds
-    ret
-.no:
-    stc
-    ret
-
-; Configure the PC1 keyboard interface to publish left and right button state
-; as the make/break codes the reference driver documents. Bound every 8042 wait:
-; a failed controller must refuse attach rather than hang boot. If the PC1
-; reports that these codes are already enabled, leave its state alone.
-p1_keyinit:
-    push bx
-    push cx
-    ; Keep the keyboard ISR from consuming the controller's reply byte. The
-    ; BIOS tick stays enabled; only IRQ1 is masked for this short transaction.
-    pushf
-    cli
-    in al, 0x21
-    mov bl, al
-    and bl, 2                  ; remember only the bit we temporarily change
-    or al, 2
-    out 0x21, al
-    mov [p1_imr], bl
-    popf
-    mov dx, P1_KBCMD
-    mov al, 0x12
-    call p1_kbout
-    jc .bad
-    call p1_kbin
-    jc .bad
-    test al, 1
-    jnz .good
-    mov bx, p1_keyseq
-    mov cx, 5
-.next:
-    mov al, [bx]
-    inc bx
-    mov dx, P1_KBDATA
-    call p1_kbout
-    jc .bad
-    loop .next
-.good:
-    pushf
-    cli
-    in al, 0x21                ; preserve other IRQ mask changes made while
-    and al, 0xFD                ; the bounded controller wait ran
-    or al, [p1_imr]
-    out 0x21, al
-    popf
-    pop cx
-    pop bx
-    clc
-    ret
-.bad:
-    pushf
-    cli
-    in al, 0x21
-    and al, 0xFD
-    or al, [p1_imr]
-    out 0x21, al
-    popf
-    pop cx
-    pop bx
-    stc
-    ret
-
 ; p1_kbout - bounded wait for input buffer empty, then write AL to DX.
 p1_kbout:
     push ax
@@ -180,17 +152,15 @@ p1_kbout:
 .wait:
     in al, P1_KBCMD
     test al, 2
-    jz .write
+    jz .write                  ; (CF = 0 from the TEST)
     loop .wait
-    pop cx
-    pop ax
-    stc
-    ret
+    stc                        ; timed out: nothing written
 .write:
     pop cx
     pop ax
+    jc .out
     out dx, al
-    clc
+.out:
     ret
 
 ; p1_kbin - bounded wait for output buffer full, then consume port 60h.
@@ -200,27 +170,18 @@ p1_kbin:
 .wait:
     in al, P1_KBCMD
     test al, 1
-    jnz .read
+    jnz .read                  ; (CF = 0 from the TEST)
     loop .wait
-    pop cx
     stc
-    ret
+    jmp short .out
 .read:
     in al, P1_KBDATA
+.out:
     pop cx
-    clc
     ret
 
-p1_worker:
-.loop:
-    call OSAPI_TASK_PARK
-    cmp byte [p1_stop], 0
-    jne .exit
-    call p1_sample
-    mov ax, 1
-    call OSAPI_TASK_SLEEP
-    jmp short .loop
-.exit:
+; The worker's exit: a release for any held button, then the end of the task.
+p1_exit:
     cmp byte [p1_buttons], 0
     je .no_release
     xor ax, ax
@@ -232,6 +193,12 @@ p1_worker:
     xor ax, ax
     call OSAPI_DRV_TASK         ; worker exit; never returns
 
+; One sample a tick, written in the loop (driver size pass 2: it was a near
+; proc with this one caller).
+p1_worker:
+    call OSAPI_TASK_PARK
+    cmp byte [p1_stop], 0
+    jne p1_exit
 ; Read/clear the two signed 8-bit hardware counters, and combine them with the
 ; PC1's button make/break states. The DOS reference's mapping, which the field
 ; PC1 confirmed once the right-button drift was fixed: register 10h, negated,
@@ -281,9 +248,7 @@ p1_sample:
     xor cx, cx
     mov al, P1_LEFT
     call OSAPI_KEY_DOWN
-    jnc .right
-    or cl, 1
-.right:
+    adc cl, 0                   ; CL = 1 while the left button is down
     mov al, P1_RIGHT
     call OSAPI_KEY_DOWN
     jnc .compare
@@ -299,7 +264,9 @@ p1_sample:
     mov [p1_buttons], cl
     call OSAPI_MOUSE_FEED
 .out:
-    ret
+    mov ax, 1
+    call OSAPI_TASK_SLEEP
+    jmp short p1_worker
 
 p1_keyseq: db 0x12, 0x77, 0x78, 0x79, 0x01
 p1_stop:   db 0

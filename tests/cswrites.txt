@@ -144,4 +144,4 @@
 # tables and strings; nothing is stored through it (kern_mega's QA pass drove
 # both pages in protected mode, 2026-11-22)
 0 2 kernel/cpw_thm.inc  # Theme: DS = CS as the SOURCE of two rep movsb copying a preset row (cpt_pre) out of the image into the scratch / thm_tab's Color row, ES the destination; DS restored before any store
-0 2 kernel/cpwkit.inc  # cpw_run and cpk_ds: DS = CS when BL = 0 names this image as the segment a label's text or a table is READ from; the kit's writes go through ES (the claim) or the gfx calls
+0 2 kernel/cpwkit.inc  # cpw_run and cpk_ds: DS = CS when BL = 0 names this image as the segment a label's text or a table is READ from; the kit's writes go through ES (the image's own data view since CPWIDE.DAT folded in, driver size pass 2) or the gfx calls
