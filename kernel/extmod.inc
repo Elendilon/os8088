@@ -629,8 +629,11 @@ wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
 ; -----------------------------------------------------------------------------
 ui_drag_size:
     call ext_one                ; one display - mod_gone's case, or this image
-    jb ext_e_strads.r            ; over a collapsed desktop: a drag can never
-                                ; change a kind, and CF = 1 is "not moved"
+    jb wm_disp_span.out         ; over a collapsed desktop: a drag can never
+                                ; change a kind, and CF = 1 is "not moved" -
+                                ; a bare `retf`, the one in the byte above
+                                ; (driver size pass 2: ext_e_strads' was out
+                                ; of a short jump's reach)
     push ax
     push cx
     push dx
