@@ -49022,7 +49022,9 @@ but only the table's LAST cells: step 3 below answers an index at or past
 its `RD_N` with the refusal entry's own CF = 1, AX = 1, for no bytes, while
 a gap mid-table would move every later index. kern_small does this for
 `OSAPI_FILE_PLACE` (§19.12.8), its heap rung being locked; kern_big holds
-an `RDREF` row for it (`api_refusec`, six `.cold` bytes) because the SDK's
+an `RDREF` row for it (`api_refusec`, which there is `OSAPI_VOL_STAT`'s
+no-volume exit - `mov ax, FERR_NODISK` / `stc` / `retf`, the same answer by
+that cell's own contract, so no byte of its own) because the SDK's
 indices are generated from kern_big's table, and t_api_abi passes a cell
 past a kernel's `RD_N - RD_P` as refused.
 
@@ -79462,7 +79464,9 @@ mid-format while the UI task carries a second. Two rules make that safe, and bot
 1. **Every carrying write is one critical section.** `clk_inc_sec` and
    `clk_fld_adj` mutate under `pushf`/`cli` … `popf` (§1), so the fields
    are only ever observed before or after a whole second (or a whole edit),
-   never mid-carry. The guard sits inside `clk_inc_sec`, per second, rather
+   never mid-carry. The guard sits inside `clk_inc_sec` (the body of
+   `clk_tick`'s catch-up loop, its one caller, since kernel size pass 21),
+   per second, rather
    than around `clk_tick`'s catch-up loop — an hour of held-open menu owes
    3600 seconds and must not hold interrupts off for all of them at once.
 2. **Every reader formats from `clk_snapshot`**, which copies the six fields
@@ -113984,6 +113988,10 @@ than pass 1.
 id n), DL = `vid_kind`; callable from any context, lock held or not (the
 `osapi_video` precedent), so an app can grey its mode menu per §47
 *before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011, EGA 0x00F.
+On kern_small, which has no VGA renderer and never answers `VID_VGA` (a VGA
+card runs there as a CGA), the table's VGA slot holds the CGA's 0x00F, so no
+kind offers ids 5-8 and `fsx_mode`'s row and BIOS-mode tables stop at id 4
+(kernel size pass 21, 61 bytes).
 The approximation that used to stand here — *"`vid_detect` admits EGA-class
 cards as `VID_VGA`"* — is gone: §39.24 gave the EGA its own kind and its own
 row of `fsx_capstab`, and this is the finer probe that paragraph asked for.

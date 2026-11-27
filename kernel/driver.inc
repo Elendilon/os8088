@@ -3564,11 +3564,19 @@ drv_load_at:
     call drv_hi                 ; ...and ABOVE 1MB if it says it may (item 82):
 %endif                          ; nothing of it has run, so nothing names it
 
+    mov byte [bx+DRVR_ERR], DRVE_OK ; the last attempt's code cleared HERE,
+                                ; for both kinds of row: an overlay's answer
+                                ; as it stands, and the attach half's own
+                                ; stamp (%1_att) repeats it before it calls
+                                ; the driver - nothing between reads the byte
+                                ; (kernel size pass 21: the `.ovl` block and
+                                ; the `.already` hop, -3 with the tail below)
 %ifdef KERN_BIG
     cmp byte [bx+DRVR_CLASS], DRVC_OVL
-    je .ovl                     ; an OVERLAY stops here: no class, so nothing
+    je .out                     ; an OVERLAY stops here: no class, so nothing
                                 ; to publish and no verb the kernel may send.
-                                ; Its owner attaches it (drv_load_at above)
+                                ; Its owner attaches it (drv_load_at above).
+                                ; `je` off an equal compare: CF = 0
 %endif
 .attach:                        ; (named: tests/lzdrv.py stops HERE, the image
                                 ; read, checked and zeroed and nothing run)
@@ -3582,15 +3590,24 @@ drv_load_at:
                                 ; answering CF and AL = the DRVE_* to bank.
                                 ; INSIDE the volume bracket, as it always ran.
                                 ; BP is the file size and is spent by now
-    jc .fail
-    jmp short .out
-
-%ifdef KERN_BIG
-.ovl:                           ; `je` here off an equal compare: CF = 0
-    mov byte [bx+DRVR_ERR], DRVE_OK
-%endif
+    jnc .out                    ; ...and a refusal FALLS INTO the one tail
+.fail:                          ; ONE TAIL, and drv_release runs on every arm.
+    call drv_release            ; It is a NO-OP when DRVR_SEG is 0 - its own
+                                ; first three instructions test exactly that -
+                                ; and at every pre-claim refusal DRVR_SEG is
+                                ; provably 0, because this routine's FIRST
+                                ; instruction is `cmp word [bx+DRVR_SEG], 0 /
+                                ; jne .already`. It also preserves AX itself
+                                ; ("out: nothing - all registers preserved"),
+                                ; so the bank the .fail arm used to put
+                                ; round it was dead as well
+    mov [bx+DRVR_ERR], al
+    stc
 .already:                       ; ...and `jne` here off `cmp word [x], 0`,
-    jmp short .out              ; which cannot borrow: CF = 0 both ways in
+.out:                           ; which cannot borrow: CF = 0 both ways in
+    call drv_vol_back           ; every exit, including .already, which never
+                                ; mounted - the compare makes that free. It
+    jmp kretc_es
 .nodisk:
     mov al, DRVE_DISK
     jmp short .fail
@@ -3604,24 +3621,8 @@ drv_load_at:
     SKIPF2                      ; (test ax, imm16 over the mov: AL kept, and
 .nomem:                         ; .fail reads no flag - kernel size pass 15)
 .big:                           ; ...and two for DRVE_MEM
-    mov al, DRVE_MEM            ; ...and falls into the tail: the attach's
-                                ; refusal map that sat between is %1_att's
-.fail:                          ; ONE TAIL, and drv_release runs on every arm.
-    call drv_release            ; It is a NO-OP when DRVR_SEG is 0 - its own
-                                ; first three instructions test exactly that -
-                                ; and at every pre-claim refusal DRVR_SEG is
-                                ; provably 0, because this routine's FIRST
-                                ; instruction is `cmp word [bx+DRVR_SEG], 0 /
-                                ; jne .already`. It also preserves AX itself
-                                ; ("out: nothing - all registers preserved"),
-                                ; so the bank the .fail arm used to put
-                                ; round it was dead as well
-    mov [bx+DRVR_ERR], al
-    stc
-.out:
-    call drv_vol_back           ; every exit, including .already, which never
-                                ; mounted - the compare makes that free. It
-    jmp kretc_es
+    mov al, DRVE_MEM            ; the attach's refusal map that sat here is
+    jmp short .fail             ; %1_att's
 
 ; -----------------------------------------------------------------------------
 ; drv_check - validate a loaded driver image (module internal)
@@ -3740,9 +3741,11 @@ drv_hma_door:
 drv_bss:                        ; (ES = the image, from drv_check; no frame -
     mov al, [es:DRV_H_BSSP]     ; drv_load_at carries only BX and ES past it
                                 ; to the attach - kernel size pass 15, -11)
-    xor ah, ah
-    mov cl, 4
-    shl ax, cl                  ; AX = the bss in BYTES, at most 4,080
+    mov ah, 16                  ; the BYTE multiply: AX = AL * 16, nothing
+    mul ah                      ; else written (drv_row_x's form; once a
+                                ; driver load, against `xor ah, ah / mov cl,
+                                ; 4 / shl ax, cl` - kernel size pass 21, -2)
+                                ; AX = the bss in BYTES, at most 4,080
     mov si, ax                  ; ...banked, because the test spends AX
     mov di, bp                  ; the bss begins where the image ends, which
     add ax, di                  ; drv_check has just made equal to BP - so BP
@@ -6168,24 +6171,21 @@ drv_notice_x:
     call stik_boot              ; the widgets FIRST (SPEC.md 110.4), so a
 %endif                          ; driver's panel opens IN FRONT of them
 %endif                          ; KERN-MEGA-PLAN 14.78 and stik_bootf)
-    push ax
-    cmp byte [drv_nerr], 0
-    je .out
-    mov byte [drv_nerr], 0
+    shr byte [drv_nerr], 1      ; CF = the byte (only ever 0 or 1), and the
+    jnc .out                    ; byte 0 after: the test and the clear in one
     mov byte [cp_sel], CP_IDRV
-    call cp_open_x              ; SPEC.md 2.8.4. drv_notice runs BEFORE
+    jmp cp_open_x               ; SPEC.md 2.8.4. drv_notice runs BEFORE
                                 ; ui_task starts, so the system disk is still
                                 ; the one the machine booted from and this
                                 ; load is as reliable as the boot was - which
                                 ; is what makes the panel affordable as a
                                 ; module at all (docs/plans/completed/ONDEMAND-PLAN.md 2.2).
                                 ;
-                                ; The _x BODY, near: driver.inc is cold now
-                                ; and so is ctrl.inc, so routing this out to
-                                ; the .text thunk and straight back in would
-                                ; be SPEC.md 2.6's double crossing
+                                ; A TAIL into the body, which is its own far
+                                ; entry (ctrl.inc), so its `retf` is ours; it
+                                ; keeps AX itself, which is why the bank this
+                                ; had went (kernel size pass 21, -8)
 .out:
-    pop ax
     retf
 
 ; =============================================================================
@@ -6686,17 +6686,27 @@ drv_pkg_call_x:
     push es                     ; THE CALLER'S ES, which the driver reads its
                                 ; buffer through - drv_cls_svc_x answers in it
     call COLD_SEG:drvf_drv_cls_svc  ; ES:DI = the class's table. CF = it
-    jc .noes                    ; has none: 0, DRVC_POINT, not published or
-                                ; out of range. AX is preserved
+%ifdef KERN_MEGA                ; has none: 0, DRVC_POINT, not published or
+    jc .noes                    ; out of range. AX is preserved
+%endif
     mov bp, [es:di+DSV_PKGCALL] ; BP = the driver's near proc, read in place
-.noes:                          ; (kernel size pass 19) - EMS.DRV's too, which
-    pop es                      ; rode drv_fptr7's offset half until then
+                                ; (kernel size pass 19) - EMS.DRV's too, which
+                                ; rode drv_fptr7's offset half until then. On
+                                ; a refusal this reads a word a few bytes into
+                                ; whatever ES then is, which real mode does
+                                ; harmlessly, and `mov` keeps the CF the `jc`
+                                ; below reads: no `jc .noes` round it (kernel
+                                ; size pass 21, -2). kern_mega keeps it - a
+                                ; null selector there would fault on the read
+.noes:
+    pop es
     jc .none                    ; (pop writes no flag)
     or bp, bp
     jz .none                    ; ...and 0 is THE FENCE: not published, so not
                                 ; reachable. (HDD.DRV's reaches three verbs and
-                                ; no sector: SPEC.md 52.1.4, 117.4)
-    mov al, bh
+                                ; no sector: SPEC.md 52.1.4, 117.4). AL is
+                                ; still BH: drv_cls_svc_x keeps AX, and its
+                                ; second load went (kernel size pass 21, -2)
     cbw                         ; BH is 1..DRVC_MAX here, so AH = 0
     dec ax
     shl ax, 1
