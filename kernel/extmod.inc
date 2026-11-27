@@ -629,8 +629,11 @@ wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
 ; -----------------------------------------------------------------------------
 ui_drag_size:
     call ext_one                ; one display - mod_gone's case, or this image
-    jb ext_e_strads.r            ; over a collapsed desktop: a drag can never
-                                ; change a kind, and CF = 1 is "not moved"
+    jb wm_disp_span.out         ; over a collapsed desktop: a drag can never
+                                ; change a kind, and CF = 1 is "not moved" -
+                                ; a bare `retf`, the one in the byte above
+                                ; (driver size pass 2: ext_e_strads' was out
+                                ; of a short jump's reach)
     push ax
     push cx
     push dx
@@ -1228,25 +1231,24 @@ ext_extend_b:
 ; ext_kapply    - [vid_kind] = AL and vid_apply
 ; ext_two       - two displays, display 0 current, and the union
 ; The three sequences the Extend arm and the bracket's restore both make.
+; EACH FALLS INTO ITS LAST STEP (driver size pass 2): the three bodies below
+; are this image's own copies of vidsel.inc's and viddet.inc's, and these are
+; their only callers, so each is laid under the sequence that ends in it
+; rather than called and returned from - a `call` and a `ret` less apiece.
+; ...they are the two of vidsel.inc's this image needs WITHOUT the panel, and
+; viddet.inc's apply: the bracket's restore (vid_fsx_leave, EXT_FSX's
+; EXTF_LEAVE) runs with nothing but this image mounted, and the bodies are
+; CTRL.DRV's otherwise (kernel size pass 13, KSW_SECT in kernel.asm)
 ext_kapply_eq:
     call ext_kapply
-    call ext_equip              ; (this image's own: VSW_EQUIP, below)
-    ret
+VSW_EQUIP ext                   ; ext_equip (vidsel.inc), fallen into
 ext_kapply:
     mov [vid_kind], al
-    call ext_apply              ; (this image's own: VID_APPLY, below)
-    ret
+VID_APPLY ext, EXK              ; ext_apply (viddet.inc: the panel, the boot
+                                ; and this), fallen into
 ext_two:
     mov word [vid_ndisp], 2     ; ndisp = 2, cur = 0: one word (vidsel.inc)
-    call ext_desk_union         ; (this image's own: VSW_UNION, below)
-    ret
-; ...and the two of vidsel.inc's this image needs WITHOUT the panel: the
-; bracket's restore (vid_fsx_leave, EXT_FSX's EXTF_LEAVE) runs with nothing but
-; this image mounted, and both bodies are CTRL.DRV's otherwise (kernel size
-; pass 13, KSW_SECT in kernel.asm)
-VSW_EQUIP ext
-VSW_UNION ext, EXK
-VID_APPLY ext, EXK              ; (viddet.inc: the panel, the boot and this)
+VSW_UNION ext, EXK              ; ext_desk_union (vidsel.inc), fallen into
 VID_CTXCAP ext_ctxcap, ret      ; (vidsel.inc: the panel, the boot and this)
 
 %ifdef SEAMCUT

@@ -37843,6 +37843,19 @@ full-screen DOS program whose arena had taken the heap the 11KB module needed
   `kern_small` is byte-identical to the split it had; DOS does not ship on
   its disks.
 
+**Where the empty-folder removal is resident, the tree calls it** (driver size
+pass 2, docs/plans/dsp2/dops.md): on `kern_big`, `kern_emu` and `kern_mega`
+the walk removes each folder it has emptied through `dskw_rmbody_n83`, and a
+redirected volume whose driver has no tree verb through `dskw_rmbody`, both
+reached through `wm_cbd` - the same gate, find, emptiness scan and commit,
+where the image carried a copy of all four. `kern_small`, which has no
+resident copy, keeps the image's. The image answers its own refusals
+(`FERR_IO`, `FERR_PROT`, `FERR_NAME`, `FERR_NODISK`, `FERR_EXIST`) rather than
+hopping to the kernel's three-instruction tails, and on `kern_small` its four
+verbs are words of the cloner's verb table. `DISKOPS.DRV` -150 bytes on
+`kern_big` and `kern_emu`, -194 on `kern_mega`, -116 on `kern_small`, with
+every answer and every `int 13h` call as it was.
+
 **Measured cost of the three resident bodies (`.cold` symbol spans, bytes):**
 
 | | `kern_big`/`kern_emu` | `kern_mega` | `kern_small` (not taken) |

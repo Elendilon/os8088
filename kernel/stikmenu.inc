@@ -394,19 +394,26 @@ stm_gohome:
 ; stm_take - stm_find holds one entry: list it if it is a .O88 whose clear
 ; prefix carries a valid card and whose name is not listed yet.
 ; clobbers AX, BX, CX, DX, SI, DI, BP, ES
+;
+; ITS REFUSALS ARE JUMPS TO THE NEAREST `ret` (driver size pass 2): stm_scanvol
+; reads nothing back, flags included, and the one at the routine's end was
+; out of a short jump's reach from all of them - eight `jcc` / `jmp` pairs.
+; The first few take stm_gohome's, the bytes before this one; the rest the
+; no-room path's, which is the middle of this one
 stm_take:
+.out equ stm_gohome.r
     test byte [cs:stm_find+13], 0x10
-    jnz .no                     ; a folder
+    jnz .out                    ; a folder
     mov si, stm_find
 .dot:
     mov al, [cs:si]
     or al, al
-    jz .no
+    jz .out
     inc si
     cmp al, '.'
     jne .dot
     cmp word [cs:si], 'O8'
-    jne .no
+    jne .out
     cmp word [cs:si+2], '8'     ; '8', then the NUL
     jne .no
     call stm_dup
@@ -447,7 +454,8 @@ stm_take:
     cmp byte [cs:stm_n], STM_MAX
     jb .room
     CSDO mov byte [CSEG stm_over], 1 ; a real App with no room: left out,
-    ret                         ; and the hint row says so
+.no:                            ; and the hint row says so - and every
+    ret                         ; refusal above this is a jump to a `ret`
 .room:
     mov al, [cs:stm_n]
     call stm_ent                ; CS:DI = the next entry
@@ -481,7 +489,6 @@ stm_take:
     mov byte [CSEG di-STM_C_SIZE+STM_C_PIC-1], 0  ; ...and the description
     inc byte [CSEG stm_n]
     CSDO_OFF
-.no:
     ret
 
 ; stm_cpy - CX bytes from ES:SI to CS:DI; SI, DI past them. clobbers AL, CX
