@@ -38,8 +38,7 @@ hd_mount:
     push di
     push es
 
-    mov byte [hd_nmnt], 0
-    mov byte [hd_msgc], HDM_MNOTAB
+    mov word [hd_msgc], HDM_MNOTAB  ; ...and [hd_nmnt] = 0, its neighbour
     mov byte [hd_xslot], 0xFF   ; no extended partition seen yet
     mov al, [hd_sel]
     call hd_dev_row
@@ -47,24 +46,23 @@ hd_mount:
     jc .out                     ; no readable table: nothing to mount
 
     mov byte [hd_msgc], HDM_MNOFAT
-    mov byte [hd_pslot], 0
+    xor ax, ax                  ; AL = the slot: every routine below keeps it
 .slot:
-    mov al, [hd_pslot]
+    mov [hd_pslot], al          ; ...and hd_mount_one reads it here
     call hd_part_ent
+    call hd_mount_slot          ; (an extended entry is no FAT type: skipped)
     call hd_part_isext
-    jc .prim
-    cmp byte [hd_xslot], 0xFF   ; the FIRST extended entry and only it: DOS
-    jne .next                   ; writes one per disk, and a second would be
-    mov [hd_xslot], al          ; a second chain over the same sectors
-    jmp short .next
-.prim:
-    call hd_mount_slot
-.next:
-    inc byte [hd_pslot]
-    cmp byte [hd_pslot], 4
+    jc .next
+    cmp [hd_xslot], al          ; the FIRST extended entry and only it: DOS
+    jb .next                    ; writes one per disk, and a second would be
+    mov [hd_xslot], al          ; a second chain over the same sectors (0FFh
+.next:                          ; is above every slot, so the first is taken)
+    inc ax
+    cmp al, 4
     jb .slot
 
-    cmp byte [hd_xslot], 0xFF
+    mov al, [hd_xslot]
+    cmp al, 0xFF
     je .count
     call hd_mount_chain         ; the logical drives (SPEC.md 52.4.1)
 .count:
@@ -151,11 +149,11 @@ hd_mount_slot:
 ; -----------------------------------------------------------------------------
 ; hd_mount_chain - walk the extended partition's chain and mount its logical
 ;                  drives (SPEC.md 52.4.1)
-; in:  [hd_xslot] = the extended partition's slot, hd_mbr still holding the
-;      table it is in; DI = the device row; the gfx lock is HELD
+; in:  AL = [hd_xslot], the extended partition's slot, hd_mbr still holding
+;      the table it is in; DI = the device row; the gfx lock is HELD
 ; out: [hd_nmnt] / [hd_msgc] as hd_mount_slot leaves them; hd_mbr holds the
 ;      last record read
-; clobbers: AX, BX, CX, DX, SI, flags (DI kept); ES = DS on the way out
+; clobbers: AX, BX, CX, DX, SI, flags (DI and BP kept)
 ;
 ; Each extended boot record is a partition table of its own, read into hd_mbr:
 ; entry 0 is the logical drive, its LBA relative to THIS record; entry 1 is the
@@ -173,55 +171,59 @@ hd_mount_slot:
 ; lands on its own record reads that record as a boot sector, which BPB rule
 ; 2 refuses. The walk also stops at a full volume table - every record past
 ; it is a read that can mount nothing.
+;
+; THE WALK'S FRAME IS ON THE STACK, at BP (SS: `[bp+disp]` is SS's, and that
+; is where these are): the extended partition's base and length, copied out
+; of hd_mbr before the first record replaces them, and the record being read.
+; Three dwords of the resident's image they used to be, read at a byte more
+; an access (driver size pass 2). Everything this calls keeps BP.
 ; -----------------------------------------------------------------------------
+HDX_LENH     equ -2             ; the extended partition's length...
+HDX_LEN      equ -4
+HDX_BASEH    equ -6             ; ...its first LBA on the device...
+HDX_BASE     equ -8
+HDX_CURH     equ -10            ; ...and the record being read, relative to it
+HDX_CUR      equ -12
 hd_mount_chain:
-    push di
-    mov al, [hd_xslot]
+    push bp
+    mov bp, sp
     call hd_part_ent            ; SI = the entry, still in hd_mbr
-    add si, HP_LBA              ; its base and length, the walk's frame: hd_mbr
-    mov di, hd_xbase            ; is about to stop holding them
-    push ds
-    pop es
-    movsw
-    movsw
-    movsw
-    movsw
-    pop di
+    push word [si+HP_SECS+2]    ; HDX_LENH
+    push word [si+HP_SECS]      ; HDX_LEN
+    push word [si+HP_LBA+2]     ; HDX_BASEH
+    push word [si+HP_LBA]       ; HDX_BASE
     xor ax, ax
     cwd                         ; DX:AX = 0: the first record is the
-    mov byte [hd_pslot], 4      ; partition's own first sector
+    push ax                     ; partition's own first sector (the two
+    push ax                     ; words are HDX_CUR's, stored at .ebr)
+    mov byte [hd_pslot], 4
 .ebr:
-    mov [hd_xcur], ax
-    mov [hd_xcur+2], dx
-    add ax, [hd_xbase]
-    adc dx, [hd_xbase+2]
-    mov bx, hd_mbr
-    mov cx, 1
-    mov [hd_rawop], ch          ; a read
-    call hd_raw
-    jc .end                     ; an unreadable record ends the chain
-    cmp word [hd_mbr+510], 0xAA55
-    jne .end
+    mov [bp+HDX_CUR], ax
+    mov [bp+HDX_CURH], dx
+    add ax, [bp+HDX_BASE]
+    adc dx, [bp+HDX_BASEH]
+    call hd_rec_load            ; CF = 1: unreadable, or no signature - the
+    jc .end                     ; chain ends
     mov si, hd_mbr + HP_TBL     ; entry 0: the logical drive
     call hd_part_used
     jc .link                    ; a record with no drive is legal: a link only
     mov ax, [si+HP_LBA]
     mov dx, [si+HP_LBA+2]
-    add ax, [hd_xcur]           ; -> its start, relative to the partition
-    adc dx, [hd_xcur+2]
+    add ax, [bp+HDX_CUR]        ; -> its start, relative to the partition
+    adc dx, [bp+HDX_CURH]
     jc .link
     mov cx, ax
     mov bx, dx
     add ax, [si+HP_SECS]        ; -> its end
     adc dx, [si+HP_SECS+2]
     jc .link
-    cmp [hd_xlen+2], dx         ; CF = 1 = past the partition's end
+    cmp [bp+HDX_LENH], dx       ; CF = 1 = past the partition's end
     jne .inside
-    cmp [hd_xlen], ax
+    cmp [bp+HDX_LEN], ax
 .inside:
     jc .link
-    add cx, [hd_xbase]          ; absolute, in place: hd_mount_one reads the
-    adc bx, [hd_xbase+2]        ; entry's LBA as the device's
+    add cx, [bp+HDX_BASE]       ; absolute, in place: hd_mount_one reads the
+    adc bx, [bp+HDX_BASEH]      ; entry's LBA as the device's
     mov [si+HP_LBA], cx
     mov [si+HP_LBA+2], bx
     call hd_mount_slot
@@ -233,16 +235,18 @@ hd_mount_chain:
     jc .end                     ; the last drive in the chain
     mov ax, [si+HP_LBA]
     mov dx, [si+HP_LBA+2]
-    cmp dx, [hd_xcur+2]         ; THE CHAIN MUST MOVE FORWARD: a link at or
+    cmp dx, [bp+HDX_CURH]       ; THE CHAIN MUST MOVE FORWARD: a link at or
     jb .end                     ; behind the record it is in would read a
     ja .fwd                     ; record twice and mount its drive again,
-    cmp ax, [hd_xcur]           ; under a new slot number
+    cmp ax, [bp+HDX_CUR]        ; under a new slot number
     jbe .end
 .fwd:
     inc byte [hd_pslot]
     cmp byte [hd_pslot], 4 + HD_MAXLOG
     jb .ebr
 .end:
+    add sp, 12                  ; the frame's six words (`add` and not `mov
+    pop bp                      ; sp, bp`: the stack walker reads this one)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -250,17 +254,14 @@ hd_mount_chain:
 ; in:  SI = the entry
 ; out: CF = 0 yes (05h or 0Fh, with a non-zero length); CF = 1 no
 ; clobbers: flags
+;
+; hd_part_isfat's test with another set of types (hdcom.inc).
 ; -----------------------------------------------------------------------------
+HPT_NOTEXT   equ 0xFFFF & ~((1 << HPT_EXT) | (1 << HPT_EXTL))
 hd_part_isext:
-    cmp byte [si+HP_TYPE], HPT_EXT
-    je .used
-    cmp byte [si+HP_TYPE], HPT_EXTL
-    stc
-    jne .out
-.used:
-    jmp hd_part_used            ; a typed entry with no length is free
-.out:
-    ret
+    push ax
+    mov ax, HPT_NOTEXT
+    jmp hd_part_istype
 
 ; -----------------------------------------------------------------------------
 ; hd_mount_one - mount the partition [hd_pslot] names (module internal)
@@ -485,23 +486,20 @@ hd_cylprobe:
 ; -----------------------------------------------------------------------------
 hd_vol_new:
     push ax
-    push cx
     mov bx, hd_vols
-    xor al, al
-    mov cx, HD_MAXVOL
+    xor ax, ax                  ; AL = the row's index, and its handle
 .scan:
     cmp byte [bx+HDV_USED], 0
     je .free
     add bx, HDV_SIZE
-    inc al
-    loop .scan
-    xor bx, bx
-    stc
-    jmp short .out
+    inc ax
+    cmp al, HD_MAXVOL
+    jb .scan
+    cmc                         ; CF = 1: not below the last (BX is past the
+    pop ax                      ; table: hd_mount_one's .full reads none)
+    ret
 .free:                          ; (CF = 0 off the equal compare)
     mov [bx+HDV_VOLH], al
-.out:
-    pop cx
     pop ax
     ret
 

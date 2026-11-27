@@ -89,6 +89,9 @@ IDE_C_INITP  equ 0x91
 
 %include "hddabi.inc"
 %include "hdcom.inc"
+%if DRVV_ATTACH != 0 || DRVV_DETACH != 1
+  %error "hd_entry tells ATTACH from DETACH with one compare"
+%endif
 %include "cfg.inc"
 %include "hdtool.inc"
 %include "mount.inc"
@@ -111,13 +114,12 @@ IDE_C_INITP  equ 0x91
 hd_entry:
     cmp al, DRVV_DETACH
     je hd_detach
-    cmp al, DRVV_READY
-    je .ready
-    cmp al, DRVV_ATTACH         ; DRVV_TIER means nothing here: this driver
+    jb .attach                  ; DRVV_ATTACH, the one verb below DETACH
+    cmp al, DRVV_READY          ; DRVV_TIER means nothing here: this driver
     jne .refuse                 ; has one tier and its refusal changes
-    jmp hd_attach               ; nothing, which is the contract (51.2)
-.ready:
-    jmp hd_ready
+    jmp hd_ready                ; nothing, which is the contract (51.2)
+.attach:
+    jmp hd_attach
 .refuse:
     mov al, DRVE_HW             ; the reason, explicitly: attach's refusal may
     stc                         ; carry a DRVE_* now (SPEC.md 51.2), and this
@@ -966,10 +968,9 @@ hd_bn_rst:   dw 0               ; ...and controller resets, which are retries
                                 ; probe that fills it (SPEC.md 52.13.6)
 
 hd_xslot:    db 0               ; the extended partition's primary slot, 0FFh
-                                ; = none (SPEC.md 52.4.1)...
-hd_xbase:    dd 0               ; ...its first LBA and its length, ADJACENT:
-hd_xlen:     dd 0               ; hd_mount copies the entry's pair in one run
-hd_xcur:     dd 0               ; ...and the record being read, relative to it
+                                ; = none (SPEC.md 52.4.1). Its base, length
+                                ; and the record being read are the walk's
+                                ; own, on the stack (hd_mount_chain)
 hd_wantmnt:  db 0               ; bit n = mount device n at DRVV_READY: it
                                 ; was mounted last session, or the probe
                                 ; just found it (SPEC.md 52.6.1)

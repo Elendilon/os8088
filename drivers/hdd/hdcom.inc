@@ -50,7 +50,12 @@ hd_msgc:     db HDM_PICK        ; the page's caption, as an HDM_* code and
                                 ; through DS, so a string only means anything
                                 ; in the image that letters it
 hd_nmnt:     db 0               ; ...how many volumes the last mount click
-                                ; mounted, which is what HDM_MOUNTED counts
+                                ; mounted, which is what HDM_MOUNTED counts.
+                                ; hd_msgc's NEIGHBOUR: hd_mount sets the two
+                                ; with one word
+%if hd_nmnt != hd_msgc + 1
+  %error "hd_mount stores hd_msgc and hd_nmnt as one word"
+%endif
 %ifdef HD_TOOL                 ; the PAGE's alone, and the page is in the
                                 ; tool image (SPEC.md 52.13): the resident
                                 ; letters nothing but one refusal, through
@@ -84,8 +89,8 @@ hd_dev_row:
     push ax
     mov ah, HDD_SIZE
     mul ah                      ; a BYTE multiply: AX only, DX untouched
-    add ax, hd_devs
-    mov di, ax
+    add ax, hd_devs             ; (CF = 0: no row is near 64KB, and
+    mov di, ax                  ; hd_dev_row_ck's answer is that CF)
     pop ax
     ret
 
@@ -105,13 +110,9 @@ hd_dev_row:
                                 ; only callers
 hd_dev_row_ck:
     cmp al, [hd_ndev]
-    jae .no
-    call hd_dev_row
-    clc
-    ret
-.no:
-    stc
-    ret
+    cmc                         ; CF = 1 = past the table...
+    jnc hd_dev_row              ; ...and the row comes back with CF = 0:
+    ret                         ; hd_dev_row's `add` cannot carry
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -183,7 +184,10 @@ hd_chs:
 ; A disk with no signature is not an error here - it is a disk nobody has
 ; partitioned - so the failure path leaves a table the user can edit rather
 ; than nothing at all. What it must never do is leave the PREVIOUS device's
-; table in the buffer, which is why the blank happens before the read.
+; table in the buffer, which is why every way out but a signed read blanks it.
+; (It blanked it BEFORE the read as well, until driver size pass 2: a read
+; that succeeds writes all 512 bytes and every other way out blanks again,
+; so that first blank - 256 stores a load - was never seen.)
 ;
 ; HMB_BAD AND HMB_NONE USED TO BE THE SAME ANSWER, and that was a way to lose
 ; a disk: a marginal LBA 0 on a drive with three real partitions read as "not
@@ -194,39 +198,45 @@ hd_chs:
 ; -----------------------------------------------------------------------------
 hd_part_load:
     push ax
+    push dx
+    xor ax, ax
+    cwd                         ; DX:AX = LBA 0
+    call hd_rec_load
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_rec_load - a sector shaped like a partition table into hd_mbr: the MBR,
+;               or one of the extended partition's records (SPEC.md 52.4.1)
+; in:  DX:AX = its LBA, DI = the device row
+; out: as hd_part_load
+; clobbers: AX, flags
+; -----------------------------------------------------------------------------
+hd_rec_load:
     push bx
     push cx
-    push dx
     push es
-    call hd_mbr_blank
     push ds
     pop es
     mov bx, hd_mbr
-    xor ax, ax
-    cwd                         ; DX:AX = LBA 0
     mov cx, 1
-    mov [hd_rawop], al          ; read
+    mov [hd_rawop], ch          ; read
     call hd_raw
-    jc .bad                     ; the READ failed: leave HMB_BAD
+    mov al, HMB_BAD             ; the READ failed: this table is a fabrication
+    jc .blank
     cmp word [hd_mbr+510], 0xAA55
-    jne .nosig
-    mov byte [hd_mbrok], HMB_OK ; ...and CF = 0, off the compare's equal
-    jmp short .out
-.nosig:                         ; read fine, nobody has partitioned it - the
-    mov al, HMB_NONE            ; blank IS the right answer, and committing it
-    jmp short .blank            ; destroys nothing
-.bad:
-    mov al, HMB_BAD             ; this table is a fabrication
-.blank:
-    call hd_mbr_blank
-    mov [hd_mbrok], al
+    mov al, HMB_OK              ; (`mov` writes no flag)
+    je .store                   ; ...and CF = 0, off the compare's equal
+    mov al, HMB_NONE            ; read fine, nobody has partitioned it - the
+.blank:                         ; blank IS the right answer, and committing it
+    call hd_mbr_blank           ; destroys nothing
     stc
-.out:
+.store:
+    mov [hd_mbrok], al
     pop es
-    pop dx
     pop cx
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -258,7 +268,7 @@ hd_mbr_blank:
     xor ax, ax
     rep stosw
     mov word [hd_mbr+510], 0xAA55
-    mov byte [hd_mbrok], 0
+    mov [hd_mbrok], al          ; HMB_BAD: AL is the zero just stored
     pop es
     pop di
     pop cx
@@ -340,13 +350,10 @@ hd_part_used:
     je .no
     cmp word [si+HP_SECS], 0
     jne .yes
-    cmp word [si+HP_SECS+2], 0
-    jne .yes
-.no:
-    stc
-    ret
+    cmp word [si+HP_SECS+2], 1  ; the high word decides: CF = 1 when it is
+    ret                         ; 0 as well, which is the answer
 .yes:
-    clc
+    CLC_OR_STC .no
     ret
 
 ; -----------------------------------------------------------------------------
@@ -386,22 +393,24 @@ hd_part_big:
 ; -----------------------------------------------------------------------------
 hd_part_isfat:
     push ax
+    mov ax, HPT_NOTFAT
+hd_part_istype:                 ; ...THE TEST, for any set of types (mount.inc's
+                                ; hd_part_isext too): AX = a mask whose bit n
+                                ; is CLEAR for each type n (< 16) in the set,
+                                ; and the caller's AX on the stack under it
     call hd_part_used
     jc .no
-    mov al, [si+HP_TYPE]
-    cmp al, 15
-    ja .no
-    push cx                     ; ONE BIT A TYPE: HPT_NOTFAT's bit n = type n
-    xchg cx, ax                 ; is not one, so CL = the type shifts the
-    mov ax, HPT_NOTFAT          ; answer down to bit 0 and out into CF
+    push cx
+    mov cl, [si+HP_TYPE]        ; ONE BIT A TYPE: CL = the type shifts the
+    cmp cl, 16                  ; answer down to bit 0 and out into CF...
+    cmc                         ; ...and no type from 16 up is in any set
+    jc .not                     ; (CF = 1 from there)
     shr ax, cl
-    pop cx
     shr al, 1
-    pop ax
-    ret
+.not:
+    pop cx
 .no:
     pop ax
-    stc
     ret
 
 %ifdef HD_TOOL                 ; hd_win_erase, hd_scat and hd_utoa draw and
