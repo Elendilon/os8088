@@ -1285,13 +1285,16 @@ mou_lockon:
     jb .port
 %ifdef KERN_BIG
     cmp byte [mou_port], MOU_P2ROW  ; ...and the same question asked of the
-    je .keep                        ; OTHER SOCKET: a serial port winning makes
-    call mou_p2_off                 ; the PS/2 mouse the loser, and a loser is
-.keep:                              ; silenced (SPEC.md 9.9.4). Row 4 is no
+    je mou_newround.ret             ; OTHER SOCKET: a serial port winning makes
+    jmp mou_p2_off                  ; the PS/2 mouse the loser, and a loser is
+                                    ; silenced (SPEC.md 9.9.4). Row 4 is no
                                     ; port, so when IT won the loop above has
-                                    ; just retired both UARTs on its behalf
-%endif
+                                    ; just retired both UARTs on its behalf.
+                                    ; A TAIL jump, and the keep's `ret` is
+                                    ; mou_newround's just above (pass 21, -1)
+%else
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mou_hotplug - keep offering a hot-plugged mouse its reset (SPEC.md 9.4)
@@ -1668,10 +1671,17 @@ osapi_mouse:
 ; mickeys since the last call, each taken and zeroed by one xchg; AL =
 ; mouse_btn. Flags and every other register kept (popf restores the caller's).
 ; NO cli: a report landing between the two xchgs has its dy answered by the
-; next call instead of this one - delayed a frame, never lost - and the 22
-; bytes stay EVEN, which every hot routine assembled after this one needs
+; next call instead of this one - delayed a frame, never lost.
+;
+; THROUGH CS, not a DS bank, on the real-mode kernels (kernel size pass 21):
+; CS is KERNEL_SEG in .text, so three `cs:` prefixes replace `push ds` /
+; KDS / `pop ds` - 21 bytes for 22, and ~35 clocks a call faster on an 8088
+; (three 2-clock prefixes against two pushes, two pops). kern_mega's CS is a
+; read-only code selector in protected mode, so it keeps the bank. The odd
+; byte pairs with the PARITY nop after mou_p2_off, which goes
 ; (tests/unit/t_hotpar.py)
 osapi_mouse_rel:
+%ifdef KERN_MEGA
     push ds
     KDS
     pushf
@@ -1682,6 +1692,15 @@ osapi_mouse_rel:
     mov al, [mouse_btn]
     popf
     pop ds
+%else
+    pushf
+    xor cx, cx
+    xchg cx, [cs:mou_rx]
+    xor dx, dx
+    xchg dx, [cs:mou_ry]
+    mov al, [cs:mouse_btn]
+    popf
+%endif
     retf
 %else
 ; kern_small: OSAPI_MOUSE_REL AND OSAPI_KEY_MAP REFUSE (SPEC.md 9.14, 9.7.3) -
@@ -2338,8 +2357,11 @@ mou_p2_off:
     ret
 
 
+%if %isdef(KERN_MEGA) || %isdef(KERN_SMALL)
     nop                         ; PARITY, never executed: follows mou_p2_off's
-                                ; return, before the IRQ12/keyboard ISR run
+                                ; return, before the IRQ12/keyboard ISR run.
+%endif                          ; (kern_big and kern_emu: osapi_mouse_rel's
+                                ; CS form is the odd byte instead - pass 21)
 
 ; -----------------------------------------------------------------------------
 ; mou_p2_isr - IRQ12, int 74h (SPEC.md 9.9.3)
@@ -2776,13 +2798,14 @@ KBM_PC1_R   equ 0x79            ; but none of the three may reach the BIOS
     ; still reaches this same expansion.
     cmp word [pc1_row+DRVR_SEG], 0
     je %%not_pc1
-    cmp al, KBM_PC1_L
-    je .pc1eat
-    cmp al, KBM_PC1_M
-    je .pc1eat
-    cmp al, KBM_PC1_R
-    je .pc1eat
-%%not_pc1:
+%if KBM_PC1_M - KBM_PC1_L != 1 || KBM_PC1_R - KBM_PC1_M != 1
+  %error "the PC1 button scans are one range test: KBM_PC1_L, _M, _R must be consecutive"
+%endif
+    mov ah, al                  ; ONE unsigned range test for the three
+    sub ah, KBM_PC1_L           ; codes (kernel size pass 21: -2, and fewer
+    cmp ah, KBM_PC1_R - KBM_PC1_L ; clocks on the PC1 than three compares).
+    jbe .pc1eat                 ; AH is free: this is the `mem` form's
+%%not_pc1:                      ; expansion, whose AH nothing below reads
 %endif
     cmp byte [mou_ptr], 0
     jne %1                      ; a real mouse has spoken: never intercept
@@ -2797,6 +2820,45 @@ KBM_PC1_R   equ 0x79            ; but none of the three may reach the BIOS
                                 ; (10h), the hatch
     mov byte [kbm_p5], 1        ; ...otherwise it is a press, spent in task
                                 ; context by kbm_p5spend
+%endmacro
+
+; KBM_EAT - THE TAIL OF A BYTE THE BIOS NEVER SEES, and .selfchain's: the
+; module (or the PC1 filter) consumed the scan. On int 15h (9.7.2) the ROM is
+; told in the frame's CF; on int 09h the 8255's byte is acknowledged and IRQ1
+; ended here. The EOI and the three-instruction exit ARE .selfchain's, so the
+; refused self-chain lands inside this tail rather than carrying a copy
+; (kernel size pass 21, -7): every path into it is the jump it always was.
+; Expanded ONCE per kernel, where that kernel's fall-through wants it: before
+; .chain on the OS88_DRIVERS kernels, after the whole chain on kern_small.
+%macro KBM_EAT 0
+.kleat:
+%ifdef KBD_I15
+    cmp byte [kbm_ivec], 0x54   ; AT AH=4Fh: refuse in the saved FLAGS frame
+    jne .klxt
+    push bp
+    mov bp, sp
+    and word [ss:bp+10], 0xfffe ; BP, DS, AX, IP, CS, FLAGS
+    pop bp
+    pop ds
+    pop ax
+    iret
+.klxt:
+%endif
+    ; On the PC1 XT, port 60h is the 8255 latch and reading it does not
+    ; acknowledge the byte. Pulse bit 7 of port 61h as the ROM handler does,
+    ; preserving the speaker/timer bits, then send IRQ1's EOI ourselves.
+    in  al, 0x61
+    mov ah, al
+    or  al, 0x80
+    out 0x61, al
+    mov al, ah
+    out 0x61, al
+.selfchain:
+    mov al, 0x20                ; the EOI is the BIOS's job and there is no
+    out 0x20, al                ; BIOS below us: without it IRQ1 stays in
+    pop ds                      ; service and takes the mouse's IRQ3/IRQ4 down
+    pop ax                      ; with it
+    iret
 %endmacro
 
 kbm_isr:
@@ -2878,9 +2940,6 @@ kbm_isr:
 %else
     KBM_SCAN .chain
 %endif
-%ifndef OS88_DRIVERS
-    jmp .chain                 ; small keeps its original keypad-5 chain
-%endif
 %ifdef OS88_DRIVERS
 .pc1eat:
 %ifdef KBD_DIAG
@@ -2891,34 +2950,8 @@ kbm_isr:
     or byte [bx+KR_X], 0x20
     pop bx
 %endif
+    KBM_EAT                     ; (the keypad-5 press falls in here as well)
 %endif
-.kleat:
-%ifdef KBD_I15
-    cmp byte [kbm_ivec], 0x54   ; AT AH=4Fh: refuse in the saved FLAGS frame
-    jne .klxt
-    push bp
-    mov bp, sp
-    and word [ss:bp+10], 0xfffe ; BP, DS, AX, IP, CS, FLAGS
-    pop bp
-    pop ds
-    pop ax
-    iret
-.klxt:
-%endif
-    ; On the PC1 XT, port 60h is the 8255 latch and reading it does not
-    ; acknowledge the byte. Pulse bit 7 of port 61h as the ROM handler does,
-    ; preserving the speaker/timer bits, then send IRQ1's EOI ourselves.
-    in  al, 0x61
-    mov ah, al
-    or  al, 0x80
-    out 0x61, al
-    mov al, ah
-    out 0x61, al
-    mov al, 0x20
-    out 0x20, al
-    pop ds
-    pop ax
-    iret
 .chain:
     ; A CHAIN TO OURSELVES IS A DEAD MACHINE, so it is refused rather than
     ; taken (SPEC.md 9.6.5). mouse_unhook puts int 09h back now and that is
@@ -3006,12 +3039,9 @@ kbm_isr:
     jmp far [cs:kbm_old9]       ; CS, not DS: DS is the interrupted code's again
 %endif
 %endif
-.selfchain:
-    mov al, 0x20                ; the EOI is the BIOS's job and there is no
-    out 0x20, al                ; BIOS below us: without it IRQ1 stays in
-    pop ds                      ; service and takes the mouse's IRQ3/IRQ4 down
-    pop ax                      ; with it
-    iret
+%ifndef OS88_DRIVERS
+    KBM_EAT                     ; kern_small: AFTER the chain, so the keypad-5
+%endif                          ; press falls into .chain where it jumped
 
 %ifdef KBD_I15
 ; -----------------------------------------------------------------------------
@@ -4059,9 +4089,10 @@ kbd_ovn     db 0                ; SPEC.md 9.8: beeps this overrun burst has
                                 ; .text with a real initialiser for
                                 ; kbd_armed's reason - the ISR reads it on
                                 ; the machine's first keystroke
-
-    nop                         ; PARITY, never executed: the preceding key
-                                ; state bytes are data, not a fall-through path
+                                ; (The PARITY nop that sat here went with
+                                ; kbm_isr's shared EOI tail, kernel size pass
+                                ; 21: -7 there and -9 on kern_small, so the
+                                ; hot ISRs below are back at their parity.)
 
 ; -----------------------------------------------------------------------------
 
@@ -4234,7 +4265,10 @@ mou_byte:
     mov [mou_dstamp], cx        ; still arriving: push the window's close out
     ret                         ; to MOU_DRAINQ past THIS byte, and drop it
 .drainover:
-    mov byte [mou_drain], 0     ; window over: this byte is live
+    dec byte [mou_drain]        ; window over: this byte is live. The flag is
+                                ; 1 here - .drain read it non-zero and every
+                                ; writer stores 1 - so DEC is the clear, a
+                                ; byte under the immediate store (pass 21)
 .live:
     mov ah, [bx+mou_phase]      ; the phase ONCE, into the free half of AX: the
                                 ; five compares below are register ones (4
@@ -4779,10 +4813,9 @@ mou_apply:
 .out:
     ret
 
-%ifndef NO_MOUPRIV
-    nop                         ; PARITY PAD, never executed: mou_eoi used to
-%endif                          ; stand here (kernel size pass 14 moved it
-                                ; under mou_isr_body, which now falls into it)
+                                ; (The PARITY pad that stood here for mou_eoi's
+                                ; move went with mou_byte's odd -1, kernel
+                                ; size pass 21.)
 
 %ifdef GFXAUDIT
 ; cur_logput - one log entry: the tag, the refcount, and where the pixels are
