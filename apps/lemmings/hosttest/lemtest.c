@@ -363,6 +363,14 @@ int os88_fsx_caps(void *win, int *kind)
     *kind = h_vidkind;
     return h_caps;
 }
+/* one display in the harness: the window's own answers, display 0 (kd's
+ * high byte), and no display at all when it has none of `want` */
+int os88_fsx_pick(void *win, int want, int *kd)
+{
+    (void)win;
+    *kd = h_vidkind;
+    return h_caps & want;
+}
 /* THE BRACKET IS DRIVEN AND NOT REFUSED. A stub that answers -1 measures the
  * refusal path, which is LESSONS.md 7's first harness trap: os88_fsx_run()
  * CALLS the entry it is handed the way the kernel does, os88_fsx_mode() answers a

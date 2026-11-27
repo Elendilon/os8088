@@ -103930,6 +103930,32 @@ cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
 one tick, the same end state (`C3B7`) and the same final screen
 (`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
 
+### 48.27 Two displays, two questions (2026-11-27)
+
+The extended-desktop audit (K6) found Missile taking its depth from one
+display and its frame size from another. `mc_adapter` asked
+`OSAPI_FSX_CAPS` for both `mc_mono` and Mode X, and that answers the
+display the window's CENTRE is on. The frame is sized by the kernel for the
+MORE RESTRICTIVE display of a straddle (§39.16.4.1). So a window straddling
+a Hercules and a VGA, centre on the VGA, was sized 634x303 for the Hercules
+and drew the colour ramp, with half its pixels on the 1bpp card.
+
+Now each question asks the display it is about:
+
+- **The depth** (`mc_mono`, `mc_ecoarse`, `mc_expfr`) comes from
+  `OSAPI_WM_DISPLAY`'s kind, `[mc_wkind]`. That is the display the window is
+  drawn and sized for. In the §11.2 full-screen surface the window lies
+  wholly on one display, so it is that display's answer.
+- **Mode X** is a full-screen mode, so it is asked of the full-screen target
+  (§53.1.2.1, `fsxw_pick`): the display the window is mostly on when it has
+  Mode X, else the first display that does. `mc_cmd_modex` hands
+  `OSAPI_FSX_RUN` that display as CH (`[mc_fsdisp]`). The item is offered on
+  a Hercules with a VGA beside it, and greyed only on a machine with no VGA.
+
+`mc_dispck` already ran every frame for exactly this reason: no callback
+says the window moved. It now compares both answers and re-runs
+`mc_adapter` when either changed.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
@@ -229525,6 +229551,26 @@ Rejected, with ISOTRON-PLAN 8.1's reasons: 13h, Mode X and 12h on the VGA,
 C160 and 640 x 200 composite on the CGA, and direct planar writes on the
 EGA's own desktop mode (ISOTRON-PLAN 18 item 3, an owner's decision).
 
+##### 108.12.1.1 …on the display that can, when the window's cannot (2026-11-27)
+
+The display is the full-screen target of §53.1.2.1, not only the window's.
+`it_fs_pick` asks `fsxw_pick` for 0Dh, CGA 320 or Hercules: the display the
+window is mostly on when it can set its kind's mode, else the first display
+that can. Then it picks the table row above for that display's kind.
+`[it_fsdisp]` is the CH `it_fs_go` hands `OSAPI_FSX_RUN`. "Full Screen (no
+mode)" now means no display on the machine has one.
+
+`it_fs_go` stores the surface in `[it_fsk]` before the bracket opens, and
+`it_fs_setup` reads it rather than asking again. Inside a bracket on another
+display, the machine has collapsed onto that display (§39.18.3). An EGA's
+same-mode row needs CH = 0, so an EGA reached by the walk is set to CGA 320
+like a CGA.
+
+**Colours stays the window's.** It greys while the window's own picture is
+mono. A straddling window draws for its more restrictive display
+(§39.16.4.1), so it is greyed on a straddle that touches a Hercules. C
+still changes the look inside a colour bracket.
+
 #### 108.12.2 The looks
 
 **CGA**, an id's ink at an even x / an odd x (palette 1: 0 black, 1 cyan,
@@ -238560,6 +238606,24 @@ rather than a greyed control:
   addition, not the 1991 game. Lemmix's own `F` (skip one minute) goes with
   them, which is what leaves the letter free for §11.2.1's fullscreen door.
 - **Custom / Lemmini level loading, the level finder, and any level editor.**
+
+#### 116.8.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode row and Play follow §53.1.2.1. `lem_probe_mode` asks
+`os88_fsx_pick()` for 320x200x16, CGA 320 or Hercules: the display the
+launcher is mostly on when it can set one of them, else the first display
+that can. `lem_vidkind` and `lem_caps` are that display's, so the row's
+caption, the second screen's mode (`ovl_scr_id`) and the bracket's mouse map
+all describe it. `lem_fsdisp` is the display `os88_fsx_run()` is handed.
+
+The audit (K6) had the launcher straddling a Hercules and a VGA with its
+centre on the VGA. No `W_ONRESIZE` came, because the restrictive display was
+still the Hercules. The row said "Hercules 720x348", the bracket opened on
+the VGA, was asked for the Hercules mode and refused, and Play did nothing.
+So the probe now also runs before every Play and in every `W_PAINT`
+(`lem_reprobe`, which lays the window out again only when the answer
+changed). A drop repaints the window, so the row is right when it is next
+seen.
 
 ### 116.9 The names, and the four disks
 

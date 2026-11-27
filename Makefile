@@ -9966,7 +9966,7 @@ $(BUILD)/arkanoid.o88: $(BUILD)/arkanoid.bin tools/os88pkg.py $(PKGZSTAMP)
 # colours that survive SPEC.md 39.4's reduction to three inks. No heap claim:
 # every array is sized by the arcade's object counts and fits the package bss.
 $(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc \
-                      apps/os88alt.inc | $(BUILD)
+                      apps/os88alt.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
@@ -10218,7 +10218,7 @@ glyphbn: $(BUILD)/glyphbn360.img
 # here ships, and `all` must not pay for it.
 $(BUILD)/mcbench.bin: apps/missile/missile.asm apps/missile/mcbench.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
-                      apps/os88alt.inc | $(BUILD)
+                      apps/os88alt.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/missile/ -DMC_BENCH \
 		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) \
 		$(if $(MCDRNBUD),-DMC_DRNBUD=$(MCDRNBUD)) -o $@ \
@@ -21944,7 +21944,7 @@ excitebikeload: excitebikedisk $(BUILD)/os8088-360.img
 # SHIPS through APPS_GAMES; `isotrondisk` is its own floppy in all four
 # geometries, carrying the package and its README.
 .PHONY: isotron isotrondisk isotrontest
-$(BUILD)/isotron.bin: apps/isotron/isotron.asm apps/isotron/itrules.inc apps/isotron/itai.inc apps/isotron/itinput.inc apps/isotron/ittest.inc apps/isotron/itcanvas.inc apps/isotron/itwin.inc apps/isotron/itfs.inc apps/isotron/itsweep.inc apps/isotron/itsnd.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88pit.inc | $(BUILD)
+$(BUILD)/isotron.bin: apps/isotron/isotron.asm apps/isotron/itrules.inc apps/isotron/itai.inc apps/isotron/itinput.inc apps/isotron/ittest.inc apps/isotron/itcanvas.inc apps/isotron/itwin.inc apps/isotron/itfs.inc apps/isotron/itsweep.inc apps/isotron/itsnd.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88pit.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/isotron/ -l $(BUILD)/isotron.lst -o $@ $<
 
 $(BUILD)/isotron.o88: $(BUILD)/isotron.bin tools/os88pkg.py $(PKGZSTAMP)
