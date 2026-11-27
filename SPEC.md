@@ -119780,6 +119780,53 @@ waits and the four withdrawal sites. Found on the way and left for its own
 change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
 gfx lock, although `zwin.inc` documents it as lock-held.
 
+### 61.17 The status line re-entered the text decoder
+
+**A story halted mid-sentence with `unknown opcode 0x1F at 0x00000E15
+es=0000`** (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md, Severity 1
+#1): four of about seven sessions that dragged Frotz across the seam of an
+extended desktop, never one that stayed on one display. The `es=0000` is not
+evidence - `zx_badseg` is written only by `zx_lost`, and this was `zx_bad`,
+an opcode decoded from the right segment at the wrong address.
+
+**`zt_print_ret` is not reentrant, and `zw_status` called it from inside
+itself.** The decoder's cursor is bss (`zt_al`/`zt_ah`, `zt_ci`, `zt_cw`,
+`zt_end`, the alphabet and the abbreviation bank), because a decode is one
+flat loop and nothing was meant to start a second one while it ran. But a
+character it prints can reach `zw_paint` - a refused `OSAPI_GFX_SCROLL`
+(§61.5's fallback), a pending resize (`zw_sync`), a split - and `zw_paint`
+draws the v1-3 status line, and `zw_status` captures the location's short
+name by DECODING it. The inner decode ran to its end bit, so the outer one
+found its cursor exhausted and stopped mid-word; and an inline `@print`
+resumes at the address `zt_print_ret` answers, which was now the end of the
+object's name in dynamic memory. Measured on MartyPC
+(`os8088_5150_both_gla`, Hercules primary, CGA to the right), the instruction
+ring read `@print` at `0x8527` followed by a PC of `0x0E12`, every time.
+
+The seam is why it showed there: `OSAPI_GFX_SCROLL` refuses a band that
+crosses two displays (§39.14.2), so every line on a straddling window falls
+back to `zw_paint`, and every wrap inside a sentence was a chance. A grow-box
+drag or an adapter switch reaches the same `zw_paint` through `zw_sync`, and
+the UI task's own `W_PAINT` reaches it while the worker waits under `[MORE]`
+mid-sentence - so one display was never immune, only lucky.
+
+**`[zt_busy]` is set for the length of a decode, and `zw_status` does not
+re-capture the name while it is.** The row is still drawn - score, moves and
+the clock are global reads, which touch no cursor - from the name the last
+capture left in `zw_stat`, which is the name on the glass anyway: a location
+does not change in the middle of a sentence about it. One byte of bss and
+fifteen of code, and the worker's stack gains nothing.
+
+**What this does not cover.** The worker's slice reaches 298-300 of its 384
+bytes on a straddle with or without the nest - the depth is the full repaint
+itself, cut per cell at the seam (§39.14.6), which a refused scroll costs on
+every line. And on a VGA primary with the Hercules to the right, dragging a
+straddling window onto the Hercules WHILE the worker is printing still takes
+the machine down (SS = 0, CS:IP in ROM; three runs of three, with and without
+this fix, never with the worker idle); the audit's STACK OVERFLOW panel for
+slot `0C` was on that same pairing. That one is in the kernel's display
+switching and is recorded in the audit's fix notes, not here.
+
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
 **A LapLink cable between the parallel ports of an os8088 machine and a DOS
