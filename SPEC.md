@@ -31716,6 +31716,21 @@ button row, and each button's visible rows must equal the same rows once the
 window is moved off. The body before this reads 20 of 56 rows wrong on the VGA
 XT; it reads 0.
 
+##### 13.8.9.2 …and the mono rule is the WINDOW's display's
+
+Which of the two band encodings to stage is a question about the display the
+button is drawn on, and the first build asked `OSAPI_VIDEO` - the PRIMARY.
+On a two-display machine a window on a mono second monitor beside a VGA
+primary staged the colour band and the lit pixels came out inverted; the
+reverse put the mono band on a VGA. The extended-desktop audit (2026-11-27,
+L4) found it by reading.
+
+So `os88ui_btn` banks the record's `OS88UI_BT_WIN` in `os88ui_bwin` (package
+arm, `OS88UI_BIMG` only) and `UI_ISMONO` asks `OSAPI_WM_DISPLAY` about that
+window; a record no `os88ui_btninit` has met has no window, and keeps the
+primary's answer. A straddling window gets the more restrictive display's
+answer (§39.16.4.1), which is the same face its frame was sized for.
+
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
 The library draws two looks, the plain one and §13.8.9's one-write body, and
@@ -143987,6 +144002,20 @@ Sixteen bytes of any package that opts into the alert — eight for the row and
 eight for the one label that was not already there. `Proceed` is SEVEN
 characters because that is what `OS88UI_ABW` holds; `Continue` would not fit
 the row, which is the constraint §75.3 above is about.
+
+#### 75.3.4 It opens on the asking window's DISPLAY — `os88ui_centre`
+
+The alert was centred on `OSAPI_VIDEO`'s width and height, which are the
+PRIMARY's (§39.2.1), so on a two-display machine a window on the second
+monitor asked its question on the first one. No cell says where a display
+starts, and none is needed: **`os88ui_centre`** (AX = the frame's width, DX =
+its height, BX = the asking window; out AX/BX = x/y) centres the box over the
+asking window's content when there are two displays (`OSAPI_FSX_CAPS` with
+BX = 2 answers CF = 0), and `wm_create`'s fit keeps it inside that window's
+display (§39.16.1). On one display it is the old arithmetic exactly: centred
+on the primary and never up under the menu bar. SHEET's seven dialogs that
+copied the alert's placement call it too (§81's dialogs, the extended-desktop
+audit of 2026-11-27).
 
 ## 76. The theme — Bright and Dark (`kernel/vga12.inc`, `kernel/ctrl.inc`)
 
