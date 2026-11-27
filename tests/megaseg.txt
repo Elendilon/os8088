@@ -256,4 +256,8 @@
 #             ES = 0 out of a register already 0 (-2 each), where kern_mega
 #             loads its segment-0 selector (MEGA_SEG0) either way. +4 more,
 #             to 3,793
-3793
+# 2026-11-27: -6, to 3,787, kernel size pass 21's close (ksp21/sweep.md): the
+#             three entries above were each taken on one agent's branch and
+#             summed at the merge; the merged tree plus the sweep reads 3,787,
+#             so the slack goes (the gate's own reading, os88megaseg)
+3787
