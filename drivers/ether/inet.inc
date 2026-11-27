@@ -696,13 +696,16 @@ icmp_in:
     jmp ep_cx
 
 ; =============================================================================
-; UDP - two ports, and both of them are ours
+; UDP - two ports of ours, and a package's (SPEC.md 72.24)
 ; =============================================================================
 ; in: CX = the IP payload length, the frame in eth_rxb
+; clobbers: DI - its one caller, eth_frame_i, banks it (driver size pass 2)
+;
+; DX IS NOT BANKED: nothing here writes it, and dns_in and dhcp_in give it
+; back - eth_pump_i's STKDEPTH-NOSAVE holds the chain to that
 udp_in:
     push ax
     push cx
-    push dx
     push si
     cmp cx, UD_HLEN
     jb  .out
@@ -714,30 +717,65 @@ udp_in:
     ja  .out
     sub ax, UD_HLEN
     mov [eth_udplen], ax
-    mov dx, ax
+    xchg cx, ax                         ; CX = the payload's length
     mov ax, [eth_rxb+IP_PAY+UDO_DP]
     xchg ah, al
-    mov cx, dx
     cmp ax, DHCP_CLIPORT
     je  .dhcp
     cmp ax, [dns_lport]
+%ifdef ETH_NORAW
+    jne .out                    ; (the DOS end of the cable has no package port)
+%else
     je  .dns
-%ifndef ETH_NORAW
-    or  ax, ax                  ; a PACKAGE's port (SPEC.md 72.23): queued
+    or  ax, ax                  ; a PACKAGE's port (SPEC.md 72.24): queued
     jz  .out                    ; for NETV_UDPRX
     cmp ax, [eth_uport]
     jne .out
-    call udp_queue
-%endif
+    ; --- INTO THE QUEUE'S NEXT SLOT, or dropped and counted -----------------
+    ; It was udp_queue, called from here alone and banking five registers
+    ; this routine and eth_frame_i already bank (driver size pass 2)
+    mov di, [eth_uqe]           ; where the queue ends: UQ_SZ a datagram
+    cmp di, UQ_N * UQ_SZ
+    jb  .queue
+    inc word [eth_uqdrop]       ; full: the newest is the one dropped
     jmp short .out
 .dns:
+%endif
     call dns_in
     jmp short .out
 .dhcp:
     call dhcp_in
+%ifndef ETH_NORAW
+    jmp short .out
+.queue:
+    add word [eth_uqe], UQ_SZ
+    add di, eth_uq
+    push es
+    push ds
+    pop es
+    cld                         ; (before the first string op, not the last)
+    xchg ax, cx
+    stosw                       ; UQ_LEN: the TRUE length...
+    xchg ax, cx
+    mov si, eth_rxb + IP_OFF + IPO_SRC
+    movsw                       ; ...UQ_SRC: the source's address...
+    movsw
+    mov ax, [eth_rxb + IP_PAY + UDO_SP]
+    xchg ah, al                 ; ...and its port, network order turned
+    stosw
+    mov si, eth_rxb + IP_PAY + UD_HLEN
+    cmp cx, UQ_DATA             ; ...and UQ_PAY: as much of the payload as
+    jbe .c                      ; the slot holds
+    mov cx, UQ_DATA
+.c:
+    rep movsb
+    pop es
+  %if UQ_LEN != 0 || UQ_SRC != 2 || UQ_PAY != 8
+    %error "udp_in stores a queue slot as the length, the source, the payload"
+  %endif
+%endif
 .out:
     pop si
-    pop dx
     pop cx
     pop ax
     ret

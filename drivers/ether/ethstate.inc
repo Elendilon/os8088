@@ -50,6 +50,15 @@ eth_static: db ETH_IP
 ; --- scratch -----------------------------------------------------------------
 eth_pr:     db 0                ; the protocol of the frame being built
 eth_dip:    times 4 db 0        ; ...and where it is really going
+%ifndef ETH_NORAW
+eth_dport:  dw 0                ; ...and, NETV_UDPTX's, the port: the
+                                ; package's six bytes land on these two
+                                ; (ethsock.inc), where ip_start banks a
+                                ; destination anyway
+  %if eth_dport != eth_dip + 4
+    %error "NETV_UDPTX reads the destination's six bytes into eth_dip and eth_dport"
+  %endif
+%endif
 eth_ipid:   dw 1
 eth_ph2:    times 4 db 0        ; a 32-bit scratch for sequence arithmetic
 eth_oflg:   db 0                ; the flags tcp_out is sending...
@@ -176,9 +185,31 @@ eth_users:  dw 0                ; a bit per instance slot using the network:
                                 ; any ring is out (SPEC.md 72.13.4)
 eth_cslot:  db 0xFF             ; the slot inside the current verb, which
                                 ; sk_alloc stamps on a new socket
+    align 2, db 0               ; **THE TABLE AND THE FRAMES ON A WORD.** On
+                                ; an 8088 a word costs the same wherever it
+                                ; is; on an 8086, a V30 and every 286 and up
+                                ; one at an odd address is two bus cycles,
+                                ; and these are the words of every record
+                                ; tcp_match walks and the `lodsw` of every
+                                ; checksum. Wire Arena's UDP state moved them
+                                ; all odd; this holds them even whatever
+                                ; moves next (driver size pass 2)
 sk_tab:     times NET_SOCKS * SK_SZ db 0
 eth_rxh:    times 4 db 0        ; the card's own four-byte receive header
 eth_rxb:    times NIC_FRAME + 4 db 0
 eth_txb:    times NIC_FRAME + 4 db 0
+%ifndef ETH_NORAW
+; --- a package's UDP port and its queue (SPEC.md 72.24, ethsock.inc) ---------
+; ALL ZERO AT LOAD, so they are the tail of the trailing zeros and not a run
+; of them in mid-image (driver size pass 2: they were ethsock.inc's, and
+; eth_uslot was 0xFF there - which nothing read: eth_v_gone tests it only
+; to clear eth_uport, and that is 0 until a bind writes the two together)
+eth_uport:  dw 0                ; the package's port, 0 = none
+eth_uqe:    dw 0                ; where the queue ENDS, in bytes: UQ_SZ a
+                                ; datagram queued, slot 0 the oldest
+eth_uqdrop: dw 0                ; ...dropped, the queue full
+eth_uq:     times UQ_N * UQ_SZ db 0
+eth_uslot:  db 0                ; ...the port's instance
+%endif
 %endif
 

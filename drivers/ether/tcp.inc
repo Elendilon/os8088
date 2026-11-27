@@ -796,7 +796,7 @@ eth_v_gone:
 %ifndef ETH_NORAW
     cmp al, [eth_uslot]         ; (its UDP port too, SPEC.md 72.24)
     jne .nou
-    mov word [eth_uport], 0
+    and word [eth_uport], 0     ; (the flags are written again below)
 .nou:
 %endif
     mov cl, al

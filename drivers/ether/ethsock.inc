@@ -554,6 +554,142 @@ eth_v_raw:
     stc
     ret
 
+; =============================================================================
+; UDP FOR A PACKAGE (SPEC.md 72.24): one port, a queue of UQ_N datagrams of
+; up to UQ_DATA bytes each, filled by udp_in as frames are pumped and
+; drained by NETV_UDPRX. The stack already speaks UDP (DHCP, DNS): what is
+; new is a package's port. A full queue drops the newest and counts it.
+;
+; HERE, BESIDE NETV_RAW, so that the refusals are three tails and not seven:
+; NETE_BUSY is eth_v_raw's own, and NETE_ARG is eth_uarg below, which every
+; one of these reaches with a short jump (driver size pass 2).
+;
+; **BX, SI AND DI ARE THE DOOR'S**: eth_pkg pushed them before the verb and
+; pops them after it, so a verb here spends them freely. These three are
+; ETHER.DRV's alone - ETH_NORAW keeps them out of the DOS end of the cable,
+; whose door is another - which is what makes that true of every caller.
+; AX and DX are NOT the door's, and a package READS AX after a success
+; (apps/os88udp.inc: CF = 0 with AX = NETE_BUSY is a busy card), so every
+; success below leaves AX as it came.
+; =============================================================================
+UQ_N        equ 8
+UQ_DATA     equ 64
+UQ_LEN      equ 0               ; a slot: the datagram's TRUE length, the
+UQ_SRC      equ 2               ; source (IP, then port, little-endian), the
+UQ_PAY      equ 8               ; payload (at most UQ_DATA of it)
+UQ_SZ       equ UQ_PAY + UQ_DATA
+%if UQ_PAY != UQ_SRC + 6
+  %error "NETV_UDPRX copies the source and the payload as one run"
+%endif
+
+; --- NETV_UDP: AL = 1 bind CX = a port, 0 release ----------------------------
+eth_v_udp:
+    or  al, al
+    je  .release
+    jcxz eth_uarg
+    cmp word [eth_uport], 0
+    je  .take
+    cmp cx, [eth_uport]         ; (the same port again: still ours)
+    jne eth_v_raw.held          ; NETE_BUSY: another port is bound
+.take:
+    mov [eth_uport], cx
+    mov al, [eth_cslot]         ; (whose: NETV_GONE releases it)
+    mov [eth_uslot], al
+    and word [eth_uqe], 0       ; the queue empty - and CF = 0, the answer
+    ret
+.release:
+    and word [eth_uport], 0     ; (CF = 0: `and` clears it)
+    ret
+
+eth_uarg:                       ; NETE_ARG, the three verbs' refusal
+    mov ax, NETE_ARG
+.stc:                           ; ...and NETV_UDPRX's empty queue
+    stc
+    ret
+
+; --- NETV_UDPTX: SI = the payload, CX = its length, DI = 6 bytes: IP, port --
+; The payload goes in place first (udp_send's rule), and then the six bytes
+; of the destination go where ip_start banks a destination anyway: eth_dip,
+; and eth_dport after it. ip_start's own copy into eth_dip is then a copy of
+; four bytes onto themselves.
+eth_v_udptx:
+    cmp word [eth_uport], 0
+    je  .nolink
+    cmp cx, 512
+    ja  eth_uarg
+    push dx
+    push bp
+    mov bx, di                  ; the destination, theirs
+    mov di, eth_txb + IP_PAY + UD_HLEN
+    call usr_read               ; the payload, in place (SI theirs, CX)
+    push cx
+    mov si, bx
+    mov di, eth_dip
+    mov cx, 6
+    call usr_read               ; (DI kept: eth_dip)
+    pop cx
+    mov si, di
+    mov dx, [eth_dport]
+    mov bp, [eth_uport]
+    call udp_send               ; CF=1: no ARP answer yet - again later
+    pop bp
+    pop dx
+    jc  .nolink
+    ret                         ; (CF = 0, and AX as it came)
+.nolink:
+    mov ax, NETE_NOLINK
+    stc
+    ret
+
+; --- NETV_UDPRX: DI = a buffer, CX = its capacity ----------------------------
+; The ring pumped first (this verb is all the service a polling game gives
+; the card), then the oldest queued datagram out: its SOURCE's six bytes at
+; DI (BX is the door's class and verb, so it cannot carry a pointer), its
+; payload after them. CX = the payload's TRUE length.
+;
+; **eth_pump GIVES EVERY REGISTER BACK**: it saves only CX and BP itself, and
+; every callee gives back AX BX DX SI DI (eth_pump_i's STKDEPTH-NOSAVE, which
+; `stkdepth.py --check` holds) - the promise NETV_RECV's DI has always ridden
+; on. So the caller's DI is still the caller's after it. (WIREARENA-NET-PLAN
+; 9.2 met a pump that broke the promise; the verb banked five registers for
+; it until driver size pass 2.)
+;
+; THE QUEUE IS IN ARRIVAL ORDER, slot 0 the oldest, and [eth_uqe] is where it
+; ENDS in bytes - UQ_SZ a datagram - so taking slot 0 moves down only the
+; slots behind it. It moved all UQ_N - 1 of them, 504 bytes and ~8,600
+; cycles of `rep movsb` on the XT, for every datagram taken, and a game
+; polling once a frame takes them one at a time (driver size pass 2).
+eth_v_udprx:
+    call eth_pump
+    cmp word [eth_uqe], 0
+    je  eth_uarg.stc            ; CF=1: none queued
+    cmp cx, 6                   ; no room for the source is refused, and the
+    jb  eth_uarg                ; datagram stays queued (SPEC.md 72.24)
+    mov bx, [eth_uq+UQ_LEN]     ; the TRUE length, the answer
+    cmp cx, UQ_DATA + 6         ; the copy: the source, and as much of the
+    jbe .cap                    ; payload as the capacity left, the payload
+    mov cx, UQ_DATA + 6         ; and the slot hold - min(capacity, true
+.cap:                           ; length + 6, UQ_DATA + 6)
+    lea si, [bx+6]
+    cmp si, cx
+    jae .fit
+    mov cx, si
+.fit:
+    mov si, eth_uq + UQ_SRC
+    call usr_write              ; SI ours, DI theirs: the source, the payload
+    push es                     ; the rest down a slot
+    push ds
+    pop es
+    mov si, eth_uq + UQ_SZ
+    mov di, eth_uq
+    sub word [eth_uqe], UQ_SZ   ; (no borrow: CF = 0 from here, the answer)
+    mov cx, [eth_uqe]           ; ...which is exactly the bytes behind it
+    cld
+    rep movsb
+    pop es
+    mov cx, bx
+    ret
+
 ; --- NETV_RAWTX --------------------------------------------------------------
 ; in SI = the frame, CX = its length, DX = the segment it is in (0 = the
 ;    caller's own).
@@ -660,217 +796,5 @@ eth_rawseg:
     mov [eth_useg], dx
 .keep:
     ret
-
-; =============================================================================
-; UDP FOR A PACKAGE (SPEC.md 72.24): one port, a queue of UQ_N datagrams of
-; up to UQ_DATA bytes each, filled by udp_in as frames are pumped and
-; drained by NETV_UDPRX. The stack already speaks UDP (DHCP, DNS): what is
-; new is a package's port. A full queue drops the newest and counts it.
-; =============================================================================
-UQ_N        equ 8
-UQ_DATA     equ 64
-UQ_LEN      equ 0               ; a slot: the datagram's TRUE length, the
-UQ_SRC      equ 2               ; source (IP, then port, little-endian), the
-UQ_PAY      equ 8               ; payload (at most UQ_DATA of it)
-UQ_SZ       equ UQ_PAY + UQ_DATA
-
-; --- NETV_UDP: AL = 1 bind CX = a port, 0 release ----------------------------
-eth_v_udp:
-    or  al, al
-    je  .release
-    jcxz .bad
-    cmp word [eth_uport], 0
-    je  .take
-    cmp cx, [eth_uport]         ; (the same port again: still ours)
-    jne .busy
-.take:
-    mov [eth_uport], cx
-    mov al, [eth_cslot]         ; (whose: NETV_GONE releases it)
-    mov [eth_uslot], al
-    mov word [eth_uqh], 0       ; the queue empty
-    clc
-    ret
-.release:
-    mov word [eth_uport], 0
-    clc
-    ret
-.busy:
-    mov ax, NETE_BUSY
-    stc
-    ret
-.bad:
-    mov ax, NETE_ARG
-    stc
-    ret
-
-; --- NETV_UDPTX: SI = the payload, CX = its length, DI = 6 bytes: IP, port --
-eth_v_udptx:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    cmp word [eth_uport], 0
-    je  .nolink
-    cmp cx, 512
-    ja  .bad
-    push si
-    push cx
-    mov si, di                  ; the destination: 6 bytes, theirs
-    mov di, eth_udst
-    mov cx, 6
-    call usr_read
-    pop cx
-    pop si
-    mov di, eth_txb + IP_PAY + UD_HLEN
-    call usr_read               ; the payload, in place (udp_send's rule)
-    mov si, eth_udst
-    mov dx, [eth_udst+4]
-    mov bp, [eth_uport]
-    call udp_send               ; CF=1: no ARP answer yet - again later
-    jc  .nolink
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
-.bad:
-    mov ax, NETE_ARG
-    jmp short .err
-.nolink:
-    mov ax, NETE_NOLINK
-.err:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    stc
-    ret
-
-; --- NETV_UDPRX: DI = a buffer, CX = its capacity ----------------------------
-; The ring pumped first (this verb is all the service a polling game gives
-; the card), then the oldest queued datagram out: its SOURCE's six bytes at
-; DI (BX is the door's class and verb, so it cannot carry a pointer), its
-; payload after them. CX = the payload's TRUE length
-eth_v_udprx:
-    push ax
-    push si
-    push di
-    push bx                     ; **eth_pump SAVES ONLY CX AND BP**
-    push dx                     ; (eth_pump_i's STKDEPTH-NOSAVE): without
-    call eth_pump               ; these the caller's DI - where the datagram
-    pop dx                      ; goes - was the pump's, and the copy landed
-    pop bx                      ; at an offset in the package nobody chose
-    pop di                      ; (WIREARENA-NET-PLAN 9.2)
-    push di
-    cmp word [eth_uqh], 0
-    je  .none
-    cmp cx, 6                   ; no room for the source is refused, and the
-    jb  .bad                    ; datagram stays queued (SPEC.md 72.24)
-    sub cx, 6                   ; (the room past the source)
-    mov ax, [eth_uq+UQ_LEN]
-    push ax                     ; (the TRUE length, the answer)
-    cmp ax, cx
-    jae .cap
-    mov cx, ax
-.cap:
-    cmp cx, UQ_DATA
-    jbe .fit
-    mov cx, UQ_DATA
-.fit:
-    push cx
-    mov si, eth_uq + UQ_SRC
-    mov cx, 6
-    call usr_write              ; SI ours, DI theirs
-    pop cx
-    add di, 6
-    mov si, eth_uq + UQ_PAY
-    call usr_write
-    push es                     ; the rest down a slot
-    push ds
-    pop es
-    mov si, eth_uq + UQ_SZ
-    mov di, eth_uq
-    mov cx, (UQ_N - 1) * UQ_SZ
-    cld
-    rep movsb
-    pop es
-    dec word [eth_uqh]
-    pop cx
-    pop di
-    pop si
-    pop ax
-    clc
-    ret
-.none:
-    pop di
-    pop si
-    pop ax
-    stc
-    ret
-.bad:
-    pop di
-    pop si
-    pop ax
-    mov ax, NETE_ARG
-    stc
-    ret
-
-; udp_queue - a datagram for the package's port (udp_in, CX = its payload's
-; length, the frame in eth_rxb): into the queue's next slot, or dropped
-udp_queue:
-    push ax
-    push cx
-    push si
-    push di
-    push es
-    mov ax, [eth_uqh]
-    cmp ax, UQ_N
-    jae .full
-    mov di, UQ_SZ
-    mul di
-    add ax, eth_uq
-    mov di, ax
-    push ds
-    pop es
-    mov [di+UQ_LEN], cx
-    add di, UQ_SRC              ; (past the length: the source, then the
-    mov si, eth_rxb + IP_OFF + IPO_SRC ; payload)
-    movsw
-    movsw
-    mov ax, [eth_rxb + IP_PAY + UDO_SP] ; the source port, network order
-    xchg ah, al                 ; (be_get's load, written in place - it went in
-    stosw                       ; driver size pass 1)
-    mov si, eth_rxb + IP_PAY + UD_HLEN
-    cmp cx, UQ_DATA
-    jbe .c
-    mov cx, UQ_DATA
-.c:
-    cld
-    rep movsb
-    inc word [eth_uqh]
-    jmp short .out
-.full:
-    inc word [eth_uqdrop]
-.out:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
-
-eth_uport:  dw 0                ; the package's port, 0 = none
-eth_uslot:  db 0xFF             ; ...its instance
-eth_uqh:    dw 0                ; datagrams queued
-eth_uqdrop: dw 0                ; ...dropped, the queue full
-eth_udst:   times 6 db 0        ; NETV_UDPTX's destination, ours
-eth_uq:     times UQ_N * UQ_SZ db 0
 
 %endif                          ; ETH_NORAW
