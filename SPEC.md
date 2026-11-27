@@ -260502,9 +260502,18 @@ the page.
 **Redraw only what changed** (CLAUDE.md, Performance rule 1): a press on an
 adapter row redraws the two rows that changed, the preview and the Modes
 group (its content depends on the adapter), the controls (their greying) and
-nothing else; a filter tab, the strip and the table; a table row, the two
-rows, the preview and the controls; a check box, its glyph; Keep, the right
-group. **Nothing is drawn after `CPG_VIDSET` or `CPG_VIDARR` returns** -
+nothing else; a filter tab, the strip and the table - and the preview and the
+controls, the selection going to Auto - the rows re-filtered from the records
+the last paint read, the card not asked again; a table row, the two rows, the
+preview and the controls; Force Color, its glyph; the startup box, its glyph,
+its label and the table's rows (their marks moved); Keep, the right group.
+The preview and the Modes group are their INSIDES: a group's box and title
+never change after the paint. "The controls" a press redraws are the startup
+box and its label, Apply and Test... - Force Color is changed by no press but
+its own (driver size pass 2 made the code match this paragraph: an adapter
+press redrew all four rows and both boxes, a filter tab asked the card for
+every record again, and the startup box redrew the Running mode group).
+**Nothing is drawn after `CPG_VIDSET` or `CPG_VIDARR` returns** -
 §31.10's rule: the switch re-fits every window, so the origin the press was
 handed may describe a rectangle that no longer exists, and `cp_repost` has
 already handed the whole screen to `ui_task`, whose repaint comes back here
