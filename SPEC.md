@@ -260882,8 +260882,8 @@ base's but for the status line's free-memory figure (500K → 502K).
 **The pass merged** (the fold above, the Drivers and Theme pages
 `docs/plans/dsp2/cpwpages.md`, the Display page `docs/plans/dsp2/cpwvid.md`;
 `docs/plans/dsp2/RECORD.md` is the whole): `CPWIDE.DRV` is **26,336** image
-with its bss on kern_big and kern_emu (26,354 on kern_mega) and **15,732** on
-the disk (15,751), against 29,253 and 16,934 in two files before the pass;
+with its bss on kern_big and kern_emu (26,348 on kern_mega) and **15,732** on
+the disk (15,749), against 29,253 and 16,934 in two files before the pass;
 the open panel holds ONE claim of 26,624 bytes where it held 29,696 in two.
 The merged tree was compared on MartyPC's `os8088_xt_vga_144` against the
 base, gesture by gesture on the Drivers and Theme pages: the same pixels,
