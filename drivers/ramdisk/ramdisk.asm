@@ -398,17 +398,18 @@ rd_seed_one:
 ; kernel reaches it through the header's dispatcher (SPEC.md 51.2), so there
 ; is no retf anywhere in this file and there must not be one here.
 ; =============================================================================
+%if RDPV_IDENT != 0 || RDPV_UPCASE != 1 || RDPV_STATE != 2 || RDPV_MOUNT != 3 || RDPV_MOUNTC != 4 || RDPV_MAX != RDPV_MOUNTC
+  %error "rd_pkg's ladder tests the verbs by their order"
+%endif
 rd_pkg:
-    cmp bl, RDPV_MAX
+    cmp bl, RDPV_MOUNTC         ; = RDPV_MAX
     ja .none                    ; an unchecked verb into a jump table is a
-                                ; wild near call. The table is four entries and
-                                ; this is a compare, so it is a ladder instead
+                                ; wild near call. The table is five entries and
+                                ; these are compares, so it is a ladder instead
+    je .mountc                  ; (one compare: the top verb, and past it)
     cmp bl, RDPV_STATE
     je .state
-    cmp bl, RDPV_MOUNT
-    je .mount
-    cmp bl, RDPV_MOUNTC
-    je .mountc
+    ja .mount                   ; (one compare: STATE, and MOUNT above it)
     or bl, bl
     jnz .upcase
 
