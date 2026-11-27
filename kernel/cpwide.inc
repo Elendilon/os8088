@@ -836,10 +836,8 @@ cpw_dsync:
 ; -----------------------------------------------------------------------------
 cpw_status:
     push ax
-    push bx
     call COLD_SEG:mmf_osapi_mem_avail   ; AX = the heap's largest claim, KB
     mov cx, ax
-    pop bx
     pop ax
     xor dx, dx                  ; DL = loaded, DH = rows
     mov bx, drv_tab
@@ -873,13 +871,13 @@ cpw_status:
     pop dx
     push dx
     mov al, dl
-    xor ah, ah
+    cbw                         ; (a count of drv_tab rows: under 128)
     call cpw_utoa
     mov si, cpw_s_st2
     call cpw_strcat
     pop dx
     mov al, dh
-    xor ah, ah
+    cbw
     call cpw_utoa
     mov si, cpw_s_st3
     call cpw_strcat
@@ -899,14 +897,11 @@ cpw_status:
     inc dx
     inc dx
     call cpw_fill
-    push bx
     add bx, 11
     mov dx, [es:CPW_W_CH]
     dec dx
     call cpw_fill
-    pop bx
-    add bx, 3
-    xor ax, ax                  ; ...and its left margin
+    sub bx, 8                   ; ...and its left margin (AX is 0 still)
     mov cx, 3
     mov dx, bx
     add dx, 7

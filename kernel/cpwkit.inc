@@ -277,15 +277,17 @@ cpw_icon:
 ; under it. The body is NOT filled: it is the page's ground, laid by whoever
 ; laid the page's.
 ; -----------------------------------------------------------------------------
+CPKG_X      equ 8               ; cpk_group's box, read off its own frame
+CPKG_Y      equ 6               ; ([bp+n]: SS) - the four registers it banks
+CPKG_R      equ 4               ; at entry, and no scratch store at all
+CPKG_B      equ 2
 cpk_group:
     push ax
     push bx
     push cx
     push dx
-    mov [es:CPK_S_X], ax
-    mov [es:CPK_S_Y], bx
-    mov [es:CPK_S_R], cx
-    mov [es:CPK_S_B], dx
+    push bp
+    mov bp, sp
     mov byte [gfx_color], CLGRAY
     mov dx, bx                  ; the band's two rows above the text...
     inc dx
@@ -294,7 +296,7 @@ cpk_group:
     mov dx, bx
     inc dx
     call cpw_fill
-    mov bx, [es:CPK_S_Y]        ; ...the left margin
+    mov bx, [bp+CPKG_Y]         ; ...the left margin
     inc bx
     inc bx
     mov cx, ax
@@ -312,25 +314,26 @@ cpk_group:
     pop bx
     mov byte [gfx_color], CLGRAY    ; (a renderer may leave the pen at the
     mov ax, cx                  ; ink: VESA.DRV's does) ...and the rest of
-    mov cx, [es:CPK_S_R]        ; its row
+    mov cx, [bp+CPKG_R]         ; its row
     add dx, 7
     cmp ax, cx
     jg .fr
     call cpw_fill
 .fr:
     mov byte [gfx_color], CBLACK    ; the frame: left, right, bottom
-    mov ax, [es:CPK_S_X]
-    mov bx, [es:CPK_S_Y]
+    mov ax, [bp+CPKG_X]
+    mov bx, [bp+CPKG_Y]
     add bx, CPK_BANDH
     mov cx, ax
-    mov dx, [es:CPK_S_B]
+    mov dx, [bp+CPKG_B]
     call cpw_fill
-    mov ax, [es:CPK_S_R]
+    mov ax, [bp+CPKG_R]
     mov cx, ax
     call cpw_fill
     mov bx, dx
-    mov ax, [es:CPK_S_X]
+    mov ax, [bp+CPKG_X]
     call cpw_fill
+    pop bp
     pop dx
     pop cx
     pop bx
