@@ -9008,10 +9008,12 @@ sh_mclose:
 ; (Copy and Paste stage through it and the clipboard is the OS's; the
 ; chart's staged series are there too, so Chart Gallery rescans rather than
 ; re-rendering them), and no command runs while a menu is up.
-; [sh_mbanked] = 1 with the rect's bottom, clamped to the display, in
-; [sh_mbky2]; or 0 when anything refused, and sh_mclose repaints as before.
-; The size is SPEC.md 13.16.4's: planes * rows * byte columns, the plane
-; count from OSAPI_WM_DISPLAY (never OSAPI_VIDEO: 39.16.4)
+; [sh_mbanked] = 1 with the rect's bottom in [sh_mbky2]; or 0 when anything
+; refused, and sh_mclose repaints as before. The size is SPEC.md 13.16.4's:
+; planes * rows * byte columns, the planes os88ui_bankpl's (SPEC.md 5.3.1).
+; A panel that runs past its DISPLAY's last row is SHORTENED to the items
+; that fit above it (81.98.2): that row is found by asking OSAPI_GFX_SAVE
+; itself, which refuses a rect leaving the display that holds its top-left.
 ; -----------------------------------------------------------------------------
 sh_mbank:
     push ax
@@ -9022,16 +9024,6 @@ sh_mbank:
     push di
     push es
     mov byte [sh_mbanked], 0
-    mov bx, [sh_ownwin]
-    call OSAPI_WM_DISPLAY             ; BX = height, DH = bits per pixel
-    dec bx
-    mov ax, [sh_mry2]
-    cmp ax, bx
-    jbe .y2
-    mov ax, bx
-.y2:
-    mov [sh_mbky2], ax
-    mov di, ax                        ; DI = the last row, kept across mul
     mov ax, [sh_mrx2]
     mov cl, 3
     shr ax, cl
@@ -9039,32 +9031,76 @@ sh_mbank:
     shr bx, cl
     sub ax, bx
     inc ax                            ; AX = byte columns
-    mov bx, di
+    mov bx, [sh_mry2]
     sub bx, [sh_mry1]
-    inc bx                            ; BX = rows
-    push dx
+    inc bx                            ; BX = rows, the whole panel's
     mul bx                            ; DX:AX = one plane
-    pop bx                            ; BH = bits per pixel
-    cmp bh, 4
-    jb .one                           ; 4 planes - or 8 or 16 BYTES a column
-    or dx, dx                         ; on a packed display (SPEC.md 120.5):
-    jnz .out                          ; DH AS IT COMES, never == 4
-    mov cl, bh
-    xor ch, ch
-    mul cx                            ; DX:AX = planes * one plane
-.one:
     or dx, dx
     jnz .out
-    cmp ax, SH_STAGE_MAX
-    ja .out
+    mov bx, [sh_ownwin]
+    call os88ui_bankpl                ; BX = planes - or 8 or 16 BYTES a
+    mul bx                            ; column on a packed display (SPEC.md
+    or dx, dx                         ; 120.5): AS IT COMES, never == 4
+    jnz .out
+    cmp ax, SH_STAGE_MAX              ; every save below is this rect or a
+    ja .out                           ; shorter one, so this bounds them all
     mov es, [sh_stgseg]
-    xor di, di
     mov ax, [sh_mrx1]
     mov bx, [sh_mry1]
     mov cx, [sh_mrx2]
-    mov dx, [sh_mbky2]
-    call OSAPI_GFX_SAVE               ; CF=1: the rect straddles two displays
+    mov dx, [sh_mry2]
+    call .save                        ; the common case: one call
+    jnc .took
+    mov cx, ax                        ; refused: find the display's last row
+    call .save                        ; (81.98.2) with ONE-COLUMN rects. The
+    jnc .out                          ; column fits whole: the refusal was
+    mov si, bx                        ; the width's, a vertical seam - repaint
+    mov dx, bx                        ; SI = a row known in, DI = one known out
+    call .save
+    jc .out                           ; the top itself is in no display
+    mov di, [sh_mry2]
+.halve:
+    mov dx, si
+    add dx, di
+    shr dx, 1                         ; DX = between them
+    cmp dx, si
+    je .found                         ; adjacent: SI is the last row
+    call .save
+    jc .high
+    mov si, dx
+    jmp short .halve
+.high:
+    mov di, dx
+    jmp short .halve
+.found:
+    lea bx, [si+1]                    ; is the row under it ANOTHER display's?
+    mov dx, bx                        ; Nothing there (the screen's end, a
+    call .save                        ; dead zone) draws the tail nowhere, so
+    mov bx, [sh_mry1]                 ; bank to the last row and draw the
+    mov dx, si                        ; panel whole, as one display always
+    jc .clip                          ; did
+    mov ax, si                        ; whole items above it, frame closed
+    sub ax, [sh_mry1]                 ; under them: sh_mdrop_geo's
+    sub ax, 3                         ; mry2 = mry1 + n * SH_MI_H + 3
+    jb .out
+    xor dx, dx
+    mov cx, SH_MI_H
+    div cx                            ; AX = the items that fit
+    or ax, ax
+    jz .out
+    mov [sh_mcnt], ax
+    mul cx
+    add ax, [sh_mry1]
+    add ax, 3
+    mov [sh_mry2], ax                 ; the panel is that tall now, and never
+    mov dx, ax                        ; drawn on the other display
+.clip:
+    mov ax, [sh_mrx1]
+    mov cx, [sh_mrx2]
+    call .save
     jc .out
+.took:
+    mov [sh_mbky2], dx
     mov byte [sh_mbanked], 1
 .out:
     pop es
@@ -9074,6 +9110,13 @@ sh_mbank:
     pop cx
     pop bx
     pop ax
+    ret
+; AX/BX/CX/DX = x1/y1/x2/y2 into ES:0, every one kept; CF = 1 refused
+.save:
+    push di
+    xor di, di
+    call OSAPI_GFX_SAVE
+    pop di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -57430,6 +57473,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; sh_macro_msg bss field below sizes itself from OS88UI_AMAX, which this
 ; needs to have already defined.
 %define OS88UI_ALERT
+%define OS88UI_BANKPL                ; sh_mbank's planes (SPEC.md 5.3.1)
 %define OS88UI_AEXTRA                ; Step/Halt/Continue and OK/Cancel (81.86)
 %define OS88UI_SCROLL               ; stage 3.0a+: SPEC.md 13.10's shared
                                      ; scroll bar - OPT IN, and without it
