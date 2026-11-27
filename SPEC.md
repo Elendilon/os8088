@@ -37844,21 +37844,42 @@ full-screen DOS program whose arena had taken the heap the 11KB module needed
 not move. `DISKOPS.DRV` is 265 bytes smaller on `kern_big`, 270 on
 `kern_mega`.
 
+**Kernel size pass 21 made them smaller, with the swapped-floppy check, every
+refusal and every int 13h call as they were** (docs/plans/ksp21/diskw.md):
+`dskw_rmbody_n83` carries the folder test and the emptiness scan itself
+(`dskw_fdir`, `dskw_isempty` and `dskw_scan1` were its single-caller
+helpers; `dskw_isempty` is left as the pop tail `drvvol.inc` shares); both
+renames hold the new name's pointer in BX and parse it a second time into
+the staged entry, so `dskw_n83b` is gone from `.bss`; `dskw_commit` spends
+`[dskw_isdir]` at its last read, so New Folder neither clears it nor banks
+round its rollback; `dskw_wck` banks once and reads the gate and
+`[dsk_mvok]` as one word; and the module's verbs are `dskw_wrap7` bodies
+(`dskw_dirbody`, and on `kern_small` `dskw_dirb`) where `dskw_dircall` was a
+ladder of its own. The three bodies and their door, kern_big/kern_emu:
+New Folder -11 (`dskw_mkbody`'s tails and the commit), Rename -14 `.cold`
+and -11 `.bss`, empty rmdir -35, the media check -18, the tree's door -32.
+
 **The module path (the tree; all four on `kern_small`).** Their public
 register, CF, validation and disk-integrity contracts remain those in
 §18.4–§18.6. A mutation in the module loads it on the UI task before making
 changes, so the system disk must be available when one is first invoked.
 The loader preserves/restores the caller's mounted target volume; loading
 must not redirect a mutation to the system disk. **The mount gate is tested
-BEFORE the module is loaded**: `dskw_dircall` refuses `[dsk_mntok]` ≠ 1 with
+BEFORE the module is loaded**: the dispatch refuses `[dsk_mntok]` ≠ 1 with
 CF=1, AX = `FERR_NODISK` (§18.4's gate answer) and loads nothing, because a
 shut gate is exactly the state in which `mod_need`'s `drv_vol_bank` banks the
 BOOT volume's root (§51.5.2.1: a failed mount is not banked), so the load
-would open the gate there and the verb would run on the system disk. Where
-§18.9.1.3's media check is built (every kernel but `kern_small`),
-`dskw_dircall` runs it next, through `dskw_wck`, exactly as the resident
-bodies do through `dskw_wrp`/`dskw_wrap7` - a swapped floppy refuses before
-the module loads. The module's own gate stays, for the state after a load. A
+would open the gate there and the verb would run on the system disk. On
+`kern_small` that is `dskw_dirb`, one `dskw_wrap7` body for all four verbs,
+entered at the verb's own byte (kernel size pass 21). Where §18.9.1.3's media
+check is built (every kernel but `kern_small`) the tree's dispatch is
+`dskw_dirbody`, a `dskw_wrap7` body like every resident write body's
+(kernel size pass 21): `dskw_wck` asks its media question first - a shut gate
+passes it with no I/O, and a quiet mount it makes either opens the gate again
+or refuses - and `dskw_dirbody` then tests the gate before anything loads. So
+a swapped floppy refuses before the module loads, as it always did, and the
+answers and the I/O are the ones `dskw_dircall` gave in the other order. The
+module's own gate stays, for the state after a load. A
 missing or mismatched module refuses through the existing file-error path
 (FERR_IO) before any metadata is modified. It must never report success or
 partially rename, create or remove a directory on a load refusal.
@@ -198845,7 +198866,9 @@ does.** `dskw_clok` — is `AX` a cluster that could exist — sits in the middl
 of the pipeline because it was once rmtree's alone, and ten places ask it now,
 `dskw_rmdir` among them. And **`dskw_isempty` is LIVE**: it is what
 `dskw_rmdir` calls to refuse a populated directory, which is exactly what
-`AH=3Ah` is. `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
+`AH=3Ah` is (since kernel size pass 21 its scan is written into
+`dskw_rmbody_n83`, its one caller, and the name is the pop tail drvvol.inc
+shares). `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
 `dskw_append`'s own chain walk bounds itself with it.
 
 **A static call-graph walk got `dskw_isempty` WRONG**, calling it dead, and a

@@ -627,22 +627,21 @@ loader_run_x:
     ; against the global snapshot, so an empty one is fatal there (SPEC.md
     ; 18.9, docs/FIELD-NOTES.md 4). Here the entry comes out of the window's
     ; own cache, and a quiet mount does not touch that.
-    mov dl, [di+FS_DRV]
-    cmp dl, [disk_drive]
-    jne .move
-    mov dx, [di+FS_CWD]
-    cmp dx, [dsk_cwd]
+    mov dl, [di+FS_DRV]         ; DL = the poster's drive, HELD to .move:
+    cmp dl, [disk_drive]        ; the folder is compared in BX, which the
+    jne .move                   ; KENT frame banked and nothing below reads
+    mov bx, [di+FS_CWD]         ; (kernel size pass 21: .move's reload of
+    cmp bx, [dsk_cwd]           ; DL went, -3)
 %ifdef OS88_FAT32
     jne .move                   ; ...all of it (SPEC.md 19.12.3)
-    mov dx, [di+FS_CWDH]
-    cmp dx, [dsk_cwd+2]
+    mov bx, [di+FS_CWDH]
+    cmp bx, [dsk_cwd+2]
 %endif
     je .stage
 .move:
     push ax                     ; the index: dsk_chdir_q_x wants AX
     FS_CWD_LD ax, di            ; stand where the poster stands, QUIETLY
-    mov dl, [di+FS_DRV]         ; (assoc_back's shape, SPEC.md 18.9/54.9)
-    call dsk_chdir_q_x
+    call dsk_chdir_q_x          ; (assoc_back's shape, SPEC.md 18.9/54.9)
     pop ax
     jc .loud                    ; the folder is gone or the disk changed:
                                 ; fmv_sync carries the recovery for that -
@@ -807,17 +806,17 @@ ld_take:
 %else
     cmp bx, 2                   ; mount already validated (SPEC.md 21 step 1 -
     jb .bad                     ; this check stands alone if the mount code
-    cmp bx, [dsk_maxclus]       ; ever changes)
-    ja .bad
-%endif
-.clusok:
-    mov [ld_clus], bx
-%ifdef OS88_FAT32
+    cmp [dsk_maxclus], bx       ; ever changes). Turned round, dskw_clok's
+    jb .bad                     ; way: CF = 1 exactly when BX is past the
+%endif                          ; last, so the `jb` not taken IS CF = 0
+.clusok:                        ; (the REDIR arm's `je` too, and the FAT32
+    mov [ld_clus], bx           ; arm's `jc`): no `clc` (kernel size pass
+%ifdef OS88_FAT32               ; 21, -1)
     push word [dsk_ch]
     pop word [ld_clus+2]
 %endif
     xchg ax, bx                 ; ...AND IN AX: `.peek` takes the cluster (or
-    clc                         ; the handle) from the register, and one byte
+                                ; the handle) from the register, and one byte
                                 ; does it - BX becomes the old AX, which is
                                 ; the directory index on step 1's path and
                                 ; dskw_stat_x's attribute byte on the name
@@ -1031,23 +1030,26 @@ ld_run_body_x:
     mov es, ax                  ; below, once DS reaches it)
     mov ds, ax                  ; source and destination are one region
     mov al, [si+LD_H_FLAGS]     ; the CLEAR prefix, off the header the file
-    mov bx, LD_HDR_SIZE         ; carries at R: what the mount reads out of
+    mov bx, LD_HDR_SIZE / 16    ; carries at R: what the mount reads out of
     test al, 1                  ; the first sector and must never have to
     jz .noico                   ; decompress to get (SPEC.md 20.13.1) - the
-    add bx, 64                  ; header, the icon, the association block,
+    add bx, 64 / 16             ; header, the icon, the association block,
 .noico:                         ; the glyph, the card. At most 320, and ALWAYS
     test al, 2                  ; a multiple of 16, which is what lets the
-    jz .noasc                   ; body's destination be a SEGMENT below
-    add bx, 16
-.noasc:
-    test al, LD_HF_GLYPH        ; ...and the document glyph (SPEC.md 54.3.2),
-    jz .nogly                   ; sixteen bytes for eight of glyph for the
-    add bx, 16                  ; multiple-of-16 reason above
+    jz .noasc                   ; body's destination be a SEGMENT below - so
+    inc bx                      ; it is counted IN PARAGRAPHS, where the two
+.noasc:                         ; 16-byte blocks are an `inc` each (kernel
+    test al, LD_HF_GLYPH        ; size pass 21, -5). ...and the document
+    jz .nogly                   ; glyph (SPEC.md 54.3.2), sixteen bytes for
+    inc bx                      ; eight of glyph for that reason
 .nogly:
     test al, LD_HF_STIK         ; ...and the Sticky App card (SPEC.md 110.12),
     jz .nostk                   ; 192 bytes, so at most 320 in all - still
-    add bx, LD_STIK_SIZE        ; inside the first sector and under R's 512
+    add bx, LD_STIK_SIZE / 16   ; inside the first sector and under R's 512
 .nostk:
+%if LD_HDR_SIZE % 16 || LD_STIK_SIZE % 16
+  %error "ld_run_body_x counts the clear prefix in paragraphs: every block in it is a multiple of 16"
+%endif
     test al, 0x10               ; bit 4 says which format (SPEC.md 20.13): the
     mov al, LZ_LZ4              ; decoder wants 0 or 1, and CX - the file's
     jz .fmt                     ; length - is not a register to shift by
@@ -1058,15 +1060,14 @@ ld_run_body_x:
 .fmt:
     xor di, di
     push ax                     ; ...the format, across the copy
-    push cx
-    mov cx, bx
+    push cx                     ; (the file's length: CL is the shift now)
+    mov cl, 4
+    mov ax, bx                  ; AX = the prefix in PARAGRAPHS...
+    shl bx, cl                  ; ...and BX in bytes, for the copy and the
+    mov cx, bx                  ; two lengths below
     cld
     rep movsb                   ; the prefix, down to offset 0 - and this
-                                ; leaves SI on the compressed body, and CX
-                                ; spent, which is when it can be a shift count
-    mov cl, 4
-    mov ax, bx
-    shr ax, cl                  ; the prefix in PARAGRAPHS...
+                                ; leaves SI on the compressed body
     mov cx, es
 %ifdef KERN_MEGA
     xchg ax, cx                 ; (the region is its pair's DATA selector in
@@ -1282,11 +1283,12 @@ ld_alloc:
                                 ; was a whole KB, and 64 << 10 is 0 in a word,
                                 ; which is what `sbb ax, 0` was for (SPEC.md
                                 ; 20.1.1)
-    mov [ld_need], ax
-    clc                         ; `shl ax, cl` above WRITES CF, and this
-    ret                         ; routine's answer is CF - it was the caller's
-                                ; fall-through before the split, where the
-                                ; flag went nowhere
+    mov [ld_need], ax           ; ...and CF = 0 is the answer: `shl ax, cl`
+    ret                         ; writes CF as the last bit shifted out, bit
+                                ; 12 of a paragraph count, which a 16-bit
+                                ; byte count cannot reach (paragraphs <=
+                                ; 0FFFh) - so the `clc` that stood here wrote
+                                ; the 0 the shift had (kernel size pass 21, -1)
 .nodrv:
 %ifdef KERN_BIG
     COLDCALL desk_drop_x        ; the region refused AFTER desk_need: DI is
@@ -1786,10 +1788,10 @@ ld_start:
     mov es, ax                  ; ES = the program, whose class byte is read
     cmp cx, 0x0FFF
     ja .rhbig                   ; ...over one segment: KERN-MEGA-PLAN 14.48
-    shl cx, 1                   ; paragraphs -> bytes
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1
+    xchg ax, cx                 ; paragraphs -> bytes, through AX: ld_hisi
+    mov cl, 4                   ; reloads it before it reads it (kernel size
+    shl ax, cl                  ; pass 21, -2)
+    xchg ax, cx
     call ld_hicx
     jmp short .rhnohi
 .rhbig:                         ; ONE pool block of the whole keep, the pair
@@ -2005,7 +2007,7 @@ ld_pkg_byname:
     push si                     ; the staged NAME, across the document's copy
     mov si, di
 %ifdef OS88_FAT32
-    mov word [assoc_dcluh], 0   ; a locator's folder is a WORD (19.12.8)
+    and word [assoc_dcluh], 0   ; a locator's folder is a WORD (19.12.8)
 %endif
     mov di, assoc_doc
     mov cx, 16                  ; **THE WHOLE LOCATOR, ONE WALK** (21.5.3.3):

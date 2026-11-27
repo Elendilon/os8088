@@ -438,13 +438,13 @@ def blast(m, addr, data, chunk=2048):
 def name_at(m, s):
     """Put a NUL-terminated 8.3 name where DS:SI can see it.
 
-    `dskw_rt_name` is `dskw_rmtree`'s 12-byte scratch and nothing else's
+    `dskw_rt_name` is `dskw_rmtree`'s 11-byte scratch and nothing else's
     (kernel/diskw.inc has three references, all inside that routine), so it is
     idle for the whole of a read or a write - and rmtree is also this file's
     return trap, so it can never run and reclaim it.
     """
     b = s.encode("ascii") + b"\0"
-    assert len(b) <= 12
+    assert len(b) <= 11             # the buffer's size (kernel size pass 21)
     m.write(os88sym.linear("dskw_rt_name"), b)
     return os88sym.linear("dskw_rt_name") - KB
 
