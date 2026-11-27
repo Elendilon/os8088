@@ -259297,6 +259297,12 @@ source no longer assembled. The changes, all mechanical:
   as a black bar on Hercules. Each package picks its ground from
   `OSAPI_VIDEO`'s DH at entry (`bas_ui_ground`, `br_ground`): grey at 4 bpp
   and up, white below.
+- **`SCREENW`, `SCREENH`, `SCREENBPP` and `VIDEOMODE` answer the CONSOLE
+  WINDOW's display** (`bas_video`: `OSAPI_WM_DISPLAY` on `[bas_window]`,
+  §39.16.4), asked at each call. On one display that is `OSAPI_VIDEO`'s
+  answer; on an extended desktop (§39.19) a program whose console stands on
+  the second card is told that card's width, height, depth and kind - it was
+  told the primary's until the extended-desktop audit of 2026-11-27.
 - **Two upstream layout defects fixed.** 2BRES's footer drew the current file
   name unpadded on a partial refresh, so `MIXED.RES` opened over
   `UNTITLED.RES` read `MIXED.RESRES`; it is padded to twelve cells. And its

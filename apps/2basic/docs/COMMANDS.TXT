@@ -430,7 +430,7 @@ SCREENW / SCREENH / SCREENBPP / VIDEOMODE
 Type: Numeric functions
 Syntax: SCREENW | SCREENH | SCREENBPP | VIDEOMODE
 Description: Reports current os8088 video geometry, colour depth, and adapter
-  mode.
+  mode - of the display the console window is on, when the desktop spans two.
 Example: PRINT SCREENW
 
 FRE
