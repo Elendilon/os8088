@@ -120048,7 +120048,8 @@ between a cache that exists and one that does not: the 558×377 content is
 Two bytes of bss, the two helpers in `zio.inc` and a call in each of the four
 waits and the four withdrawal sites. Found on the way and left for its own
 change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
-gfx lock, although `zwin.inc` documents it as lock-held.
+gfx lock, although `zwin.inc` documents it as lock-held - which turned out to
+be a machine-killer on an extended desktop, and §61.18 is that change.
 
 ### 61.17 The status line re-entered the text decoder
 
@@ -120094,8 +120095,49 @@ every line. And on a VGA primary with the Hercules to the right, dragging a
 straddling window onto the Hercules WHILE the worker is printing still takes
 the machine down (SS = 0, CS:IP in ROM; three runs of three, with and without
 this fix, never with the worker idle); the audit's STACK OVERFLOW panel for
-slot `0C` was on that same pairing. That one is in the kernel's display
-switching and is recorded in the audit's fix notes, not here.
+slot `0C` was on that same pairing. It looked like the kernel's display
+switching and was not: it is §61.18, the worker drawing without the lock.
+
+### 61.18 The line editor drew without the gfx lock
+
+**`@read`'s echo was drawn lock-free.** `zxo_read` parks the lock before the
+wait (`zx_park`; a worker that waits under the lock is a hung machine, §20.6
+rule 3), and `zi_readline` then called `zw_typec` for each key, `zw_rubc` for
+a Backspace and `zw_newline` for the Enter BARE - three routines `zwin.inc`
+documents as lock-held, and the Enter's is the expensive one: on a straddling
+window the scroll is refused (§39.14.2) and the newline is a whole
+`zw_paint`. So the worker drew while the UI task drew, and on one display
+that is a race over the renderer's scratch and the Graphics Controller that
+usually loses nothing visible.
+
+**On an extended desktop it lost the machine.** The display context - the
+live geometry block, `[vid_cur]`, `[vid_ox]`/`[vid_oy]` - is the LOCK
+HOLDER'S (§39.14.3: the last display drawn on stays current until
+`gfx_unlock`), so a drag's outline, its cursor bracket and the unlock's
+reset all switched it under the worker's half-drawn row, and the rest of the
+row went through the other card's geometry with coordinates translated for
+the first. Measured on MartyPC (`os8088_xt_vga_herc`, VGA primary, the
+Hercules to the right) with a diagnostic kernel that records every switch and
+checks the live block against `[vid_cur]` at every `vid_ctx_act`: the first
+disagreement was the Frotz worker, task 12, switching with `[gfx_lock_flag]`
+0, called from `zi_readline.store` -> `zw_typec` -> `zw_putc` ->
+`zw_ensuresnap` -> `zw_paint`; the glass showed the Hercules half of each
+line drawn at the VGA's x = 0 before the machine went wild (SS = 0, CS:IP in
+ROM, or no progress in 180 guest seconds). A VGA beside a Hercules is the
+pairing where that is fatal rather than a smear because the two renderers
+differ - the planar one through `[vid_rseg]` = 0 is §39.14.6's wild write -
+which is why the two 1bpp pairings never fell over.
+
+**`zi_echo` takes the lock for each of the three** and gives it back, so the
+wait itself still holds nothing; `zw_morewait`, reachable from the newline,
+now drops and retakes a lock this worker really holds instead of releasing
+the UI task's. Twenty-eight bytes of image, no bss. The same diagnostic kernel
+dragged Fractal, Arkanoid, Tamegram, Skies, Tracker, Tank and Cyclone across
+the seam on that pairing with no switch by a non-holder and no disagreement,
+so the kernel needed nothing: a package that draws without the lock breaks
+§7's contract, and a resident guard against a package is not spent (§34.11.1).
+`tests/zecholock.py` is the gate: breakpoints on the three in the live
+package, and every stop must read the lock held by the running task.
 
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
