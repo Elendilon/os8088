@@ -2102,6 +2102,7 @@ words `mod_cfix` re-pointed at the load (the load's, not a use's).
 | `DESK.DRV` | `modj_scr`, ONE zero byte: it writes no byte of itself, and `MOD_H_SCR` = 0 is "freed" | - |
 | `STIKMENU.DRV` | `stm_cellx` to the end | every byte the menu writes but its KEPT SCAN: the geometry, the census, the band. The scan - `stm_kok`, `stm_kgen`, `stm_n`, `stm_over`, `stm_ents` - sits just BELOW the tail on purpose, so the drop keeps it (§110.12.2) |
 | `SERIAL.DRV` | the lease, its last 16 bytes: `srl_base` .. `srl_seen` | - (`srl_base` = 0 is "no lease"; `srl_open` writes every other cell before it sets `srl_base`, and `srl_body`, `srl_open` and now `srl_release` test it first - so `srl_owner` and `srl_div` lost their non-zero initialisers, and a `srl_release` with no lease no longer reaches `srl_close` with `srl_base` 0) |
+| `CPWIDE.DRV` | `.modvb`, 874 bytes: the Display page's filter labels (`cpv_tlab`), `cpw_dseg` (0 = not open) and the 848-byte working area (§135.5.1, zeroed again at every open) | - (`CPWIDE.DAT`, assembled into the image since driver size pass 2, is never written, §135.6) |
 
 **`CTRL.DRV`'s tail serves both rows, and the core zeroes its part itself.**
 The settings core's read stops at `MODS_SIZE` (§2.8.7), so on `MOD_SETS`'s
@@ -260776,6 +260777,29 @@ The page is 4,707 bytes of `CPWIDE.DRV` against the fan-out's 3,300
 allocation; the lead accepted it (the Drivers and Theme pages came in near
 1,600 each, and the module's cap, `MOD_MAX_KB` 17,408, holds with room). The heap while the
 wide panel is open grows by the module's claim, 5,120 → 10,240 bytes.
+
+**Driver size pass 2 (2026-11-27): `CPWIDE.DAT` folded into `CPWIDE.DRV`**
+(§135.6; `docs/plans/dsp2/cpwshell.md` is the record), against `1b01907f1`.
+Fresh builds of each; MartyPC `os8088_xt_vga_144` (XT 4.77 MHz, VGA, the
+1.44MB system disk) for the open, guest seconds from `cp_open_x` to the
+last primitive:
+
+| | before (two files) | after (one) |
+|---|---|---|
+| `CPWIDE.DRV` image (+ bss) kern_big / emu | 13,763 (+ `CPWIDE.DAT`'s 848 + 14,642 in the asset claim) | 27,638 (bss 874: `cpw_dseg`, `cpv_tlab`, the working area) |
+| ...kern_mega | 13,793 | 27,662 |
+| on the disk (lz4), kern_big / emu | 11,653 + 5,281 = 16,934, two files | 16,460, one file (-1 cluster on every system disk that carries it, one root slot fewer) |
+| ...kern_mega | 11,670 + 5,281 = 16,951 | 16,454 |
+| heap while the wide panel is open | 13,824 + 15,872 = 29,696 bytes in two claims | 27,648 in ONE contiguous claim |
+| first open: `int 13h` calls / guest s | 8 / 3.78 | 6 / 3.22 |
+| re-open, the image kept (§2.8.3): `int 13h` / guest s | 2 / 1.64 (the DAT read again) | **0** / 0.90 |
+| the open's paint: the face's `cw_gfx_fill` / `apic_font_run` / `api_gfx_blit4` calls | 39 / 15 / 10 | 39 / 15 / 10 (18 glyph cells fewer: the headings, §135.3) |
+| the Drivers page switch | 289 calls, 1.40 s | 289 calls, 1.39 s |
+
+`MOD_MAX_KB` is 30 on kern_big, kern_emu and kern_mega (17 on kern_small,
+which has no wide panel): one immediate in resident `mod_need`, the only
+resident byte that moved. The framebuffers after each step matched the
+base's but for the status line's free-memory figure (500K → 502K).
 
 ### 135.13 Testing
 

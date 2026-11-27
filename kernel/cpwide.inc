@@ -1160,10 +1160,10 @@ cpw_listev:
 .same:
     cmp byte [es:CPW_D_ON], 0   ; a driver came up or went by itself: the
     je .r                       ; Drivers page's rows and its DETAILS
-    call cpd_build
-    mov bx, CPD_TB
-    call cpk_table
-    jmp cpd_det
+    call cpd_build              ; (the same rows: a driver's coming or going
+    mov bx, CPD_TB              ; moves no drv_tab row, so the count, the top
+    call cpk_tbrows             ; and the scroll bar's picture stand - the
+    jmp cpd_det                 ; rows alone, cpwpages' finding)
 .r:
     ret
 
