@@ -2690,8 +2690,7 @@ sbl_attach:
     je .nohw                    ; ...or no line it can use (SPEC.md 34.5.6)
     call sbl_state_init         ; before any port write: a re-attach starts clean
     push cx
-    xor cx, cx                  ; 65536 polls: the scan's slow-DSP allowance
-    call sbl_f_reset
+    call sbl_f_reset0           ; 65536 polls: the scan's slow-DSP allowance
     pop cx
     jc .nohw
     mov ax, [sbl_base]          ; the block IRQ's ACK port: 2xEh, and 2xFh
@@ -3170,10 +3169,13 @@ sbl_state_init:
 ; -----------------------------------------------------------------------------
 ; sbl_f_reset - reset the DSP at [sbl_base] and wait for 0AAh (far-local)
 ;
-; in:       [sbl_base], CX = poll budget (0 = 65536)
+; in:       [sbl_base], CX = poll budget (0 = 65536) - or sbl_f_reset0,
+;           which sets CX = 0 itself
 ; out:      CF = 0 a DSP answered; CF = 1 nothing there
 ; clobbers: AL, CX (flags)
 ; -----------------------------------------------------------------------------
+sbl_f_reset0:                   ; ...with CX = 0: the 65,536-poll budget,
+    xor cx, cx                  ; the attach's and the slow-DSP allowance
 sbl_f_reset:
     push dx
     mov dx, [sbl_base]
@@ -3285,9 +3287,7 @@ sbl_cell:
 ; no usable channel to move, or a route write that did not read back. A part
 ; or port that cannot be confirmed keeps DMA 1, as before 34.5.8.
 sbl_ess_setup:
-    cmp byte [sbl_verhi], 3
-    jne .done
-    cmp byte [sbl_verlo], 1
+    cmp word [sbl_verhi], 0x0103    ; DSP 3.01 ([sbl_verlo] follows)
     jne .done
     push bx
     push cx
@@ -3305,8 +3305,7 @@ sbl_ess_setup:
     and al, 0xF0
     cmp al, 0x80
     jne .reset
-    xor cx, cx                  ; 65536 polls: the scan's slow-DSP allowance
-    call sbl_f_reset            ; drain/reset before any resource changes
+    call sbl_f_reset0           ; drain/reset before any resource changes
     jc .out                     ; unanswered: sbl_attach's own reset decides
     push es
     xor ax, ax
@@ -3321,30 +3320,23 @@ sbl_ess_setup:
     mov al, 0x40
     out dx, al
     inc dx
-    call sbl_ess_delay
-    in al, dx
+    call sbl_ess_din
     cmp al, 0x18
     jne .unlock                ; 688/1688 or another part: no config writes
-    call sbl_ess_delay
-    in al, dx
-    cmp al, 0x68
-    je .part
+    call sbl_ess_din
+    or al, 1                    ; 68h (ES1868) or 69h (ES1869)
     cmp al, 0x69
     jne .unlock
-.part:
-    call sbl_ess_delay
-    in al, dx
-    mov ch, al
-    call sbl_ess_delay
-    in al, dx
-    mov cl, al
-    mov dx, cx
-    cmp dx, 0x100
-    jb .unlock
-    cmp dx, 0xFF8
-    ja .unlock
-    test dl, 7
+    call sbl_ess_din
+    mov ah, al
+    call sbl_ess_din            ; AX = the configuration port
+    test al, 7
     jnz .unlock
+    cmp ax, 0x100
+    jb .unlock
+    cmp ax, 0xFF8
+    ja .unlock
+    xchg ax, dx
     mov cx, [sbl_base]
     mov al, 0x60
     call sbl_ess_rd
@@ -3366,14 +3358,14 @@ sbl_ess_setup:
     mov cl, bh                 ; e.g. BIOS 0,3: move the allocated 3 to Audio 1
     call sbl_ess_ok
     je .second
-    cmp bl, 3
-    je .refuse                 ; Audio 1 on the XT disk's DMA 3, nothing to move
-    test bl, 0xFD
-    jnz .unlock                ; not 0/2 (4 = none or unreadable): DMA 1 as before
-    jmp short .refuse          ; Audio 1 is on 0 or 2: D1 is known to be wrong
+    cmp bl, 3                  ; Audio 1 on 0 or 2, or the XT disk's 3 with
+    jbe .refuse                ; nothing to move (never 1: that is usable);
+                               ; not 0..3 (4 = none or unreadable): DMA 1
+.unlock:                       ; as before
+    popf
+    jmp short .out
 .second:
-    mov ah, 0x75
-    mov al, 4                  ; disconnect Audio 2 before assigning its DMA
+    mov ax, 0x7504             ; disconnect Audio 2 before assigning its DMA
     call sbl_ess_wr
     mov al, 0x75
     call sbl_ess_rd
@@ -3387,16 +3379,10 @@ sbl_ess_setup:
     call sbl_ess_rd
     cmp al, cl
     jne .undo
-    mov [sbl_dma], cl           ; publish only the route that read back
-    mov al, cl
-    shl al, 1
-    mov [sbl_dmaport], al
-    mov al, 0x83
-    cmp cl, 1
-    je .page
-    dec ax                     ; DMA 3's page register is 82h
-.page:
-    mov [sbl_pageport], al
+    cmp cl, 1                   ; publish only the route that read back:
+    je .unlock                  ; DMA 1 is what sbl_find's cells say already
+    mov word [sbl_dma], 0x0603  ; DMA 3, address port 06h...
+    mov byte [sbl_pageport], 0x82   ; ...and page register 82h
     jmp short .unlock
 .undo:
     mov ah, 0x74
@@ -3407,14 +3393,11 @@ sbl_ess_setup:
     call sbl_ess_wr             ; a refused tier leaves the firmware routes
 .refuse:
     mov byte [sbl_dma], 0xFF
-.unlock:
-    popf
-    jmp short .out
+    jmp short .unlock
 .reset:
-    xor cx, cx                  ; 65536 polls, as sbl_attach's reset: a slow
-    call sbl_f_reset            ; non-ESS DSP clears its unknown E7h state, and
-.out:                           ; a dead one is refused there, not guessed here
-    pop si
+    call sbl_f_reset0           ; 65536 polls, as sbl_attach's reset: a slow
+.out:                           ; non-ESS DSP clears its unknown E7h state, and
+    pop si                      ; a dead one is refused there, not guessed here
     pop dx
     pop cx
     pop bx
@@ -3450,17 +3433,17 @@ sbl_ess_wr:
     dec dx
     ret
 
-; At least 10 us between the identity's sequential reads, including fast hosts.
-; ISA I/O cycles, not a CPU-speed-dependent delay loop. AX/CX/DX kept.
-sbl_ess_delay:
-    push ax
+; At least 10 us, then AL = a read of DX: the identity's sequential reads,
+; with ISA I/O cycles between them, not a CPU-speed-dependent delay loop,
+; on fast hosts too. AH/CX/DX kept.
+sbl_ess_din:
     push cx
     mov cx, 32
 .delay:
     in al, 0x80
     loop .delay
     pop cx
-    pop ax
+    in al, dx
     ret
 
 sbl_bases:                      ; the pinned scan order (SPEC.md 34.2)
@@ -3537,9 +3520,8 @@ sbl_stub_c:
 ;      usable line), [sbl_hdma]; clobbers: AX (flags)
 ; -----------------------------------------------------------------------------
 sbl_find:
-    mov byte [sbl_dma], 1
-    mov byte [sbl_dmaport], 2
-    mov byte [sbl_pageport], 0x83
+    mov word [sbl_dma], 0x0201  ; DMA 1, address port 02h (the next byte),
+    mov byte [sbl_pageport], 0x83   ; page 83h
     call sbl_f_probe
     or al, al
     jz .ret
@@ -3579,8 +3561,9 @@ sbl_hdma_find:
     push ax
     push cx
     push dx
-    mov byte [sbl_hdma], 0
-    mov dx, [sbl_base]
+    mov dx, [sbl_base]          ; ([sbl_hdma] is 0 already: the image's zero
+                                ; state, and this runs once, at the attach a
+                                ; freshly loaded image gets first)
     add dx, 4
     mov al, 0x81
     pushf
@@ -3615,12 +3598,11 @@ sbl_hdma_find:
     out dx, al
     out 0xD8, al
     in al, dx
-    mov ch, al                  ; CH = the low byte read back...
-    in al, dx                   ; ...AL = the high
+    mov cl, al                  ; CL = the low byte read back...
+    in al, dx
+    mov ch, al                  ; ...CH the high
     popf
-    cmp ch, 0x5A
-    jne .no
-    cmp al, 0xA5
+    cmp cx, 0xA55A
     jne .no
     mov [sbl_hdma], ah
 .no:
@@ -3635,7 +3617,7 @@ sbl_hdma_find:
 ; in:  sbl_find, after the discovery: [sbl_auto], [sbl_base], [sbl_irq]
 ; out: [sbl_auto] = 0 when the 8237 shows the STPC signature, so every
 ;      stream takes the single-cycle path (14h, re-armed per block)
-; clobbers: nothing (flags)
+; clobbers: AX (flags) - sbl_find's, the one caller, which clobbers it too
 ;
 ; An STPC 486's integrated 8237 reloads channel 1's ADDRESS at an auto-init
 ; terminal count and not its COUNT: from the first TC on it reads base/0000
@@ -3659,36 +3641,27 @@ SBL_AIP_LEN  equ 16             ; the cycle, a paragraph: aligned, so it
                                 ; never crosses a 64KB page
 sbl_aip_sil: times 2 * SBL_AIP_LEN - 1 db 0x80  ; the paragraph inside it
 sbl_f_aiprobe:
-    cmp byte [sbl_auto], 0
-    je .ret
-    cmp byte [sbl_irq], 0xFF
-    je .ret
+    mov ax, [sbl_auto]          ; AL = [sbl_auto], AH = [sbl_irq] (the next
+    or al, al                   ; byte): auto-init and a line found, or
+    jz .ret                     ; nothing to ask. AX is sbl_find's to clobber
+    inc ah
+    jz .ret
 %ifdef PICOMEM
     cmp byte [pm_up], 0
     jne .ret
 %endif
-    push ax
     push bx
     push cx
     push dx
     push si
-    push di
-    mov cl, [sbl_irq]           ; the card's line, masked for the probe
-    mov dx, 0x21
-    cmp cl, 8
-    jb .m
-    mov dl, 0xA1
-    sub cl, 8
-.m:
-    mov ah, 1
-    shl ah, cl
-    in al, dx
-    push dx
+    mov cl, [sbl_irq]           ; the card's line, masked for the probe: the
+    mov ah, 1                   ; master 8259's, as every line sbl_dsc_irqn
+    shl ah, cl                  ; offers is
+    in al, 0x21
     push ax                     ; the mask as it was (AL)
     or al, ah
-    out dx, al
-    xor cx, cx
-    call sbl_f_reset
+    out 0x21, al
+    call sbl_f_reset0
     jc .rest
     mov al, 0x40                ; the stream's own time constant
     call sbl_dsp_wr
@@ -3721,10 +3694,12 @@ sbl_f_aiprobe:
     test al, ah
     jnz .got
     loop .tc
+%ifdef SNDDIAG
     mov al, 3                   ; none: no answer, auto-init stays
+%endif
     jmp short .done
 .got:
-    mov di, 2048
+    mov cx, 2048
 .s:
     pushf
     cli
@@ -3735,24 +3710,26 @@ sbl_f_aiprobe:
     mov bh, al                  ; BX = the address
     inc dx
     in al, dx
-    mov cl, al
-    in al, dx
-    mov ch, al                  ; CX = the count
+    mov ah, al
+    in al, dx                   ; AL:AH = the count
     dec dx
     popf
     cmp bx, si
     jne .ok
-    or cx, cx
-    jne .ok
-    dec di
-    jnz .s
+    or ah, al                   ; (AL is the next flip-flop clear's, as it
+    jnz .ok                     ; always was)
+    loop .s
     mov byte [sbl_auto], 0      ; the signature, every sample: single-cycle
+%ifdef SNDDIAG
     mov al, 2
     jmp short .done
+%endif
 .ok:
-    mov al, 1
+%ifdef SNDDIAG
+    mov al, 1                   ; a reload: auto-init stays
+%endif
 .done:
-    SDG_SET sdg_aip, al
+    SDG_SET sdg_aip, al         ; (AL above is the record's alone)
     mov al, [sbl_dma]
     or al, 4
     out 0x0A, al                ; the channel masked, as every start expects
@@ -3765,24 +3742,21 @@ sbl_f_aiprobe:
                                 ; phase); then DAh, ending the transfer
     mov al, 0xDA                ; (sbl_stop_stream's D0h DAh), then the
     call sbl_dsp_wr             ; reset that leaves 1Ch. Never a reset over
-    xor cx, cx                  ; a live transfer: Bochs ends it with a
+                                ; a live transfer: Bochs ends it with a
                                 ; block IRQ the reset then forgets, its line
                                 ; left HIGH - no edge, no IRQ, for good
                                 ; (SPEC.md 34.5.9)
-    call sbl_f_reset
+    call sbl_f_reset0
     mov dx, [sbl_base]
     add dx, 0x0E
     in al, dx                   ; retire the card's IRQ SB-side
 .rest:
     pop ax
-    pop dx
-    out dx, al                  ; the line's mask as it was
-    pop di
+    out 0x21, al                ; the line's mask as it was
     pop si
     pop dx
     pop cx
     pop bx
-    pop ax
 .ret:
     ret
 
@@ -3863,8 +3837,7 @@ sbl_f_probe:
     jmp short .out
 .retry:
     mov word [sbl_base], 0x220
-    xor cx, cx                  ; 65536 polls: the ~100ms slow-DSP allowance
-    call sbl_f_reset
+    call sbl_f_reset0           ; 65536 polls: the ~100ms slow-DSP allowance
     SDG_SCANHOOK
     jnc .found
 .no:
@@ -4178,6 +4151,9 @@ sbl_gr_act:   times SBL_GMAX dw 0   ; grants in use (occupancy IS these): 0
 sbl_ze:                         ; --- end of the attach-time clear -----------
 %if sbl_ext - sbl_direct != 1 || sbl_hisp - sbl_wide != 1 || sbl_verlo - sbl_verhi != 1
   %error "sbl_v_open clears sbl_direct/sbl_ext and sbl_wide/sbl_hisp as words, and sbl_f_probe stores sbl_verhi/sbl_verlo as one"
+%endif
+%if sbl_dmaport - sbl_dma != 1
+  %error "sbl_find and sbl_ess_setup store sbl_dma and sbl_dmaport as one word"
 %endif
 
 sbl_oldvec:   dw 0, 0           ; the winner's saved vector (off, seg)
