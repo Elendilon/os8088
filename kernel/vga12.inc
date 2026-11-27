@@ -4082,11 +4082,10 @@ gfx_fill_pat_raw_v:      ; machine with neither card never falls here
     push di
     push es
     call gfx_rect_setup
-%ifdef COLD_SLIDE                ; (the teardown is gfx_fill_gray's, below
-    jc gfx_fill_gray_raw_v.done ; this one's frame and in a rel8's reach of
-%else                           ; all three ways out on the rung - spelled out
-    jc .done                    ; per arm: the stack checker,
-%endif                          ; tools/stkbalance.py, reads source)
+    jc gfx_fill_gray_raw_v.done ; (the teardown is gfx_fill_gray's, above:
+                                ; this one's frame, and in a rel8's reach of
+                                ; this jump on every build - of all three ways
+                                ; out on the rung)
     call gfx_pat_stage          ; gfx_patbuf <- the 8 bytes at [gfx_pat]
     VSEG ax, VGA_SEG
     mov es, ax
@@ -4144,11 +4143,9 @@ gfx_fill_pat_raw_v:      ; machine with neither card never falls here
                                 ; rung (kern_mega) the bodies are .text's and
                                 ; the reach is not there, so the stubs stay
 %else
-.reset:                         ; ...the same teardown through a stub
-    jmp gfx_fill_gray_raw_v.reset
-.done:
-    jmp gfx_fill_gray_raw_v.done
-%endif
+.reset:                         ; ...the same teardown through a stub (its
+    jmp gfx_fill_gray_raw_v.reset ; `.done` twin went: the `jc` above reaches
+%endif                          ; gray's own on this build too)
 
 ; ...and ONE masked edge column of [gfx_rrows] rows at ES:DI, the Bit Mask
 ; already set - the left and the right were this loop written out twice (size
@@ -6261,10 +6258,12 @@ gfx_blit1_x:
     jmp .done                   ; it down. BEFORE .pen, whose port program
                                 ; would be wrong for a packed mode; .done tears
                                 ; down nothing ([gfx_b1act] is 0). The hook is
-                                ; 5 + 2 + 5 + 3 = 15 bytes...
-    nop                         ; ...and this PARITY pad, never executed, is
-.vxplanar:                      ; the sixteenth, so .cold's dsk_* keep their
-%endif                          ; entry parity (tests/unit/t_hotpar.py)
+                                ; 5 + 2 + 5 + 3 = 15 bytes. (A PARITY nop
+.vxplanar:                      ; made it sixteen until kernel size pass 21:
+%endif                          ; the row base below takes x back off the frame
+                                ; for a byte less, so this hook's odd 15 and
+                                ; that odd -1 leave the row loops and .cold's
+                                ; dsk_* where tests/unit/t_hotpar.py pins them)
 
 %ifdef GFX_VGA                  ; SPEC.md 5.4.2.5: no VGA in this build, so no PEN
     call .pen                   ; SPEC.md 5.4.2.4: THE PEN, now that there IS a
@@ -6313,6 +6312,16 @@ gfx_blit1_x:
     push word [vid_wrapfix]     ; [bp+0]
     mov bp, sp
 
+%ifdef VID_EXT
+    mov ax, bx
+    call KERNEL_SEG:cw_gfx_rowbase  ; AX = rowbase(y); it clobbers CX and DX
+    mov cx, [bp+14]             ; ...so x comes back off the frame, where it
+    shr cx, 1                   ; is the placeholder until the store below:
+    shr cx, 1                   ; a byte under `mov cx, ax` and a push/pop
+    shr cx, 1                   ; pair round the call, and ~8 clocks a band
+                                ; fewer (kernel size pass 21; the hook's
+                                ; PARITY nop above went with it)
+%else
     mov cx, ax                  ; AX is still x, and x is a multiple of 8
     shr cx, 1
     shr cx, 1
@@ -6321,6 +6330,7 @@ gfx_blit1_x:
     push cx
     call KERNEL_SEG:cw_gfx_rowbase  ; AX = rowbase(y); it clobbers CX and DX
     pop cx
+%endif
     add ax, cx
     mov di, ax                  ; DI = the band's first framebuffer byte
     mov [bp+14], di             ; ...and the placeholder above becomes it
