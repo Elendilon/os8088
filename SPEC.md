@@ -84120,6 +84120,52 @@ should also stop banking its own clamp is left as the separate question it is.
 at *"it does not straddle the seam"*, because the window it is trying to make
 wide is the one this discards.
 
+#### 39.16.3.6 …and on the FREE axis, never larger than the smaller display
+
+**The owner's model** (2026-11-27): *"a window can't draw in two modes at
+once — so inside its window it draws in the more restrictive mode or
+height."* A straddler is sized for the restrictive display on BOTH axes.
+§39.16.3 leaves the axis the displays tile along free, so that a straddler
+may SPAN them, and it still may: its origin is the user's, and so is the
+seam it is dropped on. What it may not do is be LARGER on that axis than
+the smaller of the two displays' extents. So after the dead-zone clamp,
+`wm_strad_fit` caps the free axis at
+`min(the primary's usable extent, display 1's extent)`. The primary's
+usable extent is the band's width (`[vid_band_xe] - [vid_band_x0]`) or its
+height (`[vid_dock_y0] - MBAR_H - 1`, `wm_fit`'s rule). When x is cut, it
+is rounded DOWN onto a byte boundary, because a straddler keeps both side
+borders and its content is `W - 2`. It is never rounded up (§11.94.5).
+Rounding up after a cut is what made a 640 frame 642 (§39.16.3.4).
+§11.100.2's floor still outranks the cap.
+
+Two audit findings are this one rule:
+
+- **K2(b).** On a Below layout, a window sized for the 480-row VGA kept its
+  460 rows across the seam. It could then never be dragged wholly onto the
+  348-row Hercules, so its kind never changed back.
+- **K2(a).** A 640 frame snapped up to 642 in a Right straddle could never
+  sit wholly on a 640 display again. That was DOS's 642, Telnet's and
+  Weave's.
+
+**Entering a straddle and leaving one are each a trigger** (§39.16.3.3),
+even when the adapter kind does not change. A Below layout's VGA primary
+is the narrower display, so a window from the VGA keeps kind VGA across the
+seam. A window that never changed kind would never be capped, and one that
+was capped would never get its size back. So `W_PKIND` carries **bit 7**
+for "sized for a straddle". `ui_drag_size` compares `kind | (straddles ?
+80h : 0)` against it, and banks the bit beside the kind. The zoom's
+`ext_knote` (§39.17.2.1) does the same. No other reader of `W_PKIND`
+exists: tests print it.
+
+**Returning to one display restores that display's size.** It is
+`ui_drag_size`'s landing, which takes the natural size back out of the
+bank (§11.100.3). Nothing here writes that bank, so the cap costs the
+window nothing it will not get back.
+
+Like the rest of `wm_strad_fit` it is `wm_reflows`-gated (§39.16.3.1). A
+fixed layout that published no preference keeps its size and hangs, which
+is WINDOW-SIZING-PLAN 12.5's third row. Cost: EXTD.DRV only, 0 resident.
+
 #### 39.16.3.4 …and the width it leaves must still be a WHOLE NUMBER OF BYTES
 
 **A window dragged across the seam came back two pixels narrower than it went,

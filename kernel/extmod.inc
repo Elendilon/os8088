@@ -600,6 +600,7 @@ ext_zarm:
     mov [CSEG wm_lf_disp], al
     mov [CSEG wm_lf_win], bx
     CSDO_OFF
+    call ext_kind_of            ; (the target's kind: never a straddle's)
     call ext_knote              ; ...its kind against the one last sized for
     pop ax
 .r: ret
@@ -616,24 +617,35 @@ ext_zoff:
     CSDO_OFF
     or bx, bx
     jz .r                       ; nothing armed (the restore spent it already)
+    push ax
+    call wm_disp_now            ; the geometry now: a restore may straddle
+    call ext_kind_of
+    call ext_sbit
     call ext_knote
+    pop ax
 .r: pop bx
     retf
 
-; ext_knote - has window BX's adapter kind changed since it was last sized?
-; Then bank the new one and tell its 11.98 handler (ui_drag_size's .snapped,
-; for a window whose box a zoom moved rather than a drag). Every register
-; preserved.
+; ext_sbit - AL |= 80h when window BX straddles (W_PKIND's straddle bit,
+; SPEC.md 39.16.3.6); every other register and nothing else preserved
+ext_sbit:
+    call wm_strads
+    jc .r
+    or al, 80h
+.r: ret
+
+; ext_knote - is AL (a kind, bit 7 a straddle) not what window BX was last
+; sized for? Then bank it and tell the 11.98 handler (ui_drag_size's
+; .snapped, for a window whose box a zoom moved rather than a drag).
+; Clobbers AL and the flags.
 ext_knote:
-    push ax
-    call wm_disp_now            ; the latch while armed, the geometry after
-    call ext_kind_of
     cmp al, [bx+W_PKIND]
     je .r
-    EXK wm_kind_bank
+    EXK wm_kind_bank            ; (the kind wm_disp_now names: AL's own)
+    and al, 80h
+    or [bx+W_PKIND], al
     WM_SZNOTE EXK
-.r: pop ax
-    ret
+.r: ret
 
 ; (vid_disp_desk - EXT_DESK, every display but the primary's ground, whole -
 ; stood here. Its one caller was the layered wm_paint_all, and the damage pass
@@ -726,13 +738,21 @@ ui_drag_size:
                                 ; routine applies cannot change the answer under
                                 ; the steps that follow it
     call ext_kind_of            ; the kind it stands on now (wm_kind_now's own
-    cmp al, [bx+W_PKIND]        ; answer, the latch being armed) against the
-    je .fin                     ; kind it was last SIZED for
-    call wm_strads
-    jc .land
+    call ext_sbit               ; answer, the latch being armed), BIT 7 SET
+    cmp al, [bx+W_PKIND]        ; WHILE IT STRADDLES (SPEC.md 39.16.3.6),
+    je .fin                     ; against the kind it was last SIZED for - so
+                                ; entering a straddle and leaving one are each
+                                ; a change even when the kind is not: a
+                                ; straddle is capped on its free axis, and
+                                ; the landing after one gives the size back
+    push ax                     ; (the bit, for .snapped)
+    test al, 80h
+    jz .land
     call wm_strad_fit           ; ...across the seam: the constrained axis
-    jmp short .ask              ; ONLY, or wm_fit's x clamp would yank the frame
-                                ; wholly onto one display and undo the drag
+    jmp short .ask              ; clamped, and the free one never larger than
+                                ; the smaller display - never wm_fit's x
+                                ; clamp, which would yank the frame wholly
+                                ; onto one display and undo the drag
 
     ; --- landed on one display: the size half of wm_apply_size -------------
     ; wm_apply_size restores the natural rect WHOLE, which is right when the
@@ -794,6 +814,9 @@ ui_drag_size:
     mov [di+W_X], ax
 .snapped:
     EXK wm_kind_bank
+    pop ax                      ; ...and the straddle's bit beside the kind
+    and al, 80h
+    or [bx+W_PKIND], al
     WM_SZNOTE EXK               ; TOLD EVEN IF THE BOX DID NOT MOVE: the ADAPTER
                                 ; did, and half the tree caches facts about it
                                 ; (SPEC.md 11.98). wm_refit has always done this
@@ -926,7 +949,7 @@ wm_strads:
 ; -----------------------------------------------------------------------------
 ; wm_strad_fit - a window across the seam takes the size for the MORE
 ;                RESTRICTIVE of the two displays (SPEC.md 39.16.3)
-; in:       BX = the window, known to straddle and known to have changed kind
+; in:       BX = the window, known to straddle, and changed kind or just begun straddling
 ; out:      nothing; every register preserved
 ; clobbers: flags (its two callers set their own CF after it)
 ;
@@ -1017,6 +1040,54 @@ wm_strad_fit:
     mov [di+W_W], cx
 .fl:
     EXK wm_min_ax               ; ...and the floor cannot be cut through
+    cmp [di+W_W], ax
+    jae .free
+    mov [di+W_W], ax
+
+    ; --- THE FREE AXIS TOO (the owner, 2026-11-27; SPEC.md 39.16.3.5) ------
+    ; A window cannot draw in two modes at once, so a straddler is sized for
+    ; the more restrictive display - on BOTH axes, never larger than the
+    ; smaller of the two displays' extents on the axis they tile along. That
+    ; is what lets it sit wholly on EITHER display afterwards: a VGA-tall
+    ; window left 460 rows tall across a Below seam could never be dragged
+    ; wholly onto the 348-row Hercules, so its kind never changed back (K2(b)),
+    ; and a 640 frame snapped UP to 642 here could never sit on a 640 display
+    ; again (K2(a)). Landing on one display gives the natural size back
+    ; (ext_wants, at .land).
+.free:
+    xor dl, 1                   ; DL = the FREE axis: 0 x (Right), 1 y (Below)
+    mov di, bx
+    mov ax, [vid_band_xe]       ; the primary's usable extent on it...
+    sub ax, [vid_band_x0]
+    mov cx, [vid_ctx + VID_CTX_SZ + VID_CTX_CW] ; ...and display 1's
+    or dl, dl
+    jz .fx
+    inc di                      ; (the record's y words, W_H = W_W+2)
+    inc di
+    mov ax, [vid_dock_y0]       ; one short of the dock, wm_fit's rule
+    sub ax, MBAR_H + 1
+    mov cx, [vid_ctx + VID_CTX_SZ + VID_CTX_CH]
+.fx:
+    cmp ax, cx
+    jbe .fc
+    mov ax, cx                  ; AX = the smaller of the two
+.fc:
+    cmp [di+W_W], ax
+    jbe .done                   ; already fits both: nothing to take
+    push ax
+    or dl, dl
+    jnz .fset                   ; (only x has a byte boundary to keep)
+    EXK wm_snap_want
+    jnc .fset
+    dec ax                      ; ...and DOWN onto one, never up (11.94.5):
+    dec ax                      ; a straddler keeps both side borders, so the
+    and al, 0F8h                ; content is W - 2, and THAT is rounded
+    inc ax
+    inc ax
+.fset:
+    mov [di+W_W], ax
+    pop ax
+    EXK wm_min_ax               ; the floor still outranks it (11.100.2)
     cmp [di+W_W], ax
     jae .done
     mov [di+W_W], ax
