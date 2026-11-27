@@ -115,9 +115,19 @@
 ; it as anything but the continuation it is.
 ; These are per-control routines (a button, a scroll bar), so the taken `jmp`
 ; is ~20 clocks on an operation that draws (kernel hot-paths pass 1, size).
+; ...AND THE BANK GOES IN BY THE LADDER'S OTHER HALF where the routine banks
+; all seven: `UI_KENT bp` is `call kentc_bp`, 3 bytes for 7 (kernel size pass
+; 21). It is ~+100 clocks a call - kernel.asm's kent_* rule, "per operation,
+; per window, per control, never per glyph" - on a control draw of four to
+; fifteen drawing calls (~3 to 11 ms on the 5150), so under 1% of each. The
+; name is BUILT for UI_KRET's reason: stkbalance reads neither half as a
+; branch, and walks the package arm's pushes and pops on both corpora.
 %ifdef OS88UI_KERNEL
   %macro UI_KRET 1                  ; OS88UI_KCOLD: leave by kretc_<%1>
     jmp kretc_%1
+  %endmacro
+  %macro UI_KENT 1                  ; OS88UI_KCOLD: bank by kentc_<%1>
+    call kentc_%1
   %endmacro
   ; OS88UI_KFAR: the block being assembled is NOT in `.cold` but in an
   ; on-demand image (OS88UI_KGLYPH below), so the three primitives it reaches
@@ -651,6 +661,9 @@ OS88UI_BT_SIZE   equ 18
 ; -----------------------------------------------------------------------------
 %macro OS88UI_BTN_BODY 1-2      ; %2: the kernel .cold copy's exit rung, kretc_<%2>
 %1:
+%if %0 > 1
+    call kentc_%2               ; ...and its BANK, kentc_<%2> (OS88UI_KCOLD)
+%else
     push ax
     push bx
     push cx
@@ -658,6 +671,7 @@ OS88UI_BT_SIZE   equ 18
     push si
     push di
     push bp
+%endif
     xor ah, ah
     dec ax                      ; AX = the 0-based index
     cmp ax, [bx+OS88UI_BT_N]    ; past the live count: draw nothing - and AL =
@@ -2238,6 +2252,9 @@ os88ui_sbthumb:
 ; out: nothing (all registers preserved); leaves the pen BLACK
 ; -----------------------------------------------------------------------------
 os88ui_sbar:
+%ifdef OS88UI_KERNEL
+    UI_KENT bp                  ; OS88UI_KCOLD (above)
+%else
     push ax
     push bx
     push cx
@@ -2245,6 +2262,7 @@ os88ui_sbar:
     push si
     push di
     push bp
+%endif
     mov di, bx                  ; DI = the block: BX is every primitive's y1
     clc                         ; the live pen: CBLACK, [gfx_dis] clear
     UI_PEN
@@ -2481,6 +2499,9 @@ os88ui_sbhit:
 ; a blink. A step too small to move it draws nothing at all.
 ; -----------------------------------------------------------------------------
 os88ui_sbmove:
+%ifdef OS88UI_KERNEL
+    UI_KENT bp                  ; OS88UI_KCOLD (above)
+%else
     push ax
     push bx
     push cx
@@ -2488,6 +2509,7 @@ os88ui_sbmove:
     push si
     push di
     push bp
+%endif
     mov di, bx
     mov bp, ax                  ; BP = the old pos
     call os88ui_sbthumb         ; where it is going
