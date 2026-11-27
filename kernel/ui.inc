@@ -355,7 +355,9 @@ ui_task:
 %endif
     mov si, [ui_armw]
     mov ah, [ui_armr]
-    mov word [ui_armw], 0       ; spent: every path below leaves it clear
+    and word [ui_armw], 0       ; spent: every path below leaves it clear
+                                ; (`and`, a byte under `mov`: the `or` below
+                                ; writes the flags first - kernel size pass 21)
     or ah, ah
     jz .mup_lk                  ; region 0: no identity test at all
     call wm_hit                 ; BX = window under the release, AL = region;
@@ -521,16 +523,14 @@ ui_task:
     jmp .yj1
 
 .clock_cell:                    ; speaker first, then the Date/Time cell
-%ifdef OS88_SNDCARD
-    call ui_clkcell             ; OUT OF LINE on kern_big (kernel size pass
-    jmp .yj1                    ; 14): its 43 bytes here put fdlg_grab_x's
-%else                           ; `jc .yj1` above out of a byte's reach, and
-                                ; a far conditional is five bytes on an 8086
-    mov byte [cp_sel], CP_ITIME ; page (SPEC.md 31.5); no lock held here, so
-    call COLD_SEG:cpf_cp_open   ; cp_open is app_launch with the module load
-    jmp .yj1                    ; in front of it (SPEC.md 2.8.4) - and it owns
-%endif                          ; the refusal, beep or toast, so there is
-                                ; nothing left here to say
+    call ui_clkcell             ; OUT OF LINE (kernel size pass 14 on
+    jmp .yj1                    ; kern_big): its 43 bytes here put
+                                ; fdlg_grab_x's `jc .yj1` above out of a
+                                ; byte's reach, and a far conditional is five
+                                ; bytes on an 8086. On EVERY kernel since
+                                ; kernel size pass 21: its tail is ui_cmd's
+                                ; CMD_CTRL too, so kern_small's inline copy
+                                ; and ui_cmd's `.ctrl` went (-2 there)
 
 .on_desktop:
 %ifdef DOCK_OPT
@@ -572,7 +572,13 @@ ui_task:
     je .content_front           ; repainted unless it was already frontmost -
                                 ; which feeds the click handler instead
 .yj1:                           ; A TRAMPOLINE, and nothing else: the 8086
-    jmp .yield                  ; has no near conditional jump, so a `jc`
+    jmp short .yield            ; has no near conditional jump, so a `jc`
+                                ; (`short` in the source, kernel size pass 21:
+                                ; .yield is in reach on every kernel, and NASM
+                                ; never shrinks a jump it once relaxed - -1 on
+                                ; kern_big, paired with .mup's `and` above so
+                                ; that .yield and the idle ladder after it
+                                ; keep their parity)
                                 ; out of short range is a five-byte
                                 ; inverted pair. Every branch below that
                                 ; reaches HERE reaches .yield one hop on
@@ -1425,14 +1431,16 @@ ui_lit_go:
     mov si, [ui_armw]
     or si, si
     jz .none
-    cmp byte [ui_armr], 0
-    je .none                    ; region 0: nothing was ever drawn
+    mov ah, [ui_armr]           ; the region, loaded ONCE: THV_CRECT's AH
+    or ah, ah                   ; below, and tested here (kernel size pass 21,
+    jz .none                    ; -3) - region 0: nothing was ever drawn
     test byte [si+W_FLAGS], 2
     jz .none                    ; the window has gone, and its pixels with it
     cmp al, [ui_armlit]
     je .out                     ; already in that state
-    mov [ui_armlit], al
-    mov ah, [ui_armr]
+    mov [ui_armlit], al         ; (AH is still the region: nothing above it
+                                ; writes AH, and kret_di puts the caller's
+                                ; AX back)
     call gfx_lock               ; ...the lock FIRST: the clip below is armed
     call far [thv + THV_CRECT]  ; inside it. AX,BX,CX,DX = the box interior:
                                 ; winmod.inc's door, wmz_crect_b at rest
@@ -1671,9 +1679,10 @@ section .text
 ; -----------------------------------------------------------------------------
 ui_tdbl:
     mov ax, [ui_click_t]
+    sub ax, [ui_tclkt]          ; wrap-safe - the difference is what matters,
+                                ; and it is taken FIRST, for both arms below
     cmp si, [ui_tclkw]
     jne .first                  ; a different window: this is a first click
-    sub ax, [ui_tclkt]          ; wrap-safe - the difference is what matters
     cmp ax, UI_TDBLT
     jae .first                  ; too slow: it restarts the pair below
     mov [ui_tclkw], ax          ; SPENT: the delta, below UI_TDBLT, and so no
@@ -1681,8 +1690,10 @@ ui_tdbl:
                                 ; for the 6-byte immediate 0 (kernel size pass
                                 ; 18, -3). CF = 1 is still the `cmp`'s
 .first:
-    mov ax, [ui_click_t]
-    mov [ui_tclkt], ax
+    add [ui_tclkt], ax          ; old + (new - old): THIS press's tick, out of
+                                ; the delta both arms hold, where a reload and
+                                ; its store were 6 bytes (kernel size pass 21,
+                                ; -2). AX is the documented clobber either way
     mov [ui_tclkw], si
     clc
     ret
@@ -1722,15 +1733,19 @@ ui_tdbl:
 ; ui_drag_xor only AX..DX.
 ; -----------------------------------------------------------------------------
 ui_track:
-    mov [ui_dragwin], bx
-    mov [ui_startx], cx         ; mousedown point
-    mov [ui_starty], dx
     push si                     ; the step routine, wanted by the loop
     push ds
     pop es
     cld
     lea si, [bx + di]           ; drag: orig = the position; grow: the size
-    mov di, ui_origx
+    mov di, ui_dragwin          ; the window and the mousedown point, the
+    mov ax, bx                  ; three words in front of ui_origx (the %if
+    stosw                       ; under the .bss), by STOSW - so DI arrives
+    xchg ax, cx                 ; at ui_origx with no load of its own, where
+    stosw                       ; three stores and that `mov di` were 15
+    xchg ax, dx                 ; bytes (kernel size pass 21, -5). CX and DX
+    stosw                       ; are spent: the loop reads the point back
+                                ; out of [ui_startx]/[ui_starty]
     movsw                       ; ui_origx
     movsw                       ; ui_origy
     call wm_bank4               ; ...and the outline starts on the window
@@ -2137,14 +2152,12 @@ ui_drag:
 ; clobbers: AX, BX, CX, DX
 ; -----------------------------------------------------------------------------
 ui_drag_xor:
-    mov ax, [ui_curx]           ; x1
-    mov bx, [ui_cury]           ; y1
-    mov cx, ax
-    add cx, [ui_dragw]
-    dec cx                      ; x2 = x1 + w - 1
-    mov dx, bx
-    add dx, [ui_dragh]
-    dec dx                      ; y2 = y1 + h - 1
+    call rect_get               ; AX = x1, BX = y1, CX = w, DX = h: the four
+    dw ui_curx                  ; words are adjacent (the %if under the .bss)
+    add cx, ax                  ; - wm.inc's loader where four loads were 15
+    dec cx                      ; bytes (kernel size pass 21, -10; ~+99 cycles
+    add dx, bx                  ; a draw, twice a tick-long drag pass: under
+    dec dx                      ; 0.1% of it). x2 = x1 + w - 1, y2 likewise
     jmp vga_xor_rect_vram       ; clips, so off-screen edges are fine.
                                 ; VRAM-direct (SPEC.md 32): the outline is a
                                 ; transient overlay like the cursor - it is
@@ -2209,12 +2222,12 @@ ui_grow:
     ; only GREW uncovers nothing at all, so its neighbours cost nothing.
     push bx                     ; BX alone: AX, CX, DX and SI are all
     mov si, bx                  ; loaded fresh below before they are read
-    mov ax, [ui_curx]
-    mov cx, ax
-    add cx, [ui_origx]          ; x2 = x + w: the drop shadow's own column
-    mov bx, [ui_cury]
-    mov dx, bx
-    add dx, [ui_origy]
+    call rect_get               ; AX/BX = the size at mousedown (ui_origx/y),
+    dw ui_origx                 ; CX/DX = the fixed origin (ui_curx/y): four
+    xchg ax, cx                 ; adjacent words, once per grow (kernel size
+    xchg bx, dx                 ; pass 21, -7 against six loads and adds)
+    add cx, ax                  ; x2 = x + w: the drop shadow's own column
+    add dx, bx
     call wm_dmg_vacate
     pop bx
 
@@ -2810,8 +2823,8 @@ ui_sys_open:
     ; routine of its own with this as its one caller; written here its
     ; call, its two `ret`s and its `stc` go, the miss FALLING into .load
     ; (kernel size pass 17). kent_bp banked every register it writes.
-    mov bx, [ui_desc]           ; BX = the name to match, hoisted out of the
-    mov bx, [bx+UO_NAME]        ; scan: nothing in the loop writes it
+    mov bx, [ui_desc]           ; DX = the name to match, hoisted out of the
+    mov dx, [bx+UO_NAME]        ; scan: nothing in the loop writes it
     mov di, inst_tab - I_RECSZ  ; ...over inst_next, the table's own walk: off
     cld                         ; (the name compare's lodsb, below)
 .scan:                          ; the end is CF = 1, none open, the load
@@ -2821,25 +2834,20 @@ ui_sys_open:
     jne .scan
     test byte [di+I_KIND], KIND_PKG
     jz .scan
-    push di
-    mov si, bx
-    add di, I_NAME
-.cmp:
-    lodsb                       ; DS:SI, the kernel's name (kernel size pass
-    cmp al, [di]                ; 18: `mov al, [si]` and its `inc si` were a
-    jne .nomatch                ; byte more than this and the `cld` above)
-    inc di
+    mov si, dx                  ; THE RECORD IS NOT WALKED, so DI needs no
+    lea bx, [di+I_NAME]         ; bank: BX = its name less ours, and the byte
+    sub bx, dx                  ; that pairs with the one lodsb just took is
+.cmp:                           ; [bx+si-1] (kernel size pass 21, -3 against
+    lodsb                       ; the push/pop and the `inc di`). DS:SI, the
+    cmp al, [bx+si-1]           ; kernel's name (kernel size pass 18: `mov
+    jne .scan                   ; al, [si]` and its `inc si` were a byte more)
     or al, al
-    jnz .cmp
-    pop di                      ; DI = its record: found
+    jnz .cmp                    ; DI = its record: found
     mov bp, inst_restore        ; un-minimize and show - the app_launch cap
     call ui_lcall               ; path's rule, and now literally its code (BP
                                 ; is on the stack above and comes back at .out)
     jmp .out                    ; (short wherever it reaches: ROM_PKG's arm
                                 ; below is what can push it past 127)
-.nomatch:
-    pop di
-    jmp short .scan
 .load:
 %ifdef ROM_PKG
     ; THE ROM'S COPY FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a
@@ -3057,14 +3065,18 @@ ui_cmd:
                                 ; transfer, so EVERY ENTRY HERE MUST BE .text
                                 ; and is
 %ifdef OS88_SHORTCUTS
-    dw .about, .ctrl, ui_tm_open, .done, .hiber, .reboot, .shutdown, .close, .scdel, .files, .stik
+    dw .about, ui_clkcell.open, ui_tm_open, .done, .hiber, .reboot, .shutdown, .close, .scdel, .files, .stik
 %elifdef KERN_BIG
-    dw .about, .ctrl, ui_tm_open, .done, .hiber, .reboot, .shutdown, .close, .files, .stik
+    dw .about, ui_clkcell.open, ui_tm_open, .done, .hiber, .reboot, .shutdown, .close, .files, .stik
 %else
-    dw .about, .ctrl, ui_tm_open, .done, .reboot, .shutdown, .close, .files
+    dw .about, ui_clkcell.open, ui_tm_open, .done, .reboot, .shutdown, .close, .files
 %endif                          ; (Task Manager is ui_tm_open itself: a package
                                 ; on the system disk now, SPEC.md 28 - its
-                                ; `.tasks: jmp` went, kernel size pass 18, -3)
+                                ; `.tasks: jmp` went, kernel size pass 18, -3.
+                                ; And the Control Panel is ui_clkcell's own
+                                ; far call and `ret`, the same six bytes this
+                                ; table reached as a `.ctrl` of its own:
+                                ; kernel size pass 21, -6)
 
 %ifdef KERN_BIG
 .hiber:
@@ -3083,14 +3095,7 @@ ui_cmd:
     ret                         ; it and writes SYSTEM.CFG
 %endif
 
-.ctrl:
-    call COLD_SEG:cpf_cp_open   ; NOT app_launch: the panel's code is a file now
-    ret                         ; (SPEC.md 2.8.4), so opening it can fail for
-                                ; a reason app_launch knows nothing about.
-                                ; NOT a far tail jump: cpf_cp_open ends in
-                                ; retf and ui_cmd does not, so the retf would
-                                ; pop a NEAR frame as CS:IP - a wild jump, and
-                                ; os88ovlchk refuses it
+                                ; (CMD_CTRL is ui_clkcell.open: see the table)
 .about:                         ; THE ONE KIND ui_cmd LAUNCHES - Timer and
                                 ; Bounce are packages on the apps disk (SPEC.md
                                 ; 14.8) - and AL is ALREADY it: CMD_ABOUT - 1,
@@ -3330,6 +3335,9 @@ ui_rzh:     resw 1
 %if ui_origy - ui_origx != 2 || ui_curx - ui_origx != 4 || ui_cury - ui_origx != 6 || ui_dragw - ui_origx != 8 || ui_dragh - ui_origx != 10 || W_Y - W_X != 2 || W_W - W_X != 4 || W_H - W_X != 6
   %error "ui_track copies ui_origx..ui_dragh as six consecutive words, the last four from W_X..W_H"
 %endif
+%if ui_startx - ui_dragwin != 2 || ui_starty - ui_dragwin != 4 || ui_origx - ui_dragwin != 6
+  %error "ui_track stores ui_dragwin, ui_startx and ui_starty by STOSW, ending on ui_origx"
+%endif
 %if ui_starty - ui_startx != 2 || ui_origy - ui_origx != 2 || mouse_y - mouse_x != 2
   %error "ui_trk_ax indexes x/y pairs by BX = 0/2"
 %endif
@@ -3398,10 +3406,20 @@ ui_volume_service:                  ; (SOUND.DRV far-calls KERNEL_SEG:this - DI
     pop ds
     retf
 
+%endif                          ; OS88_SNDCARD
+
 ; ui_clkcell - a press in the clock's field (SPEC.md 12.1, 34.15): the speaker
 ; at the field's right end when it is showing - a toast can hide it - and the
-; Control Panel's Date/Time page anywhere else. UI task, no lock held.
+; Control Panel's Date/Time page anywhere else (and, on a kernel with no
+; sound card, the page alone). UI task, no lock held.
 ; in: CX = the press's x;  clobbers AX, BX, CX, DX, SI, DI, ES
+;
+; ui_clkcell.open is ui_cmd's CMD_CTRL: the panel on whatever page it last
+; showed, through the same far call and `ret`. NOT app_launch: the panel's
+; code is a file (SPEC.md 2.8.4), so opening it can fail for a reason
+; app_launch knows nothing about. And NOT a far tail jump: cpf_cp_open ends in
+; retf and neither caller does, so the retf would pop a NEAR frame as CS:IP -
+; a wild jump, and os88ovlchk refuses it
 ;
 ; **THE SPEAKER'S HIT TEST IS SOUND.DRV'S** (kernel size pass 14, at the
 ; owner's word): the driver is handed the press AND the speaker's x and answers
@@ -3412,6 +3430,7 @@ ui_volume_service:                  ; (SOUND.DRV far-calls KERNEL_SEG:this - DI
 ; The speaker's x travels with every press rather than being remembered by
 ; the driver, so a driver re-mounted before the bar recomposes still hits.
 ui_clkcell:
+%ifdef OS88_SNDCARD
     cmp byte [menu_mixcap+1], SND_CAP_MIXER >> 8    ; 0, 0200h or 0FFFFh:
     jne .date                   ; the high byte says which
     mov dx, [menu_mixx]         ; DX = the speaker's left x, CX the press's
@@ -3422,9 +3441,10 @@ ui_clkcell:
     call drv_pkg_call_x
     jnc .r                      ; the speaker's: the popup has run (or said
 .date:                          ; why not)
+%endif
     mov byte [cp_sel], CP_ITIME ; page (SPEC.md 31.5); no lock held here, so
+.open:                          ; (ui_cmd's CMD_CTRL enters HERE)
     call COLD_SEG:cpf_cp_open   ; cp_open is app_launch with the module load
 .r:                             ; in front of it (SPEC.md 2.8.4) - and it owns
     ret                         ; the refusal, beep or toast
-%endif
 section .text

@@ -278,8 +278,18 @@ toast_show:
     cmp di, toast_buf
 %endif
     je .kill                    ; nothing sayable: this is a retire, and it
-    mov byte [di], 0            ; writes NO slot - BX may be toast_qbuf, the
-                                ; queued record of a raiser that is not us
+%ifdef TOAST_Q                  ; writes NO slot - BX may be toast_qbuf, the
+    mov byte [di], 0            ; queued record of a raiser that is not us
+%else
+    mov [di], ch                ; ...and the NUL is CH: CX counted the kept
+                                ; characters down from TOAST_MAX, so it is 0
+                                ; here on every way out of the copy (kernel
+                                ; size pass 21, -1; under TOAST_Q CX is the
+                                ; TTL again by now, popped above)
+%if TOAST_MAX > 0xFF
+  %error "toast_show stores the string's NUL out of CH: TOAST_MAX must fit CL"
+%endif
+%endif
 %ifdef TOAST_Q
     mov [bx+TOAST_RTTL], cx     ; the RECORD's TTL and raiser, either slot's
     mov [bx+TOAST_RINST], dh    ; (so a closing app takes its own message)
@@ -336,10 +346,9 @@ toast_show:
 toast_say:
     pushf
     push ax
-    push bx
-    push cx
-    push si
-    push es
+    push cx                     ; (BX is not banked: the index is SI's, so the
+    push si                     ; table is read through [bx+si] and BX is never
+    push es                     ; written - kernel size pass 21, -3)
     cbw                         ; a code of 0x80 or more sign-extends to
                                 ; 0xFF80..0xFFFF rather than 0x0080..0x00FF -
                                 ; and BOTH are refused by the `jae` below,
@@ -352,11 +361,11 @@ toast_say:
                                 ; `or al, al` below is unaffected.
     or al, al
     jz .out
-    cmp ax, cx
+    xchg ax, si                 ; SI = the code (AX is banked: dead here)
+    cmp si, cx
     jae .out
-    shl ax, 1
-    add bx, ax
-    mov si, [bx]                ; the tables are .text, so DS reaches them
+    shl si, 1
+    mov si, [bx+si]             ; the tables are .text, so DS reaches them
     push ds                     ; from cold code as well as from here
     pop es
     xor cx, cx
@@ -365,7 +374,6 @@ toast_say:
     pop es
     pop si
     pop cx
-    pop bx
     pop ax
     popf
     retf
@@ -623,12 +631,15 @@ toast_pass:
     xchg al, [toast_dirty]      ; was a compare and a separate store - and a
     or al, al                   ; set landing between those two (toast_kill
     jz .out                     ; from a pre-empting task) is no longer lost
-.draw:
-    mov byte [menu_bdirty], 1   ; the DOWN edges' half of toast_arm's flag
+    mov [menu_bdirty], al       ; the DOWN edges' half of toast_arm's flag
                                 ; (SPEC.md 59.9) - an expiry above, and
                                 ; toast_kill's deferred retire, both of which
                                 ; may have a strip to erase out of the menus
-                                ; segment and only menu_bar_text can do it
+                                ; segment and only menu_bar_text can do it.
+                                ; AL is the 1 just taken: every writer of
+                                ; [toast_dirty] stores 0 or 1 (kernel size
+                                ; pass 21, -2 against the immediate)
+.draw:                          ; (.up joins HERE: toast_arm has set the flag)
     call gfx_lock               ; menu_draw_bar always ends in the clock's
     call menu_draw_bar          ; field, which IS the draw and IS the erase
     call gfx_unlock             ; (SPEC.md 12.9/59.8) - and going through the
@@ -664,6 +675,8 @@ toast_kill:
     cli                         ; check-then-act: a task switch between the
                                 ; tests and the stores could retire a toast
                                 ; some OTHER task staged in the gap
+.body:                          ; (toast_owner_gone JUMPS in here, under its
+                                ; own pushf / cli - so the popf below is ITS)
     cmp word [toast_on], 0      ; "on OR want", as one word over the pair
     je .out
     and word [toast_on], 0      ; ...and both cleared as one (`and`: a byte
@@ -705,19 +718,24 @@ toast_owner_gone:
 .nq:
 %endif
     cmp al, [toast_inst]        ; anything up?" test first: toast_kill opens
-    jne .out                    ; with exactly that test (`cmp word
-    call toast_kill             ; [toast_on], 0`, one word over the pair) and
-.out:                           ; does nothing when it fails, so the only
+    pop ax                      ; with exactly that test (`cmp word
+    je toast_kill.body          ; [toast_on], 0`, one word over the pair) and
+                                ; does nothing when it fails, so the only
                                 ; thing the deleted pair bought was skipping
                                 ; one inst_idx (a shift) and one compare in
                                 ; the case where no toast is up. With nothing
                                 ; up [toast_inst] still holds the LAST
                                 ; raiser's slot - nothing resets it on expiry
                                 ; - so the compare can now match and
-                                ; toast_kill is called, which writes nothing.
-                                ; It preserves every register and the flags,
-                                ; so CX needs no banking here either
-    pop ax
+                                ; toast_kill's body runs, which writes nothing.
+                                ; A JUMP INTO ITS BODY, past its own pushf /
+                                ; cli: this routine's are the same two (and
+                                ; IF is still 0), so toast_kill's popf / ret
+                                ; IS this one's exit on a match - where it was
+                                ; a call, a second pushf/cli/popf and our own
+                                ; pop/popf/ret (kernel size pass 21, -3). The
+                                ; `pop` writes no flag, so the compare's ZF
+                                ; reaches the `je`
     popf
     ret
 

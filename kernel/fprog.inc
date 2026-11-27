@@ -529,10 +529,12 @@ fpg_busy:
     dw fpg_show                 ; hand-back when one's time ran out mid-
                                 ; operation (SPEC.md 12.8.7). ZF = 1: it is
     jz .out                     ; not (fpg_show's exit test)
-    cmp word [fpg_total], 0
-    jne .out                    ; a phase with a scale owns the trough
-    cmp byte [fpg_pat], 0
-    jne .out                    ; ...and the hatch is already on it
+    mov al, [fpg_pat]           ; ...and the hatch is already on it, or a
+    cbw                         ; phase with a scale owns the trough: ONE
+    or ax, [fpg_total]          ; test of the two (AX is banked; any
+    jnz .out                    ; non-zero [fpg_pat] stays non-zero through
+                                ; the `cbw` - kernel size pass 21, -4, and
+                                ; fewer clocks a sector)
 %ifdef FPG_OPS
     test byte [fpg_on], FPG_OP  ; ...and NEVER under an operation (SPEC.md
     jnz .out                    ; 12.8.8): its gaps - a FAT flush, a directory
@@ -845,16 +847,18 @@ fpg_paint:
     mov dl, FPG_BOX_Y + FPG_BOX_H - 1
     call gfx_frame
 
-    cmp byte [fpg_pat], 0       ; --- and whatever the trough was showing
-    jne fpg_hatch
-    mov si, [fpg_px]            ; SI = the extent to restore...
-    xor ax, ax                  ; ...and the bar is "at 0" for the duration, so
-    mov [fpg_pat], ax           ; the strip fpg_lit lights below is the whole
-                                ; of it. One word store again ([fpg_px]'s high
-                                ; byte is a permanent zero), and fpg_lit's own
-                                ; `mov [fpg_px], si` puts the extent back
-    or si, si
-    jnz fpg_lit
+    mov ax, [fpg_pat]           ; --- and whatever the trough was showing:
+    or al, al                   ; AL = [fpg_pat], AH = [fpg_px] - the pair
+    jnz fpg_hatch               ; is adjacent and the extent's high byte a
+                                ; permanent zero (the %if at the file's top)
+    mov [fpg_px], al            ; ...and the bar is "at 0" for the duration
+                                ; (AL = 0), so the strip fpg_lit lights below
+                                ; is the whole of it; fpg_lit's own `mov
+                                ; [fpg_px], si` puts the extent back
+    xchg al, ah                 ; AX = the extent to restore...
+    xchg ax, si                 ; ...in SI (kernel size pass 21, -3: one load
+    or si, si                   ; for the two, where a compare, a load and a
+    jnz fpg_lit                 ; zeroed word store were three)
     ret
 
 ; -----------------------------------------------------------------------------
