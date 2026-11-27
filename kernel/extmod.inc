@@ -939,7 +939,11 @@ ui_drag_size:
     EXK wm_kind_bank
     pop ax                      ; ...and the straddle's bit beside the kind
     and al, 80h
-    or [bx+W_PKIND], al
+    jz .sg                      ; (an OR of 0 is no change)
+    call ext_sgrid              ; ...and a straddler's content back onto the
+    or [bx+W_PKIND], al         ; byte grid (SPEC.md 39.16.3.7), which no
+.sg:                            ; kernel snap gives it: wm_snap_ax refuses
+                                ; a frame past its own display's edge
     WM_SZNOTE EXK               ; TOLD EVEN IF THE BOX DID NOT MOVE: the ADAPTER
                                 ; did, and half the tree caches facts about it
                                 ; (SPEC.md 11.98). wm_refit has always done this
@@ -1221,6 +1225,54 @@ wm_strad_fit:
     pop cx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; ext_sgrid - a STRADDLER's content back onto the byte grid (SPEC.md 39.16.3.7)
+; in:       BX = the window, known to straddle, its clamps done
+; out:      W_W, then W_X, possibly moved in; every register preserved
+; clobbers: flags
+;
+; SPEC.md 11.94 for the one frame the kernel's snap cannot reach: ui_drag's
+; wm_snap_ax tests the right edge of the window's OWN display, which a
+; straddler is past by definition, so it is refused - and wm_strad_fit's cap
+; then left a 634 frame at x = 320 with its content at 321. The width DOWN
+; (content W - 2 to a multiple of 8, not when flush, not under the floor),
+; then x LEFT to x + 1 a multiple of 8: both pull the right edge in, so
+; neither undoes a clamp above. x = 0..6 is left, as wm_snap_ax leaves a
+; frame it cannot place.
+; -----------------------------------------------------------------------------
+ext_sgrid:
+    EXK wm_snap_want
+    jnc .r                      ; opted out, or fullscreen
+    push ax
+    push cx
+    push dx
+    mov ax, [bx+W_X]
+    mov cx, [bx+W_W]
+    EXK wm_flush_ck             ; flush (11.95.2): content from column 0,
+    jc .out                     ; aligned, and x = 0 has nowhere left to go
+    sub cx, 10                  ; content W - 2, less one byte...
+    jb .xs                      ; ...under one byte: nothing to round
+    and cl, 0F8h
+    add cx, 10                  ; ...= ((W - 2) AND -8) + 2
+    mov ax, [vid_w]
+    xor dl, dl
+    EXK wm_min_axd              ; AX = the width's floor (11.100.2)
+    cmp cx, ax
+    jb .xs                      ; the floor outranks the grid
+    mov [bx+W_W], cx
+.xs:
+    mov ax, [bx+W_X]
+    inc ax
+    and al, 0F8h
+    dec ax
+    js .out                     ; x was 0..6
+    mov [bx+W_X], ax
+.out:
+    pop dx
+    pop cx
+    pop ax
+.r: ret
 
 ; ext_wants - wm_nat_take_wh then wm_pref_now: the size the window ASKED for,
 ; or the one it published for the adapter it stands on; CF as wm_pref_now's.

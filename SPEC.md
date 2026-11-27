@@ -84323,6 +84323,41 @@ Like the rest of `wm_strad_fit` it is `wm_reflows`-gated (§39.16.3.1). A
 fixed layout that published no preference keeps its size and hangs, which
 is WINDOW-SIZING-PLAN 12.5's third row. Cost: EXTD.DRV only, 0 resident.
 
+#### 39.16.3.7 …and a capped straddler's CONTENT ORIGIN is on the byte grid too
+
+**§11.94 holds for every frame, and a straddler was the one that escaped it.**
+`ui_drag` snaps a dropped frame's x with `wm_snap_ax` *before* `EXT_LAND`
+sizes it, against the width it had - and `wm_snap_ax`'s right-edge test is
+the window's OWN display's (`wm_zoom_xmax`, §39.17.2), which a straddler is
+past by definition, so it is refused and the x is left where the hand put
+it. §39.16.3.6's cap then leaves a 634 frame at, say, x = 320: content at
+321, and 632 columns of which only 625 start on a byte. isoTron counts
+whole bytes and refused the window as too small (`tests/isotrontwodisp.py`,
+vgaherc, dropped at 320 and correct at 319).
+
+So `ui_drag_size`, once the origin clamps are done and only for a frame
+that STRADDLES (bit 7 of the kind it banks, §39.16.3.6), runs `ext_sgrid`:
+
+- **The width first, DOWN onto the grid** - content `W - 2` to a multiple
+  of 8 - unless the frame is flush (§11.95.2, `wm_flush_ck`, whose content
+  is `W - 1` from column 0 and already aligned), unless the content is
+  under one byte, and never below §11.100.2's floor. On a Right layout the
+  cap already rounded and this is a no-op; on a **Below** layout x is the
+  CONSTRAINED axis and `wm_strad_fit`'s clamp to the room right of the
+  origin is what leaves it off the grid.
+- **Then the origin, LEFT** to the nearest x with x + 1 a multiple of 8,
+  `wm_snap_ax`'s arithmetic. Both moves only pull the right edge in, so
+  neither can reach a dead zone the clamps above kept it out of. An x of
+  0..6 has no such x at or below it and is left alone - the frame simply
+  misses the fast path, as `wm_snap_ax` leaves one it cannot place.
+
+The cap stays `min` of the two extents rounded down (634 on a 640 VGA
+beside a 720 Hercules): the landing gives the natural size back
+(§39.16.3.6), so the cap is a bound on what a straddler may be, not a
+size it must be able to keep on one display. A grow across the seam takes
+the same routine, `EXT_LAND` being its fit too. Cost: EXTD.DRV only, 0
+resident.
+
 #### 39.16.3.4 …and the width it leaves must still be a WHOLE NUMBER OF BYTES
 
 **A window dragged across the seam came back two pixels narrower than it went,
