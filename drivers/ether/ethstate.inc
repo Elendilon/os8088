@@ -21,16 +21,43 @@
 ECM_DHCP    equ 0
 ECM_MAN     equ 1
 
+; --- THE CELLS THAT ARE NOT ZERO AT LOAD, FIRST ------------------------------
+; ...so that everything after them is one run of zeros to the image's end:
+; os88drv.py strips what it can of that run and LZ4 codes the rest as one
+; match, where each zero run BETWEEN two of these cost the file a few bytes
+; (driver size pass 2 - each cell moved here from beside its fellows, whose
+; comments still say where it belongs)
+eth_bcmac:                      ; the MAC every broadcast goes to, whose
+ip_bcast:   times 6 db 0xFF     ; first four bytes are also the IP broadcast
+                                ; address - the same six 0xFF bytes,
+                                ; read-only to both of their readers
+eth_ipid:   dw 1                ; (scratch, below: the next IP identification)
+eth_lport:  dw 49152            ; (scratch, below: the next ephemeral port)
+dns_sk:     db 0xFF             ; (DHCP and DNS, below: no socket resolving)
+sk_rxcap:   dw SK_RXCAP0        ; (the sockets, below: the shape inside the
+sk_txcap:   dw SK_TXCAP0        ; claim, and where the TX rings start - it
+sk_txoff:   dw SK_RXCAP0 + SK_NLEAN * SK_LEANRX ; moves with the RX size, so it
+                                ; is computed once at the claim and not
+                                ; derived at each call)
+%ifdef ETH_IP
+eth_static: db ETH_IP           ; (`make ETHIP=`: the baked-in address)
+            db ETH_MASK
+            db ETH_GW
+            db ETH_DNS
+%endif
+%ifndef ETH_NOEMIT
+eth_cslot:  db 0xFF             ; the slot inside the current verb, which
+                                ; sk_alloc stamps on a new socket
+%endif
+    NIC_STATE                   ; the backend's own words, LAST of the
+                                ; non-zero ones because the 8390's are and
+                                ; the RTL8139's are not (nicne2k.inc,
+                                ; pciether.asm)
+
 eth_base:   dw 0                ; the card's I/O base, 0 = none
 eth_up:     db 0                ; ne_init has run
 eth_word:   db 0                ; 1 = a 16-bit card (NE2000), read 8-bit anyway
-    NIC_STATE                   ; the backend's own words (nicne2k.inc: the
-                                ; 8390's ring, as ne_init picked it)
 eth_mac:    times 6 db 0
-eth_bcmac:                      ; ...and the one every broadcast goes to,
-ip_bcast:   times 6 db 0xFF     ; whose first four bytes are also the IP
-                                ; broadcast address - the same six 0xFF
-                                ; bytes, read-only to both of their readers
 
 ; --- the addresses, four bytes each and always in WIRE order -----------------
 ; They are contiguous and eth_attach zeroes all sixteen in one call, so a
@@ -40,12 +67,6 @@ eth_mask:   times 4 db 0
 eth_gw:     times 4 db 0
 eth_dns:    times 4 db 0
 eth_mode:   db ECM_DHCP         ; ECM_*: where the four above came from
-%ifdef ETH_IP
-eth_static: db ETH_IP
-            db ETH_MASK
-            db ETH_GW
-            db ETH_DNS
-%endif
 
 ; --- scratch -----------------------------------------------------------------
 eth_pr:     db 0                ; the protocol of the frame being built
@@ -59,7 +80,6 @@ eth_dport:  dw 0                ; ...and, NETV_UDPTX's, the port: the
     %error "NETV_UDPTX reads the destination's six bytes into eth_dip and eth_dport"
   %endif
 %endif
-eth_ipid:   dw 1
 eth_ph2:    times 4 db 0        ; a 32-bit scratch for sequence arithmetic
 eth_oflg:   db 0                ; the flags tcp_out is sending...
 eth_flg:    db 0                ; ...and the ones tcp_seg received. TWO WORDS
@@ -86,7 +106,6 @@ eth_busy:   db 0                ; THE CARD'S MUTEX (SPEC.md 72.2.2). One byte,
                                 ; whichever package is inside, eth_rxb is one
                                 ; frame, and the 8390's register file is PAGED
 eth_lasterr: db 0
-eth_lport:  dw 49152            ; the next ephemeral port
 
 ; --- RAW MODE (SPEC.md 72.22) ------------------------------------------------
 ; Set by NETV_RAW while somebody else is the stack. It gates eth_pump rather
@@ -122,7 +141,6 @@ dhcp_xid:   times 4 db 0
 dhcp_off:   times 4 db 0
 dhcp_srv:   times 4 db 0
 dhcp_wk:    db 0                ; 1 = the REQUEST out is a wake's (72.5.3)
-dns_sk:     db 0xFF
 dns_try:    db 0
 dns_id:     dw 0
 dns_lport:  dw 0
@@ -166,14 +184,9 @@ sk_base:    dw 0                ; ...and the RX area's offset INSIDE it. The
                                 ; is 0; the DOS partner (SPEC.md 62.11.1) has
                                 ; no claim heap and hosts the rings in its own
                                 ; bss, where they are not at offset zero
-sk_rxcap:   dw SK_RXCAP0        ; ...and the shape inside it
-sk_txcap:   dw SK_TXCAP0
 sk_rused:   times SK_NRING db 0         ; which pool rings are handed out
                                         ; (SPEC.md 72.21) - one byte a ring,
                                         ; and the whole allocator's state
-sk_txoff:   dw SK_RXCAP0 + SK_NLEAN * SK_LEANRX  ; where the TX rings start: it moves
-                                ; with the RX size, so it is computed once at
-                                ; the claim and not derived at each call
 sk_want:    dw 0                ; the RX size the user ASKED for, 0 = auto
 sk_lrun:    dw 0                ; the largest free run at the claim, in
                                 ; PARAGRAPHS (OSAPI_MEM_P's MEMP_AVAIL):
@@ -183,8 +196,6 @@ sk_lrun:    dw 0                ; the largest free run at the claim, in
 eth_users:  dw 0                ; a bit per instance slot using the network:
                                 ; the pool is held while any is set, or while
                                 ; any ring is out (SPEC.md 72.13.4)
-eth_cslot:  db 0xFF             ; the slot inside the current verb, which
-                                ; sk_alloc stamps on a new socket
     align 2, db 0               ; **THE TABLE AND THE FRAMES ON A WORD.** On
                                 ; an 8088 a word costs the same wherever it
                                 ; is; on an 8086, a V30 and every 286 and up
