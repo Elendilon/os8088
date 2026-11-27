@@ -688,9 +688,15 @@ menu_relayout:
     push di                     ; --- 'About ' + the name, into menu_abstr ---
     mov di, menu_abstr
     KES
-                                ; the prefix is ours...
-    mov si, menu_s_abpfx
-    call menu_ab_cat
+                                ; the prefix is ours, and it is the FIRST
+    mov si, menu_s_about        ; SIX BYTES of the System menu's 'About
+    mov cl, MENU_ABPFX_LEN      ; os8088...' (the %if at the string): a
+    call menu_ab_cat.n          ; counted copy of those, where 'About ', 0
+                                ; was a string of its own (kernel size pass
+                                ; 21, -5). CH = 0: every way into .done is
+                                ; out of the cell walk with CX at most
+                                ; MENU_APPMAX, or the 1 counted into
+                                ; [menu_nbar] (KES writes no CX)
     call menu_es                ; ...the name is the owner's (SPEC.md 12.2)
     mov si, [menu_namep]
     call menu_ab_cat
@@ -761,12 +767,16 @@ menu_relayout:
 ; clobbers: DI, AX, CX, SI - its two calls are menu_ab_cell's, which reloads
 ;           all three before it reads them (kernel size pass 17, -6)
 ;
+; menu_ab_cat.n takes the count in CX instead: the 'About ' prefix is the
+; first MENU_ABPFX_LEN bytes of a longer string (menu_s_about).
+;
 ; At most MENU_MAXCH bytes are taken from any one source: menu_abstr is a
 ; fixed size and the name is a PACKAGE's string, so its length is not the
 ; kernel's to trust (SPEC.md 12.2).
 ; -----------------------------------------------------------------------------
 menu_ab_cat:
     mov cx, MENU_MAXCH
+.n:                             ; (the prefix's counted copy enters HERE)
 .next:
     es lodsb                    ; (no REP, so the override survives an
     or al, al                   ; interrupt - kernel size pass 10)
@@ -1659,8 +1669,8 @@ menu_track:
     call menu_pull              ; AX = item index, or 0xFFFF
 .untitle:
     call menu_title_xor         ; un-highlight the title (self-inverting)
-    cmp ax, 0xFFFF
-    je .none
+    cmp al, 0xFF                ; AL alone: an item index is below
+    je .none                    ; MENU_POPMAX (kernel size pass 21, -1)
     mov ah, [menu_cell]         ; out: AH = cell, AL = item (SPEC.md 12)
 .none:
     pop bp
@@ -1754,13 +1764,17 @@ menu_popup:
                                 ; menu is unchanged unless the left is ALSO
                                 ; held, when it stays up until both are let go
     call menu_pull              ; AX = item index, or 0xFFFF
-    jmp short .out
-.none:
-    mov ax, 0xFFFF
-.out:
-    cmp ax, 0xFFFF              ; CF = 1 below it, so the complement is the
+    SKIPF1                      ; (test al, imm8 over .none's `dec ax`: the
+.none:                          ; `cmp` below rewrites every flag - kernel
+    dec ax                      ; size pass 21, -3) - AX was 0: 0xFFFF
+    cmp al, 0xFF                ; CF = 1 below it, so the complement is the
     cmc                         ; answer: 1 = nothing chosen (kernel size pass
-                                ; 16, -3: one test for both ways here)
+                                ; 16, -3: one test for both ways here). AL
+                                ; ALONE (pass 21, -1): an item index is below
+                                ; MENU_POPMAX, so AL = 0FFh only for 0FFFFh
+%if MENU_POPMAX > 0xFF
+  %error "menu_popup tells 0FFFFh from an item index by AL alone"
+%endif
     jmp short menu_track.out    ; pop does not touch the flags, and the five
                                 ; pops are menu_track's, in its order
 
@@ -2400,8 +2414,8 @@ menu_item_xor:
     add ax, [menu_y1]
     inc ax                      ; cell top row (the frame row is not a cell)
     mov bx, ax
-    mov dx, ax
-    add dx, MENU_ITEM_H - 1     ; cell bottom row
+    lea dx, [bx + MENU_ITEM_H - 1]  ; cell bottom row (kernel size pass 21,
+                                ; -2 against a `mov` and an `add`)
     mov ax, [menu_x1]
     inc ax                      ; keep the frame out of the highlight
     mov cx, [menu_x2]
@@ -2547,7 +2561,11 @@ menu_s_stik     db 'Sticky Apps', 0     ; ...and the desktop's widgets (SPEC.md
                                 ; packages, leaving a menu of one item that
                                 ; duplicated a double-click)
 
-menu_s_about    db 'About os8088...', 0
+menu_s_about    db 'About '         ; ...and its first six bytes are
+menu_s_abos     db 'os8088...', 0   ; menu_ab_cell's 'About ' prefix too
+%if menu_s_abos - menu_s_about != MENU_ABPFX_LEN
+  %error "menu_ab_cell copies the first MENU_ABPFX_LEN bytes of menu_s_about as the 'About ' prefix"
+%endif
 menu_s_ctrl     equ cp_ttl              ; the Control Panel's window title
 menu_s_closex   db MENU_DIS     ; ...with nothing to close; ui_loc_gate points
 menu_s_close    db 'Close Window', 0    ; the item at one or the other before
@@ -2661,8 +2679,8 @@ menu_loc_set:
                                 ; (SPEC.md 26.1) - so what was left was a menu
                                 ; with one item that duplicates a double-click)
 
-; -----------------------------------------------------------------------------
-menu_s_abpfx db 'About ', 0     ; + the app's name -> menu_abstr (12.2)
+; (menu_s_abpfx, 'About ' + the app's name -> menu_abstr, is the first
+; MENU_ABPFX_LEN bytes of menu_s_about since kernel size pass 21)
 
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1): the runtime bar is
                                 ; walked by pointer (menu_relayout writes it,

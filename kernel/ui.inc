@@ -1733,15 +1733,19 @@ ui_tdbl:
 ; ui_drag_xor only AX..DX.
 ; -----------------------------------------------------------------------------
 ui_track:
-    mov [ui_dragwin], bx
-    mov [ui_startx], cx         ; mousedown point
-    mov [ui_starty], dx
     push si                     ; the step routine, wanted by the loop
     push ds
     pop es
     cld
     lea si, [bx + di]           ; drag: orig = the position; grow: the size
-    mov di, ui_origx
+    mov di, ui_dragwin          ; the window and the mousedown point, the
+    mov ax, bx                  ; three words in front of ui_origx (the %if
+    stosw                       ; under the .bss), by STOSW - so DI arrives
+    xchg ax, cx                 ; at ui_origx with no load of its own, where
+    stosw                       ; three stores and that `mov di` were 15
+    xchg ax, dx                 ; bytes (kernel size pass 21, -5). CX and DX
+    stosw                       ; are spent: the loop reads the point back
+                                ; out of [ui_startx]/[ui_starty]
     movsw                       ; ui_origx
     movsw                       ; ui_origy
     call wm_bank4               ; ...and the outline starts on the window
@@ -2819,8 +2823,8 @@ ui_sys_open:
     ; routine of its own with this as its one caller; written here its
     ; call, its two `ret`s and its `stc` go, the miss FALLING into .load
     ; (kernel size pass 17). kent_bp banked every register it writes.
-    mov bx, [ui_desc]           ; BX = the name to match, hoisted out of the
-    mov bx, [bx+UO_NAME]        ; scan: nothing in the loop writes it
+    mov bx, [ui_desc]           ; DX = the name to match, hoisted out of the
+    mov dx, [bx+UO_NAME]        ; scan: nothing in the loop writes it
     mov di, inst_tab - I_RECSZ  ; ...over inst_next, the table's own walk: off
     cld                         ; (the name compare's lodsb, below)
 .scan:                          ; the end is CF = 1, none open, the load
@@ -2830,25 +2834,20 @@ ui_sys_open:
     jne .scan
     test byte [di+I_KIND], KIND_PKG
     jz .scan
-    push di
-    mov si, bx
-    add di, I_NAME
-.cmp:
-    lodsb                       ; DS:SI, the kernel's name (kernel size pass
-    cmp al, [di]                ; 18: `mov al, [si]` and its `inc si` were a
-    jne .nomatch                ; byte more than this and the `cld` above)
-    inc di
+    mov si, dx                  ; THE RECORD IS NOT WALKED, so DI needs no
+    lea bx, [di+I_NAME]         ; bank: BX = its name less ours, and the byte
+    sub bx, dx                  ; that pairs with the one lodsb just took is
+.cmp:                           ; [bx+si-1] (kernel size pass 21, -3 against
+    lodsb                       ; the push/pop and the `inc di`). DS:SI, the
+    cmp al, [bx+si-1]           ; kernel's name (kernel size pass 18: `mov
+    jne .scan                   ; al, [si]` and its `inc si` were a byte more)
     or al, al
-    jnz .cmp
-    pop di                      ; DI = its record: found
+    jnz .cmp                    ; DI = its record: found
     mov bp, inst_restore        ; un-minimize and show - the app_launch cap
     call ui_lcall               ; path's rule, and now literally its code (BP
                                 ; is on the stack above and comes back at .out)
     jmp .out                    ; (short wherever it reaches: ROM_PKG's arm
                                 ; below is what can push it past 127)
-.nomatch:
-    pop di
-    jmp short .scan
 .load:
 %ifdef ROM_PKG
     ; THE ROM'S COPY FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a
@@ -3335,6 +3334,9 @@ ui_rzw:     resw 1              ; can tell a pure shrink from a move or a grow
 ui_rzh:     resw 1
 %if ui_origy - ui_origx != 2 || ui_curx - ui_origx != 4 || ui_cury - ui_origx != 6 || ui_dragw - ui_origx != 8 || ui_dragh - ui_origx != 10 || W_Y - W_X != 2 || W_W - W_X != 4 || W_H - W_X != 6
   %error "ui_track copies ui_origx..ui_dragh as six consecutive words, the last four from W_X..W_H"
+%endif
+%if ui_startx - ui_dragwin != 2 || ui_starty - ui_dragwin != 4 || ui_origx - ui_dragwin != 6
+  %error "ui_track stores ui_dragwin, ui_startx and ui_starty by STOSW, ending on ui_origx"
 %endif
 %if ui_starty - ui_startx != 2 || ui_origy - ui_origx != 2 || mouse_y - mouse_x != 2
   %error "ui_trk_ax indexes x/y pairs by BX = 0/2"
