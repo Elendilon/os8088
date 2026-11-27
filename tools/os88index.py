@@ -372,6 +372,10 @@ INCLUDES = [
      "`puff` in 8086, ~1KB of work space (`INF_WS`) and no window of its own. "
      "ARCADE's zip import is the user (ARCADE-SPEC, its section on import); a stream too "
      "big to hold wants PIXEL's table-driven ring decoder, 106.18's."),
+    ("os88fsxw.inc", "53.1.2.1",
+     "`fsxw_pick`: the display a full screen goes to - the window's own when "
+     "it can set one of your modes, else the first display that can, and the "
+     "`OSAPI_FSX_RUN` CH for it. In C, `os88_fsx_pick()`."),
     ("os88pit.inc", "72.15.1",
      "`pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, "
      "good for an hour before it wraps. Sub-tick timing for a profiler."),

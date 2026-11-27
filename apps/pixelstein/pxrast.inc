@@ -20,17 +20,26 @@
 ;      force, [px_fsxm] its FSXM_*, and the two items' captions
 ; preserves every register (px_onresize is a callback)
 ;
-; Asked of OUR WINDOW so that a two-card machine answers about the display
-; the window is on (SPEC.md 39.18.2), and re-asked on W_ONRESIZE. EVERY
-; BRANCH WRITES BOTH WAYS (apps/tank's rule): a drag from a VGA to a CGA
-; must take Mode X off the row, not merely fail to add it.
+; THE MODE ROW DESCRIBES THE FULL-SCREEN TARGET (SPEC.md 97.14.1): the
+; display the window is MOSTLY on when it can set one of our three modes,
+; else the first display on the machine that can (os88fsxw.inc's fsxw_pick,
+; SPEC.md 53.1.2.1) - [px_fsdisp] is the bracket's CH. The window's own
+; DEPTH (the Colour item, below) is the other question and asks
+; OSAPI_WM_DISPLAY, the restrictive display. Re-asked on W_ONRESIZE, by the
+; worker between frames (px_back_ck: a drag that leaves the restrictive
+; display alone fires no notice) and by px_go_fsx itself. EVERY BRANCH
+; WRITES BOTH WAYS (apps/tank's rule): a drag from a VGA to a CGA must take
+; Mode X off the row, not merely fail to add it.
 ; -----------------------------------------------------------------------------
 px_adapter:
     push ax
     push bx
+    push cx
     push dx
     mov bx, [px_win]
-    call OSAPI_FSX_CAPS             ; AX = the settable modes, DL = the kind
+    mov dx, (1 << FSXM_MODEX) | (1 << FSXM_CGA320) | (1 << FSXM_HERC)
+    call fsxw_pick                  ; AX = the target's modes, DL = its kind,
+    mov [px_fsdisp], ch             ; CH = the bracket's display
     mov [px_caps], ax
     mov [px_vkind], dl
     mov byte [px_mode0], PXB_NONE
@@ -124,9 +133,12 @@ px_adapter:
 .col:
     mov [px_i_det + PXD_COLOUR * 2], ax
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
+
+%include "os88fsxw.inc"
 
 ; px_w4want - AL = the window's backend (97.14): PXB_WIN4 when the player
 ;             wants colour, the CPU is past the 8086 and THIS window's
@@ -163,6 +175,8 @@ px_go_fsx:
     push cx
     cmp byte [px_inbr], 0
     jne .out
+    call px_adapter                 ; ASKED WHERE IT IS USED: the window may
+                                    ; have moved with no notice (97.14.1)
     cmp byte [px_mode], PXB_NONE
     je .nomode                      ; the predicate the Game item's caption
                                     ; was rewritten off ("Full Screen (no
@@ -193,7 +207,8 @@ px_go_fsx:
     call px_shdecl                  ; (SPEC.md 97.9.2), LEMMINGS' shape
     mov ax, px_fsx_main
     mov bx, [px_win]
-    xor cx, cx                      ; no worker kept: this loop IS the game
+    mov cl, 0                       ; no worker kept: this loop IS the game,
+    mov ch, [px_fsdisp]             ; on the display px_adapter picked
     call OSAPI_FSX_RUN
     mov ax, px_shmv                 ; ...and movable on the desktop again
     call px_shdecl
