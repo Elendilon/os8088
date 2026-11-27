@@ -1246,7 +1246,9 @@ drv_f_eth:   db 'ETHER.DRV', 0   ; ...and the card's, on BOTH builds: the store
 ; in the blob beside drv_boot_x (the loading screen's 'Loading Driver n/N
 ; (Title)', spl_mcs). One macro, so the two copies cannot disagree about an
 ; offset. The Control Panel's Sound page heading is the class's name and so
-; this row's title to the byte - the panel's own copy is cp_s_snd.
+; this row's title to the byte - and since driver size pass 2 IS it: ctrl.inc's
+; cp_s_snd is `drvt_sound`, and its Display heading cp_s_vid is the last seven
+; bytes of `drvt_vesa`. A retitle of either row retitles that page.
 %macro DRV_TITLES 1
 %1_base:
 %1_sound:   db 'Sound', 0

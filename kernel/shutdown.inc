@@ -203,10 +203,10 @@ sd_confirm:
     call KERNEL_SEG:cw_task_yield
     jmp .poll
 .cancel:
-    xor ax, ax
-    jmp .done
-.yes:
-    mov ax, 1
+    xor ax, ax                  ; AL = 0, and AL is the whole answer (the
+    SKIPF2                      ; caller's `or al, al`): the skip's `test`
+.yes:                           ; writes flags alone, nothing below reads them
+    mov al, 1                   ; (driver size pass 2, -2)
 .done:
     push ax
     mov bp, cursor_hide
@@ -234,8 +234,7 @@ sd_rebuttons:
     mov al, 2
     call sd_button
     mov bp, cursor_show
-    call sd_disp
-    ret
+    jmp sd_disp                 ; (driver size pass 2: kmod's tail)
 
 ; Both paint and hit-testing use the shared control rectangle.
 sd_rect:
