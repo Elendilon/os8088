@@ -229,26 +229,82 @@ mods_kl_header:
     mov es, bx
 %endmacro
 
+%if KBDV_SET != KBDV_QUERY + 1 || KBDV_HOLD != KBDV_SET + 1 || KBDV_RELEASE != KBDV_HOLD + 1
+  %error "the control ladder takes HOLD and RELEASE as the range past SET"
+%endif
+%if (KBDV_HOLD ^ KBDV_RELEASE) != 1
+  %error "HOLD's built-in owner stores the verb XOR RELEASE"
+%endif
+%if I_RECSZ != 32
+  %error "the focus test indexes inst_tab by owner << 5"
+%endif
+
+; (klm_control's arms that its ladder reaches backwards, in short reach)
+; Wake's private commands leave layout/client holds pinned and never drop.
+klm_suspend:
+    call klf_suspend
+    jmp klm_private
+klm_rearm:
+    call klf_rearm
+    pushf
+    cli                        ; BIOS wake state and compose cancellation agree
+    call klm_seed
+    mov byte [es:klm_dead], 0
+    mov byte [es:klm_prefix], 0 ; discard the restored pending prefix, too
+    popf
+klm_private:
+    xor di, di                 ; status only: the QUERY path cannot drop
+    jmp klm_status
+
+; HOLD (AL = 2) and RELEASE (AL = 3) for the stamped owner DH: FF is the
+; Control Panel's built-in hold, any other a bit of klm_clients.
+klm_hold:                       ; (RELEASE too, AL saying which)
+    cmp dh, 0xff
+    je .built
+    cmp dh, INST_MAX
+    jae klm_bad
+    mov cl, dh
+    mov bx, 1
+    shl bx, cl
+    cmp al, KBDV_HOLD
+    jne .release
+    call klf_enable
+    or [es:klm_clients], bx
+    jmp klm_status
+.release:
+    not bx
+    and [es:klm_clients], bx
+    jmp klm_status
+.built:
+    cmp al, KBDV_HOLD
+    jne .bset
+    call klf_enable            ; (keeps AX)
+.bset:
+    xor al, KBDV_RELEASE       ; HOLD -> 1, RELEASE -> 0
+    mov [es:klm_builtin], al
+    jmp klm_status
+
 ; Control: AX inputs, DH stamped owner. Every other register preserved.
+; Nothing on this entry's paths writes SI or BP (klf_enable banks its own SI,
+; and cw_gfx_lock/unlock keep every register), so only what is spent is
+; banked (driver size pass 2).
 klm_control:
     push bx
     push cx
     push dx
-    push si
     push di
-    push bp
     push es
-    mov di, ax
+    mov di, ax                 ; the verb, which klm_status reads again
     KLM_DATA
-    mov ax, di
+%ifdef KERN_MEGA
+    mov ax, di                 ; (SMSW took AX)
+%endif
     cmp al, KBDV_QUERY
     je klm_status
     cmp al, KBDV_SET
     je klm_set
-    cmp al, KBDV_HOLD
-    je klm_hold
     cmp al, KBDV_RELEASE
-    je klm_release
+    jbe klm_hold               ; HOLD or RELEASE: one owner test for both
     cmp al, KLC_SUSPEND
     je klm_suspend
     cmp al, KLC_REARM
@@ -256,14 +312,52 @@ klm_control:
     cmp al, KBDV_CANCEL
     jne klm_bad
     mov byte [es:klm_dead], 0
-    jmp klm_status
+klm_status:
+    mov al, [es:klm_layout]
+    cbw                        ; (a layout is 0..KBDL_FR)
+    or al, al
+    jnz .held
+    cmp word [es:klm_clients], 0
+    jne .held
+    cmp byte [es:klm_builtin], 0
+    jne .held
+    mov bx, di
+    or bl, bl                  ; KBDV_QUERY
+    jz .done
+    cmp bl, KBDV_CANCEL
+    je .done
+    call klf_disable
+    jmp klm_return.drop
+.held:
+    inc ah
+.done:
+    clc
+    jmp klm_return
+klm_bad:
+    mov ax, 1
+    stc
+klm_return:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    retf
+.drop:                          ; second FAR epilogue, same original frame
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    jmp COLD_SEG:kl_drop_x      ; leave the image before freeing its claim
+; klf_enable cannot fail (it returns CF = 0 always; kbdlayoutfont pins it),
+; so SET and HOLD have no refusal of their own past the argument tests.
 klm_set:
     cmp ah, KBDL_FR
     ja klm_bad
     or ah, ah
     jz .publish
     call klf_enable
-    jc klm_bad
 .publish:
     pushf
     cli                        ; seed and selection publish see the same scan
@@ -279,102 +373,15 @@ klm_set:
     mov byte [es:klm_dead], 0
     popf
     jmp klm_status
-klm_hold:
-    cmp dh, 0xff
-    je .built
-    cmp dh, INST_MAX
-    jae klm_bad
-    call klf_enable
-    jc klm_bad
-    mov cl, dh
-    mov bx, 1
-    shl bx, cl
-    or [es:klm_clients], bx
-    jmp short klm_status
-.built:
-    call klf_enable
-    jc klm_bad
-    mov byte [es:klm_builtin], 1
-    jmp short klm_status
-klm_release:
-    cmp dh, 0xff
-    je .built
-    cmp dh, INST_MAX
-    jae klm_bad
-    mov cl, dh
-    mov bx, 1
-    shl bx, cl
-    not bx
-    and [es:klm_clients], bx
-    jmp short klm_status
-.built:
-    mov byte [es:klm_builtin], 0
-    jmp short klm_status
-; Wake's private commands leave layout/client holds pinned and never drop.
-klm_suspend:
-    call klf_suspend
-    jmp short klm_private
-klm_rearm:
-    call klf_rearm
-    pushf
-    cli                        ; BIOS wake state and compose cancellation agree
-    call klm_seed
-    mov byte [es:klm_dead], 0
-    mov byte [es:klm_prefix], 0 ; discard the restored pending prefix, too
-    popf
-klm_private:
-    xor di, di                 ; status only: the QUERY path cannot drop
-klm_status:
-    mov al, [es:klm_layout]
-    xor ah, ah
-    or al, al
-    jnz .held
-    cmp word [es:klm_clients], 0
-    jne .held
-    cmp byte [es:klm_builtin], 0
-    jne .held
-    mov bx, di
-    cmp bl, KBDV_QUERY
-    je .done
-    cmp bl, KBDV_CANCEL
-    je .done
-    call klf_disable
-    jmp klm_return.drop
-.held:
-    inc ah
-.done:
-    clc
-    jmp short klm_return
-klm_bad:
-    mov ax, 1
-    stc
-klm_return:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    retf
-.drop:                          ; second FAR epilogue, same original frame
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    jmp COLD_SEG:kl_drop_x      ; leave the image before freeing its claim
-
 ; Seed a newly selected layout from the BIOS's lock/modifier snapshot.
+; Out: AX, DX spent.
 klm_seed:
     push es
     KLM_BDA
     mov al, [es:0x17]
     and al, 0x4f               ; BDA left/right Shift, Ctrl/Alt/Caps
     mov ah, [es:0x96]
-    mov dl, [es:0x18]
+    mov dh, [es:0x18]
     test ah, 0x10              ; enhanced keyboard: right Ctrl/Alt snapshot
     jz .mods
     test al, 4
@@ -382,7 +389,7 @@ klm_seed:
     test ah, 4
     jz .alt
     or al, 32
-    test dl, 1
+    test dh, 1
     jnz .alt
     and al, 0xfb
 .alt:
@@ -391,176 +398,80 @@ klm_seed:
     test ah, 8
     jz .mods
     or al, 16
-    test dl, 2
+    test dh, 2
     jnz .mods
     and al, 0xf7
 .mods:
-    and dl, 0x40               ; Caps held already: typematic is not an edge
+    and dh, 0x40               ; Caps held already: typematic is not an edge
+    mov dl, 0                  ; ...and no Pause pending
     and ah, 2
     shr ah, 1
     pop es
-    mov [es:klm_mods], al
-    mov [es:klm_prefix], ah
-    mov byte [es:klm_pause], 0
-    mov [es:klm_capsdown], dl
+    mov [es:klm_mods], ax      ; modifiers, then the pending E0 prefix
+    mov [es:klm_pause], dx     ; Pause, then Caps held
     mov byte [es:klm_focus], 0xff
     ret
+
+; A layout-0 scan (BIOS input with only a glyph hold loaded): CF = 1 from
+; the compare that came here, and nothing else touched.
+klm_off:
+    pop es
+    pop bp
+    pop bx
+    pop ax
+    retf
 
 ; Raw set-1 scan, after kbd_track. CF=1 pass, CF=0 consumed; every
 ; register preserved. No kernel calls, I/O, allocation or unbounded work.
 klm_scan:
     push ax
     push bx
+    push bp
+    push es
+    mov bp, ax                 ; BP = the scan as it arrived (SMSW takes AX)
+    KLM_DATA
+    cmp byte [es:klm_layout], 1
+    jb klm_off                 ; CF = 1: BIOS input
     push cx
     push dx
     push si
-    push di
-    push bp
-    push es
-    mov di, ax
-    KLM_DATA
-    cmp byte [es:klm_layout], 0
-    je klm_pass
-    call klm_focus_owner
-    mov ax, di
-    cmp byte [es:klm_pause], 0
-    je .prefix
-    dec byte [es:klm_pause]
-    jmp klm_pass
-.prefix:
-    cmp al, 0xe1
-    jne .e0
-    mov byte [es:klm_pause], 5
-    jmp klm_pass
-.e0:
-    cmp al, 0xe0
-    jne .key
-    mov byte [es:klm_prefix], 1
-    jmp klm_pass
-.key:
-    xor ah, ah
-    mov bp, ax
-    and bp, 0x7f
-    xor cx, cx
-    xchg cl, [es:klm_prefix]
-    mov bx, bp
-    cmp bl, 0x38
-    je .alt
-    cmp bl, 0x1d
-    je .ctrl
-    or cl, cl
-    jnz klm_pass              ; grey navigation, fake shifts, keypad / and Enter
-    mov cl, 2                 ; match BDA: left Shift bit1, right bit0
-    cmp bl, 0x2a
-    je .modifier
-    mov cl, 1
-    cmp bl, 0x36
-    je .modifier
-    cmp bl, 0x3a
-    je .caps
-    test al, 0x80
-    jnz klm_pass
-    cmp byte [es:klm_foreign], 0
-    jne klm_pass
-    push es
-    KLM_BDA
-    test byte [es:0x18], 8     ; BIOS Pause: its resume key goes to the ROM
-    pop es
-    jnz .special
-    mov bx, bp                 ; KLM_BDA took BX (and AX on mega)
-    cmp bl, 0x0e
-    jne .printable
-    cmp byte [es:klm_dead], 0
-    je klm_pass
-    mov byte [es:klm_dead], 0 ; Backspace cancels the dead accent alone
-    jmp klm_eaten
-.printable:
-    cmp bl, 0x39
-    je klm_translate
-    cmp bl, 0x56
-    je klm_translate
-    cmp bl, 0x02
-    jb .special
-    cmp bl, 0x0d
-    jbe klm_translate
-    cmp bl, 0x10
-    jb .special
-    cmp bl, 0x1b
-    jbe klm_translate
-    cmp bl, 0x1e
-    jb .special
-    cmp bl, 0x29
-    jbe klm_translate
-    cmp bl, 0x2b
-    jb .special
-    cmp bl, 0x35
-    jbe klm_translate
-.special:
-    mov byte [es:klm_dead], 0
-    jmp klm_pass
-.alt:
-    mov ch, 8
-    or cl, cl
-    jz .modch                  ; CL=0 plain left Alt
-    mov ch, 16
-    jmp short .modch
-.ctrl:
-    mov ch, 4
-    or cl, cl
-    jz .modch
-    mov ch, 32
-.modch:
-    mov cl, ch
-.modifier:
-    test al, 0x80
-    jz .down
-    not cl
-    and [es:klm_mods], cl
-    jmp klm_pass
-.down:
-    or [es:klm_mods], cl
-    jmp klm_pass
-.caps:
-    test al, 0x80
-    jz .capdown
-    mov byte [es:klm_capsdown], 0
-    jmp klm_pass
-.capdown:
-    cmp byte [es:klm_capsdown], 0
-    jne klm_pass
-    mov byte [es:klm_capsdown], 1
-    xor byte [es:klm_mods], 0x40
-    jmp klm_pass
-
-; Read only bounded existing UI/instance tables; no WM call from IRQ.
-; Modifier state keeps tracking while a foreign owner receives BIOS input.
-klm_focus_owner:
-    xor cx, cx
-    mov cl, [wm_zn]
-    cmp cl, MAX_WIN
+    ; The focus owner: bounded existing UI/instance tables, read only; no WM
+    ; call from IRQ. Modifier state keeps tracking while a foreign owner
+    ; receives BIOS input.
+    mov al, [wm_zn]
+    cmp al, MAX_WIN
     jbe .bounded
-    mov cl, MAX_WIN
+    mov al, MAX_WIN
 .bounded:
-    mov si, cx
+    cbw
+    xchg ax, si
 .next:
-    or si, si
-    jz .none
     dec si
+    js .none
     mov al, [wm_zord+si]
     cmp al, MAX_WIN
     jae .next
     mov dl, al
     mov bl, WIN_SIZE
     mul bl
-    mov bx, ax
+    xchg ax, bx
     mov ax, [wm_wins+bx+W_FLAGS]
     and ax, WF_DESK | 2
     cmp ax, 2
     jne .next
-    xor bx, bx
-    mov bl, dl
-    mov al, [wm_owner+bx]
-    jmp short .owner
+    mov bx, wm_owner
+    mov al, dl
+    xlat
+    jmp .owner
+.paused:                        ; (the rare arms, here in reach of their tests)
+    dec byte [es:klm_pause]
+    jmp klm_pass
+.pause5:
+    mov byte [es:klm_pause], 5
+    jmp klm_pass
+.prefixed:
+    mov byte [es:klm_prefix], 1
+    jmp klm_pass
 .none:
     mov al, 0xff
 .owner:
@@ -572,13 +483,13 @@ klm_focus_owner:
     xor dx, dx
     cmp al, INST_MAX
     jae .out
-    xor ah, ah
+    cbw
     mov bx, ax
     mov cl, 5
     shl bx, cl
     test byte [inst_tab+bx+I_FLAGS], IF_RAWKBD
     jz .out
-    inc dl
+    inc dx
 .out:
     cmp dl, [es:klm_foreign]
     je .done
@@ -586,73 +497,123 @@ klm_focus_owner:
     mov byte [es:klm_dead], 0
     or dl, dl
     jnz .done
-    mov bp, ax                 ; raw caller has not yet assigned scan BP
+    push ax                    ; the owner across the seed
     call klm_seed              ; BIOS may have owned IRQs in a foreign session
-    mov ax, bp
+    pop ax
     mov [es:klm_focus], al      ; retain focus for the first native dead key
 .done:
-    ret
-
-klm_translate:
-    xor ax, ax
-    mov al, [es:klm_layout]
-    dec ax
-    add ax, ax
-    mov bx, ax
-    mov si, [cs:klm_maps+bx]
+    mov ax, bp                 ; the scan
+    cmp byte [es:klm_pause], 0
+    jne .paused
+    cmp al, 0xe1
+    je .pause5
+    cmp al, 0xe0
+    je .prefixed
+    and bp, 0x7f
+    xor cx, cx
+    xchg cl, [es:klm_prefix]
     mov bx, bp
-    add bx, bx
-    mov dl, [es:klm_mods]
-    test dl, 16
-    jnz .altgr
-    mov dh, dl
-    and dh, 0x2c               ; either Ctrl plus left Alt also selects AltGr
-    test dh, 8
-    jz .noaltgr
-    and dh, 0x24
-    jnz .altgr
-.noaltgr:
-    test dl, 8
-    jnz klm_pass               ; ordinary left-Alt BIOS shortcuts
-    test dl, 0x24
-    jnz .control
-    xor dx, dx
-    test byte [es:klm_mods], 3
-    jz .shifted
-    inc dl
-.shifted:
-    test byte [es:klm_mods], 0x40
-    jz .plane
-    push bx
-    mov bx, bp
-    mov cl, 3
-    shr bx, cl
-    mov al, [cs:si+bx+KLM_MAP_BYTES*3]
-    mov bx, bp
-    and bl, 7
-    mov cl, bl
-    mov ah, 1
-    shl ah, cl
-    test al, ah
-    pop bx
-    jz .plane
-    xor dl, 1
-.plane:
-    or dl, dl
-    jz .lookup
-    add si, KLM_MAP_BYTES
-.lookup:
-    mov dx, [cs:si+bx]
-    jmp short klm_character
-.altgr:
-    cmp byte [es:klm_layout], KBDL_US
+    cmp bl, 0x38
+    je klm_alt
+    cmp bl, 0x1d
+    je klm_ctrl
+    or cl, cl
+    jnz klm_pass              ; grey navigation, fake shifts, keypad / and Enter
+    mov cl, 2                 ; match BDA: left Shift bit1, right bit0
+    cmp bl, 0x2a
+    je klm_modifier
+    mov cl, 1
+    cmp bl, 0x36
+    je klm_modifier
+    cmp bl, 0x3a
+    je klm_caps
+    test al, 0x80
+    jnz klm_pass
+    cmp byte [es:klm_foreign], 0
+    jne klm_pass
+    push es
+    KLM_BDA
+    test byte [es:0x18], 8     ; BIOS Pause: its resume key goes to the ROM
+    pop es
+    jnz klm_special
+    mov bx, bp                 ; KLM_BDA took BX (and AX on mega)
+    cmp bl, KLM_IDX_N
+    jae klm_special
+    mov bl, [cs:klm_idx+bx]    ; the key's index + 1, KLM_BS, or 0
+    dec bx
+    cmp bl, KLM_KEYS
+    jb klm_translate           ; BX = the key's index in every plane
+    jne klm_special
+    cmp byte [es:klm_dead], 0  ; Backspace cancels the dead accent alone
     je klm_pass
+    mov byte [es:klm_dead], 0
+klm_eaten:
+    db 0xa8                    ; test al, 0F9h: CF = 0, over klm_pass's stc
+klm_pass:
+    stc
+    pop si
+    pop dx
+    pop cx
+    pop es
+    pop bp
+    pop bx
+    pop ax
+    retf
+klm_special:
+    mov byte [es:klm_dead], 0
+    jmp klm_pass
+klm_alt:
+    mov ch, 8
+    or cl, cl
+    jz klm_modch                  ; CL=0 plain left Alt
+    mov ch, 16
+    jmp klm_modch
+klm_ctrl:
+    mov ch, 4
+    or cl, cl
+    jz klm_modch
+    mov ch, 32
+klm_modch:
+    mov cl, ch
+klm_modifier:
+    test al, 0x80
+    jz klm_down
+    not cl
+    and [es:klm_mods], cl
+    jmp klm_pass
+klm_down:
+    or [es:klm_mods], cl
+    jmp klm_pass
+klm_caps:
+    test al, 0x80
+    jz klm_capdown
+    mov byte [es:klm_capsdown], 0
+    jmp klm_pass
+klm_capdown:
+    cmp byte [es:klm_capsdown], 0
+    jne klm_pass
+    mov byte [es:klm_capsdown], 1
+    xor byte [es:klm_mods], 0x40
+    jmp klm_pass
+
+; The arms of klm_translate and klm_character that a plain key does not take,
+; here so that the plain key's tests fall through (their targets in reach).
+klm_chord:                      ; DL = the modifiers: an Alt and/or a Ctrl
+    test dl, 16
+    jnz .altgr                  ; right Alt
+    test dl, 8
+    jz klm_control_key          ; no Alt: a Ctrl alone
+    test dl, 0x24
+    jz klm_pass                 ; ordinary left-Alt BIOS shortcuts
+.altgr:                         ; right Alt, or left Alt with either Ctrl
+    cmp si, klm_map_us         ; US: AltGr stays the BIOS's (it has no
+    je klm_pass                ; AltGr plane - keymaps.inc)
     test dl, 3                 ; no Shift+AltGr column in these legacy layouts
     jnz klm_eaten
-    add si, KLM_MAP_BYTES*2
-    jmp short .lookup
-.control:
-    mov ax, [cs:si+bx]
+    add si, KLM_KEYS*2
+    jmp klm_translate.lookup
+klm_control_key:
+    mov al, [cs:si+bx]
     cmp al, 'a'
     jb .punct
     cmp al, 'z'
@@ -677,80 +638,63 @@ klm_translate:
     mov al, 0x1f
     jmp klm_single
 
-klm_character:
-    or dl, dl
-    jz klm_eaten               ; unmappable character (for example Euro)
-    mov al, [es:klm_dead]
-    test dh, 1
-    jz .ordinary
+klm_shcaps:                     ; DL = the modifiers: a Shift and/or Caps Lock
+    test dl, 0x40
+    jz .shift                   ; Shift alone: the shift plane
+    cmp bl, [cs:si-1]           ; Caps Lock: the layout's first [si-1] keys
+    jae .bycaps                 ; follow it; the rest do not
+    test dl, 3
+    jnz klm_translate.lookup    ; Caps Lock undoes Shift: the base plane
+.shift:
+    add si, KLM_KEYS
+    jmp klm_translate.lookup
+.bycaps:
+    test dl, 3
+    jnz .shift
+    jmp klm_translate.lookup
+; BX = the key's index in every plane (BH = 0), BP = its scan.
+klm_translate:
+    mov al, [es:klm_layout]    ; KBDL_US..KBDL_FR
+    cbw
+    add ax, ax
+    xchg ax, si
+    mov si, [cs:klm_maps-2+si] ; the base plane; shift and AltGr follow it
+    mov dl, [es:klm_mods]
+    test dl, 0x3c              ; either Alt or Ctrl
+    jnz klm_chord
+    test dl, 0x43              ; either Shift or Caps Lock
+    jnz klm_shcaps
+.lookup:
+    mov dl, [cs:si+bx]
+klm_character:                  ; DL: 0 unmappable, 1..KLM_DEAD_N a dead accent
+    mov al, [es:klm_dead]       ; AL = the pending accent, 0 = none
+    cmp dl, KLM_DEAD_N + 1
+    jb klm_deadkey
     or al, al
-    jz .wait
-    cmp al, dl
-    je .literal
-    mov [es:klm_dead], dl     ; old literal emitted, new accent stays pending
-    jmp klm_single
-.wait:
-    mov [es:klm_dead], dl
-    jmp klm_eaten
-.literal:
-    mov byte [es:klm_dead], 0
-    jmp klm_single
-.ordinary:
-    or al, al
-    jz .plain
-    mov byte [es:klm_dead], 0
-    cmp dl, ' '
-    je klm_single
-    mov si, klm_compose
-.accent:
-    mov cx, [cs:si]            ; CL = accent, CH = its run's pair count
-    inc si
-    inc si
-    jcxz .miss                 ; dw 0 ends the table
-    cmp al, cl
-    mov cl, ch
-    mov ch, 0
-    je .find                   ; scan only this accent's run
-    add si, cx
-    add si, cx
-    jmp short .accent
-.find:
-    cmp dl, [cs:si]
-    jne .next
-    mov al, [cs:si+1]
-    jmp klm_single
-.next:
-    inc si
-    inc si
-    loop .find
-.miss:
-    mov cx, bp
-    mov ch, cl                 ; CX = second word, physical scan and character
-    mov cl, dl
-    mov dx, bp
-    mov ah, dl
-    jmp short klm_store
-.plain:
-    mov al, dl
+    jnz klm_compose_key
+    mov al, dl                 ; the plain character
 klm_single:
     xor cx, cx
     mov dx, bp
     mov ah, dl
 klm_store:
+%ifdef KERN_MEGA
     push ax                    ; first word while BDA alias macro uses AX
+%endif
     KLM_BDA
+%ifdef KERN_MEGA
     pop ax
+%endif
     mov bx, [es:0x1c]
-    cmp bx, KBD_BUFB
-    jb klm_eaten
-    cmp bx, KBD_BUFE
-    jae klm_eaten
+    lea si, [bx-KBD_BUFB]
+    cmp si, KBD_BUFE-KBD_BUFB
+    jae klm_eaten2             ; a tail outside the ring
     test bl, 1
-    jnz klm_eaten
+    jnz klm_eaten2
     mov si, bx
     call klm_next
     cmp si, [es:0x1a]
-    je klm_eaten
+    je klm_eaten2
     mov dx, si
     jcxz .publish
     call klm_next
@@ -763,29 +707,79 @@ klm_store:
     mov [es:bx], cx
 .tail:
     mov [es:0x1c], si          ; publish completed word(s) last
-    jmp short klm_eaten
-; Neither half of a pair fits: drop both and say so, SPEC.md 9.8's way.
-klm_lost:
-    cmp byte [kbd_ovn], KBD_OVBEEPS
-    jae klm_eaten
-    inc byte [kbd_ovn]
-    mov byte [kbd_ovb], 1      ; the UI task beeps (kbd_ovspend)
-    inc byte [ui_post]
-klm_eaten:
-    clc
-    jmp short klm_scanret
-klm_pass:
+klm_eaten2:                     ; klm_eaten's exit, in the store's reach
+    db 0xa8                    ; test al, 0F9h: CF = 0, over the stc
     stc
-klm_scanret:
-    pop es
-    pop bp
-    pop di
     pop si
     pop dx
     pop cx
+    pop es
+    pop bp
     pop bx
     pop ax
     retf
+; A dead accent's code, or 0: unmappable (for example Euro).
+klm_deadkey:
+    or dl, dl
+    jz klm_eaten2
+    mov bl, dl
+    mov dl, [cs:klm_deadch-1+bx] ; DL = the accent's CP850 byte
+    or al, al
+    jz .wait
+    cmp al, dl
+    je .literal
+    mov [es:klm_dead], dl     ; old literal emitted, new accent stays pending
+    jmp klm_single
+.wait:
+    mov [es:klm_dead], dl
+    jmp klm_eaten2
+.literal:
+    mov byte [es:klm_dead], 0
+    jmp klm_single
+; AL = the pending accent, DL = an ordinary character.
+klm_compose_key:
+    mov byte [es:klm_dead], 0
+    cmp dl, ' '
+    je .single                 ; accent then Space: the accent (AL)
+    mov si, klm_compose
+.accent:
+    mov cx, [cs:si]            ; CL = accent, CH = its run's pair count
+    inc si
+    inc si
+    jcxz .miss                 ; dw 0 ends the table
+    cmp al, cl
+    mov cl, ch
+    mov ch, 0
+    je .find                   ; scan only this accent's run
+    add si, cx
+    add si, cx
+    jmp .accent
+.find:
+    cmp dl, [cs:si]
+    jne .next
+    mov al, [cs:si+1]
+.single:
+    jmp klm_single
+.next:
+    inc si
+    inc si
+    loop .find
+.miss:
+    mov cx, bp
+    mov ch, cl                 ; CX = second word, physical scan and character
+    mov cl, dl
+    mov dx, bp
+    mov ah, dl
+    jmp klm_store
+
+; Neither half of a pair fits: drop both and say so, SPEC.md 9.8's way.
+klm_lost:
+    cmp byte [kbd_ovn], KBD_OVBEEPS
+    jae klm_eaten2
+    inc byte [kbd_ovn]
+    mov byte [kbd_ovb], 1      ; the UI task beeps (kbd_ovspend)
+    inc byte [ui_post]
+    jmp klm_eaten2
 klm_next:
     inc si
     inc si
@@ -811,4 +805,7 @@ klm_focus:    resb 1
 klm_foreign:  resb 1
 klm_clients:  resw 1
 klm_builtin:  resb 1
+%if klm_prefix != klm_mods + 1 || klm_capsdown != klm_pause + 1
+  %error "the seed stores the modifier/prefix and pause/Caps pairs as words"
+%endif
 section .text

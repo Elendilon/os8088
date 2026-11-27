@@ -69,6 +69,14 @@ implementation. Update the stable ID contract, selection and settings
 validation together, and regenerate the tables with
 `python3 tools/keyboardmaps.py`.
 
+The generator packs each layout as one byte per translated key and tests
+Caps Lock with a single compare: it orders the keys so that every layout's
+Caps-sensitive keys come first, which works while those sets nest (US's
+letters, inside Latin American's, inside Spain's, inside French AZERTY's).
+A new layout whose Caps keys break that nesting stops the generator with a
+message naming it; `klm_translate` would then need its Caps test back as a
+per-layout table.
+
 Folder creation, renaming and folder removal also use the existing optional
 disk-operations module. Keep the system disk available when first using
 those commands.
