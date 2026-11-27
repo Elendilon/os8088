@@ -3824,8 +3824,9 @@ dsk_vol_drop_drv_x:
     mov al, 2
 .next:
     mov bl, al
-    call dsk_vol_slot_x           ; BX = the row; AX is untouched by it
-    jc .skip
+    call dsk_vol_slot_x           ; BX = the row; AX is untouched by it - and
+                                ; AL is 2..DVOL_MAX-1, so it never refuses
+                                ; (its `jc` went: kernel size pass 21, -2)
     mov ah, [bx+DV_KIND]        ; either kind of driver row (dsk_vol_del's
     dec ah                      ; reasoning, and the same range test): a
     cmp ah, DVK_FILE - DVK_DRV  ; DRVC_FILE driver detaching has to take its
@@ -4073,12 +4074,10 @@ osapi_vol_mount_x:
     jc .nofence
     push bx
     push dx
-    mov bl, al
-    call dsk_vol_row_x            ; the row's own existence is the check...
-    jc .no
-    mov dl, al                  ; ...and the INDEX is still in AL, which the
-    call disk_mount_x             ; lookup does not touch - BL is the row's low
-                                ; byte by the time it returns
+    mov dl, al                  ; the INDEX, for the mount - and the row's
+    call dsk_vol_row_dl         ; lookup takes it from DL and keeps DL: its
+    jc .no                      ; own existence is the check (pass 21, -2)
+    call disk_mount_x
 .no:                            ; ...and ITS CF is the answer, as the two
     pop dx                      ; refusals' CF = 1 is theirs: every path in
     pop bx                      ; arrives with the carry it returns (`pop`
