@@ -99,7 +99,7 @@ section .modx
     call exk_go
     dw %1
 %endmacro
-EXT_NENT    equ 15
+EXT_NENT    equ 16
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -140,8 +140,9 @@ modx_hdr:
     dw ext_refuse
 %endif
     dw ext_b1cut                ; EXT_B1CUT  gfx_blit1's row cut (39.14.7.3)
-%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_B1CUT != 14 || EXT_NENT != 15
-  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, EXT_B1CUT 14, the last (kernel.asm, vga12.inc)"
+    dw ext_scut                 ; EXT_SCUT   gfx_scroll's column cut (39.14.7.4)
+%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_B1CUT != 14 || EXT_SCUT != 15 || EXT_NENT != 16
+  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, EXT_B1CUT 14, EXT_SCUT 15, the last (kernel.asm, vga12.inc)"
 %endif
 %ifdef SEAMCUT
  %if EXT_FCUT != 12
@@ -1787,6 +1788,55 @@ ext_b1cut:
     retf
 .no:
     pop di
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
+; ext_scut - gfx_scroll's COLUMN cut (SPEC.md 39.14.7.4). On the Right layout
+; a scroll's rows never leave their card, so a rect across the seam is two
+; scrolls by the same dy. "Refused = nothing moved" is the caller's contract,
+; so the RIGHT half goes first - its own refusal moves nothing and covers
+; display 1's rows and right edge, x2 + 1's grid and dy - and what could still
+; refuse the LEFT half is asked before either moves: x1's grid, y2 on display
+; 0 and the clip region holding the whole rect (virtual, [gfx_dnest] = 0).
+;
+; in:  gfx_scroll's arguments (AX..DX = x1, y1, x2, y2 VIRTUAL, SI = dy),
+;      gfx_scroll having refused them
+; out: CF = 0 both halves moved; CF = 1 not a cut (Below, no crossing, a
+;      nested hook, or a half that would refuse) and nothing moved. Every
+;      register preserved
+; -----------------------------------------------------------------------------
+ext_scut:
+    cmp byte [gfx_dnest], 0     ; nested: the rect is an outer hook's local
+    jne .no0
+    push di
+    mov di, [vid_ctx + VID_CTX_SZ + VID_CTX_VX]   ; DI = the seam - or 0,
+    or di, di                   ; the BELOW layout, whose rows would cross
+    jz .no                      ; cards (39.19.2)
+    cmp ax, di
+    jae .no                     ; x1 not left of it (unsigned: a negative x1 too)
+    cmp cx, di
+    jl .no                      ; x2 not right of it
+    test al, 7
+    jnz .no                     ; the left half's own grid test, asked first
+    cmp dx, [vid_ctx + VID_CTX_CH]
+    jge .no                     ; ...and its rows on display 0 (VY = 0)
+    EXK wm_clip_test            ; ...and the region holding BOTH halves
+    jc .no
+    push ax
+    mov ax, di                  ; --- [seam, x2], on display 1: the one that
+    EXK gfx_scroll              ; may still refuse, and moves nothing if so
+    pop ax
+    jc .no
+    push cx
+    lea cx, [di-1]              ; --- [x1, seam - 1], on display 0
+    EXK gfx_scroll
+    pop cx
+    pop di
+    retf
+.no:
+    pop di
+.no0:
     stc
     retf
 

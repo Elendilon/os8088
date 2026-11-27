@@ -7692,6 +7692,10 @@ repaint:
   Whole-shape clipping, the `font_char`/`ico_core` class: a blit cannot be
   cut per pixel, so it refuses and the caller repaints — which clips per
   strip. This is the granularity rule in its third instance.
+- **A rect crossing a ROW seam** (the Below layout of an extended desktop):
+  its rows would have to move between cards. A rect crossing a COLUMN seam
+  (Right) is not refused. It is cut there and scrolled as two rects, one on
+  each card (§39.14.7.4).
 
 Three backends, one contract (§39), and they are *coherent* rather than
 merely parallel:
@@ -82776,9 +82780,10 @@ mouse SAMPLE and each segment resolves its own display, so a test that only
 draws proves nothing. It is the REPAINT the two builds disagree about.
 
 **`gfx_scroll` is NOT the same case and must keep its hook.** It moves pixels
-that are already on a card; a source rect crossing the seam would have to move
-them *between* cards. Its refusal (CF = 1, the caller repaints) is the right
-answer and the reason `GFX_SCROLL 256x128` reads 368us in a straddled
+that are already on a card; a source rect crossing a ROW seam would have to
+move them *between* cards. (A COLUMN seam is cut instead, since §39.14.7.4:
+every row stays on its own card.) Its refusal (CF = 1, the caller repaints)
+is the right answer there and the reason `GFX_SCROLL 256x128` reads 368us in a straddled
 `gfxbench` — that is the refusal, not a fast scroll. `gfx_line` and the walk
 keep theirs too (§39.14.5): a line's unit is a pixel, and resolving a display
 per pixel is the inner loop §5.6.6 exists to keep tight.
@@ -82976,6 +82981,40 @@ both axes. `gfx_blitp` REFUSES a straddle with CF = 1 (a plane byte carries no
 x), which its callers already handle. `font_run` goes per cell and the cell has
 its own cut (§39.14.11). Only the band's per-column path answered "drawn"
 for a shape it had not drawn.
+
+#### 39.14.7.4 …and a SCROLL is cut at a column seam
+
+A text window straddling the Right layout's seam (Note Pad, Frotz, Telnet,
+DOS) had every `gfx_scroll` refused. §39.14.2 made that refusal free, and
+the caller then repainted the whole view, once per line. That is the
+~71 ms-a-row lettering §5.5 exists to avoid, paid on every row of the window
+for every newline. It also took Frotz's worker 300 bytes deep of its 384.
+
+**A scroll's rows never leave their card on the Right layout.** The seam is
+a column, so each row of the rect is a run on display 0 and a run on display
+1. The two halves are independent scrolls by the same `dy`. So a refused
+scroll is offered to `EXT_SCUT` (`EXTD.DRV`'s `ext_scut`), which scrolls
+`[seam, x2]` and then `[x1, seam - 1]`, each a whole `gfx_scroll` on its own
+card. The seam is display 1's `VX`, the primary's width (640 or 720), a
+multiple of 8, so a rect that passes §5.5's alignment test cuts into two that
+pass it too.
+
+**"Refused means nothing moved" survives the cut.** That contract is why a
+caller can simply repaint (§5.5), so the second half must not be refused
+after the first has moved. Refusing the RIGHT half moves nothing, so it goes
+first, and its own tests cover display 1's rows, its right edge, `x2 + 1`'s
+alignment and `dy`. What is left that could refuse the LEFT half is checked
+before either half moves: `x1`'s alignment, `y2` inside display 0, and the
+clip region holding the WHOLE rect (`wm_clip_test` in virtual space, which a
+half inside it passes too). A rect the cut does not apply to is refused as
+before: the Below layout (its rows cross cards), one that does not cross the
+seam, or a call nested inside a whole-shape hook.
+
+**Cost.** Resident on kern_big, kern_emu and kern_mega: `gfx_scroll` becomes
+a 10-byte wrapper (`call`, `jnc`, `EXTCALL`, `ret`) round its old body, plus
+the slot's 4 bytes of `.bss`. kern_small has no second display and no
+wrapper. On one display a refusal costs one far call more, to `mod_gone`,
+and that is the path that repaints anyway. The rest is in `EXTD.DRV`.
 
 
 #### 5.4.3.4 …and `gfx_blitp` asked HOW DEEP before it asked WHICH DISPLAY
@@ -85286,6 +85325,7 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
 | 14 | `EXT_B1CUT` — `ext_b1cut`, §39.14.7.3's band row cut | `gfx_blit1_x`, GATED (`[vid_ndisp]` > 1, `vid_span_wh` refused) | never reached; CF = 1 (Right, or no crossing row) is §5.4.2 step 4's per-column path |
+| 15 | `EXT_SCUT` — `ext_scut`, §39.14.7.4's scroll cut | `gfx_scroll`, UNGATED (a refusal) | CF = 1, every register kept: the refusal stands and the caller repaints |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before
