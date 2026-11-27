@@ -793,6 +793,12 @@ int  os88_wm_obscured(void *win);                /* 1 = covered or hidden */
  * the dock owns on THAT display; the desktop row the slot also answers has no
  * field in the struct and is dropped. */
 void os88_wm_display(void *win, struct os88_video *v);
+/* os88_wm_dorigin - WHERE that display is: the top-left corner of the display
+ * os88_wm_display() describes, in the same virtual coordinates as your
+ * window's position (SPEC.md 39.16.4.3). (0, 0) on one display; on display 1
+ * of an extended desktop it is not, so compare a desktop position with
+ * o->x .. o->x + v->w - 1, never with 0 .. v->w - 1. */
+void os88_wm_dorigin(void *win, struct os88_pt *o);
 void os88_wm_title(void *win, const char *s);    /* redraws the caption strip
                                                   * and NOTHING else: 17 rows.
                                                   * The bytes must outlive it */

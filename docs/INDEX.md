@@ -48,6 +48,7 @@ Read first: [§11 wm.inc — windows](../SPEC.md#11-wminc--windows); [§20 Loada
 | `door 0x1F` | `OSAPI_WM_PREFER` | BX = win ptr, SI = the offset IN YOUR OWN SEGMENT of a 12-byte table: three (w, h) FRAME sizes, in VID_VGA / VID_HERC / VID_CGA order... |
 | `door 0x20` | `OSAPI_WM_MINSIZE` | BX = win ptr, CX = minimum outer WIDTH, DX = minimum outer HEIGHT; CX = DX = 0 withdraws... |
 | `door 0x21` | `OSAPI_WM_DISPLAY` | OSAPI_VIDEO FOR THE DISPLAY THIS WINDOW IS ON (SPEC.md 39.16.4). BX = your window... |
+| `0x0244` | `OSAPI_WM_DORIGIN` | BX = your window. Out AX = x, DX = y of the display's top-left corner in the VIRTUAL coordinates your W_X/W_Y and every drawing slot use... |
 
 ### Packages and the desktop
 
