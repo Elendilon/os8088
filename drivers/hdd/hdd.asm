@@ -89,6 +89,9 @@ IDE_C_INITP  equ 0x91
 
 %include "hddabi.inc"
 %include "hdcom.inc"
+%if DRVV_ATTACH != 0 || DRVV_DETACH != 1
+  %error "hd_entry tells ATTACH from DETACH with one compare"
+%endif
 %include "cfg.inc"
 %include "hdtool.inc"
 %include "mount.inc"
@@ -111,13 +114,12 @@ IDE_C_INITP  equ 0x91
 hd_entry:
     cmp al, DRVV_DETACH
     je hd_detach
-    cmp al, DRVV_READY
-    je .ready
-    cmp al, DRVV_ATTACH         ; DRVV_TIER means nothing here: this driver
+    jb .attach                  ; DRVV_ATTACH, the one verb below DETACH
+    cmp al, DRVV_READY          ; DRVV_TIER means nothing here: this driver
     jne .refuse                 ; has one tier and its refusal changes
-    jmp hd_attach               ; nothing, which is the contract (51.2)
-.ready:
-    jmp hd_ready
+    jmp hd_ready                ; nothing, which is the contract (51.2)
+.attach:
+    jmp hd_attach
 .refuse:
     mov al, DRVE_HW             ; the reason, explicitly: attach's refusal may
     stc                         ; carry a DRVE_* now (SPEC.md 51.2), and this
@@ -311,6 +313,25 @@ hd_vol_row:
     ret
 
 ; -----------------------------------------------------------------------------
+; hd_xfer_rst - rung 0's retry: an int 13h failed, so reset the controller and
+;               spend an attempt (hd_xfer's and hd_xfer_ext's, one copy)
+; in:  AH = the failed call's status, BP = attempts left, DI = the device row
+; out: ZF = 1 when that was the last attempt; AX kept
+; clobbers: DL, flags
+; -----------------------------------------------------------------------------
+hd_xfer_rst:
+    push ax                     ; AH = the status, across the reset
+    mov ah, 0x00
+    mov dl, [di+HDD_BIOS]
+%ifdef INSTBENCH
+    inc word [hd_bn_rst]
+%endif
+    int 0x13
+    pop ax
+    dec bp
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_xfer - one transfer to a DEVICE, on whichever rung it is reached by
 ; in:  DI = the device row, [hd_lba], [hd_bcnt], [hd_bseg]:[hd_bofs], [hd_bop]
 ; out: CF = 0 and AL = 0 done; CF = 1 and AL = an int 13h status byte
@@ -364,19 +385,11 @@ hd_xfer:
 %endif                          ; install, which nothing else counts
     int 0x13
     jnc .next
-    push ax                     ; AH = the status, across the reset
-    mov ah, 0x00                ; reset the controller and try again
-    mov dl, [di+HDD_BIOS]
-%ifdef INSTBENCH
-    inc word [hd_bn_rst]
-%endif
-    int 0x13
-    pop ax
-    dec bp
+    call hd_xfer_rst            ; reset the controller and try again
     jnz .attempt
     mov al, ah
     jmp short hd_xfer_fail
-.next:
+.next:                          ; ...and hd_xfer_ext's, whose run ends here too
     mov cx, [hd_run]            ; hd_buf_step is per sector, and the LBA it
 .step:                          ; walks is what hd_chs reads next time round
     call hd_buf_step
@@ -424,10 +437,10 @@ hd_xfer_ext:
     call OSAPI_CPU_INFO         ; NEVER IN PROTECTED MODE (SPEC.md 52.1.6),
     test ah, CPU_F_PM           ; and it is asked HERE: a boot driver attaches
     jnz hd_xfer_fail4           ; before mega_enter, so attach cannot know
-    mov ax, 1                   ; a whole track's worth for hd_bios_run: the
-    mov [hd_sec], ax            ; packet has no track, only the page
-    dec ax
-    mov [hd_head], ax
+    xor ax, ax                  ; a whole track's worth for hd_bios_run: the
+    mov [hd_head], ax           ; packet has no track, only the page
+    inc ax
+    mov [hd_sec], ax
     call hd_bios_run
     jc hd_xfer_fail9
     mov [hd_run], ax
@@ -459,26 +472,11 @@ hd_xfer_ext:
     sbb cx, cx                  ; CX = -1 on the int 13h's CF, banked before
     add sp, 16                  ; the ADD that takes the packet off moves it
     pop si
-    jcxz .next
-    push ax
-    mov ah, 0x00                ; reset and try again, CHS's own retry
-    mov dl, [di+HDD_BIOS]
-%ifdef INSTBENCH
-    inc word [hd_bn_rst]
-%endif
-    int 0x13
-    pop ax
-    dec bp
+    jcxz hd_xfer.next           ; the run is done: hd_xfer's own walk of it
+    call hd_xfer_rst            ; reset and try again, CHS's own retry
     jnz .attempt
     mov al, ah
     jmp short hd_xfer_fail
-.next:
-    mov cx, [hd_run]
-.step:
-    call hd_buf_step
-    dec si
-    loop .step
-    jmp hd_xfer.run
 
 
 ; -----------------------------------------------------------------------------
@@ -527,10 +525,13 @@ hd_xfer_ide:
                                 ; the drive-select bit (SPEC.md 52.1)
 .lba:                           ; LBA MODE, for a sector CHS cannot name and
     test byte [di+HDD_FLAGS], HDF_LBA   ; only on a drive that said it takes
-    jz .fail                    ; it (SPEC.md 52.1.5): to a drive that does
-    mov ch, [hd_lba+3]          ; not, bit 6 is a different address
+    jnz .lbaok                  ; it (SPEC.md 52.1.5): to a drive that does
+.refuse:                        ; not, bit 6 is a different address. (Here
+    jmp hd_xfer_fail4           ; and not at .fail: both jumps stay short)
+.lbaok:
+    mov ch, [hd_lba+3]
     cmp ch, 0x0F                ; 28 bits: the top four in the head nibble
-    ja .fail
+    ja .refuse
     or ch, 0x40                 ; ...and bit 6, which says LBA
     mov al, [hd_lba]            ; bits 0..7 where the sector goes, 8..23
     mov [hd_sec], al            ; where the cylinder does: the registers
@@ -541,13 +542,12 @@ hd_xfer_ide:
     call hd_ide_select
     jc .fail
     mov ax, si                  ; the whole remainder in one command, up to
-    cmp ax, 255                 ; what the count register holds
-    jbe .n
+    test ah, ah                 ; what the count register holds: 256 and up
+    jz .n                       ; has a high byte, and only then is it cut
     mov ax, 255
 .n:
     mov [hd_run], ax
-    mov dx, bx
-    add dx, IDE_SCNT
+    lea dx, [bx+IDE_SCNT]
     out dx, al                  ; AL = the run: 1..255
     inc dx                      ; IDE_SNUM
     mov al, [hd_sec]
@@ -558,8 +558,7 @@ hd_xfer_ide:
     inc dx                      ; IDE_CYLH
     mov al, [hd_cyl+1]
     out dx, al
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     mov al, IDE_C_READ
     cmp byte [hd_bop], 0
     je .cmd
@@ -794,8 +793,7 @@ HD_WAITN    equ 128
 hd_ide_wait:
     push cx
     push dx
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     xor cx, cx
     mov ah, HD_WAITN            ; AH is this routine's to clobber (AX's output
 .poll:                          ; is AL)
@@ -825,8 +823,7 @@ hd_ide_wait:
 hd_ide_drq:
     push cx
     push dx
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     xor cx, cx
     mov ah, HD_WAITN
 .poll:
@@ -851,8 +848,7 @@ hd_ide_drq:
 ; -----------------------------------------------------------------------------
 hd_ide_select:
     push dx
-    mov dx, bx
-    add dx, IDE_DRVH
+    lea dx, [bx+IDE_DRVH]
     mov al, 0xA0                ; the two bits ATA-1 pins high...
     test cl, 1
     jz .d0
@@ -923,12 +919,10 @@ hd_ide_setparams:
     and ch, 0x0F
     call hd_ide_select
     jc .out
-    mov dx, bx
-    add dx, IDE_SCNT
+    lea dx, [bx+IDE_SCNT]
     mov al, [di+HDD_SPT]
     out dx, al
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     mov al, IDE_C_INITP
     out dx, al
     call hd_ide_wait
@@ -974,10 +968,9 @@ hd_bn_rst:   dw 0               ; ...and controller resets, which are retries
                                 ; probe that fills it (SPEC.md 52.13.6)
 
 hd_xslot:    db 0               ; the extended partition's primary slot, 0FFh
-                                ; = none (SPEC.md 52.4.1)...
-hd_xbase:    dd 0               ; ...its first LBA and its length, ADJACENT:
-hd_xlen:     dd 0               ; hd_mount copies the entry's pair in one run
-hd_xcur:     dd 0               ; ...and the record being read, relative to it
+                                ; = none (SPEC.md 52.4.1). Its base, length
+                                ; and the record being read are the walk's
+                                ; own, on the stack (hd_mount_chain)
 hd_wantmnt:  db 0               ; bit n = mount device n at DRVV_READY: it
                                 ; was mounted last session, or the probe
                                 ; just found it (SPEC.md 52.6.1)
@@ -1058,7 +1051,8 @@ hd_svc_end:                     ; ...AND STOPS HERE, its length in the header
 ; out: CF = 0 yes - the BIOS reported it and this unit gets no row of its own,
 ;      and that BIOS row is now SPENT: ZF = 1 and DI = the row to pair it
 ;      with, or ZF = 0 and no pairing (AMBIGUOUS, or more heads than a task
-;      file has); CF = 1 no
+;      file has); CF = 1 no, and AL = how many BIOS rows no unit has spent
+;      have its sectors per track (0 = HDF_XCYL, SPEC.md 52.1.5)
 ; clobbers: AX, CX, DX, DI, flags (BX, the base port, is kept)
 ;
 ; The key is the GEOMETRY, because it is the only thing the two rungs both
@@ -1094,7 +1088,8 @@ hd_svc_end:                     ; ...AND STOPS HERE, its length in the header
 hd_at_dup:
     push si
     xor si, si                  ; SI = the first unspent match, 0 = none
-    xor ch, ch                  ; CH = how many OTHER rows match
+    xor cx, cx                  ; CH = how many OTHER rows match, CL = how
+                                ; many UNSPENT rows share its sectors/track
     mov dx, 0x0100              ; DL = the row index, DH = its bit in [hd_dupd]
 .scan:
     cmp dl, [hd_ndev]
@@ -1103,11 +1098,15 @@ hd_at_dup:
     call hd_dev_row
     cmp byte [di+HDD_KIND], HDK_BIOS
     jne .next
+    mov ax, [hd_idbuf + 6*2]    ; word 6: sectors per track - FIRST, because
+    cmp ax, [di+HDD_SPT]        ; it is the past-1,024 question's key as well
+    jne .next                   ; (SPEC.md 52.1.5): a BIOS that TRANSLATES a
+    test [hd_dupd], dh          ; big drive keeps its sectors per track, so
+    jnz .spent                  ; an unspent row that has this drive's could
+    inc cx                      ; be this drive, translated. CL counts them
+.spent:                         ; for hd_at_channel's HDF_XCYL
     mov ax, [hd_idbuf + 3*2]    ; word 3: heads
     cmp ax, [di+HDD_HEADS]
-    jne .next
-    mov ax, [hd_idbuf + 6*2]    ; word 6: sectors per track
-    cmp ax, [di+HDD_SPT]
     jne .next
     mov ax, [hd_idbuf + 1*2]    ; word 1: cylinders - the BIOS may report
     cmp [di+HDD_CYL], ax        ; fewer, never more
@@ -1129,6 +1128,7 @@ hd_at_dup:
     shl dh, 1
     jmp short .scan
 .end:
+    mov al, cl                  ; AL = CL, for a drive that gets a row
     mov di, si
     cmp si, 1                   ; CF = 1: no row matched
     jc .out
@@ -1256,8 +1256,7 @@ hd_at_ident:
     je .no
     test al, IDE_ST_DRDY
     jz .no
-    mov dx, bx
-    add dx, IDE_STAT
+    lea dx, [bx+IDE_STAT]
     mov al, IDE_C_IDENT
     out dx, al
     call hd_ide_drq
@@ -1272,13 +1271,13 @@ hd_at_ident:
                                 ; is gated on a 16-bit bus (SPEC.md 52.1) -
                                 ; so on a 286 and up, and a 186's string op
                                 ; is legal here as in hd_xfer_ide (52.1.2)
-    mov cx, 49 - 7              ; on to word 49, the capabilities...
-.skip:
+    mov cl, 49 - 7              ; on to word 49, the capabilities (CH = 0
+.skip:                          ; after the REP, and after a LOOP below)...
     in ax, dx
     loop .skip
     in ax, dx
     stosw                       ; ...at hd_idbuf+14, DI following the insw:
-    mov cx, 256 - 50            ; bit 9 is LBA (SPEC.md 52.1.5)
+    mov cl, 256 - 50            ; bit 9 is LBA (SPEC.md 52.1.5)
 .drain:
     in ax, dx
     loop .drain
@@ -1286,48 +1285,6 @@ hd_at_ident:
     ret
 .no:
     stc
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_at_xcyl - may rung 1 address this fresh IDE row past cylinder 1,023?
-; in:  DI = the row (HDD_KIND IDE), AX = its sectors per track
-; out: HDF_XCYL set on the row when it may; every register kept
-;
-; ATTACH-ONLY. An IDE row past 1,024 cylinders was always unusable - hd_chs
-; and hd_geom_ok both stopped at int 13h's ten bits - and that hid a second
-; fact: a BIOS that TRANSLATES a big drive (32, 64, 128 or 255 heads) reports
-; a geometry hd_at_dup cannot pair, so such a drive has a BIOS row AND an IDE
-; row, and only the first could mount. Lifting the bound alone would mount
-; every partition on it twice, through two transports (SPEC.md 52.1). So the
-; bound lifts only when no BIOS row the pairing left unspent has this drive's
-; sectors per track - the one field a translation keeps. A drive that fails
-; the test is exactly as it was: listed, its geometry unusable, and its BIOS
-; row (if it is one) reaching it through rung 0 and the packet calls.
-; -----------------------------------------------------------------------------
-hd_at_xcyl:
-    push dx
-    push si
-    mov si, hd_devs
-    mov dx, 0x0100              ; DL = the row index, DH = its bit in [hd_dupd]
-.scan:
-    cmp dl, [hd_ndev]
-    jae .yes
-    cmp byte [si+HDD_KIND], HDK_BIOS
-    jne .next
-    test [hd_dupd], dh
-    jnz .next                   ; paired with another unit: another drive
-    cmp ax, [si+HDD_SPT]
-    je .out                     ; could be this one, translated
-.next:
-    add si, HDD_SIZE
-    inc dx
-    shl dh, 1
-    jmp short .scan
-.yes:
-    or byte [di+HDD_FLAGS], HDF_XCYL
-.out:
-    pop si
-    pop dx
     ret
 
 %include "hdxms.inc"            ; the read straight into XMS (52.1.4): in
@@ -1468,8 +1425,8 @@ hd_at_bios:
     mov ah, 0x41                ; THE PACKET CALLS (SPEC.md 52.1.6): what the
                                 ; ROM has, on every kernel - hd_xfer_ext is
                                 ; what refuses them in protected mode
+    mov dl, bl                  ; (the drive, still)
     mov bx, 0x55AA
-    mov dl, [di+HDD_BIOS]
     int 0x13
     jc .out                     ; an XT ROM's 'bad command'
     cmp bx, 0xAA55
@@ -1512,11 +1469,14 @@ hd_at_channel:
     mov byte [di+HDD_KIND], HDK_IDE
     mov [di+HDD_UNIT], cl
     mov [di+HDD_BASE], bx
+    or al, al                   ; PAST 1,024 CYLINDERS only when no BIOS row
+    jnz .xcyl                   ; the pairing left unspent has this drive's
+    or byte [di+HDD_FLAGS], HDF_XCYL    ; sectors per track (hd_at_dup's AL,
+.xcyl:                          ; SPEC.md 52.1.5) - hd_at_geom reads it
     mov cx, [hd_idbuf + 1*2]    ; word 1: cylinders
     mov dx, [hd_idbuf + 3*2]    ; word 3: heads
     mov ax, [hd_idbuf + 6*2]    ; word 6: sectors per track
-    call hd_at_xcyl             ; past 1,024 cylinders only if nothing else
-    call hd_at_geom             ; can be this disk (SPEC.md 52.1.5)
+    call hd_at_geom
     call hd_ide_setparams       ; tell the drive the geometry we will use -
                                 ; without it every read lands somewhere else
 .lba:

@@ -1246,7 +1246,9 @@ drv_f_eth:   db 'ETHER.DRV', 0   ; ...and the card's, on BOTH builds: the store
 ; in the blob beside drv_boot_x (the loading screen's 'Loading Driver n/N
 ; (Title)', spl_mcs). One macro, so the two copies cannot disagree about an
 ; offset. The Control Panel's Sound page heading is the class's name and so
-; this row's title to the byte - the panel's own copy is cp_s_snd.
+; this row's title to the byte - and since driver size pass 2 IS it: ctrl.inc's
+; cp_s_snd is `drvt_sound`, and its Display heading cp_s_vid is the last seven
+; bytes of `drvt_vesa`. A retitle of either row retitles that page.
 %macro DRV_TITLES 1
 %1_base:
 %1_sound:   db 'Sound', 0
@@ -1694,7 +1696,7 @@ DRVM_IMG_EMS equ 2              ; ceil(build/ems.drv / 512)
 DRVM_IMG_CD  equ 17              ; ceil(build/cdrom.drv / 512)
 DRVM_IMG_HTTP equ 11             ; ceil(build/httpfs.drv / 512)
 DRVM_IMG_VESA equ 15             ; ceil(build/vesa.drv / 512)
-DRVM_IMG_PCIETH equ 35           ; ceil(build/pciether.drv / 512): 17,432 (SPEC.md 72.24 UDP, less driver size pass 1)
+DRVM_IMG_PCIETH equ 34           ; ceil(build/pciether.drv / 512): 17,233 (driver size pass 2; 17,432 with SPEC.md 72.24's UDP unsized)
                                 ; (ETHER.DRV's SLEEP/WAKE crossed ITS rung,
                                 ; 17,345 -> 17,510, and the size pass that
                                 ; paid it back took both to 17,389 / 17,058;
@@ -1831,7 +1833,7 @@ section .text
 ; literal safe, and it is the half a package could never have had.
 DRVM_CEIL_DISK equ 5            ; MIRRORED in apps/os88api.inc - t_mirror
 DRVM_CEIL_NET  equ 34           ; ...ditto: ETHER.DRV's row alone (the %if)
-DRVM_CEIL_NET_PCI equ 40        ; ...and DRVC_NET's on every big build
+DRVM_CEIL_NET_PCI equ 39        ; ...and DRVC_NET's on every big build
                                 ; (SPEC.md 125.5): ETHER.DRV and PCIETHER.DRV
                                 ; are ALTERNATIVES in one publication slot, so
                                 ; it is the LARGER of the two rows, not their

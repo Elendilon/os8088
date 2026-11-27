@@ -2455,8 +2455,8 @@ section .modq    start=MODQ_START vstart=0   ; KEYBOARD.DRV (SPEC.md 9.16)
 section .modqb   nobits vstart=MODQ_IMG
 %ifdef KERN_BIG
 section .modv    start=MODV_START vstart=0   ; CPWIDE.DRV (SPEC.md 135.2)
-section .modvb   nobits vstart=MODV_IMG ; ...its scratch: the asset claim's
-                                ; one name (cpwide.inc)
+section .modvb   nobits vstart=MODV_IMG ; ...its scratch: the data view's
+                                ; name and the working area (cpwide.inc)
 %endif
 %ifdef OS88_FSCKIMG
 section .modfs   start=MODFS_START vstart=0 ; FSCHECK.DRV (SPEC.md 118.14)

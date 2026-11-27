@@ -153,12 +153,18 @@ MOD_H_SCR   equ 12              ; word: how many of the image's LAST bytes are
                                 ; scan filled (SPEC.md 2.8.3, 110.12.2)
 MOD_H_ENT   equ 14              ; word[]: entry offsets, in this image
 MOD_VER     equ 5
-MOD_MAX_KB  equ 17              ; the biggest module image we will claim,
-                                ; image + bss: mod_need bounds the BYTES. 16
-                                ; until kern_mega's CTRL.DRV reached 16,430
-                                ; with SYSTEM.CFG's SX block (SPEC.md
-                                ; 26.8.6.1): a bound, not a claim - every
-                                ; claim is still the image's own granules
+%ifdef KERN_BIG
+MOD_MAX_KB  equ 30              ; the biggest module image we will claim,
+%else                           ; image + bss: mod_need bounds the BYTES. 16
+MOD_MAX_KB  equ 17              ; until kern_mega's CTRL.DRV reached 16,430
+%endif                          ; with SYSTEM.CFG's SX block (SPEC.md
+                                ; 26.8.6.1); 17 until CPWIDE.DRV took
+                                ; CPWIDE.DAT into its image (SPEC.md 135.6,
+                                ; driver size pass 2), and still 17 on
+                                ; kern_small, which has no wide panel and
+                                ; no module past it: a bound, not a claim -
+                                ; every claim is still the image's own
+                                ; granules
 
 ; The layout stamp (SPEC.md 2.8.2). Forward references to the section sizes,
 ; which is legal in a `dw` and is how MODC_SIZE already reaches its own end

@@ -48,6 +48,16 @@ def require(ok, why):
         raise AssertionError(why)
 
 
+def key(k, symbol, scan, plane=0):
+    """The image offset of SCAN's byte in a layout's PLANE (0 base, 1 shift,
+    2 AltGr): klm_idx holds each translated scan's index + 1, one byte per
+    key in every plane, and the layout's label is its base plane."""
+    start, n = k.sec['.modq']
+    index = k.image[start + k.v('klm_idx') + scan]
+    require(0 < index <= EQUATES['KLM_KEYS'], f'scan {scan:#x} is not a translated key')
+    return k.v(symbol) + plane * EQUATES['KLM_KEYS'] + index - 1
+
+
 class Machine:
     def __init__(self, k, layout=1, patch=None):
         self.k = k
@@ -295,11 +305,11 @@ def main():
         for symbol,scan,bad,expected in (('klm_map_fr',0x10,ord('q'),'a'),
                                          ('klm_map_la',0x0d,0xad,'¿')):
             m=Machine(k,4 if symbol.endswith('fr') else 3,
-                      (k.v(symbol)+scan*2,bad))
+                      (key(k,symbol,scan),bad))
             try:m.chars([scan],expected)
             except AssertionError:pass
             else:raise AssertionError('negative control did not fail: '+symbol)
-        m=Machine(k,4,(k.v('klm_map_fr')+87*4+0x0b*2,ord('#')))
+        m=Machine(k,4,(key(k,'klm_map_fr',0x0b,2),ord('#')))
         m.feed(0xe0);m.feed(0x38)
         try:m.chars([0x0b],'@')
         except AssertionError:pass

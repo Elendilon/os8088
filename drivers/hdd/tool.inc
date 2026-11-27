@@ -194,6 +194,9 @@ hd_tw_open:
 ; entry that declines to name a CHS at all, and a tool that called that a
 ; geometry fault would refuse to format a perfectly formattable extent.
 ; -----------------------------------------------------------------------------
+%if HP_SCYL != HP_SSEC + 1
+  %error "hd_tw_geomok reads the sector and the cylinder as one word"
+%endif
 hd_tw_geomok:
     push ax
     push dx
@@ -209,13 +212,13 @@ hd_tw_geomok:
     mov dx, [si+HP_LBA+2]
     call hd_lba_chs             ; [hd_cyl]/[hd_head]/[hd_sec] at OUR geometry
     jnc .cmp                    ; ...past what an entry's CHS can name, the
-    cmp byte [si+HP_SCYL], 0xFF ; entry must SAY so - cylinder 1,023, the
-    jne .bad                    ; marker every tool writes there, with its
-    mov al, [si+HP_SSEC]        ; own head and sector, so only the cylinder
-    and al, 0xC0                ; is compared; the LBA is the whole of the
-    cmp al, 0xC0                ; address (SPEC.md 52.1.5)
-    jne .bad
-    jmp short .ok
+    mov ax, [si+HP_SSEC]        ; entry must SAY so - cylinder 1,023, the
+    or al, 0x3F                 ; marker every tool writes there, with its
+    inc ax                      ; own head and sector, so only the cylinder
+    jnz .bad                    ; is compared: its ten bits all ones, the
+    jmp short .ok               ; sector's six forced so, and AX + 1 = 0.
+                                ; The LBA is the whole of the address
+                                ; (SPEC.md 52.1.5)
 .cmp:
     call hd_chs_pack            ; AL = sector|cyl-high, AH = cyl-low
     cmp al, [si+HP_SSEC]
@@ -857,13 +860,12 @@ hd_tw_format:
     call hd_fmt_plan            ; -> the cluster size and the FAT type
     jc .nofit
 
-    mov al, [hd_tsel]           ; THE VOLUME GOES BEFORE THE FORMAT, Delete's
-    mov ah, [hd_tdev]           ; own rule (SPEC.md 52.2.3): a volume left
-    call hd_tw_unmount_slot     ; mounted goes on caching a FAT and a root the
-    cmp byte [hd_tdrop], 0      ; format is about to rewrite - and on an
-    je .unmounted               ; Extended row it is every logical drive
-    call hd_cfg_mark            ; inside it (52.4.1). Staged, like Delete's
-.unmounted:
+    call hd_tw_unmount_sel      ; THE VOLUME GOES BEFORE THE FORMAT, Delete's
+                                ; own rule (SPEC.md 52.2.3): a volume left
+                                ; mounted goes on caching a FAT and a root the
+                                ; format is about to rewrite - and on an
+                                ; Extended row it is every logical drive
+                                ; inside it (52.4.1). Staged, like Delete's
     mov word [hd_tmsg], hd_s_tdoing
     call hd_tw_repaint          ; say so BEFORE the writes: a 32MB format is
                                 ; hundreds of sectors and the user should not
@@ -931,15 +933,9 @@ hd_tw_delete:
     call hd_tw_confirm
     jc .out                     ; the caption is asking
 
-    mov al, [hd_tsel]
-    mov ah, [hd_tdev]
-    call hd_tw_unmount_slot     ; -> [hd_tdrop]
+    call hd_tw_unmount_sel      ; -> [hd_tdrop], and the blob staged
     cmp byte [hd_tdrop], 0
     je .table
-    call hd_cfg_mark            ; the set of mounted drives is what the next
-                                ; boot reads, and it just changed: STAGED, like
-                                ; every other setting in the machine, and
-                                ; written when the panel closes (SPEC.md 31.8)
     call hd_page_pick               ; ...and the PAGE's caption records what the
                                     ; last PAGE click did, so it is sitting
                                     ; there saying 'Mounted 1 volume' about a

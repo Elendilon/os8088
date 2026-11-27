@@ -359,7 +359,7 @@ def main():
             ui = os88ui.UI(m)
             ui.up(limit=300.0)
             # the COMPACT panel: this row counts CTRL.DRV's disk reads, and
-            # the wide face reads CPWIDE.DAT at every open (SPEC.md 135.12,
+            # the wide face loads CPWIDE.DRV beside it (SPEC.md 135.12,
             # 135.13, tests/cpface.py). After the boot, which would otherwise
             # write the kernel's own copy of the name over it
             import cpface

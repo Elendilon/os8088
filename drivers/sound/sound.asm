@@ -197,12 +197,13 @@ snd_hwinfo:
     mov ax, [sbl_base]
     or ax, ax
     jz .none
-    mov bl, [sbl_irq]
-    mov bh, [sbl_dma]           ; the ESS route and the 8237 agree (34.5.8)
-    cmp bh, 0xFF
-    je .none                    ; no usable resource: no valid BLASTER string
-    mov ch, [sbl_verhi]
-    mov cl, [sbl_verlo]
+    mov bx, [sbl_irq]           ; BL = the line, BH = [sbl_dma], the next
+                                ; byte: the ESS route and the 8237 agree
+    or bh, bh                   ; (34.5.8) - 1, 3, or 0FFh (refused), the
+    js .none                    ; one with bit 7: no usable resource, no
+                                ; valid BLASTER string
+    mov cx, [sbl_verhi]         ; CL = the major, CH = [sbl_verlo]...
+    xchg cl, ch                 ; ...and the other way round
     CLC_OR_STC .none
     ret
 
@@ -1389,7 +1390,9 @@ VOLUME_STATE                    ; the file's trailing run - see snd_keepmix)
 ; above may call down here after the attach returns, and t_sndonce is what
 ; says so.
 ; The price is that the state above is no longer the file's trailing zero
-; run, so ~1.3KB of zeros ship - a few bytes under PKGZ, 1.3KB under PKGZ=.
+; run, so its zeros ship - ~240 bytes now (the core's state and the mixer's;
+; ~1.3KB when the popup's slider band was still in it), a few bytes under
+; PKGZ.
 ; =============================================================================
 snd_keepmix:
 ; -----------------------------------------------------------------------------

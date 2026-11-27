@@ -1190,16 +1190,26 @@ cmz_prog:
 ; here, DI the output's write pointer, and giving either up would cost a
 ; segment load per candidate. An 8088's `cmpsb` is ~22 cycles an iteration
 ; anyway, so the trade is small and it is paid where the registers are scarce.
+;
+; FEWER THAN THREE BYTES LEFT is asked FIRST, before anything is banked, and
+; answered by the two instructions above the label (driver size pass 2): the
+; answer at .none was out of a short jump's reach, so the test was a `jnc`
+; over a near jmp - taken, at every position the pack makes. Now it is a
+; short `jb` not taken, the same bytes. cmz_pos is the walk's alone and is
+; written only when there is a walk; mega_dsimg keeps AX and the flags.
 ; -----------------------------------------------------------------------------
+cmz_short:
+    xor ax, ax
+    ret
 cmz_probe:
+    mov ax, [cs:cmz_n]
+    sub ax, si
+    cmp ax, CMZ_MIN
+    jb cmz_short                ; fewer than three bytes left to match
     push si
     push bp
     push es
     CSDOF mov [CSEG cmz_pos], si ; (per POSITION: the far call inline)
-    mov ax, [cs:cmz_n]
-    sub ax, si
-    cmp ax, CMZ_MIN
-    jb .none                    ; fewer than three bytes left to match
     cmp ax, CMZ_MAXM
     jbe .most
     mov ax, CMZ_MAXM            ; ...and never past SI + 32KB (SPEC.md
@@ -1556,13 +1566,11 @@ cmz_sizes:
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2   ; FAT32 HAS NO HINT (SPEC.md 19.12.6): @12/@13
     jne .hinted                 ; are its own bytes and @20 its cluster's high
-    push ax                     ; word, so the file's header is read, and
-    push cx                     ; stages the mark, CZH and [dskw_czl] that
-    push dx                     ; the hint's three cells would have held
-    call COLD_SEG:dwf_dskw_czknow
-    pop dx
-    pop cx
-    pop ax
+    push cx                     ; word, so the file's header is read, and
+    push dx                     ; stages the mark, CZH and [dskw_czl] that
+    call COLD_SEG:dwf_dskw_czknow ; the hint's three cells would have held.
+    pop dx                      ; (AX is not banked: the attribute is nobody's
+    pop cx                      ; and `mov ax, cx` is next - driver size pass 2)
 .hinted:
 %endif
     CSDO_ON
@@ -3841,6 +3849,13 @@ cmz_s_jkeys: db 'Enter=ready  Esc=stop', 0
 ; lets these live here and be reached `cs:`, with DS and ES both spent on the
 ; caller's buffers. A few dozen bytes; the 40KB that is NOT here is the
 ; caller's.
+;
+; EVEN, ALL OF THEM (driver size pass 2): cmz_pack, cmz_probe and cmz_fill
+; read and write two dozen of these words for every byte they pack, and every
+; one is at an even distance from here, so the run starts even and each of
+; them costs one bus cycle and not two on an 8086, a V30 or kern_mega's 286.
+; It had been even or odd by whatever the code above happened to sum to
+    align 2, db 0
 %ifdef CMZ_STREAM                ; (OUTSIDE the shared block below: a token
                                 ; is a generation, not scratch, and the far
                                 ; cell's segment word is not a zero)

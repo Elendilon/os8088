@@ -518,7 +518,7 @@ HSV_LAST     equ 13
 hd_svc_raw:
     mov al, [es:si+HRQ_DEV]
     call hd_dev_row_ck          ; DI = the row, CF = 1 = no such device
-    jc hd_svc_out
+    jc .out                     ; (the jump below: hd_svc_out is out of reach)
     mov al, [es:si+HRQ_OP]
     mov [hd_rawop], al
     mov ax, [es:si+HRQ_LBA]
@@ -529,6 +529,7 @@ hd_svc_raw:
     mov es, [es:si+HRQ_SEG]     ; the buffer is in the TOOL's image
     call hd_raw
     pop es
+.out:
     jmp hd_svc_out
 
 ; --- HSV_SYNC: our device table into the tool's copy of it -------------------
@@ -581,7 +582,7 @@ hd_svc_state:
 hd_svc_mount:
     mov al, [es:si+HRQ_DEV]
     call hd_dev_row_ck          ; DI = the row, CF = 1 = no such device -
-    jc hd_svc_out               ; a REAL check now, not the fiction the old
+    jc .out                     ; a REAL check now, not the fiction the old
                                 ; comment described
     mov ah, [hd_sel]            ; the panel's highlight is the USER's; it is
     push ax                     ; borrowed below as hd_mount_one's routing
@@ -602,13 +603,14 @@ hd_svc_mount:
                                 ; (`pop` leaves CF alone)
     pop ax
     mov [hd_sel], ah            ; (mov leaves CF: hd_mount_one's verdict)
-    jc hd_svc_out
+    jc .out
     mov ax, [es:si+HRQ_DEV]     ; AL = HRQ_DEV, AH = HRQ_SLOT: which kernel
     call hd_vol_of              ; volume did it become? The row hd_mount_one
                                 ; filled says, and finding it here is what
                                 ; spares the tool a sight of hd_vols
     mov [es:si+HRQ_RES], al
-    jmp hd_svc_out
+.out:                           ; (each refusal above lands here with its CF:
+    jmp hd_svc_out              ; hd_svc_out is a 5-byte jcc away)
 
 hd_svc_unmount:
     mov ax, [es:si+HRQ_DEV]     ; AL = HRQ_DEV, AH = HRQ_SLOT

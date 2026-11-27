@@ -20,7 +20,7 @@
 ; --- WHAT IS IN HERE --------------------------------------------------------
 ;   ne2000.inc  the 8390: probe, ring, transmit         (SPEC.md 72.2)
 ;   inet.inc    ARP, IP, ICMP echo, UDP, checksums      (SPEC.md 72.3)
-;   tcp.inc     TCP, stop-and-wait, four connections    (SPEC.md 72.4)
+;   tcp.inc     TCP, windowed, NET_SOCKS connections    (SPEC.md 72.4)
 ;   dns.inc     DHCP for our address, DNS for theirs    (SPEC.md 72.5)
 ;   etherui.inc the Control Panel page                  (SPEC.md 72.6)
 ;

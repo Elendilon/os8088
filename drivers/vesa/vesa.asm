@@ -626,20 +626,17 @@ vx_info:
     cmp cl, 0xFF
     je .card
     cmp cl, [vx_nmodes]
-    jae vx_init.stc             ; (CF = 1)
+    jae .no                     ; (CF = 1)
     mov al, VM_SIZE
     mul cl
     add ax, vx_modes
     xchg ax, si                 ; SI = record i
     mov ax, [si+VM_BPSL]
-    mul word [si+VM_Y]          ; DX:AX = bytes
+    mul word [si+VM_Y]          ; DX:AX = bytes, under 4096 x 768
     add ax, 1023
     adc dx, 0
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
-    or ax, dx                   ; AX = KB, rounded up
+    mov cx, 1024
+    div cx                      ; AX = KB, rounded up
     push ax
     call vx_encode              ; CL = the class byte
     mov ch, [si+VM_BPP]
@@ -647,18 +644,20 @@ vx_info:
     mov dx, [si+VM_Y]
     mov di, [si+VM_MODE]
     pop si
-    clc
+    db 0xA8                     ; test al, imm8 - the stc below: CF = 0...
+.no:
+    stc                         ; ...and a jump here is CF = 1
     ret
 .card:
     push bx
     push word [vx_cur]
-    call vx_choose              ; [vx_cur] = Auto's pick, put back below
-    mov ax, [vx_cur]
-    pop word [vx_cur]
+    call vx_choose              ; [vx_cur] = Auto's pick...
+    pop ax
+    xchg ax, [vx_cur]           ; ...the running record put back, AX = the pick
     sub ax, vx_modes
     mov cl, 4
     shr ax, cl
-    mov si, ax                  ; SI = the recommended index
+    xchg ax, si                 ; SI = the recommended index
     mov ax, [vx_cur]
     sub ax, vx_modes
     shr ax, cl
@@ -2285,14 +2284,24 @@ vxp_fontrun:
     mov di, [vx_p_color]
     mov [es:di], al             ; the pen, spent
     mov di, [vx_p_font]
-    mov ax, [es:di]             ; font_seg
-    mov [vx_fseg], ax
-    mov ax, [es:di+2]           ; font_base
-    mov [vx_fbase], ax
+    mov bx, [es:di]             ; font_seg
+    mov [vx_fseg], bx
+    mov bx, [es:di+2]           ; font_base
+    mov [vx_fbase], bx
     mov di, [vx_p_fontlim]
-    mov al, [es:di+1]           ; font_span, read with the table it bounds
-    mov [vx_fspan], al
+    mov bl, [es:di+1]           ; font_span, read with the table it bounds
+    mov [vx_fspan], bl
     pop es
+    xor bh, bh                  ; the two colours as 16bpp words, for the
+    mov bl, al                  ; rows put down in one pass (.w16): vx_px's
+    add bx, bx                  ; own lookup, once a run
+    mov di, [vx_pal16+bx]
+    mov [vx_fw], di
+    mov bl, ah
+    xor bh, bh
+    add bx, bx
+    mov di, [vx_pal16+bx]
+    mov [vx_bw], di
     mov ax, [vx_y]
     sub ax, 8
     cmp dx, ax
@@ -2305,21 +2314,15 @@ vxp_fontrun:
     push ds
     mov ds, [bp+F_ES]
     mov si, [cs:vx_bsrc]
-    lodsb
+    lodsb                       ; AL = the character
     pop ds
     mov [vx_bsrc], si
     or al, al
     jz .out
-    mov ah, al
-    mov ax, [vx_x]
-    sub ax, 8
-    cmp cx, ax
+    mov si, [vx_x]
+    sub si, 8
+    cmp cx, si
     ja .skip                    ; off either edge: the cell is not drawn
-    push ds
-    mov ds, [bp+F_ES]
-    mov si, [cs:vx_bsrc]
-    mov al, [si-1]              ; the character again
-    pop ds
     sub al, VX_FONT_FIRST       ; ONE unsigned test for both ends, as the
     cmp al, [vx_fspan]          ; kernel's: a control wraps past the span
     jbe .glyph
@@ -2345,6 +2348,42 @@ vxp_fontrun:
     pop ds
     inc word [vx_glyph]
     mov cx, 8
+    ; A ROW THE WINDOW HOLDS WHOLE goes down in one pass: its eight pixels
+    ; end short of the window's last byte, so no VXW below would have fired
+    ; (driver size pass 2: the same bytes as vx_px's, without its call, its
+    ; depth test and its edge test a pixel). A row that reaches the edge
+    ; takes .gpx, a pixel at a time and the window crossed where it falls
+    mov ax, di
+    cmp byte [vx_bpp], 8
+    jne .w16
+    add ax, cx                  ; 8 bytes
+    jc .gpx
+    mov si, [vx_ink]            ; SI: fg (low), bg (high)
+.f8:
+    mov ax, si
+    shl dl, 1
+    jc .f8p
+    mov al, ah
+.f8p:
+    stosb
+    loop .f8
+    jmp short .gnext
+.w16:
+    add ax, 16                  ; 16 bytes
+    jc .gpx
+    push bp
+    mov si, [vx_fw]
+    mov bp, [vx_bw]
+.f16:
+    mov ax, si
+    shl dl, 1
+    jc .f16p
+    mov ax, bp
+.f16p:
+    stosw
+    loop .f16
+    pop bp
+    jmp short .gnext
 .gpx:
     shl dl, 1
     mov al, [vx_ink+1]          ; bg
@@ -2353,6 +2392,7 @@ vxp_fontrun:
 .gput:
     call vx_px
     loop .gpx
+.gnext:
     inc bx
     dec dh
     jnz .grow
@@ -2693,6 +2733,8 @@ vx_fspan    db 0                ; VX_FONTRUN's copy of [font_span]
 vx_sstep    dw 0
 vx_sdy      dw 0
 vx_fbase    dw 0
+vx_fw       dw 0                ; VX_FONTRUN's foreground and background as
+vx_bw       dw 0                ; 16bpp words (vx_pal16's), once a run
 vx_patbuf   times 8 db 0
 vx_pal16    times 16 dw 0       ; the 16 desktop colours as RGB words (16bpp)
 vx_cursave_b times CUR_GW * CUR_GH * 2 db 0

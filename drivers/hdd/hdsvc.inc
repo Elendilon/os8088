@@ -191,6 +191,26 @@ hd_tw_unmount_slot:
     ret
 
 ; -----------------------------------------------------------------------------
+; hd_tw_unmount_sel - the tool window's slot unmounted, Format's and Delete's
+;                     one shape (SPEC.md 52.2.3, 52.4.1)
+; in:  [hd_tsel], [hd_tdev]; the gfx lock is HELD
+; out: [hd_tdrop] as hd_tw_unmount_slot leaves it; AL = [hd_tsel], AH =
+;      [hd_tdev]
+; clobbers: flags
+;
+; When anything went, the set of mounted drives the next boot reads has just
+; changed: STAGED, like every other setting in the machine, and written when
+; the panel closes (SPEC.md 31.8).
+; -----------------------------------------------------------------------------
+hd_tw_unmount_sel:
+    mov al, [hd_tsel]
+    mov ah, [hd_tdev]
+    call hd_tw_unmount_slot
+    cmp byte [hd_tdrop], 0
+    jne hd_cfg_mark
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_cfg_mark - stage the settings blob (SPEC.md 52.6). NO DISK I/O
 ; in:  nothing
 ; out: nothing

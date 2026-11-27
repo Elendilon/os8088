@@ -10,15 +10,16 @@
 ; THE COMMON CONTRACT, which SPEC.md 135.5 pins per proc:
 ; - every coordinate is CONTENT-relative (the window's content box: the
 ;   working area's CPW_W_OX/OY), so a page never adds an origin;
-; - ES = the asset claim (cpw_ev's), DS = KERNEL_SEG, the gfx lock held;
+; - ES = the image's data view (cpw_ev's), DS = KERNEL_SEG, the gfx lock
+;   held;
 ; - every register is preserved but a documented output, and [gfx_color] is
 ;   left wherever the last primitive put it;
 ; - text is ONE opaque font_run (SPEC.md 6.1) and nothing writes a pixel
 ;   twice: a band with text in it is laid as the spans AROUND the text;
 ; - a label a widget takes is an IMAGE string (CS); text from elsewhere goes
 ;   through cpw_run or cpk_text, whose BL names the segment - 0 this image,
-;   1 the kernel's (cp_sbuf: what CPE_GATE stages), 2 the asset claim
-;   (CPWIDE.DAT's catalog, the working area).
+;   1 the kernel's (cp_sbuf: what CPE_GATE stages), 2 ES, the image's data
+;   view (CPWIDE.DAT's catalog, the working area).
 ; =============================================================================
 
 section .modv                   ; CPWIDE.DRV's image, like the file that
@@ -172,12 +173,15 @@ cpw_runp:
 ;      32x32; BL = the ground colour; CX/DX = x/y, content-relative
 ; out: nothing; every register kept
 ;
-; The file holds each icon's pixels and its mask (SPEC.md 135.6: one bit a
+; The assets hold each icon's pixels and its mask (SPEC.md 135.6: one bit a
 ; pixel, 1 = opaque, a transparent pixel's nibble 0). The pixels are copied
 ; into the working area's staging buffer with every transparent nibble made
 ; the ground, and the buffer goes down in ONE OSAPI_GFX_BLIT4 - so an icon on
 ; a selected (blue) row and on a white one is the same 128 or 512 bytes, and
-; nothing is drawn under it first.
+; nothing is drawn under it first. The copy is `es lodsb` / `stosb`, ES the
+; image's data view on both sides (the source NAMES its segment - SPEC.md
+; 2.8.6's rule for a module's lods), and both blocks' offsets are this
+; assembly's constants (cpwfmt.inc), never the header's.
 ; -----------------------------------------------------------------------------
 cpw_icon:
     push ax
@@ -196,8 +200,7 @@ cpw_icon:
     jnz .big
     mov dx, CWD_I16_SZ
     mul dl                      ; (AH = 0: a byte multiply, 160 x index)
-    add ax, [es:CPW_WSZ + CWD_H_OFF16]
-    mov si, ax
+    add ax, CPW_WSZ + CWD_OFF16
     mov cx, CWD_I16_PIX / 8     ; CX = (mask word, eight bytes) groups
     mov bp, CWD_I16_PIX
     jmp short .have
@@ -205,23 +208,22 @@ cpw_icon:
     xor ah, ah
     mov dx, CWD_I32_SZ
     mul dx
-    add ax, [es:CPW_WSZ + CWD_H_OFF32]
-    mov si, ax
+    add ax, CPW_WSZ + CWD_OFF32
     mov cx, CWD_I32_PIX / 8
     mov bp, CWD_I32_PIX
 .have:
-    add si, CPW_WSZ             ; SI = its pixels in the claim
+    xchg si, ax                 ; SI = its pixels
     add bp, si                  ; BP = its masks
     mov di, CPW_W_ICON
     push cx                     ; (the group count says which size)
+    cld
 .g:
     mov dx, [es:bp]             ; sixteen pixels' mask, bit 15 the leftmost
     inc bp
     inc bp
     mov ah, 8
 .b:
-    mov al, [es:si]
-    inc si
+    es lodsb
     shl dx, 1
     jc .hi
     and al, 0x0F
@@ -232,8 +234,7 @@ cpw_icon:
     and al, 0xF0
     or al, bh
 .lo:
-    mov [es:di], al
-    inc di
+    stosb
     dec ah
     jnz .b
     loop .g
@@ -276,15 +277,17 @@ cpw_icon:
 ; under it. The body is NOT filled: it is the page's ground, laid by whoever
 ; laid the page's.
 ; -----------------------------------------------------------------------------
+CPKG_X      equ 8               ; cpk_group's box, read off its own frame
+CPKG_Y      equ 6               ; ([bp+n]: SS) - the four registers it banks
+CPKG_R      equ 4               ; at entry, and no scratch store at all
+CPKG_B      equ 2
 cpk_group:
     push ax
     push bx
     push cx
     push dx
-    mov [es:CPK_S_X], ax
-    mov [es:CPK_S_Y], bx
-    mov [es:CPK_S_R], cx
-    mov [es:CPK_S_B], dx
+    push bp
+    mov bp, sp
     mov byte [gfx_color], CLGRAY
     mov dx, bx                  ; the band's two rows above the text...
     inc dx
@@ -293,7 +296,7 @@ cpk_group:
     mov dx, bx
     inc dx
     call cpw_fill
-    mov bx, [es:CPK_S_Y]        ; ...the left margin
+    mov bx, [bp+CPKG_Y]         ; ...the left margin
     inc bx
     inc bx
     mov cx, ax
@@ -311,25 +314,26 @@ cpk_group:
     pop bx
     mov byte [gfx_color], CLGRAY    ; (a renderer may leave the pen at the
     mov ax, cx                  ; ink: VESA.DRV's does) ...and the rest of
-    mov cx, [es:CPK_S_R]        ; its row
+    mov cx, [bp+CPKG_R]         ; its row
     add dx, 7
     cmp ax, cx
     jg .fr
     call cpw_fill
 .fr:
     mov byte [gfx_color], CBLACK    ; the frame: left, right, bottom
-    mov ax, [es:CPK_S_X]
-    mov bx, [es:CPK_S_Y]
+    mov ax, [bp+CPKG_X]
+    mov bx, [bp+CPKG_Y]
     add bx, CPK_BANDH
     mov cx, ax
-    mov dx, [es:CPK_S_B]
+    mov dx, [bp+CPKG_B]
     call cpw_fill
-    mov ax, [es:CPK_S_R]
+    mov ax, [bp+CPKG_R]
     mov cx, ax
     call cpw_fill
     mov bx, dx
-    mov ax, [es:CPK_S_X]
+    mov ax, [bp+CPKG_X]
     call cpw_fill
+    pop bp
     pop dx
     pop cx
     pop bx
@@ -411,6 +415,7 @@ cpk_tabs:
     push dx
     push si
     push di
+    push bp
     mov ah, al                  ; AH = the chosen, AL = the tab being drawn
     xor al, al
 .t:
@@ -422,8 +427,7 @@ cpk_tabs:
     mov di, (CBLUE << 8) | CWHITE
 .c:
     push ax
-    mov [es:CPK_S_X], cx
-    mov [es:CPK_S_Y], dx
+    mov bp, cx                  ; BP = this tab's left
     mov ax, di
     mov [gfx_color], ah
     mov ax, cx                  ; the left margin, full height
@@ -440,16 +444,13 @@ cpk_tabs:
     xor bl, bl
     call cpw_run                ; CX = past it
     pop bx
-    push si                     ; (SI past the label: the next one)
-.sk:
+.sk:                            ; (SI past the label: the next one)
     inc si
     cmp byte [cs:si-1], 0
     jne .sk
-    mov [es:CPK_S_I], si
-    pop si
     mov ax, di                  ; the rows above and below the label
     mov [gfx_color], ah
-    mov ax, [es:CPK_S_X]
+    mov ax, bp
     add ax, 4
     dec cx                      ; (CX = its last column)
     mov dx, bx
@@ -462,7 +463,7 @@ cpk_tabs:
     call cpw_fill
     mov ax, cx                  ; the right margin, full height
     inc ax
-    mov bx, [es:CPK_S_Y]
+    sub bx, 11                  ; (BX = the strip's top again)
     add cx, 4
     mov dx, bx
     add dx, CPK_TABH - 1
@@ -473,11 +474,11 @@ cpk_tabs:
     call cpw_fill
     inc cx                      ; CX = the next tab's left
     mov dx, bx
-    mov si, [es:CPK_S_I]
     pop ax
     inc al
     jmp .t
 .out:
+    pop bp
     pop di
     pop si
     pop dx
@@ -660,11 +661,11 @@ cpk_tbclick:
     push dx
     push si
     mov si, bx                  ; SI = the block
-    mov ax, cx
-    sub ax, [es:si+CPKT_X]
+    mov bx, cx
+    sub bx, [es:si+CPKT_X]
     jl .no
-    cmp ax, [es:si+CPKT_W]
-    jge .no
+    sub bx, [es:si+CPKT_W]      ; BX = x - left - width: -width..-1 inside,
+    jge .no                     ; -CPK_SBW and up the scroll bar
     mov ax, dx
     sub ax, [es:si+CPKT_Y]
     jl .no
@@ -674,12 +675,7 @@ cpk_tbclick:
     pop dx
     cmp ax, [es:si+CPKT_NV]
     jae .no
-    push ax
-    mov ax, cx
-    sub ax, [es:si+CPKT_X]
-    add ax, CPK_SBW
-    cmp ax, [es:si+CPKT_W]
-    pop ax
+    cmp bx, -CPK_SBW
     jge .bar
     add ax, [es:si+CPKT_TOP]    ; a row
     cmp ax, [es:si+CPKT_N]
@@ -687,6 +683,7 @@ cpk_tbclick:
     clc
     jmp short .out
 .bar:
+    mov bx, si
     call cpk_tbsb               ; BX = os88ui_ksb
     add cx, [es:CPW_W_OX]       ; os88ui_sbhit takes the point absolute
     add dx, [es:CPW_W_OY]
@@ -786,7 +783,8 @@ cpk_badge:
     ret
 
 ; cpk_ds - DS = the segment BL names (0 this image, 1 the kernel's - DS as it
-; is - 2 the claim). The caller pushes DS first and pops it after. Keeps all
+; is - 2 ES, the image's data view). The caller pushes DS first and pops it
+; after. Keeps all
 cpk_ds:
     or bl, bl
     jnz .n

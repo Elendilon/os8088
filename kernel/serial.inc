@@ -124,13 +124,13 @@ srl_api:
     retf
 srl_body:
     cmp al, 0
-    je srl_open
+    je .open
     cmp word [cs:srl_base], 0
     je .busy
     cmp dh, [cs:srl_owner]
     jne .busy
     cmp al, 1
-    je srl_close
+    je .close
     cmp al, 2
     je .pump
     cmp al, 5
@@ -145,8 +145,47 @@ srl_body:
     mov bx, [cs:srl_buf]
     mov dx, [cs:srl_seg]
     mov es, dx
-    cmp al, 2
-    je .read
+    cmp al, 2                   ; THE READ FALLS IN (driver size pass 2): the
+    jne .other                  ; verb a poller makes per byte takes no jump
+.read:
+    mov dl, [es:bx+1]
+    cmp dl, [es:bx]
+    je .empty
+    xor dh, dh
+    mov di, bx
+    add di, dx
+    mov al, [es:di+SER_RX]
+    mov ah, [es:bx+2]
+    mov byte [es:bx+2], 0
+    inc dl
+    mov [es:bx+1], dl
+    clc
+    ret
+.empty:
+    mov ax, 6
+    stc
+    ret
+; ...and the cold half of the dispatch, laid where the head's short jumps
+; reach it: Open and Close, and the refusals. A jump to a far target was a
+; jcc over a near jmp, which the hot verbs paid as a TAKEN jump at each
+; test they passed (driver size pass 2)
+.open:
+    jmp srl_open
+.close:
+    jmp srl_close
+.full:
+    mov ax, 7
+    stc
+    ret
+.bad:
+    mov ax, 5
+    stc
+    ret
+.busy:
+    mov ax, 1
+    stc
+    ret
+.other:
     cmp al, 4
     je .wblk
     cmp al, 5
@@ -170,24 +209,6 @@ srl_body:
     out dx, al
     call srl_pump              ; also kick the first ready byte immediately
     xor ax, ax
-    ret
-.read:
-    mov dl, [es:bx+1]
-    cmp dl, [es:bx]
-    je .empty
-    xor dh, dh
-    mov di, bx
-    add di, dx
-    mov al, [es:di+SER_RX]
-    mov ah, [es:bx+2]
-    mov byte [es:bx+2], 0
-    inc dl
-    mov [es:bx+1], dl
-    clc
-    ret
-.empty:
-    mov ax, 6
-    stc
     ret
 ; The block verbs (115.1.2): a run in one call, moved with rep movsb up to
 ; the ring's wrap and again from 0, its index published once at the end -
@@ -275,24 +296,12 @@ srl_body:
     pop cx
     sub cx, ax
     ret
-.full:
-    mov ax, 7
-    stc
-    ret
-.bad:
-    mov ax, 5
-    stc
-    ret
-.busy:
-    mov ax, 1
-    stc
-    ret
 
 srl_open:
     cmp word [cs:srl_base], 0
     je .fresh
     cmp dh, [cs:srl_owner]      ; the holder MOVES its lease (115.1): the old
-    jne srl_body.busy           ; port is put back as Close would, the module
+    jne .busy                   ; port is put back as Close would, the module
     push dx                     ; stays, and a refusal below leaves it closed
     call srl_close
     pop dx
@@ -308,15 +317,15 @@ srl_open:
     add ax, inst_tab
     xchg ax, di
     cmp byte [di+I_STATE], 0
-    je srl_body.bad
+    je .bad
     mov ax, es
     cmp ax, [di+I_SPTR]
-    jne srl_body.bad
+    jne .bad
     mov ax, si
     add ax, SER_SIZE
-    jc srl_body.bad
+    jc .bad
     cmp ax, [di+I_SIZE]
-    ja srl_body.bad
+    ja .bad
     mov ch, bl                  ; bit 7: the USER named this port (115.1.1)
     and bl, 0x7f
     cmp bl, 1
@@ -342,6 +351,47 @@ srl_open:
     jb .bda
     pop es
     mov ax, 9                   ; a UART the BIOS does not list (115.1)
+    stc
+    ret
+; THE REFUSALS, HERE AND NOT AT THE END (driver size pass 2): after the
+; first `ret` the open meets, so that every test above and the contest's
+; three exits to .take below reach them with a short jump. The open's own
+; busy and bad answers too, where srl_body's had been out of reach since the
+; dispatch laid its own in its middle
+.busy:
+    mov ax, 1
+    stc
+    ret
+.bad:
+    mov ax, 5
+    stc
+    ret
+.unsettled:                     ; no mouse has spoken yet (115.1.1): this
+    cmp byte [bx+mou_ident], 0  ; port answered the reset edge LIKE one, so
+    jne .mouse                  ; it is one, whoever says otherwise
+    test ch, 0x80               ; the user said "not the mouse": the machine
+    jnz .take                   ; may have no serial mouse at all
+    mov cl, [mou_ident]         ; a mouse identified on the OTHER port
+    or cl, [mou_ident+2]
+    jnz .take
+    push dx                     ; DSR or DCD driven: a modem, or a null
+    mov dx, ax                  ; modem whose far end holds DTR. A serial
+    add dx, 6                   ; mouse drives neither line
+    in al, dx
+    sub dx, 6
+    xchg ax, dx                 ; AX = the base again, DL = the MSR
+    test dl, 0xa0
+    pop dx
+    jnz .take
+    mov ax, 2
+    stc
+    ret
+.mouse:
+    mov ax, 3
+    stc
+    ret
+.absent:
+    mov ax, 4
     stc
     ret
 .listed:
@@ -419,34 +469,6 @@ srl_open:
     mov al, 1
     out dx, al
     xor ax, ax
-    ret
-.unsettled:                     ; no mouse has spoken yet (115.1.1): this
-    cmp byte [bx+mou_ident], 0  ; port answered the reset edge LIKE one, so
-    jne .mouse                  ; it is one, whoever says otherwise
-    test ch, 0x80               ; the user said "not the mouse": the machine
-    jnz .take                   ; may have no serial mouse at all
-    mov cl, [mou_ident]         ; a mouse identified on the OTHER port
-    or cl, [mou_ident+2]
-    jnz .take
-    push dx                     ; DSR or DCD driven: a modem, or a null
-    mov dx, ax                  ; modem whose far end holds DTR. A serial
-    add dx, 6                   ; mouse drives neither line
-    in al, dx
-    sub dx, 6
-    xchg ax, dx                 ; AX = the base again, DL = the MSR
-    test dl, 0xa0
-    pop dx
-    jnz .take
-    mov ax, 2
-    stc
-    ret
-.mouse:
-    mov ax, 3
-    stc
-    ret
-.absent:
-    mov ax, 4
-    stc
     ret
 
 srl_close:
@@ -596,7 +618,17 @@ srl_release:
 ; so a KEPT image's drop zeroes it back to what a load brings in (SPEC.md
 ; 2.8.3). srl_base = 0 is "no lease", and nothing else here is read without
 ; it: srl_open writes every cell before it sets srl_base, srl_body and
-; srl_open test it first, and srl_release does now as well
+; srl_open test it first, and srl_release does now as well. EVEN: the
+; dispatch and the ISR read its three words on every call and every byte, a
+; bus cycle less apiece on a 16-bit bus (driver size pass 2)
+;
+; On kern_mega the fsx bracket (fsx.inc's fsx_rserdn and its rows, W7,
+; SPEC.md 53.2.3) reads and writes srl_seg, srl_buf and srl_mask through the
+; module's data selector at their offsets in this image (SRL_O_*): resident
+; IMMEDIATES assembled from these labels in the same build, so they follow
+; the block wherever it lands - a value that moves with the module's layout,
+; the class driver size pass 2's record rules (docs/plans/completed/dsp2/RECORD.md 3)
+    align 2, db 0
 srl_base: dw 0
 srl_seg: dw 0
 srl_buf: dw 0
