@@ -808,6 +808,27 @@ _os88_wm_minsize:
     ret
 %endif
 
+; void os88_wm_prefer(void *win, const int *table) - BX = win, SI = the
+; offset of a 12-byte table, three (w, h) pairs in VGA, Hercules, CGA order
+; (SPEC.md 11.100.1); 0 withdraws it. THE KERNEL KEEPS THE OFFSET and reads
+; the table through the window's segment at every landing, so the table must
+; be a STATIC that outlives the window - never an automatic, which is a
+; stack offset read through the package segment (SPEC.md 73.5). It registers
+; AND applies, and preserves the flags (os88api.inc).
+CC_GATE _os88_wm_prefer
+%ifdef CC_U__os88_wm_prefer
+_os88_wm_prefer:
+    push bp
+    mov bp, sp
+    push si
+    mov bx, [bp+4]
+    mov si, [bp+6]
+    call OSAPI_WM_PREFER
+    pop si
+    pop bp
+    ret
+%endif
+
 ; void os88_wm_cursor(void *win, int shape) - BX = win, AL = OS88_CUR_*.
 ; Set it once at creation; the pointer wears it over your CONTENT only, and it
 ; dies with the record. Not CC_T_WINF: that macro folds any non-zero argument

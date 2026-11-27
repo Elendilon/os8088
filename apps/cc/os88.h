@@ -142,26 +142,27 @@
  *   OSAPI_WM_ONSIZE                       it must ANSWER in CX/DX with a size
  *     it will accept, and a C function has one return value. Write the
  *     negotiator in the shim's assembly if you need one.
- *   OSAPI_REBOOT, OSAPI_FILE_GOTO_Q, OSAPI_VOL_AT, OSAPI_WM_PREFER,
+ *   OSAPI_REBOOT, OSAPI_FILE_GOTO_Q, OSAPI_VOL_AT,
  *   OSAPI_FONT_GLYPHS, OSAPI_WM_BAND      omitted for surface, not for
  *     danger. Adding one is a thunk of a dozen lines in os88thunk.asm.
  *     (OSAPI_FILE_GOTO_QM, GOTO_Q's instance-marking twin, is wrapped as
  *     os88_file_goto_q_mark(): SPEC.md 74.1 says why the plain one was not
  *     enough for a program whose working folder changes on every call.
- *     OSAPI_WM_PREFER's argument is a 12-byte TABLE that has to outlive the
- *     call, which is a thing to get wrong from C for no gain here;
- *     os88_wm_minsize() is the half of SPEC.md 11.100 that is two ints and
- *     is wrapped. OSAPI_FILE_READ_AT was on this list until a package wanted
+ *     OSAPI_WM_PREFER was on this list - its argument is a 12-byte TABLE
+ *     that has to outlive the call - until the extended-desktop audit found
+ *     C64, PaccMan and RunCPM sized once off the primary and never refitted
+ *     on a shorter display: it is os88_wm_prefer(), with the table a
+ *     static. OSAPI_FILE_READ_AT was on this list until a package wanted
  *     to read a file's HEADER and decide from it before reading the rest,
  *     which os88_file_read() cannot express - it is os88_file_read_at().)
  *
- * The count: 105 of the 164 slots apps/os88api.inc publishes, plus six
- * window-record accessors and six runtime helpers that are not slots at all -
- * 133 C entry points, and every one of them is in apps/cc/os88thunk.asm -
+ * The count: 106 of the 164 slots apps/os88api.inc publishes, plus six
+ * window-record accessors and seven runtime helpers that are not slots at all -
+ * 135 C entry points, and every one of them is in apps/cc/os88thunk.asm -
  * FOUR OF THEM ONLY IF THE SHIM SAYS SO. The four fsx_* thunks are behind
  * `%define CC_HAS_FSX` (the gate list below), so a package without it has
  * four prototypes with no bodies. And a package ASSEMBLES ONLY THE ENTRY
- * POINTS ITS C CALLS (SPEC.md 73.9.1): ccsmoke carries 13 of the 133, so an
+ * POINTS ITS C CALLS (SPEC.md 73.9.1): ccsmoke carries 13 of the 135, so an
  * unused prototype here costs nothing and neither does an unused thunk. The
  * recipe below counts the FILE, which holds all of them.
  *
@@ -186,7 +187,10 @@
  * THE WIRE onto the integration branch beside its own five new slots answers
  * 101/160/129, APPLE2's four gated fsx thunks (SPEC.md 53) take the file to
  * 105/160/133, and this cycle's four slots - PKG_REHOME, GFX_POINTS, CUR_BUSY
- * and WM_MINIMIZE, none of them wrapped - take it to 105/164/133. Run the
+ * and WM_MINIMIZE, none of them wrapped - take it to 105/164/133, and the
+ * extended-desktop round's os88_wm_prefer() (a slot) and os88_fsx_pick() (a
+ * helper over OSAPI_FSX_CAPS, inside the CC_HAS_FSX block) to 106/164/135.
+ * Run the
  * recipe when you touch this file; do not add one to what is written here.
  * ==========================================================================*/
 
@@ -823,6 +827,18 @@ void os88_wm_resize(void *win, int w, int h);    /* lock held or not (11.1.2) */
  * read os88_wm_geom() after an os88_onresize() rather than assuming the box
  * you asked for is the box you got. */
 void os88_wm_minsize(void *win, int w, int h);
+
+/* os88_wm_prefer - "this is the frame I want on each adapter kind" (SPEC.md
+ * 11.100.1): TABLE is six ints, (w, h) for a VGA, a Hercules and a CGA, and
+ * a (0, 0) pair is "no preference there". The kernel applies it now and
+ * again at every landing on another kind of display - a drag from a VGA onto
+ * a 200-row CGA refits the window, which a template authored for 480 rows
+ * never got (the extended-desktop audit's K3) - clamped by the display, so
+ * a generous height is right: "as tall as it will give me". THE KERNEL
+ * KEEPS THE OFFSET: the table must be a static that outlives the window
+ * (rule 1). NULL withdraws it. Read os88_wm_geom() after an os88_onresize()
+ * or in your paint rather than assuming. */
+void os88_wm_prefer(void *win, const int *table);
 void os88_wm_cursor(void *win, int shape);       /* OS88_CUR_*, over your
                                                   * content only (7.2) */
 

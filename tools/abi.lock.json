@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "f05e33001d0422b64390ee6c8a9519560337c18305f1800e091cba822f3a16c7",
+  "fingerprint": "6b5d99c9bd8a6bd2255ffba8c59f5a0520fbf3da12be5ee56e429c704b3a02c6",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2497,6 +2497,13 @@
    "from": 13,
    "guard": "PKG_FMT",
    "reason": "C SDK: os88_fsx_pick() added (SPEC.md 53.1.2.1) - a new thunk, nothing built before changes",
+   "to": 13
+  },
+  {
+   "fingerprint": "6b5d99c9bd8a6bd2255ffba8c59f5a0520fbf3da12be5ee56e429c704b3a02c6",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "C SDK: os88_wm_prefer() added (SPEC.md 11.100.1) - a new thunk, nothing built before changes",
    "to": 13
   }
  ]

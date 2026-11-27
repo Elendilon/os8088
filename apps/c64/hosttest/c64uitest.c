@@ -528,6 +528,7 @@ int  os88_fullscreen(void *win, int enter)
     return 0;
 }
 void os88_menu_set(void *win, struct os88_menuset *set) { }
+void os88_wm_prefer(void *win, const int *table) { (void)win; (void)table; }
 
 /* os88_task_spawn's REAL contract (os88.h:615-620): call it from a callback
  * with the gfx lock HELD - "that is required, not allowed" - and it answers 0,
