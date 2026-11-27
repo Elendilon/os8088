@@ -1542,8 +1542,10 @@ figure beside each in `kernel.asm` is the count it was taken at, kern_big's /
 kern_small's; a target whose CALL sites fall to two on one build takes the
 plain far call there instead, through the `%define` block above the includes
 (`cw_snd_beep` on `kern_small`, `cw_wm_clip_test` on `kern_big`), and three is
-a wash. `ct_cw_font_run` stays at two on `kern_big` because its sites are
-mostly tail jumps, which a far call cannot replace for less.
+a wash. `ct_cw_font_run` went the same way on both builds: its one tail
+jump, `fm_brun`, makes the far call itself (kernel size pass 20 on
+`kern_small`, 21 on `kern_big`), which left `kern_big` one call site, the
+kernel arm's `UI_RUN`, and the trampoline's name is the far call there.
 
 ### 2.6.3 A kernel window's callbacks are `.cold` — no thunk per callback
 
@@ -13353,9 +13355,11 @@ slice as its `gfx_unlock`, so it re-takes the flag before the waiter has been
 
 **What it cost, measured on `os8088_5150_herc` with `apps/wire` drawing** — a
 memory breakpoint on `evq_tail` starts the clock where the mouse ISR queues the
-press, one on `menu_ent` stops it where `menu_track` has the pull-down up, so
-the number is the kernel's own and carries none of the harness's injection
-delay (§7.3.1):
+press, one on `menu_cell` stops it where `menu_track` has found the pressed
+title and starts on the pull-down (its `.found` store; the word `menu_ent`,
+written one instruction earlier, was the stop until kernel size pass 21 took
+it away), so the number is the kernel's own and carries none of the harness's
+injection delay (§7.3.1):
 
 | | press queued → menu up | blocks on the lock |
 |---|---|---:|
@@ -15285,7 +15289,7 @@ have left it is three things, and each is one instruction:
   scribbling on the slot underneath. So `SP` moves first — to
   task 0's, the largest in the machine and, at `IF` = 0 for ever, owned by
   nobody — and the evidence (the slot, its parked SP, its instance) is then
-  read out of the task table into registers and pushed there. If task 0
+  pushed there straight out of the task table. If task 0
   *is* the corpse, the evidence came from the table and not from its stack,
   so overwriting that stack costs the panel nothing.
 - **No armed clip region.** `font_run` honours one (§11.3), and a package that
@@ -20018,8 +20022,12 @@ shape, §19.7.1.1), in every kernel:
 Each word is read and zeroed by one `xchg`, which no interrupt can split.
 There is deliberately no `cli` round the pair: a report landing between the
 two answers its dx now and its dy at the next call, a frame late and never
-lost, and leaving it out keeps the body at 22 bytes, an EVEN count, which
-every hot routine assembled after it needs (`tests/unit/t_hotpar.py`). The first call after
+lost. On the real-mode kernels the body reads the three cells through `cs:`
+(CS is KERNEL_SEG in `.text`) instead of banking DS: 21 bytes, the odd one
+taking the place of the PARITY byte after `mou_p2_off`, so every hot routine
+assembled after it keeps its parity (`tests/unit/t_hotpar.py`; kernel size
+pass 21). kern_mega's CS is a read-only selector in protected mode, so it
+keeps the DS bank and the 22 bytes, pad and all. The first call after
 boot answers whatever motion the desktop saw, so a mouse-look calls it once
 on entry and discards the answer.
 
@@ -20064,7 +20072,13 @@ codes. While the PC1 row is attached, the kernel records 77h/78h/79h in that
 map and prevents those bytes from being enqueued as typed keys. Since the PC1
 is an XT, the kernel consumes them in INT 09h, pulses bit 7 of port 61h to
 acknowledge the 8255 byte, then sends IRQ1's EOI. Ordinary scancodes keep their
-normal path. The middle code 78h is consumed but does not map to an OS button.
+normal path, and keypad 5 is one of them: §9.6.4's press marks `[kbm_p5]` and
+then chains to the BIOS like any other key. That is why the eat tail sits after
+`kbm_isr`'s chain on every kernel, reached only by jumps. From #371 until kernel
+size pass 21 it sat between `KBM_SCAN` and `.chain` on kern_big, kern_emu and
+kern_mega, and keypad 5 fell into it and never reached the BIOS
+(`tests/unit/t_pc1mouse.py` guards the layout). The middle code 78h is consumed
+but does not map to an OS button.
 Detach stops the worker, which feeds a release for any held button on its way
 out.
 
@@ -37844,21 +37858,42 @@ full-screen DOS program whose arena had taken the heap the 11KB module needed
 not move. `DISKOPS.DRV` is 265 bytes smaller on `kern_big`, 270 on
 `kern_mega`.
 
+**Kernel size pass 21 made them smaller, with the swapped-floppy check, every
+refusal and every int 13h call as they were** (docs/plans/completed/ksp21/diskw.md):
+`dskw_rmbody_n83` carries the folder test and the emptiness scan itself
+(`dskw_fdir`, `dskw_isempty` and `dskw_scan1` were its single-caller
+helpers; `dskw_isempty` is left as the pop tail `drvvol.inc` shares); both
+renames hold the new name's pointer in BX and parse it a second time into
+the staged entry, so `dskw_n83b` is gone from `.bss`; `dskw_commit` spends
+`[dskw_isdir]` at its last read, so New Folder neither clears it nor banks
+round its rollback; `dskw_wck` banks once and reads the gate and
+`[dsk_mvok]` as one word; and the module's verbs are `dskw_wrap7` bodies
+(`dskw_dirbody`, and on `kern_small` `dskw_dirb`) where `dskw_dircall` was a
+ladder of its own. The three bodies and their door, kern_big/kern_emu:
+New Folder -11 (`dskw_mkbody`'s tails and the commit), Rename -14 `.cold`
+and -11 `.bss`, empty rmdir -35, the media check -18, the tree's door -32.
+
 **The module path (the tree; all four on `kern_small`).** Their public
 register, CF, validation and disk-integrity contracts remain those in
 §18.4–§18.6. A mutation in the module loads it on the UI task before making
 changes, so the system disk must be available when one is first invoked.
 The loader preserves/restores the caller's mounted target volume; loading
 must not redirect a mutation to the system disk. **The mount gate is tested
-BEFORE the module is loaded**: `dskw_dircall` refuses `[dsk_mntok]` ≠ 1 with
+BEFORE the module is loaded**: the dispatch refuses `[dsk_mntok]` ≠ 1 with
 CF=1, AX = `FERR_NODISK` (§18.4's gate answer) and loads nothing, because a
 shut gate is exactly the state in which `mod_need`'s `drv_vol_bank` banks the
 BOOT volume's root (§51.5.2.1: a failed mount is not banked), so the load
-would open the gate there and the verb would run on the system disk. Where
-§18.9.1.3's media check is built (every kernel but `kern_small`),
-`dskw_dircall` runs it next, through `dskw_wck`, exactly as the resident
-bodies do through `dskw_wrp`/`dskw_wrap7` - a swapped floppy refuses before
-the module loads. The module's own gate stays, for the state after a load. A
+would open the gate there and the verb would run on the system disk. On
+`kern_small` that is `dskw_dirb`, one `dskw_wrap7` body for all four verbs,
+entered at the verb's own byte (kernel size pass 21). Where §18.9.1.3's media
+check is built (every kernel but `kern_small`) the tree's dispatch is
+`dskw_dirbody`, a `dskw_wrap7` body like every resident write body's
+(kernel size pass 21): `dskw_wck` asks its media question first - a shut gate
+passes it with no I/O, and a quiet mount it makes either opens the gate again
+or refuses - and `dskw_dirbody` then tests the gate before anything loads. So
+a swapped floppy refuses before the module loads, as it always did, and the
+answers and the I/O are the ones `dskw_dircall` gave in the other order. The
+module's own gate stays, for the state after a load. A
 missing or mismatched module refuses through the existing file-error path
 (FERR_IO) before any metadata is modified. It must never report success or
 partially rename, create or remove a directory on a load refusal.
@@ -48999,7 +49034,9 @@ but only the table's LAST cells: step 3 below answers an index at or past
 its `RD_N` with the refusal entry's own CF = 1, AX = 1, for no bytes, while
 a gap mid-table would move every later index. kern_small does this for
 `OSAPI_FILE_PLACE` (§19.12.8), its heap rung being locked; kern_big holds
-an `RDREF` row for it (`api_refusec`, six `.cold` bytes) because the SDK's
+an `RDREF` row for it (`api_refusec`, which there is `OSAPI_VOL_STAT`'s
+no-volume exit - `mov ax, FERR_NODISK` / `stc` / `retf`, the same answer by
+that cell's own contract, so no byte of its own) because the SDK's
 indices are generated from kern_big's table, and t_api_abi passes a cell
 past a kernel's `RD_N - RD_P` as refused.
 
@@ -62670,7 +62707,8 @@ AH=08h for units 0 and 1 with `CF = 1, AH = 01h`, exactly as it does with
 360KB ones. Several of this tree's own 86Box XTs (`xt-z`, `xt-word`,
 `xt-paccman`, `xt-sound-1.44`) boot a 3.5" drive 0 on an XT ROM. So on a
 marked row the **first mount corrects it from the medium**: `disk_mount_x`
-calls `desk_learn_x` right after `dsk_bpb_check`, and the medium settles the
+asks right after `dsk_bpb_check` (its DESK_LEARN block - `desk_learn_x` until
+kernel size pass 21 wrote it in at its one call), and the medium settles the
 drive where the medium CAN —
 
 | mounted medium | the drive must take |
@@ -72329,9 +72367,12 @@ care (`inst_find_kind`, and `app_launch`'s cap check by way of not caring) ask
 `I_STATE` themselves. A **free** record is not a walk: `inst_alloc` is looking
 for exactly the row this skips, and keeps its own scan.
 
-`files.inc`'s **`fm_reloc`** is the sixth caller and the only one outside this
-file — the listing cache's relocation proc (§66.6), which walks the Disk
-instances to find the one holding the block being moved.
+`files.inc`'s **`fm_reloc`** was a sixth caller, the only one outside this
+file — the listing cache's relocation proc (§66.6), which walked the Disk
+instances to find the one holding the block being moved. Since kernel size
+pass 21 it walks no records at all: it matches the old base against the five
+`fm_pool` blocks' `FS_VSEG` by value, as `kern_small`'s `mem_evw` does
+(§50.6.13), which is 16 bytes of `.text` smaller.
 
 ##### 29.1.1.1 The five walks that are NOT this one
 
@@ -79436,7 +79477,9 @@ mid-format while the UI task carries a second. Two rules make that safe, and bot
 1. **Every carrying write is one critical section.** `clk_inc_sec` and
    `clk_fld_adj` mutate under `pushf`/`cli` … `popf` (§1), so the fields
    are only ever observed before or after a whole second (or a whole edit),
-   never mid-carry. The guard sits inside `clk_inc_sec`, per second, rather
+   never mid-carry. The guard sits inside `clk_inc_sec` (the body of
+   `clk_tick`'s catch-up loop, its one caller, since kernel size pass 21),
+   per second, rather
    than around `clk_tick`'s catch-up loop — an hour of held-open menu owes
    3600 seconds and must not hold interrupts off for all of them at once.
 2. **Every reader formats from `clk_snapshot`**, which copies the six fields
@@ -79499,7 +79542,7 @@ the caller cannot know which rung answered.
 | `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only — AH is left 0 or 2, which is inside that, and the one caller reads AL. **It drains `[clk_barq]` with an `xchg` and DOUBLES the byte into mask bit 1, so `[clk_barq]` is 0 or 1 and nothing else**: a 2 would set bit 2 and a 0x80 would double to 0 and lose the request silently. Every writer stores 0 or 1; a new one must too, or it owes this routine a compare instead. |
 | `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
 | `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 25 bytes — 24 + the NUL, counted off the format itself and no longer carrying a guard byte, because the RTC probe's scratch is now declared *into* it (§37.90). Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
-| `str_len` | In: SI = an ASCIIZ string in `KERNEL_SEG`. Out: CX = its length, NUL excluded; SI one past the NUL; every other register preserved. The kernel's only strlen, hosted in `clock.inc` beside `clk_fmt` and reached by a near call from `.text` alone — a site in `.modc` or `.cold` is in another segment and needs a shim, which is worth more than the loop it would replace. |
+| `str_len` | **Gone (kernel size pass 21).** It had one caller, `toast_place` (`toast.inc`), and is written there: the same six-instruction loop over `toast_buf`, CX = the length, NUL excluded. A `.text` routine wanting a strlen writes the loop at its site (it is cheaper than a call and a `ret` until a second caller). |
 | `clk_fld_str` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Called by §31.5, which is its only caller and now also its host. |
 
@@ -84936,8 +84979,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 |---|---|---|---|
 | 0 | `EXT_EXTEND` — the Extend arm | `vid_disp_init` `.extend` | CF = 1 → `jc .single`, with AL/AH the two kinds `.single` wants: the arrangement is Single. This IS the refusal path |
 | 1 | `EXT_LAND` — `ui_drag_size` | `ui_drag`, `ui_grow` | the image answers CF **inverted** (1 = NOT moved) and `ui_drag` follows the call with `cmc`, so `mod_gone` reads "not moved" and the drag cache survives on one display. `ui_grow` ignores CF |
-| 2 | `EXT_STRADS` | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16) | CF = 1 is "not straddling" — the one-display answer |
-| 3 | `EXT_APPLY` — straddle test + fit | `wm_apply_wh` | CF = 1 → its existing `jc .one` |
+| 2 | `EXT_STRADS` — the straddle test, and with **CF = 1 in** the fit after it (`wm_strads` + `wm_strad_fit`: slot 3's `EXT_APPLY` until kernel size pass 21 made CF the selector, −4 `.bss`) | `wm_snap_far` (written into `wm_snap_w` since kernel size pass 16), CF = 0 in; `wm_apply_wh`, CF = 1 in | CF = 1 is "not straddling" — the one-display answer for both: `wm_apply_wh`'s `jnc` falls into its one-display path |
+| 3 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`). The last entry until slot 3 was freed, and it moved in rather than leave a 4-byte hole (kernel size pass 21, as pass 20 did for slot 10) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
 | 4 | `EXT_FITBOX` | `wm_fit` | registers kept = the primary's box = the one-display answer |
 | 5 | `EXT_KINDNOW` — `wm_kind_now`'s arm | `wm_kind_now`, UNGATED (a create, fit or resize) | AL kept, and the caller loaded `[vid_kind]`: the primary's kind |
 | 6 | `EXT_FSX`, AH = enter/leave/unblank, and `EXTF_KIND`/`EXTF_CAPS` | `fsx_mode` ×2, `fsx_restore` ×2, `fsx_caps` | the bracket's three read no flags and are no-ops on one display; the two queries keep BL/DL, which the caller loaded with `[vid_kind]` |
@@ -84948,7 +84991,6 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
-| 14 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before
@@ -85032,8 +85074,9 @@ resize, zoom, drag release, whole-desktop repaint or fsx bracket, and on an
 (`OSAPI_WM_DISPLAY`, the drag release) are gated, so one display pays nothing
 there. `EXT_DISPLAY` names display 1's record in line rather than through an
 `EXK` hop, and its path (`wm_disp_now`, `wm_strads`, `wm_disp_rest`) makes
-none - the record pointer is a near copy and `vid_disp_of` is far-called
-through its resident shim `cw_vid_disp_of` - so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far call
+one - the record pointer is a near copy, and `vid_disp_of` is `ext_org_disp`'s
+`EXK` hop (it was the resident shim `cw_vid_disp_of`, then a rare-door word:
+kernel size passes 19 and 21) - so an extended desktop's `OSAPI_WM_DISPLAY` costs the one far call
 `EXT_DISPNOW` already cost it. `OSAPI_WM_DISPLAY` and `OSAPI_FSX_CAPS` on
 an extended desktop go one far frame (~10 bytes of stack) deeper, and are the
 only two that can run on a worker slice. And there is a new failure: Extend can be REFUSED, with a reason,
@@ -113958,6 +114001,10 @@ than pass 1.
 id n), DL = `vid_kind`; callable from any context, lock held or not (the
 `osapi_video` precedent), so an app can grey its mode menu per §47
 *before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011, EGA 0x00F.
+On kern_small, which has no VGA renderer and never answers `VID_VGA` (a VGA
+card runs there as a CGA), the table's VGA slot holds the CGA's 0x00F, so no
+kind offers ids 5-8 and `fsx_mode`'s row and BIOS-mode tables stop at id 4
+(kernel size pass 21, 61 bytes).
 The approximation that used to stand here — *"`vid_detect` admits EGA-class
 cards as `VID_VGA`"* — is gone: §39.24 gave the EGA its own kind and its own
 row of `fsx_capstab`, and this is the finer probe that paragraph asked for.
@@ -114538,7 +114585,10 @@ A window is now re-listed when either:
 
 A window neither describes keeps its cache and its pixels. **The repaint union
 is the reload's now** — the reload folds each visible window it re-lists into
-`fmv_ux1`… as it goes, and `fmv_repaint_all` only commits the union. It walked
+the union as it goes, and `fmv_repaint_all` only commits it. (The union was
+`fmv_ux1`…, a private rect copied into `wm_dmg_x1`… for `wm_dmg_wins`; since
+kernel size pass 21 it is folded into `wm_dmg_x1`… itself, nothing between the
+seed and `wm_dmg_wins` painting or unlocking: −23 bytes.) It walked
 `wm_zord` for every visible Disk window, and once the reload is selective a
 separate walk would have to re-derive the predicate after the reload had
 already cleared its `FS_DIRTY` half. `kern_big` **−5 bytes**: the walk it
@@ -114625,8 +114675,9 @@ package and for `kern_big` - byte for byte what they were - and on
 `fdb_kbtn`, `fdb_bhit`), with `OS88UI_KFAR`'s far primitives. The include is
 still assembled once; the body is what is assembled twice, which is the
 answer to pass 13's refusal. `os88ui_btn_f` does not exist on any kernel
-now (kernel size pass 15 removed `kern_big`'s too); `os88ui_krect` and the
-staging record stay in `.bss`, read through DS.
+now (kernel size pass 15 removed `kern_big`'s too); `os88ui_krect` stays in
+`.bss` and the staging record is in `.text` with its four constant words
+assembled in (kernel size pass 21), both read through DS.
 
 #### 38.0.1 The drop is guarded on the IMAGE, not on the window
 
@@ -114904,6 +114955,8 @@ that is not harvested off a disk (`dsk_folder_ico` is the other). Its white
 interior holds an **8×8 inset at x=4..11, y=5..12**, one pixel clear of the
 border on every side. `assoc_compose` lays the frame down and ORs the glyph
 into data rows 5..12, shifted left by 4 so a glyph byte's bit 7 lands on x=4.
+(It is the ASSOC_COMPOSE block of `disk.inc`'s `dsk_docpass`, its one caller,
+since kernel size pass 21; the name is kept for what it does.)
 
 **The frame is GENERATED, not stored.** Twenty-four of its thirty-two words
 are one of two constants, so `assoc.inc`'s `.text` carries only the seven
@@ -126104,8 +126157,12 @@ naming words — `FS_VSEG` in the window's state block and `[fm_vseg]`, the
 global mirror `fmv_fit`'s own comment calls *"what every reader looks at"* —
 and that pair is what decided §66's shape in the first place (§66.1). A word
 poke would move the block, update the state block, and leave every painter
-reading the old address. It finds its owner by walking the Disk instances,
-because the compactor knows a claim and not a window.
+reading the old address. It finds its owner by value — the `fm_pool` block
+whose `FS_VSEG` equals the old base — because the compactor knows a claim and
+not a window, and no two live windows share a listing (it walked the Disk
+instances until kernel size pass 21). A free block's stale `FS_VSEG` may be
+re-pointed with it, which nothing reads: `fm_kinit_x` stores 0 over it before
+a new window uses the block.
 
 **Every one of them is safe for the same reason**: each reader loads its
 segment immediately before a short in-memory burst and never carries it across
@@ -198845,7 +198902,9 @@ does.** `dskw_clok` — is `AX` a cluster that could exist — sits in the middl
 of the pipeline because it was once rmtree's alone, and ten places ask it now,
 `dskw_rmdir` among them. And **`dskw_isempty` is LIVE**: it is what
 `dskw_rmdir` calls to refuse a populated directory, which is exactly what
-`AH=3Ah` is. `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
+`AH=3Ah` is (since kernel size pass 21 its scan is written into
+`dskw_rmbody_n83`, its one caller, and the name is the pop tail drvvol.inc
+shares). `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
 `dskw_append`'s own chain walk bounds itself with it.
 
 **A static call-graph walk got `dskw_isempty` WRONG**, calling it dead, and a

@@ -1542,7 +1542,9 @@ cp_onkey_x:                     ; (CPG_HKEY enters here, past the forward)
     add di, CP_RX
     pop ax
     call cp_key_key
+%ifdef KERN_BIG                 ; (kern_small: .driver IS .out - pass 21, -2)
     jmp short .out
+%endif
 .driver:
 %ifdef KERN_BIG
     xchg dx, ax                 ; DX = the KEY: cp_drv_ev hands DX to the page
@@ -8549,12 +8551,9 @@ cpf_cp_tick:
 ; it is a resident body - and its own far entry since kernel size pass 20
 ; (cp_tick_due_x, above). cp_drv_gone was the second of a pair here and its
 ; far entry had no caller - the body is `.cold` and so is drv_release, its
-; only caller, which reaches it near. cp_open_x keeps a thunk where drv_notice
-; near-calls it too (OS88_DRIVERS); on kern_small the body is the far entry
-%ifdef OS88_DRIVERS
-cpf_cp_open:           call cp_open_x
-                    retf
-%endif
+; only caller, which reaches it near. cp_open_x is its own far entry on every
+; kernel: drv_notice_x, the one near caller (OS88_DRIVERS), pushes CS for the
+; `retf` (kernel size pass 21, -3: the thunk that was here)
 
 ; -----------------------------------------------------------------------------
 ; cp_open_x - open the Control Panel, or say why not (SPEC.md 2.8.4)
@@ -8573,20 +8572,20 @@ cpf_cp_open:           call cp_open_x
 ; stays loaded from here until cp_flush_close - so every other cp thunk finds
 ; the image already there and its mod_need is six compares.
 ; -----------------------------------------------------------------------------
-%ifndef OS88_DRIVERS
-cpf_cp_open:                    ; (FAR: its one caller is the slot - kernel
-%endif                          ; size pass 20, -4 on kern_small)
-cp_open_x:
+cpf_cp_open:                    ; (FAR: the slot's, and drv_notice_x's through
+cp_open_x:                      ; COLDCALL - kernel size passes 20 and 21)
     push ax                     ; the bank is the BODY's, not the load's:
     call cp_open_need           ; cpf_need banks AX itself, but `mov al,
-    jc .failed                  ; KIND_CTRL` below and `mov al, 1` at .no do not
-%ifdef KERN_BIG
+%ifdef KERN_BIG                 ; KIND_CTRL` below and `mov al, 1` at .no do not
+    jc .out                     ; cp_open_need's CF = 1 is the answer as it is
     mov ah, CPG_OPEN            ; THE IMAGE OPENS IT (SPEC.md 135.2): the face
     call far [CPFP + CPE_GATE*4] ; chosen, cp_tpl's size, KD_INIT's work, and
-    jmp short .out              ; then the app_launch and its beep below, as
-                                ; cpg_open - which is what keeps this ten
-                                ; bytes of .cold, as it was (kern_emu's rung)
+                                ; then the app_launch and its beep below, as
+                                ; cpg_open - its CF the answer, straight into
+                                ; the epilogue (kernel size pass 21, -3: the
+                                ; `jmp short .out` and the `stc` it skipped)
 %else
+    jc .failed
     mov al, KIND_CTRL
     KDOOR app_launch
     jnc .out                    ; the panel itself refused - no instance slot,
@@ -8597,16 +8596,12 @@ cp_open_x:
                                 ; what every one of these call sites did with
                                 ; a CF=1 from app_launch before cp_open owned
                                 ; the decision
-%endif
 .failed:
     stc
+%endif
 .out:
     pop ax                      ; (POP keeps CF: one epilogue for all three)
-%ifdef OS88_DRIVERS
-    ret
-%else
     retf
-%endif
 
 cp_open_need:
     call cpf_need

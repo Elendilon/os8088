@@ -512,10 +512,10 @@ db_paint:
                                 ; CF = 0, "nothing was drawn", which is what
                                 ; wm_dock_under needs to hear
 .go:
-    call kent_di                ; = push ax/bx/cx/dx/si/di. SI IS ALREADY
-                                ; PRESERVED (nothing between here and the
-                                ; exit touches it) - it is banked to make
-                                ; ax..di the shared epilogue ladder's own
+    call kent_di                ; = push ax/bx/cx/dx/si/di. SI is spent -
+                                ; the forced span's bound in `.zap`, then the
+                                ; count of what drew (.scan1/.scan0) - and
+                                ; ax..di is the shared epilogue ladder's own
                                 ; run, which is what kret_di wants
 
     mov al, [gfx_color]         ; byte-only read: gfx_lock_flag lives next
@@ -529,7 +529,6 @@ db_paint:
                                 ; onto the UI task's stack on every db_paint,
                                 ; which is a slow death nothing in the tree
                                 ; would report. See the matching `pop ax`.
-    mov byte [dock_drew], 0
     mov ax, 07FFFh              ; ...and nothing of the strip is painted YET
     mov cx, 08000h              ; (SPEC.md 30.3.3): [dock_px1]/[dock_px2] are
     mov [dock_px1], ax          ; (the same two registers carry the sentinel
@@ -583,11 +582,9 @@ db_paint:
     xchg cx, [dock_dx2]
     popf
     cmp ax, cx                  ; empty (x1 > x2) is "nothing drew over us"
-    jg .scan
-    inc byte [dock_drew]        ; ...and it cannot wrap: this byte is zeroed at
-                                ; the top of every pass and reaches at most
-                                ; 1 + INST_MAX = 13, while the test below is
-                                ; `cmp x,1 / cmc`, which is exact for all 256
+    jg .scan0                   ; ...and SI, the count of what DID draw, is
+                                ; set at .scan1/.scan0 below: 1 for this
+                                ; span, 0 without one (kernel size pass 21)
     call db_px_add            ; ...over exactly this span, and it is the
                                 ; span a window has to overlap to be damaged
                                 ; by it (SPEC.md 30.3.3)
@@ -635,7 +632,7 @@ db_paint:
     cmp bx, dx
     jb .znext                   ; wholly left of the damage
     cmp ax, si
-    ja .scan                    ; wholly right of it - AND SO IS EVERY TILE
+    ja .scan1                   ; wholly right of it - AND SO IS EVERY TILE
                                 ; AFTER IT, because AX walks left to right by
                                 ; DOCK_STEP. Free: the same 2-byte `ja`, and
                                 ; it skips up to eleven passes of this body on
@@ -648,6 +645,14 @@ db_paint:
     inc di
     loop .zap
 
+.scan1:                         ; WHAT DREW, COUNTED IN SI: the span is spent
+    mov si, 1                   ; (it was the zap's bound), and SI is touched
+    SKIPF2                      ; by nothing in the tile walk below - so the
+.scan0:                         ; count that was [dock_drew], a .bss byte with
+    xor si, si                  ; a 5-byte store, two 4-byte `inc`s and a
+                                ; 5-byte compare, is a register (kernel size
+                                ; pass 21, -10). SKIPF2 is test ax, imm16 over
+                                ; the `xor`: flags only. kent_di banked SI
 .scan:
     mov di, inst_tab            ; one tile per live record, stable slots
     mov bx, dock_ck             ; ...and ITS KEY BESIDE IT: BX walks the side
@@ -656,8 +661,8 @@ db_paint:
                                 ; iteration. BX costs no new push (db_paint
                                 ; already banks it) and every callee in this
                                 ; loop preserves it - db_key touches only AX,
-                                ; db_erase_tile and db_draw_tile `push bx`
-                                ; and leave through kret_dx / kret_si, and
+                                ; db_erase_tile and db_draw_tile bank bx
+                                ; and leave through kret_dx / kret_di, and
                                 ; the three bodies written in below (the span,
                                 ; the ring, the body) bank it themselves
     xor cx, cx                  ; CX = instance index
@@ -667,7 +672,7 @@ db_paint:
     cmp ax, dx
     je .next                    ; already drawn that way
     mov [bx], ax
-    inc byte [dock_drew]        ; ...and cannot wrap - see `.full`
+    inc si                      ; ...and something drew (at most 1 + INST_MAX)
     push ax                     ; db_px_tile, written in (kernel size pass 16,
     push bx                     ; -2): this tile's columns join the painted
     push cx                     ; span, wherever it stands - a tile outside the
@@ -736,15 +741,14 @@ db_paint:
     pop ax                      ; the pen, saved at `.go` - see there for the
     mov [gfx_color], al         ; one-exit invariant this rests on. AH is dead
                                 ; (AX itself is popped by the rung below).
-    cmp byte [dock_drew], 1     ; THE CF ANSWER BEFORE THE POPS - `pop` spends
-    cmc                         ; no flag, which twenty other sites in this
+    neg si                      ; THE CF ANSWER BEFORE THE POPS - `pop` spends
+                                ; no flag, which twenty other sites in this
                                 ; kernel already depend on (font.inc:629
                                 ; writes the property down, and disk.inc:5725
                                 ; puts a FAR CALL between the `clc` and its
-                                ; rung). `cmp x,1` borrows exactly when x == 0,
-                                ; so after the `cmc` CF is "something drew" -
-                                ; and that is EXACT FOR ALL 256 VALUES, not
-                                ; only for the 0/1 this byte happens to hold
+                                ; rung). `neg` sets CF exactly when its
+                                ; operand is non-zero, so CF is "something
+                                ; drew" - the `cmp x, 1 / cmc` this was
     jmp kret_di                 ; pops di, si, dx, cx, bx, ax: `.go`'s push run
 
 ; -----------------------------------------------------------------------------
@@ -964,9 +968,8 @@ db_rect_ax:                   ; ...and the arithmetic ALONE, for a caller
 %else
     mov bx, [vid_dock_ty0]
 %endif
-    mov dx, bx
-    add dx, DOCK_TILE_H-1
-    ret
+    lea dx, [bx+DOCK_TILE_H-1]  ; (flags are clobbered by contract: pass 21,
+    ret                         ; -2)
 
 ; -----------------------------------------------------------------------------
 ; db_erase_tile - white out tile i's rect
@@ -1030,11 +1033,11 @@ db_mark_ax:                   ; ...and the same rect from a caller ALREADY
 ; out: nothing (all registers preserved; module internal)
 ; -----------------------------------------------------------------------------
 db_draw_tile:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
+    call kent_di                ; = push ax/bx/cx/dx/si/di: DI is not spent
+                                ; here, and banked so the exit is the shared
+                                ; ladder's whole run (kernel size pass 21, -2;
+                                ; a tile REDRAW - its key moved - ~40 cycles
+                                ; against a frame and a masked icon blit)
 
     call db_tile_x
     mov si, ax                  ; SI = tile left for the duration
@@ -1070,7 +1073,7 @@ db_draw_tile:
     call gfx_xor_fill
 
 .done:
-    jmp kret_si
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; db_hit - which tile is under a point? (SPEC.md 30/30.2)
@@ -1292,7 +1295,8 @@ dock_dx2:   resw 1              ; this x span, and no wider: the union of what
                                 ; OWN FLAG - empty is 07FFFh..08000h, which is
                                 ; what deleted the [dock_full] byte that used
                                 ; to sit above it (see dock_force_x)
-dock_drew:  resb 1              ; ...and dock_paint's CF: did anything move?
+dock_drew:  resb 1              ; ...and DOCK.DRV's dkx_paint's CF: did
+                                ; anything move? (db_paint counts in SI)
 dock_px1:   resw 1              ; the x span dock_paint PUT PIXELS ON in the
 dock_px2:   resw 1              ; pass that has just run - the forced span
                                 ; above unioned with every tile it redrew, and

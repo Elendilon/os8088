@@ -715,13 +715,20 @@ section .text
   %error "[vid_planes_w] must follow [vid_planes]: menu_drop documents the 0x0404 a word read of the byte picks up, and that sentence is only true while the _w twin is the byte after it"
 %endif
 %endif
+%ifdef GFX_VGA
+ %define VDS_PLANAR             ; a kernel with a question to ask below
+%elifdef VID_EXT
+ %define VDS_PLANAR
+%endif
 vid_depth_set:
+%ifdef VDS_PLANAR
     push ax                     ; the header says "clobbers: flags", and AL is
                                 ; the argument two callers read back after the
                                 ; call (vid_ctx_act's `cmp al, [vid_kind]` is
                                 ; the tight one). Two bytes could be had by
                                 ; dropping this pair; they are a contract
                                 ; change and are not taken.
+%endif
 %ifdef VID_EXT
     cmp al, VID_VESA            ; SPEC.md 120.4: colour ([vid_mono] = 0), the
     jne .notext                 ; DEPTH for a plane count, and the hook armed
@@ -753,13 +760,18 @@ vid_depth_set:
                                 ; flag. Do not put a flag-setting instruction
                                 ; in this gap.
 %endif
+%ifdef VDS_PLANAR
     mov ax, 0x0101              ; 1bpp: AL -> [vid_mono], AH -> [vid_planes].
-%ifdef GFX_VGA
+ %define VDS_SRC ax
+%else                           ; ...and with no question (kern_small: a CGA
+ %define VDS_SRC word 0x0101    ; or a Hercules on every machine) the pair is
+%endif                          ; an immediate, and AX is never touched
+%ifdef GFX_VGA                  ; (kernel size pass 21, -2 there)
     jb .st                      ; The software renderer IS the direct path
     mov ax, 0x0400              ; there (SPEC.md 39.5); a VGA is 0 and 4.
 .st:
 %endif
-    mov [vid_mono], ax          ; ONE word store for the pair the %if above
+    mov [vid_mono], VDS_SRC     ; ONE word store for the pair the %if above
                                 ; pins side by side - so an ISR can no longer
                                 ; observe mono=1 with planes=4 between two
                                 ; byte writes, which the three stores it
@@ -773,7 +785,9 @@ vid_depth_set:
                                 ; becomes 0. `cbw` is 8086.
     mov [vid_planes_w], ax
 %endif
+%ifdef VDS_PLANAR
     pop ax
+%endif
     ret
 
 ; VID_APPLY %1, %2 - %1_apply, WRITTEN ONCE (kernel size pass 14). Nothing

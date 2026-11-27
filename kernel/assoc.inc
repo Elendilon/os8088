@@ -251,7 +251,10 @@ asc_inkck:
 ; -----------------------------------------------------------------------------
 ; assoc_glyph_di - where an app slot's 8x8 glyph lives (SPEC.md 54.3)
 ; in:  BL = the app slot (BH is zeroed here, so BL alone is enough)
-; out: DI -> its eight glyph bytes. AX, BX and CX preserved; flags are not
+; out: DI -> its eight glyph bytes, and CF = 0: a slot is < ASSOC_NAPP, so
+;      the product leaves AH 0 (MUL's CF) and the add lands inside the table
+;      (asserted below) - assoc_app_new's ret reads it (kernel size pass 21).
+;      AX, BX and CX preserved; ZF and the rest are not
 ; -----------------------------------------------------------------------------
 assoc_glyph_di:
     push ax
@@ -261,11 +264,16 @@ assoc_glyph_di:
     xchg di, ax                 ; pass 10, -5)
     pop ax
     ret
+%if ASSOC_NAPP * 8 > 255
+  %error "assoc_glyph_di answers CF = 0 out of a byte product: slot * 8 must fit AL"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; assoc_hint_here - this app slot was just SEEN here (SPEC.md 54.4.2 rung 1)
 ; in:  BL = the app slot, BH = 0
-; out: nothing. BX preserved; AX clobbered, which every caller already spent
+; out: CF = 0 - the `shl` of a slot below 8000h, which assoc_locate's .known
+;      answers with (kernel size pass 21). BX preserved; AX clobbered, which
+;      every caller already spent
 ;
 ; The hint is [disk_drive] and [dsk_cwd] - the volume and directory that are
 ; CURRENT at the moment of the call - so it is only ever correct where the
@@ -554,8 +562,11 @@ assoc_reduce:
 ; assoc_glyph_take - a SHIPPED glyph into a slot, unless it is blank
 ;                    (SPEC.md 54.3.2)
 ; in:  ES:SI -> eight glyph bytes, DI -> the slot's eight in the kernel
-; out: CF=0 = copied; CF=1 = they were all zero and nothing was written
-;      (all registers preserved)
+; out: ZF=0 = copied; ZF=1 = they were all zero and nothing was written (all
+;      registers preserved). ZF and not CF (kernel size pass 21, -2: the `stc` and the `clc`):
+;      asc_inkck's ZF is the blank answer as it stands, and the copy ends in
+;      assoc_stage's `inc di`, which cannot reach 0 - DI is past a glyph in
+;      .text
 ;
 ; All-zero is the UNRESOLVED sentinel (54.2) on both sides: in an image the
 ; tool refuses it, and in a cache row it is how a package that ships no glyph
@@ -567,12 +578,11 @@ assoc_glyph_take:
     call kentc_di
     mov cx, 4                   ; NEITHER LOOP IS THIS ROUTINE'S OWN: the
     call asc_inkck              ; blank test is asc_inkck above and the copy
-    stc                         ; is SPEC.md 20.2's staging idiom, which is
-    jz .out                     ; ES:SI -> DS:DI and exactly what a glyph in a
-    call assoc_stage8           ; cache row, a store row or an image needs.
+    jz .out                     ; is SPEC.md 20.2's staging idiom, which is
+    call assoc_stage8           ; ES:SI -> DS:DI and exactly what a glyph in a
+                                ; cache row, a store row or an image needs.
                                 ; Both advance SI and this routine banks it
-    clc                         ; anyway
-.out:
+.out:                           ; anyway. (`pop`s keep the ZF either way.)
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
@@ -594,63 +604,20 @@ assoc_img_glyph:
     jz .reduce
     add si, LD_H_GLYPH
     call assoc_glyph_take
-    jnc .out
-    sub si, LD_H_GLYPH          ; blank after all: as if it shipped none
-.reduce:
+    jnz .out                    ; ZF = 0: copied
+    pop si                      ; blank after all: as if it shipped none - the
+    push si                     ; header off our own frame (kernel size pass
+.reduce:                        ; 21, -1 against a `sub si, imm8`)
     add si, LD_HDR_SIZE + 32    ; the DATA plane of the embedded icon
     call assoc_reduce
 .out:
     pop si
     ret
 
-; -----------------------------------------------------------------------------
-; assoc_compose - a document icon for one app slot (SPEC.md 54.3)
-; in:  AL = app slot index, DI -> 64 bytes in the kernel segment
-; out: the composed 16x16 body (icon_draw16's layout)
-; clobbers: nothing (all registers preserved)
+; assoc_compose - a document icon for one app slot (SPEC.md 54.3) - is written
+; in disk.inc's dsk_docpass, its one caller, since kernel size pass 21 (-10:
+; its call, frame and the DI it banked).
 ;
-; The page frame, then the app's glyph OR'd into the interior the frame has
-; already cleared to white. An UNRESOLVED glyph is eight zero bytes and
-; composes to the bare page, which is a correct document icon and not a
-; placeholder - the SPEC.md 50 degradation rule, applied to an icon.
-; -----------------------------------------------------------------------------
-assoc_compose:
-    call kentc_bp               ; the ladder's frame, and kretc_es its end
-    push es                     ; (kernel size pass 16)
-    push ds
-    pop es                      ; ES = DS = KERNEL_SEG for the frame copy
-    mov bl, al                  ; bank the slot: the .inset loop below spends AX
-    push di
-    mov si, assoc_pg_seed       ; the page frame, composed rather than copied
-    cld                         ; (SPEC.md 54.3) - and the runs spend AX, which
-    mov cx, 3                   ; is why the slot is banked in BL two lines up
-    rep movsw                   ; ...and every run leaves CX = 0, so the next
-    mov ax, ASSOC_PGMASK        ; three counts are one byte shorter (CH is 0)
-    mov cl, 13
-    rep stosw
-    mov cl, 4
-    rep movsw
-    mov ax, ASSOC_PGBODY
-    mov cl, 11
-    rep stosw
-    mov ax, ASSOC_PGMASK        ; the second run left ASSOC_PGBODY in AX
-    stosw                       ; ...and the bottom edge is solid
-    call assoc_glyph_di         ; the app's glyph, addressed through DI...
-    mov si, di
-    pop di                      ; ...and the page frame we just laid down
-    add di, ASSOC_INSET
-    mov cl, ASSOC_INSHL         ; CL = the shift, set once, and BH counts:
-    mov bh, 8                   ; BL is spent once assoc_glyph_di has read it
-.inset:
-    lodsb                       ; ES = DS here and DF=0 from the cld above,
-    xor ah, ah                  ; so the string forms are free: lodsb the
-    shl ax, cl                  ; glyph byte, scasw past the word just ORed
-    or [di], ax                 ; (its compare only writes flags, and dec
-    scasw                       ; rewrites those)
-    dec bh
-    jnz .inset
-    jmp kretc_es
-
 ; assoc_docicon - a document icon for one directory entry (SPEC.md 54.3) - is
 ; written in disk.inc's dsk_docpass, its one caller, since kernel size pass 14;
 ; dsk_ico's tenancy rule, which it was the home of, went with it.
@@ -751,11 +718,13 @@ assoc_ext_take:
                                 ; each arm is what it is)
     call assoc_find             ; already claimed?  BX = that row
     jc .fresh
-    test byte [bx+3], ASSOC_STICKY
-    jnz .no
-    cmp [bx+3], dl              ; ...and already this program's: nothing any
-    je .no                      ; window drew is wrong
-    jmp short .set
+    mov al, [bx+3]              ; a STICKY row, or one already this program's
+    xor al, dl                  ; (nothing any window drew is wrong), is left
+    jle .no                     ; alone: DL is a slot, < 80h, so the XOR is 0
+    jmp short .set              ; for the same program and has bit 7 for a
+                                ; sticky one - and `xor` clears OF, so `jle`
+                                ; is exactly those two (kernel size pass 21,
+                                ; -4: a `test`, a `cmp` and a jump)
 .fresh:
     call assoc_ext_new
     jc .no
@@ -943,9 +912,11 @@ assoc_try:
 ;      one caller, sends a folderless program to BOTH and never to neither,
 ;      so the `or bl, bl / jz` that stood here was unreachable (size pass 5)
 ; out: as assoc_try
+; clobbers: AX, BX, SI, CF - SI is assoc_sweep's proc's to spend (its one
+;      caller is assoc_tryvol, whose one caller is the sweep: kernel size pass
+;      21, -2); CX and DX are the sweep's and kept
 ; -----------------------------------------------------------------------------
 assoc_tryfold:
-    push si
     push cx
     push dx
     mov si, assoc_s_apps
@@ -976,7 +947,6 @@ assoc_tryfold:
 .out:
     pop dx
     pop cx
-    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -984,7 +954,10 @@ assoc_tryfold:
 ;                the folder a default names (rungs 3 to 5 of SPEC.md 54.4.2)
 ; in:  DL = volume, DI = the app slot
 ; out: as assoc_try
-; clobbers: AX (the output), CF
+; clobbers: AX, BX, SI, CF - assoc_sweep's proc contract, its one way in
+;      (CX, DX and BP kept: nothing here writes DX, and assoc_tryfold keeps
+;      CX). It banked BX and DX, and assoc_tryfold SI, for nobody - kernel
+;      size pass 21, -6 with that one
 ;
 ; **THE VOLUME'S OWN ASSOC.DAT IS ASKED HERE, not only after a find** (SPEC.md
 ; 54.4.2.3). The hint rung 1 reads is ONE location, seeded by whichever
@@ -1004,8 +977,6 @@ assoc_tryfold:
 ; unfindable anywhere but through a hint.
 ; -----------------------------------------------------------------------------
 assoc_tryvol:
-    push bx
-    push dx
     xor ax, ax
     CLU_HI0
     call assoc_try              ; the volume's root - and AX is still 0 after
@@ -1028,9 +999,7 @@ assoc_tryvol:
     jb .out                     ; the miss, AX the folder's answer
     mov bl, 2                   ; ...and a declared one tries GAMES too
     call assoc_tryfold
-.out:
-    pop dx                      ; a pop touches no flag, so the CF both rungs
-    pop bx                      ; answer in is what reaches the caller
+.out:                           ; the CF both rungs answer in
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1058,9 +1027,10 @@ assoc_tryext:
 ; -----------------------------------------------------------------------------
 ; assoc_sweep - ask every live volume one question, the document's own first
 ;               and then cheapest medium first (SPEC.md 54.4.2, 54.4.2.2)
-; in:  BP = the question: a near proc taking DL = the volume, answering CF=0 =
-;      stop here, and preserving CX, DX and BP; [assoc_ddrv] = the document's
-;      volume
+; in:  BP = the question: a near proc taking DL = the volume (and whatever DI
+;      the caller set: assoc_tryvol's is the app slot, which the walk keeps),
+;      answering CF=0 = stop here, and preserving CX, DX and BP; [assoc_ddrv]
+;      = the document's volume
 ; out: CF=0 = a volume answered, with whatever the proc left in AX/BX/DI;
 ;      CF=1 = none did
 ; clobbers: AX, BX, CX, DX, CF (and whatever the proc does)
@@ -1108,13 +1078,20 @@ assoc_sweep:
     jne .kind
     mov al, [bx+DV_CLASS]       ; THIS ROW's class (SPEC.md 62.9.19): two
     push es                     ; file classes, and only one of them is memory
+    push di                     ; ...and DI, which is NOT this loop's: it is
+                                ; assoc_tryvol's INPUT, the app slot, and the
+                                ; sweep handed every volume after a redirected
+                                ; one the table's offset instead - which
+                                ; assoc_locate's .known then wrote the hint
+                                ; through, at assoc_drv/assoc_clus plus that
+                                ; offset (DEFECT, kernel size pass 21: +2)
     call drv_cls_svc_x          ; CLSCF: a DVK_FILE row's class is a published one - dsk_vol_add derives the kind FROM the class, 5 or 8, and drv_release drops a class's rows with it
     mov al, [es:di+DSV_CAPS]    ; ...read in place (kernel size pass 19), and
     and al, FSCAP_LOCAL         ; the PASS is the bit: 2 for a redirected one
     shl al, 1                   ; whose reads are MEMORY (62.9.2.2), 0 for any
-    pop es                      ; other, which is the cable. DI is this loop's
-%endif                          ; to clobber (the proc answers in it).
-                                ; FSCAP_LOCAL is 1: driver.inc says so
+    pop di                      ; other, which is the cable. FSCAP_LOCAL is 1:
+    pop es                      ; driver.inc says so
+%endif
 .kind:
     cmp al, ch
     jne .volnext                ; ...not this pass's
@@ -1229,12 +1206,10 @@ assoc_locate:
     call assoc_hint_here        ; ...then the AUTHORITATIVE hint for the one
                                 ; program we actually located - AFTER the seed
                                 ; on purpose, so a stale cached cluster for
-                                ; THIS program loses to where it really is
-    clc                         ; explicit, not inherited: the helper's last
-.out:
-    jmp kretc_di
-                                ; store leaves CF as the `shl` left it, which
-                                ; is an accident of the table's size
+                                ; THIS program loses to where it really is.
+                                ; Its CF = 0 is the answer: the `shl` of a
+.out:                           ; slot, which its header now promises (it was
+    jmp kretc_di                ; a `clc` - kernel size pass 21, -1)
 
 ; -----------------------------------------------------------------------------
 ; assoc_run - open the pending document (SPEC.md 54.4)
@@ -1258,9 +1233,9 @@ assoc_run_x:
 
     push es
 
-    mov al, [assoc_dapp]
-    mov byte [assoc_dapp], 0xFF ; consume before running, not after
-    push ax
+    mov al, 0xFF
+    xchg al, [assoc_dapp]       ; consume before running, not after (one
+    push ax                     ; xchg - kernel size pass 21, -2)
     cmp al, ASSOC_FLUSH         ; NOT A DOCUMENT AT ALL (SPEC.md 54.7.6.3): a
     jb .doc                     ; harvest or a search learned something this
     and ax, 7                   ; volume's ASSOC.DAT does not hold. DL = the
@@ -1767,9 +1742,8 @@ assoc_ext_new:
     push di                     ; disk.inc's counted copy (SPEC.md 4), which
     mov di, bx                  ; walks DI - and this routine does not
     mov cx, 3                   ; otherwise touch it
-    call dsk_ncopy
-    pop di
-    clc
+    call dsk_ncopy              ; ...and keeps the flags: CF = 0 is the `je`
+    pop di                      ; that got here (kernel size pass 21, -1)
     ret
 
 ; assoc_app_new - claim a free app slot for the stem in assoc_stemb.
@@ -1810,9 +1784,8 @@ assoc_app_new:
 .zap:
     mov [di], ah                ; AH is 0: AL counted the slots up from
     inc di                      ; `xor ax, ax`, and assoc_glyph_di keeps AX
-    loop .zap
-    clc
-.out:
+    loop .zap                   ; ...and its CF = 0, which neither `inc` nor
+.out:                           ; `loop` writes (kernel size pass 21, -1)
     pop di
     pop si
     pop cx
@@ -1961,7 +1934,8 @@ asc_use_x:
     ; routine's scratch, banked by the KENT and by the `push es` above.
     push ss                     ; ES = LOW_SEG: dsk_secbuf is .lowbss (SPEC.md
     pop es                      ; 2.1), which is exactly what SS names
-    xor ax, ax                  ; 0 = the root
+                                ; AX = 0 = the root, still: .load's zero
+                                ; (kernel size pass 21, -2)
     call dsk_dirw_start_x
 .rfsec:
     call dsk_dirw_get_x         ; either failure is "no cache here" (19.2.1)
@@ -2351,7 +2325,7 @@ asc_gly_pair:
     call assoc_glyph_di         ; DI -> the slot's glyph
     add si, ASC_ROWGLY - ASC_ROWICO
     call assoc_glyph_take
-    jnc .out
+    jnz .out                    ; ZF = 0: the shipped eight were taken
     ; ...REDUCED INSTEAD (SPEC.md 54.7.3), out of the body's DATA plane. This
     ; was asc_body_glyph, split out so a store hit could reach it; the store
     ; hit comes through this walker now (asc_take), so it had one caller and

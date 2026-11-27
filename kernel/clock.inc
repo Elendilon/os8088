@@ -1758,12 +1758,75 @@ clk_tick:
     or al, 2                    ; a whole minute or more owed in one go: the
                                 ; minute VALUE may land where it started
                                 ; (an hour of held-open menu), so decide now
-.adv:
-    call clk_inc_sec            ; banks AX, so both halves survive the loop
+.adv:                           ; ONE SECOND, carried through the whole
+                                ; date: clk_inc_sec, written in this loop -
+                                ; its one caller - since kernel size pass 21
+                                ; (-4: the call and the `ret`). One whole
+                                ; carry chain per critical section (SPEC.md
+                                ; 37): a reader may only ever see the clock
+                                ; before or after a second, never halfway
+                                ; through one - and the window is EACH
+                                ; second's, never the catch-up loop's, so it
+                                ; stays short when an hour of held-open menu
+                                ; is owed. AX banked: both halves survive
+    push ax
+    push bx
+    pushf
+    cli
+    mov bx, clk_sec             ; THREE ADJACENT BYTES, walked rather than
+                                ; named: sec, min and hour are declared in
+                                ; that order and clk_snapshot already reads
+                                ; sec+min and hour+day as WORDS and says so,
+                                ; so this is a second reader of an invariant
+                                ; the file already has rather than a new one.
+                                ; `[bx]` addresses DS, which IS KERNEL_SEG
+                                ; here - this is .text and not a BP form.
+    mov ax, 0x0200 + 60         ; the SECONDS and the MINUTES are one loop:
+.sm:                            ; AL = their bound, AH = how many of them
+    inc byte [bx]
+    cmp [bx], al
+    jb .secd
+    mov byte [bx], 0
+    inc bx
+    dec ah
+    jnz .sm                     ; ...and BX = clk_hour after both
+    inc byte [bx]
+    cmp byte [bx], 24
+    jb .secd
+    mov byte [bx], 0            ; ...the hour wrapped, so carry the DAY - and
+                                ; carry it OFF THE SAME BX. day, month, rtc,
+                                ; dirty and year are the five fields declared
+                                ; after clk_hour, which is the invariant
+                                ; clk_snapshot already reads sec+min and
+                                ; hour+day as words on; this is a second
+                                ; reader of it, not a new one. clk_inc_day
+                                ; used to be a separate routine that named all
+                                ; three absolutely - 4 bytes for an
+                                ; `inc byte [abs]`, 5 for a `cmp`, 5 for a
+                                ; `mov` - and was called from here and from
+                                ; nowhere else in the tree
+    inc byte [bx+1]             ; clk_day
+    mov al, [bx+2]              ; clk_mon
+    call clk_mlen               ; AL = this month's length; banks BX, and its
+                                ; AH is the caller's either way
+    cmp [bx+1], al
+    jbe .secd
+    mov byte [bx+1], 1
+    inc byte [bx+2]
+    cmp byte [bx+2], 12
+    jbe .secd
+    mov byte [bx+2], 1
+    inc word [bx+5]             ; clk_year - hour+5 since the pad above it
+                                ; went (see the .bss declarations)
+.secd:
+    popf
+    pop bx
+    pop ax
     loop .adv
-
-    test al, 2
-    jnz .pend                   ; already decided
+                                ; (no `test al, 2 / jnz .pend` for "already
+                                ; decided": each arm below either sets the bit
+                                ; again or leaves it, so the mask is the same
+                                ; without the test - kernel size pass 21, -4)
     cmp ah, [clk_min]
     jne .barchg                 ; the minute (or something above it) rolled
     cmp byte [clk_secs], 0
@@ -1785,71 +1848,6 @@ clk_tick:
                                 ; 0 or 2 rather than always 0 - inside "Out:
                                 ; AL ... clobbers AX only", and the one caller
                                 ; reads AL alone
-
-; -----------------------------------------------------------------------------
-; clk_inc_sec - add one second, carrying through the whole date
-; in:  nothing
-; out: nothing (all registers preserved)
-; One whole carry chain per critical section (SPEC.md 37): a reader may only
-; ever see the clock before or after a second, never halfway through one.
-; Guarding each second separately rather than clk_tick's whole catch-up loop
-; keeps the window short even when an hour of held-open menu is owed.
-; -----------------------------------------------------------------------------
-clk_inc_sec:
-    push ax
-    push bx
-    pushf
-    cli
-    mov bx, clk_sec             ; THREE ADJACENT BYTES, walked rather than
-                                ; named: sec, min and hour are declared in
-                                ; that order and clk_snapshot already reads
-                                ; sec+min and hour+day as WORDS and says so,
-                                ; so this is a second reader of an invariant
-                                ; the file already has rather than a new one.
-                                ; `[bx]` addresses DS, which IS KERNEL_SEG
-                                ; here - this is .text and not a BP form.
-    mov ax, 0x0200 + 60         ; the SECONDS and the MINUTES are one loop:
-.sm:                            ; AL = their bound, AH = how many of them
-    inc byte [bx]
-    cmp [bx], al
-    jb .out
-    mov byte [bx], 0
-    inc bx
-    dec ah
-    jnz .sm                     ; ...and BX = clk_hour after both
-    inc byte [bx]
-    cmp byte [bx], 24
-    jb .out
-    mov byte [bx], 0            ; ...the hour wrapped, so carry the DAY - and
-                                ; carry it OFF THE SAME BX. day, month, rtc,
-                                ; dirty and year are the five fields declared
-                                ; after clk_hour, which is the invariant
-                                ; clk_snapshot already reads sec+min and
-                                ; hour+day as words on; this is a second
-                                ; reader of it, not a new one. clk_inc_day
-                                ; used to be a separate routine that named all
-                                ; three absolutely - 4 bytes for an
-                                ; `inc byte [abs]`, 5 for a `cmp`, 5 for a
-                                ; `mov` - and was called from here and from
-                                ; nowhere else in the tree
-    inc byte [bx+1]             ; clk_day
-    mov al, [bx+2]              ; clk_mon
-    call clk_mlen               ; AL = this month's length; banks BX, and its
-                                ; AH is the caller's either way
-    cmp [bx+1], al
-    jbe .out
-    mov byte [bx+1], 1
-    inc byte [bx+2]
-    cmp byte [bx+2], 12
-    jbe .out
-    mov byte [bx+2], 1
-    inc word [bx+5]             ; clk_year - hour+5 since the pad above it
-                                ; went (see the .bss declarations)
-.out:
-    popf
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; clk_mlen - days in a month of the CURRENT year
@@ -2004,28 +2002,6 @@ clk_fmt:
     ret
 
 ; -----------------------------------------------------------------------------
-; str_len - the length of an ASCIIZ string in the kernel segment
-; in:  SI = the string
-; out: CX = its length, NUL excluded; SI ONE PAST THE NUL; everything else
-;      preserved. Its one caller, toast_place, loads SI itself and reads it
-;      no further, so the bank that kept it went (kernel size pass 18, -1)
-;
-; The kernel's only strlen, and it is here rather than anywhere else because
-; clk_fmt above is what created it. `.text` sites ONLY: a caller in `.modc` or
-; `.cold` is in another segment and needs a cw_ shim, which costs more than
-; the six-instruction loop it would be replacing.
-; -----------------------------------------------------------------------------
-str_len:
-    mov cx, si
-    not cx                      ; CX = -SI - 1...
-.l:
-    cmp byte [si], 1            ; CF = 1 on the NUL alone
-    inc si                      ; (`inc` leaves CF alone)
-    jnc .l
-    add cx, si                  ; ...+ (the NUL's address + 1) = the length
-    ret
-
-; -----------------------------------------------------------------------------
 ; The FIELD EDITOR is not here (SPEC.md 37.93). clk_fld_str, clk_fld_adj and
 ; clk_step are still SPEC.md 37's and still called clk_*, but they are
 ; assembled into ctrl.inc's `.modc` and ship in CTRL.DRV: the Date/Time page
@@ -2044,12 +2020,10 @@ str_len:
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 clk_h12h:
-    cmp al, 12
-    jb .am
-    sub al, 12
-.am:
-    or al, al
-    jnz .out
+    sub al, 12                  ; 13..23 -> 1..11, and ABOVE is done (kernel
+    ja .out                     ; size pass 21, -2: it was a compare, a jump
+    add al, 12                  ; and an `or`). 0..12 come back as they were,
+    jnz .out                    ; and 1..12 read as they are
     mov al, 12                  ; 00:xx is 12 AM, 12:xx is 12 PM
 .out:
     ret

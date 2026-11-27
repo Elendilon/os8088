@@ -43,6 +43,15 @@ and needs no maintenance merge in between.
 **Anything not in the PR is lost at the re-cut.** The fresh branch starts from
 `main`, which holds only what the squash carried.
 
+**That includes what the PR leaves out ON PURPOSE.** The fork-only files the
+PR lifts (CLAUDE.md's *Working in this fork* rule 9: `tools/session-sync.sh`
+and `tools/session-branch.sh`) are absent from `main`, so a re-cut that
+three-way merges from a base predating the lift reads their absence as
+`main` DELETING them, and takes it. 2026-11-26's re-cut (`f7a9719fc`) did
+exactly that while copying CLAUDE.md over whole, so the rule came back
+without its scripts. After a re-cut, `git diff --stat <old branch> HEAD`
+filtered to deletions is the check; restore what only the fork carries.
+
 ## Rule 0 — unshallow before believing anything about ancestry
 
 A fresh agent session gets a **shallow clone**, and on a shallow clone git does

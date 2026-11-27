@@ -203,7 +203,8 @@ evq_push:
 evq_drain:
     call evq_mup                ; evq_mup IS this loop with one record kept:
     jnc evq_drain               ; it stops early only on an EVT_MUP, which it
-    ret                         ; has consumed - and the wake bookkeeping on
+.ret:                           ; (evq_mup's own `ret` too: kernel size pass
+    ret                         ; 21, -1) has consumed - and the wake bookkeeping on
                                 ; an MUP would have done nothing (it acts on a
                                 ; WAKE alone) - so going round again until the ring
                                 ; is empty is the same drain, every wake still
@@ -231,9 +232,9 @@ evq_drain:
 evq_mup:
 .dl:
     call evq_pop
-    jc .out
-    cmp word [di + EV_TYPE], EVT_MUP
-    je .out                     ; equal, so CF is already 0 - the "found" answer
+    jc evq_drain.ret            ; (both answers leave through the `ret` just
+    cmp word [di + EV_TYPE], EVT_MUP    ; above, with their flags)
+    je evq_drain.ret            ; equal, so CF is already 0 - the "found" answer
     cmp word [di + EV_TYPE], EVT_WAKE   ; THE WAKE BOOKKEEPING (SPEC.md
     jne .dl                     ; 74.1.1): a drain threw a record away, and if
     push bx                     ; it was a WAKE the window's flag drops from
@@ -247,8 +248,6 @@ evq_mup:
     jmp short .dl               ; wm_wake_eaten, whose last caller this loop
                                 ; was (kernel size pass 17: -4, and -1 for the
                                 ; inc)
-.out:
-    ret
 
 ; -----------------------------------------------------------------------------
 evq_pop:

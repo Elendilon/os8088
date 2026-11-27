@@ -863,9 +863,13 @@ sw_pbit:
     ret                         ; IS the answer for the two solid classes
 .dither:
     mov al, dh                  ; ...and a middle grey alternates with (x+y) -
-    xor al, 1                   ; INVERTED, because sw_ink.dither's 0xAA has its
+    and al, 1                   ; INVERTED, because sw_ink.dither's 0xAA has its
     ret                         ; bit SET at x=0 of an even row, and bit 7 is
-                                ; the leftmost pixel
+                                ; the leftmost pixel. The inversion is the
+                                ; CALLER'S now: DH = 0FFh for parity 0 and 0
+                                ; for parity 1, so its low bit is the answer
+                                ; (kernel size pass 21 - sw_pairbuild flips it
+                                ; with a two-byte `not`)
 
 ; -----------------------------------------------------------------------------
 ; sw_pairbuild - fill the two pair tables from gfx_inktab (SPEC.md 5.4.1)
@@ -881,18 +885,17 @@ sw_pbit:
 ; -----------------------------------------------------------------------------
 sw_pairbuild:
     call kent_di                ; (kernel size pass 15: once a boot)
+    mov cl, 4                   ; (the shift, for the whole table)
     xor bx, bx                  ; BH stays 0: the loop runs BL round once
-.byte:
-    mov si, bx                  ; SI = the byte's high nibble (the LEFT
-    mov cl, 4                   ; pixel)...
-    shr si, cl
-    mov di, bx                  ; ...and DI its low one
-    and di, 15
-    xor dh, dh                  ; --- tab0: hi at parity 0, lo at parity 1
-    call .pair
+    mov dh, 0xFF                ; parity 0, as sw_pbit reads it - and .pair
+.byte:                          ; leaves DH flipped, so the two calls below
+    mov si, bx                  ; hand it on to each other and round the loop:
+    shr si, cl                  ; nothing reloads it (kernel size pass 21, -6)
+    mov di, bx                  ; SI = the byte's high nibble (the LEFT
+    and di, 15                  ; pixel), DI its low one
+    call .pair                  ; --- tab0: hi at parity 0, lo at parity 1
     mov [ss:bx + gfx_pairtab0], dl
-    mov dh, 1                   ; --- tab1: the other way round
-    call .pair
+    call .pair                  ; --- tab1: the other way round (DH = 0 in)
     mov [ss:bx + gfx_pairtab1], dl
     inc bl
     jnz .byte                   ; 256 entries: BL wraps to 0 after 255
@@ -909,17 +912,19 @@ sw_pairbuild:
     jmp kret_di                 ; once a boot: the shared epilogue, not six
                                 ; pops of its own
 
-; one table entry: DL = sw_pbit(SI, parity DH) << 1 | sw_pbit(DI, parity
-; DH ^ 1). DH, SI and DI come back as they went in (size pass 9: the two
-; table halves were this sequence written out twice)
+; one table entry: DL = sw_pbit(SI, parity DH) << 1 | sw_pbit(DI, the other
+; parity). SI and DI come back as they went in and DH comes back FLIPPED -
+; which is the next call's parity, so the caller never sets it twice (size
+; pass 9: the two table halves were this sequence written out twice; kernel
+; size pass 21: DH 0FFh / 0 and a `not`, where it was 0 / 1, an `xor dh, 1`
+; and a second one to undo it)
 .pair:
     call sw_pbit
     shl al, 1
     mov dl, al
     xchg si, di
-    xor dh, 1
+    not dh
     call sw_pbit
-    xor dh, 1
     xchg si, di
     or dl, al
     ret

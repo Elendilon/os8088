@@ -174,7 +174,18 @@ fsx_caps:
     ret
 
 fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2, EGA 3)
+%ifdef GFX_VGA
     dw 0x01EF                   ; VGA:  0,1,2,3 + 5,6,7,8
+%else
+    dw 0x000F                   ; ...and on a build with no VGA renderer
+                                ; (kern_small) the CGA's row: no kind there is
+                                ; ever VID_VGA (a VGA card runs as a CGA,
+                                ; kernel.asm's GFX_VGA), and THIS row is what
+                                ; makes ids 5..8 unreachable by construction -
+                                ; this file's own proof, not viddet.inc's - so
+                                ; fsx_mtab and fsx_bmodes stop at id 4 there
+                                ; (kernel size pass 21, -61 on kern_small)
+%endif
     dw 0x0011                   ; HERC: 0 (mode 7 text) + 4 (its own graphics)
     dw 0x000F                   ; CGA:  0,1,2,3
 %ifdef GFX_VGA                  ; the EGA row is kern_big's alone
@@ -1124,11 +1135,10 @@ fsx_mine:
     cmp ah, MAX_TASKS           ; the %if above
     jae .no                     ; not a slot: no bracket, whatever the value
     cmp al, ah
-    pop ax                      ; pop leaves the flags alone
-    ret
-.no:
-    or ah, ah                   ; AH >= MAX_TASKS, so AH != 0 and ZF = 0
-    pop ax
+    SKIPAX2                     ; mov ax, imm16 over the `or`: no flag, and AX
+.no:                            ; is the pop's (kernel size pass 21, -1: one
+    or ah, ah                   ; `pop ax / ret`). AH >= MAX_TASKS, so AH != 0
+    pop ax                      ; and ZF = 0. pop leaves the flags alone
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1199,6 +1209,8 @@ fsx_mtab:
     dw 0xB000, 720, 348, 90
     db FSIF_BANKED, 1, 4, 2
     dw 0x2000                   ; 4 HERC (seg <- [vid_seg] at fill)
+%ifdef GFX_VGA                  ; (the four VGA rows: no caps row offers them
+                                ; without a VGA renderer - fsx_capstab above)
     dw 0xA000, 320, 200, 40
     db FSIF_PLANAR, 4, 1, 8
     dw 0                        ; 5 VGA0D
@@ -1211,20 +1223,21 @@ fsx_mtab:
     dw 0xA000, 320, 240, 80
     db FSIF_PLANAR, 8, 1, 3
     dw 0                        ; 8 MODEX (stride = bytes per PLANE row)
+%endif
 
 fsx_bmodes:                     ; the plain-BIOS rows' mode numbers, INDEXED
     db 0x01, 0x04, 0x06        ; FROM 1 (see the `- 1` at the xlatb): id 0
-    db 0x00, 0x0D, 0x13, 0x12  ; dispatches to .text before it and never read
-    db 0x13                    ; its row. Id 4's hole stays, because the index
-                                ; has to stay linear; and SO DOES ID 8'S ROW,
-                                ; deliberately - it is dead only while the
-                                ; %ifdef GFX_VGA dispatch above catches Mode X,
-                                ; which a kern_small build compiles out, and
-                                ; the argument that it still cannot arrive
-                                ; there (fsx_capstab's VGA row is unreachable
-                                ; because [vid_kind] can never be VID_VGA) is
-                                ; sound but crosses two files. One byte is not
-                                ; worth making a wrong BIOS mode the failure
+%ifdef GFX_VGA                  ; dispatches to .text before it and never read
+    db 0x00, 0x0D, 0x13, 0x12   ; its row. Id 4's hole stays, because the index
+    db 0x13                     ; has to stay linear; and SO DOES ID 8'S ROW on
+%endif                          ; a VGA build, deliberately - it is dead only
+                                ; while the GFX_VGA dispatch above catches
+                                ; Mode X. WITHOUT a VGA renderer ids 5..8 stop
+                                ; at fsx_mtab's row 4: fsx_capstab gives them
+                                ; to no kind there, in THIS file, so the proof
+                                ; no longer crosses into viddet.inc - and id
+                                ; 4, .herc's, never reaches the xlatb, so its
+                                ; hole goes too (kernel size pass 21)
 
 ; --- state -------------------------------------------------------------------
 ; **`.text`, SEEDED, AND NOT `.bss`** (SPEC.md 12.8.5.1). This byte used to be

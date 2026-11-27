@@ -500,11 +500,13 @@ section .text
 ; -----------------------------------------------------------------------------
 vid_reboot:
 %ifndef GFX_VGA
-    jmp near vid_text           ; no VGA: vid_text is the whole of it. NEAR on
-                                ; purpose (it would reach short): the odd byte
-                                ; keeps kern_small's hot routines at their
+    jmp vid_text                ; no VGA: vid_text is the whole of it. SHORT
+                                ; again (kernel size pass 21): its NEAR byte
+                                ; held kern_small's hot routines at their
                                 ; measured parity against vid_bk's -1 above
-                                ; (kernel size pass 18), and this runs once
+                                ; (pass 18), and goes with api_file_path's
+                                ; never-executed `nop` (kernel.asm), the
+                                ; other odd pad ahead of them - an even pair
 %else
     call vid_text                ; (without a VGA in the build the tail could
                                 ; never run - [vid_avail]'s VGA bit is never
@@ -1584,9 +1586,13 @@ vid_ctx_act:
     push di
     push ds
     push es
-    KDATAR cx                   ; DS = ES = KERNEL_SEG: both ends are ours
+    KSEGR cx                    ; DS = ES = KERNEL_SEG: both ends are ours
     mov ds, cx                  ; and the caller's ES is not (vid_ctx_pre,
-    mov es, cx                  ; written in: kernel size pass 15)
+    mov es, cx                  ; written in: kernel size pass 15). KSEGR: CS
+                                ; IS that segment in `.text`, so `mov cx, cs`
+                                ; - a byte and two clocks under the immediate
+                                ; (kernel size pass 21; kern_mega's is the
+                                ; same data-alias load either way)
     call vid_ctx_ptr            ; DI = the record (it reads no memory)
     mov cx, VID_CTX_W           ; (no `cld`: DF = 0 is SPEC.md 1's, and every
                                 ; ISR that draws clears it at its gate -

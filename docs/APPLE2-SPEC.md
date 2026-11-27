@@ -4756,6 +4756,7 @@ last row whose whole wake is inside two ticks.
 **AND THE MENU STILL COMES DOWN**, which is the half a speed figure cannot
 say. `build/a2uilat.py` presses the bar's **Machine** cell while
 `FOR I = 1 TO 9999 : NEXT` is running and polls the kernel's own `menu_ent`
+(`menu_cell` since kernel size pass 21 took that word away: SPEC.md 7.3)
 and then the pull-down's PIXELS, twelve presses an arm, with the loop proved
 still running at the end:
 

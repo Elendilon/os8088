@@ -115,9 +115,19 @@
 ; it as anything but the continuation it is.
 ; These are per-control routines (a button, a scroll bar), so the taken `jmp`
 ; is ~20 clocks on an operation that draws (kernel hot-paths pass 1, size).
+; ...AND THE BANK GOES IN BY THE LADDER'S OTHER HALF where the routine banks
+; all seven: `UI_KENT bp` is `call kentc_bp`, 3 bytes for 7 (kernel size pass
+; 21). It is ~+100 clocks a call - kernel.asm's kent_* rule, "per operation,
+; per window, per control, never per glyph" - on a control draw of four to
+; fifteen drawing calls (~3 to 11 ms on the 5150), so under 1% of each. The
+; name is BUILT for UI_KRET's reason: stkbalance reads neither half as a
+; branch, and walks the package arm's pushes and pops on both corpora.
 %ifdef OS88UI_KERNEL
   %macro UI_KRET 1                  ; OS88UI_KCOLD: leave by kretc_<%1>
     jmp kretc_%1
+  %endmacro
+  %macro UI_KENT 1                  ; OS88UI_KCOLD: bank by kentc_<%1>
+    call kentc_%1
   %endmacro
   ; OS88UI_KFAR: the block being assembled is NOT in `.cold` but in an
   ; on-demand image (OS88UI_KGLYPH below), so the three primitives it reaches
@@ -651,6 +661,9 @@ OS88UI_BT_SIZE   equ 18
 ; -----------------------------------------------------------------------------
 %macro OS88UI_BTN_BODY 1-2      ; %2: the kernel .cold copy's exit rung, kretc_<%2>
 %1:
+%if %0 > 1
+    call kentc_%2               ; ...and its BANK, kentc_<%2> (OS88UI_KCOLD)
+%else
     push ax
     push bx
     push cx
@@ -658,6 +671,7 @@ OS88UI_BT_SIZE   equ 18
     push si
     push di
     push bp
+%endif
     xor ah, ah
     dec ax                      ; AX = the 0-based index
     cmp ax, [bx+OS88UI_BT_N]    ; past the live count: draw nothing - and AL =
@@ -2238,6 +2252,9 @@ os88ui_sbthumb:
 ; out: nothing (all registers preserved); leaves the pen BLACK
 ; -----------------------------------------------------------------------------
 os88ui_sbar:
+%ifdef OS88UI_KERNEL
+    UI_KENT bp                  ; OS88UI_KCOLD (above)
+%else
     push ax
     push bx
     push cx
@@ -2245,6 +2262,7 @@ os88ui_sbar:
     push si
     push di
     push bp
+%endif
     mov di, bx                  ; DI = the block: BX is every primitive's y1
     clc                         ; the live pen: CBLACK, [gfx_dis] clear
     UI_PEN
@@ -2319,8 +2337,7 @@ os88ui_sbar:
 %endif                          ; gives DX back (the rule above, -2)
     mov ax, si
     sub ax, bp
-    mov bx, si
-    add bx, bp
+    lea bx, [bp+si]             ; (the line writes no flag it reads: -2)
     UI_HLINE
 %ifndef OS88UI_KERNEL
     pop dx
@@ -2481,6 +2498,9 @@ os88ui_sbhit:
 ; a blink. A step too small to move it draws nothing at all.
 ; -----------------------------------------------------------------------------
 os88ui_sbmove:
+%ifdef OS88UI_KERNEL
+    UI_KENT bp                  ; OS88UI_KCOLD (above)
+%else
     push ax
     push bx
     push cx
@@ -2488,6 +2508,7 @@ os88ui_sbmove:
     push si
     push di
     push bp
+%endif
     mov di, bx
     mov bp, ax                  ; BP = the old pos
     call os88ui_sbthumb         ; where it is going
@@ -6563,18 +6584,31 @@ section .bss
 ; their own comment and had it right; this is what forgetting it costs.
 ; -----------------------------------------------------------------------------
 os88ui_krect: resw 4
-os88ui_krlbl: resw 1            ; ...and the one control's staging beside it
-os88ui_krflg: resw 1            ; (SPEC.md 20.5.1.3). The kernel cannot use
-os88ui_krec:  resw OS88UI_BT_PLACE / 2  ; up to the place proc, which is
-                                ; a package's (OS88UI_PLACE, 20.5.1.3.5)
-                                ; OS88UI_BTNREC - that macro is in
-                                ; apps/os88api.inc, which the kernel does not
-                                ; include - so this record is .bss and
-                                ; os88ui_kbtn aims it at the call. It is ONE
-                                ; record for os88ui_krect's own reason: every
-                                ; kernel user is the UI task under the gfx
-                                ; lock, and a gesture is one press and one
-                                ; release
+section .text                   ; ...and the one control's staging, which is
+os88ui_krlbl: dw 0              ; NOT .bss: it is DS-addressed as the rect is,
+os88ui_krflg: dw 0              ; but four of its words never change, so they
+os88ui_krec:                    ; are assembled in rather than stored by
+    dw 0                        ; os88ui_kbtn on every button (kernel size
+    dw os88ui_krlbl             ; pass 21: -24 a copy of that body, data
+    dw os88ui_krflg             ; bytes the same, only their section moved).
+    dw 1                        ; The kernel cannot use OS88UI_BTNREC - that
+    dw 0                        ; macro is in apps/os88api.inc, which the
+    dw 0                        ; kernel does not include - so this record is
+    dw 0                        ; laid out here up to the place proc, which is
+    dw 0                        ; a package's (OS88UI_PLACE, 20.5.1.3.5), and
+                                ; os88ui_kbtn aims its RECTS at the call. It
+                                ; is ONE record for os88ui_krect's own reason:
+                                ; every kernel user is the UI task under the
+                                ; gfx lock, and a gesture is one press and one
+                                ; release. Nothing in the kernel writes LABELS,
+                                ; FLAGS, N or DOWN: the record's writers
+                                ; (os88ui_btninit, _btnpress, _btndrag,
+                                ; _btnup) are packages' alone, %ifndef
+                                ; OS88UI_KERNEL
+%if ($ - os88ui_krec) != OS88UI_BT_PLACE || OS88UI_BT_RECTS != 0 || OS88UI_BT_LABELS != 2 || OS88UI_BT_FLAGS != 4 || OS88UI_BT_N != 6 || OS88UI_BT_DOWN != 10
+  %error "os88ui_krec's assembled words must be OS88UI_BT_RECTS .. the place proc, in order"
+%endif
+section .bss
 
 
 %ifdef OS88UI_SCROLL
@@ -6637,12 +6671,8 @@ section .cold
     push bx
     mov [os88ui_krlbl], si
     mov [os88ui_krflg], di
-    mov [os88ui_krec+OS88UI_BT_RECTS], bx
-    mov word [os88ui_krec+OS88UI_BT_LABELS], os88ui_krlbl
-    mov word [os88ui_krec+OS88UI_BT_FLAGS], os88ui_krflg
-    mov word [os88ui_krec+OS88UI_BT_N], 1
-    mov word [os88ui_krec+OS88UI_BT_DOWN], 0
-    mov bx, os88ui_krec
+    mov [os88ui_krec+OS88UI_BT_RECTS], bx ; (LABELS, FLAGS, N = 1 and DOWN = 0
+    mov bx, os88ui_krec                   ; are the record's assembled words)
     mov al, 1
     call %2
     pop bx

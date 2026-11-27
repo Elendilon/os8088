@@ -1029,17 +1029,21 @@ task_spawn:
     sub ax, SCH_FRAME           ; ...and the fake frame is carved from it
     xchg di, ax                 ; (kernel size pass 20: the top is where the
     mov [bx+T_SP], di           ; fill stopped, so no size is banked, -13)
-    pop cx                      ; ...and the slot index, which is NOT dead: the
-    shr cx, 1                   ; cycle counter and the return value both want
-                                ; it
+    pop cx                      ; ...and the slot index x 2, which is NOT
+                                ; dead: the cycle counter wants it x 4 and the
+                                ; return value x 1, so it stays doubled until
+                                ; then (kernel size pass 21: the `shr` here,
+                                ; one of the two `shl`s below and a `mov`
+                                ; for an `xchg`, -3)
 
                                 ; the frame lives in LOW_SEG, so it is built
                                 ; through ES - DS cannot reach it. ES IS
                                 ; ALREADY LOW_SEG, loaded for the 0xCC fill
                                 ; above, and nothing between writes it. CX IS
-                                ; NOT DEAD - it is the slot index, and it is
-                                ; still needed for the cycle counter and the
-                                ; return value below
+                                ; NOT DEAD - it is the slot index x 2, and it
+                                ; is still needed for the cycle counter and
+                                ; the return value below (sch_frame reads no
+                                ; CX)
                                 ; ...and DI is dead past the block: the frame
                                 ; address is already parked in T_SP above, so
                                 ; stosw may walk it. DF is 0 from the fill's
@@ -1058,7 +1062,7 @@ task_spawn:
 
     mov di, cx                  ; zero the slot's cycle counter before the
     shl di, 1                   ; publish, so a reused slot never inherits
-    shl di, 1                   ; a dead task's total (SPEC.md 8.1)
+                                ; a dead task's total (SPEC.md 8.1): x 4
     xor ax, ax                  ; through AX: mov [m],ax is 4 bytes where
     mov [di+sch_cycles], ax     ; mov word [m],0 is 6, and AX is free here
     mov [di+sch_cycles+2], ax   ; (it held the FLAGS word, dead, and is
@@ -1067,8 +1071,9 @@ task_spawn:
                                 ; BP - which is the addressing this already
                                 ; used
 
-    mov ax, cx                  ; AL = slot index (1..MAX_TASKS-1), the
-                                ; answer - and CH is 0, so AX is the slot
+    xchg ax, cx                 ; AL = slot index (1..MAX_TASKS-1), the
+    shr ax, 1                   ; answer - and CH was 0, so AX is the slot
+                                ; (CX takes the 0, dead: kret_es restores it)
     cmp al, [sch_top]           ; RAISE THE BOUND BEFORE THE PUBLISH (SPEC.md
     jb .intop                   ; 8.1.3): the scan stops at [sch_top], so a
     inc ax                      ; slot made ready above it would never run:
@@ -1185,11 +1190,12 @@ task_sleep:
     add ax, [ticks]
     mov [bx+sch_tasks+T_WAKE], ax       ; deadline first...
     mov byte [bx+sch_tasks+T_STATE], 2  ; ...then state (both stores atomic)
-    call task_yield             ; switch away; we resume once state -> 1
-
-    pop bx
-    pop ax
-    ret
+    pop bx                      ; ...and switch away, as a TAIL: task_yield
+    pop ax                      ; takes no register and keeps them all, so
+    jmp task_yield              ; the pair is ours to put back first, and the
+                                ; `ret` its frame resumes at is ours - we
+                                ; resume once state -> 1 (kernel size pass
+                                ; 21, -1)
 
 ; -----------------------------------------------------------------------------
 ; task_exit - terminate the CURRENT task (self-exit only; NEVER RETURNS)
@@ -1855,8 +1861,8 @@ task_yield:
     jz .noyvmm
     push ds
     push ax
-    KDATAR ax
-    mov ds, ax
+    KSEGR ax                    ; CS is the kernel's here: a byte and two
+    mov ds, ax                  ; clocks under the immediate (pass 21)
     call vmm_poll
     pop ax
     pop ds
@@ -2668,10 +2674,11 @@ sch_stkdie:
 ;   * **A STACK THAT IS NOT THE DEAD ONE.** SP is currently somewhere below the
 ;     dead slice's canary, scribbling on the slot underneath. So SP moves
 ;     FIRST, before anything is called or pushed, and the evidence - the slot,
-;     its parked SP, its instance - is read out of the task TABLE into
-;     registers and pushed onto the new stack (it was banked in four bytes of
-;     `.bss` until kernel size pass 8; the read preceded the move until pass
-;     9, which buys sch_currec's call nothing on the dead stack).
+;     its parked SP, its instance - is pushed onto the new stack straight
+;     out of the task TABLE (it was banked in four bytes of `.bss` until
+;     kernel size pass 8; the read preceded the move until pass 9, which buys
+;     sch_currec's call nothing on the dead stack; it went through registers
+;     until pass 21).
 ;     It moves to task 0's, the largest in the machine and, at IF = 0 for ever,
 ;     owned by nobody: if task 0 is itself the corpse then its contents are
 ;     already banked and overwriting them costs the panel nothing.
@@ -2703,14 +2710,16 @@ sch_diepanel:
                                 ; any stack, so the order of these two steps
                                 ; is free - and with SP moved, sch_currec's
                                 ; call lands on task 0's stack, not the corpse
-    call sch_currec             ; --- read the evidence into REGISTERS: after
-    mov dl, [sch_cur]           ;     this nothing here reads a task record, so
-    mov ax, [bx+sch_tasks+T_SP] ;     nothing cares that the table is suspect.
-    mov dh, [bx+sch_tasks+T_INST] ;   DL = the slot, DH = its instance, AX =
-                                ;     its parked SP
-    push dx                     ; the instance, for the last field...
-    push ax                     ; ...the SP...
-    push dx                     ; ...and the slot, popped in the order drawn
+    call sch_currec             ; --- read the evidence onto the NEW STACK:
+    push word [bx+sch_tasks+T_INST] ; after this nothing here reads a task
+    push word [bx+sch_tasks+T_SP]   ; record, so nothing cares that the table
+    push word [sch_cur]         ; is suspect. The instance (in the low byte:
+                                ; T_FLAGS rides above it), the parked SP and
+                                ; the slot (low: [fsx_task] rides above it),
+                                ; each pushed straight from memory and popped
+                                ; in the order drawn (kernel size pass 21, -5:
+                                ; three loads into DX/AX and the `xchg` the
+                                ; last field took)
     call wm_clip_clear          ; nothing may clip the panel away
     mov word [sch_dpcol], SDP_X
 
@@ -2725,8 +2734,7 @@ sch_diepanel:
     mov si, sch_s_in
     call sch_dpstr
     mov si, sch_s_ui            ; the UI task owns no instance record...
-    pop ax
-    xchg al, ah                 ; AL = the instance
+    pop ax                      ; AL = the instance
     cmp al, 0xFF
     je .name
     call inst_ptr               ; ...and any other slot names its own
@@ -2776,8 +2784,10 @@ sch_dphex2:
     mov si, sch_dphc            ; hex path and the text path are the same two
     jmp short sch_dpstr         ; lines of drawing code and not two copies
 
-    nop                         ; PARITY, never executed: after the tail jump,
-                                ; beside diagnostic strings; restores ui_task
+                                ; (the PARITY nop that stood here for
+                                ; ui_task went in kernel size pass 21:
+                                ; app_close_now's odd byte, below it and
+                                ; above ui_task, is the other half - t_hotpar)
 sch_s_over: db 'STACK OVERFLOW  TASK ', 0   ; grep the tree for this sentence
 sch_s_sp:   db '  SP ', 0                ; and SPEC.md 8.8 is the first hit
 sch_s_in    equ fm_s_colsp + 1  ; '  ', 0 - the tail of the Disk window's
@@ -3006,6 +3016,11 @@ sch_chskip: resw 1                      ; how many chains a nested tick has
                                         ; [sch_chbusy] is below, beside the lock
 %endif
 ticks:      resw 1                      ; public tick count, wraps at 65536
+sch_coop:   resb 1                      ; mode (SPEC.md 8.2): 0 pre-emptive,
+                                        ; 1 cooperative. HERE, under sch_cur,
+                                        ; so osapi_sys_snapshot_x reads the
+                                        ; pair as one word (kernel size pass
+                                        ; 21, -2: the %if below)
 sch_cur:    resb 1                      ; index of the running task. ALWAYS a
                                         ; live slot, 0..MAX_TASKS-1: 0xFF is
                                         ; NOT available here as a "nothing
@@ -3069,8 +3084,8 @@ sch_subs:   resw 1                      ; free-running IRQ0 entries, SUB-TICKS
                                         ; for CHANGE only, so the value it
                                         ; starts at does not matter and the
                                         ; wrap at 65536 is not a case
-sch_coop:   resb 1                      ; mode (SPEC.md 8.2): 0 pre-emptive,
-                                        ; 1 cooperative; sched_mode_set/_get
+                                        ; ([sch_coop], the mode, is above
+                                        ; sch_cur since kernel size pass 21)
 sch_hold:   resb 1                      ; ticks of watchdog budget LEFT to the
                                         ; running task: armed to SCH_WD_TICKS
                                         ; on every entry to sch_switch and
@@ -3116,6 +3131,9 @@ sch_wd_hits: resw 1                     ; watchdog-forced switches; diagnostic
 ; after the declarations.
 %if sch_top - sch_idleslot != 1
   %error "the boot seed writes [sch_idleslot] = 0xFF and [sch_top] = 1 as ONE word store - keep sch_top directly after sch_idleslot"
+%endif
+%if sch_cur - sch_coop != 1
+  %error "osapi_sys_snapshot_x reads [sch_coop] and [sch_cur] as ONE word: keep sch_coop directly before sch_cur"
 %endif
 %if sch_idlewake - sch_uiwake != 1
   %error "sch_wake_ui sets both wake bytes with ONE word store (SPEC.md 8.1.2) - keep sch_uiwake and sch_idlewake adjacent, in that order"

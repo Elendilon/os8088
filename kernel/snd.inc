@@ -1069,12 +1069,13 @@ spk_off:
     mov [sch_rdiv], ax
     call sch_pit0
     popf
-    call spk_pcm_idle           ; ch2's ports and its ownership, one window
-.out:
-    ret
+    jmp spk_pcm_idle            ; ch2's ports and its ownership, one window -
+                                ; a TAIL, its `ret` ours (kernel size pass 21,
+                                ; -1: the `ret` here and .err's are one)
 .err:                           ; osapi_fsx_spk's refusals, AX = the code
     stc
-    ret
+.out:                           ; ...and nothing open: CF = 1 from the
+    ret                         ; `cmp`, as it always answered
 
 ; -----------------------------------------------------------------------------
 ; osapi_fsx_spk - slot 0x020D (SPEC.md 34.11.1): a THIN door. The kernel does

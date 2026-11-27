@@ -117,6 +117,9 @@ CLV_MKDIR    equ CLV_DIRV
 CLV_RENAME   equ CLV_DIRV + 1
 CLV_RMDIR    equ CLV_DIRV + 2
 CLV_RMTREE   equ CLV_DIRV + 3
+%if CLV_RENAME != CLV_MKDIR + 1 || CLV_RMDIR != CLV_MKDIR + 2 || CLV_RMTREE != CLV_MKDIR + 3
+  %error "diskw.inc's dskw_dirb is entered at the verb's own byte: CLV_MKDIR .. CLV_RMTREE must be consecutive, in this order"
+%endif
 %else                           ; ...elsewhere the tree alone
 CLV_RMTREE   equ CLV_DIRV
 %endif
@@ -2221,9 +2224,9 @@ clo_move:
     jc .done
     mov ax, si
     call clo_boot0
-    jmp short .done
+%ifdef CLO_XMS                  ; (without the store .done is the next byte:
+    jmp short .done             ; kernel size pass 21, -2 on kern_small)
 
-%ifdef CLO_XMS
     ; --- through the store: CL_STAGE sectors at a time, each load copied up
     ;     or down. A staging copy is a memcpy and not a TRIP, so the swap
     ;     count is unchanged at one (SPEC.md 18.99.4).
@@ -2504,8 +2507,7 @@ clo_boot0:
     or bl, bl
     jnz .out                    ; a write: the keep is a READ's business
     or ax, ax
-    jnz .out
-    jmp clo_keepboot
+    jz clo_keepboot             ; (one jcc: kernel size pass 21, -2)
 .out:
     ret
 

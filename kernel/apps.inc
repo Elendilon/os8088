@@ -50,9 +50,15 @@ app_about_s1:   db 'os8088 1.0  Build ', BUILD_STR, 0
 app_about_s1:   db 'os8088 1.0', 0
 %endif
 app_about_s2:   db 'a graphical OS for the 8086', 0
-; third line, one word per scheduler mode (SPEC.md 8.2/14)
+; third line, one word per scheduler mode (SPEC.md 8.2/14) - the SAME LENGTH,
+; so the paint indexes them by [sch_coop] (0 or 1, never else) at stride
+; APP_ABOUT_S3N rather than branching between two loads (kernel size pass 21)
 app_about_s3p:  db 'pre-emptive', 0
+APP_ABOUT_S3N   equ $ - app_about_s3p
 app_about_s3c:  db 'cooperative', 0
+%if $ - app_about_s3c != APP_ABOUT_S3N
+  %error "app_about_s3p and app_about_s3c are indexed at one stride: keep them the same length"
+%endif
 ; fourth line: the screen this machine actually got (SPEC.md 39). Indexed by
 ; [vid_kind], so it can never disagree with what is on the glass - the old
 ; third line asserted '640x480 - 16 colors' unconditionally, which stopped
@@ -68,9 +74,21 @@ app_about_v2:   db 'CGA - 640x200 - mono', 0
 app_about_v3:   db 'EGA - 640x350 - 16 colors', 0
 %endif
 %ifdef VID_EXT                  ; ...and VID_VESA, kind 4, is COMPOSED from the
-app_about_vx0:  db 'VESA - ', 0 ; mode VESA.DRV chose (SPEC.md 14): it has
-app_about_vx1:  db ' - ', 0     ; no fixed geometry to spell, and a fifth row
-app_about_vx2:  db '-bit', 0    ; read whatever followed this table
+                                ; mode VESA.DRV chose (SPEC.md 14): it has no
+                                ; fixed geometry to spell, and a fifth row read
+                                ; whatever followed this table. ONE LIST, of
+                                ; strings each followed by the word whose
+                                ; number goes after it, 0 for none: the paint
+                                ; is one loop over it (kernel size pass 21, -9
+                                ; against three copies and three conversions)
+app_about_vx:   db 'VESA - ', 0
+                dw vid_vxrow + 14       ; the width...
+                db 'x', 0
+                dw vid_vxrow + 16       ; ...the height...
+                db ' - ', 0
+                dw vx_bpp               ; ...and the depth
+                db '-bit', 0
+                dw 0
 %endif
 
 ; =============================================================================
@@ -111,13 +129,14 @@ app_about_paint_x:
     call app_about_center_x
     mov si, app_about_s2
     call app_about_center_x
-    mov si, app_about_s3p       ; third line follows the live scheduler mode
-    cmp byte [sch_coop], 0      ; 0 pre-emptive, 1 cooperative: the byte
-    je .s3                      ; itself, through DS, where a far call to
-                                ; the deleted sched_mode_get read it (kernel
-                                ; size pass 20, -2)
-    mov si, app_about_s3c
-.s3:
+    mov al, [sch_coop]          ; third line follows the live scheduler mode:
+    mov ah, APP_ABOUT_S3N       ; 0 pre-emptive, 1 cooperative - the byte
+    mul ah                      ; itself (kernel size pass 20), which nothing
+    add ax, app_about_s3p       ; writes but 0 or 1 (cp_schset normalises it,
+    xchg si, ax                 ; the settings reader range-tests it), as the
+                                ; index of one of two equal-length strings
+                                ; (kernel size pass 21, -2 on the compare,
+                                ; the branch and the second load)
     call app_about_center_x
     mov al, [vid_kind]          ; fourth line: the adapter in use. Indexed
 %ifdef VID_EXT
@@ -135,21 +154,20 @@ app_about_paint_x:
     jmp kretc_di
 %ifdef VID_EXT
 .vesa:                          ; 'VESA - 1024x768 - 8-bit': the live mode,
-    mov di, fm_hdrbuf           ; read where the Display page reads it
-    mov si, app_about_vx0       ; (cp_vid_vxlabel), staged in fm_hdrbuf -
-    call fm_scat                ; BORROWED, as files.inc's verdicts borrow
-    mov ax, [vid_vxrow + 14]    ; it: every painter of it stages it afresh,
-    call fm_utoa                ; and this paint holds the gfx lock as they
-    mov byte [di], 'x'          ; do. 31 bytes at the most, of 48
-    inc di
-    mov ax, [vid_vxrow + 16]
+    push bx                     ; read where the Display page reads it
+    mov di, fm_hdrbuf           ; (cp_vid_vxlabel), staged in fm_hdrbuf -
+    mov si, app_about_vx        ; BORROWED, as files.inc's verdicts borrow
+.vl:                            ; it: every painter of it stages it afresh,
+    call fm_scat                ; and this paint holds the gfx lock as they
+    lodsw                       ; do. 31 bytes at the most, of 48. BX is the
+    xchg bx, ax                 ; window, banked round the walk: the one
+    or bx, bx                   ; register that can address the word each
+    jz .ve                      ; string is followed by (0: the last string,
+    mov ax, [bx]                ; whose NUL fm_scat has already stored)
     call fm_utoa
-    mov si, app_about_vx1
-    call fm_scat
-    mov ax, [vx_bpp]
-    call fm_utoa
-    mov si, app_about_vx2
-    call fm_scat                ; ...and its NUL
+    jmp short .vl
+.ve:
+    pop bx
     mov si, fm_hdrbuf
     jmp short .line4
 %endif
