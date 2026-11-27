@@ -626,20 +626,17 @@ vx_info:
     cmp cl, 0xFF
     je .card
     cmp cl, [vx_nmodes]
-    jae vx_init.stc             ; (CF = 1)
+    jae .no                     ; (CF = 1)
     mov al, VM_SIZE
     mul cl
     add ax, vx_modes
     xchg ax, si                 ; SI = record i
     mov ax, [si+VM_BPSL]
-    mul word [si+VM_Y]          ; DX:AX = bytes
+    mul word [si+VM_Y]          ; DX:AX = bytes, under 4096 x 768
     add ax, 1023
     adc dx, 0
-    mov cl, 10
-    shr ax, cl
-    mov cl, 6
-    shl dx, cl
-    or ax, dx                   ; AX = KB, rounded up
+    mov cx, 1024
+    div cx                      ; AX = KB, rounded up
     push ax
     call vx_encode              ; CL = the class byte
     mov ch, [si+VM_BPP]
@@ -647,18 +644,20 @@ vx_info:
     mov dx, [si+VM_Y]
     mov di, [si+VM_MODE]
     pop si
-    clc
+    db 0xA8                     ; test al, imm8 - the stc below: CF = 0...
+.no:
+    stc                         ; ...and a jump here is CF = 1
     ret
 .card:
     push bx
     push word [vx_cur]
-    call vx_choose              ; [vx_cur] = Auto's pick, put back below
-    mov ax, [vx_cur]
-    pop word [vx_cur]
+    call vx_choose              ; [vx_cur] = Auto's pick...
+    pop ax
+    xchg ax, [vx_cur]           ; ...the running record put back, AX = the pick
     sub ax, vx_modes
     mov cl, 4
     shr ax, cl
-    mov si, ax                  ; SI = the recommended index
+    xchg ax, si                 ; SI = the recommended index
     mov ax, [vx_cur]
     sub ax, vx_modes
     shr ax, cl
