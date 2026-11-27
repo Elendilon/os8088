@@ -20020,8 +20020,12 @@ shape, §19.7.1.1), in every kernel:
 Each word is read and zeroed by one `xchg`, which no interrupt can split.
 There is deliberately no `cli` round the pair: a report landing between the
 two answers its dx now and its dy at the next call, a frame late and never
-lost, and leaving it out keeps the body at 22 bytes, an EVEN count, which
-every hot routine assembled after it needs (`tests/unit/t_hotpar.py`). The first call after
+lost. On the real-mode kernels the body reads the three cells through `cs:`
+(CS is KERNEL_SEG in `.text`) instead of banking DS: 21 bytes, the odd one
+taking the place of the PARITY byte after `mou_p2_off`, so every hot routine
+assembled after it keeps its parity (`tests/unit/t_hotpar.py`; kernel size
+pass 21). kern_mega's CS is a read-only selector in protected mode, so it
+keeps the DS bank and the 22 bytes, pad and all. The first call after
 boot answers whatever motion the desktop saw, so a mouse-look calls it once
 on entry and discards the answer.
 

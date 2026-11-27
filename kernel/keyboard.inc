@@ -24,7 +24,9 @@ KBDL_FR equ 4
 
 section .text
 ; The public cell stamps its owner. Built-in glyph holds use the PRIVATE
-; control entry with DH=FF; a package cannot claim that shared hold.
+; control entry with DH=FF; a package cannot claim that shared hold. An owner
+; this refuses becomes RAW, whose own owner test answers AX = 1, CF = 1 for
+; it on every task (kernel size pass 21: the refusal was a second copy here)
 osapi_keyboard:
     push dx
     call inst_caller
@@ -32,15 +34,11 @@ osapi_keyboard:
     jb .call
     cmp al, KBDV_CANCEL
     je .call
-.owner:
     cmp dh, INST_MAX
     jb .call
-    mov ax, 1
-    stc
-    jmp short .out
+    mov al, KBDV_RAW            ; DH >= INST_MAX: kl_control_x's .raw refuses
 .call:
     call COLD_SEG:kl_control_x
-.out:
     pop dx
     ret
 
@@ -64,38 +62,38 @@ kl_rfp: dw 0,0
 section .cold
 ; Same AL/AH contract as OSAPI_KEYBOARD; private HOLD/RELEASE DH=FF is
 ; Control Panel's own glyph client. No state is kept in the resident core.
+;
+; One pass of tests (kernel size pass 21): [sch_cur] is read once into CL;
+; QUERY, SET 0, RELEASE and CANCEL go straight to the module-present test;
+; only SET 1..4 and HOLD load, so `.call` asks SET alone; the three refusals
+; share one `cbw / stc` tail. Every answer, flag and call is the one the
+; two-pass form gave.
 kl_control_x:
     push bx
     push cx
     push dx
     pushf
-    cmp byte [sch_cur], 0
-    je .ui                     ; the UI task's verbs may load, run and drop
+    mov cl, [sch_cur]           ; CL = the task: nothing below writes CL
+    or cl, cl                   ; before its second test (.raw does, and
+    jz .ui                      ; never returns there)
     cli                        ; a worker's QUERY/RAW: no drop while in the image
 .ui:
     cmp al, KBDV_RAW
     je .raw
     or al, al
-    jz .which                  ; read-only QUERY is safe on every task
-    cmp byte [sch_cur], 0
-    jne .context
+    jz .noload                 ; read-only QUERY is safe on every task
+    or cl, cl
+    jnz .context
     cmp al, KBDV_CANCEL
     ja .bad
-    cmp al, KBDV_SET
-    jne .which
-    cmp ah, KBDL_FR
-    ja .bad
-.which:
-    cmp al, KBDV_SET
-    jne .hold
-    or ah, ah
-    jnz .load
-.hold:
     cmp al, KBDV_HOLD
     je .load
-    cmp word [mod_r_keyboard], 0
-    je .zero
-    jmp short .call
+    cmp al, KBDV_SET
+    jne .noload                ; RELEASE, CANCEL: only a present module
+    or ah, ah
+    jz .noload                 ; SET 0, BIOS input: the same
+    cmp ah, KBDL_FR
+    ja .bad
 .load:
     push ax
     mov al, MOD_KEYBOARD
@@ -114,50 +112,49 @@ kl_control_x:
     pop dx
     pop ax
 %endif
-.call:
+.call:                          ; AL = SET (AH = 1..4) or HOLD here
     cmp al, KBDV_SET
     jne .invoke
-    or ah, ah
-    jz .invoke
-    push ax
-    xor al, al
-    call KERNEL_SEG:rmk_8       ; existing KEY_DOWN cell arms the raw observer
-    pop ax
-.invoke:
-    call far [KLFP+KL_CMD]
-    jnc .out
-    or al, al
-    jz .zero                   ; QUERY before the allocated image is armed
+    call KERNEL_SEG:rmk_8       ; existing KEY_DOWN cell arms the raw observer;
+    jmp short .invoke           ; AL = 1 asks after Esc, an answer nobody reads
+.resource:                      ; (HERE, in short reach of every refusal on
+                                ; kern_mega too, whose SEG_REAL block above
+                                ; would push them past it at the foot)
+    mov al, 2
+    jmp short .fail
+.context:
+    mov al, 3
+    jmp short .fail
+.bad:
+    mov al, 1
+.fail:
+    cbw                         ; AX = 1, 2 or 3 (no `db` skip: .cold holds
+    stc                         ; no data, os88ovlchk rule 1)
     jmp short .out
 .raw:
     cmp dh, INST_MAX
     jae .bad
-    mov bl, dh
-    xor bh, bh
-    mov cl, 5
-    shl bx, cl                 ; I_RECSZ=32, existing instance flags byte
-    or ah, ah
+    mov cl, ah                  ; the policy, before MUL spends AH
+    mov al, I_RECSZ
+    mul dh                      ; AX = DH * I_RECSZ: the existing flags byte
+    xchg ax, bx
+    or cl, cl
     jz .native
     or byte [bx+inst_tab+I_FLAGS], IF_RAWKBD
     jmp short .query
 .native:
     and byte [bx+inst_tab+I_FLAGS], ~IF_RAWKBD & 0xff
 .query:
-    mov al, KBDV_QUERY
-    jmp .which
-.resource:
-    mov ax, 2
-    stc
-    jmp short .out
-.context:
-    mov ax, 3
-    stc
-    jmp short .out
-.bad:
-    mov ax, 1
-    stc
-    jmp short .out
-.zero:
+    mov al, KBDV_QUERY          ; (AH is BH's: a QUERY reads AL alone)
+.noload:
+    cmp word [mod_r_keyboard], 0
+    je .zero
+.invoke:
+    call far [KLFP+KL_CMD]
+    jnc .out
+    or al, al                   ; CF = 0 from here on, as it always was
+    jnz .out
+.zero:                          ; ...QUERY before the allocated image is armed
     xor ax, ax
 .out:
     sbb cx, cx                 ; carry the result's CF across the popf

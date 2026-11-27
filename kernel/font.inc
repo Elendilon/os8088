@@ -423,27 +423,13 @@ section .text
 ; body is longer than a short one reaches. Both are cold: no cell that fits its
 ; display and no machine with one card ever arrives at either.
 ; -----------------------------------------------------------------------------
-font_ch_hi:                     ; AL is past the original ASCII face
-    cmp byte [font_ch_on], 0
-    jne .seam
-    cmp al, [font_last]         ; the optional module's live CP850 range
-    jbe font_char.chok
-    jmp short font_ch_drop
-.seam:                          ; the private cut still uses its own table
-                                ; The counter is what keeps the two
-                                ; codes PRIVATE, so OSAPI_FONT_CHAR with 128
-                                ; draws what it has always drawn
-    cmp al, FONT_SEAM_A         ; the part that IS here, masked in both axes -
-    je font_char.edgeok         ; so the edge tests have nothing left to say
-    cmp al, FONT_SEAM_B         ; and are stepped over; the spill is tested
-    je font_char.chok
-    jmp short font_ch_drop      ; any other code past FONT_LAST: nothing
-
 font_ch_spill:                  ; the cell runs off this display's edge
     cmp byte [gfx_dnest], 1     ; 0 = one card, above 1 = a caller owns the
     jne font_ch_drop            ; translation: 39.14.2's whole-cell drop stands
                                 ; for both, and a one-card machine is answered
                                 ; HERE, faster than the call it replaces
+    add al, FONT_FIRST          ; (font_char hands an index on; the cut takes
+                                ; the character, as it always has)
     EXTCALL EXT_FCUT            ; ...and the CUT is EXTD.DRV's (kernel size
     jc font_ch_drop             ; pass 13): refused - or no image - is 39.14.2's
                                 ; whole-cell drop
@@ -507,6 +493,23 @@ font_ch_seam:
 ; this jump at all.
 ; -----------------------------------------------------------------------------
 %ifdef SEAMCUT
+font_ch_hi:                     ; AL = an INDEX (the char - FONT_FIRST) past
+    cmp byte [font_ch_on], 0    ; the original ASCII face, or a control
+    jne .seam                   ; character wrapped above every span
+    cmp al, [font_span]         ; the optional module's live CP850 range
+    jbe font_char.chok
+    jmp short font_ch_drop
+.seam:                          ; the private cut still uses its own table
+                                ; The counter is what keeps the two
+                                ; codes PRIVATE, so OSAPI_FONT_CHAR with 128
+                                ; draws what it has always drawn
+    cmp al, FONT_SEAM_A - FONT_FIRST ; the part that IS here, masked in both
+    je font_char.edgeok         ; axes - so the edge tests have nothing left
+    cmp al, FONT_SEAM_B - FONT_FIRST ; to say and are stepped over; the spill
+    je font_char.chok           ; is tested. Any other code: nothing -
+                                ; font_ch_drop, which this falls into (it
+                                ; sits last for that, kernel size pass 21: -2;
+                                ; the live CP850 path above is not moved)
 font_ch_drop:
     jmp font_char.done
 %endif
@@ -541,20 +544,23 @@ font_char:
                                 ; its top-left corner (SPEC.md 39.14.2), and
                                 ; the two edge tests below are that display's
 
-    cmp al, FONT_FIRST          ; unprintable -> space -> nothing to draw
+    sub al, FONT_FIRST          ; AL = the glyph's index from here on, and an
+                                ; unprintable one WRAPS above every live span
+                                ; (the highest is 223), so one unsigned test
+                                ; is both ends - font_run_x's own (kernel size
+                                ; pass 21: -4, and a compare and a branch off
+                                ; every glyph; the `sub` at .rows went with it)
 %ifdef SEAMCUT
-    jb font_ch_drop
-    cmp al, FONT_LAST
-    ja font_ch_hi               ; ...or one of 39.14.11's two half-cells, the
-.chok:                          ; only thing above FONT_LAST that draws
+    cmp al, FONT_LAST - FONT_FIRST
+    ja font_ch_hi               ; ...one of 39.14.11's two half-cells, the CP850
+.chok:                          ; face, or nothing: font_ch_hi tells them apart
     cmp cx, [vid_cwm8]          ; unsigned: negative x fails this too
     ja font_ch_spill            ; SPEC.md 39.14.11: a SEAM is a cut, not a
     cmp dx, [vid_chm8]          ; drop - and the cut hangs off the branch that
     ja font_ch_spill            ; was already here, so a cell that fits pays
 .edgeok:                        ; nothing for it on either kernel
 %else                           ; ...and with no seam cut `.done` is already in
-    jb .done                    ; short reach, so these five aim straight at it
-    cmp al, [font_last]
+    cmp al, [font_span]         ; short reach, so these four aim straight at it
     ja .done
     cmp cx, [vid_cwm8]          ; unsigned: negative x fails this too
     ja .done
@@ -600,7 +606,7 @@ font_char:
 %endif
 .rows:
 
-    sub al, FONT_FIRST          ; SI = glyph row data. The arithmetic stays in
+                                ; SI = glyph row data. The arithmetic stays in
     xor ah, ah                  ; the CP850 index is unsigned (SPEC.md 6.7)
     shl ax, 1                   ; ax,imm16` is the 3-byte accumulator form
     shl ax, 1                   ; where `add si,imm16` is 4, and `xchg ax,si`
@@ -1032,10 +1038,10 @@ font_ink:
                                 ; (kern_small's PARITY nop that stood here went
                                 ; with font_char_bb's odd -3, kernel size pass
                                 ; 20: font_run_x is back at its measured parity)
-%ifndef KERN_SMALL
-    nop                         ; PARITY, never executed (kernel hot-paths
-%endif                          ; pass 1): font_ink and font_char_bb came out
-                                ; an odd 7 bytes shorter on a VGA kernel
+                                ; (kern_big's PARITY nop for font_ink and
+                                ; font_char_bb's odd 7 went too, kernel size
+                                ; pass 21: fnt_unlazy's below was a second pad
+                                ; in the same run, so the two cancelled out)
 
 %ifdef BOOT_PROFILE
 ; -----------------------------------------------------------------------------
@@ -1158,8 +1164,11 @@ fnt_unlazy:
     CURUNLAZY
 .out:
     ret
+%ifdef KERN_SMALL
     nop                         ; PARITY, never executed: optional glyph range
-                                ; checks moved this run by an odd byte
+%endif                          ; checks moved this run by an odd byte (the
+                                ; VGA kernels' font_ink pad was the other half
+                                ; of a pair: both went, kernel size pass 21)
 
 font_run:
     GFXAUDIT_HOOK
@@ -1286,13 +1295,17 @@ font_run_x:
                                 ; not there, so the planar prologue and every
                                 ; fallback get it without knowing it exists
 %ifdef KERN_BIG
-    mov byte [font_rn_pl], 0    ; SPEC.md 6.1.10: which prologue set the masks
-%endif
-%ifdef KERN_BIG
-    mov ax, cx                  ; SPEC.md 6.1.11: the pen's phase, and the
-    and al, 7                   ; whole of what UNALIGNED costs from here -
-    mov [font_rn_k7], al        ; the prologue, the glyph table and the span
-%ifdef NOUNAL                   ; are the run's either way
+    mov ah, cl                  ; SPEC.md 6.1.11: the pen's phase, and the
+    and ax, 0x0700              ; whole of what UNALIGNED costs from here -
+    mov [font_rn_pl], ax        ; the prologue, the glyph table and the span
+                                ; are the run's either way. ONE word store:
+                                ; [font_rn_pl] = 0 (SPEC.md 6.1.10: which
+                                ; prologue set the masks) and [font_rn_k7] =
+                                ; x & 7, the pair adjacent by assertion, and
+                                ; ZF is still the phase's (kernel size pass
+                                ; 21: -4, and faster). AX is dead here: every
+                                ; path below loads it before reading it
+%ifdef NOUNAL
     jnz .slow                   ; `make NOUNAL=1` is the A/B: the same session
 %endif                          ; through the kernel that has no 6.1.11
 %else
@@ -1391,7 +1404,7 @@ font_run_x:
                                 ; which a pixel diff catches and an eye does
                                 ; not
 %ifdef KERN_BIG
-    test byte [font_rn_k7], 1   ; ...but HORIZONTALLY the phase is screen-
+    test cl, 1                  ; ...but HORIZONTALLY the phase is screen-
     jz .dseed                   ; absolute: font_char masks the SHIFTED bytes
     mov bl, 0x55                ; and 6.1.11's row walk masks the cell before
 %endif                          ; shifting it, so an odd skew takes the other
@@ -1600,7 +1613,7 @@ font_run_x:
                                 ; every kernel word a pass reads goes through
                                 ; CS, the table's `lodsw` included
 %ifdef KERN_BIG
-    cmp byte [cs:font_rn_k7], 0
+    test cx, 7                  ; [font_rn_k7] is x & 7 and CX is the run's x
     jne .rmu                    ; SPEC.md 6.1.11: off the byte grid, so a cell
                                 ; does not own a byte - but the RUN still owns
                                 ; all but two of them
@@ -1718,7 +1731,8 @@ font_run_x:
 %endmacro
 
 .rmu:
-    mov cl, [cs:font_rn_k7]
+    and cl, 7                   ; CL = x & 7, [font_rn_k7] (pass 21: CX is
+                                ; still the run's x, so no CS-relative read)
     push di                     ; the run's first byte, for the column passes
 .rmurow:
     mov si, font_rn_tab
@@ -1878,16 +1892,16 @@ font_run_x:
     mov bh, al
     and bh, bl                  ; BH = A, the planes that want the glyph
     and ah, bl                  ; AH = B, the planes that want its complement
+    mov dx, 0xFFFF              ; DL = xm, DH = bm (DX is banked above and
+                                ; next written as VGA_GC; .plno pops it back)
     or bh, bh
-    jz .plcpl                   ; A empty: every varying plane wants ~glyph
+    jz .plset                   ; A empty: every varying plane wants ~glyph
     or ah, ah
     jnz .plno                   ; both non-empty: two passes, not this one
-    mov byte [font_rn_bm], 0x00 ; B empty: the CPU byte IS the glyph
-    jmp short .plset
-.plcpl:
-    mov byte [font_rn_bm], 0xFF
+    mov dh, 0                   ; B empty: the CPU byte IS the glyph
 .plset:
-    mov byte [font_rn_xm], 0xFF ; the compose is a pass-through either way...
+    mov [font_rn_xm], dx        ; the compose is a pass-through either way...
+                                ; (xm and bm in ONE word, kernel size pass 21)
     cmp byte [gfx_mono1], 0     ; ...UNLESS THIS WINDOW DECLARED TWO COLOURS
     je .plgo                    ; AND THE RUN IS DISABLED (SPEC.md 11.96.17.1).
     cmp byte [gfx_dis], 0       ; [gfx_dis] AND NOT [font_rn_dt], which is 0
@@ -1909,18 +1923,17 @@ font_run_x:
                                 ; either bm: 00 writes (glyph & AA) and FF
                                 ; writes its complement, which is the same
                                 ; pixels read the other way up.
-    push ax
-    mov al, 0xAA
+    mov dh, 0xAA                ; DH = xm (AX stays: no bank, pass 21)
 %ifdef KERN_BIG
-    test byte [font_rn_k7], 1   ; ...on the other phase for an odd skew, so
+    test cl, 1                  ; ...on the other phase for an odd skew, so
     jz .plph                    ; the checkerboard lands in the same screen
-    mov al, 0x55                ; columns whatever the cell's x is
-.plph:
+    mov dh, 0x55                ; columns whatever the cell's x is (CX is the
+.plph:                          ; run's x, whose x & 7 is [font_rn_k7])
 %endif
-    mov [font_rn_xm], al
-    mov byte [font_rn_dt], 0xFF ; ...and the per-row swap is the whole mask,
-    pop ax                      ; the two colours having been reduced to
-.plgo:                          ; 00/FF by font_ink before we got here
+    mov dl, 0xFF                ; ...and DL = dt: the per-row swap is the
+    mov [font_rn_dt], dx        ; whole mask, the two colours having been
+.plgo:                          ; reduced to 00/FF by font_ink before we got
+                                ; here. dt and xm in ONE word (pass 21)
     mov byte [font_rn_pl], 1
     not bl
     and bl, 0x0F                ; BL = C, the planes Set/Reset answers for
@@ -2154,11 +2167,9 @@ font_run_cell:
     mov dl, 0FFh                ; ...and every column
 %endif
 .have_rows:
-    cmp al, FONT_FIRST
-    jb .blank
-    cmp al, [font_last]
-    ja .blank
-    sub al, FONT_FIRST
+    sub al, FONT_FIRST          ; ONE unsigned test for both ends, as font_char
+    cmp al, [font_span]         ; (kernel size pass 21: -4, and faster); AL is
+    ja .blank                   ; no input of .blank, which reloads AX
     xor ah, ah                  ; unsigned CP850 index; arithmetic in AX for the
     shl ax, 1                   ; accumulator form of the `add` - see font_char
     shl ax, 1
@@ -2251,13 +2262,15 @@ font_run_cell:
 ; framebuffer byte and there is nothing cleverer to do.
 ; -----------------------------------------------------------------------------
 font_run_scell:
-    mov [font_rn_ch], al
-    push ax
     push bx
     push cx
     push dx
+    push ax                     ; LAST, so the character is the word on top
+                                ; when font_char wants it back (kernel size
+                                ; pass 21: no parking cell in .bss, -4 and a
+                                ; byte of .bss, two memory moves off a cell)
     mov al, [font_rn_bg]        ; THE FILL'S PEN, set here where AL is free -
-    mov [gfx_color], al         ; the character is in [font_rn_ch] and the
+    mov [gfx_color], al         ; the character is on the stack and the
                                 ; rect has not been built yet. In the middle,
                                 ; where it used to be, it cost a push/pop pair
                                 ; around it because AL was x1's low byte by
@@ -2283,31 +2296,31 @@ font_run_scell:
                                 ; pixel and font_char masks the columns
     push ax                     ; bank the cell's own origin - the fill wants
     push bx                     ; the band, font_char wants the cell
-    mov dx, [wm_clip_r0]        ; DL = r0, DH = rn: ONE load, the pair being
-    add bl, dl                  ; adjacent (wm.inc's %if says so)
-    adc bh, 0                   ; BX = the band's first row...
-    mov dl, dh
+    mov dl, [wm_clip_r0]        ; DX = r0, zero-extended...
     mov dh, 0
-    add dx, bx
-    dec dx                      ; ...and DX its last
+    add bx, dx                  ; BX = the band's first row...
+    mov dl, [wm_clip_rn]        ; ...DX = rn (DH is still 0): a byte under
+    add dx, bx                  ; the word load and the byte add-with-carry
+    dec dx                      ; ...and DX its last (kernel size pass 21)
     call gfx_fill               ; the BAND, not the cell: the erase has to
                                 ; cover what the glyph is about to letter and
                                 ; nothing else, or the two disagree again
     mov al, [font_rn_fg]        ; the glyph's pen; AL is free again, the
-    mov [gfx_color], al         ; character coming back out of [font_rn_ch]
+    mov [gfx_color], al         ; character coming back off the stack
     pop dx                      ; ...and the two banked coordinates ARE y1 and
     pop cx                      ; x1, which is exactly where font_char takes
                                 ; them - no hop through AX and BX at all. BX
                                 ; is left holding whatever gfx_fill did and
                                 ; nothing below reads it before the outer
                                 ; epilogue pops the caller's
-    mov al, [font_rn_ch]
+    pop ax                      ; the character (and the caller's AH)...
+    push ax                     ; ...left for the epilogue's pop
     call font_char              ; ...and asks the region the same question,
 .out:                           ; so it letters exactly the rows just erased
+    pop ax
     pop dx
     pop cx
     pop bx
-    pop ax
     ret
 
 
@@ -2668,9 +2681,6 @@ font_rn_re      equ ico_ibuf + FONT_RN_MAX*2 + 8 ; the two edge bytes each row
                                 ; keeping them together is one cache line of
                                 ; a reader's attention
 %endif
-font_rn_ch:     resb 1          ; font_run_scell's character, parked because
-                                ; AL is the rect's low byte by the time the
-                                ; letter is drawn
 font_rn_n2:     resw 1          ; cells drawn singly, before the trailing span
 font_rn_k:      resw 1          ; ...the span's length, at least 1
 font_rn_n:      resw 1          ; SPEC.md 6.1.7: cells the run will draw, and
@@ -2698,6 +2708,14 @@ font_dith:      resb 1          ; 1 = this glyph is disabled text on a mono
 %endif
 %if (font_rn_bm - font_rn_xm) != 1
   %error "font_run_x's .rm and font_run_cell both read the run's masks as ONE word (`mov dx,[font_rn_xm]`, `mov cx,[font_rn_xm]` -> low = xm, high = bm): they must stay adjacent, xm first (SPEC.md 6.1.5)"
+%endif
+%if (font_rn_xm - font_rn_dt) != 1
+  %error "font_run_x's planar dither stores [font_rn_dt] and [font_rn_xm] as ONE word (low = dt, high = xm): they must stay adjacent, dt first"
+%endif
+%ifdef KERN_BIG
+%if (font_rn_k7 - font_rn_pl) != 1
+  %error "font_run_x's prologue stores [font_rn_pl] and [font_rn_k7] as ONE word (low = pl, high = k7): they must stay adjacent, pl first"
+%endif
 %endif
 
 %ifdef BAKED_FONT

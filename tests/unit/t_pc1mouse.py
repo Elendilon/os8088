@@ -65,11 +65,23 @@ def main():
           "PC1 attach arms the kernel scancode map before mouse button input",
           why="the PC1's first button press must be visible to the worker")
     scan = re.search(r"(?ms)^%macro KBM_SCAN 1-2\s*(.*?)^%endmacro", ksrc)
+    # The filter is three compares, or (kernel size pass 21) ONE unsigned
+    # range test over the three consecutive codes: AH = AL - KBM_PC1_L, then
+    # `cmp ah, KBM_PC1_R - KBM_PC1_L / jbe .pc1eat` - which is only right
+    # while the codes stay consecutive, so the macro must assert that.
+    body = scan.group(1) if scan is not None else ""
+    first = body.find("cmp al, KBM_PC1_L")
+    ranged = (first < 0 and "mov ah, al" in body
+              and re.search(r"sub ah, KBM_PC1_L\s.*\n\s*cmp ah, KBM_PC1_R - KBM_PC1_L\b.*\n"
+                            r"\s*jbe \.pc1eat", body) is not None
+              and re.search(r"%if KBM_PC1_M - KBM_PC1_L != 1 \|\| KBM_PC1_R - KBM_PC1_M != 1\s*"
+                            r"\n\s*%error", body) is not None)
+    if ranged:
+        first = body.find("sub ah, KBM_PC1_L")
     check(scan is not None
-          and scan.group(1).find("call kbd_track") < scan.group(1).find("cmp al, KBM_PC1_L")
-          < scan.group(1).find("cmp byte [mou_ptr], 0")
-          and "%ifnidn %2, mem" not in scan.group(1)
-          and "je .pc1eat" in scan.group(1),
+          and body.find("call kbd_track") < first < body.find("cmp byte [mou_ptr], 0")
+          and "%ifnidn %2, mem" not in body
+          and ("je .pc1eat" in body or ranged),
           "PC1 filtering runs before KBM_SCAN's chain exits in both scan forms",
           why="the XT uses the shared `mem` expansion in kern_big; neither scan form may bypass the filter")
     # The eat path from .pc1eat to .chain. A KBD_I15 kernel shares its tail
@@ -78,6 +90,14 @@ def main():
     # acknowledge below; that arm is checked for its guard and then
     # removed, so what remains is exactly what the XT's INT 09h runs.
     kfilter = re.search(r"(?ms)^\.pc1eat:\s*(.*?)^\.chain:", ksrc)
+    # Since kernel size pass 21 the eat path is the KBM_EAT macro, expanded
+    # here on the OS88_DRIVERS kernels (and after the chain on kern_small) so
+    # that .selfchain shares its EOI tail: read the expansion in its place.
+    eat = re.search(r"(?ms)^%macro KBM_EAT 0\s*(.*?)^%endmacro", ksrc)
+    if kfilter is not None and eat is not None and re.search(
+            r"(?m)^\s+KBM_EAT\b", kfilter.group(1)):
+        kfilter = re.search(r"(?ms)(.*)", re.sub(
+            r"(?m)^\s+KBM_EAT\b.*$", lambda _: eat.group(1), kfilter.group(1)))
     if kfilter is not None:
         i15 = re.search(r"(?ms)^%ifdef KBD_I15\s*(.*?)^%endif",
                         kfilter.group(1).split(".kleat:", 1)[-1])
