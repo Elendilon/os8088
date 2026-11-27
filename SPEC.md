@@ -241194,6 +241194,16 @@ depth blit went 7.9 → 3.4 ms, the fill's rate to within 10%, and the
 sixteen-colour `OSAPI_GFX_BLIT4` of the same rows is 5.3x it, which is
 what §120.7 buys a package. PERFORMANCE.md Part 5 carries the rows.
 
+**The text run puts a glyph row down in one pass** (driver size pass 2):
+`VX_FONTRUN` wrote every pixel through `vx_px` - a call, the depth test and
+the window-edge test a pixel, and at 16bpp the RGB word looked up each time.
+A row whose eight pixels end short of the window's last byte (DI + 8, or
++ 16, does not carry - so no edge test would have fired) is now one
+`stosb`/`stosw` loop with the run's two pixel values looked up once; a row
+that reaches the edge keeps the per-pixel loop, so every window switch
+happens where it did. Counted in a unicorn model of a banked VBE, not timed:
+the same pixels and the same `4F05h` calls in 55% of the instructions.
+
 ### 120.9 Testing
 
 QEMU's standard VGA carries a VBE 2.0/3.0 BIOS, so `-vga std` — the default
@@ -260562,9 +260572,18 @@ the page.
 **Redraw only what changed** (CLAUDE.md, Performance rule 1): a press on an
 adapter row redraws the two rows that changed, the preview and the Modes
 group (its content depends on the adapter), the controls (their greying) and
-nothing else; a filter tab, the strip and the table; a table row, the two
-rows, the preview and the controls; a check box, its glyph; Keep, the right
-group. **Nothing is drawn after `CPG_VIDSET` or `CPG_VIDARR` returns** -
+nothing else; a filter tab, the strip and the table - and the preview and the
+controls, the selection going to Auto - the rows re-filtered from the records
+the last paint read, the card not asked again; a table row, the two rows, the
+preview and the controls; Force Color, its glyph; the startup box, its glyph,
+its label and the table's rows (their marks moved); Keep, the right group.
+The preview and the Modes group are their INSIDES: a group's box and title
+never change after the paint. "The controls" a press redraws are the startup
+box and its label, Apply and Test... - Force Color is changed by no press but
+its own (driver size pass 2 made the code match this paragraph: an adapter
+press redrew all four rows and both boxes, a filter tab asked the card for
+every record again, and the startup box redrew the Running mode group).
+**Nothing is drawn after `CPG_VIDSET` or `CPG_VIDARR` returns** -
 §31.10's rule: the switch re-fits every window, so the origin the press was
 handed may describe a rectangle that no longer exists, and `cp_repost` has
 already handed the whole screen to `ui_task`, whose repaint comes back here
@@ -260573,7 +260592,9 @@ as `CWV_PAINT` with the new origin.
 **The page's state** is the page area of the working area (`CPW_W_PAGE`,
 §135.5): the table block, the filter, the adapter and row chosen, the
 record count, running and recommended indices, a class byte per record (bit
-5 marks a 15bpp one), the rows, the filter's depths, and the test's state.
+5 marks a 16bpp one, and 0 a record no row shows - not the one its class
+reaches, driver size pass 2), the rows, the filter's depths, and the test's
+state.
 Working-area byte 19 (`CPV_LIVE`, the pad between `CPW_W_FULL` and the kit's
 scratch) is 1 while that state belongs to this page: `cpw_page` clears it
 when any other page is drawn, so coming back to Display builds the page again
