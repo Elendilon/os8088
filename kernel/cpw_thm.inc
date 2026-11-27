@@ -2,7 +2,7 @@
 ; os8088 - cpw_thm.inc
 ;
 ; The wide Theme page (SPEC.md 135.11), assembled into CPWIDE.DRV after the
-; chrome (cpwide.inc %includes it). Prefix `cpt_`. ES = the asset claim, DS =
+; chrome (cpwide.inc %includes it). Prefix `cpt_`. ES = the asset view, DS =
 ; KERNEL_SEG, the gfx lock held, every coordinate CONTENT-relative (the kit's
 ; contract, SPEC.md 135.5). Internal procs clobber what they like but ES, DS.
 ;
@@ -26,9 +26,9 @@ CPT_L       equ CPW_PX + 8      ; the groups' and the first card's left
 
 ; --- the page's working bytes: the page block (CPW_W_PAGE, 80), this page's
 ; --- whole while it shows (SPEC.md 135.5.1); rebuilt on every paint ---------
-CPT_W       equ CPW_W_PAGE + 0  ; dw card width
-CPT_H       equ CPW_W_PAGE + 2  ; dw card height
-CPT_TG      equ CPW_W_PAGE + 4  ; dw the presets group's top
+CPT_W       equ CPW_W_PAGE + 0  ; dw card width             } cpt_geo lays
+CPT_H       equ CPW_W_PAGE + 2  ; dw card height            } these six out
+CPT_TG      equ CPW_W_PAGE + 4  ; dw the presets group's top} in this order
 CPT_TE      equ CPW_W_PAGE + 6  ; dw the Effects / Screen Saver groups' top
 CPT_GW      equ CPW_W_PAGE + 8  ; dw the half groups' width
 CPT_SX      equ CPW_W_PAGE + 10 ; dw the Screen Saver group's left
@@ -38,13 +38,19 @@ CPT_R       equ CPW_W_PAGE + 16 ; dw the far edge: x of the last column ...
 CPT_B       equ CPW_W_PAGE + 18 ; dw ... y of the last row (origin-relative)
 CPT_PX      equ CPW_W_PAGE + 20 ; dw a press: x ...
 CPT_PY      equ CPW_W_PAGE + 22 ; dw ... y
-CPT_TX      equ CPW_W_PAGE + 24 ; dw a card label's left
-CPT_TW      equ CPW_W_PAGE + 26 ; dw ... and its width
-CPT_COL     equ CPW_W_PAGE + 28 ; db the colour byte being drawn
 CPT_CI      equ CPW_W_PAGE + 29 ; db the card being drawn
 CPT_ROW     equ CPW_W_PAGE + 30 ; 10 bytes: the theme row being drawn
 %if CPT_ROW + 10 > CPW_W_PAGE + CPW_W_PAGEN
   %error "cpw_thm: the Theme page outgrew the page's working bytes"
+%endif
+%if CPT_H != CPT_W + 2 || CPT_TG != CPT_W + 4 || CPT_TE != CPT_W + 6 || CPT_GW != CPT_W + 8 || CPT_SX != CPT_W + 10
+  %error "cpw_thm: cpt_geo lays CPT_W..CPT_SX out one word after another"
+%endif
+%if CPT_Y0 != CPT_X0 + 2 || CPT_R != CPT_X0 + 4 || CPT_B != CPT_X0 + 6
+  %error "cpw_thm: the interpreter's origin and far edge are X0, Y0, R, B"
+%endif
+%if CPG_SAVER != CPG_THMCUST + 1
+  %error "cpw_thm: cpw_thm_up picks its op by adding the button"
 %endif
 
 CPT_ID_CUST equ CPW_ID0 + 1     ; the armed ids: Customize... and Settings...
@@ -54,28 +60,30 @@ R_          equ 80h             ; "from the far edge", in a table's coordinate
 
 ; -----------------------------------------------------------------------------
 ; cpt_geo - the page's geometry from the content box (SPEC.md 135.11)
+; out: CPT_W..CPT_SX; AX DI spent
 ; -----------------------------------------------------------------------------
 cpt_geo:
+    mov di, CPT_W
     mov ax, [es:CPW_W_CW]
     sub ax, CPT_L + 32          ; (CW - 161) / 4
     shr ax, 1
     shr ax, 1
-    mov [es:CPT_W], ax
-    mov bx, [es:CPW_W_CH]
-    sub bx, CPW_H1 - TITLE_H - 1
-    shr bx, 1
-    add bx, 84
-    mov [es:CPT_H], bx
-    add bx, CPT_TOP + 8
-    mov [es:CPT_TG], bx
-    add bx, 68
-    mov [es:CPT_TE], bx
+    stosw                       ; CPT_W
+    mov ax, [es:CPW_W_CH]
+    sub ax, CPW_H1 - TITLE_H - 1
+    shr ax, 1
+    add ax, 84
+    stosw                       ; CPT_H
+    add ax, CPT_TOP + 8
+    stosw                       ; CPT_TG
+    add ax, 68
+    stosw                       ; CPT_TE
     mov ax, [es:CPW_W_CW]
     sub ax, CPT_L + 16          ; (CW - 145) / 2
     shr ax, 1
-    mov [es:CPT_GW], ax
+    stosw                       ; CPT_GW
     add ax, CPT_L + 8
-    mov [es:CPT_SX], ax
+    stosw                       ; CPT_SX
     ret
 
 ; -----------------------------------------------------------------------------
@@ -83,16 +91,7 @@ cpt_geo:
 ; -----------------------------------------------------------------------------
 cpw_thm_paint:                  ; (cpw_page has cleared CPW_D_ON: the page
                                 ; block is this page's now, SPEC.md 135.5.1)
-    call cpw_sty                ; the ground, the page area to the status rule
-    mov dx, ax
-    dec dx
-    dec dx
-    mov byte [gfx_color], CWHITE
-    mov ax, CPW_PX
-    mov bx, CPW_BY
-    mov cx, [es:CPW_W_CW]
-    dec cx
-    call cpw_fill
+    call cpd_ground             ; the ground, the page area to the status rule
     call cpt_geo
     xor bx, bx                  ; --- the four cards
 .card:
@@ -116,49 +115,45 @@ cpw_thm_paint:                  ; (cpw_page has cleared CPW_D_ON: the page
     add dx, 59
     mov si, cpt_s_pre
     call cpk_group
-    xor si, si
+    mov di, CPT_X0              ; the swatches' 36x40 cells: the first's
+    mov ax, CPT_L + 10          ; origin, and the far edge they all share
+    stosw
+    lea ax, [bx + 16]
+    stosw
+    mov ax, 35
+    stosw
+    mov al, 39
+    stosw
+    xor bp, bp                  ; BP = past the live preset's row, 0 none
+    cmp byte [thm_kind], THM_COLOR
+    jb .nl                      ; Bright / Dark: no preset is live
+    mov al, [drv_cfg + CFG_THMP]
+    mov ah, THM_PRESET_ROWB
+    mul ah
+    add ax, cpt_pre + THM_PRESET_ROWB
+    xchg ax, bp
+.nl:
+    mov si, cpt_pre
 .sw:
-    push si                     ; swatch SI: its row into the scratch
-    mov ax, si
-    mov cl, THM_PRESET_ROWB
-    mul cl
-    add ax, cpt_pre
-    mov si, ax
-    push ds
+    push ds                     ; swatch by swatch: its row into the scratch
     push cs
     pop ds
     mov di, CPT_ROW
     mov cx, THM_PRESET_ROWB
-    cld
-    rep movsb
+    rep movsb                   ; (SI = the next row)
     pop ds
-    pop si
-    mov ax, si                  ; origin = its 36x40 cell
-    mov cx, 38
-    mul cx
-    add ax, CPT_L + 10
-    mov [es:CPT_X0], ax
-    mov ax, [es:CPT_TG]
-    add ax, 16
-    mov [es:CPT_Y0], ax
-    mov word [es:CPT_R], 35
-    mov word [es:CPT_B], 39
     push si
-    mov bx, cpt_swbody
-    cmp byte [thm_kind], THM_COLOR
-    jb .nr                      ; Bright / Dark: no preset is live
-    mov ax, si
-    cmp al, [drv_cfg + CFG_THMP]
+    cmp si, bp
+    mov si, cpt_swbody
     jne .nr
-    mov bx, cpt_swring          ; ...the live one wears the ring first
+    mov si, cpt_swring          ; ...the live one wears the ring first
 .nr:
-    mov si, bx
     call cpt_elems
+    add word [es:CPT_X0], 38
     pop si
-    inc si
-    cmp si, THM_PRESET_N
+    cmp si, cpt_pre + THM_PRESET_N * THM_PRESET_ROWB
     jb .sw
-    xor al, al
+    xor ax, ax
     call cpt_btn
     xor di, di
     call cpk_button             ; Customize...
@@ -172,8 +167,7 @@ cpw_thm_paint:                  ; (cpw_page has cleared CPW_D_ON: the page
     mov si, cpt_s_eff
     call cpk_group
     mov cx, CPT_L + 8
-    mov dx, [es:CPT_TE]
-    add dx, 18
+    lea dx, [bx + 18]
     mov si, cpt_s_anim
     mov ax, (CWHITE << 8) | CBLACK
     xor bl, bl
@@ -188,14 +182,15 @@ cpw_thm_paint:                  ; (cpw_page has cleared CPW_D_ON: the page
     add dx, 55
     mov si, cpt_s_sav
     call cpk_group
-    mov ax, [es:CPT_SX]
+    mov di, CPT_X0              ; its picture, 96x34
     add ax, 8
-    mov [es:CPT_X0], ax
-    mov ax, [es:CPT_TE]
-    add ax, 18
-    mov [es:CPT_Y0], ax
-    mov word [es:CPT_R], 95
-    mov word [es:CPT_B], 33
+    stosw
+    lea ax, [bx + 18]
+    stosw
+    mov ax, 95
+    stosw
+    mov al, 33
+    stosw
     mov si, cpt_sav
     call cpt_elems
     mov al, 1
@@ -223,14 +218,6 @@ cpt_tabs:
 ; -----------------------------------------------------------------------------
 cpt_card:
     mov [es:CPT_CI], al
-    mov word [es:CPT_Y0], CPT_TOP
-    mov ax, [es:CPT_W]
-    sub ax, 3
-    mov [es:CPT_R], ax
-    mov ax, [es:CPT_H]
-    sub ax, 19
-    mov [es:CPT_B], ax
-    mov al, [es:CPT_CI]
     cmp al, THM_COLOR
     jbe .r
     mov al, THM_COLOR           ; a Windows card wears the Color row
@@ -238,18 +225,27 @@ cpt_card:
     mov ah, THM_ROW_BYTES
     mul ah
     add ax, thm_tab
-    mov si, ax
+    xchg ax, si
     mov di, CPT_ROW
     mov cx, THM_ROW_BYTES
-    cld
-    rep movsb                   ; DS = the kernel's, ES = the claim's
-    mov byte [es:CPT_ROW + 9], CWHITE   ; byte 9 (the menu's XOR mask) is the
-    cmp byte [es:CPT_CI], THM_WIN       ; window FACE here: white, grey on
-    jne .face
-    mov byte [es:CPT_ROW + 9], CLGRAY   ; the Windows card
+    rep movsb                   ; DS = the kernel's, ES = the view's
+    mov al, CWHITE              ; byte 9 (the menu's XOR mask) is the window
+    cmp byte [es:CPT_CI], THM_WIN   ; FACE here: white, grey on the Windows
+    jne .face                   ; card
+    mov al, CLGRAY
 .face:
+    mov [es:CPT_ROW + 9], al
+    mov di, CPT_Y0              ; the miniature's origin and far edge
+    mov ax, CPT_TOP
+    stosw
+    mov ax, [es:CPT_W]
+    sub ax, 3
+    stosw                       ; CPT_R
+    mov ax, [es:CPT_H]
+    sub ax, 19
+    stosw                       ; CPT_B
     mov al, CBLACK              ; --- the ring
-    mov bp, 1
+    mov bp, 1                   ; BP = its width: 2 is the live theme's
     mov ah, [es:CPT_CI]
     cmp ah, [thm_kind]
     jne .ring
@@ -283,68 +279,55 @@ cpt_card:
     inc ax
     mov cx, di
     call cpw_fill               ; right
-    mov si, cpt_ct              ; --- the miniature
+    mov si, cpt_ct              ; --- the miniature (cpt_elems keeps BP)
     call cpt_elems
     cmp byte [es:CPT_CI], THM_WIN
     jne .name
     call cpt_elems              ; ...and the Windows card's taskbar
 .name:
-    xor bh, bh                  ; --- its name, centred
-    mov bl, [es:CPT_CI]
-    mov dl, [cs:cpt_nlen + bx]
-    xor dh, dh
-    shl dx, 1
-    shl dx, 1
-    shl dx, 1
-    mov [es:CPT_TW], dx
-    mov ax, [es:CPT_W]
-    sub ax, dx
-    shr ax, 1
-    add ax, [es:CPT_X0]
-    mov [es:CPT_TX], ax
-    mov dx, [es:CPT_H]
-    add dx, CPT_TOP - 14        ; the text's top; the label is 16 rows
+    mov bl, [es:CPT_CI]         ; --- its name, centred
+    xor bh, bh
     shl bx, 1
     mov si, [cs:cpt_nm + bx]
+    mov di, [cs:cpt_ntw + bx]   ; DI = its width
+    mov cx, [es:CPT_W]
+    sub cx, di
+    shr cx, 1
+    add cx, [es:CPT_X0]         ; CX = its left
+    add di, cx                  ; DI = past it
+    mov dx, [es:CPT_H]
+    add dx, CPT_TOP - 14        ; the text's top; the label is 16 rows
     mov ax, (CWHITE << 8) | CBLACK
-    mov bl, [es:CPT_CI]
-    cmp bl, [thm_kind]
-    jne .run
-    push si                     ; the live one: a blue bar - the four spans
-    push dx                     ; round the run, then the run on blue
-    mov byte [gfx_color], CBLUE
-    mov bx, dx                  ; DX = BX = the text's top
+    cmp bp, 1
+    je .run
+    push cx                     ; the live one: a blue bar - the four spans
+    mov byte [gfx_color], CBLUE ; round the run, then the run on blue
     mov ax, [es:CPT_X0]
-    add ax, 2
-    mov cx, [es:CPT_X0]
+    inc ax
+    inc ax                      ; AX = the bar's left
+    mov cx, ax
     add cx, [es:CPT_W]
-    sub cx, 3
+    sub cx, 5                   ; CX = its right
+    mov bx, dx
     sub bx, 4
     dec dx
     call cpw_fill               ; above
-    pop dx
-    push dx
-    mov bx, dx
-    add bx, 8
-    add dx, 11
+    add bx, 12
+    add dx, 12
     call cpw_fill               ; below
-    pop dx
-    mov bx, dx
-    add dx, 7
-    mov cx, [es:CPT_TX]
+    sub bx, 8
+    sub dx, 4                   ; (BX/DX = the text's rows)
+    xchg ax, di
+    call cpw_fill               ; right of the text
+    xchg ax, di
+    pop cx
+    push cx
     dec cx
-    call cpw_fill               ; left of the text
-    mov ax, [es:CPT_TX]
-    add ax, [es:CPT_TW]
-    mov cx, [es:CPT_X0]
-    add cx, [es:CPT_W]
-    sub cx, 3
-    call cpw_fill               ; right of it
-    sub dx, 7                   ; (DX = the text's top again)
-    pop si
+    call cpw_fill               ; left of it
+    pop cx
+    mov dx, bx
     mov ax, (CBLUE << 8) | CWHITE
 .run:
-    mov cx, [es:CPT_TX]
     xor bl, bl
     jmp cpw_run
 
@@ -352,85 +335,60 @@ cpt_card:
 ; cpt_elems - the rect interpreter
 ; in:  SI = a table in the image (CS), [CPT_X0/Y0/R/B] the origin and the far
 ;      edge, [CPT_ROW] the theme row. Rows of five bytes: colour, x1, y1, x2,
-;      y2; a colour byte of FFh ends the table
-; out: SI = past the terminator
+;      y2; a colour byte of FFh ends the table. A row field that is
+;      THM_DITHER is the 50% dither desktop (gfx_fill_gray)
+; out: SI = past the terminator; AX BX CX DX DI spent, BP kept
 ; -----------------------------------------------------------------------------
 cpt_elems:
-    mov al, [cs:si]
-    inc si
+    ; STKBALANCE-LOOP: .c pushes one coordinate a turn, four turns (CX = 4), and the four pops follow it
+    cs lodsb
     cmp al, 0xFF
     je .end
-    mov [es:CPT_COL], al
-    mov bx, [es:CPT_R]
-    mov dx, [es:CPT_X0]
-    mov al, [cs:si]
-    inc si
-    call cpt_dec
-    push ax                     ; x1
-    mov bx, [es:CPT_B]
-    mov dx, [es:CPT_Y0]
-    mov al, [cs:si]
-    inc si
-    call cpt_dec
-    push ax                     ; y1
-    mov bx, [es:CPT_R]
-    mov dx, [es:CPT_X0]
-    mov al, [cs:si]
-    inc si
-    call cpt_dec
-    push ax                     ; x2
-    mov bx, [es:CPT_B]
-    mov dx, [es:CPT_Y0]
-    mov al, [cs:si]
-    inc si
-    call cpt_dec
-    mov dx, ax
-    pop cx
-    pop bx
-    pop ax
-    call cpt_rect
-    jmp cpt_elems
-.end:
-    ret
-
-; cpt_dec - AL = a coordinate byte, BX = the far edge, DX = the origin
-;           -> AX = the content-relative coordinate
-cpt_dec:
+    test al, 80h
+    jz .fld
+    and al, 0Fh
+    jmp short .col
+.fld:
+    cbw
+    xchg ax, bx
+    mov al, [es:CPT_ROW + bx]
+.col:
+    xchg ax, di                 ; DI = the pen
+    mov bx, CPT_X0
+    mov cx, 4
+.c:                             ; x1, y1, x2, y2: from the origin, or back
+    cs lodsb                    ; from the far edge
     xor ah, ah
     test al, R_
     jz .p
     and al, 7Fh
     neg ax
-    add ax, bx
+    add ax, [es:bx + CPT_R - CPT_X0]
 .p:
-    add ax, dx
-    ret
-
-; cpt_rect - fill AX/BX/CX/DX in [CPT_COL]'s colour (a row field, FFh = the
-;            50% dither desktop, or 80h + a colour)
-cpt_rect:
-    push bx
-    mov bl, [es:CPT_COL]
-    test bl, 80h
-    jz .fld
-    and bl, 0Fh
-    jmp short .pen
-.fld:
-    xor bh, bh
-    mov bl, [es:CPT_ROW + bx]
-    cmp bl, THM_DITHER
+    add ax, [es:bx]
+    push ax
+    xor bx, CPT_X0 ^ CPT_Y0
+    loop .c
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    xchg ax, di
+    cmp al, THM_DITHER
     je .gray
-.pen:
-    mov [gfx_color], bl
-    pop bx
-    jmp cpw_fill
+    mov [gfx_color], al
+    xchg ax, di
+    call cpw_fill
+    jmp short cpt_elems
 .gray:
-    pop bx
+    xchg ax, di
     add ax, [es:CPW_W_OX]
     add cx, [es:CPW_W_OX]
     add bx, [es:CPW_W_OY]
     add dx, [es:CPW_W_OY]
     call KERNEL_SEG:cw_gfx_fill_gray
+    jmp short cpt_elems
+.end:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -457,8 +415,7 @@ cpt_btn:
     add bx, 26
     mov si, cpt_s_set
 .y:
-    mov dx, bx
-    add dx, 17
+    lea dx, [bx + 17]
     ret
 
 ; cpt_hit - is the press ([CPT_PX/PY]) inside AX/BX/CX/DX? CF = 0 inside
@@ -478,18 +435,17 @@ cpt_hit:
     ret
 
 ; -----------------------------------------------------------------------------
-; cpw_thm_click - a press on the page
-; in:  AX/BX = the point, content-relative (cpw_click's); ES = the claim
+; cpw_thm_click - a press on the page (cpw_click's, which has already asked
+; cpw_big: the small state never gets here)
+; in:  AX/BX = the point, content-relative; ES = the view
 ; A card and a swatch act on the press and draw nothing (the repaint the theme
 ; change posts does); a button is armed, drawn pressed and fires on the release
 ; -----------------------------------------------------------------------------
 cpw_thm_click:
-    cmp word [es:CPW_W_CW], CPW_W1 - 2
-    jb .r
     mov [es:CPT_PX], ax
     mov [es:CPT_PY], bx
     call cpt_geo
-    mov al, 0                   ; --- the two buttons
+    xor ax, ax                  ; --- the two buttons
 .b:
     push ax
     call cpt_btn
@@ -498,85 +454,74 @@ cpw_thm_click:
     mov di, OS88UI_DOWN
     call cpk_button
     pop ax
-    mov ah, 0
     add ax, CPT_ID_CUST
     CPWC os88ui_arm
     ret
 .nb:
     pop ax
-    inc al
+    inc ax
     cmp al, 2
     jb .b
     mov ax, [es:CPT_PX]
     mov bx, [es:CPT_PY]
     sub ax, CPT_L
     jl .r
-    mov cx, [es:CPT_H]          ; --- a card
-    add cx, CPT_TOP
-    cmp bx, CPT_TOP
-    jl .pre
-    cmp bx, cx
-    jge .pre
-    xor dx, dx
-    mov cx, [es:CPT_W]
-    add cx, 8
-    div cx
-    cmp ax, 4
+    sub bx, CPT_TOP             ; --- a card
+    cmp bx, [es:CPT_H]
+    jae .pre
+    mov cl, [es:CPT_W]
+    add cl, 8
+    div cl                      ; AL = the card, AH = x inside its pitch
+    cmp al, 4
     jae .r
-    cmp dx, [es:CPT_W]
+    cmp ah, [es:CPT_W]
     jae .r                      ; the gap
     mov ah, CPG_THMSET
     jmp cpw_gate
 .pre:
     mov bx, [es:CPT_PY]         ; --- a swatch
-    mov cx, [es:CPT_TG]
-    add cx, 16
-    cmp bx, cx
-    jl .eff
-    add cx, 39
-    cmp bx, cx
-    jg .eff
+    sub bx, [es:CPT_TG]
+    sub bx, 16
+    cmp bx, 39
+    ja .eff
     mov ax, [es:CPT_PX]
     sub ax, CPT_L + 10
     jl .r
-    xor dx, dx
-    mov cx, 38
-    div cx
-    cmp ax, THM_PRESET_N
+    mov cl, 38
+    div cl
+    cmp al, THM_PRESET_N
     jae .r
-    mov bx, ax                  ; BX = the preset
+    mov bl, al                  ; BL = the preset
     cmp byte [thm_kind], THM_COLOR
     jb .inst
     cmp bl, [drv_cfg + CFG_THMP]
     je .r                       ; the live preset: nothing to change
 .inst:
-    mov al, THM_PRESET_ROWB     ; the row over the Color row, its number into
-    mul bl                      ; 'TP' - what tv_install does (SPEC.md 135.11)
+    mov ah, THM_PRESET_ROWB     ; the row over the Color row, its number into
+    mul ah                      ; 'TP' - what tv_install does (SPEC.md 135.11)
     add ax, cpt_pre
-    mov si, ax
+    xchg ax, si
+    push es
     push ds
     pop es
     push cs
     pop ds
     mov di, THM_CROW
     mov cx, THM_PRESET_ROWB
-    cld
     rep movsb
     push es
     pop ds                      ; DS = the kernel's again
+    pop es                      ; ...and ES the view
     mov [drv_cfg + CFG_THMP], bl
-    mov es, [cs:cpw_dseg]       ; ES = the claim again
     mov ah, CPG_THMPRE
     jmp cpw_gate
 %ifdef WM_ANIM
 .eff:
-    mov bx, [es:CPT_TE]         ; --- the animation strip
-    add bx, 32
-    cmp [es:CPT_PY], bx
-    jl .r
-    add bx, CPK_TABH - 1
-    cmp [es:CPT_PY], bx
-    jg .r
+    mov bx, [es:CPT_PY]         ; --- the animation strip
+    sub bx, [es:CPT_TE]
+    sub bx, 32
+    cmp bx, CPK_TABH - 1
+    ja .r
     mov cx, [es:CPT_PX]
     sub cx, CPT_L + 8
     mov si, cpt_s_tabs
@@ -596,58 +541,47 @@ cpw_thm_click:
     ret
 
 ; -----------------------------------------------------------------------------
-; cpw_thm_up - the release of a wide control on this page
+; cpw_thm_up - the release of a wide control on this page (cpw_edge's, which
+; has laid the content box out already)
 ; in:  AX = what was armed (os88ui_fire's), CX/DX = the SCREEN point
 ; -----------------------------------------------------------------------------
 cpw_thm_up:
-    mov bx, ax
-    sub bx, CPT_ID_CUST
-    cmp bx, 1
+    sub ax, CPT_ID_CUST
+    cmp ax, 1
     ja .r
-    call cpw_org
+    push ax                     ; the button: 0 Customize..., 1 Settings...
     sub cx, [es:CPW_W_OX]
     sub dx, [es:CPW_W_OY]
     mov [es:CPT_PX], cx
     mov [es:CPT_PY], dx
-    push bx                     ; (the index: cpt_geo spends BX)
     call cpt_geo
-    pop bx
-    push bx
-    mov al, bl
-    call cpt_btn
+    pop ax
     push ax
-    push bx
-    push cx
-    push dx
+    call cpt_btn
     xor di, di
     call cpk_button             ; the press drew it down: up again, always
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     call cpt_hit
-    pop bx
+    pop ax
     jc .r                       ; slid off: nothing
-    mov ah, CPG_THMCUST
-    or bl, bl
-    jz .go
-    mov ah, CPG_SAVER
-.go:
+    mov ah, CPG_THMCUST         ; Customize..., or the saver's Settings...
+    add ah, al
     jmp cpw_gate
 .r:
     ret
 
 ; --- the tables ---------------------------------------------------------------
 ; a card, origin = its top left, far edge = (w - 3, h - 19): colour field 5 the
-; desktop, 0 the menu bar, 1 the ink, 3 / 4 the title, 9 the window face
+; desktop, 0 the menu bar, 1 the ink, 3 / 4 the title, 9 the window face. A
+; rect that a later one covers starts where that one ends: the desktop under
+; the menu bar and its rule, the window's face under its title bar
 cpt_ct:
-    db 5,       2, 2,  R_|0, R_|0       ; the desktop
+    db 5,       2, 12, R_|0, R_|0       ; the desktop
     db 0,       2, 2,  R_|0, 10         ; the menu bar...
     db 1,       2, 11, R_|0, 11         ; ...its rule
     db 1,       8, 5,  24, 6            ; ...and two words
     db 1,       32, 5, 46, 6
     db 1,       12, 16, R_|12, R_|6     ; the window's frame
-    db 9,       13, 17, R_|13, R_|7     ; ...its face
+    db 9,       13, 26, R_|13, R_|7     ; ...its face
     db 3,       13, 17, R_|13, 25       ; ...its title bar
     db 4,       24, 20, R_|24, 21       ; ...and the title
     db 80h|CDGRAY, 20, 31, R_|20, 32    ; two lines of content
@@ -687,7 +621,8 @@ cpt_sav:
 
 cpt_pre:    THM_PRESET_ROWS         ; the eight rows (drivers/thmpal/thmrows.inc)
 cpt_nm:     dw cpt_s_n0, cpt_s_n1, cpt_s_n2, cpt_s_n3
-cpt_nlen:   db 6, 4, 5, 7
+cpt_ntw:    dw (cpt_s_n1 - cpt_s_n0 - 1) * 8, (cpt_s_n2 - cpt_s_n1 - 1) * 8
+            dw (cpt_s_n3 - cpt_s_n2 - 1) * 8, (cpt_s_pre - cpt_s_n3 - 1) * 8
 cpt_s_n0:   db 'Bright', 0
 cpt_s_n1:   db 'Dark', 0
 cpt_s_n2:   db 'Color', 0
