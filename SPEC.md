@@ -260788,8 +260788,8 @@ last primitive:
 |---|---|---|
 | `CPWIDE.DRV` image (+ bss) kern_big / emu | 13,763 (+ `CPWIDE.DAT`'s 848 + 14,642 in the asset claim) | 27,638 (bss 874: `cpw_dseg`, `cpv_tlab`, the working area) |
 | ...kern_mega | 13,793 | 27,662 |
-| on the disk (lz4), kern_big / emu | 11,653 + 5,281 = 16,934, two files | 16,460, one file (-1 cluster on every system disk that carries it, one root slot fewer) |
-| ...kern_mega | 11,670 + 5,281 = 16,951 | 16,454 |
+| on the disk (lz4), kern_big / emu | 11,653 + 5,281 = 16,934, two files | 16,461, one file (-1 cluster on every system disk that carries it, one root slot fewer) |
+| ...kern_mega | 11,670 + 5,281 = 16,951 | 16,455 |
 | heap while the wide panel is open | 13,824 + 15,872 = 29,696 bytes in two claims | 27,648 in ONE contiguous claim |
 | first open: `int 13h` calls / guest s | 8 / 3.78 | 6 / 3.22 |
 | re-open, the image kept (§2.8.3): `int 13h` / guest s | 2 / 1.64 (the DAT read again) | **0** / 0.90 |

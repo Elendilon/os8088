@@ -25,17 +25,17 @@ Commits (each built with `make -j2`, fast tier green; `make -j2 emu` and
 
 Measured in this worktree: the base from `make -j2` / `make -j2 emu` /
 `make -j2 mega` at `1b01907f1` (build 445) before any change, the tip from
-the same three at `b939111c8`. "image" is `MOD_H_IMG`, the bss tail's zeros
+the same three at the note's commit. "image" is `MOD_H_IMG`, the bss tail's zeros
 included (what the claim holds); "file" is the `'CZ'` (lz4) file on the disk.
 
 | file | kernel | base image | tip image | delta | base file | tip file | delta |
 |---|---|---:|---:|---:|---:|---:|---:|
-| `CPWIDE.DRV` | kern_big | 13,763 (bss 26) | 27,638 (bss 874) | +13,875 | 11,653 | 16,460 | +4,807 |
-| | kern_emu | 13,763 | 27,638 | +13,875 | 11,653 | 16,460 | +4,807 |
-| | kern_mega | 13,793 | 27,662 | +13,869 | 11,670 | 16,454 | +4,784 |
+| `CPWIDE.DRV` | kern_big | 13,763 (bss 26) | 27,638 (bss 874) | +13,875 | 11,653 | 16,461 | +4,808 |
+| | kern_emu | 13,763 | 27,638 | +13,875 | 11,653 | 16,461 | +4,808 |
+| | kern_mega | 13,793 | 27,662 | +13,869 | 11,670 | 16,455 | +4,785 |
 | `CPWIDE.DAT` | big / emu / mega | 14,642 (+ the 848-byte working area in its claim) | - (inside the module) | -15,490 | 5,281 | - | -5,281 |
-| **both** | kern_big / emu | **29,253** | **27,638** | **-1,615** | **16,934** | **16,460** | **-474** |
-| | kern_mega | **29,283** | **27,662** | **-1,621** | **16,951** | **16,454** | **-497** |
+| **both** | kern_big / emu | **29,253** | **27,638** | **-1,615** | **16,934** | **16,461** | **-473** |
+| | kern_mega | **29,283** | **27,662** | **-1,621** | **16,951** | **16,455** | **-496** |
 | `CTRL.DRV` | big / emu / mega / small | 16,733 / 16,751 / 16,972 / 6,291 | unchanged | 0 | | | 0 |
 | every kern_small module | small | (CTRL, FORMAT, DISKOPS, FILECP, FDLG, SERIAL, KEYBOARD) | unchanged | 0 | | | 0 |
 
@@ -60,7 +60,7 @@ every disk that carries it (its manifest no longer names CPWIDE.DAT).
 
 **Resident kernel.** `cmp -l` of each `kernel.bin`, base against tip:
 kern_big, kern_emu and kern_mega differ in the build number's three sites
-(445 -> 449, the commit count) and in ONE other byte, `MOD_MAX_KB`'s
+(445 -> 450, the commit count) and in ONE other byte, `MOD_MAX_KB`'s
 immediate in resident `mod_need` (`cmp ax, MOD_MAX_KB * 1024`: its high
 byte 44h -> 78h, 17,408 -> 30,720) - byte 67,311 (1-based, `cmp -l`) on
 kern_big, 67,551 on kern_emu, 78,743 on kern_mega. At ONE commit (before
