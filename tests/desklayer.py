@@ -517,17 +517,34 @@ def leg_z(ui):
     td0 = _lin(m, p.seg, probe_sym("stik_tagdraw"))
     td1 = _lin(m, p.seg, probe_sym("stik_tagrows") - 1)
     blit, gnd = m.sym("gfx_blit1"), m.sym("thm_desk")
-    tr = os88marty.bp_trace(m, td0, td1, blit, gnd)
+    act = m.sym("menu_activate")
+    # THE INTERVAL IS THE GUEST'S, both ends read AT A STOP: the BIOS tick
+    # when menu_activate hands the bar to the Disk window, and when
+    # stik_tagdraw next runs. It was two host polls - "the host saw the bar
+    # move" to "the host saw the plate" - and a poll's lag behind the guest
+    # is host time: mega-deskz read 10 ticks beside a loaded soak and 4
+    # alone, the plate's own latency unchanged
+    tr = os88marty.bp_trace(m, td0, td1, blit, gnd, act, regs=True,
+                            on_hit=lambda mm, rec: bios_ticks(mm))
     with tr:
         ui.mo.click(d.x + 60, d.y + d.h - 40, settle=0)
         ui._wait(lambda: menu_win_i(ui) == d.i, "the Disk window's bar", 20,
                  snapshot=lambda: "menu_win = %r" % menu_win_i(ui))
-        t0 = bios_ticks(m)
         ui._wait(lambda: p.tagp() == P_REST, "the plate un-inverted", 20)
-    dt = (bios_ticks(m) - t0) & 0xFFFF
+    t0 = t1 = None
+    for h in tr.hits:
+        if t0 is None and h["addr"] == act and \
+                win_i(ui, h.get("regs", {}).get("bx", 0) & 0xFFFF) == d.i:
+            t0 = h["hit"]
+        elif t0 is not None and h["addr"] == td0:
+            t1 = h["hit"]
+            break
+    dt = (t1 - t0) & 0xFFFF if t0 is not None and t1 is not None else 999
     inside, draws, nb, ng = False, 0, 0, 0
     for h in tr.hits:
         a = h["addr"]
+        if a == act:
+            continue
         if a == td0:
             inside, draws, nb, ng = True, draws + 1, 0, 0
         elif a == td1:
