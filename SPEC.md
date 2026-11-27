@@ -260242,8 +260242,8 @@ and every offset the format holds is from there. Little-endian:
 
 ```
 +0   db 'CW'          magic
-+2   db 1             version
-+3   db n16           16x16 icons
++2   db 2             version (2: 16x16 slots, 44-byte records)
++3   db n16           16x16 icons (slots)
 +4   db n32           32x32 icons
 +5   db ncat          catalog entries (§135.7)
 +6   dw off16         offset of the 16x16 block
@@ -260258,12 +260258,18 @@ and every offset the format holds is from there. Little-endian:
 ```
 
 **Exact layout.** The header is 16 bytes (`CWD_HDR`); then, back to back, the
-32 16×16 icons at `off16` (= 16; 5,120 bytes), the 12 32×32 icons at `off32`
-(= 5,136; 7,680 bytes), the catalog at `offcat` (= 12,816; `ncat` × 64 bytes)
+26 16×16 slots at `off16` (= 16; 4,160 bytes), the 12 32×32 icons at `off32`
+(= 4,176; 7,680 bytes), the catalog at `offcat` (= 11,856; `ncat` × 44 bytes)
 and the description strings at `offstr` (NUL-terminated, in catalog order, line
-1 before line 2). Every offset in the file is from the file's start. A 16×16
-icon's mask is 16 words, one a row, bit 15 the leftmost pixel; a 32×32's is 32
-rows of two words, the left 16 pixels first. A pixel is opaque (mask bit 1) or
+1 before line 2). Every offset in the file is from the file's start, and the
+three block offsets are fixed by the counts: `kernel/cpwfmt.inc` carries them
+as `CWD_OFF16`, `CWD_OFF32` and `CWD_OFFCAT`, the module reads the blocks at
+those constants (never through the header), and `cpwdat.py` refuses a file
+whose header disagrees. A 16×16 icon's mask is 16 words, one a row, bit 15
+the leftmost pixel; a 32×32's is 32 rows of two words, the left 16 pixels
+first. (A mask word before each sixteen pixels read faster still and packed
+310 bytes worse, so the pixels-then-mask layout stayed: `cpw_icon`'s copy is
+`es lodsb` / `stosb` over it, driver size pass 2.) A pixel is opaque (mask bit 1) or
 transparent (mask bit 0, nibble 0); colour nibbles are indices into the sixteen
 EGA/VGA colours in their usual order - black, blue, green, cyan, red, magenta,
 brown, light grey, dark grey, light blue, light green, light cyan, light red,
@@ -260275,8 +260281,10 @@ build error (`tools/cpwdat.py` names the file, cell and pixel).
 
 **Measured (2026-11-21, 13 catalog entries): 14,642 bytes** - header
 16, icons 12,800, catalog 832, strings 994 - 5,290 bytes packed (LZ4) when it
-was a file of its own. Each new driver adds 64 bytes and its description
-strings; the image's bound is `MOD_MAX_KB` (`kernel/mod.inc`), which
+was a file of its own. **Driver size pass 2: 13,422 bytes** - icons 11,840
+(the six duplicate 16×16 cells stored once, -960), catalog 572 (the records'
+20 reserved bytes gone, -260). Each new driver adds 44 bytes and its
+description strings; the image's bound is `MOD_MAX_KB` (`kernel/mod.inc`), which
 `kernel.asm` checks at assembly.
 
 **One file, one read (the owner, driver size pass 2).** *"We have a policy
@@ -260296,13 +260304,21 @@ before the 360KB omission (2026-11-21), it cost 11 of that disk's 706
 moved.
 
 A transparent pixel's colour nibble is 0 and means nothing; the drawer
-substitutes the ground. Icon indices are the sheets' cells, row-major:
-16×16 indices 0-15 are page icons (Scheduler, Date/Time, Keyboard, Floppy,
-Drivers, Display, Sound, Theme, Dock, Hard disk, Network, Debug monitor,
-generic driver page, Mouse, Memory, Ports) and 16-31 the driver categories
-and status marks (Display, Sound, Storage, CD-ROM, RAM disk, Network card,
-Input, Memory, System, Screen saver, USB, Virtual machine, Unknown, OK,
-Error, Warning); 32×32 indices 0-11 are the header icons (Scheduler,
+substitutes the ground. The sheets' cells are row-major: 16×16 cells 0-15
+are page icons (Scheduler, Date/Time, Keyboard, Floppy, Drivers, Display,
+Sound, Theme, Dock, Hard disk, Network, Debug monitor, generic driver page,
+Mouse, Memory, Ports) and 16-31 the driver categories and status marks
+(Display, Sound, Storage, CD-ROM, RAM disk, Network card, Input, Memory,
+System, Screen saver, USB, Virtual machine, Unknown, OK, Error, Warning).
+**A 16×16 index is a SLOT, not a cell**: six category cells are pixel for
+pixel a page icon (Display, Sound, Storage, Input, Memory and System are the
+Display, Sound, Hard disk, Mouse, Memory and gear pages'), so the block
+stores each distinct cell once, in sheet order - 26 slots; those six names
+are the earlier cell's slot and CD-ROM .. Warning are slots 16-25.
+`cpwfmt.inc` writes each name's cell after it (`; cell N`), and `cpwdat.py`
+and `t_cpwdat` both refuse a name whose slot does not hold its cell, or a
+sheet whose distinct cells are not `CWI16_N`. 32×32 indices 0-11 are the
+cells of the header icons (Scheduler,
 Date/Time, Keyboard, Floppy, Drivers, Display, Sound, Theme, Dock, Hard
 disk, Network, generic driver). `kernel/cpwfmt.inc` carries the offsets,
 sizes and index `equ`s (`CWD_*`, `CWI16_*`, `CWI32_*`, `CWC_*`) that the
@@ -260314,7 +260330,7 @@ disagrees with it.
 `drv_tab` (§51) knows a driver's file, title, class and memory figure and
 nothing a user would call a description. A library that grows by dozens
 cannot put that in resident tables, so it lives in `drivers/catalog.toml`,
-one table per driver FILE, compiled into `CPWIDE.DAT`'s catalog: 64-byte
+one table per driver FILE, compiled into `CPWIDE.DAT`'s catalog: 44-byte
 fixed records -
 
 ```
@@ -260322,11 +260338,10 @@ fixed records -
                       the drv_tab row's DRVR_FILE name
 +12  db cat           CWC_*: 0 unknown, 1 display, 2 sound, 3 storage,
                       4 network, 5 input, 6 memory, 7 system
-+13  db icon          16x16 icon index
++13  db icon          16x16 slot (a CWI16_*)
 +14  db long[26]      long name, NUL-terminated (<= 25 chars)
 +40  dw d1            offset (from the file's start) of description line 1
 +42  dw d2            ...of line 2, or 0
-+44  db pad[20]       reserved (0)
 ```
 
 and the description lines themselves - NUL-terminated, at most 46

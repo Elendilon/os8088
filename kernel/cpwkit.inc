@@ -173,12 +173,15 @@ cpw_runp:
 ;      32x32; BL = the ground colour; CX/DX = x/y, content-relative
 ; out: nothing; every register kept
 ;
-; The file holds each icon's pixels and its mask (SPEC.md 135.6: one bit a
+; The assets hold each icon's pixels and its mask (SPEC.md 135.6: one bit a
 ; pixel, 1 = opaque, a transparent pixel's nibble 0). The pixels are copied
 ; into the working area's staging buffer with every transparent nibble made
 ; the ground, and the buffer goes down in ONE OSAPI_GFX_BLIT4 - so an icon on
 ; a selected (blue) row and on a white one is the same 128 or 512 bytes, and
-; nothing is drawn under it first.
+; nothing is drawn under it first. The copy is `es lodsb` / `stosb`, ES the
+; image's data view on both sides (the source NAMES its segment - SPEC.md
+; 2.8.6's rule for a module's lods), and both blocks' offsets are this
+; assembly's constants (cpwfmt.inc), never the header's.
 ; -----------------------------------------------------------------------------
 cpw_icon:
     push ax
@@ -197,8 +200,7 @@ cpw_icon:
     jnz .big
     mov dx, CWD_I16_SZ
     mul dl                      ; (AH = 0: a byte multiply, 160 x index)
-    add ax, [es:CPW_WSZ + CWD_H_OFF16]
-    mov si, ax
+    add ax, CPW_WSZ + CWD_OFF16
     mov cx, CWD_I16_PIX / 8     ; CX = (mask word, eight bytes) groups
     mov bp, CWD_I16_PIX
     jmp short .have
@@ -206,23 +208,22 @@ cpw_icon:
     xor ah, ah
     mov dx, CWD_I32_SZ
     mul dx
-    add ax, [es:CPW_WSZ + CWD_H_OFF32]
-    mov si, ax
+    add ax, CPW_WSZ + CWD_OFF32
     mov cx, CWD_I32_PIX / 8
     mov bp, CWD_I32_PIX
 .have:
-    add si, CPW_WSZ             ; SI = its pixels in CPWIDE.DAT
+    xchg si, ax                 ; SI = its pixels
     add bp, si                  ; BP = its masks
     mov di, CPW_W_ICON
     push cx                     ; (the group count says which size)
+    cld
 .g:
     mov dx, [es:bp]             ; sixteen pixels' mask, bit 15 the leftmost
     inc bp
     inc bp
     mov ah, 8
 .b:
-    mov al, [es:si]
-    inc si
+    es lodsb
     shl dx, 1
     jc .hi
     and al, 0x0F
@@ -233,8 +234,7 @@ cpw_icon:
     and al, 0xF0
     or al, bh
 .lo:
-    mov [es:di], al
-    inc di
+    stosb
     dec ah
     jnz .b
     loop .g

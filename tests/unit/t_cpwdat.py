@@ -29,6 +29,7 @@ catalog record by record - so a converter that agreed with itself and disagreed
 with the format fails.
 """
 import os
+import re
 import sys
 import tomllib
 
@@ -103,7 +104,7 @@ def main():
         if isinstance(ic, str):
             ic = f.get("CWI16_" + ic)
         check(isinstance(ic, int) and 0 <= ic < f["CWI16_N"],
-              "[%s] icon %r is a cell of the 16x16 sheet (0..%d)"
+              "[%s] icon %r is a slot of the 16x16 block (0..%d)"
               % (k, e.get("icon"), f["CWI16_N"] - 1),
               "an index past CWI16_N reads the next record's bytes as a bitmap")
         check(("CWC_" + str(e.get("category"))) in f
@@ -111,7 +112,7 @@ def main():
               "[%s] category %r is a CWC_* of cpwfmt.inc" % (k, e.get("category")))
 
     # --- the sheets ----------------------------------------------------------
-    for path, cell, n in ((cpwdat.SHEET16, 16, f["CWI16_N"]),
+    for path, cell, n in ((cpwdat.SHEET16, 16, f["CWD_S16_N"]),
                           (cpwdat.SHEET32, 32, f["CWI32_N"])):
         (w, h), bad = sheet_problems(path, cell)
         rel = os.path.relpath(path, ROOT)
@@ -155,6 +156,10 @@ def main():
     eq(fresh[:2], b"CW", "magic", why_fmt)
     eq(fresh[f["CWD_H_VER"]], f["CWD_VERSION"], "version", why_fmt)
     eq(w(f["CWD_H_SIZE"]), len(fresh), "size field", why_fmt)
+    for k in ("OFF16", "OFF32", "OFFCAT"):
+        eq(w(f["CWD_H_" + k]), f["CWD_" + k], "the header's %s is cpwfmt.inc's "
+           "CWD_%s" % (k.lower(), k), "CPWIDE.DRV reads the blocks at the "
+           "constants it assembles with, never through the header")
     from PIL import Image
     for tag, path, cell, n, off, sz, stride, pixb in (
             ("16x16", cpwdat.SHEET16, 16, f["CWI16_N"], w(f["CWD_H_OFF16"]),
@@ -164,16 +169,41 @@ def main():
         im = Image.open(path).convert("RGB")
         px = im.load()
         cols = im.size[0] // cell
+        ncell = (im.size[0] // cell) * (im.size[1] // cell)
+        # the slots: the sheet's DISTINCT cells in sheet order (135.6)
+        grid = [bytes(v for y in range(cell) for x in range(cell)
+                      for v in px[(c % cols) * cell + x, (c // cols) * cell + y])
+                for c in range(ncell)]
+        slot_cell, first = [], {}
+        for c, gbytes in enumerate(grid):
+            if gbytes not in first:
+                first[gbytes] = len(slot_cell)
+                slot_cell.append(c)
+        eq(len(slot_cell), n, "%s: %d distinct cells, one a slot" % (tag, n),
+           why_fmt)
+        if tag == "16x16":
+            # every name's slot holds the cell cpwfmt.inc says it is
+            cells = {}
+            for ln in open(cpwdat.FMT_INC, encoding="utf-8"):
+                m = re.match(r"^(CWI16_\w+)\s+equ\s+[^;]*;\s*cell\s+(\d+)", ln)
+                if m:
+                    cells[m.group(1)] = int(m.group(2))
+            eq(sorted(cells.values()), list(range(ncell)), "every 16x16 cell "
+               "has one CWI16_* name", why_fmt)
+            for nm, c in cells.items():
+                eq(f[nm], first[grid[c]], "%s (cell %d) is the slot holding "
+                   "that cell" % (nm, c), why_fmt)
         wrong = 0
         for i in range(n):
             base = off + i * sz
+            sc = slot_cell[i]
             for y in range(cell):
                 mrow = fresh[base + pixb + y * (cell // 8):
                              base + pixb + (y + 1) * (cell // 8)]
                 mword = [int.from_bytes(mrow[j:j + 2], "little")
                          for j in range(0, len(mrow), 2)]
                 for x in range(cell):
-                    r, g, b = px[(i % cols) * cell + x, (i // cols) * cell + y]
+                    r, g, b = px[(sc % cols) * cell + x, (sc // cols) * cell + y]
                     rgb = (r << 16) | (g << 8) | b
                     byte = fresh[base + y * stride + x // 2]
                     nib = byte >> 4 if x % 2 == 0 else byte & 15
@@ -202,7 +232,6 @@ def main():
         eq(cstr(fresh[d1:]), d[0], "record %d line 1" % i, why_fmt)
         eq(cstr(fresh[d2:]) if d2 else None, d[1] if len(d) > 1 else None,
            "record %d line 2" % i, why_fmt)
-        eq(r[f["CWD_C_PAD"]:], bytes(20), "record %d pad is zero" % i, why_fmt)
 
     print("t_cpwdat: %d drv_tab rows, %d catalog entries, %d bytes in "
           "CPWIDE.DRV's image" % (len(rows), len(cat), len(fresh)))

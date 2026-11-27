@@ -1236,8 +1236,7 @@ cpw_cat:
     mov cl, 4
     shl bx, cl
     mov si, [bx + drv_tab + DRVR_FILE]  ; DS:SI = its name
-    mov di, [es:CPW_WSZ + CWD_H_OFFCAT]
-    add di, CPW_WSZ
+    mov di, CPW_WSZ + CWD_OFFCAT        ; (a constant: cpwfmt.inc's)
     mov cl, [es:CPW_WSZ + CWD_H_NCAT]
     xor ch, ch
     jcxz .no
