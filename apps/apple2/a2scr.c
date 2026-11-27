@@ -2196,6 +2196,7 @@ static void a2_flush(void *win)
                                              * this one and not a thing to
                                              * leave in the file */
 
+static int a2_fsx_disp;                     /* os88_fsx_run's display, << 8 */
 static int a2_fsx_id = -1;                  /* the FSXM_* this display can
                                              * give, or -1 for none */
 /* a2_fsx_up - whether we are INSIDE the bracket, which is what fences the
@@ -2258,7 +2259,13 @@ static int a2_fsx_avail(void *win)
      * 15 is never set. A guard that cannot fire reads as a refusal being
      * handled and is not one; "no foreign mode here" is a mask of 0, which
      * the test below answers correctly on its own. */
-    mask = os88_fsx_caps(win, &kind);
+    /* ...OF THE FULL-SCREEN TARGET, NOT ONLY THE WINDOW'S DISPLAY (SPEC.md
+     * 53.1.2.1, APPLE2-SPEC 13.3.1): colour is a VGA's, so a window on the
+     * Hercules of a VGA + Hercules desktop goes to the VGA rather than
+     * greying. os88_fsx_pick asks the window's display first and kind's high
+     * byte is the display os88_fsx_run takes (0 = the window's own) */
+    mask = os88_fsx_pick(win, 1 << OS88_FSXM_VGA13, &kind);
+    a2_fsx_disp = kind & 0xFF00;
     if (mask & (1 << OS88_FSXM_VGA13))
         a2_fsx_id = OS88_FSXM_VGA13;
     /* ...AND THERE IS NO SECOND ARM HERE. FSXM_CGA640 and FSXM_HERC were cut
@@ -2729,7 +2736,7 @@ static void a2_fsx_enter(void *win)
      * clears a2_fsx_ok and the first pass writes all 192 lines whatever the
      * claim happened to hold. */
     a2_fsx_win = win;
-    if (os88_fsx_run(a2_fsx_main, win, 0) < 0) {
+    if (os88_fsx_run(a2_fsx_main, win, a2_fsx_disp) < 0) {
         a2_say("The screen refused it.");
         a2_st_dirty = 1;
     } else if (a2_tier_slow && !a2_fsx_told) {
