@@ -220734,6 +220734,16 @@ banks and scenes (`n_loadgfx`/`n_dropgfx`, `op_fetch` and `op_drop`), and the
 it and freed with the bracket. +38 bytes of image. `pkgmove-1942` is the
 gate.
 
+#### 101.2.2 The game plays on a display that can (2026-11-27)
+
+`n_launch` asks `fsxw_pick` (§53.1.2.1) for Mode X or CGA 320. The target
+is the display the window is mostly on when it has one of them, else the
+first display that does. It banks that display's kind (`[n_fskind]`, which
+picks Mode X on a VGA and CGA 320 elsewhere inside the bracket) and its
+display (`[n_fsdisp]`, the bracket's CH). A window on a Hercules beside a
+CGA or a VGA plays on the colour card, as DrMarco does. A lone Hercules
+still refuses.
+
 ### 101.3 Gameplay and validation
 
 Arrows move; Space/Z fires; X rolls; P pauses; M toggles sound; C selects

@@ -21723,7 +21723,7 @@ $(BUILD)/1942art.inc $(N1942BANKS): $(BUILD)/.1942assets
 	@test -f $@ || python3 tools/1942assets.py -o $(BUILD) $(if $(N1942_ROM),--rom "$(N1942_ROM)")
 $(BUILD)/1942front.inc: tools/1942front.py tools/os88lz.py apps/1942/art/splash.json apps/1942/art/sprites.json | $(BUILD)
 	python3 tools/1942front.py -o $(BUILD)
-$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
+$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88fsxw.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 	$(NASM) -f bin -w+error -I apps/ -I apps/1942/ -I $(BUILD)/ -l $(BUILD)/1942.lst -o $@ $<
 # EVERY PART IS OP_COMP | OP_LAZY, packed lz4 by os88pkg.py (SPEC.md 101.2),
 # so one file serves every geometry - and the 360KB disk no longer leaves the
