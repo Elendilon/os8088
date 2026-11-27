@@ -3749,14 +3749,10 @@ mega_svc_back:
     call KERNEL_SEG:mega_fdmkf
     mov byte [mega_fdmko], 0
 %endif
-    xor ax, ax                      ; the pointer's frame buffer back to its
-    xchg ax, [mega_vsw]             ; SELECTORS (mega_vrm), before the mask
-    or ax, ax                       ; below opens its line in protected mode:
-    jz .novs                        ; IF is 0 from here to the iret
-    mov [vid_seg], ax
-    mov ax, [mega_vsw+2]
-    mov [k_vsa], ax
-.novs:
+    call mega_vback                 ; the pointer's frame buffer back to its
+                                    ; SELECTORS (mega_vrm), before the mask
+                                    ; below opens its line in protected mode:
+                                    ; IF is 0 from here to the iret
     mov al, [mega_imr1]
     out 0x21, al
     mov al, [mega_imr2]
@@ -5916,20 +5912,35 @@ mega_rmaskf:
 ; planar save and restore) - both selectors since MC7.4, which a real-mode
 ; `mov es` takes as a paragraph. PROTECTED MODE, DS = KDATA, IF = 0 (the
 ; gate's, to mega_svc_back), so no protected-mode draw sees them changed.
-; out: CF = 0 done, the selectors banked in [mega_vsw] for mega_svc_back;
+; out: CF = 0 done, the selectors banked in [mega_vsw] for mega_vback;
 ;      CF = 1 refused and nothing changed - a PACKED display (its cursor is a
-;      driver's far call, VIDEXT, through a selector), more than one display
-;      (cur_move_multi's vid_ctx_act loads each context's selectors), or a
-;      frame buffer above 1MB. Clobbers AX
+;      driver's far call, VIDEXT, through a selector) or a frame buffer above
+;      1MB. Clobbers AX
+; TWO DISPLAYS (SPEC.md 7.4.6, the audit's D1): cur_move_multi's vid_ctx_act
+; COPIES each display's record into the live block, so each record's own
+; [vid_seg] word is made a segment too. The live word is asked first, and
+; only it can refuse - a packed or above-1MB frame buffer is no extended
+; display's - so a refusal still changes nothing
 mega_vrm:
     cmp byte [vid_planes], 4
-    ja .no
-    cmp byte [vid_ndisp], 1
     ja .no
     mov ax, [vid_seg]
     call COLD_SEG:mega_s2segc     ; AX = the segment with its base...
     cmp ax, 0xFFFF                  ; ...or none, above 1MB
     je .no
+    cmp byte [vid_ndisp], 1
+    jbe .live
+    push ax                         ; (the live word was asked first and is
+    mov ax, [vid_ctx]               ; one of these two: each is a card's
+    call COLD_SEG:mega_s2segc     ; aperture, below 1MB, so neither can
+    xchg ax, [vid_ctx]              ; refuse once it has passed)
+    mov [mega_vsw+4], ax            ; record 0's [vid_seg]...
+    mov ax, [vid_ctx + VID_CTX_SZ]
+    call COLD_SEG:mega_s2segc
+    xchg ax, [vid_ctx + VID_CTX_SZ]
+    mov [mega_vsw+6], ax            ; ...and record 1's
+    pop ax
+.live:
     push word [vid_seg]
     pop word [mega_vsw]
     mov [vid_seg], ax
@@ -5941,6 +5952,28 @@ mega_vrm:
 .no:
     stc
     ret
+
+; mega_vback - mega_vrm undone (SPEC.md 7.4.6): the live [vid_seg] and
+; [k_vsa], and on two displays both records' [vid_seg], back to the selectors
+; [mega_vsw] banked; nothing when no reflection converted them. Its two
+; callers are mega_svc_back and fsx_rdownf, both in .mega, both IF = 0, DS =
+; KDATA. Clobbers AX
+mega_vback:
+    xor ax, ax
+    xchg ax, [mega_vsw]
+    or ax, ax
+    jz .r
+    mov [vid_seg], ax
+    mov ax, [mega_vsw+2]
+    mov [k_vsa], ax
+    xor ax, ax
+    xchg ax, [mega_vsw+4]
+    or ax, ax
+    jz .r                           ; one display: the records were not touched
+    mov [vid_ctx], ax
+    mov ax, [mega_vsw+6]
+    mov [vid_ctx + VID_CTX_SZ], ax
+.r: ret
 
 mega_hibnc:
     xor bx, bx                      ; ES:BX = the landing: the read-ahead's
@@ -9160,9 +9193,11 @@ mega_hdsaid db 0                    ; 1 = mega_mhd13 said (once a session)
 mega_rmask  dw 0x3FB8               ; the OR masks the last service reflection
                                     ; set, master low and slave high
                                     ; (mega_rmaskf), for mega_r286 to compare
-mega_vsw    dw 0, 0                 ; [vid_seg] and [k_vsa] as SELECTORS while
+mega_vsw    dw 0, 0, 0, 0           ; [vid_seg] and [k_vsa] as SELECTORS while
                                     ; a reflection holds them as segments
-                                    ; (mega_vrm), 0 when none does
+                                    ; (mega_vrm), 0 when none does - and on two
+                                    ; displays the two records' [vid_seg] words
+                                    ; (SPEC.md 7.4.6)
 mega_fdsp   dw 0                    ; SP at mega_fdgo's entry (mega_fdlj)
 mega_fdcmos db 0xFF                 ; CMOS byte 10h, once read
 mega_fdx    db 0                    ; 1 while dsk_xfer's int 13h is in flight

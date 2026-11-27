@@ -13786,7 +13786,37 @@ None of this is a defect and none of it is new — it is §7.1.4's promise being
 settled on the way out, and it is what makes the arrow arrive where the hand
 actually is rather than where the freeze began.
 
-### 7.5 The clock belongs to a LOCK HOLD, not to a window
+#### 7.4.6 kern_mega: the arrow through a reflection, on two displays too
+
+On kern_mega an `int 13h` is a SERVICE REFLECTION: the BIOS call runs in
+real mode, and the pointer's ISR runs there with it only if `mega_rmaskf`
+leaves the mouse's line open. The cursor path draws through `[vid_seg]` and
+VSEG's `[k_vsa]`, and both are SELECTORS in protected mode. So `mega_vrm`
+turns them into the real-mode segments they name for the call and banks the
+selectors in `[mega_vsw]`. `mega_vback` puts them back on the way out, from
+`mega_svc_back` and from `fsx_rdownf`, with IF = 0 throughout
+(KERN-MEGA-PLAN 14.75). A display `mega_vrm` cannot convert keeps the line
+shut, and the pointer freezes for the call.
+
+**Two displays used to be one of those.** `cur_move_multi` switches display
+per move through `vid_ctx_act`, and that COPIES each display's `vid_ctx`
+record into the live block. Converting only the live words was therefore not
+enough: each record's own `[vid_seg]` word was still a selector. So with the
+desktop extended the line stayed shut for every BIOS disk call. Measured on
+86Box (`286-mega-multimon`), the pointer froze for 1,175 to 1,250 ms through
+a spin-up, and 25 to 29% of the motion was lost (the audit's D1).
+
+**Now both records' `[vid_seg]` words are converted too**, and `[mega_vsw]`
+is four words: live, `[k_vsa]`, record 0, record 1. The live word is asked
+first and is the only one that can refuse: each record's word is a card's
+aperture below 1MB, and the live word is one of them. So a refusal still
+changes nothing. The live block
+on the way back is the display that was current at entry, because
+`cur_move_multi` ends by re-activating that one, so the banked live selector
+is the right one to restore. Nothing else in a record is a word the cursor
+path reads. Cost: conventional `.text` +4 (the two words of the bank). The
+conversion and the shared restore are in `.mega`, above 1MB.
+
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
 property of a **window**: `OSAPI_WM_CURSOR` writes one into `W_FLAGS`, the

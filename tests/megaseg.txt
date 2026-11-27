@@ -266,4 +266,9 @@
 #             pop ds` (2), +3 - the cell runs in real mode after the switch
 #             too, so it is low by rule. The fourth byte is layout, measured
 #             (os88megaseg's own reading, nothing else in kern_mega grew)
-3791
+# 2026-11-27: +4, to 3,795, kern_mega's pointer through a reflection on
+#             two displays (SPEC.md 7.4.6, the audit's D1): [mega_vsw] banks
+#             both vid_ctx records' [vid_seg] as well, two more words of
+#             .text. They are read and written in protected mode only, but
+#             they sit beside the two the real-mode side already shares
+3795
