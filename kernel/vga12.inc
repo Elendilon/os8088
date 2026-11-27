@@ -685,8 +685,10 @@ gfx_disp_run:
     mov ax, bp                  ; (AX is the next pass's `mov ax, bp` anyway)
     cmp al, [vid_ndisp]
     jb .disp
-    pop bp
-    jmp kret_di                 ; the ladder: an extended desktop's +15 cycles
+    jmp kret_bp                 ; the ladder: an extended desktop's +15 cycles
+                                ; (kret_bp's own pop, where `pop bp / jmp
+                                ; kret_di` was a byte more for the same two
+                                ; instructions - kernel size pass 21)
 .nest:
     jmp word [gfx_dfn]          ; nested: one straight entry, whose own `ret`
                                 ; is the primitive's (GFXCLIP_ARM tail-jumped)
@@ -1276,13 +1278,19 @@ gfx_pt_miss:
     ret
 
 %endif
-                                ; (The PARITY nop that stood here - gfx_points'
-                                ; hide going from CURUNLAZY's ten bytes to a
-                                ; three-byte call, an odd 7 - went in kernel
-                                ; size pass 21 with gfx_points' odd 3 below
-                                ; and the dead line stub's 2 above: an even 6
-                                ; on both kernels, so gfx_blit4 and every hot
-                                ; routine after it keep their parity)
+%ifdef KERN_SMALL
+    nop                         ; PARITY, never executed (both kernels end a
+                                ; `ret` above). Kernel size pass 21 took an odd
+                                ; 9 from here to gfx_blit4 on kern_small - the
+                                ; dead line stub's 2 above, gfx_points' empty
+                                ; test (3) and its ink reload (3) below, and the
+                                ; nop that stood here for gfx_points' hide - so
+                                ; this byte keeps gfx_blit4 and every hot routine
+                                ; after it at their parity (t_hotpar). kern_big
+                                ; takes an even 10 over the same span, its
+                                ; gfx_disp_run's `kret_bp` above being the tenth,
+                                ; and needs no pad
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_points - draw a set of pixels the CALLER computed (SPEC.md 5.6.9)
@@ -1449,9 +1457,8 @@ gfx_points:
     ; --- EVERYTHING THE LOOP NEEDS, resolved once, while DS is still ours ---
     mov al, [gfx_color]         ; [gfx_ln_ink] = 00 paper / FF ink / 01
     call gfx_ink                ; dither: [gfx_color] resolved to the 1bpp
-    mov [gfx_ln_ink], al        ; class once. AX is the box's to reload. This
-                                ; was gfx_ls_ink, its one call (kernel size
-                                ; pass 16, -4)
+    mov [gfx_ln_ink], al        ; class once. This was gfx_ls_ink, its one
+                                ; call (kernel size pass 16, -4)
     mov bp, si                  ; SPEC.md 5.6.9.1: the box is RESOLVED for the
     mov dx, [es:bp+2]           ; FIRST point here, while DS is still ours, so
     mov si, [es:bp]             ; it cannot match whatever the last caller left
@@ -1460,9 +1467,12 @@ gfx_points:
                                 ; arm (size pass 9: it was an EMPTY box stored
                                 ; here, which forced that trip on every call).
                                 ; gfx_ls_box keeps AX, CX and DI and spends BX,
-                                ; which GFXPT_RTAB below reloads
-    mov al, [gfx_ln_ink]        ; ...the class, banked in a register across the
-                                ; two segment loads below
+                                ; which GFXPT_RTAB below reloads - so AL is
+                                ; STILL the class here, banked in a register
+                                ; across the two segment loads below. (It was
+                                ; reloaded from [gfx_ln_ink] here: three bytes
+                                ; and a memory read a call, kernel size pass
+                                ; 21)
     mov [gfx_pt_cseg], es       ; ...and the array's segment, which the miss
     mov dx, es                  ; path reloads DS from
     mov bx, [vid_rseg]          ; BX = the framebuffer's
@@ -4662,12 +4672,17 @@ gfx_1bpp_on:
 VGA_PN_FOUR equ 0x0104          ; [vga_pn] = 4 planes, [vga_pm] = Map Mask 1 -
                                 ; also stored inline by mouse.inc's cur_rect
 %endif
-%ifdef KERN_SMALL
-            db 0                ; PARITY (kernel size pass 13): the pair and
-%endif                          ; gfx_1bpp_on/off above are 16 bytes and the
-                                ; call in gfx_sr_tail 3 - an odd 19 that
-                                ; would put the software renderer and font_char
-                                ; at an odd shift on kern_small
+                                ; (kern_small's PARITY `db 0` of kernel size
+                                ; pass 13 stood here - the pair and
+                                ; gfx_1bpp_on/off above being an odd 19 there
+                                ; - and went in kernel size pass 21 with the
+                                ; 3-byte `cmp si, 0` kern_small kept in
+                                ; gfx_scroll below for the same reason: two
+                                ; odd bytes, so the software renderer and
+                                ; font_char keep their parity, and what lies
+                                ; between - these three words to gfx_scroll's
+                                ; head - is at an odd shift on a build whose
+                                ; machine has an 8-bit bus)
 gfx_sub_st  dw 0                ; buffer offset of the sub-rect's first byte
 gfx_sub_rs  dw 0                ; ...bytes to step the BUFFER past each row
 gfx_sub_ps  dw 0                ; ...and past each plane
@@ -5521,13 +5536,12 @@ gfx_scroll:
     mov [vgas_nb], ax            ; bytes per row
     mov [vgas_ydst], bx          ; up: dest rows y1..y2-|dy|, walked top-down
     mov ax, 1                   ; (source below destination - forward-safe)
-%ifdef KERN_SMALL
-    cmp si, 0                   ; SI is still dy, which is [vgas_sdy] (kernel
-%else                           ; size pass 17: the memory compare went, and
-    or si, si                   ; the step is built in AX and stored once,
-%endif                          ; -7; kern_small's 3-byte compare keeps the
-    jns .up                     ; total even there, and kern_big's parity pad
-    mov [vgas_ydst], dx          ; below goes instead)
+    or si, si                   ; SI is still dy, which is [vgas_sdy] (kernel
+    jns .up                     ; size pass 17: the memory compare went, and
+    mov [vgas_ydst], dx          ; the step is built in AX and stored once, -7;
+                                ; kern_small's 3-byte `cmp si, 0` went in
+                                ; kernel size pass 21 with the PARITY byte
+                                ; above gfx_sub_st)
     neg ax                      ; down: dest rows y1+|dy|..y2, walked
 .up:                            ; bottom-up (source above destination)
     mov [vgas_step], ax

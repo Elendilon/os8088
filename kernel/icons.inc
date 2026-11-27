@@ -282,10 +282,6 @@ icon_draw_ix:
     ; --- expand: `2 * h` rows, mask table then data table ------------------
     mov bp, ax
     shl bp, 1                   ; BP = rows still to produce
-    push cx                     ; CX is the x and DX the y, and ico_draw_common
-    push dx                     ; wants both - so they are BANKED rather than
-                                ; worked around, which leaves the walk below
-                                ; every register but SI and DI to spend
     push ds
     pop es                      ; ...and ES, for `stosw`. Nothing below
                                 ; ico_draw_common requires a particular ES and
@@ -303,6 +299,13 @@ icon_draw_ix:
     cmp byte [ico_bnd], 0
     jne .band                   ; a desktop cell composing (SPEC.md 26.9.9)
 %endif
+    push cx                     ; CX is the x and DX the y, and ico_draw_common
+    push dx                     ; wants both - so they are BANKED rather than
+                                ; worked around, which leaves the walk below
+                                ; every register but SI and DI to spend. The
+                                ; band (.band) wants neither, so it is past
+                                ; them and has nothing to pop (kernel size
+                                ; pass 21, -2)
 .run:
     mov bl, [si]                ; run byte: pool row << 3 | repeat count - 1
     inc si
@@ -350,8 +353,6 @@ icon_draw_ix:
 ; over the same rows, which is ico_band_x's rule. BP counts the rows still to
 ; come, so it is above h exactly while the mask table is.
 .band:
-    pop dx
-    pop cx
     xor cx, cx                  ; (CH stays 0: `loop` leaves CX at 0)
     mov di, ico_band
 .brun:
@@ -464,7 +465,9 @@ ico_core:
                                 ; again (kernel size pass 20, -3)
     mov dx, [vid_ch]            ; ...held across the bottom clip rather than
     cmp ax, dx                  ; read three times. DX has been scratch since
-    jae .none                   ; the `mul` above. Fully below the screen
+    jae .ret                    ; the `mul` above. Fully below the screen
+                                ; (.ret, in reach, where it was the foot's
+                                ; .none - which kern_small no longer has)
     add ax, bx
     cmp ax, dx
     jbe .rows_ok
@@ -492,8 +495,13 @@ ico_core:
     sub ch, cl                  ; CH = 8 - shift
 
 %ifndef GFX_VGA
-    jmp ico_core_bb             ; no VGA: the 1bpp twin is the only pass there
-%else                           ; is, and it returns straight to the wrapper
+                                ; no VGA: the 1bpp twin is the only pass there
+                                ; is, it returns straight to the wrapper - and
+                                ; it is the next byte, so this FALLS into it
+                                ; (it was `jmp ico_core_bb` over the `ret`
+                                ; below, which this build no longer carries:
+                                ; kernel size pass 21, -3)
+%else
     VIDEXTM VX_ICON, ico_core_bb, pad ; 1bpp? (SPEC.md 39.5) - the software
                                 ; twin returns straight to the wrapper
                                 ; ...and a packed display's is the driver's
@@ -542,9 +550,11 @@ ico_core_v:
 section .text
 %endif
 %endif
+%ifdef GFX_VGA
 ico_core.none:                  ; (spelled out: ico_core_v above is the last
     ret                         ; non-local label in the text, and a bare
                                 ; `.none` would be its)
+%endif
 
 ; (ico_core_bb sits HERE, straight after ico_core, so ico_core's `jne` to it
 ; is a short jump rather than a relaxed five-byte one.)
@@ -560,7 +570,11 @@ ico_core.none:                  ; (spelled out: ico_core_v above is the last
 ico_core_bb:
     mov ax, [ico_col0]
     cmp ax, [vid_stride]        ; x < 0 (huge unsigned) or entirely off the
-    jae ico_core.none           ; right edge: the passes would skip every
+%ifdef GFX_VGA                  ; right edge: the passes would skip every
+    jae ico_core.none
+%else
+    jae ico_core.ret            ; (ico_core's own, in reach with no VGA pass
+%endif                          ; between)
                                 ; byte - so skip them. It is also what proves
                                 ; ico_pass_bb's byte column cannot wrap: col0
                                 ; is below the stride, the stride is 90 at
