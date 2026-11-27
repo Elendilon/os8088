@@ -706,7 +706,15 @@ class UI:
             span = w.w >= geom.word(self.m, "vid_w")
         except Exception:
             span = False
-        want = (geom.snapx(x, bool(w.flags & geom.WF_NOSNAP), span), y)
+        try:                        # ...and display 1's left edge snaps
+            vx1 = None              # like x = 0 (SPEC.md 11.94)
+            if self.m.read(self.m.sym("vid_ndisp"), 1)[0] > 1:
+                b = self.m.read(self.m.sym("vid_ctx") + geom.VID_CTX_SZ
+                                + geom.VID_CTX_VX, 2)
+                vx1 = b[0] | (b[1] << 8)
+        except Exception:
+            vx1 = None
+        want = (geom.snapx(x, bool(w.flags & geom.WF_NOSNAP), span, vx1), y)
         gx = w.x + w.w // 2
         gy = w.y + geom.TITLE_H // 2
         self._grab(w, gx, gy)

@@ -23093,6 +23093,23 @@ Three consequences worth naming:
   right edge is re-tested. A window too wide for that is **left unsnapped**
   rather than made illegal: it simply misses the fast path, which is a normal
   path and not a failure.
+- **Display 1's left edge is the same case as x = 0** (§39.16, Right
+  layout). Its origin `VX` is a multiple of 8, so a candidate x in
+  `VX .. VX + 6` rounds LEFT to `VX - 1`: one column onto the display to its
+  left. The window then straddles, and the straddle sizes it for the more
+  restrictive display (§39.16.3). That was the audit's K4 and K5. Every
+  snapped window dragged to display 1's left edge, and every zoom there,
+  landed one pixel short. So when `[vid_ndisp]` > 1 and the rounded content
+  origin equals display 1's `VX`, the snap moves RIGHT to `VX + 7`, exactly
+  as the `x = 0..6` arm does. The right-edge test that follows is the same
+  test, so a window spanning display 1 is refused that move and stays at
+  `VX`. There `wm_flush_ck` already says it spans its display
+  (§11.95.2.1), so it drops its left border and its content origin is `VX`,
+  which is aligned. **This is not §11.95.2's rule taking effect; it is the
+  snap breaking that rule.** A zoom on display 1 committed `x = VX`, and the
+  snap then moved it to `VX - 1`, where it neither spans its display nor
+  sits on it. The gate on `[vid_ndisp]` is there because a collapsed desktop
+  leaves display 1's record stale.
 - **Dragging becomes 8-pixel steps horizontally** — **on every adapter now,
   VGA included**, which is the whole of what removing the `[vid_mono]` gate
   costs. It is cheaper than it sounds because `ui_drag` drags an XOR *outline*
