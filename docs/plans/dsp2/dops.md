@@ -27,19 +27,20 @@ relaxed form's inverted `jcc` is TAKEN on the fall-through path.
 kernel names two module images' INTERNAL offsets as immediates - HIBER.DRV's
 park stub (`megados.inc`, `add ax, mpk_stub`) and SERIAL.DRV's lease block
 (`fsx.inc`, `[SRL_O_SEG]` and kin). Every byte saved in front of either moves
-a resident byte on kern_mega. Nothing else in my modules is named that way
-(the resident proof below, at every batch).
+a resident byte on kern_mega, so on kern_mega both are now PINNED where they
+stood, the bytes given up in front of them standing as zeros. Nothing else in
+my modules is named that way (the resident proof below, at every batch).
 
 Commits: `aa1ea16be`, `300526c9d`, `074c682e6` (batch 1), `bf98d0f35`,
-`994e39d06`, `4d9460348`, `fc93fc75d` (batch 2), and this note's.
+`994e39d06`, `4d9460348`, `fc93fc75d` (batch 2), `49b156d3c` (this note),
+`7a85e7827` (batch 3), and the note's update.
 
 ## 1. BASE AND TIP
 
 Measured in this worktree: `make -j2` (kern_big and kern_small), `make -j2
 emu`, `make -j2 mega` at the base and at the tip, image = the header's
 `MOD_H_IMG` (image + bss tail, what the claim holds), file = the `'CZ'` file
-on the disk. Tip = the base where a row is not listed (FORMAT, HIBER, DOCK,
-DESK: 0 on every kernel).
+on the disk. FORMAT, DOCK and DESK are 0 on every kernel.
 
 | module | kernel | image base -> tip | file base -> tip | claim (512 granules) |
 |---|---|---:|---:|---|
@@ -57,22 +58,25 @@ DESK: 0 on every kernel).
 | **EXTD.DRV** | big | 1,930 -> **1,915** (-15) | 1,831 -> **1,816** (-15) | 4 -> 4 |
 | | emu | 1,930 -> 1,915 (-15) | 1,831 -> 1,816 (-15) | 4 -> 4 |
 | | mega | 1,865 -> **1,850** (-15) | 1,780 -> **1,765** (-15) | 4 -> 4 |
+| **HIBER.DRV** | big | 7,729 -> **7,722** (-7) | 6,181 -> **6,171** (-10) | 16 -> 16 |
+| | emu | 7,729 -> 7,722 (-7) | 6,179 -> 6,169 (-10) | 16 -> 16 |
+| | mega | 11,632 -> 11,632 (0, pinned: CROSS-FILE 1) | 9,345 -> 9,338 (-7) | 23 -> 23 |
 | **WIN95.DRV** | big | 1,570 -> **1,568** (-2) | 1,315 -> **1,313** (-2) | 4 -> 4 |
 | | emu | 1,570 -> 1,568 (-2) | 1,315 -> 1,313 (-2) | 4 -> 4 |
 | | mega | 1,611 -> **1,609** (-2) | 1,333 -> **1,331** (-2) | 4 -> 4 |
 | FORMAT.DRV | big/emu/small/mega | 3,179 / 3,179 / 1,280 / 3,470 | 2,944 / 2,944 / 1,226 / 3,043 | unchanged |
-| HIBER.DRV | big/emu/mega | 7,729 / 7,729 / 11,632 | 6,181 / 6,179 / 9,345 | unchanged (REFUSED 2) |
 | DOCK.DRV | big/emu/mega | 2,232 / 2,232 / 2,303 | 2,029 / 2,028 / 2,064 | unchanged |
 | DESK.DRV | big/emu/mega | 4,432 / 4,432 / 4,688 | 4,141 / 4,141 / 4,164 | unchanged |
 
-**Totals, image / file**: kern_big **-219 / -190**, kern_emu -219 / -190,
-kern_small **-143 / -131**, kern_mega **-248 / -171**. The claims are a
+**Totals, image / file**: kern_big **-226 / -200**, kern_emu -226 / -200,
+kern_small **-143 / -131**, kern_mega **-248 / -178**. The claims are a
 consequence, not the reason: DISKOPS.DRV's claim is one 512-byte granule
 smaller on kern_big, kern_emu and kern_mega while it is loaded (a clone, a
 compress, a folder Delete).
 
 **Disks** (`os88diskuse.py --diff` against this worktree's base save):
-`os8088-360.img` 27 -> **28** free clusters (+1: STIKMENU.DRV 8 -> 7);
+`os8088-360.img` 27 -> **28** free clusters (+1: STIKMENU.DRV 8 -> 7; the
+other five files that moved, -200 bytes, crossed none);
 `small360.img` 14 -> 14 (DISKOPS.DRV -95 and SERIAL.DRV -36 bytes, no
 cluster crossed). No other image changed.
 
@@ -84,7 +88,7 @@ the build number, and a scratch script comparing the two assemblies' bytes up
 to the first module section - the bytes `os88mod.py` keeps as `kernel.bin`
 (105,456 / 62,384 / 105,808 / 150,737): **0 bytes differ on all four**. That
 proof is what caught CROSS-FILE 1, twice (one byte for HIBER, ten for
-SERIAL), before anything was committed. No `MODS_SIZE` (`.modc`) byte is
+SERIAL), before either was committed. No `MODS_SIZE` (`.modc`) byte is
 mine, so the coordinator's ruling was not needed.
 
 ## 2. TAKEN
@@ -203,6 +207,19 @@ answer, every refusal and every `int 13h` call; "faster" is §3's count.
     (`fc93fc75d`, -3 all three): `wm_disp_span.out`, a bare `retf`, where
     `ext_e_strads.r` was out of reach.
 
+### Batch 3
+
+14. **HIBER: `hbm_findimg` falls into `hbm_cb`; `hbm_geom`'s first refusal
+    reaches short** (`7a85e7827`, -7 big/emu; kern_mega 0, pinned). kmod
+    9's tail (-4): `hbm_findimg` is laid above `hbm_cb` among the doors and
+    its `call hbm_cb / ret` is a fall-through; `hbm_geom`'s BIOS arm falls
+    into `.check` and the driver arm is laid after the exit, so the
+    `dskf_dsk_vol_row` refusal is a short `jc` where it was relaxed (-3).
+    The same tests in the same order; `.no` is the same `CLC_OR_STC` tail.
+    On kern_mega the park stub is pinned at 1F80h (CROSS-FILE 1) - the first
+    try of this item, unpinned, moved resident `.mega` by one byte and was
+    reverted before it was committed.
+
 ## 3. SPEED
 
 Nothing here draws (no primitive call changed anywhere) and **no `int 13h`
@@ -230,6 +247,7 @@ path is its inverted `jcc` TAKEN, 16. A far hop through `wm_cbd` (`mov bp` +
 | STIKMENU, a `.O88` examined in STIKAPPS | about -64, and -8 a character of its name | eight relaxed refusals not taken on the path that lists it |
 | WIN95 title bar | -8 a bar | its relaxed test |
 | EXTD mode switch (`ext_kapply_eq`, `ext_two`) | -86 / -43 | a `call`/`ret` pair less per sequence |
+| HIBER image lookup / geometry (hibernate, resume, DOS handoff) | -43 / -8 | `hbm_findimg`'s call/ret pair; `hbm_geom`'s relaxed test |
 
 Against the disk: a file removed is at least two `int 13h` writes (the
 directory sector and the FAT), ~400 ms each on the 5150 - the tree's gain is
@@ -245,14 +263,14 @@ MartyPC measurement was taken: no design decision here waited on a number.
    - for +43 clocks a hop, and nearly every hop left on kern_big is on the
    tree's per-entry path, which the brief does not let get slower. Refused;
    it is the owner's if he wants the bytes over the clocks.
-2. **HIBER.DRV** (kmod 9's `hbm_findimg` tail: -4 on kern_big/emu, falling
-   into `hbm_cb`; kern_mega's `hbm_root` FAT32 arm as `cmp / cmc`, -3).
-   Built, and the resident proof refused it: on kern_mega every HIBER byte in
-   front of the park stub moves `mpk_stub`, an immediate in resident `.mega`
-   (CROSS-FILE 1). Reverted. HIBER also has relaxed ladders worth about -35 on
-   kern_big (`hbm_dosrun`'s eight refusals, `hbm_sweep`'s three, `hbm_geom`,
-   `hbm_ask`, `hbm_extat`, `hbm_wake`) that the same coupling blocks on
-   kern_mega unless the stub is pinned there as SERIAL's lease is; not taken.
+2. **HIBER.DRV's relaxed ladders** - `hbm_dosrun`'s eight refusals (`.b1`
+   .. `.b6`, `.bimg`; about -24), `hbm_sweep`'s three (a loop rotation, -3,
+   one of its back-jumps at 126 bytes), `hbm_ask`, `hbm_extat`, `hbm_wake`,
+   `hbm_perform`'s four (a table is a byte longer) and the two resume stubs'
+   (`kds_stub`, `hbs_stub`, run from the text page with the machine half
+   back - not touched in a size pass). With the park stub pinned they are
+   free on kern_mega too; NOT REACHED. kern_mega's `hbm_root` FAT32 arm as
+   `cmp / cmc` (-3) is kern_mega's alone and would only become pad there.
 3. **kern_big's `jae dmo_rtbody`** (5 bytes, relaxed): a table word instead
    is -6 and then needs a test to keep the tree clear of OS88_IMG's busy
    refusal (net -1); including `diskmut.inc` right after `clo_vtab` to make
@@ -287,22 +305,25 @@ numbers and the layout stamp are untouched.
    - `megados.inc`'s `mega_dstubup` (`.mega`): `add ax, mpk_stub` -
      HIBER.DRV's park stub at **1F80h** in its image. Every byte HIBER saves
      before `%include "megapark.inc"` (that is, all of `hiber.inc`'s code)
-     moves it. REFUSED 2 is what that cost here.
+     moved it. Taken here with the stub **pinned** on kern_mega (`times
+     MPK_MEGA_AT - ($ - $$) db 0`, 7 zeros now, an `%error` if the code ever
+     passes it). SPEC.md 96.45's own record shows the last time this moved
+     (14.62.1: "kern_mega's `.mega` moves by one immediate").
    - `fsx.inc`'s `fsx_rserdn` and its rows (W7): `[SRL_O_SEG]`,
      `[SRL_O_BUF]`, `[SRL_O_MASK]` - SERIAL.DRV's lease block at **048Dh**.
-     Taken here with the block **pinned** on kern_mega (`times SRL_MEGA_AT -
-     ($ - $$) db 0`, 29 zeros, an `%error` if it would pass), so the image
-     is the base's size there and its resident kernel byte-identical.
-   Either fix is one resident immediate, once, and then the image is free:
+     Pinned the same way (29 zeros).
+   So both images are their base size on kern_mega, and its resident kernel
+   is byte-identical.
+
+   Either fix is one resident immediate, once, and then the images are free:
    put the stub (and the lease block) at a FIXED place in the image - right
    after the entry table - so its offset no longer depends on the code in
-   front of it; or read it from the image at run time. With that, SERIAL's 29
-   bytes come back on kern_mega and HIBER's -4/-3 and ~-35 are takeable.
-   **No gate catches this coupling today**: a module change that moves one
-   of these changes kern_mega's resident bytes silently (the module's
-   MOD_STAMP keeps the pair consistent at run time, so it is not a defect,
-   only a resident byte moving under a module-only change). A host check -
-   rdiff's routine list, or the prefix compare used here - would.
+   front of it; or read it from the image at run time. With that the 36
+   bytes of pad come back on kern_mega and the two pins go. **Until then the
+   two `%error`s are the only gate on the coupling**: without them a module
+   change that moved either offset changed kern_mega's resident bytes
+   silently (MOD_STAMP keeps the pair consistent at run time, so it was never
+   a defect, only a resident byte moving under a module-only change).
 2. **The resident directory bodies are near the tree's own shapes.**
    `dskw_rmbody_n83`'s find-and-check prefix is what `dmo_fdir` repeats (the
    tree's top folder): a resident entry at the check's end would let the
@@ -335,6 +356,13 @@ numbers and the layout stamp are untouched.
 - **EXTD** (7, 13): `extdmod`, `dispdrag`, `dispfit`, `dispstrad`,
   `dispzoom`, `dispsize`, `dispseam`, `dispcheck`, `dispfsx`, `megarmbext`.
 - **WIN95** (12): `thm95`, `dispthm`, `disptitle`.
+- **HIBER** (14; `hbm_geom` is the hibernate, the resume probe and the DOS
+  handoff's geometry, `hbm_findimg` the image lookup on all three; kern_mega's
+  pinned park stub is the DOS park's): `hibernate`, `hibernatedrv`,
+  `hibernatem`, `hibsumok`, `hibsumbad`, `hdhiber`, `hmahiber`, `p2hiber`,
+  `stikhiber`, `kbdlayouthiber`, `win16hiber`, `kdreturn`, `kdreturnm`,
+  `hmadosret`, `megahiber`, `megahibfull`, `megap2hiber`, `megadosp`,
+  `megadosroom`, `win16megadgroup`.
 - **The module layer** (every image moved): `modcache`, `moddrop`,
   `megamodcache`, `megamod`.
 - fast tier (green at every commit): `make -j2`'s 54 rows.
