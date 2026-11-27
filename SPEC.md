@@ -220200,6 +220200,16 @@ exclusive bracket; Escape/Alt+Enter restores the desktop with the game paused.
 VGA selects FSXM_MODEX (320x240); CGA selects FSXM_CGA320 (320x200), black
 background and bright green/red/yellow palette 0 (3D9h=10h). VGA retains
 blue/red/yellow. Unsupported adapters refuse fullscreen with an explanation.
+**The display that plays is asked, not assumed** (§53.1.2): the window's own
+first, then - refused there - each display of an extended desktop in turn,
+`OSAPI_FSX_CAPS` with BX = 1, 2, ... until it says there is none, the first
+offering Mode X or CGA 320 being `[dm_fsdisp]` and the bracket opening on it
+with `OSAPI_FSX_RUN` CH = n. So a window on the Hercules of a Hercules + CGA
+or Hercules + VGA pair plays on the colour card, the window staying where it
+is, and the splash's play label says Enter rather than VGA/CGA. The walk is
+the same `dm_playdisp` the splash's label and the Enter key both ask, at
+every paint and every press, so a window dragged between displays is asked
+again. A lone Hercules still refuses: BX = 1 is that card and BX = 2 is none.
 Original artwork uses offline converted native pixels: 16x12 VGA cells and
 16x10 CGA cells. Cells are horizontally doubled, so VGA batches dirty cells in two passes,
 each writing one stored plane to a plane pair (map masks 3 and 0Ch); cells

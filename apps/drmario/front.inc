@@ -8,9 +8,7 @@ dm_frontgeom:
     jbe .mono
     inc byte [dm_frontcolor]
 .mono:
-    mov bx, [dm_win]
-    call OSAPI_FSX_CAPS
-    and ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+    call dm_playdisp                ; here, or on another display
     mov [dm_frontplay], al
     call OSAPI_WM_CONTENT
     mov [dm_frontx], ax
