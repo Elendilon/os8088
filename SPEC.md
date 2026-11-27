@@ -103837,13 +103837,18 @@ centred in it by `[tg_bx0]`. A zero cell size is refused, because a zero cell
 makes every rect inside-out and an inside-out rect is a stripe rather than a
 small mistake.
 
-### 49.4 Two colours are chosen at boot, not pinned
+### 49.4 Two colours are chosen by the display, not pinned
 
 §39.4 leaves a 4bpp screen three greys and a 1bpp screen none. On VGA the HUD
 band is `CDGRAY` under `CLGRAY`-bordered matrix; on Hercules and CGA both of
 those land in the **dither** class, and white text on a 50% pattern is
 legible only in principle. `[tg_hudbg]`/`[tg_frcol]` are set from
-`OSAPI_VIDEO`'s `DH`: black band and a solid white border on 1bpp. The HUD
+`OSAPI_WM_DISPLAY`'s `DH` - the WINDOW's display (§39.16.4), asked again by
+`tg_track` before every draw, so a window dragged onto the other card of an
+extended desktop takes that card's pair - black band and a solid white border
+on 1bpp. They were `OSAPI_VIDEO`'s at the entry until the extended-desktop
+audit of 2026-11-27 found a dithered band on a Hercules d1 and a mono one on
+a VGA d1. The HUD
 text itself is `CWHITE` on every adapter — §47's lesson, that a dithered 8x8
 glyph loses the half of each stroke the pattern masks out, so text comes from
 the white class and only a filled *area* may dither.
@@ -220224,6 +220229,16 @@ exclusive bracket; Escape/Alt+Enter restores the desktop with the game paused.
 VGA selects FSXM_MODEX (320x240); CGA selects FSXM_CGA320 (320x200), black
 background and bright green/red/yellow palette 0 (3D9h=10h). VGA retains
 blue/red/yellow. Unsupported adapters refuse fullscreen with an explanation.
+**The display that plays is asked, not assumed** (§53.1.2): the window's own
+first, then - refused there - each display of an extended desktop in turn,
+`OSAPI_FSX_CAPS` with BX = 1, 2, ... until it says there is none, the first
+offering Mode X or CGA 320 being `[dm_fsdisp]` and the bracket opening on it
+with `OSAPI_FSX_RUN` CH = n. So a window on the Hercules of a Hercules + CGA
+or Hercules + VGA pair plays on the colour card, the window staying where it
+is, and the splash's play label says Enter rather than VGA/CGA. The walk is
+the same `dm_playdisp` the splash's label and the Enter key both ask, at
+every paint and every press, so a window dragged between displays is asked
+again. A lone Hercules still refuses: BX = 1 is that card and BX = 2 is none.
 Original artwork uses offline converted native pixels: 16x12 VGA cells and
 16x10 CGA cells. Cells are horizontally doubled, so VGA batches dirty cells in two passes,
 each writing one stored plane to a plane pair (map masks 3 and 0Ch); cells
@@ -255560,6 +255575,14 @@ kept.
 page: like CGA's, a cut is drawn where it can be seen. Their second page is
 not used yet. An EGA takes the CGA4 bundle in mode 4.
 
+**A display's refusal is the display's.** A play refused because the
+window's display has not the battle's mode ("Needs CGA, EGA or VGA", "Needs
+BATTLEH.VBT on a Hercules") sets `[vb_dispno]`, and `vb_onresize` (§11.98)
+puts Ready back when the window lands on another display of an extended
+desktop (§39.16.3.3), so the word never describes a card the window has
+left; Enter asks the new one. It read "Needs CGA, EGA or VGA" on a VGA d1
+where Enter played, until the extended-desktop audit of 2026-11-27.
+
 **Hardware not yet heard.** The PC speaker (VIDEO-BATTLE-PLAN 3.2) is not
 an output.
 
@@ -259298,6 +259321,12 @@ source no longer assembled. The changes, all mechanical:
   as a black bar on Hercules. Each package picks its ground from
   `OSAPI_VIDEO`'s DH at entry (`bas_ui_ground`, `br_ground`): grey at 4 bpp
   and up, white below.
+- **`SCREENW`, `SCREENH`, `SCREENBPP` and `VIDEOMODE` answer the CONSOLE
+  WINDOW's display** (`bas_video`: `OSAPI_WM_DISPLAY` on `[bas_window]`,
+  §39.16.4), asked at each call. On one display that is `OSAPI_VIDEO`'s
+  answer; on an extended desktop (§39.19) a program whose console stands on
+  the second card is told that card's width, height, depth and kind - it was
+  told the primary's until the extended-desktop audit of 2026-11-27.
 - **Two upstream layout defects fixed.** 2BRES's footer drew the current file
   name unpadded on a partial refresh, so `MIXED.RES` opened over
   `UNTITLED.RES` read `MIXED.RESRES`; it is padded to twelve cells. And its
