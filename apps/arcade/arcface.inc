@@ -24,7 +24,8 @@ AF_MAXG     equ 8                   ; games the list holds
 ; the states (11.1)
 AFS_READY   equ 0
 AFS_NOROM   equ 1
-AFS_NOVGA   equ 2
+AFS_NOVGA   equ 2                   ; a BIT, ORed onto READY or NOROM: the
+                                    ; window's display has no VGA12 (11.1)
 
 ; the roles: an index into a theme (af_tcol, af_tmono)
 R_MARQ      equ 0                   ; the marquee's ground
@@ -153,11 +154,11 @@ af_vga:     db 0, 0, 0, 0, 0, 1, 1, 1
 af_s_ready: db 'READY', 0
 af_s_norom: db 'ROM NEEDED', 0
 af_s_novga: db 'NEEDS VGA', 0
-af_tags:    dw af_s_ready, af_s_norom, af_s_novga
+af_tags:    dw af_s_ready, af_s_norom, af_s_novga, af_s_novga
 af_s_play:  db 'PRESS ENTER TO PLAY', 0
 af_s_add:   db 'ADD ITS ROM SET', 0
 af_s_vga:   db 'NEEDS A VGA DISPLAY', 0
-af_hints:   dw af_s_play, af_s_add, af_s_vga
+af_hints:   dw af_s_play, af_s_add, af_s_vga, af_s_vga
 af_s_cnt:   db 'READY '
 af_s_cntn:  db '0 OF '
 af_s_cntt:  db '0', 0
@@ -290,27 +291,69 @@ af_look:
 .r:
     ret
 
-; af_vgacheck - the games this display cannot run marked NEEDS VGA (11.1),
-; from the window's FSX modes; and the selection put on a READY game
-af_vgacheck:
+; af_disp - the window's display asked (SPEC.md 39.16.4): its theme, and
+; NEEDS VGA (af_vgamark). At every whole paint, because a window on an
+; extended desktop is dragged between cards. Kept: all
+af_disp:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bx, [ar_win]
+    call OSAPI_WM_DISPLAY
+    mov si, af_tmono
+    cmp dh, 1
+    jbe .mono
+    mov si, af_tcol
+.mono:
+    mov [af_theme], si
+    call af_vgamark
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; af_vgamark - NEEDS VGA (11.1) asked of the window's display now: the bit
+; set on the VGA games where its FSX modes have no VGA12, and taken off
+; where they have, [af_nready] kept with it. AX, BX, CX, DX spent
+af_vgamark:
     mov bx, [ar_win]
     call OSAPI_FSX_CAPS
-    test ax, 1 << FSXM_VGA12
-    jnz .pick
+    and ax, 1 << FSXM_VGA12         ; AX: 0 = no VGA here
     xor bx, bx
 .v:
     cmp bl, [af_n]
-    jae .pick
+    jae .r
     cmp byte [af_vga+bx], 0
     je .vn
-    cmp byte [af_state+bx], AFS_READY
-    jne .vs
-    dec byte [af_nready]
+    mov dl, [af_state+bx]
+    mov dh, dl
+    and dl, ~AFS_NOVGA              ; DL = the look's answer
+    or ax, ax
+    jnz .vs
+    or dl, AFS_NOVGA
 .vs:
-    mov byte [af_state+bx], AFS_NOVGA
+    mov [af_state+bx], dl
+    cmp dh, AFS_READY               ; READY before, and after?
+    jne .was
+    dec byte [af_nready]
+.was:
+    or dl, dl
+    jnz .vn
+    inc byte [af_nready]
 .vn:
     inc bx
     jmp .v
+.r:
+    ret
+
+; af_vgacheck - af_vgamark, and the selection put on a READY game (the
+; launch's and a look's: a repaint leaves the selection alone)
+af_vgacheck:
+    call af_vgamark
 .pick:
     mov al, [af_sel]                ; the selection: on a READY game if it
     cmp al, [af_n]                  ;   is not on one, and inside the list
@@ -712,9 +755,8 @@ af_bout:
     call af_role
     xchg al, ah                     ; AL = ink, AH = paper, colours
     mov [af_pen], ax
-    call OSAPI_VIDEO
-    cmp dh, 1
-    ja .colour
+    cmp word [af_theme], af_tmono   ; (the window's display, af_disp's)
+    jne .colour
     cmp byte [af_pen], CBLACK       ; black ink: the band inverted
     jne .colour
     mov ax, [af_bst]
@@ -745,6 +787,7 @@ af_bout:
 ; af_paint - the whole face (W_PAINT's, ar_paint's first half). SI = window
 ; =============================================================================
 af_paint:
+    call af_disp                    ; (the window's display: its theme)
     call af_origin
     mov di, [af_lay]
     mov word [af_fx1], 0            ; the marquee, its rules, its bulbs
@@ -1397,13 +1440,16 @@ af_play:
     xor bh, bh
     cmp bl, [af_n]
     jae .r
+    push bx
+    call af_vgamark                 ; (the window may have been dragged)
+    pop bx
     mov al, [af_state+bx]
-    mov si, af_s_tnorom
-    cmp al, AFS_NOROM
-    je .say
     mov si, af_s_tnovga
-    cmp al, AFS_NOVGA
-    je .say
+    test al, AFS_NOVGA
+    jnz .say
+    mov si, af_s_tnorom
+    test al, AFS_NOROM
+    jnz .say
     shl bx, 1
     mov bx, [ar_boards+bx]
     cmp bx, [ar_bd]

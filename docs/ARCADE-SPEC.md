@@ -1235,6 +1235,16 @@ game in the list gets one STATE:
 | ROM NEEDED | no `.ROM` found | `ROM NEEDED` |
 | NEEDS VGA | Pac-Man and Q\*bert, on a display without `FSXM_VGA12` (`OSAPI_FSX_CAPS`, a fact) | `NEEDS VGA` |
 
+NEEDS VGA is a fact about the DISPLAY THE WINDOW IS ON, and a window on an
+extended desktop (SPEC.md 39.19) is dragged between a VGA and a Hercules or
+CGA. So it is a bit beside the look's answer rather than in place of it
+(`AFS_NOVGA` ORed onto READY or ROM NEEDED), asked again of the window's
+display (`af_vgamark`) at every whole paint and at every Play: Q\*bert opened
+on the Hercules and dragged to the VGA is READY there, and opened on the VGA
+and dragged to the Hercules says NEEDS VGA rather than READY and a silent
+refusal (the extended-desktop audit, 2026-11-27). Only the launch moves the
+selection onto a READY game; a later ask leaves it where the user put it.
+
 A game is LOADED (read, checked, built: 1.4, 2.4 of the plan) when it is
 played, and stays loaded until another one is. **Play** on a game that is
 not READY says why in a toast and does nothing else. After an import the
@@ -1265,7 +1275,9 @@ after it (`af_vgacheck`).
 ### 11.3 Drawing
 
 Two themes, as role tables (`af_tcol`, `af_tmono`): colour where
-`OSAPI_VIDEO` answers DH > 1, black and white otherwise - a dark cabinet,
+`OSAPI_WM_DISPLAY` - the WINDOW's display, asked at every whole paint
+(`af_disp`), so the cabinet follows a drag onto the other card (SPEC.md
+39.16.4) - answers DH > 1, black and white otherwise - a dark cabinet,
 white on black, the selected row the one inverted field (SPEC.md 39.4: no
 grey, no dither in a 1bpp face). MEASURED (rows `arcface`, `arcfaceherc`,
 `arcfacecga`): a move of the selection is 4 to 6 displayed frames with no
