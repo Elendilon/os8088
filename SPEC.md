@@ -167473,6 +167473,12 @@ elapsed clock is derived from the free-running `verb 3` consumed count
 accumulated into a 32-bit `ap_played`, so it survives the counter's ~3–6 s
 wrap.
 
+**The bar's frame sets its own pen.** `apu_draw_time_full` framed the bar in
+whatever colour was current, and `ap_paint` (`W_PAINT`) does not set one, so
+a repaint the KERNEL drove - a drag across a display seam is one - framed it
+in the ground fill's white and the bar vanished until the next track (the
+extended-desktop audit, 2026-11-27). It sets black first.
+
 **The first paint can beat `wm_fit`**: the loader shows the window after the
 entry proc returns, so `OSAPI_WM_GEOM` / `OSAPI_WM_CONTENT` can answer CF=1
 for the first `W_PAINT`. `ap_entry` kicks itself once with `OSAPI_WM_WAKE`;
