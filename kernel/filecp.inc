@@ -952,24 +952,25 @@ FCPBODY fcp_answer
     je .idle
     or al, al
     jz .stop                    ; (AL = 0 is FCPS_DONE already)
-    cmp al, 2
-    jne .yes
-    mov FCV(fcp_all), al        ; both flags are read as zero / NOT zero, so
-.yes:                           ; the answer itself is their 'yes'
-    mov FCV(fcp_ovw), al        ; the pending file may be replaced
+    mov FCV(fcp_ovw), al        ; the pending file may be replaced - and
+    dec ax                      ; [fcp_all] is the answer less one: 0 for
+    mov FCV(fcp_all), al        ; 'this one', the 0 a question was asked
+                                ; under (fcp_file1 asks only then), and 1 for
+                                ; 'all'. Both flags are read as zero / NOT
+                                ; zero (kernel size pass 21: -3 against a
+                                ; compare that stored only a 2)
     call fcp_step
 %ifdef FM_MSEL
     call fcp_lnext              ; a list carries on past the answered entry
 %endif
     jmp short .out
-.idle:
-    mov al, FCPS_DONE
-    jmp short .out
 .stop:                          ; a stop is not a failure: what was already
     call fcp_stop               ; copied stays, and the line says so
 %ifdef FM_MSEL
     FCPX fcp_lend               ; ...and a stop stops the whole LIST
-%endif
+%endif                          ; ...and falls into .idle's load: AL is 0
+.idle:                          ; already, and fcp_stop and fcp_lend keep it
+    mov al, FCPS_DONE           ; (kernel size pass 21, -2: .idle's jump)
 .out:
     jmp fcp_x5
 %if FCPS_DONE != 0
@@ -1001,20 +1002,28 @@ fcp_step:
 
     ; --- the first step: the clipboard entry itself ---
     cmp byte [fcp_op], FCP_CUT  ; a same-volume move needs no data I/O at
-    jne .copyit                 ; all (SPEC.md 22.6) - try that first, and
-    mov al, [fcp_drv]           ; fall through to the copy engine when it
-    cmp al, [fcp_ddrv]          ; declines
+%ifdef DSKW_DIRMOD              ; all (SPEC.md 22.6) - try that first, and
+    jne .copyit                 ; fall through to the copy engine when it
+%else                           ; declines. A Copy on kern_big holds nothing
+    jne .claim                  ; (below), so it goes straight to its buffer:
+%endif                          ; .copyit asked [fcp_op] again (kernel size
+    mov al, [fcp_drv]           ; pass 21, -7)
+    cmp al, [fcp_ddrv]
     jne .copyit
-    call fcp_relink             ; CF=0 done; CF=1 with AX=0 not attempted;
-    jnc .finish2                ; CF=1 with AX = FERR_* past the point of
-    or ax, ax                   ; no return - which lands on the `jc .fail`
-    stc                         ; below with CF set: .fail is one byte past a
-    jnz .jcfail                 ; short jnz's reach from here (size pass 8)
-.copyit:
-%ifndef DSKW_DIRMOD             ; A Cut's rmtree runs in DISKOPS.DRV (SPEC.md
-    cmp byte [fcp_op], FCP_CUT  ; 18.5.3) - and on kern_small a FOLDER'S
-    jne .claim                  ; mkdirs too, Copy or Cut: its image
+    call fcp_relink             ; CF=0 done, AX = 0 = FCPS_DONE - so fcp_stop
+    jnc short fcp_stop          ; is the whole finish, a short jump BACK to it
+                                ; where .ok's copy of it had fallen out of reach
+                                ; (kernel size pass 21, -3); CF=1 with AX=0 not
+                                ; attempted; CF=1 with AX = FERR_* past the
+    or ax, ax                   ; point of no return - which lands on the `jc
+    stc                         ; .fail` below with CF set: .fail is one byte
+    jnz .jcfail                 ; past a short jnz's reach from here (pass 8)
+%if FCPS_DONE != 0
+  %error "fcp_step hands fcp_relink's AX = 0 to fcp_stop as FCPS_DONE"
 %endif
+.copyit:                        ; A Cut's rmtree runs in DISKOPS.DRV (SPEC.md
+                                ; 18.5.3) - and on kern_small a FOLDER'S
+                                ; mkdirs too, Copy or Cut: its image
     cmp word [fcp_type], 2
     jb .claim
     mov al, MOD_DISKOPS         ; goes in FIRST, so the buffer below is sized
@@ -1082,7 +1091,6 @@ fcp_step:
     call fcp_srcdel
     jc .fail
 .ok:
-.finish2:
     mov al, FCPS_DONE
     jmp fcp_stop                ; a tail call: fcp_step has nothing of its own
                                 ; on the stack here, and fcp_stop leaves AL
@@ -1102,8 +1110,8 @@ fcp_step:
 
 ; -----------------------------------------------------------------------------
 ; fcp_relink - move an entry inside ONE volume by moving its directory entry
-; out: CF=0 = done; CF=1 with AX = 0 = not attempted (the caller falls back
-;      to the copy engine); CF=1 with AX = FERR_* = failed past the point of
+; out: CF=0 with AX = 0 = done; CF=1 with AX = 0 = not attempted (the caller
+;      falls back to the copy engine); CF=1 with AX = FERR_* = failed past the point of
 ;      no return
 ; clobbers: AX, BX, CX, DX, SI, DI, flags (fcp_run's free set - see fcp_run)
 ;
@@ -1192,8 +1200,8 @@ fcp_relink:
     cmp word [fcp_type], 2      ; a folder's own '..' has to follow it:
     jae .rlup                   ; below, past .no
 .done:
-    clc
-    ret
+    xor ax, ax                  ; CF = 0 - and AX = 0, FCPS_DONE, which
+    ret                         ; fcp_step hands straight to fcp_stop
 .half:
     mov ax, FERR_IO             ; past the point of no return: the entry is
     stc                         ; in the destination and the source still

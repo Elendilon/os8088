@@ -973,12 +973,24 @@ desk_reflow:
 ; -----------------------------------------------------------------------------
 desk_zones_paint_x:
     call kentc_di
+%if DESK_CMAX == 255
+    mov si, -256                ; kern_big: SI's LOW BYTE is the cell, and the
+                                ; loop ends where SI reaches 0 - an `inc` and a
+                                ; `js` for the 16-bit compare 255 cannot make
+                                ; short (kernel size pass 21, -3). Cell 255 is
+                                ; DSL_NONE, which desk_cmark never marks, and
+                                ; its bit is the last of [desk_cdirty]'s 32
+                                ; bytes, so walking it costs one bit test at
+                                ; most. desk_cbit and desk_cell_xy both read
+                                ; AL alone (each zero-extends it)
+%else
     xor si, si
+%endif
 .c:
     mov ax, si
     call desk_cbit
-    cmp byte [bx+desk_cdirty], 0
-    jne .bit
+    cmp [bx+desk_cdirty], bh    ; BH = 0: a cell's byte is cell / 8, below 32
+    jne .bit                    ; (kernel size pass 21: -1 against the imm8)
     or si, 7                    ; a clean BYTE: past its eight cells at once,
     jmp short .n                ; so DESK_CMAX's 255 cost 32 compares idle
 .bit:
@@ -1001,8 +1013,12 @@ desk_zones_paint_x:
     KDOOR wm_paint_dmg
 .n:
     inc si
+%if DESK_CMAX == 255
+    js .c                       ; ...through cell 255, which nothing marks
+%else
     cmp si, DESK_CMAX           ; ...and DSL_NONE is never painted
     jb .c
+%endif
     jmp kretfc_di
 
 ; =============================================================================
@@ -1017,23 +1033,23 @@ desk_zones_paint_x:
 ; -----------------------------------------------------------------------------
 desk_cell_xy:
     push bx
-    push cx
     mov ah, 0                   ; AL is a CELL, a whole byte: zero-extended
     cwd                         ; (AX < 8000h: DX = 0)
     div word [desk_rows]        ; AX = column, DX = row within it
-    mov cx, dx
-    mov bx, DESK_PX
-    mul bx                      ; AX = column * pitch (DX = 0)
-    mov bx, [vid_desk_zx]
-    sub bx, ax                  ; columns run LEFTWARDS from the right edge
-    xchg ax, cx                 ; (CX and BX are popped below)
-    mul word [desk_zstep]
-    add ax, DESK_ZY0
-    xchg ax, dx
-    xchg ax, bx
-    pop cx
+    xchg ax, dx                 ; AL = the row, DX = the column
+    mul byte [desk_zstep]       ; BYTE multiplies, so DX rides through the
+    add ax, DESK_ZY0            ; first and CX is never touched (kernel size
+    xchg ax, dx                 ; pass 21, -5, and faster): a row is below
+    mov bl, DESK_PX             ; [desk_rows] and a pitch below 256, and a
+    mul bl                      ; column is a cell over at least one row - so
+    mov bx, [vid_desk_zx]       ; each operand is a byte and each product a
+    sub bx, ax                  ; word. Columns run LEFTWARDS from the right
+    xchg ax, bx                 ; edge
     pop bx
     ret
+%if DESK_PX > 255 || DESK_ZSTEP > 255 || DESK_ZSTEP_S > 255
+  %error "desk_cell_xy multiplies by the pitch and the step as BYTES"
+%endif
 
 
 ; -----------------------------------------------------------------------------
@@ -1231,7 +1247,9 @@ desk_paint_mask_x:
 ;      to be marked too - per window, by wm_dmg_wins); on kern_big
 ;      desk_zone_clip makes both decisions at the draw. The DAMAGE is not
 ;      grown: folded in, it damaged every window the box reached rather than
-;      the ones over a zone (SPEC.md 11.91). AX clobbered, everything else
+;      the ones over a zone (SPEC.md 11.91). AX clobbered - and on
+;      kern_small SI, wm_zone_r's: its one caller there is wm_paint_dmg, whose
+;      next read of SI follows its own write (.promote) - everything else
 ;      preserved.
 ;
 ; THE MASK IS A DWORD now, zone z at bit 31-z: shortcuts and drives share one
@@ -1262,10 +1280,11 @@ desk_dmg_zones_x:
     push bx
     push cx
     push dx
-    push si
-    call KERNEL_SEG:cw_wm_zone_r    ; ...but is any of it REVEALED?
-    pop si                      ; (`pop` writes no flag)
-    pop dx
+    call KERNEL_SEG:cw_wm_zone_r    ; ...but is any of it REVEALED? It spends
+    pop dx                      ; SI too, which this routine's one kern_small
+                                ; caller (wm_paint_dmg) writes before it next
+                                ; reads it (kernel size pass 21, -2). `pop`
+                                ; writes no flag
     pop cx
     pop bx
     pop ax
