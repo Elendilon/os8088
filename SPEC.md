@@ -220925,6 +220925,16 @@ banks and scenes (`n_loadgfx`/`n_dropgfx`, `op_fetch` and `op_drop`), and the
 it and freed with the bracket. +38 bytes of image. `pkgmove-1942` is the
 gate.
 
+#### 101.2.2 The game plays on a display that can (2026-11-27)
+
+`n_launch` asks `fsxw_pick` (§53.1.2.1) for Mode X or CGA 320. The target
+is the display the window is mostly on when it has one of them, else the
+first display that does. It banks that display's kind (`[n_fskind]`, which
+picks Mode X on a VGA and CGA 320 elsewhere inside the bracket) and its
+display (`[n_fsdisp]`, the bracket's CH). A window on a Hercules beside a
+CGA or a VGA plays on the colour card, as DrMarco does. A lone Hercules
+still refuses.
+
 ### 101.3 Gameplay and validation
 
 Arrows move; Space/Z fires; X rolls; P pauses; M toggles sound; C selects
@@ -222469,6 +222479,21 @@ and an edge rider are interpreted. The Hercules's skip lists are not built: an e
 writes all 200 lines (~19.2k clocks; 18.9k a two-opponent frame, 9% of it), because the shear's pitch is 45
 columns and its row step 4 lines, so the plan's precomputed "plain over plain" lists (pitch 40, step 1
 line) do not apply and would have to be compiled for the (45, 4) pair.
+
+#### 102.7.7 The race plays on a display that can (2026-11-27)
+
+`xb_frontpick` decides where the race plays, following §53.1.2.1. It asks
+the display the window is mostly on first. If that one cannot play, it asks
+each display in turn with `OSAPI_FSX_CAPS` BX = 1, 2, ... (DrMarco's walk).
+The predicate is unchanged: a VGA with 0Dh, a real CGA with 320x200x4, a
+Hercules. An EGA alone is not playable.
+
+`[xb_fskind]` is the kind `xb_fullscreen` sets its mode for, read instead of
+asking again inside the bracket. `[xb_fsdisp]` is the CH that `xb_launch`
+hands `OSAPI_FSX_RUN`. A window on the EGA or MDA of a two-display machine
+plays on the other card. The splash says Enter there rather than the EGA's
+sentence. The walk is not `fsxw_pick`, because its predicate is per kind:
+an EGA offers CGA 320 and is still refused.
 
 ### 102.8 Polish, the four geometries, the low-memory refusal (wave 7)
 
@@ -255028,6 +255053,20 @@ host's decode (VGA's planes read off the card), the fade, the band exact
 against the engine's own buffer converted by the host, the idle frames,
 and victory to its end loop. Measured on the owner's H3 battle: CGA4 3.0
 MB, VGA4 at eight colours 4.0 MB, Hercules 4.1 MB.
+
+##### 126.3.2.1 The play goes to a display that can show the rendition (2026-11-27)
+
+The bracket's mode is the loaded bundle's adapter's: 0Dh for VGA4,
+Hercules for Hercules, CGA 320 otherwise (`vb_main1`). `vb_target` runs
+after `vb_load` and asks `fsxw_pick` (§53.1.2.1) for that mode. The target
+is the display the window is mostly on when it can set the mode, else the
+first display that can. `[vb_capm]` and `[vb_vid]` become that display's,
+and `[vb_fsdisp]` is the CH the play's `OSAPI_FSX_RUN` takes.
+
+So a battle with only a CGA rendition, played from a window on a Hercules
+beside a CGA or a VGA, plays on the colour card instead of saying "Needs
+... on a Hercules". The refusal remains only where no display on the
+machine has the mode.
 
 #### 126.3.3 A clip's own palette: every colour its own, over black
 

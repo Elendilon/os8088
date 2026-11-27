@@ -14,7 +14,8 @@
 ; xb_launch - the desktop side of Enter / Alt+Enter / a click on START
 ; -----------------------------------------------------------------------------
 xb_launch:
-    cmp byte [xb_frontplay], 0
+    call xb_frontpick               ; asked where it is used: the window may
+    cmp byte [xb_frontplay], 0      ; have moved since the last paint
     je .out
     mov byte [xb_error], XB_ERR_NONE
     mov byte [xb_nomem], 0
@@ -23,7 +24,8 @@ xb_launch:
     call OSAPI_WM_TIMER
     mov bx, [xb_win]
     mov ax, xb_fullscreen
-    mov cx, FSXF_FASTTICK
+    mov cl, FSXF_FASTTICK
+    mov ch, [xb_fsdisp]             ; the display xb_frontpick found
     call OSAPI_FSX_RUN
     ; Back on the desktop the kernel repaints every window whole.  The splash
     ; claim never left, so that repaint is memory-to-glass and the heap is
@@ -69,9 +71,9 @@ xb_fullscreen:
     call OSAPI_FSX_WAIT
     jmp .release
 .mode:
-    mov bx, [xb_win]
-    call OSAPI_FSX_CAPS
-    mov byte [xb_cga], 0
+    mov dl, [xb_fskind]             ; xb_frontpick's, on the desktop: inside a
+    mov byte [xb_cga], 0            ; bracket on another card the machine has
+                                    ; collapsed onto it (SPEC.md 39.18.3)
     mov byte [xb_herc], 0
     mov word [xb_wcols], XB_COLS
     mov word [xb_xlo], XB_EDGE      ; a bike shows from 22 pixels off the left edge to 22 off the right:

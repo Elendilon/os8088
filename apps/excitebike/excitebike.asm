@@ -277,6 +277,8 @@ VAR xb_fronty,2
 VAR xb_frontscale,1
 VAR xb_frontcolor,1
 VAR xb_frontplay,1
+VAR xb_fskind,1                    ; the playing display's kind (xb_frontpick)
+VAR xb_fsdisp,1                    ; ...and its OSAPI_FSX_RUN CH
 VAR xb_frontheight,2
 VAR xb_frontw,2
 VAR xb_fronth,2

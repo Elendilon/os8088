@@ -316,13 +316,14 @@ af_disp:
     pop ax
     ret
 
-; af_vgamark - NEEDS VGA (11.1) asked of the window's display now: the bit
-; set on the VGA games where its FSX modes have no VGA12, and taken off
-; where they have, [af_nready] kept with it. AX, BX, CX, DX spent
+; af_vgamark - NEEDS VGA (11.1) asked of the MACHINE now (SPEC.md 53.1.2.1):
+; the bit set on the VGA games where no display has VGA12 - the window's
+; first, then the rest, os88fsxw.inc - and taken off where one has, [af_nready]
+; kept with it. AX, BX, CX, DX spent
 af_vgamark:
     mov bx, [ar_win]
-    call OSAPI_FSX_CAPS
-    and ax, 1 << FSXM_VGA12         ; AX: 0 = no VGA here
+    mov dx, 1 << FSXM_VGA12
+    call fsxw_pick                  ; AX: 0 = no VGA on the machine
     xor bx, bx
 .v:
     cmp bl, [af_n]

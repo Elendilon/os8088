@@ -560,10 +560,12 @@ n_key:
     jmp n_popall
 
 n_launch:
-    mov bx,[n_win]
-    call OSAPI_FSX_CAPS
-    test ax,(1 << FSXM_MODEX) | (1 << FSXM_CGA320)
-    jz .error
+    mov bx,[n_win]                 ; THE FULL-SCREEN TARGET (SPEC.md 53.1.2.1,
+    mov dx,(1 << FSXM_MODEX) | (1 << FSXM_CGA320) ; 101.2.2): the window's
+    call fsxw_pick                 ; display when it has one of the two modes,
+    jc .error                      ; else the first display that does
+    mov [n_fskind],dl
+    mov [n_fsdisp],ch
     call n_fsxroom                 ; the parts are fetched inside the bracket,
     jc .nomem                      ; where a toast cannot be drawn: ask here
     cmp byte [n_state],1
@@ -577,7 +579,8 @@ n_launch:
     call n_canvasdecl              ; (SPEC.md 101.2.1): ES holds it across
     mov ax,n_exclusive             ; the claims the scenes and banks make
     mov bx,[n_win]
-    mov cx,FSXF_FASTTICK
+    mov cl,FSXF_FASTTICK
+    mov ch,[n_fsdisp]
     call OSAPI_FSX_RUN
     pushf
     mov ax,n_canvasmv              ; ...and movable again on the desktop
