@@ -114541,7 +114541,10 @@ A window is now re-listed when either:
 
 A window neither describes keeps its cache and its pixels. **The repaint union
 is the reload's now** — the reload folds each visible window it re-lists into
-`fmv_ux1`… as it goes, and `fmv_repaint_all` only commits the union. It walked
+the union as it goes, and `fmv_repaint_all` only commits it. (The union was
+`fmv_ux1`…, a private rect copied into `wm_dmg_x1`… for `wm_dmg_wins`; since
+kernel size pass 21 it is folded into `wm_dmg_x1`… itself, nothing between the
+seed and `wm_dmg_wins` painting or unlocking: −23 bytes.) It walked
 `wm_zord` for every visible Disk window, and once the reload is selective a
 separate walk would have to re-derive the predicate after the reload had
 already cleared its `FS_DIRTY` half. `kern_big` **−5 bytes**: the walk it
