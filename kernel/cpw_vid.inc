@@ -752,11 +752,13 @@ cpv_bsel:
     mov di, CPV_ROWS
     mov cx, [es:CPV_TB + CPKT_N]
     repne scasb                 ; (DF = 0: cpv_build's `cld`)
-    lea ax, [di - CPV_ROWS - 1]
+    xchg ax, di                 ; (no flag moves) AX = past the match...
     je .s
-    xor ax, ax
+    mov ax, CPV_ROWS + 1        ; ...or none: row 0
 .s:
-    mov [es:CPV_MSEL], ax
+    sub ax, CPV_ROWS + 1        ; its place - CPV_ROWS is a bss LABEL of the
+    mov [es:CPV_MSEL], ax       ; image since the DAT folded in, so no
+                                ; `lea [di - label]` (driver size pass 2, +1)
     xor ax, ax
     mov [es:CPV_TB + CPKT_TOP], ax
     ret
