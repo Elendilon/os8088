@@ -84285,6 +84285,30 @@ a window on the secondary went away. The record still holds the fullscreen
 rect at both sites — `wm_fs_drop` has not run yet — so it is the shadow-free
 rect and nothing else.
 
+##### 39.17.1.1 ...from a straddle: the other card is repainted, and the way back is the user's
+
+A window that goes fullscreen while straddling goes to the display it is
+MOSTLY on (`wm_disp_of`, the centre). That follows the owner's rule: *"where
+do I go fullscreen? The one I am more on."* The audit's K7 found two things
+wrong at the edges of that move:
+
+- **The other card kept a stale image of its part of the window,** and once
+  a stale title bar over the dock. `wm_fullscreen` raises the new rect,
+  which is wholly on the target display, and nothing repainted what the old
+  rect left on the other one. `EXTD.DRV`'s `ext_e_fsrect` now damages the
+  saved rect, shadow included and cut to the OTHER display, with
+  `wm_paint_dmg`. It never damages the part on the target display: the raise
+  draws that whole, and a damage pass there would draw it twice.
+- **The window came back somewhere else on exit.** Missile went to (7,40)
+  on display 0, and C64 from (551,20) to (375,20). `wm_fs_drop` refits the
+  saved rect with `wm_fit` for §39.11.2.1's reason (the adapter may have
+  changed underneath). But `wm_fit` is single-display and clamps a legal
+  straddle onto its origin's display. So the fit is skipped when the saved
+  rect straddles (`EXT_STRADS`, CF = 0). One display (`mod_gone`'s CF = 1)
+  still fits, which keeps 39.11.2.1's case.
+
+Cost: 6 bytes resident on kern_big's three kernels, the rest EXTD.DRV.
+
 #### 39.17.2 Zoom follows the window, not the machine
 
 §11.95's "standard state" is *the whole live screen*, and on a virtual desktop
@@ -130371,6 +130395,19 @@ initials entered on game over, the table kept in `CYCLONE.HS` in
 construction (§34.3) and needs no driver; FM would need one loaded and would
 say nothing on the machine this is calibrated against, which has no sound card
 at all (docs/FIELD-MACHINES.md).
+### 67.28 The inks: the window's display, or the bracket's (2026-11-27)
+
+`cy_pal` picks the colour or the mono inks. It asked `OSAPI_FSX_CAPS`, which
+answers for the display the window's CENTRE is on. That is right for the
+full screen, a same-mode bracket on that display. It is wrong for the
+window: a straddling window is sized and drawn for its more restrictive
+display (§39.16.4.1), so its inks came from one monitor and its frame from
+the other.
+
+`cy_pal` now asks `OSAPI_WM_DISPLAY` while `[cy_fsx]` is clear, and
+`OSAPI_FSX_CAPS` once it is set. It is set before the call that precedes
+the bracket, and cleared before the call that follows it.
+
 ## 68. Microsoft Word — the word processor (`apps/word/word.asm`)
 
 A faithful native reimplementation of Microsoft Word for Windows 1.1a
@@ -167404,6 +167441,25 @@ machine does being none:
   and the overlay). It costs no image byte, the overlay's own `align 2`
   giving one back.
 
+#### 85.10.8 Two displays, two questions (2026-11-27)
+
+`tk_adapter` answered both questions off `OSAPI_FSX_CAPS`, the display the
+window's CENTRE is on. The first is the attract window's ink. The second is
+the raster Play would take. They are now asked separately:
+
+- **The ink** (`[tk_vidk]`) comes from `OSAPI_WM_DISPLAY`: the display the
+  window is drawn and sized for, which is the more restrictive one of a
+  straddle (§39.16.4.1).
+- **The raster** comes from `fsxw_pick` (§53.1.2.1): Mode X, CGA 320 or
+  Hercules, on the display the window is mostly on when it can, else the
+  first that can. `[tk_fsdisp]` is the bracket's CH.
+
+`tk_cmd_play` runs `tk_adapter` again before the bracket. `W_ONRESIZE`
+fires only when the restrictive display changes. A drag from a Hercules
+until the window's centre was on a VGA kept the Hercules raster, so Play
+opened on the VGA, was refused the Hercules mode, and did nothing. That is
+the case Pixelstein (§97.14.1) had.
+
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
 `AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background
@@ -179774,6 +179830,20 @@ already leaves the haze out for the same reason.
 there are `CSI_LIFT`'s, read at `cs_r_end` so the read cannot land between
 the erase and the fill; in the Cessna they are not. `--no-lift` (`cs_mapair`
 a bare `ret`) and a map with its transpose taken out both go red.
+
+### 88.17 Fly goes to the display that can, asked when it is pressed (2026-11-27)
+
+`cs_adapter` asks `fsxw_pick` (§53.1.2.1) for Mode X, CGA 320 or Hercules.
+The answer is the display the window is mostly on when it can set one of
+them, else the first display that can. `[cs_caps]`, `[cs_vidk]` (which picks
+the Mode row's two names and the 16-colour text hack's real-CGA offer) and
+`[cs_fsdisp]`, the bracket's CH, all describe that display.
+
+`cs_cmd_fly` runs `cs_adapter` again first. The answer used to be banked
+only in `W_ONRESIZE`, which fires on a change of the restrictive display. A
+window dragged from a Hercules until its centre was on a VGA flew into a
+bracket on the VGA, asked it for the Hercules mode, was refused, and did
+nothing. Tank (§85.10.8) and Pixelstein (§97.14.1) had the same case.
 
 ## 89. Pac-Man (`apps/pacman/pacman.asm`) — **RETIRED**
 

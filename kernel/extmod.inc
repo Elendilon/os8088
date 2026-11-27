@@ -240,6 +240,49 @@ ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
     movsw                       ; ...and its CW, CH into W_W, W_H
     movsw
     pop es
+    ; --- ...AND WHAT IT LEFT ON THE OTHER CARD (SPEC.md 39.17.1.1) ---------
+    ; A window that went fullscreen from a straddle leaves its part on the
+    ; display that does NOT take the screen, and nothing else repaints it:
+    ; wm_fullscreen raises the new rect, which is wholly on THIS display. So
+    ; the saved rect (wm_fs_save, shadow included), cut to the other display,
+    ; is damaged here - never the part on this one, which the raise draws
+    ; whole and a damage pass there would draw twice. AL is still ext_wctx's
+    ; display: lea and movsw write no AX.
+    push bx
+    push cx
+    push dx
+    xor al, 1                   ; the OTHER display (two at most)
+    EXK vid_ctx_rect            ; AX..DX = its inclusive rect
+    mov si, wm_fs_save          ; {x, y, w, h}, wm_bank4's order
+    cmp ax, [si]
+    jge .x1
+    mov ax, [si]
+.x1:
+    mov di, [si]
+    add di, [si+4]              ; x + w: the shadow's column
+    cmp cx, di
+    jle .x2
+    mov cx, di
+.x2:
+    cmp bx, [si+2]
+    jge .y1
+    mov bx, [si+2]
+.y1:
+    mov di, [si+2]
+    add di, [si+6]              ; y + h: the shadow's row
+    cmp dx, di
+    jle .y2
+    mov dx, di
+.y2:
+    cmp ax, cx
+    jg .nodmg                   ; nothing of it was on the other display
+    cmp bx, dx
+    jg .nodmg
+    EXK wm_paint_dmg            ; the caller holds the gfx lock (11.2)
+.nodmg:
+    pop dx
+    pop cx
+    pop bx
     pop di
     pop si
     pop ax

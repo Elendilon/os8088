@@ -14,6 +14,117 @@ system disk and in a heap claim while two displays are up, not in any
 kernel's footprint. They are listed separately so the owner can count them
 either way.
 
+## Part 0: the owner's answers, and round 2 (2026-11-27)
+
+**P1 is rejected, and the split it would have removed is the design.** In
+the owner's words: *"for when they want to go fullscreen, the target screen
+is not the more restrictive screen, it's the one they are mostly on. Same
+for zoom: which screen do I maximize on? The one I am more on. On the other
+hand, a window can't draw in two modes at once, so inside its window it
+draws in the more restrictive mode or height."* So two questions keep two
+answers:
+
+- *Where do I go fullscreen or maximize?* `wm_disp_of`, the centre.
+- *How do I size and draw at this position?* `wm_disp_now`, the
+  restrictive display while straddling.
+
+SPEC.md 39.17.2.1 has the table. Pixelstein, Lemmings and Missile are
+fixed APP-side, by another agent.
+
+A second owner rule came with it: *"Nothing should size wrong on a
+maximize. If the window is straddling and they zoom it, when it finishes
+zooming it's fully on one screen, and that is its answer for where it is,
+what mode it should now be drawing in, and at what size."* P3 grew to carry
+that.
+
+**K2 under the owner's model** replaces P1's extra rule. A straddler is
+sized for the restrictive display on BOTH axes, so on the free axis it is
+never larger than the smaller display. Returning to one display restores
+that display's size (SPEC.md 39.16.3.6). It also closes K2(a), P8's first
+half.
+
+**The 1px question.** Is P2's `vx - 1` a defect, or the effect of "zoomed
+windows take up the full width" (SPEC.md 11.95.2)? It is **a defect, and it
+breaks that rule rather than coming from it.**
+- 11.95.2.1 already makes `wm_flush_ck` answer "spans its display" for a
+  frame at display 1's `VX` with display 1's width, and wm_zoom commits
+  exactly that rect.
+- `wm_snap_ax` then rounded x = `VX` down to `VX - 1`. Measured,
+  vgaherc-vga-right: a zoom on d1 gave (639,…), which neither spans its
+  display nor sits on it.
+- With the fix it gives (640,20) 720x347 with no left border, which is the
+  full-width rule working on display 1. A drag to x = 643 now lands at 647
+  wholly on d1 (it was 639).
+
+### Round 2 status
+
+The figures are `.text`+`.bss`+`.cold`+`.vga`+`.lowbss`+`.vgabuf`, measured
+by `kernsize --json` per kernel, each against the commit before it.
+
+| commit | item | kern_big | kern_small | kern_emu | kern_mega | EXTD.DRV image |
+|---|---|---:|---:|---:|---:|---:|
+| 1a2eb39a8 | **P2** (K4, K5 Right): display 1's left edge snaps like x = 0 | +16 | 0 | +16 | +16 | 0 |
+| 900ea513e | **P3** + the owner's zoom rule (K5): `wm_box`, plus the zoom latch armed and spent through `EXT_SPAN` | +16 | **-2** | +16 | +16 | +52 (WIN95.DRV +1) |
+| eb32a4453 | **K2** (owner's model; K2(a), K2(b)): straddle cap on both axes, `W_PKIND` bit 7 | 0 | 0 | 0 | 0 | +97 |
+| 9de7632c5 | **OSAPI_WM_DORIGIN**, new JCELL 0x0244 (for L1 and DeskClok) | +24 | +8 | +24 | +28 | +12 |
+| 13f26df0f | **OSAPI_GFX_SCROLL preserves ES** (SPEC.md 5.5) | +2 | +2 | +2 | +2 | 0 |
+| ba274c422 | **P4** (K7): repaint the other card, and no refit of a straddle on exit | +6 | 0 | +6 | +6 | +62 |
+| **round 2** | | **+64** | **+8** | **+64** | **+68** | **+223** |
+| **whole effort** (round 1's -6 included) | | **+58** | **+2** | **+58** | **+62** | +231 |
+
+Notes on the table:
+- P3 on kern_small is -2: `wm_box` is one byte shorter there, and the
+  PARITY byte in blank.inc that it made unnecessary went too.
+- `make mega`'s megaseg allowance moved 3,787 -> 3,791. kern_mega's `KDS`
+  in OSAPI_WM_DORIGIN is 3 bytes longer than kern_big's, plus 1 byte of
+  layout. It is a dated line in tests/megaseg.txt (7230aa8e0).
+
+**Stopped, for the owner:**
+
+- **P5 (K8, the pointer homes to the primary's centre).** It was measured at
+  **EXTD.DRV +72** against an estimate of +20, so it is stopped by the rule
+  for items that come in over (resident 0). The design is unchanged:
+  `vid_fsx_leave` and `ext_extend_b` bank `[mouse_x]`/`[mouse_y]` before
+  their `vid_apply`s and put them back through one `ext_mput` (clamp with
+  `vid_pt_clamp`, store under `cli`, set `[cur_disp]`). The bracket's
+  point is local and gets the bracket display's `VX`/`VY` added. Two
+  thirds of the bytes are the bank-and-restore plumbing. Dropping the
+  Extend half saves about 19.
+- **P7 (D3, a VGA as the CGA stays lit under a Hercules bracket).** The
+  SR01-bit-5 design measured **EXTD.DRV +47** against +18. MartyPC's VGA
+  parses SR01's screen-off bit and does not render it, so the fix cannot be
+  seen there: the card stayed at 181,162 lit pixels with the fix in. The
+  alternative reuses `vid_bk`'s planar arm (the Attribute Controller's
+  Colour Plane Enable, which MartyPC does model). That is `test byte
+  [vid_avail], VID_A_VGA / jnz .planar` in vid_bk's CGA arm, **+7 resident**
+  on kern_big's three kernels. But its unblank writes 0Fh, and BIOS mode 6
+  wants 01h: planes 1-3, plane 2's font among them, would show. So that arm
+  needs its unblank value per mode before it is right. The owner chooses:
+  SR01 (correct on hardware, invisible in MartyPC) or the AC route (needs
+  the 01h case).
+- **P6 (D1, kern_mega).** Not attempted this round, and the design needs one
+  correction first. `cur_move_multi` copies each display's `vid_ctx`
+  record into the live block through `vid_ctx_act`, so BOTH records'
+  `vid_seg` words have to be made real segments too, not only display 1's.
+  That makes `mega_vsw` four words (live, `k_vsa`, record 0, record 1).
+  `mega_svc_back`, fsx.inc's restore and the reader at mega.inc ~8270 each
+  put back two more. Estimate: conventional +4, `.mega` about +30. It needs
+  86Box to verify (the D1 measurement was there).
+- **gfx_scroll cut at the seam (optional).** Not done. The design follows
+  the blit's (39.14.7.2): an `EXT_SCUT` slot reached from gfx_scroll's
+  refusal when `[vid_ndisp]` > 1, splitting a RIGHT-layout rect at the
+  seam into two same-row scrolls. A Below-layout rect has to keep refusing,
+  because its rows cross cards. Resident is about 17 (an EXTCALL behind the
+  gate, plus the slot's 4 of `.bss`), and the cut itself goes in EXTD.DRV.
+  The cut has to happen before `GFXDENTERR` localises the rect. That is
+  under the ~30 the owner allowed, but it touches the scroll's whole-shape
+  clip contract (`wm_clip_test`), so it should land as its own reviewed
+  item.
+
+**P8's second half (K3)** stays as written: it is each package's own fix.
+TeXPad, Word and SysCheck "keeping the other display's shape" should be
+rechecked now that K2's landing gives the natural size back.
+
 ## Part 1: landed (no kernel grows)
 
 | commit | finding | kern_big | kern_small | kern_emu | kern_mega | elsewhere |
@@ -64,7 +175,7 @@ The costs in this part are mostly *estimates*. Each item says which audit
 findings it closes. The totals at the end assume the recommended option
 everywhere.
 
-### P1. One answer to "which display is this window on" (K6, and it carries K2(b))
+### P1. One answer to "which display is this window on" (K6, and it carries K2(b)) - REJECTED by the owner (Part 0)
 
 There are two answers today:
 - `wm_disp_of` uses the **centre**. It is resident in wm.inc and is used by

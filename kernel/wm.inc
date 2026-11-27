@@ -3725,7 +3725,12 @@ wm_fs_drop:
     pop di
     pop si
     and word [bx+W_FLAGS], 0xFFF7
-    and word [wm_fs], 0
+    and word [wm_fs], 0         ; (AND clears CF: EXT_STRADS's plain form)
+%ifdef KERN_BIG
+    EXTCALL EXT_STRADS          ; ...UNLESS IT STRADDLES (SPEC.md 39.17.1.1):
+    jnc .out                    ; wm_fit is single-display and would clamp a
+%endif                          ; legal straddle onto its origin's display.
+                                ; CF = 1 - one display, mod_gone - fits
     call wm_fit                 ; the saved rect was fitted to the screen this
                                 ; window went fullscreen ON, and the adapter
                                 ; can have changed under it since - wm_refit
