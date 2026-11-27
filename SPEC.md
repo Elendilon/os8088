@@ -84713,6 +84713,30 @@ so a task switch cannot land inside it. And `mc_dispck` is skipped while
 than the desktop's — belt and braces, since Missile takes no
 `FSXF_KEEPWORKER` and its worker does not run there at all.
 
+#### 39.18.4 The pointer stays where the user left it
+
+`vid_apply` homes the pointer to the centre of the screen it publishes,
+and must: `[mouse_x]`/`[mouse_y]` may lie outside the new geometry, and
+`cur_draw`'s unsigned clip then writes past the framebuffer (its header).
+On an extended desktop, though, it runs inside two sequences that end with
+the desktop whole again. One is the bracket's restore (`vid_fsx_leave`) and
+the other is Extend (`ext_extend_b`). In both, the last `vid_apply` is the
+PRIMARY's, so every fullscreen session and every Extend put the pointer at
+the primary's centre (the audit's K8, seen on kern_mega). The window the
+user was working in might be on the other monitor.
+
+So both sequences bank the pointer before they start and put it back once
+the union is up, through `ext_mput`:
+
+- **Leaving a bracket.** The banked point is LOCAL to the bracket's
+  display, which sat at the virtual origin, so that display's `VX`/`VY` is
+  added back.
+- **Extend.** The banked point is on the primary, which is display 0.
+
+Either way it is clamped into that display (`vid_pt_clamp`, §39.15.4) and
+`[cur_disp]` is set to it, both under one `cli`. `vid_apply`'s
+`[cur_shchk]` already says the pointer moved. Cost: EXTD.DRV only.
+
 ### 39.19 Single or Extend, and where the second display sits
 
 Two bytes, `[vid_dmode]` (0 = Single, 1 = Extend) and `[vid_dlay]`

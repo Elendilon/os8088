@@ -404,7 +404,14 @@ ext_e_fsx:
     push ax
     cmp ah, EXTF_LEAVE
     jne vid_fsx_unblank         ; (AX banked: its pop is there)
-    mov al, [fsx_vkind]         ; --- vid_fsx_leave ---
+    push bx                     ; --- vid_fsx_leave ---
+    push cx
+    push di
+    push word [mouse_y]         ; where the pointer IS - local to the bracket's
+    push word [mouse_x]         ; display, which sat at the virtual origin -
+                                ; because vid_apply homes it to the PRIMARY's
+                                ; centre (K8, SPEC.md 39.18.4)
+    mov al, [fsx_vkind]
     call ext_kapply_eq          ; 40:10 BACK TO THE PRIMARY'S KIND, because a
                                 ; bracket on a COLOUR second display left it
                                 ; saying colour: vid_text's own arm flips it so
@@ -416,6 +423,17 @@ ext_e_fsx:
                                 ; Restart then reads
     call ext_two                ; [fsx_vndisp] > 1 is 2, two at most
     EXK dock_band               ; ...and the strip where the user put it (30.5)
+    mov al, [fsx_vdisp]         ; ...and the pointer back where it was ON THE
+    mov cl, al                  ; CARD IT WAS ON: its local point plus that
+    call ext_ctx_ptr            ; display's origin (DI; AX kept)
+    pop ax
+    add ax, [di+VID_CTX_VX]
+    pop bx
+    add bx, [di+VID_CTX_VY]
+    call ext_mput
+    pop di
+    pop cx
+    pop bx
     pop ax
 .r: retf
 
@@ -536,6 +554,23 @@ vid_fsx_enter:
     pop ax
 .out:
     retf
+
+; ext_mput - the pointer to VIRTUAL (AX, BX), clamped into display CL, and
+; [cur_disp] = CL (SPEC.md 39.18.4, the audit's K8). vid_apply homes the
+; pointer to the primary's centre and says display 0; this puts it back after
+; one, as one store pair under cli the ISR cannot split. [cur_shchk] is
+; vid_apply's already. Clobbers AX, BX, flags.
+ext_mput:
+    push cx
+    EXK vid_pt_clamp            ; AX/BX inside display CL (spends CX)
+    pop cx
+    pushf
+    cli
+    mov [mouse_x], ax
+    mov [mouse_y], bx
+    mov [cur_disp], cl
+    popf
+    ret
 
 ; ==== which display, from wm.inc, fsx.inc and vidsel.inc ===================
 %if VID_NDISP_MAX != 2
@@ -1375,6 +1410,10 @@ ext_extend_b:
     retf                        ; not take
 .ok:
 %endif
+    push bx                     ; the pointer where the user left it, on the
+    push cx                     ; primary - vid_apply homes it to the centre
+    push word [mouse_y]         ; and the user's place on the one display
+    push word [mouse_x]         ; there was is still a place on display 0 (K8)
     call ext_kapply             ; the live block is the SECONDARY's now...
     EXK vid_setmode             ; ...which is what points this at the right
                                 ; card, and what makes its 32KB/16KB clear
@@ -1422,7 +1461,13 @@ ext_extend_b:
     mov [vid_ctx + VID_CTX_SZ + VID_CTX_VY], di
 
     call ext_two                ; the live block is display 0's again, and
-    clc                         ; the DESKTOP is both of them now
+    pop ax                      ; the DESKTOP is both of them now
+    pop bx
+    xor cl, cl                  ; ...and the pointer back on display 0
+    call ext_mput
+    pop cx
+    pop bx
+    clc
     retf
 
 ; ext_kapply_eq - [vid_kind] = AL, vid_apply, and 40:10 back to that kind
