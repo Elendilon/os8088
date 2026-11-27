@@ -3937,6 +3937,14 @@ wm_snap_ax:
     mov cx, ax
     inc cx
     and cx, 0xFFF8              ; content left, rounded DOWN to a multiple of 8
+%ifdef KERN_BIG
+    cmp byte [vid_ndisp], 1     ; DISPLAY 1's LEFT EDGE IS x = 0 AGAIN (SPEC.md
+    jbe .dec                    ; 11.94): VX is a multiple of 8, so VX..VX+6
+    cmp cx, [vid_ctx + VID_CTX_SZ + VID_CTX_VX] ; rounds to VX-1, one column
+    jne .dec                    ; onto the display beside it - a 1px straddle
+    add cx, 8                   ; (K4/K5). Right to VX+7 instead, re-tested
+.dec:                           ; below like the 0..6 arm; a window spanning
+%endif                          ; display 1 is refused it and stays flush at VX
     dec cx                      ; ...and back to a frame x
     jns .fits
     add cx, 8                   ; x was 0..6: the next one up is the only one
