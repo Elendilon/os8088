@@ -730,9 +730,9 @@
   "sources": [
    "apps/lemmings"
   ],
-  "stamped": "24c3d243",
-  "strings": "ad653e4f5adb1ad8",
-  "why": "only an About-card credit line changed (ec45f031 / 'by jggonz'); the page already says the card shows who made it, its credits, or a line about it, so nothing quoted is wrong"
+  "stamped": "0664412ac",
+  "strings": "bf55221b1990d241",
+  "why": "48ddb98ca only makes the Mode row and Play follow the display a two-display desktop will play on (SPEC.md 116.8.1); the page's level of detail names no display choice, and what it says about the Mode row and the adapters is still true"
  },
  "LICENSE": {
   "sources": [],
