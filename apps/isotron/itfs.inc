@@ -99,38 +99,41 @@ OVF_MROW    equ 23
 OVF_RROW    equ 24
 
 ; -----------------------------------------------------------------------------
-; it_fs_pick - which full screen the window's display offers (SPEC.md 53.7.1:
-; FSX_CAPS DL is THAT display's kind, never OSAPI_VIDEO's primary).
-; out: AL = FSK_*, CF = 1 none. Clobbers AX, BX, DX.
+; it_fs_pick - which full screen the machine offers this window (SPEC.md
+; 53.1.2.1, 108.12.1.1): the display the window is MOSTLY on when it can set
+; its kind's mode, else the first display that can (os88fsxw.inc) - FSX_CAPS
+; DL is THAT display's kind, never OSAPI_VIDEO's primary, and [it_fsdisp] is
+; the bracket's CH for it.
+; out: AL = FSK_*, CF = 1 none. Clobbers AX, BX, CX, DX.
 ; -----------------------------------------------------------------------------
 it_fs_pick:
     mov bx, [it_win]
-    call OSAPI_FSX_CAPS             ; AX = the settable ids, DL = the kind
+    mov dx, (1 << FSXM_VGA0D) | (1 << FSXM_CGA320) | (1 << FSXM_HERC)
+    call fsxw_pick                  ; AX = the target's modes of those, DL =
+    mov [it_fsdisp], ch             ; its kind, CH = its display
+    jc .no
     mov bx, ax
     mov al, FSK_VGA
     cmp dl, VID_VGA
     jne .c
     test bx, 1 << FSXM_VGA0D
     jnz .yes
-    jmp short .no
 .c:
-    mov al, FSK_CGA
-    cmp dl, VID_CGA
-    jne .h
-    test bx, 1 << FSXM_CGA320
-    jnz .yes
-    jmp short .no
-.h:
     mov al, FSK_HERC
     cmp dl, VID_HERC
     jne .e
     test bx, 1 << FSXM_HERC
     jnz .yes
-    jmp short .no
 .e:
     mov al, FSK_EGA                 ; the same-mode bracket needs no caps bit
-    cmp dl, VID_EGA                 ; (no mode is set); its fallback does, and
-    je .yes                         ; it_fs_setup asks for it there
+    cmp dl, VID_EGA                 ; (no mode is set) - and takes no CH
+    jne .cga                        ; (SPEC.md 53.1.2): on ANOTHER display an
+    or ch, ch                       ; EGA is set to CGA 320 like a CGA
+    jz .yes
+.cga:
+    mov al, FSK_CGA
+    test bx, 1 << FSXM_CGA320
+    jnz .yes
 .no:
     mov al, FSK_NONE
     stc
@@ -148,6 +151,7 @@ it_fs_pick:
 it_fs_menu:
     push ax
     push bx
+    push cx
     push dx
     mov word [it_i_game + 2 * IT_MI_FULL], it_it_full
     call it_fs_pick
@@ -160,6 +164,7 @@ it_fs_menu:
     mov word [it_i_game + 2 * IT_MI_COL], it_it_coln
 .out:
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -189,13 +194,18 @@ it_fs_go:
     jne .out
     call it_fs_pick
     jc .out                         ; the menu item is greyed for this too
+    mov [it_fsk], al                ; it_fs_setup's surface: asked HERE, on the
+                                    ; desktop, because inside a bracket on
+                                    ; another display the machine has
+                                    ; collapsed onto it (SPEC.md 39.18.3)
     call it_bld_sync                ; the worker frozen in a build owed or
     jc .out                         ; half done: it is finished first (itrules)
     xor ax, ax                      ; BOTH CLAIMS PINNED FOR THE BRACKET
     call it_decl                    ; (SPEC.md 108.8.1)
     mov ax, it_fs_main
     mov bx, [it_win]
-    mov cx, FSXF_FASTTICK           ; 54.6 sub-ticks a second: the frame clock
+    mov cl, FSXF_FASTTICK           ; 54.6 sub-ticks a second: the frame clock,
+    mov ch, [it_fsdisp]             ; on the display it_fs_pick found
     call OSAPI_FSX_RUN
     mov ax, it_claimmv              ; ...and movable on the desktop again
     call it_decl
@@ -314,10 +324,8 @@ it_fs_key:
 ; window's display. out: CF = 1 nothing to show (the bracket simply ends).
 ; -----------------------------------------------------------------------------
 it_fs_setup:
-    call it_fs_pick                 ; asked again, now: the window is where it
-    jc .no                          ; is, and THAT display is the bracket's
-    mov [it_fsk], al
-    cmp al, FSK_EGA
+    mov al, [it_fsk]                ; it_fs_go's answer, asked just before
+    cmp al, FSK_EGA                 ; the bracket: THAT display is the bracket's
     jne .mode
     ; --- EGA: the rect this bracket owns, 640 x 350 at its origin -----------
     call OSAPI_FSX_SURF             ; AX = x, BX = y, CX = w, DX = h

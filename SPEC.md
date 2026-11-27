@@ -229450,6 +229450,26 @@ Rejected, with ISOTRON-PLAN 8.1's reasons: 13h, Mode X and 12h on the VGA,
 C160 and 640 x 200 composite on the CGA, and direct planar writes on the
 EGA's own desktop mode (ISOTRON-PLAN 18 item 3, an owner's decision).
 
+##### 108.12.1.1 …on the display that can, when the window's cannot (2026-11-27)
+
+The display is the full-screen target of §53.1.2.1, not only the window's.
+`it_fs_pick` asks `fsxw_pick` for 0Dh, CGA 320 or Hercules: the display the
+window is mostly on when it can set its kind's mode, else the first display
+that can. Then it picks the table row above for that display's kind.
+`[it_fsdisp]` is the CH `it_fs_go` hands `OSAPI_FSX_RUN`. "Full Screen (no
+mode)" now means no display on the machine has one.
+
+`it_fs_go` stores the surface in `[it_fsk]` before the bracket opens, and
+`it_fs_setup` reads it rather than asking again. Inside a bracket on another
+display, the machine has collapsed onto that display (§39.18.3). An EGA's
+same-mode row needs CH = 0, so an EGA reached by the walk is set to CGA 320
+like a CGA.
+
+**Colours stays the window's.** It greys while the window's own picture is
+mono. A straddling window draws for its more restrictive display
+(§39.16.4.1), so it is greyed on a straddle that touches a Hercules. C
+still changes the look inside a colour bracket.
+
 #### 108.12.2 The looks
 
 **CGA**, an id's ink at an even x / an odd x (palette 1: 0 black, 1 cyan,
