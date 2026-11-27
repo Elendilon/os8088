@@ -666,10 +666,11 @@ sk_claim:
 sk_release:
     push ax
     push dx
-    mov dx, [sk_seg]
+    xor dx, dx                  ; taken and zeroed in ONE instruction (driver
+    xchg dx, [sk_seg]           ; size pass 2: a load, a test and a store)...
     or dx, dx
     jz .out
-    mov word [sk_seg], 0        ; FIRST: [sk_seg] is the one value every ring
+                                ; FIRST: [sk_seg] is the one value every ring
                                 ; reader refuses on, so a pre-emption between
                                 ; here and the free meets a refusal instead
                                 ; of a freed segment taking TCP payload. The
@@ -2377,7 +2378,7 @@ tcp_timewait:
     call OSAPI_GET_TICKS
     add ax, TCP_TWTMO
     mov [bx+SKO_TMO], ax
-    mov word [bx+SKO_RTO], 0
+    and word [bx+SKO_RTO], 0            ; (its two callers write the flags again)
     pop ax
     ret
 
@@ -2466,7 +2467,7 @@ tcp_timers:
     ; window takes - and it cannot desynchronise from the ACK for the reason
     ; stop-and-wait could not: SND.NXT is put back to SND.UNA, so what is in
     ; flight is again exactly what tcp_kick is about to send.
-    mov word [bx+SKO_TXS], 0
+    and word [bx+SKO_TXS], 0            ; (a retransmit: cold)
     lea si, [bx+SKO_SUNA]
     lea di, [bx+SKO_SNXT]
     call mem_cp4

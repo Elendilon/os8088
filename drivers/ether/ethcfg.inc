@@ -628,7 +628,7 @@ eth_cfg_reap:
     jz  .out
     call OSAPI_WM_HIDE
     call OSAPI_WM_DESTROY
-    mov word [ec_win], 0
+    and word [ec_win], 0        ; (both callers write the flags again)
 .out:
     pop bx
     pop ax
@@ -677,7 +677,7 @@ ec_apply:
     mov cx, 16
     call mem_copy
     mov byte [dhcp_st], DH_BOUND
-    mov word [dhcp_tmo], 0
+    and word [dhcp_tmo], 0      ; (.mode reads no flag before it sets them)
     jmp short .mode
 .auto:
     mov di, eth_ip              ; the old address goes with the mode: a machine
