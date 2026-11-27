@@ -15285,7 +15285,7 @@ have left it is three things, and each is one instruction:
   scribbling on the slot underneath. So `SP` moves first — to
   task 0's, the largest in the machine and, at `IF` = 0 for ever, owned by
   nobody — and the evidence (the slot, its parked SP, its instance) is then
-  read out of the task table into registers and pushed there. If task 0
+  pushed there straight out of the task table. If task 0
   *is* the corpse, the evidence came from the table and not from its stack,
   so overwriting that stack costs the panel nothing.
 - **No armed clip region.** `font_run` honours one (§11.3), and a package that

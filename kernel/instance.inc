@@ -1794,12 +1794,17 @@ inst_minimize:
     push di
     call inst_of_win
     jc .hide                    ; unowned: plain hide
+%ifndef WM_ANIM
     or byte [di+I_FLAGS], IF_MIN
-%ifdef WM_ANIM
-    and byte [di+I_FLAGS], 0xFD
-    test byte [bx+W_FLAGS], WF_FULL   ; SPEC.md 11.99.5: going down from
-    jz .nofs                          ; fullscreen, so the way back does not
-    or byte [di+I_FLAGS], IF_FSMIN    ; zoom. Read off the WINDOW and not off
+%else
+    or byte [di+I_FLAGS], IF_MIN | IF_FSMIN ; minimized, and down from
+    test byte [bx+W_FLAGS], WF_FULL   ; fullscreen unless the window says not
+    jnz .nofs                         ; (kernel size pass 21, -4: the bit set
+    and byte [di+I_FLAGS], ~IF_FSMIN & 0xFF ; with IF_MIN and cleared when it
+                                      ; is not, for a clear and a set on the
+                                      ; full arm). SPEC.md 11.99.5: going down
+                                      ; from fullscreen, so the way back does
+                                      ; not zoom. Read off the WINDOW and not off
 .nofs:                                ; [wm_fs] - the fact wanted is about THIS
                                       ; window, the latch is wm.inc's, and
                                       ; wm_hide is about to clear both
@@ -1831,9 +1836,10 @@ inst_minimize:
     pop si
 %endif
 .hide:
-    call wm_hide
-    pop di
-    ret
+    pop di                      ; ...and wm_hide as a TAIL: it reads BX alone
+    jmp wm_hide                 ; and keeps every register, so the record is
+                                ; ours to put back first (kernel size pass 21,
+                                ; -1: app_close_now's shape)
 
 %ifdef WM_ANIM
 ; -----------------------------------------------------------------------------
@@ -1887,8 +1893,9 @@ inst_unmin:
     test byte [di+I_FLAGS], IF_FSMIN
     jz .zoom                    ; SPEC.md 11.99.5: it went down from fullscreen
     and byte [di+I_FLAGS], 0xFD
-    ret                         ; ...so nothing is armed and wm_show's
-                                ; wm_an_open finds nothing to fly
+.out:                           ; (the not-minimized arm's `ret` too: kernel
+    ret                         ; size pass 21, -1) ...so nothing is armed and
+                                ; wm_show's wm_an_open finds nothing to fly
 .zoom:
     push ax
     push bx
@@ -1904,8 +1911,6 @@ inst_unmin:
                                 ; wm_an_d itself (wm_an_setw) before wm_anim
                                 ; ever reads it
     jmp kret_dx
-.out:
-    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -2378,9 +2383,10 @@ osapi_sys_snapshot_x:
 %endif
     mov ax, [ticks]
     stosw                       ; SS_TICKS
-    mov al, [sch_cur]
-    mov ah, [sch_coop]
-    stosw                       ; SS_CUR, SS_COOP
+    mov ax, [sch_coop]          ; AL = [sch_coop], AH = [sch_cur]: the pair
+    xchg al, ah                 ; is adjacent the other way round (sched.inc's
+    stosw                       ; %if) - SS_CUR, SS_COOP (kernel size pass
+                                ; 21, -2 against two byte loads)
     mov ax, (INST_MAX << 8) | MAX_TASKS
     stosw                       ; SS_NTASK, SS_NINST - and DI is at SS_TSTATE
 

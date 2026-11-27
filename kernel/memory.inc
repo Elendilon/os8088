@@ -1674,6 +1674,14 @@ mem_shed_one:
 
 ; mem_pg_forget - zero the word mem_pg_own names for owner BX
 ; preserves every register and the flags
+;
+; THE ROW IS WALKED WITH `lodsw` (kernel size pass 21, -3; kern_mega -4): its
+; tag, and two more past the base and the count to the next row - so at .hit
+; SI is the row PLUS PGO_BASE, which every arm below compares and reads at.
+; DF = 0 on entry, SPEC.md 1 rule 3: no caller is an ISR
+%if PGO_TAG != 0 || PGO_BASE != 2 || PGO_SIZE != PGO_BASE + 4
+  %error "mem_pg_forget walks a mem_pg_own row as three lodsw: tag, base, count"
+%endif
 mem_pg_forget:
     pushf
     push ax
@@ -1682,27 +1690,28 @@ mem_pg_forget:
     push si
     mov si, mem_pg_own
 .lp:
-    mov ax, [si+PGO_TAG]
+    lodsw                       ; AX = PGO_TAG, SI -> PGO_BASE
     or ax, ax
     jz .out
     mov cx, bx
     sub cx, ax                  ; d = owner - tag, UNSIGNED: a row above the
-    cmp cx, [si+PGO_CNT]        ; owner wraps high and fails this compare
+    cmp cx, [si+PGO_CNT-PGO_BASE] ; owner wraps high and fails this compare
     jb .hit
-    add si, PGO_SIZE
+    lodsw                       ; ...past PGO_BASE and PGO_CNT
+    lodsw
     jmp short .lp
-.hit:
+.hit:                           ; (SI = the row + PGO_BASE)
 %ifdef KERN_SMALL
-    cmp si, mem_pg_viewrow      ; ...and a DISK WINDOW'S CACHE has two as well
+    cmp si, mem_pg_viewrow + PGO_BASE ; ...and a DISK WINDOW'S CACHE has two as well
     je .view                    ; (SPEC.md 22.1), for the reason in the table
 %endif                          ; above. The ROW that matched says which
 %ifdef MOD_CACHE
 %ifdef KERN_MEGA
-    cmp si, mem_pg_modrow       ; ...AND A KEPT MODULE ON kern_mega (SPEC.md
+    cmp si, mem_pg_modrow + PGO_BASE ; ...AND A KEPT MODULE ON kern_mega (SPEC.md
     je .mod                     ; 2.8.3.3) is a POOL PAIR: its two selectors,
 %endif                          ; and DESK.DRV's library, go with the word
 %endif
-    cmp si, mem_pg_fatwrow      ; A FAT WINDOW HAS MORE NAMING WORDS THAN THIS
+    cmp si, mem_pg_fatwrow + PGO_BASE ; A FAT WINDOW HAS MORE NAMING WORDS THAN THIS
     je .fatw                    ; PROTOCOL CARRIES (SPEC.md 18.8.4): the LIVE
                                 ; one is also [dsk_fatseg], which every access
                                 ; reads, and [dsk_fatw0], which says what is
@@ -1716,7 +1725,7 @@ mem_pg_forget:
                                 ; MEM_P_ICO_N is 1, so this is one compare and
                                 ; needs no range
     shl cx, 1                   ; a word per entry (see the header: there is
-    add cx, [si+PGO_BASE]       ; no stride column because there is nothing
+    add cx, [si]                ; no stride column because there is nothing
     mov si, cx                  ; for it to be)
     and word [si], 0            ; resident - and dsk_fat_window believing that
     jmp short .out              ; returns WITHOUT loading, so the reads and
@@ -1738,7 +1747,7 @@ mem_pg_forget:
     jmp short .out
 .mod:                           ; mx_shedf (a kept POOL pair) or mem_shed_one
     shl cx, 1                   ; (a kept image left below 1MB, a mem_tab
-    add cx, [si+PGO_BASE]       ; record). CX = 2 x the id: the row's MODR_SEG
+    add cx, [si]                ; record). CX = 2 x the id: the row's MODR_SEG
     push dx
     push di
     mov bx, cx                  ; BX = the row, mod_free_row's input: the
@@ -3819,7 +3828,8 @@ mem_region_reloc:
     mov si, cx                  ; SI = the entry, the builder's register
     push ss
     pop es                      ; ES = LOW_SEG: the frame lives there and DS
-    cld                         ; cannot reach it
+                                ; cannot reach it - and DF is still the 0 of
+                                ; the entry's `cld` (kernel size pass 21, -1)
     call sch_frame              ; ...and the same twelve words task_spawn
     popf                        ; writes, from the same body
 .nowk:
@@ -6168,8 +6178,7 @@ osapi_mem_p:
     push bx
     push si
     push di
-    cmp bl, MEMP_REGROW
-    je .regrow
+    push cx                     ; (the verb's body rides in CX: below)
     mov di, bx
     and di, 1                   ; bit 0 -> MC_DMA_HI, the top-down door
     ror di, 1
@@ -6195,15 +6204,16 @@ osapi_mem_p:
     or di, MC_DISK
 .cpu:
 %endif
-    call mem_own                ; BX = the owner ES names
+    mov cx, mem_claimp_sd       ; ONE fence and one call for both verbs: a
+    cmp bl, MEMP_REGROW         ; REGROW reads AX, DX and the owner and
+    jne .verb                   ; keeps SI and DI, so the head and door just
+    mov cx, mem_regrowp         ; worked out for it are harmless (kernel size
+.verb:                          ; pass 21, -3 on the second fence)
+    call mem_own                ; BX = the owner ES names (it keeps CX)
     jc .out
-    call mem_claimp_sd
-    jmp short .out
-.regrow:
-    call mem_own
-    jc .out
-    call mem_regrowp
+    call cx
 .out:
+    pop cx
     pop di                      ; pop leaves CF and DX alone
     pop si
     pop bx
