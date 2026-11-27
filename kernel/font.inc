@@ -1613,7 +1613,7 @@ font_run_x:
                                 ; every kernel word a pass reads goes through
                                 ; CS, the table's `lodsw` included
 %ifdef KERN_BIG
-    cmp byte [cs:font_rn_k7], 0
+    test cx, 7                  ; [font_rn_k7] is x & 7 and CX is the run's x
     jne .rmu                    ; SPEC.md 6.1.11: off the byte grid, so a cell
                                 ; does not own a byte - but the RUN still owns
                                 ; all but two of them
@@ -1731,7 +1731,8 @@ font_run_x:
 %endmacro
 
 .rmu:
-    mov cl, [cs:font_rn_k7]
+    and cl, 7                   ; CL = x & 7, [font_rn_k7] (pass 21: CX is
+                                ; still the run's x, so no CS-relative read)
     push di                     ; the run's first byte, for the column passes
 .rmurow:
     mov si, font_rn_tab
