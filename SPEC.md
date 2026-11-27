@@ -37850,15 +37850,20 @@ register, CF, validation and disk-integrity contracts remain those in
 changes, so the system disk must be available when one is first invoked.
 The loader preserves/restores the caller's mounted target volume; loading
 must not redirect a mutation to the system disk. **The mount gate is tested
-BEFORE the module is loaded**: `dskw_dircall` refuses `[dsk_mntok]` ≠ 1 with
+BEFORE the module is loaded**: the dispatch refuses `[dsk_mntok]` ≠ 1 with
 CF=1, AX = `FERR_NODISK` (§18.4's gate answer) and loads nothing, because a
 shut gate is exactly the state in which `mod_need`'s `drv_vol_bank` banks the
 BOOT volume's root (§51.5.2.1: a failed mount is not banked), so the load
-would open the gate there and the verb would run on the system disk. Where
-§18.9.1.3's media check is built (every kernel but `kern_small`),
-`dskw_dircall` runs it next, through `dskw_wck`, exactly as the resident
-bodies do through `dskw_wrp`/`dskw_wrap7` - a swapped floppy refuses before
-the module loads. The module's own gate stays, for the state after a load. A
+would open the gate there and the verb would run on the system disk. On
+`kern_small` that is `dskw_dircall`, AL = the verb. Where §18.9.1.3's media
+check is built (every kernel but `kern_small`) the tree's dispatch is
+`dskw_dirbody`, a `dskw_wrap7` body like every resident write body's
+(kernel size pass 21): `dskw_wck` asks its media question first - a shut gate
+passes it with no I/O, and a quiet mount it makes either opens the gate again
+or refuses - and `dskw_dirbody` then tests the gate before anything loads. So
+a swapped floppy refuses before the module loads, as it always did, and the
+answers and the I/O are the ones `dskw_dircall` gave in the other order. The
+module's own gate stays, for the state after a load. A
 missing or mismatched module refuses through the existing file-error path
 (FERR_IO) before any metadata is modified. It must never report success or
 partially rename, create or remove a directory on a load refusal.
@@ -198845,7 +198850,9 @@ does.** `dskw_clok` — is `AX` a cluster that could exist — sits in the middl
 of the pipeline because it was once rmtree's alone, and ten places ask it now,
 `dskw_rmdir` among them. And **`dskw_isempty` is LIVE**: it is what
 `dskw_rmdir` calls to refuse a populated directory, which is exactly what
-`AH=3Ah` is. `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
+`AH=3Ah` is (since kernel size pass 21 its scan is written into
+`dskw_rmbody_n83`, its one caller, and the name is the pop tail drvvol.inc
+shares). `DSKW_RT_MAX` comes out of the band too — it emits nothing, and
 `dskw_append`'s own chain walk bounds itself with it.
 
 **A static call-graph walk got `dskw_isempty` WRONG**, calling it dead, and a
