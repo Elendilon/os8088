@@ -254838,6 +254838,20 @@ against the engine's own buffer converted by the host, the idle frames,
 and victory to its end loop. Measured on the owner's H3 battle: CGA4 3.0
 MB, VGA4 at eight colours 4.0 MB, Hercules 4.1 MB.
 
+##### 126.3.2.1 The play goes to a display that can show the rendition (2026-11-27)
+
+The bracket's mode is the loaded bundle's adapter's: 0Dh for VGA4,
+Hercules for Hercules, CGA 320 otherwise (`vb_main1`). `vb_target` runs
+after `vb_load` and asks `fsxw_pick` (§53.1.2.1) for that mode. The target
+is the display the window is mostly on when it can set the mode, else the
+first display that can. `[vb_capm]` and `[vb_vid]` become that display's,
+and `[vb_fsdisp]` is the CH the play's `OSAPI_FSX_RUN` takes.
+
+So a battle with only a CGA rendition, played from a window on a Hercules
+beside a CGA or a VGA, plays on the colour card instead of saying "Needs
+... on a Hercules". The refusal remains only where no display on the
+machine has the mode.
+
 #### 126.3.3 A clip's own palette: every colour its own, over black
 
 **A clip that starts and ends on BLACK over the whole screen may have all
