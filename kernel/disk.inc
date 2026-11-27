@@ -5044,8 +5044,9 @@ disk_mount_x:
     mov bx, dsk_secbuf+32       ; rest of this: its header may DECLARE
     mov ax, dx                  ; extensions (SPEC.md 54.6), and hanging that
     push dx                     ; off the icon flag skipped precisely the
-    mov dx, LOW_SEG
-    call ico_put                ; AL = the row it took
+    mov dx, ss                  ; (LOW_SEG, which SS always is, SPEC.md 2.1:
+    call ico_put                ; a byte under the immediate - pass 21) AL =
+                                ; the row it took
 %ifdef OS88_ASSOC
     cmp al, ICO_R_NONE          ; ...AND THE SHIPPED GLYPH GOES WITH IT
     je .h_noglyph               ; (SPEC.md 54.7.4). A row stored with an EMPTY
@@ -6291,10 +6292,13 @@ dsk_fatw_pick:                  ; (no bank: disk_mount_x reads neither AX nor
     cmp word [bx], 0xFFFF
     je .load
     mov ax, [bx+DVOL_MAX*4]     ; IS IT STILL THE SAME DISK? (SPEC.md 18.8.2)
-    or ax, ax                   ; 0 = nothing banked
-    jz .load
-    cmp ax, [dsk_sigcur]        ; the boot sector this mount just read
-    jne .load                   ; a different disk: reload, do not trust it
+    cmp ax, [dsk_sigcur]        ; the boot sector this mount just read - and
+    jne .load                   ; a different disk: reload, do not trust it.
+                                ; 0 = nothing banked needs no test of its own:
+                                ; [dsk_sigcur] is NEVER 0 here (dsk_bpb_sig's
+                                ; `inc` on a zero sum, and a bank row holds
+                                ; only what a mount signed), so a 0 is a
+                                ; different disk (kernel size pass 21, -4)
     mov ax, [bx]                ; (the equal compare left CF = 0, and `mov`
     mov [dsk_fatw0], ax         ; keeps it) still resident, and nothing can
 %ifdef OS88_FAT32
@@ -6559,8 +6563,11 @@ dsk_fatw_scan:
   %define DFD_OUT dsk_fatw_scan.ret
 %endif
 dsk_fatw_demote:
-    mov ax, bx
-    sub ax, MEM_P_FATW          ; AX = the volume this owner names
+    lea ax, [bx + (0x10000 - MEM_P_FATW)]   ; AX = the volume this owner
+                                ; names: BX - MEM_P_FATW in one instruction,
+                                ; the displacement being the subtrahend's
+                                ; complement (kernel size pass 21, -1; no
+                                ; flag is read before slota writes its own)
     call dsk_fatw_slota
     jc DFD_OUT
     xor ax, ax                  ; the claim that is going, read and zeroed
@@ -9708,11 +9715,15 @@ dsk_media_ok:
                                 ; it mounts) - the cost is correctness kept
                                 ; and the whole optimisation lost on the one
                                 ; volume an installed machine uses most
+    xor bh, bh                  ; BL was the row pointer's low half a moment
+                                ; ago, so the index needs its top clearing.
+                                ; THIS ARM'S ALONE: dsk_vol_rmv answers CF = 1
+                                ; only for BX = unit:kind below 80h - BH 0 -
+                                ; or its orphan's 0FFFFh, which the `cmp bl`
+                                ; refuses (kernel size pass 21, -2)
 %endif
     cmp bl, 4
     jae .no                     ; only drives 0..3 have a bit in 0040:003F
-    xor bh, bh                  ; BL was the row pointer's low half a moment
-                                ; ago, so the index needs its top clearing
     mov al, [dsk_mbit+bx]       ; a TABLE, not `shl al, cl`: this preserves
                                 ; every register by contract and CX is not
                                 ; ours to spend (SPEC.md 18.9.1)
@@ -10658,7 +10669,8 @@ dsk_copy_seg_x:
 dsk_copy_in_x:
     push ax
     push dx
-    mov dx, LOW_SEG
+    mov dx, ss                  ; source = LOW_SEG, which SS always is (SPEC.md
+                                ; 2.1; kernel size pass 21, -1)
     mov ax, ds                  ; destination = the kernel segment. NOT taken
                                 ; from CS: this code is .cold now, where CS is
                                 ; COLD_SEG - SPEC.md 2.6 rule 2. Out of DS,
@@ -10823,20 +10835,10 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
     jnc .dp_key                 ; every document of one association is one row
     call dsk_is_img             ; ...or a *.IMG, which no program opens and
     jne .dp_skip                ; which draws the desktop's diskette
-    push es                     ; (dsk_img_icon, written at its one call:
-    push ds                     ; kernel size pass 17)
-    pop es
-    mov di, dsk_ico
-    mov si, dsk_img16
-    xor cx, cx                  ; CH stays 0: every count is a byte
-.dp_imrun:                      ; (row, count) runs, the mask's first
-    lodsw
-    mov cl, [si]
-    inc si
-    rep stosw
-    cmp di, dsk_ico + 64
-    jb .dp_imrun
-    pop es
+    call dsk_ico_img            ; (dsk_img_icon, written at its one call in
+                                ; pass 17 - and its run decoder is
+                                ; dsk_ico_stage's now, the table in that
+                                ; decoder's (count, word) shape: pass 21, -12)
     mov al, ASSOC_NAPP
                                 ; (SPEC.md 18.101.6). AL = its key, over the
                                 ; slot read above for nothing (`mov` writes
@@ -10885,28 +10887,35 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
 ; (dsk_img_icon is written at dsk_docpass, its one caller: pass 17)
 
 section .text                   ; DATA: read through DS (SPEC.md 2.6 rule 1)
-dsk_img16:                      ; (row, count): 16 mask rows then 16 data
-    dw 0x7FFE                   ; .##############.  the mask: the silhouette,
-    db 17                       ;                   every row - and the
-                                ; label's top edge, the picture's first row,
-                                ; is the SAME word, so one run lays both
-                                ; (kernel size pass 12: they were two)
-    dw 0x6006                   ; .##..........##.
+dsk_img16:                      ; (count, row) runs and a zero count, which
+                                ; is dsk_folder_ico's shape, so dsk_ico_stage
+                                ; decodes it (kernel size pass 21: it was
+                                ; (row, count) to a 64-byte end, with a
+                                ; decoder of its own): 16 mask rows then 16
+    db 17                       ; data - the mask the silhouette, every row,
+    dw 0x7FFE                   ; .##############.  and the label's top edge,
+                                ; the picture's first row, the SAME word, so
+                                ; one run lays both (pass 12: they were two)
     db 7
+    dw 0x6006                   ; .##..........##.
+    db 1
     dw 0x7FFE                   ; .##############.  ...and its bottom one
     db 1
     dw 0x4002                   ; .#............#.
     db 1
     dw 0x4FF2                   ; .#..########..#.  the shutter
-    db 1
-    dw 0x48D2                   ; .#..#...##.#..#.
     db 4
-    dw 0x7FFE                   ; .##############.
+    dw 0x48D2                   ; .#..#...##.#..#.
     db 1
-    align 2                     ; ...one byte, for the 435 `.text` routines
-                                ; after it: the run merge above is 3 bytes,
-                                ; and an odd shift costs a 16-bit bus a wait
-                                ; on every word they fetch
+    dw 0x7FFE                   ; .##############.
+    db 0
+%if 17+7+1+1+1+4+1 != DSK_ICO_SIZE / 2
+  %error "dsk_img16's runs must cover exactly DSK_ICO_SIZE / 2 rows"
+%endif
+    align 2                     ; ...nothing now, the table being 22 bytes:
+                                ; it stands for the 435 `.text` routines
+                                ; after it, which an odd shift costs a
+                                ; 16-bit bus a wait on every word they fetch
 section .cold
 
 ; dsk_is_img - is the NUL-terminated name at SI a *.IMG? ZF = 1 if it is.
@@ -11841,6 +11850,18 @@ ico_ref_try:
 ; and one *stage it, or blank it* - for a single caller six instructions
 ; along: a whole frame, a call and a flag to hand over an address.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_IMG
+; dsk_ico_img - dsk_ico = a *.IMG's diskette (dsk_img16's runs, SPEC.md
+; 18.101.6): dsk_ico_stage's frame and its decoder, for dsk_docpass's IMG arm.
+; out: SI -> dsk_ico; AX clobbered, CX DX DI ES kept (kernel size pass 21)
+dsk_ico_img:
+    push cx
+    push dx
+    push di
+    push es
+    mov si, dsk_img16
+    jmp short dsk_ico_stage.runs
+%endif
 dsk_ico_stage:
     push cx
     push dx
