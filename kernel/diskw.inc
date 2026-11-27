@@ -488,6 +488,14 @@ dskw_rmtree:
     mov ax, dskw_dirbody
     jmp short dskw_wrap7
 %endif
+; dskw_mkdir - create a subdirectory in the current directory (SPEC.md 18.5;
+; the header is below, at dskw_vstat's end, where it was): dskw_wrap7's
+; argument too, HERE in its short reach (kernel size pass 21, -1). It had a
+; ladder of its own one push shorter (neither of these two spends BP); two
+; bytes of stack buy the fifteen of the copy
+dskw_mkdir_x:
+    mov ax, dskw_mkbody
+    jmp short dskw_wrap7
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -806,17 +814,11 @@ dwf_dskw_vstat:                 ; THE FAR ENTRY IS THE BODY (SPEC.md 2.6.1):
 ; out: CF=0 AX=0, else CF=1 AX = FERR_*
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
-dskw_mkdir_x:
-%ifdef DSKW_DIRMOD
+%ifdef DSKW_DIRMOD               ; (elsewhere it is beside dskw_delete_x,
+dskw_mkdir_x:                   ; in dskw_wrap7's short reach)
     mov ax, CLV_MKDIR
     jmp dskw_dircall
-%else
-    mov ax, dskw_mkbody         ; dskw_wrap7's argument. It had a ladder of
-    jmp dskw_wrap7              ; its own one push shorter (neither of these
-                                ; two spends BP); two bytes of stack buy the
-                                ; fifteen of the copy
-
-%endif                          ; KD_BUILD
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dskw_mounted - the write gate (SPEC.md 18.4): is there a volume to write to?
@@ -3920,17 +3922,21 @@ dwf_dskw_read_seq:
     rep movsw                   ; DI = dwr_c + the copy: [DWC(n)] is +n
 %ifdef DSK_RUN
     test byte [si+FSEQ_FLG-FSEQ_SIZE], FSEQF_RUN ; ...and the run's 6 ONLY
-    jz .xno                     ; when +3 says the cursor has them (18.4.8.3).
+    jnz .xin                    ; when +3 says the cursor has them (18.4.8.3).
 %if FSEQ_XSIZE - FSEQ_SIZE != 6
   %error "the run is three words past a 16-byte cursor: three movsw below"
 %endif
-    movsw                       ; A 16-byte cursor's 6 past it are not
-    movsw                       ; read: on kern_mega it is read through its
+    sub si, FSEQ_XSIZE - FSEQ_SIZE ; A 16-byte cursor's 6 past it are not
+.xin:                           ; read: on kern_mega it is read through its
     movsw                       ; package's selector, and a cursor ending
-    jmp short .xin              ; its bss took a #GP 6 bytes early
-.xno:
-    add di, FSEQ_XSIZE - FSEQ_SIZE ; (the base DWC needs; .norun voids the
-.xin:                           ; run the 6 would have held)
+    movsw                       ; its bss took a #GP 6 bytes early. Without
+    movsw                       ; the flag the three words are its own +10
+                                ; to +15 again, read where they were - DI
+                                ; still lands on the base DWC needs, and no
+                                ; reader looks at +16..+21 without the flag:
+                                ; .norun voids +18, and dsk_next_clus_x
+                                ; answers nothing off a 0 there (kernel size
+                                ; pass 21, -2: the `add di` and its jump)
 %endif
     push es
     pop ds                      ; DS = KERNEL_SEG again
@@ -5577,7 +5583,12 @@ dskw_ent_store:
 ; out: CF=0, AX = the cluster, ALREADY marked end-of-chain in the snapshot;
 ;      CF=1 and AX = 0 = no free cluster; CF=1 and AX = 0xFFFF = the mark could
 ;      not be written, which is an I/O failure and not a full disk
-; clobbers: AX (the output), CF
+; clobbers: AX (the output), BX, CX, DX, DI, ES, flags. Its two callers spend
+;      all of them on every path after it - dskw_mkclus says so in its own
+;      header, and dskw_wdata's walk (dskw_xclus, dskw_one) writes each before
+;      it reads it, round the loop too - so the banks of BX/CX/DX round the
+;      body and of DI/ES round the FAT16 search kept nothing anybody read
+;      (kernel size pass 21, -11)
 ;
 ; Marking it on the spot is what makes a multi-cluster chain safe to build:
 ; the next call cannot hand the same cluster out again, whatever happens in
@@ -5587,14 +5598,10 @@ dskw_ent_store:
 ; which sends the user to delete files that were never the problem.
 ; -----------------------------------------------------------------------------
 dskw_alloc:
-    push bx
-    push cx
-    push dx
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2   ; FAT32: AX:[dsk_ch], below (SPEC.md 19.12.7)
     jne .a16
-    call dskw_alloc32
-    jmp .out
+    jmp dskw_alloc32            ; ...its answer is ours
 .a16:
     mov word [dsk_ch], 0        ; a FAT12/16 cluster is a word
 %endif
@@ -5635,10 +5642,10 @@ dskw_alloc:
     inc ax
     mov [dsk_rover], ax         ; next search starts past it (CF = 0: the
     dec ax                      ; `jc` above, and inc/mov/dec keep it)
-    jmp short .out
+    ret
 .iofail:
     sbb ax, ax                  ; ...and say WHICH failure it was: 0xFFFF,
-    jmp short .out              ; out of the CF the `jc` arrived with, and
+    ret                         ; out of the CF the `jc` arrived with, and
                                 ; CF = 1 still (the borrow)
 
 ; THE FAT16 SEARCH (SPEC.md 18.4.10). The per-cluster loop above is three
@@ -5658,10 +5665,8 @@ dskw_alloc:
 ; first `sub` that borrows or reaches zero is the full volume.
 .scan:
     call dsk_fat_ofs_x          ; BX = AX's entry in the window, now resident
-    jc .one                     ; (DX spent: dskw_alloc banks it)
+    jc .one                     ; (DX spent)
     push cx                     ; the candidates left
-    push di
-    push es
     mov di, bx
     mov ch, [dsk_fatwn]         ; the window's entries, x256 a sector: under
     mov cl, 0                   ; 256 sectors, so the byte move IS the shift
@@ -5680,9 +5685,7 @@ dskw_alloc:
     mov es, [dsk_fatseg]
     cld
     repne scasw
-    pop es                      ; (neither a pop nor an xchg writes a flag)
-    pop di
-    xchg ax, dx                 ; AX = the first again
+    xchg ax, dx                 ; AX = the first again (xchg writes no flag)
     jne .miss
     stc                         ; AX + (asked - left) - 1, the hit: CX = the
     sbb ax, cx                  ; entries the scan did not reach
@@ -5697,15 +5700,14 @@ dskw_alloc:
 .nospace:
     xor ax, ax
     stc
-.out:
-    jmp dskw_find.pdx           ; its pop run is ours (a pop writes no flag)
+    ret
 
 %ifdef OS88_FAT32
 ; dskw_alloc32 - dskw_alloc's FAT32 body (SPEC.md 19.12.7): the window, a
 ; sector of 128 entries at a time from the rover, free when the low 28 bits
 ; are 0, marked 0FFFFFFFh. Out as dskw_alloc: CF=0 AX:[dsk_ch] = the cluster;
 ; CF=1 AX=0 full, AX=0FFFFh the window would not load or the mark not land.
-; Clobbers BX, CX, DX (dskw_alloc banks them)
+; Clobbers BX, CX, DX, as dskw_alloc does (its tail jump: kernel size pass 21)
 dskw_alloc32:
     push si
     push di
@@ -6240,14 +6242,17 @@ dskw_rone:
 ; -----------------------------------------------------------------------------
 ; dskw_now - the current date and time in FAT form (SPEC.md 18.4/37)
 ; in:  nothing
-; out: [dskw_date] / [dskw_time]; all registers preserved
+; out: [dskw_date] / [dskw_time]
+; clobbers: AX, BX, CX, flags. ES is kept, which dskw_dotents leans on. Its
+;      three callers spend all three after it: dskw_dotents and dskw_commit
+;      load each before reading it, and FSCK.DRV's lost-chain save (KC
+;      dskw_now) reloads AX and pops CX, its BX being the spent digit index -
+;      so the KENT-shaped bank that was here kept nothing anybody read
+;      (kernel size pass 21, -5)
 ;      date = (year-1980)<<9 | month<<5 | day
 ;      time = hour<<11 | minute<<5 | second>>1   (2-second resolution)
 ; -----------------------------------------------------------------------------
 dskw_now:
-    push ax
-    push bx
-    push cx
     call KERNEL_SEG:cw_clk_snapshot ; read the fields the SPEC.md 37 way
     mov al, [clk_sn_hour]       ; Horner's rule, one field at a time: shift
     cbw                         ; what is there up by the next field's width
@@ -6268,7 +6273,7 @@ dskw_now:
     inc cx                      ; CL = 5
     call .pk
     mov [dskw_date], ax
-    jmp kretc_cx
+    ret
 .pk:
     shl ax, cl
     or al, bl
