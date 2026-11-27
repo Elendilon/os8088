@@ -31716,6 +31716,21 @@ button row, and each button's visible rows must equal the same rows once the
 window is moved off. The body before this reads 20 of 56 rows wrong on the VGA
 XT; it reads 0.
 
+##### 13.8.9.2 …and the mono rule is the WINDOW's display's
+
+Which of the two band encodings to stage is a question about the display the
+button is drawn on, and the first build asked `OSAPI_VIDEO` - the PRIMARY.
+On a two-display machine a window on a mono second monitor beside a VGA
+primary staged the colour band and the lit pixels came out inverted; the
+reverse put the mono band on a VGA. The extended-desktop audit (2026-11-27,
+L4) found it by reading.
+
+So `os88ui_btn` banks the record's `OS88UI_BT_WIN` in `os88ui_bwin` (package
+arm, `OS88UI_BIMG` only) and `UI_ISMONO` asks `OSAPI_WM_DISPLAY` about that
+window; a record no `os88ui_btninit` has met has no window, and keeps the
+primary's answer. A straddling window gets the more restrictive display's
+answer (§39.16.4.1), which is the same face its frame was sized for.
+
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
 The library draws two looks, the plain one and §13.8.9's one-write body, and
@@ -91070,6 +91085,26 @@ the row. Two things go with it:
   over the dock by default is about every boot; this is about a size somebody
   asked for.
 
+#### 42.9.2 ...and the negotiator asks which display BEFORE it answers
+
+Being `WF_KEEPH` (42.9.1) means the kernel never takes Paint's height in for
+it: a landing on another adapter (§39.16.3.3) proposes the size Paint asked
+for and leaves the cut to `pt_onsize`, which caps the proposal at
+`[pt_cwmax]`/`[pt_chmax]`. Those were `pt_screen`'s facts about the display
+the window was LAST on, because the kernel asks (§11.1) before it notifies
+(§11.98) and `pt_onresize` is what re-read them. So from #365 on, each move
+gave Paint the previous display's height: on `os8088_5150_both_gla`
+(Hercules primary, CGA Right) 300 rows on the 200-row CGA and 200 on the
+Hercules, the audit's K2/K3 (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+Before #365 the kernel shrank the frame itself and the stale ceiling only
+ever bound a grow, which is why Paint "used to" follow the display.
+
+`pt_onsize` now runs `pt_screen` for its window first. `OSAPI_WM_DISPLAY`
+answers the display the landing latched (§39.16.4.2), so the ceiling is the
+one the window is arriving on. Measured on that machine after the change:
+Hercules 498x300, straddle and CGA 498x200, Hercules again 498x300, and the
+same on every further trip. No kernel bytes; Paint +11 bytes of code.
+
 ### 42.10 A window that resizes itself inside its own paint must re-derive its layout
 
 `pt_track` runs at the top of every `W_PAINT` (there is no resize callback in
@@ -119835,6 +119870,53 @@ waits and the four withdrawal sites. Found on the way and left for its own
 change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
 gfx lock, although `zwin.inc` documents it as lock-held.
 
+### 61.17 The status line re-entered the text decoder
+
+**A story halted mid-sentence with `unknown opcode 0x1F at 0x00000E15
+es=0000`** (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md, Severity 1
+#1): four of about seven sessions that dragged Frotz across the seam of an
+extended desktop, never one that stayed on one display. The `es=0000` is not
+evidence - `zx_badseg` is written only by `zx_lost`, and this was `zx_bad`,
+an opcode decoded from the right segment at the wrong address.
+
+**`zt_print_ret` is not reentrant, and `zw_status` called it from inside
+itself.** The decoder's cursor is bss (`zt_al`/`zt_ah`, `zt_ci`, `zt_cw`,
+`zt_end`, the alphabet and the abbreviation bank), because a decode is one
+flat loop and nothing was meant to start a second one while it ran. But a
+character it prints can reach `zw_paint` - a refused `OSAPI_GFX_SCROLL`
+(§61.5's fallback), a pending resize (`zw_sync`), a split - and `zw_paint`
+draws the v1-3 status line, and `zw_status` captures the location's short
+name by DECODING it. The inner decode ran to its end bit, so the outer one
+found its cursor exhausted and stopped mid-word; and an inline `@print`
+resumes at the address `zt_print_ret` answers, which was now the end of the
+object's name in dynamic memory. Measured on MartyPC
+(`os8088_5150_both_gla`, Hercules primary, CGA to the right), the instruction
+ring read `@print` at `0x8527` followed by a PC of `0x0E12`, every time.
+
+The seam is why it showed there: `OSAPI_GFX_SCROLL` refuses a band that
+crosses two displays (§39.14.2), so every line on a straddling window falls
+back to `zw_paint`, and every wrap inside a sentence was a chance. A grow-box
+drag or an adapter switch reaches the same `zw_paint` through `zw_sync`, and
+the UI task's own `W_PAINT` reaches it while the worker waits under `[MORE]`
+mid-sentence - so one display was never immune, only lucky.
+
+**`[zt_busy]` is set for the length of a decode, and `zw_status` does not
+re-capture the name while it is.** The row is still drawn - score, moves and
+the clock are global reads, which touch no cursor - from the name the last
+capture left in `zw_stat`, which is the name on the glass anyway: a location
+does not change in the middle of a sentence about it. One byte of bss and
+fifteen of code, and the worker's stack gains nothing.
+
+**What this does not cover.** The worker's slice reaches 298-300 of its 384
+bytes on a straddle with or without the nest - the depth is the full repaint
+itself, cut per cell at the seam (§39.14.6), which a refused scroll costs on
+every line. And on a VGA primary with the Hercules to the right, dragging a
+straddling window onto the Hercules WHILE the worker is printing still takes
+the machine down (SS = 0, CS:IP in ROM; three runs of three, with and without
+this fix, never with the worker idle); the audit's STACK OVERFLOW panel for
+slot `0C` was on that same pairing. That one is in the kernel's display
+switching and is recorded in the audit's fix notes, not here.
+
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
 **A LapLink cable between the parallel ports of an os8088 machine and a DOS
@@ -133034,13 +133116,14 @@ and it is stated rather than hidden.
 **The depth is asked in `te_layout` and not once at launch**, which is the
 same argument one level down: `te_layout` re-derives everything the live
 content box implies on every paint, click, key and worker draw, so the answer
-is never older than the last event. It is `OSAPI_VIDEO`'s `DH`, and that is
-**the PRIMARY's depth** by that slot's own contract — on an extended desktop
-with a mono card beside a colour one it is the wrong question for the far
-display, and there is no per-display depth published to ask instead (§39.14
-has none). Stated rather than hidden; `OSAPI_FSX_CAPS` answers `DL` per
-display but a `VID_*` kind is not a depth, and inventing a slot for one
-package is what CLAUDE.md's index exists to prevent.
+is never older than the last event. It is `OSAPI_WM_DISPLAY`'s `DH` for
+[te_win] - the depth of the display the WINDOW is on (§39.16.4) - and
+`OSAPI_VIDEO`'s only before the window exists. It was `OSAPI_VIDEO`'s, the
+PRIMARY's, written when no per-display depth was published; the
+extended-desktop audit (2026-11-27) found iCE Colours still live on a
+Hercules beside a VGA primary and greyed on a VGA beside a Hercules one. The
+Session menu's iCE item is re-labelled in the same `te_layout`, so it follows
+the drag.
 
 #### 70.8.6 Two hundred and fifty-six glyphs, and where they come from
 
@@ -144011,6 +144094,36 @@ Sixteen bytes of any package that opts into the alert — eight for the row and
 eight for the one label that was not already there. `Proceed` is SEVEN
 characters because that is what `OS88UI_ABW` holds; `Continue` would not fit
 the row, which is the constraint §75.3 above is about.
+
+#### 75.3.4 It opens on the asking window's DISPLAY — `os88ui_centre`
+
+The alert was centred on `OSAPI_VIDEO`'s width and height, which are the
+PRIMARY's (§39.2.1), so on a two-display machine a window on the second
+monitor asked its question on the first one. No cell says where a display
+starts, and none is needed: **`os88ui_centre`** (AX = the frame's width, DX =
+its height, BX = the asking window; out AX/BX = x/y) centres the box over the
+asking window's content when there are two displays (`OSAPI_FSX_CAPS` with
+BX = 2 answers CF = 0), and `wm_create`'s fit keeps it inside that window's
+display (§39.16.1). On one display it is the old arithmetic exactly: centred
+on the primary and never up under the menu bar. SHEET's seven dialogs that
+copied the alert's placement call it too (§81's dialogs, the extended-desktop
+audit of 2026-11-27).
+
+#### 75.3.5 The caption is read through KERNEL_SEG, not through ES
+
+`os88ui_ask` took the asking window's caption as `[es:bx + W_TITLE]`, on the
+rule that ES is `KERNEL_SEG` on entry to every callback. That is true at the
+entry and not after it: a C package's thunks spend ES (§73, `os88thunk.asm`'s
+window-record readers load `KERNEL_SEG` themselves for this reason), and
+Loom's close negotiator reaches `os88ui_ask` through several of them. The
+alert's title was then a word out of Loom's own image - an offset into its
+code - and read `^[ PSQRVW N` (the extended-desktop audit, 2026-11-27; on
+one display too). **The C packages' wrappers load `KERNEL_SEG` into ES before
+the call**, as the thunks do, and give it back: Loom's `_lm_ask`, Weave's
+`_wd_ask`, Breadboard XT's `_bb_ask` and ByteOpoly's `_bp_ask`. An assembly
+package's callback still arrives with it. It is not done inside `os88ui_ask`
+because six bytes there would cost every package with the alert, and REDLINE
+has no six bytes to give.
 
 ## 76. The theme — Bright and Dark (`kernel/vga12.inc`, `kernel/ctrl.inc`)
 
@@ -167452,6 +167565,12 @@ elapsed clock is derived from the free-running `verb 3` consumed count
 accumulated into a 32-bit `ap_played`, so it survives the counter's ~3–6 s
 wrap.
 
+**The bar's frame sets its own pen.** `apu_draw_time_full` framed the bar in
+whatever colour was current, and `ap_paint` (`W_PAINT`) does not set one, so
+a repaint the KERNEL drove - a drag across a display seam is one - framed it
+in the ground fill's white and the bar vanished until the next track (the
+extended-desktop audit, 2026-11-27). It sets black first.
+
 **The first paint can beat `wm_fit`**: the loader shows the window after the
 entry proc returns, so `OSAPI_WM_GEOM` / `OSAPI_WM_CONTENT` can answer CF=1
 for the first `W_PAINT`. `ap_entry` kicks itself once with `OSAPI_WM_WAKE`;
@@ -189456,7 +189575,7 @@ every paint:
 | `[con_topy]` | **0**: §96.32's band origin is the text's origin, where Telnet's is the window's and its own chrome is above |
 | `[con_vcols]`/`[con_vrows]` | `[dos_concols]`/`[dos_conrows]` |
 | `[con_vtop]` | **`[con_cy] + 1 - [con_vrows]`, floored at 0** — the window FOLLOWS THE CURSOR (§96.33.8). It was `CON_ROWS - [con_vrows]`, the bottom of the buffer, which is the same number only once the console has filled and is a blank screen before that |
-| `[con_mono]` | `OSAPI_VIDEO`'s `DH`, asked here and not at launch (§11.96.12) |
+| `[con_mono]` | `OSAPI_WM_DISPLAY`'s `DH` for `[dos_win]`, asked here and not at launch (§11.96.12) - the WINDOW's display, since `OSAPI_VIDEO` is the primary's (§39.16.4; it was, until the extended-desktop audit of 2026-11-27) |
 
 **`con_open` is called once, from the entry proc**, and it is not optional: the
 loader zeroes bss (§21 step 5), so an unopened console has attribute 0 — black
@@ -245163,6 +245282,20 @@ saying so in the window.
 A glyph is never wider than its advance, so a glyph's cell is its advance,
 and the composer needs no second width. A character outside 32-126 is drawn
 as `?`.
+
+#### 124.7.2 A drag onto the other display re-reads it
+
+`w16_dispinit` ran once, at the first wake, so a window dragged across a
+display seam kept the launch display's state: every opaque text run was drawn
+with the other depth's polarity (inverted), and `GetDeviceCaps` and the
+system metrics answered for the display it had left (the extended-desktop
+audit, 2026-11-27). The main window's class now has `W_ONRESIZE`
+(`w16_onresize`), which fires on a drag across the seam as well as a resize
+(§39.16.4), and calls `w16_dispinit` again; the full repaint that follows
+draws with the new state. **The System font is NOT re-fetched**: it is a part,
+a file read, and the handler runs with the lock held - so a program keeps the
+face of the display it started on, which is also what Windows does with a
+font a program has already measured.
 
 ### 124.8 USER: windows, the queue and the pump *(shipped in S3)*
 

@@ -77,6 +77,11 @@ _wd_ask:
     push dx
     push si
     push di
+    push es
+    mov ax, KERNEL_SEG              ; os88ui_ask reads our record's caption
+    mov es, ax                      ; through ES (SPEC.md 75.3.5), and a thunk
+                                    ; may have spent it since the callback
+                                    ; began
     mov si, [bp+4]                  ; the message
     mov bx, [bp+6]                  ; our window
     mov ax, [bp+8]                  ; the button set
@@ -86,6 +91,7 @@ _wd_ask:
     jnc .ok
     dec ax
 .ok:
+    pop es
     pop di
     pop si
     pop dx

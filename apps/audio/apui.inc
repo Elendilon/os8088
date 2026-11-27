@@ -798,8 +798,11 @@ apu_draw_time_full:
     add cx, [apu_pbx2]
     mov dx, [apu_oy]
     add dx, APU_PBY2
-    call OSAPI_GFX_FRAME
-
+    call apu_penb                  ; IN BLACK, set here: W_PAINT arrives with
+    call OSAPI_GFX_FRAME           ; the kernel's white ground fill's pen, and
+                                   ; a frame drawn in it vanished (SPEC.md
+                                   ; 86.7) - a drag across a display seam
+                                   ; repaints through W_PAINT, not apu_repaint
     call apu_draw_bar_fill
 
     jmp ap_ret6

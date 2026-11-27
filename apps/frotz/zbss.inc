@@ -272,4 +272,11 @@ ZEXEC_SLACK  equ 1684                         ; 84
                                             ;   third one and WF_1BPP would be
                                             ;   a lie (SPEC.md 11.96.17)
 
-ZF_BSS_TOTAL equ 1810
+%define zt_busy    (os88_image_end + 1810)  ; byte: 1 while zt_print_ret is
+                                            ;   decoding. Its cursor is bss and
+                                            ;   it is NOT reentrant, so
+                                            ;   zw_status does not re-capture
+                                            ;   the name under it (SPEC.md
+                                            ;   61.17)
+
+ZF_BSS_TOTAL equ 1811
