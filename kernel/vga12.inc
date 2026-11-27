@@ -1065,32 +1065,17 @@ gfx_hline:
     call gfx_fill
     mov bx, cx                  ; gfx_fill keeps every register, so CX comes
     pop cx                      ; back as x2 - the caller's BX - and the push
-    ret                         ; and pop of BX are a `mov` (same 12 bytes,
+gfx_hl_ret:                     ; (gfx_points' empty call returns HERE, a
+    ret                         ; `jcxz` away - kernel size pass 21) and the
+                                ; pop of BX are a `mov` (same 12 bytes,
                                 ; ~24 clocks off every hline: kernel hot-paths
                                 ; pass 1, gfxcall-2)
 
-
-
-; -----------------------------------------------------------------------------
-; SPEC.md 5.6's FOUR slots, WITHOUT A BODY (SPEC.md 5.12.7)
-;
-; The whole capability lives in apps/os88gfx.inc now - the line, the walk and
-; the batch step alike - in the image of whichever program wants it, and
-; gfx_points or gfx_blit1 is what it commits through. The cells stay, because
-; the table is offset-addressed and a slot number is a published constant
-; (20.3), and they answer CF = 1, which is what gfx_blit1 on kern_small and
-; gfx_spans already mean by it.
-;
-; A package that draws a line and does NOT test CF gets no pixels rather than
-; wrong ones, which is the failure mode KERN-SMALL-CUT-PLAN 10 is about; every
-; caller in this tree was converted before any body went (5.12.5, 5.12.7).
-; -----------------------------------------------------------------------------
-gfx_line:
-gfx_linit:
-gfx_lstep:
-gfx_lstepv:
-    stc
-    ret
+; (SPEC.md 5.6's four line slots had a shared `stc / ret` body here, named
+; gfx_line, gfx_linit, gfx_lstep and gfx_lstepv, after SPEC.md 5.12.7 retired
+; the family. Kernel size pass 4 deleted the CELLS and gfx_linit's slot went
+; to OSAPI_DSK_CACHE, so nothing named the four labels any more and the body
+; was two bytes nothing could reach. Kernel size pass 21 took it out.)
 
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
@@ -1291,11 +1276,13 @@ gfx_pt_miss:
     ret
 
 %endif
-    nop                         ; PARITY, never executed (both kernels end a
-                                ; `ret` above): gfx_points' hide below went
-                                ; from CURUNLAZY's ten bytes to a three-byte
-                                ; call, an odd 7 that put every hot routine
-                                ; after it at the wrong parity (t_hotpar)
+                                ; (The PARITY nop that stood here - gfx_points'
+                                ; hide going from CURUNLAZY's ten bytes to a
+                                ; three-byte call, an odd 7 - went in kernel
+                                ; size pass 21 with gfx_points' odd 3 below
+                                ; and the dead line stub's 2 above: an even 6
+                                ; on both kernels, so gfx_blit4 and every hot
+                                ; routine after it keep their parity)
 
 ; -----------------------------------------------------------------------------
 ; gfx_points - draw a set of pixels the CALLER computed (SPEC.md 5.6.9)
@@ -1316,12 +1303,17 @@ gfx_pt_miss:
 ; are off the hot path.
 ; -----------------------------------------------------------------------------
 gfx_points:
-    or cx, cx                   ; nothing to draw is answered BEFORE anything
-    jnz .work                   ; is pushed and before the arrow comes down -
-    ret                         ; no pixel is written, so no hide is owed. It
-                                ; is also why this is not `jcxz .out`: every
-                                ; conditional jump on an 8086 is rel8 and the
-                                ; body below is longer than one reaches
+    jcxz gfx_hl_ret             ; nothing to draw is answered BEFORE anything
+                                ; is pushed and before the arrow comes down -
+                                ; no pixel is written, so no hide is owed -
+                                ; through gfx_hline's `ret`, the nearest one
+                                ; above (`.out` is past a rel8's reach). It
+                                ; was `or / jnz .work / ret`: three bytes more,
+                                ; and the drawing call paid a taken jump (16
+                                ; clocks) where it now pays a jcxz not taken
+                                ; (6). The empty call leaves the CALLER's
+                                ; flags rather than `or cx, cx`'s, which no
+                                ; contract names (SPEC.md 5.6.9: out nothing)
 .work:
     call fnt_unlazy             ; UNARMED this may write any pixel on the
                                 ; screen and the deferred hide is owed; ARMED,
@@ -1850,10 +1842,13 @@ gfx_blitd:
     jbe .no
     call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
     VXGO VX_BLITD               ; the driver's whole, back to our caller
-.no:
 %endif
-    stc
-    ret
+.no:                            ; ...and THE refusal (CF = 1, nothing else
+    stc                         ; touched) for the slots a build has no body
+    ret                         ; for: gfx_blitp without the planar decoder
+                                ; and gfx_spans on kern_small name it rather
+                                ; than carry a `stc / ret` each (kernel size
+                                ; pass 21: -4 on kern_small)
 
 gfx_blit4:
     KFZ 25                      ; a packed-4bpp block (SPEC.md 5.4)
@@ -1919,13 +1914,37 @@ gfx_blit4:
     je .nowalk
     call COLD_SEG:gfx_b4walk    ; CF = 1: nested, not walked
     jc .nowalk
+.walked:
     jmp kret_bp                 ; NOT .out: the pieces leave gfx_blit_fst and
-.nowalk:                        ; gfx_blit_hk as THEY left them, and a hook
-                                ; nobody here put up must not come down. (The
-                                ; nested test is the walk's, in .cold, and that
-                                ; is PARITY: this run loop and all of .text
-                                ; after it move by an even 4. PERFORMANCE.md
-                                ; Part 7)
+                                ; gfx_blit_hk as THEY left them, and a hook
+                                ; nobody here put up must not come down
+%ifndef NOBLITCUT
+    ; --- the CUT and a NAMED HALF (SPEC.md 39.14.7.2), out of line HERE -----
+    ; Behind the walk's own exit, which is the cut's: both are within a rel8
+    ; of the two guards below that reach them (`jne .hkforce`, `jc .cut`),
+    ; where at the routine's foot each was a relaxed five-byte jump whose
+    ; COMMON arm - no cut, no named half - was the taken `jnz +3` (16 clocks
+    ; where a short jcc not taken is 4). Kernel size pass 21: -14, and an even
+    ; +14 for the run loop below, so its word operands keep their parity.
+.cut:                           ; ...the CUT is EXTD.DRV's (kernel/extmod.inc's
+    EXTCALL EXT_BCUT            ; ext_bcut since kernel size pass 13): a
+    jnc .walked                 ; straddle exists only on an extended desktop,
+    jmp short .hkdone           ; and EXTD.DRV is mounted for exactly that
+                                ; long. Both halves drawn: out as a walk is.
+                                ; CF = 1 is an ODD cut (or no image): 39.14.7's
+                                ; path, unchanged
+.hkforce:                       ; THIS call is one half: its display is named
+    push dx                     ; and its teardown is its own
+    mov dl, [gfx_blit_fd]
+    dec dx                      ; DL = the display, fd - 1: fd is 1 or 2 here,
+    call gfx_disp_enter_n       ; so nothing borrows into DH - which is banked
+    pop dx                      ; round it regardless
+    jmp short .hkset
+%endif
+.nowalk:                        ; (The walk's nested test is the walk's, in
+                                ; .cold, and that is PARITY: this run loop and
+                                ; all of .text after it move by an even 4.
+                                ; PERFORMANCE.md Part 7)
     ; --- THE WHOLE-SHAPE HOOK, TAKEN WHEN THE BLOCK FITS ONE DISPLAY -------
     ; SPEC.md 39.14.7.1. This is the gate 39.14.7 considered and declined,
     ; and the field priced what declining it cost: a two-display machine sent
@@ -1962,10 +1981,14 @@ gfx_blit4:
 %else
     jc .cut                     ; STRADDLING: cut it at the seam if it can be
 %endif                          ; cut, and only then fall back to 39.14.7's
-    mov byte [gfx_blit_hk], 1
     call gfx_disp_enter         ; ...one display, so the block is local now -
-.hkdone:                        ; and straight to the enter: the `jbe` above
-                                ; already asked gfx_denter's one question
+.hkset:                         ; and straight to the enter: the `jbe` above
+    mov byte [gfx_blit_hk], 1   ; already asked gfx_denter's one question.
+                                ; The flag goes up AFTER the enter, so the
+                                ; named half above shares this store (only
+                                ; this routine reads it, at .clipfree and
+                                ; .done, and the enter reads no gfx_blit_*)
+.hkdone:
 %endif
 
     mov [gfx_blit_w], cx        ; lock-held scratch, like vga12's rect block:
@@ -2289,38 +2312,15 @@ gfx_blit4:
     GFXDLEAVE                   ; .out without ever having taken the hook
 .nohk:
 %endif
-.pops:                          ; ...and the CUT returns here, having had its
+.pops:
     jmp kret_bp
-
-%ifdef KERN_BIG
-%ifndef NOBLITCUT
-; -----------------------------------------------------------------------------
-; ...and the CUT (SPEC.md 39.14.7.2) is kernel/extmod.inc's ext_bcut since
-; kernel size pass 13: the body and its argument moved with it.
-; -----------------------------------------------------------------------------
-.cut:                           ; ...the CUT (SPEC.md 39.14.7.2) is EXTD.DRV's:
-    EXTCALL EXT_BCUT            ; a straddle exists only on an extended desktop,
-    jc .hkdonej                 ; and EXTD.DRV is mounted for exactly that long.
-    jmp .pops                   ; CF = 1 is an ODD cut (or no image): 39.14.7's
-                                ; path, unchanged (kernel size pass 13)
-.hkforce:                       ; THIS call is one half: its display is named
-    mov byte [gfx_blit_hk], 1   ; and its teardown is its own
-    push dx
-    mov dl, [gfx_blit_fd]
-    dec dl
-    call gfx_disp_enter_n
-    pop dx
-.hkdonej:                       ; ...and the odd cut's way back, in reach of its
-    jmp .hkdone                 ; short `jnz` where .hkdone itself is not
-    nop                         ; PARITY, never executed (kernel size pass 13):
-                                ; the cut's move took an ODD 105 bytes out of
-                                ; .text here, and everything from vga_blit_span
-                                ; down to wm_clip_rows - font_run_x, both mouse
-                                ; ISRs, sch_isr - would otherwise sit at an odd
-                                ; shift, which a 16-bit bus pays for on every
-                                ; word fetch (PERFORMANCE.md Part 7)
-%endif
-%endif
+                                ; (The CUT and the named half were HERE, at the
+                                ; foot, with a PARITY nop of kernel size pass
+                                ; 13's after them: they sit behind the walk's
+                                ; exit at the top now, kernel size pass 21. The
+                                ; nop went with them - the move is an even -14,
+                                ; so everything after this routine keeps its
+                                ; parity without it)
 %ifdef COLD_SLIDE
 ; ===== THE VGA RUNG, from here to gfx_blit_run (docs/plans/MOVABLE-COLD-PLAN.md
 ; 2): the span writer, the planar decoder and gfx_blitp's body are code only a
@@ -2513,27 +2513,22 @@ vga_p4build:
     push cx
     push dx
     push si
+    mov cl, 4                   ; (constant for the whole table)
     xor bx, bx
 .byte:
-    mov cl, 4
-    mov al, bl
-    shr al, cl                  ; AL = the left pixel
+    mov al, bl                  ; AL = b: the LEFT pixel in the top nibble
     mov ah, bl
-    and ah, 15                  ; AH = the right one
-    xor dx, dx
-    mov ch, 8                   ; plane 3 first, so the shifts carry it up
-.pl:
-    shl dx, cl                  ; CL is 4 from the nibble split above
-    test al, ch
-    jz .l0
-    or dl, 2
-.l0:
-    test ah, ch
-    jz .l1
-    or dl, 1
-.l1:
-    shr ch, 1
-    jnz .pl
+    shl ah, cl                  ; AH = b << 4: the RIGHT pixel there
+    mov dx, 1                   ; a SENTINEL bit, not data: four nibbles
+.pl:                            ; shift it to bit 16, so the fourth pass's
+    shl dx, 1                   ; last `rcl` is the first to carry it out -
+    shl dx, 1                   ; the loop's whole count (CF = 0 before it:
+    shl al, 1                   ; the bits it shifts out of bit 15 are the
+    rcl dx, 1                   ; zeros above the sentinel). Each pass is
+    shl ah, 1                   ; dx = dx << 4 | left << 1 | right, plane 3
+    rcl dx, 1                   ; first, so the shifts carry it up. Kernel
+    jnc .pl                     ; size pass 21: -10 against the test-and-or
+                                ; body, the same table (a model of all 256)
     mov si, bx
     shl si, 1
     mov [ss:si + vga_p4tab], dx ; .lowbss: a UNION with the pair tables
@@ -2765,7 +2760,11 @@ section .text
 ; Rows off the screen in y are SKIPPED rather than refused - that costs one
 ; compare a row and no caller has to clamp.
 ; -----------------------------------------------------------------------------
+%ifndef GFX_PLANE
+gfx_blitp   equ gfx_blitd.no    ; no planar decoder, no body: the shared
+%else                           ; refusal (see the arm below)
 gfx_blitp:
+%endif
 %ifdef COLD_SLIDE
 %ifdef GFX_PLANE
     test byte [vid_avail], VID_A_VGA | VID_A_EGA ; THE DOOR (MOVABLE-COLD-PLAN
@@ -2785,12 +2784,14 @@ gfx_blitp_v:
 %endif
 %endif
 %ifndef GFX_PLANE
-    stc                         ; A SLOT THAT EXISTS IN ONE BUILD AND NOT
-    ret                         ; ANOTHER IS WORSE THAN A REFUSAL (the debug
+                                ; A SLOT THAT EXISTS IN ONE BUILD AND NOT
+                                ; ANOTHER IS WORSE THAN A REFUSAL (the debug
                                 ; registry's banner in kernel.asm says why), so
                                 ; the cell is here in every kernel and kern_small
                                 ; answers it the way a 1bpp adapter does: no,
-                                ; draw it the way you did before. Six bytes.
+                                ; draw it the way you did before. Its `stc /
+                                ; ret` is gfx_blitd's, named by the equ above
+                                ; (kernel size pass 21: -2 here)
 %else
     call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
     push ax
@@ -3616,11 +3617,13 @@ section .text
 ; out:      CF = 0 drawn. CF = 1 REFUSED, and nothing was drawn
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
-gfx_spans:
 %ifndef KERN_BIG
-    stc                         ; kern_small carries the slot and no body,
-    ret                         ; gfx_blit1's precedent (SPEC.md 5.4.2)
+gfx_spans   equ gfx_blitd.no    ; kern_small carries the slot and no body,
+                                ; gfx_blit1's precedent (SPEC.md 5.4.2): the
+                                ; refusal is gfx_blitd's `stc / ret` (kernel
+                                ; size pass 21: -2 here)
 %else
+gfx_spans:
     CLIPQ                        ; an armed region, or...
     jne .no
     cmp byte [vid_ndisp], 1     ; ...a second display: both re-cut the run,
@@ -3634,41 +3637,44 @@ gfx_spans:
     push bp
     push es
     mov [gfx_sp_seg], es
-    mov [gfx_sp_si], si
-    mov [gfx_sp_n], cx
     jcxz .nil                   ; the three early exits go through .nil: every
     or ax, ax                   ; conditional jump on an 8086 is rel8 and
     jns .top                    ; .done is past the row loops
-    mov bx, ax                  ; y < 0: drop that many LEADING spans, which
-    neg bx                      ; is the whole of this run's top clip
-    cmp bx, cx
-    jae .nil
-    sub [gfx_sp_n], bx
-    shl bx, 1
-    shl bx, 1                   ; four bytes a record
-    add [gfx_sp_si], bx
+    neg ax                      ; y < 0: drop that many LEADING spans, which
+    sub cx, ax                  ; is the whole of this run's top clip - none
+    jbe .nil                    ; left if -y >= CX (a borrow, or exactly 0)
+    shl ax, 1
+    shl ax, 1                   ; four bytes a record
+    add si, ax
     xor ax, ax
 .top:
-    cmp ax, [vid_ch]
-    jb .rowsl
-.nil:
-    jmp .done
-.no:                            ; (the refusal in short reach of the two
-    stc                         ; guards at the door, not below the loops)
-    ret
-.rowsl:
-    mov bx, [vid_ch]            ; ...and the bottom clip is a row COUNT, once
-    sub bx, ax
-    cmp bx, [gfx_sp_n]
+    mov bx, [vid_ch]            ; ...and the bottom clip is a row COUNT, once:
+    sub bx, ax                  ; the rows from y down, none if y is at or
+    jbe .nil                    ; past the bottom
+    cmp bx, cx
     jae .rows
-    mov [gfx_sp_n], bx
-.rows:
-    mov [gfx_sp_y], ax
+    mov cx, bx
+.rows:                          ; THE CLIP IS DONE IN REGISTERS and the three
+    mov [gfx_sp_si], si         ; cells are written once, here: it read and
+    mov [gfx_sp_n], cx          ; wrote [gfx_sp_si] and [gfx_sp_n] through
+    mov [gfx_sp_y], ax          ; memory on each clip (kernel size pass 21:
+                                ; -20 with the exits and the PARITY byte
+                                ; below, and fewer clocks on every path - an
+                                ; even 20, so the row loops and everything
+                                ; after them keep their parity). SI and CX
+                                ; are spent - the
+                                ; call banked both, and nothing from here on
+                                ; reads either before gfx_sp_next loads it
     call gfx_rowbase            ; the ONE row base this call computes
     mov [gfx_sp_row], ax
     CURUNLAZY                   ; unclipped, so this may write any pixel on
 %ifndef GFX_VGA
     jmp sw_spans                ; no VGA: softgfx.inc's row loop is the loop
+.nil:
+    jmp .done
+.no:                            ; (the refusal in short reach of the two
+    stc                         ; guards at the door, not below the loops)
+    ret
 %else
 %ifdef VID_EXT
     cmp byte [vid_planes], 4    ; the screen and a hide is owed (7.1.4)
@@ -3676,16 +3682,25 @@ gfx_spans:
     je .vga                     ; planar; and a PACKED display (SPEC.md
     mov ax, [gfx_sp_y]          ; 120.3.1) is the driver's: AX = the first
     VXCALL VX_SPANS             ; row, clipped, and the gfx_sp_* cells the
-    jmp .done                   ; list. (The row base above is computed for
-                                ; it and not used - a packed display reads no
+.nil:                           ; list. (The row base above is computed for
+    jmp short .done             ; it and not used - a packed display reads no
                                 ; row - which is the price of one compare
-                                ; deciding all three, kernel size pass 14)
-    db 0                        ; PARITY, never executed: font_run and the hot
-                                ; routines after it keep their entry parity
-                                ; (tests/unit/t_hotpar.py)
+                                ; deciding all three, kernel size pass 14.)
+                                ; Its `jmp` is .nil's too: the early exits
+                                ; are in a rel8 of it, and .done of IT
+.no:                            ; (...and the refusal, in short reach of the
+    stc                         ; two guards at the door, not below the loops.
+    ret                         ; The PARITY byte that stood here went with
+                                ; the clip's even 20, kernel size pass 21)
 %else
     cmp byte [vid_mono], 0      ; the screen and a hide is owed (7.1.4)
-    jne sw_spans                ; 1bpp: softgfx.inc's row loop, then .done
+    je .vga                     ; (was `jne sw_spans`, relaxed to these same
+    jmp sw_spans                ; five bytes: 1bpp is softgfx.inc's row loop)
+.nil:
+    jmp .done
+.no:                            ; (the refusal in short reach of the two
+    stc                         ; guards at the door, not below the loops)
+    ret
 %endif
 .vga:
     mov dx, VGA_GC              ; THE LIST'S, not the row's - four OUTs and a
@@ -3753,11 +3768,12 @@ gfx_spans:
 gfx_sp_next:
     mov bp, [gfx_sp_row]        ; BP = THIS row's base; the word steps to the
     mov ax, bp                  ; next, gfx_nextrow inlined (SPEC.md 5.7 r6)
-    add ax, [cs:vid_rowadd]
-    test ax, [cs:vid_wrapbit]
-    jz .nw
-    add ax, [cs:vid_wrapfix]
-.nw:
+    add ax, [vid_rowadd]        ; ...WITHOUT its `cs:`. gfx_nextrow has callers
+    test ax, [vid_wrapbit]      ; whose DS is a framebuffer; this one's is the
+    jz .nw                      ; kernel's, as the [gfx_sp_*] reads beside it
+    add ax, [vid_wrapfix]       ; say (kernel size pass 21: -3, and ~8 clocks
+.nw:                            ; a span). The odd 3 is paired with thm_desk's
+                                ; PARITY byte below
     mov [gfx_sp_row], ax
     mov es, [gfx_sp_seg]
     mov si, [gfx_sp_si]
@@ -3850,8 +3866,11 @@ section .vga                    ; 2): VIDEXTM above is its door, and on a
                                 ; four VGA knobs on (kern_big since 2026-11-10)
                                 ; and their size pass's -8 above, it still
                                 ; keeps the three where t_hotpar pins them
-gfx_fill_gray_raw_v:
 %endif
+gfx_fill_gray_raw_v:            ; (named on EVERY build - in .text without the
+                                ; rung - so gfx_fill_pat's exits below name
+                                ; this body's teardown in one spelling, which
+                                ; is the one tools/stkbalance.py can follow)
     push ax
     push bx
     push cx
@@ -4053,7 +4072,11 @@ gfx_fill_pat_raw_v:      ; machine with neither card never falls here
     push di
     push es
     call gfx_rect_setup
-    jc .done
+%ifdef COLD_SLIDE                ; (the teardown is gfx_fill_gray's, below
+    jc gfx_fill_gray_raw_v.done ; this one's frame and in a rel8's reach of
+%else                           ; all three ways out on the rung - spelled out
+    jc .done                    ; per arm: the stack checker,
+%endif                          ; tools/stkbalance.py, reads source)
     call gfx_pat_stage          ; gfx_patbuf <- the 8 bytes at [gfx_pat]
     VSEG ax, VGA_SEG
     mov es, ax
@@ -4064,14 +4087,22 @@ gfx_fill_pat_raw_v:      ; machine with neither card never falls here
     call .col
     mov cx, [gfx_rspan]
     or cx, cx
+%ifdef COLD_SLIDE
+    jz gfx_fill_gray_raw_v.reset
+%else
     jz .reset
+%endif
     mov ax, [vga_m8r]           ; right edge column
     out dx, ax
     mov di, [gfx_roff]
     add di, cx
     call .col
     dec cx                      ; interior bytes per row
+%ifdef COLD_SLIDE
+    jz gfx_fill_gray_raw_v.reset
+%else
     jz .reset
+%endif
     mov ax, 0xFF08              ; full bytes: latches irrelevant
     out dx, ax
     mov di, [gfx_roff]
@@ -4090,17 +4121,23 @@ gfx_fill_pat_raw_v:      ; machine with neither card never falls here
     and bx, 7
     dec si
     jnz .irow
-.reset:                         ; vga_solid_rect's teardown, as gfx_fill_gray's
-%ifdef COLD_SLIDE                ; (spelled out per arm: the stack checker,
-    jmp vga_solid_rect_v.reset  ; tools/stkbalance.py reads source)
+%ifdef COLD_SLIDE                ; ...and out through gfx_fill_gray's OWN
+    jmp short gfx_fill_gray_raw_v.reset ; teardown: the same eleven bytes as
+                                ; vga_solid_rect's (vga_gc_reset, then the
+                                ; seven pops of this frame) and, on the rung,
+                                ; the one in a rel8's reach - the two `jz`
+                                ; above and the `jc` at the top go straight
+                                ; there, where each was a short jump to a
+                                ; three-byte `jmp` stub here (two stubs, 6
+                                ; bytes, for this 2 - kernel size pass 21, and
+                                ; 15 clocks off each early exit). Without the
+                                ; rung (kern_mega) the bodies are .text's and
+                                ; the reach is not there, so the stubs stay
 %else
-    jmp vga_solid_rect.reset
-%endif
+.reset:                         ; ...the same teardown through a stub
+    jmp gfx_fill_gray_raw_v.reset
 .done:
-%ifdef COLD_SLIDE
-    jmp vga_solid_rect_v.done
-%else
-    jmp vga_solid_rect.done
+    jmp gfx_fill_gray_raw_v.done
 %endif
 
 ; ...and ONE masked edge column of [gfx_rrows] rows at ES:DI, the Bit Mask
@@ -5017,13 +5054,14 @@ thm_desk:
 ; cell at 0x046D jumps straight to the cold body (kernel size pass 13), and
 ; THMPAL.DRV's file name is staged by CTRL.DRV, the one code that loads it
 ; (kernel/ctrl.inc, cp_thmv_open)
-    db 0x90                     ; NEVER EXECUTED - nothing falls or jumps here:
-                                ; one byte that keeps every .text routine after
-                                ; it (font_run, the blits, both mouse ISRs,
-                                ; sch_switch) and the four pen routines above
-                                ; at an EVEN shift against kernel size pass
-                                ; 13's base, where the pass's .text total would
-                                ; otherwise be odd (BRIEF 1's parity rule)
+                                ; (The `db 0x90` PARITY byte of kernel size
+                                ; pass 13 that stood here went in kernel size
+                                ; pass 21, paired with gfx_sp_next's odd 3
+                                ; above: every .text routine after this point
+                                ; - font_run, both mouse ISRs, sch_switch -
+                                ; keeps its parity. What sits between the two,
+                                ; gfx_sp_next's step down to thm_desk, is at
+                                ; an odd shift: none of it is pinned)
 %endif
 
 ; THESE TWO ARE CONTENT PENS AND THE THEME DOES NOT REACH THEM (SPEC.md 76.6).
@@ -6320,20 +6358,21 @@ gfx_blit1_x:
                                 ; dl` and not a byte of the SS frame: 4 bytes
                                 ; and ~19 clocks a tail row less, twice
                                 ; (kernel size pass 12)
-%else
-    xor dl, dl                  ; ...and never the complemented one: with no
-                                ; pen there is nothing to turn over
-%endif
+%endif                          ; (...and without a VGA there is no pen, so
+                                ; never the complemented loop: kern_small
+                                ; carries neither the question nor the loop -
+                                ; it was `xor dl, dl` and `or dl, dl` round a
+                                ; `jnz` that could not be taken, and 55 bytes
+                                ; of loop behind it. Kernel size pass 21)
                                 ; The segment goes through CX rather than BX
                                 ; because BX now carries the split across the
                                 ; whole emit
     mov es, ax                  ; resolved display's, the enter above having
     mov ds, cx                  ; run first (SPEC.md 39.12)
     cld
-%ifndef GFX_VGA
-    or dl, dl
-%endif
+%ifdef GFX_VGA
     jnz .rowi
+%endif
 
     ; --- THE FAST PATH: a band that needs none of the row loop's bookkeeping
     ; The loop below is general and reads FIVE SS-relative operands out of the
@@ -6397,8 +6436,8 @@ gfx_blit1_x:
 .nowrap:
     dec word [bp+12]
     jnz .row
-    jmp short .emitted
 %ifdef GFX_VGA
+    jmp short .emitted          ; (without a VGA the loop falls into it)
 .vtail:
     call .vmask                 ; AL = the band's byte, under BH's bits
     jmp short .whole
@@ -6430,7 +6469,6 @@ gfx_blit1_x:
     out dx, ax
     pop dx
     ret
-%endif
 
     ; --- ...and the same rows COMPLEMENTED (SPEC.md 5.4.2.2) ----------------
     ; The pen's varying planes want ~band rather than band - black ink on white
@@ -6488,6 +6526,7 @@ gfx_blit1_x:
 .inowrap:
     dec word [bp+12]
     jnz .rowi
+%endif                          ; GFX_VGA: .vtail, .vmask and .rowi
 
 .emitted:
     ; --- SPEC.md 5.4.2.2.1's SECOND PASS, and it changes ONE port -------------
@@ -6558,6 +6597,13 @@ gfx_blit1_x:
 .noleave:                       ; (SPEC.md 39.14.3)
     clc
     ret
+%ifndef GFX_VGA
+    nop                         ; PARITY, never executed (kernel size pass 21):
+                                ; the complemented loop and its test went out
+                                ; of this build above, an odd 63, and this
+                                ; keeps .fast's loops and .cold's dsk_* after
+                                ; them where t_hotpar pins them
+%endif
 
     ; --- ...and the fast path's two bodies (see the note above) -------------
     ; BP stops being the frame pointer here, and nothing needs it back: SP is
