@@ -631,12 +631,15 @@ toast_pass:
     xchg al, [toast_dirty]      ; was a compare and a separate store - and a
     or al, al                   ; set landing between those two (toast_kill
     jz .out                     ; from a pre-empting task) is no longer lost
-.draw:
-    mov byte [menu_bdirty], 1   ; the DOWN edges' half of toast_arm's flag
+    mov [menu_bdirty], al       ; the DOWN edges' half of toast_arm's flag
                                 ; (SPEC.md 59.9) - an expiry above, and
                                 ; toast_kill's deferred retire, both of which
                                 ; may have a strip to erase out of the menus
-                                ; segment and only menu_bar_text can do it
+                                ; segment and only menu_bar_text can do it.
+                                ; AL is the 1 just taken: every writer of
+                                ; [toast_dirty] stores 0 or 1 (kernel size
+                                ; pass 21, -2 against the immediate)
+.draw:                          ; (.up joins HERE: toast_arm has set the flag)
     call gfx_lock               ; menu_draw_bar always ends in the clock's
     call menu_draw_bar          ; field, which IS the draw and IS the erase
     call gfx_unlock             ; (SPEC.md 12.9/59.8) - and going through the
