@@ -88,9 +88,15 @@ def main():
         if not seg:
             print("FAIL: Tracker never loaded"); return 1
         base = seg * 16
+        # EACH AT ITS OWN WIDTH: four of the five are BYTES, and read as
+        # words their high bytes were the neighbouring variables, which
+        # toggle on their own while a module plays - so in one run of three
+        # the tuple never held still twice and the open "did not finish in
+        # 30 GUEST seconds" (trkrate, the soak). mp_mixrate is the one word
         os88marty.quiesce(m, lambda: tuple(
-            m.read(base + P["@" + n], 2) for n in
-            ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt", "trk_fs")),
+            m.read(base + P["@" + n], 2 if n == "mp_mixrate" else 1)
+            for n in ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt",
+                      "trk_fs")),
             guest=1.0, what="Tracker's open to finish")
         b = lambda n: m.read(base + P["@" + n], 1)[0]
         w = lambda n: int.from_bytes(m.read(base + P["@" + n], 2), "little")
